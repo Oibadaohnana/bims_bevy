@@ -26,7 +26,7 @@ the build's own answer where this table is a copy:
 | `nix run .#droids_planet` | `cargo run -- droids_planet` | `test_planet` with the **town** droid-held: the same random galaxy and roll, the ship set down at the settlement, and the settlement's people replaced by the machines, whose lander sets down on the plain beyond the north gate for an odd wave and the south for an even one. The same minute's reinforcements and the same two dials |
 | `nix run .#crisis` | `cargo run -- crisis` | the **crisis** a day before it first spreads (feature 92): `test`'s own random galaxy and random dock and the machines' origin forced **two hyperlane hops** from the crew's own star (`Session::crisis_for_probe`, `session::CRISIS_HOPS`) where the roll's own floor is eight. The origin is theirs from day nought, as in every run since feature 102, and the clock is wound to the eve of the day the ring round it turns (`DROID_SPREAD_DAYS`, five) — so the next stars turn red on the galaxy chart within a day of the clock — a day the crew have to travel, since only travel moves the world clock (feature 103) — and the crew's own system five days after that. The chart is where it is looked at: the lanes are drawn faintly under the stars, an infested star is crossed in the enemy's red **charted or not**, and the panel says under the star you pick which day it is due (`screens/game.rs::crisis_line`). `BIMS_CRISIS_DAY=n` moves the day the origin turns, and the clock opens a day short of the next ring whatever it says, so the dial is about what the *rest* of the galaxy's days come out at rather than about how long to wait |
 | `nix run .#jammer` | `cargo run -- jammer` | the **jammer** (feature 93): `crisis`'s own random galaxy, random dock and origin **two hops off**, with the clock wound *past* the day this system falls rather than a day short of the first — so the crew open **inside** an infested system, every station of it in the machines' hands (`Session::jammer_for_probe`, `World::infest_here_for_probe`), a wave aboard the one they are tied up at and `DROID_REINFORCE_STEPS` a minute of the mission clock. Two things are looked at from here. The **jam**: the chart lights the lanes out of the ship's star in the hyperdrive's violet, draws the route to whatever star is picked along them, and **bars in red every step of it a jammer would turn back** — a jump *inward*, towards where the machines began, is refused while the jammer station stands (`Refusal::Jammed`), and the panel says which station holds it. And the **tier**: two hops is inside `DROID_TIER_THREE_HOPS`, so the machines come at **tier three** without a dial. `BIMS_DROID_TIER=1` says otherwise, and `BIMS_DROID_WAVES`/`BIMS_DROID_REINFORCE` are `droids`' own |
-| `nix run .#defense` | `cargo run -- defense` | **defending a town** (feature 94): `test_planet`'s own random galaxy and roll — the ship set down at a settlement whose people are friendly — with the machines' origin forced **one hyperlane hop off** and the crisis's first day wound to nought, so the town's system is on the **front** (`World::front` of it is one) and the town is *threatened*. The map says so under its planet's icon, in the enemy's red, where it would otherwise say *land*. A minute of the mission clock after the landing (`DEFENSE_DELAY_STEPS` is sixty of them in the game, a real minute at 1×; `BIMS_DEFENSE_DELAY=n` minutes over the command's own one) a wave sets down outside a gate and walks in, and the red line along the top counts it the way it counts a held station's. The fight is the one that happens **inside one room**: the town's **guard and its mercenaries** take arms and fight the machines where they stand, everybody else walks into the nearest house and stays there, the crew never aim at a townsperson and the machines aim at both. Hold the last wave and the town is **held** — friendly for good, trading and hiring even after its system falls, its map tag *held* — and some of its people join the crew; go back to the ship before the last wave is down and the town falls to the machines (feature 103). `BIMS_DROID_WAVES`/`BIMS_DROID_REINFORCE`/`BIMS_DROID_WAVE` are `droids`' own (`Session::defense_for_probe`); **`BIMS_STATION_SEED=<n>`** draws the town from seed `n` (feature 112) |
+| `nix run .#defense` | `cargo run -- defense` | **defending a town** (feature 94): `test_planet`'s own random galaxy and roll — the ship set down at a settlement whose people are friendly — with the machines' origin forced **one hyperlane hop off** and the crisis's first day wound to nought, so the town's system is on the **front** (`World::front` of it is one) — which since task 111 is only the tier and the prices, since every site that is neither a trader nor an enemy's is *threatened* from the first day. The map says so under its planet's icon, `DEFEND` in amber. A minute of the mission clock after the landing (`DEFENSE_DELAY_STEPS` is twenty of them in the game, a real twenty seconds at 1×, task 111; `BIMS_DEFENSE_DELAY=n` minutes over the command's own one) a wave sets down outside a gate and walks in, and the red line along the top counts it the way it counts a held station's. The fight is the one that happens **inside one room**: the town's **guard and its mercenaries** take arms and fight the machines where they stand, everybody else walks into the nearest house and stays there, the crew never aim at a townsperson and the machines aim at both. Hold the last wave and the town is **held** — friendly for good, trading and hiring even after its system falls, its map tag *held* — and some of its people join the crew; go back to the ship before the last wave is down and the town falls to the machines (feature 103). `BIMS_DROID_WAVES`/`BIMS_DROID_REINFORCE`/`BIMS_DROID_WAVE` are `droids`' own (`Session::defense_for_probe`); **`BIMS_STATION_SEED=<n>`** draws the town from seed `n` (feature 112) |
 | `nix run .#guardian` | `cargo run -- guardian` | **the Guardian** (feature 100): `droids` at **tier three** with every wave exactly **one Guardian and two Troopers** (`Session::guardian`, `World::set_droid_kinds_for_probe`) and `DROID_REINFORCE_STEPS` a minute of the mission clock, so the machine is looked at on its own with a fight going on round it — its shield stopping the crew's bolts from the front and flaring where they stop, its turn, its wind-up and its beam. `BIMS_DROID_WAVES` and `BIMS_DROID_REINFORCE` are `droids`' own; the tier and the wave are the command's whatever `BIMS_DROID_TIER` and `BIMS_DROID_WAVE` say |
 | `nix run .#relics` | `cargo run -- relics` | **the relics** (feature 106): `droids` with **one wave of four** (`Session::relics`, `session::RELICS_WAVE`) at the arena's own tier and the reinforcement clock a minute — short enough to clear, so going back to the ship after opens the **reward screen**: three relics of the site's tier to choose from together. `BIMS_RELICS=<id>,<id>` gives the steered Bim those relics at the start (a relic's name in lower case with `_` for the spaces, `focusing_lens`, or its code); `BIMS_REWARD=1` opens straight on the reward screen, the site cleared by the probe (`Session::reward_for_probe`); `BIMS_CACHE=1` with a relic cache opened on the site's research desk and its one relic being chosen in the mission (`Session::cache_for_probe`); and `BIMS_WIN=1`, on **any** command, wins the run the next time a site is cleared with machines in it (`World::set_win_on_clear`), which is how the victory screen and the profile's unlocks are looked at — point `BIMS_PROFILE_DIR` at a scratch directory first, or the win lands in your own profile |
 | `nix run .#heart` | `cargo run -- heart` | **the Machine Heart** (feature 108): `Session::combat`'s ship and sixteen crew with **everybody's kit at tier three** (`World::outfit_for_probe`), the machines' origin put at the crew's own star and the ship **docked at its fortress** (`Session::heart`, `World::heart_dock_for_probe`) — the core in the hub sealed by its conduits, the fabricators beside it, the waves the game's own formula and the next a minute of the mission clock after the last is down. `BIMS_HEART_PHASE=2` opens with every conduit down (the core exposed), `BIMS_HEART_PHASE=3` with the core's health just under the overload as well (`World::set_heart_phase_for_probe`, after the Heart is laid); `BIMS_DROID_WAVES=n` gives the fortress that many waves. The fortress is past the ship's own lobby and down the west arm: `BIMS_ZOOM=0.28 BIMS_WINDOW=2000x1300 BIMS_KEYS="40:F,700:F,720:F" BIMS_POINTER="45:move:1240,675;47:click:1240,675;725:move:1720,675;727:click:1720,675"` walks the crew in to the lobby and then to the hub |
@@ -162,10 +162,15 @@ jammer` is the way to see a wave that is *not* at tier three, and
 **`BIMS_DEFENSE_DELAY=n`** is the `defense` command's own (feature 94):
 how long after the crew set down at a threatened town the first wave
 lands, in minutes of the clock, where the command's own is a minute and
-the game's own is `DEFENSE_DELAY_STEPS` (sixty minutes of the mission clock, a real minute at 1×). Raise it to look at
-the hour the crew have to walk the town, trade and hire before the
-shooting starts; `BIMS_DROID_WAVES=1 bims defense` is a fight that can
-be held to the end in one sitting.
+the game's own is `DEFENSE_DELAY_STEPS` (twenty minutes of the mission clock, a real
+twenty seconds at 1× — since task 111 every site's prep time). Raise it,
+`BIMS_DEFENSE_DELAY=20`, to look at the prep countdown (`Prepare: 0:14`
+in the red chip along the top) before the shooting starts;
+`BIMS_DROID_WAVES=1 bims defense` is a fight that can be held to the end
+in one sitting. **Since task 111 every run command whose dock is
+neither a trader nor held by an enemy is a defence too** — `simulation`,
+`game`, `test`, `test_planet`, `crisis` — with the game's own twenty
+seconds.
 **`BIMS_FREEZE=n+f`** pauses the game `f` frames after the crew's room
 hears its `n`th shot or blow, and **`BIMS_FREEZE=down:n+f`** after the
 `n`th machine destroyed (feature 98): a muzzle's glow, a bolt's flash
@@ -1206,6 +1211,51 @@ and `worldgen`'s `REFERENCE_CHECKSUMS` (two more resources, as in task
 115), and `REFERENCE_CHECKSUM` (the design hash in it). `SURVIVORS`, the
 ship's `PINNED` and `PICTURES` did **not** move: nobody in a pinned run
 wears either piece.
+
+## Every site is an attack, a defence or a trader (task 111)
+
+Every site the map lists is exactly one of three, from the **first day**
+of a run: **ATTACK** (an enemy holds it — the machines, the Manufacturers
+or the Machine Heart), **TRADER** (task 114's sites) or **DEFEND** —
+everything else, stations, derelicts and towns alike, the spawn a run
+opens at among them. The world's half is `crates/world/CLAUDE.md`
+("Every site is an attack, a defence or a trader"), the player's
+`README.md`. What to hold on to:
+
+- **`World::site_kind` and `site_threatened` are the rules**
+  (`town_threatened` went): a defence starts the first joined step at any
+  threatened site, the crew are stood ashore just inside its airlock
+  (`Game::stand_at`), and the first wave lands `DEFENSE_DELAY_STEPS`
+  (**1 200**, twenty seconds at 1×) later at the far airlock or a town's
+  gate. Armed **defenders** (`Residents::defender`, `defense::defenders`
+  of the day, `data::DEFENDERS_*`) fight beside the site's people, count
+  as players towards the wave, and are nobody's loss. Won: the bounty
+  paid (a win now waits for every wreck to be counted), a town held for
+  good as before, a station or derelict cleared and no more; left early,
+  it falls.
+- **The map says it three ways**: the list's rows lead with the kind's
+  word in its colour (`worldmap::row_job`), the card with it large and a
+  `?`, and the system map rings every site in its kind's colour
+  (`world_paint::site_ring`: red, amber, green; faded or blue when its
+  fight is over) and writes the word under every icon
+  (`Session::site_marks`, which replaced `landing_sites` and
+  `trader_marks`). The HUD's red chip says `Prepare: 0:14` before the
+  first wave (`names::defense_prepare`).
+- **Mining sites are gone**: no `StationKind::MiningOutpost` is generated
+  (the variant keeps its code) and the belt's pickaxe left the map.
+- **Tests**: `World::set_quiet_sites_for_probe(true)` makes every
+  non-trader, non-held site a peaceful stop; `fixture::simulation_world`
+  and `crewed_world` set it, `open_simulation_world`/`open_crewed_world`
+  do not — `reference_run_world`, `SURVIVORS`, `PINNED` and `PICTURES`
+  play the game. A scripted run walks the players back aboard before
+  *Back to ship* can carry (`fixture::walk_the_players_aboard`).
+
+**What moved.** `SAVE_VERSION` **46**, `wire::PROTOCOL` **38** (the relay
+wants redeploying), `REFERENCE_CHECKSUM`, `SURVIVORS`, the ship's
+`PINNED` (all eleven) and `PICTURES`' `simulation_deck` (the run, not the
+drawing: it came back with the sites quiet), the three old-layout checks,
+and `worldgen`'s `REFERENCE_CHECKSUMS` (the outposts; no
+`GENERATOR_VERSION` bump — a station share).
 
 ## The old game deleted (feature 104)
 

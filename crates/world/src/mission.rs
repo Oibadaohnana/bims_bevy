@@ -311,42 +311,45 @@ impl World {
                 Some(id) => id == site.station,
                 None => jammer::is_derived(site.station),
             };
-        // A town the machines come for on arrival: on a planet, in a
-        // system one hop outside the infection that day, not theirs and
-        // not held.
-        let front = {
-            let hops = self.hops_from_origin(site.star);
-            let radius = arrival_day
-                .checked_sub(self.crisis_first_day)
-                .map(|d| d / data::DROID_SPREAD_DAYS.max(1));
-            radius.and_then(|r| {
-                let r = r.min(u16::MAX as u32) as u16;
-                (hops != u16::MAX && hops > r).then(|| hops - r)
-            })
-        };
-        let (held, cleared) = if jump {
-            // That system's own memory: a town held there is held, and a
-            // town of the same id here says nothing about it.
-            let memory = self.memories.iter().find(|m| m.star == site.star);
-            let held = memory.is_some_and(|m| m.held_towns.binary_search(&site.station).is_ok());
-            let cleared = held
-                || memory.is_some_and(|m| {
-                    m.infested
-                        .iter()
-                        .any(|it| it.station == site.station && it.cleared)
-                });
-            (held, cleared)
+        // What the site is and how its fight stands, off that system's own
+        // lists: this one's off the world, another's off its memory (a
+        // station id is only its system's), and nothing for a system never
+        // visited.
+        let (infestations, defenses, held_towns): (&[Infestation], &[Defense], &[u32]) = if jump {
+            match self.memories.iter().find(|m| m.star == site.star) {
+                Some(m) => (&m.infested, &m.defenses, &m.held_towns),
+                None => (&[], &[], &[]),
+            }
         } else {
-            let held = self.town_held(site.station);
-            let cleared = held || self.infestation(site.station).is_some_and(|it| it.cleared);
-            (held, cleared)
+            (&self.infested, &self.defenses, &self.held_towns)
         };
-        let droid_held = !jump && self.is_droid_held(site.station);
-        let threatened = surface::surface_body(site.station).is_some()
-            && !infested
+        let held = held_towns.binary_search(&site.station).is_ok();
+        let infestation = infestations.iter().find(|it| it.station == site.station);
+        let defense = defenses.iter().find(|d| d.station == site.station);
+        let won = defense.is_some_and(|d| d.won);
+        let cleared = held || won || infestation.is_some_and(|it| it.cleared);
+        // **Every site is exactly one kind** (task 111): a trader, an
+        // enemy's — the machines' on arrival, the Manufacturers', the
+        // fortress, a derived jammer — or else a site to defend.
+        let kind = if trader {
+            SiteKind::Trader
+        } else if infested
+            || manufacturers
+            || infestation.is_some()
+            || heart::is_heart(site.station)
+            || jammer::is_derived(site.station)
+        {
+            SiteKind::Attack
+        } else {
+            SiteKind::Defend
+        };
+        // A defence starts on arrival: a defence site whose fight is not
+        // over and that is not a town held — from the first day, wherever
+        // the crisis stands.
+        let threatened = !self.quiet_sites
+            && kind == SiteKind::Defend
             && !held
-            && !droid_held
-            && front == Some(1);
+            && defense.is_none_or(|d| !d.over());
         Ok(TravelQuote {
             site,
             jump,
@@ -362,6 +365,7 @@ impl World {
             cleared,
             manufacturers,
             trader,
+            kind,
             // The Machine Heart's strength on arrival (feature 108).
             heart: self.heart_preview(site.station, self.clock_minutes + minutes as f64),
         })
@@ -705,9 +709,11 @@ impl World {
     }
 
     /// Whether a site is **cleared**: no machine left there and none still
-    /// to come. A held station, when its last wave is destroyed; a town
-    /// the machines are coming for, when the crew have held it; and every
-    /// other site from the start, there being nothing there to clear.
+    /// to come. A held station, when its last wave is destroyed; a site
+    /// the machines are coming for, when the crew have held it (a town, a
+    /// station or a derelict alike since task 111); and every other site
+    /// — a trader, or anywhere under the tests' quiet dial — from the
+    /// start, there being nothing there to clear.
     pub fn site_cleared(&self, station: u32) -> bool {
         if let Some(it) = self.infestation(station) {
             return it.cleared;
@@ -715,7 +721,7 @@ impl World {
         if let Some(d) = self.defense(station) {
             return d.won;
         }
-        !self.town_threatened(station)
+        !self.site_threatened(station)
     }
 
     /// Whether the site of this mission is cleared: where the ship is

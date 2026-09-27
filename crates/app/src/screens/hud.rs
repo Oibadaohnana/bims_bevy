@@ -134,6 +134,11 @@ fn droid_line(world: &world::World) -> Option<(String, &'static str)> {
         let standing = world.droids_standing();
         let words = if standing > 0 {
             droids_standing(defending.wave, waves, standing)
+        } else if defending.wave == 0
+            && let Some(due) = world.defense_wave_due()
+        {
+            // Before the first wave (task 111): the prep time, counting.
+            defense_prepare(&crate::format::countdown(due))
         } else if let Some(due) = world.defense_wave_due() {
             droids_next_wave(&crate::format::countdown(due), defending.wave + 1, waves)
         } else if defending.wave > 0 && defending.waves_left == 0 {

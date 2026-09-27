@@ -255,3 +255,17 @@ different routes would disagree about where a jump goes.
 the machines put in a system with no orbital station of its own
 (`world::jammer`). The generator draws nothing from it and the galaxy
 checksum never sees it.
+
+## No mining outposts (task 111)
+
+`StationKind::MiningOutpost` is **never built**: `data::parent_suits`
+suits it to no body, so `pick_kind` never offers it, and a star the
+designations promise one to (`Galaxy::designation_for`) is promised
+nothing (`system::generate` filters it). The variant keeps its code —
+the name tables are indexed by it — and its shelf, hazards and colours
+stay, unreached. Which kind is picked is a station share, off the bump
+list, so **no `GENERATOR_VERSION` bump**: the four `REFERENCE_CHECKSUMS`
+moved (their note has the old numbers) and nothing else about a system's
+shape did. `nothing_stands_at_a_belt` asserts none is built, and the
+tests that wanted every kind in every galaxy — and a friendly and a
+hostile one of each — skip it.

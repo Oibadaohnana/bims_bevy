@@ -1698,9 +1698,10 @@ pub const HEART_EXPOSED: &str = "The last conduit is down: the core is exposed."
 pub const HEART_OVERLOAD: &str = "The core is overloading!";
 pub const HEART_DESTROYED: &str = "The Machine Heart is destroyed.";
 
-/// Defending a town (feature 94): the town held, and who came with the
-/// crew afterwards.
-pub const TOWN_HELD: &str = "The town is held. The machines are destroyed.";
+/// Defending a site (features 94 and 111): the site held — a town, a
+/// station or a derelict — and who came with the crew afterwards (a
+/// town's people alone).
+pub const TOWN_HELD: &str = "Held. The last of the machines is destroyed.";
 pub fn townsfolk_joined(count: u32) -> String {
     match count {
         1 => "One of the town's people joins the crew.".to_string(),
@@ -2241,8 +2242,9 @@ pub fn departure_asked(behind: u32) -> String {
 /// The ship leaving a site it cleared, and one it did not (feature 103).
 pub const LEFT_CLEARED: &str = "The ship leaves. This place stays cleared.";
 pub const LEFT_UNCLEARED: &str = "The ship leaves before the place is cleared: it is as the crew found it, and the bounty is lost.";
-/// A town the machines were attacking, left before it was held.
-pub const TOWN_FELL: &str = "The town falls to the machines behind you.";
+/// A site the machines were attacking, left before it was held (a town,
+/// a station or a derelict, task 111).
+pub const TOWN_FELL: &str = "The site falls to the machines behind you.";
 
 // --- the world map and the end of a mission (feature 103) -------------------
 
@@ -2276,10 +2278,23 @@ pub fn trip_quote(minutes: u64, minimum: bool, arrival_day: u32) -> String {
         format!("{length} · day {arrival_day}")
     }
 }
+/// What a site is to the crew (task 111), by `world::SiteKind::code`: the
+/// word every row of the map's list and every icon of the system map leads
+/// with, in capitals so it is read first.
+pub const ARRIVE_ATTACK: &str = "ATTACK";
+pub const ARRIVE_DEFEND: &str = "DEFEND";
+pub const SITE_KIND_NAMES: [&str; 3] = [ARRIVE_ATTACK, ARRIVE_DEFEND, ARRIVE_TRADER];
+/// A site kind's word.
+pub fn site_kind_word(kind: world::SiteKind) -> &'static str {
+    SITE_KIND_NAMES[kind.code() as usize]
+}
+/// What a site kind means, for the `?` beside the map's list.
+pub const SITE_KIND_TIP: &str = "Every site is one of three. ATTACK: the machines, the Manufacturers or the Machine Heart hold it — go in and clear it. DEFEND: the machines are coming for it — twenty seconds after you arrive the first wave lands, and its own people and armed defenders fight beside you; hold the last wave and it is cleared, leave before and it falls. TRADER: buy gear and relics on the map; the machines never come for one.";
+/// A defence held, on the map: its fight is over.
+pub const SITE_HELD: &str = "held";
 /// What the crew find on arrival, a word each.
 pub const ARRIVE_MACHINES: &str = "machines";
 pub const ARRIVE_JAMMER: &str = "jammer";
-pub const ARRIVE_THREATENED: &str = "threatened";
 pub const ARRIVE_CLEARED: &str = "cleared";
 pub fn arrive_tier(tier: u32) -> String {
     format!("tier {tier}")
@@ -2294,7 +2309,7 @@ pub fn arrive_state(infested: bool, tier: u32, jammer: bool, threatened: bool) -
         words.push("their jammer".to_string());
     }
     if threatened {
-        words.push(format!("a town the machines come for, at tier {tier}"));
+        words.push(format!("a defence at tier {tier}"));
     }
     if words.is_empty() {
         return ARRIVE_QUIET.into();
@@ -2353,7 +2368,7 @@ pub const HEART_ON_ARRIVAL: &str = "On arrival:";
 
 /// The trader (task 114): its tag on the map, why one is shut, and the
 /// Trader panel's every word.
-pub const ARRIVE_TRADER: &str = "trader";
+pub const ARRIVE_TRADER: &str = "TRADER";
 pub const TRADER_TIP: &str = "A trader is visited on the map: no mission, no room, and neither clock moves while the crew are there. Its shelf is rolled once for the run and never restocked, and its relic is drawn the first time the crew arrive. It is closed while the machines have its system, until every site of the system they took is cleared.";
 pub const TRADER_CLOSED: &str = "closed";
 pub const TRADER_CLOSED_ON_ARRIVAL: &str = "closed on arrival";
@@ -3238,6 +3253,10 @@ pub fn droids_next_wave(span: &str, wave: u32, waves: u32) -> String {
     format!("MACHINES — wave {wave} of {waves} in {span}")
 }
 pub const DROIDS_CLEARED: &str = "MACHINES — the last wave is down";
+/// A defence before its first wave (task 111): the prep time, counting.
+pub fn defense_prepare(span: &str) -> String {
+    format!("Prepare: {span}")
+}
 
 /// The Machine Heart's line (feature 108), ahead of the wave's in the same
 /// red chip while the crew are in its fortress: the core's health and how
@@ -3276,7 +3295,7 @@ pub const DROIDS_TIP: &str = "The station is held by the machines, and they come
 
 /// The same warning over a town the crew are defending (feature 94):
 /// the fight is the machines', but the town's people are in it too.
-pub const DEFENSE_TIP: &str = "The machines are coming for this town, and they land outside a gate a wave at a time. The town's guard and whatever mercenaries live here fight them; everybody else goes indoors and stays there. Hold the last wave and the town is yours to keep — it stays friendly and goes on trading even after its system falls, and some of its people will join your crew. Go back to the ship before the last wave is down and the town falls to the machines behind you.";
+pub const DEFENSE_TIP: &str = "The machines are coming for this place, and the first wave lands twenty seconds after you arrive — at a far airlock, or outside a town's gate — a wave at a time after that. Its armed defenders, a town's guard and whatever mercenaries live here fight beside you; everybody else goes indoors and stays there. Hold the last wave and the place is cleared and the Republic pays for every machine — and a town is yours to keep: it stays friendly even after its system falls, and some of its people join your crew. Go back to the ship before the last wave is down and it falls to the machines behind you, and the bounty with it.";
 
 /// The header's word while the crew's alarm is up, and what it means.
 pub const ALARM_STATUS: &str = "To arms — an enemy is near";
@@ -3396,6 +3415,10 @@ mod tests {
         // --- the_classes_and_the_talents_are_named_and_every_pick_level_tipped ---
         {
             assert_eq!(CLASS_NAMES.len(), world::Class::ALL.len());
+            assert_eq!(SITE_KIND_NAMES.len(), world::SiteKind::ALL.len());
+            for (i, kind) in world::SiteKind::ALL.into_iter().enumerate() {
+                assert_eq!(kind.code() as usize, i, "{kind:?}");
+            }
             assert_eq!(CLASS_TIPS.len(), world::Class::ALL.len());
             assert_eq!(TALENT_NAMES.len(), world::Talent::ALL.len());
             assert_eq!(TALENT_TIPS.len(), world::Talent::ALL.len());

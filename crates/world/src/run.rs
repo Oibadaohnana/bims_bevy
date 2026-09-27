@@ -71,6 +71,39 @@ use crate::memory::{Grave, Losses};
 use crate::relic::Relics;
 use crate::world::LampDamage;
 
+/// What a site is to the crew (task 111): every site the map lists is
+/// exactly one of the three. `World::site_kind` decides it for this
+/// system and `TravelQuote::kind` says it on the map.
+///
+/// - **Attack**: an enemy holds it — the machines, the Manufacturers, or
+///   the Machine Heart in its fortress — and the crew go in to clear it.
+///   A site cleared is still one: it is where an attack was.
+/// - **Defend**: every other site, derelicts included. The machines are
+///   coming for it from the first day of a run, and the crew stand them
+///   off; held, it is cleared.
+/// - **Trader**: a trader site (task 114), visited on the map. Never
+///   attacked, never taken by the crisis, never the jammer.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum SiteKind {
+    Attack,
+    Defend,
+    Trader,
+}
+
+impl SiteKind {
+    /// Every kind, in code order.
+    pub const ALL: [SiteKind; 3] = [SiteKind::Attack, SiteKind::Defend, SiteKind::Trader];
+
+    /// The number that crosses the seam and indexes the name tables.
+    pub fn code(self) -> u32 {
+        match self {
+            SiteKind::Attack => 0,
+            SiteKind::Defend => 1,
+            SiteKind::Trader => 2,
+        }
+    }
+}
+
 /// Where the run stands.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -371,10 +404,12 @@ pub struct TravelQuote {
     pub tier: bims::combat::Tier,
     /// Whether the site is that system's jammer.
     pub jammer: bool,
-    /// Whether the site is a town the machines will be coming for.
+    /// Whether a defence starts on arrival (task 111): a defence site
+    /// whose fight is not over and which is not a town held — any such
+    /// site, from the first day; a town on the front, until then.
     pub threatened: bool,
     /// Whether the site is somewhere the crew have already cleared or
-    /// held.
+    /// held: an attack cleared, or a defence won.
     pub cleared: bool,
     /// Whether the site is the Manufacturers' (feature 109): their people
     /// on the deck, and [`TravelQuote::tier`] what they will carry.
@@ -384,6 +419,9 @@ pub struct TravelQuote {
     /// all but a refusal (`Refusal::TraderClosed`,
     /// `Refusal::ClosedOnArrival`).
     pub trader: bool,
+    /// What the site is on arrival (task 111): an attack, a defence or a
+    /// trader, and exactly one of them. What the map leads each row with.
+    pub kind: SiteKind,
     /// At the Machine Heart's fortress (feature 108), what the crew would
     /// meet on arrival: the conduits, the core, and the waves at the
     /// arrival day. `None` at every other site.

@@ -68,10 +68,11 @@ What a run is, from the lobby to the end of it.
   every system due by then with it — its jammer standing and its stations
   held — and it spreads a hop every five days from there. An infested
   system's **jammer** shuts the lanes back towards the origin while it
-  stands; a system a hop outside the infection is on the **front**, and a
-  friendly town there is **threatened**: set down at one and the machines
-  come for it, and hold it to the last wave and it is the crew's for good.
-  *The fight* has the whole of it.
+  stands; a system a hop outside the infection is on the **front**, where
+  the gear costs more and the machines come stronger. And **every place
+  that is neither a trader nor an enemy's is a defence from the first
+  day**: arrive and the machines come for it twenty seconds later. See
+  [Attack, defend or trade](#attack-defend-or-trade).
 - **Money and gear.** A station's desk sells guns and armour at every
   tier, where the place has the trade, and nothing the ship lives on — no
   food, no suits and no medicine, which are everybody's charges anyway —
@@ -113,8 +114,9 @@ there is no helm to stand at and no trip to sit through.
   can go — every station and settlement in this system, and every one in
   a system a hyperlane joins to this one — each with how long the trip
   is, the day the crew would get there, and what they would find there
-  on that day: the machines and at what tier, the system's jammer, a town
-  the machines are coming for, a place already cleared. `M` shows it
+  on that day — each row led by what it is, **ATTACK**, **DEFEND** or
+  **TRADER**, in red, amber or green — the machines and at what tier, the
+  system's jammer, a place already cleared. `M` shows it
   during a mission too, read-only.
 - **Choosing together.** Pick a place — on the list, or click it on the
   system map — and **Propose**. Every player still in the game has to
@@ -129,8 +131,7 @@ there is no helm to stand at and no trip to sit through.
   system they hold. The moment the last player accepts, the world clock
   goes on by the whole trip in one go and everything that runs on days
   is read at the new day: a system whose day came on the way is the
-  machines' when the crew get there, towns on the new front are
-  threatened, and the waves are sized for the day. The crew arrive
+  machines' when the crew get there, and the waves are sized for the day. The crew arrive
   docked, or landed at a settlement, and a mission begins. **The world
   clock stands still during a mission and on the map**: the day on the
   screen only changes when you travel. **Every trip is at least a
@@ -262,6 +263,42 @@ back to the ship, and the reward screen offers the site's relics.
 `BIMS_RELICS=focusing_lens,second_wind` gives your Bim those relics at the
 start, `BIMS_REWARD=1` opens straight on the reward screen and
 `BIMS_CACHE=1` with a cache opened in the mission.
+
+## Attack, defend or trade
+
+**Every place a trip can go is one of three**, and the map says which
+before anything else — at the head of its row on the list in its colour,
+large on the card with a `?`, and on the system map as the colour of the
+ring round its icon and a word under it:
+
+- **ATTACK** (red): somewhere an enemy holds — the machines' stations,
+  the Manufacturers' sites, the Machine Heart. Go in and clear it. One
+  cleared says *cleared*, its ring faded.
+- **DEFEND** (amber): everywhere else — stations, derelicts and towns
+  alike, **the place a run starts at among them**, from the very first
+  day. The machines are coming for it. The moment you arrive the crew are
+  put ashore just inside its airlock and a countdown starts along the
+  top — `Prepare: 0:20` — and twenty seconds later the first wave lands,
+  at the airlock farthest from yours or outside a town's gate, another
+  after each is destroyed. You do not fight it alone: the place fields
+  **armed defenders** in its own coveralls (two on the first day, one
+  more every five, up to eight), and a town's guard and any mercenaries
+  there take arms too; everybody else goes indoors. The waves are sized as
+  if each defender were another player. **Hold the last wave** and the
+  place is cleared, the Republic pays for every machine destroyed, and
+  it says *held* on the map — a **town** held stays friendly for good and
+  some of its people join your crew; a station or a derelict held is
+  simply safe until the crisis takes its system. **Go back to the ship
+  before the last wave is down and it falls to the machines**, the bounty
+  with it — and whoever is still ashore when the ship leaves is left
+  behind, so bring the crew back aboard first. A defender who dies is
+  nobody's loss, and a derelict with nobody of its own is never lost
+  while you stand.
+- **TRADER** (green): a trader, visited on the map — see
+  [The trader](#the-trader). The machines never come for one.
+
+**There are no mining sites any more**: no mining outposts are built, and
+the asteroid belts are scenery, with no mark on the map.
 
 ## The Machine Heart
 
@@ -1177,9 +1214,9 @@ smelt them at — so the **Actions** tab, the marks, the *Mining outside*
 job and the site itself are all gone.
 
 What is left of it: the **asteroid belts** are still bodies in a system,
-still on the map — there is simply nothing to go to one for. The **mining
-outposts** are still a kind of station, dug into rocky planets and ice
-worlds, and still trade. And the **pressure suit** and the **suit
+still on the map, as scenery — there is simply nothing to go to one for,
+and the map no longer marks one. The **mining outposts** are gone too:
+none is built any more. And the **pressure suit** and the **suit
 locker** are still aboard, because a walk outside is still how a
 construction site beyond the hull is reached (see *Building, aboard*):
 the Bim takes the suit from the locker, walks to the deck inside the
@@ -1949,10 +1986,10 @@ one thing in the arms at a time, from the lockers to the bench and back.
   for hire** at every station on the front — people are on the move where
   the machines are coming, and armed.
 
-- **Defending a town** is what the front is *for*. A friendly settlement
-  whose system is one hop outside the infection is **threatened**, and
-  the map says so under its planet's name. Set down at one and the
-  machines come for it: an hour of the mission clock later a wave lands
+- **Defending a town** — since task 111 every place that is neither a
+  trader nor an enemy's, from the first day ([Attack, defend or
+  trade](#attack-defend-or-trade) has the whole rule). Set down at a
+  town and the machines come for it: twenty seconds later a wave lands
   outside a gate and walks in, and another after each is destroyed. It is
   the one fight with somebody else on your side — the town's **guard** and
   whatever **mercenaries** live there take arms and fight beside you,

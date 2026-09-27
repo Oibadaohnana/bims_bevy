@@ -390,18 +390,35 @@ pub const FRONT_HOPS: u16 = 3;
 /// — fifteen per cent — over the roll, and the one three hops out five.
 pub const FRONT_BIAS: i32 = 5;
 
-// --- defending a town (feature 94) ---------------------------------------
+// --- defending a site (features 94 and 111) --------------------------------
 
-/// How long after the crew set down at a threatened town the first wave
-/// of machines lands, in steps of the **mission clock** (feature 103): a
-/// minute of it at 1×, which was an hour of the old world clock — long
-/// enough to walk the town, talk to the desk and hire what is for hire
-/// before the shooting starts.
-pub const DEFENSE_DELAY_STEPS: u64 = 3_600;
+/// How long after the crew arrive at a site the machines are coming for
+/// the first wave lands, in steps of the **mission clock** (feature 103):
+/// twenty seconds of it at 1× (task 111; it was a minute, 3 600, while
+/// only a town on the front was ever defended) — the prep time, to get
+/// the crew to where they want to stand before the shooting starts. The
+/// first wave's arrival puts every player back to 1×, as any wave's does.
+pub const DEFENSE_DELAY_STEPS: u64 = 1_200;
 /// What share of a defended town's surviving people join the crew, in per
 /// cent, when the last wave is destroyed. A fifth, rounded down, and never
-/// fewer than one while there is anybody but the guard left to come.
+/// fewer than one while there is anybody but the guard left to come. A
+/// station or a derelict held sends nobody (task 111).
 pub const DEFENSE_JOIN_PERCENT: u32 = 20;
+
+// --- defend missions (task 111) -------------------------------------------
+//
+// Placeholders, all three: how many armed **defenders** stand with a
+// site's own people while the machines come for it. They are the site's
+// and never the crew's — no fee, no hire, no loss if they fall — and
+// they count towards the wave size as crew would
+// (`World::droid_wave_size`).
+
+/// Defenders at a site the machines come for on day nought.
+pub const DEFENDERS_BASE: u32 = 2;
+/// One defender more every this many days of the world clock.
+pub const DEFENDER_DAYS: u32 = DROID_SPREAD_DAYS;
+/// And never more than this many.
+pub const DEFENDERS_MAX: u32 = 8;
 
 /// What the Republic pays for an enemy taken down, by the tier of the gear
 /// it carried: index one is tier one, and index nought is no tier at all

@@ -4410,6 +4410,8 @@ fn a_mercenary_is_hired_from_the_station_and_paid_by_the_month() {
         station,
     )
     .unwrap();
+    // A hire, not a fight: the spawn a peaceful stop (task 111).
+    world.set_quiet_sites_for_probe(true);
     assert_eq!(world.aboard.crew_count(), 1);
     assert!(world.mercenary_for_probe());
     let residents = world.residents.as_ref().unwrap();

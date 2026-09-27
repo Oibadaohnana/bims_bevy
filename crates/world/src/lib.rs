@@ -91,7 +91,7 @@ pub use medic::Medic;
 pub use memory::{Losses, SystemMemory};
 pub use orders::Standing;
 pub use relic::{Profile, Relic, RelicChoice, RelicProposal, Relics};
-pub use run::{Departure, Fallen, Proposal, Run, Site, SiteSnapshot, TravelQuote};
+pub use run::{Departure, Fallen, Proposal, Run, Site, SiteKind, SiteSnapshot, TravelQuote};
 pub use speed::Speed;
 pub use station::{Berth, Plan, Station, layout_surface};
 pub use surface::{Biome, Surface, landable, surface_body, surface_id};

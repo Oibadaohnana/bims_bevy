@@ -214,7 +214,11 @@ const STATION_ORBIT: f64 = 0.02;
 
 fn generate(galaxy: &Galaxy, star_id: u32) -> StarSystem {
     let (seed, version) = (galaxy.seed, galaxy.generator_version);
-    let promised = galaxy.designation_for(star_id);
+    // A star promised a mining outpost is promised nothing (task 111): the
+    // kind is never built, so the promise has nowhere to stand.
+    let promised = galaxy
+        .designation_for(star_id)
+        .filter(|&k| k != StationKind::MiningOutpost);
 
     let mut rng = Rng::stream(seed, star_id, version, Purpose::Desolation);
     let mut desolation = data::desolation(rng.unit());
@@ -915,8 +919,8 @@ mod tests {
     /// read as a whole number here rather than imported, since `worldgen`
     /// is below `flight` — so a ship that has just come to rest at a belt
     /// has the belt for its nearest neighbour whichever way it came in.
-    /// The outposts still exist, dug into planets now, and there are
-    /// still enough of them to be somewhere to buy galvum.
+    /// And no mining outpost stands anywhere (task 111): the kind is
+    /// never rolled.
     #[test]
     fn nothing_stands_at_a_belt() {
         const ARRIVAL_RADIUS_BODY: f64 = 15_000.0;
@@ -948,10 +952,7 @@ mod tests {
                 }
             }
         }
-        assert!(
-            outposts >= 40,
-            "{outposts} mining outposts in four galaxies"
-        );
+        assert_eq!(outposts, 0, "mining outposts in four galaxies");
     }
 
     /// The enemy's stations are together at one end of a system and the
@@ -1032,7 +1033,9 @@ mod tests {
             }
         }
         for &k in &StationKind::ALL {
-            if k == StationKind::Derelict {
+            // Nobody lives on a derelict, and no mining outpost is built
+            // (task 111).
+            if matches!(k, StationKind::Derelict | StationKind::MiningOutpost) {
                 continue;
             }
             assert!(sides.contains(&(k, true)), "no hostile {k:?}");
@@ -1051,6 +1054,11 @@ mod tests {
                     .flat_map(|s| s.stations.iter().map(|st| st.kind))
                     .collect();
                 for &k in &StationKind::ALL {
+                    // Every kind that is built (task 111).
+                    if k == StationKind::MiningOutpost {
+                        assert!(!kinds.contains(&k), "seed {seed} {t:?} built an outpost");
+                        continue;
+                    }
                     assert!(kinds.contains(&k), "seed {seed} {t:?} had no {k:?}");
                 }
             }

@@ -534,9 +534,12 @@ fn print_town() {
 /// `0x_024e_0982_c931_c4bb` — the numbers before feature 112 itself — and
 /// were taken again under task 113, which moved both on every layout
 /// (the constants' own notes say why); the check still says the layouts
-/// are all feature 112 moved.
-const REFERENCE_BEFORE_112: u64 = 0x_c7b1_8af4_f64f_0fa1;
-const SURVIVORS_BEFORE_112: u64 = 0x_a881_25c7_68e4_5807;
+/// are all feature 112 moved. And taken again under task 111 (every site
+/// an attack, a defence or a trader), which moved both on every layout
+/// for the same reason: they were `0x_c7b1_8af4_f64f_0fa1` and
+/// `0x_a881_25c7_68e4_5807`.
+const REFERENCE_BEFORE_112: u64 = 0x_e03e_343e_8918_672c;
+const SURVIVORS_BEFORE_112: u64 = 0x_e1c2_f369_96f5_fb38;
 
 /// Not a test of its own, and **run alone** (`--exact`): the process-wide
 /// switch to the old layouts is flipped here, and a test running beside

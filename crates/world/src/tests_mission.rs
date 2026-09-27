@@ -470,7 +470,7 @@ fn a_town_left_under_assault_becomes_infested() {
         return;
     }
     let town = world.ship.state.alongside().unwrap();
-    if !world.town_threatened(town) {
+    if !world.site_threatened(town) {
         return;
     }
     for _ in 0..10 {
@@ -489,7 +489,7 @@ fn a_town_left_under_assault_becomes_infested() {
     );
     assert!(world.is_droid_held(town), "the machines have it");
     assert!(world.defense(town).is_some_and(|d| d.lost));
-    assert!(!world.town_threatened(town));
+    assert!(!world.site_threatened(town));
 }
 
 // --- dying ----------------------------------------------------------------------

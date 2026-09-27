@@ -199,8 +199,10 @@ fn every_role_has_a_round_on_a_sample_of_stations_and_towns() {
             towns += 1;
         }
     }
+    // Three kinds people live on since the mining outposts went (task
+    // 111): the orbital, the refinery and the relay.
     assert!(
-        plans.len() >= 4,
+        plans.len() >= 3,
         "only {} stations in the sample",
         plans.len()
     );
@@ -210,7 +212,7 @@ fn every_role_has_a_round_on_a_sample_of_stations_and_towns() {
     for site in &sites {
         let count = site.residents().max(1);
         let mut residents =
-            Residents::open(site.id, &site.design, count, 0, site.map_seed, 0.0, &[]);
+            Residents::open(site.id, &site.design, count, 0, 0, site.map_seed, 0.0, &[]);
         residents.deal_roles(site);
         let room = &mut residents.aboard.room;
         // What the world dealt: everybody a round with somewhere on it.

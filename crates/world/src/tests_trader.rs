@@ -553,3 +553,96 @@ fn trader_share_over_ten_seeds() {
         );
     }
 }
+
+// --- every site one kind (task 111) ----------------------------------------
+
+/// **Every site is exactly one of attack, defence and trader** (task
+/// 111), over a few galaxies: a quote's kind is a trader where the site is
+/// one, an attack only where an enemy has it on arrival, a defence
+/// otherwise — and this system's sites say the same of themselves, a
+/// defence threatened unless its fight is over.
+#[test]
+fn every_site_is_exactly_one_kind_over_several_seeds() {
+    use crate::run::SiteKind;
+    let mut seen = [0u32; 3];
+    for n in 0..3u64 {
+        let seed = crate::data::DEFAULT_SEED.wrapping_add(n.wrapping_mul(0x9e37_79b9));
+        let galaxy = worldgen::Galaxy::new(seed, worldgen::GalaxyType::SpiralTwoArm);
+        let (star, station) = crate::spawn(&galaxy).expect("a dock");
+        let world = World::start(
+            flyer(2),
+            RICH,
+            1,
+            seed,
+            worldgen::GalaxyType::SpiralTwoArm,
+            star,
+            station,
+        )
+        .expect("a world");
+        for (site, quote) in world.travel_quotes() {
+            let Ok(q) = quote else { continue };
+            seen[q.kind.code() as usize] += 1;
+            assert_eq!(q.kind == SiteKind::Trader, q.trader, "{site:?}");
+            assert_eq!(
+                q.kind == SiteKind::Trader,
+                world.is_trader(site),
+                "{site:?}"
+            );
+            if q.kind == SiteKind::Defend {
+                assert!(
+                    !q.infested && !q.manufacturers && q.heart.is_none(),
+                    "{site:?}"
+                );
+                assert_eq!(q.threatened, !q.cleared, "{site:?}");
+            } else {
+                assert!(!q.threatened, "{site:?} threatened and not a defence");
+            }
+            if q.infested || q.manufacturers || q.heart.is_some() {
+                assert_eq!(q.kind, SiteKind::Attack, "{site:?}");
+            }
+            if site.star == world.star_id && !q.infested {
+                assert_eq!(world.site_kind(site.station), q.kind, "{site:?}");
+                assert_eq!(
+                    world.site_threatened(site.station),
+                    q.threatened,
+                    "{site:?}"
+                );
+            }
+        }
+        // And the spawn itself, where the crew are: never a trader, and a
+        // defence from the first day.
+        assert_eq!(world.site_kind(station), SiteKind::Defend);
+        assert!(world.site_threatened(station));
+    }
+    assert!(seen[SiteKind::Defend.code() as usize] > 0, "{seen:?}");
+    assert!(seen[SiteKind::Trader.code() as usize] > 0, "{seen:?}");
+}
+
+/// **A trader is never the machines'** (task 111): not by the crisis's
+/// flip, not by `infest` itself, and never the system's jammer — nor
+/// threatened, since nobody comes for one.
+#[test]
+fn a_trader_is_never_infested_and_never_the_jammer() {
+    use crate::run::SiteKind;
+    let mut world = basic(1);
+    let site = world
+        .trader_sites()
+        .into_iter()
+        .next()
+        .expect("a trader near home");
+    world.undock_for_probe();
+    if site.star != world.star_id {
+        let mut events = Vec::new();
+        assert!(world.jump(site.star, &mut events), "the ship never jumped");
+    }
+    assert_eq!(world.site_kind(site.station), SiteKind::Trader);
+    assert!(!world.site_threatened(site.station));
+    world.infest(site.station);
+    assert!(!world.is_droid_held(site.station), "infest took a trader");
+    // The whole system the machines', as the crisis's flip has it.
+    world.infest_here_for_probe();
+    assert!(!world.is_droid_held(site.station), "the flip took a trader");
+    assert_eq!(world.site_kind(site.station), SiteKind::Trader);
+    assert_ne!(world.jammer_station(), Some(site.station), "a trader jams");
+    assert!(!world.site_threatened(site.station));
+}

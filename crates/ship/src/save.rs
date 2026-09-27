@@ -135,7 +135,10 @@ use crate::game::Game;
 /// kinds of armour and two more resources, so a design's cargo is
 /// twenty-two long; a room remembers who wears a whole plate and a Bim
 /// its greaves' cooldown, and a burst may be a discharge.
-pub const SAVE_VERSION: u32 = 45;
+/// 46: every site an attack, a defence or a trader (task 111) — a
+/// station's room knows which of its people are defenders, and the world
+/// whether the tests' quiet dial is on.
+pub const SAVE_VERSION: u32 = 46;
 
 /// What the file holds, read back.
 #[derive(serde::Deserialize)]

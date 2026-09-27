@@ -4038,14 +4038,14 @@ in the *same* room, the residents', while the crew are in theirs. So
 there are three target lists rather than two, and the hits between the
 two sides in that one room never cross anywhere.
 
-**Threatened is derived, and it is the front's.**
-`World::town_threatened(station)` is a friendly town on a planet's
-surface in a system the infection is **one hop** from
-(`World::front(star_id) == Some(1)`), not already the machines', and not
-one the crew have already held. Nothing is saved for it; the day and the
-hop table say. The system map tags such a town `threatened` in the
-enemy's red where it would otherwise say `land`, and a town the crew held
-`held`.
+**Threatened is derived** — and since task 111 it is **every defence
+site's, from the first day**, not the front's (the next section has the
+whole rule; `World::site_threatened` replaced `town_threatened`). Until
+then it was a friendly town on a planet's surface in a system the
+infection is **one hop** from (`World::front(star_id) == Some(1)`), not
+already the machines', and not one the crew had already held. Nothing is
+saved for it either way. The system map tags every site with its kind
+now, `DEFEND` in amber, and a site the crew held `DEFEND · held`.
 
 **The attack is `World::defenses`**, one `crate::defense::Defense` a town
 the crew have ever landed at while it was threatened, saved and in
@@ -4067,9 +4067,10 @@ about it that differ from the droid step's own `Infestation`:
   lays exactly that many at the gate. Laying the wave again at full
   strength would be a fight that could be won or lost by leaving.
 - **Every wave arrives.** There is no wave one already standing the way a
-  held station has one: the first lands `data::DEFENSE_DELAY_STEPS` (an
-  hour of the mission clock) after the crew set down — time to walk the
-  town, trade and hire — and the rest `DROID_REINFORCE_STEPS` after the
+  held station has one: the first lands `data::DEFENSE_DELAY_STEPS`
+  after the crew set down — twenty seconds of the mission clock since
+  task 111, time to get the crew where they mean to hold (an hour of it
+  until then, time to walk the town, trade and hire) — and the rest `DROID_REINFORCE_STEPS` after the
   last machine of the one before dies. The count and the size are the
   droid step's own formulas.
 
@@ -4151,8 +4152,8 @@ and both clocks a minute — with `BIMS_DEFENSE_DELAY` over the first.
 `crates/ship` the save.
 
 **Not in this step**: the Machine Heart; stopping the spread; attacks on
-orbital stations; droids raiding the ship; a second ship following the
-first.
+orbital stations (task 111 made every station and derelict a defence);
+droids raiding the ship; a second ship following the first.
 
 ## What the money rework moved (feature 95)
 
@@ -4303,8 +4304,9 @@ site the crew are at is `Refusal::AlreadyHere` (92), first of all; one
 lane at most (`TooFar`), `jammed_step` still
 `Jammed`, and the state on arrival read off the arrival day: infested, the
 tier (the distance rule unless the probe's override), the jammer (lowest
-orbital, else derived), a threatened town (the front worked out at that
-day). No hyperdrive part is asked for: the default ship has none, and a
+orbital, else derived), whether a defence starts on arrival and the
+site's kind (task 111, `TravelQuote::{threatened, kind}` — a town on the
+front worked out at that day, until then). No hyperdrive part is asked for: the default ship has none, and a
 trip is resolved. `sites_at(star)` is the stations then the settlements,
 and a system with no station gets the derived jammer's id when it is
 infested today.
@@ -4320,7 +4322,8 @@ taunt and rally reset and every charge filled (`fill_charges`) — and every
 player's standing order back to Follow.
 
 **Cleared** is `site_cleared(id)`: an `Infestation`'s `cleared`, a
-`Defense`'s `won`, and otherwise `!town_threatened(id)` — a peaceful site
+`Defense`'s `won`, and otherwise `!site_threatened(id)` (task 111; it was
+`!town_threatened`) — a trader, or a site under the tests' quiet dial,
 is cleared from the start, which is also why a hostile Bim's bounty was
 paid at once there (none is earned since feature 104). `earn_bounty`
 pays at once where
@@ -5101,3 +5104,105 @@ two worlds alike to the checksum with both worn, and
 `no_outfit_or_start_wears_the_greaves_or_the_plate` the outfits.
 `REFERENCE_CHECKSUM` moved for the design hash alone (two more empty cargo
 slots); `SURVIVORS` did not.
+
+## Every site is an attack, a defence or a trader (task 111)
+
+Every site the map lists is **exactly one** of three
+(`crate::run::SiteKind`, `code()` 0–2): **Attack** — an enemy holds it,
+the machines (`is_droid_held`, cleared or not), the Manufacturers or the
+Machine Heart, or a derived jammer; **Trader** — a trader site of task
+114 (`is_trader_here`); **Defend** — every other site, derelicts
+included. `World::site_kind(station)` is the rule for this system and
+`TravelQuote::kind` the map's (off the arrival day, and for another system
+off its `SystemMemory`). Derived, never saved.
+
+- **Threatened from the first day.** `World::site_threatened(station)`
+  replaced `town_threatened`: a Defend site with no `Defense` over (won or
+  lost) and not a held town — no front rule, no surface rule. The quote's
+  `threatened` is the same rule on the arrival day, reading held towns and
+  finished defences from that system's memory for a jump; `cleared` covers
+  a won defence. `site_cleared` falls back to `!site_threatened`.
+- **A defence anywhere.** `defense_here` and `defense_waves` lost their
+  surface guards: a station's or a derelict's defence is a town's, the
+  waves in at `arrival_airlock` (the one farthest from the crew's) through
+  the station branch `arriving_wave` already had. The step it starts
+  (`stand_the_crew_ashore`) every living crew member on its feet is put
+  just inside the site's own airlock (`droid::inside_of(port,
+  ASHORE_TILES + 1)`, the arrival's rings, `Aboard::from_station`), each
+  snapped by the new **`Game::stand_at`** (`put_for_probe` is it now).
+  `data::DEFENSE_DELAY_STEPS` is **1 200** (twenty seconds at 1×); the
+  first wave's arrival puts everybody back to 1× as any wave's does.
+- **Defenders** (`Residents::defender`, serde default, kept in step with
+  `fee`, `medic` and `grave` at every resize, remove and truncate):
+  `Residents::open` takes `defenders` after the mercenaries, **not** cut
+  to the bunks, in `Uniform::Station`, `Gear::hired_for(defense::
+  defender_seed(seed, n), ..)`, the residents' bandages, no fee (never
+  hailed or hired), dealt `Role::Civilian`. `open_residents` asks
+  `World::defenders_of(station)`: nought unless threatened or a defence
+  is still running, else `defense::defenders(days_gone)` —
+  `min(DEFENDERS_BASE + days / DEFENDER_DAYS, DEFENDERS_MAX)` (2, a
+  spread's five days, 8; placeholders). They never shelter (`visit`'s list
+  keeps a **town's** guard, the mercenaries and the defenders out of it).
+  `reopen_residents` counts them with the people and the mercenaries.
+- **The wave** at a defence is `droid::wave_size(players + defenders
+  fielded, ..)` (`World::defenders_fielded`, the flags standing or not;
+  `droid_wave_size` → `wave_size_with`). Feature 105 made the players the
+  crew term, so the defenders are counted as players.
+- **No bookkeeping.** `close_residents` counts no defender's death (its
+  grave stays, `hired: false`); `town_is_dead` counts the site's own
+  (`Residents::is_own`: not a mercenary, a defender or a grave), and a
+  site with none of its own is never dead.
+- **Won**: the bounty through the ordinary path — **and held until every
+  wreck is counted**: `visit` counts a machine down only while the
+  defence runs, and a win declared the step the last one fell left it
+  uncounted and its bounty unpaid (towns too, before). `TownHeld` for
+  every site; a **town** onto `held_towns`, immune, the joiners; a station
+  or a derelict cleared and nothing more — `infest` may take it later
+  (it marks a defence lost only when not already over), an Attack site
+  then.
+- **Leaving before the last wave** is `leave_mission`'s `falls` as it was
+  — any site now: `infest`, `TownFell`, the pending bounty dropped. The
+  words in `names.rs` (`TOWN_HELD`, `TOWN_FELL`) say *site*, not *town*.
+- **A trader is never the machines'**: `infest` refuses one (beside the
+  crisis's own skip), so it is never threatened, held or the jammer
+  (`trader::jammer_candidate` already kept it out of the jammer's rule).
+
+**The tests' dial.** `World::set_quiet_sites_for_probe(bool)` (saved,
+serde default, not hashed) makes every non-trader, non-held site a
+peaceful stop and reopens the open room without its defenders.
+`fixture::simulation_world` and `fixture::crewed_world` set it — the
+shared fixtures of every test whose subject is not the fight — and
+`fixture::open_simulation_world` / `open_crewed_world` are the game as it
+plays: `reference_world` (and so `reference_run_world`), `SURVIVORS`
+and `tests_defense.rs` use those. Two tests that build a world by hand
+for a hire set the dial themselves:
+`tests::a_mercenary_is_hired_from_the_station_and_paid_by_the_month` and
+`tests_medic::a_medic_earns_five_on_a_mercenary_and_beams_are_cleared_by_a_hire_and_a_bot_lost`.
+The ship's `PINNED`, `PICTURES` and `self_check` use no dial. A scripted
+run with nobody at the keyboard now has to walk the players back aboard
+before *Back to ship* can carry (`fixture::walk_the_players_aboard`,
+`CrewOrder::SendTo` to the gangway) — the reference run and `SURVIVORS`
+do, and answer the departure check.
+
+**Mining sites are gone**: the generator never builds a
+`StationKind::MiningOutpost` (`worldgen::data::parent_suits`, the variant
+kept for its code), and the system map draws no pickaxe on a belt
+(`crates/ship/CLAUDE.md`).
+
+**The trader measurement.** The first draft of this task made a trader
+"a desk with a weapon or armour trade": 54.9–57.9 % of all sites over ten
+seeds (median 56.5 %), past the 5–40 % the spec allowed, so it waited;
+"both trades" was 14 %, stations-only-either 20 %. Task 114 then made
+traders their own stateless roll (about one station in ten), which is the
+Trader kind here.
+
+**What moved.** `SAVE_VERSION` **46**, `wire::PROTOCOL` **38** (the
+relay wants redeploying); `REFERENCE_CHECKSUM`, `SURVIVORS`, the ship's
+`PINNED` (all eleven) and `PICTURES`' `simulation_deck` — each note says
+why, and `simulation_deck` came back bit for bit with the sites quiet;
+the old-layout checks (`REFERENCE_BEFORE_112`, `SURVIVORS_BEFORE_112`,
+`PINNED_BEFORE_112`) taken again; and `worldgen`'s `REFERENCE_CHECKSUMS`
+for the mining outposts. `tests_defense.rs` (a station defended end to
+end, the wave with its defenders, a derelict's defenders dying for
+nothing, leaving early) and `tests_trader.rs` (every site one kind over
+three seeds; a trader never infested or the jammer) are the rule.

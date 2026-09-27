@@ -51,11 +51,22 @@ pub const DRAW: egui::Color32 = egui::Color32::from_rgb(0xff, 0xe0, 0x3c);
 /// The hyperdrive's violet: the star picked on the galaxy chart, and the
 /// charge bar.
 pub const HYPER: egui::Color32 = egui::Color32::from_rgb(0x9e, 0x6b, 0xdb);
-/// A landable planet's name on the map: the friendly blue the map rings
-/// a station in (`ship::world_paint::FRIEND`, the same three numbers),
-/// so the words and the ring say the same thing; a hostile one's is
-/// `BAD`.
-pub const LAND: egui::Color32 = egui::Color32::from_rgb(0x5c, 0x8c, 0xff);
+/// What a site is to the crew (task 111), in the map's words and rings:
+/// the same three numbers as `ship::world_paint`'s `ENEMY`, `DEFEND` and
+/// `TRADE`, so a word under an icon and the ring round it agree — an
+/// attack in the enemy's red, a defence in a warning amber, a trader in
+/// the green of money.
+pub const SITE_ATTACK: egui::Color32 = egui::Color32::from_rgb(0xff, 0x47, 0x38);
+pub const SITE_DEFEND: egui::Color32 = egui::Color32::from_rgb(0xff, 0xb3, 0x2e);
+pub const SITE_TRADER: egui::Color32 = egui::Color32::from_rgb(0x66, 0xe6, 0x75);
+/// A site kind's colour.
+pub fn site_kind_colour(kind: world::SiteKind) -> egui::Color32 {
+    match kind {
+        world::SiteKind::Attack => SITE_ATTACK,
+        world::SiteKind::Defend => SITE_DEFEND,
+        world::SiteKind::Trader => SITE_TRADER,
+    }
+}
 pub const NAME_STROKE: egui::Color32 = egui::Color32::from_rgba_premultiplied(6, 10, 9, 217);
 
 /// The name over a Bim's head: how big, and how far above the body it

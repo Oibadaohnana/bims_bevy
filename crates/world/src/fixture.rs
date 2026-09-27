@@ -23,6 +23,28 @@ use crate::world::{Command, World};
 /// What the reference crew have left over from the design phase.
 pub const REFERENCE_MONEY: economy::Money = 40_000;
 
+/// Every player's own crew member walked back aboard — to the deck just
+/// inside the ship's airlock (`Aboard::gangway`) — as a player would walk
+/// it: since task 111 a mission at a site the machines are coming for
+/// opens with the crew ashore, and a scripted run with nobody at the
+/// keyboard has to walk them back before *Back to ship* can carry. Empty
+/// while the rooms are not joined.
+pub fn walk_the_players_aboard(world: &World) -> Vec<Command> {
+    let Some(at) = world.aboard.gangway else {
+        return Vec::new();
+    };
+    (0..world.players())
+        .map(|slot| Command::Crew {
+            slot,
+            order: bims::order::CrewOrder::SendTo {
+                who: slot,
+                x: at.x as f32,
+                y: at.y as f32,
+            },
+        })
+        .collect()
+}
+
 /// How many steps each mission of [`reference_run`] takes. Ten game minutes
 /// at 1x, which is long enough for the crew to be about their business and
 /// short enough that the check does not hold up a start.
@@ -121,12 +143,22 @@ pub const REFERENCE_STEPS: u32 = 600;
 /// And for task 116 (the arc greaves and the Reflective plate), the same
 /// way: two more resources, two more empty cargo slots in the design hash,
 /// and nothing else. Was `0x_24c4_416e_929c_d093`.
-pub const REFERENCE_CHECKSUM: u64 = 0x_7135_e4b4_5415_2e9f;
+/// And for task 111 (every site an attack, a defence or a trader), **a
+/// change meant to alter how a run plays**: the spawn is a defence from
+/// the first step, so its `Defense` is hashed and the crew are stood
+/// ashore — the scenario now walks the players back aboard before the
+/// ship can leave (`walk_the_players_aboard`), and the site at the far
+/// end is a defence too, its room opened with its defenders; and no
+/// mining outpost is built, so the galaxy's stations are others. Was
+/// `0x_7135_e4b4_5415_2e9f`.
+pub const REFERENCE_CHECKSUM: u64 = 0x_36d8_8939_97a9_819b;
 
 /// A world with the flyable fixture docked at the simulation's spawn: the
 /// default seed's first dock, which is where every fixture world starts.
+/// **Not quiet** (task 111): the reference run is the game, so the
+/// machines come for the spawn as they come for every site.
 pub fn reference_world() -> World {
-    simulation_world(flyer(2), REFERENCE_MONEY, 2)
+    open_simulation_world(flyer(2), REFERENCE_MONEY, 2)
 }
 
 /// A world opened the way the simulation opens one: the default seed, a
@@ -134,7 +166,24 @@ pub fn reference_world() -> World {
 /// does with [`shipdesign::fixture::playtest_ship`] and
 /// [`data::SIMULATION_MONEY`], and what every fixture here does with its own
 /// ship and purse.
+///
+/// **Quiet** (task 111, [`World::set_quiet_sites_for_probe`]): every site
+/// neither a trader nor an enemy's is a peaceful stop, since the tests
+/// that open one are about something other than the fight a site's
+/// defence is. A test of the defence takes the dial off again.
 pub fn simulation_world(
+    design: shipdesign::ShipDesign,
+    money: economy::Money,
+    players: u32,
+) -> World {
+    let mut world = open_simulation_world(design, money, players);
+    world.set_quiet_sites_for_probe(true);
+    world
+}
+
+/// [`simulation_world`] as the game opens it: the machines coming for the
+/// spawn from the first step.
+pub fn open_simulation_world(
     design: shipdesign::ShipDesign,
     money: economy::Money,
     players: u32,
@@ -157,7 +206,22 @@ pub fn simulation_world(
 /// are players — `World::start_with_crew`. A world of one player and two
 /// crew is one where the second is a crewmate nobody steers: a bot, under
 /// the alarm, since feature 59 gave every player's own to its player.
+/// **Quiet** (task 111), as [`simulation_world`] is.
 pub fn crewed_world(
+    design: shipdesign::ShipDesign,
+    money: economy::Money,
+    players: u32,
+    crew: u32,
+) -> World {
+    let mut world = open_crewed_world(design, money, players, crew);
+    world.set_quiet_sites_for_probe(true);
+    world
+}
+
+/// [`crewed_world`] as the game opens it, the machines coming for the
+/// spawn from the first step: what `SURVIVORS` opens its worlds with,
+/// since it pins the game as it plays.
+pub fn open_crewed_world(
     design: shipdesign::ShipDesign,
     money: economy::Money,
     players: u32,
@@ -217,7 +281,27 @@ pub fn reference_run_world() -> World {
     // the first destination of the map put and accepted, and a mission
     // there.
     world.step(&[Command::Return { slot: 0 }, Command::Return { slot: 1 }]);
-    world.step(&[]);
+    // The crew start the mission ashore since task 111 — the machines
+    // are coming for the spawn — so the players walk back aboard, and
+    // whoever the departure check asks about is left behind.
+    let aboard = walk_the_players_aboard(&world);
+    world.step(&aboard);
+    for _ in 0..REFERENCE_STEPS * 10 {
+        if world.run.phase != Phase::Mission {
+            break;
+        }
+        if matches!(
+            world.run.departure,
+            Some(crate::run::Departure::Asking { .. })
+        ) {
+            world.step(&[
+                Command::LeaveBehind { slot: 0, yes: true },
+                Command::LeaveBehind { slot: 1, yes: true },
+            ]);
+        } else {
+            world.step(&[]);
+        }
+    }
     if world.run.phase == Phase::Map {
         let site = world
             .travel_quotes()
@@ -373,7 +457,7 @@ impl Survivors {
             self.eat(site.station as u64);
             self.eat(world.site_cleared(site.station) as u64);
             self.eat(world.is_droid_held(site.station) as u64);
-            self.eat(world.town_threatened(site.station) as u64);
+            self.eat(world.site_threatened(site.station) as u64);
         }
     }
 }

@@ -207,9 +207,9 @@ pub enum StationKind {
     Orbital = 0,
     /// Hung off a gas giant, cracking its atmosphere.
     Refinery = 1,
-    /// Dug into a rocky planet or an ice world. It was bolted to a belt
-    /// until the belts became the crew's own mining sites — see
-    /// [`parent_suits`].
+    /// **Never built** since task 111 — mining left the game, and the
+    /// outposts with it ([`parent_suits`] suits it to nothing). Kept for its
+    /// code, which the name tables are indexed by.
     MiningOutpost = 2,
     /// Nobody aboard. What is left is worth taking.
     Derelict = 3,
@@ -307,25 +307,33 @@ impl BodyKind {
 /// Which bodies a kind of station can be built on.
 ///
 /// This is the whole of the matching rule and the only place it is written
-/// down. A refinery hangs off a gas giant because that is what it refines; an
-/// outpost is dug into a rocky planet or an ice world, because that is where
-/// there is a crust to dig; a relay is out in deep space on its own; and a
-/// derelict can be anywhere a station could stand, because whatever it was
-/// for stopped mattering a long time ago.
+/// down. A refinery hangs off a gas giant because that is what it refines; a
+/// relay is out in deep space on its own; and a derelict can be anywhere a
+/// station could stand, because whatever it was for stopped mattering a long
+/// time ago.
 ///
-/// **Nothing sits at a belt.** A belt is the crew's mining site — the ship
-/// holds at it and the asteroids are laid out about the hull — and a
+/// **A mining outpost is never built** (task 111): mining left the game in
+/// feature 95 and the outposts with it, so the kind suits no body and
+/// `pick_kind` never offers it. The variant stays, its code kept, since the
+/// name tables are indexed by it. It was dug into a rocky planet or an ice
+/// world. Not a `GENERATOR_VERSION` bump: which kind is picked is a station
+/// share, which the bump list leaves off on purpose — the galaxy checksums
+/// moved and nothing else about a system's shape did.
+///
+/// **Nothing sits at a belt.** A belt was the crew's mining site — the ship
+/// held at it and the asteroids were laid out about the hull — and a
 /// station in orbit of one stood in the way of that: a trip to a body ends
 /// `flight`'s `ARRIVAL_RADIUS_BODY` short of it, further out than a station
 /// orbits its parent, so a station on the near side was the nearest thing
 /// to the ship when it came to rest, the view settled on *it* rather than
-/// on the belt, and no site was laid out. The outposts were bolted to the
-/// belts until the belts became sites, and moved then.
+/// on the belt, and no site was laid out. The belts are scenery now, and
+/// the rule stands because moving it would re-site a station in every
+/// system with a belt.
 pub fn parent_suits(kind: StationKind, parent: Option<BodyKind>) -> bool {
     match (kind, parent) {
         (_, Some(BodyKind::AsteroidBelt)) => false,
         (StationKind::Refinery, Some(BodyKind::GasGiant)) => true,
-        (StationKind::MiningOutpost, Some(BodyKind::RockyPlanet | BodyKind::IceWorld)) => true,
+        (StationKind::MiningOutpost, _) => false,
         (StationKind::Orbital, Some(BodyKind::RockyPlanet | BodyKind::IceWorld)) => true,
         (StationKind::Relay, None) => true,
         (StationKind::Derelict, _) => true,
@@ -538,10 +546,11 @@ mod tests {
         assert!(parent_suits(Refinery, Some(GasGiant)));
         assert!(!parent_suits(Refinery, Some(RockyPlanet)));
         assert!(!parent_suits(Refinery, None));
-        assert!(parent_suits(MiningOutpost, Some(RockyPlanet)));
-        assert!(parent_suits(MiningOutpost, Some(IceWorld)));
-        assert!(!parent_suits(MiningOutpost, Some(GasGiant)));
+        // A mining outpost is never built (task 111): it suits nothing.
         assert!(!parent_suits(MiningOutpost, None));
+        for &b in &BodyKind::ALL {
+            assert!(!parent_suits(MiningOutpost, Some(b)), "{b:?}");
+        }
         assert!(parent_suits(Orbital, Some(RockyPlanet)));
         assert!(parent_suits(Orbital, Some(IceWorld)));
         assert!(!parent_suits(Orbital, Some(GasGiant)));
@@ -552,7 +561,7 @@ mod tests {
             assert_eq!(parent_suits(Derelict, Some(b)), b != AsteroidBelt);
         }
         assert!(parent_suits(Derelict, None));
-        // A belt is a mining site, and nothing at all stands at one.
+        // Nothing at all stands at a belt.
         for &k in &StationKind::ALL {
             assert!(!parent_suits(k, Some(AsteroidBelt)), "{k:?} at a belt");
         }

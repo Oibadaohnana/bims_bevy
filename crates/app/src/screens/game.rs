@@ -76,7 +76,7 @@ const DROID_WAVES_IN_PROBE: u32 = 3;
 /// How long the `defense` command waits between the crew setting down at
 /// a threatened town and the first wave, in minutes of the mission clock
 /// (features 94 and 103): a minute, where the game's own is
-/// `data::DEFENSE_DELAY_STEPS` (sixty) — the same shortcut as the
+/// `data::DEFENSE_DELAY_STEPS` (twenty, task 111) — the same shortcut as the
 /// machines' reinforcement clock, and for the same reason.
 /// `BIMS_DEFENSE_DELAY=n` says otherwise.
 const DEFENSE_DELAY_IN_PROBE: f64 = 1.0;
@@ -86,22 +86,16 @@ const HERE_TAG: &str = "You";
 /// How far above the ship's mark on the map its words sit: clear of the
 /// reticle `ship::world_paint` draws round it, ring and ticks.
 const HERE_LIFT: f32 = 36.0;
-/// What the map writes after a landable planet's name, and how far
-/// **below** its icon the words' baseline sits: under it rather than
-/// over, because the ship's own words go over, and a ship docked at a
-/// planet's station is drawn on the planet. Clear of the stance ring
-/// (`26 * 1.3 / 2`, about 17) and the reticle's south tick when the ship is
-/// docked at the planet's station, with a line of type to spare.
-const LAND_TAG: &str = "land";
-/// And what a town on the front is tagged instead (feature 94): one the
-/// machines are a hop from, and one the crew held against them.
-const TOWN_THREATENED_TAG: &str = "threatened";
-const TOWN_HELD_TAG: &str = "held";
+/// How far **below** a site's icon on the map its words' baseline sits:
+/// under it rather than over, because the ship's own words go over, and a
+/// ship docked at a planet's station is drawn on the planet. Clear of the
+/// site's ring (`26 * 1.3 / 2`, about 17) and the reticle's south tick
+/// when the ship is docked at the planet's station, with a line of type to
+/// spare.
 const LAND_DROP: f32 = 38.0;
-/// And a trader's name (task 114) a line under that, since a station
-/// stands at its planet's shoulder and the two names would lie on one
-/// another.
-const TRADER_DROP: f32 = 16.0;
+/// And a station's words a line under that, since a station stands at its
+/// planet's shoulder and the two names would lie on one another.
+const STATION_DROP: f32 = 16.0;
 
 /// How near a click has to come to a map icon to count as picking it, in
 /// points. Measured on screen rather than in world units: the thing being
@@ -2707,53 +2701,34 @@ fn frame(
         // is at. The ship is the map's origin, wherever it has been panned
         // to; off the canvas the words go with it and the strip still says.
         if map_up && session.game.is_some() {
-            // Every planet the ship can land on, named and tagged over
-            // its icon — `Rocky planet 1 · land` — in the side's colour,
-            // so that it can be landed on is said in words as well as by
-            // the pad the map draws at its shoulder. Under the icon, where
-            // the ship's own words — over it — cannot land on them.
-            for site in session.landing_sites() {
-                let (x, y) = site.at;
-                let at = view.to_canvas(Vec2::new(x, y)) + canvas.min;
-                let at = egui::pos2(at.x, at.y + LAND_DROP);
-                // A town the machines are one hop from is said in the
-                // enemy's red with a word of its own (feature 94), since
-                // "land" is not what the player wants to read about it;
-                // one the crew held says so instead.
-                let (colour, tag) = if site.hostile {
-                    (theme::BAD, LAND_TAG)
-                } else if site.threatened {
-                    (theme::BAD, TOWN_THREATENED_TAG)
-                } else if site.held {
-                    (theme::ACCENT, TOWN_HELD_TAG)
-                } else {
-                    (theme::LAND, LAND_TAG)
-                };
-                theme::name_over(
-                    &painter,
-                    at,
-                    &format!("{} · {tag}", node_name(session, site.node)),
-                    colour,
-                );
-            }
-            // Every trader of the system (task 114) the same way, under its
-            // icon — greyed, and saying why, while the machines have the
-            // system and it is closed.
-            for mark in session.trader_marks() {
+            // **Every site of the system says what it is** (task 111),
+            // under its icon — `ATTACK`, `DEFEND` or `TRADER` in the
+            // colour of the ring the map draws round it, and nothing else:
+            // the names are the list's and the card's, and a system's
+            // sites crowd, so the one word is what stays readable. A fight over (an attack cleared, a defence held) and
+            // a trader shut say so, faded. Under the icon, where the
+            // ship's own words — over it — cannot land on them; a station
+            // a line lower than a planet's town, since a station stands at
+            // its planet's shoulder.
+            for mark in session.site_marks() {
                 let (x, y) = mark.at;
                 let at = view.to_canvas(Vec2::new(x, y)) + canvas.min;
-                let at = egui::pos2(at.x, at.y + LAND_DROP + TRADER_DROP);
-                let (colour, tag) = if mark.closed {
-                    (theme::MUTED, format!("{ARRIVE_TRADER} · {TRADER_CLOSED}"))
-                } else {
-                    (theme::ACCENT, ARRIVE_TRADER.to_string())
+                let drop = match mark.node {
+                    worldgen::Node::Station(_) => LAND_DROP + STATION_DROP,
+                    worldgen::Node::Body(_) => LAND_DROP,
                 };
-                theme::name_over(
-                    &painter,
-                    at,
-                    &format!("{} · {tag}", node_name(session, mark.node)),
-                    colour,
-                );
+                let at = egui::pos2(at.x, at.y + drop);
+                let word = site_kind_word(mark.kind);
+                let (tag, colour) = if mark.closed {
+                    (format!("{word} · {TRADER_CLOSED}"), theme::MUTED)
+                } else if mark.cleared && mark.kind == world::SiteKind::Defend {
+                    (format!("{word} · {SITE_HELD}"), theme::MUTED)
+                } else if mark.cleared && mark.kind == world::SiteKind::Attack {
+                    (format!("{word} · {ARRIVE_CLEARED}"), theme::MUTED)
+                } else {
+                    (word.to_string(), theme::site_kind_colour(mark.kind))
+                };
+                theme::name_over(&painter, at, &tag, colour);
             }
             let at = view.to_canvas(Vec2::ZERO) + canvas.min;
             let at = egui::pos2(at.x, at.y - HERE_LIFT);

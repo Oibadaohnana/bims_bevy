@@ -4255,6 +4255,15 @@ impl Game {
     /// along the counter front reads as floor and is not walkable.
     #[allow(dead_code)]
     pub fn put_for_probe(&mut self, who: usize, at: Vec2) -> Vec2 {
+        self.stand_at(who, at)
+    }
+
+    /// Stand a Bim at a spot, snapped to the nearest cell a body fits in,
+    /// and say where that was: what the world does to the crew the step a
+    /// site's defence starts (task 111), putting them ashore. Nothing about
+    /// what it was doing is kept track of here — an errand in hand walks
+    /// on from the new spot.
+    pub fn stand_at(&mut self, who: usize, at: Vec2) -> Vec2 {
         let nav = self.maps.deck();
         let spot = nav.nearest_free(at);
         self.bims[who].character.stand_at(spot);

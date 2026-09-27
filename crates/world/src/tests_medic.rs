@@ -496,6 +496,8 @@ fn a_medic_earns_five_on_a_mercenary_and_beams_are_cleared_by_a_hire_and_a_bot_l
         station,
     )
     .unwrap();
+    // A hire, not a fight: the spawn a peaceful stop (task 111).
+    world.set_quiet_sites_for_probe(true);
     assert_eq!(world.set_class(0, Class::Medic), Ok(()));
     hold_still(&mut world);
     assert!(world.mercenary_for_probe());

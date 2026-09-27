@@ -13,13 +13,13 @@ use crate::class::{self, Class, Side, Talent};
 use crate::data;
 use crate::defense;
 use crate::event::WorldEvent;
-use crate::fixture::{REFERENCE_MONEY, simulation_world};
+use crate::fixture::{REFERENCE_MONEY, open_simulation_world};
 use crate::surface;
 use crate::world::{Command, World};
 use crate::world_checksum;
 
 fn basic() -> World {
-    simulation_world(flyer(2), REFERENCE_MONEY, 2)
+    open_simulation_world(flyer(2), REFERENCE_MONEY, 2)
 }
 
 /// Put the machines' origin one lane hop from the crew's own star and
@@ -61,7 +61,7 @@ fn a_threatened_town(reinforce: f64, waves: u32, wave_size: Option<u32>) -> Opti
     let id = world.ship.state.alongside().expect("landed");
     // The town has to be a friendly one for any of this: the roll can put
     // an enemy's settlement on the first planet with ground.
-    if !world.town_threatened(id) {
+    if !world.site_threatened(id) {
         return None;
     }
     Some((world, id))
@@ -78,17 +78,29 @@ fn until(world: &mut World, steps: u32, mut done: impl FnMut(&World) -> bool) ->
     false
 }
 
-/// A town one hop outside the infection is threatened, and the first
-/// wave lands `DEFENSE_DELAY_STEPS` after the crew set down — not
-/// before, and not at a town nobody is coming for.
+/// Every town is threatened from the first day (task 111), wherever the
+/// machines are, and the first wave lands `DEFENSE_DELAY_STEPS` after the
+/// crew set down — not before; and under the tests' quiet dial nothing is
+/// coming for anybody.
 #[test]
 fn a_threatened_town_s_first_wave_lands_after_the_delay() {
-    // A town well away from the machines is threatened by nobody, and
-    // landing at it starts nothing.
+    // A town well away from the machines is threatened all the same.
+    let mut far = basic();
+    assert!(far.land_for_probe(), "somewhere to land");
+    let id = far.ship.state.alongside().expect("landed");
+    assert!(
+        far.site_threatened(id),
+        "every town is threatened from day one"
+    );
+    // And under the quiet dial nothing is, and landing starts nothing.
     let mut quiet = basic();
+    quiet.set_quiet_sites_for_probe(true);
     assert!(quiet.land_for_probe(), "somewhere to land");
     let id = quiet.ship.state.alongside().expect("landed");
-    assert!(!quiet.town_threatened(id), "nothing is coming yet");
+    assert!(
+        !quiet.site_threatened(id),
+        "nothing is coming under the dial"
+    );
     for _ in 0..20 {
         quiet.step(&[]);
     }
@@ -131,14 +143,15 @@ fn the_town_fights_the_machines_and_the_crew_never_aim_at_a_townsperson() {
         "the first wave never landed"
     );
     // Who shelters: everybody of the town's own but the guard, and never
-    // a mercenary. Asked of the room, which is what the world told it.
+    // a mercenary or a defender (task 111). Asked of the room, which is
+    // what the world told it.
     let residents = world.residents.as_ref().expect("the town's room");
     let bims = residents.aboard.room.crew_count() as usize;
     assert!(bims > 1, "a town with people in it");
     for who in 0..bims {
         let merc = residents.is_mercenary(who);
         let sheltering = residents.aboard.room.is_sheltering(who);
-        let want = who != surface::GUARD as usize && !merc;
+        let want = who != surface::GUARD as usize && !merc && !residents.is_defender(who);
         assert_eq!(sheltering, want, "body {who} (mercenary {merc})");
     }
 
@@ -286,7 +299,7 @@ fn a_town_held_stays_friendly_past_its_system_s_day() {
     );
     assert!(world.town_held(id));
     assert_eq!(world.held_towns(), &[id]);
-    assert!(!world.town_threatened(id), "held is not threatened again");
+    assert!(!world.site_threatened(id), "held is not threatened again");
     assert!(
         world.station(id).unwrap().market().is_some(),
         "still a desk"
@@ -649,4 +662,220 @@ fn a_town_held_in_one_system_is_not_held_in_the_next() {
     assert!(world.town_held(id), "the held town was forgotten");
     assert!(world.defense(id).is_some_and(|d| d.won));
     assert_eq!(world.held_towns(), &[id]);
+}
+
+// --- every site a defence from day one (task 111) ---------------------------
+
+/// The spawn with the game's own rules: not a trader and nobody's enemy,
+/// so a defence from the first step. A wave of `size`, `waves` of them.
+fn a_station_defence(waves: u32, size: u32) -> (World, u32) {
+    let mut world = basic();
+    world.set_droid_waves_for_probe(waves);
+    world.set_droid_wave_for_probe(size);
+    let id = world.ship.state.station().expect("docked at the spawn");
+    assert_eq!(world.site_kind(id), crate::run::SiteKind::Defend);
+    assert!(world.site_threatened(id), "the machines come for the spawn");
+    (world, id)
+}
+
+/// **A station is defended as a town is** (task 111): the countdown is
+/// `DEFENSE_DELAY_STEPS`, the crew are stood on the station's deck the
+/// step it starts, the waves come in at the airlock farthest from the
+/// crew's, the defenders fight rather than shelter, and the last machine
+/// down clears the site and pays the bounty it was holding — with nobody
+/// joining the crew, and nothing held for good.
+#[test]
+fn a_station_defence_counts_down_lands_at_the_far_airlock_and_pays_on_the_win() {
+    assert_eq!(data::DEFENSE_DELAY_STEPS, 1_200, "twenty seconds at 1x");
+    let (mut world, id) = a_station_defence(1, 2);
+    let crew = world.aboard.crew_count();
+    world.step(&[]);
+    let d = world
+        .defense(id)
+        .expect("the defence starts at the first step");
+    assert_eq!(d.wave, 0);
+    assert_eq!(d.next_in, Some(data::DEFENSE_DELAY_STEPS - 1));
+    // Every crew member on its feet is ashore, on the station's deck.
+    for who in 0..crew {
+        assert!(!world.inside_ship(who), "{who} still aboard");
+    }
+    // The defenders: the day's number, after the station's own people.
+    let residents = world.residents.as_ref().expect("the station's room");
+    let fielded = residents.defender.iter().filter(|&&d| d).count() as u32;
+    assert_eq!(fielded, defense::defenders(world.days_gone()));
+    assert!(fielded > 0);
+    // The countdown runs out on the step it says.
+    let mut steps = 1;
+    while world.droids_standing() == 0 {
+        world.step(&[]);
+        steps += 1;
+        assert!(steps <= data::DEFENSE_DELAY_STEPS + 2, "no wave by {steps}");
+    }
+    assert!(steps >= data::DEFENSE_DELAY_STEPS, "a wave at {steps}");
+    // At the far airlock.
+    let residents = world.residents.as_ref().unwrap();
+    let station = world.station(id).unwrap();
+    let port = crate::droid::arrival_airlock_at(&station.design, id, 1).expect("an airlock");
+    let spot = crate::droid::inside_of(&port, data::ASHORE_TILES);
+    let spot = residents
+        .aboard
+        .to_room(worldgen::math::dvec2(spot.0, spot.1));
+    let room = &residents.aboard.room;
+    let nearest = (0..room.droid_count() as usize)
+        .filter_map(|i| room.droid(i))
+        .map(|d| (d.pos - spot).len())
+        .fold(f32::MAX, f32::min);
+    assert!(
+        nearest < 6.0 * shipdesign::TILE as f32,
+        "the wave landed {nearest} from the far airlock"
+    );
+    // The defenders take arms; the station's own people shelter.
+    let bims = room.crew_count() as usize;
+    for who in 0..bims {
+        if residents.is_defender(who) {
+            assert!(!room.is_sheltering(who), "defender {who} sheltering");
+        }
+    }
+    // The win: the bounty held until the last is down, then paid.
+    let money = world.money;
+    let tier = world.droid_tier().code();
+    destroy_the_wave(&mut world);
+    let mut events = Vec::new();
+    for _ in 0..20 {
+        events.extend(world.step(&[]));
+        if world.defense(id).is_some_and(|d| d.won) {
+            break;
+        }
+    }
+    events.extend(world.step(&[]));
+    assert!(world.defense(id).is_some_and(|d| d.won), "the defence won");
+    assert!(world.site_cleared(id));
+    assert!(!world.site_threatened(id), "held is threatened no more");
+    assert_eq!(world.money, money + 2 * crate::world::bounty_for(tier));
+    assert!(
+        events
+            .iter()
+            .any(|e| matches!(e, WorldEvent::TownHeld { station } if *station == id))
+    );
+    assert!(
+        !events
+            .iter()
+            .any(|e| matches!(e, WorldEvent::TownsfolkJoined { .. })),
+        "nobody joins from a station"
+    );
+    assert_eq!(world.aboard.crew_count(), crew);
+    assert!(!world.town_held(id), "a station held is not held for good");
+    // **And the crisis may take it later**: a won defence is not immune,
+    // and its fight stays won.
+    world.infest(id);
+    assert!(world.is_droid_held(id), "the crisis took the held station");
+    assert_eq!(world.site_kind(id), crate::run::SiteKind::Attack);
+    assert!(world.defense(id).is_some_and(|d| d.won && !d.lost));
+}
+
+/// **The defenders count as crew towards the wave** (task 111): a
+/// defence's wave is the formula's with that many more players, and
+/// anywhere else it is the formula's alone.
+#[test]
+fn the_wave_at_a_defence_is_the_wave_with_its_defenders_as_players() {
+    let mut world = basic();
+    world.step(&[]);
+    let n = world.defenders_fielded();
+    assert!(n > 0, "defenders fielded");
+    let steps = crate::droid::time_steps(world.hours_gone());
+    let want = crate::droid::wave_size(world.players() + n, steps).min(world.droid_wave_max());
+    assert_eq!(world.droid_wave_size(), want);
+    let mut quiet = basic();
+    quiet.set_quiet_sites_for_probe(true);
+    quiet.step(&[]);
+    assert_eq!(quiet.defenders_fielded(), 0, "no defenders at a quiet site");
+    assert_eq!(
+        quiet.droid_wave_size(),
+        crate::droid::wave_size(quiet.players(), steps).min(quiet.droid_wave_max())
+    );
+}
+
+/// **A defender is nobody's loss** (task 111): one dead is not in the
+/// station's losses, and a derelict — nobody of its own — defended by its
+/// defenders alone is not lost when every one of them is dead.
+#[test]
+fn a_dead_defender_is_no_loss_and_a_derelict_is_not_lost_with_its_defenders() {
+    let mut world = basic();
+    let id = world.ship.state.station().expect("docked");
+    assert!(
+        world.regenerate_dock_for_probe(7, Some(worldgen::StationKind::Derelict)),
+        "the dock made a derelict"
+    );
+    assert_eq!(world.site_kind(id), crate::run::SiteKind::Defend);
+    world.step(&[]);
+    assert!(world.defense(id).is_some_and(|d| !d.over()), "defended");
+    let residents = world.residents.as_mut().expect("the derelict's room");
+    let bims = residents.aboard.room.crew_count() as usize;
+    assert!(bims > 0, "defenders stand on a derelict");
+    for who in 0..bims {
+        assert!(residents.is_defender(who), "{who} is somebody's own");
+        residents.aboard.room.kill_now(who);
+    }
+    for _ in 0..10 {
+        world.step(&[]);
+    }
+    assert!(
+        world.defense(id).is_some_and(|d| !d.lost),
+        "lost with nobody of its own to lose"
+    );
+    assert!(!world.is_droid_held(id));
+    // Their deaths are nobody's loss when the room closes.
+    world.leave_for_probe();
+    assert_eq!(world.losses_at(id).dead, 0, "a defender counted a loss");
+    assert_eq!(world.losses_at(id).mercenaries, 0);
+}
+
+/// **Leaving before the last wave** (task 111): the station falls to the
+/// machines as a town does, the bounty it was holding is dropped, and
+/// nothing else is given.
+#[test]
+fn leaving_a_station_defence_early_gives_it_to_the_machines_and_pays_nothing() {
+    // The delay cut before the first step, which is when the defence
+    // starts and takes it.
+    let (mut world, id) = a_station_defence(2, 2);
+    world.set_defense_delay_for_probe(data::STEP_MINUTES * 4.0);
+    assert!(
+        until(&mut world, 40, |w| w.droids_standing() > 0),
+        "the first wave never landed"
+    );
+    // One machine down: a bounty held on the clear.
+    if let Some(residents) = world.residents.as_mut() {
+        for _ in 0..60 {
+            residents
+                .aboard
+                .room
+                .strike_droid(0, bims::droid::DroidPart::Chassis, 100.0);
+        }
+    }
+    until(&mut world, 5, |w| w.run.pending_bounty > 0);
+    assert!(world.run.pending_bounty > 0, "a bounty held");
+    let money = world.money;
+    let events = world.leave_for_probe();
+    assert!(world.is_droid_held(id), "the machines have it");
+    assert!(world.defense(id).is_some_and(|d| d.lost));
+    assert!(
+        events
+            .iter()
+            .any(|e| matches!(e, WorldEvent::TownFell { station } if *station == id))
+    );
+    // No bounty paid — the pool may fall by the crew left ashore, the
+    // bots' penalty and the players' respawns, and by nothing it gains.
+    assert!(world.money <= money);
+    assert!(
+        !events
+            .iter()
+            .any(|e| matches!(e, WorldEvent::Bounty { .. })),
+        "a bounty paid for a site left"
+    );
+    assert_eq!(world.run.pending_bounty, 0, "the bounty dropped");
+    assert!(
+        !events
+            .iter()
+            .any(|e| matches!(e, WorldEvent::TownsfolkJoined { .. }))
+    );
 }

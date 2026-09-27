@@ -73,6 +73,32 @@ const FRIEND: Color = Color::rgb(0.36, 0.55, 1.0);
 /// to tell it from a neutral stranger's black at a glance, faint enough
 /// that the icon on it still reads.
 const ENEMY_TINT: f32 = 0.22;
+/// A site the machines are coming for, on the map (task 111): a warning
+/// amber, between the enemy's red and the friend's blue, since it is a
+/// friend's place with the enemy on the way.
+const DEFEND: Color = Color::rgb(1.0, 0.70, 0.18);
+/// A trader, on the map (task 114's sites, ringed since task 111): the
+/// green of money, told from the defence's amber and the aim ring's cyan.
+const TRADE: Color = Color::rgb(0.40, 0.90, 0.46);
+
+/// The ring a site of this system wears on the map (task 111): what it is
+/// to the crew, off `World::site_kind` — an attack in the enemy's red, a
+/// defence the machines are still coming for in amber, a trader in green
+/// — and how its fight stands: an attack cleared is faded, a defence
+/// fought and held is blue as a friend's, and a trader shut while its
+/// system is the machines' is faded.
+fn site_ring(world: &world::World, id: u32) -> Color {
+    match world.site_kind(id) {
+        world::SiteKind::Attack if world.site_cleared(id) => ENEMY.alpha(0.4),
+        world::SiteKind::Attack => ENEMY,
+        world::SiteKind::Defend if world.site_threatened(id) => DEFEND,
+        world::SiteKind::Defend => FRIEND,
+        world::SiteKind::Trader if world.trader_closed_on(world.star_id, world.days_gone()) => {
+            TRADE.alpha(0.4)
+        }
+        world::SiteKind::Trader => TRADE,
+    }
+}
 /// The stance ring on the map, as a share of the icon size: outside the
 /// aim ring (which is the icon size across), so the two never sit on each
 /// other when an enemy's station is the one picked.
@@ -80,7 +106,7 @@ const STANCE_RING: f32 = 1.3;
 
 /// Somewhere the crew have already been, on the map (feature 85): a
 /// small tick at the node's upper-left shoulder — the upper-right one is
-/// the belt's pickaxe and the settlement's pad, and under the icon is
+/// the settlement's pad, and under the icon is
 /// where its name is written. The pale grey the galaxy chart
 /// rings a visited star in (`lobby::preview`'s `VISITED`), written out
 /// here for the reason the enemy's red is: this crate imports neither
@@ -91,13 +117,6 @@ const VISITED: Color = Color::rgb(0.62, 0.70, 0.76);
 const TICK_SHOULDER: f32 = 0.85;
 const TICK_SIZE: f32 = 0.5;
 
-/// What the rocks of a mining site are drawn in, by `world::Rock` code:
-/// stone, iron ore and galvum. Stone is the dull brown of the belt's icon,
-/// iron a silver that catches the light, galvum the purple nothing else
-/// aboard is. Told apart at a glance, which is the point: which asteroid
-/// is the rare one shows through its skin.
-/// The seam between one rock tile and the next, and the lit edge on each.
-/// A rock marked to be mined: ringed in the warm colour an order is.
 /// A construction site: the blueprint's blue, and how far through the
 /// part's own picture shows for a site and for the blueprint in hand.
 const BLUEPRINT: Color = Color::rgb(0.45, 0.72, 1.0);
@@ -422,14 +441,10 @@ fn paint_ship(game: &Game, list: &mut DrawList) {
     let mut ship = DrawList::default();
 
     // The pad the ship stands on, on a planet: paving under the whole
-    // hull, in the ship's frame like the rocks, and under everything.
+    // hull, in the ship's frame, and under everything.
     if landed.is_some() {
         pad(design, &mut ship);
     }
-    // The rocks of the mining site, if the ship is at one. In the ship's
-    // frame — they were laid out on its tile grid — so they go through the
-    // same turn the hull does; and under it, since they are outside it.
-
     // Under everything: the rim that makes the hull a body against the
     // stars, and the exhaust, which shows where it clears the stern and
     // never over the deck.
@@ -1930,8 +1945,8 @@ pub fn paint_body(list: &mut DrawList, x: f32, y: f32, size: f32, kind: BodyKind
     }
 }
 
-/// The pickaxe's two parts: a wooden haft and a steel head.
-const HAFT: Color = Color::rgb(0.66, 0.44, 0.24);
+/// The landing pad's arrow on the map: a steel white. (It was the head of
+/// the belt's pickaxe too, until the mining sites went in task 111.)
 const HEAD: Color = Color::rgb(0.90, 0.90, 0.86);
 
 /// Where a landable planet's pad sits, as a share of the icon size out
@@ -1947,9 +1962,9 @@ const PAD_SHADE: Color = Color::rgba(0.0, 0.0, 0.0, 0.55);
 /// A landing pad, `size` across its box, centred on `(x, y)`: a plate
 /// across the foot of the box in `colour` — the side's, so the pad says
 /// whose ground it is like the ring does — and an arrow coming straight
-/// down onto it in the pickaxe's light, a shaft and the two arms of its
+/// down onto it in steel white, a shaft and the two arms of its
 /// head. The mark of a planet that can be landed on, at its shoulder on
-/// the map, as the pickaxe is a belt's. Rectangles alone, as that is.
+/// the map. Rectangles alone, as the rest of the map's marks are.
 pub fn paint_pad(list: &mut DrawList, x: f32, y: f32, size: f32, colour: Color) {
     use core::f32::consts::{FRAC_PI_2, FRAC_PI_4};
     let r = size / 2.0;
@@ -1991,55 +2006,6 @@ pub fn paint_pad(list: &mut DrawList, x: f32, y: f32, size: f32, colour: Color) 
             HEAD,
         );
     }
-}
-
-/// A pickaxe, `size` across its box, centred on `(x, y)`: the haft up from
-/// bottom left to top right, and the head across its top end, the two
-/// halves of it bent back down towards the haft the way a pick's are. The
-/// mark of a mining site on the map. Rectangles alone — turned, and
-/// rounded at the ends — since that is what the format has.
-pub fn paint_pickaxe(list: &mut DrawList, x: f32, y: f32, size: f32) {
-    use core::f32::consts::FRAC_PI_4;
-    let r = size / 2.0;
-    // Along the haft, bottom left to top right, in the screen's y-down.
-    let up = -FRAC_PI_4;
-    let (ux, uy) = (up.cos(), up.sin());
-    // The haft: from a little inside the bottom-left corner to the head.
-    let (haft, width) = (1.7 * r, 0.14 * size);
-    let (hx, hy) = (x - 0.1 * r * ux, y - 0.1 * r * uy);
-    list.push(
-        crate::draw::KIND_RECT,
-        hx,
-        hy,
-        haft,
-        width,
-        up,
-        width / 2.0,
-        0.0,
-        HAFT,
-    );
-    // The head sits on the haft's top end and reaches out either side of
-    // it, each half bent a little back towards the haft.
-    let (tx, ty) = (hx + 0.5 * haft * ux, hy + 0.5 * haft * uy);
-    let (half, thick) = (0.44 * size, 0.15 * size);
-    let bend = 0.45;
-    for side in [1.0f32, -1.0] {
-        let a = up + side * (core::f32::consts::FRAC_PI_2 + bend);
-        let (ax, ay) = (a.cos(), a.sin());
-        list.push(
-            crate::draw::KIND_RECT,
-            tx + 0.5 * half * ax,
-            ty + 0.5 * half * ay,
-            half,
-            thick,
-            a,
-            thick / 2.0,
-            0.0,
-            HEAD,
-        );
-    }
-    // The boss where the head meets the haft, so the join reads as one piece.
-    disc(list, tx, ty, thick * 1.3, HEAD);
 }
 
 /// The mark that says *the crew have been here*, `size` across, centred
@@ -2290,26 +2256,20 @@ fn paint_map(game: &Game, list: &mut DrawList) {
         let (x, y) = place(at);
         if let Some(body) = game.world.system.body(id) {
             paint_body(list, x, y, size, body.kind, thin);
-            // A belt is a mining site — hold station at it and the rocks
-            // are laid out about the ship, and nothing else stands at one
-            // — and the map says so with a pickaxe at its shoulder.
-            if body.kind == BodyKind::AsteroidBelt {
-                paint_pickaxe(list, x + 0.62 * size, y - 0.62 * size, size * 0.6);
-            }
+            // A belt is scenery (task 111: the mining sites are gone), and
+            // wears no mark.
             // A planet with ground has a settlement on it the ship can
             // land at, and the map says so twice: a landing pad at its
-            // shoulder, where a belt has its pickaxe — the one mark that
+            // shoulder — the one mark that
             // says *this one can be set down on* and a gas giant cannot —
             // and a ring by its side the way it rings a station, since
-            // whose it is is the other thing worth knowing before coming
-            // down. The pad is in the side's colour too, so the two agree.
+            // what it is to the crew is the other thing worth knowing
+            // before coming down (task 111, `site_ring`). The pad is in
+            // the ring's colour too, so the two agree.
             if let Some(surface) = game.world.surface(id) {
-                let colour = match game.world.stance(surface.id) {
-                    Stance::Hostile => ENEMY,
-                    Stance::Friendly | Stance::Neutral => FRIEND,
-                };
+                let colour = site_ring(&game.world, surface.id);
                 let d = size * STANCE_RING;
-                ring(list, x, y, d, d, 0.0, thin * 1.5, colour.alpha(0.9));
+                ring(list, x, y, d, d, 0.0, thin * 2.5, colour);
                 paint_pad(
                     list,
                     x + PAD_SHOULDER * size,
@@ -2330,21 +2290,15 @@ fn paint_map(game: &Game, list: &mut DrawList) {
             continue;
         };
         paint_station(list, x, y, size * 0.75, station.kind, thin * 1.5);
-        // Ringed by stance, outside the aim ring so the two read apart when
-        // an enemy's is the one picked: red for a hostile station, blue
-        // for any other somebody lives on — home and a stranger's alike —
-        // and nothing for a derelict, which is nobody's. This is what the
-        // map says about who lives where; `World::stance` is the one rule,
-        // and the plates out of the window agree with it.
-        if station.kind == StationKind::Derelict {
-            continue;
-        }
-        let colour = match game.world.stance(id) {
-            Stance::Hostile => ENEMY,
-            Stance::Friendly | Stance::Neutral => FRIEND,
-        };
+        // Ringed by what it is to the crew (task 111, `site_ring`), outside
+        // the aim ring so the two read apart when one is picked: an attack
+        // red, a defence amber, a trader green — every site, a derelict
+        // too, since every site is one of the three. A little heavier than
+        // the stance ring it replaced, since it is the thing the map is
+        // read for now.
+        let colour = site_ring(&game.world, id);
         let d = size * STANCE_RING;
-        ring(list, x, y, d, d, 0.0, thin * 1.5, colour.alpha(0.9));
+        ring(list, x, y, d, d, 0.0, thin * 2.5, colour);
     }
 
     // Where the crew have already been (feature 85): a tick at the lower

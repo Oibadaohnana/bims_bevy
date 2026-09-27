@@ -164,18 +164,34 @@ fn commands() -> Vec<(&'static str, u64)> {
 /// back to the first five kinds all eleven came back, so the deal is the
 /// whole of the move. Under the old layouts the three are the same
 /// numbers, the arena not being generated.
+///
+/// **All eleven moved once more, on purpose**: every site an attack, a
+/// defence or a trader (task 111), a change meant to alter how a run
+/// plays. Every site that is neither a trader nor an enemy's is a defence
+/// from the first day, so `simulation`, `game`, `test`, `crisis` and the
+/// towns meet the machines twenty seconds in with their crew stood ashore
+/// and armed defenders on the site's deck; and the reading hashes whether
+/// each site of the system is threatened, which every one of them now is,
+/// so the held arena's commands moved by that alone. And no mining outpost
+/// is built, so the galaxy's stations are others. They were
+/// `0x_37d6_6b39_8298_9325`, `0x_123b_cbc1_3bd0_f5e2`,
+/// `0x_4b40_a4f0_a589_d45f`, `0x_4a8f_5a2b_e8a8_e253`,
+/// `0x_a6c8_5835_4a8f_84e2`, `0x_551a_3ee8_1e3a_44cb`,
+/// `0x_c01a_a1aa_1b48_feb5`, `0x_2b9c_d125_981c_4147`,
+/// `0x_f7d9_18b0_5265_5f26`, `0x_9ecf_6122_fd41_05b8` and
+/// `0x_26e0_b44c_8492_25f3`.
 const PINNED: [(&str, u64); 11] = [
-    ("simulation", 0x_37d6_6b39_8298_9325),
-    ("game", 0x_123b_cbc1_3bd0_f5e2),
-    ("droids", 0x_4b40_a4f0_a589_d45f),
-    ("tier2_test", 0x_4a8f_5a2b_e8a8_e253),
-    ("combat_droids_medic", 0x_a6c8_5835_4a8f_84e2),
-    ("test", 0x_551a_3ee8_1e3a_44cb),
-    ("test_planet", 0x_c01a_a1aa_1b48_feb5),
-    ("droids_planet", 0x_2b9c_d125_981c_4147),
-    ("defense", 0x_f7d9_18b0_5265_5f26),
-    ("crisis", 0x_9ecf_6122_fd41_05b8),
-    ("jammer", 0x_26e0_b44c_8492_25f3),
+    ("simulation", 0x_3a78_fda9_a405_e7d3),
+    ("game", 0x_074c_fece_8e0c_0155),
+    ("droids", 0x_fb46_6db9_8b79_539f),
+    ("tier2_test", 0x_603a_ae26_b955_6193),
+    ("combat_droids_medic", 0x_f9ff_1d94_1432_08a2),
+    ("test", 0x_ee69_befd_0b9f_7707),
+    ("test_planet", 0x_ff5f_353f_2c2b_41e4),
+    ("droids_planet", 0x_eb66_c363_5af3_b9a2),
+    ("defense", 0x_da90_308b_cddb_d152),
+    ("crisis", 0x_809f_8d4d_c22a_3798),
+    ("jammer", 0x_a4e9_578d_80d0_3102),
 ];
 
 /// **Every command plays as it did**: each session the app builds, read
@@ -256,10 +272,19 @@ fn pictures() -> Vec<(&'static str, u64)> {
 /// minigun or a lance, drawn as such, and the fight six hundred steps on
 /// is another fight. It was `0x_549f_77b7_8357_3bf8`, and came back with
 /// the deal cut back to the first five kinds.
+///
+/// `simulation_deck` moved once, on purpose, for task 111 (every site an
+/// attack, a defence or a trader): the simulation's spawn is a defence from
+/// the first step, so three hundred steps in the crew stand ashore and the
+/// station's deck has its armed defenders on it — another picture of the
+/// same drawing. Nothing is drawn another way: with the sites quiet
+/// (`World::set_quiet_sites_for_probe`) the old number,
+/// `0x_234f_3e03_869d_4c31`, came back bit for bit. `droids_deck` did not
+/// move — the arena is the machines', an attack.
 const PICTURES: [(&str, u64); 4] = [
     ("designer_playtest", 0x_9b08_8f44_06ad_4414),
     ("designer_combat", 0x_157a_1c34_2e97_18e0),
-    ("simulation_deck", 0x_234f_3e03_869d_4c31),
+    ("simulation_deck", 0x_189b_b6fc_1f93_b38b),
     ("droids_deck", 0x_c4ed_495a_3d48_134b),
 ];
 
@@ -279,18 +304,20 @@ fn the_fixtures_and_a_run_s_deck_are_drawn_as_they_were() {
 /// check below. Taken again under task 113, which moved every one on
 /// every layout (`PINNED`'s note): the eight that never stand on a town
 /// are `PINNED`'s own, and the three that do differ by the town alone.
+/// And again under task 111, which moved every one on every layout for
+/// the reason `PINNED`'s note gives, and the same eight are its own.
 const PINNED_BEFORE_112: [(&str, u64); 11] = [
-    ("simulation", 0x_37d6_6b39_8298_9325),
-    ("game", 0x_123b_cbc1_3bd0_f5e2),
-    ("droids", 0x_4b40_a4f0_a589_d45f),
-    ("tier2_test", 0x_4a8f_5a2b_e8a8_e253),
-    ("combat_droids_medic", 0x_a6c8_5835_4a8f_84e2),
-    ("test", 0x_551a_3ee8_1e3a_44cb),
-    ("test_planet", 0x_1670_f153_e5c8_e2fd),
-    ("droids_planet", 0x_1545_0c14_606b_a1dc),
-    ("defense", 0x_3ff6_9a47_94c1_b073),
-    ("crisis", 0x_9ecf_6122_fd41_05b8),
-    ("jammer", 0x_26e0_b44c_8492_25f3),
+    ("simulation", 0x_3a78_fda9_a405_e7d3),
+    ("game", 0x_074c_fece_8e0c_0155),
+    ("droids", 0x_fb46_6db9_8b79_539f),
+    ("tier2_test", 0x_603a_ae26_b955_6193),
+    ("combat_droids_medic", 0x_f9ff_1d94_1432_08a2),
+    ("test", 0x_ee69_befd_0b9f_7707),
+    ("test_planet", 0x_a7cb_07a5_991b_0776),
+    ("droids_planet", 0x_8841_e762_737f_2e95),
+    ("defense", 0x_6c59_a77a_0351_e662),
+    ("crisis", 0x_809f_8d4d_c22a_3798),
+    ("jammer", 0x_a4e9_578d_80d0_3102),
 ];
 
 /// Not a test of its own, and **run alone** (`--exact`), since it flips

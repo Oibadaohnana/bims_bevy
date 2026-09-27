@@ -669,6 +669,16 @@ pub struct Residents {
     /// can hold the station's dead besides.
     #[cfg_attr(feature = "serde", serde(default))]
     pub manufacturers_laid: u32,
+    /// Which of them are **defenders** (task 111), by index: armed people
+    /// who stand with the site's own while the machines come for it —
+    /// after the mercenaries, in the station's coverall, with no fee, so
+    /// nobody hails or hires one. Nobody's loss when one falls and never
+    /// the crew's: `close_residents` counts none of them, and neither do
+    /// the site's own people (`World::town_is_dead`). Derived when the
+    /// room opens (`World::defenders_of`), like the mercenaries, and kept
+    /// in step with `fee`, `medic` and `grave`.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub defender: Vec<bool>,
 }
 
 impl Residents {
@@ -679,17 +689,22 @@ impl Residents {
     /// hired hands live among them (`crate::mercenary::how_many`): the
     /// last that many bodies, in the mercenary's coverall and kit and
     /// priced, as many as the bunks will take after the residents.
+    /// `defenders` (task 111) come after them — armed, in the station's
+    /// coverall, unpriced — and are **not** cut to the bunks: they are
+    /// there for the fight, not to live there.
     ///
     /// **A station's room holds no more than it has bunks** — a crowd
     /// bigger than an orbital's four is four — the cut made here, since the room itself takes
     /// whatever it is given (`Game::with_layout`): the ship's crew is the
     /// world's count and may run past the ship's bunks. A design with no
     /// bunk at all still has the room's one stand-in berth.
+    #[allow(clippy::too_many_arguments)]
     pub fn open(
         station: u32,
         design: &ShipDesign,
         count: u32,
         mercenaries: u32,
+        defenders: u32,
         seed: u64,
         minutes: f64,
         graves: &[Grave],
@@ -697,10 +712,11 @@ impl Residents {
         let bunks = design.count(shipdesign::PartKind::Bunk).max(1);
         let count = count.min(bunks);
         let mercenaries = mercenaries.min(bunks - count);
+        let living = count + mercenaries + defenders;
         // And the dead this station has already (feature 85), on the end:
         // bodies, not people, so the bunks have nothing to say about how
         // many of them there are.
-        let mut aboard = Aboard::new(design, count + mercenaries + graves.len() as u32, seed);
+        let mut aboard = Aboard::new(design, living + graves.len() as u32, seed);
         aboard.room.wind_clock(minutes as f32);
         // Looked at from outside: the crew see none of it, and nobody in
         // it is drawn, until the ship docks and the rooms are joined.
@@ -712,8 +728,19 @@ impl Residents {
         // hash: the kind is a function of what it already holds.
         let mut fee = vec![None; aboard.count() as usize];
         let mut medic = vec![false; aboard.count() as usize];
-        for who in 0..count + mercenaries {
-            if who < count {
+        let mut defender = vec![false; aboard.count() as usize];
+        for who in 0..living {
+            if who >= count + mercenaries {
+                // A defender (task 111): the station's coverall, a hired
+                // hand's kit off a seed of its own, and no price — nobody
+                // hires one.
+                let n = who - count - mercenaries;
+                let gear =
+                    Gear::hired_for(crate::defense::defender_seed(seed, n), 1_000 * (who + 1));
+                aboard.room.set_uniform(who as usize, Uniform::Station);
+                aboard.room.issue(who as usize, gear);
+                defender[who as usize] = true;
+            } else if who < count {
                 aboard.room.set_uniform(who as usize, Uniform::Station);
                 aboard
                     .room
@@ -748,7 +775,7 @@ impl Residents {
         // grave names. Their deaths are the station's losses already, so
         // nothing here is counted again.
         for (n, grave) in graves.iter().enumerate() {
-            let who = (count + mercenaries) as usize + n;
+            let who = living as usize + n;
             let uniform = if grave.hired {
                 Uniform::Mercenary
             } else {
@@ -773,7 +800,7 @@ impl Residents {
         // about it again and nobody is paid twice.
         let mut down = vec![false; aboard.count() as usize];
         let mut grave = vec![false; aboard.count() as usize];
-        for who in (count + mercenaries) as usize..aboard.count() as usize {
+        for who in living as usize..aboard.count() as usize {
             down[who] = true;
             grave[who] = true;
         }
@@ -788,6 +815,7 @@ impl Residents {
             medic,
             grave,
             manufacturers_laid: 0,
+            defender,
         }
     }
 
@@ -925,7 +953,7 @@ impl Residents {
             if self.grave.get(who).copied().unwrap_or(false) || !self.aboard.room.is_alive(who) {
                 continue;
             }
-            let role = if self.is_mercenary(who) {
+            let role = if self.is_mercenary(who) || self.is_defender(who) {
                 Role::Civilian
             } else {
                 deal(who as u32, seed, trades, town)
@@ -954,6 +982,23 @@ impl Residents {
     /// A machine has no entry and is never one.
     pub fn is_mercenary(&self, who: usize) -> bool {
         self.fee.get(who).copied().flatten().is_some()
+    }
+
+    /// Whether that body is a **defender** (task 111): armed, standing
+    /// with the site while the machines come for it, and nobody's — not
+    /// the site's own people, not a hand for hire. A machine has no entry
+    /// and is never one.
+    pub fn is_defender(&self, who: usize) -> bool {
+        self.defender.get(who).copied().unwrap_or(false)
+    }
+
+    /// Whether that body is one of the site's **own** people: not a
+    /// mercenary, not a defender, and not a grave laid out at the open.
+    /// What a town's dying and a held town's joiners count.
+    pub fn is_own(&self, who: usize) -> bool {
+        !self.is_mercenary(who)
+            && !self.is_defender(who)
+            && !self.grave.get(who).copied().unwrap_or(false)
     }
 }
 

@@ -1348,7 +1348,7 @@ fn save_round_trip_keeps_a_held_town_and_an_attack_under_way() {
         return;
     }
     let id = world.ship.state.alongside().expect("landed");
-    if !world.town_threatened(id) {
+    if !world.site_threatened(id) {
         // The roll put an enemy's town on this planet; nothing to hold.
         return;
     }

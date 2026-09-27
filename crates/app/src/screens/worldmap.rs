@@ -13,7 +13,7 @@
 
 use bevy_egui::egui;
 use world::run::Departure;
-use world::{Refusal, Site, TravelQuote, World};
+use world::{Refusal, Site, SiteKind, TravelQuote, World};
 use worldgen::{Galaxy, StarSystem};
 
 use super::designer::Order;
@@ -29,6 +29,10 @@ pub struct Destination {
     /// Whether it is a trader (task 114): marked in the list, and greyed
     /// out with the reason while it is closed.
     pub trader: bool,
+    /// What it is to the crew (task 111): the quote's, else — a site
+    /// refused, the one the crew are at among them — worked out here for
+    /// this system and a trader anywhere. What the row leads with.
+    pub kind: Option<SiteKind>,
 }
 
 /// The destinations of one system, under its heading.
@@ -109,11 +113,18 @@ impl WorldMap {
                 });
             }
             if let Some(group) = groups.last_mut() {
+                let kind = match &quote {
+                    Ok(q) => Some(q.kind),
+                    Err(_) if trader => Some(SiteKind::Trader),
+                    Err(_) if site.star == world.star_id => Some(world.site_kind(site.station)),
+                    Err(_) => None,
+                };
                 group.destinations.push(Destination {
                     site,
                     name,
                     quote,
                     trader,
+                    kind,
                 });
             }
         }
@@ -166,7 +177,9 @@ pub fn site_name(world: &World, galaxy: &Galaxy, site: Site) -> String {
     }
 }
 
-/// The few words a row of the list says about what is there.
+/// The few words a row of the list says about what is there, after the
+/// kind's own word (task 111), which the row leads with in its colour
+/// (`row_job`) and these do not repeat.
 fn tags(quote: &TravelQuote) -> String {
     let mut words: Vec<String> = Vec::new();
     if quote.infested {
@@ -176,8 +189,9 @@ fn tags(quote: &TravelQuote) -> String {
     if quote.jammer {
         words.push(ARRIVE_JAMMER.into());
     }
+    // A defence to come says at what tier the machines will come.
     if quote.threatened {
-        words.push(ARRIVE_THREATENED.into());
+        words.push(arrive_tier(quote.tier.code()));
     }
     if quote.cleared {
         words.push(ARRIVE_CLEARED.into());
@@ -189,10 +203,41 @@ fn tags(quote: &TravelQuote) -> String {
         words.push(ARRIVE_MANUFACTURERS.into());
         words.push(arrive_tier(quote.tier.code()));
     }
-    if quote.trader {
-        words.push(ARRIVE_TRADER.into());
-    }
     words.join(" · ")
+}
+
+/// A row of the list as egui lays it out: the kind's word first, strong and
+/// in its colour (task 111), then the rest in the row's own colour.
+fn row_job(
+    style: &egui::Style,
+    kind: Option<SiteKind>,
+    text: &str,
+    colour: egui::Color32,
+) -> egui::text::LayoutJob {
+    let mut job = egui::text::LayoutJob::default();
+    let small = egui::TextStyle::Small.resolve(style);
+    if let Some(kind) = kind {
+        job.append(
+            site_kind_word(kind),
+            0.0,
+            egui::TextFormat {
+                font_id: egui::FontId::new(small.size + 1.0, egui::FontFamily::Proportional),
+                color: theme::site_kind_colour(kind),
+                ..Default::default()
+            },
+        );
+        job.append("  ", 0.0, egui::TextFormat::default());
+    }
+    job.append(
+        text,
+        0.0,
+        egui::TextFormat {
+            font_id: small,
+            color: colour,
+            ..Default::default()
+        },
+    );
+    job
 }
 
 /// How wide the world map's column is, on the right of the chart.
@@ -313,10 +358,8 @@ pub fn map_column(
                             for d in &group.destinations {
                                 let at = here == Some(d.site);
                                 let (text, colour) = row_words(d, at);
-                                let row = ui.selectable_label(
-                                    map.picked == Some(d.site),
-                                    egui::RichText::new(text).small().color(colour),
-                                );
+                                let job = row_job(ui.style(), d.kind, &text, colour);
+                                let row = ui.selectable_label(map.picked == Some(d.site), job);
                                 if row.hovered() {
                                     map.hovered = Some(d.site);
                                 }
@@ -377,12 +420,11 @@ fn row_words(d: &Destination, at: bool) -> (String, egui::Color32) {
         Err(_) if at => (format!("{}  ({MAP_HERE})", d.name), theme::YOURS),
         // A trader shut by the crisis (task 114): marked, greyed out,
         // and the reason in a word.
-        Err(Refusal::TraderClosed) if d.trader => (
-            format!("{}  · {ARRIVE_TRADER} · {TRADER_CLOSED}", d.name),
-            theme::MUTED,
-        ),
+        Err(Refusal::TraderClosed) if d.trader => {
+            (format!("{}  · {TRADER_CLOSED}", d.name), theme::MUTED)
+        }
         Err(Refusal::ClosedOnArrival) if d.trader => (
-            format!("{}  · {ARRIVE_TRADER} · {TRADER_CLOSED_ON_ARRIVAL}", d.name),
+            format!("{}  · {TRADER_CLOSED_ON_ARRIVAL}", d.name),
             theme::MUTED,
         ),
         Err(why) => (format!("{}  — {}", d.name, refusal(*why)), theme::MUTED),
@@ -448,7 +490,20 @@ fn destination_card(
             ui.label(egui::RichText::new(MAP_HERE).small().color(theme::YOURS));
         }
     });
-    // A trader (task 114) says so, and what a visit is, before the rest.
+    // What it is to the crew (task 111), big and in its colour before
+    // anything else, with what that means on a hover; a trader (task 114)
+    // says what a visit is as well.
+    if let Some(kind) = d.kind {
+        ui.horizontal(|ui| {
+            ui.label(
+                egui::RichText::new(site_kind_word(kind))
+                    .strong()
+                    .size(18.0)
+                    .color(theme::site_kind_colour(kind)),
+            );
+            theme::question_mark(ui, SITE_KIND_TIP);
+        });
+    }
     if d.trader {
         theme::asks(ui, ARRIVE_TRADER, TRADER_TIP);
     }

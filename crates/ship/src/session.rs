@@ -106,27 +106,19 @@ pub const COMBAT_WAVE: u32 = world::data::DROID_WAVE_MAX;
 /// the fight.
 pub const RELICS_WAVE: u32 = 4;
 
-/// A planet with a town the ship can set down at, as the map writes it:
-/// which body, whose the town is, and where the icon is drawn.
+/// Every site of this system the crew have charted, as the map tags it
+/// (task 111): which node, what it is — an attack, a defence or a trader,
+/// `World::site_kind` — and how its fight stands, so the kind is said in
+/// words under every icon and not only by the ring round it.
 #[derive(Clone, Copy, PartialEq, Debug)]
-pub struct LandingSite {
+pub struct SiteMark {
     pub node: Node,
-    /// Its people are enemies.
-    pub hostile: bool,
-    /// The machines are one hop away and it is next (feature 94):
-    /// `World::town_threatened`.
+    pub kind: world::SiteKind,
+    /// A defence starts on arrival (`World::site_threatened`).
     pub threatened: bool,
-    /// The crew defended it and held it: it stays friendly for good.
-    pub held: bool,
-    /// Where the map draws it, in the camera's units about the ship.
-    pub at: (f32, f32),
-}
-
-/// A trader of this system as the map draws it (task 114): which station,
-/// whether it is closed, and where.
-pub struct TraderMark {
-    pub node: Node,
-    /// Its system is the machines' and not liberated.
+    /// The fight there is over and won: an attack cleared, a defence held.
+    pub cleared: bool,
+    /// A trader shut while its system is the machines'.
     pub closed: bool,
     /// Where the map draws it, in the camera's units about the ship.
     pub at: (f32, f32),
@@ -1780,38 +1772,11 @@ impl Session {
         }
     }
 
-    /// Every discovered planet the ship can land on, with whether its
-    /// settlement is an enemy's and where the map draws it (the camera's
-    /// units about the ship, `Game::map_spot`) — what the app writes a
-    /// name and *land* over, so a landable planet is told from the rest
-    /// of the map in words as well as by its pad. The rule for which
-    /// planets is the world's (`World::surface`); the stance is
-    /// `World::stance` of the settlement.
-    pub fn landing_sites(&self) -> Vec<LandingSite> {
-        let Some(game) = &self.game else {
-            return Vec::new();
-        };
-        game.world
-            .discovered
-            .iter()
-            .filter_map(|&node| {
-                let Node::Body(body) = node else { return None };
-                let surface = game.world.surface(body)?;
-                Some(LandingSite {
-                    node,
-                    hostile: game.world.stance(surface.id) == bims::sight::Stance::Hostile,
-                    threatened: game.world.town_threatened(surface.id),
-                    held: game.world.town_held(surface.id),
-                    at: game.map_spot(node)?,
-                })
-            })
-            .collect()
-    }
-
-    /// Every trader of this system the crew have charted (task 114), for
-    /// the map to name and mark — greyed while it is closed. The rule is
-    /// the world's (`World::is_trader_here`, `World::trader_closed_on`).
-    pub fn trader_marks(&self) -> Vec<TraderMark> {
+    /// Every charted site of this system — its stations and its planets'
+    /// settlements — with what it is (task 111): what the map writes under
+    /// each icon. The rules are the world's (`World::site_kind`,
+    /// `site_threatened`, `site_cleared`, `trader_closed_on`).
+    pub fn site_marks(&self) -> Vec<SiteMark> {
         let Some(game) = &self.game else {
             return Vec::new();
         };
@@ -1821,13 +1786,17 @@ impl Session {
             .discovered
             .iter()
             .filter_map(|&node| {
-                let Node::Station(id) = node else { return None };
-                if !world.is_trader_here(id) {
-                    return None;
-                }
-                Some(TraderMark {
+                let id = match node {
+                    Node::Station(id) => id,
+                    Node::Body(body) => world.surface(body)?.id,
+                };
+                let kind = world.site_kind(id);
+                Some(SiteMark {
                     node,
-                    closed,
+                    kind,
+                    threatened: world.site_threatened(id),
+                    cleared: world.site_cleared(id) && !world.site_threatened(id),
+                    closed: kind == world::SiteKind::Trader && closed,
                     at: game.map_spot(node)?,
                 })
             })

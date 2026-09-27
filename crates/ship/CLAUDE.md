@@ -169,6 +169,19 @@ resident there until feature 104, and puts one there by hand now.
 
 ## The map says whose a station is, and the rule is the world's
 
+> **Since task 111 the map rings every site by what it is to the crew**,
+> not by stance: `world_paint::site_ring` asks `World::site_kind` and
+> rings an attack in `ENEMY` red (faded once cleared), a defence the
+> machines are still coming for in `DEFEND` amber (the friend's `FRIEND`
+> blue once held), a trader in `TRADE` green (faded while closed) — every
+> station, a derelict too, and every landable planet, the pad in the same
+> colour — at `thin * 2.5`. The app writes the kind's word under every
+> icon off `Session::site_marks` (which replaced `landing_sites` and
+> `trader_marks`), a station a line under a planet's town. The belt's
+> **pickaxe** below is gone (`paint_pickaxe` and `HAFT` deleted, the
+> dead rock-colour notes with them), and a belt wears no mark. What
+> follows about stance rings and the pickaxe is how it was.
+
 `World::stance` is the one answer — a station the machines hold is
 hostile, home is friendly, everywhere else is neutral, since no human has
 been the crew's enemy since feature 104 — and the painter draws it twice

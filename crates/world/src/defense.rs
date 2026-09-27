@@ -1,11 +1,13 @@
-//! Defending a town (feature 94).
+//! Defending a site (features 94 and 111).
 //!
-//! A friendly town one hop outside the infection is **threatened**: the
-//! machines are next door and it is next. The first time the crew set
-//! down at one, a wave lands outside a gate an hour later and the fight
-//! is on — and it is the one fight in the game that happens **inside**
-//! one room rather than between two, since the town's own people are in
-//! the residents' room with the machines that came for them.
+//! Every site that is neither a trader nor held by an enemy is
+//! **threatened** from the first day of a run (task 111; until then only
+//! a friendly town one hop outside the infection was). The first time the
+//! crew arrive at one, a wave lands twenty seconds later and the fight is
+//! on — and it is the one fight in the game that happens **inside** one
+//! room rather than between two, since the site's own people, and the
+//! armed [`defenders`] who stand with them, are in the residents' room
+//! with the machines that came for them.
 //!
 //! What is kept here is the **schedule**, and it is [`Defense`]: which
 //! wave is on the ground, how many are still to come, and how long until
@@ -117,9 +119,46 @@ pub fn joiners(survivors: u32, guard_alive: bool) -> u32 {
     share.max(1).min(spare)
 }
 
+/// How many armed **defenders** stand with a site's own people while the
+/// machines come for it (task 111): [`data::DEFENDERS_BASE`] and one more
+/// every [`data::DEFENDER_DAYS`] of the world clock, never more than
+/// [`data::DEFENDERS_MAX`]. A pure function of the day, so nothing about
+/// it is saved: `World::defenders_of` asks it when the room opens.
+pub fn defenders(days_gone: u32) -> u32 {
+    let more = days_gone / data::DEFENDER_DAYS.max(1);
+    data::DEFENDERS_BASE
+        .saturating_add(more)
+        .min(data::DEFENDERS_MAX)
+}
+
+/// The seed a site's defender number `n` is kitted off: the station's
+/// map seed and its place among them, kept apart from the residents'
+/// (`map_seed ^ who`) and the mercenaries' (`mercenary::seed_for`) by a
+/// salt of its own.
+pub fn defender_seed(map_seed: u64, n: u32) -> u64 {
+    map_seed ^ 0x_4445_4645_4e44_0000 ^ (n as u64)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Two on day nought, one more every spread's worth of days, and
+    /// never past the cap.
+    #[test]
+    fn defenders_grow_with_the_days_and_stop_at_the_cap() {
+        assert_eq!(defenders(0), data::DEFENDERS_BASE);
+        assert_eq!(defenders(data::DEFENDER_DAYS - 1), data::DEFENDERS_BASE);
+        assert_eq!(defenders(data::DEFENDER_DAYS), data::DEFENDERS_BASE + 1);
+        assert_eq!(defenders(u32::MAX), data::DEFENDERS_MAX);
+        let mut last = 0;
+        for day in 0..400 {
+            let n = defenders(day);
+            assert!(n >= last && n <= data::DEFENDERS_MAX, "{day}");
+            last = n;
+        }
+        assert_ne!(defender_seed(7, 0), crate::mercenary::seed_for(7, 0));
+    }
 
     /// The share the feature asked for, the floor of one, and the guard
     /// never counted among who actually goes.

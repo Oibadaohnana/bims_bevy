@@ -1316,6 +1316,14 @@ mod tests {
         assert!(ends[0].net.accept(&mut ends[0].session, true).ok);
         pump(&mut hub, &mut ends);
         assert!(ends[0].session.playing() && ends[1].session.playing());
+        // The vote across the wire, not the fight (task 111): the spawn a
+        // peaceful stop on both ends alike, so the crew stay aboard and the
+        // ship can leave the step both have pressed.
+        for end in ends.iter_mut() {
+            if let Some(game) = end.session.game.as_mut() {
+                game.world.set_quiet_sites_for_probe(true);
+            }
+        }
         fn world(e: &End) -> &world::World {
             &e.session.game.as_ref().unwrap().world
         }

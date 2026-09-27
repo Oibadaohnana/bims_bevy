@@ -27,7 +27,7 @@ use shipdesign::fixture::combat_ship;
 use crate::LootSource;
 use crate::class::Class;
 use crate::data;
-use crate::fixture::{REFERENCE_MONEY, Survivors, crewed_world};
+use crate::fixture::{REFERENCE_MONEY, Survivors, open_crewed_world};
 use crate::orders::Standing;
 use crate::run::{Phase, Site};
 use crate::world::{Command, World};
@@ -96,7 +96,22 @@ const TILE: f32 = shipdesign::TILE as f32;
 /// ship, other trip lengths). With the reading itself changed there is
 /// no old number to bring back by switching one rule off, so none of
 /// those was isolated. Was `0x_81b4_5bae_e33d_8446`.
-const SURVIVORS: u64 = 0x_14e4_ee7e_31d6_a769;
+///
+/// **And once more, on purpose**: every site an attack, a defence or a
+/// trader (task 111), a change meant to alter how a run plays. The
+/// machines come for every site that is neither a trader nor an enemy's
+/// from the first day — the spawn both worlds open at, the station the
+/// run jumps to and its town — twenty seconds after the crew arrive, the
+/// crew stood ashore when it starts and armed defenders beside the site's
+/// people, the wave sized with them as players; the scenario walks the
+/// players back aboard before *Back to ship* can carry
+/// (`fixture::walk_the_players_aboard`) and answers the departure check
+/// for whoever is left out, and the town is the first **town** threatened
+/// rather than the first site. A defence is won only once every wreck is
+/// counted, so the last machine's bounty is paid. And no mining outpost is
+/// built, so the galaxy's stations are others. None of it isolated: the
+/// rule is the run. Was `0x_14e4_ee7e_31d6_a769`.
+const SURVIVORS: u64 = 0x_04ed_2f68_873a_b95b;
 
 /// A gun in every hand, the kinds dealt round, as the fight's probes arm
 /// a crew — the five there were when the reading was taken: the minigun
@@ -137,12 +152,27 @@ fn travel_to(world: &mut World, site: Site) {
     assert_eq!(world.ship.state.alongside(), Some(site.station));
 }
 
-/// Both players' *Back to ship*, pressed aboard, until the map is up.
+/// Both players' *Back to ship* until the map is up — and since task 111
+/// the crew start a mission ashore at a site the machines are coming
+/// for, so they walk back aboard first (a longer wait), and whoever the
+/// departure check asks about is left behind, both players saying yes.
 fn back_to_ship(world: &mut World) {
     world.step(&[Command::Return { slot: 0 }, Command::Return { slot: 1 }]);
-    for _ in 0..600 {
-        if world.run.phase == Phase::Map {
+    let aboard = crate::fixture::walk_the_players_aboard(world);
+    world.step(&aboard);
+    for _ in 0..3000 {
+        if matches!(world.run.phase, Phase::Map | Phase::Reward) {
             return;
+        }
+        if matches!(
+            world.run.departure,
+            Some(crate::run::Departure::Asking { .. })
+        ) {
+            world.step(&[
+                Command::LeaveBehind { slot: 0, yes: true },
+                Command::LeaveBehind { slot: 1, yes: true },
+            ]);
+            continue;
         }
         world.step(&[]);
     }
@@ -185,7 +215,7 @@ pub(crate) fn survivors() -> u64 {
     let mut hash = Survivors::new();
 
     // The trip to a held station, and the fight.
-    let mut world = crewed_world(combat_ship(), REFERENCE_MONEY, 2, 6);
+    let mut world = open_crewed_world(combat_ship(), REFERENCE_MONEY, 2, 6);
     world.set_class(0, Class::Soldier).unwrap();
     world.set_class(1, Class::Medic).unwrap();
     arm(&mut world);
@@ -233,7 +263,7 @@ pub(crate) fn survivors() -> u64 {
     hash.eat_world(&world);
 
     // A town on the front, and its fight.
-    let mut town = crewed_world(combat_ship(), REFERENCE_MONEY, 2, 5);
+    let mut town = open_crewed_world(combat_ship(), REFERENCE_MONEY, 2, 5);
     town.set_class(0, Class::Engineer).unwrap();
     town.set_class(1, Class::Tank).unwrap();
     arm(&mut town);
@@ -251,7 +281,11 @@ pub(crate) fn survivors() -> u64 {
     let threatened = town
         .sites_at(town.star_id)
         .into_iter()
-        .find(|s| town.town_threatened(s.station) && town.travel_quote(*s).is_ok())
+        .find(|s| {
+            crate::surface::surface_body(s.station).is_some()
+                && town.site_threatened(s.station)
+                && town.travel_quote(*s).is_ok()
+        })
         .expect("a threatened town in the spawn system");
     back_to_ship(&mut town);
     travel_to(&mut town, threatened);
