@@ -2613,6 +2613,35 @@ pub const MAP_DAY: &str = "Day";
 pub const MAP_POOL: &str = "Pool";
 pub const MAP_PICK_HINT: &str =
     "Pick a place on the list or on the chart: the trip is quoted here, and put to the crew.";
+
+/// The galaxy chart's tag under a star: the least and the most tier its
+/// sites' enemies come at (`World::system_tiers`) — one number where the
+/// rule is sure, a range on the distance ramp. The world map's rows say
+/// "tier 1", so the chart says it the same way.
+pub fn system_tier(low: bims::combat::Tier, high: bims::combat::Tier) -> String {
+    format!("T{}", tier_span(low, high))
+}
+fn tier_span(low: bims::combat::Tier, high: bims::combat::Tier) -> String {
+    if low == high {
+        low.code().to_string()
+    } else {
+        format!("{}–{}", low.code(), high.code())
+    }
+}
+/// The same, as the star panel's line.
+pub fn system_tier_line(low: bims::combat::Tier, high: bims::combat::Tier) -> String {
+    format!("Tier {}", tier_span(low, high))
+}
+pub const SYSTEM_TIER_TIP: &str = "What tier the machines and the Manufacturers come at in this system on the day it is quoted: tier 3 within two hyperlanes of where the machines began, tier 2 further out once a fortnight has gone by — sure six lanes from home, a roll a site nearer — and tier 1 everywhere else. On the chart a star at tier 2 is ringed in amber and one at tier 3 in red; zoomed in, every star has its tier written under it.";
+/// The star panel on the galaxy chart: a system with a trader.
+pub const CHART_TRADER: &str = "Trader in this system";
+pub const CHART_TRADER_CLOSED: &str = "Trader in this system · closed";
+/// How the crew get to a star picked on the chart.
+pub const CHART_HERE: &str = "The crew are here.";
+pub const CHART_ONE_LANE: &str = "One hyperlane away: its places are on the list.";
+pub fn chart_lanes_away(hops: usize) -> String {
+    format!("{hops} hyperlanes away — a trip crosses one lane at a time.")
+}
 pub const BUYBACK_HEADING: &str = "Buyback";
 pub const BUYBACK_COVERED: &str = "covered";
 pub const BUYBACK_SHORT: &str = "not covered";

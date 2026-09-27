@@ -537,9 +537,11 @@ fn print_town() {
 /// are all feature 112 moved. And taken again under task 111 (every site
 /// an attack, a defence or a trader), which moved both on every layout
 /// for the same reason: they were `0x_c7b1_8af4_f64f_0fa1` and
-/// `0x_a881_25c7_68e4_5807`.
-const REFERENCE_BEFORE_112: u64 = 0x_e03e_343e_8918_672c;
-const SURVIVORS_BEFORE_112: u64 = 0x_e1c2_f369_96f5_fb38;
+/// `0x_a881_25c7_68e4_5807`. And taken again under worldgen's
+/// `GENERATOR_VERSION` 8, which is another galaxy on every layout: they
+/// were `0x_e03e_343e_8918_672c` and `0x_e1c2_f369_96f5_fb38`.
+const REFERENCE_BEFORE_112: u64 = 0x_e50d_58ec_b57a_d470;
+const SURVIVORS_BEFORE_112: u64 = 0x_6b0f_8e4d_f02e_4348;
 
 /// Not a test of its own, and **run alone** (`--exact`): the process-wide
 /// switch to the old layouts is flipped here, and a test running beside

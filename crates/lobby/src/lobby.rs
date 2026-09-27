@@ -80,6 +80,13 @@ pub struct Lobby {
     /// `World::origin_seen`). The page sets it every frame; `None` in the
     /// lobby.
     pub heart: Option<u32>,
+    /// In the game: every star whose system has a trader and whether it
+    /// is open (`World::trader_stars`). The page sets it; empty in the
+    /// lobby.
+    pub traders: Vec<(u32, bool)>,
+    /// In the game: every star's tier, indexed by star id (see
+    /// `preview::Marks::tiers`). The page sets it; empty in the lobby.
+    pub tiers: Vec<u8>,
     pub pings: Vec<Ping>,
     /// The star whose system is in the side panel, and the system itself.
     pub inspected: Option<(u32, StarSystem)>,
@@ -112,6 +119,8 @@ impl Lobby {
             route: Vec::new(),
             jammed: Vec::new(),
             heart: None,
+            traders: Vec::new(),
+            tiers: Vec::new(),
             pings: Vec::new(),
             inspected: None,
             placed: Placed::default(),
@@ -224,6 +233,8 @@ impl Lobby {
             route: &self.route,
             jammed: &self.jammed,
             heart: self.heart,
+            traders: &self.traders,
+            tiers: &self.tiers,
             pings: &self.pings,
         };
         preview::paint(

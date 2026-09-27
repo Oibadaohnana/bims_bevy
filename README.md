@@ -437,8 +437,9 @@ a mission, another player's Bim, a thing that is not there any more.
 
 Gear is bought at a **trader** and nowhere else — no station keeps a desk
 for it any more. A trader is a station like any other on the map, marked
-*trader* in the list and on the chart; about one station in ten is one,
-and there is always one within a lane of home. A visit happens **entirely
+*trader* in the list, and on the galaxy chart with a green square round
+its star; about one system in ten has one — never two — and there is
+always one within a lane of home. A visit happens **entirely
 on the world map**: choose it the way you choose any destination —
 everybody accepts — and the trip moves the world clock by its length. On
 arrival there is no mission and no room: nothing moves and neither clock
@@ -560,7 +561,9 @@ tabbed tool the setup screen uses:
 - **World** — which galaxy, and where in it the game starts. A **seed** —
   any whole number up to a `u64`, typed in decimal, with **New seed** to
   draw one — and a **galaxy type**: two-arm spiral, spiral, elliptical or
-  round. Under them the galaxy itself, a thousand stars on a canvas: drag to
+  round. Under them the galaxy itself, six hundred stars on a canvas —
+  every one of them a system with at least a station and a planet to
+  land on: drag to
   pan, scroll to zoom, hover to read a star's name and class, click one to
   open its system on the right — the star at the middle, its planets and
   belts on their orbits, its stations as squares, each named with its kind
@@ -1056,7 +1059,18 @@ trip can go. **A trip follows the hyperlanes, one hop at most.** Pick any
 star, near or far, and the chart draws the **shortest route** to it along
 the lanes, but the world map only ever offers the places a hop away, so
 getting across a galaxy is a chain of trips with a system to stop in at
-every step of it, rather than one from anywhere to anywhere.
+every step of it, rather than one from anywhere to anywhere. **Every
+system has somewhere to stop**: a station at the least and a planet with
+a town on it. Clicking a star a lane away picks its first place on the
+list — a trader first — and the card offers the trip, so a system is
+flown to straight off the chart; the panel in the corner says how many
+lanes off a star is when it is further. That panel says the star's
+**tier** too, and the chart shows it at a glance: a star whose machines
+come at tier 2 is ringed in amber, one at tier 3 in red, tier 1 is not
+marked, and zoomed in (and round the ship's own star) every star has
+`T1`, `T2`, `T3` — or `T1–2`, where the tier is rolled a site — written
+under it. A **green square** is a system with a trader, faded while it is
+closed.
 
 A jump puts the ship well inside the new system, and nothing of the old
 one comes along — its stations, its people, its construction sites — and

@@ -24,7 +24,8 @@ than carrying a copy — so re-pinning here is enough for both.
 `the_checksum_notices_a_station_leaning_on_a_price` moves one entry of a
 bias and asks the same.
 
-Anything on `data.rs`'s bump list moves `GENERATOR_VERSION` (**7** now: 4 was
+Anything on `data.rs`'s bump list moves `GENERATOR_VERSION` (**8** now — see
+"Every system is somewhere to go" at the end; 4 was
 the body count going from one-to-seven to two-to-ten so a system could
 hold more stations, and every position moved with it; 6 took the stations
 off the belts — see below — which re-sites a station in every system with
@@ -83,12 +84,13 @@ is already wanted has not been placed yet, and a kind that finds every body
 of its sort taken is simply not there. "One station per parent body" and
 the relay's desolation rule are unchanged, and so is the pruning of a
 station with nowhere in its own system to fly to.
-`a_system_with_a_station_has_four_on_average` pins the mean across the
-reference galaxies at four or more and never more than
-`1 + MORE_STATIONS.len()`; `about_three_fifths_of_systems_have_a_station`
-still pins the first roll at `0.5..0.7` — eight rolls of extras change
-nothing about it — and asks that more than half of those systems have a
-second station.
+`a_system_has_near_three_stations_on_average` pins the mean across the
+reference galaxies at two and a half or more (a system that rolled its
+station has four or more; one given its station has the one) and never
+more than `1 + MORE_STATIONS.len()`;
+`every_system_has_a_station_and_a_planet_to_land_on` asks that every
+system has both, and that between 45 and 70 in a hundred have a second
+station.
 
 ## Nothing stands at a belt
 
@@ -195,7 +197,7 @@ lean is drawn once a resource.
 
 ## The hyperlanes are a web, and they are in the checksum (feature 92)
 
-`Galaxy::lanes` is an adjacency list over the thousand stars, built with
+`Galaxy::lanes` is an adjacency list over the six hundred stars, built with
 them in `Galaxy::with_version` by `galaxy::weave` and hashed in
 `galaxy_checksum` right after the stars and before the systems — which
 re-pinned all four `fixture::REFERENCE_CHECKSUMS` and is **not** a
@@ -269,3 +271,26 @@ moved (their note has the old numbers) and nothing else about a system's
 shape did. `nothing_stands_at_a_belt` asserts none is built, and the
 tests that wanted every kind in every galaxy — and a friendly and a
 hostile one of each — skip it.
+
+## Every system is somewhere to go (`GENERATOR_VERSION` 8)
+
+Two stars in five had no station and no planet a town stands on, so a
+lane to one was a dead end — the world map lists sites, not stars. Now
+**`STAR_COUNT` is 600** (two in five fewer) and **every system has a
+planet to land on and a station**:
+
+- `system::ensure_landable`, after `ensure_parent_for` in `place_bodies`:
+  where no body is a rocky planet or an ice world, one is turned into a
+  rocky planet — a kind swapped, no position moved, so the layout the
+  checks passed is the one that ships — and never the only body a
+  promised station's parent could be.
+- `place_stations`, after the pruning: where nothing was built, an
+  orbital round a free landable body, else a derelict, else a relay
+  (`site`'s own rules), and not pruned — the town on its planet is
+  somewhere to go from it. `STATION_SHARE` still decides whether the
+  extras (`MORE_STATIONS`) are rolled, so the three in five that rolled a
+  station are what they were in shape, and the rest have one.
+
+`every_system_has_a_station_and_a_planet_to_land_on` and
+`a_system_has_near_three_stations_on_average` pin it; the four
+`REFERENCE_CHECKSUMS` moved with the bump (their note has the old ones).

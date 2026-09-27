@@ -4989,14 +4989,23 @@ design's gear in the armory and not the hold.
 relic's price, what two things combine into — and `trading.rs` the
 world's side, a child of `world` like `mission.rs`.
 
-- **Which sites** (`trader::eligible`, `rolled`, `near_sites`, `holds`):
-  a station blueprint with a desk (never a derelict), not home, not
-  `trader::jammer_candidate` (the lowest station not derived and not the
-  Manufacturers' — `jammer_station`'s own rule, so the jammer never moved
-  and a trader is never a site to clear), not the Manufacturers', not
-  derived; rolled at `data::TRADER_SITE_CHANCE` off the galaxy's seed
-  (its own salt), or one of `TRADER_NEAR_SITES` made up within
-  `TRADER_NEAR_HOPS` lanes of home, its own system counted.
+- **Which sites** (`trader::eligible`, `rolled`, `pick`, `near_sites`,
+  `holds`): **a system** has a trader where its star is rolled at
+  `data::TRADER_SYSTEM_CHANCE` (10) off the galaxy's seed (its own salt),
+  or is one of `TRADER_NEAR_SITES` made up within `TRADER_NEAR_HOPS` lanes
+  of home, its own system counted; its trader is `trader::pick`, the
+  lowest station blueprint with a desk (never a derelict), not home, not
+  the Manufacturers', not derived (`World::trader_of`). **The trader is
+  picked first and the jammer after it**: `World::jammer_site_among` —
+  `trader::jammer_candidate`, the lowest station not derived, not the
+  Manufacturers' and not the trader — is the one rule
+  `jammer_station`, `settle_derived_jammer`, `sites_in` and the quote
+  ask, so a system whose one station is its trader gets a derived jammer
+  and a trader is never a site to clear. (Until the galaxy of worldgen's
+  `GENERATOR_VERSION` 8 it was twenty in a hundred a *station*, and the
+  jammer's station was never eligible; with a single station in two
+  systems in five that left a trader in three systems in a hundred.)
+  `World::trader_stars(galaxy)` is every star with one, for the chart.
   `World::trader_near` is derived at the start and in `settle_crisis`,
   behind `manufacturer_near` which it reads, and never saved.
   `World::is_trader(site)`, `trader_in(galaxy, site)` for a list,
@@ -5059,8 +5068,9 @@ one thing; the relic's vote, a bot refused, a new proposal clearing the
 yes, the pool short, paid once; combining, tier three, not a pair,
 another player's Bim, worn in place; closed and liberated; closed on
 arrival against a site beside it; and the checksum.
-`trader_share_over_ten_seeds` (`#[ignore]`) prints the share: 9–10 % of
-stations.
+`a_trader_in_one_system_in_ten_and_the_chart_marks_them` pins the share
+(6–14 % of systems over two galaxies, never two in one, and
+`trader_stars` agreeing).
 
 ## The minigun and the rail lance (task 115)
 

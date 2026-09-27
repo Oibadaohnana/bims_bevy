@@ -5268,14 +5268,9 @@ impl World {
         if !self.infested(self.star_id) {
             return None;
         }
-        self.stations
-            .iter()
-            .map(|s| s.id)
-            .filter(|&id| !jammer::is_derived(id) && !heart::is_heart(id))
-            // Never a site of the Manufacturers' (feature 109): they have
-            // no jammer.
-            .filter(|&id| !self.is_manufacturer_station(id))
-            .min()
+        // Never a site of the Manufacturers' (feature 109), who have no
+        // jammer, nor the system's trader, which is never a site to clear.
+        self.jammer_site_among(self.star_id, &self.system.stations)
             .or_else(|| Some(jammer::jammer_id(self.star_id)))
     }
 
@@ -5356,12 +5351,17 @@ impl World {
     fn settle_derived_jammer(&mut self) {
         let derived = jammer::jammer_id(self.star_id);
         // A system with no station the jammer could be on: none at all, or
-        // only the Manufacturers', who have no jammer (feature 109).
-        let wanted = self.infested(self.star_id)
-            && !self
-                .stations
-                .iter()
-                .any(|s| !jammer::is_derived(s.id) && !self.is_manufacturer_station(s.id));
+        // only the Manufacturers', who have no jammer (feature 109), and its
+        // trader, which is never one.
+        let own: Vec<worldgen::StationBlueprint> = self
+            .system
+            .stations
+            .iter()
+            .filter(|s| !heart::is_heart(s.id))
+            .cloned()
+            .collect();
+        let wanted =
+            self.infested(self.star_id) && self.jammer_site_among(self.star_id, &own).is_none();
         let had = self.stations.iter().any(|s| s.id == derived);
         if wanted && had {
             return;
@@ -5438,6 +5438,32 @@ impl World {
             None => hops >= data::ENEMY_TIER2_SURE_HOPS,
         };
         if two { Tier::Two } else { Tier::One }
+    }
+
+    /// The tiers a star's sites come at, at the world clock
+    /// `clock_minutes` — the least and the most, off [`World::site_tier`]'s
+    /// own rule without generating the system: one tier where the rule is
+    /// sure of it, and one to two on the distance ramp, where it is rolled
+    /// a site. What the galaxy chart writes beside every star. The probes'
+    /// dial, where set, is every site's.
+    pub fn system_tiers(&self, star: u32, clock_minutes: f64) -> (Tier, Tier) {
+        if let Some(tier) = self.droid_tier {
+            return (tier, tier);
+        }
+        let sure = self.site_tier(star, None, clock_minutes);
+        if sure != Tier::One || clock_minutes < f64::from(data::ENEMY_TIER2_HOURS) * time::HOUR {
+            return (sure, sure);
+        }
+        let hops = self
+            .home_hops
+            .get(star as usize)
+            .copied()
+            .unwrap_or(u16::MAX);
+        if hops == 0 {
+            (Tier::One, Tier::One)
+        } else {
+            (Tier::One, Tier::Two)
+        }
     }
 
     /// The probes' dial: every wave from now on comes at this tier, or

@@ -75,11 +75,9 @@ impl World {
             })
             .collect();
         // No station the jammer could be on: none at all, or only the
-        // Manufacturers', who have none (feature 109).
-        let none = !system
-            .stations
-            .iter()
-            .any(|s| !self.is_manufacturer_site(star, s));
+        // Manufacturers', who have none (feature 109), and the system's
+        // trader, which is never one.
+        let none = self.jammer_site_among(star, &system.stations).is_none();
         if none && self.infested(star) {
             sites.push(Site {
                 star,
@@ -293,18 +291,9 @@ impl World {
             tier
         };
         // The jammer on arrival: the lowest orbital station of a system
-        // the machines have by then, or theirs where it has none.
-        let orbital = system
-            .stations
-            .iter()
-            .map(|s| s.id)
-            .filter(|&id| !jammer::is_derived(id) && !heart::is_heart(id))
-            .filter(|&id| {
-                !system
-                    .station(id)
-                    .is_some_and(|s| self.is_manufacturer_site(site.star, s))
-            })
-            .min();
+        // the machines have by then, not its trader, or theirs where it has
+        // none.
+        let orbital = self.jammer_site_among(site.star, &system.stations);
         let jammer = infested
             && surface::surface_body(site.station).is_none()
             && match orbital {

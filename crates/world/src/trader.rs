@@ -9,20 +9,25 @@
 //!
 //! # Which sites
 //!
-//! **Stateless, like the Manufacturers' and the crisis.** A station is a
-//! trader when it is [`eligible`] — a desk to trade across (never a
-//! derelict), not the crew's home, not the station the machines' jammer
-//! would stand on in its system, not the Manufacturers', not one of the
-//! machines' derived stations, never a town — and either [`rolled`]
-//! ([`data::TRADER_SITE_CHANCE`] in a hundred off the galaxy's seed) or one
-//! of the [`near_sites`] the start makes up so there are at least
-//! [`data::TRADER_NEAR_SITES`] within [`data::TRADER_NEAR_HOPS`] lanes of
-//! home. Functions of the galaxy and the crew's own star, so two clients
+//! **Stateless, like the Manufacturers' and the crisis.** A **system** has
+//! a trader or not — one in ten ([`rolled`], [`data::TRADER_SYSTEM_CHANCE`]
+//! in a hundred off the galaxy's seed), or one of the [`near_sites`] the
+//! start makes up so there are at least [`data::TRADER_NEAR_SITES`] within
+//! [`data::TRADER_NEAR_HOPS`] lanes of home — and where it has one, its
+//! trader is the lowest-numbered station that is [`eligible`] ([`pick`]):
+//! a desk to trade across (never a derelict), not the crew's home, not the
+//! Manufacturers', not one of the machines' derived stations, never a
+//! town. Functions of the galaxy and the crew's own star, so two clients
 //! agree about every site without a word, and a save carries none of it.
+//! The galaxy chart marks every system with one (`World::trader_stars`).
 //!
 //! Never the jammer's station, so that a trader is never a site to clear:
-//! the crisis passes a trader by (`World::spread_crisis`) and it is
-//! **closed** instead, while its system is infested and not liberated.
+//! the trader is picked **first**, and the machines' jammer stands on the
+//! lowest-numbered station that is not it ([`jammer_candidate`]) — or on
+//! one of their own where there is none, a system whose one station is
+//! its trader among them. The crisis passes a trader by
+//! (`World::spread_crisis`) and it is **closed** instead, while its system
+//! is infested and not liberated.
 //!
 //! # The shelf
 //!
@@ -42,36 +47,34 @@ use crate::run::Site;
 use crate::{armour, data, heart, jammer};
 
 /// Whether a station could be a trader at all: a desk to trade across,
-/// and none of the stations a trader must never be. `jammer` is the
-/// station the machines' jammer would stand on in its system
-/// ([`jammer_candidate`]); `home` and `manufacturers` say whether it is
-/// the crew's home and whether it is the Manufacturers'.
-pub fn eligible(
-    station: &StationBlueprint,
-    jammer: Option<u32>,
-    home: bool,
-    manufacturers: bool,
-) -> bool {
+/// and none of the stations a trader must never be. `home` and
+/// `manufacturers` say whether it is the crew's home and whether it is the
+/// Manufacturers'. The jammer is not asked: a system's trader is picked
+/// first, and the jammer stands on another station ([`jammer_candidate`]).
+pub fn eligible(station: &StationBlueprint, home: bool, manufacturers: bool) -> bool {
     station.kind != StationKind::Derelict
         && !jammer::is_derived(station.id)
         && !heart::is_heart(station.id)
-        && Some(station.id) != jammer
         && !home
         && !manufacturers
 }
 
 /// The station the machines' jammer stands on in a system of `stations`
-/// the day it falls: the lowest id of those not derived and not the
-/// Manufacturers' (`World::jammer_station`'s own rule), `None` where there
-/// is none. `manufacturers` says whether a station is theirs.
+/// the day it falls: the lowest id of those not derived, not the
+/// Manufacturers' and not the system's `trader` (`World::jammer_station`'s
+/// own rule, through `World::jammer_site_among`), `None` where there is
+/// none — and then the machines build one of their own. `manufacturers`
+/// says whether a station is theirs.
 pub fn jammer_candidate(
     stations: &[StationBlueprint],
     manufacturers: impl Fn(&StationBlueprint) -> bool,
+    trader: Option<u32>,
 ) -> Option<u32> {
     stations
         .iter()
         .filter(|s| !jammer::is_derived(s.id) && !heart::is_heart(s.id))
         .filter(|s| !manufacturers(s))
+        .filter(|s| Some(s.id) != trader)
         .map(|s| s.id)
         .min()
 }
@@ -85,18 +88,30 @@ fn site_roll(galaxy_seed: u64, star: u32, station: u32, salt: u64) -> u32 {
     worldgen::rng::Rng::new(seed).below(100)
 }
 
-/// Whether the galaxy's own roll makes a site a trader: odds of
-/// [`data::TRADER_SITE_CHANCE`] in a hundred.
-pub fn rolled(galaxy_seed: u64, star: u32, station: u32) -> bool {
-    site_roll(galaxy_seed, star, station, 0x_5452_4144_4552) < data::TRADER_SITE_CHANCE
+/// Whether the galaxy's own roll gives a star's system a trader: odds of
+/// [`data::TRADER_SYSTEM_CHANCE`] in a hundred, once a **system** — it was
+/// once a station, and a system of six stations was six chances.
+pub fn rolled(galaxy_seed: u64, star: u32) -> bool {
+    site_roll(galaxy_seed, star, 0, 0x_5452_4144_4553_5953) < data::TRADER_SYSTEM_CHANCE
 }
 
-/// The sites made traders on top of the roll, so a run has somewhere to buy
-/// near home: where fewer than [`data::TRADER_NEAR_SITES`] eligible stations
-/// within [`data::TRADER_NEAR_HOPS`] lanes of the crew's own star — its own
-/// system counted — were rolled, that many more of the others there,
-/// picked in an order off the galaxy's seed. `eligible` answers for a
-/// station of a star. `(star, station)` pairs, sorted.
+/// Which station of a system would be its trader: the lowest id of those
+/// `eligible` says could be one, `None` where none could. A system has
+/// one trader at most.
+pub fn pick(
+    stations: &[StationBlueprint],
+    eligible: impl Fn(&StationBlueprint) -> bool,
+) -> Option<u32> {
+    stations.iter().filter(|s| eligible(s)).map(|s| s.id).min()
+}
+
+/// The traders made up on top of the roll, so a run has somewhere to buy
+/// near home: where fewer than [`data::TRADER_NEAR_SITES`] systems within
+/// [`data::TRADER_NEAR_HOPS`] lanes of the crew's own star — its own system
+/// counted — were rolled one, that many more of the others there, picked in
+/// an order off the galaxy's seed, each at its system's [`pick`].
+/// `eligible` answers for a station of a star. `(star, station)` pairs,
+/// sorted.
 pub fn near_sites(
     galaxy: &Galaxy,
     home: u32,
@@ -113,21 +128,18 @@ pub fn near_sites(
         let Some(system) = galaxy.system(star) else {
             continue;
         };
-        for station in system
-            .stations
-            .iter()
-            .filter(|s| eligible(star, &system, s))
-        {
-            if rolled(galaxy.seed, star, station.id) {
-                rolled_near += 1;
-            } else {
-                let order = worldgen::rng::mix(
-                    galaxy.seed
-                        ^ 0x_5452_4E45_4152
-                        ^ worldgen::rng::mix(u64::from(star) << 32 | u64::from(station.id)),
-                );
-                rest.push((order, star, station.id));
-            }
+        let Some(station) = pick(&system.stations, |s| eligible(star, &system, s)) else {
+            continue;
+        };
+        if rolled(galaxy.seed, star) {
+            rolled_near += 1;
+        } else {
+            let order = worldgen::rng::mix(
+                galaxy.seed
+                    ^ 0x_5452_4E45_4152
+                    ^ worldgen::rng::mix(u64::from(star) << 32 | u64::from(station)),
+            );
+            rest.push((order, star, station));
         }
     }
     let wanted = data::TRADER_NEAR_SITES.saturating_sub(rolled_near);
@@ -141,10 +153,10 @@ pub fn near_sites(
     picked
 }
 
-/// Whether an eligible station is a trader: [`rolled`], or one of the
-/// `near` sites [`near_sites`] made up.
+/// Whether a system's [`pick`] is a trader: its star [`rolled`], or it is
+/// one of the `near` sites [`near_sites`] made up.
 pub fn holds(galaxy_seed: u64, near: &[(u32, u32)], star: u32, station: u32) -> bool {
-    rolled(galaxy_seed, star, station) || near.binary_search(&(star, station)).is_ok()
+    rolled(galaxy_seed, star) || near.binary_search(&(star, station)).is_ok()
 }
 
 /// One thing on a trader's shelf: a gun or a piece of armour — by its

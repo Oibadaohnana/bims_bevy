@@ -1097,12 +1097,16 @@ trader"). What to hold on to:
   holds gear). The yard's Station panel in the design phase is the
   editor's and is untouched. The desk stays as furniture.
 - **Which sites are traders is stateless** (`world::trader`, the
-  Manufacturers' pattern): a station with a desk that is not home, not
-  its system's jammer station, not the Manufacturers' and not derived,
-  rolled at `data::TRADER_SITE_CHANCE` off the galaxy's seed, plus at
-  least `TRADER_NEAR_SITES` within `TRADER_NEAR_HOPS` of home
-  (`World::trader_near`, derived). About one station in ten
-  (`tests_trader::trader_share_over_ten_seeds`, ignored).
+  Manufacturers' pattern): **a system** has one, rolled at
+  `data::TRADER_SYSTEM_CHANCE` (10) off the galaxy's seed, plus at least
+  `TRADER_NEAR_SITES` within `TRADER_NEAR_HOPS` of home
+  (`World::trader_near`, derived), and its trader is the lowest station
+  with a desk that is not home, not the Manufacturers' and not derived
+  (`trader::pick`); the machines' jammer then stands on the lowest
+  *other* station, or a derived one (`World::jammer_site_among`, the
+  one rule). It was twenty in a hundred a station until the galaxy of
+  `GENERATOR_VERSION` 8 below
+  (`tests_trader::a_trader_in_one_system_in_ten_and_the_chart_marks_them`).
 - **`run::Phase::Trade`** (code 3): `travel` to a trader calls
   `arrive_at_trader` instead of `arrive_at` + `begin_mission`. The step
   does nothing in it but the commands, as on the map; `Propose`/`Accept`
@@ -1126,6 +1130,41 @@ no layout and no other draw moved), and the ship's `PINNED` for
 does (its note; the old number returns with the probe infesting it).
 `REFERENCE_CHECKSUM`, `SURVIVORS` and `PICTURES` did **not** move: the
 traders are hashed only where there are any, and no pinned run meets one.
+
+## Six hundred stars, every one somewhere to go (worldgen 8)
+
+A laned star with no site on it was a dead end — two in five were — and
+nothing on the galaxy chart led to the world map's list. So:
+
+- **`worldgen::GENERATOR_VERSION` 8**: `STAR_COUNT` 600 (was 1 000), and
+  every system has a planet to land on (`system::ensure_landable`, a
+  body's kind turned to a rocky planet the way `ensure_parent_for` turns
+  one, nothing moved) and a station (an orbital, else a derelict, else a
+  relay, put there after the pruning where the rolls left none).
+  `STATION_SHARE` still decides whether the extras are rolled.
+- **A trader in one system in ten** (the trader bullet above).
+- **The galaxy chart** (`screens/game.rs`, `lobby::preview`): a click on a
+  star picks its first place on the list — a trader first — and scrolls
+  the list to it (`WorldMap::pick_star`), so the card's *Propose* is the
+  trip; the corner panel says the star's tier, whether it has a trader
+  and how many lanes off it is (`chart_star_lines`). A star past tier one
+  is ringed amber (2) or red (3) (`Marks::tiers`, off
+  `World::system_tiers` — the least and the most tier the star's sites
+  come at, the site rule without generating the system), a trader's
+  system has a green square (`Marks::traders`, `World::trader_stars`,
+  worked out once when the chart is made), and zoomed in past
+  `CHART_TIERS_ZOOM` — and always round the ship's star — every star has
+  `T1`/`T2`/`T3`/`T1–2` under it.
+
+**What moved.** `SAVE_VERSION` **47**, `wire::PROTOCOL` **39** (the relay
+wants redeploying), `worldgen`'s `REFERENCE_CHECKSUMS`,
+`REFERENCE_CHECKSUM`, `SURVIVORS`, the ship's `PINNED` (all eleven) and
+`PICTURES`' two decks, and the three old-layout checks
+(`*_BEFORE_112`) — all for another galaxy on every seed; the designer's
+pictures and the design hashes did not move. The measurements in *How
+fast the crisis crosses a galaxy*, *How many systems the machines have to
+build a jammer in* and the trip table in *The loop* were taken on the
+thousand-star galaxy and have not been taken again.
 
 ## The minigun and the rail lance (task 115)
 

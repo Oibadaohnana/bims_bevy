@@ -101,6 +101,14 @@ const STATION_DROP: f32 = 16.0;
 /// points. Measured on screen rather than in world units: the thing being
 /// picked is an icon.
 const MAP_PICK_SLOP: f32 = 14.0;
+/// How far in the galaxy chart has to be (`Preview::zoom_level`, nought at
+/// the fit and one at the closest) before every star's tier is written
+/// under it; short of that only the stars near the ship's are.
+const CHART_TIERS_ZOOM: f32 = 0.45;
+/// The tier's numeral under a star on the chart: its size, and how far
+/// below the star's middle it hangs, in points.
+const CHART_TIER_TEXT: f32 = 10.0;
+const CHART_TIER_DROP: f32 = 7.0;
 
 /// An order to the crew's room as the seam carries it: given plain, or —
 /// with Shift held — to wait its turn behind what the crew member is on
@@ -169,6 +177,10 @@ pub struct GameScreen {
     galaxy: Option<lobby::Lobby>,
     galaxy_list: lobby::draw::DrawList,
     galaxy_size: Vec2,
+    /// Every star whose system has a trader (`World::trader_stars`),
+    /// worked out when the chart is made: it generates the systems, and
+    /// it is a function of the galaxy and the crew's home alone.
+    chart_traders: Vec<u32>,
     /// The star picked on the chart: the crisis's word on it is in the
     /// strip, and the route to it is drawn.
     picked_star: Option<u32>,
@@ -878,6 +890,7 @@ impl GameScreen {
             galaxy: None,
             galaxy_list: lobby::draw::DrawList::new(),
             galaxy_size: Vec2::ZERO,
+            chart_traders: Vec::new(),
             picked_star: None,
             gone: Vec::new(),
             resyncing: false,
@@ -1533,6 +1546,30 @@ fn frame(
             .as_ref()
             .filter(|g| g.world.origin_seen())
             .map(|g| g.world.droid_origin());
+        // And every system with a trader, faded where it is closed today.
+        chart.traders = session
+            .game
+            .as_ref()
+            .map(|g| {
+                let day = g.world.days_gone();
+                screen
+                    .chart_traders
+                    .iter()
+                    .map(|&star| (star, !g.world.trader_closed_on(star, day)))
+                    .collect()
+            })
+            .unwrap_or_default();
+        // And every star's tier today, for the rings round the stars past
+        // tier one.
+        chart.tiers = session
+            .game
+            .as_ref()
+            .map(|g| {
+                (0..chart.galaxy.stars.len() as u32)
+                    .map(|star| g.world.system_tiers(star, g.world.clock_minutes).1.code() as u8)
+                    .collect()
+            })
+            .unwrap_or_default();
         let plotted = session
             .game
             .as_ref()
@@ -1612,6 +1649,10 @@ fn frame(
                 {
                     chart.inspect(star);
                     screen.picked_star = Some(star);
+                    // And its first place the crew could go picked on the
+                    // list, so the card offers the trip: a star is flown
+                    // to by one of its sites.
+                    screen.world_map.pick_star(star);
                 }
             }
         }
@@ -2184,6 +2225,12 @@ fn frame(
                             .unwrap_or_default();
                         ui.label(egui::RichText::new(name).strong());
                         crisis_line(ui, world, star);
+                        let hops = screen
+                            .galaxy
+                            .as_ref()
+                            .filter(|_| screen.picked_star.is_some())
+                            .map(|chart| chart.route.len().saturating_sub(1));
+                        chart_star_lines(ui, world, star, hops, &screen.chart_traders);
                     });
                 });
         }
@@ -2408,12 +2455,10 @@ fn frame(
             {
                 let world = &game.world;
                 if screen.galaxy.is_none() {
-                    screen.galaxy = Some(lobby::Lobby::new(
-                        world.galaxy_seed,
-                        world.galaxy_type,
-                        800.0,
-                        600.0,
-                    ));
+                    let chart =
+                        lobby::Lobby::new(world.galaxy_seed, world.galaxy_type, 800.0, 600.0);
+                    screen.chart_traders = world.trader_stars(&chart.galaxy);
+                    screen.galaxy = Some(chart);
                 }
                 if let Some(chart) = screen.galaxy.as_mut() {
                     chart.inspect(screen.picked_star.unwrap_or(world.star_id));
@@ -2684,6 +2729,46 @@ fn frame(
                     &format!("{} · {tag}", star_name(s.name)),
                     color,
                 );
+            }
+        }
+        // Every star's tier under it (`World::system_tiers`), on a
+        // small dark tag in the tier's colour: every star on the canvas
+        // once the chart is zoomed in far enough that the tags do not
+        // crowd, and before that the ship's own, the picked one and the
+        // stars a lane away — the rings the chart draws round every star
+        // past tier one say the rest at any zoom.
+        if let Some(game) = session.game.as_ref() {
+            let world = &game.world;
+            let all = chart.preview.zoom_level() >= CHART_TIERS_ZOOM;
+            let font = egui::FontId::proportional(CHART_TIER_TEXT);
+            let bounds = egui_rect(canvas).expand(8.0);
+            for s in &chart.galaxy.stars {
+                let (low, high) = world.system_tiers(s.id, world.clock_minutes);
+                let near = chart.here == Some(s.id)
+                    || screen.picked_star == Some(s.id)
+                    || chart.reachable.contains(&s.id);
+                if !all && !near {
+                    continue;
+                }
+                let (x, y) = chart.preview.to_screen(s.position.x, s.position.y);
+                let at = egui::pos2(canvas.min.x + x, canvas.min.y + y + CHART_TIER_DROP);
+                if !bounds.contains(at) {
+                    continue;
+                }
+                let colour = tier_colour(high);
+                let galley = painter.layout_no_wrap(system_tier(low, high), font.clone(), colour);
+                let tag = egui::Rect::from_center_size(
+                    at + egui::vec2(0.0, galley.size().y / 2.0),
+                    galley.size() + egui::vec2(6.0, 1.0),
+                );
+                painter.rect_filled(tag, 3.0, theme::PANEL_DEEP.gamma_multiply(0.85));
+                painter.rect_stroke(
+                    tag,
+                    3.0,
+                    egui::Stroke::new(1.0, colour.gamma_multiply(0.6)),
+                    egui::StrokeKind::Inside,
+                );
+                painter.galley(tag.center() - galley.size() / 2.0, galley, colour);
             }
         }
     } else {
@@ -3264,6 +3349,56 @@ fn crisis_line(ui: &mut egui::Ui, world: &world::World, star: u32) {
         )
     };
     ui.label(egui::RichText::new(words).small().color(colour));
+}
+
+/// The rest of the galaxy chart's word on the star looked at: its tier
+/// today (`World::system_tiers`), whether its system has a trader, and
+/// how the crew get there — `hops` lanes off, `None` for the star the
+/// ship is at.
+fn chart_star_lines(
+    ui: &mut egui::Ui,
+    world: &world::World,
+    star: u32,
+    hops: Option<usize>,
+    traders: &[u32],
+) {
+    let (low, high) = world.system_tiers(star, world.clock_minutes);
+    ui.horizontal(|ui| {
+        ui.label(
+            egui::RichText::new(system_tier_line(low, high))
+                .small()
+                .color(tier_colour(high)),
+        );
+        theme::question_mark(ui, SYSTEM_TIER_TIP);
+    });
+    if traders.binary_search(&star).is_ok() {
+        let closed = world.trader_closed_on(star, world.days_gone());
+        ui.label(
+            egui::RichText::new(if closed {
+                CHART_TRADER_CLOSED
+            } else {
+                CHART_TRADER
+            })
+            .small()
+            .color(if closed { theme::MUTED } else { theme::ACCENT }),
+        );
+    }
+    let words = match hops {
+        None | Some(0) => CHART_HERE.to_string(),
+        Some(1) => CHART_ONE_LANE.to_string(),
+        Some(n) => chart_lanes_away(n),
+    };
+    ui.label(egui::RichText::new(words).small().color(theme::MUTED));
+}
+
+/// A tier's colour on the galaxy chart: the muted grey for one, the
+/// caution colour for two, the attack red for three.
+fn tier_colour(tier: bims::combat::Tier) -> egui::Color32 {
+    match tier {
+        bims::combat::Tier::One => theme::MUTED,
+        bims::combat::Tier::Two => theme::CAUTION,
+        bims::combat::Tier::Three => theme::ATTACK,
+    }
 }
 
 /// What of the ship's the crew's panels read: whether a relic cache lies

@@ -111,7 +111,14 @@ const TILE: f32 = shipdesign::TILE as f32;
 /// counted, so the last machine's bounty is paid. And no mining outpost is
 /// built, so the galaxy's stations are others. None of it isolated: the
 /// rule is the run. Was `0x_14e4_ee7e_31d6_a769`.
-const SURVIVORS: u64 = 0x_04ed_2f68_873a_b95b;
+///
+/// **And once more, on purpose**: worldgen's `GENERATOR_VERSION` 8 — six
+/// hundred stars where there were a thousand, every system given a
+/// station and a planet to land on — with a trader in one system in ten.
+/// Every seed is another galaxy, so the spawn, the site the run fights
+/// at, the star it jumps to and the town it defends are all others; no
+/// rule of the room moved. Was `0x_04ed_2f68_873a_b95b`.
+const SURVIVORS: u64 = 0x_7a04_c23f_0efb_0d9f;
 
 /// A gun in every hand, the kinds dealt round, as the fight's probes arm
 /// a crew — the five there were when the reading was taken: the minigun

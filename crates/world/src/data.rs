@@ -525,16 +525,18 @@ pub const RELICS_UNLOCKED_PER_WIN: usize = 2;
 
 // --- the trader (task 114, `crate::trader`) ---------------------------------
 
-/// A station of the galaxy is a **trader site** with odds of this many in
-/// a hundred: any station with a desk that is not the crew's home, not the
-/// jammer's own station, not the Manufacturers' and not one of the
-/// machines' derived ones — rolled once a site off the galaxy's seed.
-/// Never a town. A placeholder.
-pub const TRADER_SITE_CHANCE: u32 = 20;
+/// A star's system has a **trader** with odds of this many in a hundred,
+/// rolled once a system off the galaxy's seed: one in ten systems. Its
+/// trader is the lowest-numbered station with a desk that is not the
+/// crew's home, not the jammer's own station, not the Manufacturers' and
+/// not one of the machines' derived ones (`trader::pick`). Never a town.
+/// It was twenty in a hundred a *station*, which with every system given a
+/// station (worldgen's `GENERATOR_VERSION` 8) was a trader in half of them.
+pub const TRADER_SYSTEM_CHANCE: u32 = 10;
 /// And at least this many traders within [`TRADER_NEAR_HOPS`] lanes of the
 /// crew's own star, their own system counted: somewhere to buy a gun
-/// before the first fight has paid for one. Made up out of the eligible
-/// stations there where the roll gave fewer.
+/// before the first fight has paid for one. Made up out of the systems
+/// there where the roll gave fewer.
 pub const TRADER_NEAR_SITES: usize = 1;
 pub const TRADER_NEAR_HOPS: u16 = 1;
 /// How many weapons a trader's shelf holds, rolled once a trader a run:

@@ -252,6 +252,18 @@ pub struct Marks<'a> {
     /// once the crew have seen the origin's system or one next to it
     /// (`World::origin_seen`). `None` until then, and in the lobby.
     pub heart: Option<u32>,
+    /// Every star whose system has a trader, on the chart in the game
+    /// (`World::trader_stars`): a green square round the star — the
+    /// colour the system map rings a trader in — faded where it is
+    /// closed (`bool` is open). Charted or not, since which systems have
+    /// one is a roll the crew are told. Empty in the lobby.
+    pub traders: &'a [(u32, bool)],
+    /// Every star's tier in the game, indexed by star id — the most its
+    /// sites' enemies come at today (`World::system_tiers`): a thin ring
+    /// round a star at tier two in amber and at tier three in red, nothing
+    /// at tier one, so the chart reads as regions at the fit. Empty in the
+    /// lobby.
+    pub tiers: &'a [u8],
     pub pings: &'a [Ping],
 }
 
@@ -284,6 +296,14 @@ const JAMMED: Color = crate::draw::ENEMY;
 /// A star the machines hold: the enemy's red, which is the colour a
 /// hostile station is ringed in on every other screen.
 const INFESTED: Color = crate::draw::ENEMY;
+/// A trader: the green the system map rings one in
+/// (`ship::world_paint`'s `TRADE`), written out again for the reason the
+/// enemy's red is.
+const TRADER: Color = Color::rgb(0.40, 0.90, 0.46);
+/// The rings of a star at tier two and at tier three: the app's caution
+/// amber and its attack red (`theme::CAUTION`, `theme::ATTACK`).
+const TIER_TWO: Color = Color::rgb(1.0, 0.84, 0.65);
+const TIER_THREE: Color = Color::rgb(1.0, 0.37, 0.29);
 
 /// How much of a star without a station shows. Dimmed rather than hidden:
 /// it can still be inspected, and a map with holes in it reads as a map that
@@ -462,6 +482,34 @@ pub fn paint(
         );
     }
 
+    // Every star past tier one, a thin ring in its tier's colour, inside
+    // the visited ring so the two read as two.
+    for (id, &tier) in marks.tiers.iter().enumerate() {
+        let colour = match tier {
+            2 => TIER_TWO,
+            3 => TIER_THREE,
+            _ => continue,
+        };
+        let Some(star) = stars.get(id) else {
+            continue;
+        };
+        let (x, y) = preview.to_screen(star.position.x, star.position.y);
+        if !preview.on_canvas(x, y, 8.0) {
+            continue;
+        }
+        list.push(
+            crate::draw::KIND_ELLIPSE,
+            x,
+            y,
+            9.0,
+            9.0,
+            0.0,
+            0.0,
+            1.1,
+            colour.alpha(0.85),
+        );
+    }
+
     // And every star the machines hold: a ring with a cross through it,
     // which is a shape nothing else on this map draws, in the enemy's red.
     for star in marks
@@ -487,6 +535,20 @@ pub fn paint(
         let arm = 5.5;
         list.line(x - arm, y - arm, x + arm, y + arm, 1.6, INFESTED);
         list.line(x - arm, y + arm, x + arm, y - arm, 1.6, INFESTED);
+    }
+
+    // And every system with a trader: a square, a shape no other mark on
+    // this map is, in the trader's green — faded where it is closed.
+    for &(id, open) in marks.traders {
+        let Some(star) = stars.get(id as usize) else {
+            continue;
+        };
+        let (x, y) = preview.to_screen(star.position.x, star.position.y);
+        if !preview.on_canvas(x, y, 12.0) {
+            continue;
+        }
+        let colour = if open { TRADER } else { TRADER.alpha(0.4) };
+        list.stroke_rect(x, y, 15.0, 15.0, 2.0, 1.4, colour);
     }
 
     // And the Machine Heart, once it has been seen: a diamond round the

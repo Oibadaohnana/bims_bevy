@@ -69,7 +69,7 @@ mod tests {
     #[test]
     fn a_landing_is_clear_of_everything_and_the_same_every_time() {
         let galaxy = Galaxy::new(0x1234_5678, GalaxyType::Round);
-        for star in [0u32, 17, 400, 999] {
+        for star in [0u32, 17, 400, 599] {
             let system = galaxy.system(star).unwrap();
             let at = landing_point(&system);
             assert_eq!(at, landing_point(&system));

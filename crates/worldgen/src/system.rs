@@ -293,6 +293,7 @@ fn place_bodies(
     if let Some(kind) = promised {
         ensure_parent_for(kind, &mut placed, &mut rng);
     }
+    ensure_landable(promised, &mut placed, &mut rng);
 
     // Numbered from the star outwards, so a body's name says where it is.
     placed.sort_by(|a, b| {
@@ -334,6 +335,39 @@ fn ensure_parent_for(kind: StationKind, placed: &mut [(BodyKind, DVec2)], rng: &
     if let Some(slot) = placed.get_mut(which) {
         slot.0 = want;
     }
+}
+
+/// Make sure the system has a planet a crew can set down on — a rocky
+/// planet or an ice world, which is where the world puts a town — by
+/// turning one body into a rocky planet, the same way [`ensure_parent_for`]
+/// does: it moves nothing, so the layout the checks passed is the layout
+/// that ships. Since `GENERATOR_VERSION` 8 no system is without one, so no
+/// star on the chart is somewhere a trip cannot go. A body a promised
+/// station needs for its parent is left as it is; where that is the only
+/// body there is, the system goes without.
+fn ensure_landable(promised: Option<StationKind>, placed: &mut [(BodyKind, DVec2)], rng: &mut Rng) {
+    let landable = |b: BodyKind| matches!(b, BodyKind::RockyPlanet | BodyKind::IceWorld);
+    if placed.iter().any(|&(b, _)| landable(b)) {
+        return;
+    }
+    // A body whose kind no promise hangs on: the promised kind still has a
+    // parent among the others, or wants none.
+    let spare: Vec<usize> = (0..placed.len())
+        .filter(|&i| match promised {
+            None => true,
+            Some(kind) => {
+                !data::parent_suits(kind, Some(placed[i].0))
+                    || placed
+                        .iter()
+                        .enumerate()
+                        .any(|(j, &(b, _))| j != i && data::parent_suits(kind, Some(b)))
+            }
+        })
+        .collect();
+    let Some(&which) = rng.pick(&spare) else {
+        return;
+    };
+    placed[which].0 = BodyKind::RockyPlanet;
 }
 
 fn draw_kind(rng: &mut Rng) -> BodyKind {
@@ -417,6 +451,23 @@ fn place_stations(
                 built.remove(i);
             }
             None => break,
+        }
+    }
+    // **Every system has a station** (`GENERATOR_VERSION` 8): where the
+    // rolls left none, one is put there — an orbital round the planet
+    // [`ensure_landable`] made sure of, else a derelict, else a relay out
+    // past everything. Not pruned: the town on its planet is somewhere to
+    // go from it.
+    if built.is_empty() {
+        for kind in [
+            StationKind::Orbital,
+            StationKind::Derelict,
+            StationKind::Relay,
+        ] {
+            if let Some((parent, position)) = site(&mut rng, kind, bodies, &built, &[]) {
+                built.push(furnish(seed, star_id, version, 0, kind, parent, position));
+                break;
+            }
         }
     }
     for (i, s) in built.iter_mut().enumerate() {
@@ -766,7 +817,7 @@ mod tests {
         // --- a_system_is_the_same_however_often_it_is_asked_for ---
         {
             let g = Galaxy::new(808, GalaxyType::Spiral);
-            for id in [0, 1, 17, 500, 999] {
+            for id in [0, 1, 17, 500, STAR_COUNT - 1] {
                 let a = g.system(id).unwrap();
                 let b = g.system(id).unwrap();
                 assert_eq!(a, b);
@@ -846,40 +897,52 @@ mod tests {
         }
     }
 
+    /// **Every system has a station and a planet to set down on**
+    /// (`GENERATOR_VERSION` 8): no star on the chart is somewhere a trip
+    /// cannot go. It was three fifths with a station, and a lane to one of
+    /// the other two was a dead end. Most still have more than one station:
+    /// the first roll ([`data::STATION_SHARE`]) is what decides whether the
+    /// extras are rolled, and a system that missed it has the one it was
+    /// given.
     #[test]
-    fn about_three_fifths_of_systems_have_a_station() {
-        let (_, systems) = every_system(3, GalaxyType::Spiral);
-        let with = systems.iter().filter(|s| !s.stations.is_empty()).count();
-        let share = with as f64 / systems.len() as f64;
-        assert!(
-            (0.5..0.7).contains(&share),
-            "{share} of systems had a station"
-        );
-        // And most of those have more than one: somewhere to go, and
-        // somewhere else to go when the first turns out to be hostile.
-        let several = systems.iter().filter(|s| s.stations.len() > 1).count();
-        assert!(
-            several as f64 / with as f64 > 0.5,
-            "{several} of {with} systems with a station had a second"
-        );
+    fn every_system_has_a_station_and_a_planet_to_land_on() {
+        for &t in &GalaxyType::ALL {
+            let systems = crate::fixture::reference(t).every_system();
+            for s in &systems {
+                assert!(
+                    !s.stations.is_empty(),
+                    "{t:?}: star {} has no station",
+                    s.star_id
+                );
+                assert!(
+                    s.bodies
+                        .iter()
+                        .any(|b| matches!(b.kind, BodyKind::RockyPlanet | BodyKind::IceWorld)),
+                    "{t:?}: star {} has no planet to land on",
+                    s.star_id
+                );
+            }
+            let several = systems.iter().filter(|s| s.stations.len() > 1).count();
+            let share = several as f64 / systems.len() as f64;
+            assert!(
+                (0.45..0.7).contains(&share),
+                "{t:?}: {share} of systems had a second station"
+            );
+        }
     }
 
     /// The point of [`data::MORE_STATIONS`] being eight long and a system
-    /// having up to ten bodies: a system with a station has four or more
-    /// on average, in every reference galaxy, and never more than the
-    /// rolls allow.
+    /// having up to ten bodies: a system that rolled its station has four
+    /// or more on average — so every system has near three — in every
+    /// reference galaxy, and never more than the rolls allow.
     #[test]
-    fn a_system_with_a_station_has_four_on_average() {
+    fn a_system_has_near_three_stations_on_average() {
         for &t in &GalaxyType::ALL {
             let systems = crate::fixture::reference(t).every_system();
-            let with: Vec<usize> = systems
-                .iter()
-                .map(|s| s.stations.len())
-                .filter(|&n| n > 0)
-                .collect();
-            let mean = with.iter().sum::<usize>() as f64 / with.len().max(1) as f64;
-            assert!(mean >= 4.0, "{t:?}: {mean} stations a system with one");
-            let most = with.iter().copied().max().unwrap_or(0);
+            let counts: Vec<usize> = systems.iter().map(|s| s.stations.len()).collect();
+            let mean = counts.iter().sum::<usize>() as f64 / counts.len().max(1) as f64;
+            assert!(mean >= 2.5, "{t:?}: {mean} stations a system");
+            let most = counts.iter().copied().max().unwrap_or(0);
             assert!(
                 most <= 1 + data::MORE_STATIONS.len(),
                 "{t:?}: a system with {most} stations"

@@ -1,7 +1,7 @@
 //! The star field: where the stars are, and what they are.
 //!
 //! This is the only part of world generation that is drawn all at once. There
-//! are a thousand stars, each of them two numbers, a name and a class, and
+//! are six hundred stars, each of them two numbers, a name and a class, and
 //! holding the lot costs less than one system's worth of bodies — so the map
 //! can be drawn, panned and clicked without generating anything.
 //!
@@ -18,8 +18,13 @@ use crate::name::{self, Name};
 use crate::rng::{Purpose, Rng};
 
 /// How many stars there are. Below `name`'s naming space, which is what makes
-/// star names unique — [`crate::name::star_name`] says why.
-pub const STAR_COUNT: u32 = 1000;
+/// star names unique — [`crate::name::star_name`] says why. It was a
+/// thousand, two in five of them systems with nothing in them to go to;
+/// since `GENERATOR_VERSION` 8 every system has a station and a town
+/// (`system.rs`: `ensure_landable`, and a station put there after the
+/// pruning where the rolls left none), and there are
+/// two in five fewer stars.
+pub const STAR_COUNT: u32 = 600;
 
 /// How far the galaxy reaches, in light years. Interstellar distance has no
 /// bearing on anything yet: crossing between systems is a future technology
@@ -751,8 +756,8 @@ mod tests {
             .iter()
             .filter(|s| s.star_class == StarClass::M)
             .count();
-        assert!(m > 450 && m < 750, "{m} of a thousand were M");
-        // But every class should turn up at least once in a thousand.
+        assert!(m > 270 && m < 450, "{m} of six hundred were M");
+        // But every class should turn up at least once in six hundred.
         let seen: HashSet<_> = g.stars.iter().map(|s| s.star_class).collect();
         assert_eq!(seen.len(), StarClass::ALL.len(), "{seen:?}");
     }

@@ -48,11 +48,17 @@ pub const REFERENCE_SEED: u64 = 0x_4c4f_4242_0000_0007;
 /// Which kind is picked is a station share, off the bump list. They were
 /// `0x_0493_9a6f_0971_1fdd`, `0x_9179_a4bd_4ee4_eff0`,
 /// `0x_3ea7_1366_ed45_8715` and `0x_87ea_7d6a_7635_010d`.
+///
+/// `GENERATOR_VERSION` 8 moved them with a bump: six hundred stars where
+/// there were a thousand, and every system given a station and a planet
+/// to set down on where it had none. They were `0x_f667_2369_aaf7_8e9b`,
+/// `0x_da56_7ccd_f912_1602`, `0x_6c4b_e819_4f12_e6d3` and
+/// `0x_61af_b7d5_7df6_2c6b`.
 pub const REFERENCE_CHECKSUMS: [u64; 4] = [
-    0x_f667_2369_aaf7_8e9b,
-    0x_da56_7ccd_f912_1602,
-    0x_6c4b_e819_4f12_e6d3,
-    0x_61af_b7d5_7df6_2c6b,
+    0x_bbdb_ea99_21ed_2e34,
+    0x_2aa6_e423_eb27_2fb3,
+    0x_0d14_75e5_b017_85f6,
+    0x_1378_9fb5_d958_66db,
 ];
 
 /// The reference galaxy of one type.

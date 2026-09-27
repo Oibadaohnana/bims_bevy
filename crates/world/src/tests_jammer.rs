@@ -123,7 +123,7 @@ fn the_route_is_the_shortest_chain_of_lanes_from_here() {
 
     assert_eq!(world.route_to(here), Some(vec![here]));
     // Every star the lanes reach, and there is no other kind.
-    for star in [0u32, 3, 77, 400, 999] {
+    for star in [0u32, 3, 77, 400, 599] {
         let route = world.route_to(star).expect("one connected web");
         assert_eq!(route.first().copied(), Some(here));
         assert_eq!(route.last().copied(), Some(star));

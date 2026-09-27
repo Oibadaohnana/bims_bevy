@@ -516,20 +516,16 @@ fn what_a_trader_has_left_is_in_the_checksum() {
     assert_ne!(world_checksum(&a), world_checksum(&b));
 }
 
-/// How many of a galaxy's stations are traders, over ten galaxy seeds —
-/// what `data::TRADER_SITE_CHANCE` comes to, beside the Manufacturers'
-/// and every station the rule leaves out.
+/// **A trader in one system in ten** (`data::TRADER_SYSTEM_CHANCE`), two
+/// galaxies over: never two in one system, and the stars the galaxy chart
+/// marks (`World::trader_stars`) are exactly the systems with one.
 #[test]
-#[ignore]
-fn trader_share_over_ten_seeds() {
+fn a_trader_in_one_system_in_ten_and_the_chart_marks_them() {
     use worldgen::GalaxyType;
-    println!("seed                  stations  traders  share");
-    for n in 0..10u64 {
+    for n in 0..2u64 {
         let seed = crate::data::DEFAULT_SEED.wrapping_add(n.wrapping_mul(0x9e37_79b9));
         let galaxy = worldgen::Galaxy::new(seed, GalaxyType::SpiralTwoArm);
-        let Some((star, station)) = crate::spawn(&galaxy) else {
-            continue;
-        };
+        let (star, station) = crate::spawn(&galaxy).expect("a dock");
         let world = World::start(
             flyer(2),
             RICH,
@@ -539,17 +535,28 @@ fn trader_share_over_ten_seeds() {
             star,
             station,
         )
-        .unwrap();
-        let (mut stations, mut traders) = (0u32, 0u32);
+        .expect("a world");
+        let mut with = Vec::new();
         for system in galaxy.every_system() {
-            for s in &system.stations {
-                stations += 1;
-                traders += world.is_trader_station(system.star_id, &system.stations, s) as u32;
+            let traders = system
+                .stations
+                .iter()
+                .filter(|s| world.is_trader_station(system.star_id, &system.stations, s))
+                .count();
+            assert!(
+                traders <= 1,
+                "star {} has {traders} traders",
+                system.star_id
+            );
+            if traders == 1 {
+                with.push(system.star_id);
             }
         }
-        println!(
-            "{seed:>20}  {stations:>8}  {traders:>7}  {:>4.1}%",
-            100.0 * traders as f64 / stations.max(1) as f64
+        assert_eq!(world.trader_stars(&galaxy), with);
+        let share = with.len() as f64 / galaxy.stars.len() as f64;
+        assert!(
+            (0.06..0.14).contains(&share),
+            "seed {seed}: {share} of systems have a trader"
         );
     }
 }

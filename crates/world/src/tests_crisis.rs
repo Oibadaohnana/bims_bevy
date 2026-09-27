@@ -131,7 +131,7 @@ fn two_builds_of_a_galaxy_agree_about_every_hop() {
     for &t in &[GalaxyType::SpiralTwoArm, GalaxyType::Round] {
         let a = Galaxy::new(data::DEFAULT_SEED, t);
         let b = Galaxy::new(data::DEFAULT_SEED, t);
-        for star in [0, 1, 250, 999] {
+        for star in [0, 1, 250, 599] {
             assert_eq!(a.hops_from(star), b.hops_from(star), "{t:?} from {star}");
         }
     }
@@ -184,11 +184,14 @@ fn a_system_does_not_flip_under_the_crew_and_flips_the_moment_they_are_off_it() 
             .any(|e| matches!(e, WorldEvent::Infested { star } if *star == world.star_id)),
         "{events:?}"
     );
+    // Every station but a trader, which the crisis passes by (closed
+    // instead, task 114).
     for id in world
         .stations
         .iter()
         .map(|s| s.id)
         .chain(world.surfaces.iter().map(|s| s.id))
+        .filter(|&id| !world.is_trader_here(id))
         .collect::<Vec<_>>()
     {
         assert!(world.is_droid_held(id), "station {id} is the machines'");

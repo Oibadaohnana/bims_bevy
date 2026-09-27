@@ -1252,12 +1252,10 @@ fn a_world_starts_at_the_station_it_was_told_to_and_a_spawn_that_does_not_exist_
     // --- a_spawn_that_does_not_exist_is_refused_rather_than_replaced ---
     {
         let galaxy = worldgen::Galaxy::new(data::DEFAULT_SEED, GalaxyType::SpiralTwoArm);
-        let empty = galaxy
-            .stars
-            .iter()
-            .find(|s| galaxy.system(s.id).unwrap().stations.is_empty())
-            .expect("most stars have no station")
-            .id;
+        // Every system has a station since worldgen's version 8, so the
+        // station asked for is one past the first star's last.
+        let empty = galaxy.stars[0].id;
+        let beyond = galaxy.system(empty).unwrap().stations.len() as u32;
         let (star, _) = crate::spawn(&galaxy).unwrap();
         let start = |star, station| {
             World::start(
@@ -1271,7 +1269,7 @@ fn a_world_starts_at_the_station_it_was_told_to_and_a_spawn_that_does_not_exist_
             )
         };
         assert_eq!(
-            start(empty, 0).err(),
+            start(empty, beyond).err(),
             Some(crate::StartError::NoSuchStation)
         );
         assert_eq!(

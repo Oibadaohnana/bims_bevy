@@ -55,6 +55,9 @@ pub struct WorldMap {
     /// the chart: what the card shows while it does (feature 107). The
     /// screen and the column set it afresh every frame.
     pub hovered: Option<Site>,
+    /// The pick came from the galaxy chart ([`WorldMap::pick_star`]): the
+    /// list scrolls its row into view the next frame, once.
+    scroll_to_pick: bool,
 }
 
 /// Everything a quote reads that changes in a run: the star, the day,
@@ -129,6 +132,26 @@ impl WorldMap {
             }
         }
         self.groups = groups;
+    }
+
+    /// A star picked on the galaxy chart: its first place a trip can go
+    /// picked on the list — a trader first, else the first quoted, else
+    /// the first listed — so the card offers the trip. A star with no
+    /// place on the list (the ship's own is on it; one more than a lane
+    /// off is not) leaves nothing picked, and the chart's panel says why.
+    pub fn pick_star(&mut self, star: u32) {
+        let of_star = || {
+            self.groups
+                .iter()
+                .flat_map(|g| g.destinations.iter())
+                .filter(move |d| d.site.star == star)
+        };
+        self.picked = of_star()
+            .find(|d| d.trader && d.quote.is_ok())
+            .or_else(|| of_star().find(|d| d.quote.is_ok()))
+            .or_else(|| of_star().next())
+            .map(|d| d.site);
+        self.scroll_to_pick = self.picked.is_some();
     }
 
     /// The destination on the list for a site, if it is on it.
@@ -365,6 +388,10 @@ pub fn map_column(
                                 }
                                 if row.clicked() {
                                     map.picked = Some(d.site);
+                                }
+                                if map.scroll_to_pick && map.picked == Some(d.site) {
+                                    row.scroll_to_me(Some(egui::Align::Center));
+                                    map.scroll_to_pick = false;
                                 }
                             }
                         }

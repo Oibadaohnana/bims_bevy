@@ -342,7 +342,7 @@ fn the_survivors_who_join_are_classless_bots_with_no_wages() {
     let residents = world.residents.as_ref().expect("the town's room");
     let bims = residents.aboard.room.crew_count() as usize;
     let townsfolk: Vec<u32> = (0..bims)
-        .filter(|&who| !residents.is_mercenary(who))
+        .filter(|&who| residents.is_own(who))
         .filter(|&who| residents.aboard.room.is_alive(who))
         .map(|who| who as u32)
         .collect();

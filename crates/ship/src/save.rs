@@ -138,7 +138,10 @@ use crate::game::Game;
 /// 46: every site an attack, a defence or a trader (task 111) — a
 /// station's room knows which of its people are defenders, and the world
 /// whether the tests' quiet dial is on.
-pub const SAVE_VERSION: u32 = 46;
+/// 47: worldgen's `GENERATOR_VERSION` 8 — six hundred stars, every system a
+/// station and a planet to land on — and a trader in one system in ten: a
+/// save names stars and stations of a galaxy no longer generated.
+pub const SAVE_VERSION: u32 = 47;
 
 /// What the file holds, read back.
 #[derive(serde::Deserialize)]

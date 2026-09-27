@@ -156,7 +156,11 @@ pub const REFERENCE_STEPS: u32 = 600;
 /// plays**: the scenario presses it with both players ashore, so they set
 /// off for the gangway the step it is pressed rather than the step after,
 /// when `walk_the_players_aboard` sends them. Was `0x_36d8_8939_97a9_819b`.
-pub const REFERENCE_CHECKSUM: u64 = 0x_86d1_6b33_0409_b543;
+/// And for worldgen's `GENERATOR_VERSION` 8 (six hundred stars, every
+/// system a station and a planet to land on) with a trader in one system
+/// in ten: another galaxy, so another spawn, another crew's day and
+/// another site at the far end. Was `0x_86d1_6b33_0409_b543`.
+pub const REFERENCE_CHECKSUM: u64 = 0x_3222_89f6_e882_3fce;
 
 /// A world with the flyable fixture docked at the simulation's spawn: the
 /// default seed's first dock, which is where every fixture world starts.

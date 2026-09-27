@@ -18,39 +18,82 @@ impl World {
     /// ([`trader::near_sites`]): what `trader_near` is derived as, at the
     /// start and at every load, behind `manufacturer_near`.
     pub(super) fn trader_near_sites(&self, galaxy: &Galaxy) -> Vec<(u32, u32)> {
-        trader::near_sites(galaxy, self.home_star, |star, system, station| {
-            self.trader_eligible(star, &system.stations, station)
+        trader::near_sites(galaxy, self.home_star, |star, _, station| {
+            self.trader_eligible(star, station)
         })
     }
 
-    /// Whether a station of `star`'s system, whose stations are `stations`,
-    /// could be a trader at all ([`trader::eligible`]).
-    fn trader_eligible(
-        &self,
-        star: u32,
-        stations: &[worldgen::StationBlueprint],
-        station: &worldgen::StationBlueprint,
-    ) -> bool {
-        let jammer = trader::jammer_candidate(stations, |s| self.is_manufacturer_site(star, s));
+    /// Whether a station of `star`'s system could be a trader at all
+    /// ([`trader::eligible`]).
+    fn trader_eligible(&self, star: u32, station: &worldgen::StationBlueprint) -> bool {
         trader::eligible(
             station,
-            jammer,
             star == self.home_star && station.id == self.home,
             self.is_manufacturer_site(star, station),
         )
     }
 
-    /// Whether a station of `star`'s system is a **trader**: eligible, and
-    /// rolled or made up near home. Stateless: a function of the galaxy and
-    /// the crew's own star.
+    /// Whether a station of `star`'s system is a **trader**: its system's
+    /// [`trader::pick`], and the system rolled one or made up near home.
+    /// Stateless: a function of the galaxy and the crew's own star.
     pub fn is_trader_station(
         &self,
         star: u32,
         stations: &[worldgen::StationBlueprint],
         station: &worldgen::StationBlueprint,
     ) -> bool {
-        self.trader_eligible(star, stations, station)
-            && trader::holds(self.galaxy_seed, &self.trader_near, star, station.id)
+        self.trader_of(star, stations) == Some(station.id)
+    }
+
+    /// The trader of `star`'s system, whose stations are `stations`, if it
+    /// has one: its [`trader::pick`], where the system rolled one or had
+    /// one made up near home.
+    fn trader_of(&self, star: u32, stations: &[worldgen::StationBlueprint]) -> Option<u32> {
+        let near = self.trader_near.iter().any(|&(s, _)| s == star);
+        if !near && !trader::rolled(self.galaxy_seed, star) {
+            return None;
+        }
+        trader::pick(stations, |s| self.trader_eligible(star, s))
+            .filter(|&id| trader::holds(self.galaxy_seed, &self.trader_near, star, id))
+    }
+
+    /// The station the machines' jammer stands on in `star`'s system, whose
+    /// stations are `stations`, once it falls: the lowest-numbered that is
+    /// neither derived, the Manufacturers' nor the system's trader
+    /// ([`trader::jammer_candidate`]) — `None` where there is none, and the
+    /// machines build their own. **The one rule**: [`World::jammer_station`],
+    /// the derived jammer, the list of sites and the quote all ask it.
+    pub(crate) fn jammer_site_among(
+        &self,
+        star: u32,
+        stations: &[worldgen::StationBlueprint],
+    ) -> Option<u32> {
+        trader::jammer_candidate(
+            stations,
+            |s| self.is_manufacturer_site(star, s),
+            self.trader_of(star, stations),
+        )
+    }
+
+    /// Every star whose system has a trader, in id order — what the galaxy
+    /// chart marks. Generates the systems it has to, so it is asked once a
+    /// chart rather than every frame: it is a function of the galaxy and
+    /// the crew's own star alone.
+    pub fn trader_stars(&self, galaxy: &Galaxy) -> Vec<u32> {
+        (0..galaxy.stars.len() as u32)
+            .filter(|&star| {
+                let near = self.trader_near.iter().any(|&(s, _)| s == star);
+                if !near && !trader::rolled(self.galaxy_seed, star) {
+                    return false;
+                }
+                if star == self.star_id {
+                    return self.trader_of(star, &self.system.stations).is_some();
+                }
+                galaxy
+                    .system(star)
+                    .is_some_and(|system| self.trader_of(star, &system.stations).is_some())
+            })
+            .collect()
     }
 
     /// Whether a site is a trader: this system's read off the world, any
