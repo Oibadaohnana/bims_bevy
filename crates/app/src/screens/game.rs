@@ -212,6 +212,10 @@ pub struct GameScreen {
     /// (feature 103, `super::worldmap`): worked out when the world it
     /// reads has moved, not every frame.
     world_map: super::worldmap::WorldMap,
+    /// What this mission has earned, for the end of a fight
+    /// (`super::fightwon`): the screen that comes up when the site is
+    /// cleared.
+    fight: super::fightwon::FightTally,
 }
 
 /// How long one of those numbers is in the air, and the shortest gap
@@ -889,6 +893,7 @@ impl GameScreen {
             blackout: 0.0,
             heals: Heals::default(),
             world_map: super::worldmap::WorldMap::default(),
+            fight: super::fightwon::FightTally::default(),
         }
     }
 
@@ -1207,6 +1212,8 @@ fn frame(
         // Whether a machine went down this frame: what experience that
         // came in with it was for (feature 107).
         let mut machines_down = false;
+        // The fight's tally, started afresh with a new mission.
+        screen.fight.follow(&game.world);
         for event in game.events.drain(..) {
             machines_down |= matches!(event, WorldEvent::DroidDown { .. });
             // One of the Manufacturers dead is said as one (feature 109):
@@ -1219,6 +1226,7 @@ fn frame(
                     .is_some_and(|r| r.aboard.room.is_manufacturer(who as usize)),
                 _ => false,
             };
+            screen.fight.note(&event, theirs);
             if theirs {
                 screen.log.push(crate::names::MANUFACTURER_DOWN.to_string());
             } else if let Some(line) = event_line(event) {
@@ -2336,6 +2344,16 @@ fn frame(
     // And a relic being chosen (feature 106): the reward screen after a
     // site cleared, over the map, or a cache's in the mission.
     super::worldmap::relic_window(&ctx, world, local, &mut orders, &crew_name);
+    // And the end of a fight: the site of this mission just cleared, with
+    // what the fight earned and the way back to the ship.
+    super::fightwon::fight_won_window(
+        &ctx,
+        &mut screen.fight,
+        world,
+        local,
+        &mut orders,
+        &crew_name,
+    );
     // And the trader the crew are at (task 114): the whole visit is on the
     // map, and the Armory panel may be up beside it.
     super::worldmap::trader_window(&ctx, world, local, &mut orders, &crew_name);

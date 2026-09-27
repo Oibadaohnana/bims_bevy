@@ -1501,6 +1501,21 @@ Things about that which are easy to get wrong:
   sheet up, **`BIMS_TRAY=squad`** with that panel open, and
   **`BIMS_OUT=1`** lays the HUD out as if the player's own Bim were out
   without touching the world (a Bim out in a game of one is a run lost).
+- **A fight won has a screen of its own** (`screens/fightwon.rs`): a
+  modal the frame the site of the mission is cleared (`Run::fought` and
+  `Run::cleared_here`, neither won nor lost, no departure check asking) —
+  machines destroyed, the Manufacturers down, the bounty paid, the pool,
+  each player's experience and levels, the bots' together, the relics
+  kept, the townsfolk joined and the crew lost — with *Back to ship*
+  (the bottom-right button's own `Order::ReturnToShip`) and *Stay here*.
+  The world keeps no per-mission numbers, so `FightTally` notes the
+  run's totals and every crew member's experience the first frame of a
+  mission and adds the bounty and the relics up off the events. What
+  follows is the game's own flow: the relic reward on the map, then the
+  map. `BIMS_DROID_WAVE=2 BIMS_DROID_WAVES=1 BIMS_KEYS="40:F,80:4"
+  BIMS_POINTER="45:move:1250,420;47:click:1250,420"
+  BIMS_SMOKE_FRAMES=1500 bims droids` is the crew sent in and the
+  screen up.
 - **One frame is one system per screen**, in `EguiPrimaryContextPass`:
   step the simulation, lay the panels out, read the pointer, paint the
   shapes, put the words on top. `Screen` in `main.rs` is the state machine

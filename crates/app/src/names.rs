@@ -2146,6 +2146,38 @@ pub const CACHE_INTRO: &str =
 pub const TAKE_NONE: &str = "Take none";
 pub const ACCEPT: &str = "Accept";
 pub const FOR_BIM: &str = "For";
+/// The end of a fight (`screens::fightwon`): up in the mission the moment
+/// the site is cleared, with what the fight earned.
+pub const FIGHT_WON_TITLE: &str = "Fight won";
+pub const FIGHT_WON_CLEARED: &str =
+    "The last of the enemy here is down. The site stays cleared, and the bounty is in the pool.";
+pub const FIGHT_WON_HELD: &str =
+    "The site is held against the machines, and the bounty is in the pool.";
+pub const FIGHT_WON_MACHINES: &str = "Machines destroyed";
+pub const FIGHT_WON_PEOPLE: &str = "Manufacturers down";
+pub const FIGHT_WON_BOUNTY: &str = "Bounty paid";
+pub const FIGHT_WON_POOL: &str = "The pool";
+pub const FIGHT_WON_BOTS: &str = "The rest of the crew";
+pub const FIGHT_WON_RELIC: &str = "Relic kept";
+pub const FIGHT_WON_JOINED: &str = "Townsfolk joined";
+pub const FIGHT_WON_LOST: &str = "Crew lost";
+pub const FIGHT_WON_NEXT: &str = "Back aboard, the crew choose a relic of the site's tier together, then where to go next on the map. Stay, and the button at the bottom right takes you back when you are done here.";
+pub const FIGHT_WON_STAY: &str = "Stay here";
+
+/// A player's Bim's experience from the fight, and the levels it rose.
+pub fn fight_won_xp(xp: u32, from: u8, to: u8) -> String {
+    if to > from {
+        format!("+{xp} xp · level {from} to {to}")
+    } else {
+        format!("+{xp} xp")
+    }
+}
+
+/// The bots' experience from the fight, added up.
+pub fn fight_won_bots_xp(xp: u32) -> String {
+    format!("+{xp} xp")
+}
+
 pub const VICTORY_TITLE: &str = "The run is won";
 pub const VICTORY_UNLOCKED: &str = "Unlocked for your next runs:";
 pub const VICTORY_NOTHING_NEW: &str = "Every relic is unlocked already.";
