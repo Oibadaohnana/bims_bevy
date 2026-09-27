@@ -3789,7 +3789,10 @@ worked damage a second.
   muzzle to the head, the thickest core there is (`RAIL_*`), a
   `Light::Pierce` ring at every body it strikes and a `Light::Rail` linger
   after it lands or is spent (`RAIL_LINGER`); `MUZZLE_MINIGUN`,
-  `MUZZLE_LANCE`. In the hands (`character::draw_gun`) the minigun is a
+  `MUZZLE_LANCE`. **Every heat of the lance is `fx::LANCE_COOLING` (1.6)
+  under another gun's** — the bolt and its head in `Combat::draw`, and
+  every flare it makes (`Fx::flare` takes it off the tier's heat) — since
+  a line that long and thick at tier three's heat bloomed the deck white. In the hands (`character::draw_gun`) the minigun is a
   receiver with a drum and three barrels, the lance a stock and two rails
   with coils across them — the longest reach of any gun.
 

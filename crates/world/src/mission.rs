@@ -889,6 +889,27 @@ impl World {
         if !again {
             events.push(WorldEvent::Returning { slot });
         }
+        self.walk_the_player_home(slot);
+    }
+
+    /// The player's own Bim sent walking to the deck just inside the
+    /// ship's airlock, where the bots' recall gathers — every press of
+    /// *Back to ship*, so a player who wandered off and presses again is
+    /// walked home again. Not one already inside the ship, and not one
+    /// out cold; any order the player gives afterwards takes over.
+    fn walk_the_player_home(&mut self, slot: u32) {
+        let who = slot as usize;
+        if slot >= self.aboard.crew_count()
+            || self.inside_ship(slot)
+            || self.aboard.room.is_down(who)
+        {
+            return;
+        }
+        let at = match self.aboard.gangway {
+            Some(at) => bims::math::vec2(at.x as f32, at.y as f32),
+            None => self.aboard.room.fall_back_point(),
+        };
+        self.aboard.room.walk_to(who, at);
     }
 
     /// A player's answer to the departure check — see

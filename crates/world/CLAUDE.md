@@ -4335,7 +4335,11 @@ had since feature 104.
 
 **The end of a mission.** `press_return`: `returning` set, `recalled` on —
 which `hand_the_room_the_standing` hands every slot as `Retreat` — and a
-press by one already returning clears a `Declined` departure.
+press by one already returning clears a `Declined` departure. **Every
+press walks the player's own Bim home as well** (`walk_the_player_home`:
+`Game::walk_to` the `gangway`, no post, so the player's next order takes
+over), unless it is already `inside_ship` or down; the bots' `Retreat`
+never reaches a Bim a player steers.
 `settle_departure` waits for every **waited-for** player (`waited_for`:
 connected, not out, alive, not `is_down`) to be returning and
 `inside_ship` (`Aboard::on_ship` against the ship's own design), and at

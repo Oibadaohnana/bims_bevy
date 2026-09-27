@@ -60,6 +60,12 @@ pub const CORE_HEAT: f32 = 2.4;
 /// brighter, never another colour.
 pub const TIER_WIDTH: f32 = 0.15;
 pub const TIER_HEAT: f32 = 0.35;
+/// How much cooler than any other gun's the rail lance's light is drawn,
+/// taken off every heat it has — its bolt, its line, its muzzle, where it
+/// went through a body and where it stopped. Its line is the thickest
+/// core there is and runs from the muzzle to the end, and at a bolt's
+/// heat — tier three's on top — the bloom off it washed the deck out.
+pub const LANCE_COOLING: f32 = 1.6;
 
 // --- the muzzle ----------------------------------------------------------------
 
@@ -379,6 +385,11 @@ impl Fx {
             return;
         }
         let (width, heat) = tier_look(weapon.tier);
+        let heat = if weapon.kind == WeaponKind::RailLance {
+            heat - LANCE_COOLING
+        } else {
+            heat
+        };
         let seq = self.next();
         capped(
             &mut self.flares,

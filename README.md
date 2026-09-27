@@ -161,7 +161,8 @@ there is no helm to stand at and no trip to sit through.
   **cleared**: no machine left there and none still to come. Then it is
   paid into the pool, once. Experience is always yours.
 - **Back to ship**, at the bottom right. The first press sends every bot
-  back to the ship. When every player still on their feet has pressed
+  back to the ship, and every press walks your own Bim there too (click
+  the deck to go somewhere else instead). When every player still on their feet has pressed
   it and is aboard, the ship leaves — asking first if anybody would be
   left outside: every player gets *Leave them behind?*, and it takes
   everybody's yes; one no keeps the ship where it is, the presses

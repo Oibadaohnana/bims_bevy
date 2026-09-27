@@ -3217,10 +3217,14 @@ impl Combat {
                         RAIL_GLOW * w,
                         RAIL_CORE * w,
                         hostile,
-                        heat + 0.4,
+                        heat + 0.4 - fx::LANCE_COOLING,
                         1.0,
                     );
-                    list.circle(head, RAIL_HEAD * w, fx::hot(hostile, heat + 0.6));
+                    list.circle(
+                        head,
+                        RAIL_HEAD * w,
+                        fx::hot(hostile, heat + 0.6 - fx::LANCE_COOLING),
+                    );
                 }
                 // The Unmaker's bolt (feature 83): a long crackling line
                 // rather than a clean one — a straight core with the

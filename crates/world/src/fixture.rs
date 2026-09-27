@@ -151,7 +151,12 @@ pub const REFERENCE_STEPS: u32 = 600;
 /// end is a defence too, its room opened with its defenders; and no
 /// mining outpost is built, so the galaxy's stations are others. Was
 /// `0x_7135_e4b4_5415_2e9f`.
-pub const REFERENCE_CHECKSUM: u64 = 0x_36d8_8939_97a9_819b;
+/// And for *Back to ship* walking the player's own Bim home
+/// (`World::walk_the_player_home`), **a change meant to alter how a run
+/// plays**: the scenario presses it with both players ashore, so they set
+/// off for the gangway the step it is pressed rather than the step after,
+/// when `walk_the_players_aboard` sends them. Was `0x_36d8_8939_97a9_819b`.
+pub const REFERENCE_CHECKSUM: u64 = 0x_86d1_6b33_0409_b543;
 
 /// A world with the flyable fixture docked at the simulation's spawn: the
 /// default seed's first dock, which is where every fixture world starts.

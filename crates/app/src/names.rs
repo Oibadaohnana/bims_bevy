@@ -2336,7 +2336,7 @@ pub fn out_line() -> String {
     )
 }
 pub const BACK_TO_SHIP: &str = "Back to ship";
-pub const BACK_TO_SHIP_TIP: &str = "Say you are done here. The first press sends every bot back to the ship. The ship leaves once every player still on their feet has pressed it and is aboard: anybody outside then is left behind, and dead for it, if everybody agrees. Leave before the place is cleared and it is put back as you found it — the bounty is lost, the experience is kept.";
+pub const BACK_TO_SHIP_TIP: &str = "Say you are done here. The first press sends every bot back to the ship, and every press walks your own Bim there too. The ship leaves once every player still on their feet has pressed it and is aboard: anybody outside then is left behind, and dead for it, if everybody agrees. Leave before the place is cleared and it is put back as you found it — the bounty is lost, the experience is kept.";
 /// *Back to ship* pressed (feature 107's words for feature 103's count):
 /// the players aboard who have pressed it, of the players the ship waits
 /// for — `World::returning_count`, the departure check's own rule.

@@ -561,6 +561,30 @@ fn ashore(world: &mut World, who: usize) {
         .put_for_probe(who, bims::math::vec2(at.x as f32, at.y as f32));
 }
 
+/// *Back to ship* walks the player's own Bim home as it does the bots:
+/// the one who pressed it out on the station's deck is aboard a while
+/// later without another order, and the ship leaves with it.
+#[test]
+fn back_to_ship_walks_the_player_s_own_bim_home() {
+    let mut world = crewed_world(playtest_ship(), REFERENCE_MONEY, 1, 1);
+    world.step(&[]);
+    ashore(&mut world, 0);
+    world.step(&[]);
+    assert!(!world.inside_ship(0), "ashore");
+    world.step(&[Command::Return { slot: 0 }]);
+    for _ in 0..3000 {
+        if !world.in_mission() {
+            break;
+        }
+        world.step(&[]);
+    }
+    assert!(
+        !world.in_mission(),
+        "the player walked home and the ship left"
+    );
+    assert!(world.aboard.room.is_alive(0), "not left behind");
+}
+
 /// **The departure check** waits for every player on their feet to have
 /// pressed *Back to ship* and to be aboard — not for one who is down —
 /// lists everybody alive outside the ship, and goes only on every
