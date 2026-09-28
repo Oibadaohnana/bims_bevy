@@ -446,6 +446,9 @@ const PING_ATTACK: Color = Color::rgb(1.0, 0.24, 0.18);
 /// room units: most of a tile each side down to a body's width.
 const PING_OUTER: f32 = 44.0;
 const PING_INNER: f32 = 12.0;
+/// An arrow's shaft and the barbs of its head, in room units.
+const PING_SHAFT: f32 = 20.0;
+const PING_BARB: f32 = 12.0;
 /// An attack-move is over this close to where it was bound, in tiles.
 const ATTACK_MOVE_THERE: f32 = 1.0;
 
@@ -6050,8 +6053,13 @@ impl Game {
             if m.bad {
                 let size = vec2(30.0, 4.0);
                 for turn in [0.7, -0.7] {
-                    self.list
-                        .rect(at, size + vec2(3.0, 3.0), turn, 2.0, SHADE.alpha(0.5 * fade));
+                    self.list.rect(
+                        at,
+                        size + vec2(3.0, 3.0),
+                        turn,
+                        2.0,
+                        SHADE.alpha(0.5 * fade),
+                    );
                     self.list.rect(at, size, turn, 2.0, WARN.alpha(0.95 * fade));
                 }
                 self.list
@@ -6072,18 +6080,23 @@ impl Game {
                 .ring(at, 2.0 * (r + 6.0), 1.8, colour.alpha(0.55 * fade));
             self.list.circle(at, 9.0, SHADE.alpha(0.45 * fade));
             self.list.circle(at, 6.0, lit.alpha(fade));
-            // The arrows: a chevron at each corner, its point at the
-            // spot-side, its arms swept back out.
-            let (arm_c, arm_s) = (0.64_f32, 0.77_f32);
+            // The arrows: one from each corner, its head on the spot's
+            // side and its shaft back out, the head's barbs swept back.
+            let (arm_c, arm_s) = (0.82_f32, 0.57_f32);
             for (dx, dy) in [(1.0, 1.0), (-1.0, 1.0), (-1.0, -1.0), (1.0, -1.0)] {
                 let out = vec2(dx, dy) * std::f32::consts::FRAC_1_SQRT_2;
                 let tip = at + out * r;
+                let mut strokes = vec![(tip, tip + out * PING_SHAFT)];
                 for side in [1.0, -1.0] {
                     let s = arm_s * side;
                     let arm = vec2(out.x * arm_c - out.y * s, out.x * s + out.y * arm_c);
-                    let end = tip + arm * 14.0;
-                    self.list.line(tip, end, 7.0, SHADE.alpha(0.45 * fade));
-                    self.list.line(tip, end, 4.0, lit.alpha(fade));
+                    strokes.push((tip, tip + arm * PING_BARB));
+                }
+                for &(from, to) in &strokes {
+                    self.list.line(from, to, 7.5, SHADE.alpha(0.45 * fade));
+                }
+                for &(from, to) in &strokes {
+                    self.list.line(from, to, 4.0, lit.alpha(fade));
                 }
             }
             // And an attack-move's cross-hair through the spot, so the red
@@ -11851,7 +11864,10 @@ mod tests {
             game.simulate(DT);
         }
         assert!(game.is_alarmed() && game.is_mustered());
-        assert!(!game.is_selected(1, 0), "a bot's pick let go as they take arms");
+        assert!(
+            !game.is_selected(1, 0),
+            "a bot's pick let go as they take arms"
+        );
         game.drag_begin(0.0, 0.0);
         game.drag_end(0, ROOM_W, ROOM_H);
         assert_eq!(game.selected_all(0), vec![0]);
@@ -11863,7 +11879,10 @@ mod tests {
         let c = vec2(ROOM_W * 0.45, ROOM_H * 0.3);
         assert_eq!(game.order_move(0, c.x, c.y), ORDER_MOVING);
         assert!((game.destination_for_probe(0).unwrap() - c).len() < TILE);
-        assert!(game.bims[1].character.post().is_none(), "Kate holds no spot");
+        assert!(
+            game.bims[1].character.post().is_none(),
+            "Kate holds no spot"
+        );
         // The drag's line is drawn for the one it would move.
         game.order_drag_begin(a.x, a.y);
         game.order_drag_update(b.x, b.y);
@@ -11955,7 +11974,8 @@ mod tests {
         // Kate unarmed: under the alarm she would fire at the target too.
         game.issue(1, Gear::default());
         let spot = vec2(ROOM_W * 0.75, ROOM_H * 0.5);
-        assert_eq!(game.order(0, crate::order::CrewOrder::AttackMove { x: spot.x, y: spot.y }), ORDER_MOVING);
+        let attack_move = |at: Vec2| crate::order::CrewOrder::AttackMove { x: at.x, y: at.y };
+        assert_eq!(game.order(0, attack_move(spot)), ORDER_MOVING);
         assert!(game.attack_move_of(0).is_some());
         assert!(game.is_recruited(0), "under arms for it");
         // Nothing to shoot yet: it walks.
@@ -11989,7 +12009,7 @@ mod tests {
         assert!((game.bim_pos(0) - spot).len() < 1.5 * TILE, "walked on");
         assert!(game.attack_move_of(0).is_none(), "and the order is over");
         // A plain walk calls one under way off.
-        assert_eq!(game.order(0, crate::order::CrewOrder::AttackMove { x: james.x, y: james.y }), ORDER_MOVING);
+        assert_eq!(game.order(0, attack_move(james)), ORDER_MOVING);
         assert!(game.attack_move_of(0).is_some());
         assert_eq!(game.order_move(0, spot.x, spot.y), ORDER_MOVING);
         assert!(game.attack_move_of(0).is_none());

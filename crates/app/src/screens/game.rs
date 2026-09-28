@@ -4885,7 +4885,7 @@ mod class_key_tests {
                     named,
                     vec!["Rally", "Squad", names::FALL_BACK, names::STAND_GROUND]
                 );
-                assert_eq!(boxes[2].key, "X");
+                assert_eq!(boxes[2].key, "T");
                 assert_eq!(boxes[3].key, "Z");
                 // All four say how many of the squad they reach.
                 assert!(boxes[1..].iter().all(|b| b.count.is_some()));

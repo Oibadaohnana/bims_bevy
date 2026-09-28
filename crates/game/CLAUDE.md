@@ -1271,14 +1271,12 @@ prints the curves itself.
   since one inside the wall the player stands against is nobody's), walked
   to on its own `plan_wait` clock when it is more than `GATHER_SLACK` off
   it, not a post, so the ring moves with the player. It shoots what it
-  sees from there like any recruited body. **And the crew take orders,
-  but only then**: `order_move` acts on whichever Bim is selected — the
-  player's own always, a crewmate only while `alarm` is up
-  (`order_move_for` is the old body with `who` for `PLAYER`) — and a
-  crewmate ordered somewhere gets a **post** at the spot, which is what
-  keeps the gathering and the tactics off it; `muster_crew` clears every
-  crewmate's post on both edges of the alarm, so the order lasts as long
-  as the alarm. Going down they are let go and the queue picks their
+  sees from there like any recruited body. **The crew took right-click
+  orders then** — a crewmate selected under the alarm went where it was
+  sent and held a post there — **and no longer do**: a right-click is the
+  player's own Bim's alone and a bot cannot be selected under arms
+  ("Selecting is not commanding"). `muster_crew` still clears every
+  crewmate's post on both edges of the alarm. Going down they are let go and the queue picks their
   errands up. The player's own Bim is never touched: recruiting it is the
   player's (`toggle_recruited`), and a hired mercenary is a bot like any
   other. Consequences for tests: in a fight every crew member takes arms,
@@ -1287,8 +1285,8 @@ prints the curves itself.
   the bandage-holsters and the shoot-on-the-move tests in `game::tests`,
   the sniper's long shot in the world's. `the_crew_take_arms_when_an_enemy_comes_within_range_and_stand_down_after`
   pins the range, the pack, the stand-down and the hold;
-  `under_the_alarm_the_crew_gather_round_the_player_and_take_orders` the
-  ring, the following, the order and its post. The header says
+  `under_the_alarm_the_crew_gather_round_the_player_and_a_click_moves_him_alone` the
+  ring and the following. The header says
   `ALARM_STATUS` while it is up. **Both musters are
   on an edge, and a room is thrown away at every dock and undock**, so
   `take_crew` stands the war and the **muster** down first: a body

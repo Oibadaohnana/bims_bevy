@@ -3289,9 +3289,10 @@ the ship is a last stand no order takes anybody out of. The world does
 not decide any of that, because the room is what knows where everybody
 is standing.
 
-The app's half: `keys::Action::{Attack (F), Retreat (T)}` — which is
+The app's half: `keys::Action::{Attack (X), Retreat (Y)}` — F and T until the
+attack-move took F (`Action::AttackMove`, the player's own Bim), which is
 what moved the camera's Follow onto V — `screens::game::orders_key` and
-`screens::game::attack_key` (which is what makes F over a banner a
+`screens::game::attack_key` (which is what makes X over a banner a
 release rather than a second banner), the
 armed red pointer (`attack_cursor`), `theme::attack_banner` and
 `theme::defend_banner` on the deck. `tests_standing.rs` is the rule: the

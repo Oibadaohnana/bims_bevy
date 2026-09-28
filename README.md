@@ -51,8 +51,8 @@ What a run is, from the lobby to the end of it.
   everybody else aboard is a **bot**: a mercenary hired at a station, or a
   townsperson who joined the crew once their town was held. A bot follows
   the players, takes arms when an enemy is near, dresses a crewmate's
-  wounds and answers the two orders every player has — **F** puts an
-  attack banner down for it to fight its way to, **T** calls it back to
+  wounds and answers the two orders every player has — **X** puts an
+  attack banner down for it to fight its way to, **Y** calls it back to
   the ship. Each player picks a **class** for their own Bim — engineer,
   soldier, medic, tank or commander, or none — and it levels up in the
   fight; see [Classes and levels](#classes-and-levels).
@@ -2583,11 +2583,10 @@ body on the same clock, and nothing in the simulation tells them apart but
 an index and whether anybody is steering it. The one asymmetry is the
 player: **every order you give goes to the Bim you steer**. Selection, the
 right-click move order, recruiting, and every row on every menu act on it
-and only it — with the exceptions a fight makes: while the alarm is up a
-crewmate you click takes your move orders too (see [Combat mode, and the
-inventory](#combat-mode-and-the-inventory)), **F** and **T** are orders to
-every bot that follows you, and a commander's squad orders move the bots
-nobody steers (*The commander*).
+and only it: a right-click moves the Bim you steer whoever is selected,
+and in a fight a bot cannot even be selected. The bots take orders two
+ways only — **X** and **Y** are orders to every bot that follows you, and
+a commander's squad orders move the bots nobody steers (*The commander*).
 
 A Bim's name, coverall and hair are the app's business and the drawing's; the
 simulation knows crew member 0 and crew member 1. No strings come out of the
@@ -2604,9 +2603,9 @@ Bim, which is picked from the start, has no panel there: it is the hero
 panel's and the character sheet's (feature 107).
 
 **Selecting is looking at, not taking charge of.** Any of them can be
-picked; in peace only your own takes your orders. Click a crewmate,
-right-click the floor, and nothing happens — which is the same answer as
-before, arrived at more visibly.
+picked in peace, and only your own ever takes a right-click. Click a
+crewmate, right-click the floor, and your own Bim goes — whoever is
+selected. In a fight a bot cannot be picked at all.
 
 The sheet is tabbed the way the tray at the bottom left is, because it is the
 same kind of thing: pages of detail you open when you want them rather than a
@@ -2676,13 +2675,15 @@ overlapping is allowed the whole apparatus has nothing left to do.
 | `1` | Select the Bim you steer (control group 1) |
 | `r` | Recruit it, or let it go — see below |
 | `q` / `e` | The steered crew member's **class actions**: an engineer **sets up a sentry** / **lays sandbags** on the deck tile under the pointer, out of a charge in its pack; a soldier **throws a grenade** at it (hold `q` to see the burst's radius) / **braces** where it stands, or stands easy; a medic **triggers its surge** / **beams the crew member under the pointer**, and unlinks when pressed on the one it holds or on nobody; a tank **taunts** / **puts its wall up**, or takes it down — see [Classes and levels](#classes-and-levels). The log says why not; nothing with a classless crew member |
-| `f` | **Attack**: the pointer turns into a red crosshair, and the next click on the deck plants an **attack banner** there. The crew nobody steers fight their way to it — taking the cover on the way, pushing on when nothing is in range — and hold it. `f` again, `Esc` or a right-click puts the crosshair away; the banner clicked where it already stands calls it off |
-| `t` | **Retreat**: the crew nobody steers fall back to the ship and hold there. `t` again and they go back to keeping to your side. Nobody leaves a fight *aboard* the ship — cornered in your own hull they stand and shoot whatever they were told |
+| `f` | **Attack-move**: the pointer turns into a red crosshair, and the next click on the deck sends the Bim you steer there with its weapon out. It stops to shoot whatever comes into its sights on the way and walks on once nothing is left — Dota's attack-move. `f` again, `Esc` or a right-click puts the crosshair away |
+| `x` | **Attack**: the pointer turns into a red crosshair, and the next click on the deck plants an **attack banner** there. The crew nobody steers fight their way to it — taking the cover on the way, pushing on when nothing is in range — and hold it. `x` again, `Esc` or a right-click puts the crosshair away; the banner clicked where it already stands calls it off |
+| `y` | **Retreat**: the crew nobody steers fall back to the ship and hold there. `y` again and they go back to keeping to your side. Nobody leaves a fight *aboard* the ship — cornered in your own hull they stand and shoot whatever they were told |
 | `m` | The world map; during a mission it is only looked at |
 | Drag a box over one | Select it. Selecting shows its crew sheet |
 | Click one | Select it — a click is just a box of no size. Only the Bim you steer takes your orders |
 | Click empty floor / `Esc` | Deselect — the right-hand panels go with it. `Esc` first shuts whatever is up, innermost first: a cell's rows, a menu, a grid window |
-| Right-click the floor | Send the selection there — opens a door on the way if it must |
+| Drag a box / click, in a fight | Only your own Bim is picked: a bot cannot be selected while the crew are under arms |
+| Right-click the floor | Send the Bim you steer there, whoever is selected — opens a door on the way if it must. The spot is pinged with green arrows closing on it (red for an attack-move, a cross where it cannot go) |
 | **Shift** with a right-click, a right-drag or a menu row | The order **waits its turn** behind what the Bim is on and whatever was queued before it, the way RimWorld queues them (feature 69): the queued walks are drawn on the deck as a dashed thread with a pip at each spot, and the rest show on the agenda. A plain order afterwards calls the queue off. What cannot be begun when its turn comes — a bandage with no dressing left to wind — is dropped without a word; a walk with nowhere to go is refused at the click |
 | Tray, bottom left | **Work** — which jobs come first; **Management** — what the crew keep doing of their own accord; **Inventory**, **Research** and **Skills**; on the ship, **Build** — lay parts out for the crew to build, where the shipyard is on |
 | Point at anything | Top left says what it is |
@@ -2918,14 +2919,15 @@ keep to as you move, shooting whatever they can see from there. Only
 when one of them **sees an enemy for itself** does it go and fight for
 itself — walking to cover within range, peeking round it — so a squad
 does not charge in headfirst after something only the log knows about.
-**And while the alarm is up you can order them**: click a crewmate to
-select it and right-click the deck, the way you send your own; it goes
-and holds that spot, shooting from it, until the alarm is over. In peace
-a crewmate takes no orders, as before. **A commander's squad orders sit
-beside that and never replace it**: they command the crew nobody is
+**A click never orders them**: a right-click moves the Bim you steer and
+nobody else, and while the crew are under arms a bot cannot be selected
+at all, so a click in a fight is aimed at the fight. What moves them is
+your two orders (**X**, the attack banner, and **Y**, back to the ship)
+and **a commander's squad orders**: they command the crew nobody is
 steering — attack, fall back, stand ground — and never move, hold or aim
-a Bim a player steers; a player's own click order to one of the squad
-takes that one out of the order until the next. The alarm lasts until
+a Bim a player steers. **F is your own attack-move**: then a click, and
+the Bim you steer walks there with its weapon out, stops to shoot what
+comes into its sights and walks on once nothing is left. The alarm lasts until
 nobody is near, nobody has seen an enemy and nobody has been hit for half
 a minute, when they go back to their work, however many machines are
 still standing somewhere on the station. (A crew member that bled past
