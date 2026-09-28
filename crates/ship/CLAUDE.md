@@ -213,9 +213,12 @@ stopped at and filed with the system when it jumps out
 chart rings a visited *star* in the same grey (`lobby::preview`), so the
 two maps agree about the colour the way they agree about the enemy's red.
 Out of the window
-(`stations`) a hostile station's far plate — the black `HULL_UNKNOWN` fog
-plate every stranger's is — gets a wash of the same red at `ENEMY_TINT`
-under its icon; a neutral stranger's stays black. `ENEMY` is the lobby's
+(`stations`) a hostile station's far plate — the dark `HULL_UNKNOWN`
+plate every stranger's is beyond the residents' range — gets a wash of
+the same red at `ENEMY_TINT` under its icon; a neutral stranger's stays
+dark. Within the range a station is drawn from its room, its structure
+under the one fog whoever's it is (task 128, `crates/game/CLAUDE.md`):
+nothing on a station is black any more but that far plate. `ENEMY` is the lobby's
 `lobby::draw::ENEMY` by value, not by import (`ship` does not depend on
 `lobby`): the player learnt the colour on the system diagram before they
 launched, and it has to be the same colour here. Change one, change both.
@@ -712,8 +715,8 @@ rim, `PAD_MARGIN` past the hull); and `stations` draws the settlement
 alone — chained onto `World::stations`, since it is not in it, through
 `World::station(id)` — and nothing in orbit, because from the ground
 nothing in orbit is in the picture. The settlement is a station to every
-other line of `stations`: its residents' room, its mated gate, its fog by
-stance.
+other line of `stations`: its residents' room, its mated gate, and the
+one fog over it.
 
 **There is no descent any more.** A landing was the planet's disc
 growing under the ship (`LANDING_GROWTH` to the power of the progress,
@@ -827,9 +830,10 @@ Three things about it that are easy to get wrong:
   fields, the lamps' boxes, the views) and a surface's lazily built
   settlement, all of which `render`, `light_map` and `Surface::station`
   rebuild from what *is* saved. Those pictures were 25 MB of a 39 MB
-  file. The two big flag grids that are state — the nav's blocked cells
-  and the sight's explored pixels — go as a string of noughts and ones
-  (`bims::math::bools`), a fifth of `true,false,`. A save is ~7 MB now
+  file. The big flag grid that is state — the nav's blocked cells — goes
+  as a string of noughts and ones (`bims::math::bools`), a fifth of
+  `true,false,`; the sight's explored pixels went that way too until
+  task 128 took the explored memory out of the game. A save is ~7 MB now
   and reads back in a quarter of a second.
 - **`a_game_saved_and_read_back_is_the_same_game`** is the test, and it
   compares three things: `world.checksum()`, every crew member's position

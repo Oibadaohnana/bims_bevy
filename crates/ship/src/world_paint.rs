@@ -1578,12 +1578,12 @@ fn stations_in_view(game: &Game) -> Vec<(&world::Station, bool)> {
         if clearance > world::data::STATION_VISIBLE {
             continue;
         }
-        // Somebody else's station is under a black fog until the crew
-        // have looked into it — see `bims::sight` — and its room, which
-        // draws that fog, is only open within the residents' range. Out
-        // to there it stays the plate it was from further off: a shape
-        // and a kind, and nothing of what is inside. The crew's own is
-        // its hull from the local frame in, as before.
+        // Somebody else's station is drawn from its room — its
+        // structure under the one fog, nobody in it, see `bims::sight` —
+        // and its room is only open within the residents' range. Out to
+        // there it stays the plate it was from further off: a shape and a
+        // kind, and nothing of what is inside. The crew's own is its hull
+        // from the local frame in, as before.
         let lived_in = game
             .world
             .residents
@@ -1841,12 +1841,12 @@ fn stations(
             .as_ref()
             .filter(|r| r.station == station.id);
 
-        // Somebody else's station is under a black fog until the crew
-        // have looked into it — see `bims::sight` — and its room, which
-        // draws that fog, is only open within the residents' range. Out
-        // to there it stays the plate it was from further off: a shape
-        // and a kind, and nothing of what is inside. The crew's own is
-        // its hull from the local frame in, as before.
+        // Somebody else's station is drawn from its room — its
+        // structure under the one fog, nobody in it, see `bims::sight` —
+        // and its room is only open within the residents' range. Out to
+        // there it stays the plate it was from further off: a shape and a
+        // kind, and nothing of what is inside. The crew's own is its hull
+        // from the local frame in, as before.
         let stance = game.world.stance(station.id);
         let stranger = stance != Stance::Friendly;
         if !whole {

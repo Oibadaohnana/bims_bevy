@@ -28,36 +28,27 @@
 //! asks it for one body and one target — a shot is fired from whichever
 //! eye saw the enemy, so a peeking Bim shoots from the peek.
 //!
-//! # Whose the tiles are
+//! # One fog over the whole map
 //!
-//! Every tile has a [`Stance`]: the crew's own ship is friendly, and a
-//! station's tiles are whatever the world says the station is. What the
-//! fog looks like over an unseen tile follows from that. A friendly
-//! structure is under a **semi** fog — the deck stays readable, since the
-//! crew know their own ship — while a neutral or hostile one is **black**
-//! where no line of sight has ever reached, and **grey** where one has
-//! and none does now: the structure shows there and no body does. The
-//! grey is what has been looked at, and only that — a wall is seen from
-//! the room it walls, the way the trace works, so a room's outline comes
-//! in as its inside is looked at and nothing behind a bulkhead shows
-//! until somebody has seen past it. The grey stays once earned: what has
-//! been looked at is known, and only who is standing there is forgotten.
+//! The fog is Dota's (task 128): the whole of a structure — the crew's
+//! own ship, a friendly station, a stranger's, a hostile one, a town —
+//! is always drawn, and every fogged pixel nobody sees is under the one
+//! fog, [`MAP_FOG`], whether or not anybody has ever looked at it. There
+//! is no black and no memory of what has been looked at. What the fog
+//! hides is **who is standing there**: a body not the crew's is drawn
+//! only in sight (`Game::body_seen`), and what the crew see is brighter
+//! than the fog — nought over a lit pixel, the dark's shade over an unlit
+//! one, both under the fog's.
 
 use crate::draw::{Color, DrawList};
 use crate::math::{Rect, Vec2, vec2};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU8, AtomicU64, Ordering};
 
-/// The fog over what nobody sees of a friendly structure: the deck under
-/// it stays readable, since the ship is the crew's own and they know where
-/// the walls are, but whatever is standing there is not drawn.
-const FOG: Color = Color::rgba(0.02, 0.04, 0.03, 0.62);
-/// What has been looked at of somebody else's structure and is not in
-/// view now: the walls and the fixtures show through, and nobody standing
-/// among them does.
-const FOG_GREY: Color = Color::rgba(0.06, 0.07, 0.08, 0.80);
-/// The rest of somebody else's structure: nothing.
-const FOG_BLACK: Color = Color::rgba(0.0, 0.0, 0.0, 1.0);
+/// The fog over what nobody sees, on the tile grid (`Fog::All`): the deck
+/// under it stays readable, whoever's it is, but whatever is standing
+/// there is not drawn. The light map's is [`MAP_FOG`], the same alpha.
+const FOG: Color = Color::rgba(0.02, 0.04, 0.03, MAP_FOG);
 
 /// How far a Bim sees in the dark, in tiles: a tile a light does not reach
 /// is seen only from this close. Lit tiles are seen as far as the line is
@@ -168,11 +159,9 @@ fn noise(lamp: usize, slot: u32) -> f32 {
 /// diagonals included, and no further.
 pub const COVER_REACH: f32 = 1.5;
 
-/// How far an opaque fog rectangle reaches past its tiles on each side, in
-/// room units, so that two meeting edge to edge show no seam.
-const OVERLAP: f32 = 2.0;
-
-/// Whose a structure is, to the crew. What the fog over it looks like.
+/// Whose a structure is, to the crew: the world's word, which decides
+/// whether its people are at war with the crew. The fog is the same over
+/// every stance (task 128).
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 #[repr(u32)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -201,9 +190,6 @@ struct Cell {
     /// The fog is drawn here when it is not seen: a tile of the hull, or
     /// anywhere inside a bare room's box.
     fogged: bool,
-    /// Somebody else's: a station's tile on a joined deck, under the
-    /// foreign stance rather than the room's own.
-    foreign: bool,
     /// Low cover: sandbags, seen and walked over, that a body close
     /// behind ducks under — see `Sight::covered`.
     cover: bool,
@@ -240,15 +226,6 @@ impl Eye {
             Some(((bx, by), (dx, dy))) => (tile.0 - bx) * dx + (tile.1 - by) * dy >= 1,
         }
     }
-}
-
-/// How a fogged tile is drawn.
-#[derive(Clone, Copy, PartialEq, Eq)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-enum Veil {
-    Semi,
-    Grey,
-    Black,
 }
 
 /// What everybody aboard can see, put together. See the module note.
@@ -329,21 +306,12 @@ pub struct Sight {
     /// the lights have moved under its own views.
     #[cfg_attr(feature = "serde", serde(skip))]
     cells_version: u64,
-    /// Every pixel a line of sight has ever reached: the picture's grey
-    /// over a stranger's structure. A flag a pixel, so it goes into a
-    /// save as a string of noughts and ones (`math::bools`).
-    #[cfg_attr(feature = "serde", serde(with = "crate::math::bools"))]
-    explored_px: Vec<bool>,
     /// This sight's name to a host drawing its map (task 121), and what
     /// is kept for that host. Pictures, both, and out of a save.
     #[cfg_attr(feature = "serde", serde(skip))]
     picture: PictureId,
     #[cfg_attr(feature = "serde", serde(skip))]
     host: HostLight,
-    /// Whether each tile was ever seen: what has been looked at stays
-    /// known — the grey is the fog of war's "explored", and only the
-    /// bodies in it are forgotten.
-    explored: Vec<bool>,
     /// What the mask was last worked out from: the eyes' tiles and the
     /// shut doors. When these have not moved, neither has the mask.
     eyes_at: Vec<(i32, i32)>,
@@ -360,9 +328,6 @@ pub struct Sight {
     /// Whether anything has been traced yet. Until it has, nothing is
     /// seen, which is right for a room nobody is looking into.
     traced: bool,
-    /// Whose the room's own tiles are, and whose the foreign ones.
-    own: Stance,
-    foreign: Stance,
 }
 
 impl Sight {
@@ -398,24 +363,19 @@ impl Sight {
             views: Vec::new(),
             views_stale: true,
             cells_version: 0,
-            explored_px: Vec::new(),
             picture: PictureId::default(),
             host: HostLight::default(),
-            explored: vec![false; (columns * rows) as usize],
             eyes_at: Vec::new(),
             shut: Vec::new(),
             layout_cover: Vec::new(),
             laid_cover: Vec::new(),
             stale: false,
             traced: false,
-            own: Stance::Friendly,
-            foreign: Stance::Neutral,
         };
         let mut fixed = vec![
             Cell {
                 opaque: false,
                 fogged: fogged.is_empty(),
-                foreign: false,
                 cover: false,
                 soft: false,
             };
@@ -439,47 +399,6 @@ impl Sight {
         sight.cells = fixed.clone();
         sight.fixed = fixed;
         sight
-    }
-
-    /// Whose the room's own tiles are. A station's room is whatever the
-    /// station is; the ship's is the crew's.
-    pub fn set_stance(&mut self, stance: Stance) {
-        self.own = stance;
-        self.map_stale = true;
-    }
-
-    /// Which tiles are somebody else's — a station's on a joined deck,
-    /// by its box — and whose. `None` makes every tile the room's own.
-    pub fn set_foreign(&mut self, rect: Option<Rect>, stance: Stance) {
-        self.mark_foreign(rect, stance, false);
-    }
-
-    /// The other way about: every tile outside `rect` is somebody else's.
-    pub fn set_foreign_outside(&mut self, rect: Rect, stance: Stance) {
-        self.mark_foreign(Some(rect), stance, true);
-    }
-
-    fn mark_foreign(&mut self, rect: Option<Rect>, stance: Stance, outside: bool) {
-        self.foreign = stance;
-        self.map_stale = true;
-        for c in &mut self.fixed {
-            c.foreign = false;
-        }
-        if let Some(rect) = rect {
-            for y in 0..self.rows {
-                for x in 0..self.columns {
-                    if rect.contains(self.middle(x, y)) != outside {
-                        let i = self.index(x, y);
-                        self.fixed[i].foreign = true;
-                    }
-                }
-            }
-        }
-        // The trace's copy carries the doors; the flag is the same either
-        // way, so it is copied across rather than traced afresh.
-        for (c, f) in self.cells.iter_mut().zip(&self.fixed) {
-            c.foreign = f.foreign;
-        }
     }
 
     fn index(&self, x: i32, y: i32) -> usize {
@@ -1078,10 +997,6 @@ impl Sight {
                 }
             }
         }
-        // What has been seen stays known.
-        for (e, &s) in self.explored.iter_mut().zip(&self.seen) {
-            *e |= s;
-        }
         true
     }
 
@@ -1202,53 +1117,33 @@ impl Sight {
     }
 
     /// What is drawn over the tile a point is in, as of the last trace:
-    /// 0 nothing, 1 the semi fog of a friendly structure, 2 the grey ring
-    /// round what is seen of a stranger's, 3 the black beyond it. For the
-    /// probes.
+    /// 0 nothing, 1 the fog — the one veil there is, whoever's the tile
+    /// is and whether or not anybody has looked at it. For the probes.
     pub fn veil_at(&self, p: Vec2) -> u32 {
         let (x, y) = self.tile_of(p);
         if !self.inside(x, y) {
             return 0;
         }
-        match self.veil(self.index(x, y), false) {
-            None => 0,
-            Some(Veil::Semi) => 1,
-            Some(Veil::Grey) => 2,
-            Some(Veil::Black) => 3,
-        }
+        self.veiled(self.index(x, y), false) as u32
     }
 
-    /// How the fog over a tile is drawn, if it is: by whose the tile is,
-    /// and — for somebody else's — whether it has ever been seen. With
-    /// `all`, nothing is seen and nothing has been.
-    fn veil(&self, i: usize, all: bool) -> Option<Veil> {
-        let c = &self.cells[i];
-        if !c.fogged || (!all && self.seen[i]) {
-            return None;
-        }
-        let stance = if c.foreign { self.foreign } else { self.own };
-        Some(match stance {
-            Stance::Friendly => Veil::Semi,
-            _ if !all && self.explored[i] => Veil::Grey,
-            _ => Veil::Black,
-        })
+    /// Whether the fog is over a tile: fogged, and nobody sees it. With
+    /// `all`, nobody sees anything.
+    fn veiled(&self, i: usize, all: bool) -> bool {
+        self.cells[i].fogged && (all || !self.seen[i])
     }
 
     /// The fog on the tile grid, over every fogged tile nobody sees — or,
     /// with `all`, over every fogged tile, for a room nobody is looking
-    /// into. Through the crew's own eyes the picture is the [`LightMap`]'s
-    /// and this is not drawn. Each kind of veil is one pass: neighbouring
-    /// tiles are drawn as one rectangle wherever they can be, so the fog
-    /// is a few shapes rather than a thousand, and a run that matches the
-    /// run under it is one shape taller.
+    /// into: the one fog colour, whoever's the tiles are, so the
+    /// structure shows through and nobody standing in it is drawn.
+    /// Through the crew's own eyes the picture is the [`LightMap`]'s and
+    /// this is not drawn. Neighbouring tiles are drawn as one rectangle
+    /// wherever they can be, so the fog is a few shapes rather than a
+    /// thousand, and a run that matches the run under it is one shape
+    /// taller.
     pub fn draw(&self, list: &mut DrawList, all: bool) {
-        for (veil, colour) in [
-            (Veil::Semi, FOG),
-            (Veil::Grey, FOG_GREY),
-            (Veil::Black, FOG_BLACK),
-        ] {
-            self.draw_runs(list, colour, |i| self.veil(i, all) == Some(veil));
-        }
+        self.draw_runs(list, FOG, |i| self.veiled(i, all));
     }
 
     fn draw_runs(&self, list: &mut DrawList, colour: Color, fogged: impl Fn(usize) -> bool) {
@@ -1290,12 +1185,9 @@ impl Sight {
     fn fog_rect(&self, list: &mut DrawList, colour: Color, x0: i32, x1: i32, y0: i32, y1: i32) {
         let min = self.origin + vec2(x0 as f32 * self.tile, y0 as f32 * self.tile);
         let size = vec2((x1 - x0) as f32 * self.tile, (y1 - y0) as f32 * self.tile);
-        // An opaque rectangle overlaps its neighbours by a hair: every
-        // edge is feathered a pixel wide, and two black rectangles meeting
-        // edge to edge showed the seam as a lighter line. A translucent
-        // one may not, since the overlap would be twice as dark.
-        let grow = if colour.a >= 1.0 { OVERLAP } else { 0.0 };
-        list.rect(min + size * 0.5, size + vec2(grow, grow), 0.0, 0.0, colour);
+        // Edge to edge: the fog is translucent, and an overlap would be
+        // twice as dark along the seam.
+        list.rect(min + size * 0.5, size, 0.0, 0.0, colour);
     }
 
     pub fn tiles(&self) -> i32 {
@@ -1313,14 +1205,13 @@ pub const MAP_PX_PER_TILE: i32 = 8;
 /// sight range with room to spare, so nothing between them is missed —
 /// two thousand streaked at the far side of a landed room's box.
 pub(crate) const RAYS: u32 = 4096;
-/// The fog over what the crew do not see of their own deck.
-const MAP_FOG: f32 = 0.62;
-/// The fog over what they have looked at of a stranger's deck and do not
-/// see now: the structure shows through it, and no body does.
-pub(crate) const MAP_GREY: f32 = 0.80;
-/// The dark over what they see of it that no light reaches — deep enough
-/// that a lamp's pool reads against it, short of the fog so the deck
-/// stays readable.
+/// The fog over everything the crew do not see — their own deck, a
+/// stranger's, the plain — whether or not anybody has looked at it: the
+/// structure shows through it, and no body does (task 128).
+pub(crate) const MAP_FOG: f32 = 0.62;
+/// The dark over what they see that no light reaches — deep enough that
+/// a lamp's pool reads against it, short of the fog so what is seen is
+/// always brighter than what is not.
 const MAP_DARK: f32 = 0.50;
 /// How much of a light's reach is full brightness before it fades, and
 /// how the rest falls off — steeply at first, so a pool has a bright
@@ -1341,9 +1232,8 @@ const GLOW_UNDER_FOG: f32 = 0.5;
 /// The smooth picture of the crew's sight and the lamps: two bytes a
 /// pixel — the darkness to draw over the room, nought where the crew see
 /// a lit tile, the dark's where they see an unlit one, the fog's where
-/// they see nothing of their own deck, the grey's where they see nothing
-/// of a stranger's they have looked at, black where they have never
-/// looked; and the lamplight, the warm wash where a light falls. Marched,
+/// they see nothing, whoever's the deck is; and the lamplight, the warm
+/// wash where a light falls. Marched,
 /// not traced: from every eye and every light a fan of [`RAYS`] rays is
 /// walked pixel by pixel until it meets an opaque cell, so what is lit
 /// and what is seen have the straight edges of the walls that stop them
@@ -1387,7 +1277,7 @@ impl LightMap {
 
 // --- a host that draws the light map itself (task 121) ---------------------
 //
-// The march, the composing and the explored memory can be done by the host
+// The march and the composing can be done by the host
 // on its GPU, from the same numbers: `set_host_draws` says so, and then
 // `Sight::light_map` works out only what the host needs — which bodies'
 // eyes moved, from where each eye's rays start, the cells, the lamps'
@@ -1425,7 +1315,8 @@ fn host_draws() -> u8 {
 
 /// A name for one [`Sight`] as the host keeps its picture: every sight
 /// made, cloned or read from a save has a name of its own, so a host
-/// holding the explored memory of one never lends it to another.
+/// holding the views and the revisions of one never takes another's
+/// inputs for a change to them.
 #[derive(Debug)]
 pub struct PictureId(pub u64);
 
@@ -1449,10 +1340,9 @@ impl Clone for PictureId {
 }
 
 /// A cell as the host's composing reads it, a byte a tile: a line of
-/// sight stops there, the fog is drawn over it, it is a friendly tile.
+/// sight stops there, the fog is drawn over it.
 pub const CELL_OPAQUE: u8 = 1;
 pub const CELL_FOGGED: u8 = 2;
-pub const CELL_FRIENDLY: u8 = 4;
 
 /// Everything a host needs to draw the crew's light map itself, as of one
 /// frame (see the note above `set_host_draws`). The large parts are
@@ -1468,7 +1358,7 @@ pub struct LightInputs {
     pub height: usize,
     pub columns: usize,
     pub rows: usize,
-    /// A byte a tile: [`CELL_OPAQUE`], [`CELL_FOGGED`], [`CELL_FRIENDLY`].
+    /// A byte a tile: [`CELL_OPAQUE`], [`CELL_FOGGED`].
     pub cells: Arc<Vec<u8>>,
     pub cells_rev: u64,
     /// The lamps' light a pixel: as the eyes read it (every lamp not out
@@ -1476,24 +1366,19 @@ pub struct LightInputs {
     pub light_field: Arc<Vec<u8>>,
     pub shown_field: Arc<Vec<u8>>,
     pub fields_rev: u64,
-    /// What this sight holds of the explored memory, for a host that has
-    /// not got this sight's yet. After that the host's own is the truth
-    /// until it gives it back (`Sight::set_explored_px`).
-    pub explored: Arc<Vec<bool>>,
     /// The composing's tables, a byte for each of the 256 levels of the
     /// shown light: the dark over what is seen, the lamplight over it,
-    /// and the lamplight under the fog; and the fog's and the grey's own.
+    /// and the lamplight under the fog; and the fog's own.
     pub dark: [u8; 256],
     pub glow_seen: [u8; 256],
     pub glow_fog: [u8; 256],
     pub fog: u8,
-    pub grey: u8,
     /// One a body whose eyes the picture is through, in the bodies'
     /// order.
     pub views: Vec<Arc<ViewInputs>>,
     /// Beside a host that is checking: the map this crate worked out
-    /// itself this frame — darkness, lamplight, explored.
-    pub cpu: Option<Arc<(Vec<u8>, Vec<u8>, Vec<bool>)>>,
+    /// itself this frame — darkness and lamplight.
+    pub cpu: Option<Arc<(Vec<u8>, Vec<u8>)>>,
 }
 
 /// One body's eyes, as last marched: a revision that moves whenever they
@@ -1582,7 +1467,6 @@ struct HostLight {
     light_field: Arc<Vec<u8>>,
     shown_field: Arc<Vec<u8>>,
     fields_rev: u64,
-    explored: Arc<Vec<bool>>,
     cells_version: u64,
 }
 
@@ -1913,28 +1797,6 @@ impl Sight {
         }
     }
 
-    /// This sight's name to a host drawing its map ([`PictureId`]).
-    pub fn picture_id(&self) -> u64 {
-        self.picture.0
-    }
-
-    /// The explored memory as this sight holds it: what is written out,
-    /// and what a host checking its own copy compares against.
-    pub fn explored_px(&self) -> &[bool] {
-        &self.explored_px
-    }
-
-    /// The explored memory a host drawing the map kept, given back to
-    /// the sight before it is written out — a save, the run's beginning,
-    /// the world sent to the other players — so what is written is what
-    /// the host drew. Ignored if it is not this map's size.
-    pub fn set_explored_px(&mut self, explored: Vec<bool>) {
-        let (w, h) = self.map_dims();
-        if explored.len() == w * h {
-            self.explored_px = explored;
-        }
-    }
-
     /// What a host drawing the map needs this frame (task 121): the
     /// lamps' fields built as `light_map_on_cpu` builds them, each body's
     /// eyes compared with the ones last handed over by the same rule
@@ -1962,33 +1824,19 @@ impl Sight {
         }
         let (w, h) = self.map_dims();
         let mut changed = false;
-        if self.explored_px.len() != w * h {
-            self.explored_px = vec![false; w * h];
-        }
-        if self.host.explored.len() != w * h {
-            // A map of another size is another map: the host takes the
-            // memory afresh, from here.
-            self.host.explored = Arc::new(self.explored_px.clone());
-            changed = true;
-        }
         if fields_changed || self.host.light_field.len() != w * h {
             self.host.light_field = Arc::new(self.light_field.clone());
             self.host.shown_field = Arc::new(self.shown_field.clone());
             self.host.fields_rev += 1;
             changed = true;
         }
-        // The cells, whose they are included: a stance, a door, the
-        // layout. Made afresh every frame and compared, since they are a
-        // byte a tile.
+        // The cells: a door, the layout. Made afresh every frame and
+        // compared, since they are a byte a tile.
         let cells: Vec<u8> = self
             .cells
             .iter()
             .map(|c| {
-                let friendly =
-                    (if c.foreign { self.foreign } else { self.own }) == Stance::Friendly;
-                (if c.opaque { CELL_OPAQUE } else { 0 })
-                    | (if c.fogged { CELL_FOGGED } else { 0 })
-                    | (if friendly { CELL_FRIENDLY } else { 0 })
+                (if c.opaque { CELL_OPAQUE } else { 0 }) | (if c.fogged { CELL_FOGGED } else { 0 })
             })
             .collect();
         if *self.host.cells != cells {
@@ -2044,13 +1892,7 @@ impl Sight {
             glow_fog[level] = (wash * GLOW_UNDER_FOG * light * 255.0) as u8;
         }
         let px = self.tile / MAP_PX_PER_TILE as f32;
-        let cpu = checking.then(|| {
-            Arc::new((
-                self.map.alpha.clone(),
-                self.map.glow.clone(),
-                self.explored_px.clone(),
-            ))
-        });
+        let cpu = checking.then(|| Arc::new((self.map.alpha.clone(), self.map.glow.clone())));
         self.map.inputs = Some(Arc::new(LightInputs {
             sight: self.picture.0,
             width: w,
@@ -2062,12 +1904,10 @@ impl Sight {
             light_field: self.host.light_field.clone(),
             shown_field: self.host.shown_field.clone(),
             fields_rev: self.host.fields_rev,
-            explored: self.host.explored.clone(),
             dark,
             glow_seen,
             glow_fog,
             fog: (MAP_FOG * 255.0) as u8,
-            grey: (MAP_GREY * 255.0) as u8,
             views: self.host.views.clone(),
             cpu,
         }));
@@ -2141,10 +1981,6 @@ impl Sight {
             self.map_stale = true;
         }
         let (w, h) = self.map_dims();
-        if self.explored_px.len() != w * h {
-            self.explored_px = vec![false; w * h];
-            self.map_stale = true;
-        }
         if self.views_stale {
             self.views.clear();
             self.views_stale = false;
@@ -2212,7 +2048,7 @@ impl Sight {
         true
     }
 
-    /// Put the views, the memory and the light field together into the
+    /// Put the views and the light field together into the
     /// picture over the tiles `over` touches. Tile by tile so the cell is
     /// looked up once a tile rather than once a pixel.
     fn compose(&mut self, over: Box) {
@@ -2228,13 +2064,10 @@ impl Sight {
         // to wash the deck with.
         let wash = if self.lit_everywhere { 0.0 } else { GLOW };
         let fog = (MAP_FOG * 255.0) as u8;
-        let grey = (MAP_GREY * 255.0) as u8;
         let (alpha, glow) = (&mut self.map.alpha, &mut self.map.glow);
         for ty in over.y0 / n..=over.y1 / n {
             for tx in over.x0 / n..=over.x1 / n {
                 let c = &self.cells[ty * self.columns as usize + tx];
-                let friendly =
-                    (if c.foreign { self.foreign } else { self.own }) == Stance::Friendly;
                 for py in ty * n..(ty + 1) * n {
                     for i in py * w + tx * n..py * w + (tx + 1) * n {
                         // The unfogged outside is nobody's: nothing drawn.
@@ -2248,18 +2081,13 @@ impl Sight {
                         // other field, and only for what they reach.
                         let light = self.shown_field[i] as f32 / 255.0;
                         if seen {
-                            self.explored_px[i] = true;
                             alpha[i] = (MAP_DARK * (1.0 - light) * 255.0) as u8;
                             glow[i] = (wash * light * 255.0) as u8;
-                        } else if friendly {
+                        } else {
+                            // Nobody sees it: the one fog, whoever's it is
+                            // and whether or not anybody ever looked.
                             alpha[i] = fog;
                             glow[i] = (wash * GLOW_UNDER_FOG * light * 255.0) as u8;
-                        } else if self.explored_px[i] {
-                            alpha[i] = grey;
-                            glow[i] = (wash * GLOW_UNDER_FOG * light * 255.0) as u8;
-                        } else {
-                            alpha[i] = 255;
-                            glow[i] = 0;
                         }
                     }
                 }
@@ -2468,7 +2296,6 @@ mod tests {
         sight: u64,
         seen: Vec<Vec<bool>>,
         revs: Vec<u64>,
-        explored: Vec<bool>,
         alpha: Vec<u8>,
         glow: Vec<u8>,
     }
@@ -2476,9 +2303,8 @@ mod tests {
     impl Host {
         fn draw(&mut self, inp: &LightInputs) {
             let (w, h) = (inp.width, inp.height);
-            if self.sight != inp.sight || self.explored.len() != w * h {
+            if self.sight != inp.sight || self.alpha.len() != w * h {
                 self.sight = inp.sight;
-                self.explored = (*inp.explored).clone();
                 self.seen.clear();
                 self.revs.clear();
             }
@@ -2546,28 +2372,21 @@ mod tests {
                 }
                 let light = inp.shown_field[i] as usize;
                 if self.seen.iter().any(|s| s[i]) {
-                    self.explored[i] = true;
                     self.alpha[i] = inp.dark[light];
                     self.glow[i] = inp.glow_seen[light];
-                } else if c & CELL_FRIENDLY != 0 {
+                } else {
                     self.alpha[i] = inp.fog;
                     self.glow[i] = inp.glow_fog[light];
-                } else if self.explored[i] {
-                    self.alpha[i] = inp.grey;
-                    self.glow[i] = inp.glow_fog[light];
-                } else {
-                    self.alpha[i] = 255;
                 }
             }
         }
     }
 
     /// The host's walk and composing (above) come out at the very map
-    /// `light_map_on_cpu` makes, frame after frame, the explored memory
-    /// included: bodies walking, one pressed to a wall and peeking, a door
-    /// shutting, a lamp shot out, a stranger's deck turning grey where it
-    /// was looked at — each frame both are worked out, from the same
-    /// sight twice over, and compared byte for byte.
+    /// `light_map_on_cpu` makes, frame after frame: bodies walking, one
+    /// pressed to a wall and peeking, a door shutting, a lamp shot out, a
+    /// closet nobody ever sees under the fog — each frame both are worked
+    /// out, from the same sight twice over, and compared byte for byte.
     #[test]
     fn a_host_marching_the_inputs_draws_the_map_this_crate_draws() {
         let room = Rect::from_min_size(Vec2::ZERO, vec2(20.0 * TILE, 12.0 * TILE));
@@ -2596,10 +2415,6 @@ mod tests {
                     reach: 9.0 * TILE,
                 },
             ]);
-            // The far half is a stranger's deck: black until looked at,
-            // grey once it has been.
-            let far = Rect::from_min_size(vec2(11.0 * TILE, 0.0), vec2(9.0 * TILE, 12.0 * TILE));
-            sight.set_foreign(Some(far), Stance::Neutral);
             sight
         };
         let mut cpu = make();
@@ -2608,7 +2423,6 @@ mod tests {
             sight: 0,
             seen: Vec::new(),
             revs: Vec::new(),
-            explored: Vec::new(),
             alpha: Vec::new(),
             glow: Vec::new(),
         };
@@ -2648,11 +2462,9 @@ mod tests {
             let map = cpu.map();
             assert_eq!(host.alpha, map.alpha, "the darkness at frame {f}");
             assert_eq!(host.glow, map.glow, "the lamplight at frame {f}");
-            assert_eq!(host.explored, cpu.explored_px, "explored at frame {f}");
             assert_eq!((gpu.map().width, gpu.map().height), (map.width, map.height));
             // The scene is doing what it is for: a peek once the body is
-            // against the wall, and the stranger's deck both grey and
-            // black once somebody has looked through the doorway.
+            // against the wall, and the fog over what nobody sees.
             if f >= 10 && f < 20 {
                 assert!(
                     inputs.views[1].eyes.iter().any(|e| e.beyond.is_some()),
@@ -2665,13 +2477,101 @@ mod tests {
                 );
             }
             if f == 23 {
-                assert!(host.alpha.contains(&inputs.grey) && host.alpha.contains(&255));
+                assert!(host.alpha.contains(&inputs.fog) && !host.alpha.contains(&255));
             }
         }
-        // And what the host kept is what a save of the checked sight holds.
-        let explored = host.explored.clone();
-        gpu.set_explored_px(explored);
-        assert_eq!(gpu.explored_px, cpu.explored_px);
+    }
+
+    /// **What the crew see is brighter than the fog** (task 128), and
+    /// that is the rule, not a tuning: a pixel seen at no light at all, a
+    /// pixel seen under a lamp at full, and a pixel nobody sees, composed
+    /// on one deck — each seen alpha strictly under the unseen one. And
+    /// the fog is one fog: the same deck as the world hands a friendly
+    /// room and a hostile one (`Game::set_stance`, a station's box on a
+    /// joined deck `Game::set_foreign`) is the same picture byte for byte,
+    /// with nothing black in it.
+    #[test]
+    fn what_the_crew_see_is_brighter_than_the_fog_on_any_deck() {
+        // Twenty tiles by six, walled across at x = 12: a lamp at the
+        // west end reaching four tiles, a body at x = 9 — the lamp's pool
+        // in sight, the deck round the body beyond the lamp's reach and
+        // within the dark range, and everything past the wall unseen.
+        let room = Rect::from_min_size(Vec2::ZERO, vec2(20.0 * TILE, 6.0 * TILE));
+        let wall: Vec<Rect> = (0..6)
+            .map(|y| Rect::from_min_size(vec2(12.0 * TILE, y as f32 * TILE), vec2(TILE, TILE)))
+            .collect();
+        let mut sight = Sight::new(room, room, TILE, &wall, &[room]);
+        sight.set_lights(&[Light {
+            at: middle(1.0, 3.0),
+            reach: 4.0 * TILE,
+        }]);
+        let body = middle(9.0, 3.0);
+        sight.observe(&[body], &[]);
+        sight.light_map(&[body]);
+        let map = sight.map();
+        let px = |x: f32, y: f32| -> usize {
+            let (x, y) = ((x * TILE / map.px) as usize, (y * TILE / map.px) as usize);
+            y * map.width + x
+        };
+        let lit = px(1.5, 3.5);
+        let dark = px(8.5, 3.5);
+        let unseen = px(16.5, 3.5);
+        assert_eq!(sight.shown_field[lit], 255, "the lamp's pool is at full");
+        assert_eq!(sight.shown_field[dark], 0, "the body's deck has no light");
+        assert!(sight.seen_at(middle(1.0, 3.0)) && sight.seen_at(middle(8.0, 3.0)));
+        assert!(!sight.seen_at(middle(16.0, 3.0)));
+        let (a_lit, a_dark, a_fog) = (map.alpha[lit], map.alpha[dark], map.alpha[unseen]);
+        assert!(
+            a_lit < a_fog,
+            "seen and lit {a_lit} against the fog {a_fog}"
+        );
+        assert!(
+            a_dark < a_fog,
+            "seen in the dark {a_dark} against the fog {a_fog}"
+        );
+
+        // The same deck through the room, friendly and hostile: the
+        // playtest ship's layout as the world lays a deck out, with one
+        // body aboard, and everything the stance could reach set.
+        let picture = |stance: Stance, foreign: Option<Stance>| {
+            let layout = crate::aboard::layout_of(&shipdesign::fixture::playtest_ship());
+            let (w, h) = (layout.bounds.width(), layout.bounds.height());
+            let at = layout.bounds.min + vec2(6.5 * TILE, 6.5 * TILE);
+            let mut game = crate::game::Game::with_layout(layout, 7, &[at], w, h);
+            game.set_stance(stance);
+            if let Some(foreign) = foreign {
+                let half = Rect::from_min_size(Vec2::ZERO, vec2(w * 0.5, h));
+                game.set_foreign(Some(half), foreign);
+            }
+            game.render();
+            let map = game.light_map().expect("a deck through the crew's eyes");
+            (map.alpha.clone(), map.glow.clone())
+        };
+        let friendly = picture(Stance::Friendly, None);
+        let fog = (MAP_FOG * 255.0) as u8;
+        assert!(
+            friendly.0.contains(&fog),
+            "something aboard is under the fog"
+        );
+        assert!(
+            friendly.0.iter().all(|&a| a <= fog),
+            "nothing darker than the fog"
+        );
+        assert!(
+            friendly.0.iter().any(|&a| a < fog),
+            "something aboard is seen"
+        );
+        assert_eq!(picture(Stance::Hostile, None), friendly, "a hostile deck");
+        assert_eq!(
+            picture(Stance::Neutral, None),
+            friendly,
+            "a stranger's deck"
+        );
+        assert_eq!(
+            picture(Stance::Friendly, Some(Stance::Hostile)),
+            friendly,
+            "a hostile station's box on the deck"
+        );
     }
 
     fn middle(x: f32, y: f32) -> Vec2 {

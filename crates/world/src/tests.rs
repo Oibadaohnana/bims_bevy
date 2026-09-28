@@ -1207,12 +1207,9 @@ fn the_checksum_notices_every_kind_of_change() {
         twin.holdings.keys += 1;
         twin.holdings.next_id = world.holdings.next_id;
         assert_eq!(world.checksum(), twin.checksum());
-        // A charge changed: a grenade on the body (task 120 took the
-        // bandage this used to spend).
-        world
-            .aboard
-            .room
-            .set_charges(0, Item::Stack(ResourceId::Grenade as u32), 1);
+        // A charge changed: a grenade held (task 120 took the bandage this
+        // used to spend, and task 127 made a charge a counter).
+        world.set_charges_held(0, crate::class::Charge::Grenade, 1);
         assert_ne!(world.checksum(), twin.checksum(), "a grenade given");
     }
 }
@@ -3533,13 +3530,16 @@ fn a_bim_against_a_wall_peeks_round_it() {
     assert_eq!(sight.eyes_from(middle(9, 8)).len(), 3);
 }
 
-/// A stranger's structure is black where the crew have never looked,
-/// grey where they have and see nothing now, and its people are drawn
-/// only in sight and a moment after; the crew's own ship stays under the
-/// dim fog it always had. Docked at a station that is not home — the
-/// spawn is, so it is told otherwise — the joined deck has both.
+/// One fog over the whole map (task 128): a hostile station's deck is
+/// under the same fog as the crew's own ship wherever nobody sees it,
+/// whether anybody has ever looked there or not — nothing black, nothing
+/// grey — and what the fog hides is who is standing there. Its machines
+/// are drawn only in sight and a moment after; the tile a line of sight
+/// reached goes back under the fog the moment none does. Docked at a
+/// station that is not home — the spawn is, so it is told otherwise.
 #[test]
-fn a_stranger_s_deck_is_black_where_nobody_has_looked_and_grey_where_they_have() {
+fn a_hostile_station_is_under_the_ship_s_own_fog_and_its_machines_only_in_sight() {
+    use bims::math::vec2;
     use bims::sight::Stance;
     let mut world = basic();
     let station_id = world.residents.as_ref().unwrap().station;
@@ -3551,32 +3551,17 @@ fn a_stranger_s_deck_is_black_where_nobody_has_looked_and_grey_where_they_have()
     // Home no longer: the machines have it.
     world.infest(station_id);
     assert_eq!(world.stance(station_id), Stance::Hostile);
+    world.step(&[]);
     world.aboard.room.observe();
 
-    // The middle of the station, well out of view: black. Somewhere on
-    // the ship the crew do not see: the dim fog, or nothing at all.
+    // The middle of the station, well out of view and never looked at:
+    // the fog, the one veil there is — the veil over a tile of the ship
+    // the crew do not see.
     let station = world.station(station_id).unwrap().clone();
     let side = station.design.build_area as f64 * shipdesign::TILE as f64;
     let (origin, ex, ey) = world.aboard.station_frame.unwrap();
     let at = origin.add(ex.scale(side / 2.0)).add(ey.scale(side / 2.0));
-    assert_eq!(
-        world.aboard.room.veil_at(at.x as f32, at.y as f32),
-        3,
-        "black"
-    );
-    // Nothing is grey on the first look: what is not black is in view,
-    // and there is no ring round it — walk in from the station's middle
-    // towards the ship's port, and every tile on the way is black, seen,
-    // or the ship's own.
-    let james = world.aboard.room.bim_pos(0);
-    for i in 0..200 {
-        let t = i as f32 / 200.0;
-        let x = at.x as f32 + (james.x - at.x as f32) * t;
-        let y = at.y as f32 + (james.y - at.y as f32) * t;
-        let veil = world.aboard.room.veil_at(x, y);
-        assert_ne!(veil, 2, "grey before anything has been looked at");
-    }
-    // And the ship's own tiles are never black or grey.
+    let middle = (at.x as f32, at.y as f32);
     let ship_tiles: Vec<(f32, f32)> = world
         .ship
         .design
@@ -3591,46 +3576,100 @@ fn a_stranger_s_deck_is_black_where_nobody_has_looked_and_grey_where_they_have()
             )
         })
         .collect();
+    let unseen_aboard = ship_tiles
+        .iter()
+        .find(|&&(x, y)| world.aboard.room.veil_at(x, y) != 0)
+        .copied()
+        .expect("a tile of the ship nobody sees");
+    let fog = world.aboard.room.veil_at(unseen_aboard.0, unseen_aboard.1);
+    assert_eq!(fog, 1, "the fog");
+    assert_eq!(
+        world.aboard.room.veil_at(middle.0, middle.1),
+        fog,
+        "the station's middle under the ship's own fog"
+    );
+    // Nothing on the way from there to the ship is anything but seen or
+    // the fog, and nothing aboard either.
+    let james = world.aboard.room.bim_pos(0);
+    for i in 0..200 {
+        let t = i as f32 / 200.0;
+        let x = middle.0 + (james.x - middle.0) * t;
+        let y = middle.1 + (james.y - middle.1) * t;
+        assert!(world.aboard.room.veil_at(x, y) <= 1, "no black, no grey");
+    }
     assert!(
         ship_tiles
             .iter()
             .all(|&(x, y)| world.aboard.room.veil_at(x, y) <= 1)
     );
-    // Once looked at, a tile is grey when nobody sees it any more: an eye
-    // stood at the station's middle sees the tile under it, and with
-    // every line of sight shut again — a trace from nowhere, then the
-    // crew's own from the ship — it is grey, remembered, not black.
-    let middle = (at.x as f32, at.y as f32);
-    world
-        .aboard
-        .room
-        .observe_from_for_probe(&[bims::math::vec2(middle.0, middle.1)]);
-    assert_eq!(world.aboard.room.veil_at(middle.0, middle.1), 0, "seen");
+
+    // Its machines where nobody sees them are not drawn: the world hands
+    // their room the crew's trace every step.
+    let deck = |world: &World, i: usize| {
+        let (origin, ex, ey) = world.aboard.station_frame.unwrap();
+        let p = world.residents.as_ref().unwrap().aboard.position(i as u32);
+        let q = origin.add(ex.scale(p.x)).add(ey.scale(p.y));
+        vec2(q.x as f32, q.y as f32)
+    };
+    world.step(&[]);
+    let crowd = world.residents.as_ref().unwrap().aboard.count() as usize;
+    assert!(crowd >= 2, "a wave of them");
+    assert_eq!(
+        world.residents.as_ref().unwrap().aboard.room.crew_count(),
+        0,
+        "and no people"
+    );
+    let hidden: Vec<usize> = (0..crowd)
+        .filter(|&i| {
+            !world
+                .aboard
+                .room
+                .seen_at(deck(&world, i).x, deck(&world, i).y)
+        })
+        .collect();
+    assert!(!hidden.is_empty(), "a machine out of view");
+    for &i in &hidden {
+        assert!(
+            !world.residents.as_ref().unwrap().aboard.room.body_seen(i),
+            "machine {i} drawn under the fog"
+        );
+    }
+
+    // An eye stood beside the first of them: its tile is seen and it is
+    // drawn.
+    let there = deck(&world, hidden[0]);
+    world.aboard.room.observe_from_for_probe(&[there]);
+    assert_eq!(world.aboard.room.veil_at(there.x, there.y), 0, "seen");
+    world.step(&[]);
+    assert!(
+        world
+            .residents
+            .as_ref()
+            .unwrap()
+            .aboard
+            .room
+            .body_seen(hidden[0]),
+        "drawn in sight"
+    );
+
+    // Nobody looking: the tile is back under the fog at once, and the
+    // machine stays drawn for a moment after it is out of view and no
+    // longer.
     world.aboard.room.observe_from_for_probe(&[]);
     assert_eq!(
-        world.aboard.room.veil_at(middle.0, middle.1),
-        2,
-        "remembered: grey"
+        world.aboard.room.veil_at(there.x, there.y),
+        fog,
+        "fog again"
     );
-    world.aboard.room.observe();
-    assert_eq!(world.aboard.room.veil_at(middle.0, middle.1), 2);
-
-    // The machines: one seen stays drawn for a moment after it is out of
-    // view, and no longer.
     world.step(&[]);
-    let ashore = world.residents.as_mut().unwrap();
-    // A wave of them, not the two residents.
-    let crowd = ashore.aboard.count() as usize;
-    assert!(crowd >= 2);
-    assert_eq!(ashore.aboard.room.crew_count(), 0, "and no people");
-    let mut seen = vec![false; crowd];
-    seen[0] = true;
-    ashore.aboard.room.set_seen(&seen);
-    assert!(ashore.aboard.room.body_seen(0));
-    assert!(!ashore.aboard.room.body_seen(1));
-    ashore.aboard.room.set_seen(&vec![false; crowd]);
     assert!(
-        ashore.aboard.room.body_seen(0),
+        world
+            .residents
+            .as_ref()
+            .unwrap()
+            .aboard
+            .room
+            .body_seen(hidden[0]),
         "just out of view: still drawn"
     );
     let steps = (bims::game::SEEN_FOR / (data::STEP_MINUTES / time::MINUTES_PER_SECOND) as f32)
@@ -3638,10 +3677,20 @@ fn a_stranger_s_deck_is_black_where_nobody_has_looked_and_grey_where_they_have()
         + 2;
     for _ in 0..steps {
         world.step(&[]);
-        let ashore = world.residents.as_mut().unwrap();
-        ashore.aboard.room.set_seen(&vec![false; crowd]);
     }
-    assert!(!world.residents.as_ref().unwrap().aboard.room.body_seen(0));
+    assert!(
+        !world
+            .residents
+            .as_ref()
+            .unwrap()
+            .aboard
+            .room
+            .body_seen(hidden[0])
+    );
+    // And the crew's own eyes back: the middle is still the fog, the same
+    // as before anybody looked.
+    world.aboard.room.observe();
+    assert_eq!(world.aboard.room.veil_at(middle.0, middle.1), fog);
 }
 
 /// A recruited crew member at a station the machines hold draws its laser

@@ -628,8 +628,8 @@ pub struct Game {
     /// down. Anybody past the end of it is not drawn.
     seen_for: Vec<f32>,
     /// Which of the room's tiles are somebody else's — a station's, on a
-    /// joined deck — and whose. Kept here so a relayout can hand it to the
-    /// fresh grid; the sight itself is the room's.
+    /// joined deck — and whose: what `is_aboard` reads. The fog does not
+    /// (task 128).
     foreign: Option<(Rect, Stance, bool)>,
     /// Where the **ship's own** gangway is, in room units (feature 84):
     /// the deck a few tiles inside the ship's airlock, which is where a
@@ -640,7 +640,7 @@ pub struct Game {
     /// other end of the building from the ship.
     #[cfg_attr(feature = "serde", serde(skip))]
     home: Option<Vec2>,
-    /// And whose the rest are, for the same reason.
+    /// And whose the rest are, as the world last said (`stance`).
     stance: Stance,
     /// The fight: the enemies the world named, the bolts in the air, the
     /// hits to hand back. See `crate::combat`.
@@ -4954,13 +4954,6 @@ impl Game {
     /// is caught by `unstick`, which replans it round.
     pub fn relayout(&mut self, layout: room::Layout) {
         self.room.relayout(layout);
-        // A fresh grid for sight: whose the tiles are goes back on it.
-        self.room.sight.set_stance(self.stance);
-        match self.foreign {
-            Some((rect, stance, true)) => self.room.sight.set_foreign_outside(rect, stance),
-            Some((rect, stance, false)) => self.room.sight.set_foreign(Some(rect), stance),
-            None => {}
-        }
         self.refresh_maps();
         self.refresh_blockers();
         self.room.rocks_version = self.room.rocks_version.wrapping_add(1);
@@ -6400,11 +6393,16 @@ impl Game {
 
     // --- the fight --------------------------------------------------------------
 
-    /// Whose the room's tiles are: what the fog over them looks like. A
-    /// station's room is whatever the station is to the crew.
+    /// Whose the room's tiles are. A station's room is whatever the
+    /// station is to the crew. The fog is one fog over every stance
+    /// (task 128), so the sight is not told.
     pub fn set_stance(&mut self, stance: Stance) {
         self.stance = stance;
-        self.room.sight.set_stance(stance);
+    }
+
+    /// Whose the room's tiles are, as the world last said.
+    pub fn stance(&self) -> Stance {
+        self.stance
     }
 
     /// Which of the room's tiles are somebody else's — a station's, on a
@@ -6412,7 +6410,6 @@ impl Game {
     /// relayout.
     pub fn set_foreign(&mut self, rect: Option<Rect>, stance: Stance) {
         self.foreign = rect.map(|r| (r, stance, false));
-        self.room.sight.set_foreign(rect, stance);
     }
 
     /// The other way about: every tile **outside** `rect` is somebody
@@ -6432,7 +6429,6 @@ impl Game {
 
     pub fn set_foreign_outside(&mut self, rect: Rect, stance: Stance) {
         self.foreign = Some((rect, stance, true));
-        self.room.sight.set_foreign_outside(rect, stance);
     }
 
     /// Whether every body in this room is an enemy to whoever is looking:
@@ -8304,8 +8300,8 @@ impl Game {
     }
 
     /// The same trace from these eyes instead of the crew's, for a probe
-    /// that wants to see what is remembered: none at all is a deck nobody
-    /// is looking at. The next `observe` puts the crew's back.
+    /// that wants a deck seen from somewhere else: none at all is a deck
+    /// nobody is looking at. The next `observe` puts the crew's back.
     #[allow(dead_code)]
     pub fn observe_from_for_probe(&mut self, eyes: &[Vec2]) {
         self.observe_from(eyes);
@@ -8342,21 +8338,6 @@ impl Game {
     /// `render`. `None` for a room not drawn through the crew's eyes.
     pub fn light_map(&self) -> Option<&crate::sight::LightMap> {
         (self.fog == Fog::Crew && self.room.sight.map().width > 0).then(|| self.room.sight.map())
-    }
-
-    /// The explored memory a host drawing the light map kept (task 121),
-    /// given back before the room is written out: `Sight::set_explored_px`
-    /// on the room's own sight, if it is still the sight named `picture`.
-    pub fn give_back_explored(&mut self, picture: u64, explored: Vec<bool>) {
-        if self.room.sight.picture_id() == picture {
-            self.room.sight.set_explored_px(explored);
-        }
-    }
-
-    /// The room's sight's name and its explored memory as it holds it,
-    /// for a host checking the copy it keeps (task 121).
-    pub fn explored_px(&self) -> (u64, &[bool]) {
-        (self.room.sight.picture_id(), self.room.sight.explored_px())
     }
 
     /// The same picture of the plain beyond the box, on a planet — a
@@ -8398,8 +8379,9 @@ impl Game {
         self.room.sight.seen_at(vec2(x, y))
     }
 
-    /// What the fog over a room point is, as of the last trace — see
-    /// `Sight::veil_at`. For the probes.
+    /// What the fog over a room point is, as of the last trace: 0
+    /// nothing, 1 the fog, whoever's the tile is — see `Sight::veil_at`.
+    /// For the probes.
     pub fn veil_at(&self, x: f32, y: f32) -> u32 {
         self.room.sight.veil_at(vec2(x, y))
     }
@@ -8571,7 +8553,7 @@ impl Game {
         }
         match self.fog {
             // Through the crew's eyes the fog is the light map's — smooth,
-            // the crew's own semi and a stranger's grey and black alike,
+            // the one fog over whatever nobody sees, whoever's it is,
             // drawn by the host over this picture — marched again only
             // for a body that moved.
             Fog::Crew => {

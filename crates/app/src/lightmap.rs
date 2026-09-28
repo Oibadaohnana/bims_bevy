@@ -2,7 +2,7 @@
 //!
 //! `bims::sight` works the light map out on the CPU — every body's eyes
 //! marched four thousand rays at a time, the views put together with the
-//! lamps and the explored memory — and `fogmap.rs` blurs it into the fog's
+//! lamps under the one fog — and `fogmap.rs` blurs it into the fog's
 //! texture. With the host drawing it (`sight::set_host_draws`, every run
 //! unless `BIMS_LIGHTMAP=cpu`) the room hands over what the march starts
 //! from instead (`sight::LightInputs`, on `LightMap::inputs`), and this
@@ -18,18 +18,13 @@
 //! one division a ray makes), the lamps' light (rebuilt when a lamp
 //! changes), and the tables every float the composing reads comes out of.
 //!
-//! **The explored memory lives here** once a sight's map is drawn here:
-//! the pixels a line of sight has ever reached, which the grey over a
-//! stranger's deck is. The room keeps its own copy only for writing out,
-//! so before the world is written — a save, the world sent to a peer —
-//! [`GiveBack`] reads it back and gives it to the room
-//! (`Game::give_back_explored`). A save takes whatever the GPU has
-//! finished by then, which may be a frame or two behind the frame being
-//! saved: a pixel first seen in those frames is saved unseen, and turns
-//! grey again the moment it is looked at.
+//! **Nothing is kept here that the room needs back.** The fog is one fog
+//! over everything nobody sees (task 128) — there is no memory of what
+//! has been looked at — so the GPU's map is a picture of this frame's
+//! inputs and nothing else, and nothing is read back before a save.
 
+use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
 
 use bevy::prelude::*;
 use bevy::render::RenderApp;
@@ -75,36 +70,17 @@ pub struct LightJob {
     pub picture: Option<AssetId<Image>>,
 }
 
-/// The explored memory's buffer, shared by the two worlds: the render
-/// world keeps it, the main world reads it back before writing the world
-/// out. Which sight it belongs to, and its length in pixels.
-#[derive(Resource, Clone, Default)]
-pub struct SharedExplored(Arc<Mutex<Option<Held>>>);
-
-#[derive(Clone)]
-struct Held {
-    sight: u64,
-    buffer: Buffer,
-    len: usize,
-}
-
 pub struct LightMapPlugin;
 
 impl Plugin for LightMapPlugin {
     fn build(&self, app: &mut App) {
         let mode = mode();
         bims::sight::set_host_draws(mode != Mode::Cpu, mode == Mode::Check);
-        let shared = SharedExplored::default();
         app.init_resource::<LightJob>()
-            .insert_resource(shared.clone())
             .add_plugins(ExtractResourcePlugin::<LightJob>::default())
             .add_systems(First, empty_the_job);
-        if mode == Mode::Check {
-            app.add_systems(Last, check_giving_back);
-        }
         if let Some(render_app) = app.get_sub_app_mut(RenderApp) {
             render_app
-                .insert_resource(shared)
                 .init_resource::<GpuLight>()
                 // In the render graph's own frame, before anything is drawn:
                 // the fog's texture is filled before the main pass reads it,
@@ -121,79 +97,6 @@ impl Plugin for LightMapPlugin {
 
 fn empty_the_job(mut job: ResMut<LightJob>) {
     *job = LightJob::default();
-}
-
-// --- giving the explored memory back ------------------------------------------
-
-/// What reads the explored memory back off the GPU for the room, before
-/// the world is written out. Nothing to do when the room draws its own map.
-#[derive(bevy::ecs::system::SystemParam)]
-pub struct GiveBack<'w> {
-    device: Option<Res<'w, RenderDevice>>,
-    queue: Option<Res<'w, RenderQueue>>,
-    shared: Option<Res<'w, SharedExplored>>,
-}
-
-impl GiveBack<'_> {
-    /// Give the room aboard the explored memory drawn here, if its sight
-    /// is the one drawn here. Waits for the GPU: this is a save's hitch.
-    pub fn before_writing(&self, session: &mut ship::Session) {
-        let Some(game) = session.game.as_mut() else {
-            return;
-        };
-        if let Some((sight, explored)) = self.read() {
-            game.world.aboard.room.give_back_explored(sight, explored);
-        }
-    }
-
-    /// The explored memory drawn here and whose sight it is, read back.
-    fn read(&self) -> Option<(u64, Vec<bool>)> {
-        let (Some(device), Some(queue), Some(shared)) = (&self.device, &self.queue, &self.shared)
-        else {
-            return None;
-        };
-        let held = shared.0.lock().ok().and_then(|held| held.clone())?;
-        let bits = read_back(device, queue, &held.buffer, held.len.div_ceil(32));
-        let explored = (0..held.len)
-            .map(|i| bits[i / 32] >> (i % 32) & 1 != 0)
-            .collect();
-        Some((held.sight, explored))
-    }
-}
-
-static GIVEN_BACK: AtomicU64 = AtomicU64::new(0);
-static GIVEN_WRONG: AtomicU64 = AtomicU64::new(0);
-static GIVEN_BEHIND: AtomicU64 = AtomicU64::new(0);
-
-/// `BIMS_LIGHTMAP=check`: every second or so, the explored memory read
-/// back the way a save reads it and set beside the room's own. The GPU's
-/// may be a frame or two behind, so a pixel the room has and it has not
-/// yet is *behind*; one it has and the room has not is *wrong*, and is
-/// what a broken read-back would show.
-fn check_giving_back(
-    give_back: GiveBack,
-    session: Option<Res<crate::screens::designer::ShipSession>>,
-    mut frames: Local<u32>,
-) {
-    *frames += 1;
-    if !(*frames).is_multiple_of(60) {
-        return;
-    }
-    let Some(game) = session.as_ref().and_then(|s| s.0.game.as_ref()) else {
-        return;
-    };
-    let Some((sight, gpu)) = give_back.read() else {
-        return;
-    };
-    let (own, room) = game.world.aboard.room.explored_px();
-    if own != sight || room.len() != gpu.len() {
-        return;
-    }
-    let wrong = gpu.iter().zip(room).filter(|(g, r)| **g && !**r).count();
-    let behind = gpu.iter().zip(room).filter(|(g, r)| !**g && **r).count();
-    GIVEN_BACK.fetch_add(1, Ordering::Relaxed);
-    GIVEN_WRONG.fetch_add(wrong as u64, Ordering::Relaxed);
-    GIVEN_BEHIND.fetch_add(behind as u64, Ordering::Relaxed);
 }
 
 /// A buffer's first `words` words, read back to the CPU, waiting for it.
@@ -234,31 +137,21 @@ fn read_back(
 
 static CHECKED: AtomicU64 = AtomicU64::new(0);
 static MAP_DIFF: AtomicU64 = AtomicU64::new(0);
-static EXPLORED_DIFF: AtomicU64 = AtomicU64::new(0);
 static TEXEL_DIFF: AtomicU64 = AtomicU64::new(0);
 
-/// What `BIMS_LIGHTMAP=check` found, as the lines a smoke run prints:
-/// how many frames were compared, and how many bytes of the map, pixels
-/// of the explored memory and bytes of the texture differed in all.
+/// What `BIMS_LIGHTMAP=check` found, as the line a smoke run prints: how
+/// many frames were compared, and how many bytes of the map and of the
+/// texture differed in all.
 pub fn report() -> Vec<String> {
     if mode() != Mode::Check {
         return Vec::new();
     }
-    vec![
-        format!(
-            "lightmap check: {} frames, {} map bytes, {} explored pixels, {} texel bytes differing",
-            CHECKED.load(Ordering::Relaxed),
-            MAP_DIFF.load(Ordering::Relaxed),
-            EXPLORED_DIFF.load(Ordering::Relaxed),
-            TEXEL_DIFF.load(Ordering::Relaxed),
-        ),
-        format!(
-            "lightmap check: explored read back {} times, {} pixels wrong, {} behind",
-            GIVEN_BACK.load(Ordering::Relaxed),
-            GIVEN_WRONG.load(Ordering::Relaxed),
-            GIVEN_BEHIND.load(Ordering::Relaxed),
-        ),
-    ]
+    vec![format!(
+        "lightmap check: {} frames, {} map bytes, {} texel bytes differing",
+        CHECKED.load(Ordering::Relaxed),
+        MAP_DIFF.load(Ordering::Relaxed),
+        TEXEL_DIFF.load(Ordering::Relaxed),
+    )]
 }
 
 // --- the render world ---------------------------------------------------------
@@ -321,13 +214,12 @@ impl Kit {
             entry(3, write),
             entry(4, write),
             entry(5, write),
-            entry(6, write),
+            entry(6, read),
             entry(7, read),
             entry(8, read),
             entry(9, read),
             entry(10, read),
             entry(11, read),
-            entry(12, read),
         ];
         let layout = device.create_bind_group_layout("light map", &entries);
         let pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
@@ -411,7 +303,6 @@ struct MapState {
     cells: Buffer,
     fields: Buffer,
     seen: Buffer,
-    explored: Buffer,
     map: Buffer,
     texels: Buffer,
     eyes: Buffer,
@@ -434,19 +325,11 @@ struct MapState {
 }
 
 impl MapState {
-    fn new(device: &RenderDevice, queue: &RenderQueue, inputs: &LightInputs) -> MapState {
+    fn new(device: &RenderDevice, inputs: &LightInputs) -> MapState {
         let (w, h) = (inputs.width, inputs.height);
         let words = (w * h).div_ceil(32);
         let tile_words = (inputs.columns * inputs.rows).div_ceil(32);
         let stride = w.next_multiple_of(64);
-        let explored = storage(device, "light map: explored", words * 4);
-        let mut bits = vec![0u32; words];
-        for (i, &e) in inputs.explored.iter().enumerate() {
-            if e {
-                bits[i / 32] |= 1 << (i % 32);
-            }
-        }
-        queue.write_buffer(&explored, 0, &words_of(&bits));
         let slots = inputs.views.len().max(1);
         MapState {
             sight: inputs.sight,
@@ -464,7 +347,6 @@ impl MapState {
             cells: storage(device, "light map: cells", inputs.columns * inputs.rows * 4),
             fields: storage(device, "light map: fields", w * h * 4),
             seen: storage(device, "light map: seen", slots * words * 4),
-            explored,
             map: storage(device, "light map: map", w * h * 4),
             texels: storage(device, "light map: texels", stride * h * 4),
             eyes: storage(device, "light map: eyes", EYE_BYTES * 8),
@@ -529,7 +411,6 @@ impl MapState {
                 &self.cells,
                 &self.fields,
                 &self.seen,
-                &self.explored,
                 &self.map,
                 &self.texels,
                 &self.eyes,
@@ -565,7 +446,6 @@ fn draw_light_map(
     device: Res<RenderDevice>,
     queue: Res<RenderQueue>,
     images: Res<RenderAssets<GpuImage>>,
-    shared: Res<SharedExplored>,
     recorder: Option<Res<DiagnosticsRecorder>>,
 ) {
     let (Some(inputs), Some(picture)) = (&job.inputs, job.picture) else {
@@ -585,15 +465,7 @@ fn draw_light_map(
         m.sight == inputs.sight && m.width == inputs.width && m.height == inputs.height
     });
     if fresh {
-        let state = MapState::new(&device, &queue, inputs);
-        if let Ok(mut held) = shared.0.lock() {
-            *held = Some(Held {
-                sight: inputs.sight,
-                buffer: state.explored.clone(),
-                len: inputs.width * inputs.height,
-            });
-        }
-        *map = Some(state);
+        *map = Some(MapState::new(&device, inputs));
     }
     let Some(m) = map.as_mut() else {
         return;
@@ -679,7 +551,7 @@ fn draw_light_map(
         marched as u32,
         m.stride as u32,
         inputs.fog as u32,
-        inputs.grey as u32,
+        0,
         0,
         0,
     ];
@@ -755,16 +627,16 @@ fn draw_light_map(
     }
 }
 
-/// `BIMS_LIGHTMAP=check`: the GPU's map, explored memory and texture read
-/// back and compared with what the room worked out itself this frame.
+/// `BIMS_LIGHTMAP=check`: the GPU's map and texture read back and
+/// compared with what the room worked out itself this frame.
 fn check(
     device: &RenderDevice,
     queue: &RenderQueue,
     m: &MapState,
     inputs: &LightInputs,
-    cpu: &(Vec<u8>, Vec<u8>, Vec<bool>),
+    cpu: &(Vec<u8>, Vec<u8>),
 ) {
-    let (alpha, glow, explored) = cpu;
+    let (alpha, glow) = cpu;
     let n = m.width * m.height;
     let map = read_back(device, queue, &m.map, n);
     let mut map_diff = 0;
@@ -772,10 +644,6 @@ fn check(
         map_diff += (map[i] & 255 != alpha[i] as u32) as u64;
         map_diff += (map[i] >> 8 & 255 != glow[i] as u32) as u64;
     }
-    let bits = read_back(device, queue, &m.explored, m.words);
-    let explored_diff = (0..n.min(explored.len()))
-        .filter(|&i| (bits[i / 32] >> (i % 32) & 1 != 0) != explored[i])
-        .count() as u64;
     let texels = read_back(device, queue, &m.texels, m.stride * m.height);
     let reference = crate::fogmap::texels(&bims::sight::LightMap {
         width: m.width,
@@ -795,6 +663,5 @@ fn check(
     let _ = inputs;
     CHECKED.fetch_add(1, Ordering::Relaxed);
     MAP_DIFF.fetch_add(map_diff, Ordering::Relaxed);
-    EXPLORED_DIFF.fetch_add(explored_diff, Ordering::Relaxed);
     TEXEL_DIFF.fetch_add(texel_diff, Ordering::Relaxed);
 }

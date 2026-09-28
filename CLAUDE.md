@@ -629,8 +629,8 @@ timestamps, which egui's own pass is not among.
 
 ## The crew's light map drawn on the GPU (task 121, second half)
 
-**The march, the composing, the explored memory, the blur and the
-colouring of the crew's light map run on the GPU**, and the picture is
+**The march, the composing, the blur and the colouring of the crew's
+light map run on the GPU**, and the picture is
 `Sight::light_map_on_cpu`'s and `fogmap.rs`'s **byte for byte** — not
 near it: the pinned `the_light_map_is_the_same_picture_it_was` still
 tests the CPU march it always tested, and nothing was re-pinned. How
@@ -645,8 +645,8 @@ that is possible is the whole design:
   — every body again when `cells_version` moved, which is exactly when
   the CPU throws its views away — and it all goes out as
   `LightMap::inputs` (`LightInputs`: the cells a byte a tile, the two
-  fields, the explored memory for a host that has not got it yet, the
-  views with a revision each, and three tables), the two planes left
+  fields, the views with a revision each, and three tables), the two
+  planes left
   empty and the extent kept, so `Session::light_map` and
   `light_map_on_screen` are unchanged.
 - **The only division a ray makes is made on the CPU.** `march_rays`
@@ -683,26 +683,19 @@ that is possible is the whole design:
   cache, compiled once at the first map. The pass carries a Bevy GPU span
   (`perf: gpu light map`). The planet plain's own fog
   (`terrain::Plane::picture`) is still the CPU's.
-- **The explored memory lives on the GPU** once a sight's map is drawn
-  there, keyed by `Sight::picture_id` (a `PictureId` every sight made,
-  cloned or loaded gets fresh, so one sight's memory is never lent to
-  another). Before the world is written out — the Esc sheet's save and
-  the world sent to a resyncing peer — `lightmap::GiveBack` reads it back
-  (a copy, `map_async`, a wait) and gives it to the room
-  (`Game::give_back_explored`). **What a save gets is what the GPU has
-  finished**, which can be a frame or two behind the frame saved: a
-  pixel first seen in those frames is saved unexplored and goes grey
-  again the moment it is looked at. The run's beginning (Restart) is
-  written before anything is drawn and needs nothing. Nothing the
-  simulation reads is in any of this: the rules read the tile masks
-  (`lit`, `seen`, `explored`), which never moved, and the explored pixels
-  are a picture's memory.
+- **Nothing drawn here is read back.** Until task 128 the GPU kept the
+  *explored memory* — every pixel a line of sight had ever reached, the
+  grey over a stranger's deck — and read it back before a save
+  (`lightmap::GiveBack`, `Game::give_back_explored`). The fog is one fog
+  now (*One fog over the whole map* below), so there is no memory, no
+  read-back and no lag: the GPU's map is this frame's inputs and nothing
+  else. A map is still keyed by the sight's `PictureId` (fresh for every
+  sight made, cloned or loaded), since the views' and the cells'
+  revisions are one sight's. Nothing the simulation reads is in any of
+  this: the rules read the tile masks (`lit`, `seen`).
 - **`BIMS_LIGHTMAP`**: `cpu` is the room's march as it always was;
-  `check` works both out every frame, reads the GPU's map, explored
-  memory and texture back and counts the bytes that differ, and every
-  sixty frames reads the explored memory back the way a save does and
-  counts pixels it has that the room has not (*wrong*) and the other way
-  (*behind*, the lag above) — printed at a smoke run's exit.
+  `check` works both out every frame, reads the GPU's map and texture
+  back and counts the bytes that differ — printed at a smoke run's exit.
 
 **What the check said**, 1 500 frames each (`BIMS_LIGHTMAP=check`, the
 crew walked in with the guardian recipe's keys): `droids`, `defense` (a
@@ -710,11 +703,62 @@ town, landed, daylight), `test` (a random station), `jammer`,
 `simulation` and `test_planet` — **0 map bytes, 0 explored pixels and
 0 texel bytes differing** in every one, and in 150 reads of the explored
 memory 0 pixels wrong (13 to 558 *behind* over 25 reads, the frame or two
-of lag). `a_host_marching_the_inputs_draws_the_map_this_crate_draws` in
+of lag). Since task 128 there is no explored memory, and 899 frames of
+the walked-in `droids` came out at 0 map bytes and 0 texel bytes.
+`a_host_marching_the_inputs_draws_the_map_this_crate_draws` in
 `crates/game/src/sight.rs` is the same walk and composing written out in
 Rust against `light_map_on_cpu`, frame by frame — a peek, a door
-shutting, a lamp shot out, a body fewer, a stranger's deck grey and black
-— so a change to the inputs is caught without a GPU.
+shutting, a lamp shot out, a body fewer, a closet nobody sees — so a
+change to the inputs is caught without a GPU.
+
+## One fog over the whole map (task 128)
+
+**The fog is Dota's**: the whole map of a station, a town and the plain
+is always drawn, and every fogged pixel nobody sees is `MAP_FOG` (0.62)
+— the crew's own ship, a home station, a neutral or a hostile one, the
+plain, looked at before or not. There is no black and no grey: the
+explored memory went (`Sight::explored`, `explored_px`,
+`Plane::explored`, the plain pictures' bits, the GPU's buffer and its
+read-back), and so did `FOG_BLACK`, `FOG_GREY`, `MAP_GREY`, the terrain's
+`VEIL_GREY`/`VEIL_BLACK` (one `VEIL_FOG`) and `CELL_FRIENDLY`. What is
+seen is unchanged — nought lit, `MAP_DARK × (1 − light)` unlit, the glow
+as it was — and the lamplight shows under the fog at `GLOW_UNDER_FOG` on
+every structure (the plain has none). **What the fog hides is who is
+standing there**: the crew are always drawn, everybody else only in sight
+and the linger after (`Game::body_seen`, `seen_for`). The trace, the
+dark range, the peeks, `seen_at`, `last_seen`, the alarm and every AI are
+untouched: this is the picture's alone, and `SURVIVORS` did not move.
+
+- **The stance is not the fog's any more.** `Stance` stays — the world
+  reads it for who is at war — but the sight keeps none:
+  `Sight::set_stance`/`set_foreign` went, and `Game::set_stance` and
+  `set_foreign` keep theirs for `is_aboard` alone.
+- **Looked at from outside** (`Fog::All`, `Sight::draw(list, true)`) is
+  every fogged tile in the one `FOG`, whoever's it is: the structure shows
+  through, nobody is drawn. The far plate beyond the residents' range
+  (`HULL_UNKNOWN`) is unchanged.
+- **The rule is pinned**: `what_the_crew_see_is_brighter_than_the_fog_on_any_deck`
+  (`sight.rs`: a seen pixel at no light and at full light against an
+  unseen one, and the same deck friendly, neutral and hostile the same
+  picture byte for byte) and
+  `what_the_crew_see_of_the_plain_is_brighter_than_the_fog`
+  (`terrain.rs`). `the_light_map_is_the_same_picture_it_was` did not
+  move: its room is all the crew's own, and only unseen pixels of
+  somebody else's structure changed.
+- **What now shows through the fog.** A few pictures under the fog move
+  because of a body nobody sees, and they were hidden under the black
+  before; none was changed: the joined deck's powered doors, which open
+  for the station's people and the machines (`Game::set_visitors`); a
+  lamp shot out or flickering in a fight nobody sees (its glow under the
+  fog, and the glass the ship painter draws); the residents' room's
+  blood, scorches and footprint trails (`Bim::trail`, drawn for every
+  Bim that walks); a machine's thrown plates (`Fx::draw_debris`, not
+  gated by `body_seen`); the machines' lander on the plain and their ship
+  at a station's far airlock (`World::droid_ship`, there while any of the
+  wave stands); and the engineer's deployables, whose damage and loss say
+  where an unseen enemy is. The bodies themselves — a corpse, a wreck, a
+  grave — are gated, and what flies over the fog (the bolts, a burst's
+  flash, a sweep) always showed.
 
 **What it saved**, release, this machine (Ryzen 7 3700X, Navi 32),
 1400×900, the same binary with `BIMS_LIGHTMAP=cpu` against the default,

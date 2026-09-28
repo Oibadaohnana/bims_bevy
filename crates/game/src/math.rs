@@ -258,8 +258,8 @@ impl Rect {
 }
 
 /// A `Vec<bool>` in a save, as a string of noughts and ones — the room's
-/// flag-a-cell grids (the nav's blocked cells, the sight's explored
-/// pixels) are hundreds of thousands long, and a byte a flag is a fifth
+/// flag-a-cell grids (the nav's blocked cells) are hundreds of thousands
+/// long, and a byte a flag is a fifth
 /// of what a list of `true`s and `false`s comes to. Named on the field:
 /// `#[serde(with = "crate::math::bools")]`.
 #[cfg(feature = "serde")]

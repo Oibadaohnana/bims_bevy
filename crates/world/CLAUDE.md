@@ -2446,8 +2446,10 @@ the chunks looked at (32 tiles square, not saved), and the fog. On a
 relayout the room keeps its own plane and takes the new deck box
 (`Room::relayout`). The whole box is under daylight
 (`Aboard::daylight_over_station`) and everything outside the hull's own
-box is foreign (`Game::set_foreign_outside`, `Sight::set_foreign_outside`),
-so the ground beside the ship is black until looked at like the town.
+box is foreign (`Game::set_foreign_outside`) — which is the world's word
+for whose it is and no longer the fog's: the ground beside the ship is
+under the one fog like the town and the ship wherever nobody sees it
+(task 128).
 
 **Beyond the box a body is afield**, and walks a window of its own:
 `Game::refresh_afield`, at the top of every step, sets
@@ -2493,8 +2495,8 @@ light map have the same range on a plain (`Sight::set_range`, set by
 than `VIEW` is not seen, and the picture's rays stop there too — which
 is also what keeps them from streaking, with `RAYS` at 4096, across a
 box that is bigger than any deck was. Seen is a bitset a chunk
-(not saved), explored the same (saved); `veil_at_room` is what the
-painter draws — nothing, grey or black.
+(not saved), and nothing is remembered (task 128); `veil_at_room` is
+what the painter draws — nothing, or the one fog.
 
 **The picture** is `world_paint::plain`, drawn after the backdrop and
 before the town: every tile without floor over `world_paint::plain_window`

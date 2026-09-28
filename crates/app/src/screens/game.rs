@@ -948,9 +948,6 @@ fn frame(
     // classes the sheet offers. Absent on a command's own run, which
     // opens every class.
     unlocks: Option<Res<crate::profile::RunUnlocks>>,
-    // The explored memory the GPU keeps, read back before the world is
-    // written out (task 121).
-    give_back: crate::lightmap::GiveBack,
     // Whether the window has the focus, for the edge scroll (task 123).
     window: Single<&Window>,
 ) -> Result {
@@ -1027,12 +1024,7 @@ fn frame(
                         .answered
                         .iter()
                         .any(|&(p, last)| p == from && at < last + CHECK_EVERY);
-                    if !recently
-                        && let Some(text) = {
-                            give_back.before_writing(session);
-                            session.save()
-                        }
-                    {
+                    if !recently && let Some(text) = session.save() {
                         screen.answered.retain(|&(p, _)| p != from);
                         screen.answered.push((from, at));
                         if let Some(wire) = &screen.net.wire {
@@ -2634,16 +2626,13 @@ fn frame(
         session.game.as_mut().map(|g| &mut g.overlay),
     );
     match asked {
-        Some(Request::Save(name)) => {
-            give_back.before_writing(session);
-            match session.save() {
-                Some(text) => match crate::save::write(&name, &text) {
-                    Ok(_) => screen.saves.saved(&name),
-                    Err(why) => screen.saves.failed(why),
-                },
-                None => screen.saves.failed("Nothing to save.".to_string()),
-            }
-        }
+        Some(Request::Save(name)) => match session.save() {
+            Some(text) => match crate::save::write(&name, &text) {
+                Ok(_) => screen.saves.saved(&name),
+                Err(why) => screen.saves.failed(why),
+            },
+            None => screen.saves.failed("Nothing to save.".to_string()),
+        },
         // A loaded game is a new session and a new screen round it —
         // the panels, the log, the aim and the sheet all start over, and
         // the first frame fits the canvas to the world as an open does.

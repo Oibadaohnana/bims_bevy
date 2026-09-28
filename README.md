@@ -1201,11 +1201,12 @@ edge is a rim of cliff further off than anybody will walk. The ground is
 made as it is walked and seen, never all at once, and the view reaches
 **sixty tiles**: the camera cannot be pulled out further than that on a
 planet, the ground is drawn that far from the middle of the window and
-no further, and a crew member sees that far over open country. What the
-crew have not seen of the plain is black; what they have seen and do not
-see now is grey — and both have the same smooth edges as the fog on the
-deck: the shadow a cliff or a forest throws is the cliff's edge, not a
-stair of tiles; and a walk out into it is a walk like any other — right-
+no further, and a crew member sees that far over open country. The whole
+plain is always drawn, and what the crew do not see of it — looked at
+before or not — is under the same fog as the deck, with the same smooth
+edges: the shadow a cliff or a forest throws is the cliff's edge, not a
+stair of tiles. Nothing out there is black; the fog hides who is standing
+on the plain, not the plain. A walk out into it is a walk like any other — right-
 click the ground, however far, and the crew member goes leg by leg. A
 town the machines hold is ringed in red on the map and fought through
 like a held station, their lander coming down on the plain beyond a
@@ -1749,19 +1750,21 @@ corner of a room sees the whole of the room round the corner, where one
 standing a tile back sees only the wedge the corner leaves — the wall's
 edge cuts the view. A peeking Bim shoots from the peek.
 
-What nobody sees is under a fog, and whose the structure is decides what
-the fog looks like. **Your own ship** is under a light one: the deck stays
-readable — you know where your own walls are — but whatever is standing
-there is not drawn. **Somebody else's station** — neutral or hostile — is
-**black** where nobody has looked, and **grey** in a ring a few tiles wide
-round what is seen: the walls and the fixtures show through the grey, and
-nobody standing among them does. The grey stays once earned; what has been
-looked at is known. Its people appear only in line of sight, and stay
-drawn for two seconds after they were last in it, so somebody stepping
-behind a bulkhead is a moment fading rather than winking out. From outside,
-a stranger's station is a black shape and your home station is its hull
-under the light fog. Home is the station you set out from, a station the
-machines hold is hostile, and every other is neutral.
+What nobody sees is under **one fog, the same everywhere** — the way Dota
+draws it. The whole map of your ship, a station, a town and the plain
+round it is always drawn: the walls, the doors and the fixtures show
+through the fog whoever the structure belongs to and whether or not
+anybody has ever looked there. Nothing is black. What the fog hides is
+**who is standing there**: your own crew are always drawn, and everybody
+else — a station's people, the machines, the Manufacturers — appears only
+in line of sight, and stays drawn for two seconds after it was last in
+it, so somebody stepping behind a bulkhead is a moment fading rather than
+winking out. What the crew see is always brighter than the fog: clear
+under a lamp, a shade darker where no light reaches, and never as dark as
+the fog. From outside, a station is its hull under the same fog, and
+nobody in it is drawn. Home is the station you set out from, a station
+the machines hold is hostile, and every other is neutral — which decides
+who fights you, not what the fog looks like.
 
 ### The two views
 

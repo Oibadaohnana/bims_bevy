@@ -10,9 +10,9 @@
 //    additions and comparisons — marking every pixel it reaches that the
 //    eye may add and that is lit or near enough to its body, into that
 //    body's bits. A set of bits: the order the rays run in cannot matter.
-// 2. `compose`: a thread a pixel — `Sight::compose`: the fog's, the grey's,
-//    the dark's and the lamplight's levels out of tables made on the CPU,
-//    and the explored memory kept here.
+// 2. `compose`: a thread a pixel — `Sight::compose`: the fog's, the dark's
+//    and the lamplight's levels out of tables made on the CPU; the one fog
+//    over every fogged pixel nobody sees (task 128).
 // 3. `blur`: a thread a pixel — `fogmap::blurred`'s five-tap binomial each
 //    way, in integers, and `fogmap::texel`'s colour out of a table — into
 //    the rows the fog texture is copied from.
@@ -29,9 +29,9 @@ struct Params {
     // The texture's rows, in texels (a row padded to 256 bytes).
     stride: u32,
     fog: u32,
-    grey: u32,
     pad0: u32,
     pad1: u32,
+    pad2: u32,
 };
 
 // One eye of a body whose view is marched this frame.
@@ -49,26 +49,25 @@ struct Eye {
 };
 
 @group(0) @binding(0) var<uniform> params: Params;
-// A byte a tile: 1 opaque, 2 fogged, 4 friendly.
+// A byte a tile: 1 opaque, 2 fogged.
 @group(0) @binding(1) var<storage, read> cells: array<u32>;
 // A pixel: the light the eyes read in the low byte, the shown light above.
 @group(0) @binding(2) var<storage, read> fields: array<u32>;
 @group(0) @binding(3) var<storage, read_write> seen: array<atomic<u32>>;
-@group(0) @binding(4) var<storage, read_write> explored: array<atomic<u32>>;
 // A pixel: the darkness in the low byte, the lamplight above.
-@group(0) @binding(5) var<storage, read_write> map: array<u32>;
-@group(0) @binding(6) var<storage, read_write> texels: array<u32>;
-@group(0) @binding(7) var<storage, read> eyes: array<Eye>;
+@group(0) @binding(4) var<storage, read_write> map: array<u32>;
+@group(0) @binding(5) var<storage, read_write> texels: array<u32>;
+@group(0) @binding(6) var<storage, read> eyes: array<Eye>;
 // Each marched eye's rays' first crossings, across and down.
-@group(0) @binding(8) var<storage, read> starts: array<vec2<f32>>;
-@group(0) @binding(9) var<storage, read> near: array<u32>;
+@group(0) @binding(7) var<storage, read> starts: array<vec2<f32>>;
+@group(0) @binding(8) var<storage, read> near: array<u32>;
 // Each ray: its direction, and a pixel's step along it across and down.
-@group(0) @binding(10) var<storage, read> rays: array<vec4<f32>>;
+@group(0) @binding(9) var<storage, read> rays: array<vec4<f32>>;
 // `fogmap::texel` for every darkness and lamplight, a byte each.
-@group(0) @binding(11) var<storage, read> colours: array<u32>;
+@group(0) @binding(10) var<storage, read> colours: array<u32>;
 // The composing's tables: the dark, the lamplight seen, the lamplight
 // under the fog, 256 each.
-@group(0) @binding(12) var<storage, read> tables: array<u32>;
+@group(0) @binding(11) var<storage, read> tables: array<u32>;
 
 const RAYS: u32 = 4096u;
 
@@ -157,18 +156,12 @@ fn compose(@builtin(global_invocation_id) id: vec3<u32>) {
         }
     }
     let light = (fields[i] >> 8u) & 255u;
-    var alpha = 255u;
-    var glow = 0u;
+    // Not seen and fogged: the one fog, whoever's the deck is.
+    var alpha = params.fog;
+    var glow = tables[512u + light];
     if any {
-        atomicOr(&explored[word], bit);
         alpha = tables[light];
         glow = tables[256u + light];
-    } else if (c & 4u) != 0u {
-        alpha = params.fog;
-        glow = tables[512u + light];
-    } else if (atomicLoad(&explored[word]) & bit) != 0u {
-        alpha = params.grey;
-        glow = tables[512u + light];
     }
     map[i] = alpha | (glow << 8u);
 }

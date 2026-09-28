@@ -1,9 +1,10 @@
 //! The smooth fog: the room's light map, drawn as a picture over the deck.
 //!
-//! `bims::sight::LightMap` is two bytes a pixel — the darkness: the fog
-//! over what the crew do not see of their own deck, the grey and the black
-//! over a stranger's, the shade over what they see that no light reaches;
-//! and the glow: how much lamplight falls there — worked out by the room
+//! `bims::sight::LightMap` is two bytes a pixel — the darkness: the one
+//! fog over everything the crew do not see, their own deck, a stranger's
+//! and the plain alike (task 128; nothing is black), the shade over what
+//! they see that no light reaches; and the glow: how much lamplight falls
+//! there — worked out by the room
 //! as the crew move. The shape buffer cannot carry it (it holds rectangles
 //! and ellipses), so it comes over as a texture: uploaded when its version
 //! changes — only the box the map says changed, when this holds the

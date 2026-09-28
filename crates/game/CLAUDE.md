@@ -898,31 +898,32 @@ opaque without being a part, and went in feature 104.
   fight section. A tile back from the wall there is no peek and the
   trace stops at the corner's edge. `a_bim_against_a_wall_peeks_round_it`
   in the world tests is the layout the rule was asked for with.
-- **Whose a tile is decides its fog.** `sight::Stance` — Friendly,
-  Neutral, Hostile — on the room's own tiles (`Game::set_stance`) and on a
-  foreign box (`Game::set_foreign`, the station's box on a joined deck;
-  both kept on `Game` and put back on the fresh grid at `relayout`). A
-  friendly tile unseen is the semi `FOG`; a stranger's is `FOG_BLACK`
-  where no line of sight has ever reached, `FOG_GREY` where one has and
-  none does now — `explored`, OR'd from `seen` after each trace and
-  **sticky**: what has been looked at stays grey, and only the bodies in
-  it are forgotten. There is no ring: a wall is seen from the room it
-  walls, so a room's outline comes in as its inside is looked at, and
-  nothing behind a bulkhead shows until somebody has seen past it (the
-  three-tile ring that used to reveal the next room's console through
-  the wall is gone, September 2026). Under `Fog::Crew` the picture is
-  the light map's (below); `draw` is the tile passes for `Fog::All` —
-  three passes of the run-merging, one a veil; an opaque rectangle is
-  grown by `OVERLAP` so the feathered seams between black runs do not
-  show as lines. `Game::veil_at` reads the tile rule for the probes, and
+- **Whose a tile is does not decide its fog: there is one fog** (task
+  128, Dota's). Every fogged tile nobody sees is under the same veil —
+  the crew's own ship, a home station, a neutral or a hostile one, the
+  plain — whether or not anybody has ever looked at it: the whole map is
+  always drawn and only who is standing there is hidden (`body_seen`).
+  There is no black, no grey and no memory of what was looked at; the
+  semi `FOG` (the tile pass) and `MAP_FOG` (the light map) are one alpha.
+  `sight::Stance` — Friendly, Neutral, Hostile — stays the world's word
+  for who is at war: `Game::set_stance` and `Game::set_foreign` (the
+  station's box on a joined deck) keep it on `Game` for `is_aboard`, and
+  the sight is not told. A wall is seen from the room it walls, the way
+  the trace works. Under `Fog::Crew` the picture is the light map's
+  (below); `draw` is the tile pass for `Fog::All` — one pass of the
+  run-merging, edge to edge since the fog is translucent. `Game::veil_at`
+  reads the tile rule for the probes (0 nothing, 1 the fog), and
   `Game::observe_from_for_probe(eyes)` traces from wherever a probe says
-  — from nowhere, to see what is remembered. Under `Fog::All` a
-  stranger's room is black entirely, which is what a hostile station
-  alongside looks like; beyond the residents' range the ship painter
-  keeps drawing a stranger as its far plate (`HULL_UNKNOWN`) so nothing
-  is revealed at fifty tiles.
-  `a_stranger_s_deck_is_black_where_nobody_has_looked_and_grey_where_they_have`
-  in the world tests pins it.
+  — from nowhere, for a deck nobody is looking at. Under `Fog::All` a
+  room is its structure under the one fog with nobody drawn, which is
+  what a station alongside looks like; beyond the residents' range the
+  ship painter keeps drawing a stranger as its far plate
+  (`HULL_UNKNOWN`) so nothing is revealed at fifty tiles.
+  `a_hostile_station_is_under_the_ship_s_own_fog_and_its_machines_only_in_sight`
+  in the world tests pins it, and
+  `what_the_crew_see_is_brighter_than_the_fog_on_any_deck` in
+  `sight.rs` the rule under it: what is seen, lit or not, is always
+  lighter than the fog.
 - **A body on somebody else's deck stays drawn for `SEEN_FOR`** (2 s)
   after the world last said it was in view: `set_seen` re-arms
   `seen_for` per body, `body_seen` reads it, `simulate` counts it down.
@@ -2462,13 +2463,13 @@ laid over it. Two things:
   it is lit or within the dark range of the *body*, as the trace
   measures it. **Every fogged tile is in it, the crew's own and a
   stranger's alike** — seen and lit is nought darkness and `GLOW` (0.24)
-  of lamplight; seen and unlit is `MAP_DARK` (0.50); a friendly tile
-  unseen is `MAP_FOG` (0.62); a stranger's tile once seen and unseen now
-  is `MAP_GREY` (0.80), `explored_px` remembering per pixel; a
-  stranger's never seen is black, no glow — so the station's fog has the
-  same straight edges as the ship's and no tile pass is drawn under
-  `Fog::Crew`. The lamplight shows through the fog and the grey at
-  `GLOW_UNDER_FOG` (half), since a lamp does not move and the crew
+  of lamplight; seen and unlit is `MAP_DARK` (0.50); every tile unseen,
+  whoever's and looked at or not, is `MAP_FOG` (0.62) (task 128: the
+  black and `MAP_GREY` went with the explored memory) — so the
+  station's fog has the same straight edges as the ship's and no tile
+  pass is drawn under `Fog::Crew`. What is seen is always lighter than
+  the fog. The lamplight shows through the fog at `GLOW_UNDER_FOG`
+  (half) on every structure, since a lamp does not move and the crew
   know where they hang. The **light field** is cached per layout
   (`build_light_fields`): every lamp is marched **twice**, its direct
   fall, which every opaque cell stops, and a fill of `SHADOW_FILL`
@@ -2532,11 +2533,10 @@ laid over it. Two things:
   body again only when one of its eyes is half a pixel or more from
   where it was, or its peeks changed; every body when the cells did
   (`views_stale`: `set_shut` with a change, `set_tall`, `set_lights`).
-  Then `compose` puts the views, `explored_px` and the light field
-  together **over the box the changed views cover** and nowhere else,
-  bumps `version`, and says so in `LightMap::changed` (`(x, y, w, h)`,
-  whole tiles; `None` for the whole map — a stance change through
-  `map_stale`, or a fresh grid). Nothing moved is no version and no
+  Then `compose` puts the views and the light field together **over
+  the box the changed views cover** and nowhere else, bumps `version`,
+  and says so in `LightMap::changed` (`(x, y, w, h)`, whole tiles;
+  `None` for the whole map — a fresh grid through `map_stale`). Nothing moved is no version and no
   upload. On the docked deck of the world tests that is under 1.5 ms in
   a frame somebody walks and about 0.5 ms a marched eye; the tile trace
   beside it is 0.3 ms. `Game::light_map()` hands it to the host; the
@@ -2643,7 +2643,7 @@ the deck's floor box and `DECK_MARGIN` tiles of ground
   before the interrupt so the routes are the ones they were.
 - `Maps::afield` and `Game::afield_blockers` are `serde(skip)`: a load
   rebuilds them on the first step. `Plane::chunks` and `seen` likewise;
-  `explored` is saved.
+  nothing of the fog is saved (task 128: there is no explored memory).
 - **The plain's picture is the light map's march, a chunk at a time**
   (feature 67, September 2026; the note before `terrain::PICTURE_PX`).
   `Plane::observe` stays the rule — tiles, for `seen_at` and the world
@@ -2658,9 +2658,10 @@ the deck's floor box and `DECK_MARGIN` tiles of ground
   `forget_views`), and composed into a `sight::LightMap` per chunk of
   the *room* (`CHUNK` tiles a side in the room's frame; the ground's
   own chunks are the station's) for the chunks the host's `window`
-  touches. Nought where a view reaches, `MAP_GREY` where a ray has ever
-  reached (`Picture::explored`, a bit a pixel, kept for good), black
-  elsewhere; no glow — the plain is daylight and has no lamps. The
+  touches. Nought where a view reaches and the one fog, `MAP_FOG`,
+  everywhere else, looked at before or not (task 128) — the tile rule
+  says the same, `VEIL_NONE` or `VEIL_FOG`; no glow — the plain is
+  daylight and has no lamps. The
   deck's pixels are composed like the rest and never drawn: the host
   cuts the box out of the pieces it draws, and composing them keeps the
   blur continuous at the box's edge. Each picture carries a
@@ -2669,11 +2670,8 @@ the deck's floor box and `DECK_MARGIN` tiles of ground
   `Fog::Crew` only — and `Game::plain_pictures` hands them over; the
   window comes from the ship's camera (`ship::Game::picture_the_plain`,
   `world_paint::plain_window`), which is why it is asked after
-  `render` and not in it. Nothing of it is saved: a plane read back
-  seeds a chunk's memory from the tile rule's as it stood when the
-  picture began (`seed`, whole tiles) and a plane made here from
-  nothing, since the tile rule reaches half a tile past the rays with
-  a stepped rim. A marched outdoor eye costs about what the deck's does
+  `render` and not in it. Nothing of it is saved, and nothing needs to
+  be: a picture is this frame's views and the fog. A marched outdoor eye costs about what the deck's does
   (~10 ms in release over open ground, most of it the two million ray
   steps), a composed chunk a fraction of a millisecond.
 
@@ -4023,8 +4021,9 @@ changes: `light_inputs`, `view_inputs` and `ray_table` here, the shader
 `a_host_marching_the_inputs_draws_the_map_this_crate_draws`, which fails
 the moment the inputs stop describing the march.
 
-**`explored_px` is the host's while it draws**: the sight's copy is what
-is written out, and the host gives its own back before a save
-(`Game::give_back_explored`, keyed by `Sight::picture_id` — a
-`PictureId` is fresh for every sight made, cloned or loaded). Nothing the
-simulation reads is in the inputs; the tile masks are untouched.
+**The host keeps nothing the room needs back** since task 128 took the
+explored memory away (`explored_px`, `Game::give_back_explored` and the
+GPU's read-back went with it): the inputs carry the sight's `PictureId`
+— fresh for every sight made, cloned or loaded — so a host keys its
+views and revisions to one sight. Nothing the simulation reads is in the
+inputs; the tile masks are untouched.

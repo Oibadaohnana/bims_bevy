@@ -17,8 +17,10 @@
 //! rule read in the room's tiles through the frame the join put the
 //! station in, a cache of the chunks looked at, and the fog — which
 //! tiles the crew see now ([`Plane::observe`], traced tile by tile out
-//! to [`VIEW`] the way `crate::sight` traces the deck) and which they
-//! have ever seen. The room's dense structures — the navigation grids,
+//! to [`VIEW`] the way `crate::sight` traces the deck). Everything they
+//! do not see is under the one fog, `sight::MAP_FOG`, looked at before
+//! or not (task 128): the plain is always drawn, and the fog hides only
+//! who is on it. The room's dense structures — the navigation grids,
 //! the sight mask, the blood — stay the deck's: the plane is walked on
 //! a window a body carries with it (`nav::Nav::outside`, built about
 //! it by `Game::refresh_afield`) and seen through this. What is drawn over
@@ -27,7 +29,7 @@
 //! the rule; see the note before [`PICTURE_PX`].
 
 use crate::math::{Rect, Vec2, vec2};
-use crate::sight::{LightMap, MAP_GREY, MAP_PX_PER_TILE, march_rays};
+use crate::sight::{LightMap, MAP_FOG, MAP_PX_PER_TILE, march_rays};
 use std::collections::BTreeMap;
 
 /// The plane's side, in tiles. Ten thousand: a settlement's deck is
@@ -371,8 +373,6 @@ pub struct Plane {
     /// function of the seed.
     #[cfg_attr(feature = "serde", serde(skip))]
     chunks: BTreeMap<(i32, i32), Chunk>,
-    /// Every tile a crew member has ever seen, by the station's chunk.
-    explored: BTreeMap<(i32, i32), Bits>,
     /// What they see now, traced from where they stand.
     #[cfg_attr(feature = "serde", serde(skip))]
     seen: BTreeMap<(i32, i32), Bits>,
@@ -386,24 +386,14 @@ pub struct Plane {
     views: Vec<PlainView>,
     #[cfg_attr(feature = "serde", serde(skip))]
     pictures: BTreeMap<(i32, i32), Picture>,
-    /// Whether the picture has begun, and what the tile rule remembered
-    /// when it did — the memory read back from a save, since a plane
-    /// made here begins with the picture and remembers nothing yet — for
-    /// a chunk's picture to start from. Neither is saved: a plane read
-    /// back has not begun, whatever it was doing when it was written.
-    #[cfg_attr(feature = "serde", serde(skip))]
-    begun: bool,
-    #[cfg_attr(feature = "serde", serde(skip))]
-    seed: Option<BTreeMap<(i32, i32), Bits>>,
 }
 
 /// What the tile rule says of a tile of the plane, for the probes and
-/// the world: nothing over it, the grey of ground looked at and not in
-/// view, or the black of ground never seen. What is drawn is the
-/// picture (`Plane::picture`), which says the same of every pixel.
+/// the world: nothing over it, or the fog over ground nobody sees now —
+/// the one fog, looked at before or not. What is drawn is the picture
+/// (`Plane::picture`), which says the same of every pixel.
 pub const VEIL_NONE: u8 = 0;
-pub const VEIL_GREY: u8 = 1;
-pub const VEIL_BLACK: u8 = 2;
+pub const VEIL_FOG: u8 = 1;
 
 impl Plane {
     /// `origin`, `ex` and `ey` are the station's frame in the room's
@@ -422,14 +412,11 @@ impl Plane {
             ey,
             deck,
             chunks: BTreeMap::new(),
-            explored: BTreeMap::new(),
             seen: BTreeMap::new(),
             eyes_at: Vec::new(),
             traced: false,
             views: Vec::new(),
             pictures: BTreeMap::new(),
-            begun: true,
-            seed: None,
         }
     }
 
@@ -598,7 +585,7 @@ impl Plane {
     /// every tile off the deck within [`VIEW`] of an eye whose line from
     /// the eye's tile crosses nothing opaque — the plane's own, and on
     /// the deck whatever `blocked` says, which is the sight mask's cells.
-    /// What is seen stays explored. True when traced again.
+    /// True when traced again.
     pub fn observe(
         &mut self,
         eyes: &[Vec2],
@@ -669,7 +656,6 @@ impl Plane {
                     let (sx, sy) = self.to_station(x, y);
                     let (key, i) = chunk_of(sx, sy);
                     set_bit(self.seen.entry(key).or_insert(NO_BITS), i);
-                    set_bit(self.explored.entry(key).or_insert(NO_BITS), i);
                 }
             }
         }
@@ -682,10 +668,8 @@ impl Plane {
         let (key, i) = chunk_of(sx, sy);
         if self.seen.get(&key).is_some_and(|b| bit(b, i)) {
             VEIL_NONE
-        } else if self.explored.get(&key).is_some_and(|b| bit(b, i)) {
-            VEIL_GREY
         } else {
-            VEIL_BLACK
+            VEIL_FOG
         }
     }
 
@@ -693,14 +677,6 @@ impl Plane {
     pub fn seen_at(&self, p: Vec2, tile: f32) -> bool {
         let (rx, ry) = Plane::tile_of(p, tile);
         self.veil_at_room(rx, ry) == VEIL_NONE
-    }
-
-    /// How many tiles have ever been seen, for the probes.
-    pub fn explored_count(&self) -> usize {
-        self.explored
-            .values()
-            .map(|b| b.iter().map(|w| w.count_ones() as usize).sum::<usize>())
-            .sum()
     }
 }
 
@@ -717,10 +693,9 @@ impl Plane {
 // the *room's* chunks ([`CHUNK`] tiles a side in the room's frame, not
 // the station's that the ground is cached by), composed only for the
 // chunks a host says it is about to draw ([`Plane::picture`]'s window)
-// and kept only as long as it wants them; what a crew member has ever
-// seen of a chunk is a bit a pixel and stays. None of it is saved: a
-// picture read back is seeded from the tile rule's memory — whole
-// tiles, until the crew look again.
+// and kept only as long as it wants them. What nobody sees is under the
+// one fog, whether or not anybody has looked at it — there is no memory
+// to keep — so none of it is saved.
 
 /// How many pixels of the plain's picture a tile is across: the deck's
 /// light map's, so the two pictures meet at the box's edge at one grain.
@@ -801,85 +776,19 @@ impl PlainView {
     }
 }
 
-/// One chunk's picture: every pixel of it a crew member has ever seen,
-/// a bit each over the chunk (the grey, kept for good); the picture
-/// itself, held while a host wants it and empty otherwise; and where
-/// a view moved under it since it was composed.
-#[derive(Clone, Debug)]
+/// One chunk's picture: the picture itself, held while a host wants it
+/// and empty otherwise, and where a view moved under it since it was
+/// composed.
+#[derive(Clone, Debug, Default)]
 struct Picture {
-    explored: Vec<u64>,
     map: LightMap,
     dirty: Option<PxBox>,
     wanted: bool,
 }
 
-impl Picture {
-    fn explored_at(&self, key: (i32, i32), x: i32, y: i32) -> bool {
-        let i = ((y - key.1 * CHUNK_PX) * CHUNK_PX + (x - key.0 * CHUNK_PX)) as usize;
-        self.explored[i / 64] & (1 << (i % 64)) != 0
-    }
-
-    fn explore(&mut self, key: (i32, i32), x: i32, y: i32) {
-        let i = ((y - key.1 * CHUNK_PX) * CHUNK_PX + (x - key.0 * CHUNK_PX)) as usize;
-        self.explored[i / 64] |= 1 << (i % 64);
-    }
-}
 impl Plane {
-    /// Whether a room tile was seen before the picture began — off the
-    /// tile rule's memory as it stood then, `seed`, and nothing since:
-    /// what the crew see now is the rays', and the tile rule reaches a
-    /// tile or so past them with a stepped rim the picture must not
-    /// take on.
-    fn seeded_tile(&self, rx: i32, ry: i32) -> bool {
-        let Some(seed) = &self.seed else {
-            return false;
-        };
-        let (sx, sy) = self.to_station(rx, ry);
-        let (key, i) = chunk_of(sx, sy);
-        seed.get(&key).is_some_and(|b| bit(b, i))
-    }
-
-    /// A chunk's picture as it starts: what was remembered before the
-    /// picture began — whole tiles — and no map yet.
-    fn fresh_picture(&self, key: (i32, i32)) -> Picture {
-        let mut explored = vec![0u64; (CHUNK_PX * CHUNK_PX / 64) as usize];
-        if self.seed.is_some() {
-            for ty in 0..CHUNK {
-                for tx in 0..CHUNK {
-                    if !self.seeded_tile(key.0 * CHUNK + tx, key.1 * CHUNK + ty) {
-                        continue;
-                    }
-                    for py in ty * PICTURE_PX..(ty + 1) * PICTURE_PX {
-                        let i = (py * CHUNK_PX + tx * PICTURE_PX) as usize;
-                        // Eight pixels along the row, in one word since
-                        // a tile's row never straddles one.
-                        explored[i / 64] |= 0xFF << (i % 64);
-                    }
-                }
-            }
-        }
-        Picture {
-            explored,
-            map: LightMap::default(),
-            dirty: None,
-            wanted: false,
-        }
-    }
-
-    /// Whether a room pixel was ever seen, off the pictures — the next
-    /// chunk's for an apron pixel — or, for a chunk with none yet, what
-    /// was remembered before the picture began.
-    fn explored_px(&self, x: i32, y: i32) -> bool {
-        let key = picture_key(x, y);
-        match self.pictures.get(&key) {
-            Some(p) => p.explored_at(key, x, y),
-            None => self.seeded_tile(x.div_euclid(PICTURE_PX), y.div_euclid(PICTURE_PX)),
-        }
-    }
-
     /// March one eye over the window round it — the ground's opacity
-    /// off the deck, `blocked` on it — and note every pixel reached as
-    /// explored.
+    /// off the deck, `blocked` on it.
     fn march_view(
         &mut self,
         at: Vec2,
@@ -923,7 +832,7 @@ impl Plane {
                 }
             },
         );
-        let view = PlainView {
+        PlainView {
             at,
             cells,
             x0,
@@ -931,41 +840,16 @@ impl Plane {
             side,
             seen,
             reached,
-        };
-        // What has been seen stays known, a chunk at a time, a row of
-        // the window at a time.
-        if let Some(r) = reached {
-            for key in keys_over(r) {
-                let Some(b) = clip(r, chunk_box(key)) else {
-                    continue;
-                };
-                if !self.pictures.contains_key(&key) {
-                    let fresh = self.fresh_picture(key);
-                    self.pictures.insert(key, fresh);
-                }
-                let p = self.pictures.get_mut(&key).expect("just put");
-                for y in b.1..=b.3 {
-                    let row = view.row(y, b.0, b.2);
-                    for (dx, &s) in row.iter().enumerate() {
-                        if s {
-                            p.explore(key, b.0 + dx as i32, y);
-                        }
-                    }
-                }
-            }
         }
-        view
     }
 
     /// The darkness over a box of pixels, row by row: nought where a
-    /// view reaches, the grey where the crew have looked, black where
-    /// they never have. A row at a time: the views that reach the row
-    /// laid into it first, then the memory read a chunk's run at a
-    /// time rather than a pixel.
+    /// view reaches, the fog everywhere else. A row at a time, the
+    /// views that reach the row laid into it.
     fn composed(&self, over: PxBox) -> Vec<u8> {
         let (bx0, by0, bx1, by1) = over;
         let w = (bx1 - bx0 + 1) as usize;
-        let grey = (MAP_GREY * 255.0) as u8;
+        let fog = (MAP_FOG * 255.0) as u8;
         let views: Vec<&PlainView> = self
             .views
             .iter()
@@ -991,26 +875,7 @@ impl Plane {
                     *s |= r;
                 }
             }
-            let mut x = bx0;
-            while x <= bx1 {
-                let key = picture_key(x, y);
-                let end = (chunk_box(key).2).min(bx1);
-                let memory = self.pictures.get(&key);
-                for x in x..=end {
-                    let a = if seen[(x - bx0) as usize] {
-                        0
-                    } else if match memory {
-                        Some(p) => p.explored_at(key, x, y),
-                        None => self.explored_px(x, y),
-                    } {
-                        grey
-                    } else {
-                        255
-                    };
-                    alpha.push(a);
-                }
-                x = end + 1;
-            }
+            alpha.extend(seen.iter().map(|&s| if s { 0 } else { fog }));
         }
         alpha
     }
@@ -1052,10 +917,9 @@ impl Plane {
     /// in): a body whose eye has moved half a pixel since it was
     /// marched — or whose deck cells have, `cells` being
     /// `Sight::cells_version` — is marched again over the window round
-    /// it, the pixels it reached noted as explored; and every chunk
-    /// the window touches has its picture composed, wholly if it has
-    /// none, else over what the marches moved under it. A chunk the
-    /// window has left lets its picture go and keeps its memory. See
+    /// it; and every chunk the window touches has its picture composed,
+    /// wholly if it has none, else over what the marches moved under
+    /// it. A chunk the window has left lets its picture go. See
     /// the note above, and [`Plane::pictures`] for the result.
     pub fn picture(
         &mut self,
@@ -1065,12 +929,6 @@ impl Plane {
         cells: u64,
         window: (i32, i32, i32, i32),
     ) {
-        if !self.begun {
-            // Read back from a save: what was known then is where the
-            // picture starts, whole tiles.
-            self.seed = Some(self.explored.clone());
-            self.begun = true;
-        }
         let px = tile / PICTURE_PX as f32;
         let mut moved: Vec<PxBox> = Vec::new();
         if self.views.len() > eyes.len() {
@@ -1110,11 +968,7 @@ impl Plane {
         for ky in wy0.div_euclid(CHUNK)..=wy1.div_euclid(CHUNK) {
             for kx in wx0.div_euclid(CHUNK)..=wx1.div_euclid(CHUNK) {
                 let key = (kx, ky);
-                if !self.pictures.contains_key(&key) {
-                    let fresh = self.fresh_picture(key);
-                    self.pictures.insert(key, fresh);
-                }
-                let p = self.pictures.get_mut(&key).expect("just put");
+                let p = self.pictures.entry(key).or_default();
                 p.wanted = true;
                 let over = if p.map.width == 0 {
                     Some(apron_box(key))
@@ -1362,21 +1216,58 @@ mod tests {
         assert!(plane.observe(&[eye], tile, &|_, _| true));
         assert!(!plane.observe(&[eye], tile, &|_, _| true));
         assert!(plane.seen_at(eye, tile));
-        assert_eq!(plane.veil_at_room(30, 68 + VIEW + 1), VEIL_BLACK);
-        assert!(plane.explored_count() > 1000);
-        let seen_now = plane.explored_count();
-        // Moved off: what was seen is grey, and more is known.
+        assert_eq!(plane.veil_at_room(30, 68 + VIEW + 1), VEIL_FOG);
+        assert_eq!(plane.veil_at_room(30, 67), VEIL_NONE);
+        // Moved off: what was seen is under the fog again, the one fog.
         let eye2 = vec2(30.5 * tile, (68 + VIEW) as f32 * tile + 0.5 * tile);
         assert!(plane.observe(&[eye2], tile, &|_, _| true));
-        let grey = (9..=60)
-            .filter(|&y| plane.veil_at_room(30, y) == VEIL_GREY)
+        let fogged = (9..=60)
+            .filter(|&y| plane.veil_at_room(30, y) == VEIL_FOG)
             .count();
-        assert!(grey > 20, "{grey} grey");
-        assert!(plane.explored_count() > seen_now);
+        assert!(fogged > 20, "{fogged} fogged");
+        assert_eq!(plane.veil_at_room(30, 67), VEIL_FOG);
     }
 
-    /// The picture: what an eye reaches is nought, what it has left is
-    /// the grey, what nobody has looked at black; a chunk's apron is
+    /// **What the crew see of the plain is brighter than the fog** (task
+    /// 128), the deck's rule (`sight`'s test of it) for the plain's
+    /// picture: a pixel an eye reaches against one nobody sees, the
+    /// latter the one fog and nothing darker anywhere in the picture.
+    /// The plain is daylight and keeps no lamplight, so there is one seen
+    /// level.
+    #[test]
+    fn what_the_crew_see_of_the_plain_is_brighter_than_the_fog() {
+        let t = Terrain::new(3, TEMPERATE, 96);
+        let mut plane = Plane::new(t, (10, 20), (0, 1), (-1, 0), (0, 0, 20, 30));
+        let tile = 52.0;
+        let px = tile / PICTURE_PX as f32;
+        let eye = vec2(30.5 * tile, 68.5 * tile);
+        plane.picture(&[eye], tile, &|_, _| false, 0, (0, 40, 60, 140));
+        let fog = (MAP_FOG * 255.0) as u8;
+        let (ex, ey) = ((eye.x / px) as i32, (eye.y / px) as i32);
+        let pixel = |x: i32, y: i32| -> u8 {
+            let key = picture_key(x, y);
+            let (_, map) = plane
+                .pictures()
+                .find(|(k, _)| *k == key)
+                .expect("a picture");
+            let (ax0, ay0, _, _) = apron_box(key);
+            map.alpha[((y - ay0) * PICTURE_SIDE + (x - ax0)) as usize]
+        };
+        let seen = pixel(ex, ey);
+        let unseen = pixel(ex, ey + (VIEW + 2) * PICTURE_PX);
+        assert_eq!(unseen, fog);
+        assert!(seen < unseen, "seen {seen} against the fog {unseen}");
+        for (_, map) in plane.pictures() {
+            assert!(map.alpha.iter().all(|&a| a == 0 || a == fog));
+            assert!(
+                map.glow.iter().all(|&g| g == 0),
+                "the plain has no lamplight"
+            );
+        }
+    }
+
+    /// The picture: what an eye reaches is nought, what it has left and
+    /// what nobody has looked at the one fog; a chunk's apron is
     /// the next chunk's own pixels, so a host blurring across the seam
     /// reads the same fog either side; an eye that moves half a pixel
     /// is a new version over a box, and one that stands still is not;
@@ -1390,6 +1281,7 @@ mod tests {
         let px = tile / PICTURE_PX as f32;
         let eye = vec2(30.5 * tile, 68.5 * tile);
         let open = |_: i32, _: i32| false;
+        let fog = (MAP_FOG * 255.0) as u8;
         // A window round the eye, a few chunks each way.
         let window = (30 - 70, 68 - 70, 30 + 70, 68 + 70);
         assert!(plane.observe(&[eye], tile, &|_, _| true));
@@ -1409,7 +1301,7 @@ mod tests {
         let (ex, ey) = ((eye.x / px) as i32, (eye.y / px) as i32);
         assert_eq!(at(&plane, ex, ey), 0);
         assert_eq!(at(&plane, ex + 3 * PICTURE_PX, ey), 0);
-        assert_eq!(at(&plane, ex, ey + (VIEW + 2) * PICTURE_PX), 255);
+        assert_eq!(at(&plane, ex, ey + (VIEW + 2) * PICTURE_PX), fog);
         // Every apron pixel of every picture is what the picture that
         // owns the pixel says.
         for &(key, map) in &pictures {
@@ -1439,7 +1331,7 @@ mod tests {
                 plane.deck,
             );
             walled.picture(&[eye], tile, &|_, _| true, 0, window);
-            assert_eq!(at(&walled, 10 * PICTURE_PX + 4, 20 * PICTURE_PX + 4), 255);
+            assert_eq!(at(&walled, 10 * PICTURE_PX + 4, 20 * PICTURE_PX + 4), fog);
             assert_eq!(at(&walled, 25 * PICTURE_PX + 4, 20 * PICTURE_PX + 4), 0);
             assert_eq!(at(&plane, 10 * PICTURE_PX + 4, 20 * PICTURE_PX + 4), 0);
         }
@@ -1449,7 +1341,7 @@ mod tests {
         let again: Vec<u64> = plane.pictures().map(|(_, m)| m.version).collect();
         assert_eq!(versions, again);
         // A step off: the eye's own chunk composed again over a box,
-        // and the ground it left is grey.
+        // and the ground it left is under the fog again.
         let eye2 = vec2(eye.x + 20.0 * tile, eye.y);
         plane.picture(&[eye2], tile, &open, 0, window);
         let (_, map) = plane
@@ -1457,37 +1349,23 @@ mod tests {
             .find(|(k, _)| *k == picture_key(ex, ey))
             .expect("the eye's chunk");
         assert!(map.version > versions[0] || map.changed.is_some());
-        let grey = (MAP_GREY * 255.0) as u8;
-        assert_eq!(at(&plane, ex - (VIEW - 5) * PICTURE_PX, ey), grey);
+        assert_eq!(at(&plane, ex - (VIEW - 5) * PICTURE_PX, ey), fog);
         assert_eq!(at(&plane, ex + 20 * PICTURE_PX, ey), 0);
-        // The window moves away: the pictures go, the memory stays.
+        // The window moves away: the pictures go, and come back the same.
         let far = (30 + 500, 68 + 500, 30 + 560, 68 + 560);
         plane.picture(&[eye2], tile, &open, 0, far);
         assert!(plane.pictures().all(|(k, _)| k.0 > 10));
         plane.picture(&[eye2], tile, &open, 0, window);
-        assert_eq!(at(&plane, ex - (VIEW - 5) * PICTURE_PX, ey), grey);
+        assert_eq!(at(&plane, ex - (VIEW - 5) * PICTURE_PX, ey), fog);
+        assert_eq!(at(&plane, ex + 20 * PICTURE_PX, ey), 0);
         // The tile rule reaches half a tile past the rays with a stepped
-        // rim; a picture begun here does not take it on. The far half of
-        // the last tile in view is seen by the rule, black in the picture.
+        // rim; the picture does not take it on. The far half of the last
+        // tile in view is seen by the rule, under the fog in the picture.
         let rim = ((eye2.x / tile) as i32 + VIEW, (eye2.y / tile) as i32);
         assert!(plane.observe(&[eye2], tile, &|_, _| true));
         assert_eq!(plane.veil_at_room(rim.0, rim.1), VEIL_NONE);
         let rim_px = (rim.0 * PICTURE_PX + 7, rim.1 * PICTURE_PX + 4);
-        assert_eq!(at(&plane, rim_px.0, rim_px.1), 255);
-        // Read back from a save, the memory is the tile rule's as it was
-        // then: whole tiles, and no less than was seen — the rim too.
-        let mut read_back = Plane::new(
-            plane.terrain.clone(),
-            plane.origin,
-            plane.ex,
-            plane.ey,
-            plane.deck,
-        );
-        read_back.explored = plane.explored.clone();
-        read_back.begun = false;
-        read_back.picture(&[eye2], tile, &open, 0, window);
-        assert_eq!(at(&read_back, ex - (VIEW - 5) * PICTURE_PX, ey), grey);
-        assert_eq!(at(&read_back, rim_px.0, rim_px.1), grey);
+        assert_eq!(at(&plane, rim_px.0, rim_px.1), fog);
     }
 }
 

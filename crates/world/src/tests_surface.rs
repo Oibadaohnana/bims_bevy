@@ -551,10 +551,11 @@ fn room_pos(world: &World) -> bims::math::Vec2 {
 /// Landed, the town stands on a plain (feature 55): ground on every side
 /// of the ship, a crew member sent two hundred tiles out walks there —
 /// on windows, leg by leg, past the deck's grids — and back to the pad,
-/// and what it saw of the plain on the way is kept.
+/// and what it saw of the plain on the way is clear while it is seen and
+/// back under the one fog once it has left (task 128).
 #[test]
 fn the_ground_beyond_the_town_is_a_plain_the_crew_walk_out_on_and_back() {
-    use bims::terrain::{DECK_MARGIN, EXTENT, VIEW};
+    use bims::terrain::{DECK_MARGIN, EXTENT, Plane, VEIL_FOG, VEIL_NONE, VIEW};
     use worldgen::math::dvec2;
     let tile = shipdesign::TILE as f64;
     let mut world = basic();
@@ -637,8 +638,14 @@ fn the_ground_beyond_the_town_is_a_plain_the_crew_walk_out_on_and_back() {
     assert!(plane.seen_at(far, tile as f32));
     let beyond = far + bims::math::vec2(0.0, -(VIEW as f32 + 2.0) * tile as f32);
     assert!(!plane.seen_at(beyond, tile as f32));
-    // One look, from wherever it stands — a canyon or a plain.
-    assert!(plane.explored_count() > 50, "{}", plane.explored_count());
+    // The one fog over the plain (task 128): the ground in view is
+    // clear, the ground past it under the fog.
+    let veil = |plane: &Plane, p: bims::math::Vec2| {
+        let (rx, ry) = Plane::tile_of(p, tile as f32);
+        plane.veil_at_room(rx, ry)
+    };
+    assert_eq!(veil(plane, far), VEIL_NONE, "seen: clear");
+    assert_eq!(veil(plane, beyond), VEIL_FOG, "unseen: the fog");
     // Back to the pad: the way in is the same walk the other way.
     assert!(world.aboard.room.walk_to(0, from));
     let mut home = false;
@@ -653,4 +660,10 @@ fn the_ground_beyond_the_town_is_a_plain_the_crew_walk_out_on_and_back() {
     let at = room_pos(&world);
     assert!(home, "got back to {at:?}, bound for {from:?}");
     assert!(!world.aboard.room.is_afield_for_probe(0));
+    // Walked away, what was seen out there is under the fog again, and
+    // the ground by the pad is clear.
+    world.aboard.room.observe();
+    let plane = world.aboard.room.plane().expect("the plain");
+    assert_eq!(veil(plane, far), VEIL_FOG, "left: the fog again");
+    assert!(plane.seen_at(at, tile as f32) || world.aboard.room.seen_at(at.x, at.y));
 }
