@@ -118,7 +118,17 @@ const TILE: f32 = shipdesign::TILE as f32;
 /// Every seed is another galaxy, so the spawn, the site the run fights
 /// at, the star it jumps to and the town it defends are all others; no
 /// rule of the room moved. Was `0x_04ed_2f68_873a_b95b`.
-const SURVIVORS: u64 = 0x_7a04_c23f_0efb_0d9f;
+///
+/// **And once more, on purpose**: experience the same for every class
+/// (task 119). An enemy's death is worth `XP_ENEMY_DEAD` (five) on top of
+/// its down again, and nothing a class does — building, a kit laid,
+/// healing, hits taken, a hire — is worth anything; the crew's experience
+/// is in the reading, and a level reached is a fixed talent. The task's
+/// other half, one speed, moved nothing here: with it alone on HEAD the
+/// old number came back (the scenario sends no speed request, and the
+/// wave-landing reset it dropped only ever set 1× on requests already at
+/// 1×). Was `0x_7a04_c23f_0efb_0d9f`.
+const SURVIVORS: u64 = 0x_002a_da6c_00c6_d69f;
 
 /// A gun in every hand, the kinds dealt round, as the fight's probes arm
 /// a crew — the five there were when the reading was taken: the minigun

@@ -942,7 +942,7 @@ fn the_local_frame_has_a_hysteresis_and_changing_it_touches_neither_the_clock_no
         let mut world = basic();
         world.step(&[Command::SetSpeed {
             slot: 0,
-            speed: Speed::Ten,
+            speed: Speed::Real,
         }]);
         let speed = world.effective_speed();
         world.undock_for_probe();
@@ -972,34 +972,76 @@ fn the_local_frame_has_a_hysteresis_and_changing_it_touches_neither_the_clock_no
 
 // --- speed ---------------------------------------------------------------------
 
+/// The world opens at 1× — the only speed there is (task 119) — and runs
+/// at it until somebody pauses.
 #[test]
-fn the_world_runs_at_the_slowest_request() {
+fn the_world_runs_at_one_times_or_not_at_all() {
     let mut world = basic();
+    assert_eq!(world.effective_speed(), Speed::Real);
+    assert_eq!(world.effective_speed().multiplier(), 1);
+    for request in &world.speed_requests {
+        assert!(Speed::ALL.contains(request));
+    }
+    world.step(&[Command::SetSpeed {
+        slot: 0,
+        speed: Speed::Paused,
+    }]);
+    assert_eq!(world.effective_speed().multiplier(), 0);
+    world.step(&[Command::SetSpeed {
+        slot: 0,
+        speed: Speed::Real,
+    }]);
+    assert_eq!(world.effective_speed(), Speed::Real);
+}
+
+/// **Any player's pause pauses everyone** (task 119): the world is paused
+/// while any one of them asks for it, whoever it is, and runs again only
+/// when every pause is lifted.
+#[test]
+fn any_player_s_pause_pauses_everyone() {
+    let mut world = basic();
+    let players = world.players();
+    assert!(players >= 2, "a world of company: {players}");
+    for slot in 0..players {
+        world.step(&[Command::SetSpeed {
+            slot,
+            speed: Speed::Paused,
+        }]);
+        assert_eq!(world.effective_speed(), Speed::Paused, "slot {slot}");
+        world.step(&[Command::SetSpeed {
+            slot,
+            speed: Speed::Real,
+        }]);
+        assert_eq!(world.effective_speed(), Speed::Real, "slot {slot}");
+    }
+    // Two pausing: one lifting it is not enough.
     world.step(&[
         Command::SetSpeed {
             slot: 0,
-            speed: Speed::Top,
+            speed: Speed::Paused,
         },
         Command::SetSpeed {
             slot: 1,
-            speed: Speed::Triple,
+            speed: Speed::Paused,
         },
     ]);
-    assert_eq!(world.effective_speed(), Speed::Triple);
-
     world.step(&[Command::SetSpeed {
-        slot: 1,
-        speed: Speed::Paused,
+        slot: 0,
+        speed: Speed::Real,
     }]);
     assert_eq!(world.effective_speed(), Speed::Paused);
-    assert_eq!(world.effective_speed().multiplier(), 0);
 
     // A slot nobody is in cannot change it.
     world.step(&[Command::SetSpeed {
         slot: 9,
-        speed: Speed::Top,
+        speed: Speed::Real,
     }]);
     assert_eq!(world.effective_speed(), Speed::Paused);
+    world.step(&[Command::SetSpeed {
+        slot: 1,
+        speed: Speed::Real,
+    }]);
+    assert_eq!(world.effective_speed(), Speed::Real);
 }
 
 // --- permissions ------------------------------------------------------------------

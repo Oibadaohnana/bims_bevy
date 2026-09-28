@@ -270,65 +270,6 @@ fn a_medic_sets_out_with_its_kit_the_pool_is_unchanged_and_anyone_still_doctors(
 }
 
 #[test]
-fn a_medic_earns_five_for_a_finished_bandage_or_treatment_on_a_crewmate_and_nothing_otherwise() {
-    let mut world = medic();
-    assert_eq!(world.set_class(1, Class::Soldier), Ok(()));
-    world.step(&[]);
-    // A bandage on a crewmate, finished: five.
-    world.aboard.room.wound(1, Part::Body, 10.0);
-    assert!(bandage_and_wait(&mut world, 0, 1, Part::Body).is_some());
-    assert_eq!(world.progress_of(0).xp, class::XP_HEALED);
-    // A treatment with a medkit, finished: five more.
-    beside(&mut world, 1, 0);
-    make_dying(&mut world, 1);
-    assert!(treat_and_wait(&mut world, 0, 1, Part::Body).is_some());
-    assert_eq!(world.progress_of(0).xp, 2 * class::XP_HEALED);
-    world.aboard.room.patch_up_for_probe(1);
-    // On itself: nothing.
-    world.aboard.room.wound(0, Part::Body, 10.0);
-    assert!(bandage_and_wait(&mut world, 0, 0, Part::Body).is_some());
-    assert_eq!(
-        world.progress_of(0).xp,
-        2 * class::XP_HEALED,
-        "not for itself"
-    );
-    // A soldier doing the same on the medic: nothing for the soldier.
-    world.aboard.room.wound(0, Part::Body, 10.0);
-    beside(&mut world, 1, 0);
-    assert!(bandage_and_wait(&mut world, 1, 0, Part::Body).is_some());
-    assert_eq!(world.progress_of(1).xp, 0, "not a medic");
-    assert_eq!(world.progress_of(0).xp, 2 * class::XP_HEALED);
-    // An interrupted bandage gives nothing until it is finished.
-    world.aboard.room.wound(1, Part::Body, 10.0);
-    beside(&mut world, 1, 0);
-    world.step(&[Command::Crew {
-        slot: 0,
-        order: CrewOrder::Bandage {
-            who: 0,
-            patient: 1,
-            part: Part::Body,
-        },
-    }]);
-    for _ in 0..30 {
-        world.step(&[]);
-    }
-    assert!(world.aboard.room.bleeding(1) > 0, "not done yet");
-    let far = world.aboard.room.bim_pos(0) + vec2(4.0 * TILE, 0.0);
-    world.step(&[Command::Crew {
-        slot: 0,
-        order: CrewOrder::SendTo {
-            who: 0,
-            x: far.x,
-            y: far.y,
-        },
-    }]);
-    for _ in 0..60 {
-        world.step(&[]);
-    }
-    assert_eq!(world.progress_of(0).xp, 2 * class::XP_HEALED, "interrupted");
-}
-
-#[test]
 fn a_helper_treats_with_the_kit_in_its_own_pack_and_the_hold_is_never_touched() {
     // Its own kit: opened where it stands, the pack one down once the
     // treatment is done, and the hold untouched — the medic never leaves
@@ -479,7 +420,7 @@ fn a_medic_s_medkit_comes_back_quicker_and_a_bandage_no_quicker() {
 }
 
 #[test]
-fn a_medic_earns_five_on_a_mercenary_and_beams_are_cleared_by_a_hire_and_a_bot_lost() {
+fn a_bandage_on_a_mercenary_is_no_experience_and_beams_are_cleared_by_a_hire_and_a_bot_lost() {
     use crate::armour::LootSource;
     use crate::data;
     use worldgen::GalaxyType;
@@ -518,7 +459,8 @@ fn a_medic_earns_five_on_a_mercenary_and_beams_are_cleared_by_a_hire_and_a_bot_l
     assert_eq!(world.aboard.crew_count(), 3);
     assert!(world.patients_of(0).is_empty(), "cleared by the hire");
     assert!(!world.is_beaming(0));
-    // A bandage on the mercenary: five. The hire is held still like the
+    // A bandage on the mercenary: no experience, since healing is no
+    // class's (task 119). The hire is held still like the
     // rest — it arrives on its own errands.
     hold_still(&mut world);
     beside(&mut world, 2, 0);
@@ -527,7 +469,7 @@ fn a_medic_earns_five_on_a_mercenary_and_beams_are_cleared_by_a_hire_and_a_bot_l
     world.aboard.room.wound(2, Part::Body, 40.0);
     assert!(world.aboard.room.bleeding(2) > 0, "a wound to dress");
     assert!(bandage_and_wait(&mut world, 0, 2, Part::Body).is_some());
-    assert_eq!(world.progress_of(0).xp, class::XP_HEALED);
+    assert_eq!(world.progress_of(0).xp, 0);
     // Linked to the mercenary; the hand dead and gone with the site —
     // a bot is dropped off the crew when the ship leaves — breaks it, and
     // the state list shrinks with the crew.
@@ -1242,7 +1184,7 @@ fn mass_surge_covers_the_crew_round_the_patient_and_field_surgeon_treats_without
     assert!(world.is_surging(2), "within three tiles");
     assert!(!world.is_surging(3), "six tiles off");
     // Field surgeon: with no medkit anywhere, a trauma is treated with
-    // nothing, in half the time, for the medic's five; once a fight.
+    // nothing, in half the time; once a fight.
     let mut world = medic();
     let kits = world.ship.design.carrying(ResourceId::Medkit);
     assert!(kits > 0);
@@ -1261,7 +1203,7 @@ fn mass_surge_covers_the_crew_round_the_patient_and_field_surgeon_treats_without
     pick(&mut world, 0, Talent::FieldSurgeon);
     world.step(&[]);
     let steps = treat_and_wait(&mut world, 0, 1, Part::Body).expect("treated bare-handed");
-    assert_eq!(world.progress_of(0).xp, LEVEL_XP[9] + class::XP_HEALED);
+    assert_eq!(world.progress_of(0).xp, LEVEL_XP[9], "no experience for it");
     let mut world = medic();
     make_dying(&mut world, 1);
     let carried = count_in_pack(&world, 0, ResourceId::Medkit);

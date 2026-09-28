@@ -195,7 +195,7 @@ fn beside(world: &mut World, who: usize) {
 /// **Nothing of theirs is taken, and nobody saves one**: a Manufacturer
 /// down is no body to loot and no patient — it lets go of no gun and
 /// binds no wound — and it bleeds out where it lies. Its death, down
-/// first, is worth nothing more.
+/// first, is worth `XP_ENEMY_DEAD` on top (task 119).
 #[test]
 fn a_manufacturer_down_bleeds_out_and_nothing_of_it_is_taken() {
     let (mut world, _) = at_their_site(0);
@@ -231,8 +231,8 @@ fn a_manufacturer_down_bleeds_out_and_nothing_of_it_is_taken() {
     assert!(dead, "it bled out");
     assert_eq!(
         world.progress_of(0).xp,
-        xp,
-        "and its death was worth nothing more"
+        xp + class::XP_ENEMY_DEAD,
+        "and its death is worth the death's experience"
     );
 }
 

@@ -205,7 +205,7 @@ fn two_commanders_auras_do_not_stack_and_the_stronger_holds() {
 }
 
 #[test]
-fn a_hire_a_commander_makes_is_cheaper_and_gives_him_experience() {
+fn a_hire_a_commander_makes_is_cheaper_and_nobody_s_experience() {
     let mut world = basic();
     assert_eq!(world.set_class(0, Class::Commander), Ok(()));
     assert_eq!(world.set_class(1, Class::Commander), Ok(()));
@@ -233,8 +233,8 @@ fn a_hire_a_commander_makes_is_cheaper_and_gives_him_experience() {
     }]);
     assert!(refused_with(&events, Refusal::OutOfReach));
     assert_eq!(world.progress_of(0).xp, before, "a refused hire is nothing");
-    // Walked over, the hire goes through at the discounted fee, and only
-    // the commander who sent it learns anything.
+    // Walked over, the hire goes through at the discounted fee, and
+    // nobody learns anything by it (task 119).
     let at = world
         .body_position(crate::LootSource::Resident(merc))
         .expect("alongside");
@@ -252,8 +252,8 @@ fn a_hire_a_commander_makes_is_cheaper_and_gives_him_experience() {
     assert_eq!(world.money, money - discounted);
     let hired = world.hired().last().expect("a contract");
     assert_eq!(hired.fee, discounted, "the contract's fee is the discount");
-    assert_eq!(world.progress_of(0).xp, class::XP_HIRE);
-    assert_eq!(world.progress_of(1).xp, 0, "the other commander gets none");
+    assert_eq!(world.progress_of(0).xp, before, "the commander who hired");
+    assert_eq!(world.progress_of(1).xp, 0, "the other commander");
     // And it stays that hand's fee after he dies.
     let hired_who = hired.who;
     world.aboard.room.kill_for_probe(0);

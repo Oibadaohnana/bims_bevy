@@ -7347,8 +7347,9 @@ impl Game {
         self.combat.set_taunting(radius, magnet);
     }
 
-    /// Enemy hits that have landed on a body since the last point of
-    /// experience they made — the tank's (feature 77).
+    /// Enemy hits that have landed on a body: a count that only climbs,
+    /// read by the relics for a hit taken (feature 106). It made a tank's
+    /// experience until task 119.
     pub fn hits_taken(&self, who: usize) -> u32 {
         self.bims.get(who).map_or(0, |b| b.hits_taken)
     }
@@ -7364,8 +7365,7 @@ impl Game {
         self.bims.get(who).map_or(0.0, |b| b.fear)
     }
 
-    /// Set that count: the world takes the whole points out of it and
-    /// leaves the remainder.
+    /// Set that count, for the tests.
     pub fn set_hits_taken(&mut self, who: usize, hits: u32) {
         if let Some(bim) = self.bims.get_mut(who) {
             bim.hits_taken = hits;

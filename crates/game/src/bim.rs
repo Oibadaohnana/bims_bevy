@@ -91,11 +91,10 @@ pub struct Bim {
     /// (`Game::set_bulwark`), off again when he goes down. Saved with
     /// the room and in `world_checksum`.
     pub bulwark: bool,
-    /// How many enemy hits have landed on this body since the last point
-    /// of experience they made (feature 77): a tank turns every
-    /// `world::class::TANK_HITS_PER_XP` of them into one and starts the
-    /// count again; for anybody else it only ever climbs and is read by
-    /// nobody. Saved with the room and in `world_checksum`.
+    /// How many enemy hits have landed on this body (feature 77): a count
+    /// that only climbs, read by the relics for a hit taken. It made a
+    /// tank's experience until task 119. Saved with the room and in
+    /// `world_checksum`.
     pub hits_taken: u32,
     /// How many shots this body has fired (feature 106): what a relic's
     /// *Overcharge Cell* counts to know which shot is the charged one

@@ -527,7 +527,7 @@ fn down_by_crew_member_0(world: &mut World, i: usize) {
 }
 
 /// A machine taken down in a town's defence is experience, as one at a
-/// station the machines hold is: `XP_ENEMY_DOWN` (feature 109; `XP_ENEMY_DEAD` besides until then) to
+/// station the machines hold is: `XP_ENEMY_DOWN` and `XP_ENEMY_DEAD` (task 119) to
 /// every classed crew member within the vicinity, once. A townsperson
 /// going down is nobody's. And a soldier's *rampage* counts it while the
 /// rest of the wave stands, since a defended town's machines are the
@@ -565,7 +565,7 @@ fn a_machine_downed_in_a_town_s_defence_is_experience_and_a_townsperson_is_not()
     // A machine down by the crew member: the down and the death, once.
     down_by_crew_member_0(&mut world, 0);
     world.step(&[]);
-    let paid = class::XP_ENEMY_DOWN;
+    let paid = class::XP_ENEMY_DOWN + class::XP_ENEMY_DEAD;
     assert_eq!(
         world.progress_of(0).xp,
         xp + paid,

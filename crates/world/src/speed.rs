@@ -1,55 +1,39 @@
 //! How fast the world runs, and who decides.
 //!
+//! **1×, or paused, and nothing else** (task 119): a minute of the clock a
+//! real second, sixty steps of it. The faster speeds — 3×, 10×, 24× and the
+//! top speed — went, with their keys; every timer, cooldown and rate in a
+//! mission is read at 1× now.
+//!
 //! **Everybody, and the slowest wins.** There is one world and one clock in
 //! it, so a speed is not a per-player view setting the way a camera is — it is
-//! a change to what happens. Taking the slowest request means nobody is ever
-//! carried past something they wanted to look at, and a pause by anybody is a
-//! pause, which is the one control that has to work the instant it is asked
-//! for.
-//!
-//! The alternative — a majority, or whoever asked last — was considered and is
-//! worse in the one case that matters: the player who needs it slow is the
-//! player something is going wrong for.
+//! a change to what happens. With two speeds left that is the one rule that
+//! matters: a pause by anybody is a pause for everybody, which is the one
+//! control that has to work the instant it is asked for.
 
 /// The speeds the world will run at.
 ///
-/// The discriminants cross the wasm boundary and index the speed buttons in
-/// `crates/app/src/names.rs`, so they are written out and not renumbered. The multiplier
-/// is the interesting half and it is deliberately not the discriminant: a
-/// pause is a speed of nothing, not a missing speed.
+/// The discriminants cross the wire in [`crate::Command::SetSpeed`], so they
+/// are written out and not renumbered. The multiplier is deliberately not
+/// the discriminant: a pause is a speed of nothing, not a missing speed.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
 #[repr(u32)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum Speed {
     Paused = 0,
+    /// A minute of the clock a real second: the only speed there is.
     Real = 1,
-    Triple = 2,
-    Ten = 3,
-    /// A day a minute, what everything above was tuned against.
-    Day = 4,
-    Top = 5,
 }
 
 impl Speed {
-    /// Every speed, in the order the buttons are drawn.
-    pub const ALL: [Speed; 6] = [
-        Speed::Paused,
-        Speed::Real,
-        Speed::Triple,
-        Speed::Ten,
-        Speed::Day,
-        Speed::Top,
-    ];
+    /// Every speed.
+    pub const ALL: [Speed; 2] = [Speed::Paused, Speed::Real];
 
     /// How many game minutes a minute of real time is worth.
     pub fn multiplier(self) -> u32 {
         match self {
             Speed::Paused => 0,
             Speed::Real => 1,
-            Speed::Triple => 3,
-            Speed::Ten => 10,
-            Speed::Day => crate::data::DAY_SPEED,
-            Speed::Top => crate::data::TOP_SPEED,
         }
     }
 
@@ -62,10 +46,11 @@ impl Speed {
     }
 }
 
-/// What the world actually runs at: the slowest anybody has asked for.
+/// What the world actually runs at: paused if anybody has asked for a
+/// pause, 1× otherwise.
 ///
-/// An empty list is a paused world rather than a world at full speed — a
-/// game with nobody in it should not be running.
+/// An empty list is a paused world rather than a running one — a game with
+/// nobody in it should not be running.
 pub fn effective(requests: &[Speed]) -> Speed {
     requests.iter().copied().min().unwrap_or(Speed::Paused)
 }
@@ -74,34 +59,28 @@ pub fn effective(requests: &[Speed]) -> Speed {
 mod tests {
     use super::*;
 
+    /// The world runs at 1× or not at all: no speed has any other
+    /// multiplier, and no code past the two is a speed.
     #[test]
-    fn the_slowest_request_is_what_happens() {
-        assert_eq!(effective(&[Speed::Top, Speed::Triple]), Speed::Triple);
-        assert_eq!(effective(&[Speed::Top, Speed::Top]), Speed::Top);
-        assert_eq!(
-            effective(&[Speed::Real, Speed::Top, Speed::Ten]),
-            Speed::Real
-        );
+    fn the_world_only_runs_at_one_times_or_paused() {
+        assert_eq!(Speed::ALL.len(), 2);
+        for speed in Speed::ALL {
+            assert!(speed.multiplier() <= 1, "{speed:?}");
+            assert_eq!(Speed::from_code(speed.code()), Some(speed));
+        }
+        assert_eq!(Speed::Real.multiplier(), 1);
+        assert_eq!(Speed::Paused.multiplier(), 0);
+        for code in 2..8 {
+            assert_eq!(Speed::from_code(code), None, "code {code}");
+        }
     }
 
     #[test]
     fn a_pause_by_anybody_is_a_pause() {
-        assert_eq!(effective(&[Speed::Top, Speed::Paused]), Speed::Paused);
+        assert_eq!(effective(&[Speed::Real, Speed::Real]), Speed::Real);
+        assert_eq!(effective(&[Speed::Real, Speed::Paused]), Speed::Paused);
+        assert_eq!(effective(&[Speed::Paused, Speed::Real]), Speed::Paused);
         assert_eq!(effective(&[Speed::Paused]).multiplier(), 0);
         assert_eq!(effective(&[]), Speed::Paused);
-    }
-
-    /// The enum's order **is** the speed order, which is what makes `min` the
-    /// right answer. If a speed is ever inserted in the middle this is what
-    /// notices.
-    #[test]
-    fn the_codes_climb_with_the_multipliers() {
-        for pair in Speed::ALL.windows(2) {
-            assert!(pair[0] < pair[1]);
-            assert!(pair[0].multiplier() < pair[1].multiplier());
-        }
-        assert_eq!(Speed::Day.multiplier(), crate::data::DAY_SPEED);
-        assert_eq!(Speed::Top.multiplier(), crate::data::TOP_SPEED);
-        assert_eq!(Speed::from_code(6), None);
     }
 }

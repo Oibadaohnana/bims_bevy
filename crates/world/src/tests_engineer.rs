@@ -275,7 +275,7 @@ fn experience_climbs_the_levels_and_a_level_up_is_said_once() {
 
 /// A machine destroyed is experience to every classed crew member in
 /// range, once: a wreck is down and dead at the same instant, so it is
-/// `XP_ENEMY_DOWN` alone (feature 109; it was `XP_ENEMY_DEAD` besides) and never again.
+/// `XP_ENEMY_DOWN` and `XP_ENEMY_DEAD` together (task 119) and never again.
 #[test]
 fn a_machine_destroyed_is_experience_once_each_to_the_classed_crew_in_range() {
     let mut world = fight();
@@ -297,7 +297,7 @@ fn a_machine_destroyed_is_experience_once_each_to_the_classed_crew_in_range() {
     for _ in 0..3 {
         world.step(&[]);
     }
-    let paid = class::XP_ENEMY_DOWN;
+    let paid = class::XP_ENEMY_DOWN + class::XP_ENEMY_DEAD;
     assert_eq!(world.progress_of(0).xp, a + paid, "James");
     assert_eq!(world.progress_of(1).xp, b + paid, "Kate");
     world.step(&[]);
@@ -318,6 +318,49 @@ fn a_machine_destroyed_is_experience_once_each_to_the_classed_crew_in_range() {
     // 103): the level, the experience and the talents come back with it.
     assert_eq!(world.progress_of(1).xp, b + paid);
     assert_ne!(world.progress_of(1), Progress::default());
+}
+
+/// **Every class earns alike** (task 119): the same fight, the same
+/// machine destroyed beside crew member 0 and a crewmate of another
+/// class, is the same experience whatever class either is — the down and
+/// the death, and nothing else.
+#[test]
+fn each_class_gets_identical_experience_for_the_same_kills() {
+    let mut gains = Vec::new();
+    for class in Class::ALL.into_iter().filter(|&c| c != Class::None) {
+        let mut world = basic();
+        assert_eq!(world.set_class(0, class), Ok(()));
+        // The crewmate beside is the class the other way round the list:
+        // engineer beside commander, soldier beside tank, and so on.
+        let other = Class::ALL[Class::ALL.len() - class as usize];
+        assert_eq!(world.set_class(1, other), Ok(()));
+        assert!(world.stage_droid_fight_for_probe(DroidKind::Trooper, None));
+        for _ in 0..3 {
+            world.step(&[]);
+        }
+        let here = world.aboard.room.bim_pos(0);
+        world
+            .aboard
+            .room
+            .put_for_probe(1, here + bims::math::vec2(TILE, 0.0));
+        world.step(&[]);
+        let before = (world.progress_of(0).xp, world.progress_of(1).xp);
+        machine_mut(&mut world).destroy();
+        for _ in 0..10 {
+            world.step(&[]);
+        }
+        let gained = (
+            world.progress_of(0).xp - before.0,
+            world.progress_of(1).xp - before.1,
+        );
+        assert_eq!(gained.0, gained.1, "{class:?} beside {other:?}");
+        gains.push((class, gained.0));
+    }
+    let paid = class::XP_ENEMY_DOWN + class::XP_ENEMY_DEAD;
+    assert_eq!((class::XP_ENEMY_DOWN, class::XP_ENEMY_DEAD), (10, 5));
+    for (class, gained) in gains {
+        assert_eq!(gained, paid, "{class:?}");
+    }
 }
 
 #[test]
@@ -346,7 +389,7 @@ fn a_machine_destroyed_on_an_unjoined_deck_and_one_seen_by_a_classless_crew_is_n
 }
 
 #[test]
-fn a_site_finished_and_a_kit_laid_are_the_engineer_s_and_a_re_used_kit_is_not() {
+fn a_site_finished_and_a_kit_laid_are_nobody_s_experience() {
     let mut world = engineer();
     // A site is a part built onto the ship: the old game's (feature 102).
     world.set_shipyard_enabled(true);
@@ -370,9 +413,10 @@ fn a_site_finished_and_a_kit_laid_are_the_engineer_s_and_a_re_used_kit_is_not() 
     );
     let site = world.builds[0].id;
     let mut events = Vec::new();
-    world.finish_build(site, 0, &mut events);
+    world.finish_build(site, &mut events);
     assert!(events.iter().any(|e| matches!(e, WorldEvent::Built { .. })));
-    assert_eq!(world.progress_of(0).xp, before + class::XP_BUILT, "his own");
+    // Building is no class's experience (task 119).
+    assert_eq!(world.progress_of(0).xp, before, "his own");
     // Kate's, within his vicinity.
     let origin = site_near(&world, 0);
     let events2 = world.step(&[Command::PlaceSite {
@@ -388,22 +432,14 @@ fn a_site_finished_and_a_kit_laid_are_the_engineer_s_and_a_re_used_kit_is_not() 
         "{events2:?}"
     );
     let site = world.builds[0].id;
-    world.finish_build(site, 1, &mut events);
-    assert_eq!(
-        world.progress_of(0).xp,
-        before + 2 * class::XP_BUILT,
-        "a crewmate's"
-    );
+    world.finish_build(site, &mut events);
+    assert_eq!(world.progress_of(0).xp, before, "a crewmate's");
     assert_eq!(world.progress_of(1).xp, 0, "Kate has no class");
-    // A kit laid is two more; the same kit packed up and laid again is
-    // nothing, since it was re-used.
+    // A kit laid is nothing either, and so is the same kit packed up and
+    // laid again.
     let tile = tile_near(&world, 0, Kit::Sandbag);
     let (_, id) = deploy_now(&mut world, 0, Kit::Sandbag, tile);
-    assert_eq!(
-        world.progress_of(0).xp,
-        before + 3 * class::XP_BUILT,
-        "laid"
-    );
+    assert_eq!(world.progress_of(0).xp, before, "laid");
     let events = world.step(&[Command::PackUp { slot: 0, id }]);
     assert!(
         events
@@ -415,11 +451,7 @@ fn a_site_finished_and_a_kit_laid_are_the_engineer_s_and_a_re_used_kit_is_not() 
     let tile = tile_near(&world, 0, Kit::Sandbag);
     deploy_now(&mut world, 0, Kit::Sandbag, tile);
     assert_eq!(world.reused_kits[0], 0);
-    assert_eq!(
-        world.progress_of(0).xp,
-        before + 3 * class::XP_BUILT,
-        "re-used"
-    );
+    assert_eq!(world.progress_of(0).xp, before, "re-used");
 }
 
 #[test]

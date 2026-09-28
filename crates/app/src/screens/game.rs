@@ -7,9 +7,8 @@
 //! point read back through the ship's camera and heading into the room's
 //! own units.
 //!
-//! The world advances in fixed steps and never in stretched ones: a 24x
-//! step would carry a bolt through a wall and a Bim past the corner it
-//! meant to turn. Speed is more steps, never bigger ones.
+//! The world advances in fixed steps and never in stretched ones, and
+//! since task 119 at one speed: 1×, sixty steps a second, or paused.
 
 use bevy::prelude::*;
 use bevy_egui::{EguiContexts, EguiPrimaryContextPass, egui};
@@ -39,10 +38,9 @@ use crate::sound::{Bed, Sounds};
 use crate::theme::{panel_frame, tray_frame};
 use crate::{Launch, Screen, icons, theme};
 
-/// Ceiling on world steps per frame. It has to be at least `TOP_SPEED * 60
-/// / 30`, or the top of the speed range stops being reachable on a display
-/// that is keeping up at 30fps and the world quietly runs slower than the
-/// button says. 48x at 30fps is 96 a frame.
+/// Ceiling on world steps per frame. The world runs at 1× or not at all
+/// (task 119), so a frame wants one or two; this is how far a long frame —
+/// a load, a hitch — may catch up before the backlog is given up.
 const MAX_STEPS_PER_FRAME: u32 = 128;
 
 /// How long the pointer has to rest on the deck before the small readout
@@ -163,8 +161,6 @@ pub struct GameScreen {
     /// The sheet's save and load pages' state — `crate::save`.
     saves: crate::save::Saves,
     size: Vec2,
-    /// The speed Space pauses from, for Space to go back to.
-    resume: Speed,
     /// The smooth fog over the deck, as a texture — see `fogmap`.
     fog: crate::fogmap::FogTexture,
     /// The same over the plain beyond the box, on a planet: a texture a
@@ -876,7 +872,6 @@ impl GameScreen {
             sheet: None,
             saves: crate::save::Saves::default(),
             size: Vec2::ZERO,
-            resume: Speed::Real,
             fog: crate::fogmap::FogTexture::default(),
             plain_fog: std::collections::BTreeMap::new(),
             galaxy_up: false,
@@ -1832,29 +1827,21 @@ fn frame(
                 }
             }
             if !i.modifiers.any() {
-                // The speed keys: Space pauses and goes back to what it paused
-                // from, the digits pick a speed. Orders, like the buttons.
+                // The speed keys (task 119: 1× or paused, nothing else):
+                // Space pauses and sets going again, 1 sets going. Orders,
+                // so a pause by anybody is a pause for everybody.
                 if keys_now.pressed(i, Action::Pause)
                     && let Some(game) = &session.game
                 {
                     let mine = game.requested(screen.net.slot);
-                    if mine == Speed::Paused {
-                        orders.push(Order::Speed(screen.resume));
+                    orders.push(Order::Speed(if mine == Speed::Paused {
+                        Speed::Real
                     } else {
-                        screen.resume = mine;
-                        orders.push(Order::Speed(Speed::Paused));
-                    }
+                        Speed::Paused
+                    }));
                 }
-                for (action, speed) in [
-                    (Action::Speed1, Speed::Real),
-                    (Action::Speed3, Speed::Triple),
-                    (Action::Speed10, Speed::Ten),
-                    (Action::Speed24, Speed::Day),
-                    (Action::SpeedTop, Speed::Top),
-                ] {
-                    if keys_now.pressed(i, action) {
-                        orders.push(Order::Speed(speed));
-                    }
+                if keys_now.pressed(i, Action::Speed1) {
+                    orders.push(Order::Speed(Speed::Real));
                 }
                 // Select: the crew member you steer, selected and in the middle.
                 if keys_now.pressed(i, Action::Select) {

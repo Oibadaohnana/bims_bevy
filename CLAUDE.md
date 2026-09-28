@@ -200,7 +200,7 @@ class on slot 0 of any launch (`dev::class_crew`) — and on the setup
 tab's chooser — and `Q`/`E` in `BIMS_KEYS` press the class's two keys
 over the deck tile under `BIMS_POINTER` (features 74, 75 and 76: an
 engineer's sentry and sandbags — laid four minutes of the clock later,
-so `4` for 24× first — a soldier's grenade and brace, `BIMS_CLASS=soldier`;
+four seconds at 1×, the only speed since task 119 — a soldier's grenade and brace, `BIMS_CLASS=soldier`;
 a grenade bursts two seconds after `Q`, so `Q` at frame 60 is a burst at
 about 180 at 1×; a medic's surge and heal beam, `BIMS_CLASS=medic`, whose
 `E` wants the pointer **over another crew member** rather than over a
@@ -222,8 +222,7 @@ one picture. The blood is short on purpose (feature 91): a beam stops
 the bleeding dead, so a patient wounded and beamed in the same breath
 sits at full blood for ever and the **green numbers** over it never
 count anything. At 1× a beam puts back half a point a second, so a
-`+1` every two seconds; `3×` on the strip is one every two thirds of
-one, which is how they are looked at in a short run.
+`+1` every two seconds (there is no faster speed since task 119).
 `BIMS_SMOKE_FREE=1` drops the sixtieth-of-a-second pacing a smoke run
 holds itself to, so the "ms a frame" it prints is what the machine
 actually took rather than a sixtieth — the one way to measure a heavy
@@ -1376,6 +1375,31 @@ three each — and *Kill Relay* at three seconds. The world's half is
 a choice lost its tier). `SURVIVORS`, the ship's `PINNED` and `PICTURES`
 did **not** move. The new relic state is hashed only where there is any.
 `tests_relic_patches.rs` is the task's tests.
+
+## One speed, and experience alike for every class (task 119)
+
+The world's half is `crates/world/CLAUDE.md` ("One speed, and experience
+alike for every class"), the player's `README.md` ("Speed, and who
+decides", "Classes and levels"). What to hold on to:
+
+- **`world::Speed` is `Paused` and `Real`**: 3×, 10×, 24× and the top
+  speed went with their keys (`keys::Action::{Speed3, Speed10, Speed24,
+  SpeedTop}`) and `data::{DAY_SPEED, TOP_SPEED}`. **Space** toggles
+  pause, **1** sets going; a pause by any player pauses everybody.
+  Nothing was rebalanced: every in-mission timer is read at 1×, a minute
+  of the clock a real second. Travel still puts its minutes on at once.
+- **Experience is two things for every class**: an enemy down within
+  fifty tiles `XP_ENEMY_DOWN` (10), its death `XP_ENEMY_DEAD` (5) on top.
+  `XP_BUILT`, `XP_HEALED`, `XP_HIRE`, `TANK_HITS_PER_XP` and
+  `settle_tanks` went.
+- The many "at 24×" notes in this file are history: the measurements
+  were taken when there was one.
+
+**What moved.** `SAVE_VERSION` **49**, `wire::PROTOCOL` **41** (the
+relay wants redeploying), `REFERENCE_CHECKSUM` (the reference run's two
+speed requests are 1× where they were 24×; the speed alone moved it) and
+`SURVIVORS` (the experience alone moved it — its note says how that was
+checked). The ship's `PINNED` and `PICTURES` did **not** move.
 
 ## The old game deleted (feature 104)
 

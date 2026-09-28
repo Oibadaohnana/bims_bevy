@@ -98,10 +98,9 @@ fn hold_still(world: &mut World) {
         .set_work_priority(bims::work::Job::Medical as u32, bims::work::NEVER);
 }
 
-/// Every enemy hit this crew member has taken since the world opened:
-/// the whole points its count has made, and what is left over.
+/// Every enemy hit this crew member has taken since the world opened.
 fn hits_taken(world: &World, who: u32) -> u32 {
-    world.progress_of(who).xp * class::TANK_HITS_PER_XP + world.aboard.room.hits_taken(who as usize)
+    world.aboard.room.hits_taken(who as usize)
 }
 
 /// A piece of armour worn by `who`, put on by hand over whatever was
@@ -254,24 +253,19 @@ fn armour_on_a_tank_drains_at_half_rate_and_the_overflow_reaches_the_body() {
 }
 
 #[test]
-fn five_enemy_hits_are_one_point_of_experience_and_the_count_starts_again() {
+fn enemy_hits_on_a_tank_are_counted_and_are_no_experience() {
     let mut world = tank();
     assert_eq!(world.set_class(1, Class::None), Ok(()));
     world.step(&[]);
-    // Shot at until five have landed on him: one point, nothing left
-    // over. Every kind of landing counts — his armour is on, and what it
-    // does not take his body does.
+    // Shot at until five have landed on him: every one counted, and none
+    // of them experience (task 119). Every kind of landing counts — his
+    // armour is on, and what it does not take his body does.
     let mut landed = 0;
-    while landed < class::TANK_HITS_PER_XP {
+    while landed < 5 {
         landed += shoot_at(&mut world, 0, 1);
     }
     assert_eq!(hits_taken(&world, 0), landed, "every landing counted");
-    assert_eq!(world.progress_of(0).xp, landed / class::TANK_HITS_PER_XP);
-    assert_eq!(
-        world.aboard.room.hits_taken(0),
-        landed % class::TANK_HITS_PER_XP,
-        "the remainder counts on"
-    );
+    assert_eq!(world.progress_of(0).xp, 0, "no experience for it");
     // A miss counts for nothing: more bolts than landings, every time.
     let before = hits_taken(&world, 0);
     let landed = shoot_at(&mut world, 0, 30);

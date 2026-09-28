@@ -147,8 +147,8 @@ accumulator — `dt * ship_steps_per_second() * multiplier` — and never
 into bigger steps. Same rule as the room, same reason: every timer in a
 mission — a wave, a cooldown, a bandage — counts whole steps, and a
 bigger step would be a different fight rather than a faster one.
-`MAX_STEPS_PER_FRAME` has to stay at or above `TOP_SPEED * 60 / 30` or
-the top of the range quietly stops being reachable.
+Since task 119 the multiplier is one or nought — 1× or paused, nothing
+else — so `MAX_STEPS_PER_FRAME` is only how far a long frame may catch up.
 
 ## The anchor is stored and the position is derived
 
@@ -5359,3 +5359,33 @@ set: the buffs, the cooldowns, the marks, `limb_aimed`, `flanked`,
 `downed_at` and `restocked`. `tests_relic_patches.rs` is every relic
 where its hook is read, and two worlds holding all twenty-five alike step
 for step; `relic::tests` pin the rows.
+
+## One speed, and experience alike for every class (task 119)
+
+> Every section above that speaks of 3×, 10×, 24× or the top speed, of a
+> wave putting everybody back to 1×, or of `XP_BUILT`, `XP_HEALED`,
+> `XP_HIRE`, `TANK_HITS_PER_XP` and `settle_tanks`, describes what **task
+> 119 deleted**.
+
+- **`Speed` is `Paused` (0) and `Real` (1)** and nothing else;
+  `data::DAY_SPEED` and `TOP_SPEED` went. `speed::effective` is still the
+  slowest request, which with two speeds is the one rule: **a pause by any
+  player pauses the world**. A wave landing no longer resets anybody's
+  request — a paused world takes no step, so no wave can land in one.
+  `the_world_runs_at_one_times_or_not_at_all` and
+  `any_player_s_pause_pauses_everyone` in `tests.rs`, and `speed::tests`,
+  are the rule. The reference run's two requests are `Real`.
+- **Experience is two things and every class's alike**: an enemy going
+  down within `VICINITY_TILES` (fifty) is `XP_ENEMY_DOWN` (10), once, and
+  its death `XP_ENEMY_DEAD` (5, back from feature 109), once — whether it
+  died the step it went down (every machine) or bled out later — to every
+  classed crew member in range (`experience`). Nothing else gives any:
+  `award_engineers_near`, the hire's, the medic's and `settle_tanks` went.
+  `Bim::hits_taken` stays, a count that only climbs, for the relics' *hit
+  taken*. `finish_build` lost its `who`.
+  `each_class_gets_identical_experience_for_the_same_kills`
+  (`tests_engineer.rs`) is the rule; the class tests that asserted a
+  class's own experience now assert none.
+- **What moved**: `SAVE_VERSION` **49**, `wire::PROTOCOL` **41** (the
+  relay wants redeploying), and whatever pins read the crew's experience
+  (see the root `CLAUDE.md`).

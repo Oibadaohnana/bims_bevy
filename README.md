@@ -1491,13 +1491,14 @@ one — so a start is rarely far from somewhere to go.
 
 ### Speed, and who decides
 
-Pause, 1×, 3×, 10×, 24× and 48×, on the keys — **Space** and **1** to
-**5**, with no buttons for them on the screen since the HUD was cut down
-(feature 107); the top frame says **Paused** while the world is.
-**Every player has a request and the slowest one wins**; a pause by anybody
-is a pause. That is not a compromise, it is the point: the player who needs
-it slow is the player something is going wrong for, and nobody is ever
-carried past something they wanted to look at.
+**1×, or paused, and nothing else** (task 119): a minute of the game's
+clock is a real second. **Space** pauses and sets the world going again,
+and **1** sets it going; there are no buttons for either since the HUD was
+cut down (feature 107), and the top frame says **Paused** while the world
+is. **A pause by any player is a pause for everybody**, and the world runs
+again only once every pause is lifted: the player who needs it stopped is
+the player something is going wrong for. Travel on the world map still
+puts its whole length on the clock in one go.
 
 ### The HUD
 
@@ -2145,22 +2146,14 @@ it. While a rally is actually running, the Bims it lifts wear its own
 chevron rather than the aura's plain ring, so a rally called is told
 from an aura standing there all along.
 
-**Experience** comes from five things and nothing else: an enemy going
-down within fifty tiles is 10 to every classed crew member in range,
-once — out cold, or dead without being down first, as every machine is;
-one down that dies later is worth nothing more — a construction site
-finished or a kit laid by the engineer or anybody within fifty tiles of it is 2 to that engineer, a
-**medic** finishing a bandage or a medkit treatment on a crewmate — any
-crew member but itself, mercenaries included — is 5 to that medic, and
-an enemy's shot or blow landing on a **tank** is a fifth of a point to
-that tank, counted five hits for one, and a hire that goes through from
-the slot steering a **commander** is 10 to that commander. An
-enemy counts once, a crewmate or a hire going down is nothing,
-a kit packed up and laid again is nothing, an interrupted task is
-nothing, a crew member who is not a medic doctoring earns nothing
-at all, a hit on anybody who is not a tank is nothing, a refused hire is
-nothing and a hire from anybody else's slot earns a commander nothing,
-however near he stands. Ten levels — 100, 250, 450, 700, 1 000,
+**Experience is the same for every class** (task 119), and comes from
+two things and nothing else, to every classed crew member within fifty
+tiles: an enemy **going down** is 10 — out cold, or dead without being
+down first, as every machine is — and an enemy **dying** is 5 more,
+whether it died where it fell or bled out later; so a machine destroyed
+is 15. Each enemy counts once for each; a crewmate or a hire going down
+is nothing. Nothing a class does — building, laying a kit, bandaging or
+treating, being shot at, hiring — is worth anything. Ten levels — 100, 250, 450, 700, 1 000,
 1 400, 1 900, 2 500 and 3 200 for the second to the tenth — the same
 shape for every class: the first, third and seventh are fixed, and every
 other level is a **pick of two talents**, never changed once made.
@@ -2256,8 +2249,8 @@ the piece back out with ten points on it, up to its full health.
 
 The second class (feature 75): a line held, and grenades. A soldier sets
 out with a basic **auto rifle** in hand, the laser pistol in the pack
-beside it, and **two grenades**. Its experience is the shared rules'
-alone — it has no source of its own.
+beside it, and **two grenades**. Its experience is everybody's —
+no class has a source of its own.
 
 **Brace** is `E`, from the first level: a toggle. Braced, the soldier
 holds where it stands — whatever it was on put down, its walk dropped,
@@ -2317,12 +2310,7 @@ The third class (feature 76): a crewmate held up, and a shield over the
 pair of them. A medic sets out with the **laser pistol** in hand as
 everybody does, and carries **four medkits and ten bandages** where
 anybody else carries one and five, each coming back on the same cooldown. Its
-own source of experience is the only one any class has: **5** every time
-it finishes bandaging a crewmate or treating a crewmate's trauma with a
-medkit — a crewmate being any crew member but itself, mercenaries
-included, counted when the task finishes and the bandage or the kit is
-used, once a task. An interrupted task, a bandage on itself and anybody
-who is not a medic doing the same give nothing.
+experience is everybody's: healing earns nothing (task 119).
 
 **The heal beam** is `E`, from the first level, on the crew member under
 the pointer: a player's Bim or a mercenary, never an enemy and never
@@ -2381,8 +2369,7 @@ bandaging the medic takes the ordinary ten minutes whatever the medic
 has learnt. *Mender* mends only the parts that are above nothing — a
 part at nothing waits for a medkit like anybody else's. *Double link*
 fills the charge off either patient and a surge covers both; a third
-patient takes the first's place. *Closing surge* closes wounds without
-giving any experience: only a finished bandage or medkit task does.
+patient takes the first's place. *Closing surge* closes wounds.
 *Field surgeon* comes back when the fight ends — the rooms unjoined, or
 no enemy standing in the room — like a soldier's *rampage*.
 
@@ -2391,13 +2378,8 @@ no enemy standing in the room — like a soldier's *rampage*.
 The fourth class (feature 77): a wall the crew stand behind, and the
 enemy's fire drawn onto himself. A tank sets out with the laser pistol
 everybody does and a basic **helm, kevlar and leg guards** on — his kit
-comes with him and costs the hold nothing. His own source of experience
-is being shot at: every enemy shot or blow that **lands** on him is a
-fifth of a point, counted five for one, and the count starts again at
-every point. A hit counts after the roll and any dodge, whether his
-armour, a surge or his body took it; a miss, a dodge, and a hit from his
-own side — his soldier's grenade — count for nothing, and nobody but a
-tank gains anything from being hit.
+comes with him and costs the hold nothing. His experience is
+everybody's: being shot at earns nothing (task 119).
 
 **His armour drains at half rate.** A piece's protection comes off a hit
 as it does for anybody, and what gets past it drains the piece at half
@@ -2440,8 +2422,7 @@ then the cooldown.
 
 Every talent applies to the tank who holds it alone, *rallying wall*
 being the one that reaches past him. *Interpose* resolves the redirected
-bolt against him as a fresh hit, armour and all, and it counts towards
-his experience; one he slips is gone rather than rerolled onto the crew
+bolt against him as a fresh hit, armour and all; one he slips is gone rather than rerolled onto the crew
 member he shielded. *Unmovable* is the blood's halving alone: the legs
 he has lost and what a trauma costs him still tell.
 
@@ -2449,11 +2430,8 @@ he has lost and what a trauma costs him still tell.
 
 The fifth class (feature 78): everybody near him fights better, and the
 crew nobody is steering take his orders. A commander sets out with the
-laser pistol everybody does and nothing else. His own source of
-experience is **hiring**: a hire that goes through from the slot
-steering him is **10**, whether it is a mercenary at the dock or any
-other hire later. A refused hire is nothing, and a hire somebody else
-sends is nothing to him however near he stands.
+laser pistol everybody does and nothing else. His experience is
+everybody's: hiring earns nothing (task 119).
 
 **He does two different things, and they reach different Bims.**
 
@@ -2688,7 +2666,7 @@ overlapping is allowed the whole apparatus has nothing left to do.
 | Tray, bottom left | **Work** — which jobs come first; **Management** — what the crew keep doing of their own accord; **Inventory**, **Research** and **Skills**; on the ship, **Build** — lay parts out for the crew to build, where the shipyard is on |
 | Point at anything | Top left says what it is |
 | Point at a row that names a place | The place is ringed on the deck |
-| Speed buttons, top left | Pause, and 1× up to 48× |
+| **Space**, **1** | Pause and set going again; set going. The world runs at 1× or not at all |
 | Rest on an underlined word or a ? | It explains itself, after a third of a second |
 
 Nothing on the page explains itself in prose any more. The explanations are in
@@ -3485,8 +3463,8 @@ size of a step. At 24x a single stretched step would move the Bim four times
 its own body in one frame and it would pass straight through the counter;
 twenty-four normal steps give exactly the result 1x would, just sooner.
 `MAX_STEPS_PER_FRAME` caps the catch-up so a backgrounded tab cannot come back
-and lock the page up — it has to stay above the top speed, or the top of the
-slider would quietly be slower than it says.
+and lock the page up. (Since task 119 the game itself runs at 1× or not at
+all; the room's own slider is a test room's.)
 
 ### The wander
 

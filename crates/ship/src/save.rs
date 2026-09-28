@@ -144,7 +144,10 @@ use crate::game::Game;
 /// 48: the relics of tasks 117 and 118 — twenty-five more relics, a relic
 /// choice without a tier, and the run keeps the new relics' timed effects,
 /// cooldowns, marks and notes and whether the trader was restocked.
-pub const SAVE_VERSION: u32 = 48;
+/// 49: one speed (task 119) — `world::Speed` is paused or 1× and nothing
+/// else, so a save with a player at 3×, 10×, 24× or the top speed names a
+/// speed that no longer exists.
+pub const SAVE_VERSION: u32 = 49;
 
 /// What the file holds, read back.
 #[derive(serde::Deserialize)]

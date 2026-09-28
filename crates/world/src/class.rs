@@ -39,39 +39,21 @@
 //!
 //! # Experience
 //!
-//! Three things give it, and nothing else:
+//! **The same for every class** (task 119). Two things give it, and
+//! nothing else:
 //!
 //! | what | xp | who |
 //! |---|---|---|
-//! | an enemy goes down within [`VICINITY_TILES`] — out cold, or dead without being down first; one down dying later is nothing more (feature 109) | [`XP_ENEMY_DOWN`] | every classed crew member in range |
-//! | a construction site finishes, or a kit is laid, by an engineer or anybody within its vicinity | [`XP_BUILT`] | that engineer alone |
-//! | a medic finishes bandaging a crewmate, or treating a crewmate's trauma | [`XP_HEALED`] | that medic alone |
-//! | an enemy's shot or blow lands on a tank | one a [`TANK_HITS_PER_XP`] | that tank alone |
-//! | a hire goes through from the slot steering a commander | [`XP_HIRE`] | that commander alone |
+//! | an enemy goes down within [`VICINITY_TILES`] — out cold, or dead without being down first | [`XP_ENEMY_DOWN`] | every classed crew member in range |
+//! | an enemy dies within it — the step it went down, or bled out later | [`XP_ENEMY_DEAD`] | the same |
 //!
-//! Each enemy counts once for going down and once for dying; a crewmate
-//! or a mercenary going down gives nothing; a kit laid from a re-used one
-//! (`World::reused_kits`, a kit packed up) gives nothing. The
-//! vicinity is measured on the deck the fight is on, between the crew
-//! member and the enemy, or the crew member and whoever built. The
-//! soldier has no source of its own. The medic's counts when the task
-//! finishes and the bandage or the kit is used (a field surgery too),
-//! once a task, for a crewmate — any crew member but itself,
-//! mercenaries included — and never for a non-medic doing the same.
-//!
-//! The tank's is the one source worth a fraction of a point, and
-//! experience is a whole number, so the **count** is what is kept —
-//! `hits_taken` on the Bim, saved and checksummed — and every
-//! [`TANK_HITS_PER_XP`] hits are one point, with the count starting
-//! again. A hit counts when it *lands*: after the roll and any dodge,
-//! whether his armour, a surge or his body took it. A miss, a dodge and
-//! a hit from his own side (his soldier's grenade) count for nothing,
-//! and so does a hit on anybody who is not a tank.
-//!
-//! The commander's counts when `Command::Hire` sent from the slot
-//! steering him goes through and the body joins the crew. A refused hire
-//! gives nothing, and a hire sent from anybody else's slot gives him
-//! nothing, however near he stands.
+//! Each enemy counts once for going down and once for dying, so a
+//! machine destroyed outright is both; a crewmate or a mercenary going
+//! down gives nothing. The vicinity is measured on the deck the fight is
+//! on, between the crew member and the enemy. No class has a source of
+//! its own: building, laying a kit, healing, taking hits and hiring gave
+//! the engineer, the medic, the tank and the commander experience of
+//! their own until task 119, and give nobody any now.
 //!
 //! # Levels
 //!
@@ -642,14 +624,13 @@ pub const LEVEL_XP: [u32; LEVELS as usize] =
     [0, 100, 250, 450, 700, 1_000, 1_400, 1_900, 2_500, 3_200];
 
 /// What an enemy going down within the vicinity is worth, to every
-/// classed crew member in range: **once an enemy** (feature 109) — out
-/// cold, or dead without being down first, which is every machine. One
-/// down that dies later, bled out or finished where it lies, is worth
-/// nothing more. (Until then its death was worth five besides.)
+/// classed crew member in range, whatever its class: once an enemy — out
+/// cold, or dead without being down first, which is every machine.
 pub const XP_ENEMY_DOWN: u32 = 10;
-/// What a site finished or a kit laid within an engineer's vicinity is
-/// worth, to that engineer.
-pub const XP_BUILT: u32 = 2;
+/// What an enemy dying within the vicinity is worth, the same way and on
+/// top (task 119; feature 109 had taken it out): once an enemy, the step
+/// it went down or later.
+pub const XP_ENEMY_DEAD: u32 = 5;
 /// How far the vicinity reaches, in tiles.
 pub const VICINITY_TILES: f32 = 50.0;
 
@@ -777,9 +758,6 @@ pub fn steady_aim_walking() -> f32 {
 
 // --- the medic's numbers (feature 76) ----------------------------------------
 
-/// What a medic finishing a bandage or a treatment on a crewmate is
-/// worth, to that medic.
-pub const XP_HEALED: u32 = 5;
 /// How far the heal beam reaches, in tiles.
 pub const HEAL_BEAM_RANGE: f32 = 6.0;
 /// Blood a beamed patient gains an hour.
@@ -823,10 +801,6 @@ pub const FIELD_SURGEON_TIME: f32 = 0.5;
 
 // --- the tank's numbers (feature 77) -----------------------------------------
 
-/// Enemy hits landing on a tank that make one point of experience. The
-/// count itself lives on the Bim (`Game::hits_taken`), since a fifth of
-/// a point is not a whole number.
-pub const TANK_HITS_PER_XP: u32 = 5;
 /// What a piece of armour worn by a tank drains at: half the damage it
 /// takes past its protection, so a piece absorbs twice as much on him.
 /// Never doubled in the piece's own health, which moves between Bims
@@ -871,9 +845,6 @@ pub const RALLYING_WALL_DRAIN: f32 = 0.5;
 
 // --- the commander's numbers (feature 78) ------------------------------------
 
-/// What a hire made from the slot steering a commander is worth, to that
-/// commander alone.
-pub const XP_HIRE: u32 = 10;
 /// How far the aura reaches, in tiles.
 pub const AURA_TILES: f32 = 8.0;
 /// *Aura*: what a Bim in it works at.

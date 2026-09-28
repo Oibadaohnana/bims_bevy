@@ -38,8 +38,8 @@
 //!
 //! # What is deliberately absent
 //!
-//! Moving bodies, gravity, oxygen, flight, radiation, and any speed above
-//! [`data::TOP_SPEED`]. Stations have interiors — [`station`] — and the
+//! Moving bodies, gravity, oxygen, flight, radiation, and any speed but
+//! 1× (task 119). Stations have interiors — [`station`] — and the
 //! ship docks beside one rather than inside it and, docked, shares a room
 //! with it ([`docking`]).
 

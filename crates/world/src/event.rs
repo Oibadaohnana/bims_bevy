@@ -155,8 +155,7 @@ pub enum WorldEvent {
     /// A commander rallied: who.
     Rallied { who: u32 },
     /// A fresh wave of machines has landed at a droid-held station
-    /// (feature 83): which station. Everybody's speed request goes
-    /// back to 1x with it.
+    /// (feature 83): which station.
     DroidReinforcements { station: u32 },
     /// The last machine of the last wave at a droid-held station has
     /// been destroyed: which station. Said once, and what

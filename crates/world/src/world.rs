@@ -722,7 +722,8 @@ pub struct World {
     /// What the crew have seen, shared between all of them and never
     /// forgotten. Sorted, so a checksum over it means something.
     pub discovered: Vec<Node>,
-    /// One per player, in slot order. The world runs at the slowest of them.
+    /// One per player, in slot order: 1× or paused (task 119), and a pause
+    /// by any of them pauses the world.
     pub speed_requests: Vec<Speed>,
     /// The parts laid out to be built and not built yet, in the order they
     /// were laid out — which is the order the crew take them in. See
@@ -1304,15 +1305,13 @@ impl World {
         self.sync_lamps();
         self.casualties(&mut events);
         //    And the relics (feature 106): a player's Bim that went down or
-        //    was hit this step, its triggers — before the tanks take their
-        //    hits' experience out of the count.
+        //    was hit this step, its triggers.
         self.settle_relics(&hits_before, &mut events);
         self.settle_relic_downs(&downs_before, &mut events);
         self.relics_mend();
         let downed = self.experience(&mut events);
         self.settle_rampage(&downed);
         self.settle_medics(&mut events);
-        self.settle_tanks(&mut events);
         self.melee_locks(&mut events);
         //    And the Machine Heart (feature 108): its phase read off the room,
         //    what its fabricators build, and the core down being the run
@@ -1339,8 +1338,8 @@ impl World {
         //    feature 95: a part is **bought**, and its price leaves the
         //    pool the moment it goes down. See `crate::build` and
         //    `shipdesign::materials`.
-        for (site, who) in self.aboard.room.take_built() {
-            self.finish_build(site, who, &mut events);
+        for (site, _who) in self.aboard.room.take_built() {
+            self.finish_build(site, &mut events);
         }
         //    And the kits laid, each a deployable put down.
         for (who, at, sentry) in self.aboard.room.take_deployed() {
@@ -3369,7 +3368,7 @@ impl World {
     /// happened: a part that will not go is a site to lay out again, not
     /// one to stand at for ever. The room is laid out again under the
     /// crew with the part in it.
-    pub(crate) fn finish_build(&mut self, site: u32, who: usize, events: &mut Vec<WorldEvent>) {
+    pub(crate) fn finish_build(&mut self, site: u32, events: &mut Vec<WorldEvent>) {
         let Some(at) = self.builds.iter().position(|s| s.id == site) else {
             return;
         };
@@ -3395,10 +3394,6 @@ impl World {
                 self.on_ship_changed();
                 self.relayout_room();
                 events.push(WorldEvent::Built { kind: site.kind });
-                // And every engineer within the builder's vicinity learnt
-                // something from it (feature 74).
-                let at = self.aboard.room.bim_pos(who);
-                self.award_engineers_near(at, class::XP_BUILT, events);
             }
             Err(_) => events.push(WorldEvent::BuildLost { kind: site.kind }),
         }
@@ -4176,10 +4171,6 @@ impl World {
         }
         self.on_ship_changed();
         events.push(WorldEvent::Hired { who: new_who });
-        // And the commander who signed it learns something by it.
-        if self.is_commander(slot) {
-            self.award(slot as usize, class::XP_HIRE, events);
-        }
     }
 
     /// *Outfitter*: the lowest basic piece a fresh hire is missing —
@@ -4422,7 +4413,8 @@ impl World {
         self.speed_requests.len() as u32
     }
 
-    /// What the world is actually running at: the slowest request there is.
+    /// What the world is actually running at: paused if anybody asked for a
+    /// pause, 1× otherwise.
     pub fn effective_speed(&self) -> Speed {
         speed::effective(&self.speed_requests)
     }
@@ -6072,12 +6064,6 @@ impl World {
             }
             self.settle_droids();
             events.push(WorldEvent::DroidReinforcements { station: id });
-            // Everybody back to 1x, once, so nobody is caught at 24x by
-            // a wave landing.
-            // Not a veto — anybody may raise it again.
-            for request in &mut self.speed_requests {
-                *request = Speed::Real;
-            }
         }
         if cleared {
             events.push(WorldEvent::DroidStationCleared { station: id });
@@ -6360,9 +6346,6 @@ impl World {
                 d.standing = n;
             }
             events.push(WorldEvent::DroidReinforcements { station: id });
-            for request in &mut self.speed_requests {
-                *request = Speed::Real;
-            }
         }
         if won {
             events.push(WorldEvent::TownHeld { station: id });
@@ -6849,20 +6832,6 @@ impl World {
         }
     }
 
-    /// `xp` to every engineer within the vicinity of `at`.
-    fn award_engineers_near(
-        &mut self,
-        at: bims::math::Vec2,
-        xp: u32,
-        events: &mut Vec<WorldEvent>,
-    ) {
-        for who in 0..self.classes.len() {
-            if self.is_engineer(who as u32) && self.in_vicinity(who, at) {
-                self.award(who, xp, events);
-            }
-        }
-    }
-
     /// After `visit`: every enemy that went down or died this step, once
     /// each, to every classed crew member within the vicinity of where it
     /// lies on the joined deck. Only the crew's enemies
@@ -6896,11 +6865,15 @@ impl World {
                 continue;
             };
             let at = bims::math::vec2(at.x as f32, at.y as f32);
-            // **One award an enemy, at its first down or death** (feature
-            // 109): out cold, or dead without being down first — every
-            // machine — is the same [`class::XP_ENEMY_DOWN`], and one down
-            // that dies later, bled out or shot where it lies, is nothing
-            // more.
+            // **The only experience there is, and every class's alike**
+            // (task 119): an enemy going down — out cold, or dead without
+            // being down first, which is every machine — is
+            // [`class::XP_ENEMY_DOWN`], once; and its death
+            // [`class::XP_ENEMY_DEAD`] on top, once, whether it died the
+            // step it went down or bled out later.
+            if dead && !residents.xp_dead[who] {
+                gained.push((at, class::XP_ENEMY_DEAD));
+            }
             if down && !residents.xp_down[who] {
                 gained.push((at, class::XP_ENEMY_DOWN));
                 downed.push((who, residents.last_hit_by.get(who).copied().flatten()));
@@ -7355,8 +7328,8 @@ impl World {
     /// comes out of the pack now and the deployable goes down — if the
     /// kit is still there, the engineer still one and the tile still
     /// free; else nothing, and the kit stays where it is. A re-used kit
-    /// (`reused_kits`) is spent first and gives no experience; a fresh one
-    /// is [`class::XP_BUILT`] to every engineer in the layer's vicinity.
+    /// (`reused_kits`) is spent first. Nothing laid is anybody's
+    /// experience (task 119).
     /// *Bulk bags* lays a second tile of sandbags beside the first out of
     /// the one kit, on the first free neighbour. A sentry laid with as
     /// many of that engineer's standing as it has charges **destroys its
@@ -7425,8 +7398,6 @@ impl World {
         });
         if self.reused_kits.get(who).copied().unwrap_or(0) > 0 {
             self.reused_kits[who] -= 1;
-        } else {
-            self.award_engineers_near(at, class::XP_BUILT, events);
         }
         self.sync_deployed_cover();
     }
@@ -8458,8 +8429,9 @@ impl World {
     }
 
     /// After the rooms step: every dressing and treatment the room
-    /// finished — [`class::XP_HEALED`] to a medic that did one on a
-    /// crewmate, and a field surgery marked used — and the field surgery
+    /// finished — a field surgery marked used, a kit's charge spent, and
+    /// the relics a dressing sets off; no experience (task 119) — and the
+    /// field surgery
     /// given back when the fight ends (the rooms unjoined, or no enemy
     /// standing), like the soldiers' *rampage*.
     fn settle_medics(&mut self, events: &mut Vec<WorldEvent>) {
@@ -8476,9 +8448,6 @@ impl World {
             {
                 let kit = Item::Stack(ResourceId::Medkit as u32);
                 self.aboard.room.take_stack(healed.helper, kit, 1);
-            }
-            if healed.helper != healed.patient && self.is_medic(healed.helper as u32) {
-                self.award(healed.helper, class::XP_HEALED, events);
             }
             if healed.with == bims::game::Healing::Bandage && self.any_relics() {
                 self.relics_on_a_dressing(healed.helper, healed.patient, events);
@@ -8728,26 +8697,6 @@ impl World {
             })
             .collect();
         self.aboard.room.set_bulwarks(walls);
-    }
-
-    /// After the rooms step: every whole point of experience the enemy's
-    /// fire has made for a tank — [`class::TANK_HITS_PER_XP`] hits each,
-    /// the remainder left on the Bim to count on from.
-    fn settle_tanks(&mut self, events: &mut Vec<WorldEvent>) {
-        for who in 0..self.aboard.crew_count() {
-            if !self.is_tank(who) {
-                continue;
-            }
-            let hits = self.aboard.room.hits_taken(who as usize);
-            let points = hits / class::TANK_HITS_PER_XP;
-            if points == 0 {
-                continue;
-            }
-            self.aboard
-                .room
-                .set_hits_taken(who as usize, hits % class::TANK_HITS_PER_XP);
-            self.award(who as usize, points, events);
-        }
     }
 
     // --- the commander: the aura, the squad and the rally (feature 78) -----

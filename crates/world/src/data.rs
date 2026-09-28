@@ -12,21 +12,10 @@ use worldgen::Node;
 
 /// How long one step of the world is, in game minutes.
 ///
-/// One sixtieth of a real second at 1x, which is the room's step exactly. The
-/// two simulations are separate and always will be, but a player who has
-/// learnt what 24x feels like in one should not have to learn it again in the
-/// other.
+/// One sixtieth of a real second at 1x, which is the room's step exactly —
+/// and 1x is the only speed there is (task 119), so a minute of the clock
+/// is a real second.
 pub const STEP_MINUTES: f64 = time::MINUTES_PER_SECOND / 60.0;
-
-/// A day a minute: the speed the room's own slider tops out at, and the one
-/// everything above was tuned against.
-pub const DAY_SPEED: u32 = 24;
-
-/// How fast the world will run: twice that, a day every half minute. One
-/// constant, and raising it is not a change to this step — see the note on
-/// `MAX_STEPS_PER_FRAME` in `crates/app/src/screens/game.rs`, which has to
-/// move with it or the top of the range stops being reachable.
-pub const TOP_SPEED: u32 = 48;
 
 /// How far the crew can see with their own eyes.
 ///
@@ -396,8 +385,7 @@ pub const FRONT_BIAS: i32 = 5;
 /// the first wave lands, in steps of the **mission clock** (feature 103):
 /// twenty seconds of it at 1× (task 111; it was a minute, 3 600, while
 /// only a town on the front was ever defended) — the prep time, to get
-/// the crew to where they want to stand before the shooting starts. The
-/// first wave's arrival puts every player back to 1×, as any wave's does.
+/// the crew to where they want to stand before the shooting starts.
 pub const DEFENSE_DELAY_STEPS: u64 = 1_200;
 /// What share of a defended town's surviving people join the crew, in per
 /// cent, when the last wave is destroyed. A fifth, rounded down, and never

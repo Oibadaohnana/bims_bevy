@@ -7,13 +7,11 @@
 //! everything else a tank is lives where it is used: **Bulwark** is a
 //! toggle on the Bim (`bims::bim::Bim::bulwark`, `Game::set_bulwark`),
 //! since the room is what has to know where the wall stands when a bolt
-//! comes through it; the **hits** that make his experience are a count
-//! on the Bim too (`Game::hits_taken`), since the room is where a hit
-//! lands; and the armour passive and every talent are read afresh each
+//! comes through it; and the armour passive and every talent are read afresh each
 //! step off the class and the picks, through `bims::combat::Skill`
 //! (`World::skill_of`). The rules are all on the world —
 //! `World::can_bulwark`, `bulwark`, `can_taunt`, `taunt`,
-//! `hand_the_room_the_tanks`, `settle_tanks`.
+//! `hand_the_room_the_tanks`.
 
 /// One crew member's tank state.
 #[derive(Clone, PartialEq, Debug, Default)]

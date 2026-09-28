@@ -165,7 +165,12 @@ pub const REFERENCE_STEPS: u32 = 600;
 /// carries a tier (task 117) — the pool and the choice are hashed. The run
 /// plays as it did (`SURVIVORS` and the ship's `PINNED` did not move).
 /// Was `0x_3222_89f6_e882_3fce`.
-pub const REFERENCE_CHECKSUM: u64 = 0x_1015_15d4_3b34_cfaa;
+/// And for one speed (task 119): the scenario's two speed requests are 1×
+/// where they were 24× (`Speed::Day` is gone), and a request's code is
+/// hashed. Nothing else of the task moved it — with the speed alone, and
+/// the experience left as it was, the new number came out the same.
+/// Was `0x_1015_15d4_3b34_cfaa`.
+pub const REFERENCE_CHECKSUM: u64 = 0x_bdf6_e347_2c87_400a;
 
 /// A world with the flyable fixture docked at the simulation's spawn: the
 /// default seed's first dock, which is where every fixture world starts.
@@ -275,17 +280,18 @@ pub fn reference_run() -> u64 {
 /// a mission at the far end.
 pub fn reference_run_world() -> World {
     let mut world = reference_world();
-    // Both players ask for a day a minute, so the effective speed is a
-    // decision that was actually taken rather than the default. `Day`
-    // rather than `Top`: the request's code is in the checksum.
+    // Both players ask for 1× — the only speed there is since task 119,
+    // and what they already had — so the step that carries the requests
+    // is a decision taken rather than the default. The code is in the
+    // checksum.
     world.step(&[
         Command::SetSpeed {
             slot: 0,
-            speed: Speed::Day,
+            speed: Speed::Real,
         },
         Command::SetSpeed {
             slot: 1,
-            speed: Speed::Day,
+            speed: Speed::Real,
         },
     ]);
     for _ in 1..REFERENCE_STEPS {
