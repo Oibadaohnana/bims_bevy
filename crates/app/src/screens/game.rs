@@ -3778,9 +3778,14 @@ struct AbilityBox {
     /// The key bound to it, spelt as the Controls page spells it.
     key: String,
     name: &'static str,
-    /// What it does — for a ranked ability (task 124) with this rank's
-    /// numbers and the next's.
+    /// What it does, in a line (Dota 2's way).
     tip: String,
+    /// Its numbers under that line, a row each, every rank's at once
+    /// for a ranked ability.
+    stats: Vec<crate::names::Stat>,
+    /// The line at the foot: the rank it is at and the level the next
+    /// wants. Empty for a box of no ranks.
+    foot: String,
     mark: Mark,
     /// How many are left: kits or grenades in the pack, beams free to
     /// link, the squad's size. `None` where nothing is counted — a wall
@@ -3889,6 +3894,8 @@ impl AbilityBox {
             key,
             name: "",
             tip: String::new(),
+            stats: Vec::new(),
+            foot: String::new(),
             mark: Mark::Empty,
             count: None,
             cooldown: 0.0,
@@ -4189,7 +4196,9 @@ fn ranked_box(world: &world::World, slot: u32, action: Action, keys: &Keys) -> A
     AbilityBox {
         key: keys.key(action).name().to_string(),
         name: crate::names::ranked_ability(class, ability),
-        tip: crate::names::ranked_tip(class, ability, rank),
+        tip: crate::names::ranked_what(class, ability).to_string(),
+        stats: crate::names::ranked_stats(class, ability),
+        foot: crate::names::ranked_foot(class, ability, rank),
         mark: face.mark,
         // A stock at rank nought counts nothing: there is none to have.
         count: face.count.filter(|_| rank > 0),
@@ -4350,23 +4359,36 @@ fn ability_boxes(world: &world::World, slot: u32, keys: &Keys) -> Vec<AbilityBox
                     (Class::None, _) => Face::of(Mark::Brace),
                 }
             };
-            let (name, tip) = match action {
+            let (name, tip, stats) = match action {
                 Action::SquadAttack => (
                     crate::names::SQUAD_ORDER_ATTACK,
                     crate::names::SQUAD_ORDER_ATTACK_TIP,
+                    Vec::new(),
                 ),
-                Action::SquadFallBack => (crate::names::FALL_BACK, crate::names::FALL_BACK_TIP),
-                Action::SquadStandGround => {
-                    (crate::names::STAND_GROUND, crate::names::STAND_GROUND_TIP)
-                }
-                Action::Carry => (crate::names::CARRY, crate::names::CARRY_TIP),
-                _ => (ability_name(class, primary), ability_tip(class, primary)),
+                Action::SquadFallBack => (
+                    crate::names::FALL_BACK,
+                    crate::names::FALL_BACK_TIP,
+                    Vec::new(),
+                ),
+                Action::SquadStandGround => (
+                    crate::names::STAND_GROUND,
+                    crate::names::STAND_GROUND_TIP,
+                    Vec::new(),
+                ),
+                Action::Carry => (crate::names::CARRY, crate::names::CARRY_TIP, Vec::new()),
+                _ => (
+                    ability_name(class, primary),
+                    ability_tip(class, primary),
+                    crate::names::ability_stats(class, primary),
+                ),
             };
             let tip = tip.to_string();
             AbilityBox {
                 key: keys.key(action).name().to_string(),
                 name,
                 tip,
+                stats,
+                foot: String::new(),
                 mark: face.mark,
                 count: face.count,
                 cooldown: face.cooldown,
@@ -4693,6 +4715,14 @@ fn ability_box(ui: &mut egui::Ui, one: &AbilityBox) -> (bool, bool) {
         response.on_hover_ui(|ui| {
             ui.label(egui::RichText::new(one.name).strong());
             ui.label(&one.tip);
+            if !one.stats.is_empty() {
+                ui.add_space(2.0);
+                theme::stat_rows(ui, &one.stats, one.rank.map(|(rank, _)| rank), 13.0);
+            }
+            if !one.foot.is_empty() {
+                ui.add_space(2.0);
+                ui.label(egui::RichText::new(&one.foot).small().color(theme::MUTED));
+            }
         });
         // And the ranks under a ranked ability's box: a pip a rank, filled
         // for one bought and hollow for one not.
@@ -5549,7 +5579,7 @@ mod class_key_tests {
         assert_eq!(boxes[0].mark, Mark::Charge(icons::ChargeIcon::Grenade));
         assert!(boxes[0].ready() && boxes[2].ready() && !boxes[2].on);
         assert!(boxes.iter().all(|b| !b.plus), "no point left");
-        assert!(boxes[0].tip.contains("Next, rank 2"));
+        assert!(boxes[0].foot.contains("Next, rank 2"));
         world.step(&[world::Command::Brace { slot: 1, on: true }]);
         assert!(ability_boxes(&world, 1, &keys)[2].on, "braced now");
         // The key's own rank-up: the order, and the world's refusal said.

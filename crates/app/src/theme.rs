@@ -189,6 +189,49 @@ pub fn question_mark(ui: &mut egui::Ui, tip: &str) -> egui::Response {
         .on_hover_text(tip)
 }
 
+/// An ability's numbers the way Dota 2's tooltip lists them: a row a
+/// [`crate::names::Stat`], `Damage: 60 / 75 / 90 / 110`, the value at
+/// `rank` lit and the others muted. A row of one value, or no rank to
+/// light, is all ink.
+pub fn stat_rows(ui: &mut egui::Ui, stats: &[crate::names::Stat], rank: Option<u8>, size: f32) {
+    ui.scope(|ui| {
+        // Rows close together, as a table's are.
+        ui.spacing_mut().item_spacing.y = 1.0;
+        for stat in stats {
+            stat_row(ui, stat, rank, size);
+        }
+    });
+}
+
+fn stat_row(ui: &mut egui::Ui, stat: &crate::names::Stat, rank: Option<u8>, size: f32) {
+    ui.horizontal_wrapped(|ui| {
+        ui.spacing_mut().item_spacing.x = 0.0;
+        ui.label(
+            egui::RichText::new(format!("{}: ", stat.label))
+                .size(size)
+                .color(MUTED),
+        );
+        let many = stat.values.len() > 1;
+        for (i, value) in stat.values.iter().enumerate() {
+            if i > 0 {
+                ui.label(egui::RichText::new(" / ").size(size).color(MUTED));
+            }
+            let lit = !many || rank.is_some_and(|r| usize::from(r) == i + 1);
+            let text = egui::RichText::new(value).size(size);
+            ui.label(if lit && many {
+                text.color(CAUTION).strong()
+            } else if lit || rank.is_none() {
+                text.color(INK)
+            } else {
+                text.color(MUTED)
+            });
+        }
+        if !stat.unit.is_empty() {
+            ui.label(egui::RichText::new(stat.unit).size(size).color(MUTED));
+        }
+    });
+}
+
 /// A bar in two tones: `first` of the strip in `fill`, and `second` of it
 /// in `fill2` set on the end of that — the body's health in green with
 /// the armour's in blue after it. Both fractions are of the *whole*

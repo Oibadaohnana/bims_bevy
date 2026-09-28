@@ -2012,25 +2012,40 @@ impl CrewPanels {
                         )
                         .wrap(),
                     );
-                    for r in 1..=top {
-                        let level = world::class::rank_level(class, slot, r).unwrap_or(1);
-                        let words = rank_numbers(class, slot, r).unwrap_or_default();
-                        let colour = if r <= rank {
-                            theme::INK
-                        } else if level <= view.level {
-                            theme::CAUTION
-                        } else {
-                            theme::MUTED
-                        };
-                        ui.add(
-                            egui::Label::new(
-                                egui::RichText::new(rank_line(r, level, &words))
+                    // Every rank's numbers at once, the one bought lit
+                    // (Dota 2's tooltip), and the level each rank wants:
+                    // bought in ink, within reach in caution, not yet muted.
+                    theme::stat_rows(ui, &ranked_stats(class, slot), Some(rank), SKILL_BOX_TEXT);
+                    ui.horizontal_wrapped(|ui| {
+                        ui.spacing_mut().item_spacing.x = 0.0;
+                        ui.label(
+                            egui::RichText::new(format!("{RANK_LEVELS}: "))
+                                .size(SKILL_BOX_TEXT)
+                                .color(theme::MUTED),
+                        );
+                        for r in 1..=top {
+                            let level = world::class::rank_level(class, slot, r).unwrap_or(1);
+                            let colour = if r <= rank {
+                                theme::INK
+                            } else if level <= view.level {
+                                theme::CAUTION
+                            } else {
+                                theme::MUTED
+                            };
+                            if r > 1 {
+                                ui.label(
+                                    egui::RichText::new(" / ")
+                                        .size(SKILL_BOX_TEXT)
+                                        .color(theme::MUTED),
+                                );
+                            }
+                            ui.label(
+                                egui::RichText::new(level.to_string())
                                     .size(SKILL_BOX_TEXT)
                                     .color(colour),
-                            )
-                            .wrap(),
-                        );
-                    }
+                            );
+                        }
+                    });
                     if open
                         && ui
                             .button(egui::RichText::new(rank_learn(next)).size(SKILL_TEXT))

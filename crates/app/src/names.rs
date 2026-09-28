@@ -612,29 +612,31 @@ pub const ABILITY_NAMES: [[&str; 2]; 6] = [
     ["Battle Cry", "Rally"],
 ];
 /// What the engineer's EMP and sandbags do (task 127): its Q box's tip and
-/// its ranked ability's words alike.
-const EMP_WHAT: &str = "Throw an EMP at the deck tile under the pointer — the grenade's range, with nothing solid in the way. Two seconds later it bursts: it harms nothing, and every enemy machine within its reach is stunned — it neither moves, turns, aims nor fires, whatever it had begun is dropped, and a Guardian's shield stops nothing while it lasts. The Machine Heart is never stunned.";
-const SANDBAGS_WHAT: &str = "Lay sandbags on the deck tile under the pointer: low cover, walked and seen over, ducked behind by anybody — the enemy too — and worn away by the bolts they stop. No limit on how many stand. Packed up from the Nearby strip; a hit on you while you lay them stops the laying.";
+/// its ranked ability's words alike. One line each, Dota 2's way: the
+/// numbers are the [`Stat`] rows under it.
+const EMP_WHAT: &str = "Throw an EMP that bursts after 2 s, stunning every machine in the blast: no moving, aiming or firing, and a Guardian's shield drops. The Heart is immune.";
+const SANDBAGS_WHAT: &str = "Lay sandbags on the tile under the pointer: low cover for anyone behind them, worn down by the hits they stop.";
 /// What the medic's Nanite Burst and heal beam do (task 130): his Q and E
 /// boxes' tips and his ranked abilities' words alike.
-const NANITE_BURST_WHAT: &str = "Heal every friendly Bim on their feet near you at once — yourself included — as far as you can see: a wall stops it. It revives nobody downed. The Healing Aura multiplies it for everybody standing in one.";
-const HEAL_BEAM_WHAT: &str = "Hold the heal beam on the crew member under the pointer — or on yourself, with the pointer over your own Bim: hit points come back while it holds. The key on nobody, or on the one held, unlinks it. You fire nothing while it is on until its third rank, and then at half your rate. The number is how many more you could hold.";
+const NANITE_BURST_WHAT: &str =
+    "Heal every standing ally around you in sight, yourself included. Revives nobody.";
+const HEAL_BEAM_WHAT: &str = "Toggle. Beam the crewmate under the pointer, or yourself, healing over time. The number is how many more you could link.";
 /// What each box says when it is rested on.
 pub const ABILITY_TIPS: [[&str; 2]; 6] = [
     ["", ""],
     [EMP_WHAT, SANDBAGS_WHAT],
     [
-        "Throw a grenade at the deck tile under the pointer — in range, with nothing solid in the way. It bursts two seconds later and hurts whoever is near it, yours as well as theirs. The number is the grenades in the pack.",
-        "Brace where you stand: steadier shooting and no errands until you stand easy. The key again stands easy, and so does any order that moves you.",
+        "Throw a grenade that bursts after 2 s, hurting everyone in the blast, allies too. The number is the grenades in the pack.",
+        "Toggle. Brace where you stand for steadier aim. Moving ends it.",
     ],
     [NANITE_BURST_WHAT, HEAL_BEAM_WHAT],
     [
-        "Taunt: every enemy that can see you shoots at you and nobody else while it lasts.",
-        "Stand as a wall: half pace, and a crewmate close behind you is in cover against anything shot through you. The key again puts it down; so does going down.",
+        "Every enemy that can see you shoots at you alone.",
+        "Toggle. Walk at half pace; a crewmate close behind you is in cover.",
     ],
     [
-        "Call a Battle Cry: every friendly Bim near you fires faster while it lasts.",
-        "Call a rally: every friendly Bim near you takes less damage and moves faster while it lasts.",
+        "Nearby allies fire faster.",
+        "Nearby allies take less damage and move faster.",
     ],
 ];
 pub fn ability_name(class: world::Class, primary: bool) -> &'static str {
@@ -649,6 +651,24 @@ pub fn ability_tip(class: world::Class, primary: bool) -> &'static str {
         .map(|pair| pair[usize::from(!primary)])
         .unwrap_or("")
 }
+/// The numbers under a class key's box that is not a ranked kit's: the
+/// tank's, the one class of talents left. Base values — a talent that
+/// stretches one is on the Skills tab.
+pub fn ability_stats(class: world::Class, primary: bool) -> Vec<Stat> {
+    use world::class as c;
+    match (class, primary) {
+        (world::Class::Tank, true) => vec![
+            Stat::one("Radius", " tiles", fig(c::TAUNT_RADIUS as f64)),
+            Stat::one("Duration", " min", fig(c::TAUNT_MINUTES)),
+            Stat::one("Cooldown", " s", fig(c::TAUNT_COOLDOWN)),
+        ],
+        (world::Class::Tank, false) => vec![
+            Stat::one("Move speed", "", by(c::BULWARK_PACE as f64)),
+            Stat::one("Cover reach", " tiles", fig(c::BULWARK_REACH as f64)),
+        ],
+        _ => Vec::new(),
+    }
+}
 /// The boxes past the class's own two (feature 86): the commander's
 /// other two squad orders, which had keys and no box until now, and the
 /// medic's carry. Named off the [`crate::keys::Action`] rather than off
@@ -657,13 +677,14 @@ pub fn ability_tip(class: world::Class, primary: bool) -> &'static str {
 /// The squad's attack (task 129: off E, which the Rally took, onto a key
 /// of its own).
 pub const SQUAD_ORDER_ATTACK: &str = "Squad attack";
-pub const SQUAD_ORDER_ATTACK_TIP: &str = "Send the squad at the enemy under the pointer. The squad is every crew member nobody is steering — your reinforcements among them; the number is how many are in it now. The key on the same enemy again lets them go.";
+pub const SQUAD_ORDER_ATTACK_TIP: &str = "Send the squad (every crew member nobody steers) at the enemy under the pointer. Again on it to call them off. The number is the squad's size.";
 pub const FALL_BACK: &str = "Fall back";
-pub const FALL_BACK_TIP: &str = "Call the squad back to the deck tile under the pointer, or to yourself with the pointer on nothing. They hold their fire and walk, and hold the ring round the spot when they get there. The number is how many are in the squad.";
+pub const FALL_BACK_TIP: &str = "The squad holds fire and walks back to the pointer, or to you. The number is the squad's size.";
 pub const STAND_GROUND: &str = "Stand ground";
-pub const STAND_GROUND_TIP: &str = "The squad holds exactly where it stands — no walk to cover, no running — shooting whatever it can see. The number is how many are in the squad.";
+pub const STAND_GROUND_TIP: &str =
+    "The squad holds where it stands and shoots what it sees. The number is the squad's size.";
 pub const CARRY: &str = "Carry";
-pub const CARRY_TIP: &str = "Pick the downed crewmate under the pointer up and carry them out of the fire. You hold your fire and walk slowly while you do. The key again sets them down, and reviving them is what comes next — the countdown over them does not stop for the carry. The number is how many near you are worth fetching.";
+pub const CARRY_TIP: &str = "Pick up the downed crewmate under the pointer and carry them out of the fire, slowly and without shooting. Again to set them down; their countdown keeps running. The number is how many near you are down.";
 
 /// The four abilities of a ranked kit (task 124), Q C E R, by class and
 /// slot: what the box, the log and the Skills tab call each. Empty for a
@@ -689,250 +710,285 @@ pub fn ranked_ability(class: world::Class, slot: u8) -> &'static str {
         _ => "",
     }
 }
-/// What a ranked ability does, in a sentence, whatever its rank.
+/// What a ranked ability does, in a line, whatever its rank: Dota 2's
+/// way, the numbers left to [`ranked_stats`].
 pub fn ranked_what(class: world::Class, slot: u8) -> &'static str {
     match (class, slot) {
         (world::Class::Soldier, 0) => {
-            "Throw a grenade at the deck tile under the pointer — in range, with nothing solid in the way. It bursts two seconds later and hurts whoever is near it, yours as well as theirs; half at the edge of the burst."
+            "Throw a grenade that bursts after 2 s, hurting everyone in the blast, allies too. Half damage at the edge."
         }
         (world::Class::Soldier, 1) => {
-            "Passive. Every bolt and every blow you land on an enemy may strike a weak spot: a critical hit, a share of the weapon's own damage added on top. A grenade never does."
+            "Passive. Your hits may strike a weak spot for extra damage. Grenades never do."
         }
         (world::Class::Soldier, 2) => {
-            "Brace where you stand: steadier aim — fewer misses, near and far — and less damage taken, and no errands until you stand easy. The key again stands easy, and so does any order that moves you."
+            "Toggle. Brace where you stand: steadier aim and less damage taken. Moving ends it."
         }
         (world::Class::Soldier, 3) => {
-            "Your ultimate. For a while you fire faster, take less, and aim on the move as well as standing still. Braced as well, you keep both."
+            "Ultimate. Fire faster, take less damage and aim on the move. Stacks with Brace."
         }
         (world::Class::Engineer, 0) => EMP_WHAT,
         (world::Class::Engineer, 1) => {
-            "Lay a Healing Sentry on the deck tile under the pointer: a sentry with no barrel that heals every crewmate on their feet within its reach and in its sight, up to a full bar. Several reaching one crewmate do not add up. Your charges are how many may stand: one more laid takes down your oldest. The enemy shoots at it. Packed up from the Nearby strip; a hit on you while you lay it stops the laying."
+            "Lay a sentry that heals crewmates in its reach and sight. One per charge; a new one replaces your oldest."
         }
         (world::Class::Engineer, 2) => SANDBAGS_WHAT,
         (world::Class::Engineer, 3) => {
-            "Your ultimate. Lay a sentry with a minigun on the deck tile under the pointer: it shoots for itself at whatever it can see until its time runs out or it is shot down. One stands at a time and it is never packed up. A hit does not stop the laying; the cooldown runs from the moment it is laid, and it is ready at every mission's start."
+            "Ultimate. Lay a minigun sentry that shoots whatever it sees until it expires or is destroyed. Ready at every mission's start."
         }
-        (world::Class::Commander, 0) => {
-            "A shout. Every friendly Bim near you as you call it — yourself, the players', the bots, the hired hands, your reinforcements — fires faster for a few seconds. Who it reaches is fixed as you call it: one that walks off keeps it, one that walks up after is not given it. Sentries are not lifted."
-        }
+        (world::Class::Commander, 0) => "Allies around you as you shout fire faster.",
         (world::Class::Commander, 1) => {
-            "Passive. Every friendly Bim within its reach of you — yourself included — hits harder, bolt and blow alike, while you are on your feet. Two commanders reaching one Bim do not add up: the stronger holds. A sentry is not lifted."
+            "Passive. Allies near you deal more damage. Does not stack."
         }
         (world::Class::Commander, 2) => {
-            "Rally the Bims near you as you call it — yourself included: for a few seconds they take less damage and move faster. Who it reaches is fixed as you call it, as a Battle Cry's is."
+            "Allies around you as you call it take less damage and move faster."
         }
         (world::Class::Commander, 3) => {
-            "Your ultimate, and passive. At the start of every mission you bring soldiers of the Republic with you, on free deck beside you — fewer where there is no room. They follow the squad's orders like any bot and are revived like any crewmate; they earn nothing, cost nothing and drop nothing. One that dies is gone for the mission, and all of them go when it ends. A rank bought now brings them from the next mission."
+            "Ultimate, passive. Every mission starts with Republic soldiers beside you. They follow squad orders; the fallen are back next mission."
         }
         (world::Class::Medic, 0) => NANITE_BURST_WHAT,
         (world::Class::Medic, 1) => {
-            "Passive. Every friendly Bim near you — yourself included — takes more from every heal while you are on your feet: your beam, your burst, a Healing Sentry, a relic. Where the healed Bim stands is what counts, not where the heal comes from. Two medics reaching one Bim do not add up: the stronger holds. A revive is not a heal."
+            "Passive. Allies near you receive more from every heal. Does not stack."
         }
         (world::Class::Medic, 2) => HEAL_BEAM_WHAT,
         (world::Class::Medic, 3) => {
-            "Your ultimate. Cloak the friendly Bim under the pointer — downed or not, within reach and in your sight — or yourself, with the pointer on nobody. No enemy picks a cloaked Bim, and one aiming at it lets it go; it fires nothing and uses no ability, but walks faster and may still revive. A sweep or a burst still hits it. Cloaked again, it keeps the longer of the two times."
+            "Ultimate. Cloak an ally, downed or not, or yourself: enemies ignore them, they move faster but cannot shoot. Blasts still hit."
         }
         _ => "",
     }
 }
-/// What a rank of a ranked ability is worth, in numbers: the rules
-/// crates' own tables. `None` for rank nought and past the top.
-pub fn rank_numbers(class: world::Class, slot: u8, rank: u8) -> Option<String> {
-    use world::class as c;
-    if rank == 0 || rank > c::MAX_RANK {
-        return None;
+/// One row of an ability's numbers, the way Dota 2 lists them: a label,
+/// its value at each rank — or one value where the ranks change nothing —
+/// and the unit said once after the last. A value a rank does not have
+/// yet is [`NOT_YET`].
+#[derive(Clone, Debug, PartialEq)]
+pub struct Stat {
+    pub label: &'static str,
+    pub values: Vec<String>,
+    pub unit: &'static str,
+}
+/// A value a rank does not have: an upgrade that comes at a later one.
+pub const NOT_YET: &str = "—";
+impl Stat {
+    /// A row read off a per-rank table; four equal values fold into one.
+    fn ranks(label: &'static str, unit: &'static str, value: impl Fn(usize) -> String) -> Stat {
+        let mut values: Vec<String> = (0..world::class::MAX_RANK as usize).map(value).collect();
+        if values.iter().all(|v| *v == values[0]) {
+            values.truncate(1);
+        }
+        Stat {
+            label,
+            values,
+            unit,
+        }
     }
-    let r = rank as usize - 1;
-    Some(match (class, slot) {
-        (world::Class::Soldier, 0) => format!(
-            "{} damage at the centre, a {}-tile burst, {} {}, each back {} s after it is thrown",
-            fig(c::GRENADE_DAMAGE[r] as f64),
-            fig(c::GRENADE_RADIUS[r] as f64),
-            c::GRENADE_CHARGES[r],
-            if c::GRENADE_CHARGES[r] == 1 {
-                "charge"
+    /// A row that is one value at every rank.
+    fn one(label: &'static str, unit: &'static str, value: String) -> Stat {
+        Stat {
+            label,
+            values: vec![value],
+            unit,
+        }
+    }
+    /// A row that is [`NOT_YET`] below rank `from` and `value` from it.
+    fn from_rank(label: &'static str, from: u8, value: String) -> Stat {
+        Stat::ranks(label, "", |r| {
+            if r + 1 >= from as usize {
+                value.clone()
             } else {
-                "charges"
-            },
-            fig(c::GRENADE_COOLDOWN[r])
-        ),
-        (world::Class::Soldier, 1) => format!(
-            "{} of your hits are critical, for {} of the weapon's damage",
-            pc(c::WEAK_SPOT_CHANCE[r] as f64),
-            pc(c::WEAK_SPOT_DAMAGE[r] as f64)
-        ),
-        (world::Class::Soldier, 2) => {
-            let mut line = format!("Braced, {} fewer misses", pc(c::BRACE_MISS_CUT[r] as f64));
-            if rank >= c::BRACE_DEADEYE_RANK {
-                line.push_str(", and you aim as well at the edge of your range as up close");
+                NOT_YET.to_string()
             }
-            if c::BRACE_DAMAGE_TAKEN[r] < 1.0 {
-                line.push_str(&format!(
-                    ", damage taken {}",
-                    by(c::BRACE_DAMAGE_TAKEN[r] as f64)
-                ));
-            }
-            line
-        }
-        (world::Class::Engineer, 0) => {
-            let mut line = format!(
-                "a {}-tile burst stunning for {} s, {} {}, each back {} s after it is thrown",
-                fig(c::EMP_RADIUS[r] as f64),
-                fig(c::EMP_STUN[r] as f64),
-                c::EMP_CHARGES[r],
-                if c::EMP_CHARGES[r] == 1 {
-                    "charge"
-                } else {
-                    "charges"
-                },
-                fig(c::EMP_COOLDOWN[r])
-            );
-            if rank >= c::EMP_EXPOSE_RANK {
-                line.push_str(&format!(
-                    "; a machine it stuns takes {}% more from everyone while the stun lasts",
-                    c::EMP_EXPOSE_PERCENT
-                ));
-            }
-            line
-        }
-        (world::Class::Engineer, 1) => format!(
-            "heals {} hit points an hour ({} the heal beam's) within {} tiles; {} health; {} game minutes to lay; {} charge, back {} s after it is spent",
-            fig((c::HEALING_SENTRY_RATE[r] * c::HEAL_BEAM_HP) as f64),
-            by(c::HEALING_SENTRY_RATE[r] as f64),
-            fig(c::HEALING_SENTRY_RADIUS[r] as f64),
-            fig(c::HEALING_SENTRY_HEALTH[r] as f64),
-            fig(c::HEALING_SENTRY_MINUTES[r]),
-            c::HEALING_SENTRY_CHARGES[r],
-            fig(c::HEALING_SENTRY_COOLDOWN[r])
-        ),
-        (world::Class::Engineer, 2) => {
-            let mut line = format!(
-                "{} charges, each back {} s after it is spent; bags hold {} health; {} game minutes to lay",
-                c::SANDBAG_CHARGES[r],
-                fig(c::SANDBAG_COOLDOWN[r]),
-                fig(c::SANDBAG_HEALTH[r] as f64),
-                fig(c::SANDBAG_MINUTES[r])
-            );
-            if rank >= c::SANDBAG_DOUBLE_RANK {
-                line.push_str("; one charge lays two tiles, the second beside the first");
-            }
-            line
-        }
-        (world::Class::Engineer, 3) => format!(
-            "a tier-{} minigun at fire rate {}, {} health, standing {} s; {} s to come back, counted from the laying; {} game minutes to lay",
-            c::SENTRY_TIER[r].code(),
-            by(c::SENTRY_FIRE_RATE[r] as f64),
-            fig(c::SENTRY_HEALTH[r] as f64),
-            fig(c::SENTRY_SECONDS[r]),
-            fig(c::SENTRY_COOLDOWN[r]),
-            fig(c::SENTRY_MINUTES)
-        ),
-        (world::Class::Soldier, 3) => {
-            let mut line = format!(
-                "{} s: fire rate {}, damage taken {}, full aim on the move; {} s to come back",
-                fig(c::RAMPAGE_SECONDS[r]),
-                by(c::RAMPAGE_FIRE_RATE[r] as f64),
-                by(c::RAMPAGE_DAMAGE_TAKEN[r] as f64),
-                fig(c::RAMPAGE_COOLDOWN[r])
-            );
-            if rank >= c::RAMPAGE_EXTEND_RANK {
-                line.push_str(&format!(
-                    "; each machine you down during it adds {} s, {} s at most",
+        })
+    }
+    /// The row as one line of text: `Damage: 60 / 75 / 90 / 110`.
+    pub fn line(&self) -> String {
+        format!("{}: {}{}", self.label, self.values.join(" / "), self.unit)
+    }
+}
+/// A ranked ability's numbers, every rank's at once (Dota 2's tooltip):
+/// the rules crates' own tables.
+pub fn ranked_stats(class: world::Class, slot: u8) -> Vec<Stat> {
+    use world::class as c;
+    let charges = |n: &'static [u32; 4]| Stat::ranks("Charges", "", move |r| n[r].to_string());
+    let cooldown = |s: &'static [f64; 4]| Stat::ranks("Cooldown", " s", move |r| fig(s[r]));
+    match (class, slot) {
+        (world::Class::Soldier, 0) => vec![
+            Stat::ranks("Damage", "", |r| fig(c::GRENADE_DAMAGE[r] as f64)),
+            Stat::ranks("Radius", " tiles", |r| fig(c::GRENADE_RADIUS[r] as f64)),
+            Stat::one("Range", " tiles", fig(c::GRENADE_RANGE as f64)),
+            charges(&c::GRENADE_CHARGES),
+            cooldown(&c::GRENADE_COOLDOWN),
+        ],
+        (world::Class::Soldier, 1) => vec![
+            Stat::ranks("Crit chance", "", |r| pc(c::WEAK_SPOT_CHANCE[r] as f64)),
+            Stat::ranks("Crit damage", "", |r| pc(c::WEAK_SPOT_DAMAGE[r] as f64)),
+        ],
+        (world::Class::Soldier, 2) => vec![
+            Stat::ranks("Fewer misses", "", |r| pc(c::BRACE_MISS_CUT[r] as f64)),
+            Stat::ranks("Damage taken", "", |r| by(c::BRACE_DAMAGE_TAKEN[r] as f64)),
+            Stat::from_rank(
+                "Full aim at range",
+                c::BRACE_DEADEYE_RANK,
+                "Yes".to_string(),
+            ),
+        ],
+        (world::Class::Soldier, 3) => vec![
+            Stat::ranks("Duration", " s", |r| fig(c::RAMPAGE_SECONDS[r])),
+            Stat::ranks("Fire rate", "", |r| by(c::RAMPAGE_FIRE_RATE[r] as f64)),
+            Stat::ranks(
+                "Damage taken",
+                "",
+                |r| by(c::RAMPAGE_DAMAGE_TAKEN[r] as f64),
+            ),
+            Stat::from_rank(
+                "Per kill",
+                c::RAMPAGE_EXTEND_RANK,
+                format!(
+                    "+{} s (max {} s)",
                     fig(c::RAMPAGE_EXTEND_SECONDS),
                     fig(c::RAMPAGE_EXTEND_MAX)
-                ));
-            }
-            line
-        }
-        (world::Class::Commander, 0) => format!(
-            "everybody within {} tiles fires at {} for {} s; {} s to come back",
-            fig(c::BATTLE_CRY_TILES as f64),
-            by(c::BATTLE_CRY_FIRE_RATE[r] as f64),
-            fig(c::BATTLE_CRY_SECONDS[r]),
-            fig(c::BATTLE_CRY_COOLDOWN[r])
-        ),
-        (world::Class::Commander, 1) => format!(
-            "damage {} within {} tiles of you",
-            by(c::AURA_DAMAGE[r] as f64),
-            fig(c::AURA_TILES[r] as f64)
-        ),
-        (world::Class::Commander, 2) => format!(
-            "everybody within {} tiles takes damage {} and moves {} for {} s; {} s to come back",
-            fig(c::RALLY_TILES as f64),
-            by(c::RALLY_DAMAGE_TAKEN[r] as f64),
-            by(c::RALLY_PACE[r] as f64),
-            fig(c::RALLY_SECONDS[r]),
-            fig(c::RALLY_COOLDOWN[r])
-        ),
-        (world::Class::Commander, 3) => format!(
-            "{} Bims with a tier-{} auto rifle and nothing to wear, within {} tiles of you",
-            c::REINFORCEMENTS[r],
-            c::REINFORCEMENT_TIER[r].code(),
-            fig(c::REINFORCEMENT_REACH_TILES as f64)
-        ),
-        (world::Class::Medic, 0) => format!(
-            "{} hit points to everybody within {} tiles; {} s to come back",
-            fig(c::NANITE_BURST_HEAL[r] as f64),
-            fig(c::NANITE_BURST_RADIUS[r] as f64),
-            fig(c::NANITE_BURST_COOLDOWN[r])
-        ),
-        (world::Class::Medic, 1) => format!(
-            "healing received {} within {} tiles of you",
-            by(c::HEALING_AURA_FACTOR[r] as f64),
-            fig(c::HEALING_AURA_RADIUS[r] as f64)
-        ),
-        (world::Class::Medic, 2) => {
-            let hp = c::HEAL_BEAM_HP * c::HEAL_BEAM_RATE[r];
-            let mut line = format!(
-                "{} hit points a second at 1× ({} an hour), {} tiles, {} {}",
-                fig(hp as f64 / 60.0),
-                fig(hp as f64),
-                fig(c::HEAL_BEAM_RANGES[r] as f64),
-                c::HEAL_BEAM_PATIENTS[r],
-                if c::HEAL_BEAM_PATIENTS[r] == 1 {
-                    "patient"
+                ),
+            ),
+            cooldown(&c::RAMPAGE_COOLDOWN),
+        ],
+        (world::Class::Engineer, 0) => vec![
+            Stat::ranks("Radius", " tiles", |r| fig(c::EMP_RADIUS[r] as f64)),
+            Stat::ranks("Stun", " s", |r| fig(c::EMP_STUN[r] as f64)),
+            Stat::one("Range", " tiles", fig(c::GRENADE_RANGE as f64)),
+            Stat::from_rank(
+                "Stunned take",
+                c::EMP_EXPOSE_RANK,
+                format!("+{}%", c::EMP_EXPOSE_PERCENT),
+            ),
+            charges(&c::EMP_CHARGES),
+            cooldown(&c::EMP_COOLDOWN),
+        ],
+        (world::Class::Engineer, 1) => vec![
+            Stat::ranks("Heal", " /s", |r| {
+                fig((c::HEALING_SENTRY_RATE[r] * c::HEAL_BEAM_HP) as f64 / 60.0)
+            }),
+            Stat::ranks("Radius", " tiles", |r| {
+                fig(c::HEALING_SENTRY_RADIUS[r] as f64)
+            }),
+            Stat::ranks("Health", "", |r| fig(c::HEALING_SENTRY_HEALTH[r] as f64)),
+            Stat::ranks("Lay time", " min", |r| fig(c::HEALING_SENTRY_MINUTES[r])),
+            charges(&c::HEALING_SENTRY_CHARGES),
+            cooldown(&c::HEALING_SENTRY_COOLDOWN),
+        ],
+        (world::Class::Engineer, 2) => vec![
+            Stat::ranks("Bag health", "", |r| fig(c::SANDBAG_HEALTH[r] as f64)),
+            Stat::ranks("Lay time", " min", |r| fig(c::SANDBAG_MINUTES[r])),
+            Stat::ranks("Tiles a charge", "", |r| {
+                if r + 1 >= c::SANDBAG_DOUBLE_RANK as usize {
+                    "2".to_string()
                 } else {
-                    "patients, each at the full rate"
+                    "1".to_string()
                 }
-            );
-            if rank >= c::HEAL_BEAM_FIRE_RANK {
-                line.push_str(&format!(
-                    "; you fire while beaming, at {} your rate",
-                    by(c::HEAL_BEAM_FIRE_RATE as f64)
-                ));
-            } else {
-                line.push_str("; you fire nothing while beaming");
-            }
-            line
-        }
-        (world::Class::Medic, 3) => format!(
-            "{} s cloaked, moving {}, within {} tiles of you; {} s to come back",
-            fig(c::CLOAK_SECONDS[r]),
-            by(c::CLOAK_PACE[r] as f64),
-            fig(c::CLOAK_RANGE as f64),
-            fig(c::CLOAK_COOLDOWN[r])
-        ),
-        _ => return None,
-    })
+            }),
+            charges(&c::SANDBAG_CHARGES),
+            cooldown(&c::SANDBAG_COOLDOWN),
+        ],
+        (world::Class::Engineer, 3) => vec![
+            Stat::ranks("Minigun tier", "", |r| c::SENTRY_TIER[r].code().to_string()),
+            Stat::ranks("Fire rate", "", |r| by(c::SENTRY_FIRE_RATE[r] as f64)),
+            Stat::ranks("Health", "", |r| fig(c::SENTRY_HEALTH[r] as f64)),
+            Stat::ranks("Duration", " s", |r| fig(c::SENTRY_SECONDS[r])),
+            Stat::one("Lay time", " min", fig(c::SENTRY_MINUTES)),
+            cooldown(&c::SENTRY_COOLDOWN),
+        ],
+        (world::Class::Commander, 0) => vec![
+            Stat::ranks("Fire rate", "", |r| by(c::BATTLE_CRY_FIRE_RATE[r] as f64)),
+            Stat::ranks("Duration", " s", |r| fig(c::BATTLE_CRY_SECONDS[r])),
+            Stat::one("Radius", " tiles", fig(c::BATTLE_CRY_TILES as f64)),
+            cooldown(&c::BATTLE_CRY_COOLDOWN),
+        ],
+        (world::Class::Commander, 1) => vec![
+            Stat::ranks("Damage", "", |r| by(c::AURA_DAMAGE[r] as f64)),
+            Stat::ranks("Radius", " tiles", |r| fig(c::AURA_TILES[r] as f64)),
+        ],
+        (world::Class::Commander, 2) => vec![
+            Stat::ranks("Damage taken", "", |r| by(c::RALLY_DAMAGE_TAKEN[r] as f64)),
+            Stat::ranks("Move speed", "", |r| by(c::RALLY_PACE[r] as f64)),
+            Stat::ranks("Duration", " s", |r| fig(c::RALLY_SECONDS[r])),
+            Stat::one("Radius", " tiles", fig(c::RALLY_TILES as f64)),
+            cooldown(&c::RALLY_COOLDOWN),
+        ],
+        (world::Class::Commander, 3) => vec![
+            Stat::ranks("Soldiers", "", |r| c::REINFORCEMENTS[r].to_string()),
+            Stat::ranks("Rifle tier", "", |r| {
+                c::REINFORCEMENT_TIER[r].code().to_string()
+            }),
+            Stat::one(
+                "Arrive within",
+                " tiles",
+                fig(c::REINFORCEMENT_REACH_TILES as f64),
+            ),
+        ],
+        (world::Class::Medic, 0) => vec![
+            Stat::ranks("Heal", "", |r| fig(c::NANITE_BURST_HEAL[r] as f64)),
+            Stat::ranks(
+                "Radius",
+                " tiles",
+                |r| fig(c::NANITE_BURST_RADIUS[r] as f64),
+            ),
+            cooldown(&c::NANITE_BURST_COOLDOWN),
+        ],
+        (world::Class::Medic, 1) => vec![
+            Stat::ranks("Healing received", "", |r| {
+                by(c::HEALING_AURA_FACTOR[r] as f64)
+            }),
+            Stat::ranks(
+                "Radius",
+                " tiles",
+                |r| fig(c::HEALING_AURA_RADIUS[r] as f64),
+            ),
+        ],
+        (world::Class::Medic, 2) => vec![
+            Stat::ranks("Heal", " /s", |r| {
+                fig((c::HEAL_BEAM_HP * c::HEAL_BEAM_RATE[r]) as f64 / 60.0)
+            }),
+            Stat::ranks("Range", " tiles", |r| fig(c::HEAL_BEAM_RANGES[r] as f64)),
+            Stat::ranks("Patients", "", |r| c::HEAL_BEAM_PATIENTS[r].to_string()),
+            Stat::from_rank(
+                "Fire rate while beaming",
+                c::HEAL_BEAM_FIRE_RANK,
+                by(c::HEAL_BEAM_FIRE_RATE as f64),
+            ),
+        ],
+        (world::Class::Medic, 3) => vec![
+            Stat::ranks("Duration", " s", |r| fig(c::CLOAK_SECONDS[r])),
+            Stat::ranks("Move speed", "", |r| by(c::CLOAK_PACE[r] as f64)),
+            Stat::one("Range", " tiles", fig(c::CLOAK_RANGE as f64)),
+            cooldown(&c::CLOAK_COOLDOWN),
+        ],
+        _ => Vec::new(),
+    }
 }
-/// A ranked ability's box tip: what it does, then this rank's numbers
-/// and the next's, with the level the next wants.
+/// The foot of a ranked ability's tip: the rank it is at, and the level
+/// the next wants.
+pub fn ranked_foot(class: world::Class, slot: u8, rank: u8) -> String {
+    let top = world::class::MAX_RANK;
+    let now = if rank == 0 {
+        "Not learnt.".to_string()
+    } else {
+        format!("Rank {rank}/{top}.")
+    };
+    match world::class::rank_level(class, slot, rank + 1).filter(|_| rank < top) {
+        Some(level) => format!(
+            "{now} Next, rank {} at level {level}: Ctrl-click to learn.",
+            rank + 1
+        ),
+        None => format!("{now} The top rank."),
+    }
+}
+/// A ranked ability's whole tip as text: the line, the numbers and the
+/// foot. The box draws the three itself, the current rank lit.
 pub fn ranked_tip(class: world::Class, slot: u8, rank: u8) -> String {
     let mut tip = ranked_what(class, slot).to_string();
-    match rank_numbers(class, slot, rank) {
-        Some(now) => tip.push_str(&format!("\nNow, rank {rank}: {now}.")),
-        None => tip.push_str("\nNot learnt yet."),
+    for stat in ranked_stats(class, slot) {
+        tip.push('\n');
+        tip.push_str(&stat.line());
     }
-    match (
-        rank_numbers(class, slot, rank + 1),
-        world::class::rank_level(class, slot, rank + 1),
-    ) {
-        (Some(next), Some(level)) => tip.push_str(&format!(
-            "\nNext, rank {} (level {level}): {next}. Ctrl and the key, or a Ctrl-click here, spends a skill point on it.",
-            rank + 1
-        )),
-        _ => tip.push_str("\nAt its top rank."),
-    }
+    tip.push('\n');
+    tip.push_str(&ranked_foot(class, slot, rank));
     tip
 }
 /// The log's line for a rank-up refused.
@@ -964,9 +1020,9 @@ pub fn ranked_points(points: u8) -> String {
         n => format!("{n} skill points to spend."),
     }
 }
-pub fn rank_line(rank: u8, level: u8, words: &str) -> String {
-    format!("Rank {rank} (level {level}): {words}")
-}
+/// The label before a ranked ability's levels on the Skills tab: the
+/// level each rank is learnt at, one after another.
+pub const RANK_LEVELS: &str = "Levels";
 pub fn rank_learn(rank: u8) -> String {
     format!("Learn rank {rank}")
 }
@@ -3516,11 +3572,27 @@ mod tests {
                     for slot in 0..world::class::SLOTS as u8 {
                         assert!(!ranked_ability(class, slot).is_empty());
                         assert!(!ranked_what(class, slot).is_empty());
-                        for rank in 1..=world::class::MAX_RANK {
-                            assert!(rank_numbers(class, slot, rank).is_some());
+                        // Dota 2's way: a line of words, and numbers
+                        // for every rank under it.
+                        let stats = ranked_stats(class, slot);
+                        assert!(!stats.is_empty(), "{class:?} {slot} has numbers");
+                        assert!(
+                            stats.iter().any(|s| s.values.len() > 1),
+                            "{class:?} {slot}: a rank changes something"
+                        );
+                        for stat in &stats {
+                            assert!(
+                                [1, world::class::MAX_RANK as usize].contains(&stat.values.len()),
+                                "{class:?} {slot} {}",
+                                stat.label
+                            );
                         }
-                        assert!(rank_numbers(class, slot, 0).is_none());
+                        assert!(
+                            ranked_what(class, slot).len() <= 160,
+                            "{class:?} {slot}: a line, not a paragraph"
+                        );
                         assert!(ranked_tip(class, slot, 0).contains("Not learnt"));
+                        assert!(ranked_tip(class, slot, 1).contains("Next, rank 2"));
                         assert!(ranked_tip(class, slot, 4).contains("top rank"));
                         assert!(!ranked_tip(class, slot, 2).contains("roll"));
                     }
