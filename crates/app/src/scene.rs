@@ -365,6 +365,9 @@ pub struct Frame {
 pub struct WorldCanvas<'w> {
     frame: ResMut<'w, Frame>,
     images: ResMut<'w, Assets<Image>>,
+    /// The crew's light map for the GPU to draw this frame, if the room
+    /// handed one over (`lightmap.rs`, task 121).
+    light: ResMut<'w, crate::lightmap::LightJob>,
 }
 
 impl WorldCanvas<'_> {
@@ -452,6 +455,17 @@ impl WorldCanvas<'_> {
     /// The images a picture is kept in between frames.
     pub fn images(&mut self) -> &mut Assets<Image> {
         &mut self.images
+    }
+
+    /// Hand the GPU the crew's light map to draw this frame into
+    /// `picture` (`lightmap.rs`, task 121).
+    pub fn light_job(
+        &mut self,
+        inputs: std::sync::Arc<bims::sight::LightInputs>,
+        picture: AssetId<Image>,
+    ) {
+        self.light.inputs = Some(inputs);
+        self.light.picture = Some(picture);
     }
 
     fn push(&mut self, ppp: f32, layer: Layer) {

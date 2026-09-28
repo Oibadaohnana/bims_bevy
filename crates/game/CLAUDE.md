@@ -3970,3 +3970,28 @@ share and the slow; `game::tests` (`hit_points_at_nothing_down_…`,
 `only_a_hit_that_takes_hit_points_splashes_blood`,
 `a_body_under_twenty_hit_points_drips_a_trail`,
 `a_machine_keeps_its_parts_and_never_bleeds_or_goes_down`) the room.
+
+## A host that draws the light map itself (task 121)
+
+`sight::set_host_draws(on, checking)` is a picture's switch, off in every
+test and probe: on, `Sight::light_map` does not march — it hands over
+`LightMap::inputs` (`LightInputs`) for the app to march, compose and blur
+on the GPU (`crates/app/src/lightmap.rs`; the root `CLAUDE.md`, "The
+crew's light map drawn on the GPU"), leaving the two planes empty and the
+extent set; `checking`, it marches as well (`light_map_on_cpu`) and sends
+its planes along for comparing. What makes the host's picture this
+crate's byte for byte is that every division and every float the host
+would read is worked out here — each ray's first two crossings
+(`ray_starts`, `march_rays`' own expression), the dark rule a bit a tile,
+the composing's levels as tables — so the host's walk is additions and
+comparisons. Three things to keep in step if the march or `compose`
+changes: `light_inputs`, `view_inputs` and `ray_table` here, the shader
+(`crates/app/src/lightmap.wgsl`), and the Rust copy of that shader in
+`a_host_marching_the_inputs_draws_the_map_this_crate_draws`, which fails
+the moment the inputs stop describing the march.
+
+**`explored_px` is the host's while it draws**: the sight's copy is what
+is written out, and the host gives its own back before a save
+(`Game::give_back_explored`, keyed by `Sight::picture_id` — a
+`PictureId` is fresh for every sight made, cloned or loaded). Nothing the
+simulation reads is in the inputs; the tile masks are untouched.

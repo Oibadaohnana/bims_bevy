@@ -1035,6 +1035,7 @@ impl Plane {
                 glow: vec![0; side * side],
                 version: p.map.version,
                 changed: None,
+                inputs: None,
             };
         }
         let (x, y) = ((bx0 - ax0) as usize, (by0 - ay0) as usize);

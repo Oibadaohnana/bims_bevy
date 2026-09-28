@@ -231,7 +231,11 @@ the glow and nothing else taken out, which is how the two are compared
 into a mesh a frame, as before task 121, where the default hands them to
 the GPU as records (*The world canvas's shapes drawn on the GPU* below):
 the same binary both ways, which is how the two pictures are diffed and
-the two costs timed.
+the two costs timed. **`BIMS_LIGHTMAP=cpu`** does the same for the crew's
+light map — the room's own march, where the default draws it on the GPU —
+and **`BIMS_LIGHTMAP=check`** works it out both ways every frame and
+prints how many bytes differ when a smoke run exits (*The crew's light
+map drawn on the GPU* below).
 `BIMS_SOUND_LOG=1` prints
 every clip as it is played and every bed as it fades up or out, which is
 how a sound is *heard* from a terminal — `BIMS_SOUND_LOG=1 BIMS_SMOKE_FRAMES=900 bims
@@ -607,17 +611,9 @@ dial is the old cost.
 
 **Not done, and why** (measured first, in the task's own analysis):
 
-- **The light map on the GPU.** About 1.5 ms of a fight's shape buffer,
-  and nothing in a crew of one. It is the picture's, not a rule — the
-  rules read the tile masks — but a per-pixel shader gathers where the CPU
-  scatters 4096 rays, so it is another picture than
-  `the_light_map_is_the_same_picture_it_was` pins, and `explored_px` is in
-  the save and would want reading back. And beside it, **`Game::render`
-  calls `observe`, whose `Sight::set_shut` rewrites the cells the fight's
-  line of sight reads** (task 122's finding): drawing a frame touches
-  state the simulation reads, which anything that moves this code has to
-  keep in mind. Marching each body's view on a thread of its own would be
-  the same picture bit for bit; that is CPU work and was left to task 122.
+- **The light map** was left out of the first half and then done, at the
+  user's word, as the same picture byte for byte: *The crew's light map
+  drawn on the GPU* below.
 - **A persistent buffer for the old triangles** instead of the records:
   only the render thread's copy goes, and the app's thread bounds the
   frame. The records made it moot.
@@ -630,6 +626,123 @@ dial is the old cost.
 
 The measurements are one machine's, and the GPU columns are Bevy's
 timestamps, which egui's own pass is not among.
+
+## The crew's light map drawn on the GPU (task 121, second half)
+
+**The march, the composing, the explored memory, the blur and the
+colouring of the crew's light map run on the GPU**, and the picture is
+`Sight::light_map_on_cpu`'s and `fogmap.rs`'s **byte for byte** — not
+near it: the pinned `the_light_map_is_the_same_picture_it_was` still
+tests the CPU march it always tested, and nothing was re-pinned. How
+that is possible is the whole design:
+
+- **The room hands over inputs, not a picture.** With
+  `bims::sight::set_host_draws` on (the app turns it on at start unless
+  `BIMS_LIGHTMAP=cpu`), `Sight::light_map` calls `light_inputs` instead
+  of marching: the lamps' fields built as before (`powf` stays on the
+  CPU), each body's eyes compared with the ones last handed over by the
+  CPU's own half-a-pixel rule and handed over again only when they moved
+  — every body again when `cells_version` moved, which is exactly when
+  the CPU throws its views away — and it all goes out as
+  `LightMap::inputs` (`LightInputs`: the cells a byte a tile, the two
+  fields, the explored memory for a host that has not got it yet, the
+  views with a revision each, and three tables), the two planes left
+  empty and the extent kept, so `Session::light_map` and
+  `light_map_on_screen` are unchanged.
+- **The only division a ray makes is made on the CPU.** `march_rays`
+  divides once a ray, to find its first two edge crossings; after that
+  the walk is additions and comparisons, which the GPU rounds as the CPU
+  does. So each marched eye carries its 4096 rays' first crossings
+  (`EyeInputs::t0`, `ray_starts`, the same expression), the per-ray steps
+  are `sight::ray_table()`, and an infinite crossing goes up as
+  `f32::MAX`, which takes the same turns. The dark rule's distance to the
+  body is a bit a tile worked out on the CPU (`ViewInputs::near`), and a
+  peek's `admits` is integers. Which pixels a body sees is a **set** —
+  the order the rays run in cannot change it — so 4096 threads an eye
+  writing bits with `atomicOr` is the CPU's answer.
+- **Every float the composing and the colouring read is a table.** The
+  dark, the lamplight seen and the lamplight under the fog are 256-entry
+  tables made on the CPU by `compose`'s own arithmetic
+  (`LightInputs::{dark, glow_seen, glow_fog}`), and the fog's texel is a
+  65 536-entry table of `fogmap::texel` (the CPU's upload now goes
+  through that function too). The blur is integers. So the shader rounds
+  nothing the CPU rounds differently.
+- **The composing runs over the whole map** whenever anything changed,
+  where the CPU composes the changed box: the same bytes, since outside
+  the box nothing it reads moved — the check below is what says so.
+- **Where it runs**: `crates/app/src/lightmap.rs`, a system in Bevy's
+  `RenderGraph` schedule between `Begin` and `Render`, on the render
+  world's copy of the frame's `LightJob` (extracted every frame and
+  emptied at the start of the next, so a frame that draws no fog draws
+  nothing). It writes what changed, runs `lightmap.wgsl`'s three
+  passes — `march` (a thread a ray of a moved eye), `compose` and `blur`
+  (a thread a pixel) — and copies the texels into the fog's `Image`
+  (made blank, `RENDER_WORLD`, by `FogTexture::blank`), submitted before
+  the main pass of the same frame, so the fog is never a frame behind.
+  Raw wgpu through `RenderDevice`: no Bevy shader asset, no pipeline
+  cache, compiled once at the first map. The pass carries a Bevy GPU span
+  (`perf: gpu light map`). The planet plain's own fog
+  (`terrain::Plane::picture`) is still the CPU's.
+- **The explored memory lives on the GPU** once a sight's map is drawn
+  there, keyed by `Sight::picture_id` (a `PictureId` every sight made,
+  cloned or loaded gets fresh, so one sight's memory is never lent to
+  another). Before the world is written out — the Esc sheet's save and
+  the world sent to a resyncing peer — `lightmap::GiveBack` reads it back
+  (a copy, `map_async`, a wait) and gives it to the room
+  (`Game::give_back_explored`). **What a save gets is what the GPU has
+  finished**, which can be a frame or two behind the frame saved: a
+  pixel first seen in those frames is saved unexplored and goes grey
+  again the moment it is looked at. The run's beginning (Restart) is
+  written before anything is drawn and needs nothing. Nothing the
+  simulation reads is in any of this: the rules read the tile masks
+  (`lit`, `seen`, `explored`), which never moved, and the explored pixels
+  are a picture's memory.
+- **`BIMS_LIGHTMAP`**: `cpu` is the room's march as it always was;
+  `check` works both out every frame, reads the GPU's map, explored
+  memory and texture back and counts the bytes that differ, and every
+  sixty frames reads the explored memory back the way a save does and
+  counts pixels it has that the room has not (*wrong*) and the other way
+  (*behind*, the lag above) — printed at a smoke run's exit.
+
+**What the check said**, 1 500 frames each (`BIMS_LIGHTMAP=check`, the
+crew walked in with the guardian recipe's keys): `droids`, `defense` (a
+town, landed, daylight), `test` (a random station), `jammer`,
+`simulation` and `test_planet` — **0 map bytes, 0 explored pixels and
+0 texel bytes differing** in every one, and in 150 reads of the explored
+memory 0 pixels wrong (13 to 558 *behind* over 25 reads, the frame or two
+of lag). `a_host_marching_the_inputs_draws_the_map_this_crate_draws` in
+`crates/game/src/sight.rs` is the same walk and composing written out in
+Rust against `light_map_on_cpu`, frame by frame — a peek, a door
+shutting, a lamp shot out, a body fewer, a stranger's deck grey and black
+— so a change to the inputs is caught without a GPU.
+
+**What it saved**, release, this machine (Ryzen 7 3700X, Navi 32),
+1400×900, the same binary with `BIMS_LIGHTMAP=cpu` against the default,
+interleaved, bloom on, on top of task 122's two cores. Unpaced, four runs
+each:
+
+| | frame by the clock, `cpu` | GPU | the light map on the CPU | GPU pass |
+| --- | --- | --- | --- | --- |
+| `droids` | 3.11 ms (3.07–3.26) | 2.41 ms (2.35–2.43) | 0.58 → 0.04 | 0.20 ms on ~1 frame in 7 |
+| `droids`, the crew walked in | 3.87 (3.80–4.21) | 2.59 (2.58–3.00) | 0.88 → 0.04 | 0.26 ms on ~1 in 6 |
+| `defense`, walked in | 3.92 (3.71–4.12) | 3.37 (3.23–3.44) | 0.12 → 0.02 | 0.55 ms (a town's map is bigger) |
+| `simulation` | 1.78 (1.71–1.84) | 1.75 (1.74–1.77) | nothing to march | — |
+
+Paced at sixty frames a second, which is how the game is played and
+where more moves a frame, three runs of the walked-in `droids`: the
+screen's frame **7.16 → 3.13 ms**, the light map on the CPU 3.24 → 0.12
+ms (3.1 views marched a frame, 2.84 ms of marching), the GPU pass 0.47 ms
+on about four frames in five — and by the clock the CPU path **could not
+hold sixty** there (17.5 ms a frame) where the GPU path does (16.84).
+`simulation` is inside the noise: a crew of one standing still marches
+nothing either way.
+
+**Measuring on this machine wants it idle.** A first set of these runs
+said the GPU path was a millisecond *slower* by the clock; the desktop
+was running a game on the same GPU and another agent's tests were on
+the cores (load average 16). With the machine quiet the same binary gave
+the table above. A run whose range reaches past ten milliseconds is that,
+and is thrown away.
 
 ## The shape buffer on two cores (task 122)
 

@@ -71,6 +71,7 @@ mod fogmap;
 mod format;
 mod icons;
 mod keys;
+mod lightmap;
 mod names;
 mod net;
 mod perf;
@@ -424,6 +425,7 @@ fn main() {
     .init_state::<Screen>()
     .add_plugins((
         scene::ScenePlugin,
+        lightmap::LightMapPlugin,
         dev::DevPlugin,
         sound::SoundPlugin,
         theme::ThemePlugin,

@@ -45,6 +45,8 @@
 
 use crate::draw::{Color, DrawList};
 use crate::math::{Rect, Vec2, vec2};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicU8, AtomicU64, Ordering};
 
 /// The fog over what nobody sees of a friendly structure: the deck under
 /// it stays readable, since the ship is the crew's own and they know where
@@ -332,6 +334,12 @@ pub struct Sight {
     /// save as a string of noughts and ones (`math::bools`).
     #[cfg_attr(feature = "serde", serde(with = "crate::math::bools"))]
     explored_px: Vec<bool>,
+    /// This sight's name to a host drawing its map (task 121), and what
+    /// is kept for that host. Pictures, both, and out of a save.
+    #[cfg_attr(feature = "serde", serde(skip))]
+    picture: PictureId,
+    #[cfg_attr(feature = "serde", serde(skip))]
+    host: HostLight,
     /// Whether each tile was ever seen: what has been looked at stays
     /// known — the grey is the fog of war's "explored", and only the
     /// bodies in it are forgotten.
@@ -391,6 +399,8 @@ impl Sight {
             views_stale: true,
             cells_version: 0,
             explored_px: Vec::new(),
+            picture: PictureId::default(),
+            host: HostLight::default(),
             explored: vec![false; (columns * rows) as usize],
             eyes_at: Vec::new(),
             shut: Vec::new(),
@@ -1361,6 +1371,11 @@ pub struct LightMap {
     /// width, height)` in pixels — what a host holding the previous
     /// version has to take again — or `None` for the whole picture.
     pub changed: Option<(usize, usize, usize, usize)>,
+    /// For a host that draws the map itself (`set_host_draws`, task
+    /// 121): what to draw it from. The two planes are then empty unless
+    /// the host is checking; the extent above is kept either way.
+    #[cfg_attr(feature = "serde", serde(skip))]
+    pub inputs: Option<Arc<LightInputs>>,
 }
 
 impl LightMap {
@@ -1368,6 +1383,207 @@ impl LightMap {
     pub fn size(&self) -> Vec2 {
         vec2(self.width as f32 * self.px, self.height as f32 * self.px)
     }
+}
+
+// --- a host that draws the light map itself (task 121) ---------------------
+//
+// The march, the composing and the explored memory can be done by the host
+// on its GPU, from the same numbers: `set_host_draws` says so, and then
+// `Sight::light_map` works out only what the host needs — which bodies'
+// eyes moved, from where each eye's rays start, the cells, the lamps'
+// light, the tables the composing reads — and hands it over as
+// `LightMap::inputs`, leaving the two planes empty. The host's picture is
+// the one `light_map_on_cpu` makes, byte for byte: the rays' starts are
+// divided here, so the walk the host does is additions and comparisons;
+// every float the composing reads is a table made here. The rule — the
+// tile mask the fight reads — is not in any of this and never moves.
+
+/// Whether the host draws the light map: not at all, instead of this
+/// crate, or beside it for checking the two against each other.
+const HOST_NO: u8 = 0;
+const HOST_YES: u8 = 1;
+const HOST_CHECKING: u8 = 2;
+static HOST_DRAWS: AtomicU8 = AtomicU8::new(HOST_NO);
+
+/// Say whether the host draws the crew's light map on its own
+/// (`on`), and whether this crate is to work it out as well so the two
+/// can be compared (`checking`). Off — which is every test, every probe
+/// and every host that does not ask — the map is worked out here as it
+/// always was. A picture's switch: nothing the simulation reads moves.
+pub fn set_host_draws(on: bool, checking: bool) {
+    let mode = match (on, checking) {
+        (false, _) => HOST_NO,
+        (true, false) => HOST_YES,
+        (true, true) => HOST_CHECKING,
+    };
+    HOST_DRAWS.store(mode, Ordering::Relaxed);
+}
+
+fn host_draws() -> u8 {
+    HOST_DRAWS.load(Ordering::Relaxed)
+}
+
+/// A name for one [`Sight`] as the host keeps its picture: every sight
+/// made, cloned or read from a save has a name of its own, so a host
+/// holding the explored memory of one never lends it to another.
+#[derive(Debug)]
+pub struct PictureId(pub u64);
+
+impl PictureId {
+    fn fresh() -> PictureId {
+        static NEXT: AtomicU64 = AtomicU64::new(1);
+        PictureId(NEXT.fetch_add(1, Ordering::Relaxed))
+    }
+}
+
+impl Default for PictureId {
+    fn default() -> PictureId {
+        PictureId::fresh()
+    }
+}
+
+impl Clone for PictureId {
+    fn clone(&self) -> PictureId {
+        PictureId::fresh()
+    }
+}
+
+/// A cell as the host's composing reads it, a byte a tile: a line of
+/// sight stops there, the fog is drawn over it, it is a friendly tile.
+pub const CELL_OPAQUE: u8 = 1;
+pub const CELL_FOGGED: u8 = 2;
+pub const CELL_FRIENDLY: u8 = 4;
+
+/// Everything a host needs to draw the crew's light map itself, as of one
+/// frame (see the note above `set_host_draws`). The large parts are
+/// shared and made again only when they change; each carries a revision
+/// that moves when it does, so a host that missed a frame catches up by
+/// comparing, not by counting.
+#[derive(Clone, Debug)]
+pub struct LightInputs {
+    /// Which sight this is ([`PictureId`]).
+    pub sight: u64,
+    /// The map, in pixels, and the grid under it, in tiles.
+    pub width: usize,
+    pub height: usize,
+    pub columns: usize,
+    pub rows: usize,
+    /// A byte a tile: [`CELL_OPAQUE`], [`CELL_FOGGED`], [`CELL_FRIENDLY`].
+    pub cells: Arc<Vec<u8>>,
+    pub cells_rev: u64,
+    /// The lamps' light a pixel: as the eyes read it (every lamp not out
+    /// at full) and as it is shown (with the flicker in).
+    pub light_field: Arc<Vec<u8>>,
+    pub shown_field: Arc<Vec<u8>>,
+    pub fields_rev: u64,
+    /// What this sight holds of the explored memory, for a host that has
+    /// not got this sight's yet. After that the host's own is the truth
+    /// until it gives it back (`Sight::set_explored_px`).
+    pub explored: Arc<Vec<bool>>,
+    /// The composing's tables, a byte for each of the 256 levels of the
+    /// shown light: the dark over what is seen, the lamplight over it,
+    /// and the lamplight under the fog; and the fog's and the grey's own.
+    pub dark: [u8; 256],
+    pub glow_seen: [u8; 256],
+    pub glow_fog: [u8; 256],
+    pub fog: u8,
+    pub grey: u8,
+    /// One a body whose eyes the picture is through, in the bodies'
+    /// order.
+    pub views: Vec<Arc<ViewInputs>>,
+    /// Beside a host that is checking: the map this crate worked out
+    /// itself this frame — darkness, lamplight, explored.
+    pub cpu: Option<Arc<(Vec<u8>, Vec<u8>, Vec<bool>)>>,
+}
+
+/// One body's eyes, as last marched: a revision that moves whenever they
+/// are marched again, the tiles near enough to be seen in the dark (a bit
+/// a tile, row by row), and each eye.
+#[derive(Clone, Debug, Default)]
+pub struct ViewInputs {
+    pub rev: u64,
+    pub near: Vec<u32>,
+    pub eyes: Vec<EyeInputs>,
+}
+
+/// One eye's fan of rays, ready to walk: the pixel it starts in, the tile
+/// the eye is in and whether that tile stops a line of sight (an eye
+/// pressed to a wall gets out of it), how far a ray goes in pixels, the
+/// peek's wall (its body's tile and direction) if it is a peek, and each
+/// ray's first two edge crossings — the one division a ray makes, made
+/// here. See [`ray_table`] for the rest of a ray.
+#[derive(Clone, Debug, Default)]
+pub struct EyeInputs {
+    pub start: (i32, i32),
+    pub from_tile: (i32, i32),
+    pub from_opaque: bool,
+    pub far: f32,
+    pub beyond: Option<((i32, i32), (i32, i32))>,
+    pub t0: Vec<[f32; 2]>,
+}
+
+/// Every ray of a fan as [`march_rays`] walks it: its direction, and how
+/// far along it one pixel's step across and one down are — infinite for
+/// a ray that never crosses that way.
+pub fn ray_table() -> Vec<[f32; 4]> {
+    ray_directions()
+        .iter()
+        .map(|&(dx, dy)| {
+            let across = if dx.abs() > 1e-6 {
+                1.0 / dx.abs()
+            } else {
+                f32::INFINITY
+            };
+            let down = if dy.abs() > 1e-6 {
+                1.0 / dy.abs()
+            } else {
+                f32::INFINITY
+            };
+            [dx, dy, across, down]
+        })
+        .collect()
+}
+
+/// Where each ray of a fan from `(ox, oy)` — in pixels — first crosses a
+/// pixel edge across and down, as [`march_rays`] works it out.
+fn ray_starts(ox: f32, oy: f32) -> Vec<[f32; 2]> {
+    let x = ox.floor() as i32;
+    let y = oy.floor() as i32;
+    ray_directions()
+        .iter()
+        .map(|&(dx, dy)| {
+            let t_x = if dx.abs() > 1e-6 {
+                let next = if dx > 0.0 { x + 1 } else { x } as f32;
+                (next - ox) / dx
+            } else {
+                f32::INFINITY
+            };
+            let t_y = if dy.abs() > 1e-6 {
+                let next = if dy > 0.0 { y + 1 } else { y } as f32;
+                (next - oy) / dy
+            } else {
+                f32::INFINITY
+            };
+            [t_x, t_y]
+        })
+        .collect()
+}
+
+/// What this crate keeps for a host that draws the map: the eyes it last
+/// handed over for each body and the parts it shares, so each is made
+/// again only when it changed.
+#[derive(Clone, Debug, Default)]
+struct HostLight {
+    eyes: Vec<Vec<Eye>>,
+    views: Vec<Arc<ViewInputs>>,
+    revs: u64,
+    cells: Arc<Vec<u8>>,
+    cells_rev: u64,
+    light_field: Arc<Vec<u8>>,
+    shown_field: Arc<Vec<u8>>,
+    fields_rev: u64,
+    explored: Arc<Vec<bool>>,
+    cells_version: u64,
 }
 
 /// What one body's eyes reach, as last marched: the eyes it was marched
@@ -1680,6 +1896,236 @@ impl Sight {
         reached
     }
 
+    /// The picture of the mask from these bodies' eyes — worked out here
+    /// ([`Sight::light_map_on_cpu`]), or, for a host that draws it itself
+    /// (`set_host_draws`, task 121), what the host draws it from
+    /// ([`LightMap::inputs`]), or both for a host checking the two. True
+    /// when the map changed, which is when its `version` moved.
+    pub fn light_map(&mut self, bodies: &[Vec2]) -> bool {
+        match host_draws() {
+            HOST_YES => self.light_inputs(bodies, false),
+            HOST_CHECKING => {
+                let changed = self.light_map_on_cpu(bodies);
+                self.light_inputs(bodies, true);
+                changed
+            }
+            _ => self.light_map_on_cpu(bodies),
+        }
+    }
+
+    /// This sight's name to a host drawing its map ([`PictureId`]).
+    pub fn picture_id(&self) -> u64 {
+        self.picture.0
+    }
+
+    /// The explored memory as this sight holds it: what is written out,
+    /// and what a host checking its own copy compares against.
+    pub fn explored_px(&self) -> &[bool] {
+        &self.explored_px
+    }
+
+    /// The explored memory a host drawing the map kept, given back to
+    /// the sight before it is written out — a save, the run's beginning,
+    /// the world sent to the other players — so what is written is what
+    /// the host drew. Ignored if it is not this map's size.
+    pub fn set_explored_px(&mut self, explored: Vec<bool>) {
+        let (w, h) = self.map_dims();
+        if explored.len() == w * h {
+            self.explored_px = explored;
+        }
+    }
+
+    /// What a host drawing the map needs this frame (task 121): the
+    /// lamps' fields built as `light_map_on_cpu` builds them, each body's
+    /// eyes compared with the ones last handed over by the same rule
+    /// (`view_holds`) and handed over again only when they moved — with
+    /// each ray's first crossings divided here — and the cells and the
+    /// tables. Checking, the planes `light_map_on_cpu` just made go
+    /// alongside, and nothing it keeps is touched here.
+    fn light_inputs(&mut self, bodies: &[Vec2], checking: bool) -> bool {
+        let mut fields_changed = false;
+        if !checking {
+            if self.light_field.is_empty() || self.light_field_stale {
+                self.build_light_fields();
+                self.light_field_stale = false;
+                fields_changed = true;
+            }
+            // Read nowhere else when the host draws: a lamp that
+            // flickered is a field changed.
+            if self.field_dirty.take().is_some() {
+                fields_changed = true;
+            }
+        } else if *self.host.light_field != self.light_field
+            || *self.host.shown_field != self.shown_field
+        {
+            fields_changed = true;
+        }
+        let (w, h) = self.map_dims();
+        let mut changed = false;
+        if self.explored_px.len() != w * h {
+            self.explored_px = vec![false; w * h];
+        }
+        if self.host.explored.len() != w * h {
+            // A map of another size is another map: the host takes the
+            // memory afresh, from here.
+            self.host.explored = Arc::new(self.explored_px.clone());
+            changed = true;
+        }
+        if fields_changed || self.host.light_field.len() != w * h {
+            self.host.light_field = Arc::new(self.light_field.clone());
+            self.host.shown_field = Arc::new(self.shown_field.clone());
+            self.host.fields_rev += 1;
+            changed = true;
+        }
+        // The cells, whose they are included: a stance, a door, the
+        // layout. Made afresh every frame and compared, since they are a
+        // byte a tile.
+        let cells: Vec<u8> = self
+            .cells
+            .iter()
+            .map(|c| {
+                let friendly =
+                    (if c.foreign { self.foreign } else { self.own }) == Stance::Friendly;
+                (if c.opaque { CELL_OPAQUE } else { 0 })
+                    | (if c.fogged { CELL_FOGGED } else { 0 })
+                    | (if friendly { CELL_FRIENDLY } else { 0 })
+            })
+            .collect();
+        if *self.host.cells != cells {
+            self.host.cells = Arc::new(cells);
+            self.host.cells_rev += 1;
+            changed = true;
+        }
+        // Every view is marched again whenever `light_map_on_cpu` would
+        // throw its views away — a door, the layout, a lamp going out, the
+        // range — which is whenever the cells' version moved with it.
+        if self.host.cells_version != self.cells_version {
+            self.host.cells_version = self.cells_version;
+            self.host.eyes.clear();
+            self.host.views.clear();
+            changed = true;
+        }
+        if self.host.views.len() > bodies.len() {
+            self.host.views.truncate(bodies.len());
+            self.host.eyes.truncate(bodies.len());
+            changed = true;
+        }
+        for (b, &body) in bodies.iter().enumerate() {
+            let eyes = self.eyes_from(body);
+            if self.host.eyes.get(b).is_some_and(|held| {
+                held.len() == eyes.len()
+                    && held.iter().zip(&eyes).all(|(a, e)| {
+                        a.beyond == e.beyond
+                            && (a.at - e.at).len() < self.tile / MAP_PX_PER_TILE as f32 * 0.5
+                    })
+            }) {
+                continue;
+            }
+            self.host.revs += 1;
+            let view = Arc::new(self.view_inputs(body, &eyes, self.host.revs));
+            if b < self.host.views.len() {
+                self.host.views[b] = view;
+                self.host.eyes[b] = eyes;
+            } else {
+                self.host.views.push(view);
+                self.host.eyes.push(eyes);
+            }
+            changed = true;
+        }
+        let wash = if self.lit_everywhere { 0.0 } else { GLOW };
+        let mut dark = [0u8; 256];
+        let mut glow_seen = [0u8; 256];
+        let mut glow_fog = [0u8; 256];
+        for level in 0..256 {
+            // `compose`'s own arithmetic, a level at a time.
+            let light = level as u8 as f32 / 255.0;
+            dark[level] = (MAP_DARK * (1.0 - light) * 255.0) as u8;
+            glow_seen[level] = (wash * light * 255.0) as u8;
+            glow_fog[level] = (wash * GLOW_UNDER_FOG * light * 255.0) as u8;
+        }
+        let px = self.tile / MAP_PX_PER_TILE as f32;
+        let cpu = checking.then(|| {
+            Arc::new((
+                self.map.alpha.clone(),
+                self.map.glow.clone(),
+                self.explored_px.clone(),
+            ))
+        });
+        self.map.inputs = Some(Arc::new(LightInputs {
+            sight: self.picture.0,
+            width: w,
+            height: h,
+            columns: self.columns as usize,
+            rows: self.rows as usize,
+            cells: self.host.cells.clone(),
+            cells_rev: self.host.cells_rev,
+            light_field: self.host.light_field.clone(),
+            shown_field: self.host.shown_field.clone(),
+            fields_rev: self.host.fields_rev,
+            explored: self.host.explored.clone(),
+            dark,
+            glow_seen,
+            glow_fog,
+            fog: (MAP_FOG * 255.0) as u8,
+            grey: (MAP_GREY * 255.0) as u8,
+            views: self.host.views.clone(),
+            cpu,
+        }));
+        if !checking {
+            self.map_stale = false;
+            self.map.origin = self.origin;
+            self.map.px = px;
+            self.map.width = w;
+            self.map.height = h;
+            self.map.changed = None;
+            if changed {
+                self.map.version += 1;
+            }
+        }
+        changed
+    }
+
+    /// One body's eyes as the host walks them: `march`'s arithmetic up to
+    /// the walk, and the tiles near enough to the body to be seen in the
+    /// dark — `view_of`'s rule, a bit a tile.
+    fn view_inputs(&self, body: Vec2, eyes: &[Eye], rev: u64) -> ViewInputs {
+        let (w, h) = self.map_dims();
+        let (w, h) = (w as i32, h as i32);
+        let px = self.tile / MAP_PX_PER_TILE as f32;
+        let far = self
+            .range
+            .map(|r| r / px)
+            .unwrap_or((w.max(h) as f32) * 1.5);
+        let range = DARK_RANGE * self.tile;
+        let tiles = (self.columns * self.rows) as usize;
+        let mut near = vec![0u32; tiles.div_ceil(32)];
+        for ty in 0..self.rows {
+            for tx in 0..self.columns {
+                if (self.middle(tx, ty) - body).len() <= range {
+                    let i = self.index(tx, ty);
+                    near[i / 32] |= 1 << (i % 32);
+                }
+            }
+        }
+        let eyes = eyes
+            .iter()
+            .map(|eye| {
+                let ox = (eye.at.x - self.origin.x) / px;
+                let oy = (eye.at.y - self.origin.y) / px;
+                let (fx, fy) = self.tile_of(eye.at);
+                EyeInputs {
+                    start: (ox.floor() as i32, oy.floor() as i32),
+                    from_tile: (fx, fy),
+                    from_opaque: self.inside(fx, fy) && self.cells[self.index(fx, fy)].opaque,
+                    far,
+                    beyond: eye.beyond,
+                    t0: ray_starts(ox, oy),
+                }
+            })
+            .collect();
+        ViewInputs { rev, near, eyes }
+    }
+
     /// The picture of the mask from these bodies' eyes, worked out again
     /// only where it has to be: a body that has not moved since it was
     /// last marched keeps its view, one that has is marched afresh, and
@@ -1687,7 +2133,7 @@ impl Sight {
     /// picture is composed again over the box the changed views cover
     /// and nowhere else. True when the map changed, which is when its
     /// `version` moved. See [`LightMap`].
-    pub fn light_map(&mut self, bodies: &[Vec2]) -> bool {
+    fn light_map_on_cpu(&mut self, bodies: &[Vec2]) -> bool {
         if self.light_field.is_empty() || self.light_field_stale {
             self.build_light_fields();
             self.light_field_stale = false;
@@ -2012,6 +2458,221 @@ mod tests {
     /// down and says in its commit what moved.
     const ALPHA_PINNED: u64 = 8_708_404_861_411_554_907;
     const GLOW_PINNED: u64 = 18_347_543_318_836_694_730;
+
+    /// What a host drawing the light map keeps (task 121), and the walk
+    /// and the composing it does — the GPU's `lightmap.wgsl`, written out
+    /// in Rust step for step: the same integer steps, the same float
+    /// additions and comparisons, an infinite crossing as the largest
+    /// float (as the host uploads it), every other float out of a table.
+    struct Host {
+        sight: u64,
+        seen: Vec<Vec<bool>>,
+        revs: Vec<u64>,
+        explored: Vec<bool>,
+        alpha: Vec<u8>,
+        glow: Vec<u8>,
+    }
+
+    impl Host {
+        fn draw(&mut self, inp: &LightInputs) {
+            let (w, h) = (inp.width, inp.height);
+            if self.sight != inp.sight || self.explored.len() != w * h {
+                self.sight = inp.sight;
+                self.explored = (*inp.explored).clone();
+                self.seen.clear();
+                self.revs.clear();
+            }
+            let rays = ray_table();
+            let finite = |v: f32| if v.is_finite() { v } else { f32::MAX };
+            self.seen.resize(inp.views.len(), Vec::new());
+            self.revs.resize(inp.views.len(), 0);
+            for (b, view) in inp.views.iter().enumerate() {
+                if self.revs[b] == view.rev {
+                    continue;
+                }
+                self.revs[b] = view.rev;
+                let seen = &mut self.seen[b];
+                *seen = vec![false; w * h];
+                for eye in &view.eyes {
+                    for (ray, t0) in rays.iter().zip(&eye.t0) {
+                        let (mut x, mut y) = eye.start;
+                        let sx = if ray[0] > 0.0 { 1 } else { -1 };
+                        let sy = if ray[1] > 0.0 { 1 } else { -1 };
+                        let (dlx, dly) = (finite(ray[2]), finite(ray[3]));
+                        let (mut tx, mut ty) = (finite(t0[0]), finite(t0[1]));
+                        let mut t = 0.0f32;
+                        loop {
+                            if x < 0 || y < 0 || x >= w as i32 || y >= h as i32 || t > eye.far {
+                                break;
+                            }
+                            let tile = (x >> 3, y >> 3);
+                            let ti = tile.1 as usize * inp.columns + tile.0 as usize;
+                            let i = y as usize * w + x as usize;
+                            let stop = inp.cells[ti] & CELL_OPAQUE != 0
+                                && !(eye.from_opaque && tile == eye.from_tile);
+                            let admits = match eye.beyond {
+                                None => true,
+                                Some(((bx, by), (dx, dy))) => {
+                                    (tile.0 - bx) * dx + (tile.1 - by) * dy >= 1
+                                }
+                            };
+                            let near = view.near[ti / 32] >> (ti % 32) & 1 != 0;
+                            if admits && (inp.light_field[i] > 0 || near) {
+                                seen[i] = true;
+                            }
+                            if stop {
+                                break;
+                            }
+                            if tx < ty {
+                                t = tx;
+                                x += sx;
+                                tx += dlx;
+                            } else {
+                                t = ty;
+                                y += sy;
+                                ty += dly;
+                            }
+                        }
+                    }
+                }
+            }
+            self.alpha = vec![0; w * h];
+            self.glow = vec![0; w * h];
+            for i in 0..w * h {
+                let (x, y) = (i % w, i / w);
+                let c = inp.cells[(y / 8) * inp.columns + x / 8];
+                if c & CELL_FOGGED == 0 {
+                    continue;
+                }
+                let light = inp.shown_field[i] as usize;
+                if self.seen.iter().any(|s| s[i]) {
+                    self.explored[i] = true;
+                    self.alpha[i] = inp.dark[light];
+                    self.glow[i] = inp.glow_seen[light];
+                } else if c & CELL_FRIENDLY != 0 {
+                    self.alpha[i] = inp.fog;
+                    self.glow[i] = inp.glow_fog[light];
+                } else if self.explored[i] {
+                    self.alpha[i] = inp.grey;
+                    self.glow[i] = inp.glow_fog[light];
+                } else {
+                    self.alpha[i] = 255;
+                }
+            }
+        }
+    }
+
+    /// The host's walk and composing (above) come out at the very map
+    /// `light_map_on_cpu` makes, frame after frame, the explored memory
+    /// included: bodies walking, one pressed to a wall and peeking, a door
+    /// shutting, a lamp shot out, a stranger's deck turning grey where it
+    /// was looked at — each frame both are worked out, from the same
+    /// sight twice over, and compared byte for byte.
+    #[test]
+    fn a_host_marching_the_inputs_draws_the_map_this_crate_draws() {
+        let room = Rect::from_min_size(Vec2::ZERO, vec2(20.0 * TILE, 12.0 * TILE));
+        let mut wall: Vec<Rect> = (0..12)
+            .filter(|y| *y != 4 && *y != 8)
+            .map(|y| Rect::from_min_size(vec2(10.0 * TILE, y as f32 * TILE), vec2(TILE, TILE)))
+            .collect();
+        // A closet walled in at the far corner, which nobody ever sees.
+        wall.push(Rect::from_min_size(
+            vec2(16.0 * TILE, 8.0 * TILE),
+            vec2(4.0 * TILE, TILE),
+        ));
+        wall.push(Rect::from_min_size(
+            vec2(16.0 * TILE, 9.0 * TILE),
+            vec2(TILE, 3.0 * TILE),
+        ));
+        let make = || {
+            let mut sight = Sight::new(room, room, TILE, &wall, &[room]);
+            sight.set_lights(&[
+                Light {
+                    at: middle(3.0, 2.0),
+                    reach: 7.0 * TILE,
+                },
+                Light {
+                    at: middle(15.0, 7.0),
+                    reach: 9.0 * TILE,
+                },
+            ]);
+            // The far half is a stranger's deck: black until looked at,
+            // grey once it has been.
+            let far = Rect::from_min_size(vec2(11.0 * TILE, 0.0), vec2(9.0 * TILE, 12.0 * TILE));
+            sight.set_foreign(Some(far), Stance::Neutral);
+            sight
+        };
+        let mut cpu = make();
+        let mut gpu = make();
+        let mut host = Host {
+            sight: 0,
+            seen: Vec::new(),
+            revs: Vec::new(),
+            explored: Vec::new(),
+            alpha: Vec::new(),
+            glow: Vec::new(),
+        };
+        let door = Rect::from_min_size(vec2(10.0 * TILE, 8.0 * TILE), vec2(TILE, TILE));
+        let frames: Vec<Vec<Vec2>> = (0..24)
+            .map(|f| {
+                let f = f as f32;
+                vec![
+                    // Through the doorway into the stranger's half and back out.
+                    vec2((4.0 + 0.9 * f.min(24.0 - f)) * TILE, 4.5 * TILE),
+                    // Standing still, then pressed to the wall and peeking.
+                    if f < 10.0 {
+                        middle(2.0, 9.0)
+                    } else {
+                        middle(9.0, 6.0)
+                    },
+                    // Pacing a little, less than half a pixel at times.
+                    vec2(6.0 * TILE + (f * 0.3).sin() * 0.2, 10.5 * TILE),
+                ]
+            })
+            .collect();
+        for (f, bodies) in frames.iter().enumerate() {
+            if f == 8 {
+                cpu.set_shut(&[door]);
+                gpu.set_shut(&[door]);
+            }
+            if f == 14 {
+                cpu.damage_lamp(1, 1000.0);
+                gpu.damage_lamp(1, 1000.0);
+            }
+            // The last few frames with one body fewer.
+            let bodies = if f >= 20 { &bodies[..2] } else { &bodies[..] };
+            cpu.light_map_on_cpu(bodies);
+            gpu.light_inputs(bodies, false);
+            let inputs = gpu.map().inputs.clone().expect("the host's inputs");
+            host.draw(&inputs);
+            let map = cpu.map();
+            assert_eq!(host.alpha, map.alpha, "the darkness at frame {f}");
+            assert_eq!(host.glow, map.glow, "the lamplight at frame {f}");
+            assert_eq!(host.explored, cpu.explored_px, "explored at frame {f}");
+            assert_eq!((gpu.map().width, gpu.map().height), (map.width, map.height));
+            // The scene is doing what it is for: a peek once the body is
+            // against the wall, and the stranger's deck both grey and
+            // black once somebody has looked through the doorway.
+            if f >= 10 && f < 20 {
+                assert!(
+                    inputs.views[1].eyes.iter().any(|e| e.beyond.is_some()),
+                    "{:?}",
+                    inputs.views[1]
+                        .eyes
+                        .iter()
+                        .map(|e| (e.start, e.beyond))
+                        .collect::<Vec<_>>()
+                );
+            }
+            if f == 23 {
+                assert!(host.alpha.contains(&inputs.grey) && host.alpha.contains(&255));
+            }
+        }
+        // And what the host kept is what a save of the checked sight holds.
+        let explored = host.explored.clone();
+        gpu.set_explored_px(explored);
+        assert_eq!(gpu.explored_px, cpu.explored_px);
+    }
 
     fn middle(x: f32, y: f32) -> Vec2 {
         vec2((x + 0.5) * TILE, (y + 0.5) * TILE)

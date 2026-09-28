@@ -90,6 +90,31 @@ fn blurred(map: &LightMap, (x, y, w, h): (usize, usize, usize, usize)) -> Vec<(u
     out
 }
 
+/// One pixel of the fog texture from the blurred darkness and lamplight:
+/// two layers in one pixel, the darkness black at the map's alpha and the
+/// lamplight over it at the map's glow — composed premultiplied, which is
+/// what egui's textures were and what the canvas's shader blends. The GPU
+/// reads the same pixel out of a table made of this (`lightmap.rs`).
+pub fn texel(a: u8, g: u8) -> [u8; 4] {
+    let (a, g) = (a as f32 / 255.0, g as f32 / 255.0);
+    let over = g + a * (1.0 - g);
+    [
+        (LAMPLIGHT[0] * g * 255.0) as u8,
+        (LAMPLIGHT[1] * g * 255.0) as u8,
+        (LAMPLIGHT[2] * g * 255.0) as u8,
+        (over * 255.0) as u8,
+    ]
+}
+
+/// The whole of a map's fog texture as the CPU makes it, row by row: what
+/// a check of the GPU's picture compares against (`BIMS_LIGHTMAP=check`).
+pub fn texels(map: &LightMap) -> Vec<[u8; 4]> {
+    blurred(map, (0, 0, map.width, map.height))
+        .into_iter()
+        .map(|(a, g)| texel(a, g))
+        .collect()
+}
+
 /// One room's fog texture, kept between frames: an image of the world's
 /// canvas (`scene.rs`), in the bytes egui's textures were — premultiplied,
 /// sRGB — so the canvas's shader draws it as egui drew it.
@@ -149,7 +174,18 @@ impl FogTexture {
         if map.width == 0 || map.height == 0 {
             return;
         }
-        self.upload(canvas.images(), map);
+        match &map.inputs {
+            // Drawn on the GPU (task 121): a blank picture of the map's
+            // size, which `lightmap.rs` fills this frame before it is
+            // drawn, and the job handed over.
+            Some(inputs) => {
+                self.blank(canvas.images(), map);
+                if let Some(handle) = &self.handle {
+                    canvas.light_job(inputs.clone(), handle.id());
+                }
+            }
+            None => self.upload(canvas.images(), map),
+        }
         let Some(handle) = &self.handle else {
             return;
         };
@@ -170,6 +206,38 @@ impl FogTexture {
         canvas.picture(ctx, rect, handle.clone(), &quads);
     }
 
+    /// A picture of the map's size and nothing in it, for the GPU to
+    /// write into — the one this holds, while it is the right size.
+    fn blank(&mut self, images: &mut Assets<Image>, map: &LightMap) {
+        if self.handle.is_some() && self.size == (map.width, map.height) {
+            return;
+        }
+        let image = Image {
+            sampler: ImageSampler::linear(),
+            ..Image::new(
+                Extent3d {
+                    width: map.width as u32,
+                    height: map.height as u32,
+                    depth_or_array_layers: 1,
+                },
+                TextureDimension::D2,
+                vec![0; map.width * map.height * 4],
+                TextureFormat::Rgba8UnormSrgb,
+                RenderAssetUsages::RENDER_WORLD,
+            )
+        };
+        match &self.handle {
+            Some(handle) => {
+                let _ = images.insert(handle.id(), image);
+            }
+            None => self.handle = Some(images.add(image)),
+        }
+        self.size = (map.width, map.height);
+        // A picture this holds is the GPU's now, not a version of the
+        // CPU's: the next map worked out here uploads the lot.
+        self.version = u64::MAX;
+    }
+
     /// Take the map's picture, if this holds another version of it: the
     /// box it says changed when this holds the version before, else the
     /// lot.
@@ -179,7 +247,8 @@ impl FogTexture {
         }
         // What the room composed again since the version this holds,
         // if that is the one before: the box it says, else the lot.
-        let follows = self.version + 1 == map.version && self.size == (map.width, map.height);
+        let follows =
+            self.version.wrapping_add(1) == map.version && self.size == (map.width, map.height);
         let region = match (follows, map.changed, &self.handle) {
             (true, Some(r), Some(_)) => r,
             _ => (0, 0, map.width, map.height),
@@ -193,20 +262,9 @@ impl FogTexture {
             let y1 = (y + h + REACH).min(map.height);
             (x0, y0, x1 - x0, y1 - y0)
         };
-        // Two layers in one pixel: the darkness, black at the map's
-        // alpha, and the lamplight over it at the map's glow —
-        // composed premultiplied, which is what egui's textures were and
-        // what the canvas's shader blends.
-        let pixels = blurred(map, (x, y, w, h)).into_iter().map(|(a, g)| {
-            let (a, g) = (a as f32 / 255.0, g as f32 / 255.0);
-            let over = g + a * (1.0 - g);
-            [
-                (LAMPLIGHT[0] * g * 255.0) as u8,
-                (LAMPLIGHT[1] * g * 255.0) as u8,
-                (LAMPLIGHT[2] * g * 255.0) as u8,
-                (over * 255.0) as u8,
-            ]
-        });
+        let pixels = blurred(map, (x, y, w, h))
+            .into_iter()
+            .map(|(a, g)| texel(a, g));
         let whole = (w, h) == (map.width, map.height);
         match &self.handle {
             // The box, written into the picture this holds: every row of

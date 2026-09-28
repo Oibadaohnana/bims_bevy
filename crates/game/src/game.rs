@@ -8123,6 +8123,21 @@ impl Game {
         (self.fog == Fog::Crew && self.room.sight.map().width > 0).then(|| self.room.sight.map())
     }
 
+    /// The explored memory a host drawing the light map kept (task 121),
+    /// given back before the room is written out: `Sight::set_explored_px`
+    /// on the room's own sight, if it is still the sight named `picture`.
+    pub fn give_back_explored(&mut self, picture: u64, explored: Vec<bool>) {
+        if self.room.sight.picture_id() == picture {
+            self.room.sight.set_explored_px(explored);
+        }
+    }
+
+    /// The room's sight's name and its explored memory as it holds it,
+    /// for a host checking the copy it keeps (task 121).
+    pub fn explored_px(&self) -> (u64, &[bool]) {
+        (self.room.sight.picture_id(), self.room.sight.explored_px())
+    }
+
     /// The same picture of the plain beyond the box, on a planet — a
     /// picture a chunk, `terrain::Plane::picture` — from the crew's
     /// eyes, for the room tiles `window` covers (both ends in): what a

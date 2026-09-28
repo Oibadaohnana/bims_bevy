@@ -900,6 +900,9 @@ fn smoke_exit(
         for line in crate::perf::report(frames.0) {
             println!("{line}");
         }
+        for line in crate::lightmap::report() {
+            println!("{line}");
+        }
         exit.write(AppExit::Success);
     }
 }
