@@ -1946,15 +1946,25 @@ pub(crate) fn sandbags(list: &mut DrawList, part: &PlacedPart) {
 const SENTRY: Color = Color::rgb(0.40, 0.44, 0.50);
 const SENTRY_DARK: Color = Color::rgb(0.24, 0.26, 0.30);
 const SENTRY_EYE: Color = Color::rgb(0.40, 0.72, 1.0);
+/// The Healing Sentry's cross (task 127): the medic's beam's green.
+const HEALING_CROSS: Color = Color::rgb(0.55, 0.95, 0.75);
 
 /// A sentry on its tile: a squat base on three feet, the turret's drum
-/// on it with the rifle's barrel out to the right, and the eye it aims
-/// with — lit for as long as it stands, since a sentry never runs out of
-/// shots (feature 88). `health` is nought to one, for the dark ring that
-/// grows as it is shot up.
-pub(crate) fn sentry(list: &mut DrawList, part: &PlacedPart, health: f32) {
+/// on it with the barrel out to the right, and the eye it aims with —
+/// lit for as long as it stands, since a sentry never runs out of shots
+/// (feature 88). `health` is nought to one, for the dark ring that grows
+/// as it is shot up; `scale` is how much bigger than a tile it is drawn
+/// (the engineer's ultimate is drawn larger, task 127); a `healing` one
+/// is the Healing Sentry, no barrel and a green cross for an eye.
+pub(crate) fn sentry(
+    list: &mut DrawList,
+    part: &PlacedPart,
+    health: f32,
+    scale: f32,
+    healing: bool,
+) {
     let (local, across, along) = Local::of(part);
-    let side = across.min(along);
+    let side = across.min(along) * scale;
     // The feet, three round pads.
     for (u, v) in [(-0.30, 0.26), (0.30, 0.26), (0.0, -0.34)] {
         local.push(
@@ -2006,6 +2016,23 @@ pub(crate) fn sentry(list: &mut DrawList, part: &PlacedPart, health: f32) {
             0.0,
             SENTRY_DARK,
         );
+    }
+    if healing {
+        // No barrel: a green cross where the eye would be.
+        for (w, h) in [(0.10, 0.34), (0.34, 0.10)] {
+            local.push(
+                list,
+                KIND_RECT,
+                0.0,
+                0.0,
+                side * w,
+                side * h,
+                0.0,
+                0.0,
+                HEALING_CROSS,
+            );
+        }
+        return;
     }
     // The barrel, out to the right, and the eye.
     local.push(

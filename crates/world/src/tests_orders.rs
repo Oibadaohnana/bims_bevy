@@ -341,7 +341,8 @@ fn an_attack_order_on_a_machine_is_a_command_and_ends_with_the_wreck() {
     let mut world = crate::tests::basic();
     world.step(&[]);
     assert!(
-        world.stage_droid_fight_for_probe(DroidKind::Trooper, Some(WeaponKind::LaserPistol.basic()))
+        world
+            .stage_droid_fight_for_probe(DroidKind::Trooper, Some(WeaponKind::LaserPistol.basic()))
     );
     let (origin, ex, ey) = world.aboard.station_frame.unwrap();
     let there = world.residents.as_ref().unwrap().aboard.position(0);

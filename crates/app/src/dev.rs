@@ -575,7 +575,11 @@ fn bim_ranks() -> Option<[u8; 4]> {
     let text = std::env::var("BIMS_RANKS").ok()?;
     let mut ranks = [0u8; 4];
     for (slot, part) in text.split(',').take(4).enumerate() {
-        ranks[slot] = part.trim().parse::<u8>().unwrap_or(0).min(world::class::MAX_RANK);
+        ranks[slot] = part
+            .trim()
+            .parse::<u8>()
+            .unwrap_or(0)
+            .min(world::class::MAX_RANK);
     }
     Some(ranks)
 }

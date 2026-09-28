@@ -358,7 +358,7 @@ fn a_diagonal_wall_is_a_wall_in_every_rule_and_a_triangle_in_the_picture() {
 /// array because it is hashed, and a fixed size is a thing that can drift.
 #[test]
 fn cargo_is_the_right_length() {
-    assert_eq!(CARGO_SLOTS, ResourceId::ALL.len());
+    assert_eq!(CARGO_SLOTS, ResourceId::CODES);
     assert_eq!(ShipDesign::new(4).cargo.len(), CARGO_SLOTS);
 }
 

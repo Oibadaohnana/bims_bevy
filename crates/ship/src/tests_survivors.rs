@@ -205,9 +205,16 @@ fn commands() -> Vec<(&'static str, u64)> {
 /// `0x_cdcd_f1e3_0d39_a470`, `0x_c492_6d86_74bd_bb05`,
 /// `0x_5b55_867b_fa3d_10a4`, `0x_d1c5_f4e7_b7d6_820f`,
 /// `0x_f4ba_4e20_6eee_6acb` and `0x_b77c_ecb6_e0f6_2c3a`.
+///
+/// **`game` moved alone, on purpose**: task 124's soldier (slot 0 of the
+/// run, beside a medic) climbs its ranked kit's sixteen levels and starts
+/// with no grenade at rank nought, where it had two in its pack; task 127
+/// made every class charge a counter on the world, so no charge is in any
+/// gear the reading takes. No other command has a soldier or an engineer
+/// in it, and none of the other ten moved. It was `0x_d30e_877d_b1e4_5020`.
 const PINNED: [(&str, u64); 11] = [
     ("simulation", 0x_99c9_324d_6ab6_208a),
-    ("game", 0x_d30e_877d_b1e4_5020),
+    ("game", 0x_48d6_94af_8626_5246),
     ("droids", 0x_7122_55ef_2011_e57f),
     ("tier2_test", 0x_09bb_2ad9_b012_ca13),
     ("combat_droids_medic", 0x_3cce_d174_8375_71d0),

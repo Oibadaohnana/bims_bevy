@@ -3001,7 +3001,12 @@ fn frame(
         for (from, to) in session.healing_lines_on_screen() {
             let a = view.to_canvas(Vec2::new(from.0, from.1)) + canvas.min;
             let b = view.to_canvas(Vec2::new(to.0, to.1)) + canvas.min;
-            theme::healing_line(&painter, egui::pos2(a.x, a.y), egui::pos2(b.x, b.y), view.scale);
+            theme::healing_line(
+                &painter,
+                egui::pos2(a.x, a.y),
+                egui::pos2(b.x, b.y),
+                view.scale,
+            );
         }
         for who in 0..crew {
             if !game.world.is_surging(who) {
@@ -3794,7 +3799,9 @@ fn ranked_key(
 ) -> (Option<Order>, Option<String>) {
     match (world.class_of(slot), action) {
         (world::Class::Soldier, Action::Ability1) => class_key(world, slot, true, tile, None, None),
-        (world::Class::Soldier, Action::Ability3) => class_key(world, slot, false, tile, None, None),
+        (world::Class::Soldier, Action::Ability3) => {
+            class_key(world, slot, false, tile, None, None)
+        }
         (world::Class::Soldier, Action::Ability4) => match world.can_rampage(slot) {
             Ok(()) => (Some(Order::Rampage), None),
             Err(why) => (None, Some(crate::names::rampage_refused(why))),
@@ -4713,7 +4720,11 @@ mod class_key_tests {
                     (here.0, here.1 - r),
                 ]
             })
-            .find(|&tile| world.can_deploy(0, world::DeployKind::Sandbags, tile).is_ok())
+            .find(|&tile| {
+                world
+                    .can_deploy(0, world::DeployKind::Sandbags, tile)
+                    .is_ok()
+            })
             .expect("a free tile beside the engineer");
         assert_eq!(
             class_key(&world, 0, false, Some(beside), None, None),
@@ -4886,8 +4897,8 @@ mod class_key_tests {
             class_key(&world, 0, true, None, None, None),
             (None, Some(taunt_refused(Refusal::CoolingDown)))
         );
-        // And nobody else's keys are the tank's: the engineer deploys,
-        // the soldier braces, the medic beams.
+        // And nobody else's keys are the tank's: the engineer throws an
+        // EMP (task 127), the soldier braces, the medic beams.
         assert!(matches!(
             class_key(&world, 2, false, None, None, None).0,
             Some(Order::Brace(_))
@@ -4898,7 +4909,7 @@ mod class_key_tests {
         );
         assert_eq!(
             class_key(&world, 1, true, None, None, None),
-            (None, Some(deploy_refused(Refusal::CantDeployThere)))
+            (None, Some(throw_refused(Refusal::CantThrowThere)))
         );
         // And a tank is refused a medic's and a soldier's rules.
         assert_eq!(world.can_bulwark(1), Err(Refusal::NotATank));
@@ -5082,14 +5093,21 @@ mod class_key_tests {
         assert_eq!(keys_named, vec!["Q", "C", "E", "R"]);
         let names: Vec<&str> = boxes.iter().map(|b| b.name).collect();
         assert_eq!(names, vec!["EMP", "Healing Sentry", "Sandbags", "Sentry"]);
-        assert!(boxes.iter().all(|b| b.unlearnt && !b.ready() && b.count.is_none()));
+        assert!(
+            boxes
+                .iter()
+                .all(|b| b.unlearnt && !b.ready() && b.count.is_none())
+        );
         assert_eq!(boxes[3].locked, Some(6), "the ultimate's first rank");
         assert_eq!(boxes[0].mark, Mark::Charge(icons::ChargeIcon::Emp));
         assert_eq!(boxes[3].mark, Mark::Charge(icons::ChargeIcon::Sentry));
         world.set_ranks_for_probe(0, [1, 1, 1, 0]);
         let boxes = ability_boxes(&world, 0, &keys);
         assert_eq!(boxes[0].count, Some(world::class::EMP_CHARGES[0]));
-        assert_eq!(boxes[1].count, Some(world::class::HEALING_SENTRY_CHARGES[0]));
+        assert_eq!(
+            boxes[1].count,
+            Some(world::class::HEALING_SENTRY_CHARGES[0])
+        );
         assert_eq!(boxes[2].count, Some(world::class::SANDBAG_CHARGES[0]));
         assert!(boxes[..3].iter().all(|b| b.ready()));
 
@@ -5118,7 +5136,10 @@ mod class_key_tests {
         // The key's own rank-up: the order, and the world's refusal said.
         assert_eq!(
             rank_up(&world, 1, RankUp { slot: 1 }),
-            (None, Some(crate::names::rank_refused(Refusal::NoSkillPoint)))
+            (
+                None,
+                Some(crate::names::rank_refused(Refusal::NoSkillPoint))
+            )
         );
         let mut events = Vec::new();
         world.award(1, world::class::RANKED_LEVEL_XP[2], &mut events);
@@ -5133,7 +5154,10 @@ mod class_key_tests {
         );
         assert_eq!(
             ranked_key(&world, 1, Action::Ability4, None),
-            (None, Some(crate::names::rampage_refused(Refusal::NotLearnt)))
+            (
+                None,
+                Some(crate::names::rampage_refused(Refusal::NotLearnt))
+            )
         );
 
         // Every class has a name and a tip on every box, and the

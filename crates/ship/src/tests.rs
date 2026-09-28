@@ -1552,7 +1552,11 @@ fn a_class_chosen_in_the_yard_leaves_the_pool_and_opens_the_world_and_is_saved()
         Some(bims::combat::WeaponKind::AutoRifle.basic()),
         "the soldier's rifle is in its hand"
     );
-    assert_eq!(world.grenades_of(0), 0, "none before Frag Grenade's first rank");
+    assert_eq!(
+        world.grenades_of(0),
+        0,
+        "none before Frag Grenade's first rank"
+    );
     // A charge is a counter the world keeps, and none before a rank buys
     // it (tasks 124 and 127).
     let kits = |session: &Session, who: u32| {

@@ -259,7 +259,7 @@ impl Editor {
     /// edit, so it goes through the same door and clears everybody's Accept
     /// the same way.
     pub fn buy(&mut self, resource: u32, units: u32) -> u32 {
-        match ResourceId::ALL.get(resource as usize).copied() {
+        match ResourceId::from_code(resource) {
             Some(resource) if !self.sells(resource) => EditError::NotSoldHere.code(),
             Some(resource) => self.edit(Edit::Buy { resource, units }),
             None => EditError::BadCode.code(),
@@ -267,7 +267,7 @@ impl Editor {
     }
 
     pub fn sell(&mut self, resource: u32, units: u32) -> u32 {
-        match ResourceId::ALL.get(resource as usize).copied() {
+        match ResourceId::from_code(resource) {
             Some(resource) => self.edit(Edit::Sell { resource, units }),
             None => EditError::BadCode.code(),
         }

@@ -587,7 +587,11 @@ fn a_machine_downed_in_a_town_s_defence_is_experience_and_a_townsperson_is_not()
     assert!(world.is_rampaging(0));
     down_by_crew_member_0(&mut world, 0);
     world.step(&[]);
-    assert_eq!(world.soldier_of(0).extended, 1.0, "a second more in the town");
+    assert_eq!(
+        world.soldier_of(0).extended,
+        1.0,
+        "a second more in the town"
+    );
 }
 
 /// **A town held is its own system's** (feature 111's first fix): station

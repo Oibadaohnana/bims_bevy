@@ -6965,7 +6965,14 @@ impl Game {
     /// beside it, or the tile itself; nowhere to stand is `false` and
     /// nothing begun. A live order: what the Bim was on is put down onto
     /// the queue, as any order does.
-    pub fn deploy(&mut self, who: usize, tile: Vec2, kind: u32, steady: bool, minutes: f32) -> bool {
+    pub fn deploy(
+        &mut self,
+        who: usize,
+        tile: Vec2,
+        kind: u32,
+        steady: bool,
+        minutes: f32,
+    ) -> bool {
         if who >= self.bims.len() || !self.bims[who].is_alive() {
             return false;
         }
@@ -7521,7 +7528,15 @@ impl Game {
     /// the grenade's flight and fuse, bursting with `radius` room units
     /// and stunning every machine in it for `stun` seconds. The world
     /// checks the throw and spends the charge; the room throws.
-    pub fn throw_emp(&mut self, who: usize, at: Vec2, fuse: f32, radius: f32, stun: f32, expose: bool) {
+    pub fn throw_emp(
+        &mut self,
+        who: usize,
+        at: Vec2,
+        fuse: f32,
+        radius: f32,
+        stun: f32,
+        expose: bool,
+    ) {
         if who >= self.bims.len() {
             return;
         }

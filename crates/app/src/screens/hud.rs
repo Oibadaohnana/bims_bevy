@@ -911,7 +911,8 @@ pub fn hero_panel(
                             );
                             // And the skill points waiting on a ranked kit
                             // (task 124), beside it.
-                            if let Some(points) = crate::names::points_waiting(hero.points_waiting) {
+                            if let Some(points) = crate::names::points_waiting(hero.points_waiting)
+                            {
                                 ui.label(
                                     egui::RichText::new(points)
                                         .small()

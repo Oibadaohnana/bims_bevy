@@ -4027,3 +4027,23 @@ GPU's read-back went with it): the inputs carry the sight's `PictureId`
 — fresh for every sight made, cloned or loaded — so a host keys its
 views and revisions to one sight. Nothing the simulation reads is in the
 inputs; the tile masks are untouched.
+
+## The engineer's EMP, Healing Sentry and sentry: what the room is handed (task 127)
+
+- **A stun is a machine's** (`Droid::stunned`, `exposed`): `Droid::stun`
+  takes the longer of two stuns, drops whatever the machine had begun —
+  the blow on its way, the lock, the peek, the route, a Guardian's
+  wind-up or sweep (to its cooldown) — and refuses a wreck and the
+  Machine Heart's machines. `tick_droids` gives a stunned machine nothing
+  but the stun wearing off (`wear_off_stun`); `Droid::shield` is `None`
+  while stunned. It flickers pale blue (`droid::STUNNED`).
+- **An EMP is a grenade with `stun` set** (`Combat::throw_emp`,
+  `Game::throw_emp`): the same flight and fuse, a pale blue ring for its
+  burst (`Blast::emp`), and `Game::burst` notes the targets within its
+  radius on `stuns` (`take_stuns`) and hits nothing.
+- **`combat::Sentry::heals`** is a Healing Sentry: on the bodies list a
+  hostile bolt looks for, never fired. The engineer's *dug in* went, and
+  with it the sentry's `dug_in`.
+- **`Kind::Deploy { kind, steady }`**: `kind` the world's `DeployKind`
+  code, carried back on `Room::deployed`; `steady` (the ultimate's) is
+  not dropped by a hit.

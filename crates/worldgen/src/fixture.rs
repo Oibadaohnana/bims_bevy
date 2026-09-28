@@ -60,11 +60,18 @@ pub const REFERENCE_SEED: u64 = 0x_4c4f_4242_0000_0007;
 /// shelves' bits, and no layout or other draw. They were
 /// `0x_bbdb_ea99_21ed_2e34`, `0x_2aa6_e423_eb27_2fb3`,
 /// `0x_0d14_75e5_b017_85f6` and `0x_1378_9fb5_d958_66db`.
+///
+/// Task 127 moved them without a bump: the sandbag kit, the sentry kit
+/// and the grenade went out of the resources, so every station's price
+/// lean is three entries shorter — drawn on the lean's own branch, so no
+/// layout and no other draw moved. They were `0x_f726_4e5d_d786_d734`,
+/// `0x_cd96_b463_1cf1_1273`, `0x_d2c8_e0d1_e3b1_bd96` and
+/// `0x_977e_dc0b_a6c2_6e9b`.
 pub const REFERENCE_CHECKSUMS: [u64; 4] = [
-    0x_f726_4e5d_d786_d734,
-    0x_cd96_b463_1cf1_1273,
-    0x_d2c8_e0d1_e3b1_bd96,
-    0x_977e_dc0b_a6c2_6e9b,
+    0x_393e_f652_82eb_b85b,
+    0x_19df_385e_9d22_d91c,
+    0x_8009_4c42_c725_ac59,
+    0x_3794_c50f_8b35_67d4,
 ];
 
 /// The reference galaxy of one type.

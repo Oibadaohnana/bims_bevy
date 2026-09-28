@@ -99,7 +99,9 @@ fn ranks(world: &mut World, who: u32, want: [u8; 4]) {
                 ability_slot: slot as u32,
             }]);
             assert!(
-                events.iter().any(|e| matches!(e, WorldEvent::RankedUp { .. })),
+                events
+                    .iter()
+                    .any(|e| matches!(e, WorldEvent::RankedUp { .. })),
                 "rank {rank} of slot {slot}: {events:?}"
             );
         }
@@ -704,10 +706,7 @@ fn the_burst_hurts_the_enemy_at_the_centre_and_less_at_the_edge() {
                 (took - want).abs() < 1.0,
                 "took {took} at {d:.2} tiles, wanted {want}"
             );
-            assert!(
-                took < DAMAGE * 0.85,
-                "less than the centre's"
-            );
+            assert!(took < DAMAGE * 0.85, "less than the centre's");
             return;
         }
     }
@@ -1055,9 +1054,15 @@ fn a_rank_up_is_refused_without_a_kit_a_point_a_level_or_room_at_the_top() {
         assert!(refused_with(&events, Refusal::NoRankedKit), "{slot}");
     }
     // Nor is there a fifth slot.
-    assert!(refused_with(&rank_up(&mut world, 0, 4), Refusal::NoRankedKit));
+    assert!(refused_with(
+        &rank_up(&mut world, 0, 4),
+        Refusal::NoRankedKit
+    ));
     // The ultimate wants the sixth level.
-    assert!(refused_with(&rank_up(&mut world, 0, 3), Refusal::RankLocked));
+    assert!(refused_with(
+        &rank_up(&mut world, 0, 3),
+        Refusal::RankLocked
+    ));
     // The first level's point.
     let events = rank_up(&mut world, 0, 0);
     assert!(
@@ -1072,10 +1077,16 @@ fn a_rank_up_is_refused_without_a_kit_a_point_a_level_or_room_at_the_top() {
         )),
         "{events:?}"
     );
-    assert!(refused_with(&rank_up(&mut world, 0, 1), Refusal::NoSkillPoint));
+    assert!(refused_with(
+        &rank_up(&mut world, 0, 1),
+        Refusal::NoSkillPoint
+    ));
     // A point to spend, and Q's second rank still a level off.
     level_up(&mut world, 0, 2);
-    assert!(refused_with(&rank_up(&mut world, 0, 0), Refusal::RankLocked));
+    assert!(refused_with(
+        &rank_up(&mut world, 0, 0),
+        Refusal::RankLocked
+    ));
     level_up(&mut world, 0, 16);
     for _ in 0..3 {
         rank_up(&mut world, 0, 0);
@@ -1105,7 +1116,10 @@ fn frag_grenade_s_charges_cooldown_burst_and_radius_go_by_its_rank() {
     let tile = open_run(&world, 0, 2)[1];
     assert_eq!(world.charges(0, Charge::Grenade), 0);
     assert_eq!(world.can_throw(0, tile), Err(Refusal::NoGrenadesYet));
-    assert_eq!((world.grenade_damage(0), world.grenade_radius(0)), (0.0, 0.0));
+    assert_eq!(
+        (world.grenade_damage(0), world.grenade_radius(0)),
+        (0.0, 0.0)
+    );
     let want = [
         (60.0, 2.0, 1, 30.0),
         (75.0, 2.5, 2, 30.0),
@@ -1165,7 +1179,10 @@ fn a_critical_hit_adds_its_share_of_the_flat_damage_after_every_factor() {
         let chance = class::WEAK_SPOT_CHANCE[rank as usize - 1];
         assert_eq!(world.skill_of(0).crit_chance, chance);
         let took = crit_on_machine(&mut world, 10.0, 10.0);
-        assert!((took - 10.0 * crit).abs() < 1e-3, "rank {rank}: took {took}");
+        assert!(
+            (took - 10.0 * crit).abs() < 1e-3,
+            "rank {rank}: took {took}"
+        );
     }
     // A *Focusing Lens*: the lens is on the bolt's own damage — what the
     // room lands — and the crit adds its share of the flat damage alone,
@@ -1262,7 +1279,10 @@ fn brace_cuts_the_misses_and_the_damage_taken_by_its_rank() {
         // Standing easy, nothing.
         world.step(&[Command::Brace { slot: 0, on: false }]);
         let easy = world.skill_of(0);
-        assert_eq!((easy.miss_cut, easy.damage_taken, easy.deadeye), (0.0, 1.0, false));
+        assert_eq!(
+            (easy.miss_cut, easy.damage_taken, easy.deadeye),
+            (0.0, 1.0, false)
+        );
         world.step(&[Command::Brace { slot: 0, on: true }]);
         let s = world.skill_of(0);
         let cut = class::BRACE_MISS_CUT[rank as usize - 1];
@@ -1283,7 +1303,11 @@ fn brace_cuts_the_misses_and_the_damage_taken_by_its_rank() {
             assert!((aimed.accuracy_far - far).abs() < 1e-6);
         }
         assert!(aimed.accuracy <= 1.0 && aimed.accuracy_far <= 1.0);
-        assert_eq!(world.aboard.room.skill_for_probe(0), s, "the room's is the world's");
+        assert_eq!(
+            world.aboard.room.skill_for_probe(0),
+            s,
+            "the room's is the world's"
+        );
     }
 }
 
@@ -1358,7 +1382,11 @@ fn rampage_is_refused_downed_ready_at_every_mission_and_stacks_with_brace() {
     world.step(&[Command::Rampage { slot: 0 }]);
     assert!(world.is_braced(0) && world.is_rampaging(0));
     let s = world.skill_of(0);
-    assert!((s.damage_taken - 0.80 * 0.70).abs() < 1e-6, "{}", s.damage_taken);
+    assert!(
+        (s.damage_taken - 0.80 * 0.70).abs() < 1e-6,
+        "{}",
+        s.damage_taken
+    );
     assert_eq!(s.miss_cut, 0.5);
     assert!(s.deadeye);
     assert_eq!(s.fire_rate, 2.0);
@@ -1453,5 +1481,9 @@ fn a_soldier_s_ranks_and_rampage_are_saved_and_hashed() {
     ranks(&mut world, 0, [0, 0, 0, 1]);
     let before = world_checksum(&world);
     world.step(&[Command::Rampage { slot: 0 }]);
-    assert_ne!(world_checksum(&world), before, "a Rampage is in the checksum");
+    assert_ne!(
+        world_checksum(&world),
+        before,
+        "a Rampage is in the checksum"
+    );
 }

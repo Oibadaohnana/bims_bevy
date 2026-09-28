@@ -1900,6 +1900,43 @@ relay wants redeploying). The soldier's talents (codes 14–27) are
 deleted, their codes left free; `names::TALENT_NAMES` is indexed by code
 with those places empty.
 
+## The engineer's ranked kit, and charges without kits (task 127)
+
+The engineer is the second ranked kit, on task 124's rank system: **Q
+EMP, C Healing Sentry, E Sandbags, R Sentry** (the ultimate), four ranks
+each. The world's half is `crates/world/CLAUDE.md` ("The engineer's ranked
+kit, and charges without kits"), the room's `crates/game/CLAUDE.md`, the
+player's `README.md` ("The engineer"). What to hold on to:
+
+- **A charge is a counter the world keeps** (`World::charges_held`), never
+  a thing in a pack — the soldier's grenade included. `ResourceId::
+  {SandbagKit, SentryKit, Grenade}` are gone from every crate, their codes
+  15–17 left free: **`ResourceId::ALL` is 19 long and `CODES` 22**, so a
+  code is looked up with `ResourceId::from_code` and never used to index
+  `ALL`; `CARGO_SLOTS` and the market's leans are `CODES` long.
+  `Charge::Sentry` (1) is gone; `HealingSentry` (3) and `Emp` (4) are new.
+- **No talents, no kits, no *reused* charges**: the engineer's talents
+  (codes 0–13) are deleted and their names blank in `TALENT_NAMES`;
+  laying is nobody's experience (task 119's rule, kept at the user's
+  word over the spec's `XP_BUILT`), so `reused_kits` went.
+- **New commands** `Command::Sentry { slot, tile }` and `Command::Emp {
+  slot, x, y }`; `Command::Deploy` carries a `DeployKind` (sandbags or a
+  Healing Sentry). New events `EmpThrown` (132) and `SentryDone` (133).
+- **The machines can be stunned** (`Droid::stun`): an EMP's burst in the
+  crew's room notes the targets in its radius (`Game::take_stuns`) and
+  the world stuns the machines among them before their room steps
+  (`World::settle_stuns`).
+- **Looking at it**: `BIMS_RANKS=4,4,4,4 bims combat_droids_engineer`, then
+  `Q`/`C`/`E`/`R` in `BIMS_KEYS` over a deck tile under `BIMS_POINTER`;
+  `BIMS_KITS=n` sets the three charges.
+
+**What moved.** `SAVE_VERSION` **52**, `wire::PROTOCOL` **45** (the relay
+wants redeploying), `REFERENCE_CHECKSUM` (the counters hashed where the
+re-used kits were), `worldgen`'s `REFERENCE_CHECKSUMS` (three price leans
+fewer, no bump), and `SURVIVORS` and the ship's `PINNED` for `game` —
+with task 124's soldier, each note saying both. `shipdesign`'s hashes and
+`PICTURES` did not move.
+
 ## The old game deleted (feature 104)
 
 The third step of the redesign: **everything features 102 and 103 switched

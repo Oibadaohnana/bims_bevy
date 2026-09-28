@@ -6842,7 +6842,9 @@ impl World {
         let was = self.charges_by_rank(who);
         for (slot, &want) in ranks.iter().enumerate() {
             let most = (1..=class::MAX_RANK)
-                .take_while(|&r| class::rank_level(class, slot as u8, r).is_some_and(|l| l <= level))
+                .take_while(|&r| {
+                    class::rank_level(class, slot as u8, r).is_some_and(|l| l <= level)
+                })
                 .last()
                 .unwrap_or(0);
             self.progress[who as usize].ranks[slot] = want.min(most);
@@ -7235,7 +7237,9 @@ impl World {
     fn deploy_tile(&self, slot: u32, tile: (i32, i32)) -> Result<bims::math::Vec2, Refusal> {
         let t = shipdesign::TILE as f32;
         let at = bims::math::vec2((tile.0 as f32 + 0.5) * t, (tile.1 as f32 + 0.5) * t);
-        if !self.aboard.room.deploy_tile_ok(slot as usize, at) || self.deployable_under(at).is_some() {
+        if !self.aboard.room.deploy_tile_ok(slot as usize, at)
+            || self.deployable_under(at).is_some()
+        {
             return Err(Refusal::CantDeployThere);
         }
         Ok(at)
@@ -7275,7 +7279,12 @@ impl World {
     }
 
     /// The errand handed to the room, the checks made.
-    fn start_laying(&mut self, slot: u32, kind: DeployKind, tile: (i32, i32)) -> Result<(), Refusal> {
+    fn start_laying(
+        &mut self,
+        slot: u32,
+        kind: DeployKind,
+        tile: (i32, i32),
+    ) -> Result<(), Refusal> {
         let at = self.deploy_tile(slot, tile)?;
         let minutes = self.deploy_minutes(slot, kind);
         let steady = kind == DeployKind::Sentry;
@@ -7416,7 +7425,13 @@ impl World {
     /// A Healing Sentry laid with as many of that engineer's standing as
     /// it has charges **destroys its oldest**; the sentry, one standing at
     /// a time, destroys the one before and starts its cooldown.
-    fn finish_deploy(&mut self, who: usize, at: bims::math::Vec2, code: u32, events: &mut Vec<WorldEvent>) {
+    fn finish_deploy(
+        &mut self,
+        who: usize,
+        at: bims::math::Vec2,
+        code: u32,
+        events: &mut Vec<WorldEvent>,
+    ) {
         let slot = who as u32;
         let Some(kind) = DeployKind::from_code(code) else {
             return;
@@ -7494,7 +7509,14 @@ impl World {
     }
 
     /// One deployable down, fresh, for `owner`.
-    fn lay(&mut self, kind: DeployKind, owner: u32, deck: Deck, tile: (u32, u32), expires: Option<f64>) {
+    fn lay(
+        &mut self,
+        kind: DeployKind,
+        owner: u32,
+        deck: Deck,
+        tile: (u32, u32),
+        expires: Option<f64>,
+    ) {
         let id = self.next_deployable;
         self.next_deployable += 1;
         let health = self.laid_health(kind, owner);
@@ -7906,7 +7928,9 @@ impl World {
         if !self.is_soldier(who) {
             return skill;
         }
-        if let Some(chance) = class::by_rank(class::WEAK_SPOT_CHANCE, self.rank_of(who, class::SLOT_C)) {
+        if let Some(chance) =
+            class::by_rank(class::WEAK_SPOT_CHANCE, self.rank_of(who, class::SLOT_C))
+        {
             skill.crit_chance = chance;
         }
         let brace = self.rank_of(who, class::SLOT_E);
@@ -8164,7 +8188,8 @@ impl World {
     /// is lengthened by [`class::RAMPAGE_EXTEND_SECONDS`], up to
     /// [`class::RAMPAGE_EXTEND_MAX`] a use.
     pub(crate) fn rampage_kill(&mut self, who: u32) {
-        if !self.is_rampaging(who) || self.rank_of(who, class::SLOT_R) < class::RAMPAGE_EXTEND_RANK {
+        if !self.is_rampaging(who) || self.rank_of(who, class::SLOT_R) < class::RAMPAGE_EXTEND_RANK
+        {
             return;
         }
         let soldier = self.soldier_mut(who as usize);

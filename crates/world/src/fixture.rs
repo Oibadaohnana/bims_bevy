@@ -177,7 +177,11 @@ pub const REFERENCE_STEPS: u32 = 600;
 /// no drug lab or medicine aboard the playtest ship (another design hash),
 /// and every hit that takes hit points a splash on the room's stream.
 /// Was `0x_bdf6_e347_2c87_400a`.
-pub const REFERENCE_CHECKSUM: u64 = 0x_ee0a_ea07_0be0_41fb;
+/// And for the engineer's ranked kit (task 127): every class charge is a
+/// counter on the world (`World::charges_held`), hashed whole where the
+/// re-used kits were, and a charge's cooldowns are five codes long.
+/// Was `0x_ee0a_ea07_0be0_41fb`.
+pub const REFERENCE_CHECKSUM: u64 = 0x_240c_b1c5_daa2_167b;
 
 /// A world with the flyable fixture docked at the simulation's spawn: the
 /// default seed's first dock, which is where every fixture world starts.

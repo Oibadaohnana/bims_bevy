@@ -526,7 +526,10 @@ pub fn heal_beam(painter: &egui::Painter, from: egui::Pos2, to: egui::Pos2, scal
 /// than the medic's beam, in the same green.
 pub fn healing_line(painter: &egui::Painter, from: egui::Pos2, to: egui::Pos2, scale: f32) {
     let thin = (1.1 * scale).clamp(1.0, 2.0);
-    painter.line_segment([from, to], egui::Stroke::new(thin, HEAL.gamma_multiply(0.75)));
+    painter.line_segment(
+        [from, to],
+        egui::Stroke::new(thin, HEAL.gamma_multiply(0.75)),
+    );
     painter.circle_filled(to, thin * 1.6, HEAL.gamma_multiply(0.9));
 }
 
@@ -1013,11 +1016,17 @@ pub fn rampage_mark(painter: &egui::Painter, at: egui::Pos2, radius: f32) {
     for k in 0..3 {
         let y = at.y + r * (0.55 - 0.5 * k as f32);
         painter.line_segment(
-            [egui::pos2(at.x - r * 0.7, y), egui::pos2(at.x, y - r * 0.45)],
+            [
+                egui::pos2(at.x - r * 0.7, y),
+                egui::pos2(at.x, y - r * 0.45),
+            ],
             stroke,
         );
         painter.line_segment(
-            [egui::pos2(at.x, y - r * 0.45), egui::pos2(at.x + r * 0.7, y)],
+            [
+                egui::pos2(at.x, y - r * 0.45),
+                egui::pos2(at.x + r * 0.7, y),
+            ],
             stroke,
         );
     }

@@ -175,7 +175,9 @@ pub enum Order {
     Rampage,
     /// A rank of the player's own ranked kit bought — `Command::RankUp`,
     /// Ctrl and a slot's key or a Ctrl-click on its box (task 124).
-    RankUp { ability_slot: u32 },
+    RankUp {
+        ability_slot: u32,
+    },
     /// The medic's heal beam linked to a crew member, or unlinked —
     /// `Command::Beam`, the E key over one (feature 76).
     Beam(Option<u32>),
@@ -463,10 +465,7 @@ impl Net {
                             Command::PickTalent { slot, level, side }
                         }
                         Order::Deploy { kind, x, y } => Command::Deploy { slot, kind, x, y },
-                        Order::Sentry { x, y } => Command::Sentry {
-                            slot,
-                            tile: (x, y),
-                        },
+                        Order::Sentry { x, y } => Command::Sentry { slot, tile: (x, y) },
                         Order::Emp { x, y } => Command::Emp { slot, x, y },
                         Order::PackUp(id) => Command::PackUp { slot, id },
                         Order::Brace(on) => Command::Brace { slot, on },

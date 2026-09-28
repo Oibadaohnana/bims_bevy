@@ -21,9 +21,10 @@ use physics::ResourceId;
 use crate::budget::Budget;
 use crate::parts::{Layer, PartKind, Rotation, covered, footprint, hangs_on_wall, wall_light_back};
 
-/// How many resources there are, which is how long [`ShipDesign::cargo`] is.
-/// `physics::ResourceId::ALL.len()`, written out because it sizes an array
-/// and an array length has to be a constant. `cargo_is_the_right_length`
+/// How many resource codes there are, which is how long
+/// [`ShipDesign::cargo`] is — the free ones counted (15 to 17, task 127), so
+/// a slot is a code. `physics::ResourceId::CODES`, written out because it
+/// sizes an array and an array length has to be a constant. `cargo_is_the_right_length`
 /// pins the two together.
 pub const CARGO_SLOTS: usize = 22;
 

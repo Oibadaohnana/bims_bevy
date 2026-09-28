@@ -273,16 +273,27 @@ fn the_engineer_climbs_sixteen_levels_and_buys_ranks_as_the_soldier_does() {
             ability_slot: ability_slot as u32,
         }])
     };
-    assert!(refused_with(&rank_up(&mut world, class::SLOT_R), Refusal::RankLocked));
+    assert!(refused_with(
+        &rank_up(&mut world, class::SLOT_R),
+        Refusal::RankLocked
+    ));
     let events = rank_up(&mut world, class::SLOT_Q);
     assert!(
         events.iter().any(|e| matches!(
             e,
-            WorldEvent::RankedUp { who: 0, ability_slot: 0, rank: 1, .. }
+            WorldEvent::RankedUp {
+                who: 0,
+                ability_slot: 0,
+                rank: 1,
+                ..
+            }
         )),
         "{events:?}"
     );
-    assert!(refused_with(&rank_up(&mut world, class::SLOT_C), Refusal::NoSkillPoint));
+    assert!(refused_with(
+        &rank_up(&mut world, class::SLOT_C),
+        Refusal::NoSkillPoint
+    ));
     level_up(&mut world, 0, 2);
     assert!(
         refused_with(&rank_up(&mut world, class::SLOT_Q), Refusal::RankLocked),
@@ -293,7 +304,10 @@ fn the_engineer_climbs_sixteen_levels_and_buys_ranks_as_the_soldier_does() {
     for _ in 1..4 {
         assert!(!refused(&rank_up(&mut world, class::SLOT_Q)));
     }
-    assert!(refused_with(&rank_up(&mut world, class::SLOT_Q), Refusal::TopRank));
+    assert!(refused_with(
+        &rank_up(&mut world, class::SLOT_Q),
+        Refusal::TopRank
+    ));
     assert_eq!(world.rank_of(0, class::SLOT_Q), 4);
     // The talents are no more the engineer's: nothing to pick.
     let events = world.step(&[Command::PickTalent {
@@ -367,7 +381,11 @@ fn no_kit_is_a_resource_any_more_and_nothing_was_renumbered() {
     for code in 15..=17 {
         assert_eq!(ResourceId::from_code(code), None, "{code} is left free");
     }
-    assert!(ResourceId::ALL.iter().all(|&id| !(15..=17).contains(&(id as u32))));
+    assert!(
+        ResourceId::ALL
+            .iter()
+            .all(|&id| !(15..=17).contains(&(id as u32)))
+    );
     assert_eq!(ResourceId::ALL.len(), 19);
     assert_eq!(ResourceId::CODES, 22);
     assert_eq!(shipdesign::CARGO_SLOTS, ResourceId::CODES);
@@ -400,7 +418,11 @@ fn charges_restock_as_counters_on_their_cooldown() {
     run_for_seconds(&mut world, cooldown);
     assert_eq!(world.charges_of(0, Charge::Sandbag), 2);
     run_for_seconds(&mut world, cooldown * 2.0);
-    assert_eq!(world.charges_of(0, Charge::Sandbag), 2, "never past its charges");
+    assert_eq!(
+        world.charges_of(0, Charge::Sandbag),
+        2,
+        "never past its charges"
+    );
     // The counter is in the checksum.
     let before = world_checksum(&world);
     world.set_charges_held(0, Charge::Sandbag, 1);
@@ -415,7 +437,10 @@ fn laying_or_throwing_lowers_the_counter() {
     ranks(&mut world, 0, [1, 1, 1, 0]);
     let tile = tile_near(&world, 0, DeployKind::Sandbags);
     deploy_now(&mut world, 0, DeployKind::Sandbags, tile);
-    assert_eq!(world.charges_of(0, Charge::Sandbag), class::SANDBAG_CHARGES[0] - 1);
+    assert_eq!(
+        world.charges_of(0, Charge::Sandbag),
+        class::SANDBAG_CHARGES[0] - 1
+    );
     let tile = tile_near(&world, 0, DeployKind::HealingSentry);
     deploy_now(&mut world, 0, DeployKind::HealingSentry, tile);
     assert_eq!(world.charges_of(0, Charge::HealingSentry), 0);
@@ -448,7 +473,11 @@ fn pack_up_returns_a_charge_capped_and_laying_is_nobody_s_experience() {
         "{events:?}"
     );
     assert!(world.deployable(id).is_none());
-    assert_eq!(world.charges_of(0, Charge::Sandbag), full, "the charge back");
+    assert_eq!(
+        world.charges_of(0, Charge::Sandbag),
+        full,
+        "the charge back"
+    );
     // Laid again from the charge got back, and packed up with the counter
     // full: the bags come up, the counter stays at its charges.
     let (_, id) = deploy_now(&mut world, 0, DeployKind::Sandbags, tile);
@@ -541,7 +570,10 @@ fn an_emp_has_the_grenade_s_range_and_fuse_and_its_refusals() {
         world.can_throw_emp(0, far),
         Err(Refusal::OutOfThrowRange | Refusal::CantThrowThere | Refusal::NoLineToTile)
     ));
-    assert_eq!(world.can_throw_emp(0, (-50, -50)), Err(Refusal::CantThrowThere));
+    assert_eq!(
+        world.can_throw_emp(0, (-50, -50)),
+        Err(Refusal::CantThrowThere)
+    );
     // Thrown: on the grenade's fuse, with no damage in it (that a burst
     // lands no hit is the room's test, `droid::tests`).
     let events = world.step(&[Command::Emp {
@@ -549,7 +581,11 @@ fn an_emp_has_the_grenade_s_range_and_fuse_and_its_refusals() {
         x: tile.0,
         y: tile.1,
     }]);
-    assert!(events.iter().any(|e| matches!(e, WorldEvent::EmpThrown { who: 0 })));
+    assert!(
+        events
+            .iter()
+            .any(|e| matches!(e, WorldEvent::EmpThrown { who: 0 }))
+    );
     let thrown = world.aboard.room.grenades()[0];
     assert_eq!(thrown.fuse, class::GRENADE_FUSE);
     assert_eq!(thrown.stun, class::EMP_STUN[0]);
@@ -583,7 +619,11 @@ fn an_emp_s_radius_stun_charges_and_cooldown_are_its_rank_s() {
         assert_eq!(world.emp_stun(0), stun, "rank {rank}");
         assert_eq!(world.charges(0, Charge::Emp), charges, "rank {rank}");
         assert_eq!(world.charges_of(0, Charge::Emp), charges, "in hand");
-        assert_eq!(world.charge_cooldown(0, Charge::Emp), cooldown, "rank {rank}");
+        assert_eq!(
+            world.charge_cooldown(0, Charge::Emp),
+            cooldown,
+            "rank {rank}"
+        );
     }
 }
 
@@ -614,10 +654,16 @@ fn every_machine_kind_in_the_radius_is_stunned_and_none_outside_it() {
             bims::math::vec2(0.0, 12.0 * TILE),
         );
         let apart = (machine_on_deck(&world, far) - machine_on_deck(&world, 0)).len();
-        assert!(apart > world.emp_radius(0) * TILE + TILE, "{kind:?}: {apart}");
+        assert!(
+            apart > world.emp_radius(0) * TILE + TILE,
+            "{kind:?}: {apart}"
+        );
         emp_on_the_machine(&mut world);
         assert!(machine(&world, 0).is_stunned(), "{kind:?} in the radius");
-        assert!(!machine(&world, far).is_stunned(), "{kind:?}: the one outside");
+        assert!(
+            !machine(&world, far).is_stunned(),
+            "{kind:?}: the one outside"
+        );
     }
 }
 
@@ -763,7 +809,10 @@ fn rank_four_s_extra_damage_is_only_while_stunned() {
     assert_eq!(taken(&mut world), plain, "a lower rank's stun adds nothing");
     machine_mut(&mut world, 0).stun(2.0, true);
     let exposed = taken(&mut world);
-    assert!((exposed - plain * 1.25).abs() < 1e-3, "{exposed} against {plain}");
+    assert!(
+        (exposed - plain * 1.25).abs() < 1e-3,
+        "{exposed} against {plain}"
+    );
     let d = machine_mut(&mut world, 0);
     d.wear_off_stun(5.0);
     assert_eq!(taken(&mut world), plain, "and none once the stun is over");
@@ -779,7 +828,10 @@ fn healing(rank: u8) -> (World, u32, bims::math::Vec2) {
     let tile = tile_near(&world, 0, DeployKind::HealingSentry);
     let (_, id) = deploy_now(&mut world, 0, DeployKind::HealingSentry, tile);
     let at = centre(tile);
-    let beside = world.aboard.room.put_for_probe(1, at + bims::math::vec2(TILE, 0.0));
+    let beside = world
+        .aboard
+        .room
+        .put_for_probe(1, at + bims::math::vec2(TILE, 0.0));
     assert!((beside - at).len() < 3.0 * TILE);
     world.aboard.room.set_health_for_probe(1, 40.0);
     (world, id, at)
@@ -794,12 +846,19 @@ fn a_healing_sentry_heals_at_its_rank_s_share_of_the_beam() {
         let before = world.aboard.room.health(1);
         let steps = 120;
         for _ in 0..steps {
-            world.aboard.room.put_for_probe(1, world.aboard.room.bim_pos(1));
+            world
+                .aboard
+                .room
+                .put_for_probe(1, world.aboard.room.bim_pos(1));
             world.step(&[]);
         }
         let got = world.aboard.room.health(1) - before;
         let want = share * class::HEAL_BEAM_HP * (data::STEP_MINUTES / 60.0) as f32 * steps as f32;
-        assert!((got - want).abs() < 0.05, "rank {}: {got} against {want}", i + 1);
+        assert!(
+            (got - want).abs() < 0.05,
+            "rank {}: {got} against {want}",
+            i + 1
+        );
     }
     // Never above full.
     let (mut world, _, _) = healing(4);
@@ -818,7 +877,12 @@ fn a_healing_sentry_heals_at_its_rank_s_share_of_the_beam() {
 #[test]
 fn a_healing_sentry_heals_nobody_behind_a_wall_down_or_an_enemy() {
     let (mut world, id, at) = healing(4);
-    assert!(world.healing_links().iter().any(|&(s, who, _)| s == id && who == 1));
+    assert!(
+        world
+            .healing_links()
+            .iter()
+            .any(|&(s, who, _)| s == id && who == 1)
+    );
     // Downed: nothing.
     world.aboard.room.knock_out_for_probe(1);
     world.step(&[]);
@@ -845,14 +909,20 @@ fn a_healing_sentry_heals_nobody_behind_a_wall_down_or_an_enemy() {
     }
     let hidden = hidden.expect("a tile behind a wall within the radius");
     let put = world.aboard.room.put_for_probe(1, hidden);
-    assert!(!world.aboard.room.line_clear(at, put), "Kate out of its sight");
+    assert!(
+        !world.aboard.room.line_clear(at, put),
+        "Kate out of its sight"
+    );
     world.aboard.room.set_health_for_probe(1, 40.0);
     assert!(world.healing_links().iter().all(|&(_, who, _)| who != 1));
     world.aboard.room.put_for_probe(1, hidden);
     world.step(&[]);
     assert_eq!(world.aboard.room.health(1), 40.0, "not through a wall");
     // And in its sight, the same distance off, she is healed.
-    let seen = world.aboard.room.put_for_probe(1, at + bims::math::vec2(0.0, 0.0) + (hidden - at).normalize_or_zero() * TILE);
+    let seen = world.aboard.room.put_for_probe(
+        1,
+        at + bims::math::vec2(0.0, 0.0) + (hidden - at).normalize_or_zero() * TILE,
+    );
     if world.aboard.room.line_clear(at, seen) {
         assert!(world.healing_links().iter().any(|&(_, who, _)| who == 1));
     }
@@ -872,7 +942,10 @@ fn two_healing_sentries_do_not_stack() {
     ranks(&mut world, 1, [0, 2, 0, 0]);
     let tile = tile_near(&world, 0, DeployKind::HealingSentry);
     deploy_now(&mut world, 0, DeployKind::HealingSentry, tile);
-    world.aboard.room.put_for_probe(1, world.aboard.room.bim_pos(0));
+    world
+        .aboard
+        .room
+        .put_for_probe(1, world.aboard.room.bim_pos(0));
     world.step(&[]);
     let tile = tile_near(&world, 1, DeployKind::HealingSentry);
     deploy_now(&mut world, 1, DeployKind::HealingSentry, tile);
@@ -894,7 +967,10 @@ fn two_healing_sentries_do_not_stack() {
     let got = world.aboard.room.health(1) - before;
     let best = class::HEALING_SENTRY_RATE[1] * class::HEAL_BEAM_HP;
     let want = best * (data::STEP_MINUTES / 60.0) as f32 * steps as f32;
-    assert!((got - want).abs() < 0.05, "{got} against the best alone, {want}");
+    assert!(
+        (got - want).abs() < 0.05,
+        "{got} against the best alone, {want}"
+    );
 }
 
 /// **Its charges are the standing limit**, and **enemies destroy it**
@@ -979,7 +1055,10 @@ fn sandbags_charges_health_time_and_cooldown_are_their_rank_s() {
         let tile = tile_near(&world, 0, DeployKind::Sandbags);
         let (steps, id) = deploy_now(&mut world, 0, DeployKind::Sandbags, tile);
         let work = (minutes / data::STEP_MINUTES) as u32;
-        assert!(steps >= work, "rank {rank}: {steps} steps for {work} of work");
+        assert!(
+            steps >= work,
+            "rank {rank}: {steps} steps for {work} of work"
+        );
         let laid = world.deployable(id).unwrap();
         assert_eq!(laid.health, health, "rank {rank}");
         assert_eq!(laid.deck, Deck::Ship);
@@ -1012,9 +1091,11 @@ fn tile_with_room_round(world: &World) -> (i32, i32) {
     tiles_near(world, 0, DeployKind::Sandbags)
         .into_iter()
         .find(|&(x, y)| {
-            [(0, -1), (1, 0), (0, 1), (-1, 0)]
-                .iter()
-                .all(|&(dx, dy)| world.can_deploy(0, DeployKind::Sandbags, (x + dx, y + dy)).is_ok())
+            [(0, -1), (1, 0), (0, 1), (-1, 0)].iter().all(|&(dx, dy)| {
+                world
+                    .can_deploy(0, DeployKind::Sandbags, (x + dx, y + dy))
+                    .is_ok()
+            })
         })
         .expect("a tile with room round it")
 }
@@ -1034,7 +1115,13 @@ fn rank_four_lays_a_second_bag_north_east_south_west_and_one_when_none_is_free()
     assert_eq!(world.charges_of(0, Charge::Sandbag), 3, "one charge spent");
     // In the ship's design the tiles are the room's less a shift, the same
     // for both.
-    assert_eq!((second.0 as i64 - first.0 as i64, second.1 as i64 - first.1 as i64), (0, -1));
+    assert_eq!(
+        (
+            second.0 as i64 - first.0 as i64,
+            second.1 as i64 - first.1 as i64
+        ),
+        (0, -1)
+    );
     // North taken: the next laid east of its tile.
     let mut world = engineer_at(4);
     ranks(&mut world, 0, [4, 4, 1, 4]);
@@ -1042,8 +1129,15 @@ fn rank_four_lays_a_second_bag_north_east_south_west_and_one_when_none_is_free()
     ranks(&mut world, 0, [4, 4, 4, 4]);
     world.set_charges_held(0, Charge::Sandbag, 4);
     let (_, id) = deploy_now(&mut world, 0, DeployKind::Sandbags, (x, y));
-    let (a, b) = (tile_of(&world, id - 1).unwrap(), tile_of(&world, id).unwrap());
-    assert_eq!((b.0 as i64 - a.0 as i64, b.1 as i64 - a.1 as i64), (1, 0), "east");
+    let (a, b) = (
+        tile_of(&world, id - 1).unwrap(),
+        tile_of(&world, id).unwrap(),
+    );
+    assert_eq!(
+        (b.0 as i64 - a.0 as i64, b.1 as i64 - a.1 as i64),
+        (1, 0),
+        "east"
+    );
     // Every neighbour taken: one bag.
     let mut world = engineer_at(4);
     ranks(&mut world, 0, [4, 4, 1, 4]);
@@ -1073,7 +1167,14 @@ fn laid_sandbags_are_cover_in_both_rooms_and_survive_a_relayout() {
     let far_south = at + bims::math::vec2(0.0, 6.0 * TILE);
     assert!(world.aboard.room.covered_for_probe(north, far_south));
     assert_eq!(
-        world.residents.as_ref().unwrap().aboard.room.laid_cover().len(),
+        world
+            .residents
+            .as_ref()
+            .unwrap()
+            .aboard
+            .room
+            .laid_cover()
+            .len(),
         1,
         "mirrored onto the residents' deck"
     );
@@ -1125,7 +1226,11 @@ fn the_sentry_s_weapon_rate_health_and_time_are_its_rank_s() {
         let rank = i as u8 + 1;
         let mut world = engineer();
         ranks(&mut world, 0, [0, 0, 0, rank]);
-        assert_eq!(world.sentry_weapon(0), WeaponKind::Minigun.at(tier), "rank {rank}");
+        assert_eq!(
+            world.sentry_weapon(0),
+            WeaponKind::Minigun.at(tier),
+            "rank {rank}"
+        );
         assert_eq!(world.sentry_skill(0).fire_rate, rate);
         assert_eq!(world.laid_health(DeployKind::Sentry, 0), health);
         assert_eq!(world.sentry_seconds(0), seconds);
@@ -1149,7 +1254,10 @@ fn the_sentry_is_laid_through_a_hit_stands_its_time_and_is_never_packed_up() {
     world.step(&[]);
     assert!(world.aboard.room.is_deploying(0));
     world.aboard.room.wound(0, Part::Body, 5.0);
-    assert!(world.aboard.room.is_deploying(0), "a hit does not interrupt it");
+    assert!(
+        world.aboard.room.is_deploying(0),
+        "a hit does not interrupt it"
+    );
     assert_eq!(world.sentry_cooldown_left(0), 0.0, "not laid yet");
     let mut laid = None;
     for _ in 0..20_000 {
@@ -1230,7 +1338,10 @@ fn the_sentry_is_ready_at_the_start_of_every_mission() {
     assert_eq!(world.run.phase, Phase::Mission);
     assert_eq!(world.sentry_cooldown_left(0), 0.0, "ready");
     assert!(
-        world.deployables.iter().all(|d| d.kind != DeployKind::Sentry),
+        world
+            .deployables
+            .iter()
+            .all(|d| d.kind != DeployKind::Sentry),
         "the last mission's sentry gone"
     );
 }

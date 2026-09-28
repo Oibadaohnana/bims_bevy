@@ -619,10 +619,7 @@ const SANDBAGS_WHAT: &str = "Lay sandbags on the deck tile under the pointer: lo
 /// What each box says when it is rested on.
 pub const ABILITY_TIPS: [[&str; 2]; 6] = [
     ["", ""],
-    [
-        EMP_WHAT,
-        SANDBAGS_WHAT,
-    ],
+    [EMP_WHAT, SANDBAGS_WHAT],
     [
         "Throw a grenade at the deck tile under the pointer — in range, with nothing solid in the way. It bursts two seconds later and hurts whoever is near it, yours as well as theirs. The number is the grenades in the pack.",
         "Brace where you stand: steadier shooting and no errands until you stand easy. The key again stands easy, and so does any order that moves you.",
@@ -683,14 +680,26 @@ pub fn ranked_ability(class: world::Class, slot: u8) -> &'static str {
 /// What a ranked ability does, in a sentence, whatever its rank.
 pub fn ranked_what(class: world::Class, slot: u8) -> &'static str {
     match (class, slot) {
-        (world::Class::Soldier, 0) => "Throw a grenade at the deck tile under the pointer — in range, with nothing solid in the way. It bursts two seconds later and hurts whoever is near it, yours as well as theirs; half at the edge of the burst.",
-        (world::Class::Soldier, 1) => "Passive. Every bolt and every blow you land on an enemy may strike a weak spot: a critical hit, a share of the weapon's own damage added on top. A grenade never does.",
-        (world::Class::Soldier, 2) => "Brace where you stand: steadier aim — fewer misses, near and far — and less damage taken, and no errands until you stand easy. The key again stands easy, and so does any order that moves you.",
-        (world::Class::Soldier, 3) => "Your ultimate. For a while you fire faster, take less, and aim on the move as well as standing still. Braced as well, you keep both.",
+        (world::Class::Soldier, 0) => {
+            "Throw a grenade at the deck tile under the pointer — in range, with nothing solid in the way. It bursts two seconds later and hurts whoever is near it, yours as well as theirs; half at the edge of the burst."
+        }
+        (world::Class::Soldier, 1) => {
+            "Passive. Every bolt and every blow you land on an enemy may strike a weak spot: a critical hit, a share of the weapon's own damage added on top. A grenade never does."
+        }
+        (world::Class::Soldier, 2) => {
+            "Brace where you stand: steadier aim — fewer misses, near and far — and less damage taken, and no errands until you stand easy. The key again stands easy, and so does any order that moves you."
+        }
+        (world::Class::Soldier, 3) => {
+            "Your ultimate. For a while you fire faster, take less, and aim on the move as well as standing still. Braced as well, you keep both."
+        }
         (world::Class::Engineer, 0) => EMP_WHAT,
-        (world::Class::Engineer, 1) => "Lay a Healing Sentry on the deck tile under the pointer: a sentry with no barrel that heals every crewmate on their feet within its reach and in its sight, up to a full bar. Several reaching one crewmate do not add up. Your charges are how many may stand: one more laid takes down your oldest. The enemy shoots at it. Packed up from the Nearby strip; a hit on you while you lay it stops the laying.",
+        (world::Class::Engineer, 1) => {
+            "Lay a Healing Sentry on the deck tile under the pointer: a sentry with no barrel that heals every crewmate on their feet within its reach and in its sight, up to a full bar. Several reaching one crewmate do not add up. Your charges are how many may stand: one more laid takes down your oldest. The enemy shoots at it. Packed up from the Nearby strip; a hit on you while you lay it stops the laying."
+        }
         (world::Class::Engineer, 2) => SANDBAGS_WHAT,
-        (world::Class::Engineer, 3) => "Your ultimate. Lay a sentry with a minigun on the deck tile under the pointer: it shoots for itself at whatever it can see until its time runs out or it is shot down. One stands at a time and it is never packed up. A hit does not stop the laying; the cooldown runs from the moment it is laid, and it is ready at every mission's start.",
+        (world::Class::Engineer, 3) => {
+            "Your ultimate. Lay a sentry with a minigun on the deck tile under the pointer: it shoots for itself at whatever it can see until its time runs out or it is shot down. One stands at a time and it is never packed up. A hit does not stop the laying; the cooldown runs from the moment it is laid, and it is ready at every mission's start."
+        }
         _ => "",
     }
 }
@@ -708,7 +717,11 @@ pub fn rank_numbers(class: world::Class, slot: u8, rank: u8) -> Option<String> {
             fig(c::GRENADE_DAMAGE[r] as f64),
             fig(c::GRENADE_RADIUS[r] as f64),
             c::GRENADE_CHARGES[r],
-            if c::GRENADE_CHARGES[r] == 1 { "charge" } else { "charges" },
+            if c::GRENADE_CHARGES[r] == 1 {
+                "charge"
+            } else {
+                "charges"
+            },
             fig(c::GRENADE_COOLDOWN[r])
         ),
         (world::Class::Soldier, 1) => format!(
@@ -722,7 +735,10 @@ pub fn rank_numbers(class: world::Class, slot: u8, rank: u8) -> Option<String> {
                 line.push_str(", and you aim as well at the edge of your range as up close");
             }
             if c::BRACE_DAMAGE_TAKEN[r] < 1.0 {
-                line.push_str(&format!(", damage taken {}", by(c::BRACE_DAMAGE_TAKEN[r] as f64)));
+                line.push_str(&format!(
+                    ", damage taken {}",
+                    by(c::BRACE_DAMAGE_TAKEN[r] as f64)
+                ));
             }
             line
         }
@@ -732,7 +748,11 @@ pub fn rank_numbers(class: world::Class, slot: u8, rank: u8) -> Option<String> {
                 fig(c::EMP_RADIUS[r] as f64),
                 fig(c::EMP_STUN[r] as f64),
                 c::EMP_CHARGES[r],
-                if c::EMP_CHARGES[r] == 1 { "charge" } else { "charges" },
+                if c::EMP_CHARGES[r] == 1 {
+                    "charge"
+                } else {
+                    "charges"
+                },
                 fig(c::EMP_COOLDOWN[r])
             );
             if rank >= c::EMP_EXPOSE_RANK {
@@ -976,10 +996,36 @@ pub const TALENT_NAMES: [&str; 69] = [
 pub const TALENT_TIPS: [&str; 69] = [
     // 0 to 13 were the engineer's talents, gone with its ranked kit
     // (task 127): the codes stay free, and so do their places here.
-    "", "", "", "", "", "", "", "", "", "", "", "", "", "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
     // 14 to 27 were the soldier's talents, gone with its ranked kit (task
     // 124): the codes stay free, and so do their places here.
-    "", "", "", "", "", "", "", "", "", "", "", "", "", "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
     TALENT_NO_EFFECT,
     TALENT_NO_EFFECT,
     "The heal beam reaches half again as far.",
@@ -3435,7 +3481,7 @@ mod tests {
             let places = world::Talent::ALL.iter().map(|t| t.code()).max().unwrap() as usize + 1;
             assert_eq!(TALENT_NAMES.len(), places);
             assert_eq!(TALENT_TIPS.len(), places);
-            assert_eq!(DEPLOYABLE_NAMES.len(), 2);
+            assert_eq!(DEPLOYABLE_NAMES.len(), world::DeployKind::ALL.len());
             // The two boxes at the foot of the screen: a name and a tip
             // for every class's two keys, and none for the classless
             // one, which has no keys (feature 80).

@@ -1,140 +1,121 @@
-//! Deployables: what an engineer lays on a deck (feature 74).
+//! Deployables: what an engineer lays on a deck (feature 74, task 127).
 //!
 //! A [`Deployable`] is a **room object, never a part of the ship**: it
 //! never touches the design, its hash, its mass or its flight. The world
 //! keeps the list ([`crate::World::deployables`], saved and in
 //! `world_checksum`), each one a kind, whose it is, which deck it stands
-//! on and which tile of that deck's design, and what it has left.
+//! on and which tile of that deck's design, what it has left, and — for
+//! the ultimate's sentry — when it goes.
 //!
-//! # Two kinds
+//! # Three kinds
 //!
-//! **Sandbags** are the sandbag part's cover, laid: a tile of low cover
-//! (`bims::sight::Sight::set_laid_cover`) a body ducks behind, on
+//! **Sandbags** (E) are the sandbag part's cover, laid: a tile of low
+//! cover (`bims::sight::Sight::set_laid_cover`) a body ducks behind, on
 //! **both** rooms of a docked fight — the crew's, and the residents' with
 //! its mirror of the ship — said again after every relayout, join and
 //! unjoin, since a fresh `Sight` starts with none. Enemies using them as
-//! cover is intended. They have [`SANDBAG_HEALTH`], and every bolt a body
-//! dodges behind them lands *in* them (`Game::take_cover_hits`); at
-//! nothing they are gone.
+//! cover is intended. They have `class::SANDBAG_HEALTH` of the rank, and
+//! every bolt a body dodges behind them lands *in* them
+//! (`Game::take_cover_hits`); at nothing they are gone. There is no limit
+//! on how many stand, and from `class::SANDBAG_DOUBLE_RANK` one charge
+//! lays two tiles — the second on the first free neighbour, north, east,
+//! south, west.
 //!
-//! A **sentry** is a shooter with no body — `bims::combat::Sentry`,
-//! handed to the crew's room every step and fired there through the one
-//! trigger and the one hit calculation a Bim uses — with
-//! [`SENTRY_HEALTH`] in one pool, no parts and no armour, and the auto
-//! rifle's stats at the tier its owner's level gives, or a **tier-three
-//! sniper rifle** with *sentry mark III*. It fires at the nearest visible
-//! enemy in range for as long as it stands: **nothing in this game
-//! carries ammunition** (feature 88), so there are no shots to count and
-//! no refill. The enemies' nearest-target rule includes it: a station's
-//! people are handed the sentries after the crew, their hits drain its
-//! health, and at nought it is destroyed and removed.
+//! A **Healing Sentry** (C) is a sentry body with no barrel: each step it
+//! heals every crew Bim on its feet, short of its full bar, within
+//! `class::HEALING_SENTRY_RADIUS` and in its sight from its tile, at
+//! `class::HEALING_SENTRY_RATE` of the medic's beam — several reaching
+//! one Bim do not stack, the highest rate applies (`World::healing_links`).
+//! It never heals an enemy, never revives and never mends a deployable.
+//! Its charges are the standing limit: one more laid destroys that
+//! engineer's oldest.
 //!
-//! # Charges, not crafting (feature 88)
+//! The **sentry** (R, the engineer's ultimate) is a shooter with no body
+//! — `bims::combat::Sentry`, handed to the crew's room every step and
+//! fired there through the one trigger and the one hit calculation a Bim
+//! uses — a minigun at `class::SENTRY_TIER` of the rank, its fire rate
+//! times `class::SENTRY_FIRE_RATE`, `class::SENTRY_HEALTH` in one pool.
+//! One stands at a time; it is removed when `class::SENTRY_SECONDS` of
+//! the mission clock have run ([`Deployable::expires`]), when it is
+//! destroyed, or when the rooms unjoin. It cannot be packed up.
 //!
-//! An engineer does not make its kits: it has **charges**, and a charge
-//! that has been spent comes back into its pack on a cooldown.
-//! [`SANDBAG_CHARGES`] dressings' worth of sandbag kits (one more with
-//! *extra bags*) at [`SANDBAG_COOLDOWN`] a charge, and
-//! [`SENTRY_CHARGES`] sentry kit at [`SENTRY_COOLDOWN`] (two with
-//! *second sentry*). `World::restock_charges` runs every step — for the
-//! soldier's grenades too since feature 90, a kit being one
-//! [`crate::class::Charge`] among three: while an engineer holds fewer
-//! kits of a kind than its charges, a cooldown runs, and when it runs
-//! out one kit goes into the pack — which is what "the skill cooldown
-//! dropping to nought" means here, since the kit in the pack is what
-//! the ability spends.
+//! Both sentries are the enemies' targets: a station's people and its
+//! machines are handed them after the crew, their hits drain its health,
+//! and at nought it is destroyed and removed.
 //!
-//! **The sentry charges are also the world limit.** Laying a sentry with
-//! as many standing as the engineer has charges **destroys the oldest**
-//! rather than being refused, so an engineer's sentries can be moved
-//! about the deck freely and never outnumber its charges. Sandbags have
-//! no such limit: every bag laid stays until it is shot to pieces or
-//! packed up.
+//! # Charges are counters, and there are no kits (task 127)
+//!
+//! What sandbags, a Healing Sentry and an EMP spend is a
+//! `class::Charge`: a **counter** a crew member, kept by the world
+//! (`World::charges_held`), never a thing in a pack. A spent charge
+//! comes back on its rank's cooldown (`World::restock_charges`). The
+//! ultimate's sentry spends no charge: it is on a cooldown of its own,
+//! counted from the laying (`crate::engineer::Engineer`).
 //!
 //! # Laying one, and taking it up
 //!
-//! `Command::Deploy` wants the slot's own Bim fit to act, an engineer,
-//! the kit in its pack — `ResourceId::SandbagKit` or `SentryKit` — and a
-//! tile of reachable deck floor that is not a door
-//! or an airlock, holds no blocking part and no deployable. The Bim does
-//! it as an errand (`bims::task::Kind::Deploy`): it walks beside the
-//! tile and works [`DEPLOY_SANDBAG_MINUTES`] or [`DEPLOY_SENTRY_MINUTES`]
-//! there, `effort` applying; a hit on it drops the errand and the kit
-//! stays in the pack. The kit leaves the pack only when the work is done.
-//! `Command::PackUp` is an engineer beside one taking it back as a kit,
-//! counted in `World::reused_kits`: a kit laid again gives no experience.
+//! `Command::Deploy` (sandbags, a Healing Sentry) and `Command::Sentry`
+//! want the slot's own Bim fit to act, an engineer, the ability learnt,
+//! a charge (or the ultimate ready), and a tile of reachable deck floor
+//! that is not a door or an airlock, holds no blocking part and no
+//! deployable. The Bim does it as an errand (`bims::task::Kind::Deploy`):
+//! it walks beside the tile and works the rank's minutes there, `effort`
+//! applying; a hit on it drops the errand for sandbags and a Healing
+//! Sentry, never for the sentry. The charge is spent only when the work
+//! is done. `Command::PackUp` is an engineer beside one of the crew's
+//! sandbags or Healing Sentries taking it up and getting that charge
+//! back, capped at its charges.
 //!
 //! # Lifetime
 //!
-//! On the ship's deck a deployable stays until packed up or destroyed —
-//! across docking, undocking, joins and unjoins — so a crew can prepare
-//! for the next site on the way to it. On a station's deck it is lost
-//! when the rooms unjoin.
+//! On the ship's deck sandbags and a Healing Sentry stay until packed
+//! up or destroyed — across docking, undocking, joins and unjoins — so a
+//! crew can prepare for the next site on the way to it. On a station's
+//! deck every deployable is lost when the rooms unjoin, and the
+//! ultimate's sentry is taken off at every mission's start.
 
-use physics::ResourceId;
+use crate::class::Charge;
 
-/// A kit in a pack: which of the two.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-#[repr(u32)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub enum Kit {
-    Sandbag = 0,
-    Sentry = 1,
-}
-
-impl Kit {
-    pub const ALL: [Kit; 2] = [Kit::Sandbag, Kit::Sentry];
-
-    pub fn code(self) -> u32 {
-        self as u32
-    }
-
-    pub fn from_code(code: u32) -> Option<Kit> {
-        Kit::ALL.get(code as usize).copied()
-    }
-
-    /// The resource the kit is in the hold and the pack.
-    pub fn resource(self) -> ResourceId {
-        match self {
-            Kit::Sandbag => ResourceId::SandbagKit,
-            Kit::Sentry => ResourceId::SentryKit,
-        }
-    }
-
-    /// The kit a resource is, if it is one.
-    pub fn of_resource(resource: ResourceId) -> Option<Kit> {
-        Kit::ALL.into_iter().find(|k| k.resource() == resource)
-    }
-
-    /// What it lays.
-    pub fn lays(self) -> DeployKind {
-        match self {
-            Kit::Sandbag => DeployKind::Sandbags,
-            Kit::Sentry => DeployKind::Sentry,
-        }
-    }
-}
-
-/// What a deployable is.
+/// What a deployable is. Codes cross the seam and are never renumbered.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 #[repr(u32)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum DeployKind {
     Sandbags = 0,
+    /// The ultimate's sentry (R).
     Sentry = 1,
+    /// The Healing Sentry (C, task 127).
+    HealingSentry = 2,
 }
 
 impl DeployKind {
+    pub const ALL: [DeployKind; 3] = [
+        DeployKind::Sandbags,
+        DeployKind::Sentry,
+        DeployKind::HealingSentry,
+    ];
+
     pub fn code(self) -> u32 {
         self as u32
     }
 
-    /// The kit it packs up into.
-    pub fn kit(self) -> Kit {
+    pub fn from_code(code: u32) -> Option<DeployKind> {
+        DeployKind::ALL.get(code as usize).copied()
+    }
+
+    /// The charge it is laid from and packs up into, or `None` for the
+    /// ultimate's sentry, which is on a cooldown and is never packed up.
+    pub fn charge(self) -> Option<Charge> {
         match self {
-            DeployKind::Sandbags => Kit::Sandbag,
-            DeployKind::Sentry => Kit::Sentry,
+            DeployKind::Sandbags => Some(Charge::Sandbag),
+            DeployKind::HealingSentry => Some(Charge::HealingSentry),
+            DeployKind::Sentry => None,
         }
+    }
+
+    /// Whether it is one of the two sentries: a body the enemies aim at.
+    pub fn is_sentry(self) -> bool {
+        matches!(self, DeployKind::Sentry | DeployKind::HealingSentry)
     }
 }
 
@@ -164,50 +145,38 @@ pub struct Deployable {
     /// Its identity: ids only climb and are never reissued, like a site's.
     pub id: u32,
     pub kind: DeployKind,
-    /// The slot whose engineer laid it: whose talents a sentry fires with.
+    /// The slot whose engineer laid it: whose ranks a sentry fires and
+    /// heals with.
     pub owner_slot: u32,
     pub deck: Deck,
     /// The tile of that deck's design it stands on.
     pub tile: (u32, u32),
-    /// What it has left: [`SANDBAG_HEALTH`] or [`SENTRY_HEALTH`], plus or
-    /// times what the owner's talents made of it when laid.
+    /// What it has left: its kind's health of the owner's rank when laid.
     pub health: f32,
+    /// The mission minute it is removed at — the ultimate's sentry, its
+    /// rank's `class::SENTRY_SECONDS` after it was laid — or `None` for
+    /// one that stands until it is destroyed or packed up.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub expires: Option<f64>,
 }
-
-/// How long laying sandbags takes, in game minutes of working steps.
-pub const DEPLOY_SANDBAG_MINUTES: f64 = 4.0;
-/// How long laying a sentry takes, the same way.
-pub const DEPLOY_SENTRY_MINUTES: f64 = 8.0;
-/// What laid sandbags can take before they are gone — each bag its own
-/// pool, and gone for good at nothing.
-pub const SANDBAG_HEALTH: f32 = 200.0;
-/// A sentry's health: one pool, no parts, no armour.
-pub const SENTRY_HEALTH: f32 = 60.0;
-/// **Sandbag charges** an engineer has (feature 88): how many sandbag
-/// kits its pack fills back up to, and what it sets out with. One more
-/// with *extra bags*. There is no world limit on bags laid.
-pub const SANDBAG_CHARGES: u32 = 3;
-/// **Sentry charges**: one, two with *second sentry* — and the number of
-/// sentries that engineer may have standing, a further one laid
-/// destroying its oldest.
-pub const SENTRY_CHARGES: u32 = 1;
-/// Seconds of the clock one spent sandbag charge takes to come back.
-pub const SANDBAG_COOLDOWN: f64 = 45.0;
-/// Seconds of the clock a spent sentry charge takes to come back.
-pub const SENTRY_COOLDOWN: f64 = 60.0;
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn a_kit_is_its_resource_and_lays_its_kind() {
-        for kit in Kit::ALL {
-            assert_eq!(Kit::from_code(kit.code()), Some(kit));
-            assert_eq!(Kit::of_resource(kit.resource()), Some(kit));
-            assert_eq!(kit.lays().kit(), kit);
+    fn a_kind_is_its_code_and_its_charge() {
+        for kind in DeployKind::ALL {
+            assert_eq!(DeployKind::from_code(kind.code()), Some(kind));
         }
-        assert_eq!(Kit::of_resource(ResourceId::Vegetable), None);
+        assert_eq!(DeployKind::Sandbags.charge(), Some(Charge::Sandbag));
+        assert_eq!(
+            DeployKind::HealingSentry.charge(),
+            Some(Charge::HealingSentry)
+        );
+        assert_eq!(DeployKind::Sentry.charge(), None, "never packed up");
+        assert!(DeployKind::Sentry.is_sentry() && DeployKind::HealingSentry.is_sentry());
+        assert!(!DeployKind::Sandbags.is_sentry());
         assert_eq!(Deck::Ship.code(), u32::MAX);
         assert_eq!(Deck::Station(7).code(), 7);
     }

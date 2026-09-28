@@ -62,7 +62,7 @@ impl LootSource {
 /// (`ArmourKind::resource`, since it does not know `physics`), and this is
 /// the code looked up.
 pub fn resource_of(kind: ArmourKind) -> ResourceId {
-    ResourceId::ALL[kind.resource() as usize]
+    ResourceId::from_code(kind.resource()).expect("every armour kind is a resource")
 }
 
 /// The kind of armour a resource is, if it is one.
@@ -86,7 +86,7 @@ pub fn weapon_resource(weapon: WeaponKind) -> ResourceId {
     let code = weapon
         .resource()
         .expect("a built-in arm is never a resource; see WeaponKind::carried");
-    ResourceId::ALL[code as usize]
+    ResourceId::from_code(code).expect("every carried weapon is a resource")
 }
 
 /// The weapon a resource is, if it is one.
@@ -110,6 +110,6 @@ pub fn resource_of_item(item: Item) -> Option<ResourceId> {
     match item {
         Item::Armour(piece) => Some(resource_of(piece.kind)),
         Item::Weapon(weapon) => Some(weapon_resource(weapon.kind)),
-        Item::Stack(code) => ResourceId::ALL.get(code as usize).copied(),
+        Item::Stack(code) => ResourceId::from_code(code),
     }
 }

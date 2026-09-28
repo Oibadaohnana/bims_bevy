@@ -197,10 +197,7 @@ pub fn tiered(resource: ResourceId) -> bool {
         | ResourceId::Medkit
         | ResourceId::Bandage
         | ResourceId::ResearchKey
-        | ResourceId::ResearchKeyTwo
-        | ResourceId::SandbagKit
-        | ResourceId::SentryKit
-        | ResourceId::Grenade => false,
+        | ResourceId::ResearchKeyTwo => false,
     }
 }
 
@@ -261,12 +258,6 @@ pub fn trade_price(resource: ResourceId) -> Money {
         ResourceId::ResearchKey => 5_000,
         // The tier-two key, off an enemy's desk: twice the tier-one's.
         ResourceId::ResearchKeyTwo => 10_000,
-        // A class's charges (features 88 and 90): they come back on a
-        // cooldown rather than being bought, and nobody stocks one, but a
-        // station will buy one off a pack and a price is what it pays.
-        ResourceId::SandbagKit => 60,
-        ResourceId::SentryKit => 880,
-        ResourceId::Grenade => 80,
     }
 }
 
@@ -296,10 +287,7 @@ pub fn storage(resource: ResourceId) -> Storage {
         | ResourceId::Minigun
         | ResourceId::RailLance
         | ResourceId::ArcGreaves
-        | ResourceId::ReflectivePlate
-        | ResourceId::SandbagKit
-        | ResourceId::SentryKit
-        | ResourceId::Grenade => Storage::Locker,
+        | ResourceId::ReflectivePlate => Storage::Locker,
         ResourceId::ResearchKey | ResourceId::ResearchKeyTwo => Storage::Research,
     }
 }
@@ -375,11 +363,6 @@ pub fn footprint(resource: ResourceId) -> Footprint {
         ResourceId::Suit => Footprint::new(3, 3),
         ResourceId::Medkit => Footprint::new(2, 2),
         ResourceId::Bandage => Footprint::new(2, 2),
-        // The engineer's kits: a sack of sandbags, a sentry's crate.
-        ResourceId::SandbagKit => Footprint::new(2, 2),
-        ResourceId::SentryKit => Footprint::new(2, 3),
-        // A grenade, one to a cell.
-        ResourceId::Grenade => Footprint::new(1, 1),
         // The food: a crate of vegetables, a block of tofu.
         ResourceId::Vegetable => Footprint::new(1, 2),
         ResourceId::Tofu => Footprint::new(4, 4),
@@ -413,10 +396,7 @@ pub fn stack_size(resource: ResourceId) -> u32 {
         | ResourceId::ArcGreaves
         | ResourceId::ReflectivePlate
         | ResourceId::ResearchKey
-        | ResourceId::ResearchKeyTwo
-        | ResourceId::SandbagKit
-        | ResourceId::SentryKit
-        | ResourceId::Grenade => 1,
+        | ResourceId::ResearchKeyTwo => 1,
     }
 }
 

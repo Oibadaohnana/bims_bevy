@@ -165,15 +165,23 @@ pub enum Kind {
     /// order would have posted it. Never a running chain: see
     /// `Step::GoToSpot` and `Game::pump_queue`.
     Walk { post: bool },
-    /// Laying an engineer's kit on the deck tile `(x, y)` — a room tile,
-    /// in tiles — as a deployable: sandbags, or a `sentry` (feature 74).
+    /// Laying one of an engineer's deployables on the deck tile `(x, y)`
+    /// — a room tile, in tiles — `kind` the world's code for what it is
+    /// (feature 74, task 127), which the room only carries back.
     /// The walk to a tile beside it and the minutes riding in
     /// `rest_minutes` of working steps at it, with `effort` on them the
     /// way a build's are. The room says it was laid on `Room::deployed`;
-    /// the world puts the deployable down and takes the kit from the
-    /// pack, so a deploy given up leaves the kit where it was. A hit on
-    /// the Bim drops it (`Game::strike`) unless its hands are steady.
-    Deploy { x: i32, y: i32, sentry: bool },
+    /// the world puts the deployable down and spends the charge then,
+    /// so a deploy given up has spent nothing. A hit on the Bim
+    /// drops it (`Game::strike`) unless it is `steady` — the engineer's
+    /// sentry — or its hands are.
+    Deploy {
+        x: i32,
+        y: i32,
+        kind: u32,
+        #[cfg_attr(feature = "serde", serde(default))]
+        steady: bool,
+    },
 }
 
 impl Kind {
@@ -710,12 +718,14 @@ impl Task {
         )
     }
 
-    /// Off to lay a kit on the tile whose middle is `tile` — sandbags, or
-    /// a `sentry` — for `minutes` of working steps beside it.
+    /// Off to lay deployable `kind` (the world's code) on the tile whose
+    /// middle is `tile`, for `minutes` of working steps beside it, a hit
+    /// not putting it down if `steady`.
     pub fn deploy(
         who: usize,
         tile: Vec2,
-        sentry: bool,
+        kind: u32,
+        steady: bool,
         minutes: f32,
         ch: &mut Character,
         room: &mut Room,
@@ -725,7 +735,8 @@ impl Task {
         let kind = Kind::Deploy {
             x: (tile.x / t).floor() as i32,
             y: (tile.y / t).floor() as i32,
-            sentry,
+            kind,
+            steady,
         };
         Task::starting_at(who, kind, kind.first_step(), minutes, ch, room, maps)
     }
@@ -1013,10 +1024,10 @@ impl Task {
             // Laid: the room says who laid what where, and the world puts
             // the deployable down and takes the kit out of the pack.
             Deploy => {
-                if let (Kind::Deploy { sentry, .. }, Some(tile)) =
+                if let (Kind::Deploy { kind, .. }, Some(tile)) =
                     (self.kind, self.kind.deploy_tile())
                 {
-                    room.deployed.push((self.who, tile, sentry));
+                    room.deployed.push((self.who, tile, kind));
                 }
             }
             // The player asked for the door as it is when the Bim's hand

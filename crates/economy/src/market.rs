@@ -20,8 +20,9 @@ use physics::ResourceId;
 
 use crate::{EconomyError, Money, trade_price};
 
-/// How many resources there are: a bias is one number for each of them.
-const RESOURCES: usize = ResourceId::ALL.len();
+/// How many resource codes there are, the free ones counted: a bias is one
+/// number for each, indexed by the code.
+const RESOURCES: usize = ResourceId::CODES;
 
 /// The desk's spread, in basis points of the mid price — the *whole*
 /// spread, ask to bid; each side is half of it. A thousand is ten per
@@ -77,10 +78,7 @@ pub fn war_goods(resource: ResourceId) -> bool {
         | ResourceId::Tofu
         | ResourceId::Suit
         | ResourceId::ResearchKey
-        | ResourceId::ResearchKeyTwo
-        | ResourceId::SandbagKit
-        | ResourceId::SentryKit
-        | ResourceId::Grenade => false,
+        | ResourceId::ResearchKeyTwo => false,
     }
 }
 
@@ -256,9 +254,6 @@ pub fn kind_bias(kind: MarketKind, resource: ResourceId) -> i32 {
         ResourceId::Bandage => [0, 0, 0, 25, 0],
         ResourceId::ResearchKey => [0, 0, 0, 15, 0],
         ResourceId::ResearchKeyTwo => [0, 0, 0, 15, 0],
-        ResourceId::SandbagKit => [0, 0, 0, 15, 0],
-        ResourceId::SentryKit => [0, 0, 0, 15, 0],
-        ResourceId::Grenade => [0, 0, 0, 15, 0],
     };
     row[kind as usize]
 }
@@ -448,9 +443,6 @@ mod tests {
             ResourceId::Suit,
             ResourceId::ResearchKey,
             ResourceId::ResearchKeyTwo,
-            ResourceId::SandbagKit,
-            ResourceId::SentryKit,
-            ResourceId::Grenade,
         ] {
             assert!(!war_goods(resource), "{resource:?} is not war goods");
         }

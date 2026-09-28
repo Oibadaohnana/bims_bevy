@@ -24,7 +24,7 @@ pub const PLAYER_MASS: f64 = 100.0;
 pub const MIN_HULL_MASS: f64 = 1.0;
 
 /// What a ship can carry, and what the crew fight, eat and heal with.
-/// Eighteen, **no production chains and no recipes**: since the money
+/// Nineteen, **no production chains and no recipes**: since the money
 /// rework (feature 95) nothing is mined and nothing is refined, so there
 /// are no materials at all — an id and what a unit of it weighs is the
 /// whole of what this crate needs. A part's weight is
@@ -101,18 +101,10 @@ pub enum ResourceId {
     /// desk. Consumed there to open the tier-two node
     /// (`shipdesign::research::Node::Upgrades`).
     ResearchKeyTwo = 14,
-    /// An engineer's sandbag kit (feature 74, `world::deploy`): sacks and
-    /// a frame, carried in the pack and laid as a deployable on a deck
-    /// tile — never a part of the ship. Since feature 88 an engineer's
-    /// own come back on a cooldown rather than being made or bought.
-    SandbagKit = 15,
-    /// An engineer's sentry kit: a turret in a crate. The same rules as
-    /// the sandbag kit's.
-    SentryKit = 16,
-    /// A soldier's grenade (feature 75, `world::class`), carried one to a
-    /// pack cell and thrown by a soldier alone; since feature 90 a charge
-    /// on a cooldown like the engineer's kits.
-    Grenade = 17,
+    // 15, 16 and 17 were the engineer's sandbag and sentry kits and the
+    // soldier's grenade (features 74, 75, 88 and 90), gone in task 127
+    // when every class charge became a counter the world keeps. The codes
+    // are left free, since the design's cargo is indexed by them.
     /// A minigun (task 115): made from tier two up, and only ever the
     /// crew's — bought at a trader or combined.
     Minigun = 18,
@@ -126,9 +118,11 @@ pub enum ResourceId {
 }
 
 impl ResourceId {
-    /// Every resource, in discriminant order. `ALL[id as usize].id == id`,
-    /// which [`ResourceId::def`] relies on and [`defs_are_sound`] checks.
-    pub const ALL: [ResourceId; 22] = [
+    /// Every resource, in discriminant order — with gaps where one went
+    /// (15 to 17, task 127), so a code is **not** a place in this list:
+    /// [`ResourceId::from_code`] looks it up. [`RESOURCES`] is in the same
+    /// order, which [`defs_are_sound`] checks.
+    pub const ALL: [ResourceId; 19] = [
         ResourceId::Vegetable,
         ResourceId::Tofu,
         ResourceId::Suit,
@@ -144,17 +138,26 @@ impl ResourceId {
         ResourceId::Schword,
         ResourceId::ResearchKey,
         ResourceId::ResearchKeyTwo,
-        ResourceId::SandbagKit,
-        ResourceId::SentryKit,
-        ResourceId::Grenade,
         ResourceId::Minigun,
         ResourceId::RailLance,
         ResourceId::ArcGreaves,
         ResourceId::ReflectivePlate,
     ];
 
+    /// How many codes there are, the free ones counted: what a table
+    /// indexed by a resource's code is sized by (`shipdesign::CARGO_SLOTS`).
+    pub const CODES: usize = 22;
+
+    /// The resource a code is, if any is.
+    pub fn from_code(code: u32) -> Option<ResourceId> {
+        ResourceId::ALL.into_iter().find(|&id| id as u32 == code)
+    }
+
     pub fn def(self) -> &'static ResourceDef {
-        &RESOURCES[self as usize]
+        RESOURCES
+            .iter()
+            .find(|d| d.id == self)
+            .expect("every resource has a row")
     }
 
     /// What one unit of it weighs. The one number the mass function wants.
@@ -185,7 +188,7 @@ pub struct ResourceDef {
 /// that went into it. `shipdesign::recipes` is where that recipe lives
 /// and `every_recipe_holds_together` there is what holds this column to
 /// it.
-pub static RESOURCES: [ResourceDef; 22] = [
+pub static RESOURCES: [ResourceDef; 19] = [
     ResourceDef {
         id: ResourceId::Vegetable,
         mass_per_unit: 0.5,
@@ -252,19 +255,6 @@ pub static RESOURCES: [ResourceDef; 22] = [
     ResourceDef {
         id: ResourceId::ResearchKeyTwo,
         mass_per_unit: 2.0,
-    },
-    // The engineer's kits and the soldier's grenade.
-    ResourceDef {
-        id: ResourceId::SandbagKit,
-        mass_per_unit: 8.0,
-    },
-    ResourceDef {
-        id: ResourceId::SentryKit,
-        mass_per_unit: 36.0,
-    },
-    ResourceDef {
-        id: ResourceId::Grenade,
-        mass_per_unit: 10.0,
     },
     // The two heavy guns of task 115: a minigun's barrels and its drum,
     // a lance's rails and coils.

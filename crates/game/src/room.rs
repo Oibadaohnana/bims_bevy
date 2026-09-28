@@ -433,10 +433,10 @@ pub struct Room {
     /// world to give the engineers about the builder their due (feature
     /// 74). `(site, who)`.
     pub built: Vec<(u32, usize)>,
-    /// Every kit laid since the world last asked: who laid it, the middle
-    /// of the tile in room units, and whether it was a sentry. The world
-    /// puts the deployable down. See `crate::task::Kind::Deploy`.
-    pub deployed: Vec<(usize, Vec2, bool)>,
+    /// Every deployable laid since the world last asked: who laid it, the
+    /// middle of the tile in room units, and the world's code for what it
+    /// is. The world puts it down. See `crate::task::Kind::Deploy`.
+    pub deployed: Vec<(usize, Vec2, u32)>,
     /// Moves whenever the outside grid has to be built again. Nothing
     /// changes it now that the mining is gone; it is kept because
     /// `Game::refresh_outside` reads it, and a planet's ground or another

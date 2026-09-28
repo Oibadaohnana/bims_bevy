@@ -140,7 +140,17 @@ const TILE: f32 = shipdesign::TILE as f32;
 /// and its countdown where its blood and its parts were), so there is no
 /// old number to bring back by switching one rule off. Was
 /// `0x_002a_da6c_00c6_d69f`.
-const SURVIVORS: u64 = 0x_7535_9d7e_fddc_80af;
+///
+/// **And once more, on purpose**: the soldier's and the engineer's ranked
+/// kits (tasks 124 and 127, landed together). The first run's soldier
+/// climbs a sixteen-level table and starts with no grenade at rank nought
+/// where it had two; the town run's engineer starts with no sandbags and
+/// no sentry kit where it had three and one; and every class charge is a
+/// counter on the world now, so no charge is in any gear the reading takes.
+/// Nobody in either run buys a rank, lays a deployable or throws anything.
+/// The two tasks' shares were not taken apart: their changes went into
+/// the tree together. Was `0x_7535_9d7e_fddc_80af`.
+const SURVIVORS: u64 = 0x_5051_196b_e073_7b74;
 
 /// A gun in every hand, the kinds dealt round, as the fight's probes arm
 /// a crew — the five there were when the reading was taken: the minigun

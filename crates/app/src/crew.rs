@@ -152,10 +152,15 @@ pub enum Open {
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum DeployOrder {
     PackUp(u32),
-    Pick { level: u32, side: world::Side },
+    Pick {
+        level: u32,
+        side: world::Side,
+    },
     SetClass(world::Class),
     /// A rank of the ranked kit bought off the Skills tab (task 124).
-    RankUp { ability_slot: u32 },
+    RankUp {
+        ability_slot: u32,
+    },
 }
 
 /// A player's class as the panel shows it, a snapshot the screen hands
@@ -1899,7 +1904,10 @@ impl CrewPanels {
                 && world::class::rank_level(class, slot, next).is_some_and(|l| l <= view.level);
             egui::Frame::new()
                 .fill(theme::RAISED)
-                .stroke(egui::Stroke::new(1.0, if open { theme::ACCENT } else { theme::LINE }))
+                .stroke(egui::Stroke::new(
+                    1.0,
+                    if open { theme::ACCENT } else { theme::LINE },
+                ))
                 .corner_radius(4.0)
                 .inner_margin(egui::Margin::same(6))
                 .show(ui, |ui| {
@@ -1922,11 +1930,16 @@ impl CrewPanels {
                             egui::Sense::hover(),
                         );
                         for k in 0..top {
-                            let at = egui::pos2(rect.min.x + 6.0 + 12.0 * f32::from(k), rect.center().y);
+                            let at =
+                                egui::pos2(rect.min.x + 6.0 + 12.0 * f32::from(k), rect.center().y);
                             if k < rank {
                                 ui.painter().circle_filled(at, 4.0, theme::CAUTION);
                             } else {
-                                ui.painter().circle_stroke(at, 4.0, egui::Stroke::new(1.0, theme::MUTED));
+                                ui.painter().circle_stroke(
+                                    at,
+                                    4.0,
+                                    egui::Stroke::new(1.0, theme::MUTED),
+                                );
                             }
                         }
                     });

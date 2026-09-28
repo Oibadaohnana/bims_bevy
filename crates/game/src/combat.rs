@@ -3552,7 +3552,11 @@ impl Combat {
             );
             let body = pos - vec2(0.0, 12.0 * lift);
             list.circle(body, 18.0 * (1.0 + 0.3 * lift), GRENADE_SHELL);
-            list.circle(body, 11.0 * (1.0 + 0.3 * lift), if g.stun > 0.0 { EMP_BAND } else { GRENADE_BAND });
+            list.circle(
+                body,
+                11.0 * (1.0 + 0.3 * lift),
+                if g.stun > 0.0 { EMP_BAND } else { GRENADE_BAND },
+            );
             // The fuse: bright, and flashing quicker near the end.
             let rate = 2.0 + 8.0 * (1.0 - g.left / g.fuse.max(1e-3));
             let on = ((g.fuse - g.left) * rate * std::f32::consts::TAU).sin() > 0.0 || flying;

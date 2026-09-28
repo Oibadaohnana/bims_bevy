@@ -620,8 +620,7 @@ pub const RANKED_LEVELS: u8 = 16;
 /// Cumulative experience for each level of a ranked class, by level less
 /// one: the top one costs what the tenth of [`LEVEL_XP`] does.
 pub const RANKED_LEVEL_XP: [u32; RANKED_LEVELS as usize] = [
-    0, 100, 220, 360, 520, 700, 900, 1_110, 1_330, 1_560, 1_800, 2_050, 2_310, 2_580, 2_870,
-    3_200,
+    0, 100, 220, 360, 520, 700, 900, 1_110, 1_330, 1_560, 1_800, 2_050, 2_310, 2_580, 2_870, 3_200,
 ];
 
 /// The ranks an ability of a ranked kit has.
@@ -1391,7 +1390,10 @@ mod tests {
         let mut p = Progress::default();
         assert_eq!(p.points(s), 1, "a point at the first level");
         assert_eq!(p.points(Class::Medic), 0);
-        assert_eq!(p.can_rank_up(Class::Medic, SLOT_Q), Err(Refusal::NoRankedKit));
+        assert_eq!(
+            p.can_rank_up(Class::Medic, SLOT_Q),
+            Err(Refusal::NoRankedKit)
+        );
         assert_eq!(p.can_rank_up(s, 4), Err(Refusal::NoRankedKit));
         assert_eq!(p.can_rank_up(s, SLOT_R), Err(Refusal::RankLocked));
         assert_eq!(p.rank_up(s, SLOT_Q), Ok(1));
@@ -1412,7 +1414,11 @@ mod tests {
                 q.ranks[slot as usize] = rank - 1;
                 if want > 1 {
                     q.xp = RANKED_LEVEL_XP[want as usize - 2];
-                    assert_eq!(q.can_rank_up(s, slot), Err(Refusal::RankLocked), "{slot} {rank}");
+                    assert_eq!(
+                        q.can_rank_up(s, slot),
+                        Err(Refusal::RankLocked),
+                        "{slot} {rank}"
+                    );
                 }
                 q.xp = RANKED_LEVEL_XP[want as usize - 1];
                 assert_eq!(q.can_rank_up(s, slot), Ok(rank), "{slot} {rank}");

@@ -125,6 +125,10 @@ const SHIELD_COLLAPSE: f32 = 0.8;
 const SMOKE_LIFE: f32 = 4.0;
 const SMOKE_PUFFS: u32 = 9;
 const SMOKE: Color = Color::rgb(0.42, 0.42, 0.45);
+/// The pale blue a machine stunned by an EMP flickers in (task 127), the
+/// EMP's own burst colour, and how fast it flickers, in radians a second.
+pub const STUNNED: Color = Color::rgb(0.62, 0.84, 1.0);
+const STUN_FLICKER: f32 = 38.0;
 
 // --- the animation ------------------------------------------------------
 
@@ -613,6 +617,17 @@ pub struct Droid {
     /// A flash is a tenth of a second and a screenshot would not catch
     /// one otherwise.
     pub lit: bool,
+    /// Seconds of the mission clock it is still **stunned** for (task
+    /// 127, the engineer's EMP): it neither moves, turns, aims nor
+    /// fires, whatever it had begun is dropped, and a Guardian's shield
+    /// stops nothing. Nought for one on its feet.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub stunned: f32,
+    /// Whether the stun it is under was an EMP of the top rank's, which
+    /// leaves it taking more from everyone while it lasts
+    /// (`class::EMP_EXPOSE_PERCENT`, the world's).
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub exposed: bool,
     /// How long it has been one, for the sparks that die away.
     wreck_age: f32,
     /// The walk phase, the idle phase, and the timers the picture reads.
@@ -670,6 +685,8 @@ impl Droid {
             destroyed: false,
             posing: false,
             lit: false,
+            stunned: 0.0,
+            exposed: false,
             wreck_age: 0.0,
             stride: 0.0,
             idle: 0.0,
@@ -936,7 +953,60 @@ impl Droid {
         if self.heart.sealed {
             return Some(Vec2::ZERO);
         }
+        // A stunned Guardian's shield stops nothing (task 127).
+        if self.is_stunned() {
+            return None;
+        }
         self.is_guardian().then_some(self.facing)
+    }
+
+    /// Whether it is stunned (task 127).
+    pub fn is_stunned(&self) -> bool {
+        self.stunned > 0.0
+    }
+
+    /// Whether it takes more from everyone for a top-rank EMP's stun.
+    pub fn is_exposed(&self) -> bool {
+        self.exposed && self.is_stunned()
+    }
+
+    /// Stunned for `seconds` by an EMP (task 127): the timer set to the
+    /// longer of the two — a stun on a stun never adds — and `expose`
+    /// kept if either stun had it. Whatever it had begun is dropped at
+    /// once: the blow on its way, the lock, the peek, the route, the
+    /// trigger's burst, and a Guardian's wind-up or sweep, which goes to
+    /// its cooldown. A wreck and the Machine Heart's machines are never
+    /// stunned. Whether it took.
+    pub fn stun(&mut self, seconds: f32, expose: bool) -> bool {
+        if self.destroyed || self.kind.is_structure() || seconds <= 0.0 {
+            return false;
+        }
+        self.stunned = self.stunned.max(seconds);
+        self.exposed |= expose;
+        self.blow = None;
+        self.locked = None;
+        self.peek = None;
+        self.smashing = None;
+        self.route.clear();
+        self.speed = 0.0;
+        self.intent = self.heading;
+        self.turn_left = 0.0;
+        self.trigger.hold();
+        if self.beam.holds_heading() {
+            self.beam = Beam::Cooling {
+                left: balance::SWEEPER_COOLDOWN,
+            };
+        }
+        true
+    }
+
+    /// The stun worn down by `dt` seconds: at nothing it is over, and so
+    /// is what it exposed.
+    pub fn wear_off_stun(&mut self, dt: f32) {
+        self.stunned = (self.stunned - dt).max(0.0);
+        if self.stunned <= 0.0 {
+            self.exposed = false;
+        }
     }
 
     /// Turn a Guardian towards `want` (any length) by as many of its
@@ -1154,6 +1224,25 @@ impl Droid {
         }
         for (at, t, _) in sparks {
             list.circle(at, 2.0 + 3.0 * t, SPARK.glowing(SPARK_HEAT).alpha(0.9 * t));
+        }
+        // A stunned machine flickers pale blue until the stun ends (task
+        // 127): a wash over the body and a ring round it, lit and dimmed
+        // many times a second off its own idle clock.
+        if self.is_stunned() && !self.destroyed {
+            let flicker = 0.5 + 0.5 * (self.idle * STUN_FLICKER).sin();
+            let reach = vec2(w * 2.2, w * 2.2) * scale;
+            list.ellipse(
+                self.pos,
+                reach,
+                self.heading,
+                STUNNED.alpha(0.12 + 0.22 * flicker),
+            );
+            list.ring(
+                self.pos,
+                w * 2.6 * scale,
+                1.5,
+                STUNNED.glowing(1.2).alpha(0.35 + 0.5 * flicker),
+            );
         }
     }
 
@@ -2391,5 +2480,38 @@ mod tests {
         for kind in DroidKind::ALL {
             assert!(kind.half_width() <= 30.0, "{kind:?}");
         }
+    }
+
+    /// An engineer's EMP (task 127) in the room: it bursts on the
+    /// grenade's fuse, lands **no hit** on anything, and notes every target
+    /// standing within its radius — and none beyond it — for the world to
+    /// stun.
+    #[test]
+    fn an_emp_bursts_on_its_fuse_hurts_nothing_and_notes_the_targets_in_its_radius() {
+        use crate::game::Game;
+        use crate::room::{ROOM_H, ROOM_W};
+        let mut game = Game::bare(3, ROOM_W, ROOM_H);
+        game.set_autonomous(false);
+        let from = game.bim_pos(0);
+        let near = from + vec2(3.0 * TILE, 0.0);
+        let far = from + vec2(3.0 * TILE, 5.0 * TILE);
+        let arm = WeaponKind::Claw.at(Tier::One);
+        game.set_hostiles(vec![Some((near, arm)), Some((far, arm))]);
+        game.throw_emp(0, near, 2.0, 2.0 * TILE, 1.5, true);
+        let mut stuns = Vec::new();
+        for _ in 0..(3 * 60) {
+            game.simulate(1.0 / 60.0);
+            stuns.extend(game.take_stuns());
+            assert!(
+                game.take_hits().iter().all(|h| !h.blast),
+                "an EMP lands no hit"
+            );
+        }
+        assert!(game.grenades().is_empty(), "burst");
+        assert_eq!(
+            stuns,
+            vec![(0, 1.5, true)],
+            "the one in the radius, and only it"
+        );
     }
 }

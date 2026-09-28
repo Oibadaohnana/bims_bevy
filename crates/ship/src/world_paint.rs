@@ -563,7 +563,9 @@ fn paint_ship(game: &Game, list: &mut DrawList, prebuilt: &[KeptStation]) {
 
 /// Every deployable in the crew's room, as a part stood on its tile:
 /// laid sandbags as the part's own picture, a sentry as the turret —
-/// its health as the ring closing on it.
+/// its health as the ring closing on it — the engineer's ultimate drawn
+/// larger with a thin ring round its tile emptying as its time runs
+/// down, and a Healing Sentry with no barrel (task 127).
 /// In the room's units, which the caller turns with the room.
 fn deployables(game: &Game, list: &mut DrawList) {
     let t = TILE as f32;
@@ -578,13 +580,18 @@ fn deployables(game: &Game, list: &mut DrawList) {
             origin,
             rotation: Rotation::R0,
         };
+        let health = d.health / game.world.laid_health(d.kind, d.owner_slot).max(1.0);
         match d.kind {
             world::DeployKind::Sandbags => crate::fittings::sandbags(list, &part),
-            world::DeployKind::Sentry => crate::fittings::sentry(
-                list,
-                &part,
-                d.health / world::deploy::SENTRY_HEALTH.max(1.0),
-            ),
+            world::DeployKind::HealingSentry => {
+                crate::fittings::sentry(list, &part, health, 1.0, true)
+            }
+            world::DeployKind::Sentry => {
+                crate::fittings::sentry(list, &part, health, SENTRY_DRAWN, false);
+                let left = game.world.sentry_left(d.owner_slot).unwrap_or(0.0);
+                let whole = game.world.sentry_seconds(d.owner_slot).max(1e-3);
+                time_ring(list, at, (left / whole) as f32);
+            }
         }
     }
 }
@@ -2776,4 +2783,52 @@ fn droid_ship(list: &mut DrawList, at: (f32, f32), outward: (f32, f32), lander: 
             }
         }
     }
+}
+
+/// How much larger than a tile the engineer's ultimate sentry is drawn
+/// (task 127).
+const SENTRY_DRAWN: f32 = 1.35;
+/// The ring round its tile that empties as its time runs down: its
+/// radius a share of a tile, how thick, how many pieces a whole ring is
+/// drawn in, and its colour.
+const TIME_RING_RADIUS: f32 = 0.62;
+const TIME_RING_LINE: f32 = 2.0;
+const TIME_RING_PIECES: u32 = 48;
+const TIME_RING: Color = Color::rgba(0.62, 0.84, 1.0, 0.85);
+
+/// A thin ring round `at` (room units) with `share` of it left, emptying
+/// clockwise from twelve o'clock: a faint whole ring under it.
+fn time_ring(list: &mut DrawList, at: bims::math::Vec2, share: f32) {
+    let r = TILE as f32 * TIME_RING_RADIUS;
+    list.push(
+        crate::draw::KIND_ELLIPSE,
+        at.x,
+        at.y,
+        r * 2.0,
+        r * 2.0,
+        0.0,
+        0.0,
+        TIME_RING_LINE * 0.5,
+        TIME_RING.alpha(0.2),
+    );
+    let pieces = ((share.clamp(0.0, 1.0) * TIME_RING_PIECES as f32).ceil()) as u32;
+    let step = std::f32::consts::TAU / TIME_RING_PIECES as f32;
+    // From twelve o'clock, the part still to run left of the part gone.
+    let start = -std::f32::consts::FRAC_PI_2 + (TIME_RING_PIECES - pieces) as f32 * step;
+    for i in 0..pieces {
+        let a = start + i as f32 * step;
+        let p = at + bims::math::vec2(a.cos(), a.sin()) * r;
+        let q = at + bims::math::vec2((a + step).cos(), (a + step).sin()) * r;
+        list.line(p.x, p.y, q.x, q.y, TIME_RING_LINE, TIME_RING);
+    }
+}
+
+/// A point of the crew's room in the camera's units: what
+/// [`crew_on_screen`] does for a body, for any point.
+pub fn room_point_on_screen(game: &Game, p: bims::math::Vec2) -> (f32, f32) {
+    on_screen(
+        dvec2(p.x as f64, p.y as f64).sub(game.world.aboard.offset),
+        game.world.ship.dynamics.centre_of_mass,
+        game.ship_turn(),
+    )
 }

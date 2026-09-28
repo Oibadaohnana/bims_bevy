@@ -253,9 +253,6 @@ impl StationKind {
                 _,
                 ResourceId::ResearchKey
                 | ResourceId::ResearchKeyTwo
-                | ResourceId::SandbagKit
-                | ResourceId::SentryKit
-                | ResourceId::Grenade
                 | ResourceId::Medkit
                 | ResourceId::Bandage,
             ) => false,
@@ -473,9 +470,6 @@ mod tests {
                         _,
                         ResourceId::ResearchKey
                         | ResourceId::ResearchKeyTwo
-                        | ResourceId::SandbagKit
-                        | ResourceId::SentryKit
-                        | ResourceId::Grenade
                         | ResourceId::Medkit
                         | ResourceId::Bandage,
                     ) => false,
@@ -490,9 +484,6 @@ mod tests {
         assert!(StationKind::Orbital.sells(ResourceId::Vegetable));
         assert!(!StationKind::Orbital.sells(ResourceId::ResearchKey));
         assert!(!StationKind::Relay.sells(ResourceId::ResearchKeyTwo));
-        assert!(!StationKind::Orbital.sells(ResourceId::SandbagKit));
-        assert!(!StationKind::Refinery.sells(ResourceId::SentryKit));
-        assert!(!StationKind::Orbital.sells(ResourceId::Grenade));
         // The medicine: nowhere (task 120), and not a staple.
         assert!(!StationKind::Orbital.sells(ResourceId::Bandage));
         assert!(!STAPLES.contains(&ResourceId::Bandage));
