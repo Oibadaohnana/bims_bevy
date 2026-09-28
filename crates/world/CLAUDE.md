@@ -4616,6 +4616,11 @@ and has hit the crew member.
 
 ## Relics, and research gone (feature 106)
 
+> **Since task 117** a relic is drawn by the world clock's day and not the
+> site's tier, and an offer takes nothing out of the pool — "Relics drop
+> by the day" at the end of this file. What this section says about
+> `offer`, the pool and `RelicChoice::tier` is the history.
+
 `crate::relic` is the types and the rules that are not the world's to
 walk: `Relic` (twelve, codes in list order), `RELICS` (a row a relic —
 tier, whether a new profile has it, and its `Effect`), `offer` (a draw a
@@ -5225,3 +5230,52 @@ for the mining outposts. `tests_defense.rs` (a station defended end to
 end, the wave with its defenders, a derelict's defenders dying for
 nothing, leaving early) and `tests_trader.rs` (every site one kind over
 three seeds; a trader never infested or the jammer) are the rule.
+
+## Relics drop by the day (task 117)
+
+How a relic enters a run, replacing the site-tier offer. A relic's
+**tier** is data and nothing the player sees: it decides the odds of
+drawing it and its price at a trader (`data::RELIC_PRICE`, 1 500, 3 000,
+5 000), and `names::relic_tier` went with every "Tier n" on the screen.
+`RelicChoice::tier` went too (out of the save and the hash).
+
+- **One roll for every source** — a reward's three, a cache's one, a
+  trader's one: `relic::offer(pool, day, n, seed)`. Each draw rolls a
+  tier by `relic::tier_odds(day)` — `data::RELIC_ODDS_START` [70, 25, 5]
+  on day nought, a straight line to `RELIC_ODDS_END` [40, 35, 25] on
+  `RELIC_ODDS_FULL_DAY` (30), then flat, integers rounded down and a roll
+  taken against their sum — then a relic of that tier; an empty tier is
+  rolled again by the same odds among the tiers with any left; nothing
+  left is nothing drawn. None twice in one offer. The day is
+  `World::days_gone()` at the draw; the seed is the galaxy, the site and
+  `Relics::offers`, as before. The site's enemy tier is not read:
+  `site_tier_code` went.
+- **The pool loses a relic when a Bim gets it**, never when it is
+  offered: `relic_if_carried` takes the relic out (`Relics::take_from_pool`)
+  whether it is given or goes pending, `trade_relic_if_carried` when it is
+  bought, and `relics_on_leaving` puts a lost pending relic back
+  (`Relics::return_to_pool`, in list order, never a held or pending one).
+  What is **on offer, pending or held** is kept out of a draw by
+  `Relics::in_play`; what is **on the table of an open trader** by
+  `World::draw_relics` itself, which also takes the relic off the table of
+  a trader closed today (`release_closed_traders_relics`) — it never left
+  the pool, so from then on it can be drawn elsewhere. There is no
+  restock that returns a trader's relic: a trader keeps its first until
+  it is bought or closes.
+- **The starting pool is 23** (`RelicDef::first`), and
+  `relic::Profile::pool` counts every starting relic in whatever the file
+  holds (`Profile::unlocked`), so a profile written before a starting relic
+  was added has it. `record_run` unlocks the first two not unlocked in
+  `Relic::ALL`'s order — seven wins for the fourteen. The code order of
+  the relics 12–36 is chosen so the locked ones fall in the unlock order
+  the task gives.
+
+`relic::tests` pins the odds (the line, the day-fifteen midpoint, the
+shares over ten thousand seeds at days 0, 15, 30), no duplicates, the
+re-roll of an empty tier (tier two against three at 25 to 5 with no tier
+one), the pool's two doors and an old profile. `tests_relic.rs` pins the
+reward left in the pool and the one taken out of it, any tier at any
+site, nothing at all, the day read at the draw, and a cache's relic out
+and back in; `tests_trader.rs` a trader's relic kept out of other draws
+while on the table, out of the pool once bought, and back in the running
+when the trader closes.

@@ -513,6 +513,16 @@ pub const PHASE_HARNESS_BELOW_PERCENT: u32 = 25;
 /// room's own surge (`bims::game::Game::set_surge`), halo and all.
 pub const PHASE_HARNESS_SECONDS: f32 = 2.0;
 
+/// The odds of each relic tier, in per cent, on day nought of the world
+/// clock: tier one, two, three (task 117, `relic::tier_odds`). A reward,
+/// a cache and a trader draw by the same odds. The tier is what the odds
+/// and a trader's price read, and the player is never shown it.
+pub const RELIC_ODDS_START: [u32; 3] = [70, 25, 5];
+/// The odds from [`RELIC_ODDS_FULL_DAY`] on. They move in a straight line
+/// from [`RELIC_ODDS_START`] to these and then stay.
+pub const RELIC_ODDS_END: [u32; 3] = [40, 35, 25];
+/// The day of the world clock the odds reach [`RELIC_ODDS_END`].
+pub const RELIC_ODDS_FULL_DAY: u32 = 30;
 /// How many relics a site cleared with machines in it offers.
 pub const RELIC_OFFER: usize = 3;
 /// The odds a site the machines hold hides a **relic cache** on its
@@ -544,9 +554,10 @@ pub const TRADER_NEAR_HOPS: u16 = 1;
 pub const TRADER_WEAPONS: usize = 4;
 /// How many pieces of armour it holds beside them. A placeholder.
 pub const TRADER_ARMOUR: usize = 3;
-/// What the relic at a trader costs, by the relic's own tier — one, two,
-/// three. Placeholders.
-pub const RELIC_PRICE: [Money; 3] = [3_000, 9_000, 27_000];
+/// What the relic at a trader costs, by the relic's own tier: one, two,
+/// three (task 117). The tier is never shown, so the price is the only
+/// sign of it.
+pub const RELIC_PRICE: [Money; 3] = [1_500, 3_000, 5_000];
 /// What combining two things of a kind and a tier into one of the next
 /// costs, out of the pool (the workbench's upgrade, at a trader now). A
 /// placeholder, and nothing yet.

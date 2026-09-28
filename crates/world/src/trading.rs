@@ -214,7 +214,7 @@ impl World {
     /// run in [`RunPhase::Trade`] and nothing else — no room built, no
     /// mission begun, neither clock touched, nothing a mission's start
     /// does. The first time the crew are here the trader is met: its shelf
-    /// rolled and its relic drawn out of the pool at the tier of the site.
+    /// rolled and its relic drawn by the day's odds (task 117).
     pub(super) fn arrive_at_trader(&mut self, site: Site) {
         let at = self.site_position(&self.system, site.station);
         self.ship.state = ShipState::Holding;
@@ -233,14 +233,10 @@ impl World {
         if self.run.traders.iter().any(|t| t.site == site) {
             return;
         }
-        let tier = match self.droid_tier {
-            Some(tier) => tier,
-            None => self.site_tier(site.star, Some(site.station), self.clock_minutes),
-        };
-        let relic = self
-            .draw_relics(tier.code() as u8, 1, site.station)
-            .first()
-            .copied();
+        // Drawn by the day's odds like a reward's (task 117), and kept out
+        // of every other draw while it is on the table — never out of the
+        // pool until it is bought.
+        let relic = self.draw_relics(1, site.station).first().copied();
         let at = self.run.traders.partition_point(|t| t.site < site);
         self.run
             .traders
@@ -445,6 +441,7 @@ impl World {
         }
         self.money -= price;
         self.run.traders[at].relic = None;
+        self.run.relics.take_from_pool(relic);
         self.run.relics.give(proposal.to, relic);
         events.push(WorldEvent::RelicBought {
             slot: proposal.to,

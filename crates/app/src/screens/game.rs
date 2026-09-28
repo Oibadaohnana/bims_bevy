@@ -385,14 +385,7 @@ fn over(
                 } else {
                     ui.label(egui::RichText::new(VICTORY_UNLOCKED).strong());
                     for &relic in unlocked {
-                        ui.label(
-                            egui::RichText::new(format!(
-                                "{} · {}",
-                                relic_name(relic),
-                                relic_tier(relic)
-                            ))
-                            .color(theme::ACCENT),
-                        );
+                        ui.label(egui::RichText::new(relic_name(relic)).color(theme::ACCENT));
                         ui.label(egui::RichText::new(relic_line(relic)).small());
                     }
                 }

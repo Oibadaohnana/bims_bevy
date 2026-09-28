@@ -841,9 +841,7 @@ pub fn relic_window(
         ui.add_space(6.0);
         for &relic in &choice.options {
             let on = pick.relic == Some(relic.code());
-            let text =
-                egui::RichText::new(format!("{} · {}", relic_name(relic), relic_tier(relic)))
-                    .strong();
+            let text = egui::RichText::new(relic_name(relic)).strong();
             if theme::toggle(ui, on, text).clicked() {
                 pick.relic = Some(relic.code());
             }
@@ -1143,13 +1141,11 @@ fn relic_at_trader(
     ui.horizontal(|ui| {
         ui.label(egui::RichText::new(relic_name(relic)).strong());
         ui.label(
-            egui::RichText::new(relic_price_line(relic.tier(), &euros(price))).color(
-                if price <= world.money {
-                    theme::MUTED
-                } else {
-                    theme::WARN
-                },
-            ),
+            egui::RichText::new(euros(price)).color(if price <= world.money {
+                theme::MUTED
+            } else {
+                theme::WARN
+            }),
         );
     });
     ui.add(egui::Label::new(egui::RichText::new(relic_line(relic)).small()).wrap());

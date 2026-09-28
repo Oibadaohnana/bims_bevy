@@ -96,7 +96,6 @@ fn clear(world: &mut World, station: u32) -> Vec<WorldEvent> {
 fn put(world: &mut World, source: Source, options: Vec<Relic>) {
     world.run.relics.choice = Some(RelicChoice {
         source,
-        tier: 1,
         options,
         proposal: None,
     });
@@ -209,14 +208,15 @@ fn tier_two_comes_only_after_its_hours_and_follows_the_ramp() {
 
 // --- 3: offers ------------------------------------------------------------------
 
-/// **A clear offers three relics of the site's tier** on the reward
-/// screen, after the departure and before the map: taken out of the pool,
-/// so none of them is offered again this run, and travel waits on the
-/// choice.
+/// **A clear offers three relics** on the reward screen, after the
+/// departure and before the map, drawn by the day's odds and not the
+/// site's tier (task 117): three different ones, **left in the pool**, and
+/// travel waits on the choice. Taking none puts nothing anywhere: the three
+/// are still in the pool, to be drawn again.
 #[test]
-fn a_clear_offers_three_of_the_site_s_tier_and_never_the_same_twice() {
+fn a_clear_offers_three_and_leaves_them_in_the_pool() {
     let (mut world, station) = held_arena(1);
-    world.set_droid_tier_for_probe(Some(Tier::One));
+    world.set_droid_tier_for_probe(Some(Tier::Three));
     let pool = world.relic_pool().to_vec();
     assert_eq!(pool, relic::starting_pool());
     clear(&mut world, station);
@@ -231,9 +231,16 @@ fn a_clear_offers_three_of_the_site_s_tier_and_never_the_same_twice() {
     )));
     let options = world.relic_choice().unwrap().options.clone();
     assert_eq!(options.len(), data::RELIC_OFFER);
-    assert!(options.iter().all(|r| r.tier() == 1), "{options:?}");
-    assert!(options.iter().all(|r| !world.relic_pool().contains(r)));
-    assert_eq!(world.relic_pool().len(), pool.len() - 3);
+    let mut distinct = options.clone();
+    distinct.sort();
+    distinct.dedup();
+    assert_eq!(distinct.len(), 3, "none twice: {options:?}");
+    assert!(options.iter().all(|r| world.relic_pool().contains(r)));
+    assert_eq!(
+        world.relic_pool(),
+        pool.as_slice(),
+        "an offer takes nothing"
+    );
     // No travel before the choice.
     let site = world.sites_at(world.star_id)[0];
     let events = world.step(&[Command::Propose {
@@ -242,39 +249,98 @@ fn a_clear_offers_three_of_the_site_s_tier_and_never_the_same_twice() {
         station: site.station,
     }]);
     assert!(refused(&events, Refusal::ChoosingRelic));
-    // Taking none: the map, and the three gone for good.
+    // Taking none: the map, and the three still in the pool.
     let events = world.step(&[propose(0, None, 0)]);
     assert!(events.contains(&WorldEvent::RelicsDeclined));
     assert_eq!(world.run.phase, Phase::Map);
     assert!(world.relic_choice().is_none());
     assert!(world.relics_of(0).is_empty());
-    for r in &options {
-        assert!(!world.relic_pool().contains(r));
-    }
+    assert_eq!(
+        world.relic_pool(),
+        pool.as_slice(),
+        "declined, back in play"
+    );
 }
 
-/// **A tier with nothing left falls to the next lower**: a tier-three site
-/// with only tier-one relics in the pool offers tier one; a tier-one site
-/// with only tier three left offers nothing, and the map comes straight
-/// up.
+/// **The one taken leaves the pool, the two passed over stay**, and a
+/// relic held is never drawn again while one passed over may be.
 #[test]
-fn an_exhausted_tier_falls_back_to_the_lower_and_nothing_at_all_is_no_offer() {
+fn the_relic_taken_leaves_the_pool_and_the_others_stay() {
     let (mut world, station) = held_arena(1);
-    world.set_droid_tier_for_probe(Some(Tier::Three));
-    world.set_relic_pool(vec![Relic::FocusingLens, Relic::ServoBraces]);
+    world.set_relic_pool(vec![
+        Relic::FocusingLens,
+        Relic::ServoBraces,
+        Relic::FieldPlating,
+        Relic::KillRelay,
+    ]);
     clear(&mut world, station);
     world.leave_for_probe();
     let options = world.relic_choice().expect("an offer").options.clone();
-    assert_eq!(options.len(), 2, "as many as there are");
-    assert!(options.iter().all(|r| r.tier() == 1));
+    assert_eq!(options.len(), 3);
+    let taken = options[1];
+    world.step(&[propose(0, Some(taken), 0)]);
+    assert_eq!(world.relics_of(0), &[taken]);
+    assert!(!world.relic_pool().contains(&taken), "got, out of the pool");
+    for r in options.iter().filter(|&&r| r != taken) {
+        assert!(world.relic_pool().contains(r), "{r:?} passed over, kept");
+    }
+    assert_eq!(world.relic_pool().len(), 3);
+    // Every later draw leaves the held one out, and offers the rest.
+    for n in 0..20u32 {
+        world.run.relics.offers = n;
+        let drawn = world.draw_relics(3, station);
+        assert_eq!(drawn.len(), 3, "the three left");
+        assert!(!drawn.contains(&taken));
+    }
+}
 
+/// **A draw takes whatever tier is left**, whatever the site's machines
+/// come at, and **nothing at all is no offer**: the map comes straight up.
+#[test]
+fn an_offer_takes_any_tier_left_and_nothing_at_all_is_no_offer() {
     let (mut world, station) = held_arena(1);
     world.set_droid_tier_for_probe(Some(Tier::One));
     world.set_relic_pool(vec![Relic::KillRelay]);
     clear(&mut world, station);
     world.leave_for_probe();
+    let options = world.relic_choice().expect("an offer").options.clone();
+    assert_eq!(
+        options,
+        vec![Relic::KillRelay],
+        "a tier-three relic at a tier-one site"
+    );
+
+    let (mut world, station) = held_arena(1);
+    world.set_relic_pool(Vec::new());
+    clear(&mut world, station);
+    world.leave_for_probe();
     assert!(world.relic_choice().is_none());
     assert_eq!(world.run.phase, Phase::Map, "nothing to choose");
+}
+
+/// **The odds follow the world clock's day at the draw**: early in a run a
+/// reward is mostly tier one, a month in the tiers are close to even
+/// (`data::RELIC_ODDS_START`, `RELIC_ODDS_END`).
+#[test]
+fn a_draw_reads_the_world_clock_s_day() {
+    let (mut world, station) = held_arena(1);
+    world.set_relic_pool(Relic::ALL.to_vec());
+    let tier_one = |world: &mut World| -> usize {
+        (0..400u32)
+            .filter(|&n| {
+                world.run.relics.offers = n;
+                world.draw_relics(1, station)[0].tier() == 1
+            })
+            .count()
+    };
+    let early = tier_one(&mut world);
+    world.clock_minutes = f64::from(data::RELIC_ODDS_FULL_DAY) * ::time::DAY;
+    assert_eq!(world.days_gone(), data::RELIC_ODDS_FULL_DAY);
+    let late = tier_one(&mut world);
+    assert!(
+        early > 240 && late < 200,
+        "tier one {early} early, {late} late"
+    );
 }
 
 /// **A site with nothing to clear offers nothing**: the spawn, peaceful,
@@ -347,6 +413,10 @@ fn a_cache_s_relic_is_lost_and_the_cache_put_back_when_the_site_is_left() {
     let relic = world.relic_choice().unwrap().options[0];
     world.step(&[propose(0, Some(relic), 0)]);
     assert_eq!(world.pending_relics(), &[(0, relic)]);
+    assert!(
+        !world.relic_pool().contains(&relic),
+        "pending, out of the pool"
+    );
     let events = world.leave_for_probe();
     assert!(events.contains(&WorldEvent::RelicLost {
         slot: 0,
@@ -354,6 +424,10 @@ fn a_cache_s_relic_is_lost_and_the_cache_put_back_when_the_site_is_left() {
     }));
     assert!(world.relics_of(0).is_empty());
     assert!(world.pending_relics().is_empty());
+    assert!(
+        world.relic_pool().contains(&relic),
+        "lost, back in the pool"
+    );
     assert_eq!(
         world.run.phase,
         Phase::Map,

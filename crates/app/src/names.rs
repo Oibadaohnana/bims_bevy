@@ -2132,11 +2132,6 @@ pub fn relic_line(relic: world::Relic) -> String {
     }
 }
 
-/// A relic's tier, as the sheet says it.
-pub fn relic_tier(relic: world::Relic) -> String {
-    format!("Tier {}", relic.tier())
-}
-
 pub const RELICS_HEADING: &str = "Relics";
 pub const NO_RELICS: &str = "None yet. A site cleared of machines offers relics.";
 pub const REWARD_TITLE: &str = "The site is cleared";
@@ -2392,10 +2387,6 @@ pub const TRADER_ARMORY_HINT: &str = "Tab opens the Armory beside this.";
 /// A thing on the shelf: its name and tier.
 pub fn shelf_line(name: &str, tier: u32) -> String {
     format!("{name} · tier {tier}")
-}
-/// What a relic costs here.
-pub fn relic_price_line(tier: u8, price: &str) -> String {
-    format!("Tier {tier} · {price}")
 }
 /// A pair that combines: what it is and where the two are.
 pub fn combine_line(name: &str, tier: u32, from: &str) -> String {

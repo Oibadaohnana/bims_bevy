@@ -38,7 +38,9 @@ impl World {
         self.run.phase == RunPhase::Reward
     }
 
-    /// What is still to be offered this run.
+    /// What may still be drawn this run: every relic unlocked that no Bim
+    /// has got (task 117) — what is on offer or on a trader's table
+    /// included, since an offer takes nothing out of it.
     pub fn relic_pool(&self) -> &[Relic] {
         &self.run.relics.pool
     }
@@ -173,32 +175,47 @@ impl World {
 
     // --- offers ------------------------------------------------------------------
 
-    /// `n` relics drawn for a site of `tier` and taken out of the pool:
-    /// offered once, never again this run. Seeded off the galaxy, the
-    /// site and how many offers came before, so every client draws the
-    /// same.
-    pub(super) fn draw_relics(&mut self, tier: u8, n: usize, station: u32) -> Vec<Relic> {
+    /// `n` relics drawn by the one roll every source uses (task 117,
+    /// [`relic::offer`]): the tier by the odds of the world clock's day
+    /// now, off what the pool holds that is not in play — on offer,
+    /// pending, held, or on the table of a trader still open. **The pool is
+    /// not touched**: a relic leaves it when a Bim gets it. Seeded off the
+    /// galaxy, the site and how many offers came before, so every client
+    /// draws the same.
+    pub(crate) fn draw_relics(&mut self, n: usize, station: u32) -> Vec<Relic> {
+        self.release_closed_traders_relics();
         let seed = worldgen::rng::mix(
             self.galaxy_seed
                 ^ worldgen::rng::mix(u64::from(self.star_id) << 32 | u64::from(station))
                 ^ worldgen::rng::mix(0x_4F46_4645_5200 + u64::from(self.run.relics.offers)),
         );
         self.run.relics.offers = self.run.relics.offers.wrapping_add(1);
-        let drawn = relic::offer(&self.run.relics.pool, tier, n, seed);
-        self.run.relics.pool.retain(|r| !drawn.contains(r));
-        drawn
+        let on_tables: Vec<Relic> = self.run.traders.iter().filter_map(|t| t.relic).collect();
+        let drawable: Vec<Relic> = self
+            .run
+            .relics
+            .pool
+            .iter()
+            .copied()
+            .filter(|&r| !self.run.relics.in_play(r) && !on_tables.contains(&r))
+            .collect();
+        relic::offer(&drawable, self.days_gone(), n, seed)
     }
 
-    /// The tier the machines at a site come at, as a number: what its
-    /// relics are drawn at. At a site of the Manufacturers' (feature 109)
-    /// the tier of what **they** carry — tier one for the pistol days —
-    /// whatever the Troopers beside them came at.
-    fn site_tier_code(&self) -> u8 {
-        let site = self.ship.state.alongside().or(self.run.site);
-        if site.is_some_and(|id| self.is_manufacturer_held(id)) {
-            return self.manufacturer_tier().code() as u8;
+    /// A trader closed today puts the relic on its table back in the
+    /// running (task 117): it is taken off the table, and a draw may pick
+    /// it from then on. It never left the pool, so nothing is put back.
+    fn release_closed_traders_relics(&mut self) {
+        let day = self.days_gone();
+        let closed: Vec<usize> = (0..self.run.traders.len())
+            .filter(|&at| {
+                let t = &self.run.traders[at];
+                t.relic.is_some() && self.trader_closed_on(t.site.star, day)
+            })
+            .collect();
+        for at in closed {
+            self.run.traders[at].relic = None;
         }
-        self.droid_tier().code() as u8
     }
 
     /// A choice put to the crew: `options` off `source`. False, and no
@@ -206,7 +223,6 @@ impl World {
     fn put_choice(
         &mut self,
         source: Source,
-        tier: u8,
         options: Vec<Relic>,
         events: &mut Vec<WorldEvent>,
     ) -> bool {
@@ -219,7 +235,6 @@ impl World {
         });
         self.run.relics.choice = Some(RelicChoice {
             source,
-            tier,
             options,
             proposal: None,
         });
@@ -227,14 +242,13 @@ impl World {
     }
 
     /// The reward for the site just left, cleared with machines in it
-    /// (called by `leave_mission` before the rooms part, the tier read
-    /// while the ship is still tied up there): [`data::RELIC_OFFER`]
-    /// relics of the site's tier, and the reward screen up. False, and
-    /// straight to the map, with the pool empty at and below that tier.
+    /// (called by `leave_mission` before the rooms part):
+    /// [`data::RELIC_OFFER`] relics by the day's odds, and the reward
+    /// screen up. False, and straight to the map, with nothing left to
+    /// draw.
     pub(super) fn offer_reward(&mut self, station: u32, events: &mut Vec<WorldEvent>) -> bool {
-        let tier = self.site_tier_code();
-        let options = self.draw_relics(tier, data::RELIC_OFFER, station);
-        self.put_choice(Source::Reward, tier, options, events)
+        let options = self.draw_relics(data::RELIC_OFFER, station);
+        self.put_choice(Source::Reward, options, events)
     }
 
     // --- choosing together ---------------------------------------------------------
@@ -334,6 +348,9 @@ impl World {
         match proposal.relic {
             None => events.push(WorldEvent::RelicsDeclined),
             Some(relic) => {
+                // Got, for good or pending: out of the pool (task 117). The
+                // options not taken were never out of it.
+                self.run.relics.take_from_pool(relic);
                 let keep = choice.source == Source::Reward || self.mission_cleared();
                 if keep {
                     self.run.relics.give(proposal.to, relic);
@@ -401,8 +418,8 @@ impl World {
     }
 
     /// A cache opened — see [`Command::OpenCache`]: gone off the desk, and
-    /// one relic of the site's tier put to the crew. An empty pool is an
-    /// empty cache.
+    /// one relic, drawn by the day's odds, put to the crew. Nothing left to
+    /// draw is an empty cache.
     pub(super) fn open_cache(&mut self, slot: u32, who: u32, events: &mut Vec<WorldEvent>) {
         if let Err(why) = self.can_open_cache(who) {
             events.push(refused(slot, why));
@@ -415,9 +432,8 @@ impl World {
             it.cache = false;
         }
         events.push(WorldEvent::CacheOpened { who });
-        let tier = self.site_tier_code();
-        let options = self.draw_relics(tier, 1, station);
-        self.put_choice(Source::Cache, tier, options, events);
+        let options = self.draw_relics(1, station);
+        self.put_choice(Source::Cache, options, events);
     }
 
     // --- a mission's relics -------------------------------------------------------------
@@ -701,7 +717,9 @@ impl World {
     ) -> bool {
         self.run.relics.choice = None;
         if !cleared {
+            // Lost, and back in the pool (task 117).
             for (slot, relic) in std::mem::take(&mut self.run.relics.pending) {
+                self.run.relics.return_to_pool(relic);
                 events.push(WorldEvent::RelicLost {
                     slot,
                     relic: relic.code(),

@@ -557,7 +557,6 @@ pub fn world_checksum(world: &World) -> u64 {
         None => hash.eat(u64::MAX),
         Some(choice) => {
             hash.eat(u64::from(choice.source.code()));
-            hash.eat(u64::from(choice.tier));
             eat_list(&mut hash, &choice.options);
             match &choice.proposal {
                 None => hash.eat(u64::MAX),

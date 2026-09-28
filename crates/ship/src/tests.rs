@@ -1266,7 +1266,6 @@ fn save_round_trip_keeps_the_relics() {
     world.give_relic_for_probe(0, Relic::SecondWind);
     world.run.relics.choice = Some(world::RelicChoice {
         source: world::relic::Source::Reward,
-        tier: 1,
         options: vec![Relic::FocusingLens, Relic::ServoBraces],
         proposal: None,
     });

@@ -2763,7 +2763,7 @@ fn sheet_relics(ui: &mut egui::Ui, relics: &[world::Relic]) {
     }
     for &relic in relics {
         ui.label(
-            egui::RichText::new(format!("{} · {}", relic_name(relic), relic_tier(relic)))
+            egui::RichText::new(relic_name(relic))
                 .strong()
                 .color(theme::INK),
         );

@@ -7,8 +7,16 @@
 //! A [`Relic`] is held by **one player's Bim** — never a bot's — and is
 //! never moved, dropped or sold: it is on the Bim that was given it until
 //! the run ends, through a death and a buyback like a level. A relic is
-//! in a run once at most: the run's pool ([`Relics::pool`]) loses one the
-//! moment it is **offered**, whether anybody takes it or not.
+//! held once a run at most: the run's pool ([`Relics::pool`]) loses one
+//! the moment a Bim **gets** it — a reward or a cache chosen, a trader's
+//! bought — and an offer takes nothing out of it (task 117). What is on
+//! offer, pending or on a trader's table is kept out of every other draw
+//! while it is ([`Relics::in_play`], `World::draw_relics`), and back in the
+//! running the moment it is not.
+//!
+//! A relic's **tier** (one, two, three) is data the player never sees:
+//! it decides the odds a draw picks it at ([`tier_odds`]) and its price at
+//! a trader, and nothing else.
 //!
 //! # What a relic does
 //!
@@ -35,8 +43,11 @@
 //! # Where relics come from
 //!
 //! A site cleared **with machines in it** offers [`data::RELIC_OFFER`]
-//! relics of its tier ([`offer`]), and a held site may hide a **cache**
-//! ([`data::RELIC_CACHE_CHANCE`]) that gives one. Either way the crew
+//! relics, a held site may hide a **cache**
+//! ([`data::RELIC_CACHE_CHANCE`]) that gives one, and a trader sells one.
+//! All three draw by one roll ([`offer`]): a tier by the day's odds, a
+//! relic of it, and another tier by the same odds when that one has none
+//! left. The site's enemy tier has nothing to do with it. Either way the crew
 //! choose together ([`RelicChoice`]): a player proposes a relic and the
 //! player's Bim to have it, every connected player accepts, and a new
 //! proposal clears every acceptance — the world map's vote over again.
@@ -104,7 +115,8 @@ impl Relic {
         &RELICS[self as usize]
     }
 
-    /// One, two or three: the tier of site that offers it.
+    /// One, two or three: what the odds of drawing it ([`tier_odds`]) and
+    /// its price at a trader are read off (task 117). Never shown.
     pub fn tier(self) -> u8 {
         self.def().tier
     }
@@ -407,23 +419,70 @@ pub fn relics_of_mask(mask: u64) -> Vec<Relic> {
         .collect()
 }
 
-/// `n` relics drawn from `pool` for a site of `tier`, each draw off
-/// `seed`: a draw takes from the site's tier while it has any left, and
-/// from the next tier down when it has none, and nothing when no tier at
-/// or below the site's has any. None twice, and in the order drawn.
-pub fn offer(pool: &[Relic], tier: u8, n: usize, seed: u64) -> Vec<Relic> {
+/// The odds of each tier, one to three, on `day` of the world clock, as
+/// weights in per cent: [`data::RELIC_ODDS_START`] on day nought, moving
+/// in a straight line to [`data::RELIC_ODDS_END`] on
+/// [`data::RELIC_ODDS_FULL_DAY`], and staying there. Integers, rounded
+/// down, so a day's three can add up to a little under a hundred; a roll
+/// is taken against what they add up to.
+pub fn tier_odds(day: u32) -> [u32; 3] {
+    let full = data::RELIC_ODDS_FULL_DAY;
+    if full == 0 || day >= full {
+        return data::RELIC_ODDS_END;
+    }
+    let (a, b) = (data::RELIC_ODDS_START, data::RELIC_ODDS_END);
+    [0, 1, 2].map(|t| (a[t] * (full - day) + b[t] * day) / full)
+}
+
+/// A tier, one to three, rolled off `roll` by `weights` (one a tier);
+/// `None` when they add up to nought.
+fn roll_tier(weights: [u32; 3], roll: u64) -> Option<u8> {
+    let sum: u64 = weights.iter().map(|&w| u64::from(w)).sum();
+    if sum == 0 {
+        return None;
+    }
+    let mut at = roll % sum;
+    for (t, &w) in weights.iter().enumerate() {
+        if at < u64::from(w) {
+            return Some(t as u8 + 1);
+        }
+        at -= u64::from(w);
+    }
+    None
+}
+
+/// `n` relics drawn from `pool` on `day` of the world clock, each draw off
+/// `seed` (task 117). A draw rolls a tier by [`tier_odds`], and takes a
+/// relic of that tier out of what is left; when that tier has none left
+/// it rolls again, by the same odds, among the tiers that still have some;
+/// and it draws nothing once nothing is left. None twice, and in the order
+/// drawn. The pool itself is the caller's and is not touched.
+pub fn offer(pool: &[Relic], day: u32, n: usize, seed: u64) -> Vec<Relic> {
+    let odds = tier_odds(day);
     let mut left: Vec<Relic> = pool.to_vec();
     let mut drawn = Vec::new();
     for i in 0..n {
-        let Some(t) = (1..=tier.max(1))
-            .rev()
-            .find(|&t| left.iter().any(|r| r.tier() == t))
-        else {
+        if left.is_empty() {
             break;
-        };
-        let of_tier: Vec<Relic> = left.iter().copied().filter(|r| r.tier() == t).collect();
-        let roll = worldgen::rng::mix(seed ^ (i as u64).wrapping_mul(0x_9E37_79B9_7F4A_7C15));
-        let pick = of_tier[(roll % of_tier.len() as u64) as usize];
+        }
+        let draw = seed ^ (i as u64).wrapping_mul(0x_9E37_79B9_7F4A_7C15);
+        let roll = |salt: u64| worldgen::rng::mix(draw ^ salt);
+        let has = |t: u8| left.iter().any(|r| r.tier() == t);
+        let mut tier = roll_tier(odds, roll(0x_5449_4552)).filter(|&t| has(t));
+        if tier.is_none() {
+            let mut open = odds;
+            for (t, w) in open.iter_mut().enumerate() {
+                if !has(t as u8 + 1) {
+                    *w = 0;
+                }
+            }
+            tier = roll_tier(open, roll(0x_4147_4149_4E));
+        }
+        // Odds of nought on every tier that has any left: whatever is
+        // left, lowest tier first. Never met with the odds as written.
+        let tier = tier.unwrap_or_else(|| left.iter().map(|r| r.tier()).min().unwrap_or(1));
+        let of_tier: Vec<Relic> = left.iter().copied().filter(|r| r.tier() == tier).collect();
+        let pick = of_tier[(roll(0x_5049_434B) % of_tier.len() as u64) as usize];
         left.retain(|&r| r != pick);
         drawn.push(pick);
     }
@@ -513,8 +572,6 @@ impl RelicProposal {
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct RelicChoice {
     pub source: Source,
-    /// The site's tier the offer was drawn at.
-    pub tier: u8,
     pub options: Vec<Relic>,
     pub proposal: Option<RelicProposal>,
 }
@@ -524,8 +581,11 @@ pub struct RelicChoice {
 #[derive(Clone, PartialEq, Debug, Default)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Relics {
-    /// What is still to be offered, in list order: the host's unlocked
-    /// relics at the start, one less every relic offered.
+    /// What may still be drawn, in list order: the host's unlocked relics
+    /// at the start, one less every relic a Bim **gets** — given, pending
+    /// off a cache, or bought — and one back every pending relic lost
+    /// (task 117). An offer takes nothing out of it: what is on offer is
+    /// kept out of other draws by [`Relics::in_play`] while it is.
     pub pool: Vec<Relic>,
     /// One a player slot: the relics that player's Bim holds, in the order
     /// it was given them.
@@ -568,7 +628,9 @@ impl Relics {
     }
 
     /// Whether a relic is in the run at all — held, pending or on offer
-    /// now — which is what keeps it out of every later offer.
+    /// now — which is what keeps it out of every draw while it is. A
+    /// trader's relic on its table is the world's to add
+    /// (`World::draw_relics`), since the traders are kept beside this.
     pub fn in_play(&self, relic: Relic) -> bool {
         self.held.iter().flatten().any(|&r| r == relic)
             || self.pending.iter().any(|&(_, r)| r == relic)
@@ -576,6 +638,24 @@ impl Relics {
                 .choice
                 .as_ref()
                 .is_some_and(|c| c.options.contains(&relic))
+    }
+
+    /// A relic a Bim got — given, pending or bought — out of the pool.
+    pub(crate) fn take_from_pool(&mut self, relic: Relic) {
+        self.pool.retain(|&r| r != relic);
+    }
+
+    /// A relic back in the pool, in list order — a pending one lost — unless
+    /// a Bim holds it or it is pending still.
+    pub(crate) fn return_to_pool(&mut self, relic: Relic) {
+        let kept = self.held.iter().flatten().any(|&r| r == relic)
+            || self.pending.iter().any(|&(_, r)| r == relic);
+        if kept {
+            return;
+        }
+        if let Err(at) = self.pool.binary_search(&relic) {
+            self.pool.insert(at, relic);
+        }
     }
 
     /// Give a relic to a player's Bim for good.
@@ -655,12 +735,19 @@ impl Profile {
     }
 
     /// The relics unlocked, in list order: a run's pool, when this is the
-    /// host's.
+    /// host's. Every relic a new profile starts with is in it whatever the
+    /// file says, so a profile written before a starting relic was added
+    /// has it too (task 117).
     pub fn pool(&self) -> Vec<Relic> {
         Relic::ALL
             .into_iter()
-            .filter(|r| self.relics.contains(&r.code()))
+            .filter(|&r| self.unlocked(r))
             .collect()
+    }
+
+    /// Whether a relic is in this profile's pool.
+    pub fn unlocked(&self, relic: Relic) -> bool {
+        relic.starts_unlocked() || self.relics.contains(&relic.code())
     }
 
     /// Whether a class may be picked.
@@ -678,7 +765,7 @@ impl Profile {
         self.wins = self.wins.saturating_add(1);
         let fresh: Vec<Relic> = Relic::ALL
             .into_iter()
-            .filter(|r| !self.relics.contains(&r.code()))
+            .filter(|&r| !self.unlocked(r))
             .take(data::RELICS_UNLOCKED_PER_WIN)
             .collect();
         for r in &fresh {
@@ -716,37 +803,191 @@ mod tests {
                 SecondWind,
                 SalvageBeacon,
                 LastStand,
-                KillRelay
+                KillRelay,
+                MarksmansHabit,
+                ServoCutter,
+                CripplersMark,
+                PressureSeal,
+                QuickWrap,
+                ClotBooster,
+                BlindSpot,
+                SprintCoil,
+                SignalScrambler,
+                FieldRadio,
+                Spotter,
+                SquadMorale,
+                HazardPay,
+                TradeLicense,
+                RestockCodes,
             ]
+        );
+        assert_eq!(starting_pool().len(), 23, "task 117: 23 to start");
+        // The fourteen locked, in the order task 117 says a win unlocks them.
+        let locked: Vec<Relic> = Relic::ALL
+            .into_iter()
+            .filter(|r| !r.starts_unlocked())
+            .collect();
+        assert_eq!(
+            locked,
+            vec![
+                SteadyGrip,
+                TraumaKit,
+                OverchargeCell,
+                PhaseHarness,
+                PartsBroker,
+                TetherField,
+                WideAngleOptics,
+                CoverFormation,
+                ScrapCollector,
+                TotalTeardown,
+                Lifeline,
+                Crossfire,
+                RallyPoint,
+                WarChest,
+            ]
+        );
+        // Seven wins unlock them all.
+        let mut profile = Profile::new();
+        for _ in 0..7 {
+            assert_eq!(
+                profile.record_run(true).len(),
+                data::RELICS_UNLOCKED_PER_WIN
+            );
+        }
+        assert_eq!(profile.pool(), Relic::ALL.to_vec());
+    }
+
+    #[test]
+    fn the_tier_odds_move_in_a_line_to_the_full_day_and_stay() {
+        assert_eq!(tier_odds(0), data::RELIC_ODDS_START);
+        assert_eq!(tier_odds(data::RELIC_ODDS_FULL_DAY), data::RELIC_ODDS_END);
+        assert_eq!(tier_odds(1_000), data::RELIC_ODDS_END);
+        assert_eq!(tier_odds(15), [55, 30, 15]);
+        let mut last = tier_odds(0);
+        for day in 1..=data::RELIC_ODDS_FULL_DAY {
+            let odds = tier_odds(day);
+            let sum: u32 = odds.iter().sum();
+            assert!((97..=100).contains(&sum), "day {day}: {odds:?}");
+            // Tier one only ever falls, tier three only ever rises.
+            assert!(odds[0] <= last[0] && odds[2] >= last[2], "day {day}");
+            last = odds;
+        }
+    }
+
+    #[test]
+    fn an_offer_never_draws_one_twice_and_never_shrinks_the_pool() {
+        let pool = Relic::ALL.to_vec();
+        for seed in 0..500 {
+            for day in [0, 12, 30, 90] {
+                let three = offer(&pool, day, 3, seed);
+                assert_eq!(three.len(), 3);
+                let mut sorted = three.clone();
+                sorted.sort();
+                sorted.dedup();
+                assert_eq!(sorted.len(), 3, "none twice: {three:?}");
+                assert!(three.iter().all(|r| pool.contains(r)));
+            }
+        }
+        assert_eq!(pool, Relic::ALL.to_vec(), "the pool is the caller's");
+        // The same seed and day, the same draw.
+        assert_eq!(offer(&pool, 7, 3, 42), offer(&pool, 7, 3, 42));
+        // Short of three: as many as there are, and nothing from nothing.
+        assert_eq!(
+            offer(&[Relic::FocusingLens], 0, 3, 1),
+            vec![Relic::FocusingLens]
+        );
+        assert!(offer(&[], 0, 3, 1).is_empty());
+    }
+
+    #[test]
+    fn an_empty_tier_is_rolled_again_among_the_tiers_left() {
+        // Tier three alone: every draw is tier three, whatever the day's
+        // odds say — a draw is never lost to an empty tier.
+        let high: Vec<Relic> = Relic::ALL.into_iter().filter(|r| r.tier() == 3).collect();
+        for seed in 0..200 {
+            let drawn = offer(&high, 0, 3, seed);
+            assert_eq!(drawn.len(), 3.min(high.len()));
+            assert!(drawn.iter().all(|r| r.tier() == 3));
+        }
+        // No tier one: tier two and three come in the odds' own proportion
+        // between them — 25 to 5 on day nought.
+        let upper: Vec<Relic> = Relic::ALL.into_iter().filter(|r| r.tier() > 1).collect();
+        let n = 6_000;
+        let two = (0..n)
+            .filter(|&seed| offer(&upper, 0, 1, seed)[0].tier() == 2)
+            .count();
+        let share = two * 100 / n as usize;
+        assert!((80..=87).contains(&share), "tier two {share}% of draws");
+    }
+
+    #[test]
+    fn the_tier_shares_follow_the_day_s_odds_over_many_seeds() {
+        let pool = Relic::ALL.to_vec();
+        let n = 10_000u64;
+        for day in [0, 15, 30] {
+            let odds = tier_odds(day);
+            let sum: u32 = odds.iter().sum();
+            let mut seen = [0u64; 3];
+            for seed in 0..n {
+                let first = offer(&pool, day, 1, seed * 7919 + u64::from(day));
+                seen[(first[0].tier() - 1) as usize] += 1;
+            }
+            for t in 0..3 {
+                let want = f64::from(odds[t]) / f64::from(sum);
+                let got = seen[t] as f64 / n as f64;
+                assert!(
+                    (got - want).abs() < 0.02,
+                    "day {day} tier {}: {got:.3} against {want:.3}",
+                    t + 1
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_relic_leaves_the_pool_when_got_and_comes_back_when_lost() {
+        let mut relics = Relics::new(Relic::ALL.to_vec(), 2);
+        relics.take_from_pool(Relic::KillRelay);
+        relics.give(0, Relic::KillRelay);
+        assert!(!relics.pool.contains(&Relic::KillRelay));
+        // Held: never back.
+        relics.return_to_pool(Relic::KillRelay);
+        assert!(!relics.pool.contains(&Relic::KillRelay));
+        // Pending, then lost: back, in list order.
+        relics.take_from_pool(Relic::ServoBraces);
+        relics.pending.push((1, Relic::ServoBraces));
+        relics.return_to_pool(Relic::ServoBraces);
+        assert!(!relics.pool.contains(&Relic::ServoBraces), "still pending");
+        relics.pending.clear();
+        relics.return_to_pool(Relic::ServoBraces);
+        let mut sorted = relics.pool.clone();
+        sorted.sort();
+        assert_eq!(relics.pool, sorted);
+        assert!(relics.pool.contains(&Relic::ServoBraces));
+        relics.return_to_pool(Relic::ServoBraces);
+        assert_eq!(
+            relics
+                .pool
+                .iter()
+                .filter(|&&r| r == Relic::ServoBraces)
+                .count(),
+            1,
+            "never twice"
         );
     }
 
     #[test]
-    fn an_offer_takes_the_site_s_tier_then_the_next_lower_and_never_twice() {
-        let pool = Relic::ALL.to_vec();
-        for seed in 0..200 {
-            let three = offer(&pool, 3, 3, seed);
-            assert_eq!(three.len(), 3);
-            assert!(three.iter().all(|r| r.tier() == 3), "{three:?}");
-            let mut sorted = three.clone();
-            sorted.sort();
-            sorted.dedup();
-            assert_eq!(sorted.len(), 3, "none twice");
-        }
-        // Tier two has three (Second Wind, Salvage Beacon, Overcharge
-        // Cell): the fourth draw falls to tier one.
-        let four = offer(&pool, 2, 4, 7);
-        assert_eq!(four.iter().filter(|r| r.tier() == 2).count(), 3);
-        assert_eq!(four[3].tier(), 1);
-        // Nothing at or below the tier: nothing, even with tier three left.
-        let high = vec![Relic::KillRelay, Relic::LastStand];
-        assert!(offer(&high, 1, 3, 1).is_empty());
-        assert!(offer(&[], 3, 3, 1).is_empty());
-        // Short of three: as many as there are.
-        assert_eq!(
-            offer(&[Relic::FocusingLens], 3, 3, 1),
-            vec![Relic::FocusingLens]
-        );
+    fn a_profile_written_before_a_starting_relic_was_added_has_it() {
+        let old = Profile {
+            relics: vec![Relic::FocusingLens.code()],
+            classes: Vec::new(),
+            wins: 0,
+        };
+        assert_eq!(old.pool(), starting_pool());
+        // And a win unlocks the first locked, not a starting one.
+        let mut old = old;
+        let fresh = old.record_run(true);
+        assert!(fresh.iter().all(|r| !r.starts_unlocked()), "{fresh:?}");
     }
 
     #[test]

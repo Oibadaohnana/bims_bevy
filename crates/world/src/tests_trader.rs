@@ -103,8 +103,9 @@ fn arriving_at_a_trader_loads_no_room_and_runs_no_mission() {
 
 /// **The same seed is the same shelf and the same relic**: two worlds
 /// that arrive at one trader meet one trader — its shelf the roll's,
-/// every kind and tier from the lists, and its relic out of the pool at
-/// no more than the site's tier.
+/// every kind and tier from the lists, and its relic drawn by the day's
+/// odds and **left in the pool** until bought (task 117), but out of every
+/// other draw while it is on the table.
 #[test]
 fn the_same_seed_gives_the_same_shelf_and_the_same_relic() {
     let mut a = basic(1);
@@ -123,8 +124,32 @@ fn the_same_seed_gives_the_same_shelf_and_the_same_relic() {
     let relic = ta
         .relic
         .expect("a relic at a trader met with the pool full");
-    assert!(!a.relic_pool().contains(&relic), "out of the pool for good");
+    assert!(a.relic_pool().contains(&relic), "in the pool until bought");
     assert_eq!(world_checksum(&a), world_checksum(&b));
+    for n in 0..30u32 {
+        a.run.relics.offers = n;
+        let drawn = a.draw_relics(3, site.station);
+        assert!(!drawn.contains(&relic), "on the table, out of other draws");
+    }
+}
+
+/// **A trader closed puts its relic back in the running**: the relic comes
+/// off the table at the next draw after its system falls, and may be drawn
+/// from then on. It never left the pool.
+#[test]
+fn a_closed_trader_s_relic_goes_back_in_the_running() {
+    let mut world = basic(1);
+    let site = at_a_trader(&mut world);
+    let relic = world.trader_here().unwrap().relic.expect("a relic");
+    // The trader's system falls: the crisis on it, nothing liberated.
+    world.set_crisis_first_day_for_probe(0);
+    world.set_droid_origin_for_probe(site.star);
+    assert!(world.trader_closed_on(site.star, world.days_gone()));
+    world.set_relic_pool(vec![relic]);
+    let drawn = world.draw_relics(1, site.station);
+    assert_eq!(drawn, vec![relic], "back in the running");
+    let met = world.traders_met().iter().find(|t| t.site == site).unwrap();
+    assert_eq!(met.relic, None, "off the table");
 }
 
 /// **A bought thing never comes back**: bought, its slot is empty; the
@@ -328,6 +353,10 @@ fn the_relic_wants_everybody_s_yes_and_is_paid_for_once() {
     );
     assert_eq!(world.money, money - price);
     assert_eq!(world.relics_of(1), &[relic]);
+    assert!(
+        !world.relic_pool().contains(&relic),
+        "bought, out of the pool"
+    );
     assert_eq!(world.trader_here().unwrap().relic, None);
     // A yes after is a yes to nothing, and costs nothing.
     let events = world.step(&[Command::AcceptRelic { slot: 1, yes: true }]);

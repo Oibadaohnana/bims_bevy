@@ -202,8 +202,10 @@ first day. What a crew collects over a run instead is **relics** —
 passive items, in the manner of Slay the Spire, each held by **one
 player's Bim** for the rest of the run. A bot never holds one.
 
-- **What one does.** Every relic has a name, a tier and one effect, and the
+- **What one does.** Every relic has a name and one effect, and the
   character sheet (**K**) lists the ones the Bim holds, under its gear —
+  never a tier: the tier in the table is how rare a relic is (the odds of
+  drawing it and its price at a trader) and the game does not show it —
   they are not shown on the deck. The twelve there are:
 
   | tier | relic | what it does | in a new profile |
@@ -228,16 +230,32 @@ player's Bim** for the rest of the run. A bot never holds one.
   player's Bim that dies keeps its relics as it keeps its level; they come
   back with it at the mission's end.
 - **A clear pays one.** A site cleared **with machines in it** — a held
-  station, a held town, a town defended — offers **three relics of its
-  tier** (the tier its machines came at) on a **reward screen** after the
-  departure check, before the world map comes up. When the tier has none
-  left the next lower one is drawn from, and when none is left at or
-  below it the map comes straight up. A relic is in a run **once**: it
-  leaves the pool the moment it is offered, taken or not.
+  station, a held town, a town defended — offers **three relics** on a
+  **reward screen** after the departure check, before the world map comes
+  up; you take one or none. With nothing left to draw the map comes
+  straight up.
+- **How rare, by the day.** Every relic drawn — a reward's three, a
+  cache's one, a trader's one — is drawn the same way (task 117): a
+  tier is rolled by the odds of the world clock's day, then a relic of
+  that tier; a tier with nothing left is rolled again among the tiers
+  that have some. How tough the site's machines were has nothing to do
+  with it. The odds move in a straight line from the first day to the
+  thirtieth, and stay:
+
+  | day | tier 1 | tier 2 | tier 3 |
+  | --- | --- | --- | --- |
+  | 0 | 70% | 25% | 5% |
+  | 30 and on | 40% | 35% | 25% |
+- **Held once a run.** A relic leaves the pool when a Bim **gets** it —
+  taken off a reward or a cache, or bought — and never comes back. One
+  offered and passed over stays in the pool and may be offered again; a
+  cache's relic lost by leaving the site goes back; so does a trader's
+  relic that was never bought, once the trader closes. None is offered
+  twice in one reward.
 - **A cache pays one sooner.** A held site may hide a **relic cache** on
   its research desk — lit gold, the ring of lights a key once had. The
   desk's menu **Open the relic cache** walks your Bim over and opens it:
-  one relic of the site's tier, chosen with the fight going on. It is
+  one relic, chosen with the fight going on. It is
   **pending** until the site is cleared — kept then, **lost** if the crew
   leave first, and the site put back with its cache on the desk again.
 - **Chosen together.** A choice is the world map's vote over again: any
@@ -247,10 +265,12 @@ player's Bim** for the rest of the run. A bot never holds one.
 - **Unlocks between runs.** Each player has a **profile** — which relics
   and classes they have unlocked and how many runs they have won — kept as
   `bims/profile.ron` beside the saves (`~/.local/share/bims`, or wherever
-  `BIMS_PROFILE_DIR` says). A new profile has the eight relics marked
-  above and every class. A **won** run unlocks two more relics in every
-  player's own profile — the first still locked, in the order of the
-  list — and the victory screen says which. A lost run unlocks nothing.
+  `BIMS_PROFILE_DIR` says). A new profile has the twenty-three relics
+  marked above and every class; a profile written before a relic was
+  added to that list has it too. A **won** run unlocks two more relics in
+  every player's own profile — the first still locked, in the order of
+  the list, so seven wins unlock the fourteen — and the victory screen
+  says which. A lost run unlocks nothing.
   In a lobby the **host's** profile decides the run's pool and which
   classes can be picked, fixed at the start. A class added later can be
   made one to unlock the same way; every class there is now is open.
@@ -376,9 +396,9 @@ the tier of what they carry on arrival.
   is destroyed and no wave is left — one down and still bleeding holds
   nothing up, the clear or the leaving. The Republic pays a Manufacturer's
   bounty like a machine's, for each one down or dead, on the clear; the
-  clear offers relics at the tier of what they carried (the pistol days
-  count as tier one); and a site left uncleared is met afresh next time,
-  at the new day.
+  clear offers relics like any other (see
+  [Relics](#relics-and-what-a-won-run-unlocks)); and a site left
+  uncleared is met afresh next time, at the new day.
 - **Not the crisis.** A site of theirs is never infested and never a
   jammer, and the machines spreading through its system pass it by.
 
@@ -453,11 +473,14 @@ map. **Tab** opens the Armory beside it.
   out of the pool — onto their own Bim, onto a bot, or into the armory;
   what it replaces goes into the armory. Two players after the same thing:
   the first has it, the second is told it is gone.
-- **The relic**: one a trader, drawn the first time you arrive at the
-  tier of the place, and there until bought. Buying it is a vote, like a
-  reward: propose it for a player's Bim (never a bot's), everybody says
-  yes, and the pool pays its price when the vote carries — refused if the
-  pool cannot. A new proposal clears every yes.
+- **The relic**: one a trader, drawn the first time you arrive by the
+  same roll as a reward (see [Relics](#relics-and-what-a-won-run-unlocks)),
+  and there until bought — kept out of every other draw while it is, and
+  back in the running if the trader closes. It costs **1 500, 3 000 or
+  5 000** by how rare it is. Buying it is a vote, like a reward: propose
+  it for a player's Bim (never a bot's), everybody says yes, and the pool
+  pays its price when the vote carries — refused if the pool cannot. A
+  new proposal clears every yes.
 - **Combining**, where the workbench used to be: two weapons or two pieces
   of one kind at one tier make one of the next tier, whole, at once — out
   of the armory, off your own Bim or off a bot, never off another

@@ -239,8 +239,11 @@ pub fn shelf_candidates(list: &[ResourceId]) -> Vec<ShelfItem> {
 pub struct Trader {
     pub site: Site,
     pub shelf: Vec<Option<ShelfItem>>,
-    /// The relic, until it is bought: drawn from the run's pool at the
-    /// site's tier the first time the crew arrived, and never back in it.
+    /// The relic, until it is bought: drawn by the day's odds the first
+    /// time the crew arrived (task 117). It stays in the run's pool and out
+    /// of every other draw while it is here, leaves the pool when bought,
+    /// and goes back in the running — off this table — the first draw after
+    /// the trader closes.
     pub relic: Option<Relic>,
 }
 
