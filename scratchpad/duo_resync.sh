@@ -53,7 +53,9 @@ server=$!
 trap 'kill $server 2>/dev/null' EXIT
 sleep 1
 
-common=(BIMS_SERVER=ws://127.0.0.1:$port BIMS_SAVES_DIR="$out/saves" BIMS_AUTO_PLAYERS=2)
+# BIMS_READY=0: no ready check in front of the fight, so the frame
+# numbers below still land where they were written for.
+common=(BIMS_SERVER=ws://127.0.0.1:$port BIMS_SAVES_DIR="$out/saves" BIMS_AUTO_PLAYERS=2 BIMS_READY=0)
 
 host_env=()
 guest_env=()

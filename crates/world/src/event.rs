@@ -323,6 +323,12 @@ pub enum WorldEvent {
     /// A medic cloaked a crew member (task 130): who, and whom — the
     /// medic itself, or a crewmate.
     Cloaked { who: u32, target: u32 },
+    /// A player pressed *Ready* for the mission held for the ready check,
+    /// or took it back.
+    Readied { slot: u32, yes: bool },
+    /// Every connected player is ready: the mission held for the ready
+    /// check is under way.
+    AllReady,
 }
 
 /// Why a command did nothing.
@@ -568,6 +574,11 @@ pub enum Refusal {
     /// A class ability used by a crew member under a cloak (task 130): a
     /// cloaked Bim fires nothing and uses no ability.
     Cloaked = 118,
+    /// Anything but a vote, the loadouts or *Ready* while a mission is
+    /// held for the ready check: nothing has started yet.
+    AwaitingReady = 119,
+    /// *Ready* pressed with no ready check running.
+    NoReadyCheck = 120,
 }
 
 impl Refusal {
@@ -682,6 +693,8 @@ impl WorldEvent {
             WorldEvent::Reinforced { .. } => 135,
             WorldEvent::NaniteBurst { .. } => 136,
             WorldEvent::Cloaked { .. } => 137,
+            WorldEvent::Readied { .. } => 138,
+            WorldEvent::AllReady => 139,
         }
     }
 
@@ -764,7 +777,8 @@ impl WorldEvent {
             WorldEvent::RelicAccepted { slot, yes } => (slot as i64) + 100 * i64::from(yes),
             WorldEvent::RelicsOffered { source, count } => (count as i64) + 100 * (source as i64),
             WorldEvent::CacheOpened { who } => who as i64,
-            WorldEvent::RelicsDeclined | WorldEvent::RunWon => 0,
+            WorldEvent::RelicsDeclined | WorldEvent::RunWon | WorldEvent::AllReady => 0,
+            WorldEvent::Readied { slot, yes } => (slot as i64) + 100 * i64::from(yes),
             // The station in the thousands, the person in the units.
             WorldEvent::EnemyDown { station, who } => (who + 1_000 * station) as i64,
             // The kind in the hundreds and the body under it, the way

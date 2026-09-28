@@ -469,6 +469,13 @@ pub enum Command {
     PlayerGone {
         slot: u32,
     },
+    /// *Ready* for the mission held for the ready check, or taken back
+    /// ([`crate::run::Run::briefing`]). The last yes of every connected
+    /// player starts it.
+    Ready {
+        slot: u32,
+        yes: bool,
+    },
     /// Put a relic on offer to the crew for player `to`'s Bim (feature
     /// 106, [`crate::relic`]) — `relic` a [`crate::Relic`] code, or
     /// `u32::MAX` for taking none. It replaces whatever was on the table,
@@ -1284,8 +1291,10 @@ impl World {
         //    — a vote, a speed — and the step is counted, since it is
         //    what a command is stamped with; nothing else happens.
         //    The reward screen (feature 106) is the same: a relic being
-        //    chosen, nothing moving.
-        if self.run.phase != run::Phase::Mission {
+        //    chosen, nothing moving. And so is a mission held for the
+        //    ready check: the room as it was met, the mission clock at
+        //    nought, until every player has pressed *Ready*.
+        if self.run.phase != run::Phase::Mission || self.run.briefing {
             for &command in commands {
                 self.apply(command, &mut events);
             }
@@ -1514,6 +1523,7 @@ impl World {
             | Command::Return { slot }
             | Command::LeaveBehind { slot, .. }
             | Command::PlayerGone { slot }
+            | Command::Ready { slot, .. }
             | Command::ProposeRelic { slot, .. }
             | Command::AcceptRelic { slot, .. }
             | Command::OpenCache { slot, .. }
@@ -1535,6 +1545,7 @@ impl World {
                     | Command::ProposeRelic { .. }
                     | Command::AcceptRelic { .. }
                     | Command::PlayerGone { .. }
+                    | Command::Ready { .. }
                     | Command::Crew { .. }
                     | Command::CrewLater { .. }
                     | Command::Equip { .. }
@@ -1548,6 +1559,27 @@ impl World {
             )
         {
             events.push(refused(slot, Refusal::BetweenMissions));
+            return;
+        }
+        // A mission held for the ready check is the map's again: the
+        // loadouts, a selection, a rank and *Ready* are heard, and nothing
+        // that would move anybody or start anything.
+        if self.run.briefing
+            && !matches!(
+                command,
+                Command::SetSpeed { .. }
+                    | Command::Ready { .. }
+                    | Command::PlayerGone { .. }
+                    | Command::Crew { .. }
+                    | Command::CrewLater { .. }
+                    | Command::Equip { .. }
+                    | Command::Unequip { .. }
+                    | Command::Offer { .. }
+                    | Command::AnswerOffer { .. }
+                    | Command::RankUp { .. }
+            )
+        {
+            events.push(refused(slot, Refusal::AwaitingReady));
             return;
         }
         let before = events.len();
@@ -1591,6 +1623,7 @@ impl World {
             Command::Return { .. } => self.press_return(slot, events),
             Command::LeaveBehind { yes, .. } => self.answer_departure(slot, yes, events),
             Command::PlayerGone { .. } => self.player_gone(slot, events),
+            Command::Ready { yes, .. } => self.press_ready(slot, yes, events),
             Command::ProposeRelic { relic, to, .. } => {
                 self.propose_relic(slot, crate::relic::Relic::from_code(relic), to, events)
             }
@@ -4638,6 +4671,8 @@ impl World {
                 | Command::Return { .. }
                 | Command::LeaveBehind { .. }
                 | Command::PlayerGone { .. }
+                // And *Ready*: a held mission takes no step to start.
+                | Command::Ready { .. }
                 | Command::ProposeRelic { .. }
                 | Command::AcceptRelic { .. }
                 // And the loadouts' (task 113): changed on the map and the

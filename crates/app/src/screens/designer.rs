@@ -219,6 +219,9 @@ pub enum Order {
     ReturnToShip,
     /// An answer to the departure check — `Command::LeaveBehind`.
     LeaveBehind(bool),
+    /// *Ready* for a mission held for the ready check, or taken back —
+    /// `Command::Ready`.
+    Ready(bool),
     /// A relic put to the crew for a player's Bim, or none — the reward
     /// screen's and a cache's vote, `Command::ProposeRelic` (feature 106).
     ProposeRelic {
@@ -497,6 +500,7 @@ impl Net {
                         Order::AcceptTrip(yes) => Command::Accept { slot, yes },
                         Order::ReturnToShip => Command::Return { slot },
                         Order::LeaveBehind(yes) => Command::LeaveBehind { slot, yes },
+                        Order::Ready(yes) => Command::Ready { slot, yes },
                         Order::ProposeRelic { relic, to } => Command::ProposeRelic {
                             slot,
                             relic: relic.map_or(u32::MAX, world::Relic::code),
@@ -672,6 +676,12 @@ pub fn start_run(commands: &mut Commands, s: &Settings, size: Vec2) -> Screen {
     commands.insert_resource(s.unlocks);
     // And the relic dials, on the `game` command as on any other.
     crate::dev::relic_dials(&mut session);
+    // The ready check: every mission with a fight in it — this first one
+    // too — waits for every player's *Ready* (`BIMS_READY=0` says not).
+    if let Some(game) = &mut session.game {
+        game.world
+            .set_ready_check(crate::dev::ready_check().unwrap_or(true));
+    }
     let ok = session.spawn_ok() && session.game.is_some();
     commands.remove_resource::<Start>();
     if ok {

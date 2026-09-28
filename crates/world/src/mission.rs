@@ -439,6 +439,8 @@ impl World {
         if matches!(self.run.phase, RunPhase::Map | RunPhase::Trade) {
             self.go_if_carried(events);
         }
+        // And a ready check that was waiting only on them.
+        self.start_if_ready(events);
     }
 
     // --- travel ---------------------------------------------------------------
@@ -565,6 +567,78 @@ impl World {
         // And every commander's Reinforcements beside him (task 129),
         // fresh for this mission alone.
         self.bring_reinforcements(events);
+        // And held for the ready check, if there is a fight here.
+        self.open_briefing();
+    }
+
+    // --- the ready check ------------------------------------------------------
+
+    /// Switch the ready check on or off (`Run::ready_check`). Switched on
+    /// at the top of a mission — the `game` run does it before the
+    /// world's first step — the mission it is in is held too.
+    pub fn set_ready_check(&mut self, on: bool) {
+        self.run.ready_check = on;
+        if !on {
+            self.run.briefing = false;
+        } else if self.run.phase == RunPhase::Mission && self.run.mission_steps == 0 {
+            self.open_briefing();
+        }
+    }
+
+    /// Whether this mission is held for the ready check.
+    pub fn awaiting_ready(&self) -> bool {
+        self.run.briefing
+    }
+
+    /// Hold the mission just begun for the ready check: with the switch
+    /// on and a fight at the site — an Attack not yet cleared, a Defend
+    /// threatened — nobody ready yet. A peaceful stop starts at once.
+    fn open_briefing(&mut self) {
+        let fight = self
+            .ship
+            .state
+            .alongside()
+            .is_some_and(|station| !self.site_cleared(station));
+        self.run.briefing = self.run.ready_check && fight;
+        self.run.ready = vec![false; self.players() as usize];
+    }
+
+    /// *Ready* pressed, or taken back — see [`Command::Ready`]. The last
+    /// yes of every connected player starts the mission.
+    pub(super) fn press_ready(&mut self, slot: u32, yes: bool, events: &mut Vec<WorldEvent>) {
+        if !self.run.briefing {
+            events.push(refused(slot, Refusal::NoReadyCheck));
+            return;
+        }
+        if let Some(r) = self.run.ready.get_mut(slot as usize) {
+            *r = yes;
+        }
+        events.push(WorldEvent::Readied { slot, yes });
+        self.start_if_ready(events);
+    }
+
+    /// The mission under way, the moment every connected player is ready.
+    fn start_if_ready(&mut self, events: &mut Vec<WorldEvent>) {
+        if !self.run.briefing {
+            return;
+        }
+        let all = (0..self.players())
+            .filter(|&slot| self.run.is_connected(slot))
+            .all(|slot| self.run.is_ready(slot));
+        if all {
+            self.run.briefing = false;
+            events.push(WorldEvent::AllReady);
+        }
+    }
+
+    /// How many of the connected players are ready, of how many: what the
+    /// ready check's window counts.
+    pub fn ready_count(&self) -> (u32, u32) {
+        let connected: Vec<u32> = (0..self.players())
+            .filter(|&slot| self.run.is_connected(slot))
+            .collect();
+        let ready = connected.iter().filter(|&&s| self.run.is_ready(s)).count();
+        (ready as u32, connected.len() as u32)
     }
 
     /// The dead players back, at the end of the mission they died in
@@ -1107,6 +1181,8 @@ impl World {
     /// apart, nothing moving, until the crew have chosen where next.
     pub(super) fn leave_mission(&mut self, events: &mut Vec<WorldEvent>) {
         let station = self.ship.state.alongside().or(self.run.site);
+        // A mission left is not waiting for anybody's *Ready*.
+        self.run.briefing = false;
         // The commanders' reinforcements off the crew first, alive or not
         // (task 129): nothing of theirs is left behind, paid for or kept.
         self.send_reinforcements_home();

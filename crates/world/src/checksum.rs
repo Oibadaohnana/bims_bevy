@@ -731,6 +731,16 @@ pub fn world_checksum(world: &World) -> u64 {
     hash.eat(u64::from(run.machines_destroyed));
     hash.eat(u64::from(run.sites_cleared));
     hash.eat(u64::from(run.systems_liberated));
+    // The ready check: eaten only while its switch is on, so a run
+    // without it — every test's, the reference run's — hashes as it
+    // always did.
+    if run.ready_check {
+        hash.eat(u64::from(run.briefing));
+        hash.eat(run.ready.len() as u64);
+        for &r in &run.ready {
+            hash.eat(u64::from(r));
+        }
+    }
     // The traders (task 114): every one met, what is left on its shelf and
     // its relic, and the vote on the relic of the one the crew are at.
     // Eaten only where there is any, so a run that has met none hashes as

@@ -191,6 +191,18 @@ pub fn depart() -> bool {
     std::env::var("BIMS_DEPART").as_deref() == Ok("1")
 }
 
+/// `BIMS_READY=0` switches the ready check off in the `game` run, where
+/// it is on — a scripted run then starts its fight at once — and
+/// `BIMS_READY=1` switches it on for a command's own run (`test`,
+/// `defense`, `droids`, …), where it is off. `None` without the dial.
+pub fn ready_check() -> Option<bool> {
+    match std::env::var("BIMS_READY").as_deref() {
+        Ok("0") => Some(false),
+        Ok("1") => Some(true),
+        _ => None,
+    }
+}
+
 /// Whether a `BIMS_POINTER` script drives the pointer: the edge scroll
 /// (task 123) is off then, since a scripted point near an edge would pan
 /// the camera from under the clicks that follow it.

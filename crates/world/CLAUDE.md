@@ -5812,3 +5812,27 @@ room's half is `crates/game/CLAUDE.md` ("An intruder"):
   a defence its experience and bounty as it does at their own sites (it
   walks the Bims now, not only past `first_enemy_body`), and
   `townsfolk_join` never takes one.
+
+## The ready check
+
+A mission with a fight in it — the site alongside **not**
+`site_cleared` (an Attack not yet cleared, a Defend threatened) — opens
+**held** while `Run::ready_check` is on: `Run::briefing`, and `World::step`
+takes stage 0's path (the commands heard, the step counted, nothing
+else), so the mission clock waits at nought and nobody moves. Every
+connected player presses *Ready* (`Command::Ready { slot, yes }`, applied
+at once; `WorldEvent::Readied`); the last yes — or a `PlayerGone` that
+leaves only yeses — is `WorldEvent::AllReady` and the mission starts.
+While held, `apply` hears the speed, `Ready`, `PlayerGone`, the crew's
+orders and the loadouts (`Equip`, `Unequip`, `Offer`, `AnswerOffer`,
+`RankUp`) and refuses the rest `Refusal::AwaitingReady` (119); *Ready*
+with nothing held is `NoReadyCheck` (120).
+
+`begin_mission` opens the hold (`open_briefing`), and so does
+`World::set_ready_check(true)` at the top of a mission — how the `game`
+run's first mission gets it (`screens::designer::start_run`,
+`BIMS_READY=0` to switch it off there, `=1` to switch it on for a
+command's own run). **Off in `World::start`**: every test, the staged
+commands and the pins step at once, and the checksum eats the three
+fields only while the switch is on, so `REFERENCE_CHECKSUM` did not move.
+`tests_ready.rs` is the rule. `SAVE_VERSION` 56, `wire::PROTOCOL` 50.

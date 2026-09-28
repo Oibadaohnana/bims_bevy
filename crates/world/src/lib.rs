@@ -139,6 +139,8 @@ mod tests_money;
 #[cfg(test)]
 mod tests_orders;
 #[cfg(test)]
+mod tests_ready;
+#[cfg(test)]
 mod tests_relic;
 #[cfg(test)]
 mod tests_relic_patches;

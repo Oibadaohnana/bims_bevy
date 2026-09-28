@@ -469,6 +469,8 @@ pub fn refusal(why: Refusal) -> &'static str {
         Refusal::OutOfCloakRange => "they are too far off to cloak",
         Refusal::NoSightOfTarget => "the medic cannot see them",
         Refusal::Cloaked => "a cloaked Bim uses no ability",
+        Refusal::AwaitingReady => "not yet — the mission starts when every player is ready",
+        Refusal::NoReadyCheck => "the mission is already under way",
     }
 }
 
@@ -1975,6 +1977,11 @@ pub fn event_line(event: WorldEvent) -> Option<String> {
         ),
         WorldEvent::TownFell { .. } => TOWN_FELL.into(),
         WorldEvent::PlayerGone { slot } => format!("{} has left the game.", player_name(slot)),
+        WorldEvent::Readied { slot, yes: true } => format!("{} is ready.", player_name(slot)),
+        WorldEvent::Readied { slot, yes: false } => {
+            format!("{} is not ready after all.", player_name(slot))
+        }
+        WorldEvent::AllReady => "Everybody is ready. The mission is under way.".into(),
         WorldEvent::RelicsOffered { source: 0, count } => {
             format!("The site is cleared: {count} relics on offer. Choose one together, or none.")
         }
@@ -2500,6 +2507,21 @@ pub fn departure_answer(who: &str, answer: Option<bool>, gone: bool) -> String {
         (false, Some(true)) => format!("{who}: leave"),
         (false, Some(false)) => format!("{who}: wait"),
         (false, None) => format!("{who}: …"),
+    }
+}
+/// The ready check: a mission with a fight in it waits for every player.
+pub fn ready_title(kind: world::SiteKind) -> String {
+    format!("{} — ready?", site_kind_word(kind))
+}
+pub const READY_LINE: &str =
+    "Nothing moves until every player is ready. Change your loadout now if you want to.";
+pub const READY_YES: &str = "Ready";
+pub const READY_NO: &str = "Not ready";
+pub fn ready_answer(who: &str, ready: bool, gone: bool) -> String {
+    match (gone, ready) {
+        (true, _) => format!("{who}: gone"),
+        (false, true) => format!("{who}: ready"),
+        (false, false) => format!("{who}: …"),
     }
 }
 /// The machines' own station where a system has none, named by nobody.

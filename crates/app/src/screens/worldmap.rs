@@ -662,7 +662,9 @@ pub fn back_to_ship(
     out: bool,
     orders: &mut Vec<Order>,
 ) -> Option<egui::Rect> {
-    if !world.in_mission() || out || world.run.is_out(local) {
+    // Not while the mission waits for the ready check: nothing has
+    // started to go back from.
+    if !world.in_mission() || out || world.run.is_out(local) || world.awaiting_ready() {
         return None;
     }
     let returning = world.run.is_returning(local);
@@ -791,6 +793,69 @@ pub fn departure_window(
                 if ui.button(LEAVE_NO).clicked() {
                     orders.push(Order::LeaveBehind(false));
                 }
+            });
+        });
+}
+
+/// The ready check: while a mission with a fight in it is held
+/// (`World::awaiting_ready`), a panel at the top of the canvas — the
+/// site's kind, every player's answer so far and this player's button.
+/// Not a modal: the loadouts and the skill points stay in reach, and the
+/// world hears them while it waits.
+pub fn ready_window(
+    ctx: &egui::Context,
+    world: &World,
+    local: u32,
+    orders: &mut Vec<Order>,
+    name: &dyn Fn(u32) -> String,
+) {
+    if !world.in_mission() || !world.awaiting_ready() {
+        return;
+    }
+    let kind = world
+        .ship
+        .state
+        .alongside()
+        .map_or(SiteKind::Defend, |id| world.site_kind(id));
+    let mine = world.run.is_ready(local);
+    egui::Area::new(egui::Id::new("ready-check"))
+        .anchor(egui::Align2::CENTER_TOP, egui::vec2(0.0, 90.0))
+        .order(egui::Order::Foreground)
+        .show(ctx, |ui| {
+            theme::tray_frame().inner_margin(14.0).show(ui, |ui| {
+                ui.set_width(360.0);
+                ui.vertical_centered(|ui| {
+                    ui.label(egui::RichText::new(ready_title(kind)).strong().size(20.0));
+                    ui.add(
+                        egui::Label::new(egui::RichText::new(READY_LINE).color(theme::MUTED))
+                            .wrap(),
+                    );
+                    ui.add_space(6.0);
+                    ui.horizontal_wrapped(|ui| {
+                        for slot in 0..world.players() {
+                            let ready = world.run.is_ready(slot);
+                            let gone = !world.run.is_connected(slot);
+                            ui.label(
+                                egui::RichText::new(ready_answer(&name(slot), ready, gone))
+                                    .small()
+                                    .color(if ready { theme::ACCENT } else { theme::MUTED }),
+                            );
+                        }
+                    });
+                    ui.add_space(6.0);
+                    let (word, yes) = if mine {
+                        (READY_NO, false)
+                    } else {
+                        (READY_YES, true)
+                    };
+                    let press = ui.add(
+                        egui::Button::new(egui::RichText::new(word).strong().size(16.0))
+                            .min_size(egui::vec2(160.0, 34.0)),
+                    );
+                    if press.clicked() {
+                        orders.push(Order::Ready(yes));
+                    }
+                });
             });
         });
 }

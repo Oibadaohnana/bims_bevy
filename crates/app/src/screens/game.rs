@@ -819,6 +819,13 @@ fn open(
                     );
                 }
             }
+            // The ready check on a command's own run only when asked
+            // (`BIMS_READY=1`): the `game` run has it from the lobby.
+            if crate::dev::ready_check() == Some(true)
+                && let Some(game) = session.game.as_mut()
+            {
+                game.world.set_ready_check(true);
+            }
             let out = (session.editor.local, session.editor.players);
             crate::names::set_crew_names(&session.crew_names);
             remember_beginning(&mut commands, &session);
@@ -2431,6 +2438,9 @@ fn frame(
     // The departure check, over everything while it is asking — map up or
     // not, since it is everybody's question.
     super::worldmap::departure_window(&ctx, world, local, &mut orders, &crew_name);
+    // And the ready check, while a mission with a fight in it waits for
+    // every player's *Ready*.
+    super::worldmap::ready_window(&ctx, world, local, &mut orders, &crew_name);
     // And a relic being chosen (feature 106): the reward screen after a
     // site cleared, over the map, or a cache's in the mission.
     super::worldmap::relic_window(&ctx, world, local, &mut orders, &crew_name);

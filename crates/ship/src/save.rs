@@ -167,7 +167,9 @@ use crate::game::Game;
 /// member's cloak, a `Skill` the share a revive gets up at, and the
 /// medic's talents and the surge are gone.
 /// 55: no cap on a wave (task 132) — the world's `droid_wave_max` went.
-pub const SAVE_VERSION: u32 = 55;
+/// 56: the ready check — the run keeps its switch, whether the mission is
+/// held for it and who has pressed *Ready*.
+pub const SAVE_VERSION: u32 = 56;
 
 /// What the file holds, read back.
 #[derive(serde::Deserialize)]

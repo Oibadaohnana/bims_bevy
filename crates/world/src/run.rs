@@ -322,6 +322,21 @@ pub struct Run {
     /// connected player has to; a new proposal clears every yes.
     #[cfg_attr(feature = "serde", serde(default))]
     pub trade_relic: Option<crate::relic::RelicProposal>,
+    /// The ready check's switch: on, a mission with a fight in it — an
+    /// Attack site not yet cleared, a Defend site threatened — opens
+    /// held, nothing moving, until every connected player has pressed
+    /// *Ready* ([`crate::Command::Ready`]). Off in `World::start`, so the
+    /// tests' and the staged commands' worlds step at once; the `game`
+    /// run switches it on (`World::set_ready_check`).
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub ready_check: bool,
+    /// Whether this mission is held for the ready check: the room stands
+    /// as it was met and the mission clock waits at nought.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub briefing: bool,
+    /// One a player slot: pressed *Ready* for this mission.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub ready: Vec<bool>,
 }
 
 impl Run {
@@ -352,6 +367,9 @@ impl Run {
             systems_liberated: 0,
             traders: Vec::new(),
             trade_relic: None,
+            ready_check: false,
+            briefing: false,
+            ready: vec![false; players as usize],
         }
     }
 
@@ -368,6 +386,11 @@ impl Run {
     /// Whether that player has pressed *Back to ship* this mission.
     pub fn is_returning(&self, slot: u32) -> bool {
         self.returning.get(slot as usize).copied().unwrap_or(false)
+    }
+
+    /// Whether that player has pressed *Ready* for this mission.
+    pub fn is_ready(&self, slot: u32) -> bool {
+        self.ready.get(slot as usize).copied().unwrap_or(false)
     }
 }
 
