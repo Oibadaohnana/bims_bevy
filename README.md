@@ -350,7 +350,8 @@ ring round its icon and a word under it:
   The moment you arrive the crew are
   put ashore just inside its airlock and a countdown starts along the
   top — `Prepare: 0:20` — and twenty seconds later the first wave lands,
-  at the airlock farthest from yours or outside a town's gate, another
+  at an airlock of the station's (the farthest from yours first, then
+  the next, every one but yours in turn) or outside a town's gate, another
   after each is destroyed. You do not fight it alone: the place fields
   **armed defenders** in its own coveralls (two on the first day, one
   more every five, up to eight), and a town's guard and any mercenaries
@@ -449,8 +450,8 @@ the tier of what they carry on arrival.
   a wave of machines would be, their people armed by the day as above and
   the same day's share of Troopers beside them — none on day nought, a
   tenth on days five and six, a quarter on day seven, half on day eight,
-  three in five on day nine. They come in at the far airlock or a town's
-  gate, fight you and the place's defenders, and shoot its people; the
+  three in five on day nine. They come in at the station's airlocks in
+  turn or a town's gate, fight you and the place's defenders, and shoot its people; the
   place counts each of them down at its first down, and pays for them as
   for the machines. From day ten the machines come instead.
 - **Not the crisis.** A site of theirs is never infested and never a
@@ -566,7 +567,7 @@ all with a line each, and is the build's own answer rather than this table's:
 | `nix run .#design` | `cargo run -- design` | straight into the ship design, the playtest ship given, docked where the simulation docks |
 | `nix run .#test` | `cargo run -- test` | the simulation somewhere else each time: docked at a random station somebody lives on, in a random galaxy, with a mercenary for hire at the dock |
 | `nix run .#test_planet` | `cargo run -- test_planet` | `test` set down on a planet: the same random galaxy, landed at the settlement of a planet whose people are friendly |
-| `nix run .#droids` | `cargo run -- droids` | **the fight**: the combat ship — sixteen crew, a gun in every hand, four of them hired field medics — docked at the arena, which the **machines** hold: a wave of Husks, Troopers and Wardens stands about it. They wear nothing, carry nothing and leave nothing to loot; a Husk snaps at arm's length, a Trooper walks into the open with a gun for a forearm, and a Warden's lance **strips the armour off** whatever it hits rather than wounding the body under it. Clear a wave and the next lands at the far airlock a minute later. Every enemy is a machine (see [a run](#a-run)), so the `combat` command that turned the arena's people against the crew — which would be this exactly — is gone |
+| `nix run .#droids` | `cargo run -- droids` | **the fight**: the combat ship — sixteen crew, a gun in every hand, four of them hired field medics — docked at the arena, which the **machines** hold: a wave of Husks, Troopers and Wardens stands about it. They wear nothing, carry nothing and leave nothing to loot; a Husk snaps at arm's length, a Trooper walks into the open with a gun for a forearm, and a Warden's lance **strips the armour off** whatever it hits rather than wounding the body under it. Clear a wave and the next lands at one of the arena's airlocks — the farthest from yours first, then the others in turn — a minute later. Every enemy is a machine (see [a run](#a-run)), so the `combat` command that turned the arena's people against the crew — which would be this exactly — is gone |
 | `nix run .#combat_droids_engineer` … `#combat_droids_commander` | `cargo run -- combat_droids_medic` | that **same fight with a class in hand**: the crew member you steer starts as an engineer, a soldier, a medic, a tank or a commander — one command a class, the ship, the arena and the wave `droids`' own, so two of these runs differ by the class and nothing else. It starts at the class's **top level** — the tenth with every one of the class's talents still to choose (seven), or — a ranked kit: the soldier, the engineer, the commander and the medic — the sixteenth with sixteen skill points for its four abilities' ranks; `BIMS_LEVEL=3` opens it at that level instead, `BIMS_RANKS=4,4,4,4` buys a ranked kit's ranks outright, and `BIMS_CLASS` still overrides the command |
 | `nix run .#tier2_test` | `cargo run -- tier2_test` | `droids` with everybody's kit at **tier two**: every crew member's gun at it and a full set of armour at it on, and the machines at tier two — nothing at tier one on either side |
 | `nix run .#tier3_test` | `cargo run -- tier3_test` | the same at **tier three** |
@@ -1434,7 +1435,13 @@ building every visit and no two docks are one building: two or three long
 corridors with two to four short ones across them, rooms between them
 and along their outer sides, some of the space between left open to
 space as a courtyard, a corridor now and then running on to a docking
-arm — which way it lies, how wide every corridor is, how deep every room
+arm, and most of them with **wings** growing off that core — a boom run
+out past an arm, sometimes turning a corner, rooms along it and a module
+at its end — so the silhouette is a core with things sticking out of it.
+The airlocks are anywhere on the hull, in a room's outer wall as often as
+at the end of a corridor, and the machines come in by every one but
+yours in turn, so a wave can land in a store, in somebody's quarters or
+at the far end of a boom. Which way it lies, how wide every corridor is, how deep every room
 and where every door and airlock goes are all the seed's. There is
 always a way round: a loop of corridor round a block of rooms, so a
 crew can come at a room from two sides. A relay is the smallest, an

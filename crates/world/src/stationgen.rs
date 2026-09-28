@@ -27,6 +27,21 @@
 //! and two rungs round a cell are a **loop** — a crew can go round the cell
 //! either way — and every ladder has one.
 //!
+//! # Wings, and a way in anywhere
+//!
+//! The ladder is the **core**, and two times in three a compact one, so
+//! the size the kind allows is left for **wings** grown off the ends it
+//! left against the skin (`grow_wings`): a boom run on out past an arm or
+//! a rail, turning once one time in two, rooms along it where they fit,
+//! and a module across its far end — so a station is a core with things
+//! sticking out of it, never quite the same shape twice. Every block is
+//! tried against everything drawn and shortened or left out when it
+//! does not fit. The **airlocks** after the port go in any straight run
+//! of skin with deck two deep inside — a corridor's or a room's — so the
+//! machines, which come aboard by every airlock but the port in turn
+//! (`droid::arrival_airlock_at`), land in stores, quarters and halls in
+//! different parts of the station.
+//!
 //! # The contract, and how it is kept
 //!
 //! A candidate is **furnished and then checked** ([`check`]) against the
@@ -167,6 +182,62 @@ impl Rect {
             self.x1 as u32,
             self.y1 as u32,
         )
+    }
+
+    /// Whether the two share a tile, rings included.
+    fn overlaps(self, o: Rect) -> bool {
+        self.x0 <= o.x1 && o.x0 <= self.x1 && self.y0 <= o.y1 && o.y0 <= self.y1
+    }
+
+    /// Whether this one's deck — inside its ring — reaches any tile of
+    /// `o`, ring included.
+    fn inside_hits(self, o: Rect) -> bool {
+        self.x0 + 1 <= o.x1 && o.x0 <= self.x1 - 1 && self.y0 + 1 <= o.y1 && o.y0 <= self.y1 - 1
+    }
+
+    /// Whether a block drawn here sits beside `o` as a building's blocks
+    /// may: sharing nothing but a ring line (a wall between two rooms, a
+    /// room's wall the corridor's edge), or not touching at all — but
+    /// never touching only corner to corner across a diagonal, which is
+    /// a hull meeting itself at a point.
+    fn beside(self, o: Rect) -> bool {
+        if self.overlaps(o) {
+            return !self.inside_hits(o) && !o.inside_hits(self);
+        }
+        let gap_x = (self.x0 - o.x1 - 1).max(o.x0 - self.x1 - 1);
+        let gap_y = (self.y0 - o.y1 - 1).max(o.y0 - self.y1 - 1);
+        !(gap_x == 0 && gap_y == 0)
+    }
+
+    /// The block continuing this corridor `len` tiles on past its far
+    /// end towards `d`, as wide as it: the two overlap by the end's last
+    /// row of deck and its ring, so the two are one run of deck.
+    fn extended(self, d: (i32, i32), len: i32) -> Rect {
+        match d {
+            (1, _) => Rect::new(self.x1 - 1, self.y0, self.x1 + len, self.y1),
+            (-1, _) => Rect::new(self.x0 - len, self.y0, self.x0 + 1, self.y1),
+            (_, 1) => Rect::new(self.x0, self.y1 - 1, self.x1, self.y1 + len),
+            _ => Rect::new(self.x0, self.y0 - len, self.x1, self.y0 + 1),
+        }
+    }
+
+    /// A corridor `width` wide turning off this one's far end (it runs
+    /// towards `d`) towards `t`, `len` tiles past this one's side: flush
+    /// with the end, so the corner is one square of deck.
+    fn turned(self, d: (i32, i32), t: (i32, i32), width: i32, len: i32) -> Rect {
+        let across = width + 1;
+        let (y0, y1, x0, x1) = match d {
+            (_, 1) => (self.y1 - across, self.y1, 0, 0),
+            (_, -1) => (self.y0, self.y0 + across, 0, 0),
+            (1, _) => (0, 0, self.x1 - across, self.x1),
+            _ => (0, 0, self.x0, self.x0 + across),
+        };
+        match t {
+            (1, _) => Rect::new(self.x0, y0, self.x1 + len, y1),
+            (-1, _) => Rect::new(self.x0 - len, y0, self.x1, y1),
+            (_, 1) => Rect::new(x0, self.y0, x1, self.y1 + len),
+            _ => Rect::new(x0, self.y0 - len, x1, self.y1),
+        }
     }
 }
 
@@ -311,8 +382,27 @@ fn sketch(kind: StationKind, rng: &mut Rng) -> Option<Sketch> {
     // the room a role wanted: every cell and band is built.
     let full = kind == StationKind::Relay;
     let side_on = rng.below(5) < 2;
-    let rails_n = roll(rng, d.rails.0, d.rails.1);
-    let rungs_n = roll(rng, d.rungs.0, d.rungs.1);
+    // Two times in three a **compact** core — the fewest rails and rungs
+    // the kind has, the cells short — so the size the kind allows is
+    // left to the wings, and the station is a core with things growing
+    // off it rather than one block.
+    let compact = rng.below(3) < 2;
+    let (rails_n, rungs_n) = if compact {
+        (d.rails.0, d.rungs.0)
+    } else {
+        (
+            roll(rng, d.rails.0, d.rails.1),
+            roll(rng, d.rungs.0, d.rungs.1),
+        )
+    };
+    let cell_along = if compact {
+        (
+            d.cell_along.0,
+            d.cell_along.0 + (d.cell_along.1 - d.cell_along.0) / 2,
+        )
+    } else {
+        d.cell_along
+    };
 
     // Across: the rails and the cells between them, from v = 0.
     let mut rails = Vec::new();
@@ -336,7 +426,7 @@ fn sketch(kind: StationKind, rng: &mut Rng) -> Option<Sketch> {
         rungs.push((u, u + w + 1));
         u += w + 1;
         if i + 1 < rungs_n {
-            u += roll(rng, d.cell_along.0, d.cell_along.1) + 1;
+            u += roll(rng, cell_along.0, cell_along.1) + 1;
         }
     }
     let open_end = one_in(rng, 2);
@@ -354,10 +444,18 @@ fn sketch(kind: StationKind, rng: &mut Rng) -> Option<Sketch> {
     let first = ladder.rails[0];
     let last = *ladder.rails.last()?;
 
-    // The corridors.
+    // The corridors, and the ends of them a wing may grow from: a rail
+    // run on to the skin, an arm.
     let mut along: Vec<(i32, i32, i32, i32)> = Vec::new(); // (u0, v0, u1, v1)
+    let mut stubs: Vec<((i32, i32, i32, i32), (i32, i32))> = Vec::new(); // (block, (du, dv))
     for &(a, b) in &ladder.rails {
         along.push((ladder.u0, a, ladder.u1, b));
+        if open_end {
+            stubs.push(((ladder.u0, a, ladder.u1, b), (1, 0)));
+        }
+        if open_start {
+            stubs.push(((ladder.u0, a, ladder.u1, b), (-1, 0)));
+        }
     }
     for &(a, b) in &ladder.rungs {
         along.push((a, first.0, b, last.1));
@@ -367,7 +465,11 @@ fn sketch(kind: StationKind, rng: &mut Rng) -> Option<Sketch> {
     // bands so the bands are cut round them. End on, a band either side;
     // side on, only away from the reactor room.
     let sides: &[bool] = if side_on { &[true] } else { &[true, false] };
-    let arm_odds = if kind == StationKind::Orbital { 2 } else { 3 };
+    let arm_odds = if compact || kind == StationKind::Orbital {
+        2
+    } else {
+        3
+    };
     let mut arms: Vec<(usize, bool)> = Vec::new();
     for (i, _) in ladder.rungs.iter().enumerate() {
         for &high in sides {
@@ -417,7 +519,7 @@ fn sketch(kind: StationKind, rng: &mut Rng) -> Option<Sketch> {
 
     // The bands: rooms against the skin along each rail's outer side, cut
     // round the arms, each as deep as it rolled; some left out.
-    let mut arm_blocks: Vec<(i32, i32, i32, i32)> = Vec::new();
+    let mut arm_blocks: Vec<((i32, i32, i32, i32), (i32, i32))> = Vec::new();
     for &high in sides {
         if !full && one_in(rng, 6) {
             // No band this side: the rail's outer wall is the skin, save
@@ -427,9 +529,9 @@ fn sketch(kind: StationKind, rng: &mut Rng) -> Option<Sketch> {
                     let (a, b) = ladder.rungs[i];
                     let reach = roll(rng, 4, 8);
                     arm_blocks.push(if high {
-                        (a, last.1, b, last.1 + reach)
+                        ((a, last.1, b, last.1 + reach), (0, 1))
                     } else {
-                        (a, first.0 - reach, b, first.0)
+                        ((a, first.0 - reach, b, first.0), (0, -1))
                     });
                 }
             }
@@ -475,13 +577,14 @@ fn sketch(kind: StationKind, rng: &mut Rng) -> Option<Sketch> {
                 .unwrap_or(4);
             let reach = beside + roll(rng, 1, 4);
             arm_blocks.push(if high {
-                (a, last.1, b, last.1 + reach)
+                ((a, last.1, b, last.1 + reach), (0, 1))
             } else {
-                (a, first.0 - reach, b, first.0)
+                ((a, first.0 - reach, b, first.0), (0, -1))
             });
         }
     }
-    along.extend(arm_blocks);
+    along.extend(arm_blocks.iter().map(|&(block, _)| block));
+    stubs.extend(arm_blocks);
 
     // Onto the grid: end on, x = LOBBY_EAST + u and y = v; side on, x =
     // LOBBY_EAST + v and y = u.
@@ -493,8 +596,12 @@ fn sketch(kind: StationKind, rng: &mut Rng) -> Option<Sketch> {
             Rect::new(east + u0, v0, east + u1, v1)
         }
     };
-    let corridors: Vec<Rect> = along.into_iter().map(place).collect();
-    let rooms: Vec<Rect> = rooms.into_iter().map(place).collect();
+    let mut corridors: Vec<Rect> = along.into_iter().map(place).collect();
+    let mut rooms: Vec<Rect> = rooms.into_iter().map(place).collect();
+    let stubs: Vec<(Rect, (i32, i32))> = stubs
+        .into_iter()
+        .map(|(block, (du, dv))| (place(block), if side_on { (dv, du) } else { (du, dv) }))
+        .collect();
 
     // The reactor room, its door onto the first rung (end on) or the first
     // rail (side on), on the port's two rows.
@@ -507,6 +614,9 @@ fn sketch(kind: StationKind, rng: &mut Rng) -> Option<Sketch> {
     let tall = if one_in(rng, 2) { 13 } else { 15 };
     let above = roll(rng, 5, tall - 6);
     let lobby = Rect::new(1, py - above, east, py - above + tall - 1);
+
+    // The wings, grown off the ends the ladder left against the skin.
+    grow_wings(kind, &mut corridors, &mut rooms, lobby, &stubs, rng);
 
     // Moved down so the topmost tile is row one.
     let top = corridors
@@ -525,6 +635,185 @@ fn sketch(kind: StationKind, rng: &mut Rng) -> Option<Sketch> {
         rooms,
         side_on,
     })
+}
+
+/// Where the station may still grow: the box round everything drawn,
+/// and the kind's largest side it must stay inside once the topmost
+/// tile is moved to row one.
+struct Bounds {
+    most: i32,
+    y0: i32,
+    x1: i32,
+    y1: i32,
+}
+
+impl Bounds {
+    fn of(kind: StationKind, blocks: &[Rect]) -> Bounds {
+        Bounds {
+            most: side_range(kind).1 as i32,
+            y0: blocks.iter().map(|r| r.y0).min().unwrap_or(0),
+            x1: blocks.iter().map(|r| r.x1).max().unwrap_or(0),
+            y1: blocks.iter().map(|r| r.y1).max().unwrap_or(0),
+        }
+    }
+
+    /// Whether `r` keeps the build area within the kind's largest, and
+    /// never west of the port's column.
+    fn holds(&self, r: Rect) -> bool {
+        let (y0, x1, y1) = (self.y0.min(r.y0), self.x1.max(r.x1), self.y1.max(r.y1));
+        r.x0 >= 1 && x1.max(y1 - y0 + 1) + 2 <= self.most
+    }
+
+    fn take(&mut self, r: Rect) {
+        self.y0 = self.y0.min(r.y0);
+        self.x1 = self.x1.max(r.x1);
+        self.y1 = self.y1.max(r.y1);
+    }
+}
+
+/// Whether `r` may be drawn among `blocks`, beside every one of them as
+/// [`Rect::beside`] asks — bar `parent`, which a corridor grown off it
+/// overlaps.
+fn fits(r: Rect, blocks: &[Rect], parent: Option<Rect>) -> bool {
+    blocks.iter().all(|&o| Some(o) == parent || r.beside(o))
+}
+
+/// Grow **wings** off the ends the ladder left against the skin — an
+/// arm's, a rail's run on to it — so the silhouette is a core with things
+/// sticking out of it rather than a block: a corridor run on out past the
+/// end (a boom), sometimes turning once (a dog-leg), rooms along either
+/// side where they fit, and one time in two a **module** across its far
+/// end, wider than the corridor, which the rooms along it may meet. Every
+/// block is tried against everything drawn ([`fits`]) and against the
+/// kind's largest size, shortened or made shallower when it does not fit,
+/// and left out when nothing does — so a wing is as long as the station
+/// has room for, and a station with no room left has plain arms.
+fn grow_wings(
+    kind: StationKind,
+    corridors: &mut Vec<Rect>,
+    rooms: &mut Vec<Rect>,
+    lobby: Rect,
+    stubs: &[(Rect, (i32, i32))],
+    rng: &mut Rng,
+) {
+    let d = dials(kind);
+    let mut drawn: Vec<Rect> = corridors.iter().chain(rooms.iter()).copied().collect();
+    drawn.push(lobby);
+    let mut bounds = Bounds::of(kind, &drawn);
+    let skip = match kind {
+        StationKind::Relay => 3,
+        _ => 5,
+    };
+    for &(stub, dir) in stubs {
+        // Some ends are left as the ladder drew them.
+        if rng.below(skip) < 2 {
+            continue;
+        }
+        // The corridor: on out past the end, and one time in two a turn.
+        let mut segments: Vec<(Rect, (i32, i32), Rect)> = Vec::new(); // (block, way, parent)
+        let (mut parent, mut way) = (stub, dir);
+        let turns = u32::from(one_in(rng, 2));
+        for s in 0..=turns {
+            let len = roll(rng, 5, 13);
+            let width = roll(rng, d.rung_width.0, d.rung_width.1.min(3));
+            let next = if s == 0 {
+                way
+            } else if one_in(rng, 2) {
+                (way.1, way.0)
+            } else {
+                (-way.1, -way.0)
+            };
+            let mut placed = None;
+            let mut l = len;
+            while l >= 4 {
+                let r = if s == 0 {
+                    parent.extended(way, l)
+                } else {
+                    parent.turned(way, next, width, l)
+                };
+                if bounds.holds(r) && fits(r, &drawn, Some(parent)) {
+                    placed = Some(r);
+                    break;
+                }
+                l -= 2;
+            }
+            let Some(r) = placed else {
+                break;
+            };
+            bounds.take(r);
+            drawn.push(r);
+            corridors.push(r);
+            segments.push((r, next, parent));
+            parent = r;
+            way = next;
+        }
+        if segments.is_empty() {
+            continue;
+        }
+        let mut along = 0;
+        // Rooms along either side of each segment, from where it leaves
+        // its parent to its end.
+        for &(r, way, from) in &segments {
+            let along_x = way.0 != 0;
+            let (lo, hi) = match way {
+                (1, _) => (from.x1, r.x1),
+                (-1, _) => (r.x0, from.x0),
+                (_, 1) => (from.y1, r.y1),
+                _ => (r.y0, from.y0),
+            };
+            for high in [false, true] {
+                if one_in(rng, 4) {
+                    continue;
+                }
+                let Some(walls) = split(lo, hi, 7, 12, rng) else {
+                    continue;
+                };
+                for strip in walls.windows(2) {
+                    let mut deep = roll(rng, 5, 9);
+                    while deep >= 4 {
+                        let (a, b) = (strip[0], strip[1]);
+                        let block = match (along_x, high) {
+                            (true, true) => Rect::new(a, r.y1, b, r.y1 + deep + 1),
+                            (true, false) => Rect::new(a, r.y0 - deep - 1, b, r.y0),
+                            (false, true) => Rect::new(r.x1, a, r.x1 + deep + 1, b),
+                            (false, false) => Rect::new(r.x0 - deep - 1, a, r.x0, b),
+                        };
+                        if bounds.holds(block) && fits(block, &drawn, None) {
+                            bounds.take(block);
+                            drawn.push(block);
+                            rooms.push(block);
+                            along += 1;
+                            break;
+                        }
+                        deep -= 1;
+                    }
+                }
+            }
+        }
+        // A module across the far end, one time in two — always where
+        // no room fitted along it, so a boom leads somewhere.
+        let &(end, way, _) = segments.last().expect("a segment");
+        if along > 0 && one_in(rng, 2) {
+            continue;
+        }
+        let (e0, e1) = (roll(rng, 2, 5), roll(rng, 2, 5));
+        let mut deep = roll(rng, 6, 10);
+        while deep >= 5 {
+            let block = match way {
+                (1, _) => Rect::new(end.x1, end.y0 - e0, end.x1 + deep + 1, end.y1 + e1),
+                (-1, _) => Rect::new(end.x0 - deep - 1, end.y0 - e0, end.x0, end.y1 + e1),
+                (_, 1) => Rect::new(end.x0 - e0, end.y1, end.x1 + e1, end.y1 + deep + 1),
+                _ => Rect::new(end.x0 - e0, end.y0 - deep - 1, end.x1 + e1, end.y0),
+            };
+            if bounds.holds(block) && fits(block, &drawn, None) {
+                bounds.take(block);
+                drawn.push(block);
+                rooms.push(block);
+                break;
+            }
+            deep -= 1;
+        }
+    }
 }
 
 /// The build area a sketch wants: the farthest tile plus the margin, or
@@ -595,6 +884,8 @@ struct Raster {
     side: u32,
     hull: Vec<bool>,
     corridor: Vec<bool>,
+    /// The deck inside the rooms (not the reactor room's).
+    room: Vec<bool>,
 }
 
 impl Raster {
@@ -602,6 +893,7 @@ impl Raster {
         let n = (side * side) as usize;
         let mut hull = vec![false; n];
         let mut corridor = vec![false; n];
+        let mut room = vec![false; n];
         let paint = |grid: &mut Vec<bool>, r: Rect| {
             for y in r.y0.max(0)..=r.y1.min(side as i32 - 1) {
                 for x in r.x0.max(0)..=r.x1.min(side as i32 - 1) {
@@ -623,10 +915,14 @@ impl Raster {
                 Rect::new(r.x0 + 1, r.y0 + 1, r.x1 - 1, r.y1 - 1),
             );
         }
+        for &r in &sketch.rooms {
+            paint(&mut room, Rect::new(r.x0 + 1, r.y0 + 1, r.x1 - 1, r.y1 - 1));
+        }
         Raster {
             side,
             hull,
             corridor,
+            room,
         }
     }
 
@@ -646,6 +942,10 @@ impl Raster {
         self.at(&self.corridor, x, y)
     }
 
+    fn room(&self, x: i32, y: i32) -> bool {
+        self.at(&self.room, x, y)
+    }
+
     /// A hull tile with any of its eight neighbours outside: the skin.
     fn skin(&self, x: i32, y: i32) -> bool {
         self.hull(x, y)
@@ -657,18 +957,29 @@ impl Raster {
 /// The four ways out of a tile, as the unit steps.
 const SIDES: [(i32, i32); 4] = [(-1, 0), (1, 0), (0, -1), (0, 1)];
 
-/// Where the airlocks go, the port first: every pair of skin tiles in a
-/// straight run of skin with space beyond both and corridor deck inside
-/// both, taken farthest from the port first and none nearer another than
-/// ten tiles — as many as the kind wants and the hull has.
+/// Where the airlocks go, the port first. A site is a pair of skin tiles
+/// in a straight run of skin with space beyond both and deck two deep
+/// inside both — a corridor's, or **a room's**, so the machines may come
+/// aboard into a store or somebody's quarters as well as into a hall —
+/// with nothing the trial furnishing stood on those four tiles, and not
+/// on the array or beside it. As many as the kind wants and the hull has,
+/// none nearer another than ten tiles, each drawn among the few sites
+/// farthest from every one chosen, a room's and a corridor's in turn
+/// where both are left, so a station's ways in are spread round it and
+/// lead into different parts of it.
 fn airlocks(
     kind: StationKind,
     raster: &Raster,
     sketch: &Sketch,
+    trial: &Placer,
+    array: (u32, u32),
     rng: &mut Rng,
 ) -> Vec<((u32, u32), Rotation)> {
     let port = ((1u32, sketch.py as u32), Rotation::R0);
-    let mut sites: Vec<((i32, i32), Rotation)> = Vec::new();
+    let (arx, ary) = (array.0 as i32, array.1 as i32);
+    let clear = |x: i32, y: i32| !trial.blocked((x, y));
+    // (the upper or western tile, the turn, whether it opens into a room)
+    let mut sites: Vec<((i32, i32), Rotation, bool)> = Vec::new();
     let side = raster.side as i32;
     for y in 0..side {
         for x in 0..side {
@@ -681,69 +992,80 @@ fn airlocks(
                     (1, 0, Rotation::R90)
                 };
                 let pair = [(x, y), (x + ax, y + ay)];
-                let ok = pair.iter().all(|&(px, py)| {
-                    raster.skin(px, py)
-                        && !raster.hull(px + dx, py + dy)
-                        && raster.corridor(px - dx, py - dy)
-                        && raster.corridor(px - 2 * dx, py - 2 * dy)
-                }) && raster.skin(x - ax, y - ay)
+                let skin = pair
+                    .iter()
+                    .all(|&(px, py)| raster.skin(px, py) && !raster.hull(px + dx, py + dy))
+                    && raster.skin(x - ax, y - ay)
                     && !raster.hull(x - ax + dx, y - ay + dy)
                     && raster.skin(x + 2 * ax, y + 2 * ay)
                     && !raster.hull(x + 2 * ax + dx, y + 2 * ay + dy);
-                // Never on the west skin by the port.
-                if ok && !(dx == -1 && x <= 1) {
-                    sites.push(((x, y), rotation));
+                if !skin {
+                    continue;
+                }
+                let inward = |deck: &dyn Fn(i32, i32) -> bool| {
+                    pair.iter().all(|&(px, py)| {
+                        (1..=2).all(|k| {
+                            deck(px - k * dx, py - k * dy) && clear(px - k * dx, py - k * dy)
+                        })
+                    })
+                };
+                let into_room = inward(&|x, y| raster.room(x, y));
+                let into_corridor = inward(&|x, y| raster.corridor(x, y));
+                // Never on the array or beside it, never on the west
+                // skin by the port.
+                let by_array = (-1..=2).any(|k| (x + k * ax, y + k * ay) == (arx, ary));
+                if (into_room || into_corridor) && !by_array && !(dx == -1 && x <= 1) {
+                    sites.push(((x, y), rotation, into_room));
                 }
             }
         }
     }
-    let (px, py) = (1, sketch.py);
-    let far = |&((x, y), _): &((i32, i32), Rotation)| (x - px).abs() + (y - py).abs();
-    sites.sort_by_key(|s| (-far(s), s.0.1, s.0.0));
     let wanted = match kind {
-        StationKind::Relay => 1,
-        StationKind::Orbital => 2 + rng.below(2) as usize,
-        _ => 1 + rng.below(2) as usize,
+        StationKind::Relay => 1 + rng.below(2) as usize,
+        StationKind::Orbital => 3 + rng.below(2) as usize,
+        _ => 2 + rng.below(2) as usize,
     };
-    let mut chosen: Vec<((i32, i32), Rotation)> = vec![((px, py), Rotation::R0)];
-    // Some of the farthest, not always the very farthest: a draw among the
-    // first few that are far enough from every one chosen.
-    while chosen.len() < 1 + wanted {
-        let open: Vec<&((i32, i32), Rotation)> = sites
+    let mut chosen: Vec<(i32, i32)> = vec![(1, sketch.py)];
+    let mut out = vec![port];
+    let mut room_first = one_in(rng, 2);
+    let gap = |(x, y): (i32, i32), chosen: &[(i32, i32)]| {
+        chosen
             .iter()
-            .filter(|&&((x, y), _)| {
-                chosen
-                    .iter()
-                    .all(|&((cx, cy), _)| (x - cx).abs() + (y - cy).abs() >= 10)
-            })
-            .take(4)
+            .map(|&(cx, cy)| (x - cx).abs() + (y - cy).abs())
+            .min()
+            .unwrap_or(i32::MAX)
+    };
+    while out.len() < 1 + wanted {
+        let mut open: Vec<&((i32, i32), Rotation, bool)> = sites
+            .iter()
+            .filter(|&&(at, _, _)| gap(at, &chosen) >= 10)
             .collect();
-        let Some(&&pick) = rng.pick(&open) else {
+        if open.is_empty() {
+            break;
+        }
+        if open.iter().any(|&&(_, _, room)| room == room_first) {
+            open.retain(|&&(_, _, room)| room == room_first);
+        }
+        // Farthest from every way in already chosen first, and a draw
+        // among the first few.
+        open.sort_by_key(|&&(at, _, _)| (-gap(at, &chosen), at.1, at.0));
+        open.truncate(6);
+        let Some(&&(at, rotation, _)) = rng.pick(&open) else {
             break;
         };
-        chosen.push(pick);
+        chosen.push(at);
+        out.push(((at.0 as u32, at.1 as u32), rotation));
+        room_first = !room_first;
     }
-    let mut out = vec![port];
-    out.extend(
-        chosen[1..]
-            .iter()
-            .map(|&((x, y), r)| ((x as u32, y as u32), r)),
-    );
     out
 }
 
 /// The sensor array's tile: a tile of the north skin in a straight run,
-/// not an airlock's.
-fn array(raster: &Raster, locks: &[((u32, u32), Rotation)], rng: &mut Rng) -> Option<(u32, u32)> {
+/// clear of the port.
+fn array(raster: &Raster, port: (u32, u32), rng: &mut Rng) -> Option<(u32, u32)> {
     let side = raster.side as i32;
-    let taken = |x: i32, y: i32| {
-        locks.iter().any(|&((ax, ay), r)| {
-            let (ax, ay) = (ax as i32, ay as i32);
-            (x, y) == (ax, ay)
-                || (r == Rotation::R0 && (x, y) == (ax, ay + 1))
-                || (r == Rotation::R90 && (x, y) == (ax + 1, ay))
-        })
-    };
+    let (px, py) = (port.0 as i32, port.1 as i32);
+    let taken = |x: i32, y: i32| x == px && (y == py || y == py + 1);
     let mut sites = Vec::new();
     for y in 0..side {
         for x in 0..side {
@@ -1112,13 +1434,15 @@ fn candidate(
     }
     let (sketch, side, rooms, roles) = drawn.ok_or(why)?;
     let raster = Raster::new(side, &sketch);
-    let locks = airlocks(kind, &raster, &sketch, rng);
-    let array = array(&raster, &locks, rng).ok_or(Fail::NoArray)?;
+    let port = ((1u32, sketch.py as u32), Rotation::R0);
+    let array = array(&raster, port.0, rng).ok_or(Fail::NoArray)?;
 
-    // A trial furnishing with every room shut: what stands where, so each
-    // room's door goes where nothing blocks it.
-    let trial_floor = floor_of(&sketch, &roles, &[], &locks, array, &[]);
+    // A trial furnishing with every room shut and the port the one way
+    // in: what stands where, so each room's door and every other airlock
+    // goes where nothing blocks it.
+    let trial_floor = floor_of(&sketch, &roles, &[], &[port], array, &[]);
     let trial = furnish_placer(kind, side, trial_floor, map_seed);
+    let locks = airlocks(kind, &raster, &sketch, &trial, array, rng);
     let mut doors = Vec::new();
     for room in &rooms {
         let sites = door_sites(*room, &raster, &trial);

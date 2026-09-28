@@ -379,7 +379,7 @@ fn no_reinforcement_while_a_machine_lives_and_one_a_clock_after_the_last_dies() 
 }
 
 #[test]
-fn a_wave_arrives_at_the_airlock_farthest_from_the_port() {
+fn the_waves_arrive_at_every_airlock_but_the_port_in_turn() {
     let (mut world, station) = held_arena();
     open_the_room(&mut world);
     // Wave one is stood about the rooms; the *next* one comes in at a
@@ -395,16 +395,39 @@ fn a_wave_arrives_at_the_airlock_farthest_from_the_port() {
 
     let design = &world.station(station).unwrap().design;
     let ports = crate::droid::airlocks(design);
-    let arrival = crate::droid::arrival_airlock(design).expect("an airlock to arrive at");
     let first = ports[0];
-    // The farthest from the crew's own door, and a lower index on a tie.
     let far = |p: &shipdesign::dock::Port| {
         (p.centre.0 - first.centre.0).hypot(p.centre.1 - first.centre.1)
     };
+    // Wave one's is the farthest from the crew's own door, and a lower
+    // index on a tie.
+    let farthest = crate::droid::arrival_airlock(design).expect("an airlock to arrive at");
     for port in &ports {
-        assert!(far(port) <= far(&arrival) + 1e-6, "none is farther");
+        assert!(far(port) <= far(&farthest) + 1e-6, "none is farther");
     }
-    // And the wave stands inside it rather than scattered over the deck.
+    let turn = |wave: u32| {
+        crate::droid::arrival_airlock_at(design, station, wave)
+            .expect("an airlock")
+            .part_id
+    };
+    assert_eq!(turn(1), farthest.part_id);
+    // Every airlock but the port once, nearer and nearer, and round again.
+    let others = ports.len() - 1;
+    assert!(others >= 2, "the arena has more than one way in");
+    let mut seen: Vec<u32> = (1..=others as u32).map(turn).collect();
+    let dist = |id: u32| far(ports.iter().find(|p| p.part_id == id).unwrap());
+    for pair in seen.windows(2) {
+        assert!(dist(pair[0]) + 1e-6 >= dist(pair[1]), "farthest first");
+    }
+    assert_eq!(turn(others as u32 + 1), turn(1), "and round again");
+    seen.sort();
+    seen.dedup();
+    assert_eq!(seen.len(), others, "each once");
+    assert!(!seen.contains(&first.part_id), "never the port");
+
+    // And wave two stands inside its own rather than scattered over the
+    // deck.
+    let arrival = crate::droid::arrival_airlock_at(design, station, 2).unwrap();
     let inside = crate::droid::inside_of(&arrival, data::ASHORE_TILES);
     let aboard = &world.residents.as_ref().unwrap().aboard;
     let want = aboard.to_room(worldgen::math::dvec2(inside.0, inside.1));

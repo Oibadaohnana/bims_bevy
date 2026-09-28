@@ -2049,6 +2049,37 @@ opens before day ten. No save or protocol bump (a field with a default);
 `REFERENCE_CHECKSUM`, `SURVIVORS` and the ship's `PINNED` move with the
 run, on purpose, and are the test agent's to re-pin.
 
+## Stations with wings, and a way in anywhere (task 131, the stations)
+
+The player's second task numbered 131. A generated station (feature 112)
+is no longer only a ladder of corridors: the ladder is the **core**, most
+often a compact one, and **wings** grow off the ends it leaves against
+the skin — a boom, sometimes a dog-leg, rooms along it and a module
+across its end (`stationgen::grow_wings`) — so the silhouette is a core
+with things sticking out of it. **The airlocks after the port may open
+into a room** as well as a corridor (chosen after a trial furnishing, so
+nothing a room's furnisher stands is in the way), three or four on an
+orbital, and **the machines come aboard by every airlock but the port in
+turn**, the farthest first (`droid::arrival_airlock_at`, for every
+station now and not only the Machine Heart) — so a wave can land in a
+store, in somebody's quarters or at the far end of a boom. The world's
+half is `crates/world/CLAUDE.md` ("Wings", "Airlocks, the array, the
+cover", "Where a wave arrives"), the player's `README.md`.
+`BIMS_STATION_SEED=<n> bims droids` fights in one, and `BIMS_STATION_KIND=Orbital
+BIMS_STATION_SEED=<n> cargo test --release -p world --lib print_candidate
+-- --ignored --nocapture` prints one.
+
+**What moved.** `wire::PROTOCOL` **48** (the relay wants redeploying:
+two ends on different generators build different stations). No
+`SAVE_VERSION` bump — a station's design is saved as it stands. Every
+generated station is another building, and the arena's waves (`droids`
+and everything on it) now come in by its east, north and south lobbies in
+turn, so `REFERENCE_CHECKSUM`, `SURVIVORS` and the ship's `PINNED` (and
+`PICTURES`' `droids_deck`, where a wave lands elsewhere) are expected to
+move, on purpose, and are the test agent's to re-pin. The drawn plans,
+the spawn's hub, the arena's and the fortress's designs, the towns and
+`worldgen` did not move.
+
 ## The old game deleted (feature 104)
 
 The third step of the redesign: **everything features 102 and 103 switched

@@ -383,17 +383,29 @@ pub fn arrival_airlock(design: &ShipDesign) -> Option<Port> {
 }
 
 /// The airlock a reinforcement wave `wave` ties up at, at station `id`:
-/// [`arrival_airlock`], except at the Machine Heart's fortress (feature
-/// 108), whose waves come in by **every** airlock but the crew's in turn —
-/// the east, the north and the south lobbies — so a fight there is not
-/// one door held.
+/// **every** airlock but the crew's in turn, so a fight is not one door
+/// held — wave one at the farthest from the port ([`arrival_airlock`]),
+/// the next at the next farthest, and round again (ties to the lower
+/// index). A generated station's airlocks open into rooms as well as
+/// corridors, so the waves come aboard in different parts of it. The
+/// Machine Heart's fortress (feature 108) keeps its own turn, the east,
+/// the north and the south lobbies by index. A station with no airlock
+/// but the port has the machines come in through the crew's own door.
 pub fn arrival_airlock_at(design: &ShipDesign, id: u32, wave: u32) -> Option<Port> {
-    if !crate::heart::is_heart(id) {
-        return arrival_airlock(design);
-    }
     let ports = airlocks(design);
-    let others = ports.len().checked_sub(1).filter(|&n| n > 0)?;
-    ports.get(1 + wave as usize % others).copied()
+    let first = *ports.first()?;
+    if crate::heart::is_heart(id) {
+        let others = ports.len().checked_sub(1).filter(|&n| n > 0)?;
+        return ports.get(1 + wave as usize % others).copied();
+    }
+    let far = |p: &Port| (p.centre.0 - first.centre.0).hypot(p.centre.1 - first.centre.1);
+    let mut others: Vec<(usize, Port)> = ports.iter().copied().enumerate().skip(1).collect();
+    if others.is_empty() {
+        return Some(first);
+    }
+    others.sort_by(|(i, a), (j, b)| far(b).total_cmp(&far(a)).then(i.cmp(j)));
+    let n = others.len();
+    Some(others[(wave as usize + n - 1) % n].1)
 }
 
 /// The spot `tiles` inside an airlock, in the design's own world units:

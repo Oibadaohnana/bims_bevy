@@ -1596,6 +1596,29 @@ never an orbital's size and nothing is bigger than the drawn spine's 68.
 Cheap failures — the wrong size, no room for a role — are drawn again off
 the same stream up to `SKETCHES` (12) times before an attempt is spent.
 
+**Wings** (task 131, the stations' half). The ladder is the **core**, and
+two times in three a **compact** one — the fewest rails and rungs the
+kind has, the cells at most halfway up their range, an arm one time in
+two — so the size the kind allows is left over for wings.
+`stationgen::grow_wings` takes every **stub** the ladder left against the
+skin (an arm's end, a rail run on to it) and, three times in five (a
+relay one in three), runs a corridor on out past it (`Rect::extended`, a
+**boom**), one time in two turning once (`Rect::turned`, two or three
+wide, flush with the end: a **dog-leg**), lays rooms along either side
+of each segment where they fit (seven to twelve along, four to nine
+deep, a side skipped one time in four), and puts a **module** across the
+far end — wider than the corridor by two to five a side, five to ten
+deep — one time in two, and always when no room fitted along it, so a
+boom leads somewhere. Every block goes through `fits`: beside every
+block drawn as `Rect::beside` asks — sharing nothing but a ring line, or
+not touching, but never touching only corner to corner — bar the parent
+a corridor grows off, and inside `Bounds` (the kind's largest side,
+never west of the port's column; a wing may wrap round above or below
+the reactor room). A block that does not fit is shortened, or made
+shallower, and left out when nothing does. The sizes now run to the top
+of each kind's range (an orbital's median 64 of 66), and none fell back
+over fifty seeds a kind.
+
 **The reactor room** is the drawn plans' — `x` 1 to `LOBBY_EAST` (10), 13
 or 15 tall, the port in its west skin on rows `py`, `py + 1` rolled so the
 desk and the reactor along its north wall and the batteries and life
@@ -1623,15 +1646,22 @@ Walls are only rooms' rings (`enclose`); a corridor block has none of its
 own, so crossings open into each other and a room's wall *is* the
 corridor's edge — no one-tile strip is ever left between them.
 
-**Airlocks, the array, the cover.** The port first, then the kind's extras
-— one on a relay, one or two on an outpost, derelict or refinery, two or
-three on an orbital — on a straight run of skin with space beyond both
-tiles and corridor deck two deep inside, farthest from the port first, ten
-tiles apart at the least; `droid::arrival_airlock` has something to
-choose. The array on a straight run of north skin. Sandbags only across a
-corridor three wide or more, a line from one wall leaving two, straight
-across that corridor alone (not in a crossing), none within three tiles
-of a doorway, the reactor room's or an airlock's.
+**Airlocks, the array, the cover.** The port first; the array on a
+straight run of north skin clear of it; then a **trial furnishing** with
+every room shut and the port the one way in; then the kind's extras —
+one or two on a relay, two or three on an outpost, derelict or refinery,
+three or four on an orbital (task 131; the check's least is unchanged) —
+on a straight run of skin with space beyond both tiles and deck two deep
+inside that the trial left clear: **a corridor's or a room's**
+(`Raster::room`, the rooms' insides bar the reactor room's), never on
+the array or beside it. Each is drawn among the six sites farthest from
+every airlock already chosen, ten tiles apart at the least, a room's and
+a corridor's in turn while both are left (which goes first is a roll),
+so the ways in are spread round the station and lead into different
+parts of it. `droid::arrival_airlock_at` takes them all in turn. Sandbags
+only across a corridor three wide or more, a line from one wall leaving
+two, straight across that corridor alone (not in a crossing), none
+within three tiles of a doorway, the reactor room's or an airlock's.
 
 **The check** (`stationgen::check`, on the furnished candidate): the port
 first and in the west skin, the array facing north, the reactor room big
@@ -3427,9 +3457,14 @@ size of the fight.
   minute in the probes — and the wave lands when it runs out (feature
   103; it was the world clock's minutes before). The clock is the
   world's and not the room's, so a room built afresh resets nothing.
-- **Where a wave arrives.** At a station, `droid::arrival_airlock` — the
-  airlock **farthest from the port** (the first airlock, where the crew
-  dock; ties go to the lower index) — and the machines are posted
+- **Where a wave arrives.** At a station, `droid::arrival_airlock_at` —
+  **every airlock but the port in turn** (task 131): wave one at the one
+  farthest from the port (`droid::arrival_airlock`; the first airlock is
+  where the crew dock, and ties go to the lower index), wave two at the
+  next farthest, and round again; a station with only the port has them
+  come in by it, and the Machine Heart keeps its own turn by index. It was
+  always the farthest until task 131, which is also what put airlocks in
+  rooms' outer walls. The machines are posted
   `data::ASHORE_TILES` inside it, spread round the spot in rings so a
   wave does not land on one tile, the way `Residents::post_boarders`
   posted a raider's boarders until feature 104. On a surface, just inside the **gate** its lander set
@@ -5166,7 +5201,8 @@ off its `SystemMemory`). Derived, never saved.
   a won defence. `site_cleared` falls back to `!site_threatened`.
 - **A defence anywhere.** `defense_here` and `defense_waves` lost their
   surface guards: a station's or a derelict's defence is a town's, the
-  waves in at `arrival_airlock` (the one farthest from the crew's) through
+  waves in at `arrival_airlock_at` (every airlock but the crew's in turn,
+  the farthest first, since task 131) through
   the station branch `arriving_wave` already had. The step it starts
   (`stand_the_crew_ashore`) every living crew member on its feet is put
   just inside the site's own airlock (`droid::inside_of(port,
