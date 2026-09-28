@@ -99,7 +99,7 @@ including a zoom about a corner and a pan to the limit, and
 
 **`Game::follow` is the player's exception, and `Camera::set_loose` is
 how.** The game *opens* free — the whole ship in the middle, dragged
-anywhere — and Follow or `F` tethers it; `C` recentres on the steered crew
+anywhere — and Follow or `F` tethers it; `F1` (Select, `C` until task 123) recentres on the steered crew
 member either way (`Game::centre_on_player`). The Follow / Free camera buttons and `F` (`Game::set_follow`, beside
 `Game::head_up`) let the ship view go: `follow_player` then sets
 nothing, and the camera is *loose* — a pan moves the **focus** rather than

@@ -1965,14 +1965,7 @@ fn frame(
                     // And the enemy under it, for a commander's attack
                     // (feature 78).
                     let enemy = room.and_then(|(rx, ry)| game.world.resident_at(rx, ry));
-                    let (order, line) = class_key(
-                        &game.world,
-                        slot,
-                        primary,
-                        tile,
-                        under,
-                        enemy,
-                    );
+                    let (order, line) = class_key(&game.world, slot, primary, tile, under, enemy);
                     orders.extend(order);
                     screen.log.extend(line);
                 }
@@ -3962,10 +3955,9 @@ fn affected_by(world: &world::World, slot: u32, action: Action) -> Vec<u32> {
         (Class::Commander, Action::Ability1) => (0..world.aboard.crew_count())
             .filter(|&who| who == slot || world.aura_reaching(who).is_some())
             .collect(),
-        (
-            Class::Commander,
-            Action::Ability3 | Action::SquadFallBack | Action::SquadStandGround,
-        ) => world.squad_members(slot),
+        (Class::Commander, Action::Ability3 | Action::SquadFallBack | Action::SquadStandGround) => {
+            world.squad_members(slot)
+        }
         (Class::Medic, Action::Ability1) => {
             let mut held = world.patients_of(slot);
             held.push(slot);
@@ -4002,9 +3994,7 @@ fn ability_row(ui: &mut egui::Ui, boxes: &[AbilityBox]) -> RowOut {
             out.hovered = one.action;
         }
         let ctrl = ui.input(|i| i.modifiers.ctrl);
-        out.rank_up = out
-            .rank_up
-            .or(rank_up_by_click(one.action, clicked, ctrl));
+        out.rank_up = out.rank_up.or(rank_up_by_click(one.action, clicked, ctrl));
     }
     out
 }
@@ -4954,7 +4944,12 @@ mod class_key_tests {
                 assert_eq!(boxes[4].key, "T");
                 assert_eq!(boxes[5].key, "Z");
                 // All four say how many of the squad they reach.
-                assert!(boxes[2..].iter().filter(|b| b.mark != Mark::Empty).all(|b| b.count.is_some()));
+                assert!(
+                    boxes[2..]
+                        .iter()
+                        .filter(|b| b.mark != Mark::Empty)
+                        .all(|b| b.count.is_some())
+                );
             }
             if class == world::Class::Medic {
                 assert_eq!(named, vec!["Surge", "Heal beam", names::CARRY]);
@@ -5038,14 +5033,22 @@ mod rank_up_tests {
     /// over the whole window, read before the frame's panels as the
     /// screen reads it.
     fn click_box(which: usize, modifiers: egui::Modifiers) -> (Option<RankUp>, bool) {
-        let ctx = egui::Context::default();
-        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(800.0, 600.0));
-        let origin = egui::pos2(100.0, 100.0);
-        let at = origin
+        let at = ROW
             + egui::vec2(
                 which as f32 * (ABILITY_SIDE + 4.0) + ABILITY_SIDE / 2.0,
                 ABILITY_SIDE / 2.0,
             );
+        click_at(at, modifiers)
+    }
+
+    /// Where the row stands.
+    const ROW: egui::Pos2 = egui::pos2(100.0, 100.0);
+
+    /// [`click_box`] at any point of the window.
+    fn click_at(at: egui::Pos2, modifiers: egui::Modifiers) -> (Option<RankUp>, bool) {
+        let ctx = egui::Context::default();
+        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(800.0, 600.0));
+        let origin = ROW;
         let button = |pressed| egui::Event::PointerButton {
             pos: at,
             button: egui::PointerButton::Primary,
@@ -5055,31 +5058,35 @@ mod rank_up_tests {
         let row = boxes();
         let mut asked = None;
         let mut deck = false;
+        // egui 0.36 hears the modifiers as an event, and keeps them.
         for events in [
-            vec![],
+            vec![egui::Event::ModifiersChanged(modifiers)],
             vec![egui::Event::PointerMoved(at)],
             vec![button(true)],
             vec![button(false)],
             vec![],
         ] {
+            // `run_ui`, so the whole window is the root's to hand out and
+            // a pointer over no panel is the canvas's, as in the game.
             let input = egui::RawInput {
                 screen_rect: Some(screen),
                 events,
-                modifiers,
                 ..Default::default()
             };
-            let _ = ctx.run(input, |ctx| {
-                let pointer = Pointer::read(ctx);
+            let mut output = ctx.run_ui(input, |root| {
+                let ctx = root.ctx().clone();
+                let pointer = Pointer::read(&ctx);
                 deck |= (pointer.primary_pressed || pointer.primary_released)
                     && pointer.on(rect_of(screen)).is_some();
                 egui::Area::new(egui::Id::new("row"))
                     .fixed_pos(origin)
-                    .show(ctx, |ui| {
+                    .show(&ctx, |ui| {
                         ui.horizontal(|ui| {
                             asked = asked.or(ability_row(ui, &row).rank_up);
                         });
                     });
             });
+            output.textures_delta.clear();
         }
         (asked, deck)
     }
@@ -5123,8 +5130,14 @@ mod rank_up_tests {
         assert_eq!(click_box(2, egui::Modifiers::NONE).0, None);
         assert_eq!(click_box(0, egui::Modifiers::NONE).0, None);
         assert_eq!(click_box(4, egui::Modifiers::CTRL).0, None);
-        assert_eq!(rank_up_by_click(Some(Action::SquadFallBack), true, true), None);
-        assert_eq!(rank_up_by_click(Some(Action::SquadStandGround), true, true), None);
+        assert_eq!(
+            rank_up_by_click(Some(Action::SquadFallBack), true, true),
+            None
+        );
+        assert_eq!(
+            rank_up_by_click(Some(Action::SquadStandGround), true, true),
+            None
+        );
         assert_eq!(rank_up_by_click(Some(Action::Ability4), true, false), None);
         assert_eq!(
             rank_up_by_click(Some(Action::Ability4), true, true),
@@ -5142,7 +5155,7 @@ mod rank_up_tests {
             let (_, deck) = click_box(which, egui::Modifiers::CTRL);
             assert!(!deck, "box {which}");
         }
-        let (asked, deck) = click_box(12, egui::Modifiers::CTRL);
+        let (asked, deck) = click_at(egui::pos2(50.0, 50.0), egui::Modifiers::CTRL);
         assert!(deck && asked.is_none(), "beside the row is the deck's");
     }
 }

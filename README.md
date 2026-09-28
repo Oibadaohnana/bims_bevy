@@ -799,7 +799,8 @@ quietly not existing.
   next tile's hob, in the same drag, was still standing on it.
 - **R** turns the ghost a quarter clockwise. The footprint and the use spots
   turn with it, and the palette shows the turned size.
-- **Middle-drag** or **WASD** pans; the **wheel** zooms. The view is clamped
+- **Middle-drag**, **WASD** or the pointer against the window's edge
+  pans; the **wheel** zooms. The view is clamped
   to the build area and a margin, and starts showing all of it.
 
 A drag is applied as a run of single edits, and **a failing one is skipped and
@@ -2118,7 +2119,10 @@ class you steer — an engineer's sentry and sandbags, a soldier's grenade
 and brace, a medic's surge and heal beam, a tank's taunt and
 wall, a commander's rally and attack order — and both are rebindable on
 the Controls page as one pair,
-not one a class. The **commander** has two keys more, his alone: **X**
+not one a class. They are the first and third of **four ability slots**,
+**Q C E R** (task 123); **C** and **R** are empty for every class for now,
+and **Ctrl** with a slot's key, or a Ctrl-click on its box, ranks that
+ability up instead of using it. The **commander** has two keys more, his alone: **X**
 calls the squad back and **Z** has it stand its ground, and both do
 nothing for any other class. The **medic** has one of his own: **G**
 picks a crewmate up and sets them down. With a classless crew member
@@ -2127,9 +2131,10 @@ nothing; a press the world refuses says why in the log.
 
 **Every ability has a box at the foot of the screen**, one a key: the
 key in its corner, the picture in the middle, how many are left in the
-other, and the name under it. A commander has four of them — rally,
-attack, fall back, stand ground — and a medic three, the carry beside
-its surge and beam; everybody else has the two. **Resting on a box rings
+other, and the name under it. Every class has the four slots' boxes, Q C
+E R, the second and fourth empty frames for now (task 123); past them a
+commander has two more — fall back, stand ground — and a medic one, the
+carry. **Resting on a box rings
 the Bims that cast would reach** on the deck: the crew a rally would
 lift, the squad each of the three squad orders commands, the patients a
 beam holds, whoever a carry could pick up. It is the panels' own rule —
@@ -2530,7 +2535,7 @@ Every player steers one Bim, and the rest of the crew are bots. Their
 names are written over their heads on the deck and their portraits are
 at the top left, and a crewmate you have selected has its health and its
 crew sheet down the right — a click, a portrait or a drag to select,
-right-click the deck to move, `r` to recruit, and the tray at the bottom
+right-click the deck to move, `l` to recruit, and the tray at the bottom
 left ([The HUD](#the-hud)). The panels are one
 module, `crates/app/src/crew.rs`. In the simulation the crew is one Bim,
 James; in `droids` it is sixteen.
@@ -2629,9 +2634,11 @@ overlapping is allowed the whole apparatus has nothing left to do.
 | Ctrl-click a cell | The quick move: container to pack, pack to the open container |
 | Click or right-click a door | Menu: hold open, close, lock, unlock — the Bim walks to the panel |
 | Right-click a Bim | A downed crewmate: your own Bim goes and **revives** it; when it cannot, the menu opens with the *Revive* row greyed and the reason |
-| `1` | Select the Bim you steer (control group 1) |
-| `r` | Recruit it, or let it go — see below |
-| `q` / `e` | The steered crew member's **class actions**: an engineer **sets up a sentry** / **lays sandbags** on the deck tile under the pointer, out of a charge in its pack; a soldier **throws a grenade** at it (hold `q` to see the burst's radius) / **braces** where it stands, or stands easy; a medic **triggers its surge** / **beams the crew member under the pointer**, and unlinks when pressed on the one it holds or on nobody; a tank **taunts** / **puts its wall up**, or takes it down — see [Classes and levels](#classes-and-levels). The log says why not; nothing with a classless crew member |
+| `F1` | Select the Bim you steer and put it in the middle of the view |
+| `l` | Recruit it, or let it go — see below |
+| `q` / `c` / `e` / `r` | The steered crew member's four **ability slots** (task 123). `q` and `e` are the **class actions**: an engineer **sets up a sentry** / **lays sandbags** on the deck tile under the pointer, out of a charge in its pack; a soldier **throws a grenade** at it (hold `q` to see the burst's radius) / **braces** where it stands, or stands easy; a medic **triggers its surge** / **beams the crew member under the pointer**, and unlinks when pressed on the one it holds or on nobody; a tank **taunts** / **puts its wall up**, or takes it down — see [Classes and levels](#classes-and-levels). `c` and `r` are empty for every class for now. The log says why not; nothing with a classless crew member |
+| **Ctrl** + a slot's key, or **Ctrl-click** its box | **Ranks that ability up** rather than using it. It follows whatever key the slot is bound to; ranks themselves come with the soldier's rework |
+| **WASD**, middle-drag, or the pointer against the window's edge | Pan the view — the deck, or the galaxy chart. The edge scroll's speed is on the Esc sheet's first page (0 turns it off) |
 | `f` | **Attack-move**: the pointer turns into a red crosshair, and the next click on the deck sends the Bim you steer there with its weapon out. It stops to shoot whatever comes into its sights on the way and walks on once nothing is left — Dota's attack-move. `f` again, `Esc` or a right-click puts the crosshair away |
 | `x` | **Attack**: the pointer turns into a red crosshair, and the next click on the deck plants an **attack banner** there. The crew nobody steers fight their way to it — taking the cover on the way, pushing on when nothing is in range — and hold it. `x` again, `Esc` or a right-click puts the crosshair away; the banner clicked where it already stands calls it off |
 | `y` | **Retreat**: the crew nobody steers fall back to the ship and hold there. `y` again and they go back to keeping to your side. Nobody leaves a fight *aboard* the ship — cornered in your own hull they stand and shoot whatever they were told |

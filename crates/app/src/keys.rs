@@ -54,8 +54,8 @@ pub enum Action {
     /// Recruit them, or let them go. On L since the fourth ability slot
     /// took R (task 123).
     Recruit,
-    /// Turn the part in hand — on the deck, in the yard — or a thing in
-    /// the armoury.
+    /// Turn the part in hand in the yard, or a thing in the armoury. Read
+    /// only there, so it shares R with the fourth ability slot (task 123).
     Turn,
     /// Open and close the inventory of the crew member you steer.
     Inventory,
@@ -413,8 +413,10 @@ impl Keys {
                 if let Ok(speed) = key.trim().parse::<f32>()
                     && speed.is_finite()
                 {
-                    keys.edge_scroll =
-                        (speed * 10.0).round().clamp(0.0, f32::from(EDGE_SCROLL_MAX)) as u8;
+                    keys.edge_scroll = (speed * 10.0)
+                        .round()
+                        .clamp(0.0, f32::from(EDGE_SCROLL_MAX))
+                        as u8;
                 }
                 continue;
             }
@@ -649,13 +651,25 @@ mod tests {
         let keys = Keys::default();
         let ctrl = egui::Modifiers::CTRL;
         let key = down(egui::Key::C, ctrl);
-        for events in [vec![key.clone()], vec![key, egui::Event::Copy], vec![egui::Event::Copy]] {
-            assert_eq!(keys.rank_up_asked(&events, ctrl), Some(Action::Ability2), "{events:?}");
+        for events in [
+            vec![key.clone()],
+            vec![key, egui::Event::Copy],
+            vec![egui::Event::Copy],
+        ] {
+            assert_eq!(
+                keys.rank_up_asked(&events, ctrl),
+                Some(Action::Ability2),
+                "{events:?}"
+            );
             assert!(!keys.used(&events, ctrl, Action::Ability2));
             assert!(!keys.used(&events, ctrl, Action::Select), "{events:?}");
         }
         // Select is F1 whatever else is held.
-        assert!(!keys.used(&[down(egui::Key::C, egui::Modifiers::NONE)], egui::Modifiers::NONE, Action::Select));
+        assert!(!keys.used(
+            &[down(egui::Key::C, egui::Modifiers::NONE)],
+            egui::Modifiers::NONE,
+            Action::Select
+        ));
     }
 
     /// The edge-scroll speed (task 123) is kept in the keys file in
@@ -673,7 +687,10 @@ mod tests {
         assert!(text.contains("edge-scroll-speed=0.3\n"), "{text}");
         assert_eq!(Keys::from_text(&text), slow);
         assert_eq!(Keys::from_text("edge-scroll-speed=0\n").edge_scroll, 0);
-        assert_eq!(Keys::from_text("edge-scroll-speed=9.5\n").edge_scroll, EDGE_SCROLL_MAX);
+        assert_eq!(
+            Keys::from_text("edge-scroll-speed=9.5\n").edge_scroll,
+            EDGE_SCROLL_MAX
+        );
         assert_eq!(
             Keys::from_text("edge-scroll-speed=fast\n").edge_scroll,
             EDGE_SCROLL_DEFAULT

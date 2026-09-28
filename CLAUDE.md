@@ -2188,11 +2188,27 @@ Things about that which are easy to get wrong:
   Action::Map)`), the crew panels get a copy each frame for the armoury's
   Turn key and the hints, and the Controls page rebinds any of them —
   click the key, press another, Esc keeps the old one. Two actions may
-  share a key (Recruit and Turn both start on R, told apart by what is
-  in hand); the page says "also …" rather than refusing. Esc is not an
-  action. The bindings are saved to `$XDG_CONFIG_HOME/bims/keys`
-  (`~/.config/bims/keys`), one `action=Key` a line, and read at start —
-  the one thing the sheet keeps between runs so far. **A right-click on
+  share a key (Turn shares R with the fourth ability slot, and is read
+  only in the yard and the armoury); the page says "also …" rather than
+  refusing. Esc is not an action. The bindings are saved to
+  `$XDG_CONFIG_HOME/bims/keys` (`~/.config/bims/keys`), one `action=Key`
+  a line, and read at start — with the **edge-scroll speed**
+  (`edge-scroll-speed=1.0`, the Esc sheet's slider), the one thing the
+  sheet keeps between runs so far. **Four ability slots** (task 123):
+  `Ability1`–`Ability4` on **Q C E R** (`ability-1`…`ability-4` in the
+  file, an old `class-primary`/`class-secondary` read as 1 and 3); Q and
+  E do what the class's two keys did, C and R are empty for every class
+  and their boxes empty frames. **Ctrl and a slot's key, or a Ctrl-click
+  on its box, is that slot's rank-up** and never the ability
+  (`Keys::rank_up_asked`, `Keys::used`, `rank_up_by_click`), both going
+  through the one `screens::game::rank_up`, which sends nothing yet —
+  task 124 connects it; bevy_egui 0.42 reports Ctrl+C as the key *and*
+  `Event::Copy`, and either is read. So **Select is F1 and Recruit L**.
+  **The pointer against the window's edge pans** whatever a middle drag
+  pans (`canvas::edge_pan`, `EDGE_SCROLL_ZONE` 8 points,
+  `designer::PAN_SPEED` × the setting), in the game and the yard — off
+  with the window unfocused, the Esc sheet up, a middle drag under way,
+  or a `BIMS_POINTER` script driving the pointer. **A right-click on
   the deck moves the player's own Bim and nobody else**, the moment the
   button goes down (`bims::game::Game::orderable`), and **under arms a
   bot cannot be selected** — the crew taking arms lets go of any pick of

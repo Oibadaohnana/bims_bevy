@@ -169,7 +169,9 @@ fn menu(
             }),
     );
     if slider.changed() {
-        keys.edge_scroll = (speed * 10.0).round().clamp(0.0, f32::from(EDGE_SCROLL_MAX)) as u8;
+        keys.edge_scroll = (speed * 10.0)
+            .round()
+            .clamp(0.0, f32::from(EDGE_SCROLL_MAX)) as u8;
     }
     // Kept when the value settles, not every frame of a drag.
     if slider.drag_stopped() || (slider.changed() && !slider.dragged()) {

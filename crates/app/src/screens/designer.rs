@@ -1141,8 +1141,7 @@ fn frame(
     // a middle drag does and beside WASD.
     if screen.sheet.is_none()
         && screen.pan_from.is_none()
-        && let Some(d) =
-            crate::canvas::edge_pan_now(&ctx, &pointer, &keys_now, window.focused, dt)
+        && let Some(d) = crate::canvas::edge_pan_now(&ctx, &pointer, &keys_now, window.focused, dt)
     {
         session.pan(d.x, d.y);
     }

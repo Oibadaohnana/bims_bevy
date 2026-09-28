@@ -157,7 +157,9 @@ pub fn edge_pan_now(
     }
     let window = ctx.viewport_rect();
     let d = edge_pan(
-        pointer.pos.map(|p| p - Vec2::new(window.min.x, window.min.y)),
+        pointer
+            .pos
+            .map(|p| p - Vec2::new(window.min.x, window.min.y)),
         Vec2::new(window.width(), window.height()),
         EDGE_SCROLL_ZONE,
         crate::screens::designer::PAN_SPEED * keys.edge_scroll_speed(),
@@ -214,17 +216,32 @@ mod tests {
         assert_eq!(pan(Some(window / 2.0), 1.0), Vec2::ZERO);
         // `PanLeft` is `d.x += PAN_SPEED * dt` and nothing else.
         assert_eq!(pan(Some(Vec2::new(2.0, 450.0)), 1.0), Vec2::new(step, 0.0));
-        assert_eq!(pan(Some(Vec2::new(1398.0, 450.0)), 1.0), Vec2::new(-step, 0.0));
+        assert_eq!(
+            pan(Some(Vec2::new(1398.0, 450.0)), 1.0),
+            Vec2::new(-step, 0.0)
+        );
         assert_eq!(pan(Some(Vec2::new(700.0, 1.0)), 1.0), Vec2::new(0.0, step));
-        assert_eq!(pan(Some(Vec2::new(700.0, 899.0)), 1.0), Vec2::new(0.0, -step));
+        assert_eq!(
+            pan(Some(Vec2::new(700.0, 899.0)), 1.0),
+            Vec2::new(0.0, -step)
+        );
         // Just past the zone is the middle.
-        assert_eq!(pan(Some(Vec2::new(EDGE_SCROLL_ZONE + 0.5, 450.0)), 1.0), Vec2::ZERO);
+        assert_eq!(
+            pan(Some(Vec2::new(EDGE_SCROLL_ZONE + 0.5, 450.0)), 1.0),
+            Vec2::ZERO
+        );
         // A corner: both axes, each at the whole speed.
         assert_eq!(pan(Some(Vec2::new(0.0, 0.0)), 1.0), Vec2::new(step, step));
-        assert_eq!(pan(Some(Vec2::new(1399.0, 899.0)), 1.0), Vec2::new(-step, -step));
+        assert_eq!(
+            pan(Some(Vec2::new(1399.0, 899.0)), 1.0),
+            Vec2::new(-step, -step)
+        );
         // The setting scales it.
         let faster = pan(Some(Vec2::new(2.0, 450.0)), 2.5);
-        assert!((faster.x - step * 2.5).abs() < 1e-3 && faster.y == 0.0, "{faster}");
+        assert!(
+            (faster.x - step * 2.5).abs() < 1e-3 && faster.y == 0.0,
+            "{faster}"
+        );
         // No pointer, or the setting at nought: nothing.
         assert_eq!(pan(None, 1.0), Vec2::ZERO);
         assert_eq!(pan(Some(Vec2::new(2.0, 450.0)), 0.0), Vec2::ZERO);
