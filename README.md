@@ -567,7 +567,7 @@ all with a line each, and is the build's own answer rather than this table's:
 | `nix run .#test` | `cargo run -- test` | the simulation somewhere else each time: docked at a random station somebody lives on, in a random galaxy, with a mercenary for hire at the dock |
 | `nix run .#test_planet` | `cargo run -- test_planet` | `test` set down on a planet: the same random galaxy, landed at the settlement of a planet whose people are friendly |
 | `nix run .#droids` | `cargo run -- droids` | **the fight**: the combat ship — sixteen crew, a gun in every hand, four of them hired field medics — docked at the arena, which the **machines** hold: a wave of Husks, Troopers and Wardens stands about it. They wear nothing, carry nothing and leave nothing to loot; a Husk snaps at arm's length, a Trooper walks into the open with a gun for a forearm, and a Warden's lance **strips the armour off** whatever it hits rather than wounding the body under it. Clear a wave and the next lands at the far airlock a minute later. Every enemy is a machine (see [a run](#a-run)), so the `combat` command that turned the arena's people against the crew — which would be this exactly — is gone |
-| `nix run .#combat_droids_engineer` … `#combat_droids_commander` | `cargo run -- combat_droids_medic` | that **same fight with a class in hand**: the crew member you steer starts as an engineer, a soldier, a medic, a tank or a commander — one command a class, the ship, the arena and the wave `droids`' own, so two of these runs differ by the class and nothing else. It starts at the class's **top level** — the tenth with every one of the class's talents still to choose (seven), or — the soldier and the engineer — the sixteenth with sixteen skill points for its four abilities' ranks; `BIMS_LEVEL=3` opens it at that level instead, `BIMS_RANKS=4,4,4,4` buys a ranked kit's ranks outright, and `BIMS_CLASS` still overrides the command |
+| `nix run .#combat_droids_engineer` … `#combat_droids_commander` | `cargo run -- combat_droids_medic` | that **same fight with a class in hand**: the crew member you steer starts as an engineer, a soldier, a medic, a tank or a commander — one command a class, the ship, the arena and the wave `droids`' own, so two of these runs differ by the class and nothing else. It starts at the class's **top level** — the tenth with every one of the class's talents still to choose (seven), or — a ranked kit: the soldier, the engineer, the commander and the medic — the sixteenth with sixteen skill points for its four abilities' ranks; `BIMS_LEVEL=3` opens it at that level instead, `BIMS_RANKS=4,4,4,4` buys a ranked kit's ranks outright, and `BIMS_CLASS` still overrides the command |
 | `nix run .#tier2_test` | `cargo run -- tier2_test` | `droids` with everybody's kit at **tier two**: every crew member's gun at it and a full set of armour at it on, and the machines at tier two — nothing at tier one on either side |
 | `nix run .#tier3_test` | `cargo run -- tier3_test` | the same at **tier three** |
 | `nix run .#droids_planet` | `cargo run -- droids_planet` | the same on a planet: a town held by the machines, the ship set down at its pad, and their lander coming down on the plain beyond a gate |
@@ -1719,7 +1719,7 @@ window says so at the top before it says what they carry. A field medic
 is hired for its trade and not for its gun: **four thousand a month** on
 top of the kit, and for it you get somebody whose whole business in a
 fight is your crew. It has **none of a medic's own skills** — no beam,
-no surge, no class at all — and what it does instead is this:
+no burst, no cloak, no class at all — and what it does instead is this:
 
 * it keeps to the **far end of its weapon's reach** and shoots from
   there, so it is still standing when somebody needs fetching;
@@ -2011,7 +2011,7 @@ one thing in the arms at a time, from the lockers to the bench and back.
   first wall or shut door, and goes **through** bodies: everybody in
   its arc takes thirty, once a sweep. Sandbags between you and it are
   cover — the beam goes over — unless you are leaning out of them, and
-  a tank's wall and a medic's surge work on it as on a bolt. It hurts
+  a tank's wall and a relic's surge work on it as on a bolt. It hurts
   no machine. One in eight of a tier-three wave is a Guardian, at least
   one from four machines up.
   `nix run .#guardian` is the fight against one. A machine is not a Bim: it has four parts rather
@@ -2136,7 +2136,7 @@ and every one brings the same money to the pool, whatever its class. A
 class only adds its own two keys and its talents, which nobody else can
 use: **Q** is the class's first action and **E** its second, whichever
 class you steer — an engineer's EMP and sandbags, a soldier's grenade
-and brace, a medic's surge and heal beam, a tank's taunt and
+and brace, a medic's Nanite Burst and heal beam, a tank's taunt and
 wall, a commander's rally and attack order — and both are rebindable on
 the Controls page as one pair,
 not one a class. They are the first and third of **four ability slots**,
@@ -2200,8 +2200,8 @@ does in the middle, **how many are left** in the other — kits and
 grenades in the pack, sentries the talents allow standing, beams free to
 link, the squad's size. Resting on a box names it and says
 what the key does. A box is lit while the key would be taken and dim
-while it would not: the cooldown counts down over the picture, the
-surge's charge is a bar along the foot, and a key not learnt yet says the
+while it would not: the cooldown counts down over the picture, and a
+key not learnt yet says the
 level it is learnt at — every class's **E** from the first level and its
 **Q** from the third. A classless crew member has no keys and no boxes.
 
@@ -2362,59 +2362,91 @@ cooldown as they do every class ability's. Its box glows while it runs.
 
 ### The medic
 
-The third class (feature 76): a crewmate held up, and a shield over the
-pair of them. A medic sets out with the **laser pistol** in hand as
-everybody does, and **revives in four seconds** where anybody else takes
-ten (task 120). Its experience is everybody's: healing earns nothing
-(task 119).
+The third class (feature 76), a **ranked kit** since task 130: four
+abilities, **four ranks each, bought with a skill point a level**, the
+soldier's way — sixteen levels, Q, C and E ranking up at levels 1, 3, 5
+and 7 and the ultimate R at 6, 9, 12 and 15. A medic sets out with the
+**laser pistol** in hand as everybody does. Its experience is
+everybody's: healing earns nothing (task 119). There is no surge any
+more.
 
-**The heal beam** is `E`, from the first level, on the crew member under
-the pointer — a player's Bim, a mercenary, or **the medic itself** —
-never an enemy, within **6 tiles** and in the medic's line of sight.
-Pressed on the one it already holds, or on nothing, it unlinks. While it
-is linked the patient gets back **30 hit points an hour of the clock**
-(half a point a second; a number to be tuned) and the medic may walk but
-**fires nothing**. A downed patient gets nothing back: it wants
-reviving. The beam breaks when the patient leaves the range or the
-medic's sight, dies or leaves the room; when the medic goes down, is
-ordered to an errand — a plain walk keeps it — or unlinks. A line in the
-beam's green is drawn between the two on the deck (a ring round a medic
-beaming itself), and the crew panel says who is held.
+**Two base traits**, whatever his ranks: he **revives in four seconds**
+where anybody else takes ten, and the crewmate he gets up stands at
+**40%** of its bar where anybody else's gets up at 30%.
 
-**The surge** is `Q`, from the third level. The charge fills while the
-beam is on a patient short of its bar, and is full after **40 minutes**
-of such beaming; it keeps across fights and is lost only on the medic's
-death. Triggered with the beam linked and the charge full, for **8
-minutes** the medic and every linked patient **take nothing from any
-hit**, the whole of it absorbed. The charge empties; unlinking does not
-end a surge already running on the patient. A ring round the body says
-who is surging.
+**Q, Nanite Burst** (active, cooldown): every friendly Bim on its feet
+near him — himself included — **and in his sight** is healed at once; a
+wall stops it, and it revives nobody downed.
 
-**The carry** is `H` (it was `G` until the held revive took that key), or the *Carry* row of the right-click menu on a downed crewmate, which walks the medic over first, from the first level and with no talent behind it
+| rank | heal | radius | cooldown |
+| --- | --- | --- | --- |
+| 1 | 30 HP | 4 tiles | 25 s |
+| 2 | 40 HP | 4 tiles | 22 s |
+| 3 | 50 HP | 5 tiles | 20 s |
+| 4 | 60 HP | 6 tiles | 18 s |
+
+**C, Healing Aura** (passive): every friendly Bim within its radius of a
+medic on his feet, himself included, takes more from **every heal** —
+the beam, the burst, a Healing Sentry, a relic. Where the healed Bim
+stands is what counts, not where the heal comes from; two medics reaching
+one Bim, the stronger holds; a revive is not a heal.
+
+| rank | healing received | radius |
+| --- | --- | --- |
+| 1 | ×1.15 | 5 tiles |
+| 2 | ×1.20 | 6 tiles |
+| 3 | ×1.25 | 7 tiles |
+| 4 | ×1.30 | 8 tiles |
+
+**E, Heal Beam** (toggle), on the crew member under the pointer — a
+player's Bim, a bot, a mercenary, or **the medic itself** — never an
+enemy, within its range and in the medic's line of sight. Pressed on the
+one it already holds, or on nothing, it unlinks. A downed patient gets
+nothing back: it wants reviving. The beam breaks when the patient leaves
+the range or the medic's sight, dies or leaves the room; when the medic
+goes down, is cloaked, is ordered to an errand — a plain walk keeps it —
+or unlinks. A line in the beam's green is drawn between the two on the
+deck (a ring round a medic beaming itself), and the crew panel says who
+is held.
+
+| rank | a second at 1× | range | patients | fires while beaming |
+| --- | --- | --- | --- | --- |
+| 1 | 2 HP | 6 tiles | 1 | no |
+| 2 | 3 HP | 7 tiles | 1 | no |
+| 3 | 4 HP | 8 tiles | 1 | yes, at half the fire rate |
+| 4 | 5 HP | 9 tiles | 2, each at the full rate | yes, at half the fire rate |
+
+**R, Cloak** (the ultimate, cooldown): the friendly Bim under the
+pointer — downed or not, within 8 tiles and in his sight — or, with
+nobody there, **himself**. While it lasts **no enemy picks it**, and one
+aiming at it lets it go the same step; an enemy left with nobody it may
+pick holds where it stands and fires nothing. A cloaked Bim **fires
+nothing and uses no ability** — a medic cloaking himself lets his beam
+go — but walks, faster, and may still revive a crewmate. What targets
+nobody still hits it: a Guardian's sweep, a burst. A downed Bim's
+countdown keeps running under a cloak. Cloaked again, it keeps the longer
+of the two times, never both added. It is drawn faint with a shimmer,
+and a thin ring under it — the crew's alone — empties as its time runs
+out.
+
+| rank | lasts | move speed | cooldown |
+| --- | --- | --- | --- |
+| 1 | 6 s | ×1.10 | 60 s |
+| 2 | 7 s | ×1.15 | 55 s |
+| 3 | 8 s | ×1.20 | 50 s |
+| 4 | 10 s | ×1.25 | 45 s |
+
+The Nanite Burst and the Cloak are ready at every mission's start, run on
+the mission clock (stopped while paused) and are shortened by the
+cooldown relics like every class cooldown.
+
+**The carry** is `H` (it was `G` until the held revive took that key), or the *Carry* row of the right-click menu on a downed crewmate, which walks the medic over first, from the first level and with no rank behind it
 (feature 86): a **downed** crewmate under the pointer picked up into the
 medic's arms and carried out of the fire. With the pointer on nobody it
 takes up the nearest it could. Carrying, the medic walks at **six
 tenths** of its pace and **fires nothing**. `H` again sets the body down
 where it stands, and reviving it there is what comes next. The carry is
 let go the moment either of the two goes down.
-
-| level | left | right |
-| --- | --- | --- |
-| 1 | **Heal beam**; **carry**; the four-second revive | — |
-| 2 | *Field dressing* — no effect for now | *Surgeon* — no effect for now |
-| 3 | **Surge** — may trigger it | — |
-| 4 | **Long beam** — beam range ×1.5 | **Strong beam** — beam rate ×1.5 |
-| 5 | *Clean hands* — no effect for now | *Steady hands* — no effect for now |
-| 6 | **Quick charge** — the surge charges ×1.5 faster | **Long surge** — a surge lasts ×1.5 |
-| 7 | *Mender* — no effect for now | — |
-| 8 | *Self-care* — no effect for now | **Double link** — the beam holds two at once, each at the full rate |
-| 9 | **Gunner medic** — fires while beaming, at half the rate | *Closing surge* — no effect for now |
-| 10 | **Mass surge** — a surge covers every crew member within 3 tiles of the patient | *Field surgeon* — no effect for now |
-
-The talents marked *no effect for now* were about bandages, medkits,
-wounds and traumas, which went in task 120; they keep their slots until
-they are redesigned. *Double link* fills the charge off either patient
-and a surge covers both; a third patient takes the first's place.
 
 ### The tank
 
@@ -2695,7 +2727,7 @@ overlapping is allowed the whole apparatus has nothing left to do.
 | Hold `g` | Standing close to a downed crewmate (two and a half tiles): your own Bim **gets the nearest back up** while the key is held, and stops if you let go first. A green bar over the body fills with the revive |
 | `F1` | Select the Bim you steer and put it in the middle of the view |
 | `l` | Recruit it, or let it go — see below |
-| `q` / `c` / `e` / `r` | The steered crew member's four **ability slots** (task 123). `q` and `e` are the **class actions**: an engineer **throws an EMP** at the deck tile under the pointer / **lays sandbags** there, and its `c` **lays a Healing Sentry** and its `r`, the ultimate, **lays its sentry** (task 127); a soldier **throws a grenade** at it (hold `q` to see the burst's radius) / **braces** where it stands, or stands easy, and its `c` is **Weak Spot** (passive, nothing to press) and its `r` goes on a **Rampage**; a medic **triggers its surge** / **beams the crew member under the pointer**, and unlinks when pressed on the one it holds or on nobody; a tank **taunts** / **puts its wall up**, or takes it down — see [Classes and levels](#classes-and-levels). `c` and `r` are empty for every class but the soldier and the engineer for now. The log says why not; nothing with a classless crew member |
+| `q` / `c` / `e` / `r` | The steered crew member's four **ability slots** (task 123). `q` and `e` are the **class actions**: an engineer **throws an EMP** at the deck tile under the pointer / **lays sandbags** there, and its `c` **lays a Healing Sentry** and its `r`, the ultimate, **lays its sentry** (task 127); a soldier **throws a grenade** at it (hold `q` to see the burst's radius) / **braces** where it stands, or stands easy, and its `c` is **Weak Spot** (passive, nothing to press) and its `r` goes on a **Rampage**; a medic **sets off a Nanite Burst** / **beams the crew member under the pointer**, and unlinks when pressed on the one it holds or on nobody, and its `r`, the ultimate, **cloaks** the crew member under the pointer, or itself with the pointer on nobody (task 130); a tank **taunts** / **puts its wall up**, or takes it down — see [Classes and levels](#classes-and-levels). `c` and `r` are empty only for the tank now. The log says why not; nothing with a classless crew member |
 | **Ctrl** + a slot's key, or **Ctrl-click** its box | **Ranks that ability up** rather than using it, for a skill point: the soldier's four abilities (task 124). It follows whatever key the slot is bound to |
 | **WASD**, middle-drag, or the pointer against the window's edge | Pan the view — the deck, or the galaxy chart. The edge scroll's speed is on the Esc sheet's first page (0 turns it off) |
 | `f` | **Attack-move**: the pointer turns into a red crosshair, and the next click on the deck sends the Bim you steer there with its weapon out. It stops to shoot whatever comes into its sights on the way and walks on once nothing is left — Dota's attack-move. `f` again, `Esc` or a right-click puts the crosshair away |

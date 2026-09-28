@@ -139,8 +139,6 @@ pub enum WorldEvent {
     /// 76): who, and the patient — `None` for the link broken, by the
     /// medic or by the world (out of range, out of sight, down).
     Beamed { who: u32, patient: Option<u32> },
-    /// A medic triggered a surge: who.
-    Surged { who: u32 },
     /// A tank stood as a wall, or stood down again (feature 77): who,
     /// and which.
     Bulwarked { who: u32, on: bool },
@@ -319,6 +317,12 @@ pub enum WorldEvent {
     /// The sentry of player `who`'s engineer stood its time and is gone
     /// (task 127): its end, not a loss.
     SentryDone { who: u32 },
+    /// A medic's Nanite Burst went off (task 130): who, and how many
+    /// friendly Bims it healed, the medic among them.
+    NaniteBurst { who: u32, healed: u32 },
+    /// A medic cloaked a crew member (task 130): who, and whom — the
+    /// medic itself, or a crewmate.
+    Cloaked { who: u32, target: u32 },
 }
 
 /// Why a command did nothing.
@@ -331,7 +335,8 @@ pub enum WorldEvent {
 /// door, 37, went with the old game in feature 104; the hold's, the
 /// pack's, the loot's and the workbench's, 3, 15–18, 34–36, 51 and 81,
 /// went with the storage in task 113; the desk's, 21, with the desks in task 114;
-/// a rally too early, 71, with the commander's talents in task 129).
+/// a rally too early, 71, with the commander's talents in task 129; the
+/// surge's, 65–67, with the surge in task 130).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 #[repr(u32)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -415,8 +420,8 @@ pub enum Refusal {
     NoLineToTile = 58,
     /// A throw at a tile that is not deck of the room.
     CantThrowThere = 59,
-    /// A beam or a surge by a crew member that is not a medic (feature
-    /// 76).
+    /// A beam, a Nanite Burst or a cloak by a crew member that is not a
+    /// medic (feature 76; task 130).
     NotAMedic = 60,
     /// A beam with no crew member under the pointer.
     NoPatient = 61,
@@ -429,12 +434,8 @@ pub enum Refusal {
     OutOfBeamRange = 63,
     /// A beam on a crewmate the medic cannot see.
     NoSightOfPatient = 64,
-    /// A surge before the medic's third level.
-    NoSurgeYet = 65,
-    /// A surge with the charge not full.
-    NotCharged = 66,
-    /// A surge with no patient linked.
-    NotLinked = 67,
+    // 65, 66 and 67 were the surge's — too early, not charged, nobody
+    // linked — and went with it (task 130).
     /// A bulwark or a taunt by a crew member that is not a tank
     /// (feature 77).
     NotATank = 68,
@@ -560,6 +561,13 @@ pub enum Refusal {
     /// An ability used while it is already running: a Rampage on top of
     /// a Rampage.
     AlreadyActive = 115,
+    /// A cloak on a crewmate beyond its reach (task 130).
+    OutOfCloakRange = 116,
+    /// A cloak on a crewmate the medic cannot see (task 130).
+    NoSightOfTarget = 117,
+    /// A class ability used by a crew member under a cloak (task 130): a
+    /// cloaked Bim fires nothing and uses no ability.
+    Cloaked = 118,
 }
 
 impl Refusal {
@@ -614,7 +622,7 @@ impl WorldEvent {
             WorldEvent::Braced { .. } => 75,
             WorldEvent::Thrown { .. } => 76,
             WorldEvent::Beamed { .. } => 77,
-            WorldEvent::Surged { .. } => 78,
+            // 78 was a surge, which went with it (task 130).
             WorldEvent::Bulwarked { .. } => 79,
             WorldEvent::Taunted { .. } => 80,
             WorldEvent::Squadded { .. } => 81,
@@ -672,6 +680,8 @@ impl WorldEvent {
             WorldEvent::SentryDone { .. } => 133,
             WorldEvent::BattleCried { .. } => 134,
             WorldEvent::Reinforced { .. } => 135,
+            WorldEvent::NaniteBurst { .. } => 136,
+            WorldEvent::Cloaked { .. } => 137,
         }
     }
 
@@ -807,12 +817,14 @@ impl WorldEvent {
             }
             WorldEvent::DeployableLost { kind } => kind as i64,
             WorldEvent::Thrown { who }
-            | WorldEvent::Surged { who }
             | WorldEvent::Taunted { who }
             | WorldEvent::Rallied { who }
             | WorldEvent::BattleCried { who } => who as i64,
             // The count in the hundreds: a crew is never a hundred.
             WorldEvent::Reinforced { who, count } => (who as i64) + 100 * (count as i64),
+            // How many it healed, and whom it cloaked, in the hundreds.
+            WorldEvent::NaniteBurst { who, healed } => (who as i64) + 100 * (healed as i64),
+            WorldEvent::Cloaked { who, target } => (who as i64) + 100 * (target as i64),
             // The order's code in the hundreds, and nought for the
             // order called off: a crew is never a hundred.
             WorldEvent::Squadded { who, kind } => {

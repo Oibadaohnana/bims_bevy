@@ -1144,14 +1144,15 @@ mod tests {
     /// with the bar full at the tenth.
     #[test]
     fn the_experience_line_is_whole_numbers_and_max_at_the_top() {
-        let medic = world::Class::Medic;
-        assert_eq!(xp_text(medic, 0), "Lv 1 · 0 / 100 XP");
-        assert_eq!(xp_text(medic, 500), "Lv 4 · 50 / 250 XP");
-        assert_eq!(xp_text(medic, 3_199), "Lv 9 · 699 / 700 XP");
-        assert!((xp_fill(medic, 500) - 0.2).abs() < 1e-6);
+        // The tank: the one class of talents left (task 130).
+        let tank = world::Class::Tank;
+        assert_eq!(xp_text(tank, 0), "Lv 1 · 0 / 100 XP");
+        assert_eq!(xp_text(tank, 500), "Lv 4 · 50 / 250 XP");
+        assert_eq!(xp_text(tank, 3_199), "Lv 9 · 699 / 700 XP");
+        assert!((xp_fill(tank, 500) - 0.2).abs() < 1e-6);
         for xp in [3_200, 3_201, u32::MAX] {
-            assert_eq!(xp_text(medic, xp), "Lv 10 · Max");
-            assert_eq!(xp_fill(medic, xp), 1.0);
+            assert_eq!(xp_text(tank, xp), "Lv 10 · Max");
+            assert_eq!(xp_fill(tank, xp), 1.0);
         }
         // A ranked kit climbs its own sixteen (task 124).
         let soldier = world::Class::Soldier;

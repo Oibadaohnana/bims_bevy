@@ -1014,7 +1014,9 @@ fn two_runs_of_a_grenade_fight_on_one_seed_are_the_same_fight() {
 fn the_soldier_climbs_sixteen_levels_and_every_other_class_ten() {
     let mut world = simulation_world(flyer(3), REFERENCE_MONEY, 3);
     assert_eq!(world.set_class(0, Class::Soldier), Ok(()));
-    assert_eq!(world.set_class(1, Class::Medic), Ok(()));
+    assert_eq!(world.set_class(1, Class::Tank), Ok(()));
+    // The tank: the one class of talents left since the medic's ranked kit
+    // (task 130).
     let mut events = Vec::new();
     world.award(0, 3_199, &mut events);
     world.award(1, 3_199, &mut events);
@@ -1027,7 +1029,7 @@ fn the_soldier_climbs_sixteen_levels_and_every_other_class_ten() {
     world.award(0, 10_000, &mut events);
     world.award(1, 10_000, &mut events);
     assert_eq!((world.level_of(0), world.level_of(1)), (16, 10));
-    // Every level said once, the soldier's sixteen and the medic's ten.
+    // Every level said once, the soldier's sixteen and the tank's ten.
     let said = |who: u32| {
         events
             .iter()
@@ -1044,7 +1046,7 @@ fn the_soldier_climbs_sixteen_levels_and_every_other_class_ten() {
 fn a_rank_up_is_refused_without_a_kit_a_point_a_level_or_room_at_the_top() {
     let mut world = simulation_world(flyer(3), REFERENCE_MONEY, 3);
     assert_eq!(world.set_class(0, Class::Soldier), Ok(()));
-    assert_eq!(world.set_class(1, Class::Medic), Ok(()));
+    assert_eq!(world.set_class(1, Class::Tank), Ok(()));
     let rank_up = |world: &mut World, slot: u32, ability_slot: u32| {
         world.step(&[Command::RankUp { slot, ability_slot }])
     };

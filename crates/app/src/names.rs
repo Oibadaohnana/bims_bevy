@@ -410,9 +410,6 @@ pub fn refusal(why: Refusal) -> &'static str {
         Refusal::NotACrewmate => "that is not one of the crew",
         Refusal::OutOfBeamRange => "they are too far off for the beam",
         Refusal::NoSightOfPatient => "the medic cannot see them",
-        Refusal::NoSurgeYet => "a surge wants the medic's third level",
-        Refusal::NotCharged => "the surge is not charged yet",
-        Refusal::NotLinked => "the beam is on nobody",
         Refusal::NotATank => "only a tank can do that",
         Refusal::NoTauntYet => "a taunt wants the third level",
         Refusal::NotACommander => "only a commander can do that",
@@ -469,6 +466,9 @@ pub fn refusal(why: Refusal) -> &'static str {
         Refusal::RankLocked => "the next rank of that ability wants a higher level",
         Refusal::NotLearnt => "that ability wants a rank first",
         Refusal::AlreadyActive => "it is already running",
+        Refusal::OutOfCloakRange => "they are too far off to cloak",
+        Refusal::NoSightOfTarget => "the medic cannot see them",
+        Refusal::Cloaked => "a cloaked Bim uses no ability",
     }
 }
 
@@ -584,7 +584,7 @@ pub const CLASS_TIPS: [&str; 6] = [
     "No class: learns nothing.",
     "Four ranked abilities, a skill point a level: an EMP that stuns the machines (Q), a Healing Sentry that heals the crew round it (C), sandbags for cover (E), and for its ultimate a sentry with a minigun (R). Its charges come back on their own cooldowns, and it packs its sandbags and Healing Sentries up again.",
     "Braces to hold a line (E) — steadier shooting and no errands until stood easy — and from the third level throws grenades (Q), two charges of them, each back thirty seconds after it is thrown. Sets out with an auto rifle in hand and the pistol in the pack.",
-    "Puts hit points back with the heal beam (E) — into a crewmate, or into the medic itself — and from the third level shields the beam's patients and itself with a surge (Q), which takes every hit for eight minutes. Fires nothing while the beam is on. Revives a downed crewmate in four seconds where anybody else takes ten.",
+    "Four ranked abilities, a skill point a level: a Nanite Burst that heals everybody near him at once (Q), a Healing Aura that makes every heal worth more to the crew round him (C), the heal beam on a crewmate or himself (E), and for his ultimate a cloak no enemy can pick (R). Revives a downed crewmate in four seconds where anybody else takes ten, and gets them up at 40% of their bar where anybody else manages 30%.",
     "Stands as a wall (E) — half pace, and the crew close behind him are in cover against anything shot through him — and from the third level taunts (Q), so every enemy that can see him shoots at him and nobody else for six minutes. His armour drains at half rate, so the same kevlar takes twice as much on him. Sets out with the pistol and a basic helm, kevlar and leg guards on.",
     "Lifts every friendly Bim within eight tiles of him — yours as well as the crew's — a tenth faster at work, and a tenth steadier with a gun; and orders the squad, which is every crew member nobody is steering: attack the enemy under the pointer (E), fall back to a tile (X), stand ground (Z). From the third level he rallies (Q). Hires a mercenary at a quarter off. Sets out with the pistol.",
 ];
@@ -607,7 +607,7 @@ pub const ABILITY_NAMES: [[&str; 2]; 6] = [
     ["", ""],
     ["EMP", "Sandbags"],
     ["Grenade", "Brace"],
-    ["Surge", "Heal beam"],
+    ["Nanite Burst", "Heal Beam"],
     ["Taunt", "Wall"],
     ["Battle Cry", "Rally"],
 ];
@@ -615,6 +615,10 @@ pub const ABILITY_NAMES: [[&str; 2]; 6] = [
 /// its ranked ability's words alike.
 const EMP_WHAT: &str = "Throw an EMP at the deck tile under the pointer — the grenade's range, with nothing solid in the way. Two seconds later it bursts: it harms nothing, and every enemy machine within its reach is stunned — it neither moves, turns, aims nor fires, whatever it had begun is dropped, and a Guardian's shield stops nothing while it lasts. The Machine Heart is never stunned.";
 const SANDBAGS_WHAT: &str = "Lay sandbags on the deck tile under the pointer: low cover, walked and seen over, ducked behind by anybody — the enemy too — and worn away by the bolts they stop. No limit on how many stand. Packed up from the Nearby strip; a hit on you while you lay them stops the laying.";
+/// What the medic's Nanite Burst and heal beam do (task 130): his Q and E
+/// boxes' tips and his ranked abilities' words alike.
+const NANITE_BURST_WHAT: &str = "Heal every friendly Bim on their feet near you at once — yourself included — as far as you can see: a wall stops it. It revives nobody downed. The Healing Aura multiplies it for everybody standing in one.";
+const HEAL_BEAM_WHAT: &str = "Hold the heal beam on the crew member under the pointer — or on yourself, with the pointer over your own Bim: hit points come back while it holds. The key on nobody, or on the one held, unlinks it. You fire nothing while it is on until its third rank, and then at half your rate. The number is how many more you could hold.";
 /// What each box says when it is rested on.
 pub const ABILITY_TIPS: [[&str; 2]; 6] = [
     ["", ""],
@@ -623,10 +627,7 @@ pub const ABILITY_TIPS: [[&str; 2]; 6] = [
         "Throw a grenade at the deck tile under the pointer — in range, with nothing solid in the way. It bursts two seconds later and hurts whoever is near it, yours as well as theirs. The number is the grenades in the pack.",
         "Brace where you stand: steadier shooting and no errands until you stand easy. The key again stands easy, and so does any order that moves you.",
     ],
-    [
-        "Trigger the surge on the beam's patients and yourself: every hit is taken whole for its length — no hit points lost, no armour drained. The bar is the charge, which fills while the beam holds somebody short of a whole bar.",
-        "Hold the heal beam on the crew member under the pointer — or on yourself, with the pointer over your own Bim: hit points come back while it holds. The key on nobody, or on the one held, unlinks it. You fire nothing while it is on. The number is how many more you could hold.",
-    ],
+    [NANITE_BURST_WHAT, HEAL_BEAM_WHAT],
     [
         "Taunt: every enemy that can see you shoots at you and nobody else while it lasts.",
         "Stand as a wall: half pace, and a crewmate close behind you is in cover against anything shot through you. The key again puts it down; so does going down.",
@@ -681,6 +682,10 @@ pub fn ranked_ability(class: world::Class, slot: u8) -> &'static str {
         (world::Class::Commander, 1) => "Command Aura",
         (world::Class::Commander, 2) => "Rally",
         (world::Class::Commander, 3) => "Reinforcements",
+        (world::Class::Medic, 0) => "Nanite Burst",
+        (world::Class::Medic, 1) => "Healing Aura",
+        (world::Class::Medic, 2) => "Heal Beam",
+        (world::Class::Medic, 3) => "Cloak",
         _ => "",
     }
 }
@@ -718,6 +723,14 @@ pub fn ranked_what(class: world::Class, slot: u8) -> &'static str {
         }
         (world::Class::Commander, 3) => {
             "Your ultimate, and passive. At the start of every mission you bring soldiers of the Republic with you, on free deck beside you — fewer where there is no room. They follow the squad's orders like any bot and are revived like any crewmate; they earn nothing, cost nothing and drop nothing. One that dies is gone for the mission, and all of them go when it ends. A rank bought now brings them from the next mission."
+        }
+        (world::Class::Medic, 0) => NANITE_BURST_WHAT,
+        (world::Class::Medic, 1) => {
+            "Passive. Every friendly Bim near you — yourself included — takes more from every heal while you are on your feet: your beam, your burst, a Healing Sentry, a relic. Where the healed Bim stands is what counts, not where the heal comes from. Two medics reaching one Bim do not add up: the stronger holds. A revive is not a heal."
+        }
+        (world::Class::Medic, 2) => HEAL_BEAM_WHAT,
+        (world::Class::Medic, 3) => {
+            "Your ultimate. Cloak the friendly Bim under the pointer — downed or not, within reach and in your sight — or yourself, with the pointer on nobody. No enemy picks a cloaked Bim, and one aiming at it lets it go; it fires nothing and uses no ability, but walks faster and may still revive. A sweep or a burst still hits it. Cloaked again, it keeps the longer of the two times."
         }
         _ => "",
     }
@@ -857,6 +870,48 @@ pub fn rank_numbers(class: world::Class, slot: u8, rank: u8) -> Option<String> {
             c::REINFORCEMENT_TIER[r].code(),
             fig(c::REINFORCEMENT_REACH_TILES as f64)
         ),
+        (world::Class::Medic, 0) => format!(
+            "{} hit points to everybody within {} tiles; {} s to come back",
+            fig(c::NANITE_BURST_HEAL[r] as f64),
+            fig(c::NANITE_BURST_RADIUS[r] as f64),
+            fig(c::NANITE_BURST_COOLDOWN[r])
+        ),
+        (world::Class::Medic, 1) => format!(
+            "healing received {} within {} tiles of you",
+            by(c::HEALING_AURA_FACTOR[r] as f64),
+            fig(c::HEALING_AURA_RADIUS[r] as f64)
+        ),
+        (world::Class::Medic, 2) => {
+            let hp = c::HEAL_BEAM_HP * c::HEAL_BEAM_RATE[r];
+            let mut line = format!(
+                "{} hit points a second at 1× ({} an hour), {} tiles, {} {}",
+                fig(hp as f64 / 60.0),
+                fig(hp as f64),
+                fig(c::HEAL_BEAM_RANGES[r] as f64),
+                c::HEAL_BEAM_PATIENTS[r],
+                if c::HEAL_BEAM_PATIENTS[r] == 1 {
+                    "patient"
+                } else {
+                    "patients, each at the full rate"
+                }
+            );
+            if rank >= c::HEAL_BEAM_FIRE_RANK {
+                line.push_str(&format!(
+                    "; you fire while beaming, at {} your rate",
+                    by(c::HEAL_BEAM_FIRE_RATE as f64)
+                ));
+            } else {
+                line.push_str("; you fire nothing while beaming");
+            }
+            line
+        }
+        (world::Class::Medic, 3) => format!(
+            "{} s cloaked, moving {}, within {} tiles of you; {} s to come back",
+            fig(c::CLOAK_SECONDS[r]),
+            by(c::CLOAK_PACE[r] as f64),
+            fig(c::CLOAK_RANGE as f64),
+            fig(c::CLOAK_COOLDOWN[r])
+        ),
         _ => return None,
     })
 }
@@ -891,6 +946,13 @@ pub fn battle_cry_refused(why: world::Refusal) -> String {
 /// And for a Rampage refused.
 pub fn rampage_refused(why: world::Refusal) -> String {
     format!("Cannot go on a Rampage: {}.", refusal(why))
+}
+/// And for a Nanite Burst and a Cloak refused (task 130).
+pub fn nanite_burst_refused(why: world::Refusal) -> String {
+    format!("Cannot set off a Nanite Burst: {}.", refusal(why))
+}
+pub fn cloak_refused(why: world::Refusal) -> String {
+    format!("Cannot cloak: {}.", refusal(why))
 }
 /// The Skills tab of a ranked kit (task 124): what it says of the points
 /// waiting, and a rank's line and button.
@@ -1000,20 +1062,22 @@ pub const TALENT_NAMES: [&str; 69] = [
     "",
     "",
     "",
-    "Field dressing",
-    "Surgeon",
-    "Long beam",
-    "Strong beam",
-    "Clean hands",
-    "Steady hands",
-    "Quick charge",
-    "Long surge",
-    "Self-care",
-    "Double link",
-    "Gunner medic",
-    "Closing surge",
-    "Mass surge",
-    "Field surgeon",
+    // 28 to 41 were the medic's talents, gone with his ranked kit
+    // (task 130): the codes stay free, and so do their places here.
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
     "Plated",
     "Breacher",
     "Unmovable",
@@ -1077,20 +1141,22 @@ pub const TALENT_TIPS: [&str; 69] = [
     "",
     "",
     "",
-    TALENT_NO_EFFECT,
-    TALENT_NO_EFFECT,
-    "The heal beam reaches half again as far.",
-    "The heal beam puts back half again the hit points an hour.",
-    TALENT_NO_EFFECT,
-    TALENT_NO_EFFECT,
-    "The surge charges half again as fast.",
-    "A surge lasts half again as long.",
-    TALENT_NO_EFFECT,
-    "The beam holds two crewmates at once, each at the full rate.",
-    "Fires while beaming, at half the rate.",
-    TALENT_NO_EFFECT,
-    "A surge covers every crew member within three tiles of the patient.",
-    TALENT_NO_EFFECT,
+    // 28 to 41 were the medic's talents, gone with his ranked kit
+    // (task 130): the codes stay free, and so do their places here.
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
     "Every piece of armour he wears protects half again as much.",
     "Forces a locked door in half the time.",
     TALENT_NO_EFFECT,
@@ -1137,11 +1203,6 @@ pub fn talent_tip(talent: world::Talent) -> &'static str {
 /// and seventh give.
 pub fn level_line(class: world::Class, level: u8) -> Option<&'static str> {
     Some(match (class, level) {
-        (world::Class::Medic, 1) => {
-            "Heal beam: puts hit points back, into a crewmate or itself. Revives in four seconds."
-        }
-        (world::Class::Medic, 3) => "Surge: may shield the medic and the patient.",
-        (world::Class::Medic, 7) => "Mender: no effect for now — to be redesigned.",
         (world::Class::Tank, 1) => "Bulwark: stands as a wall, and his armour drains at half rate.",
         (world::Class::Tank, 2) => {
             "Plated: every piece of armour he wears protects half again as much."
@@ -1157,9 +1218,6 @@ pub fn level_line(class: world::Class, level: u8) -> Option<&'static str> {
 /// with names of their own, and the classless one has nothing at all.
 pub fn level_name(class: world::Class, level: u8) -> Option<&'static str> {
     Some(match (class, level) {
-        (world::Class::Medic, 1) => "Heal beam",
-        (world::Class::Medic, 3) => "Surge",
-        (world::Class::Medic, 7) => "Mender",
         (world::Class::Tank, 1) => "Bulwark",
         (world::Class::Tank, 2) => "Plated",
         (world::Class::Tank, 3) => "Taunt",
@@ -1217,57 +1275,7 @@ pub fn talent_numbers(talent: world::Talent) -> String {
     use world::Talent as T;
     use world::class as c;
     match talent {
-        // --- the medic's ---
-        T::FieldDressing | T::Surgeon => TALENT_NO_EFFECT.to_string(),
-        T::LongBeam => format!(
-            "Heal beam reach {} tiles ({})",
-            step(
-                c::HEAL_BEAM_RANGE as f64,
-                (c::HEAL_BEAM_RANGE * c::LONG_BEAM_RANGE) as f64,
-                ""
-            ),
-            by(c::LONG_BEAM_RANGE as f64)
-        ),
-        T::StrongBeam => format!(
-            "Heal beam {} hit points an hour ({})",
-            step(
-                c::HEAL_BEAM_HP as f64,
-                (c::HEAL_BEAM_HP * c::STRONG_BEAM_RATE) as f64,
-                ""
-            ),
-            by(c::STRONG_BEAM_RATE as f64)
-        ),
-        T::CleanHands | T::SteadyHandsMedic => TALENT_NO_EFFECT.to_string(),
-        T::QuickCharge => format!(
-            "The surge charges in {} game minutes of beaming ({} the rate)",
-            step(
-                c::SURGE_CHARGE_MINUTES,
-                c::SURGE_CHARGE_MINUTES / c::QUICK_CHARGE_RATE,
-                ""
-            ),
-            by(c::QUICK_CHARGE_RATE)
-        ),
-        T::LongSurge => format!(
-            "A surge lasts {} game minutes ({})",
-            step(c::SURGE_MINUTES, c::SURGE_MINUTES * c::LONG_SURGE_TIME, ""),
-            by(c::LONG_SURGE_TIME)
-        ),
-        T::SelfCare => TALENT_NO_EFFECT.to_string(),
-        T::DoubleLink => format!(
-            "Patients on the beam at once {}, each at the full {} hit points an hour",
-            step(1.0, c::DOUBLE_LINK_PATIENTS as f64, ""),
-            fig(c::HEAL_BEAM_HP as f64)
-        ),
-        T::GunnerMedic => format!(
-            "Fires while beaming, at {} fire rate — he cannot fire at all without it",
-            by(c::GUNNER_MEDIC_FIRE_RATE as f64)
-        ),
-        T::ClosingSurge => TALENT_NO_EFFECT.to_string(),
-        T::MassSurge => format!(
-            "A surge covers every crew member within {} tiles of the patient, not the patient alone",
-            fig(c::MASS_SURGE_TILES as f64)
-        ),
-        T::FieldSurgeon => TALENT_NO_EFFECT.to_string(),
+        // The medic's went with his ranked kit (task 130).
         // --- the tank's ---
         T::Plated => format!(
             "Every piece of armour he wears protects {}",
@@ -1354,19 +1362,6 @@ pub fn talent_numbers(talent: world::Talent) -> String {
 pub fn level_numbers(class: world::Class, level: u8) -> Option<String> {
     use world::class as c;
     Some(match (class, level) {
-        (world::Class::Medic, 1) => format!(
-            "The beam reaches {} tiles and puts back {} hit points an hour, on a crewmate or on the medic itself. A revive takes {} seconds, where anybody else takes {}",
-            fig(c::HEAL_BEAM_RANGE as f64),
-            fig(c::HEAL_BEAM_HP as f64),
-            fig(c::MEDIC_REVIVE_SECONDS as f64),
-            fig(bims::health::REVIVE_SECONDS as f64)
-        ),
-        (world::Class::Medic, 3) => format!(
-            "The surge charges over {} game minutes of beaming a patient that needs it, and runs {}",
-            fig(c::SURGE_CHARGE_MINUTES),
-            fig(c::SURGE_MINUTES)
-        ),
-        (world::Class::Medic, 7) => TALENT_NO_EFFECT.to_string(),
         (world::Class::Tank, 1) => format!(
             "Armour worn by him drains at {} the ordinary rate, so a piece absorbs twice as much. Bulwark shelters everybody within {} tiles, at {} his own pace",
             by(c::TANK_DRAIN as f64),
@@ -1431,12 +1426,9 @@ pub fn throw_refused(why: world::Refusal) -> String {
 pub fn brace_refused(why: world::Refusal) -> String {
     format!("Cannot brace: {}.", refusal(why))
 }
-/// And for a beam and a surge (feature 76).
+/// And for a beam (feature 76).
 pub fn beam_refused(why: world::Refusal) -> String {
     format!("Cannot beam: {}.", refusal(why))
-}
-pub fn surge_refused(why: world::Refusal) -> String {
-    format!("Cannot surge: {}.", refusal(why))
 }
 /// And for a bulwark and a taunt (feature 77).
 pub fn bulwark_refused(why: world::Refusal) -> String {
@@ -1539,12 +1531,11 @@ pub fn taunt_line(left: f64, cooldown: f64, level_enough: bool) -> String {
 pub const BRACED: &str = "Braced";
 pub const BRACED_TIP: &str = "Holding a line: no errands, steadier shooting. E stands easy; so does any order that moves them.";
 pub const STAND_EASY: &str = "Standing easy";
-/// The medic's rows on the crew panel (feature 76): who the beam holds,
-/// and how charged the surge is.
+/// The medic's rows on the crew panel (feature 76; task 130): who the
+/// beam holds, and whether the Nanite Burst and the Cloak are ready.
 pub const BEAM_ON: &str = "Beaming";
 pub const BEAM_OFF: &str = "No beam";
-pub const BEAM_TIP: &str = "The heal beam puts hit points back into a crewmate, or into the medic itself. E over a crew member — your own Bim included — links it; E again, or on nothing, unlinks. The medic may walk, and fires nothing while it is on.";
-pub const SURGING: &str = "Surging";
+pub const BEAM_TIP: &str = "The heal beam puts hit points back into a crewmate, or into the medic itself. E over a crew member — your own Bim included — links it; E again, or on nothing, unlinks. The medic may walk, and fires nothing while it is on until the beam's third rank.";
 pub fn beam_line(patients: &[String]) -> String {
     match patients {
         [] => BEAM_OFF.to_string(),
@@ -1552,14 +1543,29 @@ pub fn beam_line(patients: &[String]) -> String {
         many => format!("{BEAM_ON} {}", many.join(" and ")),
     }
 }
-pub fn surge_line(charge: f32, level_enough: bool) -> String {
-    if !level_enough {
-        return format!("Surge at level {}", world::class::SURGE_LEVEL);
+pub fn nanite_burst_line(cooldown: f64, learnt: bool) -> String {
+    if !learnt {
+        return "Nanite Burst not learnt yet".to_string();
     }
-    if charge >= 1.0 {
-        "Surge charged".to_string()
+    if cooldown > 0.0 {
+        format!("Nanite Burst ready in {cooldown:.0} s")
     } else {
-        format!("Surge {:.0}%", charge * 100.0)
+        "Nanite Burst ready".to_string()
+    }
+}
+/// The cloak's row: the seconds of one on the medic himself, else when
+/// the next may be cast.
+pub fn cloak_line(cloaked: f64, cooldown: f64, learnt: bool) -> String {
+    if cloaked > 0.0 {
+        return format!("Cloaked — {cloaked:.0} s left");
+    }
+    if !learnt {
+        return "Cloak not learnt yet".to_string();
+    }
+    if cooldown > 0.0 {
+        format!("Cloak ready in {cooldown:.0} s")
+    } else {
+        "Cloak ready".to_string()
     }
 }
 /// The soldier's grenade row: the charges in the pack and, while one is
@@ -1813,7 +1819,11 @@ pub fn event_line(event: WorldEvent) -> Option<String> {
             patient: Some(p),
         } => format!("{} beamed {}.", who(w), who(p)),
         WorldEvent::Beamed { who: w, .. } => format!("{}'s beam is off.", who(w)),
-        WorldEvent::Surged { who: w } => format!("{} surged.", who(w)),
+        WorldEvent::NaniteBurst { who: w, healed } => {
+            format!("{}'s Nanite Burst healed {healed}.", who(w))
+        }
+        WorldEvent::Cloaked { who: w, target } if w == target => format!("{} cloaked.", who(w)),
+        WorldEvent::Cloaked { who: w, target } => format!("{} cloaked {}.", who(w), who(target)),
         WorldEvent::Bulwarked { who: w, on: true } => format!("{} stood as a wall.", who(w)),
         WorldEvent::Bulwarked { who: w, on: false } => format!("{} stood the wall down.", who(w)),
         WorldEvent::Taunted { who: w } => format!("{} taunted the enemy.", who(w)),
@@ -3601,9 +3611,9 @@ mod tests {
                 Refusal::NotACrewmate,
                 Refusal::OutOfBeamRange,
                 Refusal::NoSightOfPatient,
-                Refusal::NoSurgeYet,
-                Refusal::NotCharged,
-                Refusal::NotLinked,
+                Refusal::OutOfCloakRange,
+                Refusal::NoSightOfTarget,
+                Refusal::Cloaked,
                 Refusal::NotATank,
                 Refusal::NoTauntYet,
                 Refusal::NotACommander,
@@ -3615,7 +3625,8 @@ mod tests {
                 assert!(throw_refused(why).contains(refusal(why)));
                 assert!(brace_refused(why).contains(refusal(why)));
                 assert!(beam_refused(why).contains(refusal(why)));
-                assert!(surge_refused(why).contains(refusal(why)));
+                assert!(nanite_burst_refused(why).contains(refusal(why)));
+                assert!(cloak_refused(why).contains(refusal(why)));
                 assert!(bulwark_refused(why).contains(refusal(why)));
                 assert!(taunt_refused(why).contains(refusal(why)));
                 assert!(squad_refused(why).contains(refusal(why)));
@@ -3646,12 +3657,12 @@ mod tests {
                 beam_line(&["Kate".to_string(), "Ali".to_string()]),
                 "Beaming Kate and Ali"
             );
-            assert_eq!(
-                surge_line(0.0, false),
-                format!("Surge at level {}", world::class::SURGE_LEVEL)
-            );
-            assert_eq!(surge_line(0.5, true), "Surge 50%");
-            assert_eq!(surge_line(1.0, true), "Surge charged");
+            assert_eq!(nanite_burst_line(0.0, false), "Nanite Burst not learnt yet");
+            assert_eq!(nanite_burst_line(3.4, true), "Nanite Burst ready in 3 s");
+            assert_eq!(nanite_burst_line(0.0, true), "Nanite Burst ready");
+            assert_eq!(cloak_line(4.2, 30.0, true), "Cloaked — 4 s left");
+            assert_eq!(cloak_line(0.0, 0.0, false), "Cloak not learnt yet");
+            assert_eq!(cloak_line(0.0, 12.0, true), "Cloak ready in 12 s");
             for event in [
                 WorldEvent::LevelUp {
                     who: 0,
@@ -3686,7 +3697,9 @@ mod tests {
                     who: 0,
                     patient: None,
                 },
-                WorldEvent::Surged { who: 0 },
+                WorldEvent::NaniteBurst { who: 0, healed: 3 },
+                WorldEvent::Cloaked { who: 0, target: 0 },
+                WorldEvent::Cloaked { who: 0, target: 1 },
                 WorldEvent::Bulwarked { who: 0, on: true },
                 WorldEvent::Bulwarked { who: 0, on: false },
                 WorldEvent::Taunted { who: 0 },

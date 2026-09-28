@@ -5666,6 +5666,77 @@ hashes did not move: the cargo is still twenty-two slots.
 
 `tests_commander.rs` is the task's tests.
 
+## The medic's ranked kit (task 130)
+
+> "The medic: the heal beam and the surge (feature 76)" above describes
+> the ten levels of talents and the surge **task 130 replaced**. Kept as
+> history; this is what is there now.
+
+- **Ranked**: `class::ranked` answers for the medic; sixteen levels on
+  `RANKED_LEVEL_XP`, the soldier's gates. Every number is a table of four
+  in `class.rs` (`NANITE_BURST_*`, `HEALING_AURA_*`, `HEAL_BEAM_RATE`,
+  `HEAL_BEAM_RANGES`, `HEAL_BEAM_PATIENTS`, `CLOAK_*`), read with
+  `by_rank`. His talents (codes 28–41) are gone, their codes free;
+  `pick_at` has no medic rows, `Talent::ALL` is the tank's thirteen.
+  `Ability::Surge` went; `Ability::{NaniteBurst, Cloak}` are new.
+- **Base traits**: `revive_time` as before (four seconds for a medic of
+  either kind); `medic_skill` sets `Skill::revived_to` to
+  `MEDIC_REVIVED_TO` for a medic of the class, which the room reads off
+  the helper at the revive's end.
+- **Q Nanite Burst**: `Command::NaniteBurst { slot }` → `WorldEvent::
+  NaniteBurst { who, healed }` (136). `can_nanite_burst`: `NotAMedic`,
+  `OutOfReach` (unfit — downed among it), `NotLearnt`, `CoolingDown`.
+  `nanite_burst_reaching` is every crew member on the deck, on its feet,
+  within the radius and — bar the medic — `room.sees` him, the beam's
+  sight; each is healed the rank's points through `heal_crew`.
+  `Medic::last_burst` (a mission minute) is the cooldown's start.
+- **C Healing Aura**: `healing_aura_reaching(who)` — the medic, fit and
+  not downed, whose radius the Bim stands in, the higher factor of two —
+  and **`heal_factor(who)`**, one where none reaches. `heal_crew(who,
+  points)` multiplies it in and is what every heal of the world's goes
+  through: the beam (`hand_the_room_the_medics`), the Healing Sentry
+  (`heal_by_sentries`), the burst, *Pressure Seal* and *Clot Booster*
+  (`relics_mend`) and *Quick Wrap* (`Action::Heal`). A revive is the
+  room's and never asks.
+- **E Heal Beam**: `can_beam` wants a rank (`NotLearnt`) after
+  `OutOfReach`; `beam_range`, `beam_rate` and `beam_patients` read the
+  rank (the first's before one). `HEAL_BEAM_HP` is 120. `medic_skill`
+  holds the fire while linked below `HEAL_BEAM_FIRE_RANK` (3) and halves
+  the fire rate from it. A cloaked medic's beam is let go in
+  `hand_the_room_the_medics`.
+- **R Cloak**: `Command::Cloak { slot, target }` → `WorldEvent::Cloaked
+  { who, target }` (137). The app sends the crew member under the pointer
+  or the medic's own slot. `can_cloak`: `NotAMedic`, `OutOfReach`,
+  `NotLearnt`, `CoolingDown`, `NotACrewmate` (not a living crew member —
+  downed is fine), then for another `OutOfCloakRange` (116, past
+  `CLOAK_RANGE` or outside) and `NoSightOfTarget` (117). The cloak is
+  `World::cloaks[target]` (`medic::Cloak { until, pace, seconds }`): the
+  later of the two ends and the faster of the two paces when one is
+  already on, `seconds` its whole length for the ring. `Medic::last_cloak`
+  is the cooldown's start. **While it lasts**: `hidden_from_enemies`
+  (Signal Scrambler's `unseen_by_machines` or a cloak) makes it `None` on
+  the residents' list in `visit` — every enemy's, the machines' own list
+  in a defence included — and tells the residents' room
+  `set_targets_withheld`; `lift_by_cloak` in `skill_of` holds its fire
+  and multiplies `walk`; `apply` refuses every class command
+  (`Refusal::Cloaked`, 118) before dispatch — a brace or a wall put down,
+  a beam let go, a pack-up and a carry go through. `hand_the_room_the_cloaks`
+  (before the medics) forgets one run out and tells the room
+  `Game::set_cloaked` for its picture.
+- **Timers**: the burst and the cloak run on the mission clock, times
+  *Coolant Loop*; `cooldowns_less` (*Kill Relay*) moves both starts back;
+  `make_whole` clears both and every cloak; `casualties` clears a dead
+  crew member's cloak; `drop_crew_member` removes its index; a hire
+  resizes the list.
+- **Checksum**: a nought where `Medic::charge` was (so a world with no
+  medic hashes what it did), then each medic's `last_burst`/`last_cloak`
+  and every cloak's `until` and `pace`, only where any is set.
+  `Cloak::seconds` is the picture's and not hashed.
+
+`tests_medic.rs` is the task's tests; `class::tests` the tables; the
+ship's `a_game_saved_and_read_back…` the save's round trip with a burst
+set off.
+
 ## The Manufacturers attack a defence before day ten (task 131)
 
 **While they still have the machines** (`manufacturer::has_droids`, before

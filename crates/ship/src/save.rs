@@ -162,7 +162,11 @@ use crate::game::Game;
 /// Battle Cry and whom his cry and rally reached, the world the
 /// reinforcements of the mission and a Bim whether it is gone from the
 /// deck, a squad's attack marks one enemy, and his talents are gone.
-pub const SAVE_VERSION: u32 = 53;
+/// 54: the medic's ranked kit (task 130) — a medic keeps his last Nanite
+/// Burst and Cloak where the surge's charge was, the world every crew
+/// member's cloak, a `Skill` the share a revive gets up at, and the
+/// medic's talents and the surge are gone.
+pub const SAVE_VERSION: u32 = 54;
 
 /// What the file holds, read back.
 #[derive(serde::Deserialize)]

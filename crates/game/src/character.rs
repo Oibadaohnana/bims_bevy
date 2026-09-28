@@ -173,6 +173,10 @@ const BRACE_CROUCH: f32 = 0.93;
 /// healing green, wide and breathing, so a body that cannot be hurt
 /// reads as such.
 pub const SURGE: Color = Color::rgb(0.55, 0.95, 0.75);
+/// How opaque a body under a medic's cloak is drawn (task 130), and the
+/// cool shimmer over it.
+pub const CLOAK_OPACITY: f32 = 0.35;
+const CLOAK_SHIMMER: Color = Color::rgb(0.70, 0.85, 1.0);
 /// An enemy: the ring under one, in the colour its shots are.
 const ENEMY: Color = crate::combat::HOSTILE_BOLT;
 /// Blood: the blotch on a part with an open wound, and the drops on the
@@ -920,6 +924,11 @@ pub struct Character {
     /// nothing can hurt it. Drawing only; `Game::tick_combat` sets it
     /// off the Bim's own timer.
     surging: bool,
+    /// Under a medic's cloak (task 130): drawn faint, at
+    /// [`CLOAK_OPACITY`], with a shimmer over it. Drawing only; the world
+    /// says it every step (`Game::set_cloaked`).
+    #[cfg_attr(feature = "serde", serde(default))]
+    cloaked: bool,
     /// Out cold for want of blood: lying where it dropped, alive, doing
     /// nothing until it comes round. Set by `Game::tick_bim` off the
     /// health; it drops the route.
@@ -987,6 +996,7 @@ impl Character {
             hostile: false,
             braced: false,
             surging: false,
+            cloaked: false,
             unconscious: false,
             wounds: [false; 3],
             armour: [None; 3],
@@ -1327,6 +1337,37 @@ impl Character {
     /// Under a surge, or not: the halo round the body. Drawing only.
     pub fn set_surging(&mut self, surging: bool) {
         self.surging = surging;
+    }
+
+    /// Under a medic's cloak, or not (task 130). Drawing only.
+    pub fn set_cloaked(&mut self, cloaked: bool) {
+        self.cloaked = cloaked;
+    }
+
+    /// Whether it is drawn cloaked.
+    pub fn is_cloaked(&self) -> bool {
+        self.cloaked
+    }
+
+    /// The shimmer over a cloaked body (task 130), drawn after it has been
+    /// faded: two faint rings drifting against each other, so the body
+    /// reads as there-but-hard-to-see rather than gone.
+    pub fn draw_cloak(&self, list: &mut DrawList) {
+        let at = self.drawn_at();
+        let scale = self.body_scale();
+        let a = self.select_pulse;
+        list.ring(
+            at,
+            (40.0 + 4.0 * a.sin()) * scale,
+            1.5,
+            CLOAK_SHIMMER.alpha(0.22),
+        );
+        list.ring(
+            at,
+            (34.0 + 4.0 * (a * 1.7).cos()) * scale,
+            1.0,
+            CLOAK_SHIMMER.alpha(0.16),
+        );
     }
 
     /// Out cold, or come round. Going out drops the walk — whatever it

@@ -316,8 +316,9 @@ fn the_engineer_climbs_sixteen_levels_and_buys_ranks_as_the_soldier_does() {
         side: crate::class::Side::Left,
     }]);
     assert!(refused(&events), "{events:?}");
-    // The medic, the tank and the commander are still refused a rank.
-    for other in [Class::Medic, Class::Tank, Class::Commander] {
+    // The tank is still refused a rank: the commander (task 129) and the
+    // medic (task 130) have ranked kits of their own.
+    for other in [Class::Tank] {
         let mut world = basic();
         assert_eq!(world.set_class(0, other), Ok(()));
         let events = world.step(&[Command::RankUp {

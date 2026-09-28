@@ -656,6 +656,13 @@ pub struct Game {
     /// target they are **at war** (`at_war`) — recruited, every errand put
     /// down, and walking to wherever `Tactics::stand` says.
     hostile_bodies: bool,
+    /// Whether the world has left some of the targets off this room's
+    /// list because nobody may pick them — a medic's cloak (task 130) —
+    /// so an enemy left with nobody it may pick **holds where it stands**,
+    /// its facing kept, rather than walking on to where it was going. Said
+    /// every step by the world; off, the room is what it was.
+    #[cfg_attr(feature = "serde", serde(default))]
+    withheld: bool,
     at_war: bool,
     /// The crew's side of that: whether an enemy is within [`ALARM_RANGE`]
     /// of any of them or was in anybody's sight within [`ALARM_HOLD`], or
@@ -915,6 +922,7 @@ impl Game {
             combat: Combat::new(seed),
             droids: Vec::new(),
             hostile_bodies: false,
+            withheld: false,
             at_war: false,
             alarm: false,
             mustered: false,
@@ -2080,6 +2088,13 @@ impl Game {
             }
             let stats = self.droids[i].stats();
             let weapon = self.droids[i].weapon;
+            // With nobody it may pick — its targets taken off the list by a
+            // cloak (task 130) — it holds where it stands, facing as it
+            // was, rather than walking on after one it may not pick; and it
+            // fires nothing, as below.
+            if !war && self.withheld {
+                self.droids[i].halt();
+            }
             // The Guardian fights by a rule of its own (feature 100): a
             // heading it turns in whole sub-steps, a shield in front and a
             // beam wound up before it is swept.
@@ -7444,6 +7459,30 @@ impl Game {
         self.bims.get(who).is_some_and(|b| b.surge.is_some())
     }
 
+    // --- the medic's cloak (task 130) ---------------------------------------
+
+    /// Whether a body is under a medic's cloak, as the world last said:
+    /// drawn faint and shimmering. Drawing only — who may pick it, and
+    /// whether it fires, are the world's (its target lists and the
+    /// body's `Skill`).
+    pub fn set_cloaked(&mut self, who: usize, on: bool) {
+        if let Some(bim) = self.bims.get_mut(who) {
+            bim.character.set_cloaked(on);
+        }
+    }
+
+    /// Whether a body is drawn cloaked.
+    pub fn is_cloaked(&self, who: usize) -> bool {
+        self.bims.get(who).is_some_and(|b| b.character.is_cloaked())
+    }
+
+    /// Whether the world has left targets off this room's list because
+    /// nobody may pick them (task 130): an enemy left with nobody it may
+    /// pick holds where it stands. Said every step.
+    pub fn set_targets_withheld(&mut self, withheld: bool) {
+        self.withheld = withheld;
+    }
+
     // --- carrying a body out of the fire (feature 86) ----------------------
 
     /// Whom `who` has in its arms, if anybody.
@@ -8254,7 +8293,8 @@ impl Game {
     }
 
     /// Every revive the chains finished this step, done: the patient up
-    /// at three tenths of its bar and slowed for the rest of the mission.
+    /// at three tenths of its bar — four for a medic's (task 130,
+    /// `Skill::revived_to`) — and slowed for the rest of the mission.
     /// Only where the helper is still beside it — within two tiles — and it
     /// is still downed: a patient carried off mid-revive, or dead in the
     /// meantime, is the seconds lost and nothing else.
@@ -8267,7 +8307,10 @@ impl Game {
             if apart > 2.0 * TILE {
                 continue;
             }
-            if self.bims[patient].health.revive() {
+            // Up at the helper's share of the bar (task 130): a medic's is
+            // more than anybody else's.
+            let share = self.skill(helper).revived_to;
+            if self.bims[patient].health.revive_at(share) {
                 self.bims[patient].character.knock_out(false);
                 self.refresh_bleeding(patient);
                 self.revives.push(Revived { helper, patient });
@@ -8789,7 +8832,14 @@ impl Game {
         let fx = &self.combat.fx;
         for (who, bim) in self.bims.iter().enumerate() {
             if self.body_seen(who) {
+                let from = self.list.len();
                 bim.character.draw(&mut self.list, self.viewer);
+                // Under a medic's cloak (task 130): the whole body faint,
+                // and a shimmer over it.
+                if bim.character.is_cloaked() {
+                    self.list.fade_from(from, crate::character::CLOAK_OPACITY);
+                    bim.character.draw_cloak(&mut self.list);
+                }
                 // A shot that landed: a flash on the part it struck, on the
                 // host's clock (feature 98) — or, for a host that ages no
                 // effects, the room's own flash over the whole body, gone

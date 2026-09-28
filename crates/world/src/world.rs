@@ -326,20 +326,32 @@ pub enum Command {
     /// alive, within [`class::HEAL_BEAM_RANGE`] tiles and in its sight
     /// (`World::can_beam`) — or the medic itself (task 120). Linked, the
     /// patient gains [`class::HEAL_BEAM_HP`] hit points an hour of the
-    /// clock; the medic walks but does not fire. With *double link* a
-    /// second patient is held beside the first, and a third takes the
-    /// first's place.
+    /// clock times the rank's [`class::HEAL_BEAM_RATE`] (task 130); the
+    /// medic walks but does not fire until the third rank, and then at
+    /// half the rate. At the fourth a second patient is held beside the
+    /// first, and a third takes the first's place.
     Beam {
         slot: u32,
         patient: Option<u32>,
     },
-    /// Trigger that player's own medic's surge: for
-    /// [`class::SURGE_MINUTES`] the medic and every linked patient take
-    /// nothing from any hit. Wants the medic fit to act, at
-    /// [`class::SURGE_LEVEL`], linked, and the charge full
-    /// (`World::can_surge`); the charge empties.
-    Surge {
+    /// Set off that player's own medic's **Nanite Burst** (task 130, Q):
+    /// every friendly Bim on its feet within the rank's
+    /// [`class::NANITE_BURST_RADIUS`] of him and in his sight, himself
+    /// included, healed at once by the rank's
+    /// [`class::NANITE_BURST_HEAL`]. Wants the medic fit to act and not
+    /// downed, a rank, and the cooldown run out (`World::can_nanite_burst`).
+    NaniteBurst {
         slot: u32,
+    },
+    /// **Cloak** crew member `target` — that player's own medic's ultimate
+    /// (task 130, R): the crewmate under the pointer within
+    /// [`class::CLOAK_RANGE`] tiles and in his sight, downed or not, or the
+    /// medic himself, which the app sends with nobody under the pointer.
+    /// Wants the medic fit to act and not downed, a rank, and the cooldown
+    /// run out (`World::can_cloak`).
+    Cloak {
+        slot: u32,
+        target: u32,
     },
     /// Stand that player's own tank as a wall, or stand it down (feature
     /// 77, `crate::class`, `crate::tank`): with it on he walks at
@@ -921,10 +933,16 @@ pub struct World {
     #[cfg_attr(feature = "serde", serde(default))]
     pub engineers: Vec<crate::engineer::Engineer>,
     /// Each crew member's medic state, by index (feature 76,
-    /// `crate::medic`): who its beam holds, its surge's charge, and its
-    /// field surgery this fight. Empty for anybody but a player's medic.
-    /// In `world_checksum` whole.
+    /// `crate::medic`): who its beam holds, and when it last set off a
+    /// Nanite Burst and cloaked somebody (task 130). Empty for anybody but
+    /// a player's medic. In `world_checksum` whole.
     pub medics: Vec<Medic>,
+    /// Each crew member's **cloak**, by index (task 130,
+    /// `crate::medic::Cloak`): when it ends and how fast it walks while
+    /// it lasts. Default for anybody not cloaked. In `world_checksum`
+    /// where any is.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub cloaks: Vec<crate::medic::Cloak>,
     /// Each crew member's tank state, by index (feature 77,
     /// `crate::tank`): when he last taunted, which is the whole of it.
     /// Empty for anybody but a player's tank. In `world_checksum`.
@@ -1179,6 +1197,7 @@ impl World {
             charge_timers: vec![[None; Charge::CODES]; crew as usize],
             engineers: vec![crate::engineer::Engineer::default(); crew as usize],
             medics: vec![Medic::default(); crew as usize],
+            cloaks: vec![crate::medic::Cloak::default(); crew as usize],
             tanks: vec![Tank::default(); crew as usize],
             commanders: vec![Commander::default(); crew as usize],
             reinforcements: Vec::new(),
@@ -1352,6 +1371,10 @@ impl World {
         //    every step because a class is chosen, a crew member joins
         //    and a save is read without anything else telling the room.
         self.hand_the_room_the_outfits();
+        //    And the medics' cloaks (task 130): one run out forgotten and
+        //    the room told who is cloaked, before the beams, which a
+        //    cloaked medic lets go.
+        self.hand_the_room_the_cloaks();
         //    And the medics' (feature 76): every beam checked and the
         //    patients healed, before the soldiers' skills, since a
         //    medic beaming holds its fire through them.
@@ -1473,7 +1496,8 @@ impl World {
             | Command::Brace { slot, .. }
             | Command::Throw { slot, .. }
             | Command::Beam { slot, .. }
-            | Command::Surge { slot }
+            | Command::NaniteBurst { slot }
+            | Command::Cloak { slot, .. }
             | Command::Bulwark { slot, .. }
             | Command::Taunt { slot }
             | Command::Squad { slot, .. }
@@ -1523,6 +1547,34 @@ impl World {
             return;
         }
         let before = events.len();
+        // **A cloaked Bim uses no class ability** (task 130): every key a
+        // class has is refused while its cloak lasts — a brace or a wall
+        // put *down*, a beam let go, a pack-up and a carry are not
+        // abilities used, and go through.
+        let class_ability = matches!(
+            command,
+            Command::Deploy { .. }
+                | Command::Sentry { .. }
+                | Command::Emp { .. }
+                | Command::Throw { .. }
+                | Command::Rampage { .. }
+                | Command::Brace { on: true, .. }
+                | Command::Beam {
+                    patient: Some(_),
+                    ..
+                }
+                | Command::NaniteBurst { .. }
+                | Command::Cloak { .. }
+                | Command::Bulwark { on: true, .. }
+                | Command::Taunt { .. }
+                | Command::Squad { .. }
+                | Command::Rally { .. }
+                | Command::BattleCry { .. }
+        );
+        if class_ability && self.is_cloaked(slot) {
+            events.push(refused(slot, Refusal::Cloaked));
+            return;
+        }
         match command {
             // Speed is not an order to the ship: a player who is nowhere
             // near anything may still say they want to watch this bit
@@ -1616,8 +1668,12 @@ impl World {
                 Ok(()) => events.push(WorldEvent::Beamed { who: slot, patient }),
                 Err(why) => events.push(refused(slot, why)),
             },
-            Command::Surge { .. } => match self.surge(slot) {
-                Ok(()) => events.push(WorldEvent::Surged { who: slot }),
+            Command::NaniteBurst { .. } => match self.nanite_burst(slot) {
+                Ok(healed) => events.push(WorldEvent::NaniteBurst { who: slot, healed }),
+                Err(why) => events.push(refused(slot, why)),
+            },
+            Command::Cloak { target, .. } => match self.cloak(slot, target) {
+                Ok(()) => events.push(WorldEvent::Cloaked { who: slot, target }),
                 Err(why) => events.push(refused(slot, why)),
             },
             Command::Bulwark { on, .. } => match self.bulwark(slot, on) {
@@ -1661,7 +1717,8 @@ impl World {
                 | Command::Emp { .. }
                 | Command::Throw { .. }
                 | Command::Rampage { .. }
-                | Command::Surge { .. }
+                | Command::NaniteBurst { .. }
+                | Command::Cloak { .. }
                 | Command::Taunt { .. }
                 | Command::Rally { .. }
                 | Command::BattleCry { .. }
@@ -2467,9 +2524,11 @@ impl World {
         let magnet: Vec<bool> = (0..self.aboard.crew_count())
             .map(|who| self.has_talent(who, Talent::Magnet))
             .collect();
-        // And who of the crew no machine aims at, a relic's *Signal
-        // Scrambler* (task 118) — for the same reason.
-        let unseen = self.unseen_by_machines();
+        // And who of the crew no enemy aims at — a relic's *Signal
+        // Scrambler* (task 118), a medic's cloak (task 130) — for the
+        // same reason.
+        let unseen = self.hidden_from_enemies();
+        let withheld = unseen.iter().any(|&h| h);
         // The crew's hits on the machines, landed through the relics
         // (task 118) — with none held, the same strike the loop below made
         // — and the hits on the residents' Bims handed back to it.
@@ -2493,6 +2552,7 @@ impl World {
                 residents.aboard.room.set_hostiles(Vec::new());
                 residents.aboard.room.clear_machine_hostiles();
                 residents.aboard.room.set_sheltering(&[]);
+                residents.aboard.room.set_targets_withheld(false);
             }
             return;
         };
@@ -2619,13 +2679,16 @@ impl World {
                 })
             })
             .collect();
-        // A crew member under *Signal Scrambler*'s cloak (task 118) is on
-        // nobody's list: no machine aims at it while it lasts.
+        // A crew member under *Signal Scrambler*'s cloak (task 118) or a
+        // medic's (task 130) is on nobody's list: no enemy aims at it while
+        // it lasts, and one that was drops it this step. And an enemy left
+        // with nobody it may pick holds where it stands.
         for (who, &hidden) in unseen.iter().enumerate() {
             if hidden && let Some(c) = crew.get_mut(who) {
                 *c = None;
             }
         }
+        room.set_targets_withheld(withheld);
         // And the engineers' sentries after them (feature 74), each at
         // its spot with its rifle: the nearest-target rule includes them,
         // and a hit past the crew's count is a hit on one.
@@ -2954,10 +3017,14 @@ impl World {
                 // Since the run (feature 103) a dead player's level,
                 // experience and talents are **kept** for its buyback; a
                 // bot is gone for good and costs the pool (`fall`). A
-                // medic's beam and charge go with the body (feature 76).
+                // medic's beam and timers go with the body (feature 76),
+                // and so does a cloak on anybody (task 130).
                 self.fall(who as u32, events);
                 if let Some(medic) = self.medics.get_mut(who) {
                     *medic = Medic::default();
+                }
+                if let Some(cloak) = self.cloaks.get_mut(who) {
+                    *cloak = crate::medic::Cloak::default();
                 }
                 // And a tank's taunt with it (feature 77), and a
                 // commander's rally (feature 78).
@@ -4245,6 +4312,8 @@ impl World {
         self.clear_carries();
         self.medics
             .resize(self.aboard.crew as usize, Medic::default());
+        self.cloaks
+            .resize(self.aboard.crew as usize, crate::medic::Cloak::default());
         self.tanks
             .resize(self.aboard.crew as usize, Tank::default());
         // And the crew's indices have moved, so the squad order — whose
@@ -7795,7 +7864,8 @@ impl World {
         let share = (data::STEP_MINUTES / 60.0) as f32;
         for (who, rate) in best.into_iter().enumerate() {
             if rate > 0.0 {
-                self.aboard.room.heal(who, rate * share);
+                // Times the Healing Aura where the body stands (task 130).
+                self.heal_crew(who as u32, rate * share);
             }
         }
     }
@@ -8000,6 +8070,9 @@ impl World {
         self.lift_by_relics(who, &mut skill);
         // And task 118's, which read the crew round it as well.
         self.lift_by_relic_hooks(who, &mut skill);
+        // And a medic's cloak on it (task 130): no fire, and a quicker
+        // walk, whoever cast it.
+        self.lift_by_cloak(who, &mut skill);
         // And how long it takes to revive a downed crewmate (task 120).
         skill.revive = self.revive_seconds(who);
         // And whether it is a medic, whom the other bots leave a downed
@@ -8330,13 +8403,15 @@ impl World {
             .map_or(0.0, |crit| crate::soldier::crit_bonus(hit.flat, crit))
     }
 
-    // --- the medic: the beam and the surge (feature 76) --------------------
+    // --- the medic: a ranked kit (task 130) -------------------------------
     //
     // `crate::medic` is the state; this is the rules. The beam is a list
     // of crew indices on the medic, checked every step before the rooms
-    // step and handed to the room as what it does to each body
-    // (`bims::health::Beamed`); the surge is the room's own timer on
-    // each body, set here off the medic's charge.
+    // step and healed off here (`Game::heal`); the Nanite Burst and the
+    // Cloak are a mission minute each on the medic, read the soldier's
+    // Rampage's way; a cloak is a mission minute on the crew member it
+    // covers; the Healing Aura is worked out afresh whenever a heal is
+    // given (`heal_factor`). There is no surge.
 
     /// Whether crew member `who` is a player's medic.
     fn is_medic(&self, who: u32) -> bool {
@@ -8367,14 +8442,17 @@ impl World {
         &mut self.medics[who]
     }
 
-    /// What a medic shoots with (feature 76): its fire held while the
-    /// beam is linked, or at [`class::GUNNER_MEDIC_FIRE_RATE`] with
-    /// *gunner medic*; `Skill::NONE` unlinked.
+    /// What a medic shoots with (task 130): its fire held while the beam
+    /// is linked, or from the beam's third rank ([`class::HEAL_BEAM_FIRE_RANK`])
+    /// at [`class::HEAL_BEAM_FIRE_RATE`]; `Skill::NONE` unlinked. And, whatever
+    /// he is doing, a crewmate he revives gets up at
+    /// [`class::MEDIC_REVIVED_TO`] of its bar.
     fn medic_skill(&self, who: u32) -> bims::combat::Skill {
         let mut skill = bims::combat::Skill::NONE;
+        skill.revived_to = class::MEDIC_REVIVED_TO;
         if self.is_beaming(who) {
-            if self.has_talent(who, Talent::GunnerMedic) {
-                skill.fire_rate *= class::GUNNER_MEDIC_FIRE_RATE;
+            if self.rank_of(who, class::SLOT_E) >= class::HEAL_BEAM_FIRE_RANK {
+                skill.fire_rate *= class::HEAL_BEAM_FIRE_RATE;
             } else {
                 skill.holds_fire = true;
             }
@@ -8382,70 +8460,31 @@ impl World {
         skill
     }
 
-    /// How far a medic's beam reaches, in tiles: the range, half again
-    /// with *long beam*.
+    /// The beam's rank, read as its first where none is bought: what the
+    /// readings below take, so a box can say what the first rank would do.
+    fn beam_rank(&self, who: u32) -> u8 {
+        self.rank_of(who, class::SLOT_E).max(1)
+    }
+
+    /// How far a medic's beam reaches, in tiles, at his rank
+    /// ([`class::HEAL_BEAM_RANGES`]).
     pub fn beam_range(&self, who: u32) -> f32 {
-        if self.has_talent(who, Talent::LongBeam) {
-            class::HEAL_BEAM_RANGE * class::LONG_BEAM_RANGE
-        } else {
-            class::HEAL_BEAM_RANGE
-        }
+        class::by_rank(class::HEAL_BEAM_RANGES, self.beam_rank(who))
+            .unwrap_or(class::HEAL_BEAM_RANGE)
     }
 
-    /// Hit points a beamed patient gains an hour of the clock: the rate,
-    /// half again with *strong beam* (task 120; it was blood).
+    /// Hit points a beamed patient gains an hour of the clock before the
+    /// Healing Aura: [`class::HEAL_BEAM_HP`] times his rank's
+    /// [`class::HEAL_BEAM_RATE`].
     pub fn beam_rate(&self, who: u32) -> f32 {
-        if self.has_talent(who, Talent::StrongBeam) {
-            class::HEAL_BEAM_HP * class::STRONG_BEAM_RATE
-        } else {
-            class::HEAL_BEAM_HP
-        }
+        class::HEAL_BEAM_HP
+            * class::by_rank(class::HEAL_BEAM_RATE, self.beam_rank(who)).unwrap_or(1.0)
     }
 
-    /// How many patients a medic's beam holds at once: one, or
-    /// [`class::DOUBLE_LINK_PATIENTS`] with *double link*.
+    /// How many patients a medic's beam holds at once, at his rank
+    /// ([`class::HEAL_BEAM_PATIENTS`]), each at the full rate.
     pub fn beam_patients(&self, who: u32) -> usize {
-        if self.has_talent(who, Talent::DoubleLink) {
-            class::DOUBLE_LINK_PATIENTS
-        } else {
-            1
-        }
-    }
-
-    /// Minutes of qualifying beaming a medic's surge wants to be full:
-    /// [`class::SURGE_CHARGE_MINUTES`], less with *quick charge*.
-    pub fn surge_charge_wanted(&self, who: u32) -> f64 {
-        if self.has_talent(who, Talent::QuickCharge) {
-            class::SURGE_CHARGE_MINUTES / class::QUICK_CHARGE_RATE
-        } else {
-            class::SURGE_CHARGE_MINUTES
-        }
-    }
-
-    /// How full a medic's surge is, nought to one.
-    pub fn surge_charge(&self, who: u32) -> f32 {
-        (self.medic_of(who).charge / self.surge_charge_wanted(who)).clamp(0.0, 1.0) as f32
-    }
-
-    /// Minutes of the clock a medic's surge runs: [`class::SURGE_MINUTES`],
-    /// half again with *long surge*.
-    pub fn surge_minutes(&self, who: u32) -> f64 {
-        if self.has_talent(who, Talent::LongSurge) {
-            class::SURGE_MINUTES * class::LONG_SURGE_TIME
-        } else {
-            class::SURGE_MINUTES
-        }
-    }
-
-    /// Seconds of the room's clock a crew member's surge has left; nought
-    /// with none running.
-    pub fn surge_left(&self, who: u32) -> f64 {
-        self.aboard.room.surge_left(who as usize) as f64
-    }
-
-    /// Whether a surge runs on a crew member.
-    pub fn is_surging(&self, who: u32) -> bool {
-        self.aboard.room.is_surging(who as usize)
+        class::by_rank(class::HEAL_BEAM_PATIENTS, self.beam_rank(who)).unwrap_or(1)
     }
 
     /// Whether a crew member is where a medic's beam reaches it: alive,
@@ -8477,16 +8516,19 @@ impl World {
 
     /// Whether a player's medic may link its beam to `patient`, or why
     /// not, in the order the refusals are said: a medic (`NotAMedic`),
-    /// fit to act (`OutOfReach`), a living crew member — itself too
-    /// (`NotACrewmate`) — in the room and within range
-    /// (`OutOfBeamRange`), in its sight (`NoSightOfPatient`). What the
-    /// app greys the key with and [`Command::Beam`] asks.
+    /// fit to act (`OutOfReach`), a rank of the beam (`NotLearnt`), a
+    /// living crew member — itself too (`NotACrewmate`) — in the room and
+    /// within range (`OutOfBeamRange`), in its sight (`NoSightOfPatient`).
+    /// What the app greys the key with and [`Command::Beam`] asks.
     pub fn can_beam(&self, slot: u32, patient: u32) -> Result<(), Refusal> {
         if !class::can(self.class_of(slot), class::Ability::Beam) {
             return Err(Refusal::NotAMedic);
         }
         if !self.fit_to_act(slot) {
             return Err(Refusal::OutOfReach);
+        }
+        if self.rank_of(slot, class::SLOT_E) == 0 {
+            return Err(Refusal::NotLearnt);
         }
         self.beam_reaches(slot, patient)
     }
@@ -8515,67 +8557,331 @@ impl World {
         Ok(())
     }
 
-    /// Whether a player's medic may trigger its surge, or why not, in
-    /// order: a medic (`NotAMedic`), fit to act (`OutOfReach`), at
-    /// [`class::SURGE_LEVEL`] (`NoSurgeYet`), linked (`NotLinked`), and
-    /// charged (`NotCharged`).
-    pub fn can_surge(&self, slot: u32) -> Result<(), Refusal> {
-        if !class::can(self.class_of(slot), class::Ability::Surge) {
+    // The Nanite Burst (Q).
+
+    /// Hit points a medic's Nanite Burst puts back into each Bim it
+    /// reaches, at his rank, before the Healing Aura
+    /// ([`class::NANITE_BURST_HEAL`]); nought before the first.
+    pub fn nanite_burst_heal(&self, who: u32) -> f32 {
+        class::by_rank(class::NANITE_BURST_HEAL, self.rank_of(who, class::SLOT_Q)).unwrap_or(0.0)
+    }
+
+    /// How far a medic's Nanite Burst reaches, in tiles, at his rank
+    /// ([`class::NANITE_BURST_RADIUS`]); nought before the first.
+    pub fn nanite_burst_radius(&self, who: u32) -> f32 {
+        class::by_rank(class::NANITE_BURST_RADIUS, self.rank_of(who, class::SLOT_Q)).unwrap_or(0.0)
+    }
+
+    /// Seconds of the mission clock between one burst and the next:
+    /// [`class::NANITE_BURST_COOLDOWN`] of his rank (the first's before
+    /// one), times the cooldown relics.
+    pub fn nanite_burst_cooldown(&self, who: u32) -> f64 {
+        let rank = self.rank_of(who, class::SLOT_Q).max(1);
+        class::by_rank(class::NANITE_BURST_COOLDOWN, rank).unwrap_or(0.0)
+            * self.relic_factor(who, crate::relic::Stat::Cooldowns)
+    }
+
+    /// Seconds of the mission clock until he may burst again; nought when
+    /// he may.
+    pub fn nanite_burst_cooldown_left(&self, who: u32) -> f64 {
+        let Some(began) = self.medic_of(who).last_burst else {
+            return 0.0;
+        };
+        let since = (self.mission_minutes() - began) / time::MINUTES_PER_SECOND;
+        (self.nanite_burst_cooldown(who) - since).max(0.0)
+    }
+
+    /// Seconds of the mission clock since his last burst, for the ring the
+    /// app draws spreading out to its radius; `None` with none this
+    /// mission.
+    pub fn nanite_burst_since(&self, who: u32) -> Option<f64> {
+        let began = self.medic_of(who).last_burst?;
+        Some((self.mission_minutes() - began) / time::MINUTES_PER_SECOND)
+    }
+
+    /// Whom a medic's Nanite Burst set off now would heal: every crew
+    /// member alive, on its feet and on the deck within his radius and in
+    /// his sight — walls block — himself included, lowest index first.
+    pub fn nanite_burst_reaching(&self, slot: u32) -> Vec<u32> {
+        if !self.on_the_deck(slot) {
+            return Vec::new();
+        }
+        let room = &self.aboard.room;
+        let at = room.bim_pos(slot as usize);
+        let reach = self.nanite_burst_radius(slot) * shipdesign::TILE as f32;
+        (0..self.aboard.crew_count())
+            .filter(|&who| {
+                let p = room.bim_pos(who as usize);
+                self.on_the_deck(who)
+                    && !room.is_downed(who as usize)
+                    && (p - at).len() <= reach
+                    && (who == slot || room.sees(slot as usize, p))
+            })
+            .collect()
+    }
+
+    /// Whether a player's medic may set off a Nanite Burst, or why not, in
+    /// the Rally's order: a medic (`NotAMedic`), fit to act — downed among
+    /// it — (`OutOfReach`), a rank (`NotLearnt`) and out of the cooldown
+    /// (`CoolingDown`).
+    pub fn can_nanite_burst(&self, slot: u32) -> Result<(), Refusal> {
+        if !class::can(self.class_of(slot), class::Ability::NaniteBurst) {
             return Err(Refusal::NotAMedic);
         }
         if !self.fit_to_act(slot) {
             return Err(Refusal::OutOfReach);
         }
-        if self.level_of(slot) < class::SURGE_LEVEL {
-            return Err(Refusal::NoSurgeYet);
+        if self.rank_of(slot, class::SLOT_Q) == 0 {
+            return Err(Refusal::NotLearnt);
         }
-        if !self.is_beaming(slot) {
-            return Err(Refusal::NotLinked);
-        }
-        if self.surge_charge(slot) < 1.0 {
-            return Err(Refusal::NotCharged);
+        if self.nanite_burst_cooldown_left(slot) > 0.0 {
+            return Err(Refusal::CoolingDown);
         }
         Ok(())
     }
 
-    /// The surge — see [`Command::Surge`]: the charge emptied, and the
-    /// room's timer set on the medic and every patient (and, with *mass
-    /// surge*, every crew member within [`class::MASS_SURGE_TILES`] of a
-    /// patient) for the medic's minutes. *Closing surge* is a no-op since
-    /// task 120: there are no wounds to close.
-    fn surge(&mut self, slot: u32) -> Result<(), Refusal> {
-        self.can_surge(slot)?;
-        let seconds = (self.surge_minutes(slot) / time::MINUTES_PER_SECOND) as f32;
-        let patients = self.patients_of(slot);
-        let mut covered: Vec<u32> = Vec::new();
-        if self.has_talent(slot, Talent::MassSurge) {
-            let t = shipdesign::TILE as f32;
-            let room = &self.aboard.room;
-            for &p in &patients {
-                let at = room.bim_pos(p as usize);
-                for other in 0..self.aboard.crew_count() {
-                    if other != slot
-                        && !patients.contains(&other)
-                        && !covered.contains(&other)
-                        && room.is_alive(other as usize)
-                        && !room.is_outside(other as usize)
-                        && (room.bim_pos(other as usize) - at).len() <= class::MASS_SURGE_TILES * t
-                    {
-                        covered.push(other);
-                    }
-                }
-            }
+    /// The Nanite Burst — see [`Command::NaniteBurst`]: the mission clock
+    /// noted and every Bim it reaches healed at once, each by the burst
+    /// times its own Healing Aura. How many it reached.
+    fn nanite_burst(&mut self, slot: u32) -> Result<u32, Refusal> {
+        self.can_nanite_burst(slot)?;
+        let heal = self.nanite_burst_heal(slot);
+        let reached: Vec<(u32, f32)> = self
+            .nanite_burst_reaching(slot)
+            .into_iter()
+            .map(|who| (who, heal * self.heal_factor(who)))
+            .collect();
+        for &(who, points) in &reached {
+            self.aboard.room.heal(who as usize, points);
         }
-        self.medic_mut(slot as usize).charge = 0.0;
-        let room = &mut self.aboard.room;
-        room.set_surge(slot as usize, seconds);
-        for p in patients {
-            room.set_surge(p as usize, seconds);
+        let now = self.mission_minutes();
+        self.medic_mut(slot as usize).last_burst = Some(now);
+        Ok(reached.len() as u32)
+    }
+
+    // The Healing Aura (C).
+
+    /// How far a medic's Healing Aura reaches, in tiles, at his rank
+    /// ([`class::HEALING_AURA_RADIUS`]); nought before the first and for
+    /// anybody not a medic.
+    pub fn healing_aura_radius(&self, who: u32) -> f32 {
+        if !self.is_medic(who) {
+            return 0.0;
         }
-        for other in covered {
-            room.set_surge(other as usize, seconds);
+        class::by_rank(class::HEALING_AURA_RADIUS, self.rank_of(who, class::SLOT_C)).unwrap_or(0.0)
+    }
+
+    /// The medic whose Healing Aura covers a crew member where it stands,
+    /// if any: a medic on his feet and on the deck — itself included —
+    /// within his radius. Two reaching one Bim: the higher factor holds
+    /// it, and they never stack.
+    pub fn healing_aura_reaching(&self, who: u32) -> Option<u32> {
+        if !self.on_the_deck(who) {
+            return None;
+        }
+        let room = &self.aboard.room;
+        let at = room.bim_pos(who as usize);
+        let t = shipdesign::TILE as f32;
+        (0..self.aboard.crew_count())
+            .filter(|&m| {
+                let radius = self.healing_aura_radius(m);
+                radius > 0.0
+                    && self.on_the_deck(m)
+                    && !room.is_downed(m as usize)
+                    && (room.bim_pos(m as usize) - at).len() <= radius * t
+            })
+            .max_by(|&a, &b| {
+                let of = |m: u32| {
+                    class::by_rank(class::HEALING_AURA_FACTOR, self.rank_of(m, class::SLOT_C))
+                        .unwrap_or(1.0)
+                };
+                of(a).total_cmp(&of(b))
+            })
+    }
+
+    /// What every heal crew member `who` takes is multiplied by (task
+    /// 130): the strongest Healing Aura reaching **where it stands**,
+    /// wherever the heal comes from — the beam, the burst, a Healing
+    /// Sentry, a relic — and one where none does. Every call the world
+    /// makes to `Game::heal` goes through it; a revive is not a heal and
+    /// never asks.
+    pub fn heal_factor(&self, who: u32) -> f32 {
+        self.healing_aura_reaching(who)
+            .and_then(|m| {
+                class::by_rank(class::HEALING_AURA_FACTOR, self.rank_of(m, class::SLOT_C))
+            })
+            .unwrap_or(1.0)
+    }
+
+    /// `points` of health put into crew member `who`, times its Healing
+    /// Aura (`heal_factor`): what every heal of the world's goes through.
+    /// How much went in.
+    pub(crate) fn heal_crew(&mut self, who: u32, points: f32) -> f32 {
+        let points = points * self.heal_factor(who);
+        self.aboard.room.heal(who as usize, points)
+    }
+
+    // The Cloak (R).
+
+    /// Seconds of the mission clock a cloak a medic casts lasts, at his
+    /// rank ([`class::CLOAK_SECONDS`]); nought before the first.
+    pub fn cloak_seconds(&self, medic: u32) -> f64 {
+        class::by_rank(class::CLOAK_SECONDS, self.rank_of(medic, class::SLOT_R)).unwrap_or(0.0)
+    }
+
+    /// Seconds of the mission clock between one cloak and the next:
+    /// [`class::CLOAK_COOLDOWN`] of his rank (the first's before one),
+    /// times the cooldown relics.
+    pub fn cloak_cooldown(&self, medic: u32) -> f64 {
+        let rank = self.rank_of(medic, class::SLOT_R).max(1);
+        class::by_rank(class::CLOAK_COOLDOWN, rank).unwrap_or(0.0)
+            * self.relic_factor(medic, crate::relic::Stat::Cooldowns)
+    }
+
+    /// Seconds of the mission clock until he may cloak again; nought when
+    /// he may.
+    pub fn cloak_cooldown_left(&self, medic: u32) -> f64 {
+        let Some(began) = self.medic_of(medic).last_cloak else {
+            return 0.0;
+        };
+        let since = (self.mission_minutes() - began) / time::MINUTES_PER_SECOND;
+        (self.cloak_cooldown(medic) - since).max(0.0)
+    }
+
+    /// A crew member's cloak as kept — the default, no cloak, for anybody
+    /// the world keeps none for.
+    pub fn cloak_of(&self, who: u32) -> crate::medic::Cloak {
+        self.cloaks.get(who as usize).copied().unwrap_or_default()
+    }
+
+    /// Seconds of the mission clock a crew member's cloak has left;
+    /// nought with none on it.
+    pub fn cloak_left(&self, who: u32) -> f64 {
+        let Some(until) = self.cloak_of(who).until else {
+            return 0.0;
+        };
+        ((until - self.mission_minutes()) / time::MINUTES_PER_SECOND).max(0.0)
+    }
+
+    /// Whether a crew member is under a cloak now: no enemy picks it, it
+    /// fires nothing and uses no ability.
+    pub fn is_cloaked(&self, who: u32) -> bool {
+        self.cloak_left(who) > 0.0
+    }
+
+    /// Whether a player's medic may cloak crew member `target`, or why
+    /// not, in order: a medic (`NotAMedic`), fit to act — downed among it
+    /// — (`OutOfReach`), a rank (`NotLearnt`), out of the cooldown
+    /// (`CoolingDown`), a living crew member, downed or not, himself
+    /// included (`NotACrewmate`), then — for another — within
+    /// [`class::CLOAK_RANGE`] (`OutOfCloakRange`) and in his sight
+    /// (`NoSightOfTarget`).
+    pub fn can_cloak(&self, slot: u32, target: u32) -> Result<(), Refusal> {
+        if !class::can(self.class_of(slot), class::Ability::Cloak) {
+            return Err(Refusal::NotAMedic);
+        }
+        if !self.fit_to_act(slot) {
+            return Err(Refusal::OutOfReach);
+        }
+        if self.rank_of(slot, class::SLOT_R) == 0 {
+            return Err(Refusal::NotLearnt);
+        }
+        if self.cloak_cooldown_left(slot) > 0.0 {
+            return Err(Refusal::CoolingDown);
+        }
+        let room = &self.aboard.room;
+        if target >= self.aboard.crew_count() || !room.is_alive(target as usize) {
+            return Err(Refusal::NotACrewmate);
+        }
+        if target == slot {
+            return Ok(());
+        }
+        if room.is_outside(target as usize) {
+            return Err(Refusal::OutOfCloakRange);
+        }
+        let at = room.bim_pos(target as usize);
+        let t = shipdesign::TILE as f32;
+        if (at - room.bim_pos(slot as usize)).len() > class::CLOAK_RANGE * t {
+            return Err(Refusal::OutOfCloakRange);
+        }
+        if !room.sees(slot as usize, at) {
+            return Err(Refusal::NoSightOfTarget);
         }
         Ok(())
+    }
+
+    /// The Cloak — see [`Command::Cloak`]: the mission clock noted on the
+    /// medic, and on the target a cloak to the later of its own end and
+    /// this one's — never the two added — at the faster of the two paces.
+    /// A medic cloaking himself lets his beam's patients go.
+    fn cloak(&mut self, slot: u32, target: u32) -> Result<(), Refusal> {
+        self.can_cloak(slot, target)?;
+        let now = self.mission_minutes();
+        let until = now + self.cloak_seconds(slot) * time::MINUTES_PER_SECOND;
+        let pace =
+            class::by_rank(class::CLOAK_PACE, self.rank_of(slot, class::SLOT_R)).unwrap_or(1.0);
+        let was = self.cloak_of(target);
+        let running = self.is_cloaked(target);
+        let t = target as usize;
+        if self.cloaks.len() <= t {
+            self.cloaks.resize(t + 1, crate::medic::Cloak::default());
+        }
+        let end = match was.until {
+            Some(end) if running => end.max(until),
+            _ => until,
+        };
+        self.cloaks[t] = crate::medic::Cloak {
+            until: Some(end),
+            pace: if running { was.pace.max(pace) } else { pace },
+            seconds: (end - now) / time::MINUTES_PER_SECOND,
+        };
+        self.medic_mut(slot as usize).last_cloak = Some(now);
+        if target == slot {
+            self.medic_mut(slot as usize).unlink();
+            self.aboard.room.set_beaming(slot as usize, false);
+        }
+        self.aboard.room.set_cloaked(t, true);
+        Ok(())
+    }
+
+    /// What a cloak does to a crew member's fighting (task 130): it holds
+    /// its fire and walks at the cloak's pace, at all times.
+    fn lift_by_cloak(&self, who: u32, skill: &mut bims::combat::Skill) {
+        if self.is_cloaked(who) {
+            skill.holds_fire = true;
+            skill.walk *= self.cloak_of(who).pace;
+        }
+    }
+
+    /// Before the rooms step: every cloak run out forgotten, and the room
+    /// told who is cloaked, for its picture.
+    fn hand_the_room_the_cloaks(&mut self) {
+        let crew = self.aboard.crew_count() as usize;
+        if self.cloaks.len() < crew {
+            self.cloaks.resize(crew, crate::medic::Cloak::default());
+        }
+        for who in 0..crew {
+            let on = self.is_cloaked(who as u32);
+            if !on && self.cloaks[who].until.is_some() {
+                self.cloaks[who] = crate::medic::Cloak::default();
+            }
+            self.aboard.room.set_cloaked(who, on);
+        }
+    }
+
+    /// Which of the crew no enemy may pick now: a medic's cloak (task
+    /// 130) or a relic's *Signal Scrambler* (task 118). Empty while
+    /// neither is on anybody, so a fight without them hands over what it
+    /// always did.
+    pub(crate) fn hidden_from_enemies(&self) -> Vec<bool> {
+        let unseen = self.unseen_by_machines();
+        let crew = self.aboard.crew_count();
+        if unseen.is_empty() && !(0..crew).any(|who| self.is_cloaked(who)) {
+            return Vec::new();
+        }
+        (0..crew)
+            .map(|who| unseen.get(who as usize).copied().unwrap_or(false) || self.is_cloaked(who))
+            .collect()
     }
 
     /// Crew member `who` made a **field medic** with nothing else about
@@ -8618,16 +8924,19 @@ impl World {
 
     /// Slot 0 a medic beaming crew member 1, for a probe and for
     /// `BIMS_BEAM` in the app: crew member 1 stood a tile from it at
-    /// [`BEAM_PROBE_HEALTH`] of its bar — so the patient wants healing,
-    /// the charge fills and the beam has something to do, and the green
-    /// numbers over it (feature 91) count — and the link made. With
-    /// `surge` the charge is filled and the surge triggered besides, which
-    /// wants the medic at [`class::SURGE_LEVEL`] (the caller's
-    /// `BIMS_LEVEL`, or this puts it there). `false`, and nothing moved,
-    /// with fewer than two aboard or with slot 0 no medic.
-    pub fn beam_for_probe(&mut self, surge: bool) -> bool {
+    /// [`BEAM_PROBE_HEALTH`] of its bar — so the patient wants healing and
+    /// the beam has something to do, and the green numbers over it
+    /// (feature 91) count — and the link made, the beam's first rank
+    /// bought if none is (`BIMS_RANKS` can say more). `false`, and nothing
+    /// moved, with fewer than two aboard or with slot 0 no medic.
+    pub fn beam_for_probe(&mut self) -> bool {
         if self.aboard.crew_count() < 2 || !self.is_medic(0) {
             return false;
+        }
+        if self.rank_of(0, class::SLOT_E) == 0 {
+            let mut ranks = self.progress.first().map(|p| p.ranks).unwrap_or_default();
+            ranks[class::SLOT_E as usize] = 1;
+            self.set_ranks_for_probe(0, ranks);
         }
         // Both posted where they stand: a patient short of nothing but hit
         // points is on its feet and would walk off about its round, and
@@ -8640,22 +8949,7 @@ impl World {
             .room
             .set_health_for_probe(1, bims::health::MAX_HEALTH * BEAM_PROBE_HEALTH);
         self.step(&[]);
-        if self.beam(0, Some(1)).is_err() {
-            return false;
-        }
-        if surge {
-            if self.level_of(0) < class::SURGE_LEVEL {
-                let want = class::LEVEL_XP[class::SURGE_LEVEL as usize - 1];
-                let mut events = Vec::new();
-                self.award(0, want, &mut events);
-            }
-            let charge = self.surge_charge_wanted(0);
-            self.medic_mut(0).charge = charge;
-            if self.surge(0).is_err() {
-                return false;
-            }
-        }
-        true
+        self.beam(0, Some(1)).is_ok()
     }
 
     /// Every beam broken: what a change of crew indices does, since an
@@ -8669,12 +8963,11 @@ impl World {
 
     /// Before the rooms step: every beam checked — broken where the room
     /// ended it (an order to an errand, the medic down), the medic unfit
-    /// to act, or a patient dead, gone from the room, out of range or
-    /// out of sight — the surge charged for a patient below its whole bar,
-    /// and every beamed body given its hit points for the step (task 120:
-    /// the beam heals hit points where it held the blood). Two beams on one
-    /// body: the stronger. A downed body takes nothing: only a revive gets
-    /// it up.
+    /// to act or cloaked, or a patient dead, gone from the room, out of
+    /// range or out of sight — and every beamed body given its hit points
+    /// for the step, times the Healing Aura where it stands (task 130).
+    /// Two beams on one body: the stronger. A downed body takes nothing:
+    /// only a revive gets it up.
     fn hand_the_room_the_medics(&mut self, events: &mut Vec<WorldEvent>) {
         let crew = self.aboard.crew_count() as usize;
         if self.medics.len() < crew {
@@ -8688,14 +8981,16 @@ impl World {
             }
             let who = m as u32;
             let was = self.medics[m].patients.clone();
-            let keep: Vec<u32> = if !self.aboard.room.is_beaming(m) || !self.fit_to_act(who) {
-                Vec::new()
-            } else {
-                was.iter()
-                    .copied()
-                    .filter(|&p| self.beam_reaches(who, p).is_ok())
-                    .collect()
-            };
+            let keep: Vec<u32> =
+                if !self.aboard.room.is_beaming(m) || !self.fit_to_act(who) || self.is_cloaked(who)
+                {
+                    Vec::new()
+                } else {
+                    was.iter()
+                        .copied()
+                        .filter(|&p| self.beam_reaches(who, p).is_ok())
+                        .collect()
+                };
             if keep.is_empty() {
                 self.medics[m].unlink();
                 self.aboard.room.set_beaming(m, false);
@@ -8703,16 +8998,6 @@ impl World {
                 continue;
             }
             self.medics[m].patients = keep.clone();
-            // The charge fills while a patient is short of its whole bar.
-            let room = &self.aboard.room;
-            let qualifies = keep.iter().any(|&p| {
-                !room.is_downed(p as usize) && room.health(p as usize) < bims::health::MAX_HEALTH
-            });
-            if qualifies {
-                let wanted = self.surge_charge_wanted(who);
-                let medic = &mut self.medics[m];
-                medic.charge = (medic.charge + data::STEP_MINUTES).min(wanted);
-            }
             let rate = self.beam_rate(who);
             for &p in &keep {
                 let slot = &mut held[p as usize];
@@ -8724,7 +9009,7 @@ impl World {
         let share = (data::STEP_MINUTES / 60.0) as f32;
         for (who, rate) in held.into_iter().enumerate() {
             if rate > 0.0 {
-                self.aboard.room.heal(who, rate * share);
+                self.heal_crew(who as u32, rate * share);
             }
         }
     }

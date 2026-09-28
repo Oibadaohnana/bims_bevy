@@ -548,7 +548,8 @@ impl World {
                 health_percent,
             } => self.relic_rally_up(who, tiles, health_percent),
             Action::Heal { points } => match other {
-                Some(patient) => self.aboard.room.heal(patient as usize, points) > 0.0,
+                // Times the Healing Aura where the patient stands (task 130).
+                Some(patient) => self.heal_crew(patient, points) > 0.0,
                 None => false,
             },
         };
@@ -609,6 +610,18 @@ impl World {
         {
             *began -= minutes;
             any = true;
+        }
+        // A medic's Nanite Burst and Cloak (task 130): each a timestamp
+        // that is the cooldown alone — the cloak it cast is kept on the
+        // crew member it covers, and does not move.
+        if let Some(medic) = self.medics.get_mut(who as usize) {
+            for last in [medic.last_burst.as_mut(), medic.last_cloak.as_mut()]
+                .into_iter()
+                .flatten()
+            {
+                *last -= minutes;
+                any = true;
+            }
         }
         any
     }

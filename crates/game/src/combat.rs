@@ -737,6 +737,11 @@ pub struct Skill {
     /// (`Game::revive_on_offer`).
     #[cfg_attr(feature = "serde", serde(default))]
     pub medic: bool,
+    /// The share of its bar a crewmate this body revives gets up at
+    /// (task 130): [`crate::health::REVIVED_TO`] for anybody, more for a
+    /// medic of the class — the world's number.
+    #[cfg_attr(feature = "serde", serde(default = "revived_to"))]
+    pub revived_to: f32,
     /// Every how many of its shots is **overcharged**, nought for none: a
     /// relic's *Overcharge Cell* (feature 106). The room counts the shots
     /// on the body (`Bim::shots`).
@@ -788,6 +793,7 @@ impl Skill {
         armour_protection_add: 0.0,
         revive: crate::health::REVIVE_SECONDS,
         medic: false,
+        revived_to: crate::health::REVIVED_TO,
         overcharge: 0,
         overcharge_damage: 1.0,
         damage_taken: 1.0,
@@ -1705,6 +1711,13 @@ fn one() -> f32 {
 #[cfg(feature = "serde")]
 fn revive_seconds() -> f32 {
     crate::health::REVIVE_SECONDS
+}
+
+/// Anybody's revive's share of the bar, for a `Skill` read back without
+/// one (task 130).
+#[cfg(feature = "serde")]
+fn revived_to() -> f32 {
+    crate::health::REVIVED_TO
 }
 
 /// How many fixed sub-steps a Sweeper's sweep is resolved in (feature

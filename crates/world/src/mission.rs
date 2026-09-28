@@ -624,6 +624,16 @@ impl World {
         for soldier in &mut self.soldiers {
             *soldier = crate::soldier::Soldier::default();
         }
+        // Every Nanite Burst and Cloak ready, and every cloak off (task
+        // 130); the beams were let go above.
+        for medic in &mut self.medics {
+            medic.last_burst = None;
+            medic.last_cloak = None;
+        }
+        self.cloaks = vec![crate::medic::Cloak::default(); crew];
+        for who in 0..crew {
+            self.aboard.room.set_cloaked(who, false);
+        }
         for who in 0..crew as u32 {
             if self.aboard.room.is_alive(who as usize) {
                 self.fill_charges(who);
@@ -854,6 +864,9 @@ impl World {
         self.clear_carries();
         if index < self.medics.len() {
             self.medics.remove(index);
+        }
+        if index < self.cloaks.len() {
+            self.cloaks.remove(index);
         }
         if index < self.tanks.len() {
             self.tanks.remove(index);

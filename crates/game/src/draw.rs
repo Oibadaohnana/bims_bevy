@@ -110,6 +110,16 @@ impl DrawList {
         self.data.len()
     }
 
+    /// Every shape pushed since `from` (a [`DrawList::len`] taken before
+    /// them) made `factor` as opaque as it was: a body drawn faint under a
+    /// medic's cloak (task 130).
+    pub fn fade_from(&mut self, from: usize, factor: f32) {
+        let from = from.min(self.data.len());
+        for shape in self.data[from..].chunks_exact_mut(STRIDE) {
+            shape[STRIDE - 1] *= factor;
+        }
+    }
+
     /// `center`/`size` are in world pixels; `rot` spins the shape about its
     /// own centre; `radius` rounds rectangle corners and is ignored by
     /// ellipses; `line` strokes instead of filling when non-zero.

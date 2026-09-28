@@ -181,8 +181,12 @@ pub enum Order {
     /// The medic's heal beam linked to a crew member, or unlinked —
     /// `Command::Beam`, the E key over one (feature 76).
     Beam(Option<u32>),
-    /// The medic's surge triggered — `Command::Surge`, the Q key.
-    Surge,
+    /// The medic's Nanite Burst — `Command::NaniteBurst`, the Q key
+    /// (task 130).
+    NaniteBurst,
+    /// The medic's Cloak on a crew member — `Command::Cloak`, the R key
+    /// over one, or over nobody for himself (task 130).
+    Cloak(u32),
     /// The tank stood as a wall, or stood down — `Command::Bulwark`, the
     /// E key (feature 77).
     Bulwark(bool),
@@ -476,7 +480,8 @@ impl Net {
                         Order::Rampage => Command::Rampage { slot },
                         Order::RankUp { ability_slot } => Command::RankUp { slot, ability_slot },
                         Order::Beam(patient) => Command::Beam { slot, patient },
-                        Order::Surge => Command::Surge { slot },
+                        Order::NaniteBurst => Command::NaniteBurst { slot },
+                        Order::Cloak(target) => Command::Cloak { slot, target },
                         Order::Bulwark(on) => Command::Bulwark { slot, on },
                         Order::Taunt => Command::Taunt { slot },
                         Order::Squad(order) => Command::Squad { slot, order },

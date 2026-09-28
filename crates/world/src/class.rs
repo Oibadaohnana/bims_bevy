@@ -32,7 +32,8 @@
 //! that are neither wait out a cooldown of their own: the tank's taunt
 //! at [`TAUNT_COOLDOWN`], the commander's Battle Cry and Rally at
 //! [`BATTLE_CRY_COOLDOWN`] and [`RALLY_COOLDOWN`] of their ranks, the
-//! medic's surge on its charge.
+//! medic's Nanite Burst and Cloak at [`NANITE_BURST_COOLDOWN`] and
+//! [`CLOAK_COOLDOWN`] of theirs.
 //!
 //! # Experience
 //!
@@ -58,8 +59,8 @@
 //! [`LEVEL_XP`] — 100 for the second, 250 for the third, up to 3 200 for
 //! the tenth — for a class of talents, and sixteen off
 //! [`RANKED_LEVEL_XP`] for a class with a **ranked kit** ([`ranked`]: the
-//! soldier, task 124, the engineer, task 127, and the commander, task
-//! 129), whose top level costs the same 3 200. A level
+//! soldier, task 124, the engineer, task 127, the commander, task 129,
+//! and the medic, task 130), whose top level costs the same 3 200. A level
 //! reached is `WorldEvent::LevelUp`, said once. A **fixed** level's talent applies at
 //! once; a **pick** level ([`pick_at`]) offers two and applies neither
 //! until the player chooses — `Command::PickTalent`, only for a level
@@ -181,20 +182,69 @@
 //! | 3 | 12 s | ×2.0 | ×0.70 | 120 s |
 //! | 4 | 12 s, +1 s a machine it downs during it, +6 s at most | ×2.0 | ×0.70 | 120 s |
 //!
-//! # The medic's ten levels
+//! # The medic's four slots (task 130)
 //!
-//! | level | left | right |
+//! A ranked kit like the soldier's, the engineer's and the commander's:
+//! sixteen levels on [`RANKED_LEVEL_XP`], a skill point a level, Q, C and
+//! E rank `n` at level `2n − 1` and the ultimate R at 6, 9, 12 and 15.
+//! **Two base traits** are his whatever his ranks: he revives a downed
+//! crewmate in [`MEDIC_REVIVE_SECONDS`], and a Bim he revives gets up at
+//! [`MEDIC_REVIVED_TO`] of its bar where anybody else's is at
+//! `bims::health::REVIVED_TO`. There is no surge.
+//!
+//! **Q, Nanite Burst** (active, cooldown): every friendly Bim on its feet
+//! within its radius of him and in his sight — walls block — himself
+//! included, is healed at once. It revives nobody.
+//!
+//! | rank | heal | radius | cooldown |
+//! |---|---|---|---|
+//! | 1 | 30 HP | 4 tiles | 25 s |
+//! | 2 | 40 HP | 4 tiles | 22 s |
+//! | 3 | 50 HP | 5 tiles | 20 s |
+//! | 4 | 60 HP | 6 tiles | 18 s |
+//!
+//! **C, Healing Aura** (passive): every friendly Bim within its radius of
+//! a medic on his feet, himself included, takes more from every heal —
+//! the beam, the burst, a Healing Sentry, a relic: everything that goes
+//! through `Health::heal` (`World::heal_factor`). Where the healed Bim
+//! stands is what counts, not where the heal comes from; two medics
+//! reaching one Bim, the higher factor; a revive is not a heal.
+//!
+//! | rank | healing received | radius |
 //! |---|---|---|
-//! | 1 | *Heal beam* (E): puts hit points back into a crewmate, or itself; revives in [`MEDIC_REVIVE_SECONDS`] | — |
-//! | 2 | *Field dressing*: no-op since task 120 | *Surgeon*: no-op since task 120 |
-//! | 3 | *Surge* (Q): may trigger it | — |
-//! | 4 | *Long beam*: beam range ×1.5 | *Strong beam*: beam rate ×1.5 |
-//! | 5 | *Clean hands*: no-op since task 120 | *Steady hands*: no-op since task 120 |
-//! | 6 | *Quick charge*: the surge charges ×1.5 faster | *Long surge*: a surge lasts ×1.5 |
-//! | 7 | *Mender*: no-op since task 120 | — |
-//! | 8 | *Self-care*: no-op since task 120 | *Double link*: two patients at once, each at the full rate |
-//! | 9 | *Gunner medic*: fires while beaming, at fire rate ×0.5 | *Closing surge*: no-op since task 120 |
-//! | 10 | *Mass surge*: a surge covers every crew member within 3 tiles of the patient | *Field surgeon*: no-op since task 120 |
+//! | 1 | ×1.15 | 5 tiles |
+//! | 2 | ×1.20 | 6 tiles |
+//! | 3 | ×1.25 | 7 tiles |
+//! | 4 | ×1.30 | 8 tiles |
+//!
+//! **E, Heal Beam** (active, toggle): the beam of feature 76, on a
+//! crewmate or himself, at [`HEAL_BEAM_HP`] an hour of the clock times
+//! the rank's rate:
+//!
+//! | rank | rate | a second at 1× | range | patients | fires while beaming |
+//! |---|---|---|---|---|---|
+//! | 1 | ×1.0 | 2 HP | 6 tiles | 1 | no |
+//! | 2 | ×1.5 | 3 HP | 7 tiles | 1 | no |
+//! | 3 | ×2.0 | 4 HP | 8 tiles | 1 | yes, at fire rate ×0.5 |
+//! | 4 | ×2.5 | 5 HP | 9 tiles | 2, each at the full rate | yes, at fire rate ×0.5 |
+//!
+//! **R, Cloak** (ultimate, cooldown): the friendly Bim under the pointer
+//! within [`CLOAK_RANGE`] tiles and in his sight — downed or not — or,
+//! with nobody there, himself. While it lasts no enemy picks it, it fires
+//! nothing and uses no ability, and it walks faster; what targets nobody —
+//! a sweep, a burst — still hits it. A cloak on a Bim already cloaked
+//! takes the longer of the two times.
+//!
+//! | rank | lasts | move speed | cooldown |
+//! |---|---|---|---|
+//! | 1 | 6 s | ×1.10 | 60 s |
+//! | 2 | 7 s | ×1.15 | 55 s |
+//! | 3 | 8 s | ×1.20 | 50 s |
+//! | 4 | 10 s | ×1.25 | 45 s |
+//!
+//! Both cooldowns run on the mission clock, stop while paused, are ready
+//! at every mission's start and are shortened by the cooldown relics as
+//! every class cooldown is. See [`crate::medic`].
 //!
 //! # The tank's ten levels
 //!
@@ -307,7 +357,8 @@ pub enum Class {
     Engineer = 1,
     /// The soldier: a line held, and grenades.
     Soldier = 2,
-    /// The medic: a heal beam, and a surge.
+    /// The medic: a Nanite Burst, a healing aura, a heal beam and a
+    /// cloak.
     Medic = 3,
     /// The tank: a wall the crew shelter behind, and a taunt.
     Tank = 4,
@@ -383,8 +434,10 @@ pub enum Ability {
     Throw,
     /// Hold a heal beam on a crewmate: the medic's.
     Beam,
-    /// Trigger a surge: the medic's.
-    Surge,
+    /// Set off a Nanite Burst: the medic's (task 130).
+    NaniteBurst,
+    /// Cloak a crewmate or himself: the medic's ultimate (task 130).
+    Cloak,
     /// Stand as a wall the crew behind shelter against: the tank's.
     Bulwark,
     /// Draw the enemy's fire onto himself: the tank's.
@@ -400,14 +453,15 @@ pub enum Ability {
 }
 
 impl Ability {
-    pub const ALL: [Ability; 13] = [
+    pub const ALL: [Ability; 14] = [
         Ability::Deploy,
         Ability::Emp,
         Ability::Sentry,
         Ability::Brace,
         Ability::Throw,
         Ability::Beam,
-        Ability::Surge,
+        Ability::NaniteBurst,
+        Ability::Cloak,
         Ability::Bulwark,
         Ability::Taunt,
         Ability::SquadOrder,
@@ -423,7 +477,7 @@ pub fn can(class: Class, ability: Ability) -> bool {
     match ability {
         Ability::Deploy | Ability::Emp | Ability::Sentry => class == Class::Engineer,
         Ability::Brace | Ability::Throw | Ability::Rampage => class == Class::Soldier,
-        Ability::Beam | Ability::Surge => class == Class::Medic,
+        Ability::Beam | Ability::NaniteBurst | Ability::Cloak => class == Class::Medic,
         Ability::Bulwark | Ability::Taunt => class == Class::Tank,
         Ability::SquadOrder | Ability::Rally | Ability::BattleCry => class == Class::Commander,
     }
@@ -539,22 +593,8 @@ pub enum Talent {
     // ranked kit (task 127); the codes are left free, never reused.
     // 14 to 27 were the soldier's (feature 75), gone with its ranked kit
     // (task 124); the codes are left free, never reused.
-    // The medic's (feature 76).
-    FieldDressing = 28,
-    Surgeon = 29,
-    LongBeam = 30,
-    StrongBeam = 31,
-    CleanHands = 32,
-    /// The medic's *steady hands* — the engineer's is [`Talent::SteadyHands`].
-    SteadyHandsMedic = 33,
-    QuickCharge = 34,
-    LongSurge = 35,
-    SelfCare = 36,
-    DoubleLink = 37,
-    GunnerMedic = 38,
-    ClosingSurge = 39,
-    MassSurge = 40,
-    FieldSurgeon = 41,
+    // 28 to 41 were the medic's (feature 76), gone with its ranked kit
+    // (task 130); the codes are left free, never reused.
     // The tank's (feature 77).
     Plated = 42,
     Breacher = 43,
@@ -576,23 +616,10 @@ pub enum Talent {
 impl Talent {
     /// Every talent there is, in code order — with gaps where a class's
     /// went (the engineer's 0 to 13, task 127, the soldier's 14 to 27,
-    /// task 124, and the commander's 55 to 68, task 129), so a code is **not** a place in this list:
-    /// [`Talent::from_code`] looks it up.
-    pub const ALL: [Talent; 27] = [
-        Talent::FieldDressing,
-        Talent::Surgeon,
-        Talent::LongBeam,
-        Talent::StrongBeam,
-        Talent::CleanHands,
-        Talent::SteadyHandsMedic,
-        Talent::QuickCharge,
-        Talent::LongSurge,
-        Talent::SelfCare,
-        Talent::DoubleLink,
-        Talent::GunnerMedic,
-        Talent::ClosingSurge,
-        Talent::MassSurge,
-        Talent::FieldSurgeon,
+    /// task 124, the medic's 28 to 41, task 130, and the commander's 55
+    /// to 68, task 129), so a code is **not** a place in this list:
+    /// [`Talent::from_code`] looks it up. The tank's are all that is left.
+    pub const ALL: [Talent; 13] = [
         Talent::Plated,
         Talent::Breacher,
         Talent::Unmovable,
@@ -619,9 +646,9 @@ impl Talent {
     /// Whose talent it is. Fourteen a class, bar the tank's **thirteen**
     /// since the money rework (feature 95) took *pack mule* off its
     /// second level, which is a fixed level now, and the soldier's, the
-    /// engineer's and the commander's none since their ranked kits (tasks
-    /// 124, 127 and 129) — their bands, 0 to 13, 14 to 27 and 55 to 68,
-    /// are empty.
+    /// engineer's, the medic's and the commander's none since their ranked
+    /// kits (tasks 124, 127, 130 and 129) — their bands, 0 to 13, 14 to
+    /// 27, 28 to 41 and 55 to 68, are empty.
     pub fn class(self) -> Class {
         if self.code() < 14 {
             Class::Engineer
@@ -672,11 +699,14 @@ pub const ULTIMATE_LEVELS: [u8; MAX_RANK as usize] = [6, 9, 12, 15];
 
 /// Whether a class has a **ranked kit** (task 124): four abilities
 /// bought a rank at a time with a skill point a level, in place of the
-/// left-and-right talents. The soldier, the engineer (task 127) and the
-/// commander (task 129); every other class keeps its talents until its
-/// own rework.
+/// left-and-right talents. The soldier, the engineer (task 127), the
+/// commander (task 129) and the medic (task 130); the tank keeps its
+/// talents until its own rework.
 pub fn ranked(class: Class) -> bool {
-    matches!(class, Class::Soldier | Class::Engineer | Class::Commander)
+    matches!(
+        class,
+        Class::Soldier | Class::Engineer | Class::Commander | Class::Medic
+    )
 }
 
 /// How many levels a class climbs: [`RANKED_LEVELS`] for a ranked kit,
@@ -854,18 +884,64 @@ pub const RAMPAGE_EXTEND_SECONDS: f64 = 1.0;
 /// The most one Rampage is lengthened by, in seconds.
 pub const RAMPAGE_EXTEND_MAX: f64 = 6.0;
 
-// --- the medic's numbers (feature 76) ----------------------------------------
+// --- the medic's numbers (task 130) -------------------------------------------
+//
+// One number a rank, ranks one to four, read with [`by_rank`] like the
+// soldier's, the engineer's and the commander's. The seconds are seconds
+// of the mission clock, one a real second at 1×.
 
-/// How far the heal beam reaches, in tiles.
+/// How far the heal beam reaches at its first rank, in tiles: the first
+/// of [`HEAL_BEAM_RANGES`].
 pub const HEAL_BEAM_RANGE: f32 = 6.0;
-/// Hit points a beamed patient gains an hour of the clock (task 120: the
-/// value the beam's blood an hour was, read as hit points — half a point
-/// a second at 1×). **TUNE**: nobody has played it at this rate yet.
-pub const HEAL_BEAM_HP: f32 = 30.0;
-/// How long a medic takes to revive a downed crewmate, in seconds —
-/// anybody else's is `bims::health::REVIVE_SECONDS` (task 120). A medic of
-/// the class and a hired field medic alike.
+/// Hit points a beamed patient gains an hour of the clock at the beam's
+/// first rank: two a second at 1× (task 130; thirty until then). The ranks
+/// multiply it ([`HEAL_BEAM_RATE`]); the engineer's Healing Sentry reads
+/// it unranked.
+pub const HEAL_BEAM_HP: f32 = 120.0;
+/// **Base trait**: how long a medic takes to revive a downed crewmate, in
+/// seconds — anybody else's is `bims::health::REVIVE_SECONDS` (task 120).
+/// A medic of the class and a hired field medic alike.
 pub const MEDIC_REVIVE_SECONDS: f32 = 4.0;
+/// **Base trait**: the share of its bar a Bim a medic of the class
+/// revives gets up at — anybody else's is `bims::health::REVIVED_TO`.
+/// A relic's *Rally Point* is its own.
+pub const MEDIC_REVIVED_TO: f32 = 0.4;
+
+/// **Q, Nanite Burst**: hit points put back at once, a rank.
+pub const NANITE_BURST_HEAL: [f32; 4] = [30.0, 40.0, 50.0, 60.0];
+/// How far it reaches from the medic, in tiles, a rank.
+pub const NANITE_BURST_RADIUS: [f32; 4] = [4.0, 4.0, 5.0, 6.0];
+/// Seconds of the mission clock from one burst to the next, a rank.
+pub const NANITE_BURST_COOLDOWN: [f64; 4] = [25.0, 22.0, 20.0, 18.0];
+
+/// **C, Healing Aura**: what every heal a Bim in it takes is multiplied
+/// by, a rank.
+pub const HEALING_AURA_FACTOR: [f32; 4] = [1.15, 1.20, 1.25, 1.30];
+/// How far the aura reaches, in tiles, a rank.
+pub const HEALING_AURA_RADIUS: [f32; 4] = [5.0, 6.0, 7.0, 8.0];
+
+/// **E, Heal Beam**: what [`HEAL_BEAM_HP`] is multiplied by, a rank.
+pub const HEAL_BEAM_RATE: [f32; 4] = [1.0, 1.5, 2.0, 2.5];
+/// How far the beam reaches, in tiles, a rank.
+pub const HEAL_BEAM_RANGES: [f32; 4] = [HEAL_BEAM_RANGE, 7.0, 8.0, 9.0];
+/// How many patients the beam holds at once, each at the full rate, a
+/// rank.
+pub const HEAL_BEAM_PATIENTS: [usize; 4] = [1, 1, 1, 2];
+/// The rank from which a medic beaming fires as well.
+pub const HEAL_BEAM_FIRE_RANK: u8 = 3;
+/// What the fire rate of a medic beaming is multiplied by, from
+/// [`HEAL_BEAM_FIRE_RANK`].
+pub const HEAL_BEAM_FIRE_RATE: f32 = 0.5;
+
+/// **R, Cloak**: how far from the medic a crewmate may be cloaked, in
+/// tiles, at every rank.
+pub const CLOAK_RANGE: f32 = 8.0;
+/// Seconds of the mission clock a cloak lasts, a rank.
+pub const CLOAK_SECONDS: [f64; 4] = [6.0, 7.0, 8.0, 10.0];
+/// What a cloaked Bim's pace is multiplied by, a rank.
+pub const CLOAK_PACE: [f32; 4] = [1.10, 1.15, 1.20, 1.25];
+/// Seconds of the mission clock from one cloak to the next, a rank.
+pub const CLOAK_COOLDOWN: [f64; 4] = [60.0, 55.0, 50.0, 45.0];
 
 /// How long a revive takes (task 120): ten seconds, four for a `medic`,
 /// less `quicker` seconds — a relic's *Trauma Kit* — and never under
@@ -878,31 +954,6 @@ pub fn revive_time(medic: bool, quicker: f32) -> f32 {
     };
     (base - quicker).max(crate::data::REVIVE_FLOOR_SECONDS)
 }
-/// Minutes of the clock beaming a patient that qualifies — below its
-/// whole bar — until the surge is charged.
-pub const SURGE_CHARGE_MINUTES: f64 = 40.0;
-/// Minutes of the clock a surge runs.
-pub const SURGE_MINUTES: f64 = 8.0;
-/// The level a surge may be triggered from: the medic's third.
-pub const SURGE_LEVEL: u8 = 3;
-/// The level *mender* sits at: the medic's seventh — a fixed level whose
-/// talent, a beamed patient's parts mending faster, is a no-op since task
-/// 120 (there are no parts and nothing mends).
-pub const MENDER_LEVEL: u8 = 7;
-/// *Long beam*: what the beam's range is multiplied by.
-pub const LONG_BEAM_RANGE: f32 = 1.5;
-/// *Strong beam*: what the beam's rate is multiplied by.
-pub const STRONG_BEAM_RATE: f32 = 1.5;
-/// *Quick charge*: what the surge's charging rate is multiplied by.
-pub const QUICK_CHARGE_RATE: f64 = 1.5;
-/// *Long surge*: what a surge's minutes are multiplied by.
-pub const LONG_SURGE_TIME: f64 = 1.5;
-/// *Double link*: how many patients the beam holds at once.
-pub const DOUBLE_LINK_PATIENTS: usize = 2;
-/// *Gunner medic*: what the fire rate is multiplied by while beaming.
-pub const GUNNER_MEDIC_FIRE_RATE: f32 = 0.5;
-/// *Mass surge*: how far round the patient a surge reaches, in tiles.
-pub const MASS_SURGE_TILES: f32 = 3.0;
 
 // --- the tank's numbers (feature 77) -----------------------------------------
 
@@ -1007,8 +1058,8 @@ pub const REINFORCEMENT_REACH_TILES: f32 = 5.0;
 /// fixed at one, three and seven and a pick at the rest, bar the tank's
 /// second, which the money rework (feature 95) made a fixed level when
 /// hauling went and *pack mule* with it — *plated* stands alone there.
-/// A class with a ranked kit (the soldier, the engineer, the commander)
-/// has none.
+/// A class with a ranked kit (the soldier, the engineer, the commander,
+/// the medic) has none.
 ///
 /// Asked of `pick_at`, so the two can never disagree about the shape of
 /// a tree.
@@ -1031,13 +1082,6 @@ pub fn fixed_at(class: Class, level: u8) -> Option<Talent> {
 /// `None` for a fixed level, for no level at all, and for no class.
 pub fn pick_at(class: Class, level: u8) -> Option<(Talent, Talent)> {
     Some(match (class, level) {
-        (Class::Medic, 2) => (Talent::FieldDressing, Talent::Surgeon),
-        (Class::Medic, 4) => (Talent::LongBeam, Talent::StrongBeam),
-        (Class::Medic, 5) => (Talent::CleanHands, Talent::SteadyHandsMedic),
-        (Class::Medic, 6) => (Talent::QuickCharge, Talent::LongSurge),
-        (Class::Medic, 8) => (Talent::SelfCare, Talent::DoubleLink),
-        (Class::Medic, 9) => (Talent::GunnerMedic, Talent::ClosingSurge),
-        (Class::Medic, 10) => (Talent::MassSurge, Talent::FieldSurgeon),
         (Class::Tank, 4) => (Talent::Breacher, Talent::Unmovable),
         (Class::Tank, 5) => (Talent::WideWall, Talent::FastWall),
         (Class::Tank, 6) => (Talent::LoudTaunt, Talent::LongTaunt),
@@ -1216,8 +1260,8 @@ pub fn talent_of(class: Class, level: u8, side: Side) -> Option<Talent> {
 
 /// The level a class's own key is learnt at: its **E** from the first
 /// level — sandbags, the brace, the beam, the wall, the squad — and its
-/// **Q** from the third for every class — a sentry, grenades, the surge,
-/// the taunt, the rally. `None` for [`Class::None`], which has no keys
+/// **Q** from the third for a class of talents — the tank's taunt. `None`
+/// for [`Class::None`], which has no keys
 /// at all. What the two boxes at the foot of the screen grey themselves
 /// out by (feature 80). A class with a ranked kit learns both at the
 /// first level, and what greys its boxes is the rank (task 124).
@@ -1228,9 +1272,8 @@ pub fn key_level(class: Class, primary: bool) -> Option<u8> {
         // A ranked kit (task 124) learns every key at its first rank, which
         // is bought from the first level: the box greys itself by the rank.
         (c, true) if ranked(c) => 1,
-        (Class::Medic, true) => SURGE_LEVEL,
         (Class::Tank, true) => TAUNT_LEVEL,
-        (Class::Soldier | Class::Engineer | Class::Commander, true) => 1,
+        (Class::Soldier | Class::Engineer | Class::Commander | Class::Medic, true) => 1,
     })
 }
 
@@ -1240,7 +1283,9 @@ mod tests {
 
     #[test]
     fn the_levels_climb_at_the_thresholds_and_a_pick_is_one_each() {
-        let m = Class::Medic;
+        // The tank: the one class of talents left since the medic's
+        // ranked kit (task 130).
+        let m = Class::Tank;
         assert_eq!(level_of(m, 0), 1);
         assert_eq!(level_of(m, 99), 1);
         for (i, &need) in LEVEL_XP.iter().enumerate().skip(1) {
@@ -1253,13 +1298,18 @@ mod tests {
         assert_eq!(p.gain(m, 99), Vec::<u8>::new());
         assert_eq!(p.gain(m, 1), vec![2]);
         assert_eq!(p.gain(m, 600), vec![3, 4, 5]);
-        assert_eq!(p.pending_pick(m), Some(2));
+        assert_eq!(p.pending_pick(m), Some(4), "the second and third are fixed");
         assert_eq!(p.pick(m, 3, Side::Left), Err(Refusal::NotAPickLevel));
         assert_eq!(p.pick(m, 8, Side::Left), Err(Refusal::LevelNotReached));
         assert_eq!(
             p.pick(Class::Tank, 2, Side::Left),
             Err(Refusal::NotAPickLevel),
             "the tank's second is fixed since the money rework"
+        );
+        assert_eq!(
+            p.pick(Class::Medic, 4, Side::Left),
+            Err(Refusal::NotAPickLevel),
+            "a ranked kit has no picks (task 130)"
         );
         assert_eq!(
             p.pick(Class::None, 2, Side::Left),
@@ -1271,17 +1321,18 @@ mod tests {
             Err(Refusal::NotAPickLevel),
             "a ranked kit has no picks (task 127)"
         );
-        assert_eq!(p.pick(m, 4, Side::Right), Ok(Talent::StrongBeam));
+        assert_eq!(p.pick(m, 4, Side::Right), Ok(Talent::Unmovable));
         assert_eq!(p.pick(m, 4, Side::Left), Err(Refusal::AlreadyPicked));
-        assert!(p.has(m, Talent::StrongBeam) && !p.has(m, Talent::LongBeam));
-        // The same pick read as a tank's is the tank's right-hand talent
-        // at that level: which talent a pick is depends on the class.
-        assert!(p.has(Class::Tank, Talent::Unmovable));
+        assert!(p.has(m, Talent::Unmovable) && !p.has(m, Talent::Breacher));
+        // Read as another class's, the pick is nothing: which talent a
+        // pick is depends on the class, and no other has talents left.
+        assert!(!p.has(Class::Medic, Talent::Unmovable));
         assert_eq!(
             p.talents(Class::Tank),
             vec![Talent::Plated, Talent::Unmovable]
         );
-        assert_eq!(p.pending_pick(m), Some(2));
+        assert_eq!(p.talents(Class::Medic), Vec::new());
+        assert_eq!(p.pending_pick(m), Some(5));
         for class in [
             Class::Engineer,
             Class::Soldier,
@@ -1324,7 +1375,7 @@ mod tests {
         for talent in Talent::ALL {
             assert_eq!(Talent::from_code(talent.code()), Some(talent));
         }
-        for code in (0..28).chain(55..69) {
+        for code in (0..42).chain(55..69) {
             assert_eq!(Talent::from_code(code), None, "{code} is left free");
         }
         for class in Class::ALL {
@@ -1344,10 +1395,11 @@ mod tests {
         assert!(can(Class::Soldier, Ability::Throw));
         assert!(!can(Class::Soldier, Ability::Beam));
         assert!(can(Class::Medic, Ability::Beam));
-        assert!(can(Class::Medic, Ability::Surge));
+        assert!(can(Class::Medic, Ability::NaniteBurst) && can(Class::Medic, Ability::Cloak));
         assert!(!can(Class::Medic, Ability::Deploy));
         assert!(!can(Class::Medic, Ability::Throw));
-        assert!(!can(Class::Engineer, Ability::Surge));
+        assert!(!can(Class::Engineer, Ability::NaniteBurst));
+        assert!(!can(Class::Soldier, Ability::Cloak));
         assert!(can(Class::Tank, Ability::Bulwark));
         assert!(can(Class::Tank, Ability::Taunt));
         assert!(!can(Class::Tank, Ability::Beam));
@@ -1365,7 +1417,6 @@ mod tests {
         for ability in Ability::ALL {
             assert!(!can(Class::None, ability));
         }
-        assert_eq!(Talent::FieldDressing.class(), Class::Medic);
         assert_eq!(Talent::Plated.class(), Class::Tank);
         assert_eq!(Talent::RallyingWall.class(), Class::Tank);
     }
@@ -1390,7 +1441,7 @@ mod tests {
             // And the third is a fixed level, so nobody has to pick it.
             assert!(!is_pick_level(class, 3));
         }
-        assert_eq!(key_level(Class::Medic, true), Some(SURGE_LEVEL));
+        assert_eq!(key_level(Class::Medic, true), Some(1), "by rank");
         assert_eq!(key_level(Class::Tank, true), Some(TAUNT_LEVEL));
         assert_eq!(key_level(Class::Commander, true), Some(1), "by rank");
     }
@@ -1401,20 +1452,32 @@ mod tests {
     #[test]
     fn a_ranked_kit_climbs_sixteen_levels_and_buys_a_rank_a_point() {
         let s = Class::Soldier;
-        assert!(ranked(s) && !ranked(Class::Medic) && !ranked(Class::None));
+        assert!(ranked(s) && ranked(Class::Medic) && !ranked(Class::Tank) && !ranked(Class::None));
         assert_eq!(levels(s), 16);
-        assert_eq!(levels(Class::Medic), LEVELS);
+        assert_eq!(
+            levels(Class::Medic),
+            16,
+            "the medic's kit is ranked (task 130)"
+        );
+        assert_eq!(levels(Class::Tank), LEVELS);
         assert_eq!(RANKED_LEVEL_XP[15], LEVEL_XP[9], "the top costs the same");
         assert_eq!(level_of(s, 3_199), 15);
         assert_eq!(level_of(s, 3_200), 16);
         assert_eq!(level_of(s, 1_000_000), 16);
-        assert_eq!(level_of(Class::Medic, 3_200), 10);
+        assert_eq!(level_of(Class::Medic, 3_200), 16);
+        assert_eq!(level_of(Class::Tank, 3_200), 10);
         let mut p = Progress::default();
         assert_eq!(p.points(s), 1, "a point at the first level");
-        assert_eq!(p.points(Class::Medic), 0);
+        assert_eq!(p.points(Class::Tank), 0);
         assert_eq!(
-            p.can_rank_up(Class::Medic, SLOT_Q),
-            Err(Refusal::NoRankedKit)
+            p.can_rank_up(Class::Tank, SLOT_Q),
+            Err(Refusal::NoRankedKit),
+            "the tank is still refused"
+        );
+        assert_eq!(p.can_rank_up(Class::Medic, SLOT_Q), Ok(1));
+        assert_eq!(
+            p.can_rank_up(Class::Medic, SLOT_R),
+            Err(Refusal::RankLocked)
         );
         assert_eq!(p.can_rank_up(s, 4), Err(Refusal::NoRankedKit));
         assert_eq!(p.can_rank_up(s, SLOT_R), Err(Refusal::RankLocked));

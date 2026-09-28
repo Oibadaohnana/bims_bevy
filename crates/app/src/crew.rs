@@ -220,15 +220,18 @@ pub struct SoldierView {
     pub braced: bool,
 }
 
-/// What the panel says of a medic (feature 76): who the beam holds, by
-/// name; how charged the surge is, nought to one; whether the level for
-/// one has been reached; and whether one is running on the medic now.
+/// What the panel says of a medic (feature 76; task 130): who the beam
+/// holds, by name; whether the Nanite Burst and the Cloak are learnt and
+/// the seconds until each is ready again; and the seconds of a cloak on
+/// the medic himself.
 #[derive(Clone, PartialEq, Debug, Default)]
 pub struct MedicView {
     pub patients: Vec<String>,
-    pub charge: f32,
-    pub can_surge: bool,
-    pub surging: bool,
+    pub burst_learnt: bool,
+    pub burst_cooldown: f64,
+    pub cloak_learnt: bool,
+    pub cloak_cooldown: f64,
+    pub cloaked: f64,
 }
 
 /// What the panel says of a tank (feature 77): whether the wall is up,
@@ -1041,21 +1044,36 @@ impl CrewPanels {
                 ui.label(egui::RichText::new(words).small().color(color));
                 theme::question_mark(ui, BEAM_TIP);
             });
-            ui.horizontal(|ui| {
-                let charged = medic.can_surge && medic.charge >= 1.0;
-                ui.label(
-                    egui::RichText::new(surge_line(medic.charge, medic.can_surge))
-                        .small()
-                        .color(if charged {
-                            theme::CAUTION
-                        } else {
-                            theme::MUTED
-                        }),
-                );
-                if medic.surging {
-                    ui.label(egui::RichText::new(SURGING).small().color(theme::YOURS));
-                }
-            });
+            // The Nanite Burst and the Cloak (task 130), each ready or not.
+            let burst_ready = medic.burst_learnt && medic.burst_cooldown <= 0.0;
+            ui.label(
+                egui::RichText::new(crate::names::nanite_burst_line(
+                    medic.burst_cooldown,
+                    medic.burst_learnt,
+                ))
+                .small()
+                .color(if burst_ready {
+                    theme::CAUTION
+                } else {
+                    theme::MUTED
+                }),
+            );
+            let cloak_ready = medic.cloak_learnt && medic.cloak_cooldown <= 0.0;
+            ui.label(
+                egui::RichText::new(crate::names::cloak_line(
+                    medic.cloaked,
+                    medic.cloak_cooldown,
+                    medic.cloak_learnt,
+                ))
+                .small()
+                .color(if medic.cloaked > 0.0 {
+                    theme::YOURS
+                } else if cloak_ready {
+                    theme::CAUTION
+                } else {
+                    theme::MUTED
+                }),
+            );
         }
         if let Some(tank) = view.tank {
             ui.horizontal(|ui| {
@@ -2708,9 +2726,10 @@ mod tests {
     /// reached locked. The tree draws nothing it does not read here.
     #[test]
     fn a_skills_tree_counts_its_points_and_says_what_every_slot_is() {
-        // The medic's: the engineer and the soldier have ranked kits.
+        // The tank's: every other class has a ranked kit (task 130 the
+        // medic's). His second and third levels are fixed.
         let view = |level: u8, picks: &[(u8, world::Side)]| ClassView {
-            class: world::Class::Medic,
+            class: world::Class::Tank,
             level,
             picks: picks.to_vec(),
             ..Default::default()
@@ -2722,15 +2741,15 @@ mod tests {
         assert_eq!(SkillState::of(&one, Slot::Fixed(1)), SkillState::Learnt);
         assert_eq!(SkillState::of(&one, Slot::Fixed(3)), SkillState::Locked);
         assert_eq!(
-            SkillState::of(&one, Slot::Pick(2, world::Side::Left)),
+            SkillState::of(&one, Slot::Pick(4, world::Side::Left)),
             SkillState::Locked
         );
-        // Level five, nothing chosen: three pick levels behind it — two,
-        // four and five — and so three points.
+        // Level five, nothing chosen: two pick levels behind it — four
+        // and five — and so two points.
         let five = view(5, &[]);
-        assert_eq!(points_left(&five), 3);
+        assert_eq!(points_left(&five), 2);
         assert_eq!(
-            SkillState::of(&five, Slot::Pick(2, world::Side::Left)),
+            SkillState::of(&five, Slot::Pick(4, world::Side::Left)),
             SkillState::Open
         );
         assert_eq!(SkillState::of(&five, Slot::Fixed(3)), SkillState::Learnt);
@@ -2740,25 +2759,25 @@ mod tests {
         );
         // One spent on the left of the second: a point fewer, that side
         // learnt and the other gone.
-        let spent = view(5, &[(2, world::Side::Left)]);
-        assert_eq!(points_left(&spent), 2);
+        let spent = view(5, &[(4, world::Side::Left)]);
+        assert_eq!(points_left(&spent), 1);
         assert_eq!(
-            SkillState::of(&spent, Slot::Pick(2, world::Side::Left)),
+            SkillState::of(&spent, Slot::Pick(4, world::Side::Left)),
             SkillState::Learnt
         );
         assert_eq!(
-            SkillState::of(&spent, Slot::Pick(2, world::Side::Right)),
+            SkillState::of(&spent, Slot::Pick(4, world::Side::Right)),
             SkillState::GivenUp
         );
         // The top of the tree with every level chosen at: nothing left to
-        // spend. The medic's seven pick levels, which is what a
-        // tenth-level run opens with.
+        // spend. The tank's six pick levels, which is what a tenth-level
+        // run opens with.
         let all: Vec<(u8, world::Side)> = (2..=world::class::LEVELS)
-            .filter(|&l| world::class::is_pick_level(world::Class::Medic, l))
+            .filter(|&l| world::class::is_pick_level(world::Class::Tank, l))
             .map(|l| (l, world::Side::Right))
             .collect();
-        assert_eq!(all.len(), 7);
-        assert_eq!(points_left(&view(10, &[])), 7);
+        assert_eq!(all.len(), 6);
+        assert_eq!(points_left(&view(10, &[])), 6);
         assert_eq!(points_left(&view(10, &all)), 0);
         // And a crew member with no class has no levels to spend at.
         assert_eq!(

@@ -1647,9 +1647,9 @@ fn a_class_chosen_in_the_yard_leaves_the_pool_and_opens_the_world_and_is_saved()
         "the grenades read back as charges"
     );
 
-    // And a medic's beam and charge, the same way (feature 76): the
-    // soldier is a medic in a fresh session, linked to the engineer,
-    // and the link and the charge read back.
+    // And a medic's beam, burst and cloak, the same way (feature 76, task
+    // 130): the soldier is a medic in a fresh session, linked to the
+    // engineer, and the link, the burst's time and the cloak read back.
     let mut session = Session::design(
         shipdesign::fixture::AREA,
         100_000,
@@ -1675,17 +1675,19 @@ fn a_class_chosen_in_the_yard_leaves_the_pool_and_opens_the_world_and_is_saved()
         world.aboard.room.put_for_probe(1, at);
         world.aboard.room.wound(1, bims::health::Part::Legs, 20.0);
         world.step(&[]);
+        world.set_ranks_for_probe(0, [1, 0, 1, 0]);
         world.step(&[Command::Beam {
             slot: 0,
             patient: Some(1),
         }]);
+        world.step(&[Command::NaniteBurst { slot: 0 }]);
         assert_eq!(world.patients_of(0), vec![1]);
         // A few seconds: the two walk off about their rounds once the
         // patient is whole, and the beam breaks at its range.
         for _ in 0..120 {
             world.step(&[]);
         }
-        assert!(world.surge_charge(0) > 0.0, "charging");
+        assert!(world.medic_of(0).last_burst.is_some(), "burst");
     }
     let text = session.save().expect("a world to save");
     let back = Session::restore(&text, CANVAS.0, CANVAS.1).expect("the text reads back");
@@ -1696,7 +1698,8 @@ fn a_class_chosen_in_the_yard_leaves_the_pool_and_opens_the_world_and_is_saved()
     assert_eq!(a.checksum(), b.checksum());
     assert_eq!(b.class_of(0), Class::Medic);
     assert_eq!(b.patients_of(0), vec![1], "the beam reads back");
-    assert_eq!(b.surge_charge(0), a.surge_charge(0));
+    assert_eq!(b.medic_of(0), a.medic_of(0));
+    assert_eq!(b.cloaks, a.cloaks);
 }
 
 /// Feature 83: a world with the machines in it round-trips through a

@@ -254,7 +254,8 @@ impl World {
                 rate += hp_per_second;
             }
             if rate > 0.0 {
-                self.aboard.room.heal(at, rate * seconds);
+                // Times the Healing Aura where it stands (task 130).
+                self.heal_crew(at as u32, rate * seconds);
             }
         }
     }

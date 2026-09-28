@@ -62,7 +62,7 @@ pub enum Action {
     /// The steered crew member's first ability slot, on Q (task 123;
     /// the class's first action since features 74 to 77): an engineer
     /// sets a sentry up on the deck tile under the pointer, a soldier
-    /// throws a grenade at it, a medic triggers its surge, a tank
+    /// throws a grenade at it, a medic sets off a Nanite Burst, a tank
     /// taunts. Nothing with a classless crew member steered.
     Ability1,
     /// The second slot, on C: empty for every class so far.
@@ -249,7 +249,7 @@ impl Action {
             }
             Action::Inventory => "Open and close the inventory of the crew member you steer.",
             Action::Ability1 => {
-                "The first ability slot, by the crew member you steer: an engineer sets a sentry up on the deck tile under the pointer, out of a kit in its pack; a soldier throws a grenade at it; a medic triggers its surge; a tank taunts; a commander calls a Battle Cry. With Ctrl held, it is ranked up instead."
+                "The first ability slot, by the crew member you steer: an engineer sets a sentry up on the deck tile under the pointer, out of a kit in its pack; a soldier throws a grenade at it; a medic sets off a Nanite Burst; a tank taunts; a commander calls a Battle Cry. With Ctrl held, it is ranked up instead."
             }
             Action::Ability2 => {
                 "The second ability slot: empty for every class for now. With Ctrl held, it is ranked up instead."
@@ -258,7 +258,7 @@ impl Action {
                 "The third ability slot: an engineer lays sandbags on the deck tile under the pointer, out of a kit in its pack; a soldier braces where it stands, or stands easy again; a medic beams the crew member under the pointer, and unlinks when pressed on the one it holds or on nobody; a tank puts its wall up, or takes it down; a commander rallies. With Ctrl held, it is ranked up instead."
             }
             Action::Ability4 => {
-                "The fourth ability slot: empty for every class for now. With Ctrl held, it is ranked up instead."
+                "The fourth ability slot, the ultimate: a soldier goes on a Rampage; an engineer lays its sentry on the deck tile under the pointer; a medic cloaks the crew member under the pointer, or himself with the pointer on nobody. With Ctrl held, it is ranked up instead."
             }
             Action::SquadFallBack => {
                 "A commander calls the squad back to the deck tile under the pointer, or to himself with the pointer on nothing. Nothing for any other class."

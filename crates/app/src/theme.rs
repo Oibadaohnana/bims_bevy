@@ -30,8 +30,9 @@ pub const ATTACK: egui::Color32 = egui::Color32::from_rgb(0xff, 0x5e, 0x4a);
 /// not a fight, and the one mark on the deck the attack banner's red
 /// could never be mistaken for.
 pub const DEFEND: egui::Color32 = egui::Color32::from_rgb(0x6f, 0xa8, 0xe8);
-/// A medic's heal beam and the surge on a body (feature 76): a pale
-/// healing green, the room's own `character::SURGE`.
+/// A medic's heal beam and a relic's surge on a body (feature 76; the
+/// medic's own surge went in task 130): a pale healing green, the room's
+/// own `character::SURGE`.
 pub const HEAL: egui::Color32 = egui::Color32::from_rgb(0x8c, 0xf2, 0xbf);
 /// The red of the countdown ring over a downed Bim and of the downed
 /// block on its panel: a proper signal red rather than the palette's
@@ -573,7 +574,8 @@ pub fn self_beam(painter: &egui::Painter, at: egui::Pos2, scale: f32) {
     );
 }
 
-/// The mark on a body a surge is running on (feature 76): a ring in the
+/// The mark on a body a surge is running on (feature 76; a relic's since
+/// task 130 — *Phase Harness*, *Lifeline*): a ring in the
 /// beam's green outside the body, wider than the deck's own halo so it
 /// reads at any zoom.
 pub fn surge_mark(painter: &egui::Painter, at: egui::Pos2, scale: f32) {
@@ -1316,6 +1318,114 @@ pub fn battle_cry_mark(painter: &egui::Painter, at: egui::Pos2, radius: f32) {
         let far = if i % 2 == 0 { 0.9 } else { 0.7 };
         painter.line_segment([at + dir * inner * 1.4, at + dir * radius * far], stroke);
     }
+}
+
+/// The pale blue of a medic's cloak (task 130): the room's own shimmer,
+/// `character::CLOAK_SHIMMER`, so the box, the ring and the body agree.
+pub const CLOAK: egui::Color32 = egui::Color32::from_rgb(0xb3, 0xd9, 0xff);
+
+/// The medic's Nanite Burst in its box (task 130): a green disc and eight
+/// short sparks off it, the burst's own picture.
+pub fn nanite_burst_mark(painter: &egui::Painter, at: egui::Pos2, radius: f32) {
+    let inner = radius * 0.32;
+    let stroke = egui::Stroke::new((radius / 9.0).clamp(1.2, 2.4), HEAL);
+    painter.circle_filled(at, inner, HEAL.gamma_multiply(0.55));
+    for i in 0..8 {
+        let a = i as f32 * core::f32::consts::TAU / 8.0 + 0.2;
+        let dir = egui::vec2(a.cos(), a.sin());
+        let far = if i % 2 == 0 { 0.9 } else { 0.72 };
+        painter.line_segment([at + dir * inner * 1.5, at + dir * radius * far], stroke);
+    }
+}
+
+/// A Nanite Burst set off, on the deck (task 130): a short green ring
+/// running out from the medic to the burst's reach, `t` nought to one
+/// through its run, fading as it goes — the Battle Cry's ring in the
+/// beam's colour.
+pub fn nanite_burst_ring(painter: &egui::Painter, at: egui::Pos2, reach: f32, t: f32) {
+    let t = t.clamp(0.0, 1.0);
+    let fade = 1.0 - t;
+    painter.circle_stroke(
+        at,
+        (reach * t).max(4.0),
+        egui::Stroke::new(1.0 + 2.5 * fade, HEAL.gamma_multiply(0.25 + 0.75 * fade)),
+    );
+}
+
+/// A medic's Healing Aura (task 130): the radius round him, faint, in
+/// the beam's green — the commander's aura ring in the heal's colour.
+pub fn healing_aura_ring(painter: &egui::Painter, at: egui::Pos2, radius: f32) {
+    let radius = radius.max(8.0);
+    painter.circle_filled(at, radius, HEAL.gamma_multiply(0.04));
+    painter.circle_stroke(
+        at,
+        radius,
+        egui::Stroke::new(1.0, HEAL.gamma_multiply(0.30)),
+    );
+}
+
+/// The medic's Cloak in its box (task 130): a body's outline drawn faint
+/// and a dashed ring round it — somebody there and hard to see.
+pub fn cloak_mark(painter: &egui::Painter, at: egui::Pos2, radius: f32) {
+    let faint = CLOAK.gamma_multiply(0.45);
+    painter.circle_stroke(
+        egui::pos2(at.x, at.y - radius * 0.22),
+        radius * 0.2,
+        egui::Stroke::new(1.5, faint),
+    );
+    painter.rect_stroke(
+        egui::Rect::from_center_size(
+            egui::pos2(at.x, at.y + radius * 0.2),
+            egui::vec2(radius * 0.5, radius * 0.45),
+        ),
+        radius * 0.12,
+        egui::Stroke::new(1.5, faint),
+        egui::StrokeKind::Middle,
+    );
+    let steps = 12;
+    for i in 0..steps {
+        let a0 = i as f32 * core::f32::consts::TAU / steps as f32;
+        let a1 = a0 + core::f32::consts::TAU / steps as f32 * 0.55;
+        let r = radius * 0.85;
+        painter.line_segment(
+            [
+                at + egui::vec2(a0.cos(), a0.sin()) * r,
+                at + egui::vec2(a1.cos(), a1.sin()) * r,
+            ],
+            egui::Stroke::new(1.5, CLOAK),
+        );
+    }
+}
+
+/// How long a cloak has left, under the Bim it covers (task 130): a thin
+/// pale ring emptying clockwise from twelve o'clock, `share` one when it
+/// was cast and nought as it ends. For the crew only — the enemy never
+/// sees it.
+pub fn cloak_ring(painter: &egui::Painter, at: egui::Pos2, scale: f32, share: f32) {
+    let radius = (22.0 * scale).clamp(8.0, 30.0);
+    let width = (1.5 * scale).clamp(1.0, 2.2);
+    painter.circle_stroke(
+        at,
+        radius,
+        egui::Stroke::new(width, CLOAK.gamma_multiply(0.18)),
+    );
+    let share = share.clamp(0.0, 1.0);
+    if share <= 0.0 {
+        return;
+    }
+    let tau = std::f32::consts::TAU;
+    let start = -tau / 4.0 + (1.0 - share) * tau;
+    let steps = ((48.0 * share).ceil() as usize).max(2);
+    let points: Vec<egui::Pos2> = (0..=steps)
+        .map(|i| {
+            let a = start + share * tau * i as f32 / steps as f32;
+            at + egui::vec2(a.cos(), a.sin()) * radius
+        })
+        .collect();
+    painter.add(egui::Shape::line(
+        points,
+        egui::Stroke::new(width, CLOAK.gamma_multiply(0.8)),
+    ));
 }
 
 /// A Battle Cry called, on the deck (task 129): a short gold ring

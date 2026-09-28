@@ -4085,3 +4085,36 @@ inputs; the tile masks are untouched.
 - **`Kind::Deploy { kind, steady }`**: `kind` the world's `DeployKind`
   code, carried back on `Room::deployed`; `steady` (the ultimate's) is
   not dropped by a hit.
+
+## The medic's cloak: what the room is handed (task 130)
+
+The medic's ranked kit is the world's (`crates/world/CLAUDE.md`, "The
+medic's ranked kit"); the room is handed three things and decides nothing
+about them:
+
+- **`Skill::revived_to`** (serde default `health::REVIVED_TO`) is the share
+  of its bar a crewmate this body revives gets up at: `apply_revives`
+  reads it off the helper (`Health::revive_at`). A medic of the class is
+  handed `MEDIC_REVIVED_TO`; everybody else, a field medic included, the
+  plain three tenths. A relic's *Rally Point* (`bring_round`) is its own.
+- **`Game::set_cloaked(who, on)`** is drawing only (`Character::cloaked`,
+  serde default): `render` fades every shape the body drew to
+  `character::CLOAK_OPACITY` (0.35, `DrawList::fade_from` over the
+  floats pushed since before it) and lays `Character::draw_cloak` — two
+  faint pale rings drifting on the selection's pulse — over it. Who may
+  pick a cloaked body is the world's: it is `None` on the other room's
+  list, and its `Skill` holds its fire and multiplies its `walk`.
+- **`Game::set_targets_withheld(bool)`** (`Game::withheld`, serde default)
+  says the world left a target off this room's list because nobody may
+  pick it. With it on and no war — nobody left the machines may pick —
+  `tick_droids` halts every walker where it stands (`Droid::halt`, the
+  route cleared; its facing kept), before the Guardian's branch; with it
+  off nothing is different, so a fight with no cloak in it moved nothing.
+  The machines drop a cloaked target the same step because `believe`
+  forgets any target handed over as `None`.
+
+What targets nobody still lands on a cloaked body — a Guardian's sweep,
+a grenade's burst — since both look for bodies and never for targets.
+The room's own surge timer (`Bim::surge`, `Game::set_surge`) stays for
+the relics (*Phase Harness*, *Lifeline*); the medic's surge that set it
+too went.

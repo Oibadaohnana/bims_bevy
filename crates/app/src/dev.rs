@@ -595,11 +595,11 @@ pub fn combat_class_level(class: world::Class) -> usize {
 }
 
 /// `BIMS_BEAM=1` links a medic's heal beam to crew member 1, stood a
-/// tile away short of its whole bar, and `BIMS_BEAM=surge` triggers the
-/// surge over that (`World::beam_for_probe`, feature 76) — how the beam
-/// and the halo are looked at without hunting a crewmate with the
-/// pointer. Nothing without a medic on slot 0 (`BIMS_CLASS=medic`) and
-/// two aboard.
+/// tile away short of its whole bar — the beam's first rank bought if
+/// `BIMS_RANKS` gave it none (`World::beam_for_probe`, feature 76; the
+/// surge it could trigger went in task 130) — how the beam is looked at
+/// without hunting a crewmate with the pointer. Nothing without a medic
+/// on slot 0 (`BIMS_CLASS=medic`) and two aboard.
 pub fn beam_crew(session: &mut ship::Session) {
     let Ok(word) = std::env::var("BIMS_BEAM") else {
         return;
@@ -609,7 +609,7 @@ pub fn beam_crew(session: &mut ship::Session) {
         return;
     }
     if let Some(game) = &mut session.game {
-        game.world.beam_for_probe(word == "surge");
+        game.world.beam_for_probe();
     }
 }
 

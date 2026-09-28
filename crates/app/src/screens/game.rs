@@ -1449,9 +1449,11 @@ fn frame(
                 }),
                 medic: (class == world::Class::Medic).then(|| crate::crew::MedicView {
                     patients: world.patients_of(slot).iter().map(|&p| name(p)).collect(),
-                    charge: world.surge_charge(slot),
-                    can_surge: progress.level(class) >= world::class::SURGE_LEVEL,
-                    surging: world.is_surging(slot),
+                    burst_learnt: world.rank_of(slot, world::class::SLOT_Q) > 0,
+                    burst_cooldown: world.nanite_burst_cooldown_left(slot),
+                    cloak_learnt: world.rank_of(slot, world::class::SLOT_R) > 0,
+                    cloak_cooldown: world.cloak_cooldown_left(slot),
+                    cloaked: world.cloak_left(slot),
                 }),
                 tank: (class == world::Class::Tank).then(|| crate::crew::TankView {
                     bulwark: world.is_bulwark(slot),
@@ -1961,7 +1963,7 @@ fn frame(
                     // (feature 78).
                     let enemy = room.and_then(|(rx, ry)| game.world.resident_at(rx, ry));
                     let (order, line) = match primary {
-                        _ if ranked => ranked_key(&game.world, slot, action, tile),
+                        _ if ranked => ranked_key(&game.world, slot, action, tile, under),
                         Some(primary) => class_key(&game.world, slot, primary, tile, under, enemy),
                         None => (None, None),
                     };
@@ -3106,8 +3108,10 @@ fn frame(
                 view.scale,
             );
         }
+        // And a relic's surge on a body (*Phase Harness*, *Lifeline*):
+        // the medic's own went in task 130.
         for who in 0..crew {
-            if !game.world.is_surging(who) {
+            if !game.world.aboard.room.is_surging(who as usize) {
                 continue;
             }
             let Some((x, y)) = session.crew_on_screen(who) else {
@@ -3220,6 +3224,44 @@ fn frame(
                         shown,
                     );
                 }
+            }
+        }
+        // And the medic (task 130): his Healing Aura's radius round him
+        // once he has a rank of it, and a burst set off running out to its
+        // reach over its first moments.
+        for who in 0..crew {
+            if game.world.class_of(who) != world::Class::Medic {
+                continue;
+            }
+            let Some(at) = on_screen(who) else {
+                continue;
+            };
+            let radius = game.world.healing_aura_radius(who);
+            if radius > 0.0 {
+                theme::healing_aura_ring(&painter, at, radius * t * view.scale);
+            }
+            if let Some(since) = game.world.nanite_burst_since(who) {
+                let shown = (since / NANITE_BURST_RING_SECONDS) as f32;
+                if (0.0..1.0).contains(&shown) {
+                    theme::nanite_burst_ring(
+                        &painter,
+                        at,
+                        game.world.nanite_burst_radius(who) * t * view.scale,
+                        shown,
+                    );
+                }
+            }
+        }
+        // And under every crew member a cloak covers, how long it has
+        // left: the crew's own picture — the enemy has none.
+        for who in 0..crew {
+            let left = game.world.cloak_left(who);
+            let whole = game.world.cloak_of(who).seconds;
+            if left <= 0.0 || whole <= 0.0 {
+                continue;
+            }
+            if let Some(at) = on_screen(who) {
+                theme::cloak_ring(&painter, at, view.scale, (left / whole) as f32);
             }
         }
         // A Bim the aura lifts, and — while a rally runs over it
@@ -3701,7 +3743,11 @@ enum Mark {
     /// The soldier's Weak Spot and Rampage (task 124).
     WeakSpot,
     Rampage,
-    Surge,
+    /// The medic's Nanite Burst, Healing Aura and Cloak (task 130); his
+    /// beam is [`Mark::Beam`].
+    NaniteBurst,
+    HealingAura,
+    Cloak,
     Beam,
     Taunt,
     Wall,
@@ -3754,12 +3800,13 @@ struct AbilityBox {
     /// the sweep over the whole box says it then — and for anything that
     /// is not a stock of charges.
     recharge: Option<f32>,
-    /// How charged it is, nought to one — the medic's surge alone.
+    /// How charged it is, nought to one: a bar along the foot. Nothing has
+    /// one since the medic's surge went (task 130); kept for a charge to come.
     charge: Option<f32>,
     /// Whether it is running now: braced, the wall up, a beam held, a
     /// taunt, a rally, the squad under an order.
     on: bool,
-    /// Out of stock — no kit, no grenade, a surge not charged. Told from
+    /// Out of stock — no charge left. Told from
     /// a count of nought that is not a stock (no beam free to link, an
     /// empty squad), which does not stop the key.
     short: bool,
@@ -3928,12 +3975,14 @@ fn rank_up(world: &world::World, slot: u32, asked: RankUp) -> (Option<Order>, Op
 
 /// A key of a ranked kit (task 124), by slot: the soldier's Q throws a
 /// grenade and E braces as they always did (`class_key`), C is Weak
-/// Spot and does nothing when pressed, and R goes on a Rampage.
+/// Spot and does nothing when pressed, and R goes on a Rampage. `under`
+/// is the crew member under the pointer, for the medic's beam and cloak.
 fn ranked_key(
     world: &world::World,
     slot: u32,
     action: Action,
     tile: Option<(i32, i32)>,
+    under: Option<u32>,
 ) -> (Option<Order>, Option<String>) {
     match (world.class_of(slot), action) {
         (world::Class::Soldier, Action::Ability1) => class_key(world, slot, true, tile, None, None),
@@ -3958,6 +4007,33 @@ fn ranked_key(
             Ok(()) => (Some(Order::Rally), None),
             Err(why) => (None, Some(rally_refused(why))),
         },
+        // The medic's (task 130): Q sets off a Nanite Burst; C, his aura,
+        // is passive; E beams the crew member under the pointer — on the
+        // one already held, or on nobody while one is held, it unlinks;
+        // R cloaks the crew member under the pointer, or himself with
+        // nobody there.
+        (world::Class::Medic, Action::Ability1) => match world.can_nanite_burst(slot) {
+            Ok(()) => (Some(Order::NaniteBurst), None),
+            Err(why) => (None, Some(crate::names::nanite_burst_refused(why))),
+        },
+        (world::Class::Medic, Action::Ability3) => match under {
+            None if world.is_beaming(slot) => (Some(Order::Beam(None)), None),
+            None => (None, Some(beam_refused(Refusal::NoPatient))),
+            Some(patient) if world.patients_of(slot).contains(&patient) => {
+                (Some(Order::Beam(None)), None)
+            }
+            Some(patient) => match world.can_beam(slot, patient) {
+                Ok(()) => (Some(Order::Beam(Some(patient))), None),
+                Err(why) => (None, Some(beam_refused(why))),
+            },
+        },
+        (world::Class::Medic, Action::Ability4) => {
+            let target = under.unwrap_or(slot);
+            match world.can_cloak(slot, target) {
+                Ok(()) => (Some(Order::Cloak(target)), None),
+                Err(why) => (None, Some(crate::names::cloak_refused(why))),
+            }
+        }
         _ => (None, None),
     }
 }
@@ -4077,6 +4153,33 @@ fn ranked_box(world: &world::World, slot: u32, action: Action, keys: &Keys) -> A
         (world::Class::Commander, 3) => Face {
             count: Some(world.reinforcements_of(slot).len() as u32),
             ..Face::of(Mark::Reinforcements)
+        },
+        // The medic's (task 130): the burst and the cloak on their
+        // cooldowns, the cloak lit while he is under one; the aura lit
+        // while he stands in one; the beam counting the patients it could
+        // still take, lit while it holds anybody.
+        (world::Class::Medic, 0) => Face {
+            cooldown: world.nanite_burst_cooldown_left(slot),
+            cooldown_whole: world.nanite_burst_cooldown(slot),
+            ..Face::of(Mark::NaniteBurst)
+        },
+        (world::Class::Medic, 1) => Face {
+            on: world.healing_aura_reaching(slot).is_some(),
+            ..Face::of(Mark::HealingAura)
+        },
+        (world::Class::Medic, 2) => {
+            let held = world.patients_of(slot).len();
+            Face {
+                count: Some(world.beam_patients(slot).saturating_sub(held) as u32),
+                on: held > 0,
+                ..Face::of(Mark::Beam)
+            }
+        }
+        (world::Class::Medic, 3) => Face {
+            cooldown: world.cloak_cooldown_left(slot),
+            cooldown_whole: world.cloak_cooldown(slot),
+            on: world.is_cloaked(slot),
+            ..Face::of(Mark::Cloak)
         },
         _ => Face::of(Mark::Empty),
     };
@@ -4227,23 +4330,9 @@ fn ability_boxes(world: &world::World, slot: u32, keys: &Keys) -> Vec<AbilityBox
                         on: world.is_braced(slot),
                         ..Face::of(Mark::Brace)
                     },
-                    (Class::Medic, true) => {
-                        let charge = world.surge_charge(slot);
-                        Face {
-                            charge: Some(charge),
-                            on: world.is_surging(slot),
-                            short: charge < 1.0,
-                            ..Face::of(Mark::Surge)
-                        }
-                    }
-                    (Class::Medic, false) => {
-                        let held = world.patients_of(slot).len();
-                        Face {
-                            count: Some(world.beam_patients(slot).saturating_sub(held) as u32),
-                            on: held > 0,
-                            ..Face::of(Mark::Beam)
-                        }
-                    }
+                    // The medic's slots are his ranked kit's (task 130),
+                    // `ranked_box`'s.
+                    (Class::Medic, _) => Face::of(Mark::Empty),
                     // The two cooldowns that are not charges sweep the
                     // same way, over the whole of their own length.
                     (Class::Tank, true) => Face {
@@ -4302,6 +4391,10 @@ fn ability_boxes(world: &world::World, slot: u32, keys: &Keys) -> Vec<AbilityBox
 /// length.
 const BATTLE_CRY_RING_SECONDS: f64 = 0.6;
 
+/// Seconds of the mission clock a Nanite Burst's green ring takes to run
+/// out to its reach on the deck (task 130).
+const NANITE_BURST_RING_SECONDS: f64 = 0.5;
+
 /// How big one box is: a key's on the hero panel (feature 107), its name
 /// in its tooltip rather than under it, so the panel stays one row.
 const ABILITY_SIDE: f32 = 44.0;
@@ -4314,8 +4407,9 @@ const ABILITY_SIDE: f32 = 44.0;
 /// The commander's are the point of it: his **rally** lifts every
 /// friendly Bim in his aura, and each of his three **squad** keys
 /// commands the same squad — every crew member nobody is steering,
-/// within his range. The medic's beam and surge name their patients,
-/// and the carry names everybody near enough to pick up. The rest reach
+/// within his range. The medic's burst names whom it would heal, his aura
+/// whom it covers, his beam its patients and his cloak whoever is under
+/// one (task 130), and the carry names everybody near enough to pick up. The rest reach
 /// enemies or nobody, and ring nothing.
 fn affected_by(world: &world::World, slot: u32, action: Action) -> Vec<u32> {
     use world::Class;
@@ -4338,15 +4432,17 @@ fn affected_by(world: &world::World, slot: u32, action: Action) -> Vec<u32> {
             Class::Commander,
             Action::SquadAttack | Action::SquadFallBack | Action::SquadStandGround,
         ) => world.squad_members(slot),
-        (Class::Medic, Action::Ability1) => {
-            let mut held = world.patients_of(slot);
-            held.push(slot);
-            held.sort_unstable();
-            // A medic beaming itself (task 120) is in the list once.
-            held.dedup();
-            held
-        }
+        // The medic's (task 130): a burst set off now heals everybody it
+        // would reach; his aura covers those it is the strongest over; the
+        // beam its patients; and the cloak says who is under one.
+        (Class::Medic, Action::Ability1) => world.nanite_burst_reaching(slot),
+        (Class::Medic, Action::Ability2) => (0..world.aboard.crew_count())
+            .filter(|&who| world.healing_aura_reaching(who) == Some(slot))
+            .collect(),
         (Class::Medic, Action::Ability3) => world.patients_of(slot),
+        (Class::Medic, Action::Ability4) => (0..world.aboard.crew_count())
+            .filter(|&who| world.is_cloaked(who))
+            .collect(),
         (_, Action::Carry) => match world.carrying_of(slot) {
             Some(patient) => vec![patient],
             None => world.carryable_near(slot),
@@ -4453,7 +4549,9 @@ fn ability_box(ui: &mut egui::Ui, one: &AbilityBox) -> (bool, bool) {
             Mark::Brace => theme::brace_mark(painter, middle, radius),
             Mark::WeakSpot => theme::weak_spot_mark(painter, middle, radius),
             Mark::Rampage => theme::rampage_mark(painter, middle, radius),
-            Mark::Surge => theme::surge_mark(painter, middle, radius / 34.0),
+            Mark::NaniteBurst => theme::nanite_burst_mark(painter, middle, radius),
+            Mark::HealingAura => theme::healing_aura_ring(painter, middle, radius),
+            Mark::Cloak => theme::cloak_mark(painter, middle, radius),
             Mark::Beam => theme::heal_beam(
                 painter,
                 egui::pos2(inner.min.x, inner.max.y),
@@ -4541,7 +4639,7 @@ fn ability_box(ui: &mut egui::Ui, one: &AbilityBox) -> (bool, bool) {
                 );
             }
         }
-        // The surge's charge, as a bar along the foot.
+        // A charge, as a bar along the foot.
         if let Some(charge) = one.charge {
             let bar = egui::Rect::from_min_max(
                 egui::pos2(rect.min.x + 4.0, rect.max.y - 7.0),
@@ -4704,7 +4802,7 @@ fn recharge_badge(painter: &egui::Painter, at: egui::Pos2, recharge: Option<f32>
 /// crew member under the pointer if there is one. An engineer's Q sets
 /// a sentry up on the tile and its E lays sandbags there; a soldier's Q
 /// throws a grenade at it and its E braces or stands easy; a medic's Q
-/// triggers its surge and its E beams `under` — the medic's own Bim
+/// sets off a Nanite Burst and its E beams `under` (task 130) — the medic's own Bim
 /// included, since task 120 lets a medic beam itself — and pressed on the
 /// one it already holds, or on nobody while one is held, it unlinks, and
 /// on nobody with no beam on it says so; a tank's Q taunts and its E puts
@@ -4755,24 +4853,20 @@ fn class_key(
             Ok(()) => (Some(Order::Brace(!world.is_braced(slot))), None),
             Err(why) => (None, Some(brace_refused(why))),
         },
-        // The medic (feature 76): Q surges, E beams the crew member
-        // under the pointer — on the one already held, or on nobody
-        // while one is held, it unlinks.
-        world::Class::Medic if primary => match world.can_surge(slot) {
-            Ok(()) => (Some(Order::Surge), None),
-            Err(why) => (None, Some(surge_refused(why))),
-        },
-        world::Class::Medic => match under {
-            None if world.is_beaming(slot) => (Some(Order::Beam(None)), None),
-            None => (None, Some(beam_refused(Refusal::NoPatient))),
-            Some(patient) if world.patients_of(slot).contains(&patient) => {
-                (Some(Order::Beam(None)), None)
-            }
-            Some(patient) => match world.can_beam(slot, patient) {
-                Ok(()) => (Some(Order::Beam(Some(patient))), None),
-                Err(why) => (None, Some(beam_refused(why))),
+        // The medic (task 130): his ranked kit's Q and E, a Nanite Burst
+        // and the beam on the crew member under the pointer —
+        // `ranked_key`'s answer, since his slots are ranked.
+        world::Class::Medic => ranked_key(
+            world,
+            slot,
+            if primary {
+                Action::Ability1
+            } else {
+                Action::Ability3
             },
-        },
+            tile,
+            under,
+        ),
         // The tank (feature 77): Q taunts, E puts the wall up and down.
         world::Class::Tank if primary => match world.can_taunt(slot) {
             Ok(()) => (Some(Order::Taunt), None),
@@ -4795,6 +4889,7 @@ fn class_key(
                 Action::Ability3
             },
             tile,
+            under,
         ),
     }
 }
@@ -5074,18 +5169,21 @@ mod class_key_tests {
             class_key(&world, 1, true, None, None, None),
             (None, Some(throw_refused(Refusal::CantThrowThere)))
         );
-        // The medic: Q surges — refused before the third level and
-        // unlinked — and E beams whoever is under the pointer, unlinks
-        // on the one already held and on nobody.
+        // The medic (task 130): Q sets off a Nanite Burst — refused
+        // unlearnt — and E beams whoever is under the pointer, unlinks on
+        // the one already held and on nobody.
         assert_eq!(world.set_class(2, world::Class::Medic), Ok(()));
         assert_eq!(
             class_key(&world, 2, true, None, None, None),
-            (None, Some(surge_refused(Refusal::NoSurgeYet)))
+            (
+                None,
+                Some(crate::names::nanite_burst_refused(Refusal::NotLearnt))
+            )
         );
-        world.award(2, world::class::LEVEL_XP[2], &mut events);
+        world.set_ranks_for_probe(2, [1, 0, 1, 0]);
         assert_eq!(
             class_key(&world, 2, true, None, None, None),
-            (None, Some(surge_refused(Refusal::NotLinked)))
+            (Some(Order::NaniteBurst), None)
         );
         assert_eq!(
             class_key(&world, 2, false, None, None, None),
@@ -5122,10 +5220,23 @@ mod class_key_tests {
             (Some(Order::Beam(None)), None),
             "and E on nobody unlinks while one is held"
         );
-        // Linked but not charged: Q says so.
+        // R cloaks the crew member under the pointer, or himself on
+        // nobody, once its rank is bought at the sixth level.
+        world.award(2, world::class::RANKED_LEVEL_XP[5], &mut events);
+        world.set_ranks_for_probe(2, [1, 0, 1, 1]);
         assert_eq!(
-            class_key(&world, 2, true, None, None, None),
-            (None, Some(surge_refused(Refusal::NotCharged)))
+            ranked_key(&world, 2, Action::Ability4, None, None),
+            (Some(Order::Cloak(2)), None),
+            "himself, with nobody under the pointer"
+        );
+        assert_eq!(
+            ranked_key(&world, 2, Action::Ability4, None, Some(0)),
+            (Some(Order::Cloak(0)), None)
+        );
+        assert_eq!(
+            ranked_key(&world, 2, Action::Ability2, None, None),
+            (None, None),
+            "the aura is passive"
         );
         // And the engineer's keys are never a soldier's, nor the other
         // way about: an engineer pressing E with a tile is a deploy, not
@@ -5282,16 +5393,22 @@ mod class_key_tests {
         );
         world.set_ranks_for_probe(0, [1, 0, 1, 0]);
         assert_eq!(
-            ranked_key(&world, 0, Action::Ability1, None),
+            ranked_key(&world, 0, Action::Ability1, None, None),
             (Some(Order::BattleCry), None)
         );
         assert_eq!(
-            ranked_key(&world, 0, Action::Ability3, None),
+            ranked_key(&world, 0, Action::Ability3, None, None),
             (Some(Order::Rally), None)
         );
         // The passive two do nothing when pressed.
-        assert_eq!(ranked_key(&world, 0, Action::Ability2, None), (None, None));
-        assert_eq!(ranked_key(&world, 0, Action::Ability4, None), (None, None));
+        assert_eq!(
+            ranked_key(&world, 0, Action::Ability2, None, None),
+            (None, None)
+        );
+        assert_eq!(
+            ranked_key(&world, 0, Action::Ability4, None, None),
+            (None, None)
+        );
         // The squad's attack over an enemy is an order the world would
         // take, the same as X and Z.
         assert_eq!(
@@ -5451,12 +5568,12 @@ mod class_key_tests {
             (Some(Order::RankUp { ability_slot: 1 }), None)
         );
         assert_eq!(
-            ranked_key(&world, 1, Action::Ability2, None),
+            ranked_key(&world, 1, Action::Ability2, None, None),
             (None, None),
             "Weak Spot is passive"
         );
         assert_eq!(
-            ranked_key(&world, 1, Action::Ability4, None),
+            ranked_key(&world, 1, Action::Ability4, None, None),
             (
                 None,
                 Some(crate::names::rampage_refused(Refusal::NotLearnt))
@@ -5520,12 +5637,35 @@ mod class_key_tests {
                         .all(|b| b.count.is_some())
                 );
             }
-            if class == world::Class::Medic {
-                assert_eq!(named, vec!["Surge", "Heal beam", names::CARRY]);
-                assert_eq!(boxes[4].key, "G");
-                assert_eq!(boxes[4].locked, None, "the carry wants no level");
-            }
         }
+
+        // The medic (task 130): his four ranked abilities, the ultimate
+        // waiting on the sixth level, and his carry after them, which
+        // wants no level at all.
+        let mut world = simulation_world(flyer(1), REFERENCE_MONEY, 1);
+        assert_eq!(world.set_class(0, world::Class::Medic), Ok(()));
+        let boxes = ability_boxes(&world, 0, &keys);
+        let named: Vec<&str> = boxes.iter().map(|b| b.name).collect();
+        assert_eq!(
+            named,
+            vec![
+                "Nanite Burst",
+                "Healing Aura",
+                "Heal Beam",
+                "Cloak",
+                names::CARRY
+            ]
+        );
+        assert_eq!(boxes[0].mark, Mark::NaniteBurst);
+        assert_eq!(boxes[1].mark, Mark::HealingAura);
+        assert_eq!(boxes[3].mark, Mark::Cloak);
+        assert_eq!(boxes[3].locked, Some(6), "the ultimate's first rank");
+        assert_eq!(boxes[4].locked, None, "the carry wants no level");
+        assert!(boxes[..4].iter().all(|b| b.unlearnt && !b.ready()));
+        world.set_ranks_for_probe(0, [1, 1, 1, 0]);
+        let boxes = ability_boxes(&world, 0, &keys);
+        assert!(boxes[0].ready(), "the burst learnt and ready");
+        assert_eq!(boxes[2].count, Some(1), "one patient the beam could take");
     }
 
     /// Resting on a box says whom the cast would reach (feature 86):
@@ -5575,13 +5715,13 @@ mod rank_up_tests {
             .map(|(&action, key)| AbilityBox::empty(key.to_string(), action))
             .collect();
         row[0] = AbilityBox {
-            name: "Surge",
+            name: "Nanite Burst",
             tip: "tip".to_string(),
-            mark: Mark::Surge,
+            mark: Mark::NaniteBurst,
             ..AbilityBox::empty("Q".to_string(), Action::Ability1)
         };
         row[2] = AbilityBox {
-            name: "Heal beam",
+            name: "Heal Beam",
             tip: "tip".to_string(),
             mark: Mark::Beam,
             ..AbilityBox::empty("E".to_string(), Action::Ability3)

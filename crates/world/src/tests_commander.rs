@@ -687,7 +687,7 @@ fn two_runs_of_a_squad_order_on_one_seed_are_the_same_world() {
 fn the_commander_climbs_sixteen_levels_and_buys_his_ranks_as_the_soldier_does() {
     let mut world = basic();
     assert_eq!(world.set_class(0, Class::Commander), Ok(()));
-    assert_eq!(world.set_class(1, Class::Medic), Ok(()));
+    assert_eq!(world.set_class(1, Class::None), Ok(()));
     assert_eq!(world.set_class(2, Class::Tank), Ok(()));
     let c = Class::Commander;
     assert!(class::ranked(c));
@@ -697,7 +697,8 @@ fn the_commander_climbs_sixteen_levels_and_buys_his_ranks_as_the_soldier_does() 
     let rank_up = |world: &mut World, slot: u32, ability_slot: u32| {
         world.step(&[Command::RankUp { slot, ability_slot }])
     };
-    // The medic and the tank keep their talents, and are refused.
+    // No class, and the tank's talents — the medic's kit is ranked since
+    // task 130 — are refused.
     for slot in [1, 2] {
         assert!(refused_with(
             &rank_up(&mut world, slot, 0),

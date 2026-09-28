@@ -390,20 +390,48 @@ pub fn world_checksum(world: &World) -> u64 {
         hash.eat(u64::from(world.aboard.room.shots(who)));
     }
 
-    // The medics (feature 76): who each beam holds, each surge's charge
-    // on the clock's grid, and — the room's, read off it like the brace —
-    // the seconds each body's surge has left, to a hundredth.
+    // The medics (feature 76): who each beam holds, a nought where the
+    // surge's charge was until the surge went (task 130), and — the
+    // room's, read off it like the brace — the seconds each body's surge
+    // has left, to a hundredth: the relics' now (*Phase Harness*,
+    // *Lifeline*).
     hash.eat(world.medics.len() as u64);
     for medic in &world.medics {
         hash.eat(medic.patients.len() as u64);
         for &p in &medic.patients {
             hash.eat(p as u64);
         }
-        hash.eat_rounded(medic.charge, FINE_GRID);
+        hash.eat_rounded(0.0, FINE_GRID);
     }
     for who in 0..crew {
         hash.eat(u64::from(world.aboard.room.is_surging(who)));
         hash.eat_rounded(world.aboard.room.surge_left(who) as f64, HEALTH_GRID);
+    }
+    // And the medic's ranked kit (task 130), only where there is any: each
+    // medic's last Nanite Burst and Cloak, and every cloak on the crew —
+    // whose target lists and whose walks a step reads.
+    for (who, medic) in world.medics.iter().enumerate() {
+        if medic.last_burst.is_none() && medic.last_cloak.is_none() {
+            continue;
+        }
+        hash.eat(who as u64);
+        for last in [medic.last_burst, medic.last_cloak] {
+            match last {
+                Some(minutes) => {
+                    hash.eat(1);
+                    hash.eat_rounded(minutes, FINE_GRID);
+                }
+                None => hash.eat(0),
+            }
+        }
+    }
+    for (who, cloak) in world.cloaks.iter().enumerate() {
+        let Some(until) = cloak.until else {
+            continue;
+        };
+        hash.eat(who as u64);
+        hash.eat_rounded(until, FINE_GRID);
+        hash.eat_rounded(cloak.pace as f64, FINE_GRID);
     }
 
     // The tanks (feature 77): when each last taunted, on the clock's
