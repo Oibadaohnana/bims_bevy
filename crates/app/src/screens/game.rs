@@ -1763,12 +1763,13 @@ fn frame(
                         enemy: enemy as u32,
                     }));
                 } else if let Some(room) = session.room() {
-                    let fixture = room.hit_at(rx, ry);
-                    // A crewmate down under the pointer — a bot's Bim or
-                    // a player's — is the menu with its two rows, *Get
-                    // up* and *Carry*, greyed with the reason where one
-                    // cannot be done. Holding the revive key beside it
-                    // is the quick way to the first.
+                    // A body lying on the deck — downed, dead, a wreck, a
+                    // station's person down — takes no right-click: the
+                    // click is the deck under it and the Bim walks there
+                    // (`Game::hit_order_at`). A crewmate down is a left
+                    // click's menu, *Get up* and *Carry*; holding the
+                    // revive key beside it is the quick way to the first.
+                    let fixture = room.hit_order_at(rx, ry);
                     if fixture != 0 {
                         let at = pointer.pos.unwrap();
                         panels.open_menu(fixture, egui::pos2(at.x, at.y), room);
@@ -1777,11 +1778,9 @@ fn frame(
                     // to work: the door's menu opens *and* the order goes
                     // through, so a right-click on one walks the Bim into
                     // it. Every other fixture keeps the click for its menu
-                    // — a body included, living or down (`HIT_BIM`, the
-                    // revive row), dead (`HIT_BODY`) or one of the
-                    // station's people down in its own room
-                    // (`HIT_VISITOR`, the Hire row): never the deck it
-                    // lies on.
+                    // — a living body included (`HIT_BIM`, or one of the
+                    // station's people for hire, `HIT_VISITOR`): never the
+                    // deck it stands on.
                     // The order goes the moment the button goes down, the
                     // way Dota gives one, and it is for the player's own
                     // Bim alone whoever is selected (`Game::orderable`).

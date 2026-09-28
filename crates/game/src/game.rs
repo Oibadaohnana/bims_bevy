@@ -6322,23 +6322,37 @@ impl Game {
     // --- fixtures ---------------------------------------------------------
 
     /// Which fixture is at a point, without disturbing the selection. The
-    /// host asks this on a right-click, so poking at the furniture and
-    /// ordering the Bim about can share one button.
+    /// host asks this on a left click, so poking at the furniture and
+    /// picking the crew can share one button.
     pub fn hit_at(&mut self, x: f32, y: f32) -> u32 {
-        let p = vec2(x, y);
+        self.hit(vec2(x, y), true)
+    }
+
+    /// [`Game::hit_at`] for a right-click, which is an order: a body lying
+    /// on the deck — down, dead, a wreck, a station's person down — is
+    /// not there for it, so the click lands on what it lies on (the deck,
+    /// a door) and the Bim walks there. The living are hit as ever.
+    pub fn hit_order_at(&mut self, x: f32, y: f32) -> u32 {
+        self.hit(vec2(x, y), false)
+    }
+
+    fn hit(&mut self, p: Vec2, bodies: bool) -> u32 {
         self.note_fixtures(p);
         // A body before the deck: a click on one of the crew is the crew
         // member, whatever it is standing on — living, `HIT_BIM` (downed
-        // too: the menu offers the revive); dead, `HIT_BODY`.
-        for (i, bim) in self.bims.iter().enumerate() {
-            if bim.character.picked_at(p) {
-                if bim.is_alive() {
-                    self.hit_bim = i;
-                    return HIT_BIM;
-                }
-                self.hit_body = i;
-                return HIT_BODY;
+        // too: the menu offers the revive); dead, `HIT_BODY`. One on its
+        // feet before one lying under it, so a body on the floor never
+        // hides the crewmate standing over it.
+        let picked = |i: usize| self.bims[i].character.picked_at(p);
+        let standing = (0..self.bims.len()).find(|&i| picked(i) && !self.is_down(i));
+        let lying = || (0..self.bims.len()).find(|&i| bodies && picked(i));
+        if let Some(i) = standing.or_else(lying) {
+            if self.bims[i].is_alive() {
+                self.hit_bim = i;
+                return HIT_BIM;
             }
+            self.hit_body = i;
+            return HIT_BODY;
         }
         // Then a visitor that the world marked down — a resident lying in
         // its own room, drawn on this deck — which is a body to loot too.
@@ -6346,7 +6360,7 @@ impl Game {
         for (i, at) in self.visitors.iter().enumerate() {
             let down = self.visitors_down.get(i).copied().unwrap_or(false);
             let hailable = self.visitors_hailable.get(i).copied().unwrap_or(false);
-            if (down || hailable) && (*at - p).len() <= PICK_RADIUS {
+            if ((down && bodies) || (hailable && !down)) && (*at - p).len() <= PICK_RADIUS {
                 self.hit_visitor = i;
                 return HIT_VISITOR;
             }
@@ -10940,6 +10954,49 @@ mod tests {
             game.put_for_probe(1, vec2(ROOM_W * 0.15, ROOM_H * 0.85));
             assert_eq!(game.hit_at(down.x + 4.0, down.y), HIT_NONE);
         }
+    }
+
+    #[test]
+    fn a_right_click_order_passes_over_a_body_lying_on_the_deck() {
+        let mut game = room();
+        game.set_autonomous(false);
+        // One dead, one downed: an order lands on the deck under either.
+        let dead = game.put_for_probe(1, vec2(ROOM_W * 0.5, ROOM_H * 0.5));
+        game.kill_for_probe(1);
+        game.simulate(DT);
+        game.put_for_probe(0, vec2(ROOM_W * 0.5, ROOM_H * 0.2));
+        knock_out(&mut game, 0);
+        let downed = game.bims[0].character.pos;
+        assert_eq!(game.hit_order_at(dead.x + 4.0, dead.y - 3.0), HIT_NONE);
+        assert_eq!(game.hit_order_at(downed.x + 4.0, downed.y - 3.0), HIT_NONE);
+        // A left click still finds them.
+        assert_eq!(game.hit_at(dead.x + 4.0, dead.y - 3.0), HIT_BODY);
+        assert_eq!(game.hit_at(downed.x + 4.0, downed.y - 3.0), HIT_BIM);
+        // A station's person down is passed over; one for hire is not.
+        let (lying, hailed) = (
+            vec2(ROOM_W * 0.2, ROOM_H * 0.8),
+            vec2(ROOM_W * 0.8, ROOM_H * 0.8),
+        );
+        game.set_visitors(vec![lying, hailed]);
+        game.set_visitors_down(&[true, false]);
+        game.set_visitors_hailable(&[false, true]);
+        assert_eq!(game.hit_order_at(lying.x, lying.y), HIT_NONE);
+        assert_eq!(game.hit_order_at(hailed.x, hailed.y), HIT_VISITOR);
+    }
+
+    #[test]
+    fn a_crewmate_standing_over_a_body_is_the_crewmate() {
+        let mut game = room();
+        game.set_autonomous(false);
+        // The body first in the list, the living one standing on it.
+        let at = game.put_for_probe(0, vec2(ROOM_W * 0.5, ROOM_H * 0.5));
+        game.kill_for_probe(0);
+        game.simulate(DT);
+        game.put_for_probe(1, at);
+        assert_eq!(game.hit_at(at.x, at.y), HIT_BIM);
+        assert_eq!(game.hit_bim(), 1);
+        assert_eq!(game.hit_order_at(at.x, at.y), HIT_BIM);
+        assert_eq!(game.hit_bim(), 1);
     }
 
     /// Hit a Bim down to nothing so it lies there, downed, from the next

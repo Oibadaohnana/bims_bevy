@@ -4164,3 +4164,16 @@ too went.
 pins the recruit, the stand-still and both ways of standing down; the
 world's `the_crew_live_aboard` a player's Bim left alone staying put.
 The survivor pins moved for it (their notes say so).
+
+## A body on the deck takes no right-click (September 2026)
+
+`Game::hit_order_at` is `hit_at` for a right-click, which is an order: a
+body lying on the deck — downed, dead, a machine's wreck, a station's
+person down — is not there for it, so the click lands on the deck (or the
+door) under it and the app sends the Move. A living crewmate and a
+mercenary for hire are hit as ever. A left click (`hit_at`) still finds a
+body, so the downed crewmate's *Get up* / *Carry* menu is a left click's.
+In both, **one standing before one lying**: a body earlier in the list no
+longer hides the crewmate standing over it. `enemy_at` never picked a
+target down. `a_right_click_order_passes_over_a_body_lying_on_the_deck`
+and `a_crewmate_standing_over_a_body_is_the_crewmate` pin it.
