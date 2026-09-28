@@ -140,14 +140,27 @@ pub enum Order {
         level: u32,
         side: world::Side,
     },
-    /// The engineer sent to lay a kit on a room tile — `Command::Deploy`,
-    /// the Q and E keys over the deck.
+    /// The engineer sent to lay sandbags or a Healing Sentry on a room
+    /// tile — `Command::Deploy`, the E and C keys over the deck.
     Deploy {
-        kit: world::Kit,
+        kind: world::DeployKind,
         x: i32,
         y: i32,
     },
-    /// A deployable packed up into the engineer's pack — `Command::PackUp`.
+    /// The engineer's sentry laid on a room tile — `Command::Sentry`, the
+    /// R key over the deck (task 127).
+    Sentry {
+        x: i32,
+        y: i32,
+    },
+    /// The engineer's EMP thrown at a room tile — `Command::Emp`, the Q
+    /// key over the deck (task 127).
+    Emp {
+        x: i32,
+        y: i32,
+    },
+    /// Sandbags or a Healing Sentry taken back up, the charge back —
+    /// `Command::PackUp`.
     PackUp(u32),
     /// The soldier braced, or stood easy — `Command::Brace`, the E key
     /// (feature 75).
@@ -158,6 +171,11 @@ pub enum Order {
         x: i32,
         y: i32,
     },
+    /// The soldier's Rampage — `Command::Rampage`, the R key (task 124).
+    Rampage,
+    /// A rank of the player's own ranked kit bought — `Command::RankUp`,
+    /// Ctrl and a slot's key or a Ctrl-click on its box (task 124).
+    RankUp { ability_slot: u32 },
     /// The medic's heal beam linked to a crew member, or unlinked —
     /// `Command::Beam`, the E key over one (feature 76).
     Beam(Option<u32>),
@@ -444,10 +462,17 @@ impl Net {
                         Order::PickTalent { level, side } => {
                             Command::PickTalent { slot, level, side }
                         }
-                        Order::Deploy { kit, x, y } => Command::Deploy { slot, kit, x, y },
+                        Order::Deploy { kind, x, y } => Command::Deploy { slot, kind, x, y },
+                        Order::Sentry { x, y } => Command::Sentry {
+                            slot,
+                            tile: (x, y),
+                        },
+                        Order::Emp { x, y } => Command::Emp { slot, x, y },
                         Order::PackUp(id) => Command::PackUp { slot, id },
                         Order::Brace(on) => Command::Brace { slot, on },
                         Order::Throw { x, y } => Command::Throw { slot, x, y },
+                        Order::Rampage => Command::Rampage { slot },
+                        Order::RankUp { ability_slot } => Command::RankUp { slot, ability_slot },
                         Order::Beam(patient) => Command::Beam { slot, patient },
                         Order::Surge => Command::Surge { slot },
                         Order::Bulwark(on) => Command::Bulwark { slot, on },

@@ -251,8 +251,10 @@ fn muzzle_look(kind: WeaponKind) -> (f32, f32) {
 enum Light {
     /// Where a shot left: the barrel's direction and the gun.
     Muzzle { dir: Vec2, kind: WeaponKind },
-    /// Where a bolt stopped, and the way it was flying.
-    Impact { dir: Vec2 },
+    /// Where a bolt stopped, and the way it was flying — or a hit that
+    /// landed critical (task 124): drawn twice the size and the
+    /// brightness.
+    Impact { dir: Vec2, crit: bool },
     /// The sniper's beam, from the muzzle to where it ended.
     Beam { from: Vec2 },
     /// The rail lance's line, from the muzzle to where it ended.
@@ -439,7 +441,13 @@ impl Fx {
             return;
         }
         let dir = dir.normalize_or_zero();
-        self.flare(at, Light::Impact { dir }, hostile, weapon, IMPACT_LIFE);
+        self.flare(
+            at,
+            Light::Impact { dir, crit: false },
+            hostile,
+            weapon,
+            IMPACT_LIFE,
+        );
         if matches!(weapon.kind, WeaponKind::SniperRifle | WeaponKind::RailLance) {
             self.spent(from, at, weapon, hostile);
         }
@@ -463,6 +471,21 @@ impl Fx {
         let seq = self.next();
         let rot = dir.angle() + TAU * 0.25 + (scatter(seq, 0) - 0.5) * 0.6;
         capped(&mut self.scorches, SCORCH_CAP, Scorch { at, rot, age: 0.0 });
+    }
+
+    /// A critical hit landed at `at` (task 124, Weak Spot): the impact
+    /// flare again at twice the size and the brightness — over a bolt's
+    /// own flash, which it outshines, or alone for a blow. No words, no
+    /// number.
+    pub fn critical(&mut self, at: Vec2, dir: Vec2, weapon: Weapon, hostile: bool) {
+        let dir = dir.normalize_or_zero();
+        self.flare(
+            at,
+            Light::Impact { dir, crit: true },
+            hostile,
+            weapon,
+            IMPACT_LIFE,
+        );
     }
 
     /// A bolt that flew out its range and faded: only the sniper's beam
@@ -655,7 +678,7 @@ impl Fx {
             let t = flash(f.age / f.life);
             match f.light {
                 Light::Muzzle { dir, kind } => draw_muzzle(list, f, dir, kind, t),
-                Light::Impact { dir } => draw_impact(list, f, dir, t),
+                Light::Impact { dir, crit } => draw_impact(list, f, dir, t, crit),
                 Light::Beam { from } => {
                     // Thinning and fading from the whole beam to nothing.
                     let w = f.width * (0.4 + 0.6 * t);
@@ -818,29 +841,31 @@ fn draw_muzzle(list: &mut DrawList, f: &Flare, dir: Vec2, kind: WeaponKind, t: f
     }
 }
 
-fn draw_impact(list: &mut DrawList, f: &Flare, dir: Vec2, t: f32) {
+fn draw_impact(list: &mut DrawList, f: &Flare, dir: Vec2, t: f32, crit: bool) {
+    // A critical hit (task 124): twice the size, twice the brightness.
+    let (size, bright) = if crit { (2.0, 2.0) } else { (1.0, 1.0) };
     let colour = side(f.hostile);
     list.circle(
         f.at,
-        (10.0 + 14.0 * (1.0 - t)) * f.width,
-        colour.alpha(0.5 * t),
+        (10.0 + 14.0 * (1.0 - t)) * f.width * size,
+        colour.alpha((0.5 * t * bright).min(1.0)),
     );
     list.circle(
         f.at,
-        6.0 * t * f.width,
-        hot(f.hostile, 2.2 + f.heat).alpha(t),
+        6.0 * t * f.width * size,
+        hot(f.hostile, (2.2 + f.heat) * bright).alpha(t),
     );
     // A few rays thrown back the way the bolt came, fanned.
     let back = dir * -1.0;
     for i in 0..IMPACT_RAYS {
         let turn = (scatter(f.seq, i) - 0.5) * 2.2;
         let d = back.rotate(turn);
-        let reach = 4.0 + 9.0 * (1.0 - t) * (0.6 + 0.4 * scatter(f.seq, i + 7));
+        let reach = (4.0 + 9.0 * (1.0 - t) * (0.6 + 0.4 * scatter(f.seq, i + 7))) * size;
         list.line(
             f.at + d * (reach * 0.4),
             f.at + d * reach,
-            1.2,
-            hot(f.hostile, 1.6 + f.heat).alpha(t),
+            1.2 * size,
+            hot(f.hostile, (1.6 + f.heat) * bright).alpha(t),
         );
     }
 }

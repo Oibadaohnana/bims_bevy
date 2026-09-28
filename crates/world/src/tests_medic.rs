@@ -75,7 +75,7 @@ fn level_up(world: &mut World, who: usize, level: u8) {
     let want = LEVEL_XP[level as usize - 1];
     let have = world.progress_of(who as u32).xp;
     world.award(who, want.saturating_sub(have), &mut events);
-    assert!(world.progress_of(who as u32).level() >= level);
+    assert!(world.level_of(who as u32) >= level);
 }
 
 fn pick(world: &mut World, who: u32, talent: Talent) {
@@ -92,7 +92,7 @@ fn pick(world: &mut World, who: u32, talent: Talent) {
             })
         })
         .expect("a talent is on a pick level");
-    if world.progress_of(who).level() < level {
+    if world.level_of(who) < level {
         level_up(world, who as usize, level);
     }
     let events = world.step(&[Command::PickTalent {
@@ -443,7 +443,7 @@ fn the_charge_fills_only_while_the_patient_is_hurt_and_a_surge_absorbs_every_hit
 fn the_fixed_levels_are_the_beam_and_the_surge() {
     // Level one: the beam is a medic's, and a medic's from the first.
     let mut world = medic();
-    assert_eq!(world.progress_of(0).level(), 1);
+    assert_eq!(world.level_of(0), 1);
     assert_eq!(world.can_beam(0, 1), Ok(()));
     assert_eq!(world.set_class(1, Class::Soldier), Ok(()));
     assert_eq!(world.can_beam(1, 0), Err(Refusal::NotAMedic));
@@ -674,7 +674,7 @@ fn a_medic_s_state_dies_with_it_and_a_game_with_a_medic_reads_the_same_twice() {
         "gone with it"
     );
     // The level is the player's, kept for its buyback (feature 103).
-    assert_eq!(world.progress_of(0).level(), class::SURGE_LEVEL as u8);
+    assert_eq!(world.level_of(0), class::SURGE_LEVEL as u8);
     // Two runs of a beam on one seed are one world.
     let run = || {
         let mut world = medic();

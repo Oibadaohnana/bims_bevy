@@ -251,12 +251,12 @@ pub fn carry() -> bool {
     std::env::var("BIMS_CARRY").as_deref() == Ok("1")
 }
 
-/// `BIMS_KITS=n` puts exactly `n` of **each** of the engineer's two kits
-/// in every crew member's pack and starts both cooldowns afresh (feature
-/// 88). `BIMS_KITS=0` is the state a scripted run cannot walk itself
-/// into — no charge in hand and the whole wait ahead — which is how the
-/// seconds in the corner of the two boxes are looked at
-/// (`Session::kits_for_probe`).
+/// `BIMS_KITS=n` sets **each** of the engineer's three charges — the EMP,
+/// the Healing Sentry and the sandbags — to exactly `n` on every crew
+/// member and starts their cooldowns afresh (feature 88, task 127).
+/// `BIMS_KITS=0` is the state a scripted run cannot walk itself into — no
+/// charge in hand and the whole wait ahead — which is how the seconds in
+/// the corner of the boxes are looked at (`Session::kits_for_probe`).
 pub fn kits() -> Option<u32> {
     std::env::var("BIMS_KITS").ok()?.trim().parse().ok()
 }
@@ -535,41 +535,56 @@ pub fn bim_class() -> world::Class {
 /// a different command; `BIMS_LEVEL` applies to whichever of the two it
 /// ends up being.
 ///
-/// **A `combat_droids_<class>` run opens at [`COMBAT_CLASS_LEVEL`]** — the top
-/// of the tree (feature 80): the fight is what a class is looked at in,
-/// and at the first level there is nothing of it to look at but the one
-/// key. Every level's pick is still the player's, waiting on the
-/// level-up window the moment the screen opens. `BIMS_LEVEL` says
+/// **A `combat_droids_<class>` run opens at the class's top level**
+/// ([`combat_class_level`]; feature 80): the fight is what a class is
+/// looked at in, and at the first level there is nothing of it to look at
+/// but the one key. Every level's pick — a ranked kit's sixteen skill
+/// points (task 124) — is still the player's to spend. `BIMS_LEVEL` says
 /// otherwise; every other launch starts at the first level as before.
-///
-/// **The engineer's sentry kit is its class's own**
-/// (`world::deploy::SENTRY_CHARGES`): a scripted fight has
-/// nobody to stand at a workbench for the minutes one takes, so the
-/// class deals the one the Q is, and nothing here has to.
+/// **`BIMS_RANKS=q,c,e,r`** sets a ranked kit's four ranks outright
+/// (`World::set_ranks_for_probe`), each capped by the gates of the level
+/// the crew member is at — `BIMS_RANKS=4,4,4,4` on
+/// `combat_droids_soldier` is the whole kit.
 pub fn class_crew(session: &mut ship::Session, asked: world::Class) {
     let class = match bim_class() {
         world::Class::None => asked,
         chosen => chosen,
     };
-    let level = bim_level().or((asked != world::Class::None).then_some(COMBAT_CLASS_LEVEL));
+    let level = bim_level().or((asked != world::Class::None).then(|| combat_class_level(class)));
     if class != world::Class::None
         && let Some(game) = &mut session.game
     {
         let _ = game.world.set_class(0, class);
         if let Some(level) = level {
-            let want = world::class::LEVEL_XP
+            let want = world::class::level_xp(class)
                 .get(level.saturating_sub(1))
                 .copied()
                 .unwrap_or(0);
             let mut events = Vec::new();
             game.world.award(0, want, &mut events);
         }
+        if let Some(ranks) = bim_ranks() {
+            game.world.set_ranks_for_probe(0, ranks);
+        }
     }
 }
 
+/// `BIMS_RANKS=q,c,e,r`: a ranked kit's four ranks, each nought to four;
+/// a missing or unreadable one is nought.
+fn bim_ranks() -> Option<[u8; 4]> {
+    let text = std::env::var("BIMS_RANKS").ok()?;
+    let mut ranks = [0u8; 4];
+    for (slot, part) in text.split(',').take(4).enumerate() {
+        ranks[slot] = part.trim().parse::<u8>().unwrap_or(0).min(world::class::MAX_RANK);
+    }
+    Some(ranks)
+}
+
 /// The level a `combat_droids_<class>` command opens its crew member at:
-/// the top of the tree.
-pub const COMBAT_CLASS_LEVEL: usize = world::class::LEVELS as usize;
+/// the class's top — the tenth, or a ranked kit's sixteenth (task 124).
+pub fn combat_class_level(class: world::Class) -> usize {
+    world::class::levels(class) as usize
+}
 
 /// `BIMS_BEAM=1` links a medic's heal beam to crew member 1, stood a
 /// tile away short of its whole bar, and `BIMS_BEAM=surge` triggers the

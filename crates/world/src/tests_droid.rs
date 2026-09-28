@@ -501,7 +501,7 @@ fn the_waves_are_the_same_for_a_richer_better_armed_more_levelled_or_bigger_crew
             for p in levelled.progress.iter_mut() {
                 p.xp = u32::MAX / 2;
             }
-            assert!(levelled.progress[0].level() > 1);
+            assert!(levelled.level_of(0) > 1);
             for (name, world) in [("rich", &rich), ("armed", &armed), ("levelled", &levelled)] {
                 assert_eq!(
                     (world.droid_wave_size(), world.droid_wave_count()),

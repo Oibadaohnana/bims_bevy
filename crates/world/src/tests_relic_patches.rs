@@ -97,6 +97,8 @@ fn shoot(world: &mut World, by: usize, i: usize, part: DroidPart, damage: f32) {
         blast: false,
         roll: roll_for(part),
         strips: 0.0,
+        flat: 0.0,
+        crit: false,
     };
     let rest = world.land_on_machines(vec![hit]);
     assert!(rest.is_empty(), "a machine's hit is the machine's");

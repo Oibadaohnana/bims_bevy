@@ -1,6 +1,7 @@
 //! PCG32 — a small, well-behaved PRNG. Seeded from the host so every run of
 //! Bims wanders differently.
 
+#[derive(Clone, Debug, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Rng {
     state: u64,
@@ -17,6 +18,11 @@ impl Rng {
         rng.state = rng.state.wrapping_add(seed);
         rng.next_u32();
         rng
+    }
+
+    /// The two words it is, for a checksum to eat.
+    pub fn state(&self) -> (u64, u64) {
+        (self.state, self.inc)
     }
 
     pub fn next_u32(&mut self) -> u32 {

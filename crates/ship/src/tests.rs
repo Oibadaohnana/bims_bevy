@@ -1511,8 +1511,7 @@ fn the_tier_tests_are_the_fight_with_everybody_s_kit_at_that_tier() {
 #[test]
 fn a_class_chosen_in_the_yard_leaves_the_pool_and_opens_the_world_and_is_saved() {
     use crate::Session;
-    use world::deploy::Kit;
-    use world::{Class, Command};
+    use world::{Charge, Class, Command, DeployKind};
     let mut session = Session::design(
         shipdesign::fixture::AREA,
         100_000,
@@ -1553,18 +1552,18 @@ fn a_class_chosen_in_the_yard_leaves_the_pool_and_opens_the_world_and_is_saved()
         Some(bims::combat::WeaponKind::AutoRifle.basic()),
         "the soldier's rifle is in its hand"
     );
-    assert_eq!(world.grenades_of(0), 2);
-    let kits = |session: &Session, who: usize| {
-        session.game.as_ref().unwrap().world.aboard.room.charges_of(
-            who,
-            bims::combat::Item::Stack(Kit::Sandbag.resource() as u32),
-        ) as usize
+    assert_eq!(world.grenades_of(0), 0, "none before Frag Grenade's first rank");
+    // A charge is a counter the world keeps, and none before a rank buys
+    // it (tasks 124 and 127).
+    let kits = |session: &Session, who: u32| {
+        session
+            .game
+            .as_ref()
+            .unwrap()
+            .world
+            .charges_of(who, Charge::Sandbag)
     };
-    assert_eq!(
-        kits(&session, 1),
-        world::deploy::SANDBAG_CHARGES as usize,
-        "the kits are its charges"
-    );
+    assert_eq!(kits(&session, 1), 0, "no sandbags at rank nought");
     assert_eq!(kits(&session, 0), 0);
     assert!(
         !session.set_class(0, Class::Engineer),
@@ -1583,6 +1582,19 @@ fn a_class_chosen_in_the_yard_leaves_the_pool_and_opens_the_world_and_is_saved()
                 ..
             }
         )));
+        world.step(&[Command::RankUp {
+            slot: 1,
+            ability_slot: u32::from(world::class::SLOT_E),
+        }]);
+        world.step(&[Command::RankUp {
+            slot: 0,
+            ability_slot: u32::from(world::class::SLOT_Q),
+        }]);
+        assert_eq!(
+            world.charges_of(1, Charge::Sandbag),
+            world::class::SANDBAG_CHARGES[0],
+            "a rank of Sandbags puts its charges in hand"
+        );
         let here = world.aboard.room.bim_pos(1);
         let t = TILE as f32;
         let (cx, cy) = ((here.x / t).floor() as i32, (here.y / t).floor() as i32);
@@ -1590,12 +1602,12 @@ fn a_class_chosen_in_the_yard_leaves_the_pool_and_opens_the_world_and_is_saved()
         'outer: for dx in -4..=4 {
             for dy in -4..=4 {
                 if world
-                    .can_deploy(1, Kit::Sandbag, (cx + dx, cy + dy))
+                    .can_deploy(1, DeployKind::Sandbags, (cx + dx, cy + dy))
                     .is_ok()
                 {
                     world.step(&[Command::Deploy {
                         slot: 1,
-                        kit: Kit::Sandbag,
+                        kind: DeployKind::Sandbags,
                         x: cx + dx,
                         y: cy + dy,
                     }]);
@@ -1621,11 +1633,15 @@ fn a_class_chosen_in_the_yard_leaves_the_pool_and_opens_the_world_and_is_saved()
     );
     assert_eq!(a.checksum(), b.checksum());
     assert_eq!(b.classes, vec![Class::Soldier, Class::Engineer]);
-    assert_eq!(b.progress_of(1).level(), 2);
+    assert_eq!(b.level_of(1), 2);
     assert_eq!(b.deployables, a.deployables);
     assert_eq!(back.class_of(1), Class::Engineer);
     assert_eq!(back.class_of(0), Class::Soldier);
-    assert_eq!(b.grenades_of(0), 2, "the grenades read back as charges");
+    assert_eq!(
+        b.grenades_of(0),
+        world::class::GRENADE_CHARGES[0],
+        "the grenades read back as charges"
+    );
 
     // And a medic's beam and charge, the same way (feature 76): the
     // soldier is a medic in a fresh session, linked to the engineer,

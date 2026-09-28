@@ -296,6 +296,23 @@ pub enum WorldEvent {
     /// Player `slot` had the trader's shelf rolled again (task 118,
     /// *Restock Codes*).
     Restocked { slot: u32 },
+    /// Crew member `who` bought a rank of its ranked kit's ability
+    /// `ability_slot` (0 to 3, Q C E R) with a skill point, and it is at
+    /// `rank` now (task 124, `Command::RankUp`).
+    RankedUp {
+        who: u32,
+        /// The crew member's class, by code, for the sentence's name.
+        class: u32,
+        ability_slot: u32,
+        rank: u32,
+    },
+    /// Player `who`'s soldier went on a Rampage (task 124).
+    Rampaged { who: u32 },
+    /// Player `who`'s engineer threw an EMP (task 127, `Command::Emp`).
+    EmpThrown { who: u32 },
+    /// The sentry of player `who`'s engineer stood its time and is gone
+    /// (task 127): its end, not a loss.
+    SentryDone { who: u32 },
 }
 
 /// Why a command did nothing.
@@ -522,6 +539,20 @@ pub enum Refusal {
     NoRestock = 108,
     /// A restock asked for twice in one visit to a trader.
     Restocked = 109,
+    /// A rank asked of a class with no ranked kit (task 124) — every class
+    /// but the soldier, for now — or of a slot past R.
+    NoRankedKit = 110,
+    /// A rank asked with no skill point to spend on it.
+    NoSkillPoint = 111,
+    /// A rank asked of an ability already at its top rank.
+    TopRank = 112,
+    /// A rank asked before the level it wants is reached.
+    RankLocked = 113,
+    /// An ability of a ranked kit used at rank nought: not learnt yet.
+    NotLearnt = 114,
+    /// An ability used while it is already running: a Rampage on top of
+    /// a Rampage.
+    AlreadyActive = 115,
 }
 
 impl Refusal {
@@ -628,6 +659,10 @@ impl WorldEvent {
             WorldEvent::Combined { .. } => 127,
             WorldEvent::RelicBought { .. } => 128,
             WorldEvent::Restocked { .. } => 129,
+            WorldEvent::RankedUp { .. } => 130,
+            WorldEvent::Rampaged { .. } => 131,
+            WorldEvent::EmpThrown { .. } => 132,
+            WorldEvent::SentryDone { .. } => 133,
         }
     }
 
@@ -678,6 +713,16 @@ impl WorldEvent {
             }
             WorldEvent::RelicBought { slot, relic, .. } => (slot as i64) + 100 * (relic as i64),
             WorldEvent::Restocked { slot } => slot as i64,
+            // The slot in the hundreds and the rank in the ten thousands, the
+            // crew member in the units: a crew is never a hundred.
+            WorldEvent::RankedUp {
+                who,
+                ability_slot,
+                rank,
+                ..
+            } => (who as i64) + 100 * (ability_slot as i64) + 10_000 * (rank as i64),
+            WorldEvent::Rampaged { who } => who as i64,
+            WorldEvent::EmpThrown { who } | WorldEvent::SentryDone { who } => who as i64,
             WorldEvent::TownFell { station }
             | WorldEvent::HeartExposed { station }
             | WorldEvent::HeartOverload { station }

@@ -154,6 +154,8 @@ pub enum DeployOrder {
     PackUp(u32),
     Pick { level: u32, side: world::Side },
     SetClass(world::Class),
+    /// A rank of the ranked kit bought off the Skills tab (task 124).
+    RankUp { ability_slot: u32 },
 }
 
 /// A player's class as the panel shows it, a snapshot the screen hands
@@ -176,6 +178,12 @@ pub struct ClassView {
     pub picks: Vec<(u8, world::Side)>,
     pub talents: Vec<world::Talent>,
     pub can_change: bool,
+    /// The ranks bought of a ranked kit's four abilities, Q C E R (task
+    /// 124) — `None` for a class of talents. What the Skills tab draws in
+    /// place of the tree.
+    pub ranks: Option<[u8; 4]>,
+    /// Skill points not spent on those ranks.
+    pub points: u8,
     /// The soldier's rows (feature 75): grenade charges in the pack,
     /// seconds of the clock until the next comes back (feature 90), and
     /// whether it is braced — `None` for anybody but a soldier.
@@ -1527,7 +1535,7 @@ impl CrewPanels {
                         theme::bar_in(
                             ui.painter(),
                             rect,
-                            crate::screens::hud::xp_fill(view.xp),
+                            crate::screens::hud::xp_fill(view.class, view.xp),
                             theme::HYPER,
                         );
                     }
@@ -1787,6 +1795,12 @@ impl CrewPanels {
             );
             return;
         }
+        // A ranked kit (task 124) has four abilities a rank at a time in
+        // place of the tree.
+        if let Some(ranks) = view.ranks {
+            self.ranked_skills(ui, view, ranks);
+            return;
+        }
         // A point a pick level reached and not chosen at.
         let points = points_left(view);
         ui.horizontal_wrapped(|ui| {
@@ -1849,6 +1863,111 @@ impl CrewPanels {
             // The point spent, the tree says so next frame; the slot is
             // let go of so the column goes back to its hint.
             self.skill_pick = None;
+        }
+    }
+
+    /// The Skills tab of a ranked kit (task 124): the skill points waiting,
+    /// and each of the four abilities, Q C E R, with its rank as pips,
+    /// what it does, and every rank's numbers and the level it wants —
+    /// the ranks bought lit, the next one with a button that spends a
+    /// point on it while one could. Nothing here is asked of the world but
+    /// what `ClassView` hands over and `world::class`'s own tables.
+    fn ranked_skills(&mut self, ui: &mut egui::Ui, view: &ClassView, ranks: [u8; 4]) {
+        let class = view.class;
+        ui.horizontal_wrapped(|ui| {
+            ui.add(
+                egui::Label::new(
+                    egui::RichText::new(ranked_points(view.points))
+                        .size(SKILL_TEXT)
+                        .color(if view.points > 0 {
+                            theme::CAUTION
+                        } else {
+                            theme::MUTED
+                        }),
+                )
+                .wrap(),
+            );
+            theme::question_mark(ui, RANKED_SKILLS_TIP);
+        });
+        ui.add_space(4.0);
+        for (slot, &rank) in ranks.iter().enumerate() {
+            let slot = slot as u8;
+            let top = world::class::MAX_RANK;
+            let next = rank + 1;
+            let open = view.points > 0
+                && rank < top
+                && world::class::rank_level(class, slot, next).is_some_and(|l| l <= view.level);
+            egui::Frame::new()
+                .fill(theme::RAISED)
+                .stroke(egui::Stroke::new(1.0, if open { theme::ACCENT } else { theme::LINE }))
+                .corner_radius(4.0)
+                .inner_margin(egui::Margin::same(6))
+                .show(ui, |ui| {
+                    ui.set_width(ui.available_width());
+                    ui.horizontal(|ui| {
+                        ui.label(
+                            egui::RichText::new(format!(
+                                "{} {}",
+                                self.keys.key(Action::ABILITIES[slot as usize]).name(),
+                                ranked_ability(class, slot)
+                            ))
+                            .size(SKILL_NAME_TEXT)
+                            .strong()
+                            .color(theme::INK),
+                        );
+                        // The ranks as pips, drawn: the default font has no
+                        // round glyphs to trust.
+                        let (rect, _) = ui.allocate_exact_size(
+                            egui::vec2(f32::from(top) * 12.0, 12.0),
+                            egui::Sense::hover(),
+                        );
+                        for k in 0..top {
+                            let at = egui::pos2(rect.min.x + 6.0 + 12.0 * f32::from(k), rect.center().y);
+                            if k < rank {
+                                ui.painter().circle_filled(at, 4.0, theme::CAUTION);
+                            } else {
+                                ui.painter().circle_stroke(at, 4.0, egui::Stroke::new(1.0, theme::MUTED));
+                            }
+                        }
+                    });
+                    ui.add(
+                        egui::Label::new(
+                            egui::RichText::new(ranked_what(class, slot))
+                                .size(SKILL_BOX_TEXT)
+                                .color(theme::MUTED),
+                        )
+                        .wrap(),
+                    );
+                    for r in 1..=top {
+                        let level = world::class::rank_level(class, slot, r).unwrap_or(1);
+                        let words = rank_numbers(class, slot, r).unwrap_or_default();
+                        let colour = if r <= rank {
+                            theme::INK
+                        } else if level <= view.level {
+                            theme::CAUTION
+                        } else {
+                            theme::MUTED
+                        };
+                        ui.add(
+                            egui::Label::new(
+                                egui::RichText::new(rank_line(r, level, &words))
+                                    .size(SKILL_BOX_TEXT)
+                                    .color(colour),
+                            )
+                            .wrap(),
+                        );
+                    }
+                    if open
+                        && ui
+                            .button(egui::RichText::new(rank_learn(next)).size(SKILL_TEXT))
+                            .clicked()
+                    {
+                        self.deploy_orders.push(DeployOrder::RankUp {
+                            ability_slot: u32::from(slot),
+                        });
+                    }
+                });
+            ui.add_space(4.0);
         }
     }
 
@@ -2237,7 +2356,7 @@ pub(crate) fn tip_of(item: PackItem, count: u32) -> String {
                 SLOT_NAMES[piece.kind.slot() as usize].to_lowercase(),
                 stats.health,
                 tidy_hundredths(stats.protection),
-                item_tip(ResourceId::ALL[piece.kind.resource() as usize])
+                item_tip(world::armour::resource_of(piece.kind))
             )
         }
         PackItem::Weapon(weapon) => {
@@ -2264,9 +2383,9 @@ pub(crate) fn tip_of(item: PackItem, count: u32) -> String {
                 item_tip(world::armour::weapon_resource(weapon.kind))
             )
         }
-        PackItem::Stack(code) => match ResourceId::ALL.get(code as usize) {
-            Some(&id) if count > 1 => format!("{} × {count}\n{}", resource_name(id), item_tip(id)),
-            Some(&id) => format!("{}\n{}", resource_name(id), item_tip(id)),
+        PackItem::Stack(code) => match ResourceId::from_code(code) {
+            Some(id) if count > 1 => format!("{} × {count}\n{}", resource_name(id), item_tip(id)),
+            Some(id) => format!("{}\n{}", resource_name(id), item_tip(id)),
             None => "Something the hold does not know".into(),
         },
     }
@@ -2494,8 +2613,9 @@ mod tests {
     /// reached locked. The tree draws nothing it does not read here.
     #[test]
     fn a_skills_tree_counts_its_points_and_says_what_every_slot_is() {
+        // The medic's: the engineer and the soldier have ranked kits.
         let view = |level: u8, picks: &[(u8, world::Side)]| ClassView {
-            class: world::Class::Engineer,
+            class: world::Class::Medic,
             level,
             picks: picks.to_vec(),
             ..Default::default()
@@ -2536,14 +2656,14 @@ mod tests {
             SkillState::GivenUp
         );
         // The top of the tree with every level chosen at: nothing left to
-        // spend. Six pick levels since task 113 made the sixth a fixed
-        // level, which is what a tenth-level run opens with.
+        // spend. The medic's seven pick levels, which is what a
+        // tenth-level run opens with.
         let all: Vec<(u8, world::Side)> = (2..=world::class::LEVELS)
-            .filter(|&l| world::class::is_pick_level(world::Class::Engineer, l))
+            .filter(|&l| world::class::is_pick_level(world::Class::Medic, l))
             .map(|l| (l, world::Side::Right))
             .collect();
-        assert_eq!(all.len(), 6);
-        assert_eq!(points_left(&view(10, &[])), 6);
+        assert_eq!(all.len(), 7);
+        assert_eq!(points_left(&view(10, &[])), 7);
         assert_eq!(points_left(&view(10, &all)), 0);
         // And a crew member with no class has no levels to spend at.
         assert_eq!(

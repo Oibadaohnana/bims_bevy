@@ -732,6 +732,12 @@ pub struct Game {
     /// world last asked, for it to take the deployables off
     /// (`take_bags_blown`).
     bags_blown: Vec<(i32, i32)>,
+    /// The targets an EMP's burst reached since the world last asked
+    /// (task 127): the target's index, the seconds and whether the stun
+    /// exposes it — for the world to stun the machines they are
+    /// (`take_stuns`).
+    #[cfg_attr(feature = "serde", serde(default))]
+    stuns: Vec<(usize, f32, bool)>,
     /// Every worn piece a hit broke since the world last asked — whose,
     /// and what it was — for the world to say so. See `Game::wound`.
     pieces_broken: Vec<(usize, ArmourKind)>,
@@ -924,6 +930,7 @@ impl Game {
             revives: Vec::new(),
             revivers: true,
             bags_blown: Vec::new(),
+            stuns: Vec::new(),
             pieces_broken: Vec::new(),
             downs: Vec::new(),
             last_seen: Vec::new(),
@@ -1603,6 +1610,7 @@ impl Game {
                         blow.cut,
                         self.hostile_bodies,
                         Some(who),
+                        blow.flat,
                     );
                 }
             }
@@ -1628,10 +1636,13 @@ impl Game {
                     bim.melee_timer = MELEE_PERIOD;
                     // A blow's damage through the soldier's *bruiser*, fist
                     // and blade alike (feature 75).
-                    let (damage, cut, swing) = if stats.melee {
-                        (stats.damage * skill.melee, true, Action::Swing)
+                    // And the flat damage, before any factor, for Weak
+                    // Spot's crit (task 124).
+                    let (damage, cut, swing, flat) = if stats.melee {
+                        let flat = weapon.stats().damage;
+                        (stats.damage * skill.melee, true, Action::Swing, flat)
                     } else {
-                        (FIST_DAMAGE * skill.melee, false, Action::Punch)
+                        (FIST_DAMAGE * skill.melee, false, Action::Punch, FIST_DAMAGE)
                     };
                     bim.character.antic(swing, SWING_TIME);
                     bim.blow = Some(Blow {
@@ -1639,6 +1650,7 @@ impl Game {
                         left: SWING_TIME,
                         damage,
                         cut,
+                        flat,
                     });
                 }
                 continue;
@@ -1775,6 +1787,10 @@ impl Game {
         if !self.hostile_bodies {
             for i in 0..self.sentries.len() {
                 let sentry = self.sentries[i];
+                // A Healing Sentry has no barrel (task 127).
+                if sentry.heals {
+                    continue;
+                }
                 let stats = sentry.skill.stats(sentry.weapon);
                 self.sentries[i].trigger.tick(dt);
                 let Some((_, _, at)) = self.combat.aim(&self.room.sight, sentry.at, &stats) else {
@@ -1800,10 +1816,8 @@ impl Game {
             // peeks, whether it does, and the odds its armour dodges a
             // bolt. A body out cold is nobody's target and a bolt flies
             // over it. The sentries stand after the crew on the list — no
-            // armour to dodge with, and "peeking" only when dug in with
-            // sandbags anywhere between it and the shooter, which is what
-            // that talent means — so a hit past the crew's count is a hit
-            // on a sentry.
+            // armour to dodge with and never peeking — so a hit past the
+            // crew's count is a hit on a sentry.
             let crew = self.bims.len();
             let mut bodies: Vec<Option<(Vec2, bool, f32)>> = self
                 .bims
@@ -1821,18 +1835,7 @@ impl Game {
                 })
                 .collect();
             for sentry in &self.sentries {
-                // Dug in: judged against every bolt in the air this step,
-                // from where each was fired.
-                let dug_in = sentry.dug_in
-                    && self.combat.bolts.iter().any(|b| {
-                        b.hostile
-                            && self
-                                .room
-                                .sight
-                                .cover_anywhere_between(sentry.at, b.fired_from)
-                                .is_some()
-                    });
-                bodies.push(Some((sentry.at, dug_in, 0.0)));
+                bodies.push(Some((sentry.at, false, 0.0)));
             }
             self.combat.step(dt, &self.room.sight, &bodies);
             // What landed on a lamp comes off the lamp: at nought it is
@@ -2028,6 +2031,17 @@ impl Game {
             if self.droids[i].posing {
                 continue;
             }
+            // A machine stunned by an EMP (task 127) neither moves, turns,
+            // aims nor fires until the stun wears off; `Droid::stun`
+            // dropped whatever it had begun.
+            if self.droids[i].is_stunned() {
+                let d = &mut self.droids[i];
+                d.wear_off_stun(dt);
+                d.trigger.hold();
+                d.halt();
+                d.charging(dt, false);
+                continue;
+            }
             self.droids[i].trigger.tick(dt);
             self.droids[i].melee_timer = (self.droids[i].melee_timer - dt).max(0.0);
             if let Some(blow) = self.droids[i].blow.as_mut() {
@@ -2096,6 +2110,7 @@ impl Game {
                             blow.cut,
                             true,
                             None,
+                            blow.flat,
                         );
                     }
                 } else {
@@ -2139,6 +2154,7 @@ impl Game {
                         left: SWING_TIME,
                         damage,
                         cut,
+                        flat: damage,
                     });
                 }
                 continue;
@@ -6943,13 +6959,13 @@ impl Game {
 
     /// Send `who` to lay a kit on the tile at `tile` (room units, the
     /// tile's middle) beside which it will stand for `minutes` of working
-    /// steps — an engineer's sandbags or sentry, the world having checked
-    /// the kit is in the pack and the tile will take it. `sentry` is only
-    /// carried back on `take_deployed`. The walk is to the nearest tile
+    /// steps — one of an engineer's deployables, the world having checked
+    /// the charge and the tile. `kind` is the world's code, only carried
+    /// back on `take_deployed`; a hit does not put a `steady` one down. The walk is to the nearest tile
     /// beside it, or the tile itself; nowhere to stand is `false` and
     /// nothing begun. A live order: what the Bim was on is put down onto
     /// the queue, as any order does.
-    pub fn deploy(&mut self, who: usize, tile: Vec2, sentry: bool, minutes: f32) -> bool {
+    pub fn deploy(&mut self, who: usize, tile: Vec2, kind: u32, steady: bool, minutes: f32) -> bool {
         if who >= self.bims.len() || !self.bims[who].is_alive() {
             return false;
         }
@@ -6963,7 +6979,8 @@ impl Game {
         bim.task = Some(Task::deploy(
             who,
             tile,
-            sentry,
+            kind,
+            steady,
             minutes,
             &mut bim.character,
             &mut self.room,
@@ -6988,10 +7005,10 @@ impl Game {
             && task::deploy_stand(&self.maps, tile, bim.character.pos).is_some()
     }
 
-    /// Every kit laid since last asked: who laid it, the middle of the
-    /// tile in room units, and whether it was a sentry. The world puts
-    /// the deployable down and takes the kit out of the pack.
-    pub fn take_deployed(&mut self) -> Vec<(usize, Vec2, bool)> {
+    /// Every deployable laid since last asked: who laid it, the middle of
+    /// the tile in room units, and the world's code for what it is. The
+    /// world puts it down and spends the charge.
+    pub fn take_deployed(&mut self) -> Vec<(usize, Vec2, u32)> {
         std::mem::take(&mut self.room.deployed)
     }
 
@@ -7015,6 +7032,9 @@ impl Game {
     /// from its class, its talents and its brace. `Skill::NONE` for
     /// anybody not named.
     pub fn set_skills(&mut self, skills: Vec<Skill>) {
+        // Weak Spot's chances (task 124), for the fight to roll a crit by.
+        self.combat
+            .set_crit_chances(skills.iter().map(|s| s.crit_chance).collect());
         self.skills = skills;
     }
 
@@ -7023,6 +7043,17 @@ impl Game {
     /// empty list is the Guardian's own front for everybody.
     pub fn set_shield_fronts(&mut self, fronts: Vec<f32>) {
         self.combat.set_shield_fronts(fronts);
+    }
+
+    /// Lend the fight the world's Weak Spot stream for a step (task 124):
+    /// every critical roll comes off it and nothing else does.
+    pub fn lend_crit_rng(&mut self, rng: crate::rng::Rng) {
+        self.combat.lend_crit_rng(rng);
+    }
+
+    /// And take it back after the step, drawn on.
+    pub fn take_crit_rng(&mut self) -> Option<crate::rng::Rng> {
+        self.combat.take_crit_rng()
     }
 
     /// The skill the world set for `who`, for the tests.
@@ -7120,19 +7151,6 @@ impl Game {
     /// Whether a Bim is braced.
     pub fn is_braced(&self, who: usize) -> bool {
         self.bims.get(who).is_some_and(|b| b.braced)
-    }
-
-    /// A soldier's *rampage* stacks, as the world last set them.
-    pub fn rampage(&self, who: usize) -> u32 {
-        self.bims.get(who).map_or(0, |b| b.rampage)
-    }
-
-    /// Set a soldier's *rampage* stacks: the world counts the enemies it
-    /// downs and clears them when the fight ends.
-    pub fn set_rampage(&mut self, who: usize, stacks: u32) {
-        if let Some(bim) = self.bims.get_mut(who) {
-            bim.rampage = stacks;
-        }
     }
 
     // --- the tank: the wall, the taunt and the hits (feature 77) -----------
@@ -7493,6 +7511,36 @@ impl Game {
         std::mem::take(&mut self.bags_blown)
     }
 
+    /// The targets an EMP reached since last asked (task 127): each
+    /// target's index, the seconds of its stun and whether it exposes.
+    pub fn take_stuns(&mut self) -> Vec<(usize, f32, bool)> {
+        std::mem::take(&mut self.stuns)
+    }
+
+    /// An engineer's EMP thrown from `who`'s hands at `at` (task 127):
+    /// the grenade's flight and fuse, bursting with `radius` room units
+    /// and stunning every machine in it for `stun` seconds. The world
+    /// checks the throw and spends the charge; the room throws.
+    pub fn throw_emp(&mut self, who: usize, at: Vec2, fuse: f32, radius: f32, stun: f32, expose: bool) {
+        if who >= self.bims.len() {
+            return;
+        }
+        let from = self.bims[who].character.pos;
+        if (at - from).len() > 1e-3 && !self.bims[who].character.is_walking() {
+            self.bims[who].character.face((at - from).angle());
+        }
+        self.combat
+            .throw_emp(who, from, at, fuse, radius, stun, expose);
+    }
+
+    /// Machine `i` of this room stunned for `seconds` (task 127,
+    /// `Droid::stun`): whether it took.
+    pub fn stun_droid(&mut self, i: usize, seconds: f32, expose: bool) -> bool {
+        self.droids
+            .get_mut(i)
+            .is_some_and(|d| d.stun(seconds, expose))
+    }
+
     /// A grenade's hit on one of this room's own: `strike` — through the
     /// armour on the part — whose splash is every hit's that takes hit
     /// points (task 120).
@@ -7512,6 +7560,22 @@ impl Game {
     /// index, then the targets, then the sentries, then the bags, so two
     /// runs on one seed roll the same.
     fn burst(&mut self, g: Grenade) {
+        // An EMP (task 127) harms nothing: every target standing within
+        // its radius is noted for the world to stun, walls or no walls,
+        // and that is all.
+        if g.stun > 0.0 {
+            let reached: Vec<usize> = self
+                .combat
+                .targets()
+                .iter()
+                .enumerate()
+                .filter_map(|(i, t)| t.filter(|t| (t.at - g.at).len() <= g.radius).map(|_| i))
+                .collect();
+            for i in reached {
+                self.stuns.push((i, g.stun, g.expose));
+            }
+            return;
+        }
         let reaches = |game: &Game, at: Vec2| -> Option<f32> {
             let d = (at - g.at).len();
             if d > g.radius || !game.line_clear(g.at, at) {
@@ -7598,6 +7662,13 @@ impl Game {
     #[allow(dead_code)]
     pub fn cover_hit_for_probe(&mut self, tile: (i32, i32), damage: f32) {
         self.combat.cover_hit_for_probe(tile, damage);
+    }
+
+    /// A hit on a target, landed as a bolt would land it, for the tests
+    /// (task 124): the world carries it across on its next step.
+    #[allow(dead_code)]
+    pub fn land_hit_for_probe(&mut self, hit: crate::combat::Hit) {
+        self.combat.land_hit_for_probe(hit);
     }
 
     /// A hit on sentry `id`, said as a bolt landing on it would be.
@@ -7859,9 +7930,17 @@ impl Game {
         }
         // A hit on an engineer laying a kit is the kit put down where it
         // was — in the pack — and the errand dropped, not put down onto
-        // the queue to be picked up again under fire; unless its hands are
-        // steady (`set_steady_hands`), when it keeps at it.
-        if self.is_deploying(who) && !self.steady_hands.get(who).copied().unwrap_or(false) {
+        // the queue to be picked up again under fire; unless the errand is
+        // a steady one (the engineer's sentry, task 127) or its hands are
+        // (`set_steady_hands`), when it keeps at it.
+        let steady_errand = self.bims[who]
+            .task
+            .as_ref()
+            .is_some_and(|t| matches!(t.kind(), Kind::Deploy { steady: true, .. }));
+        if self.is_deploying(who)
+            && !steady_errand
+            && !self.steady_hands.get(who).copied().unwrap_or(false)
+        {
             self.drop_task(who);
         }
         let skill = self.skill(who);

@@ -602,12 +602,23 @@ impl World {
         }
         self.clear_beams();
         self.clear_carries();
-        self.charge_timers = vec![[None; Charge::ALL.len()]; crew];
+        self.charge_timers = vec![[None; Charge::CODES]; crew];
+        // The ultimate's sentry ready (task 127), and any left standing
+        // from the last mission gone: its lifetime was that mission's.
+        for engineer in &mut self.engineers {
+            *engineer = crate::engineer::Engineer::default();
+        }
+        self.deployables
+            .retain(|d| d.kind != crate::deploy::DeployKind::Sentry);
         for tank in &mut self.tanks {
             tank.last_taunt = None;
         }
         for commander in &mut self.commanders {
             commander.last_rally = None;
+        }
+        // Every Rampage ready (task 124).
+        for soldier in &mut self.soldiers {
+            *soldier = crate::soldier::Soldier::default();
         }
         for who in 0..crew as u32 {
             if self.aboard.room.is_alive(who as usize) {
@@ -616,17 +627,16 @@ impl World {
         }
     }
 
-    /// Crew member `who`'s charges **set to their start amounts** — its
-    /// class's kits and grenades (task 113): what was left over from the
-    /// last mission is neither kept nor added to.
+    /// Crew member `who`'s charges **set to their start amounts** — every
+    /// counter its class's ranks give it (tasks 113 and 127): what was left
+    /// over from the last mission is neither kept nor added to.
     fn fill_charges(&mut self, who: u32) {
         if who >= self.aboard.crew_count() {
             return;
         }
         for charge in Charge::ALL {
-            let item = Item::Stack(charge.resource() as u32);
             let start = self.charges(who, charge);
-            self.aboard.room.set_charges(who as usize, item, start);
+            self.set_charges_held(who, charge, start);
         }
     }
 
@@ -822,8 +832,11 @@ impl World {
         if index < self.progress.len() {
             self.progress.remove(index);
         }
-        if index < self.reused_kits.len() {
-            self.reused_kits.remove(index);
+        if index < self.charges_held.len() {
+            self.charges_held.remove(index);
+        }
+        if index < self.engineers.len() {
+            self.engineers.remove(index);
         }
         if index < self.charge_timers.len() {
             self.charge_timers.remove(index);
@@ -835,6 +848,9 @@ impl World {
         }
         if index < self.tanks.len() {
             self.tanks.remove(index);
+        }
+        if index < self.soldiers.len() {
+            self.soldiers.remove(index);
         }
         if index < self.commanders.len() {
             self.commanders.remove(index);

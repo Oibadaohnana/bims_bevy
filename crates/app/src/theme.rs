@@ -522,6 +522,14 @@ pub fn heal_beam(painter: &egui::Painter, from: egui::Pos2, to: egui::Pos2, scal
     }
 }
 
+/// A Healing Sentry's line to a crew member it heals (task 127): thinner
+/// than the medic's beam, in the same green.
+pub fn healing_line(painter: &egui::Painter, from: egui::Pos2, to: egui::Pos2, scale: f32) {
+    let thin = (1.1 * scale).clamp(1.0, 2.0);
+    painter.line_segment([from, to], egui::Stroke::new(thin, HEAL.gamma_multiply(0.75)));
+    painter.circle_filled(to, thin * 1.6, HEAL.gamma_multiply(0.9));
+}
+
 /// A medic's heal beam on itself (task 120): no line to draw, so the
 /// beam's two strokes as a ring hugging the body instead — close in, well
 /// inside a surge's ring, so the two read apart.
@@ -975,6 +983,44 @@ pub fn brace_mark(painter: &egui::Painter, at: egui::Pos2, radius: f32) {
         ],
         stroke,
     );
+}
+
+/// A weak spot (task 124, the soldier's C): a crosshair on a cracked
+/// plate — a ring, four ticks and a hot dot where the hit goes in.
+/// Drawn in its ability box alone.
+pub fn weak_spot_mark(painter: &egui::Painter, at: egui::Pos2, radius: f32) {
+    let r = radius.max(4.0);
+    let stroke = egui::Stroke::new((r * 0.14).clamp(1.0, 2.5), BAD.gamma_multiply(0.9));
+    painter.circle_stroke(at, r * 0.62, stroke);
+    for (dx, dy) in [(1.0f32, 0.0f32), (-1.0, 0.0), (0.0, 1.0), (0.0, -1.0)] {
+        painter.line_segment(
+            [
+                egui::pos2(at.x + dx * r * 0.35, at.y + dy * r * 0.35),
+                egui::pos2(at.x + dx * r, at.y + dy * r),
+            ],
+            stroke,
+        );
+    }
+    painter.circle_filled(at, (r * 0.16).max(1.5), CAUTION);
+}
+
+/// A Rampage (task 124, the soldier's R): three chevrons stacked and
+/// pointing up, in the attack's red — fire coming faster. Drawn in its
+/// ability box alone.
+pub fn rampage_mark(painter: &egui::Painter, at: egui::Pos2, radius: f32) {
+    let r = radius.max(4.0);
+    let stroke = egui::Stroke::new((r * 0.2).clamp(1.2, 3.2), ATTACK);
+    for k in 0..3 {
+        let y = at.y + r * (0.55 - 0.5 * k as f32);
+        painter.line_segment(
+            [egui::pos2(at.x - r * 0.7, y), egui::pos2(at.x, y - r * 0.45)],
+            stroke,
+        );
+        painter.line_segment(
+            [egui::pos2(at.x, y - r * 0.45), egui::pos2(at.x + r * 0.7, y)],
+            stroke,
+        );
+    }
 }
 
 /// The charge bar over a tile something is being put together on

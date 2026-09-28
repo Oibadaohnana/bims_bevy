@@ -48,7 +48,7 @@ fn level_up(world: &mut World, who: usize, level: u8) {
     let want = LEVEL_XP[level as usize - 1];
     let have = world.progress_of(who as u32).xp;
     world.award(who, want.saturating_sub(have), &mut events);
-    assert!(world.progress_of(who as u32).level() >= level);
+    assert!(world.level_of(who as u32) >= level);
 }
 
 fn pick(world: &mut World, who: u32, talent: Talent) {
@@ -65,7 +65,7 @@ fn pick(world: &mut World, who: u32, talent: Talent) {
             })
         })
         .expect("a talent is on a pick level");
-    if world.progress_of(who).level() < level {
+    if world.level_of(who) < level {
         level_up(world, who as usize, level);
     }
     let events = world.step(&[Command::PickTalent {
@@ -531,7 +531,7 @@ fn the_fixed_levels_are_the_wall_the_taunt_and_the_iron_frame() {
     assert_eq!(world.set_class(1, Class::None), Ok(()));
     world.step(&[]);
     // One: the wall, and the armour draining at half rate.
-    assert_eq!(world.progress_of(0).level(), 1);
+    assert_eq!(world.level_of(0), 1);
     assert_eq!(world.can_bulwark(0), Ok(()));
     assert_eq!(world.armour_drain(0), class::TANK_DRAIN);
     // Three: the taunt.

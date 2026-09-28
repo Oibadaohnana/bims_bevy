@@ -108,7 +108,7 @@ fn a_blow_from_the_front_is_stopped_and_one_from_behind_lands() {
         let mut combat = Combat::new(9);
         combat.set_targets(vec![Some((centre, WeaponKind::Sweeper.basic()))]);
         combat.set_shields(&[Some(heading)]);
-        combat.brawl(from, 0, blade, 42.0, true, false, Some(0));
+        combat.brawl(from, 0, blade, 42.0, true, false, Some(0), 42.0);
         assert_eq!(
             combat.take_hits().len(),
             lands as usize,

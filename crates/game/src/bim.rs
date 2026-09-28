@@ -68,10 +68,6 @@ pub struct Bim {
     /// (`interrupt_for_order`) and when it goes down. Saved with the
     /// room and in `world_checksum`.
     pub braced: bool,
-    /// *Rampage* stacks (feature 75): each enemy this soldier downs is
-    /// one, up to `world::class::RAMPAGE_STACKS`, until the fight ends —
-    /// the world counts them and clears them. In `world_checksum`.
-    pub rampage: u32,
     /// Holding a heal beam on somebody (feature 76): a medic linked to a
     /// patient, as the world last said (`Game::set_beaming`). Off again
     /// on any order to an errand (`Game::order`) and when the medic goes
@@ -227,7 +223,6 @@ impl Bim {
             queue: Vec::new(),
             health: Health::new(),
             braced: false,
-            rampage: 0,
             beaming: false,
             surge: None,
             bulwark: false,

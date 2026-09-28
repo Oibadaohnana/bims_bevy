@@ -459,10 +459,10 @@ are furniture. What the crew own is two things:
   piece of armour nobody is wearing — and the **research keys**, counted
   the moment one is picked up.
 - **Each Bim's loadout**: a weapon and a piece for the head, the body and
-  the legs. That is everything a Bim carries. Its sandbag and sentry
-  kits and grenades are **charges**, counted on the
-  Bim, set back to what it starts with at every mission and coming back
-  on their cooldowns during one.
+  the legs. That is everything a Bim carries. A class's EMPs, Healing
+  Sentries, sandbags and grenades are **charges**, a count the world
+  keeps for the Bim (task 127), set back to what its ranks give at every
+  mission and coming back on their cooldowns during one.
 
 **Tab** (or the tray's **Armory**) opens the panel on every screen of a
 run: a column for each of the crew — its portrait, its class, its weapon
@@ -555,7 +555,7 @@ all with a line each, and is the build's own answer rather than this table's:
 | `nix run .#test` | `cargo run -- test` | the simulation somewhere else each time: docked at a random station somebody lives on, in a random galaxy, with a mercenary for hire at the dock |
 | `nix run .#test_planet` | `cargo run -- test_planet` | `test` set down on a planet: the same random galaxy, landed at the settlement of a planet whose people are friendly |
 | `nix run .#droids` | `cargo run -- droids` | **the fight**: the combat ship — sixteen crew, a gun in every hand, four of them hired field medics — docked at the arena, which the **machines** hold: a wave of Husks, Troopers and Wardens stands about it. They wear nothing, carry nothing and leave nothing to loot; a Husk snaps at arm's length, a Trooper walks into the open with a gun for a forearm, and a Warden's lance **strips the armour off** whatever it hits rather than wounding the body under it. Clear a wave and the next lands at the far airlock a minute later. Every enemy is a machine (see [a run](#a-run)), so the `combat` command that turned the arena's people against the crew — which would be this exactly — is gone |
-| `nix run .#combat_droids_engineer` … `#combat_droids_commander` | `cargo run -- combat_droids_medic` | that **same fight with a class in hand**: the crew member you steer starts as an engineer, a soldier, a medic, a tank or a commander — one command a class, the ship, the arena and the wave `droids`' own, so two of these runs differ by the class and nothing else. It starts at the **tenth level** with every one of the class's talents still to choose (seven, the engineer's six), so the tray opens on the **Skills** tab with those points to spend; `BIMS_LEVEL=3` opens it at that level instead, and `BIMS_CLASS` still overrides the command |
+| `nix run .#combat_droids_engineer` … `#combat_droids_commander` | `cargo run -- combat_droids_medic` | that **same fight with a class in hand**: the crew member you steer starts as an engineer, a soldier, a medic, a tank or a commander — one command a class, the ship, the arena and the wave `droids`' own, so two of these runs differ by the class and nothing else. It starts at the class's **top level** — the tenth with every one of the class's talents still to choose (seven), or — the soldier and the engineer — the sixteenth with sixteen skill points for its four abilities' ranks; `BIMS_LEVEL=3` opens it at that level instead, `BIMS_RANKS=4,4,4,4` buys a ranked kit's ranks outright, and `BIMS_CLASS` still overrides the command |
 | `nix run .#tier2_test` | `cargo run -- tier2_test` | `droids` with everybody's kit at **tier two**: every crew member's gun at it and a full set of armour at it on, and the machines at tier two — nothing at tier one on either side |
 | `nix run .#tier3_test` | `cargo run -- tier3_test` | the same at **tier three** |
 | `nix run .#droids_planet` | `cargo run -- droids_planet` | the same on a planet: a town held by the machines, the ship set down at its pad, and their lander coming down on the plain beyond a gate |
@@ -2118,7 +2118,7 @@ every job, takes every errand, places every site and uses every weapon,
 and every one brings the same money to the pool, whatever its class. A
 class only adds its own two keys and its talents, which nobody else can
 use: **Q** is the class's first action and **E** its second, whichever
-class you steer — an engineer's sentry and sandbags, a soldier's grenade
+class you steer — an engineer's EMP and sandbags, a soldier's grenade
 and brace, a medic's surge and heal beam, a tank's taunt and
 wall, a commander's rally and attack order — and both are rebindable on
 the Controls page as one pair,
@@ -2190,120 +2190,158 @@ level it is learnt at — every class's **E** from the first level and its
 
 ### The engineer
 
-The first class (feature 74): sandbags, a sentry, and the workbench's
-friend. It works on **charges**, not on kits made at a bench (feature
-88): **three sandbag charges** and, from the third level, **one sentry
-charge**, each spent charge coming back into the pack on its own
-cooldown — **45 seconds** for a bag and **60** for the sentry. Nothing
-is crafted, nothing is fetched and nobody walks for it: the charge
-simply lands in the pack as the cooldown runs out, which is what the
-count in the corner of the key's box is.
+The first class (feature 74), reworked in task 127 into **four
+abilities, four ranks each**, the soldier's way: **sixteen levels**, one
+**skill point a level**, a rank bought with **Ctrl** and the ability's
+key, a **Ctrl-click** on its box, or the Skills tab's **Learn** button.
+Q, C and E take a rank at levels 1, 3, 5 and 7; R, the ultimate, at 6,
+9, 12 and 15. An engineer at rank nought of an ability has none of it.
 
-| level | left | right |
-| --- | --- | --- |
-| 1 | three sandbag charges, laid; packs deployables up | — |
-| 2 | **Reinforced sand** — +50 sandbag health | **Site foreman** — build a quarter faster |
-| 3 | **Sentry** — one sentry charge | — |
-| 4 | **Sandbagger** — sandbags in half the time | **Bulk bags** — one charge lays two tiles |
-| 5 | **Armoured sentry** — health ×1.5 | **Enhanced optics** — fire range +10 tiles |
-| 6 | **Armourer** — mends armour at the workbench | **Higher quality armour** — his armour +5% health, +1 protection |
-| 7 | **Sentry mark II** — its rifle at tier two | — |
-| 8 | **Dug in** — sandbags anywhere between a sentry and the shooter are cover | **Quick build** — a sentry in half the time |
-| 9 | **Extra bags** — one more sandbag charge | **Steady hands** — a hit no longer stops a deploy |
-| 10 | **Second sentry** — two sentry charges | **Sentry mark III** — a tier-three sniper rifle at double the rate and a fifth more damage |
+**Charges, never kits.** The EMP, the Healing Sentry and the sandbags
+are **charges**: a count the world keeps for the engineer, set by the
+ranks, and each spent one coming back on its own cooldown. Nothing is
+crafted, fetched or carried, and no kit lies in anybody's pack. Laying
+takes the charge only when the work is done; a hit on the engineer while
+it lays sandbags or a Healing Sentry stops the laying and the charge is
+kept. The **Nearby** strip's row beside sandbags or a Healing Sentry
+**packs it up** — the charge back, never more than its charges. Nothing
+laid is anybody's experience.
 
-Every talent is a fighting talent: the tree had *quick hands* (crafting),
-*deep magazine* and *field refit* (a sentry's ammunition) and *salvage*
-(a kit back) on it, and none of the four is about a fight.
+**Q, EMP.** Thrown like a grenade — the same range, a two-second fuse,
+walls and shut doors in the way stop it. It harms nothing: every enemy
+machine within its radius is **stunned** — it neither moves, turns, aims
+nor fires, whatever it had begun is dropped, and a Guardian's shield
+stops nothing while it lasts. It flickers pale blue until the stun ends.
+A second stun takes the longer of the two. The Machine Heart, the
+Manufacturers' people and the crew's own sentries are never stunned.
 
-Only an engineer can lay them: `e` over a deck tile lays **sandbags**
-there — the engineer walks beside it and works four minutes, and a hit
-drops the errand with the charge still in the pack — and `q` sets up a
-**sentry**, eight minutes, from the third level. Either wants clear deck
-floor within reach that is not a door, with nothing on it. What is laid
-is a **deployable**, never a part of the ship: it touches neither the
-design nor its mass. Sandbags are cover exactly as the part is, in both
-rooms of a docked fight — the enemy duck behind them too — take every
-bolt a body dodges behind them, and **are gone for good at 200 health**;
-a **grenade's burst destroys them** outright, whatever they had left.
-There is no limit on bags laid: lay one every time a charge comes back
-and the deck fills up with them.
+| rank | radius | stun | charges | back after |
+| --- | --- | --- | --- | --- |
+| 1 | 2 tiles | 1.5 s | 1 | 30 s |
+| 2 | 2.5 tiles | 2 s | 2 | 30 s |
+| 3 | 2.5 tiles | 2.5 s | 2 | 25 s |
+| 4 | 3 tiles | 3 s | 2 | 20 s — and a machine it stuns takes +25% from everyone while the stun lasts |
 
-A sentry is an auto rifle on a stand with 60 health, and it **never runs
-out of shots** — nothing in this game carries ammunition, so there is
-nothing to reload and nothing to walk over and refill. It fires at the
-nearest enemy it can see in range through the very same trigger and hit
-roll a Bim shoots with, the enemy's nearest-target rule includes it,
-their hits drain it, and at nothing it is shot to pieces. **The charges
-are the limit**: with one charge only one sentry stands, and setting a
-second up destroys the first rather than being refused — so a sentry is
-moved about the deck by laying another one where you want it. The row
-beside one on the **Nearby** strip packs it up into the engineer's pack.
-On the ship's deck a deployable stays
-wherever the ship goes; on a station's deck it is lost when the ship
-leaves. The **armourer** has a **Repair** button on
-the workbench window: a damaged piece in the first slot and a hundred
-euros out of the pool, ten minutes at the bench worked by that engineer alone, and
-the piece back out with ten points on it, up to its full health.
+**C, Healing Sentry.** A sentry with no barrel, laid on a deck tile:
+every step it heals every crewmate on their feet within its radius and
+in its sight, up to a full bar, at a share of the medic's beam — a thin
+green line runs to each it heals. It never heals an enemy and never
+revives a downed crewmate; two reaching one crewmate do not add up, the
+better one counts. The enemy shoots at it like a sentry. Its charges are
+how many may stand: one more laid takes down the oldest.
+
+| rank | heals (× the beam) | radius | health | laying | charges | back after |
+| --- | --- | --- | --- | --- | --- | --- |
+| 1 | ×0.5 | 3 tiles | 60 | 6 min | 1 | 60 s |
+| 2 | ×0.75 | 4 tiles | 80 | 6 min | 1 | 60 s |
+| 3 | ×1 | 4 tiles | 100 | 4 min | 1 | 50 s |
+| 4 | ×1.25 | 5 tiles | 120 | 4 min | 1 | 40 s |
+
+**E, Sandbags.** Cover exactly as the part is, in both rooms of a docked
+fight — the enemy duck behind them too — taking every bolt a body dodges
+behind them and gone at nothing; a grenade's burst destroys them. No
+limit on how many stand.
+
+| rank | charges | health | laying | back after | |
+| --- | --- | --- | --- | --- | --- |
+| 1 | 2 | 150 | 4 min | 45 s | |
+| 2 | 3 | 200 | 4 min | 45 s | |
+| 3 | 3 | 250 | 2 min | 40 s | |
+| 4 | 4 | 250 | 2 min | 35 s | one charge lays two tiles — the second on the first free neighbour north, east, south, west |
+
+**R, Sentry (the ultimate).** A minigun on a stand, drawn larger, with a
+thin ring round its tile emptying as its time runs down. The engineer
+works three minutes beside the tile and **a hit does not stop it**. One
+stands at a time; it fires at the nearest enemy it can see, the enemy
+shoot at it, and it is gone when its time runs out, when it is shot to
+pieces or when the ship leaves the site. It cannot be packed up. The
+cooldown starts when it is laid, runs on the mission clock, and it is
+ready at every mission's start.
+
+| rank | weapon | fire rate | health | stands | cooldown |
+| --- | --- | --- | --- | --- | --- |
+| 1 | minigun, tier 2 | ×1 | 200 | 30 s | 150 s |
+| 2 | minigun, tier 3 | ×1 | 250 | 35 s | 140 s |
+| 3 | minigun, tier 3 | ×1.5 | 300 | 40 s | 130 s |
+| 4 | minigun, tier 3 | ×2 | 400 | 45 s | 120 s |
+
+On the ship's deck sandbags and a Healing Sentry stay wherever the ship
+goes; on a station's deck they are lost when the ship leaves.
 
 ### The soldier
 
-The second class (feature 75): a line held, and grenades. A soldier sets
-out with a basic **auto rifle** in hand, the laser pistol in the pack
-beside it, and **two grenades**. Its experience is everybody's —
-no class has a source of its own.
+The second class (feature 75), reworked in task 124 into **four
+abilities, four ranks each**, the way Dota does it. A soldier sets out
+with a basic **auto rifle** in hand and the laser pistol in the armory.
+It climbs **sixteen levels** (3 200 experience for the top, what the
+other classes' tenth costs) and earns **one skill point a level**, the
+first level included. A point buys a **rank** of one ability: **Ctrl**
+and the ability's key, a **Ctrl-click** on its box, or the **Learn**
+button on the character sheet's Skills tab. Q, C and E take a rank at
+levels 1, 3, 5 and 7; R, the ultimate, at 6, 9, 12 and 15. A point you
+do not spend is kept. The boxes on the hero panel show a pip a rank
+under each, a **+** in the corner while a point could buy the next, and
+the points waiting sit beside the experience bar.
 
-**Brace** is `E`, from the first level: a toggle. Braced, the soldier
-holds where it stands — whatever it was on put down, its walk dropped,
-no errand taken up, under arms — never runs from a fight however badly
-hurt, shoots at **1.15** the odds, and takes cover from what is round it
-as usual. Four heavy brackets round the body say so on the deck, and the
-crew panel says *Braced*. It ends when `E` is pressed again, when the
-soldier is ordered anywhere, or when it goes down.
+**Q — Frag Grenade** (active, charges). Thrown at the deck tile under
+the pointer, within **8 tiles** with nothing opaque between (walls and
+shut doors stop a throw; sandbags do not); holding `Q` draws the burst's
+radius. **2 seconds** later it bursts on everything within the radius
+with a line to it — every crew member, hire and enemy alike, the thrower
+included — full damage at the centre falling to half at the edge, halved
+again in cover from the burst's side; a sentry in it takes the same, and
+laid sandbags are destroyed. A grenade is a **charge**: it comes back on
+its own cooldown, and nobody makes, sells or buys one.
 
-**Grenades** are `Q`, from the third level, at the deck tile under the
-pointer: within **8 tiles** with nothing opaque between (walls and shut
-doors stop a throw; sandbags do not), no sooner than **5 seconds** after
-the last, one out of the pack at once. Holding `Q` draws the burst's
-radius round the tile in the caution colour, or the warning colour
-where the throw would be refused. The grenade flies to the tile and lies
-there with its fuse blinking, and **2 seconds** after the throw it
-bursts on everything within **2.5 tiles** of the tile that has a line to
-it — walls and shut doors stop the burst, sandbags do not: every crew
-member, hire and enemy alike, the thrower included, takes **80** at the
-centre falling in a straight line to half at the edge, on one part
-rolled the way a bolt's is, through that part's armour, as a strike
-rather than a cut — halved for a body in cover from the burst's side —
-and the blood is thrown over the deck as a cut throws it; a sentry in
-it takes the same off its health; laid sandbags in it are destroyed;
-the parts of the ship and the station are untouched. Enemies neither
-throw nor dodge grenades. A grenade is a **charge**, like an engineer's
-kit (feature 90): two of them, each coming back into the pack thirty
-seconds after it is thrown, and nobody makes one, sells one or buys one.
-Only a soldier throws. The crew panel says how many are in the pack and
-how long until the next throw.
+| rank | damage | radius | charges | cooldown a charge |
+| --- | --- | --- | --- | --- |
+| 1 | 60 | 2.0 tiles | 1 | 30 s |
+| 2 | 75 | 2.5 tiles | 2 | 30 s |
+| 3 | 90 | 2.5 tiles | 2 | 24 s |
+| 4 | 110 | 3.0 tiles | 2 | 20 s |
 
-| level | left | right |
+**C — Weak Spot** (passive; pressing `C` does nothing). Every bolt and
+every blow you land on an enemy may strike a weak spot — each bolt of a
+burst on its own, a grenade never. A critical hit adds the weapon's own
+damage at that distance times the crit damage less one, after every
+relic's bonus and before the armour, so a relic's share is never
+multiplied by it. A critical hit's flare is twice the size and the
+brightness of an ordinary one.
+
+| rank | crit chance | crit damage |
 | --- | --- | --- |
-| 1 | **Brace** | — |
-| 2 | **Marksman** — accuracy ×1.15 | **Point blank** — damage within the weapon's sweet range ×1.2 |
-| 3 | **Grenades** — may throw them | — |
-| 4 | **Runner** — pace ×1.2 while an enemy is in sight | **Steady aim** — the walking penalty halved: three quarters of the odds on the move, not half |
-| 5 | *Iron nerve* — no effect for now (nobody flees since task 120) | **Cover master** — the odds of dodging in cover ×1.5 |
-| 6 | **Long throw** — grenade range ×1.5 | **Short fuse** — fuse ×0.5 |
-| 7 | **Drill** — fire rate ×1.2 on every weapon | — |
-| 8 | **Frag** — burst radius ×1.5 | **Quick draw** — cooldown ×0.5 |
-| 9 | **Bruiser** — melee damage ×1.5, fists and schword | **Dug in** — dodge +10% while braced |
-| 10 | **Deadeye** — every weapon's far accuracy is its near | **Rampage** — each enemy downed raises the fire rate ×1.1, up to three, until the fight ends |
+| 1 | 10% | 150% |
+| 2 | 12% | 175% |
+| 3 | 15% | 200% |
+| 4 | 20% | 225% |
 
-Every talent applies to the soldier who holds it alone, with whatever
-weapon it carries, and all of them go through the one shooter every
-Bim and every sentry fires with: the odds are the weapon's through the
-soldier's skill, the walking odds its own, the point-blank factor rides
-on the bolt to where it lands, the cover odds and the dodge are read
-where a bolt reaches the body, and a blow's damage is multiplied as it
-is swung. A *rampage* ends — its stacks gone — when the rooms unjoin or
-no enemy is standing in the room.
+**E — Brace** (toggle). Braced, the soldier holds where it stands —
+whatever it was on put down, no errand taken up, under arms — and never
+moves until `E` is pressed again, it is ordered anywhere, or it goes
+down. Its misses are cut by a share, near and far (a hit certain stays
+certain), and it takes less damage, before armour. Four heavy brackets
+round the body say so on the deck.
+
+| rank | misses cut by | damage taken |
+| --- | --- | --- |
+| 1 | 20% | — |
+| 2 | 30% | ×0.90 |
+| 3 | 40% | ×0.85 |
+| 4 | 50%, and the far aim is the near | ×0.80 |
+
+**R — Rampage** (ultimate, active). For its seconds the soldier fires
+faster, takes less, and aims on the move as well as standing still. It
+is ready at the start of every mission, runs on the mission clock (a
+pause stops it), may be used braced — the two stack — and the cooldown
+relics (*Coolant Loop*, *Kill Relay*, *Squad Morale*) shorten its
+cooldown as they do every class ability's. Its box glows while it runs.
+
+| rank | duration | fire rate | damage taken | cooldown |
+| --- | --- | --- | --- | --- |
+| 1 | 8 s | ×1.5 | ×0.80 | 150 s |
+| 2 | 10 s | ×1.75 | ×0.75 | 135 s |
+| 3 | 12 s | ×2.0 | ×0.70 | 120 s |
+| 4 | 12 s, +1 s for each machine you down during it, +6 s at most | ×2.0 | ×0.70 | 120 s |
 
 ### The medic
 
@@ -2639,8 +2677,8 @@ overlapping is allowed the whole apparatus has nothing left to do.
 | Right-click a Bim | A downed crewmate: your own Bim goes and **revives** it; when it cannot, the menu opens with the *Revive* row greyed and the reason |
 | `F1` | Select the Bim you steer and put it in the middle of the view |
 | `l` | Recruit it, or let it go — see below |
-| `q` / `c` / `e` / `r` | The steered crew member's four **ability slots** (task 123). `q` and `e` are the **class actions**: an engineer **sets up a sentry** / **lays sandbags** on the deck tile under the pointer, out of a charge in its pack; a soldier **throws a grenade** at it (hold `q` to see the burst's radius) / **braces** where it stands, or stands easy; a medic **triggers its surge** / **beams the crew member under the pointer**, and unlinks when pressed on the one it holds or on nobody; a tank **taunts** / **puts its wall up**, or takes it down — see [Classes and levels](#classes-and-levels). `c` and `r` are empty for every class for now. The log says why not; nothing with a classless crew member |
-| **Ctrl** + a slot's key, or **Ctrl-click** its box | **Ranks that ability up** rather than using it. It follows whatever key the slot is bound to; ranks themselves come with the soldier's rework |
+| `q` / `c` / `e` / `r` | The steered crew member's four **ability slots** (task 123). `q` and `e` are the **class actions**: an engineer **throws an EMP** at the deck tile under the pointer / **lays sandbags** there, and its `c` **lays a Healing Sentry** and its `r`, the ultimate, **lays its sentry** (task 127); a soldier **throws a grenade** at it (hold `q` to see the burst's radius) / **braces** where it stands, or stands easy, and its `c` is **Weak Spot** (passive, nothing to press) and its `r` goes on a **Rampage**; a medic **triggers its surge** / **beams the crew member under the pointer**, and unlinks when pressed on the one it holds or on nobody; a tank **taunts** / **puts its wall up**, or takes it down — see [Classes and levels](#classes-and-levels). `c` and `r` are empty for every class but the soldier and the engineer for now. The log says why not; nothing with a classless crew member |
+| **Ctrl** + a slot's key, or **Ctrl-click** its box | **Ranks that ability up** rather than using it, for a skill point: the soldier's four abilities (task 124). It follows whatever key the slot is bound to |
 | **WASD**, middle-drag, or the pointer against the window's edge | Pan the view — the deck, or the galaxy chart. The edge scroll's speed is on the Esc sheet's first page (0 turns it off) |
 | `f` | **Attack-move**: the pointer turns into a red crosshair, and the next click on the deck sends the Bim you steer there with its weapon out. It stops to shoot whatever comes into its sights on the way and walks on once nothing is left — Dota's attack-move. `f` again, `Esc` or a right-click puts the crosshair away |
 | `x` | **Attack**: the pointer turns into a red crosshair, and the next click on the deck plants an **attack banner** there. The crew nobody steers fight their way to it — taking the cover on the way, pushing on when nothing is in range — and hold it. `x` again, `Esc` or a right-click puts the crosshair away; the banner clicked where it already stands calls it off |

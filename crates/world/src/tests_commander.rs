@@ -46,7 +46,7 @@ fn level_up(world: &mut World, who: usize, level: u8) {
     let want = LEVEL_XP[level as usize - 1];
     let have = world.progress_of(who as u32).xp;
     world.award(who, want.saturating_sub(have), &mut events);
-    assert!(world.progress_of(who as u32).level() >= level);
+    assert!(world.level_of(who as u32) >= level);
 }
 
 fn pick(world: &mut World, who: u32, talent: Talent) {
@@ -63,7 +63,7 @@ fn pick(world: &mut World, who: u32, talent: Talent) {
             })
         })
         .expect("a talent is on a pick level");
-    if world.progress_of(who).level() < level {
+    if world.level_of(who) < level {
         level_up(world, who as usize, level);
     }
     let events = world.step(&[Command::PickTalent {
@@ -790,7 +790,7 @@ fn the_fixed_levels_are_the_aura_the_rally_and_the_long_reach() {
     world.step(&[]);
     // One: the aura, the discount and the three orders, with nothing
     // picked at all.
-    assert_eq!(world.progress_of(0).level(), 1);
+    assert_eq!(world.level_of(0), 1);
     assert!(world.aura_reaching(1).is_some());
     assert_eq!(world.can_squad(0), Ok(()));
     assert_eq!(world.can_rally(0), Err(Refusal::NoRallyYet));

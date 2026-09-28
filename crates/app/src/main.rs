@@ -117,9 +117,10 @@ pub enum Launch {
     /// `BIMS_DROID_WAVE`), so what a class does against the machines is
     /// the only thing that differs between two of these runs.
     /// `BIMS_CLASS` still wins over it. It opens at
-    /// `dev::COMBAT_CLASS_LEVEL` — the tenth, the top of the tree, with
-    /// every one of the seven talents still to choose (feature 80) — and
-    /// `BIMS_LEVEL` says otherwise.
+    /// `dev::combat_class_level` — the class's top, the tenth with every
+    /// talent still to choose (feature 80), or a ranked kit's sixteenth
+    /// with sixteen skill points to spend (task 124) — and `BIMS_LEVEL`
+    /// says otherwise; `BIMS_RANKS=q,c,e,r` sets a ranked kit's ranks.
     DroidsAs(world::Class),
     /// `TestPlanet` with the town droid-held, the same shortcut.
     DroidsPlanet,

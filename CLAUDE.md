@@ -22,7 +22,7 @@ the build's own answer where this table is a copy:
 | `nix run .#tier2_test` | `cargo run -- tier2_test` | `droids` with **everybody's kit at tier two** — every crew member's gun at it (its kind as the fight dealt it) and a fresh helm, kevlar and leg guards at it on, pieces of the world's — and the machines at tier two (`Session::droids_at_tier`, `World::outfit_for_probe`), so the fight is looked at with nothing at tier one on either side. It was the human garrison's fight until every enemy was a machine (feature 102) |
 | `nix run .#tier3_test` | `cargo run -- tier3_test` | the same at **tier three** |
 | `nix run .#droids` | `cargo run -- droids` | **the fight** — the **machines** (feature 83): the **combat ship** (`shipdesign::fixture::combat_ship`, the playtest ship with bunks and chairs for five) with **sixteen crew** (`COMBAT_CREW`: five at the bunks, eleven standing on the deck), a gun in every hand — the seven kinds dealt round, each at its lowest tier (the minigun two, the rail lance three; task 115) — the **last four of them hired field medics** (`session::COMBAT_MEDICS`, feature 86), docked at the spawn rebuilt as the **arena** (`world::station::arena`, 72 tiles across) that the **droids hold**. `Session::combat` builds the ship, the crew and the arena and `Session::droids` hands the arena to the machines; the `combat` command that stopped at the first half — the arena's own people turned against the crew — is gone with every other human enemy (feature 102), and so are its `combat_<class>` runs and `--combat`; `BIMS_FIGHT`, which staged a fight with a station's *people* on the simulation, went with the human enemies themselves (feature 104). Its people are gone (`World::people_of` is nought for a held station) and a wave of machines stands about it instead: Wardens a sixth, Husks a third, Troopers the rest, **sixteen a wave** (`session::COMBAT_WAVE`, the cap) — the game's own `droid::wave_size` is the base, the *players* and the world clock and nothing else (feature 105), which for one player at day nought is three, and sixteen crew against three is not the fight this command is for. `DROID_REINFORCE_STEPS` is **a minute of the mission clock** here — a real second at 1× — rather than two real minutes, so the next wave is watched landing at the far airlock rather than waited for, and the station has **three waves** rather than the formula's two at day nought (`DROID_WAVES_IN_PROBE`), since one wave landing and then a cleared station is not what these commands are for — the red line along the top says which wave is on the deck, how many of it are standing, and, the moment the last of them is down, **how long until the next lands**. `BIMS_DROID_TIER=2` brings them at a tier, `BIMS_DROID_WAVES=5` gives the station that many waves, `BIMS_DROID_REINFORCE=600` makes the wait between them that many minutes of the mission clock — a minute is a real second at 1× and two and a half *frames* at 24×, so the countdown cannot be caught by a scripted run without lengthening it — and `BIMS_DROID_WAVE=32` makes a wave that many whatever the formula says, which is how the measurements below were taken; `BIMS_DROIDS=1` replaces the wave with a **showcase** — a row a kind and a column a state: idle, firing or striking, arms at nothing, legs at nothing, destroyed — so all fifteen drawings are one screenshot (`World::stage_droids_for_probe`). **`BIMS_STATION_SEED=<n>`** (and `BIMS_STATION_KIND`) fights it in the station seed `n` generates rather than the arena (feature 112, `Session::regenerate_dock_for_probe`) |
-| `nix run .#combat_droids_engineer` … `#combat_droids_commander` | `cargo run -- combat_droids_medic` | that **same fight with the class in hand** (features 79 and 83, `Launch::DroidsAs`): one command a class — `Class::ALL` bar `None`, spelled as `names::CLASS_NAMES` spells it, lower case — and nothing else about the run differs: the same combat ship, the same sixteen crew, the same droid-held arena and the same two dials, with `World::set_class(0, …)` on top (`dev::class_crew`, which takes the command's class and lets `BIMS_CLASS` override it). It opens at the **tenth level** (`dev::COMBAT_CLASS_LEVEL`, feature 80) with all of the class's talents still to choose (seven, the engineer's six since task 113), so the tray opens on the **Skills** tab (feature 83) with that many points to spend; `BIMS_LEVEL=n` says otherwise. The **engineer of such a run has the charges its class deals it** (`world::deploy::SENTRY_CHARGES`, one, beside `SANDBAG_CHARGES`, three). The `combat_<class>` runs beside these were the human garrison's fight, and went with it (feature 102). The parsing is `main.rs::class_named`, and `bims list` prints the lot |
+| `nix run .#combat_droids_engineer` … `#combat_droids_commander` | `cargo run -- combat_droids_medic` | that **same fight with the class in hand** (features 79 and 83, `Launch::DroidsAs`): one command a class — `Class::ALL` bar `None`, spelled as `names::CLASS_NAMES` spells it, lower case — and nothing else about the run differs: the same combat ship, the same sixteen crew, the same droid-held arena and the same two dials, with `World::set_class(0, …)` on top (`dev::class_crew`, which takes the command's class and lets `BIMS_CLASS` override it). It opens at the class's **top level** (`dev::combat_class_level`, feature 80): the tenth with all of the class's talents still to choose (seven), or — for a **ranked kit**, the **soldier's** (task 124) and the **engineer's** (task 127) — the **sixteenth with sixteen skill points** to spend (Ctrl and Q/C/E/R, a Ctrl-click on a box, or the Skills tab): the soldier's Frag Grenade, Weak Spot, Brace and Rampage, the engineer's EMP, Healing Sentry, Sandbags and Sentry; `BIMS_LEVEL=n` says otherwise, and **`BIMS_RANKS=q,c,e,r`** (`BIMS_RANKS=4,4,4,4`) sets a ranked kit's four ranks outright, capped by the level's gates (`World::set_ranks_for_probe`), and puts the charges they give in hand. **An engineer with no rank has no charge at all**: a charge is a counter the world keeps (`World::charges_held`), filled by the ranks and never a kit in a pack, so `BIMS_RANKS=4,4,4,4 bims combat_droids_engineer` is the whole kit to look at. The `combat_<class>` runs beside these were the human garrison's fight, and went with it (feature 102). The parsing is `main.rs::class_named`, and `bims list` prints the lot |
 | `nix run .#droids_planet` | `cargo run -- droids_planet` | `test_planet` with the **town** droid-held: the same random galaxy and roll, the ship set down at the settlement, and the settlement's people replaced by the machines, whose lander sets down on the plain beyond the north gate for an odd wave and the south for an even one. The same minute's reinforcements and the same two dials |
 | `nix run .#crisis` | `cargo run -- crisis` | the **crisis** a day before it first spreads (feature 92): `test`'s own random galaxy and random dock and the machines' origin forced **two hyperlane hops** from the crew's own star (`Session::crisis_for_probe`, `session::CRISIS_HOPS`) where the roll's own floor is eight. The origin is theirs from day nought, as in every run since feature 102, and the clock is wound to the eve of the day the ring round it turns (`DROID_SPREAD_DAYS`, five) — so the next stars turn red on the galaxy chart within a day of the clock — a day the crew have to travel, since only travel moves the world clock (feature 103) — and the crew's own system five days after that. The chart is where it is looked at: the lanes are drawn faintly under the stars, an infested star is crossed in the enemy's red **charted or not**, and the panel says under the star you pick which day it is due (`screens/game.rs::crisis_line`). `BIMS_CRISIS_DAY=n` moves the day the origin turns, and the clock opens a day short of the next ring whatever it says, so the dial is about what the *rest* of the galaxy's days come out at rather than about how long to wait |
 | `nix run .#jammer` | `cargo run -- jammer` | the **jammer** (feature 93): `crisis`'s own random galaxy, random dock and origin **two hops off**, with the clock wound *past* the day this system falls rather than a day short of the first — so the crew open **inside** an infested system, every station of it in the machines' hands (`Session::jammer_for_probe`, `World::infest_here_for_probe`), a wave aboard the one they are tied up at and `DROID_REINFORCE_STEPS` a minute of the mission clock. Two things are looked at from here. The **jam**: the chart lights the lanes out of the ship's star in the hyperdrive's violet, draws the route to whatever star is picked along them, and **bars in red every step of it a jammer would turn back** — a jump *inward*, towards where the machines began, is refused while the jammer station stands (`Refusal::Jammed`), and the panel says which station holds it. And the **tier**: two hops is inside `DROID_TIER_THREE_HOPS`, so the machines come at **tier three** without a dial. `BIMS_DROID_TIER=1` says otherwise, and `BIMS_DROID_WAVES`/`BIMS_DROID_REINFORCE` are `droids`' own |
@@ -121,18 +121,22 @@ no count on it, is what says so), and `BIMS_DYING=2 BIMS_SMOKE_FRAMES=600
 bims droids` is one of its field medics going and fetching for itself.
 `G` is the carry's key in `BIMS_KEYS`. (`BIMS_BANDAGES` and
 `BIMS_MEDKITS` went with the medicine in task 120.)
-**`BIMS_KITS=n`** does the same for the engineer's two **charges**
-(feature 88): exactly `n` of each kit on everybody and both cooldowns
-started afresh. `BIMS_KITS=0 bims combat_droids_engineer` is the one state a
-scripted run cannot walk itself into — no charge in hand and the whole
-wait ahead — so the seconds in the corner of the two boxes at the foot
-of the canvas (`59s` for the sentry, `44s` for the bags) are a
-screenshot rather than a pointer hunting a Bim that is walking away.
+**`BIMS_KITS=n`** does the same for the engineer's three **charges**
+(feature 88, task 127): exactly `n` EMPs, Healing Sentries and sandbags
+on everybody — counters, never kits — and their cooldowns started
+afresh. `BIMS_RANKS=4,4,4,4 BIMS_KITS=0 bims combat_droids_engineer` is
+the one state a scripted run cannot walk itself into — no charge in hand
+and the whole wait ahead — so the seconds swept over the boxes on the
+hero panel are a screenshot rather than a pointer hunting a Bim that is
+walking away. The engineer's sentry (R) is on a cooldown of its own,
+counted from the laying, and not a charge.
 **`BIMS_GRENADES=n`** is that dial for the soldier's **grenade
 charges** (feature 90): since a grenade is a charge on a cooldown like
-a kit — two of them, thirty seconds each, and **no class makes
-anything to use a skill** — `BIMS_GRENADES=0 bims combat_droids_soldier` is
-the `29s` in the corner of the Q box, and `BIMS_GRENADES=1` a soldier
+a kit — as many and as quick as Frag Grenade's rank says (task 124:
+one at thirty seconds at the first rank, two at twenty at the fourth),
+and **no class makes anything to use a skill** —
+`BIMS_RANKS=4,0,0,0 BIMS_GRENADES=0 bims combat_droids_soldier` is
+the `19s` in the corner of the Q box, and `BIMS_GRENADES=1` a soldier
 with one throw in hand and the next on its way.
 **`BIMS_CRISIS_DAY=n`** is the `crisis` command's own (feature 92): the
 machines' first star turns on day `n` instead of day nought, and
@@ -186,8 +190,9 @@ on the simulation is the deck round the crew member dark).
 class on slot 0 of any launch (`dev::class_crew`) — and on the setup
 tab's chooser — and `Q`/`E` in `BIMS_KEYS` press the class's two keys
 over the deck tile under `BIMS_POINTER` (features 74, 75 and 76: an
-engineer's sentry and sandbags — laid four minutes of the clock later,
-four seconds at 1×, the only speed since task 119 — a soldier's grenade and brace, `BIMS_CLASS=soldier`;
+engineer's EMP and sandbags, and `C`/`R` its Healing Sentry and sentry
+(task 127) — sandbags laid four minutes of the clock later at the first
+rank, four seconds at 1×, the only speed since task 119 — a soldier's grenade and brace, `BIMS_CLASS=soldier`;
 a grenade bursts two seconds after `Q`, so `Q` at frame 60 is a burst at
 about 180 at 1×; a medic's surge and heal beam, `BIMS_CLASS=medic`, whose
 `E` wants the pointer **over another crew member** rather than over a
@@ -1840,6 +1845,60 @@ relay wants redeploying), `REFERENCE_CHECKSUM`, `SURVIVORS`, the ship's
 a bandage). `ship::paint::PART_COLORS` lost a stale smelter row it had
 kept since feature 95, so every part after the old smelter is its own
 colour again.
+
+## The soldier's ranked kit (task 124)
+
+The soldier has no talents: four abilities, **four ranks each, bought
+with a skill point a level**, Dota's way. The world's half is
+`crates/world/CLAUDE.md` ("The soldier's ranked kit"), the player's
+`README.md`. What to hold on to:
+
+- **Levels are the class's own table.** `class::level_xp(class)` —
+  `RANKED_LEVEL_XP` (sixteen, its top 3 200 like the others' tenth) for
+  a class with a ranked kit (`class::ranked`: the soldier; the engineer
+  is task 127), `LEVEL_XP` (ten) for the rest — and
+  `Progress::{level, to_next, gain}` take the class; `World::level_of(who)`
+  is the one to ask. A point a level, the first included; unspent points
+  carry over.
+- **`Command::RankUp { slot, ability_slot }`** (0–3 for Q C E R, heard
+  between missions too) → `WorldEvent::RankedUp { who, class,
+  ability_slot, rank }` (130); refused `NoRankedKit` (110),
+  `NoSkillPoint` (111), `TopRank` (112) or `RankLocked` (113). Q, C and E
+  rank `n` at level `2n − 1`, R at 6, 9, 12, 15 (`class::rank_level`).
+  The ranks are `Progress::ranks`, saved, hashed only where any is
+  bought, kept through a death like the picks. The app's
+  `screens::game::rank_up` (Ctrl and a slot's key, a Ctrl-click on its
+  box) sends it; so does the Skills tab's button.
+- **Q Frag Grenade** reads its rank in `World::{charges, charge_cooldown,
+  grenade_damage, grenade_radius}`; **C Weak Spot** is `Skill::crit_chance`,
+  rolled where a hit lands off **the world's own crit stream**
+  (`World::crit_rng`, lent to the crew's room for its step), the bonus
+  `flat × (crit − 1)` added by the world after every relic factor and
+  before the armour (`World::crit_extra`); **E Brace** is
+  `Skill::{miss_cut, damage_taken, deadeye}`; **R Rampage** is
+  `Command::Rampage` (`Refusal::NotLearnt` 114, `AlreadyActive` 115) and
+  `World::soldiers` (`crate::soldier`), read into the skill while it runs.
+- **Nothing moves for a crew without a soldier's ranks**: a skill with no
+  miss cut is the weapon's odds to the bit, no chance draws nothing off
+  the crit stream, and the new state is hashed only where there is any,
+  so `REFERENCE_CHECKSUM` did not move for this task. `SURVIVORS` and the
+  ship's `PINNED` did, on purpose: their soldier starts with no grenade
+  at rank nought where it had two. They were re-pinned once with task
+  127's engineer (whose charges moved them too), the note saying both.
+  `PICTURES` did not move.
+- **The app**: the hero panel's four boxes carry rank pips and a "+"
+  while a point could buy the next rank, the unspent points sit by the
+  experience bar, a critical hit's impact flare is twice the size and
+  brightness (`fx::Fx::critical`), and the character sheet's Skills tab
+  shows a ranked kit's four abilities rank by rank
+  (`CrewPanels::ranked_skills`). `combat_droids_soldier` opens at the
+  sixteenth level with sixteen points; `BIMS_RANKS=q,c,e,r` sets the
+  ranks.
+
+**What moved.** `SAVE_VERSION` **51**, `wire::PROTOCOL` **44** (the
+relay wants redeploying). The soldier's talents (codes 14–27) are
+deleted, their codes left free; `names::TALENT_NAMES` is indexed by code
+with those places empty.
 
 ## The old game deleted (feature 104)
 

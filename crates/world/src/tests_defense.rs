@@ -9,7 +9,7 @@
 
 use shipdesign::fixture::flyer;
 
-use crate::class::{self, Class, Side, Talent};
+use crate::class::{self, Class};
 use crate::data;
 use crate::defense;
 use crate::event::WorldEvent;
@@ -570,36 +570,24 @@ fn a_machine_downed_in_a_town_s_defence_is_experience_and_a_townsperson_is_not()
     }
     assert_eq!(world.progress_of(0).xp, xp + paid, "and only once");
 
-    // *Rampage*: a soldier's stack for the first machine of the wave,
-    // held while the second stands.
+    // A soldier's Rampage at its fourth rank (task 124): a machine it
+    // downs in the town is a second more of it, as it is anywhere.
     let Some((mut world, _)) = a_threatened_town(1.0, 2, Some(2)) else {
         return;
     };
     assert_eq!(world.set_class(0, Class::Soldier), Ok(()));
     let mut events = Vec::new();
-    world.award(0, class::LEVEL_XP[class::LEVELS as usize - 1], &mut events);
-    let (level, side) = (1..=class::LEVELS)
-        .find_map(|l| {
-            class::pick_at(Class::Soldier, l).and_then(|(left, right)| {
-                (left == Talent::Rampage)
-                    .then_some((l, Side::Left))
-                    .or((right == Talent::Rampage).then_some((l, Side::Right)))
-            })
-        })
-        .expect("rampage is on a pick level");
-    world.step(&[Command::PickTalent {
-        slot: 0,
-        level: level as u32,
-        side,
-    }]);
-    assert!(world.has_talent(0, Talent::Rampage));
+    world.award(0, class::RANKED_LEVEL_XP[15], &mut events);
+    world.set_ranks_for_probe(0, [0, 0, 0, 4]);
     assert!(
         until(&mut world, 40, |w| w.droids_standing() > 1),
         "the first wave never landed"
     );
+    world.step(&[Command::Rampage { slot: 0 }]);
+    assert!(world.is_rampaging(0));
     down_by_crew_member_0(&mut world, 0);
     world.step(&[]);
-    assert_eq!(world.aboard.room.rampage(0), 1, "a stack in the town");
+    assert_eq!(world.soldier_of(0).extended, 1.0, "a second more in the town");
 }
 
 /// **A town held is its own system's** (feature 111's first fix): station

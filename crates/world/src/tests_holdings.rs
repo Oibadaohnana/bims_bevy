@@ -461,7 +461,7 @@ fn a_dead_player_is_back_at_the_mission_s_end_with_everything_it_wore() {
         from: GearSource::Armory { id: helm },
     }]);
     world.award(1, 400, &mut Vec::new());
-    let level = world.progress_of(1).level();
+    let level = world.level_of(1);
     let site = another_site_here(&world);
     travel_to(&mut world, site);
 
@@ -497,7 +497,7 @@ fn a_dead_player_is_back_at_the_mission_s_end_with_everything_it_wore() {
         world.aboard.room.worn(1, Part::Head).is_some(),
         "its helm kept"
     );
-    assert_eq!(world.progress_of(1).level(), level, "the level kept");
+    assert_eq!(world.level_of(1), level, "the level kept");
 
     // Again, with less in the pool than the buyback: nought, not below.
     let site = another_site_here(&world);

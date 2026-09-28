@@ -1319,7 +1319,8 @@ impl Character {
     pub fn set_hostile(&mut self, hostile: bool) {
         self.hostile = hostile;
     }
-    /// Braced, or not: the brackets round the body. Drawing only.
+    /// Braced, or not: the brackets round the body, and no wander (task
+    /// 124): a braced soldier stands where it braced.
     pub fn set_braced(&mut self, braced: bool) {
         self.braced = braced;
     }
@@ -1581,10 +1582,16 @@ impl Character {
         // A task outranks a player order, which outranks the Bim's own plans.
         let goal = if self.activity == Activity::Marching {
             self.follow_order()
-        } else if self.scripted || self.recruited || self.post.is_some() || self.lingering {
-            // Recruited, or posted somewhere, it waits to be told. The wander
-            // is the one thing it does unprompted, so that is the one thing
-            // being under orders takes away.
+        } else if self.scripted
+            || self.recruited
+            || self.braced
+            || self.post.is_some()
+            || self.lingering
+        {
+            // Recruited, braced, or posted somewhere, it waits to be told.
+            // The wander is the one thing it does unprompted, so that is the
+            // one thing being under orders takes away — and a braced soldier
+            // in peace wandered off its brace until task 124 said it may not.
             self.hold_still()
         } else {
             self.wander(dt, interior, solids, rng)

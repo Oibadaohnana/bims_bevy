@@ -1,18 +1,17 @@
-//! The soldier class (feature 75): `crate::class`'s second class. A
-//! class owns abilities and nothing else; the brace; the grenades; and
-//! each of the ten levels' talents doing what it says, to the soldier
-//! who holds it alone.
+//! The soldier class (feature 75, its ranked kit task 124): `crate::class`'s
+//! second class. A class owns abilities and nothing else; the sixteen
+//! levels and a skill point a level; the four abilities a rank at a time
+//! — Frag Grenade, Weak Spot, Brace and Rampage — each doing what its rank
+//! says, to the soldier who holds it alone.
 
 use bims::combat::{Gear, Item, WeaponKind};
 use bims::droid::{DroidKind, DroidPart};
 use bims::math::{Vec2, vec2};
-use economy::trade_price;
-use physics::ResourceId;
 use shipdesign::Rotation;
 use shipdesign::fixture::flyer;
 use shipdesign::parts::PartKind;
 
-use crate::class::{self, Ability, Class, LEVEL_XP, Side, Talent};
+use crate::class::{self, Ability, Charge, Class};
 use crate::deploy::{Deck, DeployKind, Deployable};
 use crate::event::{Refusal, WorldEvent};
 use crate::fixture::{REFERENCE_MONEY, simulation_world};
@@ -20,6 +19,14 @@ use crate::world::{Command, World};
 use crate::world_checksum;
 
 const TILE: f32 = shipdesign::TILE as f32;
+
+/// Frag Grenade at the second rank, which the grenade tests throw at:
+/// its burst, its radius in tiles and its cooldown a charge.
+const DAMAGE: f32 = class::GRENADE_DAMAGE[1];
+const RADIUS: f32 = class::GRENADE_RADIUS[1];
+const COOLDOWN: f64 = class::GRENADE_COOLDOWN[1];
+/// A sentry's health as laid at the engineer's first rank.
+const SENTRY_HEALTH: f32 = class::SENTRY_HEALTH[0];
 
 /// Seconds of the room's clock a world step is: a game minute is a real
 /// second at 1×, and a step is a sixtieth of one.
@@ -65,44 +72,38 @@ fn refused_with(events: &[WorldEvent], want: Refusal) -> bool {
         .any(|e| matches!(e, WorldEvent::Refused { why, .. } if *why == want))
 }
 
-/// Straight to a level, off the table.
+/// Straight to a level, off the class's own table.
 fn level_up(world: &mut World, who: usize, level: u8) {
     let mut events = Vec::new();
-    let want = LEVEL_XP[level as usize - 1];
+    let want = class::level_xp(world.class_of(who as u32))[level as usize - 1];
     let have = world.progress_of(who as u32).xp;
     world.award(who, want.saturating_sub(have), &mut events);
-    assert_eq!(world.progress_of(who as u32).level(), level);
+    assert_eq!(world.level_of(who as u32), level);
 }
 
-fn pick(world: &mut World, who: u32, talent: Talent) {
-    let (level, side) = (1..=class::LEVELS)
-        .find_map(|l| {
-            class::pick_at(talent.class(), l).and_then(|(left, right)| {
-                if left == talent {
-                    Some((l, Side::Left))
-                } else if right == talent {
-                    Some((l, Side::Right))
-                } else {
-                    None
-                }
-            })
-        })
-        .expect("a talent is on a pick level");
-    if world.progress_of(who).level() < level {
-        level_up(world, who as usize, level);
+/// Ranks bought one at a time through `Command::RankUp`, Q C E R, the
+/// level raised first to what the highest wants.
+fn ranks(world: &mut World, who: u32, want: [u8; 4]) {
+    let need = (0..4u8)
+        .filter_map(|slot| class::rank_level(Class::Soldier, slot, want[slot as usize]))
+        .chain(std::iter::once(want.iter().sum::<u8>().max(1)))
+        .max()
+        .unwrap_or(1);
+    if world.level_of(who) < need {
+        level_up(world, who as usize, need);
     }
-    let events = world.step(&[Command::PickTalent {
-        slot: who,
-        level: level as u32,
-        side,
-    }]);
-    assert!(
-        events.iter().any(
-            |e| matches!(e, WorldEvent::TalentPicked { talent: t, .. } if *t == talent.code())
-        ),
-        "{talent:?} picked: {events:?}"
-    );
-    assert!(world.has_talent(who, talent));
+    for (slot, &rank) in want.iter().enumerate() {
+        while world.rank_of(who, slot as u8) < rank {
+            let events = world.step(&[Command::RankUp {
+                slot: who,
+                ability_slot: slot as u32,
+            }]);
+            assert!(
+                events.iter().any(|e| matches!(e, WorldEvent::RankedUp { .. })),
+                "rank {rank} of slot {slot}: {events:?}"
+            );
+        }
+    }
 }
 
 fn grenades(world: &World, who: u32) -> u32 {
@@ -110,8 +111,8 @@ fn grenades(world: &World, who: u32) -> u32 {
 }
 
 fn give_grenade(world: &mut World, who: usize) {
-    let grenade = Item::Stack(ResourceId::Grenade as u32);
-    assert_eq!(world.aboard.room.give_stack(who, grenade, 1), 1);
+    let held = world.grenades_of(who as u32);
+    world.set_charges_held(who as u32, Charge::Grenade, held + 1);
 }
 
 fn tile_of(p: Vec2) -> (i32, i32) {
@@ -127,7 +128,7 @@ fn middle(tile: (i32, i32)) -> Vec2 {
 /// (`stage_droid_fight_for_probe`): a target and nothing else.
 fn fight() -> World {
     let mut world = soldier();
-    level_up(&mut world, 0, class::GRENADE_LEVEL);
+    ranks(&mut world, 0, [2, 0, 1, 0]);
     assert!(world.stage_droid_fight_for_probe(DroidKind::Trooper, None));
     for _ in 0..3 {
         world.step(&[]);
@@ -262,7 +263,8 @@ fn lay_bags(world: &mut World, at: Vec2) -> u32 {
         owner_slot: 1,
         deck: Deck::Ship,
         tile: design_tile(world, at),
-        health: crate::deploy::SANDBAG_HEALTH,
+        health: class::SANDBAG_HEALTH[0],
+        expires: None,
     });
     id
 }
@@ -351,7 +353,7 @@ fn every_class_equips_every_weapon_takes_every_errand_and_places_every_site() {
     // the whole of what a class refuses.
     let tile = tile_of(world.aboard.room.bim_pos(1));
     assert_eq!(
-        world.can_deploy(1, crate::deploy::Kit::Sandbag, tile),
+        world.can_deploy(1, DeployKind::Sandbags, tile),
         Err(Refusal::NotAnEngineer)
     );
     assert_eq!(world.can_throw(0, tile), Err(Refusal::NotASoldier));
@@ -376,7 +378,7 @@ fn the_starting_pool_is_the_same_for_any_mix_of_classes_and_each_has_its_kit() {
         assert_eq!(world.money, money, "{a:?} and {b:?}: the same pool");
     }
     // The soldier's kit: a basic auto rifle in hand, the pistol into
-    // the armory (task 113), two grenades; the engineer keeps its own sandbag kits; and
+    // the armory (task 113), and grenades by its rank; the engineer keeps its own sandbag kits; and
     // a class put back to none is the plain start again.
     assert_eq!(world.set_class(0, Class::Soldier), Ok(()));
     assert_eq!(
@@ -393,12 +395,14 @@ fn the_starting_pool_is_the_same_for_any_mix_of_classes_and_each_has_its_kit() {
             .count()
     };
     assert_eq!(in_armory(&world, pistol), 1);
-    assert_eq!(grenades(&world, 0), class::GRENADE_CHARGES);
+    // No grenade before a rank of Frag Grenade (task 124): one at the first.
+    assert_eq!(grenades(&world, 0), 0);
+    ranks(&mut world, 0, [1, 0, 0, 0]);
+    assert_eq!(grenades(&world, 0), 1, "put in hand with the rank");
     assert_eq!(world.set_class(1, Class::Engineer), Ok(()));
-    let kit = Item::Stack(ResourceId::SandbagKit as u32);
     assert_eq!(
-        world.aboard.room.charges_of(1, kit),
-        crate::deploy::SANDBAG_CHARGES
+        world.charges_of(1, Charge::Sandbag),
+        world.charges(1, Charge::Sandbag)
     );
     assert_eq!(grenades(&world, 1), 0);
     assert_eq!(world.set_class(0, Class::None), Ok(()));
@@ -414,8 +418,8 @@ fn the_starting_pool_is_the_same_for_any_mix_of_classes_and_each_has_its_kit() {
     assert_eq!(grenades(&world, 0), 0);
     // And straight from one class to the other swaps the kits.
     assert_eq!(world.set_class(1, Class::Soldier), Ok(()));
-    assert_eq!(world.aboard.room.charges_of(1, kit), 0);
-    assert_eq!(grenades(&world, 1), 2);
+    assert_eq!(world.charges_of(1, Charge::Sandbag), 0);
+    assert_eq!(grenades(&world, 1), 0, "not before a rank");
     assert_eq!(
         world.aboard.room.weapon(1),
         Some(WeaponKind::AutoRifle.basic())
@@ -453,7 +457,7 @@ fn a_braced_soldier_holds_its_ground_takes_no_errand_and_shoots_steadier() {
     );
     assert!(world.aboard.room.is_armed(0));
     let skill = world.skill_of(0);
-    assert_eq!(skill.accuracy, class::BRACE_ACCURACY);
+    assert_eq!(skill.miss_cut, class::BRACE_MISS_CUT[0]);
     assert_eq!(world.aboard.room.skill_for_probe(0), skill);
     assert!(
         events
@@ -469,12 +473,17 @@ fn a_braced_soldier_holds_its_ground_takes_no_errand_and_shoots_steadier() {
             .any(|e| matches!(e, WorldEvent::Braced { who: 0, on: false }))
     );
     assert!(!world.is_braced(0));
-    assert_eq!(world.skill_of(0).accuracy, 1.0);
+    assert_eq!(world.skill_of(0).miss_cut, 0.0);
 }
 
 #[test]
 fn a_brace_ends_on_an_order_to_move_and_on_going_down_and_is_refused_the_others() {
     let mut world = soldier();
+    // Not before a rank of Brace (task 124).
+    assert_eq!(world.can_brace(0), Err(Refusal::NotLearnt));
+    let events = world.step(&[Command::Brace { slot: 0, on: true }]);
+    assert!(refused_with(&events, Refusal::NotLearnt));
+    ranks(&mut world, 0, [0, 0, 1, 0]);
     // Refused for anybody but a soldier, and for one not fit to act.
     let events = world.step(&[Command::Brace { slot: 1, on: true }]);
     assert!(refused_with(&events, Refusal::NotASoldier));
@@ -529,7 +538,7 @@ fn every_reason_a_throw_is_refused() {
     let events = throw(&mut world, 1, tile);
     assert!(refused_with(&events, Refusal::NotASoldier));
     assert_eq!(grenades(&world, 1), 1, "kept");
-    level_up(&mut world, 0, class::GRENADE_LEVEL);
+    ranks(&mut world, 0, [2, 0, 1, 0]);
     assert_eq!(world.can_throw(0, tile), Ok(()));
     // Not fit to act.
     world.aboard.room.knock_out_for_probe(0);
@@ -538,8 +547,7 @@ fn every_reason_a_throw_is_refused() {
     world.aboard.room.patch_up_for_probe(0);
     world.step(&[]);
     // No grenade left.
-    let grenade = Item::Stack(ResourceId::Grenade as u32);
-    world.aboard.room.set_charges(0, grenade, 0);
+    world.set_charges_held(0, Charge::Grenade, 0);
     assert_eq!(world.can_throw(0, tile), Err(Refusal::NoGrenade));
     let events = throw(&mut world, 0, tile);
     assert!(refused_with(&events, Refusal::NoGrenade));
@@ -594,7 +602,7 @@ fn every_reason_a_throw_is_refused() {
     // coming back rather than between throws.
     assert_eq!(world.can_throw(0, tile), Ok(()));
     let left = world.grenade_cooldown_left(0);
-    assert!(left > 0.0 && left <= class::GRENADE_COOLDOWN, "{left}");
+    assert!(left > 0.0 && left <= COOLDOWN, "{left}");
     throw(&mut world, 0, tile);
     assert_eq!(grenades(&world, 0), 0, "both charges thrown");
     let events = throw(&mut world, 0, tile);
@@ -604,18 +612,22 @@ fn every_reason_a_throw_is_refused() {
     // and it is at its two again. Two bursts two tiles off take the whole
     // of one bar (task 120), and a soldier dead of them gets nothing back,
     // so it is kept on its feet: the charges are what is asked here.
-    let steps = (class::GRENADE_COOLDOWN / SECONDS_A_STEP).ceil() as u32;
+    // Held where it threw from: an idle crew member wanders.
+    let spot = world.aboard.room.bim_pos(0);
+    let steps = (COOLDOWN / SECONDS_A_STEP).ceil() as u32;
     for _ in 0..steps {
+        world.aboard.room.put_for_probe(0, spot);
         world.aboard.room.patch_up_for_probe(0);
         world.step(&[]);
     }
     assert_eq!(grenades(&world, 0), 1, "one charge back");
     assert_eq!(world.can_throw(0, tile), Ok(()));
     for _ in 0..steps {
+        world.aboard.room.put_for_probe(0, spot);
         world.aboard.room.patch_up_for_probe(0);
         world.step(&[]);
     }
-    assert_eq!(grenades(&world, 0), class::GRENADE_CHARGES);
+    assert_eq!(grenades(&world, 0), 2);
     assert_eq!(
         world.grenade_cooldown_left(0),
         0.0,
@@ -626,7 +638,7 @@ fn every_reason_a_throw_is_refused() {
 #[test]
 fn the_fuse_burns_its_seconds_and_the_throw_moves_the_checksum() {
     let mut world = soldier();
-    level_up(&mut world, 0, class::GRENADE_LEVEL);
+    ranks(&mut world, 0, [2, 0, 1, 0]);
     let tile = open_run(&world, 0, 3)[2];
     let before = world_checksum(&world);
     throw(&mut world, 0, tile);
@@ -636,8 +648,8 @@ fn the_fuse_burns_its_seconds_and_the_throw_moves_the_checksum() {
     assert_eq!(g.by, 0);
     assert_eq!(g.at, middle(tile));
     assert_eq!(g.fuse, class::GRENADE_FUSE);
-    assert_eq!(g.radius, class::GRENADE_RADIUS * TILE);
-    assert_eq!(g.damage, class::GRENADE_DAMAGE);
+    assert_eq!(g.radius, RADIUS * TILE);
+    assert_eq!(g.damage, DAMAGE);
     let steps = run_until_burst(&mut world);
     let want = (class::GRENADE_FUSE / SECONDS_A_STEP as f32).round() as u32;
     assert!(
@@ -660,7 +672,7 @@ fn the_burst_hurts_the_enemy_at_the_centre_and_less_at_the_edge() {
     throw(&mut world, 0, tile);
     let (took, now) = machine_burst(&mut world);
     let d = (now - middle(tile)).len() / TILE;
-    let want = class::GRENADE_DAMAGE * (1.0 - 0.5 * d / class::GRENADE_RADIUS);
+    let want = DAMAGE * (1.0 - 0.5 * d / RADIUS);
     assert!(
         plausible_on_machine(&world, took, want),
         "took {took} at {d:.2} tiles from the burst, {want} dealt"
@@ -680,8 +692,8 @@ fn the_burst_hurts_the_enemy_at_the_centre_and_less_at_the_edge() {
         throw(&mut world, 0, edge);
         let (took, now) = machine_burst(&mut world);
         let d = (now - middle(edge)).len() / TILE;
-        assert!(d > 0.5 && d < class::GRENADE_RADIUS, "{d}");
-        let want = class::GRENADE_DAMAGE * (1.0 - 0.5 * d / class::GRENADE_RADIUS);
+        assert!(d > 0.5 && d < RADIUS, "{d}");
+        let want = DAMAGE * (1.0 - 0.5 * d / RADIUS);
         assert!(
             plausible_on_machine(&world, took, want),
             "took {took} at {d:.2} tiles from the burst, {want} dealt"
@@ -693,7 +705,7 @@ fn the_burst_hurts_the_enemy_at_the_centre_and_less_at_the_edge() {
                 "took {took} at {d:.2} tiles, wanted {want}"
             );
             assert!(
-                took < class::GRENADE_DAMAGE * 0.85,
+                took < DAMAGE * 0.85,
                 "less than the centre's"
             );
             return;
@@ -741,7 +753,7 @@ fn armour_takes_its_share_of_a_burst_and_the_parts_are_as_they_were() {
     }
     assert!(world.aboard.room.grenades().is_empty(), "it burst");
     let d = (now - middle(tile)).len() / TILE;
-    let dealt = class::GRENADE_DAMAGE * (1.0 - 0.5 * d / class::GRENADE_RADIUS);
+    let dealt = DAMAGE * (1.0 - 0.5 * d / RADIUS);
     assert!(armour_took > 0.0, "the armour took some");
     assert!(
         took < dealt,
@@ -765,7 +777,7 @@ fn armour_takes_its_share_of_a_burst_and_the_parts_are_as_they_were() {
 #[test]
 fn a_burst_hurts_the_thrower_a_crewmate_and_a_sentry_and_blows_the_sandbags_up() {
     let mut world = soldier();
-    level_up(&mut world, 0, class::GRENADE_LEVEL);
+    ranks(&mut world, 0, [2, 0, 1, 0]);
     world.aboard.room.issue(1, Gear::default());
     let run = open_run(&world, 0, 3);
     // The crewmate on the second tile of the run, held there, a sentry
@@ -782,7 +794,8 @@ fn a_burst_hurts_the_thrower_a_crewmate_and_a_sentry_and_blows_the_sandbags_up()
         owner_slot: 1,
         deck: Deck::Ship,
         tile: design_tile(&world, middle(run[2])),
-        health: crate::deploy::SENTRY_HEALTH,
+        health: SENTRY_HEALTH,
+        expires: None,
     });
     world.step(&[]);
     assert_eq!(world.aboard.room.sentries().len(), 1);
@@ -816,7 +829,7 @@ fn a_burst_hurts_the_thrower_a_crewmate_and_a_sentry_and_blows_the_sandbags_up()
     let burst = middle(run[1]);
     let dealt = |at: Vec2| {
         let d = (at - burst).len() / TILE;
-        class::GRENADE_DAMAGE * (1.0 - 0.5 * d / class::GRENADE_RADIUS)
+        DAMAGE * (1.0 - 0.5 * d / RADIUS)
     };
     let me = world.aboard.room.bim_pos(0);
     let mine = my_health - world.aboard.room.health(0);
@@ -838,12 +851,12 @@ fn a_burst_hurts_the_thrower_a_crewmate_and_a_sentry_and_blows_the_sandbags_up()
     let at_sentry = dealt(middle(run[2]));
     match world.deployable(sentry) {
         Some(s) => assert!(
-            (crate::deploy::SENTRY_HEALTH - s.health - at_sentry).abs() < 1.0,
+            (SENTRY_HEALTH - s.health - at_sentry).abs() < 1.0,
             "the sentry took {}",
-            crate::deploy::SENTRY_HEALTH - s.health
+            SENTRY_HEALTH - s.health
         ),
         None => assert!(
-            at_sentry >= crate::deploy::SENTRY_HEALTH,
+            at_sentry >= SENTRY_HEALTH,
             "the sentry went to a burst of {at_sentry}"
         ),
     }
@@ -865,7 +878,7 @@ fn cover_halves_a_burst_sandbags_do_not_stop_it_and_a_wall_does() {
     // is thrown until a body or a leg is hit.
     for _ in 0..6 {
         let mut world = soldier();
-        level_up(&mut world, 0, class::GRENADE_LEVEL);
+        ranks(&mut world, 0, [2, 0, 1, 0]);
         world.aboard.room.issue(1, Gear::default());
         let run = open_run(&world, 0, 3);
         let mate = world.aboard.room.put_for_probe(1, middle(run[0]));
@@ -880,7 +893,7 @@ fn cover_halves_a_burst_sandbags_do_not_stop_it_and_a_wall_does() {
         throw(&mut world, 0, run[2]);
         run_until_burst(&mut world);
         let d = (mate - middle(run[2])).len() / TILE;
-        let full = class::GRENADE_DAMAGE * (1.0 - 0.5 * d / class::GRENADE_RADIUS);
+        let full = DAMAGE * (1.0 - 0.5 * d / RADIUS);
         let took = before - world.aboard.room.health(1);
         assert!(took > 0.0, "sandbags do not stop a burst");
         assert!(
@@ -898,7 +911,7 @@ fn cover_halves_a_burst_sandbags_do_not_stop_it_and_a_wall_does() {
     // A wall does: a deck tile in the radius of the crewmate with no line
     // to it, and the crewmate is untouched.
     let mut world = soldier();
-    level_up(&mut world, 0, class::GRENADE_LEVEL);
+    ranks(&mut world, 0, [2, 0, 1, 0]);
     world.aboard.room.issue(1, Gear::default());
     let from = world.aboard.room.bim_pos(0);
     let here = tile_of(from);
@@ -912,7 +925,7 @@ fn cover_halves_a_burst_sandbags_do_not_stop_it_and_a_wall_does() {
                 .map(middle)
                 .find(|&m| {
                     world.aboard.room.is_deck_tile(m)
-                        && (m - b).len() <= class::GRENADE_RADIUS * TILE
+                        && (m - b).len() <= RADIUS * TILE
                         && !world.aboard.room.line_clear(b, m)
                 })
                 .map(|m| (t, m))
@@ -935,8 +948,7 @@ fn a_shut_door_stops_a_burst() {
     // off on one side throwing at the tile a tile short of the door, the
     // crewmate two and a half tiles off on the other.
     let mut world = soldier();
-    level_up(&mut world, 0, class::GRENADE_LEVEL);
-    pick(&mut world, 0, Talent::Frag);
+    ranks(&mut world, 0, [4, 0, 1, 0]);
     world.aboard.room.issue(1, Gear::default());
     let doors = world.aboard.room.ship_doors_for_probe();
     assert!(!doors.is_empty());
@@ -984,7 +996,7 @@ fn a_shut_door_stops_a_burst() {
 }
 
 #[test]
-fn two_runs_of_a_grenade_fight_on_one_seed_are_the_same_fight_and_the_book_is_the_labour_rule() {
+fn two_runs_of_a_grenade_fight_on_one_seed_are_the_same_fight() {
     let run = || {
         let mut world = fight();
         let at = machine_at(&world);
@@ -995,299 +1007,451 @@ fn two_runs_of_a_grenade_fight_on_one_seed_are_the_same_fight_and_the_book_is_th
         world_checksum(&world)
     };
     assert_eq!(run(), run());
-    // A grenade is a charge on a cooldown since feature 90 and is made
-    // nowhere since feature 95; a desk still buys one off a pack, and
-    // its book value is a hand-written number like every other.
-    assert_eq!(trade_price(ResourceId::Grenade), 80);
 }
 
-// --- D: the ten levels ----------------------------------------------------------
+// --- D: sixteen levels, a point a level, and a rank a point (task 124) --------
 
 #[test]
-fn the_fixed_levels_are_the_brace_the_grenades_and_the_drill() {
-    let mut world = soldier();
-    assert_eq!(world.can_brace(0), Ok(()), "level one");
-    let tile = open_run(&world, 0, 2)[1];
-    assert_eq!(world.can_throw(0, tile), Err(Refusal::NoGrenadesYet));
-    level_up(&mut world, 0, 3);
-    assert_eq!(world.can_throw(0, tile), Ok(()), "level three");
-    assert_eq!(world.skill_of(0).fire_rate, 1.0);
-    level_up(&mut world, 0, 6);
-    assert_eq!(world.skill_of(0).fire_rate, 1.0);
-    level_up(&mut world, 0, 7);
-    assert_eq!(
-        world.skill_of(0).fire_rate,
-        class::DRILL_FIRE_RATE,
-        "level seven"
-    );
-    let stats = world.skill_of(0).stats(WeaponKind::AutoRifle.basic());
-    assert_eq!(
-        stats.fire_rate,
-        WeaponKind::AutoRifle.basic().stats().fire_rate * class::DRILL_FIRE_RATE
-    );
-    // The crewmate has none of it.
-    assert_eq!(world.skill_of(1), bims::combat::Skill::NONE);
+fn the_soldier_climbs_sixteen_levels_and_every_other_class_ten() {
+    let mut world = simulation_world(flyer(3), REFERENCE_MONEY, 3);
+    assert_eq!(world.set_class(0, Class::Soldier), Ok(()));
+    assert_eq!(world.set_class(1, Class::Medic), Ok(()));
+    let mut events = Vec::new();
+    world.award(0, 3_199, &mut events);
+    world.award(1, 3_199, &mut events);
+    assert_eq!(world.level_of(0), 15);
+    assert_eq!(world.level_of(1), 9, "the old table: 2 500 is the ninth");
+    world.award(0, 1, &mut events);
+    world.award(1, 1, &mut events);
+    assert_eq!(world.level_of(0), 16, "the top at 3 200");
+    assert_eq!(world.level_of(1), 10, "and the others' top at 3 200 too");
+    world.award(0, 10_000, &mut events);
+    world.award(1, 10_000, &mut events);
+    assert_eq!((world.level_of(0), world.level_of(1)), (16, 10));
+    // Every level said once, the soldier's sixteen and the medic's ten.
+    let said = |who: u32| {
+        events
+            .iter()
+            .filter(|e| matches!(e, WorldEvent::LevelUp { who: w, .. } if *w == who))
+            .count()
+    };
+    assert_eq!((said(0), said(1)), (15, 9));
+    // A point a level, the first included; none for a class of talents.
+    assert_eq!(world.points_of(0), 16);
+    assert_eq!(world.points_of(1), 0);
 }
 
 #[test]
-fn marksman_and_point_blank() {
-    let mut world = soldier();
-    pick(&mut world, 0, Talent::Marksman);
-    let skill = world.skill_of(0);
-    assert_eq!(skill.accuracy, class::MARKSMAN_ACCURACY);
-    let base = WeaponKind::LaserPistol.basic().stats();
-    let stats = skill.stats(WeaponKind::LaserPistol.basic());
-    assert_eq!(stats.accuracy, base.accuracy * class::MARKSMAN_ACCURACY);
-    assert_eq!(
-        stats.accuracy_far,
-        base.accuracy_far * class::MARKSMAN_ACCURACY
+fn a_rank_up_is_refused_without_a_kit_a_point_a_level_or_room_at_the_top() {
+    let mut world = simulation_world(flyer(3), REFERENCE_MONEY, 3);
+    assert_eq!(world.set_class(0, Class::Soldier), Ok(()));
+    assert_eq!(world.set_class(1, Class::Medic), Ok(()));
+    let rank_up = |world: &mut World, slot: u32, ability_slot: u32| {
+        world.step(&[Command::RankUp { slot, ability_slot }])
+    };
+    // A class of talents, and no class at all, have no ranked kit.
+    for slot in [1, 2] {
+        let events = rank_up(&mut world, slot, 0);
+        assert!(refused_with(&events, Refusal::NoRankedKit), "{slot}");
+    }
+    // Nor is there a fifth slot.
+    assert!(refused_with(&rank_up(&mut world, 0, 4), Refusal::NoRankedKit));
+    // The ultimate wants the sixth level.
+    assert!(refused_with(&rank_up(&mut world, 0, 3), Refusal::RankLocked));
+    // The first level's point.
+    let events = rank_up(&mut world, 0, 0);
+    assert!(
+        events.iter().any(|e| matches!(
+            e,
+            WorldEvent::RankedUp {
+                who: 0,
+                ability_slot: 0,
+                rank: 1,
+                ..
+            }
+        )),
+        "{events:?}"
     );
-    assert_eq!(skill.point_blank, 1.0);
-    let mut world = soldier();
-    pick(&mut world, 0, Talent::PointBlank);
-    assert_eq!(world.skill_of(0).point_blank, class::POINT_BLANK_DAMAGE);
-    assert_eq!(world.skill_of(0).accuracy, 1.0);
-    assert_eq!(world.skill_of(1), bims::combat::Skill::NONE);
-    // The same pick on an engineer is the engineer's talent, not this.
-    let mut world = basic();
-    assert_eq!(world.set_class(0, Class::Engineer), Ok(()));
+    assert!(refused_with(&rank_up(&mut world, 0, 1), Refusal::NoSkillPoint));
+    // A point to spend, and Q's second rank still a level off.
     level_up(&mut world, 0, 2);
-    world.step(&[Command::PickTalent {
+    assert!(refused_with(&rank_up(&mut world, 0, 0), Refusal::RankLocked));
+    level_up(&mut world, 0, 16);
+    for _ in 0..3 {
+        rank_up(&mut world, 0, 0);
+    }
+    assert_eq!(world.rank_of(0, 0), 4);
+    assert!(refused_with(&rank_up(&mut world, 0, 0), Refusal::TopRank));
+    // A rank bought is in the checksum, and a pick is nothing a soldier
+    // makes any more.
+    let before = world_checksum(&world);
+    rank_up(&mut world, 0, 1);
+    assert_ne!(world_checksum(&world), before);
+    let events = world.step(&[Command::PickTalent {
         slot: 0,
         level: 2,
-        side: Side::Left,
+        side: crate::class::Side::Left,
     }]);
-    assert!(world.has_talent(0, Talent::ReinforcedSand));
-    assert!(!world.has_talent(0, Talent::Marksman));
-    assert_eq!(world.skill_of(0), bims::combat::Skill::NONE);
+    assert!(refused_with(&events, Refusal::NotAPickLevel));
+    // A point is spent between missions as well.
+    world.leave_for_probe();
+    rank_up(&mut world, 0, 2);
+    assert_eq!(world.rank_of(0, 2), 1);
 }
 
 #[test]
-fn runner_and_steady_aim() {
+fn frag_grenade_s_charges_cooldown_burst_and_radius_go_by_its_rank() {
     let mut world = soldier();
-    pick(&mut world, 0, Talent::Runner);
-    assert_eq!(world.skill_of(0).pace, class::RUNNER_PACE);
-    assert_eq!(world.skill_of(0).walking, bims::combat::WALKING_ACCURACY);
-    world.step(&[]);
-    assert_eq!(
-        world.aboard.room.skill_for_probe(0).pace,
-        class::RUNNER_PACE
-    );
-    assert_eq!(world.aboard.room.skill_for_probe(1).pace, 1.0);
-    let mut world = soldier();
-    pick(&mut world, 0, Talent::SteadyAim);
-    assert_eq!(world.skill_of(0).walking, class::steady_aim_walking());
-    assert_eq!(world.skill_of(0).walking, 0.75);
-    assert_eq!(world.skill_of(0).pace, 1.0);
-}
-
-#[test]
-fn cover_master_dodges_more() {
-    // *Iron nerve*, its other side, is a no-op since task 120: nobody
-    // runs.
-    let mut world = soldier();
-    pick(&mut world, 0, Talent::CoverMaster);
-    assert_eq!(
-        world.skill_of(0).cover_dodge,
-        bims::combat::DODGE_IN_COVER * class::COVER_MASTER_DODGE
-    );
-    assert_eq!(world.skill_of(1).cover_dodge, bims::combat::DODGE_IN_COVER);
-}
-
-#[test]
-fn long_throw_short_fuse_frag_and_quick_draw_are_the_grenade_s_numbers() {
-    let mut world = soldier();
-    assert_eq!(world.grenade_range(0), class::GRENADE_RANGE);
-    assert_eq!(world.grenade_fuse(0), class::GRENADE_FUSE);
-    assert_eq!(world.grenade_radius(0), class::GRENADE_RADIUS);
-    assert_eq!(world.grenade_cooldown(0), class::GRENADE_COOLDOWN);
-    pick(&mut world, 0, Talent::LongThrow);
-    assert_eq!(
-        world.grenade_range(0),
-        class::GRENADE_RANGE * class::LONG_THROW_RANGE
-    );
-    assert_eq!(world.grenade_fuse(0), class::GRENADE_FUSE);
-    pick(&mut world, 0, Talent::Frag);
-    assert_eq!(
-        world.grenade_radius(0),
-        class::GRENADE_RADIUS * class::FRAG_RADIUS
-    );
-    assert_eq!(world.grenade_cooldown(0), class::GRENADE_COOLDOWN);
-    let mut world = soldier();
-    pick(&mut world, 0, Talent::ShortFuse);
-    assert_eq!(
-        world.grenade_fuse(0),
-        class::GRENADE_FUSE * class::SHORT_FUSE_TIME
-    );
-    assert_eq!(world.grenade_range(0), class::GRENADE_RANGE);
-    pick(&mut world, 0, Talent::QuickDraw);
-    assert_eq!(
-        world.grenade_cooldown(0),
-        class::GRENADE_COOLDOWN * class::QUICK_DRAW_COOLDOWN
-    );
-    assert_eq!(world.grenade_radius(0), class::GRENADE_RADIUS);
-    // And the throw carries them: a short fuse bursts in half the steps,
-    // and a charge thrown comes back in half the time.
-    let tile = open_run(&world, 0, 3)[2];
+    let tile = open_run(&world, 0, 2)[1];
+    assert_eq!(world.charges(0, Charge::Grenade), 0);
+    assert_eq!(world.can_throw(0, tile), Err(Refusal::NoGrenadesYet));
+    assert_eq!((world.grenade_damage(0), world.grenade_radius(0)), (0.0, 0.0));
+    let want = [
+        (60.0, 2.0, 1, 30.0),
+        (75.0, 2.5, 2, 30.0),
+        (90.0, 2.5, 2, 24.0),
+        (110.0, 3.0, 2, 20.0),
+    ];
+    for (rank, &(damage, radius, charges, cooldown)) in (1..=4u8).zip(&want) {
+        ranks(&mut world, 0, [rank, 0, 0, 0]);
+        assert_eq!(world.grenade_damage(0), damage, "rank {rank}");
+        assert_eq!(world.grenade_radius(0), radius, "rank {rank}");
+        assert_eq!(world.charges(0, Charge::Grenade), charges);
+        assert_eq!(world.grenades_of(0), charges, "put in hand with the rank");
+        assert_eq!(world.grenade_cooldown(0), cooldown, "rank {rank}");
+        assert_eq!(world.grenade_range(0), 8.0);
+        assert_eq!(world.grenade_fuse(0), 2.0);
+    }
+    // And the fourth rank's burst in the air is its numbers.
     throw(&mut world, 0, tile);
     let g = world.aboard.room.grenades()[0];
-    assert_eq!(g.fuse, class::GRENADE_FUSE * class::SHORT_FUSE_TIME);
-    let steps = run_until_burst(&mut world);
-    let want = (g.fuse / SECONDS_A_STEP as f32).round() as u32;
-    assert!((steps as i64 - want as i64).abs() <= 2, "{steps} vs {want}");
-    throw(&mut world, 0, tile);
-    assert_eq!(grenades(&world, 0), 0, "both charges thrown");
-    let half =
-        (class::GRENADE_COOLDOWN * class::QUICK_DRAW_COOLDOWN / SECONDS_A_STEP).ceil() as u32;
-    for _ in 0..=half {
-        world.step(&[]);
-    }
-    assert!(grenades(&world, 0) >= 1, "a charge back in half the time");
-    assert_eq!(world.can_throw(0, tile), Ok(()));
-    // Nothing of it for the crewmate.
-    assert_eq!(world.grenade_range(1), class::GRENADE_RANGE);
-    assert_eq!(world.grenade_fuse(1), class::GRENADE_FUSE);
+    assert_eq!((g.damage, g.radius), (110.0, 3.0 * TILE));
 }
 
-/// *Bruiser*, *dug in* and *deadeye* are the soldier's numbers. The last
-/// pick's other side, *rampage*, is the test after this one.
+/// A crit hit by the soldier on the staged machine's chassis, landed the
+/// way a bolt lands it, and what the chassis lost.
+fn crit_on_machine(world: &mut World, damage: f32, flat: f32) -> f32 {
+    let bims = world.residents.as_ref().unwrap().aboard.room.crew_count() as usize;
+    let before = machine(world).body.health(DroidPart::Chassis);
+    let roll = (0..1000)
+        .map(|k| k as f32 / 1000.0 + 0.0005)
+        .find(|&r| DroidPart::hit_by(r) == DroidPart::Chassis)
+        .unwrap();
+    world.aboard.room.land_hit_for_probe(bims::combat::Hit {
+        who: bims,
+        part: bims::health::Part::Body,
+        damage,
+        cut: false,
+        by: Some(0),
+        blast: false,
+        roll,
+        strips: 0.0,
+        flat,
+        crit: true,
+    });
+    world.step(&[]);
+    before - machine(world).body.health(DroidPart::Chassis)
+}
+
 #[test]
-fn bruiser_dug_in_and_deadeye() {
-    let mut world = soldier();
-    pick(&mut world, 0, Talent::Bruiser);
-    assert_eq!(world.skill_of(0).melee, class::BRUISER_MELEE);
-    assert_eq!(world.skill_of(0).dodge, 0.0);
-    let mut world = soldier();
-    pick(&mut world, 0, Talent::DugInBraced);
-    assert_eq!(world.skill_of(0).dodge, 0.0, "not braced: nothing");
-    world.step(&[Command::Brace { slot: 0, on: true }]);
-    assert_eq!(world.skill_of(0).dodge, class::DUG_IN_DODGE);
-    assert_eq!(world.skill_of(0).melee, 1.0);
-    world.step(&[Command::Brace { slot: 0, on: false }]);
-    assert_eq!(world.skill_of(0).dodge, 0.0);
-    let mut world = soldier();
-    pick(&mut world, 0, Talent::Deadeye);
-    let skill = world.skill_of(0);
-    assert!(skill.deadeye);
-    for kind in WeaponKind::ALL {
-        let stats = skill.stats(kind.basic());
-        assert_eq!(stats.accuracy_far, stats.accuracy, "{kind:?}");
-        assert_eq!(stats.accuracy, kind.basic().stats().accuracy);
+fn a_critical_hit_adds_its_share_of_the_flat_damage_after_every_factor() {
+    // Weak Spot's four ranks: a crit with no relic is the flat damage times
+    // the crit damage, exactly.
+    for (rank, crit) in (1..=4u8).zip(class::WEAK_SPOT_DAMAGE) {
+        let mut world = fight();
+        disarm(&mut world, 0);
+        world.aboard.room.issue(1, Gear::default());
+        ranks(&mut world, 0, [2, rank, 1, 0]);
+        let chance = class::WEAK_SPOT_CHANCE[rank as usize - 1];
+        assert_eq!(world.skill_of(0).crit_chance, chance);
+        let took = crit_on_machine(&mut world, 10.0, 10.0);
+        assert!((took - 10.0 * crit).abs() < 1e-3, "rank {rank}: took {took}");
     }
-    assert!(!world.skill_of(1).deadeye);
-}
-
-/// A second machine stood on the station's deck `tiles` tiles off the
-/// staged one, held where it is put the same way: far enough that a
-/// burst on the first never reaches it.
-fn machine_beyond(world: &mut World, tiles: f32) {
-    let residents = world.residents.as_mut().expect("alongside");
-    let room = &mut residents.aboard.room;
-    let first = room.droid(0).expect("the staged machine");
-    let (kind, tier, wave, from, heading) =
-        (first.kind, first.tier, first.wave, first.pos, first.heading);
-    let at = [
-        vec2(1.0, 0.0),
-        vec2(-1.0, 0.0),
-        vec2(0.0, 1.0),
-        vec2(0.0, -1.0),
-    ]
-    .into_iter()
-    .map(|d| from + d * (tiles * TILE))
-    .find(|&p| room.is_deck_tile(p))
-    .expect("deck that far off the machine");
-    let mut other = bims::droid::Droid::new(kind, tier, 1, wave, at, heading, 0x5EC0_4D);
-    other.posing = true;
-    room.adopt_droids(vec![other], Vec2::ZERO);
-    residents.aboard.crew = residents.aboard.room.body_count();
-    let stood = residents
-        .aboard
-        .room
-        .droid(1)
-        .expect("the second machine")
-        .pos;
-    assert!(
-        (stood - from).len() > (class::GRENADE_RADIUS + 1.0) * TILE,
-        "out of the burst's reach"
-    );
-}
-
-/// A machine destroyed where it stands, by its body index.
-fn wreck(world: &mut World, who: usize) {
-    world
-        .residents
-        .as_mut()
-        .unwrap()
-        .aboard
-        .room
-        .strike_droid(who, DroidPart::Chassis, 1e6);
-}
-
-/// *Rampage*: a stack for each machine the soldier downs while another
-/// still stands, up to three, each one the fire rate ×1.1 — and every
-/// stack gone once none stands, the fight over. The soldier's grenade is
-/// the last thing to land on the first machine, and a second stands out
-/// of the burst's reach so the fight goes on past it. (Until the fight
-/// counted the machines as enemies standing, the stack was cleared the
-/// step it was earned.)
-#[test]
-fn rampage_is_a_stack_a_machine_downed_until_none_stands() {
+    // A *Focusing Lens*: the lens is on the bolt's own damage — what the
+    // room lands — and the crit adds its share of the flat damage alone,
+    // so the lens never multiplies the crit.
     let mut world = fight();
     disarm(&mut world, 0);
-    disarm(&mut world, 1);
-    machine_beyond(&mut world, 6.0);
-    pick(&mut world, 0, Talent::Rampage);
-    // The tenth level has the seventh's drill under it.
-    let drill = class::DRILL_FIRE_RATE;
-    assert_eq!(world.skill_of(0).fire_rate, drill);
-    assert_eq!(world.aboard.room.rampage(0), 0);
-    let tile = tile_of(machine_at(&world));
-    assert_eq!(world.can_throw(0, tile), Ok(()));
-    throw(&mut world, 0, tile);
-    let (took, _) = machine_burst(&mut world);
-    assert!(took > 0.0, "the burst landed");
-    // Whatever the burst left of it destroyed: the grenade was the last
-    // thing to land on it, so it is the soldier's.
-    wreck(&mut world, 0);
+    world.aboard.room.issue(1, Gear::default());
+    ranks(&mut world, 0, [2, 4, 1, 0]);
+    world.give_relic_for_probe(0, crate::relic::Relic::FocusingLens);
+    let lens = world.skill_of(0).damage;
+    assert!(lens > 1.0);
+    let took = crit_on_machine(&mut world, 10.0 * lens, 10.0);
+    let bonus = took - 10.0 * lens;
+    assert!(
+        (bonus - 10.0 * (class::WEAK_SPOT_DAMAGE[3] - 1.0)).abs() < 1e-3,
+        "the crit's share {bonus}"
+    );
+    // No rank of Weak Spot, no crit's worth, whatever the hit says.
+    let mut world = fight();
+    disarm(&mut world, 0);
+    world.aboard.room.issue(1, Gear::default());
+    assert_eq!(world.skill_of(0).crit_chance, 0.0);
+    assert!((crit_on_machine(&mut world, 10.0, 10.0) - 10.0).abs() < 1e-3);
+}
+
+#[test]
+fn a_critical_hit_is_added_before_the_armour_takes_its_share() {
+    // A Manufacturer in its armour (day six): a crit of a flat point on a
+    // part its piece covers is 2.25 at the fourth rank, all of it past the
+    // piece's protection of 2 — so the piece drains a quarter. Were the
+    // crit added after the armour, the flat point would be stopped whole
+    // and the crit's share land on the body.
+    let mut world = simulation_world(flyer(2), REFERENCE_MONEY, 2);
+    assert_eq!(world.set_class(0, Class::Soldier), Ok(()));
+    ranks(&mut world, 0, [0, 4, 0, 0]);
+    world
+        .manufacturer_dock_for_probe(6)
+        .expect("a Manufacturers' site");
     for _ in 0..3 {
-        if world.aboard.room.rampage(0) > 0 {
-            break;
+        world.step(&[]);
+    }
+    disarm(&mut world, 0);
+    world.aboard.room.issue(1, Gear::default());
+    // Everybody held, so nothing lands but the hit.
+    let found = {
+        let room = &world.residents.as_ref().unwrap().aboard.room;
+        (0..room.crew_count() as usize).find_map(|who| {
+            let gear = room.gear(who);
+            bims::health::Part::ALL.into_iter().find_map(|part| {
+                gear.worn(part)
+                    .filter(|p| !p.broken() && p.stats().protection == 2.0)
+                    .map(|p| (who, part, p.kind))
+            })
+        })
+    };
+    let (who, part, _) = found.expect("a Manufacturer in armour on day six");
+    let piece = |world: &World| {
+        let room = &world.residents.as_ref().unwrap().aboard.room;
+        (room.gear(who).worn(part).unwrap().health, room.health(who))
+    };
+    let (armour, body) = piece(&world);
+    let roll = (0..1000)
+        .map(|k| k as f32 / 1000.0 + 0.0005)
+        .find(|&r| bims::health::Part::hit_by(r) == part)
+        .unwrap();
+    world.aboard.room.land_hit_for_probe(bims::combat::Hit {
+        who,
+        part,
+        damage: 1.0,
+        cut: false,
+        by: Some(0),
+        blast: false,
+        roll,
+        strips: 0.0,
+        flat: 1.0,
+        crit: true,
+    });
+    world.step(&[]);
+    let (armour_now, body_now) = piece(&world);
+    assert!(
+        (armour - armour_now - 0.25).abs() < 1e-3,
+        "the piece drained {}",
+        armour - armour_now
+    );
+    assert!(body_now >= body - 1e-3, "the body took nothing");
+}
+
+#[test]
+fn brace_cuts_the_misses_and_the_damage_taken_by_its_rank() {
+    let mut world = soldier();
+    let rifle = WeaponKind::AutoRifle.basic().stats();
+    for rank in 1..=4u8 {
+        ranks(&mut world, 0, [0, 0, rank, 0]);
+        // Standing easy, nothing.
+        world.step(&[Command::Brace { slot: 0, on: false }]);
+        let easy = world.skill_of(0);
+        assert_eq!((easy.miss_cut, easy.damage_taken, easy.deadeye), (0.0, 1.0, false));
+        world.step(&[Command::Brace { slot: 0, on: true }]);
+        let s = world.skill_of(0);
+        let cut = class::BRACE_MISS_CUT[rank as usize - 1];
+        assert_eq!(s.miss_cut, cut, "rank {rank}");
+        assert_eq!(
+            s.damage_taken,
+            class::BRACE_DAMAGE_TAKEN[rank as usize - 1],
+            "rank {rank}"
+        );
+        assert_eq!(s.deadeye, rank == 4, "far aim equals near at the fourth");
+        let aimed = s.stats(WeaponKind::AutoRifle.basic());
+        let near = 1.0 - (1.0 - rifle.accuracy) * (1.0 - cut);
+        assert!((aimed.accuracy - near).abs() < 1e-6);
+        if rank == 4 {
+            assert_eq!(aimed.accuracy_far, aimed.accuracy);
+        } else {
+            let far = 1.0 - (1.0 - rifle.accuracy_far) * (1.0 - cut);
+            assert!((aimed.accuracy_far - far).abs() < 1e-6);
         }
+        assert!(aimed.accuracy <= 1.0 && aimed.accuracy_far <= 1.0);
+        assert_eq!(world.aboard.room.skill_for_probe(0), s, "the room's is the world's");
+    }
+}
+
+/// Steps enough for `seconds` of the mission clock.
+fn run_for(world: &mut World, seconds: f64) {
+    for _ in 0..(seconds / SECONDS_A_STEP).ceil() as u32 {
+        world.aboard.room.patch_up_for_probe(0);
         world.step(&[]);
     }
-    assert!(machine(&world).destroyed);
-    assert_eq!(
-        world.aboard.room.rampage(0),
-        1,
-        "a stack while the second machine stands"
-    );
-    assert_eq!(
-        world.skill_of(0).fire_rate,
-        drill * class::RAMPAGE_FIRE_RATE
-    );
-    for _ in 0..3 {
-        world.step(&[]);
+}
+
+#[test]
+fn rampage_fires_faster_takes_less_and_aims_on_the_move_for_its_seconds() {
+    let mut world = soldier();
+    let events = world.step(&[Command::Rampage { slot: 0 }]);
+    assert!(refused_with(&events, Refusal::NotLearnt), "{events:?}");
+    let want = [
+        (8.0, 1.5, 0.80, 150.0),
+        (10.0, 1.75, 0.75, 135.0),
+        (12.0, 2.0, 0.70, 120.0),
+        (12.0, 2.0, 0.70, 120.0),
+    ];
+    for (rank, &(seconds, rate, taken, cooldown)) in (1..=4u8).zip(&want) {
+        let mut world = soldier();
+        ranks(&mut world, 0, [0, 0, 0, rank]);
+        assert_eq!(world.rampage_seconds(0), seconds, "rank {rank}");
+        assert_eq!(world.rampage_cooldown(0), cooldown, "rank {rank}");
+        let before = world.skill_of(0);
+        let events = world.step(&[Command::Rampage { slot: 0 }]);
+        assert!(
+            events
+                .iter()
+                .any(|e| matches!(e, WorldEvent::Rampaged { who: 0 })),
+            "{events:?}"
+        );
+        assert!(world.is_rampaging(0));
+        let s = world.skill_of(0);
+        assert_eq!(s.fire_rate, before.fire_rate * rate, "rank {rank}");
+        assert_eq!(s.damage_taken, taken, "rank {rank}");
+        assert_eq!(s.walking, 1.0, "full aim on the move");
+        assert_eq!(world.aboard.room.skill_for_probe(0), s);
+        // Refused while it runs, and on its cooldown after.
+        let events = world.step(&[Command::Rampage { slot: 0 }]);
+        assert!(refused_with(&events, Refusal::AlreadyActive));
+        // It ends on time.
+        run_for(&mut world, seconds - 0.5);
+        assert!(world.is_rampaging(0), "rank {rank}: still on");
+        run_for(&mut world, 1.0);
+        assert!(!world.is_rampaging(0), "rank {rank}: over");
+        assert_eq!(world.skill_of(0), before);
+        assert_eq!(world.can_rampage(0), Err(Refusal::CoolingDown));
+        let left = world.rampage_cooldown_left(0);
+        assert!(
+            left > 0.0 && left <= cooldown - seconds + 1.0,
+            "rank {rank}: {left}"
+        );
     }
-    assert_eq!(
-        world.aboard.room.rampage(0),
-        1,
-        "and it holds while one does"
+}
+
+#[test]
+fn rampage_is_refused_downed_ready_at_every_mission_and_stacks_with_brace() {
+    let mut world = soldier();
+    ranks(&mut world, 0, [0, 0, 4, 4]);
+    world.aboard.room.knock_out_for_probe(0);
+    world.step(&[]);
+    assert_eq!(world.can_rampage(0), Err(Refusal::OutOfReach), "downed");
+    world.aboard.room.patch_up_for_probe(0);
+    world.step(&[]);
+    // Braced and on a Rampage: both at once.
+    world.step(&[Command::Brace { slot: 0, on: true }]);
+    assert_eq!(world.can_rampage(0), Ok(()), "may go on one braced");
+    world.step(&[Command::Rampage { slot: 0 }]);
+    assert!(world.is_braced(0) && world.is_rampaging(0));
+    let s = world.skill_of(0);
+    assert!((s.damage_taken - 0.80 * 0.70).abs() < 1e-6, "{}", s.damage_taken);
+    assert_eq!(s.miss_cut, 0.5);
+    assert!(s.deadeye);
+    assert_eq!(s.fire_rate, 2.0);
+    let here = world.aboard.room.bim_pos(0);
+    run_for(&mut world, 2.0);
+    assert!(
+        (world.aboard.room.bim_pos(0) - here).len() < 1.0,
+        "still held where it stands"
     );
-    // Capped at three, and the checksum knows the stacks.
+    // The fourth rank's extension: a second a machine it downs, six at
+    // the most.
+    let until = world.soldier_of(0).until;
+    for _ in 0..10 {
+        world.rampage_kill(0);
+    }
+    let s = world.soldier_of(0);
+    assert_eq!(s.extended, class::RAMPAGE_EXTEND_MAX);
+    assert!(
+        (s.until - until - 6.0 * time::MINUTES_PER_SECOND).abs() < 1e-9,
+        "{} {}",
+        s.until,
+        until
+    );
+    // And a kill credited through the bounty's own door counts.
+    let mut other = soldier();
+    ranks(&mut other, 0, [0, 0, 0, 4]);
+    other.step(&[Command::Rampage { slot: 0 }]);
+    let mut events = Vec::new();
+    other.machine_kills(&[(Some(0), 0)], &mut events);
+    assert_eq!(other.soldier_of(0).extended, 1.0);
+    // Not below the fourth rank.
+    let mut third = soldier();
+    ranks(&mut third, 0, [0, 0, 0, 3]);
+    third.step(&[Command::Rampage { slot: 0 }]);
+    third.rampage_kill(0);
+    assert_eq!(third.soldier_of(0).extended, 0.0);
+    // Ready at every mission's start, whatever its cooldown.
+    run_for(&mut world, 20.0);
+    assert!(world.rampage_cooldown_left(0) > 0.0);
+    world.leave_for_probe();
+    let here = world.current_site();
+    let site = world
+        .sites_at(world.star_id)
+        .into_iter()
+        .find(|&s| Some(s) != here && world.travel_quote(s).is_ok_and(|q| !q.trader))
+        .expect("somewhere else to go");
+    world.step(&[Command::Propose {
+        slot: 0,
+        star: site.star,
+        station: site.station,
+    }]);
+    for slot in 1..world.players() {
+        world.step(&[Command::Accept { slot, yes: true }]);
+    }
+    assert_eq!(world.run.phase, crate::run::Phase::Mission);
+    assert_eq!(world.rampage_cooldown_left(0), 0.0);
+    assert_eq!(world.can_rampage(0), Ok(()));
+}
+
+#[test]
+fn the_cooldown_relics_shorten_the_rampage_s_cooldown() {
+    let mut world = soldier();
+    ranks(&mut world, 0, [0, 0, 0, 1]);
+    let plain = world.rampage_cooldown(0);
+    world.give_relic_for_probe(0, crate::relic::Relic::CoolantLoop);
+    assert!(world.rampage_cooldown(0) < plain, "*Coolant Loop*");
+    world.step(&[Command::Rampage { slot: 0 }]);
+    run_for(&mut world, 10.0);
+    let left = world.rampage_cooldown_left(0);
+    // *Kill Relay*: a kill takes seconds off every class cooldown running.
+    world.give_relic_for_probe(0, crate::relic::Relic::KillRelay);
+    let mut events = Vec::new();
+    world.machine_kills(&[(Some(0), 0)], &mut events);
+    assert!(world.rampage_cooldown_left(0) < left, "*Kill Relay*");
+    // And it leaves the Rampage running's end alone.
+    assert!(!world.is_rampaging(0));
+}
+
+#[test]
+fn a_soldier_s_ranks_and_rampage_are_saved_and_hashed() {
+    let run = || {
+        let mut world = fight();
+        ranks(&mut world, 0, [2, 4, 1, 4]);
+        world.step(&[Command::Rampage { slot: 0 }]);
+        for _ in 0..600 {
+            world.step(&[]);
+        }
+        world_checksum(&world)
+    };
+    assert_eq!(run(), run(), "one seed, one fight, crits and all");
+    let mut world = soldier();
+    ranks(&mut world, 0, [0, 0, 0, 1]);
     let before = world_checksum(&world);
-    world.aboard.room.set_rampage(0, 3);
-    assert_ne!(world_checksum(&world), before);
-    assert_eq!(
-        world.skill_of(0).fire_rate,
-        drill * class::RAMPAGE_FIRE_RATE.powi(class::RAMPAGE_STACKS as i32)
-    );
-    // The last machine down: the fight is over, and the stacks with it.
-    wreck(&mut world, 1);
-    for _ in 0..3 {
-        world.step(&[]);
-    }
-    assert_eq!(world.aboard.room.rampage(0), 0);
-    assert_eq!(world.skill_of(0).fire_rate, drill);
-    // Nothing for the crewmate, ever.
-    assert_eq!(world.aboard.room.rampage(1), 0);
+    world.step(&[Command::Rampage { slot: 0 }]);
+    assert_ne!(world_checksum(&world), before, "a Rampage is in the checksum");
 }

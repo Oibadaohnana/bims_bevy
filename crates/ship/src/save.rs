@@ -151,7 +151,14 @@ use crate::game::Game;
 /// countdown where it was parts, blood, wounds and traumas; the medicine
 /// charges, the drug lab and the medic's field surgery went, and a Bim
 /// lost its fear and its sealing in.
-pub const SAVE_VERSION: u32 = 50;
+/// 51: the soldier's ranked kit (task 124) — a crew member's progress
+/// keeps the ranks bought, the world keeps each soldier's Rampage and Weak
+/// Spot's crit stream, and the soldier's talents are gone.
+/// 52: the engineer's ranked kit (task 127) — every class charge a counter
+/// on the world (`World::charges_held`), the engineer's ultimate's cooldown
+/// (`World::engineers`), a deployable's end, a machine's stun, and the
+/// sandbag and sentry kits and the grenade gone from the resources.
+pub const SAVE_VERSION: u32 = 52;
 
 /// What the file holds, read back.
 #[derive(serde::Deserialize)]

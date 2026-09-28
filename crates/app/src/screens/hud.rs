@@ -214,14 +214,16 @@ fn chip_frame() -> egui::Frame {
 // --- experience -----------------------------------------------------------------
 
 /// How far through its level `xp` is, in whole points: what is in, and
-/// what the level wants in all. `None` at the tenth, which is the top.
-pub fn xp_into(xp: u32) -> Option<(u8, u32, u32)> {
-    let level = world::class::level_of(xp);
-    if level >= world::class::LEVELS {
+/// what the level wants in all, on the class's own table (task 124: a
+/// ranked kit climbs sixteen). `None` at the top.
+pub fn xp_into(class: world::Class, xp: u32) -> Option<(u8, u32, u32)> {
+    let table = world::class::level_xp(class);
+    let level = world::class::level_of(class, xp);
+    if level as usize >= table.len() {
         return None;
     }
-    let from = world::class::LEVEL_XP[level as usize - 1];
-    let to = world::class::LEVEL_XP[level as usize];
+    let from = table[level as usize - 1];
+    let to = table[level as usize];
     Some((level, xp.saturating_sub(from), to - from))
 }
 
@@ -231,15 +233,15 @@ pub fn xp_text(class: world::Class, xp: u32) -> String {
     if class == world::Class::None {
         return NO_CLASS.into();
     }
-    match xp_into(xp) {
+    match xp_into(class, xp) {
         Some((level, into, of)) => hero_xp_line(level, into, of),
-        None => hero_xp_max(world::class::LEVELS),
+        None => hero_xp_max(world::class::levels(class)),
     }
 }
 
 /// How full the experience bar is: full at the top.
-pub fn xp_fill(xp: u32) -> f32 {
-    match xp_into(xp) {
+pub fn xp_fill(class: world::Class, xp: u32) -> f32 {
+    match xp_into(class, xp) {
         Some((_, into, of)) if of > 0 => into as f32 / of as f32,
         Some(_) => 0.0,
         None => 1.0,
@@ -499,7 +501,7 @@ pub fn portraits_of(world: &world::World, local: u32, watched: Option<u32>) -> V
                 who,
                 name: crew_name(who),
                 class,
-                level: (class != world::Class::None).then(|| world.progress_of(who).level()),
+                level: (class != world::Class::None).then(|| world.level_of(who)),
                 body: (points / total).clamp(0.0, 1.0),
                 armour: (armour / total).clamp(0.0, 1.0),
                 hurt: crate::crew::is_hurt(room, w),
@@ -816,6 +818,9 @@ pub struct Hero {
     pub peril: Option<(String, egui::Color32)>,
     /// A talent waiting to be picked.
     pub pick: bool,
+    /// Skill points not spent on a ranked kit's ranks (task 124), said
+    /// beside the experience bar.
+    pub points_waiting: u8,
 }
 
 impl Hero {
@@ -896,13 +901,25 @@ pub fn hero_panel(
                         ui.spacing_mut().item_spacing.y = 3.0;
                         health_row(ui, hero, critical);
                         if hero.class != world::Class::None {
-                            thin_bar(ui, HERO_BAR_W, xp_fill(hero.xp), theme::HYPER);
+                            thin_bar(ui, HERO_BAR_W, xp_fill(hero.class, hero.xp), theme::HYPER);
                         }
-                        ui.label(
-                            egui::RichText::new(xp_text(hero.class, hero.xp))
-                                .small()
-                                .color(theme::MUTED),
-                        );
+                        ui.horizontal(|ui| {
+                            ui.label(
+                                egui::RichText::new(xp_text(hero.class, hero.xp))
+                                    .small()
+                                    .color(theme::MUTED),
+                            );
+                            // And the skill points waiting on a ranked kit
+                            // (task 124), beside it.
+                            if let Some(points) = crate::names::points_waiting(hero.points_waiting) {
+                                ui.label(
+                                    egui::RichText::new(points)
+                                        .small()
+                                        .strong()
+                                        .color(theme::ACCENT),
+                                );
+                            }
+                        });
                         // Down, the countdown is the grey laid over the
                         // panel's to say, below, and not a line under it
                         // as well.
@@ -1025,7 +1042,7 @@ fn level_disc(ui: &mut egui::Ui, hero: &Hero) {
     painter.circle_stroke(at, LEVEL_DISC, egui::Stroke::new(3.0, theme::LINE));
     let classed = hero.class != world::Class::None;
     if classed {
-        let share = xp_fill(hero.xp);
+        let share = xp_fill(hero.class, hero.xp);
         let steps = ((share * 48.0).ceil() as usize).max(1);
         let arc: Vec<egui::Pos2> = (0..=steps)
             .map(|i| {
@@ -1038,7 +1055,7 @@ fn level_disc(ui: &mut egui::Ui, hero: &Hero) {
         }
     }
     let level = if classed {
-        world::class::level_of(hero.xp).to_string()
+        world::class::level_of(hero.class, hero.xp).to_string()
     } else {
         "–".to_string()
     };
@@ -1103,15 +1120,20 @@ mod tests {
     /// with the bar full at the tenth.
     #[test]
     fn the_experience_line_is_whole_numbers_and_max_at_the_top() {
-        let soldier = world::Class::Soldier;
-        assert_eq!(xp_text(soldier, 0), "Lv 1 · 0 / 100 XP");
-        assert_eq!(xp_text(soldier, 500), "Lv 4 · 50 / 250 XP");
-        assert_eq!(xp_text(soldier, 3_199), "Lv 9 · 699 / 700 XP");
-        assert!((xp_fill(500) - 0.2).abs() < 1e-6);
+        let medic = world::Class::Medic;
+        assert_eq!(xp_text(medic, 0), "Lv 1 · 0 / 100 XP");
+        assert_eq!(xp_text(medic, 500), "Lv 4 · 50 / 250 XP");
+        assert_eq!(xp_text(medic, 3_199), "Lv 9 · 699 / 700 XP");
+        assert!((xp_fill(medic, 500) - 0.2).abs() < 1e-6);
         for xp in [3_200, 3_201, u32::MAX] {
-            assert_eq!(xp_text(soldier, xp), "Lv 10 · Max");
-            assert_eq!(xp_fill(xp), 1.0);
+            assert_eq!(xp_text(medic, xp), "Lv 10 · Max");
+            assert_eq!(xp_fill(medic, xp), 1.0);
         }
+        // A ranked kit climbs its own sixteen (task 124).
+        let soldier = world::Class::Soldier;
+        assert_eq!(xp_text(soldier, 500), "Lv 4 · 140 / 160 XP");
+        assert_eq!(xp_text(soldier, 3_199), "Lv 15 · 329 / 330 XP");
+        assert_eq!(xp_text(soldier, 3_200), "Lv 16 · Max");
         assert_eq!(xp_text(world::Class::None, 500), "No class");
         // Nothing but digits between the words: no fraction of a point.
         assert!(!xp_text(soldier, 777).contains('.'));

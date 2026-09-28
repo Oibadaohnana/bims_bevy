@@ -586,6 +586,20 @@ impl World {
             *last -= minutes;
             any = true;
         }
+        // The engineer's sentry's cooldown (task 127), never its time.
+        if let Some(engineer) = self.engineers.get_mut(who as usize)
+            && let Some(laid) = engineer.sentry_laid.as_mut()
+        {
+            *laid -= minutes;
+            any = true;
+        }
+        // A Rampage's cooldown (task 124), never the one running.
+        if let Some(soldier) = self.soldiers.get_mut(who as usize)
+            && let Some(began) = soldier.began.as_mut()
+        {
+            *began -= minutes;
+            any = true;
+        }
         any
     }
 
@@ -651,6 +665,9 @@ impl World {
             total = total.saturating_add(paid);
             if let Some(b) = by {
                 self.relic_trigger(b, Trigger::Kill, events);
+                // A Rampage at its fourth rank is lengthened by a kill
+                // credited the same way (task 124).
+                self.rampage_kill(b);
             }
             if self.any_relics() {
                 let more = self.relics_on_a_kill(kill, events);

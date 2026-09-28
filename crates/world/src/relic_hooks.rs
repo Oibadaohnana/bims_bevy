@@ -322,11 +322,19 @@ impl World {
                 continue;
             }
             let rolled = DroidPart::hit_by(hit.roll);
+            let exposed = room.droid(i).is_some_and(|d| d.is_exposed());
             let (part, damage) = if relics {
                 self.relic_hit_on_machine(&hit, i, rolled, &crew_at)
+            } else if exposed {
+                // A top-rank EMP's stun (task 127): the machine takes more
+                // from everyone while it lasts — the relics' own sum.
+                let factor = relic::factor(class::EMP_EXPOSE_PERCENT) as f32;
+                (rolled, hit.damage * factor)
             } else {
                 (rolled, hit.damage)
             };
+            // Weak Spot's crit (task 124), after every relic's factor.
+            let damage = damage + self.crit_extra(&hit);
             let Some(residents) = self.residents.as_mut() else {
                 break;
             };
@@ -402,6 +410,12 @@ impl World {
             _ => false,
         };
 
+        // A top-rank EMP's stun (task 127) is on the same sum as the relics.
+        let exposed = if d.is_exposed() {
+            class::EMP_EXPOSE_PERCENT
+        } else {
+            0
+        };
         let mut percent = match slot {
             Some(s) => relic::stat_percent(
                 &held,
@@ -435,6 +449,7 @@ impl World {
                 })
             });
         percent = percent.saturating_add(mark.unwrap_or(0));
+        percent = percent.saturating_add(exposed);
         let mut damage = hit.damage * relic::factor(percent) as f32;
         // *Total Teardown*: a hit on a limb already gone tears into the
         // chassis for more.

@@ -5465,3 +5465,150 @@ self-beam and the revive times; `tests_relic.rs` has
 `tests_manufacturer.rs`
 `a_manufacturer_downed_is_never_revived_and_nothing_of_it_is_taken`, and
 `tests_mission.rs` `the_slow_a_downing_leaves_is_cleared_at_the_mission_s_end`.
+
+## The soldier's ranked kit (task 124)
+
+> "The soldier: the brace, the skills and the grenades (feature 75)"
+> above describes the ten levels of talents **task 124 deleted**, and the
+> soldier's half of "A grenade is a charge" its old numbers. This is what
+> the soldier is now.
+
+**Levels are a class's own.** `class::level_xp(class)` is the table —
+`RANKED_LEVEL_XP` (sixteen levels, the top at 3 200, where the others'
+tenth is) for a class with a ranked kit, `LEVEL_XP` for the rest — and
+`class::levels`, `class::level_of(class, xp)` and `Progress::{level,
+to_next, gain}` all take the class. `World::level_of(who)` is what every
+gate asks. `class::ranked(class)` says which classes have a kit: the
+soldier (the engineer's is task 127).
+
+**A rank is a point.** `Progress::ranks: [u8; 4]` (serde default) is the
+ranks bought, Q C E R (`class::SLOT_Q` …); `Progress::points(class)` is
+the level less the ranks bought, nought for a class of talents.
+`Progress::can_rank_up`/`rank_up` refuse, in order, `NoRankedKit` (110:
+no kit, or a slot past R), `NoSkillPoint` (111), `TopRank` (112, at
+`MAX_RANK`) and `RankLocked` (113: below `class::rank_level` — Q, C and
+E rank `n` at `2n − 1`, R at `ULTIMATE_LEVELS`). `Command::RankUp { slot,
+ability_slot }` is heard between missions as in one (`World::rank_up`),
+says `WorldEvent::RankedUp { who, class, ability_slot, rank }` (130), and
+a Frag Grenade rank that lifts the charges puts the new ones in hand at
+once (`grant_charges`). `World::{rank_of, points_of, can_rank_up}` are
+the readings; `set_ranks_for_probe(who, ranks)` sets them outright,
+capped by the level's gates (`BIMS_RANKS`). The ranks are hashed with
+the progress only where any is bought, and kept through a death as the
+picks are. `PickTalent` for a soldier is `NotAPickLevel`: `pick_at` has
+no soldier rows, and `Talent` 14–27 are deleted, their codes free
+(`Talent::from_code` searches `ALL`, 55 long).
+
+- **Q, Frag Grenade**: `World::charges(who, Charge::Grenade)` and
+  `charge_cooldown` read `GRENADE_CHARGES`/`GRENADE_COOLDOWN` of the rank
+  (nought charges at rank nought, so nothing restocks), `grenade_damage`
+  and `grenade_radius` its `GRENADE_DAMAGE`/`GRENADE_RADIUS`; range and
+  fuse are fixed. `can_throw` is `NoGrenadesYet` at rank nought. The
+  soldier's start gives the rank's grenades (none at rank nought).
+- **C, Weak Spot**: `Skill::crit_chance` (`WEAK_SPOT_CHANCE`). The roll is
+  the room's, where a hit lands — a friendly bolt on a target, a Bim's
+  blow — off **`World::crit_rng`**, a stream of its own off the galaxy's
+  seed (`CRIT_SALT`), lent to the crew's room around its step
+  (`Game::lend_crit_rng`/`take_crit_rng`) and hashed only once drawn on
+  (`fresh_crit_rng`). A body with no chance draws nothing, so no other
+  roll of a fight moves. The hit carries `crit` and `flat` (the weapon's
+  damage at the distance, before any factor); the world adds
+  `flat × (WEAK_SPOT_DAMAGE − 1)` (`World::crit_extra`) **after** every
+  relic's factor — in `land_on_machines` after the machine hooks, in
+  `visit` for a hit on a Bim — and before the armour, which the room's
+  `strike` takes after. A grenade's burst is never critical.
+- **E, Brace**: `NotLearnt` (114) at rank nought. Braced, `soldier_skill`
+  sets `Skill::miss_cut` (`BRACE_MISS_CUT`: the miss chance times one
+  less it, near and far, in `Skill::stats_at`, the hit chance never past
+  one, and with no cut the odds to the bit as before),
+  `damage_taken` × `BRACE_DAMAGE_TAKEN`, and `deadeye` at the fourth.
+- **R, Rampage**: `crate::soldier::Soldier { began, until, extended }` a
+  crew member on `World::soldiers` (serde default), mission minutes.
+  `Command::Rampage` — `can_rampage`: `NotASoldier`, `OutOfReach` (not fit
+  to act, or downed), `NotLearnt`, `AlreadyActive` (115), `CoolingDown` —
+  sets `began` and `until`. While it runs `soldier_skill` multiplies the
+  fire rate and the damage taken and sets `walking` to one; it stacks with
+  the brace. `rampage_kill`, from `machine_kills_noted` for a kill
+  credited the way *Kill Relay*'s is, adds `RAMPAGE_EXTEND_SECONDS` at
+  the fourth rank up to `RAMPAGE_EXTEND_MAX`. The cooldown runs from
+  `began`, times *Coolant Loop*'s factor, and `cooldowns_less` moves
+  `began` (never `until`); `make_whole` clears every soldier, so a
+  Rampage is ready at every mission's start. Hashed only where one has
+  been gone on.
+
+The old *rampage* stacks (`settle_rampage`, `Bim::rampage`) and
+`enemy_standing`, which only they read, are gone; the checksum eats a
+nought where the stacks were. `tests_soldier.rs` is the task's tests and
+`class::tests::a_ranked_kit_climbs_sixteen_levels_and_buys_a_rank_a_point`
+the table's; the room's are `combat::tests::weak_spot_rolls_off_its_own_stream_and_every_other_roll_is_as_it_was`
+and `a_miss_cut_takes_its_share_of_the_misses_and_never_passes_one`.
+
+## The engineer's ranked kit, and charges without kits (task 127)
+
+> "The engineer: a class, its levels and its deployables", "Charges, not
+> crafting" and "A grenade is a charge" above describe what **task 127
+> replaced**: the engineer's ten levels of talents, the kits in a pack and
+> the sentry charge. Kept as history; this is what is there now.
+
+- **The engineer is a ranked kit** beside the soldier's (task 124):
+  `class::ranked` answers for both, sixteen levels on `RANKED_LEVEL_XP`,
+  a skill point a level, the same gates (`rank_level`). Its slots are **Q
+  EMP, C Healing Sentry, E Sandbags, R Sentry** (the ultimate); every
+  number is a table of four in `class.rs` (`EMP_*`, `HEALING_SENTRY_*`,
+  `SANDBAG_*`, `SENTRY_*`), read with `by_rank`. The engineer's talents
+  (codes 0–13) are gone and their codes left free; `pick_at` and
+  `fixed_at` have no engineer rows, so `PickTalent` is `NotAPickLevel`.
+- **A charge is a counter** (`World::charges_held`, a `[u32;
+  Charge::CODES]` a crew member, saved and hashed): `Charge` is
+  `Sandbag` 0, `Grenade` 2, `HealingSentry` 3, `Emp` 4 — the sentry's (1)
+  gone, its code free — `Charge::slot` the ability slot whose rank says
+  how many (`World::charges`) and how fast (`charge_cooldown`).
+  `restock_charges` raises the counter; a deployable laid, an EMP or a
+  grenade thrown lowers it; `grant_charges` puts in hand what a rank
+  lifted (`rank_up`, `set_ranks_for_probe`); `fill_charges` sets every
+  counter at a mission's start. **No charge is an item**:
+  `ResourceId::{SandbagKit, SentryKit, Grenade}` (15–17) are gone from
+  every crate, their codes left free (`ResourceId::CODES` is 22 and
+  `ALL` 19 — index by `ResourceId::from_code`, never `ALL[code]`).
+  `reused_kits` went: **laying is nobody's experience** (task 119's rule,
+  kept at the user's word), so a reused charge needs no counting.
+- **Deployables** (`crate::deploy`): `DeployKind::{Sandbags, Sentry,
+  HealingSentry}` (0, 1, 2), a `Deployable::expires` for the ultimate's.
+  `Command::Deploy { kind }` lays sandbags or a Healing Sentry,
+  `Command::Sentry { slot, tile }` the ultimate, `Command::Emp { slot, x,
+  y }` throws; `PackUp` gives a charge back capped at its charges and
+  refuses the sentry (`NoSuchDeployable`). The laying is the room's
+  `Kind::Deploy { kind, steady }` — the ultimate's `steady`, so a hit
+  does not drop it. `laid_health`, `deploy_minutes`, `laid_of`.
+- **The Healing Sentry** is a room `Sentry` with `heals` set: a target of
+  the enemy's like the gun sentry, never firing. `World::healing_links`
+  is the rule — crew on their feet (not downed, not outside), short of
+  `MAX_HEALTH`, within the rank's radius and `Game::line_clear` of it —
+  and `heal_by_sentries`, in stage 5 after the medics, heals the best
+  rate only (`Game::heal`, never past full). Its charges are the
+  standing limit (`finish_deploy` destroys the oldest).
+- **The ultimate** (`crate::engineer::Engineer::sentry_laid`, saved and
+  hashed where set): `sentry_cooldown(_left)`, `sentry_seconds`,
+  `sentry_left`; the cooldown runs from the laying on the mission clock,
+  is moved by the relics' cooldown cut (`cooldowns_less`), and every
+  mission's start forgets it and takes a standing sentry off
+  (`make_whole`). `expire_sentries` removes it when its time is up;
+  `drop_station_deployables` takes it with the station's at an unjoin.
+  One stands at a time; `sentry_weapon` is the minigun at the rank's
+  tier, `sentry_skill` its fire rate.
+- **The EMP** is the room's grenade with `stun` set (`Game::throw_emp`):
+  its burst lands no hit and notes every target within its radius
+  (`Game::take_stuns`); `settle_stuns`, right after the crew's room steps
+  and before the residents' does, stuns each machine past the residents'
+  Bims (`Game::stun_droid` → `Droid::stun`, which refuses the Heart's
+  machines). A stunned droid is `Droid::stunned`/`exposed` (saved; hashed
+  here only where one is). Rank four's `EMP_EXPOSE_PERCENT` goes on the
+  `Stat::MachineDamage` sum in `land_on_machines` while the machine is
+  stunned.
+
+**What moved.** `SAVE_VERSION` **52**, `wire::PROTOCOL` **45** (the relay
+wants redeploying), `worldgen`'s `REFERENCE_CHECKSUMS` (three price leans
+fewer — no bump), and `REFERENCE_CHECKSUM`, `SURVIVORS` and the ship's
+`PINNED` (with task 124's soldier; each note says why). `shipdesign`'s
+hashes did not move: the cargo is still twenty-two slots.
+`tests_engineer.rs` is the task's tests.

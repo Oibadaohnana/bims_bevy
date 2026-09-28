@@ -308,6 +308,13 @@ pub fn world_checksum(world: &World) -> u64 {
             hash.eat(u64::from(level));
             hash.eat(side.code() as u64);
         }
+        // And the ranks bought of a ranked kit (task 124), eaten only where
+        // there is one: a crew with none hashes as it always did.
+        if progress.ranks != [0; crate::class::SLOTS] {
+            for rank in progress.ranks {
+                hash.eat(u64::from(rank));
+            }
+        }
     }
     hash.eat(u64::from(world.undocked_once));
     hash.eat(world.deployables.len() as u64);
@@ -319,11 +326,36 @@ pub fn world_checksum(world: &World) -> u64 {
         hash.eat(d.tile.0 as u64);
         hash.eat(d.tile.1 as u64);
         hash.eat_rounded(d.health as f64, HEALTH_GRID);
+        // The sentry's end (task 127), only where there is one.
+        if let Some(until) = d.expires {
+            hash.eat_rounded(until, FINE_GRID);
+        }
     }
     hash.eat(world.next_deployable as u64);
-    hash.eat(world.reused_kits.len() as u64);
-    for &n in &world.reused_kits {
-        hash.eat(n as u64);
+    // Every crew member's charges held (task 127): counters, by code.
+    hash.eat(world.charges_held.len() as u64);
+    for held in &world.charges_held {
+        for &n in held {
+            hash.eat(n as u64);
+        }
+    }
+    // The engineers' ultimate cooldowns (task 127), only where one runs.
+    for (who, e) in world.engineers.iter().enumerate() {
+        if let Some(laid) = e.sentry_laid {
+            hash.eat(who as u64);
+            hash.eat_rounded(laid, FINE_GRID);
+        }
+    }
+    // And every machine an EMP has stunned (task 127), only where one is.
+    if let Some(residents) = &world.residents {
+        let room = &residents.aboard.room;
+        for i in 0..room.droid_count() as usize {
+            if let Some(d) = room.droid(i).filter(|d| d.is_stunned()) {
+                hash.eat(i as u64);
+                hash.eat_rounded(d.stunned as f64, FINE_GRID);
+                hash.eat(u64::from(d.exposed));
+            }
+        }
     }
     // And when each crew member's next charge of each kind is due, on
     // the clock's grid (features 88 and 90): a charge in the pack is a
@@ -342,8 +374,9 @@ pub fn world_checksum(world: &World) -> u64 {
         }
     }
 
-    // The soldiers (feature 75): who is braced and each one's *rampage*
-    // stacks — the room's, read off it like the positions, integers. A
+    // The soldiers (feature 75): who is braced — the room's, read off it
+    // like the positions — and a nought where the *rampage* stacks were
+    // (the talent went with task 124), so the layout is what it was. A
     // soldier braced is a different fight from one standing easy. When
     // its next grenade is due went in with the charges above (feature
     // 90), where the engineer's kits' cooldowns are.
@@ -351,7 +384,7 @@ pub fn world_checksum(world: &World) -> u64 {
     hash.eat(crew as u64);
     for who in 0..crew {
         hash.eat(u64::from(world.aboard.room.is_braced(who)));
-        hash.eat(world.aboard.room.rampage(who) as u64);
+        hash.eat(0);
         // And the shots it has fired, which an *Overcharge Cell* counts
         // (feature 106).
         hash.eat(u64::from(world.aboard.room.shots(who)));
@@ -668,6 +701,27 @@ pub fn world_checksum(world: &World) -> u64 {
                 }
             }
         }
+    }
+
+    // The soldiers' ranked kit (task 124): every Rampage's clock, and
+    // Weak Spot's own stream. Eaten only where there is any — a Rampage
+    // gone on, the stream drawn on — so a run with neither hashes as it
+    // always did.
+    if world.soldiers.iter().any(|s| s.began.is_some()) {
+        hash.eat(world.soldiers.len() as u64);
+        for s in &world.soldiers {
+            match s.began {
+                Some(b) => hash.eat_rounded(b, FINE_GRID),
+                None => hash.eat(u64::MAX),
+            }
+            hash.eat_rounded(s.until, FINE_GRID);
+            hash.eat_rounded(s.extended, FINE_GRID);
+        }
+    }
+    if world.crit_rng != world.fresh_crit_rng() {
+        let (state, inc) = world.crit_rng.state();
+        hash.eat(state);
+        hash.eat(inc);
     }
 
     hash.0

@@ -749,6 +749,17 @@ pub struct Skill {
     /// One for everybody else.
     #[cfg_attr(feature = "serde", serde(default = "one"))]
     pub damage_taken: f32,
+    /// The chance a weapon hit this body lands on an enemy is
+    /// **critical**: a soldier's Weak Spot (task 124). Nought for
+    /// everybody else. Rolled where the hit lands, off a stream of the
+    /// world's own ([`Combat::lend_crit_rng`]).
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub crit_chance: f32,
+    /// The share of the misses taken away, near and far: the miss chance
+    /// times one less it, the hit chance never past one — a braced
+    /// soldier's Brace (task 124). Nought for everybody else.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub miss_cut: f32,
 }
 
 impl Skill {
@@ -780,6 +791,8 @@ impl Skill {
         overcharge: 0,
         overcharge_damage: 1.0,
         damage_taken: 1.0,
+        crit_chance: 0.0,
+        miss_cut: 0.0,
     };
 
     /// The skill for this body's next shot, with `shots` fired before it:
@@ -806,11 +819,24 @@ impl Skill {
     pub fn stats_at(&self, weapon: Weapon, marked: bool) -> WeaponStats {
         let base = weapon.stats();
         let odds = self.accuracy * if marked { self.marked_accuracy } else { 1.0 };
-        let accuracy = (base.accuracy * odds).min(1.0);
+        // A braced soldier's misses cut by a share (task 124): the miss
+        // chance times one less it, after every other factor, the hit
+        // chance never past one. With none the odds are left as they were,
+        // to the bit, so no other fight rolls differently.
+        let keep = 1.0 - self.miss_cut.clamp(0.0, 1.0);
+        let cut = self.miss_cut > 0.0;
+        let steadied = |p: f32| {
+            if cut {
+                1.0 - (1.0 - p.min(1.0)) * keep
+            } else {
+                p
+            }
+        };
+        let accuracy = steadied(base.accuracy * odds).min(1.0);
         let accuracy_far = if self.deadeye {
             accuracy
         } else {
-            (base.accuracy_far * odds).min(1.0)
+            steadied(base.accuracy_far * odds).min(1.0)
         };
         WeaponStats {
             accuracy,
@@ -852,6 +878,15 @@ pub struct Grenade {
     pub radius: f32,
     /// What it does at the centre; half that at the edge.
     pub damage: f32,
+    /// An engineer's **EMP** (task 127) rather than a grenade: seconds
+    /// every machine in the radius is stunned for, nought for a grenade.
+    /// An EMP does no damage at all.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub stun: f32,
+    /// Whether an EMP's stun leaves a machine taking more from everyone
+    /// while it lasts (its top rank).
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub expose: bool,
 }
 
 impl Grenade {
@@ -878,6 +913,9 @@ struct Blast {
     age: f32,
     #[cfg_attr(feature = "serde", serde(default))]
     arc: bool,
+    /// An EMP's burst (task 127): a pale blue ring and nothing else.
+    #[cfg_attr(feature = "serde", serde(default))]
+    emp: bool,
 }
 
 /// How long a burst's flash lasts, in seconds.
@@ -906,10 +944,11 @@ pub struct Sentry {
     /// range *enhanced optics* adds, and the fire rate and the damage
     /// *sentry mark III* multiplies. [`Skill::NONE`] without either.
     pub skill: Skill,
-    /// Whether sandbags between it and a shooter count as cover for it
-    /// at any distance — the engineer's *dug in* talent — where a body
-    /// has to stand close behind them (`Sight::covered`).
-    pub dug_in: bool,
+    /// Whether it is the engineer's **Healing Sentry** (task 127): a
+    /// sentry body with no barrel, which the enemies aim at like any
+    /// other and which never fires. What it heals is the world's.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub heals: bool,
     /// Its trigger, kept between steps the way a Bim's is.
     pub trigger: Trigger,
 }
@@ -1474,6 +1513,17 @@ fn shield_front_of(fronts: &[f32], by: Option<usize>) -> f32 {
         .unwrap_or(balance::GUARDIAN_SHIELD_COS)
 }
 
+/// Whether a hit by own body `by` is critical (task 124): drawn off the
+/// lent crit stream only for a body with a chance — no draw at all for
+/// any other, and none with no stream lent.
+fn roll_crit_off(rng: &mut Option<Rng>, chances: &[f32], by: Option<usize>) -> bool {
+    let chance = by.and_then(|b| chances.get(b).copied()).unwrap_or(0.0);
+    match rng {
+        Some(rng) if chance > 0.0 => rng.chance(chance),
+        _ => false,
+    }
+}
+
 /// One shot in the air.
 #[derive(Clone, Copy, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -1578,6 +1628,17 @@ pub struct Hit {
     /// Unmaker's ([`WeaponStats::strips`]). Nought for every other
     /// weapon, and nought on a bare part, which takes `damage`.
     pub strips: f32,
+    /// The weapon's own damage at the distance flown — before any skill,
+    /// relic or ability factor — for a critical hit to add a share of
+    /// (task 124, Weak Spot). Nought where nothing can be critical: a
+    /// burst, a hostile's shot, a sentry's.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub flat: f32,
+    /// Whether it is a **critical** hit (task 124): rolled where it
+    /// landed off the world's own crit stream, for a Bim's weapon hit on
+    /// a target with a crit chance. The world adds what it is worth.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub crit: bool,
 }
 
 /// A blow on its way: a swing or a jab that has started, landing on the
@@ -1593,6 +1654,10 @@ pub struct Blow {
     pub left: f32,
     pub damage: f32,
     pub cut: bool,
+    /// The blade's or the fist's own damage, before any factor: what a
+    /// critical blow adds a share of (task 124, [`Hit::flat`]).
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub flat: f32,
 }
 
 /// A shot an enemy took, for the world to carry into the crew's room and
@@ -1836,6 +1901,16 @@ pub struct Combat {
     /// crewmate (`Game::calm`). Aged by [`Combat::age`], every step.
     lull: f32,
     rng: Rng,
+    /// The world's Weak Spot stream (task 124), lent for a step and taken
+    /// back ([`Combat::lend_crit_rng`]): every critical roll is drawn off
+    /// it and nothing else is, so a crit never moves a roll of the fight.
+    /// `None` outside a step, and in every room but the crew's.
+    #[cfg_attr(feature = "serde", serde(skip))]
+    crit_rng: Option<Rng>,
+    /// Each own body's chance a weapon hit it lands is critical, by
+    /// index (`Skill::crit_chance`), said every step with the skills.
+    #[cfg_attr(feature = "serde", serde(skip))]
+    crit_chances: Vec<f32>,
     /// The passing lights of the fight (feature 98): the muzzles, the
     /// flashes, the scorches, the beams, the cuts, the parts struck and
     /// the machines bursting — drawing only, on the host's own clock, and
@@ -1870,6 +1945,8 @@ impl Combat {
             lull: f32::MAX,
             // Its own stream: a fight must not re-roll the room.
             rng: Rng::new(seed ^ 0xC0B_A7),
+            crit_rng: None,
+            crit_chances: Vec::new(),
         }
     }
 
@@ -1946,6 +2023,28 @@ impl Combat {
     /// index (task 118): see [`Combat::shield_fronts`].
     pub fn set_shield_fronts(&mut self, fronts: Vec<f32>) {
         self.shield_fronts = fronts;
+    }
+
+    /// Lend the room the world's crit stream for a step (task 124).
+    pub fn lend_crit_rng(&mut self, rng: Rng) {
+        self.crit_rng = Some(rng);
+    }
+
+    /// And take it back, drawn on.
+    pub fn take_crit_rng(&mut self) -> Option<Rng> {
+        self.crit_rng.take()
+    }
+
+    /// Each own body's crit chance, by index (`Skill::crit_chance`).
+    pub fn set_crit_chances(&mut self, chances: Vec<f32>) {
+        self.crit_chances = chances;
+    }
+
+    /// Whether a hit by own body `by` is critical: rolled off the lent
+    /// stream only for a body with a chance, so a crew with none draws
+    /// nothing at all.
+    fn roll_crit(&mut self, by: Option<usize>) -> bool {
+        roll_crit_off(&mut self.crit_rng, &self.crit_chances, by)
     }
 
     /// The front a shield turns against a shot of `by`'s.
@@ -2063,6 +2162,13 @@ impl Combat {
         std::mem::take(&mut self.cover_hits)
     }
 
+    /// A hit landed on a target as a bolt or a blow would land it, for
+    /// the tests (task 124): what the world then carries across.
+    #[allow(dead_code)]
+    pub fn land_hit_for_probe(&mut self, hit: Hit) {
+        self.hits.push(hit);
+    }
+
     /// A bolt stopped by the bags on `tile`, for the tests.
     #[allow(dead_code)]
     pub fn cover_hit_for_probe(&mut self, tile: (i32, i32), damage: f32) {
@@ -2090,11 +2196,34 @@ impl Combat {
             fuse,
             radius,
             damage,
+            stun: 0.0,
+            expose: false,
         });
         self.cues.push(Cued {
             cue: Cue::Throw,
             at: from,
         });
+    }
+
+    /// An engineer's EMP thrown (task 127): a grenade's flight and fuse,
+    /// bursting with `radius` and stunning every machine in it for
+    /// `stun` seconds (`Game::take_stuns`), and harming nothing.
+    #[allow(clippy::too_many_arguments)]
+    pub fn throw_emp(
+        &mut self,
+        by: usize,
+        from: Vec2,
+        at: Vec2,
+        fuse: f32,
+        radius: f32,
+        stun: f32,
+        expose: bool,
+    ) {
+        self.throw(by, from, at, fuse, radius, 0.0);
+        if let Some(g) = self.grenades.last_mut() {
+            g.stun = stun.max(f32::MIN_POSITIVE);
+            g.expose = expose;
+        }
     }
 
     /// The fuses burnt down by `dt`: every grenade whose fuse ran out,
@@ -2120,6 +2249,7 @@ impl Combat {
                 radius: g.radius,
                 age: 0.0,
                 arc: false,
+                emp: g.stun > 0.0,
             });
             self.cues.push(Cued {
                 cue: Cue::Burst,
@@ -2142,6 +2272,8 @@ impl Combat {
             by,
             blast: true,
             roll,
+            flat: 0.0,
+            crit: false,
             strips: 0.0,
         }
     }
@@ -2178,6 +2310,7 @@ impl Combat {
             radius: reach,
             age: 0.0,
             arc: true,
+            emp: false,
         });
         let mut struck = 0;
         for i in 0..self.targets.len() {
@@ -2196,6 +2329,8 @@ impl Combat {
                 by: Some(by),
                 blast: false,
                 roll,
+                flat: 0.0,
+                crit: false,
                 strips: 0.0,
             });
             self.cues.push(Cued {
@@ -2423,6 +2558,8 @@ impl Combat {
                         by: None,
                         blast: false,
                         roll,
+                        flat: 0.0,
+                        crit: false,
                         strips: 0.0,
                     });
                     heard.push(Cued {
@@ -2669,6 +2806,7 @@ impl Combat {
     /// to the enemy's body; in a hostile room (`as_shot`) it is a melee
     /// [`Shot`] for the world to deliver to the crew member. Nothing
     /// flies either way.
+    #[allow(clippy::too_many_arguments)]
     pub fn brawl(
         &mut self,
         from: Vec2,
@@ -2678,11 +2816,12 @@ impl Combat {
         cut: bool,
         as_shot: bool,
         by: Option<usize>,
+        flat: f32,
     ) {
         let Some(at) = self.targets.get(target).copied().flatten().map(|t| t.at) else {
             return;
         };
-        self.brawl_at(from, target, at, weapon, damage, cut, as_shot, by);
+        self.brawl_at(from, target, at, weapon, damage, cut, as_shot, by, flat);
     }
 
     /// [`Combat::brawl`] with the target's position handed in rather
@@ -2699,6 +2838,7 @@ impl Combat {
         cut: bool,
         as_shot: bool,
         by: Option<usize>,
+        flat: f32,
     ) {
         self.lull = 0.0;
         if as_shot {
@@ -2736,6 +2876,12 @@ impl Combat {
                 return;
             }
             let roll = self.rng.unit();
+            // Weak Spot (task 124): a Bim's blow, fist or blade, may be
+            // critical — off the lent stream, after the part's roll.
+            let crit = self.roll_crit(by);
+            if crit {
+                self.fx.critical(at, at - from, weapon, false);
+            }
             self.hits.push(Hit {
                 who: target,
                 part: Part::hit_by(roll),
@@ -2744,6 +2890,8 @@ impl Combat {
                 by,
                 blast: false,
                 roll,
+                flat,
+                crit,
                 // A blow strips nothing: the Unmaker is a lance, not a
                 // claw, and a claw is not a lance.
                 strips: 0.0,
@@ -2784,6 +2932,8 @@ impl Combat {
             by: None,
             blast: false,
             roll,
+            flat: 0.0,
+            crit: false,
             strips: 0.0,
         }
     }
@@ -2824,6 +2974,8 @@ impl Combat {
         // the order they were made, put in the air after the loop.
         let mut reflected: Vec<Bolt> = Vec::new();
         let rng = &mut self.rng;
+        let crit_rng = &mut self.crit_rng;
+        let crit_chances = &self.crit_chances;
         let fx = &mut self.fx;
         let mut landed: Vec<Hit> = Vec::new();
         let mut taken: Vec<Hit> = Vec::new();
@@ -2989,6 +3141,9 @@ impl Combat {
                     // 116), and whose body it was: the wearer's middle,
                     // for the flare round it.
                     let mut mirrored: Option<Vec2> = None;
+                    // Whether it landed a critical hit (task 124): its flare
+                    // twice the size and the brightness.
+                    let mut critical = false;
                     if let Some(who) = who {
                         let flown = (at - bolt.fired_from).len() / TILE;
                         let stats = bolt.stats();
@@ -3020,6 +3175,8 @@ impl Combat {
                             by: bolt.by,
                             blast: false,
                             roll,
+                            flat: bolt.weapon.stats().damage_at(flown),
+                            crit: false,
                             // What the Unmaker takes off the armour over
                             // the part instead of off the part; nought
                             // for every other gun.
@@ -3056,6 +3213,11 @@ impl Combat {
                         } else if bolt.hostile {
                             taken.push(hit);
                         } else {
+                            // Weak Spot (task 124): each bolt rolled on its
+                            // own, off the lent stream alone.
+                            let mut hit = hit;
+                            hit.crit = roll_crit_off(crit_rng, crit_chances, bolt.by);
+                            critical = hit.crit;
                             landed.push(hit);
                         }
                         // The slug goes through — unless a tank's
@@ -3113,6 +3275,9 @@ impl Combat {
                         bolt.hostile,
                         who.is_some() || shielded.is_some(),
                     );
+                    if critical {
+                        fx.critical(at, bolt.vel, bolt.weapon, bolt.hostile);
+                    }
                     if let Some((centre, _, _)) = shielded.and_then(|i| targets[i]) {
                         fx.shield(centre, at);
                     }
@@ -3387,7 +3552,7 @@ impl Combat {
             );
             let body = pos - vec2(0.0, 12.0 * lift);
             list.circle(body, 18.0 * (1.0 + 0.3 * lift), GRENADE_SHELL);
-            list.circle(body, 11.0 * (1.0 + 0.3 * lift), GRENADE_BAND);
+            list.circle(body, 11.0 * (1.0 + 0.3 * lift), if g.stun > 0.0 { EMP_BAND } else { GRENADE_BAND });
             // The fuse: bright, and flashing quicker near the end.
             let rate = 2.0 + 8.0 * (1.0 - g.left / g.fuse.max(1e-3));
             let on = ((g.fuse - g.left) * rate * std::f32::consts::TAU).sin() > 0.0 || flying;
@@ -3402,6 +3567,22 @@ impl Combat {
         for b in &self.blasts {
             let t = (b.age / BLAST_LIFE).clamp(0.0, 1.0);
             let out = 1.0 - (1.0 - t) * (1.0 - t);
+            // An EMP (task 127) is a pale blue ring expanding to its radius,
+            // and no flash: it burns nothing.
+            if b.emp {
+                list.ring(
+                    b.pos,
+                    b.radius * 2.0 * out,
+                    4.0,
+                    crate::droid::STUNNED.glowing(1.3).alpha(0.9 * (1.0 - t)),
+                );
+                list.circle(
+                    b.pos,
+                    b.radius * 2.0 * out,
+                    crate::droid::STUNNED.alpha(0.12 * (1.0 - t)),
+                );
+                continue;
+            }
             let (glow, rim) = if b.arc {
                 (FRIENDLY_BOLT, ARC_RIM)
             } else {
@@ -3426,6 +3607,8 @@ const BLAST_GLOW: Color = Color::rgb(1.0, 0.78, 0.40);
 const BLAST_RIM: Color = Color::rgb(1.0, 0.55, 0.20);
 /// The rim of an arc greaves' discharge (task 116): the crew's blue, paler.
 const ARC_RIM: Color = Color::rgb(0.62, 0.86, 1.0);
+/// An EMP's band round its canister (task 127): the stun's pale blue.
+const EMP_BAND: Color = Color::rgb(0.55, 0.78, 0.95);
 
 /// Where along the segment `a`–`b`, as a fraction, a circle of `radius` at
 /// `centre` is first touched, if it is.
@@ -4925,8 +5108,18 @@ mod tests {
             false,
             false,
             None,
+            FIST_DAMAGE,
         );
-        combat.brawl(body, 0, WeaponKind::Schword.basic(), 70.0, true, true, None);
+        combat.brawl(
+            body,
+            0,
+            WeaponKind::Schword.basic(),
+            70.0,
+            true,
+            true,
+            None,
+            70.0,
+        );
         assert!(combat.bolts.is_empty());
         let hits = combat.take_hits();
         assert_eq!(hits.len(), 1);
@@ -5449,5 +5642,141 @@ mod tests {
             .count();
         assert_eq!(impacts, 2, "an impact a target struck");
         assert!(!combat.quiet(), "the ring is lit");
+    }
+
+    /// Weak Spot (task 124): every bolt rolled on its own off the lent
+    /// stream at the shooter's chance, a hit keeping the weapon's flat
+    /// damage, a blow rolled the same way and a burst never — and the
+    /// fight's own stream untouched, so every other roll of the run comes
+    /// out exactly as it did with no chance at all.
+    #[test]
+    fn weak_spot_rolls_off_its_own_stream_and_every_other_roll_is_as_it_was() {
+        let (sight, _) = room_with(&[]);
+        let theirs = middle(10.0, 5.0);
+        let from = middle(8.0, 5.0);
+        let pistol = WeaponKind::LaserPistol.basic();
+        let run = |chance: f32| {
+            let mut combat = Combat::new(7);
+            combat.set_targets(vec![Some((theirs, pistol))]);
+            combat.set_crit_chances(vec![chance]);
+            combat.lend_crit_rng(Rng::new(99));
+            let skill = Skill {
+                crit_chance: chance,
+                ..Skill::NONE
+            };
+            let mut hits = Vec::new();
+            for _ in 0..3_000 {
+                combat.fire_as(from, theirs, pistol, false, false, &skill, Some(0));
+                for _ in 0..20 {
+                    combat.step(0.05, &sight, &[]);
+                }
+                hits.extend(combat.take_hits());
+            }
+            hits
+        };
+        let without = run(0.0);
+        assert!(without.len() > 2_000, "{}", without.len());
+        assert!(without.iter().all(|h| !h.crit));
+        for chance in [0.10, 0.12, 0.15, 0.20] {
+            let with = run(chance);
+            // The same hits, on the same parts, for the same damage: the
+            // crit's stream is its own.
+            assert_eq!(with.len(), without.len(), "{chance}");
+            for (a, b) in with.iter().zip(&without) {
+                assert_eq!((a.who, a.part, a.roll), (b.who, b.part, b.roll));
+                assert_eq!(a.damage, b.damage);
+                // And the flat damage is the weapon's own at the distance.
+                assert!((a.flat - pistol.stats().damage_at(2.0)).abs() < 0.5);
+            }
+            let share = with.iter().filter(|h| h.crit).count() as f32 / with.len() as f32;
+            assert!(
+                (share - chance).abs() < 0.025,
+                "{share} critical at a chance of {chance}"
+            );
+        }
+        // No stream lent, no crit, whatever the chance.
+        let mut combat = Combat::new(7);
+        combat.set_targets(vec![Some((theirs, pistol))]);
+        combat.set_crit_chances(vec![1.0]);
+        let skill = Skill {
+            crit_chance: 1.0,
+            ..Skill::NONE
+        };
+        combat.fire_as(from, theirs, pistol, false, false, &skill, Some(0));
+        for _ in 0..20 {
+            combat.step(0.05, &sight, &[]);
+        }
+        assert!(combat.take_hits().iter().all(|h| !h.crit));
+        // A blow is rolled like a bolt: a fist at a chance of one is
+        // critical, its flat the fist's own.
+        combat.lend_crit_rng(Rng::new(3));
+        combat.brawl(
+            theirs - vec2(TILE, 0.0),
+            0,
+            pistol,
+            FIST_DAMAGE * 1.5,
+            false,
+            false,
+            Some(0),
+            FIST_DAMAGE,
+        );
+        let blow = combat.take_hits();
+        assert_eq!(blow.len(), 1);
+        assert!(blow[0].crit && blow[0].flat == FIST_DAMAGE);
+        // And a burst never is, whoever threw it.
+        let burst = combat.blast(0, 60.0, Some(0));
+        assert!(!burst.crit && burst.flat == 0.0);
+        // Somebody else's hit is never critical at the soldier's chance.
+        combat.fire_as(from, theirs, pistol, false, false, &Skill::NONE, Some(1));
+        for _ in 0..20 {
+            combat.step(0.05, &sight, &[]);
+        }
+        assert!(combat.take_hits().iter().all(|h| !h.crit));
+    }
+
+    /// Brace (task 124): the miss chance multiplied by one less the share,
+    /// near and far, the hit chance never past one, far aim equal to near
+    /// with *deadeye* — and with no share the odds are the weapon's to the
+    /// bit.
+    #[test]
+    fn a_miss_cut_takes_its_share_of_the_misses_and_never_passes_one() {
+        let pistol = WeaponKind::LaserPistol.basic();
+        let base = pistol.stats();
+        assert_eq!(Skill::NONE.stats(pistol), base);
+        for cut in [0.2f32, 0.3, 0.4, 0.5] {
+            let skill = Skill {
+                miss_cut: cut,
+                ..Skill::NONE
+            };
+            let s = skill.stats(pistol);
+            let near = 1.0 - (1.0 - base.accuracy) * (1.0 - cut);
+            let far = 1.0 - (1.0 - base.accuracy_far) * (1.0 - cut);
+            assert!((s.accuracy - near).abs() < 1e-6, "{cut}");
+            assert!((s.accuracy_far - far).abs() < 1e-6, "{cut}");
+        }
+        let fourth = Skill {
+            miss_cut: 0.5,
+            deadeye: true,
+            ..Skill::NONE
+        }
+        .stats(pistol);
+        assert_eq!(fourth.accuracy_far, fourth.accuracy);
+        // A shot already certain stays certain, and an aim lifted past one
+        // is one.
+        let lifted = Skill {
+            miss_cut: 0.5,
+            accuracy: 1.5,
+            ..Skill::NONE
+        }
+        .stats(pistol);
+        assert_eq!(lifted.accuracy, 1.0);
+        let sniper = WeaponKind::SniperRifle.at(Tier::Two);
+        let s = Skill {
+            miss_cut: 0.5,
+            ..Skill::NONE
+        }
+        .stats(sniper);
+        assert_eq!(s.accuracy, 1.0);
+        assert!(s.accuracy_far <= 1.0);
     }
 }
