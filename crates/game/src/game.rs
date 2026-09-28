@@ -88,8 +88,8 @@ pub enum Squad {
 /// ([`Game::orders_for`]): with one player that is the one order there
 /// is, and with several each player leads the bots about them.
 ///
-/// None of this reaches a Bim a player steers, a body on a chain, a body
-/// running for its life or one holding a post its player clicked for it:
+/// None of this reaches a Bim a player steers, a body on a chain or one
+/// holding a post its player clicked for it:
 /// an order to one crew member is that crew member's and outranks the
 /// standing order to the rest.
 #[derive(Clone, Copy, PartialEq, Debug, Default)]
@@ -104,8 +104,9 @@ pub enum Standing {
     /// in your weapon's reach, and a push on towards it when there is
     /// not.
     Attack { at: Vec2 },
-    /// Back to the ship, and hold there. The ship is where a dying body
-    /// runs to anyway, and where the last stand is made.
+    /// Back to the ship, and hold there. The ship is where the last stand
+    /// is made. (Nobody runs of its own accord since task 120: a body at
+    /// nought is downed where it stands.)
     Retreat,
 }
 
@@ -427,6 +428,14 @@ const PING_SHAFT: f32 = 20.0;
 const PING_BARB: f32 = 12.0;
 /// An attack-move is over this close to where it was bound, in tiles.
 const ATTACK_MOVE_THERE: f32 = 1.0;
+/// How far from a right-click an enemy is still the one clicked, in
+/// tiles: a Bim's pick reach and a little, since the biggest machine is
+/// over half a tile across (task 126).
+const ENEMY_PICK: f32 = 0.7;
+/// The attack order's mark on its target: brackets at a machine's width
+/// out, in room units, and how long each bracket's arms are.
+const FOCUS_MARK: f32 = 34.0;
+const FOCUS_ARM: f32 = 11.0;
 
 /// A dash and the gap after it, in room units, on the thread through the
 /// queued walks — see `Game::render`.
@@ -1515,6 +1524,17 @@ impl Game {
                 self.breach(who, dt);
             }
             let bim = &mut self.bims[who];
+            // An enemy it was told to attack that is down, dead or off
+            // the list is the end of the order (task 126), and so is the
+            // body itself going down.
+            if bim.focus.is_some_and(|enemy| {
+                !bim.is_alive()
+                    || bim.character.is_unconscious()
+                    || self.combat.targets().get(enemy).is_none_or(|t| t.is_none())
+            }) {
+                bim.focus = None;
+            }
+            let focus = bim.focus;
             let Some(weapon) = weapon else {
                 bim.trigger.hold();
                 bim.locked = None;
@@ -1539,7 +1559,14 @@ impl Game {
             let seen_to = self.is_being_seen_to(who);
             let holds_post = self.bims[who].character.post().is_some();
             let squad = self.squad_of(who);
-            if war && !seen_to {
+            if let Some(enemy) = focus
+                && !seen_to
+            {
+                // The player's own attack order (task 126) comes before
+                // anything the body would pick for itself: after that
+                // enemy until it has a shot.
+                self.chase(who, dt, &stats, enemy);
+            } else if war && !seen_to {
                 self.plan_stand(who, dt, &stats, None);
                 // And, with nobody it can get to, the doors in the way.
                 self.breach(who, dt);
@@ -1640,7 +1667,13 @@ impl Game {
                 Squad::Attack { enemy, seen: true } => Some(enemy),
                 _ => None,
             };
-            let aimed = self.combat.aim_marked(&self.room.sight, from, &stats, mark);
+            // A target the player named (task 126) is the only one it
+            // fires at: out of sight or out of reach, it holds its fire
+            // and walks after it (`chase`).
+            let aimed = match focus {
+                Some(enemy) => self.combat.aim_only(&self.room.sight, from, &stats, enemy),
+                None => self.combat.aim_marked(&self.room.sight, from, &stats, mark),
+            };
             // An attack-move stands still for a shot and walks on without
             // one, before the walk is read below.
             self.keep_attack_moving(who, aimed.is_some());
@@ -2978,8 +3011,8 @@ impl Game {
 
     /// What a bot under arms does when nothing nearer to hand — a chain,
     /// a post its player clicked for it, a commander's squad order — has
-    /// claimed it (feature 84). The last stand first, then a dying run,
-    /// then whatever its player's standing order is.
+    /// claimed it (feature 84). A field medic's rescue first, then the last
+    /// stand, then whatever its player's standing order is.
     fn bot_stand(&mut self, who: usize, dt: f32, stats: &WeaponStats) {
         // A field medic's business is the fallen (feature 86), and it
         // comes before the last stand and before its player's standing
@@ -3158,9 +3191,7 @@ impl Game {
     }
 
     /// Falling back: the ring round the ship's own gangway, and nothing
-    /// further once it is there. The same walk a dying body makes, so
-    /// that a retreat called and a body going down look the same on the
-    /// deck.
+    /// further once it is there.
     ///
     /// It is also walked differently from every other walk: the body is
     /// marked as falling back here, at a **sprint** — head down, a
@@ -4661,39 +4692,77 @@ impl Game {
     /// it and nothing that could see it there): a helper kneeling over a
     /// body with the enemy a corridor away was a second body down. A field
     /// medic carries one clear first (`rescue`).
+    ///
+    /// **A medic first** (task 125): a bot that is not a medic
+    /// (`Skill::medic`, of the class or hired) leaves a patient to a medic
+    /// bot free to go to it — ready to revive by the same rule, with no
+    /// revive in hand already, and a way to the patient — and takes it
+    /// only when there is none: no medic in the crew, the medic down,
+    /// busy with another body or in a fight of its own.
     fn revive_on_offer(&self, who: usize) -> Option<usize> {
-        if !self.revivers
-            || !self.is_bot(who)
-            || !self.bims.get(who).is_some_and(|b| b.is_alive())
-            || self.bims[who].manufacturer
-            || self.bims[who].character.is_unconscious()
-            || self.bims[who].character.is_outside()
-            || self.bims[who].carrying.is_some()
-        {
+        if !self.ready_to_revive(who) {
             return None;
-        }
-        if self.bims[who].character.is_recruited() {
-            let quiet = self.bims[who].locked.is_none()
-                && self.bims[who].blow.is_none()
-                && !self
-                    .combat
-                    .sees_any(&self.room.sight, self.bims[who].character.pos);
-            if !quiet {
-                return None;
-            }
         }
         let from = self.bims[who].character.pos;
         let calm = self.calm();
+        let medic = self.skill(who).medic;
         (0..self.bims.len())
             .filter(|&p| p != who && self.can_be_revived(p))
             .filter(|&p| !self.is_being_seen_to_by_another(p, who))
             .filter(|&p| calm || self.out_of_harm(self.bims[p].character.pos))
             .filter(|&p| task::patient_stand(&self.room, &self.maps, who, p, from).is_some())
+            .filter(|&p| medic || !self.a_medic_free_for(p, who))
             .min_by(|&a, &b| {
                 (self.bims[a].character.pos - from)
                     .len()
                     .total_cmp(&(self.bims[b].character.pos - from).len())
             })
+    }
+
+    /// Whether `who` may take a revive of its own accord this step,
+    /// whoever the patient: a bot in a room whose people revive one
+    /// another, alive, awake, on the deck, its arms free, not a
+    /// Manufacturer — and, under arms, with no enemy in its sight and no
+    /// blade at its throat.
+    fn ready_to_revive(&self, who: usize) -> bool {
+        if !self.revivers
+            || !self.is_bot(who)
+            || !self.bims.get(who).is_some_and(|b| b.is_alive())
+            || self.bims[who].manufacturer
+            || self.bims[who].character.is_unconscious()
+            || self.bims[who].health.downed()
+            || self.bims[who].character.is_outside()
+            || self.bims[who].carrying.is_some()
+        {
+            return false;
+        }
+        !self.bims[who].character.is_recruited()
+            || (self.bims[who].locked.is_none()
+                && self.bims[who].blow.is_none()
+                && !self
+                    .combat
+                    .sees_any(&self.room.sight, self.bims[who].character.pos))
+    }
+
+    /// Whether a medic bot other than `asking` is free to revive
+    /// `patient` (task 125): [`Game::ready_to_revive`], no revive in hand
+    /// already, and a way to the patient.
+    fn a_medic_free_for(&self, patient: usize, asking: usize) -> bool {
+        (0..self.bims.len()).any(|m| {
+            m != asking
+                && m != patient
+                && self.skill(m).medic
+                && self.reviving(m).is_none()
+                && self.ready_to_revive(m)
+                && task::patient_stand(
+                    &self.room,
+                    &self.maps,
+                    m,
+                    patient,
+                    self.bims[m].character.pos,
+                )
+                .is_some()
+        })
     }
 
     /// Whether a body may be revived at all: one of this room's Bims,
@@ -5038,8 +5107,9 @@ impl Game {
         let now = !self.bims[who].character.is_recruited();
         self.bims[who].character.set_recruited(now);
         if !now {
-            // Weapon away, and an attack-move with it.
+            // Weapon away, and an attack-move and a target with it.
             self.bims[who].attack_move = None;
+            self.bims[who].focus = None;
         }
         if now {
             // It is the thing being ordered about, so it is the thing selected.
@@ -5584,6 +5654,7 @@ impl Game {
     fn order_move_for(&mut self, _slot: u32, who: usize, x: f32, y: f32) -> u32 {
         self.drop_ordered(who);
         self.bims[who].attack_move = None;
+        self.bims[who].focus = None;
         self.walk_order(who, x, y)
     }
 
@@ -5600,6 +5671,7 @@ impl Game {
         }
         self.drop_ordered(who);
         self.bims[who].attack_move = None;
+        self.bims[who].focus = None;
         let code = self.walk_order(who, x, y);
         if code == ORDER_MOVING {
             let to = self.nearest_stand(who, vec2(x, y));
@@ -5614,15 +5686,138 @@ impl Game {
         code
     }
 
-    /// Any attack-move `who` is on called off: what an errand given it
-    /// does ([`Game::order`]).
+    /// Any attack-move `who` is on called off, and any target it was
+    /// told to attack: what an errand given it does ([`Game::order`]).
     pub(crate) fn call_off_attack_move(&mut self, who: usize) {
         self.bims[who].attack_move = None;
+        self.bims[who].focus = None;
     }
 
     /// Where `who`'s attack-move is bound, if it is on one.
     pub fn attack_move_of(&self, who: usize) -> Option<Vec2> {
         self.bims.get(who).and_then(|b| b.attack_move)
+    }
+
+    /// A right-click on an enemy (task 126, Dota's attack order): player
+    /// `slot`'s own crew member takes up arms, puts down whatever it was
+    /// on and keeps at `enemy` — an index in the room's target list —
+    /// until it is down or dead or the player orders something else:
+    /// [`Game::chase`] walks it after the enemy until it has a shot, and
+    /// the aim in [`Game::tick_combat`] fires at that one and nobody
+    /// else. Ignored for a body that cannot act or has no weapon and for
+    /// an index with nobody standing at it; the ping is the attack's red,
+    /// where the enemy stands.
+    pub fn order_attack(&mut self, slot: u32, enemy: usize) -> u32 {
+        let who = slot as usize;
+        let Some(at) = self.enemy_standing(enemy) else {
+            return ORDER_IGNORED;
+        };
+        if who >= self.bims.len()
+            || !self.is_alive(who)
+            || self.bims[who].character.is_unconscious()
+            || self.bims[who].character.is_outside()
+            || self.bims[who].gear.weapon.is_none()
+        {
+            return ORDER_IGNORED;
+        }
+        self.drop_ordered(who);
+        self.interrupt_for_order(who);
+        let bim = &mut self.bims[who];
+        bim.attack_move = None;
+        bim.focus = Some(enemy);
+        bim.plan_wait = 0.0;
+        bim.character.set_post(None);
+        bim.character.set_recruited(true);
+        bim.character.select_for(slot, true);
+        self.markers.push(Marker {
+            pos: at,
+            age: 0.0,
+            bad: false,
+            kind: Ping::Attack,
+        });
+        ORDER_MOVING
+    }
+
+    /// The enemy `who` was told to attack, if it is still at it.
+    pub fn focus_of(&self, who: usize) -> Option<usize> {
+        self.bims.get(who).and_then(|b| b.focus)
+    }
+
+    /// Where target `enemy` stands, if it is up: on the list and neither
+    /// down nor dead.
+    fn enemy_standing(&self, enemy: usize) -> Option<Vec2> {
+        self.combat
+            .targets()
+            .get(enemy)
+            .copied()
+            .flatten()
+            .map(|t| t.at)
+    }
+
+    /// The enemy under a point of the deck, for a right-click to attack
+    /// (task 126): the nearest target up within [`ENEMY_PICK`] tiles of
+    /// the point on a tile somebody of the crew sees, so a click into the
+    /// fog finds nobody. `None` with nobody there — and always in a room
+    /// with no enemies named, or a town's own people, who are handed over
+    /// as nobody's target.
+    pub fn enemy_at(&self, x: f32, y: f32) -> Option<usize> {
+        let at = vec2(x, y);
+        self.combat
+            .targets()
+            .iter()
+            .enumerate()
+            .filter_map(|(i, t)| t.map(|t| (i, (t.at - at).len(), t.at)))
+            .filter(|&(_, far, pos)| far <= ENEMY_PICK * TILE && self.room.sight.seen_at(pos))
+            .min_by(|a, b| a.1.total_cmp(&b.1))
+            .map(|(i, _, _)| i)
+    }
+
+    /// The walk a target calls for ([`Game::order_attack`]), from the
+    /// fight's own turn for the body: with a shot at it from where it
+    /// stands — a blade, within reach — it stands still, since a shot on
+    /// the move is at half the odds; without one it walks after it,
+    /// planned again every `PLAN_EVERY` so the walk follows a target that
+    /// moves. Nobody else on the list is its business.
+    fn chase(&mut self, who: usize, dt: f32, stats: &WeaponStats, enemy: usize) {
+        let Some(at) = self.enemy_standing(enemy) else {
+            return;
+        };
+        let from = self.bims[who].character.pos;
+        let in_hand = if stats.melee {
+            self.combat.within_reach(from, enemy)
+        } else {
+            self.combat
+                .aim_only(&self.room.sight, from, stats, enemy)
+                .is_some()
+        };
+        let bim = &mut self.bims[who];
+        if in_hand {
+            if bim.character.is_walking() {
+                bim.character.halt();
+            }
+            return;
+        }
+        bim.plan_wait -= dt;
+        if bim.plan_wait > 0.0 {
+            return;
+        }
+        bim.plan_wait = PLAN_EVERY;
+        if bim
+            .character
+            .destination()
+            .is_some_and(|going| (going - at).len() <= TILE)
+        {
+            return;
+        }
+        if self.on_a_window(who, at) {
+            self.plan_route(who, at);
+            return;
+        }
+        let nav = self.maps.for_body(false);
+        let route = nav.path(from, nav.nearest_free(at));
+        if !route.is_empty() {
+            self.bims[who].character.follow_path(route);
+        }
     }
 
     /// One step of an attack-move, from the fight's own turn for the body
@@ -5710,6 +5905,32 @@ impl Game {
     /// cross in the warm colour where the Bim cannot get to.
     fn draw_pings(&mut self) {
         const SHADE: Color = Color::rgba(0.0, 0.0, 0.0, 1.0);
+        // An enemy a player told its Bim to attack (task 126) wears four
+        // red brackets for as long as the order stands — where the crew
+        // can see it, so the mark never gives a body in the fog away.
+        let marked: Vec<Vec2> = self
+            .bims
+            .iter()
+            .filter_map(|b| b.focus)
+            .filter_map(|enemy| self.enemy_standing(enemy))
+            .filter(|&at| self.room.sight.seen_at(at))
+            .collect();
+        let lit = PING_ATTACK.glowing(1.2);
+        for at in marked {
+            for (dx, dy) in [(1.0, 1.0), (-1.0, 1.0), (-1.0, -1.0), (1.0, -1.0)] {
+                let corner = at + vec2(dx, dy) * FOCUS_MARK;
+                let arms = [
+                    (corner, corner - vec2(dx, 0.0) * FOCUS_ARM),
+                    (corner, corner - vec2(0.0, dy) * FOCUS_ARM),
+                ];
+                for &(from, to) in &arms {
+                    self.list.line(from, to, 6.0, SHADE.alpha(0.45));
+                }
+                for &(from, to) in &arms {
+                    self.list.line(from, to, 3.0, lit);
+                }
+            }
+        }
         for m in &self.markers {
             let t = (m.age / MARKER_LIFE).clamp(0.0, 1.0);
             let fade = if t < 0.6 { 1.0 } else { (1.0 - t) / 0.4 };
@@ -9975,6 +10196,76 @@ mod tests {
         assert!(game.attack_move_of(0).is_none());
     }
 
+    /// A right-click on an enemy (task 126): the player's own Bim takes
+    /// up arms and fires at that one and never at a nearer one, walks
+    /// after it when it has no shot, and the order ends when the enemy
+    /// is down — or at the next order. A click finds the enemy under the
+    /// pointer where the crew see, and nobody in the fog or off to one
+    /// side.
+    #[test]
+    fn an_attack_order_keeps_at_its_enemy_until_it_is_down() {
+        let mut game = room();
+        game.set_autonomous(false);
+        let james = game.put_for_probe(0, vec2(ROOM_W * 0.2, ROOM_H * 0.5));
+        game.put_for_probe(1, vec2(ROOM_W * 0.2, ROOM_H * 0.85));
+        game.issue(1, Gear::default());
+        let near = vec2(ROOM_W * 0.35, ROOM_H * 0.2);
+        let far = vec2(ROOM_W * 0.8, ROOM_H * 0.5);
+        let pistol = WeaponKind::LaserPistol.basic();
+        game.set_hostiles(vec![Some((near, pistol)), Some((far, pistol))]);
+        game.observe();
+        assert_eq!(game.enemy_at(far.x + 10.0, far.y - 8.0), Some(1));
+        assert_eq!(game.enemy_at(near.x, near.y), Some(0));
+        assert_eq!(game.enemy_at(far.x - 2.0 * TILE, far.y), None);
+        let attack = crate::order::CrewOrder::Attack { enemy: 1 };
+        assert_eq!(game.order(0, attack), ORDER_MOVING);
+        assert_eq!(game.focus_of(0), Some(1));
+        assert!(game.is_recruited(0), "under arms for it");
+        // Every hit is on the far one, never on the nearer.
+        let mut hits = Vec::new();
+        for _ in 0..(60 * 6) {
+            game.simulate(DT);
+            hits.extend(game.take_hits().into_iter().map(|h| h.who));
+        }
+        assert!(!hits.is_empty(), "it shoots");
+        assert!(hits.iter().all(|&who| who == 1), "{hits:?}");
+        assert!(
+            (game.bim_pos(0) - james).len() < TILE,
+            "a shot from where it stood"
+        );
+        // Down, and the order is over.
+        game.set_hostiles(vec![Some((near, pistol)), None]);
+        game.simulate(DT);
+        assert_eq!(game.focus_of(0), None);
+        // An order at nobody is no order.
+        assert_eq!(game.order(0, attack), ORDER_IGNORED);
+
+        // A blade has no shot: it walks after its enemy and swings at it.
+        game.issue(
+            0,
+            Gear {
+                weapon: Some(WeaponKind::Schword.basic()),
+                ..Gear::default()
+            },
+        );
+        game.set_hostiles(vec![Some((near, pistol)), Some((far, pistol))]);
+        assert_eq!(game.order(0, attack), ORDER_MOVING);
+        let mut struck = Vec::new();
+        for _ in 0..(60 * 12) {
+            game.simulate(DT);
+            struck.extend(game.take_hits().into_iter().map(|h| h.who));
+        }
+        assert!(
+            (game.bim_pos(0) - far).len() <= MELEE_RANGE * TILE + 1.0,
+            "walked up to it"
+        );
+        assert!(struck.contains(&1), "and struck it: {struck:?}");
+        assert!(!struck.contains(&0));
+        // A walk calls it off.
+        assert_eq!(game.order_move(0, james.x, james.y), ORDER_MOVING);
+        assert_eq!(game.focus_of(0), None);
+    }
+
     /// A swing is not a hit until it has been swung: the blow lands
     /// `SWING_TIME` after the lock forms, not the step it does, and a
     /// target that stepped out of reach in the meantime is missed — the
@@ -10628,6 +10919,63 @@ mod tests {
                 assert!(game.is_alive(0));
                 assert_eq!(game.take_revives().len(), 1);
             }
+        }
+    }
+
+    /// A medic bot revives first (task 125): with a medic free to go, the
+    /// bot beside the downed body leaves it to the medic further off; with
+    /// no medic in the crew, or the medic downed itself, the bot beside it
+    /// goes. Nobody runs from the fight on the way to nought: a bot shot
+    /// down is downed where it stood.
+    #[test]
+    fn a_medic_bot_revives_first_and_the_others_only_without_one() {
+        // 0 the player, far off; 1 downed; 2 a bot beside it; 3 a bot
+        // further off, the medic or not.
+        for case in ["medic free", "no medic", "medic down"] {
+            let mut game = room();
+            let extra = Game::bare(4, ROOM_W, ROOM_H)
+                .take_crew()
+                .into_iter()
+                .take(2)
+                .collect();
+            game.adopt(extra, Vec2::ZERO);
+            assert_eq!(game.crew_count(), 4);
+            let mid = vec2(ROOM_W * 0.5, ROOM_H * 0.5);
+            game.put_for_probe(0, vec2(ROOM_W * 0.1, ROOM_H * 0.15));
+            let at = game.put_for_probe(1, mid);
+            game.put_for_probe(2, at + vec2(1.5 * TILE, 0.0));
+            game.put_for_probe(3, at + vec2(-6.0 * TILE, 0.0));
+            let mut medic = Skill::NONE;
+            medic.medic = case != "no medic";
+            medic.revive = 4.0;
+            game.set_skills(vec![Skill::NONE, Skill::NONE, Skill::NONE, medic]);
+            // Both in the one step, so bot 2 is not already on its way to
+            // the medic when 1 goes down.
+            let at_down = game.body_pos(1);
+            assert!(game.wound(1, Part::Legs, 1_000.0).downed);
+            if case == "medic down" {
+                assert!(game.wound(3, Part::Legs, 1_000.0).downed);
+            }
+            game.simulate(DT);
+            assert!(game.is_downed(1));
+            assert!(
+                (game.body_pos(1) - at_down).len() < 1e-3,
+                "downed where it stood: {case}"
+            );
+            let mut revived = Vec::new();
+            for _ in 0..(60 * 25) {
+                game.simulate(DT);
+                revived.extend(game.take_revives());
+                if !game.is_downed(1) {
+                    break;
+                }
+            }
+            let helper = revived
+                .iter()
+                .find(|r| r.patient == 1)
+                .map(|r| r.helper);
+            let wanted = if case == "medic free" { 3 } else { 2 };
+            assert_eq!(helper, Some(wanted), "{case}");
         }
     }
 

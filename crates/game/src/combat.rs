@@ -731,6 +731,12 @@ pub struct Skill {
     /// sum, never under a second.
     #[cfg_attr(feature = "serde", serde(default = "revive_seconds"))]
     pub revive: f32,
+    /// Whether this body is a **medic** — of the class, or a hired field
+    /// medic — as the world says (task 125): a bot that is not one leaves
+    /// a downed crewmate to a medic bot free to go to it
+    /// (`Game::revive_on_offer`).
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub medic: bool,
     /// Every how many of its shots is **overcharged**, nought for none: a
     /// relic's *Overcharge Cell* (feature 106). The room counts the shots
     /// on the body (`Bim::shots`).
@@ -770,6 +776,7 @@ impl Skill {
         range: 0.0,
         armour_protection_add: 0.0,
         revive: crate::health::REVIVE_SECONDS,
+        medic: false,
         overcharge: 0,
         overcharge_damage: 1.0,
         damage_taken: 1.0,
@@ -2464,6 +2471,25 @@ impl Combat {
         Combat::aim_among(&self.targets, sight, from, stats, mark)
     }
 
+    /// [`Combat::aim`] at one target and no other — a player's attack
+    /// order, task 126: its index, the eye and where it is aimed at if
+    /// that one is up, seen and in reach, and nothing otherwise, so
+    /// nobody else is fired at in its place. A sealed core may be aimed
+    /// at, as a mark may.
+    pub fn aim_only(
+        &self,
+        sight: &Sight,
+        from: Vec2,
+        stats: &WeaponStats,
+        which: usize,
+    ) -> Option<(usize, Vec2, Vec2)> {
+        let t = self.targets.get(which).copied().flatten()?;
+        if t.stale || (t.at - from).len() > stats.reach() {
+            return None;
+        }
+        sight.sees_from(from, t.at).map(|eye| (which, eye, t.at))
+    }
+
     /// [`Combat::aim_marked`] over a target list of the caller's — what
     /// a machine aims with, since it has a list of its own in a town the
     /// crew are defending (feature 94).
@@ -3456,7 +3482,8 @@ const STAY_BONUS: f32 = 2.0;
 /// a free cell beside it somewhere.
 const CHARGE_LOOK: f32 = 3.0;
 
-/// How far a dying body looks for somewhere to run to, in tiles.
+/// How far a field medic with a body in its arms looks for somewhere to
+/// carry it to, in tiles (nobody else runs since task 120).
 const FLEE_LOOK: f32 = 10.0;
 
 /// How far ahead a body fighting its way to a point looks for the next
@@ -3485,9 +3512,9 @@ pub struct Stand {
 pub struct Tactics;
 
 impl Tactics {
-    /// Where a body at `from` that is dying should run to: away from the
-    /// enemy. The enemy is one place — the average of every target that
-    /// is up — and the best cell is the reachable one within
+    /// Where a field medic at `from` carrying a body out of the fire
+    /// should make for (feature 86): away from the enemy. The enemy is
+    /// one place — the average of every target that is up — and the best cell is the reachable one within
     /// [`FLEE_LOOK`] tiles that is furthest from it, less
     /// [`WALK_COST_PER_TILE`] a tile of the walk, so it runs the opposite
     /// way and round a wall if it has to. `None` with no target up, or

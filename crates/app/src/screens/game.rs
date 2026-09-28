@@ -25,7 +25,9 @@ use worldgen::Node;
 
 use super::designer::{Net, Order, ShipSession};
 use super::hud::{self, GAP, MARGIN};
-use crate::canvas::{Pointer, canvas_painter, egui_rect, rect_of, root_ui, zoom_factor};
+use crate::canvas::{
+    Pointer, canvas_painter, edge_pan_now, egui_rect, rect_of, root_ui, zoom_factor,
+};
 use crate::crew::{CLICK_SLOP, CrewPanels, GearOrder, Hold, Near, Open, TrayAsk, TrayView};
 use crate::keys::{Action, Keys};
 use crate::names::*;
@@ -949,6 +951,8 @@ fn frame(
     // The explored memory the GPU keeps, read back before the world is
     // written out (task 121).
     give_back: crate::lightmap::GiveBack,
+    // Whether the window has the focus, for the edge scroll (task 123).
+    window: Single<&Window>,
 ) -> Result {
     // `BIMS_PERF`: where the frame goes (feature 96). Nothing at all
     // without it.
@@ -1696,10 +1700,15 @@ fn frame(
                 ctx.set_cursor_icon(egui::CursorIcon::None);
                 if pointer.primary_pressed {
                     let (rx, ry) = session.room_point(p.x, p.y);
-                    orders.push(crew_order(
-                        CrewOrder::AttackMove { x: rx, y: ry },
-                        pointer.shift,
-                    ));
+                    // On an enemy the attack-move is the attack on it
+                    // (task 126), as Dota's A-click on a unit is.
+                    let order = match session.room().and_then(|room| room.enemy_at(rx, ry)) {
+                        Some(enemy) => CrewOrder::Attack {
+                            enemy: enemy as u32,
+                        },
+                        None => CrewOrder::AttackMove { x: rx, y: ry },
+                    };
+                    orders.push(crew_order(order, pointer.shift));
                     screen.aiming_move = false;
                 }
                 if pointer.secondary_pressed {
@@ -1730,9 +1739,22 @@ fn frame(
             }
         } else if let Some(p) = on_canvas {
             let (rx, ry) = session.room_point(p.x, p.y);
+            // An enemy under the pointer is something to attack (task
+            // 126): the crosshair says so before the click does.
+            let enemy = session.room().and_then(|room| room.enemy_at(rx, ry));
+            if enemy.is_some() {
+                ctx.set_cursor_icon(egui::CursorIcon::Crosshair);
+            }
             if pointer.secondary_pressed {
                 panels.close_menu();
-                if let Some(room) = session.room() {
+                if let Some(enemy) = enemy {
+                    // A right-click on it is the attack, Dota's: the
+                    // player's own Bim keeps at that one until it is down
+                    // or dead or told otherwise, no menu between.
+                    orders.push(Order::Crew(CrewOrder::Attack {
+                        enemy: enemy as u32,
+                    }));
+                } else if let Some(room) = session.room() {
                     let fixture = room.hit_at(rx, ry);
                     // A crewmate down under the pointer is the revive
                     // itself (task 120), the way Dota uses a thing on a
@@ -1834,6 +1856,9 @@ fn frame(
         }
     }
 
+    // A rank-up asked for this frame (task 123): Ctrl and a slot's key
+    // here, or Ctrl and a click on the slot's box in the hero panel below.
+    let mut rank_up_asked: Option<RankUp> = None;
     if keys {
         let mut d = Vec2::ZERO;
         ctx.input(|i| {
@@ -1877,9 +1902,8 @@ fn frame(
                         game.centre_on_player();
                     }
                 }
-                // Recruit recruits. It shares R with Turn, which is the
-                // armoury's and the yard's: there is no blueprint in hand
-                // on the deck in a run.
+                // Recruit recruits (on L since task 123 gave R to the
+                // fourth ability slot).
                 if keys_now.pressed(i, Action::Recruit) {
                     orders.push(Order::Crew(CrewOrder::Recruit));
                 }
@@ -1892,16 +1916,20 @@ fn frame(
                 if keys_now.pressed(i, Action::CharacterSheet) {
                     panels.toggle_sheet();
                 }
-                // Q and E: the steered crew member's class's two actions
-                // (features 74 and 75) — an engineer's sentry and sandbags
-                // on the deck tile under the pointer, a soldier's grenade
-                // at it and its brace. The world says why not, into the
-                // log; with a classless crew member steered, nothing at
-                // all.
+                // The four ability slots, Q, C, E and R (task 123): the
+                // first and third are the steered crew member's class's
+                // two actions (features 74 and 75) — an engineer's sentry
+                // and sandbags on the deck tile under the pointer, a
+                // soldier's grenade at it and its brace — and the second
+                // and fourth are empty for every class, so pressing one
+                // does nothing. The world says why not, into the log;
+                // with a classless crew member steered, nothing at all.
+                // Read with Ctrl up (`Keys::used`): with it held the key
+                // is the slot's rank-up, below.
                 // While Q is held with a soldier steered, the burst's ring
                 // is drawn on the tile under the pointer.
                 screen.throw_aim = None;
-                if keys_now.down(i, Action::ClassPrimary)
+                if keys_now.down(i, Action::Ability1)
                     && let Some(game) = &session.game
                     && game.world.class_of(screen.net.slot) == world::Class::Soldier
                     && let Some(p) = on_canvas.filter(|_| !map_up)
@@ -1910,8 +1938,11 @@ fn frame(
                     let t = shipdesign::TILE as f32;
                     screen.throw_aim = Some(((rx / t).floor() as i32, (ry / t).floor() as i32));
                 }
-                for action in [Action::ClassPrimary, Action::ClassSecondary] {
-                    if !keys_now.pressed(i, action) {
+                for action in Action::ABILITIES {
+                    let Some(primary) = slot_action(action) else {
+                        continue;
+                    };
+                    if !keys_now.used(&i.events, i.modifiers, action) {
                         continue;
                     }
                     let slot = screen.net.slot;
@@ -1937,7 +1968,7 @@ fn frame(
                     let (order, line) = class_key(
                         &game.world,
                         slot,
-                        action == Action::ClassPrimary,
+                        primary,
                         tile,
                         under,
                         enemy,
@@ -2043,6 +2074,11 @@ fn frame(
                     screen.log.extend(line);
                 }
             }
+            // Ctrl and a slot's key: that slot ranked up (task 123),
+            // never the ability used — the rows above are read with no
+            // modifier held. Handed on after the hero panel, with a
+            // Ctrl-click on its box, through the one `rank_up`.
+            rank_up_asked = rank_up_by_key(&keys_now, &i.events, i.modifiers).or(rank_up_asked);
             if i.key_pressed(egui::Key::Escape) {
                 if screen.aiming_attack || screen.aiming_move {
                     // The armed pointer is put away first, and nothing
@@ -2079,6 +2115,18 @@ fn frame(
     {
         // Esc while the controls page waits on a key is that page's.
         screen.sheet = None;
+    }
+    // The pointer against the window's edge pans (task 123) whatever a
+    // middle drag pans — the deck, or the galaxy chart — by the same
+    // calls, so Follow takes it as it takes a drag; beside WASD, and
+    // paused as well, since it is the camera and not the world.
+    let edge = edge_pan_now(&ctx, &pointer, &keys_now, window.focused, dt as f32)
+        .filter(|_| screen.sheet.is_none() && screen.pan_from.is_none());
+    if let Some(d) = edge {
+        match &mut screen.galaxy {
+            Some(chart) if galaxy_up => chart.preview.pan(d.x, d.y),
+            _ => session.pan(d.x, d.y),
+        }
     }
     // The map rings the site picked on the world map's list (feature
     // 103): a ring and nothing more, since nothing is flown.
@@ -2316,9 +2364,18 @@ fn frame(
                 .filter(|r| r.max.y > band)
                 .fold(area.max.x, |x, r| x.min(r.min.x));
             let boxes = ability_boxes(world, local, &keys_now);
+            // A Ctrl-click on a slot's box is the rank-up Ctrl and its
+            // key are (task 123) — not with the Esc sheet up, nor a
+            // text field holding the keyboard, the key's own rule.
+            let mut clicked = None;
             let got = hud::hero_panel(&ctx, area, clear, right, &hero, |ui| {
-                ability_row(ui, &boxes)
+                let row = ability_row(ui, &boxes);
+                clicked = row.rank_up;
+                row.hovered
             });
+            if keys {
+                rank_up_asked = rank_up_asked.or(clicked);
+            }
             // Whom the box the pointer rests on would reach (feature 86),
             // for the ring on the deck below.
             if let Some(action) = got.hovered {
@@ -2348,6 +2405,14 @@ fn frame(
     // And a relic being chosen (feature 106): the reward screen after a
     // site cleared, over the map, or a cache's in the mission.
     super::worldmap::relic_window(&ctx, world, local, &mut orders, &crew_name);
+    // A rank-up asked for this frame, by Ctrl and a slot's key or by a
+    // Ctrl-click on its box (task 123), for the player's own Bim — the
+    // one place both go through.
+    if let Some(asked) = rank_up_asked {
+        let (order, line) = rank_up(world, local, asked);
+        orders.extend(order);
+        screen.log.extend(line);
+    }
     // And the end of a fight: the site of this mission just cleared, with
     // what the fight earned and the way back to the ship.
     super::fightwon::fight_won_window(
@@ -3503,6 +3568,9 @@ enum Mark {
     StandGround,
     /// The medic's carry (feature 86).
     Carry,
+    /// An ability slot the class has nothing on (task 123): the second
+    /// and fourth for every class so far. An empty frame.
+    Empty,
 }
 
 /// One of the two boxes at the foot of the screen (feature 80): what one
@@ -3606,6 +3674,25 @@ impl Face {
 }
 
 impl AbilityBox {
+    /// An empty ability slot (task 123): its key and nothing else.
+    fn empty(key: String, action: Action) -> AbilityBox {
+        AbilityBox {
+            key,
+            name: "",
+            tip: "",
+            mark: Mark::Empty,
+            count: None,
+            cooldown: 0.0,
+            cooldown_whole: 0.0,
+            recharge: None,
+            charge: None,
+            on: false,
+            short: false,
+            locked: None,
+            action: Some(action),
+        }
+    }
+
     /// Whether the key would be taken now, as far as the box can tell:
     /// the level reached, out of the cooldown, something left to spend.
     /// What the world says when the key is actually pressed is
@@ -3615,17 +3702,68 @@ impl AbilityBox {
     }
 }
 
+/// Which of the class's two actions an ability slot does (task 123):
+/// the first slot the primary, the third the secondary, and the second
+/// and fourth nothing, being empty for every class so far.
+fn slot_action(action: Action) -> Option<bool> {
+    match action {
+        Action::Ability1 => Some(true),
+        Action::Ability3 => Some(false),
+        _ => None,
+    }
+}
+
+/// A rank-up asked for (task 123): the ability slot, nought to three,
+/// whose rank the player's own Bim is to raise. Ctrl and the slot's key
+/// and Ctrl and a click on its box are the same request, and both go
+/// through [`rank_up`].
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+struct RankUp {
+    slot: usize,
+}
+
+/// The rank-up Ctrl and a slot's key asked for among `events`.
+fn rank_up_by_key(
+    keys: &Keys,
+    events: &[egui::Event],
+    modifiers: egui::Modifiers,
+) -> Option<RankUp> {
+    keys.rank_up_asked(events, modifiers)
+        .and_then(Action::ability_slot)
+        .map(|slot| RankUp { slot })
+}
+
+/// The rank-up a click on the box for `action` asked for: a slot's box
+/// clicked with Ctrl held, and nothing for a plain click or for any other
+/// box — the commander's two squad boxes, the carry.
+fn rank_up_by_click(action: Option<Action>, clicked: bool, ctrl: bool) -> Option<RankUp> {
+    action
+        .filter(|_| clicked && ctrl)
+        .and_then(Action::ability_slot)
+        .map(|slot| RankUp { slot })
+}
+
+/// What a rank-up of the player's own Bim's ability does: the order to
+/// send and the log's line, `class_key`'s shape. The one place a rank-up
+/// asked by key or by click goes (task 123); ranks come in task 124, so
+/// for now it is taken and nothing is sent.
+fn rank_up(_world: &world::World, _slot: u32, _asked: RankUp) -> (Option<Order>, Option<String>) {
+    (None, None)
+}
+
 /// Every key the class `slot` steers has a box for, in the order they
-/// are laid out: Q and E for everybody, and past them whatever else that
-/// class has a key of its own for (feature 86) — the commander's fall
-/// back and stand ground, which had keys and no boxes, and the medic's
-/// carry. A crew member with no class has no keys and no boxes.
+/// are laid out: the four ability slots, Q, C, E and R, for everybody
+/// (task 123; the second and fourth empty for now), and past them
+/// whatever else that class has a key of its own for (feature 86) — the
+/// commander's fall back and stand ground, which had keys and no boxes,
+/// and the medic's carry. A crew member with no class has no keys and no
+/// boxes.
 fn ability_keys(world: &world::World, slot: u32) -> Vec<Action> {
     use world::Class;
     let class = world.class_of(slot);
     let mut keys = match class {
         Class::None => return Vec::new(),
-        _ => vec![Action::ClassPrimary, Action::ClassSecondary],
+        _ => Action::ABILITIES.to_vec(),
     };
     if class == Class::Commander {
         keys.push(Action::SquadFallBack);
@@ -3637,8 +3775,8 @@ fn ability_keys(world: &world::World, slot: u32) -> Vec<Action> {
     keys
 }
 
-/// The boxes for the class `slot` steers, primary (Q) first. Empty
-/// for a classless crew member, which has no keys.
+/// The boxes for the class `slot` steers, the four slots first, in Q C
+/// E R order. None for a classless crew member, which has no keys.
 fn ability_boxes(world: &world::World, slot: u32, keys: &Keys) -> Vec<AbilityBox> {
     use world::Class;
     let class = world.class_of(slot);
@@ -3649,13 +3787,18 @@ fn ability_boxes(world: &world::World, slot: u32, keys: &Keys) -> Vec<AbilityBox
     ability_keys(world, slot)
         .into_iter()
         .map(|action| {
-            let primary = action == Action::ClassPrimary;
-            // The keys past Q and E are gated by the same level their
+            // An empty slot is an empty frame: its key, and nothing
+            // to say or to wait for.
+            if action.ability_slot().is_some() && slot_action(action).is_none() {
+                return AbilityBox::empty(keys.key(action).name().to_string(), action);
+            }
+            let primary = slot_action(action).unwrap_or(false);
+            // The keys past the slots are gated by the same level their
             // own class's E is, being the same order sent by another
             // name; the carry is nobody's level at all.
             let wants = match action {
                 Action::Carry => 1,
-                Action::ClassPrimary => world::class::key_level(class, true).unwrap_or(1),
+                Action::Ability1 => world::class::key_level(class, true).unwrap_or(1),
                 _ => world::class::key_level(class, false).unwrap_or(1),
             };
             // The three keys of their own first, since they are one
@@ -3816,14 +3959,14 @@ fn affected_by(world: &world::World, slot: u32, action: Action) -> Vec<u32> {
         // The rally: every friendly Bim in his aura, and **himself** —
         // `aura_reaching` leaves a commander out of his own aura, and
         // the rally is the one thing that covers him.
-        (Class::Commander, Action::ClassPrimary) => (0..world.aboard.crew_count())
+        (Class::Commander, Action::Ability1) => (0..world.aboard.crew_count())
             .filter(|&who| who == slot || world.aura_reaching(who).is_some())
             .collect(),
         (
             Class::Commander,
-            Action::ClassSecondary | Action::SquadFallBack | Action::SquadStandGround,
+            Action::Ability3 | Action::SquadFallBack | Action::SquadStandGround,
         ) => world.squad_members(slot),
-        (Class::Medic, Action::ClassPrimary) => {
+        (Class::Medic, Action::Ability1) => {
             let mut held = world.patients_of(slot);
             held.push(slot);
             held.sort_unstable();
@@ -3831,7 +3974,7 @@ fn affected_by(world: &world::World, slot: u32, action: Action) -> Vec<u32> {
             held.dedup();
             held
         }
-        (Class::Medic, Action::ClassSecondary) => world.patients_of(slot),
+        (Class::Medic, Action::Ability3) => world.patients_of(slot),
         (_, Action::Carry) => match world.carrying_of(slot) {
             Some(patient) => vec![patient],
             None => world.carryable_near(slot),
@@ -3845,16 +3988,33 @@ fn affected_by(world: &world::World, slot: u32, action: Action) -> Vec<u32> {
 /// 80). The medicine's two boxes stood past a rule at the right-hand end
 /// until task 120 took the medkits and the bandages away. The key whose
 /// box the pointer rests on, for the ring round whom its cast would
-/// reach.
-fn ability_row(ui: &mut egui::Ui, boxes: &[AbilityBox]) -> Option<Action> {
-    let mut hovered = None;
+/// reach, and the rank-up a Ctrl-click on a slot's box asked for (task
+/// 123).
+fn ability_row(ui: &mut egui::Ui, boxes: &[AbilityBox]) -> RowOut {
+    let mut out = RowOut {
+        hovered: None,
+        rank_up: None,
+    };
     ui.spacing_mut().item_spacing.x = 4.0;
     for one in boxes {
-        if ability_box(ui, one) {
-            hovered = one.action;
+        let (resting, clicked) = ability_box(ui, one);
+        if resting {
+            out.hovered = one.action;
         }
+        let ctrl = ui.input(|i| i.modifiers.ctrl);
+        out.rank_up = out
+            .rank_up
+            .or(rank_up_by_click(one.action, clicked, ctrl));
     }
-    hovered
+    out
+}
+
+/// What the row of boxes was asked this frame.
+struct RowOut {
+    /// The key whose box the pointer rests on.
+    hovered: Option<Action>,
+    /// A slot's box clicked with Ctrl held (task 123).
+    rank_up: Option<RankUp>,
 }
 
 /// One box: the key in the corner, the picture in the middle, and what is
@@ -3863,12 +4023,38 @@ fn ability_row(ui: &mut egui::Ui, boxes: &[AbilityBox]) -> Option<Action> {
 /// underlined one beside it; the name was under the box until the hero
 /// panel took the boxes in (feature 107).
 /// Whether the pointer is resting on it — what the deck rings the cast's
-/// own Bims by (feature 86).
-fn ability_box(ui: &mut egui::Ui, one: &AbilityBox) -> bool {
+/// own Bims by (feature 86) — and whether it was clicked, which only the
+/// four slots' boxes hear (task 123: Ctrl and a click ranks one up). An
+/// empty slot is an empty frame with its key, and says nothing on a
+/// hover.
+fn ability_box(ui: &mut egui::Ui, one: &AbilityBox) -> (bool, bool) {
     ui.vertical(|ui| {
         ui.spacing_mut().item_spacing.y = 2.0;
+        let sense = if one.action.and_then(Action::ability_slot).is_some() {
+            egui::Sense::click()
+        } else {
+            egui::Sense::hover()
+        };
         let (rect, response) =
-            ui.allocate_exact_size(egui::vec2(ABILITY_SIDE, ABILITY_SIDE), egui::Sense::hover());
+            ui.allocate_exact_size(egui::vec2(ABILITY_SIDE, ABILITY_SIDE), sense);
+        if one.mark == Mark::Empty {
+            let painter = ui.painter();
+            painter.rect_filled(rect, 4.0, theme::RAISED.gamma_multiply(0.5));
+            painter.rect_stroke(
+                rect,
+                4.0,
+                egui::Stroke::new(1.0, theme::LINE),
+                egui::StrokeKind::Inside,
+            );
+            painter.text(
+                rect.min + egui::vec2(4.0, 3.0),
+                egui::Align2::LEFT_TOP,
+                &one.key,
+                egui::FontId::proportional(11.0),
+                theme::MUTED,
+            );
+            return (false, response.clicked());
+        }
         let ready = one.ready();
         let painter = ui.painter();
         let edge = if one.on {
@@ -3917,6 +4103,7 @@ fn ability_box(ui: &mut egui::Ui, one: &AbilityBox) -> bool {
             Mark::FallBack => theme::fall_back_mark(painter, middle, radius),
             Mark::StandGround => theme::stand_ground_mark(painter, middle, radius),
             Mark::Carry => theme::carry_mark(painter, middle, radius),
+            Mark::Empty => {}
         }
         // Off, the box goes dark — and a cooldown goes dark the way Dota
         // 2 draws one: only the share still to come, swept back
@@ -4008,11 +4195,12 @@ fn ability_box(ui: &mut egui::Ui, one: &AbilityBox) -> bool {
             );
         }
         let resting = response.hovered();
+        let clicked = response.clicked();
         response.on_hover_ui(|ui| {
             ui.label(egui::RichText::new(one.name).strong());
             ui.label(one.tip);
         });
-        resting
+        (resting, clicked)
     })
     .inner
 }
@@ -4632,7 +4820,7 @@ mod class_key_tests {
         let keys = Keys::default();
         let mut world = simulation_world(flyer(2), REFERENCE_MONEY, 2);
         assert_eq!(world.set_class(0, world::Class::Engineer), Ok(()));
-        let bags = |world: &world::World| ability_boxes(world, 0, &keys).remove(1);
+        let bags = |world: &world::World| ability_boxes(world, 0, &keys).remove(2);
         let full = bags(&world);
         assert_eq!(full.count, Some(SANDBAG_CHARGES));
         assert!(full.cooldown == 0.0 && full.recharge.is_none());
@@ -4673,10 +4861,15 @@ mod class_key_tests {
 
         // The engineer: the sentry waits for its level with the kit its
         // class dealt it in the pack; the sandbags are the ones it set
-        // out with, and Q and E are what the bindings say.
+        // out with, and Q and E are what the bindings say — the first and
+        // third of the four slots, Q C E R (task 123), the second and
+        // fourth empty frames.
         let boxes = ability_boxes(&world, 0, &keys);
-        assert_eq!(boxes.len(), 2);
-        assert_eq!((boxes[0].key.as_str(), boxes[1].key.as_str()), ("Q", "E"));
+        assert_eq!(boxes.len(), 4);
+        let keys_named: Vec<&str> = boxes.iter().map(|b| b.key.as_str()).collect();
+        assert_eq!(keys_named, vec!["Q", "C", "E", "R"]);
+        assert!(boxes[1].mark == Mark::Empty && boxes[3].mark == Mark::Empty);
+        assert!(boxes[1].name.is_empty() && boxes[3].tip.is_empty());
         assert_eq!(boxes[0].name, "Sentry");
         assert_eq!(boxes[0].locked, Some(world::class::SENTRY_LEVEL));
         assert_eq!(
@@ -4685,14 +4878,14 @@ mod class_key_tests {
             "the sentry kit it set out with"
         );
         assert!(!boxes[0].ready(), "the level, not the kit");
-        assert_eq!(boxes[1].name, "Sandbags");
-        assert_eq!(boxes[1].locked, None);
+        assert_eq!(boxes[2].name, "Sandbags");
+        assert_eq!(boxes[2].locked, None);
         assert_eq!(
-            boxes[1].count,
+            boxes[2].count,
             Some(world::deploy::SANDBAG_CHARGES),
             "the kits it set out with"
         );
-        assert!(boxes[1].ready());
+        assert!(boxes[2].ready());
 
         // The soldier: the grenade waits for its level with two in the
         // pack; the brace is there from the first and says when it is on.
@@ -4700,10 +4893,10 @@ mod class_key_tests {
         assert_eq!(boxes[0].name, "Grenade");
         assert_eq!(boxes[0].count, Some(world::class::GRENADE_CHARGES));
         assert_eq!(boxes[0].locked, Some(world::class::GRENADE_LEVEL));
-        assert_eq!(boxes[1].name, "Brace");
-        assert!(boxes[1].ready() && !boxes[1].on);
+        assert_eq!(boxes[2].name, "Brace");
+        assert!(boxes[2].ready() && !boxes[2].on);
         world.step(&[world::Command::Brace { slot: 1, on: true }]);
-        assert!(ability_boxes(&world, 1, &keys)[1].on, "braced now");
+        assert!(ability_boxes(&world, 1, &keys)[2].on, "braced now");
 
         // The level opens the locked one, and the charges thrown put it
         // out — which is the box saying no, not the level (feature 90:
@@ -4728,35 +4921,45 @@ mod class_key_tests {
             assert_eq!(world.set_class(0, class), Ok(()));
             let boxes = ability_boxes(&world, 0, &keys);
             let wanted = match class {
-                world::Class::Commander => 4,
-                world::Class::Medic => 3,
-                _ => 2,
+                world::Class::Commander => 6,
+                world::Class::Medic => 5,
+                _ => 4,
             };
             assert_eq!(boxes.len(), wanted, "{class:?}");
+            // The four slots first, Q C E R, the second and fourth
+            // empty for every class (task 123).
+            let slots: Vec<Option<Action>> = boxes[..4].iter().map(|b| b.action).collect();
+            assert_eq!(slots, Action::ABILITIES.map(Some).to_vec(), "{class:?}");
+            assert!(boxes[1].mark == Mark::Empty && boxes[3].mark == Mark::Empty);
             assert!(
                 boxes
                     .iter()
+                    .filter(|b| b.mark != Mark::Empty)
                     .all(|b| !b.name.is_empty() && !b.tip.is_empty())
             );
             assert_eq!(boxes[0].locked, Some(3), "{class:?}'s Q is its third");
-            assert_eq!(boxes[1].locked, None, "{class:?}'s E is its first");
+            assert_eq!(boxes[2].locked, None, "{class:?}'s E is its first");
             // And the keys are the Controls page's own, in the order
             // the bar lays them out.
-            let named: Vec<&str> = boxes.iter().map(|b| b.name).collect();
+            let named: Vec<&str> = boxes
+                .iter()
+                .filter(|b| b.mark != Mark::Empty)
+                .map(|b| b.name)
+                .collect();
             if class == world::Class::Commander {
                 assert_eq!(
                     named,
                     vec!["Rally", "Squad", names::FALL_BACK, names::STAND_GROUND]
                 );
-                assert_eq!(boxes[2].key, "T");
-                assert_eq!(boxes[3].key, "Z");
+                assert_eq!(boxes[4].key, "T");
+                assert_eq!(boxes[5].key, "Z");
                 // All four say how many of the squad they reach.
-                assert!(boxes[1..].iter().all(|b| b.count.is_some()));
+                assert!(boxes[2..].iter().filter(|b| b.mark != Mark::Empty).all(|b| b.count.is_some()));
             }
             if class == world::Class::Medic {
                 assert_eq!(named, vec!["Surge", "Heal beam", names::CARRY]);
-                assert_eq!(boxes[2].key, "G");
-                assert_eq!(boxes[2].locked, None, "the carry wants no level");
+                assert_eq!(boxes[4].key, "G");
+                assert_eq!(boxes[4].locked, None, "the carry wants no level");
             }
         }
     }
@@ -4776,7 +4979,7 @@ mod class_key_tests {
         let squad = world.squad_members(0);
         assert!(squad.iter().all(|&w| w != 0), "never a steered Bim");
         for action in [
-            Action::ClassSecondary,
+            Action::Ability3,
             Action::SquadFallBack,
             Action::SquadStandGround,
         ] {
@@ -4785,13 +4988,162 @@ mod class_key_tests {
         // The rally reaches whoever stands in the aura, the commander
         // among them — the whole of a small room, which is what a test
         // room is.
-        let lifted = affected_by(&world, 0, Action::ClassPrimary);
+        let lifted = affected_by(&world, 0, Action::Ability1);
         assert!(lifted.contains(&0), "the aura covers him: {lifted:?}");
         // An engineer's keys reach nobody: they are laid on the deck.
         let mut world = simulation_world(flyer(3), REFERENCE_MONEY, 1);
         assert_eq!(world.set_class(0, world::Class::Engineer), Ok(()));
-        assert!(affected_by(&world, 0, Action::ClassPrimary).is_empty());
-        assert!(affected_by(&world, 0, Action::ClassSecondary).is_empty());
+        assert!(affected_by(&world, 0, Action::Ability1).is_empty());
+        assert!(affected_by(&world, 0, Action::Ability3).is_empty());
+    }
+}
+
+#[cfg(test)]
+mod rank_up_tests {
+    use super::*;
+
+    /// The four slots' boxes and a carry box after them, the way the hero
+    /// panel lays a medic's out: Q, C, E, R and G.
+    fn boxes() -> Vec<AbilityBox> {
+        let mut row: Vec<AbilityBox> = Action::ABILITIES
+            .iter()
+            .zip(["Q", "C", "E", "R"])
+            .map(|(&action, key)| AbilityBox::empty(key.to_string(), action))
+            .collect();
+        row[0] = AbilityBox {
+            name: "Surge",
+            tip: "tip",
+            mark: Mark::Surge,
+            ..AbilityBox::empty("Q".to_string(), Action::Ability1)
+        };
+        row[2] = AbilityBox {
+            name: "Heal beam",
+            tip: "tip",
+            mark: Mark::Beam,
+            ..AbilityBox::empty("E".to_string(), Action::Ability3)
+        };
+        row.push(AbilityBox {
+            name: "Carry",
+            tip: "tip",
+            mark: Mark::Carry,
+            ..AbilityBox::empty("G".to_string(), Action::Carry)
+        });
+        row
+    }
+
+    /// A left click on box `which` of the row, with `modifiers` held
+    /// throughout, through a real egui context and no window: the
+    /// rank-up the row said, and whether the deck would have taken the
+    /// click as its own — the game screen's own test, `Pointer::on`
+    /// over the whole window, read before the frame's panels as the
+    /// screen reads it.
+    fn click_box(which: usize, modifiers: egui::Modifiers) -> (Option<RankUp>, bool) {
+        let ctx = egui::Context::default();
+        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(800.0, 600.0));
+        let origin = egui::pos2(100.0, 100.0);
+        let at = origin
+            + egui::vec2(
+                which as f32 * (ABILITY_SIDE + 4.0) + ABILITY_SIDE / 2.0,
+                ABILITY_SIDE / 2.0,
+            );
+        let button = |pressed| egui::Event::PointerButton {
+            pos: at,
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers,
+        };
+        let row = boxes();
+        let mut asked = None;
+        let mut deck = false;
+        for events in [
+            vec![],
+            vec![egui::Event::PointerMoved(at)],
+            vec![button(true)],
+            vec![button(false)],
+            vec![],
+        ] {
+            let input = egui::RawInput {
+                screen_rect: Some(screen),
+                events,
+                modifiers,
+                ..Default::default()
+            };
+            let _ = ctx.run(input, |ctx| {
+                let pointer = Pointer::read(ctx);
+                deck |= (pointer.primary_pressed || pointer.primary_released)
+                    && pointer.on(rect_of(screen)).is_some();
+                egui::Area::new(egui::Id::new("row"))
+                    .fixed_pos(origin)
+                    .show(ctx, |ui| {
+                        ui.horizontal(|ui| {
+                            asked = asked.or(ability_row(ui, &row).rank_up);
+                        });
+                    });
+            });
+        }
+        (asked, deck)
+    }
+
+    /// Ctrl+E and a Ctrl-click on the third slot's box are one rank-up
+    /// request (task 123), the same value handed to the one `rank_up`.
+    #[test]
+    fn ctrl_e_and_a_ctrl_click_on_the_third_box_are_the_same_rank_up() {
+        let keys = Keys::default();
+        let ctrl = egui::Modifiers::CTRL;
+        let e = [egui::Event::Key {
+            key: egui::Key::E,
+            physical_key: Some(egui::Key::E),
+            pressed: true,
+            repeat: false,
+            modifiers: ctrl,
+        }];
+        let by_key = rank_up_by_key(&keys, &e, ctrl);
+        assert_eq!(by_key, Some(RankUp { slot: 2 }));
+        let (by_click, _) = click_box(2, ctrl);
+        assert_eq!(by_click, by_key);
+        // Every slot's box, the empty ones as well.
+        for which in 0..4 {
+            assert_eq!(click_box(which, ctrl).0, Some(RankUp { slot: which }));
+        }
+        // And the one place both go sends nothing yet: ranks are task
+        // 124's.
+        let world = world::fixture::simulation_world(
+            shipdesign::fixture::flyer(1),
+            world::fixture::REFERENCE_MONEY,
+            1,
+        );
+        assert_eq!(rank_up(&world, 0, RankUp { slot: 2 }), (None, None));
+    }
+
+    /// A plain click on a slot's box asks nothing, and nor does a
+    /// Ctrl-click on a box that is not a slot's — the carry here, and by
+    /// the same rule the commander's two squad boxes.
+    #[test]
+    fn a_plain_click_or_a_box_that_is_no_slot_asks_no_rank_up() {
+        assert_eq!(click_box(2, egui::Modifiers::NONE).0, None);
+        assert_eq!(click_box(0, egui::Modifiers::NONE).0, None);
+        assert_eq!(click_box(4, egui::Modifiers::CTRL).0, None);
+        assert_eq!(rank_up_by_click(Some(Action::SquadFallBack), true, true), None);
+        assert_eq!(rank_up_by_click(Some(Action::SquadStandGround), true, true), None);
+        assert_eq!(rank_up_by_click(Some(Action::Ability4), true, false), None);
+        assert_eq!(
+            rank_up_by_click(Some(Action::Ability4), true, true),
+            Some(RankUp { slot: 3 })
+        );
+    }
+
+    /// A Ctrl-click on a box never reaches the deck: the pointer is over
+    /// the hero panel, so the canvas is not handed the press and gives
+    /// no order and picks nothing up. A click beside the row is the
+    /// deck's, which is what says the test can tell.
+    #[test]
+    fn a_ctrl_click_on_a_box_is_no_deck_order() {
+        for which in 0..5 {
+            let (_, deck) = click_box(which, egui::Modifiers::CTRL);
+            assert!(!deck, "box {which}");
+        }
+        let (asked, deck) = click_box(12, egui::Modifiers::CTRL);
+        assert!(deck && asked.is_none(), "beside the row is the deck's");
     }
 }
 

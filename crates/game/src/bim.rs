@@ -204,6 +204,14 @@ pub struct Bim {
     /// the player gives calls it off.
     #[cfg_attr(feature = "serde", serde(default))]
     pub attack_move: Option<Vec2>,
+    /// The enemy a player **right-clicked** (task 126, Dota's attack
+    /// order), by its index in the room's target list: the body shoots
+    /// that one and nobody else, walks after it until it has a shot, and
+    /// keeps at it until the enemy is down or dead or the player orders
+    /// something else (`Game::order_attack`, `Game::chase`). `None` for
+    /// everybody else.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub focus: Option<usize>,
 }
 
 /// The years the crew were born in. Everyone aboard is somewhere between
@@ -251,6 +259,7 @@ impl Bim {
             manufacturer: false,
             arc_cool: 0.0,
             attack_move: None,
+            focus: None,
         }
     }
 

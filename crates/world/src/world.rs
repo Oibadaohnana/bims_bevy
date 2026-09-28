@@ -7504,6 +7504,9 @@ impl World {
         self.lift_by_relic_hooks(who, &mut skill);
         // And how long it takes to revive a downed crewmate (task 120).
         skill.revive = self.revive_seconds(who);
+        // And whether it is a medic, whom the other bots leave a downed
+        // crewmate to (task 125).
+        skill.medic = self.is_medic(who) || self.is_field_medic(who);
         skill
     }
 
@@ -9020,6 +9023,7 @@ impl World {
             bims::order::CrewOrder::Move { .. }
                 | bims::order::CrewOrder::Line { .. }
                 | bims::order::CrewOrder::AttackMove { .. }
+                | bims::order::CrewOrder::Attack { .. }
         ) {
             self.take_out_of_squad(slot);
         }

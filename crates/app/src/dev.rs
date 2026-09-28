@@ -191,6 +191,14 @@ pub fn depart() -> bool {
     std::env::var("BIMS_DEPART").as_deref() == Ok("1")
 }
 
+/// Whether a `BIMS_POINTER` script drives the pointer: the edge scroll
+/// (task 123) is off then, since a scripted point near an edge would pan
+/// the camera from under the clicks that follow it.
+pub fn pointer_scripted() -> bool {
+    static SCRIPTED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *SCRIPTED.get_or_init(|| std::env::var_os("BIMS_POINTER").is_some())
+}
+
 /// `BIMS_SHEET=1` opens the game with the **character sheet** up
 /// (feature 107), the way K would — how it is looked at from a terminal.
 pub fn sheet() -> bool {

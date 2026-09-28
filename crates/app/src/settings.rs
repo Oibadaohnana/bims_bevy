@@ -1,7 +1,8 @@
 //! The Esc sheet: settings and the keys.
 //!
 //! One window in the middle of the screen, six pages. The first is the
-//! menu — the UI scale, a button each for the audio and the controls, and
+//! menu — the UI scale, the edge-scroll speed (task 123, kept in the keys
+//! file beside the bindings), a button each for the audio and the controls, and
 //! one each for saving, loading and starting the run again — and the other
 //! five are those, with a way back. The controls page is where every key is
 //! rebound (`crate::keys`); the save, load and restart pages are
@@ -16,7 +17,7 @@ use bevy_egui::egui;
 
 use ship::game::Overlay;
 
-use crate::keys::{Action, Keys};
+use crate::keys::{Action, EDGE_SCROLL_MAX, Keys};
 use crate::names::{
     LOAD_GUEST, RESTART_BUTTON, RESTART_GUEST, RESTART_NONE, VIEW_HEADING, VIEW_PLAIN,
     VIEW_PLAIN_HINT, VIEW_POWER, VIEW_POWER_HINT,
@@ -107,7 +108,7 @@ pub fn settings_sheet(
         .resizable(false)
         .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
         .show(ctx, |ui| match page {
-            Sheet::Menu => menu(ui, sheet, saves, allowed, view),
+            Sheet::Menu => menu(ui, sheet, saves, allowed, view, keys),
             Sheet::Audio => audio(ui, sheet, mix),
             Sheet::Controls => controls(ui, sheet, keys),
             Sheet::Save => {
@@ -145,9 +146,35 @@ fn menu(
     saves: &mut Saves,
     allowed: Allowed,
     view: Option<&mut Overlay>,
+    keys: &mut Keys,
 ) {
     theme::heading(ui, "UI scale");
     theme::ui_scale_row(ui);
+    ui.add_space(8.0);
+    // How fast the pointer against the window's edge pans the view (task
+    // 123): nought to three times the keys' pan, nought being off. This
+    // player's own, kept with the keys and sent nowhere.
+    theme::heading(ui, "Edge scroll speed");
+    let mut speed = keys.edge_scroll_speed();
+    let slider = ui.add(
+        egui::Slider::new(&mut speed, 0.0..=f32::from(EDGE_SCROLL_MAX) / 10.0)
+            .step_by(0.1)
+            .trailing_fill(true)
+            .custom_formatter(|v, _| {
+                if v <= 0.0 {
+                    "Off".to_string()
+                } else {
+                    format!("{v:.1}×")
+                }
+            }),
+    );
+    if slider.changed() {
+        keys.edge_scroll = (speed * 10.0).round().clamp(0.0, f32::from(EDGE_SCROLL_MAX)) as u8;
+    }
+    // Kept when the value settles, not every frame of a drag.
+    if slider.drag_stopped() || (slider.changed() && !slider.dragged()) {
+        keys.save();
+    }
     ui.add_space(8.0);
     // What the ship view shows over the ship (feature 107): the plain
     // deck, or the electricity. Head up and the camera's follow keep
@@ -297,7 +324,7 @@ fn controls(ui: &mut egui::Ui, sheet: &mut Option<Sheet>, keys: &mut Keys) {
     theme::heading(ui, "Keys");
     ui.label(
         egui::RichText::new(
-            "Click a key to change it, then press the one you want; Esc keeps the old one. Two actions on one key both happen — Recruit and Turn share R and are told apart by what is in hand.",
+            "Click a key to change it, then press the one you want; Esc keeps the old one. Two actions on one key both happen where both are read — Turn shares R with the fourth ability slot, and is read only in the yard and the armoury. Ctrl and an ability slot's key ranks that ability up rather than using it, whatever key the slot is on.",
         )
         .small()
         .color(theme::MUTED),
@@ -334,7 +361,10 @@ fn controls(ui: &mut egui::Ui, sheet: &mut Option<Sheet>, keys: &mut Keys) {
     }
     ui.add_space(4.0);
     if ui.button("Reset to defaults").clicked() {
+        // The keys, not the edge-scroll speed: that is the menu's slider.
+        let edge_scroll = keys.edge_scroll;
         *keys = Keys::default();
+        keys.edge_scroll = edge_scroll;
         keys.save();
     }
     ui.add_space(8.0);
@@ -357,6 +387,14 @@ fn controls(ui: &mut egui::Ui, sheet: &mut Option<Sheet>, keys: &mut Keys) {
         &[
             ("Wheel", "Zoom, about the pointer."),
             ("Middle-drag", "Pan the view."),
+            (
+                "Edge of the window",
+                "Pan the view: rest the pointer against an edge, or a corner for both ways. Its speed is on the settings' first page.",
+            ),
+            (
+                "Ctrl + ability key, or Ctrl-click its box",
+                "Rank the ability up, rather than using it.",
+            ),
             (
                 "Click the map",
                 "Pick a station, or a planet with a settlement, on the world map's list: the trip is quoted there and put to the crew.",

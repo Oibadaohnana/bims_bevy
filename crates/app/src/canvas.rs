@@ -108,6 +108,64 @@ impl Pointer {
     }
 }
 
+/// How near the window's edge, in logical points, the pointer pans the
+/// camera (task 123).
+pub const EDGE_SCROLL_ZONE: f32 = 8.0;
+
+/// The pan the pointer against the window's edge asks for this frame
+/// (task 123), in the screen units `Session::pan` takes and the sign the
+/// WASD pan gives them: `pointer` in points from the window's top left,
+/// `window` its size, `zone` how near an edge counts, `speed` in points a
+/// second and `dt` the frame's seconds. Each axis on its own, so a corner
+/// pans on both at full speed; the pointer at the left edge pans exactly
+/// as `PanLeft` does. Nothing with no pointer, a pointer outside the
+/// window, or no speed.
+pub fn edge_pan(pointer: Option<Vec2>, window: Vec2, zone: f32, speed: f32, dt: f32) -> Vec2 {
+    let Some(p) = pointer else {
+        return Vec2::ZERO;
+    };
+    if speed <= 0.0 || p.x < 0.0 || p.y < 0.0 || p.x > window.x || p.y > window.y {
+        return Vec2::ZERO;
+    }
+    let step = speed * dt;
+    let axis = |at: f32, size: f32| {
+        if at < zone {
+            step
+        } else if at > size - zone {
+            -step
+        } else {
+            0.0
+        }
+    };
+    Vec2::new(axis(p.x, window.x), axis(p.y, window.y))
+}
+
+/// [`edge_pan`] for a screen's frame, or `None` when there is nothing to
+/// pan: the window unfocused, a middle drag under way, the setting off, a
+/// `BIMS_POINTER` script driving the pointer, or the pointer nowhere near
+/// an edge. Measured against the whole window, panels and all. The
+/// screen says for itself whether the Esc sheet is up.
+pub fn edge_pan_now(
+    ctx: &egui::Context,
+    pointer: &Pointer,
+    keys: &crate::keys::Keys,
+    focused: bool,
+    dt: f32,
+) -> Option<Vec2> {
+    if !focused || pointer.middle_down || crate::dev::pointer_scripted() {
+        return None;
+    }
+    let window = ctx.viewport_rect();
+    let d = edge_pan(
+        pointer.pos.map(|p| p - Vec2::new(window.min.x, window.min.y)),
+        Vec2::new(window.width(), window.height()),
+        EDGE_SCROLL_ZONE,
+        crate::screens::designer::PAN_SPEED * keys.edge_scroll_speed(),
+        dt,
+    );
+    (d != Vec2::ZERO).then_some(d)
+}
+
 /// How much one point of wheel is worth as a zoom factor.
 pub const ZOOM_PER_POINT: f32 = 0.003;
 
@@ -134,4 +192,41 @@ pub fn rect_of(r: egui::Rect) -> Rect {
 
 pub fn egui_rect(r: Rect) -> egui::Rect {
     egui::Rect::from_min_max(egui::pos2(r.min.x, r.min.y), egui::pos2(r.max.x, r.max.y))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::screens::designer::PAN_SPEED;
+
+    /// The pointer against the window's edge (task 123): nothing in the
+    /// middle, the left edge exactly the `PanLeft` key's pan, a corner
+    /// both axes at full speed, and nothing with no pointer or the
+    /// setting off.
+    #[test]
+    fn the_edge_pans_as_the_keys_do_and_the_middle_does_not() {
+        let window = Vec2::new(1400.0, 900.0);
+        let dt = 1.0 / 60.0;
+        let pan = |p: Option<Vec2>, speed: f32| {
+            edge_pan(p, window, EDGE_SCROLL_ZONE, PAN_SPEED * speed, dt)
+        };
+        let step = PAN_SPEED * dt;
+        assert_eq!(pan(Some(window / 2.0), 1.0), Vec2::ZERO);
+        // `PanLeft` is `d.x += PAN_SPEED * dt` and nothing else.
+        assert_eq!(pan(Some(Vec2::new(2.0, 450.0)), 1.0), Vec2::new(step, 0.0));
+        assert_eq!(pan(Some(Vec2::new(1398.0, 450.0)), 1.0), Vec2::new(-step, 0.0));
+        assert_eq!(pan(Some(Vec2::new(700.0, 1.0)), 1.0), Vec2::new(0.0, step));
+        assert_eq!(pan(Some(Vec2::new(700.0, 899.0)), 1.0), Vec2::new(0.0, -step));
+        // Just past the zone is the middle.
+        assert_eq!(pan(Some(Vec2::new(EDGE_SCROLL_ZONE + 0.5, 450.0)), 1.0), Vec2::ZERO);
+        // A corner: both axes, each at the whole speed.
+        assert_eq!(pan(Some(Vec2::new(0.0, 0.0)), 1.0), Vec2::new(step, step));
+        assert_eq!(pan(Some(Vec2::new(1399.0, 899.0)), 1.0), Vec2::new(-step, -step));
+        // The setting scales it.
+        let faster = pan(Some(Vec2::new(2.0, 450.0)), 2.5);
+        assert!((faster.x - step * 2.5).abs() < 1e-3 && faster.y == 0.0, "{faster}");
+        // No pointer, or the setting at nought: nothing.
+        assert_eq!(pan(None, 1.0), Vec2::ZERO);
+        assert_eq!(pan(Some(Vec2::new(2.0, 450.0)), 0.0), Vec2::ZERO);
+    }
 }

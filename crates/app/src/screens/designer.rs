@@ -707,6 +707,8 @@ fn frame(
     mut online: ResMut<Online>,
     // The canvas between the panels, which Bevy draws (feature 97).
     mut world_canvas: WorldCanvas,
+    // Whether the window has the focus, for the edge scroll (task 123).
+    window: Single<&Window>,
 ) -> Result {
     let _timed = crate::perf::scope(crate::perf::Phase::Frame);
     let ctx = contexts.ctx_mut()?.clone();
@@ -1134,6 +1136,15 @@ fn frame(
     {
         // Esc while the controls page waits on a key is that page's.
         screen.sheet = None;
+    }
+    // The pointer against the window's edge pans the yard (task 123), as
+    // a middle drag does and beside WASD.
+    if screen.sheet.is_none()
+        && screen.pan_from.is_none()
+        && let Some(d) =
+            crate::canvas::edge_pan_now(&ctx, &pointer, &keys_now, window.focused, dt)
+    {
+        session.pan(d.x, d.y);
     }
 
     // --- the readout ---------------------------------------------------------

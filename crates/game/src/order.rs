@@ -98,6 +98,15 @@ pub enum CrewOrder {
         x: f32,
         y: f32,
     },
+    /// A right-click on an enemy (task 126, Dota's attack order): the
+    /// player's own crew member shoots that one and nobody else, walks
+    /// after it until it has a shot, and keeps at it until the enemy is
+    /// down or dead or another order is given. `enemy` is the index in
+    /// the room's target list — the world's residents' — and an order at
+    /// an index with nobody standing there is ignored. Appended last.
+    Attack {
+        enemy: u32,
+    },
 }
 
 impl CrewOrder {
@@ -120,7 +129,8 @@ impl CrewOrder {
             | CrewOrder::StandDown { .. }
             | CrewOrder::WorkPriority { .. }
             | CrewOrder::Autonomous { .. }
-            | CrewOrder::AttackMove { .. } => None,
+            | CrewOrder::AttackMove { .. }
+            | CrewOrder::Attack { .. } => None,
         }
     }
 }
@@ -203,6 +213,7 @@ impl Game {
                 0
             }
             CrewOrder::AttackMove { x, y } => self.order_attack_move(slot, x, y),
+            CrewOrder::Attack { enemy } => self.order_attack(slot, enemy as usize),
         }
     }
 
@@ -258,7 +269,8 @@ impl Game {
             | CrewOrder::StandDown { .. }
             | CrewOrder::WorkPriority { .. }
             | CrewOrder::Autonomous { .. }
-            | CrewOrder::AttackMove { .. } => return self.order(slot, order),
+            | CrewOrder::AttackMove { .. }
+            | CrewOrder::Attack { .. } => return self.order(slot, order),
         };
         if who(w) < crew {
             self.queue_order(Saved::ordered(who(w), kind, minutes, None));
