@@ -87,6 +87,7 @@ impl Plugin for ThemePlugin {
 
 fn style(mut contexts: EguiContexts) -> Result {
     let ctx = contexts.ctx_mut()?;
+    ctx.set_zoom_factor(opening_scale());
     let mut visuals = egui::Visuals::dark();
     visuals.panel_fill = PANEL;
     visuals.window_fill = PANEL;
@@ -390,6 +391,26 @@ pub const UI_SCALES: [(f32, &str); 5] = [
     (1.75, "175%"),
     (2.0, "200%"),
 ];
+
+/// The UI scale a window opens at, one of [`UI_SCALES`].
+pub const UI_SCALE_DEFAULT: f32 = 1.5;
+
+/// The UI scale a window opens at: [`UI_SCALE_DEFAULT`] — except a smoke
+/// run (`BIMS_SMOKE_FRAMES`), which opens at 100% so every `BIMS_POINTER`
+/// script and screenshot written down for one still lands where it says.
+/// `BIMS_UI_SCALE=1.25` (or `125`) opens either at that.
+fn opening_scale() -> f32 {
+    let asked = std::env::var("BIMS_UI_SCALE").ok().and_then(|v| {
+        let n: f32 = v.trim().trim_end_matches('%').parse().ok()?;
+        let n = if n > 10.0 { n / 100.0 } else { n };
+        (0.5..=3.0).contains(&n).then_some(n)
+    });
+    asked.unwrap_or(if crate::dev::smoke_frames().is_some() {
+        1.0
+    } else {
+        UI_SCALE_DEFAULT
+    })
+}
 
 /// The UI scale, chosen: a row of the sizes with the one in force marked.
 /// On the Esc sheet, and nowhere else — it is the one setting there is.

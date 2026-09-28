@@ -2411,8 +2411,13 @@ Things about that which are easy to get wrong:
 - **The UI scale is egui's zoom factor** (`theme::ui_scale_row`, on the Esc
   sheet's menu): it scales the type, the panels and the canvas alike, and
   bevy_egui divides the pointer by it, so nothing in the screens has to
-  know. A `BIMS_POINTER` script is in points *before* the zoom, so drive a
-  screen at 100% or the clicks land elsewhere.
+  know. **A window opens at 150%** (`theme::UI_SCALE_DEFAULT`, set once by
+  the theme's first pass) — **except a smoke run** (`BIMS_SMOKE_FRAMES`),
+  which opens at 100%, since a `BIMS_POINTER` script is in points
+  *before* the zoom and every recipe and screenshot size in these notes
+  was written at 100%. `BIMS_UI_SCALE=1.5` (or `150`) opens either at
+  that, which is how the default is looked at from a terminal. The
+  choice on the Esc sheet is not kept between runs.
 - **The pointer is egui's.** `canvas::Pointer::read` takes the pointer out
   of the egui context, and `Pointer::on(rect)` answers `None` whenever egui
   wants it — over a panel, a window, a menu — so a click on a panel is the
