@@ -444,6 +444,183 @@ impl ShapeBuf {
     }
 }
 
+// --- the same shapes, for the GPU (task 121) ----------------------------------
+//
+// The world's canvas does not tessellate: every shape goes to the GPU as one
+// [`Record`], and `shape.wgsl` draws it as a quad whose fragments work out how
+// much of the pixel the triangles above would have covered. The decisions
+// that are one per *shape* — the cull, the colour, a hairline's fade, a
+// stroke with no hole left becoming a fill, how many points a curve gets —
+// are made here, exactly as `ShapeBuf::replay` makes them; the shader does
+// only the arithmetic that is one per *pixel*.
+//
+// Why the two agree: every polygon `ShapeBuf` draws is convex, and its
+// feather is the polygon's ring moved out and in by half a pixel along the
+// mitres. Inside the band along an edge the colour is interpolated from the
+// shape's own at the inner ring to nothing at the outer, which is linear in
+// the distance to that edge's line; and the bands meet along the mitres,
+// which are exactly where two edges' lines are equally far. So what a pixel
+// gets is `0.5 - D / f`, clamped, where `D` is the largest signed distance
+// from the pixel to any edge's line — the polygon's own points, the rounded
+// corner's chords and the ellipse's sides, not a smooth curve. Only a mitre
+// `normals` caps (a corner sharper than sixty degrees, which only a
+// triangle has) comes out a little differently, in the pixel at its tip.
+
+/// Floats per record, and the record's own layout (`shape.wgsl`'s `Shape`).
+pub const RECORD: usize = 16;
+
+/// What a record draws. Nought is nothing (a slot past the layer's count).
+pub const REC_RECT_FILL: f32 = 1.0;
+pub const REC_RECT_STROKE: f32 = 2.0;
+pub const REC_ELLIPSE_FILL: f32 = 3.0;
+pub const REC_ELLIPSE_STROKE: f32 = 4.0;
+pub const REC_TRI_FILL: f32 = 5.0;
+pub const REC_TRI_STROKE: f32 = 6.0;
+
+/// One shape as the GPU is handed it, in window points: `[kind, cx, cy,
+/// ramp, hx, hy, sin, cos, radius, line, points, 0, r, g, b, a]` — the
+/// ramp being the feather's width for this shape (narrowed for one smaller
+/// than a pixel, as `ShapeBuf::fill` narrows it), and the colour a
+/// [`Paint`], premultiplied and sRGB-encoded as a vertex colour is.
+pub type Record = [f32; RECORD];
+
+/// `shapes` — twelve floats each, in world units under `view` — as the
+/// records the world's canvas at `clip` draws them from, appended to `out`
+/// in the order painted. The same shapes `ShapeBuf::replay` would have
+/// tessellated, and none that it would have culled.
+pub fn pack(shapes: &[f32], view: View, clip: Rect, pixels_per_point: f32, out: &mut Vec<Record>) {
+    let feather = if pixels_per_point > 0.0 {
+        1.0 / pixels_per_point
+    } else {
+        1.0
+    };
+    // A stroke thinner than a pixel, as `ShapeBuf::thin` draws it.
+    let thin = |line: f32, color: Paint| {
+        if line >= feather {
+            (line, color)
+        } else {
+            (feather, color.faded(line / feather))
+        }
+    };
+    let ramp = |extent: f32| feather.min(extent.max(0.0));
+    let local = Rect::new(Vec2::ZERO, clip.size());
+    out.reserve(shapes.len() / STRIDE);
+    for s in shapes.as_chunks::<STRIDE>().0 {
+        let kind = s[0];
+        let centre = view.to_canvas(Vec2::new(s[1], s[2]));
+        let size = Vec2::new(s[3].abs(), s[4].abs()) * view.scale;
+        let rot = s[5];
+        let radius = s[6] * view.scale;
+        let line = s[7] * view.scale;
+        let a = s[11];
+        if a <= 0.0 {
+            continue;
+        }
+        let reach = size.max_element() + line + 1.0;
+        if centre.x + reach < local.min.x
+            || centre.x - reach > local.max.x
+            || centre.y + reach < local.min.y
+            || centre.y - reach > local.max.y
+        {
+            continue;
+        }
+        let color = Paint::of(s[8], s[9], s[10], a);
+        let half = size / 2.0;
+        // (kind, half, radius, line, points, ramp, colour)
+        let (rec, half, radius, line, points, f, color) = if kind == KIND_ELLIPSE {
+            let n = segments(half.max_element() + line);
+            if line > 0.0 {
+                let (line, color) = thin(line, color);
+                if half.min_element() <= line / 2.0 {
+                    let r = half + line / 2.0;
+                    (
+                        REC_ELLIPSE_FILL,
+                        r,
+                        0.0,
+                        0.0,
+                        n,
+                        ramp(r.min_element() * 2.0),
+                        color,
+                    )
+                } else {
+                    (REC_ELLIPSE_STROKE, half, 0.0, line, n, feather, color)
+                }
+            } else {
+                let f = ramp(half.min_element() * 2.0);
+                (REC_ELLIPSE_FILL, half, 0.0, 0.0, n, f, color)
+            }
+        } else if kind == KIND_TRIANGLE {
+            let extent = if size.x > 0.0 && size.y > 0.0 {
+                size.x * size.y / size.length()
+            } else {
+                0.0
+            };
+            if line > 0.0 {
+                let (line, color) = thin(line, color);
+                if extent <= line {
+                    (REC_TRI_FILL, half, 0.0, 0.0, 3, ramp(extent), color)
+                } else {
+                    (REC_TRI_STROKE, half, 0.0, line, 3, feather, color)
+                }
+            } else {
+                (REC_TRI_FILL, half, 0.0, 0.0, 3, ramp(extent), color)
+            }
+        } else if line > 0.0 {
+            let (line, color) = thin(line, color);
+            let corners = if radius > 0.0 {
+                segments(radius + line) / 4 + 1
+            } else {
+                1
+            };
+            if half.min_element() <= line / 2.0 {
+                let grow = Vec2::splat(line / 2.0);
+                let outer_r = if radius > 0.0 {
+                    radius + line / 2.0
+                } else {
+                    0.0
+                };
+                let f = ramp((half + grow).min_element() * 2.0);
+                (REC_RECT_FILL, half + grow, outer_r, 0.0, corners, f, color)
+            } else {
+                (REC_RECT_STROKE, half, radius, line, corners, feather, color)
+            }
+        } else {
+            let corners = if radius > 0.0 {
+                segments(radius) / 4 + 1
+            } else {
+                1
+            };
+            let f = ramp(half.min_element() * 2.0);
+            (REC_RECT_FILL, half, radius, 0.0, corners, f, color)
+        };
+        let (sin, cos) = if rot == 0.0 {
+            (0.0, 1.0)
+        } else {
+            rot.sin_cos()
+        };
+        let at = centre + clip.min;
+        let [r, g, b, a] = color.0;
+        out.push([
+            rec,
+            at.x,
+            at.y,
+            f,
+            half.x,
+            half.y,
+            sin,
+            cos,
+            radius,
+            line,
+            points as f32,
+            0.0,
+            r,
+            g,
+            b,
+            a,
+        ]);
+    }
+}
+
 fn turned(p: Vec2, rot: f32) -> Vec2 {
     if rot == 0.0 {
         return p;
@@ -750,6 +927,114 @@ mod tests {
             assert_eq!(ns[1], ns[2]);
             assert!(ns[0].x < 0.0 && ns[0].y < 0.0);
         }
+    }
+
+    /// The GPU's records are the shapes `replay` draws, one each and in
+    /// order, and none that it culls; a ring with no hole left is a disc,
+    /// a hairline is a pixel wide and fainter, an emissive colour is kept
+    /// past one, and the canvas's origin is on every centre (task 121).
+    #[test]
+    fn the_records_are_the_shapes_replay_draws_and_no_others() {
+        let clip = Rect::new(Vec2::new(10.0, 20.0), Vec2::new(110.0, 120.0));
+        let shapes: [[f32; STRIDE]; 6] = [
+            // A plain square.
+            [
+                KIND_RECT, 50.0, 50.0, 10.0, 8.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0,
+            ],
+            // Far past the canvas: culled.
+            [
+                KIND_ELLIPSE,
+                300.0,
+                300.0,
+                20.0,
+                20.0,
+                0.0,
+                0.0,
+                0.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+            ],
+            // A ring whose line is wider than its hole: a disc.
+            [
+                KIND_ELLIPSE,
+                50.0,
+                50.0,
+                4.0,
+                4.0,
+                0.0,
+                0.0,
+                6.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+            ],
+            // A hairline outline.
+            [
+                KIND_RECT, 50.0, 50.0, 40.0, 40.0, 0.0, 0.0, 0.25, 1.0, 1.0, 1.0, 1.0,
+            ],
+            // Nothing to see.
+            [
+                KIND_RECT, 50.0, 50.0, 40.0, 40.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 0.0,
+            ],
+            // A hot triangle.
+            [
+                KIND_TRIANGLE,
+                50.0,
+                50.0,
+                10.0,
+                10.0,
+                0.0,
+                0.0,
+                0.0,
+                3.0,
+                2.0,
+                1.0,
+                1.0,
+            ],
+        ];
+        let mut records = Vec::new();
+        pack(shapes.as_flattened(), View::PIXELS, clip, 1.0, &mut records);
+        // One record for every shape `replay` draws anything of, and none
+        // for one it draws nothing of.
+        let drawn: Vec<bool> = shapes
+            .iter()
+            .map(|s| {
+                let mut buf = ShapeBuf::new(clip, 1.0);
+                buf.replay(s, View::PIXELS);
+                !buf.is_empty()
+            })
+            .collect();
+        assert_eq!(drawn, [true, false, true, true, false, true]);
+        assert_eq!(records.len(), 4);
+        let kinds: Vec<f32> = records.iter().map(|r| r[0]).collect();
+        assert_eq!(
+            kinds,
+            [
+                REC_RECT_FILL,
+                REC_ELLIPSE_FILL,
+                REC_RECT_STROKE,
+                REC_TRI_FILL
+            ]
+        );
+        // The square: its centre on the window, its half size, a pixel's
+        // ramp, no turn, and egui's colour.
+        let square = records[0];
+        assert_eq!(&square[1..8], &[60.0, 70.0, 1.0, 5.0, 4.0, 0.0, 1.0]);
+        assert_eq!(&square[12..], &Paint::of(1.0, 1.0, 1.0, 1.0).0);
+        // The disc: the ring's radius and half its line, filled.
+        assert_eq!(&records[1][4..6], &[5.0, 5.0]);
+        assert_eq!(records[1][9], 0.0);
+        // The hairline: a pixel wide, a quarter as strong.
+        assert_eq!(records[2][9], 1.0);
+        assert_eq!(
+            &records[2][12..],
+            &Paint::of(1.0, 1.0, 1.0, 1.0).faded(0.25).0
+        );
+        // The triangle's colour is still past one, for the bloom.
+        assert_eq!(&records[3][12..], &[3.0, 2.0, 1.0, 1.0]);
     }
 
     #[test]

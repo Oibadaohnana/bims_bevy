@@ -227,6 +227,11 @@ device has timestamp queries; egui's pass is not one of them.
 (feature 97, *Bloom* below): the same picture drawn the same way with
 the glow and nothing else taken out, which is how the two are compared
 — and what a GPU that would rather not is given.
+**`BIMS_SHAPES=cpu`** tessellates the world canvas's shapes on the CPU
+into a mesh a frame, as before task 121, where the default hands them to
+the GPU as records (*The world canvas's shapes drawn on the GPU* below):
+the same binary both ways, which is how the two pictures are diffed and
+the two costs timed.
 `BIMS_SOUND_LOG=1` prints
 every clip as it is played and every bed as it fades up or out, which is
 how a sound is *heard* from a terminal — `BIMS_SOUND_LOG=1 BIMS_SMOKE_FRAMES=900 bims
@@ -501,6 +506,130 @@ column is the new picture's alone**: egui's pass has no timestamps, so
 what the old canvas cost the GPU is not a number anybody has.
 `BIMS_PERF=1` prints these rows (`perf: gpu …`) — the measurement is the
 one feature 96 describes, run with `BIMS_BLOOM=0` and without.
+
+## The world canvas's shapes drawn on the GPU (task 121)
+
+The tessellation feature 97 left standing is gone from the world's
+canvas: **a shape is sixteen floats in a storage buffer, and the GPU
+draws it.** `shapes::pack` turns the painters' twelve floats a shape into
+a `shapes::Record` in window points — every decision that is one a
+*shape* made exactly as `ShapeBuf::replay` makes it: the cull, `Paint::of`,
+a hairline's fade, a stroke with no hole left becoming a fill, the ramp
+narrowed for a shape thinner than a pixel, how many points a curve gets.
+`scene::WorldCanvas::shapes` hands the records to a `ShapeMaterial`
+layer, and `shape.wgsl` draws a quad a record and works out in each
+pixel what the triangles would have given it. The quads are one mesh a
+power of two of them (`QuadMeshes`, shared by every layer that size, the
+record's index in the vertex), and a layer's buffer keeps its size while
+its count stays under that power of two, so a frame writes the records
+into a buffer that already exists and nothing else. The panels' canvases
+(the lobby's galaxy and diagram, the setup's portrait) are egui's and are
+tessellated by `ShapeBuf` as before, and so are the fog's pictures, which
+are textures. **`BIMS_SHAPES=cpu`** draws the world's canvas the old way
+too — a `ShapeBuf` mesh a frame — in the same binary, which is what every
+comparison below was made against.
+
+**Why the shader is the same picture.** Every polygon `ShapeBuf` makes is
+convex, and its feather is the ring moved out and in half a pixel along
+the mitres with the colour ramped across the band. Inside the band along
+an edge the colour is linear in the distance to that edge's line, and the
+bands meet on the mitres, which is where two edges' lines are equally far.
+So a pixel gets `0.5 − D/f`, clamped, `D` the largest signed distance to
+any edge's line **of the polygon `ShapeBuf` builds** — the chords of a
+rounded corner (folded into one quadrant, since the ring is the same
+mirrored), the sides of the 8-to-64-sided ellipse — not of a smooth curve;
+a stroke is two of those. The exception is the **triangle**: `normals`
+caps a mitre sharper than sixty degrees, and the hull's 45° triangles are
+all capped, which bends the band along the whole hypotenuse, so no
+distance formula gives it. For a triangle the shader builds the same fan
+and bands `ShapeBuf` would (capped mitres and all, `moved`, `band`) and
+interpolates across whichever triangle holds the pixel, as the rasteriser
+interpolated the vertex colours. The colour out is `canvas.wgsl`'s
+arithmetic, premultiplied, the sRGB curve carried past one — so the bolt's
+emissive core is still past white for the bloom, `BIMS_BLOOM=0` still
+works, and the clip is the same scissor.
+
+**What the picture was checked against**: the same binary paused at frame
+5 (`BIMS_KEYS="5:Space"`, 160 frames, 1400×900), GPU against
+`BIMS_SHAPES=cpu`, pixel by pixel of the 1.26 million — `cpu` against
+itself is nought in every one of these:
+
+| screen | pixels differing | by more than 2 levels | by more than 8 | most |
+| --- | --- | --- | --- | --- |
+| `design` | 3 009 | 130 | 53 | 35 |
+| `design`, `BIMS_BLOOM=0` | 2 791 | 132 | 52 | 35 |
+| `simulation` | 3 064 | 46 | 8 | 38 |
+| the galaxy chart | 6 042 | 3 | 3 | 22 |
+| `simulation`, `BIMS_AFIELD=1 BIMS_ZOOM=0.5` | 1 244 | 47 | 22 | 23 |
+
+The ones and twos are along edges, float arithmetic against the
+rasteriser's barycentrics; the few past eight are shapes smaller than a
+pixel — the yard's rows of lights, dots under a pixel across — where the
+rasteriser snapped the old triangles' corners to its 1/256-pixel grid and
+the shader does not. By eye there is no difference, and the bloom round a
+frozen bolt (`BIMS_FREEZE=2+1` with the guardian recipe's keys on
+`droids`) is the same. `droids` is not in the table because it is not the
+same picture twice even on the CPU path (21 696 pixels, the fight having
+moved before the pause). No pinned number moved: `PICTURES` hashes the
+shape buffer, which is untouched.
+
+**What it cost and saved**, release, this machine (Ryzen 7 3700X, Navi 32
+on RADV), 1400×900, `BIMS_PERF=1 BIMS_SMOKE_FREE=1 BIMS_SMOKE_FRAMES=400`,
+the median of five runs each, the two paths run in turn so a drift lands
+on both, bloom on (bloom off comes out the same within the spread):
+
+| | frame by the clock, `cpu` | GPU | tessellate → pack | Bevy+egui | GPU main pass |
+| --- | --- | --- | --- | --- | --- |
+| `droids` | 8.14 ms (7.77–8.96) | 4.39 ms (4.14–4.49) | 2.06 → 0.16 | 1.81 → 1.03 | 0.086 → 0.145 |
+| `droids`, `BIMS_DROID_WAVE=32` | 8.16 (7.68–8.71) | 4.35 (4.21–4.38) | 2.06 → 0.15 | 1.78 → 0.97 | 0.086 → 0.145 |
+| `simulation` | 4.93 (4.87–5.39) | 2.26 (2.24–2.73) | 1.43 → 0.12 | 1.95 → 0.70 | 0.074 → 0.130 |
+| `design` | 4.52 (4.34–4.78) | 1.90 (1.76–2.43) | 2.18 → 0.07 | 1.35 → 0.98 | 0.031 → 0.052 |
+| the galaxy chart | 4.82 (4.67–5.09) | 3.61 (3.57–3.84) | 0.85 → 0.08 | 1.06 → 0.69 | 0.030 → 0.034 |
+
+**Read the clock with care.** Unpaced, the fight's frame halves, but only
+part of that is work saved: the world steps sixty times a second of real
+time and the light map is marched again only for a body that moved, so a
+frame twice as fast has half the steps and fewer marches in it, and the
+shape buffer's row came down from 3.5 to 2.5 ms *per frame* without doing
+less per second. Paced at sixty frames a second (`BIMS_SMOKE_FREE` unset,
+three runs each), where every frame is the same stretch of game, the
+shape buffer is 5.03 ms on the CPU path and 5.07 on the GPU's, and what
+is saved is the tessellation and nothing else: the screen's frame 7.93 →
+6.13 ms in `droids`, 3.09 → 1.89 in `simulation`, 2.88 → 0.88 in
+`design`. The other saving is off the app's thread: the render thread no
+longer allocates and copies a mesh of every triangle each frame (about
+1.3–1.6 ms of its time by `perf`), which is most of the drop in the
+"Bevy and egui" row. The GPU pays about 0.03–0.06 ms a frame more in the
+main pass for it; the bloom is unchanged. `canvas to bevy` (`scene::sync`)
+went from 0.006 to 0.067 ms, the records turned into bytes. Before this
+change the old binary measured the same as `BIMS_SHAPES=cpu` does, so the
+dial is the old cost.
+
+**Not done, and why** (measured first, in the task's own analysis):
+
+- **The light map on the GPU.** About 1.5 ms of a fight's shape buffer,
+  and nothing in a crew of one. It is the picture's, not a rule — the
+  rules read the tile masks — but a per-pixel shader gathers where the CPU
+  scatters 4096 rays, so it is another picture than
+  `the_light_map_is_the_same_picture_it_was` pins, and `explored_px` is in
+  the save and would want reading back. And beside it, **`Game::render`
+  calls `observe`, whose `Sight::set_shut` rewrites the cells the fight's
+  line of sight reads** (task 122's finding): drawing a frame touches
+  state the simulation reads, which anything that moves this code has to
+  keep in mind. Marching each body's view on a thread of its own would be
+  the same picture bit for bit; that is CPU work and was left to task 122.
+- **A persistent buffer for the old triangles** instead of the records:
+  only the render thread's copy goes, and the app's thread bounds the
+  frame. The records made it moot.
+- **The fog's blur and compose on the GPU**: about 0.1 ms, only on a
+  frame the map changed, for a possible level either way.
+- **Not GPU work, and bigger than the last two**: the ship's design grid
+  rebuilt every frame by `dock::port` and `Aboard::on_ship` (0.5–0.9 ms)
+  and `World::reachable_stars` generating the galaxy every frame the
+  chart is up (2.2 ms of its 2.6 ms "canvas ui"). Task 122's.
+
+The measurements are one machine's, and the GPU columns are Bevy's
+timestamps, which egui's own pass is not among.
 
 ## How fast the crisis crosses a galaxy (feature 92)
 
@@ -1741,15 +1870,18 @@ Things about that which are easy to get wrong:
   shapes, put the words on top. `Screen` in `main.rs` is the state machine
   and each screen's plugin runs only in its state.
 - **The canvas between the panels is Bevy's; a canvas inside a panel is
-  egui's** (feature 97, *Bloom* below). `shapes.rs` tessellates the twelve
-  floats a shape into triangles either way. For the world's canvas — the
-  deck, the map, the chart, the yard — a screen hands them to
-  `scene::WorldCanvas` (`world_canvas.shapes(..)`, a system parameter of
-  the screens that have one), which makes each call a **layer**:
-  a `Mesh2d` on the one camera, a z apart in the order painted, under
-  egui and under the bloom. For a canvas inside a panel — the lobby's
+  egui's** (feature 97, *Bloom* below). For the world's canvas — the
+  deck, the map, the chart, the yard — a screen hands the twelve floats a
+  shape to `scene::WorldCanvas` (`world_canvas.shapes(..)`, a system
+  parameter of the screens that have one), which makes each call a
+  **layer**: a `Mesh2d` on the one camera, a z apart in the order
+  painted, under egui and under the bloom — its shapes packed into
+  records the GPU draws (`shapes::pack`, `shape.wgsl`, task 121, *The
+  world canvas's shapes drawn on the GPU* above), or tessellated by
+  `shapes::ShapeBuf` under `BIMS_SHAPES=cpu`. For a canvas inside a panel — the lobby's
   galaxy and diagram, the setup's portrait — `canvas::paint_shapes` adds
-  an `egui::Mesh` to the panel's own painter as before, **because egui
+  an `egui::Mesh` of `ShapeBuf`'s triangles to the panel's own painter as
+  before, **because egui
   panels paint an opaque fill**: a Bevy mesh under a panel is a mesh
   nobody sees, which is how the galaxy preview was blank for a build. So
   nothing under a panel may be moved to Bevy, and the world's canvas works
@@ -1765,7 +1897,10 @@ Things about that which are easy to get wrong:
   than a pixel is drawn a pixel wide and fainter. The pixel is
   `pixels_per_point()`, so it stays one device pixel under any UI scale.
   A new kind of shape has to go through `fill` or `stroke` there, or it
-  comes out jagged beside everything else.
+  comes out jagged beside everything else — **and into `shapes::pack`
+  and `shape.wgsl` as well** (task 121), which draw the world's canvas
+  from the same rule: a new shape that only `ShapeBuf` knows is a shape
+  the deck does not draw.
 - **The Esc sheet is `settings.rs`**: six pages in one window — the
   menu (the UI scale, a button each for Audio and Controls, and Save,
   Load and Restart), the audio page (`sound::Mix`: master, effects, ambience,

@@ -36,6 +36,19 @@
 //! The canvas's material is egui's own shader over again (`canvas.wgsl`),
 //! blended premultiplied as egui blends, with the canvas's rectangle as
 //! egui's scissor, so a layer drawn here is the picture egui drew there.
+//!
+//! **A layer of shapes is not tessellated** (task 121): each shape goes to
+//! the GPU as one record (`shapes::pack`), sixteen floats in a storage
+//! buffer the layer keeps, and `shape.wgsl` draws a quad a record and
+//! works out in each pixel how much of it the feathered triangles would
+//! have covered ([`ShapeMaterial`]). The quads are a mesh made once for a
+//! power of two of them and shared by every layer that size
+//! ([`QuadMeshes`]), and the buffer keeps its size while the count stays
+//! under it, so a frame hands the GPU the records and nothing else — where
+//! it used to hand Bevy a new mesh of every triangle, which the render
+//! thread then allocated room for and copied. **`BIMS_SHAPES=cpu`** draws
+//! them the old way, through `shapes::ShapeBuf` and a mesh a frame, for
+//! comparing the two.
 
 use bevy::asset::{RenderAssetUsages, load_internal_asset, uuid_handle};
 use bevy::camera::visibility::{NoFrustumCulling, VisibilitySystems};
@@ -51,6 +64,7 @@ use bevy::render::RenderApp;
 use bevy::render::render_resource::{
     AsBindGroup, BlendState, RenderPipelineDescriptor, SpecializedMeshPipelineError,
 };
+use bevy::render::storage::ShaderBuffer;
 use bevy::render::view::Msaa;
 use bevy::shader::{Shader, ShaderRef};
 use bevy::sprite_render::{AlphaMode2d, Material2d, Material2dKey, Material2dPlugin};
@@ -58,7 +72,7 @@ use bevy::transform::TransformSystems;
 use bevy::window::PrimaryWindow;
 use bevy_egui::{EguiPostUpdateSet, egui};
 
-use crate::shapes::{Rect, ShapeBuf, View};
+use crate::shapes::{RECORD, Record, Rect, ShapeBuf, View};
 
 // --- the bloom ----------------------------------------------------------------
 
@@ -100,15 +114,28 @@ fn bloom() -> Bloom {
 // --- the plugin ---------------------------------------------------------------
 
 const CANVAS_SHADER: Handle<Shader> = uuid_handle!("6f0b6b8e-3c1d-4b8a-9d4e-97b10a3c9e51");
+const SHAPE_SHADER: Handle<Shader> = uuid_handle!("2c7d4f1e-9a3b-4e58-b6c2-1d8e5f7a0b93");
+
+/// `BIMS_SHAPES=cpu`: the world canvas's shapes tessellated on the CPU
+/// into a mesh a frame, as before task 121 — for comparing the two
+/// pictures and the two costs. Anything else, or nothing, is the GPU's
+/// records. Read once.
+pub fn shapes_on_gpu() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var("BIMS_SHAPES").as_deref() != Ok("cpu"))
+}
 
 pub struct ScenePlugin;
 
 impl Plugin for ScenePlugin {
     fn build(&self, app: &mut App) {
         load_internal_asset!(app, CANVAS_SHADER, "canvas.wgsl", Shader::from_wgsl);
+        load_internal_asset!(app, SHAPE_SHADER, "shape.wgsl", Shader::from_wgsl);
         app.add_plugins(Material2dPlugin::<CanvasMaterial>::default())
+            .add_plugins(Material2dPlugin::<ShapeMaterial>::default())
             .init_resource::<Frame>()
             .init_resource::<Pool>()
+            .init_resource::<QuadMeshes>()
             .add_systems(Startup, camera)
             .add_systems(
                 PostUpdate,
@@ -196,11 +223,123 @@ impl Material2d for CanvasMaterial {
     }
 }
 
+/// A layer of shapes, drawn on the GPU (`shape.wgsl`): its clip, and the
+/// storage buffer its records are in — a count, then the records.
+#[derive(Asset, TypePath, AsBindGroup, Clone, Debug)]
+pub struct ShapeMaterial {
+    /// The canvas in physical pixels: min x, min y, max x, max y.
+    #[uniform(0)]
+    clip: Vec4,
+    #[storage(1, read_only)]
+    shapes: Handle<ShaderBuffer>,
+}
+
+impl Material2d for ShapeMaterial {
+    fn vertex_shader() -> ShaderRef {
+        ShaderRef::Handle(SHAPE_SHADER)
+    }
+
+    fn fragment_shader() -> ShaderRef {
+        ShaderRef::Handle(SHAPE_SHADER)
+    }
+
+    fn alpha_mode(&self) -> AlphaMode2d {
+        AlphaMode2d::Blend
+    }
+
+    /// Premultiplied, as egui blends — the same blend as a mesh layer's.
+    fn specialize(
+        descriptor: &mut RenderPipelineDescriptor,
+        _layout: &MeshVertexBufferLayoutRef,
+        _key: Material2dKey<Self>,
+    ) -> Result<(), SpecializedMeshPipelineError> {
+        if let Some(fragment) = &mut descriptor.fragment {
+            for target in fragment.targets.iter_mut().flatten() {
+                target.blend = Some(BlendState::PREMULTIPLIED_ALPHA_BLENDING);
+            }
+        }
+        Ok(())
+    }
+}
+
+/// The fewest records a layer's buffer and quads are made for: a power of
+/// two, as every size after it is.
+const MIN_QUADS: usize = 64;
+
+/// How many records a layer of `n` is given room for: the power of two at
+/// or over it, so a count that wanders keeps its buffer and its quads.
+fn room_for(n: usize) -> usize {
+    n.max(MIN_QUADS).next_power_of_two()
+}
+
+/// A quad a record, for every size of layer made so far: `n` quads whose
+/// corners are -1 or 1 each way and whose third coordinate is the record
+/// the quad draws. Made once for a size and shared by every layer of it.
+#[derive(Resource, Default)]
+struct QuadMeshes {
+    by_size: Vec<(usize, Handle<Mesh>)>,
+}
+
+impl QuadMeshes {
+    fn of(&mut self, meshes: &mut Assets<Mesh>, n: usize) -> Handle<Mesh> {
+        if let Some((_, handle)) = self.by_size.iter().find(|(size, _)| *size == n) {
+            return handle.clone();
+        }
+        let mut positions = Vec::with_capacity(n * 4);
+        let mut indices = Vec::with_capacity(n * 6);
+        for q in 0..n {
+            let z = q as f32;
+            positions.extend_from_slice(&[
+                [-1.0, -1.0, z],
+                [1.0, -1.0, z],
+                [1.0, 1.0, z],
+                [-1.0, 1.0, z],
+            ]);
+            let first = (q * 4) as u32;
+            indices.extend_from_slice(&[first, first + 1, first + 2, first, first + 2, first + 3]);
+        }
+        let mesh = Mesh::new(
+            PrimitiveTopology::TriangleList,
+            RenderAssetUsages::RENDER_WORLD,
+        )
+        .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, positions)
+        .with_inserted_indices(Indices::U32(indices));
+        let handle = meshes.add(mesh);
+        self.by_size.push((n, handle.clone()));
+        handle
+    }
+}
+
+/// A layer's records as the storage buffer holds them: the count, three
+/// words of nothing, then `room` records — the ones past the count left
+/// nought, which the vertex stage folds away.
+fn record_bytes(records: &[Record], room: usize) -> Vec<u8> {
+    let mut bytes = vec![0u8; 16 + room * RECORD * 4];
+    bytes[..4].copy_from_slice(&(records.len() as u32).to_le_bytes());
+    for (out, v) in bytes[16..]
+        .as_chunks_mut::<4>()
+        .0
+        .iter_mut()
+        .zip(records.iter().flatten())
+    {
+        *out = v.to_le_bytes();
+    }
+    bytes
+}
+
 // --- a frame's layers ---------------------------------------------------------
 
 /// One thing painted on the canvas, in points, over whatever was painted
 /// before it this frame.
-struct Layer {
+enum Layer {
+    /// Triangles: the fog's pictures, and the shapes under
+    /// `BIMS_SHAPES=cpu`.
+    Mesh(MeshLayer),
+    /// Shapes, a record each, for `shape.wgsl`.
+    Shapes { clip: Vec4, records: Vec<Record> },
+}
+
+struct MeshLayer {
     /// The canvas, in physical pixels — egui's scissor for it.
     clip: Vec4,
     positions: Vec<[f32; 3]>,
@@ -239,6 +378,16 @@ impl WorldCanvas<'_> {
         );
         crate::perf::tally(crate::perf::Count::Floats, shapes.len() as u64);
         let ppp = ctx.pixels_per_point();
+        if shapes_on_gpu() {
+            let mut records = Vec::new();
+            crate::shapes::pack(shapes, view, rect, ppp, &mut records);
+            if records.is_empty() {
+                return;
+            }
+            let clip = clip_of(rect, ppp);
+            self.push(ppp, Layer::Shapes { clip, records });
+            return;
+        }
         let mut buf = ShapeBuf::new(rect, ppp);
         buf.replay(shapes, view);
         if buf.is_empty() {
@@ -247,14 +396,14 @@ impl WorldCanvas<'_> {
         let parts = buf.into_parts();
         self.push(
             ppp,
-            Layer {
+            Layer::Mesh(MeshLayer {
                 clip: clip_of(rect, ppp),
                 positions: parts.positions,
                 colors: parts.colors,
                 uvs: None,
                 indices: parts.indices,
                 picture: None,
-            },
+            }),
         );
     }
 
@@ -272,7 +421,7 @@ impl WorldCanvas<'_> {
             return;
         }
         let ppp = ctx.pixels_per_point();
-        let mut layer = Layer {
+        let mut layer = MeshLayer {
             clip: clip_of(rect, ppp),
             positions: Vec::with_capacity(pieces.len() * 4),
             colors: vec![[1.0; 4]; pieces.len() * 4],
@@ -297,7 +446,7 @@ impl WorldCanvas<'_> {
                 first + 3,
             ]);
         }
-        self.push(ppp, layer);
+        self.push(ppp, Layer::Mesh(layer));
     }
 
     /// The images a picture is kept in between frames.
@@ -323,8 +472,8 @@ fn clip_of(rect: Rect, ppp: f32) -> Vec4 {
 
 // --- onto Bevy's entities -----------------------------------------------------
 
-/// One layer's entity, kept from frame to frame: its mesh is replaced every
-/// frame and its material only when the clip or the picture moves.
+/// A mesh layer's entity, kept from frame to frame: its mesh is replaced
+/// every frame and its material only when the clip or the picture moves.
 struct Slot {
     entity: Entity,
     mesh: Handle<Mesh>,
@@ -333,11 +482,33 @@ struct Slot {
     picture: Option<AssetId<Image>>,
 }
 
-/// The layers' entities: the first `n` of them are this frame's layers, in
-/// order, and the rest are hidden until a frame wants that many again.
+/// A shape layer's entity, kept from frame to frame: its records are
+/// written into its buffer every frame, and its quads, its buffer's size
+/// and its material change only when the count outgrows the room or the
+/// clip moves.
+struct ShapeSlot {
+    entity: Entity,
+    buffer: Handle<ShaderBuffer>,
+    material: Handle<ShapeMaterial>,
+    clip: Vec4,
+    room: usize,
+    /// Frames the material is still to be made again for: two after the
+    /// buffer changed size. Bevy puts a material's bind group together
+    /// with whatever buffer the render world holds for it at the time,
+    /// and nothing orders that after the buffer's own upload, so the
+    /// frame the buffer grows the bind group may be made over the old
+    /// one; made again the frame after, it is over the new one for good.
+    rebind: u8,
+}
+
+/// The layers' entities, one pool a kind: the first so many of each are
+/// this frame's layers of that kind, and the rest are hidden until a frame
+/// wants that many again. Which is drawn over which is their z, the order
+/// they were painted in, whichever pool they are in.
 #[derive(Resource, Default)]
 struct Pool {
     slots: Vec<Slot>,
+    shapes: Vec<ShapeSlot>,
 }
 
 /// This frame's layers onto the entities that draw them, a z apart in the
@@ -347,9 +518,12 @@ fn sync(
     mut commands: Commands,
     mut frame: ResMut<Frame>,
     mut pool: ResMut<Pool>,
+    mut quads: ResMut<QuadMeshes>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<CanvasMaterial>>,
-    mut placed: Query<(&mut Transform, &mut Visibility)>,
+    mut shape_materials: ResMut<Assets<ShapeMaterial>>,
+    mut buffers: ResMut<Assets<ShaderBuffer>>,
+    mut placed: Query<(&mut Transform, &mut Visibility, &mut Mesh2d)>,
     mut projection: Query<&mut Projection, With<Camera2d>>,
     window: Query<&Window, With<PrimaryWindow>>,
 ) {
@@ -366,64 +540,178 @@ fn sync(
         }
     }
     let layers = std::mem::take(&mut frame.layers);
-    let used = layers.len();
-    for (i, layer) in layers.into_iter().enumerate() {
-        if i == pool.slots.len() {
-            let mesh = meshes.add(Mesh::new(
-                PrimitiveTopology::TriangleList,
-                RenderAssetUsages::RENDER_WORLD,
-            ));
-            let material = materials.add(CanvasMaterial {
-                clip: layer.clip,
-                picture: layer.picture.clone(),
-            });
-            let entity = commands
-                .spawn((
-                    Mesh2d(mesh.clone()),
-                    MeshMaterial2d(material.clone()),
-                    placement(i),
-                    Visibility::Visible,
-                    NoFrustumCulling,
-                ))
-                .id();
-            pool.slots.push(Slot {
-                entity,
-                mesh,
-                material,
-                clip: layer.clip,
-                picture: layer.picture.as_ref().map(|h| h.id()),
-            });
-        }
-        let slot = &mut pool.slots[i];
-        let picture = layer.picture.as_ref().map(|h| h.id());
-        if slot.clip != layer.clip || slot.picture != picture {
-            if let Some(mut material) = materials.get_mut(&slot.material) {
-                material.clip = layer.clip;
-                material.picture = layer.picture.clone();
+    let (mut used, mut used_shapes) = (0, 0);
+    for (z, layer) in layers.into_iter().enumerate() {
+        match layer {
+            Layer::Mesh(layer) => {
+                mesh_layer(
+                    &mut commands,
+                    &mut pool.slots,
+                    used,
+                    z,
+                    layer,
+                    &mut meshes,
+                    &mut materials,
+                    &mut placed,
+                );
+                used += 1;
             }
-            slot.clip = layer.clip;
-            slot.picture = picture;
-        }
-        let mut mesh = Mesh::new(
-            PrimitiveTopology::TriangleList,
-            RenderAssetUsages::RENDER_WORLD,
-        )
-        .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, layer.positions)
-        .with_inserted_attribute(Mesh::ATTRIBUTE_COLOR, layer.colors);
-        if let Some(uvs) = layer.uvs {
-            mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, uvs);
-        }
-        let mesh = mesh.with_inserted_indices(Indices::U32(layer.indices));
-        let _ = meshes.insert(slot.mesh.id(), mesh);
-        if let Ok((mut transform, mut visibility)) = placed.get_mut(slot.entity) {
-            transform.set_if_neq(placement(i));
-            visibility.set_if_neq(Visibility::Visible);
+            Layer::Shapes { clip, records } => {
+                shape_layer(
+                    &mut commands,
+                    &mut pool.shapes,
+                    used_shapes,
+                    z,
+                    clip,
+                    &records,
+                    (&mut quads, &mut meshes),
+                    &mut shape_materials,
+                    &mut buffers,
+                    &mut placed,
+                );
+                used_shapes += 1;
+            }
         }
     }
-    for slot in &pool.slots[used..] {
-        if let Ok((_, mut visibility)) = placed.get_mut(slot.entity) {
+    let idle = pool.slots[used..].iter().map(|s| s.entity);
+    let idle = idle.chain(pool.shapes[used_shapes..].iter().map(|s| s.entity));
+    for entity in idle {
+        if let Ok((_, mut visibility, _)) = placed.get_mut(entity) {
             visibility.set_if_neq(Visibility::Hidden);
         }
+    }
+}
+
+/// A layer of triangles onto the `i`th mesh slot, at `z`.
+#[allow(clippy::too_many_arguments)]
+fn mesh_layer(
+    commands: &mut Commands,
+    slots: &mut Vec<Slot>,
+    i: usize,
+    z: usize,
+    layer: MeshLayer,
+    meshes: &mut Assets<Mesh>,
+    materials: &mut Assets<CanvasMaterial>,
+    placed: &mut Query<(&mut Transform, &mut Visibility, &mut Mesh2d)>,
+) {
+    if i == slots.len() {
+        let mesh = meshes.add(Mesh::new(
+            PrimitiveTopology::TriangleList,
+            RenderAssetUsages::RENDER_WORLD,
+        ));
+        let material = materials.add(CanvasMaterial {
+            clip: layer.clip,
+            picture: layer.picture.clone(),
+        });
+        let entity = commands
+            .spawn((
+                Mesh2d(mesh.clone()),
+                MeshMaterial2d(material.clone()),
+                placement(z),
+                Visibility::Visible,
+                NoFrustumCulling,
+            ))
+            .id();
+        slots.push(Slot {
+            entity,
+            mesh,
+            material,
+            clip: layer.clip,
+            picture: layer.picture.as_ref().map(|h| h.id()),
+        });
+    }
+    let slot = &mut slots[i];
+    let picture = layer.picture.as_ref().map(|h| h.id());
+    if slot.clip != layer.clip || slot.picture != picture {
+        if let Some(mut material) = materials.get_mut(&slot.material) {
+            material.clip = layer.clip;
+            material.picture = layer.picture.clone();
+        }
+        slot.clip = layer.clip;
+        slot.picture = picture;
+    }
+    let mut mesh = Mesh::new(
+        PrimitiveTopology::TriangleList,
+        RenderAssetUsages::RENDER_WORLD,
+    )
+    .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, layer.positions)
+    .with_inserted_attribute(Mesh::ATTRIBUTE_COLOR, layer.colors);
+    if let Some(uvs) = layer.uvs {
+        mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, uvs);
+    }
+    let mesh = mesh.with_inserted_indices(Indices::U32(layer.indices));
+    let _ = meshes.insert(slot.mesh.id(), mesh);
+    if let Ok((mut transform, mut visibility, _)) = placed.get_mut(slot.entity) {
+        transform.set_if_neq(placement(z));
+        visibility.set_if_neq(Visibility::Visible);
+    }
+}
+
+/// A layer of shape records onto the `i`th shape slot, at `z`.
+#[allow(clippy::too_many_arguments)]
+fn shape_layer(
+    commands: &mut Commands,
+    slots: &mut Vec<ShapeSlot>,
+    i: usize,
+    z: usize,
+    clip: Vec4,
+    records: &[Record],
+    (quads, meshes): (&mut QuadMeshes, &mut Assets<Mesh>),
+    materials: &mut Assets<ShapeMaterial>,
+    buffers: &mut Assets<ShaderBuffer>,
+    placed: &mut Query<(&mut Transform, &mut Visibility, &mut Mesh2d)>,
+) {
+    let room = room_for(records.len());
+    let bytes = record_bytes(records, room);
+    if i == slots.len() {
+        let buffer = buffers.add(ShaderBuffer::new(&bytes, RenderAssetUsages::RENDER_WORLD));
+        let material = materials.add(ShapeMaterial {
+            clip,
+            shapes: buffer.clone(),
+        });
+        let entity = commands
+            .spawn((
+                Mesh2d(quads.of(meshes, room)),
+                MeshMaterial2d(material.clone()),
+                placement(z),
+                Visibility::Visible,
+                NoFrustumCulling,
+            ))
+            .id();
+        slots.push(ShapeSlot {
+            entity,
+            buffer,
+            material,
+            clip,
+            room,
+            rebind: 2,
+        });
+        return;
+    }
+    let slot = &mut slots[i];
+    if let Some(mut buffer) = buffers.get_mut(&slot.buffer) {
+        buffer.data = Some(bytes);
+    }
+    // A buffer of another size is another buffer on the GPU, and the bind
+    // group has to be made again over it; so does a clip that moved.
+    let regrown = slot.room != room;
+    if regrown {
+        slot.rebind = 2;
+    }
+    if slot.rebind > 0 || slot.clip != clip {
+        if let Some(mut material) = materials.get_mut(&slot.material) {
+            material.clip = clip;
+        }
+        slot.clip = clip;
+        slot.rebind = slot.rebind.saturating_sub(1);
+    }
+    if let Ok((mut transform, mut visibility, mut mesh)) = placed.get_mut(slot.entity) {
+        if regrown {
+            mesh.0 = quads.of(meshes, room);
+            slot.room = room;
+        }
+        transform.set_if_neq(placement(z));
+        visibility.set_if_neq(Visibility::Visible);
     }
 }
 
@@ -432,4 +720,34 @@ fn sync(
 /// drawn over an earlier one.
 fn placement(i: usize) -> Transform {
     Transform::from_xyz(0.0, 0.0, i as f32).with_scale(Vec3::new(1.0, -1.0, 1.0))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A layer's buffer is what `shape.wgsl` reads: the count in the first
+    /// word, three words of nothing, then the records, sixteen floats each,
+    /// and nought for the room past them; and the room is a power of two,
+    /// so a count that wanders keeps its buffer.
+    #[test]
+    fn a_layer_s_buffer_is_the_count_then_the_records_in_a_power_of_two() {
+        assert_eq!(room_for(0), MIN_QUADS);
+        assert_eq!(room_for(MIN_QUADS + 1), MIN_QUADS * 2);
+        assert_eq!(room_for(15_400), 16_384);
+        let mut record = [0.0; RECORD];
+        record[0] = crate::shapes::REC_RECT_FILL;
+        record[15] = 0.5;
+        let bytes = record_bytes(&[record, record], 4);
+        assert_eq!(bytes.len(), 16 + 4 * RECORD * 4);
+        assert_eq!(
+            &bytes[..16],
+            &[2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+        );
+        let float = |at: usize| f32::from_le_bytes(bytes[at..at + 4].try_into().unwrap());
+        assert_eq!(float(16), crate::shapes::REC_RECT_FILL);
+        assert_eq!(float(16 + 15 * 4), 0.5);
+        assert_eq!(float(16 + RECORD * 4), crate::shapes::REC_RECT_FILL);
+        assert!(bytes[16 + 2 * RECORD * 4..].iter().all(|&b| b == 0));
+    }
 }

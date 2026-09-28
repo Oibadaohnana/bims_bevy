@@ -77,6 +77,9 @@ impl Phase {
             Phase::Canvas => ("canvas ui", 1),
             Phase::Panels => ("panels ui", 1),
             Phase::Render => ("shape buffer", 1),
+            // The world canvas's shapes made ready for the GPU: packed into
+            // records (task 121), or tessellated under `BIMS_SHAPES=cpu`.
+            // The row keeps its name so the two read side by side.
             Phase::Tessellate => ("tessellate", 1),
             Phase::Overlay => ("overlay words", 1),
             // Outside the screen's system: the canvas's layers handed to
