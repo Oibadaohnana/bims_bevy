@@ -549,6 +549,10 @@ impl World {
                 tiles,
                 health_percent,
             } => self.relic_rally_up(who, tiles, health_percent),
+            Action::Heal { points } => match other {
+                Some(patient) => self.aboard.room.heal(patient as usize, points) > 0.0,
+                None => false,
+            },
         };
         if fired {
             events.push(WorldEvent::RelicFired {

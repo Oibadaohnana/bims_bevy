@@ -601,40 +601,62 @@ fn run_seconds(world: &mut World, seconds: f64) -> Vec<WorldEvent> {
     events
 }
 
-/// **Pressure Seal** slows the bleeding, **Clot Booster** stops it for its
-/// seconds after going down, and **Quick Wrap** dresses faster.
-#[test]
-fn pressure_seal_clot_booster_and_quick_wrap() {
-    let mut world = crewed_world(flyer(2), REFERENCE_MONEY, 2, 2);
-    let blank = || (vec![None; 2], vec![bims::health::Doctoring::NONE; 2]);
-    let (mut held, mut doctoring) = blank();
-    world.relics_on_the_blood(&mut held, &mut doctoring);
-    assert_eq!(held, vec![None, None], "nothing held with no relic");
-    world.give_relic_for_probe(0, Relic::PressureSeal);
-    world.give_relic_for_probe(1, Relic::QuickWrap);
-    let (mut held, mut doctoring) = blank();
-    world.relics_on_the_blood(&mut held, &mut doctoring);
-    let seal = relic::factor(-data::PRESSURE_SEAL_BLEED_PERCENT) as f32;
-    assert!(close(held[0].unwrap().bleed, seal));
-    assert!(held[1].is_none());
-    assert!(close(
-        doctoring[1].bandage,
-        relic::factor(data::QUICK_WRAP_SPEED_PERCENT) as f32
-    ));
-    assert!(close(doctoring[0].bandage, 1.0));
+/// Crew member `who` bared of its armour and hit for `damage` on the body:
+/// short of health, and nothing between it and the next hit.
+fn hurt(world: &mut World, who: usize, damage: f32) {
+    world.aboard.room.issue(who, Gear::issued());
+    world.aboard.room.wound(who, Part::Body, damage);
+}
 
+/// **Pressure Seal** puts health back all the time, **Clot Booster** for
+/// its seconds after going down, and **Quick Wrap** with every dressing —
+/// hit points, and the blood never touched.
+#[test]
+fn pressure_seal_clot_booster_and_quick_wrap_heal_hit_points() {
+    let mut world = crewed_world(flyer(2), REFERENCE_MONEY, 2, 2);
+    world.give_relic_for_probe(0, Relic::PressureSeal);
+    hurt(&mut world, 0, 30.0);
+    hurt(&mut world, 1, 30.0);
+    let (a, b) = (world.aboard.room.health(0), world.aboard.room.health(1));
+    let blood = world.aboard.room.blood(0);
+    run_seconds(&mut world, 4.0);
+    let gained = world.aboard.room.health(0) - a;
+    let want = data::PRESSURE_SEAL_HP_PER_SECOND * 4.0;
+    assert!((gained - want).abs() < 0.2, "{gained} against {want}");
+    assert!(world.aboard.room.health(1) - b < 0.05, "the holder alone");
+    assert!(world.aboard.room.blood(0) <= blood, "never the blood");
+
+    // Quick Wrap: a dressing on itself or a crewmate is health back.
+    world.give_relic_for_probe(1, Relic::QuickWrap);
+    let mut events = Vec::new();
+    for patient in [1, 0] {
+        let before = world.aboard.room.health(patient);
+        world.relic_trigger_on(1, Trigger::Bandaged, Some(patient as u32), &mut events);
+        let gained = world.aboard.room.health(patient) - before;
+        assert!(close(gained, data::QUICK_WRAP_HEAL), "{patient}: {gained}");
+    }
+
+    // Clot Booster: health back while down, for its seconds and no longer.
+    let mut world = crewed_world(flyer(2), REFERENCE_MONEY, 2, 2);
     world.give_relic_for_probe(1, Relic::ClotBooster);
+    hurt(&mut world, 1, 60.0);
+    run_seconds(&mut world, 2.0);
+    let standing = world.aboard.room.health(1);
+    run_seconds(&mut world, 2.0);
+    assert!(world.aboard.room.health(1) - standing < 0.05, "not on its feet");
     world.aboard.room.knock_out_for_probe(1);
     world.step(&[]);
     assert!(world.aboard.room.is_down(1));
-    let (mut held, mut doctoring) = blank();
-    world.relics_on_the_blood(&mut held, &mut doctoring);
-    assert_eq!(held[1].unwrap().bleed, 0.0, "down: no bleeding");
-    run_seconds(&mut world, data::CLOT_BOOSTER_SECONDS + 1.0);
+    let down = world.aboard.room.health(1);
+    run_seconds(&mut world, 5.0);
+    let gained = world.aboard.room.health(1) - down;
+    let want = data::CLOT_BOOSTER_HP_PER_SECOND * 5.0;
+    assert!((gained - want).abs() < 0.5, "{gained} against {want}");
+    run_seconds(&mut world, data::CLOT_BOOSTER_SECONDS);
     assert!(world.aboard.room.is_down(1), "still down");
-    let (mut held, mut doctoring) = blank();
-    world.relics_on_the_blood(&mut held, &mut doctoring);
-    assert!(held[1].is_none(), "its seconds are up");
+    let after = world.aboard.room.health(1);
+    run_seconds(&mut world, 3.0);
+    assert!(world.aboard.room.health(1) - after < 0.05, "its seconds are up");
 }
 
 /// **Tether Field**: a crewmate its holder dresses takes less of every hit

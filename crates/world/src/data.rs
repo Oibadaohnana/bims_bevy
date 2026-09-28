@@ -529,12 +529,15 @@ pub const PARTS_BROKER_BOUNTY_PERCENT: i32 = 50;
 /// *Total Teardown*: what a hit on a limb already gone does more to the
 /// chassis it tears into, in per cent — a hundred is double.
 pub const TOTAL_TEARDOWN_DAMAGE_PERCENT: i32 = 100;
-/// *Pressure Seal*: how much slower its wounds bleed, in per cent.
-pub const PRESSURE_SEAL_BLEED_PERCENT: i32 = 25;
-/// *Quick Wrap*: how much faster it dresses a wound, in per cent.
-pub const QUICK_WRAP_SPEED_PERCENT: i32 = 50;
-/// *Clot Booster*: how long after going down it does not bleed, in
-/// seconds.
+/// *Pressure Seal*: the health it puts back a second, all the time it is
+/// alive.
+pub const PRESSURE_SEAL_HP_PER_SECOND: f32 = 0.5;
+/// *Quick Wrap*: the health every dressing it applies puts back into the
+/// body dressed, its own or a crewmate's.
+pub const QUICK_WRAP_HEAL: f32 = 10.0;
+/// *Clot Booster*: the health it puts back a second for so many seconds
+/// after going down.
+pub const CLOT_BOOSTER_HP_PER_SECOND: f32 = 2.0;
 pub const CLOT_BOOSTER_SECONDS: f64 = 15.0;
 /// *Tether Field*: how much less of every hit a crewmate it dressed takes,
 /// in per cent, and for how many seconds.

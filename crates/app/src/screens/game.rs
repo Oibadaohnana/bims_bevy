@@ -136,6 +136,10 @@ pub struct GameScreen {
     /// left click on the deck puts the banner down there. Esc, a
     /// right-click or the key again puts it away.
     aiming_attack: bool,
+    /// The **attack-move** key has armed the pointer: the same red
+    /// crosshair, and the next left click on the deck sends the player's
+    /// own Bim there under arms, shooting what it meets on the way.
+    aiming_move: bool,
     /// Tab went down last frame with the keys ours: the focus egui gave a
     /// widget for it is to be surrendered (`keys::release_tab_focus`).
     tab_took_focus: bool,
@@ -153,10 +157,6 @@ pub struct GameScreen {
     last_xp: Option<u32>,
     /// A marquee under way on the deck: where the press landed.
     marquee_from: Option<Vec2>,
-    /// Where a right-drag on the deck began, on the glass: an order in the
-    /// making — a line for the selected crew, or a point if it never moves
-    /// further than a click.
-    order_from: Option<Vec2>,
     pan_from: Option<Vec2>,
     /// The Esc sheet, if it is up, and which page.
     sheet: Option<Sheet>,
@@ -651,10 +651,6 @@ fn open(
                 }
                 _ => Session::simulate(seed, 0, spawn, size.x, size.y),
             };
-            // The class onto slot 0 first — the command's own, or
-            // `BIMS_CLASS` over it — before anything that leaves the
-            // berth, since the class locks at the first undock.
-            let asked = match *launch {
             // Every run on the combat ship opens with everything there is
             // in the armory — every weapon and piece at every tier it is
             // made at — for trying any kit on aboard before stepping off.
@@ -664,6 +660,10 @@ fn open(
             ) {
                 session.stock_the_armory_for_probe();
             }
+            // The class onto slot 0 first — the command's own, or
+            // `BIMS_CLASS` over it — before anything that leaves the
+            // berth, since the class locks at the first undock.
+            let asked = match *launch {
                 Launch::DroidsAs(class) => class,
                 _ => world::Class::None,
             };
@@ -864,6 +864,7 @@ impl GameScreen {
             panels: None,
             throw_aim: None,
             aiming_attack: false,
+            aiming_move: false,
             tab_took_focus: false,
             backlog: 0.0,
             log: hud::Log::default(),
@@ -871,7 +872,6 @@ impl GameScreen {
             rest: None,
             last_xp: None,
             marquee_from: None,
-            order_from: None,
             pan_from: None,
             sheet: None,
             saves: crate::save::Saves::default(),
@@ -1671,8 +1671,9 @@ fn frame(
         }
     } else {
         // In the ship view the pointer is over the room aboard: a left
-        // click or a marquee selects a Bim, a right click on the deck sends the one that takes
-        // orders there, and a click on a fixture opens its menu. The
+        // click or a marquee selects a Bim — never a bot under arms — a
+        // right click on the deck sends the player's own Bim there, and a
+        // click on a fixture opens its menu. The
         // marquee is drawn on the deck rather than on the glass — it turns
         // with the ship — which is the box the room tests the crew against.
         screen.hover_at = pointer
@@ -1689,7 +1690,25 @@ fn frame(
         // of it. The Mine tool's shape, and for the same reason — a
         // click that both selected a Bim and sent the crew somewhere
         // would be a click nobody could undo.
-        if screen.aiming_attack {
+        if screen.aiming_move {
+            // The attack-move's armed pointer: a left click sends the
+            // player's own Bim there under arms, a right-click thinks
+            // better of it — the banner's shape, for the same reason.
+            if let Some(p) = on_canvas {
+                ctx.set_cursor_icon(egui::CursorIcon::None);
+                if pointer.primary_pressed {
+                    let (rx, ry) = session.room_point(p.x, p.y);
+                    orders.push(crew_order(
+                        CrewOrder::AttackMove { x: rx, y: ry },
+                        pointer.shift,
+                    ));
+                    screen.aiming_move = false;
+                }
+                if pointer.secondary_pressed {
+                    screen.aiming_move = false;
+                }
+            }
+        } else if screen.aiming_attack {
             if let Some(p) = on_canvas {
                 ctx.set_cursor_icon(egui::CursorIcon::None);
                 if pointer.primary_pressed {
@@ -1729,11 +1748,12 @@ fn frame(
                     // menu), dead (`HIT_BODY`) or one of the station's
                     // people down in its own room (`HIT_VISITOR`, the Loot
                     // row): never the deck it lies on.
-                    // The order is given when the button comes up: held and
-                    // dragged, it is a line the crew form along.
+                    // The order goes the moment the button goes down, the
+                    // way Dota gives one, and it is for the player's own
+                    // Bim alone whoever is selected (`Game::orderable`).
+                    // With Shift held it waits its turn (feature 69).
                     if fixture == 0 || fixture == HIT_SHIP_DOOR {
-                        screen.order_from = Some(p);
-                        room.order_drag_begin(rx, ry);
+                        orders.push(crew_order(CrewOrder::Move { x: rx, y: ry }, pointer.shift));
                     }
                 }
             }
@@ -1786,44 +1806,6 @@ fn frame(
                     screen.marquee_from = None;
                     if let Some(room) = session.room() {
                         room.drag_cancel();
-                    }
-                }
-            }
-        }
-        if let Some(from) = screen.order_from {
-            match here {
-                Some(p) => {
-                    let (rx, ry) = session.room_point(p.x, p.y);
-                    if let Some(room) = session.room() {
-                        room.order_drag_update(rx, ry);
-                        if pointer.secondary_released {
-                            // The line drawn is this window's; the order
-                            // is everybody's. A walk with no way there
-                            // comes back as a `Refused` event.
-                            room.order_drag_cancel();
-                            let dragged = (p - from).length() > CLICK_SLOP;
-                            let (fx, fy) = session.room_point(from.x, from.y);
-                            let walk = if dragged {
-                                CrewOrder::Line {
-                                    x0: fx,
-                                    y0: fy,
-                                    x1: rx,
-                                    y1: ry,
-                                }
-                            } else {
-                                CrewOrder::Move { x: rx, y: ry }
-                            };
-                            // With Shift held the walk waits its turn
-                            // behind what the crew are on (feature 69).
-                            orders.push(crew_order(walk, pointer.shift));
-                            screen.order_from = None;
-                        }
-                    }
-                }
-                None => {
-                    screen.order_from = None;
-                    if let Some(room) = session.room() {
-                        room.order_drag_cancel();
                     }
                 }
             }
@@ -2028,7 +2010,15 @@ fn frame(
                 // banner anywhere else is a fresh attack, so a crew
                 // left under one after a fight would stand under arms
                 // at it for ever, taking no errand.
+                // **Attack-move** arms the pointer for the player's own
+                // Bim: the next click on the deck is where it walks
+                // under arms. Pressed again, it is thought better of.
+                if keys_now.pressed(i, Action::AttackMove) {
+                    screen.aiming_move = !screen.aiming_move && !map_up;
+                    screen.aiming_attack = false;
+                }
                 if keys_now.pressed(i, Action::Attack) {
+                    screen.aiming_move = false;
                     let standing = session
                         .game
                         .as_ref()
@@ -2048,6 +2038,7 @@ fn frame(
                     && let Some(game) = &session.game
                 {
                     screen.aiming_attack = false;
+                    screen.aiming_move = false;
                     let (order, line) =
                         orders_key(&game.world, screen.net.slot, world::Standing::Retreat);
                     orders.extend(order);
@@ -2055,10 +2046,11 @@ fn frame(
                 }
             }
             if i.key_pressed(egui::Key::Escape) {
-                if screen.aiming_attack {
+                if screen.aiming_attack || screen.aiming_move {
                     // The armed pointer is put away first, and nothing
                     // else happens — the Mine tool's rule.
                     screen.aiming_attack = false;
+                    screen.aiming_move = false;
                 } else if panels.escape() {
                     // A menu, a container window or the character sheet
                     // is shut without opening the sheet.
@@ -2400,7 +2392,7 @@ fn frame(
     for ask in asks {
         let (order, line) = match ask {
             TrayAsk::Map => (None, None),
-            // The F key's own rule: the pointer armed, or a banner taken
+            // The X key's own rule: the pointer armed, or a banner taken
             // up again.
             TrayAsk::Attack => {
                 let (release, armed) = attack_key(standing, screen.aiming_attack, map_up);
@@ -2425,6 +2417,7 @@ fn frame(
     }
     if let Some(armed) = arm {
         screen.aiming_attack = armed;
+        screen.aiming_move = false;
     }
     if map_asked && let Some(game) = &mut session.game {
         game.set_mode(if game.mode == ViewMode::Map {
@@ -2866,7 +2859,7 @@ fn frame(
 
     // And the red crosshair while the attack key has the pointer armed
     // (feature 84), in the same place for the same reason.
-    if screen.aiming_attack
+    if (screen.aiming_attack || screen.aiming_move)
         && let Some(p) = on_canvas
     {
         attack_cursor(&painter, egui::pos2(p.x + canvas.min.x, p.y + canvas.min.y));

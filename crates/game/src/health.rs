@@ -597,6 +597,36 @@ impl Health {
         self.traumas = [None; 3];
     }
 
+    /// `points` of health put back at once — a relic's healing (task 118),
+    /// never the blood. Shared over the parts that can take it by what each
+    /// is short of, so the whole of it lands while anything is short: a
+    /// leg that is gone and a part a trauma holds at nothing take none,
+    /// as the mending gives them none. How much went in.
+    pub fn heal(&mut self, points: f32) -> f32 {
+        if self.is_dead() || points <= 0.0 {
+            return 0.0;
+        }
+        let short = |h: &Health, part: Part| {
+            let i = part as usize;
+            if (part == Part::Legs && h.legs_lost >= 2) || h.traumas[i].is_some() {
+                0.0
+            } else {
+                (part.max() - h.parts[i]).max(0.0)
+            }
+        };
+        let missing: f32 = Part::ALL.iter().map(|&p| short(self, p)).sum();
+        if missing <= 0.0 {
+            return 0.0;
+        }
+        let given = points.min(missing);
+        for part in Part::ALL {
+            let share = short(self, part) / missing;
+            let i = part as usize;
+            self.parts[i] = (self.parts[i] + given * share).min(part.max());
+        }
+        given
+    }
+
     /// `minutes` of the body's own clock: the blood, what a treated trauma
     /// left behind, and the mending.
     pub fn update(&mut self, minutes: f32) {

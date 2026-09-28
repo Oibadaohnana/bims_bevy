@@ -1570,7 +1570,7 @@ pub fn orders_line(kind: u32) -> Option<&'static str> {
         _ => None,
     }
 }
-pub const ORDERS_TIP: &str = "The crew nobody is steering keep to your side and fight for themselves when they see an enemy. F puts an attack banner down for them to fight their way to; T calls them back to the ship; either key again lets them follow you again. Nobody leaves a fight aboard the ship.";
+pub const ORDERS_TIP: &str = "The crew nobody is steering keep to your side and fight for themselves when they see an enemy. X puts an attack banner down for them to fight their way to; Y calls them back to the ship; either key again lets them follow you again. A right-click moves your own Bim and nobody else, and F then a click walks it there shooting whatever it meets. Nobody leaves a fight aboard the ship.";
 /// The commander's rows on the crew panel (feature 78): what the squad
 /// is under, and the rally with its cooldown.
 pub const SQUAD_NONE: &str = "Squad: free";
@@ -2202,16 +2202,17 @@ pub fn relic_line(relic: world::Relic) -> String {
         ),
         // Lifeline.
         PressureSeal => format!(
-            "This Bim's wounds bleed {}% slower.",
-            d::PRESSURE_SEAL_BLEED_PERCENT
+            "This Bim regenerates {} HP a second.",
+            d::PRESSURE_SEAL_HP_PER_SECOND
         ),
         QuickWrap => format!(
-            "This Bim bandages {}% faster, itself or a crewmate.",
-            d::QUICK_WRAP_SPEED_PERCENT
+            "Every bandage this Bim applies, on itself or a crewmate, also heals {} HP.",
+            d::QUICK_WRAP_HEAL
         ),
         ClotBooster => format!(
-            "For the first {} s after this Bim goes down, it does not bleed.",
-            d::CLOT_BOOSTER_SECONDS
+            "For the first {} s after this Bim goes down, it heals {} HP a second.",
+            d::CLOT_BOOSTER_SECONDS,
+            d::CLOT_BOOSTER_HP_PER_SECOND
         ),
         TetherField => format!(
             "A crewmate this Bim bandages takes {}% less damage for {} s.",

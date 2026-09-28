@@ -270,7 +270,7 @@ pub struct TrayView {
 pub enum TrayAsk {
     /// The world map, as M.
     Map,
-    /// An attack banner, as F: the pointer armed, or a banner taken up.
+    /// An attack banner, as X: the pointer armed, or a banner taken up.
     Attack,
     /// The crew called back to the ship, as T.
     Retreat,

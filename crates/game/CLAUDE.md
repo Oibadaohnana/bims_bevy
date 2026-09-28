@@ -142,8 +142,8 @@ Two rules that keep it honest:
 
 - **A player steers its own Bim and nobody else's.** `players` says how many
   of the crew are players' own — slot *i* steers Bim *i* — and the rest are
-  bots. Selection, orders and the menus go through the slot; a bot takes a
-  player's orders only while the crew are under arms (`orderable`, see
+  bots. Selection, orders and the menus go through the slot; a right-click
+  moves the player's own Bim alone and never a bot (`orderable`, see
   "Selecting is not commanding"), and another player's own never. Anything
   that *reads* takes a `who`, so the host can show whoever is selected.
 - **A bunk is dealt to a Bim**, and a crew carried from one room to the next
@@ -241,26 +241,45 @@ while one body is measured, and a test of the medical row switches it back on.
 
 ## Selecting is not commanding
 
-Any of the crew can be selected; only a player's own Bim takes that player's
-orders in peace, and a bot only while the crew are under arms (`orderable`:
-the alarm, or a player leading them — see the fight). The two are
-deliberately separate questions, and the split is what lets the right-hand
-side show whichever Bim you clicked while `order_move` still refuses a bot at
-its errands. **A click
-selects one; a marquee selects everybody it touches** (`select_many`,
+In peace any of the crew can be selected — to look at; **a right-click is
+the player's own Bim's and nobody else's**, whoever is selected
+(`orderable` is `[slot]`, and `order_move_for` asks no selection). The bots
+take their player's standing orders (the banner, the retreat) and a
+commander's squad orders, never a click on the deck: a right-click that
+walked a selected bot off its stand mid-fight was a bot nobody meant to
+move. **Under arms a bot cannot be selected at all**: the step the crew
+muster, every player's pick of a bot is let go, and `drag_end` skips a bot
+while `mustered` — so a left-click in a fight is aimed at the fight. **A
+click selects one; a marquee selects everybody it touches** (`select_many`,
 `selected_all`, `selected_count`), and the panels show the first of them —
-`selected()` — which is the player's own when it is among them. An order
-with several selected goes to each that takes orders (`orderable`): a
-right-click is a huddle round the point, a spot apiece off `CLUSTER_SLOTS`
-in crew order; a **right-drag is a line** (`order_line`, RimWorld's
-formation drag) — the squad spread evenly along it, ends included, each to
-the point nearest its own place along the line so nobody crosses anybody,
-one alone going to where the drag began. The screens hold the button:
-`order_drag_begin/update/end(x, y, dragged)`, the glass deciding whether
-it moved more than `CLICK_SLOP`, and `render` draws the line with a pip
-where each will stand while it is dragged.
-`a_marquee_selects_everybody_it_touches_and_a_right_drag_forms_them_up_along_a_line`
-pins it.
+`selected()` — which is the player's own when it is among them.
+`huddle`, `formation` and `order_line` (the right-drag's line) are kept
+and now deal out one spot, the player's own; the app sends a `Move` the
+moment the right button goes down, as Dota does, and draws no line.
+`a_marquee_selects_everybody_in_peace_and_under_arms_the_player_s_own_alone`
+and `under_the_alarm_the_crew_gather_round_the_player_and_a_click_moves_him_alone`
+pin it.
+
+**An attack-move is `CrewOrder::AttackMove`** (appended last; the F key
+and a click): `order_attack_move` walks the player's own Bim there
+(`walk_order`), recruits it and keeps the spot on `Bim::attack_move`;
+`keep_attack_moving`, from the fight's own turn for the body in
+`tick_combat`, **halts** it the step it has a shot (`aim_marked` answers,
+or a melee lock) — a shot on the move is at half the odds — and with none
+plans the walk on (`plan_route`), the order over within
+`ATTACK_MOVE_THERE` of the spot or when there is no way. A plain walk, an
+errand and taking the weapon away call it off. Nobody else ever has one,
+so no other body's step moved.
+
+**A ping is Dota's.** `Marker::kind` (`Ping::Move` green, `Ping::Attack`
+red; a refusal is still the warm cross) and `draw_pings`: four chevrons
+closing on the spot from the corners with a ring drawing in behind them,
+a dark edge under every stroke, lit past white while fresh — drawn **over
+the fog** now, after the shots, and aged on the host's real clock
+(`Game::fade`) wherever it fades the fight's lights, so a ping lasts
+`MARKER_LIFE` whatever the speed.
+`an_attack_move_stops_to_shoot_and_walks_on_when_nothing_is_left` pins
+the order.
 
 ## An order given with Shift waits its turn (feature 69)
 

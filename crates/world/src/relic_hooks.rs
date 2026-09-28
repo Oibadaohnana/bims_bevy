@@ -3,10 +3,12 @@
 //! *Crippler's Mark*, *Total Teardown*, *Blind Spot*, *Wide Angle
 //! Optics*, *Crossfire*, *Spotter* — the auras (*Field Radio*, *Cover
 //! Formation*), the timed effects (*Sprint Coil*, *Tether Field*,
-//! *Signal Scrambler*), the blood (*Pressure Seal*, *Clot Booster*, *Quick
-//! Wrap*), a crewmate down (*Lifeline*, *Rally Point*), the pay (*Hazard
+//! *Signal Scrambler*), the healing (*Pressure Seal*, *Clot Booster*,
+//! *Quick Wrap*), a crewmate down (*Lifeline*, *Rally Point*), the pay (*Hazard
 //! Pay*, *Scrap Collector*, *Parts Broker*, *Squad Morale*) and *War
 //! Chest*.
+//!
+//! The Lifeline patch heals hit points and never touches the blood.
 //!
 //! A child of `crate::world`, as `relics.rs` is. **Nothing here draws
 //! from a stream** and nothing here runs for a crew holding no relic, so a
@@ -218,69 +220,62 @@ impl World {
 
     // --- the blood --------------------------------------------------------------
 
-    /// What the relics do to the blood and the dressing, before the room is
-    /// handed `held` and `doctoring` (`hand_the_room_the_medics`): *Pressure
-    /// Seal* slows the bleeding, *Clot Booster* stops it for its seconds
-    /// after going down, *Quick Wrap* dresses faster.
-    pub(crate) fn relics_on_the_blood(
-        &self,
-        held: &mut [Option<bims::health::Beamed>],
-        doctoring: &mut [bims::health::Doctoring],
-    ) {
+    /// The health the relics put back this step, after the downs are
+    /// settled: *Pressure Seal* all the time a holder is alive, *Clot
+    /// Booster* for its seconds after it went down. Hit points only — never
+    /// the blood.
+    pub(crate) fn relics_mend(&mut self) {
         if !self.any_relics() {
             return;
         }
         let now = self.mission_minutes();
-        for who in 0..self.players().min(held.len() as u32) {
+        let seconds = (data::STEP_MINUTES / time::MINUTES_PER_SECOND) as f32;
+        for who in 0..self.players().min(self.aboard.crew_count()) {
             let at = who as usize;
-            let mut bleed = self.relic_factor(who, Stat::Bleeding) as f32;
-            let clot = relic::rule_of(self.relics_of(who), |r| match r {
-                Rule::ClotWhileDown { seconds } => Some(seconds),
+            if !self.aboard.room.is_alive(at) {
+                continue;
+            }
+            let held = self.relics_of(who);
+            let mut rate = relic::rule_of(held, |r| match r {
+                Rule::Regen { hp_per_second } => Some(hp_per_second),
                 _ => None,
-            });
-            if let Some(seconds) = clot
-                && self.aboard.room.is_down(at)
+            })
+            .unwrap_or(0.0);
+            if let Some((hp_per_second, lasts)) = relic::rule_of(held, |r| match r {
+                Rule::MendWhileDown {
+                    hp_per_second,
+                    seconds,
+                } => Some((hp_per_second, seconds)),
+                _ => None,
+            }) && self.aboard.room.is_down(at)
                 && let Some(since) = self.run.relics.downed_at.get(at).copied().flatten()
-                && now - since < Self::relic_minutes(seconds)
+                && now - since < Self::relic_minutes(lasts)
             {
-                bleed = 0.0;
+                rate += hp_per_second;
             }
-            if bleed != 1.0 {
-                held[at] = Some(match held[at] {
-                    Some(h) => bims::health::Beamed {
-                        bleed: h.bleed * bleed,
-                        ..h
-                    },
-                    None => bims::health::Beamed {
-                        blood_an_hour: 0.0,
-                        mend: 1.0,
-                        bleed,
-                    },
-                });
-            }
-            if let Some(d) = doctoring.get_mut(at) {
-                d.bandage *= self.relic_factor(who, Stat::BandageSpeed) as f32;
+            if rate > 0.0 {
+                self.aboard.room.heal(at, rate * seconds);
             }
         }
     }
 
-    /// Every dressing on a crewmate the room finished this step, done by a
-    /// player: `Trigger::BandagedCrewmate` (*Tether Field*).
+    /// Every dressing the room finished this step, done by a player:
+    /// `Trigger::Bandaged` on its own or a crewmate's (*Quick Wrap*), and
+    /// `Trigger::BandagedCrewmate` on a crewmate's (*Tether Field*).
     pub(super) fn relics_on_a_dressing(
         &mut self,
         helper: usize,
         patient: usize,
         events: &mut Vec<WorldEvent>,
     ) {
-        if helper == patient || (helper as u32) >= self.players() {
+        if (helper as u32) >= self.players() {
             return;
         }
-        self.relic_trigger_on(
-            helper as u32,
-            Trigger::BandagedCrewmate,
-            Some(patient as u32),
-            events,
-        );
+        let (by, on) = (helper as u32, Some(patient as u32));
+        self.relic_trigger_on(by, Trigger::Bandaged, on, events);
+        if helper != patient {
+            self.relic_trigger_on(by, Trigger::BandagedCrewmate, on, events);
+        }
     }
 
     // --- a hit on a machine ---------------------------------------------------------

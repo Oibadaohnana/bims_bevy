@@ -1308,6 +1308,7 @@ impl World {
         //    hits' experience out of the count.
         self.settle_relics(&hits_before, &mut events);
         self.settle_relic_downs(&downs_before, &mut events);
+        self.relics_mend();
         let downed = self.experience(&mut events);
         self.settle_rampage(&downed);
         self.settle_medics(&mut events);
@@ -8313,7 +8314,7 @@ impl World {
                 });
             }
         }
-        let mut doctoring: Vec<bims::health::Doctoring> = (0..crew as u32)
+        let doctoring: Vec<bims::health::Doctoring> = (0..crew as u32)
             .map(|who| {
                 let mut d = bims::health::Doctoring::NONE;
                 if !self.is_medic(who) {
@@ -8337,8 +8338,6 @@ impl World {
                 d
             })
             .collect();
-        // What the relics do to the blood and the dressing (task 118).
-        self.relics_on_the_blood(&mut held, &mut doctoring);
         self.aboard.room.set_held(held);
         self.aboard.room.set_doctoring(doctoring);
     }
@@ -9298,8 +9297,8 @@ impl World {
     }
 
     /// Everybody a player's own order moved out of the squad: the crew
-    /// member an errand names, or whoever is selected for a move or a
-    /// line.
+    /// member an errand names, or the player's own for a walk on the
+    /// deck.
     fn take_the_ordered_out_of_squad(&mut self, slot: u32, order: bims::order::CrewOrder) {
         if self.squad.is_none() {
             return;
@@ -9308,13 +9307,15 @@ impl World {
             self.take_out_of_squad(who);
             return;
         }
+        // A walk on the deck moves the player's own Bim and nobody else,
+        // whoever is selected (`bims::game::Game::orderable`).
         if matches!(
             order,
-            bims::order::CrewOrder::Move { .. } | bims::order::CrewOrder::Line { .. }
+            bims::order::CrewOrder::Move { .. }
+                | bims::order::CrewOrder::Line { .. }
+                | bims::order::CrewOrder::AttackMove { .. }
         ) {
-            for who in self.aboard.room.selected_all(slot) {
-                self.take_out_of_squad(who as u32);
-            }
+            self.take_out_of_squad(slot);
         }
     }
 
@@ -9440,9 +9441,9 @@ impl World {
         let crew = self.aboard.crew_count();
         let skills: Vec<bims::combat::Skill> = (0..crew).map(|who| self.skill_of(who)).collect();
         self.aboard.room.set_skills(skills);
+        self.hand_the_room_the_shield_fronts();
     }
 
-        self.hand_the_room_the_shield_fronts();
     /// Whether an enemy is standing in the crew's room: the rooms joined,
     /// and one of the station's **bodies** alive and on its feet — its
     /// people and its machines at a hostile station, and the machines

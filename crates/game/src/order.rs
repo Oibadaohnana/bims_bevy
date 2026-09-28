@@ -44,8 +44,8 @@ pub enum CrewOrder {
     SelectOwn,
     /// Recruit the player's own crew member, or let it go again.
     Recruit,
-    /// A right-click on the deck: whoever the player has selected and
-    /// takes orders goes there.
+    /// A right-click on the deck: the player's own crew member goes
+    /// there, whoever is selected — nobody else takes a right-click.
     Move {
         x: f32,
         y: f32,
@@ -103,6 +103,15 @@ pub enum CrewOrder {
     Autonomous {
         on: bool,
     },
+    /// The attack key and a click on the deck: the player's own crew
+    /// member walks there with its weapon out, stops to shoot whatever
+    /// comes into its sights on the way and walks on once nothing is
+    /// left (Dota's attack-move). Appended last, so every variant before
+    /// it keeps its place.
+    AttackMove {
+        x: f32,
+        y: f32,
+    },
 }
 
 impl CrewOrder {
@@ -126,7 +135,8 @@ impl CrewOrder {
             | CrewOrder::Line { .. }
             | CrewOrder::StandDown { .. }
             | CrewOrder::WorkPriority { .. }
-            | CrewOrder::Autonomous { .. } => None,
+            | CrewOrder::Autonomous { .. }
+            | CrewOrder::AttackMove { .. } => None,
         }
     }
 }
@@ -146,6 +156,7 @@ impl Game {
             && who(w) < self.crew_count() as usize
         {
             self.drop_ordered(who(w));
+            self.call_off_attack_move(who(w));
             // An order to an errand ends a medic's beam (feature 76); a
             // walk does not — a medic may walk while it holds one.
             if !matches!(order, CrewOrder::SendTo { .. }) {
@@ -229,6 +240,7 @@ impl Game {
                 self.set_autonomous(on);
                 0
             }
+            CrewOrder::AttackMove { x, y } => self.order_attack_move(slot, x, y),
         }
     }
 
@@ -304,7 +316,8 @@ impl Game {
             | CrewOrder::Recruit
             | CrewOrder::StandDown { .. }
             | CrewOrder::WorkPriority { .. }
-            | CrewOrder::Autonomous { .. } => return self.order(slot, order),
+            | CrewOrder::Autonomous { .. }
+            | CrewOrder::AttackMove { .. } => return self.order(slot, order),
         };
         if who(w) < crew {
             self.queue_order(Saved::ordered(who(w), kind, minutes, None));

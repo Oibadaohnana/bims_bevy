@@ -214,6 +214,14 @@ pub struct Bim {
     /// for anybody who wears none or has not been struck lately.
     #[cfg_attr(feature = "serde", serde(default))]
     pub arc_cool: f32,
+    /// Where an **attack-move** is bound (the F key, a player's own Bim
+    /// alone): the body walks there with its weapon out, stands still to
+    /// shoot the moment it has something in its sights, and walks on
+    /// when nothing is left to shoot at (`Game::keep_attack_moving`).
+    /// `None` for a plain walk and for everybody else; any other order
+    /// the player gives calls it off.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub attack_move: Option<Vec2>,
 }
 
 /// The years the crew were born in. Everyone aboard is somewhere between
@@ -264,6 +272,7 @@ impl Bim {
             routine: None,
             manufacturer: false,
             arc_cool: 0.0,
+            attack_move: None,
         }
     }
 

@@ -208,10 +208,6 @@ pub enum Stat {
     MachineDamage,
     /// What it takes of every hit that lands on it. A minus is less.
     DamageTaken,
-    /// How fast its open wounds bleed. A minus is slower.
-    Bleeding,
-    /// How fast it dresses a wound, its own or a crewmate's.
-    BandageSpeed,
     /// What a trader asks of the crew. A minus is cheaper.
     TraderPrices,
 }
@@ -262,6 +258,8 @@ pub enum Trigger {
     FlankKill,
     /// It dresses a crewmate's wound.
     BandagedCrewmate,
+    /// It dresses a wound, its own or a crewmate's.
+    Bandaged,
     /// A crewmate within reach of it goes down.
     CrewmateDowned,
 }
@@ -289,6 +287,8 @@ pub enum Action {
     /// Every crewmate down within `tiles` of it up again at
     /// `health_percent` of its health.
     RallyUp { tiles: f32, health_percent: u32 },
+    /// `points` of health put back into the body it dressed.
+    Heal { points: f32 },
 }
 
 /// A trigger, its conditions and its action.
@@ -333,9 +333,12 @@ pub enum Rule {
     /// A hit on a limb already gone tears into the chassis at
     /// `damage_percent` more: *Total Teardown*.
     TearIntoChassis { damage_percent: i32 },
-    /// The first `seconds` after it goes down it does not bleed: *Clot
-    /// Booster*.
-    ClotWhileDown { seconds: f64 },
+    /// `hp_per_second` of health put back all the time it is alive:
+    /// *Pressure Seal*.
+    Regen { hp_per_second: f32 },
+    /// `hp_per_second` of health put back for the first `seconds` after it
+    /// goes down: *Clot Booster*.
+    MendWhileDown { hp_per_second: f32, seconds: f64 },
     /// A machine's front arc, for its hits, only `front_cos` wide — a
     /// cosine, so a flank is wider — and a Guardian's shield the same
     /// against its shots: *Wide Angle Optics*.
@@ -564,25 +567,33 @@ pub const RELICS: [RelicDef; 37] = [
         data::CRIPPLERS_MARK_DAMAGE_PERCENT,
         When::Crippled,
     ),
-    stat(
+    // Lifeline heals hit points and never touches the blood, which a
+    // health system without blood will not have.
+    rule(
         Relic::PressureSeal,
         1,
         true,
-        Stat::Bleeding,
-        -data::PRESSURE_SEAL_BLEED_PERCENT,
+        Rule::Regen {
+            hp_per_second: data::PRESSURE_SEAL_HP_PER_SECOND,
+        },
     ),
-    stat(
+    row(
         Relic::QuickWrap,
         1,
         true,
-        Stat::BandageSpeed,
-        data::QUICK_WRAP_SPEED_PERCENT,
+        Effect::On(on(
+            Trigger::Bandaged,
+            Action::Heal {
+                points: data::QUICK_WRAP_HEAL,
+            },
+        )),
     ),
     rule(
         Relic::ClotBooster,
         2,
         true,
-        Rule::ClotWhileDown {
+        Rule::MendWhileDown {
+            hp_per_second: data::CLOT_BOOSTER_HP_PER_SECOND,
             seconds: data::CLOT_BOOSTER_SECONDS,
         },
     ),

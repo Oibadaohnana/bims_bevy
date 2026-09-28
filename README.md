@@ -242,9 +242,9 @@ player's Bim** for the rest of the run. A bot never holds one.
   | 2 | Parts Broker | +50% bounty for machines the Bim destroys while they are missing a limb | unlocked by a win |
   | 3 | Total Teardown | a hit on a limb already destroyed tears into the chassis for double damage | unlocked by a win |
   | | **Lifeline** — surviving being downed, and keeping each other up | | |
-  | 1 | Pressure Seal | the Bim's wounds bleed 25% slower | yes |
-  | 1 | Quick Wrap | the Bim bandages 50% faster, itself or a crewmate | yes |
-  | 2 | Clot Booster | for the first 15 s after the Bim goes down, it does not bleed | yes |
+  | 1 | Pressure Seal | the Bim regenerates 0.5 HP a second | yes |
+  | 1 | Quick Wrap | every bandage the Bim applies, on itself or a crewmate, also heals 10 HP | yes |
+  | 2 | Clot Booster | for the first 15 s after the Bim goes down, it heals 2 HP a second | yes |
   | 2 | Tether Field | a crewmate the Bim bandages takes 25% less damage for 6 s | unlocked by a win |
   | 3 | Lifeline | once a mission, when a crewmate within 4 tiles goes down, both are untouchable for 3 s | unlocked by a win |
   | | **Flanker** — get round the machine, hit it where it is not looking | | |

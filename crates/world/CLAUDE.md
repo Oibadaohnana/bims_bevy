@@ -5329,12 +5329,17 @@ a stream, and nothing there runs for a crew holding no relic**
   into every hit on the body before the armour (`strike_stripping`).
   `hand_the_room_the_shield_fronts` gives the room each shooter's front
   (`Game::set_shield_fronts`), which a Guardian's shield is asked with.
-- **The blood**: `relics_on_the_blood`, in `hand_the_room_the_medics`
-  before the room is handed them — `Stat::Bleeding` (*Pressure Seal*) on
-  the `Beamed` hold, nought while *Clot Booster*'s seconds since
-  `Relics::downed_at` run, and `Stat::BandageSpeed` (*Quick Wrap*) on
-  `Doctoring::bandage`. `settle_medics` says a dressing on a crewmate
-  (`Trigger::BandagedCrewmate`, *Tether Field* on the patient).
+- **The healing is hit points, never the blood** (the health system is
+  going to lose its blood): `relics_mend`, a stage right after
+  `settle_relic_downs`, puts back *Pressure Seal*'s `Rule::Regen` every
+  step a holder is alive, and *Clot Booster*'s `Rule::MendWhileDown`
+  while it is down and its seconds since `Relics::downed_at` run —
+  through `Game::heal` (`Health::heal`: shared over the parts by what
+  each is short of, none to a leg gone or a part a trauma holds).
+  `settle_medics` says every dressing a player finished
+  (`relics_on_a_dressing`): `Trigger::Bandaged` on its own or a
+  crewmate's (*Quick Wrap*, `Action::Heal` on the patient) and
+  `Trigger::BandagedCrewmate` on a crewmate's (*Tether Field*).
 - **A crewmate down**: `settle_relic_downs`, after `settle_relics`, off
   `downs_before_the_step`: `downed_at` kept for the players, and
   `Trigger::CrewmateDowned` to every other player for a crew member

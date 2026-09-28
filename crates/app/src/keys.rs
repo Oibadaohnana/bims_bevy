@@ -34,10 +34,6 @@ pub enum Action {
     /// Pause, or set going again.
     Pause,
     Speed1,
-    Speed3,
-    Speed10,
-    Speed24,
-    SpeedTop,
     PanLeft,
     PanRight,
     PanUp,
@@ -67,10 +63,16 @@ pub enum Action {
     SquadFallBack,
     /// A commander has the squad hold exactly where it stands.
     SquadStandGround,
+    /// **Attack-move**: arms the pointer, and the next click on the deck
+    /// sends the Bim you steer there with its weapon out, stopping to
+    /// shoot whatever comes into its sights on the way — Dota's
+    /// attack-move. On F, which the bots' banner had until then.
+    AttackMove,
     /// **Attack** (feature 84): arms the pointer, and the next click on
     /// the deck puts an attack banner down there for the bots that
     /// follow you. Pressed again with the pointer armed, or with the
-    /// banner already where you click, it is called off.
+    /// banner already where you click, it is called off. On X since the
+    /// attack-move took F.
     Attack,
     /// **Retreat**: the bots that follow you fall back to the ship and
     /// hold there. Pressed again, they go back to following.
@@ -94,16 +96,12 @@ pub enum Action {
 }
 
 impl Action {
-    pub const ALL: [Action; 27] = [
+    pub const ALL: [Action; 24] = [
         Action::Map,
         Action::NorthUp,
         Action::Follow,
         Action::Pause,
         Action::Speed1,
-        Action::Speed3,
-        Action::Speed10,
-        Action::Speed24,
-        Action::SpeedTop,
         Action::PanLeft,
         Action::PanRight,
         Action::PanUp,
@@ -116,6 +114,7 @@ impl Action {
         Action::ClassSecondary,
         Action::SquadFallBack,
         Action::SquadStandGround,
+        Action::AttackMove,
         Action::Attack,
         Action::Retreat,
         Action::Carry,
@@ -130,15 +129,11 @@ impl Action {
         match self {
             Action::Map => Key::M,
             Action::NorthUp => Key::N,
-            // F is Attack since feature 84 — the user asked for it by
-            // name — so following the camera moved to V.
+            // F is the attack-move and X the bots' banner, which had F
+            // from feature 84 until then — so following the camera is V.
             Action::Follow => Key::V,
             Action::Pause => Key::Space,
             Action::Speed1 => Key::Num1,
-            Action::Speed3 => Key::Num2,
-            Action::Speed10 => Key::Num3,
-            Action::Speed24 => Key::Num4,
-            Action::SpeedTop => Key::Num5,
             Action::PanLeft => Key::A,
             Action::PanRight => Key::D,
             Action::PanUp => Key::W,
@@ -149,10 +144,11 @@ impl Action {
             Action::Inventory => Key::Tab,
             Action::ClassPrimary => Key::Q,
             Action::ClassSecondary => Key::E,
-            Action::SquadFallBack => Key::X,
+            Action::SquadFallBack => Key::T,
             Action::SquadStandGround => Key::Z,
-            Action::Attack => Key::F,
-            Action::Retreat => Key::T,
+            Action::AttackMove => Key::F,
+            Action::Attack => Key::X,
+            Action::Retreat => Key::Y,
             Action::Carry => Key::G,
             Action::CharacterSheet => Key::K,
             Action::Bandage => Key::B,
@@ -168,10 +164,6 @@ impl Action {
             Action::Follow => "follow",
             Action::Pause => "pause",
             Action::Speed1 => "speed-1",
-            Action::Speed3 => "speed-3",
-            Action::Speed10 => "speed-10",
-            Action::Speed24 => "speed-24",
-            Action::SpeedTop => "speed-top",
             Action::PanLeft => "pan-left",
             Action::PanRight => "pan-right",
             Action::PanUp => "pan-up",
@@ -184,6 +176,7 @@ impl Action {
             Action::ClassSecondary => "class-secondary",
             Action::SquadFallBack => "squad-fall-back",
             Action::SquadStandGround => "squad-stand-ground",
+            Action::AttackMove => "attack-move",
             Action::Attack => "attack",
             Action::Retreat => "retreat",
             Action::Carry => "carry",
@@ -203,10 +196,6 @@ impl Action {
             }
             Action::Pause => "Pause the world, or set it going again.",
             Action::Speed1 => "Run the world at 1×.",
-            Action::Speed3 => "Run the world at 3×.",
-            Action::Speed10 => "Run the world at 10×.",
-            Action::Speed24 => "Run the world at 24×, a day a minute.",
-            Action::SpeedTop => "Run the world at the top speed, 48×.",
             Action::PanLeft => "Pan the view left. Middle-drag does the same.",
             Action::PanRight => "Pan the view right.",
             Action::PanUp => "Pan the view up.",
@@ -233,8 +222,11 @@ impl Action {
             Action::SquadStandGround => {
                 "A commander has the squad hold exactly where it stands. Nothing for any other class."
             }
+            Action::AttackMove => {
+                "Arm the pointer — it turns red — and the next click on the deck sends the Bim you steer there with its weapon out. It stops to shoot whatever comes into its sights on the way, and walks on once nothing is left."
+            }
             Action::Attack => {
-                "Arm the pointer — it turns red — and the next click on the deck puts an attack banner down there. The crew that follow you fight their way to it, taking the cover on the way and pushing on when nothing is in range. Press it again to think better of it, or click the banner where it already stands to call it off."
+                "Arm the pointer — it turns red — and the next click on the deck puts an attack banner down there for the bots. The crew that follow you fight their way to it, taking the cover on the way and pushing on when nothing is in range. Press it again to think better of it, or click the banner where it already stands to call it off."
             }
             Action::Retreat => {
                 "The crew that follow you fall back to the ship and hold there. Press it again and they go back to keeping to your side. Nobody leaves a fight aboard the ship: cornered in your own hull they stand and shoot whatever they were told."
@@ -399,18 +391,22 @@ mod tests {
         assert_eq!(keys.key(Action::ClassSecondary), egui::Key::E);
         assert!(keys.shared_with(Action::ClassPrimary).is_empty());
         assert!(keys.shared_with(Action::ClassSecondary).is_empty());
-        // And the commander's two squad keys (feature 78): X and Z,
-        // bound to nothing else.
-        assert_eq!(keys.key(Action::SquadFallBack), egui::Key::X);
+        // And the commander's two squad keys (feature 78): T and Z,
+        // bound to nothing else — the fall back on T since the bots'
+        // banner took X.
+        assert_eq!(keys.key(Action::SquadFallBack), egui::Key::T);
         assert_eq!(keys.key(Action::SquadStandGround), egui::Key::Z);
         assert!(keys.shared_with(Action::SquadFallBack).is_empty());
         assert!(keys.shared_with(Action::SquadStandGround).is_empty());
-        // And every player's own two (feature 84): F attacks and T
-        // retreats, bound to nothing else — which is what moved the
-        // camera's Follow off F onto V.
-        assert_eq!(keys.key(Action::Attack), egui::Key::F);
-        assert_eq!(keys.key(Action::Retreat), egui::Key::T);
+        // The attack-move is F, for the Bim you steer; every player's
+        // two orders for the bots (feature 84) are X to attack and Y to
+        // fall back to the ship; none shares its key. F was the bots'
+        // banner once, which is what moved the camera's Follow onto V.
+        assert_eq!(keys.key(Action::AttackMove), egui::Key::F);
+        assert_eq!(keys.key(Action::Attack), egui::Key::X);
+        assert_eq!(keys.key(Action::Retreat), egui::Key::Y);
         assert_eq!(keys.key(Action::Follow), egui::Key::V);
+        assert!(keys.shared_with(Action::AttackMove).is_empty());
         assert!(keys.shared_with(Action::Attack).is_empty());
         assert!(keys.shared_with(Action::Retreat).is_empty());
         // And the medic's carry (feature 86): G, bound to nothing else.

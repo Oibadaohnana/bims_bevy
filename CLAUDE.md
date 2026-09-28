@@ -29,8 +29,8 @@ the build's own answer where this table is a copy:
 | `nix run .#defense` | `cargo run -- defense` | **defending a town** (feature 94): `test_planet`'s own random galaxy and roll — the ship set down at a settlement whose people are friendly — with the machines' origin forced **one hyperlane hop off** and the crisis's first day wound to nought, so the town's system is on the **front** (`World::front` of it is one) — which since task 111 is only the tier and the prices, since every site that is neither a trader nor an enemy's is *threatened* from the first day. The map says so under its planet's icon, `DEFEND` in amber. A minute of the mission clock after the landing (`DEFENSE_DELAY_STEPS` is twenty of them in the game, a real twenty seconds at 1×, task 111; `BIMS_DEFENSE_DELAY=n` minutes over the command's own one) a wave sets down outside a gate and walks in, and the red line along the top counts it the way it counts a held station's. The fight is the one that happens **inside one room**: the town's **guard and its mercenaries** take arms and fight the machines where they stand, everybody else walks into the nearest house and stays there, the crew never aim at a townsperson and the machines aim at both. Hold the last wave and the town is **held** — friendly for good, trading and hiring even after its system falls, its map tag *held* — and some of its people join the crew; go back to the ship before the last wave is down and the town falls to the machines (feature 103). `BIMS_DROID_WAVES`/`BIMS_DROID_REINFORCE`/`BIMS_DROID_WAVE` are `droids`' own (`Session::defense_for_probe`); **`BIMS_STATION_SEED=<n>`** draws the town from seed `n` (feature 112) |
 | `nix run .#guardian` | `cargo run -- guardian` | **the Guardian** (feature 100): `droids` at **tier three** with every wave exactly **one Guardian and two Troopers** (`Session::guardian`, `World::set_droid_kinds_for_probe`) and `DROID_REINFORCE_STEPS` a minute of the mission clock, so the machine is looked at on its own with a fight going on round it — its shield stopping the crew's bolts from the front and flaring where they stop, its turn, its wind-up and its beam. `BIMS_DROID_WAVES` and `BIMS_DROID_REINFORCE` are `droids`' own; the tier and the wave are the command's whatever `BIMS_DROID_TIER` and `BIMS_DROID_WAVE` say |
 | `nix run .#relics` | `cargo run -- relics` | **the relics** (feature 106): `droids` with **one wave of four** (`Session::relics`, `session::RELICS_WAVE`) at the arena's own tier and the reinforcement clock a minute — short enough to clear, so going back to the ship after opens the **reward screen**: three relics, drawn by the day's odds (task 117), to choose from together. `BIMS_RELICS=<id>,<id>` gives the steered Bim those relics at the start (a relic's name in lower case with `_` for the spaces, `focusing_lens`, or its code); `BIMS_REWARD=1` opens straight on the reward screen, the site cleared by the probe (`Session::reward_for_probe`); `BIMS_CACHE=1` with a relic cache opened on the site's research desk and its one relic being chosen in the mission (`Session::cache_for_probe`); and `BIMS_WIN=1`, on **any** command, wins the run the next time a site is cleared with machines in it (`World::set_win_on_clear`), which is how the victory screen and the profile's unlocks are looked at — point `BIMS_PROFILE_DIR` at a scratch directory first, or the win lands in your own profile |
-| `nix run .#heart` | `cargo run -- heart` | **the Machine Heart** (feature 108): `Session::combat`'s ship and sixteen crew with **everybody's kit at tier three** (`World::outfit_for_probe`), the machines' origin put at the crew's own star and the ship **docked at its fortress** (`Session::heart`, `World::heart_dock_for_probe`) — the core in the hub sealed by its conduits, the fabricators beside it, the waves the game's own formula and the next a minute of the mission clock after the last is down. `BIMS_HEART_PHASE=2` opens with every conduit down (the core exposed), `BIMS_HEART_PHASE=3` with the core's health just under the overload as well (`World::set_heart_phase_for_probe`, after the Heart is laid); `BIMS_DROID_WAVES=n` gives the fortress that many waves. The fortress is past the ship's own lobby and down the west arm: `BIMS_ZOOM=0.28 BIMS_WINDOW=2000x1300 BIMS_KEYS="40:F,700:F,720:F" BIMS_POINTER="45:move:1240,675;47:click:1240,675;725:move:1720,675;727:click:1720,675"` walks the crew in to the lobby and then to the hub |
-| `nix run .#manufacturers` | `cargo run -- manufacturers` | **the Manufacturers** (feature 109): `Session::combat`'s ship and sixteen crew taken to the **nearest site of theirs** (`World::manufacturer_dock_for_probe`, a trip a lane) with the world clock put at **day eight** — their people in tier-one gun and armour and about half the garrison **Troopers** beside them. `BIMS_MANUFACTURER_DAY=0` is their people alone with pistols, ten or more their own waves in the machines' tier of kit, four hours apart unless `BIMS_DROID_REINFORCE` says; `BIMS_DROID_WAVE` sizes the garrison. The site is down the airlock: `BIMS_KEYS="40:F,70:V" BIMS_POINTER="45:move:1000,470;47:click:1000,470;60:move:1010,480;62:right:1010,480" BIMS_ZOOM=0.8` walks James and the crew in |
+| `nix run .#heart` | `cargo run -- heart` | **the Machine Heart** (feature 108): `Session::combat`'s ship and sixteen crew with **everybody's kit at tier three** (`World::outfit_for_probe`), the machines' origin put at the crew's own star and the ship **docked at its fortress** (`Session::heart`, `World::heart_dock_for_probe`) — the core in the hub sealed by its conduits, the fabricators beside it, the waves the game's own formula and the next a minute of the mission clock after the last is down. `BIMS_HEART_PHASE=2` opens with every conduit down (the core exposed), `BIMS_HEART_PHASE=3` with the core's health just under the overload as well (`World::set_heart_phase_for_probe`, after the Heart is laid); `BIMS_DROID_WAVES=n` gives the fortress that many waves. The fortress is past the ship's own lobby and down the west arm: `BIMS_ZOOM=0.28 BIMS_WINDOW=2000x1300 BIMS_KEYS="40:X,700:X,720:X" BIMS_POINTER="45:move:1240,675;47:click:1240,675;725:move:1720,675;727:click:1720,675"` walks the crew in to the lobby and then to the hub |
+| `nix run .#manufacturers` | `cargo run -- manufacturers` | **the Manufacturers** (feature 109): `Session::combat`'s ship and sixteen crew taken to the **nearest site of theirs** (`World::manufacturer_dock_for_probe`, a trip a lane) with the world clock put at **day eight** — their people in tier-one gun and armour and about half the garrison **Troopers** beside them. `BIMS_MANUFACTURER_DAY=0` is their people alone with pistols, ten or more their own waves in the machines' tier of kit, four hours apart unless `BIMS_DROID_REINFORCE` says; `BIMS_DROID_WAVE` sizes the garrison. The site is down the airlock: `BIMS_KEYS="40:X,70:V" BIMS_POINTER="45:move:1000,470;47:click:1000,470;60:move:1010,480;62:right:1010,480" BIMS_ZOOM=0.8` walks James and the crew in |
 | `nix run .#stationbuilder` | `cargo run -- stationbuilder [name]` | the **station builder**, a tool rather than a screen of the game: a grid to sketch a station's rough shape on — deck, wall, door, airlock, painted as rectangles or with a pen, the skin drawn wherever deck touches void — saved by Ctrl+S as text to `stations/<name>.txt` (`name` defaults to `sketch`; `BIMS_STATIONS_DIR` moves the directory, and the nix wrapper points it at `$PWD/stations`) and read back the next time that name is opened. The file is one character a tile, for a `world::station::Plan` to be written from by hand. `crates/app/src/screens/station.rs` |
 
 `cargo run` (with `-p app`, or bare — `default-members` makes the app the
@@ -182,7 +182,7 @@ air, and `BIMS_FREEZE=down:1+1 bims droids` the first machine bursting.
 **`BIMS_FREEZE=sweep:n+f`** counts a Guardian's beams laid in the crew's
 room and **`shield:n+f`** bolts and blows stopped on its shield
 (`Cue::Shielded`, feature 100). The machines of `bims guardian` never
-come aboard, so the crew are sent in: `BIMS_KEYS="40:F,70:V"
+come aboard, so the crew are sent in: `BIMS_KEYS="40:X,70:V"
 BIMS_POINTER="45:move:1250,420;47:click:1250,420;60:move:1250,440;62:right:1250,440"`
 puts an attack banner down in the station's lobby, walks James after it
 and has the camera follow him, and `BIMS_FREEZE=sweep:1+10` over that
@@ -1331,10 +1331,11 @@ three each — and *Kill Relay* at three seconds. The world's half is
 `README.md` (the second table under "Relics"). What to hold on to:
 
 - **Still a row a relic.** `relic::RELICS` grew the hooks the patches
-  needed: `Stat::{MachineDamage, DamageTaken, Bleeding, BandageSpeed,
-  TraderPrices}`, `When::{OnLimb, Crippled, Flanked}` asked against a
+  needed: `Stat::{MachineDamage, DamageTaken, TraderPrices}`,
+  `When::{OnLimb, Crippled, Flanked}` asked against a
   `relic::Situation`, `Trigger::{CrewKill, FlankKill, BandagedCrewmate,
-  CrewmateDowned}`, `Action::{Sprint, Unseen, Tether, Shelter, RallyUp}`,
+  Bandaged, CrewmateDowned}`, `Action::{Sprint, Unseen, Tether, Shelter,
+  RallyUp, Heal}`,
   a hook's `cooldown`, `Effect::OnEach` (two hooks), `Effect::Aura` and
   `Effect::Rule` (one relic's own rule). Every number is
   `world::data`'s, every word `names.rs`'s.
@@ -1342,13 +1343,21 @@ three each — and *Kill Relay* at three seconds. The world's half is
   of `world`: a crew hit landing on a machine (`land_on_machines`,
   before `visit` lands the rest), the skill (`lift_by_relic_hooks`:
   *War Chest*, *Sprint Coil*, the auras, *Tether Field* into the room's
-  new `Skill::damage_taken`), the blood (`relics_on_the_blood`), a kill
-  (`machine_kills_noted`, with how the machine went), a crewmate down
-  (`settle_relic_downs`, a stage after `settle_relics`), the clear and
-  the trader. The room's half is two numbers it is handed —
-  `Skill::damage_taken` and a shield's front a shooter
-  (`Game::set_shield_fronts`, *Wide Angle Optics*) — and
-  `Droid::front()`, the facing every kind has for a flank.
+  new `Skill::damage_taken`), the healing (`relics_mend`, and
+  `Trigger::Bandaged`), a kill (`machine_kills_noted`, with how the
+  machine went), a crewmate down (`settle_relic_downs`, a stage after
+  `settle_relics`), the clear and the trader. The room's half is two
+  numbers it is handed — `Skill::damage_taken` and a shield's front a
+  shooter (`Game::set_shield_fronts`, *Wide Angle Optics*) — and
+  `Droid::front()`, the facing every kind has for a flank, and
+  `Game::heal` (`Health::heal`).
+- **The Lifeline patch heals hit points and never touches the blood**,
+  since the health system is going to lose its blood: *Pressure Seal*
+  regenerates HP, *Clot Booster* regenerates HP for its seconds after
+  going down (both `relics_mend`, a stage right after
+  `settle_relic_downs`), and *Quick Wrap* heals HP with every dressing
+  (`Action::Heal` on `Trigger::Bandaged`). *Tether Field* still fires on
+  a dressing, and so waits on bandages staying in the game.
 - **Nothing draws from a stream and nothing runs with no relic held**:
   a crew holding none lands every hit, and draws every roll, exactly as
   before — `SURVIVORS` and the ship's `PINNED` did not move.
@@ -1673,7 +1682,7 @@ Things about that which are easy to get wrong:
   run's totals and every crew member's experience the first frame of a
   mission and adds the bounty and the relics up off the events. What
   follows is the game's own flow: the relic reward on the map, then the
-  map. `BIMS_DROID_WAVE=2 BIMS_DROID_WAVES=1 BIMS_KEYS="40:F,80:4"
+  map. `BIMS_DROID_WAVE=2 BIMS_DROID_WAVES=1 BIMS_KEYS="40:X,80:4"
   BIMS_POINTER="45:move:1250,420;47:click:1250,420"
   BIMS_SMOKE_FRAMES=1500 bims droids` is the crew sent in and the
   screen up.
@@ -1756,15 +1765,27 @@ Things about that which are easy to get wrong:
   in hand); the page says "also …" rather than refusing. Esc is not an
   action. The bindings are saved to `$XDG_CONFIG_HOME/bims/keys`
   (`~/.config/bims/keys`), one `action=Key` a line, and read at start —
-  the one thing the sheet keeps between runs so far. **F and T are the
-  two orders every player has for the bots that follow them** (feature
-  84): F arms the pointer — the system's cursor goes and a red
-  crosshair takes its place — and the next click on the deck puts an
-  **attack banner** down there for the crew to fight their way to; T
+  the one thing the sheet keeps between runs so far. **A right-click on
+  the deck moves the player's own Bim and nobody else**, the moment the
+  button goes down (`bims::game::Game::orderable`), and **under arms a
+  bot cannot be selected** — the crew taking arms lets go of any pick of
+  one, and neither a click nor a marquee takes one again. **F is the
+  attack-move**: it arms the pointer (the red crosshair), and the next
+  click sends the player's own Bim there recruited, standing still to
+  shoot whatever comes into its sights and walking on once nothing is
+  left (`CrewOrder::AttackMove`, `Game::keep_attack_moving`). Every
+  order's spot is pinged the way Dota pings one — arrows closing on it,
+  green for a walk, red for an attack-move, over the fog, on the
+  window's clock (`Game::draw_pings`). **X and Y are the two orders
+  every player has for the bots that follow them** (feature 84; F and T
+  until the attack-move took F, and the commander's squad fall back
+  moved from X to T): X arms the pointer — the system's cursor goes and
+  a red crosshair takes its place — and the next click on the deck puts
+  an **attack banner** down there for the crew to fight their way to; Y
   calls them back to the ship — a blue **defend sign**
   (`theme::defend_banner`) stands on the spot they gather on, the deck
   just inside the ship's own airlock, for as long as the order does;
-  **either key again lets them follow again** — F with a banner already
+  **either key again lets them follow again** — X with a banner already
   down takes that banner up rather than arming the pointer for another
   one, which is the only press there is that does it: the world reads
   the *same* order given again as a release and "the same order" means

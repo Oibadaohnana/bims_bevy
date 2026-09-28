@@ -38,8 +38,9 @@ pub const BANDAGE: Item = Item::Stack(crate::combat::BANDAGE_CODE);
 const MARQUEE_EDGE: Color = ACCENT;
 const MARQUEE_FILL: Color = Color::rgba(0.50, 0.82, 0.66, 0.10);
 
-/// How long the ping at an ordered destination lasts.
-const MARKER_LIFE: f32 = 0.7;
+/// How long the ping at an ordered destination lasts, in real seconds
+/// where the host fades the fight's lights (`Game::fade`).
+const MARKER_LIFE: f32 = 0.9;
 
 /// How long a body on somebody else's deck stays drawn after the crew
 /// last saw it, in seconds at 1x: it walks out of view and is a moment
@@ -419,7 +420,34 @@ struct Marker {
     /// A place the Bim cannot get to. Drawn in the one warm colour the room
     /// keeps for things worth noticing, so a refused order is not silent.
     bad: bool,
+    /// What kind of order put it there: a walk's green or an
+    /// attack-move's red. Never read for a refusal.
+    #[cfg_attr(feature = "serde", serde(default))]
+    kind: Ping,
 }
+
+/// The two orders a ping on the deck can stand for, drawn the way Dota
+/// draws them: arrows closing on the spot, green for a walk and red for
+/// an attack-move.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+enum Ping {
+    #[default]
+    Move,
+    Attack,
+}
+
+/// A walk's ping: a bright green, lit a little past white so the bloom
+/// lifts it off a dark deck.
+const PING_MOVE: Color = Color::rgb(0.30, 1.0, 0.42);
+/// An attack-move's: the enemy's red, as hot.
+const PING_ATTACK: Color = Color::rgb(1.0, 0.24, 0.18);
+/// How far out the ping's arrows start, and how far in they close, in
+/// room units: most of a tile each side down to a body's width.
+const PING_OUTER: f32 = 44.0;
+const PING_INNER: f32 = 12.0;
+/// An attack-move is over this close to where it was bound, in tiles.
+const ATTACK_MOVE_THERE: f32 = 1.0;
 
 /// A dash and the gap after it, in room units, on the thread through the
 /// queued walks — see `Game::render`.
@@ -1181,6 +1209,15 @@ impl Game {
     /// the simulation reads is touched.
     pub fn fade(&mut self, dt: f32) {
         self.combat.fx.age(dt);
+        self.age_markers(dt);
+    }
+
+    /// The pings on the deck grown older by `dt`, and the spent ones gone.
+    fn age_markers(&mut self, dt: f32) {
+        for m in &mut self.markers {
+            m.age += dt;
+        }
+        self.markers.retain(|m| m.age < MARKER_LIFE);
     }
 
     /// The simulation alone, without drawing it. What the ship game calls
@@ -1270,10 +1307,12 @@ impl Game {
             self.refresh_blockers();
         }
 
-        for m in &mut self.markers {
-            m.age += dt;
+        // The pings age here only in a room nobody draws on a real clock;
+        // a host that fades the fight's lights ages them with those
+        // (`fade`), so a ping lasts as long at 24× as at 1×.
+        if !self.combat.fx.is_on() {
+            self.age_markers(dt);
         }
-        self.markers.retain(|m| m.age < MARKER_LIFE);
 
         // The fight, after everybody has moved: who can see whom is asked
         // of where they stand now.
@@ -1402,6 +1441,13 @@ impl Game {
         if mustered != self.mustered {
             self.mustered = mustered;
             self.muster_crew(mustered);
+            // A fight is no time to have a bot picked: every player's
+            // pick of one is let go as the crew take arms.
+            if mustered {
+                for who in self.players..self.bims.len() {
+                    self.bims[who].character.selected = 0;
+                }
+            }
         }
         // And a commander's squad, which is under arms with the alarm
         // or without it (feature 78).
@@ -1600,6 +1646,7 @@ impl Game {
                 bim.peek = None;
                 bim.character.set_lean(None);
                 bim.character.set_aim(None);
+                self.keep_attack_moving(who, false);
                 continue;
             };
             // The weapon's numbers through the soldier's skill (feature 75):
@@ -1662,6 +1709,10 @@ impl Game {
             // burst it was in the middle of is over.
             let locked = self.combat.melee_with(&self.room.sight, from, &stats);
             bim.locked = locked;
+            if locked.is_some() {
+                self.keep_attack_moving(who, true);
+            }
+            let bim = &mut self.bims[who];
             if let Some(enemy) = locked {
                 bim.trigger.hold();
                 bim.peek = None;
@@ -1694,6 +1745,7 @@ impl Game {
                 bim.peek = None;
                 bim.character.set_lean(None);
                 bim.character.set_aim(None);
+                self.keep_attack_moving(who, false);
                 continue;
             }
             // Falling back under a commander's order holds its fire
@@ -1712,9 +1764,12 @@ impl Game {
                 Squad::Attack { enemy, seen: true } => Some(enemy),
                 _ => None,
             };
-            let Some((which, eye, at)) =
-                self.combat.aim_marked(&self.room.sight, from, &stats, mark)
-            else {
+            let aimed = self.combat.aim_marked(&self.room.sight, from, &stats, mark);
+            // An attack-move stands still for a shot and walks on without
+            // one, before the walk is read below.
+            self.keep_attack_moving(who, aimed.is_some());
+            let bim = &mut self.bims[who];
+            let Some((which, eye, at)) = aimed else {
                 bim.trigger.hold();
                 bim.peek = None;
                 bim.character.set_lean(None);
@@ -4391,6 +4446,15 @@ impl Game {
         bim.character.set_wounds([false; 3]);
     }
 
+    /// `points` of health put back into a living body at once — a relic's
+    /// healing (task 118, `Health::heal`). How much went in.
+    pub fn heal(&mut self, who: usize, points: f32) -> f32 {
+        match self.bims.get_mut(who) {
+            Some(bim) if bim.is_alive() => bim.health.heal(points),
+            _ => 0.0,
+        }
+    }
+
     /// A body out cold brought round where it lies (feature 106, a relic's
     /// *Second Wind*): [`Health::brought_round`] at `share` of its health,
     /// awake again this instant. Nothing for the dead or for a body that
@@ -5306,6 +5370,10 @@ impl Game {
         }
         let now = !self.bims[who].character.is_recruited();
         self.bims[who].character.set_recruited(now);
+        if !now {
+            // Weapon away, and an attack-move with it.
+            self.bims[who].attack_move = None;
+        }
         if now {
             // It is the thing being ordered about, so it is the thing selected.
             self.bims[who].character.select_for(slot, true);
@@ -5611,8 +5679,12 @@ impl Game {
         // Whoever the box touched — all of them, for a sweep; a click on a
         // spot two share picks the player's own, which comes first, since a
         // click most likely meant the one that can be told to do something.
+        // Under arms a bot is not to be picked at all: a click in a fight
+        // is aimed at the fight, and the bots take their orders from the
+        // standing orders and never a click (`orderable`).
         let touched: Vec<usize> = (0..self.bims.len())
             .filter(|&i| self.bims[i].is_alive())
+            .filter(|&i| !self.mustered || self.is_player(i))
             .filter(|&i| {
                 box_.touches_circle(
                     self.bims[i].character.pos,
@@ -5766,16 +5838,20 @@ impl Game {
         self.order_squad(slot, &squad, &spots)
     }
 
-    /// Whoever player `slot` has selected and takes orders from them:
-    /// their own crew member always; a crewmate only while the crew are
-    /// **under arms** — the alarm, or a player leading them (feature 84,
-    /// `Game::led`) — since a crewmate at a bench is on an errand and
-    /// not a soldier. Another player's own is never theirs to order.
+    /// Who a right-click from player `slot` sends: **their own crew
+    /// member, and nobody else**, whoever is selected. The bots take the
+    /// player's standing orders — the attack banner, the retreat — and a
+    /// commander's squad orders, never a click on the deck: a right-click
+    /// that walked a selected bot off its stand in the middle of a fight
+    /// was a bot nobody meant to move. Another player's own is never
+    /// theirs to order either.
     fn orderable(&self, slot: u32) -> Vec<usize> {
-        self.selected_all(slot)
-            .into_iter()
-            .filter(|&who| who == slot as usize || (self.mustered && !self.is_player(who)))
-            .collect()
+        let own = slot as usize;
+        if own < self.bims.len() {
+            vec![own]
+        } else {
+            Vec::new()
+        }
     }
 
     /// One order each, spot for spot; the best code of them.
@@ -5834,14 +5910,79 @@ impl Game {
         self.order_drag = None;
     }
 
-    /// [`Game::order_move`] for one Bim, the checks on who is done. A
-    /// plain order, so what was queued with Shift goes (`drop_ordered`).
-    fn order_move_for(&mut self, slot: u32, who: usize, x: f32, y: f32) -> u32 {
-        if !self.bims[who].character.is_selected_by(slot) {
+    /// [`Game::order_move`] for one Bim, the checks on who is done
+    /// ([`Game::orderable`]: the player's own, selected or not). A plain
+    /// order, so what was queued with Shift goes (`drop_ordered`), and so
+    /// does an attack-move under way.
+    fn order_move_for(&mut self, _slot: u32, who: usize, x: f32, y: f32) -> u32 {
+        self.drop_ordered(who);
+        self.bims[who].attack_move = None;
+        self.walk_order(who, x, y)
+    }
+
+    /// The attack key and a click at `(x, y)`: player `slot`'s own crew
+    /// member walks there **under arms** — recruited, so its weapon is
+    /// out — and stops to shoot the moment it has something in its
+    /// sights, walking on once nothing is left (Dota's attack-move,
+    /// [`Game::keep_attack_moving`]). The codes are
+    /// [`Game::order_move`]'s; the ping is the attack's red.
+    pub fn order_attack_move(&mut self, slot: u32, x: f32, y: f32) -> u32 {
+        let who = slot as usize;
+        if who >= self.bims.len() {
             return ORDER_IGNORED;
         }
         self.drop_ordered(who);
-        self.walk_order(who, x, y)
+        self.bims[who].attack_move = None;
+        let code = self.walk_order(who, x, y);
+        if code == ORDER_MOVING {
+            let to = self.nearest_stand(who, vec2(x, y));
+            let bim = &mut self.bims[who];
+            bim.attack_move = Some(to);
+            bim.character.set_recruited(true);
+            bim.character.select_for(slot, true);
+            if let Some(ping) = self.markers.last_mut() {
+                ping.kind = Ping::Attack;
+            }
+        }
+        code
+    }
+
+    /// Any attack-move `who` is on called off: what an errand given it
+    /// does ([`Game::order`]).
+    pub(crate) fn call_off_attack_move(&mut self, who: usize) {
+        self.bims[who].attack_move = None;
+    }
+
+    /// Where `who`'s attack-move is bound, if it is on one.
+    pub fn attack_move_of(&self, who: usize) -> Option<Vec2> {
+        self.bims.get(who).and_then(|b| b.attack_move)
+    }
+
+    /// One step of an attack-move, from the fight's own turn for the body
+    /// ([`Game::tick_combat`]): with a shot (`shot`, or a melee lock) it
+    /// stands still for it — a shot on the move is at half the odds —
+    /// and with none it walks on to where it was bound, the order over
+    /// once it is there or there is no way there any more.
+    fn keep_attack_moving(&mut self, who: usize, shot: bool) {
+        let Some(to) = self.bims[who].attack_move else {
+            return;
+        };
+        let ch = &mut self.bims[who].character;
+        if shot {
+            if !ch.arrived() {
+                ch.halt();
+            }
+            return;
+        }
+        if !ch.arrived() {
+            return;
+        }
+        if (to - ch.pos).len() <= ATTACK_MOVE_THERE * TILE
+            || !self.plan_route(who, to)
+            || self.bims[who].character.arrived()
+        {
+            self.bims[who].attack_move = None;
+        }
     }
 
     /// The walk a right-click gives, to whoever it was decided it goes to:
@@ -5894,8 +6035,75 @@ impl Game {
         ORDER_NOWHERE
     }
 
+    /// Every ping on the deck, the way Dota draws an order: four arrows
+    /// closing on the spot from the corners with a ring drawing in behind
+    /// them — green for a walk, red for an attack-move — lit past white
+    /// while fresh so the bloom lifts them off a dark deck, and a dark
+    /// edge under each stroke so they read on a lit one. A refusal is a
+    /// cross in the warm colour where the Bim cannot get to.
+    fn draw_pings(&mut self) {
+        const SHADE: Color = Color::rgba(0.0, 0.0, 0.0, 1.0);
+        for m in &self.markers {
+            let t = (m.age / MARKER_LIFE).clamp(0.0, 1.0);
+            let fade = if t < 0.6 { 1.0 } else { (1.0 - t) / 0.4 };
+            let at = m.pos;
+            if m.bad {
+                let size = vec2(30.0, 4.0);
+                for turn in [0.7, -0.7] {
+                    self.list
+                        .rect(at, size + vec2(3.0, 3.0), turn, 2.0, SHADE.alpha(0.5 * fade));
+                    self.list.rect(at, size, turn, 2.0, WARN.alpha(0.95 * fade));
+                }
+                self.list
+                    .ring(at, 16.0 + 18.0 * t, 2.5, WARN.alpha(0.8 * fade));
+                continue;
+            }
+            let colour = match m.kind {
+                Ping::Move => PING_MOVE,
+                Ping::Attack => PING_ATTACK,
+            };
+            let lit = colour.glowing(1.0 + 0.5 * (1.0 - t));
+            let close = 1.0 - (1.0 - t) * (1.0 - t);
+            let r = PING_OUTER + (PING_INNER - PING_OUTER) * close;
+            // The ring drawing in behind the arrows, and the spot itself.
+            self.list
+                .ring(at, 2.0 * (r + 6.0), 3.0, SHADE.alpha(0.35 * fade));
+            self.list
+                .ring(at, 2.0 * (r + 6.0), 1.8, colour.alpha(0.55 * fade));
+            self.list.circle(at, 9.0, SHADE.alpha(0.45 * fade));
+            self.list.circle(at, 6.0, lit.alpha(fade));
+            // The arrows: a chevron at each corner, its point at the
+            // spot-side, its arms swept back out.
+            let (arm_c, arm_s) = (0.64_f32, 0.77_f32);
+            for (dx, dy) in [(1.0, 1.0), (-1.0, 1.0), (-1.0, -1.0), (1.0, -1.0)] {
+                let out = vec2(dx, dy) * std::f32::consts::FRAC_1_SQRT_2;
+                let tip = at + out * r;
+                for side in [1.0, -1.0] {
+                    let s = arm_s * side;
+                    let arm = vec2(out.x * arm_c - out.y * s, out.x * s + out.y * arm_c);
+                    let end = tip + arm * 14.0;
+                    self.list.line(tip, end, 7.0, SHADE.alpha(0.45 * fade));
+                    self.list.line(tip, end, 4.0, lit.alpha(fade));
+                }
+            }
+            // And an attack-move's cross-hair through the spot, so the red
+            // is not the only thing that tells the two apart.
+            if m.kind == Ping::Attack {
+                for turn in [0.0, std::f32::consts::FRAC_PI_2] {
+                    self.list
+                        .rect(at, vec2(18.0, 2.5), turn, 1.0, lit.alpha(0.9 * fade));
+                }
+            }
+        }
+    }
+
     fn mark(&mut self, pos: Vec2, bad: bool) {
-        self.markers.push(Marker { pos, age: 0.0, bad });
+        self.markers.push(Marker {
+            pos,
+            age: 0.0,
+            bad,
+            kind: Ping::Move,
+        });
     }
 
     // --- the clock --------------------------------------------------------
@@ -6917,6 +7125,13 @@ impl Game {
         self.skills = skills;
     }
 
+    /// How wide a shield's front is against each crew member's shots, as
+    /// a cosine, by index — a relic's *Wide Angle Optics* (task 118). An
+    /// empty list is the Guardian's own front for everybody.
+    pub fn set_shield_fronts(&mut self, fronts: Vec<f32>) {
+        self.combat.set_shield_fronts(fronts);
+    }
+
     /// The skill the world set for `who`, for the tests.
     #[allow(dead_code)]
     pub fn skill_for_probe(&self, who: usize) -> Skill {
@@ -7116,13 +7331,6 @@ impl Game {
     /// Index for index with `set_hostiles`, the way
     /// [`Game::set_hostiles_peeking`] is.
     pub fn set_hostiles_taunting(&mut self, radius: &[f32], magnet: &[bool]) {
-    /// How wide a shield's front is against each crew member's shots, as
-    /// a cosine, by index — a relic's *Wide Angle Optics* (task 118). An
-    /// empty list is the Guardian's own front for everybody.
-    pub fn set_shield_fronts(&mut self, fronts: Vec<f32>) {
-        self.combat.set_shield_fronts(fronts);
-    }
-
         self.combat.set_taunting(radius, magnet);
     }
 
@@ -7761,6 +7969,10 @@ impl Game {
         if !self.bims.get(who).is_some_and(|b| b.is_alive()) {
             return out;
         }
+        // What a relic makes of every hit on this body (task 118): *Tether
+        // Field*, *Cover Formation*. One for everybody else, and a hit
+        // times one is the hit.
+        let damage = damage * self.skill(who).damage_taken;
         if strips > 0.0 {
             let skill = self.skill(who);
             let part = if skill.iron_frame && part == Part::Head {
@@ -7960,10 +8172,6 @@ impl Game {
         let kind = Kind::Bandage {
             patient,
             part: part.code(),
-        // What a relic makes of every hit on this body (task 118): *Tether
-        // Field*, *Cover Formation*. One for everybody else, and a hit
-        // times one is the hit.
-        let damage = damage * self.skill(who).damage_taken;
         };
         if !self.take_over(who, kind) {
             return false;
@@ -8873,24 +9081,6 @@ impl Game {
             }
         }
 
-        // Destination pings: a ring that expands and fades where the order landed.
-        for m in &self.markers {
-            let t = m.age / MARKER_LIFE;
-            let fade = 1.0 - t;
-            let colour = if m.bad { WARN } else { ACCENT };
-            self.list.circle(m.pos, 5.0, colour.alpha(0.55 * fade));
-            self.list
-                .ring(m.pos, 10.0 + 26.0 * t, 2.0, colour.alpha(0.7 * fade * fade));
-            // A cross through a place it cannot get to, so a refusal reads as
-            // a refusal and not as a ping that happens to be a different hue.
-            if m.bad {
-                for turn in [0.7, -0.7] {
-                    self.list
-                        .rect(m.pos, vec2(26.0, 3.0), turn, 1.5, WARN.alpha(0.85 * fade));
-                }
-            }
-        }
-
         // The walks waiting their turn — the Shift-clicks on the deck —
         // for the viewer's own crew member and whoever it has selected: a
         // dashed thread from where the Bim is bound now through each spot
@@ -8985,6 +9175,9 @@ impl Game {
         // flies through.
         self.fog_from = self.list.len();
         self.combat.draw(&mut self.list);
+        // The pings where an order landed, over the fog as well, since an
+        // order given into the dark is an order all the same.
+        self.draw_pings();
 
         // Night falls over the whole room at once.
         // Aboard a ship the room has no shell, and a night wash the size of
@@ -11620,13 +11813,13 @@ mod tests {
         );
     }
 
-    /// Under the alarm a crew member that sees no enemy keeps to the
-    /// player's side — walks into its slot beside James and stays there
-    /// as he moves — and takes the player's orders, which it does not
-    /// otherwise: an order holds it where it was sent until the alarm is
-    /// over, when its post and its recruitment go together.
+    /// A marquee selects everybody it touches in peace, and a click one;
+    /// under arms a bot is not to be picked at all — the crew taking arms
+    /// lets go of any pick of one, and neither a sweep nor a click takes
+    /// one again. And a right-click is the player's own Bim's alone,
+    /// whoever is selected: a line or a point moves James and never Kate.
     #[test]
-    fn a_marquee_selects_everybody_it_touches_and_a_right_drag_forms_them_up_along_a_line() {
+    fn a_marquee_selects_everybody_in_peace_and_under_arms_the_player_s_own_alone() {
         let mut game = room();
         game.set_autonomous(false);
         let james = game.put_for_probe(0, vec2(ROOM_W * 0.3, ROOM_H * 0.5));
@@ -11641,71 +11834,67 @@ mod tests {
         game.drag_begin(kate.x, kate.y);
         game.drag_end(0, kate.x, kate.y);
         assert_eq!(game.selected_all(0), vec![1]);
-        game.drag_begin(james.x - TILE, james.y - TILE);
-        game.drag_end(0, kate.x + TILE, kate.y + TILE);
 
-        // In peace a line moves the player's own alone — Kate takes no
-        // orders — and one alone goes to where the drag began.
+        // Kate alone selected, a line moves James — to where it began,
+        // since he is one — and Kate nowhere.
         let a = vec2(ROOM_W * 0.35, ROOM_H * 0.8);
         let b = vec2(ROOM_W * 0.55, ROOM_H * 0.8);
         assert_eq!(game.order_line(0, a, b), ORDER_MOVING);
         assert!((game.destination_for_probe(0).unwrap() - a).len() < TILE);
-        assert!(
-            game.destination_for_probe(1)
-                .is_none_or(|d| (d - b).len() > TILE)
-        );
+        assert!(game.destination_for_probe(1).is_none());
 
-        // Under the alarm both take it: spread along the line, each to the
-        // end nearest its own place, so James — the western one — takes
-        // the western end.
+        // Under the alarm the pick of Kate is let go, and a sweep over the
+        // whole room picks James alone.
         let near = kate + vec2(4.0 * TILE, 0.0);
         game.set_hostiles(vec![Some((near, WeaponKind::LaserPistol.basic()))]);
         for _ in 0..5 {
             game.simulate(DT);
         }
-        assert!(game.is_alarmed());
+        assert!(game.is_alarmed() && game.is_mustered());
+        assert!(!game.is_selected(1, 0), "a bot's pick let go as they take arms");
         game.drag_begin(0.0, 0.0);
         game.drag_end(0, ROOM_W, ROOM_H);
-        assert_eq!(game.selected_count(0), 2);
-        assert_eq!(
-            game.order_line(0, b, a),
-            ORDER_MOVING,
-            "the drag's direction does not matter"
-        );
-        let (dj, dk) = (
-            game.destination_for_probe(0).unwrap(),
-            game.destination_for_probe(1).unwrap(),
-        );
-        assert!((dj - a).len() < TILE, "James to the west end: {dj:?}");
-        assert!((dk - b).len() < TILE, "Kate to the east end: {dk:?}");
-        // The line is drawn while it is dragged, and cleared when it ends.
+        assert_eq!(game.selected_all(0), vec![0]);
+        let kate_now = game.bim_pos(1);
+        game.drag_begin(kate_now.x, kate_now.y);
+        game.drag_end(0, kate_now.x, kate_now.y);
+        assert!(!game.is_selected(1, 0), "a click on a bot picks nobody");
+        // A point moves James to it, and no huddle is made round it.
+        let c = vec2(ROOM_W * 0.45, ROOM_H * 0.3);
+        assert_eq!(game.order_move(0, c.x, c.y), ORDER_MOVING);
+        assert!((game.destination_for_probe(0).unwrap() - c).len() < TILE);
+        assert!(game.bims[1].character.post().is_none(), "Kate holds no spot");
+        // The drag's line is drawn for the one it would move.
         game.order_drag_begin(a.x, a.y);
         game.order_drag_update(b.x, b.y);
         assert!(game.order_drag.is_some());
         assert_eq!(game.order_drag_end(0, b.x, b.y, true), ORDER_MOVING);
         assert!(game.order_drag.is_none());
-        // A point for two is a huddle: two spots, not one.
-        let c = vec2(ROOM_W * 0.45, ROOM_H * 0.3);
-        assert_eq!(game.order_move(0, c.x, c.y), ORDER_MOVING);
-        let (dj, dk) = (
-            game.destination_for_probe(0).unwrap(),
-            game.destination_for_probe(1).unwrap(),
-        );
-        assert!((dj - dk).len() >= CREW_CLEARANCE, "apart: {dj:?} {dk:?}");
-        assert!((dj - c).len() < 1.5 * TILE && (dk - c).len() < 1.5 * TILE);
+        assert!((game.destination_for_probe(0).unwrap() - a).len() < TILE);
     }
 
+    /// Under the alarm a crew member that sees no enemy keeps to the
+    /// player's side — walks into its slot beside James and stays there
+    /// as he moves — and a right-click never reaches it: selected or not,
+    /// the click is James's, and Kate keeps to him.
     #[test]
-    fn under_the_alarm_the_crew_gather_round_the_player_and_take_orders() {
+    fn under_the_alarm_the_crew_gather_round_the_player_and_a_click_moves_him_alone() {
         let mut game = room();
         game.set_autonomous(false);
         let james = game.put_for_probe(0, vec2(ROOM_W * 0.3, ROOM_H * 0.5));
         let kate = game.put_for_probe(1, vec2(ROOM_W * 0.85, ROOM_H * 0.85));
-        // Kate cannot be ordered about in peace.
+        // Kate selected in peace, the click is James's all the same.
         game.drag_begin(kate.x, kate.y);
         game.drag_end(0, kate.x, kate.y);
         assert_eq!(game.selected(0), Some(1));
-        assert_eq!(game.order_move(0, james.x, james.y), ORDER_IGNORED);
+        let there = james + vec2(0.0, 2.0 * TILE);
+        assert_eq!(game.order_move(0, there.x, there.y), ORDER_MOVING);
+        assert!((game.destination_for_probe(0).unwrap() - there).len() < TILE);
+        assert!(game.destination_for_probe(1).is_none());
+        for _ in 0..(60 * 5) {
+            game.simulate(DT);
+        }
+        let james = game.bim_pos(0);
         // An enemy within range but out of sight — beyond the room's walls,
         // twenty-five tiles off — is the alarm without a target to act on.
         let unseen = james + vec2((ALARM_RANGE - 5.0) * TILE, 0.0);
@@ -11730,42 +11919,80 @@ mod tests {
             game.bim_pos(0)
         );
         assert_eq!(game.bolts_in_flight(), 0, "nothing to shoot at");
-        // James moves; the ring follows.
-        game.put_for_probe(0, vec2(ROOM_W * 0.6, ROOM_H * 0.3));
+        // James is sent across the room; Kate takes no post and follows.
+        let spot = vec2(ROOM_W * 0.6, ROOM_H * 0.3);
+        assert_eq!(game.order_move(0, spot.x, spot.y), ORDER_MOVING);
+        assert!(game.bims[1].character.post().is_none());
+        // He gets there — and then idles about as a Bim with nothing to
+        // do does — and Kate's ring goes with him.
+        let mut got_there = false;
         for _ in 0..(60 * 20) {
             game.simulate(DT);
-            if !game.is_walking(1) && (game.bim_pos(1) - game.bim_pos(0)).len() < 3.0 * TILE {
-                break;
-            }
+            got_there |= (game.bim_pos(0) - spot).len() < TILE;
         }
+        assert!(got_there, "James went");
         assert!(
             (game.bim_pos(1) - game.bim_pos(0)).len() < 3.0 * TILE,
-            "followed"
+            "and Kate followed"
         );
-        // Ordered somewhere, she goes and holds it. Selected outright:
-        // gathered at his side she may stand close enough that a click on
-        // her is a click on him, and the player's own comes first.
-        game.select_only(0, Some(1));
-        assert_eq!(game.selected(0), Some(1));
-        // Somewhere on the open deck.
-        let spot = vec2(ROOM_W * 0.5, ROOM_H * 0.5);
-        let code = game.order_move(0, spot.x, spot.y);
-        assert_eq!(code, ORDER_MOVING);
-        for _ in 0..(60 * 20) {
-            game.simulate(DT);
-        }
-        assert!(
-            (game.bim_pos(1) - spot).len() < 2.0 * TILE,
-            "holds the spot"
-        );
-        assert!(game.bims[1].character.post().is_some());
-        // The alarm over, the post goes with it and she is her own again.
+        // The alarm over, she is her own again.
         game.set_hostiles(Vec::new());
         game.simulate(DT);
         assert!(!game.is_alarmed());
-        assert!(game.bims[1].character.post().is_none());
         assert!(!game.bims[1].character.is_recruited());
-        assert_eq!(game.order_move(0, james.x, james.y), ORDER_IGNORED);
+    }
+
+    /// An attack-move: the player's own Bim walks where it was sent with
+    /// its weapon out, stands still to shoot the moment it has a target in
+    /// its sights, walks on once nothing is left, and the order is over at
+    /// the spot. A plain walk calls one off.
+    #[test]
+    fn an_attack_move_stops_to_shoot_and_walks_on_when_nothing_is_left() {
+        let mut game = room();
+        game.set_autonomous(false);
+        let james = game.put_for_probe(0, vec2(ROOM_W * 0.2, ROOM_H * 0.5));
+        game.put_for_probe(1, vec2(ROOM_W * 0.2, ROOM_H * 0.85));
+        // Kate unarmed: under the alarm she would fire at the target too.
+        game.issue(1, Gear::default());
+        let spot = vec2(ROOM_W * 0.75, ROOM_H * 0.5);
+        assert_eq!(game.order(0, crate::order::CrewOrder::AttackMove { x: spot.x, y: spot.y }), ORDER_MOVING);
+        assert!(game.attack_move_of(0).is_some());
+        assert!(game.is_recruited(0), "under arms for it");
+        // Nothing to shoot yet: it walks.
+        for _ in 0..30 {
+            game.simulate(DT);
+        }
+        assert!(game.is_walking(0));
+        let walked_to = game.bim_pos(0);
+        assert!((walked_to - james).len() > 4.0);
+        // A target comes into its sights: it stands and shoots.
+        game.set_hostiles(vec![Some((
+            vec2(ROOM_W * 0.5, ROOM_H * 0.2),
+            WeaponKind::LaserPistol.basic(),
+        ))]);
+        let mut fired = 0;
+        for _ in 0..(60 * 3) {
+            let before = game.bolts_in_flight();
+            game.simulate(DT);
+            fired += game.bolts_in_flight().saturating_sub(before);
+        }
+        let stood = game.bim_pos(0);
+        assert!(fired > 0, "it shoots");
+        assert!(!game.is_walking(0), "standing for the shot");
+        assert!((stood - walked_to).len() < TILE, "stopped where it saw it");
+        assert!(game.attack_move_of(0).is_some(), "the order still stands");
+        // Nothing left to shoot at: on to the spot, and the order is done.
+        game.set_hostiles(Vec::new());
+        for _ in 0..(60 * 15) {
+            game.simulate(DT);
+        }
+        assert!((game.bim_pos(0) - spot).len() < 1.5 * TILE, "walked on");
+        assert!(game.attack_move_of(0).is_none(), "and the order is over");
+        // A plain walk calls one under way off.
+        assert_eq!(game.order(0, crate::order::CrewOrder::AttackMove { x: james.x, y: james.y }), ORDER_MOVING);
+        assert!(game.attack_move_of(0).is_some());
+        assert_eq!(game.order_move(0, spot.x, spot.y), ORDER_MOVING);
+        assert!(game.attack_move_of(0).is_none());
     }
 
     /// A swing is not a hit until it has been swung: the blow lands
