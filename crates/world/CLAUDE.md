@@ -3416,8 +3416,10 @@ the machines too.
 and **in `world_checksum`** whole — how many waves are left, which is
 aboard, when the next is due, whether it has been settled and whether it
 has been cleared — beside the tier the machines come at
-(`droid_tier`), the reinforcement clock (`droid_reinforce`) and the wave
-cap (`droid_wave_max`), all three of which the probes move. It is the
+(`droid_tier`), the reinforcement clock (`droid_reinforce`) and the
+forced wave size (`droid_wave_forced`, nought unforced — it was the wave
+cap, `droid_wave_max`, until task 132), all three of which the probes
+move. It is the
 size of the fight.
 
 - **The wave count is fixed at the crew's first dock and never worked
@@ -3436,16 +3438,15 @@ size of the fight.
   spread across the design).
 - **The wave size is worked out as each wave appears**:
   `DROID_WAVE_BASE` + the **player** Bims (`World::players`) + a step
-  every `ENEMIES_HOURS` of the world clock, capped at `DROID_WAVE_MAX`
-  (`droid::wave_size`). **Nothing the crew own, learn or hire is read**
+  every `ENEMIES_HOURS` of the world clock (`droid::wave_size`), with
+  **no cap** since task 132. **Nothing the crew own, learn or hire is read**
   (feature 105): not the bots, the mercenaries or the townsfolk who
   joined, not the worth and not the levels — it was all of those until
   then, and growing stronger made the machines stronger. Nothing in a
   mission moves the world clock, so every wave of one fight is the same
-  size. **Integers only, and nothing doubles.** That is deliberate:
-  `DROID_WAVE_MAX` is a **performance limit**, not a balance one, and a
-  formula that could reach it in one jump would make the cap the only
-  number that mattered.
+  size. **Integers only, and nothing doubles.** The cap it had,
+  `DROID_WAVE_MAX` (sixteen, a performance limit), went in task 132, to
+  be balanced another way.
 - **The mix is `bims::droid::mix_of`**: Wardens `n / 6`, Husks `n / 3`,
   Troopers the rest, and `wave_kinds` orders them Wardens, Husks,
   Troopers so a Trooper's arm is dealt by its place *among the Troopers*

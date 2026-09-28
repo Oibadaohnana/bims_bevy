@@ -148,7 +148,9 @@ pub fn world_checksum(world: &World) -> u64 {
     }
     hash.eat(u64::from(world.droid_tier().code()));
     hash.eat(world.droid_reinforce_steps());
-    hash.eat(u64::from(world.droid_wave_max()));
+    // The probes' forced wave size, nought for none (task 132: it was
+    // the cap, sixteen unforced, until the cap went).
+    hash.eat(u64::from(world.droid_wave_forced().unwrap_or(0)));
     // And the crisis (feature 92): the star the machines began at and the
     // day the first one turns. The hop table is *not* in here — it is
     // derived from the origin and the galaxy, so two clients that agree

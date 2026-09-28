@@ -687,13 +687,9 @@ pub struct World {
     /// which shorten it to a minute so a wave can be watched arriving. In
     /// `world_checksum` for the same reason.
     droid_reinforce: u64,
-    /// The most a wave ever is: [`data::DROID_WAVE_MAX`], bar the probes,
-    /// which raise it to measure what a bigger wave costs a frame
-    /// (`BIMS_DROID_WAVE`). In `world_checksum` with the other two.
-    droid_wave_max: u32,
     /// A wave forced to a size by a probe (`BIMS_DROID_WAVE`), whatever
-    /// the formula and the cap say: the measurements' dial, `None` in
-    /// the game. In `world_checksum` with the rest.
+    /// the formula says: the measurements' dial, `None` in the game. In
+    /// `world_checksum` with the rest.
     droid_wave_forced: Option<u32>,
     /// How many waves a held station has all told, forced by a probe
     /// (`BIMS_DROID_WAVES`, and three on the `droids` commands) whatever
@@ -1142,7 +1138,6 @@ impl World {
             droids_to_post: Vec::new(),
             droid_tier: None,
             droid_reinforce: data::DROID_REINFORCE_STEPS,
-            droid_wave_max: data::DROID_WAVE_MAX,
             droid_wave_forced: None,
             droid_waves_forced: None,
             droid_kinds_forced: None,
@@ -5745,23 +5740,21 @@ impl World {
 
     /// The wave at `hours` gone with `more` on top of the players.
     fn wave_size_with(&self, hours: u32, more: u32) -> u32 {
-        // The probes' dial says the size outright, since raising the cap
         // A wave forced to its machines is as many as it names.
         if let Some(kinds) = &self.droid_kinds_forced {
             return (kinds.len() as u32).max(1);
         }
-        // alone never makes a wave bigger than the formula: it is there
-        // to measure what a wave of that many costs a step and a frame.
+        // The probes' dial says the size outright: the measurements of
+        // what a wave of that many costs, and the `droids` commands'
+        // sixteen.
         if let Some(forced) = self.droid_wave_forced {
             return forced.max(1);
         }
-        droidplan::wave_size(self.players() + more, droidplan::time_steps(hours))
-            .min(self.droid_wave_max)
-            .max(1)
+        droidplan::wave_size(self.players() + more, droidplan::time_steps(hours)).max(1)
     }
 
     /// The probes' other dial (`BIMS_DROID_WAVE`): every wave from now
-    /// on is this many machines, whatever the formula and the cap say.
+    /// on is this many machines, whatever the formula says.
     /// For the measurements feature 83 asks for, and nothing else.
     pub fn set_droid_wave_for_probe(&mut self, n: u32) {
         self.droid_wave_forced = Some(n.max(1));
@@ -5781,10 +5774,9 @@ impl World {
         self.defense_by_machines_forced = true;
     }
 
-    /// The cap as it stands — [`data::DROID_WAVE_MAX`], or what a probe
-    /// has forced.
-    pub fn droid_wave_max(&self) -> u32 {
-        self.droid_wave_forced.unwrap_or(self.droid_wave_max)
+    /// The wave size a probe has forced (`BIMS_DROID_WAVE`), if any.
+    pub fn droid_wave_forced(&self) -> Option<u32> {
+        self.droid_wave_forced
     }
 
     /// How many waves a held station has all told, worked out now. Only

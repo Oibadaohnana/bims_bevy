@@ -142,8 +142,8 @@ impl Infestation {
 
 /// How many machines a wave is:
 ///
-/// `DROID_WAVE_BASE + players + time_steps`, capped at
-/// [`data::DROID_WAVE_MAX`].
+/// `DROID_WAVE_BASE + players + time_steps`, with no cap (task 132: the
+/// sixteen it stopped at went, to be balanced another way).
 ///
 /// - `players` is how many **player Bims** there are (`World::players`)
 ///   — never the bots, the mercenaries, the recruits or anybody else who
@@ -156,7 +156,6 @@ pub fn wave_size(players: u32, time_steps: u32) -> u32 {
     data::DROID_WAVE_BASE
         .saturating_add(players)
         .saturating_add(time_steps)
-        .min(data::DROID_WAVE_MAX)
 }
 
 /// How many waves a held station has all told, the one aboard counted:
@@ -246,14 +245,14 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_wave_is_the_sum_and_stops_at_the_cap() {
+    fn a_wave_is_the_sum_and_has_no_cap() {
         // Nothing but the base and the players to begin with.
         assert_eq!(wave_size(0, 0), data::DROID_WAVE_BASE);
         assert_eq!(wave_size(3, 0), data::DROID_WAVE_BASE + 3);
         // A player and two steps of the clock.
         assert_eq!(wave_size(1, 2), data::DROID_WAVE_BASE + 1 + 2);
-        // And the cap holds however long the run.
-        assert_eq!(wave_size(4, 500), data::DROID_WAVE_MAX);
+        // And nothing stops it however long the run (task 132).
+        assert_eq!(wave_size(4, 500), data::DROID_WAVE_BASE + 4 + 500);
     }
 
     #[test]

@@ -631,8 +631,8 @@ pub fn droid_tier() -> Option<bims::combat::Tier> {
 }
 
 /// How big a wave the `droids` probes force: `BIMS_DROID_WAVE=32`, for
-/// the measurements the feature asks for. `None` leaves
-/// `data::DROID_WAVE_MAX` where it is.
+/// the measurements the feature asks for. `None` leaves the command's
+/// own (`session::COMBAT_WAVE` on the `droids` commands).
 pub fn droid_wave_max() -> Option<u32> {
     std::env::var("BIMS_DROID_WAVE").ok()?.trim().parse().ok()
 }

@@ -74,21 +74,18 @@ pub const RESIDENTS_RANGE: f64 = 50.0 * shipdesign::TILE as f64;
 /// machines' origin, 76 at the median, and a jump is 2.4 days at the
 /// median and a trip within a system 2.9. So a run to the origin at the
 /// medians is about **167 days** taking one jump a hop and about **363**
-/// taking a jump and a trip in every system. A solo wave has thirteen
-/// steps between its three at day nought and [`DROID_WAVE_MAX`], so:
+/// taking a jump and a trip in every system. So:
 ///
 /// - at three weeks the jump-a-hop run arrives seven steps up — a solo
-///   wave of ten, five waves — and the jump-and-a-trip run reaches the
-///   cap on about day 273, three quarters of the way, with ten waves at
-///   the origin. Both climb for most of the way and neither is flat for
-///   long;
-/// - at two weeks the longer run was capped by day 182, flat for its
-///   second half; at four (near the thirty days this replaced) the
-///   shorter run arrived only six steps up, and the first month was the
-///   waves of day nought.
+///   wave of ten, five waves — and the jump-and-a-trip run about
+///   seventeen steps up, a solo wave of twenty, ten waves at the origin;
+/// - at four (near the thirty days this replaced) the shorter run
+///   arrived only six steps up, and the first month was the waves of
+///   day nought.
 ///
-/// Four players start at six and reach the cap in ten steps, about day
-/// 210 — more players, a thicker fight sooner, and never a longer one.
+/// Four players start at six. A wave has **no cap** since task 132 —
+/// the sixteen it stopped at (`DROID_WAVE_MAX`) went, to be balanced
+/// another way — so it grows for as long as the clock runs.
 pub const ENEMIES_HOURS: u32 = 21 * 24;
 
 /// The least any trip puts the world clock on by, in hours, however
@@ -209,11 +206,6 @@ pub const SURFACE_POPULATION: (u32, u32) = (5, 30);
 /// a **player** Bim, and one every [`ENEMIES_HOURS`] of the world clock.
 /// Nothing else — not the bots, the worth or the levels (feature 105).
 pub const DROID_WAVE_BASE: u32 = 2;
-/// The most a wave ever is. **A performance limit, not a balance one**:
-/// every machine is a body stepped, a stand scored and a line traced, and
-/// past this a wave costs more of a frame than the fight is worth. See
-/// the measurements in the root `CLAUDE.md`.
-pub const DROID_WAVE_MAX: u32 = 16;
 /// How many waves an infested station has, before the crew are counted
 /// (`crate::droid::wave_count`): this many, and one every second
 /// [`ENEMIES_HOURS`] of the world clock. Fixed at the crew's **first

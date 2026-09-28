@@ -94,11 +94,12 @@ pub const CRISIS_HOPS: u16 = 2;
 pub const COMBAT_MEDICS: usize = 4;
 
 /// How many machines every wave of the `droids` commands is when
-/// `BIMS_DROID_WAVE` says nothing ([`Session::droids`]): the cap,
-/// [`world::data::DROID_WAVE_MAX`] — what the old formula gave the
-/// sixteen crew aboard before the waves stopped counting bots (feature
-/// 105), so the fight is the one it always was.
-pub const COMBAT_WAVE: u32 = world::data::DROID_WAVE_MAX;
+/// `BIMS_DROID_WAVE` says nothing ([`Session::droids`]): sixteen — what
+/// the old formula gave the sixteen crew aboard before the waves stopped
+/// counting bots (feature 105), so the fight is the one it always was.
+/// It was the waves' cap, `DROID_WAVE_MAX`, until task 132 took the cap
+/// away; the number stayed.
+pub const COMBAT_WAVE: u32 = 16;
 
 /// How many machines the `relics` command's one wave is (feature 106,
 /// [`Session::relics`]): few enough that sixteen crew clear it in a

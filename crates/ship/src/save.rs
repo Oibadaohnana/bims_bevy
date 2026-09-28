@@ -166,7 +166,8 @@ use crate::game::Game;
 /// Burst and Cloak where the surge's charge was, the world every crew
 /// member's cloak, a `Skill` the share a revive gets up at, and the
 /// medic's talents and the surge are gone.
-pub const SAVE_VERSION: u32 = 54;
+/// 55: no cap on a wave (task 132) — the world's `droid_wave_max` went.
+pub const SAVE_VERSION: u32 = 55;
 
 /// What the file holds, read back.
 #[derive(serde::Deserialize)]

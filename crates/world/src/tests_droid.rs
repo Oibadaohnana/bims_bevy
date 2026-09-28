@@ -461,15 +461,13 @@ fn the_wave_count_is_fixed_at_the_first_dock_and_a_rich_crew_is_not_doubled() {
     );
 
     // And the **size** is the formula's, never a doubling: a crew ten
-    // times as rich meets the players and the clock, capped, and not a
-    // thousand machines.
+    // times as rich meets the players and the clock, and not a thousand
+    // machines.
     let want = crate::droid::wave_size(
         world.players(),
         crate::droid::time_steps(world.hours_gone()),
-    )
-    .min(world.droid_wave_max());
+    );
     assert_eq!(world.droid_wave_size(), want.max(1));
-    assert!(world.droid_wave_size() <= data::DROID_WAVE_MAX);
 }
 
 // --- what the waves scale on (feature 105) --------------------------------
