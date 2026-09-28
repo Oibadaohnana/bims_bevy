@@ -212,18 +212,38 @@ fn commands() -> Vec<(&'static str, u64)> {
 /// made every class charge a counter on the world, so no charge is in any
 /// gear the reading takes. No other command has a soldier or an engineer
 /// in it, and none of the other ten moved. It was `0x_d30e_877d_b1e4_5020`.
+///
+/// **All eleven moved again, on purpose**, re-pinned once for the five
+/// changes that landed together on 28 September 2026 and were tested as
+/// one tree: nobody walks about at random any more and the player's own
+/// Bim is moved by nobody but its player — it takes up no errand of its
+/// own, a bot shoved off it under arms gives the whole of the ground, and
+/// it takes arms with the alarm (the room's wander drew on the room's
+/// stream every step, so every roll after moved); task 131 (#16) —
+/// Manufacturers attack a defence before day ten, station waves thirty
+/// seconds apart, a field medic sets a carried body down, arrival spots
+/// on reachable deck; task 131 (#20) — every generated station another
+/// building, the waves in at every airlock but the port in turn; task
+/// 130 — the medic's ranked kit (up at two fifths, a beam four times the
+/// heal); and task 132's uncapped wave. Their shares were not taken apart.
+/// They were `0x_99c9_324d_6ab6_208a`, `0x_48d6_94af_8626_5246`,
+/// `0x_7122_55ef_2011_e57f`, `0x_09bb_2ad9_b012_ca13`,
+/// `0x_3cce_d174_8375_71d0`, `0x_a47e_3196_aa47_069a`,
+/// `0x_c6ba_960c_ef87_9b8b`, `0x_7086_fe1a_a578_b006`,
+/// `0x_a471_03e9_1bfb_6f17`, `0x_0050_4e32_409e_6da9` and
+/// `0x_acb8_1d88_be11_b1a0`.
 const PINNED: [(&str, u64); 11] = [
-    ("simulation", 0x_99c9_324d_6ab6_208a),
-    ("game", 0x_48d6_94af_8626_5246),
-    ("droids", 0x_7122_55ef_2011_e57f),
-    ("tier2_test", 0x_09bb_2ad9_b012_ca13),
-    ("combat_droids_medic", 0x_3cce_d174_8375_71d0),
-    ("test", 0x_a47e_3196_aa47_069a),
-    ("test_planet", 0x_c6ba_960c_ef87_9b8b),
-    ("droids_planet", 0x_7086_fe1a_a578_b006),
-    ("defense", 0x_a471_03e9_1bfb_6f17),
-    ("crisis", 0x_0050_4e32_409e_6da9),
-    ("jammer", 0x_acb8_1d88_be11_b1a0),
+    ("simulation", 0x_f6c6_0d7c_076a_1bcf),
+    ("game", 0x_ef2f_154c_5bef_a8ba),
+    ("droids", 0x_ed09_7fbe_b2fa_4fa1),
+    ("tier2_test", 0x_14ad_eda0_295a_98d2),
+    ("combat_droids_medic", 0x_a988_b611_0ad1_42b5),
+    ("test", 0x_606f_c276_801f_6d7e),
+    ("test_planet", 0x_9012_786f_22c6_0c02),
+    ("droids_planet", 0x_a052_db80_4b5e_a436),
+    ("defense", 0x_f913_4921_8ef6_d21b),
+    ("crisis", 0x_c5f1_4fd2_88f6_6279),
+    ("jammer", 0x_5c5f_3a45_26c7_942e),
 ];
 
 /// **Every command plays as it did**: each session the app builds, read
@@ -327,11 +347,19 @@ fn pictures() -> Vec<(&'static str, u64)> {
 /// a hit took some and a body under twenty drips — another fight, drawn by
 /// the same drawing. The designer's two pictures did not move. They were
 /// `0x_3247_8062_1db9_2394` and `0x_e514_6179_ca55_7e04`.
+///
+/// Both decks moved again for the same five changes `PINNED`'s last note
+/// names (no wander and the player's Bim moved by its player alone, both
+/// tasks 131, task 130 and task 132), tested and re-pinned as one tree:
+/// the crew stand elsewhere, the stations are other buildings and the
+/// fight is another fight — the same drawing. The designer's two
+/// pictures did not move. They were `0x_6b2e_903e_8707_0b74` and
+/// `0x_51f1_540c_3428_328a`.
 const PICTURES: [(&str, u64); 4] = [
     ("designer_playtest", 0x_9b08_8f44_06ad_4414),
     ("designer_combat", 0x_157a_1c34_2e97_18e0),
-    ("simulation_deck", 0x_6b2e_903e_8707_0b74),
-    ("droids_deck", 0x_51f1_540c_3428_328a),
+    ("simulation_deck", 0x_dbcf_396c_2e7e_20a2),
+    ("droids_deck", 0x_df15_3380_ad75_d243),
 ];
 
 #[test]

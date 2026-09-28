@@ -201,6 +201,10 @@ fn a_manufacturer_downed_is_never_revived_and_nothing_of_it_is_taken() {
     let (mut world, _) = at_their_site(0);
     let them = theirs(&world);
     let who = them[0];
+    // Empty-handed: the player's own Bim takes arms by itself among them
+    // (September 2026), and a second of them shot down would be ten more
+    // than the one death this reads.
+    world.aboard.room.issue(0, bims::combat::Gear::default());
     beside(&mut world, who);
     {
         let room = &mut world.residents.as_mut().unwrap().aboard.room;

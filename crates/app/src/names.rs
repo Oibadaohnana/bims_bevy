@@ -1031,7 +1031,7 @@ pub const TALENT_NO_EFFECT: &str = "No effect for now — to be redesigned.";
 /// A talent's name by its code: a code no talent has any more (the
 /// engineer's, 0 to 13, task 127, and the soldier's, 14 to 27, task 124) is
 /// an empty place.
-pub const TALENT_NAMES: [&str; 69] = [
+pub const TALENT_NAMES: [&str; 55] = [
     // 0 to 13 were the engineer's talents, gone with its ranked kit
     // (task 127): the codes stay free, and so do their places here.
     "",
@@ -1092,23 +1092,10 @@ pub const TALENT_NAMES: [&str; 69] = [
     "Fortress",
     "Rallying wall",
     // 55 to 68 were the commander's talents, gone with his ranked kit
-    // (task 129): the codes stay free, and so do their places here.
-    "",
-    "",
-    "",
-    "",
-    "",
-    "",
-    "",
-    "",
-    "",
-    "",
-    "",
-    "",
-    "",
-    "",
+    // (task 129): the codes stay free; no talent follows them, so the
+    // table ends at the last one there is.
 ];
-pub const TALENT_TIPS: [&str; 69] = [
+pub const TALENT_TIPS: [&str; 55] = [
     // 0 to 13 were the engineer's talents, gone with its ranked kit
     // (task 127): the codes stay free, and so do their places here.
     "",
@@ -1171,21 +1158,8 @@ pub const TALENT_TIPS: [&str; 69] = [
     "His armour drains at half rate again — a quarter of anybody else's.",
     "While he taunts, every crew member within three tiles drains armour at half rate too.",
     // 55 to 68 were the commander's talents, gone with his ranked kit
-    // (task 129): the codes stay free, and so do their places here.
-    "",
-    "",
-    "",
-    "",
-    "",
-    "",
-    "",
-    "",
-    "",
-    "",
-    "",
-    "",
-    "",
-    "",
+    // (task 129): the codes stay free; no talent follows them, so the
+    // table ends at the last one there is.
 ];
 pub fn talent_name(talent: world::Talent) -> &'static str {
     TALENT_NAMES

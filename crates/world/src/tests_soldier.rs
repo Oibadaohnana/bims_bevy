@@ -833,10 +833,15 @@ fn a_burst_hurts_the_thrower_a_crewmate_and_a_sentry_and_blows_the_sandbags_up()
     let me = world.aboard.room.bim_pos(0);
     let mine = my_health - world.aboard.room.health(0);
     assert!(mine > 0.0, "friendly fire, the thrower included");
+    // The thrower stands where it threw from, a tile behind the bags on
+    // the first tile of the run, so the burst reaches it over them and
+    // is halved like any burst over cover. (It used to wander off before
+    // the fuse ran out, which is what this read until September 2026
+    // took the idle wander away.)
     assert!(
-        plausible(mine, dealt(me)),
-        "the thrower took {mine}, {} was dealt",
-        dealt(me)
+        plausible(mine, dealt(me) * 0.5),
+        "the thrower took {mine}, {} was dealt over the bags",
+        dealt(me) * 0.5
     );
     let theirs = mate_health - world.aboard.room.health(1);
     assert!(

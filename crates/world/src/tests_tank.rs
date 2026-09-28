@@ -129,10 +129,17 @@ fn worn_health(world: &World, who: usize, kind: ArmourKind) -> f32 {
 /// step, and say how many landed on it — off the world's own `CrewHit`,
 /// which is every hostile bolt that reached a body. Whoever is shot at
 /// is patched up and stood still between shots, so a run is the bolts
-/// and nothing else.
+/// and nothing else. The bolts come from the west, or the first of the
+/// other three ways with a clear line: nobody walks off on its own
+/// (September 2026), so a body shot at stands wherever the test left it,
+/// and a bulkhead six tiles west of it would take every bolt.
 fn shoot_at(world: &mut World, who: u32, shots: u32) -> u32 {
     let at = world.aboard.room.bim_pos(who as usize);
-    let from = at - vec2(6.0 * TILE, 0.0);
+    let from = [(-1.0, 0.0), (1.0, 0.0), (0.0, -1.0), (0.0, 1.0)]
+        .into_iter()
+        .map(|(x, y)| at + vec2(x, y) * (6.0 * TILE))
+        .find(|&from| world.aboard.room.line_clear(from, at))
+        .unwrap_or(at - vec2(6.0 * TILE, 0.0));
     let mut landed = 0;
     for _ in 0..shots {
         world.aboard.room.put_for_probe(who as usize, at);

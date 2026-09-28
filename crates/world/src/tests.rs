@@ -1418,36 +1418,32 @@ fn the_crew_keep_the_world_s_clock() {
     );
 }
 
-/// The room aboard is the room: left to themselves for a game day the
-/// crew walk about, and the deck they walk is the design's — nobody ends
-/// up standing in a wall or off the ship.
+/// The room aboard is the room, and a player's own Bim left to itself
+/// stays where it is (September 2026, the user's word: a Bim never walks
+/// about at random, and only the player's input moves the player's Bim) —
+/// standing on the design's deck, never in a wall or off the ship.
 #[test]
 fn the_crew_live_aboard() {
     use shipdesign::fixture::playtest_ship;
     let mut world = simulation_world(playtest_ship(), data::SIMULATION_MONEY, 1);
     assert_eq!(world.aboard.crew_count(), 1);
     let start = world.aboard.position(0);
-    let mut moved = false;
     let mut farthest = 0.0f64;
-    let tile = shipdesign::parts::TILE as f64;
-    // Six game hours: long enough to be hungry, cook and eat. The deck is
-    // the room's — docked, the ship's and the station's together — and
-    // the Bim may well wander across to the station.
-    for _ in 0..(6 * 60 * 60) {
+    // An hour of steps with nobody at the keyboard.
+    for _ in 0..(60 * 60) {
         world.step(&[]);
         let at = world.aboard.position(0);
-        let d = at.distance(start);
-        farthest = farthest.max(d);
-        if d > tile {
-            moved = true;
-        }
+        farthest = farthest.max(at.distance(start));
         assert!(
             world.aboard.on_deck(0),
             "the Bim is off the deck at {at:?} after {} minutes",
             world.clock_minutes
         );
     }
-    assert!(moved, "the Bim never went anywhere; farthest {farthest}");
+    assert!(
+        farthest < 1.0,
+        "the Bim walked off on its own; farthest {farthest}"
+    );
 }
 
 // --- stations ---------------------------------------------------------------
@@ -2966,7 +2962,9 @@ fn a_site_on_the_deck_is_paid_for_and_built_by_the_crew() {
     use bims::game::JOB_BUILD;
     use shipdesign::fixture::playtest_ship;
     use shipdesign::parts::Layer;
-    let mut world = simulation_world(playtest_ship(), data::SIMULATION_MONEY, 1);
+    // A bot to build it: a player's own Bim takes no errand of its own
+    // accord (September 2026), and the site is nobody's order.
+    let mut world = crate::fixture::crewed_world(playtest_ship(), data::SIMULATION_MONEY, 1, 2);
     world.set_shipyard_enabled(true);
     let money = world.money;
     let price = PartKind::Wall.def().price;
@@ -3006,7 +3004,7 @@ fn a_site_on_the_deck_is_paid_for_and_built_by_the_crew() {
     let mut stood = false;
     for _ in 0..(6 * 60 * 60) {
         let events = world.step(&[]);
-        stood |= world.aboard.room.activity(0) == JOB_BUILD;
+        stood |= world.aboard.room.activity(1) == JOB_BUILD;
         if events.iter().any(|e| matches!(e, WorldEvent::Built { .. })) {
             built = true;
             break;
@@ -3034,7 +3032,7 @@ fn a_site_on_the_deck_is_paid_for_and_built_by_the_crew() {
     );
     // The room came with it: the crew are still aboard and still going
     // about their day.
-    assert_eq!(world.aboard.count(), 1);
+    assert_eq!(world.aboard.count(), 2);
 }
 
 /// A site the crew cannot pay for **waits**, with
@@ -3045,7 +3043,7 @@ fn a_site_on_the_deck_is_paid_for_and_built_by_the_crew() {
 #[test]
 fn a_site_waits_while_the_pool_cannot_cover_it() {
     use shipdesign::fixture::playtest_ship;
-    let mut world = simulation_world(playtest_ship(), data::SIMULATION_MONEY, 1);
+    let mut world = crate::fixture::crewed_world(playtest_ship(), data::SIMULATION_MONEY, 1, 2);
     world.set_shipyard_enabled(true);
     let price = PartKind::Wall.def().price;
     // Just short of one wall.
@@ -3104,7 +3102,7 @@ fn a_site_waits_while_the_pool_cannot_cover_it() {
 fn a_site_beyond_the_hull_is_built_in_a_suit() {
     use shipdesign::fixture::playtest_ship;
     use shipdesign::parts::Layer;
-    let mut world = simulation_world(playtest_ship(), data::SIMULATION_MONEY, 1);
+    let mut world = crate::fixture::crewed_world(playtest_ship(), data::SIMULATION_MONEY, 1, 2);
     world.set_shipyard_enabled(true);
     world.undock_for_probe();
     let money = world.money;
@@ -3141,7 +3139,7 @@ fn a_site_beyond_the_hull_is_built_in_a_suit() {
     let mut outside = false;
     for _ in 0..(8 * 60 * 60) {
         let events = world.step(&[]);
-        outside |= world.aboard.room.is_outside(0);
+        outside |= world.aboard.room.is_outside(1);
         if events.iter().any(|e| matches!(e, WorldEvent::Built { .. })) {
             built = true;
             break;
@@ -3175,7 +3173,7 @@ fn a_site_beyond_the_hull_is_built_in_a_suit() {
 #[test]
 fn a_site_is_begun_once_somebody_is_on_the_way_and_a_cancel_frees_its_price() {
     use shipdesign::fixture::playtest_ship;
-    let mut world = simulation_world(playtest_ship(), data::SIMULATION_MONEY, 1);
+    let mut world = crate::fixture::crewed_world(playtest_ship(), data::SIMULATION_MONEY, 1, 2);
     world.set_shipyard_enabled(true);
     let money = world.money;
     let place = |slot: u32| Command::PlaceSite {

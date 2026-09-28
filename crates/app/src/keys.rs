@@ -564,9 +564,12 @@ mod tests {
         assert!(keys.shared_with(Action::AttackMove).is_empty());
         assert!(keys.shared_with(Action::Attack).is_empty());
         assert!(keys.shared_with(Action::Retreat).is_empty());
-        // And the medic's carry (feature 86): G, bound to nothing else.
-        assert_eq!(keys.key(Action::Carry), egui::Key::G);
+        // And the carry (feature 86): H since the held revive took G,
+        // each bound to nothing else.
+        assert_eq!(keys.key(Action::Carry), egui::Key::H);
         assert!(keys.shared_with(Action::Carry).is_empty());
+        assert_eq!(keys.key(Action::Revive), egui::Key::G);
+        assert!(keys.shared_with(Action::Revive).is_empty());
         let mut changed = keys;
         changed.set(Action::Inventory, egui::Key::I);
         changed.set(Action::PanUp, egui::Key::ArrowUp);

@@ -181,7 +181,19 @@ pub const REFERENCE_STEPS: u32 = 600;
 /// counter on the world (`World::charges_held`), hashed whole where the
 /// re-used kits were, and a charge's cooldowns are five codes long.
 /// Was `0x_ee0a_ea07_0be0_41fb`.
-pub const REFERENCE_CHECKSUM: u64 = 0x_240c_b1c5_daa2_167b;
+/// And for five changes landed together on 28 September 2026 and
+/// re-pinned as one tree, **each meant to alter how a run plays**: nobody
+/// walks about at random and the player's own Bim is moved by its player
+/// alone (no errand of its own, never shoved by a bot, under arms with the
+/// alarm); task 131 (#16: the Manufacturers attack a defence before day
+/// ten, station waves thirty seconds apart — `droid_reinforce` is hashed —
+/// a field medic sets a carried body down, arrival spots on reachable
+/// deck); task 131 (#20: every generated station another building, the
+/// waves in at every airlock but the port); task 130 (the medic's ranked
+/// kit, its timers and cloaks hashed where set); and task 132 (the wave's
+/// cap, hashed as sixteen, is a forced size, nought unforced). Their
+/// shares were not taken apart. Was `0x_240c_b1c5_daa2_167b`.
+pub const REFERENCE_CHECKSUM: u64 = 0x_4284_750b_5249_4340;
 
 /// A world with the flyable fixture docked at the simulation's spawn: the
 /// default seed's first dock, which is where every fixture world starts.

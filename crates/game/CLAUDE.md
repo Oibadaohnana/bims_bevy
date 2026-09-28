@@ -4118,3 +4118,41 @@ a grenade's burst — since both look for bodies and never for targets.
 The room's own surge timer (`Bim::surge`, `Game::set_surge`) stays for
 the relics (*Phase Harness*, *Lifeline*); the medic's surge that set it
 too went.
+
+## Nobody wanders, and the player's own Bim is moved by its player alone (September 2026)
+
+> Every section above that speaks of the **wander** (`Character::wander`,
+> its steering drawing on the room's stream, a Bim "pottering about
+> between jobs"), or of the alarm leaving **`PLAYER`** alone, describes
+> what this change took away. Kept as history.
+
+- **No wander.** `Character::update` holds still whenever nothing is
+  marching the body: `wander`, `begin_pause`, `avoid_push` and their
+  constants are gone, and `update` no longer takes the room's `Rng`.
+  `Character::new` still makes the first wander's draws (`begin_walk`)
+  so every draw after a Bim's making is the one it was, then stands the
+  body still. A route, a task, an order or a round's stop is the only
+  thing that moves a body.
+- **A player's own Bim takes no errand of its own**: `consider_errand`
+  bows out for `!is_bot(who)` — no site built, nothing picked up off the
+  work list. A revive was already a bot's alone. What the player queued
+  with Shift still runs under arms: `pump_queue` bows out for a recruited
+  body only when it is a bot.
+- **Under arms a bot gives a player's own Bim the whole of the ground**:
+  `separate_under_arms` shoves only the bot when one of the pair is a
+  player's (two players' own, or two bots, halve it as before).
+- **The alarm recruits the player's own Bim too** (`arm_players`, on the
+  alarm's own edge, before `led` is read): alive, awake and on the deck,
+  not already recruited — recruited and nothing else (no errand put
+  down, no post dropped, no stand planned; it shoots what it sees where
+  its player left it). `Game::alarm_armed` (serde default) remembers
+  which the alarm took up, and the alarm's end lets those go unless the
+  player has given an attack or an attack-move since; `toggle_recruited`
+  makes the Bim the player's again. Only the crew's room arms anybody
+  (`revivers` on, bodies not hostile); `take_crew` stands it down with
+  the alarm.
+
+`the_crew_take_arms_when_an_enemy_comes_within_range_and_stand_down_after`
+pins the recruit, the stand-still and both ways of standing down; the
+world's `the_crew_live_aboard` a player's Bim left alone staying put.
+The survivor pins moved for it (their notes say so).

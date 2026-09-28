@@ -13,8 +13,6 @@ use crate::room::STEEL;
 const TURN_RATE: f32 = 5.5;
 /// Pixels per second squared, used both to speed up and to slow down.
 const ACCEL: f32 = 220.0;
-/// Odds that a finished walk is followed by a pause rather than another walk.
-const PAUSE_CHANCE: f32 = 0.28;
 /// Odds that a new walk picks a wholly new direction instead of a gentle turn.
 const REVERSAL_CHANCE: f32 = 0.15;
 /// Speed when marching to a spot a task or the player picked.
@@ -32,7 +30,7 @@ const BACKSTEP_PACE: f32 = 0.65;
 /// And how much of it a body running for the ship with nothing to shoot
 /// at runs at — the head-down sprint, a little faster than a walk.
 const SPRINT_PACE: f32 = 1.25;
-/// How long it stands still on arrival before wandering off again.
+/// How long it stands settled on arrival before anything else moves it.
 const ARRIVE_SETTLE: f32 = 0.9;
 /// How far short of where it is bound a leg of a walk on a window may end
 /// and count as arrived: a tile. A route on a window ends on a tile's
@@ -47,15 +45,6 @@ pub const BODY_SCALE: f32 = 1.45;
 pub const BODY_MARGIN: f32 = 23.0;
 /// How close a click or marquee has to come to count as touching the Bim.
 pub const PICK_RADIUS: f32 = 26.0;
-/// How fast the walls talk the Bim out of a plan that points at them.
-const INTENT_RATE: f32 = 3.0;
-/// How far from a wall the Bim starts turning back, as a fraction of the
-/// smaller room dimension so a narrow room is not entirely "edge".
-const EDGE_MARGIN_FRAC: f32 = 0.16;
-const EDGE_MARGIN_MIN: f32 = 40.0;
-const EDGE_MARGIN_MAX: f32 = 120.0;
-/// How far from a piece of furniture the Bim starts going round it.
-const AVOID_RANGE: f32 = 54.0;
 
 /// One up-and-down of the hands at work — a site being put together, a kit
 /// laid. Tasks count their steps in these units so the animation and the
@@ -1001,7 +990,12 @@ impl Character {
             wounds: [false; 3],
             armour: [None; 3],
         };
+        // The first wander's draws are still made, so every draw after a
+        // Bim's making is the one it was; the body stands all the same,
+        // since nothing walks a Bim nobody sent anywhere.
         c.begin_walk(rng);
+        c.activity = Activity::Pausing;
+        c.target_speed = 0.0;
         c
     }
 
@@ -1472,91 +1466,6 @@ impl Character {
         self.target_speed = self.pace * rng.range(34.0, 78.0);
     }
 
-    fn begin_pause(&mut self, rng: &mut Rng) {
-        self.activity = Activity::Pausing;
-        self.timer = rng.range(0.4, 1.8);
-        self.target_speed = 0.0;
-    }
-
-    /// How hard the room is pushing the Bim around — walls it is too close to
-    /// and furniture it is about to walk into — and which way. `None` once it
-    /// is out in open floor.
-    fn avoid_push(&self, interior: Rect, solids: &[Rect]) -> Option<(f32, f32)> {
-        let margin = clamp(
-            interior.width().min(interior.height()) * EDGE_MARGIN_FRAC,
-            EDGE_MARGIN_MIN,
-            EDGE_MARGIN_MAX,
-        );
-        let mut push = Vec2::ZERO;
-        if self.pos.x < interior.min.x + margin {
-            push.x += (interior.min.x + margin - self.pos.x) / margin;
-        }
-        if self.pos.x > interior.max.x - margin {
-            push.x -= (self.pos.x - (interior.max.x - margin)) / margin;
-        }
-        if self.pos.y < interior.min.y + margin {
-            push.y += (interior.min.y + margin - self.pos.y) / margin;
-        }
-        if self.pos.y > interior.max.y - margin {
-            push.y -= (self.pos.y - (interior.max.y - margin)) / margin;
-        }
-
-        // Furniture pushes too, so the Bim walks around the table rather than
-        // bumping along it.
-        for solid in solids {
-            let away = self.pos - solid.nearest(self.pos);
-            let distance = away.len();
-            if distance < AVOID_RANGE {
-                let strength = 1.0 - distance / AVOID_RANGE;
-                let dir = if distance > 0.01 {
-                    away * (1.0 / distance)
-                } else {
-                    vec2(0.0, 1.0)
-                };
-                push += dir * (strength * 1.6);
-            }
-        }
-
-        let inward = push.normalize_or_zero();
-        if inward == Vec2::ZERO {
-            return None;
-        }
-        // Ease in, so the turn begins as a suggestion and ends as a decision.
-        // A straight linear blend leaves the Bim skimming along the wall.
-        let t = clamp(push.len(), 0.0, 1.0);
-        Some((t * t * (3.0 - 2.0 * t), inward.angle()))
-    }
-
-    /// The Bim's own plans: pick a new leg when the current one runs out, and
-    /// turn away from walls and furniture. Returns the heading it wants.
-    fn wander(&mut self, dt: f32, interior: Rect, solids: &[Rect], rng: &mut Rng) -> f32 {
-        self.timer -= dt;
-        if self.timer <= 0.0 {
-            match self.activity {
-                Activity::Pausing => self.begin_walk(rng),
-                Activity::Walking => {
-                    if rng.chance(PAUSE_CHANCE) {
-                        self.begin_pause(rng)
-                    } else {
-                        self.begin_walk(rng)
-                    }
-                }
-                Activity::Marching => {}
-            }
-        }
-
-        match self.avoid_push(interior, solids) {
-            None => self.intent,
-            Some((strength, inward)) => {
-                // Talk the Bim out of its plan as well as its heading. Steering
-                // the heading alone would send it straight back at the wall the
-                // moment it came clear, and it would hug the edge for ages.
-                self.intent = angle_lerp(self.intent, inward, approach(INTENT_RATE * strength, dt));
-                angle_lerp(self.intent, inward, strength)
-            }
-        }
-    }
-
     /// Walk the planned route, waypoint by waypoint. Obstacle steering is
     /// deliberately skipped here: the path was planned around the furniture
     /// already, so steering could only argue with it.
@@ -1611,7 +1520,7 @@ impl Character {
         self.face_target.unwrap_or(self.heading)
     }
 
-    pub fn update(&mut self, dt: f32, interior: Rect, solids: &[Rect], rng: &mut Rng) {
+    pub fn update(&mut self, dt: f32, interior: Rect, solids: &[Rect]) {
         if self.dead || self.unconscious {
             // Nothing moves, but the clock still runs so the shadow, the
             // breathing and the selection ring do not freeze mid-pulse.
@@ -1623,19 +1532,12 @@ impl Character {
         // A task outranks a player order, which outranks the Bim's own plans.
         let goal = if self.activity == Activity::Marching {
             self.follow_order()
-        } else if self.scripted
-            || self.recruited
-            || self.braced
-            || self.post.is_some()
-            || self.lingering
-        {
-            // Recruited, braced, or posted somewhere, it waits to be told.
-            // The wander is the one thing it does unprompted, so that is the
-            // one thing being under orders takes away — and a braced soldier
-            // in peace wandered off its brace until task 124 said it may not.
-            self.hold_still()
         } else {
-            self.wander(dt, interior, solids, rng)
+            // Otherwise it stands where it is and waits to be told. There is
+            // no wander any more (September 2026, the user's word: a Bim
+            // never walks about at random) — an order, a task or a route
+            // the room planned is the only thing that moves a body.
+            self.hold_still()
         };
         // Backing away, the facing and the feet part company (feature
         // 84): the body turns to the enemy the fall back named and the
@@ -3102,9 +3004,8 @@ mod tests {
 
     fn run(ch: &mut Character, seconds: f32) {
         let room = Rect::from_corners(vec2(-4000.0, -4000.0), vec2(4000.0, 4000.0));
-        let mut rng = Rng::new(11);
         for _ in 0..(seconds * 60.0) as usize {
-            ch.update(1.0 / 60.0, room, &[], &mut rng);
+            ch.update(1.0 / 60.0, room, &[]);
         }
     }
 

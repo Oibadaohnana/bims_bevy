@@ -82,6 +82,23 @@ fn stand_off(world: &mut World, who: usize, of: usize, tiles: f32) -> Vec2 {
     spot
 }
 
+/// The way from `of` — east first, then west, south and north — that has
+/// open deck `tiles` tiles off with a clear line to it. Nobody walks about
+/// on their own (September 2026), so `of` stands where the crew woke up,
+/// and what is east of it is whatever the ship has there: a test that
+/// wants open ground asks for it rather than assuming it.
+fn open_way(world: &World, of: usize, tiles: f32) -> Vec2 {
+    let from = world.aboard.room.bim_pos(of);
+    [(1.0, 0.0), (-1.0, 0.0), (0.0, 1.0), (0.0, -1.0)]
+        .into_iter()
+        .map(|(x, y)| vec2(x, y))
+        .find(|&way| {
+            let p = from + way * (tiles * TILE);
+            world.aboard.room.is_deck_tile(p) && world.aboard.room.line_clear(from, p)
+        })
+        .unwrap_or(vec2(1.0, 0.0))
+}
+
 fn refused_with(events: &[WorldEvent], want: Refusal) -> bool {
     events
         .iter()
@@ -542,7 +559,10 @@ fn the_healing_aura_s_factor_and_radius_by_rank_and_the_higher_of_two() {
 fn the_healing_aura_multiplies_the_beam_and_not_outside_its_radius() {
     let gain = |tiles: f32| {
         let mut world = medic_at([0, 1, 1, 0]);
-        stand_off(&mut world, 1, 0, tiles);
+        let way = open_way(&world, 0, tiles);
+        let at = world.aboard.room.bim_pos(0) + way * (tiles * TILE);
+        world.aboard.room.put_for_probe(1, at);
+        world.step(&[]);
         hurt(&mut world, 1, 20.0);
         assert!(linked(&beam(&mut world, 0, Some(1)), 0, Some(1)));
         let before = world.aboard.room.health(1);
@@ -946,7 +966,7 @@ fn a_cloaked_bim_holds_fire_and_its_abilities_but_walks_and_revives() {
     assert!(!world.aboard.room.is_armed(0), "holds its fire");
     // It walks.
     let from = world.aboard.room.bim_pos(0);
-    let there = from + vec2(2.0 * TILE, 0.0);
+    let there = from + open_way(&world, 0, 2.0) * (2.0 * TILE);
     world.step(&[Command::Crew {
         slot: 0,
         order: CrewOrder::SendTo {
@@ -1005,7 +1025,11 @@ fn a_downed_bim_can_be_cloaked_and_a_second_cloak_takes_the_longer() {
         ranks(&mut world, 0, [0, 0, 0, 1]);
         ranks(&mut world, 1, [0, 0, 0, 4]);
         beside(&mut world, 1, 0);
-        beside(&mut world, 2, 0);
+        // The target on the medic's other side, in sight of both: packed
+        // in beside the two of them, a bot is shoved off a player's own
+        // Bim by the whole of the overlap (September 2026), and out of the
+        // second medic's sight round the corner of its tile.
+        stand_off(&mut world, 2, 0, -1.0);
         let (first, second) = if long_first { (1, 0) } else { (0, 1) };
         world.step(&[Command::Cloak {
             slot: first,
@@ -1032,11 +1056,13 @@ fn a_sweep_still_hits_a_cloaked_bim() {
     world.step(&[Command::Cloak { slot: 0, target: 1 }]);
     assert!(world.is_cloaked(1));
     let at = world.aboard.room.bim_pos(1);
-    let from = at - vec2(5.0 * TILE, 0.0);
+    let way = open_way(&world, 1, 5.0);
+    let across = vec2(-way.y, way.x) * (2.0 * TILE);
+    let from = at + way * (5.0 * TILE);
     world.aboard.room.enemy_sweep(
         from,
-        at + vec2(0.0, -2.0 * TILE),
-        at + vec2(0.0, 2.0 * TILE),
+        at - across,
+        at + across,
         WeaponKind::Sweeper.basic(),
         30.0,
         1.0,

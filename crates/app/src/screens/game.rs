@@ -5678,12 +5678,13 @@ mod class_key_tests {
         // The squad is every crew member nobody steers within his
         // range, and all three of his squad keys reach exactly it —
         // which is the point of the ring: the three are one order under
-        // three names.
+        // three names. (Since task 129 they are B, T and Z; E is the
+        // Rally, which reaches the crew about him instead.)
         world.step(&[]);
         let squad = world.squad_members(0);
         assert!(squad.iter().all(|&w| w != 0), "never a steered Bim");
         for action in [
-            Action::Ability3,
+            Action::SquadAttack,
             Action::SquadFallBack,
             Action::SquadStandGround,
         ] {

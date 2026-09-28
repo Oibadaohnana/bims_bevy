@@ -150,7 +150,21 @@ const TILE: f32 = shipdesign::TILE as f32;
 /// Nobody in either run buys a rank, lays a deployable or throws anything.
 /// The two tasks' shares were not taken apart: their changes went into
 /// the tree together. Was `0x_7535_9d7e_fddc_80af`.
-const SURVIVORS: u64 = 0x_5051_196b_e073_7b74;
+///
+/// **And once more, on purpose**, for five changes landed together on 28
+/// September 2026 and tested as one tree, each meant to alter how a run
+/// plays: nobody walks about at random any more and the player's own Bim
+/// is moved by its player alone — no errand of its own, never shoved by a
+/// bot under arms, under arms with the alarm (the wander drew on the
+/// room's stream every step); task 131 (#16: the town run's defence is
+/// the Manufacturers' before day ten, waves thirty seconds apart, a field
+/// medic sets a carried body down, arrival spots on reachable deck); task
+/// 131 (#20: the first run's station is another building, the waves in at
+/// every airlock but the port); task 130 (the first run's medic revives to
+/// two fifths, a Healing Sentry heals four times as much); and task 132's
+/// uncapped wave. Their shares were not taken apart. Was
+/// `0x_5051_196b_e073_7b74`.
+const SURVIVORS: u64 = 0x_1278_0108_e96e_dc55;
 
 /// A gun in every hand, the kinds dealt round, as the fight's probes arm
 /// a crew — the five there were when the reading was taken: the minigun
