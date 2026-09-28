@@ -801,6 +801,7 @@ impl Stat {
         })
     }
     /// The row as one line of text: `Damage: 60 / 75 / 90 / 110`.
+    #[cfg(test)]
     pub fn line(&self) -> String {
         format!("{}: {}{}", self.label, self.values.join(" / "), self.unit)
     }
@@ -983,6 +984,7 @@ pub fn ranked_foot(class: world::Class, slot: u8, rank: u8) -> String {
 }
 /// A ranked ability's whole tip as text: the line, the numbers and the
 /// foot. The box draws the three itself, the current rank lit.
+#[cfg(test)]
 pub fn ranked_tip(class: world::Class, slot: u8, rank: u8) -> String {
     let mut tip = ranked_what(class, slot).to_string();
     for stat in ranked_stats(class, slot) {
