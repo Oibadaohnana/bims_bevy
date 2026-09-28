@@ -416,7 +416,6 @@ pub fn refusal(why: Refusal) -> &'static str {
         Refusal::NotATank => "only a tank can do that",
         Refusal::NoTauntYet => "a taunt wants the third level",
         Refusal::NotACommander => "only a commander can do that",
-        Refusal::NoRallyYet => "a rally wants the commander's third level",
         Refusal::NoSquadInRange => "nobody of the squad is near enough to hear it",
         Refusal::NoEnemyThere => "there is no enemy under the pointer",
         Refusal::NoGroundThere => "there is no ground to attack there",
@@ -610,7 +609,7 @@ pub const ABILITY_NAMES: [[&str; 2]; 6] = [
     ["Grenade", "Brace"],
     ["Surge", "Heal beam"],
     ["Taunt", "Wall"],
-    ["Rally", "Squad"],
+    ["Battle Cry", "Rally"],
 ];
 /// What the engineer's EMP and sandbags do (task 127): its Q box's tip and
 /// its ranked ability's words alike.
@@ -633,8 +632,8 @@ pub const ABILITY_TIPS: [[&str; 2]; 6] = [
         "Stand as a wall: half pace, and a crewmate close behind you is in cover against anything shot through you. The key again puts it down; so does going down.",
     ],
     [
-        "Call a rally: every friendly Bim near you shoots steadier while it lasts.",
-        "Send the squad at the enemy under the pointer. The squad is every crew member nobody is steering; the number is how many are in it now.",
+        "Call a Battle Cry: every friendly Bim near you fires faster while it lasts.",
+        "Call a rally: every friendly Bim near you takes less damage and moves faster while it lasts.",
     ],
 ];
 pub fn ability_name(class: world::Class, primary: bool) -> &'static str {
@@ -654,6 +653,10 @@ pub fn ability_tip(class: world::Class, primary: bool) -> &'static str {
 /// medic's carry. Named off the [`crate::keys::Action`] rather than off
 /// a class's pair, since these are one class's each and a pair has no
 /// room for a third.
+/// The squad's attack (task 129: off E, which the Rally took, onto a key
+/// of its own).
+pub const SQUAD_ORDER_ATTACK: &str = "Squad attack";
+pub const SQUAD_ORDER_ATTACK_TIP: &str = "Send the squad at the enemy under the pointer. The squad is every crew member nobody is steering — your reinforcements among them; the number is how many are in it now. The key on the same enemy again lets them go.";
 pub const FALL_BACK: &str = "Fall back";
 pub const FALL_BACK_TIP: &str = "Call the squad back to the deck tile under the pointer, or to yourself with the pointer on nothing. They hold their fire and walk, and hold the ring round the spot when they get there. The number is how many are in the squad.";
 pub const STAND_GROUND: &str = "Stand ground";
@@ -674,6 +677,10 @@ pub fn ranked_ability(class: world::Class, slot: u8) -> &'static str {
         (world::Class::Engineer, 1) => "Healing Sentry",
         (world::Class::Engineer, 2) => "Sandbags",
         (world::Class::Engineer, 3) => "Sentry",
+        (world::Class::Commander, 0) => "Battle Cry",
+        (world::Class::Commander, 1) => "Command Aura",
+        (world::Class::Commander, 2) => "Rally",
+        (world::Class::Commander, 3) => "Reinforcements",
         _ => "",
     }
 }
@@ -699,6 +706,18 @@ pub fn ranked_what(class: world::Class, slot: u8) -> &'static str {
         (world::Class::Engineer, 2) => SANDBAGS_WHAT,
         (world::Class::Engineer, 3) => {
             "Your ultimate. Lay a sentry with a minigun on the deck tile under the pointer: it shoots for itself at whatever it can see until its time runs out or it is shot down. One stands at a time and it is never packed up. A hit does not stop the laying; the cooldown runs from the moment it is laid, and it is ready at every mission's start."
+        }
+        (world::Class::Commander, 0) => {
+            "A shout. Every friendly Bim near you as you call it — yourself, the players', the bots, the hired hands, your reinforcements — fires faster for a few seconds. Who it reaches is fixed as you call it: one that walks off keeps it, one that walks up after is not given it. Sentries are not lifted."
+        }
+        (world::Class::Commander, 1) => {
+            "Passive. Every friendly Bim within its reach of you — yourself included — hits harder, bolt and blow alike, while you are on your feet. Two commanders reaching one Bim do not add up: the stronger holds. A sentry is not lifted."
+        }
+        (world::Class::Commander, 2) => {
+            "Rally the Bims near you as you call it — yourself included: for a few seconds they take less damage and move faster. Who it reaches is fixed as you call it, as a Battle Cry's is."
+        }
+        (world::Class::Commander, 3) => {
+            "Your ultimate, and passive. At the start of every mission you bring soldiers of the Republic with you, on free deck beside you — fewer where there is no room. They follow the squad's orders like any bot and are revived like any crewmate; they earn nothing, cost nothing and drop nothing. One that dies is gone for the mission, and all of them go when it ends. A rank bought now brings them from the next mission."
         }
         _ => "",
     }
@@ -812,6 +831,32 @@ pub fn rank_numbers(class: world::Class, slot: u8, rank: u8) -> Option<String> {
             }
             line
         }
+        (world::Class::Commander, 0) => format!(
+            "everybody within {} tiles fires at {} for {} s; {} s to come back",
+            fig(c::BATTLE_CRY_TILES as f64),
+            by(c::BATTLE_CRY_FIRE_RATE[r] as f64),
+            fig(c::BATTLE_CRY_SECONDS[r]),
+            fig(c::BATTLE_CRY_COOLDOWN[r])
+        ),
+        (world::Class::Commander, 1) => format!(
+            "damage {} within {} tiles of you",
+            by(c::AURA_DAMAGE[r] as f64),
+            fig(c::AURA_TILES[r] as f64)
+        ),
+        (world::Class::Commander, 2) => format!(
+            "everybody within {} tiles takes damage {} and moves {} for {} s; {} s to come back",
+            fig(c::RALLY_TILES as f64),
+            by(c::RALLY_DAMAGE_TAKEN[r] as f64),
+            by(c::RALLY_PACE[r] as f64),
+            fig(c::RALLY_SECONDS[r]),
+            fig(c::RALLY_COOLDOWN[r])
+        ),
+        (world::Class::Commander, 3) => format!(
+            "{} Bims with a tier-{} auto rifle and nothing to wear, within {} tiles of you",
+            c::REINFORCEMENTS[r],
+            c::REINFORCEMENT_TIER[r].code(),
+            fig(c::REINFORCEMENT_REACH_TILES as f64)
+        ),
         _ => return None,
     })
 }
@@ -838,6 +883,10 @@ pub fn ranked_tip(class: world::Class, slot: u8, rank: u8) -> String {
 /// The log's line for a rank-up refused.
 pub fn rank_refused(why: world::Refusal) -> String {
     format!("Cannot rank that up: {}.", refusal(why))
+}
+/// And for a Battle Cry refused (task 129).
+pub fn battle_cry_refused(why: world::Refusal) -> String {
+    format!("Cannot call a Battle Cry: {}.", refusal(why))
 }
 /// And for a Rampage refused.
 pub fn rampage_refused(why: world::Refusal) -> String {
@@ -978,20 +1027,22 @@ pub const TALENT_NAMES: [&str; 69] = [
     "Magnet",
     "Fortress",
     "Rallying wall",
-    "Wide presence",
-    "Strong presence",
-    "Haggler",
-    "Outfitter",
-    "Focus fire",
-    "Pincer",
-    "Long rally",
-    "Quick rally",
-    "Steady ranks",
-    "Double time",
-    "Relentless",
-    "Grit",
-    "Anchor",
-    "Warcry",
+    // 55 to 68 were the commander's talents, gone with his ranked kit
+    // (task 129): the codes stay free, and so do their places here.
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
 ];
 pub const TALENT_TIPS: [&str; 69] = [
     // 0 to 13 were the engineer's talents, gone with its ranked kit
@@ -1053,20 +1104,22 @@ pub const TALENT_TIPS: [&str; 69] = [
     "A taunt turns every charging blade within its reach towards him.",
     "His armour drains at half rate again — a quarter of anybody else's.",
     "While he taunts, every crew member within three tiles drains armour at half rate too.",
-    "The aura reaches half again as far.",
-    "Every one of the aura's bonuses is half again as deep.",
-    "Hires a mercenary at two fifths off instead of a quarter.",
-    "A mercenary he hires arrives wearing the lowest basic piece it was missing, at no extra cost.",
-    "The squad's odds against the enemy it has been sent after are up by fifteen per cent.",
-    "An attack may mark two enemies at once, the squad split between them.",
-    "A rally lasts half again as long.",
-    "The rally's cooldown is half as long.",
-    TALENT_NO_EFFECT,
-    "Bims in his aura walk a tenth faster.",
-    "An attack's mark lasts until that enemy is dead, then moves on to the nearest one standing.",
-    TALENT_NO_EFFECT,
-    "The aura's bonuses are twice as deep while he stands still.",
-    "A rally covers every friendly Bim in the room, however far off.",
+    // 55 to 68 were the commander's talents, gone with his ranked kit
+    // (task 129): the codes stay free, and so do their places here.
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
 ];
 pub fn talent_name(talent: world::Talent) -> &'static str {
     TALENT_NAMES
@@ -1095,13 +1148,6 @@ pub fn level_line(class: world::Class, level: u8) -> Option<&'static str> {
         }
         (world::Class::Tank, 3) => "Taunt: may draw the enemy's fire onto himself.",
         (world::Class::Tank, 7) => "Iron frame: a hit rolled on his head lands on his body.",
-        (world::Class::Commander, 1) => {
-            "Aura: every friendly Bim near him works and shoots better. Hires at a quarter off. Squad orders: attack (E), fall back (X), stand ground (Z)."
-        }
-        (world::Class::Commander, 3) => "Rally: may call it.",
-        (world::Class::Commander, 7) => {
-            "Long reach: a squad order reaches every squad member in the room."
-        }
         _ => return None,
     })
 }
@@ -1118,9 +1164,6 @@ pub fn level_name(class: world::Class, level: u8) -> Option<&'static str> {
         (world::Class::Tank, 2) => "Plated",
         (world::Class::Tank, 3) => "Taunt",
         (world::Class::Tank, 7) => "Iron frame",
-        (world::Class::Commander, 1) => "Aura and squad",
-        (world::Class::Commander, 3) => "Rally",
-        (world::Class::Commander, 7) => "Long reach",
         _ => return None,
     })
 }
@@ -1302,70 +1345,6 @@ pub fn talent_numbers(talent: world::Talent) -> String {
             fig(c::RALLYING_WALL_TILES as f64),
             fig(c::RALLYING_WALL_DRAIN as f64)
         ),
-        // --- the commander's ---
-        T::WidePresence => format!(
-            "Aura reach {} tiles ({})",
-            step(
-                c::AURA_TILES as f64,
-                (c::AURA_TILES * c::WIDE_PRESENCE_RADIUS) as f64,
-                ""
-            ),
-            by(c::WIDE_PRESENCE_RADIUS as f64)
-        ),
-        T::StrongPresence => format!(
-            "Each aura bonus {} deeper: work and aim {}",
-            by(c::STRONG_PRESENCE as f64),
-            step(
-                c::AURA_WORK as f64,
-                c::aura_bonus(c::AURA_WORK, c::STRONG_PRESENCE) as f64,
-                ""
-            )
-        ),
-        T::Haggler => format!(
-            "Off a mercenary's fee {}% -> {}%",
-            c::HIRE_DISCOUNT_PERCENT,
-            c::HAGGLER_DISCOUNT_PERCENT
-        ),
-        T::Outfitter => "A mercenary he hires arrives wearing the lowest basic piece it was missing, at no extra cost".to_string(),
-        T::FocusFire => format!(
-            "The squad's hit chance against the enemy it was sent after {}",
-            by(c::FOCUS_FIRE_ACCURACY as f64)
-        ),
-        T::Pincer => format!(
-            "Enemies an attack marks at once {}",
-            step(1.0, c::PINCER_MARKS as f64, "")
-        ),
-        T::LongRally => format!(
-            "A rally lasts {} game minutes ({})",
-            step(c::RALLY_MINUTES, c::RALLY_MINUTES * c::LONG_RALLY_TIME, ""),
-            by(c::LONG_RALLY_TIME)
-        ),
-        T::QuickRally => format!(
-            "Seconds between rallies {} ({})",
-            step(
-                c::RALLY_COOLDOWN,
-                c::RALLY_COOLDOWN * c::QUICK_RALLY_COOLDOWN,
-                ""
-            ),
-            by(c::QUICK_RALLY_COOLDOWN)
-        ),
-        T::SteadyRanks => TALENT_NO_EFFECT.to_string(),
-        T::DoubleTime => format!(
-            "Bims in the aura walk at {} pace",
-            by(c::DOUBLE_TIME_PACE as f64)
-        ),
-        T::Relentless => "An attack's mark holds until that enemy is dead, not merely down — and then the squad goes on to the nearest enemy still standing".to_string(),
-        T::Grit => TALENT_NO_EFFECT.to_string(),
-        T::Anchor => format!(
-            "Standing still, each aura bonus {} deeper: work and aim {}",
-            by(c::ANCHOR_BONUS as f64),
-            step(
-                c::AURA_WORK as f64,
-                c::aura_bonus(c::AURA_WORK, c::ANCHOR_BONUS) as f64,
-                ""
-            )
-        ),
-        T::Warcry => "A rally covers every friendly Bim in the room, however far off — where it otherwise reaches only those near him".to_string(),
     }
 }
 
@@ -1407,24 +1386,6 @@ pub fn level_numbers(class: world::Class, level: u8) -> Option<String> {
         (world::Class::Tank, 7) => {
             "Every hit rolled on his head lands on his body instead".to_string()
         }
-        (world::Class::Commander, 1) => format!(
-            "The aura reaches {} tiles: work {}, aim {}. Hires at {}% off. A squad order reaches {} tiles",
-            fig(c::AURA_TILES as f64),
-            by(c::AURA_WORK as f64),
-            by(c::AURA_AIM as f64),
-            c::HIRE_DISCOUNT_PERCENT,
-            fig(c::SQUAD_RANGE as f64)
-        ),
-        (world::Class::Commander, 3) => format!(
-            "A rally puts every friendly Bim it reaches at aim {}; it runs {} game minutes, with {} seconds between",
-            by(c::RALLY_AIM as f64),
-            fig(c::RALLY_MINUTES),
-            fig(c::RALLY_COOLDOWN)
-        ),
-        (world::Class::Commander, 7) => format!(
-            "A squad order reaches the whole room, where it otherwise reaches {} tiles",
-            fig(c::SQUAD_RANGE as f64)
-        ),
         _ => return None,
     })
 }
@@ -1514,7 +1475,7 @@ pub const ORDERS_TIP: &str = "The crew nobody is steering keep to your side and 
 /// The commander's rows on the crew panel (feature 78): what the squad
 /// is under, and the rally with its cooldown.
 pub const SQUAD_NONE: &str = "Squad: free";
-pub const SQUAD_TIP: &str = "The squad is every crew member nobody is steering. E sends it at the enemy under the pointer, X calls it back to a tile, Z has it hold where it stands; the same key again lets it go. Your own Bim is never ordered by it.";
+pub const SQUAD_TIP: &str = "The squad is every crew member nobody is steering, your reinforcements among them. H sends it at the enemy under the pointer, T calls it back to a tile, Z has it hold where it stands; the same key again lets it go. Your own Bim is never ordered by it.";
 pub fn squad_line(kind: Option<u32>, members: usize) -> String {
     let Some(kind) = kind else {
         return SQUAD_NONE.to_string();
@@ -1528,15 +1489,31 @@ pub fn squad_line(kind: Option<u32>, members: usize) -> String {
 }
 pub fn rally_line(left: f64, cooldown: f64, level_enough: bool) -> String {
     if !level_enough {
-        return format!("Rally at level {}", world::class::RALLY_LEVEL);
+        return RALLY_NOT_LEARNT.to_string();
     }
     if left > 0.0 {
-        return format!("Rallying — {left:.0} min left");
+        return format!("Rallying — {left:.0} s left");
     }
     if cooldown > 0.0 {
         format!("Rally ready in {cooldown:.0} s")
     } else {
         "Rally ready".to_string()
+    }
+}
+/// The Rally before its first rank (task 129).
+pub const RALLY_NOT_LEARNT: &str = "Rally not learnt yet";
+/// The Battle Cry's line on the crew panel (task 129), the rally's way.
+pub fn battle_cry_line(left: f64, cooldown: f64, learnt: bool) -> String {
+    if !learnt {
+        return "Battle Cry not learnt yet".to_string();
+    }
+    if left > 0.0 {
+        return format!("Battle Cry — {left:.0} s left");
+    }
+    if cooldown > 0.0 {
+        format!("Battle Cry ready in {cooldown:.0} s")
+    } else {
+        "Battle Cry ready".to_string()
     }
 }
 /// The tank's rows on the crew panel (feature 77): the wall, and the
@@ -1847,6 +1824,12 @@ pub fn event_line(event: WorldEvent) -> Option<String> {
             _ => format!("{} released the squad.", who(w)),
         },
         WorldEvent::Rallied { who: w } => format!("{} rallied the crew.", who(w)),
+        WorldEvent::BattleCried { who: w } => format!("{} called a Battle Cry.", who(w)),
+        WorldEvent::Reinforced { who: w, count } => format!(
+            "{} brought {count} {} of the Republic.",
+            who(w),
+            if count == 1 { "soldier" } else { "soldiers" }
+        ),
         WorldEvent::DroidReinforcements { .. } => DROID_REINFORCEMENTS.into(),
         WorldEvent::DroidDown { kind, .. } => format!("{} is down.", droid_name(kind)),
         WorldEvent::DroidStationCleared { .. } => DROID_CLEARED.into(),
@@ -2921,18 +2904,6 @@ pub fn slowed_note() -> String {
 }
 /// A Bim under [`bims::health::BLEEDS_UNDER`]: bleeding on the deck.
 pub const BADLY_HURT: &str = "Badly hurt — bleeding";
-/// The carry row beside it, and why it is greyed when it is.
-pub const CARRY_ROW: &str = "Carry";
-pub const CARRY_ROW_HINT: &str =
-    "walk over and pick them up out of the fire — you hold your fire while you carry";
-pub const CARRY_YOURSELF: &str = "nobody carries themselves";
-pub const CARRY_NOT_DOWN: &str = "only a downed crewmate can be carried";
-pub const CARRY_MEDICS_ONLY: &str = "only a medic or a hired field medic can carry";
-pub const CARRY_ARMS_FULL: &str = "your arms are full — set them down first";
-pub const CARRY_TAKEN: &str = "somebody is already carrying them";
-/// What the log says when the revive key is held with nobody down close
-/// enough to get up.
-pub const REVIVE_NOBODY_NEAR: &str = "Nobody down close enough to get up.";
 /// What a dead body says under its name.
 pub fn died_line(name: &str) -> String {
     format!("{name} has died.")
@@ -2950,6 +2921,18 @@ pub const REVIVE_CARRIED: &str = "not while somebody is carrying them — set th
 pub fn revive_taken(who: &str) -> String {
     format!("{who} is already bringing them round")
 }
+/// The carry row beside it, and why it is greyed when it is.
+pub const CARRY_ROW: &str = "Carry";
+pub const CARRY_ROW_HINT: &str =
+    "walk over and pick them up out of the fire — you hold your fire while you carry";
+pub const CARRY_YOURSELF: &str = "nobody carries themselves";
+pub const CARRY_NOT_DOWN: &str = "only a downed crewmate can be carried";
+pub const CARRY_MEDICS_ONLY: &str = "only a medic or a hired field medic can carry";
+pub const CARRY_ARMS_FULL: &str = "your arms are full — set them down first";
+pub const CARRY_TAKEN: &str = "somebody is already carrying them";
+/// What the log says when the revive key is held with nobody down close
+/// enough to get up.
+pub const REVIVE_NOBODY_NEAR: &str = "Nobody down close enough to get up.";
 /// The countdown's seconds over a downed body on the deck.
 pub fn downed_seconds(seconds: f32) -> String {
     format!("{}", seconds.ceil().max(0.0) as u32)
@@ -3611,7 +3594,6 @@ mod tests {
                 Refusal::NotATank,
                 Refusal::NoTauntYet,
                 Refusal::NotACommander,
-                Refusal::NoRallyYet,
                 Refusal::NoSquadInRange,
                 Refusal::NoEnemyThere,
             ] {
@@ -3630,13 +3612,12 @@ mod tests {
             assert_eq!(squad_line(Some(0), 3), "Squad attacking — 3");
             assert_eq!(squad_line(Some(1), 2), "Squad falling back — 2");
             assert_eq!(squad_line(Some(2), 1), "Squad holding ground — 1");
-            assert_eq!(
-                rally_line(0.0, 0.0, false),
-                format!("Rally at level {}", world::class::RALLY_LEVEL)
-            );
+            assert_eq!(rally_line(0.0, 0.0, false), RALLY_NOT_LEARNT);
             assert_eq!(rally_line(0.0, 0.0, true), "Rally ready");
             assert_eq!(rally_line(0.0, 7.2, true), "Rally ready in 7 s");
-            assert_eq!(rally_line(4.0, 12.0, true), "Rallying — 4 min left");
+            assert_eq!(rally_line(4.0, 12.0, true), "Rallying — 4 s left");
+            assert_eq!(battle_cry_line(2.0, 9.0, true), "Battle Cry — 2 s left");
+            assert_eq!(battle_cry_line(0.0, 0.0, true), "Battle Cry ready");
             assert_eq!(
                 taunt_line(0.0, 0.0, false),
                 format!("Taunt at level {}", world::class::TAUNT_LEVEL)
@@ -3704,6 +3685,8 @@ mod tests {
                     kind: u32::MAX,
                 },
                 WorldEvent::Rallied { who: 0 },
+                WorldEvent::BattleCried { who: 0 },
+                WorldEvent::Reinforced { who: 0, count: 3 },
             ] {
                 assert!(
                     event_line(event).is_some_and(|l| !l.is_empty()),

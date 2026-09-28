@@ -158,7 +158,11 @@ use crate::game::Game;
 /// on the world (`World::charges_held`), the engineer's ultimate's cooldown
 /// (`World::engineers`), a deployable's end, a machine's stun, and the
 /// sandbag and sentry kits and the grenade gone from the resources.
-pub const SAVE_VERSION: u32 = 52;
+/// 53: the commander's ranked kit (task 129) — a commander keeps his
+/// Battle Cry and whom his cry and rally reached, the world the
+/// reinforcements of the mission and a Bim whether it is gone from the
+/// deck, a squad's attack marks one enemy, and his talents are gone.
+pub const SAVE_VERSION: u32 = 53;
 
 /// What the file holds, read back.
 #[derive(serde::Deserialize)]

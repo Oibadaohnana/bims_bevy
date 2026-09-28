@@ -1466,7 +1466,10 @@ fn frame(
                         members: order.map_or(0, |o| o.members.len()),
                         rally_left: world.rally_left(slot),
                         cooldown: world.rally_cooldown_left(slot),
-                        can_rally: progress.level(class) >= world::class::RALLY_LEVEL,
+                        can_rally: progress.rank(world::class::SLOT_E) > 0,
+                        cry_left: world.battle_cry_left(slot),
+                        cry_cooldown: world.battle_cry_cooldown_left(slot),
+                        can_cry: progress.rank(world::class::SLOT_Q) > 0,
                     }
                 }),
                 relics: world.relics_of(slot).to_vec(),
@@ -1995,6 +1998,26 @@ fn frame(
                     orders.extend(order);
                     screen.log.extend(line);
                 }
+                // And the squad's attack on the enemy under the pointer
+                // (task 129: B, since E is his Rally).
+                if keys_now.pressed(i, Action::SquadAttack)
+                    && let Some(game) = &session.game
+                    && game.world.class_of(screen.net.slot) == world::Class::Commander
+                {
+                    let slot = screen.net.slot;
+                    let enemy = on_canvas
+                        .filter(|_| !map_up)
+                        .map(|p| session.room_point(p.x, p.y))
+                        .and_then(|(rx, ry)| game.world.resident_at(rx, ry));
+                    let (order, line) = match enemy {
+                        Some(enemy) => {
+                            squad_key(&game.world, slot, world::SquadAsk::Attack { enemy })
+                        }
+                        None => (None, Some(squad_refused(Refusal::NoEnemyThere))),
+                    };
+                    orders.extend(order);
+                    screen.log.extend(line);
+                }
                 // The medic's carry (feature 86): the crewmate under the
                 // pointer up into its arms, or — with its arms already
                 // full, or with the pointer on nobody — set down. With
@@ -2011,6 +2034,21 @@ fn frame(
                         .and_then(|(rx, ry)| game.world.aboard.room.crew_at(rx, ry))
                         .map(|who| who as u32);
                     let (order, line) = carry_key(&game.world, slot, under);
+                    orders.extend(order);
+                    screen.log.extend(line);
+                }
+                // The held revive (G): standing close to a downed crewmate,
+                // the player's own Bim gets the nearest back up while the
+                // key is held, and lets go when it comes up first.
+                if let Some(game) = &session.game {
+                    let (order, line) = held_revive(
+                        &game.world.aboard.room,
+                        panels.player,
+                        &mut screen.held_revive,
+                        !map_up && keys_now.down(i, Action::Revive),
+                        keys_now.pressed(i, Action::Revive),
+                        &crew_name,
+                    );
                     orders.extend(order);
                     screen.log.extend(line);
                 }
@@ -2037,21 +2075,6 @@ fn frame(
                 }
                 if keys_now.pressed(i, Action::Attack) {
                     screen.aiming_move = false;
-                // The held revive (G): standing close to a downed crewmate,
-                // the player's own Bim gets the nearest back up while the
-                // key is held, and lets go when it comes up first.
-                if let Some(game) = &session.game {
-                    let (order, line) = held_revive(
-                        &game.world.aboard.room,
-                        panels.player,
-                        &mut screen.held_revive,
-                        !map_up && keys_now.down(i, Action::Revive),
-                        keys_now.pressed(i, Action::Revive),
-                        &crew_name,
-                    );
-                    orders.extend(order);
-                    screen.log.extend(line);
-                }
                     let standing = session
                         .game
                         .as_ref()
@@ -2613,29 +2636,6 @@ fn frame(
                 panels.cache_requested = None;
             }
         }
-        // The Armory panel (task 113): on every screen of a run — the deck,
-        // the map, the galaxy chart and the reward screen — read-only in a
-        // mission.
-        let armory = armory_of(world, local);
-        panels.armory_window(&ctx, &armory);
-        let room = &mut world.aboard.room;
-        panels.hire_window(&ctx, room, &name);
-        panels.end_frame(room);
-    }
-    // What the Armory panel and the rows asked for: gear moves through the
-    // seam like every other change to the world.
-    for order in panels.orders.drain(..) {
-        orders.push(Order::Gear(order));
-    }
-    for order in panels.crew_orders.drain(..) {
-        orders.push(Order::Crew(order));
-    }
-    for order in panels.later_orders.drain(..) {
-        orders.push(Order::CrewLater(order));
-    }
-    for order in orders.drain(..) {
-        screen.net.order(session, order);
-    }
         // The menu's Carry row on a downed crewmate: the player's own Bim
         // walks over, and the carry goes the frame it is within reach —
         // or is given up with the world's reason once the walk stops
@@ -2662,6 +2662,29 @@ fn frame(
                 Err(why) => screen.log.push(carry_refused(why)),
             }
         }
+        // The Armory panel (task 113): on every screen of a run — the deck,
+        // the map, the galaxy chart and the reward screen — read-only in a
+        // mission.
+        let armory = armory_of(world, local);
+        panels.armory_window(&ctx, &armory);
+        let room = &mut world.aboard.room;
+        panels.hire_window(&ctx, room, &name);
+        panels.end_frame(room);
+    }
+    // What the Armory panel and the rows asked for: gear moves through the
+    // seam like every other change to the world.
+    for order in panels.orders.drain(..) {
+        orders.push(Order::Gear(order));
+    }
+    for order in panels.crew_orders.drain(..) {
+        orders.push(Order::Crew(order));
+    }
+    for order in panels.later_orders.drain(..) {
+        orders.push(Order::CrewLater(order));
+    }
+    for order in orders.drain(..) {
+        screen.net.order(session, order);
+    }
     let allowed = Allowed::of(session.playing(), online.is_guest());
     let asked = settings_sheet(
         &ctx,
@@ -2988,29 +3011,6 @@ fn frame(
                 && let Some(at) = session.crew_on_screen(who)
             {
                 ring(left, at);
-            }
-        }
-        if let Some(residents) = &game.world.residents {
-            let room = &residents.aboard.room;
-            for who in 0..session.resident_count() {
-                if let Some(left) = room.down_left(who as usize)
-                    && let Some(at) = session.resident_on_screen(who)
-                {
-                    ring(left, at);
-                }
-            }
-        }
-    }
-
-    // Every heal beam on the deck (feature 76): a line from the medic to
-    // each crew member it holds, and a mark on a body a surge is running
-    // on, in the beam's own green.
-    if !map_up && let Some(game) = &session.game {
-        let crew = game.world.aboard.crew_count();
-        for medic in 0..crew {
-            let Some(from) = session.crew_on_screen(medic) else {
-                continue;
-            };
                 // And over the ring, while somebody's hands are on it, how
                 // far the revive has got.
                 if let Some((_, share)) = room.revive_share(who as usize) {
@@ -3053,6 +3053,29 @@ fn frame(
                     let a = view.to_canvas(Vec2::new(at.0, at.1)) + canvas.min;
                     theme::cover_mark(&painter, egui::pos2(a.x, a.y), view.scale, egui::Vec2::ZERO);
                 }
+            }
+        }
+        if let Some(residents) = &game.world.residents {
+            let room = &residents.aboard.room;
+            for who in 0..session.resident_count() {
+                if let Some(left) = room.down_left(who as usize)
+                    && let Some(at) = session.resident_on_screen(who)
+                {
+                    ring(left, at);
+                }
+            }
+        }
+    }
+
+    // Every heal beam on the deck (feature 76): a line from the medic to
+    // each crew member it holds, and a mark on a body a surge is running
+    // on, in the beam's own green.
+    if !map_up && let Some(game) = &session.game {
+        let crew = game.world.aboard.crew_count();
+        for medic in 0..crew {
+            let Some(from) = session.crew_on_screen(medic) else {
+                continue;
+            };
             for patient in game.world.patients_of(medic) {
                 let Some(to) = session.crew_on_screen(patient) else {
                     continue;
@@ -3178,42 +3201,76 @@ fn frame(
             let Some(at) = on_screen(who) else {
                 continue;
             };
-            theme::aura_ring(&painter, at, game.world.aura_radius(who) * t * view.scale);
+            // His Command Aura's radius (task 129), once he has a rank of
+            // it.
+            let radius = game.world.aura_radius(who);
+            if radius > 0.0 {
+                theme::aura_ring(&painter, at, radius * t * view.scale);
+            }
+            // A Battle Cry called: a short gold ring running out to its
+            // reach over its first moments.
+            if game.world.is_crying(who) {
+                let run = game.world.battle_cry_seconds(who) - game.world.battle_cry_left(who);
+                let shown = (run / BATTLE_CRY_RING_SECONDS) as f32;
+                if shown < 1.0 {
+                    theme::battle_cry_ring(
+                        &painter,
+                        at,
+                        world::class::BATTLE_CRY_TILES * t * view.scale,
+                        shown,
+                    );
+                }
+            }
         }
         // A Bim the aura lifts, and — while a rally runs over it
         // (feature 86) — the rally's own mark in its place, so a rally
-        // called is told from the aura standing there all along.
-        let rallying = (0..crew).any(|who| {
-            game.world.class_of(who) == world::Class::Commander && game.world.rally_left(who) > 0.0
-        });
+        // called is told from the aura standing there all along. The
+        // aura and the rally take in the commander himself (task 129).
         for who in 0..crew {
-            if game.world.aura_reaching(who).is_none() {
+            let rallied = game.world.rally_reaching(who).is_some();
+            if game.world.aura_reaching(who).is_none() && !rallied {
                 continue;
             }
             if let Some(at) = on_screen(who) {
-                if rallying {
+                if rallied {
                     theme::rallied_mark(&painter, at, view.scale);
                 } else {
                     theme::lifted_mark(&painter, at, view.scale);
                 }
             }
         }
-        // And the caller of it (feature 91). `aura_reaching` answers
-        // `None` for a commander asked about his own aura — a commander
-        // is not in his own — so without this the one Bim on the deck
-        // that is certainly rallying was the one with nothing on it to
-        // say so. Two chevrons over the head rather than the rallied
-        // ring: his own rig and his selection ring are in the way of
+        // And the caller of it (feature 91): two chevrons over his head,
+        // since his own rig and his selection ring are in the way of
         // anything small drawn at the body.
         for who in 0..crew {
-            if game.world.class_of(who) != world::Class::Commander
-                || game.world.rally_left(who) <= 0.0
-            {
+            if !game.world.is_rallying(who) {
                 continue;
             }
             if let Some(at) = on_screen(who) {
                 theme::rally_call(&painter, at, view.scale);
             }
+        }
+        // And every reinforcement (task 129): a small chevron over its
+        // head in the colour of the commander who brought it.
+        for r in &game.world.reinforcements {
+            if !game.world.aboard.room.is_alive(r.who as usize) {
+                continue;
+            }
+            let Some(at) = on_screen(r.who) else {
+                continue;
+            };
+            let tint = session
+                .crew_tints
+                .get(r.by as usize)
+                .copied()
+                .unwrap_or_else(|| bims::character::Tint::from_code(r.by as u8));
+            let (red, green, blue) = tint.rgb();
+            let colour = egui::Color32::from_rgb(
+                (red * 255.0) as u8,
+                (green * 255.0) as u8,
+                (blue * 255.0) as u8,
+            );
+            theme::reinforcement_mark(&painter, at, view.scale, colour);
         }
         // And whom the ability box under the pointer would reach: the
         // ring is the answer to "who does this cast take in".
@@ -3650,6 +3707,12 @@ enum Mark {
     Wall,
     Rally,
     Squad,
+    /// The commander's Battle Cry, Command Aura and Reinforcements (task
+    /// 129); his Rally is [`Mark::Rally`] and his squad's attack
+    /// [`Mark::Squad`].
+    BattleCry,
+    Aura,
+    Reinforcements,
     /// The commander's other two squad orders (feature 86), which had
     /// keys and no box until the user asked for all of his abilities to
     /// be shown.
@@ -3885,6 +3948,16 @@ fn ranked_key(
             Some(ability) => engineer_key(world, slot, ability as u8, tile),
             None => (None, None),
         },
+        // The commander's (task 129): Q calls a Battle Cry and E a Rally;
+        // C, his aura, and R, his reinforcements, are passive.
+        (world::Class::Commander, Action::Ability1) => match world.can_battle_cry(slot) {
+            Ok(()) => (Some(Order::BattleCry), None),
+            Err(why) => (None, Some(crate::names::battle_cry_refused(why))),
+        },
+        (world::Class::Commander, Action::Ability3) => match world.can_rally(slot) {
+            Ok(()) => (Some(Order::Rally), None),
+            Err(why) => (None, Some(rally_refused(why))),
+        },
         _ => (None, None),
     }
 }
@@ -3982,6 +4055,29 @@ fn ranked_box(world: &world::World, slot: u32, action: Action, keys: &Keys) -> A
             on: world.sentry_left(slot).is_some(),
             ..Face::of(Mark::Charge(icons::ChargeIcon::Sentry))
         },
+        // The commander's (task 129): two shouts on their cooldowns, lit
+        // while they run; the aura lit while he stands in it; his
+        // reinforcements counted, those still standing this mission.
+        (world::Class::Commander, 0) => Face {
+            cooldown: world.battle_cry_cooldown_left(slot),
+            cooldown_whole: world.battle_cry_cooldown(slot),
+            on: world.is_crying(slot),
+            ..Face::of(Mark::BattleCry)
+        },
+        (world::Class::Commander, 1) => Face {
+            on: world.aura_reaching(slot).is_some(),
+            ..Face::of(Mark::Aura)
+        },
+        (world::Class::Commander, 2) => Face {
+            cooldown: world.rally_cooldown_left(slot),
+            cooldown_whole: world.rally_cooldown(slot),
+            on: world.is_rallying(slot),
+            ..Face::of(Mark::Rally)
+        },
+        (world::Class::Commander, 3) => Face {
+            count: Some(world.reinforcements_of(slot).len() as u32),
+            ..Face::of(Mark::Reinforcements)
+        },
         _ => Face::of(Mark::Empty),
     };
     // Not learnt, the box waits on the level its first rank wants — the
@@ -4024,6 +4120,7 @@ fn ability_keys(world: &world::World, slot: u32) -> Vec<Action> {
         _ => Action::ABILITIES.to_vec(),
     };
     if class == Class::Commander {
+        keys.push(Action::SquadAttack);
         keys.push(Action::SquadFallBack);
         keys.push(Action::SquadStandGround);
     }
@@ -4068,6 +4165,16 @@ fn ability_boxes(world: &world::World, slot: u32, keys: &Keys) -> Vec<AbilityBox
             // class's each and read off the world rather than off the
             // (class, primary) pair below.
             let extra = match action {
+                // The squad's attack (task 129: its own key since E is
+                // the Rally), lit while his attack stands.
+                Action::SquadAttack => Some(Face {
+                    count: Some(world.squad_members(slot).len() as u32),
+                    on: world
+                        .squad
+                        .as_ref()
+                        .is_some_and(|o| o.by_slot == slot && o.kind.code() == 0),
+                    ..Face::of(Mark::Squad)
+                }),
                 Action::SquadFallBack | Action::SquadStandGround => {
                     let running = world.squad.as_ref().is_some_and(|o| {
                         o.by_slot == slot
@@ -4149,21 +4256,17 @@ fn ability_boxes(world: &world::World, slot: u32, keys: &Keys) -> Vec<AbilityBox
                         on: world.is_bulwark(slot),
                         ..Face::of(Mark::Wall)
                     },
-                    (Class::Commander, true) => Face {
-                        cooldown: world.rally_cooldown_left(slot),
-                        cooldown_whole: world.rally_cooldown(slot),
-                        on: world.rally_left(slot) > 0.0,
-                        ..Face::of(Mark::Rally)
-                    },
-                    (Class::Commander, false) => Face {
-                        count: Some(world.squad_members(slot).len() as u32),
-                        on: world.squad.as_ref().is_some_and(|o| o.by_slot == slot),
-                        ..Face::of(Mark::Squad)
-                    },
+                    // The commander's slots are his ranked kit's (task
+                    // 129), `ranked_box`'s.
+                    (Class::Commander, _) => Face::of(Mark::Empty),
                     (Class::None, _) => Face::of(Mark::Brace),
                 }
             };
             let (name, tip) = match action {
+                Action::SquadAttack => (
+                    crate::names::SQUAD_ORDER_ATTACK,
+                    crate::names::SQUAD_ORDER_ATTACK_TIP,
+                ),
                 Action::SquadFallBack => (crate::names::FALL_BACK, crate::names::FALL_BACK_TIP),
                 Action::SquadStandGround => {
                     (crate::names::STAND_GROUND, crate::names::STAND_GROUND_TIP)
@@ -4194,6 +4297,11 @@ fn ability_boxes(world: &world::World, slot: u32, keys: &Keys) -> Vec<AbilityBox
         .collect()
 }
 
+/// Seconds of the mission clock a Battle Cry's gold ring takes to run out
+/// to its reach on the deck (task 129): a short ring, not the cry's whole
+/// length.
+const BATTLE_CRY_RING_SECONDS: f64 = 0.6;
+
 /// How big one box is: a key's on the hero panel (feature 107), its name
 /// in its tooltip rather than under it, so the panel stays one row.
 const ABILITY_SIDE: f32 = 44.0;
@@ -4213,15 +4321,23 @@ fn affected_by(world: &world::World, slot: u32, action: Action) -> Vec<u32> {
     use world::Class;
     let class = world.class_of(slot);
     match (class, action) {
-        // The rally: every friendly Bim in his aura, and **himself** —
-        // `aura_reaching` leaves a commander out of his own aura, and
-        // the rally is the one thing that covers him.
-        (Class::Commander, Action::Ability1) => (0..world.aboard.crew_count())
-            .filter(|&who| who == slot || world.aura_reaching(who).is_some())
-            .collect(),
-        (Class::Commander, Action::Ability3 | Action::SquadFallBack | Action::SquadStandGround) => {
-            world.squad_members(slot)
+        // The commander's (task 129): a Battle Cry or a Rally called now
+        // reaches everybody on the deck within its tiles of him, himself
+        // included; his aura everybody in its radius; his reinforcements
+        // are the ones he brought; and each of the squad's keys commands
+        // the same squad.
+        (Class::Commander, Action::Ability1) => {
+            world.crew_within(slot, world::class::BATTLE_CRY_TILES)
         }
+        (Class::Commander, Action::Ability2) => (0..world.aboard.crew_count())
+            .filter(|&who| world.in_aura_of(slot, who))
+            .collect(),
+        (Class::Commander, Action::Ability3) => world.crew_within(slot, world::class::RALLY_TILES),
+        (Class::Commander, Action::Ability4) => world.reinforcements_of(slot),
+        (
+            Class::Commander,
+            Action::SquadAttack | Action::SquadFallBack | Action::SquadStandGround,
+        ) => world.squad_members(slot),
         (Class::Medic, Action::Ability1) => {
             let mut held = world.patients_of(slot);
             held.push(slot);
@@ -4356,6 +4472,18 @@ fn ability_box(ui: &mut egui::Ui, one: &AbilityBox) -> (bool, bool) {
                 Some(egui::pos2(middle.x, inner.min.y)),
                 radius / 9.0,
             ),
+            Mark::BattleCry => theme::battle_cry_mark(painter, middle, radius),
+            Mark::Aura => theme::aura_ring(painter, middle, radius),
+            Mark::Reinforcements => {
+                for dx in [-0.45, 0.0, 0.45] {
+                    theme::squad_mark(
+                        painter,
+                        egui::pos2(middle.x + radius * dx, middle.y + radius * 0.3),
+                        None,
+                        radius / 16.0,
+                    );
+                }
+            }
             Mark::FallBack => theme::fall_back_mark(painter, middle, radius),
             Mark::StandGround => theme::stand_ground_mark(painter, middle, radius),
             Mark::Carry => theme::carry_mark(painter, middle, radius),
@@ -4580,17 +4708,21 @@ fn recharge_badge(painter: &egui::Painter, at: egui::Pos2, recharge: Option<f32>
 /// included, since task 120 lets a medic beam itself — and pressed on the
 /// one it already holds, or on nobody while one is held, it unlinks, and
 /// on nobody with no beam on it says so; a tank's Q taunts and its E puts
-/// the wall up or takes it down. The order to send, if the
-/// world would take it, and the log's line saying why not if it would
-/// not — both off the world's own check, so the key and the command
-/// agree. A classless crew member's keys do nothing at all.
+/// the wall up or takes it down; a commander's are his Battle Cry and
+/// Rally (task 129). The order to send, if the world would take it, and
+/// the log's line saying why not if it would not — both off the world's
+/// own check, so the key and the command agree. A classless crew
+/// member's keys do nothing at all. `_enemy`, the enemy under the
+/// pointer, was the commander's E until task 129 moved the squad's
+/// attack onto a key of its own; it is kept so the callers need not
+/// change.
 fn class_key(
     world: &world::World,
     slot: u32,
     primary: bool,
     tile: Option<(i32, i32)>,
     under: Option<u32>,
-    enemy: Option<u32>,
+    _enemy: Option<u32>,
 ) -> (Option<Order>, Option<String>) {
     match world.class_of(slot) {
         world::Class::None => (None, None),
@@ -4650,18 +4782,20 @@ fn class_key(
             Ok(()) => (Some(Order::Bulwark(!world.is_bulwark(slot))), None),
             Err(why) => (None, Some(bulwark_refused(why))),
         },
-        // The commander (feature 78): Q rallies, E sends the squad at
-        // the enemy under the pointer.
-        world::Class::Commander if primary => match world.can_rally(slot) {
-            Ok(()) => (Some(Order::Rally), None),
-            Err(why) => (None, Some(rally_refused(why))),
-        },
-        world::Class::Commander => {
-            let Some(enemy) = enemy else {
-                return (None, Some(squad_refused(Refusal::NoEnemyThere)));
-            };
-            squad_key(world, slot, world::SquadAsk::Attack { enemy })
-        }
+        // The commander (task 129): his ranked kit's Q and E, a Battle
+        // Cry and a Rally — `ranked_key`'s answer, since his slots are
+        // ranked. The squad's attack has a key of its own
+        // (`squad_attack_key`).
+        world::Class::Commander => ranked_key(
+            world,
+            slot,
+            if primary {
+                Action::Ability1
+            } else {
+                Action::Ability3
+            },
+            tile,
+        ),
     }
 }
 
@@ -4753,6 +4887,84 @@ fn carry_key(
     match world.can_carry(slot, patient) {
         Ok(()) => (Some(Order::Carry(Some(patient))), None),
         Err(why) => (None, Some(carry_refused(why))),
+    }
+}
+
+/// How near, in tiles, a downed crewmate has to lie for the held revive
+/// key to reach it: standing close, a step or two over at most.
+const REVIVE_HOLD_REACH: f32 = 2.5;
+
+/// Frames the menu's carry waits for the walk over to begin before a
+/// Bim standing still out of reach is taken as having stopped short:
+/// the walk goes through the seam and starts a frame or two later.
+const CARRY_WALK_GRACE: u32 = 30;
+
+/// The held revive key (G), a frame at a time: the order if there is one
+/// to send, and the log's line. `held` is the patient the key sent the
+/// player's own Bim `own` to, kept on the screen between frames.
+///
+/// * the key goes down beside a downed crewmate — the nearest within
+///   [`REVIVE_HOLD_REACH`] that `crew::revive_refused` passes — and it is
+///   the revive (`CrewOrder::Revive`), the walk over and the hands on;
+/// * held, nothing more is sent while that one is still down; once it is
+///   up the next one near is taken, the key still held;
+/// * let go with the revive still in hand, and it is stopped
+///   (`CrewOrder::StandDown`, which lets a revive go);
+/// * pressed with nobody near, the log says so.
+fn held_revive(
+    room: &bims::game::Game,
+    own: usize,
+    held: &mut Option<u32>,
+    down: bool,
+    pressed: bool,
+    name: &dyn Fn(u32) -> String,
+) -> (Option<Order>, Option<String>) {
+    if !down {
+        if let Some(patient) = held.take()
+            && room.reviving(own) == Some(patient as usize)
+        {
+            return (
+                Some(Order::Crew(CrewOrder::StandDown { who: own as u32 })),
+                None,
+            );
+        }
+        return (None, None);
+    }
+    if let Some(patient) = *held {
+        if room.is_downed(patient as usize) {
+            return (None, None);
+        }
+        *held = None;
+    }
+    if (own as u32) >= room.crew_count() || !room.is_alive(own) {
+        return (None, None);
+    }
+    let at = room.bim_pos(own);
+    let reach = REVIVE_HOLD_REACH * shipdesign::TILE as f32;
+    let nearest = (0..room.crew_count() as usize)
+        .filter(|&p| {
+            p != own
+                && room.is_downed(p)
+                && (room.bim_pos(p) - at).len() <= reach
+                && crate::crew::revive_refused(room, own, p, name).is_none()
+        })
+        .min_by(|&a, &b| {
+            (room.bim_pos(a) - at)
+                .len()
+                .total_cmp(&(room.bim_pos(b) - at).len())
+        });
+    match nearest {
+        Some(patient) => {
+            *held = Some(patient as u32);
+            (
+                Some(Order::Crew(CrewOrder::Revive {
+                    who: own as u32,
+                    patient: patient as u32,
+                })),
+                None,
+            )
+        }
+        None => (None, pressed.then(|| REVIVE_NOBODY_NEAR.to_string())),
     }
 }
 
@@ -4886,84 +5098,6 @@ mod class_key_tests {
             class_key(&world, 2, false, None, Some(2), None),
             (Some(Order::Beam(Some(2))), None),
             "itself, since task 120"
-    }
-}
-
-/// How near, in tiles, a downed crewmate has to lie for the held revive
-/// key to reach it: standing close, a step or two over at most.
-const REVIVE_HOLD_REACH: f32 = 2.5;
-
-/// Frames the menu's carry waits for the walk over to begin before a
-/// Bim standing still out of reach is taken as having stopped short:
-/// the walk goes through the seam and starts a frame or two later.
-const CARRY_WALK_GRACE: u32 = 30;
-
-/// The held revive key (G), a frame at a time: the order if there is one
-/// to send, and the log's line. `held` is the patient the key sent the
-/// player's own Bim `own` to, kept on the screen between frames.
-///
-/// * the key goes down beside a downed crewmate — the nearest within
-///   [`REVIVE_HOLD_REACH`] that `crew::revive_refused` passes — and it is
-///   the revive (`CrewOrder::Revive`), the walk over and the hands on;
-/// * held, nothing more is sent while that one is still down; once it is
-///   up the next one near is taken, the key still held;
-/// * let go with the revive still in hand, and it is stopped
-///   (`CrewOrder::StandDown`, which lets a revive go);
-/// * pressed with nobody near, the log says so.
-fn held_revive(
-    room: &bims::game::Game,
-    own: usize,
-    held: &mut Option<u32>,
-    down: bool,
-    pressed: bool,
-    name: &dyn Fn(u32) -> String,
-) -> (Option<Order>, Option<String>) {
-    if !down {
-        if let Some(patient) = held.take()
-            && room.reviving(own) == Some(patient as usize)
-        {
-            return (
-                Some(Order::Crew(CrewOrder::StandDown { who: own as u32 })),
-                None,
-            );
-        }
-        return (None, None);
-    }
-    if let Some(patient) = *held {
-        if room.is_downed(patient as usize) {
-            return (None, None);
-        }
-        *held = None;
-    }
-    if (own as u32) >= room.crew_count() || !room.is_alive(own) {
-        return (None, None);
-    }
-    let at = room.bim_pos(own);
-    let reach = REVIVE_HOLD_REACH * shipdesign::TILE as f32;
-    let nearest = (0..room.crew_count() as usize)
-        .filter(|&p| {
-            p != own
-                && room.is_downed(p)
-                && (room.bim_pos(p) - at).len() <= reach
-                && crate::crew::revive_refused(room, own, p, name).is_none()
-        })
-        .min_by(|&a, &b| {
-            (room.bim_pos(a) - at)
-                .len()
-                .total_cmp(&(room.bim_pos(b) - at).len())
-        });
-    match nearest {
-        Some(patient) => {
-            *held = Some(patient as u32);
-            (
-                Some(Order::Crew(CrewOrder::Revive {
-                    who: own as u32,
-                    patient: patient as u32,
-                })),
-                None,
-            )
-        }
-        None => (None, pressed.then(|| REVIVE_NOBODY_NEAR.to_string())),
         );
         // Crew member 0 beside it, and beamed.
         let at = world.aboard.room.bim_pos(2) + bims::math::vec2(t, 0.0);
@@ -5123,29 +5257,45 @@ fn held_revive(
         );
     }
 
-    /// The commander's four (feature 78): Q rallies, E sends the squad
-    /// at the enemy under the pointer, X calls it back and Z has it
-    /// hold — and X and Z do nothing for any other class or for a
-    /// classless crew member, which is the key handler's own guard.
+    /// The commander's keys (task 129): Q a Battle Cry and E a Rally,
+    /// each wanting its first rank; the squad's attack on a key of its
+    /// own, and fall back and stand ground as before — which do nothing
+    /// for any other class or for a classless crew member, the key
+    /// handler's own guard.
     #[test]
     fn the_commanders_keys_are_the_squads_and_nobody_elses() {
         let mut world = simulation_world(flyer(3), REFERENCE_MONEY, 3);
         assert_eq!(world.set_class(0, world::Class::Commander), Ok(()));
         assert_eq!(world.set_class(1, world::Class::Tank), Ok(()));
         world.step(&[]);
-        // Q wants the third level.
+        // Q and E want their first rank.
         assert_eq!(
             class_key(&world, 0, true, None, None, None),
-            (None, Some(rally_refused(Refusal::NoRallyYet)))
+            (
+                None,
+                Some(crate::names::battle_cry_refused(Refusal::NotLearnt))
+            )
         );
-        // E with no enemy under the pointer says so.
         assert_eq!(
             class_key(&world, 0, false, None, None, None),
-            (None, Some(squad_refused(Refusal::NoEnemyThere)))
+            (None, Some(rally_refused(Refusal::NotLearnt)))
         );
-        // E over an enemy is an attack the world would take.
+        world.set_ranks_for_probe(0, [1, 0, 1, 0]);
         assert_eq!(
-            class_key(&world, 0, false, None, None, Some(2)),
+            ranked_key(&world, 0, Action::Ability1, None),
+            (Some(Order::BattleCry), None)
+        );
+        assert_eq!(
+            ranked_key(&world, 0, Action::Ability3, None),
+            (Some(Order::Rally), None)
+        );
+        // The passive two do nothing when pressed.
+        assert_eq!(ranked_key(&world, 0, Action::Ability2, None), (None, None));
+        assert_eq!(ranked_key(&world, 0, Action::Ability4, None), (None, None));
+        // The squad's attack over an enemy is an order the world would
+        // take, the same as X and Z.
+        assert_eq!(
+            squad_key(&world, 0, world::SquadAsk::Attack { enemy: 2 }),
             (
                 Some(Order::Squad(world::SquadAsk::Attack { enemy: 2 })),
                 None

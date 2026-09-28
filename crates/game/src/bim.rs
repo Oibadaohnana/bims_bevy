@@ -208,6 +208,12 @@ pub struct Bim {
     /// everybody else.
     #[cfg_attr(feature = "serde", serde(default))]
     pub focus: Option<usize>,
+    /// **Gone from the deck** (task 129): a commander's reinforcement that
+    /// died, which is not drawn, picked or seen from the step it falls —
+    /// its index kept until the mission's end so nobody else's moves.
+    /// False for every other body.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub gone: bool,
 }
 
 /// The years the crew were born in. Everyone aboard is somewhere between
@@ -255,6 +261,7 @@ impl Bim {
             arc_cool: 0.0,
             attack_move: None,
             focus: None,
+            gone: false,
         }
     }
 

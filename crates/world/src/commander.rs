@@ -1,72 +1,111 @@
-//! The commander's state (feature 78, `crate::class`): what a crew
-//! member that is a commander holds between steps, and the one squad
-//! order the crew is under.
+//! The commander's state (feature 78, reworked by task 129 into a ranked
+//! kit, `crate::class`): what a crew member that is a commander holds
+//! between steps, the one squad order the crew is under, and the
+//! reinforcements he brought to the mission.
 //!
-//! Two things are kept here and nothing else, because everything else a
-//! commander is is read afresh each step off his class, his picks and
-//! where he stands:
+//! Three things are kept here and nothing else, because everything else a
+//! commander is is read afresh each step off his ranks and where he
+//! stands:
 //!
 //! * one [`Commander`] a crew member, by index, on `World::commanders` —
-//!   when he last rallied, which answers both how long the rally has to
-//!   run and how long until the next;
+//!   when his last **Battle Cry** and his last **Rally** began, as
+//!   mission minutes, and whom each reached: the one timestamp answers
+//!   both how long it has to run and how long until the next, and **the
+//!   reach is fixed at the call**, so a Bim that walks out keeps what it
+//!   was given and one that walks in is given nothing;
 //! * one [`SquadOrder`] for the whole world, on `World::squad` — whose
-//!   it is, what it is, and which crew members are under it.
+//!   it is, what it is, and which crew members are under it;
+//! * one [`Reinforcement`] a Bim he brought, on `World::reinforcements`:
+//!   a crew member marked with the commander who brought it, **for one
+//!   mission** — laid at its start, gone from the deck the moment it dies
+//!   and off the crew at its end, alive or not.
 //!
 //! **The aura is not kept.** It is worked out every step from where the
 //! commanders stand (`World::aura_reaching`) and goes to the room
 //! through `bims::combat::Skill` like every other class's numbers, so it
-//! follows him about with no state to keep in step. So is the rally's
-//! reach, off `last_rally` and the clock.
+//! follows him about with no state to keep in step. It is **damage and
+//! nothing else** since task 129.
 //!
-//! **Who an order reaches.** The aura and the rally lift *every friendly
-//! Bim* in range — a player's own steered Bim, the crew's bots and the
-//! hired hands alike. A squad order commands *only the squad*: every
-//! crew member no player is steering. A player's Bim is never moved,
-//! held or aimed by one, and a Bim a player starts steering leaves the
-//! order the same step.
+//! **Who each reaches.** The aura, the cry and the rally lift *every
+//! friendly Bim* in range — a player's own steered Bim, the crew's bots,
+//! the hired hands and the reinforcements alike, the commander himself
+//! among them, and never a sentry. A squad order commands *only the
+//! squad*: every crew member no player is steering. A player's Bim is
+//! never moved, held or aimed by one, and a Bim a player starts steering
+//! leaves the order the same step.
 //!
-//! Both are saved and in `world_checksum` whole.
+//! All three are saved and in `world_checksum` — the cries, the rallies'
+//! reach and the reinforcements only where there are any.
 
 /// One crew member's commander state.
 #[derive(Clone, PartialEq, Debug, Default)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Commander {
-    /// The clock reading his last rally began at, in minutes; `None`
-    /// until he has rallied. The rally runs for `World::rally_minutes`
-    /// of the clock from it and the next one waits
-    /// `class::RALLY_COOLDOWN` seconds of the clock from it, so the one
-    /// number answers both — the tank's taunt kept the same way.
+    /// The mission minute his last rally began at; `None` until he has
+    /// rallied this mission — every mission starts with it ready. The
+    /// rally runs for `World::rally_seconds` from it and the next one
+    /// waits `World::rally_cooldown` from it, so the one number answers
+    /// both. A relic taking seconds off the class cooldowns moves it back.
     pub last_rally: Option<f64>,
+    /// Whom the last rally reached, by crew index, lowest first: every
+    /// friendly Bim within [`crate::class::RALLY_TILES`] of him when he
+    /// called it, himself included.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub rallied: Vec<u32>,
+    /// The mission minute his last Battle Cry began at (task 129), kept
+    /// the way the rally is.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub last_battle_cry: Option<f64>,
+    /// Whom the last Battle Cry reached, by crew index, lowest first.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub cried: Vec<u32>,
 }
 
-/// What a commander's aura does to a Bim standing in it: every one of
-/// them a factor, one meaning nothing. Worked out fresh every step
-/// (`World::aura_reaching`) and never kept — the talents *strong
-/// presence* and *anchor* deepen each of them together
-/// (`class::aura_bonus`), so [`Aura::work`] is what they are ranked by
-/// when two commanders reach one Bim.
+impl Commander {
+    /// A crew index gone from the crew (`World::drop_crew_member`): out
+    /// of both reaches, and every index past it one lower.
+    pub fn forget(&mut self, gone: u32) {
+        for list in [&mut self.rallied, &mut self.cried] {
+            list.retain(|&who| who != gone);
+            for who in list.iter_mut() {
+                if *who > gone {
+                    *who -= 1;
+                }
+            }
+        }
+    }
+}
+
+/// What a commander's **Command Aura** does to a Bim standing in it: a
+/// factor on its damage, one meaning nothing. Worked out fresh every step
+/// (`World::aura_reaching`) and never kept; two commanders reaching one
+/// Bim hold it by the higher factor.
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub struct Aura {
-    /// What its working steps run at.
-    pub work: f32,
-    /// What its odds are multiplied by.
-    pub aim: f32,
-    /// What its pace is multiplied by: *double time*, one without it.
-    pub pace: f32,
+    /// What its damage is multiplied by, bolt and blow alike.
+    pub damage: f32,
 }
 
 impl Aura {
     /// No aura at all.
-    pub const NONE: Aura = Aura {
-        work: 1.0,
-        aim: 1.0,
-        pace: 1.0,
-    };
+    pub const NONE: Aura = Aura { damage: 1.0 };
+}
+
+/// A Bim a commander brought to the mission (task 129, his
+/// Reinforcements): a crew member marked with the commander who brought
+/// it. It fights, follows the squad's orders and is revived like any bot;
+/// it earns nothing, costs nothing, drops nothing and keeps no run going.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct Reinforcement {
+    /// The crew member it is.
+    pub who: u32,
+    /// The player slot of the commander who brought it.
+    pub by: u32,
 }
 
 /// What a player asks the squad to do — [`crate::world::Command::Squad`]'s
-/// payload, which is why it carries one enemy and one tile rather than
-/// the list [`SquadKind`] keeps: a command is `Copy`.
+/// payload.
 #[derive(Clone, Copy, PartialEq, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum SquadAsk {
@@ -80,19 +119,16 @@ pub enum SquadAsk {
     StandGround,
 }
 
-/// What a squad order is. The enemies of an attack are residents of the
-/// station the crew's room is joined to, by index; the tile of a fall
-/// back is a tile of the crew's room.
-///
-/// An attack carries a *list* rather than the one enemy, because
-/// *pincer* marks two and splits the squad between them; without it the
-/// list is one long.
+/// What a squad order is. The enemy of an attack is a resident of the
+/// station the crew's room is joined to, by index — **one** since task
+/// 129 took *pincer*'s second mark away; the tile of a fall back is a
+/// tile of the crew's room.
 #[derive(Clone, PartialEq, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum SquadKind {
-    /// Fire on these enemies ahead of any nearer one, and advance on
-    /// them the way a crew member that sees an enemy for itself does.
-    Attack { enemies: Vec<u32> },
+    /// Fire on this enemy ahead of any nearer one, and advance on it the
+    /// way a crew member that sees an enemy for itself does.
+    Attack { enemy: u32 },
     /// Walk to a slot round this tile, holding fire on the way, and
     /// hold there shooting what can be seen.
     FallBack { tile: (i32, i32) },
@@ -112,11 +148,11 @@ impl SquadKind {
     }
 
     /// Whether two orders are the same order given again — which
-    /// releases the squad. An attack on the same enemies, a fall back on
+    /// releases the squad. An attack on the same enemy, a fall back on
     /// the same tile, a stand ground.
     pub fn same_as(&self, other: &SquadKind) -> bool {
         match (self, other) {
-            (SquadKind::Attack { enemies: a }, SquadKind::Attack { enemies: b }) => a == b,
+            (SquadKind::Attack { enemy: a }, SquadKind::Attack { enemy: b }) => a == b,
             (SquadKind::FallBack { tile: a }, SquadKind::FallBack { tile: b }) => a == b,
             (SquadKind::StandGround, SquadKind::StandGround) => true,
             _ => false,
@@ -144,17 +180,13 @@ impl SquadOrder {
         self.members.contains(&who)
     }
 
-    /// The enemy this member of the squad is to fire on, of an attack's
-    /// marks: the squad split between them in turn, so a *pincer*'s two
-    /// take half the squad each. `None` for any other order.
+    /// The enemy this member of the squad is to fire on: an attack's
+    /// mark, the same for every member. `None` for any other order and
+    /// for a crew member not under it.
     pub fn mark_for(&self, who: u32) -> Option<u32> {
-        let SquadKind::Attack { enemies } = &self.kind else {
-            return None;
-        };
-        if enemies.is_empty() {
-            return None;
+        match self.kind {
+            SquadKind::Attack { enemy } if self.has(who) => Some(enemy),
+            _ => None,
         }
-        let rank = self.members.iter().position(|&m| m == who)?;
-        Some(enemies[rank % enemies.len()])
     }
 }

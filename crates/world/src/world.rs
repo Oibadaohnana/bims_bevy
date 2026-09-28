@@ -361,9 +361,9 @@ pub enum Command {
         slot: u32,
     },
     /// Send that player's own commander's **squad** — every crew member
-    /// no player is steering, within [`class::SQUAD_RANGE`] tiles of him
-    /// (the whole room with *long reach*) — after an enemy, back to a
-    /// tile, or to stand its ground (feature 78, `crate::class`,
+    /// no player is steering, within [`class::SQUAD_RANGE`] tiles of him —
+    /// after an enemy, back to a tile, or to stand its ground (feature 78,
+    /// a base trait of his since task 129, `crate::class`,
     /// `crate::commander`). Wants the commander fit to act
     /// (`World::can_squad`) and, for an attack, an enemy of the station
     /// alongside; a squad order works with the alarm and without it.
@@ -374,14 +374,25 @@ pub enum Command {
         slot: u32,
         order: SquadAsk,
     },
-    /// That player's own commander rallies: for
-    /// [`class::RALLY_MINUTES`] of the clock every friendly Bim in his
-    /// aura — a player's own included — shoots at
-    /// [`class::RALLY_AIM`] and does not run at all. Wants the
-    /// commander fit to act, at [`class::RALLY_LEVEL`], and
-    /// [`class::RALLY_COOLDOWN`] past his last rally
+    /// That player's own commander **rallies** (task 129, his E): for
+    /// [`class::RALLY_SECONDS`] of his rank on the mission clock every
+    /// friendly Bim within [`class::RALLY_TILES`] of him as he calls it —
+    /// himself and a player's own included — takes
+    /// [`class::RALLY_DAMAGE_TAKEN`] of what hits it and walks at
+    /// [`class::RALLY_PACE`]. Refused `NotACommander`, `OutOfReach` (not
+    /// fit to act, downed among it), `NotLearnt` at rank nought and
+    /// `CoolingDown` within [`class::RALLY_COOLDOWN`] of the last
     /// (`World::can_rally`).
     Rally {
+        slot: u32,
+    },
+    /// That player's own commander calls a **Battle Cry** (task 129, his
+    /// Q): for [`class::BATTLE_CRY_SECONDS`] of his rank on the mission
+    /// clock every friendly Bim within [`class::BATTLE_CRY_TILES`] of him
+    /// as he calls it — himself included — fires at
+    /// [`class::BATTLE_CRY_FIRE_RATE`]. Refused as a rally is
+    /// (`World::can_battle_cry`).
+    BattleCry {
         slot: u32,
     },
     /// That player's **standing order** to the bots that follow them
@@ -912,10 +923,17 @@ pub struct World {
     /// Empty for anybody but a player's tank. In `world_checksum`.
     pub tanks: Vec<Tank>,
     /// Each crew member's commander state, by index (feature 78,
-    /// `crate::commander`): when he last rallied, which is the whole of
-    /// it. Empty for anybody but a player's commander. In
-    /// `world_checksum`.
+    /// `crate::commander`): when his last Battle Cry and Rally began and
+    /// whom each reached (task 129). Empty for anybody but a player's
+    /// commander. In `world_checksum`.
     pub commanders: Vec<Commander>,
+    /// The Bims the commanders brought to this mission (task 129, their
+    /// Reinforcements), by crew index, lowest first: laid at the
+    /// mission's start, gone from the deck when one dies and off the crew
+    /// at the mission's end. Empty between missions. Saved, and in
+    /// `world_checksum` where there are any.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub reinforcements: Vec<crate::commander::Reinforcement>,
     /// Each crew member's soldier state, by index (task 124,
     /// `crate::soldier`): when its last Rampage began and when the one
     /// running ends. Empty for anybody but a player's soldier. Saved and
@@ -974,6 +992,11 @@ const BEAM_PROBE_HEALTH: f32 = 0.6;
 /// (task 124, `World::crit_rng`): a stream of its own, so nothing else
 /// draws off it.
 const CRIT_SALT: u64 = 0x_C817_5EED_0124;
+
+/// What the galaxy's seed is salted with for a reinforcement's face (task
+/// 129): off the seed and the mission, never the room's stream, so laying
+/// them moves no roll a fight makes.
+const REINFORCEMENT_SALT: u64 = 0x_5E1F_0CE5_0129;
 
 impl World {
     /// Open a world with the accepted ship docked at a station.
@@ -1150,6 +1173,7 @@ impl World {
             medics: vec![Medic::default(); crew as usize],
             tanks: vec![Tank::default(); crew as usize],
             commanders: vec![Commander::default(); crew as usize],
+            reinforcements: Vec::new(),
             soldiers: vec![crate::soldier::Soldier::default(); crew as usize],
             crit_rng: bims::rng::Rng::new(seed ^ CRIT_SALT),
             squad: None,
@@ -1446,6 +1470,7 @@ impl World {
             | Command::Taunt { slot }
             | Command::Squad { slot, .. }
             | Command::Rally { slot }
+            | Command::BattleCry { slot }
             | Command::Carry { slot, .. }
             | Command::Orders { slot, .. }
             | Command::Propose { slot, .. }
@@ -1606,6 +1631,10 @@ impl World {
                 Ok(()) => events.push(WorldEvent::Rallied { who: slot }),
                 Err(why) => events.push(refused(slot, why)),
             },
+            Command::BattleCry { .. } => match self.battle_cry(slot) {
+                Ok(()) => events.push(WorldEvent::BattleCried { who: slot }),
+                Err(why) => events.push(refused(slot, why)),
+            },
             Command::Orders { order, .. } => match self.give_orders(slot, order) {
                 Ok(kind) => events.push(WorldEvent::Ordered { who: slot, kind }),
                 Err(why) => events.push(refused(slot, why)),
@@ -1627,6 +1656,7 @@ impl World {
                 | Command::Surge { .. }
                 | Command::Taunt { .. }
                 | Command::Rally { .. }
+                | Command::BattleCry { .. }
                 | Command::Squad { .. }
         );
         let turned_down = events[before..]
@@ -1780,6 +1810,11 @@ impl World {
         }
         let room = &self.aboard.room;
         for who in 0..room.crew_count() as usize {
+            // A reinforcement's rifle is the Republic's, not the crew's
+            // (task 129).
+            if self.is_reinforcement(who as u32) {
+                continue;
+            }
             let gear = room.gear(who);
             for slot in GearSlot::ALL {
                 if let Some(item) = slot.read(&gear) {
@@ -2874,6 +2909,8 @@ impl World {
                 }
             }
         }
+        // A reinforcement dead is gone from the deck at once (task 129).
+        self.settle_reinforcements();
     }
 
     /// Off the berth: the ship's room is the ship's alone. The residents
@@ -4204,41 +4241,8 @@ impl World {
             owed: false,
             medic: hire_is_medic,
         });
-        // A field medic arrives with its own kit (feature 86):
-        // *Outfitter* (feature 78): the hand arrives wearing the lowest
-        // basic piece it was missing, made for it and charged for at
-        // nothing.
-        if self.has_talent(slot, Talent::Outfitter) {
-            self.outfit_the_hire(new_who);
-        }
         self.on_ship_changed();
         events.push(WorldEvent::Hired { who: new_who });
-    }
-
-    /// *Outfitter*: the lowest basic piece a fresh hire is missing —
-    /// helm, then kevlar, then leg guards — made out of nothing and put
-    /// on it, numbered off the holdings like the tank's own start.
-    fn outfit_the_hire(&mut self, who: u32) {
-        let missing = [
-            bims::combat::ArmourKind::BasicHelm,
-            bims::combat::ArmourKind::BasicKevlar,
-            bims::combat::ArmourKind::BasicLegs,
-        ]
-        .into_iter()
-        .find(|kind| {
-            self.aboard
-                .room
-                .gear(who as usize)
-                .worn(kind.slot())
-                .is_none()
-        });
-        let Some(kind) = missing else {
-            return;
-        };
-        let piece = self.holdings.new_piece(kind, Tier::One);
-        let mut gear = self.aboard.room.gear(who as usize);
-        *gear.worn_mut(kind.slot()) = Some(piece);
-        self.aboard.room.issue(who as usize, gear);
     }
 
     /// The hired hands' months, as they fall due: paid out of the money
@@ -5955,6 +5959,10 @@ impl World {
                 middle + bims::math::Vec2::from_angle(angle) * (ring * t * 1.5)
             })
             .collect();
+        // And onto deck they can walk off from: a ring round a spot in
+        // a corridor is half in its walls, and a machine snapped out of
+        // one could come out on the far side of it, shut in.
+        let spots = residents.aboard.room.spread_wave(&spots);
         Some((spots, facing))
     }
 
@@ -7884,10 +7892,10 @@ impl World {
         // a tank's: *rallying wall* gives it to the crew round him
         // (feature 77).
         skill.armour_drain = self.armour_drain(who);
-        // And so is a commander's aura, his rally and his squad order
-        // (feature 78): they lift whatever the crew member's own class
-        // gave it, a player's own steered Bim included.
-        self.lift_by_aura(who, &mut skill);
+        // And so are a commander's aura, his Battle Cry and his Rally
+        // (task 129): they lift whatever the crew member's own class gave
+        // it, a player's own steered Bim included.
+        self.lift_by_commanders(who, &mut skill);
         // And a player's relics (feature 106), last: a share on top of
         // whatever the class and the aura made of it.
         self.lift_by_relics(who, &mut skill);
@@ -8213,6 +8221,11 @@ impl World {
         let Some(by) = hit.by.filter(|_| hit.crit) else {
             return 0.0;
         };
+        // Slot C is Weak Spot on a soldier alone: a commander's is his
+        // aura (task 129).
+        if !self.is_soldier(by as u32) {
+            return 0.0;
+        }
         let rank = self.rank_of(by as u32, class::SLOT_C);
         class::by_rank(class::WEAK_SPOT_DAMAGE, rank)
             .map_or(0.0, |crit| crate::soldier::crit_bonus(hit.flat, crit))
@@ -8981,17 +8994,18 @@ impl World {
         self.aboard.room.set_bulwarks(walls);
     }
 
-    // --- the commander: the aura, the squad and the rally (feature 78) -----
+    // --- the commander: a ranked kit and two base traits (task 129) ---------
     //
-    // `crate::commander` is the state — when each commander last
-    // rallied, and the one squad order — and this is the rules. The
-    // aura is not kept at all: it is worked out every step from where
-    // the commanders stand and goes to the room through `skill_of`.
+    // `crate::commander` is the state — when each commander last cried
+    // and rallied and whom each reached, the one squad order, and the
+    // reinforcements of the mission — and this is the rules. The aura is
+    // not kept at all: it is worked out every step from where the
+    // commanders stand and goes to the room through `skill_of`.
     //
-    // **Whom each half reaches.** The aura and the rally lift every
-    // friendly Bim in range, a player's own steered Bim included; a
-    // squad order commands only the squad, which is every crew member
-    // no player is steering.
+    // **Whom each reaches.** The aura, the Battle Cry and the Rally lift
+    // every friendly Bim in range, a player's own steered Bim and the
+    // commander himself included; a squad order commands only the squad,
+    // which is every crew member no player is steering.
 
     /// Whether crew member `who` is a player's commander.
     fn is_commander(&self, who: u32) -> bool {
@@ -9030,138 +9044,140 @@ impl World {
             && !room.is_outside(who as usize)
     }
 
-    /// How far a commander's aura reaches, in tiles: the radius, half
-    /// again with *wide presence*.
+    /// Every crew member on the deck within `tiles` of the commander at
+    /// `slot`, himself included, lowest index first: whom a Battle Cry or
+    /// a Rally called now would reach — the list it keeps.
+    pub fn crew_within(&self, slot: u32, tiles: f32) -> Vec<u32> {
+        if !self.on_the_deck(slot) {
+            return Vec::new();
+        }
+        let room = &self.aboard.room;
+        let at = room.bim_pos(slot as usize);
+        let reach = tiles * shipdesign::TILE as f32;
+        (0..self.aboard.crew_count())
+            .filter(|&who| {
+                self.on_the_deck(who) && (room.bim_pos(who as usize) - at).len() <= reach
+            })
+            .collect()
+    }
+
+    /// How far a commander's **Command Aura** reaches, in tiles: its
+    /// rank's radius ([`class::AURA_TILES`]), nought before the first.
     pub fn aura_radius(&self, who: u32) -> f32 {
-        if self.has_talent(who, Talent::WidePresence) {
-            class::AURA_TILES * class::WIDE_PRESENCE_RADIUS
-        } else {
-            class::AURA_TILES
+        if !self.is_commander(who) {
+            return 0.0;
         }
+        class::by_rank(class::AURA_TILES, self.rank_of(who, class::SLOT_C)).unwrap_or(0.0)
     }
 
-    /// What one commander's aura does to a Bim standing in it: every
-    /// bonus deepened together by *strong presence* and, while he
-    /// stands still, by *anchor*.
+    /// What one commander's aura does to a Bim standing in it: its rank's
+    /// damage factor ([`class::AURA_DAMAGE`]).
     fn aura_cast_by(&self, who: u32) -> Aura {
-        let progress = self.progress_of(who);
-        let has = |talent| progress.has(Class::Commander, talent);
-        let mut factor = 1.0;
-        if has(Talent::StrongPresence) {
-            factor *= class::STRONG_PRESENCE;
-        }
-        if has(Talent::Anchor) && self.aboard.room.is_standing_still(who as usize) {
-            factor *= class::ANCHOR_BONUS;
-        }
         Aura {
-            work: class::aura_bonus(class::AURA_WORK, factor),
-            aim: class::aura_bonus(class::AURA_AIM, factor),
-            pace: if has(Talent::DoubleTime) {
-                class::aura_bonus(class::DOUBLE_TIME_PACE, factor)
-            } else {
-                1.0
-            },
+            damage: class::by_rank(class::AURA_DAMAGE, self.rank_of(who, class::SLOT_C))
+                .unwrap_or(1.0),
         }
     }
 
-    /// Whether a commander's aura reaches a crew member: a commander
-    /// conscious and on the deck, the Bim on the deck too, and the two
-    /// within the aura's radius. Never himself and never an enemy —
-    /// the crew's room is the only room asked.
+    /// Whether a commander's aura reaches a crew member: a commander with
+    /// a rank of it, on his feet — fit to act, not downed — the Bim on
+    /// the deck, and the two within the aura's radius. **Himself
+    /// included** since task 129, and never an enemy — the crew's room is
+    /// the only room asked.
     pub fn in_aura_of(&self, commander: u32, who: u32) -> bool {
-        if commander == who || !self.is_commander(commander) || !self.fit_to_act(commander) {
+        if !self.is_commander(commander) || !self.fit_to_act(commander) {
             return false;
         }
-        if !self.on_the_deck(who) || !self.on_the_deck(commander) {
+        let radius = self.aura_radius(commander);
+        if radius <= 0.0 || !self.on_the_deck(who) {
             return false;
         }
         let room = &self.aboard.room;
         let gap = room.bim_pos(who as usize) - room.bim_pos(commander as usize);
-        gap.len() <= self.aura_radius(commander) * shipdesign::TILE as f32
+        gap.len() <= radius * shipdesign::TILE as f32
     }
 
     /// The strongest aura reaching a crew member, or `None`. **Two
-    /// commanders' auras never stack**: the one whose bonuses are
-    /// deepest holds it, and the others do nothing.
+    /// commanders' auras never stack**: the higher factor holds it, and
+    /// the others do nothing.
     pub fn aura_reaching(&self, who: u32) -> Option<Aura> {
         (0..self.aboard.crew_count())
             .filter(|&c| self.in_aura_of(c, who))
             .map(|c| self.aura_cast_by(c))
-            .max_by(|a, b| a.work.total_cmp(&b.work))
+            .max_by(|a, b| a.damage.total_cmp(&b.damage))
     }
 
-    /// Minutes of the clock a commander's rally runs:
-    /// [`class::RALLY_MINUTES`], half again with *long rally*.
-    pub fn rally_minutes(&self, who: u32) -> f64 {
-        if self.has_talent(who, Talent::LongRally) {
-            class::RALLY_MINUTES * class::LONG_RALLY_TIME
-        } else {
-            class::RALLY_MINUTES
-        }
+    // The Rally (E) and the Battle Cry (Q): a timestamp and a list each,
+    // read the soldier's Rampage's way — seconds of the mission clock.
+
+    /// Seconds of the mission clock a commander's Rally runs at his rank
+    /// ([`class::RALLY_SECONDS`]).
+    pub fn rally_seconds(&self, who: u32) -> f64 {
+        class::by_rank(class::RALLY_SECONDS, self.rank_of(who, class::SLOT_E)).unwrap_or(0.0)
     }
 
-    /// Seconds of the clock between one rally and the next: halved with
-    /// *quick rally*.
+    /// Seconds of the mission clock between one Rally and the next:
+    /// [`class::RALLY_COOLDOWN`] of his rank, shorter with a relic's
+    /// *Coolant Loop* as every class cooldown is.
     pub fn rally_cooldown(&self, who: u32) -> f64 {
-        let own = if self.has_talent(who, Talent::QuickRally) {
-            class::RALLY_COOLDOWN * class::QUICK_RALLY_COOLDOWN
-        } else {
-            class::RALLY_COOLDOWN
-        };
-        // And a relic's *Coolant Loop* (feature 106).
-        own * self.relic_factor(who, crate::relic::Stat::Cooldowns)
+        let rank = self.rank_of(who, class::SLOT_E).max(1);
+        class::by_rank(class::RALLY_COOLDOWN, rank).unwrap_or(0.0)
+            * self.relic_factor(who, crate::relic::Stat::Cooldowns)
     }
 
-    /// Minutes of the clock a commander's rally has left; nought with
-    /// none running.
+    /// Seconds of the mission clock a commander's Rally has left; nought
+    /// with none running.
     pub fn rally_left(&self, who: u32) -> f64 {
-        let Some(last) = self.commander_of(who).last_rally else {
+        let Some(began) = self.commander_of(who).last_rally else {
             return 0.0;
         };
-        (self.rally_minutes(who) - (self.mission_minutes() - last)).max(0.0)
+        let since = (self.mission_minutes() - began) / time::MINUTES_PER_SECOND;
+        (self.rally_seconds(who) - since).max(0.0)
     }
 
-    /// Whether a rally is running on a commander.
+    /// Whether a Rally is running on a commander.
     pub fn is_rallying(&self, who: u32) -> bool {
-        self.rally_left(who) > 0.0
+        self.is_commander(who) && self.rally_left(who) > 0.0
     }
 
-    /// Seconds of the clock until he may rally again; nought when he
-    /// may. Read the way the taunt's cooldown is.
+    /// Seconds of the mission clock until he may rally again; nought
+    /// when he may.
     pub fn rally_cooldown_left(&self, who: u32) -> f64 {
-        let Some(last) = self.commander_of(who).last_rally else {
+        let Some(began) = self.commander_of(who).last_rally else {
             return 0.0;
         };
-        let since = (self.mission_minutes() - last) / time::MINUTES_PER_SECOND;
+        let since = (self.mission_minutes() - began) / time::MINUTES_PER_SECOND;
         (self.rally_cooldown(who) - since).max(0.0)
     }
 
-    /// Whether a rally covers a crew member: one running on a commander
-    /// whose aura reaches it — the whole room with *warcry* — or on the
-    /// crew member itself, since a commander rallies himself too.
+    /// The commander whose running Rally covers a crew member, if any:
+    /// one it reached when he called it, walked off or not. Two covering
+    /// one Bim: the lower damage taken holds it.
     pub fn rally_reaching(&self, who: u32) -> Option<u32> {
-        (0..self.aboard.crew_count()).find(|&c| {
-            self.is_rallying(c)
-                && self.on_the_deck(who)
-                && (c == who
-                    || self.in_aura_of(c, who)
-                    || (self.has_talent(c, Talent::Warcry) && self.on_the_deck(c)))
-        })
+        (0..self.aboard.crew_count())
+            .filter(|&c| self.is_rallying(c) && self.commander_of(c).rallied.contains(&who))
+            .min_by(|&a, &b| {
+                let of = |c: u32| {
+                    class::by_rank(class::RALLY_DAMAGE_TAKEN, self.rank_of(c, class::SLOT_E))
+                        .unwrap_or(1.0)
+                };
+                of(a).total_cmp(&of(b))
+            })
     }
 
     /// Whether a player's commander may rally, or why not, in order: a
-    /// commander (`NotACommander`), fit to act (`OutOfReach`), at
-    /// [`class::RALLY_LEVEL`] (`NoRallyYet`), and out of the cooldown
-    /// (`CoolingDown`).
+    /// commander (`NotACommander`), fit to act — downed among it —
+    /// (`OutOfReach`), a rank of Rally (`NotLearnt`) and out of the
+    /// cooldown (`CoolingDown`).
     pub fn can_rally(&self, slot: u32) -> Result<(), Refusal> {
         if !class::can(self.class_of(slot), class::Ability::Rally) {
             return Err(Refusal::NotACommander);
         }
-        if !self.fit_to_act(slot) {
+        if !self.fit_to_act(slot) || self.aboard.room.is_down(slot as usize) {
             return Err(Refusal::OutOfReach);
         }
-        if self.level_of(slot) < class::RALLY_LEVEL {
-            return Err(Refusal::NoRallyYet);
+        if self.rank_of(slot, class::SLOT_E) == 0 {
+            return Err(Refusal::NotLearnt);
         }
         if self.rally_cooldown_left(slot) > 0.0 {
             return Err(Refusal::CoolingDown);
@@ -9169,13 +9185,102 @@ impl World {
         Ok(())
     }
 
-    /// The rally — see [`Command::Rally`]: the clock noted, which is the
-    /// whole of it. What it does is read off that every step, in
-    /// `skill_of`.
+    /// The Rally — see [`Command::Rally`]: the mission clock noted and
+    /// **whom it reaches, fixed now**. What it does is read off those
+    /// every step, in `skill_of`.
     fn rally(&mut self, slot: u32) -> Result<(), Refusal> {
         self.can_rally(slot)?;
         let now = self.mission_minutes();
-        self.commander_mut(slot as usize).last_rally = Some(now);
+        let reached = self.crew_within(slot, class::RALLY_TILES);
+        let commander = self.commander_mut(slot as usize);
+        commander.last_rally = Some(now);
+        commander.rallied = reached;
+        Ok(())
+    }
+
+    /// Seconds of the mission clock a commander's Battle Cry runs at his
+    /// rank ([`class::BATTLE_CRY_SECONDS`]).
+    pub fn battle_cry_seconds(&self, who: u32) -> f64 {
+        class::by_rank(class::BATTLE_CRY_SECONDS, self.rank_of(who, class::SLOT_Q)).unwrap_or(0.0)
+    }
+
+    /// Seconds of the mission clock between one Battle Cry and the next:
+    /// [`class::BATTLE_CRY_COOLDOWN`] of his rank, times the cooldown
+    /// relics.
+    pub fn battle_cry_cooldown(&self, who: u32) -> f64 {
+        let rank = self.rank_of(who, class::SLOT_Q).max(1);
+        class::by_rank(class::BATTLE_CRY_COOLDOWN, rank).unwrap_or(0.0)
+            * self.relic_factor(who, crate::relic::Stat::Cooldowns)
+    }
+
+    /// Seconds of the mission clock a commander's Battle Cry has left;
+    /// nought with none running.
+    pub fn battle_cry_left(&self, who: u32) -> f64 {
+        let Some(began) = self.commander_of(who).last_battle_cry else {
+            return 0.0;
+        };
+        let since = (self.mission_minutes() - began) / time::MINUTES_PER_SECOND;
+        (self.battle_cry_seconds(who) - since).max(0.0)
+    }
+
+    /// Whether a Battle Cry is running on a commander.
+    pub fn is_crying(&self, who: u32) -> bool {
+        self.is_commander(who) && self.battle_cry_left(who) > 0.0
+    }
+
+    /// Seconds of the mission clock until he may cry again; nought when
+    /// he may.
+    pub fn battle_cry_cooldown_left(&self, who: u32) -> f64 {
+        let Some(began) = self.commander_of(who).last_battle_cry else {
+            return 0.0;
+        };
+        let since = (self.mission_minutes() - began) / time::MINUTES_PER_SECOND;
+        (self.battle_cry_cooldown(who) - since).max(0.0)
+    }
+
+    /// The commander whose running Battle Cry covers a crew member, if
+    /// any: one it reached when he called it. Two covering one Bim: the
+    /// higher fire rate holds it.
+    pub fn battle_cry_reaching(&self, who: u32) -> Option<u32> {
+        (0..self.aboard.crew_count())
+            .filter(|&c| self.is_crying(c) && self.commander_of(c).cried.contains(&who))
+            .max_by(|&a, &b| {
+                let of = |c: u32| {
+                    class::by_rank(class::BATTLE_CRY_FIRE_RATE, self.rank_of(c, class::SLOT_Q))
+                        .unwrap_or(1.0)
+                };
+                of(a).total_cmp(&of(b))
+            })
+    }
+
+    /// Whether a player's commander may call a Battle Cry, or why not, in
+    /// the Rally's order: `NotACommander`, `OutOfReach`, `NotLearnt`,
+    /// `CoolingDown`.
+    pub fn can_battle_cry(&self, slot: u32) -> Result<(), Refusal> {
+        if !class::can(self.class_of(slot), class::Ability::BattleCry) {
+            return Err(Refusal::NotACommander);
+        }
+        if !self.fit_to_act(slot) || self.aboard.room.is_down(slot as usize) {
+            return Err(Refusal::OutOfReach);
+        }
+        if self.rank_of(slot, class::SLOT_Q) == 0 {
+            return Err(Refusal::NotLearnt);
+        }
+        if self.battle_cry_cooldown_left(slot) > 0.0 {
+            return Err(Refusal::CoolingDown);
+        }
+        Ok(())
+    }
+
+    /// The Battle Cry — see [`Command::BattleCry`]: the mission clock
+    /// noted and whom it reaches fixed now.
+    fn battle_cry(&mut self, slot: u32) -> Result<(), Refusal> {
+        self.can_battle_cry(slot)?;
+        let now = self.mission_minutes();
+        let reached = self.crew_within(slot, class::BATTLE_CRY_TILES);
+        let commander = self.commander_mut(slot as usize);
+        commander.last_battle_cry = Some(now);
+        commander.cried = reached;
         Ok(())
     }
 
@@ -9309,44 +9414,39 @@ impl World {
         (at.x, at.y)
     }
 
-    /// What a commander's aura and rally do to a crew member's shooting,
-    /// working and pace, over whatever its own class gave it. Everything
-    /// here reaches a player's own steered Bim as readily as a bot.
-    /// *Steady ranks* and *grit*, and the aura's hold before a dying body
-    /// ran, are no-ops since task 120: nothing bleeds and nobody runs.
-    fn lift_by_aura(&self, who: u32, skill: &mut bims::combat::Skill) {
+    /// What the commanders do to a crew member's fighting, over whatever
+    /// its own class gave it (task 129): the strongest **Command Aura**
+    /// reaching it on its damage, bolt and blow alike; a **Battle Cry**
+    /// that reached it on its fire rate; a **Rally** that reached it on the
+    /// damage it takes and on its pace. Everything here reaches a player's
+    /// own steered Bim as readily as a bot, and each multiplies into the
+    /// skill with every other factor. A sentry has a skill of its own
+    /// (`sentry_skill`) and is lifted by none of it.
+    fn lift_by_commanders(&self, who: u32, skill: &mut bims::combat::Skill) {
         if let Some(aura) = self.aura_reaching(who) {
-            skill.accuracy *= aura.aim;
-            skill.effort *= aura.work;
-            skill.walk *= aura.pace;
+            skill.damage *= aura.damage;
+            skill.melee *= aura.damage;
         }
-        if self.rally_reaching(who).is_some() {
-            skill.accuracy *= class::RALLY_AIM;
+        if let Some(c) = self.battle_cry_reaching(who) {
+            let rank = self.rank_of(c, class::SLOT_Q);
+            skill.fire_rate *= class::by_rank(class::BATTLE_CRY_FIRE_RATE, rank).unwrap_or(1.0);
         }
-        // *Focus fire*: the squad's odds against the enemy its order
-        // marked, and against nobody else.
-        if let Some(order) = &self.squad
-            && order.has(who)
-            && matches!(order.kind, SquadKind::Attack { .. })
-            && self.has_talent(order.by_slot, Talent::FocusFire)
-        {
-            skill.marked_accuracy = class::FOCUS_FIRE_ACCURACY;
+        if let Some(c) = self.rally_reaching(who) {
+            let rank = self.rank_of(c, class::SLOT_E);
+            skill.damage_taken *= class::by_rank(class::RALLY_DAMAGE_TAKEN, rank).unwrap_or(1.0);
+            skill.walk *= class::by_rank(class::RALLY_PACE, rank).unwrap_or(1.0);
         }
     }
 
-    /// How far a commander's squad orders reach, in tiles: the range,
-    /// and the whole room from [`class::LONG_REACH_LEVEL`] (*long
-    /// reach*).
-    pub fn squad_range(&self, who: u32) -> f32 {
-        if self.level_of(who) >= class::LONG_REACH_LEVEL {
-            f32::MAX
-        } else {
-            class::SQUAD_RANGE
-        }
+    /// How far a commander's squad orders reach, in tiles: the base
+    /// trait's [`class::SQUAD_RANGE`] at every level.
+    pub fn squad_range(&self, _who: u32) -> f32 {
+        class::SQUAD_RANGE
     }
 
     /// Whether a player's commander may send the squad, or why not: a
-    /// commander (`NotACommander`) and fit to act (`OutOfReach`).
+    /// commander (`NotACommander`) and fit to act (`OutOfReach`). A base
+    /// trait: no rank is asked.
     pub fn can_squad(&self, slot: u32) -> Result<(), Refusal> {
         if !class::can(self.class_of(slot), class::Ability::SquadOrder) {
             return Err(Refusal::NotACommander);
@@ -9358,21 +9458,20 @@ impl World {
     }
 
     /// Who a commander's order would reach: every crew member no player
-    /// is steering, alive and on the deck, within his reach — lowest
-    /// index first, which is the order an attack splits the squad by.
+    /// is steering — the reinforcements among them — alive and on the
+    /// deck, within his reach, lowest index first.
     pub fn squad_members(&self, slot: u32) -> Vec<u32> {
         if !self.on_the_deck(slot) {
             return Vec::new();
         }
         let room = &self.aboard.room;
         let at = room.bim_pos(slot as usize);
-        let reach = self.squad_range(slot);
-        let t = shipdesign::TILE as f32;
+        let reach = self.squad_range(slot) * shipdesign::TILE as f32;
         (0..self.aboard.crew_count())
             .filter(|&who| {
                 !self.is_steered(who)
                     && self.on_the_deck(who)
-                    && (reach == f32::MAX || (room.bim_pos(who as usize) - at).len() <= reach * t)
+                    && (room.bim_pos(who as usize) - at).len() <= reach
             })
             .collect()
     }
@@ -9393,62 +9492,17 @@ impl World {
             && !room.is_downed(enemy as usize)
     }
 
-    /// Whether that resident is dead — what ends a *relentless* mark.
-    fn enemy_dead_at(&self, enemy: u32) -> bool {
-        let Some(residents) = &self.residents else {
-            return true;
-        };
-        enemy >= residents.aboard.count() || !residents.aboard.room.is_alive(enemy as usize)
-    }
-
-    /// The enemy still standing nearest the commander at `slot` in the
-    /// crew's room, the lowest index on a tie: where a *relentless*
-    /// attack goes once every mark it had is dead. `None` with nobody
-    /// standing.
-    fn nearest_enemy_standing(&self, slot: u32) -> Option<u32> {
-        let residents = self.residents.as_ref()?;
-        let from = self.aboard.room.bim_pos(slot as usize);
-        let mut nearest: Option<(u32, f32)> = None;
-        for enemy in 0..residents.aboard.count() {
-            if !self.enemy_standing_at(enemy) {
-                continue;
-            }
-            let Some(at) = self.aboard.from_station(residents.aboard.position(enemy)) else {
-                continue;
-            };
-            let far = (bims::math::vec2(at.x as f32, at.y as f32) - from).len();
-            if nearest.is_none_or(|(_, best)| far < best) {
-                nearest = Some((enemy, far));
-            }
-        }
-        nearest.map(|(enemy, _)| enemy)
-    }
-
     /// The order a player's ask comes out as: an attack's enemy checked
-    /// and, with *pincer*, added beside the one already marked; a fall
-    /// back's tile the one named or, for a tile that is not deck of the
-    /// room, the commander's own.
+    /// — one, the only mark there is since task 129 — and a fall back's
+    /// tile the one named or, for a tile that is not deck of the room,
+    /// the commander's own.
     fn squad_kind_of(&self, slot: u32, ask: SquadAsk) -> Result<SquadKind, Refusal> {
         Ok(match ask {
             SquadAsk::Attack { enemy } => {
                 if !self.enemy_standing_at(enemy) {
                     return Err(Refusal::NoEnemyThere);
                 }
-                let mut enemies = vec![enemy];
-                if self.has_talent(slot, Talent::Pincer)
-                    && let Some(order) = &self.squad
-                    && order.by_slot == slot
-                    && let SquadKind::Attack { enemies: on } = &order.kind
-                    && !on.contains(&enemy)
-                {
-                    let mut both = on.clone();
-                    both.push(enemy);
-                    while both.len() > class::PINCER_MARKS {
-                        both.remove(0);
-                    }
-                    enemies = both;
-                }
-                SquadKind::Attack { enemies }
+                SquadKind::Attack { enemy }
             }
             SquadAsk::FallBack { tile } => {
                 let t = shipdesign::TILE as f32;
@@ -9494,7 +9548,7 @@ impl World {
 
     /// The squad order called off, whatever it was: what a hire, a bot
     /// dropped off the crew and an unjoin do, since the members are crew
-    /// indices and the marks are residents'.
+    /// indices and the mark is a resident's.
     fn clear_squad(&mut self) {
         self.squad = None;
     }
@@ -9568,11 +9622,8 @@ impl World {
     }
 
     /// The pruning half of the step: an order ends when the commander
-    /// goes down or dies, when an attack's marks are all gone — down or
-    /// dead — or when nobody is left under it. With *relentless* a mark
-    /// is gone only once it is dead, and an attack whose marks are all
-    /// dead moves on to the enemy standing nearest him
-    /// ([`World::nearest_enemy_standing`]) rather than ending.
+    /// goes down or dies, when an attack's mark is down or dead, or when
+    /// nobody is left under it.
     fn settle_squad(&mut self) {
         if self.commanders.len() < self.aboard.crew_count() as usize {
             self.commanders
@@ -9586,38 +9637,11 @@ impl World {
             self.squad = None;
             return;
         }
-        if let SquadKind::Attack { enemies } = &order.kind {
-            let relentless = self.has_talent(by, Talent::Relentless);
-            let alive: Vec<u32> = enemies
-                .iter()
-                .copied()
-                .filter(|&e| {
-                    if relentless {
-                        !self.enemy_dead_at(e)
-                    } else {
-                        self.enemy_standing_at(e)
-                    }
-                })
-                .collect();
-            // *Relentless* does not stop at the mark: with every one it
-            // had dead, the attack goes on to the enemy standing nearest
-            // the commander, and ends only when none is. A machine is
-            // destroyed and never downed, so this is the half of the
-            // talent a fight against the machines has to act on.
-            let alive = if alive.is_empty() && relentless {
-                self.nearest_enemy_standing(by).into_iter().collect()
-            } else {
-                alive
-            };
-            if alive.is_empty() {
-                self.squad = None;
-                return;
-            }
-            if alive != *enemies
-                && let Some(order) = &mut self.squad
-            {
-                order.kind = SquadKind::Attack { enemies: alive };
-            }
+        if let SquadKind::Attack { enemy } = order.kind
+            && !self.enemy_standing_at(enemy)
+        {
+            self.squad = None;
+            return;
         }
         let keep: Vec<u32> = self
             .squad
@@ -9635,20 +9659,163 @@ impl World {
 
     /// What a mercenary's month costs when this slot does the hiring:
     /// the fee less [`class::HIRE_DISCOUNT_PERCENT`] for a commander fit
-    /// to act — two fifths with *haggler* — rounded down to whole euros,
-    /// and the plain fee for everybody else. Read once, as the contract
-    /// is signed: it stays that hand's fee whatever happens to him.
+    /// to act — a base trait, at every level — rounded down to whole
+    /// euros, and the plain fee for everybody else. Read once, as the
+    /// contract is signed: it stays that hand's fee whatever happens to
+    /// him.
     pub fn hire_fee(&self, slot: u32, resident: u32) -> Option<Money> {
         let fee = self.mercenary_fee(resident)?;
         if !class::can(self.class_of(slot), class::Ability::SquadOrder) || !self.fit_to_act(slot) {
             return Some(fee);
         }
-        let off = if self.has_talent(slot, Talent::Haggler) {
-            class::HAGGLER_DISCOUNT_PERCENT
-        } else {
-            class::HIRE_DISCOUNT_PERCENT
-        };
-        Some(fee - fee * Money::from(off) / 100)
+        Some(fee - fee * Money::from(class::HIRE_DISCOUNT_PERCENT) / 100)
+    }
+
+    // --- the commander's Reinforcements (task 129) --------------------------
+    //
+    // A reinforcement is a crew member marked with the commander who
+    // brought it, for one mission: laid on free deck beside him at its
+    // start (`bring_reinforcements`), gone from the deck the moment it
+    // dies (`settle_reinforcements`, the room's `vanish` — its index kept,
+    // so nobody else's shifts in the middle of a fight) and off the crew
+    // at its end, alive or not (`send_reinforcements_home`). It is a bot
+    // to everything that asks — the squad, the aura, a revive — and to
+    // nothing that pays or counts: no experience (it has no class), no
+    // loot, no wages, no penalty, no worth, and no run is kept going by it.
+
+    /// The player slot of the commander a crew member is a reinforcement
+    /// of; `None` for everybody else.
+    pub fn reinforcement_of(&self, who: u32) -> Option<u32> {
+        self.reinforcements
+            .iter()
+            .find(|r| r.who == who)
+            .map(|r| r.by)
+    }
+
+    /// Whether a crew member is a reinforcement.
+    pub fn is_reinforcement(&self, who: u32) -> bool {
+        self.reinforcement_of(who).is_some()
+    }
+
+    /// The reinforcements a commander brought that are still alive, by
+    /// crew index.
+    pub fn reinforcements_of(&self, commander: u32) -> Vec<u32> {
+        self.reinforcements
+            .iter()
+            .filter(|r| r.by == commander && self.aboard.room.is_alive(r.who as usize))
+            .map(|r| r.who)
+            .collect()
+    }
+
+    /// How many Bims a commander brings to a mission's start at his rank
+    /// ([`class::REINFORCEMENTS`]); nought before the first, and for
+    /// anybody but a commander.
+    pub fn reinforcements_due(&self, commander: u32) -> u32 {
+        if !self.is_commander(commander) {
+            return 0;
+        }
+        class::by_rank(
+            class::REINFORCEMENTS,
+            self.rank_of(commander, class::SLOT_R),
+        )
+        .unwrap_or(0)
+    }
+
+    /// A mission's start: every commander with a rank of Reinforcements —
+    /// each player's in slot order — brings his, onto the free deck
+    /// nearest him within [`class::REINFORCEMENT_REACH_TILES`], as many as
+    /// his rank gives and as the tiles found allow. Each is a classless
+    /// Bim in the crew's coverall with the rank's auto rifle and nothing
+    /// to wear, its face rolled off the galaxy's seed and the mission
+    /// rather than the room's stream.
+    fn bring_reinforcements(&mut self, events: &mut Vec<WorldEvent>) {
+        let t = shipdesign::TILE as f32;
+        let mut brought = false;
+        for slot in 0..self.players() {
+            if slot >= self.aboard.crew_count() || !self.aboard.room.is_alive(slot as usize) {
+                continue;
+            }
+            let due = self.reinforcements_due(slot);
+            if due == 0 {
+                continue;
+            }
+            let rank = self.rank_of(slot, class::SLOT_R);
+            let tier = class::by_rank(class::REINFORCEMENT_TIER, rank).unwrap_or(Tier::One);
+            let at = self.aboard.room.bim_pos(slot as usize);
+            let spots = self
+                .aboard
+                .room
+                .free_tiles_near(at, class::REINFORCEMENT_REACH_TILES * t);
+            let mut count = 0u32;
+            for spot in spots.into_iter().take(due as usize) {
+                let seed = self.galaxy_seed
+                    ^ REINFORCEMENT_SALT
+                    ^ (u64::from(self.run.missions) << 24)
+                    ^ (u64::from(slot) << 8)
+                    ^ u64::from(count);
+                let gear = bims::combat::Gear {
+                    weapon: Some(bims::combat::WeaponKind::AutoRifle.at(tier)),
+                    ..bims::combat::Gear::default()
+                };
+                let who = self.aboard.room.enlist_reinforcement(spot, gear, seed) as u32;
+                self.crew_down.push(false);
+                self.crew_locked.push(false);
+                self.reinforcements
+                    .push(crate::commander::Reinforcement { who, by: slot });
+                count += 1;
+            }
+            if count > 0 {
+                brought = true;
+                events.push(WorldEvent::Reinforced { who: slot, count });
+            }
+        }
+        if !brought {
+            return;
+        }
+        let crew = self.aboard.room.crew_count();
+        self.aboard.crew = crew;
+        self.ship.crew_count = crew;
+        self.medics.resize(crew as usize, Medic::default());
+        self.tanks.resize(crew as usize, Tank::default());
+        self.commanders.resize(crew as usize, Commander::default());
+        self.on_ship_changed();
+    }
+
+    /// A probe's way to the Reinforcements of a mission already under way
+    /// (`BIMS_RANKS` sets the ranks after the probe's mission began):
+    /// every commander brings his as a mission's start would, unless he
+    /// has some already.
+    pub fn reinforce_for_probe(&mut self) -> Vec<WorldEvent> {
+        let mut events = Vec::new();
+        if self.reinforcements.is_empty() {
+            self.bring_reinforcements(&mut events);
+        }
+        events
+    }
+
+    /// After the deaths are said: a reinforcement that died is **gone
+    /// from the deck at once** — not drawn, picked or counted — and does
+    /// not come back that mission. Its crew index stays until the
+    /// mission's end, so nobody else's moves in the middle of a fight.
+    fn settle_reinforcements(&mut self) {
+        for r in &self.reinforcements {
+            let who = r.who as usize;
+            if !self.aboard.room.is_alive(who) && !self.aboard.room.is_gone(who) {
+                self.aboard.room.vanish(who);
+            }
+        }
+    }
+
+    /// A mission's end: every reinforcement off the crew, alive or not,
+    /// its rifle with it — highest index first so the indices below stay
+    /// right.
+    fn send_reinforcements_home(&mut self) {
+        let mut gone: Vec<u32> = self.reinforcements.iter().map(|r| r.who).collect();
+        gone.sort_unstable();
+        for who in gone.into_iter().rev() {
+            self.drop_crew_member(who);
+        }
+        self.reinforcements.clear();
     }
 
     /// Before the rooms step: every crew member's skill to the room.

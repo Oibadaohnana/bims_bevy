@@ -191,8 +191,11 @@ pub enum Order {
     /// The commander's squad sent, called back or held —
     /// `Command::Squad`, the E, X and Z keys (feature 78).
     Squad(world::SquadAsk),
-    /// The commander's rally — `Command::Rally`, the Q key.
+    /// The commander's rally — `Command::Rally`, the E key (task 129).
     Rally,
+    /// The commander's Battle Cry — `Command::BattleCry`, the Q key (task
+    /// 129).
+    BattleCry,
     /// Every player's own standing order to the bots that follow them —
     /// `Command::Orders`, the F and T keys (feature 84).
     Orders(world::Standing),
@@ -478,6 +481,7 @@ impl Net {
                         Order::Taunt => Command::Taunt { slot },
                         Order::Squad(order) => Command::Squad { slot, order },
                         Order::Rally => Command::Rally { slot },
+                        Order::BattleCry => Command::BattleCry { slot },
                         Order::Orders(order) => Command::Orders { slot, order },
                         Order::Carry(who) => Command::Carry { slot, who },
                         Order::Propose { star, station } => Command::Propose {

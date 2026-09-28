@@ -1299,3 +1299,60 @@ pub fn rally_call(painter: &egui::Painter, at: egui::Pos2, scale: f32) {
         );
     }
 }
+
+/// The commander's Battle Cry (task 129): gold, the one colour of his
+/// kit that is no side's.
+pub const BATTLE_CRY: egui::Color32 = egui::Color32::from_rgb(0xff, 0xc8, 0x3c);
+
+/// The Battle Cry's picture on its box (task 129): a burst — eight short
+/// gold rays round a ring — which is a shout seen from above.
+pub fn battle_cry_mark(painter: &egui::Painter, at: egui::Pos2, radius: f32) {
+    let inner = radius * 0.35;
+    let stroke = egui::Stroke::new((radius / 8.0).clamp(1.2, 2.6), BATTLE_CRY);
+    painter.circle_stroke(at, inner, stroke);
+    for i in 0..8 {
+        let a = i as f32 * core::f32::consts::TAU / 8.0;
+        let dir = egui::vec2(a.cos(), a.sin());
+        let far = if i % 2 == 0 { 0.9 } else { 0.7 };
+        painter.line_segment([at + dir * inner * 1.4, at + dir * radius * far], stroke);
+    }
+}
+
+/// A Battle Cry called, on the deck (task 129): a short gold ring
+/// running out from the commander to the cry's reach, `t` nought to one
+/// through its run, fading as it goes.
+pub fn battle_cry_ring(painter: &egui::Painter, at: egui::Pos2, reach: f32, t: f32) {
+    let t = t.clamp(0.0, 1.0);
+    let fade = 1.0 - t;
+    painter.circle_stroke(
+        at,
+        (reach * t).max(4.0),
+        egui::Stroke::new(
+            1.0 + 2.5 * fade,
+            BATTLE_CRY.gamma_multiply(0.25 + 0.75 * fade),
+        ),
+    );
+}
+
+/// A reinforcement (task 129): a small chevron over its head in the
+/// colour of the commander who brought it, so a player tells his own
+/// Bims of the Republic from another commander's and from the crew's.
+pub fn reinforcement_mark(
+    painter: &egui::Painter,
+    at: egui::Pos2,
+    scale: f32,
+    colour: egui::Color32,
+) {
+    let w = (6.0 * scale).clamp(3.0, 9.0);
+    let lift = (0.62 * NAME_LIFT * scale).clamp(10.0, 32.0);
+    let y = at.y - lift;
+    let stroke = egui::Stroke::new((1.8 * scale).clamp(1.2, 2.6), colour);
+    painter.line_segment(
+        [egui::pos2(at.x - w, y), egui::pos2(at.x, y + w * 0.8)],
+        stroke,
+    );
+    painter.line_segment(
+        [egui::pos2(at.x, y + w * 0.8), egui::pos2(at.x + w, y)],
+        stroke,
+    );
+}

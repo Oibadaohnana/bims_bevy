@@ -4540,6 +4540,73 @@ impl Game {
         self.bims.get(who).is_some_and(|b| b.manufacturer)
     }
 
+    /// A commander's **reinforcement** onto the deck (task 129): a Bim at
+    /// `at`, snapped to where a body fits as [`Game::adopt`] snaps one,
+    /// in the crew's coverall, carrying `gear` and nothing else. Its face
+    /// is rolled off `seed` rather than the room's stream, so laying one
+    /// moves no roll a fight makes. It goes on the end of the crew and
+    /// answers its index.
+    pub fn enlist_reinforcement(&mut self, at: Vec2, gear: Gear, seed: u64) -> usize {
+        let who = self.bims.len();
+        let mut rng = Rng::new(seed);
+        let mut bim = Bim::new(who, at, &mut rng);
+        bim.character
+            .set_look(crate::character::Look::of(2 + (seed % 4_096) as usize));
+        bim.gear = gear;
+        self.adopt(vec![bim], Vec2::ZERO);
+        self.refresh_worn(who);
+        who
+    }
+
+    /// The middles of the free deck tiles within `reach` (room units) of
+    /// `at`, nearest first — a tile of deck a body fits on, that can be
+    /// walked to from `at`, and that nobody, living or dead, and no
+    /// machine stands on. Ties go to the upper row, then the left. Where a
+    /// commander's reinforcements are stood (task 129).
+    pub fn free_tiles_near(&self, at: Vec2, reach: f32) -> Vec<Vec2> {
+        let nav = self.maps.deck();
+        let span = (reach / TILE).ceil() as i32;
+        let (cx, cy) = ((at.x / TILE).floor() as i32, (at.y / TILE).floor() as i32);
+        let taken = |p: Vec2| {
+            self.bims
+                .iter()
+                .filter(|b| !b.gone)
+                .any(|b| (b.character.pos - p).len() < 0.6 * TILE)
+                || self.droids.iter().any(|d| (d.pos - p).len() < 0.6 * TILE)
+        };
+        let mut tiles: Vec<(f32, i32, i32, Vec2)> = Vec::new();
+        for y in (cy - span)..=(cy + span) {
+            for x in (cx - span)..=(cx + span) {
+                let p = vec2((x as f32 + 0.5) * TILE, (y as f32 + 0.5) * TILE);
+                let far = (p - at).len();
+                if far > reach || !self.is_deck_tile(p) || taken(p) || !nav.can_reach(at, p) {
+                    continue;
+                }
+                tiles.push((far, y, x, p));
+            }
+        }
+        tiles.sort_by(|a, b| a.0.total_cmp(&b.0).then(a.1.cmp(&b.1)).then(a.2.cmp(&b.2)));
+        tiles.into_iter().map(|t| t.3).collect()
+    }
+
+    /// Take a dead body off the deck for good (task 129): a commander's
+    /// reinforcement that fell. It is drawn nowhere and seen by nobody
+    /// from now on; its index stays until the world drops it at the
+    /// mission's end. Nothing for one alive.
+    pub fn vanish(&mut self, who: usize) {
+        if let Some(bim) = self.bims.get_mut(who)
+            && !bim.is_alive()
+        {
+            bim.gone = true;
+            bim.trail.clear();
+        }
+    }
+
+    /// Whether a body has been taken off the deck ([`Game::vanish`]).
+    pub fn is_gone(&self, who: usize) -> bool {
+        self.bims.get(who).is_some_and(|b| b.gone)
+    }
+
     /// Whose coverall that Bim wears; the crew's for no such Bim.
     pub fn uniform(&self, who: usize) -> crate::character::Uniform {
         self.bims
@@ -6392,6 +6459,10 @@ impl Game {
     /// none of a room nobody is looking into, and under a joined deck the
     /// ones the world said are in view — or were, a moment ago.
     pub fn body_seen(&self, who: usize) -> bool {
+        // A body taken off the deck (task 129) is nobody's to see.
+        if self.is_gone(who) {
+            return false;
+        }
         if self.show_everybody {
             return true;
         }

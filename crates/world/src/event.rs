@@ -152,6 +152,12 @@ pub enum WorldEvent {
     Squadded { who: u32, kind: u32 },
     /// A commander rallied: who.
     Rallied { who: u32 },
+    /// A commander called a Battle Cry (task 129): who.
+    BattleCried { who: u32 },
+    /// A commander brought his reinforcements to the mission's start
+    /// (task 129): who, and how many stood by him — fewer than his rank
+    /// gives where the deck round him was short.
+    Reinforced { who: u32, count: u32 },
     /// A fresh wave of machines has landed at a droid-held station
     /// (feature 83): which station.
     DroidReinforcements { station: u32 },
@@ -324,7 +330,8 @@ pub enum WorldEvent {
 /// plunder's, 26 and 27, and a walk through the test room's locked heads
 /// door, 37, went with the old game in feature 104; the hold's, the
 /// pack's, the loot's and the workbench's, 3, 15–18, 34–36, 51 and 81,
-/// went with the storage in task 113; the desk's, 21, with the desks in task 114).
+/// went with the storage in task 113; the desk's, 21, with the desks in task 114;
+/// a rally too early, 71, with the commander's talents in task 129).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 #[repr(u32)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -436,8 +443,8 @@ pub enum Refusal {
     /// A squad order or a rally by a crew member that is not a
     /// commander (feature 78).
     NotACommander = 70,
-    /// A rally before the commander's third level.
-    NoRallyYet = 71,
+    // 71, a rally before the commander's third level, went with his
+    // talents (task 129): an ability not learnt is `NotLearnt`.
     /// A squad order with nobody of the squad in range of him.
     NoSquadInRange = 72,
     /// An attack with no enemy where the pointer was.
@@ -663,6 +670,8 @@ impl WorldEvent {
             WorldEvent::Rampaged { .. } => 131,
             WorldEvent::EmpThrown { .. } => 132,
             WorldEvent::SentryDone { .. } => 133,
+            WorldEvent::BattleCried { .. } => 134,
+            WorldEvent::Reinforced { .. } => 135,
         }
     }
 
@@ -800,7 +809,10 @@ impl WorldEvent {
             WorldEvent::Thrown { who }
             | WorldEvent::Surged { who }
             | WorldEvent::Taunted { who }
-            | WorldEvent::Rallied { who } => who as i64,
+            | WorldEvent::Rallied { who }
+            | WorldEvent::BattleCried { who } => who as i64,
+            // The count in the hundreds: a crew is never a hundred.
+            WorldEvent::Reinforced { who, count } => (who as i64) + 100 * (count as i64),
             // The order's code in the hundreds, and nought for the
             // order called off: a crew is never a hundred.
             WorldEvent::Squadded { who, kind } => {

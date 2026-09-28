@@ -1,15 +1,16 @@
-//! The commander class (feature 78): `crate::class`'s fifth class. His
-//! start and his one source of experience; the aura and whom it reaches;
-//! hiring at a discount; the three squad orders and whom *they* reach;
-//! the rally; and each of the ten levels' talents doing what it says, to
-//! the commander who holds it alone.
+//! The commander class (feature 78, its ranked kit task 129):
+//! `crate::class`'s fifth class. His start; the sixteen levels and a skill
+//! point a level; the two base traits — hiring at a discount and the
+//! three squad orders, and whom *they* reach; and the four abilities a
+//! rank at a time — Battle Cry, Command Aura, Rally and Reinforcements —
+//! each doing what its rank says.
 
-use bims::combat::{ArmourKind, WeaponKind};
+use bims::combat::{Gear, Tier, WeaponKind};
 use bims::droid::{Droid, DroidKind, DroidPart};
 use bims::math::vec2;
 use shipdesign::fixture::combat_ship;
 
-use crate::class::{self, Class, LEVEL_XP, Side, Talent};
+use crate::class::{self, Class};
 use crate::commander::{SquadAsk, SquadKind};
 use crate::event::{Refusal, WorldEvent};
 use crate::fixture::{REFERENCE_MONEY, crewed_world};
@@ -17,6 +18,9 @@ use crate::world::{Command, World};
 use crate::world_checksum;
 
 const TILE: f32 = shipdesign::TILE as f32;
+
+/// Seconds of the room's clock a world step is.
+const SECONDS_A_STEP: f64 = crate::data::STEP_MINUTES / time::MINUTES_PER_SECOND;
 
 /// The combat ship — bunks for five, armour and guns in the hold — with
 /// three players and three crewmates nobody steers, which is what a
@@ -40,44 +44,41 @@ fn refused_with(events: &[WorldEvent], want: Refusal) -> bool {
         .any(|e| matches!(e, WorldEvent::Refused { why, .. } if *why == want))
 }
 
-/// Straight to a level, off the table.
+/// Straight to a level, off the class's own table.
 fn level_up(world: &mut World, who: usize, level: u8) {
     let mut events = Vec::new();
-    let want = LEVEL_XP[level as usize - 1];
+    let want = class::level_xp(world.class_of(who as u32))[level as usize - 1];
     let have = world.progress_of(who as u32).xp;
     world.award(who, want.saturating_sub(have), &mut events);
     assert!(world.level_of(who as u32) >= level);
 }
 
-fn pick(world: &mut World, who: u32, talent: Talent) {
-    let (level, side) = (1..=class::LEVELS)
-        .find_map(|l| {
-            class::pick_at(talent.class(), l).and_then(|(left, right)| {
-                if left == talent {
-                    Some((l, Side::Left))
-                } else if right == talent {
-                    Some((l, Side::Right))
-                } else {
-                    None
-                }
-            })
-        })
-        .expect("a talent is on a pick level");
-    if world.level_of(who) < level {
-        level_up(world, who as usize, level);
+/// Ranks bought one at a time through `Command::RankUp`, Q C E R, the
+/// level raised first to what the highest wants.
+fn ranks(world: &mut World, who: u32, want: [u8; 4]) {
+    let class = world.class_of(who);
+    let need = (0..4u8)
+        .filter_map(|slot| class::rank_level(class, slot, want[slot as usize]))
+        .chain(std::iter::once(want.iter().sum::<u8>().max(1)))
+        .max()
+        .unwrap_or(1);
+    if world.level_of(who) < need {
+        level_up(world, who as usize, need);
     }
-    let events = world.step(&[Command::PickTalent {
-        slot: who,
-        level: level as u32,
-        side,
-    }]);
-    assert!(
-        events.iter().any(
-            |e| matches!(e, WorldEvent::TalentPicked { talent: t, .. } if *t == talent.code())
-        ),
-        "{talent:?} picked: {events:?}"
-    );
-    assert!(world.has_talent(who, talent));
+    for (slot, &rank) in want.iter().enumerate() {
+        while world.rank_of(who, slot as u8) < rank {
+            let events = world.step(&[Command::RankUp {
+                slot: who,
+                ability_slot: slot as u32,
+            }]);
+            assert!(
+                events
+                    .iter()
+                    .any(|e| matches!(e, WorldEvent::RankedUp { .. })),
+                "rank {rank} of slot {slot}: {events:?}"
+            );
+        }
+    }
 }
 
 /// The crew held where they stand: their own errands off, and nobody
@@ -106,7 +107,41 @@ fn skill(world: &World, who: usize) -> bims::combat::Skill {
     world.aboard.room.skill_for_probe(who)
 }
 
-// --- A: the class, the start, the experience, the aura, hiring -------------
+/// Steps enough for `seconds` of the mission clock, the commander kept
+/// whole.
+fn run_for(world: &mut World, seconds: f64) {
+    for _ in 0..(seconds / SECONDS_A_STEP).ceil() as u32 {
+        world.aboard.room.patch_up_for_probe(0);
+        world.step(&[]);
+    }
+}
+
+/// The mission left — if one is under way — and another begun somewhere
+/// else in the system, the way the crew do it: back to the map, a
+/// proposal and every yes. The events of the step the trip was taken.
+fn next_mission(world: &mut World) -> Vec<WorldEvent> {
+    if world.run.phase == crate::run::Phase::Mission {
+        world.leave_for_probe();
+    }
+    let here = world.current_site();
+    let site = world
+        .sites_at(world.star_id)
+        .into_iter()
+        .find(|&s| Some(s) != here && world.travel_quote(s).is_ok_and(|q| !q.trader))
+        .expect("somewhere else to go");
+    let mut events = world.step(&[Command::Propose {
+        slot: 0,
+        star: site.star,
+        station: site.station,
+    }]);
+    for slot in 1..world.players() {
+        events.extend(world.step(&[Command::Accept { slot, yes: true }]));
+    }
+    assert_eq!(world.run.phase, crate::run::Phase::Mission);
+    events
+}
+
+// --- A: the class, the start, the levels, hiring ---------------------------
 
 #[test]
 fn the_commander_sets_out_with_the_pistol_and_the_pool_is_unchanged() {
@@ -136,69 +171,6 @@ fn the_commander_sets_out_with_the_pistol_and_the_pool_is_unchanged() {
     assert_eq!(
         world.aboard.room.weapon(0),
         Some(WeaponKind::LaserPistol.basic())
-    );
-}
-
-#[test]
-fn the_aura_lifts_every_friendly_bim_in_it_and_nobody_else() {
-    let mut world = commander();
-    hold_still(&mut world);
-    // A player's own steered Bim (slot 1), a bot (crew 3) and a
-    // mercenary are all the same to it. Crew 1 stands just inside the
-    // radius, crew 2 just outside.
-    stand_near(&mut world, 1, class::AURA_TILES - 1.0);
-    stand_near(&mut world, 2, class::AURA_TILES + 2.0);
-    world.step(&[]);
-    assert!(world.aura_reaching(1).is_some(), "inside the radius");
-    assert!(world.aura_reaching(2).is_none(), "outside it");
-    assert!(world.aura_reaching(0).is_none(), "never himself");
-    let lifted = skill(&world, 1);
-    assert!((lifted.accuracy - class::AURA_AIM).abs() < 1e-5);
-    assert!((lifted.effort - class::AURA_WORK).abs() < 1e-5);
-    let outside = skill(&world, 2);
-    assert_eq!(outside.accuracy, 1.0);
-    assert_eq!(outside.effort, 1.0);
-    // The bots past the players are in it too — a hire is a bot.
-    stand_near(&mut world, 3, 1.0);
-    world.step(&[]);
-    assert!(world.aura_reaching(3).is_some(), "a bot, and a hire, too");
-    // And the enemy is never in it: the aura is asked of the crew's room
-    // alone, so a machine's index is nobody's here.
-    assert!(world.stage_droid_fight_for_probe(DroidKind::Trooper, None));
-    world.step(&[]);
-    let residents = world.residents.as_ref().unwrap().aboard.count();
-    assert!(residents > 0);
-    // Out cold, he lifts nobody.
-    stand_near(&mut world, 1, 1.0);
-    world.step(&[]);
-    assert!(world.aura_reaching(1).is_some());
-    world.aboard.room.knock_out_for_probe(0);
-    world.step(&[]);
-    assert!(world.aura_reaching(1).is_none(), "not while he is out cold");
-}
-
-#[test]
-fn two_commanders_auras_do_not_stack_and_the_stronger_holds() {
-    let mut world = basic();
-    assert_eq!(world.set_class(0, Class::Commander), Ok(()));
-    assert_eq!(world.set_class(1, Class::Commander), Ok(()));
-    world.step(&[]);
-    hold_still(&mut world);
-    stand_near(&mut world, 1, 2.0);
-    stand_near(&mut world, 2, 3.0);
-    world.step(&[]);
-    let one = world.aura_reaching(2).expect("in both auras");
-    assert!((one.aim - class::AURA_AIM).abs() < 1e-5, "one aura's worth");
-    // The second commander takes *strong presence*: the deeper aura is
-    // the one that holds, and still only one of them.
-    pick(&mut world, 1, Talent::StrongPresence);
-    world.step(&[]);
-    let strong = world.aura_reaching(2).expect("still in both");
-    let wanted = class::aura_bonus(class::AURA_AIM, class::STRONG_PRESENCE);
-    assert!((strong.aim - wanted).abs() < 1e-5, "the deeper one alone");
-    assert!(
-        (skill(&world, 2).accuracy - wanted).abs() < 1e-5,
-        "and the room is told that and no product of the two"
     );
 }
 
@@ -397,8 +369,10 @@ fn a_squad_order_reaches_the_squad_and_never_a_players_own_bim() {
 }
 
 #[test]
-fn out_of_range_crew_are_not_ordered_and_long_reach_takes_the_room() {
+fn a_squad_order_reaches_twenty_tiles_from_the_first_level_and_no_further_at_the_top() {
     let mut world = fight();
+    assert_eq!(world.level_of(0), 1, "a base trait: the first level");
+    assert_eq!(world.squad_range(0), class::SQUAD_RANGE);
     for who in 1..world.aboard.crew_count() {
         stand_near(&mut world, who as usize, class::SQUAD_RANGE + 5.0);
     }
@@ -407,12 +381,10 @@ fn out_of_range_crew_are_not_ordered_and_long_reach_takes_the_room() {
     let near = world.squad_members(0);
     assert!(near.contains(&3), "{near:?}");
     assert!(!near.contains(&4), "beyond the range");
-    // *Long reach* is the seventh level, fixed: the whole room.
-    level_up(&mut world, 0, class::LONG_REACH_LEVEL);
+    // No level takes it further: the long reach went with the talents.
+    level_up(&mut world, 0, 16);
     world.step(&[]);
-    let far = world.squad_members(0);
-    assert!(far.len() > near.len(), "{far:?} against {near:?}");
-    assert!(far.contains(&4));
+    assert_eq!(world.squad_members(0), near);
 }
 
 #[test]
@@ -435,12 +407,7 @@ fn an_attack_marks_an_enemy_and_ends_when_it_goes_down() {
         order: SquadAsk::Attack { enemy },
     }]);
     let order = world.squad.as_ref().expect("an attack");
-    assert_eq!(
-        order.kind,
-        SquadKind::Attack {
-            enemies: vec![enemy]
-        }
-    );
+    assert_eq!(order.kind, SquadKind::Attack { enemy });
     let member = order.members[0];
     world.step(&[]);
     assert_eq!(
@@ -645,7 +612,7 @@ fn an_order_ends_on_a_repeat_a_new_one_a_click_and_his_going_down() {
 }
 
 #[test]
-fn an_order_is_cleared_by_an_unjoin_a_hire_and_a_dismissal() {
+fn an_order_is_cleared_by_an_unjoin() {
     let mut world = fight();
     for who in 1..world.aboard.crew_count() {
         stand_near(&mut world, who as usize, 2.0);
@@ -714,441 +681,640 @@ fn two_runs_of_a_squad_order_on_one_seed_are_the_same_world() {
     assert_eq!(run(), run());
 }
 
-// --- C: the rally ----------------------------------------------------------
+// --- C: the ranked kit (task 129) ------------------------------------------
 
 #[test]
-fn a_rally_wants_the_third_level_and_its_cooldown() {
-    let mut world = commander();
-    hold_still(&mut world);
-    let events = world.step(&[Command::Rally { slot: 0 }]);
-    assert!(refused_with(&events, Refusal::NoRallyYet));
-    // Anybody but a commander is refused outright.
-    assert_eq!(world.can_rally(1), Err(Refusal::NotACommander));
-    level_up(&mut world, 0, class::RALLY_LEVEL);
-    let events = world.step(&[Command::Rally { slot: 0 }]);
+fn the_commander_climbs_sixteen_levels_and_buys_his_ranks_as_the_soldier_does() {
+    let mut world = basic();
+    assert_eq!(world.set_class(0, Class::Commander), Ok(()));
+    assert_eq!(world.set_class(1, Class::Medic), Ok(()));
+    assert_eq!(world.set_class(2, Class::Tank), Ok(()));
+    let c = Class::Commander;
+    assert!(class::ranked(c));
+    assert_eq!(class::levels(c), 16);
+    assert_eq!(class::level_of(c, 3_199), 15);
+    assert_eq!(class::level_of(c, 3_200), 16, "the top at 3 200");
+    let rank_up = |world: &mut World, slot: u32, ability_slot: u32| {
+        world.step(&[Command::RankUp { slot, ability_slot }])
+    };
+    // The medic and the tank keep their talents, and are refused.
+    for slot in [1, 2] {
+        assert!(refused_with(
+            &rank_up(&mut world, slot, 0),
+            Refusal::NoRankedKit
+        ));
+    }
+    // The ultimate wants the sixth level; the first level's point buys Q.
+    assert!(refused_with(
+        &rank_up(&mut world, 0, 3),
+        Refusal::RankLocked
+    ));
+    let events = rank_up(&mut world, 0, 0);
     assert!(
-        events
-            .iter()
-            .any(|e| matches!(e, WorldEvent::Rallied { who: 0 })),
+        events.iter().any(|e| matches!(
+            e,
+            WorldEvent::RankedUp {
+                who: 0,
+                class: 5,
+                ability_slot: 0,
+                rank: 1
+            }
+        )),
         "{events:?}"
     );
-    assert!(world.is_rallying(0));
+    assert!(refused_with(
+        &rank_up(&mut world, 0, 1),
+        Refusal::NoSkillPoint
+    ));
+    // The soldier's gates: Q, C and E rank n at 2n − 1, R at 6, 9, 12, 15.
+    for slot in 0..4u8 {
+        for rank in 1..=4u8 {
+            let want = if slot == class::SLOT_R {
+                [6, 9, 12, 15][rank as usize - 1]
+            } else {
+                2 * rank - 1
+            };
+            assert_eq!(class::rank_level(c, slot, rank), Some(want));
+        }
+    }
+    level_up(&mut world, 0, 2);
+    assert!(refused_with(
+        &rank_up(&mut world, 0, 0),
+        Refusal::RankLocked
+    ));
+    level_up(&mut world, 0, 16);
+    assert_eq!(world.points_of(0), 15);
+    for _ in 0..4 {
+        rank_up(&mut world, 0, 3);
+    }
+    assert_eq!(world.rank_of(0, 3), 4);
+    assert!(refused_with(&rank_up(&mut world, 0, 3), Refusal::TopRank));
+    // No talent is picked any more.
+    let events = world.step(&[Command::PickTalent {
+        slot: 0,
+        level: 2,
+        side: class::Side::Left,
+    }]);
+    assert!(refused_with(&events, Refusal::NotAPickLevel));
+}
+
+#[test]
+fn battle_cry_fires_faster_for_its_seconds_by_rank_and_waits_its_cooldown() {
+    let mut world = commander();
+    let events = world.step(&[Command::BattleCry { slot: 0 }]);
+    assert!(refused_with(&events, Refusal::NotLearnt), "{events:?}");
+    let events = world.step(&[Command::BattleCry { slot: 1 }]);
+    assert!(refused_with(&events, Refusal::NotACommander));
+    let want = [
+        (1.25, 3.0, 20.0),
+        (1.30, 4.0, 18.0),
+        (1.35, 5.0, 16.0),
+        (1.40, 6.0, 14.0),
+    ];
+    for (rank, &(rate, seconds, cooldown)) in (1..=4u8).zip(&want) {
+        let mut world = commander();
+        hold_still(&mut world);
+        ranks(&mut world, 0, [rank, 0, 0, 0]);
+        stand_near(&mut world, 1, 2.0);
+        world.step(&[]);
+        assert_eq!(world.battle_cry_seconds(0), seconds, "rank {rank}");
+        assert_eq!(world.battle_cry_cooldown(0), cooldown, "rank {rank}");
+        let before = world.skill_of(1).fire_rate;
+        let events = world.step(&[Command::BattleCry { slot: 0 }]);
+        assert!(
+            events
+                .iter()
+                .any(|e| matches!(e, WorldEvent::BattleCried { who: 0 })),
+            "{events:?}"
+        );
+        assert!(world.is_crying(0));
+        assert!((world.skill_of(1).fire_rate - before * rate).abs() < 1e-5);
+        assert!(
+            (world.skill_of(0).fire_rate - rate).abs() < 1e-5,
+            "himself too"
+        );
+        world.step(&[]);
+        assert_eq!(skill(&world, 1), world.skill_of(1), "the room is told");
+        let events = world.step(&[Command::BattleCry { slot: 0 }]);
+        assert!(refused_with(&events, Refusal::CoolingDown));
+        run_for(&mut world, seconds - 0.5);
+        assert!(world.is_crying(0), "rank {rank}: still on");
+        run_for(&mut world, 1.0);
+        assert!(!world.is_crying(0), "rank {rank}: over");
+        assert_eq!(world.skill_of(1).fire_rate, before);
+        let left = world.battle_cry_cooldown_left(0);
+        assert!(
+            left > 0.0 && left <= cooldown - seconds + 1.0,
+            "rank {rank}: {left}"
+        );
+    }
+}
+
+#[test]
+fn battle_cry_reaches_those_near_at_the_call_and_keeps_to_them() {
+    let mut world = commander();
+    hold_still(&mut world);
+    ranks(&mut world, 0, [1, 0, 0, 0]);
+    stand_near(&mut world, 1, 3.0);
+    stand_near(&mut world, 2, class::BATTLE_CRY_TILES + 4.0);
+    world.step(&[]);
+    world.step(&[Command::BattleCry { slot: 0 }]);
+    assert_eq!(world.battle_cry_reaching(0), Some(0));
+    assert_eq!(world.battle_cry_reaching(1), Some(0), "within eight");
+    assert_eq!(world.battle_cry_reaching(2), None, "none outside");
+    // The one within walks out and keeps it; the one outside walks in and
+    // is given nothing.
+    stand_near(&mut world, 1, class::BATTLE_CRY_TILES + 4.0);
+    stand_near(&mut world, 2, 1.0);
+    world.step(&[]);
+    assert_eq!(world.battle_cry_reaching(1), Some(0), "walked out, kept");
+    assert_eq!(world.battle_cry_reaching(2), None, "walked in, nothing");
+    assert!(world.skill_of(1).fire_rate > 1.0);
+    assert_eq!(world.skill_of(2).fire_rate, 1.0);
+}
+
+#[test]
+fn battle_cry_is_refused_downed_multiplies_with_a_rampage_and_lifts_no_sentry() {
+    let mut world = basic();
+    assert_eq!(world.set_class(0, Class::Commander), Ok(()));
+    assert_eq!(world.set_class(1, Class::Soldier), Ok(()));
+    assert_eq!(world.set_class(2, Class::Engineer), Ok(()));
+    world.step(&[]);
+    hold_still(&mut world);
+    ranks(&mut world, 0, [1, 4, 1, 0]);
+    ranks(&mut world, 1, [0, 0, 0, 1]);
+    ranks(&mut world, 2, [0, 0, 0, 2]);
+    stand_near(&mut world, 1, 1.0);
+    stand_near(&mut world, 2, 2.0);
+    // Downed, he cries nothing and rallies nothing.
+    world.aboard.room.knock_out_for_probe(0);
+    world.step(&[]);
+    assert_eq!(world.can_battle_cry(0), Err(Refusal::OutOfReach));
+    assert_eq!(world.can_rally(0), Err(Refusal::OutOfReach));
+    world.aboard.room.patch_up_for_probe(0);
+    world.step(&[]);
+    world.step(&[]);
+    assert_eq!(world.can_battle_cry(0), Ok(()));
+    // The soldier on a Rampage and in the cry: both factors.
+    world.step(&[Command::Rampage { slot: 1 }]);
+    world.step(&[Command::BattleCry { slot: 0 }]);
+    let s = world.skill_of(1);
+    let want = class::RAMPAGE_FIRE_RATE[0] * class::BATTLE_CRY_FIRE_RATE[0];
+    assert!((s.fire_rate - want).abs() < 1e-5, "{}", s.fire_rate);
+    // The engineer is lifted and his sentry is not: a sentry's skill is
+    // its own.
+    assert_eq!(world.battle_cry_reaching(2), Some(0));
+    let sentry = world.sentry_skill(2);
+    assert_eq!(sentry.fire_rate, class::SENTRY_FIRE_RATE[1]);
+    assert_eq!(sentry.damage, 1.0, "no aura on a sentry");
+    assert!(world.skill_of(2).damage > 1.0, "the engineer's own is");
+}
+
+#[test]
+fn battle_cry_and_rally_are_ready_at_every_mission_and_shortened_by_the_relics() {
+    let mut world = commander();
+    ranks(&mut world, 0, [1, 0, 1, 0]);
+    let cry = world.battle_cry_cooldown(0);
+    let rally = world.rally_cooldown(0);
+    world.give_relic_for_probe(0, crate::relic::Relic::CoolantLoop);
+    assert!(world.battle_cry_cooldown(0) < cry, "*Coolant Loop*");
+    assert!(world.rally_cooldown(0) < rally, "*Coolant Loop*");
+    world.step(&[Command::BattleCry { slot: 0 }]);
+    world.step(&[Command::Rally { slot: 0 }]);
+    run_for(&mut world, 12.0);
+    assert!(world.battle_cry_cooldown_left(0) > 0.0);
     assert!(world.rally_cooldown_left(0) > 0.0);
-    let events = world.step(&[Command::Rally { slot: 0 }]);
-    assert!(refused_with(&events, Refusal::CoolingDown));
-}
-
-#[test]
-fn a_rally_lifts_the_aim_for_its_minutes() {
-    let mut world = commander();
-    hold_still(&mut world);
-    level_up(&mut world, 0, class::RALLY_LEVEL);
-    stand_near(&mut world, 1, 2.0);
-    stand_near(&mut world, 3, 2.0);
-    world.step(&[Command::Rally { slot: 0 }]);
-    world.step(&[]);
-    // A player's own Bim and a bot alike, and it stacks with the aura.
-    for who in [1usize, 3] {
-        let s = skill(&world, who);
-        let wanted = class::AURA_AIM * class::RALLY_AIM;
-        assert!(
-            (s.accuracy - wanted).abs() < 1e-5,
-            "crew {who}: {} against {wanted}",
-            s.accuracy
-        );
-    }
-    // Two rallies do not stack: a second commander's rally over the
-    // first is the same factor.
-    assert_eq!(world.set_class(1, Class::Commander), Ok(()));
-    level_up(&mut world, 1, class::RALLY_LEVEL);
-    world.step(&[Command::Rally { slot: 1 }]);
-    world.step(&[]);
-    let s = skill(&world, 3);
-    let wanted = class::AURA_AIM * class::RALLY_AIM;
-    assert!((s.accuracy - wanted).abs() < 1e-5, "{}", s.accuracy);
-    // And it runs out.
-    let minutes = world.rally_minutes(0);
-    for _ in 0..(minutes as u32 + 2) * 60 {
-        world.step(&[]);
-    }
-    assert!(!world.is_rallying(0));
-    assert!(!world.is_rallying(1));
-    world.step(&[]);
-    assert!(
-        (skill(&world, 3).accuracy - class::AURA_AIM).abs() < 1e-5,
-        "the aura's alone once it has run out"
+    // *Kill Relay*: a kill takes seconds off both once their shouts are
+    // over.
+    let (cry_left, rally_left) = (
+        world.battle_cry_cooldown_left(0),
+        world.rally_cooldown_left(0),
     );
-}
-
-// --- D: the ten levels -----------------------------------------------------
-
-#[test]
-fn the_fixed_levels_are_the_aura_the_rally_and_the_long_reach() {
-    let mut world = commander();
-    hold_still(&mut world);
-    stand_near(&mut world, 1, 2.0);
-    world.step(&[]);
-    // One: the aura, the discount and the three orders, with nothing
-    // picked at all.
-    assert_eq!(world.level_of(0), 1);
-    assert!(world.aura_reaching(1).is_some());
-    assert_eq!(world.can_squad(0), Ok(()));
-    assert_eq!(world.can_rally(0), Err(Refusal::NoRallyYet));
-    // Three: the rally.
-    level_up(&mut world, 0, class::RALLY_LEVEL);
+    world.give_relic_for_probe(0, crate::relic::Relic::KillRelay);
+    let mut events = Vec::new();
+    world.machine_kills(&[(Some(0), 0)], &mut events);
+    assert!(world.battle_cry_cooldown_left(0) < cry_left, "*Kill Relay*");
+    assert!(world.rally_cooldown_left(0) < rally_left, "*Kill Relay*");
+    next_mission(&mut world);
+    assert_eq!(world.battle_cry_cooldown_left(0), 0.0);
+    assert_eq!(world.rally_cooldown_left(0), 0.0);
+    assert_eq!(world.can_battle_cry(0), Ok(()));
     assert_eq!(world.can_rally(0), Ok(()));
-    // Seven: long reach.
-    assert_eq!(world.squad_range(0), class::SQUAD_RANGE);
-    level_up(&mut world, 0, class::LONG_REACH_LEVEL);
-    assert_eq!(world.squad_range(0), f32::MAX);
+    assert!(world.commander_of(0).cried.is_empty());
 }
 
 #[test]
-fn wide_presence_and_strong_presence() {
+fn command_aura_lifts_the_damage_by_rank_within_its_radius_himself_included() {
     let mut world = commander();
     hold_still(&mut world);
-    stand_near(&mut world, 1, class::AURA_TILES + 2.0);
+    stand_near(&mut world, 1, 1.0);
     world.step(&[]);
-    assert!(world.aura_reaching(1).is_none());
-    pick(&mut world, 0, Talent::WidePresence);
-    world.step(&[]);
-    assert_eq!(
-        world.aura_radius(0),
-        class::AURA_TILES * class::WIDE_PRESENCE_RADIUS
-    );
-    assert!(
-        world.aura_reaching(1).is_some(),
-        "the wider aura reaches it"
-    );
-    // The right-hand pick instead: each bonus deeper, the radius as it
-    // was, and only for the commander who holds it.
-    let mut other = commander();
-    hold_still(&mut other);
-    stand_near(&mut other, 1, 2.0);
-    pick(&mut other, 0, Talent::StrongPresence);
-    other.step(&[]);
-    assert_eq!(other.aura_radius(0), class::AURA_TILES);
-    let aura = other.aura_reaching(1).expect("in it");
-    assert!((aura.aim - class::aura_bonus(class::AURA_AIM, class::STRONG_PRESENCE)).abs() < 1e-5);
-    assert!((aura.work - class::aura_bonus(class::AURA_WORK, class::STRONG_PRESENCE)).abs() < 1e-5);
-}
-
-#[test]
-fn haggler_and_outfitter() {
-    let mut world = basic();
-    assert_eq!(world.set_class(0, Class::Commander), Ok(()));
-    world.step(&[]);
-    if !world.mercenary_for_probe() {
-        return;
-    }
-    let merc = world.residents.as_ref().unwrap().aboard.count() - 1;
-    let full = world.mercenary_fee(merc).expect("a fee");
-    pick(&mut world, 0, Talent::Haggler);
-    assert_eq!(
-        world.hire_fee(0, merc),
-        Some(full - full * u64::from(class::HAGGLER_DISCOUNT_PERCENT) / 100)
-    );
-    // Only the commander who holds it.
-    assert_eq!(world.hire_fee(1, merc), Some(full));
-
-    // *Outfitter*: the hire arrives with the lowest basic piece it lacked.
-    let mut world = basic();
-    assert_eq!(world.set_class(0, Class::Commander), Ok(()));
-    world.step(&[]);
-    pick(&mut world, 0, Talent::Outfitter);
-    if !world.mercenary_for_probe() {
-        return;
-    }
-    let merc = world.residents.as_ref().unwrap().aboard.count() - 1;
-    let missing: Vec<ArmourKind> = ArmourKind::BASIC
-        .into_iter()
-        .filter(|k| {
-            world
-                .residents
-                .as_ref()
-                .unwrap()
-                .aboard
-                .room
-                .gear(merc as usize)
-                .worn(k.slot())
-                .is_none()
-        })
-        .collect();
-    let fee = world.hire_fee(0, merc).expect("a fee");
-    let at = world
-        .body_position(crate::LootSource::Resident(merc))
-        .expect("alongside");
-    world.aboard.room.put_for_probe(0, at);
-    let money = world.money;
-    world.step(&[Command::Hire {
-        slot: 0,
-        who: 0,
-        resident: merc,
-    }]);
-    let new_who = world.aboard.crew_count() - 1;
-    assert_eq!(world.money, money - fee, "the piece is not charged for");
-    if let Some(&first) = missing.first() {
-        assert!(
-            world
-                .aboard
-                .room
-                .gear(new_who as usize)
-                .worn(first.slot())
-                .is_some(),
-            "the lowest piece it lacked, {first:?}"
-        );
-    }
-}
-
-#[test]
-fn focus_fire_and_pincer() {
-    let mut world = fight();
-    let enemy = enemy_up(&world);
-    for who in 1..world.aboard.crew_count() {
-        stand_near(&mut world, who as usize, 2.0);
-    }
-    world.step(&[]);
-    pick(&mut world, 0, Talent::FocusFire);
-    world.step(&[Command::Squad {
-        slot: 0,
-        order: SquadAsk::Attack { enemy },
-    }]);
-    world.step(&[]);
-    let member = world.squad.as_ref().unwrap().members[0] as usize;
-    assert!(
-        (skill(&world, member).marked_accuracy - class::FOCUS_FIRE_ACCURACY).abs() < 1e-5,
-        "the squad's odds against the mark"
-    );
-    // And against nobody else: a member not under an attack has none.
-    assert_eq!(skill(&world, 0).marked_accuracy, 1.0);
-
-    // *Pincer* marks a second enemy beside the first.
-    let mut world = fight();
-    let residents = world.residents.as_ref().unwrap();
-    let up: Vec<u32> = (0..residents.aboard.count())
-        .filter(|&i| {
-            residents.aboard.room.is_alive(i as usize)
-                && !residents.aboard.room.is_downed(i as usize)
-        })
-        .collect();
-    assert!(up.len() >= 2, "two machines standing: {up:?}");
-    for who in 1..world.aboard.crew_count() {
-        stand_near(&mut world, who as usize, 2.0);
-    }
-    world.step(&[]);
-    pick(&mut world, 0, Talent::Pincer);
-    world.step(&[Command::Squad {
-        slot: 0,
-        order: SquadAsk::Attack { enemy: up[0] },
-    }]);
-    world.step(&[Command::Squad {
-        slot: 0,
-        order: SquadAsk::Attack { enemy: up[1] },
-    }]);
-    let order = world.squad.as_ref().expect("an attack");
-    assert_eq!(
-        order.kind,
-        SquadKind::Attack {
-            enemies: vec![up[0], up[1]]
-        }
-    );
-    // The squad is split between them, in turn.
-    assert_eq!(order.mark_for(order.members[0]), Some(up[0]));
-    if order.members.len() > 1 {
-        assert_eq!(order.mark_for(order.members[1]), Some(up[1]));
-    }
-}
-
-#[test]
-fn long_rally_and_quick_rally() {
-    let mut world = commander();
-    level_up(&mut world, 0, class::RALLY_LEVEL);
-    assert_eq!(world.rally_minutes(0), class::RALLY_MINUTES);
-    assert_eq!(world.rally_cooldown(0), class::RALLY_COOLDOWN);
-    pick(&mut world, 0, Talent::LongRally);
-    assert_eq!(
-        world.rally_minutes(0),
-        class::RALLY_MINUTES * class::LONG_RALLY_TIME
-    );
-    assert_eq!(world.rally_cooldown(0), class::RALLY_COOLDOWN);
-    assert_eq!(world.rally_minutes(1), class::RALLY_MINUTES, "his alone");
-
-    let mut world = commander();
-    pick(&mut world, 0, Talent::QuickRally);
-    assert_eq!(
-        world.rally_cooldown(0),
-        class::RALLY_COOLDOWN * class::QUICK_RALLY_COOLDOWN
-    );
-    assert_eq!(world.rally_minutes(0), class::RALLY_MINUTES);
-}
-
-#[test]
-fn double_time() {
-    // *Steady ranks*, its other side, is a no-op since task 120: nothing
-    // bleeds.
-    let mut world = commander();
-    hold_still(&mut world);
-    stand_near(&mut world, 1, 2.0);
-    pick(&mut world, 0, Talent::DoubleTime);
-    world.step(&[]);
-    assert!((skill(&world, 1).walk - class::DOUBLE_TIME_PACE).abs() < 1e-5);
-    assert_eq!(skill(&world, 0).walk, 1.0, "never himself");
-}
-
-/// Where an enemy stands in the crew's room, off the commander.
-fn from_commander(world: &World, enemy: u32) -> f32 {
-    let residents = world.residents.as_ref().expect("alongside");
-    let at = world
-        .aboard
-        .from_station(residents.aboard.position(enemy))
-        .expect("on the joined deck");
-    (vec2(at.x as f32, at.y as f32) - world.aboard.room.bim_pos(0)).len()
-}
-
-/// What an attack has marked.
-fn marks(world: &World) -> Vec<u32> {
-    match &world.squad.as_ref().expect("an order").kind {
-        SquadKind::Attack { enemies } => enemies.clone(),
-        other => panic!("not an attack: {other:?}"),
-    }
-}
-
-/// *Relentless*: an attack whose mark is dead goes on to the enemy
-/// standing nearest the commander rather than ending, and ends only when
-/// none is — which is the half of the talent a fight against the
-/// machines has to act on, a machine being destroyed and never out cold.
-/// Without it the order ends with the mark, a machine still standing
-/// (`an_attack_marks_an_enemy_and_ends_when_it_goes_down`).
-#[test]
-fn relentless_takes_the_attack_on_to_the_nearest_machine_standing() {
-    let mut world = fight();
-    machine_off(&mut world, -1.5);
-    world.step(&[]);
-    for who in 1..world.aboard.crew_count() {
-        stand_near(&mut world, who as usize, 2.0);
-    }
-    world.step(&[]);
-    pick(&mut world, 0, Talent::Relentless);
-    let enemy = enemy_up(&world);
-    world.step(&[Command::Squad {
-        slot: 0,
-        order: SquadAsk::Attack { enemy },
-    }]);
-    assert_eq!(marks(&world), vec![enemy]);
-    let member = world.squad.as_ref().unwrap().members[0];
-    let mut mark = enemy;
-    let mut moved = 0;
-    loop {
-        wreck(&mut world, mark);
+    assert!(world.aura_reaching(1).is_none(), "nothing before a rank");
+    assert_eq!(world.aura_radius(0), 0.0);
+    let want = [(1.08, 6.0), (1.12, 7.0), (1.16, 8.0), (1.20, 10.0)];
+    for (rank, &(damage, radius)) in (1..=4u8).zip(&want) {
+        let mut world = commander();
+        hold_still(&mut world);
+        ranks(&mut world, 0, [0, rank, 0, 0]);
+        assert_eq!(world.aura_radius(0), radius, "rank {rank}");
+        stand_near(&mut world, 1, radius - 0.5);
+        stand_near(&mut world, 2, radius + 1.0);
+        world.step(&[]);
+        let inside = world.skill_of(1);
+        assert!((inside.damage - damage).abs() < 1e-5, "rank {rank}");
+        assert!((inside.melee - damage).abs() < 1e-5, "and a blow's");
+        assert_eq!(world.skill_of(2).damage, 1.0, "outside");
+        assert!((world.skill_of(0).damage - damage).abs() < 1e-5, "himself");
+        assert_eq!(skill(&world, 1).damage, inside.damage, "the room is told");
+        // A bot and a hire are in it as a player's Bim is.
+        stand_near(&mut world, 4, 1.0);
+        world.step(&[]);
+        assert!(world.aura_reaching(4).is_some());
+        // Downed, he lifts nobody.
+        world.aboard.room.knock_out_for_probe(0);
         world.step(&[]);
         world.step(&[]);
-        let residents = world.residents.as_ref().unwrap();
-        let standing: Vec<u32> = (0..residents.aboard.count())
-            .filter(|&i| residents.aboard.room.is_alive(i as usize))
-            .collect();
-        if standing.is_empty() {
-            assert!(world.squad.is_none(), "none standing: the order is over");
-            break;
-        }
-        let next = marks(&world);
-        assert_eq!(next.len(), 1, "one mark: {next:?}");
-        let next = next[0];
-        assert!(standing.contains(&next), "{next} is standing");
-        for &other in &standing {
-            assert!(
-                from_commander(&world, next) <= from_commander(&world, other),
-                "{next} is the nearest standing, not {other}"
-            );
-        }
-        // And the squad is sent at it, in sight.
-        assert_eq!(
-            world.aboard.room.squad_for_probe(member as usize),
-            bims::game::Squad::Attack {
-                enemy: next as usize,
-                seen: true
-            }
-        );
-        mark = next;
-        moved += 1;
+        assert!(world.aura_reaching(1).is_none(), "rank {rank}: downed");
+        assert_eq!(world.skill_of(1).damage, 1.0);
     }
-    assert_eq!(moved, 2, "on from the first mark to each of the other two");
 }
 
 #[test]
-fn anchor_and_warcry() {
-    let mut world = commander();
-    hold_still(&mut world);
-    stand_near(&mut world, 1, 2.0);
-    pick(&mut world, 0, Talent::Anchor);
-    world.step(&[]);
-    // Stood where he is — *anchor* asks whether he is walking, and it
-    // is read live rather than off the last step.
-    world.aboard.room.halt_for_probe(0);
-    let still = world.aura_reaching(1).expect("in it");
-    assert!(
-        (still.aim - class::aura_bonus(class::AURA_AIM, class::ANCHOR_BONUS)).abs() < 1e-5,
-        "doubled while he stands still: {}",
-        still.aim
-    );
-
-    // *Warcry*: the rally covers the whole room.
-    let mut world = commander();
-    hold_still(&mut world);
-    level_up(&mut world, 0, class::RALLY_LEVEL);
-    stand_near(&mut world, 2, class::AURA_TILES + 10.0);
-    world.step(&[Command::Rally { slot: 0 }]);
-    world.step(&[]);
-    assert!(world.rally_reaching(2).is_none(), "beyond the aura");
-    pick(&mut world, 0, Talent::Warcry);
-    world.step(&[]);
-    assert!(world.rally_reaching(2).is_some(), "the whole room");
-}
-
-#[test]
-fn a_talent_reaches_only_the_commander_who_holds_it() {
+fn two_commanders_auras_take_the_higher_factor_and_never_both() {
     let mut world = basic();
     assert_eq!(world.set_class(0, Class::Commander), Ok(()));
     assert_eq!(world.set_class(1, Class::Commander), Ok(()));
     world.step(&[]);
-    for talent in Talent::ALL
-        .into_iter()
-        .filter(|t| t.class() == Class::Commander)
-    {
-        assert!(!world.has_talent(0, talent));
-        assert!(!world.has_talent(1, talent));
-    }
-    pick(&mut world, 0, Talent::WidePresence);
-    assert!(world.has_talent(0, Talent::WidePresence));
-    assert!(!world.has_talent(1, Talent::WidePresence));
-    assert_eq!(
-        world.aura_radius(1),
-        class::AURA_TILES,
-        "the other commander's aura is the plain one"
+    hold_still(&mut world);
+    ranks(&mut world, 0, [0, 1, 0, 0]);
+    ranks(&mut world, 1, [0, 4, 0, 0]);
+    stand_near(&mut world, 1, 1.0);
+    stand_near(&mut world, 2, 2.0);
+    world.step(&[]);
+    let aura = world.aura_reaching(2).expect("in both");
+    assert!((aura.damage - class::AURA_DAMAGE[3]).abs() < 1e-5);
+    assert!(
+        (world.skill_of(2).damage - class::AURA_DAMAGE[3]).abs() < 1e-5,
+        "the higher alone, and no product of the two"
     );
-    // And a talent of the commander's is nobody else's class's.
-    assert_eq!(world.set_class(2, Class::Tank), Ok(()));
-    assert!(!world.has_talent(2, Talent::WidePresence));
+}
+
+/// A critical hit by crew member `by` on the staged machine's chassis,
+/// landed the way a bolt lands it with `damage` and `flat`, and what the
+/// chassis lost.
+fn crit_on_machine(world: &mut World, by: usize, damage: f32, flat: f32) -> f32 {
+    let residents = world.residents.as_ref().unwrap();
+    let bims = residents.aboard.room.crew_count() as usize;
+    let chassis = |world: &World| {
+        world
+            .residents
+            .as_ref()
+            .unwrap()
+            .aboard
+            .room
+            .droid(0)
+            .unwrap()
+            .body
+            .health(DroidPart::Chassis)
+    };
+    let before = chassis(world);
+    let roll = (0..1000)
+        .map(|k| k as f32 / 1000.0 + 0.0005)
+        .find(|&r| DroidPart::hit_by(r) == DroidPart::Chassis)
+        .unwrap();
+    world.aboard.room.land_hit_for_probe(bims::combat::Hit {
+        who: bims,
+        part: bims::health::Part::Body,
+        damage,
+        cut: false,
+        by: Some(by),
+        blast: false,
+        roll,
+        strips: 0.0,
+        flat,
+        crit: true,
+    });
+    world.step(&[]);
+    before - chassis(world)
 }
 
 #[test]
-fn the_checksum_notices_a_rally_and_a_squad_order() {
-    let mut world = fight();
-    for who in 1..world.aboard.crew_count() {
-        stand_near(&mut world, who as usize, 2.0);
-    }
+fn weak_spot_s_crit_inside_the_aura_is_the_flat_damage_s_share_alone() {
+    let mut world = basic();
+    assert_eq!(world.set_class(0, Class::Commander), Ok(()));
+    assert_eq!(world.set_class(1, Class::Soldier), Ok(()));
+    assert!(world.stage_droid_fight_for_probe(DroidKind::Warden, None));
     world.step(&[]);
-    let quiet = world_checksum(&world);
-    world.step(&[Command::Squad {
-        slot: 0,
-        order: SquadAsk::StandGround,
-    }]);
-    assert_ne!(
-        world_checksum(&world),
-        quiet,
-        "an order is a different world"
+    hold_still(&mut world);
+    // Nobody fires but the hit landed by hand.
+    for who in 0..world.aboard.crew_count() as usize {
+        world.aboard.room.issue(who, Gear::default());
+    }
+    ranks(&mut world, 0, [0, 4, 0, 0]);
+    ranks(&mut world, 1, [0, 4, 0, 0]);
+    stand_near(&mut world, 1, 1.0);
+    world.step(&[]);
+    let aura = world.skill_of(1).damage;
+    assert!((aura - class::AURA_DAMAGE[3]).abs() < 1e-5, "in the aura");
+    // The bolt lands at the aura's damage; the crit adds its share of the
+    // flat damage, and never a share of the aura.
+    let took = crit_on_machine(&mut world, 1, 10.0 * aura, 10.0);
+    let bonus = took - 10.0 * aura;
+    assert!(
+        (bonus - 10.0 * (class::WEAK_SPOT_DAMAGE[3] - 1.0)).abs() < 1e-3,
+        "the crit's share {bonus}"
     );
-    let ordered = world_checksum(&world);
-    level_up(&mut world, 0, class::RALLY_LEVEL);
+    // A commander's own slot C is his aura, not a Weak Spot: a hit said
+    // critical by him adds nothing.
+    let took = crit_on_machine(&mut world, 0, 10.0, 10.0);
+    assert!((took - 10.0).abs() < 1e-3, "{took}");
+}
+
+#[test]
+fn rally_takes_less_and_walks_faster_for_its_seconds_by_rank() {
+    let want = [
+        (0.85, 1.10, 6.0, 45.0),
+        (0.80, 1.15, 7.0, 40.0),
+        (0.75, 1.20, 8.0, 35.0),
+        (0.70, 1.20, 9.0, 30.0),
+    ];
+    for (rank, &(taken, pace, seconds, cooldown)) in (1..=4u8).zip(&want) {
+        let mut world = commander();
+        hold_still(&mut world);
+        ranks(&mut world, 0, [0, 0, rank, 0]);
+        stand_near(&mut world, 1, 2.0);
+        world.step(&[]);
+        assert_eq!(world.rally_seconds(0), seconds, "rank {rank}");
+        assert_eq!(world.rally_cooldown(0), cooldown, "rank {rank}");
+        let events = world.step(&[Command::Rally { slot: 0 }]);
+        assert!(
+            events
+                .iter()
+                .any(|e| matches!(e, WorldEvent::Rallied { who: 0 })),
+            "{events:?}"
+        );
+        for who in [0, 1] {
+            let s = world.skill_of(who);
+            assert!((s.damage_taken - taken).abs() < 1e-5, "rank {rank}");
+            assert!((s.walk - pace).abs() < 1e-5, "rank {rank}");
+            assert_eq!(s.accuracy, 1.0, "no aim: that went");
+        }
+        let events = world.step(&[Command::Rally { slot: 0 }]);
+        assert!(refused_with(&events, Refusal::CoolingDown));
+        run_for(&mut world, seconds - 0.5);
+        assert!(world.is_rallying(0), "rank {rank}: still on");
+        run_for(&mut world, 1.0);
+        assert!(!world.is_rallying(0), "rank {rank}: over");
+        assert_eq!(world.skill_of(1).damage_taken, 1.0);
+        assert_eq!(world.skill_of(1).walk, 1.0);
+        assert!(world.rally_cooldown_left(0) > 0.0);
+    }
+    // Refused before its first rank.
+    let mut world = commander();
+    let events = world.step(&[Command::Rally { slot: 0 }]);
+    assert!(refused_with(&events, Refusal::NotLearnt), "{events:?}");
+}
+
+#[test]
+fn rally_reaches_those_near_at_the_call_and_keeps_to_them() {
+    let mut world = commander();
+    hold_still(&mut world);
+    ranks(&mut world, 0, [0, 0, 1, 0]);
+    stand_near(&mut world, 1, 3.0);
+    stand_near(&mut world, 2, class::RALLY_TILES + 4.0);
+    world.step(&[]);
     world.step(&[Command::Rally { slot: 0 }]);
-    assert_ne!(world_checksum(&world), ordered);
+    let rallied = world.commander_of(0).rallied;
+    assert!(rallied.contains(&0) && rallied.contains(&1), "{rallied:?}");
+    assert!(!rallied.contains(&2), "{rallied:?}");
+    stand_near(&mut world, 1, class::RALLY_TILES + 4.0);
+    stand_near(&mut world, 2, 1.0);
+    world.step(&[]);
+    assert_eq!(world.rally_reaching(1), Some(0), "walked out, kept");
+    assert_eq!(world.rally_reaching(2), None, "walked in, nothing");
+    assert!(world.skill_of(1).damage_taken < 1.0);
+    assert_eq!(world.skill_of(2).damage_taken, 1.0);
+}
+
+// --- D: the Reinforcements -------------------------------------------------
+
+/// Every reinforcement's events said in the steps a mission's start took.
+fn reinforced(events: &[WorldEvent]) -> Vec<(u32, u32)> {
+    events
+        .iter()
+        .filter_map(|e| match *e {
+            WorldEvent::Reinforced { who, count } => Some((who, count)),
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn reinforcements_arrive_at_the_next_mission_s_start_by_rank() {
+    let tiers = [Tier::One, Tier::One, Tier::Two, Tier::Three];
+    for (rank, (&count, &tier)) in (1..=4u8).zip(class::REINFORCEMENTS.iter().zip(&tiers)) {
+        let mut world = commander();
+        ranks(&mut world, 0, [0, 0, 0, rank]);
+        // A rank bought during a mission waits for the next one.
+        world.step(&[]);
+        assert!(world.reinforcements_of(0).is_empty(), "rank {rank}");
+        let crew = world.aboard.crew_count();
+        let events = next_mission(&mut world);
+        assert_eq!(reinforced(&events), vec![(0, count)], "rank {rank}");
+        let brought = world.reinforcements_of(0);
+        assert_eq!(brought.len() as u32, count, "rank {rank}");
+        assert_eq!(world.aboard.crew_count(), crew + count);
+        let at = world.aboard.room.bim_pos(0);
+        for &who in &brought {
+            assert!(who >= crew, "on the end of the crew");
+            assert_eq!(world.reinforcement_of(who), Some(0));
+            assert_eq!(world.class_of(who), Class::None);
+            let gear = world.aboard.room.gear(who as usize);
+            assert_eq!(gear.weapon, Some(WeaponKind::AutoRifle.at(tier)));
+            assert!(gear.head.is_none() && gear.body.is_none() && gear.legs.is_none());
+            assert_eq!(
+                world.aboard.room.health(who as usize),
+                bims::health::MAX_HEALTH
+            );
+            let far = (world.aboard.room.bim_pos(who as usize) - at).len() / TILE;
+            assert!(far <= class::REINFORCEMENT_REACH_TILES + 0.5, "{far}");
+        }
+        // They are the squad's, as any bot is.
+        let squad = world.squad_members(0);
+        assert!(brought.iter().all(|w| squad.contains(w)), "{squad:?}");
+    }
+}
+
+#[test]
+fn fewer_arrive_where_the_free_deck_round_him_is_short() {
+    let mut world = commander();
+    ranks(&mut world, 0, [0, 0, 0, 4]);
+    // Crowd the tiles round him with the crew: what is left is what comes.
+    let at = world.aboard.room.bim_pos(0);
+    let free = world
+        .aboard
+        .room
+        .free_tiles_near(at, class::REINFORCEMENT_REACH_TILES * TILE);
+    assert!(!free.is_empty());
+    // Stand the crew on all but two of them, so two are left.
+    let keep = 2usize;
+    let crowd = free.len().saturating_sub(keep);
+    let mut others: Vec<usize> = (1..world.aboard.crew_count() as usize).collect();
+    let mut spots = free.clone().into_iter();
+    let mut stood = 0;
+    while stood < crowd {
+        let Some(spot) = spots.next() else { break };
+        match others.pop() {
+            Some(who) => {
+                world.aboard.room.put_for_probe(who, spot);
+            }
+            None => {
+                // More tiles than crew: fill the rest with fresh bodies.
+                let gear = Gear::default();
+                world
+                    .aboard
+                    .room
+                    .enlist_reinforcement(spot, gear, 7 + stood as u64);
+            }
+        }
+        stood += 1;
+    }
+    world.aboard.crew = world.aboard.room.crew_count();
+    let left = world
+        .aboard
+        .room
+        .free_tiles_near(at, class::REINFORCEMENT_REACH_TILES * TILE);
+    assert!(left.len() < 4, "{} free tiles left", left.len());
+    let events = world.reinforce_for_probe();
+    let came = world.reinforcements_of(0).len();
+    assert_eq!(came, left.len(), "as many as the tiles found");
+    assert_eq!(reinforced(&events), vec![(0, came as u32)]);
+}
+
+#[test]
+fn a_reinforcement_is_downed_and_revived_under_the_crew_s_rules() {
+    let mut world = commander();
+    ranks(&mut world, 0, [0, 0, 0, 1]);
+    world.reinforce_for_probe();
+    let r = world.reinforcements_of(0)[0];
+    world.aboard.room.set_autonomous(false);
+    world.aboard.room.knock_out_for_probe(r as usize);
+    world.step(&[]);
+    world.step(&[]);
+    assert!(world.aboard.room.is_downed(r as usize));
+    // The player's own Bim, ordered to it, revives it.
+    let at = world.aboard.room.bim_pos(r as usize) + vec2(TILE, 0.0);
+    world.aboard.room.put_for_probe(0, at);
+    world.step(&[Command::Crew {
+        slot: 0,
+        order: bims::order::CrewOrder::Revive { who: 0, patient: r },
+    }]);
+    run_for(&mut world, bims::health::REVIVE_SECONDS as f64 + 3.0);
+    assert!(!world.aboard.room.is_downed(r as usize), "up again");
+    assert!(world.aboard.room.is_alive(r as usize));
+}
+
+#[test]
+fn a_dead_reinforcement_is_gone_at_once_and_all_go_at_the_mission_s_end() {
+    let mut world = commander();
+    ranks(&mut world, 0, [0, 0, 0, 4]);
+    next_mission(&mut world);
+    let brought = world.reinforcements_of(0);
+    assert_eq!(brought.len(), 4);
+    let crew = world.aboard.crew_count();
+    let money = world.money;
+    let armory = world.holdings.armory.len();
+    let dead = brought[0];
+    world.aboard.room.kill_for_probe(dead as usize);
+    let mut events = world.step(&[]);
+    events.extend(world.step(&[]));
+    assert!(
+        world.aboard.room.is_gone(dead as usize),
+        "gone from the deck"
+    );
+    assert!(!world.aboard.room.body_seen(dead as usize), "drawn nowhere");
+    assert!(
+        !events
+            .iter()
+            .any(|e| matches!(e, WorldEvent::BotLost { .. })),
+        "{events:?}"
+    );
+    assert_eq!(world.money, money, "no penalty");
+    assert_eq!(world.aboard.crew_count(), crew, "nobody else's index moved");
+    assert_eq!(world.reinforcements_of(0).len(), 3);
+    run_for(&mut world, 5.0);
+    assert!(world.aboard.room.is_gone(dead as usize), "and stays gone");
+    assert!(!world.aboard.room.is_alive(dead as usize));
+    // The mission's end: every one off the crew, alive or not, and their
+    // rifles with them.
+    world.leave_for_probe();
+    assert_eq!(world.aboard.crew_count(), crew - 4);
+    assert!(world.reinforcements.is_empty());
+    assert_eq!(world.holdings.armory.len(), armory, "nothing dropped");
+    assert_eq!(world.money, money, "nothing paid");
+    // And the next mission they are back, fresh, all four.
+    next_mission(&mut world);
+    let again = world.reinforcements_of(0);
+    assert_eq!(again.len(), 4);
+    for &who in &again {
+        assert!(!world.aboard.room.is_gone(who as usize));
+        assert_eq!(
+            world.aboard.room.health(who as usize),
+            bims::health::MAX_HEALTH
+        );
+    }
+}
+
+#[test]
+fn reinforcements_count_for_nothing_the_crew_is_counted_by() {
+    let mut world = commander();
+    ranks(&mut world, 0, [0, 0, 0, 4]);
+    let worth = world.worth();
+    world.reinforce_for_probe();
+    let brought = world.reinforcements_of(0);
+    assert_eq!(brought.len(), 4);
+    assert_eq!(world.worth(), worth, "their rifles are not the crew's");
+    // No experience: they have no class.
+    let mut events = Vec::new();
+    world.award(brought[0] as usize, 500, &mut events);
+    assert_eq!(world.progress_of(brought[0]).xp, 0);
+    // No departure waits for them and none asks about them.
+    for &who in &brought {
+        assert!(!world.left_behind().contains(&who));
+    }
+    // The run is lost when every player's Bim is dead, whoever stands.
+    for slot in 0..world.players() {
+        world.aboard.room.kill_for_probe(slot as usize);
+    }
+    let events = world.step(&[]);
+    assert!(
+        events.iter().any(|e| matches!(e, WorldEvent::CrewLost)),
+        "{events:?}"
+    );
+    assert!(
+        brought
+            .iter()
+            .all(|&w| world.aboard.room.is_alive(w as usize))
+    );
+}
+
+#[test]
+fn a_cry_a_rally_and_the_reinforcements_are_hashed_and_two_runs_agree() {
+    let run = || {
+        let mut world = commander();
+        ranks(&mut world, 0, [1, 1, 1, 1]);
+        let before = world_checksum(&world);
+        world.step(&[Command::BattleCry { slot: 0 }]);
+        let cried = world_checksum(&world);
+        assert_ne!(cried, before, "a cry");
+        world.step(&[Command::Rally { slot: 0 }]);
+        world.reinforce_for_probe();
+        let reinforced = world_checksum(&world);
+        assert_ne!(reinforced, cried, "a rally and the reinforcements");
+        for _ in 0..120 {
+            world.step(&[]);
+        }
+        world_checksum(&world)
+    };
+    assert_eq!(run(), run());
 }

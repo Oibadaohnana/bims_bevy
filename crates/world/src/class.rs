@@ -30,8 +30,9 @@
 //! spend nothing are held instead of
 //! thrown — a brace, a beam, a bulwark, a squad order — and the ones
 //! that are neither wait out a cooldown of their own: the tank's taunt
-//! at [`TAUNT_COOLDOWN`], the commander's rally at [`RALLY_COOLDOWN`],
-//! the medic's surge on its charge.
+//! at [`TAUNT_COOLDOWN`], the commander's Battle Cry and Rally at
+//! [`BATTLE_CRY_COOLDOWN`] and [`RALLY_COOLDOWN`] of their ranks, the
+//! medic's surge on its charge.
 //!
 //! # Experience
 //!
@@ -57,7 +58,8 @@
 //! [`LEVEL_XP`] — 100 for the second, 250 for the third, up to 3 200 for
 //! the tenth — for a class of talents, and sixteen off
 //! [`RANKED_LEVEL_XP`] for a class with a **ranked kit** ([`ranked`]: the
-//! soldier, task 124), whose top level costs the same 3 200. A level
+//! soldier, task 124, the engineer, task 127, and the commander, task
+//! 129), whose top level costs the same 3 200. A level
 //! reached is `WorldEvent::LevelUp`, said once. A **fixed** level's talent applies at
 //! once; a **pick** level ([`pick_at`]) offers two and applies neither
 //! until the player chooses — `Command::PickTalent`, only for a level
@@ -209,25 +211,77 @@
 //! | 9 | *Interpose*: a bolt that would hit somebody he shields hits him | *Magnet*: a taunt turns every charging blade toward him |
 //! | 10 | *Fortress*: armour drain on him ×0.5 again, a quarter in all | *Rallying wall*: while he taunts, crew within 3 tiles drain at half rate too |
 //!
-//! # The commander's ten levels
+//! # The commander's four slots (task 129)
 //!
-//! | level | left | right |
+//! A ranked kit like the soldier's and the engineer's: sixteen levels on
+//! [`RANKED_LEVEL_XP`], a skill point a level, Q, C and E rank `n` at
+//! level `2n − 1` and the ultimate R at 6, 9, 12 and 15. **Two base
+//! traits** are his whatever his ranks: **squad orders** — attack, fall
+//! back, stand ground — from the first level, reaching every squad member
+//! within [`SQUAD_RANGE`] tiles, an attack marking one enemy; and every
+//! mercenary he hires at [`HIRE_DISCOUNT_PERCENT`] off.
+//!
+//! **Q, Battle Cry** (active, cooldown): every friendly Bim within
+//! [`BATTLE_CRY_TILES`] of him **when he calls it** — himself, a player's
+//! Bim, a bot, a hired hand, a reinforcement; never a sentry — fires
+//! faster for its seconds. The reach is fixed at the call: one that walks
+//! out keeps it, one that walks in does not get it.
+//!
+//! | rank | fire rate | lasts | cooldown |
+//! |---|---|---|---|
+//! | 1 | ×1.25 | 3 s | 20 s |
+//! | 2 | ×1.30 | 4 s | 18 s |
+//! | 3 | ×1.35 | 5 s | 16 s |
+//! | 4 | ×1.40 | 6 s | 14 s |
+//!
+//! **C, Command Aura** (passive): every friendly Bim within its radius of
+//! a commander on his feet, himself included — never a sentry — deals
+//! more damage. Two commanders reaching one Bim: the higher factor, never
+//! both. For Weak Spot it is a share like a relic's: the crit adds the
+//! weapon's flat damage times the crit less one, never a share of the
+//! aura.
+//!
+//! | rank | damage | radius |
 //! |---|---|---|
-//! | 1 | the aura; hires at a quarter off; squad orders — attack, fall back, stand ground | — |
-//! | 2 | *Wide presence*: aura radius ×1.5 | *Strong presence*: each aura bonus ×1.5 |
-//! | 3 | *Rally* (Q): may call it | — |
-//! | 4 | *Haggler*: hires at two fifths off | *Outfitter*: a mercenary he hires arrives with one basic piece it lacks |
-//! | 5 | *Focus fire*: the squad's odds against the marked enemy ×1.15 | *Pincer*: an attack may mark two enemies, the squad split between them |
-//! | 6 | *Long rally*: a rally lasts ×1.5 | *Quick rally*: the rally cooldown ×0.5 |
-//! | 7 | *Long reach*: a squad order reaches every squad member in the room | — |
-//! | 8 | *Steady ranks*: no-op since task 120 | *Double time*: Bims in his aura walk at pace ×1.1 |
-//! | 9 | *Relentless*: an attack's mark lasts until the enemy dies, then moves on to the nearest enemy standing | *Grit*: no-op since task 120 |
-//! | 10 | *Anchor*: the aura's bonuses double while he stands still | *Warcry*: a rally covers every friendly Bim in the room |
+//! | 1 | ×1.08 | 6 tiles |
+//! | 2 | ×1.12 | 7 tiles |
+//! | 3 | ×1.16 | 8 tiles |
+//! | 4 | ×1.20 | 10 tiles |
 //!
-//! **His aura and his rally lift every friendly Bim they reach, a
-//! player's own steered Bims included; his squad orders command only the
-//! squad** — every crew member no player is steering, the crew's own
-//! bots and the hired hands alike. See [`crate::commander`].
+//! **E, Rally** (active, cooldown): every friendly Bim within
+//! [`RALLY_TILES`] of him when he calls it, himself included, takes less
+//! damage and moves faster for its seconds, the reach fixed at the call as
+//! Battle Cry's is.
+//!
+//! | rank | damage taken | move speed | lasts | cooldown |
+//! |---|---|---|---|---|
+//! | 1 | ×0.85 | ×1.10 | 6 s | 45 s |
+//! | 2 | ×0.80 | ×1.15 | 7 s | 40 s |
+//! | 3 | ×0.75 | ×1.20 | 8 s | 35 s |
+//! | 4 | ×0.70 | ×1.20 | 9 s | 30 s |
+//!
+//! **R, Reinforcements** (passive ultimate): at every mission's start he
+//! brings Bims of the Republic's with him, on free deck next to him within
+//! [`REINFORCEMENT_REACH_TILES`] — fewer where the tiles are short — each
+//! a classless crew member with the rank's auto rifle and nothing to wear,
+//! for that mission alone (`World::reinforcements`):
+//!
+//! | rank | Bims | weapon |
+//! |---|---|---|
+//! | 1 | 2 | auto rifle, tier 1 |
+//! | 2 | 3 | auto rifle, tier 1 |
+//! | 3 | 3 | auto rifle, tier 2 |
+//! | 4 | 4 | auto rifle, tier 3 |
+//!
+//! Both cooldowns run on the mission clock, stop while paused, are ready
+//! at every mission's start and are shortened by the cooldown relics as
+//! every class cooldown is.
+//!
+//! **His aura, his cry and his rally lift every friendly Bim they reach,
+//! a player's own steered Bims included; his squad orders command only
+//! the squad** — every crew member no player is steering: the crew's own
+//! bots, the hired hands and the reinforcements alike. See
+//! [`crate::commander`].
 //!
 //! Every multiplier is a named constant here; what each talent *does* is
 //! `crate::deploy` and the world's step for the engineer, the room's
@@ -257,8 +311,9 @@ pub enum Class {
     Medic = 3,
     /// The tank: a wall the crew shelter behind, and a taunt.
     Tank = 4,
-    /// The commander: an aura the crew round him fight better in, orders
-    /// for the squad, and a cheaper hand at the dock.
+    /// The commander: a battle cry, an aura the crew round him hit harder
+    /// in, a rally, reinforcements, orders for the squad, and a cheaper
+    /// hand at the dock.
     Commander = 5,
 }
 
@@ -338,12 +393,14 @@ pub enum Ability {
     SquadOrder,
     /// Call a rally: the commander's.
     Rally,
+    /// Call a battle cry: the commander's (task 129).
+    BattleCry,
     /// Go on a rampage: the soldier's ultimate (task 124).
     Rampage,
 }
 
 impl Ability {
-    pub const ALL: [Ability; 12] = [
+    pub const ALL: [Ability; 13] = [
         Ability::Deploy,
         Ability::Emp,
         Ability::Sentry,
@@ -356,6 +413,7 @@ impl Ability {
         Ability::SquadOrder,
         Ability::Rally,
         Ability::Rampage,
+        Ability::BattleCry,
     ];
 }
 
@@ -367,7 +425,7 @@ pub fn can(class: Class, ability: Ability) -> bool {
         Ability::Brace | Ability::Throw | Ability::Rampage => class == Class::Soldier,
         Ability::Beam | Ability::Surge => class == Class::Medic,
         Ability::Bulwark | Ability::Taunt => class == Class::Tank,
-        Ability::SquadOrder | Ability::Rally => class == Class::Commander,
+        Ability::SquadOrder | Ability::Rally | Ability::BattleCry => class == Class::Commander,
     }
 }
 
@@ -511,29 +569,16 @@ pub enum Talent {
     Magnet = 52,
     Fortress = 53,
     RallyingWall = 54,
-    // The commander's (feature 78).
-    WidePresence = 55,
-    StrongPresence = 56,
-    Haggler = 57,
-    Outfitter = 58,
-    FocusFire = 59,
-    Pincer = 60,
-    LongRally = 61,
-    QuickRally = 62,
-    SteadyRanks = 63,
-    DoubleTime = 64,
-    Relentless = 65,
-    Grit = 66,
-    Anchor = 67,
-    Warcry = 68,
+    // 55 to 68 were the commander's (feature 78), gone with its ranked
+    // kit (task 129); the codes are left free, never reused.
 }
 
 impl Talent {
     /// Every talent there is, in code order — with gaps where a class's
-    /// went (the engineer's 0 to 13, task 127, and the soldier's 14 to
-    /// 27, task 124), so a code is **not** a place in this list:
+    /// went (the engineer's 0 to 13, task 127, the soldier's 14 to 27,
+    /// task 124, and the commander's 55 to 68, task 129), so a code is **not** a place in this list:
     /// [`Talent::from_code`] looks it up.
-    pub const ALL: [Talent; 41] = [
+    pub const ALL: [Talent; 27] = [
         Talent::FieldDressing,
         Talent::Surgeon,
         Talent::LongBeam,
@@ -561,20 +606,6 @@ impl Talent {
         Talent::Magnet,
         Talent::Fortress,
         Talent::RallyingWall,
-        Talent::WidePresence,
-        Talent::StrongPresence,
-        Talent::Haggler,
-        Talent::Outfitter,
-        Talent::FocusFire,
-        Talent::Pincer,
-        Talent::LongRally,
-        Talent::QuickRally,
-        Talent::SteadyRanks,
-        Talent::DoubleTime,
-        Talent::Relentless,
-        Talent::Grit,
-        Talent::Anchor,
-        Talent::Warcry,
     ];
 
     pub fn code(self) -> u32 {
@@ -587,9 +618,10 @@ impl Talent {
 
     /// Whose talent it is. Fourteen a class, bar the tank's **thirteen**
     /// since the money rework (feature 95) took *pack mule* off its
-    /// second level, which is a fixed level now, and the soldier's and
-    /// the engineer's none since their ranked kits (tasks 124 and 127) —
-    /// their bands, 0 to 13 and 14 to 27, are empty.
+    /// second level, which is a fixed level now, and the soldier's, the
+    /// engineer's and the commander's none since their ranked kits (tasks
+    /// 124, 127 and 129) — their bands, 0 to 13, 14 to 27 and 55 to 68,
+    /// are empty.
     pub fn class(self) -> Class {
         if self.code() < 14 {
             Class::Engineer
@@ -640,10 +672,11 @@ pub const ULTIMATE_LEVELS: [u8; MAX_RANK as usize] = [6, 9, 12, 15];
 
 /// Whether a class has a **ranked kit** (task 124): four abilities
 /// bought a rank at a time with a skill point a level, in place of the
-/// left-and-right talents. The soldier and the engineer (task 127);
-/// every other class keeps its talents until its own rework.
+/// left-and-right talents. The soldier, the engineer (task 127) and the
+/// commander (task 129); every other class keeps its talents until its
+/// own rework.
 pub fn ranked(class: Class) -> bool {
-    matches!(class, Class::Soldier | Class::Engineer)
+    matches!(class, Class::Soldier | Class::Engineer | Class::Commander)
 }
 
 /// How many levels a class climbs: [`RANKED_LEVELS`] for a ranked kit,
@@ -915,65 +948,67 @@ pub const RALLYING_WALL_TILES: f32 = 3.0;
 /// *Rallying wall*: what a sheltered crewmate's armour drains at.
 pub const RALLYING_WALL_DRAIN: f32 = 0.5;
 
-// --- the commander's numbers (feature 78) ------------------------------------
+// --- the commander's numbers (task 129) ---------------------------------------
+//
+// One number a rank, ranks one to four, read with [`by_rank`] like the
+// soldier's and the engineer's. The seconds are seconds of the mission
+// clock, one a real second at 1×.
 
-/// How far the aura reaches, in tiles.
-pub const AURA_TILES: f32 = 8.0;
-/// *Aura*: what a Bim in it works at.
-pub const AURA_WORK: f32 = 1.1;
-/// *Aura*: what a Bim in it shoots at.
-pub const AURA_AIM: f32 = 1.1;
-/// What a commander takes off a mercenary's fee, in whole per cent.
+/// **Base trait**: what a commander takes off a mercenary's fee, in whole
+/// per cent, at every level.
 pub const HIRE_DISCOUNT_PERCENT: u32 = 25;
-/// *Haggler*: what he takes off it instead.
-pub const HAGGLER_DISCOUNT_PERCENT: u32 = 40;
-/// How far a squad order reaches from the commander, in tiles; *long
-/// reach* is the whole room.
+/// **Base trait**: how far a squad order reaches from the commander, in
+/// tiles, at every level.
 pub const SQUAD_RANGE: f32 = 20.0;
-/// The level a rally may be called from: the commander's third.
-pub const RALLY_LEVEL: u8 = 3;
-/// The level *long reach* applies from: the commander's seventh.
-pub const LONG_REACH_LEVEL: u8 = 7;
-/// Seconds of the clock between one rally and the next.
-pub const RALLY_COOLDOWN: f64 = 30.0;
-/// Minutes of the clock a rally runs.
-pub const RALLY_MINUTES: f64 = 6.0;
-/// *Rally*: what a Bim in it shoots at. It stacks with the aura's.
-pub const RALLY_AIM: f32 = 1.3;
-/// *Wide presence*: what the aura's radius is multiplied by.
-pub const WIDE_PRESENCE_RADIUS: f32 = 1.5;
-/// *Strong presence*: what each of the aura's bonuses is multiplied by —
-/// of what it adds, so a tenth becomes three twentieths
-/// ([`aura_bonus`]).
-pub const STRONG_PRESENCE: f32 = 1.5;
-/// *Anchor*: the same, again, while he stands still.
-pub const ANCHOR_BONUS: f32 = 2.0;
-/// *Focus fire*: what the squad's odds against the enemy it is attacking
-/// are multiplied by.
-pub const FOCUS_FIRE_ACCURACY: f32 = 1.15;
-/// *Pincer*: how many enemies an attack may mark at once; one without
-/// it.
-pub const PINCER_MARKS: usize = 2;
-/// *Long rally*: what a rally's minutes are multiplied by.
-pub const LONG_RALLY_TIME: f64 = 1.5;
-/// *Quick rally*: what the rally's cooldown is multiplied by.
-pub const QUICK_RALLY_COOLDOWN: f64 = 0.5;
-/// *Double time*: what a Bim in the aura's pace is multiplied by.
-pub const DOUBLE_TIME_PACE: f32 = 1.1;
 
-/// One of the aura's bonuses through *strong presence* and *anchor*:
-/// what the bonus *adds* is multiplied, so [`AURA_WORK`]'s tenth becomes
-/// three twentieths under [`STRONG_PRESENCE`] and a fifth under both.
-/// A bonus below one deepens the same way, never past nothing.
-pub fn aura_bonus(bonus: f32, factor: f32) -> f32 {
-    (1.0 + (bonus - 1.0) * factor).max(0.0)
-}
+/// **Q, Battle Cry**: how far it reaches when he calls it, in tiles, at
+/// every rank.
+pub const BATTLE_CRY_TILES: f32 = 8.0;
+/// What the fire rate of a Bim it reached is multiplied by, a rank.
+pub const BATTLE_CRY_FIRE_RATE: [f32; 4] = [1.25, 1.30, 1.35, 1.40];
+/// Seconds of the mission clock it runs, a rank.
+pub const BATTLE_CRY_SECONDS: [f64; 4] = [3.0, 4.0, 5.0, 6.0];
+/// Seconds of the mission clock from one cry to the next, a rank.
+pub const BATTLE_CRY_COOLDOWN: [f64; 4] = [20.0, 18.0, 16.0, 14.0];
+
+/// **C, Command Aura**: what the damage of a Bim in it is multiplied by,
+/// a rank.
+pub const AURA_DAMAGE: [f32; 4] = [1.08, 1.12, 1.16, 1.20];
+/// How far the aura reaches, in tiles, a rank.
+pub const AURA_TILES: [f32; 4] = [6.0, 7.0, 8.0, 10.0];
+
+/// **E, Rally**: how far it reaches when he calls it, in tiles, at every
+/// rank.
+pub const RALLY_TILES: f32 = 8.0;
+/// What the damage a Bim it reached takes is multiplied by, a rank.
+pub const RALLY_DAMAGE_TAKEN: [f32; 4] = [0.85, 0.80, 0.75, 0.70];
+/// What the pace of a Bim it reached is multiplied by, a rank.
+pub const RALLY_PACE: [f32; 4] = [1.10, 1.15, 1.20, 1.20];
+/// Seconds of the mission clock it runs, a rank.
+pub const RALLY_SECONDS: [f64; 4] = [6.0, 7.0, 8.0, 9.0];
+/// Seconds of the mission clock from one rally to the next, a rank.
+pub const RALLY_COOLDOWN: [f64; 4] = [45.0, 40.0, 35.0, 30.0];
+
+/// **R, Reinforcements**: how many Bims he brings at a mission's start, a
+/// rank.
+pub const REINFORCEMENTS: [u32; 4] = [2, 3, 3, 4];
+/// The tier of the auto rifle each carries, a rank.
+pub const REINFORCEMENT_TIER: [bims::combat::Tier; 4] = [
+    bims::combat::Tier::One,
+    bims::combat::Tier::One,
+    bims::combat::Tier::Two,
+    bims::combat::Tier::Three,
+];
+/// How far from him, in tiles, a free tile of deck is looked for to stand
+/// one on: fewer arrive where fewer are found.
+pub const REINFORCEMENT_REACH_TILES: f32 = 5.0;
 
 /// Whether a level is a pick level **for this class**: every class is
 /// fixed at one, three and seven and a pick at the rest, bar the tank's
 /// second, which the money rework (feature 95) made a fixed level when
 /// hauling went and *pack mule* with it — *plated* stands alone there.
-/// A class with a ranked kit (the soldier, the engineer) has none.
+/// A class with a ranked kit (the soldier, the engineer, the commander)
+/// has none.
 ///
 /// Asked of `pick_at`, so the two can never disagree about the shape of
 /// a tree.
@@ -1009,13 +1044,6 @@ pub fn pick_at(class: Class, level: u8) -> Option<(Talent, Talent)> {
         (Class::Tank, 8) => (Talent::HoldFast, Talent::Guarded),
         (Class::Tank, 9) => (Talent::Interpose, Talent::Magnet),
         (Class::Tank, 10) => (Talent::Fortress, Talent::RallyingWall),
-        (Class::Commander, 2) => (Talent::WidePresence, Talent::StrongPresence),
-        (Class::Commander, 4) => (Talent::Haggler, Talent::Outfitter),
-        (Class::Commander, 5) => (Talent::FocusFire, Talent::Pincer),
-        (Class::Commander, 6) => (Talent::LongRally, Talent::QuickRally),
-        (Class::Commander, 8) => (Talent::SteadyRanks, Talent::DoubleTime),
-        (Class::Commander, 9) => (Talent::Relentless, Talent::Grit),
-        (Class::Commander, 10) => (Talent::Anchor, Talent::Warcry),
         _ => return None,
     })
 }
@@ -1200,10 +1228,9 @@ pub fn key_level(class: Class, primary: bool) -> Option<u8> {
         // A ranked kit (task 124) learns every key at its first rank, which
         // is bought from the first level: the box greys itself by the rank.
         (c, true) if ranked(c) => 1,
-        (Class::Soldier | Class::Engineer, true) => 1,
         (Class::Medic, true) => SURGE_LEVEL,
         (Class::Tank, true) => TAUNT_LEVEL,
-        (Class::Commander, true) => RALLY_LEVEL,
+        (Class::Soldier | Class::Engineer | Class::Commander, true) => 1,
     })
 }
 
@@ -1297,7 +1324,7 @@ mod tests {
         for talent in Talent::ALL {
             assert_eq!(Talent::from_code(talent.code()), Some(talent));
         }
-        for code in 0..28 {
+        for code in (0..28).chain(55..69) {
             assert_eq!(Talent::from_code(code), None, "{code} is left free");
         }
         for class in Class::ALL {
@@ -1329,6 +1356,8 @@ mod tests {
         assert!(!can(Class::Soldier, Ability::Taunt));
         assert!(can(Class::Commander, Ability::SquadOrder));
         assert!(can(Class::Commander, Ability::Rally));
+        assert!(can(Class::Commander, Ability::BattleCry));
+        assert!(!can(Class::Soldier, Ability::BattleCry));
         assert!(!can(Class::Commander, Ability::Taunt));
         assert!(!can(Class::Commander, Ability::Deploy));
         assert!(!can(Class::Tank, Ability::SquadOrder));
@@ -1339,13 +1368,6 @@ mod tests {
         assert_eq!(Talent::FieldDressing.class(), Class::Medic);
         assert_eq!(Talent::Plated.class(), Class::Tank);
         assert_eq!(Talent::RallyingWall.class(), Class::Tank);
-        assert_eq!(Talent::WidePresence.class(), Class::Commander);
-        assert_eq!(Talent::Warcry.class(), Class::Commander);
-        // An aura bonus deepens by what it adds, up and down.
-        assert!((aura_bonus(AURA_WORK, STRONG_PRESENCE) - 1.15).abs() < 1e-6);
-        assert!((aura_bonus(AURA_WORK, ANCHOR_BONUS) - 1.2).abs() < 1e-6);
-        assert!((aura_bonus(0.75, STRONG_PRESENCE) - 0.625).abs() < 1e-6);
-        assert_eq!(aura_bonus(0.0, 100.0), 0.0, "never past nothing");
     }
 
     /// Every class's own two keys are learnt at the same two levels —
@@ -1370,7 +1392,7 @@ mod tests {
         }
         assert_eq!(key_level(Class::Medic, true), Some(SURGE_LEVEL));
         assert_eq!(key_level(Class::Tank, true), Some(TAUNT_LEVEL));
-        assert_eq!(key_level(Class::Commander, true), Some(RALLY_LEVEL));
+        assert_eq!(key_level(Class::Commander, true), Some(1), "by rank");
     }
 
     /// A ranked kit (task 124): sixteen levels on its own curve topping

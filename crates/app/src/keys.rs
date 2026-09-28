@@ -80,6 +80,10 @@ pub enum Action {
     SquadFallBack,
     /// A commander has the squad hold exactly where it stands.
     SquadStandGround,
+    /// A commander sends the squad at the enemy under the pointer (task
+    /// 129: off E, which his Rally took). On B. Nothing for any other
+    /// class.
+    SquadAttack,
     /// **Attack-move**: arms the pointer, and the next click on the deck
     /// sends the Bim you steer there with its weapon out, stopping to
     /// shoot whatever comes into its sights on the way — Dota's
@@ -100,14 +104,14 @@ pub enum Action {
     /// when pressed again. Nothing for anybody but a medic of the class
     /// or a hired field medic.
     Carry,
-    /// **The character sheet** (feature 107): the player's own Bim's
-    /// class, level, body, gear and talents, on the left of the canvas.
-    /// Pressed again, it shuts.
-    CharacterSheet,
     /// **Revive**: held, the Bim you steer gets the downed crewmate
     /// nearest it back up — it must be standing close — and lets go when
     /// the key comes up before they are. On G; the carry moved to H.
     Revive,
+    /// **The character sheet** (feature 107): the player's own Bim's
+    /// class, level, body, gear and talents, on the left of the canvas.
+    /// Pressed again, it shuts.
+    CharacterSheet,
 }
 
 impl Action {
@@ -120,7 +124,7 @@ impl Action {
         Action::Ability4,
     ];
 
-    pub const ALL: [Action; 25] = [
+    pub const ALL: [Action; 26] = [
         Action::Map,
         Action::NorthUp,
         Action::Follow,
@@ -140,16 +144,17 @@ impl Action {
         Action::Ability4,
         Action::SquadFallBack,
         Action::SquadStandGround,
+        Action::SquadAttack,
         Action::AttackMove,
         Action::Attack,
         Action::Retreat,
         Action::Carry,
+        Action::Revive,
         Action::CharacterSheet,
     ];
 
     /// The key it starts on.
     pub fn default_key(self) -> egui::Key {
-        Action::Revive,
         use egui::Key;
         match self {
             Action::Map => Key::M,
@@ -177,6 +182,8 @@ impl Action {
             Action::Ability4 => Key::R,
             Action::SquadFallBack => Key::T,
             Action::SquadStandGround => Key::Z,
+            // E is the commander's Rally since task 129.
+            Action::SquadAttack => Key::B,
             Action::AttackMove => Key::F,
             Action::Attack => Key::X,
             Action::Retreat => Key::Y,
@@ -209,10 +216,12 @@ impl Action {
             Action::Ability4 => "ability-4",
             Action::SquadFallBack => "squad-fall-back",
             Action::SquadStandGround => "squad-stand-ground",
+            Action::SquadAttack => "squad-attack",
             Action::AttackMove => "attack-move",
             Action::Attack => "attack",
             Action::Retreat => "retreat",
             Action::Carry => "carry",
+            Action::Revive => "revive",
             Action::CharacterSheet => "character-sheet",
         }
     }
@@ -221,7 +230,6 @@ impl Action {
     pub fn what(self) -> &'static str {
         match self {
             Action::Map => "Switch between the ship and the map.",
-            Action::Revive => "revive",
             Action::NorthUp => "Turn the view head up or north up.",
             Action::Follow => {
                 "Follow the crew member you steer, and the ship on the map, or let the camera go free."
@@ -241,13 +249,13 @@ impl Action {
             }
             Action::Inventory => "Open and close the inventory of the crew member you steer.",
             Action::Ability1 => {
-                "The first ability slot, by the crew member you steer: an engineer sets a sentry up on the deck tile under the pointer, out of a kit in its pack; a soldier throws a grenade at it; a medic triggers its surge; a tank taunts; a commander rallies. With Ctrl held, it is ranked up instead."
+                "The first ability slot, by the crew member you steer: an engineer sets a sentry up on the deck tile under the pointer, out of a kit in its pack; a soldier throws a grenade at it; a medic triggers its surge; a tank taunts; a commander calls a Battle Cry. With Ctrl held, it is ranked up instead."
             }
             Action::Ability2 => {
                 "The second ability slot: empty for every class for now. With Ctrl held, it is ranked up instead."
             }
             Action::Ability3 => {
-                "The third ability slot: an engineer lays sandbags on the deck tile under the pointer, out of a kit in its pack; a soldier braces where it stands, or stands easy again; a medic beams the crew member under the pointer, and unlinks when pressed on the one it holds or on nobody; a tank puts its wall up, or takes it down; a commander sends the squad at the enemy under the pointer. With Ctrl held, it is ranked up instead."
+                "The third ability slot: an engineer lays sandbags on the deck tile under the pointer, out of a kit in its pack; a soldier braces where it stands, or stands easy again; a medic beams the crew member under the pointer, and unlinks when pressed on the one it holds or on nobody; a tank puts its wall up, or takes it down; a commander rallies. With Ctrl held, it is ranked up instead."
             }
             Action::Ability4 => {
                 "The fourth ability slot: empty for every class for now. With Ctrl held, it is ranked up instead."
@@ -257,6 +265,9 @@ impl Action {
             }
             Action::SquadStandGround => {
                 "A commander has the squad hold exactly where it stands. Nothing for any other class."
+            }
+            Action::SquadAttack => {
+                "A commander sends the squad at the enemy under the pointer; on the same enemy again, lets them go. Nothing for any other class."
             }
             Action::AttackMove => {
                 "Arm the pointer — it turns red — and the next click on the deck sends the Bim you steer there with its weapon out. It stops to shoot whatever comes into its sights on the way, and walks on once nothing is left."
@@ -415,6 +426,10 @@ impl Keys {
     /// names no action or no key is skipped.
     pub fn from_text(text: &str) -> Keys {
         let mut keys = Keys::default();
+        // A file from before the held revive took G has the carry on G
+        // and no revive line: the carry goes to its new key, H, rather
+        // than sharing G with the revive.
+        let old_carry = !text.lines().any(|l| l.trim_start().starts_with("revive="));
         for line in text.lines() {
             let Some((name, key)) = line.split_once('=') else {
                 continue;
@@ -426,10 +441,6 @@ impl Keys {
                 {
                     keys.edge_scroll = (speed * 10.0)
                         .round()
-        // A file from before the held revive took G has the carry on G
-        // and no revive line: the carry goes to its new key, H, rather
-        // than sharing G with the revive.
-        let old_carry = !text.lines().any(|l| l.trim_start().starts_with("revive="));
                         .clamp(0.0, f32::from(EDGE_SCROLL_MAX))
                         as u8;
                 }
@@ -439,6 +450,9 @@ impl Keys {
                 Action::from_name(name.trim()),
                 egui::Key::from_name(key.trim()),
             ) {
+                if old_carry && action == Action::Carry && key == Action::Revive.default_key() {
+                    continue;
+                }
                 keys.set(action, key);
             }
         }
@@ -450,9 +464,6 @@ impl Keys {
         match path().and_then(|p| std::fs::read_to_string(p).ok()) {
             Some(text) => Keys::from_text(&text),
             None => Keys::default(),
-                if old_carry && action == Action::Carry && key == Action::Revive.default_key() {
-                    continue;
-                }
         }
     }
 
@@ -632,17 +643,6 @@ mod tests {
         assert_eq!(Keys::from_text(&text), keys);
     }
 
-    /// Ctrl and a slot's key is that slot's rank-up (task 123) and never
-    /// the ability: Ctrl+Q is not the first slot used, and a plain Q is
-    /// no rank-up. It follows the binding rather than being one.
-    #[test]
-    fn ctrl_and_a_slot_s_key_ranks_it_up_and_does_not_use_it() {
-        let keys = Keys::default();
-        let ctrl = egui::Modifiers::CTRL;
-        let none = egui::Modifiers::NONE;
-        let q = [down(egui::Key::Q, ctrl)];
-        assert!(!keys.used(&q, ctrl, Action::Ability1), "Ctrl+Q is no Q");
-        assert_eq!(keys.rank_up_asked(&q, ctrl), Some(Action::Ability1));
     /// The held revive is G and the carry moved to H; a file from before,
     /// with the carry on G and no revive line, is read with the carry on
     /// H rather than sharing G, and one that says both keeps its word.
@@ -662,6 +662,17 @@ mod tests {
         assert_eq!(Keys::from_text(&keys.to_text()), keys);
     }
 
+    /// Ctrl and a slot's key is that slot's rank-up (task 123) and never
+    /// the ability: Ctrl+Q is not the first slot used, and a plain Q is
+    /// no rank-up. It follows the binding rather than being one.
+    #[test]
+    fn ctrl_and_a_slot_s_key_ranks_it_up_and_does_not_use_it() {
+        let keys = Keys::default();
+        let ctrl = egui::Modifiers::CTRL;
+        let none = egui::Modifiers::NONE;
+        let q = [down(egui::Key::Q, ctrl)];
+        assert!(!keys.used(&q, ctrl, Action::Ability1), "Ctrl+Q is no Q");
+        assert_eq!(keys.rank_up_asked(&q, ctrl), Some(Action::Ability1));
         let q = [down(egui::Key::Q, none)];
         assert!(keys.used(&q, none, Action::Ability1));
         assert_eq!(keys.rank_up_asked(&q, none), None);

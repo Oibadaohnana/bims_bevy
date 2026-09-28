@@ -253,6 +253,11 @@ pub struct CommanderView {
     pub rally_left: f64,
     pub cooldown: f64,
     pub can_rally: bool,
+    /// His Battle Cry (task 129): seconds left, seconds to wait, and
+    /// whether he has a rank of it.
+    pub cry_left: f64,
+    pub cry_cooldown: f64,
+    pub can_cry: bool,
 }
 
 /// The tray's panel, when it is up (feature 107). The tray is its row of
@@ -592,11 +597,6 @@ pub struct CrewPanels {
     /// 106): the screen
     /// opens the relic cache once they are within reach, and takes this.
     pub cache_requested: Option<u32>,
-    /// What is within reach of the Bim shown, nearest first — an
-    /// engineer's deployable to pack up — with a name for the strip, as
-    /// the screen last handed it over (`Near`). Fresh every frame: the Bim is walking.
-    pub nearby: Vec<Near>,
-    /// The player's own class, as the screen last handed it over
     /// The Carry row was picked on this downed crewmate: the screen walks
     /// the player's own Bim over and sends the carry once it is within
     /// reach, and takes this.
@@ -605,6 +605,11 @@ pub struct CrewPanels {
     /// a hired field medic (`World::can_lift`) — as the screen last
     /// handed it over. What greys the menu's Carry row.
     pub may_lift: bool,
+    /// What is within reach of the Bim shown, nearest first — an
+    /// engineer's deployable to pack up — with a name for the strip, as
+    /// the screen last handed it over (`Near`). Fresh every frame: the Bim is walking.
+    pub nearby: Vec<Near>,
+    /// The player's own class, as the screen last handed it over
     /// (feature 74): drawn under the health of their own crew member.
     pub class_view: Option<ClassView>,
     /// How long the player's own Bim takes to revive a crewmate, in
@@ -649,13 +654,13 @@ impl CrewPanels {
             walk: None,
             terms: None,
             cache_requested: None,
+            carry_requested: None,
+            may_lift: false,
             nearby: Vec::new(),
             class_view: None,
             revive_seconds: bims::health::REVIVE_SECONDS,
             deploy_orders: Vec::new(),
             keys: Keys::default(),
-            carry_requested: None,
-            may_lift: false,
             orders: Vec::new(),
             crew_orders: Vec::new(),
             later_orders: Vec::new(),
@@ -838,11 +843,6 @@ impl CrewPanels {
                         patient: patient as u32,
                     },
                 ));
-            }
-            // One of the station's people, on its feet and hailable: a
-            // mercenary for hire. What it asks is the world's to say — the
-            // window reads it. A resident down has no row: what it had on
-            // it is its own.
                 // And the carry: the walk over and the body taken up out
                 // of the fire, for a medic of either kind — greyed with
                 // the reason for anybody else, so the choice is always
@@ -855,6 +855,11 @@ impl CrewPanels {
                     run: None,
                     opens: Some(Open::Carry(patient as u32)),
                 });
+            }
+            // One of the station's people, on its feet and hailable: a
+            // mercenary for hire. What it asks is the world's to say — the
+            // window reads it. A resident down has no row: what it had on
+            // it is its own.
             HIT_VISITOR => {
                 let body = game.hit_visitor() as u32;
                 if !game.visitor_down(body as usize) {
@@ -930,12 +935,12 @@ impl CrewPanels {
                     self.cache_requested = Some(who as u32);
                 }
                 Some(open @ Open::PackUp(_)) => self.show(open),
+                Some(Open::Carry(patient)) => self.carry_requested = Some(patient),
                 None => {
                     if let Some(order) = item.run {
                         if later {
                             self.later_orders.push(order);
                         } else {
-                Some(Open::Carry(patient)) => self.carry_requested = Some(patient),
                             self.crew_orders.push(order);
                         }
                     }
@@ -1091,6 +1096,16 @@ impl CrewPanels {
                 ))
                 .small()
                 .color(if rallying { theme::WARN } else { theme::MUTED }),
+            );
+            let crying = commander.cry_left > 0.0;
+            ui.label(
+                egui::RichText::new(crate::names::battle_cry_line(
+                    commander.cry_left,
+                    commander.cry_cooldown,
+                    commander.can_cry,
+                ))
+                .small()
+                .color(if crying { theme::WARN } else { theme::MUTED }),
             );
         }
         if let Some((level, left, right)) = view.pending {

@@ -562,6 +562,9 @@ impl World {
         for order in &mut self.standing {
             *order = Standing::Follow;
         }
+        // And every commander's Reinforcements beside him (task 129),
+        // fresh for this mission alone.
+        self.bring_reinforcements(events);
     }
 
     /// The dead players back, at the end of the mission they died in
@@ -613,8 +616,9 @@ impl World {
         for tank in &mut self.tanks {
             tank.last_taunt = None;
         }
+        // Every Battle Cry and Rally ready (task 129).
         for commander in &mut self.commanders {
-            commander.last_rally = None;
+            *commander = crate::commander::Commander::default();
         }
         // Every Rampage ready (task 124).
         for soldier in &mut self.soldiers {
@@ -764,6 +768,11 @@ impl World {
     /// its class and progress kept; a bot's is gone for good, and the pool
     /// pays [`data::BOT_DEATH_PENALTY`] for it, as much as it holds.
     pub(super) fn fall(&mut self, who: u32, events: &mut Vec<WorldEvent>) {
+        // A commander's reinforcement (task 129) costs nothing, dead or
+        // alive: it is off the deck at once and off the crew at the end.
+        if self.is_reinforcement(who) {
+            return;
+        }
         if who < self.players() {
             if !self.run.is_out(who) {
                 let order = self.run.deaths;
@@ -813,7 +822,7 @@ impl World {
 
     /// One crew member out of the crew — a dead bot's body gone with the
     /// site it lay at — and every crew member after it moved down one.
-    fn drop_crew_member(&mut self, who: u32) {
+    pub(super) fn drop_crew_member(&mut self, who: u32) {
         let index = who as usize;
         if index >= self.aboard.room.crew_count() as usize {
             return;
@@ -854,6 +863,17 @@ impl World {
         }
         if index < self.commanders.len() {
             self.commanders.remove(index);
+        }
+        // Whom a cry or a rally reached, and the reinforcements, are crew
+        // indices too (task 129).
+        for commander in &mut self.commanders {
+            commander.forget(who);
+        }
+        self.reinforcements.retain(|r| r.who != who);
+        for r in &mut self.reinforcements {
+            if r.who > who {
+                r.who -= 1;
+            }
         }
         self.clear_squad();
         self.hired.retain(|h| h.who != who);
@@ -964,6 +984,8 @@ impl World {
                 self.aboard.room.is_alive(who as usize)
                     && !self.inside_ship(who)
                     && !self.comes_home(who)
+                    // A reinforcement goes wherever it stands (task 129).
+                    && !self.is_reinforcement(who)
             })
             .collect()
     }
@@ -1072,6 +1094,9 @@ impl World {
     /// apart, nothing moving, until the crew have chosen where next.
     pub(super) fn leave_mission(&mut self, events: &mut Vec<WorldEvent>) {
         let station = self.ship.state.alongside().or(self.run.site);
+        // The commanders' reinforcements off the crew first, alive or not
+        // (task 129): nothing of theirs is left behind, paid for or kept.
+        self.send_reinforcements_home();
         self.bring_home();
         for who in self.left_behind() {
             self.aboard.room.kill_now(who as usize);

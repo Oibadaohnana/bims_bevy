@@ -4858,7 +4858,13 @@ world's fields. The whole schedule is `data::MANUFACTURER_*`.
   at `trooper_percent(day)` while `has_droids(day)` (before
   `MANUFACTURER_DROIDS_LOST_DAY`, ten) and one of their people otherwise;
   a later wave is their people alone at `arrival_spots` (split out of
-  `arriving_wave`). The seed is the galaxy, the star, the station, the wave
+  `arriving_wave`). **Every arriving wave's spots go through the room's
+  `Game::spread_wave`** (`Nav::spread_from`): the ring round the spot
+  inside the airlock or the gate is kept only where it is free deck in
+  the same walkable patch as that spot, and the rest filled outward from
+  it by walking, a tile apart — a ring laid round a generated station's
+  corridor was half in its walls, and a machine snapped out of one could
+  land on the far side, shut in, and never move. The seed is the galaxy, the star, the station, the wave
   and the **world clock** (`garrison_seed`), so a visit's garrison is fixed
   and the next visit's is rolled afresh. Their people are enlisted
   (`Game::enlist_manufacturer`) **before** the Troopers, since a body index
@@ -4877,7 +4883,7 @@ world's fields. The whole schedule is `data::MANUFACTURER_*`.
   first down or death, pending until the clear.
 - **The waves**: `wave_count_here` is one while they have the machines and
   `droid_wave_count` after; `reinforce_steps_here` is
-  `MANUFACTURER_REINFORCE_STEPS` (four hours of the mission clock) unless a
+  `MANUFACTURER_REINFORCE_STEPS` (thirty seconds at 1×, the machines' own) unless a
   probe moved `droid_reinforce`. `droids_standing` adds
   `manufacturers_standing` — alive and **not out cold** — so one down and
   bleeding holds no wave and no clear up. `droid_ship` draws their ship at
@@ -4896,7 +4902,7 @@ world's fields. The whole schedule is `data::MANUFACTURER_*`.
 the map's tag, day nought's pistols and its clear on the last down (out
 cold, not dead) with the bounty and ten a head, a Manufacturer down
 bleeding out with nothing taken and nothing more for its death, day
-eight's Troopers, day ten's waves at four hours, the crisis passing a site
+eight's Troopers, day ten's waves thirty seconds apart, the crisis passing a site
 by and the jammer elsewhere, two worlds meeting the same garrison, a site
 left uncleared met afresh with no graves, and the two sides shooting each
 other. `manufacturer::tests` pins the schedule and the one-in-ten.
@@ -5612,3 +5618,50 @@ fewer — no bump), and `REFERENCE_CHECKSUM`, `SURVIVORS` and the ship's
 `PINNED` (with task 124's soldier; each note says why). `shipdesign`'s
 hashes did not move: the cargo is still twenty-two slots.
 `tests_engineer.rs` is the task's tests.
+
+## The commander's ranked kit (task 129)
+
+> "The commander: the aura, the squad and the rally (feature 78)" above
+> describes the ten levels of talents **task 129 replaced**. Kept as
+> history; this is what is there now.
+
+- **Ranked**: `class::ranked` answers for the commander; sixteen levels
+  on `RANKED_LEVEL_XP`, the soldier's gates. Every number is a table of
+  four in `class.rs` (`BATTLE_CRY_*`, `AURA_*`, `RALLY_*`,
+  `REINFORCEMENT*`), read with `by_rank`. `pick_at` has no commander rows.
+- **Base traits**: `squad_range` is `SQUAD_RANGE` at every level;
+  `hire_fee` takes `HIRE_DISCOUNT_PERCENT` off; `SquadKind::Attack
+  { enemy }` is one mark, ended when it is down (no *relentless*, no
+  *pincer*, no *focus fire*), hashed as a list of one so no number moved.
+- **Q Battle Cry, E Rally**: `Command::BattleCry { slot }` and
+  `Command::Rally`, refused `NotACommander`, `OutOfReach` (unfit or
+  downed), `NotLearnt` (rank nought) and `CoolingDown`.
+  `Commander::{last_battle_cry, cried, last_rally, rallied}`: the mission
+  minute and whom it reached (`World::crew_within`, himself included) —
+  fixed at the call. `battle_cry_reaching` / `rally_reaching` answer the
+  commander covering a Bim (the strongest of two). `lift_by_commanders`
+  (in `skill_of`) multiplies the fire rate, the damage taken and `walk`
+  (the always-on pace, not *runner*'s `pace`). Both are cleared at every
+  mission's start (`make_whole`); `cooldowns_less` (*Kill Relay*) moves
+  their start back only once the shout is over, since one timestamp says
+  both the run and the cooldown. `WorldEvent::BattleCried` (134).
+- **C Command Aura**: `aura_radius`/`aura_cast_by` by rank, `Aura
+  { damage }` alone; `in_aura_of` takes the commander himself, fit and
+  not downed; the higher of two holds. Multiplied into `Skill::damage`
+  and `melee`. A sentry's skill is its own and is lifted by nothing.
+  `crit_extra` asks for a **soldier** now, since slot C is the aura on a
+  commander.
+- **R Reinforcements**: `World::reinforcements: Vec<Reinforcement { who,
+  by }>` (saved, hashed where any). `bring_reinforcements` at the end of
+  `begin_mission` (and `reinforce_for_probe`): per player commander with
+  a rank, `REINFORCEMENTS` Bims on `Game::free_tiles_near` his position
+  within `REINFORCEMENT_REACH_TILES` (deck, reachable, nobody standing
+  there), `Game::enlist_reinforcement` with the rank's auto rifle, face
+  off `REINFORCEMENT_SALT` — `WorldEvent::Reinforced { who, count }`
+  (135). A dead one is `Game::vanish`ed by `settle_reinforcements` (end of
+  `casualties`) and `fall` pays nothing for it; `left_behind` and
+  `worth` skip them; `leave_mission` drops them all first
+  (`send_reinforcements_home` → `drop_crew_member`, which now remaps the
+  reinforcements and every commander's reach lists).
+
+`tests_commander.rs` is the task's tests.

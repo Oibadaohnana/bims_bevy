@@ -440,6 +440,38 @@ pub fn world_checksum(world: &World) -> u64 {
             None => hash.eat(0),
         }
     }
+    // And the commander's ranked kit (task 129), only where there is any:
+    // whom his last Rally reached, his last Battle Cry and whom it
+    // reached — whose fire rate and whose hits a step reads — and the
+    // reinforcements of the mission.
+    for (who, commander) in world.commanders.iter().enumerate() {
+        if commander.rallied.is_empty() && commander.last_battle_cry.is_none() {
+            continue;
+        }
+        hash.eat(who as u64);
+        hash.eat(commander.rallied.len() as u64);
+        for &r in &commander.rallied {
+            hash.eat(r as u64);
+        }
+        match commander.last_battle_cry {
+            Some(minutes) => {
+                hash.eat(1);
+                hash.eat_rounded(minutes, FINE_GRID);
+            }
+            None => hash.eat(0),
+        }
+        hash.eat(commander.cried.len() as u64);
+        for &c in &commander.cried {
+            hash.eat(c as u64);
+        }
+    }
+    if !world.reinforcements.is_empty() {
+        hash.eat(world.reinforcements.len() as u64);
+        for r in &world.reinforcements {
+            hash.eat(r.who as u64);
+            hash.eat(r.by as u64);
+        }
+    }
     match &world.squad {
         None => hash.eat(0),
         Some(order) => {
@@ -447,11 +479,11 @@ pub fn world_checksum(world: &World) -> u64 {
             hash.eat(order.by_slot as u64);
             hash.eat(u64::from(order.kind.code()));
             match &order.kind {
-                crate::commander::SquadKind::Attack { enemies } => {
-                    hash.eat(enemies.len() as u64);
-                    for &enemy in enemies {
-                        hash.eat(enemy as u64);
-                    }
+                crate::commander::SquadKind::Attack { enemy } => {
+                    // One mark since task 129, hashed as the list of one
+                    // it was, so no number moved.
+                    hash.eat(1);
+                    hash.eat(*enemy as u64);
                 }
                 crate::commander::SquadKind::FallBack { tile } => {
                     hash.eat(tile.0 as i64 as u64);

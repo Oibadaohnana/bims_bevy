@@ -580,11 +580,21 @@ impl World {
             *last -= minutes;
             any = true;
         }
-        if let Some(commander) = self.commanders.get_mut(who as usize)
-            && let Some(last) = commander.last_rally.as_mut()
-        {
-            *last -= minutes;
-            any = true;
+        // The commander's Rally and Battle Cry (task 129): the start of a
+        // cooldown moves back once the shout itself is over — moved while
+        // it runs, it would cut the shout short, which is the one thing
+        // their single timestamp cannot tell apart.
+        let rallying = self.is_rallying(who);
+        let crying = self.is_crying(who);
+        if let Some(commander) = self.commanders.get_mut(who as usize) {
+            if !rallying && let Some(last) = commander.last_rally.as_mut() {
+                *last -= minutes;
+                any = true;
+            }
+            if !crying && let Some(last) = commander.last_battle_cry.as_mut() {
+                *last -= minutes;
+                any = true;
+            }
         }
         // The engineer's sentry's cooldown (task 127), never its time.
         if let Some(engineer) = self.engineers.get_mut(who as usize)

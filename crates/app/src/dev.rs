@@ -565,6 +565,10 @@ pub fn class_crew(session: &mut ship::Session, asked: world::Class) {
         }
         if let Some(ranks) = bim_ranks() {
             game.world.set_ranks_for_probe(0, ranks);
+            // A commander's Reinforcements come at a mission's start, and
+            // the probe's mission began before its ranks were set: they
+            // are brought now, as the start would have (task 129).
+            game.world.reinforce_for_probe();
         }
     }
 }
@@ -1001,12 +1005,12 @@ fn scripted_input(
                     // The commander's two squad keys (feature 78).
                     'x' => KeyCode::KeyX,
                     'z' => KeyCode::KeyZ,
+                    // The held revive and the medic's carry.
+                    'g' => KeyCode::KeyG,
                     _ => continue,
                 };
                 (code, Key::Character(ch.to_string().into()))
             }
-                    // The held revive and the medic's carry.
-                    'g' => KeyCode::KeyG,
             _ => continue,
         };
         for &state in states {
