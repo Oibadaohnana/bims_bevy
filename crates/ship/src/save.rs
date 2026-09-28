@@ -141,7 +141,10 @@ use crate::game::Game;
 /// 47: worldgen's `GENERATOR_VERSION` 8 — six hundred stars, every system a
 /// station and a planet to land on — and a trader in one system in ten: a
 /// save names stars and stations of a galaxy no longer generated.
-pub const SAVE_VERSION: u32 = 47;
+/// 48: the relics of tasks 117 and 118 — twenty-five more relics, a relic
+/// choice without a tier, and the run keeps the new relics' timed effects,
+/// cooldowns, marks and notes and whether the trader was restocked.
+pub const SAVE_VERSION: u32 = 48;
 
 /// What the file holds, read back.
 #[derive(serde::Deserialize)]

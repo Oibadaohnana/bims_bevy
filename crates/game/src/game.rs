@@ -7116,6 +7116,13 @@ impl Game {
     /// Index for index with `set_hostiles`, the way
     /// [`Game::set_hostiles_peeking`] is.
     pub fn set_hostiles_taunting(&mut self, radius: &[f32], magnet: &[bool]) {
+    /// How wide a shield's front is against each crew member's shots, as
+    /// a cosine, by index — a relic's *Wide Angle Optics* (task 118). An
+    /// empty list is the Guardian's own front for everybody.
+    pub fn set_shield_fronts(&mut self, fronts: Vec<f32>) {
+        self.combat.set_shield_fronts(fronts);
+    }
+
         self.combat.set_taunting(radius, magnet);
     }
 
@@ -7953,6 +7960,10 @@ impl Game {
         let kind = Kind::Bandage {
             patient,
             part: part.code(),
+        // What a relic makes of every hit on this body (task 118): *Tether
+        // Field*, *Cover Formation*. One for everybody else, and a hit
+        // times one is the hit.
+        let damage = damage * self.skill(who).damage_taken;
         };
         if !self.take_over(who, kind) {
             return false;

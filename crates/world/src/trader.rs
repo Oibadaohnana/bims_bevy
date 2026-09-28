@@ -194,6 +194,22 @@ impl ShelfItem {
 pub fn roll_shelf(galaxy_seed: u64, star: u32, station: u32) -> Vec<ShelfItem> {
     let seed = worldgen::rng::mix(galaxy_seed ^ 0x_5348_454C_4600)
         ^ worldgen::rng::mix(u64::from(star) << 32 | u64::from(station));
+    shelf_off(seed)
+}
+
+/// A trader's shelf **rolled again** (task 118, *Restock Codes*): the
+/// draws of [`roll_shelf`] off a seed that also mixes `again` — the world
+/// clock's minute of the visit — so a restock is the same on every
+/// machine and another visit's is another shelf.
+pub fn reroll_shelf(galaxy_seed: u64, star: u32, station: u32, again: u64) -> Vec<ShelfItem> {
+    let seed = worldgen::rng::mix(galaxy_seed ^ 0x_5245_5354_4F43)
+        ^ worldgen::rng::mix(u64::from(star) << 32 | u64::from(station))
+        ^ worldgen::rng::mix(again);
+    shelf_off(seed)
+}
+
+/// The shelf's draws off one seed.
+fn shelf_off(seed: u64) -> Vec<ShelfItem> {
     let mut rng = worldgen::rng::Rng::new(seed);
     let mut shelf = Vec::with_capacity(data::TRADER_WEAPONS + data::TRADER_ARMOUR);
     // One draw a thing, over every pair of a kind and a tier the kind is

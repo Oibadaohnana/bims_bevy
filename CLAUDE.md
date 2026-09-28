@@ -1322,6 +1322,52 @@ a won run unlocks"). What to hold on to:
   fourteen others in `Relic::ALL`'s order; an old profile is read with
   every starting relic in it (`Profile::unlocked`).
 
+## Five patches of relics (task 118)
+
+Twenty-five relics, codes 12–36 — *Dismantler*, *Lifeline*, *Flanker*,
+*Command Net*, *Supply Line*, two tier ones, two tier twos and a tier
+three each — and *Kill Relay* at three seconds. The world's half is
+`crates/world/CLAUDE.md` ("Five patches of relics"), the player's
+`README.md` (the second table under "Relics"). What to hold on to:
+
+- **Still a row a relic.** `relic::RELICS` grew the hooks the patches
+  needed: `Stat::{MachineDamage, DamageTaken, Bleeding, BandageSpeed,
+  TraderPrices}`, `When::{OnLimb, Crippled, Flanked}` asked against a
+  `relic::Situation`, `Trigger::{CrewKill, FlankKill, BandagedCrewmate,
+  CrewmateDowned}`, `Action::{Sprint, Unseen, Tether, Shelter, RallyUp}`,
+  a hook's `cooldown`, `Effect::OnEach` (two hooks), `Effect::Aura` and
+  `Effect::Rule` (one relic's own rule). Every number is
+  `world::data`'s, every word `names.rs`'s.
+- **Where each is read** is `crates/world/src/relic_hooks.rs`, a child
+  of `world`: a crew hit landing on a machine (`land_on_machines`,
+  before `visit` lands the rest), the skill (`lift_by_relic_hooks`:
+  *War Chest*, *Sprint Coil*, the auras, *Tether Field* into the room's
+  new `Skill::damage_taken`), the blood (`relics_on_the_blood`), a kill
+  (`machine_kills_noted`, with how the machine went), a crewmate down
+  (`settle_relic_downs`, a stage after `settle_relics`), the clear and
+  the trader. The room's half is two numbers it is handed —
+  `Skill::damage_taken` and a shield's front a shooter
+  (`Game::set_shield_fronts`, *Wide Angle Optics*) — and
+  `Droid::front()`, the facing every kind has for a flank.
+- **Nothing draws from a stream and nothing runs with no relic held**:
+  a crew holding none lands every hit, and draws every roll, exactly as
+  before — `SURVIVORS` and the ship's `PINNED` did not move.
+- **`Command::Restock`** (*Restock Codes*): at a trader, a player holding
+  it, once a visit (`Relics::restocked`, cleared on arrival) — refusals
+  `NoRestock` (108) and `Restocked` (109), `WorldEvent::Restocked` (129);
+  the shelf rolled again off the world clock's minute
+  (`trader::reroll_shelf`), the relic untouched. The trader panel's
+  **Restock the shelf** button.
+- **`BIMS_RELICS`** takes a name with or without its apostrophe
+  (`marksmans_habit`).
+
+**What moved** (with task 117, once for both): `SAVE_VERSION` **48**,
+`wire::PROTOCOL` **40** (the relay wants redeploying), and
+`REFERENCE_CHECKSUM` (a new profile's pool is fifteen relics longer, and
+a choice lost its tier). `SURVIVORS`, the ship's `PINNED` and `PICTURES`
+did **not** move. The new relic state is hashed only where there is any.
+`tests_relic_patches.rs` is the task's tests.
+
 ## The old game deleted (feature 104)
 
 The third step of the redesign: **everything features 102 and 103 switched

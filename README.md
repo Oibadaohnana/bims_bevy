@@ -206,7 +206,7 @@ player's Bim** for the rest of the run. A bot never holds one.
   character sheet (**K**) lists the ones the Bim holds, under its gear —
   never a tier: the tier in the table is how rare a relic is (the odds of
   drawing it and its price at a trader) and the game does not show it —
-  they are not shown on the deck. The twelve there are:
+  they are not shown on the deck. The first twelve are:
 
   | tier | relic | what it does | in a new profile |
   | --- | --- | --- | --- |
@@ -220,12 +220,55 @@ player's Bim** for the rest of the run. A bot never holds one.
   | 2 | Salvage Beacon | +20% bounty for the Bim's own kills, paid on the clear like any bounty | yes |
   | 2 | Overcharge Cell | every fifth shot does double damage | unlocked by a win |
   | 3 | Last Stand | +25% weapon damage while another player's Bim is down | yes |
-  | 3 | Kill Relay | each kill takes a second off the Bim's class cooldowns | yes |
+  | 3 | Kill Relay | each kill takes three seconds off the Bim's class cooldowns | yes |
   | 3 | Phase Harness | once a mission, when a hit takes the Bim under 25% health, nothing hurts it for 2 s | unlocked by a win |
 
   A bandage closes wounds and puts nothing back, so *Trauma Kit* raises
   what a medkit starts a part again from and what a beam gives, and
   nothing else.
+
+  And **five patches of five** (task 118), each built round one way to
+  fight — the numbers are placeholders, not balanced. "From the side or
+  behind" is outside the front arc a Guardian's shield covers (sixty
+  degrees each side), for every machine; a crewmate is any crew member,
+  bots included.
+
+  | tier | relic | what it does | in a new profile |
+  | --- | --- | --- | --- |
+  | | **Dismantler** — strip a machine's limbs, then punish it | | |
+  | 1 | Marksman's Habit | the Bim's first hit on each machine lands on its arms or legs | yes |
+  | 1 | Servo Cutter | +25% damage to a machine's arms and legs | yes |
+  | 2 | Crippler's Mark | +20% damage to machines missing their arms or legs | yes |
+  | 2 | Parts Broker | +50% bounty for machines the Bim destroys while they are missing a limb | unlocked by a win |
+  | 3 | Total Teardown | a hit on a limb already destroyed tears into the chassis for double damage | unlocked by a win |
+  | | **Lifeline** — surviving being downed, and keeping each other up | | |
+  | 1 | Pressure Seal | the Bim's wounds bleed 25% slower | yes |
+  | 1 | Quick Wrap | the Bim bandages 50% faster, itself or a crewmate | yes |
+  | 2 | Clot Booster | for the first 15 s after the Bim goes down, it does not bleed | yes |
+  | 2 | Tether Field | a crewmate the Bim bandages takes 25% less damage for 6 s | unlocked by a win |
+  | 3 | Lifeline | once a mission, when a crewmate within 4 tiles goes down, both are untouchable for 3 s | unlocked by a win |
+  | | **Flanker** — get round the machine, hit it where it is not looking | | |
+  | 1 | Blind Spot | +15% damage on hits from the side or behind | yes |
+  | 1 | Sprint Coil | +20% move speed for 3 s at a mission's start and after each ability used | yes |
+  | 2 | Signal Scrambler | after the Bim destroys a machine from the side or behind, no machine aims at it for 5 s; once every 20 s | yes |
+  | 2 | Wide Angle Optics | the Bim's side-or-behind zone is 30° wider each side, and a Guardian's shield that much narrower against its shots | unlocked by a win |
+  | 3 | Crossfire | while the Bim and a crewmate stand on opposite sides of a machine (over 120° apart, within 12 tiles), both do +40% damage to it | unlocked by a win |
+  | | **Command Net** — leading the crew; anybody may carry it | | |
+  | 1 | Field Radio | crewmates within 3 tiles aim 5% better | yes |
+  | 1 | Spotter | the machine the Bim hit last takes +10% damage from every crewmate for 3 s | yes |
+  | 2 | Squad Morale | each machine the Bim or a bot destroys takes 1 s off the Bim's class cooldowns (with Kill Relay, 4 s for its own) | yes |
+  | 2 | Cover Formation | bots within 3 tiles take 20% less damage | unlocked by a win |
+  | 3 | Rally Point | once a mission, using an ability gets every downed crewmate within 4 tiles back up at 20% health | unlocked by a win |
+  | | **Supply Line** — money, traders and time, for the whole crew | | |
+  | 1 | Hazard Pay | +€500 to the pool each time a site is cleared | yes |
+  | 1 | Trade License | trader prices 15% lower — the shelf and the relic | yes |
+  | 2 | Restock Codes | once a trader visit, **Restock the shelf** rolls its weapons and armour again; never the relic | yes |
+  | 2 | Scrap Collector | +€100 for each machine the Bim destroys, paid when the site is cleared | unlocked by a win |
+  | 3 | War Chest | +2% damage for every €1 000 in the pool a player, up to +20% | unlocked by a win |
+
+  `BIMS_RELICS=blind_spot,marksmans_habit` gives the steered Bim those
+  relics at the start of any run, to look at one (an apostrophe in a name
+  may be left out).
 - **Kept.** A relic cannot be moved to another Bim, dropped or sold, and a
   player's Bim that dies keeps its relics as it keeps its level; they come
   back with it at the mission's end.

@@ -296,6 +296,9 @@ pub enum WorldEvent {
         relic: u32,
         price: economy::Money,
     },
+    /// Player `slot` had the trader's shelf rolled again (task 118,
+    /// *Restock Codes*).
+    Restocked { slot: u32 },
 }
 
 /// Why a command did nothing.
@@ -517,6 +520,11 @@ pub enum Refusal {
     TopTier = 106,
     /// Two things combined that are not two of one kind at one tier.
     NotAPair = 107,
+    /// A restock asked for with no player holding *Restock Codes* (task
+    /// 118).
+    NoRestock = 108,
+    /// A restock asked for twice in one visit to a trader.
+    Restocked = 109,
 }
 
 impl Refusal {
@@ -622,6 +630,7 @@ impl WorldEvent {
             WorldEvent::ShelfBought { .. } => 126,
             WorldEvent::Combined { .. } => 127,
             WorldEvent::RelicBought { .. } => 128,
+            WorldEvent::Restocked { .. } => 129,
         }
     }
 
@@ -671,6 +680,7 @@ impl WorldEvent {
                 (slot as i64) + 10 * (tier as i64) + 100 * who
             }
             WorldEvent::RelicBought { slot, relic, .. } => (slot as i64) + 100 * (relic as i64),
+            WorldEvent::Restocked { slot } => slot as i64,
             WorldEvent::TownFell { station }
             | WorldEvent::HeartExposed { station }
             | WorldEvent::HeartOverload { station }

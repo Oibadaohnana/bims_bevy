@@ -104,6 +104,9 @@ pub enum Order {
         a: world::GearSource,
         b: world::GearSource,
     },
+    /// The trader's shelf rolled again, a relic's *Restock Codes* (task
+    /// 118) — `Command::Restock`.
+    Restock,
     /// Lay out a part to be built, at a design tile, turned so.
     Build {
         kind: PartKind,
@@ -397,6 +400,7 @@ impl Net {
                         Order::Speed(speed) => Command::SetSpeed { slot, speed },
                         Order::BuyShelf { index, to } => Command::BuyShelf { slot, index, to },
                         Order::Combine { a, b } => Command::Combine { slot, a, b },
+                        Order::Restock => Command::Restock { slot },
                         Order::Build {
                             kind,
                             x,

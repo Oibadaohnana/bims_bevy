@@ -3858,3 +3858,21 @@ back and the discharge's reach; `game::tests` the discharge off a Husk's
 blow with its cooldown, broken greaves and a bolt never discharging, the
 plate draining nothing until it breaks and a blow never sent back, and
 one seed fighting alike.
+
+## Task 118's relics: what the room is handed
+
+The five patches of relics (`crates/world/CLAUDE.md`, "Five patches of
+relics") are the world's; the room is handed three things and decides
+nothing about them:
+
+- **`Skill::damage_taken`** (one for everybody) multiplies every hit on
+  the body at the top of `strike_stripping`, before the armour — *Tether
+  Field* on a crewmate dressed, *Cover Formation* on a bot beside its
+  holder. A hit times one is the hit, so nobody else's fight moved.
+- **`Game::set_shield_fronts`** (`Combat::shield_fronts`, a cosine a crew
+  index): the front a Guardian's shield turns against that crew member's
+  bolts and blows — narrower with *Wide Angle Optics*.
+  `combat::shield_stops_within` is `shield_stops` at a front of one's
+  own; an empty list is `GUARDIAN_SHIELD_COS` for everybody.
+- **`Droid::front`**: which way every kind faces, for a hit from the side
+  or behind — a Guardian's `facing`, the picture's heading for the rest.

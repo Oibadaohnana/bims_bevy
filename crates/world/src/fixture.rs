@@ -160,7 +160,12 @@ pub const REFERENCE_STEPS: u32 = 600;
 /// system a station and a planet to land on) with a trader in one system
 /// in ten: another galaxy, so another spawn, another crew's day and
 /// another site at the far end. Was `0x_86d1_6b33_0409_b543`.
-pub const REFERENCE_CHECKSUM: u64 = 0x_3222_89f6_e882_3fce;
+/// And for the relics of tasks 117 and 118: a new profile's pool holds
+/// fifteen more (task 118's tier ones and twos), and a choice no longer
+/// carries a tier (task 117) — the pool and the choice are hashed. The run
+/// plays as it did (`SURVIVORS` and the ship's `PINNED` did not move).
+/// Was `0x_3222_89f6_e882_3fce`.
+pub const REFERENCE_CHECKSUM: u64 = 0x_1015_15d4_3b34_cfaa;
 
 /// A world with the flyable fixture docked at the simulation's spawn: the
 /// default seed's first dock, which is where every fixture world starts.

@@ -504,14 +504,102 @@ pub const OVERCHARGE_CELL_DAMAGE_PERCENT: i32 = 100;
 /// player's Bim is down, in per cent.
 pub const LAST_STAND_DAMAGE_PERCENT: i32 = 25;
 /// *Kill Relay*: the seconds every class cooldown running on it loses when
-/// a machine it hit last is destroyed.
-pub const KILL_RELAY_SECONDS: f64 = 1.0;
+/// a machine it hit last is destroyed (three since task 118; one before).
+pub const KILL_RELAY_SECONDS: f64 = 3.0;
 /// *Phase Harness*: the share of its health a hit has to take it under, in
 /// per cent — once a mission.
 pub const PHASE_HARNESS_BELOW_PERCENT: u32 = 25;
 /// *Phase Harness*: how long nothing hurts it after, in seconds — the
 /// room's own surge (`bims::game::Game::set_surge`), halo and all.
 pub const PHASE_HARNESS_SECONDS: f32 = 2.0;
+
+// --- task 118's relics: five patches of five --------------------------------
+// Placeholder numbers, not balanced. A "second" is one of the mission clock,
+// a real second at 1×; a "tile" is the room's.
+
+/// *Servo Cutter*: what a hit on a machine's arms or legs, while it has
+/// them, does more, in per cent.
+pub const SERVO_CUTTER_DAMAGE_PERCENT: i32 = 25;
+/// *Crippler's Mark*: what a hit on a machine missing its arms or its legs
+/// does more, in per cent.
+pub const CRIPPLERS_MARK_DAMAGE_PERCENT: i32 = 20;
+/// *Parts Broker*: what the bounty for a machine it destroys missing its
+/// arms or its legs is raised by, in per cent.
+pub const PARTS_BROKER_BOUNTY_PERCENT: i32 = 50;
+/// *Total Teardown*: what a hit on a limb already gone does more to the
+/// chassis it tears into, in per cent — a hundred is double.
+pub const TOTAL_TEARDOWN_DAMAGE_PERCENT: i32 = 100;
+/// *Pressure Seal*: how much slower its wounds bleed, in per cent.
+pub const PRESSURE_SEAL_BLEED_PERCENT: i32 = 25;
+/// *Quick Wrap*: how much faster it dresses a wound, in per cent.
+pub const QUICK_WRAP_SPEED_PERCENT: i32 = 50;
+/// *Clot Booster*: how long after going down it does not bleed, in
+/// seconds.
+pub const CLOT_BOOSTER_SECONDS: f64 = 15.0;
+/// *Tether Field*: how much less of every hit a crewmate it dressed takes,
+/// in per cent, and for how many seconds.
+pub const TETHER_FIELD_PERCENT: i32 = 25;
+pub const TETHER_FIELD_SECONDS: f64 = 6.0;
+/// *Lifeline*: how near a crewmate going down has to be, in tiles, and how
+/// long the two of them are untouchable, in seconds — once a mission.
+pub const LIFELINE_TILES: f32 = 4.0;
+pub const LIFELINE_SECONDS: f32 = 3.0;
+/// *Blind Spot*: what a hit on a machine from the side or behind does
+/// more, in per cent.
+pub const BLIND_SPOT_DAMAGE_PERCENT: i32 = 15;
+/// *Sprint Coil*: its pace raised, in per cent, for how many seconds, at a
+/// mission's start and after every ability used.
+pub const SPRINT_COIL_SPEED_PERCENT: i32 = 20;
+pub const SPRINT_COIL_SECONDS: f64 = 3.0;
+/// *Signal Scrambler*: how long no machine aims at it after it destroys
+/// one from the side or behind, in seconds, and how long before it can
+/// again.
+pub const SIGNAL_SCRAMBLER_SECONDS: f64 = 5.0;
+pub const SIGNAL_SCRAMBLER_COOLDOWN: f64 = 20.0;
+/// *Wide Angle Optics*: the cosine of the half-width of a machine's front
+/// for its hits — thirty degrees a side, where everybody else's is the
+/// Guardian shield's sixty (`bims::balance::GUARDIAN_SHIELD_COS`), so the
+/// side and the back are thirty degrees wider each way. Its shots are
+/// stopped by a Guardian's shield across that narrower front too.
+pub const WIDE_ANGLE_OPTICS_FRONT_COS: f32 = 0.866_025_4;
+/// *Crossfire*: what it and the crewmate opposite do more to the machine
+/// between them, in per cent; the cosine two bearings from the machine
+/// must be under to be opposite (a hundred and twenty degrees); and how
+/// near the machine each must stand, in tiles.
+pub const CROSSFIRE_DAMAGE_PERCENT: i32 = 40;
+pub const CROSSFIRE_APART_COS: f32 = -0.5;
+pub const CROSSFIRE_TILES: f32 = 12.0;
+/// *Field Radio*: what the odds of a crewmate within so many tiles of it
+/// are raised by, in per cent.
+pub const FIELD_RADIO_ACCURACY_PERCENT: i32 = 5;
+pub const FIELD_RADIO_TILES: f32 = 3.0;
+/// *Spotter*: what the machine it hit last takes more from every crewmate,
+/// in per cent, and for how many seconds after the hit.
+pub const SPOTTER_DAMAGE_PERCENT: i32 = 10;
+pub const SPOTTER_SECONDS: f64 = 3.0;
+/// *Squad Morale*: the seconds every class cooldown running on it loses
+/// when a machine it or any bot hit last is destroyed.
+pub const SQUAD_MORALE_SECONDS: f64 = 1.0;
+/// *Cover Formation*: how much less of every hit a bot within so many
+/// tiles of it takes, in per cent.
+pub const COVER_FORMATION_PERCENT: i32 = 20;
+pub const COVER_FORMATION_TILES: f32 = 3.0;
+/// *Rally Point*: how near a crewmate down has to be, in tiles, and the
+/// share of its health it gets up with, in per cent — once a mission, on
+/// an ability used.
+pub const RALLY_POINT_TILES: f32 = 4.0;
+pub const RALLY_POINT_HEALTH_PERCENT: u32 = 20;
+/// *Hazard Pay*: what the crew are paid every site cleared.
+pub const HAZARD_PAY: Money = 500;
+/// *Trade License*: how much less a trader asks of the crew, in per cent.
+pub const TRADE_LICENSE_PERCENT: i32 = 15;
+/// *Scrap Collector*: what the crew earn for every machine it destroys,
+/// pending with the bounty until the site is cleared.
+pub const SCRAP_COLLECTOR_PAY: Money = 100;
+/// *War Chest*: its damage up this many per cent for every thousand in
+/// the pool a player, and never more than the cap.
+pub const WAR_CHEST_PERCENT_PER_THOUSAND: i32 = 2;
+pub const WAR_CHEST_CAP_PERCENT: i32 = 20;
 
 /// The odds of each relic tier, in per cent, on day nought of the world
 /// clock: tier one, two, three (task 117, `relic::tier_odds`). A reward,

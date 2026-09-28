@@ -105,8 +105,9 @@ pub fn lost() -> bool {
 
 /// `BIMS_RELICS=focusing_lens,second_wind` gives the steered Bim those
 /// relics at the start (feature 106): each a relic's name in lower case
-/// with the words joined by `_` (`names::RELIC_NAMES`), or its code. A
-/// word that is neither is said on the terminal and skipped.
+/// with the words joined by `_` (`names::RELIC_NAMES`) — an apostrophe or
+/// none, `marksmans_habit` — or its code. A word that is neither is said
+/// on the terminal and skipped.
 pub fn relics() -> Vec<world::Relic> {
     let Ok(list) = std::env::var("BIMS_RELICS") else {
         return Vec::new();
@@ -121,8 +122,11 @@ pub fn relics() -> Vec<world::Relic> {
                 .and_then(world::Relic::from_code)
                 .or_else(|| {
                     world::Relic::ALL.into_iter().find(|&r| {
-                        crate::names::relic_name(r).to_lowercase().replace(' ', "_")
-                            == word.to_lowercase()
+                        crate::names::relic_name(r)
+                            .to_lowercase()
+                            .replace(' ', "_")
+                            .replace('\'', "")
+                            == word.to_lowercase().replace('\'', "")
                     })
                 });
             if found.is_none() {

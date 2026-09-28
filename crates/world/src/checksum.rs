@@ -582,6 +582,54 @@ pub fn world_checksum(world: &World) -> u64 {
         }
     }
     hash.eat(u64::from(relics.offers));
+    // Task 118's: the timed effects, the cooldowns, the marks and the
+    // notes, the downs a *Clot Booster* counts from and the restock. Eaten
+    // only where there is any, so a run holding none of them hashes as it
+    // always did.
+    let downed = relics.downed_at.iter().any(Option::is_some);
+    if !relics.buffs.is_empty()
+        || !relics.ready_at.is_empty()
+        || !relics.spotted.is_empty()
+        || !relics.limb_aimed.is_empty()
+        || !relics.flanked.is_empty()
+        || downed
+        || relics.restocked
+    {
+        hash.eat(relics.buffs.len() as u64);
+        for b in &relics.buffs {
+            hash.eat(u64::from(b.who));
+            hash.eat(u64::from(b.relic.code()));
+            hash.eat_rounded(b.until, FINE_GRID);
+        }
+        hash.eat(relics.ready_at.len() as u64);
+        for &(slot, r, at) in &relics.ready_at {
+            hash.eat(u64::from(slot));
+            hash.eat(u64::from(r.code()));
+            hash.eat_rounded(at, FINE_GRID);
+        }
+        hash.eat(relics.spotted.len() as u64);
+        for &(slot, body, until) in &relics.spotted {
+            hash.eat(u64::from(slot));
+            hash.eat(u64::from(body));
+            hash.eat_rounded(until, FINE_GRID);
+        }
+        hash.eat(relics.limb_aimed.len() as u64);
+        for &(slot, body) in &relics.limb_aimed {
+            hash.eat(u64::from(slot));
+            hash.eat(u64::from(body));
+        }
+        hash.eat(relics.flanked.len() as u64);
+        for &body in &relics.flanked {
+            hash.eat(u64::from(body));
+        }
+        for down in &relics.downed_at {
+            match down {
+                None => hash.eat(u64::MAX),
+                Some(at) => hash.eat_rounded(*at, FINE_GRID),
+            }
+        }
+        hash.eat(u64::from(relics.restocked));
+    }
     hash.eat(u64::from(run.fought));
     hash.eat(u64::from(run.cleared_here));
     hash.eat(u64::from(run.won));

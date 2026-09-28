@@ -464,6 +464,8 @@ pub fn refusal(why: Refusal) -> &'static str {
         Refusal::SoldOut => "that is gone — somebody bought it first",
         Refusal::TopTier => "tier three is as far as combining goes",
         Refusal::NotAPair => "only two of one kind at one tier combine",
+        Refusal::NoRestock => "nobody holds Restock Codes",
+        Refusal::Restocked => "the shelf has been restocked once this visit already",
     }
 }
 
@@ -1977,6 +1979,10 @@ pub fn event_line(event: WorldEvent) -> Option<String> {
             world::Relic::from_code(relic).map_or("a relic", relic_name),
             crate::format::euros(price)
         ),
+        WorldEvent::Restocked { slot } => format!(
+            "{} had the trader restock the shelf — Restock Codes.",
+            player_name(slot)
+        ),
         WorldEvent::GearChanged { .. } => GEAR_CHANGED.into(),
         WorldEvent::GearOffered { from, to, .. } => format!(
             "{} offers {} a thing: it is theirs when they accept it.",
@@ -2042,6 +2048,27 @@ pub fn event_line(event: WorldEvent) -> Option<String> {
             Some(world::Relic::PhaseHarness) => {
                 format!("{} phases out — nothing hurts for a moment.", who(w))
             }
+            Some(world::Relic::SignalScrambler) => {
+                format!("{} drops off the machines' sights — Signal Scrambler.", who(w))
+            }
+            Some(world::Relic::Lifeline) => format!(
+                "{} throws a Lifeline — nothing hurts either of them for a moment.",
+                who(w)
+            ),
+            Some(world::Relic::RallyPoint) => {
+                format!("{} calls a Rally Point — the fallen get up.", who(w))
+            }
+            Some(world::Relic::HazardPay) => format!(
+                "Hazard Pay: the crew are paid {} for the site.",
+                crate::format::euros(world::data::HAZARD_PAY)
+            ),
+            // Fired every kill or every ability: the log would be nothing
+            // else in a fight.
+            Some(
+                world::Relic::SquadMorale
+                | world::Relic::SprintCoil
+                | world::Relic::TetherField,
+            ) => String::new(),
             Some(r) => format!("{}: {}.", who(w), relic_name(r)),
             None => String::new(),
         },
@@ -2059,7 +2086,7 @@ fn relic_of(code: u32) -> Option<world::Relic> {
 }
 
 /// Every relic's name, in `world::Relic::ALL`'s order.
-pub const RELIC_NAMES: [&str; 12] = [
+pub const RELIC_NAMES: [&str; 37] = [
     "Focusing Lens",
     "Servo Braces",
     "Field Plating",
@@ -2072,6 +2099,32 @@ pub const RELIC_NAMES: [&str; 12] = [
     "Last Stand",
     "Kill Relay",
     "Phase Harness",
+    // Task 118.
+    "Marksman's Habit",
+    "Servo Cutter",
+    "Crippler's Mark",
+    "Pressure Seal",
+    "Quick Wrap",
+    "Clot Booster",
+    "Blind Spot",
+    "Sprint Coil",
+    "Signal Scrambler",
+    "Field Radio",
+    "Spotter",
+    "Squad Morale",
+    "Hazard Pay",
+    "Trade License",
+    "Restock Codes",
+    "Parts Broker",
+    "Tether Field",
+    "Wide Angle Optics",
+    "Cover Formation",
+    "Scrap Collector",
+    "Total Teardown",
+    "Lifeline",
+    "Crossfire",
+    "Rally Point",
+    "War Chest",
 ];
 
 pub fn relic_name(relic: world::Relic) -> &'static str {
@@ -2129,6 +2182,127 @@ pub fn relic_line(relic: world::Relic) -> String {
             d::PHASE_HARNESS_BELOW_PERCENT,
             d::PHASE_HARNESS_SECONDS
         ),
+        // Task 118: Dismantler.
+        MarksmansHabit => "This Bim's first hit on each machine lands on its arms or legs.".into(),
+        ServoCutter => format!(
+            "+{}% damage to a machine's arms and legs.",
+            d::SERVO_CUTTER_DAMAGE_PERCENT
+        ),
+        CripplersMark => format!(
+            "+{}% damage to machines missing their arms or legs.",
+            d::CRIPPLERS_MARK_DAMAGE_PERCENT
+        ),
+        PartsBroker => format!(
+            "+{}% bounty for machines this Bim destroys while they are missing a limb.",
+            d::PARTS_BROKER_BOUNTY_PERCENT
+        ),
+        TotalTeardown => format!(
+            "A hit on a limb already destroyed tears into the chassis for {}.",
+            percent_more(d::TOTAL_TEARDOWN_DAMAGE_PERCENT)
+        ),
+        // Lifeline.
+        PressureSeal => format!(
+            "This Bim's wounds bleed {}% slower.",
+            d::PRESSURE_SEAL_BLEED_PERCENT
+        ),
+        QuickWrap => format!(
+            "This Bim bandages {}% faster, itself or a crewmate.",
+            d::QUICK_WRAP_SPEED_PERCENT
+        ),
+        ClotBooster => format!(
+            "For the first {} s after this Bim goes down, it does not bleed.",
+            d::CLOT_BOOSTER_SECONDS
+        ),
+        TetherField => format!(
+            "A crewmate this Bim bandages takes {}% less damage for {} s.",
+            d::TETHER_FIELD_PERCENT,
+            d::TETHER_FIELD_SECONDS
+        ),
+        Lifeline => format!(
+            "Once a mission, when a crewmate within {} tiles goes down, both of them are untouchable for {} s.",
+            d::LIFELINE_TILES,
+            d::LIFELINE_SECONDS
+        ),
+        // Flanker.
+        BlindSpot => format!(
+            "+{}% damage on hits that strike a machine from the side or behind.",
+            d::BLIND_SPOT_DAMAGE_PERCENT
+        ),
+        SprintCoil => format!(
+            "+{}% move speed for {} s at a mission's start and after each ability used.",
+            d::SPRINT_COIL_SPEED_PERCENT,
+            d::SPRINT_COIL_SECONDS
+        ),
+        SignalScrambler => format!(
+            "After this Bim destroys a machine from the side or behind, no machine aims at it for {} s. Once every {} s.",
+            d::SIGNAL_SCRAMBLER_SECONDS,
+            d::SIGNAL_SCRAMBLER_COOLDOWN
+        ),
+        WideAngleOptics => {
+            "This Bim's side-or-behind zone is 30° wider on each side — and so is a Guardian's shield narrower against its shots."
+                .into()
+        }
+        Crossfire => format!(
+            "While this Bim and a crewmate stand on opposite sides of a machine, both deal +{}% damage to it.",
+            d::CROSSFIRE_DAMAGE_PERCENT
+        ),
+        // Command Net.
+        FieldRadio => format!(
+            "Crewmates within {} tiles aim {}% better.",
+            d::FIELD_RADIO_TILES,
+            d::FIELD_RADIO_ACCURACY_PERCENT
+        ),
+        Spotter => format!(
+            "The machine this Bim hit last takes +{}% damage from every crewmate for {} s.",
+            d::SPOTTER_DAMAGE_PERCENT,
+            d::SPOTTER_SECONDS
+        ),
+        SquadMorale => format!(
+            "Each machine this Bim or a bot destroys takes {} s off this Bim's class ability cooldowns.",
+            d::SQUAD_MORALE_SECONDS
+        ),
+        CoverFormation => format!(
+            "Bots within {} tiles take {}% less damage.",
+            d::COVER_FORMATION_TILES,
+            d::COVER_FORMATION_PERCENT
+        ),
+        RallyPoint => format!(
+            "Once a mission, using an ability gets every downed crewmate within {} tiles back up at {}% health.",
+            d::RALLY_POINT_TILES,
+            d::RALLY_POINT_HEALTH_PERCENT
+        ),
+        // Supply Line.
+        HazardPay => format!(
+            "The crew are paid {} each time a site is cleared.",
+            crate::format::euros(d::HAZARD_PAY)
+        ),
+        TradeLicense => format!(
+            "Trader prices are {}% lower for the crew.",
+            d::TRADE_LICENSE_PERCENT
+        ),
+        RestockCodes => {
+            "Once a trader visit, the trader's weapons and armour can be rolled again. The relic is not."
+                .into()
+        }
+        ScrapCollector => format!(
+            "Each machine this Bim destroys earns the crew {}, paid when the site is cleared.",
+            crate::format::euros(d::SCRAP_COLLECTOR_PAY)
+        ),
+        WarChest => format!(
+            "+{}% damage for every {} in the crew's pool a player, up to +{}%.",
+            d::WAR_CHEST_PERCENT_PER_THOUSAND,
+            crate::format::euros(1_000),
+            d::WAR_CHEST_CAP_PERCENT
+        ),
+    }
+}
+
+/// "double damage" for a hundred per cent, else "+n% damage".
+fn percent_more(percent: i32) -> String {
+    if percent == 100 {
+        "double damage".to_string()
+    } else {
+        format!("+{percent}% damage")
     }
 }
 
@@ -2384,6 +2558,10 @@ pub const TRADER_COMBINE_INTRO: &str = "Two weapons or two pieces of one kind at
 pub const TRADER_COMBINE_NONE: &str =
     "Nothing to combine: no two of one kind at one tier below three.";
 pub const TRADER_ARMORY_HINT: &str = "Tab opens the Armory beside this.";
+/// *Restock Codes* (task 118): the button, and what it does.
+pub const TRADER_RESTOCK: &str = "Restock the shelf";
+pub const TRADER_RESTOCK_TIP: &str =
+    "Restock Codes: roll the trader's weapons and armour again, once a visit. The relic stays.";
 /// A thing on the shelf: its name and tier.
 pub fn shelf_line(name: &str, tier: u32) -> String {
     format!("{name} · tier {tier}")
@@ -3714,6 +3892,7 @@ mod tests {
                     relic: 0,
                     price: 3_000,
                 },
+                WorldEvent::Restocked { slot: 0 },
             ] {
                 assert!(event_line(event).is_some(), "{event:?}");
             }
@@ -3730,6 +3909,8 @@ mod tests {
                 Refusal::SoldOut,
                 Refusal::TopTier,
                 Refusal::NotAPair,
+                Refusal::NoRestock,
+                Refusal::Restocked,
             ] {
                 assert!(!refusal(why).is_empty());
             }

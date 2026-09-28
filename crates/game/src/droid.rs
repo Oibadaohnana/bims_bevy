@@ -904,6 +904,19 @@ impl Droid {
         }
     }
 
+    /// Which way its front faces, a unit vector, for **every** kind: a
+    /// Guardian's [`Droid::facing`], and the picture's heading for the
+    /// rest, which turn to where they walk and what they aim at. What a
+    /// hit from the side or behind is told by (task 118's relics), against
+    /// the same arc a Guardian's shield covers.
+    pub fn front(&self) -> Vec2 {
+        if self.is_guardian() {
+            self.facing
+        } else {
+            Vec2::from_angle(self.heading)
+        }
+    }
+
     /// Whether it is the Guardian, which faces and turns by its own rule.
     pub fn is_guardian(&self) -> bool {
         self.kind == DroidKind::Guardian

@@ -1025,6 +1025,7 @@ pub fn trader_window(
                             });
                         ui.add_space(4.0);
                     }
+                    restock_row(ui, world, orders);
                     theme::heading(ui, TRADER_RELIC);
                     relic_at_trader(ui, world, trader, local, &mut relic_to, orders, name);
                     ui.add_space(4.0);
@@ -1042,6 +1043,22 @@ pub fn trader_window(
         d.insert_temp(id, to);
         d.insert_temp(relic_id, relic_to);
     });
+}
+
+/// *Restock Codes* (task 118): a button that rolls the shelf again, while
+/// a player holds the relic — greyed once it has been pressed this visit.
+fn restock_row(ui: &mut egui::Ui, world: &World, orders: &mut Vec<Order>) {
+    let can = world.can_restock();
+    if can == Err(world::Refusal::NoRestock) {
+        return;
+    }
+    let button = ui
+        .add_enabled(can.is_ok(), egui::Button::new(TRADER_RESTOCK))
+        .on_hover_text(TRADER_RESTOCK_TIP);
+    if button.clicked() {
+        orders.push(Order::Restock);
+    }
+    ui.add_space(4.0);
 }
 
 /// The thing a shelf slot holds, as a thing: a weapon, or a whole piece.
@@ -1137,7 +1154,8 @@ fn relic_at_trader(
         ui.label(egui::RichText::new(TRADER_NO_RELIC).color(theme::MUTED));
         return;
     };
-    let price = world::trader::relic_price(relic);
+    // With *Trade License* off it (task 118).
+    let price = world.trader_relic_price(relic);
     ui.horizontal(|ui| {
         ui.label(egui::RichText::new(relic_name(relic)).strong());
         ui.label(

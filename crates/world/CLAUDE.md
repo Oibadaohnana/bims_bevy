@@ -5279,3 +5279,77 @@ site, nothing at all, the day read at the draw, and a cache's relic out
 and back in; `tests_trader.rs` a trader's relic kept out of other draws
 while on the table, out of the pool once bought, and back in the running
 when the trader closes.
+
+## Five patches of relics (task 118)
+
+Twenty-five relics (`Relic` 12–36), each a row of `relic::RELICS`, and
+**`relic_hooks.rs`**, a child of `world` like `relics.rs`, which is where
+all of them are read. The rule the file keeps: **nothing there draws from
+a stream, and nothing there runs for a crew holding no relic**
+(`World::any_relics`), so a run without them is the run it was.
+
+- **A crew hit on a machine** goes through `land_on_machines`, called in
+  `visit` before the residents are borrowed (hostile or defending only);
+  the hits on the residents' Bims are handed back to `visit`'s own loop.
+  With relics held, `relic_hit_on_machine` reads the part off the roll,
+  then: *Marksman's Habit* moves its holder's first hit on each machine
+  (`Relics::limb_aimed`, slot and body) to a limb it still has;
+  `Stat::MachineDamage` under a `Situation` — on a limb it still has
+  (*Servo Cutter*), missing its arms or legs (*Crippler's Mark*), from
+  outside the front arc (*Blind Spot*: `Droid::front` against the
+  shooter's bearing, `GUARDIAN_SHIELD_COS`, or *Wide Angle Optics*'
+  narrower `front_cos`); *Crossfire* for the holder and for a crewmate
+  opposite it (bearings over a hundred and twenty degrees apart, both
+  within its tiles, positions `crew_ashore` in the residents' units);
+  *Spotter*'s mark (`Relics::spotted`: slot, body, until) for anybody's
+  hit; and *Total Teardown* multiplied on a hit on a limb already gone.
+  Whether a player's last hit came from the side is kept
+  (`Relics::flanked`, by body) for the kill.
+- **A kill** is a `MachineKill` (by, bounty, crippled, flanked) off
+  `visit`'s down loop, which also forgets the body's marks — a wave's
+  machines take the last wave's indices. `machine_kills_noted`: the
+  bounty's `Stat::Bounty` under `Situation::crippled` (*Parts Broker*),
+  `Trigger::Kill`, then `relics_on_a_kill`: *Scrap Collector*'s money
+  into what is pending, `Trigger::FlankKill` (*Signal Scrambler*) and
+  `Trigger::CrewKill` — its holder's kill or any bot's (*Squad Morale*,
+  stacking with *Kill Relay*). `machine_kills` (the tuples) is the tests'.
+- **Timed effects** are `Relics::buffs` (`Buff { who, relic, until }`, a
+  crew index and a mission minute), put by `Action::{Sprint, Unseen,
+  Tether}` and read by `relic_buff_on`: *Sprint Coil*'s pace and
+  *Tether Field*'s share of a hit in `lift_by_relic_hooks`, *Signal
+  Scrambler*'s cloak in `visit` (the crew member `None` on the machines'
+  list, `unseen_by_machines`). A hook's `cooldown` is
+  `Relics::ready_at`, checked in `relic_trigger_on`.
+- **The skill**: `lift_by_relic_hooks` after `lift_by_relics` — *War
+  Chest* (`war_chest_percent`: the pool over the players, a step a
+  thousand, capped), the buffs, and the auras of other players fit to
+  act within their tiles (`Effect::Aura`: *Field Radio*'s odds for
+  anybody, *Cover Formation*'s `DamageTaken` for bots). `DamageTaken`
+  goes to `bims::combat::Skill::damage_taken`, which the room multiplies
+  into every hit on the body before the armour (`strike_stripping`).
+  `hand_the_room_the_shield_fronts` gives the room each shooter's front
+  (`Game::set_shield_fronts`), which a Guardian's shield is asked with.
+- **The blood**: `relics_on_the_blood`, in `hand_the_room_the_medics`
+  before the room is handed them — `Stat::Bleeding` (*Pressure Seal*) on
+  the `Beamed` hold, nought while *Clot Booster*'s seconds since
+  `Relics::downed_at` run, and `Stat::BandageSpeed` (*Quick Wrap*) on
+  `Doctoring::bandage`. `settle_medics` says a dressing on a crewmate
+  (`Trigger::BandagedCrewmate`, *Tether Field* on the patient).
+- **A crewmate down**: `settle_relic_downs`, after `settle_relics`, off
+  `downs_before_the_step`: `downed_at` kept for the players, and
+  `Trigger::CrewmateDowned` to every other player for a crew member
+  newly down (*Lifeline*: `Action::Shelter`, both surged, within its
+  tiles, once a mission). *Rally Point* is `Trigger::AbilityUse` →
+  `Action::RallyUp` (`bring_round` every crewmate down within its tiles),
+  and fires — so is spent — only when it got somebody up.
+- **Pay and the trader**: *Hazard Pay* in `settle_clear`
+  (`relics_pay_the_clear`, into the pool, `RelicFired`); *Trade License*
+  is `trader_discount` inside `shelf_price` and `trader_relic_price`
+  (the best discount among the players); *Restock Codes* is
+  `Command::Restock` (`restock`, `can_restock`).
+
+**In `world_checksum`** after the offers, and only where any of it is
+set: the buffs, the cooldowns, the marks, `limb_aimed`, `flanked`,
+`downed_at` and `restocked`. `tests_relic_patches.rs` is every relic
+where its hook is read, and two worlds holding all twenty-five alike step
+for step; `relic::tests` pin the rows.

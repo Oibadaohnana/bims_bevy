@@ -83,11 +83,37 @@ pub enum Relic {
     LastStand = 9,
     KillRelay = 10,
     PhaseHarness = 11,
+    // Task 118: five patches of five, in the order a win unlocks them.
+    MarksmansHabit = 12,
+    ServoCutter = 13,
+    CripplersMark = 14,
+    PressureSeal = 15,
+    QuickWrap = 16,
+    ClotBooster = 17,
+    BlindSpot = 18,
+    SprintCoil = 19,
+    SignalScrambler = 20,
+    FieldRadio = 21,
+    Spotter = 22,
+    SquadMorale = 23,
+    HazardPay = 24,
+    TradeLicense = 25,
+    RestockCodes = 26,
+    PartsBroker = 27,
+    TetherField = 28,
+    WideAngleOptics = 29,
+    CoverFormation = 30,
+    ScrapCollector = 31,
+    TotalTeardown = 32,
+    Lifeline = 33,
+    Crossfire = 34,
+    RallyPoint = 35,
+    WarChest = 36,
 }
 
 impl Relic {
     /// Every relic, in list order: the order a win unlocks them in.
-    pub const ALL: [Relic; 12] = [
+    pub const ALL: [Relic; 37] = [
         Relic::FocusingLens,
         Relic::ServoBraces,
         Relic::FieldPlating,
@@ -100,6 +126,31 @@ impl Relic {
         Relic::LastStand,
         Relic::KillRelay,
         Relic::PhaseHarness,
+        Relic::MarksmansHabit,
+        Relic::ServoCutter,
+        Relic::CripplersMark,
+        Relic::PressureSeal,
+        Relic::QuickWrap,
+        Relic::ClotBooster,
+        Relic::BlindSpot,
+        Relic::SprintCoil,
+        Relic::SignalScrambler,
+        Relic::FieldRadio,
+        Relic::Spotter,
+        Relic::SquadMorale,
+        Relic::HazardPay,
+        Relic::TradeLicense,
+        Relic::RestockCodes,
+        Relic::PartsBroker,
+        Relic::TetherField,
+        Relic::WideAngleOptics,
+        Relic::CoverFormation,
+        Relic::ScrapCollector,
+        Relic::TotalTeardown,
+        Relic::Lifeline,
+        Relic::Crossfire,
+        Relic::RallyPoint,
+        Relic::WarChest,
     ];
 
     pub fn code(self) -> u32 {
@@ -151,6 +202,18 @@ pub enum Stat {
     HealingReceived,
     /// What the Republic pays for a machine it destroyed.
     Bounty,
+    /// What its bolts and blows do **to a machine**, read where the hit
+    /// lands on one (task 118) — under a [`When`] about that hit, where
+    /// [`Stat::Damage`] is the weapon's own and holds everywhere.
+    MachineDamage,
+    /// What it takes of every hit that lands on it. A minus is less.
+    DamageTaken,
+    /// How fast its open wounds bleed. A minus is slower.
+    Bleeding,
+    /// How fast it dresses a wound, its own or a crewmate's.
+    BandageSpeed,
+    /// What a trader asks of the crew. A minus is cheaper.
+    TraderPrices,
 }
 
 /// When a stat modifier holds.
@@ -159,6 +222,24 @@ pub enum When {
     Always,
     /// While another player's Bim is down — out cold.
     OtherPlayerDown,
+    /// A hit on a machine's arms or legs while it still has them.
+    OnLimb,
+    /// A machine missing its arms or its legs — a hit on it, or a kill.
+    Crippled,
+    /// A hit on a machine from the side or behind: outside the front arc
+    /// a Guardian's shield covers, for every kind.
+    Flanked,
+}
+
+/// What a stat modifier's [`When`] is asked against: the state of the
+/// Bim's crew, and — for a hit or a kill on a machine — of that hit.
+/// Everything false is the plain case, what a hit on nothing reads.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub struct Situation {
+    pub other_down: bool,
+    pub on_limb: bool,
+    pub crippled: bool,
+    pub flanked: bool,
 }
 
 /// What sets a relic's action off.
@@ -174,6 +255,15 @@ pub enum Trigger {
     Downed,
     /// It uses one of its class's two keys.
     AbilityUse,
+    /// A machine destroyed that it or any bot of the crew hit last.
+    CrewKill,
+    /// A machine it hit last destroyed by that hit from the side or
+    /// behind.
+    FlankKill,
+    /// It dresses a crewmate's wound.
+    BandagedCrewmate,
+    /// A crewmate within reach of it goes down.
+    CrewmateDowned,
 }
 
 /// What a relic's trigger does.
@@ -186,6 +276,19 @@ pub enum Action {
     CooldownsLess { seconds: f64 },
     /// No hit takes anything from it for that many seconds.
     Untouchable { seconds: f32 },
+    /// Its pace raised by `percent` for `seconds`.
+    Sprint { percent: i32, seconds: f64 },
+    /// No machine aims at it for `seconds`.
+    Unseen { seconds: f64 },
+    /// The crewmate it dressed takes `percent` less of every hit for
+    /// `seconds`.
+    Tether { percent: i32, seconds: f64 },
+    /// It and the crewmate that went down within `tiles` of it untouchable
+    /// for `seconds`.
+    Shelter { tiles: f32, seconds: f32 },
+    /// Every crewmate down within `tiles` of it up again at
+    /// `health_percent` of its health.
+    RallyUp { tiles: f32, health_percent: u32 },
 }
 
 /// A trigger, its conditions and its action.
@@ -196,7 +299,68 @@ pub struct Hook {
     pub once_per_mission: bool,
     /// Fires only with its health under this share, in per cent.
     pub below_health: Option<u32>,
+    /// Fires again only this many seconds of the mission clock after it
+    /// last did.
+    pub cooldown: Option<f64>,
     pub action: Action,
+}
+
+/// A hook with no condition: every time its trigger comes.
+const fn on(trigger: Trigger, action: Action) -> Hook {
+    Hook {
+        trigger,
+        once_per_mission: false,
+        below_health: None,
+        cooldown: None,
+        action,
+    }
+}
+
+/// A hook that fires once a mission at most.
+const fn once(trigger: Trigger, action: Action) -> Hook {
+    Hook {
+        once_per_mission: true,
+        ..on(trigger, action)
+    }
+}
+
+/// A rule of a relic's own that no stat or trigger says, read where it
+/// applies (task 118): each is one relic's.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum Rule {
+    /// Its first hit on each machine lands on a limb: *Marksman's Habit*.
+    FirstHitOnLimb,
+    /// A hit on a limb already gone tears into the chassis at
+    /// `damage_percent` more: *Total Teardown*.
+    TearIntoChassis { damage_percent: i32 },
+    /// The first `seconds` after it goes down it does not bleed: *Clot
+    /// Booster*.
+    ClotWhileDown { seconds: f64 },
+    /// A machine's front arc, for its hits, only `front_cos` wide — a
+    /// cosine, so a flank is wider — and a Guardian's shield the same
+    /// against its shots: *Wide Angle Optics*.
+    WideAngle { front_cos: f32 },
+    /// It and a crewmate further apart round a machine than `apart_cos`
+    /// (a cosine), both within `tiles` of it, both do `damage_percent`
+    /// more to it: *Crossfire*.
+    Crossfire {
+        damage_percent: i32,
+        apart_cos: f32,
+        tiles: f32,
+    },
+    /// The machine it hit last takes `damage_percent` more from every
+    /// crewmate for `seconds`: *Spotter*.
+    Spotter { damage_percent: i32, seconds: f64 },
+    /// Money to the crew every site cleared: *Hazard Pay*.
+    SitePay { money: economy::Money },
+    /// Money to the crew for every machine it destroys, pending with the
+    /// bounty: *Scrap Collector*.
+    KillPay { money: economy::Money },
+    /// The trader's shelf rolled again, once a visit: *Restock Codes*.
+    Restock,
+    /// Its damage up `percent_per_thousand` for every thousand in the pool
+    /// a player, to `cap`: *War Chest*.
+    WarChest { percent_per_thousand: i32, cap: i32 },
 }
 
 /// What a relic does: one of the three kinds of hook.
@@ -213,6 +377,18 @@ pub enum Effect {
         damage_percent: i32,
     },
     On(Hook),
+    /// Several hooks, each on its own trigger.
+    OnEach(&'static [Hook]),
+    /// A stat of every crewmate within `tiles` of it moved by `percent` —
+    /// every bot of the crew alone with `bots_only`. Never its own.
+    Aura {
+        stat: Stat,
+        percent: i32,
+        tiles: f32,
+        bots_only: bool,
+    },
+    /// A rule of its own ([`Rule`]).
+    Rule(Rule),
 }
 
 /// A relic's row: the data the whole of it is.
@@ -225,21 +401,45 @@ pub struct RelicDef {
     pub effect: Effect,
 }
 
-const fn stat(relic: Relic, tier: u8, first: bool, stat: Stat, percent: i32) -> RelicDef {
+const fn row(relic: Relic, tier: u8, first: bool, effect: Effect) -> RelicDef {
     RelicDef {
         relic,
         tier,
         first,
-        effect: Effect::Stat {
-            stat,
-            percent,
-            when: When::Always,
-        },
+        effect,
     }
 }
 
+const fn stat(relic: Relic, tier: u8, first: bool, stat: Stat, percent: i32) -> RelicDef {
+    when(relic, tier, first, stat, percent, When::Always)
+}
+
+const fn when(
+    relic: Relic,
+    tier: u8,
+    first: bool,
+    stat: Stat,
+    percent: i32,
+    when: When,
+) -> RelicDef {
+    row(
+        relic,
+        tier,
+        first,
+        Effect::Stat {
+            stat,
+            percent,
+            when,
+        },
+    )
+}
+
+const fn rule(relic: Relic, tier: u8, first: bool, rule: Rule) -> RelicDef {
+    row(relic, tier, first, Effect::Rule(rule))
+}
+
 /// Every relic there is, in [`Relic::ALL`]'s order.
-pub const RELICS: [RelicDef; 12] = [
+pub const RELICS: [RelicDef; 37] = [
     stat(
         Relic::FocusingLens,
         1,
@@ -282,20 +482,18 @@ pub const RELICS: [RelicDef; 12] = [
         Stat::HealingReceived,
         data::TRAUMA_KIT_HEALING_PERCENT,
     ),
-    RelicDef {
-        relic: Relic::SecondWind,
-        tier: 2,
-        first: true,
-        effect: Effect::On(Hook {
-            trigger: Trigger::Downed,
-            once_per_mission: true,
-            below_health: None,
-            action: Action::GetUp {
+    row(
+        Relic::SecondWind,
+        2,
+        true,
+        Effect::On(once(
+            Trigger::Downed,
+            Action::GetUp {
                 after: data::SECOND_WIND_SECONDS,
                 health_percent: data::SECOND_WIND_HEALTH_PERCENT,
             },
-        }),
-    },
+        )),
+    ),
     stat(
         Relic::SalvageBeacon,
         2,
@@ -303,71 +501,325 @@ pub const RELICS: [RelicDef; 12] = [
         Stat::Bounty,
         data::SALVAGE_BEACON_BOUNTY_PERCENT,
     ),
-    RelicDef {
-        relic: Relic::OverchargeCell,
-        tier: 2,
-        first: false,
-        effect: Effect::EveryNthShot {
+    row(
+        Relic::OverchargeCell,
+        2,
+        false,
+        Effect::EveryNthShot {
             every: data::OVERCHARGE_CELL_EVERY,
             damage_percent: data::OVERCHARGE_CELL_DAMAGE_PERCENT,
         },
-    },
-    RelicDef {
-        relic: Relic::LastStand,
-        tier: 3,
-        first: true,
-        effect: Effect::Stat {
-            stat: Stat::Damage,
-            percent: data::LAST_STAND_DAMAGE_PERCENT,
-            when: When::OtherPlayerDown,
-        },
-    },
-    RelicDef {
-        relic: Relic::KillRelay,
-        tier: 3,
-        first: true,
-        effect: Effect::On(Hook {
-            trigger: Trigger::Kill,
-            once_per_mission: false,
-            below_health: None,
-            action: Action::CooldownsLess {
+    ),
+    when(
+        Relic::LastStand,
+        3,
+        true,
+        Stat::Damage,
+        data::LAST_STAND_DAMAGE_PERCENT,
+        When::OtherPlayerDown,
+    ),
+    row(
+        Relic::KillRelay,
+        3,
+        true,
+        Effect::On(on(
+            Trigger::Kill,
+            Action::CooldownsLess {
                 seconds: data::KILL_RELAY_SECONDS,
             },
-        }),
-    },
-    RelicDef {
-        relic: Relic::PhaseHarness,
-        tier: 3,
-        first: false,
-        effect: Effect::On(Hook {
-            trigger: Trigger::HitTaken,
-            once_per_mission: true,
+        )),
+    ),
+    row(
+        Relic::PhaseHarness,
+        3,
+        false,
+        Effect::On(Hook {
             below_health: Some(data::PHASE_HARNESS_BELOW_PERCENT),
-            action: Action::Untouchable {
-                seconds: data::PHASE_HARNESS_SECONDS,
-            },
+            ..once(
+                Trigger::HitTaken,
+                Action::Untouchable {
+                    seconds: data::PHASE_HARNESS_SECONDS,
+                },
+            )
         }),
-    },
+    ),
+    // --- task 118 --------------------------------------------------------
+    // Dismantler, Lifeline, Flanker, Command Net, Supply Line: their tier
+    // ones and twos first, in the new profile's pool (task 117 section 7),
+    // then the rest a win unlocks.
+    rule(Relic::MarksmansHabit, 1, true, Rule::FirstHitOnLimb),
+    when(
+        Relic::ServoCutter,
+        1,
+        true,
+        Stat::MachineDamage,
+        data::SERVO_CUTTER_DAMAGE_PERCENT,
+        When::OnLimb,
+    ),
+    when(
+        Relic::CripplersMark,
+        2,
+        true,
+        Stat::MachineDamage,
+        data::CRIPPLERS_MARK_DAMAGE_PERCENT,
+        When::Crippled,
+    ),
+    stat(
+        Relic::PressureSeal,
+        1,
+        true,
+        Stat::Bleeding,
+        -data::PRESSURE_SEAL_BLEED_PERCENT,
+    ),
+    stat(
+        Relic::QuickWrap,
+        1,
+        true,
+        Stat::BandageSpeed,
+        data::QUICK_WRAP_SPEED_PERCENT,
+    ),
+    rule(
+        Relic::ClotBooster,
+        2,
+        true,
+        Rule::ClotWhileDown {
+            seconds: data::CLOT_BOOSTER_SECONDS,
+        },
+    ),
+    when(
+        Relic::BlindSpot,
+        1,
+        true,
+        Stat::MachineDamage,
+        data::BLIND_SPOT_DAMAGE_PERCENT,
+        When::Flanked,
+    ),
+    row(Relic::SprintCoil, 1, true, Effect::OnEach(&SPRINT_COIL)),
+    row(
+        Relic::SignalScrambler,
+        2,
+        true,
+        Effect::On(Hook {
+            cooldown: Some(data::SIGNAL_SCRAMBLER_COOLDOWN),
+            ..on(
+                Trigger::FlankKill,
+                Action::Unseen {
+                    seconds: data::SIGNAL_SCRAMBLER_SECONDS,
+                },
+            )
+        }),
+    ),
+    row(
+        Relic::FieldRadio,
+        1,
+        true,
+        Effect::Aura {
+            stat: Stat::Accuracy,
+            percent: data::FIELD_RADIO_ACCURACY_PERCENT,
+            tiles: data::FIELD_RADIO_TILES,
+            bots_only: false,
+        },
+    ),
+    rule(
+        Relic::Spotter,
+        1,
+        true,
+        Rule::Spotter {
+            damage_percent: data::SPOTTER_DAMAGE_PERCENT,
+            seconds: data::SPOTTER_SECONDS,
+        },
+    ),
+    row(
+        Relic::SquadMorale,
+        2,
+        true,
+        Effect::On(on(
+            Trigger::CrewKill,
+            Action::CooldownsLess {
+                seconds: data::SQUAD_MORALE_SECONDS,
+            },
+        )),
+    ),
+    rule(
+        Relic::HazardPay,
+        1,
+        true,
+        Rule::SitePay {
+            money: data::HAZARD_PAY,
+        },
+    ),
+    stat(
+        Relic::TradeLicense,
+        1,
+        true,
+        Stat::TraderPrices,
+        -data::TRADE_LICENSE_PERCENT,
+    ),
+    rule(Relic::RestockCodes, 2, true, Rule::Restock),
+    when(
+        Relic::PartsBroker,
+        2,
+        false,
+        Stat::Bounty,
+        data::PARTS_BROKER_BOUNTY_PERCENT,
+        When::Crippled,
+    ),
+    row(
+        Relic::TetherField,
+        2,
+        false,
+        Effect::On(on(
+            Trigger::BandagedCrewmate,
+            Action::Tether {
+                percent: data::TETHER_FIELD_PERCENT,
+                seconds: data::TETHER_FIELD_SECONDS,
+            },
+        )),
+    ),
+    rule(
+        Relic::WideAngleOptics,
+        2,
+        false,
+        Rule::WideAngle {
+            front_cos: data::WIDE_ANGLE_OPTICS_FRONT_COS,
+        },
+    ),
+    row(
+        Relic::CoverFormation,
+        2,
+        false,
+        Effect::Aura {
+            stat: Stat::DamageTaken,
+            percent: -data::COVER_FORMATION_PERCENT,
+            tiles: data::COVER_FORMATION_TILES,
+            bots_only: true,
+        },
+    ),
+    rule(
+        Relic::ScrapCollector,
+        2,
+        false,
+        Rule::KillPay {
+            money: data::SCRAP_COLLECTOR_PAY,
+        },
+    ),
+    rule(
+        Relic::TotalTeardown,
+        3,
+        false,
+        Rule::TearIntoChassis {
+            damage_percent: data::TOTAL_TEARDOWN_DAMAGE_PERCENT,
+        },
+    ),
+    row(
+        Relic::Lifeline,
+        3,
+        false,
+        Effect::On(once(
+            Trigger::CrewmateDowned,
+            Action::Shelter {
+                tiles: data::LIFELINE_TILES,
+                seconds: data::LIFELINE_SECONDS,
+            },
+        )),
+    ),
+    rule(
+        Relic::Crossfire,
+        3,
+        false,
+        Rule::Crossfire {
+            damage_percent: data::CROSSFIRE_DAMAGE_PERCENT,
+            apart_cos: data::CROSSFIRE_APART_COS,
+            tiles: data::CROSSFIRE_TILES,
+        },
+    ),
+    row(
+        Relic::RallyPoint,
+        3,
+        false,
+        Effect::On(once(
+            Trigger::AbilityUse,
+            Action::RallyUp {
+                tiles: data::RALLY_POINT_TILES,
+                health_percent: data::RALLY_POINT_HEALTH_PERCENT,
+            },
+        )),
+    ),
+    rule(
+        Relic::WarChest,
+        3,
+        false,
+        Rule::WarChest {
+            percent_per_thousand: data::WAR_CHEST_PERCENT_PER_THOUSAND,
+            cap: data::WAR_CHEST_CAP_PERCENT,
+        },
+    ),
+];
+
+/// *Sprint Coil*'s two hooks: a mission's start and every ability used.
+const SPRINT_COIL: [Hook; 2] = [
+    on(
+        Trigger::MissionStart,
+        Action::Sprint {
+            percent: data::SPRINT_COIL_SPEED_PERCENT,
+            seconds: data::SPRINT_COIL_SECONDS,
+        },
+    ),
+    on(
+        Trigger::AbilityUse,
+        Action::Sprint {
+            percent: data::SPRINT_COIL_SPEED_PERCENT,
+            seconds: data::SPRINT_COIL_SECONDS,
+        },
+    ),
 ];
 
 /// The percentage a Bim holding `held` has on `stat`, every relic's
-/// modifier summed — nought with none. `other_down` is whether another
-/// player's Bim is down, for [`When::OtherPlayerDown`].
-pub fn stat_percent(held: &[Relic], stat: Stat, other_down: bool) -> i32 {
+/// modifier summed — nought with none — in the `situation` each
+/// modifier's [`When`] is asked against.
+pub fn stat_percent(held: &[Relic], stat: Stat, situation: Situation) -> i32 {
     held.iter()
         .map(|r| match r.effect() {
             Effect::Stat {
                 stat: s,
                 percent,
                 when,
-            } if s == stat => match when {
-                When::Always => percent,
-                When::OtherPlayerDown if other_down => percent,
-                When::OtherPlayerDown => 0,
-            },
+            } if s == stat => {
+                let holds = match when {
+                    When::Always => true,
+                    When::OtherPlayerDown => situation.other_down,
+                    When::OnLimb => situation.on_limb,
+                    When::Crippled => situation.crippled,
+                    When::Flanked => situation.flanked,
+                };
+                if holds { percent } else { 0 }
+            }
             _ => 0,
         })
         .sum()
+}
+
+/// The rule a Bim holding `held` has that `pick` answers for, if any —
+/// `rule_of(held, |r| match r { Rule::Restock => Some(()), _ => None })`.
+pub fn rule_of<T>(held: &[Relic], pick: impl Fn(Rule) -> Option<T>) -> Option<T> {
+    held.iter().find_map(|r| match r.effect() {
+        Effect::Rule(rule) => pick(rule),
+        _ => None,
+    })
+}
+
+/// The auras a Bim holding `held` casts on `stat`: the percentage, the
+/// tiles and whether bots alone are lifted.
+pub fn auras(held: &[Relic], stat: Stat) -> impl Iterator<Item = (i32, f32, bool)> + '_ {
+    held.iter().filter_map(move |r| match r.effect() {
+        Effect::Aura {
+            stat: s,
+            percent,
+            tiles,
+            bots_only,
+        } if s == stat => Some((percent, tiles, bots_only)),
+        _ => None,
+    })
 }
 
 /// A percentage as a factor: ten is 1.1, minus ten 0.9 — never under
@@ -378,9 +830,15 @@ pub fn factor(percent: i32) -> f64 {
 
 /// Every hook a Bim holding `held` has on `trigger`, with the relic.
 pub fn hooks(held: &[Relic], trigger: Trigger) -> impl Iterator<Item = (Relic, Hook)> + '_ {
-    held.iter().filter_map(move |&r| match r.effect() {
-        Effect::On(hook) if hook.trigger == trigger => Some((r, hook)),
-        _ => None,
+    held.iter().flat_map(move |&r| {
+        let list: &'static [Hook] = match &r.def().effect {
+            Effect::On(hook) => core::slice::from_ref(hook),
+            Effect::OnEach(list) => list,
+            _ => &[],
+        };
+        list.iter()
+            .filter(move |h| h.trigger == trigger)
+            .map(move |&h| (r, h))
     })
 }
 
@@ -605,6 +1063,49 @@ pub struct Relics {
     /// How many offers have been drawn this run: what the next is seeded
     /// with, beside the site.
     pub offers: u32,
+    /// The timed effects of task 118's relics running, each on the crew
+    /// member it is on until a mission minute: *Sprint Coil*'s pace,
+    /// *Tether Field*'s shelter, *Signal Scrambler*'s cloak. A mission's
+    /// start clears them.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub buffs: Vec<Buff>,
+    /// When a relic with a cooldown may fire again: the player slot, the
+    /// relic and the mission minute.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub ready_at: Vec<(u32, Relic, f64)>,
+    /// The machine each *Spotter* marked: the player slot, the machine's
+    /// body index in the residents' room, and the mission minute the mark
+    /// lasts until.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub spotted: Vec<(u32, u32, f64)>,
+    /// The machines each *Marksman's Habit* has already put a hit on: the
+    /// player slot and the body index.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub limb_aimed: Vec<(u32, u32)>,
+    /// The machines, by body index, whose last hit was a player's from the
+    /// side or behind — what a kill is told to *Signal Scrambler* with.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub flanked: Vec<u32>,
+    /// One a player slot: the mission minute its Bim went down, while it
+    /// is down — what *Clot Booster* counts from.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub downed_at: Vec<Option<f64>>,
+    /// Whether the trader the crew are at has been restocked this visit
+    /// (*Restock Codes*); an arrival at a trader clears it.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub restocked: bool,
+}
+
+/// A relic's timed effect on one crew member (task 118).
+#[derive(Clone, Copy, PartialEq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct Buff {
+    /// The crew member it is on, by index.
+    pub who: u32,
+    /// The relic that put it there, which says what it does.
+    pub relic: Relic,
+    /// The mission minute it runs out at.
+    pub until: f64,
 }
 
 impl Relics {
@@ -619,6 +1120,13 @@ impl Relics {
             fired: vec![Vec::new(); players],
             down_since: vec![None; players],
             offers: 0,
+            buffs: Vec::new(),
+            ready_at: Vec::new(),
+            spotted: Vec::new(),
+            limb_aimed: Vec::new(),
+            flanked: Vec::new(),
+            downed_at: vec![None; players],
+            restocked: false,
         }
     }
 
@@ -695,6 +1203,12 @@ impl Relics {
         if self.held.len() < players {
             self.held.resize(players, Vec::new());
         }
+        self.buffs.clear();
+        self.ready_at.clear();
+        self.spotted.clear();
+        self.limb_aimed.clear();
+        self.flanked.clear();
+        self.downed_at = vec![None; players];
     }
 }
 
@@ -1038,15 +1552,176 @@ mod tests {
     #[test]
     fn stat_modifiers_sum_and_last_stand_waits_on_a_downed_friend() {
         let held = [Relic::FocusingLens, Relic::LastStand];
+        let calm = Situation::default();
+        let down = Situation {
+            other_down: true,
+            ..calm
+        };
         assert_eq!(
-            stat_percent(&held, Stat::Damage, false),
+            stat_percent(&held, Stat::Damage, calm),
             data::FOCUSING_LENS_DAMAGE_PERCENT
         );
         assert_eq!(
-            stat_percent(&held, Stat::Damage, true),
+            stat_percent(&held, Stat::Damage, down),
             data::FOCUSING_LENS_DAMAGE_PERCENT + data::LAST_STAND_DAMAGE_PERCENT
         );
-        assert_eq!(stat_percent(&held, Stat::Armour, true), 0);
-        assert!(stat_percent(&[Relic::CoolantLoop], Stat::Cooldowns, false) < 0);
+        assert_eq!(stat_percent(&held, Stat::Armour, down), 0);
+        assert!(stat_percent(&[Relic::CoolantLoop], Stat::Cooldowns, calm) < 0);
+    }
+
+    #[test]
+    fn a_hit_on_a_machine_reads_the_limb_the_cripple_and_the_flank() {
+        let held = [
+            Relic::ServoCutter,
+            Relic::CripplersMark,
+            Relic::BlindSpot,
+            Relic::FocusingLens,
+        ];
+        let plain = Situation::default();
+        // The weapon's own damage is never the machine's: Focusing Lens is
+        // in the skill already.
+        assert_eq!(stat_percent(&held, Stat::MachineDamage, plain), 0);
+        let each = [
+            (
+                Situation {
+                    on_limb: true,
+                    ..plain
+                },
+                data::SERVO_CUTTER_DAMAGE_PERCENT,
+            ),
+            (
+                Situation {
+                    crippled: true,
+                    ..plain
+                },
+                data::CRIPPLERS_MARK_DAMAGE_PERCENT,
+            ),
+            (
+                Situation {
+                    flanked: true,
+                    ..plain
+                },
+                data::BLIND_SPOT_DAMAGE_PERCENT,
+            ),
+        ];
+        for (situation, percent) in each {
+            assert_eq!(stat_percent(&held, Stat::MachineDamage, situation), percent);
+        }
+        let all = Situation {
+            other_down: false,
+            on_limb: true,
+            crippled: true,
+            flanked: true,
+        };
+        assert_eq!(
+            stat_percent(&held, Stat::MachineDamage, all),
+            data::SERVO_CUTTER_DAMAGE_PERCENT
+                + data::CRIPPLERS_MARK_DAMAGE_PERCENT
+                + data::BLIND_SPOT_DAMAGE_PERCENT
+        );
+        // Parts Broker is the bounty's, on a crippled kill alone.
+        let broker = [Relic::PartsBroker, Relic::SalvageBeacon];
+        assert_eq!(
+            stat_percent(&broker, Stat::Bounty, plain),
+            data::SALVAGE_BEACON_BOUNTY_PERCENT
+        );
+        assert_eq!(
+            stat_percent(
+                &broker,
+                Stat::Bounty,
+                Situation {
+                    crippled: true,
+                    ..plain
+                }
+            ),
+            data::SALVAGE_BEACON_BOUNTY_PERCENT + data::PARTS_BROKER_BOUNTY_PERCENT
+        );
+    }
+
+    #[test]
+    fn task_118_s_hooks_rules_and_auras_are_where_the_world_looks_for_them() {
+        // Kill Relay is three seconds now.
+        assert_eq!(data::KILL_RELAY_SECONDS, 3.0);
+        // Sprint Coil has two hooks, one on each trigger.
+        let coil = [Relic::SprintCoil];
+        assert_eq!(hooks(&coil, Trigger::MissionStart).count(), 1);
+        assert_eq!(hooks(&coil, Trigger::AbilityUse).count(), 1);
+        assert_eq!(hooks(&coil, Trigger::Kill).count(), 0);
+        // Squad Morale and Kill Relay stack: four seconds off a kill of
+        // the holder's own, one of a bot's.
+        let both = [Relic::KillRelay, Relic::SquadMorale];
+        let off = |trigger| -> f64 {
+            hooks(&both, trigger)
+                .map(|(_, h)| match h.action {
+                    Action::CooldownsLess { seconds } => seconds,
+                    _ => 0.0,
+                })
+                .sum()
+        };
+        assert_eq!(off(Trigger::Kill) + off(Trigger::CrewKill), 4.0);
+        // The once-a-mission ones, and the scrambler's cooldown.
+        let (_, lifeline) = hooks(&[Relic::Lifeline], Trigger::CrewmateDowned)
+            .next()
+            .expect("Lifeline waits on a crewmate down");
+        assert!(lifeline.once_per_mission);
+        let (_, rally) = hooks(&[Relic::RallyPoint], Trigger::AbilityUse)
+            .next()
+            .expect("Rally Point waits on an ability");
+        assert!(rally.once_per_mission);
+        let (_, scrambler) = hooks(&[Relic::SignalScrambler], Trigger::FlankKill)
+            .next()
+            .expect("Signal Scrambler waits on a kill from behind");
+        assert_eq!(scrambler.cooldown, Some(data::SIGNAL_SCRAMBLER_COOLDOWN));
+        // The auras: Field Radio lifts anybody, Cover Formation bots alone.
+        assert_eq!(
+            auras(&[Relic::FieldRadio], Stat::Accuracy).collect::<Vec<_>>(),
+            vec![(
+                data::FIELD_RADIO_ACCURACY_PERCENT,
+                data::FIELD_RADIO_TILES,
+                false
+            )]
+        );
+        assert_eq!(
+            auras(&[Relic::CoverFormation], Stat::DamageTaken).collect::<Vec<_>>(),
+            vec![(
+                -data::COVER_FORMATION_PERCENT,
+                data::COVER_FORMATION_TILES,
+                true
+            )]
+        );
+        // Every rule is one relic's.
+        let rules = Relic::ALL
+            .into_iter()
+            .filter(|r| matches!(r.effect(), Effect::Rule(_)))
+            .count();
+        assert_eq!(rules, 10);
+        assert!(
+            rule_of(&[Relic::RestockCodes], |r| (r == Rule::Restock)
+                .then_some(()))
+            .is_some()
+        );
+        assert!(rule_of(&[Relic::HazardPay], |r| (r == Rule::Restock).then_some(())).is_none());
+        // Trade License is a discount.
+        assert!(
+            stat_percent(
+                &[Relic::TradeLicense],
+                Stat::TraderPrices,
+                Situation::default()
+            ) < 0
+        );
+    }
+
+    #[test]
+    fn the_new_relics_are_five_patches_of_two_ones_two_twos_and_a_three() {
+        let new = &Relic::ALL[12..];
+        assert_eq!(new.len(), 25);
+        for tier in 1..=3u8 {
+            let n = new.iter().filter(|r| r.tier() == tier).count();
+            assert_eq!(n, [10, 10, 5][tier as usize - 1], "tier {tier}");
+        }
+        // A new profile has codes 12 to 26 and not 27 to 36 (task 117).
+        for r in new {
+            assert_eq!(r.starts_unlocked(), r.code() <= 26, "{r:?}");
+        }
     }
 }

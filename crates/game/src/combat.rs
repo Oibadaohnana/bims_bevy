@@ -749,6 +749,12 @@ pub struct Skill {
     pub overcharge: u32,
     /// What an overcharged shot's damage is multiplied by.
     pub overcharge_damage: f32,
+    /// What every hit that lands on this body is multiplied by, before
+    /// the armour takes its share: a relic's *Tether Field* on a crewmate
+    /// dressed, *Cover Formation* on a bot beside its holder (task 118).
+    /// One for everybody else.
+    #[cfg_attr(feature = "serde", serde(default = "one"))]
+    pub damage_taken: f32,
 }
 
 impl Skill {
@@ -782,6 +788,7 @@ impl Skill {
         healing: 1.0,
         overcharge: 0,
         overcharge_damage: 1.0,
+        damage_taken: 1.0,
     };
 
     /// The skill for this body's next shot, with `shots` fired before it:
@@ -1462,9 +1469,24 @@ impl Target {
 /// else: no angle is ever worked out, so two platforms agree to the bit,
 /// and the edge itself is stopped.
 pub fn shield_stops(heading: Vec2, toward: Vec2) -> bool {
+    shield_stops_within(heading, toward, balance::GUARDIAN_SHIELD_COS)
+}
+
+/// [`shield_stops`] across a front `front_cos` wide — a cosine, the
+/// Guardian's own [`balance::GUARDIAN_SHIELD_COS`] for everybody and a
+/// narrower one for a shooter with a relic's *Wide Angle Optics* (task
+/// 118, [`Combat::set_shield_fronts`]).
+pub fn shield_stops_within(heading: Vec2, toward: Vec2, front_cos: f32) -> bool {
     // A heading of nought is a shell all the way round: a Machine Heart's
     // sealed core (feature 108), which stops everything from every side.
-    heading == Vec2::ZERO || heading.dot(toward) >= balance::GUARDIAN_SHIELD_COS
+    heading == Vec2::ZERO || heading.dot(toward) >= front_cos
+}
+
+/// The front a shield turns against a shot of `by`'s, off a list by
+/// index ([`Combat::set_shield_fronts`]).
+fn shield_front_of(fronts: &[f32], by: Option<usize>) -> f32 {
+    by.and_then(|b| fronts.get(b).copied())
+        .unwrap_or(balance::GUARDIAN_SHIELD_COS)
 }
 
 /// One shot in the air.
@@ -1782,6 +1804,13 @@ pub struct Combat {
     /// combat stream exactly what it did.
     #[cfg_attr(feature = "serde", serde(default))]
     reflecting: Vec<bool>,
+    /// How wide a shield's front is against each of this room's own
+    /// bodies' bolts and blows, as a cosine, by index: a relic's *Wide
+    /// Angle Optics* narrows it (task 118). One past the end, or missing,
+    /// is the Guardian's own [`balance::GUARDIAN_SHIELD_COS`]. Said every
+    /// step with the skills.
+    #[cfg_attr(feature = "serde", serde(default))]
+    shield_fronts: Vec<f32>,
     /// Every friendly bolt that landed on a target, and every blow, for
     /// the world to carry to the body it belongs to.
     hits: Vec<Hit>,
@@ -1838,6 +1867,7 @@ impl Combat {
             own_cover_dodge: Vec::new(),
             bulwarks: Vec::new(),
             reflecting: Vec::new(),
+            shield_fronts: Vec::new(),
             hits: Vec::new(),
             wounds_taken: Vec::new(),
             shots: Vec::new(),
@@ -1918,6 +1948,17 @@ impl Combat {
     /// every step, like the skills.
     pub fn set_reflecting(&mut self, reflecting: Vec<bool>) {
         self.reflecting = reflecting;
+    }
+
+    /// How wide a shield's front is against each own body's shots, by
+    /// index (task 118): see [`Combat::shield_fronts`].
+    pub fn set_shield_fronts(&mut self, fronts: Vec<f32>) {
+        self.shield_fronts = fronts;
+    }
+
+    /// The front a shield turns against a shot of `by`'s.
+    fn shield_front(&self, by: Option<usize>) -> f32 {
+        shield_front_of(&self.shield_fronts, by)
     }
 
     /// The bulwarks as they stand.
@@ -2666,13 +2707,14 @@ impl Combat {
             // (feature 100), as a bolt is: nothing rolled, nothing landed,
             // and the plate flares where the blade met it.
             let toward = (from - at).normalize_or_zero();
+            let front = self.shield_front(by);
             if let Some(heading) = self
                 .targets
                 .get(target)
                 .copied()
                 .flatten()
                 .and_then(|t| t.shield)
-                && shield_stops(heading, toward)
+                && shield_stops_within(heading, toward, front)
             {
                 let plate = at + toward * balance::GUARDIAN_SHIELD_RADIUS;
                 self.fx.shield(at, plate);
@@ -2766,6 +2808,7 @@ impl Combat {
         let own_cover_dodge = &self.own_cover_dodge;
         let bulwarks = &self.bulwarks;
         let reflecting = &self.reflecting;
+        let shield_fronts = &self.shield_fronts;
         // The bolts a Reflective plate sent back this step (task 116), in
         // the order they were made, put in the air after the loop.
         let mut reflected: Vec<Bolt> = Vec::new();
@@ -2832,7 +2875,8 @@ impl Combat {
                     }
                     let off = body - from;
                     let would_hit = off.dot(dir) > 0.0 && dir.perp_dot(off).abs() <= HIT_RADIUS;
-                    if !would_hit || !shield_stops(heading, -dir) {
+                    let front = shield_front_of(shield_fronts, bolt.by);
+                    if !would_hit || !shield_stops_within(heading, -dir, front) {
                         continue;
                     }
                     if let Some(t) = along(from, to, body, balance::GUARDIAN_SHIELD_RADIUS)

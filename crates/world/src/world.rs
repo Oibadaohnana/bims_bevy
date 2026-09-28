@@ -86,6 +86,13 @@ mod mission;
 #[path = "relics.rs"]
 mod relics;
 
+// What task 118's relics do in a fight: the hits on a machine, the auras,
+// the timed effects, the pay. A child for the same reason.
+#[path = "relic_hooks.rs"]
+mod relic_hooks;
+#[cfg(test)]
+pub(crate) use relic_hooks::MachineKill;
+
 // The Machine Heart's half of the world (feature 108): the fortress, its
 // fight, the win and the map's preview. A child for the same reason.
 #[path = "fortress.rs"]
@@ -441,6 +448,12 @@ pub enum Command {
         slot: u32,
         a: GearSource,
         b: GearSource,
+    },
+    /// Roll the shelf of the trader the crew are at again, its weapons and
+    /// its armour — never its relic: a relic's *Restock Codes* (task 118),
+    /// once a visit, any player while one of them holds it.
+    Restock {
+        slot: u32,
     },
 }
 
@@ -1278,6 +1291,9 @@ impl World {
         //    How many hits each player's Bim had taken before the rooms
         //    stepped, for a relic that fires on one (feature 106).
         let hits_before = self.hits_before_the_step();
+        //    And who of the crew was down, for a relic that fires on a
+        //    crewmate going down (task 118).
+        let downs_before = self.downs_before_the_step();
         self.aboard.step();
         if let Some(residents) = &mut self.residents {
             residents.aboard.step();
@@ -1291,6 +1307,7 @@ impl World {
         //    was hit this step, its triggers — before the tanks take their
         //    hits' experience out of the count.
         self.settle_relics(&hits_before, &mut events);
+        self.settle_relic_downs(&downs_before, &mut events);
         let downed = self.experience(&mut events);
         self.settle_rampage(&downed);
         self.settle_medics(&mut events);
@@ -1375,7 +1392,8 @@ impl World {
             | Command::AcceptRelic { slot, .. }
             | Command::OpenCache { slot, .. }
             | Command::BuyShelf { slot, .. }
-            | Command::Combine { slot, .. } => slot,
+            | Command::Combine { slot, .. }
+            | Command::Restock { slot } => slot,
         };
 
         // Between missions nothing happens but the choosing: the map
@@ -1399,6 +1417,7 @@ impl World {
                     | Command::AnswerOffer { .. }
                     | Command::BuyShelf { .. }
                     | Command::Combine { .. }
+                    | Command::Restock { .. }
             )
         {
             events.push(refused(slot, Refusal::BetweenMissions));
@@ -1424,6 +1443,7 @@ impl World {
             Command::OpenCache { who, .. } => self.open_cache(slot, who, events),
             Command::BuyShelf { index, to, .. } => self.buy_shelf(slot, index, to, events),
             Command::Combine { a, b, .. } => self.combine(slot, a, b, events),
+            Command::Restock { .. } => self.restock(slot, events),
             Command::PlaceSite {
                 kind,
                 origin,
@@ -2221,7 +2241,7 @@ impl World {
         // (feature 103): said when the room is done with below.
         // Each with who hit it last, for a relic that pays or pays back
         // for its own kills (feature 106).
-        let mut machine_kills: Vec<(Option<usize>, Money)> = Vec::new();
+        let mut machine_kills: Vec<relic_hooks::MachineKill> = Vec::new();
         // And which of them are down, so a body among them is one the
         // crew can right-click and loot; after the positions, since the
         // positions clear it.
@@ -2322,6 +2342,17 @@ impl World {
         let magnet: Vec<bool> = (0..self.aboard.crew_count())
             .map(|who| self.has_talent(who, Talent::Magnet))
             .collect();
+        // And who of the crew no machine aims at, a relic's *Signal
+        // Scrambler* (task 118) — for the same reason.
+        let unseen = self.unseen_by_machines();
+        // The crew's hits on the machines, landed through the relics
+        // (task 118) — with none held, the same strike the loop below made
+        // — and the hits on the residents' Bims handed back to it.
+        let hits = if hostile || defending {
+            self.land_on_machines(hits)
+        } else {
+            hits
+        };
         let Some(residents) = self.residents.as_mut().filter(|_| hostile || defending) else {
             self.aboard.room.set_hostiles(Vec::new());
             if let Some(residents) = &mut self.residents {
@@ -2389,7 +2420,26 @@ impl World {
                 // earns. Pending until the site is cleared.
                 if let Some(d) = who.checked_sub(bims).and_then(|i| room.droid(i)) {
                     let by = residents.last_hit_by.get(who).copied().flatten();
-                    machine_kills.push((by, bounty_for(d.tier.code())));
+                    // How it went, for a relic that pays for a crippled
+                    // machine or fires on one taken from behind (task 118).
+                    let body = &d.body;
+                    let crippled = !body.is_solid()
+                        && (body.gone(bims::droid::DroidPart::Arms)
+                            || body.gone(bims::droid::DroidPart::Legs));
+                    let flanked = {
+                        let relics = &mut self.run.relics;
+                        let was = relics.flanked.contains(&(who as u32));
+                        relics.flanked.retain(|&b| b != who as u32);
+                        relics.limb_aimed.retain(|&(_, b)| b != who as u32);
+                        relics.spotted.retain(|&(_, b, _)| b != who as u32);
+                        was
+                    };
+                    machine_kills.push(relic_hooks::MachineKill {
+                        by,
+                        bounty: bounty_for(d.tier.code()),
+                        crippled,
+                        flanked,
+                    });
                 }
                 // A machine is said as a machine: it has no name, and
                 // the log would otherwise call a wreck Sanne.
@@ -2436,6 +2486,13 @@ impl World {
                 })
             })
             .collect();
+        // A crew member under *Signal Scrambler*'s cloak (task 118) is on
+        // nobody's list: no machine aims at it while it lasts.
+        for (who, &hidden) in unseen.iter().enumerate() {
+            if hidden && let Some(c) = crew.get_mut(who) {
+                *c = None;
+            }
+        }
         // And the engineers' sentries after them (feature 74), each at
         // its spot with its rifle: the nearest-target rule includes them,
         // and a hit past the crew's count is a hit on one.
@@ -2663,7 +2720,7 @@ impl World {
             .run
             .machines_destroyed
             .saturating_add(machine_kills.len() as u32);
-        let machine_bounty = self.machine_kills(&machine_kills, events);
+        let machine_bounty = self.machine_kills_noted(&machine_kills, events);
         self.earn_bounty(machine_bounty, events);
     }
 
@@ -4422,6 +4479,7 @@ impl World {
                 // map, where nothing steps.
                 | Command::BuyShelf { .. }
                 | Command::Combine { .. }
+                | Command::Restock { .. }
         )
     }
 
@@ -7620,6 +7678,8 @@ impl World {
         // And a player's relics (feature 106), last: a share on top of
         // whatever the class and the aura made of it.
         self.lift_by_relics(who, &mut skill);
+        // And task 118's, which read the crew round it as well.
+        self.lift_by_relic_hooks(who, &mut skill);
         skill
     }
 
@@ -8253,7 +8313,7 @@ impl World {
                 });
             }
         }
-        let doctoring: Vec<bims::health::Doctoring> = (0..crew as u32)
+        let mut doctoring: Vec<bims::health::Doctoring> = (0..crew as u32)
             .map(|who| {
                 let mut d = bims::health::Doctoring::NONE;
                 if !self.is_medic(who) {
@@ -8277,6 +8337,8 @@ impl World {
                 d
             })
             .collect();
+        // What the relics do to the blood and the dressing (task 118).
+        self.relics_on_the_blood(&mut held, &mut doctoring);
         self.aboard.room.set_held(held);
         self.aboard.room.set_doctoring(doctoring);
     }
@@ -8418,6 +8480,9 @@ impl World {
             }
             if healed.helper != healed.patient && self.is_medic(healed.helper as u32) {
                 self.award(healed.helper, class::XP_HEALED, events);
+            }
+            if healed.with == bims::game::Healing::Bandage && self.any_relics() {
+                self.relics_on_a_dressing(healed.helper, healed.patient, events);
             }
         }
         if !self.enemy_standing() {
@@ -9377,6 +9442,7 @@ impl World {
         self.aboard.room.set_skills(skills);
     }
 
+        self.hand_the_room_the_shield_fronts();
     /// Whether an enemy is standing in the crew's room: the rooms joined,
     /// and one of the station's **bodies** alive and on its feet — its
     /// people and its machines at a hostile station, and the machines

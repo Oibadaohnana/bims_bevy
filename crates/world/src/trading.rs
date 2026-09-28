@@ -230,6 +230,8 @@ impl World {
         self.run.proposal = None;
         self.run.departure = None;
         self.run.trade_relic = None;
+        // *Restock Codes* (task 118) is once a visit, and this is one.
+        self.run.relics.restocked = false;
         if self.run.traders.iter().any(|t| t.site == site) {
             return;
         }
@@ -248,13 +250,16 @@ impl World {
     /// the tier.
     pub fn shelf_price(&self, item: ShelfItem) -> Money {
         let tier = item.tier.code();
-        self.run
+        let ask = self
+            .run
             .site
             .and_then(|id| self.quote_at(id, item.resource, tier))
             .map(|q| q.ask)
             .unwrap_or_else(|| {
                 economy::trade_price(item.resource).saturating_mul(economy::tier_price(tier))
-            })
+            });
+        // *Trade License* (task 118).
+        self.trader_discount(ask)
     }
 
     // --- buying ---------------------------------------------------------------
@@ -434,7 +439,7 @@ impl World {
             events.push(refused(proposal.by, Refusal::SoldOut));
             return;
         }
-        let price = trader::relic_price(relic);
+        let price = self.trader_relic_price(relic);
         if price > self.money {
             events.push(refused(proposal.by, Refusal::Unaffordable));
             return;

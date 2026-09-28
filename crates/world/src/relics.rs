@@ -73,7 +73,14 @@ impl World {
         if held.is_empty() {
             return 0;
         }
-        relic::stat_percent(held, stat, self.other_player_down(who))
+        relic::stat_percent(
+            held,
+            stat,
+            relic::Situation {
+                other_down: self.other_player_down(who),
+                ..relic::Situation::default()
+            },
+        )
     }
 
     /// The same as a factor: 1.1 for ten per cent.
@@ -460,6 +467,19 @@ impl World {
         trigger: Trigger,
         events: &mut Vec<WorldEvent>,
     ) {
+        self.relic_trigger_on(who, trigger, None, events);
+    }
+
+    /// [`World::relic_trigger`] about another crew member, `other` — the
+    /// crewmate dressed, the crewmate gone down (task 118) — and under a
+    /// hook's cooldown as well.
+    pub(crate) fn relic_trigger_on(
+        &mut self,
+        who: u32,
+        trigger: Trigger,
+        other: Option<u32>,
+        events: &mut Vec<WorldEvent>,
+    ) {
         let hooks: Vec<(Relic, Hook)> = relic::hooks(self.relics_of(who), trigger).collect();
         for (relic, hook) in hooks {
             if hook.once_per_mission && self.run.relics.has_fired(who, relic) {
@@ -471,8 +491,16 @@ impl World {
                     continue;
                 }
             }
-            if self.fire_relic(who, relic, hook.action, events) && hook.once_per_mission {
-                self.run.relics.mark_fired(who, relic);
+            if hook.cooldown.is_some() && !self.relic_ready(who, relic) {
+                continue;
+            }
+            if self.fire_relic(who, relic, hook.action, other, events) {
+                if hook.once_per_mission {
+                    self.run.relics.mark_fired(who, relic);
+                }
+                if let Some(seconds) = hook.cooldown {
+                    self.relic_cools(who, relic, seconds);
+                }
             }
         }
     }
@@ -483,6 +511,7 @@ impl World {
         who: u32,
         relic: Relic,
         action: Action,
+        other: Option<u32>,
         events: &mut Vec<WorldEvent>,
     ) -> bool {
         let fired = match action {
@@ -503,6 +532,23 @@ impl World {
                 self.aboard.room.set_surge(who as usize, seconds, false);
                 true
             }
+            // Task 118's.
+            Action::Sprint { seconds, .. } | Action::Unseen { seconds } => {
+                self.put_relic_buff(who, relic, seconds);
+                true
+            }
+            Action::Tether { seconds, .. } => match other {
+                Some(patient) => {
+                    self.put_relic_buff(patient, relic, seconds);
+                    true
+                }
+                None => false,
+            },
+            Action::Shelter { tiles, seconds } => self.relic_shelter(who, other, tiles, seconds),
+            Action::RallyUp {
+                tiles,
+                health_percent,
+            } => self.relic_rally_up(who, tiles, health_percent),
         };
         if fired {
             events.push(WorldEvent::RelicFired {
@@ -555,19 +601,50 @@ impl World {
 
     /// The machines destroyed this step, each with who hit it last: the
     /// Republic's bounty for them — *Salvage Beacon*'s share on top of a
-    /// holder's own kills — and every *Kill* trigger. What `visit` adds
-    /// to the pending bounty.
+    /// holder's own kills — and every *Kill* trigger. The tests' way in;
+    /// `visit` says how each went too, through
+    /// [`World::machine_kills_noted`].
+    #[cfg(test)]
     pub(crate) fn machine_kills(
         &mut self,
         kills: &[(Option<usize>, Money)],
         events: &mut Vec<WorldEvent>,
     ) -> Money {
+        let kills: Vec<relic_hooks::MachineKill> = kills
+            .iter()
+            .map(|&(by, bounty)| relic_hooks::MachineKill {
+                by,
+                bounty,
+                crippled: false,
+                flanked: false,
+            })
+            .collect();
+        self.machine_kills_noted(&kills, events)
+    }
+
+    /// [`World::machine_kills`] with how each machine went (task 118):
+    /// *Parts Broker*'s share on one missing a limb, and what
+    /// `relics_on_a_kill` adds.
+    pub(crate) fn machine_kills_noted(
+        &mut self,
+        kills: &[relic_hooks::MachineKill],
+        events: &mut Vec<WorldEvent>,
+    ) -> Money {
         let mut total: Money = 0;
-        for &(by, bounty) in kills {
-            let by = by.map(|b| b as u32).filter(|&b| b < self.players());
+        for kill in kills {
+            let bounty = kill.bounty;
+            let by = kill.by.map(|b| b as u32).filter(|&b| b < self.players());
             let paid = match by {
                 Some(b) => {
-                    let percent = self.relic_percent(b, Stat::Bounty);
+                    let percent = relic::stat_percent(
+                        self.relics_of(b),
+                        Stat::Bounty,
+                        relic::Situation {
+                            other_down: self.other_player_down(b),
+                            crippled: kill.crippled,
+                            ..relic::Situation::default()
+                        },
+                    );
                     bounty.saturating_add(bounty * percent.max(0) as Money / 100)
                 }
                 None => bounty,
@@ -575,6 +652,10 @@ impl World {
             total = total.saturating_add(paid);
             if let Some(b) = by {
                 self.relic_trigger(b, Trigger::Kill, events);
+            }
+            if self.any_relics() {
+                let more = self.relics_on_a_kill(kill, events);
+                total = total.saturating_add(more);
             }
         }
         total
@@ -699,6 +780,8 @@ impl World {
                 relic: relic.code(),
             });
         }
+        // *Hazard Pay* (task 118).
+        self.relics_pay_the_clear(events);
         if self.run.win_on_clear {
             self.run_won(events);
         }
