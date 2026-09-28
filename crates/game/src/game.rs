@@ -4299,6 +4299,11 @@ impl Game {
             return;
         };
         bim.task = None;
+        // And a revive in hand is let go of: what the app's held revive
+        // key sends when the key comes up before the patient is up.
+        if self.reviving(who).is_some() {
+            self.drop_task(who);
+        }
         bim.queue.clear();
         bim.health.give_up();
         bim.character.die();
@@ -7709,9 +7714,8 @@ impl Game {
     /// Where `who` is putting something together and how far through the
     /// errand it is (feature 91): the middle of the tile an engineer is
     /// laying a kit on, the middle of the construction site whoever it
-    /// is is building, or where the crewmate it is reviving lies (task
-    /// 120), in **room** units, with the chain's progress from
-    /// nought to one. `None` for every other errand and for a Bim with
+    /// is is building, in **room** units, with the chain's progress from
+    /// nought to one — a revive's bar is [`Game::revive_share`]'s. `None` for every other errand and for a Bim with
     /// nothing on hand.
     ///
     /// The walk counts towards it, because the number is the errand's own
@@ -7725,7 +7729,6 @@ impl Game {
         let task = self.bims.get(who)?.task.as_ref()?;
         let at = match task.kind() {
             Kind::Deploy { .. } => task.kind().deploy_tile()?,
-            Kind::Revive { patient } => self.bims.get(patient)?.character.pos,
             Kind::Build { site, .. } => {
                 let build = self.room.builds.iter().find(|b| b.site == site)?;
                 let mut box_of = *build.tiles.first()?;
@@ -7891,6 +7894,11 @@ impl Game {
     /// A medic's surge still takes the whole of it, and a tank's *iron
     /// frame* still moves a head shot onto the body first: the strip
     /// then lands on the kevlar, which is the piece that would have
+        // A revive has a bar of its own over the patient
+        // ([`Game::revive_share`]), the hands-on seconds alone.
+        if self.reviving(who).is_some() {
+            return None;
+        }
     /// taken the damage.
     pub fn strike_stripping(
         &mut self,
@@ -8086,7 +8094,11 @@ impl Game {
     /// Refused for a helper that cannot do it — dead, downed, outside, its
     /// arms full — a patient that is not downed, a Manufacturer (never
     /// revived), outside or in somebody's arms, the helper itself, and a
-    /// patient somebody else is already reviving: one reviver counts.
+    /// patient another player's Bim is already reviving: one reviver
+    /// counts. A **bot** on its way to the patient or at it gives way to
+    /// a player's own Bim — its revive is dropped and the player's hands
+    /// count — so a bot that claimed a patient and was held up never
+    /// keeps the player from it.
     pub fn revive_crewmate(&mut self, who: usize, patient: usize) -> bool {
         if who >= self.bims.len()
             || patient >= self.bims.len()
@@ -8097,7 +8109,6 @@ impl Game {
             || self.bims[who].character.is_outside()
             || self.bims[who].carrying.is_some()
             || !self.can_be_revived(patient)
-            || self.is_being_seen_to_by_another(patient, who)
         {
             return false;
         }
@@ -8270,6 +8281,17 @@ impl Game {
         }
     }
 
+        if self.is_being_seen_to_by_another(patient, who) {
+            let others: Vec<usize> = (0..self.bims.len())
+                .filter(|&other| other != who && self.reviving(other) == Some(patient))
+                .collect();
+            if self.is_bot(who) || others.iter().any(|&other| !self.is_bot(other)) {
+                return false;
+            }
+            for other in others {
+                self.drop_task(other);
+            }
+        }
     /// Down: dead, or downed. What the world hands the other room as
     /// `set_visitors_down`, and what a carry and a rescue ask.
     pub fn is_down(&self, who: usize) -> bool {
@@ -8337,6 +8359,57 @@ impl Game {
         if bim.character.is_outside() {
             return false;
         }
+    /// How far the hands on `patient` have got bringing it round, from
+    /// nought to one, and whose they are — the walk over not counted —
+    /// or `None` while nobody is kneeling at it. The bar the app draws
+    /// over a downed body.
+    pub fn revive_share(&self, patient: usize) -> Option<(usize, f32)> {
+        self.bims.iter().enumerate().find_map(|(helper, b)| {
+            let task = b.task.as_ref()?;
+            if helper == patient || task.kind().patient() != Some(patient) {
+                return None;
+            }
+            task.revive_share().map(|share| (helper, share))
+        })
+    }
+
+    /// Whether `who` is in cover this instant, and from where: the point
+    /// the threat stands at that its cover is against, in room units, or
+    /// `None` in the open. **In cover is what a bolt reaching the body is
+    /// dodged for** (`Combat::step`): peeking round a wall
+    /// ([`Game::peek`]), or low cover — sandbags — on the straight line
+    /// to an enemy within reach of the body (`Sight::cover_between`). A
+    /// peek is against the nearest enemy up (or the way it leans, with
+    /// none); the bags against the nearest enemy they stand between. Only
+    /// for a body up on the deck, and only with an enemy to be in cover
+    /// from — a body behind a barricade in peace is just standing there.
+    /// Drawing only: nothing the simulation reads.
+    pub fn cover_of(&self, who: usize) -> Option<Vec2> {
+        let bim = self.bims.get(who)?;
+        if !bim.is_alive()
+            || bim.health.downed()
+            || bim.character.is_unconscious()
+            || bim.character.is_outside()
+        {
+            return None;
+        }
+        let at = bim.character.pos;
+        let threats = self
+            .combat
+            .targets()
+            .iter()
+            .flatten()
+            .filter(|t| !t.stale)
+            .map(|t| t.at);
+        let nearest = |a: &Vec2, b: &Vec2| (*a - at).len().total_cmp(&(*b - at).len());
+        if let Some(peek) = bim.peek {
+            return threats.min_by(nearest).or(Some(peek + (peek - at)));
+        }
+        threats
+            .filter(|&t| self.room.sight.cover_between(at, t).is_some())
+            .min_by(nearest)
+    }
+
         let p = bim.character.pos;
         let near = vec2(
             clamp(p.x, frame.min.x, frame.max.x),
@@ -11146,3 +11219,73 @@ mod tests {
         assert_eq!(game.bloody_tiles(), 0);
     }
 }
+    /// A bot on its way to a downed crewmate gives way to the player's own
+    /// Bim: the player's order drops the bot's revive and the player's
+    /// hands count. The bar over the patient is the hands-on part alone,
+    /// and a stand-down lets the revive go.
+    #[test]
+    fn a_bot_s_revive_gives_way_to_the_player_s_and_a_stand_down_lets_it_go() {
+        let mut game = room();
+        let extra = Game::bare(4, ROOM_W, ROOM_H)
+            .take_crew()
+            .into_iter()
+            .take(1)
+            .collect();
+        game.adopt(extra, Vec2::ZERO);
+        game.set_autonomous(false);
+        game.set_revivers(false);
+        let mid = vec2(ROOM_W * 0.5, ROOM_H * 0.5);
+        let at = game.put_for_probe(1, mid);
+        game.put_for_probe(0, at + vec2(TILE, 0.0));
+        game.put_for_probe(2, at + vec2(-6.0 * TILE, 0.0));
+        knock_out(&mut game, 1);
+        assert!(game.is_bot(2) && !game.is_bot(0));
+        assert!(game.revive_crewmate(2, 1), "the bot sets out");
+        assert_eq!(game.reviving(2), Some(1));
+        assert!(!game.revive_crewmate(2, 1), "one reviver among the bots");
+        assert_eq!(game.revive_share(1), None, "walking is not kneeling");
+        // The player's Bim takes it over.
+        assert!(game.revive_crewmate(0, 1));
+        assert_eq!(game.reviving(0), Some(1));
+        assert_eq!(game.reviving(2), None, "the bot let it go");
+        assert!(
+            !game.revive_crewmate(2, 1),
+            "and a bot does not take it back"
+        );
+        // Kneeling, the share climbs; standing down lets go.
+        let mut share = None;
+        for _ in 0..(60 * 4) {
+            game.simulate(DT);
+            share = game.revive_share(1);
+            if share.is_some_and(|(_, s)| s > 0.1) {
+                break;
+            }
+        }
+        let (helper, s) = share.expect("hands on");
+        assert_eq!(helper, 0);
+        assert!(s > 0.1 && s < 1.0, "{s}");
+        game.stand_down(0);
+        assert_eq!(game.reviving(0), None);
+        assert_eq!(game.revive_share(1), None);
+        assert!(game.is_downed(1));
+    }
+
+    /// In cover is what a bolt is dodged for: behind sandbags between the
+    /// body and an enemy, and not in the open, from the other side, or
+    /// with no enemy at all.
+    #[test]
+    fn a_body_behind_bags_is_in_cover_from_the_enemy_beyond_them() {
+        let mut game = room();
+        game.set_autonomous(false);
+        let body = game.put_for_probe(0, vec2(5.5 * TILE, 5.5 * TILE));
+        assert_eq!(game.cover_of(0), None, "no enemy, no cover");
+        let bags = Rect::from_min_size(vec2(6.0 * TILE, 5.0 * TILE), vec2(TILE, TILE));
+        game.set_laid_cover(&[bags]);
+        let enemy = vec2(13.5 * TILE, 5.5 * TILE);
+        let gun = WeaponKind::LaserPistol.basic();
+        game.set_hostiles(vec![Some((enemy, gun))]);
+        assert_eq!(game.cover_of(0), Some(enemy), "the bags between");
+        game.set_hostiles(vec![Some((body - vec2(8.0 * TILE, 0.0), gun))]);
+        assert_eq!(game.cover_of(0), None, "the enemy on the open side");
+    }
+

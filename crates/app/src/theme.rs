@@ -1082,6 +1082,94 @@ pub fn work_bar(painter: &egui::Painter, at: egui::Pos2, scale: f32, progress: f
     );
 }
 
+/// The bar over a downed body while somebody is bringing it round: the
+/// hands-on seconds of the revive, filling from the left in the heal's
+/// green, laid just over [`downed_ring`] so the two read together — how
+/// long it has, and how far the reviver has got. `at` is the body on the
+/// canvas and `share` nought to one.
+pub fn revive_bar(painter: &egui::Painter, at: egui::Pos2, scale: f32, share: f32) {
+    let radius = (12.0 * scale).clamp(7.0, 17.0);
+    let ring_y = at.y - (0.6 * NAME_LIFT * scale).clamp(8.0, 34.0);
+    let w = (44.0 * scale).clamp(26.0, 60.0);
+    let h = (6.0 * scale).clamp(4.0, 8.0);
+    let middle = egui::pos2(
+        at.x,
+        ring_y - radius - h * 0.5 - (4.0 * scale).clamp(3.0, 6.0),
+    );
+    let track = egui::Rect::from_center_size(middle, egui::vec2(w, h));
+    let round = h * 0.5;
+    painter.rect_filled(
+        track.expand(1.0),
+        round + 1.0,
+        egui::Color32::from_black_alpha(190),
+    );
+    let done = share.clamp(0.0, 1.0);
+    if done > 0.0 {
+        let filled = egui::Rect::from_min_size(track.min, egui::vec2(w * done, h));
+        painter.rect_filled(filled, round, HEAL);
+    }
+    painter.rect_stroke(
+        track,
+        round,
+        egui::Stroke::new(1.0, HEAL.gamma_multiply(0.6)),
+        egui::StrokeKind::Inside,
+    );
+}
+
+/// A Bim in cover (`bims::game::Game::cover_of`): a curved wall of the
+/// armour's blue on the deck between the body and the threat it is
+/// covered from — the side the cover is on — and a small shield badge at
+/// its shoulder, so a glance across a fight says who is dodging half the
+/// bolts and from which way. `toward` is the threat's direction on the
+/// canvas (any length; nothing drawn for the arc when it is nought).
+pub fn cover_mark(painter: &egui::Painter, at: egui::Pos2, scale: f32, toward: egui::Vec2) {
+    let blue = ARMOUR;
+    let len = toward.length();
+    if len > 1e-3 {
+        let dir = toward / len;
+        let base = dir.y.atan2(dir.x);
+        let radius = (24.0 * scale).clamp(12.0, 34.0);
+        let half = 55f32.to_radians();
+        let points: Vec<egui::Pos2> = (0..=12)
+            .map(|i| {
+                let a = base - half + 2.0 * half * i as f32 / 12.0;
+                at + egui::vec2(a.cos(), a.sin()) * radius
+            })
+            .collect();
+        let width = (4.0 * scale).clamp(2.5, 5.5);
+        painter.add(egui::Shape::line(
+            points.clone(),
+            egui::Stroke::new(width + 2.0, egui::Color32::from_black_alpha(140)),
+        ));
+        painter.add(egui::Shape::line(
+            points,
+            egui::Stroke::new(width, blue.gamma_multiply(0.9)),
+        ));
+    }
+    // The badge: a small shield up at the left shoulder, filled faint and
+    // outlined bright.
+    let h = (11.0 * scale).clamp(7.0, 15.0);
+    let w = h * 0.8;
+    let c = at
+        + egui::vec2(
+            -(16.0 * scale).clamp(9.0, 22.0),
+            -(16.0 * scale).clamp(9.0, 22.0),
+        );
+    let top = c.y - h * 0.5;
+    let shield = vec![
+        egui::pos2(c.x - w * 0.5, top),
+        egui::pos2(c.x + w * 0.5, top),
+        egui::pos2(c.x + w * 0.5, top + h * 0.45),
+        egui::pos2(c.x, top + h),
+        egui::pos2(c.x - w * 0.5, top + h * 0.45),
+    ];
+    painter.add(egui::Shape::convex_polygon(
+        shield,
+        blue.gamma_multiply(0.55),
+        egui::Stroke::new((1.4 * scale).clamp(1.0, 2.0), blue),
+    ));
+}
+
 /// A heal landing on a beamed body (feature 91): the points put back,
 /// floating up off the patient in the beam's own green and fading as it
 /// goes. `rise` is nought the moment it appears and one as it goes out,

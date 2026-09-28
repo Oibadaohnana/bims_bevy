@@ -1411,7 +1411,12 @@ laboratory with its bays, the rec room and the research room, the storage
 and the cargo shelves, each behind a bulkhead with a two-tile doorway, the
 outer rooms opening through the inner. A barricade of **sandbags** stands
 across three of each corridor's five tiles a few tiles out from the hub —
-cover to crouch behind, and low enough to walk and shoot over. **Every
+cover to crouch behind, and low enough to walk and shoot over. A Bim
+**in cover** — close behind sandbags with an enemy beyond them, or
+leaning out round a wall to shoot — dodges half the bolts that reach it,
+and wears a **curved blue wall** on the deck on the side its cover is
+against and a small blue shield at its shoulder, so who is in cover, and
+from which way, reads across a fight. **Every
 other station is generated from its seed**, so the same dock is the same
 building every visit and no two docks are one building: two or three long
 corridors with two to four short ones across them, rooms between them
@@ -2373,11 +2378,11 @@ hit**, the whole of it absorbed. The charge empties; unlinking does not
 end a surge already running on the patient. A ring round the body says
 who is surging.
 
-**The carry** is `G`, from the first level and with no talent behind it
+**The carry** is `H` (it was `G` until the held revive took that key), or the *Carry* row of the right-click menu on a downed crewmate, which walks the medic over first, from the first level and with no talent behind it
 (feature 86): a **downed** crewmate under the pointer picked up into the
 medic's arms and carried out of the fire. With the pointer on nobody it
 takes up the nearest it could. Carrying, the medic walks at **six
-tenths** of its pace and **fires nothing**. `G` again sets the body down
+tenths** of its pace and **fires nothing**. `H` again sets the body down
 where it stands, and reviving it there is what comes next. The carry is
 let go the moment either of the two goes down.
 
@@ -2674,7 +2679,8 @@ overlapping is allowed the whole apparatus has nothing left to do.
 | Right-click a cell | **Take** · **Store** · **Equip** · **Discard**, or **Unequip** on a worn slot — greyed with the reason when it cannot go |
 | Ctrl-click a cell | The quick move: container to pack, pack to the open container |
 | Click or right-click a door | Menu: hold open, close, lock, unlock — the Bim walks to the panel |
-| Right-click a Bim | A downed crewmate: your own Bim goes and **revives** it; when it cannot, the menu opens with the *Revive* row greyed and the reason |
+| Right-click a Bim | A downed crewmate — a bot's or a player's: the menu with **Get up** (your own Bim walks over and revives it) and **Carry** (a medic walks over and picks it up), each greyed with the reason when it cannot. A bot already on its way gives way to you |
+| Hold `g` | Standing close to a downed crewmate (two and a half tiles): your own Bim **gets the nearest back up** while the key is held, and stops if you let go first. A green bar over the body fills with the revive |
 | `F1` | Select the Bim you steer and put it in the middle of the view |
 | `l` | Recruit it, or let it go — see below |
 | `q` / `c` / `e` / `r` | The steered crew member's four **ability slots** (task 123). `q` and `e` are the **class actions**: an engineer **throws an EMP** at the deck tile under the pointer / **lays sandbags** there, and its `c` **lays a Healing Sentry** and its `r`, the ultimate, **lays its sentry** (task 127); a soldier **throws a grenade** at it (hold `q` to see the burst's radius) / **braces** where it stands, or stands easy, and its `c` is **Weak Spot** (passive, nothing to press) and its `r` goes on a **Rampage**; a medic **triggers its surge** / **beams the crew member under the pointer**, and unlinks when pressed on the one it holds or on nobody; a tank **taunts** / **puts its wall up**, or takes it down — see [Classes and levels](#classes-and-levels). `c` and `r` are empty for every class but the soldier and the engineer for now. The log says why not; nothing with a classless crew member |
@@ -3088,8 +3094,11 @@ paused. When it runs out the Bim is dead.
 beside it: **ten seconds**, a medic **four**, *Trauma Kit* two off either
 (never under one). The reviver stands still and fires nothing while it
 works; being shot does not stop it, and one reviver is all that counts.
-A right-click on a downed crewmate sends your own Bim to do it — the
-right-click menu's *Revive* row says why not when it cannot — and the
+Holding `g` beside a downed crewmate has your own Bim do it, and a
+right-click on one opens a menu of two rows, *Get up* and *Carry*, each
+greyed with the reason when it cannot be done; a bot already on its way
+gives way to you. A green bar over the body, above the countdown ring,
+fills as the reviver's hands-on seconds run — and the
 **bots revive** their downed crewmates of their own accord, when the
 body is out of harm or the fight is quiet — **a medic bot first** (the
 class, or a hired field medic): the other bots leave a body to a medic

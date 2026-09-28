@@ -862,6 +862,21 @@ impl Task {
         self.step == Step::Revive
     }
 
+    /// How far through the hands-on part of a revive this chain is, from
+    /// nought to one — the walk over not counted — or `None` while it is
+    /// not kneeling at the patient. What the bar over a downed body reads.
+    pub fn revive_share(&self) -> Option<f32> {
+        if self.step != Step::Revive {
+            return None;
+        }
+        let total = self.duration();
+        Some(if total > 0.0 {
+            (self.elapsed / total).clamp(0.0, 1.0)
+        } else {
+            1.0
+        })
+    }
+
     /// Set the Bim and the room up for whichever step we just moved into.
     fn enter(&mut self, ch: &mut Character, room: &mut Room, maps: &Maps) {
         use Step::*;

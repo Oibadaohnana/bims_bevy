@@ -1353,7 +1353,11 @@ prints the curves itself.
   `sandbags_are_a_stand_the_tactics_take_and_half_the_bolts_over_them_are_dodged`
   in `combat::tests` and `sight::tests` pin it. A body *on* the bags is
   in the open, and one two tiles back is past the reach — a bolt comes
-  over.
+  over. **`Game::cover_of(who)`** is the picture's reading of the same
+  two rules — peeking, or bags between the body and a live (not stale)
+  target — answering the threat's point, for the app's curved blue wall
+  and shoulder shield (`theme::cover_mark`); nothing the simulation
+  reads. `a_body_behind_bags_is_in_cover_from_the_enemy_beyond_them`.
 - **The enemy's tactics.** A room with hostile bodies **and** a `Some`
   target is **at war** (`Game::at_war`, `muster`): every living body is
   `set_recruited(true)` with its errand `interrupt`ed (queue kept) and its
@@ -3962,7 +3966,15 @@ body had.
   hands pressing), started by `Game::revive_crewmate(who, patient)` or
   `CrewOrder::Revive`. Refused for a patient not downed, a Manufacturer,
   one outside or carried, the helper itself, a helper that cannot act,
-  and a patient somebody else is reviving — one reviver counts. Damage
+  and a patient another player's Bim is reviving — one reviver counts.
+  **A bot gives way to a player**: a player's own Bim ordered to a
+  patient a bot is walking to or kneeling at drops the bot's revive
+  (`drop_task`) and takes it, so a bot held up on the way never keeps
+  the player from a body. `CrewOrder::StandDown` lets a revive in hand
+  go (the app's held revive key, G, sends it on release).
+  `Game::revive_share(patient)` is the hands-on share for the bar over
+  the body — the walk not counted, so `working_at` answers nothing for
+  a revive any more. Damage
   does not interrupt it; the reviver holds its fire. At the end
   (`Room::revived` → `apply_revives`) the patient, still within two tiles
   and still downed, is up at `REVIVED_TO` (three tenths) of its bar and

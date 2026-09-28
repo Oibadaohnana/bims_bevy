@@ -104,6 +104,10 @@ pub enum Action {
     /// class, level, body, gear and talents, on the left of the canvas.
     /// Pressed again, it shuts.
     CharacterSheet,
+    /// **Revive**: held, the Bim you steer gets the downed crewmate
+    /// nearest it back up — it must be standing close — and lets go when
+    /// the key comes up before they are. On G; the carry moved to H.
+    Revive,
 }
 
 impl Action {
@@ -116,7 +120,7 @@ impl Action {
         Action::Ability4,
     ];
 
-    pub const ALL: [Action; 24] = [
+    pub const ALL: [Action; 25] = [
         Action::Map,
         Action::NorthUp,
         Action::Follow,
@@ -145,6 +149,7 @@ impl Action {
 
     /// The key it starts on.
     pub fn default_key(self) -> egui::Key {
+        Action::Revive,
         use egui::Key;
         match self {
             Action::Map => Key::M,
@@ -175,7 +180,9 @@ impl Action {
             Action::AttackMove => Key::F,
             Action::Attack => Key::X,
             Action::Retreat => Key::Y,
-            Action::Carry => Key::G,
+            // G is the held revive, so the medic's carry went to H.
+            Action::Carry => Key::H,
+            Action::Revive => Key::G,
             Action::CharacterSheet => Key::K,
         }
     }
@@ -214,6 +221,7 @@ impl Action {
     pub fn what(self) -> &'static str {
         match self {
             Action::Map => "Switch between the ship and the map.",
+            Action::Revive => "revive",
             Action::NorthUp => "Turn the view head up or north up.",
             Action::Follow => {
                 "Follow the crew member you steer, and the ship on the map, or let the camera go free."
@@ -260,7 +268,10 @@ impl Action {
                 "The crew that follow you fall back to the ship and hold there. Press it again and they go back to keeping to your side. Nobody leaves a fight aboard the ship: cornered in your own hull they stand and shoot whatever they were told."
             }
             Action::Carry => {
-                "A medic picks the downed crewmate under the pointer up and carries them out of the fire, holding its fire and walking slowly while it does. Press it again to set them down, and revive them where it is quiet. Nothing for anybody but a medic or a hired field medic."
+                "A medic picks the downed crewmate under the pointer up and carries them out of the fire, holding its fire and walking slowly while it does. Press it again to set them down, and revive them where it is quiet. Nothing for anybody but a medic or a hired field medic. A right-click on a downed crewmate offers the same."
+            }
+            Action::Revive => {
+                "Hold it standing close to a downed crewmate and the Bim you steer gets them back up — the nearest of them. Let go before they are up and it stops. A bar over them shows how far it has got."
             }
             Action::CharacterSheet => {
                 "Open and close your Bim's character sheet: its class and level, its health, what it wears and holds, and the talent tree a level's pick is spent on."
@@ -415,6 +426,10 @@ impl Keys {
                 {
                     keys.edge_scroll = (speed * 10.0)
                         .round()
+        // A file from before the held revive took G has the carry on G
+        // and no revive line: the carry goes to its new key, H, rather
+        // than sharing G with the revive.
+        let old_carry = !text.lines().any(|l| l.trim_start().starts_with("revive="));
                         .clamp(0.0, f32::from(EDGE_SCROLL_MAX))
                         as u8;
                 }
@@ -435,6 +450,9 @@ impl Keys {
         match path().and_then(|p| std::fs::read_to_string(p).ok()) {
             Some(text) => Keys::from_text(&text),
             None => Keys::default(),
+                if old_carry && action == Action::Carry && key == Action::Revive.default_key() {
+                    continue;
+                }
         }
     }
 
@@ -625,6 +643,25 @@ mod tests {
         let q = [down(egui::Key::Q, ctrl)];
         assert!(!keys.used(&q, ctrl, Action::Ability1), "Ctrl+Q is no Q");
         assert_eq!(keys.rank_up_asked(&q, ctrl), Some(Action::Ability1));
+    /// The held revive is G and the carry moved to H; a file from before,
+    /// with the carry on G and no revive line, is read with the carry on
+    /// H rather than sharing G, and one that says both keeps its word.
+    #[test]
+    fn the_revive_is_g_and_an_old_carry_on_g_moves_to_h() {
+        let keys = Keys::default();
+        assert_eq!(keys.key(Action::Revive), egui::Key::G);
+        assert_eq!(keys.key(Action::Carry), egui::Key::H);
+        assert!(keys.shared_with(Action::Revive).is_empty());
+        assert!(keys.shared_with(Action::Carry).is_empty());
+        let old = Keys::from_text("carry=G\n");
+        assert_eq!(old.key(Action::Carry), egui::Key::H);
+        assert_eq!(old.key(Action::Revive), egui::Key::G);
+        let both = Keys::from_text("carry=G\nrevive=J\n");
+        assert_eq!(both.key(Action::Carry), egui::Key::G);
+        assert_eq!(both.key(Action::Revive), egui::Key::J);
+        assert_eq!(Keys::from_text(&keys.to_text()), keys);
+    }
+
         let q = [down(egui::Key::Q, none)];
         assert!(keys.used(&q, none, Action::Ability1));
         assert_eq!(keys.rank_up_asked(&q, none), None);

@@ -119,7 +119,8 @@ simulation's, which sails with a crew of one: `BIMS_CLASS=medic
 BIMS_CARRY=1 bims droids` is a body in the arms (the Carry box lit, with
 no count on it, is what says so), and `BIMS_DYING=2 BIMS_SMOKE_FRAMES=600
 bims droids` is one of its field medics going and fetching for itself.
-`G` is the carry's key in `BIMS_KEYS`. (`BIMS_BANDAGES` and
+`H` is the carry's key in `BIMS_KEYS` and `G` the held revive (a
+`+G` … `-G` pair would hold it; a single `G` is one frame's press). (`BIMS_BANDAGES` and
 `BIMS_MEDKITS` went with the medicine in task 120.)
 **`BIMS_KITS=n`** does the same for the engineer's three **charges**
 (feature 88, task 127): exactly `n` EMPs, Healing Sentries and sandbags

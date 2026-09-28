@@ -2921,6 +2921,18 @@ pub fn slowed_note() -> String {
 }
 /// A Bim under [`bims::health::BLEEDS_UNDER`]: bleeding on the deck.
 pub const BADLY_HURT: &str = "Badly hurt — bleeding";
+/// The carry row beside it, and why it is greyed when it is.
+pub const CARRY_ROW: &str = "Carry";
+pub const CARRY_ROW_HINT: &str =
+    "walk over and pick them up out of the fire — you hold your fire while you carry";
+pub const CARRY_YOURSELF: &str = "nobody carries themselves";
+pub const CARRY_NOT_DOWN: &str = "only a downed crewmate can be carried";
+pub const CARRY_MEDICS_ONLY: &str = "only a medic or a hired field medic can carry";
+pub const CARRY_ARMS_FULL: &str = "your arms are full — set them down first";
+pub const CARRY_TAKEN: &str = "somebody is already carrying them";
+/// What the log says when the revive key is held with nobody down close
+/// enough to get up.
+pub const REVIVE_NOBODY_NEAR: &str = "Nobody down close enough to get up.";
 /// What a dead body says under its name.
 pub fn died_line(name: &str) -> String {
     format!("{name} has died.")
@@ -2928,7 +2940,7 @@ pub fn died_line(name: &str) -> String {
 
 /// The revive row on the menu over a crewmate's body, and why it is
 /// greyed when it is.
-pub const REVIVE_ROW: &str = "Revive";
+pub const REVIVE_ROW: &str = "Get up";
 pub fn revive_hint(seconds: f32) -> String {
     format!("walk over and bring them round — {seconds:.0} seconds with hands on")
 }

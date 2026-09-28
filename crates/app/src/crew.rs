@@ -145,6 +145,11 @@ pub enum Open {
     /// beside one (feature 74). By the deployable.s id. There is no
     /// refill any more: a sentry never runs out of shots (feature 88).
     PackUp(u32),
+    /// Not a window either: the menu's Carry row on a downed crewmate —
+    /// the screen walks the player's own Bim over and picks them up once
+    /// within reach (`CrewPanels::carry_requested`). By the patient's
+    /// crew index.
+    Carry(u32),
 }
 
 /// What the class section and the deployable rows asked for this frame
@@ -592,6 +597,14 @@ pub struct CrewPanels {
     /// the screen last handed it over (`Near`). Fresh every frame: the Bim is walking.
     pub nearby: Vec<Near>,
     /// The player's own class, as the screen last handed it over
+    /// The Carry row was picked on this downed crewmate: the screen walks
+    /// the player's own Bim over and sends the carry once it is within
+    /// reach, and takes this.
+    pub carry_requested: Option<u32>,
+    /// Whether the player's own Bim may carry a body at all — a medic or
+    /// a hired field medic (`World::can_lift`) — as the screen last
+    /// handed it over. What greys the menu's Carry row.
+    pub may_lift: bool,
     /// (feature 74): drawn under the health of their own crew member.
     pub class_view: Option<ClassView>,
     /// How long the player's own Bim takes to revive a crewmate, in
@@ -641,6 +654,8 @@ impl CrewPanels {
             revive_seconds: bims::health::REVIVE_SECONDS,
             deploy_orders: Vec::new(),
             keys: Keys::default(),
+            carry_requested: None,
+            may_lift: false,
             orders: Vec::new(),
             crew_orders: Vec::new(),
             later_orders: Vec::new(),
@@ -800,7 +815,7 @@ impl CrewPanels {
             }
             HIT_BIM => {
                 // A body on the deck — the player's own, or a crewmate
-                // (task 120): one row, the revive. The hands are always
+                // (task 120): two rows, *Get up* and *Carry*. The hands are always
                 // the player's, and the row is there whether it can be
                 // done or not, greyed with the reason when it cannot — a
                 // body on its feet, the player's own, one somebody else is
@@ -828,6 +843,18 @@ impl CrewPanels {
             // mercenary for hire. What it asks is the world's to say — the
             // window reads it. A resident down has no row: what it had on
             // it is its own.
+                // And the carry: the walk over and the body taken up out
+                // of the fire, for a medic of either kind — greyed with
+                // the reason for anybody else, so the choice is always
+                // the two rows.
+                let why = carry_refused_row(game, who, patient, self.may_lift);
+                items.push(Item {
+                    label: CARRY_ROW.into(),
+                    hint: why.clone().unwrap_or_else(|| CARRY_ROW_HINT.into()),
+                    disabled: why.is_some(),
+                    run: None,
+                    opens: Some(Open::Carry(patient as u32)),
+                });
             HIT_VISITOR => {
                 let body = game.hit_visitor() as u32;
                 if !game.visitor_down(body as usize) {
@@ -908,6 +935,7 @@ impl CrewPanels {
                         if later {
                             self.later_orders.push(order);
                         } else {
+                Some(Open::Carry(patient)) => self.carry_requested = Some(patient),
                             self.crew_orders.push(order);
                         }
                     }
@@ -2569,7 +2597,46 @@ pub fn revive_refused(
     if game.is_carried(patient) {
         return Some(REVIVE_CARRIED.to_string());
     }
-    reviver_of(game, patient, who).map(|other| revive_taken(&name(other as u32)))
+    // A bot on its way gives way to a player's own Bim (the room drops
+    // its revive), so only another player's hands refuse it.
+    reviver_of(game, patient, who)
+        .filter(|&other| game.is_player(other))
+        .map(|other| revive_taken(&name(other as u32)))
+}
+
+/// Why the Carry row on a body is greyed, or `None` when the player's
+/// own Bim `who` could walk over and take `patient` up: `may_lift` is the
+/// world's word that it is a medic of either kind. The room's own
+/// conditions otherwise, as `World::can_carry` asks them bar the reach,
+/// which the walk over closes.
+pub fn carry_refused_row(
+    game: &Game,
+    who: usize,
+    patient: usize,
+    may_lift: bool,
+) -> Option<String> {
+    if patient == who {
+        return Some(CARRY_YOURSELF.to_string());
+    }
+    if !game.is_downed(patient) {
+        return Some(CARRY_NOT_DOWN.to_string());
+    }
+    if !may_lift {
+        return Some(CARRY_MEDICS_ONLY.to_string());
+    }
+    if !game.is_alive(who) || game.is_downed(who) || game.is_outside(who) {
+        return Some(HELPER_OUT.to_string());
+    }
+    if game.carrying(who).is_some() {
+        return Some(CARRY_ARMS_FULL.to_string());
+    }
+    if game.is_outside(patient) {
+        return Some(PATIENT_OUT.to_string());
+    }
+    if game.is_carried(patient) {
+        return Some(CARRY_TAKEN.to_string());
+    }
+    None
 }
 
 /// Which crew member other than `except` is bringing `patient` round, or

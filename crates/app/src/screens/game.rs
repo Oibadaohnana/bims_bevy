@@ -139,6 +139,13 @@ pub struct GameScreen {
     /// crosshair, and the next left click on the deck sends the player's
     /// own Bim there under arms, shooting what it meets on the way.
     aiming_move: bool,
+    /// The downed crewmate the held revive key (G) sent the player's own
+    /// Bim to get up: let go of when the key comes up before they are.
+    held_revive: Option<u32>,
+    /// The downed crewmate the menu's Carry row was for, and the frames
+    /// since the walk over was sent: the carry goes the frame the player's
+    /// own Bim is within reach, and is given up once it stops short.
+    carry_walk: Option<(u32, u32)>,
     /// Tab went down last frame with the keys ours: the focus egui gave a
     /// widget for it is to be surrendered (`keys::release_tab_focus`).
     tab_took_focus: bool,
@@ -852,6 +859,8 @@ impl GameScreen {
             throw_aim: None,
             aiming_attack: false,
             aiming_move: false,
+            held_revive: None,
+            carry_walk: None,
             tab_took_focus: false,
             backlog: 0.0,
             log: hud::Log::default(),
@@ -1411,6 +1420,7 @@ fn frame(
         // for the row on a downed crewmate's menu.
         if let Some(game) = session.game.as_ref() {
             panels.revive_seconds = game.world.revive_seconds(panels.player as u32);
+            panels.may_lift = game.world.can_lift(panels.player as u32);
         }
         // And the player's own class, for the section under the health
         // (feature 74).
@@ -1749,30 +1759,12 @@ fn frame(
                     }));
                 } else if let Some(room) = session.room() {
                     let fixture = room.hit_at(rx, ry);
-                    // A crewmate down under the pointer is the revive
-                    // itself (task 120), the way Dota uses a thing on a
-                    // target: the player's own Bim walks over and brings
-                    // it round, no menu between. Where the revive would
-                    // be refused — somebody already at it, the player's
-                    // own Bim down itself — the menu opens instead, and
-                    // its greyed row says why.
-                    let own = panels.player;
-                    let revive = (fixture == HIT_BIM)
-                        .then(|| room.hit_bim())
-                        .filter(|&patient| {
-                            patient != own
-                                && crate::crew::revive_refused(room, own, patient, &crew_name)
-                                    .is_none()
-                        });
-                    if let Some(patient) = revive {
-                        orders.push(crew_order(
-                            CrewOrder::Revive {
-                                who: own as u32,
-                                patient: patient as u32,
-                            },
-                            pointer.shift,
-                        ));
-                    } else if fixture != 0 {
+                    // A crewmate down under the pointer — a bot's Bim or
+                    // a player's — is the menu with its two rows, *Get
+                    // up* and *Carry*, greyed with the reason where one
+                    // cannot be done. Holding the revive key beside it
+                    // is the quick way to the first.
+                    if fixture != 0 {
                         let at = pointer.pos.unwrap();
                         panels.open_menu(fixture, egui::pos2(at.x, at.y), room);
                     }
@@ -2045,6 +2037,21 @@ fn frame(
                 }
                 if keys_now.pressed(i, Action::Attack) {
                     screen.aiming_move = false;
+                // The held revive (G): standing close to a downed crewmate,
+                // the player's own Bim gets the nearest back up while the
+                // key is held, and lets go when it comes up first.
+                if let Some(game) = &session.game {
+                    let (order, line) = held_revive(
+                        &game.world.aboard.room,
+                        panels.player,
+                        &mut screen.held_revive,
+                        !map_up && keys_now.down(i, Action::Revive),
+                        keys_now.pressed(i, Action::Revive),
+                        &crew_name,
+                    );
+                    orders.extend(order);
+                    screen.log.extend(line);
+                }
                     let standing = session
                         .game
                         .as_ref()
@@ -2629,6 +2636,32 @@ fn frame(
     for order in orders.drain(..) {
         screen.net.order(session, order);
     }
+        // The menu's Carry row on a downed crewmate: the player's own Bim
+        // walks over, and the carry goes the frame it is within reach —
+        // or is given up with the world's reason once the walk stops
+        // short, or the body no longer wants carrying.
+        let own = panels.player as u32;
+        if let Some(patient) = panels.carry_requested.take() {
+            screen.carry_walk = Some((patient, 0));
+            let at = world.aboard.room.bim_pos(patient as usize);
+            orders.push(Order::Crew(CrewOrder::SendTo {
+                who: own,
+                x: at.x,
+                y: at.y,
+            }));
+        }
+        if let Some((patient, frames)) = screen.carry_walk {
+            screen.carry_walk = None;
+            match world.can_carry(own, patient) {
+                Ok(()) => orders.push(Order::Carry(Some(patient))),
+                Err(Refusal::OutOfReach)
+                    if frames < CARRY_WALK_GRACE || world.aboard.room.is_walking(own as usize) =>
+                {
+                    screen.carry_walk = Some((patient, frames + 1));
+                }
+                Err(why) => screen.log.push(carry_refused(why)),
+            }
+        }
     let allowed = Allowed::of(session.playing(), online.is_guest());
     let asked = settings_sheet(
         &ctx,
@@ -2978,6 +3011,48 @@ fn frame(
             let Some(from) = session.crew_on_screen(medic) else {
                 continue;
             };
+                // And over the ring, while somebody's hands are on it, how
+                // far the revive has got.
+                if let Some((_, share)) = room.revive_share(who as usize) {
+                    let p = view.to_canvas(Vec2::new(at.0, at.1)) + canvas.min;
+                    theme::revive_bar(&painter, egui::pos2(p.x, p.y), view.scale, share);
+                }
+            }
+        }
+        // Who is in cover (`Game::cover_of`): a curved wall on the side
+        // the cover is against and a shield at the shoulder — for the
+        // crew, and for a station's people the crew can see.
+        let (ox, oy) = (
+            game.world.aboard.offset.x as f32,
+            game.world.aboard.offset.y as f32,
+        );
+        for who in 0..game.world.aboard.crew_count() {
+            let Some(threat) = room.cover_of(who as usize) else {
+                continue;
+            };
+            let Some(at) = session.crew_on_screen(who) else {
+                continue;
+            };
+            let a = view.to_canvas(Vec2::new(at.0, at.1)) + canvas.min;
+            let (tx, ty) = session.design_point_on_screen(threat.x - ox, threat.y - oy);
+            let t = view.to_canvas(Vec2::new(tx, ty)) + canvas.min;
+            theme::cover_mark(
+                &painter,
+                egui::pos2(a.x, a.y),
+                view.scale,
+                egui::vec2(t.x - a.x, t.y - a.y),
+            );
+        }
+        if let Some(residents) = &game.world.residents {
+            let room = &residents.aboard.room;
+            for who in 0..session.resident_count() {
+                if room.cover_of(who as usize).is_none() {
+                    continue;
+                }
+                if let Some(at) = session.resident_on_screen(who) {
+                    let a = view.to_canvas(Vec2::new(at.0, at.1)) + canvas.min;
+                    theme::cover_mark(&painter, egui::pos2(a.x, a.y), view.scale, egui::Vec2::ZERO);
+                }
             for patient in game.world.patients_of(medic) {
                 let Some(to) = session.crew_on_screen(patient) else {
                     continue;
@@ -4811,6 +4886,84 @@ mod class_key_tests {
             class_key(&world, 2, false, None, Some(2), None),
             (Some(Order::Beam(Some(2))), None),
             "itself, since task 120"
+    }
+}
+
+/// How near, in tiles, a downed crewmate has to lie for the held revive
+/// key to reach it: standing close, a step or two over at most.
+const REVIVE_HOLD_REACH: f32 = 2.5;
+
+/// Frames the menu's carry waits for the walk over to begin before a
+/// Bim standing still out of reach is taken as having stopped short:
+/// the walk goes through the seam and starts a frame or two later.
+const CARRY_WALK_GRACE: u32 = 30;
+
+/// The held revive key (G), a frame at a time: the order if there is one
+/// to send, and the log's line. `held` is the patient the key sent the
+/// player's own Bim `own` to, kept on the screen between frames.
+///
+/// * the key goes down beside a downed crewmate — the nearest within
+///   [`REVIVE_HOLD_REACH`] that `crew::revive_refused` passes — and it is
+///   the revive (`CrewOrder::Revive`), the walk over and the hands on;
+/// * held, nothing more is sent while that one is still down; once it is
+///   up the next one near is taken, the key still held;
+/// * let go with the revive still in hand, and it is stopped
+///   (`CrewOrder::StandDown`, which lets a revive go);
+/// * pressed with nobody near, the log says so.
+fn held_revive(
+    room: &bims::game::Game,
+    own: usize,
+    held: &mut Option<u32>,
+    down: bool,
+    pressed: bool,
+    name: &dyn Fn(u32) -> String,
+) -> (Option<Order>, Option<String>) {
+    if !down {
+        if let Some(patient) = held.take()
+            && room.reviving(own) == Some(patient as usize)
+        {
+            return (
+                Some(Order::Crew(CrewOrder::StandDown { who: own as u32 })),
+                None,
+            );
+        }
+        return (None, None);
+    }
+    if let Some(patient) = *held {
+        if room.is_downed(patient as usize) {
+            return (None, None);
+        }
+        *held = None;
+    }
+    if (own as u32) >= room.crew_count() || !room.is_alive(own) {
+        return (None, None);
+    }
+    let at = room.bim_pos(own);
+    let reach = REVIVE_HOLD_REACH * shipdesign::TILE as f32;
+    let nearest = (0..room.crew_count() as usize)
+        .filter(|&p| {
+            p != own
+                && room.is_downed(p)
+                && (room.bim_pos(p) - at).len() <= reach
+                && crate::crew::revive_refused(room, own, p, name).is_none()
+        })
+        .min_by(|&a, &b| {
+            (room.bim_pos(a) - at)
+                .len()
+                .total_cmp(&(room.bim_pos(b) - at).len())
+        });
+    match nearest {
+        Some(patient) => {
+            *held = Some(patient as u32);
+            (
+                Some(Order::Crew(CrewOrder::Revive {
+                    who: own as u32,
+                    patient: patient as u32,
+                })),
+                None,
+            )
+        }
+        None => (None, pressed.then(|| REVIVE_NOBODY_NEAR.to_string())),
         );
         // Crew member 0 beside it, and beamed.
         let at = world.aboard.room.bim_pos(2) + bims::math::vec2(t, 0.0);

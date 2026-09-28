@@ -1005,6 +1005,8 @@ fn scripted_input(
                 };
                 (code, Key::Character(ch.to_string().into()))
             }
+                    // The held revive and the medic's carry.
+                    'g' => KeyCode::KeyG,
             _ => continue,
         };
         for &state in states {

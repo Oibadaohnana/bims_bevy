@@ -65,7 +65,8 @@ pub enum CrewOrder {
         y: f32,
     },
     /// Take the post off crew member `who`, so it goes back about its
-    /// errands.
+    /// errands, and let go of a revive it has in hand — what the app's
+    /// held revive key sends as it comes up before the patient is up.
     StandDown {
         who: u32,
     },
