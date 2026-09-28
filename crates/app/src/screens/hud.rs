@@ -741,6 +741,12 @@ pub fn top_frame(
                                 .color(theme::MUTED),
                         );
                     }
+                    ui.add_space(4.0);
+                    ui.label(
+                        egui::RichText::new(wave_size_chip(world.droid_wave_size()))
+                            .color(theme::WARN),
+                    )
+                    .on_hover_text(WAVE_SIZE_TIP);
                     if let Some((top, more)) = top_threat(threats) {
                         ui.add_space(4.0);
                         let frame = if top.kind == ThreatKind::Droids {
