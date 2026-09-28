@@ -2200,7 +2200,14 @@ Things about that which are easy to get wrong:
   attack-move**: it arms the pointer (the red crosshair), and the next
   click sends the player's own Bim there recruited, standing still to
   shoot whatever comes into its sights and walking on once nothing is
-  left (`CrewOrder::AttackMove`, `Game::keep_attack_moving`). Every
+  left (`CrewOrder::AttackMove`, `Game::keep_attack_moving`). **A
+  right-click on an enemy attacks it** (task 126, Dota's attack order;
+  the attack-move's click on one too): `Game::enemy_at` finds the
+  target under the pointer where the crew see — the cursor is a
+  crosshair over one — and `CrewOrder::Attack { enemy }` has the
+  player's own Bim fire at that one alone (`Combat::aim_only`) and walk
+  after it until it has a shot (`Game::chase`), red brackets on the
+  enemy, until it is down or another order is given. Every
   order's spot is pinged the way Dota pings one — arrows closing on it,
   green for a walk, red for an attack-move, over the fog, on the
   window's clock (`Game::draw_pings`). **X and Y are the two orders

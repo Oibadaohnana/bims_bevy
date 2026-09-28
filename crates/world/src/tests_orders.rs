@@ -328,3 +328,65 @@ fn a_shift_order_is_a_command_that_waits_its_turn() {
         "a plain order drops the queue"
     );
 }
+
+/// A right-click on a machine (task 126) is a command like any other:
+/// the enemy the crew's room finds under the pointer is the machine's
+/// index in the held station's room, the order goes through the world,
+/// and the player's own Bim keeps at that machine until it is a wreck —
+/// when the order is over.
+#[test]
+fn an_attack_order_on_a_machine_is_a_command_and_ends_with_the_wreck() {
+    use bims::combat::WeaponKind;
+    use bims::droid::DroidKind;
+    let mut world = crate::tests::basic();
+    world.step(&[]);
+    assert!(
+        world.stage_droid_fight_for_probe(DroidKind::Trooper, Some(WeaponKind::LaserPistol.basic()))
+    );
+    let (origin, ex, ey) = world.aboard.station_frame.unwrap();
+    let there = world.residents.as_ref().unwrap().aboard.position(0);
+    let on_deck = origin.add(ex.scale(there.x)).add(ey.scale(there.y));
+    let at = bims::math::vec2(on_deck.x as f32, on_deck.y as f32);
+    world
+        .aboard
+        .room
+        .put_for_probe(0, at + bims::math::vec2(1.5 * TILE as f32, 0.0));
+    world.step(&[]);
+    world.aboard.room.observe();
+    let enemy = world
+        .aboard
+        .room
+        .enemy_at(at.x, at.y)
+        .expect("the machine under the pointer");
+    assert_eq!(enemy, 0, "the machine's own index in its room");
+    world.step(&[Command::Crew {
+        slot: 0,
+        order: CrewOrder::Attack {
+            enemy: enemy as u32,
+        },
+    }]);
+    assert_eq!(world.aboard.room.focus_of(0), Some(0));
+    let wreck = |world: &World| {
+        world
+            .residents
+            .as_ref()
+            .unwrap()
+            .aboard
+            .room
+            .droid(0)
+            .unwrap()
+            .destroyed
+    };
+    for _ in 0..3_000 {
+        world.aboard.room.patch_up_for_probe(0);
+        world.step(&[]);
+        world.aboard.room.observe();
+        if wreck(&world) {
+            break;
+        }
+        assert_eq!(world.aboard.room.focus_of(0), Some(0), "still at it");
+    }
+    assert!(wreck(&world), "the machine went down to it");
+    world.step(&[]);
+    assert_eq!(world.aboard.room.focus_of(0), None, "and the order is over");
+}
