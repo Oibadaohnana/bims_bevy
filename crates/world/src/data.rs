@@ -206,6 +206,11 @@ pub const SURFACE_POPULATION: (u32, u32) = (5, 30);
 /// a **player** Bim, and one every [`ENEMIES_HOURS`] of the world clock.
 /// Nothing else — not the bots, the worth or the levels (feature 105).
 pub const DROID_WAVE_BASE: u32 = 2;
+/// How many machines fewer every wave of the run's **first mission** is
+/// (the one a world opens in, `Run::missions` one) than the formula
+/// says, never under one: the first fight a little gentler. Not a
+/// forced wave's (the probes' dials say theirs outright).
+pub const FIRST_MISSION_WAVE_EASE: u32 = 1;
 /// How many waves an infested station has, before the crew are counted
 /// (`crate::droid::wave_count`): this many, and one every second
 /// [`ENEMIES_HOURS`] of the world clock. Fixed at the crew's **first

@@ -5722,13 +5722,23 @@ impl World {
     /// players: a site that brings its own guns meets a wave the size
     /// those guns would have met aboard. Nothing else about the formula
     /// moves.
+    ///
+    /// **In the run's first mission** every wave is
+    /// [`data::FIRST_MISSION_WAVE_EASE`] fewer, never under one — unless a
+    /// probe forced it.
     pub fn droid_wave_size(&self) -> u32 {
         let defenders = if self.defense_here().is_some() {
             self.defenders_fielded()
         } else {
             0
         };
-        self.wave_size_with(self.hours_gone(), defenders)
+        let size = self.wave_size_with(self.hours_gone(), defenders);
+        let forced = self.droid_kinds_forced.is_some() || self.droid_wave_forced.is_some();
+        if self.run.missions <= 1 && !forced {
+            size.saturating_sub(data::FIRST_MISSION_WAVE_EASE).max(1)
+        } else {
+            size
+        }
     }
 
     /// [`World::droid_wave_size`] with the world clock at `hours` gone:

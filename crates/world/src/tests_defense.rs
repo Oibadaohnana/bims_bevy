@@ -775,7 +775,9 @@ fn the_wave_at_a_defence_is_the_wave_with_its_defenders_as_players() {
     let n = world.defenders_fielded();
     assert!(n > 0, "defenders fielded");
     let steps = crate::droid::time_steps(world.hours_gone());
-    let want = crate::droid::wave_size(world.players() + n, steps);
+    // The run's first mission: the formula's less its ease.
+    let eased = |w: u32| w.saturating_sub(data::FIRST_MISSION_WAVE_EASE).max(1);
+    let want = eased(crate::droid::wave_size(world.players() + n, steps));
     assert_eq!(world.droid_wave_size(), want);
     let mut quiet = basic();
     quiet.set_quiet_sites_for_probe(true);
@@ -783,7 +785,7 @@ fn the_wave_at_a_defence_is_the_wave_with_its_defenders_as_players() {
     assert_eq!(quiet.defenders_fielded(), 0, "no defenders at a quiet site");
     assert_eq!(
         quiet.droid_wave_size(),
-        crate::droid::wave_size(quiet.players(), steps)
+        eased(crate::droid::wave_size(quiet.players(), steps))
     );
 }
 

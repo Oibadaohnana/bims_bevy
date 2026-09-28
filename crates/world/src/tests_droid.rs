@@ -462,12 +462,34 @@ fn the_wave_count_is_fixed_at_the_first_dock_and_a_rich_crew_is_not_doubled() {
 
     // And the **size** is the formula's, never a doubling: a crew ten
     // times as rich meets the players and the clock, and not a thousand
-    // machines.
+    // machines. The run's first mission, so its ease off.
     let want = crate::droid::wave_size(
         world.players(),
         crate::droid::time_steps(world.hours_gone()),
     );
-    assert_eq!(world.droid_wave_size(), want.max(1));
+    assert_eq!(
+        world.droid_wave_size(),
+        want.saturating_sub(data::FIRST_MISSION_WAVE_EASE).max(1)
+    );
+}
+
+/// **The first fight is gentler**: every wave of the run's first mission
+/// is [`data::FIRST_MISSION_WAVE_EASE`] fewer than the formula, and from
+/// the second mission on it is the formula's — unless a probe forced it.
+#[test]
+fn the_first_missions_waves_are_one_machine_fewer() {
+    let mut world = crate::fixture::crewed_world(combat_ship(), REFERENCE_MONEY, 1, 4);
+    assert_eq!(world.run.missions, 1);
+    let formula = crate::droid::wave_size(world.players(), 0);
+    assert_eq!(
+        world.droid_wave_size(),
+        formula - data::FIRST_MISSION_WAVE_EASE
+    );
+    world.run.missions = 2;
+    assert_eq!(world.droid_wave_size(), formula, "the second mission");
+    world.run.missions = 1;
+    world.set_droid_wave_for_probe(5);
+    assert_eq!(world.droid_wave_size(), 5, "a forced wave is as forced");
 }
 
 // --- what the waves scale on (feature 105) --------------------------------
