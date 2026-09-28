@@ -38,6 +38,7 @@ pub mod routine;
 pub mod sight;
 pub mod task;
 pub mod terrain;
+pub mod timing;
 pub mod work;
 
 #[cfg(test)]

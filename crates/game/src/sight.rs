@@ -1714,6 +1714,8 @@ impl Sight {
                 changed = true;
             }
         }
+        let views_timed = crate::timing::scope(crate::timing::Part::LightViews);
+        let mut marched = 0;
         for (b, &body) in bodies.iter().enumerate() {
             let eyes = self.eyes_from(body);
             if self.views.get(b).is_some_and(|v| self.view_holds(v, &eyes)) {
@@ -1724,6 +1726,8 @@ impl Sight {
                 None => (vec![false; w * h], None),
             };
             let reached = self.view_of(body, &eyes, &mut seen);
+            crate::timing::marched();
+            marched += 1;
             dirty = Box::join(Box::join(dirty, was), reached);
             let view = View {
                 eyes,
@@ -1736,6 +1740,10 @@ impl Sight {
                 self.views.push(view);
             }
             changed = true;
+        }
+        drop(views_timed);
+        if marched > 0 {
+            crate::timing::marched_together(marched);
         }
         if !changed {
             return false;

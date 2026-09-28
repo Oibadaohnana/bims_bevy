@@ -24,6 +24,7 @@ pub mod camera;
 pub mod draw;
 pub mod editor;
 pub mod fittings;
+pub mod fork;
 pub mod game;
 pub mod hull;
 pub mod paint;
@@ -37,5 +38,7 @@ pub use session::{NONE, Preset, Session};
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_render;
 #[cfg(test)]
 mod tests_survivors;

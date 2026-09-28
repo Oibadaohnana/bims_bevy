@@ -51,6 +51,8 @@ mod sight;
 mod task;
 #[path = "../crates/game/src/terrain.rs"]
 mod terrain;
+#[path = "../crates/game/src/timing.rs"]
+mod timing;
 #[path = "../crates/game/src/work.rs"]
 mod work;
 // The shared `time` crate, stood over the same file as a plain module. The

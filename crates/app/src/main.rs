@@ -391,6 +391,8 @@ fn main() {
     };
     // Which plan the stations are built on, before anything is built.
     dev::apply_station_plan();
+    // How the shape buffer's two jobs are run (task 122).
+    install_render_join();
 
     let mut app = App::new();
     app.add_plugins(DefaultPlugins.set(WindowPlugin {
@@ -463,6 +465,39 @@ fn open(launch: Res<Launch>, mut commands: Commands, mut next: ResMut<NextState<
             next.set(Screen::Design);
         }
         Launch::StationBuilder => next.set(Screen::StationBuilder),
+    }
+}
+
+/// Tell `ship::Session::render` how to run its two jobs — the crew's room
+/// drawing itself, and the stations' own pictures being built — side by
+/// side (task 122): on Bevy's compute pool, so no second pool competes
+/// with Bevy's. The picture is the same bit for bit however they are run.
+/// `BIMS_RENDER_JOIN=serial` runs them one after the other, as a build
+/// with no threads does, and `=thread` on a thread of their own a frame,
+/// which is how the three were measured against each other.
+fn install_render_join() {
+    if cfg!(target_arch = "wasm32") {
+        return;
+    }
+    match std::env::var("BIMS_RENDER_JOIN").as_deref() {
+        Ok("serial") => ship::fork::set_join(ship::fork::serial),
+        Ok("thread") => ship::fork::set_join(ship::fork::scoped),
+        _ => ship::fork::set_join(pool_join),
+    }
+}
+
+/// The first job on Bevy's compute pool and the second on this thread,
+/// back when both are done. With no pool up — nothing in a run, since the
+/// shape buffer is only built inside a system — the two run in turn.
+fn pool_join(a: &mut (dyn FnMut() + Send), b: &mut (dyn FnMut() + Send)) {
+    match bevy::tasks::ComputeTaskPool::try_get() {
+        Some(pool) => {
+            pool.scope(|s| {
+                s.spawn(async move { a() });
+                b();
+            });
+        }
+        None => ship::fork::serial(a, b),
     }
 }
 

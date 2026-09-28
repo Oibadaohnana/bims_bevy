@@ -8329,13 +8329,17 @@ impl Game {
         // What nobody sees, fogged. Over the deck and the fixtures and
         // under the night, the rings and the marquee: a fog that hid the
         // pointer's own marks would be a fog over the pointer.
-        self.observe();
+        {
+            let _timed = crate::timing::scope(crate::timing::Part::Observe);
+            self.observe();
+        }
         match self.fog {
             // Through the crew's eyes the fog is the light map's — smooth,
             // the crew's own semi and a stranger's grey and black alike,
             // drawn by the host over this picture — marched again only
             // for a body that moved.
             Fog::Crew => {
+                let _timed = crate::timing::scope(crate::timing::Part::LightMap);
                 let eyes: Vec<Vec2> = self.bims.iter().map(|b| b.character.pos).collect();
                 self.room.sight.light_map(&eyes);
             }

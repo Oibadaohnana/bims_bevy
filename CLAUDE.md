@@ -631,6 +631,97 @@ dial is the old cost.
 The measurements are one machine's, and the GPU columns are Bevy's
 timestamps, which egui's own pass is not among.
 
+## The shape buffer on two cores (task 122)
+
+`Session::render` builds the **stations' own pictures while the crew's
+room draws itself**, and nothing else of it runs beside anything. A
+station's picture is its rim, its tiles and the shade along its walls
+(`world_paint::station_picture`), built from its design and a
+`StationWork` — its door and how far it stands open, whether its room is
+open, a settlement's biome — read off the world first
+(`stations_to_build`), so the job borrows `World::stations` and
+`World::surfaces` and nothing else while the crew's room holds
+`World::aboard`. `world_paint::stations` then takes each prebuilt picture
+whose `StationWork` is the same, builds any it lacks the same way, and
+adds the lights, the lamps' glass, a relic cache and the machines' ship
+serially, in the order it always did; `world_paint::paint` is
+`paint_with` given none, so every other caller draws as before. One
+thing moved in the order: **the picture clocks** — `Game::frame` and
+`tick_airlock` — are ticked before the rooms draw rather than after,
+since the station's airlock is drawn off `airlock_ajar`; neither room
+reads either.
+
+**How the two jobs run is the host's word**, `ship::fork`: `set_join`
+takes a `Join` once, and without one it is `fork::serial` — every test,
+probe and server, and a target with no threads. The app's is
+`pool_join` in `main.rs`: the stations' job on **Bevy's compute pool**,
+the crew's room on the frame's own thread, so no second pool competes
+with Bevy's. `BIMS_RENDER_JOIN=serial` runs them in turn and `=thread`
+spawns a thread a frame (`fork::scoped`), which is how the three were
+measured against each other. `tests_render.rs` in `crates/ship` is the
+proof it is the same picture: two sessions stepped alike, one drawn with
+`serial` and one with `scoped`, every float of every frame bit for bit
+and the fog's cut, on the simulation's dock, the droids' arena, a town, the
+map and the yard; `PICTURES` holds the serial buffer to what it was.
+
+**`BIMS_PERF=1` breaks the shape buffer down** since this task
+(`bims::timing`, std only, a module of the room's so the painters under
+the app can reach it): the crew room with its `observe` and light map
+(and the views marched in it, and how many a frame), the station room,
+the ship's own state, the world painter and inside it the stations — a
+station's picture as grid and skip, hull tiles and shade, and its lights
+— and the editor's painter. **Measure the light map paced**: at two
+hundred frames a second a walking body moves under half a light-map
+pixel a frame and is marched a third as often as at sixty, so an
+unpaced run puts the march at a third of what a player's frame pays.
+
+What it measured, a Ryzen 7 3700X (8 cores, 16 threads) and a Navi 32
+Radeon, 1400x900, release, the shape buffer's own CPU time a frame, the
+median and the spread; paced at sixty is three runs, unpaced five, the
+three modes taken in turn:
+
+| | serial | thread a frame | Bevy's pool |
+| --- | --- | --- | --- |
+| `droids`, paced | 5.22 [5.12–5.58] | 4.68 [4.52–4.75] | **4.65** [4.64–4.73] |
+| the fight (crew sent in), paced | 5.55 [5.53–5.59] | 5.09 [5.06–5.11] | **5.04** [5.03–5.08] |
+| `simulation`, paced | 1.46 [1.46–1.49] | 1.44 [1.44–1.45] | 1.39 [1.38–1.43] |
+| `droids`, unpaced | 2.81 [2.61–3.41] | 2.61 [2.58–2.75] | 2.56 [2.45–2.58] |
+| `simulation`, unpaced | 1.41 [1.35–1.46] | 1.45 [1.43–1.47] | 1.41 [1.39–1.45] |
+
+So a fight's frame is half a millisecond lighter — 0.5 to 0.6 ms, clear
+of the spread — where the crew's room (3.6–4.0 ms, the light map most of
+it) is longer than the station's picture (0.8 ms) it hides; the most it
+could hide was that 0.8, and the rest is the handing over. The
+simulation's crew room is 0.03–0.2 ms, so there is next to nothing to
+hide behind and the gain is inside the noise. A thread a frame costs
+20–30 µs to start (measured apart), about as much as the pool's
+difference from it here.
+
+**What a paced frame is made of now**, `droids`: the crew's room 3.6 ms
+of which the light map is 3.0 (3.6 views marched a frame, 0.82 ms a
+view, about 70% of frames marching and up to sixteen views in one), the
+station's picture 0.85 on the pool (grid and skip 0.29, hull tiles 0.56),
+the world painter 0.5, the ship's state 0.17, the station's room 0.02.
+
+**Not done, and why:**
+
+- **The light map a body at a time on the pool** — the largest share and
+  the same picture bit for bit, but the lighting is going to the GPU,
+  which replaces the march rather than needing it split.
+- **`observe` on the pool**: its trace ORs every eye's tiles, so a split
+  would be the same answer, but it is also where `Sight::set_shut`
+  rewrites the cells the fight's line of sight reads (task 121's note
+  above), and that is to be decided before anything moves it.
+- **The two rooms side by side**: the station's is 0.02 ms, less than
+  handing it over costs.
+- **Caching a station's picture instead**: it changes only when its
+  design does or its door moves, so a cache would take the 0.8 ms off
+  every docked frame on one core — the simulation too — and leave this
+  overlap nothing to hide. It wants a key that is sure the design is
+  the same (a counter bumped wherever `Station::design` is written —
+  `replan`, the arena probe — or a hash of the design, which costs a
+  part of what it saves), and was not asked for.
+
 ## How fast the crisis crosses a galaxy (feature 92)
 
 The lane graph is three nearest neighbours a star plus whatever a spanning

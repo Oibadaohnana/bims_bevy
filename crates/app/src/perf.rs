@@ -142,6 +142,9 @@ pub fn begin(at_frame: u32) {
         .lock()
         .unwrap() = Some((Instant::now(), at_frame));
     RECORDING.store(true, Ordering::Relaxed);
+    // And the shape buffer's own parts, which are timed in the crates
+    // under it (task 122, `bims::timing`).
+    bims::timing::record(true);
 }
 
 /// Time a part of a frame until the guard is dropped.
@@ -236,6 +239,19 @@ pub fn report(at_frame: u32) -> Vec<String> {
                 &format!("{:indent$}{name}", "", indent = depth * 2),
                 ms,
             ));
+            // The shape buffer broken down (task 122): the rows timed in
+            // the rules crates' painters, those with nothing in them left
+            // out — a design phase has no rooms, a run no editor.
+            if phase == Phase::Render {
+                for part in bims::timing::Part::ALL {
+                    let ms = bims::timing::millis(part);
+                    if ms > 0.0 {
+                        let (name, under) = part.row();
+                        let indent = (depth + 1 + under) * 2;
+                        lines.push(row(&format!("{:indent$}{name}", ""), ms));
+                    }
+                }
+            }
         }
     }
     let frame_ms = ms_of(Phase::Frame);
@@ -259,6 +275,20 @@ pub fn report(at_frame: u32) -> Vec<String> {
             n / frames
         ));
     }
+    let marches = bims::timing::marches() as f64;
+    lines.push(format!(
+        "perf: {:<20}{:>10.0}{:>10.1} a frame",
+        "views marched",
+        marches,
+        marches / frames
+    ));
+    let (marching, most) = bims::timing::march_frames();
+    lines.push(format!(
+        "perf: {:<20}{:>10}{:>10.1} a marching frame, {most} at most",
+        "frames marching",
+        marching,
+        marches / (marching as f64).max(1.0)
+    ));
     // The GPU's side, where the device can time it: Bevy's own spans —
     // the main pass the canvas is drawn in, the bloom, the copy to the
     // window. egui's pass is not one of them.

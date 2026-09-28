@@ -1310,6 +1310,18 @@ impl Session {
     /// the display's refresh rate, which is the one thing a fixed step
     /// exists to avoid.
     pub fn render(&mut self) -> &[f32] {
+        self.render_with(crate::fork::join())
+    }
+
+    /// [`Session::render`] with the frame's two jobs — the crew's room
+    /// drawing itself, and the stations' own pictures being built — run by
+    /// `join` rather than by the host's word (`fork::set_join`): what the
+    /// test that the picture is the same however they are run hands
+    /// `fork::serial` and `fork::scoped` (task 122). Neither job reads
+    /// anything the other writes, each builds into a buffer of its own,
+    /// and the painter puts them together afterwards in the order it always
+    /// did — so the buffer is the same bit for bit either way.
+    pub fn render_with(&mut self, join: crate::fork::Join) -> &[f32] {
         match &mut self.game {
             Some(game) => {
                 // The room aboard draws itself once a frame, here, and not
@@ -1317,24 +1329,57 @@ impl Session {
                 // twenty-four. Through this player's eyes: the selection
                 // ring is theirs (`bims::order`).
                 game.world.aboard.room.set_viewer(game.local);
-                game.world.aboard.render();
+                // The picture clocks first, before either room draws: the
+                // stations' pictures are built off how far the airlock
+                // stands open, and neither room reads it or the frame.
+                let timed = bims::timing::scope(bims::timing::Part::ShipState);
+                game.frame = game.frame.wrapping_add(1);
+                game.tick_airlock();
+                drop(timed);
+                // The stations the ship view will draw whole, read off the
+                // world now, so their pictures can be built while the
+                // crew's room draws itself.
+                let work = world_paint::stations_to_build(game);
+                let mut built = Vec::new();
+                {
+                    let world = &mut game.world;
+                    let (aboard, stations, surfaces) =
+                        (&mut world.aboard, &world.stations, &world.surfaces);
+                    let mut crew = || {
+                        let _timed = bims::timing::scope(bims::timing::Part::CrewRoom);
+                        aboard.render();
+                    };
+                    if work.is_empty() {
+                        crew();
+                    } else {
+                        let mut pictures = || {
+                            built = world_paint::station_pictures(&work, stations, surfaces);
+                        };
+                        join(&mut pictures, &mut crew);
+                    }
+                }
                 // And the station's room, whose people are always in it now:
                 // drawn once a frame the same way, or they stand in the
                 // picture at their bunks while their names walk about.
                 if let Some(residents) = &mut game.world.residents {
+                    let _timed = bims::timing::scope(bims::timing::Part::StationRoom);
                     residents.aboard.render();
                 }
-                game.frame = game.frame.wrapping_add(1);
-                game.tick_airlock();
+                let timed = bims::timing::scope(bims::timing::Part::ShipState);
                 game.follow_player();
                 game.hold_view_to_the_ground();
                 game.picture_the_plain();
                 // Whether the blueprint in hand would go where the pointer
                 // is, asked before the painter colours it.
                 game.ghost_check();
-                world_paint::paint(game, &mut self.list);
+                drop(timed);
+                let _timed = bims::timing::scope(bims::timing::Part::WorldPaint);
+                world_paint::paint_with(game, &mut self.list, built);
             }
-            None => paint::paint(&self.editor, &mut self.list),
+            None => {
+                let _timed = bims::timing::scope(bims::timing::Part::EditorPaint);
+                paint::paint(&self.editor, &mut self.list)
+            }
         }
         self.list.shapes()
     }

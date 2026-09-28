@@ -180,9 +180,17 @@ pub fn player_color(slot: u32) -> Color {
 
 /// The whole frame, whichever view is up.
 pub fn paint(game: &Game, list: &mut DrawList) {
+    paint_with(game, list, Vec::new());
+}
+
+/// The same, with the stations' own pictures already built
+/// ([`station_pictures`], what `Session::render` builds beside the crew's
+/// room): any it has is used and any it lacks is built here, so the frame
+/// is the one [`paint`] draws either way.
+pub(crate) fn paint_with(game: &Game, list: &mut DrawList, mut prebuilt: Vec<StationPicture>) {
     list.clear();
     match game.mode {
-        ViewMode::Ship => paint_ship(game, list),
+        ViewMode::Ship => paint_ship(game, list, &mut prebuilt),
         ViewMode::Map => paint_map(game, list),
     }
 }
@@ -388,7 +396,7 @@ fn tile_middle(x: u32, y: u32) -> DVec2 {
     )
 }
 
-fn paint_ship(game: &Game, list: &mut DrawList) {
+fn paint_ship(game: &Game, list: &mut DrawList, prebuilt: &mut Vec<StationPicture>) {
     let camera = &game.ship_view;
     let scale = camera.scale().max(1e-9);
 
@@ -423,8 +431,14 @@ fn paint_ship(game: &Game, list: &mut DrawList) {
     list.turn_from(out_there, game.camera_turn() as f32);
     // The plain the town stands on, under it and the ship: the ground
     // beyond the deck, and the fog over what the crew have not seen of it.
-    plain(game, list);
-    let (visitors, visitors_over, station_shade) = stations(game, list);
+    {
+        let _timed = bims::timing::scope(bims::timing::Part::Plain);
+        plain(game, list);
+    }
+    let (visitors, visitors_over, station_shade) = {
+        let _timed = bims::timing::scope(bims::timing::Part::Stations);
+        stations(game, list, prebuilt)
+    };
 
     // The ship, drawn in its own frame — design units about the design's
     // origin, the grid it was laid out in — and turned with it at the end.
@@ -1538,6 +1552,175 @@ fn electricity(list: &mut DrawList, design: &ShipDesign, grid: &Grid) {
     }
 }
 
+/// The stations in the picture this frame, in the order they are drawn,
+/// and whether each is drawn **whole** — its hull tile by tile — rather
+/// than as the plate it is from further off. The one rule [`stations`]
+/// draws by and [`stations_to_build`] builds ahead by.
+fn stations_in_view(game: &Game) -> Vec<(&world::Station, bool)> {
+    let here = game.world.ship.position();
+    let docked = game.world.ship.state.alongside();
+    // The system's stations — and, on a planet, the settlement the ship
+    // is tied up at, which is not among them and is not out there: it is
+    // the ground the ship stands on, drawn only while the ship is on it.
+    let settlement = docked
+        .filter(|&id| world::surface_body(id).is_some())
+        .and_then(|id| game.world.station(id));
+    let on_the_ground = settlement.is_some();
+    let mut out = Vec::new();
+    for station in game.world.stations.iter().chain(settlement) {
+        // From the ground nothing in orbit is in the picture.
+        if on_the_ground && station.plan != world::Plan::Surface {
+            continue;
+        }
+        let clearance = station.clearance(here);
+        if clearance > world::data::STATION_VISIBLE {
+            continue;
+        }
+        // Somebody else's station is under a black fog until the crew
+        // have looked into it — see `bims::sight` — and its room, which
+        // draws that fog, is only open within the residents' range. Out
+        // to there it stays the plate it was from further off: a shape
+        // and a kind, and nothing of what is inside. The crew's own is
+        // its hull from the local frame in, as before.
+        let lived_in = game
+            .world
+            .residents
+            .as_ref()
+            .is_some_and(|r| r.station == station.id);
+        let stranger = game.world.stance(station.id) != Stance::Friendly;
+        let whole = !(clearance > world::data::LOCAL_RADIUS_STATION || (stranger && !lived_in));
+        out.push((station, whole));
+    }
+    out
+}
+
+/// What a station's own picture is built from, besides its design: all of
+/// it read off the world before the picture is built, so the building
+/// asks the world nothing and can be done while the crew's room draws
+/// itself (task 122). Two of these alike are one picture.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub(crate) struct StationWork {
+    id: u32,
+    /// The station's door, and how far it stands open: it opens with the
+    /// ship's, since they are one passage — `None` unless docked there.
+    open: Option<(u32, f32)>,
+    /// Whether its room is open, so the room draws its fixtures and the
+    /// hull leaves them out (`bims::aboard::drawn_by_room`).
+    lived_in: bool,
+    /// On a planet, the settlement's biome: its deck is the ground.
+    biome: Option<Biome>,
+}
+
+/// A station's own picture, in the station's own frame and not yet placed:
+/// its rim and its tiles, and apart, the shade along its walls — what
+/// [`station_picture`] builds and [`stations`] finishes and places. The
+/// grid comes with it, since the lights are drawn on it after.
+pub(crate) struct StationPicture {
+    work: StationWork,
+    grid: Grid,
+    picture: DrawList,
+    walls: DrawList,
+}
+
+fn station_work(game: &Game, station: &world::Station) -> StationWork {
+    let docked = game.world.ship.state.alongside();
+    StationWork {
+        id: station.id,
+        open: docked
+            .filter(|&id| id == station.id)
+            .and(station.port().map(|p| (p.part_id, game.airlock_ajar))),
+        lived_in: game
+            .world
+            .residents
+            .as_ref()
+            .is_some_and(|r| r.station == station.id),
+        // On a planet the settlement's deck is the ground: no rim round
+        // it — the ground goes on past its edge — and its floor and its
+        // walls drawn as the biome has them (`Terrain`).
+        biome: (station.plan == world::Plan::Surface)
+            .then(|| world::surface_body(station.id))
+            .flatten()
+            .and_then(|body| game.world.surface(body))
+            .map(|surface| surface.biome),
+    }
+}
+
+/// The pictures [`stations`] will want this frame: every station drawn
+/// whole, as [`stations_in_view`] says — none on the map, which draws no
+/// station's hull. Read off the world before
+/// `Session::render` lets the crew's room draw, so the pictures can be
+/// built beside it with [`station_pictures`].
+pub(crate) fn stations_to_build(game: &Game) -> Vec<StationWork> {
+    if game.mode != ViewMode::Ship {
+        return Vec::new();
+    }
+    stations_in_view(game)
+        .into_iter()
+        .filter(|&(_, whole)| whole)
+        .map(|(station, _)| station_work(game, station))
+        .collect()
+}
+
+/// Build the pictures `work` names, off the world's stations and
+/// settlements alone — the fields, not the `World`, so the crew's room can
+/// be borrowed to draw itself at the same time.
+pub(crate) fn station_pictures(
+    work: &[StationWork],
+    stations: &[world::Station],
+    surfaces: &[world::Surface],
+) -> Vec<StationPicture> {
+    work.iter()
+        .filter_map(|&w| {
+            let station = stations.iter().find(|s| s.id == w.id).or_else(|| {
+                world::surface_body(w.id)
+                    .and_then(|body| surfaces.iter().find(|s| s.body == body))
+                    .map(world::Surface::station)
+            })?;
+            Some(station_picture(w, station))
+        })
+        .collect()
+}
+
+/// One station's own picture: its rim, its tiles and the shade along its
+/// walls, from its design and `work` and nothing else.
+fn station_picture(work: StationWork, station: &world::Station) -> StationPicture {
+    let _timed = bims::timing::scope(bims::timing::Part::StationPicture);
+    let prep_timed = bims::timing::scope(bims::timing::Part::StationPrep);
+    let design = &station.design;
+    let grid = design.grid();
+    let skip: Vec<u32> = if work.lived_in {
+        bims::aboard::drawn_by_room(design)
+    } else {
+        Vec::new()
+    };
+    let terrain = work.biome.map(|biome| Terrain::of(design, biome));
+    drop(prep_timed);
+    let hull_timed = bims::timing::scope(bims::timing::Part::StationHull);
+    let mut picture = DrawList::default();
+    if terrain.is_none() {
+        hull::shadow(&mut picture, design, &grid);
+    }
+    hull_tiles(
+        &mut picture,
+        design,
+        &grid,
+        hull::Firing::NONE,
+        &skip,
+        work.open,
+        terrain.as_ref(),
+    );
+    drop(hull_timed);
+    let _shade_timed = bims::timing::scope(bims::timing::Part::StationShade);
+    let mut walls = DrawList::default();
+    wall_shade(&mut walls, design, &grid, terrain.is_some());
+    StationPicture {
+        work,
+        grid,
+        picture,
+        walls,
+    }
+}
+
 /// Every station near enough to be in the picture, drawn where it is and
 /// as big as it is, so that one **approaches** rather than appears.
 ///
@@ -1558,29 +1741,17 @@ fn electricity(list: &mut DrawList, design: &ShipDesign, grid: &Grid) {
 /// and, apart, what their room draws over its fog, which the caller
 /// paints over the crew's fog — and the shade along every station's walls,
 /// which the caller paints over the fog as well (feature 98).
-fn stations(game: &Game, list: &mut DrawList) -> (DrawList, DrawList, DrawList) {
+fn stations(
+    game: &Game,
+    list: &mut DrawList,
+    prebuilt: &mut Vec<StationPicture>,
+) -> (DrawList, DrawList, DrawList) {
     let mut lifted = DrawList::default();
     let mut lifted_over = DrawList::default();
     let mut shade = DrawList::default();
     let here = game.world.ship.position();
     let turn = game.camera_turn() as f32;
-    let docked = game.world.ship.state.alongside();
-    // The system's stations — and, on a planet, the settlement the ship
-    // is tied up at, which is not among them and is not out there: it is
-    // the ground the ship stands on, drawn only while the ship is on it.
-    let settlement = docked
-        .filter(|&id| world::surface_body(id).is_some())
-        .and_then(|id| game.world.station(id));
-    let on_the_ground = settlement.is_some();
-    for station in game.world.stations.iter().chain(settlement) {
-        // From the ground nothing in orbit is in the picture.
-        if on_the_ground && station.plan != world::Plan::Surface {
-            continue;
-        }
-        let clearance = station.clearance(here);
-        if clearance > world::data::STATION_VISIBLE {
-            continue;
-        }
+    for (station, whole) in stations_in_view(game) {
         // Where the station's middle lands: system offset, y flipped, then
         // turned with the camera.
         let offset = station.centre().sub(here);
@@ -1601,7 +1772,7 @@ fn stations(game: &Game, list: &mut DrawList) -> (DrawList, DrawList, DrawList) 
         // its hull from the local frame in, as before.
         let stance = game.world.stance(station.id);
         let stranger = stance != Stance::Friendly;
-        if clearance > world::data::LOCAL_RADIUS_STATION || (stranger && residents.is_none()) {
+        if !whole {
             let hull = (station.design.build_area as f32 - 2.0) * TILE as f32;
             let plate = if stranger {
                 hull::HULL_UNKNOWN
@@ -1639,36 +1810,22 @@ fn stations(game: &Game, list: &mut DrawList) -> (DrawList, DrawList, DrawList) 
             continue;
         }
 
-        let grid = station.design.grid();
-        // The station's door opens with the ship's: they are one passage.
-        let open = docked
-            .filter(|&id| id == station.id)
-            .and(station.port().map(|p| (p.part_id, game.airlock_ajar)));
-        let skip: Vec<u32> = match residents {
-            Some(_) => bims::aboard::drawn_by_room(&station.design),
-            None => Vec::new(),
+        // Its own picture — the hull and the shade along its walls — built
+        // before the frame by `Session::render` while the crew's room drew
+        // itself, or here if it was not (task 122): the same function from
+        // the same inputs either way, so the same picture.
+        let work = station_work(game, station);
+        let built = match prebuilt.iter().position(|p| p.work == work) {
+            Some(i) => prebuilt.swap_remove(i),
+            None => station_picture(work, station),
         };
-        // On a planet the settlement's deck is the ground: no rim round
-        // it — the ground goes on past its edge — and its floor and its
-        // walls drawn as the biome has them (`Terrain`).
-        let terrain = (station.plan == world::Plan::Surface)
-            .then(|| world::surface_body(station.id))
-            .flatten()
-            .and_then(|body| game.world.surface(body))
-            .map(|surface| Terrain::of(&station.design, surface.biome));
-        let mut picture = DrawList::default();
-        if terrain.is_none() {
-            hull::shadow(&mut picture, &station.design, &grid);
-        }
-        hull_tiles(
-            &mut picture,
-            &station.design,
-            &grid,
-            hull::Firing::NONE,
-            &skip,
-            open,
-            terrain.as_ref(),
-        );
+        let StationPicture {
+            grid,
+            mut picture,
+            walls,
+            ..
+        } = built;
+        let lights_timed = bims::timing::scope(bims::timing::Part::StationLights);
         hull::lights(&mut picture, &station.design, &grid, game.frame);
         lamp_faces(&mut picture, game, &station.design, Some(station.id));
         // A relic cache on its research desk (feature 106), lit so the
@@ -1691,11 +1848,10 @@ fn stations(game: &Game, list: &mut DrawList) -> (DrawList, DrawList, DrawList) 
                 game.frame,
             );
         }
+        drop(lights_timed);
         list.append_turned_at(picture.shapes(), middle, turn, at);
         // The shade along its walls, apart: it goes over the fog with the
         // ship's (`wall_shade`).
-        let mut walls = DrawList::default();
-        wall_shade(&mut walls, &station.design, &grid, terrain.is_some());
         shade.append_turned_at(walls.shapes(), middle, turn, at);
         if let Some(residents) = residents {
             // Their room is the station's design plus the shift its deck
