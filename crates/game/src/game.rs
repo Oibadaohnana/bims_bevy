@@ -1794,6 +1794,7 @@ impl Game {
                 // the picture puts it, falling back to the eye for a body
                 // with nothing drawn in its hands.
                 let muzzle = self.shot_from(who, eye);
+                self.reveal(who);
                 if self.hostile_bodies {
                     self.lit_muzzle(muzzle, at, weapon);
                     self.combat.shoot(muzzle, at, weapon, walking);
@@ -2306,6 +2307,7 @@ impl Game {
             self.droids[i].charging(dt, true);
             if self.droids[i].trigger.pull(dt, &stats) {
                 self.droids[i].fired();
+                self.reveal(self.bims.len() + i);
                 // The glow at the gun it is built with, not at the eye
                 // the shot is traced from (feature 98).
                 let muzzle = self.droids[i].muzzle();
@@ -2471,6 +2473,7 @@ impl Game {
             aim,
             side,
         };
+        self.reveal(self.bims.len() + i);
         self.lay_beam(from, aim, side, weapon, stats.reach(), stats.damage, 1.0);
     }
 
@@ -6587,9 +6590,23 @@ impl Game {
         }
     }
 
+    /// A body that fires gives itself away: drawn for
+    /// [`SEEN_FOR`] from the shot wherever it stands, fog or no fog, so
+    /// a bolt out of the dark always has somebody at the end of it. A
+    /// picture's question only; nothing in the fight reads it.
+    pub(crate) fn reveal(&mut self, who: usize) {
+        if self.seen_for.len() <= who {
+            self.seen_for.resize(who + 1, 0.0);
+        }
+        self.seen_for[who] = SEEN_FOR;
+    }
+
     /// Whether a Bim of this room is drawn: every one of the crew's own,
-    /// none of a room nobody is looking into, and under a joined deck the
-    /// ones the world said are in view — or were, a moment ago.
+    /// none of a room nobody is looking into, and under a joined deck
+    /// every friendly Bim — a site's own people, never a machine, a
+    /// Manufacturer or a hostile room's body — and of the rest
+    /// the ones the world said are in view, or that fired (`reveal`), a
+    /// moment ago.
     pub fn body_seen(&self, who: usize) -> bool {
         // A body taken off the deck (task 129) is nobody's to see.
         if self.is_gone(who) {
@@ -6601,8 +6618,17 @@ impl Game {
         match self.fog {
             Fog::Crew => true,
             Fog::All => false,
-            Fog::None => self.seen_for.get(who).is_some_and(|&left| left > 0.0),
+            Fog::None => {
+                self.is_friendly_body(who) || self.seen_for.get(who).is_some_and(|&left| left > 0.0)
+            }
         }
+    }
+
+    /// Whether that body is a friend to whoever is looking: a Bim of a
+    /// room whose bodies are not hostile, and not a Manufacturer come to
+    /// attack it. Never a machine.
+    pub fn is_friendly_body(&self, who: usize) -> bool {
+        !self.hostile_bodies && self.bims.get(who).is_some_and(|b| !b.manufacturer)
     }
 
     /// Draw every body of this room whatever the world says is in view:
@@ -9209,6 +9235,46 @@ mod tests {
         assert!(!game.is_recruited(0));
         assert!(!game.bims[1].character.is_recruited());
         assert!(!game.is_armed(0));
+    }
+
+    /// Under a joined deck an enemy nobody sees is not drawn —
+    /// until it shoots, and then for `SEEN_FOR` after its last shot. A
+    /// friendly room's people are drawn wherever they stand.
+    #[test]
+    fn a_shooter_gives_itself_away_and_a_friend_is_always_drawn() {
+        let mut game = room();
+        game.set_autonomous(false);
+        let kate = game.put_for_probe(1, vec2(ROOM_W * 0.35, ROOM_H * 0.5));
+        game.put_for_probe(0, vec2(ROOM_W * 0.45, ROOM_H * 0.5));
+        game.set_fog(Fog::None);
+        game.set_hostile_bodies(true);
+        game.simulate(DT);
+        assert!(!game.body_seen(0) && !game.body_seen(1), "out of sight");
+
+        let target = kate + vec2(4.0 * TILE, 0.0);
+        game.set_hostiles(vec![Some((target, WeaponKind::LaserPistol.basic()))]);
+        for _ in 0..120 {
+            game.simulate(DT);
+        }
+        assert!(!game.take_shots().is_empty(), "somebody shot");
+        assert!(
+            game.body_seen(0) || game.body_seen(1),
+            "a shooter is drawn though nobody sees it"
+        );
+
+        // The fight over: gone from the picture once the last shot is
+        // `SEEN_FOR` old.
+        game.set_hostiles(Vec::new());
+        for _ in 0..((SEEN_FOR / DT).ceil() as usize + 2) {
+            game.simulate(DT);
+        }
+        assert!(!game.body_seen(0) && !game.body_seen(1), "back in the dark");
+
+        // The same people as friends: always drawn.
+        game.set_hostile_bodies(false);
+        assert!(game.body_seen(0) && game.body_seen(1));
+        game.set_fog(Fog::All);
+        assert!(!game.body_seen(0), "nobody is looking into the room");
     }
 
     /// The playtest ship as a hostile room — its people the enemies —

@@ -927,6 +927,14 @@ opaque without being a part, and went in feature 104.
 - **A body on somebody else's deck stays drawn for `SEEN_FOR`** (2 s)
   after the world last said it was in view: `set_seen` re-arms
   `seen_for` per body, `body_seen` reads it, `simulate` counts it down.
+  **A shot gives the shooter away**: every place a body fires — a Bim's
+  trigger, an intruder's, a machine's, a Guardian's or the Heart's beam
+  — calls `Game::reveal(body)`, which re-arms the same timer, so an
+  enemy shooting out of the dark is drawn. **A friend is always drawn**
+  under a joined deck: `Game::is_friendly_body` (a Bim of a room whose
+  bodies are not hostile, not a Manufacturer) is enough for `body_seen`.
+  Drawing only; nothing in the fight reads either.
+  `a_shooter_gives_itself_away_and_a_friend_is_always_drawn` pins it.
 - **The fight is the first thing to read sight.** See the next section.
 
 ## The fight: targets in, hits out, and the room never decides who is an enemy

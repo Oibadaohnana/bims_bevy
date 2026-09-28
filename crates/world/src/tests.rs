@@ -3414,9 +3414,10 @@ fn sight_is_traced_and_a_shut_door_stops_it_without_a_trace() {
 }
 
 /// Docked, the crew see the compartment they stand in and not the
-/// station's rooms beyond its bulkheads, and the station's people are
-/// drawn only where the crew can see them. Away from the berth the
-/// station's room shows nobody at all.
+/// station's rooms beyond its bulkheads, and of the station's bodies its
+/// friendly people are always drawn and the rest only where
+/// the crew can see them. Away from the berth the station's room shows
+/// nobody at all.
 #[test]
 fn docked_the_crew_see_what_is_in_view_and_the_station_s_people_only_there() {
     let mut world = basic();
@@ -3437,16 +3438,19 @@ fn docked_the_crew_see_what_is_in_view_and_the_station_s_people_only_there() {
         "the middle of the station is in view from the ship's deck"
     );
 
-    // The residents: drawn exactly where the crew's trace says they are
-    // seen, and — with the crew on their own deck — not all of them.
+    // The residents: a friendly one drawn wherever it stands, anybody
+    // else exactly where the crew's trace says they are seen — and, with
+    // the crew on their own deck, not all of them seen.
     world.step(&[]);
     let ashore = world.residents.as_ref().unwrap();
     let positions: Vec<DVec2> = (0..ashore.aboard.count())
         .map(|who| ashore.aboard.position(who))
         .collect();
     let seen = world.aboard.seen(&positions);
+    let room = &ashore.aboard.room;
     for (who, &s) in seen.iter().enumerate() {
-        assert_eq!(ashore.aboard.room.body_seen(who), s, "resident {who}");
+        let friendly = room.is_friendly_body(who);
+        assert_eq!(room.body_seen(who), s || friendly, "resident {who}");
     }
     assert!(
         seen.iter().any(|&s| !s),

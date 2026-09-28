@@ -215,6 +215,7 @@ impl Game {
             aim,
             side,
         };
+        self.reveal(self.bims.len() + i);
         self.lay_beam(from, aim, side, weapon, stats.reach(), damage, pace);
     }
 }
