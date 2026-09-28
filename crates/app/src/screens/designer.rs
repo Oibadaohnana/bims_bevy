@@ -438,13 +438,6 @@ impl Net {
                         Order::Gear(GearOrder::OpenCache { who }) => {
                             Command::OpenCache { slot, who }
                         }
-                        // The row on a box of dressings (feature 87): it
-                        // binds its own wounds, which is an order to the
-                        // room like any other.
-                        Order::Gear(GearOrder::BandageAll { who }) => Command::Crew {
-                            slot,
-                            order: bims::order::CrewOrder::BandageAll { who, patient: who },
-                        },
                         Order::Crew(order) => Command::Crew { slot, order },
                         Order::CrewLater(order) => Command::CrewLater { slot, order },
                         Order::SetClass(class) => Command::SetClass { slot, class },

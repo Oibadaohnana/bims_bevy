@@ -186,13 +186,7 @@ fn the_town_fights_the_machines_and_the_crew_never_aim_at_a_townsperson() {
     let town_health = |w: &World| -> f32 {
         let room = &w.residents.as_ref().unwrap().aboard.room;
         (0..room.crew_count() as usize)
-            .map(|who| {
-                bims::health::Part::ALL
-                    .into_iter()
-                    .map(|p| room.part_health(who, p))
-                    .sum::<f32>()
-                    + room.blood(who)
-            })
+            .map(|who| room.health(who))
             .sum()
     };
     let (droids_were, town_was) = (droid_health(&world), town_health(&world));

@@ -1,311 +1,62 @@
-//! A body: its three parts, its blood, its wounds and its traumas, and how
-//! each of them mends or does not.
+//! A body's health: one bar of hit points, and what happens at the
+//! bottom of it (task 120).
 //!
-//! # The body is three parts, and the blood is a fourth number
+//! # One bar
 //!
-//! Health is not one bar but three — the head, the body and the legs, each
-//! with a base of its own ([`Part::max`]: 5, 75 and 20, a hundred all told)
-//! — and what the panel calls health is the three added up. A shot lands
-//! on one part ([`Part::HIT_ODDS`]: one in twenty the head, three in four
-//! the body, one in five the legs) and takes the weapon's damage off that
-//! part alone. Mending runs over all three in proportion, so the total
-//! behaves exactly as the one bar did.
+//! A Bim has [`MAX_HEALTH`] hit points and nothing else — no blood, no
+//! wounds, no traumas, no parts with health of their own. A hit still
+//! lands **somewhere** ([`Part::hit_by`] off [`Part::HIT_ODDS`]: one in
+//! twenty the head, three in four the body, one in five the legs), but
+//! the part only says which worn piece of armour takes it first
+//! (`Game::strike`); whatever gets past the armour comes off the one bar
+//! ([`Health::hit`]). Nothing mends on its own: a medic's beam and a
+//! relic put hit points back ([`Health::heal`]), and a mission's start
+//! fills the bar ([`Health::restore`]).
 //!
-//! # A part at nothing is a dying state, not a death
+//! # Downed, and the countdown
 //!
-//! A part reaching nothing rolls a [`Trauma`] for it — three a part, four
-//! for the legs, [`Trauma::roll`] — and the Bim is **dying**
-//! ([`Health::dying`]): the part stays at nothing and does not mend, the
-//! trauma bleeds it ([`Trauma::bleed`]) or slows it ([`Trauma::pace`],
-//! [`Trauma::works_at`]) until **another Bim treats it with a medkit**
-//! ([`Health::treat`]), which puts the part back to [`TREATED_TO`] of its
-//! base and leaves whatever the trauma leaves behind — a [`Lasting`]
-//! penalty for a day or two ([`Trauma::after`]), or a **leg lost**
-//! ([`Trauma::loses_leg`]: the crushed legs, one in twenty of a leg's
-//! rolls each), which is for ever and costs [`LEG_LOST_PACE`] of the walk
-//! each. A hit on a part already at nothing opens a wound and nothing
-//! more: it is as dying as it gets. What kills a Bim now is its **blood**.
-//!
-//! Beside the three, **blood**: a hundred points, and every hit opens a
-//! wound that bleeds [`BLEED_PER_WOUND`] of it an hour until it is dressed
-//! — so ten open wounds bleed a Bim out in an hour. A wound is counted
-//! in **units**: a shot opens one, a cut ([`CUT_WOUND`]) three, so a
-//! blade bleeds three times what a bolt does and a bandage still closes
-//! the lot on a part at once. An untreated trauma bleeds beside the
-//! wounds, [`HEAVY_BLEED`] or [`SLOW_BLEED`] an hour. Under
-//! [`SLOWED_AT`] — three quarters — the Bim walks at half its pace;
-//! under [`OUT_AT`], which is **half its blood**, it is out cold where
-//! it stands and nothing aims at it any more; at nothing it is dead. A bandage ([`Health::bandage`]) closes
-//! every wound on one part, and blood comes back on its own once nothing
-//! is open and no trauma bleeds. Armour stands in front of all of this —
-//! a worn piece takes a hit before the part does, and only what gets
-//! through comes here (`Game::wound`, `crate::combat`); nothing in this
-//! file knows about it.
+//! At nothing a Bim is **downed** ([`Health::downed`]): it lies where it
+//! fell, does nothing, and nothing aims at it, and a countdown of
+//! [`DOWNED_SECONDS`] starts ([`Health::down_left`]) — run down by
+//! [`Health::update`] with the room's own steps, so a paused game holds
+//! it. At nought it is **dead**. Another Bim standing beside it for long
+//! enough ([`crate::task::Kind::Revive`]) brings it round
+//! ([`Health::revive`]) at [`REVIVED_TO`] of the bar, and for the rest
+//! of the mission it walks at [`DOWNED_PACE`] ([`Health::pace`]) — once,
+//! however often it goes down.
 
-use crate::clock::{DAY, HOUR};
-
+/// A whole bar.
 pub const MAX_HEALTH: f32 = 100.0;
 
-/// The blood a body has, full.
-pub const MAX_BLOOD: f32 = 100.0;
+/// How long a downed body lies before it is dead, in seconds of the
+/// room's steps: 1 800 steps at 1× (task 120).
+pub const DOWNED_SECONDS: f32 = 30.0;
 
-/// Blood lost an hour by each open wound.
-pub const BLEED_PER_WOUND: f32 = 10.0;
+/// Where a revived body's bar starts again from: three tenths of it.
+pub const REVIVED_TO: f32 = 0.3;
 
-/// The wound units a cut opens, against a shot's one.
-pub const CUT_WOUND: u32 = 3;
+/// What a body that has been downed this mission walks at, for the rest
+/// of the mission: thirty per cent slower. It does not stack.
+pub const DOWNED_PACE: f32 = 0.7;
 
-/// Below this share of its blood the Bim walks at half its pace, and
-/// below the second it is out cold. **Half its blood is where it goes
-/// out** (feature 89) — a body that far gone is out of the fight, and
-/// nothing aims at it while it lies there (`world::crew::Aboard::crew_ashore`)
-/// — so the slowed band sits above that, from three quarters down.
-pub const SLOWED_AT: f32 = 0.75;
-pub const OUT_AT: f32 = 0.5;
+/// What the countdown may be short of nought and still be over, in
+/// seconds: far under a step, and far over what 1 800 sixtieths of a second
+/// added up in floats miss nought by.
+const COUNTDOWN_SLACK: f32 = 1.0e-3;
 
-/// How fast blood comes back once nothing is bleeding: from nothing to
-/// full in two days, the same as health.
-const BLOOD_RECOVER: f32 = MAX_BLOOD / (2.0 * DAY);
+/// Under this many hit points a body bleeds on the deck (`Bim::tick_drips`),
+/// downed or not.
+pub const BLEEDS_UNDER: f32 = 20.0;
 
-/// What a lost leg costs the walk, for ever: a fifth each.
-pub const LEG_LOST_PACE: f32 = 0.8;
-
-/// What an untreated trauma bleeds an hour: ten blood a quarter hour, or
-/// five.
-pub const HEAVY_BLEED: f32 = 40.0;
-pub const SLOW_BLEED: f32 = 20.0;
-
-/// Where a treated part starts again from: half its base, so the next
-/// hit on it is a hit and not another trauma at once.
-pub const TREATED_TO: f32 = 0.5;
-
-/// The odds a leg at nothing is crushed — the right, and the left — and
-/// lost for ever; the rest of the rolls split evenly between the other
-/// two.
-pub const CRUSHED_ODDS: f32 = 0.05;
-
-/// A dying state: what a part reaching nothing turned into, one of three
-/// or four for the part ([`Trauma::roll`]). The codes are the app's, for
-/// the name and the line under it. Each is what it does **untreated** —
-/// bleeding, or a slower walk and slower work — and what it leaves
-/// **after** a medkit, for a day or two or for ever.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub enum Trauma {
-    /// A quarter slower walking and working, the two days after treatment
-    /// as well.
-    HeavyConcussion = 0,
-    /// Bleeds ten a quarter hour until treated; nothing after.
-    SkullFracture = 1,
-    /// Half as fast walking and working, and bleeding five a quarter hour
-    /// until treated; the day after treatment still half as fast.
-    CranialTrauma = 2,
-    /// Bleeds ten a quarter hour, and nothing shows: a medkit is the only
-    /// answer.
-    InternalBleeding = 3,
-    /// A quarter slower walking and working, the two days after treatment
-    /// as well.
-    BrokenRibs = 4,
-    /// Bleeds five a quarter hour and walks at half pace until treated;
-    /// the day after, still at half pace.
-    ChestTrauma = 5,
-    /// Bleeds ten a quarter hour until treated; nothing after.
-    FracturedFemur = 6,
-    /// Can barely move — a quarter of its pace — until treated; the two
-    /// days after, a quarter slower.
-    ShatteredKnee = 7,
-    /// The leg is gone, for ever, and it bleeds ten a quarter hour until
-    /// the stump is treated. One roll in twenty.
-    CrushedRightLeg = 8,
-    /// The other leg, the same.
-    CrushedLeftLeg = 9,
-}
-
-/// A body held by a medic's heal beam (feature 76, `world::class`):
-/// what the beam does to it this step. Nothing on it bleeds — the open
-/// wounds and the untreated traumas stay, and lose no blood — and the
-/// blood comes back at `blood_an_hour` (the body's own rate instead
-/// once nothing is open, if that is more), never above [`MAX_BLOOD`];
-/// the parts above nothing mend at `mend` times [`HEALTH_RECOVER`]
-/// (the medic's *mender*), one for the ordinary rate. The world works
-/// it out from the medic's talents and hands it to the room every step
-/// (`Game::set_held`); the room applies it and knows nothing else.
-#[derive(Clone, Copy, PartialEq, Debug)]
-pub struct Beamed {
-    pub blood_an_hour: f32,
-    pub mend: f32,
-    /// What the bleeding is multiplied by: nought for a beam, which
-    /// stops it dead, and a share of it for a commander's *steady ranks*
-    /// (feature 78), which only slows it.
-    pub bleed: f32,
-}
-
-impl Beamed {
-    /// A hold that stops the bleeding and does nothing else: what a
-    /// beam is without *mender*, and what *self-care*, *hold fast* and
-    /// the like give.
-    pub const HELD: Beamed = Beamed {
-        blood_an_hour: 0.0,
-        mend: 1.0,
-        bleed: 0.0,
-    };
-}
-
-/// What a Bim's doctoring runs at (feature 76): the world's word, by
-/// index, off the medic's talents — `bandage` and `treat` are effort
-/// factors on the working step of each errand (two is half the time);
-/// `bare` is whether it may treat a trauma with no medkit to hand, and
-/// at what effort (the medic's *field surgeon*); `clean_hands` whether
-/// a trauma it treats leaves nothing lasting; and `treated_to` where a
-/// part it treats starts again from, a share of the part's base
-/// ([`TREATED_TO`] for anybody else). [`Doctoring::NONE`] for everybody
-/// the world does not name.
-#[derive(Clone, Copy, PartialEq, Debug)]
-pub struct Doctoring {
-    pub bandage: f32,
-    pub treat: f32,
-    pub bare: Option<f32>,
-    pub clean_hands: bool,
-    pub treated_to: f32,
-}
-
-impl Doctoring {
-    pub const NONE: Doctoring = Doctoring {
-        bandage: 1.0,
-        treat: 1.0,
-        bare: None,
-        clean_hands: false,
-        treated_to: TREATED_TO,
-    };
-}
-
-/// What a treated trauma leaves behind for a while: the trauma's
-/// [`Trauma::after`] pace and effort, for `left` more game minutes.
-#[derive(Clone, Copy, PartialEq, Debug)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub struct Lasting {
-    pub trauma: Trauma,
-    pub left: f32,
-}
-
-impl Trauma {
-    pub const ALL: [Trauma; 10] = [
-        Trauma::HeavyConcussion,
-        Trauma::SkullFracture,
-        Trauma::CranialTrauma,
-        Trauma::InternalBleeding,
-        Trauma::BrokenRibs,
-        Trauma::ChestTrauma,
-        Trauma::FracturedFemur,
-        Trauma::ShatteredKnee,
-        Trauma::CrushedRightLeg,
-        Trauma::CrushedLeftLeg,
-    ];
-
-    pub fn code(self) -> u32 {
-        self as u32
-    }
-
-    pub fn from_code(code: u32) -> Option<Trauma> {
-        Trauma::ALL.get(code as usize).copied()
-    }
-
-    /// The part it is a trauma of.
-    pub fn part(self) -> Part {
-        match self {
-            Trauma::HeavyConcussion | Trauma::SkullFracture | Trauma::CranialTrauma => Part::Head,
-            Trauma::InternalBleeding | Trauma::BrokenRibs | Trauma::ChestTrauma => Part::Body,
-            Trauma::FracturedFemur
-            | Trauma::ShatteredKnee
-            | Trauma::CrushedRightLeg
-            | Trauma::CrushedLeftLeg => Part::Legs,
-        }
-    }
-
-    /// Which trauma a roll of `unit` (0 to 1) lands on for `part`: the
-    /// head's and the body's three evenly, the legs' crushed ones
-    /// [`CRUSHED_ODDS`] each and the femur and the knee the rest, half
-    /// and half.
-    pub fn roll(part: Part, unit: f32) -> Trauma {
-        let unit = unit.clamp(0.0, 0.999_999);
-        match part {
-            Part::Head => match (unit * 3.0) as u32 {
-                0 => Trauma::HeavyConcussion,
-                1 => Trauma::SkullFracture,
-                _ => Trauma::CranialTrauma,
-            },
-            Part::Body => match (unit * 3.0) as u32 {
-                0 => Trauma::InternalBleeding,
-                1 => Trauma::BrokenRibs,
-                _ => Trauma::ChestTrauma,
-            },
-            Part::Legs => {
-                let rest = 1.0 - 2.0 * CRUSHED_ODDS;
-                if unit < rest * 0.5 {
-                    Trauma::FracturedFemur
-                } else if unit < rest {
-                    Trauma::ShatteredKnee
-                } else if unit < rest + CRUSHED_ODDS {
-                    Trauma::CrushedRightLeg
-                } else {
-                    Trauma::CrushedLeftLeg
-                }
-            }
-        }
-    }
-
-    /// Blood lost an hour while it is untreated.
-    pub fn bleed(self) -> f32 {
-        match self {
-            Trauma::SkullFracture
-            | Trauma::InternalBleeding
-            | Trauma::FracturedFemur
-            | Trauma::CrushedRightLeg
-            | Trauma::CrushedLeftLeg => HEAVY_BLEED,
-            Trauma::CranialTrauma | Trauma::ChestTrauma => SLOW_BLEED,
-            Trauma::HeavyConcussion | Trauma::BrokenRibs | Trauma::ShatteredKnee => 0.0,
-        }
-    }
-
-    /// How fast it walks while untreated, as a fraction of its pace.
-    pub fn pace(self) -> f32 {
-        match self {
-            Trauma::HeavyConcussion | Trauma::BrokenRibs => 0.75,
-            Trauma::CranialTrauma | Trauma::ChestTrauma => 0.5,
-            Trauma::ShatteredKnee => 0.25,
-            _ => 1.0,
-        }
-    }
-
-    /// How fast it works while untreated, as a fraction of its effort.
-    pub fn works_at(self) -> f32 {
-        match self {
-            Trauma::HeavyConcussion | Trauma::BrokenRibs => 0.75,
-            Trauma::CranialTrauma => 0.5,
-            _ => 1.0,
-        }
-    }
-
-    /// What it leaves after treatment — a pace, an effort, and for how
-    /// many game minutes — or nothing.
-    pub fn after(self) -> Option<(f32, f32, f32)> {
-        match self {
-            Trauma::HeavyConcussion | Trauma::BrokenRibs => Some((0.75, 0.75, 2.0 * DAY)),
-            Trauma::CranialTrauma => Some((0.5, 0.5, DAY)),
-            Trauma::ChestTrauma => Some((0.5, 1.0, DAY)),
-            Trauma::ShatteredKnee => Some((0.75, 1.0, 2.0 * DAY)),
-            _ => None,
-        }
-    }
-
-    /// Whether the leg is gone for good the moment it is rolled.
-    pub fn loses_leg(self) -> bool {
-        matches!(self, Trauma::CrushedRightLeg | Trauma::CrushedLeftLeg)
-    }
-}
+/// How long a revive takes with nothing to speed it, in seconds: the
+/// time a helper stands beside a downed crewmate before it is up. A
+/// medic's and a relic's are the world's (`world::data`), handed to the
+/// room on the helper's `Skill::revive`.
+pub const REVIVE_SECONDS: f32 = 10.0;
 
 /// Where a shot lands. The codes are the app's: the three armour slots
-/// are in the same order.
+/// are in the same order. It decides which worn piece of armour takes a
+/// hit first and nothing else — the bar is one.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum Part {
@@ -328,15 +79,6 @@ impl Part {
         Part::ALL.get(code as usize).copied()
     }
 
-    /// The part's whole health. The three add to [`MAX_HEALTH`].
-    pub fn max(self) -> f32 {
-        match self {
-            Part::Head => 5.0,
-            Part::Body => 75.0,
-            Part::Legs => 20.0,
-        }
-    }
-
     /// Which part a roll of `unit` (0 to 1) lands on, by [`Part::HIT_ODDS`].
     pub fn hit_by(unit: f32) -> Part {
         let mut edge = 0.0;
@@ -350,338 +92,181 @@ impl Part {
     }
 }
 
-/// Health comes back over two days, from nothing to whole, on a body with
-/// nothing open on it.
-pub const HEALTH_RECOVER: f32 = MAX_HEALTH / (2.0 * DAY);
-
+#[derive(Clone, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Health {
-    /// The head, the body and the legs, in [`Part::ALL`] order.
-    parts: [f32; 3],
-    /// How many legs are gone: none, one, or both.
-    legs_lost: u32,
-    blood: f32,
-    /// Open wound units on each part, bleeding until dressed.
-    wounds: [u32; 3],
-    /// The untreated trauma on each part, while the part is at nothing.
-    traumas: [Option<Trauma>; 3],
-    /// What treated traumas have left behind, each for a while yet.
-    lasting: Vec<Lasting>,
+    /// The bar, nought to [`MAX_HEALTH`].
+    points: f32,
+    /// Seconds left before a downed body is dead; `None` while it is up,
+    /// and once it is dead.
+    down_left: Option<f32>,
+    dead: bool,
+    /// Downed at least once since the bar was last filled: the walk is
+    /// [`DOWNED_PACE`] until the mission ends.
+    was_downed: bool,
+}
+
+impl Default for Health {
+    fn default() -> Health {
+        Health::new()
+    }
 }
 
 impl Health {
     pub fn new() -> Health {
         Health {
-            parts: [Part::Head.max(), Part::Body.max(), Part::Legs.max()],
-            legs_lost: 0,
-            blood: MAX_BLOOD,
-            wounds: [0; 3],
-            traumas: [None; 3],
-            lasting: Vec::new(),
+            points: MAX_HEALTH,
+            down_left: None,
+            dead: false,
+            was_downed: false,
         }
     }
 
-    /// The three parts added up: what the panel's one bar shows.
+    /// The bar: what the panel shows.
     pub fn points(&self) -> f32 {
-        self.parts.iter().sum()
+        self.points
     }
 
-    /// One part's health.
-    pub fn part(&self, part: Part) -> f32 {
-        self.parts[part as usize]
-    }
-
-    pub fn blood(&self) -> f32 {
-        self.blood
-    }
-
-    /// Set the blood to a share of [`MAX_BLOOD`], for a probe that wants a
-    /// body out cold without a wound on it: under [`OUT_AT`] it lies
-    /// where it is until the blood comes back, which with nothing open
-    /// takes days.
-    #[allow(dead_code)]
-    pub fn set_blood_for_probe(&mut self, share: f32) {
-        self.blood = MAX_BLOOD * share;
-    }
-
-    /// Open wound units on one part.
-    pub fn wounds(&self, part: Part) -> u32 {
-        self.wounds[part as usize]
-    }
-
-    /// Open wound units all told.
-    pub fn bleeding(&self) -> u32 {
-        self.wounds.iter().sum()
-    }
-
-    pub fn legs_lost(&self) -> u32 {
-        self.legs_lost
-    }
-
-    /// The untreated trauma on one part, while the part is at nothing.
-    pub fn trauma(&self, part: Part) -> Option<Trauma> {
-        self.traumas[part as usize]
-    }
-
-    /// Whether any part is at nothing with its trauma untreated: the
-    /// state a Bim runs from a fight in, and needs a medkit out of.
-    pub fn dying(&self) -> bool {
-        self.traumas.iter().any(|t| t.is_some())
-    }
-
-    /// Hurt at all: an open wound on it, its blood under [`SLOWED_AT`],
-    /// or dying. Not what a Bim runs from a fight in — that is
-    /// [`Health::dying`] alone (`Game::is_fleeing`); a body merely
-    /// bleeding fights on and is dressed when the room is calm.
-    pub fn is_hurt(&self) -> bool {
-        self.dying() || self.bleeding() > 0 || self.blood < MAX_BLOOD * SLOWED_AT
-    }
-
-    /// What treated traumas have left behind, each with the game minutes
-    /// it has left to run.
-    pub fn lasting(&self) -> &[Lasting] {
-        &self.lasting
-    }
-
-    /// Dead: bled out, or the head and the body both at nothing with no
-    /// trauma on either — given up. A part at
-    /// nothing with its trauma untreated is dying, not dead: the blood
-    /// decides.
     pub fn is_dead(&self) -> bool {
-        self.blood <= 0.0
-            || (self.parts[Part::Head as usize] <= 0.0
-                && self.parts[Part::Body as usize] <= 0.0
-                && self.traumas[Part::Head as usize].is_none()
-                && self.traumas[Part::Body as usize].is_none())
+        self.dead
     }
 
-    /// Out cold for want of blood. Not dead — that is [`Health::is_dead`].
-    pub fn unconscious(&self) -> bool {
-        !self.is_dead() && self.blood < MAX_BLOOD * OUT_AT
+    /// At nothing and not yet dead: lying on the deck with the countdown
+    /// running.
+    pub fn downed(&self) -> bool {
+        !self.dead && self.down_left.is_some()
     }
 
-    /// How fast it walks for what the fight has done to it, as a fraction
-    /// of its usual pace: the legs it has left, the blood, and what every
-    /// trauma on it — untreated, or treated and lasting — costs.
+    /// The seconds a downed body has left, `None` for one that is up or
+    /// dead.
+    pub fn down_left(&self) -> Option<f32> {
+        if self.dead { None } else { self.down_left }
+    }
+
+    /// Whether it has been downed since the bar was last filled.
+    pub fn was_downed(&self) -> bool {
+        self.was_downed
+    }
+
+    /// Short of a whole bar, and alive.
+    pub fn is_hurt(&self) -> bool {
+        !self.dead && self.points < MAX_HEALTH
+    }
+
+    /// Whether it bleeds on the deck: alive — downed or up — and under
+    /// [`BLEEDS_UNDER`].
+    pub fn bleeds(&self) -> bool {
+        !self.dead && self.points < BLEEDS_UNDER
+    }
+
+    /// How fast it walks, as a fraction of its usual pace: [`DOWNED_PACE`]
+    /// once it has been downed this mission, and whole otherwise. The one
+    /// thing damage does to the walk.
     pub fn pace(&self) -> f32 {
-        self.pace_at(true)
+        if self.was_downed { DOWNED_PACE } else { 1.0 }
     }
 
-    /// [`Health::pace`] with the halving for low blood left out: the
-    /// tank's *unmovable*, while its kevlar holds (feature 77). The
-    /// legs, the traumas and what they leave behind still count.
-    pub fn pace_steady(&self) -> f32 {
-        self.pace_at(false)
-    }
-
-    fn pace_at(&self, blood_counts: bool) -> f32 {
-        let legs = LEG_LOST_PACE.powi(self.legs_lost as i32);
-        let blood = if blood_counts && self.blood < MAX_BLOOD * SLOWED_AT {
-            0.5
-        } else {
-            1.0
-        };
-        let traumas: f32 = self.traumas.iter().flatten().map(|t| t.pace()).product();
-        let lasting: f32 = self
-            .lasting
-            .iter()
-            .map(|l| l.trauma.after().map_or(1.0, |(pace, _, _)| pace))
-            .product();
-        legs * blood * traumas * lasting
-    }
-
-    /// How fast it works for what the fight has done to it, as a fraction
-    /// of its usual effort: what every trauma on it costs a task.
-    pub fn works_at(&self) -> f32 {
-        let traumas: f32 = self
-            .traumas
-            .iter()
-            .flatten()
-            .map(|t| t.works_at())
-            .product();
-        let lasting: f32 = self
-            .lasting
-            .iter()
-            .map(|l| l.trauma.after().map_or(1.0, |(_, work, _)| work))
-            .product();
-        traumas * lasting
-    }
-
-    /// A shot landing on `part`: the damage off that part, and a wound
-    /// opened on it — one unit, or [`CUT_WOUND`] for a `cut`. The part
-    /// reaching nothing rolls a [`Trauma`] for it off `roll` (0 to 1) and
-    /// hands it back; a crushed leg is lost then and there. A part already
-    /// at nothing with its trauma untreated takes the wound and nothing
-    /// else, and legs both lost take the wound alone.
-    pub fn shot(&mut self, part: Part, damage: f32, cut: bool, roll: f32) -> Option<Trauma> {
-        let i = part as usize;
-        self.wounds[i] += if cut { CUT_WOUND } else { 1 };
-        if self.traumas[i].is_some() || (part == Part::Legs && self.legs_lost >= 2) {
-            return None;
+    /// A hit of `damage` on the bar — whatever got past the armour. How
+    /// much came off it: nothing on a body already downed or dead, which
+    /// nothing aims at. Reaching nothing is downed, and the countdown
+    /// starts.
+    pub fn hit(&mut self, damage: f32) -> f32 {
+        if self.dead || self.down_left.is_some() || damage <= 0.0 {
+            return 0.0;
         }
-        self.parts[i] = (self.parts[i] - damage).max(0.0);
-        if self.parts[i] > 0.0 {
-            return None;
+        let taken = damage.min(self.points);
+        self.points -= taken;
+        if self.points <= 0.0 {
+            self.points = 0.0;
+            self.down_left = Some(DOWNED_SECONDS);
         }
-        let trauma = Trauma::roll(part, roll);
-        self.traumas[i] = Some(trauma);
-        if trauma.loses_leg() {
-            self.legs_lost += 1;
+        taken
+    }
+
+    /// Brought round where it lies: up again at [`REVIVED_TO`] of the bar,
+    /// the countdown over, and slowed for the rest of the mission.
+    /// Whether it was downed to be revived.
+    pub fn revive(&mut self) -> bool {
+        self.revive_at(REVIVED_TO)
+    }
+
+    /// [`Health::revive`] at `share` of the bar — a relic's *Second Wind*
+    /// (feature 106) brings a body round a little higher.
+    pub fn revive_at(&mut self, share: f32) -> bool {
+        if !self.downed() {
+            return false;
         }
-        Some(trauma)
+        self.down_left = None;
+        self.points = (MAX_HEALTH * share).clamp(1.0, MAX_HEALTH);
+        self.was_downed = true;
+        true
     }
 
-    /// A medkit on one part's trauma: the trauma is over, the part starts
-    /// again from [`TREATED_TO`] of its base — nought for legs both gone —
-    /// and what the trauma leaves behind ([`Trauma::after`]) starts its
-    /// clock. The trauma treated, or `None` with nothing on that part.
-    pub fn treat(&mut self, part: Part) -> Option<Trauma> {
-        self.treat_as(part, false, TREATED_TO)
-    }
-
-    /// [`Health::treat`] by a medic's hands (feature 76): the part starts
-    /// again from `to` of its base, and with `clean` nothing lasting is
-    /// left behind (*clean hands*).
-    pub fn treat_as(&mut self, part: Part, clean: bool, to: f32) -> Option<Trauma> {
-        let i = part as usize;
-        let trauma = self.traumas[i].take()?;
-        self.parts[i] = if part == Part::Legs && self.legs_lost >= 2 {
-            0.0
-        } else {
-            (part.max() * to).min(part.max())
-        };
-        if clean {
-            return Some(trauma);
-        }
-        if let Some((_, _, minutes)) = trauma.after() {
-            self.lasting.push(Lasting {
-                trauma,
-                left: minutes,
-            });
-        }
-        Some(trauma)
-    }
-
-    /// Dress every wound on one part. `true` when there was one to dress.
-    pub fn bandage(&mut self, part: Part) -> bool {
-        let i = part as usize;
-        let had = self.wounds[i] > 0;
-        self.wounds[i] = 0;
-        had
-    }
-
-    /// Brought round where it lies (feature 106, a relic's *Second Wind*):
-    /// every part at `share` of its full at least — legs that are gone
-    /// stay gone — every trauma over and every wound closed, and the blood
-    /// back to where a body stands and walks at its own pace
-    /// ([`SLOWED_AT`]), or it would be out cold again the next tick.
-    pub fn brought_round(&mut self, share: f32) {
-        for part in Part::ALL {
-            let i = part as usize;
-            self.traumas[i] = None;
-            self.wounds[i] = 0;
-            if part == Part::Legs && self.legs_lost >= 2 {
-                self.parts[i] = 0.0;
-                continue;
-            }
-            self.parts[i] = self.parts[i].max(part.max() * share).min(part.max());
-        }
-        self.blood = self.blood.max(MAX_BLOOD * SLOWED_AT);
-    }
-
-    /// The end of it, everything left of the bar taken at once and every
-    /// trauma with it: dead at the top of the next tick. What finishes a
-    /// body the world says is dead (`Game::kill_now`, a grave laid out).
-    pub fn give_up(&mut self) {
-        self.parts = [0.0; 3];
-        self.traumas = [None; 3];
-    }
-
-    /// `points` of health put back at once — a relic's healing (task 118),
-    /// never the blood. Shared over the parts that can take it by what each
-    /// is short of, so the whole of it lands while anything is short: a
-    /// leg that is gone and a part a trauma holds at nothing take none,
-    /// as the mending gives them none. How much went in.
+    /// `points` of health put back at once — a medic's beam, a relic —
+    /// never past a whole bar, and nothing to a body downed or dead: only
+    /// a revive gets one of those up. How much went in.
     pub fn heal(&mut self, points: f32) -> f32 {
-        if self.is_dead() || points <= 0.0 {
+        if self.dead || self.down_left.is_some() || points <= 0.0 {
             return 0.0;
         }
-        let short = |h: &Health, part: Part| {
-            let i = part as usize;
-            if (part == Part::Legs && h.legs_lost >= 2) || h.traumas[i].is_some() {
-                0.0
-            } else {
-                (part.max() - h.parts[i]).max(0.0)
-            }
-        };
-        let missing: f32 = Part::ALL.iter().map(|&p| short(self, p)).sum();
-        if missing <= 0.0 {
-            return 0.0;
-        }
-        let given = points.min(missing);
-        for part in Part::ALL {
-            let share = short(self, part) / missing;
-            let i = part as usize;
-            self.parts[i] = (self.parts[i] + given * share).min(part.max());
-        }
+        let given = points.min(MAX_HEALTH - self.points).max(0.0);
+        self.points += given;
         given
     }
 
-    /// `minutes` of the body's own clock: the blood, what a treated trauma
-    /// left behind, and the mending.
-    pub fn update(&mut self, minutes: f32) {
-        self.update_held(minutes, None);
-    }
-
-    /// [`Health::update`] with the body held by a medic's beam, or not —
-    /// see [`Beamed`] (feature 76).
-    pub fn update_held(&mut self, minutes: f32, held: Option<Beamed>) {
-        // Nothing comes back from nothing. Health mends on its own, and
-        // without this the bar taken to zero by anything *sudden* — a body
-        // given up — is back above zero on the very next frame, before
-        // `Game` has looked at it, and the death never happens.
-        if self.is_dead() {
+    /// A whole bar again, and the slow a downing left forgotten: a
+    /// mission's start. Nothing for the dead.
+    pub fn restore(&mut self) {
+        if self.dead {
             return;
         }
-        // The blood: out through every open wound and every untreated
-        // trauma that bleeds, back on its own once nothing does. Bleeding
-        // to nothing is the death, and the check at the top of the next
-        // tick is what says so.
-        let open = self.bleeding();
-        let trauma: f32 = self.traumas.iter().flatten().map(|t| t.bleed()).sum();
-        // What a hold does to the bleeding: a beam stops it outright, a
-        // commander's *steady ranks* only slows it, and nothing holding
-        // it leaves it whole.
-        let an_hour = (open as f32 * BLEED_PER_WOUND + trauma) * held.map_or(1.0, |h| h.bleed);
-        // What comes back an hour: the hold's rate — or the body's own
-        // once nothing is open, whichever is more.
-        let back = held.map_or(0.0, |h| h.blood_an_hour / HOUR);
-        let own = if an_hour > 0.0 { 0.0 } else { BLOOD_RECOVER };
-        self.blood =
-            (self.blood + (back.max(own) - an_hour / HOUR) * minutes).clamp(0.0, MAX_BLOOD);
-        // What a treated trauma left behind runs out on its own clock.
-        for l in &mut self.lasting {
-            l.left -= minutes;
+        self.points = MAX_HEALTH;
+        self.down_left = None;
+        self.was_downed = false;
+    }
+
+    /// The slow a downing left behind taken off, the bar as it is: a
+    /// mission's end.
+    pub fn forget_downed(&mut self) {
+        self.was_downed = false;
+    }
+
+    /// The end of it, at once: dead at the top of the next tick. What
+    /// finishes a body the world says is dead (`Game::kill_now`, a grave
+    /// laid out).
+    pub fn give_up(&mut self) {
+        self.points = 0.0;
+        self.down_left = None;
+        self.dead = true;
+    }
+
+    /// Back from the dead with a whole bar: a player's Bim respawning at
+    /// its mission's end (`Game::revive`).
+    pub fn respawn(&mut self) {
+        *self = Health::new();
+    }
+
+    /// `seconds` of the room's own steps: the countdown of a downed body.
+    /// Nothing else runs on its own — there is no mending.
+    pub fn update(&mut self, seconds: f32) {
+        if self.dead {
+            return;
         }
-        self.lasting.retain(|l| l.left > 0.0);
-        // A beam with *mender* on it mends the parts faster.
-        let change = HEALTH_RECOVER * held.map_or(1.0, |h| h.mend);
-        // Over the three parts in proportion to their size, so the total
-        // mends the way the one bar did. Legs that are gone do not grow back, and a part at nothing with its
-        // trauma untreated stays there: only a medkit starts it again.
-        for part in Part::ALL {
-            let i = part as usize;
-            if part == Part::Legs && self.legs_lost >= 2 {
-                self.parts[i] = 0.0;
-                continue;
+        if let Some(left) = self.down_left.as_mut() {
+            *left -= seconds;
+            if *left <= COUNTDOWN_SLACK {
+                self.down_left = None;
+                self.dead = true;
             }
-            if self.traumas[i].is_some() {
-                self.parts[i] = 0.0;
-                continue;
-            }
-            let share = part.max() / MAX_HEALTH;
-            self.parts[i] = (self.parts[i] + change * share * minutes).clamp(0.0, part.max());
         }
+    }
+
+    /// Set the bar outright, for a probe: nought is downed.
+    #[allow(dead_code)]
+    pub fn set_points_for_probe(&mut self, points: f32) {
+        self.points = points.clamp(0.0, MAX_HEALTH);
+        self.dead = false;
+        self.down_left = (self.points <= 0.0).then_some(DOWNED_SECONDS);
     }
 }
 
@@ -689,246 +274,104 @@ impl Health {
 mod tests {
     use super::*;
 
-    /// **A heal is hit points, shared by what each part is short of**,
-    /// never past full, none to a part a trauma holds, and never the blood.
     #[test]
-    fn a_heal_fills_what_the_parts_are_short_of_and_leaves_the_blood() {
+    fn the_odds_add_to_one_and_split_as_asked() {
+        let odds: f32 = Part::HIT_ODDS.iter().sum();
+        assert!((odds - 1.0).abs() < 1e-6);
+        assert_eq!(Part::hit_by(0.0), Part::Head);
+        assert_eq!(Part::hit_by(0.049), Part::Head);
+        assert_eq!(Part::hit_by(0.05), Part::Body);
+        assert_eq!(Part::hit_by(0.799), Part::Body);
+        assert_eq!(Part::hit_by(0.8), Part::Legs);
+        assert_eq!(Part::hit_by(0.999), Part::Legs);
+    }
+
+    /// **Nought is downed, not dead**, and a downed body takes nothing
+    /// more.
+    #[test]
+    fn hp_at_nothing_is_downed() {
         let mut h = Health::new();
-        assert_eq!(h.heal(10.0), 0.0, "nothing short, nothing given");
-        h.shot(Part::Body, 20.0, false, 0.99);
-        h.shot(Part::Legs, 5.0, false, 0.99);
-        let (blood, before) = (h.blood(), h.points());
-        assert_eq!(h.heal(10.0), 10.0);
-        assert!((h.points() - before - 10.0).abs() < 1e-4);
-        assert_eq!(h.blood(), blood, "never the blood");
-        // The body short of four times what the legs are, it takes four
-        // fifths of it.
-        assert!((h.part(Part::Body) - (Part::Body.max() - 12.0)).abs() < 1e-4);
-        assert!((h.part(Part::Legs) - (Part::Legs.max() - 3.0)).abs() < 1e-4);
-        assert!((h.heal(100.0) - 15.0).abs() < 1e-4, "only what is short");
+        assert_eq!(h.hit(30.0), 30.0);
+        assert_eq!(h.points(), 70.0);
+        assert!(!h.downed());
+        assert_eq!(h.hit(500.0), 70.0, "only what was left comes off");
+        assert!(h.downed());
+        assert!(!h.is_dead());
+        assert_eq!(h.down_left(), Some(DOWNED_SECONDS));
+        assert_eq!(h.hit(10.0), 0.0, "nothing more comes off a downed body");
+        assert_eq!(h.heal(50.0), 0.0, "and nothing heals it up");
+        assert!(h.downed());
+    }
+
+    /// **The countdown is 1 800 steps at 1×**, and nothing runs it but
+    /// the steps — a paused room steps nothing.
+    #[test]
+    fn a_downed_body_dies_after_eighteen_hundred_steps_and_waits_while_paused() {
+        let mut h = Health::new();
+        h.hit(MAX_HEALTH);
+        let step = 1.0 / 60.0;
+        for _ in 0..1_799 {
+            h.update(step);
+        }
+        assert!(h.downed(), "one step short");
+        // A pause is no steps at all: however long, nothing moves.
+        let held = h.down_left();
+        h.update(0.0);
+        assert_eq!(h.down_left(), held);
+        h.update(step);
+        assert!(h.is_dead(), "{:?}", h.down_left());
+        assert!(!h.downed());
+    }
+
+    /// **A revive is three tenths of the bar and a slow for the mission**,
+    /// once however often, and a mission's start takes both away.
+    #[test]
+    fn a_revived_body_is_up_at_thirty_and_slowed_until_the_bar_is_filled() {
+        let mut h = Health::new();
+        assert_eq!(h.pace(), 1.0);
+        assert!(!h.revive(), "nothing to revive");
+        h.hit(MAX_HEALTH);
+        assert!(h.revive());
+        assert_eq!(h.points(), MAX_HEALTH * REVIVED_TO);
+        assert!(!h.downed());
+        assert_eq!(h.pace(), DOWNED_PACE);
+        // Down again and up again: the slow does not stack.
+        h.hit(MAX_HEALTH);
+        h.revive();
+        assert_eq!(h.pace(), DOWNED_PACE);
+        h.restore();
         assert_eq!(h.points(), MAX_HEALTH);
-        // A part held at nothing by a trauma takes none of it.
-        let mut h = Health::new();
-        h.shot(Part::Legs, 1_000.0, false, 0.0);
-        assert!(h.trauma(Part::Legs).is_some());
-        h.shot(Part::Body, 10.0, false, 0.99);
-        assert!((h.heal(50.0) - 10.0).abs() < 1e-4);
-        assert_eq!(h.part(Part::Legs), 0.0);
-    }
-
-    #[test]
-    fn the_parts_add_to_a_hundred_and_the_rolls_split_as_asked() {
-        // --- the_parts_add_to_a_hundred_and_the_odds_to_one ---
-        {
-            let total: f32 = Part::ALL.iter().map(|p| p.max()).sum();
-            assert_eq!(total, MAX_HEALTH);
-            let odds: f32 = Part::HIT_ODDS.iter().sum();
-            assert!((odds - 1.0).abs() < 1e-6);
-            assert_eq!(Part::hit_by(0.0), Part::Head);
-            assert_eq!(Part::hit_by(0.049), Part::Head);
-            assert_eq!(Part::hit_by(0.05), Part::Body);
-            assert_eq!(Part::hit_by(0.799), Part::Body);
-            assert_eq!(Part::hit_by(0.8), Part::Legs);
-            assert_eq!(Part::hit_by(0.999), Part::Legs);
-        }
-
-        // --- the_rolls_split_as_asked ---
-        {
-            assert_eq!(Trauma::roll(Part::Head, 0.0), Trauma::HeavyConcussion);
-            assert_eq!(Trauma::roll(Part::Head, 0.34), Trauma::SkullFracture);
-            assert_eq!(Trauma::roll(Part::Head, 0.99), Trauma::CranialTrauma);
-            assert_eq!(Trauma::roll(Part::Body, 0.0), Trauma::InternalBleeding);
-            assert_eq!(Trauma::roll(Part::Body, 0.5), Trauma::BrokenRibs);
-            assert_eq!(Trauma::roll(Part::Body, 0.7), Trauma::ChestTrauma);
-            assert_eq!(Trauma::roll(Part::Legs, 0.0), Trauma::FracturedFemur);
-            assert_eq!(Trauma::roll(Part::Legs, 0.449), Trauma::FracturedFemur);
-            assert_eq!(Trauma::roll(Part::Legs, 0.45), Trauma::ShatteredKnee);
-            assert_eq!(Trauma::roll(Part::Legs, 0.899), Trauma::ShatteredKnee);
-            assert_eq!(Trauma::roll(Part::Legs, 0.9), Trauma::CrushedRightLeg);
-            assert_eq!(Trauma::roll(Part::Legs, 0.949), Trauma::CrushedRightLeg);
-            assert_eq!(Trauma::roll(Part::Legs, 0.95), Trauma::CrushedLeftLeg);
-            assert_eq!(Trauma::roll(Part::Legs, 1.0), Trauma::CrushedLeftLeg);
-            for t in Trauma::ALL {
-                assert_eq!(Trauma::from_code(t.code()), Some(t));
-                assert_eq!(Trauma::roll(t.part(), 0.5).part(), t.part());
-            }
-        }
-    }
-
-    #[test]
-    fn a_body_shot_wears_it_down_and_a_head_at_nothing_is_dying_not_dead() {
-        let mut h = Health::new();
-        assert_eq!(h.shot(Part::Body, 12.0, false, 0.0), None);
-        assert_eq!(h.part(Part::Body), 63.0);
-        assert_eq!(h.points(), 88.0);
-        assert!(!h.is_dead());
-        assert_eq!(
-            h.shot(Part::Head, 12.0, false, 0.5),
-            Some(Trauma::SkullFracture)
-        );
-        assert!(!h.is_dead(), "a part at nothing is a dying state");
-        assert!(h.dying());
-        assert_eq!(h.trauma(Part::Head), Some(Trauma::SkullFracture));
-        assert_eq!(h.part(Part::Head), 0.0);
-        // Another hit on the same part is a wound and nothing more.
-        assert_eq!(h.shot(Part::Head, 12.0, false, 0.0), None);
-        assert_eq!(h.wounds(Part::Head), 2);
-        // The part does not mend on its own, and the fracture bleeds it
-        // ten a quarter hour besides the wounds.
-        h.update(HOUR * 0.25);
-        assert_eq!(h.part(Part::Head), 0.0);
-        let lost = MAX_BLOOD - h.blood();
-        assert!((lost - (10.0 + 3.0 * 2.5)).abs() < 1e-3, "{lost}");
-        // Treated: the head starts again from half, nothing lasting.
-        assert_eq!(h.treat(Part::Head), Some(Trauma::SkullFracture));
-        assert!(!h.dying());
-        assert_eq!(h.part(Part::Head), Part::Head.max() * TREATED_TO);
-        assert!(h.lasting().is_empty());
-        assert_eq!(h.treat(Part::Head), None, "nothing left to treat");
-    }
-
-    #[test]
-    fn an_untreated_bleed_kills_and_a_concussion_lasts_two_days_after() {
-        let mut h = Health::new();
-        assert_eq!(
-            h.shot(Part::Body, 75.0, false, 0.0),
-            Some(Trauma::InternalBleeding)
-        );
-        // Forty an hour, and the wound itself ten: gone in two hours.
-        h.update(HOUR * 1.5);
-        assert!(!h.is_dead(), "{}", h.blood());
-        h.update(HOUR * 0.5 + 1.0);
-        assert!(h.is_dead(), "bled out, {}", h.blood());
-
-        let mut h = Health::new();
-        assert_eq!(
-            h.shot(Part::Head, 5.0, false, 0.0),
-            Some(Trauma::HeavyConcussion)
-        );
-        assert_eq!(h.pace(), 0.75);
-        assert_eq!(h.works_at(), 0.75);
-        h.bandage(Part::Head);
-        h.update(DAY);
-        assert!(h.dying(), "nothing mends it but a medkit");
-        assert_eq!(h.part(Part::Head), 0.0);
-        assert_eq!(h.treat(Part::Head), Some(Trauma::HeavyConcussion));
-        assert_eq!(h.pace(), 0.75, "and the two days after");
-        assert_eq!(h.lasting().len(), 1);
-        h.update(DAY);
-        assert_eq!(h.pace(), 0.75);
-        h.update(DAY + 1.0);
         assert_eq!(h.pace(), 1.0);
-        assert!(h.lasting().is_empty());
-    }
-
-    #[test]
-    fn a_crushed_leg_is_lost_for_ever_and_a_knee_barely_moves() {
-        let mut h = Health::new();
+        // And a mission's end takes the slow off where the bar stands.
+        h.hit(MAX_HEALTH);
+        h.revive();
+        h.forget_downed();
         assert_eq!(h.pace(), 1.0);
-        assert_eq!(h.shot(Part::Legs, 12.0, false, 0.0), None);
-        assert_eq!(
-            h.shot(Part::Legs, 12.0, false, 0.92),
-            Some(Trauma::CrushedRightLeg),
-            "the second shot takes the leg"
-        );
-        assert_eq!(h.legs_lost(), 1);
-        assert_eq!(h.part(Part::Legs), 0.0, "and the stump waits for a medkit");
-        assert!((h.pace() - LEG_LOST_PACE).abs() < 1e-6);
-        assert!(!h.is_dead());
-        h.update(HOUR * 0.25);
-        assert!(h.blood() < MAX_BLOOD - 10.0, "it bleeds until treated");
-        assert_eq!(h.treat(Part::Legs), Some(Trauma::CrushedRightLeg));
-        assert_eq!(h.part(Part::Legs), Part::Legs.max() * TREATED_TO);
-        assert!((h.pace() - LEG_LOST_PACE).abs() < 1e-6, "for ever");
-        h.bandage(Part::Legs);
-        h.update(DAY * 3.0);
-        assert!((h.pace() - LEG_LOST_PACE).abs() < 1e-6, "for ever");
-        // The other one too, and there are none left.
-        h.shot(Part::Legs, 20.0, false, 0.96);
-        assert_eq!(h.legs_lost(), 2);
-        assert_eq!(h.treat(Part::Legs), Some(Trauma::CrushedLeftLeg));
-        assert_eq!(h.part(Part::Legs), 0.0);
-        assert!((h.pace() - LEG_LOST_PACE * LEG_LOST_PACE).abs() < 1e-6);
-        assert!(!h.is_dead(), "no legs is not dead");
-        assert_eq!(
-            h.shot(Part::Legs, 20.0, false, 0.96),
-            None,
-            "nothing left to take"
-        );
-        h.update(DAY);
-        assert_eq!(h.part(Part::Legs), 0.0, "and nothing grows back");
-
-        let mut h = Health::new();
-        assert_eq!(
-            h.shot(Part::Legs, 20.0, false, 0.5),
-            Some(Trauma::ShatteredKnee)
-        );
-        assert_eq!(h.pace(), 0.25);
-        assert_eq!(h.works_at(), 1.0);
-        h.treat(Part::Legs);
-        assert_eq!(h.pace(), 0.75);
-        assert_eq!(h.legs_lost(), 0);
+        assert_eq!(h.points(), MAX_HEALTH * REVIVED_TO);
     }
 
     #[test]
-    fn wounds_bleed_a_bim_out_in_an_hour_a_cut_three_units_and_a_bandage_closes_the_lot() {
-        // --- ten_wounds_bleed_a_bim_out_in_an_hour_and_a_bandage_stops_it ---
-        {
-            let mut h = Health::new();
-            for _ in 0..10 {
-                h.shot(Part::Body, 1.0, false, 0.0);
-            }
-            assert_eq!(h.bleeding(), 10);
-            // A quarter of an hour is a quarter of its blood gone: three
-            // quarters left, which is not *under* three quarters.
-            h.update(HOUR * 0.25);
-            assert!((h.blood() - 75.0).abs() < 1e-3, "{}", h.blood());
-            assert_eq!(h.pace(), 1.0, "three quarters is not under it");
-            h.update(1.0);
-            assert_eq!(h.pace(), 0.5);
-            assert!(!h.unconscious());
-            // Half an hour and half its blood: the line it goes out at
-            // (feature 89), and it is not under it yet.
-            h.update(HOUR * 0.25 - 1.0);
-            assert!((h.blood() - 50.0).abs() < 1e-3, "{}", h.blood());
-            assert!(!h.unconscious(), "half is not under half");
-            h.update(1.0);
-            assert!(h.unconscious(), "{}", h.blood());
-            assert!(!h.is_dead());
-            assert!(h.bandage(Part::Body));
-            assert_eq!(h.bleeding(), 0);
-            assert!(!h.bandage(Part::Body), "nothing left to dress");
-            let before = h.blood();
-            h.update(HOUR);
-            assert!(h.blood() > before, "blood comes back once nothing is open");
+    fn nothing_mends_on_its_own_and_a_heal_never_passes_the_bar() {
+        let mut h = Health::new();
+        h.hit(40.0);
+        h.update(3_600.0);
+        assert_eq!(h.points(), 60.0, "no passive regeneration");
+        assert_eq!(h.heal(10.0), 10.0);
+        assert_eq!(h.heal(100.0), 30.0);
+        assert_eq!(h.points(), MAX_HEALTH);
+    }
 
-            let mut h = Health::new();
-            for _ in 0..10 {
-                h.shot(Part::Body, 1.0, false, 0.0);
-            }
-            h.update(HOUR);
-            assert!(h.is_dead(), "bled out");
-        }
-
-        // --- a_cut_bleeds_three_units_and_a_bandage_closes_the_lot ---
-        {
-            let mut h = Health::new();
-            assert_eq!(h.shot(Part::Body, 12.0, true, 0.0), None);
-            assert_eq!(h.wounds(Part::Body), CUT_WOUND);
-            assert_eq!(h.bleeding(), 3);
-            assert_eq!(h.part(Part::Body), 63.0, "the damage is the damage");
-            let mut shot = Health::new();
-            shot.shot(Part::Body, 12.0, false, 0.0);
-            h.update(HOUR * 0.1);
-            shot.update(HOUR * 0.1);
-            let cut_lost = MAX_BLOOD - h.blood();
-            let shot_lost = MAX_BLOOD - shot.blood();
-            assert!(
-                (cut_lost - 3.0 * shot_lost).abs() < 1e-3,
-                "{cut_lost} vs {shot_lost}"
-            );
-            assert!(h.bandage(Part::Body));
-            assert_eq!(h.bleeding(), 0);
-        }
+    #[test]
+    fn a_body_bleeds_under_twenty_downed_or_not() {
+        let mut h = Health::new();
+        assert!(!h.bleeds());
+        h.hit(MAX_HEALTH - BLEEDS_UNDER);
+        assert!(!h.bleeds(), "twenty is not under twenty");
+        h.hit(1.0);
+        assert!(h.bleeds());
+        h.hit(100.0);
+        assert!(h.downed() && h.bleeds());
+        h.give_up();
+        assert!(!h.bleeds(), "the dead have stopped");
     }
 }

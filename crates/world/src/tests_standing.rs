@@ -135,7 +135,7 @@ fn an_order_wants_the_player_on_its_feet_and_no_class_at_all() {
     world.aboard.room.knock_out_for_probe(0);
     world.step(&[]);
     assert!(
-        world.aboard.room.is_unconscious(0),
+        world.aboard.room.is_downed(0),
         "the player's own Bim is out cold"
     );
     let events = world.step(&[Command::Orders {

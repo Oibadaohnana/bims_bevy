@@ -1397,18 +1397,13 @@ fn save_round_trip_keeps_a_held_town_and_an_attack_under_way() {
 
 /// The `combat` session sails with four hired field medics at the back of
 /// the crew (`session::COMBAT_MEDICS`): the last four of the sixteen, on
-/// a contract that costs nothing, each with a medic's charges of medicine
-/// — four medkits and ten bandages — and each able to pick a crewmate
-/// up. Without them nobody in the fight may carry, and a crew member shot
-/// down lies where it fell. Everybody else carries everybody's one and
-/// five.
+/// a contract that costs nothing, each reviving in a medic's four seconds
+/// and each able to pick a crewmate up. Without them nobody in the fight
+/// may carry, and a crew member shot down lies where it fell. Everybody
+/// else revives in ten.
 #[test]
 fn the_fight_sails_with_four_hired_field_medics_at_the_back_of_the_crew() {
     use crate::session::{COMBAT_MEDICS, Session};
-    use world::Charge;
-    use world::class::{
-        BANDAGE_CHARGES, MEDIC_BANDAGE_CHARGES, MEDIC_MEDKIT_CHARGES, MEDKIT_CHARGES,
-    };
 
     let session = Session::combat(world::data::DEFAULT_SEED, CANVAS.0, CANVAS.1);
     let world = &session.game.as_ref().unwrap().world;
@@ -1419,17 +1414,12 @@ fn the_fight_sails_with_four_hired_field_medics_at_the_back_of_the_crew() {
     let want: Vec<u32> = (crew - COMBAT_MEDICS as u32..crew).collect();
     assert_eq!(medics, want, "the last four, slot 0 being the player's own");
     for who in 0..crew {
-        let (kits, dressings) = if medics.contains(&who) {
-            (MEDIC_MEDKIT_CHARGES, MEDIC_BANDAGE_CHARGES)
+        let seconds = if medics.contains(&who) {
+            world::class::MEDIC_REVIVE_SECONDS
         } else {
-            (MEDKIT_CHARGES, BANDAGE_CHARGES)
+            bims::health::REVIVE_SECONDS
         };
-        assert_eq!(world.charges_of(who, Charge::Medkit), kits, "crew {who}");
-        assert_eq!(
-            world.charges_of(who, Charge::Bandage),
-            dressings,
-            "crew {who}"
-        );
+        assert_eq!(world.revive_seconds(who), seconds, "crew {who}");
     }
     for &who in &medics {
         assert!(world.can_lift(who), "a field medic may carry");
@@ -1660,25 +1650,19 @@ fn a_class_chosen_in_the_yard_leaves_the_pool_and_opens_the_world_and_is_saved()
     {
         let world = &mut session.game.as_mut().unwrap().world;
         assert_eq!(world.class_of(0), Class::Medic);
-        assert_eq!(
-            world.aboard.room.charges_of(
-                0,
-                bims::combat::Item::Stack(physics::ResourceId::Medkit as u32)
-            ),
-            world::class::MEDIC_MEDKIT_CHARGES,
-            "a medic's medkits are its charges"
-        );
         // Crew member 1 beside it, a wound on it, and the beam on.
         let at = world.aboard.room.bim_pos(0) + bims::math::vec2(TILE as f32, 0.0);
         world.aboard.room.put_for_probe(1, at);
-        world.aboard.room.wound(1, bims::health::Part::Legs, 2.0);
+        world.aboard.room.wound(1, bims::health::Part::Legs, 20.0);
         world.step(&[]);
         world.step(&[Command::Beam {
             slot: 0,
             patient: Some(1),
         }]);
         assert_eq!(world.patients_of(0), vec![1]);
-        for _ in 0..600 {
+        // A few seconds: the two walk off about their rounds once the
+        // patient is whole, and the beam breaks at its range.
+        for _ in 0..120 {
             world.step(&[]);
         }
         assert!(world.surge_charge(0) > 0.0, "charging");

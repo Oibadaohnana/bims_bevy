@@ -71,7 +71,7 @@ pub fn resident_name(station: u32, who: u32) -> String {
 
 /// What each part is called. Indexed by the `PartKind` discriminant in
 /// `crates/shipdesign/src/parts.rs`.
-pub const PART_NAMES: [&str; 49] = [
+pub const PART_NAMES: [&str; 48] = [
     "Deck plating",
     "Wall",
     "Door",
@@ -105,7 +105,6 @@ pub const PART_NAMES: [&str; 49] = [
     "Workbench",
     "Suit locker",
     "Armoury",
-    "Drug lab",
     "Trading desk",
     "Sandbags",
     "Research desk",
@@ -200,11 +199,7 @@ pub const PART_GROUPS: &[(&str, &[u32])] = &[
     ),
     (
         "Workshop",
-        &[
-            PartKind::Workbench as u32,
-            PartKind::Armoury as u32,
-            PartKind::DrugLab as u32,
-        ],
+        &[PartKind::Workbench as u32, PartKind::Armoury as u32],
     ),
     (
         "Light",
@@ -580,10 +575,10 @@ pub const CLASS_NAMES: [&str; 6] = ["None", "Engineer", "Soldier", "Medic", "Tan
 pub const CLASS_TIPS: [&str; 6] = [
     "No class: learns nothing.",
     "Lays sandbags for cover (E) and, from the third level, a sentry that shoots for itself (Q); packs either up again; mends armour at the workbench once it has learnt to. Sets out with three sandbag kits and one sentry kit.",
-    "Braces to hold a line (E) — steadier shooting, never running, no errands until stood easy — and from the third level throws grenades (Q), two charges of them, each back thirty seconds after it is thrown. Sets out with an auto rifle in hand and the pistol in the pack.",
-    "Holds a crewmate up with the heal beam (E) — their wounds stop bleeding and their blood comes back — and from the third level shields them both with a surge (Q), which takes every hit for eight minutes. Fires nothing while the beam is on. Carries four medkits and ten bandages where anybody else carries one and five, and a spent medkit comes back in thirty seconds where theirs takes forty.",
+    "Braces to hold a line (E) — steadier shooting and no errands until stood easy — and from the third level throws grenades (Q), two charges of them, each back thirty seconds after it is thrown. Sets out with an auto rifle in hand and the pistol in the pack.",
+    "Puts hit points back with the heal beam (E) — into a crewmate, or into the medic itself — and from the third level shields the beam's patients and itself with a surge (Q), which takes every hit for eight minutes. Fires nothing while the beam is on. Revives a downed crewmate in four seconds where anybody else takes ten.",
     "Stands as a wall (E) — half pace, and the crew close behind him are in cover against anything shot through him — and from the third level taunts (Q), so every enemy that can see him shoots at him and nobody else for six minutes. His armour drains at half rate, so the same kevlar takes twice as much on him. Sets out with the pistol and a basic helm, kevlar and leg guards on.",
-    "Lifts every friendly Bim within eight tiles of him — yours as well as the crew's — a tenth faster at work, a tenth steadier with a gun, and slower to run; and orders the squad, which is every crew member nobody is steering: attack the enemy under the pointer (E), fall back to a tile (X), stand ground (Z). From the third level he rallies (Q). Hires a mercenary at a quarter off. Sets out with the pistol.",
+    "Lifts every friendly Bim within eight tiles of him — yours as well as the crew's — a tenth faster at work, and a tenth steadier with a gun; and orders the squad, which is every crew member nobody is steering: attack the enemy under the pointer (E), fall back to a tile (X), stand ground (Z). From the third level he rallies (Q). Hires a mercenary at a quarter off. Sets out with the pistol.",
 ];
 pub fn class_name(class: world::Class) -> &'static str {
     CLASS_NAMES
@@ -617,18 +612,18 @@ pub const ABILITY_TIPS: [[&str; 2]; 6] = [
     ],
     [
         "Throw a grenade at the deck tile under the pointer — in range, with nothing solid in the way. It bursts two seconds later and hurts whoever is near it, yours as well as theirs. The number is the grenades in the pack.",
-        "Brace where you stand: steadier shooting, no running and no errands until you stand easy. The key again stands easy, and so does any order that moves you.",
+        "Brace where you stand: steadier shooting and no errands until you stand easy. The key again stands easy, and so does any order that moves you.",
     ],
     [
-        "Trigger the surge on the beam's patients and yourself: every hit is taken whole for its length — no wound, no armour drained. The bar is the charge, which fills while the beam holds somebody who is bleeding or short of blood.",
-        "Hold the heal beam on the crew member under the pointer: their wounds stop bleeding and their blood comes back. The key on nobody, or on the one held, unlinks it. You fire nothing while it is on. The number is how many more you could hold.",
+        "Trigger the surge on the beam's patients and yourself: every hit is taken whole for its length — no hit points lost, no armour drained. The bar is the charge, which fills while the beam holds somebody short of a whole bar.",
+        "Hold the heal beam on the crew member under the pointer — or on yourself, with the pointer over your own Bim: hit points come back while it holds. The key on nobody, or on the one held, unlinks it. You fire nothing while it is on. The number is how many more you could hold.",
     ],
     [
         "Taunt: every enemy that can see you shoots at you and nobody else while it lasts.",
         "Stand as a wall: half pace, and a crewmate close behind you is in cover against anything shot through you. The key again puts it down; so does going down.",
     ],
     [
-        "Call a rally: every friendly Bim near you shoots steadier and holds its nerve while it lasts.",
+        "Call a rally: every friendly Bim near you shoots steadier while it lasts.",
         "Send the squad at the enemy under the pointer. The squad is every crew member nobody is steering; the number is how many are in it now.",
     ],
 ];
@@ -654,15 +649,7 @@ pub const FALL_BACK_TIP: &str = "Call the squad back to the deck tile under the 
 pub const STAND_GROUND: &str = "Stand ground";
 pub const STAND_GROUND_TIP: &str = "The squad holds exactly where it stands — no walk to cover, no running — shooting whatever it can see. The number is how many are in the squad.";
 pub const CARRY: &str = "Carry";
-pub const CARRY_TIP: &str = "Pick the crewmate under the pointer up — out cold, dying, or bleeding — and carry them out of the fire. You hold your fire and walk slowly while you do. The key again sets them down, and treating them is what comes next. The number is how many near you are worth fetching.";
-
-/// The two medicine boxes beside the class's own, which every crew
-/// member has whatever its class: a medkit and the bandages are charges
-/// that come back into the pack on their own cooldowns.
-pub const MEDKIT_BOX: &str = "Medkit";
-pub const MEDKIT_BOX_TIP: &str = "Medkits in your pack. A medkit is the one thing that gets a crewmate out of a dying state — treat them from the crew panel or right-click them on the deck. One kit treats every trauma on the body at once. Everybody carries one, a medic four; a spent one comes back into the pack forty seconds later — a medic's in thirty — and the ring round the number is the next one on its way.";
-pub const BANDAGE_BOX: &str = "Bandages";
-pub const BANDAGE_BOX_TIP: &str = "Dressings in your pack. One closes every wound on a part of a body and stops the bleeding there. Everybody carries five, a medic ten; each spent one comes back thirty seconds later, and the ring round the number is the next one on its way.";
+pub const CARRY_TIP: &str = "Pick the downed crewmate under the pointer up and carry them out of the fire. You hold your fire and walk slowly while you do. The key again sets them down, and reviving them is what comes next — the countdown over them does not stop for the carry. The number is how many near you are worth fetching.";
 
 /// The line under a box whose level is not reached yet.
 pub fn ability_locked(level: u8) -> String {
@@ -704,6 +691,14 @@ pub fn skill_slot_line(level: u8, pick: bool) -> String {
         format!("Level {level} — the level's own")
     }
 }
+/// What a talent that does nothing any more says, in its tip and in its
+/// numbers (task 120): the talents the old body's blood, wounds, traumas
+/// and running fed — the medic's dressings and treatments, the nerve that
+/// held a body from running, the bleeding a taunt or a rally stopped —
+/// keep their names and their slots on the tree until they are designed
+/// again, and say so in the one phrase rather than a promise the rules no
+/// longer keep.
+pub const TALENT_NO_EFFECT: &str = "No effect for now — to be redesigned.";
 pub const TALENT_NAMES: [&str; 69] = [
     "Reinforced sand",
     "Site foreman",
@@ -794,7 +789,7 @@ pub const TALENT_TIPS: [&str; 69] = [
     "A fifth more damage within the weapon's sweet range.",
     "A fifth faster on foot while an enemy is in sight.",
     "The odds on the move halved less: three quarters of standing still, not half.",
-    "Never runs from a fight, however badly hurt.",
+    TALENT_NO_EFFECT,
     "Half again the odds of a bolt missing in cover.",
     "Grenades thrown half again as far.",
     "A grenade's fuse half as long.",
@@ -804,28 +799,28 @@ pub const TALENT_TIPS: [&str; 69] = [
     "Ten per cent more chance of slipping a bolt while braced.",
     "Every weapon's odds at the edge of its range are its odds up close.",
     "Each enemy downed raises the fire rate by a tenth, up to three times, until the fight ends.",
-    "Bandages a wound in half the time.",
-    "Treats a trauma with a medkit in half the time.",
+    TALENT_NO_EFFECT,
+    TALENT_NO_EFFECT,
     "The heal beam reaches half again as far.",
-    "The heal beam gives back half again the blood an hour.",
-    "A trauma this medic treats leaves nothing lasting behind.",
-    "A part this medic treats comes back half again as far.",
+    "The heal beam puts back half again the hit points an hour.",
+    TALENT_NO_EFFECT,
+    TALENT_NO_EFFECT,
     "The surge charges half again as fast.",
     "A surge lasts half again as long.",
-    "The medic's own wounds do not bleed while the beam is on.",
+    TALENT_NO_EFFECT,
     "The beam holds two crewmates at once, each at the full rate.",
     "Fires while beaming, at half the rate.",
-    "A surge ending closes every open wound on the patient.",
+    TALENT_NO_EFFECT,
     "A surge covers every crew member within three tiles of the patient.",
-    "Once a fight, treats a trauma with no medkit at all, in half the time.",
+    TALENT_NO_EFFECT,
     "Every piece of armour he wears protects half again as much.",
     "Forces a locked door in half the time.",
-    "Never runs from a fight, and loses no pace to low blood while his kevlar holds.",
+    TALENT_NO_EFFECT,
     "The wall shelters twice as far to either side.",
     "Walks half again as fast with the wall up.",
     "A taunt reaches half again as far.",
     "A taunt lasts half again as long.",
-    "His wounds and traumas do not bleed while he taunts.",
+    TALENT_NO_EFFECT,
     "Ten per cent more chance of slipping a bolt while the wall is up.",
     "A bolt that would hit somebody the wall shelters hits him instead.",
     "A taunt turns every charging blade within its reach towards him.",
@@ -839,10 +834,10 @@ pub const TALENT_TIPS: [&str; 69] = [
     "An attack may mark two enemies at once, the squad split between them.",
     "A rally lasts half again as long.",
     "The rally's cooldown is half as long.",
-    "Bims in his aura bleed at three quarters the rate.",
+    TALENT_NO_EFFECT,
     "Bims in his aura walk a tenth faster.",
     "An attack's mark lasts until that enemy is dead, then moves on to the nearest one standing.",
-    "During a rally, Bims in it lose no pace at all to wounds or traumas.",
+    TALENT_NO_EFFECT,
     "The aura's bonuses are twice as deep while he stands still.",
     "A rally covers every friendly Bim in the room, however far off.",
 ];
@@ -871,9 +866,11 @@ pub fn level_line(class: world::Class, level: u8) -> Option<&'static str> {
         (world::Class::Soldier, 1) => "Brace: holds a line, and shoots steadier for it.",
         (world::Class::Soldier, 3) => "May throw grenades.",
         (world::Class::Soldier, 7) => "Drill: every weapon's fire rate up by a fifth.",
-        (world::Class::Medic, 1) => "Heal beam: holds a crewmate's blood up.",
+        (world::Class::Medic, 1) => {
+            "Heal beam: puts hit points back, into a crewmate or itself. Revives in four seconds."
+        }
         (world::Class::Medic, 3) => "Surge: may shield the medic and the patient.",
-        (world::Class::Medic, 7) => "Mender: a beamed patient's parts mend ten times as fast.",
+        (world::Class::Medic, 7) => "Mender: no effect for now — to be redesigned.",
         (world::Class::Tank, 1) => "Bulwark: stands as a wall, and his armour drains at half rate.",
         (world::Class::Tank, 2) => {
             "Plated: every piece of armour he wears protects half again as much."
@@ -881,7 +878,7 @@ pub fn level_line(class: world::Class, level: u8) -> Option<&'static str> {
         (world::Class::Tank, 3) => "Taunt: may draw the enemy's fire onto himself.",
         (world::Class::Tank, 7) => "Iron frame: a hit rolled on his head lands on his body.",
         (world::Class::Commander, 1) => {
-            "Aura: every friendly Bim near him works, shoots and holds better. Hires at a quarter off. Squad orders: attack (E), fall back (X), stand ground (Z)."
+            "Aura: every friendly Bim near him works and shoots better. Hires at a quarter off. Squad orders: attack (E), fall back (X), stand ground (Z)."
         }
         (world::Class::Commander, 3) => "Rally: may call it.",
         (world::Class::Commander, 7) => {
@@ -1087,7 +1084,7 @@ pub fn talent_numbers(talent: world::Talent) -> String {
             pc(bims::combat::WALKING_ACCURACY as f64),
             pc(c::steady_aim_walking() as f64)
         ),
-        T::IronNerve => "Never runs, however badly hurt: the flee roll is off him for good".to_string(),
+        T::IronNerve => TALENT_NO_EFFECT.to_string(),
         T::CoverMaster => format!(
             "Odds of a bolt missing him in cover {} -> {} ({})",
             pc(bims::balance::DODGE_IN_COVER as f64),
@@ -1147,24 +1144,7 @@ pub fn talent_numbers(talent: world::Talent) -> String {
             by((c::RAMPAGE_FIRE_RATE as f64).powi(c::RAMPAGE_STACKS as i32))
         ),
         // --- the medic's ---
-        T::FieldDressing => format!(
-            "Bandaging {} game minutes ({})",
-            step(
-                bims::task::BANDAGE_MINUTES as f64,
-                (bims::task::BANDAGE_MINUTES * c::FIELD_DRESSING_TIME) as f64,
-                ""
-            ),
-            by(c::FIELD_DRESSING_TIME as f64)
-        ),
-        T::Surgeon => format!(
-            "Treating a trauma with a medkit {} game minutes ({})",
-            step(
-                bims::task::TREAT_MINUTES as f64,
-                (bims::task::TREAT_MINUTES * c::SURGEON_TIME) as f64,
-                ""
-            ),
-            by(c::SURGEON_TIME as f64)
-        ),
+        T::FieldDressing | T::Surgeon => TALENT_NO_EFFECT.to_string(),
         T::LongBeam => format!(
             "Heal beam reach {} tiles ({})",
             step(
@@ -1175,21 +1155,15 @@ pub fn talent_numbers(talent: world::Talent) -> String {
             by(c::LONG_BEAM_RANGE as f64)
         ),
         T::StrongBeam => format!(
-            "Heal beam {} blood an hour ({})",
+            "Heal beam {} hit points an hour ({})",
             step(
-                c::HEAL_BEAM_BLOOD as f64,
-                (c::HEAL_BEAM_BLOOD * c::STRONG_BEAM_BLOOD) as f64,
+                c::HEAL_BEAM_HP as f64,
+                (c::HEAL_BEAM_HP * c::STRONG_BEAM_RATE) as f64,
                 ""
             ),
-            by(c::STRONG_BEAM_BLOOD as f64)
+            by(c::STRONG_BEAM_RATE as f64)
         ),
-        T::CleanHands => "A trauma this medic treats leaves no lasting mark at all, where an ordinary treatment leaves one behind".to_string(),
-        T::SteadyHandsMedic => format!(
-            "A treated part comes back to {} -> {} of its health ({})",
-            pc(bims::health::TREATED_TO as f64),
-            pc((bims::health::TREATED_TO * c::STEADY_HANDS_TREATED).min(1.0) as f64),
-            by(c::STEADY_HANDS_TREATED as f64)
-        ),
+        T::CleanHands | T::SteadyHandsMedic => TALENT_NO_EFFECT.to_string(),
         T::QuickCharge => format!(
             "The surge charges in {} game minutes of beaming ({} the rate)",
             step(
@@ -1204,30 +1178,22 @@ pub fn talent_numbers(talent: world::Talent) -> String {
             step(c::SURGE_MINUTES, c::SURGE_MINUTES * c::LONG_SURGE_TIME, ""),
             by(c::LONG_SURGE_TIME)
         ),
-        T::SelfCare => "The medic's own wounds bleed at nothing while the beam is on".to_string(),
+        T::SelfCare => TALENT_NO_EFFECT.to_string(),
         T::DoubleLink => format!(
-            "Patients on the beam at once {}, each at the full {} blood an hour",
+            "Patients on the beam at once {}, each at the full {} hit points an hour",
             step(1.0, c::DOUBLE_LINK_PATIENTS as f64, ""),
-            fig(c::HEAL_BEAM_BLOOD as f64)
+            fig(c::HEAL_BEAM_HP as f64)
         ),
         T::GunnerMedic => format!(
             "Fires while beaming, at {} fire rate — he cannot fire at all without it",
             by(c::GUNNER_MEDIC_FIRE_RATE as f64)
         ),
-        T::ClosingSurge => "Every open wound on the patient closes the moment the surge ends".to_string(),
+        T::ClosingSurge => TALENT_NO_EFFECT.to_string(),
         T::MassSurge => format!(
             "A surge covers every crew member within {} tiles of the patient, not the patient alone",
             fig(c::MASS_SURGE_TILES as f64)
         ),
-        T::FieldSurgeon => format!(
-            "Once a fight: a trauma treated with no medkit at all, in {} game minutes ({})",
-            step(
-                bims::task::TREAT_MINUTES as f64,
-                (bims::task::TREAT_MINUTES * c::FIELD_SURGEON_TIME) as f64,
-                ""
-            ),
-            by(c::FIELD_SURGEON_TIME as f64)
-        ),
+        T::FieldSurgeon => TALENT_NO_EFFECT.to_string(),
         // --- the tank's ---
         T::Plated => format!(
             "Every piece of armour he wears protects {}",
@@ -1247,7 +1213,7 @@ pub fn talent_numbers(talent: world::Talent) -> String {
             ),
             by(c::BREACHER_TIME as f64)
         ),
-        T::Unmovable => "Never runs from a fight, and loses no pace to low blood at all while his kevlar has anything left".to_string(),
+        T::Unmovable => TALENT_NO_EFFECT.to_string(),
         T::WideWall => format!(
             "Bulwark reach {} tiles ({})",
             step(
@@ -1281,7 +1247,7 @@ pub fn talent_numbers(talent: world::Talent) -> String {
             by(c::LONG_TAUNT_TIME),
             fig(c::TAUNT_COOLDOWN)
         ),
-        T::HoldFast => "His wounds and traumas bleed at nothing for the whole of a taunt".to_string(),
+        T::HoldFast => TALENT_NO_EFFECT.to_string(),
         T::Guarded => format!(
             "Odds of slipping a bolt while Bulwark is up +{}",
             pc(c::GUARDED_DODGE as f64)
@@ -1316,16 +1282,11 @@ pub fn talent_numbers(talent: world::Talent) -> String {
             by(c::WIDE_PRESENCE_RADIUS as f64)
         ),
         T::StrongPresence => format!(
-            "Each aura bonus {} deeper: work and aim {}, nerve {}",
+            "Each aura bonus {} deeper: work and aim {}",
             by(c::STRONG_PRESENCE as f64),
             step(
                 c::AURA_WORK as f64,
                 c::aura_bonus(c::AURA_WORK, c::STRONG_PRESENCE) as f64,
-                ""
-            ),
-            step(
-                c::AURA_NERVE as f64,
-                c::aura_bonus(c::AURA_NERVE, c::STRONG_PRESENCE) as f64,
                 ""
             )
         ),
@@ -1357,27 +1318,19 @@ pub fn talent_numbers(talent: world::Talent) -> String {
             ),
             by(c::QUICK_RALLY_COOLDOWN)
         ),
-        T::SteadyRanks => format!(
-            "Bims in the aura bleed at {} the rate",
-            by(c::STEADY_RANKS_BLEED as f64)
-        ),
+        T::SteadyRanks => TALENT_NO_EFFECT.to_string(),
         T::DoubleTime => format!(
             "Bims in the aura walk at {} pace",
             by(c::DOUBLE_TIME_PACE as f64)
         ),
         T::Relentless => "An attack's mark holds until that enemy is dead, not merely down — and then the squad goes on to the nearest enemy still standing".to_string(),
-        T::Grit => "During a rally, Bims in it lose no pace at all to wounds or traumas".to_string(),
+        T::Grit => TALENT_NO_EFFECT.to_string(),
         T::Anchor => format!(
-            "Standing still, each aura bonus {} deeper: work and aim {}, nerve {}",
+            "Standing still, each aura bonus {} deeper: work and aim {}",
             by(c::ANCHOR_BONUS as f64),
             step(
                 c::AURA_WORK as f64,
                 c::aura_bonus(c::AURA_WORK, c::ANCHOR_BONUS) as f64,
-                ""
-            ),
-            step(
-                c::AURA_NERVE as f64,
-                c::aura_bonus(c::AURA_NERVE, c::ANCHOR_BONUS) as f64,
                 ""
             )
         ),
@@ -1431,23 +1384,18 @@ pub fn level_numbers(class: world::Class, level: u8) -> Option<String> {
             format!("Every weapon's fire rate {}", by(c::DRILL_FIRE_RATE as f64))
         }
         (world::Class::Medic, 1) => format!(
-            "The beam reaches {} tiles and gives back {} blood an hour. {} medkits and {} bandages carried, where anybody else carries {} and {}",
+            "The beam reaches {} tiles and puts back {} hit points an hour, on a crewmate or on the medic itself. A revive takes {} seconds, where anybody else takes {}",
             fig(c::HEAL_BEAM_RANGE as f64),
-            fig(c::HEAL_BEAM_BLOOD as f64),
-            c::MEDIC_MEDKIT_CHARGES,
-            c::MEDIC_BANDAGE_CHARGES,
-            c::MEDKIT_CHARGES,
-            c::BANDAGE_CHARGES
+            fig(c::HEAL_BEAM_HP as f64),
+            fig(c::MEDIC_REVIVE_SECONDS as f64),
+            fig(bims::health::REVIVE_SECONDS as f64)
         ),
         (world::Class::Medic, 3) => format!(
             "The surge charges over {} game minutes of beaming a patient that needs it, and runs {}",
             fig(c::SURGE_CHARGE_MINUTES),
             fig(c::SURGE_MINUTES)
         ),
-        (world::Class::Medic, 7) => format!(
-            "A beamed patient's parts mend at {} the ordinary rate",
-            by(c::MENDER_RECOVER as f64)
-        ),
+        (world::Class::Medic, 7) => TALENT_NO_EFFECT.to_string(),
         (world::Class::Tank, 1) => format!(
             "Armour worn by him drains at {} the ordinary rate, so a piece absorbs twice as much. Bulwark shelters everybody within {} tiles, at {} his own pace",
             by(c::TANK_DRAIN as f64),
@@ -1468,17 +1416,15 @@ pub fn level_numbers(class: world::Class, level: u8) -> Option<String> {
             "Every hit rolled on his head lands on his body instead".to_string()
         }
         (world::Class::Commander, 1) => format!(
-            "The aura reaches {} tiles: work {}, aim {}, and a dying Bim holds its ground {} seconds ({}) where it would otherwise run at once. Hires at {}% off. A squad order reaches {} tiles",
+            "The aura reaches {} tiles: work {}, aim {}. Hires at {}% off. A squad order reaches {} tiles",
             fig(c::AURA_TILES as f64),
             by(c::AURA_WORK as f64),
             by(c::AURA_AIM as f64),
-            fig((c::NERVE_HOLD * c::AURA_NERVE) as f64),
-            by(c::AURA_NERVE as f64),
             c::HIRE_DISCOUNT_PERCENT,
             fig(c::SQUAD_RANGE as f64)
         ),
         (world::Class::Commander, 3) => format!(
-            "A rally puts every friendly Bim it reaches at aim {} and stops any of them running; it runs {} game minutes, with {} seconds between",
+            "A rally puts every friendly Bim it reaches at aim {}; it runs {} game minutes, with {} seconds between",
             by(c::RALLY_AIM as f64),
             fig(c::RALLY_MINUTES),
             fig(c::RALLY_COOLDOWN)
@@ -1620,13 +1566,13 @@ pub fn taunt_line(left: f64, cooldown: f64, level_enough: bool) -> String {
 /// The soldier's rows on the crew panel (feature 75): grenades carried,
 /// the throw's cooldown, and the brace.
 pub const BRACED: &str = "Braced";
-pub const BRACED_TIP: &str = "Holding a line: no errands, no running, steadier shooting. E stands easy; so does any order that moves them.";
+pub const BRACED_TIP: &str = "Holding a line: no errands, steadier shooting. E stands easy; so does any order that moves them.";
 pub const STAND_EASY: &str = "Standing easy";
 /// The medic's rows on the crew panel (feature 76): who the beam holds,
 /// and how charged the surge is.
 pub const BEAM_ON: &str = "Beaming";
 pub const BEAM_OFF: &str = "No beam";
-pub const BEAM_TIP: &str = "The heal beam holds a crewmate up: their wounds and traumas stop bleeding and their blood comes back. E over a crew member links it; E again, or on nothing, unlinks. The medic may walk, and fires nothing while it is on.";
+pub const BEAM_TIP: &str = "The heal beam puts hit points back into a crewmate, or into the medic itself. E over a crew member — your own Bim included — links it; E again, or on nothing, unlinks. The medic may walk, and fires nothing while it is on.";
 pub const SURGING: &str = "Surging";
 pub fn beam_line(patients: &[String]) -> String {
     match patients {
@@ -1764,40 +1710,22 @@ pub fn event_line(event: WorldEvent) -> Option<String> {
         WorldEvent::EnemyDown { station, who: w } => {
             format!("{} is down.", resident_name(station, w))
         }
-        // A shot that landed on one of the crew: which part, and the fact
-        // that every hit bleeds until it is dressed — the line is what
-        // sends a player to the bandages.
+        // A shot that landed on one of the crew: which part, since the
+        // armour on it took the hit first.
         WorldEvent::CrewHit { who: w, part } => {
-            format!(
-                "{} was hit in the {} — and is bleeding.",
-                who(w),
-                body_part_name(part)
-            )
+            format!("{} was hit in the {}.", who(w), body_part_name(part))
         }
         WorldEvent::CrewDown { who: w } => format!("{} is dead.", who(w)),
-        // A part shot to nothing: the dying state it rolled, and the fact
-        // that a medkit in a crewmate's hands is the only way out of it —
-        // the line is what sends a player to the armoury.
-        WorldEvent::CrewDying { who: w, trauma } => {
-            format!(
-                "{} is dying — {}. {} Another crew member has to treat it with a medkit.",
-                who(w),
-                trauma_name(trauma).to_lowercase(),
-                trauma_line(trauma)
-            )
-        }
-        WorldEvent::CrewTreated { who: w, trauma } => {
-            let after = trauma_after(trauma);
-            format!(
-                "{} was treated for the {}{}",
-                who(w),
-                trauma_name(trauma).to_lowercase(),
-                if after.is_empty() {
-                    ".".to_string()
-                } else {
-                    format!(" — {after}")
-                }
-            )
+        // A body at nothing (task 120): down on the deck with the
+        // countdown running, and a crewmate beside it the way back up —
+        // the line is what sends a player over.
+        WorldEvent::CrewDowned { who: w } => format!(
+            "{} is down! {} seconds to revive them.",
+            who(w),
+            bims::health::DOWNED_SECONDS.round() as u32
+        ),
+        WorldEvent::CrewRevived { who: w, by } => {
+            format!("{} brought {} round.", who(by), who(w))
         }
         // A piece at nothing is still worn and does nothing for the rest of
         // the mission; it is whole again at the next (task 113).
@@ -2148,8 +2076,13 @@ pub fn relic_line(relic: world::Relic) -> String {
         ),
         SteadyGrip => format!("+{}% accuracy.", d::STEADY_GRIP_ACCURACY_PERCENT),
         TraumaKit => format!(
-            "+{}% healing received from medkits and a medic's beam.",
-            d::TRAUMA_KIT_HEALING_PERCENT
+            "Revives a downed crewmate {} s faster — {} s where it took {}, a medic's {} s where it took {} — and never in under {} s.",
+            fig(d::TRAUMA_KIT_REVIVE_SECONDS as f64),
+            fig(world::class::revive_time(false, d::TRAUMA_KIT_REVIVE_SECONDS) as f64),
+            fig(bims::health::REVIVE_SECONDS as f64),
+            fig(world::class::revive_time(true, d::TRAUMA_KIT_REVIVE_SECONDS) as f64),
+            fig(world::class::MEDIC_REVIVE_SECONDS as f64),
+            fig(d::REVIVE_FLOOR_SECONDS as f64)
         ),
         SecondWind => format!(
             "The first time this Bim goes down in a mission, it gets up after {} s with {}% health.",
@@ -2206,16 +2139,16 @@ pub fn relic_line(relic: world::Relic) -> String {
             d::PRESSURE_SEAL_HP_PER_SECOND
         ),
         QuickWrap => format!(
-            "Every bandage this Bim applies, on itself or a crewmate, also heals {} HP.",
+            "Every crewmate this Bim revives gets {} HP on top.",
             d::QUICK_WRAP_HEAL
         ),
         ClotBooster => format!(
-            "For the first {} s after this Bim goes down, it heals {} HP a second.",
+            "For the first {} s after this Bim goes down, it heals {} HP a second whenever it is back on its feet — a downed body is healed by nothing but a revive.",
             d::CLOT_BOOSTER_SECONDS,
             d::CLOT_BOOSTER_HP_PER_SECOND
         ),
         TetherField => format!(
-            "A crewmate this Bim bandages takes {}% less damage for {} s.",
+            "A crewmate this Bim revives takes {}% less of every hit for {} s.",
             d::TETHER_FIELD_PERCENT,
             d::TETHER_FIELD_SECONDS
         ),
@@ -2667,25 +2600,24 @@ pub const DOWNED_BANNER: &str = "Downed";
 /// The tag beside the hero's health while it is critically hit
 /// (feature 110), and what it means.
 pub const CRITICAL_TAG: &str = "CRITICAL";
-pub const CRITICAL_TIP: &str = "Badly hurt: a trauma, a part almost gone, the \
-    health low or the blood running short. Get a medkit or a medic on it, or \
-    get out of the fight.";
-/// The blood's short label under the hero's health bar.
-pub const BLOOD_SHORT: &str = "Blood";
+pub const CRITICAL_TIP: &str = "Badly hurt: under twenty hit points and bleeding \
+    on the deck, or down with the countdown running. Get a medic's beam on it, \
+    or get out of the fight.";
 /// The `+1` on the hero panel.
 pub const TALENT_WAITING_TIP: &str =
     "A talent to pick — open the character sheet to spend the point.";
-/// The peril block in one line, for the hero panel: its head, what, and
-/// how long at this rate.
-pub fn peril_short(head: &str, cause: &str, left: Option<&str>) -> String {
-    match left {
-        Some(left) => format!("{head} {cause} · {left}"),
-        None => format!("{head} {cause}"),
-    }
+/// What a downed body has left, in one line — the hero panel's and the
+/// portraits' (task 120).
+pub fn downed_short(seconds: f32) -> String {
+    format!("DOWNED — dies in {} s", seconds.ceil().max(0.0) as u32)
 }
-/// A dying state that is not bleeding, in one line.
-pub fn peril_stable_short(trauma: &str) -> String {
-    format!("{trauma} · holding until a medkit")
+/// A Bim that was downed this mission and walks slower for the rest of
+/// it, in one line.
+pub fn slowed_short() -> String {
+    format!(
+        "Slowed · {}% for the mission",
+        ((1.0 - bims::health::DOWNED_PACE) * 100.0).round() as u32
+    )
 }
 
 /// A line of the log for experience gained, and what it is gathered by.
@@ -2747,11 +2679,11 @@ pub const SHEET_CLOSE: &str = "Close the character sheet";
 pub const SHEET_BODY: &str = "Body";
 pub const SHEET_GEAR: &str = "Gear";
 pub const SHEET_TALENTS: &str = "Talents";
-pub const SHEET_BLOOD: &str = "Blood";
+pub const SHEET_HEALTH: &str = "Health";
 pub const NOTHING_WORN: &str = "nothing worn";
 pub const NOTHING_IN_HAND: &str = "nothing in hand";
-/// A part's health against what it can hold, with what armour adds.
-pub fn part_health_line(left: f32, most: f32, bonus: f32) -> String {
+/// The health against what it can hold, with what armour adds.
+pub fn health_line(left: f32, most: f32, bonus: f32) -> String {
     if bonus > 0.0 {
         format!("{} / {} + {}", left.round(), most.round(), bonus.round())
     } else {
@@ -2853,81 +2785,6 @@ pub fn body_part_name(code: u32) -> &'static str {
         .unwrap_or("body")
 }
 
-/// The dying states, indexed by `bims::health::Trauma::code`: what a part
-/// shot to nothing turned into. Pinned against `Trauma::ALL` below.
-pub const TRAUMA_NAMES: [&str; 10] = [
-    "Heavy concussion",
-    "Skull fracture",
-    "Cranial trauma",
-    "Internal bleeding",
-    "Broken ribs",
-    "Severe chest trauma",
-    "Fractured femur",
-    "Shattered knee",
-    "Crushed right leg",
-    "Crushed left leg",
-];
-
-/// What each does **until it is treated**, as a sentence.
-pub const TRAUMA_LINES: [&str; 10] = [
-    "A quarter slower walking and working.",
-    "Losing 10 blood every quarter hour.",
-    "Half as fast walking and working, and losing 5 blood every quarter hour.",
-    "Losing 10 blood every quarter hour, and nothing shows.",
-    "A quarter slower walking and working.",
-    "Losing 5 blood every quarter hour and walking at half pace.",
-    "Losing 10 blood every quarter hour.",
-    "Can barely move — a quarter of its pace.",
-    "The leg is lost, for good, and the stump is losing 10 blood every quarter hour.",
-    "The leg is lost, for good, and the stump is losing 10 blood every quarter hour.",
-];
-
-/// What each leaves **after** a medkit, as the tail of a sentence, or
-/// nothing.
-pub const TRAUMA_AFTER: [&str; 10] = [
-    "a quarter slower walking and working for the next two days.",
-    "",
-    "half as fast walking and working for the next day.",
-    "",
-    "a quarter slower walking and working for the next two days.",
-    "walking at half pace for the next day.",
-    "",
-    "a quarter slower walking for the next two days.",
-    "a fifth slower walking, for ever.",
-    "a fifth slower walking, for ever.",
-];
-
-pub fn trauma_name(code: u32) -> &'static str {
-    TRAUMA_NAMES.get(code as usize).copied().unwrap_or("Trauma")
-}
-
-pub fn trauma_line(code: u32) -> &'static str {
-    TRAUMA_LINES.get(code as usize).copied().unwrap_or("")
-}
-
-/// The same, short, for the panel's line while it lasts: what it costs,
-/// without the how long — the panel counts that down itself.
-pub const TRAUMA_LASTING: [&str; 10] = [
-    "a quarter slower",
-    "",
-    "half as fast",
-    "",
-    "a quarter slower",
-    "walking at half pace",
-    "",
-    "a quarter slower walking",
-    "",
-    "",
-];
-
-pub fn trauma_lasting(code: u32) -> &'static str {
-    TRAUMA_LASTING.get(code as usize).copied().unwrap_or("")
-}
-
-pub fn trauma_after(code: u32) -> &'static str {
-    TRAUMA_AFTER.get(code as usize).copied().unwrap_or("")
-}
-
 /// What each kind of body is called. Indexed by `worldgen::BodyKind`.
 pub const BODY_KIND_NAMES: [&str; 4] = ["Rocky planet", "Gas giant", "Ice world", "Asteroid belt"];
 
@@ -3008,86 +2865,67 @@ pub fn station_name(name: worldgen::Name) -> String {
 
 // --- the room's words ------------------------------------------------------
 
-pub const HEALTH_TIP: &str = "The head, the body and the legs add up to this bar: a shot takes its damage off whichever it lands on, and the head or the body at nothing is death. The legs at nothing is a leg lost. Every hit opens a wound that bleeds until it is dressed — the Blood bar underneath — and below three quarters of its blood the Bim is slow, below half it is out cold where it stands — nothing aims at a body that far gone — and at nothing it is dead. The lines underneath name whatever is wrong. The blue on the end of a bar is armour: a worn piece adds what it has left to the part, takes every hit first — its protection comes off the damage before anything else, and the rest drains the piece — and only what the piece cannot take reaches the body. At nothing it is broken: still worn, doing nothing, worth nothing put away — discard it and make another.";
+pub const HEALTH_TIP: &str = "Hit points: one bar for the whole Bim. A hit comes off the armour worn where it lands first — its protection off the damage before anything else, the rest draining the piece — and only what the piece cannot take reaches the bar. The blue on the end is that armour. Under twenty the Bim bleeds on the deck; at nothing it is down: it lies where it fell, can do nothing and is shot at by nothing, and dies thirty seconds later unless a crewmate standing beside it brings it round — ten seconds with hands on, a medic's four. It gets up at three tenths of its bar and walks thirty per cent slower for the rest of the mission. A piece at nothing is broken for the rest of the mission and whole again at the next.";
 
-// --- what is killing it -----------------------------------------------------
+// --- down, and the revive (task 120) -----------------------------------------
 //
-// The peril block under the health bar: the one thing on the panel that
-// answers "what is this Bim dying of *now*", with the rate it is dying
-// at and how long it has at that rate. The words are here; the sums are
-// `crew::perils`, off the room's own constants.
+// The block under the health bar: the one framed thing on the panel, for
+// a body that is down with the countdown running, and a line under it
+// for one that was down this mission and walks slower for it. The words
+// are here; the numbers are the room's (`bims::health`).
 
-/// The headline over the block. The first is for a body in a dying
-/// state — the red one, the one the cross on the deck marks, the one a
-/// medkit is the answer to. The second is
-/// for a body that is only losing blood through wounds a bandage
-/// closes: the same block and the same countdown, in the caution
-/// colour, because a scratch that would empty it in ten hours is worth
-/// a number and not a fright.
-pub const PERIL_HEAD: &str = "DYING OF";
-pub const PERIL_HEAD_HURT: &str = "LOSING";
-/// A body losing blood faster than it makes it: the wounds and the
-/// untreated traumas together.
-pub const PERIL_BLEEDING: &str = "Blood loss";
-/// What it wants done about it: a medkit where a trauma bleeds, a bandage
-/// where only wounds do.
-pub const PERIL_BLEED_MEDKIT: &str = "A crewmate with a medkit, then a bandage on the rest.";
-pub const PERIL_BLEED_BANDAGE: &str = "A bandage on each part closes the wounds.";
-/// The line under a body that is in a dying state but losing nothing —
-/// a concussion, broken ribs, a shattered knee. It will not die of it,
-/// and saying so is the point of the line.
-pub const PERIL_STABLE: &str = "Not losing blood — it will hold until a medkit reaches it.";
-/// How long it has left, when the rate says.
-pub fn peril_left(span: &str) -> String {
-    format!("{span} left at this rate")
+/// The headline over the block while the body is down.
+pub const DOWNED_HEAD: &str = "DOWNED";
+/// How long it has, counting down.
+pub fn downed_left(seconds: f32) -> String {
+    format!("dies in {} s", seconds.ceil().max(0.0) as u32)
 }
-/// One row of the block: where the loss is coming from, and how much.
-pub fn peril_from(what: &str, an_hour: f32) -> String {
-    format!("{what} · {} an hour", (an_hour.round() as i64))
+/// What brings it back.
+pub fn downed_remedy() -> String {
+    format!(
+        "A crewmate standing beside it brings it round — {} seconds with hands on, a medic's {}.",
+        bims::health::REVIVE_SECONDS.round() as u32,
+        world::class::MEDIC_REVIVE_SECONDS.round() as u32
+    )
 }
-/// What open wounds on one part are called in that list.
-pub fn peril_wounds(part: &str, n: u32) -> String {
-    if n == 1 {
-        format!("{part} · 1 open wound")
-    } else {
-        format!("{part} · {n} open wounds")
-    }
+/// Who is at it, while somebody is.
+pub fn downed_reviver(who: &str) -> String {
+    format!("{who} is bringing it round.")
 }
-/// The total across the top of the block.
-pub fn peril_rate(an_hour: f32) -> String {
-    format!("{} blood an hour", an_hour.round() as i64)
+pub const DOWNED_TIP: &str = "At nothing a Bim goes down: it lies where it fell, can do nothing, and nothing shoots at it. Unless a crewmate revives it by standing beside it it dies when the countdown runs out. Revived, it gets up at three tenths of its bar and walks thirty per cent slower for the rest of the mission.";
+/// The line under the bar of a Bim that was downed this mission.
+pub fn slowed_note() -> String {
+    format!(
+        "Was down this mission: walks {}% slower until it ends.",
+        ((1.0 - bims::health::DOWNED_PACE) * 100.0).round() as u32
+    )
+}
+/// A Bim under [`bims::health::BLEEDS_UNDER`]: bleeding on the deck.
+pub const BADLY_HURT: &str = "Badly hurt — bleeding";
+/// What a dead body says under its name.
+pub fn died_line(name: &str) -> String {
+    format!("{name} has died.")
 }
 
-/// What a dead body says it died of. Nothing records a cause of death,
-/// so this reads it off the body the same way a person would: no blood
-/// left is the death a fight deals, and the head and the body both at
-/// nothing with no trauma on either — a body killed outright — is said
-/// as no more than that.
-pub const DEATH_BLED_OUT: &str = "Bled out.";
-pub const DEATH_OTHER: &str = "Dead.";
+/// The revive row on the menu over a crewmate's body, and why it is
+/// greyed when it is.
+pub const REVIVE_ROW: &str = "Revive";
+pub fn revive_hint(seconds: f32) -> String {
+    format!("walk over and bring them round — {seconds:.0} seconds with hands on")
+}
+pub const REVIVE_NOT_DOWN: &str = "only a downed crewmate can be revived";
+pub const REVIVE_YOURSELF: &str = "nobody revives themselves — a crewmate has to";
+pub const REVIVE_CARRIED: &str = "not while somebody is carrying them — set them down first";
+pub fn revive_taken(who: &str) -> String {
+    format!("{who} is already bringing them round")
+}
+/// The countdown's seconds over a downed body on the deck.
+pub fn downed_seconds(seconds: f32) -> String {
+    format!("{}", seconds.ceil().max(0.0) as u32)
+}
 
-pub const PERIL_TIP: &str = "What is taking this Bim down right now, and how long it has at that rate. Blood runs out through every open wound — ten an hour each — and through every untreated trauma that bleeds, and at nothing left the Bim is dead; a medkit ends a trauma, a bandage closes the wounds on a part. The countdown assumes nothing changes — a bandage or a medkit moves it at once.";
-
-/// Feature 87: the dressings are in the pack, and a box of them has a
-/// row of its own.
-pub const NO_BANDAGE: &str =
-    "no bandages in the pack — each comes back thirty seconds after it was used";
-/// Why a Treat row is greyed when the helper has no medkit: a medkit is a
-/// charge in each crew member's own pack.
-pub const NO_MEDKIT: &str =
-    "no medkit in the pack — a spent one comes back forty seconds later, a medic's thirty";
-pub const BANDAGE_ALL_HINT: &str =
-    "one dressing a wounded part, the worst first and the rest queued behind it";
-pub const BANDAGE_ALL_ROW: &str = "Bandage all wounds";
-pub const BANDAGE_ALL_WHOLE: &str = "nothing open on this Bim";
-/// The two dressing buttons on the hero panel, beside the bandage box:
-/// one bandage on your own Bim's worst-wounded part, and every wound.
-pub const BANDAGE_ONE_BUTTON: &str = "Bandage";
-pub const BANDAGE_ONE_HINT: &str = "one dressing on your own Bim's worst-wounded part";
-pub const BANDAGE_ALL_BUTTON: &str = "Bandage all";
-
-/// Why a Bandage row is greyed when the helper cannot do it: the crew
-/// member you steer is dead, out cold, or outside in a suit.
+/// Why a Revive row is greyed when the helper cannot do it: the crew
+/// member you steer is dead, down, or outside in a suit.
 pub const HELPER_OUT: &str = "not from where the Bim is";
 
 /// The greyed line under a fixture menu's rows while the Bim has
@@ -3098,7 +2936,7 @@ pub const SHIFT_LATER: &str = "Shift-click: afterwards";
 pub const SHIFT_LATER_HINT: &str =
     "a row or a spot on the deck given with Shift waits its turn behind what the Bim is on";
 
-/// Why a Bandage row is greyed for a patient outside in a suit: nobody
+/// Why a Revive row is greyed for a patient outside in a suit: nobody
 /// can walk to it there.
 pub const PATIENT_OUT: &str = "not while the patient is outside — it comes in first";
 
@@ -3354,12 +3192,15 @@ pub fn locked_tip() -> String {
 /// indexed by `physics::ResourceId`. A piece of armour's numbers are put
 /// after its line by the grid, off the piece itself.
 pub const ITEM_TIPS: [&str; 22] = [
-    "A vegetable off the bay. Two of them make a stew, and two make a medkit at the drug lab.",
+    "A vegetable off the bay.",
     "A block of tofu, pressed from soy.",
     "A pressure suit, for a walk outside.",
     "A laser handgun. Bought at a trader.",
-    "A medkit, the one thing that gets a crewmate out of a dying state — every trauma on the body at once. Everybody carries one, a medic four, and a spent one comes back into the pack forty seconds later, a medic's thirty.",
-    "A bandage. Closes every wound on one part of a body. Five to a box: everybody carries five, a medic ten, each back thirty seconds after it is used.",
+    // The medkit and the bandage are still resources — the trade's book
+    // has a row for each — but nothing uses either since task 120: a
+    // downed crewmate is revived by hand.
+    "A medkit. Nothing uses one any more: a downed crewmate is revived by a crewmate standing beside it.",
+    "A bandage. Nothing uses one any more: a downed crewmate is revived by a crewmate standing beside it.",
     "A basic helm, for the head. Bought at a trader.",
     "Basic kevlar, for the body. Bought at a trader.",
     "Basic leg guards. Bought at a trader.",
@@ -3396,7 +3237,7 @@ pub const HIRE_BUTTON: &str = "Hire";
 pub const HIRE_TIP: &str = "A mercenary lives at a friendly station and is for hire: the fee is a month of them, paid now and again every month after out of the crew's money, and it is what they carry — a heavier gun and a piece of armour each cost more. Hiring wants the Bim shown within two tiles of them (opening this walks it over) and the money for the first month. A month the money will not cover has them walk off at the next berth, for hire again.";
 /// A mercenary hired for its trade rather than its gun (feature 86).
 pub const FIELD_MEDIC: &str = "Field medic";
-pub const FIELD_MEDIC_TIP: &str = "A field medic is hired to save your crew, not to win the fight. Under arms it keeps to the far end of its weapon's reach, fetches whoever goes down out of the fire — in its arms, at half pace, holding its fire — sets them down where it is quiet, and treats them there. It carries a medic's four medkits and ten bandages, a spent medkit back in thirty seconds where anybody else's takes forty. It has none of a medic's own skills: the premium on the month is the trade.";
+pub const FIELD_MEDIC_TIP: &str = "A field medic is hired to save your crew, not to win the fight. Under arms it keeps to the far end of its weapon's reach, fetches whoever goes down out of the fire — in its arms, at half pace, holding its fire — sets them down where it is quiet, and revives them there — in a medic's four seconds, where anybody else takes ten. It has none of a medic's own skills: the premium on the month is the trade.";
 pub const BROKE_HINT: &str = "not the money for the first month";
 pub const MERCENARY_MARK: &str = "?";
 
@@ -3404,8 +3245,7 @@ pub const MERCENARY_MARK: &str = "?";
 /// guns, the armour and the medicine here are dearer than they are
 /// anywhere quieter, and how much dearer is how near the machines are.
 /// `front_premium` takes the hops.
-pub const FRONT_PREMIUM_TIP: &str =
-    "Weapons, armour, medkits and bandages are dearer this near the machines.";
+pub const FRONT_PREMIUM_TIP: &str = "Weapons and armour are dearer this near the machines.";
 pub fn front_premium(hops: u16) -> String {
     match hops {
         1 => "Front prices · the infection is one hop away".to_string(),
@@ -3521,40 +3361,37 @@ mod tests {
         assert_eq!(crew_name(1), "Kate");
     }
 
-    /// The medicine's words spell the numbers out — one medkit and five
-    /// bandages, a medic's four and ten, forty seconds (a medic's medkit
-    /// thirty) and thirty — so a change to the rules' numbers has to come
-    /// here as well.
+    /// The revive's words spell the numbers out — thirty seconds down,
+    /// ten to revive, a medic's four, three tenths of the bar back and
+    /// thirty per cent slower after (task 120) — so a change to the
+    /// rules' numbers has to come here as well.
     #[test]
-    fn the_medicine_s_words_say_the_rules_numbers() {
-        use world::class as c;
-        assert_eq!(
-            (c::MEDKIT_CHARGES, c::MEDIC_MEDKIT_CHARGES),
-            (1, 4),
-            "{MEDKIT_BOX_TIP}"
-        );
-        assert_eq!(
-            (c::BANDAGE_CHARGES, c::MEDIC_BANDAGE_CHARGES),
-            (5, 10),
-            "{BANDAGE_BOX_TIP}"
-        );
+    fn the_revive_s_words_say_the_rules_numbers() {
+        use bims::health as h;
         assert_eq!(
             (
-                c::MEDKIT_COOLDOWN,
-                c::MEDIC_MEDKIT_COOLDOWN,
-                c::BANDAGE_COOLDOWN
+                h::DOWNED_SECONDS,
+                h::REVIVE_SECONDS,
+                world::class::MEDIC_REVIVE_SECONDS
             ),
-            (40.0, 30.0, 30.0)
+            (30.0, 10.0, 4.0)
         );
-        for words in [MEDKIT_BOX_TIP, NO_MEDKIT, FIELD_MEDIC_TIP] {
+        assert_eq!((h::REVIVED_TO, h::DOWNED_PACE), (0.3, 0.7));
+        assert_eq!(h::BLEEDS_UNDER, 20.0);
+        for words in [HEALTH_TIP, DOWNED_TIP] {
             assert!(
-                words.contains("forty") && words.contains("thirty"),
+                words.contains("three tenths") && words.contains("thirty per cent"),
                 "{words}"
             );
         }
-        for words in [BANDAGE_BOX_TIP, NO_BANDAGE] {
-            assert!(words.contains("thirty seconds"), "{words}");
-        }
+        assert!(HEALTH_TIP.contains("ten seconds") && HEALTH_TIP.contains("four"));
+        assert!(HEALTH_TIP.contains("twenty") && CRITICAL_TIP.contains("twenty"));
+        assert!(FIELD_MEDIC_TIP.contains("four seconds") && FIELD_MEDIC_TIP.contains("ten"));
+        assert_eq!(downed_short(29.2), "DOWNED — dies in 30 s");
+        assert_eq!(
+            slowed_note(),
+            "Was down this mission: walks 30% slower until it ends."
+        );
     }
 
     #[test]
@@ -3920,50 +3757,23 @@ mod tests {
         // --- every_part_of_a_body_has_a_name ---
         {
             // `CrewHit` carries the part as a code, and the hit line runs it
-            // into a sentence; the bandage menu names the same three.
+            // into a sentence.
             assert_eq!(BODY_PART_NAMES.len(), bims::health::Part::ALL.len());
             for part in bims::health::Part::ALL {
                 assert!(!body_part_name(part.code()).is_empty());
             }
         }
 
-        // --- every_trauma_has_a_name_and_a_line_and_the_events_say_them ---
+        // --- a_body_down_and_brought_round_are_said ---
         {
-            use bims::health::Trauma;
-            assert_eq!(TRAUMA_NAMES.len(), Trauma::ALL.len());
-            assert_eq!(TRAUMA_LINES.len(), Trauma::ALL.len());
-            assert_eq!(TRAUMA_AFTER.len(), Trauma::ALL.len());
-            assert_eq!(TRAUMA_LASTING.len(), Trauma::ALL.len());
-            for t in Trauma::ALL {
-                assert!(!trauma_name(t.code()).is_empty());
-                assert!(!trauma_line(t.code()).is_empty());
-                // What is said to linger is what the rules say lingers: a leg
-                // lost for ever, or a lasting penalty.
-                assert_eq!(
-                    trauma_after(t.code()).is_empty(),
-                    t.after().is_none() && !t.loses_leg(),
-                    "{t:?}"
-                );
-                assert_eq!(
-                    trauma_lasting(t.code()).is_empty(),
-                    t.after().is_none(),
-                    "{t:?}"
-                );
-                assert!(
-                    event_line(WorldEvent::CrewDying {
-                        who: 0,
-                        trauma: t.code()
-                    })
-                    .is_some()
-                );
-                assert!(
-                    event_line(WorldEvent::CrewTreated {
-                        who: 0,
-                        trauma: t.code()
-                    })
-                    .is_some()
-                );
-            }
+            assert!(
+                event_line(WorldEvent::CrewDowned { who: 0 })
+                    .is_some_and(|line| line.contains("is down!"))
+            );
+            assert!(
+                event_line(WorldEvent::CrewRevived { who: 0, by: 1 })
+                    .is_some_and(|line| line.contains("brought") && line.contains("round"))
+            );
         }
     }
 

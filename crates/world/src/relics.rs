@@ -56,7 +56,7 @@ impl World {
         self.run.won
     }
 
-    /// Whether another player's Bim than `who` is down — out cold, alive.
+    /// Whether another player's Bim than `who` is down — downed, alive.
     fn other_player_down(&self, who: u32) -> bool {
         let crew = self.aboard.crew_count();
         (0..self.players().min(crew)).any(|s| {
@@ -89,8 +89,7 @@ impl World {
     }
 
     /// What a crew member's relics do to its skill (`World::skill_of`):
-    /// the damage, the odds, the pace, the armour, what a medkit puts
-    /// back, and the overcharge. The skill as it was for anybody holding
+    /// the damage, the odds, the pace, the armour and the overcharge. The skill as it was for anybody holding
     /// nothing.
     pub(super) fn lift_by_relics(&self, who: u32, skill: &mut bims::combat::Skill) {
         let held = self.relics_of(who);
@@ -103,7 +102,6 @@ impl World {
         skill.accuracy *= f(Stat::Accuracy);
         skill.walk *= f(Stat::MoveSpeed);
         skill.armour_protection *= f(Stat::Armour);
-        skill.healing *= f(Stat::HealingReceived);
         let (every, damage) = relic::overcharge(held);
         skill.overcharge = every;
         skill.overcharge_damage = damage;
@@ -529,7 +527,7 @@ impl World {
             }
             Action::CooldownsLess { seconds } => self.cooldowns_less(who, seconds),
             Action::Untouchable { seconds } => {
-                self.aboard.room.set_surge(who as usize, seconds, false);
+                self.aboard.room.set_surge(who as usize, seconds);
                 true
             }
             // Task 118's.
@@ -570,9 +568,6 @@ impl World {
         let mut any = false;
         if let Some(timers) = self.charge_timers.get_mut(who as usize) {
             for charge in Charge::ALL {
-                if charge.everybody() {
-                    continue;
-                }
                 if let Some(began) = timers[charge.code() as usize].as_mut() {
                     *began -= minutes;
                     any = true;

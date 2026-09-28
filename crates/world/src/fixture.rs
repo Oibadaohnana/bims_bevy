@@ -94,8 +94,8 @@ pub const REFERENCE_STEPS: u32 = 600;
 /// origin and the galaxy and is not in there — and the machines' hold on
 /// a system's stations filed with the rest of that system's memory.
 /// And again when the medicine became everybody's charges on a cooldown
-/// (`crate::class::Charge::{Medkit, Bandage}`): `World::charge_timers` is
-/// five a crew member, and the hold no longer fills anybody's pack.
+/// (`crate::class::Charge::{Medkit, Bandage}` until task 120 took them
+/// away): the hold no longer fills anybody's pack.
 /// And again for a run (feature 102): the world's four switches hashed at
 /// the end, the hostile list empty with every human friendly, the crisis
 /// there from day nought, and the room's needs standing still.
@@ -170,7 +170,14 @@ pub const REFERENCE_STEPS: u32 = 600;
 /// hashed. Nothing else of the task moved it — with the speed alone, and
 /// the experience left as it was, the new number came out the same.
 /// Was `0x_1015_15d4_3b34_cfaa`.
-pub const REFERENCE_CHECKSUM: u64 = 0x_bdf6_e347_2c87_400a;
+/// And for the health rework (task 120), **a change meant to alter how a
+/// run plays**: one bar of hit points where there was blood, wounds and
+/// traumas, a downed body's countdown and the slow a downing leaves hashed
+/// where the fear was, no medicine charges on anybody (their timers gone),
+/// no drug lab or medicine aboard the playtest ship (another design hash),
+/// and every hit that takes hit points a splash on the room's stream.
+/// Was `0x_bdf6_e347_2c87_400a`.
+pub const REFERENCE_CHECKSUM: u64 = 0x_ee0a_ea07_0be0_41fb;
 
 /// A world with the flyable fixture docked at the simulation's spawn: the
 /// default seed's first dock, which is where every fixture world starts.
@@ -400,12 +407,10 @@ impl Survivors {
             self.eat_f(at.y as f64);
             self.eat(room.is_alive(who) as u64);
             self.eat(room.is_down(who) as u64);
-            self.eat_f(room.blood(who) as f64);
-            for part in bims::health::Part::ALL {
-                self.eat_f(room.part_health(who, part) as f64);
-                self.eat(room.wounds(who, part) as u64);
-                self.eat_debug(&room.trauma(who, part));
-            }
+            // One bar and the downed countdown since task 120, where the
+            // blood and each part's health, wounds and trauma were.
+            self.eat_f(room.health(who) as f64);
+            self.eat_debug(&room.down_left(who));
             self.eat_debug(&room.gear(who));
         }
         self.eat(room.droid_count() as u64);

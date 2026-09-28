@@ -358,10 +358,8 @@ pub fn world_checksum(world: &World) -> u64 {
     }
 
     // The medics (feature 76): who each beam holds, each surge's charge
-    // on the clock's grid, the field surgery this fight, and — the
-    // room's, read off it like the brace — the seconds each body's surge
-    // has left, to a hundredth. A patient held is a different fight
-    // from one bleeding.
+    // on the clock's grid, and — the room's, read off it like the brace —
+    // the seconds each body's surge has left, to a hundredth.
     hash.eat(world.medics.len() as u64);
     for medic in &world.medics {
         hash.eat(medic.patients.len() as u64);
@@ -369,12 +367,10 @@ pub fn world_checksum(world: &World) -> u64 {
             hash.eat(p as u64);
         }
         hash.eat_rounded(medic.charge, FINE_GRID);
-        hash.eat(u64::from(medic.field_surgery_used));
     }
     for who in 0..crew {
         hash.eat(u64::from(world.aboard.room.is_surging(who)));
         hash.eat_rounded(world.aboard.room.surge_left(who) as f64, HEALTH_GRID);
-        hash.eat(u64::from(world.aboard.room.surge_closing(who)));
     }
 
     // The tanks (feature 77): when each last taunted, on the clock's
@@ -447,10 +443,12 @@ pub fn world_checksum(world: &World) -> u64 {
             hash.eat(tile.1 as i64 as u64);
         }
     }
-    // And the seconds each body has been dying with an enemy about,
-    // which is what a commander's aura buys it (`bims::bim::Bim::fear`).
+    // And each body's downed countdown and the slow a downing left
+    // (task 120): what decides when a body dies and how fast it walks.
     for who in 0..crew {
-        hash.eat_rounded(world.aboard.room.fear(who) as f64, HEALTH_GRID);
+        let left = world.aboard.room.down_left(who as usize).unwrap_or(-1.0);
+        hash.eat_rounded(left as f64, HEALTH_GRID);
+        hash.eat(u64::from(world.aboard.room.was_downed(who as usize)));
     }
     // And who has whom in their arms (feature 86): a carry stands one
     // body where another walks and holds both their fire, so it is as

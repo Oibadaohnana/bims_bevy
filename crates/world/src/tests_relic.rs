@@ -564,10 +564,7 @@ fn the_stat_relics_move_the_stat_they_name() {
         a.accuracy * f(data::STEADY_GRIP_ACCURACY_PERCENT)
     ));
     let (a, b) = skill_with(Relic::TraumaKit);
-    assert!(close(
-        b.healing,
-        a.healing * f(data::TRAUMA_KIT_HEALING_PERCENT)
-    ));
+    assert!(close(b.revive, a.revive - data::TRAUMA_KIT_REVIVE_SECONDS));
     let (a, b) = skill_with(Relic::OverchargeCell);
     assert_eq!(
         (a.overcharge, b.overcharge),
@@ -588,15 +585,14 @@ fn the_stat_relics_move_the_stat_they_name() {
 }
 
 /// **Coolant Loop** shortens the class's cooldowns — a grenade, a taunt, a
-/// rally — and never the medicine.
+/// rally.
 #[test]
-fn coolant_loop_shortens_the_class_s_cooldowns_and_not_the_medicine() {
+fn coolant_loop_shortens_the_class_s_cooldowns() {
     let mut world = crewed_world(flyer(2), REFERENCE_MONEY, 3, 3);
     world.set_class(0, Class::Soldier).unwrap();
     world.set_class(1, Class::Tank).unwrap();
     world.set_class(2, Class::Commander).unwrap();
     let grenade = world.charge_cooldown(0, Charge::Grenade);
-    let medkit = world.charge_cooldown(0, Charge::Medkit);
     let taunt = world.taunt_cooldown(1);
     let rally = world.rally_cooldown(2);
     for slot in 0..3 {
@@ -604,7 +600,6 @@ fn coolant_loop_shortens_the_class_s_cooldowns_and_not_the_medicine() {
     }
     let f = relic::factor(-data::COOLANT_LOOP_COOLDOWN_PERCENT);
     assert!((world.charge_cooldown(0, Charge::Grenade) - grenade * f).abs() < 1e-9);
-    assert_eq!(world.charge_cooldown(0, Charge::Medkit), medkit);
     assert!((world.taunt_cooldown(1) - taunt * f).abs() < 1e-9);
     assert!((world.rally_cooldown(2) - rally * f).abs() < 1e-9);
 }
@@ -830,4 +825,30 @@ fn the_host_s_pool_and_the_relics_effects_are_the_same_on_every_client() {
         assert!(host_pool.contains(&r), "only the host's relics: {r:?}");
     }
     assert_eq!(world_checksum(a), world_checksum(b));
+}
+
+/// **Trauma Kit** (task 120): its carrier's revives of a crewmate are two
+/// seconds quicker — ten to eight, a medic's four to two — and no revive
+/// is ever under a second.
+#[test]
+fn trauma_kit_takes_two_seconds_off_a_revive_and_never_under_one() {
+    let mut world = crewed_world(flyer(2), REFERENCE_MONEY, 2, 2);
+    assert_eq!(world.revive_seconds(0), 10.0);
+    world.give_relic_for_probe(0, Relic::TraumaKit);
+    assert_eq!(world.revive_seconds(0), 8.0);
+    assert_eq!(world.revive_seconds(1), 10.0, "the carrier's alone");
+    world.set_class(1, Class::Medic).unwrap();
+    assert_eq!(world.revive_seconds(1), 4.0);
+    world.give_relic_for_probe(1, Relic::TraumaKit);
+    assert_eq!(world.revive_seconds(1), 2.0);
+    // The room is handed it on the helper's skill.
+    world.step(&[]);
+    assert_eq!(world.aboard.room.skill_for_probe(0).revive, 8.0);
+    assert_eq!(world.aboard.room.skill_for_probe(1).revive, 2.0);
+    // The floor: nothing brings a revive under a second.
+    assert_eq!(
+        crate::class::revive_time(true, 3.5),
+        data::REVIVE_FLOOR_SECONDS
+    );
+    assert_eq!(crate::class::revive_time(false, 20.0), 1.0);
 }

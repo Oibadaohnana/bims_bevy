@@ -192,18 +192,31 @@ fn commands() -> Vec<(&'static str, u64)> {
 /// `0x_ff5f_353f_2c2b_41e4`, `0x_eb66_c363_5af3_b9a2`,
 /// `0x_da90_308b_cddb_d152`, `0x_809f_8d4d_c22a_3798` and
 /// `0x_a4e9_578d_80d0_3102`.
+///
+/// **All eleven moved again, on purpose**: task 120's health rework. A
+/// body is one bar of hit points now — no blood, no wounds, no traumas, no
+/// bandage or medkit — downed at nought and dead thirty seconds later
+/// unless revived, and the reading takes a body's health as that bar and
+/// its countdown where it took the blood and the parts. So every fight
+/// is fought on other numbers, the drug lab is off the playtest ship, and
+/// the medicine is out of every pack. They were `0x_97f1_bc58_be4b_3934`,
+/// `0x_0342_a7aa_dddd_ee12`, `0x_b1eb_4f60_28a6_a0ab`,
+/// `0x_cf1d_e29c_baeb_ef27`, `0x_498b_db72_80bb_60ea`,
+/// `0x_cdcd_f1e3_0d39_a470`, `0x_c492_6d86_74bd_bb05`,
+/// `0x_5b55_867b_fa3d_10a4`, `0x_d1c5_f4e7_b7d6_820f`,
+/// `0x_f4ba_4e20_6eee_6acb` and `0x_b77c_ecb6_e0f6_2c3a`.
 const PINNED: [(&str, u64); 11] = [
-    ("simulation", 0x_97f1_bc58_be4b_3934),
-    ("game", 0x_0342_a7aa_dddd_ee12),
-    ("droids", 0x_b1eb_4f60_28a6_a0ab),
-    ("tier2_test", 0x_cf1d_e29c_baeb_ef27),
-    ("combat_droids_medic", 0x_498b_db72_80bb_60ea),
-    ("test", 0x_cdcd_f1e3_0d39_a470),
-    ("test_planet", 0x_c492_6d86_74bd_bb05),
-    ("droids_planet", 0x_5b55_867b_fa3d_10a4),
-    ("defense", 0x_d1c5_f4e7_b7d6_820f),
-    ("crisis", 0x_f4ba_4e20_6eee_6acb),
-    ("jammer", 0x_b77c_ecb6_e0f6_2c3a),
+    ("simulation", 0x_99c9_324d_6ab6_208a),
+    ("game", 0x_d30e_877d_b1e4_5020),
+    ("droids", 0x_7122_55ef_2011_e57f),
+    ("tier2_test", 0x_09bb_2ad9_b012_ca13),
+    ("combat_droids_medic", 0x_3cce_d174_8375_71d0),
+    ("test", 0x_a47e_3196_aa47_069a),
+    ("test_planet", 0x_c6ba_960c_ef87_9b8b),
+    ("droids_planet", 0x_7086_fe1a_a578_b006),
+    ("defense", 0x_a471_03e9_1bfb_6f17),
+    ("crisis", 0x_0050_4e32_409e_6da9),
+    ("jammer", 0x_acb8_1d88_be11_b1a0),
 ];
 
 /// **Every command plays as it did**: each session the app builds, read
@@ -300,11 +313,18 @@ fn pictures() -> Vec<(&'static str, u64)> {
 /// another place, drawn by the same drawing (the designer's two pictures,
 /// which no galaxy reaches, did not move). They were
 /// `0x_189b_b6fc_1f93_b38b` and `0x_c4ed_495a_3d48_134b`.
+///
+/// Both decks moved again for task 120's health rework: the playtest ship
+/// has no drug lab (a part off the hull), and the fight on `droids` is
+/// fought on one bar of hit points, with the blood on the deck only where
+/// a hit took some and a body under twenty drips — another fight, drawn by
+/// the same drawing. The designer's two pictures did not move. They were
+/// `0x_3247_8062_1db9_2394` and `0x_e514_6179_ca55_7e04`.
 const PICTURES: [(&str, u64); 4] = [
     ("designer_playtest", 0x_9b08_8f44_06ad_4414),
     ("designer_combat", 0x_157a_1c34_2e97_18e0),
-    ("simulation_deck", 0x_3247_8062_1db9_2394),
-    ("droids_deck", 0x_e514_6179_ca55_7e04),
+    ("simulation_deck", 0x_6b2e_903e_8707_0b74),
+    ("droids_deck", 0x_51f1_540c_3428_328a),
 ];
 
 #[test]

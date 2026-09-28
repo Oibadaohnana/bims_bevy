@@ -200,7 +200,7 @@ fn a_wreck_is_down_carries_nothing_and_is_worth_fifteen_once() {
     // Down for everything that asks.
     assert!(room!(world).is_down(0), "a wreck is down");
     assert!(!room!(world).is_alive(0));
-    assert!(!room!(world).is_unconscious(0), "and never out cold");
+    assert!(!room!(world).is_downed(0), "and never out cold");
 
     // Stand the crew member next to it so the experience is in range,
     // and step: `XP_ENEMY_DOWN` and `XP_ENEMY_DEAD` together (task 119), once.
@@ -255,7 +255,7 @@ fn the_unmaker_strips_an_unbroken_piece_and_a_bare_part_takes_the_damage() {
             ..gear
         },
     );
-    let body_before = room.part_health(0, bims::health::Part::Body);
+    let body_before = room.health(0);
     let strips = WeaponKind::Unmaker.stats().strips;
 
     room.strip_for_probe(0, bims::health::Part::Body, 6.0, strips);
@@ -267,22 +267,13 @@ fn the_unmaker_strips_an_unbroken_piece_and_a_bare_part_takes_the_damage() {
         worn.health
     );
     // ...and the part under it took nothing.
-    assert_eq!(
-        room.part_health(0, bims::health::Part::Body),
-        body_before,
-        "the part is untouched"
-    );
-    assert_eq!(room.wounds(0, bims::health::Part::Body), 0, "and unwounded");
+    assert_eq!(room.health(0), body_before, "the part is untouched");
 
     // A **bare** part takes the plain damage instead.
     let mut bare = bims::game::Game::bare(7, 800.0, 600.0);
-    let was = bare.part_health(0, bims::health::Part::Legs);
+    let was = bare.health(0);
     bare.strip_for_probe(0, bims::health::Part::Legs, 4.0, strips);
-    assert_eq!(
-        bare.part_health(0, bims::health::Part::Legs),
-        was - 4.0,
-        "a bare part takes the damage"
-    );
+    assert_eq!(bare.health(0), was - 4.0, "a bare part takes the damage");
 
     // And a tier scales the strip the way it scales the damage.
     let one = WeaponKind::Unmaker.basic().stats();
@@ -305,10 +296,10 @@ fn a_broken_piece_is_no_shield_and_the_part_takes_the_damage() {
             ..gear
         },
     );
-    let was = room.part_health(0, bims::health::Part::Body);
+    let was = room.health(0);
     room.strip_for_probe(0, bims::health::Part::Body, 5.0, 30.0);
     assert_eq!(
-        room.part_health(0, bims::health::Part::Body),
+        room.health(0),
         was - 5.0,
         "a broken piece strips nothing and shields nothing"
     );

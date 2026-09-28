@@ -33,9 +33,10 @@ pub const DEFEND: egui::Color32 = egui::Color32::from_rgb(0x6f, 0xa8, 0xe8);
 /// A medic's heal beam and the surge on a body (feature 76): a pale
 /// healing green, the room's own `character::SURGE`.
 pub const HEAL: egui::Color32 = egui::Color32::from_rgb(0x8c, 0xf2, 0xbf);
-/// The red of the cross over a dying Bim and of the peril block on its
-/// panel: a proper signal red rather than the palette's salmon [`BAD`],
-/// because a cross on a lit deck has to be picked out across the room
+/// The red of the countdown ring over a downed Bim and of the downed
+/// block on its panel: a proper signal red rather than the palette's
+/// salmon [`BAD`], because a ring on a lit deck has to be picked out
+/// across the room
 /// rather than merely noticed once the eye is already on it.
 pub const DYING: egui::Color32 = egui::Color32::from_rgb(0xe8, 0x2a, 0x24);
 /// Armour: the blue on the end of a health bar, and a piece's own health
@@ -184,11 +185,6 @@ pub fn question_mark(ui: &mut egui::Ui, tip: &str) -> egui::Response {
     ui.add(egui::Button::new(egui::RichText::new("?").small()).min_size(egui::vec2(17.0, 17.0)))
         .on_hover_cursor(egui::CursorIcon::Help)
         .on_hover_text(tip)
-}
-
-/// A bar: a fraction of a strip, with the track behind it.
-pub fn bar(ui: &mut egui::Ui, width: f32, fraction: f32, fill: egui::Color32) -> egui::Response {
-    bar_of_height(ui, width, 8.0, &[(fraction, fill)])
 }
 
 /// A bar in two tones: `first` of the strip in `fill`, and `second` of it
@@ -526,6 +522,25 @@ pub fn heal_beam(painter: &egui::Painter, from: egui::Pos2, to: egui::Pos2, scal
     }
 }
 
+/// A medic's heal beam on itself (task 120): no line to draw, so the
+/// beam's two strokes as a ring hugging the body instead — close in, well
+/// inside a surge's ring, so the two read apart.
+pub fn self_beam(painter: &egui::Painter, at: egui::Pos2, scale: f32) {
+    let radius = (16.0 * scale).clamp(6.0, 22.0);
+    let wide = (4.0 * scale).clamp(2.0, 7.0);
+    let thin = (1.4 * scale).clamp(1.0, 2.5);
+    painter.circle_stroke(
+        at,
+        radius,
+        egui::Stroke::new(wide, HEAL.gamma_multiply(0.22)),
+    );
+    painter.circle_stroke(
+        at,
+        radius,
+        egui::Stroke::new(thin, HEAL.gamma_multiply(0.9)),
+    );
+}
+
 /// The mark on a body a surge is running on (feature 76): a ring in the
 /// beam's green outside the body, wider than the deck's own halo so it
 /// reads at any zoom.
@@ -539,39 +554,65 @@ pub fn surge_mark(painter: &egui::Painter, at: egui::Pos2, scale: f32) {
     );
 }
 
-/// The cross over a Bim in a dying state: a part of it at nothing with
-/// the trauma on it untreated, which is the one condition a crewmate
-/// with a medkit is the answer to. A white disc with a red cross on it,
-/// the medical sign rather than another coloured ring, because every
-/// other mark on this deck is a ring of some colour and this one has to
-/// say *that* one instead of *one of those*. Drawn over the head — the
-/// body itself stays visible — and sized off the zoom but clamped, so it
-/// is still legible with the whole station in view.
-pub fn dying_cross(painter: &egui::Painter, at: egui::Pos2, scale: f32) {
-    let radius = (14.0 * scale).clamp(6.0, 20.0);
+/// The countdown over a downed Bim (task 120): a ring over its head in
+/// the red that empties clockwise from twelve o'clock as the thirty
+/// seconds run out, with the whole seconds left in the middle. `share`
+/// is what is left of the countdown, one the moment it went down and
+/// nought as it dies. A ring rather than a bar because the deck's other
+/// bars are work in hand, and this is the one thing on it that is
+/// running *out*. Drawn over the head — the body itself stays visible —
+/// and sized off the zoom but clamped, so it is still legible with the
+/// whole station in view.
+pub fn downed_ring(painter: &egui::Painter, at: egui::Pos2, scale: f32, share: f32, seconds: &str) {
+    let radius = (12.0 * scale).clamp(7.0, 17.0);
+    let width = (3.0 * scale).clamp(2.0, 4.0);
     let at = egui::pos2(at.x, at.y - (0.6 * NAME_LIFT * scale).clamp(8.0, 34.0));
-    painter.circle_filled(at, radius * 1.12, egui::Color32::from_black_alpha(90));
-    painter.circle_filled(at, radius, egui::Color32::from_rgb(0xf6, 0xf8, 0xf6));
+    countdown_ring(painter, at, radius, width, share);
+    painter.text(
+        at,
+        egui::Align2::CENTER_CENTER,
+        seconds,
+        egui::FontId::proportional((radius * 0.95).max(9.0)),
+        INK,
+    );
+}
+
+/// The ring [`downed_ring`] is drawn with, on its own for the
+/// portraits' corner: a dark disc, the whole ring faint, and what is left
+/// of it bright, the part gone taken off clockwise from the top.
+pub fn countdown_ring(
+    painter: &egui::Painter,
+    at: egui::Pos2,
+    radius: f32,
+    width: f32,
+    share: f32,
+) {
+    painter.circle_filled(
+        at,
+        radius + width * 0.5 + 1.0,
+        egui::Color32::from_black_alpha(170),
+    );
     painter.circle_stroke(
         at,
         radius,
-        egui::Stroke::new((1.5 * scale).clamp(1.0, 2.5), DYING),
+        egui::Stroke::new(width, DYING.gamma_multiply(0.25)),
     );
-    // The cross itself: an arm of the disc across and an arm down, each
-    // rounded, so it reads as the sign and not as a plus.
-    let arm = radius * 0.72;
-    let thick = radius * 0.30;
-    let round = thick * 0.5;
-    painter.rect_filled(
-        egui::Rect::from_center_size(at, egui::vec2(arm * 2.0, thick * 2.0)),
-        round,
-        DYING,
-    );
-    painter.rect_filled(
-        egui::Rect::from_center_size(at, egui::vec2(thick * 2.0, arm * 2.0)),
-        round,
-        DYING,
-    );
+    let share = share.clamp(0.0, 1.0);
+    if share <= 0.0 {
+        return;
+    }
+    let tau = std::f32::consts::TAU;
+    // The screen's y runs down, so a growing angle is clockwise: the arc
+    // left runs from where the gap has reached round to twelve o'clock.
+    let start = -tau / 4.0 + (1.0 - share) * tau;
+    let steps = ((48.0 * share).ceil() as usize).max(2);
+    let points: Vec<egui::Pos2> = (0..=steps)
+        .map(|i| {
+            let a = start + share * tau * i as f32 / steps as f32;
+            at + egui::vec2(a.cos(), a.sin()) * radius
+        })
+        .collect();
+    painter.add(egui::Shape::line(points, egui::Stroke::new(width, DYING)));
 }
 
 /// A tank standing as a wall (feature 77): a thick arc of shield round

@@ -147,7 +147,11 @@ use crate::game::Game;
 /// 49: one speed (task 119) — `world::Speed` is paused or 1× and nothing
 /// else, so a save with a player at 3×, 10×, 24× or the top speed names a
 /// speed that no longer exists.
-pub const SAVE_VERSION: u32 = 49;
+/// 50: the health rework (task 120) — a body is one bar and a downed
+/// countdown where it was parts, blood, wounds and traumas; the medicine
+/// charges, the drug lab and the medic's field surgery went, and a Bim
+/// lost its fear and its sealing in.
+pub const SAVE_VERSION: u32 = 50;
 
 /// What the file holds, read back.
 #[derive(serde::Deserialize)]

@@ -609,8 +609,9 @@ fn hurt(world: &mut World, who: usize, damage: f32) {
 }
 
 /// **Pressure Seal** puts health back all the time, **Clot Booster** for
-/// its seconds after going down, and **Quick Wrap** with every dressing —
-/// hit points, and the blood never touched.
+/// its seconds after going down — once it is revived, a downed body being
+/// healed by nothing else — and **Quick Wrap** with every revive (task
+/// 120: it was every dressing).
 #[test]
 fn pressure_seal_clot_booster_and_quick_wrap_heal_hit_points() {
     // What each of two Bims hurt alike gained over `seconds`: the one
@@ -624,7 +625,6 @@ fn pressure_seal_clot_booster_and_quick_wrap_heal_hit_points() {
     world.give_relic_for_probe(0, Relic::PressureSeal);
     hurt(&mut world, 0, 30.0);
     hurt(&mut world, 1, 30.0);
-    let blood = world.aboard.room.blood(0);
     let [holder, other] = gains(&mut world, 4.0);
     let want = data::PRESSURE_SEAL_HP_PER_SECOND * 4.0;
     assert!(
@@ -632,30 +632,34 @@ fn pressure_seal_clot_booster_and_quick_wrap_heal_hit_points() {
         "{holder} {other} against {want}"
     );
     assert!(other < want / 2.0, "the holder alone");
-    assert!(world.aboard.room.blood(0) <= blood, "never the blood");
 
-    // Quick Wrap: a dressing on itself or a crewmate is health back.
+    // Quick Wrap: a crewmate it revives is health back on top.
     world.give_relic_for_probe(1, Relic::QuickWrap);
     let mut events = Vec::new();
-    for patient in [1, 0] {
-        let before = world.aboard.room.health(patient);
-        world.relic_trigger_on(1, Trigger::Bandaged, Some(patient as u32), &mut events);
-        let gained = world.aboard.room.health(patient) - before;
-        assert!(close(gained, data::QUICK_WRAP_HEAL), "{patient}: {gained}");
-    }
+    let before = world.aboard.room.health(0);
+    world.relic_trigger_on(1, Trigger::Revived, Some(0), &mut events);
+    let gained = world.aboard.room.health(0) - before;
+    assert!(close(gained, data::QUICK_WRAP_HEAL), "{gained}");
 
-    // Clot Booster: health back while down, for its seconds and no longer.
+    // Clot Booster: health back once revived, for its seconds after going
+    // down and no longer.
     let mut world = crewed_world(flyer(2), REFERENCE_MONEY, 2, 2);
     world.give_relic_for_probe(1, Relic::ClotBooster);
     hurt(&mut world, 0, 60.0);
     hurt(&mut world, 1, 60.0);
     let [plain, holder] = gains(&mut world, 2.0);
-    assert!((holder - plain).abs() < 0.01, "nothing on its feet");
+    assert!((holder - plain).abs() < 0.01, "nothing before it went down");
     for who in [0, 1] {
         world.aboard.room.knock_out_for_probe(who);
     }
     world.step(&[]);
     assert!(world.aboard.room.is_down(0) && world.aboard.room.is_down(1));
+    let [plain, holder] = gains(&mut world, 1.0);
+    assert!((holder - plain).abs() < 0.01, "nothing heals a downed body");
+    for who in [0, 1] {
+        world.aboard.room.bring_round(who, bims::health::REVIVED_TO);
+    }
+    world.step(&[]);
     let [plain, holder] = gains(&mut world, 5.0);
     let want = data::CLOT_BOOSTER_HP_PER_SECOND * 5.0;
     assert!(
@@ -663,19 +667,19 @@ fn pressure_seal_clot_booster_and_quick_wrap_heal_hit_points() {
         "{holder} {plain} against {want}"
     );
     run_seconds(&mut world, data::CLOT_BOOSTER_SECONDS);
-    assert!(world.aboard.room.is_down(1), "still down");
     let [plain, holder] = gains(&mut world, 3.0);
     assert!((holder - plain).abs() < 0.01, "its seconds are up");
 }
 
-/// **Tether Field**: a crewmate its holder dresses takes less of every hit
-/// for its seconds — in the room, where the hit lands.
+/// **Tether Field**: a crewmate its holder revives takes less of every hit
+/// for its seconds — in the room, where the hit lands (task 120: it was a
+/// crewmate dressed).
 #[test]
-fn tether_field_shelters_the_crewmate_dressed() {
+fn tether_field_shelters_the_crewmate_revived() {
     let mut world = crewed_world(flyer(2), REFERENCE_MONEY, 2, 2);
     world.give_relic_for_probe(0, Relic::TetherField);
     let mut events = Vec::new();
-    world.relic_trigger_on(0, Trigger::BandagedCrewmate, Some(1), &mut events);
+    world.relic_trigger_on(0, Trigger::Revived, Some(1), &mut events);
     let f = relic::factor(-data::TETHER_FIELD_PERCENT) as f32;
     assert!(close(world.skill_of(1).damage_taken, f));
     assert!(close(world.skill_of(0).damage_taken, 1.0), "the crewmate's");

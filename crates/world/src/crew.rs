@@ -284,7 +284,7 @@ impl Aboard {
     /// this deck as bodies for the doors to open for. They are not in the
     /// room — they walk in their own — but the room draws the doors, and a
     /// resident walking through a shut-looking door would be a door lying.
-    /// And which of them are `down` — dead or out cold in their own room,
+    /// And which of them are `down` — dead or downed in their own room,
     /// index for index — since one that is is a body under a right-click
     /// on this deck (`HIT_VISITOR`), for looting. Told *after* the
     /// positions every time: `set_visitors` clears the flags.
@@ -372,10 +372,9 @@ impl Aboard {
 
     /// Where the crew stand, as the station's people would find them: in
     /// the station's own design units, one an index, `None` for one that
-    /// is dead, out cold — a body down is nobody's target — or outside in
-    /// a suit. **Out cold is half its blood** since feature 89
-    /// (`bims::health::OUT_AT`), so a crew member that bleeds past the
-    /// line drops out of every enemy's list the same step: nobody aims
+    /// is dead, downed — a body down is nobody's target — or outside in
+    /// a suit. A crew member whose bar reaches nothing (task 120) drops
+    /// out of every enemy's list the same step: nobody aims
     /// at it, nobody walks to it, and a hostile room forgets where it
     /// was (`Game::set_hostiles` clears that slot's `last_seen`). On the ship's own deck too, since September 2026: the
     /// residents' room holds the ship as well (`Residents::join`), so its
@@ -391,9 +390,7 @@ impl Aboard {
         }
         (0..self.crew as usize)
             .map(|who| {
-                if !self.room.is_alive(who)
-                    || self.room.is_unconscious(who)
-                    || self.room.is_outside(who)
+                if !self.room.is_alive(who) || self.room.is_downed(who) || self.room.is_outside(who)
                 {
                     return None;
                 }
@@ -636,7 +633,7 @@ pub struct Residents {
     /// than read off the hit — see `World::visit`.
     pub down: Vec<bool>,
     /// Which of them the crew have already been given experience for
-    /// going down — out cold or dead — and for dying, by index, so each
+    /// going down — downed or dead — and for dying, by index, so each
     /// enemy counts once for each (feature 74, `crate::class`).
     pub xp_down: Vec<bool>,
     pub xp_dead: Vec<bool>,
@@ -760,14 +757,6 @@ impl Residents {
                 medic[who as usize] = is_medic;
                 fee[who as usize] = Some(crate::mercenary::priced_as(merc_seed, &gear, is_medic));
             }
-            // And a couple of dressings in its pack, so it can bind a
-            // wound of its own (feature 87). The world keeps no hold for
-            // a station and nobody restocks them, so this is all they
-            // ever have while the room is open — and it is the living
-            // alone: the graves below carry whatever was left on them.
-            aboard
-                .room
-                .give_stack(who as usize, bims::game::BANDAGE, data::RESIDENT_BANDAGES);
         }
         // The dead this station already has, laid where they fell
         // (feature 85): the coverall they wore, what was left on them and
@@ -788,7 +777,9 @@ impl Residents {
                 .room
                 .lay_out_dead(who, vec2(grave.x as f32, grave.y as f32));
         }
-        aboard.room.set_medkits(data::RESIDENT_MEDKITS);
+        // A station's people are not the crew: nobody here revives
+        // anybody of their own accord (task 120).
+        aboard.room.set_revivers(false);
         aboard.room.render();
         // A town is under a sky: its whole ground is lit by day, whatever
         // its lamps reach, and the lamps are for the houses.
@@ -824,8 +815,7 @@ impl Residents {
     /// walk the passage onto the ship: what `World::join_rooms` does to
     /// this room as it makes the crew's. Everybody comes across where
     /// they stood — errands dropped, like the crew's at a dock — with the
-    /// room's own counts: the larder, its targets, the bandages and the
-    /// kits. Nothing happens when the two have no ports to join by.
+    /// room's own counts. Nothing happens when the two have no ports to join by.
     pub fn join(
         &mut self,
         ship: &ShipDesign,
@@ -913,14 +903,12 @@ impl Residents {
     }
 
     /// A fresh room in the old one's place, with what the old room held
-    /// that is not a body's: the medicine, the fog and whether the doors
-    /// are drawn. `down` and `fee` are by index and the indices are kept
-    /// (`adopt` keeps the order).
+    /// that is not a body's: the fog and whether the doors are drawn.
+    /// `down` and `fee` are by index and the indices are kept (`adopt`
+    /// keeps the order).
     fn replace_room(&mut self, mut fresh: Aboard) {
         let old = &self.aboard.room;
-        // The dressings go with the bodies: since feature 87 they are in
-        // the packs, and `adopt` carries a Bim's gear into the new room.
-        fresh.room.set_medkits(old.medkits());
+        fresh.room.set_revivers(false);
         fresh.room.set_fog(old.fog());
         fresh.room.set_doors_drawn(old.doors_drawn());
         fresh.room.render();

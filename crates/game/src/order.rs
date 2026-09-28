@@ -21,7 +21,6 @@
 
 use crate::door;
 use crate::game::{Game, ORDER_IGNORED};
-use crate::health::Part;
 use crate::math::vec2;
 use crate::room::Switch;
 use crate::task::{Kind, Saved};
@@ -70,24 +69,11 @@ pub enum CrewOrder {
     StandDown {
         who: u32,
     },
-    /// Dress every open wound on that part of `patient`.
-    Bandage {
+    /// Revive `patient`, a downed crewmate (task 120): the walk over and
+    /// `who`'s revive time kneeling at it.
+    Revive {
         who: u32,
         patient: u32,
-        part: Part,
-    },
-    /// Dress **every** open wound on `patient`, out of `who`'s own pack
-    /// (feature 87): the worst part now and the rest queued behind it.
-    /// What the pop-up on a box of dressings sends.
-    BandageAll {
-        who: u32,
-        patient: u32,
-    },
-    /// Treat the trauma on that part of `patient` with a medkit.
-    Treat {
-        who: u32,
-        patient: u32,
-        part: Part,
     },
     /// A powered door's switch, walked to.
     Door {
@@ -124,9 +110,7 @@ impl CrewOrder {
     pub fn errand_for(self) -> Option<u32> {
         match self {
             CrewOrder::SendTo { who, .. }
-            | CrewOrder::Bandage { who, .. }
-            | CrewOrder::BandageAll { who, .. }
-            | CrewOrder::Treat { who, .. }
+            | CrewOrder::Revive { who, .. }
             | CrewOrder::Door { who, .. } => Some(who),
             CrewOrder::Select { .. }
             | CrewOrder::SelectOwn
@@ -189,32 +173,10 @@ impl Game {
                 self.stand_down(who(w));
                 0
             }
-            CrewOrder::Bandage {
-                who: w,
-                patient,
-                part,
-            } => {
+            CrewOrder::Revive { who: w, patient } => {
                 if who(w) < self.crew_count() as usize && who(patient) < self.crew_count() as usize
                 {
-                    self.bandage(who(w), who(patient), part);
-                }
-                0
-            }
-            CrewOrder::BandageAll { who: w, patient } => {
-                if who(w) < self.crew_count() as usize && who(patient) < self.crew_count() as usize
-                {
-                    self.bandage_all(who(w), who(patient));
-                }
-                0
-            }
-            CrewOrder::Treat {
-                who: w,
-                patient,
-                part,
-            } => {
-                if who(w) < self.crew_count() as usize && who(patient) < self.crew_count() as usize
-                {
-                    self.treat(who(w), who(patient), part);
+                    self.revive_crewmate(who(w), who(patient));
                 }
                 0
             }
@@ -278,31 +240,10 @@ impl Game {
                 }
                 return self.queue_walk(who(w), vec2(x, y), true);
             }
-            CrewOrder::Bandage {
-                who: w,
-                patient,
-                part,
-            } => (
+            CrewOrder::Revive { who: w, patient } => (
                 w,
-                Kind::Bandage {
+                Kind::Revive {
                     patient: who(patient),
-                    part: part.code(),
-                },
-                0.0,
-            ),
-            // A whole body queues one dressing a part itself, so with
-            // Shift it is the plain order given when its turn comes.
-            CrewOrder::BandageAll { .. } => return self.order(slot, order),
-            CrewOrder::Treat {
-                who: w,
-                patient,
-                part,
-            } => (
-                w,
-                Kind::Treat {
-                    patient: who(patient),
-                    part: part.code(),
-                    bare: false,
                 },
                 0.0,
             ),
@@ -428,27 +369,20 @@ mod tests {
     /// order calls the whole queue off.
     #[test]
     fn a_shift_order_waits_its_turn_and_a_plain_one_calls_the_queue_off() {
-        use crate::game::{JOB_BANDAGE, JOB_WALK};
-        use crate::health::Part;
+        use crate::game::{JOB_REVIVE, JOB_WALK};
         const DT: f32 = 1.0 / 60.0;
         let mut game = room();
         game.set_autonomous(false);
         let start = game.put_for_probe(0, vec2(ROOM_W * 0.3, ROOM_H * 0.5));
 
         // First, an errand queued where there is nothing for it — a
-        // dressing for a body with nothing open on it — is dropped when its turn comes, the way the
-        // row would have refused it, not walked through with empty hands.
-        game.order_later(
-            0,
-            CrewOrder::Bandage {
-                who: 0,
-                patient: 0,
-                part: Part::Body,
-            },
-        );
+        // revive of a crewmate on its feet — is dropped when its turn
+        // comes, the way the row would have refused it, not walked through
+        // with empty hands.
+        game.order_later(0, CrewOrder::Revive { who: 0, patient: 1 });
         assert_eq!(game.ordered_count(0), 1);
         game.simulate(DT);
-        assert_eq!(game.ordered_count(0), 0, "nothing in the pot: dropped");
+        assert_eq!(game.ordered_count(0), 0, "nobody down: dropped");
         assert_eq!(game.activity(0), 0);
         game.order(0, CrewOrder::SelectOwn);
 
@@ -468,16 +402,9 @@ mod tests {
         assert_eq!(walks.len(), 2, "both read off the deck: {walks:?}");
         assert!((walks[0] - a).len() < TILE && (walks[1] - b).len() < TILE);
         assert_eq!(game.agenda_job(0, 0), JOB_WALK);
-        // And a crewmate's wound to dress behind them.
-        game.wound(1, Part::Body, 5.0);
-        game.order_later(
-            0,
-            CrewOrder::Bandage {
-                who: 0,
-                patient: 1,
-                part: Part::Body,
-            },
-        );
+        // And a crewmate downed to revive behind them.
+        game.knock_out_for_probe(1);
+        game.order_later(0, CrewOrder::Revive { who: 0, patient: 1 });
         assert_eq!(game.agenda_len(0), 3);
         assert_eq!(game.ordered_count(0), 3);
 
@@ -500,7 +427,7 @@ mod tests {
             game.destination_for_probe(0)
         );
         assert!(game.queued_walks(0).is_empty());
-        // And there, the dressing is begun the way the row begins one.
+        // And there, the revive is begun the way the row begins one.
         let mut steps = 0;
         while !game.arrived_for_probe(0) && steps < 3000 {
             game.simulate(DT);
@@ -511,12 +438,12 @@ mod tests {
         }
         assert_eq!(
             game.activity(0),
-            JOB_BANDAGE,
-            "off to dress it, once it got there"
+            JOB_REVIVE,
+            "off to revive her, once it got there"
         );
         assert_eq!(game.ordered_count(0), 0);
 
-        // A plain order is the end of what was queued: the dressing is put
+        // A plain order is the end of what was queued: the revive is put
         // down to be picked up (it is the Bim's own work now), the
         // queued walk behind it is not.
         game.order_later(0, CrewOrder::Move { x: a.x, y: a.y });
@@ -532,7 +459,7 @@ mod tests {
             ORDER_MOVING
         );
         assert_eq!(game.ordered_count(0), 0, "the plain walk called it off");
-        assert_eq!(game.agenda_len(0), 1, "the dressing waits to be picked up");
+        assert_eq!(game.agenda_len(0), 1, "the revive waits to be picked up");
         assert!(game.queued_walks(0).is_empty());
         // What is not an errand is done now, Shift or no.
         game.order_later(0, CrewOrder::Autonomous { on: true });

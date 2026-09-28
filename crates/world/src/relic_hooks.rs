@@ -218,12 +218,12 @@ impl World {
             .collect()
     }
 
-    // --- the blood --------------------------------------------------------------
+    // --- the healing ------------------------------------------------------------
 
     /// The health the relics put back this step, after the downs are
     /// settled: *Pressure Seal* all the time a holder is alive, *Clot
-    /// Booster* for its seconds after it went down. Hit points only — never
-    /// the blood.
+    /// Booster* for its seconds after it went down — which a downed body
+    /// takes only once it is revived (task 120).
     pub(crate) fn relics_mend(&mut self) {
         if !self.any_relics() {
             return;
@@ -247,7 +247,7 @@ impl World {
                     seconds,
                 } => Some((hp_per_second, seconds)),
                 _ => None,
-            }) && self.aboard.room.is_down(at)
+            }) && !self.aboard.room.is_down(at)
                 && let Some(since) = self.run.relics.downed_at.get(at).copied().flatten()
                 && now - since < Self::relic_minutes(lasts)
             {
@@ -259,10 +259,10 @@ impl World {
         }
     }
 
-    /// Every dressing the room finished this step, done by a player:
-    /// `Trigger::Bandaged` on its own or a crewmate's (*Quick Wrap*), and
-    /// `Trigger::BandagedCrewmate` on a crewmate's (*Tether Field*).
-    pub(super) fn relics_on_a_dressing(
+    /// Every revive the room finished this step, done by a player:
+    /// `Trigger::Revived` on the crewmate brought round (*Quick Wrap*,
+    /// *Tether Field*, task 120).
+    pub(super) fn relics_on_a_revive(
         &mut self,
         helper: usize,
         patient: usize,
@@ -272,10 +272,7 @@ impl World {
             return;
         }
         let (by, on) = (helper as u32, Some(patient as u32));
-        self.relic_trigger_on(by, Trigger::Bandaged, on, events);
-        if helper != patient {
-            self.relic_trigger_on(by, Trigger::BandagedCrewmate, on, events);
-        }
+        self.relic_trigger_on(by, Trigger::Revived, on, events);
     }
 
     // --- a hit on a machine ---------------------------------------------------------
@@ -591,7 +588,7 @@ impl World {
 
     // --- a crewmate down ------------------------------------------------------------
 
-    /// Which of the crew were down — alive and out cold — before the rooms
+    /// Which of the crew were down — alive and downed — before the rooms
     /// stepped: what [`World::settle_relic_downs`] reads a fall off.
     pub(crate) fn downs_before_the_step(&self) -> Vec<bool> {
         let room = &self.aboard.room;
@@ -600,9 +597,10 @@ impl World {
             .collect()
     }
 
-    /// After `settle_relics`: when each player's Bim went down (*Clot
-    /// Booster*), and every crewmate that went down this step said to the
-    /// players near it (`Trigger::CrewmateDowned`, *Lifeline*).
+    /// After `settle_relics`: when each player's Bim last went down (*Clot
+    /// Booster*, kept after it is revived), and every crewmate that went
+    /// down this step said to the players near it
+    /// (`Trigger::CrewmateDowned`, *Lifeline*).
     pub(crate) fn settle_relic_downs(&mut self, before: &[bool], events: &mut Vec<WorldEvent>) {
         if !self.any_relics() {
             return;
@@ -617,10 +615,8 @@ impl World {
             if downed.len() <= at {
                 downed.resize(at + 1, None);
             }
-            match (down, downed[at]) {
-                (true, None) => downed[at] = Some(now),
-                (false, Some(_)) => downed[at] = None,
-                _ => {}
+            if down && !before.get(at).copied().unwrap_or(false) {
+                downed[at] = Some(now);
             }
         }
         for c in 0..crew {
@@ -652,8 +648,8 @@ impl World {
         if !self.fit_to_act(who) || !self.within_tiles(who, other, tiles) {
             return false;
         }
-        self.aboard.room.set_surge(who as usize, seconds, false);
-        self.aboard.room.set_surge(other as usize, seconds, false);
+        self.aboard.room.set_surge(who as usize, seconds);
+        self.aboard.room.set_surge(other as usize, seconds);
         true
     }
 

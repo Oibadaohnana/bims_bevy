@@ -155,11 +155,9 @@ fn the_aura_lifts_every_friendly_bim_in_it_and_nobody_else() {
     let lifted = skill(&world, 1);
     assert!((lifted.accuracy - class::AURA_AIM).abs() < 1e-5);
     assert!((lifted.effort - class::AURA_WORK).abs() < 1e-5);
-    assert!(lifted.nerve_hold > 0.0, "it holds its ground a while");
     let outside = skill(&world, 2);
     assert_eq!(outside.accuracy, 1.0);
     assert_eq!(outside.effort, 1.0);
-    assert_eq!(outside.nerve_hold, 0.0);
     // The bots past the players are in it too — a hire is a bot.
     stand_near(&mut world, 3, 1.0);
     world.step(&[]);
@@ -352,7 +350,7 @@ fn enemy_up(world: &World) -> u32 {
     (0..residents.aboard.count())
         .find(|&i| {
             residents.aboard.room.is_alive(i as usize)
-                && !residents.aboard.room.is_unconscious(i as usize)
+                && !residents.aboard.room.is_downed(i as usize)
         })
         .expect("an enemy standing")
 }
@@ -396,8 +394,6 @@ fn a_squad_order_reaches_the_squad_and_never_a_players_own_bim() {
     // And a squad member is under arms whether or not the alarm is up.
     let member = world.squad.as_ref().unwrap().members[0] as usize;
     assert!(world.aboard.room.is_recruited(member as u32));
-    // Stand ground never runs, whatever the fight does to it.
-    assert!(skill(&world, member).nerve);
 }
 
 #[test]
@@ -472,7 +468,7 @@ fn an_attack_prefers_the_marked_enemy_over_a_nearer_one() {
     let up: Vec<u32> = (0..residents.aboard.count())
         .filter(|&i| {
             residents.aboard.room.is_alive(i as usize)
-                && !residents.aboard.room.is_unconscious(i as usize)
+                && !residents.aboard.room.is_downed(i as usize)
         })
         .collect();
     assert!(up.len() >= 2, "two machines standing: {up:?}");
@@ -743,7 +739,7 @@ fn a_rally_wants_the_third_level_and_its_cooldown() {
 }
 
 #[test]
-fn a_rally_lifts_the_aim_and_stops_the_running_for_its_minutes() {
+fn a_rally_lifts_the_aim_for_its_minutes() {
     let mut world = commander();
     hold_still(&mut world);
     level_up(&mut world, 0, class::RALLY_LEVEL);
@@ -754,7 +750,6 @@ fn a_rally_lifts_the_aim_and_stops_the_running_for_its_minutes() {
     // A player's own Bim and a bot alike, and it stacks with the aura.
     for who in [1usize, 3] {
         let s = skill(&world, who);
-        assert!(s.nerve, "crew {who} does not run");
         let wanted = class::AURA_AIM * class::RALLY_AIM;
         assert!(
             (s.accuracy - wanted).abs() < 1e-5,
@@ -779,7 +774,10 @@ fn a_rally_lifts_the_aim_and_stops_the_running_for_its_minutes() {
     assert!(!world.is_rallying(0));
     assert!(!world.is_rallying(1));
     world.step(&[]);
-    assert!(!skill(&world, 3).nerve);
+    assert!(
+        (skill(&world, 3).accuracy - class::AURA_AIM).abs() < 1e-5,
+        "the aura's alone once it has run out"
+    );
 }
 
 // --- D: the ten levels -----------------------------------------------------
@@ -930,7 +928,7 @@ fn focus_fire_and_pincer() {
     let up: Vec<u32> = (0..residents.aboard.count())
         .filter(|&i| {
             residents.aboard.room.is_alive(i as usize)
-                && !residents.aboard.room.is_unconscious(i as usize)
+                && !residents.aboard.room.is_downed(i as usize)
         })
         .collect();
     assert!(up.len() >= 2, "two machines standing: {up:?}");
@@ -985,36 +983,9 @@ fn long_rally_and_quick_rally() {
 }
 
 #[test]
-fn steady_ranks_and_double_time() {
-    let mut world = commander();
-    hold_still(&mut world);
-    stand_near(&mut world, 1, 2.0);
-    stand_near(&mut world, 2, class::AURA_TILES + 4.0);
-    pick(&mut world, 0, Talent::SteadyRanks);
-    world.step(&[]);
-    // A Bim in the aura bleeds slower than one outside it.
-    world.aboard.room.wound(1, bims::health::Part::Body, 20.0);
-    world.aboard.room.wound(2, bims::health::Part::Body, 20.0);
-    let (a0, b0) = (world.aboard.room.blood(1), world.aboard.room.blood(2));
-    for _ in 0..600 {
-        world
-            .aboard
-            .room
-            .put_for_probe(1, world.aboard.room.bim_pos(1));
-        world
-            .aboard
-            .room
-            .put_for_probe(2, world.aboard.room.bim_pos(2));
-        world.step(&[]);
-    }
-    let (a1, b1) = (world.aboard.room.blood(1), world.aboard.room.blood(2));
-    assert!(
-        a0 - a1 < b0 - b1,
-        "in the aura it bled {} against {} outside it",
-        a0 - a1,
-        b0 - b1
-    );
-
+fn double_time() {
+    // *Steady ranks*, its other side, is a no-op since task 120: nothing
+    // bleeds.
     let mut world = commander();
     hold_still(&mut world);
     stand_near(&mut world, 1, 2.0);
@@ -1101,22 +1072,6 @@ fn relentless_takes_the_attack_on_to_the_nearest_machine_standing() {
         moved += 1;
     }
     assert_eq!(moved, 2, "on from the first mark to each of the other two");
-}
-
-/// *Grit*: during a rally, nothing the fight has done costs pace.
-#[test]
-fn grit_takes_the_hurt_off_the_pace_during_a_rally() {
-    let mut world = commander();
-    hold_still(&mut world);
-    level_up(&mut world, 0, class::RALLY_LEVEL);
-    pick(&mut world, 0, Talent::Grit);
-    stand_near(&mut world, 1, 2.0);
-    world.step(&[]);
-    assert!(!skill(&world, 1).unhurt, "not before the rally");
-    world.step(&[Command::Rally { slot: 0 }]);
-    world.step(&[]);
-    assert!(skill(&world, 1).unhurt);
-    assert!(skill(&world, 3).unhurt || world.aura_reaching(3).is_none());
 }
 
 #[test]

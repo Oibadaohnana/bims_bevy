@@ -38,20 +38,6 @@ pub fn clock_text(minutes: f32) -> String {
     )
 }
 
-/// A length of time, said the way a person would say it.
-pub fn span_text(minutes: f32) -> String {
-    let total = minutes.round() as i64;
-    if total < 60 {
-        return format!("{total} min");
-    }
-    let hours = total / 60;
-    let rest = total % 60;
-    if rest == 0 {
-        return format!("{hours} hour{}", if hours == 1 { "" } else { "s" });
-    }
-    format!("{hours}h {rest}m")
-}
-
 /// How long a trip takes, in whole words (feature 103): "2 days 5
 /// hours", "5 hours 20 minutes", "40 minutes" — the world clock a trip
 /// puts on, which is the one span in a run long enough for days.
@@ -120,13 +106,10 @@ mod tests {
             assert_eq!(grouped(1_234_567), "1\u{a0}234\u{a0}567");
         }
 
-        // --- a_clock_wraps_and_a_span_reads ---
+        // --- a_clock_wraps ---
         {
             assert_eq!(clock_text(1441.0), "00:01");
             assert_eq!(clock_text(-1.0), "23:59");
-            assert_eq!(span_text(45.0), "45 min");
-            assert_eq!(span_text(60.0), "1 hour");
-            assert_eq!(span_text(150.0), "2h 30m");
             assert_eq!(roman(9), "IX");
         }
     }

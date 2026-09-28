@@ -203,12 +203,12 @@ pub static RESEARCH: [NodeDef; NODES] = [
 /// at the start — which is the safe default: a new part the tree has not
 /// heard of is a part the crew can build, not one nobody can.
 ///
-/// Three parts are named and no more. The suit locker, the workbench and
+/// Two parts are named and no more. The suit locker, the workbench and
 /// the armoury were behind nodes the money rework took away, and are
-/// known at the start with everything else.
+/// known at the start with everything else; the drug lab, the medicine's,
+/// went with the medicine (task 120).
 pub fn node_of_part(kind: PartKind) -> Node {
     match kind {
-        PartKind::DrugLab => Node::Medicine,
         PartKind::FusionReactor => Node::FusionPower,
         PartKind::Hyperdrive => Node::Hyperdrive,
         _ => Node::Survival,
@@ -216,7 +216,7 @@ pub fn node_of_part(kind: PartKind) -> Node {
 }
 
 /// Which node a row of `crate::recipes::RECIPES` waits on, by index: its
-/// bench's, which for the one row there is means medicine.
+/// bench's. There are no rows since task 120.
 pub fn node_of_recipe(index: usize) -> Node {
     crate::recipes::RECIPES
         .get(index)

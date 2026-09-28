@@ -60,9 +60,8 @@ pub const MEDIC_CHANCE: f64 = 0.35;
 /// anybody else, and what is being paid for is that it walks into the
 /// fire for somebody who cannot walk out.
 pub const MEDIC_FEE: Money = 4_000;
-// What a field medic carries is a medic's charges of medicine —
-// `class::MEDIC_MEDKIT_CHARGES` and `class::MEDIC_BANDAGE_CHARGES` — the
-// same as the class's, filled at the hire and on the cooldowns after.
+// A field medic carries nothing a medic of the class does not: it revives
+// in a medic's `class::MEDIC_REVIVE_SECONDS` (task 120).
 
 /// A month of a mercenary carrying that weapon, in euros. Tier one is the
 /// pistol, tier two the shotgun, the auto rifle and the schword, tier
@@ -95,7 +94,7 @@ pub struct Hired {
     /// hand walks off at the next berth unless it is paid first.
     pub owed: bool,
     /// Whether this one is a **field medic** (feature 86): hired for
-    /// the job of fetching the fallen out of the fire and treating them,
+    /// the job of fetching the fallen out of the fire and reviving them,
     /// with none of the medic class's talents. It is kept on the
     /// contract rather than on the body because it is what was hired,
     /// and it is what the world hands the room every step

@@ -1319,7 +1319,7 @@ mod tests {
     /// **`Returning · a / b` counts the way the departure check does**
     /// (feature 107): of the players the ship waits for — alive, at the
     /// keyboard, not out and **not down** — how many have pressed *Back to
-    /// ship* and are aboard. A player out cold is in neither number, since
+    /// ship* and are aboard. A player downed is in neither number, since
     /// the ship does not wait for somebody who cannot walk in.
     #[test]
     fn returning_counts_the_players_the_departure_check_waits_for() {
@@ -1328,8 +1328,8 @@ mod tests {
         assert_eq!(returning_text(&world), "Returning · 0 / 3");
         world.apply_now(Command::Return { slot: 0 });
         assert_eq!(returning_text(&world), "Returning · 1 / 3");
-        // Player 2 out cold — the blood taken under the line, and a step
-        // for the body to go down — is no longer waited for, so the count
+        // Player 2 downed — the bar taken to nothing, and a step for the
+        // body to go down — is no longer waited for, so the count
         // is of two.
         world.aboard.room.knock_out_for_probe(2);
         world.step(&[]);

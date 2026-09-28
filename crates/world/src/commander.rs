@@ -51,11 +51,6 @@ pub struct Aura {
     pub work: f32,
     /// What its odds are multiplied by.
     pub aim: f32,
-    /// What the hold before it runs is multiplied by
-    /// (`class::NERVE_HOLD`).
-    pub nerve: f32,
-    /// What its wounds bleed at: *steady ranks*, one without it.
-    pub bleed: f32,
     /// What its pace is multiplied by: *double time*, one without it.
     pub pace: f32,
 }
@@ -65,8 +60,6 @@ impl Aura {
     pub const NONE: Aura = Aura {
         work: 1.0,
         aim: 1.0,
-        nerve: 1.0,
-        bleed: 1.0,
         pace: 1.0,
     };
 }

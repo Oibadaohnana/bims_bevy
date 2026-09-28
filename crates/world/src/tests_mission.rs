@@ -325,31 +325,44 @@ fn days_skipped_by_travel_spread_the_crisis_as_the_same_days_stepped() {
 
 // --- a mission -----------------------------------------------------------------
 
-/// **A mission starts whole.** Every crew member's health is reset at
-/// the start of a mission: every part full, the blood back, every wound
-/// and trauma gone.
+/// **A mission starts whole.** Every crew member's bar is filled at the
+/// start of a mission (task 120).
 #[test]
 fn health_is_made_whole_at_a_mission_s_start() {
     let mut world = crewed_world(flyer(2), REFERENCE_MONEY, 1, 2);
     world.aboard.room.strike(0, Part::Body, 30.0, false);
     world.aboard.room.strike(1, Part::Legs, 40.0, false);
-    world.aboard.room.set_blood_for_probe(1, 0.7);
     world.step(&[]);
-    assert!(
-        world.aboard.room.health(0) < bims::health::Part::ALL.iter().map(|p| p.max()).sum::<f32>()
-    );
+    assert!(world.aboard.room.health(0) < bims::health::MAX_HEALTH);
     to_the_map(&mut world);
     let site = another_site_here(&world);
     assert!(travelled(&travel_to(&mut world, site)));
-    let full: f32 = Part::ALL.iter().map(|p| p.max()).sum();
     for who in 0..2 {
-        assert_eq!(world.aboard.room.health(who), full, "{who} whole");
         assert_eq!(
-            world.aboard.room.blood(who),
-            bims::health::MAX_BLOOD,
-            "{who}'s blood back"
+            world.aboard.room.health(who),
+            bims::health::MAX_HEALTH,
+            "{who} whole"
         );
     }
+}
+
+/// **The slow a downing leaves ends with the mission** (task 120): a crew
+/// member downed and revived walks at `DOWNED_PACE` until the ship leaves
+/// the site, and at its ordinary pace after — the bar as the mission left
+/// it, until the next one fills it.
+#[test]
+fn the_slow_a_downing_leaves_is_cleared_at_the_mission_s_end() {
+    let mut world = crewed_world(flyer(2), REFERENCE_MONEY, 1, 2);
+    world.aboard.room.knock_out_for_probe(1);
+    world.step(&[]);
+    assert!(world.aboard.room.is_downed(1));
+    world.aboard.room.bring_round(1, bims::health::REVIVED_TO);
+    world.step(&[]);
+    assert!(world.aboard.room.was_downed(1), "slowed for the mission");
+    let hp = world.aboard.room.health(1);
+    to_the_map(&mut world);
+    assert!(!world.aboard.room.was_downed(1), "cleared at its end");
+    assert_eq!(world.aboard.room.health(1), hp, "the bar as it was");
 }
 
 /// **The bounty waits on the site being cleared, and is paid once.** A
@@ -532,7 +545,7 @@ fn the_run_is_lost_only_when_every_player_is_dead() {
     for _ in 0..5 {
         world.step(&[]);
     }
-    assert!(world.aboard.room.is_unconscious(1));
+    assert!(world.aboard.room.is_downed(1));
     assert!(!world.lost, "the other out cold is not dead");
     world.aboard.room.kill_for_probe(1);
     let events = world.step(&[]);
@@ -683,13 +696,13 @@ fn the_departure_check_waits_for_standing_players_lists_everyone_outside_and_wan
     assert_eq!(world.ship.state, ShipState::Holding);
 }
 
-/// **After a fight won, the stable come home.** The arena cleared, four
-/// of the crew outside the ship: one on its feet, one out cold with no
-/// wound open, one bleeding and one dying. The ship takes the first two
-/// home whoever carried them — the departure never asks about them — and
-/// leaves the other two behind, dead for it.
+/// **After a fight won, those on their feet come home.** The arena
+/// cleared, four of the crew outside the ship: one whole, one hurt, and
+/// two downed. The ship takes the first two home whoever carried them —
+/// the departure never asks about them — and leaves the downed behind,
+/// dead for it (task 120).
 #[test]
-fn after_a_fight_won_the_stable_come_home_and_the_bleeding_are_left() {
+fn after_a_fight_won_those_on_their_feet_come_home_and_the_downed_are_left() {
     let (mut world, station) = held_arena();
     world.set_droid_waves_for_probe(1);
     world.set_droid_wave_for_probe(3);
@@ -706,17 +719,17 @@ fn after_a_fight_won_the_stable_come_home_and_the_bleeding_are_left() {
     for who in 1..=4 {
         ashore(&mut world, who);
     }
-    world.aboard.room.knock_out_for_probe(2);
-    // Bare legs, so the shot opens a wound rather than dents a guard.
-    let gear = world.aboard.room.gear(3);
-    world.aboard.room.issue(3, Gear { legs: None, ..gear });
-    world.aboard.room.wound(3, Part::Legs, 5.0);
+    // Bare legs, so the shot takes hit points rather than dents a guard.
+    let gear = world.aboard.room.gear(2);
+    world.aboard.room.issue(2, Gear { legs: None, ..gear });
+    world.aboard.room.wound(2, Part::Legs, 40.0);
+    world.aboard.room.knock_out_for_probe(3);
     world.aboard.room.wound(4, Part::Body, 1000.0);
-    world.aboard.room.wound(4, Part::Body, 1000.0);
+    world.step(&[]);
     let room = &world.aboard.room;
-    assert!(room.bleeding(1) == 0 && room.bleeding(2) == 0);
-    assert!(room.bleeding(3) > 0 && !room.is_dying(3), "3 is bleeding");
-    assert!(room.is_dying(4), "4 is dying");
+    assert!(!room.is_downed(1) && !room.is_downed(2));
+    assert!(room.health(2) < bims::health::MAX_HEALTH, "2 is hurt");
+    assert!(room.is_downed(3) && room.is_downed(4), "3 and 4 are downed");
     for who in 1..=4 {
         assert!(!world.inside_ship(who), "{who} is outside");
     }

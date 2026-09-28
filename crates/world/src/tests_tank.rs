@@ -273,7 +273,7 @@ fn enemy_hits_on_a_tank_are_counted_and_are_no_experience() {
     assert_eq!(hits_taken(&world, 0) - before, landed);
     // A hit a surge takes is still a hit that landed on him.
     let before = hits_taken(&world, 0);
-    world.aboard.room.set_surge(0, 60.0, false);
+    world.aboard.room.set_surge(0, 60.0);
     let health = world.aboard.room.health(0);
     let landed = shoot_at(&mut world, 0, 6);
     assert!(landed > 0);
@@ -595,7 +595,7 @@ fn plated_stands_alone_at_the_second_level() {
 }
 
 #[test]
-fn breacher_and_unmovable() {
+fn breacher() {
     // *Breacher*: a locked door forced in half the time.
     let mut world = tank();
     assert_eq!(world.skill_of(0).smash_rate, 1.0);
@@ -603,40 +603,8 @@ fn breacher_and_unmovable() {
     world.step(&[]);
     assert_eq!(world.skill_of(0).smash_rate, 1.0 / class::BREACHER_TIME);
     assert_eq!(world.skill_of(1).smash_rate, 1.0, "his alone");
-    // *Unmovable*: never flees, and no pace lost to low blood while the
-    // kevlar holds.
-    let mut world = tank();
-    assert_eq!(world.set_class(1, Class::Tank), Ok(()));
-    world.step(&[]);
-    assert!(!world.skill_of(0).nerve && !world.skill_of(0).steady_pace);
-    pick(&mut world, 0, Talent::Unmovable);
-    world.step(&[]);
-    assert!(world.skill_of(0).nerve && world.skill_of(0).steady_pace);
-    assert!(!world.skill_of(1).nerve && !world.skill_of(1).steady_pace);
-    // Bled to half, the crewmate walks at half pace and the tank does
-    // not — his kevlar is on and unbroken. Stood apart, so neither is
-    // slowed for crowding the other.
-    hold_still(&mut world);
-    let at = world.aboard.room.bim_pos(0);
-    world
-        .aboard
-        .room
-        .put_for_probe(1, at + vec2(5.0 * TILE, 0.0));
-    for who in [0, 1] {
-        world.aboard.room.bleed_for_probe(who, 0.45);
-    }
-    world.step(&[]);
-    let pace = |world: &World, who: usize| world.aboard.room.pace_for_probe(who);
-    assert!(
-        pace(&world, 0) > pace(&world, 1) * 1.9,
-        "{} against {}",
-        pace(&world, 0),
-        pace(&world, 1)
-    );
-    // With the kevlar broken it is a pace like anybody else's.
-    wear(&mut world, 0, ArmourKind::BasicKevlar, 0.0);
-    world.step(&[]);
-    assert!((pace(&world, 0) - pace(&world, 1)).abs() < 1e-3);
+    // *Unmovable*, the other side, is a no-op since task 120: nobody runs
+    // and low blood is gone.
 }
 
 #[test]
@@ -707,38 +675,9 @@ fn loud_taunt_and_long_taunt() {
 }
 
 #[test]
-fn hold_fast_and_guarded() {
-    // *Hold fast*: his wounds do not bleed while he taunts.
-    let mut world = tank();
-    assert_eq!(world.set_class(1, Class::Tank), Ok(()));
-    for who in [0, 1] {
-        level_up(&mut world, who, class::TAUNT_LEVEL);
-    }
-    pick(&mut world, 0, Talent::HoldFast);
-    hold_still(&mut world);
-    // Past the leg guards, so a wound is actually opened on each.
-    for who in [0, 1] {
-        world.aboard.room.wound(who, Part::Legs, 40.0);
-        assert!(world.aboard.room.bleeding(who) > 0);
-    }
-    world.step(&[Command::Taunt { slot: 0 }, Command::Taunt { slot: 1 }]);
-    let blood = |world: &World, who: usize| world.aboard.room.blood(who);
-    let (before_0, before_1) = (blood(&world, 0), blood(&world, 1));
-    for _ in 0..(2 * STEPS_A_MINUTE) {
-        world.step(&[]);
-    }
-    assert_eq!(blood(&world, 0), before_0, "nothing bleeds while he taunts");
-    assert!(blood(&world, 1) < before_1, "the other one bleeds");
-    // The taunt over, he bleeds like anybody else.
-    for _ in 0..(class::TAUNT_MINUTES as u32 * STEPS_A_MINUTE) {
-        world.step(&[]);
-    }
-    assert!(!world.is_taunting(0));
-    let before = blood(&world, 0);
-    for _ in 0..(2 * STEPS_A_MINUTE) {
-        world.step(&[]);
-    }
-    assert!(blood(&world, 0) < before);
+fn guarded() {
+    // *Hold fast*, the other side, is a no-op since task 120: nothing
+    // bleeds.
     // *Guarded*: ten per cent more dodge while the wall is up.
     let mut world = tank();
     assert_eq!(world.set_class(1, Class::Tank), Ok(()));

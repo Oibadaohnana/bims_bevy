@@ -20,15 +20,11 @@ pub struct Medic {
     /// link is.
     pub patients: Vec<u32>,
     /// Minutes of the clock spent beaming a patient that qualifies —
-    /// below full blood, or with a wound open — towards
+    /// short of its whole bar — towards
     /// `class::SURGE_CHARGE_MINUTES`, *quick charge* counting half
     /// again; capped at full, emptied by a surge, lost only with the
     /// medic's death.
     pub charge: f64,
-    /// Whether the one field surgery a fight allows (*field surgeon*)
-    /// has been done this fight. Put back when the fight ends — the
-    /// rooms unjoined, or no enemy standing.
-    pub field_surgery_used: bool,
 }
 
 impl Medic {

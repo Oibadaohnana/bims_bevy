@@ -1054,33 +1054,19 @@ impl Session {
         }
     }
 
-    /// The first `n` of the crew put into a **dying state**: a part of
-    /// each taken to nothing, so its trauma is rolled and untreated, and
-    /// a couple of wounds opened besides — the body a red cross stands
-    /// over on the deck and the peril block on the panel counts down
-    /// (`BIMS_DYING=n`). Slot 0 is left alone unless `n` reaches the
-    /// whole crew: the player's own Bim walking about is what the
-    /// picture is taken from.
-    ///
-    /// The part is taken in turn — the legs, the body, the head — so a
-    /// crew of three shows three different traumas rather than three of
-    /// one, and the damage is far past anything worn, since armour takes
-    /// a hit before the body does.
+    /// The first `n` of the crew **downed** where they stand (task 120):
+    /// the bar at nought and the countdown started — the body the
+    /// countdown ring stands over on the deck (`BIMS_DYING=n`). Slot 0 is
+    /// left alone unless `n` reaches the whole crew: the player's own Bim
+    /// walking about is what the picture is taken from.
     pub fn maim_for_probe(&mut self, n: usize) {
         let Some(game) = self.game.as_mut() else {
             return;
         };
         let crew = game.world.aboard.crew_count() as usize;
-        let parts = [
-            bims::health::Part::Legs,
-            bims::health::Part::Body,
-            bims::health::Part::Head,
-        ];
         for i in 0..n.min(crew) {
             let who = if n >= crew { i } else { (i + 1).min(crew - 1) };
-            let part = parts[i % parts.len()];
-            game.world.aboard.room.wound(who, part, 1000.0);
-            game.world.aboard.room.wound(who, part, 1000.0);
+            game.world.aboard.room.knock_out_for_probe(who);
         }
     }
 
@@ -1106,26 +1092,6 @@ impl Session {
         let crew = game.world.aboard.crew_count();
         for i in 0..(n as u32).min(crew.saturating_sub(1)) {
             game.world.field_medic_for_probe(crew - 1 - i);
-        }
-    }
-
-    /// Exactly `n` dressings on **every** crew member, for
-    /// `BIMS_BANDAGES=n`, with the bandage cooldown started afresh — a
-    /// dressing is everybody's charge, so `BIMS_BANDAGES=0` is the whole
-    /// wait ahead and the sweep over the bandage box at the foot of the
-    /// canvas, and `BIMS_BANDAGES=2` a part box with the next on its way.
-    /// Seven is over the charges, and the cooldown brings nothing more.
-    pub fn bandages_for_probe(&mut self, n: u32) {
-        if let Some(game) = self.game.as_mut() {
-            game.world.set_charges_for_probe(world::Charge::Bandage, n);
-        }
-    }
-
-    /// Exactly `n` medkits on every crew member, for
-    /// `BIMS_MEDKITS=n`, the medkit cooldown started afresh the same way.
-    pub fn medkits_for_probe(&mut self, n: u32) {
-        if let Some(game) = self.game.as_mut() {
-            game.world.set_charges_for_probe(world::Charge::Medkit, n);
         }
     }
 

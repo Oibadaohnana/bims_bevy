@@ -42,8 +42,10 @@ pub const REFERENCE_POOL: Money = 10_000_000;
 /// 20) moved both from `0x0617_9497_2e16_65ac` and `0x5b4f_9597_b2c6_baf7`,
 /// and two more for the arc greaves and the Reflective plate (task 116,
 /// `CARGO_SLOTS` 22) from `0xb4b9_08bd_0dda_d32c` and
-/// `0xa7a4_60c0_b042_7fd7`.
-pub const REFERENCE_HASH: [u64; 2] = [0x4b3b_e276_e853_f0ac, 0xe89b_f26c_b13f_a0b7];
+/// `0xa7a4_60c0_b042_7fd7`, and the drug lab gone (task 120: every part's
+/// code after it one lower) from `0x4b3b_e276_e853_f0ac` and
+/// `0xe89b_f26c_b13f_a0b7`.
+pub const REFERENCE_HASH: [u64; 2] = [0x6254_985d_4f75_5c03, 0x67b6_c899_2733_a7d8];
 
 /// What [`reference`] is carrying, whatever the crew size: a few days of
 /// vegetables and tofu, bought through [`apply`] like everything else.
@@ -354,14 +356,16 @@ pub fn flyer(crew: u32) -> ShipDesign {
 /// target that hashed the simulation's ship differently would start a
 /// different simulation. Update it only when the ship below is meant to
 /// change — it moved from `0xd9cb_319c_6859_03ec` for two more empty cargo
-/// slots (task 115), the ship itself untouched, and from
-/// `0x9647_17e1_0fef_b96c` for two more (task 116).
-pub const PLAYTEST_HASH: u64 = 0xa5d6_d976_ad54_1eec;
+/// slots (task 115), the ship itself untouched, from
+/// `0x9647_17e1_0fef_b96c` for two more (task 116), and from
+/// `0xa5d6_d976_ad54_1eec` for the drug lab taken out and the bandages and
+/// medkits out of the cargo (task 120).
+pub const PLAYTEST_HASH: u64 = 0x8046_76c8_2953_29f7;
 
 /// How many parts [`playtest_ship`] ends up with. What notices a placement
 /// that was quietly refused — the builder skips rather than panics, for the
 /// reason [`REFERENCE_PARTS`] gives.
-pub const PLAYTEST_PARTS: u32 = 667;
+pub const PLAYTEST_PARTS: u32 = 666;
 
 /// The playtest hull, as columns of the grid: the west skin and the east,
 /// the bow row and the stern row. Sixteen tiles across and eighteen long,
@@ -497,12 +501,10 @@ const PLAYTEST_BRANCHES: [(u32, u32); 54] = [
 /// The materials went with the money rework (feature 95): the metal, the
 /// components and the ore for the smelter had nothing left to be spent
 /// on, and the fibre nothing left to be rolled into.
-pub const PLAYTEST_CARGO: [(ResourceId, u32); 12] = [
+pub const PLAYTEST_CARGO: [(ResourceId, u32); 10] = [
     (ResourceId::Vegetable, 40),
     (ResourceId::Tofu, 20),
     (ResourceId::Suit, 1),
-    (ResourceId::Bandage, 5),
-    (ResourceId::Medkit, 2),
     (ResourceId::Helm, 1),
     (ResourceId::Kevlar, 1),
     (ResourceId::LegGuard, 1),
@@ -730,9 +732,8 @@ pub fn playtest_ship() -> ShipDesign {
     // (feature 95) took ore and metal away; nothing replaced it.
     put(&mut design, PartKind::Workbench, (11, 17), Rotation::R180);
     put(&mut design, PartKind::Shelf, (7, 14), Rotation::R0);
-    // The drug lab in the stern row to port of the engine, turned the
-    // same way for the same reason.
-    put(&mut design, PartKind::DrugLab, (6, 17), Rotation::R180);
+    // The drug lab stood in the stern row to port of the engine until the
+    // medicine went out of the game (task 120); nothing replaced it.
     // The research desk on the spine in engineering's forward row, between
     // the shelves and the heads, worked from the row below it: on the
     // conduit already, and the one two-tile spot on the ship with deck on

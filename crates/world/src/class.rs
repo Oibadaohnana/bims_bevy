@@ -24,13 +24,9 @@
 //! sandbags and sentry since feature 88, the soldier's grenades since
 //! this one ([`GRENADE_CHARGES`] of them at [`GRENADE_COOLDOWN`] a
 //! charge) — and what a class added later spends goes in [`Charge`]
-//! beside them. **So does the medicine**: every crew member, whatever
-//! its class, carries [`MEDKIT_CHARGES`] medkit and [`BANDAGE_CHARGES`]
-//! bandages that come back on [`MEDKIT_COOLDOWN`] and
-//! [`BANDAGE_COOLDOWN`] a charge — a medic of either kind
-//! [`MEDIC_MEDKIT_CHARGES`] and [`MEDIC_BANDAGE_CHARGES`], its medkits
-//! back on [`MEDIC_MEDKIT_COOLDOWN`] — and nothing
-//! is fetched out of the hold for a wound any more. The abilities that
+//! beside them. There is no medicine to carry since task 120: a downed
+//! crewmate is revived by standing beside it, and a medic's heal beam
+//! puts hit points back. The abilities that
 //! spend nothing are held instead of
 //! thrown — a brace, a beam, a bulwark, a squad order — and the ones
 //! that are neither wait out a cooldown of their own: the tank's taunt
@@ -44,7 +40,7 @@
 //!
 //! | what | xp | who |
 //! |---|---|---|
-//! | an enemy goes down within [`VICINITY_TILES`] — out cold, or dead without being down first | [`XP_ENEMY_DOWN`] | every classed crew member in range |
+//! | an enemy goes down within [`VICINITY_TILES`] — downed, or dead without being down first | [`XP_ENEMY_DOWN`] | every classed crew member in range |
 //! | an enemy dies within it — the step it went down, or bled out later | [`XP_ENEMY_DEAD`] | the same |
 //!
 //! Each enemy counts once for going down and once for dying, so a
@@ -90,7 +86,7 @@
 //! | 2 | *Marksman*: accuracy ×1.15 | *Point blank*: damage within the weapon's sweet range ×1.2 |
 //! | 3 | *Grenades* (Q): two charges, 30 seconds each | — |
 //! | 4 | *Runner*: pace ×1.2 while an enemy is in sight | *Steady aim*: the walking accuracy penalty halved |
-//! | 5 | *Iron nerve*: never flees | *Cover master*: the odds in cover ×1.5 |
+//! | 5 | *Iron nerve*: no-op since task 120 (nobody flees) | *Cover master*: the odds in cover ×1.5 |
 //! | 6 | *Long throw*: grenade range ×1.5 | *Short fuse*: grenade fuse ×0.5 |
 //! | 7 | *Drill*: fire rate ×1.2 on every weapon | — |
 //! | 8 | *Frag*: grenade radius ×1.5 | *Quick draw*: grenade cooldown ×0.5 |
@@ -101,16 +97,16 @@
 //!
 //! | level | left | right |
 //! |---|---|---|
-//! | 1 | *Heal beam* (E): holds a crewmate's blood | — |
-//! | 2 | *Field dressing*: bandages in half the time | *Surgeon*: treats in half the time |
+//! | 1 | *Heal beam* (E): puts hit points back into a crewmate, or itself; revives in [`MEDIC_REVIVE_SECONDS`] | — |
+//! | 2 | *Field dressing*: no-op since task 120 | *Surgeon*: no-op since task 120 |
 //! | 3 | *Surge* (Q): may trigger it | — |
-//! | 4 | *Long beam*: beam range ×1.5 | *Strong beam*: beam blood rate ×1.5 |
-//! | 5 | *Clean hands*: a trauma it treats leaves nothing lasting | *Steady hands*: a part it treats comes back to ×1.5 of `TREATED_TO` |
+//! | 4 | *Long beam*: beam range ×1.5 | *Strong beam*: beam rate ×1.5 |
+//! | 5 | *Clean hands*: no-op since task 120 | *Steady hands*: no-op since task 120 |
 //! | 6 | *Quick charge*: the surge charges ×1.5 faster | *Long surge*: a surge lasts ×1.5 |
-//! | 7 | *Mender*: a beamed patient's parts mend at `HEALTH_RECOVER` ×10 | — |
-//! | 8 | *Self-care*: its own wounds do not bleed while it beams | *Double link*: two patients at once, each at the full rate |
-//! | 9 | *Gunner medic*: fires while beaming, at fire rate ×0.5 | *Closing surge*: a surge ending closes every open wound on the patient |
-//! | 10 | *Mass surge*: a surge covers every crew member within 3 tiles of the patient | *Field surgeon*: once a fight, treats a trauma with no medkit in half the time |
+//! | 7 | *Mender*: no-op since task 120 | — |
+//! | 8 | *Self-care*: no-op since task 120 | *Double link*: two patients at once, each at the full rate |
+//! | 9 | *Gunner medic*: fires while beaming, at fire rate ×0.5 | *Closing surge*: no-op since task 120 |
+//! | 10 | *Mass surge*: a surge covers every crew member within 3 tiles of the patient | *Field surgeon*: no-op since task 120 |
 //!
 //! # The tank's ten levels
 //!
@@ -119,11 +115,11 @@
 //! | 1 | armour drains at half rate on him; *Bulwark* (E) | — |
 //! | 2 | *Pack mule*: carries two loads a trip when hauling | *Plated*: armour protection ×1.5 on him |
 //! | 3 | *Taunt* (Q): may use it | — |
-//! | 4 | *Breacher*: forces locked doors in half the time | *Unmovable*: never flees, and loses no pace to low blood while his kevlar holds |
+//! | 4 | *Breacher*: forces locked doors in half the time | *Unmovable*: no-op since task 120 |
 //! | 5 | *Wide wall*: bulwark reach ×2 | *Fast wall*: bulwark pace ×1.5 |
 //! | 6 | *Loud taunt*: taunt radius ×1.5 | *Long taunt*: a taunt lasts ×1.5 |
 //! | 7 | *Iron frame*: a hit rolled on his head lands on his body | — |
-//! | 8 | *Hold fast*: his wounds do not bleed while he taunts | *Guarded*: dodge +10% while Bulwark is on |
+//! | 8 | *Hold fast*: no-op since task 120 | *Guarded*: dodge +10% while Bulwark is on |
 //! | 9 | *Interpose*: a bolt that would hit somebody he shields hits him | *Magnet*: a taunt turns every charging blade toward him |
 //! | 10 | *Fortress*: armour drain on him ×0.5 again, a quarter in all | *Rallying wall*: while he taunts, crew within 3 tiles drain at half rate too |
 //!
@@ -138,8 +134,8 @@
 //! | 5 | *Focus fire*: the squad's odds against the marked enemy ×1.15 | *Pincer*: an attack may mark two enemies, the squad split between them |
 //! | 6 | *Long rally*: a rally lasts ×1.5 | *Quick rally*: the rally cooldown ×0.5 |
 //! | 7 | *Long reach*: a squad order reaches every squad member in the room | — |
-//! | 8 | *Steady ranks*: Bims in his aura bleed ×0.75 | *Double time*: Bims in his aura walk at pace ×1.1 |
-//! | 9 | *Relentless*: an attack's mark lasts until the enemy dies, then moves on to the nearest enemy standing | *Grit*: during a rally, Bims in it lose no pace to wounds or traumas |
+//! | 8 | *Steady ranks*: no-op since task 120 | *Double time*: Bims in his aura walk at pace ×1.1 |
+//! | 9 | *Relentless*: an attack's mark lasts until the enemy dies, then moves on to the nearest enemy standing | *Grit*: no-op since task 120 |
 //! | 10 | *Anchor*: the aura's bonuses double while he stands still | *Warcry*: a rally covers every friendly Bim in the room |
 //!
 //! **His aura and his rally lift every friendly Bim they reach, a
@@ -295,13 +291,9 @@ pub fn can(class: Class, ability: Ability) -> bool {
 /// are a level and a talent away from the constants here;
 /// `World::restock_charges` is the one step that fills a pack back up.
 ///
-/// **The medicine is two more**: a medkit and a bandage are
-/// everybody's charges rather than a class's — [`Charge::everybody`] —
-/// so a wound is dressed and a trauma treated out of what the crew
-/// member carries, and what it carries comes back on its own cooldown
-/// rather than out of the hold.
-///
-/// Codes cross the seam and are never renumbered.
+/// The medkit (3) and the bandage (4) were everybody's charges until task
+/// 120 took the medicine out of the game. Codes cross the seam and are
+/// never renumbered.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 #[repr(u32)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -312,23 +304,10 @@ pub enum Charge {
     Sentry = 1,
     /// The soldier's grenade (feature 90).
     Grenade = 2,
-    /// A medkit, everybody's.
-    Medkit = 3,
-    /// A bandage, everybody's: one dressing a charge, five to a box.
-    Bandage = 4,
 }
 
 impl Charge {
-    pub const ALL: [Charge; 5] = [
-        Charge::Sandbag,
-        Charge::Sentry,
-        Charge::Grenade,
-        Charge::Medkit,
-        Charge::Bandage,
-    ];
-
-    /// The two every crew member carries, whatever its class.
-    pub const MEDICINE: [Charge; 2] = [Charge::Medkit, Charge::Bandage];
+    pub const ALL: [Charge; 3] = [Charge::Sandbag, Charge::Sentry, Charge::Grenade];
 
     pub fn code(self) -> u32 {
         self as u32
@@ -344,8 +323,6 @@ impl Charge {
             Charge::Sandbag => ResourceId::SandbagKit,
             Charge::Sentry => ResourceId::SentryKit,
             Charge::Grenade => ResourceId::Grenade,
-            Charge::Medkit => ResourceId::Medkit,
-            Charge::Bandage => ResourceId::Bandage,
         }
     }
 
@@ -354,28 +331,19 @@ impl Charge {
         Charge::ALL.into_iter().find(|c| c.resource() == resource)
     }
 
-    /// The one class that spends it — [`Class::None`] for the medicine,
-    /// which is not nobody's but **everybody's** ([`Charge::everybody`]).
+    /// The one class that spends it.
     pub fn class(self) -> Class {
         match self {
             Charge::Sandbag | Charge::Sentry => Class::Engineer,
             Charge::Grenade => Class::Soldier,
-            Charge::Medkit | Charge::Bandage => Class::None,
         }
     }
 
-    /// Whether every crew member carries it, whatever its class: the
-    /// medkit and the bandage.
-    pub fn everybody(self) -> bool {
-        matches!(self, Charge::Medkit | Charge::Bandage)
-    }
-
     /// The level it may be spent from: a class's ability level, since a
-    /// charge nothing can spend yet does not come back either. The
-    /// medicine from the first.
+    /// charge nothing can spend yet does not come back either.
     pub fn level(self) -> u8 {
         match self {
-            Charge::Sandbag | Charge::Medkit | Charge::Bandage => 1,
+            Charge::Sandbag => 1,
             Charge::Sentry => SENTRY_LEVEL,
             Charge::Grenade => GRENADE_LEVEL,
         }
@@ -386,7 +354,7 @@ impl Charge {
         match self {
             Charge::Sandbag => Some(Kit::Sandbag),
             Charge::Sentry => Some(Kit::Sentry),
-            Charge::Grenade | Charge::Medkit | Charge::Bandage => None,
+            Charge::Grenade => None,
         }
     }
 
@@ -674,29 +642,6 @@ pub const SENTRY_MARK_THREE_DAMAGE: f32 = 1.2;
 /// *Quick build*: what the sentry deploy time is multiplied by.
 pub const QUICK_BUILD_TIME: f64 = 0.5;
 
-// --- the medicine, everybody's --------------------------------------------
-
-/// **Medkit charges** every crew member carries, whatever its class: how
-/// many its pack fills back up to on [`MEDKIT_COOLDOWN`] a charge, and
-/// what it sets out with. A trauma is treated out of the helper's own
-/// pack and nobody fetches a kit out of the hold for one — see
-/// [`Charge`].
-pub const MEDKIT_CHARGES: u32 = 1;
-/// **Bandage charges**, the same way: one dressing a charge, five of
-/// them to a box in the pack, on [`BANDAGE_COOLDOWN`] each.
-pub const BANDAGE_CHARGES: u32 = 5;
-/// What a **medic** carries instead — a medic of the class and a hired
-/// field medic alike, since the medicine is the trade either way.
-pub const MEDIC_MEDKIT_CHARGES: u32 = 4;
-pub const MEDIC_BANDAGE_CHARGES: u32 = 10;
-/// Seconds of the clock one spent medkit takes to come back into the
-/// pack — a medic's quicker, [`MEDIC_MEDKIT_COOLDOWN`] — and one spent
-/// bandage, a medic's no faster than anybody's. A medkit opened on a
-/// body treats **every** trauma on it at once (`Game::apply_treatments`).
-pub const MEDKIT_COOLDOWN: f64 = 40.0;
-pub const MEDIC_MEDKIT_COOLDOWN: f64 = 30.0;
-pub const BANDAGE_COOLDOWN: f64 = 30.0;
-
 // --- the soldier's numbers (feature 75) --------------------------------------
 
 /// What a braced soldier's odds are multiplied by.
@@ -760,31 +705,41 @@ pub fn steady_aim_walking() -> f32 {
 
 /// How far the heal beam reaches, in tiles.
 pub const HEAL_BEAM_RANGE: f32 = 6.0;
-/// Blood a beamed patient gains an hour.
-pub const HEAL_BEAM_BLOOD: f32 = 30.0;
-/// Minutes of the clock beaming a patient that qualifies — below full
-/// blood, or with a wound open — until the surge is charged.
+/// Hit points a beamed patient gains an hour of the clock (task 120: the
+/// value the beam's blood an hour was, read as hit points — half a point
+/// a second at 1×). **TUNE**: nobody has played it at this rate yet.
+pub const HEAL_BEAM_HP: f32 = 30.0;
+/// How long a medic takes to revive a downed crewmate, in seconds —
+/// anybody else's is `bims::health::REVIVE_SECONDS` (task 120). A medic of
+/// the class and a hired field medic alike.
+pub const MEDIC_REVIVE_SECONDS: f32 = 4.0;
+
+/// How long a revive takes (task 120): ten seconds, four for a `medic`,
+/// less `quicker` seconds — a relic's *Trauma Kit* — and never under
+/// `crate::data::REVIVE_FLOOR_SECONDS`.
+pub fn revive_time(medic: bool, quicker: f32) -> f32 {
+    let base = if medic {
+        MEDIC_REVIVE_SECONDS
+    } else {
+        bims::health::REVIVE_SECONDS
+    };
+    (base - quicker).max(crate::data::REVIVE_FLOOR_SECONDS)
+}
+/// Minutes of the clock beaming a patient that qualifies — below its
+/// whole bar — until the surge is charged.
 pub const SURGE_CHARGE_MINUTES: f64 = 40.0;
 /// Minutes of the clock a surge runs.
 pub const SURGE_MINUTES: f64 = 8.0;
 /// The level a surge may be triggered from: the medic's third.
 pub const SURGE_LEVEL: u8 = 3;
-/// The level *mender* applies from: the medic's seventh.
+/// The level *mender* sits at: the medic's seventh — a fixed level whose
+/// talent, a beamed patient's parts mending faster, is a no-op since task
+/// 120 (there are no parts and nothing mends).
 pub const MENDER_LEVEL: u8 = 7;
-/// *Mender*: what a beamed patient's parts mend at, times
-/// `bims::health::HEALTH_RECOVER`.
-pub const MENDER_RECOVER: f32 = 10.0;
-/// *Field dressing*: what the medic's bandaging time is multiplied by.
-pub const FIELD_DRESSING_TIME: f32 = 0.5;
-/// *Surgeon*: what the medic's treating time is multiplied by.
-pub const SURGEON_TIME: f32 = 0.5;
 /// *Long beam*: what the beam's range is multiplied by.
 pub const LONG_BEAM_RANGE: f32 = 1.5;
-/// *Strong beam*: what the beam's blood rate is multiplied by.
-pub const STRONG_BEAM_BLOOD: f32 = 1.5;
-/// *Steady hands* (the medic's): what `bims::health::TREATED_TO` is
-/// multiplied by for a part it treats.
-pub const STEADY_HANDS_TREATED: f32 = 1.5;
+/// *Strong beam*: what the beam's rate is multiplied by.
+pub const STRONG_BEAM_RATE: f32 = 1.5;
 /// *Quick charge*: what the surge's charging rate is multiplied by.
 pub const QUICK_CHARGE_RATE: f64 = 1.5;
 /// *Long surge*: what a surge's minutes are multiplied by.
@@ -795,9 +750,6 @@ pub const DOUBLE_LINK_PATIENTS: usize = 2;
 pub const GUNNER_MEDIC_FIRE_RATE: f32 = 0.5;
 /// *Mass surge*: how far round the patient a surge reaches, in tiles.
 pub const MASS_SURGE_TILES: f32 = 3.0;
-/// *Field surgeon*: what a treatment with no kit takes, of the ordinary
-/// time.
-pub const FIELD_SURGEON_TIME: f32 = 0.5;
 
 // --- the tank's numbers (feature 77) -----------------------------------------
 
@@ -851,15 +803,6 @@ pub const AURA_TILES: f32 = 8.0;
 pub const AURA_WORK: f32 = 1.1;
 /// *Aura*: what a Bim in it shoots at.
 pub const AURA_AIM: f32 = 1.1;
-/// *Aura*: how much longer a Bim in it holds its ground before it runs —
-/// [`NERVE_HOLD`] times this.
-pub const AURA_NERVE: f32 = 1.5;
-/// How long a dying body holds its ground before it runs, in seconds of
-/// the clock: nought for a body with no commander near it — which is
-/// why every Bim in the game before the commander ran the moment it was
-/// dying, and still does — and this, times the aura's [`AURA_NERVE`],
-/// for one in an aura.
-pub const NERVE_HOLD: f32 = 8.0;
 /// What a commander takes off a mercenary's fee, in whole per cent.
 pub const HIRE_DISCOUNT_PERCENT: u32 = 25;
 /// *Haggler*: what he takes off it instead.
@@ -875,8 +818,7 @@ pub const LONG_REACH_LEVEL: u8 = 7;
 pub const RALLY_COOLDOWN: f64 = 30.0;
 /// Minutes of the clock a rally runs.
 pub const RALLY_MINUTES: f64 = 6.0;
-/// *Rally*: what a Bim in it shoots at. It stacks with the aura's, and
-/// nothing in it ever runs.
+/// *Rally*: what a Bim in it shoots at. It stacks with the aura's.
 pub const RALLY_AIM: f32 = 1.3;
 /// *Wide presence*: what the aura's radius is multiplied by.
 pub const WIDE_PRESENCE_RADIUS: f32 = 1.5;
@@ -896,16 +838,13 @@ pub const PINCER_MARKS: usize = 2;
 pub const LONG_RALLY_TIME: f64 = 1.5;
 /// *Quick rally*: what the rally's cooldown is multiplied by.
 pub const QUICK_RALLY_COOLDOWN: f64 = 0.5;
-/// *Steady ranks*: what a Bim in the aura bleeds at.
-pub const STEADY_RANKS_BLEED: f32 = 0.75;
 /// *Double time*: what a Bim in the aura's pace is multiplied by.
 pub const DOUBLE_TIME_PACE: f32 = 1.1;
 
 /// One of the aura's bonuses through *strong presence* and *anchor*:
 /// what the bonus *adds* is multiplied, so [`AURA_WORK`]'s tenth becomes
 /// three twentieths under [`STRONG_PRESENCE`] and a fifth under both.
-/// A bonus below one — [`STEADY_RANKS_BLEED`] — deepens the same way,
-/// never past nothing.
+/// A bonus below one deepens the same way, never past nothing.
 pub fn aura_bonus(bonus: f32, factor: f32) -> f32 {
     (1.0 + (bonus - 1.0) * factor).max(0.0)
 }
@@ -1240,7 +1179,7 @@ mod tests {
         // An aura bonus deepens by what it adds, up and down.
         assert!((aura_bonus(AURA_WORK, STRONG_PRESENCE) - 1.15).abs() < 1e-6);
         assert!((aura_bonus(AURA_WORK, ANCHOR_BONUS) - 1.2).abs() < 1e-6);
-        assert!((aura_bonus(STEADY_RANKS_BLEED, STRONG_PRESENCE) - 0.625).abs() < 1e-6);
+        assert!((aura_bonus(0.75, STRONG_PRESENCE) - 0.625).abs() < 1e-6);
         assert_eq!(aura_bonus(0.0, 100.0), 0.0, "never past nothing");
     }
 

@@ -99,9 +99,9 @@ fn the_front_is_there_from_day_nought_and_follows_the_day() {
 
 /// The premium: fifteen per cent on the edge of the infection, ten two
 /// hops out, five three hops out and nothing beyond — on a weapon, a
-/// piece of armour, a medkit or a bandage, and on nothing else.
+/// piece of armour, and on nothing else (the medicine went in task 120).
 #[test]
-fn a_desk_near_the_front_leans_on_the_guns_the_armour_and_the_medicine() {
+fn a_desk_near_the_front_leans_on_the_guns_and_the_armour() {
     // The two numbers together must stay inside what `economy::market`
     // promises to quote a sound price over.
     assert!(
@@ -142,13 +142,13 @@ fn a_desk_near_the_front_leans_on_the_guns_the_armour_and_the_medicine() {
     }
     // The three figures the feature was asked for, written out.
     if origin_at(&mut world, 1) {
-        assert_eq!(world.front_bias(home, ResourceId::Medkit), 15);
+        assert_eq!(world.front_bias(home, ResourceId::Kevlar), 15);
     }
     if origin_at(&mut world, 2) {
-        assert_eq!(world.front_bias(home, ResourceId::Medkit), 10);
+        assert_eq!(world.front_bias(home, ResourceId::Kevlar), 10);
     }
     if origin_at(&mut world, 3) {
-        assert_eq!(world.front_bias(home, ResourceId::Medkit), 5);
+        assert_eq!(world.front_bias(home, ResourceId::Kevlar), 5);
     }
 }
 
@@ -171,18 +171,18 @@ fn every_quote_path_agrees_and_a_sale_pays_the_front_price() {
             "{resource:?} away from the front"
         );
     }
-    let quiet = world.quote(home, ResourceId::Medkit).unwrap();
+    let quiet = world.quote(home, ResourceId::Kevlar).unwrap();
 
     // One hop out, the premium is added to the roll — and the roll is
     // still in there, since the sum is the one that is quoted.
     assert!(origin_at(&mut world, 1), "a star one hop from the crew");
-    let front = world.quote(home, ResourceId::Medkit).unwrap();
+    let front = world.quote(home, ResourceId::Kevlar).unwrap();
     assert_eq!(
         front,
         market::quote(
             desk.kind,
-            desk.bias.of(ResourceId::Medkit) + 15,
-            ResourceId::Medkit
+            desk.bias.of(ResourceId::Kevlar) + 15,
+            ResourceId::Kevlar
         )
     );
     assert!(front.bid > quiet.bid, "{front:?} over {quiet:?}");

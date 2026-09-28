@@ -61,17 +61,6 @@ pub const LOCAL_HYSTERESIS: f64 = 1.25;
 /// [`LOCAL_HYSTERESIS`] further.
 pub const RESIDENTS_RANGE: f64 = 50.0 * shipdesign::TILE as f64;
 
-/// Dressings every one of a station's people carries **in its own pack**
-/// when its room opens (feature 87: a bandage is a thing, and there is no
-/// count on a shelf anywhere), so it can bind a wound the crew gave it. A
-/// station has no hold the world keeps and nobody restocks it, so this is
-/// all there ever is while the room is open.
-pub const RESIDENT_BANDAGES: u32 = 2;
-
-/// And medkits, the same way: enough to treat one of their own that the
-/// crew left dying, once the fight is over.
-pub const RESIDENT_MEDKITS: u32 = 1;
-
 /// How many hours of the **world clock** go by before a wave of machines
 /// grows by one, and by one again every time as many more have — and a
 /// held station's count of waves by one every second time
@@ -373,8 +362,8 @@ pub const DROID_TIER_THREE_HOPS: u16 = 2;
 /// rather than one, and so that the band moves past them at a hop every
 /// [`DROID_SPREAD_DAYS`] the way the infection does.
 pub const FRONT_HOPS: u16 = 3;
-/// How much a hop nearer the front adds to a desk's lean on a weapon, a
-/// piece of armour, a medkit or a bandage, in per cent of the book. The
+/// How much a hop nearer the front adds to a desk's lean on a weapon or a
+/// piece of armour, in per cent of the book. The
 /// system on the edge of the infection pays `FRONT_BIAS * FRONT_HOPS`
 /// — fifteen per cent — over the roll, and the one three hops out five.
 pub const FRONT_BIAS: i32 = 5;
@@ -466,19 +455,17 @@ pub const FIELD_PLATING_ARMOUR_PERCENT: i32 = 10;
 pub const COOLANT_LOOP_COOLDOWN_PERCENT: i32 = 10;
 /// *Steady Grip*: what its odds of hitting are raised by, in per cent.
 pub const STEADY_GRIP_ACCURACY_PERCENT: i32 = 10;
-/// *Trauma Kit*: what a medkit, a bandage and a medic's beam put back into
-/// it is raised by, in per cent — where a medkit starts a part again from,
-/// and the blood and the mending a beam gives. A bandage closes wounds and
-/// puts nothing back, so it is the one of the three the relic cannot
-/// raise.
-pub const TRAUMA_KIT_HEALING_PERCENT: i32 = 25;
+/// *Trauma Kit* (task 120): how many seconds sooner its carrier brings a
+/// downed crewmate round — ten to eight, a medic's four to two — never
+/// under [`REVIVE_FLOOR_SECONDS`].
+pub const TRAUMA_KIT_REVIVE_SECONDS: f32 = 2.0;
+/// The shortest a revive ever takes, in seconds, whatever speeds it.
+pub const REVIVE_FLOOR_SECONDS: f32 = 1.0;
 /// *Second Wind*: how long after going down it gets up again, in seconds
 /// of the mission clock — the first time in a mission.
 pub const SECOND_WIND_SECONDS: f64 = 5.0;
-/// *Second Wind*: the share of its health it gets up with, in per cent;
-/// the blood comes back to where a body stands up
-/// (`bims::health::SLOWED_AT`) and every wound is closed, or it would be
-/// down again at once.
+/// *Second Wind*: the share of its bar it gets up with, in per cent — a
+/// revive of its own (task 120), slowed for the mission like any.
 pub const SECOND_WIND_HEALTH_PERCENT: u32 = 25;
 /// *Salvage Beacon*: what the bounty for a machine it destroyed is raised
 /// by, in per cent — paid on the site's clear like every bounty.
@@ -520,15 +507,17 @@ pub const TOTAL_TEARDOWN_DAMAGE_PERCENT: i32 = 100;
 /// *Pressure Seal*: the health it puts back a second, all the time it is
 /// alive.
 pub const PRESSURE_SEAL_HP_PER_SECOND: f32 = 0.5;
-/// *Quick Wrap*: the health every dressing it applies puts back into the
-/// body dressed, its own or a crewmate's.
+/// *Quick Wrap*: the health every revive it makes puts back into the body
+/// revived, on top of the three tenths a revive gives (task 120; it was
+/// every dressing).
 pub const QUICK_WRAP_HEAL: f32 = 10.0;
 /// *Clot Booster*: the health it puts back a second for so many seconds
-/// after going down.
+/// after going down — the part of them it is revived for (task 120).
 pub const CLOT_BOOSTER_HP_PER_SECOND: f32 = 2.0;
 pub const CLOT_BOOSTER_SECONDS: f64 = 15.0;
-/// *Tether Field*: how much less of every hit a crewmate it dressed takes,
-/// in per cent, and for how many seconds.
+/// *Tether Field*: how much less of every hit a crewmate it revived takes,
+/// in per cent, and for how many seconds (task 120; it was one it
+/// dressed).
 pub const TETHER_FIELD_PERCENT: i32 = 25;
 pub const TETHER_FIELD_SECONDS: f64 = 6.0;
 /// *Lifeline*: how near a crewmate going down has to be, in tiles, and how

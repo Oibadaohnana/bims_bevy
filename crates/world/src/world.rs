@@ -278,13 +278,13 @@ pub enum Command {
         y: i32,
     },
     /// Link that player's own medic's heal beam to crew member `patient`
-    /// — a player's Bim or a mercenary, never an enemy, never itself —
+    /// — a player's Bim or a mercenary, or itself; never an enemy —
     /// or unlink with `None` (feature 76, `crate::class`,
     /// `crate::medic`). Wants the medic fit to act and the patient
     /// alive, within [`class::HEAL_BEAM_RANGE`] tiles and in its sight
-    /// (`World::can_beam`). Linked, the patient's wounds and traumas do
-    /// not bleed and its blood comes back at [`class::HEAL_BEAM_BLOOD`]
-    /// an hour; the medic walks but does not fire. With *double link* a
+    /// (`World::can_beam`) — or the medic itself (task 120). Linked, the
+    /// patient gains [`class::HEAL_BEAM_HP`] hit points an hour of the
+    /// clock; the medic walks but does not fire. With *double link* a
     /// second patient is held beside the first, and a third takes the
     /// first's place.
     Beam {
@@ -358,12 +358,12 @@ pub enum Command {
     /// arms, or set down whatever it is carrying with `None` (feature
     /// 86, [`crate::mercenary`]). Wants the carrier fit to act and
     /// either a medic of the class or a hired field medic
-    /// ([`World::can_carry`]); the body has to be a crewmate that is out
-    /// cold, in a dying state or bleeding, within
+    /// ([`World::can_carry`]); the body has to be a crewmate that is
+    /// downed, within
     /// [`bims::game::CARRY_REACH`] tiles, and in nobody else's arms. Carried,
     /// a body walks nowhere of its own and the carrier holds its fire
     /// and walks at [`bims::game::CARRY_PACE`] — the point of it being
-    /// to get somebody out of the fire and treat them where it is
+    /// to get somebody out of the fire and revive them where it is
     /// quiet. A set down with empty arms does nothing and says so.
     Carry {
         slot: u32,
@@ -853,13 +853,6 @@ pub struct World {
     /// `World::restock_charges` keeps it, and it is in `world_checksum`:
     /// a charge waiting is a different fight from one in the pack.
     pub charge_timers: Vec<[Option<f64>; Charge::ALL.len()]>,
-    /// A probe's switch: the medicine — everybody's medkit and bandage
-    /// charges — neither dealt nor come back, so a test that lays a pack
-    /// out cell by cell, or counts the hold, is not handed a box of
-    /// dressings in the middle of it (`without_dressings` in the tests).
-    /// Never set in a game, so neither saved nor hashed.
-    #[cfg_attr(feature = "serde", serde(skip))]
-    medicine_off: bool,
     /// Each crew member's medic state, by index (feature 76,
     /// `crate::medic`): who its beam holds, its surge's charge, and its
     /// field surgery this fight. Empty for anybody but a player's medic.
@@ -912,10 +905,9 @@ pub struct LampDamage {
     pub health: f32,
 }
 
-/// What [`World::beam_for_probe`] leaves the patient's blood at, as a
-/// share of full: under `health::SLOWED_AT` so the beam has plenty to
-/// put back, over `health::OUT_AT` so the patient is on its feet.
-const BEAM_PROBE_BLOOD: f32 = 0.6;
+/// What [`World::beam_for_probe`] leaves the patient's bar at, as a
+/// share of whole: short enough that the beam has plenty to put back.
+const BEAM_PROBE_HEALTH: f32 = 0.6;
 
 impl World {
     /// Open a world with the accepted ship docked at a station.
@@ -1088,7 +1080,6 @@ impl World {
             next_deployable: 1,
             reused_kits: vec![0; crew as usize],
             charge_timers: vec![[None; Charge::ALL.len()]; crew as usize],
-            medicine_off: false,
             medics: vec![Medic::default(); crew as usize],
             tanks: vec![Tank::default(); crew as usize],
             commanders: vec![Commander::default(); crew as usize],
@@ -1127,11 +1118,6 @@ impl World {
         // whoever lives there already up and about.
         world.dock_at(station_id);
         world.settle_residents();
-        // Every crew member sets out with its medicine in the pack: a
-        // medkit and a box of bandages, which the cooldowns keep it at.
-        for who in 0..world.aboard.crew_count() {
-            world.fill_medicine(who);
-        }
         // What the crew set out with, for the enemies to be scaled
         // against — the **same** sum `worth` gives from then on, the
         // starting pool included, so unspent money is never counted as
@@ -1241,11 +1227,9 @@ impl World {
         //    afresh at every dock and undock and starts at one, so it is
         //    told every step, before it moves anybody (`bims::order`).
         self.aboard.room.set_players(self.players());
-        //    The medicine is what each crew member carries, and nothing
-        //    else: the room is told how many medkits each has, and no
-        //    shelf. They are filled back up by `restock_charges` below, a
-        //    medkit and a bandage being everybody's charges.
-        self.hand_the_room_the_medicine();
+        //    And the crew's room is the one whose people revive one
+        //    another of their own accord (task 120).
+        self.aboard.room.set_revivers(true);
         //    And the construction sites, what each still wants, and who may
         //    go out to one beyond the hull. What the room did about them is
         //    read in stage 7.
@@ -1259,9 +1243,8 @@ impl World {
         //    did to them is read back after `visit`.
         //    And every class's charges: a spent sandbag, sentry or
         //    grenade comes back into its pack on its own cooldown
-        //    (features 88 and 90), and everybody's medkit and bandages
-        //    the same way, before the boxes at the foot of the screen
-        //    are read.
+        //    (features 88 and 90), before the boxes at the foot of the
+        //    screen are read.
         self.restock_charges();
         self.hand_the_room_the_engineers();
         //    And what each class wears (feature 81): drawing only, said
@@ -1269,7 +1252,7 @@ impl World {
         //    and a save is read without anything else telling the room.
         self.hand_the_room_the_outfits();
         //    And the medics' (feature 76): every beam checked and the
-        //    patients' blood held, before the soldiers' skills, since a
+        //    patients healed, before the soldiers' skills, since a
         //    medic beaming holds its fire through them.
         self.hand_the_room_the_medics(&mut events);
         //    And which crew members are hired **field medics** (feature
@@ -1323,7 +1306,6 @@ impl World {
         //    And what the fight did to the armour: a piece broken is said
         //    once, and stays worn (task 113).
         self.say_pieces_broken(&mut events);
-        self.take_the_room_s_medicine();
 
         // 6. Power: what the reactors made this step against what the
         //    wired consumers drew, into or out of the batteries. What is
@@ -1665,9 +1647,9 @@ impl World {
     ///
     /// Nothing a crew own changes what they are worth by moving from one
     /// pocket to another: a purchase, a sale and a piece put on are all
-    /// worth the spread and nothing else. A charge — a medkit, the
-    /// dressings, a kit — is not property: it came back by itself and will
-    /// again, so a crew that has spent its bandages is no poorer.
+    /// worth the spread and nothing else. A charge — a kit, a grenade — is
+    /// not property: it came back by itself and will again, so a crew that
+    /// has spent its grenades is no poorer.
     ///
     /// Saturating throughout: a world worth more than a `u64` is a bug
     /// upstream, and a wrap would hand an enemy a crew worth nothing.
@@ -1841,7 +1823,6 @@ impl World {
         // errand is given up — into the hold before the room is dropped.
         let mut old = std::mem::replace(&mut self.aboard, Aboard::new(&self.ship.design, 1, 0));
         let crew = old.room.take_crew();
-        bank_medicine(&mut old.room);
         // On a planet, the ground beyond the town.
         let terrain = surface::surface_body(id)
             .and_then(|body| self.surface(body))
@@ -2395,9 +2376,8 @@ impl World {
             }
         }
         // Who is down, asked of the room rather than read off the hits: a
-        // shot to the head kills at the top of the body's next tick with
-        // the total still well above nought, and a wound nobody dresses
-        // kills without a hit landing at all. Said once each.
+        // downed body dies at the top of its tick when its countdown runs
+        // out, without a hit landing at all. Said once each.
         // A machine destroyed is one of these too: the lists are sized
         // by the body count, so a wave landing grows them (feature 83).
         let bodies = room.body_count() as usize;
@@ -2536,7 +2516,7 @@ impl World {
             let mut theirs = crew.clone();
             let cross = theirs.len();
             for who in 0..bims {
-                theirs.push((room.is_alive(who) && !room.is_unconscious(who)).then(|| {
+                theirs.push((room.is_alive(who) && !room.is_downed(who)).then(|| {
                     (
                         room.exposed_at(who),
                         room.weapon(who).unwrap_or(WeaponKind::LaserPistol.basic()),
@@ -2649,7 +2629,7 @@ impl World {
             }
         }
         // And the residents for the crew, the same way: alive and on their
-        // feet — one out cold is nobody's target — each with its weapon, at
+        // feet — one downed is nobody's target — each with its weapon, at
         // the peek while peeking, and which are peeking. **Every body of
         // that room**: its Bims and then its machines (feature 83), one
         // index space, which is what a hit past the Bims is read back
@@ -2667,7 +2647,7 @@ impl World {
                 if defending && who < town_bims {
                     return false;
                 }
-                room.is_alive(who as usize) && !room.is_unconscious(who as usize)
+                room.is_alive(who as usize) && !room.is_downed(who as usize)
             })
             .collect();
         let weapons: Vec<Weapon> = (0..bodies)
@@ -2744,9 +2724,9 @@ impl World {
 
     /// What the enemy's fire did to the crew this step, said: every hit
     /// that landed on one — already on the body, since the joined room
-    /// wounds its own the step a bolt lands — and whoever went down. Down
-    /// is said once, the step it happens, whatever did it: a shot, blood
-    /// lost to a wound nobody dressed, the room's own hunger.
+    /// wounds its own the step a bolt lands — whoever a hit downed, and
+    /// whoever died. Death is said once, the step it happens, whatever did
+    /// it: a downed body's countdown run out, most often.
     fn casualties(&mut self, events: &mut Vec<WorldEvent>) {
         for hit in self.aboard.room.take_wounds_taken() {
             if hit.who < self.aboard.crew_count() as usize {
@@ -2756,20 +2736,9 @@ impl World {
                 });
             }
         }
-        for (who, trauma) in self.aboard.room.take_traumas() {
+        for who in self.aboard.room.take_downs() {
             if who < self.aboard.crew_count() as usize {
-                events.push(WorldEvent::CrewDying {
-                    who: who as u32,
-                    trauma: trauma.code(),
-                });
-            }
-        }
-        for (who, trauma) in self.aboard.room.take_treated() {
-            if who < self.aboard.crew_count() as usize {
-                events.push(WorldEvent::CrewTreated {
-                    who: who as u32,
-                    trauma: trauma.code(),
-                });
+                events.push(WorldEvent::CrewDowned { who: who as u32 });
             }
         }
         for who in 0..self.crew_down.len().min(self.aboard.crew_count() as usize) {
@@ -2797,30 +2766,6 @@ impl World {
         }
     }
 
-    /// The medicine, told to the room before it steps. A medkit is a
-    /// charge on its carrier like a dressing (see [`class::Charge`]), so
-    /// the room's shelf is set to nought, there is no cabinet to walk to,
-    /// and each crew member's own medkits are the count it treats with —
-    /// opened where the helper stands. The kit is spent when the treatment
-    /// is done (`settle_medics`), not when it is taken up, so a treatment
-    /// given up for a shot spends nothing. A dressing is spent by the room
-    /// itself, so no count of those crosses.
-    fn hand_the_room_the_medicine(&mut self) {
-        let carried: Vec<u32> = (0..self.aboard.crew_count())
-            .map(|who| self.charges_of(who, Charge::Medkit))
-            .collect();
-        let room = &mut self.aboard.room;
-        room.set_medkits(0);
-        room.set_pack_kits(carried);
-        room.set_kit_stands(&[]);
-    }
-
-    /// What the room did with its medicine this step, drained: nothing
-    /// of it is the hold's any more (see [`bank_medicine`]).
-    fn take_the_room_s_medicine(&mut self) {
-        bank_medicine(&mut self.aboard.room);
-    }
-
     /// Off the berth: the ship's room is the ship's alone. The residents
     /// were in their own room throughout and go on in it, drawing their
     /// own doors again, until the room is closed.
@@ -2835,7 +2780,6 @@ impl World {
         // As at the join: the crew out first, then what that banked.
         let mut old = std::mem::replace(&mut self.aboard, Aboard::new(&self.ship.design, 1, 0));
         let crew = old.room.take_crew();
-        bank_medicine(&mut old.room);
         self.aboard = old.unjoined(crew, &self.ship.design, seed, self.clock_minutes);
         // The ship alone is under its own roof: a fresh room has no
         // daylight, and this says so where a landing said the other.
@@ -2894,7 +2838,7 @@ impl World {
             if residents.aboard.room.is_alive(who) || residents.aboard.room.is_manufacturer(who) {
                 continue;
             }
-            // Not `is_alive` is dead, not out cold — one out cold wakes,
+            // Not `is_alive` is dead, not downed — one downed wakes,
             // and is one of the survivors rather than a grave.
             let was_hired = matches!(residents.fee.get(who), Some(Some(_)));
             // A body that was already lying here when the room opened is
@@ -3494,7 +3438,7 @@ impl World {
         }
         let room = &self.aboard.room;
         let who = slot as usize;
-        room.is_alive(who) && !room.is_unconscious(who) && !room.is_outside(who)
+        room.is_alive(who) && !room.is_downed(who) && !room.is_outside(who)
     }
 
     // --- trading ------------------------------------------------------------
@@ -3902,7 +3846,7 @@ impl World {
         }
     }
 
-    /// Whether a body is one: dead, or out cold, in whichever room it
+    /// Whether a body is one: dead, or downed, in whichever room it
     /// lies (`Game::is_down`). `false` for no such Bim.
     pub fn is_down(&self, source: LootSource) -> bool {
         self.body_room(source)
@@ -3954,7 +3898,7 @@ impl World {
         }
         let room = &self.aboard.room;
         let looter = who as usize;
-        if !room.is_alive(looter) || room.is_unconscious(looter) || room.is_outside(looter) {
+        if !room.is_alive(looter) || room.is_downed(looter) || room.is_outside(looter) {
             return false;
         }
         let Some(body) = self.body_position(source) else {
@@ -4103,11 +4047,6 @@ impl World {
             .resize(self.aboard.crew as usize, Commander::default());
         self.clear_squad();
         self.ship.crew_count = self.aboard.crew;
-        // And its medicine, the crew's own from now on: whatever it
-        // carried topped up to everybody's charges at once, a joiner not
-        // being made to wait out the cooldowns for what the rest set out
-        // with. A field medic's more is its contract's, after this.
-        self.fill_medicine(new_who);
         Some((new_who, was_medic))
     }
 
@@ -4156,13 +4095,6 @@ impl World {
             medic: hire_is_medic,
         });
         // A field medic arrives with its own kit (feature 86):
-        // `mercenary::MEDIC_MEDKITS` in its pack, the way a medic of the
-        // class sets out with `class::MEDIC_START_MEDKITS`. They are the
-        // hold's medicine from the moment the room is handed the packs,
-        // so nothing else has to know where they came from.
-        if hire_is_medic {
-            self.give_field_medic_kit(new_who);
-        }
         // *Outfitter* (feature 78): the hand arrives wearing the lowest
         // basic piece it was missing, made for it and charged for at
         // nothing.
@@ -4268,7 +4200,7 @@ impl World {
         };
         let room = &self.aboard.room;
         who < self.aboard.crew_count()
-            && !room.is_unconscious(who as usize)
+            && !room.is_downed(who as usize)
             && room.within_reach(who as usize, Container::Desk(desk), data::REACH)
     }
 
@@ -5787,8 +5719,8 @@ impl World {
                     .is_some_and(|d| !d.destroyed && !d.kind.is_structure())
             })
             .count() as u32
-            // And the Manufacturers on their feet (feature 109): one down
-            // bleeding out is out of the wave, and holds nothing up.
+            // And the Manufacturers on their feet (feature 109): one downed
+            // is out of the wave, and holds nothing up.
             + self.manufacturers_standing()
     }
 
@@ -6466,8 +6398,8 @@ impl World {
     /// of the residents' room into the crew's the way a hire is, with no
     /// contract, no wages and no bunk asked for: a classless crew bot
     /// like any other, which sleeps on the deck under the ordinary rules
-    /// if there is no bunk spare. They keep what they carry and any
-    /// wounds they have; nothing is issued.
+    /// if there is no bunk spare. They keep what they carry and the hit
+    /// points they have; nothing is issued.
     fn townsfolk_join(&mut self, station: u32, events: &mut Vec<WorldEvent>) {
         let Some(residents) = self.residents.as_ref().filter(|r| r.station == station) else {
             return;
@@ -6560,7 +6492,8 @@ impl World {
             Class::None => {}
             Class::Engineer => self.take_engineer_kit(who),
             Class::Soldier => self.take_soldier_kit(who),
-            Class::Medic => self.take_medic_kit(who),
+            // A medic carries nothing of its own since task 120.
+            Class::Medic => {}
             Class::Tank => self.take_tank_kit(who),
             // A commander sets out with the laser pistol every Bim is
             // issued and nothing else, so there is nothing to take off.
@@ -6570,7 +6503,7 @@ impl World {
             Class::None => {}
             Class::Engineer => self.give_engineer_kit(who),
             Class::Soldier => self.give_soldier_kit(who),
-            Class::Medic => self.give_medic_kit(who),
+            Class::Medic => {}
             Class::Tank => self.give_tank_kit(who),
             // And brings nothing of his own but the orders he gives.
             Class::Commander => {}
@@ -6610,61 +6543,6 @@ impl World {
         }
         if changed {
             self.aboard.room.issue(who, gear);
-        }
-    }
-
-    /// The medic's start (feature 76): the laser pistol it has in hand
-    /// already, and its medicine topped up to a medic's charges —
-    /// [`class::MEDIC_MEDKIT_CHARGES`] medkits and
-    /// [`class::MEDIC_BANDAGE_CHARGES`] bandages — at once.
-    fn give_medic_kit(&mut self, who: usize) {
-        self.fill_medicine(who as u32);
-    }
-
-    /// A hired field medic's start (feature 86): a medic's charges of
-    /// medicine, the same as the class's — the trade is the medicine,
-    /// and it has none of the class's talents.
-    fn give_field_medic_kit(&mut self, who: u32) {
-        self.fill_medicine(who);
-    }
-
-    /// And out again: the medicine taken down to everybody's charges, as
-    /// far as it holds more than that — the medic's extra went with the
-    /// class, and what it had already spent is spent.
-    fn take_medic_kit(&mut self, who: usize) {
-        for charge in Charge::MEDICINE {
-            let over = self
-                .charges_of(who as u32, charge)
-                .saturating_sub(self.charges(who as u32, charge));
-            let item = Item::Stack(charge.resource() as u32);
-            self.aboard.room.take_stack(who, item, over);
-        }
-    }
-
-    /// Everybody's medicine switched off, for a probe: no medkit or
-    /// bandage charge dealt from now on and none come back, so what a
-    /// body has is exactly what the probe leaves it — a helper with no kit
-    /// anywhere. What is there already stays. Neither saved nor hashed;
-    /// never set in a game.
-    pub fn medicine_off_for_probe(&mut self) {
-        self.medicine_off = true;
-    }
-
-    /// Crew member `who`'s medicine topped up to its charges **at once**
-    /// — a medkit and five bandages, a medic's four and ten — rather than
-    /// a charge a cooldown: what a hand joining brings, what a medic's
-    /// class or contract adds. The cooldowns bring the rest. Nothing with
-    /// the medicine switched off for a probe.
-    fn fill_medicine(&mut self, who: u32) {
-        if self.medicine_off || who >= self.aboard.crew_count() {
-            return;
-        }
-        for charge in Charge::MEDICINE {
-            let short = self
-                .charges(who, charge)
-                .saturating_sub(self.charges_of(who, charge));
-            let item = Item::Stack(charge.resource() as u32);
-            self.aboard.room.give_stack(who as usize, item, short);
         }
     }
 
@@ -6857,7 +6735,7 @@ impl World {
         for who in first..count.min(residents.xp_down.len()) {
             let room = &residents.aboard.room;
             let dead = !room.is_alive(who);
-            let down = dead || room.is_unconscious(who);
+            let down = dead || room.is_downed(who);
             let Some(at) = self
                 .aboard
                 .from_station(residents.aboard.position(who as u32))
@@ -6866,7 +6744,7 @@ impl World {
             };
             let at = bims::math::vec2(at.x as f32, at.y as f32);
             // **The only experience there is, and every class's alike**
-            // (task 119): an enemy going down — out cold, or dead without
+            // (task 119): an enemy going down — downed, or dead without
             // being down first, which is every machine — is
             // [`class::XP_ENEMY_DOWN`], once; and its death
             // [`class::XP_ENEMY_DEAD`] on top, once, whether it died the
@@ -6889,7 +6767,7 @@ impl World {
             for who in 0..count.min(residents.xp_down.len()) {
                 let room = &residents.aboard.room;
                 let dead = !room.is_alive(who);
-                residents.xp_down[who] |= dead || room.is_unconscious(who);
+                residents.xp_down[who] |= dead || room.is_downed(who);
                 residents.xp_dead[who] |= dead;
             }
         }
@@ -7056,20 +6934,7 @@ impl World {
     ///
     /// For a sentry it is also the **world limit**: one more laid
     /// destroys that engineer's oldest.
-    ///
-    /// The medicine is everybody's whatever the class: a medkit and five
-    /// bandages, and a medic — of the class, or hired as a field medic —
-    /// four and ten.
     pub fn charges(&self, who: u32, charge: Charge) -> u32 {
-        if charge.everybody() {
-            let medic = self.can_lift(who);
-            return match (charge, medic) {
-                (Charge::Medkit, false) => class::MEDKIT_CHARGES,
-                (Charge::Medkit, true) => class::MEDIC_MEDKIT_CHARGES,
-                (_, false) => class::BANDAGE_CHARGES,
-                (_, true) => class::MEDIC_BANDAGE_CHARGES,
-            };
-        }
         if self.class_of(who) != charge.class() {
             return 0;
         }
@@ -7093,13 +6958,12 @@ impl World {
                 }
             }
             Charge::Grenade => class::GRENADE_CHARGES,
-            Charge::Medkit | Charge::Bandage => 0,
         }
     }
 
     /// Seconds of the clock one spent charge takes to come back — the
     /// kind's own, and a talent's factor on it: *quick draw* halves the
-    /// grenade's. A medic's medkit comes back quicker than anybody's.
+    /// grenade's.
     pub fn charge_cooldown(&self, who: u32, charge: Charge) -> f64 {
         let own = match charge {
             Charge::Sandbag => deploy::SANDBAG_COOLDOWN,
@@ -7111,17 +6975,9 @@ impl World {
                     class::GRENADE_COOLDOWN
                 }
             }
-            Charge::Medkit if self.can_lift(who) => class::MEDIC_MEDKIT_COOLDOWN,
-            Charge::Medkit => class::MEDKIT_COOLDOWN,
-            Charge::Bandage => class::BANDAGE_COOLDOWN,
         };
-        // A relic's *Coolant Loop* (feature 106): the class's own, never
-        // the medicine everybody carries.
-        if charge.everybody() {
-            own
-        } else {
-            own * self.relic_factor(who, crate::relic::Stat::Cooldowns)
-        }
+        // A relic's *Coolant Loop* (feature 106).
+        own * self.relic_factor(who, crate::relic::Stat::Cooldowns)
     }
 
     /// Seconds of the clock until the next charge lands in that crew
@@ -7199,9 +7055,7 @@ impl World {
     /// short, and when it runs out one goes in. In combat as out of it —
     /// this is an ability's cooldown and not the dressings' restock —
     /// and nothing is conjured out of the hold: the charge **is** the
-    /// ability, and no class makes or buys one. The medicine the same
-    /// way, for everybody: a medkit a minute and a dressing every thirty
-    /// seconds of the clock until the pack is back at its charges.
+    /// ability, and no class makes or buys one.
     fn restock_charges(&mut self) {
         let crew = self.aboard.crew_count() as usize;
         if self.charge_timers.len() < crew {
@@ -7211,10 +7065,6 @@ impl World {
         for who in 0..crew {
             for charge in Charge::ALL {
                 let c = charge.code() as usize;
-                if self.medicine_off && charge.everybody() {
-                    self.charge_timers[who][c] = None;
-                    continue;
-                }
                 let charges = self.charges(who as u32, charge);
                 let held = self.charges_of(who as u32, charge);
                 if held >= charges || !self.aboard.room.is_alive(who) {
@@ -7652,7 +7502,25 @@ impl World {
         self.lift_by_relics(who, &mut skill);
         // And task 118's, which read the crew round it as well.
         self.lift_by_relic_hooks(who, &mut skill);
+        // And how long it takes to revive a downed crewmate (task 120).
+        skill.revive = self.revive_seconds(who);
         skill
+    }
+
+    /// How long crew member `who` takes to revive a downed crewmate, in
+    /// seconds (task 120): `bims::health::REVIVE_SECONDS` (ten) for
+    /// anybody, [`class::MEDIC_REVIVE_SECONDS`] (four) for a medic — of the
+    /// class, or a hired field medic — and a *Trauma Kit* on it
+    /// [`data::TRAUMA_KIT_REVIVE_SECONDS`] quicker again, never under
+    /// [`data::REVIVE_FLOOR_SECONDS`].
+    pub fn revive_seconds(&self, who: u32) -> f32 {
+        let medic = self.is_medic(who) || self.is_field_medic(who);
+        let quicker = crate::relic::rule_of(self.relics_of(who), |r| match r {
+            crate::relic::Rule::QuickRevive { seconds } => Some(seconds),
+            _ => None,
+        })
+        .unwrap_or(0.0);
+        class::revive_time(medic, quicker)
     }
 
     /// The soldier's half of [`World::skill_of`]; `Skill::NONE` for
@@ -7680,9 +7548,7 @@ impl World {
         if has(Talent::SteadyAim) {
             skill.walking = class::steady_aim_walking();
         }
-        if has(Talent::IronNerve) {
-            skill.nerve = true;
-        }
+        // *Iron nerve* is a no-op since task 120: nobody runs.
         if has(Talent::CoverMaster) {
             skill.cover_dodge = (skill.cover_dodge * class::COVER_MASTER_DODGE).min(1.0);
         }
@@ -7906,13 +7772,13 @@ impl World {
         }
     }
 
-    /// Blood a beamed patient gains an hour: the rate, half again with
-    /// *strong beam*.
-    pub fn beam_blood(&self, who: u32) -> f32 {
+    /// Hit points a beamed patient gains an hour of the clock: the rate,
+    /// half again with *strong beam* (task 120; it was blood).
+    pub fn beam_rate(&self, who: u32) -> f32 {
         if self.has_talent(who, Talent::StrongBeam) {
-            class::HEAL_BEAM_BLOOD * class::STRONG_BEAM_BLOOD
+            class::HEAL_BEAM_HP * class::STRONG_BEAM_RATE
         } else {
-            class::HEAL_BEAM_BLOOD
+            class::HEAL_BEAM_HP
         }
     }
 
@@ -7962,17 +7828,21 @@ impl World {
         self.aboard.room.is_surging(who as usize)
     }
 
-    /// Whether a crewmate is where a medic's beam reaches it: alive, in
-    /// the room, within the medic's range and in its sight. What a link
+    /// Whether a crew member is where a medic's beam reaches it: alive,
+    /// in the room, within the medic's range and in its sight — or the
+    /// medic itself (task 120: a medic may beam its own bar). What a link
     /// asks, and what keeps one.
     fn beam_reaches(&self, medic: u32, patient: u32) -> Result<(), Refusal> {
         let room = &self.aboard.room;
         let (m, p) = (medic as usize, patient as usize);
-        if patient >= self.aboard.crew_count() || patient == medic || !room.is_alive(p) {
+        if patient >= self.aboard.crew_count() || !room.is_alive(p) {
             return Err(Refusal::NotACrewmate);
         }
         if room.is_outside(p) || room.is_outside(m) {
             return Err(Refusal::OutOfBeamRange);
+        }
+        if patient == medic {
+            return Ok(());
         }
         let at = room.bim_pos(p);
         let t = shipdesign::TILE as f32;
@@ -7987,8 +7857,8 @@ impl World {
 
     /// Whether a player's medic may link its beam to `patient`, or why
     /// not, in the order the refusals are said: a medic (`NotAMedic`),
-    /// fit to act (`OutOfReach`), a living crewmate — any crew member
-    /// but itself (`NotACrewmate`) — in the room and within range
+    /// fit to act (`OutOfReach`), a living crew member — itself too
+    /// (`NotACrewmate`) — in the room and within range
     /// (`OutOfBeamRange`), in its sight (`NoSightOfPatient`). What the
     /// app greys the key with and [`Command::Beam`] asks.
     pub fn can_beam(&self, slot: u32, patient: u32) -> Result<(), Refusal> {
@@ -8051,12 +7921,11 @@ impl World {
     /// The surge — see [`Command::Surge`]: the charge emptied, and the
     /// room's timer set on the medic and every patient (and, with *mass
     /// surge*, every crew member within [`class::MASS_SURGE_TILES`] of a
-    /// patient) for the medic's minutes; a patient's closes its wounds as
-    /// it ends with *closing surge*.
+    /// patient) for the medic's minutes. *Closing surge* is a no-op since
+    /// task 120: there are no wounds to close.
     fn surge(&mut self, slot: u32) -> Result<(), Refusal> {
         self.can_surge(slot)?;
         let seconds = (self.surge_minutes(slot) / time::MINUTES_PER_SECOND) as f32;
-        let closing = self.has_talent(slot, Talent::ClosingSurge);
         let patients = self.patients_of(slot);
         let mut covered: Vec<u32> = Vec::new();
         if self.has_talent(slot, Talent::MassSurge) {
@@ -8079,12 +7948,12 @@ impl World {
         }
         self.medic_mut(slot as usize).charge = 0.0;
         let room = &mut self.aboard.room;
-        room.set_surge(slot as usize, seconds, false);
+        room.set_surge(slot as usize, seconds);
         for p in patients {
-            room.set_surge(p as usize, seconds, closing);
+            room.set_surge(p as usize, seconds);
         }
         for other in covered {
-            room.set_surge(other as usize, seconds, false);
+            room.set_surge(other as usize, seconds);
         }
         Ok(())
     }
@@ -8106,55 +7975,50 @@ impl World {
             owed: false,
             medic: true,
         });
-        self.give_field_medic_kit(who);
         true
     }
 
     /// Crew member `carrier` with crew member `patient` in its arms, the
-    /// patient taken out cold first so there is something to carry and
-    /// the two stood beside each other — `BIMS_CARRY=1`, for looking at
-    /// a body being carried off the deck without staging a fight and
-    /// waiting for somebody to go down. False if it would not go.
+    /// patient downed first so there is something to carry and the two
+    /// stood beside each other — `BIMS_CARRY=1`, for looking at a body
+    /// being carried off the deck without staging a fight and waiting for
+    /// somebody to go down. False if it would not go.
     pub fn carry_for_probe(&mut self, carrier: u32, patient: u32) -> bool {
         if carrier >= self.aboard.crew_count() || patient >= self.aboard.crew_count() {
             return false;
         }
-        // Beside the carrier, and bled past the line so it is out cold
-        // and worth fetching.
+        // Beside the carrier, and downed so it is worth fetching.
         let at = self.aboard.room.bim_pos(carrier as usize)
             + bims::math::vec2(shipdesign::TILE as f32 * 0.8, 0.0);
         self.aboard.room.put_for_probe(patient as usize, at);
-        self.aboard
-            .room
-            .wound(patient as usize, bims::health::Part::Legs, 1000.0);
-        self.aboard.room.set_blood_for_probe(patient as usize, 0.2);
+        self.aboard.room.knock_out_for_probe(patient as usize);
         self.step(&[]);
         self.aboard.room.take_up(carrier as usize, patient as usize)
     }
 
     /// Slot 0 a medic beaming crew member 1, for a probe and for
-    /// `BIMS_BEAM` in the app: crew member 1 stood a tile from it with a
-    /// wound open **and blood to put back** — so the patient wants
-    /// holding, the charge fills and the beam has something to do — and
-    /// the link made. With `surge` the charge is filled and the
-    /// surge triggered besides, which wants the medic at
-    /// [`class::SURGE_LEVEL`] (the caller's `BIMS_LEVEL`, or this puts
-    /// it there). `false`, and nothing moved, with fewer than two aboard
-    /// or with slot 0 no medic.
-    ///
-    /// The blood is [`BEAM_PROBE_BLOOD`] of full rather than the wound's
-    /// own doing: a beam stops the bleeding dead, so a patient wounded
-    /// and beamed in the same breath is at full blood for ever and the
-    /// green numbers over it (feature 91) never count anything. It is
-    /// above `health::OUT_AT`, so the patient is on its feet.
+    /// `BIMS_BEAM` in the app: crew member 1 stood a tile from it at
+    /// [`BEAM_PROBE_HEALTH`] of its bar — so the patient wants healing,
+    /// the charge fills and the beam has something to do, and the green
+    /// numbers over it (feature 91) count — and the link made. With
+    /// `surge` the charge is filled and the surge triggered besides, which
+    /// wants the medic at [`class::SURGE_LEVEL`] (the caller's
+    /// `BIMS_LEVEL`, or this puts it there). `false`, and nothing moved,
+    /// with fewer than two aboard or with slot 0 no medic.
     pub fn beam_for_probe(&mut self, surge: bool) -> bool {
         if self.aboard.crew_count() < 2 || !self.is_medic(0) {
             return false;
         }
-        let at = self.aboard.room.bim_pos(0) + bims::math::vec2(shipdesign::TILE as f32, 0.0);
-        self.aboard.room.put_for_probe(1, at);
-        self.aboard.room.wound(1, bims::health::Part::Legs, 2.0);
-        self.aboard.room.bleed_for_probe(1, BEAM_PROBE_BLOOD);
+        // Both posted where they stand: a patient short of nothing but hit
+        // points is on its feet and would walk off about its round, and
+        // the beam break at its range, before anybody had looked at it.
+        let here = self.aboard.room.bim_pos(0);
+        self.aboard.room.post_for_probe(0, here);
+        let at = here + bims::math::vec2(shipdesign::TILE as f32, 0.0);
+        self.aboard.room.post_for_probe(1, at);
+        self.aboard
+            .room
+            .set_health_for_probe(1, bims::health::MAX_HEALTH * BEAM_PROBE_HEALTH);
         self.step(&[]);
         if self.beam(0, Some(1)).is_err() {
             return false;
@@ -8186,16 +8050,18 @@ impl World {
     /// Before the rooms step: every beam checked — broken where the room
     /// ended it (an order to an errand, the medic down), the medic unfit
     /// to act, or a patient dead, gone from the room, out of range or
-    /// out of sight — the surge charged for a patient that qualifies,
-    /// and the room told what each body is held by
-    /// (`bims::health::Beamed`) and what each Bim's doctoring runs at
-    /// (`bims::health::Doctoring`).
+    /// out of sight — the surge charged for a patient below its whole bar,
+    /// and every beamed body given its hit points for the step (task 120:
+    /// the beam heals hit points where it held the blood). Two beams on one
+    /// body: the stronger. A downed body takes nothing: only a revive gets
+    /// it up.
     fn hand_the_room_the_medics(&mut self, events: &mut Vec<WorldEvent>) {
         let crew = self.aboard.crew_count() as usize;
         if self.medics.len() < crew {
             self.medics.resize(crew, Medic::default());
         }
-        let mut held: Vec<Option<bims::health::Beamed>> = vec![None; crew];
+        // Hit points an hour of the clock, by body.
+        let mut held: Vec<f32> = vec![0.0; crew];
         for m in 0..crew {
             if !self.medics[m].is_linked() {
                 continue;
@@ -8217,100 +8083,30 @@ impl World {
                 continue;
             }
             self.medics[m].patients = keep.clone();
-            // The charge fills while a patient wants holding.
+            // The charge fills while a patient is short of its whole bar.
             let room = &self.aboard.room;
             let qualifies = keep.iter().any(|&p| {
-                room.blood(p as usize) < bims::health::MAX_BLOOD || room.bleeding(p as usize) > 0
+                !room.is_downed(p as usize) && room.health(p as usize) < bims::health::MAX_HEALTH
             });
             if qualifies {
                 let wanted = self.surge_charge_wanted(who);
                 let medic = &mut self.medics[m];
                 medic.charge = (medic.charge + data::STEP_MINUTES).min(wanted);
             }
-            let beamed = bims::health::Beamed {
-                blood_an_hour: self.beam_blood(who),
-                mend: if self.progress_of(who).level() >= class::MENDER_LEVEL {
-                    class::MENDER_RECOVER
-                } else {
-                    1.0
-                },
-                bleed: 0.0,
-            };
+            let rate = self.beam_rate(who);
             for &p in &keep {
-                // A *Trauma Kit* on the patient (feature 106): the blood
-                // and the mending the beam gives, raised.
-                let healing = self.relic_factor(p, crate::relic::Stat::HealingReceived) as f32;
-                let beamed = bims::health::Beamed {
-                    blood_an_hour: beamed.blood_an_hour * healing,
-                    mend: beamed.mend * healing,
-                    ..beamed
-                };
-                // Two beams on one body: the stronger holds it.
                 let slot = &mut held[p as usize];
-                if slot.is_none_or(|h| h.blood_an_hour < beamed.blood_an_hour) {
-                    *slot = Some(beamed);
-                }
-            }
-            if self.has_talent(who, Talent::SelfCare) && held[m].is_none() {
-                held[m] = Some(bims::health::Beamed::HELD);
+                *slot = slot.max(rate);
             }
         }
-        // *Hold fast* (feature 77): a taunting tank's wounds and traumas
-        // do not bleed while it runs. Nothing else a beam does — the
-        // same entry *self-care* gives a medic.
-        for who in 0..crew {
-            if held[who].is_none()
-                && self.has_talent(who as u32, Talent::HoldFast)
-                && self.is_taunting(who as u32)
-            {
-                held[who] = Some(bims::health::Beamed::HELD);
+        // An hour of the clock is sixty minutes, a step `STEP_MINUTES` of
+        // them.
+        let share = (data::STEP_MINUTES / 60.0) as f32;
+        for (who, rate) in held.into_iter().enumerate() {
+            if rate > 0.0 {
+                self.aboard.room.heal(who, rate * share);
             }
         }
-        // *Steady ranks* (feature 78): a Bim in a commander's aura with
-        // that talent bleeds slower — slower, not not at all, so it is
-        // the same entry with the bleeding only damped, and anything
-        // that stops the bleeding outright keeps its place.
-        for who in 0..crew {
-            if held[who].is_some() {
-                continue;
-            }
-            let Some(aura) = self.aura_reaching(who as u32) else {
-                continue;
-            };
-            if aura.bleed < 1.0 {
-                held[who] = Some(bims::health::Beamed {
-                    blood_an_hour: 0.0,
-                    mend: 1.0,
-                    bleed: aura.bleed,
-                });
-            }
-        }
-        let doctoring: Vec<bims::health::Doctoring> = (0..crew as u32)
-            .map(|who| {
-                let mut d = bims::health::Doctoring::NONE;
-                if !self.is_medic(who) {
-                    return d;
-                }
-                if self.has_talent(who, Talent::FieldDressing) {
-                    d.bandage = 1.0 / class::FIELD_DRESSING_TIME;
-                }
-                if self.has_talent(who, Talent::Surgeon) {
-                    d.treat = 1.0 / class::SURGEON_TIME;
-                }
-                if self.has_talent(who, Talent::FieldSurgeon)
-                    && !self.medic_of(who).field_surgery_used
-                {
-                    d.bare = Some(1.0 / class::FIELD_SURGEON_TIME);
-                }
-                d.clean_hands = self.has_talent(who, Talent::CleanHands);
-                if self.has_talent(who, Talent::SteadyHandsMedic) {
-                    d.treated_to = bims::health::TREATED_TO * class::STEADY_HANDS_TREATED;
-                }
-                d
-            })
-            .collect();
-        self.aboard.room.set_held(held);
-        self.aboard.room.set_doctoring(doctoring);
     }
 
     // --- the field medics (feature 86) -------------------------------------
@@ -8428,34 +8224,16 @@ impl World {
         }
     }
 
-    /// After the rooms step: every dressing and treatment the room
-    /// finished — a field surgery marked used, a kit's charge spent, and
-    /// the relics a dressing sets off; no experience (task 119) — and the
-    /// field surgery
-    /// given back when the fight ends (the rooms unjoined, or no enemy
-    /// standing), like the soldiers' *rampage*.
+    /// After the rooms step: every revive the room finished (task 120) —
+    /// said, and the relics a revive sets off; no experience.
     fn settle_medics(&mut self, events: &mut Vec<WorldEvent>) {
-        for healed in self.aboard.room.take_healings() {
-            if healed.with == bims::game::Healing::Bare {
-                self.medic_mut(healed.helper).field_surgery_used = true;
-            }
-            // A treatment done with a kit spends the helper's own charge:
-            // out of its pack now, and the cooldown brings another. Only
-            // now, and not when the kit was taken up, so one given up for
-            // a shot is still in the pack and nothing had to be put back.
-            if healed.with == bims::game::Healing::Medkit
-                && healed.helper < self.aboard.crew_count() as usize
-            {
-                let kit = Item::Stack(ResourceId::Medkit as u32);
-                self.aboard.room.take_stack(healed.helper, kit, 1);
-            }
-            if healed.with == bims::game::Healing::Bandage && self.any_relics() {
-                self.relics_on_a_dressing(healed.helper, healed.patient, events);
-            }
-        }
-        if !self.enemy_standing() {
-            for medic in &mut self.medics {
-                medic.field_surgery_used = false;
+        for revived in self.aboard.room.take_revives() {
+            events.push(WorldEvent::CrewRevived {
+                who: revived.patient as u32,
+                by: revived.helper as u32,
+            });
+            if self.any_relics() {
+                self.relics_on_a_revive(revived.helper, revived.patient, events);
             }
         }
     }
@@ -8488,8 +8266,8 @@ impl World {
 
     /// What a tank fights with: the armour passive is `skill_of`'s, and
     /// this is the rest of the talents — the wall's pace and dodge, the
-    /// plating, the iron frame, the unmoving legs and the breacher's
-    /// shoulder.
+    /// plating, the iron frame and the breacher's shoulder. *Unmovable*
+    /// is a no-op since task 120: nobody runs and low blood is gone.
     fn tank_skill(&self, who: u32) -> bims::combat::Skill {
         let mut skill = bims::combat::Skill::NONE;
         let progress = self.progress_of(who);
@@ -8505,10 +8283,6 @@ impl World {
         }
         if has(Talent::Breacher) {
             skill.smash_rate = 1.0 / class::BREACHER_TIME;
-        }
-        if has(Talent::Unmovable) {
-            skill.nerve = true;
-            skill.steady_pace = true;
         }
         if progress.level() >= class::IRON_FRAME_LEVEL {
             skill.iron_frame = true;
@@ -8774,12 +8548,6 @@ impl World {
         Aura {
             work: class::aura_bonus(class::AURA_WORK, factor),
             aim: class::aura_bonus(class::AURA_AIM, factor),
-            nerve: class::aura_bonus(class::AURA_NERVE, factor),
-            bleed: if has(Talent::SteadyRanks) {
-                class::aura_bonus(class::STEADY_RANKS_BLEED, factor)
-            } else {
-                1.0
-            },
             pace: if has(Talent::DoubleTime) {
                 class::aura_bonus(class::DOUBLE_TIME_PACE, factor)
             } else {
@@ -9033,23 +8801,19 @@ impl World {
         (at.x, at.y)
     }
 
-    /// What a commander's aura and rally do to a crew member's
-    /// shooting, working and nerve, over whatever its own class gave
-    /// it. Everything here reaches a player's own steered Bim as
-    /// readily as a bot.
+    /// What a commander's aura and rally do to a crew member's shooting,
+    /// working and pace, over whatever its own class gave it. Everything
+    /// here reaches a player's own steered Bim as readily as a bot.
+    /// *Steady ranks* and *grit*, and the aura's hold before a dying body
+    /// ran, are no-ops since task 120: nothing bleeds and nobody runs.
     fn lift_by_aura(&self, who: u32, skill: &mut bims::combat::Skill) {
         if let Some(aura) = self.aura_reaching(who) {
             skill.accuracy *= aura.aim;
             skill.effort *= aura.work;
             skill.walk *= aura.pace;
-            skill.nerve_hold = class::NERVE_HOLD * aura.nerve;
         }
-        if let Some(commander) = self.rally_reaching(who) {
+        if self.rally_reaching(who).is_some() {
             skill.accuracy *= class::RALLY_AIM;
-            skill.nerve = true;
-            if self.has_talent(commander, Talent::Grit) {
-                skill.unhurt = true;
-            }
         }
         // *Focus fire*: the squad's odds against the enemy its order
         // marked, and against nobody else.
@@ -9059,13 +8823,6 @@ impl World {
             && self.has_talent(order.by_slot, Talent::FocusFire)
         {
             skill.marked_accuracy = class::FOCUS_FIRE_ACCURACY;
-        }
-        // A squad member standing its ground never runs.
-        if let Some(order) = &self.squad
-            && order.has(who)
-            && matches!(order.kind, SquadKind::StandGround)
-        {
-            skill.nerve = true;
         }
     }
 
@@ -9125,7 +8882,7 @@ impl World {
         let room = &residents.aboard.room;
         enemy < residents.aboard.count()
             && room.is_alive(enemy as usize)
-            && !room.is_unconscious(enemy as usize)
+            && !room.is_downed(enemy as usize)
     }
 
     /// Whether that resident is dead — what ends a *relentless* mark.
@@ -9336,7 +9093,7 @@ impl World {
             // *Relentless* does not stop at the mark: with every one it
             // had dead, the attack goes on to the enemy standing nearest
             // the commander, and ends only when none is. A machine is
-            // destroyed and never out cold, so this is the half of the
+            // destroyed and never downed, so this is the half of the
             // talent a fight against the machines has to act on.
             let alive = if alive.is_empty() && relentless {
                 self.nearest_enemy_standing(by).into_iter().collect()
@@ -9410,8 +9167,7 @@ impl World {
             return false;
         };
         let room = &residents.aboard.room;
-        (first..room.body_count() as usize)
-            .any(|who| room.is_alive(who) && !room.is_unconscious(who))
+        (first..room.body_count() as usize).any(|who| room.is_alive(who) && !room.is_downed(who))
     }
 
     /// Which of the residents' bodies are the crew's enemies, as the
@@ -9502,21 +9258,6 @@ fn refused(slot: u32, why: Refusal) -> WorldEvent {
 /// not a walk.
 fn walk_refusal(code: u32) -> Option<Refusal> {
     (code == bims::game::ORDER_NOWHERE).then_some(Refusal::NoWayThere)
-}
-
-/// What a room banked since last asked, drained: the medkits it counted.
-/// Nothing of it reaches the hold any more — a medkit is a charge in a
-/// pack — but the room keeps counting, and a count nobody drains only
-/// grows. Asked of the crew's room every step (`take_the_room_s_medicine`),
-/// and of a room about to be thrown away — a docking or an undocking
-/// replaces the whole room — *after* the crew have been taken out of it.
-fn bank_medicine(room: &mut bims::game::Game) {
-    // The medkits the room counted opened and used are nobody's
-    // business but its own now: every kit is a charge in its helper's
-    // pack, which `settle_medics` takes out when the treatment is done,
-    // and the hold never had a hand in it. Drained so neither list grows.
-    let _ = room.take_medkits_used();
-    let _ = room.take_pack_kits_used();
 }
 
 /// A total order over nodes, for keeping [`World::discovered`] sorted.

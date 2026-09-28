@@ -685,8 +685,6 @@ pub struct Skill {
     /// What the pace is multiplied by while an enemy is in sight:
     /// *runner*.
     pub pace: f32,
-    /// Never runs from a fight: *iron nerve*, and the brace.
-    pub nerve: bool,
     /// Holds its fire: the weapon stays holstered, whatever it sees — a
     /// medic beaming without *gunner medic* (feature 76).
     pub holds_fire: bool,
@@ -701,29 +699,17 @@ pub struct Skill {
     pub armour_protection: f32,
     /// A hit rolled on the head lands on the body instead: *iron frame*.
     pub iron_frame: bool,
-    /// Low blood costs it no pace while its kevlar holds: *unmovable*.
-    pub steady_pace: bool,
     /// What forcing a locked door goes at: *breacher*.
     pub smash_rate: f32,
     /// What its working steps run at, over everything else that sets the
     /// effort: a commander's aura (feature 78). One for everybody out of
     /// one.
     pub effort: f32,
-    /// Seconds of the clock a dying body holds its ground before it runs
-    /// — nought for everybody, since a dying body runs at once, and a
-    /// commander's aura buys it some (feature 78). [`Skill::nerve`]
-    /// beats it: a body that never runs never starts the count.
-    pub nerve_hold: f32,
     /// What the odds against the enemy a squad order marked are
     /// multiplied by, over [`Skill::accuracy`]: a commander's *focus
     /// fire* (feature 78). One against anybody else, and against
     /// everybody with no mark.
     pub marked_accuracy: f32,
-    /// Loses no pace at all to what the fight has done to it — the legs,
-    /// the blood and every trauma alike: a commander's *grit*, during a
-    /// rally (feature 78). Beats [`Skill::steady_pace`], which leaves
-    /// only the blood out.
-    pub unhurt: bool,
     /// What every bolt's damage is multiplied by at any distance, near
     /// and far alike — where [`Skill::point_blank`] bites only within the
     /// weapon's sweet range: an engineer's *sentry mark III* (feature
@@ -739,10 +725,12 @@ pub struct Skill {
     /// [`Skill::armour_protection`] has multiplied it: an engineer's
     /// *higher quality armour* (feature 88). Nought for everybody else.
     pub armour_protection_add: f32,
-    /// What a medkit puts back into this body is multiplied by — where a
-    /// part it treats starts again from — whoever holds the medkit: a
-    /// relic's *Trauma Kit* (feature 106). One for everybody else.
-    pub healing: f32,
+    /// How long this body takes to revive a downed crewmate, in seconds
+    /// (task 120): [`crate::health::REVIVE_SECONDS`] for anybody, a medic's
+    /// shorter, and a relic's *Trauma Kit* shorter again — the world's
+    /// sum, never under a second.
+    #[cfg_attr(feature = "serde", serde(default = "revive_seconds"))]
+    pub revive: f32,
     /// Every how many of its shots is **overcharged**, nought for none: a
     /// relic's *Overcharge Cell* (feature 106). The room counts the shots
     /// on the body (`Bim::shots`).
@@ -751,7 +739,7 @@ pub struct Skill {
     pub overcharge_damage: f32,
     /// What every hit that lands on this body is multiplied by, before
     /// the armour takes its share: a relic's *Tether Field* on a crewmate
-    /// dressed, *Cover Formation* on a bot beside its holder (task 118).
+    /// revived, *Cover Formation* on a bot beside its holder (task 118).
     /// One for everybody else.
     #[cfg_attr(feature = "serde", serde(default = "one"))]
     pub damage_taken: f32,
@@ -770,22 +758,18 @@ impl Skill {
         cover_dodge: DODGE_IN_COVER,
         dodge: 0.0,
         pace: 1.0,
-        nerve: false,
         holds_fire: false,
         walk: 1.0,
         armour_drain: 1.0,
         armour_protection: 1.0,
         iron_frame: false,
-        steady_pace: false,
         smash_rate: 1.0,
         effort: 1.0,
-        nerve_hold: 0.0,
         marked_accuracy: 1.0,
-        unhurt: false,
         damage: 1.0,
         range: 0.0,
         armour_protection_add: 0.0,
-        healing: 1.0,
+        revive: crate::health::REVIVE_SECONDS,
         overcharge: 0,
         overcharge_damage: 1.0,
         damage_taken: 1.0,
@@ -1132,14 +1116,9 @@ impl Piece {
     }
 }
 
-/// `ResourceId::Bandage`'s code, said here because this crate does not
-/// know `physics` and the room spends a dressing off a body itself
-/// (feature 87). Pinned against the real one by the world's tests.
-pub const BANDAGE_CODE: u32 = 5;
-
 /// A thing of the crew's, as the room holds it: a piece of armour, a
-/// weapon, or a **charge** by its `ResourceId` code — a medkit, a dressing,
-/// an engineer's kit, a grenade (the world knows what the number is; the
+/// weapon, or a **charge** by its `ResourceId` code — an engineer's kit, a
+/// grenade (the world knows what the number is; the
 /// room only counts it). A piece or a weapon is worn or held
 /// ([`Gear`]'s slots); a charge is a count on the body
 /// ([`Gear::charges`]) and never a thing lying anywhere (task 113: nothing
@@ -1168,9 +1147,8 @@ pub struct Gear {
     pub legs: Option<Piece>,
     pub weapon: Option<Weapon>,
     /// How many of each charge the body has, by the charge's resource
-    /// code: a medkit, the dressings, an engineer's kits, a grenade. The
-    /// world sets them at a mission's start and fills them on their
-    /// cooldowns; the room spends a dressing and a medkit itself.
+    /// code: an engineer's kits, a grenade. The world sets them at a
+    /// mission's start and fills them on their cooldowns.
     pub charges: [u32; CHARGE_CODES],
 }
 
@@ -1648,6 +1626,13 @@ pub struct Shot {
 #[cfg(feature = "serde")]
 fn one() -> f32 {
     1.0
+}
+
+/// A revive's time with nothing to speed it, for a `Skill` read back
+/// without one.
+#[cfg(feature = "serde")]
+fn revive_seconds() -> f32 {
+    crate::health::REVIVE_SECONDS
 }
 
 /// How many fixed sub-steps a Sweeper's sweep is resolved in (feature
@@ -2752,9 +2737,9 @@ impl Combat {
         }
     }
 
-    /// One roll off the combat stream, 0 to 1: what the game rolls a
-    /// dying state with (`health::Trauma::roll`), so a fight re-rolls
-    /// nothing of the room's.
+    /// One roll off the combat stream, 0 to 1: what the game rolls where a
+    /// carried body is set down with, so a fight re-rolls nothing of the
+    /// room's.
     pub fn roll(&mut self) -> f32 {
         self.rng.unit()
     }
@@ -3950,16 +3935,17 @@ mod tests {
         // --- a_charge_is_a_count_on_the_body ---
         {
             let mut gear = Gear::issued();
-            let bandage = Item::Stack(BANDAGE_CODE);
+            // An engineer's sentry kit, by its `ResourceId` code.
+            let kit = Item::Stack(16);
             let rifle = Item::Weapon(WeaponKind::AutoRifle.basic());
-            assert_eq!(gear.units_of(bandage), 0);
-            assert!(!gear.spend(bandage));
-            assert_eq!(gear.add(bandage, 7), 7);
-            assert_eq!(gear.units_of(bandage), 7);
-            assert!(gear.spend(bandage));
-            assert_eq!(gear.units_of(bandage), 6);
-            gear.set_units(bandage, 2);
-            assert_eq!(gear.units_of(bandage), 2);
+            assert_eq!(gear.units_of(kit), 0);
+            assert!(!gear.spend(kit));
+            assert_eq!(gear.add(kit, 7), 7);
+            assert_eq!(gear.units_of(kit), 7);
+            assert!(gear.spend(kit));
+            assert_eq!(gear.units_of(kit), 6);
+            gear.set_units(kit, 2);
+            assert_eq!(gear.units_of(kit), 2);
             assert_eq!(gear.add(rifle, 1), 0, "a gun is no charge");
             assert_eq!(gear.units_of(rifle), 0);
             assert_eq!(gear.add(Item::Stack(CHARGE_CODES as u32), 1), 0);

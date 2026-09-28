@@ -10,9 +10,8 @@
 //!   is picked up. Saved, and in `world_checksum` whole.
 //! - **Each Bim's loadout**: one weapon slot and one slot a part of the
 //!   body (`bims::combat::Gear`, the room's, since the room's health and
-//!   aim read it) — that is everything a Bim carries. Its bandages,
-//!   medkits and class kits are **charges** on the body, not things
-//!   (`Gear::charges`).
+//!   aim read it) — that is everything a Bim carries. Its class kits and
+//!   grenades are **charges** on the body, not things (`Gear::charges`).
 //!
 //! A loadout changes **only between missions** — on the map and the
 //! reward screen — and by the rule of who may change what

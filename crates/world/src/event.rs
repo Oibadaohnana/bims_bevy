@@ -65,15 +65,14 @@ pub enum WorldEvent {
     /// from the crew's room to theirs.
     EnemyDown { station: u32, who: u32 },
     /// An enemy's shot landed on a crew member, on that part of them —
-    /// `health::Part`'s code — and opened a wound there. The wound is
-    /// already on the body: the joined room applied it the step the bolt
-    /// landed (`Game::take_wounds_taken`), and this is the world saying
-    /// so, once per hit.
+    /// `health::Part`'s code, which says which piece of armour took it
+    /// first. The hit is already on the body: the joined room applied it
+    /// the step the bolt landed (`Game::take_wounds_taken`), and this is
+    /// the world saying so, once per hit.
     CrewHit { who: u32, part: u32 },
     /// A crew member is dead. Said the step it happens, whatever did it —
-    /// bled out through a wound nobody dressed or a trauma nobody
-    /// treated, or the room's own hunger. A part shot to nothing is not
-    /// this any more: it is `CrewDying`.
+    /// a downed body's countdown run out, most often. Going down is not
+    /// this: it is `CrewDowned`.
     CrewDown { who: u32 },
     /// A hit broke a worn piece: it is at nought, still worn, and does
     /// nothing from now on. Said once, the step it happens, off the room's
@@ -95,15 +94,14 @@ pub enum WorldEvent {
     /// crew's money would not cover it — and is owed. Said once a month
     /// owed.
     MercenaryLeft { who: u32 },
-    /// A hit took a crew member's part to nothing and they are **dying**:
-    /// in the state `trauma` — `bims::health::Trauma`'s code — until a
-    /// crewmate treats it with a medkit. Said the step it happens, off the
-    /// room's `take_traumas`, one per trauma; the room applied it the step
-    /// the bolt landed, the way `CrewHit` is said.
-    CrewDying { who: u32, trauma: u32 },
-    /// A crewmate's medkit took a crew member out of the dying state
-    /// `trauma`. Whatever it leaves behind is on the body now.
-    CrewTreated { who: u32, trauma: u32 },
+    /// A hit took a crew member's bar to nothing and they are **downed**
+    /// (task 120): lying where they fell with the countdown running until a
+    /// crewmate revives them. Said the step it happens, off the room's
+    /// `take_downs`; the room applied it the step the bolt landed, the way
+    /// `CrewHit` is said.
+    CrewDowned { who: u32 },
+    /// A crewmate brought a downed crew member round: who, and by whom.
+    CrewRevived { who: u32, by: u32 },
     /// The ship is in another system: the one round `star`, in empty space
     /// — a trip across a hyperlane on its way (`World::jump`).
     Jumped { star: u32 },
@@ -114,7 +112,7 @@ pub enum WorldEvent {
     /// The brownout is over: the reactors cover the draw again, or a
     /// battery has something in it. What stopped is running again.
     PowerRestored,
-    /// No crew member is standing — dead or out cold, every one — and
+    /// No crew member is standing — dead or downed, every one — and
     /// the run is over. Said once.
     CrewLost,
     /// A crew member reached a level of its class (feature 74,
@@ -561,8 +559,8 @@ impl WorldEvent {
             WorldEvent::Hired { .. } => 39,
             WorldEvent::MercenaryPaid { .. } => 40,
             WorldEvent::MercenaryLeft { .. } => 41,
-            WorldEvent::CrewDying { .. } => 42,
-            WorldEvent::CrewTreated { .. } => 43,
+            WorldEvent::CrewDowned { .. } => 42,
+            WorldEvent::CrewRevived { .. } => 43,
             // 50 and 52 to 55 were the charge and the landing (feature 104).
             WorldEvent::Jumped { .. } => 51,
             WorldEvent::Brownout => 56,
@@ -715,11 +713,10 @@ impl WorldEvent {
             // The part in the tens, the person in the units: three parts,
             // and a crew is never ten.
             WorldEvent::CrewHit { who, part } => (who + 10 * part) as i64,
-            // The trauma in the tens the same way: ten of them, and a crew
-            // is never ten.
-            WorldEvent::CrewDying { who, trauma } | WorldEvent::CrewTreated { who, trauma } => {
-                (who + 10 * trauma) as i64
-            }
+            WorldEvent::CrewDowned { who } => who as i64,
+            // The helper in the **hundreds**, the one brought round in the
+            // units, the way a carry is packed.
+            WorldEvent::CrewRevived { who, by } => (who + 100 * by) as i64,
             // The kind in the tens the same way: three kinds, and a crew
             // is never ten.
             WorldEvent::PieceBroke { who, kind } => (who + 10 * kind.code()) as i64,

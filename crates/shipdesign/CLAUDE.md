@@ -716,6 +716,15 @@ wall does. The room reads it in `aboard::layout_of` and nowhere else.
 
 ## The drug lab is the one bench that makes anything (feature 95)
 
+> **Deleted by task 120**: there are no medkits, so the drug lab is off
+> the part list — `PartKind::DrugLab` gone and every code after it
+> closed up (`TradingDesk` 33 … `Water` 47, `ALL` and `PARTS` 48) —
+> `recipes::RECIPES` is **empty**, and the playtest ship carries neither
+> the lab nor its five bandages and two medkits (`PLAYTEST_CARGO` 10,
+> `PLAYTEST_PARTS` 666; `PLAYTEST_HASH` and `REFERENCE_HASH` re-pinned).
+> `ResourceId::{Medkit, Bandage}` stay as cargo slots nothing fills.
+> This section is the history.
+
 `PartKind::DrugLab` is the workbench's footprint and use spot — `(2, 1)`,
 worked from `(0, 1)` — with a light draw (5: a press and a steriliser,
 not a lathe) and a cabinet of its own (`Storage::Locker`, sixty cells).

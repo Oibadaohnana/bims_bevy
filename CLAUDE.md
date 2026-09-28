@@ -94,17 +94,16 @@ they stand** and builds its room again over the bodies (feature 85,
 `World::lay_graves_for_probe`), for looking at the dead lying on a
 station's deck without fighting, leaving and coming back —
 `BIMS_GRAVES=4 BIMS_ZOOM=0.6` is the aftermath from far enough off to
-see it. `BIMS_DYING=n` puts `n` of the crew **in a dying state** — a
-part of each taken to nothing, so its trauma is rolled and untreated,
-and wounds open on it besides (`Session::maim_for_probe`, a different
-part each so a crew of three shows three different traumas) — for
-looking at the **red cross** over a body on the deck and at the **peril
-block** under the health bar; the player's own Bim is left out of it
+see it. `BIMS_DYING=n` **downs** `n` of the crew — the bar at nought
+and the thirty-second countdown running (`Session::maim_for_probe`,
+task 120) — for looking at the **countdown ring** over a body on the
+deck and at the downed block under the health bar, and at the bots and
+field medics coming to revive them; the player's own Bim is left out of it
 unless `n` reaches the whole crew, so the picture is taken from
 somebody still walking about (`BIMS_DYING=3` on `droids`).
 `BIMS_FIELD_MEDIC=n` makes the **last `n` of the crew hired field
 medics** (feature 86, `Session::field_medics_for_probe`) — the contract
-and a medic's charges of medicine, no money taken — the last rather
+and a medic's revive time, no money taken — the last rather
 than the first since slot 0 is the player's own and the rescue is a
 *bot's* branch (`Game::bot_stand`). **`droids` already sails with four
 of them** (`session::COMBAT_MEDICS`), and so does everything built on
@@ -112,7 +111,7 @@ it — the tier tests and the `combat_droids_<class>` runs — since a fight
 with nobody who may carry
 is a fight where a body down stays where it fell; the dial asks for the
 same crew members from the same end, so setting it at four or under
-changes nothing and setting it higher reaches further up the crew. `BIMS_CARRY=1` takes a crew member out cold and
+changes nothing and setting it higher reaches further up the crew. `BIMS_CARRY=1` downs a crew member and
 puts it in the arms of somebody who may carry, for looking at a body
 being carried off the deck without waiting for a fight to put one there.
 Both want **more than one aboard**, so they are `droids`' and not the
@@ -120,20 +119,8 @@ simulation's, which sails with a crew of one: `BIMS_CLASS=medic
 BIMS_CARRY=1 bims droids` is a body in the arms (the Carry box lit, with
 no count on it, is what says so), and `BIMS_DYING=2 BIMS_SMOKE_FRAMES=600
 bims droids` is one of its field medics going and fetching for itself.
-`G` is the carry's key in `BIMS_KEYS`.
-**`BIMS_BANDAGES=n`** puts exactly `n` dressings on **every** crew
-member and starts the bandage cooldown afresh, and
-**`BIMS_MEDKITS=n`** the same for the medkit: since the medicine became
-**everybody's charges** — a medkit and five bandages each, a medic four
-and ten, back forty seconds (a medic's medkit thirty) and thirty
-seconds of the clock after each is used (`class::Charge::{Medkit, Bandage}`, `crates/world/CLAUDE.md`,
-"The medicine is everybody's charges") — nought is the empty box at
-the foot of the canvas with its **sweep** running, and `BIMS_BANDAGES=2`
-a part stock with the **ring** round its count filling. A charge is a
-count on the body since task 113 — no pack, no box —
-so `BIMS_BANDAGES=7 BIMS_DYING=2 bims droids` for a crew that binds its own wounds as it
-runs; `BIMS_MEDKITS=0 BIMS_BANDAGES=2 bims droids` is the two medicine
-boxes' two states in one picture.
+`G` is the carry's key in `BIMS_KEYS`. (`BIMS_BANDAGES` and
+`BIMS_MEDKITS` went with the medicine in task 120.)
 **`BIMS_KITS=n`** does the same for the engineer's two **charges**
 (feature 88): exactly `n` of each kit on everybody and both cooldowns
 started afresh. `BIMS_KITS=0 bims combat_droids_engineer` is the one state a
@@ -213,16 +200,15 @@ whose `X` and `Z` — the squad's other two keys, feature 78 — want a deck
 tile or nothing at all: `BIMS_CLASS=commander BIMS_LEVEL=3
 BIMS_KEYS="60:Z,90:Q"` on `droids` is the squad held and the rally
 called, with the aura's ring round him throughout). Hunting a crewmate with a scripted pointer is a poor way to look
-at a beam, so **`BIMS_BEAM=1`** stands crew member 1 a tile from the
-medic with a wound on it, **its blood at three fifths** and links the
-beam (`World::beam_for_probe`, `dev::beam_crew`), and `BIMS_BEAM=surge`
+at a beam, so **`BIMS_BEAM=1`** posts crew member 1 a tile from the
+medic, **its bar at three fifths**, and links the beam
+(`World::beam_for_probe`, `dev::beam_crew`), and `BIMS_BEAM=surge`
 triggers the surge over that — `BIMS_CLASS=medic BIMS_BEAM=surge
 BIMS_SMOKE_FRAMES=90` on `droids` is the beam's line and both halos in
-one picture. The blood is short on purpose (feature 91): a beam stops
-the bleeding dead, so a patient wounded and beamed in the same breath
-sits at full blood for ever and the **green numbers** over it never
-count anything. At 1× a beam puts back half a point a second, so a
-`+1` every two seconds (there is no faster speed since task 119).
+one picture. Both are posted where they stand, since a patient short of
+nothing but hit points would walk off about its round and the beam
+break at its range. At 1× a beam puts back half a hit point a second,
+so a `+1` every two seconds over the patient.
 `BIMS_SMOKE_FREE=1` drops the sixtieth-of-a-second pacing a smoke run
 holds itself to, so the "ms a frame" it prints is what the machine
 actually took rather than a sixtieth — the one way to measure a heavy
@@ -1401,6 +1387,45 @@ speed requests are 1× where they were 24×; the speed alone moved it) and
 `SURVIVORS` (the experience alone moved it — its note says how that was
 checked). The ship's `PINNED` and `PICTURES` did **not** move.
 
+## One bar of hit points: downed, revived, no medicine (task 120)
+
+The room's half is `crates/game/CLAUDE.md` ("One bar of hit points"), the
+world's `crates/world/CLAUDE.md` (the same), the player's `README.md`.
+What to hold on to:
+
+- **Every Bim is one bar**, `health::MAX_HEALTH` (100); the machines keep
+  their parts. A hit rolls its part only to choose the armour that takes
+  it first; what gets through comes off the bar; nothing mends by
+  itself. **Gone**: the blood, bleeding, wounds, the parts' health,
+  traumas and lasting injuries, lost legs, treatment, bandages, medkits
+  (items, charges, cooldowns, the room's stock), the drug lab part and
+  its recipe, running scared, and every pace or work penalty but the
+  downed one.
+- **Nought is downed**: no acting, no target, a thirty-second countdown
+  of steps (frozen while paused), then dead. Any crew Bim revives a
+  downed crewmate by standing beside it — ten seconds, a medic four,
+  *Trauma Kit* two off, never under one — standing still and holding its
+  fire; one reviver counts; up at three tenths and 30 % slower for the
+  rest of the mission. Bots revive of their own accord (out of harm, or
+  the room calm); a player's own Bim on an order. A Manufacturer and a
+  station's or a town's people are never revived.
+- **The medic's beam heals hit points** (`class::HEAL_BEAM_HP`, marked
+  for tuning) and may be turned on the medic itself.
+- **Blood stays as a picture**: a splash where a hit took hit points, a
+  trail under twenty, a pool under the dead; a machine never bleeds.
+- **No-op talents** keep their slots and say "No effect for now": listed
+  in `crates/world/CLAUDE.md`.
+
+**What moved.** `SAVE_VERSION` **50**, `wire::PROTOCOL` **42** (the
+relay wants redeploying), `REFERENCE_CHECKSUM`, `SURVIVORS`, the ship's
+`PINNED` (all eleven) and `PICTURES`' two decks — each note says why —
+`shipdesign`'s `REFERENCE_HASH`, `PLAYTEST_HASH` and `PLAYTEST_PARTS`
+(666: the drug lab off the part list, codes after it closed up, `ALL`
+48) and `worldgen`'s `REFERENCE_CHECKSUMS` (no shelf stocks a medkit or
+a bandage). `ship::paint::PART_COLORS` lost a stale smelter row it had
+kept since feature 95, so every part after the old smelter is its own
+colour again.
+
 ## The old game deleted (feature 104)
 
 The third step of the redesign: **everything features 102 and 103 switched
@@ -1674,9 +1699,10 @@ Things about that which are easy to get wrong:
   `hud::threats`, most urgent first by `ThreatKind`'s declaration order,
   `+N` for the rest — the hero panel at the foot (`hud::hero_panel`,
   the ability boxes in it, and since feature 110 the player's own
-  health big: the bar and its number, a short bar each for the head,
-  the body, the legs and the blood, and a beating red frame with
-  *CRITICAL* while `hud::Hero::critical` holds), the tray bottom left
+  health big: the one bar and its number (task 120), and a beating red
+  frame with *CRITICAL* while `hud::Hero::critical` holds — downed, or
+  under twenty — with the countdown under a downed Bim's greyed cover),
+  the tray bottom left
   (`CrewPanels::tray`: Armory — the Armory panel, where the Stash was
   until task 113 — Squad, Map, and Trade at a desk), *Back to ship* and the log
   bottom right (`hud::Log`: four lines, eight seconds each, the same
@@ -1869,33 +1895,23 @@ Things about that which are easy to get wrong:
   and heading. Every `Game` method that takes a point takes a room point.
   (The test room's screen, gone in feature 104, read its own through
   `Game::view_scale/offset`.)
-- **The health block says what the Bim is dying *of*, not only how much
-  is left.** The bars on the right-hand panel are the biggest thing on
-  it (`crew::BAR_W`, `theme::health_bar`, `crew::HEALTH_NUMBER`), and
-  under them is the **peril block** — `crew::perils`, one `Peril` a
-  cause with the rate, the countdown at that rate, where the loss is
-  coming from and what stops it. What kills a body is the blood, and the
-  block works it out **from the body**, since nothing records a cause:
-  every open wound at `health::BLEED_PER_WOUND` an hour plus every
-  untreated trauma's own `bleed()` — `Health::update_held`'s own sum, so
-  the number on the panel is the number the room subtracts. (Extreme
-  malnutrition at `health::HEALTH_DRAIN` was the other, until the needs
-  went in feature 104.) The block is graded: red and "DYING OF"
-  for a body in a dying state, the caution colour and
-  "LOSING" for one that is only bleeding through wounds a bandage
-  closes — a scratch that would empty it in ten hours is worth a number
-  and not a fright. A part a trauma holds at nothing names that trauma
-  in its own row, and the dead say what of (`crew::death_line`, read
-  off the body the way `Health::is_dead` decides). The words are
-  `names::PERIL_*` and `names::DEATH_*`.
-- **A Bim in a dying state wears a red cross on the deck.**
-  `theme::dying_cross` — a white disc with a medical cross on it rather
-  than another coloured ring, because every other mark out there is a
-  ring of some colour and this one has to say *that* one. Drawn over
-  the head (`screens::game`) off
-  `Game::is_dying`, and for the **living only**: a trauma stays on a
-  corpse, and a cross over one would be asking for a medkit nothing can
-  be done with. `BIMS_DYING=n` is how it is looked at.
+- **The health block is one bar** (task 120): the bar on the right-hand
+  panel is the biggest thing on it (`crew::BAR_W`, `theme::health_bar`,
+  `crew::HEALTH_NUMBER`), and under it a downed Bim has a red block —
+  *DOWNED*, the seconds it has left, and who is reviving it or how —
+  one slowed by a down says so until the mission ends, one under twenty
+  says it is bleeding, and the dead say they died. The peril block, the
+  per-part bars and the medicine's two boxes on the hero panel went with
+  the blood, the traumas and the charges.
+- **A downed Bim wears a countdown ring on the deck.**
+  `theme::downed_ring` (on `countdown_ring`): a red ring emptying
+  clockwise from twelve o'clock with the seconds in the middle, over
+  every downed Bim — the crew, a town's, a Manufacturer — off
+  `Game::down_left`, and small on the portraits. It replaced the red
+  cross of the dying state. A right-click on a downed crewmate orders
+  the player's own Bim to revive it (`CrewOrder::Revive`), or opens the
+  menu with the reason greyed on its *Revive* row when it cannot.
+  `BIMS_DYING=n` is how it is looked at.
 - **A highlight is not a tooltip.** Resting on a row that names a fixture
   rings it on the deck (`CrewPanels::points`); nothing pops up. The ring is
   worked out afresh every frame from what is hovered, so a panel folding
@@ -1924,12 +1940,8 @@ Things about that which are easy to get wrong:
   grenade, so a box and what the key does are one picture. The box
   never decides anything: `class_key` is still what the press goes
   through, and it knows about the pointer as well.
-  **Past a rule at the right-hand end are the medicine's two boxes**,
-  which every crew member has whatever its class — a classless one has
-  them alone — `medicine_boxes`: the medkit and the bandages it carries,
-  both charges since the medicine became everybody's
-  (`crates/world/CLAUDE.md`, "The medicine is everybody's charges"). No
-  key casts them (`AbilityBox::action` is `None`). **A cooldown is
+  (The medicine's two boxes that stood past a rule at the right-hand
+  end went with the medicine in task 120.) **A cooldown is
   drawn the way Dota 2 draws one**, on every box that has one: with
   nothing left, the share still to come is laid dark over the whole box
   and swept back clockwise from twelve o'clock as it runs out
@@ -1937,8 +1949,8 @@ Things about that which are easy to get wrong:
   hand) and the seconds in the middle; with some left and the next on
   its way, the count sits on a disc in the corner and a **ring** round
   the disc fills clockwise (`recharge_badge`). `Face::charges` is the
-  reading for any stock of charges — the engineer's kits, the grenade
-  and the medicine alike — off `World::{charges, charges_of,
+  reading for any stock of charges — the engineer's kits and the
+  grenade — off `World::{charges, charges_of,
   charge_cooldown, charge_cooldown_left}`; the taunt and the rally sweep
   over their own whole cooldown.
 - **Every ability says on the deck what it is doing, on the Bim doing

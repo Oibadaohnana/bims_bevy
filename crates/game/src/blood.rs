@@ -2,9 +2,10 @@
 //! drawn.
 //!
 //! The deck is scored tile by tile. A tile starts at [`BASELINE`] and goes
-//! down as blood lands on it, never past [`FOULED`]. A bleeding body drips
-//! (`Bim::tick_drips`), a cut or a burst throws it over the tiles round the
-//! body ([`Blood::splash`]), and boots carry what is down from one tile to
+//! down as blood lands on it, never past [`FOULED`]. A body under twenty hit
+//! points drips (`Bim::tick_drips`), every hit that takes hit points throws a
+//! little over the tiles round the body ([`Blood::splash`]), and boots carry
+//! what is down from one tile to
 //! the next ([`Blood::track`]): a quarter of the crossings move a quarter of
 //! the tile, so a trail thins fast and dies out rather than working its way
 //! across the ship. Nothing takes it up again.
@@ -30,9 +31,12 @@ pub const FOULED: f32 = -100.0;
 /// still with a wound open takes the tile under it to the bottom of the
 /// scale in a couple of drops, which is what a pool of blood is.
 pub const BLOOD_COST: f32 = 60.0;
-/// How many tiles a cut splashes blood over, the one under the body
-/// included: three to five.
-pub const SPLASH_TILES: (u32, u32) = (3, 5);
+/// How many tiles a hit splashes blood over, the one under the body
+/// included: one or two (task 120; a cut's was three to five).
+pub const SPLASH_TILES: (u32, u32) = (1, 2);
+/// What a splash puts on each tile it reaches: half a drop, so a hit is a
+/// fleck and a pool is a body bleeding where it lies.
+pub const SPLASH_COST: f32 = BLOOD_COST * 0.5;
 
 /// How far below clean a tile has to be before a boot carries any of it
 /// on.
@@ -132,9 +136,15 @@ impl Blood {
     /// A drop's worth of blood on the tile under `at`, never past the worst
     /// there is.
     pub fn drop_at(&mut self, at: Vec2) {
+        self.spill(at, BLOOD_COST);
+    }
+
+    /// `amount` of blood on the tile under `at`, never past the worst there
+    /// is.
+    fn spill(&mut self, at: Vec2, amount: f32) {
         let (c, r) = self.cell(at);
         if let Some(i) = self.index(c, r) {
-            self.tiles[i] = (self.tiles[i] - BLOOD_COST).max(FOULED);
+            self.tiles[i] = (self.tiles[i] - amount).max(FOULED);
         }
     }
 
@@ -164,14 +174,13 @@ impl Blood {
         true
     }
 
-    /// A cut opens: blood over [`SPLASH_TILES`] of the nine round `at`, the
-    /// tile under the body always among them, a drop's worth each. A shot
-    /// wound only drips (`Bim::tick_drips`); a blade or a burst throws it
-    /// about. `can_get_to` keeps it off the deck no body can reach — under
-    /// the lip of a counter, the corner past a bunk. The rolls are the
-    /// caller's stream.
+    /// A hit that took hit points (task 120): blood over [`SPLASH_TILES`]
+    /// of the nine round `at`, the tile under the body always among them,
+    /// [`SPLASH_COST`] each — a small splash. `can_get_to` keeps it off the
+    /// deck no body can reach — under the lip of a counter, the corner past
+    /// a bunk. The rolls are the caller's stream.
     pub fn splash(&mut self, at: Vec2, rng: &mut Rng, can_get_to: impl Fn(Vec2) -> bool) {
-        self.drop_at(at);
+        self.spill(at, SPLASH_COST);
         let (c0, r0) = self.cell(at);
         let mut choices = [vec2(0.0, 0.0); 8];
         let mut found = 0;
@@ -194,7 +203,7 @@ impl Blood {
         // twice and the count is the count.
         while want > 0 && found > 0 {
             let i = rng.below(found as u32) as usize;
-            self.drop_at(choices[i]);
+            self.spill(choices[i], SPLASH_COST);
             choices[i] = choices[found - 1];
             found -= 1;
             want -= 1;

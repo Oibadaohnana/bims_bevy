@@ -17,12 +17,11 @@ use crate::fixture::simulation_world;
 use crate::world::World;
 
 fn a_world() -> World {
-    let mut world = simulation_world(
+    let world = simulation_world(
         shipdesign::fixture::playtest_ship(),
         data::SIMULATION_MONEY,
         1,
     );
-    crate::tests::without_dressings(&mut world);
     world
 }
 
@@ -111,13 +110,11 @@ fn a_run_sets_out_with_the_hold_empty() {
     );
     assert!(world.ship.design.cargo.iter().any(|&n| n > 0));
     let gun = world.aboard.room.gear(0).weapon;
-    let medkits = world.charges_of(0, crate::class::Charge::Medkit);
     world.set_out_empty();
     assert!(world.ship.design.cargo.iter().all(|&n| n == 0));
     assert!(world.holdings.armory.is_empty());
     assert_eq!(world.holdings.keys, 0);
     assert_eq!(world.aboard.room.gear(0).weapon, gun);
-    assert_eq!(world.charges_of(0, crate::class::Charge::Medkit), medkits);
     assert_eq!(world.start_worth, world.worth());
     // And it steps as a world does.
     world.step(&[]);

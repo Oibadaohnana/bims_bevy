@@ -39,12 +39,15 @@ const SPOT: Color = Color::rgba(0.98, 0.82, 0.35, 0.85);
 const FLAME: Color = Color::rgb(0.30, 0.66, 1.0);
 
 /// One colour per [`PartKind`], indexed by discriminant. `PARTS` order, and
-/// the same order the palette is built in.
+/// the same order the palette is built in. (The smelter's line stayed a
+/// row too long after feature 95 closed the kinds up, and every colour
+/// from the workbench on was the kind before's; task 120 took it out with
+/// the drug lab's.)
 ///
 /// Index 0 is the deck and index 15 is the frame; both are drawn as tiles
 /// rather than as objects, and both are in the table anyway so the palette
 /// buttons for them have swatches.
-pub static PART_COLORS: [Color; 50] = [
+pub static PART_COLORS: [Color; 48] = [
     Color::rgb(0.13, 0.15, 0.18), // Floor
     Color::rgb(0.30, 0.34, 0.40), // Wall
     Color::rgb(0.38, 0.86, 0.95), // Door
@@ -75,11 +78,9 @@ pub static PART_COLORS: [Color; 50] = [
     Color::rgb(0.90, 0.32, 0.18), // HeavyEngine — the engine's orange, deeper
     Color::rgb(0.30, 0.34, 0.40), // DiagonalWall — the wall's grey
     Color::rgb(0.46, 0.52, 0.58), // DiagonalOutsideWall — the hull's
-    Color::rgb(0.80, 0.42, 0.20), // Smelter — the glow of it
     Color::rgb(0.56, 0.50, 0.38), // Workbench
     Color::rgb(0.78, 0.80, 0.84), // SuitLocker — suit-white
     Color::rgb(0.42, 0.38, 0.44), // Armoury — gunmetal
-    Color::rgb(0.74, 0.82, 0.78), // DrugLab — clinical, a pale green-white
     Color::rgb(0.62, 0.48, 0.30), // TradingDesk — a wooden counter
     Color::rgb(0.66, 0.60, 0.42), // Sandbags — hessian
     Color::rgb(0.30, 0.52, 0.62), // ResearchDesk — a console's blue-grey

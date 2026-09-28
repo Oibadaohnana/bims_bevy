@@ -54,11 +54,17 @@ pub const REFERENCE_SEED: u64 = 0x_4c4f_4242_0000_0007;
 /// to set down on where it had none. They were `0x_f667_2369_aaf7_8e9b`,
 /// `0x_da56_7ccd_f912_1602`, `0x_6c4b_e819_4f12_e6d3` and
 /// `0x_61af_b7d5_7df6_2c6b`.
+///
+/// Task 120 moved them without a bump: the medicine went out of the game,
+/// so no shelf stocks a medkit (a staple no more) or a bandage — the
+/// shelves' bits, and no layout or other draw. They were
+/// `0x_bbdb_ea99_21ed_2e34`, `0x_2aa6_e423_eb27_2fb3`,
+/// `0x_0d14_75e5_b017_85f6` and `0x_1378_9fb5_d958_66db`.
 pub const REFERENCE_CHECKSUMS: [u64; 4] = [
-    0x_bbdb_ea99_21ed_2e34,
-    0x_2aa6_e423_eb27_2fb3,
-    0x_0d14_75e5_b017_85f6,
-    0x_1378_9fb5_d958_66db,
+    0x_f726_4e5d_d786_d734,
+    0x_cd96_b463_1cf1_1273,
+    0x_d2c8_e0d1_e3b1_bd96,
+    0x_977e_dc0b_a6c2_6e9b,
 ];
 
 /// The reference galaxy of one type.

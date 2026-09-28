@@ -1,7 +1,8 @@
 //! What the crew still make, and out of what.
 //!
-//! One table, [`RECIPES`], and since the money rework (feature 95) **one
-//! row in it**: two vegetables into a medkit at the drug lab. Everything
+//! One table, [`RECIPES`], and since task 120 **no row in it**: the money
+//! rework (feature 95) left one — two vegetables into a medkit at the drug
+//! lab — and the medicine and the drug lab went out of the game. Everything
 //! else a crew ever made is bought now — `economy`, and a station's desk —
 //! and the workbench makes nothing at all: what it does is **combine** two
 //! of a kind at one tier into one of the next, which is the world's
@@ -63,18 +64,8 @@ pub struct Recipe {
 
 /// The table. Indexed by position, and the index is what crosses the wasm
 /// boundary — `ship_recipe_*` — so a recipe is appended, never inserted.
-pub static RECIPES: [Recipe; 1] = [
-    // The one thing left: medicine at the drug lab, made from the first
-    // day. It kept the quarter of an hour it always had, and its inputs
-    // are the two vegetables alone now that there is no component to put
-    // in it — which is why a medkit weighs two vegetables.
-    Recipe {
-        station: PartKind::DrugLab,
-        inputs: &[(ResourceId::Vegetable, 2)],
-        output: (ResourceId::Medkit, 1),
-        minutes: 15,
-    },
-];
+/// Empty since task 120 took the medkit at the drug lab away.
+pub static RECIPES: [Recipe; 0] = [];
 
 impl Recipe {
     /// What the inputs weigh, all together.

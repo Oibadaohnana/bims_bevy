@@ -25,10 +25,10 @@
 //! new relic is a row and at most a few lines where its hook is read:
 //!
 //! - a **stat modifier** ([`Effect::Stat`]): a percentage on a [`Stat`] —
-//!   weapon damage, accuracy, move speed, armour, class cooldowns, healing
-//!   received, bounty — under a [`When`] (always, or while another
-//!   player's Bim is down). `World::skill_of`, the cooldowns, the beam,
-//!   the medkit and the bounty read [`stat_percent`];
+//!   weapon damage, accuracy, move speed, armour, class cooldowns,
+//!   bounty — under a [`When`] (always, or while another player's Bim is
+//!   down). `World::skill_of`, the cooldowns and the bounty read
+//!   [`stat_percent`];
 //! - a **trigger** ([`Effect::On`], a [`Hook`]): on a kill, a hit taken,
 //!   going down, a mission's start or an ability used, an [`Action`] —
 //!   getting up again, cooldowns taken off, a spell untouchable — under
@@ -195,11 +195,8 @@ pub enum Stat {
     /// The protection of what it wears.
     Armour,
     /// How long its **class's** cooldowns are — the engineer's kits, the
-    /// soldier's grenades, the taunt and the rally; never the medicine,
-    /// which is everybody's. A minus is shorter.
+    /// soldier's grenades, the taunt and the rally. A minus is shorter.
     Cooldowns,
-    /// What a medkit, a bandage and a medic's beam put back into it.
-    HealingReceived,
     /// What the Republic pays for a machine it destroyed.
     Bounty,
     /// What its bolts and blows do **to a machine**, read where the hit
@@ -216,7 +213,7 @@ pub enum Stat {
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum When {
     Always,
-    /// While another player's Bim is down — out cold.
+    /// While another player's Bim is down — downed.
     OtherPlayerDown,
     /// A hit on a machine's arms or legs while it still has them.
     OnLimb,
@@ -247,7 +244,7 @@ pub enum Trigger {
     Kill,
     /// A hit lands on it.
     HitTaken,
-    /// It goes down — out cold.
+    /// It goes down — downed.
     Downed,
     /// It uses one of its class's two keys.
     AbilityUse,
@@ -256,10 +253,8 @@ pub enum Trigger {
     /// A machine it hit last destroyed by that hit from the side or
     /// behind.
     FlankKill,
-    /// It dresses a crewmate's wound.
-    BandagedCrewmate,
-    /// It dresses a wound, its own or a crewmate's.
-    Bandaged,
+    /// It revives a downed crewmate (task 120; it was a dressing).
+    Revived,
     /// A crewmate within reach of it goes down.
     CrewmateDowned,
 }
@@ -278,7 +273,7 @@ pub enum Action {
     Sprint { percent: i32, seconds: f64 },
     /// No machine aims at it for `seconds`.
     Unseen { seconds: f64 },
-    /// The crewmate it dressed takes `percent` less of every hit for
+    /// The crewmate it revived takes `percent` less of every hit for
     /// `seconds`.
     Tether { percent: i32, seconds: f64 },
     /// It and the crewmate that went down within `tiles` of it untouchable
@@ -287,7 +282,7 @@ pub enum Action {
     /// Every crewmate down within `tiles` of it up again at
     /// `health_percent` of its health.
     RallyUp { tiles: f32, health_percent: u32 },
-    /// `points` of health put back into the body it dressed.
+    /// `points` of health put back into the body it revived.
     Heal { points: f32 },
 }
 
@@ -337,7 +332,8 @@ pub enum Rule {
     /// *Pressure Seal*.
     Regen { hp_per_second: f32 },
     /// `hp_per_second` of health put back for the first `seconds` after it
-    /// goes down: *Clot Booster*.
+    /// goes down, while it is up again — a downed body is healed by
+    /// nothing but a revive (task 120): *Clot Booster*.
     MendWhileDown { hp_per_second: f32, seconds: f64 },
     /// A machine's front arc, for its hits, only `front_cos` wide — a
     /// cosine, so a flank is wider — and a Guardian's shield the same
@@ -361,6 +357,9 @@ pub enum Rule {
     KillPay { money: economy::Money },
     /// The trader's shelf rolled again, once a visit: *Restock Codes*.
     Restock,
+    /// Its revives of a crewmate `seconds` quicker, never under
+    /// `data::REVIVE_FLOOR_SECONDS`: *Trauma Kit* (task 120).
+    QuickRevive { seconds: f32 },
     /// Its damage up `percent_per_thousand` for every thousand in the pool
     /// a player, to `cap`: *War Chest*.
     WarChest { percent_per_thousand: i32, cap: i32 },
@@ -478,12 +477,13 @@ pub const RELICS: [RelicDef; 37] = [
         Stat::Accuracy,
         data::STEADY_GRIP_ACCURACY_PERCENT,
     ),
-    stat(
+    rule(
         Relic::TraumaKit,
         1,
         false,
-        Stat::HealingReceived,
-        data::TRAUMA_KIT_HEALING_PERCENT,
+        Rule::QuickRevive {
+            seconds: data::TRAUMA_KIT_REVIVE_SECONDS,
+        },
     ),
     row(
         Relic::SecondWind,
@@ -582,7 +582,7 @@ pub const RELICS: [RelicDef; 37] = [
         1,
         true,
         Effect::On(on(
-            Trigger::Bandaged,
+            Trigger::Revived,
             Action::Heal {
                 points: data::QUICK_WRAP_HEAL,
             },
@@ -680,7 +680,7 @@ pub const RELICS: [RelicDef; 37] = [
         2,
         false,
         Effect::On(on(
-            Trigger::BandagedCrewmate,
+            Trigger::Revived,
             Action::Tether {
                 percent: data::TETHER_FIELD_PERCENT,
                 seconds: data::TETHER_FIELD_SECONDS,
@@ -1097,8 +1097,8 @@ pub struct Relics {
     /// side or behind — what a kill is told to *Signal Scrambler* with.
     #[cfg_attr(feature = "serde", serde(default))]
     pub flanked: Vec<u32>,
-    /// One a player slot: the mission minute its Bim went down, while it
-    /// is down — what *Clot Booster* counts from.
+    /// One a player slot: the mission minute its Bim last went down, kept
+    /// after it is revived — what *Clot Booster* counts from.
     #[cfg_attr(feature = "serde", serde(default))]
     pub downed_at: Vec<Option<f64>>,
     /// Whether the trader the crew are at has been restocked this visit
@@ -1705,7 +1705,7 @@ mod tests {
             .into_iter()
             .filter(|r| matches!(r.effect(), Effect::Rule(_)))
             .count();
-        assert_eq!(rules, 11);
+        assert_eq!(rules, 12, "Trauma Kit's quicker revive among them");
         assert!(
             rule_of(&[Relic::RestockCodes], |r| (r == Rule::Restock)
                 .then_some(()))

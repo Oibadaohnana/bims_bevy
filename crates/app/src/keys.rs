@@ -78,7 +78,7 @@ pub enum Action {
     /// hold there. Pressed again, they go back to following.
     Retreat,
     /// **Carry** (feature 86): a medic takes the crewmate under the
-    /// pointer up into its arms — out cold, dying or bleeding — to
+    /// pointer up into its arms — a downed one — to
     /// walk them out of the fire, and sets down whoever it is carrying
     /// when pressed again. Nothing for anybody but a medic of the class
     /// or a hired field medic.
@@ -87,16 +87,10 @@ pub enum Action {
     /// class, level, body, gear and talents, on the left of the canvas.
     /// Pressed again, it shuts.
     CharacterSheet,
-    /// **Bandage**: one dressing on the worst-wounded part of your own
-    /// Bim, out of its own bandages — the hero panel's Bandage button.
-    Bandage,
-    /// **Bandage all**: every open wound on your own Bim, the worst part
-    /// first and the rest queued behind it — the Bandage all button.
-    BandageAll,
 }
 
 impl Action {
-    pub const ALL: [Action; 24] = [
+    pub const ALL: [Action; 22] = [
         Action::Map,
         Action::NorthUp,
         Action::Follow,
@@ -119,8 +113,6 @@ impl Action {
         Action::Retreat,
         Action::Carry,
         Action::CharacterSheet,
-        Action::Bandage,
-        Action::BandageAll,
     ];
 
     /// The key it starts on.
@@ -151,8 +143,6 @@ impl Action {
             Action::Retreat => Key::Y,
             Action::Carry => Key::G,
             Action::CharacterSheet => Key::K,
-            Action::Bandage => Key::B,
-            Action::BandageAll => Key::H,
         }
     }
 
@@ -181,8 +171,6 @@ impl Action {
             Action::Retreat => "retreat",
             Action::Carry => "carry",
             Action::CharacterSheet => "character-sheet",
-            Action::Bandage => "bandage",
-            Action::BandageAll => "bandage-all",
         }
     }
 
@@ -232,16 +220,10 @@ impl Action {
                 "The crew that follow you fall back to the ship and hold there. Press it again and they go back to keeping to your side. Nobody leaves a fight aboard the ship: cornered in your own hull they stand and shoot whatever they were told."
             }
             Action::Carry => {
-                "A medic picks the crewmate under the pointer up — out cold, dying or bleeding — and carries them out of the fire, holding its fire and walking slowly while it does. Press it again to set them down, and treat them where it is quiet. Nothing for anybody but a medic or a hired field medic."
+                "A medic picks the downed crewmate under the pointer up and carries them out of the fire, holding its fire and walking slowly while it does. Press it again to set them down, and revive them where it is quiet. Nothing for anybody but a medic or a hired field medic."
             }
             Action::CharacterSheet => {
-                "Open and close your Bim's character sheet: its class and level, the health of each part of its body, what it wears and holds, and the talent tree a level's pick is spent on."
-            }
-            Action::Bandage => {
-                "Put one bandage on the worst-wounded part of the Bim you steer, out of its own bandages — the hero panel's Bandage button."
-            }
-            Action::BandageAll => {
-                "Bandage every open wound on the Bim you steer, the worst part first and the rest queued behind it — the hero panel's Bandage all button."
+                "Open and close your Bim's character sheet: its class and level, its health, what it wears and holds, and the talent tree a level's pick is spent on."
             }
         }
     }
@@ -428,21 +410,6 @@ mod tests {
         names.sort_unstable();
         names.dedup();
         assert_eq!(names.len(), Action::ALL.len());
-    }
-
-    /// The two dressing keys start on B and H, share them with nothing,
-    /// and go through the settings file by their own names.
-    #[test]
-    fn the_dressing_keys_are_b_and_h() {
-        let keys = Keys::default();
-        assert_eq!(keys.key(Action::Bandage), egui::Key::B);
-        assert_eq!(keys.key(Action::BandageAll), egui::Key::H);
-        assert!(keys.shared_with(Action::Bandage).is_empty());
-        assert!(keys.shared_with(Action::BandageAll).is_empty());
-        let text = keys.to_text();
-        assert!(text.contains("bandage=B\n"));
-        assert!(text.contains("bandage-all=H\n"));
-        assert_eq!(Keys::from_text(&text), keys);
     }
 
     /// The character sheet's key (feature 107) starts on K, shares it with

@@ -26,13 +26,12 @@ pub enum Job {
     /// work. The world says what there is to build (`game::Build`); the
     /// room walks a Bim to the site, in a suit if it is outside the hull.
     Build,
-    /// Dressing a wound with a bandage — its own first, while it bleeds,
-    /// else the crewmate with the most open wounds — and treating a
-    /// crewmate dying with a medkit (`Game::medical_on_offer`). The one row
-    /// that is also an **interruption**: set to [`HIGHEST`] it displaces
-    /// whatever the Bim is on the moment there is a wound to dress, rather
-    /// than waiting for the errand to finish; set to [`NEVER`] nobody
-    /// doctors of their own accord, and the player's own orders still work.
+    /// Reviving a downed crewmate (task 120, `Game::revive_on_offer`). The
+    /// one row that is also an **interruption**: set to [`HIGHEST`] it
+    /// displaces whatever the Bim is on the moment there is a crewmate to
+    /// revive, rather than waiting for the errand to finish; set to
+    /// [`NEVER`] nobody revives of their own accord, and the player's own
+    /// orders still work.
     Medical,
 }
 
@@ -69,9 +68,8 @@ pub struct Priorities {
 
 impl Priorities {
     /// Every row at [`DEFAULT`] but the medical one, which starts at
-    /// [`HIGHEST`]: a wound is dressed the moment there is a bandage for
-    /// it, and a crewmate dying is treated before anything else, unless
-    /// the player says otherwise.
+    /// [`HIGHEST`]: a downed crewmate is revived before anything else,
+    /// unless the player says otherwise.
     pub fn new() -> Priorities {
         let mut level = [DEFAULT; Job::ALL.len()];
         level[Job::Medical as usize] = HIGHEST;

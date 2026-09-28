@@ -246,21 +246,19 @@ impl StationKind {
             (StationKind::Derelict, _) => false,
             // A research key is found on a station's research desk, never
             // on its shelf; a class's charges (features 88 and 90) come
-            // back on a cooldown and nobody stocks one. Any station buys
-            // any of them.
+            // back on a cooldown and nobody stocks one; and the medicine
+            // went out of the game (task 120). Any station buys any of
+            // them.
             (
                 _,
                 ResourceId::ResearchKey
                 | ResourceId::ResearchKeyTwo
                 | ResourceId::SandbagKit
                 | ResourceId::SentryKit
-                | ResourceId::Grenade,
+                | ResourceId::Grenade
+                | ResourceId::Medkit
+                | ResourceId::Bandage,
             ) => false,
-            // A dressing is on the shelf where there are people to hurt
-            // themselves: the orbitals and the refineries. A medkit is
-            // made at a drug lab and is on every other shelf.
-            (StationKind::Orbital | StationKind::Refinery, ResourceId::Bandage) => true,
-            (_, ResourceId::Bandage) => false,
             // A pressure suit hangs where people work outside.
             (StationKind::Refinery | StationKind::MiningOutpost, ResourceId::Suit) => true,
             (_, ResourceId::Suit) => false,
@@ -477,10 +475,10 @@ mod tests {
                         | ResourceId::ResearchKeyTwo
                         | ResourceId::SandbagKit
                         | ResourceId::SentryKit
-                        | ResourceId::Grenade,
+                        | ResourceId::Grenade
+                        | ResourceId::Medkit
+                        | ResourceId::Bandage,
                     ) => false,
-                    (StationKind::Orbital | StationKind::Refinery, ResourceId::Bandage) => true,
-                    (_, ResourceId::Bandage) => false,
                     (StationKind::Refinery | StationKind::MiningOutpost, ResourceId::Suit) => true,
                     (_, ResourceId::Suit) => false,
                     _ => true,
@@ -488,19 +486,17 @@ mod tests {
                 assert_eq!(kind.sells(resource), want, "{kind:?} {resource:?}");
             }
         }
-        assert!(StationKind::Orbital.sells(ResourceId::Medkit));
+        assert!(!StationKind::Orbital.sells(ResourceId::Medkit));
         assert!(StationKind::Orbital.sells(ResourceId::Vegetable));
         assert!(!StationKind::Orbital.sells(ResourceId::ResearchKey));
         assert!(!StationKind::Relay.sells(ResourceId::ResearchKeyTwo));
         assert!(!StationKind::Orbital.sells(ResourceId::SandbagKit));
         assert!(!StationKind::Refinery.sells(ResourceId::SentryKit));
         assert!(!StationKind::Orbital.sells(ResourceId::Grenade));
-        // Dressings: the orbitals and the refineries, and not a staple.
-        assert!(StationKind::Orbital.sells(ResourceId::Bandage));
-        assert!(StationKind::Refinery.sells(ResourceId::Bandage));
-        assert!(!StationKind::MiningOutpost.sells(ResourceId::Bandage));
-        assert!(!StationKind::Relay.sells(ResourceId::Bandage));
+        // The medicine: nowhere (task 120), and not a staple.
+        assert!(!StationKind::Orbital.sells(ResourceId::Bandage));
         assert!(!STAPLES.contains(&ResourceId::Bandage));
+        assert!(!STAPLES.contains(&ResourceId::Medkit));
         // Suits: where there is work outside, and nowhere else.
         assert!(StationKind::Refinery.sells(ResourceId::Suit));
         assert!(StationKind::MiningOutpost.sells(ResourceId::Suit));
@@ -595,9 +591,9 @@ mod tests {
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Stock(pub u32);
 
-/// On every shelf the kind allows: what the crew eat, and the medicine
-/// they cannot do without.
-pub const STAPLES: [ResourceId; 3] = [ResourceId::Vegetable, ResourceId::Tofu, ResourceId::Medkit];
+/// On every shelf the kind allows: what the crew eat. The medkit was one
+/// until the medicine went out of the game (task 120).
+pub const STAPLES: [ResourceId; 2] = [ResourceId::Vegetable, ResourceId::Tofu];
 
 /// The seven weapons and the five pieces of armour there are to buy
 /// (feature 95; the minigun and the rail lance since task 115, the arc

@@ -231,7 +231,7 @@ const HEAL_GAP: f64 = 0.45;
 /// the last number went up over it.
 #[derive(Clone, Copy)]
 struct Watched {
-    /// Blood and the three parts added: everything a beam puts back.
+    /// The hit points: everything a beam puts back (task 120).
     points: f32,
     /// Points gathered and not yet shown — a number is whole, and a beam
     /// puts its points back a fraction at a time.
@@ -275,7 +275,7 @@ fn note_heals(heals: &mut Heals, game: &ship::game::Game, now: f64) {
     heals.watched.retain(|who, _| beamed.contains(who));
     let room = &world.aboard.room;
     for who in beamed {
-        let points = room.blood(who as usize) + room.health(who as usize);
+        let points = room.health(who as usize);
         let watched = heals.watched.entry(who).or_insert(Watched {
             points,
             gathered: 0.0,
@@ -720,29 +720,19 @@ fn open(
             if let Some(n) = crate::dev::lamps_out() {
                 session.shoot_lamps_for_probe(n);
             }
-            // And the wounded: after the lamps, so a dying Bim can be asked
-            // for on a deck already staged.
+            // And the downed: after the lamps, so a downed Bim can be
+            // asked for on a deck already staged.
             if let Some(n) = crate::dev::dying() {
                 session.maim_for_probe(n);
             }
             // The hired field medics (feature 86), and a body in one's
-            // arms: after the wounded, so a medic can be asked for on a
+            // arms: after the downed, so a medic can be asked for on a
             // deck that already has somebody to fetch.
             if let Some(n) = crate::dev::field_medics() {
                 session.field_medics_for_probe(n);
             }
             if crate::dev::carry() {
                 session.carry_for_probe();
-            }
-            // And the dressings and medkits each of them carries — the
-            // medicine charges: after the wounded, so a Bim asked for one
-            // with a wound on it has something to bind it with, and a
-            // nought is the empty box with its sweep running.
-            if let Some(n) = crate::dev::bandages() {
-                session.bandages_for_probe(n);
-            }
-            if let Some(n) = crate::dev::medkits() {
-                session.medkits_for_probe(n);
             }
             // And the engineer's charges (feature 88): nought is the
             // empty pack with both cooldowns running, which is what the
@@ -1272,8 +1262,8 @@ fn frame(
         // line of the log gathered a second at a time by what it was for
         // (feature 107). The world says a level and not the points, so
         // the points are read off the count going up; a machine down the
-        // same frame is what they were for, and anything else — a kit
-        // laid, a crewmate bandaged, a hire — is said as experience.
+        // same frame is what they were for, and anything else is said
+        // as experience.
         let xp = game.world.progress_of(screen.net.slot).xp;
         if let Some(before) = screen.last_xp
             && xp > before
@@ -1414,6 +1404,11 @@ fn frame(
     if let Some(panels) = &mut screen.panels {
         let who = session.room_ref().map(|r| panels.inventory_who(r));
         panels.nearby = who.map_or_else(Vec::new, |who| nearby_of(session, who, &name));
+        // How long the player's own Bim takes over a revive (task 120),
+        // for the row on a downed crewmate's menu.
+        if let Some(game) = session.game.as_ref() {
+            panels.revive_seconds = game.world.revive_seconds(panels.player as u32);
+        }
         // And the player's own class, for the section under the health
         // (feature 74).
         panels.class_view = session.game.as_ref().map(|game| {
@@ -1731,7 +1726,30 @@ fn frame(
                 panels.close_menu();
                 if let Some(room) = session.room() {
                     let fixture = room.hit_at(rx, ry);
-                    if fixture != 0 {
+                    // A crewmate down under the pointer is the revive
+                    // itself (task 120), the way Dota uses a thing on a
+                    // target: the player's own Bim walks over and brings
+                    // it round, no menu between. Where the revive would
+                    // be refused — somebody already at it, the player's
+                    // own Bim down itself — the menu opens instead, and
+                    // its greyed row says why.
+                    let own = panels.player;
+                    let revive = (fixture == HIT_BIM)
+                        .then(|| room.hit_bim())
+                        .filter(|&patient| {
+                            patient != own
+                                && crate::crew::revive_refused(room, own, patient, &crew_name)
+                                    .is_none()
+                        });
+                    if let Some(patient) = revive {
+                        orders.push(crew_order(
+                            CrewOrder::Revive {
+                                who: own as u32,
+                                patient: patient as u32,
+                            },
+                            pointer.shift,
+                        ));
+                    } else if fixture != 0 {
                         let at = pointer.pos.unwrap();
                         panels.open_menu(fixture, egui::pos2(at.x, at.y), room);
                     }
@@ -1739,10 +1757,11 @@ fn frame(
                     // to work: the door's menu opens *and* the order goes
                     // through, so a right-click on one walks the Bim into
                     // it. Every other fixture keeps the click for its menu
-                    // — a body included, living (`HIT_BIM`, the bandage
-                    // menu), dead (`HIT_BODY`) or one of the station's
-                    // people down in its own room (`HIT_VISITOR`, the Loot
-                    // row): never the deck it lies on.
+                    // — a body included, living or down (`HIT_BIM`, the
+                    // revive row), dead (`HIT_BODY`) or one of the
+                    // station's people down in its own room
+                    // (`HIT_VISITOR`, the Hire row): never the deck it
+                    // lies on.
                     // The order goes the moment the button goes down, the
                     // way Dota gives one, and it is for the player's own
                     // Bim alone whoever is selected (`Game::orderable`).
@@ -1865,23 +1884,6 @@ fn frame(
                 if keys_now.pressed(i, Action::CharacterSheet) {
                     panels.toggle_sheet();
                 }
-                // B and H: the hero panel's two dressing buttons — one
-                // bandage on the worst part of the player's own Bim, or
-                // every wound on it. Refused, the reason goes to the log.
-                for (action, all) in [(Action::Bandage, false), (Action::BandageAll, true)] {
-                    if keys_now.pressed(i, action)
-                        && let Some(game) = &session.game
-                    {
-                        let slot = screen.net.slot;
-                        if slot < game.world.aboard.crew_count() {
-                            let dressing = SelfDressing::of(&game.world.aboard.room, slot as usize);
-                            match dressing.why_not {
-                                Some(why) => screen.log.push(why.to_string()),
-                                None => orders.extend(dressing.order(slot, all).map(Order::Crew)),
-                            }
-                        }
-                    }
-                }
                 // Q and E: the steered crew member's class's two actions
                 // (features 74 and 75) — an engineer's sentry and sandbags
                 // on the deck tile under the pointer, a soldier's grenade
@@ -1916,7 +1918,8 @@ fn frame(
                         ((rx / t).floor() as i32, (ry / t).floor() as i32)
                     });
                     // And the crew member under the pointer, for a
-                    // medic's beam (feature 76).
+                    // medic's beam (feature 76) — its own Bim among them,
+                    // since a medic may beam itself (task 120).
                     let under = room
                         .and_then(|(rx, ry)| game.world.aboard.room.crew_at(rx, ry))
                         .map(|who| who as u32);
@@ -2284,19 +2287,7 @@ fn frame(
                 armour: if alive { room.armour_health(w) } else { 0.0 },
                 hurt: crate::crew::is_hurt(room, w),
                 downed: alive && room.is_down(w),
-                dying: alive && room.is_dying(w),
-                parts: bims::health::Part::ALL.map(|part| hud::HeroPart {
-                    left: room.part_health(w, part),
-                    max: part.max(),
-                    bonus: if alive { room.part_bonus(w, part) } else { 0.0 },
-                    bleeding: alive && room.wounds(w, part) > 0,
-                    trauma: if alive {
-                        room.trauma(w, part).map(|t| trauma_name(t.code()))
-                    } else {
-                        None
-                    },
-                }),
-                blood: room.blood(w) / bims::health::MAX_BLOOD,
+                down_left: room.down_left(w),
                 peril: crate::crew::peril_summary(room, w),
                 pick: panels
                     .class_view
@@ -2317,17 +2308,9 @@ fn frame(
                 .filter(|r| r.max.y > band)
                 .fold(area.max.x, |x, r| x.min(r.min.x));
             let boxes = ability_boxes(world, local, &keys_now);
-            let medicine = medicine_boxes(world, local);
-            let dressing = SelfDressing::of(room, w);
-            let mut dress = None;
             let got = hud::hero_panel(&ctx, area, clear, right, &hero, |ui| {
-                let hovered = ability_row(ui, &boxes, &medicine);
-                if !medicine.is_empty() {
-                    dress = dressing_buttons(ui, &dressing, local, &keys_now);
-                }
-                hovered
+                ability_row(ui, &boxes)
             });
-            orders.extend(dress.map(Order::Crew));
             // Whom the box the pointer rests on would reach (feature 86),
             // for the ring on the deck below.
             if let Some(action) = got.hovered {
@@ -2876,23 +2859,41 @@ fn frame(
         note_heals(&mut screen.heals, game, now);
     }
 
-    // The red cross over every crew member in a dying state: a part of
-    // it at nothing with the trauma untreated, which is the one thing on
-    // a body only a crewmate with a medkit ends. The living only — a
-    // trauma stays on a corpse, and a cross over one would be asking for
-    // a medkit nothing can be done with. Drawn first, under the beams
-    // and the banners, so a medic already working on one shows through.
+    // The countdown over every downed body (task 120): a red ring over
+    // the head emptying as its thirty seconds run out, the crew's and the
+    // station's people's alike — a townsperson or a Manufacturer down is
+    // on the same clock, and a player deciding whether to cross the deck
+    // for a crewmate wants to see the one beside it too. The downed only:
+    // nothing counts on a corpse. Drawn first, under the beams and the
+    // banners, so a medic already working on one shows through.
     if !map_up && let Some(game) = &session.game {
-        for who in 0..game.world.aboard.crew_count() {
-            let room = &game.world.aboard.room;
-            if !room.is_alive(who as usize) || !room.is_dying(who as usize) {
-                continue;
-            }
-            let Some((x, y)) = session.crew_on_screen(who) else {
-                continue;
-            };
+        let ring = |left: f32, (x, y): (f32, f32)| {
             let at = view.to_canvas(Vec2::new(x, y)) + canvas.min;
-            theme::dying_cross(&painter, egui::pos2(at.x, at.y), view.scale);
+            theme::downed_ring(
+                &painter,
+                egui::pos2(at.x, at.y),
+                view.scale,
+                left / bims::health::DOWNED_SECONDS,
+                &downed_seconds(left),
+            );
+        };
+        let room = &game.world.aboard.room;
+        for who in 0..game.world.aboard.crew_count() {
+            if let Some(left) = room.down_left(who as usize)
+                && let Some(at) = session.crew_on_screen(who)
+            {
+                ring(left, at);
+            }
+        }
+        if let Some(residents) = &game.world.residents {
+            let room = &residents.aboard.room;
+            for who in 0..session.resident_count() {
+                if let Some(left) = room.down_left(who as usize)
+                    && let Some(at) = session.resident_on_screen(who)
+                {
+                    ring(left, at);
+                }
+            }
         }
     }
 
@@ -2910,6 +2911,10 @@ fn frame(
                     continue;
                 };
                 let a = view.to_canvas(Vec2::new(from.0, from.1)) + canvas.min;
+                if patient == medic {
+                    theme::self_beam(&painter, egui::pos2(a.x, a.y), view.scale);
+                    continue;
+                }
                 let b = view.to_canvas(Vec2::new(to.0, to.1)) + canvas.min;
                 theme::heal_beam(
                     &painter,
@@ -3529,13 +3534,14 @@ struct AbilityBox {
     locked: Option<u8>,
     /// The key this box is for (feature 86), so the frame can ask the
     /// world **who the cast would reach** while the pointer rests on it.
-    /// `None` for the medicine's two, which no key casts.
+    /// `None` for a box no key casts, which since task 120 took the
+    /// medicine's two away is none.
     action: Option<Action>,
 }
 
 /// What one box shows, short of its key and its words: what
-/// `ability_boxes` works out for each key and `medicine_boxes` for the
-/// two stocks of medicine. See [`AbilityBox`] for each field.
+/// `ability_boxes` works out for each key. See [`AbilityBox`] for each
+/// field.
 struct Face {
     mark: Mark,
     count: Option<u32>,
@@ -3587,142 +3593,6 @@ impl Face {
         face
     }
 }
-
-/// The medicine's two boxes (a medkit and the bandages), which every
-/// crew member has whatever its class, beside the class's own: the
-/// charges in the pack, the sweep while none is left, and the ring while
-/// the next is coming back. No key casts either, so neither is `ready`
-/// for anything but the look of it.
-fn medicine_boxes(world: &world::World, slot: u32) -> Vec<AbilityBox> {
-    if slot >= world.aboard.crew_count() {
-        return Vec::new();
-    }
-    [
-        (
-            world::Charge::Medkit,
-            crate::names::MEDKIT_BOX,
-            crate::names::MEDKIT_BOX_TIP,
-        ),
-        (
-            world::Charge::Bandage,
-            crate::names::BANDAGE_BOX,
-            crate::names::BANDAGE_BOX_TIP,
-        ),
-    ]
-    .into_iter()
-    .map(|(charge, name, tip)| {
-        let face = Face::charges(world, slot, charge, Mark::Thing(charge.resource()));
-        AbilityBox {
-            key: String::new(),
-            name,
-            tip,
-            mark: face.mark,
-            count: face.count,
-            cooldown: face.cooldown,
-            cooldown_whole: face.cooldown_whole,
-            recharge: face.recharge,
-            charge: face.charge,
-            on: face.on,
-            short: face.short,
-            locked: None,
-            action: None,
-        }
-    })
-    .collect()
-}
-
-/// What the two dressing buttons beside the bandage box can do for the
-/// player's own Bim: which part one bandage would go on — the one with
-/// the most open wounds, the part `Game::bandage_all` dresses first — and
-/// why neither would be taken, where one would not. What the room says
-/// when the order lands is still the room's; this only greys the buttons.
-struct SelfDressing {
-    worst: Option<bims::health::Part>,
-    why_not: Option<&'static str>,
-}
-
-impl SelfDressing {
-    fn of(room: &bims::game::Game, w: usize) -> SelfDressing {
-        let worst = bims::health::Part::ALL
-            .into_iter()
-            .filter(|&part| room.wounds(w, part) > 0)
-            .max_by_key(|&part| (room.wounds(w, part), core::cmp::Reverse(part.code())));
-        let why_not = if !room.is_alive(w) || room.is_unconscious(w) || room.is_outside(w) {
-            Some(HELPER_OUT)
-        } else if room.bandages_of(w) == 0 {
-            Some(NO_BANDAGE)
-        } else if worst.is_none() {
-            Some(BANDAGE_ALL_WHOLE)
-        } else {
-            None
-        };
-        SelfDressing { worst, why_not }
-    }
-
-    /// The order a press sends — one bandage on the worst part, or every
-    /// wound — where there is a wound to send it to.
-    fn order(&self, local: u32, all: bool) -> Option<CrewOrder> {
-        let part = self.worst?;
-        Some(if all {
-            CrewOrder::BandageAll {
-                who: local,
-                patient: local,
-            }
-        } else {
-            CrewOrder::Bandage {
-                who: local,
-                patient: local,
-                part,
-            }
-        })
-    }
-}
-
-/// The two dressing buttons past the medicine's boxes: one bandage on the
-/// worst-wounded part of the player's own Bim, and every open wound on it
-/// at once (`CrewOrder::BandageAll`, what the pop-up on a body's own
-/// dressings sends). Stacked to a box's height, so the row keeps its
-/// size. The order clicked, if one was.
-fn dressing_buttons(
-    ui: &mut egui::Ui,
-    dressing: &SelfDressing,
-    local: u32,
-    keys: &Keys,
-) -> Option<CrewOrder> {
-    let mut asked = None;
-    ui.vertical(|ui| {
-        ui.spacing_mut().item_spacing.y = 4.0;
-        let size = egui::vec2(DRESSING_BUTTON_W, (ABILITY_SIDE - 4.0) / 2.0);
-        let rows = [
-            (Action::Bandage, BANDAGE_ONE_BUTTON, BANDAGE_ONE_HINT, false),
-            (
-                Action::BandageAll,
-                BANDAGE_ALL_BUTTON,
-                BANDAGE_ALL_HINT,
-                true,
-            ),
-        ];
-        for (action, label, hint, all) in rows {
-            let order = dressing.order(local, all);
-            let can = dressing.why_not.is_none();
-            // The key first, the way a box has it in its corner.
-            let label = format!("{}  {label}", keys.key(action).name());
-            let button = egui::Button::new(egui::RichText::new(label).small()).min_size(size);
-            let response = ui.add_enabled(can, button);
-            let response = match dressing.why_not {
-                Some(why) => response.on_disabled_hover_text(why),
-                None => response.on_hover_text(hint),
-            };
-            if response.clicked() {
-                asked = order;
-            }
-        }
-    });
-    asked
-}
-
-/// How wide the two dressing buttons are, beside a box.
-const DRESSING_BUTTON_W: f32 = 100.0;
 
 impl AbilityBox {
     /// Whether the key would be taken now, as far as the box can tell:
@@ -3946,6 +3816,8 @@ fn affected_by(world: &world::World, slot: u32, action: Action) -> Vec<u32> {
             let mut held = world.patients_of(slot);
             held.push(slot);
             held.sort_unstable();
+            // A medic beaming itself (task 120) is in the list once.
+            held.dedup();
             held
         }
         (Class::Medic, Action::ClassSecondary) => world.patients_of(slot),
@@ -3957,25 +3829,19 @@ fn affected_by(world: &world::World, slot: u32, action: Action) -> Vec<u32> {
     }
 }
 
-/// The class's keys and the medicine, a box each in a row inside the hero
-/// panel (feature 107; they were a bar of their own, `game-abilities`,
-/// since feature 80): the medicine's two past a rule at the right-hand
-/// end, so the class's keys are one group and what everybody carries
-/// another. The key whose box the pointer rests on, for the ring round
-/// whom its cast would reach.
-fn ability_row(ui: &mut egui::Ui, boxes: &[AbilityBox], medicine: &[AbilityBox]) -> Option<Action> {
+/// The class's keys, a box each in a row inside the hero panel (feature
+/// 107; they were a bar of their own, `game-abilities`, since feature
+/// 80). The medicine's two boxes stood past a rule at the right-hand end
+/// until task 120 took the medkits and the bandages away. The key whose
+/// box the pointer rests on, for the ring round whom its cast would
+/// reach.
+fn ability_row(ui: &mut egui::Ui, boxes: &[AbilityBox]) -> Option<Action> {
     let mut hovered = None;
     ui.spacing_mut().item_spacing.x = 4.0;
     for one in boxes {
         if ability_box(ui, one) {
             hovered = one.action;
         }
-    }
-    if !boxes.is_empty() && !medicine.is_empty() {
-        ui.separator();
-    }
-    for one in medicine {
-        ability_box(ui, one);
     }
     hovered
 }
@@ -4217,9 +4083,10 @@ fn recharge_badge(painter: &egui::Painter, at: egui::Pos2, recharge: Option<f32>
 /// crew member under the pointer if there is one. An engineer's Q sets
 /// a sentry up on the tile and its E lays sandbags there; a soldier's Q
 /// throws a grenade at it and its E braces or stands easy; a medic's Q
-/// triggers its surge and its E beams `under` — pressed on the one it
-/// already holds, or on nobody while one is held, it unlinks, and on
-/// nobody with no beam on it says so; a tank's Q taunts and its E puts
+/// triggers its surge and its E beams `under` — the medic's own Bim
+/// included, since task 120 lets a medic beam itself — and pressed on the
+/// one it already holds, or on nobody while one is held, it unlinks, and
+/// on nobody with no beam on it says so; a tank's Q taunts and its E puts
 /// the wall up or takes it down. The order to send, if the
 /// world would take it, and the log's line saying why not if it would
 /// not — both off the world's own check, so the key and the command
@@ -4521,10 +4388,12 @@ mod class_key_tests {
             (None, Some(beam_refused(Refusal::NoPatient))),
             "E on nobody with no beam on says so"
         );
+        // A medic may beam itself (task 120): E over its own Bim links
+        // the beam to it.
         assert_eq!(
             class_key(&world, 2, false, None, Some(2), None),
-            (None, Some(beam_refused(Refusal::NotACrewmate))),
-            "never itself"
+            (Some(Order::Beam(Some(2))), None),
+            "itself, since task 120"
         );
         // Crew member 0 beside it, and beamed.
         let at = world.aboard.room.bim_pos(2) + bims::math::vec2(t, 0.0);
@@ -4739,53 +4608,49 @@ mod class_key_tests {
         );
     }
 
+    /// A stock of charges on a box is told the way Dota 2 tells one
+    /// (`Face::charges`): with none left the whole box swept over the
+    /// whole of the cooldown, and with some left and the next on its way
+    /// the ring round the count part way. The engineer's sandbags, the
+    /// stock a first-level class has, where the medicine's two boxes
+    /// were until task 120.
+    #[test]
+    fn a_spent_charge_sweeps_and_a_coming_one_rings() {
+        use world::Charge;
+        use world::deploy::{SANDBAG_CHARGES, SANDBAG_COOLDOWN};
+        let keys = Keys::default();
+        let mut world = simulation_world(flyer(2), REFERENCE_MONEY, 2);
+        assert_eq!(world.set_class(0, world::Class::Engineer), Ok(()));
+        let bags = |world: &world::World| ability_boxes(world, 0, &keys).remove(1);
+        let full = bags(&world);
+        assert_eq!(full.count, Some(SANDBAG_CHARGES));
+        assert!(full.cooldown == 0.0 && full.recharge.is_none());
+        // None left: the whole box swept, over the whole of the cooldown.
+        world.set_charges_for_probe(Charge::Sandbag, 0);
+        world.step(&[]);
+        let empty = bags(&world);
+        assert!(empty.short && !empty.ready());
+        assert_eq!(empty.cooldown_whole, SANDBAG_COOLDOWN);
+        assert!(empty.cooldown > 0.0 && empty.cooldown <= empty.cooldown_whole);
+        assert!(empty.recharge.is_none(), "the sweep says it, not the ring");
+        // Some left and the next on its way: ready, no seconds, and the
+        // ring round the count part way.
+        world.set_charges_for_probe(Charge::Sandbag, 2);
+        for _ in 0..600 {
+            world.step(&[]);
+        }
+        let some = bags(&world);
+        assert_eq!(some.count, Some(2));
+        assert!(some.ready());
+        assert_eq!(some.cooldown, 0.0);
+        let share = some.recharge.expect("the ring");
+        assert!(share > 0.0 && share < 1.0, "{share}");
+    }
+
     /// The two boxes at the foot of the screen (feature 80): the
     /// class's own keys named, the key each is bound to, how many are
     /// left, and the level the locked one wants — all read off the world
     /// rather than kept, and the same pairing `class_key` dispatches by.
-    #[test]
-    fn everybody_has_the_medicine_s_two_boxes_and_a_spent_charge_sweeps() {
-        use world::Charge;
-        use world::class::{BANDAGE_CHARGES, MEDKIT_CHARGES};
-        let mut world = simulation_world(flyer(2), REFERENCE_MONEY, 2);
-        // A classless crew member has no keys, but it has its medicine.
-        let boxes = medicine_boxes(&world, 1);
-        assert_eq!(boxes.len(), 2);
-        assert_eq!(
-            (boxes[0].name, boxes[1].name),
-            (names::MEDKIT_BOX, names::BANDAGE_BOX)
-        );
-        assert_eq!(boxes[0].count, Some(MEDKIT_CHARGES));
-        assert_eq!(boxes[1].count, Some(BANDAGE_CHARGES));
-        assert!(boxes.iter().all(|b| b.action.is_none() && b.key.is_empty()));
-        assert!(
-            boxes
-                .iter()
-                .all(|b| b.cooldown == 0.0 && b.recharge.is_none())
-        );
-        assert!(medicine_boxes(&world, 9).is_empty(), "nobody there");
-        // None left: the whole box swept, over the whole of the cooldown.
-        world.set_charges_for_probe(Charge::Medkit, 0);
-        world.step(&[]);
-        let medkit = &medicine_boxes(&world, 1)[0];
-        assert!(medkit.short && !medkit.ready());
-        assert_eq!(medkit.cooldown_whole, world::class::MEDKIT_COOLDOWN);
-        assert!(medkit.cooldown > 0.0 && medkit.cooldown <= medkit.cooldown_whole);
-        assert!(medkit.recharge.is_none(), "the sweep says it, not the ring");
-        // Some left and the next on its way: ready, no seconds, and the
-        // ring round the count part way.
-        world.set_charges_for_probe(Charge::Bandage, 2);
-        for _ in 0..600 {
-            world.step(&[]);
-        }
-        let dressings = &medicine_boxes(&world, 1)[1];
-        assert_eq!(dressings.count, Some(2));
-        assert!(dressings.ready());
-        assert_eq!(dressings.cooldown, 0.0);
-        let share = dressings.recharge.expect("the ring");
-        assert!(share > 0.0 && share < 1.0, "{share}");
-    }
-
     #[test]
     fn the_two_boxes_say_what_the_keys_do_and_how_many_are_left() {
         let keys = Keys::default();

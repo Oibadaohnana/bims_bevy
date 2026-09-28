@@ -55,7 +55,7 @@ use bims::{door, health};
 use physics::ResourceId;
 use world::LootSource;
 
-use crate::format::{clock_text, date_text, span_text};
+use crate::format::{clock_text, date_text};
 use crate::icons;
 use crate::keys::{Action, Keys};
 use crate::names::*;
@@ -121,10 +121,6 @@ pub enum GearOrder {
     /// `who` is within reach of the desk, after the desk's row walked them
     /// there.
     OpenCache { who: u32 },
-    /// Bind **every** open wound on `who` out of its own charges (feature
-    /// 87): the worst part now and the rest queued behind it, through
-    /// `CrewOrder::BandageAll`.
-    BandageAll { who: u32 },
 }
 
 /// Something within reach of the Bim shown, for the nearby strip: the
@@ -284,157 +280,57 @@ pub enum TrayAsk {
 }
 
 /// How wide [`CrewPanels::side`] draws itself once somebody is picked:
-/// a part's label, its bar, its number and the trauma holding it at
-/// nothing, in one row. The width is the panel's own rather than each
+/// the health bar, its number and the armour's, in one row. The width is the panel's own rather than each
 /// screen's, so the two agree and so a screen can leave the strip it
 /// anchors in the right size — the game's is [`SIDE_W`] plus its
 /// margins. With nobody picked there is no panel at all (feature 107).
 pub const SIDE_W: f32 = 340.0;
 
-/// The side panel's bars — health's, the parts' and the blood's. Wide,
-/// because the health block round them is, and a column of bars that do
-/// not line up reads as two panels rather than one.
+/// The side panel's health bar. Wide, because the health block round it
+/// is, and the one bar a player reads in a fight.
 const BAR_W: f32 = 140.0;
 /// The health points beside the bar: the one number on the panel a
 /// player reads in a fight, so it is the one number bigger than the
 /// type round it.
 const HEALTH_NUMBER: f32 = 16.0;
-/// What is killing it, over the block that says how fast.
+/// The downed block's headline and the dead's line: bigger than the
+/// panel's small type, since it is the one thing on it read in a fight.
 const PERIL_NAME: f32 = 15.0;
-/// How long it has at that rate — the line the whole block exists for.
+/// The countdown under it — the line the whole block exists for.
 const PERIL_LEFT: f32 = 14.0;
 
-/// The frame round the peril block: the panel's own, filled and edged —
-/// in the cross's red for a body that is `grave`, in the caution colour
-/// for one that is only bleeding. Nothing else on this panel is framed,
+/// The frame round the downed block: the panel's own, filled and edged
+/// in the countdown ring's red. Nothing else on this panel is framed,
 /// which is the point.
-fn peril_frame(grave: bool) -> egui::Frame {
-    let (fill, edge) = if grave {
-        (
-            egui::Color32::from_rgba_unmultiplied(56, 14, 12, 220),
-            theme::DYING,
-        )
-    } else {
-        (
-            egui::Color32::from_rgba_unmultiplied(48, 38, 18, 220),
-            theme::CAUTION,
-        )
-    };
+fn downed_frame() -> egui::Frame {
     egui::Frame::new()
-        .fill(fill)
-        .stroke(egui::Stroke::new(1.0, edge))
+        .fill(egui::Color32::from_rgba_unmultiplied(56, 14, 12, 220))
+        .stroke(egui::Stroke::new(1.0, theme::DYING))
         .corner_radius(4.0)
         .inner_margin(6.0)
 }
 
-/// What is taking a crew member down now. Worked out from the body, since
-/// nothing in the room records a cause: `crew::perils`.
-struct Peril {
-    /// The headline, in the cross's red.
-    cause: &'static str,
-    /// How fast, spelled.
-    rate: String,
-    /// Game minutes at that rate, or `None` for a loss that is running
-    /// but cannot reach the end on its own.
-    minutes: Option<f32>,
-    /// Where the loss is coming from, worst first.
-    from: Vec<String>,
-    /// What stops it.
-    remedy: &'static str,
-}
-
-/// What is killing `w` right now, and how long it has at that rate: the
-/// blood running out, which is every open wound at
-/// [`health::BLEED_PER_WOUND`] an hour and every untreated trauma at its
-/// own rate — `Health::update_held`'s own sum, so the number here is the
-/// number the room is actually subtracting. A list, empty or of one, so
-/// the block can go on drawing whatever else is ever found to kill a Bim.
-fn perils(game: &Game, w: usize) -> Vec<Peril> {
-    let mut out: Vec<Peril> = Vec::new();
-
-    // The blood.
-    let mut from: Vec<(f32, String)> = Vec::new();
-    let mut traumatic = false;
-    for (i, part) in health::Part::ALL.into_iter().enumerate() {
-        if let Some(trauma) = game.trauma(w, part)
-            && trauma.bleed() > 0.0
-        {
-            traumatic = true;
-            from.push((
-                trauma.bleed(),
-                peril_from(trauma_name(trauma.code()), trauma.bleed()),
-            ));
-        }
-        let wounds = game.wounds(w, part);
-        if wounds > 0 {
-            let rate = wounds as f32 * health::BLEED_PER_WOUND;
-            from.push((rate, peril_from(&peril_wounds(SLOT_NAMES[i], wounds), rate)));
-        }
-    }
-    let an_hour: f32 = from.iter().map(|(rate, _)| rate).sum();
-    if an_hour > 0.0 {
-        from.sort_by(|a, b| b.0.total_cmp(&a.0));
-        out.push(Peril {
-            cause: PERIL_BLEEDING,
-            rate: peril_rate(an_hour),
-            minutes: Some(game.blood(w) / an_hour * bims::clock::HOUR),
-            from: from.into_iter().map(|(_, line)| line).collect(),
-            remedy: if traumatic {
-                PERIL_BLEED_MEDKIT
-            } else {
-                PERIL_BLEED_BANDAGE
-            },
-        });
-    }
-    out
-}
-
-/// What a dead crew member died of. Nothing records it, so this reads it
-/// off the body the way `Health::is_dead` decides: no blood left is the
-/// death a fight deals. The other — the head and the body both at nothing
-/// with no trauma on either — no fight leaves, since a part a fight takes
-/// to nothing always has a trauma on it; it is a body killed outright, a
-/// crew member left behind or a probe's, and is said as nothing more.
-fn death_line(game: &Game, w: usize) -> &'static str {
-    if game.blood(w) <= 0.0 {
-        DEATH_BLED_OUT
-    } else {
-        DEATH_OTHER
-    }
-}
-
 /// Whether `w`'s health is drawn in the red rather than the green: dead,
-/// or something taking it down — the side panel's own rule, for the
-/// portraits and the hero panel to read the same way (feature 107).
+/// down, or under [`health::BLEEDS_UNDER`] and bleeding on the deck —
+/// the side panel's own rule, for the portraits and the hero panel to
+/// read the same way (feature 107, task 120).
 pub fn is_hurt(game: &Game, w: usize) -> bool {
-    !game.is_alive(w) || !perils(game, w).is_empty()
+    !game.is_alive(w) || game.is_downed(w) || game.health(w) < health::BLEEDS_UNDER
 }
 
-/// The worst of what is taking `w` down, in one line for the hero panel
-/// (feature 107): the peril block's headline and its countdown — or, for
-/// a dying state that is not bleeding, the trauma and that it holds.
-/// `None` while nothing is. The colour is the block's: the cross's red
-/// for a body that is dying, the caution colour for one only bleeding.
+/// What is wrong with `w` in one line, for the hero panel (feature 107):
+/// the countdown while it is down, in the ring's red, and the slower walk
+/// for the rest of the mission once it was, in the caution colour. `None`
+/// while neither holds, and for the dead. There is nothing else to say
+/// since task 120: one bar, and the bar says the rest.
 pub fn peril_summary(game: &Game, w: usize) -> Option<(String, egui::Color32)> {
     if !game.is_alive(w) {
         return None;
     }
-    let grave = game.is_dying(w);
-    if let Some(peril) = perils(game, w).into_iter().next() {
-        let head = if grave { PERIL_HEAD } else { PERIL_HEAD_HURT };
-        let left = peril.minutes.map(span_text);
-        return Some((
-            peril_short(head, peril.cause, left.as_deref()),
-            if grave { theme::DYING } else { theme::CAUTION },
-        ));
+    if let Some(left) = game.down_left(w) {
+        return Some((downed_short(left), theme::DYING));
     }
-    if grave {
-        let trauma = health::Part::ALL
-            .into_iter()
-            .find_map(|part| game.trauma(w, part))?;
-        return Some((peril_stable_short(trauma_name(trauma.code())), theme::DYING));
-    }
-    None
+    game.was_downed(w).then(|| (slowed_short(), theme::CAUTION))
 }
 
 /// How wide the character sheet is (feature 107): the talent tree across
@@ -685,6 +581,11 @@ pub struct CrewPanels {
     /// The player's own class, as the screen last handed it over
     /// (feature 74): drawn under the health of their own crew member.
     pub class_view: Option<ClassView>,
+    /// How long the player's own Bim takes to revive a crewmate, in
+    /// seconds, as the screen last handed it over off the world
+    /// (`World::revive_seconds`, task 120): the class, a hired medic's
+    /// trade and *Trauma Kit* all move it, and the menu's row says it.
+    pub revive_seconds: f32,
     /// What the class section and the deployable rows asked for this
     /// frame, drained by the screen.
     pub deploy_orders: Vec<DeployOrder>,
@@ -724,6 +625,7 @@ impl CrewPanels {
             cache_requested: None,
             nearby: Vec::new(),
             class_view: None,
+            revive_seconds: bims::health::REVIVE_SECONDS,
             deploy_orders: Vec::new(),
             keys: Keys::default(),
             orders: Vec::new(),
@@ -884,118 +786,30 @@ impl CrewPanels {
                 ));
             }
             HIT_BIM => {
-                // A body on the deck — the player's own, or a crewmate: a
-                // row a part of it, saying what is open there, and the
-                // player's Bim walks over and dresses the one picked. The
-                // patient may be anybody alive; the hands are always the
-                // player's.
+                // A body on the deck — the player's own, or a crewmate
+                // (task 120): one row, the revive. The hands are always
+                // the player's, and the row is there whether it can be
+                // done or not, greyed with the reason when it cannot — a
+                // body on its feet, the player's own, one somebody else is
+                // already bringing round — so a click on a body always
+                // says what it would take.
                 let patient = game.hit_bim();
-                // Out of the helper's own pack (feature 87).
-                let bandages = game.bandages_of(who);
-                let out = game.is_unconscious(who) || game.is_outside(who);
-                let patient_out = game.is_outside(patient);
-                for (i, part) in health::Part::ALL.into_iter().enumerate() {
-                    let wounds = game.wounds(patient, part);
-                    let (count, hint) = bandage_words(wounds, bandages);
-                    let can = wounds > 0 && bandages > 0 && !out && !patient_out;
-                    items.push(Item::run(
-                        format!("Bandage the {} · {count}", SLOT_NAMES[i].to_lowercase()),
-                        if out {
-                            HELPER_OUT.to_string()
-                        } else if patient_out {
-                            PATIENT_OUT.to_string()
-                        } else if can {
-                            takes_over.unwrap_or(hint).to_string()
-                        } else {
-                            hint.to_string()
-                        },
-                        !can,
-                        CrewOrder::Bandage {
-                            who: who as u32,
-                            patient: patient as u32,
-                            part,
-                        },
-                    ));
-                }
-                // And the lot at once (feature 87): the worst part now
-                // and the rest queued behind it.
-                let open = health::Part::ALL
-                    .into_iter()
-                    .any(|part| game.wounds(patient, part) > 0);
+                let why = revive_refused(game, who, patient, name);
+                let hint = match &why {
+                    Some(why) => why.clone(),
+                    None => takes_over
+                        .map(str::to_string)
+                        .unwrap_or_else(|| revive_hint(self.revive_seconds)),
+                };
                 items.push(Item::run(
-                    BANDAGE_ALL_ROW.to_string(),
-                    if bandages == 0 {
-                        NO_BANDAGE.to_string()
-                    } else if !open {
-                        BANDAGE_ALL_WHOLE.to_string()
-                    } else if out {
-                        HELPER_OUT.to_string()
-                    } else if patient_out {
-                        PATIENT_OUT.to_string()
-                    } else {
-                        BANDAGE_ALL_HINT.to_string()
-                    },
-                    bandages == 0 || out || patient_out || !open,
-                    CrewOrder::BandageAll {
+                    REVIVE_ROW,
+                    hint,
+                    why.is_some(),
+                    CrewOrder::Revive {
                         who: who as u32,
                         patient: patient as u32,
                     },
                 ));
-                items.push(Item::note("Bandages", format!("{bandages} in the pack")));
-                // A part at nothing: the dying state on it, and a medkit
-                // in somebody else's hands the only way out. The player's
-                // Bim treats a crewmate; for the player's own, the nearest
-                // crewmate that is free is sent, since nobody treats
-                // their own.
-                let dying: Vec<(usize, health::Part, bims::health::Trauma)> = health::Part::ALL
-                    .into_iter()
-                    .enumerate()
-                    .filter_map(|(i, part)| game.trauma(patient, part).map(|t| (i, part, t)))
-                    .collect();
-                if !dying.is_empty() {
-                    let helper = treat_helper(game, who, patient);
-                    // Out of the helper's own pack: a medkit is a charge.
-                    let medkits = helper.map_or(0, |h| kits_to_hand(game, h));
-                    for (i, part, trauma) in dying {
-                        let can = helper.is_some() && medkits > 0 && !patient_out;
-                        let hint = if helper.is_some() && medkits == 0 {
-                            NO_MEDKIT.to_string()
-                        } else if patient_out {
-                            PATIENT_OUT.to_string()
-                        } else if let Some(h) = helper {
-                            if h == who {
-                                takes_over.unwrap_or(trauma_line(trauma.code())).to_string()
-                            } else {
-                                format!("{} walks over — nobody treats their own", name(h as u32))
-                            }
-                        } else if patient == who {
-                            "nobody free to do it — nobody treats their own".to_string()
-                        } else {
-                            HELPER_OUT.to_string()
-                        };
-                        items.push(Item::run(
-                            format!(
-                                "Treat the {} · {}",
-                                SLOT_NAMES[i].to_lowercase(),
-                                trauma_name(trauma.code()).to_lowercase()
-                            ),
-                            hint,
-                            !can,
-                            CrewOrder::Treat {
-                                // Disabled with no helper, so the row is
-                                // never run with the placeholder.
-                                who: helper.unwrap_or(who) as u32,
-                                patient: patient as u32,
-                                part,
-                            },
-                        ));
-                    }
-                    let whose = match helper {
-                        Some(h) if h != who => format!("{medkits} in {}'s pack", name(h as u32)),
-                        _ => format!("{medkits} in the pack"),
-                    };
-                    items.push(Item::note("Medkits", whose));
-                }
             }
             // One of the station's people, on its feet and hailable: a
             // mercenary for hire. What it asks is the world's to say — the
@@ -1301,14 +1115,13 @@ impl CrewPanels {
         //
         // This whole block is drawn big on purpose: in a fight it is the
         // only part of the panel anybody looks at, and the question it has
-        // to answer at a glance is not "how much health" but "what is
-        // killing it and how long has it got" — which is the peril block
+        // to answer at a glance is not only "how much health" but, for a
+        // body down, "how long has it got" — which is the downed block
         // under the bar.
         ui.add_space(6.0);
         let points = game.health(w);
         let armour = if alive { game.armour_health(w) } else { 0.0 };
-        let perils = if alive { perils(game, w) } else { Vec::new() };
-        let hurt = !alive || !perils.is_empty();
+        let hurt = is_hurt(game, w);
         ui.horizontal(|ui| {
             if who == 0 {
                 theme::asks(ui, "Health", HEALTH_TIP);
@@ -1339,247 +1152,54 @@ impl CrewPanels {
             }
         });
 
-        // What is taking it down, and how long it has at that rate. The
-        // one thing on this panel that is framed: it is a warning, and a
-        // warning that looks like the rows around it is not one.
-        //
-        // Graded by what a player would have to do about it. A dying
-        // state is the red block, the one the cross on the deck marks, and
-        // wants a medkit; a body that is only losing blood through wounds
-        // a bandage closes gets the same block and the same countdown in
-        // the caution colour, since a scratch that would empty it in ten
-        // hours is worth a number and not a fright.
-        let grave = alive && game.is_dying(w);
-        let peril_ink = if grave { theme::DYING } else { theme::CAUTION };
-        if alive && !perils.is_empty() {
+        // Down, and how long it has (task 120). The one thing on this
+        // panel that is framed: it is a warning, and a warning that looks
+        // like the rows around it is not one. The countdown is the ring's
+        // over the body on the deck, in words, and under it who is at the
+        // body, or what it would take.
+        if alive && let Some(left) = game.down_left(w) {
             ui.add_space(3.0);
-            peril_frame(grave).show(ui, |ui| {
+            downed_frame().show(ui, |ui| {
                 ui.set_min_width(BAR_W + 60.0);
                 ui.horizontal(|ui| {
                     ui.label(
-                        egui::RichText::new(if grave { PERIL_HEAD } else { PERIL_HEAD_HURT })
-                            .small()
+                        egui::RichText::new(DOWNED_HEAD)
+                            .size(PERIL_NAME)
                             .strong()
-                            .color(peril_ink),
+                            .color(theme::DYING),
                     );
-                    theme::question_mark(ui, PERIL_TIP);
+                    theme::question_mark(ui, DOWNED_TIP);
                 });
-                for peril in &perils {
-                    ui.add_space(2.0);
-                    ui.horizontal(|ui| {
-                        ui.label(
-                            egui::RichText::new(peril.cause)
-                                .size(PERIL_NAME)
-                                .strong()
-                                .color(peril_ink),
-                        );
-                        ui.label(
-                            egui::RichText::new(&peril.rate)
-                                .small()
-                                .color(theme::CAUTION),
-                        );
-                    });
-                    if let Some(minutes) = peril.minutes {
-                        ui.label(
-                            egui::RichText::new(peril_left(&span_text(minutes)))
-                                .size(PERIL_LEFT)
-                                .strong()
-                                .color(if grave { theme::WARN } else { theme::CAUTION }),
-                        );
-                    }
-                    for from in &peril.from {
-                        ui.label(egui::RichText::new(from).small().color(theme::INK));
-                    }
-                    ui.label(
-                        egui::RichText::new(peril.remedy)
-                            .small()
-                            .color(theme::MUTED),
-                    );
-                }
-            });
-            ui.add_space(3.0);
-        } else if alive && game.is_dying(w) {
-            // A dying state that is not bleeding — a concussion, broken
-            // ribs, a knee. It still wants a medkit, but nothing is
-            // counting down, and that is worth saying outright rather
-            // than leaving a player to guess from a bar that is not
-            // moving.
-            ui.add_space(3.0);
-            peril_frame(true).show(ui, |ui| {
-                ui.set_min_width(BAR_W + 60.0);
-                for part in health::Part::ALL {
-                    if let Some(trauma) = game.trauma(w, part) {
-                        ui.label(
-                            egui::RichText::new(trauma_name(trauma.code()))
-                                .size(PERIL_NAME)
-                                .strong()
-                                .color(theme::DYING),
-                        );
-                    }
-                }
                 ui.label(
-                    egui::RichText::new(PERIL_STABLE)
-                        .small()
-                        .color(theme::MUTED),
+                    egui::RichText::new(downed_left(left))
+                        .size(PERIL_LEFT)
+                        .strong()
+                        .color(theme::WARN),
                 );
+                let line = match reviver_of(game, w, w) {
+                    Some(helper) => downed_reviver(&name(helper as u32)),
+                    None => downed_remedy(),
+                };
+                ui.label(egui::RichText::new(line).small().color(theme::MUTED));
             });
             ui.add_space(3.0);
-        }
-
-        // What the bar is made of: the head, the body and the legs, a bar
-        // each, and the blood under them. Drawn for the dead too — a body
-        // with its head at nothing says how it died — and a part held at
-        // nothing by an untreated trauma is named in the red of the cross
-        // over its head on the deck.
-        egui::Grid::new(("body", who))
-            .num_columns(4)
-            .spacing([8.0, 3.0])
-            .show(ui, |ui| {
-                for (i, part) in health::Part::ALL.into_iter().enumerate() {
-                    let left = game.part_health(w, part);
-                    let bonus = if alive { game.part_bonus(w, part) } else { 0.0 };
-                    let bleeding = alive && game.wounds(w, part) > 0;
-                    let trauma = if alive { game.trauma(w, part) } else { None };
-                    ui.label(
-                        egui::RichText::new(SLOT_NAMES[i]).color(if trauma.is_some() {
-                            theme::DYING
-                        } else if bleeding {
-                            theme::CAUTION
-                        } else {
-                            theme::MUTED
-                        }),
-                    );
-                    let total = part.max() + bonus;
-                    theme::two_tone_bar(
-                        ui,
-                        BAR_W,
-                        left / total,
-                        bonus / total,
-                        if trauma.is_some() || bleeding {
-                            theme::BAD
-                        } else {
-                            theme::ACCENT
-                        },
-                        theme::ARMOUR,
-                    );
-                    ui.label(
-                        egui::RichText::new(if bonus > 0.0 {
-                            format!("{} + {}", left.round(), bonus.round())
-                        } else {
-                            format!("{}", left.round())
-                        })
-                        .color(theme::MUTED),
-                    );
-                    // The trauma's own name beside the part it holds at
-                    // nothing, so the bar at zero and the reason it is
-                    // there are one row rather than two places.
-                    if let Some(trauma) = trauma {
-                        ui.label(
-                            egui::RichText::new(trauma_name(trauma.code()))
-                                .small()
-                                .color(theme::DYING),
-                        );
-                    }
-                    ui.end_row();
-                }
-                // Red from `SLOWED_AT` down, which is where the Bim starts
-                // to slow — the number alone does not say that, and half
-                // of it again is where it goes out cold (feature 89).
-                let blood = game.blood(w) / health::MAX_BLOOD;
-                let low = blood < health::SLOWED_AT;
-                ui.label(egui::RichText::new("Blood").color(if low {
-                    theme::BAD
-                } else {
-                    theme::MUTED
-                }));
-                theme::bar(
-                    ui,
-                    BAR_W,
-                    blood,
-                    if low { theme::BAD } else { theme::ACCENT },
-                );
-                ui.label(
-                    egui::RichText::new(format!("{}%", (blood * 100.0).round()))
-                        .color(theme::MUTED),
-                );
-                ui.end_row();
-            });
-        let line = |ui: &mut egui::Ui, text: String, warn: bool, gone: bool| {
-            if text.is_empty() {
-                return;
-            }
-            let color = if gone {
-                theme::MUTED
-            } else if warn {
-                theme::CAUTION
-            } else {
-                theme::INK
-            };
-            ui.label(egui::RichText::new(text).small().color(color));
-        };
-        // The open wounds and the traumas themselves are the peril block's
-        // now — it says how fast each of them is emptying the Bim, which
-        // is what a count of wounds was standing in for.
-        if alive && game.is_unconscious(w) {
-            ui.label(egui::RichText::new("Out cold").small().color(theme::BAD));
-        }
-        // What each untreated trauma is *doing* to it besides the blood —
-        // the slower walk, the slower work — under the block that says
-        // what it costs. Then what treated traumas have left behind, and
-        // for how long.
-        if alive {
-            for part in health::Part::ALL {
-                if let Some(trauma) = game.trauma(w, part) {
-                    ui.label(
-                        egui::RichText::new(format!(
-                            "{} Needs a medkit from a crewmate.",
-                            trauma_line(trauma.code())
-                        ))
-                        .small()
-                        .color(theme::MUTED),
-                    );
-                }
-            }
-            for l in game.lasting(w) {
-                line(
-                    ui,
-                    format!(
-                        "{} · {} · {} left",
-                        trauma_name(l.trauma.code()),
-                        trauma_lasting(l.trauma.code()),
-                        span_text(l.left)
-                    ),
-                    true,
-                    false,
-                );
-            }
-        }
-        let legs = if alive { game.legs_lost(w) } else { 0 };
-        line(
-            ui,
-            match legs {
-                0 => String::new(),
-                1 => "One leg lost".into(),
-                _ => "No legs".into(),
-            },
-            true,
-            false,
-        );
-        if !alive {
-            // The dead say what of, in the red the cross over them was:
-            // a bar at nothing is not an answer, and "has died" on its
-            // own leaves a player scrolling back through the log for
-            // one.
+        } else if alive && game.was_downed(w) {
+            // Up again, and slower for it until the mission ends: the one
+            // thing a revive leaves behind.
             ui.label(
-                egui::RichText::new(format!("{} has died.", name(who)))
+                egui::RichText::new(slowed_note())
+                    .small()
+                    .color(theme::CAUTION),
+            );
+        } else if alive && hurt {
+            ui.label(egui::RichText::new(BADLY_HURT).small().color(theme::BAD));
+        }
+        if !alive {
+            ui.label(
+                egui::RichText::new(died_line(&name(who)))
                     .size(PERIL_NAME)
                     .strong()
                     .color(theme::DYING),
-            );
-            ui.label(
-                egui::RichText::new(death_line(game, w))
-                    .small()
-                    .color(theme::MUTED),
             );
         }
         // The class (feature 74): the player's own crew member's, with its
@@ -2703,44 +2323,27 @@ fn stash_cell(
     response
 }
 
-/// The character sheet's body (feature 107): every part's health against
-/// what it can hold, with what worn armour adds, and the blood — the
-/// side panel's own readings, in words.
+/// The character sheet's body (feature 107): the one bar in words —
+/// the hit points against the whole, with what worn armour adds — and,
+/// under it, the countdown while it is down or the slower walk once it
+/// was (task 120). The side panel's own readings.
 fn sheet_body(ui: &mut egui::Ui, game: &Game, w: usize) {
     theme::heading(ui, SHEET_BODY);
     let alive = game.is_alive(w);
+    let points = game.health(w);
+    let armour = if alive { game.armour_health(w) } else { 0.0 };
     egui::Grid::new("sheet-body")
         .num_columns(2)
         .spacing([12.0, 2.0])
         .min_col_width(SHEET_W / 2.0 - 12.0)
         .show(ui, |ui| {
-            for (i, part) in health::Part::ALL.into_iter().enumerate() {
-                let left = game.part_health(w, part);
-                let bonus = if alive { game.part_bonus(w, part) } else { 0.0 };
-                let trauma = if alive { game.trauma(w, part) } else { None };
-                ui.label(egui::RichText::new(SLOT_NAMES[i]).color(theme::MUTED));
-                let words = part_health_line(left, part.max(), bonus);
-                ui.label(
-                    egui::RichText::new(match trauma {
-                        Some(trauma) => format!("{words} · {}", trauma_name(trauma.code())),
-                        None => words,
-                    })
-                    .color(if trauma.is_some() {
-                        theme::DYING
-                    } else if left < part.max() {
-                        theme::CAUTION
-                    } else {
-                        theme::INK
-                    }),
-                );
-                ui.end_row();
-            }
-            let blood = game.blood(w) / health::MAX_BLOOD;
-            ui.label(egui::RichText::new(SHEET_BLOOD).color(theme::MUTED));
+            ui.label(egui::RichText::new(SHEET_HEALTH).color(theme::MUTED));
             ui.label(
-                egui::RichText::new(format!("{}%", (blood * 100.0).round())).color(
-                    if blood < health::SLOWED_AT {
+                egui::RichText::new(health_line(points, health::MAX_HEALTH, armour)).color(
+                    if is_hurt(game, w) {
                         theme::BAD
+                    } else if points < health::MAX_HEALTH {
+                        theme::CAUTION
                     } else {
                         theme::INK
                     },
@@ -2748,6 +2351,9 @@ fn sheet_body(ui: &mut egui::Ui, game: &Game, w: usize) {
             );
             ui.end_row();
         });
+    if let Some((line, colour)) = peril_summary(game, w) {
+        ui.label(egui::RichText::new(line).small().strong().color(colour));
+    }
 }
 
 /// The character sheet's gear (feature 107): each piece worn with its
@@ -2804,116 +2410,82 @@ fn sheet_gear(ui: &mut egui::Ui, game: &Game, w: usize) {
         });
 }
 
-/// Whose hands a treatment of `patient` would be: the player's own Bim
-/// for a crewmate, while it is alive, awake and aboard; for the player's
-/// own — nobody treats their own — the nearest crewmate that is free to.
-/// `None` when nobody can.
-fn treat_helper(game: &Game, player: usize, patient: usize) -> Option<usize> {
-    let up = |h: usize| game.is_alive(h) && !game.is_unconscious(h) && !game.is_outside(h);
-    if patient != player {
-        return up(player).then_some(player);
+/// Why `who` cannot revive `patient` now, in the words the greyed row
+/// says, or `None` when it can (task 120): the room's own refusals
+/// (`Game::revive_crewmate`) read off what the room shows — a patient
+/// that is not down, the helper itself, a helper dead, down or outside, a
+/// patient outside or in somebody's arms, and a patient another crewmate
+/// is already bringing round, since one reviver counts.
+pub fn revive_refused(
+    game: &Game,
+    who: usize,
+    patient: usize,
+    name: &dyn Fn(u32) -> String,
+) -> Option<String> {
+    if patient == who {
+        return Some(REVIVE_YOURSELF.to_string());
     }
-    // The nearest crewmate with a medkit to hand, since a medkit is a
-    // charge in each one's own pack; the nearest at all when nobody has
-    // one, so the row can say whose pack is empty.
-    let at = game.bim_pos(patient);
-    let nearest = |with_kit: bool| {
-        (0..game.crew_count() as usize)
-            .filter(|&h| h != patient && up(h) && (!with_kit || kits_to_hand(game, h) > 0))
-            .min_by(|&a, &b| {
-                (game.bim_pos(a) - at)
-                    .len()
-                    .total_cmp(&(game.bim_pos(b) - at).len())
-            })
-    };
-    nearest(true).or_else(|| nearest(false))
+    if !game.is_downed(patient) {
+        return Some(REVIVE_NOT_DOWN.to_string());
+    }
+    if !game.is_alive(who) || game.is_downed(who) || game.is_outside(who) {
+        return Some(HELPER_OUT.to_string());
+    }
+    if game.is_outside(patient) {
+        return Some(PATIENT_OUT.to_string());
+    }
+    if game.is_carried(patient) {
+        return Some(REVIVE_CARRIED.to_string());
+    }
+    reviver_of(game, patient, who).map(|other| revive_taken(&name(other as u32)))
 }
 
-/// The medkits `who` could treat with: the ones in its own pack — a
-/// medkit is a charge every crew member carries — and any on the room's
-/// shelf, which aboard is none. The room's own rule for whether a
-/// treatment has a kit.
-fn kits_to_hand(game: &Game, who: usize) -> u32 {
-    let kit = PackItem::Stack(ResourceId::Medkit as u32);
-    game.medkits() + game.gear(who).units_of(kit)
-}
-
-/// The two words beside a Bandage button, or under a menu row: how many
-/// wounds are open on the part, and why the button is dead if it is —
-/// nothing to dress, or nothing to dress it with.
-fn bandage_words(wounds: u32, bandages: u32) -> (String, &'static str) {
-    let count = match wounds {
-        0 => "no wounds".to_string(),
-        1 => "1 wound".to_string(),
-        n => format!("{n} wounds"),
-    };
-    let hint = if wounds == 0 {
-        "nothing open on it — a bandage here would be a bandage wasted"
-    } else if bandages == 0 {
-        NO_BANDAGE
-    } else {
-        "closes every wound on it — ten minutes with hands on"
-    };
-    (count, hint)
+/// Which crew member other than `except` is bringing `patient` round, or
+/// on its way to — the patient's one reviver.
+pub fn reviver_of(game: &Game, patient: usize, except: usize) -> Option<usize> {
+    (0..game.crew_count() as usize)
+        .find(|&other| other != except && other != patient && game.reviving(other) == Some(patient))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    /// What the peril block says is the room's own arithmetic and not a
-    /// second opinion: the rate is every open wound at
-    /// `health::BLEED_PER_WOUND` an hour plus every untreated trauma's
-    /// own `bleed()`, which is the sum `Health::update_held` subtracts,
-    /// and the countdown is the blood left divided by it.
+    /// What the panels say of a body is the room's own reading (task
+    /// 120): nothing on a whole one, the countdown while it is down —
+    /// the seconds the ring over it counts — and the revive row greyed
+    /// with the reason until it can be done, then open.
     #[test]
-    fn a_dying_bim_says_what_is_taking_it_down_and_how_long_it_has() {
+    fn a_downed_bim_says_how_long_it_has_and_who_may_revive_it() {
         let mut game = Game::bare(7, bims::room::ROOM_W, bims::room::ROOM_H);
-        assert!(
-            perils(&game, 0).is_empty(),
-            "a whole body is dying of nothing"
-        );
-        assert!(!game.is_dying(0));
-
-        // A leg taken to nothing: the trauma rolled on it, untreated, and
-        // one wound open besides.
-        game.wound(0, health::Part::Legs, 1_000.0);
-        let trauma = game
-            .trauma(0, health::Part::Legs)
-            .expect("a part at nothing has a trauma");
-        assert!(game.is_dying(0), "the cross hangs off this");
-        assert_eq!(game.wounds(0, health::Part::Legs), 1);
-
-        let an_hour = trauma.bleed() + health::BLEED_PER_WOUND;
-        let list = perils(&game, 0);
-        assert_eq!(list.len(), 1);
-        assert_eq!(list[0].cause, PERIL_BLEEDING);
-        assert_eq!(list[0].rate, peril_rate(an_hour));
+        let name = |who: u32| format!("crew {who}");
+        assert!(game.crew_count() >= 2, "a bare room has two to stand in");
+        assert!(!is_hurt(&game, 1));
+        assert_eq!(peril_summary(&game, 1), None, "a whole body says nothing");
         assert_eq!(
-            list[0].minutes,
-            Some(game.blood(0) / an_hour * bims::clock::HOUR)
-        );
-        // The wound is always one of the rows; the trauma is one too
-        // whenever it is a trauma that bleeds.
-        assert!(list[0].from.contains(&peril_from(
-            &peril_wounds("Legs", 1),
-            health::BLEED_PER_WOUND
-        )));
-        assert_eq!(list[0].from.len(), if trauma.bleed() > 0.0 { 2 } else { 1 });
-        assert_eq!(
-            list[0].remedy,
-            if trauma.bleed() > 0.0 {
-                PERIL_BLEED_MEDKIT
-            } else {
-                PERIL_BLEED_BANDAGE
-            }
+            revive_refused(&game, 0, 1, &name).as_deref(),
+            Some(REVIVE_NOT_DOWN)
         );
 
-        // And a body with no blood in it died of that, whatever else is
-        // wrong with it.
-        assert_eq!(death_line(&game, 0), DEATH_OTHER);
-        game.set_blood_for_probe(0, 0.0);
-        assert_eq!(death_line(&game, 0), DEATH_BLED_OUT);
+        let hit = game.wound(1, health::Part::Body, 1_000.0);
+        assert!(hit.downed, "a hit to nothing downs it");
+        // The body lies down at the top of its next tick.
+        game.simulate(1.0 / 60.0);
+        assert!(game.is_downed(1) && is_hurt(&game, 1));
+        let left = game.down_left(1).expect("a countdown on a downed body");
+        assert!(left > 0.0 && left <= health::DOWNED_SECONDS);
+        assert_eq!(
+            peril_summary(&game, 1),
+            Some((downed_short(left), theme::DYING))
+        );
+        // Nobody revives themselves, and the player's Bim may revive the
+        // crewmate.
+        assert_eq!(
+            revive_refused(&game, 1, 1, &name).as_deref(),
+            Some(REVIVE_YOURSELF)
+        );
+        assert_eq!(revive_refused(&game, 0, 1, &name), None);
+        assert_eq!(reviver_of(&game, 1, 0), None);
     }
 
     /// The Skills tree's rules (feature 83): a point for every pick level

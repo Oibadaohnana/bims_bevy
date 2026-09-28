@@ -31,23 +31,22 @@ pub const PLAYER: usize = 0;
 pub const TRAIL_LIFE: f32 = 2.2;
 pub const TRAIL_INTERVAL: f32 = 0.08;
 
-/// How often a bleeding Bim leaves a drop of blood on the deck, in
-/// seconds, with one open wound — with more it is that many times as
-/// often. Real seconds at 1x: the world's speed leaves a longer trail the
-/// way it leaves more of everything. A drop is blood on the tile it lands
-/// on — [`crate::blood::BLOOD_COST`] off it — and stays.
+/// How often a bleeding Bim — one under
+/// [`crate::health::BLEEDS_UNDER`] hit points, downed or not — leaves a
+/// drop of blood on the deck, in seconds (task 120; it was the rate of one
+/// open wound). A drop is blood on the tile it lands on —
+/// [`crate::blood::BLOOD_COST`] off it — and stays, so a body on the move
+/// leaves a trail.
 pub const DRIP_EVERY: f32 = 1.2;
 /// How far from the body's middle a drop lands, in room units, either way.
 const DRIP_SCATTER: f32 = 10.0;
 
 /// A medic's surge running on a body (feature 76): the seconds of the
-/// room's clock it has left, and whether every open wound is closed as
-/// it ends (the medic's *closing surge*).
+/// room's clock it has left.
 #[derive(Clone, Copy, PartialEq, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Surge {
     pub left: f32,
-    pub closing: bool,
 }
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -80,10 +79,9 @@ pub struct Bim {
     /// `world_checksum` through the world's own list.
     pub beaming: bool,
     /// A medic's *surge* on this body (feature 76): while it runs, a hit
-    /// takes nothing — no wound, no armour drained, no trauma
+    /// takes nothing — no hit points, no armour drained
     /// (`Game::strike`). Set by the world (`Game::set_surge`), counted
-    /// down here; `closing` closes every open wound as it ends. Saved
-    /// with the room and in `world_checksum`.
+    /// down here. Saved with the room and in `world_checksum`.
     pub surge: Option<Surge>,
     /// Standing as a wall (feature 77): a tank with Bulwark on — half
     /// pace, and the crew close behind him are in cover against a shot
@@ -103,7 +101,7 @@ pub struct Bim {
     pub shots: u32,
     /// The crewmate this body carries in its arms (feature 86): a medic
     /// — the class, or a hired field medic — that has picked up somebody
-    /// unconscious or hurt to take them out of the fire. Set by
+    /// downed to take them out of the fire. Set by
     /// [`crate::game::Game::take_up`], put down by `set_down`, and
     /// dropped the moment either of the two goes down. While it runs the
     /// carried body is stood where the carrier stands and walks nowhere
@@ -114,19 +112,12 @@ pub struct Bim {
     /// Whether this body is a **field medic** (feature 86): a mercenary
     /// hired for the job, with none of the medic class's talents, whose
     /// business under arms is to fetch the fallen out of the fire and
-    /// treat them where it is quiet, and who otherwise keeps to the far
+    /// revive them where it is quiet, and who otherwise keeps to the far
     /// end of its weapon's reach. Set by the world every step
     /// (`Game::set_field_medic`) off `world::mercenary::Hired::medic`,
     /// the way the squad's orders are, and so neither saved here nor
     /// hashed.
     pub field_medic: bool,
-    /// Seconds this body has been dying with an enemy about (feature
-    /// 78): nought until it is, counted up here and read by
-    /// `Game::is_fleeing`, which lets it run once the count passes the
-    /// hold its skill gives it — nought for everybody, and the
-    /// commander's aura's `NERVE_HOLD` for a Bim in one.
-    /// Saved with the room and in `world_checksum`.
-    pub fear: f32,
     pub trail: Vec<Footprint>,
     pub trail_timer: f32,
     /// Where it was last frame and how long it has been marching without
@@ -184,14 +175,6 @@ pub struct Bim {
     /// last saw its quarry, and from then until the war ends it holds or
     /// closes — never gives ground. See `Game::plan_stand`.
     pub hunting: bool,
-    /// A door its run takes it through, and which side of it the run
-    /// began on: locked behind it once it is through. See `Game::flee`.
-    pub seal: Option<(usize, f32)>,
-    /// The door it locked behind itself, while that lock stands: sealed
-    /// in, it binds its wounds. See `Game::flee`.
-    pub sealed_in: Option<usize>,
-    /// Seconds towards the next wound bound while sealed in.
-    pub bind_timer: f32,
     /// A station's person's peacetime round (feature 102): its role and
     /// the stops it walks, dealt by the world when the site's room opens
     /// (`Game::set_role`). `None` for the crew and for anybody the world
@@ -201,10 +184,10 @@ pub struct Bim {
     /// Whether this body is a **Manufacturer** (feature 109): one of the
     /// faction that built the machines, laid on a site of theirs by the
     /// world (`Game::enlist_manufacturer`). A hostile Bim like any other in
-    /// how it walks, fights and bleeds, with three things taken away:
-    /// nobody dresses, treats or carries it — it bleeds out once down —
-    /// it binds no wound of its own, and a gun is never let go of onto
-    /// the deck, so it leaves nothing lying for anybody to take.
+    /// how it walks, fights and bleeds, with two things taken away:
+    /// nobody revives or carries it — downed, it dies when its countdown
+    /// runs out — and a gun is never let go of onto the deck, so it leaves
+    /// nothing lying for anybody to take.
     #[cfg_attr(feature = "serde", serde(default))]
     pub manufacturer: bool,
     /// Seconds until its arc greaves may discharge again (task 116): set
@@ -244,7 +227,6 @@ impl Bim {
             shots: 0,
             carrying: None,
             field_medic: false,
-            fear: 0.0,
             trail: Vec::new(),
             trail_timer: 0.0,
             last_pos: at,
@@ -265,9 +247,6 @@ impl Bim {
             breach_wait: 0.0,
             smashing: None,
             hunting: false,
-            seal: None,
-            sealed_in: None,
-            bind_timer: 0.0,
             routine: None,
             manufacturer: false,
             arc_cool: 0.0,
@@ -304,19 +283,18 @@ impl Bim {
         self.trail.retain(|f| f.age < TRAIL_LIFE);
     }
 
-    /// Drip blood on the deck. A drop every [`DRIP_EVERY`] seconds over the
-    /// open wounds while it bleeds and lives — a dead Bim has stopped —
-    /// scattered a little about the body so a Bim standing still leaves a
-    /// pool rather than a dot. There is no picture of a drop of its own; the
-    /// deck draws the tile. The scatter is two rolls a drop off the room's
-    /// stream, which every fight draws from: take them away and every fight
-    /// after the first drop re-rolls.
+    /// Drip blood on the deck. A drop every [`DRIP_EVERY`] seconds while it
+    /// is under [`crate::health::BLEEDS_UNDER`] hit points and alive —
+    /// downed too; a dead Bim has stopped (task 120) — scattered a little
+    /// about the body so a Bim standing still leaves a pool rather than a
+    /// dot, and one walking a trail. There is no picture of a drop of its
+    /// own; the deck draws the tile. The scatter is two rolls a drop off the
+    /// room's stream, which every fight draws from.
     pub fn tick_drips(&mut self, dt: f32, rng: &mut Rng, deck: &mut Blood) {
-        let wounds = self.health.bleeding();
-        if wounds > 0 && self.is_alive() {
+        if self.health.bleeds() && self.is_alive() {
             self.drip_timer -= dt;
             if self.drip_timer <= 0.0 {
-                self.drip_timer = DRIP_EVERY / wounds as f32;
+                self.drip_timer = DRIP_EVERY;
                 let at = self.character.pos
                     + vec2(rng.signed() * DRIP_SCATTER, rng.signed() * DRIP_SCATTER);
                 deck.drop_at(at);

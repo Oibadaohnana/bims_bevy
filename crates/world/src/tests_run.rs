@@ -268,8 +268,7 @@ fn every_role_has_a_round_on_a_sample_of_stations_and_towns() {
         | PartKind::Shelf
         | PartKind::Bunk
         | PartKind::Shower
-        | PartKind::Workbench
-        | PartKind::DrugLab => false,
+        | PartKind::Workbench => false,
         PartKind::Airlock => {
             airlocks += 1;
             airlocks == 1

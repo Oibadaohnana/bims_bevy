@@ -44,13 +44,12 @@ fn theirs(world: &World) -> Vec<usize> {
         .collect()
 }
 
-/// Every Manufacturer out cold where it stands, with nothing open: down,
-/// and in no hurry to die.
+/// Every Manufacturer downed where it stands, the countdown ahead of it.
 fn knock_them_all_out(world: &mut World) {
     for who in theirs(world) {
         let room = &mut world.residents.as_mut().unwrap().aboard.room;
         if room.is_alive(who) {
-            room.set_blood_for_probe(who, 0.3);
+            room.knock_out_for_probe(who);
         }
     }
 }
@@ -140,7 +139,7 @@ fn a_day_nought_site_is_pistols_and_no_armour_and_clears_on_the_last_down() {
             .unwrap()
             .aboard
             .room
-            .set_blood_for_probe(who, 0.3);
+            .knock_out_for_probe(who);
     }
     // The crew member stood beside the fight, so every down is in reach.
     beside(&mut world, them[0]);
@@ -158,7 +157,7 @@ fn a_day_nought_site_is_pistols_and_no_armour_and_clears_on_the_last_down() {
         .unwrap()
         .aboard
         .room
-        .set_blood_for_probe(last, 0.3);
+        .knock_out_for_probe(last);
     let mut cleared = false;
     for _ in 0..3 {
         let events = world.step(&[]);
@@ -193,42 +192,49 @@ fn beside(world: &mut World, who: usize) {
 }
 
 /// **Nothing of theirs is taken, and nobody saves one**: a Manufacturer
-/// down is no body to loot and no patient — it lets go of no gun and
-/// binds no wound — and it bleeds out where it lies. Its death, down
-/// first, is worth `XP_ENEMY_DEAD` on top (task 119).
+/// downed is no body to loot and no patient — it lets go of no gun, and
+/// nobody revives it, its own people least of all — and it dies where it
+/// lies when its countdown runs out (task 120). Its death, down first, is
+/// worth `XP_ENEMY_DEAD` on top (task 119).
 #[test]
-fn a_manufacturer_down_bleeds_out_and_nothing_of_it_is_taken() {
+fn a_manufacturer_downed_is_never_revived_and_nothing_of_it_is_taken() {
     let (mut world, _) = at_their_site(0);
     let them = theirs(&world);
     let who = them[0];
     beside(&mut world, who);
-    // Wounds open and the blood nearly gone.
     {
         let room = &mut world.residents.as_mut().unwrap().aboard.room;
-        room.strike(who, Part::Legs, 1.0, true);
-        room.set_blood_for_probe(who, 0.05);
+        room.strike(who, Part::Legs, 1_000.0, false);
     }
     world.step(&[]);
     let xp = world.progress_of(0).xp;
     {
         let room = &world.residents.as_ref().unwrap().aboard.room;
-        assert!(room.is_unconscious(who));
+        assert!(room.is_downed(who));
         assert!(!room.needs_rescue(who), "nobody's patient");
+        assert!(room.down_left(who).is_some(), "the countdown running");
         assert!(
             room.gear(who).weapon.is_some(),
             "the gun stays with the body"
         );
         assert!(!world.aboard.room.visitor_down(who), "not a body to click");
     }
+    // One of its own beside it, told to revive it: refused.
+    if let Some(&other) = them.get(1) {
+        let room = &mut world.residents.as_mut().unwrap().aboard.room;
+        let at = room.body_pos(who);
+        room.put_for_probe(other, at + bims::math::vec2(40.0, 0.0));
+        assert!(!room.revive_crewmate(other, who), "never revived");
+    }
     let mut dead = false;
-    for _ in 0..2_000 {
+    for _ in 0..(bims::health::DOWNED_SECONDS as u32 * 60 + 60) {
         world.step(&[]);
         if !world.residents.as_ref().unwrap().aboard.room.is_alive(who) {
             dead = true;
             break;
         }
     }
-    assert!(dead, "it bled out");
+    assert!(dead, "it died when its countdown ran out");
     assert_eq!(
         world.progress_of(0).xp,
         xp + class::XP_ENEMY_DEAD,

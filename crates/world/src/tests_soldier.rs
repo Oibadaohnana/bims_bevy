@@ -5,7 +5,6 @@
 
 use bims::combat::{Gear, Item, WeaponKind};
 use bims::droid::{DroidKind, DroidPart};
-use bims::health::Part;
 use bims::math::{Vec2, vec2};
 use economy::trade_price;
 use physics::ResourceId;
@@ -26,13 +25,10 @@ const TILE: f32 = shipdesign::TILE as f32;
 /// second at 1×, and a step is a sixtieth of one.
 const SECONDS_A_STEP: f64 = crate::data::STEP_MINUTES / time::MINUTES_PER_SECOND;
 
-/// Whether `took` off a body is what `dealt` comes to on one of its
-/// parts: the whole of it, or the part's own total when that is less —
-/// a burst on the head takes the head's five and no more.
+/// Whether `took` off a body is what `dealt` comes to on its one bar:
+/// the whole of it, or the whole bar when that is less (task 120).
 fn plausible(took: f32, dealt: f32) -> bool {
-    Part::ALL
-        .iter()
-        .any(|p| (took - dealt.min(p.max())).abs() < 1.0)
+    (took - dealt.min(bims::health::MAX_HEALTH)).abs() < 1.0
 }
 
 /// [`plausible`] for the staged machine: one of its four parts took the
@@ -307,27 +303,25 @@ fn every_class_equips_every_weapon_takes_every_errand_and_places_every_site() {
             assert_eq!(world.aboard.room.weapon(who as usize), Some(kind.basic()));
         }
         world.restart_mission_for_probe();
-        // Every errand: its own wound dressed is an order the room takes
-        // for anybody. The order's answer is on the deck, never a refusal;
-        // what says it was taken is the errand on hand. Stood on a cell a
-        // body fits in first: where the crew wake up is against the
-        // furniture.
+        // Every errand: a crewmate downed revived is an order the room
+        // takes for anybody. The order's answer is on the deck, never a
+        // refusal; what says it was taken is the errand on hand. Stood on
+        // a cell a body fits in first: where the crew wake up is against
+        // the furniture.
         let at = world.aboard.room.bim_pos(who as usize);
         world.aboard.room.put_for_probe(who as usize, at);
-        world.aboard.room.set_bandages_for_probe(who as usize, 1);
+        let patient = (who + 1) % 3;
         world
             .aboard
             .room
-            .wound(who as usize, bims::health::Part::Legs, 1.0);
-        let order = bims::order::CrewOrder::Bandage {
-            who,
-            patient: who,
-            part: bims::health::Part::Legs,
-        };
+            .put_for_probe(patient as usize, at + bims::math::vec2(TILE, 0.0));
+        world.aboard.room.knock_out_for_probe(patient as usize);
+        world.step(&[]);
+        let order = bims::order::CrewOrder::Revive { who, patient };
         world.step(&[Command::Crew { slot: who, order }]);
         assert_eq!(
             world.aboard.room.task_kind_for_probe(who as usize),
-            Some(bims::game::JOB_BANDAGE),
+            Some(bims::game::JOB_REVIVE),
             "{who} takes {order:?}"
         );
     }
@@ -431,7 +425,7 @@ fn the_starting_pool_is_the_same_for_any_mix_of_classes_and_each_has_its_kit() {
 // --- B: the brace ---------------------------------------------------------------
 
 #[test]
-fn a_braced_soldier_holds_its_ground_takes_no_errand_never_runs_and_shoots_steadier() {
+fn a_braced_soldier_holds_its_ground_takes_no_errand_and_shoots_steadier() {
     let mut world = fight();
     let mut events = world.step(&[Command::Brace { slot: 0, on: true }]);
     assert!(
@@ -467,17 +461,6 @@ fn a_braced_soldier_holds_its_ground_takes_no_errand_never_runs_and_shoots_stead
             .all(|e| !matches!(e, WorldEvent::Braced { .. })),
         "said once"
     );
-    // Dying with an enemy about, it does not run.
-    world.aboard.room.wound(0, Part::Body, Part::Body.max());
-    assert!(world.aboard.room.is_dying(0));
-    for _ in 0..120 {
-        world.aboard.room.patch_up_for_probe(0);
-        world.aboard.room.wound(0, Part::Body, Part::Body.max());
-        world.step(&[]);
-        assert!(!world.aboard.room.is_fleeing(0), "braced: never flees");
-    }
-    assert!((world.aboard.room.bim_pos(0) - here).len() < 1.0);
-    world.aboard.room.patch_up_for_probe(0);
     // Toggled off: standing easy again, the errands open to it.
     let events = world.step(&[Command::Brace { slot: 0, on: false }]);
     assert!(
@@ -618,14 +601,18 @@ fn every_reason_a_throw_is_refused() {
     assert!(refused_with(&events, Refusal::NoGrenade));
     assert_eq!(world.can_throw(0, tile), Err(Refusal::NoGrenade));
     // Thirty seconds of the clock on, one charge is back; thirty more
-    // and it is at its two again.
+    // and it is at its two again. Two bursts two tiles off take the whole
+    // of one bar (task 120), and a soldier dead of them gets nothing back,
+    // so it is kept on its feet: the charges are what is asked here.
     let steps = (class::GRENADE_COOLDOWN / SECONDS_A_STEP).ceil() as u32;
     for _ in 0..steps {
+        world.aboard.room.patch_up_for_probe(0);
         world.step(&[]);
     }
     assert_eq!(grenades(&world, 0), 1, "one charge back");
     assert_eq!(world.can_throw(0, tile), Ok(()));
     for _ in 0..steps {
+        world.aboard.room.patch_up_for_probe(0);
         world.step(&[]);
     }
     assert_eq!(grenades(&world, 0), class::GRENADE_CHARGES);
@@ -900,7 +887,7 @@ fn cover_halves_a_burst_sandbags_do_not_stop_it_and_a_wall_does() {
             plausible(took, full * 0.5),
             "in cover it took {took}, half of {full}"
         );
-        if took > Part::Head.max() + 1.0 {
+        if took > 0.0 {
             assert!(
                 (took - full * 0.5).abs() < 1.0,
                 "in cover it took {took}, half of {full}"
@@ -1095,32 +1082,15 @@ fn runner_and_steady_aim() {
 }
 
 #[test]
-fn iron_nerve_never_flees_and_cover_master_dodges_more() {
-    let mut world = fight();
-    pick(&mut world, 0, Talent::IronNerve);
-    assert!(world.skill_of(0).nerve);
-    world.step(&[]);
-    let here = world.aboard.room.bim_pos(0);
-    for _ in 0..120 {
-        world.aboard.room.patch_up_for_probe(0);
-        world.aboard.room.wound(0, Part::Body, Part::Body.max());
-        world.step(&[]);
-        assert!(!world.aboard.room.is_fleeing(0), "iron nerve: never flees");
-    }
-    assert!((world.aboard.room.bim_pos(0) - here).len() < TILE);
-    // Without it, the same soldier runs.
-    let mut world = fight();
-    world.step(&[]);
-    world.aboard.room.wound(0, Part::Body, Part::Body.max());
-    world.step(&[]);
-    assert!(world.aboard.room.is_fleeing(0));
+fn cover_master_dodges_more() {
+    // *Iron nerve*, its other side, is a no-op since task 120: nobody
+    // runs.
     let mut world = soldier();
     pick(&mut world, 0, Talent::CoverMaster);
     assert_eq!(
         world.skill_of(0).cover_dodge,
         bims::combat::DODGE_IN_COVER * class::COVER_MASTER_DODGE
     );
-    assert!(!world.skill_of(0).nerve);
     assert_eq!(world.skill_of(1).cover_dodge, bims::combat::DODGE_IN_COVER);
 }
 

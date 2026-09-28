@@ -2955,6 +2955,9 @@ the halved recharge.
 
 ## The medic: the heal beam and the surge (feature 76)
 
+> **Changed by task 120** ("One bar of hit points" at the end of this
+> file): the beam puts back hit points (`class::HEAL_BEAM_HP` an hour), a medic may beam itself, the surge charges while a patient is short of its bar, and the medic's kit, `Doctoring`, `Beamed`, the field surgery and the closing surge are gone. The rest of this section is the history.
+
 The third class. `crates/world/src/class.rs` holds `Class::Medic = 3`,
 its fourteen talents (`Talent` 28–41, `SteadyHandsMedic` for the medic's
 *steady hands* beside the engineer's `SteadyHands`) and every number
@@ -3648,6 +3651,9 @@ rallied_mark}`, and the Hire window naming a field medic
 
 ## The dressings are carried, and the Management tab says how many (feature 87)
 
+> **Changed by task 120** ("One bar of hit points" at the end of this
+> file): there are no dressings. This section is the history.
+
 > **Since the medicine became everybody's charges** (next section) the
 > restock below, the Management tab's number and the stow of a box are
 > gone: a pack is filled by the bandage cooldown, never out of the hold,
@@ -3709,6 +3715,9 @@ says first: the target to nought and every pack emptied, so a box of
 dressings is not sitting in the cell the test wants.
 
 ## The medicine is everybody's charges
+
+> **Changed by task 120** ("One bar of hit points" at the end of this
+> file): the medkit and the bandage are no charges any more — `class::Charge` is the sandbag, the sentry and the grenade — and nobody carries medicine. This section is the history.
 
 The user's words: get rid of medkits — they have a cooldown and charges
 for every Bim now, and so do the bandages; a medkit and five bandages
@@ -5389,3 +5398,68 @@ for step; `relic::tests` pin the rows.
 - **What moved**: `SAVE_VERSION` **49**, `wire::PROTOCOL` **41** (the
   relay wants redeploying), and whatever pins read the crew's experience
   (see the root `CLAUDE.md`).
+
+## One bar of hit points, downed and revived (task 120)
+
+> Every section above that speaks of blood, a wound, a trauma, a dying
+> state, a bandage, a medkit, the drug lab, a treatment, *out cold* for a
+> crew member or the medicine's charges describes what **task 120
+> deleted**. The room's half is `crates/game/CLAUDE.md` ("One bar of hit
+> points"); this is the world's.
+
+- **Downed and revived are said as events**: `WorldEvent::CrewDowned {
+  who }` (42, off `Game::take_downs` in `casualties`) and `CrewRevived {
+  who, by }` (43, `who + 100 * by`, off `take_revives` in the step, which
+  also fires the relics' `Trigger::Revived`). They took the codes of
+  `CrewDying` and `CrewTreated`, which went. `CrewDown` is still a death.
+- **The revive time is the world's**: `World::revive_seconds(who)` —
+  `class::revive_time(medic, quicker)`: `health::REVIVE_SECONDS` (10), or
+  `class::MEDIC_REVIVE_SECONDS` (4) for a medic of either kind, less
+  *Trauma Kit*'s `data::TRAUMA_KIT_REVIVE_SECONDS` (2, `Rule::QuickRevive`),
+  never under `data::REVIVE_FLOOR_SECONDS` (1) — handed to the room as
+  `Skill::revive` in `skill_of`. The crew's room revives of its own
+  accord (`set_revivers(true)` every step); a station's or a town's never
+  (`Residents::open`, `replace_room`), so a Manufacturer and a
+  townsperson downed stay down and die.
+- **The medic** (`hand_the_room_the_medics`): the beam heals hit points
+  through `Game::heal` at `beam_rate` an hour of the clock
+  (`class::HEAL_BEAM_HP`, 30, marked for tuning; *strong beam* times
+  `STRONG_BEAM_RATE`); `beam_reaches` lets the medic be its own patient;
+  the surge charges while a patient is up and short of its bar. The
+  surge still absorbs every hit.
+- **A mission's end**: a body downed is **left behind** as ever
+  (`comes_home` asks it is up), and every body's slow from a down is
+  forgotten (`Game::forget_downed`) after the fallen respawn. A mission's
+  start restores the whole bar (`restore_health`).
+- **Gone from the world**: `Charge::{Medkit, Bandage}` (and
+  `Charge::MEDICINE`, `everybody`), every medicine constant and its
+  cooldowns, `hand_the_room_the_medicine`, `take_the_room_s_medicine`,
+  `bank_medicine`, the residents' dressings and medkits
+  (`RESIDENT_BANDAGES`/`MEDKITS`), `Medic::field_surgery_used`, the
+  aura's nerve and bleed, the rally's no-running, `Stat::HealingReceived`,
+  `Trigger::{Bandaged, BandagedCrewmate}`. The `ResourceId::{Medkit,
+  Bandage}` resources stay (a design's cargo slots), stocked nowhere and
+  made nowhere; `shipdesign`'s `DrugLab` part and its recipe went.
+- **Relics reinterpreted**: *Trauma Kit* is the two seconds off a revive;
+  *Quick Wrap* and *Tether Field* fire on `Trigger::Revived` (the reviver
+  holding it); *Clot Booster* heals its holder for its seconds after a
+  down once it is up again (a downed body is healed by nothing).
+- **No-op talents** (kept in their slots, doing nothing, the app saying
+  so): the soldier's *Iron Nerve*; the medic's *Field Dressing*,
+  *Surgeon*, *Clean Hands*, *Steady Hands*, *Self-care*, *Closing Surge*,
+  *Field Surgeon* and the fixed *Mender*; the tank's *Unmovable* and
+  *Hold Fast*; the commander's *Steady Ranks* and *Grit*.
+
+**Checksum**: a body's `down_left` and `was_downed` are hashed where the
+blood and the parts were, and `field_surgery_used`, the surge's closing
+flag and `fear` are out. **What moved**: `SAVE_VERSION` **50**,
+`wire::PROTOCOL` **42** (the relay wants redeploying),
+`REFERENCE_CHECKSUM`, `SURVIVORS`, the ship's `PINNED` (all eleven) and
+`PICTURES`' two decks, `shipdesign`'s hashes (the drug lab off the part
+list and the playtest ship) and `worldgen`'s `REFERENCE_CHECKSUMS` (no
+shelf stocks medicine). `tests_medic.rs` is rewritten for the beam, the
+self-beam and the revive times; `tests_relic.rs` has
+`trauma_kit_takes_two_seconds_off_a_revive_and_never_under_one`,
+`tests_manufacturer.rs`
+`a_manufacturer_downed_is_never_revived_and_nothing_of_it_is_taken`, and
+`tests_mission.rs` `the_slow_a_downing_leaves_is_cleared_at_the_mission_s_end`.

@@ -59,16 +59,6 @@ const WALL_TRIM: Color = Color::rgb(0.22, 0.26, 0.31);
 pub const STEEL: Color = Color::rgb(0.78, 0.83, 0.87);
 pub const GRIP: Color = Color::rgb(0.12, 0.14, 0.17);
 
-/// Dressings every Bim in a bare room starts out **carrying**, so a test
-/// can dress a wound without a drug lab. A bandage is a thing in a pack
-/// and nothing else: aboard it is `World::restock_bandages` that fills a
-/// pack out of the hold.
-pub const BANDAGES_AT_DAWN: u32 = 3;
-
-/// Medkits a bare room starts with on its shelf, the same way: a trauma
-/// can be treated in a test without an armoury.
-pub const MEDKITS_AT_DAWN: u32 = 2;
-
 /// Something the Bim can walk up to and work with its hands: one of a
 /// ship's powered doors, by index into [`Room::doors`], and what to do to
 /// it.
@@ -92,7 +82,7 @@ pub const HIT_NONE: u32 = 0;
 pub const HIT_SHIP_DOOR: u32 = 9;
 /// One of the crew — a body, not a fixture: `Game::hit_at` answers it
 /// before asking the room, and `Game::hit_bim` says which. The menu on it
-/// is the bandages, for the player's Bim to dress whoever was clicked.
+/// is the revive, for the player's Bim to bring a downed crewmate round.
 pub const HIT_BIM: u32 = 11;
 /// A workstation, any kind: `Game::hit_bench` says which, and
 /// `Game::bench_part` what it is — the app opens the armoury's grid off
@@ -100,9 +90,8 @@ pub const HIT_BIM: u32 = 11;
 pub const HIT_BENCH: u32 = 12;
 /// A shelf — the storage grid. `Game::hit_shelf` says which.
 pub const HIT_SHELF: u32 = 13;
-/// A dead crew member under the click — a body, for looting. An
-/// unconscious crewmate is still `HIT_BIM`, and the menu on it decides
-/// what to offer — the bandages, and the looting beside them.
+/// A dead crew member under the click — a body. A downed crewmate is
+/// still `HIT_BIM`, and the menu on it offers the revive.
 pub const HIT_BODY: u32 = 14;
 /// A docked station's resident under the click, down — dead or out cold,
 /// which the world says through `Game::set_visitors_down` — or one the
@@ -461,44 +450,17 @@ pub struct Room {
     /// The blood on the deck. It lives here because the deck *is* the
     /// room; `Game::render` draws it under the bodies.
     pub blood: Blood,
-    /// Every dressing finished since the game last looked — `(helper,
-    /// patient, part code)`, pushed by the bandage chain as its hands come
-    /// off the patient. The game drains it after everybody has moved and
-    /// does the dressing: the patient's body is a `Bim`, which the room
-    /// never holds. The helper is on it because by then its chain is over
-    /// and gone, and the game still has to ask whether the two are
-    /// standing together.
-    pub dressed: Vec<(usize, usize, u32)>,
-    /// Medkits to hand on the shelf: nought aboard, where every kit is a
-    /// thing in a pack, and `MEDKITS_AT_DAWN` in a bare room.
-    pub medkits: u32,
-    pub medkits_used: u32,
-    /// Medkits in each Bim's **own pack**, by index: the world's word
-    /// every step (`Game::set_pack_kits`), nought for anybody it does not
-    /// name. A helper that carries one opens that where it stands rather
-    /// than walking to a cabinet for the hold's — its own kit before a new
-    /// one.
-    #[cfg_attr(feature = "serde", serde(skip))]
-    pub pack_kits: Vec<u32>,
-    /// Every helper that took a kit out of its own pack since the world
-    /// last asked (`Game::take_pack_kits_used`). Derived from the packs,
-    /// and left out of a save with them.
-    #[cfg_attr(feature = "serde", serde(skip))]
-    pub pack_kits_used: Vec<usize>,
-    /// Where a kit is fetched from: the use spot of every container the
-    /// world says holds one, set every step aboard (`Game::set_kit_stands`);
-    /// empty in a bare room and a station's, where a kit is to hand.
-    pub kit_stands: Vec<Vec2>,
-    /// Every treatment finished since the game last looked — `(helper,
-    /// patient, part code, bare)`, like `dressed`, pushed by the treat
-    /// chain as its hands come off; `bare` is a medic's field surgery
-    /// with no kit (feature 76). The game does the treating: the trauma
-    /// is on the patient's `Health`.
-    pub treated: Vec<(usize, usize, u32, bool)>,
+    /// Every revive finished since the game last looked — `(helper,
+    /// patient)`, pushed by the revive chain as its hands come off the
+    /// patient (task 120). The game drains it after everybody has moved and
+    /// brings the patient round: its body is a `Bim`, which the room never
+    /// holds. The helper is on it because by then its chain is over and
+    /// gone, and the game still has to ask whether the two are together.
+    pub revived: Vec<(usize, usize)>,
     /// Where every one of the crew stands this step, by index — `None` for
     /// one dead or outside. The one thing about the crew the room is told,
     /// set by the game at the top of every step, so that a chain walking
-    /// to a *crewmate* — the bandage — can pick its spot as the walk is
+    /// to a *crewmate* — the revive — can pick its spot as the walk is
     /// entered. Nothing else reads it.
     pub crew: Vec<Option<Vec2>>,
     /// What happened this step that a host may want to hear — see
@@ -551,13 +513,7 @@ impl Room {
             rocks_version: 0,
             plane: None,
             blood: Blood::new(interior),
-            dressed: Vec::new(),
-            medkits: MEDKITS_AT_DAWN,
-            medkits_used: 0,
-            pack_kits: Vec::new(),
-            pack_kits_used: Vec::new(),
-            kit_stands: Vec::new(),
-            treated: Vec::new(),
+            revived: Vec::new(),
             crew: Vec::new(),
             cues: Vec::new(),
         }
@@ -676,13 +632,7 @@ impl Room {
             rocks_version: 0,
             plane: layout.plane,
             blood: Blood::new(interior),
-            dressed: Vec::new(),
-            medkits: 0,
-            medkits_used: 0,
-            pack_kits: Vec::new(),
-            pack_kits_used: Vec::new(),
-            kit_stands: Vec::new(),
-            treated: Vec::new(),
+            revived: Vec::new(),
             crew: Vec::new(),
             cues: Vec::new(),
         }
@@ -1179,13 +1129,6 @@ impl Room {
     #[allow(dead_code)]
     pub fn spot_rect(&self, spot: u32) -> Option<Rect> {
         self.spot_rects(spot).first().copied()
-    }
-
-    /// Whether a Bim has a medkit of its own in its pack — what the world
-    /// last said (`pack_kits`). A treatment by one that has is opened
-    /// where it stands: its own kit before a new one off a shelf.
-    pub fn carries_kit(&self, who: usize) -> bool {
-        self.pack_kits.get(who).is_some_and(|&n| n > 0)
     }
 
     /// One frame of the room itself: the lamps' flicker — a shot one for a

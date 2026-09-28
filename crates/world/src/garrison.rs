@@ -86,17 +86,16 @@ impl World {
     }
 
     /// How many of the Manufacturers on the residents' deck are on their
-    /// feet: alive and not out cold. One down is out of the fight — it
-    /// bleeds out where it lies — and holds no wave and no clear up.
+    /// feet: alive and not downed. One down is out of the fight — nobody
+    /// revives it, and it dies when its countdown runs out — and holds no
+    /// wave and no clear up.
     pub(super) fn manufacturers_standing(&self) -> u32 {
         let Some(residents) = &self.residents else {
             return 0;
         };
         let room = &residents.aboard.room;
         (0..room.crew_count() as usize)
-            .filter(|&who| {
-                room.is_manufacturer(who) && room.is_alive(who) && !room.is_unconscious(who)
-            })
+            .filter(|&who| room.is_manufacturer(who) && room.is_alive(who) && !room.is_downed(who))
             .count() as u32
     }
 
@@ -232,9 +231,6 @@ impl World {
             })
             .collect();
         room.adopt_droids(machines, bims::math::Vec2::ZERO);
-        // And nothing to doctor anybody with: nobody patches up one of
-        // theirs, and the shelf the room opened with is taken away.
-        room.set_medkits(0);
         residents.aboard.crew = room.body_count();
         residents.manufacturers_laid = it.wave;
     }

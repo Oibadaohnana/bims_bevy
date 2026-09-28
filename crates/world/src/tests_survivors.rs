@@ -128,7 +128,19 @@ const TILE: f32 = shipdesign::TILE as f32;
 /// old number came back (the scenario sends no speed request, and the
 /// wave-landing reset it dropped only ever set 1× on requests already at
 /// 1×). Was `0x_7a04_c23f_0efb_0d9f`.
-const SURVIVORS: u64 = 0x_002a_da6c_00c6_d69f;
+///
+/// **And once more, on purpose**: the health rework (task 120), a change
+/// meant to alter how a run plays. One bar of hit points and nothing else
+/// — no blood, no wounds, no traumas, no bandages or medkits — a body at
+/// nought downed for thirty seconds and then dead unless a crewmate
+/// revives it, the bots reviving where they doctored, no dying crew member
+/// running from the fight, and the blood on the deck thrown by every hit
+/// that takes hit points and dripped under twenty, which draws differently
+/// on the room's stream. The reading changed shape with it (a body's bar
+/// and its countdown where its blood and its parts were), so there is no
+/// old number to bring back by switching one rule off. Was
+/// `0x_002a_da6c_00c6_d69f`.
+const SURVIVORS: u64 = 0x_7535_9d7e_fddc_80af;
 
 /// A gun in every hand, the kinds dealt round, as the fight's probes arm
 /// a crew — the five there were when the reading was taken: the minigun

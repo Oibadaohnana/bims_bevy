@@ -617,16 +617,13 @@ impl World {
     }
 
     /// Crew member `who`'s charges **set to their start amounts** — its
-    /// class's kits and grenades and everybody's medicine (task 113): what
-    /// was left over from the last mission is neither kept nor added to.
+    /// class's kits and grenades (task 113): what was left over from the
+    /// last mission is neither kept nor added to.
     fn fill_charges(&mut self, who: u32) {
         if who >= self.aboard.crew_count() {
             return;
         }
         for charge in Charge::ALL {
-            if self.medicine_off && charge.everybody() {
-                continue;
-            }
             let item = Item::Stack(charge.resource() as u32);
             let start = self.charges(who, charge);
             self.aboard.room.set_charges(who as usize, item, start);
@@ -885,7 +882,7 @@ impl World {
     /// ship's airlock, where the bots' recall gathers — every press of
     /// *Back to ship*, so a player who wandered off and presses again is
     /// walked home again. Not one already inside the ship, and not one
-    /// out cold; any order the player gives afterwards takes over.
+    /// downed; any order the player gives afterwards takes over.
     fn walk_the_player_home(&mut self, slot: u32) {
         let who = slot as usize;
         if slot >= self.aboard.crew_count()
@@ -958,9 +955,8 @@ impl World {
     /// Whether the ship takes crew member `who` home with it wherever it
     /// stands: once the mission's fight is **won** — there was one
     /// (`Run::fought`) and the site is cleared — every crew member alive
-    /// and **stable**, no wound open and no trauma waiting on a medkit,
-    /// on its feet or out cold. One still bleeding, or dying, is left
-    /// behind as before, unless somebody carries it aboard.
+    /// and **on its feet**. One downed is left behind (task 120), unless
+    /// somebody revives it or carries it aboard.
     pub fn comes_home(&self, who: u32) -> bool {
         let room = &self.aboard.room;
         let at = who as usize;
@@ -968,8 +964,7 @@ impl World {
             && self.run.fought
             && self.mission_cleared()
             && room.is_alive(at)
-            && room.bleeding(at) == 0
-            && !room.is_dying(at)
+            && !room.is_downed(at)
     }
 
     /// The stable crew outside the ship after a fight won, stood just
@@ -1095,6 +1090,11 @@ impl World {
         // players come back with theirs (task 113).
         self.bury_the_bots();
         self.respawn_the_fallen(events);
+        // The slow a downing left is the mission's and ends with it (task
+        // 120).
+        for who in 0..self.aboard.crew_count() {
+            self.aboard.room.forget_downed(who as usize);
+        }
         // Off the berth, holding where the site is, the map up.
         let at = station.and_then(|id| {
             let system = &self.system;

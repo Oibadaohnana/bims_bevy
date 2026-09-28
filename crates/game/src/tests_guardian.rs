@@ -477,7 +477,7 @@ fn a_surge_takes_the_beam_whole() {
         game.set_autonomous(false);
         let at = game.put_for_probe(0, vec2(ROOM_W * 0.6, ROOM_H * 0.5));
         if surging {
-            game.set_surge(0, 5.0, false);
+            game.set_surge(0, 5.0);
         }
         let from = at - vec2(5.0 * TILE, 0.0);
         let weapon = WeaponKind::Sweeper.basic();
@@ -492,11 +492,8 @@ fn a_surge_takes_the_beam_whole() {
         for _ in 0..40 {
             game.simulate(DT);
         }
-        let wounds: u32 = crate::health::Part::ALL
-            .iter()
-            .map(|&p| game.wounds(0, p))
-            .sum();
-        assert_eq!(wounds == 0, surging, "surging {surging}: {wounds} wounds");
+        let lost = crate::health::MAX_HEALTH - game.health(0);
+        assert_eq!(lost == 0.0, surging, "surging {surging}: {lost} lost");
     }
 }
 
@@ -532,9 +529,7 @@ fn a_town_s_own_sweep_hits_its_people_and_never_a_machine() {
         game.set_machine_hostiles(vec![Some((there, pistol)), None], 0);
         game.simulate(DT);
         swept_once |= !game.sweeps().is_empty();
-        hurt |= crate::health::Part::ALL
-            .iter()
-            .any(|&p| game.wounds(0, p) > 0);
+        hurt |= game.health(0) < crate::health::MAX_HEALTH;
         if hurt && game.sweeps().is_empty() {
             break;
         }

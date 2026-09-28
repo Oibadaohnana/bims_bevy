@@ -365,7 +365,12 @@ refuse. Every part has a picture now — the reactor, life support,
 the battery, and the workshop: the smelter, the workbench, the suit locker,
 the armoury and, last, the **drug lab** (`fittings::drug_lab`, the
 `PartKind::DrugLab` arm of `fittings::part`) — so a block on the deck is
-a new part somebody forgot to draw. The drug lab is the workbench's
+a new part somebody forgot to draw. (The drug lab and
+`fittings::drug_lab` went with the medkits in task 120, and
+`PART_COLORS` with them — 48 rows, a stale smelter row it had kept since
+feature 95 dropped at the same time, so the colours after it line up
+with their parts again. What follows is the history.) The drug lab was
+the workbench's
 footprint and stance, and its picture says so: the same frame and drawer
 on the near side where the Bim stands, but the bench top in the palette
 swatch's clinical green-white (`LAB`), a rail of five capped vials along

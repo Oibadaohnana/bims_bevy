@@ -111,8 +111,7 @@ const SHADOW: Color = Color::rgba(0.0, 0.0, 0.0, 0.20);
 /// round it.
 const CRATE: Color = Color::rgb(0.55, 0.47, 0.32);
 const CRATE_STRAP: Color = Color::rgb(0.32, 0.27, 0.19);
-/// A medkit's white box, and the cross on it.
-const MEDKIT: Color = Color::rgb(0.92, 0.93, 0.92);
+/// The red of a medic's cross.
 const MEDKIT_CROSS: Color = Color::rgb(0.80, 0.16, 0.16);
 /// A pick's haft.
 const HAFT: Color = Color::rgb(0.55, 0.44, 0.31);
@@ -179,9 +178,7 @@ const ENEMY: Color = crate::combat::HOSTILE_BOLT;
 /// Blood: the blotch on a part with an open wound, and the drops on the
 /// deck. Dark, so it reads as blood and not as the enemy's red.
 pub const BLOOD: Color = Color::rgb(0.55, 0.05, 0.05);
-/// A bandage: off-white gauze, and the shadowed edge of a turn of it.
-const BANDAGE: Color = Color::rgb(0.93, 0.91, 0.84);
-const BANDAGE_EDGE: Color = Color::rgb(0.72, 0.70, 0.62);
+
 /// The guns, drawn: the dark body of each, its lighter edge, and the
 /// emitter at the muzzle in the colour a friendly bolt is; the wooden
 /// furniture of a shotgun or a sniper's stock, the grey of a scope and
@@ -765,8 +762,6 @@ pub enum Held {
     /// A crate of materials off a shelf, on its way to a construction site.
     /// The room never knows what is in it: the count is the world's.
     Crate,
-    /// A medkit off a cabinet, on its way to a crewmate dying.
-    Medkit,
 }
 
 /// What the hands are busy doing. Each one drives its own arm animation.
@@ -784,13 +779,13 @@ pub enum Action {
     Swing,
     /// A jab of the right fist, forward and back, in a melee with no blade.
     Punch,
-    /// Winding a bandage: both hands close together in front, going round
-    /// one another, the roll in the right and the strip paying out of it.
-    Bandage,
+    /// Reviving a downed crewmate (task 120): kneeling at it, both hands
+    /// out on its chest and pressing, in time.
+    Revive,
 }
 
-/// One turn of the hands round each other while a bandage is wound.
-const WRAP_PERIOD: f32 = 0.7;
+/// One press of the hands while a crewmate is revived, in seconds.
+const PRESS_PERIOD: f32 = 0.55;
 
 /// How long one breath takes lying out cold, in seconds.
 const BREATH_PERIOD: f32 = 5.4;
@@ -929,8 +924,9 @@ pub struct Character {
     /// nothing until it comes round. Set by `Game::tick_bim` off the
     /// health; it drops the route.
     unconscious: bool,
-    /// Which parts have an open wound — head, body, legs — for the blotch
-    /// drawn on each. Drawing only; `Game::wound` and the bandage set it.
+    /// Which parts show blood — head, body, legs — for the blotch drawn on
+    /// each. Drawing only; the game sets the body's while it bleeds (under
+    /// twenty hit points, task 120).
     wounds: [bool; 3],
     /// What is worn on each part — head, body, legs — and whether it is
     /// broken, for the picture of it. Drawing only; the gear itself is the
@@ -1717,17 +1713,16 @@ impl Character {
                     reach: 0.4,
                 }
             }
-            Action::Bandage => {
-                // The hands go round one another in front of the body, one
-                // forward as the other comes back — a wash's circle, held
-                // a little further out so the wrap has room to show between
-                // them. `tool_rot` carries the turn for the roll to follow.
-                let turn = p * TAU / WRAP_PERIOD;
+            Action::Revive => {
+                // Both hands out together and pressing down in time, the
+                // way a chest is pressed: the two arms go out and back as
+                // one.
+                let press = (p * TAU / PRESS_PERIOD).sin().abs();
                 Pose {
-                    left: 11.0 + turn.cos() * 4.0,
-                    right: 11.0 - turn.cos() * 4.0,
+                    left: 14.0 + press * 5.0,
+                    right: 14.0 + press * 5.0,
                     tool: vec2(22.0, 0.0),
-                    tool_rot: turn,
+                    tool_rot: 0.0,
                     reach: 1.0,
                 }
             }
@@ -2388,43 +2383,6 @@ impl Character {
             self.draw_weapon(list, pose, weapon);
         }
 
-        // The bandage being wound: the roll in the right hand, the strip
-        // paying out of it across to the left, and the turns already laid
-        // as a ring between the hands that fills as the roll goes round —
-        // so the dressing reads as progress and not as the wash's circle.
-        if self.action == Action::Bandage {
-            let turn = pose.tool_rot;
-            let roll = to_world(vec2(pose.right + 9.0, 11.0));
-            let hand = to_world(vec2(pose.left + 9.0, -11.0));
-            let wrap = to_world(pose.tool);
-            list.rect(
-                roll,
-                vec2(8.0, 11.0),
-                self.heading + turn * 0.5,
-                2.0,
-                BANDAGE,
-            );
-            list.stroke_rect(
-                roll,
-                vec2(8.0, 11.0),
-                self.heading + turn * 0.5,
-                2.0,
-                1.0,
-                BANDAGE_EDGE,
-            );
-            list.line(roll, wrap, 3.0, BANDAGE);
-            list.line(wrap, hand, 3.0, BANDAGE.alpha(0.85));
-            // The turns laid so far: a ring of short strokes round the wrap
-            // point, one more every full turn of the hands, wrapping back
-            // round to the first after a few so the ring never fills solid.
-            let laid = ((turn / TAU) as i32 % 6 + 1).max(1);
-            for i in 0..laid {
-                let a = self.heading + i as f32 * (TAU / 6.0) + turn * 0.15;
-                let at = wrap + Vec2::from_angle(a) * (6.0 * self.body_scale());
-                list.rect(at, vec2(7.0, 2.5), a + PI * 0.5, 1.0, BANDAGE_EDGE);
-            }
-        }
-
         match self.main {
             // The tools are drawn from the tool hand below; the main hand
             // never holds one.
@@ -2436,14 +2394,6 @@ impl Character {
                 list.rect(at, vec2(26.0, 30.0), self.heading, 2.0, CRATE);
                 list.stroke_rect(at, vec2(26.0, 30.0), self.heading, 2.0, 1.5, CRATE_STRAP);
                 list.rect(at, vec2(26.0, 5.0), self.heading, 0.0, CRATE_STRAP);
-            }
-            // A medkit in one hand: a small white box with a red cross on
-            // its lid.
-            Held::Medkit => {
-                let at = to_world(vec2(18.0 + pose.reach * 6.0, -4.0));
-                list.rect(at, vec2(16.0, 12.0), self.heading, 2.0, MEDKIT);
-                list.rect(at, vec2(8.0, 2.5), self.heading, 0.0, MEDKIT_CROSS);
-                list.rect(at, vec2(2.5, 8.0), self.heading, 0.0, MEDKIT_CROSS);
             }
         }
 

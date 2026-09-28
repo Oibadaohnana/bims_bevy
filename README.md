@@ -170,10 +170,9 @@ there is no helm to stand at and no trip to sit through.
   gone is not waited for. **Left behind is dead**, and a body down
   outside the ship is not carried aboard by leaving — **except after a
   fight won**: once the place is cleared, every crewmate outside who is
-  alive and **stable** — no wound bleeding and no dying state waiting on
-  a medkit, on its feet or out cold — comes home with the ship, and
-  nobody is asked about them. One still bleeding or dying is left behind
-  as before, unless somebody carries it aboard.
+  alive and **on its feet** comes home with the ship, and nobody is asked
+  about them. One still downed is left behind as before, unless somebody
+  revives it or carries it aboard.
 - **What leaving does to the place.** A place the crew cleared stays
   cleared. Any other is put back exactly as the mission found it — the
   machines, the dead, the lamps — and its bounty is lost. A town the
@@ -213,9 +212,9 @@ player's Bim** for the rest of the run. A bot never holds one.
   | 1 | Focusing Lens | +10% weapon damage | yes |
   | 1 | Servo Braces | +10% move speed | yes |
   | 1 | Field Plating | +10% armour | yes |
-  | 1 | Coolant Loop | -10% class ability cooldowns (never the medicine) | yes |
+  | 1 | Coolant Loop | -10% class ability cooldowns | yes |
   | 1 | Steady Grip | +10% accuracy | unlocked by a win |
-  | 1 | Trauma Kit | +25% healing received from medkits and a medic's beam | unlocked by a win |
+  | 1 | Trauma Kit | the Bim's revives take 2 s less (never under 1 s) | unlocked by a win |
   | 2 | Second Wind | the first time the Bim goes down in a mission, it gets up 5 s later with 25% health | yes |
   | 2 | Salvage Beacon | +20% bounty for the Bim's own kills, paid on the clear like any bounty | yes |
   | 2 | Overcharge Cell | every fifth shot does double damage | unlocked by a win |
@@ -223,9 +222,9 @@ player's Bim** for the rest of the run. A bot never holds one.
   | 3 | Kill Relay | each kill takes three seconds off the Bim's class cooldowns | yes |
   | 3 | Phase Harness | once a mission, when a hit takes the Bim under 25% health, nothing hurts it for 2 s | unlocked by a win |
 
-  A bandage closes wounds and puts nothing back, so *Trauma Kit* raises
-  what a medkit starts a part again from and what a beam gives, and
-  nothing else.
+  There are no bandages or medkits since task 120, so *Trauma Kit* is
+  about the revive, and the two Lifeline relics that fired on a dressing
+  fire on a revive.
 
   And **five patches of five** (task 118), each built round one way to
   fight — the numbers are placeholders, not balanced. "From the side or
@@ -243,9 +242,9 @@ player's Bim** for the rest of the run. A bot never holds one.
   | 3 | Total Teardown | a hit on a limb already destroyed tears into the chassis for double damage | unlocked by a win |
   | | **Lifeline** — surviving being downed, and keeping each other up | | |
   | 1 | Pressure Seal | the Bim regenerates 0.5 HP a second | yes |
-  | 1 | Quick Wrap | every bandage the Bim applies, on itself or a crewmate, also heals 10 HP | yes |
-  | 2 | Clot Booster | for the first 15 s after the Bim goes down, it heals 2 HP a second | yes |
-  | 2 | Tether Field | a crewmate the Bim bandages takes 25% less damage for 6 s | unlocked by a win |
+  | 1 | Quick Wrap | every crewmate the Bim revives also heals 10 HP | yes |
+  | 2 | Clot Booster | revived within 15 s of going down, the Bim heals 2 HP a second for what is left of them | yes |
+  | 2 | Tether Field | a crewmate the Bim revives takes 25% less damage for 6 s | unlocked by a win |
   | 3 | Lifeline | once a mission, when a crewmate within 4 tiles goes down, both are untouchable for 3 s | unlocked by a win |
   | | **Flanker** — get round the machine, hit it where it is not looking | | |
   | 1 | Blind Spot | +15% damage on hits from the side or behind | yes |
@@ -420,10 +419,10 @@ the crew's home. The world map tags a site of theirs *Manufacturers* with
 the tier of what they carry on arrival.
 
 - **Who they are.** People, in **black and gold**, ringed in red and named
-  *Manufacturer* on the deck. They walk, take cover, shoot and bleed as
+  *Manufacturer* on the deck. They walk, take cover, shoot and go down as
   anybody does. Nobody hires one, nobody loots one — no gun, armour or
-  money comes off a Manufacturer or a Trooper — and nobody patches one up:
-  one **down** stays down and **bleeds out**.
+  money comes off a Manufacturer or a Trooper — and nobody revives one:
+  one **down** stays down and dies when its countdown runs out.
 - **Before day ten** a site of theirs is a **fixed garrison** — as many as a
   wave of machines would be — and nothing comes after it. Their people
   carry the **laser pistol** and nothing else until day three, a tier-one
@@ -436,7 +435,7 @@ the tier of what they carry on arrival.
   machines there would come at, and the next wave's ship docks **four
   hours** after the last of a wave is down.
 - **Cleared** the moment every Manufacturer is down or dead, every Trooper
-  is destroyed and no wave is left — one down and still bleeding holds
+  is destroyed and no wave is left — one down and still counting holds
   nothing up, the clear or the leaving. The Republic pays a Manufacturer's
   bounty like a machine's, for each one down or dead, on the clear; the
   clear offers relics like any other (see
@@ -460,8 +459,8 @@ are furniture. What the crew own is two things:
   piece of armour nobody is wearing — and the **research keys**, counted
   the moment one is picked up.
 - **Each Bim's loadout**: a weapon and a piece for the head, the body and
-  the legs. That is everything a Bim carries. Its bandages, medkits,
-  sandbag and sentry kits and grenades are **charges**, counted on the
+  the legs. That is everything a Bim carries. Its sandbag and sentry
+  kits and grenades are **charges**, counted on the
   Bim, set back to what it starts with at every mission and coming back
   on their cooldowns during one.
 
@@ -1521,16 +1520,13 @@ next few seconds (feature 107); everything else is a key or a button away.
   are up; rest on it for all of them. **Paused** beside it while the world is.
 - **Bottom centre, the hero panel** — your own Bim: the level in a circle
   ringed by how far through it you are, the health bar — tall, with the
-  number beside it — and under it the head, the body, the legs and the
-  blood a short bar each, the experience
+  number beside it — the experience
   (`Lv 4 · 50 / 250 XP`, `Max` at the tenth, *No class* without one), the
-  class's keys and the medicine as boxes, a **+1** while a talent is waiting
-  to be picked (it opens the character sheet), and a line saying what is
-  taking the Bim down while anything is. **Critically hit** — dying, a
-  part at a trauma or under three tenths, the health under thirty or the
-  blood under three quarters — its frame beats red and *CRITICAL* stands
-  beside the number (feature 110). Down, the panel greys over and
-  says so, with the time the blood has left.
+  class's keys as boxes, and a **+1** while a talent is waiting to be
+  picked (it opens the character sheet). **Critically hit** — downed, or
+  under twenty — its frame beats red and *CRITICAL* stands beside the
+  number (feature 110). Downed, the panel greys over and says so, with
+  the seconds left to be revived in.
 - **Bottom left, the tray**: **Armory** (Tab) — the [Armory](#the-armory)
   panel, every crew member's gear and the ship's armory, money and keys
   — **Squad**, every bot with its class, level and
@@ -1708,15 +1704,12 @@ no surge, no class at all — and what it does instead is this:
 
 * it keeps to the **far end of its weapon's reach** and shoots from
   there, so it is still standing when somebody needs fetching;
-* the moment a crew member goes down within about eighteen tiles — out
-  cold, or in a dying state — it goes and **picks them up**, walks them
-  clear of the fight at six tenths pace with its fire held, sets them
-  down somewhere nothing can see them, and **treats them there**;
-* it carries a **medic's medicine** — four medkits and ten bandages, where
-  anybody else carries one and five — and each one it spends comes back
-  into its pack, a medkit in thirty seconds where anybody's takes forty
-  (see *Medkits and
-  bandages are charges* under *Getting hurt*).
+* the moment a crew member goes down within about eighteen tiles, it
+  goes and **picks them up**, walks them clear of the fight at six tenths
+  pace with its fire held, sets them down somewhere nothing can see them,
+  and **revives them there**;
+* it revives in a medic's **four seconds**, where anybody else takes ten
+  (see *Getting hurt*).
 
 Before anybody is down it is an ordinary crew member with a gun, and it
 works and fights like the rest.
@@ -2288,7 +2281,7 @@ how long until the next throw.
 | 2 | **Marksman** — accuracy ×1.15 | **Point blank** — damage within the weapon's sweet range ×1.2 |
 | 3 | **Grenades** — may throw them | — |
 | 4 | **Runner** — pace ×1.2 while an enemy is in sight | **Steady aim** — the walking penalty halved: three quarters of the odds on the move, not half |
-| 5 | **Iron nerve** — never flees | **Cover master** — the odds of dodging in cover ×1.5 |
+| 5 | *Iron nerve* — no effect for now (nobody flees since task 120) | **Cover master** — the odds of dodging in cover ×1.5 |
 | 6 | **Long throw** — grenade range ×1.5 | **Short fuse** — fuse ×0.5 |
 | 7 | **Drill** — fire rate ×1.2 on every weapon | — |
 | 8 | **Frag** — burst radius ×1.5 | **Quick draw** — cooldown ×0.5 |
@@ -2308,70 +2301,57 @@ no enemy is standing in the room.
 
 The third class (feature 76): a crewmate held up, and a shield over the
 pair of them. A medic sets out with the **laser pistol** in hand as
-everybody does, and carries **four medkits and ten bandages** where
-anybody else carries one and five, each coming back on the same cooldown. Its
-experience is everybody's: healing earns nothing (task 119).
+everybody does, and **revives in four seconds** where anybody else takes
+ten (task 120). Its experience is everybody's: healing earns nothing
+(task 119).
 
 **The heal beam** is `E`, from the first level, on the crew member under
-the pointer: a player's Bim or a mercenary, never an enemy and never
-itself, within **6 tiles** and in the medic's line of sight. Pressed on
-the one it already holds, or on nothing, it unlinks. While it is linked
-the patient's open wounds and untreated traumas **do not bleed** and its
-blood comes back at **30 an hour** to full — so a patient out cold wakes
-when the blood passes the line under the ordinary rule — and the medic
-may walk but **fires nothing**. The beam *holds* a patient; it does not
-cure one: wounds stay open until bandaged, a trauma stays until a medkit
-treats it, and a part at nothing stays at nothing. It breaks when the
-patient leaves the range or the medic's sight, dies or leaves the room;
-when the medic goes down, is ordered to an errand — a plain walk keeps
-it — or unlinks. A line in the beam's green is drawn between the two on
-the deck, and the crew panel says who is held.
+the pointer — a player's Bim, a mercenary, or **the medic itself** —
+never an enemy, within **6 tiles** and in the medic's line of sight.
+Pressed on the one it already holds, or on nothing, it unlinks. While it
+is linked the patient gets back **30 hit points an hour of the clock**
+(half a point a second; a number to be tuned) and the medic may walk but
+**fires nothing**. A downed patient gets nothing back: it wants
+reviving. The beam breaks when the patient leaves the range or the
+medic's sight, dies or leaves the room; when the medic goes down, is
+ordered to an errand — a plain walk keeps it — or unlinks. A line in the
+beam's green is drawn between the two on the deck (a ring round a medic
+beaming itself), and the crew panel says who is held.
 
 **The surge** is `Q`, from the third level. The charge fills while the
-beam is on a patient that wants holding — under full blood, or with a
-wound open — and is full after **40 minutes** of such beaming; it keeps
-across fights and is lost only on the medic's death. Triggered with the
-beam linked and the charge full, for **8 minutes** the medic and every
-linked patient **take nothing from any hit**: no wound, no armour
-drained, no trauma, the whole of it absorbed. The charge empties;
-unlinking does not end a surge already running on the patient. A ring
-round the body says who is surging.
+beam is on a patient short of its bar, and is full after **40 minutes**
+of such beaming; it keeps across fights and is lost only on the medic's
+death. Triggered with the beam linked and the charge full, for **8
+minutes** the medic and every linked patient **take nothing from any
+hit**, the whole of it absorbed. The charge empties; unlinking does not
+end a surge already running on the patient. A ring round the body says
+who is surging.
 
 **The carry** is `G`, from the first level and with no talent behind it
-(feature 86): the crewmate under the pointer picked up into the medic's
-arms — out cold, in a dying state, or bleeding — and carried out of the
-fire. With the pointer on nobody it takes up the nearest it could, so
-the key is worth pressing in the middle of a fight without aiming it.
-Carrying, the medic walks at **six tenths** of its pace and **fires
-nothing**: both its hands are the carry. `G` again sets the body down
-where it stands, and treating it there is what comes next — a crewmate
-is doctored only in the calm, so carrying somebody somewhere quiet is
-also what makes treating them possible. A body in somebody's arms walks
-nowhere of its own, and the carry is let go the moment either of the two
-goes down. A crew member on its feet and whole is nobody's to carry: the
-key is for getting somebody *out*, not for moving the crew about.
+(feature 86): a **downed** crewmate under the pointer picked up into the
+medic's arms and carried out of the fire. With the pointer on nobody it
+takes up the nearest it could. Carrying, the medic walks at **six
+tenths** of its pace and **fires nothing**. `G` again sets the body down
+where it stands, and reviving it there is what comes next. The carry is
+let go the moment either of the two goes down.
 
 | level | left | right |
 | --- | --- | --- |
-| 1 | **Heal beam**; **carry** | — |
-| 2 | **Field dressing** — bandages in half the time | **Surgeon** — treats in half the time |
+| 1 | **Heal beam**; **carry**; the four-second revive | — |
+| 2 | *Field dressing* — no effect for now | *Surgeon* — no effect for now |
 | 3 | **Surge** — may trigger it | — |
-| 4 | **Long beam** — beam range ×1.5 | **Strong beam** — beam blood rate ×1.5 |
-| 5 | **Clean hands** — a trauma it treats leaves nothing lasting | **Steady hands** — a part it treats comes back to half again as far |
+| 4 | **Long beam** — beam range ×1.5 | **Strong beam** — beam rate ×1.5 |
+| 5 | *Clean hands* — no effect for now | *Steady hands* — no effect for now |
 | 6 | **Quick charge** — the surge charges ×1.5 faster | **Long surge** — a surge lasts ×1.5 |
-| 7 | **Mender** — a beamed patient's parts mend ten times as fast | — |
-| 8 | **Self-care** — its own wounds do not bleed while it beams | **Double link** — the beam holds two at once, each at the full rate |
-| 9 | **Gunner medic** — fires while beaming, at half the rate | **Closing surge** — a surge ending closes every open wound on the patient |
-| 10 | **Mass surge** — a surge covers every crew member within 3 tiles of the patient | **Field surgeon** — once a fight, treats a trauma with no medkit in half the time |
+| 7 | *Mender* — no effect for now | — |
+| 8 | *Self-care* — no effect for now | **Double link** — the beam holds two at once, each at the full rate |
+| 9 | **Gunner medic** — fires while beaming, at half the rate | *Closing surge* — no effect for now |
+| 10 | **Mass surge** — a surge covers every crew member within 3 tiles of the patient | *Field surgeon* — no effect for now |
 
-Every talent applies to the medic who holds it alone: a crewmate
-bandaging the medic takes the ordinary ten minutes whatever the medic
-has learnt. *Mender* mends only the parts that are above nothing — a
-part at nothing waits for a medkit like anybody else's. *Double link*
-fills the charge off either patient and a surge covers both; a third
-patient takes the first's place. *Closing surge* closes wounds.
-*Field surgeon* comes back when the fight ends — the rooms unjoined, or
-no enemy standing in the room — like a soldier's *rampage*.
+The talents marked *no effect for now* were about bandages, medkits,
+wounds and traumas, which went in task 120; they keep their slots until
+they are redesigned. *Double link* fills the charge off either patient
+and a surge covers both; a third patient takes the first's place.
 
 ### The tank
 
@@ -2412,19 +2392,18 @@ then the cooldown.
 | 1 | **Bulwark**; armour drains at half rate on him | — |
 | 2 | **Plated** — armour protection ×1.5 on him, given outright | — |
 | 3 | **Taunt** — may use it | — |
-| 4 | **Breacher** — forces locked doors in half the time | **Unmovable** — never flees, and loses no pace to low blood while his kevlar holds |
+| 4 | **Breacher** — forces locked doors in half the time | *Unmovable* — no effect for now (task 120) |
 | 5 | **Wide wall** — bulwark reach ×2 | **Fast wall** — bulwark pace ×1.5 |
 | 6 | **Loud taunt** — taunt radius ×1.5 | **Long taunt** — a taunt lasts ×1.5 |
 | 7 | **Iron frame** — a hit rolled on his head lands on his body | — |
-| 8 | **Hold fast** — his wounds and traumas do not bleed while he taunts | **Guarded** — dodge +10% while the wall is up |
+| 8 | *Hold fast* — no effect for now (task 120) | **Guarded** — dodge +10% while the wall is up |
 | 9 | **Interpose** — a bolt that would hit somebody the wall shelters hits him | **Magnet** — a taunt turns every charging blade within its reach toward him |
 | 10 | **Fortress** — armour drain ×0.5 again, a quarter in all | **Rallying wall** — while he taunts, every crew member within 3 tiles drains armour at half rate too |
 
 Every talent applies to the tank who holds it alone, *rallying wall*
 being the one that reaches past him. *Interpose* resolves the redirected
 bolt against him as a fresh hit, armour and all; one he slips is gone rather than rerolled onto the crew
-member he shielded. *Unmovable* is the blood's halving alone: the legs
-he has lost and what a trauma costs him still tell.
+member he shielded.
 
 ### The commander
 
@@ -2503,8 +2482,8 @@ and the crew panel counts the minutes left and then the cooldown.
 | 5 | **Focus fire** — the squad's odds against the enemy it attacks ×1.15 | **Pincer** — an attack may mark two enemies, the squad split between them |
 | 6 | **Long rally** — a rally lasts ×1.5 | **Quick rally** — the rally cooldown ×0.5 |
 | 7 | **Long reach** — a squad order reaches every squad member in the room | — |
-| 8 | **Steady ranks** — Bims in his aura bleed ×0.75 | **Double time** — Bims in his aura walk at pace ×1.1 |
-| 9 | **Relentless** — an attack's mark lasts until the enemy is dead, not merely down, and then the attack moves on to the enemy standing nearest the commander | **Grit** — during a rally, Bims in it lose no pace to wounds or traumas |
+| 8 | *Steady ranks* — no effect for now (task 120) | **Double time** — Bims in his aura walk at pace ×1.1 |
+| 9 | **Relentless** — an attack's mark lasts until the enemy is dead, not merely down, and then the attack moves on to the enemy standing nearest the commander | *Grit* — no effect for now (task 120) |
 | 10 | **Anchor** — the aura's bonuses double while he stands still | **Warcry** — a rally covers every friendly Bim in the room |
 
 Every talent applies to the commander who holds it alone. The **aura and
@@ -2649,7 +2628,7 @@ overlapping is allowed the whole apparatus has nothing left to do.
 | Right-click a cell | **Take** · **Store** · **Equip** · **Discard**, or **Unequip** on a worn slot — greyed with the reason when it cannot go |
 | Ctrl-click a cell | The quick move: container to pack, pack to the open container |
 | Click or right-click a door | Menu: hold open, close, lock, unlock — the Bim walks to the panel |
-| Right-click a Bim | Menu: a bandage and a treatment for each part, greyed with the reason; **Loot** on a body that is down |
+| Right-click a Bim | A downed crewmate: your own Bim goes and **revives** it; when it cannot, the menu opens with the *Revive* row greyed and the reason |
 | `1` | Select the Bim you steer (control group 1) |
 | `r` | Recruit it, or let it go — see below |
 | `q` / `e` | The steered crew member's **class actions**: an engineer **sets up a sentry** / **lays sandbags** on the deck tile under the pointer, out of a charge in its pack; a soldier **throws a grenade** at it (hold `q` to see the burst's radius) / **braces** where it stands, or stands easy; a medic **triggers its surge** / **beams the crew member under the pointer**, and unlinks when pressed on the one it holds or on nobody; a tank **taunts** / **puts its wall up**, or takes it down — see [Classes and levels](#classes-and-levels). The log says why not; nothing with a classless crew member |
@@ -2789,7 +2768,7 @@ a default you have to undo before you can use anything.
 | **Hauling** | carrying gear between the lockers and the workbench |
 | **Making things** | working a bench the crafts table has an order for |
 | **Building** | putting a laid-out part together, once the crew can pay for it |
-| **Medical** | treating a crewmate's dying state with a medkit, and dressing a wound — its own, or a crewmate's — with a bandage |
+| **Medical** | reviving a downed crewmate (task 120) |
 
 The colour of the box says what the number means without anybody having to
 remember which end is which: warm at the top of the list, cold at the bottom,
@@ -2809,20 +2788,14 @@ nothing: a site is wherever it was laid out and a patient wherever it fell.
 Nothing pops up and nothing is said: a highlight is not a tooltip (see *What
 the pointer is over*).
 
-**Medical is the one row that can interrupt.** It is on offer while somebody
-aboard is dying and there is a medkit to hand — the nearest crewmate in a
-dying state, its worst trauma first; never the Bim's own, since nobody
-treats their own — or bleeding and there is a bandage to hand — the Bim's
-own wounds first, else the crewmate with the most open, and that one's
-worst part — and at any number from 2 to 5 it waits its turn like the rest.
-Set it to **1** and it is urgent: a Bim drops whatever it is on the moment
-there is a wound to dress, the errand going onto the queue the way any
-interruption would push it, and picks it back up when the hands come off.
-Set it to **never** and nobody doctors of their own accord; your own
-bandage orders from the inventory or the menu on a body still work. A
-patient nobody can walk to, or one somebody is already walking over to
-dress, is not offered. A patient somebody is walking over to holds still
-for them.
+**Medical is the one row that can interrupt.** It is on offer to a bot
+while a crewmate is downed — the nearest one it can walk to, out of harm
+or with the fight quiet, and nobody else already reviving it — and at any
+number from 2 to 5 it waits its turn like the rest. Set it to **1** and
+it is urgent: a bot drops whatever it is on the moment a crewmate is
+down, the errand going onto the queue the way any interruption would
+push it. Set it to **never** and nobody revives of their own accord;
+your own order on a downed body still works.
 
 ### What it actually changes
 
@@ -2908,9 +2881,9 @@ the Bim you steer walks there with its weapon out, stops to shoot what
 comes into its sights and walks on once nothing is left. The alarm lasts until
 nobody is near, nobody has seen an enemy and nobody has been hit for half
 a minute, when they go back to their work, however many machines are
-still standing somewhere on the station. (A crew member that bled past
-the line in the fight stays **out cold** on the deck until
-somebody bandages it; see *Getting hurt*.) A hired mercenary does the
+still standing somewhere on the station. (A crew member downed in the
+fight stays down until somebody revives it, or dies when its thirty
+seconds run out; see *Getting hurt*.) A hired mercenary does the
 same. The Bim you steer is yours alone: recruit it yourself or leave it
 to its work; the alarm never touches it.
 
@@ -3042,209 +3015,44 @@ on them — and the command is refused *not down*.
 
 ## Getting hurt
 
-A Bim's health is one bar of a hundred, and it always was; what is new is
-that the bar is **three parts added up** — the **head** (5), the **body**
-(75) and the **legs** (20) — and the panel shows the three under it, a thin
-bar each, with a fourth for **blood**. Mending regrows the bar as a
-whole, over all three in proportion; a shot is what tells them apart.
+A Bim's health is **one bar of a hundred hit points** (task 120) — every
+Bim alike: the crew, a station's people, a town's, the Manufacturers.
+There is no blood to lose, no wound to dress, no trauma, no lasting
+injury and no leg lost, and nothing mends by itself.
 
-A shot lands on one part — one in twenty the head, three in four the body,
-one in five the legs — and takes the weapon's damage *at the distance it
-flew* off that part alone; a blow in a melee, a fist's twenty or a
-schword's thirty-five, lands the same way, on a part rolled where it lands.
-A part at nothing is not death any more: it is a **dying state**, rolled
-for the part the moment it goes. The panel names it in red beside the
-part's own bar at zero — *Head · 0 · Skull fracture* — the block above
-says what it is costing in blood and how long that leaves it, and a
-**red cross** stands over the body on the deck. The
-head's three are a **heavy concussion** (a quarter slower walking and
-working), a **skull fracture** (losing ten blood every quarter hour) and
-**cranial trauma** (half as fast, and five blood a quarter hour); the
-body's an **internal bleeding** (ten a quarter hour, and nothing to see),
-**broken ribs** (a quarter slower) and a **severe chest trauma** (five a
-quarter hour, and half pace); the legs' a **fractured femur** (ten a
-quarter hour), a **shattered knee** (it can barely move — a quarter of its
-pace) and, one roll in twenty each, a **crushed right or left leg**: the
-leg is **lost, for ever**, a fifth off its pace for good, and the stump
-bleeds ten a quarter hour. The part stays at nothing and does not mend;
-**only another crew member with a medkit** gets it out (below), and what
-the trauma leaves behind stays a while after: the concussion and the
-ribs a quarter slower for two days, the cranial trauma half as fast for
-a day, the chest trauma at half pace for a day, the knee a quarter slower
-for two. A hit on a part already at nothing opens a wound and nothing
-more. The panel counts the lasting effects down under the bars, and the
-log says *is dying — skull fracture* the moment it happens and *was
-treated* when it is over.
+A shot still lands on a part — one in twenty the head, three in four the
+body, one in five the legs — but the part only says **which piece of
+armour takes it first**; what the armour lets through comes off the bar.
+A blow in a melee lands the same way. A hit that takes hit points throws
+a little blood on the deck; one the armour takes whole throws none.
+Under **twenty** a Bim is badly hurt and drips as it walks, leaving a
+trail.
 
-A Bim that is dying **runs from the fight** — the enemy are one place,
-the middle of wherever they all are, and it runs the other way, round a
-wall if it has to, and neither aims nor shoots while it does. Your own
-does it too, whatever you told it; with the enemy gone it stops where it
-is and waits for the medkit. **A crewmate that is merely hurt runs too** —
-bleeding from a wound, or down to half its blood — rather than walking
-up to the guns for a firing spot the way a whole one does: it gets out
-of the enemy's sight and, out of it, **binds every wound it has** out of
-its own pack — the same *Bandage all wounds* the box in the inventory
-offers — and comes back into the fight dressed. It stops for anybody
-you send over with a bandage or a kit, once they are nearly at it. Your
-own Bim goes where you send it, hurt or not: only dying makes it run. And
-a body **out cold
-is nobody's target**:
-nobody aims at one, and a bolt already flying passes over it.
+**At nought a Bim is downed.** It falls where it stands, cannot act and
+is no target for anybody, and a **thirty-second countdown** starts — a
+red ring over the body on the deck, emptying, with the seconds in the
+middle. The countdown runs with the world and stands still while it is
+paused. When it runs out the Bim is dead.
 
-Every hit, wherever it lands, opens a **wound**, and a wound bleeds until
-somebody dresses it: **ten points of blood an hour each**, out of a
-hundred, so ten open wounds bleed a Bim out in an hour and one takes ten.
-A schword's cut counts as **three** — it bleeds three times what a shot
-does, and throws blood over the tiles round the body besides — and a
-bandage still closes the lot on a part at once.
-Under half its blood the Bim walks at half pace; under **four tenths** it is
-**out cold** — lying where it fell, breathing, doing nothing, its errand
-put back on the queue for when it comes round — until the blood comes back;
-at nothing it is dead, which is how a Bim dies now: bled out, through
-wounds nobody dressed or a dying state nobody treated. **Going out cold
-drops the gun**: it lies on the deck beside the fallen figure, and the Bim
-has to pick it back up when it comes round. A crewmate does that on its
-own — the walk over and a moment bending
-for it, *Picking a weapon up* on the agenda; your own waits to be told:
-right-click the gun and the one row is **Pick up**, into the hand if it is
-empty, else into the pack. A body that dies with its gun on the deck takes
-it back, so looting the body finds it. Blood comes back on its own, over two days, once
-nothing is open. It shows: a dark blotch on the head, the middle of the
-coverall or the boots while that part has a wound open, **blood on the deck**
-under a Bim that is bleeding — a drop every second or so a wound (below) —
-the blood bar in red once it is low enough to slow it, and every hit and
-every crew member down written in the log.
+**Any crew Bim revives a downed crewmate** by going over and staying
+beside it: **ten seconds**, a medic **four**, *Trauma Kit* two off either
+(never under one). The reviver stands still and fires nothing while it
+works; being shot does not stop it, and one reviver is all that counts.
+A right-click on a downed crewmate sends your own Bim to do it — the
+right-click menu's *Revive* row says why not when it cannot — and the
+**bots revive** their downed crewmates of their own accord, when the
+body is out of harm or the fight is quiet. A revived Bim is up at
+**thirty** hit points and walks **30 % slower** for the rest of the
+mission (a second down does not slow it more). A Manufacturer is never
+revived, and a station's or a town's people do not revive each other. A
+downed Bim can be carried by a medic, as a knocked-out one could.
 
-**Blood on the deck stays where it falls.** A drop stains the tile under
-the body, so a Bim standing still with a wound open pools it in a few
-drops and one walking leaves a trail, and a cut or
-a grenade's burst throws it over the tiles round the body besides. Boots
-carry it: a step off a bloodied tile onto the next has one chance in four
-of taking a quarter of what was there along with it — moved, not copied,
-so a trail thins as it lengthens and dies out a few steps on. It is drawn
-in its own dark red, and nothing takes it up: the broom that did went with
-the needs (feature 104), and so did every other kind of mess the deck
-used to keep. It stayed because its rolls are on the room's one stream of
-dice, which every fight draws from; see *The old game deleted* in
-`CLAUDE.md`.
+A crew member's bar is **whole again at the start of every mission**,
+and the slow is gone at its end. Nothing else heals: the medic's beam
+does (see *The medic*), and a few relics.
 
-**The panel says what the Bim is dying of, and how long it has.** Under
-the health bar is a framed block naming the thing that is taking it
-down now: **Blood loss**, with what it is losing an hour, **how long
-that leaves it** — the blood it has left divided by the rate, so it
-moves the instant a bandage or a medkit does — and the list it is made
-of, worst first, each with its own share: *Fractured femur · 40 an
-hour*, *Legs · 2 open wounds · 20 an hour*. Under that is what stops
-it. The block is graded the way the deck is: red, headed *Dying of*, for
-a body in a dying state — the one a medkit is the answer to — and amber,
-headed *Losing*, for one that is merely bleeding through wounds a bandage
-closes, since a scratch that would empty it in ten hours is worth a
-number rather than a fright. A part a trauma holds at nothing names that
-trauma in its own row, beside the bar at zero. And a Bim that has died
-says what of, read off the body, since that is how the game decides it
-too. (Starving was the other thing the block could name, while there
-was hunger.)
-
-**A Bim in a dying state wears a red cross**, a white disc with a
-medical cross on it, over its head on the deck. It is the one thing out
-there that is not another coloured ring, and it means exactly one
-thing: a part of that body is at nothing with its trauma untreated, and
-only a crewmate with a medkit ends it. It goes when the medkit lands —
-and it is never over a body that has died, since nothing can be done
-for one.
-
-**Armour is worn over all of that**, one piece a part — a helm, kevlar,
-leg guards (*Armour* under *What the ship will make* says what each is
-made of) — and it is drawn on the Bim: a steel-blue cap over the hair, a
-dark plate over the coverall with the yoke still showing, darker boots
-with a band across the shin. A piece has a **health** of its own that is
-added to the part's — the body at 75 in a 20-health kevlar reads 95, and
-the Bim's bar 100 → 120 — and it is drawn as a **blue bar on the end of
-the green one**, on the crew sheet's big bar and on each part's own
-alike — the big bar's number reading `100` with a blue `+20` beside it,
-a part's `75 + 20`. A hit on that part goes to
-the piece **first**: its **protection** comes off the damage before
-anything else, so a shot that does no more than the protection does
-nothing at all — no wound — and what is left drains the piece; only what
-the piece cannot take reaches the body, and only that opens a wound. A
-15-damage shot into a 20-health kevlar leaves the Bim untouched and the
-kevlar at 5. At nothing the piece is **broken**: still worn, drawn with a
-crack across it, doing nothing — its protection is lifted with its
-health — and worth nothing put away, so it cannot be stored or sold, only
-discarded and another bought. The log says when a piece breaks. What is
-worn and what is in the pack go with the Bim and keep their damage
-wherever they go: take a dented helm off and put it away, and it is a
-dented helm in the lockers, with its health under it in the grid. Taking
-"a helm" out of the lockers takes the least damaged one there; selling
-one sells the most damaged.
-
-A **bandage** is a thing a Bim carries, not a number on a shelf: a **box
-of dressings** takes two cells by two of a pack and holds **five**, and
-the one that gets used is the one in the pack of whoever winds it.
-
-### Medkits and bandages are charges
-
-Nobody fills a pack out of the hold any more, and nobody walks to a
-cabinet for a kit. **Every crew member carries one medkit and five
-bandages**, whatever its class — a **medic**, of the class or a hired
-field medic, carries **four and ten** — and each one used **comes back
-into the pack on its own**: a medkit forty seconds of the clock after
-it was spent — a medic's in thirty — a bandage thirty seconds after,
-one at a time, in a fight as out of one. **One medkit treats every
-trauma on the body at once**: a crewmate dying of a fractured femur and
-internal bleeding is got out of both by the one kit. Two boxes at the foot of the screen, past a rule beside the
-class's own, say how many your Bim has: the count sits on a disc in the
-corner, and while the next is on its way a **ring** round the disc
-fills clockwise; with none left the whole box goes dark and the dark
-**sweeps back clockwise from twelve o'clock** as the wait runs out, with
-the seconds in the middle — the way Dota 2 shows a skill coming back,
-and the way every cooldown on that bar is drawn now. A medkit or a box
-of dressings cannot be put in the hold — it would only come back — and
-a crew member with an empty pack cannot bind or treat anything, however
-many are in the lockers.
-
-A bandage closes every wound on one part. There are three ways to order
-one, and all of them go through the crew member you steer:
-
-- **From the inventory** — the tab, or the pop-up that opens on
-  recruiting — for whoever is shown: each armour slot's row says how many
-  wounds are open on that part, and its **Bandage** button lights when
-  there is one and a bandage to hand.
-- **Right-click a Bim** on the deck, yourself or a crewmate, and the menu
-  is the three parts — *Bandage the head · 2 wounds* — each greyed with a
-  reason when there is nothing open there, no bandage in the pack, or your Bim
-  is in no state to walk over, with **Bandage all wounds** under them. A crewmate out cold gets a **Loot** row
-  under them as well; a dead one has only that — see [Combat
-  mode](#combat-mode-and-the-inventory).
-- **Right-click a box of dressings** in the inventory: **Bandage all
-  wounds** dresses the worst part now and queues the rest behind it, one
-  dressing a part. That is the same thing a Bim that has run out of a
-  fight does for itself the moment nothing can see it — see the flight
-  above.
-
-Either way your Bim walks to the patient (a tile off, or nowhere if it is
-dressing itself) and spends **ten minutes** with its hands on the part;
-*Dressing a wound* is on its agenda, and the dressing comes out of its pack
-when the ten minutes are up — provided the patient is still alive and
-within reach, since a patient that walked off is ten minutes lost. A
-bandage on a part with nothing open is refused outright as a waste. The crew
-dress each other **on their own** as well — the **Medical** row on the Work tab
-is that, and at priority 1 it interrupts whatever they are doing; see [Work
-priorities](#work-priorities).
-
-A **medkit** is the other thing, and the only way out of a dying state.
-It is ordered the same two ways — a **Treat** button under the part's
-Bandage one on the inventory, *Treat the head · skull fracture* on the
-menu on a body — and the hands are your Bim's for a crewmate; for your
-own, since **nobody treats their own**, the nearest crewmate that is free
-walks over instead, and the row says who. Twenty minutes with hands on
-the part, *Treating a trauma* on the agenda, the kit opened where the
-helper stands and gone from its pack when the hands come off, and the
-part starts again from half — a treatment given up before then keeps its
-kit. The patient holds still while the helper walks over. The crew treat
-each other on their own too — a dying
-crewmate comes before any wound on the Medical row.
+There are **no bandages and no medkits** any more — no charges, no
+cooldowns, nothing sold — and the drug lab is gone from the part list.
 
 ## Time
 

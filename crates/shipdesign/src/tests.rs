@@ -284,7 +284,6 @@ fn shielding_and_storage_are_where_they_are_meant_to_be() {
             // rows, eight and six.
             (PartKind::SuitLocker, (Storage::Locker, 2 * GRID_COLS)),
             (PartKind::Armoury, (Storage::Locker, 8 * GRID_COLS)),
-            (PartKind::DrugLab, (Storage::Locker, 6 * GRID_COLS)),
             (PartKind::ResearchDesk, (Storage::Research, 1)),
         ],
     );
@@ -1975,7 +1974,7 @@ fn an_axis_with_nothing_pushing_accelerates_at_nothing_and_two_engines_add_up() 
 fn a_part_weighs_what_its_recipe_weighed() {
     // kind, and what its recipe came to at metal 8, components 2 and an
     // emitter 16 — the masses those three had on the day they went.
-    let pinned: [(PartKind, f64); 49] = [
+    let pinned: [(PartKind, f64); 48] = [
         (PartKind::Floor, 8.0),
         (PartKind::Wall, 16.0),
         (PartKind::Door, 20.0),
@@ -2009,7 +2008,6 @@ fn a_part_weighs_what_its_recipe_weighed() {
         (PartKind::Workbench, 56.0),
         (PartKind::SuitLocker, 28.0),
         (PartKind::Armoury, 96.0),
-        (PartKind::DrugLab, 52.0),
         (PartKind::TradingDesk, 24.0),
         (PartKind::Sandbags, 8.0),
         (PartKind::ResearchDesk, 72.0),
@@ -2164,7 +2162,6 @@ fn the_playtest_ship_is_a_whole_ship_for_one_and_moves_onto_a_bigger_grid_whole(
             (PartKind::Picture, 1),
             (PartKind::Shelf, 2),
             (PartKind::Workbench, 1),
-            (PartKind::DrugLab, 1),
             (PartKind::Armoury, 1),
             (PartKind::SuitLocker, 1),
             (PartKind::ColdStore, 1),
@@ -2569,7 +2566,6 @@ fn power_is_made_held_and_drawn_where_it_is_meant_to_be() {
             (PartKind::SensorArray, 10.0),
             (PartKind::Workbench, 15.0),
             (PartKind::Armoury, 10.0),
-            (PartKind::DrugLab, 5.0),
             (PartKind::ResearchDesk, 10.0),
             (PartKind::Hyperdrive, 50.0),
             (PartKind::WallLight, 25.0),
@@ -3100,11 +3096,11 @@ fn the_fixtures_are_wired() {
     // The one engine, wired along row 16, which is what it burns.
     assert_eq!(power.engine_draw, ENGINE_POWER);
     // Life support, the helm, the array, the cold store, the bay, two
-    // doors, the workbench, the drug lab, the armoury and the research
-    // desk: 97, the smelter's 40 gone with the smelter — and the six wall
-    // lights and the standing light, 190 between them, since the lamps
-    // went on the bill.
-    assert_eq!(power.draw, 287.0);
+    // doors, the workbench, the armoury and the research desk: 92, the
+    // smelter's 40 gone with the smelter and the drug lab's 5 with the
+    // medicine (task 120) — and the six wall lights and the standing
+    // light, 190 between them, since the lamps went on the bill.
+    assert_eq!(power.draw, 282.0);
     assert_eq!(power.storage, crate::parts::BATTERY_CHARGE);
     let codes = all_codes(&design, 1);
     assert!(!codes.contains(&IssueCode::Unpowered.code()));
@@ -3113,33 +3109,19 @@ fn the_fixtures_are_wired() {
 
 // --- recipes --------------------------------------------------------------
 
-/// The one row left, said out loud: what it makes, at what, and the mass
-/// rule — a medkit weighs exactly the two vegetables that went into it,
-/// which is what holds `physics::RESOURCES`'s medkit mass to the recipe.
+/// The table task 120 left empty: the medkit at the drug lab went with
+/// the medicine, and nothing is made anywhere.
 #[test]
 fn every_recipe_holds_together() {
     use crate::recipes::{RECIPES, at, recipes_are_sound};
     assert!(recipes_are_sound());
-    assert_eq!(RECIPES.len(), 1, "the money rework left one recipe");
-
-    let medkit = &RECIPES[0];
-    assert_eq!(medkit.station, PartKind::DrugLab);
-    assert_eq!(medkit.inputs, &[(ResourceId::Vegetable, 2)]);
-    assert_eq!(medkit.output, (ResourceId::Medkit, 1));
-    assert_eq!(medkit.minutes, 15);
-
-    // Mass in equals mass out, in the numbers: two vegetables at a half
-    // are one, and a medkit weighs one.
-    assert_eq!(medkit.input_mass(), 1.0);
-    assert_eq!(medkit.output_mass(), 1.0);
-    assert_eq!(ResourceId::Medkit.mass_per_unit(), 1.0);
+    assert!(RECIPES.is_empty(), "nothing is made since task 120");
     for r in RECIPES.iter() {
         assert!((r.output_mass() - r.input_mass()).abs() < 1e-9);
     }
 
-    // One bench makes anything, and it is the drug lab. The workbench
-    // combines and makes nothing; the armoury is a cabinet.
-    assert_eq!(at(PartKind::DrugLab).count(), 1);
+    // No bench makes anything. The workbench combines and makes nothing;
+    // the armoury is a cabinet.
     assert_eq!(at(PartKind::Workbench).count(), 0);
     assert_eq!(at(PartKind::Armoury).count(), 0);
     // And every station a recipe names draws, so a brownout stops it.
@@ -3202,13 +3184,9 @@ fn the_research_tree_is_sound_runs_in_order_and_a_key_opens_a_node() {
         assert!(fresh.part_allowed(PartKind::Workbench));
         assert!(fresh.part_allowed(PartKind::Armoury));
         assert!(fresh.part_allowed(PartKind::ResearchDesk));
-        // Medicine from the first day, and it is the only recipe there is.
-        for (i, recipe) in RECIPES.iter().enumerate() {
-            assert_eq!(recipe.output.0, ResourceId::Medkit);
-            assert!(fresh.recipe_allowed(i), "recipe {i}");
-            assert_eq!(node_of_recipe(i), Node::Medicine, "recipe {i}");
-        }
-        assert_eq!(node_of_part(PartKind::DrugLab), Node::Medicine);
+        // No recipe is left (task 120), so none waits on a node.
+        assert!(RECIPES.is_empty());
+        assert_eq!(node_of_recipe(0), Node::Survival);
         assert_eq!(node_of_part(PartKind::FusionReactor), Node::FusionPower);
         assert_eq!(node_of_part(PartKind::Hyperdrive), Node::Hyperdrive);
         assert_eq!(Node::Hyperdrive.def().requires, &[Node::FusionPower]);

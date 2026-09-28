@@ -224,34 +224,29 @@ pub enum PartKind {
     /// vests and medkits until the money rework (feature 95) took every
     /// recipe at it away; it is a container now and nothing else.
     Armoury = 32,
-    /// The bench where two vegetables are made into a medkit — the one
-    /// row left in [`crate::recipes`].
-    /// The workbench's size and its habits: worked from the tile below,
-    /// draws, and a body sees over nothing of it.
-    DrugLab = 33,
     /// A station's trading desk: where the crew trade with the station.
     /// A table's footprint, worked from the tile below, and a body sees
     /// over it. Every station lays one down inside its port; a ship has
     /// no use for one, and buying and selling want somebody at it —
     /// `world::World::at_the_desk`.
-    TradingDesk = 34,
+    TradingDesk = 33,
     /// Sandbags: a tile of low cover, half a body's height. Walked over
     /// and seen over, but a body standing close behind it is dodged half
     /// the shots that come across it — `is_cover`, and `bims::sight`'s
     /// `covered`. Laid in a station's hallways, and buildable on a ship.
-    Sandbags = 35,
+    Sandbags = 34,
     /// The research computer desk: a console the ship's AI does its
     /// research at — see [`crate::research`] — with one slot in it for a
     /// research key (`Storage::Research`, one). A table's footprint,
     /// worked from the tile below, seen over, and it draws. Every friendly
     /// station keeps one in its research room, and the key on it is what
     /// the crew go ashore for.
-    ResearchDesk = 36,
+    ResearchDesk = 35,
     /// The large fusion reactor: [`FUSION_OUTPUT`] a minute, four basic
     /// reactors' worth in a three-by-three block. What the research
     /// tree's first big node buys; nothing else about it is new — it
     /// supplies like the reactor and is wired like it.
-    FusionReactor = 37,
+    FusionReactor = 36,
     /// The hyperdrive: what jumps the ship to another star. A two-by-two
     /// block on deck that draws all day like a system and is **bolted to a
     /// main engine** — a tile of its footprint four-neighbour to a tile of
@@ -259,7 +254,7 @@ pub enum PartKind {
     /// wired like everything else. Behind a tier-one key in the research
     /// tree (`research::Node::Hyperdrive`). What a jump *is* — the charge,
     /// the empty space it lands in — is `world`'s.
-    Hyperdrive = 38,
+    Hyperdrive = 37,
     /// A wall light: a lamp on a bracket against a bulkhead or the hull —
     /// a one-tile part on the deck beside the wall it hangs from, and its
     /// **rotation says which wall**: the tile [`wall_light_back`] names
@@ -269,10 +264,10 @@ pub enum PartKind {
     /// past, lighting [`WALL_LIGHT_TILES`] round it. Always on, and draws nothing — it has its own cell. What
     /// light *does* — the dark, and how far a Bim sees in it — is the
     /// room's, `bims::sight`.
-    WallLight = 39,
+    WallLight = 38,
     /// A standing light: a lamp on a pole, one tile, anywhere on the
     /// deck, seen over and walked round, lighting [`STANDING_LIGHT_TILES`].
-    StandingLight = 40,
+    StandingLight = 39,
     /// A small plant in a pot: the first of the three **comforts** — parts
     /// that do nothing but make a deck nicer to stand on. One tile,
     /// walked past and seen over, and it **lifts the surroundings** of
@@ -280,44 +275,44 @@ pub enum PartKind {
     /// [`SMALL_PLANT_LIFT`] — [`comfort`] is the table, and what the lift
     /// does to a Bim is the room's, `bims::filth`. Does nothing else:
     /// no draw, nothing to work.
-    SmallPlant = 41,
+    SmallPlant = 40,
     /// A big plant in a tub: a comfort like the small one, walked round
     /// rather than past, and seen over, lifting the surroundings further
     /// and wider ([`BIG_PLANT_LIFT`], [`BIG_PLANT_TILES`]).
-    BigPlant = 42,
+    BigPlant = 41,
     /// A framed picture on a wall: the third comfort. **Hung** like a wall
     /// light — its rotation names its wall, [`wall_light_back`], and
     /// placing one on nothing is refused ([`hangs_on_wall`]) — walked under
     /// and seen past, lifting the surroundings of every tile within
     /// [`PICTURE_TILES`] by [`PICTURE_LIFT`].
-    Picture = 43,
+    Picture = 42,
     /// A strip of open ground under crop: a hydroponic bay's footprint —
     /// six trays, worked from the row beside them — grown in the soil
     /// of a planet's settlement (`world::surface`) at half a bay's pace
     /// and on no power at all, since there is nothing to plug in. The
     /// room's, like the bay (`bims::hydro::Bay::field`). Not a tool:
     /// nothing grows on a deck.
-    Field = 44,
+    Field = 43,
     /// A tree on a planet's ground: one tile, walked round and **not**
     /// seen past — a band of them is a forest a Bim cannot go through —
     /// and a comfort like the big plant, so the ground under one is a
     /// nicer place to stand. What a settlement's wild is made of.
-    Tree = 45,
+    Tree = 44,
     /// A shrub — or a cactus, or a tussock, by the planet: one tile,
     /// walked round and seen over, a comfort like the small plant.
-    Shrub = 46,
+    Shrub = 45,
     /// A boulder: one tile of rock, walked round and not seen past. A
     /// line of them is a cliff.
-    Boulder = 47,
+    Boulder = 46,
     /// A tile of water — a lake, a river, a pool, or ice: walked round
     /// and seen over.
-    Water = 48,
+    Water = 47,
 }
 
 impl PartKind {
     /// Every kind, in discriminant order. `ALL[k as usize] == k`, which
     /// [`PartKind::def`] relies on and [`defs_are_sound`] checks.
-    pub const ALL: [PartKind; 49] = [
+    pub const ALL: [PartKind; 48] = [
         PartKind::Floor,
         PartKind::Wall,
         PartKind::Door,
@@ -351,7 +346,6 @@ impl PartKind {
         PartKind::Workbench,
         PartKind::SuitLocker,
         PartKind::Armoury,
-        PartKind::DrugLab,
         PartKind::TradingDesk,
         PartKind::Sandbags,
         PartKind::ResearchDesk,
@@ -614,7 +608,7 @@ impl PartDef {
 /// told about how a part is approached — [`crate::validate`] already insists
 /// every one of them is floor a body can stand on and that they can all reach
 /// each other, so a design that passes here is one the crew can work.
-pub static PARTS: [PartDef; 49] = [
+pub static PARTS: [PartDef; 48] = [
     PartDef {
         kind: PartKind::Floor,
         footprint: (1, 1),
@@ -1249,28 +1243,6 @@ pub static PARTS: [PartDef; 49] = [
         torque_thrust: 0.0,
         thrust_power: 0.0,
         power: -10.0,
-        charge: 0.0,
-    },
-    // The drug lab: the workbench's footprint and use spot, a lighter draw
-    // — a press and a steriliser rather than a lathe — and, like the
-    // armoury, a cabinet of its own for what it makes: locker class, since
-    // that is where a bandage is kept, and a bigger one than the armoury's
-    // because a dressing is small.
-    PartDef {
-        kind: PartKind::DrugLab,
-        footprint: (2, 1),
-        layer: Layer::Object,
-        blocks_movement: true,
-        requires: Some(Layer::Floor),
-        use_spots: &[(0, 1)],
-        price: 4_000,
-        shields: false,
-        capacity: Some((Storage::Locker, 6 * GRID_COLS)),
-        mass: 52.0,
-        thrust: 0.0,
-        torque_thrust: 0.0,
-        thrust_power: 0.0,
-        power: -5.0,
         charge: 0.0,
     },
     // The trading desk: a table with a counter, low, worked from the tile

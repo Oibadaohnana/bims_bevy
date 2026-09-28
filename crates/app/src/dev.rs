@@ -182,7 +182,7 @@ pub fn map() -> bool {
 }
 
 /// `BIMS_DEPART=1` opens the run with the **departure check asking**
-/// (feature 103): crew member 1 out cold just inside the station's door
+/// (feature 103): crew member 1 downed just inside the station's door
 /// and the player's own Bim having pressed *Back to ship* aboard, so the
 /// *Leave them behind?* window is the first frame
 /// (`Session::depart_for_probe`). It wants a crew of two or more —
@@ -216,49 +216,31 @@ pub fn out() -> bool {
     std::env::var("BIMS_OUT").as_deref() == Ok("1")
 }
 
-/// `BIMS_DYING=n` puts `n` of the crew into a dying state — a part at
-/// nothing with its trauma untreated and wounds open on it — for looking
-/// at the red cross over a body on the deck and at the peril block under
-/// the health bar (`Session::maim_for_probe`).
+/// `BIMS_DYING=n` **downs** `n` of the crew (task 120) — at nothing on
+/// the deck with the thirty seconds running, the player's own Bim spared
+/// unless `n` reaches the whole crew — for looking at the countdown ring
+/// over a body on the deck, the downed block on the side panel and a
+/// revive (`Session::maim_for_probe`). The name is the old dial's, kept
+/// so the recipes that use it still read.
 pub fn dying() -> Option<usize> {
     std::env::var("BIMS_DYING").ok()?.trim().parse().ok()
 }
 
 /// `BIMS_FIELD_MEDIC=n` makes the last `n` of the crew **hired field
-/// medics** (feature 86): the contract, the two medkits, and no money
+/// medics** (feature 86): the contract, a medic's revive, and no money
 /// taken — for looking at what one does in a fight without flying to a
 /// station and hiring one (`Session::field_medics_for_probe`).
 pub fn field_medics() -> Option<usize> {
     std::env::var("BIMS_FIELD_MEDIC").ok()?.trim().parse().ok()
 }
 
-/// `BIMS_CARRY=1` takes a crew member out cold and puts it in a medic's
+/// `BIMS_CARRY=1` downs a crew member and puts it in a medic's
 /// arms — for looking at a body being carried off the deck without
 /// waiting for a fight to put one there (`Session::carry_for_probe`).
 /// Wants somebody who may carry: a medic of the class (`BIMS_CLASS=medic`)
 /// or a hired one (`BIMS_FIELD_MEDIC=1`).
 pub fn carry() -> bool {
     std::env::var("BIMS_CARRY").as_deref() == Ok("1")
-}
-
-/// `BIMS_BANDAGES=n` puts exactly `n` dressings in **every** crew
-/// member's pack and starts the bandage cooldown afresh — a dressing is
-/// everybody's charge — for looking at a box of them in the inventory,
-/// at the bandage box's sweep at the foot of the canvas (`0` is an empty
-/// pack with the whole thirty seconds ahead), and at what a crew short
-/// of dressings does in a fight. Five go in one box, so
-/// `BIMS_BANDAGES=7` is a full box beside a part one
-/// (`Session::bandages_for_probe`).
-pub fn bandages() -> Option<u32> {
-    std::env::var("BIMS_BANDAGES").ok()?.trim().parse().ok()
-}
-
-/// `BIMS_MEDKITS=n` is the same for the medkit charge: exactly `n` in
-/// every pack and its minute's cooldown started afresh
-/// (`Session::medkits_for_probe`) — `0` is the medkit box dark with the
-/// sweep going round it.
-pub fn medkits() -> Option<u32> {
-    std::env::var("BIMS_MEDKITS").ok()?.trim().parse().ok()
 }
 
 /// `BIMS_KITS=n` puts exactly `n` of **each** of the engineer's two kits
@@ -582,7 +564,7 @@ pub fn class_crew(session: &mut ship::Session, asked: world::Class) {
 pub const COMBAT_CLASS_LEVEL: usize = world::class::LEVELS as usize;
 
 /// `BIMS_BEAM=1` links a medic's heal beam to crew member 1, stood a
-/// tile away with a wound on it, and `BIMS_BEAM=surge` triggers the
+/// tile away short of its whole bar, and `BIMS_BEAM=surge` triggers the
 /// surge over that (`World::beam_for_probe`, feature 76) — how the beam
 /// and the halo are looked at without hunting a crewmate with the
 /// pointer. Nothing without a medic on slot 0 (`BIMS_CLASS=medic`) and
@@ -969,7 +951,6 @@ fn scripted_input(
                 let ch = other.chars().next().unwrap().to_ascii_lowercase();
                 let code = match ch {
                     'a' => KeyCode::KeyA,
-                    // The two dressing keys: Bandage and Bandage all.
                     'b' => KeyCode::KeyB,
                     'h' => KeyCode::KeyH,
                     'c' => KeyCode::KeyC,

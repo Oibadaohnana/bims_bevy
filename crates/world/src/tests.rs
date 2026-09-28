@@ -37,32 +37,6 @@ pub(crate) fn basic() -> World {
     world_with(flyer(2), REFERENCE_MONEY, 2)
 }
 
-/// **No medicine on anybody, and none coming back**: every crew member
-/// starts with a box of dressings and a medkit in the first cells of its
-/// pack that fit them — everybody's charges — and the cooldowns fill it
-/// back up. That is exactly what a test which lays a pack out by hand,
-/// counts the lockers or pins the hold's counts does not want in the
-/// way, so it says so at the top and the charges leave everybody alone.
-pub(crate) fn without_dressings(world: &mut World) {
-    // The medicine is everybody's charge — a box of dressings and a
-    // medkit in every pack, come back on a cooldown — so it is switched
-    // off before the packs are emptied of it, or it would be back in the
-    // cell the test wants half a minute later.
-    world.medicine_off_for_probe();
-    let kit = bims::combat::Item::Stack(ResourceId::Medkit as u32);
-    for who in 0..world.aboard.room.crew_count() as usize {
-        world.aboard.room.set_bandages_for_probe(who, 0);
-        world.aboard.room.take_stack(who, kit, u32::MAX);
-    }
-    // And none in the hold either: a dock or an undock builds the room
-    // afresh with the manager's own numbers back — the food's targets
-    // reset the same way — so an empty hold is what actually holds the
-    // packs empty across one. A test that wants dressings aboard puts
-    // them back after this and does not dock.
-    world.ship.design.cargo[ResourceId::Bandage as usize] = 0;
-    world.on_ship_changed();
-}
-
 /// The machine a fight was staged with (`stage_droid_fight_for_probe`):
 /// the one body of a held station's room, to read.
 fn machine(world: &World) -> &bims::droid::Droid {
@@ -1233,12 +1207,13 @@ fn the_checksum_notices_every_kind_of_change() {
         twin.holdings.keys += 1;
         twin.holdings.next_id = world.holdings.next_id;
         assert_eq!(world.checksum(), twin.checksum());
-        // A charge spent.
+        // A charge changed: a grenade on the body (task 120 took the
+        // bandage this used to spend).
         world
             .aboard
             .room
-            .set_charges(0, Item::Stack(ResourceId::Bandage as u32), 0);
-        assert_ne!(world.checksum(), twin.checksum(), "a bandage spent");
+            .set_charges(0, Item::Stack(ResourceId::Grenade as u32), 1);
+        assert_ne!(world.checksum(), twin.checksum(), "a grenade given");
     }
 }
 
@@ -2845,13 +2820,13 @@ fn a_brownout_darkens_the_ship_and_stops_the_benches_until_the_power_is_back() {
     let lamps = ship_lamps(&world);
     assert_eq!(lamps.len(), 7);
     assert!(lamps.iter().all(|(_, l)| l.powered && !l.is_dark()));
-    assert!(world.powered(PartKind::DrugLab));
+    assert!(world.powered(PartKind::Workbench));
     assert!(world.powered(PartKind::ColdStore));
 
     // The reactors held under the draw: the battery drains, and the ship
     // is not browned out.
     let draw = world.power().draw;
-    assert_eq!(draw, 287.0);
+    assert_eq!(draw, 282.0);
     world.throttle_reactors_for_probe(draw - 27.0);
     let events = world.step(&[]);
     assert!(!events.iter().any(|e| matches!(e, WorldEvent::Brownout)));
@@ -2876,7 +2851,6 @@ fn a_brownout_darkens_the_ship_and_stops_the_benches_until_the_power_is_back() {
     );
     assert!(!world.powered(PartKind::HydroBay));
     assert!(!world.powered(PartKind::ColdStore));
-    assert!(!world.powered(PartKind::DrugLab));
     assert!(!world.powered(PartKind::Workbench));
     assert!(world.powered(PartKind::Door));
     assert!(world.powered(PartKind::LifeSupport));
@@ -2897,7 +2871,7 @@ fn a_brownout_darkens_the_ship_and_stops_the_benches_until_the_power_is_back() {
             .all(|(_, l)| l.powered && !l.is_dark())
     );
     assert!(world.powered(PartKind::ColdStore));
-    assert!(world.powered(PartKind::DrugLab));
+    assert!(world.powered(PartKind::Workbench));
 }
 
 /// An overdraw the battery covers costs nothing: an hour and more of the
@@ -2997,8 +2971,6 @@ fn a_site_on_the_deck_is_paid_for_and_built_by_the_crew() {
     use shipdesign::parts::Layer;
     let mut world = simulation_world(playtest_ship(), data::SIMULATION_MONEY, 1);
     world.set_shipyard_enabled(true);
-    // The dressings every Bim carries are out of the way (feature 87).
-    without_dressings(&mut world);
     let money = world.money;
     let price = PartKind::Wall.def().price;
     let mass = world.ship.dynamics.mass.get();
@@ -3078,7 +3050,6 @@ fn a_site_waits_while_the_pool_cannot_cover_it() {
     use shipdesign::fixture::playtest_ship;
     let mut world = simulation_world(playtest_ship(), data::SIMULATION_MONEY, 1);
     world.set_shipyard_enabled(true);
-    without_dressings(&mut world);
     let price = PartKind::Wall.def().price;
     // Just short of one wall.
     world.money = price - 1;
@@ -3139,7 +3110,6 @@ fn a_site_beyond_the_hull_is_built_in_a_suit() {
     let mut world = simulation_world(playtest_ship(), data::SIMULATION_MONEY, 1);
     world.set_shipyard_enabled(true);
     world.undock_for_probe();
-    without_dressings(&mut world);
     let money = world.money;
     let price = PartKind::Floor.def().price + PartKind::Structure.def().price;
 
@@ -3794,7 +3764,7 @@ fn a_recruited_bim_shoots_the_machines_it_can_see_and_they_are_hurt() {
 /// on the crew member — in the joined room, where the bolt flew — and
 /// the world says so. `stage_droid_fight_for_probe` is the start of it.
 #[test]
-fn the_machines_shoot_back_and_a_crew_member_hit_bleeds() {
+fn the_machines_shoot_back_and_a_crew_member_hit_loses_hit_points() {
     use bims::combat::WeaponKind;
     let mut world = basic();
     assert!(world.stage_droid_fight_for_probe(
@@ -3803,7 +3773,6 @@ fn the_machines_shoot_back_and_a_crew_member_hit_bleeds() {
     ));
     let station_id = world.residents.as_ref().unwrap().station;
     assert_eq!(world.stance(station_id), bims::sight::Stance::Hostile);
-    assert_eq!(world.aboard.room.bleeding(0), 0);
     assert_eq!(world.aboard.room.health(0), bims::health::MAX_HEALTH);
 
     let mut hit = None;
@@ -3827,10 +3796,7 @@ fn the_machines_shoot_back_and_a_crew_member_hit_bleeds() {
     };
     assert_eq!(who, 0);
     let part = bims::health::Part::from_code(part).expect("a real part");
-    // The wound is on the body already, and it bleeds.
-    assert!(world.aboard.room.bleeding(0) > 0, "bleeding");
-    assert!(world.aboard.room.wounds(0, part) > 0);
-    assert!(world.aboard.room.part_health(0, part) < part.max());
+    // The hit is on the bar already (task 120: one bar, no wounds).
     assert!(world.aboard.room.health(0) < bims::health::MAX_HEALTH);
     // The event carries the part in the tens.
     assert_eq!(hit.code(), 32);
@@ -3858,12 +3824,9 @@ fn a_station_s_people_are_armed_off_its_seed() {
         residents + world.mercenaries_of(station)
     );
     for who in 0..residents {
-        let mut issued = Gear::issued_for(seed ^ who as u64);
+        let issued = Gear::issued_for(seed ^ who as u64);
         assert!(issued.weapon.is_some(), "every resident carries something");
         assert_eq!(ashore.aboard.room.weapon(who as usize), issued.weapon);
-        // And a couple of dressings beside it since feature 87 — the roll
-        // is the weapon's and the armour's.
-        issued.add(bims::game::BANDAGE, data::RESIDENT_BANDAGES);
         assert_eq!(ashore.aboard.room.gear(who as usize), issued);
     }
 }
@@ -3892,7 +3855,7 @@ fn on_deck(world: &World, who_ashore: u32) -> bims::math::Vec2 {
 fn a_claw_charges_and_locks_the_crew_member_who_fights_with_its_fists() {
     use bims::combat::{ArmourKind, Gear, MELEE_RANGE, Piece, WeaponKind};
     use bims::droid::DroidKind;
-    use bims::health::{CUT_WOUND, Part};
+    use bims::health::Part;
     let mut world = basic();
     world.set_droid_tier_for_probe(Some(Tier::Two));
     assert!(
@@ -3916,16 +3879,12 @@ fn a_claw_charges_and_locks_the_crew_member_who_fights_with_its_fists() {
     assert_eq!(WorldEvent::Locked { who: 0 }.code(), 37);
     assert_eq!(WorldEvent::Locked { who: 1 }.value(), 1);
 
-    // A blow on James: the part it landed on, and how many wound units it
-    // opened there — read across the one step it landed in.
-    let units = |world: &World| Part::ALL.map(|p| world.aboard.room.wounds(0, p));
-    let blow = |events: &[WorldEvent], was: [u32; 3], world: &World| {
+    // A blow on James: the part it landed on — read across the one step
+    // it landed in.
+    let units = |world: &World| world.aboard.room.health(0);
+    let blow = |events: &[WorldEvent], _was: f32, _world: &World| {
         events.iter().find_map(|e| match e {
-            WorldEvent::CrewHit { who: 0, part } => {
-                let part = Part::from_code(*part).unwrap();
-                let i = Part::ALL.iter().position(|&p| p == part).unwrap();
-                Some((part, world.aboard.room.wounds(0, part) - was[i]))
-            }
+            WorldEvent::CrewHit { who: 0, part } => Part::from_code(*part),
             _ => None,
         })
     };
@@ -3971,10 +3930,9 @@ fn a_claw_charges_and_locks_the_crew_member_who_fights_with_its_fists() {
     assert!(landed, "a fist landed on the machine");
 
     // While the lock holds nothing more is fired, and the world does not
-    // say the lock again. The claw's own blow comes the other way — a
-    // crush, one unit on the part it landed on, said as a hit — before or
-    // after James's lock, since the machine reads its reach a step ahead
-    // of him; the kevlar takes the first on the body.
+    // say the lock again. The claw's own blow comes the other way — said
+    // as a hit — before or after James's lock, since the machine reads its
+    // reach a step ahead of him; the kevlar takes the first on the body.
     let mut bolts = world.aboard.room.bolts_in_flight();
     let mut held = 0;
     for _ in 0..1_200 {
@@ -4001,13 +3959,7 @@ fn a_claw_charges_and_locks_the_crew_member_who_fights_with_its_fists() {
         }
     }
     assert!(held > 0, "the lock held for a step at least");
-    let (part, opened) = hit.expect("the claw landed on James");
-    assert!(world.aboard.room.wounds(0, part) >= 1);
-    assert!(
-        opened == 1 && opened < CUT_WOUND,
-        "a crush is one unit, not a cut's three: {opened}"
-    );
-    assert!(world.aboard.room.bleeding(0) >= 1);
+    let _part = hit.expect("the claw landed on James");
     assert!(
         world.aboard.room.health(0) < bims::health::MAX_HEALTH,
         "and it hurt"
@@ -4180,7 +4132,10 @@ fn a_sniper_rifle_reaches_from_twenty_tiles_and_a_shotgun_does_more_at_three_tha
         assert!(gap > pistol, "from its range, not up close: {gap:.1} tiles");
         assert!(gap * shipdesign::TILE as f32 <= stats.reach());
         assert!(!machine(&world).is_walking(), "stood still to shoot");
-        assert!(world.aboard.room.bleeding(0) > 0, "and James bleeds for it");
+        assert!(
+            world.aboard.room.health(0) < bims::health::MAX_HEALTH,
+            "and James is hurt for it"
+        );
 
         // The long shot: James with the rifle, the machine twenty-one
         // tiles down the corridor, held there and firing nothing.
@@ -4314,113 +4269,6 @@ fn a_sniper_rifle_reaches_from_twenty_tiles_and_a_shotgun_does_more_at_three_tha
             flown(far, far_from),
             "the weapon's damage at the distance flown: {far} at {far_from:.1} tiles"
         );
-    }
-}
-
-/// A bandage is a thing in a pack since feature 87, and **a charge**
-/// since the medicine became everybody's: the crew member sets out with
-/// `class::BANDAGE_CHARGES` of them, dresses a wound of its own with one,
-/// and the one spent comes back on the cooldown — the hold never pays
-/// and never fills a pack. A treatment aboard is the same with the
-/// helper's own medkit: opened where the helper stands, taken out of its
-/// pack when the hands come off, and back a minute of the clock later —
-/// there is no cabinet to fetch one from and the room has no shelf.
-#[test]
-fn a_wound_is_dressed_and_a_trauma_treated_out_of_the_helper_s_own_charges() {
-    use crate::class::{self, Charge};
-    // --- a_crew_member_dresses_a_wound_with_a_bandage_of_its_own ---
-    {
-        use bims::health::Part;
-        use shipdesign::fixture::playtest_ship;
-        let mut world = simulation_world(playtest_ship(), data::SIMULATION_MONEY, 1);
-        let bandages = world.ship.design.carrying(ResourceId::Bandage);
-        assert!(bandages > 0, "the playtest ship carries bandages");
-        for _ in 0..3 {
-            world.step(&[]);
-        }
-        assert_eq!(
-            world.aboard.room.bandages_of(0),
-            class::BANDAGE_CHARGES,
-            "the crew member carries its charges"
-        );
-        assert_eq!(
-            world.ship.design.carrying(ResourceId::Bandage),
-            bandages,
-            "and none of them came out of the hold"
-        );
-
-        assert!(
-            !world.aboard.room.wound(0, Part::Body, 12.0).leg_lost,
-            "no leg lost"
-        );
-        assert_eq!(world.aboard.room.bleeding(0), 1);
-        assert!(world.aboard.room.bandage(0, 0, Part::Body));
-        let mut budget = 60 * 60;
-        while budget > 0 && world.aboard.room.bleeding(0) > 0 {
-            world.step(&[]);
-            budget -= 1;
-        }
-        assert_eq!(world.aboard.room.bleeding(0), 0, "the wound is closed");
-        // The dressing is out of the pack, the hold as it was, and the
-        // cooldown running to bring it back.
-        world.step(&[]);
-        assert_eq!(world.aboard.room.bandages_of(0), class::BANDAGE_CHARGES - 1);
-        assert_eq!(world.ship.design.carrying(ResourceId::Bandage), bandages);
-        assert!(world.charge_cooldown_left(0, Charge::Bandage) > 0.0);
-        for _ in 0..(class::BANDAGE_COOLDOWN as u32 * 60 + 2) {
-            world.step(&[]);
-        }
-        assert_eq!(world.aboard.room.bandages_of(0), class::BANDAGE_CHARGES);
-        assert_eq!(world.ship.design.carrying(ResourceId::Bandage), bandages);
-        // A part with nothing open on it is not worth a bandage.
-        assert!(!world.aboard.room.bandage(0, 0, Part::Body));
-    }
-
-    // --- a_treatment_aboard_is_the_helper_s_own_kit_and_the_hold_never_pays ---
-    {
-        use bims::health::Part;
-        // The combat ship: the playtest ship with bunks for two and more, and
-        // the same cargo, kits included.
-        use shipdesign::fixture::combat_ship;
-        let mut world = simulation_world(combat_ship(), data::SIMULATION_MONEY, 2);
-        assert_eq!(world.aboard.crew_count(), 2);
-        let kits = world.ship.design.carrying(ResourceId::Medkit);
-        assert!(kits > 0, "the ship carries medkits");
-        world.step(&[]);
-        assert_eq!(
-            world.aboard.room.medkits(),
-            0,
-            "the hold's are nobody's to hand"
-        );
-        assert_eq!(world.charges_of(0, Charge::Medkit), class::MEDKIT_CHARGES);
-
-        // Kate dying of a body at nothing; James, free, treats her with
-        // the kit in his own pack.
-        let out = world.aboard.room.wound(1, Part::Body, Part::Body.max());
-        assert!(out.trauma.is_some(), "dying");
-        let mut budget = 60 * 60 * 3;
-        while budget > 0 && world.aboard.room.is_dying(1) {
-            world.step(&[]);
-            budget -= 1;
-        }
-        assert!(!world.aboard.room.is_dying(1), "treated within the run");
-        world.step(&[]);
-        assert_eq!(world.charges_of(0, Charge::Medkit), 0, "his own kit spent");
-        assert_eq!(
-            world.ship.design.carrying(ResourceId::Medkit),
-            kits,
-            "and the hold is untouched"
-        );
-        assert!(world.charge_cooldown_left(0, Charge::Medkit) > 0.0);
-        for _ in 0..(class::MEDKIT_COOLDOWN as u32 * 60 + 2) {
-            world.step(&[]);
-        }
-        assert_eq!(
-            world.charges_of(0, Charge::Medkit),
-            class::MEDKIT_CHARGES,
-            "back a minute of the clock later"
-        );
-        assert_eq!(world.ship.design.carrying(ResourceId::Medkit), kits);
     }
 }
 
@@ -4782,45 +4630,17 @@ fn the_arena_is_the_combat_dock_and_it_and_the_combat_ship_can_be_walked() {
 
 // --- armour and the pack ------------------------------------------------------
 
-/// Feature 87 had the crew fill their packs with dressings out of the
-/// hold to the Management tab's number. **Nobody does any more**: a
-/// bandage is everybody's charge, and an emptied pack is filled by the
-/// cooldown — the player's own and the bot's alike, a dressing every
-/// thirty seconds of the clock — with the hold's box left where it lies.
-#[test]
-fn the_charges_fill_on_the_cooldown_and_never_out_of_the_hold() {
-    use shipdesign::fixture::playtest_ship;
-    let mut world = crate::fixture::crewed_world(playtest_ship(), data::SIMULATION_MONEY, 1, 2);
-    let aboard = world.ship.design.carrying(ResourceId::Bandage);
-    assert!(aboard >= 5, "the playtest ship carries a few: {aboard}");
-    for who in 0..2 {
-        world.aboard.room.set_bandages_for_probe(who, 0);
-    }
-    for _ in 0..(crate::class::BANDAGE_COOLDOWN as u32 * 60 + 2) {
-        world.step(&[]);
-    }
-    assert_eq!(world.aboard.room.bandages_of(0), 1, "the player's own");
-    assert_eq!(world.aboard.room.bandages_of(1), 1, "and the bot");
-    assert_eq!(
-        world.ship.design.carrying(ResourceId::Bandage),
-        aboard,
-        "nothing out of the hold"
-    );
-}
-
 // --- looting a body ------------------------------------------------------------
 
-/// **Half its blood is where a crew member goes out, and a body that far
-/// gone is nobody's target** (feature 89). A crew member ashore at a
-/// station the machines hold is believed where it stands; bled to just
-/// over half it is still on its feet and still believed; bled a drop
-/// under half it is out cold, and the machines forget it the same step —
-/// the slot goes `None`, which is what `aim`, `melee_with` and the
-/// tactics all read. The band above it — half pace under three quarters — is
-/// pinned in `bims::health`'s own tests.
+/// **A body downed is nobody's target** (task 120; it was a body under
+/// half its blood, feature 89). A crew member ashore at a station the
+/// machines hold is believed where it stands; at a point of its bar it is
+/// still on its feet and still believed; at nought it is downed, and the
+/// machines forget it the same step — the slot goes `None`, which is what
+/// `aim`, `melee_with` and the tactics all read.
 #[test]
-fn a_crew_member_under_half_its_blood_is_out_cold_and_nobody_s_target() {
-    use bims::health::{MAX_BLOOD, OUT_AT};
+fn a_downed_crew_member_is_nobody_s_target() {
+    use bims::health::DOWNED_SECONDS;
     let mut world = basic();
     // The machines have the station: one of them down the corridor from
     // the door, held where it is put and firing nothing — its eyes are
@@ -4848,28 +4668,19 @@ fn a_crew_member_under_half_its_blood_is_out_cold_and_nobody_s_target() {
     }
     assert!(seen, "the machine has it in its sight");
 
-    // Half its blood is the line: a drop above it and it is still up.
+    // A point of its bar is still up.
     let body = who as usize;
-    world.aboard.room.set_blood_for_probe(body, OUT_AT + 0.01);
+    world.aboard.room.set_health_for_probe(body, 1.0);
     world.step(&[]);
-    assert!(
-        !world.aboard.room.is_unconscious(body),
-        "just over half is still up at {}",
-        world.aboard.room.blood(body)
-    );
+    assert!(!world.aboard.room.is_downed(body), "a point is still up");
     assert!(believed(&world).is_some(), "and still somebody's target");
 
-    // And a drop under it: out cold, and gone from the list the machines
-    // shoot at.
-    world.aboard.room.set_blood_for_probe(body, OUT_AT - 0.01);
+    // And nought: downed, and gone from the list the machines shoot at.
+    world.aboard.room.set_health_for_probe(body, 0.0);
     world.step(&[]);
+    assert!(world.aboard.room.is_downed(body), "nought is downed");
     assert!(
-        world.aboard.room.is_unconscious(body),
-        "under half its blood is out cold at {}",
-        world.aboard.room.blood(body)
-    );
-    assert!(
-        world.aboard.room.blood(body) > MAX_BLOOD * 0.45,
+        world.aboard.room.down_left(body).unwrap() > DOWNED_SECONDS - 1.0,
         "and nowhere near dead"
     );
     assert_eq!(believed(&world), None, "a body down is nobody's target");

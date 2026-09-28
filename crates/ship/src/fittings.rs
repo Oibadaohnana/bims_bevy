@@ -77,7 +77,6 @@ const STRIPE: Color = Color::rgb(0.92, 0.72, 0.18);
 /// round it, the bench top, the lamp over it and the board under it, the
 /// suit through the locker's window, and the armoury's gunmetal and the
 /// rifles' stocks. The part colours are the palette swatches again.
-const MELT: Color = Color::rgb(1.0, 0.70, 0.28);
 const BENCH: Color = Color::rgb(0.56, 0.50, 0.38);
 const BENCH_EDGE: Color = Color::rgba(0.30, 0.26, 0.18, 0.6);
 const LAMP: Color = Color::rgb(1.0, 0.92, 0.70);
@@ -86,17 +85,9 @@ const SUIT: Color = Color::rgb(0.78, 0.80, 0.84);
 const VISOR: Color = Color::rgb(0.38, 0.62, 0.78);
 const GUNMETAL: Color = Color::rgb(0.42, 0.38, 0.44);
 const STOCK: Color = Color::rgb(0.42, 0.30, 0.22);
-/// The drug lab: its bench top in the clinical green-white of its palette
-/// swatch, the glass of its vials and flask, and what is in them — a
-/// tincture a vial, the dressing's green in the flask.
+/// The clinical green-white the drug lab was drawn in, until it went with
+/// the medicine (task 120); the research desk's screen still is.
 const LAB: Color = Color::rgb(0.74, 0.82, 0.78);
-const LAB_EDGE: Color = Color::rgba(0.30, 0.40, 0.36, 0.6);
-const GLASS: Color = Color::rgba(0.52, 0.68, 0.80, 0.80);
-const TINCTURES: [Color; 3] = [
-    Color::rgb(0.36, 0.72, 0.46),
-    Color::rgb(0.86, 0.60, 0.30),
-    Color::rgb(0.46, 0.56, 0.86),
-];
 
 /// The picture for an interior part, if it has one. `false` means the
 /// caller draws its block — the same contract as [`hull::part`], which is
@@ -137,7 +128,6 @@ pub fn part_in(list: &mut DrawList, part: &PlacedPart, biome: Option<Biome>) -> 
         PartKind::Workbench => workbench(list, part),
         PartKind::SuitLocker => suit_locker(list, part),
         PartKind::Armoury => armoury(list, part),
-        PartKind::DrugLab => drug_lab(list, part),
         PartKind::TradingDesk => trading_desk(list, part),
         PartKind::Sandbags => sandbags(list, part),
         PartKind::ResearchDesk => research_desk(list, part),
@@ -1216,169 +1206,6 @@ fn armoury(list: &mut DrawList, part: &PlacedPart) {
             STRIPE,
         );
     }
-}
-
-/// The drug lab: a bench top like the workbench's, in its own clinical
-/// green-white, with a rack of vials along the far edge, a flask on a
-/// stand in the middle with the dressing's green in it, and a small still
-/// at the right-hand end — a pot over a flame, a coil up out of it and
-/// the receiver it drips into. The drawer is on the near side, where the
-/// Bim stands, like the workbench's; the two are the same footprint and
-/// the same stance, and the picture says so.
-fn drug_lab(list: &mut DrawList, part: &PlacedPart) {
-    let (local, across, along) = Local::of(part);
-    let (w, h) = (across - 6.0, along - 6.0);
-    // The frame under the top, then the top, edged.
-    local.push(list, KIND_RECT, 0.0, 0.0, w, h, 3.0, 0.0, PANEL);
-    local.push(list, KIND_RECT, 0.0, -2.0, w - 4.0, h - 10.0, 2.0, 0.0, LAB);
-    local.push(
-        list,
-        KIND_RECT,
-        0.0,
-        -2.0,
-        w - 4.0,
-        h - 10.0,
-        2.0,
-        1.0,
-        LAB_EDGE,
-    );
-    // The drawer face along the near edge, and its pull.
-    local.push(
-        list,
-        KIND_RECT,
-        0.0,
-        h / 2.0 - 4.0,
-        w - 8.0,
-        6.0,
-        1.5,
-        0.0,
-        PANEL_LIT,
-    );
-    local.push(
-        list,
-        KIND_RECT,
-        0.0,
-        h / 2.0 - 4.0,
-        w * 0.2,
-        2.0,
-        1.0,
-        0.0,
-        STEEL,
-    );
-    // The rack along the far edge: a rail, and five vials stood in it,
-    // each capped, each with a little of something in the bottom.
-    let rv = -h / 2.0 + 5.0;
-    local.push(
-        list,
-        KIND_RECT,
-        0.0,
-        rv,
-        w - 12.0,
-        2.5,
-        0.0,
-        0.0,
-        PANEL_EDGE,
-    );
-    for i in 0..5 {
-        let u = (i as f32 - 2.0) * (w - 16.0) / 5.0;
-        local.push(list, KIND_RECT, u, rv + 5.0, 4.0, 9.0, 1.5, 0.0, GLASS);
-        local.push(
-            list,
-            KIND_RECT,
-            u,
-            rv + 7.5,
-            3.0,
-            4.0,
-            1.0,
-            0.0,
-            TINCTURES[i % TINCTURES.len()],
-        );
-        local.push(list, KIND_RECT, u, rv + 0.5, 4.5, 2.0, 0.5, 0.0, STEEL);
-    }
-    // The flask in the middle, on a ring stand: round-bottomed, half full
-    // of the green, its neck up towards the rack.
-    let fu = -w * 0.1;
-    local.push(list, KIND_RECT, fu, 8.0, 14.0, 2.0, 0.5, 0.0, PANEL_EDGE);
-    local.push(list, KIND_RECT, fu, -4.0, 4.0, 10.0, 1.0, 0.0, GLASS);
-    local.push(list, KIND_ELLIPSE, fu, 3.0, 14.0, 12.0, 0.0, 0.0, GLASS);
-    local.push(
-        list,
-        KIND_ELLIPSE,
-        fu,
-        3.0,
-        14.0,
-        12.0,
-        0.0,
-        1.0,
-        PANEL_EDGE,
-    );
-    local.push(
-        list,
-        KIND_ELLIPSE,
-        fu,
-        5.0,
-        11.0,
-        6.0,
-        0.0,
-        0.0,
-        TINCTURES[0],
-    );
-    // The still at the right-hand end: the flame under the pot, the pot,
-    // the riser and the coil off to the right of it, and the receiver
-    // under the end of the coil with what has come over so far.
-    let su = w * 0.28;
-    local.push(
-        list,
-        KIND_ELLIPSE,
-        su,
-        9.5,
-        9.0,
-        4.0,
-        0.0,
-        0.0,
-        MELT.alpha(0.8),
-    );
-    local.push(list, KIND_ELLIPSE, su, 3.0, 13.0, 11.0, 0.0, 0.0, STEEL);
-    local.push(
-        list,
-        KIND_ELLIPSE,
-        su,
-        3.0,
-        13.0,
-        11.0,
-        0.0,
-        1.0,
-        PANEL_EDGE,
-    );
-    local.push(list, KIND_RECT, su, -5.0, 3.0, 7.0, 1.0, 0.0, STEEL);
-    for i in 0..3 {
-        local.push(
-            list,
-            KIND_RECT,
-            su + 4.0 + i as f32 * 3.5,
-            -7.0 + i as f32 * 1.5,
-            3.5,
-            2.0,
-            1.0,
-            0.0,
-            STEEL,
-        );
-    }
-    let ru = su + 14.0;
-    local.push(list, KIND_RECT, ru, 3.0, 5.0, 8.0, 1.0, 0.0, GLASS);
-    local.push(list, KIND_RECT, ru, 5.0, 4.0, 3.0, 0.5, 0.0, TINCTURES[1]);
-    // The steriliser's lamp at the left-hand end, lit: the bench is on.
-    local.push(
-        list,
-        KIND_ELLIPSE,
-        -w * 0.42,
-        h / 2.0 - 11.0,
-        4.0,
-        4.0,
-        0.0,
-        0.0,
-        GOOD,
-    );
 }
 
 // --- the trading desk ---------------------------------------------------------------

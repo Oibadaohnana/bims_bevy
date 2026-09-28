@@ -69,9 +69,11 @@ pub fn war_goods(resource: ResourceId) -> bool {
         | ResourceId::LegGuard
         | ResourceId::ArcGreaves
         | ResourceId::ReflectivePlate => true,
-        // And what patches up what those two did.
-        ResourceId::Medkit | ResourceId::Bandage => true,
-        ResourceId::Vegetable
+        // The medicine went out of the game (task 120): nobody stocks it,
+        // and a war does not make what nobody sells dearer.
+        ResourceId::Medkit
+        | ResourceId::Bandage
+        | ResourceId::Vegetable
         | ResourceId::Tofu
         | ResourceId::Suit
         | ResourceId::ResearchKey
@@ -422,10 +424,10 @@ mod tests {
         assert!(kind_bias(Relay, ResourceId::Bandage) > kind_bias(Relay, ResourceId::Handgun));
     }
 
-    /// What the front premium is charged on: a weapon, a piece of
-    /// armour, a medkit or a bandage, and nothing else (feature 94).
+    /// What the front premium is charged on: a weapon or a piece of
+    /// armour, and nothing else (feature 94; the medicine went in task 120).
     #[test]
-    fn war_goods_are_the_guns_the_armour_and_the_medicine() {
+    fn war_goods_are_the_guns_and_the_armour() {
         for resource in [
             ResourceId::Handgun,
             ResourceId::Shotgun,
@@ -435,12 +437,12 @@ mod tests {
             ResourceId::Helm,
             ResourceId::Kevlar,
             ResourceId::LegGuard,
-            ResourceId::Medkit,
-            ResourceId::Bandage,
         ] {
             assert!(war_goods(resource), "{resource:?} is war goods");
         }
         for resource in [
+            ResourceId::Medkit,
+            ResourceId::Bandage,
             ResourceId::Vegetable,
             ResourceId::Tofu,
             ResourceId::Suit,
@@ -452,13 +454,13 @@ mod tests {
         ] {
             assert!(!war_goods(resource), "{resource:?} is not war goods");
         }
-        // Fourteen of them — the minigun and the rail lance (task 115)
+        // Twelve of them — the minigun and the rail lance (task 115)
         // and the arc greaves and the Reflective plate (task 116) among
         // them — and the table covers every resource there is.
         assert!(war_goods(ResourceId::Minigun) && war_goods(ResourceId::RailLance));
         assert!(war_goods(ResourceId::ArcGreaves) && war_goods(ResourceId::ReflectivePlate));
         let all = ResourceId::ALL.iter().filter(|&&r| war_goods(r)).count();
-        assert_eq!(all, 14, "the war goods");
+        assert_eq!(all, 12, "the war goods");
     }
 
     /// A market quotes through its own bias, and the plain one at none.

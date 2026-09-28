@@ -12,14 +12,6 @@ use crate::math::{PI, Vec2, vec2};
 use crate::nav::Maps;
 use crate::room::{Room, Switch, TILE};
 
-/// How long dressing a wound takes, in game minutes, hands on the patient.
-/// Carried on the task in `rest_minutes`, the way a craft's length is, so
-/// the chain has one clock for "for as long as it was told".
-pub const BANDAGE_MINUTES: f32 = 10.0;
-
-/// How long treating a trauma with a medkit takes, the same way: twice a
-/// dressing.
-pub const TREAT_MINUTES: f32 = 20.0;
 /// How far a patient may move, in tiles, from where it stood when the
 /// walk over to it was planned before the helper plans the walk again
 /// from where it is now. See `Task::patient_at`.
@@ -59,21 +51,13 @@ pub enum Step {
     GoToSite,
     Construct,
 
-    // A treatment first fetches the kit: over to the nearest container
-    // holding one (`Room::kit_stands`, the world's word; the spot the Bim
-    // stands on where the room has none) and a moment reaching for it,
-    // which puts `Held::Medkit` in the hands. Then the patient, as a
-    // dressing.
-    GoToKit,
-    TakeKit,
-    // Dressing a wound: over to the patient — a crewmate, or the spot the
-    // Bim already stands on for its own — and hands on the part for
-    // `BANDAGE_MINUTES`, riding in `rest_minutes` like a craft's. The room
-    // has not got the bodies, so `Dress` only says, on the way out, that a
-    // part was dressed (`Room::dressed`), and `Game` does the dressing: the
-    // patient's health is a `Bim`'s. See `Kind::Bandage`.
+    // A revive (task 120): over to a downed crewmate and hands on it for
+    // the helper's revive time, riding in `rest_minutes` like a build's.
+    // The room has not got the bodies, so `Revive` only says, on the way
+    // out, who was brought round by whom (`Room::revived`), and `Game`
+    // does it: the patient's health is a `Bim`'s. See `Kind::Revive`.
     GoToPatient,
-    Dress,
+    Revive,
 
     // A walk to a spot on the deck and nothing more — `Kind::Walk`, a
     // move the player gave with Shift held, waiting its turn on the queue
@@ -111,12 +95,10 @@ impl Step {
             // variant turns off through the airlock in `Kind::steps` and
             // `Task::next_step`.
             GoToSite => Construct,
-            GoToKit => TakeKit,
-            TakeKit => GoToPatient,
-            GoToPatient => Dress,
+            GoToPatient => Revive,
             GoToSpot => Done,
             GoToDeploySpot => Deploy,
-            FlipSwitch | PutSuitBack | Construct | Dress | Deploy | Done => Done,
+            FlipSwitch | PutSuitBack | Construct | Revive | Deploy | Done => Done,
         }
     }
 
@@ -130,7 +112,6 @@ impl Step {
             FlipSwitch => 0.5,
             TakeSuit | PutSuitBack => 1.5,
             StepOut | StepIn => 1.0,
-            TakeKit => 0.8,
             _ => 0.0,
         }
     }
@@ -145,7 +126,6 @@ impl Step {
                 | WalkToPort
                 | BackToSuitLocker
                 | GoToSite
-                | GoToKit
                 | GoToPatient
                 | GoToSpot
                 | GoToDeploySpot
@@ -170,26 +150,14 @@ pub enum Kind {
     /// room says it is done on `Room::built`; the world takes the price
     /// and puts the part down.
     Build { site: u32, outside: bool },
-    /// Dressing every wound on one part of `patient` — a crewmate, or the
-    /// Bim itself — with a bandage out of the helper's pack. `part` is a
-    /// `health::Part` code, carried as a number because the room never
-    /// reads it: `Dress` hands the pair back on `Room::dressed` and the game
-    /// does the dressing. The walk goes to where the patient stands as the
-    /// walk is entered — `Room::crew` — and the game checks the two are
-    /// still together when the hands come off. How long it takes rides in
-    /// `rest_minutes`, [`BANDAGE_MINUTES`].
-    Bandage { patient: usize, part: u32 },
-    /// Treating the trauma on one part of `patient` — a crewmate, never
-    /// the Bim itself — with a medkit. The same two steps as a bandage,
-    /// [`TREAT_MINUTES`] with hands on it, and `Dress` hands the pair back
-    /// on `Room::treated` instead. `bare` is a treatment with no kit at
-    /// all — a medic's *field surgery* (feature 76): straight to the
-    /// patient, nothing fetched and nothing spent.
-    Treat {
-        patient: usize,
-        part: u32,
-        bare: bool,
-    },
+    /// Reviving `patient`, a downed crewmate (task 120): over to where it
+    /// lies — `Room::crew`, as the walk is entered — and standing beside
+    /// it, hands on it, for the helper's revive time riding in
+    /// `rest_minutes` (`Skill::revive`: ten seconds, four for a medic).
+    /// `Revive` hands the pair back on `Room::revived` and the game checks
+    /// the two are still together, and the patient still downed, when the
+    /// hands come off.
+    Revive { patient: usize },
     /// A walk to a spot on the deck, given with Shift held so it waits its
     /// turn behind what the Bim is on: the spot rides on `Saved::target`.
     /// `post` is whether the Bim stands there once it arrives — a
@@ -216,9 +184,7 @@ impl Kind {
             Kind::Switch(_) => Step::GoToSwitch,
             Kind::Build { outside: true, .. } => Step::GoToSuitLocker,
             Kind::Build { outside: false, .. } => Step::GoToSite,
-            Kind::Bandage { .. } => Step::GoToPatient,
-            Kind::Treat { bare: false, .. } => Step::GoToKit,
-            Kind::Treat { bare: true, .. } => Step::GoToPatient,
+            Kind::Revive { .. } => Step::GoToPatient,
             Kind::Walk { .. } => Step::GoToSpot,
             Kind::Deploy { .. } => Step::GoToDeploySpot,
         }
@@ -235,11 +201,10 @@ impl Kind {
         }
     }
 
-    /// The crewmate a dressing or a treatment walks to, or `None` for every
-    /// other errand.
+    /// The crewmate a revive walks to, or `None` for every other errand.
     pub fn patient(self) -> Option<usize> {
         match self {
-            Kind::Bandage { patient, .. } | Kind::Treat { patient, .. } => Some(patient),
+            Kind::Revive { patient } => Some(patient),
             _ => None,
         }
     }
@@ -415,8 +380,8 @@ fn destination(
         // on.
         GoToSite => target,
         // Beside the patient, chosen as the walk is entered from where the
-        // patient stands then; the kit's container the same.
-        GoToKit | GoToPatient => target,
+        // patient lies then.
+        GoToPatient => target,
         // And beside the weapon on the deck, likewise; and the spot a
         // queued walk was given for.
         GoToSpot | GoToDeploySpot => target,
@@ -529,10 +494,9 @@ pub fn deploy_stand(maps: &Maps, tile: Vec2, from: Vec2) -> Option<Vec2> {
         .find(|&p| nav.interior().contains(p) && nav.is_free(p) && nav.can_reach(from, p))
 }
 
-/// Where to stand to dress `patient`, for `who` standing at `from`: the
-/// spot it is already on for its own wounds, else the nearest free cell to
-/// a point a tile from the patient towards the helper — beside the body,
-/// not on it, so two of them do not stand in one spot for ten minutes.
+/// Where to stand to revive `patient`, for `who` standing at `from`: the
+/// nearest free cell to a point a tile from the patient towards the
+/// helper — beside the body, not on it.
 /// `None` for a patient the room has no position for (dead, outside) or
 /// no route to.
 ///
@@ -562,24 +526,6 @@ pub fn patient_stand(
     };
     let stand = nav.nearest_free(at + step);
     nav.can_reach(from, stand).then_some(stand)
-}
-
-/// Where to stand for a medkit: the nearest of `Room::kit_stands` — the
-/// use spots of the containers the world says hold one — that there is a
-/// way to from `from`; `None` in a room with none, where a kit is to hand.
-pub fn kit_stand(room: &Room, maps: &Maps, from: Vec2) -> Option<Vec2> {
-    let nav = maps.deck();
-    let mut stands: Vec<Vec2> = room.kit_stands.clone();
-    stands.sort_by(|a, b| {
-        (*a - from)
-            .len()
-            .partial_cmp(&(*b - from).len())
-            .unwrap_or(core::cmp::Ordering::Equal)
-    });
-    stands
-        .into_iter()
-        .map(|at| nav.nearest_free(at))
-        .find(|&at| nav.can_reach(from, at))
 }
 
 /// The step to start at when picking `target` up again.
@@ -615,7 +561,7 @@ const NOMINAL_WALK: f32 = 3.0;
 fn weight(step: Step, rest_minutes: f32) -> f32 {
     if step.is_walk() {
         NOMINAL_WALK
-    } else if matches!(step, Step::Construct | Step::Dress | Step::Deploy) {
+    } else if matches!(step, Step::Construct | Step::Revive | Step::Deploy) {
         clock::seconds(rest_minutes)
     } else {
         step.duration().max(0.05)
@@ -657,11 +603,11 @@ pub struct Task {
     step: Step,
     /// Time spent in the current step.
     elapsed: f32,
-    /// How long the working step runs, in game minutes — a craft, a build, a
-    /// dressing, a kit laid. Zero for every other errand.
+    /// How long the working step runs, in game minutes — a build, a
+    /// revive, a kit laid. Zero for every other errand.
     rest_minutes: f32,
     /// The spot a walk that picks its own is going to: beside a site, a
-    /// patient, a kit, a weapon on the deck, a tile a kit goes on. Chosen
+    /// patient, a tile a kit goes on. Chosen
     /// as the walk is entered.
     target: Option<Vec2>,
     /// Where the patient stood when the walk over to it was planned
@@ -743,47 +689,25 @@ impl Task {
         Task::starting_at(who, kind, kind.first_step(), minutes, ch, room, maps)
     }
 
-    /// Off to dress `part` of `patient` — over to wherever it stands, and
-    /// [`BANDAGE_MINUTES`] with hands on it. The patient may be the Bim
-    /// itself, in which case the walk is to the spot it is on.
-    pub fn bandage(
+    /// Off to revive `patient` — over to wherever it lies, and `seconds`
+    /// with hands on it (a minute of the room's clock is a second).
+    pub fn revive(
         who: usize,
         patient: usize,
-        part: u32,
+        seconds: f32,
         ch: &mut Character,
         room: &mut Room,
         maps: &Maps,
     ) -> Task {
         Task::starting_at(
             who,
-            Kind::Bandage { patient, part },
+            Kind::Revive { patient },
             Step::GoToPatient,
-            BANDAGE_MINUTES,
+            seconds * clock::MINUTES_PER_SECOND,
             ch,
             room,
             maps,
         )
-    }
-
-    /// Off to treat the trauma on `part` of `patient` with a medkit — over to
-    /// wherever it stands, and [`TREAT_MINUTES`] with hands on it. `bare`
-    /// fetches no kit and spends none — a medic's field surgery (feature
-    /// 76) — and starts at the patient.
-    pub fn treat(
-        who: usize,
-        patient: usize,
-        part: u32,
-        bare: bool,
-        ch: &mut Character,
-        room: &mut Room,
-        maps: &Maps,
-    ) -> Task {
-        let kind = Kind::Treat {
-            patient,
-            part,
-            bare,
-        };
-        Task::starting_at(who, kind, kind.first_step(), TREAT_MINUTES, ch, room, maps)
     }
 
     /// Off to lay a kit on the tile whose middle is `tile` — sandbags, or
@@ -818,7 +742,7 @@ impl Task {
     /// long as the Bim was told; everything else is a fixed length.
     fn duration(&self) -> f32 {
         match self.step {
-            Step::Construct | Step::Dress | Step::Deploy => clock::seconds(self.rest_minutes),
+            Step::Construct | Step::Revive | Step::Deploy => clock::seconds(self.rest_minutes),
             step => step.duration(),
         }
     }
@@ -877,13 +801,7 @@ impl Task {
     }
 
     /// Leave the world in a state the Bim can walk away from.
-    fn let_go(for_good: bool, ch: &mut Character, room: &mut Room) {
-        // A medkit: back on the shelf it came off, for good only — a
-        // suspended treatment keeps it on `Saved.main` and walks on with it.
-        if for_good && ch.main_held() == Held::Medkit {
-            room.medkits += 1;
-            ch.hold_main(Held::Nothing);
-        }
+    fn let_go(_for_good: bool, ch: &mut Character, room: &mut Room) {
         // A walk outside given up brings the body back in through the door,
         // whatever it was doing out there: a suspended one resumes from the
         // gangway and goes out again, and an abandoned one is simply back.
@@ -926,11 +844,11 @@ impl Task {
         self.step
     }
 
-    /// Whether the hands are on a bandage this instant: the dressing
-    /// itself, not the walk to the patient. A Bim winding one has no hand
-    /// free for a weapon — `Game::tick_combat` holsters it for the while.
-    pub fn is_dressing(&self) -> bool {
-        self.step == Step::Dress
+    /// Whether the hands are on a downed crewmate this instant: the revive
+    /// itself, not the walk to the patient. A Bim reviving has no hand free
+    /// for a weapon — `Game::tick_combat` holsters it for the while.
+    pub fn is_reviving(&self) -> bool {
+        self.step == Step::Revive
     }
 
     /// Set the Bim and the room up for whichever step we just moved into.
@@ -958,7 +876,7 @@ impl Task {
             // given up like any other walk with nowhere to go.
             Step::GoToPatient => {
                 let Some(patient) = self.kind.patient() else {
-                    unreachable!("GoToPatient is a Bandage's or a Treat's step")
+                    unreachable!("GoToPatient is a Revive's step")
                 };
                 self.target = patient_stand(room, maps, self.who, patient, ch.pos);
                 self.patient_at = room.crew.get(patient).copied().flatten();
@@ -966,18 +884,6 @@ impl Task {
                     self.blocked = true;
                     return;
                 }
-            }
-            // A kit of its own first: a Bim carrying one opens that where
-            // it stands, so there is no walk at all. Otherwise the nearest
-            // container with a kit in it, or — a room with none, where the
-            // kits are simply to hand — the spot the Bim is on, so the walk
-            // is of no length and `TakeKit` follows at once either way.
-            Step::GoToKit => {
-                self.target = if room.carries_kit(self.who) {
-                    Some(ch.pos)
-                } else {
-                    kit_stand(room, maps, ch.pos).or(Some(ch.pos))
-                };
             }
             // Beside the tile the kit goes on, from wherever the Bim stands.
             Step::GoToDeploySpot => {
@@ -1048,9 +954,8 @@ impl Task {
                 }
                 ch.set_action(Action::Chop);
             }
-            // Turned to the patient, hands on it. Its own wounds it dresses
-            // facing whichever way it arrived.
-            Dress => {
+            // Turned to the patient, kneeling at it.
+            Revive => {
                 if let Some(patient) = self.kind.patient()
                     && patient != self.who
                     && let Some(Some(at)) = room.crew.get(patient)
@@ -1060,18 +965,7 @@ impl Task {
                         ch.face(d.y.atan2(d.x));
                     }
                 }
-                ch.set_action(Action::Bandage);
-            }
-            // Reaching into the cabinet for the kit — or, with no cabinet,
-            // simply for the kit.
-            TakeKit => {
-                if let Some(at) = self.target
-                    && (at - ch.pos).len() > 1e-3
-                {
-                    let to = at - ch.pos;
-                    ch.face(to.y.atan2(to.x));
-                }
-                ch.set_action(Action::Reach);
+                ch.set_action(Action::Revive);
             }
             // Turned to the tile the kit goes on, hands at it.
             Deploy => {
@@ -1108,54 +1002,13 @@ impl Task {
                     room.builds.retain(|b| b.site != site);
                 }
             }
-            // Hands off the patient: the room says which part of whom was
-            // dressed, and the game — which has the body and the dressings
-            // — does the dressing, if the two are still together.
-            Dress => match self.kind {
-                Kind::Bandage { patient, part } => {
-                    room.dressed.push((self.who, patient, part));
+            // Hands off the patient: the room says who was brought round
+            // by whom, and the game — which has the body — does it, if the
+            // two are still together and the patient still down.
+            Revive => {
+                if let Kind::Revive { patient } = self.kind {
+                    room.revived.push((self.who, patient));
                 }
-                // The kit is opened and spent here, whatever the game finds
-                // when it looks: a kit used on a patient that walked off is
-                // a kit used. Spent here rather than in `apply_treatments`
-                // because the finished chain is let go of first, and
-                // `let_go` puts a kit still in the hands back on the shelf.
-                // A bare treatment — a medic's field surgery (feature 76)
-                // — had no kit to spend.
-                Kind::Treat {
-                    patient,
-                    part,
-                    bare,
-                } => {
-                    if bare {
-                        room.treated.push((self.who, patient, part, true));
-                    } else if ch.main_held() == Held::Medkit {
-                        ch.hold_main(Held::Nothing);
-                        room.medkits_used += 1;
-                        room.treated.push((self.who, patient, part, false));
-                    }
-                }
-                _ => {}
-            },
-            // The kit is in the hands and off the shelf. The game charges the
-            // hold for it only when the treatment is done; a chain given up
-            // for good puts it back (`let_go`).
-            //
-            // Out of the Bim's own pack when it has one there — which
-            // aboard is every kit, a medkit being a charge in the pack:
-            // the room says whose (`pack_kits_used`), and the world takes
-            // the kit out of the pack when the treatment is done rather
-            // than now, so a chain given up leaves it where it was.
-            TakeKit => {
-                if room.carries_kit(self.who) {
-                    if let Some(kits) = room.pack_kits.get_mut(self.who) {
-                        *kits -= 1;
-                    }
-                    room.pack_kits_used.push(self.who);
-                } else {
-                    room.medkits = room.medkits.saturating_sub(1);
-                }
-                ch.hold_main(Held::Medkit);
             }
             // Laid: the room says who laid what where, and the world puts
             // the deployable down and takes the kit out of the pack.
@@ -1178,8 +1031,8 @@ impl Task {
     }
 
     /// `effort` is how fast it is getting on with things, 1 for a Bim in good
-    /// order and less for one that is not: a trauma on it, a commander's
-    /// aura, an engineer's craft. It stretches every step of the errand.
+    /// order: a commander's aura, an engineer's build. It stretches every
+    /// step of the errand.
     pub fn update(
         &mut self,
         dt: f32,

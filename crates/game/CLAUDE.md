@@ -1902,6 +1902,9 @@ fixture would lie one over the other.
 
 ## A bandage is a thing in a pack, and the dressing is a walk to a crewmate
 
+> **Deleted by task 120** ("One bar of hit points" at the end of this
+> file): there are no bandages, no dressing and no wounds to dress; the Medical job is a revive. This section is the history.
+
 (The bay's fibre, which a bandage was once made of, went with the bay's
 growing in feature 104; a dressing comes from nowhere but a pack now.)
 
@@ -1998,6 +2001,9 @@ marches for ever, which is what `unstick` then sees every second. The
 tests that step a whole second at a time are the ones where nobody walks.
 
 ## A part at nothing is a dying state, not a death; a Bim dying runs, and one out cold is no target
+
+> **Deleted by task 120** ("One bar of hit points" at the end of this
+> file): no part has health, there is no trauma, no dying state, no blood and nobody runs; a body at nought hit points is downed, and a downed body is still no target. This section is the history.
 
 `crates/game/src/health.rs`, since September 2026. A part reaching
 nothing used to be death (the head or the body) or a leg gone (the
@@ -3891,10 +3897,76 @@ nothing about them:
   bolts and blows — narrower with *Wide Angle Optics*.
   `combat::shield_stops_within` is `shield_stops` at a front of one's
   own; an empty list is `GUARDIAN_SHIELD_COS` for everybody.
-- **`Game::heal(who, points)`** (`Health::heal`): hit points put back at
-  once, shared over the parts by what each is short of — none to a leg
-  gone or a part a trauma holds at nothing — and **never the blood**.
-  The Lifeline patch's healing (*Pressure Seal*, *Clot Booster*, *Quick
-  Wrap*) goes through it, so it outlives a health system without blood.
 - **`Droid::front`**: which way every kind faces, for a hit from the side
   or behind — a Guardian's `facing`, the picture's heading for the rest.
+- **`Game::heal(who, points)`** (`Health::heal`): hit points put back on
+  the one bar (task 120), nothing to a body downed or dead. The Lifeline
+  patch's healing (*Pressure Seal*, *Clot Booster*, *Quick Wrap*) and the
+  medic's beam go through it.
+
+## One bar of hit points, downed and revived (task 120)
+
+The body's health is **one number**, `Health::points`, out of
+`health::MAX_HEALTH` (100), for every Bim: the crew, a station's people,
+a town's, the Manufacturers. The machines keep their own `DroidBody` of
+parts, untouched. **Gone**: the blood and its bleeding, wounds (and
+`CUT_WOUND`), `SLOWED_AT`/`OUT_AT`, the parts' own health, traumas and
+`Lasting`, a leg lost, `TREATED_TO`, `Doctoring`, `Health::{treat,
+bandage}`, `Beamed`, the room's medicine (`BANDAGE`, `Held::Medkit`, the
+pack's kits and dressings, the kit stands, `Room::{dressed, medkits,
+treated, ...}`), `Kind::{Bandage, Treat}`, `CrewOrder::{Bandage,
+BandageAll, Treat}`, `JOB_BANDAGE`/`JOB_TREAT`, fear and running
+(`flee`, `would_flee`, `seal_and_bind`, `Skill::{nerve, steady_pace,
+nerve_hold, unhurt, healing}`), and every pace or work penalty a hurt
+body had.
+
+- **A hit** still rolls its part (`Part::hit_by`, `HIT_ODDS`) — the part
+  says only which piece of armour takes it first — and what the armour
+  lets through comes off the bar (`strike_stripping`: `Health::hit`,
+  `WoundOutcome { downed, absorbed, through, piece_broke }`). No passive
+  mending.
+- **Nought is downed** (`Health::downed`, the character knocked out):
+  no acting, no target, carried by a medic like one out cold was, and a
+  countdown of `DOWNED_SECONDS` (30) of the room's steps
+  (`Health::update`, so a paused world freezes it) and then dead.
+  `Game::is_downed` reads the character, which is knocked out at the top
+  of the next tick, so a hit's down is seen a step later — the relics'
+  edge on a down depends on that. `Game::down_left` is the ring's
+  seconds; `take_downs` hands the world every body a hit downed.
+- **A revive** is `Kind::Revive { patient }` (walk, then `Step::Revive`
+  with hands on it for `Skill::revive` seconds — `REVIVE_SECONDS` (10)
+  unless the world says otherwise; `Action::Revive` is the pose, both
+  hands pressing), started by `Game::revive_crewmate(who, patient)` or
+  `CrewOrder::Revive`. Refused for a patient not downed, a Manufacturer,
+  one outside or carried, the helper itself, a helper that cannot act,
+  and a patient somebody else is reviving — one reviver counts. Damage
+  does not interrupt it; the reviver holds its fire. At the end
+  (`Room::revived` → `apply_revives`) the patient, still within two tiles
+  and still downed, is up at `REVIVED_TO` (three tenths) of its bar and
+  **slowed** (`Health::was_downed`, `DOWNED_PACE` 0.7) until
+  `Game::forget_downed` or `restore_health` — a second down does not
+  slow it twice. `take_revives` hands the world each `Revived { helper,
+  patient }`.
+- **Who revives of their own accord** is `revive_on_offer`: a **bot**
+  (never a player's own Bim, never a Manufacturer), not recruited unless
+  the room is quiet, the patient out of harm or the room calm, and only
+  in a room whose `revivers` is on — the world turns it on for the crew
+  and off for a station's or a town's people. The Medical job is that
+  offer.
+- **Blood on the deck stays as a picture**: a hit that takes hit points
+  throws a small splash (`Blood::splash`, `SPLASH_TILES` one or two,
+  half a drop's cost each — the same draws as before), one the armour
+  takes whole none; a body under `BLEEDS_UNDER` (20), downed included,
+  drips every `DRIP_EVERY` and leaves a trail; the dead lie in a pool as
+  before. A machine never bleeds. The coverall's blotch is
+  `refresh_bleeding` off the same rule.
+
+`health::tests` pin the bar, the countdown and its pause, the revive's
+share and the slow; `game::tests` (`hit_points_at_nothing_down_…`,
+`a_downed_bim_dies_after_its_countdown_of_steps`,
+`a_revive_takes_the_helper_s_seconds_…`,
+`a_bot_revives_a_downed_crewmate_of_its_own_accord`,
+`a_player_s_own_bim_revives_only_when_ordered`,
+`only_a_hit_that_takes_hit_points_splashes_blood`,
+`a_body_under_twenty_hit_points_drips_a_trail`,
+`a_machine_keeps_its_parts_and_never_bleeds_or_goes_down`) the room.

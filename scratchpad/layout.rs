@@ -22,7 +22,7 @@ fn main() {
             game.wound(1, health::Part::Body, 1.0);
         }
     }
-    // Both figures down side by side: James dead and Kate out cold, for
+    // Both figures down side by side: James dead and Kate downed, for
     // looking at the two figures down against each other.
     let dead = want == "dead";
     if dead {
@@ -37,11 +37,11 @@ fn main() {
         game.update(1.0 / 60.0);
         n += 1;
         if down {
-            if game.is_unconscious(1) {
+            if game.is_downed(1) {
                 break;
             }
         } else if dead {
-            if game.is_unconscious(1) && n >= 30 {
+            if game.is_downed(1) && n >= 30 {
                 break;
             }
         } else if n >= 120 {
