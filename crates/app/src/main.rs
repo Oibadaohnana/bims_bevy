@@ -83,6 +83,7 @@ mod settings;
 mod shapes;
 mod sound;
 mod theme;
+mod wavecfg;
 
 use bevy::prelude::*;
 use bevy_egui::EguiPlugin;
@@ -434,6 +435,7 @@ fn main() {
         screens::designer::DesignerPlugin,
         screens::game::GamePlugin,
         screens::station::StationBuilderPlugin,
+        wavecfg::WaveConfigPlugin,
     ))
     .add_systems(Startup, open);
     app.run();

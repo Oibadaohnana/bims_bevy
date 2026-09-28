@@ -691,6 +691,14 @@ pub struct World {
     /// the formula says: the measurements' dial, `None` in the game. In
     /// `world_checksum` with the rest.
     droid_wave_forced: Option<u32>,
+    /// The wave formula's dials ([`droidplan::WaveScaling`]), the
+    /// constants unless the app's `waves.ron` says otherwise — tuning
+    /// while the game runs. **Neither saved nor hashed**: the app hands
+    /// them over again every frame they differ, a load and a restart
+    /// included, and what they decide (`Infestation::waves_left`, the
+    /// machines laid) is what is kept.
+    #[cfg_attr(feature = "serde", serde(skip))]
+    wave_scaling: droidplan::WaveScaling,
     /// How many waves a held station has all told, forced by a probe
     /// (`BIMS_DROID_WAVES`, and three on the `droids` commands) whatever
     /// the formula says; `None` in the game. **Neither saved nor
@@ -1139,6 +1147,7 @@ impl World {
             droid_tier: None,
             droid_reinforce: data::DROID_REINFORCE_STEPS,
             droid_wave_forced: None,
+            wave_scaling: droidplan::WaveScaling::DEFAULT,
             droid_waves_forced: None,
             droid_kinds_forced: None,
             defense_by_machines_forced: false,
@@ -5724,7 +5733,8 @@ impl World {
     /// moves.
     ///
     /// **In the run's first mission** every wave is
-    /// [`data::FIRST_MISSION_WAVE_EASE`] fewer, never under one — unless a
+    /// `first_mission_ease` fewer ([`droidplan::WaveScaling`];
+    /// [`data::FIRST_MISSION_WAVE_EASE`] untuned), never under one — unless a
     /// probe forced it.
     pub fn droid_wave_size(&self) -> u32 {
         let defenders = if self.defense_here().is_some() {
@@ -5735,7 +5745,8 @@ impl World {
         let size = self.wave_size_with(self.hours_gone(), defenders);
         let forced = self.droid_kinds_forced.is_some() || self.droid_wave_forced.is_some();
         if self.run.missions <= 1 && !forced {
-            size.saturating_sub(data::FIRST_MISSION_WAVE_EASE).max(1)
+            size.saturating_sub(self.wave_scaling.first_mission_ease)
+                .max(1)
         } else {
             size
         }
@@ -5760,7 +5771,7 @@ impl World {
         if let Some(forced) = self.droid_wave_forced {
             return forced.max(1);
         }
-        droidplan::wave_size(self.players() + more, droidplan::time_steps(hours)).max(1)
+        self.wave_scaling.size(self.players() + more, hours).max(1)
     }
 
     /// The probes' other dial (`BIMS_DROID_WAVE`): every wave from now
@@ -5784,6 +5795,18 @@ impl World {
         self.defense_by_machines_forced = true;
     }
 
+    /// Tune the wave formula (`waves.ron`, read by the app while the
+    /// game runs): from the next wave laid and the next count settled
+    /// on, the dials are these. Not saved and not hashed.
+    pub fn set_wave_scaling(&mut self, scaling: droidplan::WaveScaling) {
+        self.wave_scaling = scaling;
+    }
+
+    /// The wave formula's dials as they stand.
+    pub fn wave_scaling(&self) -> droidplan::WaveScaling {
+        self.wave_scaling
+    }
+
     /// The wave size a probe has forced (`BIMS_DROID_WAVE`), if any.
     pub fn droid_wave_forced(&self) -> Option<u32> {
         self.droid_wave_forced
@@ -5804,7 +5827,7 @@ impl World {
         if let Some(forced) = self.droid_waves_forced {
             return forced.max(1);
         }
-        droidplan::wave_count(droidplan::time_steps(hours))
+        self.wave_scaling.count(hours).max(1)
     }
 
     /// The probes' dial: a held station has this many waves all told,

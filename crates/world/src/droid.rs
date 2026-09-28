@@ -177,6 +177,81 @@ pub fn time_steps(hours_gone: u32) -> u32 {
     hours_gone / data::ENEMIES_HOURS
 }
 
+/// The dials of the wave formula, for tuning while the game runs: the
+/// app reads them from `waves.ron` and hands them to
+/// `World::set_wave_scaling` whenever the file changes. The default is
+/// the constants in [`data`], so a world never told is the formula
+/// above to the machine.
+///
+/// A wave is `base + per_player × players + per_step × steps`, `steps`
+/// being whole `step_hours` of the world clock, and a held station has
+/// `waves_base + steps / steps_per_wave` waves (nought: never more).
+/// Every wave of the run's first mission is `first_mission_ease`
+/// fewer. Integers only, like the formula.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Serialize, serde::Deserialize),
+    serde(default)
+)]
+pub struct WaveScaling {
+    /// Machines in every wave before anything is counted.
+    pub base: u32,
+    /// Machines added for each player Bim.
+    pub per_player: u32,
+    /// Machines added for each time step gone.
+    pub per_step: u32,
+    /// How many hours of the world clock one time step is (one at the
+    /// least).
+    pub step_hours: u32,
+    /// Waves a held station has before the clock is counted.
+    pub waves_base: u32,
+    /// A wave more every this many time steps; nought for never.
+    pub steps_per_wave: u32,
+    /// Machines fewer in every wave of the run's first mission.
+    pub first_mission_ease: u32,
+}
+
+impl WaveScaling {
+    /// The constants of [`data`]: the game as it plays untuned.
+    pub const DEFAULT: WaveScaling = WaveScaling {
+        base: data::DROID_WAVE_BASE,
+        per_player: 1,
+        per_step: 1,
+        step_hours: data::ENEMIES_HOURS,
+        waves_base: data::DROID_WAVES_BASE,
+        steps_per_wave: 2,
+        first_mission_ease: data::FIRST_MISSION_WAVE_EASE,
+    };
+
+    /// Whole time steps in `hours_gone` of the world clock.
+    pub fn steps(&self, hours_gone: u32) -> u32 {
+        hours_gone / self.step_hours.max(1)
+    }
+
+    /// How many machines a wave is for `players` at `hours_gone`.
+    pub fn size(&self, players: u32, hours_gone: u32) -> u32 {
+        self.base
+            .saturating_add(self.per_player.saturating_mul(players))
+            .saturating_add(self.per_step.saturating_mul(self.steps(hours_gone)))
+    }
+
+    /// How many waves a held station has at `hours_gone`.
+    pub fn count(&self, hours_gone: u32) -> u32 {
+        let more = match self.steps_per_wave {
+            0 => 0,
+            n => self.steps(hours_gone) / n,
+        };
+        self.waves_base.saturating_add(more)
+    }
+}
+
+impl Default for WaveScaling {
+    fn default() -> WaveScaling {
+        WaveScaling::DEFAULT
+    }
+}
+
 // --- the crisis (feature 92) ---------------------------------------------
 
 /// Where the machines began: the one star the crisis spreads out from.
@@ -243,6 +318,40 @@ pub fn turns_on(first: u32, hops: u16) -> u32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The untuned dials are the formula to the machine, and a tuned one
+    /// moves what it says.
+    #[test]
+    fn the_default_scaling_is_the_formula_and_a_dial_moves_it() {
+        let d = WaveScaling::DEFAULT;
+        for players in 1..=4 {
+            for hours in (0..=data::ENEMIES_HOURS * 12).step_by(37) {
+                assert_eq!(
+                    d.size(players, hours),
+                    wave_size(players, time_steps(hours))
+                );
+                assert_eq!(d.count(hours), wave_count(time_steps(hours)));
+            }
+        }
+        let tuned = WaveScaling {
+            base: 5,
+            per_player: 2,
+            per_step: 3,
+            step_hours: 24,
+            waves_base: 1,
+            steps_per_wave: 0,
+            first_mission_ease: 0,
+        };
+        // Two players, three days in.
+        assert_eq!(tuned.size(2, 3 * 24 + 5), 5 + 2 * 2 + 3 * 3);
+        assert_eq!(tuned.count(100 * 24), 1, "nought steps a wave: never more");
+        // A step of nought hours is a step of one, not a division by nought.
+        let zero = WaveScaling {
+            step_hours: 0,
+            ..tuned
+        };
+        assert_eq!(zero.steps(7), 7);
+    }
 
     #[test]
     fn a_wave_is_the_sum_and_has_no_cap() {
