@@ -613,17 +613,25 @@ fn hurt(world: &mut World, who: usize, damage: f32) {
 /// hit points, and the blood never touched.
 #[test]
 fn pressure_seal_clot_booster_and_quick_wrap_heal_hit_points() {
+    // What each of two Bims hurt alike gained over `seconds`: the one
+    // without a relic is the room's own slow mending, which both have.
+    let gains = |world: &mut World, seconds: f64| {
+        let before = [0, 1].map(|who| world.aboard.room.health(who));
+        run_seconds(world, seconds);
+        [0, 1].map(|who| world.aboard.room.health(who) - before[who])
+    };
     let mut world = crewed_world(flyer(2), REFERENCE_MONEY, 2, 2);
     world.give_relic_for_probe(0, Relic::PressureSeal);
     hurt(&mut world, 0, 30.0);
     hurt(&mut world, 1, 30.0);
-    let (a, b) = (world.aboard.room.health(0), world.aboard.room.health(1));
     let blood = world.aboard.room.blood(0);
-    run_seconds(&mut world, 4.0);
-    let gained = world.aboard.room.health(0) - a;
+    let [holder, other] = gains(&mut world, 4.0);
     let want = data::PRESSURE_SEAL_HP_PER_SECOND * 4.0;
-    assert!((gained - want).abs() < 0.2, "{gained} against {want}");
-    assert!(world.aboard.room.health(1) - b < 0.05, "the holder alone");
+    assert!(
+        (holder - other - want).abs() < 0.05,
+        "{holder} {other} against {want}"
+    );
+    assert!(other < want / 2.0, "the holder alone");
     assert!(world.aboard.room.blood(0) <= blood, "never the blood");
 
     // Quick Wrap: a dressing on itself or a crewmate is health back.
@@ -639,24 +647,25 @@ fn pressure_seal_clot_booster_and_quick_wrap_heal_hit_points() {
     // Clot Booster: health back while down, for its seconds and no longer.
     let mut world = crewed_world(flyer(2), REFERENCE_MONEY, 2, 2);
     world.give_relic_for_probe(1, Relic::ClotBooster);
+    hurt(&mut world, 0, 60.0);
     hurt(&mut world, 1, 60.0);
-    run_seconds(&mut world, 2.0);
-    let standing = world.aboard.room.health(1);
-    run_seconds(&mut world, 2.0);
-    assert!(world.aboard.room.health(1) - standing < 0.05, "not on its feet");
-    world.aboard.room.knock_out_for_probe(1);
+    let [plain, holder] = gains(&mut world, 2.0);
+    assert!((holder - plain).abs() < 0.01, "nothing on its feet");
+    for who in [0, 1] {
+        world.aboard.room.knock_out_for_probe(who);
+    }
     world.step(&[]);
-    assert!(world.aboard.room.is_down(1));
-    let down = world.aboard.room.health(1);
-    run_seconds(&mut world, 5.0);
-    let gained = world.aboard.room.health(1) - down;
+    assert!(world.aboard.room.is_down(0) && world.aboard.room.is_down(1));
+    let [plain, holder] = gains(&mut world, 5.0);
     let want = data::CLOT_BOOSTER_HP_PER_SECOND * 5.0;
-    assert!((gained - want).abs() < 0.5, "{gained} against {want}");
+    assert!(
+        (holder - plain - want).abs() < 0.5,
+        "{holder} {plain} against {want}"
+    );
     run_seconds(&mut world, data::CLOT_BOOSTER_SECONDS);
     assert!(world.aboard.room.is_down(1), "still down");
-    let after = world.aboard.room.health(1);
-    run_seconds(&mut world, 3.0);
-    assert!(world.aboard.room.health(1) - after < 0.05, "its seconds are up");
+    let [plain, holder] = gains(&mut world, 3.0);
+    assert!((holder - plain).abs() < 0.01, "its seconds are up");
 }
 
 /// **Tether Field**: a crewmate its holder dresses takes less of every hit

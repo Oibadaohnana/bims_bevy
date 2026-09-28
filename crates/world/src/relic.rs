@@ -1705,7 +1705,7 @@ mod tests {
             .into_iter()
             .filter(|r| matches!(r.effect(), Effect::Rule(_)))
             .count();
-        assert_eq!(rules, 10);
+        assert_eq!(rules, 11);
         assert!(
             rule_of(&[Relic::RestockCodes], |r| (r == Rule::Restock)
                 .then_some(()))

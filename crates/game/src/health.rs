@@ -689,6 +689,33 @@ impl Health {
 mod tests {
     use super::*;
 
+    /// **A heal is hit points, shared by what each part is short of**,
+    /// never past full, none to a part a trauma holds, and never the blood.
+    #[test]
+    fn a_heal_fills_what_the_parts_are_short_of_and_leaves_the_blood() {
+        let mut h = Health::new();
+        assert_eq!(h.heal(10.0), 0.0, "nothing short, nothing given");
+        h.shot(Part::Body, 20.0, false, 0.99);
+        h.shot(Part::Legs, 5.0, false, 0.99);
+        let (blood, before) = (h.blood(), h.points());
+        assert_eq!(h.heal(10.0), 10.0);
+        assert!((h.points() - before - 10.0).abs() < 1e-4);
+        assert_eq!(h.blood(), blood, "never the blood");
+        // The body short of four times what the legs are, it takes four
+        // fifths of it.
+        assert!((h.part(Part::Body) - (Part::Body.max() - 12.0)).abs() < 1e-4);
+        assert!((h.part(Part::Legs) - (Part::Legs.max() - 3.0)).abs() < 1e-4);
+        assert!((h.heal(100.0) - 15.0).abs() < 1e-4, "only what is short");
+        assert_eq!(h.points(), MAX_HEALTH);
+        // A part held at nothing by a trauma takes none of it.
+        let mut h = Health::new();
+        h.shot(Part::Legs, 1_000.0, false, 0.0);
+        assert!(h.trauma(Part::Legs).is_some());
+        h.shot(Part::Body, 10.0, false, 0.99);
+        assert!((h.heal(50.0) - 10.0).abs() < 1e-4);
+        assert_eq!(h.part(Part::Legs), 0.0);
+    }
+
     #[test]
     fn the_parts_add_to_a_hundred_and_the_rolls_split_as_asked() {
         // --- the_parts_add_to_a_hundred_and_the_odds_to_one ---

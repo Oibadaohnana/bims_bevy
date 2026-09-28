@@ -3893,5 +3893,10 @@ nothing about them:
   bolts and blows — narrower with *Wide Angle Optics*.
   `combat::shield_stops_within` is `shield_stops` at a front of one's
   own; an empty list is `GUARDIAN_SHIELD_COS` for everybody.
+- **`Game::heal(who, points)`** (`Health::heal`): hit points put back at
+  once, shared over the parts by what each is short of — none to a leg
+  gone or a part a trauma holds at nothing — and **never the blood**.
+  The Lifeline patch's healing (*Pressure Seal*, *Clot Booster*, *Quick
+  Wrap*) goes through it, so it outlives a health system without blood.
 - **`Droid::front`**: which way every kind faces, for a hit from the side
   or behind — a Guardian's `facing`, the picture's heading for the rest.
