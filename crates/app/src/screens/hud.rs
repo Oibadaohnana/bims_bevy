@@ -132,21 +132,44 @@ fn droid_line(world: &world::World) -> Option<(String, &'static str)> {
     if let Some(defending) = world.defense_here() {
         let waves = defending.wave + defending.waves_left;
         let standing = world.droids_standing();
+        // Before day ten the waves are the Manufacturers' (task 131).
+        let theirs = world.defense_by_manufacturers();
+        let up = |wave, waves, standing| {
+            if theirs {
+                manufacturers_standing(wave, waves, standing)
+            } else {
+                droids_standing(wave, waves, standing)
+            }
+        };
         let words = if standing > 0 {
-            droids_standing(defending.wave, waves, standing)
+            up(defending.wave, waves, standing)
         } else if defending.wave == 0
             && let Some(due) = world.defense_wave_due()
         {
             // Before the first wave (task 111): the prep time, counting.
             defense_prepare(&crate::format::countdown(due))
         } else if let Some(due) = world.defense_wave_due() {
-            droids_next_wave(&crate::format::countdown(due), defending.wave + 1, waves)
+            let span = crate::format::countdown(due);
+            if theirs {
+                manufacturers_next_wave(&span, defending.wave + 1, waves)
+            } else {
+                droids_next_wave(&span, defending.wave + 1, waves)
+            }
         } else if defending.wave > 0 && defending.waves_left == 0 {
-            DROIDS_CLEARED.into()
+            if theirs {
+                MANUFACTURERS_CLEARED.into()
+            } else {
+                DROIDS_CLEARED.into()
+            }
         } else {
-            droids_standing(defending.wave.max(1), waves.max(1), 0)
+            up(defending.wave.max(1), waves.max(1), 0)
         };
-        return Some((words, DEFENSE_TIP));
+        let tip = if theirs {
+            DEFENSE_TIP_MANUFACTURERS
+        } else {
+            DEFENSE_TIP
+        };
+        return Some((words, tip));
     }
     // At the Machine Heart's fortress (feature 108) the core and its
     // conduits come first in the same red chip, the waves after them.

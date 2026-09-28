@@ -319,6 +319,78 @@ impl Nav {
         p
     }
 
+    /// Where a body arriving at each of `wanted` can stand **and walk off
+    /// from**, as a group landing round `wanted[0]`: every spot kept that
+    /// is free, in the same patch as the first and at least `spacing`
+    /// from those already kept; every other one moved to the free cell
+    /// nearest the first by walking that is at least `spacing` from the
+    /// rest — a corridor is filled outward from the door rather than a
+    /// ring round it laid into the walls. What a reinforcement wave is
+    /// stood on: a spot in a wall snapped by [`Nav::nearest_free`] could
+    /// come out across it, in a closet nobody can walk out of, and the
+    /// machine stood there never moved again. Where the patch has no room
+    /// left the spacing is let go, and past that a spot is the first's.
+    pub fn spread_from(&self, wanted: &[Vec2], spacing: f32) -> Vec<Vec2> {
+        let Some(&first) = wanted.first() else {
+            return Vec::new();
+        };
+        let middle = self.nearest_free(first);
+        let (c0, r0) = self.cell_at(middle);
+        let home = self.region[r0 * self.cols + c0];
+        if home == 0 {
+            return wanted.to_vec();
+        }
+        let fits = |p: Vec2, kept: &[Option<Vec2>], gap: f32| {
+            kept.iter().flatten().all(|&k| (k - p).len() >= gap)
+        };
+        let mut kept: Vec<Option<Vec2>> = Vec::with_capacity(wanted.len());
+        let mut moved: Vec<usize> = Vec::new();
+        for (i, &p) in wanted.iter().enumerate() {
+            let (c, r) = self.cell_at(p);
+            if i == 0 {
+                kept.push(Some(middle));
+            } else if !self.is_blocked(c, r)
+                && self.region[r * self.cols + c] == home
+                && fits(p, &kept, spacing)
+            {
+                kept.push(Some(p));
+            } else {
+                kept.push(None);
+                moved.push(i);
+            }
+        }
+        if moved.is_empty() {
+            return kept.into_iter().flatten().collect();
+        }
+        // The patch in the order it is walked from the middle.
+        let mut order: Vec<(usize, usize)> = Vec::new();
+        let mut seen = vec![false; self.cols * self.rows];
+        let mut queue = std::collections::VecDeque::from([(c0, r0)]);
+        seen[r0 * self.cols + c0] = true;
+        while let Some((c, r)) = queue.pop_front() {
+            order.push((c, r));
+            for (nc, nr) in self.steps_from(c, r) {
+                if !seen[nr * self.cols + nc] {
+                    seen[nr * self.cols + nc] = true;
+                    queue.push_back((nc, nr));
+                }
+            }
+        }
+        for i in moved {
+            let spot = |gap: f32| {
+                order
+                    .iter()
+                    .map(|&(c, r)| self.centre(c, r))
+                    .find(|&p| fits(p, &kept, gap))
+            };
+            let at = spot(spacing)
+                .or_else(|| spot(self.cell * 0.5))
+                .unwrap_or(middle);
+            kept[i] = Some(at);
+        }
+        kept.into_iter().flatten().collect()
+    }
+
     /// The middles of the free cells within `radius` of `centre`, one every
     /// `spacing` units along each axis (rounded to whole cells, never
     /// fewer than one), for something that wants places to stand rather

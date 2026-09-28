@@ -344,7 +344,10 @@ ring round its icon and a word under it:
   cleared says *cleared*, its ring faded.
 - **DEFEND** (amber): everywhere else — stations, derelicts and towns
   alike, **the place a run starts at among them**, from the very first
-  day. The machines are coming for it. The moment you arrive the crew are
+  day. **Before day ten the Manufacturers are coming for it**, their
+  people and the day's share of their Troopers (see
+  [The Manufacturers](#the-manufacturers)); from day ten, the machines.
+  The moment you arrive the crew are
   put ashore just inside its airlock and a countdown starts along the
   top — `Prepare: 0:20` — and twenty seconds later the first wave lands,
   at the airlock farthest from yours or outside a town's gate, another
@@ -432,8 +435,8 @@ the tier of what they carry on arrival.
   three in five on day nine.
 - **From day ten** they have lost the machines: their own people alone,
   in **waves** as a machines' station has them, geared at the tier the
-  machines there would come at, and the next wave's ship docks **four
-  hours** after the last of a wave is down.
+  machines there would come at, and the next wave's ship docks **thirty
+  seconds** after the last of a wave is down.
 - **Cleared** the moment every Manufacturer is down or dead, every Trooper
   is destroyed and no wave is left — one down and still counting holds
   nothing up, the clear or the leaving. The Republic pays a Manufacturer's
@@ -441,6 +444,15 @@ the tier of what they carry on arrival.
   clear offers relics like any other (see
   [Relics](#relics-and-what-a-won-run-unlocks)); and a site left
   uncleared is met afresh next time, at the new day.
+- **They attack as well as defend.** Before day ten every place you
+  defend is attacked by them rather than the machines: each wave the size
+  a wave of machines would be, their people armed by the day as above and
+  the same day's share of Troopers beside them — none on day nought, a
+  tenth on days five and six, a quarter on day seven, half on day eight,
+  three in five on day nine. They come in at the far airlock or a town's
+  gate, fight you and the place's defenders, and shoot its people; the
+  place counts each of them down at its first down, and pays for them as
+  for the machines. From day ten the machines come instead.
 - **Not the crisis.** A site of theirs is never infested and never a
   jammer, and the machines spreading through its system pass it by.
 

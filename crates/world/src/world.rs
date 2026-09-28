@@ -699,6 +699,13 @@ pub struct World {
     /// room, which the checksum leaves out like everything of that room.
     #[cfg_attr(feature = "serde", serde(default))]
     droid_kinds_forced: Option<Vec<bims::droid::DroidKind>>,
+    /// The probes' word that a defence's waves are **the machines'**
+    /// whatever the day (task 131): before day ten they are the
+    /// Manufacturers' in the game, and the tests of the machines'
+    /// fight at a defence run at day nought. Saved and not hashed, as
+    /// `droid_kinds_forced` is.
+    #[cfg_attr(feature = "serde", serde(default))]
+    defense_by_machines_forced: bool,
     /// Where the machines began (feature 92): the one star the crisis
     /// spreads out from, rolled once at [`World::start`]
     /// ([`droidplan::origin`]) at least [`data::DROID_ORIGIN_MIN_HOPS`]
@@ -1121,6 +1128,7 @@ impl World {
             droid_wave_forced: None,
             droid_waves_forced: None,
             droid_kinds_forced: None,
+            defense_by_machines_forced: false,
             droid_origin,
             droid_hops,
             home_hops,
@@ -2634,26 +2642,57 @@ impl World {
             // crew are friends and are not on their list at all, which
             // is what "the townsfolk's hits reach droids" means — a
             // bolt of theirs flies here and lands here.
+            //
+            // **By body index** since task 131: a wave before day ten is
+            // the Manufacturers' people as well as their Troopers, and
+            // their people are Bims of this room. So the list is the
+            // room's whole index space — every Bim `None` but a
+            // Manufacturer on its feet, then the machines — and a hit
+            // comes back as a body index (below).
             let machines = room.droid_count() as usize;
-            let at_machines: Vec<Option<(bims::math::Vec2, Weapon)>> = (0..machines)
-                .map(|i| {
+            let intruder_up = |who: usize| {
+                room.is_manufacturer(who) && room.is_alive(who) && !room.is_downed(who)
+            };
+            let at_enemies: Vec<Option<(bims::math::Vec2, Weapon)>> = (0..bims)
+                .map(|who| {
+                    intruder_up(who).then(|| {
+                        (
+                            room.exposed_at(who),
+                            room.weapon(who).unwrap_or(WeaponKind::LaserPistol.basic()),
+                        )
+                    })
+                })
+                .chain((0..machines).map(|i| {
                     room.droid(i)
                         .filter(|d| !d.destroyed)
                         .map(|d| (d.pos, d.weapon))
-                })
+                }))
                 .collect();
-            let machine_peek: Vec<bool> = (0..machines)
-                .map(|i| room.droid(i).is_some_and(|d| d.peek.is_some()))
+            let enemy_peek: Vec<bool> = (0..bims)
+                .map(|who| intruder_up(who) && room.peek(who).is_some())
+                .chain((0..machines).map(|i| room.droid(i).is_some_and(|d| d.peek.is_some())))
+                .collect();
+            let enemy_dodge: Vec<f32> = (0..bims)
+                .map(|who| {
+                    if intruder_up(who) {
+                        room.dodge(who)
+                    } else {
+                        0.0
+                    }
+                })
+                .chain((0..machines).map(|_| 0.0))
                 .collect();
             // And a Guardian's shield faces the town's people as it faces
             // the crew (feature 100): their bolts fly here, so it is
             // decided here, in the room's own frame.
-            let machine_shields: Vec<Option<bims::math::Vec2>> = (0..machines)
-                .map(|i| room.droid(i).and_then(|d| d.shield()))
+            let enemy_shields: Vec<Option<bims::math::Vec2>> = (0..bims)
+                .map(|_| None)
+                .chain((0..machines).map(|i| room.droid(i).and_then(|d| d.shield())))
                 .collect();
-            room.set_hostiles(at_machines);
-            room.set_hostiles_peeking(&machine_peek);
-            room.set_hostiles_shields(&machine_shields);
+            room.set_hostiles(at_enemies);
+            room.set_hostiles_peeking(&enemy_peek);
+            room.set_hostiles_dodge(&enemy_dodge);
+            room.set_hostiles_shields(&enemy_shields);
             // And **the machines' own list**: the crew across the seam
             // first — shot at with a recorded `Shot` the world flies on
             // the joined deck — then the town's people, shot at with a
@@ -2661,12 +2700,17 @@ impl World {
             let mut theirs = crew.clone();
             let cross = theirs.len();
             for who in 0..bims {
-                theirs.push((room.is_alive(who) && !room.is_downed(who)).then(|| {
-                    (
-                        room.exposed_at(who),
-                        room.weapon(who).unwrap_or(WeaponKind::LaserPistol.basic()),
-                    )
-                }));
+                // Never one of their own people (task 131), who came with
+                // the wave.
+                let theirs_too = room.is_manufacturer(who);
+                theirs.push(
+                    (!theirs_too && room.is_alive(who) && !room.is_downed(who)).then(|| {
+                        (
+                            room.exposed_at(who),
+                            room.weapon(who).unwrap_or(WeaponKind::LaserPistol.basic()),
+                        )
+                    }),
+                );
             }
             room.set_machine_hostiles(theirs, cross);
             // And who takes arms: **a town's guard, any mercenaries and
@@ -2679,6 +2723,9 @@ impl World {
                     !(town && who == surface::GUARD as usize)
                         && !residents.is_mercenary(who)
                         && !residents.is_defender(who)
+                        // A Manufacturer come to attack (task 131) runs
+                        // into no house.
+                        && !residents.aboard.room.is_manufacturer(who)
                 })
                 .collect();
             let room = &mut residents.aboard.room;
@@ -2701,13 +2748,24 @@ impl World {
         // friendly `Hit`s on this room's own target list, which is the
         // machines by droid index, so they are delivered to the machine
         // they were aimed at without crossing anywhere.
+        // Since task 131 the list is by body index, so a hit is a machine's
+        // past the Bims and a Manufacturer's among them.
         let own = room.take_hits();
+        let bims = room.crew_count() as usize;
         for hit in own {
-            room.strike_droid(
-                hit.who,
-                bims::droid::DroidPart::hit_by(hit.roll),
-                hit.damage,
-            );
+            match hit.who.checked_sub(bims) {
+                Some(i) => {
+                    room.strike_droid(i, bims::droid::DroidPart::hit_by(hit.roll), hit.damage);
+                }
+                None if room.is_manufacturer(hit.who) => {
+                    if hit.blast {
+                        room.blast(hit.who, hit.part, hit.damage);
+                    } else {
+                        room.strike(hit.who, hit.part, hit.damage, hit.cut);
+                    }
+                }
+                None => {}
+            }
         }
         let shots = room.take_shots();
         if let Some((origin, ex, ey)) = self.aboard.station_frame {
@@ -2788,8 +2846,10 @@ impl World {
                 // friends, so they are handed over as nobody's target
                 // and the crew never aim at one. The index space is
                 // still the whole room's, which is what a hit read back
-                // past the Bims relies on.
-                if defending && who < town_bims {
+                // past the Bims relies on. The Manufacturers come with a
+                // wave before day ten (task 131) are the crew's enemies
+                // among them.
+                if defending && who < town_bims && !room.is_manufacturer(who as usize) {
                     return false;
                 }
                 room.is_alive(who as usize) && !room.is_downed(who as usize)
@@ -5645,6 +5705,13 @@ impl World {
         self.droid_kinds_forced = Some(kinds);
     }
 
+    /// Every defence's waves the machines' from now on, whatever the day
+    /// (task 131): for the tests of the machines' fight at a defence,
+    /// which run at day nought, where the game sends the Manufacturers.
+    pub fn set_defense_by_machines_for_probe(&mut self) {
+        self.defense_by_machines_forced = true;
+    }
+
     /// The cap as it stands — [`data::DROID_WAVE_MAX`], or what a probe
     /// has forced.
     pub fn droid_wave_max(&self) -> u32 {
@@ -6340,13 +6407,28 @@ impl World {
         // on the ground have to be laid again — as many of them as were
         // still up, and not the wave at full strength, or a fight could
         // be won or lost by taking off and landing again.
-        let fresh_room = self
-            .residents
-            .as_ref()
-            .is_some_and(|r| r.station == id && r.aboard.room.droid_count() == 0);
+        // **Before day ten the wave is the Manufacturers'** (task 131):
+        // their people and the day's share of Troopers. Their people are
+        // Bims, and a room can hold the site's dead besides, so a room
+        // holds their wave when it says so (`manufacturers_laid`) rather
+        // than when it has machines.
+        let by_them = self.defense_by_manufacturers();
+        let wave_now = self.defense(id).map_or(0, |d| d.wave);
+        let fresh_room = self.residents.as_ref().is_some_and(|r| {
+            r.station == id
+                && if by_them {
+                    r.manufacturers_laid != wave_now
+                } else {
+                    r.aboard.room.droid_count() == 0
+                }
+        });
         let left_standing = self.defense(id).map_or(0, |d| d.standing);
         if fresh_room && left_standing > 0 {
-            self.settle_defense_droids(id, left_standing);
+            if by_them {
+                self.lay_defense_manufacturers(id, left_standing);
+            } else {
+                self.settle_defense_droids(id, left_standing);
+            }
         }
         let standing = self.droids_standing();
         if let Some(d) = self.defense_mut(id) {
@@ -6361,10 +6443,15 @@ impl World {
         // counts a machine down — its bounty, its experience — only while
         // the defence is running, and a win declared the step the last one
         // went down left that one uncounted and its bounty unpaid.
+        // A Manufacturer is counted at its first down (task 131), the way
+        // `experience` pays for one, and not only once it has bled out.
         let counted = self.residents.as_ref().is_none_or(|r| {
-            let bims = r.aboard.room.crew_count() as usize;
-            (0..r.aboard.room.droid_count() as usize)
-                .all(|i| r.down.get(bims + i).copied().unwrap_or(false))
+            let room = &r.aboard.room;
+            let bims = room.crew_count() as usize;
+            (0..room.droid_count() as usize).all(|i| r.down.get(bims + i).copied().unwrap_or(false))
+                && (0..bims)
+                    .filter(|&who| room.is_manufacturer(who))
+                    .all(|who| r.xp_down.get(who).copied().unwrap_or(false))
         });
         if let Some(d) = self.defense_mut(id) {
             if standing > 0 {
@@ -6391,7 +6478,11 @@ impl World {
         if arrive {
             self.clear_wrecks();
             let n = self.droid_wave_size();
-            self.settle_defense_droids(id, n);
+            if by_them {
+                self.lay_defense_manufacturers(id, n);
+            } else {
+                self.settle_defense_droids(id, n);
+            }
             if let Some(d) = self.defense_mut(id) {
                 d.standing = n;
             }
@@ -6525,6 +6616,9 @@ impl World {
         let bims = residents.aboard.room.crew_count() as usize;
         let living: Vec<u32> = (0..bims)
             .filter(|&who| residents.is_own(who))
+            // Nor one of the Manufacturers who attacked it (task 131), downed
+            // and not yet bled out.
+            .filter(|&who| !residents.aboard.room.is_manufacturer(who))
             .filter(|&who| residents.aboard.room.is_alive(who))
             .map(|who| who as u32)
             .collect();
@@ -6947,8 +7041,13 @@ impl World {
         let mut gained: Vec<(bims::math::Vec2, u32)> = Vec::new();
         let mut bounty: Money = 0;
         let count = residents.aboard.count() as usize;
-        for who in first..count.min(residents.xp_down.len()) {
+        for who in 0..count.min(residents.xp_down.len()) {
             let room = &residents.aboard.room;
+            // Past `first`, and a Manufacturer come with a wave to a site
+            // the crew defend (task 131), which is a Bim of the site's room.
+            if who < first && !room.is_manufacturer(who) {
+                continue;
+            }
             let dead = !room.is_alive(who);
             let down = dead || room.is_downed(who);
             let Some(at) = self

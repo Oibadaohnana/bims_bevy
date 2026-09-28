@@ -220,12 +220,12 @@ pub const DROID_WAVE_MAX: u32 = 16;
 /// dock** and never worked out again.
 pub const DROID_WAVES_BASE: u32 = 2;
 /// How long after the last machine of a wave is destroyed the next one
-/// arrives, in steps of the **mission clock** (feature 103) — two minutes
-/// of it at 1×, which was two hours of the old world clock. Never while
-/// one is still standing. The world clock stands still during a mission
+/// arrives, in steps of the **mission clock** (feature 103) — thirty
+/// seconds of it at 1× (it was two minutes), which was half an
+/// hour of the old world clock. Never while one is still standing. The world clock stands still during a mission
 /// (only travel moves it), so a wave is timed from the arrival like every
 /// other in-mission timer, and not by the day.
-pub const DROID_REINFORCE_STEPS: u64 = 7_200;
+pub const DROID_REINFORCE_STEPS: u64 = 1_800;
 /// How far beyond a town's wall the machines' lander sets down, in
 /// tiles: far enough that its own picture does not overlap the gate it
 /// unloaded through.
@@ -265,9 +265,10 @@ pub const MANUFACTURER_ARMOUR_DAY: u32 = 6;
 pub const MANUFACTURER_TROOPER_PERCENT: [(u32, u32); 6] =
     [(0, 0), (5, 10), (7, 25), (8, 50), (9, 60), (10, 0)];
 /// How long after a wave of theirs is down the next docks, in steps of
-/// the mission clock: four hours of it, twice the machines' own
-/// ([`DROID_REINFORCE_STEPS`]) — they have further to come.
-pub const MANUFACTURER_REINFORCE_STEPS: u64 = 14_400;
+/// the mission clock: thirty seconds at 1×, the machines' own
+/// ([`DROID_REINFORCE_STEPS`]) — it was four hours, twice theirs, until
+/// every station's waves were brought to half a minute apart.
+pub const MANUFACTURER_REINFORCE_STEPS: u64 = 1_800;
 
 // --- the Machine Heart (feature 108, `crate::heart`) ------------------------
 //

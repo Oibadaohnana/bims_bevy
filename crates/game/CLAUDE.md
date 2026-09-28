@@ -3244,7 +3244,12 @@ sets the body down, and the medical row takes it from there — doctoring
 a crewmate wants it out of harm (or the room calm), which is exactly
 where it has been carried, so the treatment starts there and then
 rather than when the fight is over. Carrying and still in it, it runs `Tactics::flee` with the
-body in its arms. Carrying nobody, `Game::worth_fetching` is the nearest
+body in its arms. **A carrier has no weapon out, so it never reaches
+`bot_stand`**: the carrying half of `rescue` is called from
+`tick_combat`'s unarmed branch for a field medic bot with a body in its
+arms. Until it was, a medic that picked a body up never set it down, and
+a body in somebody's arms cannot be revived — it ran its countdown out
+there while the bots stood by after the wave. Carrying nobody, `Game::worth_fetching` is the nearest
 crewmate within `RESCUE_LOOK` that is **out cold or dying** — a body
 merely bleeding is on its feet and can walk itself out — in nobody's
 arms, still in the fire, and reachable. Nothing to fetch and it falls
@@ -3764,6 +3769,27 @@ cuffs on the arms at rest. `Gear::manufacturer` is their kit
 (`MANUFACTURER_ODDS`: the four guns, the schword at nothing and first so
 rounding never lands on it), and `Game::set_clock_for_probe` puts a room's
 clock back for a probe that moves the world's back.
+
+### An intruder: a Manufacturer in a friendly room (task 131)
+
+Before day ten the Manufacturers attack the sites the crew defend
+(`crates/world/CLAUDE.md`), so their people stand in a **friendly** room
+beside the site's own. **`Game::is_intruder(who)`** is derived, never kept:
+`Bim::manufacturer` in a room whose bodies are not hostile. Its step is
+`intruder.rs` (a child of `game`), reached from `tick_combat`'s turn for
+the body before anything a friendly Bim does: **it fights the machines'
+way** — off `Combat::machine_targets`, a target below `machine_cross` a
+recorded `Shot` for the world to fly in the crew's room, one above it a
+hostile bolt here or `enemy_strike` — with a Bim's body: a stand off
+`Tactics::stand_scored` at `COVER_WORTH` and the hunter's rule, a peek
+standing still, fists or a blade in a lock. Four places keep the sides
+apart: the bodies a hostile bolt looks for leave an intruder out (so no
+bolt of the machines' or its own lands on it), `muster_crew` leaves it
+alone, `set_machine_hostiles` counts it among the machines' **eyes**, and
+`set_hostile_bodies`/`enlist_manufacturer` ring it red in any room. It is
+never revived and nothing is taken from it, as at their own sites. It does
+not breach a locked door (`breach` reads the room's list): a wave of them
+held off by a door the crew locked waits at it.
 
 ## A loadout and its charges (task 113)
 

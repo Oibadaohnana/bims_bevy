@@ -3307,6 +3307,16 @@ pub fn droids_next_wave(span: &str, wave: u32, waves: u32) -> String {
     format!("MACHINES — wave {wave} of {waves} in {span}")
 }
 pub const DROIDS_CLEARED: &str = "MACHINES — the last wave is down";
+/// A defence before day ten (task 131), whose waves are the Manufacturers'
+/// people with the day's share of Troopers: the same three lines under
+/// their name.
+pub fn manufacturers_standing(wave: u32, waves: u32, standing: u32) -> String {
+    format!("MANUFACTURERS — wave {wave} of {waves}, {standing} up")
+}
+pub fn manufacturers_next_wave(span: &str, wave: u32, waves: u32) -> String {
+    format!("MANUFACTURERS — wave {wave} of {waves} in {span}")
+}
+pub const MANUFACTURERS_CLEARED: &str = "MANUFACTURERS — the last wave is down";
 /// A defence before its first wave (task 111): the prep time, counting.
 pub fn defense_prepare(span: &str) -> String {
     format!("Prepare: {span}")
@@ -3350,6 +3360,9 @@ pub const DROIDS_TIP: &str = "The station is held by the machines, and they come
 /// The same warning over a town the crew are defending (feature 94):
 /// the fight is the machines', but the town's people are in it too.
 pub const DEFENSE_TIP: &str = "The machines are coming for this place, and the first wave lands twenty seconds after you arrive — at a far airlock, or outside a town's gate — a wave at a time after that. Its armed defenders, a town's guard and whatever mercenaries live here fight beside you; everybody else goes indoors and stays there. Hold the last wave and the place is cleared and the Republic pays for every machine — and a town is yours to keep: it stays friendly even after its system falls, and some of its people join your crew. Go back to the ship before the last wave is down and it falls to the machines behind you, and the bounty with it.";
+/// [`DEFENSE_TIP`] before day ten (task 131), when the attackers are the
+/// Manufacturers' people and the machines they still command.
+pub const DEFENSE_TIP_MANUFACTURERS: &str = "The Manufacturers are coming for this place — their people, and as the days go on more of the machines they still command beside them — and the first wave lands twenty seconds after you arrive, at a far airlock or outside a town's gate, a wave at a time after that. From the tenth day it is the machines alone. Its armed defenders, a town's guard and whatever mercenaries live here fight beside you; everybody else goes indoors and stays there. Hold the last wave and the place is cleared and the Republic pays for everyone you took down — and a town is yours to keep: it stays friendly even after its system falls, and some of its people join your crew. Go back to the ship before the last wave is down and it falls behind you, and the bounty with it.";
 
 /// The header's word while the crew's alarm is up, and what it means.
 pub const ALARM_STATUS: &str = "To arms — an enemy is near";

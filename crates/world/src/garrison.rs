@@ -24,6 +24,10 @@
 use super::*;
 use crate::manufacturer;
 
+/// Off a site's wave seed for a defence's wave of theirs (task 131), so
+/// it never rolls what a garrison of theirs on the same day would.
+const DEFENSE_SALT: u64 = 0x_4445_4645_4E43_4531;
+
 impl World {
     /// Whether a station of **this** system is one the Manufacturers hold
     /// by the rule ([`manufacturer::holds`]) — whatever the crew have done
@@ -193,6 +197,66 @@ impl World {
         let Some((spots, facing)) = placed else {
             return;
         };
+        self.stand_manufacturers(&troopers, &spots, facing, day, tier, seed, it.wave);
+    }
+
+    /// A wave of theirs **attacking a site the crew are defending**
+    /// (task 131): what lands in place of the machines' wave while they
+    /// still have the machines (before [`data::MANUFACTURER_DROIDS_LOST_DAY`]).
+    /// `n` bodies at the wave's arrival spots, each rolled a Trooper at the
+    /// day's share ([`manufacturer::trooper_percent`]: none on day nought,
+    /// a tenth from day five, up to three in five on day nine) and one of
+    /// their people otherwise, their people armed by the day
+    /// ([`manufacturer::gear`]). In a friendly room each of them is an
+    /// *intruder* (`bims::game::Game::is_intruder`) and fights the
+    /// machines' way. Off the site's own seed for the wave, with a salt of
+    /// its own, so a garrison and a defence on one day never roll alike.
+    pub(super) fn lay_defense_manufacturers(&mut self, id: u32, n: u32) {
+        let Some(wave) = self.defense(id).map(|d| d.wave) else {
+            return;
+        };
+        if wave == 0 || n == 0 {
+            return;
+        }
+        let Some(station) = self.station(id).cloned() else {
+            return;
+        };
+        let day = self.days_gone();
+        let tier = self.droid_tier();
+        let seed = self.garrison_seed(id, wave) ^ DEFENSE_SALT;
+        let troopers = manufacturer::garrison(n, day, seed);
+        let Some((spots, facing)) = self.arrival_spots(&station, n, wave) else {
+            return;
+        };
+        self.stand_manufacturers(&troopers, &spots, facing, day, tier, seed, wave);
+    }
+
+    /// Whether the waves attacking a site the crew defend are the
+    /// Manufacturers' today (task 131): while they still have the
+    /// machines, before [`data::MANUFACTURER_DROIDS_LOST_DAY`]; the
+    /// machines' own from then on — or always the machines' once a probe
+    /// said so ([`World::set_defense_by_machines_for_probe`]).
+    pub fn defense_by_manufacturers(&self) -> bool {
+        !self.defense_by_machines_forced && manufacturer::has_droids(self.days_gone())
+    }
+
+    /// One wave of theirs stood on the residents' deck at `spots`: their
+    /// people first — a body index past the Bims is a machine's — then the
+    /// Troopers beside them, a body `i` of the wave a Trooper where
+    /// `troopers[i]`. The room keeps which wave it holds
+    /// ([`Residents::manufacturers_laid`]).
+    #[allow(clippy::too_many_arguments)]
+    fn stand_manufacturers(
+        &mut self,
+        troopers: &[bool],
+        spots: &[bims::math::Vec2],
+        facing: f32,
+        day: u32,
+        tier: Tier,
+        seed: u64,
+        wave: u32,
+    ) {
+        let n = troopers.len() as u32;
         let spot = |i: usize| spots.get(i).copied().unwrap_or(bims::math::Vec2::ZERO);
         let stagger = |i: usize| bims::game::PLAN_EVERY * (i as f32) / (n.max(1) as f32);
         let Some(residents) = &mut self.residents else {
@@ -220,10 +284,10 @@ impl World {
                     bims::droid::DroidKind::Trooper,
                     tier,
                     k,
-                    it.wave,
+                    wave,
                     spot(i),
                     facing,
-                    seed ^ (i as u64) << 8 ^ u64::from(it.wave),
+                    seed ^ (i as u64) << 8 ^ u64::from(wave),
                 );
                 droid.plan_wait = stagger(i);
                 droid.breach_wait = droid.plan_wait;
@@ -232,7 +296,7 @@ impl World {
             .collect();
         room.adopt_droids(machines, bims::math::Vec2::ZERO);
         residents.aboard.crew = room.body_count();
-        residents.manufacturers_laid = it.wave;
+        residents.manufacturers_laid = wave;
     }
 
     /// The nearest site of the Manufacturers' by the lanes, as `(star,

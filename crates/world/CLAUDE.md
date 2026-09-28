@@ -5665,3 +5665,42 @@ hashes did not move: the cargo is still twenty-two slots.
   reinforcements and every commander's reach lists).
 
 `tests_commander.rs` is the task's tests.
+
+## The Manufacturers attack a defence before day ten (task 131)
+
+**While they still have the machines** (`manufacturer::has_droids`, before
+`MANUFACTURER_DROIDS_LOST_DAY`) every wave that lands on a site the crew
+defend is the Manufacturers': `World::defense_by_manufacturers` says so,
+and `defense_waves` lays `World::lay_defense_manufacturers` where it laid
+`settle_defense_droids` — `n` bodies at the wave's `arrival_spots`, each a
+Trooper at `manufacturer::trooper_percent(day)` (the garrison's own roll,
+`manufacturer::garrison`, off `garrison_seed ^ DEFENSE_SALT`) and one of
+their people otherwise, armed by `manufacturer::gear`. The garrison and the
+defence share `stand_manufacturers`: their people first, then the Troopers.
+From day ten the machines as before. `set_defense_by_machines_for_probe`
+(saved, not hashed, like `droid_kinds_forced`) keeps a defence's waves the
+machines' whatever the day, and `tests_defense.rs`' `basic()` takes it, since
+those tests are the machines' fight at day nought; `manufacturers_attack` in
+the same file is the Manufacturers'.
+
+What had to change for Bims of the enemy's in a **friendly** room — the
+room's half is `crates/game/CLAUDE.md` ("An intruder"):
+
+- **The site's targets are by body index now**, in `visit`: every Bim
+  `None` but a Manufacturer on its feet, then the machines — so a town
+  person's hit comes back as a body index, a machine's past the Bims
+  (`strike_droid`) and a Manufacturer's among them (`strike`/`blast`). For a
+  wave of machines alone the list is the machines behind a run of `None`s:
+  the same aims in the same order.
+- **The crew's targets** keep the whole index space and now leave a
+  Manufacturer among the site's Bims on it; **the machines' list** leaves
+  them off; **nobody of theirs shelters**.
+- **The put-back** of a wave on a room built afresh reads
+  `Residents::manufacturers_laid` for their waves (a room can hold them
+  and the site's dead, so "no machines" is no test), and the machines'
+  `droid_count() == 0` otherwise.
+- **The win** waits for every Manufacturer to be counted at its first down
+  (`xp_down`) as well as every machine; `experience` pays a Manufacturer of
+  a defence its experience and bounty as it does at their own sites (it
+  walks the Bims now, not only past `first_enemy_body`), and
+  `townsfolk_join` never takes one.

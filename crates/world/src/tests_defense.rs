@@ -18,8 +18,14 @@ use crate::surface;
 use crate::world::{Command, World};
 use crate::world_checksum;
 
+/// The world these tests stand in. **The machines' fight whatever the
+/// day** (task 131): before day ten a defence's waves are the
+/// Manufacturers' in the game, and these run at day nought — the
+/// Manufacturers' own tests are [`manufacturers_attack`] below.
 fn basic() -> World {
-    open_simulation_world(flyer(2), REFERENCE_MONEY, 2)
+    let mut world = open_simulation_world(flyer(2), REFERENCE_MONEY, 2);
+    world.set_defense_by_machines_for_probe();
+    world
 }
 
 /// Put the machines' origin one lane hop from the crew's own star and
@@ -864,4 +870,141 @@ fn leaving_a_station_defence_early_gives_it_to_the_machines_and_pays_nothing() {
             .iter()
             .any(|e| matches!(e, WorldEvent::TownsfolkJoined { .. }))
     );
+}
+
+/// **Before day ten a defence is attacked by the Manufacturers** (task
+/// 131): their people and, as the days go on, the machines they still
+/// command beside them at [`crate::manufacturer::trooper_percent`] of the
+/// day — none on day nought, about half on day eight — and from day ten the
+/// machines alone. A Manufacturer among the site's own people is an
+/// *intruder*: the crew's target and the site's, never the machines'.
+mod manufacturers_attack {
+    use super::*;
+
+    /// The spawn, a defence from the first step (task 111), on `day`, with
+    /// its fight cut to one wave of `size` a few steps off — and the game's
+    /// own rule for who comes, which `basic` takes away.
+    fn at_the_spawn(day: u32, size: u32) -> (World, u32) {
+        let mut world = open_simulation_world(flyer(2), REFERENCE_MONEY, 2);
+        world.set_day_for_probe(day);
+        world.set_droid_waves_for_probe(1);
+        world.set_droid_wave_for_probe(size);
+        world.set_defense_delay_for_probe(data::STEP_MINUTES * 4.0);
+        let id = world.ship.state.station().expect("docked at the spawn");
+        assert!(world.site_threatened(id), "the spawn is a defence");
+        (world, id)
+    }
+
+    /// Step until the wave is on the deck, and answer how many of it are
+    /// their people and how many machines.
+    fn the_wave(world: &mut World) -> (usize, usize) {
+        assert!(
+            until(world, 60, |w| w.droids_standing() > 0),
+            "the wave never landed"
+        );
+        let room = &world
+            .residents
+            .as_ref()
+            .expect("the site's room")
+            .aboard
+            .room;
+        let people = (0..room.crew_count() as usize)
+            .filter(|&who| room.is_manufacturer(who))
+            .inspect(|&who| assert!(room.is_intruder(who), "a Manufacturer among friends"))
+            .count();
+        (people, room.droid_count() as usize)
+    }
+
+    #[test]
+    fn on_day_nought_the_wave_is_their_people_alone() {
+        let (mut world, _) = at_the_spawn(0, 6);
+        assert!(world.defense_by_manufacturers());
+        assert_eq!(the_wave(&mut world), (6, 0), "no Trooper on day nought");
+        assert_eq!(world.droids_standing(), 6, "their people count as standing");
+    }
+
+    #[test]
+    fn on_day_eight_troopers_stand_beside_them_and_from_day_ten_the_machines_alone() {
+        let (mut world, _) = at_the_spawn(8, 16);
+        let (people, machines) = the_wave(&mut world);
+        assert_eq!(people + machines, 16);
+        assert!(
+            machines > 0 && people > 0,
+            "half and half on day eight, near enough: {people} people, {machines} machines"
+        );
+
+        let (mut world, _) = at_the_spawn(data::MANUFACTURER_DROIDS_LOST_DAY, 16);
+        assert!(!world.defense_by_manufacturers());
+        assert_eq!(
+            the_wave(&mut world),
+            (0, 16),
+            "the machines alone from day ten"
+        );
+    }
+
+    #[test]
+    fn the_crew_and_the_site_aim_at_an_intruder_and_the_machines_never_do() {
+        let (mut world, _) = at_the_spawn(8, 16);
+        the_wave(&mut world);
+        world.step(&[]);
+        let residents = world.residents.as_ref().expect("the site's room");
+        let room = &residents.aboard.room;
+        let intruders: Vec<usize> = (0..room.crew_count() as usize)
+            .filter(|&who| room.is_intruder(who))
+            .collect();
+        assert!(!intruders.is_empty());
+        // None of them shelters, and none is the site's own.
+        for &who in &intruders {
+            assert!(!room.is_sheltering(who), "an intruder runs into no house");
+        }
+        // The crew's targets are the residents' whole index space: an
+        // intruder on its feet is on it, a townsperson never.
+        let targets = world.aboard.room.combat_targets_for_probe();
+        assert!(targets.len() >= room.body_count() as usize);
+        for who in 0..room.crew_count() as usize {
+            assert_eq!(
+                targets[who].is_some(),
+                room.is_intruder(who) && room.is_alive(who) && !room.is_downed(who),
+                "the crew's target {who}"
+            );
+        }
+        // The site's own people aim at them too: their list is the same
+        // index space.
+        let theirs = room.combat_targets_for_probe();
+        for &who in &intruders {
+            assert!(theirs[who].is_some(), "the site aims at intruder {who}");
+        }
+    }
+
+    #[test]
+    fn a_wave_of_them_fought_down_clears_the_site_and_pays() {
+        let (mut world, id) = at_the_spawn(0, 2);
+        the_wave(&mut world);
+        // Their people down where they stand: the win waits for each to be
+        // counted at its first down, not for it to bleed out.
+        let bims = world.residents.as_ref().unwrap().aboard.room.crew_count() as usize;
+        for who in 0..bims {
+            let room = &mut world.residents.as_mut().unwrap().aboard.room;
+            if room.is_intruder(who) {
+                room.set_health_for_probe(who, 0.0);
+            }
+        }
+        assert!(
+            until(&mut world, 60, |w| w.defense(id).is_some_and(|d| d.won)),
+            "the site was never cleared"
+        );
+        assert_eq!(world.droids_standing(), 0);
+    }
+
+    #[test]
+    fn two_worlds_meet_the_same_manufacturers() {
+        let run = || {
+            let (mut world, _) = at_the_spawn(8, 8);
+            for _ in 0..600 {
+                world.step(&[]);
+            }
+            world_checksum(&world)
+        };
+        assert_eq!(run(), run());
+    }
 }

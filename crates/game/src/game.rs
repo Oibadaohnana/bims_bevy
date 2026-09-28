@@ -29,6 +29,10 @@ use crate::work::{self, Job, Priorities};
 /// beams, and nothing for a conduit or a fabricator to do.
 #[path = "heart.rs"]
 mod heart;
+/// A Manufacturer in a friendly room (task 131): one of their people
+/// attacking a site the crew are defending, fought the machines' way.
+#[path = "intruder.rs"]
+mod intruder;
 
 const TRAIL: Color = ACCENT;
 
@@ -1471,6 +1475,12 @@ impl Game {
             }
             bim.character.set_surging(bim.surge.is_some());
             let skill = self.skills.get(who).copied().unwrap_or(Skill::NONE);
+            // A Manufacturer among a site's own people (task 131) fights
+            // off the machines' list, and nothing below is its.
+            if self.is_intruder(who) {
+                self.tick_intruder(who, dt);
+                continue;
+            }
             // A bot's revive gives way to the fight: the moment it has
             // something to shoot at, the revive is put down for good and
             // the weapon comes out this very step. It began with the
@@ -1550,6 +1560,17 @@ impl Game {
                 bim.character.set_lean(None);
                 bim.character.set_aim(None);
                 self.keep_attack_moving(who, false);
+                // A field medic bot with a body in its arms has no weapon
+                // out, so it never reaches `bot_stand`: its carry is
+                // walked here — away from the fight, and set down the
+                // moment it stands out of harm, which with the wave down
+                // is at once. Left in the arms the body could not be
+                // revived (`can_be_revived`), and ran its countdown out
+                // there.
+                if self.is_bot(who) && self.is_field_medic(who) && self.bims[who].carrying.is_some()
+                {
+                    self.rescue(who, dt);
+                }
                 continue;
             };
             // The weapon's numbers through the soldier's skill (feature 75):
@@ -1824,7 +1845,12 @@ impl Game {
                 .iter()
                 .enumerate()
                 .map(|(who, b)| {
-                    (b.is_alive() && !b.character.is_outside() && !b.character.is_unconscious())
+                    // An intruder (task 131) is the machines' side: their
+                    // bolts and its own fly past it.
+                    (b.is_alive()
+                        && !b.character.is_outside()
+                        && !b.character.is_unconscious()
+                        && !(b.manufacturer && !self.hostile_bodies))
                         .then_some((
                             b.peek.unwrap_or(b.character.pos),
                             b.peek.is_some(),
@@ -1898,6 +1924,11 @@ impl Game {
         let attacked = self.under_attack();
         for who in 0..self.bims.len() {
             if (self.is_player(who) && !attacked) || !self.bims[who].is_alive() {
+                continue;
+            }
+            // An intruder (task 131) is not this side's to muster: it
+            // takes arms of its own accord (`tick_intruder`).
+            if self.is_intruder(who) {
                 continue;
             }
             // A townsperson sheltering from the machines takes no arms
@@ -4525,7 +4556,9 @@ impl Game {
             .set_look(crate::character::Look::of(2 + (seed % 4_096) as usize));
         bim.character
             .set_uniform(crate::character::Uniform::Manufacturer);
-        bim.character.set_hostile(self.hostile_bodies);
+        // An enemy's red in any room: in a friendly one it is an
+        // intruder (task 131).
+        bim.character.set_hostile(true);
         bim.gear = gear;
         bim.manufacturer = true;
         bim.plan_wait = plan_wait;
@@ -5421,6 +5454,15 @@ impl Game {
             // it did anyway.
             self.droids.push(droid);
         }
+    }
+
+    /// Where a wave landing round `spots[0]` is stood (the world's
+    /// arrival spots, in this room's units): each on free deck it can
+    /// walk off from, a tile apart where there is room
+    /// ([`crate::nav::Nav::spread_from`]). The first is the spot just
+    /// inside the door or the gate the wave came in by.
+    pub fn spread_wave(&self, spots: &[Vec2]) -> Vec<Vec2> {
+        self.maps.deck().spread_from(spots, TILE)
     }
 
     /// Where one of this room's bodies stands, Bim or machine.
@@ -6531,7 +6573,8 @@ impl Game {
     pub fn set_hostile_bodies(&mut self, hostile: bool) {
         self.hostile_bodies = hostile;
         for bim in &mut self.bims {
-            bim.character.set_hostile(hostile);
+            // A Manufacturer is ringed an enemy's in any room (task 131).
+            bim.character.set_hostile(hostile || bim.manufacturer);
         }
     }
 
@@ -6601,6 +6644,14 @@ impl Game {
             .iter()
             .filter(|d| !d.destroyed)
             .map(|d| d.pos)
+            // And the Manufacturers come with a wave (task 131): they are
+            // on the machines' side and spot for them.
+            .chain(
+                self.bims
+                    .iter()
+                    .filter(|b| b.manufacturer && b.is_alive() && !b.character.is_unconscious())
+                    .map(|b| b.character.pos),
+            )
             .collect();
         let (believed, stale) = believe(&mut self.machine_seen, &self.room.sight, None, &eyes, at);
         self.combat.set_machine_targets(believed, cross);
