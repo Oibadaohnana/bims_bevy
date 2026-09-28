@@ -1314,7 +1314,8 @@ impl Session {
     }
 
     /// [`Session::render`] with the frame's two jobs — the crew's room
-    /// drawing itself, and the stations' own pictures being built — run by
+    /// drawing itself, and the stations' own pictures being built where the
+    /// ones kept from the frame before no longer fit — run by
     /// `join` rather than by the host's word (`fork::set_join`): what the
     /// test that the picture is the same however they are run hands
     /// `fork::serial` and `fork::scoped` (task 122). Neither job reads
@@ -1337,9 +1338,13 @@ impl Session {
                 game.tick_airlock();
                 drop(timed);
                 // The stations the ship view will draw whole, read off the
-                // world now, so their pictures can be built while the
-                // crew's room draws itself.
+                // world now, and of those the ones whose picture kept from
+                // the frame before no longer fits — built while the crew's
+                // room draws itself, and the rest used again.
+                let timed = bims::timing::scope(bims::timing::Part::ShipState);
                 let work = world_paint::stations_to_build(game);
+                let stale = world_paint::stale_stations(game, &work, &game.kept_stations);
+                drop(timed);
                 let mut built = Vec::new();
                 {
                     let world = &mut game.world;
@@ -1349,15 +1354,16 @@ impl Session {
                         let _timed = bims::timing::scope(bims::timing::Part::CrewRoom);
                         aboard.render();
                     };
-                    if work.is_empty() {
+                    if stale.is_empty() {
                         crew();
                     } else {
                         let mut pictures = || {
-                            built = world_paint::station_pictures(&work, stations, surfaces);
+                            built = world_paint::station_pictures(&stale, stations, surfaces);
                         };
                         join(&mut pictures, &mut crew);
                     }
                 }
+                world_paint::keep_stations(&work, &stale, &mut game.kept_stations, built);
                 // And the station's room, whose people are always in it now:
                 // drawn once a frame the same way, or they stand in the
                 // picture at their bunks while their names walk about.
@@ -1374,7 +1380,7 @@ impl Session {
                 game.ghost_check();
                 drop(timed);
                 let _timed = bims::timing::scope(bims::timing::Part::WorldPaint);
-                world_paint::paint_with(game, &mut self.list, built);
+                world_paint::paint_with(game, &mut self.list, &game.kept_stations);
             }
             None => {
                 let _timed = bims::timing::scope(bims::timing::Part::EditorPaint);

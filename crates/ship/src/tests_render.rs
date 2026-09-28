@@ -129,3 +129,75 @@ fn the_shape_buffer_is_the_same_however_its_two_jobs_are_run() {
     };
     assert!(!alike("yard", yard(), yard(), 3, 0), "the yard has no game");
 }
+
+/// The same frame drawn from nothing: [`world_paint::paint`], which keeps
+/// no picture from one frame to the next.
+fn from_nothing(session: &Session) -> Vec<u32> {
+    let mut list = crate::draw::DrawList::default();
+    world_paint::paint(session.game.as_ref().expect("a game"), &mut list);
+    list.shapes().iter().map(|f| f.to_bits()).collect()
+}
+
+fn bits(shapes: &[f32]) -> Vec<u32> {
+    shapes.iter().map(|f| f.to_bits()).collect()
+}
+
+/// A station's picture kept from frame to frame (`world_paint::KeptStation`)
+/// is the picture the painter draws from nothing, bit for bit: every frame
+/// of a while at the simulation's dock, the airlock swinging as the crew
+/// come and go; a frame with nothing changed builds nothing and uses what
+/// it kept; and the frame after a part of the station is taken away draws
+/// the station without it, not the picture kept from before.
+#[test]
+fn a_kept_station_picture_is_the_one_drawn_from_nothing() {
+    let mut session = Session::simulate(world::data::DEFAULT_SEED, 0, None, W, H);
+    for frame in 0..40 {
+        for _ in 0..15 {
+            session.world_step();
+        }
+        let kept = bits(session.render_with(fork::serial));
+        assert!(kept == from_nothing(&session), "frame {frame} differs");
+    }
+
+    // Nothing moves between these frames, so after the airlock has come to
+    // rest the kept picture is used again as it is: the same buffer.
+    for _ in 0..200 {
+        session.render_with(fork::serial);
+    }
+    let kept = |s: &Session| {
+        let game = s.game.as_ref().expect("a game");
+        assert_eq!(game.kept_stations.len(), 1, "one station drawn whole");
+        game.kept_stations[0].shapes().as_ptr()
+    };
+    let before = kept(&session);
+    let still = bits(session.render_with(fork::serial));
+    assert_eq!(kept(&session), before, "nothing changed, nothing built");
+    assert!(still == from_nothing(&session));
+
+    // A floor tile of the station taken away: the next frame is the station
+    // without it, as the painter draws it from nothing.
+    {
+        let game = session.game.as_mut().expect("a game");
+        let docked = game.world.ship.state.alongside().expect("docked");
+        let station = game
+            .world
+            .stations
+            .iter_mut()
+            .find(|s| s.id == docked)
+            .expect("the dock is a station");
+        let floor = station
+            .design
+            .parts
+            .iter()
+            .position(|p| p.layer() == shipdesign::parts::Layer::Floor)
+            .expect("a floor tile");
+        station.design.parts.remove(floor);
+    }
+    let changed = bits(session.render_with(fork::serial));
+    assert_ne!(kept(&session), before, "the picture was built again");
+    assert!(changed != still, "the tile is gone from the picture");
+    assert!(
+        changed == from_nothing(&session),
+        "and drawn as from nothing"
+    );
+}

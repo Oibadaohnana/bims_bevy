@@ -159,6 +159,11 @@ pub struct Game {
     /// door and shut when nobody is, and nothing that decides anything
     /// reads it — the passage is walkable whatever the door looks like.
     pub airlock_ajar: f32,
+    /// The stations' own pictures as last drawn, kept for the next frame
+    /// and used again while each is still the picture of its station
+    /// (`world_paint::KeptStation`, task 122). The picture's and nothing
+    /// else's: never saved, and a game read back starts with none.
+    pub(crate) kept_stations: Vec<crate::world_paint::KeptStation>,
 }
 
 impl Game {
@@ -242,6 +247,7 @@ impl Game {
             ghost_check: None,
             frame: 0,
             airlock_ajar: 0.0,
+            kept_stations: Vec::new(),
             stars: Starfield::new(seed),
         };
         game.fit_ship();
@@ -286,6 +292,7 @@ impl Game {
             ghost_check: None,
             frame: 0,
             airlock_ajar: 0.0,
+            kept_stations: Vec::new(),
             stars: Starfield::new(seed),
         };
         game.fit_ship();

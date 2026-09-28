@@ -180,17 +180,19 @@ pub fn player_color(slot: u32) -> Color {
 
 /// The whole frame, whichever view is up.
 pub fn paint(game: &Game, list: &mut DrawList) {
-    paint_with(game, list, Vec::new());
+    paint_with(game, list, &[]);
 }
 
-/// The same, with the stations' own pictures already built
-/// ([`station_pictures`], what `Session::render` builds beside the crew's
-/// room): any it has is used and any it lacks is built here, so the frame
-/// is the one [`paint`] draws either way.
-pub(crate) fn paint_with(game: &Game, list: &mut DrawList, mut prebuilt: Vec<StationPicture>) {
+/// The same, with the stations' own pictures already to hand — the ones
+/// `Session::render` keeps from frame to frame ([`KeptStation`]), each
+/// checked against its station this frame: any it has is used and any it
+/// lacks is built here, so the frame is the one [`paint`] draws either
+/// way. [`paint`] itself keeps nothing, so no caller of it can be handed a
+/// picture of a design that has changed since.
+pub(crate) fn paint_with(game: &Game, list: &mut DrawList, prebuilt: &[KeptStation]) {
     list.clear();
     match game.mode {
-        ViewMode::Ship => paint_ship(game, list, &mut prebuilt),
+        ViewMode::Ship => paint_ship(game, list, prebuilt),
         ViewMode::Map => paint_map(game, list),
     }
 }
@@ -396,7 +398,7 @@ fn tile_middle(x: u32, y: u32) -> DVec2 {
     )
 }
 
-fn paint_ship(game: &Game, list: &mut DrawList, prebuilt: &mut Vec<StationPicture>) {
+fn paint_ship(game: &Game, list: &mut DrawList, prebuilt: &[KeptStation]) {
     let camera = &game.ship_view;
     let scale = camera.scale().max(1e-9);
 
@@ -1661,6 +1663,54 @@ pub(crate) fn stations_to_build(game: &Game) -> Vec<StationWork> {
         .collect()
 }
 
+/// A station's own picture kept from one frame to the next (task 122),
+/// with what it was built from: its [`StationWork`], and its design's
+/// build area and every part as it stood — id, kind, place and turn, in
+/// the design's own order, which is the order the tiles are drawn in. It
+/// is used again only while all of that is still so ([`KeptStation::fits`]),
+/// compared outright rather than by a hash, so a design written anywhere,
+/// for any reason, is a picture built again and never a stale one; the
+/// cargo is the one thing of a design not in it, and nothing draws it.
+pub(crate) struct KeptStation {
+    build_area: u32,
+    parts: Vec<PlacedPart>,
+    picture: StationPicture,
+}
+
+impl KeptStation {
+    /// The hull's shapes as kept, for a test to tell a picture used again
+    /// from one built again.
+    #[cfg(test)]
+    pub(crate) fn shapes(&self) -> &[f32] {
+        self.picture.picture.shapes()
+    }
+
+    /// Whether this is still the picture of `work` at a station of `design`.
+    fn fits(&self, work: &StationWork, design: &ShipDesign) -> bool {
+        self.picture.work == *work
+            && self.build_area == design.build_area
+            && self.parts == design.parts
+    }
+}
+
+/// Which of the pictures `work` names want building this frame: those
+/// nothing in `kept` is still the picture of — the first frame a station
+/// is drawn whole, a design that changed, an airlock moving.
+pub(crate) fn stale_stations(
+    game: &Game,
+    work: &[StationWork],
+    kept: &[KeptStation],
+) -> Vec<StationWork> {
+    work.iter()
+        .copied()
+        .filter(|w| {
+            game.world
+                .station(w.id)
+                .is_some_and(|s| !kept.iter().any(|k| k.fits(w, &s.design)))
+        })
+        .collect()
+}
+
 /// Build the pictures `work` names, off the world's stations and
 /// settlements alone — the fields, not the `World`, so the crew's room can
 /// be borrowed to draw itself at the same time.
@@ -1668,7 +1718,7 @@ pub(crate) fn station_pictures(
     work: &[StationWork],
     stations: &[world::Station],
     surfaces: &[world::Surface],
-) -> Vec<StationPicture> {
+) -> Vec<KeptStation> {
     work.iter()
         .filter_map(|&w| {
             let station = stations.iter().find(|s| s.id == w.id).or_else(|| {
@@ -1676,9 +1726,36 @@ pub(crate) fn station_pictures(
                     .and_then(|body| surfaces.iter().find(|s| s.body == body))
                     .map(world::Surface::station)
             })?;
-            Some(station_picture(w, station))
+            Some(KeptStation {
+                build_area: station.design.build_area,
+                parts: station.design.parts.clone(),
+                picture: station_picture(w, station),
+            })
         })
         .collect()
+}
+
+/// Keep this frame's pictures and nothing else, in `work`'s order: for a
+/// station `stale` names, the one just built, and for the rest the one
+/// kept before, which [`stale_stations`] found still fits. What
+/// `Session::render` hands the painter, and keeps for the next frame.
+pub(crate) fn keep_stations(
+    work: &[StationWork],
+    stale: &[StationWork],
+    kept: &mut Vec<KeptStation>,
+    mut fresh: Vec<KeptStation>,
+) {
+    let mut old = std::mem::take(kept);
+    for w in work {
+        let from = if stale.contains(w) {
+            &mut fresh
+        } else {
+            &mut old
+        };
+        if let Some(i) = from.iter().position(|k| k.picture.work == *w) {
+            kept.push(from.swap_remove(i));
+        }
+    }
 }
 
 /// One station's own picture: its rim, its tiles and the shade along its
@@ -1744,7 +1821,7 @@ fn station_picture(work: StationWork, station: &world::Station) -> StationPictur
 fn stations(
     game: &Game,
     list: &mut DrawList,
-    prebuilt: &mut Vec<StationPicture>,
+    prebuilt: &[KeptStation],
 ) -> (DrawList, DrawList, DrawList) {
     let mut lifted = DrawList::default();
     let mut lifted_over = DrawList::default();
@@ -1810,23 +1887,27 @@ fn stations(
             continue;
         }
 
-        // Its own picture — the hull and the shade along its walls — built
-        // before the frame by `Session::render` while the crew's room drew
-        // itself, or here if it was not (task 122): the same function from
-        // the same inputs either way, so the same picture.
+        // Its own picture — the hull and the shade along its walls — kept
+        // from the frame before or built beside the crew's room by
+        // `Session::render`, or built here if it was not (task 122): the
+        // same function from the same inputs either way, so the same
+        // picture.
         let work = station_work(game, station);
-        let built = match prebuilt.iter().position(|p| p.work == work) {
-            Some(i) => prebuilt.swap_remove(i),
-            None => station_picture(work, station),
+        let fresh;
+        let built = match prebuilt.iter().find(|k| k.picture.work == work) {
+            Some(kept) => &kept.picture,
+            None => {
+                fresh = station_picture(work, station);
+                &fresh
+            }
         };
-        let StationPicture {
-            grid,
-            mut picture,
-            walls,
-            ..
-        } = built;
+        let grid = &built.grid;
+        // What changes from frame to frame goes into a list of its own,
+        // placed straight after the picture: a shape is placed on its own,
+        // so the two placed one after the other are the one list placed.
+        let mut picture = DrawList::default();
         let lights_timed = bims::timing::scope(bims::timing::Part::StationLights);
-        hull::lights(&mut picture, &station.design, &grid, game.frame);
+        hull::lights(&mut picture, &station.design, grid, game.frame);
         lamp_faces(&mut picture, game, &station.design, Some(station.id));
         // A relic cache on its research desk (feature 106), lit so the
         // crew can find it: a
@@ -1849,10 +1930,11 @@ fn stations(
             );
         }
         drop(lights_timed);
+        list.append_turned_at(built.picture.shapes(), middle, turn, at);
         list.append_turned_at(picture.shapes(), middle, turn, at);
         // The shade along its walls, apart: it goes over the fog with the
         // ship's (`wall_shade`).
-        shade.append_turned_at(walls.shapes(), middle, turn, at);
+        shade.append_turned_at(built.walls.shapes(), middle, turn, at);
         if let Some(residents) = residents {
             // Their room is the station's design plus the shift its deck
             // took with the ship on it, so its picture turns about the

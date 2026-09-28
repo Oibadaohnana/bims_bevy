@@ -714,13 +714,51 @@ the world painter 0.5, the ship's state 0.17, the station's room 0.02.
   above), and that is to be decided before anything moves it.
 - **The two rooms side by side**: the station's is 0.02 ms, less than
   handing it over costs.
-- **Caching a station's picture instead**: it changes only when its
-  design does or its door moves, so a cache would take the 0.8 ms off
-  every docked frame on one core — the simulation too — and leave this
-  overlap nothing to hide. It wants a key that is sure the design is
-  the same (a counter bumped wherever `Station::design` is written —
-  `replan`, the arena probe — or a hash of the design, which costs a
-  part of what it saves), and was not asked for.
+
+### A station's picture is kept from frame to frame
+
+The overlap's follow-up, the same task: **a station's picture is built
+only when what it is built from changed**, and used again otherwise.
+`ship::Game::kept_stations` holds this frame's `world_paint::KeptStation`s
+— the picture with its `StationWork` and a **copy of its design's build
+area and every part**, id, kind, place and turn, in the design's order —
+and `KeptStation::fits` compares them outright each frame, not by a hash
+(`design_hash` sorts the parts and leaves the ids out, and the picture is
+drawn in the design's order and skips by id, so it would not do). A
+design written anywhere, for any reason, is a picture built again;
+nothing had to be told to bump a counter. `Session::render` asks
+`stale_stations` which no longer fit — the first frame a station is drawn
+whole, a design that changed, **an airlock swinging** (its opening is in
+the `StationWork`) — builds only those, beside the crew's room as before,
+and `keep_stations` keeps this frame's and nothing else. The lights, the
+lamps' glass, a cache's ring and the machines' ship change every frame
+and are drawn after it in a list of their own, placed straight after the
+kept picture, which is the same floats as one list placed. Only
+`Session::render` keeps anything: `world_paint::paint` hands the painter
+none, so no other caller can be drawn a picture of a design since
+changed. `a_kept_station_picture_is_the_one_drawn_from_nothing` in
+`tests_render.rs` holds the kept frames to `paint`'s from nothing, a
+still frame to building nothing, and a floor tile taken off the dock to
+a picture built again without it.
+
+What it measured, the same machine and the same way, the shape buffer's
+CPU time a frame against the overlap alone (both on the pool):
+
+| | overlap | kept |
+| --- | --- | --- |
+| `simulation`, paced | 1.42 [1.38–1.43] | **0.90** [0.90–0.91] |
+| `simulation`, unpaced | 1.36 [1.36–1.41] | **0.72** [0.72–0.73] |
+| `droids`, unpaced | 2.50 [2.38–2.53] | **1.63** [1.61–1.70] |
+| the fight, paced | 5.46 [5.14–7.99] | **4.84** [4.82–5.58] |
+
+The simulation's shape buffer is about half what it was, on one core;
+in the fight the station's picture is built on about one frame in nine
+— the airlock swinging as the crew come and go — and 0.1 ms a frame is
+what is left of it. Finding which pictures still fit costs about 0.12
+ms a frame of the ship's state (the stations in view read twice and the
+parts compared), which the table includes. Paced `droids` is left out:
+another agent's builds landed on those runs, and the crew's room, which
+the cache does not touch, came out anywhere from 3.6 to 6.5 ms.
 
 ## How fast the crisis crosses a galaxy (feature 92)
 
