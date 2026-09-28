@@ -271,6 +271,31 @@ plans the walk on (`plan_route`), the order over within
 errand and taking the weapon away call it off. Nobody else ever has one,
 so no other body's step moved.
 
+**An attack on one enemy is `CrewOrder::Attack { enemy }`** (task 126,
+appended after `AttackMove`; a right-click on an enemy, or the
+attack-move's click on one). `enemy` is an index in `Combat::targets` —
+the world's residents' body index, machines after the Bims — and
+`Game::enemy_at(x, y)` is how the app finds it: the nearest target up
+within `ENEMY_PICK` tiles, on a tile `Sight::seen_at` says the crew see,
+so a click into the fog finds nobody. `order_attack` recruits the
+player's own Bim, puts its errand down and keeps the index on
+`Bim::focus`; in `tick_combat` the focus is **dropped** the step its
+target is `None` (down, dead, or the list emptied as the rooms part) or
+the body goes down, **comes first** in the stand chain (`Game::chase`:
+standing still with a shot — `Combat::aim_only`, or a blade within
+reach — else walking after it, re-planned every `PLAN_EVERY` like a
+stand), and **is the only target aimed at** (`aim_only`, where
+everybody else asks `aim_marked`). A melee lock by another enemy still
+forms, since a blade at the throat is not a choice. Any other order —
+a walk, an attack-move, an errand, Recruit off — calls it off
+(`call_off_attack_move` clears both). `draw_pings` puts four red
+brackets (`FOCUS_MARK`, `FOCUS_ARM`) round every focused target the crew
+can see. Nobody but a player's own Bim ever has one, so no other body's
+step moved; `an_attack_order_keeps_at_its_enemy_until_it_is_down` pins
+it, and the world's
+`an_attack_order_on_a_machine_is_a_command_and_ends_with_the_wreck` the
+index across the seam.
+
 **A ping is Dota's.** `Marker::kind` (`Ping::Move` green, `Ping::Attack`
 red; a refusal is still the warm cross) and `draw_pings`: four chevrons
 closing on the spot from the corners with a ring drawing in behind them,
@@ -3952,7 +3977,15 @@ body had.
   the room is quiet, the patient out of harm or the room calm, and only
   in a room whose `revivers` is on — the world turns it on for the crew
   and off for a station's or a town's people. The Medical job is that
-  offer.
+  offer. **A medic first** (task 125): a bot that is not a medic
+  (`Skill::medic`, which the world sets for the class and a hired field
+  medic) leaves a patient to a medic bot that `ready_to_revive` —
+  the same prelude, `health.downed()` included, since the character is
+  only knocked out a tick later — has no revive in hand and can reach
+  it (`a_medic_free_for`); with none it goes itself.
+  `a_medic_bot_revives_first_and_the_others_only_without_one` pins it.
+  Nobody flees since task 120: a body at nought is downed where it
+  stands, and `Tactics::flee` is only a field medic's carry now.
 - **Blood on the deck stays as a picture**: a hit that takes hit points
   throws a small splash (`Blood::splash`, `SPLASH_TILES` one or two,
   half a drop's cost each — the same draws as before), one the armour

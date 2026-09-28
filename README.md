@@ -2641,6 +2641,7 @@ overlapping is allowed the whole apparatus has nothing left to do.
 | Click empty floor / `Esc` | Deselect — the right-hand panels go with it. `Esc` first shuts whatever is up, innermost first: a cell's rows, a menu, a grid window |
 | Drag a box / click, in a fight | Only your own Bim is picked: a bot cannot be selected while the crew are under arms |
 | Right-click the floor | Send the Bim you steer there, whoever is selected — opens a door on the way if it must. The spot is pinged with green arrows closing on it (red for an attack-move, a cross where it cannot go) |
+| Right-click an enemy | **Attack it**, the way Dota does: the pointer is a crosshair over an enemy you can see, and the click has the Bim you steer take its weapon out and shoot that one and nobody else — walking after it until it has a shot — until it is down or you give another order. Red brackets stand round the enemy for as long as the order does. The attack-move's click on an enemy is the same order |
 | **Shift** with a right-click, a right-drag or a menu row | The order **waits its turn** behind what the Bim is on and whatever was queued before it, the way RimWorld queues them (feature 69): the queued walks are drawn on the deck as a dashed thread with a pip at each spot, and the rest show on the agenda. A plain order afterwards calls the queue off. What cannot be begun when its turn comes — a bandage with no dressing left to wind — is dropped without a word; a walk with nowhere to go is refused at the click |
 | Tray, bottom left | **Work** — which jobs come first; **Management** — what the crew keep doing of their own accord; **Inventory**, **Research** and **Skills**; on the ship, **Build** — lay parts out for the crew to build, where the shipyard is on |
 | Point at anything | Top left says what it is |
@@ -2878,7 +2879,8 @@ and **a commander's squad orders**: they command the crew nobody is
 steering — attack, fall back, stand ground — and never move, hold or aim
 a Bim a player steers. **F is your own attack-move**: then a click, and
 the Bim you steer walks there with its weapon out, stops to shoot what
-comes into its sights and walks on once nothing is left. The alarm lasts until
+comes into its sights and walks on once nothing is left; **a right-click
+on an enemy** has it keep at that one alone until it is down. The alarm lasts until
 nobody is near, nobody has seen an enemy and nobody has been hit for half
 a minute, when they go back to their work, however many machines are
 still standing somewhere on the station. (A crew member downed in the
@@ -3041,7 +3043,12 @@ works; being shot does not stop it, and one reviver is all that counts.
 A right-click on a downed crewmate sends your own Bim to do it — the
 right-click menu's *Revive* row says why not when it cannot — and the
 **bots revive** their downed crewmates of their own accord, when the
-body is out of harm or the fight is quiet. A revived Bim is up at
+body is out of harm or the fight is quiet — **a medic bot first** (the
+class, or a hired field medic): the other bots leave a body to a medic
+that is free to go to it, and take it themselves only when there is no
+medic, the medic is down, busy with another body or in a fight of its
+own. Nobody runs from a fight on the way to nought: a Bim shot down is
+downed where it stands. A revived Bim is up at
 **thirty** hit points and walks **30 % slower** for the rest of the
 mission (a second down does not slow it more). A Manufacturer is never
 revived, and a station's or a town's people do not revive each other. A

@@ -10970,10 +10970,7 @@ mod tests {
                     break;
                 }
             }
-            let helper = revived
-                .iter()
-                .find(|r| r.patient == 1)
-                .map(|r| r.helper);
+            let helper = revived.iter().find(|r| r.patient == 1).map(|r| r.helper);
             let wanted = if case == "medic free" { 3 } else { 2 };
             assert_eq!(helper, Some(wanted), "{case}");
         }
