@@ -4285,3 +4285,29 @@ still lit — what a flying bolt stops at before the bodies), else the eye
 when the eye's line is; neither clear, the muzzle as before.
 `a_peek_shoots_clear_of_the_corner_on_either_side` pins both sides. It
 moves `SURVIVORS` (its runs peek).
+
+## A taunt is him and nobody else (task 139)
+
+> "The tank's wall, its armour and its hits" above says a taunt chooses
+> between shots rather than making one possible, and names
+> `Skill::{iron_frame, smash_rate}`: both are what this changed.
+
+- **`combat::Taunt { radius, magnet, order }`** is what the world hands
+  a target (`Combat::set_taunting(&[Taunt])`, and
+  `set_machine_taunting` for the machines' own list in a defence);
+  `Target::taunt_order` (serde default) keeps the `order`. A Juggernaut
+  is a radius of `f32::INFINITY`.
+- **`Combat::aim_among`**: a mark that can be shot first; else a target
+  taunting within its radius of the shooter **that the shooter can see**
+  — the highest `order`, the nearer of two alike — is the only one it
+  picks: shot at within the weapon's reach, and **nobody** shot at beyond
+  it; else the nearest, as ever. A sealed core is only ever a mark.
+  `Tactics::charge` still reads `magnet` alone, so a Juggernaut turns no
+  blade.
+- `Skill::iron_frame` and `Skill::smash_rate` are gone (the tank's
+  talents went): a hit on the head is the helm's, and a lock is forced
+  at `Door::smash`'s one rate. `Game::hostiles_taunt_order_for_probe` is
+  the tests' reading.
+
+`a_taunting_target_is_the_only_one_aimed_at_and_a_magnet_is_charged_at_first`
+(`combat::tests`) pins it, a wall hiding the taunter included.

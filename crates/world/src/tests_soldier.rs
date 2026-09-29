@@ -75,7 +75,7 @@ fn refused_with(events: &[WorldEvent], want: Refusal) -> bool {
 /// Straight to a level, off the class's own table.
 fn level_up(world: &mut World, who: usize, level: u8) {
     let mut events = Vec::new();
-    let want = class::level_xp(world.class_of(who as u32))[level as usize - 1];
+    let want = class::LEVEL_XP[level as usize - 1];
     let have = world.progress_of(who as u32).xp;
     world.award(who, want.saturating_sub(have), &mut events);
     assert_eq!(world.level_of(who as u32), level);
@@ -1014,35 +1014,37 @@ fn two_runs_of_a_grenade_fight_on_one_seed_are_the_same_fight() {
 // --- D: sixteen levels, a point a level, and a rank a point (task 124) --------
 
 #[test]
-fn the_soldier_climbs_sixteen_levels_and_every_other_class_ten() {
+fn the_soldier_climbs_sixteen_levels_as_every_class_does() {
     let mut world = simulation_world(flyer(3), REFERENCE_MONEY, 3);
     assert_eq!(world.set_class(0, Class::Soldier), Ok(()));
     assert_eq!(world.set_class(1, Class::Tank), Ok(()));
-    // The tank: the one class of talents left since the medic's ranked kit
-    // (task 130).
+    assert_eq!(world.set_class(2, Class::None), Ok(()));
+    // The tank climbs the same table since task 139.
     let mut events = Vec::new();
     world.award(0, 3_199, &mut events);
     world.award(1, 3_199, &mut events);
-    assert_eq!(world.level_of(0), 15);
-    assert_eq!(world.level_of(1), 9, "the old table: 2 500 is the ninth");
+    world.award(2, 3_199, &mut events);
+    assert_eq!((world.level_of(0), world.level_of(1)), (15, 15));
     world.award(0, 1, &mut events);
     world.award(1, 1, &mut events);
     assert_eq!(world.level_of(0), 16, "the top at 3 200");
-    assert_eq!(world.level_of(1), 10, "and the others' top at 3 200 too");
+    assert_eq!(world.level_of(1), 16, "the tank's too");
     world.award(0, 10_000, &mut events);
     world.award(1, 10_000, &mut events);
-    assert_eq!((world.level_of(0), world.level_of(1)), (16, 10));
-    // Every level said once, the soldier's sixteen and the tank's ten.
+    assert_eq!((world.level_of(0), world.level_of(1)), (16, 16));
+    // Every level said once, sixteen each; a classless crew member learns
+    // nothing.
     let said = |who: u32| {
         events
             .iter()
             .filter(|e| matches!(e, WorldEvent::LevelUp { who: w, .. } if *w == who))
             .count()
     };
-    assert_eq!((said(0), said(1)), (15, 9));
-    // A point a level, the first included; none for a class of talents.
+    assert_eq!((said(0), said(1), said(2)), (15, 15, 0));
+    // A point a level, the first included; none without a class.
     assert_eq!(world.points_of(0), 16);
-    assert_eq!(world.points_of(1), 0);
+    assert_eq!(world.points_of(1), 16);
+    assert_eq!(world.points_of(2), 0);
 }
 
 #[test]
@@ -1053,11 +1055,13 @@ fn a_rank_up_is_refused_without_a_kit_a_point_a_level_or_room_at_the_top() {
     let rank_up = |world: &mut World, slot: u32, ability_slot: u32| {
         world.step(&[Command::RankUp { slot, ability_slot }])
     };
-    // A class of talents, and no class at all, have no ranked kit.
-    for slot in [1, 2] {
-        let events = rank_up(&mut world, slot, 0);
-        assert!(refused_with(&events, Refusal::NoRankedKit), "{slot}");
-    }
+    // No class at all has no ranked kit; the tank has one (task 139).
+    assert!(refused_with(&rank_up(&mut world, 2, 0), Refusal::NoClass));
+    assert!(
+        rank_up(&mut world, 1, 0)
+            .iter()
+            .any(|e| matches!(e, WorldEvent::RankedUp { who: 1, .. }))
+    );
     // Nor is there a fifth slot.
     assert!(refused_with(
         &rank_up(&mut world, 0, 4),
@@ -1098,17 +1102,10 @@ fn a_rank_up_is_refused_without_a_kit_a_point_a_level_or_room_at_the_top() {
     }
     assert_eq!(world.rank_of(0, 0), 4);
     assert!(refused_with(&rank_up(&mut world, 0, 0), Refusal::TopRank));
-    // A rank bought is in the checksum, and a pick is nothing a soldier
-    // makes any more.
+    // A rank bought is in the checksum.
     let before = world_checksum(&world);
     rank_up(&mut world, 0, 1);
     assert_ne!(world_checksum(&world), before);
-    let events = world.step(&[Command::PickTalent {
-        slot: 0,
-        level: 2,
-        side: crate::class::Side::Left,
-    }]);
-    assert!(refused_with(&events, Refusal::NotAPickLevel));
     // A point is spent between missions as well.
     world.leave_for_probe();
     rank_up(&mut world, 0, 2);

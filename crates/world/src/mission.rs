@@ -802,8 +802,9 @@ impl World {
         }
         self.deployables
             .retain(|d| d.kind != crate::deploy::DeployKind::Sentry);
+        // Every Taunt and Juggernaut ready (task 139).
         for tank in &mut self.tanks {
-            tank.last_taunt = None;
+            *tank = crate::tank::Tank::default();
         }
         // Every Battle Cry and Rally ready (task 129).
         for commander in &mut self.commanders {

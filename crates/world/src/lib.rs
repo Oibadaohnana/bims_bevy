@@ -83,7 +83,7 @@ pub mod world;
 pub use armour::LootSource;
 pub use build::{BuildSite, SiteRefusal};
 pub use checksum::world_checksum;
-pub use class::{Charge, Class, Progress, Side, Talent};
+pub use class::{Charge, Class, Progress};
 pub use commander::{Aura, Commander, Reinforcement, SquadAsk, SquadKind, SquadOrder};
 pub use defense::Defense;
 pub use deploy::{Deck, DeployKind, Deployable};

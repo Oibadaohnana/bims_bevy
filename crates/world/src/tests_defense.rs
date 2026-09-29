@@ -583,7 +583,7 @@ fn a_machine_downed_in_a_town_s_defence_is_experience_and_a_townsperson_is_not()
     };
     assert_eq!(world.set_class(0, Class::Soldier), Ok(()));
     let mut events = Vec::new();
-    world.award(0, class::RANKED_LEVEL_XP[15], &mut events);
+    world.award(0, class::LEVEL_XP[15], &mut events);
     world.set_ranks_for_probe(0, [0, 0, 0, 4]);
     assert!(
         until(&mut world, 40, |w| w.droids_standing() > 1),

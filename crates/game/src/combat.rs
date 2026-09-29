@@ -695,12 +695,10 @@ pub struct Skill {
     /// protection: one for everybody, less for a tank, so the same piece
     /// absorbs more on him. The piece's stored health is never doubled.
     pub armour_drain: f32,
-    /// What a worn piece's protection is multiplied by: *plated*.
+    /// What a worn piece's protection is multiplied by: a relic's
+    /// *Field Plating*. (The tank's *iron frame* and *breacher* went with
+    /// his talents, task 139.)
     pub armour_protection: f32,
-    /// A hit rolled on the head lands on the body instead: *iron frame*.
-    pub iron_frame: bool,
-    /// What forcing a locked door goes at: *breacher*.
-    pub smash_rate: f32,
     /// What its working steps run at, over everything else that sets the
     /// effort: a commander's aura (feature 78). One for everybody out of
     /// one.
@@ -790,8 +788,6 @@ impl Skill {
         walk: 1.0,
         armour_drain: 1.0,
         armour_protection: 1.0,
-        iron_frame: false,
-        smash_rate: 1.0,
         effort: 1.0,
         marked_accuracy: 1.0,
         damage: 1.0,
@@ -1512,9 +1508,13 @@ pub struct Target {
     /// A body within it that can see this target and has it in reach
     /// fires at it before any nearer one ([`Combat::aim`]).
     pub taunting: f32,
-    /// And whether that taunt pulls charging blades as well as fire:
-    /// the tank's *magnet* ([`Tactics::charge`]).
+    /// And whether that taunt pulls charging blades as well as fire: the
+    /// tank's Taunt at its fourth rank ([`Tactics::charge`]).
     pub magnet: bool,
+    /// Which taunt is the more recent where two reach one shooter (task
+    /// 139): the higher is followed. Nought with none running.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub taunt_order: u32,
     /// The way a **shield** on this target faces, a unit vector in this
     /// room's frame — a Guardian's (feature 100), said by the world
     /// through [`Combat::set_shields`] — or `None` for everybody else. A
@@ -1523,6 +1523,42 @@ pub struct Target {
     /// is not asked.
     #[cfg_attr(feature = "serde", serde(default))]
     pub shield: Option<Vec2>,
+}
+
+/// A **taunt** running on a target (features 77 and 139): what the world
+/// hands the room of a tank's Taunt and Juggernaut each step, for
+/// [`Combat::set_taunting`]. Every enemy within `radius` that can see the
+/// target shoots at it and nobody else ([`Combat::aim_among`]).
+#[derive(Clone, Copy, PartialEq, Debug, Default)]
+pub struct Taunt {
+    /// How far it reaches in room units: nought is no taunt, and
+    /// `f32::INFINITY` a Juggernaut's, which reaches every enemy that can
+    /// see him.
+    pub radius: f32,
+    /// Whether it pulls charging blades as well as fire.
+    pub magnet: bool,
+    /// Which of two is the more recent: the higher is followed.
+    pub order: u32,
+}
+
+impl Taunt {
+    /// No taunt at all.
+    pub const NONE: Taunt = Taunt {
+        radius: 0.0,
+        magnet: false,
+        order: 0,
+    };
+
+    fn put_on(targets: &mut [Option<Target>], taunts: &[Taunt]) {
+        for (i, target) in targets.iter_mut().enumerate() {
+            if let Some(t) = target {
+                let taunt = taunts.get(i).copied().unwrap_or(Taunt::NONE);
+                t.taunting = taunt.radius;
+                t.magnet = taunt.magnet;
+                t.taunt_order = taunt.order;
+            }
+        }
+    }
 }
 
 impl Target {
@@ -2018,6 +2054,7 @@ impl Combat {
                     dodge: 0.0,
                     taunting: 0.0,
                     magnet: false,
+                    taunt_order: 0,
                     shield: None,
                 })
             })
@@ -2046,16 +2083,18 @@ impl Combat {
     }
 
     /// Which of the targets a taunt is running on, index for index like
-    /// [`Combat::set_peeking`] (feature 77): how far each taunt reaches
-    /// in room units — nought is no taunt — and whether it pulls
-    /// charging blades too. One past the end, or missing, is no taunt.
-    pub fn set_taunting(&mut self, radius: &[f32], magnet: &[bool]) {
-        for (i, target) in self.targets.iter_mut().enumerate() {
-            if let Some(t) = target {
-                t.taunting = radius.get(i).copied().unwrap_or(0.0);
-                t.magnet = magnet.get(i).copied().unwrap_or(false);
-            }
-        }
+    /// [`Combat::set_peeking`] (feature 77): each one's [`Taunt`]. One
+    /// past the end, or missing, is no taunt.
+    pub fn set_taunting(&mut self, taunts: &[Taunt]) {
+        Taunt::put_on(&mut self.targets, taunts);
+    }
+
+    /// The same for the machines' own list (task 139), where the world
+    /// gave them one — a town the crew are defending — index for index
+    /// with it: the crew across the seam first, as `set_machine_targets`
+    /// was handed them.
+    pub fn set_machine_taunting(&mut self, taunts: &[Taunt]) {
+        Taunt::put_on(&mut self.machines, taunts);
     }
 
     /// The bulwarks standing in this room (feature 77): which of the
@@ -2153,6 +2192,7 @@ impl Combat {
                     dodge: 0.0,
                     taunting: 0.0,
                     magnet: false,
+                    taunt_order: 0,
                     shield: None,
                 })
             })
@@ -2635,10 +2675,11 @@ impl Combat {
     /// weapon's range: which one, the eye it is seen from — the body, or the
     /// peek beside a wall — and where it stands.
     ///
-    /// **A taunt comes first** (feature 77): a target with one running on
-    /// it, seen, in reach and within the taunt's own radius of the
-    /// shooter, is picked ahead of any nearer target — the nearest of
-    /// them if a shooter is taunted by two.
+    /// **A taunt is him and nobody else** (features 77 and 139): a target
+    /// with one running on it, seen, and within the taunt's own radius of
+    /// the shooter, is the only one it picks — shot at in reach, and
+    /// nobody shot at beyond it; the most recent taunt of two, the nearer
+    /// of two as recent.
     pub fn aim(
         &self,
         sight: &Sight,
@@ -2692,25 +2733,56 @@ impl Combat {
         mark: Option<usize>,
     ) -> Option<(usize, Vec2, Vec2)> {
         let reach = stats.reach();
-        // A taunting target within its own radius comes before any
-        // nearer one (feature 77); among equals, the nearest.
-        let mut best: Option<((bool, bool, f32), usize, Vec2, Vec2)> = None;
+        // **A taunt is him and nobody else** (task 139): a target taunting
+        // within its own radius of the shooter that the shooter can see —
+        // the most recent of two, the nearer of two as recent — is the
+        // only one it may pick. In the weapon's reach it is shot at;
+        // beyond it, nobody is. A mark still comes first.
+        let marked = mark
+            .and_then(|m| targets.get(m).copied().flatten().map(|t| (m, t)))
+            .filter(|(_, t)| !t.stale && (t.at - from).len() <= reach)
+            .and_then(|(m, t)| sight.sees_from(from, t.at).map(|eye| (m, eye, t.at)));
+        if marked.is_some() {
+            return marked;
+        }
+        let mut forced: Option<((u32, f32), usize, Vec2, Vec2)> = None;
+        for (i, target) in targets.iter().enumerate() {
+            let Some(t) = target.filter(|t| !t.stale && t.taunting > 0.0) else {
+                continue;
+            };
+            let d = (t.at - from).len();
+            if d > t.taunting {
+                continue;
+            }
+            let key = (t.taunt_order, -d);
+            if forced.is_some_and(|f| f.0 >= key) {
+                continue;
+            }
+            if let Some(eye) = sight.sees_from(from, t.at) {
+                forced = Some((key, i, eye, t.at));
+            }
+        }
+        if let Some(((_, d), i, eye, at)) = forced {
+            return (-d <= reach).then_some((i, eye, at));
+        }
+        // Otherwise the nearest; a mark that could not be shot is no
+        // longer asked about.
+        let mut best: Option<(f32, usize, Vec2, Vec2)> = None;
         for (i, target) in targets.iter().enumerate() {
             let Some(t) = target.filter(|t| !t.stale) else {
                 continue;
             };
             // A sealed core is nothing to spend a shot on (feature 108):
             // nobody aims at one of their own accord, though a mark still
-            // may.
-            if t.sealed() && mark != Some(i) {
+            // may (above).
+            if t.sealed() {
                 continue;
             }
             let at = t.at;
-            let d = (at - from).len();
-            if d > reach {
+            let key = (at - from).len();
+            if key > reach {
                 continue;
             }
-            let key = (mark != Some(i), !(t.taunting > 0.0 && d <= t.taunting), d);
             if best.is_some_and(|b| b.0 <= key) {
                 continue;
             }
@@ -3847,10 +3919,10 @@ impl Tactics {
     /// the target, and the lattice's nearest cell can be half a tile
     /// short of reach. `None` with no target it can get near.
     ///
-    /// **A taunt with *magnet* on it comes first** (feature 77), the same
-    /// way [`Combat::aim`] prefers one: a target taunting within its own
-    /// radius of `from` is gone for before any nearer one. A plain taunt
-    /// does not move a blade.
+    /// **A taunt that pulls blades comes first** (feature 77; the tank's
+    /// Taunt at its fourth rank since task 139): a target taunting within
+    /// its own radius of `from` is gone for before any nearer one. A
+    /// plain taunt, and a Juggernaut, do not move a blade.
     pub fn charge(nav: &Nav, from: Vec2, targets: &[Option<Target>]) -> Option<Vec2> {
         let by_distance_to = |to: Vec2| {
             move |a: &Vec2, b: &Vec2| {
@@ -4235,6 +4307,7 @@ mod tests {
             dodge: 0.0,
             taunting: 0.0,
             magnet: false,
+            taunt_order: 0,
             shield: None,
         }
     }
@@ -5448,11 +5521,12 @@ mod tests {
         assert!(hits > 200, "{hits} of 400 land on the enemy");
     }
 
-    /// A taunt is aimed at before any nearer target, and with *magnet* it
-    /// is charged at too — both only within its own radius and, for the
-    /// shot, in reach and in sight (feature 77).
+    /// A taunt is the only target a shooter within its radius that sees it
+    /// picks — shot at in reach, nobody shot at beyond it — and with a
+    /// magnet it is charged at too; of two, the most recent (features 77
+    /// and 139).
     #[test]
-    fn a_taunting_target_is_aimed_at_and_a_magnet_is_charged_at_first() {
+    fn a_taunting_target_is_the_only_one_aimed_at_and_a_magnet_is_charged_at_first() {
         let (sight, nav) = room_with(&[]);
         let from = middle(2.0, 5.0);
         let near = middle(5.0, 5.0);
@@ -5462,26 +5536,58 @@ mod tests {
         combat.set_targets(vec![Some((near, pistol)), Some((far, pistol))]);
         let stats = pistol.stats();
         let aimed = |c: &Combat| c.aim(&sight, from, &stats).map(|(i, _, _)| i);
+        let taunt = |radius: f32, order: u32| Taunt {
+            radius,
+            magnet: false,
+            order,
+        };
         assert_eq!(aimed(&combat), Some(0), "the nearest without a taunt");
-        combat.set_taunting(&[0.0, 20.0 * TILE], &[false, false]);
+        combat.set_taunting(&[Taunt::NONE, taunt(20.0 * TILE, 1)]);
         assert_eq!(aimed(&combat), Some(1), "the taunt before the nearer");
+        // A Juggernaut's reaches at any distance.
+        combat.set_taunting(&[Taunt::NONE, taunt(f32::INFINITY, 1)]);
+        assert_eq!(aimed(&combat), Some(1), "at any distance");
         // Out of the taunt's own radius, it pulls nobody.
-        combat.set_taunting(&[0.0, 2.0 * TILE], &[false, false]);
+        combat.set_taunting(&[Taunt::NONE, taunt(2.0 * TILE, 1)]);
         assert_eq!(aimed(&combat), Some(0));
-        // And out of the weapon's reach it is no target at all: a taunt
-        // does not make a shot possible, it only chooses between shots.
-        let outside = middle(2.0, 5.0) + vec2(stats.reach() + TILE, 0.0);
-        combat.set_targets(vec![Some((near, pistol)), Some((outside, pistol))]);
-        combat.set_taunting(&[0.0, 60.0 * TILE], &[false, false]);
-        assert_eq!(aimed(&combat), Some(0));
+        // Of two taunts reaching the shooter, the most recent — the nearer
+        // one when it is, the farther when that is.
+        combat.set_taunting(&[taunt(20.0 * TILE, 2), taunt(20.0 * TILE, 1)]);
+        assert_eq!(aimed(&combat), Some(0), "the more recent, nearer");
+        combat.set_taunting(&[taunt(20.0 * TILE, 1), taunt(20.0 * TILE, 2)]);
+        assert_eq!(aimed(&combat), Some(1), "the more recent, farther");
+        // And beyond the weapon's reach the taunt is still him and nobody
+        // else: a shotgun taunted from past its range fires at nobody.
+        let shotgun = WeaponKind::Shotgun.basic().stats();
+        let beyond = middle(2.0, 5.0) + vec2(shotgun.reach() + 2.0 * TILE, 0.0);
+        combat.set_targets(vec![Some((near, pistol)), Some((beyond, pistol))]);
+        let short = |c: &Combat| c.aim(&sight, from, &shotgun).map(|(i, _, _)| i);
+        assert_eq!(short(&combat), Some(0), "untaunted, the nearer");
+        combat.set_taunting(&[Taunt::NONE, taunt(f32::INFINITY, 1)]);
+        assert_eq!(short(&combat), None, "taunted, nobody else");
+        // Only a shooter that can see the taunter is taunted: one with a
+        // wall between shoots the nearer as ever.
+        let (walled, _) = walled_room();
+        let (shooter, seen, hidden) = (middle(8.0, 2.0), middle(9.0, 3.0), middle(13.0, 2.0));
+        combat.set_targets(vec![Some((seen, pistol)), Some((hidden, pistol))]);
+        combat.set_taunting(&[Taunt::NONE, taunt(f32::INFINITY, 1)]);
+        assert!(walled.sees_from(shooter, hidden).is_none(), "the wall");
+        let aimed_behind = combat.aim(&walled, shooter, &stats).map(|(i, _, _)| i);
+        assert_eq!(aimed_behind, Some(0), "unseen, the taunt pulls nobody");
         // A blade goes for the nearest until the taunt is a magnet.
         combat.set_targets(vec![Some((near, pistol)), Some((far, pistol))]);
-        combat.set_taunting(&[0.0, 20.0 * TILE], &[false, false]);
+        combat.set_taunting(&[Taunt::NONE, taunt(20.0 * TILE, 1)]);
         let charge =
             |c: &Combat| Tactics::charge(&nav, from, c.targets()).expect("somewhere to charge to");
         let at = charge(&combat);
         assert!((at - near).len() < (at - far).len(), "the nearest blade");
-        combat.set_taunting(&[0.0, 20.0 * TILE], &[false, true]);
+        combat.set_taunting(&[
+            Taunt::NONE,
+            Taunt {
+                magnet: true,
+                ..taunt(20.0 * TILE, 1)
+            },
+        ]);
         let at = charge(&combat);
         assert!((at - far).len() < (at - near).len(), "the magnet's");
     }

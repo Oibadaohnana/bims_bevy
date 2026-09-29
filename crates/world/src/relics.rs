@@ -575,11 +575,17 @@ impl World {
                 }
             }
         }
-        if let Some(tank) = self.tanks.get_mut(who as usize)
-            && let Some(last) = tank.last_taunt.as_mut()
-        {
-            *last -= minutes;
-            any = true;
+        // The tank's Taunt and Juggernaut (task 139): each timestamp is
+        // the cooldown alone — the window running is its own, and does
+        // not move.
+        if let Some(tank) = self.tanks.get_mut(who as usize) {
+            for last in [tank.last_taunt.as_mut(), tank.last_juggernaut.as_mut()]
+                .into_iter()
+                .flatten()
+            {
+                *last -= minutes;
+                any = true;
+            }
         }
         // The commander's Rally and Battle Cry (task 129): the start of a
         // cooldown moves back once the shout itself is over — moved while

@@ -129,12 +129,11 @@ pub fn fight_won_window(
     // Each player's Bim on a row of its own; the bots together.
     let gained = |who: u32| {
         let now = world.progress_of(who);
-        let class = world.class_of(who);
         let before = tally.xp.get(who as usize).copied().unwrap_or(0);
         (
             now.xp.saturating_sub(before),
-            world::class::level_of(class, before),
-            now.level(class),
+            world::class::level_of(before),
+            now.level(),
         )
     };
     let bots_xp: u32 = (players..crew).map(|who| gained(who).0).sum();

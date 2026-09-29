@@ -135,11 +135,6 @@ pub enum Order {
     /// The player's class chosen or changed while playing, until the
     /// first undock — `Command::SetClass` (feature 74).
     SetClass(world::Class),
-    /// A talent picked at a level reached — `Command::PickTalent`.
-    PickTalent {
-        level: u32,
-        side: world::Side,
-    },
     /// The engineer sent to lay sandbags or a Healing Sentry on a room
     /// tile — `Command::Deploy`, the E and C keys over the deck.
     Deploy {
@@ -192,6 +187,9 @@ pub enum Order {
     Bulwark(bool),
     /// The tank's taunt — `Command::Taunt`, the Q key.
     Taunt,
+    /// The tank's Juggernaut — `Command::Juggernaut`, the R key (task
+    /// 139).
+    Juggernaut,
     /// The commander's squad sent, called back or held —
     /// `Command::Squad`, the E, X and Z keys (feature 78).
     Squad(world::SquadAsk),
@@ -471,9 +469,6 @@ impl Net {
                         Order::Crew(order) => Command::Crew { slot, order },
                         Order::CrewLater(order) => Command::CrewLater { slot, order },
                         Order::SetClass(class) => Command::SetClass { slot, class },
-                        Order::PickTalent { level, side } => {
-                            Command::PickTalent { slot, level, side }
-                        }
                         Order::Deploy { kind, x, y } => Command::Deploy { slot, kind, x, y },
                         Order::Sentry { x, y } => Command::Sentry { slot, tile: (x, y) },
                         Order::Emp { x, y } => Command::Emp { slot, x, y },
@@ -487,6 +482,7 @@ impl Net {
                         Order::Cloak(target) => Command::Cloak { slot, target },
                         Order::Bulwark(on) => Command::Bulwark { slot, on },
                         Order::Taunt => Command::Taunt { slot },
+                        Order::Juggernaut => Command::Juggernaut { slot },
                         Order::Squad(order) => Command::Squad { slot, order },
                         Order::Rally => Command::Rally { slot },
                         Order::BattleCry => Command::BattleCry { slot },

@@ -108,7 +108,7 @@ fn refused_with(events: &[WorldEvent], want: Refusal) -> bool {
 /// Straight to a level, off the class's own table.
 fn level_up(world: &mut World, who: usize, level: u8) {
     let mut events = Vec::new();
-    let want = class::level_xp(world.class_of(who as u32))[level as usize - 1];
+    let want = class::LEVEL_XP[level as usize - 1];
     let have = world.progress_of(who as u32).xp;
     world.award(who, want.saturating_sub(have), &mut events);
     assert!(world.level_of(who as u32) >= level);
@@ -252,13 +252,6 @@ fn the_medic_climbs_sixteen_levels_and_buys_ranks_the_tank_is_refused() {
     assert_eq!(world.progress_of(0).xp, 3_200);
     assert_eq!(world.level_of(0), 16);
     assert_eq!(world.points_of(0), 16);
-    // A talent pick is nothing for a ranked kit.
-    let events = world.step(&[Command::PickTalent {
-        slot: 0,
-        level: 2,
-        side: class::Side::Left,
-    }]);
-    assert!(refused_with(&events, Refusal::NotAPickLevel), "{events:?}");
     // Every gate: a fresh medic at the first level buys Q, C or E's first
     // rank and nothing of R's, and one point is one rank.
     let mut world = medic();
@@ -296,14 +289,19 @@ fn the_medic_climbs_sixteen_levels_and_buys_ranks_the_tank_is_refused() {
         refused_with(&events, Refusal::TopRank) || refused_with(&events, Refusal::NoSkillPoint),
         "{events:?}"
     );
-    // The tank keeps its talents: a rank is refused it.
+    // The tank buys his the same way since task 139.
     let mut world = basic();
     assert_eq!(world.set_class(1, Class::Tank), Ok(()));
     let events = world.step(&[Command::RankUp {
         slot: 1,
         ability_slot: class::SLOT_Q as u32,
     }]);
-    assert!(refused_with(&events, Refusal::NoRankedKit), "{events:?}");
+    assert!(
+        events
+            .iter()
+            .any(|e| matches!(e, WorldEvent::RankedUp { who: 1, .. })),
+        "{events:?}"
+    );
 }
 
 /// **The surge is gone** (task 130): the medic's abilities are the beam,
@@ -322,9 +320,6 @@ fn the_surge_is_gone() {
             class::Ability::Cloak
         ]
     );
-    for talent in class::Talent::ALL {
-        assert_ne!(talent.class(), Class::Medic, "{talent:?}");
-    }
     let mut world = medic_at([1, 0, 0, 0]);
     let events = world.step(&[Command::NaniteBurst { slot: 0 }]);
     assert!(

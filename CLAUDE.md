@@ -41,7 +41,7 @@ The main ones:
 | `design` | the ship designer (yard) |
 | `test` / `test_planet` | a random station / planet settlement, combat ship |
 | `droids` | the fight: 16 crew vs droid waves in the arena |
-| `combat_droids_<class>` | `droids` with that class at top level |
+| `combat_droids_<class>` | `droids` with that class at level 16, every skill point unspent (`BIMS_RANKS=q,c,e,r` buys ranks) |
 | `tier2_test`, `tier3_test` | `droids` with everything at that tier |
 | `droids_planet`, `defense` | a town held by / attacked by the machines |
 | `crisis`, `jammer`, `guardian`, `relics`, `heart`, `manufacturers` | one mechanic each, staged |

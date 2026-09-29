@@ -1,20 +1,20 @@
 //! Classes: what a player's crew member is, and what it learns (features
-//! 74, 75, 76, 77, 78 and 88).
+//! 74 to 78 and 88; every class a ranked kit since task 139).
 //!
 //! A crew member has **one class**, chosen by its player before the game
 //! opens — a [`Class`] per player slot, kept on the world with the start
 //! like the seed and changeable by `Command::SetClass` until the ship
 //! first leaves its berth — and one [`Progress`] through it: experience,
-//! the level that makes, and the talents picked on the way up. A
-//! crew member nobody steers, a hire, a station's resident has
+//! the level that makes, and the ranks bought on the way up. A crew
+//! member nobody steers, a hire, a station's resident has
 //! [`Class::None`] and learns nothing.
 //!
 //! **A class owns abilities, never jobs or money.** Every Bim can do
 //! every job, take every errand, place every site and use every weapon,
 //! and every Bim brings the same money to the pool whatever its class.
-//! A class only adds its own abilities — its two keys and its talents —
-//! which no other class can use: [`can`] is the one rule, and it answers
-//! for an [`Ability`] and nothing else.
+//! A class only adds its own four abilities, which no other class can
+//! use: [`can`] is the one rule, and it answers for an [`Ability`] and
+//! nothing else.
 //!
 //! # Nothing is crafted for an ability (feature 90)
 //!
@@ -24,16 +24,16 @@
 //! stands at a bench or at a dock to use a skill — the engineer's
 //! sandbags, Healing Sentry and EMP, the soldier's grenades
 //! ([`GRENADE_CHARGES`] of them at [`GRENADE_COOLDOWN`] a charge) — and
-//! what a class added later spends goes in [`Charge`] beside them. There is no medicine to carry since task 120: a downed
-//! crewmate is revived by standing beside it, and a medic's heal beam
-//! puts hit points back. The abilities that
-//! spend nothing are held instead of
-//! thrown — a brace, a beam, a bulwark, a squad order — and the ones
-//! that are neither wait out a cooldown of their own: the tank's taunt
-//! at [`TAUNT_COOLDOWN`], the commander's Battle Cry and Rally at
-//! [`BATTLE_CRY_COOLDOWN`] and [`RALLY_COOLDOWN`] of their ranks, the
-//! medic's Nanite Burst and Cloak at [`NANITE_BURST_COOLDOWN`] and
-//! [`CLOAK_COOLDOWN`] of theirs.
+//! what a class added later spends goes in [`Charge`] beside them. There
+//! is no medicine to carry since task 120: a downed crewmate is revived
+//! by standing beside it, and a medic's heal beam puts hit points back.
+//! The abilities that spend nothing are held instead of thrown — a
+//! brace, a beam, a bulwark, a squad order — and the ones that are
+//! neither wait out a cooldown of their own: the tank's Taunt and
+//! Juggernaut at [`TAUNT_COOLDOWN`] and [`JUGGERNAUT_COOLDOWN`] of their
+//! ranks, the commander's Battle Cry and Rally at [`BATTLE_CRY_COOLDOWN`]
+//! and [`RALLY_COOLDOWN`] of theirs, the medic's Nanite Burst and Cloak
+//! at [`NANITE_BURST_COOLDOWN`] and [`CLOAK_COOLDOWN`] of theirs.
 //!
 //! # Experience
 //!
@@ -53,28 +53,28 @@
 //! the engineer, the medic, the tank and the commander experience of
 //! their own until task 119, and give nobody any now.
 //!
-//! # Levels
+//! # Levels and ranks
 //!
-//! Each class climbs its own table ([`level_xp`]): ten levels off
-//! [`LEVEL_XP`] — 100 for the second, 250 for the third, up to 3 200 for
-//! the tenth — for a class of talents, and sixteen off
-//! [`RANKED_LEVEL_XP`] for a class with a **ranked kit** ([`ranked`]: the
-//! soldier, task 124, the engineer, task 127, the commander, task 129,
-//! and the medic, task 130), whose top level costs the same 3 200. A level
-//! reached is `WorldEvent::LevelUp`, said once. A **fixed** level's talent applies at
-//! once; a **pick** level ([`pick_at`]) offers two and applies neither
-//! until the player chooses — `Command::PickTalent`, only for a level
-//! reached with no pick yet, never changed after. Every class of talents
-//! climbs the same shape — fixed at one, three and seven, a pick at the
-//! rest ([`is_pick_level`]) — and what each level *is* is the class's. A
-//! ranked class picks nothing: a level is a skill point, spent on a rank
-//! ([`Progress::rank_up`]). Levels, picks and ranks are kept through a
-//! death.
+//! **Every class is a ranked kit** — the soldier since task 124, the
+//! engineer 127, the commander 129, the medic 130 and the tank 139, which
+//! took the old left-and-right talents away whole. Every class climbs
+//! the same **sixteen** levels ([`LEVELS`]) on [`LEVEL_XP`] — 100 for the
+//! second, up to 3 200 for the sixteenth — and earns **one skill point a
+//! level**, the first included. A point buys one **rank** of one of four
+//! abilities — Q, C, E and R, [`MAX_RANK`] ranks each — with
+//! `Command::RankUp` ([`Progress::rank_up`]): in the game **Ctrl and the
+//! ability's key, or a Ctrl-click on its box**, or the button on the
+//! character sheet's Skills tab. A rank of Q, C or E wants level `2n − 1`
+//! (1, 3, 5, 7); a rank of the ultimate R wants level 6, 9, 12 or 15
+//! ([`rank_level`]). Points not spent carry over, without a limit, and a
+//! rank is never taken back. A level reached is `WorldEvent::LevelUp`,
+//! said once. Levels and ranks are kept through a death. A classless
+//! crew member has no progression at all.
 //!
 //! # The engineer's four slots (task 127)
 //!
 //! A ranked kit like the soldier's: sixteen levels on
-//! [`RANKED_LEVEL_XP`], a skill point a level, Q, C and E rank `n` at
+//! [`LEVEL_XP`], a skill point a level, Q, C and E rank `n` at
 //! level `2n − 1` and the ultimate R at 6, 9, 12 and 15
 //! ([`rank_level`]). Every number is a table here, one a rank, read with
 //! [`by_rank`]; the deploy times are game minutes of working steps.
@@ -127,14 +127,8 @@
 //!
 //! # The soldier's four abilities (task 124)
 //!
-//! The soldier has no talents. It climbs **sixteen** levels on the ranked
-//! curve ([`RANKED_LEVEL_XP`], the top one costing what the tenth of the
-//! others does), earns **one skill point a level** from the first, and
-//! spends each on a **rank** of one of four abilities — Q, C, E and R,
-//! [`MAX_RANK`] ranks each — with `Command::RankUp` ([`Progress::rank_up`]).
-//! A rank of Q, C or E wants level `2n − 1` (1, 3, 5, 7); a rank of the
-//! ultimate R wants level 6, 9, 12 or 15 ([`rank_level`]). Points not
-//! spent carry over, without a limit.
+//! The first ranked kit: sixteen levels on [`LEVEL_XP`], a skill point a
+//! level, the gates of "Levels and ranks" above.
 //!
 //! **Q, Frag Grenade** (active, charges; range [`GRENADE_RANGE`] tiles,
 //! fuse [`GRENADE_FUSE`] seconds):
@@ -185,7 +179,7 @@
 //! # The medic's four slots (task 130)
 //!
 //! A ranked kit like the soldier's, the engineer's and the commander's:
-//! sixteen levels on [`RANKED_LEVEL_XP`], a skill point a level, Q, C and
+//! sixteen levels on [`LEVEL_XP`], a skill point a level, Q, C and
 //! E rank `n` at level `2n − 1` and the ultimate R at 6, 9, 12 and 15.
 //! **Two base traits** are his whatever his ranks: he revives a downed
 //! crewmate in [`MEDIC_REVIVE_SECONDS`], and a Bim he revives gets up at
@@ -246,25 +240,70 @@
 //! at every mission's start and are shortened by the cooldown relics as
 //! every class cooldown is. See [`crate::medic`].
 //!
-//! # The tank's ten levels
+//! # The tank's four slots (task 139)
 //!
-//! | level | left | right |
+//! A ranked kit like the others': sixteen levels on [`LEVEL_XP`], a
+//! skill point a level, Q, C and E rank `n` at level `2n − 1` and the
+//! ultimate R at 6, 9, 12 and 15. **Two base traits** are his whatever
+//! his ranks: armour he wears drains at [`TANK_DRAIN`] — half the rate,
+//! so the same kevlar takes twice as much on him — and he sets out with
+//! the pistol and a basic helm, kevlar and leg guards on.
+//!
+//! **Q, Taunt** (active, cooldown): every enemy within the radius that
+//! can see him shoots at him and nobody else for its seconds. An enemy
+//! taunted by two tanks follows the most recent taunt.
+//!
+//! | rank | radius | lasts | cooldown | extra |
+//! |---|---|---|---|---|
+//! | 1 | 6 tiles | 3 s | 20 s | — |
+//! | 2 | 8 tiles | 4 s | 18 s | — |
+//! | 3 | 10 tiles | 5 s | 16 s | — |
+//! | 4 | 12 tiles | 6 s | 14 s | every charging blade within the radius turns toward him |
+//!
+//! **C, Plated** (passive): the damage of every hit on him multiplied
+//! down, before the armour takes its share — with Brace, Rally and
+//! Juggernaut, every factor multiplied together.
+//!
+//! | rank | damage taken | extra |
 //! |---|---|---|
-//! | 1 | armour drains at half rate on him; *Bulwark* (E) | — |
-//! | 2 | *Pack mule*: carries two loads a trip when hauling | *Plated*: armour protection ×1.5 on him |
-//! | 3 | *Taunt* (Q): may use it | — |
-//! | 4 | *Breacher*: forces locked doors in half the time | *Unmovable*: no-op since task 120 |
-//! | 5 | *Wide wall*: bulwark reach ×2 | *Fast wall*: bulwark pace ×1.5 |
-//! | 6 | *Loud taunt*: taunt radius ×1.5 | *Long taunt*: a taunt lasts ×1.5 |
-//! | 7 | *Iron frame*: a hit rolled on his head lands on his body | — |
-//! | 8 | *Hold fast*: no-op since task 120 | *Guarded*: dodge +10% while Bulwark is on |
-//! | 9 | *Interpose*: a bolt that would hit somebody he shields hits him | *Magnet*: a taunt turns every charging blade toward him |
-//! | 10 | *Fortress*: armour drain on him ×0.5 again, a quarter in all | *Rallying wall*: while he taunts, crew within 3 tiles drain at half rate too |
+//! | 1 | ×0.90 | — |
+//! | 2 | ×0.85 | — |
+//! | 3 | ×0.80 | — |
+//! | 4 | ×0.75 | armour drain on him ×0.5 again, a quarter in all |
+//!
+//! **E, Bulwark** (toggle): he stands as a wall, and crew within its
+//! reach close behind him are in cover against anything shot through
+//! him.
+//!
+//! | rank | reach | move speed while on | extra |
+//! |---|---|---|---|
+//! | 1 | 1.5 tiles | ×0.5 | — |
+//! | 2 | 2.0 tiles | ×0.6 | — |
+//! | 3 | 2.5 tiles | ×0.7 | dodge +10% while on |
+//! | 4 | 3.0 tiles | ×0.8 | dodge +10% while on; a bolt that would hit a Bim he shields hits him instead |
+//!
+//! **R, Juggernaut** (ultimate, cooldown): for its seconds every enemy
+//! that can see him shoots at him and nobody else, at any distance —
+//! the taunt's rule without its radius — and he takes less damage. He
+//! moves at his own pace, or at Bulwark's with the wall up. It runs
+//! beside a Taunt, each on its own timer.
+//!
+//! | rank | lasts | damage taken | cooldown |
+//! |---|---|---|---|
+//! | 1 | 6 s | ×0.50 | 150 s |
+//! | 2 | 7 s | ×0.40 | 140 s |
+//! | 3 | 8 s | ×0.35 | 130 s |
+//! | 4 | 10 s | ×0.30 | 120 s |
+//!
+//! Both cooldowns run on the mission clock, stop while paused, are ready
+//! at every mission's start and are shortened by the cooldown relics as
+//! every class cooldown is. A taunt or a Juggernaut on a tank a medic
+//! has cloaked forces nothing while the cloak lasts. See [`crate::tank`].
 //!
 //! # The commander's four slots (task 129)
 //!
 //! A ranked kit like the soldier's and the engineer's: sixteen levels on
-//! [`RANKED_LEVEL_XP`], a skill point a level, Q, C and E rank `n` at
+//! [`LEVEL_XP`], a skill point a level, Q, C and E rank `n` at
 //! level `2n − 1` and the ultimate R at 6, 9, 12 and 15. **Two base
 //! traits** are his whatever his ranks: **squad orders** — attack, fall
 //! back, stand ground — from the first level, reaching every squad member
@@ -333,15 +372,15 @@
 //! bots, the hired hands and the reinforcements alike. See
 //! [`crate::commander`].
 //!
-//! Every multiplier is a named constant here; what each talent *does* is
+//! Every multiplier is a named constant here; what each rank *does* is
 //! `crate::deploy` and the world's step for the engineer, the room's
 //! one shooter (`bims::combat::Skill`, `World::skill_of`) for the
 //! soldier, `crate::medic` with the world's step for the medic, and
-//! `crate::tank` with the same `Skill` and the room's own bulwarks for
-//! the tank, and `crate::commander` with the same `Skill` and the room's
-//! own squad orders for the commander. No
-//! strings: the app names the classes and the talents (`CLASS_NAMES`,
-//! `TALENT_NAMES`).
+//! `crate::tank` with the same `Skill`, the room's own bulwarks and its
+//! taunts for the tank, and `crate::commander` with the same `Skill` and
+//! the room's own squad orders for the commander. No strings: the app
+//! names the classes and the abilities (`CLASS_NAMES`,
+//! `ranked_ability`).
 
 use crate::event::Refusal;
 
@@ -360,7 +399,8 @@ pub enum Class {
     /// The medic: a Nanite Burst, a healing aura, a heal beam and a
     /// cloak.
     Medic = 3,
-    /// The tank: a wall the crew shelter behind, and a taunt.
+    /// The tank: a taunt, plating, a wall the crew shelter behind, and a
+    /// Juggernaut.
     Tank = 4,
     /// The commander: a battle cry, an aura the crew round him hit harder
     /// in, a rally, reinforcements, orders for the squad, and a cheaper
@@ -442,6 +482,9 @@ pub enum Ability {
     Bulwark,
     /// Draw the enemy's fire onto himself: the tank's.
     Taunt,
+    /// Draw every enemy's fire at any distance and shrug it off: the
+    /// tank's ultimate (task 139).
+    Juggernaut,
     /// Send the squad — attack, fall back, stand ground: the commander's.
     SquadOrder,
     /// Call a rally: the commander's.
@@ -453,7 +496,7 @@ pub enum Ability {
 }
 
 impl Ability {
-    pub const ALL: [Ability; 14] = [
+    pub const ALL: [Ability; 15] = [
         Ability::Deploy,
         Ability::Emp,
         Ability::Sentry,
@@ -464,6 +507,7 @@ impl Ability {
         Ability::Cloak,
         Ability::Bulwark,
         Ability::Taunt,
+        Ability::Juggernaut,
         Ability::SquadOrder,
         Ability::Rally,
         Ability::Rampage,
@@ -478,7 +522,7 @@ pub fn can(class: Class, ability: Ability) -> bool {
         Ability::Deploy | Ability::Emp | Ability::Sentry => class == Class::Engineer,
         Ability::Brace | Ability::Throw | Ability::Rampage => class == Class::Soldier,
         Ability::Beam | Ability::NaniteBurst | Ability::Cloak => class == Class::Medic,
-        Ability::Bulwark | Ability::Taunt => class == Class::Tank,
+        Ability::Bulwark | Ability::Taunt | Ability::Juggernaut => class == Class::Tank,
         Ability::SquadOrder | Ability::Rally | Ability::BattleCry => class == Class::Commander,
     }
 }
@@ -556,129 +600,18 @@ impl Charge {
     }
 }
 
-/// Which of a pick level's two talents.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-#[repr(u32)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub enum Side {
-    Left = 0,
-    Right = 1,
-}
+// The left-and-right talents went with the tank's ranked kit (task 139),
+// the last class that had them: `Side`, `Talent` (codes 0 to 68, never
+// to be reused), the pick levels and `Command::PickTalent`.
 
-impl Side {
-    pub fn code(self) -> u32 {
-        self as u32
-    }
+/// How many levels every class climbs (task 139; the ranked kits'
+/// sixteen since task 124).
+pub const LEVELS: u8 = 16;
 
-    pub fn from_code(code: u32) -> Option<Side> {
-        match code {
-            0 => Some(Side::Left),
-            1 => Some(Side::Right),
-            _ => None,
-        }
-    }
-}
-
-/// The talents that are picked — each class's seven pick levels' two
-/// each, in level order, left before right, the engineer's fourteen, then
-/// the soldier's, then the medic's, then the tank's, then the
-/// commander's. The fixed levels (1, 3, 7) are not talents: they are
-/// the level itself, asked of `Progress::level`. Codes cross the seam
-/// and index `TALENT_NAMES` in the app.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-#[repr(u32)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub enum Talent {
-    // 0 to 13 were the engineer's (features 74 and 88), gone with its
-    // ranked kit (task 127); the codes are left free, never reused.
-    // 14 to 27 were the soldier's (feature 75), gone with its ranked kit
-    // (task 124); the codes are left free, never reused.
-    // 28 to 41 were the medic's (feature 76), gone with its ranked kit
-    // (task 130); the codes are left free, never reused.
-    // The tank's (feature 77).
-    Plated = 42,
-    Breacher = 43,
-    Unmovable = 44,
-    WideWall = 45,
-    FastWall = 46,
-    LoudTaunt = 47,
-    LongTaunt = 48,
-    HoldFast = 49,
-    Guarded = 50,
-    Interpose = 51,
-    Magnet = 52,
-    Fortress = 53,
-    RallyingWall = 54,
-    // 55 to 68 were the commander's (feature 78), gone with its ranked
-    // kit (task 129); the codes are left free, never reused.
-}
-
-impl Talent {
-    /// Every talent there is, in code order — with gaps where a class's
-    /// went (the engineer's 0 to 13, task 127, the soldier's 14 to 27,
-    /// task 124, the medic's 28 to 41, task 130, and the commander's 55
-    /// to 68, task 129), so a code is **not** a place in this list:
-    /// [`Talent::from_code`] looks it up. The tank's are all that is left.
-    pub const ALL: [Talent; 13] = [
-        Talent::Plated,
-        Talent::Breacher,
-        Talent::Unmovable,
-        Talent::WideWall,
-        Talent::FastWall,
-        Talent::LoudTaunt,
-        Talent::LongTaunt,
-        Talent::HoldFast,
-        Talent::Guarded,
-        Talent::Interpose,
-        Talent::Magnet,
-        Talent::Fortress,
-        Talent::RallyingWall,
-    ];
-
-    pub fn code(self) -> u32 {
-        self as u32
-    }
-
-    pub fn from_code(code: u32) -> Option<Talent> {
-        Talent::ALL.into_iter().find(|t| t.code() == code)
-    }
-
-    /// Whose talent it is. Fourteen a class, bar the tank's **thirteen**
-    /// since the money rework (feature 95) took *pack mule* off its
-    /// second level, which is a fixed level now, and the soldier's, the
-    /// engineer's, the medic's and the commander's none since their ranked
-    /// kits (tasks 124, 127, 130 and 129) — their bands, 0 to 13, 14 to
-    /// 27, 28 to 41 and 55 to 68, are empty.
-    pub fn class(self) -> Class {
-        if self.code() < 14 {
-            Class::Engineer
-        } else if self.code() < 28 {
-            Class::Soldier
-        } else if self.code() < 42 {
-            Class::Medic
-        } else if self.code() < 55 {
-            Class::Tank
-        } else {
-            Class::Commander
-        }
-    }
-}
-
-/// How many levels a class of talents climbs.
-pub const LEVELS: u8 = 10;
-
-/// Cumulative experience for each level of a class of talents, by level
-/// less one: nothing for the first, 100 for the second, up to 3 200 for
-/// the tenth.
-pub const LEVEL_XP: [u32; LEVELS as usize] =
-    [0, 100, 250, 450, 700, 1_000, 1_400, 1_900, 2_500, 3_200];
-
-/// How many levels a class with a **ranked kit** climbs (task 124).
-pub const RANKED_LEVELS: u8 = 16;
-
-/// Cumulative experience for each level of a ranked class, by level less
-/// one: the top one costs what the tenth of [`LEVEL_XP`] does.
-pub const RANKED_LEVEL_XP: [u32; RANKED_LEVELS as usize] = [
+/// Cumulative experience for each level, by level less one: nothing for
+/// the first, 100 for the second, up to 3 200 for the sixteenth — every
+/// class's (task 139; `RANKED_LEVEL_XP` until then).
+pub const LEVEL_XP: [u32; LEVELS as usize] = [
     0, 100, 220, 360, 520, 700, 900, 1_110, 1_330, 1_560, 1_800, 2_050, 2_310, 2_580, 2_870, 3_200,
 ];
 
@@ -697,31 +630,11 @@ pub const SLOTS: usize = 4;
 /// The level each rank of the ultimate — slot R — wants.
 pub const ULTIMATE_LEVELS: [u8; MAX_RANK as usize] = [6, 9, 12, 15];
 
-/// Whether a class has a **ranked kit** (task 124): four abilities
-/// bought a rank at a time with a skill point a level, in place of the
-/// left-and-right talents. The soldier, the engineer (task 127), the
-/// commander (task 129) and the medic (task 130); the tank keeps its
-/// talents until its own rework.
+/// Whether a class has a **ranked kit**: four abilities bought a rank at
+/// a time with a skill point a level. Every class since the tank's
+/// (task 139); [`Class::None`] alone has nothing to learn.
 pub fn ranked(class: Class) -> bool {
-    matches!(
-        class,
-        Class::Soldier | Class::Engineer | Class::Commander | Class::Medic
-    )
-}
-
-/// How many levels a class climbs: [`RANKED_LEVELS`] for a ranked kit,
-/// [`LEVELS`] for every other class (and for none).
-pub fn levels(class: Class) -> u8 {
-    level_xp(class).len() as u8
-}
-
-/// The class's own cumulative experience table, by level less one.
-pub fn level_xp(class: Class) -> &'static [u32] {
-    if ranked(class) {
-        &RANKED_LEVEL_XP
-    } else {
-        &LEVEL_XP
-    }
+    class != Class::None
 }
 
 /// The level a rank of an ability slot of a ranked kit wants: Q, C and E
@@ -955,49 +868,60 @@ pub fn revive_time(medic: bool, quicker: f32) -> f32 {
     (base - quicker).max(crate::data::REVIVE_FLOOR_SECONDS)
 }
 
-// --- the tank's numbers (feature 77) -----------------------------------------
+// --- the tank's numbers (task 139) --------------------------------------------
+//
+// One number a rank, ranks one to four, read with [`by_rank`] like the
+// others'. The seconds are seconds of the mission clock, one a real
+// second at 1×.
 
-/// What a piece of armour worn by a tank drains at: half the damage it
-/// takes past its protection, so a piece absorbs twice as much on him.
-/// Never doubled in the piece's own health, which moves between Bims
-/// unchanged.
+/// **Base trait**: what a piece of armour worn by a tank drains at: half
+/// the damage it takes past its protection, so a piece absorbs twice as
+/// much on him. Never doubled in the piece's own health, which moves
+/// between Bims unchanged.
 pub const TANK_DRAIN: f32 = 0.5;
-/// What a tank's pace is multiplied by while Bulwark is on.
-pub const BULWARK_PACE: f32 = 0.5;
-/// How far Bulwark reaches, in tiles: how near the tank a crew member
-/// must stand to shelter behind him, and how near the line from the
-/// shooter he must stand to be between them.
-pub const BULWARK_REACH: f32 = 1.5;
-/// The level a taunt may be used from: the tank's third.
-pub const TAUNT_LEVEL: u8 = 3;
-/// The level *iron frame* applies from: the tank's seventh.
-pub const IRON_FRAME_LEVEL: u8 = 7;
-/// Seconds of the clock between one taunt and the next.
-pub const TAUNT_COOLDOWN: f64 = 20.0;
-/// Minutes of the clock a taunt runs.
-pub const TAUNT_MINUTES: f64 = 6.0;
-/// How far a taunt reaches, in tiles.
-pub const TAUNT_RADIUS: f32 = 10.0;
-/// *Plated*: what a worn piece's protection is multiplied by on him.
-pub const PLATED_PROTECTION: f32 = 1.5;
-/// *Breacher*: what forcing a locked door takes, of the ordinary time.
-pub const BREACHER_TIME: f32 = 0.5;
-/// *Wide wall*: what the bulwark's reach is multiplied by.
-pub const WIDE_WALL_REACH: f32 = 2.0;
-/// *Fast wall*: what the bulwark's pace is multiplied by.
-pub const FAST_WALL_PACE: f32 = 1.5;
-/// *Loud taunt*: what the taunt's radius is multiplied by.
-pub const LOUD_TAUNT_RADIUS: f32 = 1.5;
-/// *Long taunt*: what a taunt's minutes are multiplied by.
-pub const LONG_TAUNT_TIME: f64 = 1.5;
-/// *Guarded*: what is added to the dodge while Bulwark is on.
-pub const GUARDED_DODGE: f32 = 0.10;
-/// *Fortress*: what the tank's armour drain is multiplied by again.
+
+/// **Q, Taunt**: how far it reaches, in tiles, a rank.
+pub const TAUNT_RADIUS: [f32; 4] = [6.0, 8.0, 10.0, 12.0];
+/// Seconds of the mission clock it runs, a rank.
+pub const TAUNT_SECONDS: [f64; 4] = [3.0, 4.0, 5.0, 6.0];
+/// Seconds of the mission clock from one taunt to the next, a rank.
+pub const TAUNT_COOLDOWN: [f64; 4] = [20.0, 18.0, 16.0, 14.0];
+/// The rank from which a taunt turns every charging blade within its
+/// radius toward him (what *magnet* was).
+pub const TAUNT_MAGNET_RANK: u8 = 4;
+
+/// **C, Plated**: what the damage of a hit on him is multiplied by, a
+/// rank — before the armour, as Brace's is.
+pub const PLATED_DAMAGE_TAKEN: [f32; 4] = [0.90, 0.85, 0.80, 0.75];
+/// The rank from which his armour drain is multiplied by
+/// [`FORTRESS_DRAIN`] again (what *fortress* was).
+pub const FORTRESS_RANK: u8 = 4;
+/// What his armour drain is multiplied by again from [`FORTRESS_RANK`]:
+/// a quarter of the rate in all.
 pub const FORTRESS_DRAIN: f32 = 0.5;
-/// *Rallying wall*: how far round a taunting tank it reaches, in tiles.
-pub const RALLYING_WALL_TILES: f32 = 3.0;
-/// *Rallying wall*: what a sheltered crewmate's armour drains at.
-pub const RALLYING_WALL_DRAIN: f32 = 0.5;
+
+/// **E, Bulwark**: how far it reaches, in tiles, a rank — how near the
+/// tank a crew member must stand to shelter behind him, and how near the
+/// line from the shooter he must stand to be between them.
+pub const BULWARK_REACH: [f32; 4] = [1.5, 2.0, 2.5, 3.0];
+/// What his pace is multiplied by while the wall is up, a rank.
+pub const BULWARK_PACE: [f32; 4] = [0.5, 0.6, 0.7, 0.8];
+/// The rank from which the wall adds [`GUARDED_DODGE`] to his dodge
+/// while it is up (what *guarded* was).
+pub const GUARDED_RANK: u8 = 3;
+/// What is added to the dodge while the wall is up, from
+/// [`GUARDED_RANK`].
+pub const GUARDED_DODGE: f32 = 0.10;
+/// The rank from which a bolt that would hit a Bim he shields hits him
+/// instead (what *interpose* was).
+pub const INTERPOSE_RANK: u8 = 4;
+
+/// **R, Juggernaut**: seconds of the mission clock it runs, a rank.
+pub const JUGGERNAUT_SECONDS: [f64; 4] = [6.0, 7.0, 8.0, 10.0];
+/// What the damage he takes is multiplied by while it runs, a rank.
+pub const JUGGERNAUT_DAMAGE_TAKEN: [f32; 4] = [0.50, 0.40, 0.35, 0.30];
+/// Seconds of the mission clock from one Juggernaut to the next, a rank.
+pub const JUGGERNAUT_COOLDOWN: [f64; 4] = [150.0, 140.0, 130.0, 120.0];
 
 // --- the commander's numbers (task 129) ---------------------------------------
 //
@@ -1054,95 +978,46 @@ pub const REINFORCEMENT_TIER: [bims::combat::Tier; 4] = [
 /// one on: fewer arrive where fewer are found.
 pub const REINFORCEMENT_REACH_TILES: f32 = 5.0;
 
-/// Whether a level is a pick level **for this class**: every class is
-/// fixed at one, three and seven and a pick at the rest, bar the tank's
-/// second, which the money rework (feature 95) made a fixed level when
-/// hauling went and *pack mule* with it — *plated* stands alone there.
-/// A class with a ranked kit (the soldier, the engineer, the commander,
-/// the medic) has none.
-///
-/// Asked of `pick_at`, so the two can never disagree about the shape of
-/// a tree.
-pub fn is_pick_level(class: Class, level: u8) -> bool {
-    pick_at(class, level).is_some()
+/// The level `xp` makes: one to sixteen on [`LEVEL_XP`], whatever the
+/// class.
+pub fn level_of(xp: u32) -> u8 {
+    LEVEL_XP.iter().filter(|&&need| xp >= need).count().max(1) as u8
 }
 
-/// The one talent a **fixed** level of a class gives outright, if it
-/// gives one: the tank's *plated* at the second. A fixed level costs no
-/// skill point and is never picked at; `Progress::has` counts it from
-/// the level it sits at.
-pub fn fixed_at(class: Class, level: u8) -> Option<Talent> {
-    match (class, level) {
-        (Class::Tank, 2) => Some(Talent::Plated),
-        _ => None,
-    }
-}
-
-/// The two talents a class offers at a pick level, left and right, or
-/// `None` for a fixed level, for no level at all, and for no class.
-pub fn pick_at(class: Class, level: u8) -> Option<(Talent, Talent)> {
-    Some(match (class, level) {
-        (Class::Tank, 4) => (Talent::Breacher, Talent::Unmovable),
-        (Class::Tank, 5) => (Talent::WideWall, Talent::FastWall),
-        (Class::Tank, 6) => (Talent::LoudTaunt, Talent::LongTaunt),
-        (Class::Tank, 8) => (Talent::HoldFast, Talent::Guarded),
-        (Class::Tank, 9) => (Talent::Interpose, Talent::Magnet),
-        (Class::Tank, 10) => (Talent::Fortress, Talent::RallyingWall),
-        _ => return None,
-    })
-}
-
-/// The level `xp` makes for a crew member of `class`: one to ten on
-/// [`LEVEL_XP`], one to sixteen on [`RANKED_LEVEL_XP`] for a ranked kit.
-pub fn level_of(class: Class, xp: u32) -> u8 {
-    level_xp(class)
-        .iter()
-        .filter(|&&need| xp >= need)
-        .count()
-        .max(1) as u8
-}
-
-/// One crew member's way through its class: what it has learnt. The
-/// picks are a level and a side, and which talent each is depends on
-/// the class the crew member has — asked of every reading; the ranks
-/// (task 124) are a count a slot of a ranked kit, Q, C, E and R. Which
-/// table the level is read off is the class's, handed to every reading
-/// as the picks' talents are.
+/// One crew member's way through its class: its experience, and the
+/// ranks it has bought, a count a slot of its kit — Q, C, E and R.
 #[derive(Clone, PartialEq, Debug, Default)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Progress {
     /// Cumulative experience.
     pub xp: u32,
-    /// The picks made, in level order: the level and which side.
-    pub picks: Vec<(u8, Side)>,
     /// The ranks bought, a slot: Q, C, E and R ([`SLOT_Q`] …), nought to
-    /// [`MAX_RANK`] each. Nought for every class without a ranked kit.
+    /// [`MAX_RANK`] each. Nought for a classless crew member.
     #[cfg_attr(feature = "serde", serde(default))]
     pub ranks: [u8; SLOTS],
 }
 
 impl Progress {
-    /// The level the experience makes, on the class's own table.
-    pub fn level(&self, class: Class) -> u8 {
-        level_of(class, self.xp)
+    /// The level the experience makes.
+    pub fn level(&self) -> u8 {
+        level_of(self.xp)
     }
 
     /// Experience still wanted for the next level; nought at the top.
-    pub fn to_next(&self, class: Class) -> u32 {
-        let table = level_xp(class);
-        let level = self.level(class);
-        if level as usize >= table.len() {
+    pub fn to_next(&self) -> u32 {
+        let level = self.level();
+        if level as usize >= LEVEL_XP.len() {
             return 0;
         }
-        table[level as usize].saturating_sub(self.xp)
+        LEVEL_XP[level as usize].saturating_sub(self.xp)
     }
 
     /// `xp` more: every level reached by it, lowest first, for the world
-    /// to say. Nothing past the class's top level.
-    pub fn gain(&mut self, class: Class, xp: u32) -> Vec<u8> {
-        let was = self.level(class);
+    /// to say. Nothing past the top level.
+    pub fn gain(&mut self, xp: u32) -> Vec<u8> {
+        let was = self.level();
         self.xp = self.xp.saturating_add(xp);
-        let now = self.level(class);
+        let now = self.level();
         ((was + 1)..=now).collect()
     }
 
@@ -1158,22 +1033,25 @@ impl Progress {
     }
 
     /// Skill points not spent (task 124): a point a level reached, the
-    /// first included, less every rank bought. Nought for a class with
-    /// no ranked kit.
+    /// first included, less every rank bought. Nought for a classless
+    /// crew member.
     pub fn points(&self, class: Class) -> u8 {
         if !ranked(class) {
             return 0;
         }
-        self.level(class).saturating_sub(self.ranks_bought())
+        self.level().saturating_sub(self.ranks_bought())
     }
 
     /// Whether a rank of that slot may be bought now, and the rank it
     /// would be, or why not — in the order the refusals are said: a class
-    /// with a ranked kit and a slot of it (`NoRankedKit`), a point to
-    /// spend (`NoSkillPoint`), the slot not at [`MAX_RANK`] (`TopRank`),
-    /// and the level the rank wants reached (`RankLocked`).
+    /// (`NoClass`), a slot of the kit (`NoRankedKit`), a point to spend
+    /// (`NoSkillPoint`), the slot not at [`MAX_RANK`] (`TopRank`), and the
+    /// level the rank wants reached (`RankLocked`).
     pub fn can_rank_up(&self, class: Class, ability_slot: u8) -> Result<u8, Refusal> {
-        if !ranked(class) || ability_slot as usize >= SLOTS {
+        if !ranked(class) {
+            return Err(Refusal::NoClass);
+        }
+        if ability_slot as usize >= SLOTS {
             return Err(Refusal::NoRankedKit);
         }
         if self.points(class) == 0 {
@@ -1184,7 +1062,7 @@ impl Progress {
             return Err(Refusal::TopRank);
         }
         match rank_level(class, ability_slot, rank + 1) {
-            Some(want) if self.level(class) >= want => Ok(rank + 1),
+            Some(want) if self.level() >= want => Ok(rank + 1),
             _ => Err(Refusal::RankLocked),
         }
     }
@@ -1196,192 +1074,11 @@ impl Progress {
         self.ranks[ability_slot as usize] = rank;
         Ok(rank)
     }
-
-    /// Whether a talent has been picked, for a crew member of `class`.
-    pub fn has(&self, class: Class, talent: Talent) -> bool {
-        self.picks
-            .iter()
-            .any(|&(level, side)| talent_of(class, level, side) == Some(talent))
-            || (1..=self.level(class)).any(|l| fixed_at(class, l) == Some(talent))
-    }
-
-    /// The pick made at a level, if any.
-    pub fn picked_at(&self, level: u8) -> Option<Side> {
-        self.picks
-            .iter()
-            .find(|&&(l, _)| l == level)
-            .map(|&(_, side)| side)
-    }
-
-    /// The lowest reached pick level with no pick yet, if any: what the
-    /// panel offers, and what a level-up leaves pending.
-    pub fn pending_pick(&self, class: Class) -> Option<u8> {
-        (2..=self.level(class)).find(|&l| is_pick_level(class, l) && self.picked_at(l).is_none())
-    }
-
-    /// Choose a side at a level for a crew member of `class`: a pick
-    /// level, reached, not yet picked. The talent it is, or why not.
-    pub fn pick(&mut self, class: Class, level: u8, side: Side) -> Result<Talent, Refusal> {
-        let (left, right) = pick_at(class, level).ok_or(Refusal::NotAPickLevel)?;
-        if level > self.level(class) {
-            return Err(Refusal::LevelNotReached);
-        }
-        if self.picked_at(level).is_some() {
-            return Err(Refusal::AlreadyPicked);
-        }
-        self.picks.push((level, side));
-        self.picks.sort_by_key(|&(l, _)| l);
-        Ok(match side {
-            Side::Left => left,
-            Side::Right => right,
-        })
-    }
-
-    /// Every talent picked, for a crew member of `class`, in level order.
-    pub fn talents(&self, class: Class) -> Vec<Talent> {
-        (1..=self.level(class))
-            .filter_map(|l| fixed_at(class, l))
-            .chain(
-                self.picks
-                    .iter()
-                    .filter_map(|&(level, side)| talent_of(class, level, side)),
-            )
-            .collect()
-    }
-}
-
-/// The talent a side of a level is, for a class.
-pub fn talent_of(class: Class, level: u8, side: Side) -> Option<Talent> {
-    pick_at(class, level).map(|(left, right)| match side {
-        Side::Left => left,
-        Side::Right => right,
-    })
-}
-
-/// The level a class's own key is learnt at: its **E** from the first
-/// level — sandbags, the brace, the beam, the wall, the squad — and its
-/// **Q** from the third for a class of talents — the tank's taunt. `None`
-/// for [`Class::None`], which has no keys
-/// at all. What the two boxes at the foot of the screen grey themselves
-/// out by (feature 80). A class with a ranked kit learns both at the
-/// first level, and what greys its boxes is the rank (task 124).
-pub fn key_level(class: Class, primary: bool) -> Option<u8> {
-    Some(match (class, primary) {
-        (Class::None, _) => return None,
-        (_, false) => 1,
-        // A ranked kit (task 124) learns every key at its first rank, which
-        // is bought from the first level: the box greys itself by the rank.
-        (c, true) if ranked(c) => 1,
-        (Class::Tank, true) => TAUNT_LEVEL,
-        (Class::Soldier | Class::Engineer | Class::Commander | Class::Medic, true) => 1,
-    })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn the_levels_climb_at_the_thresholds_and_a_pick_is_one_each() {
-        // The tank: the one class of talents left since the medic's
-        // ranked kit (task 130).
-        let m = Class::Tank;
-        assert_eq!(level_of(m, 0), 1);
-        assert_eq!(level_of(m, 99), 1);
-        for (i, &need) in LEVEL_XP.iter().enumerate().skip(1) {
-            assert_eq!(level_of(m, need - 1), i as u8, "just under {need}");
-            assert_eq!(level_of(m, need), i as u8 + 1, "at {need}");
-        }
-        assert_eq!(level_of(m, 100_000), 10);
-        let mut p = Progress::default();
-        assert_eq!(p.to_next(m), 100);
-        assert_eq!(p.gain(m, 99), Vec::<u8>::new());
-        assert_eq!(p.gain(m, 1), vec![2]);
-        assert_eq!(p.gain(m, 600), vec![3, 4, 5]);
-        assert_eq!(p.pending_pick(m), Some(4), "the second and third are fixed");
-        assert_eq!(p.pick(m, 3, Side::Left), Err(Refusal::NotAPickLevel));
-        assert_eq!(p.pick(m, 8, Side::Left), Err(Refusal::LevelNotReached));
-        assert_eq!(
-            p.pick(Class::Tank, 2, Side::Left),
-            Err(Refusal::NotAPickLevel),
-            "the tank's second is fixed since the money rework"
-        );
-        assert_eq!(
-            p.pick(Class::Medic, 4, Side::Left),
-            Err(Refusal::NotAPickLevel),
-            "a ranked kit has no picks (task 130)"
-        );
-        assert_eq!(
-            p.pick(Class::None, 2, Side::Left),
-            Err(Refusal::NotAPickLevel),
-            "no class, no picks"
-        );
-        assert_eq!(
-            p.pick(Class::Engineer, 2, Side::Left),
-            Err(Refusal::NotAPickLevel),
-            "a ranked kit has no picks (task 127)"
-        );
-        assert_eq!(p.pick(m, 4, Side::Right), Ok(Talent::Unmovable));
-        assert_eq!(p.pick(m, 4, Side::Left), Err(Refusal::AlreadyPicked));
-        assert!(p.has(m, Talent::Unmovable) && !p.has(m, Talent::Breacher));
-        // Read as another class's, the pick is nothing: which talent a
-        // pick is depends on the class, and no other has talents left.
-        assert!(!p.has(Class::Medic, Talent::Unmovable));
-        assert_eq!(
-            p.talents(Class::Tank),
-            vec![Talent::Plated, Talent::Unmovable]
-        );
-        assert_eq!(p.talents(Class::Medic), Vec::new());
-        assert_eq!(p.pending_pick(m), Some(5));
-        for class in [
-            Class::Engineer,
-            Class::Soldier,
-            Class::Medic,
-            Class::Tank,
-            Class::Commander,
-        ] {
-            let mut all = Vec::new();
-            for level in 1..=LEVELS {
-                // A fixed level's talent is the class's too, given rather
-                // than chosen at.
-                if let Some(fixed) = fixed_at(class, level) {
-                    all.push(fixed);
-                }
-                assert_eq!(pick_at(class, level).is_some(), is_pick_level(class, level));
-                // A fixed level gives its talent outright and costs no
-                // point: the tank's second since the money rework.
-                if let Some(fixed) = fixed_at(class, level) {
-                    assert_eq!(fixed.class(), class);
-                    assert!(pick_at(class, level).is_none());
-                }
-                if let Some((l, r)) = pick_at(class, level) {
-                    assert_eq!(l.class(), class);
-                    assert_eq!(r.class(), class);
-                    all.push(l);
-                    all.push(r);
-                }
-            }
-            let own: Vec<Talent> = Talent::ALL
-                .into_iter()
-                .filter(|t| t.class() == class)
-                .collect();
-            assert_eq!(all, own, "every talent of {class:?} is on one pick level");
-            // A ranked kit (tasks 124 and 127) has none at all.
-            assert_eq!(ranked(class), own.is_empty(), "{class:?}");
-        }
-        for level in 1..=LEVELS {
-            assert_eq!(pick_at(Class::None, level), None);
-        }
-        for talent in Talent::ALL {
-            assert_eq!(Talent::from_code(talent.code()), Some(talent));
-        }
-        for code in (0..42).chain(55..69) {
-            assert_eq!(Talent::from_code(code), None, "{code} is left free");
-        }
-        for class in Class::ALL {
-            assert_eq!(Class::from_code(class.code()), Some(class));
-        }
-    }
 
     #[test]
     fn a_class_owns_its_abilities_and_nothing_else() {
@@ -1402,6 +1099,8 @@ mod tests {
         assert!(!can(Class::Soldier, Ability::Cloak));
         assert!(can(Class::Tank, Ability::Bulwark));
         assert!(can(Class::Tank, Ability::Taunt));
+        assert!(can(Class::Tank, Ability::Juggernaut));
+        assert!(!can(Class::Soldier, Ability::Juggernaut));
         assert!(!can(Class::Tank, Ability::Beam));
         assert!(!can(Class::Tank, Ability::Deploy));
         assert!(!can(Class::Medic, Ability::Bulwark));
@@ -1417,103 +1116,97 @@ mod tests {
         for ability in Ability::ALL {
             assert!(!can(Class::None, ability));
         }
-        assert_eq!(Talent::Plated.class(), Class::Tank);
-        assert_eq!(Talent::RallyingWall.class(), Class::Tank);
-    }
-
-    /// Every class's own two keys are learnt at the same two levels —
-    /// the E from the first, the Q from the third — and a classless
-    /// crew member has neither.
-    #[test]
-    fn a_class_s_e_is_its_first_level_and_its_q_its_third() {
         for class in Class::ALL {
-            if class == Class::None {
-                assert_eq!(key_level(class, true), None);
-                assert_eq!(key_level(class, false), None);
-                continue;
-            }
-            assert_eq!(key_level(class, false), Some(1), "{class:?}'s E");
-            if ranked(class) {
-                assert_eq!(key_level(class, true), Some(1), "{class:?}'s Q, by rank");
-                continue;
-            }
-            assert_eq!(key_level(class, true), Some(3), "{class:?}'s Q");
-            // And the third is a fixed level, so nobody has to pick it.
-            assert!(!is_pick_level(class, 3));
+            assert_eq!(Class::from_code(class.code()), Some(class));
         }
-        assert_eq!(key_level(Class::Medic, true), Some(1), "by rank");
-        assert_eq!(key_level(Class::Tank, true), Some(TAUNT_LEVEL));
-        assert_eq!(key_level(Class::Commander, true), Some(1), "by rank");
     }
 
-    /// A ranked kit (task 124): sixteen levels on its own curve topping
-    /// out where the others' tenth does, a point a level, and every
-    /// rank's gate refusing a level early and allowing on the level.
+    /// Every class is a ranked kit (task 139): sixteen levels, the top at
+    /// 3 200, a point a level, and every rank's gate refusing a level
+    /// early and allowing on the level — the tank's as the soldier's.
     #[test]
-    fn a_ranked_kit_climbs_sixteen_levels_and_buys_a_rank_a_point() {
-        let s = Class::Soldier;
-        assert!(ranked(s) && ranked(Class::Medic) && !ranked(Class::Tank) && !ranked(Class::None));
-        assert_eq!(levels(s), 16);
-        assert_eq!(
-            levels(Class::Medic),
-            16,
-            "the medic's kit is ranked (task 130)"
-        );
-        assert_eq!(levels(Class::Tank), LEVELS);
-        assert_eq!(RANKED_LEVEL_XP[15], LEVEL_XP[9], "the top costs the same");
-        assert_eq!(level_of(s, 3_199), 15);
-        assert_eq!(level_of(s, 3_200), 16);
-        assert_eq!(level_of(s, 1_000_000), 16);
-        assert_eq!(level_of(Class::Medic, 3_200), 16);
-        assert_eq!(level_of(Class::Tank, 3_200), 10);
+    fn every_class_climbs_sixteen_levels_and_buys_a_rank_a_point() {
+        assert_eq!(LEVELS, 16);
+        assert_eq!(LEVEL_XP.len(), 16);
+        assert_eq!(LEVEL_XP[15], 3_200, "the top at 3 200");
+        assert_eq!(level_of(0), 1);
+        assert_eq!(level_of(99), 1);
+        assert_eq!(level_of(3_199), 15);
+        assert_eq!(level_of(3_200), 16);
+        assert_eq!(level_of(1_000_000), 16);
+        for class in Class::ALL {
+            assert_eq!(ranked(class), class != Class::None, "{class:?}");
+        }
         let mut p = Progress::default();
-        assert_eq!(p.points(s), 1, "a point at the first level");
-        assert_eq!(p.points(Class::Tank), 0);
+        assert_eq!(p.points(Class::None), 0, "a classless bot learns nothing");
         assert_eq!(
-            p.can_rank_up(Class::Tank, SLOT_Q),
-            Err(Refusal::NoRankedKit),
-            "the tank is still refused"
+            p.can_rank_up(Class::None, SLOT_Q),
+            Err(Refusal::NoClass),
+            "nor ranks anything"
         );
-        assert_eq!(p.can_rank_up(Class::Medic, SLOT_Q), Ok(1));
-        assert_eq!(
-            p.can_rank_up(Class::Medic, SLOT_R),
-            Err(Refusal::RankLocked)
-        );
-        assert_eq!(p.can_rank_up(s, 4), Err(Refusal::NoRankedKit));
-        assert_eq!(p.can_rank_up(s, SLOT_R), Err(Refusal::RankLocked));
+        for class in Class::ALL.into_iter().filter(|&c| c != Class::None) {
+            assert_eq!(p.points(class), 1, "{class:?}: a point at the first level");
+            assert_eq!(p.can_rank_up(class, SLOT_Q), Ok(1), "{class:?}");
+            assert_eq!(p.can_rank_up(class, SLOT_R), Err(Refusal::RankLocked));
+            assert_eq!(p.can_rank_up(class, 4), Err(Refusal::NoRankedKit));
+        }
+        let s = Class::Tank;
         assert_eq!(p.rank_up(s, SLOT_Q), Ok(1));
         assert_eq!(p.rank_up(s, SLOT_C), Err(Refusal::NoSkillPoint));
-        assert_eq!(p.gain(s, 3_200), (2..=16).collect::<Vec<u8>>());
-        assert_eq!(p.to_next(s), 0);
+        assert_eq!(p.gain(3_200), (2..=16).collect::<Vec<u8>>());
+        assert_eq!(p.to_next(), 0);
         assert_eq!(p.points(s), 15);
         for _ in 0..3 {
             p.rank_up(s, SLOT_Q).unwrap();
         }
         assert_eq!(p.rank(SLOT_Q), MAX_RANK);
         assert_eq!(p.rank_up(s, SLOT_Q), Err(Refusal::TopRank));
-        // Every gate: refused a level early, allowed on the level.
-        for slot in 0..SLOTS as u8 {
-            for rank in 1..=MAX_RANK {
-                let want = rank_level(s, slot, rank).unwrap();
-                let mut q = Progress::default();
-                q.ranks[slot as usize] = rank - 1;
-                if want > 1 {
-                    q.xp = RANKED_LEVEL_XP[want as usize - 2];
+        // Every gate, of every class: refused a level early, allowed on
+        // the level.
+        for class in Class::ALL.into_iter().filter(|&c| c != Class::None) {
+            for slot in 0..SLOTS as u8 {
+                for rank in 1..=MAX_RANK {
+                    let want = rank_level(class, slot, rank).unwrap();
+                    let mut q = Progress::default();
+                    q.ranks[slot as usize] = rank - 1;
+                    if want > 1 {
+                        q.xp = LEVEL_XP[want as usize - 2];
+                        assert_eq!(
+                            q.can_rank_up(class, slot),
+                            Err(Refusal::RankLocked),
+                            "{class:?} {slot} {rank}"
+                        );
+                    }
+                    q.xp = LEVEL_XP[want as usize - 1];
                     assert_eq!(
-                        q.can_rank_up(s, slot),
-                        Err(Refusal::RankLocked),
-                        "{slot} {rank}"
+                        q.can_rank_up(class, slot),
+                        Ok(rank),
+                        "{class:?} {slot} {rank}"
                     );
                 }
-                q.xp = RANKED_LEVEL_XP[want as usize - 1];
-                assert_eq!(q.can_rank_up(s, slot), Ok(rank), "{slot} {rank}");
             }
         }
         assert_eq!(rank_level(s, SLOT_E, 3), Some(5));
         assert_eq!(rank_level(s, SLOT_R, 1), Some(6));
         assert_eq!(rank_level(s, SLOT_R, 4), Some(15));
         assert_eq!(rank_level(s, SLOT_Q, 5), None);
+        assert_eq!(rank_level(Class::None, SLOT_Q, 1), None);
         assert_eq!(by_rank(GRENADE_DAMAGE, 0), None);
         assert_eq!(by_rank(GRENADE_DAMAGE, 4), Some(110.0));
+    }
+
+    /// The tank's tables (task 139), as the spec gives them.
+    #[test]
+    fn the_tank_s_tables_are_the_spec_s() {
+        assert_eq!(TAUNT_RADIUS, [6.0, 8.0, 10.0, 12.0]);
+        assert_eq!(TAUNT_SECONDS, [3.0, 4.0, 5.0, 6.0]);
+        assert_eq!(TAUNT_COOLDOWN, [20.0, 18.0, 16.0, 14.0]);
+        assert_eq!(PLATED_DAMAGE_TAKEN, [0.90, 0.85, 0.80, 0.75]);
+        assert_eq!(TANK_DRAIN * FORTRESS_DRAIN, 0.25, "a quarter in all");
+        assert_eq!(BULWARK_REACH, [1.5, 2.0, 2.5, 3.0]);
+        assert_eq!(BULWARK_PACE, [0.5, 0.6, 0.7, 0.8]);
+        assert_eq!(JUGGERNAUT_SECONDS, [6.0, 7.0, 8.0, 10.0]);
+        assert_eq!(JUGGERNAUT_DAMAGE_TAKEN, [0.50, 0.40, 0.35, 0.30]);
+        assert_eq!(JUGGERNAUT_COOLDOWN, [150.0, 140.0, 130.0, 120.0]);
     }
 }

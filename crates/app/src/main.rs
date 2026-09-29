@@ -27,8 +27,9 @@
 //! bims combat_droids_<class>
 //!                    that fight with a class on the crew member you steer:
 //!                    `combat_droids_engineer` … `combat_droids_commander`
-//!                    — one a class, at the tenth level of it with every
-//!                    talent still to choose; `BIMS_LEVEL` says otherwise
+//!                    — one a class, at the sixteenth level with every
+//!                    skill point still to spend; `BIMS_LEVEL` says
+//!                    otherwise, `BIMS_RANKS=q,c,e,r` buys ranks
 //! bims tier2_test    `droids` with everybody's kit at tier two: every
 //!                    crew member's gun and a full set of armour, and the
 //!                    machines at it too
@@ -119,10 +120,9 @@ pub enum Launch {
     /// `BIMS_DROID_WAVE`), so what a class does against the machines is
     /// the only thing that differs between two of these runs.
     /// `BIMS_CLASS` still wins over it. It opens at
-    /// `dev::combat_class_level` — the class's top, the tenth with every
-    /// talent still to choose (feature 80), or a ranked kit's sixteenth
-    /// with sixteen skill points to spend (task 124) — and `BIMS_LEVEL`
-    /// says otherwise; `BIMS_RANKS=q,c,e,r` sets a ranked kit's ranks.
+    /// `dev::combat_class_level` — the sixteenth, with sixteen skill
+    /// points to spend (every class a ranked kit since task 139) — and
+    /// `BIMS_LEVEL` says otherwise; `BIMS_RANKS=q,c,e,r` sets the ranks.
     DroidsAs(world::Class),
     /// `TestPlanet` with the town droid-held, the same shortcut.
     DroidsPlanet,
@@ -305,7 +305,7 @@ fn list() {
             row(
                 &format!("{prefix}{word}"),
                 &format!(
-                    "{fight}, the crew member you steer {a} {word} at the tenth level (BIMS_LEVEL says otherwise)"
+                    "{fight}, the crew member you steer {a} {word} at the sixteenth level, every skill point unspent (BIMS_LEVEL says otherwise, BIMS_RANKS=q,c,e,r buys ranks)"
                 ),
             );
         }

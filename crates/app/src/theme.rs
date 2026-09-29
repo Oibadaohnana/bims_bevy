@@ -1512,3 +1512,68 @@ pub fn reinforcement_mark(
         stroke,
     );
 }
+
+/// The dark red of a tank's Juggernaut (task 139): the outline round his
+/// body while it runs and the mark in its box, darker than the attack's
+/// red so it reads as a weight rather than a shot.
+pub const JUGGERNAUT: egui::Color32 = egui::Color32::from_rgb(0x9a, 0x12, 0x12);
+
+/// A tank's Juggernaut on the tank himself (task 139): a dark red outline
+/// hugging the body, doubled and breathing slowly on `phase` (seconds) so
+/// it is told from a selection ring at a glance. Drawn where the body is,
+/// at the body's own size off the zoom.
+pub fn juggernaut_outline(painter: &egui::Painter, at: egui::Pos2, scale: f32, phase: f32) {
+    let r = (21.0 * scale).clamp(8.0, 32.0);
+    let breath = 0.5 + 0.5 * (phase * std::f32::consts::TAU / 1.4).sin();
+    painter.circle_stroke(
+        at,
+        r,
+        egui::Stroke::new((3.2 * scale).clamp(2.0, 5.0), JUGGERNAUT),
+    );
+    painter.circle_stroke(
+        at,
+        r + (3.0 * scale).clamp(2.0, 4.5),
+        egui::Stroke::new(
+            (1.4 * scale).clamp(1.0, 2.2),
+            JUGGERNAUT.gamma_multiply(0.35 + 0.45 * breath),
+        ),
+    );
+}
+
+/// The tank's Juggernaut in its box (task 139): a thick dark red ring
+/// round a solid heavy core — an unmoving weight everything is drawn to.
+pub fn juggernaut_mark(painter: &egui::Painter, at: egui::Pos2, radius: f32) {
+    let r = radius.max(4.0);
+    painter.circle_stroke(
+        at,
+        r * 0.8,
+        egui::Stroke::new((r * 0.2).clamp(1.5, 4.0), JUGGERNAUT),
+    );
+    painter.circle_filled(at, r * 0.36, JUGGERNAUT.gamma_multiply(0.85));
+    for k in 0..4 {
+        let a = k as f32 * std::f32::consts::FRAC_PI_2 + std::f32::consts::FRAC_PI_4;
+        let dir = egui::vec2(a.cos(), a.sin());
+        painter.line_segment(
+            [at + dir * r * 0.95, at + dir * r * 0.55],
+            egui::Stroke::new((r * 0.12).clamp(1.0, 2.4), ATTACK),
+        );
+    }
+}
+
+/// The tank's Plated in its box (task 139): three overlapping plates, a
+/// breastplate of steel in the caution colour — the hits come off less.
+pub fn plated_mark(painter: &egui::Painter, at: egui::Pos2, radius: f32) {
+    let r = radius.max(4.0);
+    let stroke = egui::Stroke::new((r * 0.12).clamp(1.0, 2.2), CAUTION);
+    for k in 0..3 {
+        let y = at.y - r * 0.5 + r * 0.38 * k as f32;
+        let w = r * (0.95 - 0.12 * k as f32);
+        painter.rect(
+            egui::Rect::from_center_size(egui::pos2(at.x, y), egui::vec2(w * 1.4, r * 0.42)),
+            r * 0.12,
+            CAUTION.gamma_multiply(0.22 + 0.1 * k as f32),
+            stroke,
+            egui::StrokeKind::Middle,
+        );
+    }
+}

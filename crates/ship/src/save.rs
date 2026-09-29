@@ -183,7 +183,10 @@ use crate::game::Game;
 /// looking for the crew (`Droid::seeking`).
 /// 64: the engineer's sentry stands until it is destroyed — a laid
 /// deployable keeps no end (`Deployable::expires` gone).
-pub const SAVE_VERSION: u32 = 64;
+/// 65: the tank is a ranked kit (task 139) — the talents picked are gone
+/// from `Progress`, a tank keeps his Taunt's and Juggernaut's windows,
+/// and `Skill` lost *iron frame* and *breacher*.
+pub const SAVE_VERSION: u32 = 65;
 
 /// What the file holds, read back.
 #[derive(serde::Deserialize)]

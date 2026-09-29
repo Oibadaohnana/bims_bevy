@@ -157,10 +157,6 @@ pub enum Open {
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum DeployOrder {
     PackUp(u32),
-    Pick {
-        level: u32,
-        side: world::Side,
-    },
     SetClass(world::Class),
     /// A rank of the ranked kit bought off the Skills tab (task 124).
     RankUp {
@@ -169,9 +165,9 @@ pub enum DeployOrder {
 }
 
 /// A player's class as the panel shows it, a snapshot the screen hands
-/// over every frame off the world: what it is, how far along, the pick
-/// waiting if one is, the talents learnt, and whether the class may
-/// still be changed (before the first undock).
+/// over every frame off the world: what it is, how far along, the ranks
+/// bought, and whether the class may still be changed (before the first
+/// undock).
 #[derive(Clone, PartialEq, Debug, Default)]
 pub struct ClassView {
     pub class: world::Class,
@@ -180,18 +176,10 @@ pub struct ClassView {
     /// The experience itself, whole (feature 107): what the character
     /// sheet and the hero panel read the level's progress off.
     pub xp: u32,
-    pub pending: Option<(u8, world::Talent, world::Talent)>,
-    /// Every pick made, level and side, in level order — what the Skills
-    /// tree draws as taken and as given up (feature 83). The talents
-    /// themselves are `talents`, which is the same list read through the
-    /// class.
-    pub picks: Vec<(u8, world::Side)>,
-    pub talents: Vec<world::Talent>,
     pub can_change: bool,
-    /// The ranks bought of a ranked kit's four abilities, Q C E R (task
-    /// 124) — `None` for a class of talents. What the Skills tab draws in
-    /// place of the tree.
-    pub ranks: Option<[u8; 4]>,
+    /// The ranks bought of the class's four abilities, Q C E R (task
+    /// 124; every class since task 139): what the Skills tab draws.
+    pub ranks: [u8; 4],
     /// Skill points not spent on those ranks.
     pub points: u8,
     /// The soldier's rows (feature 75): grenade charges in the pack,
@@ -234,15 +222,18 @@ pub struct MedicView {
     pub cloaked: f64,
 }
 
-/// What the panel says of a tank (feature 77): whether the wall is up,
-/// minutes of the taunt left, seconds until it may taunt again, and
-/// whether the level for one has been reached.
+/// What the panel says of a tank (feature 77; task 139): whether the wall
+/// is up; and for the Taunt and the Juggernaut each, the seconds left of
+/// one running, the seconds until the next, and whether a rank is bought.
 #[derive(Clone, Copy, PartialEq, Debug, Default)]
 pub struct TankView {
     pub bulwark: bool,
     pub taunt_left: f64,
-    pub cooldown: f64,
-    pub can_taunt: bool,
+    pub taunt_cooldown: f64,
+    pub taunt_learnt: bool,
+    pub juggernaut_left: f64,
+    pub juggernaut_cooldown: f64,
+    pub juggernaut_learnt: bool,
 }
 
 /// What the panel says of a commander (feature 78): what his squad is
@@ -359,7 +350,7 @@ pub fn peril_summary(game: &Game, w: usize) -> Option<(String, egui::Color32)> {
     game.was_downed(w).then(|| (slowed_short(), theme::CAUTION))
 }
 
-/// How wide the character sheet is (feature 107): the talent tree across
+/// How wide the character sheet is (feature 107): the Skills tab across
 /// it, and everything else in a column the same width, on the left of
 /// the canvas where it has to leave the hero panel room at 1280 wide.
 pub const SHEET_W: f32 = 330.0;
@@ -380,124 +371,14 @@ const SQUAD_BAR_W: f32 = 90.0;
 /// A thing's cell on the Stash panel.
 const STASH_CELL: f32 = 28.0;
 
-/// The talent tree's geometry: the numbered gutter down the left, a
-/// slot's box, and the gaps between them. A fixed level's box is two of
-/// [`SKILL_BOX_W`] and the gap wide; a pick level's two are one each —
-/// the whole [`SHEET_W`] across.
-const SKILL_GUTTER: f32 = 32.0;
-const SKILL_BOX_W: f32 = (SHEET_W - SKILL_GUTTER - SKILL_GAP_X) / 2.0;
-const SKILL_BOX_H: f32 = 28.0;
-const SKILL_GAP_X: f32 = 10.0;
-const SKILL_GAP_Y: f32 = 6.0;
-
-/// The tree's type: a few points over the panels' small text, since a
-/// tree of seventy talents and what each is worth is read rather than
-/// glanced at.
+/// The Skills tab's type: a few points over the panels' small text, since
+/// four abilities and every rank's numbers are read rather than glanced
+/// at. (The talent tree it once was went with the talents, task 139.)
 const SKILL_TEXT: f32 = 13.5;
-/// The type in a slot's box.
+/// The type of an ability's words and numbers.
 const SKILL_BOX_TEXT: f32 = 12.5;
-/// The picked slot's name under the tree, and the sheet's title.
+/// An ability's name, and the sheet's title.
 const SKILL_NAME_TEXT: f32 = 17.0;
-
-/// How big the tree comes out: ten levels down, two slots across.
-fn skill_tree_size() -> egui::Vec2 {
-    let levels = world::class::LEVELS as f32;
-    egui::vec2(
-        SKILL_GUTTER + 2.0 * SKILL_BOX_W + SKILL_GAP_X,
-        levels * SKILL_BOX_H + (levels - 1.0) * SKILL_GAP_Y,
-    )
-}
-
-/// One slot of the Skills tree (feature 83): a fixed level's own, which
-/// comes with the level, or one of the two a pick level offers.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-enum Slot {
-    Fixed(u8),
-    Pick(u8, world::Side),
-}
-
-impl Slot {
-    /// The level it sits at.
-    fn level(self) -> u8 {
-        match self {
-            Slot::Fixed(level) | Slot::Pick(level, _) => level,
-        }
-    }
-}
-
-/// What a slot of the Skills tree is, for the crew member looking at it:
-/// what colours its box and what the line under the tree says.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-enum SkillState {
-    /// Learnt — picked, or a fixed level reached.
-    Learnt,
-    /// The other side of a level already chosen at: gone for good.
-    GivenUp,
-    /// Reached, unchosen: a point away.
-    Open,
-    /// The level is not reached yet.
-    Locked,
-}
-
-impl SkillState {
-    /// What a slot is for the crew member the view is of: a fixed level
-    /// is learnt once reached, and a pick level's side is learnt if it
-    /// was the one chosen, given up if the other was, open if the level
-    /// is reached and nothing has been chosen at it, and locked until
-    /// the level is.
-    fn of(view: &ClassView, slot: Slot) -> SkillState {
-        let level = slot.level();
-        match slot {
-            Slot::Fixed(_) if level <= view.level => SkillState::Learnt,
-            Slot::Fixed(_) => SkillState::Locked,
-            Slot::Pick(_, side) => match taken_at(view, level) {
-                Some(chosen) if chosen == side => SkillState::Learnt,
-                Some(_) => SkillState::GivenUp,
-                None if level <= view.level => SkillState::Open,
-                None => SkillState::Locked,
-            },
-        }
-    }
-}
-
-/// Which side was chosen at a level, if the level was chosen at.
-fn taken_at(view: &ClassView, level: u8) -> Option<world::Side> {
-    view.picks
-        .iter()
-        .find(|&&(l, _)| l == level)
-        .map(|&(_, side)| side)
-}
-
-/// How many skill points are waiting: one for every pick level reached
-/// and not chosen at (feature 83). Nought for a crew member with no
-/// class, which has no levels to choose at.
-fn points_left(view: &ClassView) -> usize {
-    if view.class == world::Class::None {
-        return 0;
-    }
-    (2..=view.level)
-        .filter(|&l| world::class::is_pick_level(view.class, l) && taken_at(view, l).is_none())
-        .count()
-}
-
-/// **What a slot is worth in numbers** — the line the column beside the
-/// tree puts under a slot's name, so a choice between two talents is a
-/// choice between two figures. The words and the arithmetic are
-/// `names.rs`'s, off the rules crates' own constants: a fixed level's
-/// [`level_numbers`], a pick level's [`talent_numbers`] for its side.
-fn skill_numbers(class: world::Class, slot: Slot) -> String {
-    match slot {
-        Slot::Fixed(level) => level_numbers(class, level).unwrap_or_default(),
-        Slot::Pick(level, side) => world::class::pick_at(class, level)
-            .map(|(left, right)| {
-                talent_numbers(match side {
-                    world::Side::Left => left,
-                    world::Side::Right => right,
-                })
-            })
-            .unwrap_or_default(),
-    }
-}
 
 /// An open fixture menu: which fixture, and where on the window it was
 /// asked for.
@@ -576,9 +457,6 @@ pub struct CrewPanels {
     ringed: u32,
     wanted: u32,
     menu: Option<Menu>,
-    /// The talent tree: the slot picked, whose details are under the tree
-    /// (feature 83). Cleared when the class changes under it.
-    skill_pick: Option<Slot>,
     /// The Armory panel (task 113): up from the Inventory key (Tab) or the
     /// tray's Armory button, on every screen of a run, until it is shut.
     pub armory_open: bool,
@@ -652,7 +530,6 @@ impl CrewPanels {
             ringed: SPOT_NOTHING,
             wanted: SPOT_NOTHING,
             menu: None,
-            skill_pick: None,
             armory_open: crate::dev::armory(),
             hold: None,
             open: None,
@@ -990,8 +867,7 @@ impl CrewPanels {
     }
 
     /// The class section under the health: the class and the level, the
-    /// pick waiting as two buttons with what each does behind a `?`, the
-    /// talents learnt, and — until the first undock — the class picker.
+    /// class's own rows, and — until the first undock — the class picker.
     fn class_section(&mut self, ui: &mut egui::Ui, view: &ClassView) {
         ui.add_space(4.0);
         if view.can_change {
@@ -1094,9 +970,24 @@ impl CrewPanels {
             });
             let taunting = tank.taunt_left > 0.0;
             ui.label(
-                egui::RichText::new(taunt_line(tank.taunt_left, tank.cooldown, tank.can_taunt))
-                    .small()
-                    .color(if taunting { theme::WARN } else { theme::MUTED }),
+                egui::RichText::new(taunt_line(
+                    tank.taunt_left,
+                    tank.taunt_cooldown,
+                    tank.taunt_learnt,
+                ))
+                .small()
+                .color(if taunting { theme::WARN } else { theme::MUTED }),
+            );
+            // The Juggernaut (task 139), running or ready or not.
+            let going = tank.juggernaut_left > 0.0;
+            ui.label(
+                egui::RichText::new(crate::names::juggernaut_line(
+                    tank.juggernaut_left,
+                    tank.juggernaut_cooldown,
+                    tank.juggernaut_learnt,
+                ))
+                .small()
+                .color(if going { theme::WARN } else { theme::MUTED }),
             );
         }
         if let Some(commander) = view.commander {
@@ -1131,32 +1022,6 @@ impl CrewPanels {
                 ))
                 .small()
                 .color(if crying { theme::WARN } else { theme::MUTED }),
-            );
-        }
-        if let Some((level, left, right)) = view.pending {
-            ui.label(
-                egui::RichText::new(format!("{PICK_PENDING} level {level}"))
-                    .small()
-                    .color(theme::CAUTION),
-            );
-            ui.horizontal(|ui| {
-                for (talent, side) in [(left, world::Side::Left), (right, world::Side::Right)] {
-                    if ui.button(talent_name(talent)).clicked() {
-                        self.deploy_orders.push(DeployOrder::Pick {
-                            level: level as u32,
-                            side,
-                        });
-                    }
-                    theme::question_mark(ui, talent_tip(talent));
-                }
-            });
-        }
-        if !view.talents.is_empty() {
-            let learnt: Vec<&str> = view.talents.iter().map(|t| talent_name(*t)).collect();
-            ui.label(
-                egui::RichText::new(learnt.join(" · "))
-                    .small()
-                    .color(theme::MUTED),
             );
         }
     }
@@ -1284,8 +1149,8 @@ impl CrewPanels {
             );
         }
         // The class (feature 74): the player's own crew member's, with its
-        // level, what the next wants, the pick waiting and the talents
-        // learnt. Only their own: a class is a slot's.
+        // level, what the next wants and the class's own rows. Only
+        // their own: a class is a slot's.
         if who == self.player as u32
             && let Some(view) = self.class_view.clone()
         {
@@ -1500,8 +1365,8 @@ impl CrewPanels {
     /// left of the canvas from `at` and no lower than `bottom` — the class
     /// and the level with the experience, the class picker where the
     /// class may still change, the health of each part of the body, what
-    /// is worn and what is in hand, and the talent tree the Skills tab
-    /// was. Nothing on it is worked out here that the side panel or the
+    /// is worn and what is in hand, and the Skills tab — its four
+    /// abilities a rank at a time. Nothing on it is worked out here that the side panel or the
     /// inventory does not already read. The rectangle it took, `None`
     /// while it is shut.
     pub fn character_sheet(
@@ -1553,7 +1418,7 @@ impl CrewPanels {
                         theme::bar_in(
                             ui.painter(),
                             rect,
-                            crate::screens::hud::xp_fill(view.class, view.xp),
+                            crate::screens::hud::xp_fill(view.xp),
                             theme::HYPER,
                         );
                     }
@@ -1589,8 +1454,8 @@ impl CrewPanels {
                             sheet_body(ui, game, w);
                             sheet_gear(ui, game, w);
                             sheet_relics(ui, &view.relics);
-                            theme::heading(ui, SHEET_TALENTS);
-                            self.talents(ui, &view);
+                            theme::heading(ui, SHEET_SKILLS);
+                            self.skills(ui, &view);
                         });
                 });
             });
@@ -1784,25 +1649,12 @@ impl CrewPanels {
         }
     }
 
-    /// The talent tree (features 83 and 107), on the character sheet: the
-    /// player's own crew member's class, level by level — a level's own
-    /// slot across the width where it has one, and two side by side where
-    /// the level is a choice — with the levels numbered down the left and
-    /// the spine beside them lit as far as the level reached. A box is
-    /// coloured for its state: learnt, given up, open for a point, or
-    /// waiting on a level. A click picks one, and **under** the tree the
-    /// picked slot says what it does, **what it is worth in numbers**,
-    /// what state it is in, and — for one that is open — carries the
-    /// button that spends the point. Under rather than beside it since the
-    /// sheet hangs from the top of the canvas: what is written below the
-    /// tree cannot move the tree from under the pointer. The tree asks
-    /// nothing of the world it is not handed: everything here is
-    /// `ClassView` and `world::class`'s own tables, the numbers said by
-    /// [`crate::names::talent_numbers`] and
-    /// [`crate::names::level_numbers`].
-    fn talents(&mut self, ui: &mut egui::Ui, view: &ClassView) {
-        let class = view.class;
-        if class == world::Class::None {
+    /// The Skills tab on the character sheet (features 83 and 107; every
+    /// class a ranked kit since task 139): the four abilities of the
+    /// class, Q C E R, a rank at a time ([`CrewPanels::ranked_skills`]),
+    /// or a line saying a crew member with no class has nothing to learn.
+    fn skills(&mut self, ui: &mut egui::Ui, view: &ClassView) {
+        if view.class == world::Class::None {
             ui.add(
                 egui::Label::new(
                     egui::RichText::new(SKILLS_NO_CLASS)
@@ -1813,75 +1665,7 @@ impl CrewPanels {
             );
             return;
         }
-        // A ranked kit (task 124) has four abilities a rank at a time in
-        // place of the tree.
-        if let Some(ranks) = view.ranks {
-            self.ranked_skills(ui, view, ranks);
-            return;
-        }
-        // A point a pick level reached and not chosen at.
-        let points = points_left(view);
-        ui.horizontal_wrapped(|ui| {
-            ui.add(
-                egui::Label::new(
-                    egui::RichText::new(skill_points(points))
-                        .size(SKILL_TEXT)
-                        .color(if points > 0 {
-                            theme::CAUTION
-                        } else {
-                            theme::MUTED
-                        }),
-                )
-                .wrap(),
-            );
-            theme::question_mark(ui, SKILLS_TIP);
-        });
-        ui.add_space(4.0);
-
-        // Every slot of the ten levels, top to bottom, with the words
-        // that go on and under it.
-        let mut slots: Vec<(Slot, &'static str, &'static str)> = Vec::new();
-        for level in 1..=world::class::LEVELS {
-            match world::class::pick_at(class, level) {
-                Some((left, right)) => {
-                    slots.push((
-                        Slot::Pick(level, world::Side::Left),
-                        talent_name(left),
-                        talent_tip(left),
-                    ));
-                    slots.push((
-                        Slot::Pick(level, world::Side::Right),
-                        talent_name(right),
-                        talent_tip(right),
-                    ));
-                }
-                None => slots.push((
-                    Slot::Fixed(level),
-                    level_name(class, level).unwrap_or(""),
-                    level_line(class, level).unwrap_or(""),
-                )),
-            }
-        }
-        // A slot picked before the class changed under it is no slot.
-        if self
-            .skill_pick
-            .is_some_and(|slot| !slots.iter().any(|&(s, ..)| s == slot))
-        {
-            self.skill_pick = None;
-        }
-
-        self.skills_tree(ui, view, &slots);
-        ui.add_space(6.0);
-        let learn = self.skills_detail(ui, view, &slots);
-        if let Some((level, side)) = learn {
-            self.deploy_orders.push(DeployOrder::Pick {
-                level: level as u32,
-                side,
-            });
-            // The point spent, the tree says so next frame; the slot is
-            // let go of so the column goes back to its hint.
-            self.skill_pick = None;
-        }
+        self.ranked_skills(ui, view, view.ranks);
     }
 
     /// The Skills tab of a ranked kit (task 124): the skill points waiting,
@@ -2010,207 +1794,6 @@ impl CrewPanels {
                 });
             ui.add_space(4.0);
         }
-    }
-
-    /// The tree itself: the spine and its numbers down the gutter, and a
-    /// box a slot, coloured for its state and lit under the pointer or
-    /// where the pick is. A click sets [`CrewPanels::skill_pick`]; the
-    /// column beside it reads that.
-    fn skills_tree(
-        &mut self,
-        ui: &mut egui::Ui,
-        view: &ClassView,
-        slots: &[(Slot, &'static str, &'static str)],
-    ) {
-        let state = |slot: Slot| SkillState::of(view, slot);
-        let size = skill_tree_size();
-        let (rect, response) = ui.allocate_exact_size(size, egui::Sense::click());
-        let painter = ui.painter_at(rect);
-        let row_y = |level: u8| rect.min.y + (level as f32 - 1.0) * (SKILL_BOX_H + SKILL_GAP_Y);
-        let box_of = |slot: Slot| {
-            let y = row_y(slot.level());
-            let left = rect.min.x + SKILL_GUTTER;
-            match slot {
-                Slot::Fixed(_) => egui::Rect::from_min_size(
-                    egui::pos2(left, y),
-                    egui::vec2(2.0 * SKILL_BOX_W + SKILL_GAP_X, SKILL_BOX_H),
-                ),
-                Slot::Pick(_, world::Side::Left) => egui::Rect::from_min_size(
-                    egui::pos2(left, y),
-                    egui::vec2(SKILL_BOX_W, SKILL_BOX_H),
-                ),
-                Slot::Pick(_, world::Side::Right) => egui::Rect::from_min_size(
-                    egui::pos2(left + SKILL_BOX_W + SKILL_GAP_X, y),
-                    egui::vec2(SKILL_BOX_W, SKILL_BOX_H),
-                ),
-            }
-        };
-        // The spine down the gutter, lit as far as the level reached,
-        // with the level's number beside each knot.
-        let spine = rect.min.x + SKILL_GUTTER - 8.0;
-        for level in 1..=world::class::LEVELS {
-            let y = row_y(level) + SKILL_BOX_H / 2.0;
-            let reached = level <= view.level;
-            let ink = if reached { theme::ACCENT } else { theme::LINE };
-            if level < world::class::LEVELS {
-                let next = row_y(level + 1) + SKILL_BOX_H / 2.0;
-                let on = level < view.level;
-                painter.line_segment(
-                    [egui::pos2(spine, y), egui::pos2(spine, next)],
-                    egui::Stroke::new(1.5, if on { theme::ACCENT } else { theme::LINE }),
-                );
-            }
-            painter.circle_filled(egui::pos2(spine, y), 3.0, ink);
-            painter.text(
-                egui::pos2(rect.min.x + 9.0, y),
-                egui::Align2::CENTER_CENTER,
-                level.to_string(),
-                egui::FontId::proportional(SKILL_BOX_TEXT),
-                if reached { theme::INK } else { theme::MUTED },
-            );
-        }
-        let hovered = response
-            .hover_pos()
-            .and_then(|p| slots.iter().find(|&&(s, ..)| box_of(s).contains(p)));
-        if let Some(p) = response.interact_pointer_pos()
-            && response.clicked()
-            && let Some(&(slot, ..)) = slots.iter().find(|&&(s, ..)| box_of(s).contains(p))
-        {
-            self.skill_pick = Some(slot);
-        }
-        for &(slot, label, _) in slots {
-            let b = box_of(slot);
-            let how = state(slot);
-            let (fill, edge, ink) = match how {
-                SkillState::Learnt => (theme::RAISED_ON, theme::ACCENT, theme::INK),
-                SkillState::Open => (theme::RAISED, theme::CAUTION, theme::INK),
-                SkillState::GivenUp | SkillState::Locked => {
-                    (theme::PANEL_DEEP, theme::LINE, theme::MUTED)
-                }
-            };
-            let lit = hovered.map(|&(s, ..)| s) == Some(slot) || self.skill_pick == Some(slot);
-            painter.rect(
-                b,
-                4.0,
-                fill,
-                egui::Stroke::new(
-                    if lit { 2.0 } else { 1.0 },
-                    if lit { theme::INK } else { edge },
-                ),
-                egui::StrokeKind::Inside,
-            );
-            let font = egui::FontId::proportional(SKILL_BOX_TEXT);
-            let mut job =
-                egui::text::LayoutJob::simple(label.to_string(), font, ink, b.width() - 10.0);
-            // A slot given up is struck through: the level was chosen at,
-            // and the other side of it is gone for good.
-            if how == SkillState::GivenUp {
-                for section in &mut job.sections {
-                    section.format.strikethrough = egui::Stroke::new(1.0, ink);
-                }
-            }
-            let galley = painter.layout_job(job);
-            painter.galley(
-                egui::pos2(
-                    b.center().x - galley.size().x / 2.0,
-                    b.center().y - galley.size().y / 2.0,
-                ),
-                galley,
-                ink,
-            );
-        }
-        if let Some(&(slot, label, tip)) = hovered {
-            let level = slot.level();
-            let numbers = skill_numbers(view.class, slot);
-            response
-                .clone()
-                .on_hover_text(format!("Level {level} · {label}\n{tip}\n{numbers}"));
-        }
-    }
-
-    /// What the picked slot is, beside the tree: its name, the level it
-    /// sits at, **what it is worth in numbers**, what it does in words,
-    /// what state it is in, and the button that spends the point on one
-    /// that is open. Nothing is picked and it is the hint instead.
-    fn skills_detail(
-        &mut self,
-        ui: &mut egui::Ui,
-        view: &ClassView,
-        slots: &[(Slot, &'static str, &'static str)],
-    ) -> Option<(u8, world::Side)> {
-        let picked = self
-            .skill_pick
-            .and_then(|pick| slots.iter().find(|&&(s, ..)| s == pick))
-            .copied();
-        let Some((slot, label, tip)) = picked else {
-            ui.add(
-                egui::Label::new(
-                    egui::RichText::new(SKILLS_HINT)
-                        .size(SKILL_TEXT)
-                        .color(theme::MUTED),
-                )
-                .wrap(),
-            );
-            return None;
-        };
-        ui.label(
-            egui::RichText::new(label)
-                .size(SKILL_NAME_TEXT)
-                .strong()
-                .color(theme::INK),
-        );
-        ui.label(
-            egui::RichText::new(skill_slot_line(
-                slot.level(),
-                matches!(slot, Slot::Pick(..)),
-            ))
-            .size(SKILL_TEXT)
-            .color(theme::MUTED),
-        );
-        ui.add_space(4.0);
-        // The figures first: what choosing this actually changes.
-        ui.add(
-            egui::Label::new(
-                egui::RichText::new(skill_numbers(view.class, slot))
-                    .size(SKILL_TEXT)
-                    .color(theme::ACCENT),
-            )
-            .wrap(),
-        );
-        ui.add_space(4.0);
-        ui.add(egui::Label::new(egui::RichText::new(tip).size(SKILL_TEXT)).wrap());
-        ui.add_space(4.0);
-        let state = SkillState::of(view, slot);
-        let words = match state {
-            SkillState::Learnt => match slot {
-                Slot::Fixed(_) => SKILL_COMES_WITH.to_string(),
-                Slot::Pick(..) => SKILL_LEARNT.to_string(),
-            },
-            SkillState::GivenUp => SKILL_GIVEN_UP.to_string(),
-            SkillState::Open => SKILL_OPEN.to_string(),
-            SkillState::Locked => skill_locked(slot.level()),
-        };
-        ui.add(
-            egui::Label::new(egui::RichText::new(words).size(SKILL_TEXT).color(
-                if state == SkillState::Open {
-                    theme::CAUTION
-                } else {
-                    theme::MUTED
-                },
-            ))
-            .wrap(),
-        );
-        if let (SkillState::Open, Slot::Pick(level, side)) = (state, slot) {
-            ui.add_space(4.0);
-            if ui
-                .button(egui::RichText::new(SKILL_LEARN).size(SKILL_TEXT))
-                .on_hover_text(SKILL_LEARN_TIP)
-                .clicked()
-            {
-                return Some((level, side));
-            }
-        }
-        None
     }
 
     // --- what the pointer is over -------------------------------------------
@@ -2701,75 +2284,6 @@ mod tests {
         );
         assert_eq!(revive_refused(&game, 0, 1, &name), None);
         assert_eq!(reviver_of(&game, 1, 0), None);
-    }
-
-    /// The Skills tree's rules (feature 83): a point for every pick level
-    /// reached and not chosen at, a slot learnt where it was chosen, the
-    /// other side of it given up for good, and everything above the level
-    /// reached locked. The tree draws nothing it does not read here.
-    #[test]
-    fn a_skills_tree_counts_its_points_and_says_what_every_slot_is() {
-        // The tank's: every other class has a ranked kit (task 130 the
-        // medic's). His second and third levels are fixed.
-        let view = |level: u8, picks: &[(u8, world::Side)]| ClassView {
-            class: world::Class::Tank,
-            level,
-            picks: picks.to_vec(),
-            ..Default::default()
-        };
-        // Level one: the first is learnt, everything above it waits, and
-        // there is nothing to spend.
-        let one = view(1, &[]);
-        assert_eq!(points_left(&one), 0);
-        assert_eq!(SkillState::of(&one, Slot::Fixed(1)), SkillState::Learnt);
-        assert_eq!(SkillState::of(&one, Slot::Fixed(3)), SkillState::Locked);
-        assert_eq!(
-            SkillState::of(&one, Slot::Pick(4, world::Side::Left)),
-            SkillState::Locked
-        );
-        // Level five, nothing chosen: two pick levels behind it — four
-        // and five — and so two points.
-        let five = view(5, &[]);
-        assert_eq!(points_left(&five), 2);
-        assert_eq!(
-            SkillState::of(&five, Slot::Pick(4, world::Side::Left)),
-            SkillState::Open
-        );
-        assert_eq!(SkillState::of(&five, Slot::Fixed(3)), SkillState::Learnt);
-        assert_eq!(
-            SkillState::of(&five, Slot::Pick(6, world::Side::Left)),
-            SkillState::Locked
-        );
-        // One spent on the left of the second: a point fewer, that side
-        // learnt and the other gone.
-        let spent = view(5, &[(4, world::Side::Left)]);
-        assert_eq!(points_left(&spent), 1);
-        assert_eq!(
-            SkillState::of(&spent, Slot::Pick(4, world::Side::Left)),
-            SkillState::Learnt
-        );
-        assert_eq!(
-            SkillState::of(&spent, Slot::Pick(4, world::Side::Right)),
-            SkillState::GivenUp
-        );
-        // The top of the tree with every level chosen at: nothing left to
-        // spend. The tank's six pick levels, which is what a tenth-level
-        // run opens with.
-        let all: Vec<(u8, world::Side)> = (2..=world::class::LEVELS)
-            .filter(|&l| world::class::is_pick_level(world::Class::Tank, l))
-            .map(|l| (l, world::Side::Right))
-            .collect();
-        assert_eq!(all.len(), 6);
-        assert_eq!(points_left(&view(10, &[])), 6);
-        assert_eq!(points_left(&view(10, &all)), 0);
-        // And a crew member with no class has no levels to spend at.
-        assert_eq!(
-            points_left(&ClassView {
-                level: 10,
-                ..Default::default()
-            }),
-            0
-        );
     }
 }
 

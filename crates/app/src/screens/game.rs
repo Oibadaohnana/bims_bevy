@@ -1470,16 +1470,11 @@ fn frame(
             let class = world.class_of(slot);
             crate::crew::ClassView {
                 class,
-                level: progress.level(class),
-                to_next: progress.to_next(class),
+                level: progress.level(),
+                to_next: progress.to_next(),
                 xp: progress.xp,
-                ranks: world::class::ranked(class).then_some(progress.ranks),
+                ranks: progress.ranks,
                 points: progress.points(class),
-                pending: progress
-                    .pending_pick(class)
-                    .and_then(|l| world::class::pick_at(class, l).map(|(a, b)| (l, a, b))),
-                picks: progress.picks.clone(),
-                talents: progress.talents(class),
                 can_change: !world.undocked_once,
                 soldier: (class == world::Class::Soldier).then(|| crate::crew::SoldierView {
                     grenades: world.grenades_of(slot),
@@ -1497,8 +1492,11 @@ fn frame(
                 tank: (class == world::Class::Tank).then(|| crate::crew::TankView {
                     bulwark: world.is_bulwark(slot),
                     taunt_left: world.taunt_left(slot),
-                    cooldown: world.taunt_cooldown_left(slot),
-                    can_taunt: progress.level(class) >= world::class::TAUNT_LEVEL,
+                    taunt_cooldown: world.taunt_cooldown_left(slot),
+                    taunt_learnt: world.rank_of(slot, world::class::SLOT_Q) > 0,
+                    juggernaut_left: world.juggernaut_left(slot),
+                    juggernaut_cooldown: world.juggernaut_cooldown_left(slot),
+                    juggernaut_learnt: world.rank_of(slot, world::class::SLOT_R) > 0,
                 }),
                 commander: (class == world::Class::Commander).then(|| {
                     let order = world.squad.as_ref().filter(|o| o.by_slot == slot);
@@ -2561,10 +2559,6 @@ fn frame(
                 downed: alive && room.is_down(w),
                 down_left: room.down_left(w),
                 peril: crate::crew::peril_summary(room, w),
-                pick: panels
-                    .class_view
-                    .as_ref()
-                    .is_some_and(|view| view.pending.is_some()),
                 points_waiting: world.points_of(local),
             };
             let band = ctx
@@ -2605,9 +2599,6 @@ fn frame(
             // for the ring on the deck below.
             if let Some(action) = got.hovered {
                 cast_reaches = affected_by(world, local, action);
-            }
-            if got.sheet {
-                panels.sheet_open = true;
             }
             hero_rect = Some(got.rect);
         }
@@ -2785,7 +2776,6 @@ fn frame(
     for order in panels.deploy_orders.drain(..) {
         orders.push(match order {
             crate::crew::DeployOrder::PackUp(id) => Order::PackUp(id),
-            crate::crew::DeployOrder::Pick { level, side } => Order::PickTalent { level, side },
             crate::crew::DeployOrder::SetClass(class) => Order::SetClass(class),
             crate::crew::DeployOrder::RankUp { ability_slot } => Order::RankUp { ability_slot },
         });
@@ -3428,11 +3418,14 @@ fn frame(
         // him — since a ring drawn at a radius says how far the ability
         // reaches and not which of two tanks standing together is
         // holding it.
+        // A Juggernaut (task 139) is a dark red outline round the body
+        // itself while it runs.
         let t = shipdesign::TILE as f32;
         for who in 0..crew {
             let wall = game.world.is_bulwark(who);
             let taunting = game.world.is_taunting(who);
-            if !wall && !taunting {
+            let juggernaut = game.world.is_juggernaut(who);
+            if !wall && !taunting && !juggernaut {
                 continue;
             }
             let Some((x, y)) = session.crew_on_screen(who) else {
@@ -3448,6 +3441,9 @@ fn frame(
             if taunting {
                 theme::taunt_ring(&painter, at, game.world.taunt_radius(who) * t * view.scale);
                 theme::taunt_shout(&painter, at, view.scale, now as f32);
+            }
+            if juggernaut {
+                theme::juggernaut_outline(&painter, at, view.scale, now as f32);
             }
         }
         // And the commander (feature 78): the aura's radius round him,
@@ -4055,6 +4051,10 @@ enum Mark {
     Beam,
     Taunt,
     Wall,
+    /// The tank's Plated and Juggernaut (task 139); his Taunt and
+    /// Bulwark are [`Mark::Taunt`] and [`Mark::Wall`].
+    Plated,
+    Juggernaut,
     Rally,
     Squad,
     /// The commander's Battle Cry, Command Aura and Reinforcements (task
@@ -4127,7 +4127,7 @@ struct AbilityBox {
     /// medicine's two away is none.
     action: Option<Action>,
     /// The rank bought of a ranked ability and its top (task 124): the pips
-    /// under the box. `None` for a box of a class of talents.
+    /// under the box. `None` for a box past the four slots.
     rank: Option<(u8, u8)>,
     /// Whether a skill point could buy its next rank now: the "+" in the
     /// corner.
@@ -4193,7 +4193,10 @@ impl Face {
 }
 
 impl AbilityBox {
-    /// An empty ability slot (task 123): its key and nothing else.
+    /// An empty ability slot (task 123): its key and nothing else. What
+    /// the tests lay a row of boxes out with; every class fills its four
+    /// slots since task 139.
+    #[cfg(test)]
     fn empty(key: String, action: Action) -> AbilityBox {
         AbilityBox {
             key,
@@ -4345,6 +4348,15 @@ fn ranked_key(
                 Err(why) => (None, Some(crate::names::cloak_refused(why))),
             }
         }
+        // The tank's (task 139): Q taunts and E puts the wall up and down
+        // as they always did (`class_key`); C, Plated, is passive; R goes
+        // Juggernaut.
+        (world::Class::Tank, Action::Ability1) => class_key(world, slot, true, tile, None, None),
+        (world::Class::Tank, Action::Ability3) => class_key(world, slot, false, tile, None, None),
+        (world::Class::Tank, Action::Ability4) => match world.can_juggernaut(slot) {
+            Ok(()) => (Some(Order::Juggernaut), None),
+            Err(why) => (None, Some(crate::names::juggernaut_refused(why))),
+        },
         _ => (None, None),
     }
 }
@@ -4492,6 +4504,26 @@ fn ranked_box(world: &world::World, slot: u32, action: Action, keys: &Keys) -> A
             on: world.is_cloaked(slot),
             ..Face::of(Mark::Cloak)
         },
+        // The tank's (task 139): the Taunt and the Juggernaut on their
+        // cooldowns, lit while they run; Plated always on once learnt;
+        // the wall lit while it is up.
+        (world::Class::Tank, 0) => Face {
+            cooldown: world.taunt_cooldown_left(slot),
+            cooldown_whole: world.taunt_cooldown(slot),
+            on: world.is_taunting(slot),
+            ..Face::of(Mark::Taunt)
+        },
+        (world::Class::Tank, 1) => Face::of(Mark::Plated),
+        (world::Class::Tank, 2) => Face {
+            on: world.is_bulwark(slot),
+            ..Face::of(Mark::Wall)
+        },
+        (world::Class::Tank, 3) => Face {
+            cooldown: world.juggernaut_cooldown_left(slot),
+            cooldown_whole: world.juggernaut_cooldown(slot),
+            on: world.is_juggernaut(slot),
+            ..Face::of(Mark::Juggernaut)
+        },
         _ => Face::of(Mark::Empty),
     };
     // Not learnt, the box waits on the level its first rank wants — the
@@ -4549,54 +4581,36 @@ fn ability_keys(world: &world::World, slot: u32) -> Vec<Action> {
 /// The boxes for the class `slot` steers, the four slots first, in Q C
 /// E R order. None for a classless crew member, which has no keys.
 fn ability_boxes(world: &world::World, slot: u32, keys: &Keys) -> Vec<AbilityBox> {
-    use world::Class;
-    let class = world.class_of(slot);
-    if class == Class::None {
+    if world.class_of(slot) == world::Class::None {
         return Vec::new();
     }
-    let level = world.level_of(slot);
-    let ranked = world::class::ranked(class);
     ability_keys(world, slot)
         .into_iter()
         .map(|action| {
-            // A ranked kit's four slots (task 124) are its four abilities.
-            if ranked && action.ability_slot().is_some() {
+            // Every class's four slots are its ranked kit's four abilities
+            // (task 124; the tank's since task 139).
+            if action.ability_slot().is_some() {
                 return ranked_box(world, slot, action, keys);
             }
-            // An empty slot is an empty frame: its key, and nothing
-            // to say or to wait for.
-            if action.ability_slot().is_some() && slot_action(action).is_none() {
-                return AbilityBox::empty(keys.key(action).name().to_string(), action);
-            }
-            let primary = slot_action(action).unwrap_or(false);
-            // The keys past the slots are gated by the same level their
-            // own class's E is, being the same order sent by another
-            // name; the carry is nobody's level at all.
-            let wants = match action {
-                Action::Carry => 1,
-                Action::Ability1 => world::class::key_level(class, true).unwrap_or(1),
-                _ => world::class::key_level(class, false).unwrap_or(1),
-            };
-            // The three keys of their own first, since they are one
-            // class's each and read off the world rather than off the
-            // (class, primary) pair below.
-            let extra = match action {
+            // The keys past the slots, one class's each and read off the
+            // world: the commander's three squad orders and the carry.
+            let face = match action {
                 // The squad's attack (task 129: its own key since E is
                 // the Rally), lit while his attack stands.
-                Action::SquadAttack => Some(Face {
+                Action::SquadAttack => Face {
                     count: Some(world.squad_members(slot).len() as u32),
                     on: world
                         .squad
                         .as_ref()
                         .is_some_and(|o| o.by_slot == slot && o.kind.code() == 0),
                     ..Face::of(Mark::Squad)
-                }),
+                },
                 Action::SquadFallBack | Action::SquadStandGround => {
                     let running = world.squad.as_ref().is_some_and(|o| {
                         o.by_slot == slot
                             && o.kind.code() == u32::from(action == Action::SquadStandGround) + 1
                     });
-                    Some(Face {
+                    Face {
                         count: Some(world.squad_members(slot).len() as u32),
                         on: running,
                         ..Face::of(if action == Action::SquadFallBack {
@@ -4604,7 +4618,7 @@ fn ability_boxes(world: &world::World, slot: u32, keys: &Keys) -> Vec<AbilityBox
                         } else {
                             Mark::StandGround
                         })
-                    })
+                    }
                 }
                 Action::Carry => {
                     // Carrying, the box counts nothing: a nought in the
@@ -4613,86 +4627,32 @@ fn ability_boxes(world: &world::World, slot: u32, keys: &Keys) -> Vec<AbilityBox
                     // how many are near enough to pick up.
                     let carrying = world.carrying_of(slot).is_some();
                     let near = world.carryable_near(slot).len() as u32;
-                    Some(Face {
+                    Face {
                         count: (!carrying).then_some(near),
                         on: carrying,
                         short: !carrying && near == 0,
                         ..Face::of(Mark::Carry)
-                    })
+                    }
                 }
-                _ => None,
+                _ => Face::of(Mark::Empty),
             };
-            let face = if let Some(extra) = extra {
-                extra
-            } else {
-                match (class, primary) {
-                    // The engineer's two boxes and the soldier's grenade
-                    // count the charges in the pack (features 88 and 90)
-                    // and, **with none left**, sweep the seconds until
-                    // the next one lands; with some left and the next
-                    // on its way, the ring round the count fills instead.
-                    // A ranked kit's slots are `ranked_box`'s (task 127).
-                    (Class::Engineer, _) => Face::of(Mark::Empty),
-                    (Class::Soldier, true) => Face::charges(
-                        world,
-                        slot,
-                        world::Charge::Grenade,
-                        Mark::Charge(icons::ChargeIcon::Grenade),
-                    ),
-                    (Class::Soldier, false) => Face {
-                        on: world.is_braced(slot),
-                        ..Face::of(Mark::Brace)
-                    },
-                    // The medic's slots are his ranked kit's (task 130),
-                    // `ranked_box`'s.
-                    (Class::Medic, _) => Face::of(Mark::Empty),
-                    // The two cooldowns that are not charges sweep the
-                    // same way, over the whole of their own length.
-                    (Class::Tank, true) => Face {
-                        cooldown: world.taunt_cooldown_left(slot),
-                        cooldown_whole: world::class::TAUNT_COOLDOWN,
-                        on: world.taunt_left(slot) > 0.0,
-                        ..Face::of(Mark::Taunt)
-                    },
-                    (Class::Tank, false) => Face {
-                        on: world.is_bulwark(slot),
-                        ..Face::of(Mark::Wall)
-                    },
-                    // The commander's slots are his ranked kit's (task
-                    // 129), `ranked_box`'s.
-                    (Class::Commander, _) => Face::of(Mark::Empty),
-                    (Class::None, _) => Face::of(Mark::Brace),
-                }
-            };
-            let (name, tip, stats) = match action {
+            let (name, tip) = match action {
                 Action::SquadAttack => (
                     crate::names::SQUAD_ORDER_ATTACK,
                     crate::names::SQUAD_ORDER_ATTACK_TIP,
-                    Vec::new(),
                 ),
-                Action::SquadFallBack => (
-                    crate::names::FALL_BACK,
-                    crate::names::FALL_BACK_TIP,
-                    Vec::new(),
-                ),
-                Action::SquadStandGround => (
-                    crate::names::STAND_GROUND,
-                    crate::names::STAND_GROUND_TIP,
-                    Vec::new(),
-                ),
-                Action::Carry => (crate::names::CARRY, crate::names::CARRY_TIP, Vec::new()),
-                _ => (
-                    ability_name(class, primary),
-                    ability_tip(class, primary),
-                    crate::names::ability_stats(class, primary),
-                ),
+                Action::SquadFallBack => (crate::names::FALL_BACK, crate::names::FALL_BACK_TIP),
+                Action::SquadStandGround => {
+                    (crate::names::STAND_GROUND, crate::names::STAND_GROUND_TIP)
+                }
+                Action::Carry => (crate::names::CARRY, crate::names::CARRY_TIP),
+                _ => ("", ""),
             };
-            let tip = tip.to_string();
             AbilityBox {
                 key: keys.key(action).name().to_string(),
                 name,
-                tip,
-                stats,
+                tip: tip.to_string(),
+                stats: Vec::new(),
                 foot: String::new(),
                 mark: face.mark,
                 count: face.count,
@@ -4702,7 +4662,7 @@ fn ability_boxes(world: &world::World, slot: u32, keys: &Keys) -> Vec<AbilityBox
                 charge: face.charge,
                 on: face.on,
                 short: face.short,
-                locked: (level < wants).then_some(wants),
+                locked: None,
                 action: Some(action),
                 rank: None,
                 plus: false,
@@ -4918,6 +4878,8 @@ fn ability_box(ui: &mut egui::Ui, one: &AbilityBox) -> (bool, bool) {
             ),
             Mark::Taunt => theme::taunt_ring(painter, middle, radius),
             Mark::Wall => theme::wall_mark(painter, middle, radius, 1.2),
+            Mark::Plated => theme::plated_mark(painter, middle, radius),
+            Mark::Juggernaut => theme::juggernaut_mark(painter, middle, radius),
             Mark::Rally => {
                 theme::aura_ring(painter, middle, radius);
                 theme::lifted_mark(painter, middle, radius / 10.0);
@@ -5630,7 +5592,7 @@ mod class_key_tests {
         );
         // R cloaks the crew member under the pointer, or himself on
         // nobody, once its rank is bought at the sixth level.
-        world.award(2, world::class::RANKED_LEVEL_XP[5], &mut events);
+        world.award(2, world::class::LEVEL_XP[5], &mut events);
         world.set_ranks_for_probe(2, [1, 0, 1, 1]);
         assert_eq!(
             ranked_key(&world, 2, Action::Ability4, None, None),
@@ -5659,11 +5621,12 @@ mod class_key_tests {
         ));
     }
 
-    /// And the tank's (feature 77): Q taunts from the third level, E
-    /// puts the wall up and takes it down — neither wants a tile or a
-    /// crew member under the pointer, and neither is anybody else's.
+    /// And the tank's (feature 77; task 139): Q taunts and E puts the
+    /// wall up and takes it down, each from its first rank; R goes
+    /// Juggernaut from its own — none wants a tile or a crew member under
+    /// the pointer, and none is anybody else's.
     #[test]
-    fn the_tank_s_keys_taunt_and_raise_the_wall() {
+    fn the_tank_s_keys_taunt_raise_the_wall_and_go_juggernaut() {
         let mut world = simulation_world(flyer(4), REFERENCE_MONEY, 4);
         assert_eq!(world.set_class(0, world::Class::Tank), Ok(()));
         assert_eq!(world.set_class(1, world::Class::Engineer), Ok(()));
@@ -5671,6 +5634,12 @@ mod class_key_tests {
         assert_eq!(world.set_class(3, world::Class::Medic), Ok(()));
         // The soldier's brace wants its rank (task 124).
         world.set_ranks_for_probe(2, [0, 0, 1, 0]);
+        // The wall wants its rank too (task 139).
+        assert_eq!(
+            class_key(&world, 0, false, None, None, None),
+            (None, Some(bulwark_refused(Refusal::NotLearnt)))
+        );
+        world.set_ranks_for_probe(0, [0, 0, 1, 0]);
         let t = shipdesign::TILE as f32;
         let tile_of = |world: &world::World, who: u32| {
             let p = world.aboard.room.bim_pos(who as usize);
@@ -5687,13 +5656,19 @@ mod class_key_tests {
             (Some(Order::Bulwark(false)), None),
             "and down again, whatever is under the pointer"
         );
-        // Q wants the third level, and then cools down.
+        // Q wants its rank, and then cools down.
         assert_eq!(
             class_key(&world, 0, true, None, None, None),
-            (None, Some(taunt_refused(Refusal::NoTauntYet)))
+            (None, Some(taunt_refused(Refusal::NotLearnt)))
         );
         let mut events = Vec::new();
-        world.award(0, world::class::LEVEL_XP[2], &mut events);
+        world.award(0, world::class::LEVEL_XP[5], &mut events);
+        world.set_ranks_for_probe(0, [1, 0, 1, 0]);
+        assert_eq!(
+            ranked_key(&world, 0, Action::Ability1, None, None),
+            (Some(Order::Taunt), None),
+            "Q is the same key through the ranked kit"
+        );
         assert_eq!(
             class_key(&world, 0, true, None, None, None),
             (Some(Order::Taunt), None)
@@ -5702,6 +5677,25 @@ mod class_key_tests {
         assert_eq!(
             class_key(&world, 0, true, None, None, None),
             (None, Some(taunt_refused(Refusal::CoolingDown)))
+        );
+        // R goes Juggernaut once its rank is bought at the sixth level;
+        // C, Plated, is passive.
+        assert_eq!(
+            ranked_key(&world, 0, Action::Ability4, None, None),
+            (
+                None,
+                Some(crate::names::juggernaut_refused(Refusal::NotLearnt))
+            )
+        );
+        world.set_ranks_for_probe(0, [1, 0, 1, 1]);
+        assert_eq!(
+            ranked_key(&world, 0, Action::Ability4, None, None),
+            (Some(Order::Juggernaut), None)
+        );
+        assert_eq!(
+            ranked_key(&world, 0, Action::Ability2, None, None),
+            (None, None),
+            "Plated is passive"
         );
         // And nobody else's keys are the tank's: the engineer throws an
         // EMP (task 127), the soldier braces, the medic beams.
@@ -5970,7 +5964,7 @@ mod class_key_tests {
             )
         );
         let mut events = Vec::new();
-        world.award(1, world::class::RANKED_LEVEL_XP[2], &mut events);
+        world.award(1, world::class::LEVEL_XP[2], &mut events);
         assert_eq!(
             rank_up(&world, 1, RankUp { slot: 1 }),
             (Some(Order::RankUp { ability_slot: 1 }), None)
@@ -6231,7 +6225,7 @@ mod rank_up_tests {
             assert_eq!(click_box(which, ctrl).0, Some(RankUp { slot: which }));
         }
         // And the one place both go asks the world (task 124): a crew
-        // member with no ranked kit is told so.
+        // member with no class is told so.
         let world = world::fixture::simulation_world(
             shipdesign::fixture::flyer(1),
             world::fixture::REFERENCE_MONEY,
@@ -6239,7 +6233,7 @@ mod rank_up_tests {
         );
         assert_eq!(
             rank_up(&world, 0, RankUp { slot: 2 }),
-            (None, Some(crate::names::rank_refused(Refusal::NoRankedKit)))
+            (None, Some(crate::names::rank_refused(Refusal::NoClass)))
         );
     }
 

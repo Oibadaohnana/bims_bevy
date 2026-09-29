@@ -394,10 +394,7 @@ pub fn refusal(why: Refusal) -> &'static str {
             "that tile will not take it — clear deck floor within reach, not a door, nothing on it"
         }
         Refusal::NoSuchDeployable => "there is nothing of the kind there",
-        Refusal::NotAPickLevel => "that level has no talent to pick",
-        Refusal::LevelNotReached => "that level has not been reached",
-        Refusal::AlreadyPicked => "that level's talent is picked, and a pick is never changed",
-        Refusal::NoClass => "a crew member with no class has no talents to pick",
+        Refusal::NoClass => "a crew member with no class has nothing to learn",
         Refusal::NotASoldier => "only a soldier does that",
         Refusal::NoGrenade => "no grenade charge left: the next is still coming back",
         Refusal::NoGrenadesYet => "Frag Grenade wants a rank first",
@@ -411,7 +408,6 @@ pub fn refusal(why: Refusal) -> &'static str {
         Refusal::OutOfBeamRange => "they are too far off for the beam",
         Refusal::NoSightOfPatient => "the medic cannot see them",
         Refusal::NotATank => "only a tank can do that",
-        Refusal::NoTauntYet => "a taunt wants the third level",
         Refusal::NotACommander => "only a commander can do that",
         Refusal::NoSquadInRange => "nobody of the squad is near enough to hear it",
         Refusal::NoEnemyThere => "there is no enemy under the pointer",
@@ -460,7 +456,7 @@ pub fn refusal(why: Refusal) -> &'static str {
         Refusal::NotAPair => "only two of one kind at one tier combine",
         Refusal::NoRestock => "nobody holds Restock Codes",
         Refusal::Restocked => "the shelf has been restocked once this visit already",
-        Refusal::NoRankedKit => "only a class with four ranked abilities buys ranks",
+        Refusal::NoRankedKit => "there is no such ability",
         Refusal::NoSkillPoint => "no skill point to spend — the next comes with the next level",
         Refusal::TopRank => "that ability is at its top rank",
         Refusal::RankLocked => "the next rank of that ability wants a higher level",
@@ -577,19 +573,16 @@ pub const BIM_TINT_NOTE: &str =
     "The ring on the deck under your own crew member. The crew nobody steers have none.";
 pub const BIM_TINT_TAKEN: &str = "taken";
 /// The class chooser (features 74 and 75): a name a `world::Class`, in
-/// `Class::ALL`'s order, with a line each saying what it does; and a
-/// name and a line a `world::Talent`, in `Talent::ALL`'s order — each
-/// class's seven pick levels' two each, left then right, the engineer's
-/// fourteen, then the soldier's, the medic's and the tank's.
+/// `Class::ALL`'s order, with a line each saying what it does.
 pub const BIM_CLASS: &str = "Class";
-pub const BIM_CLASS_NOTE: &str = "What your crew member is. One class each, chosen before the ship leaves its first berth. A class adds its own two keys and its talents, and nothing else: every crew member does every job and brings the same money";
+pub const BIM_CLASS_NOTE: &str = "What your crew member is. One class each, chosen before the ship leaves its first berth. A class adds its own four abilities, and nothing else: every crew member does every job and brings the same money";
 pub const CLASS_NAMES: [&str; 6] = ["None", "Engineer", "Soldier", "Medic", "Tank", "Commander"];
 pub const CLASS_TIPS: [&str; 6] = [
     "No class: learns nothing.",
     "Four ranked abilities, a skill point a level: an EMP that stuns the machines (Q), a Healing Sentry that heals the crew round it (C), sandbags for cover (E), and for its ultimate a sentry with a minigun (R). Its charges come back on their own cooldowns, and it packs its sandbags and Healing Sentries up again.",
     "Braces to hold a line (E) — steadier shooting and no errands until stood easy — and from the third level throws grenades (Q), two charges of them, each back thirty seconds after it is thrown. Sets out with an auto rifle in hand and the pistol in the pack.",
     "Four ranked abilities, a skill point a level: a Nanite Burst that heals everybody near him at once (Q), a Healing Aura that makes every heal worth more to the crew round him (C), the heal beam on a crewmate or himself (E), and for his ultimate a cloak no enemy can pick (R). Revives a downed crewmate in four seconds where anybody else takes ten, and gets them up at 40% of their bar where anybody else manages 30%.",
-    "Stands as a wall (E) — half pace, and the crew close behind him are in cover against anything shot through him — and from the third level taunts (Q), so every enemy that can see him shoots at him and nobody else for six minutes. His armour drains at half rate, so the same kevlar takes twice as much on him. Sets out with the pistol and a basic helm, kevlar and leg guards on.",
+    "Four ranked abilities, a skill point a level: a Taunt that makes every enemy near him that can see him shoot at him and nobody else (Q), Plated, less damage from every hit (C), a wall the crew shelter behind (E), and for his ultimate the Juggernaut, every enemy that sees him shooting at him while he shrugs it off (R). His armour drains at half rate, so the same kevlar takes twice as much on him. Sets out with the pistol and a basic helm, kevlar and leg guards on.",
     "Lifts every friendly Bim within eight tiles of him — yours as well as the crew's — a tenth faster at work, and a tenth steadier with a gun; and orders the squad, which is every crew member nobody is steering: attack the enemy under the pointer (E), fall back to a tile (X), stand ground (Z). From the third level he rallies (Q). Hires a mercenary at a quarter off. Sets out with the pistol.",
 ];
 pub fn class_name(class: world::Class) -> &'static str {
@@ -601,78 +594,17 @@ pub fn class_name(class: world::Class) -> &'static str {
 pub fn class_tip(class: world::Class) -> &'static str {
     CLASS_TIPS.get(class.code() as usize).copied().unwrap_or("")
 }
-/// The two boxes at the foot of the screen (feature 80): what the class's
-/// own keys do, by class code, the **primary** (Q) first and the
-/// **secondary** (E) second — the same pairing `screens::game::class_key`
-/// dispatches by, so a box and the key under it are never two answers.
-/// `Class::None` has no keys and no boxes; its row is there so a code
-/// indexes the table.
-pub const ABILITY_NAMES: [[&str; 2]; 6] = [
-    ["", ""],
-    ["EMP", "Sandbags"],
-    ["Grenade", "Brace"],
-    ["Nanite Burst", "Heal Beam"],
-    ["Taunt", "Wall"],
-    ["Battle Cry", "Rally"],
-];
-/// What the engineer's EMP and sandbags do (task 127): its Q box's tip and
-/// its ranked ability's words alike. One line each, Dota 2's way: the
-/// numbers are the [`Stat`] rows under it.
+/// What a few abilities do, in a line, Dota 2's way — the numbers are the
+/// [`Stat`] rows under it. Shared by [`ranked_what`] and anything else
+/// that says one. (The two-key tables, `ABILITY_NAMES` and
+/// `ABILITY_TIPS`, went with the last class of talents, task 139: every
+/// box is a ranked ability's now.)
 const EMP_WHAT: &str = "Throw an EMP that bursts after 2 s, stunning every machine in the blast: no moving, aiming or firing, and a Guardian's shield drops. The Heart is immune.";
 const SANDBAGS_WHAT: &str = "Lay sandbags on the tile under the pointer: low cover for anyone behind them, worn down by the hits they stop.";
-/// What the medic's Nanite Burst and heal beam do (task 130): his Q and E
-/// boxes' tips and his ranked abilities' words alike.
+/// What the medic's Nanite Burst and heal beam do (task 130).
 const NANITE_BURST_WHAT: &str =
     "Heal every standing ally around you in sight, yourself included. Revives nobody.";
 const HEAL_BEAM_WHAT: &str = "Toggle. Beam the crewmate under the pointer, or yourself, healing over time. The number is how many more you could link.";
-/// What each box says when it is rested on.
-pub const ABILITY_TIPS: [[&str; 2]; 6] = [
-    ["", ""],
-    [EMP_WHAT, SANDBAGS_WHAT],
-    [
-        "Throw a grenade that bursts after 2 s, hurting everyone in the blast, allies too. The number is the grenades in the pack.",
-        "Toggle. Brace where you stand for steadier aim. Moving ends it.",
-    ],
-    [NANITE_BURST_WHAT, HEAL_BEAM_WHAT],
-    [
-        "Every enemy that can see you shoots at you alone.",
-        "Toggle. Walk at half pace; a crewmate close behind you is in cover.",
-    ],
-    [
-        "Nearby allies fire faster.",
-        "Nearby allies take less damage and move faster.",
-    ],
-];
-pub fn ability_name(class: world::Class, primary: bool) -> &'static str {
-    ABILITY_NAMES
-        .get(class.code() as usize)
-        .map(|pair| pair[usize::from(!primary)])
-        .unwrap_or("")
-}
-pub fn ability_tip(class: world::Class, primary: bool) -> &'static str {
-    ABILITY_TIPS
-        .get(class.code() as usize)
-        .map(|pair| pair[usize::from(!primary)])
-        .unwrap_or("")
-}
-/// The numbers under a class key's box that is not a ranked kit's: the
-/// tank's, the one class of talents left. Base values — a talent that
-/// stretches one is on the Skills tab.
-pub fn ability_stats(class: world::Class, primary: bool) -> Vec<Stat> {
-    use world::class as c;
-    match (class, primary) {
-        (world::Class::Tank, true) => vec![
-            Stat::one("Radius", " tiles", fig(c::TAUNT_RADIUS as f64)),
-            Stat::one("Duration", " min", fig(c::TAUNT_MINUTES)),
-            Stat::one("Cooldown", " s", fig(c::TAUNT_COOLDOWN)),
-        ],
-        (world::Class::Tank, false) => vec![
-            Stat::one("Move speed", "", by(c::BULWARK_PACE as f64)),
-            Stat::one("Cover reach", " tiles", fig(c::BULWARK_REACH as f64)),
-        ],
-        _ => Vec::new(),
-    }
-}
 /// The boxes past the class's own two (feature 86): the commander's
 /// other two squad orders, which had keys and no box until now, and the
 /// medic's carry. Named off the [`crate::keys::Action`] rather than off
@@ -711,6 +643,10 @@ pub fn ranked_ability(class: world::Class, slot: u8) -> &'static str {
         (world::Class::Medic, 1) => "Healing Aura",
         (world::Class::Medic, 2) => "Heal Beam",
         (world::Class::Medic, 3) => "Cloak",
+        (world::Class::Tank, 0) => "Taunt",
+        (world::Class::Tank, 1) => "Plated",
+        (world::Class::Tank, 2) => "Bulwark",
+        (world::Class::Tank, 3) => "Juggernaut",
         _ => "",
     }
 }
@@ -755,6 +691,18 @@ pub fn ranked_what(class: world::Class, slot: u8) -> &'static str {
         (world::Class::Medic, 2) => HEAL_BEAM_WHAT,
         (world::Class::Medic, 3) => {
             "Ultimate. Cloak an ally, downed or not, or yourself: enemies ignore them, they move faster but cannot shoot. Blasts still hit."
+        }
+        (world::Class::Tank, 0) => {
+            "Every enemy within the radius that can see you shoots at you and nobody else."
+        }
+        (world::Class::Tank, 1) => {
+            "Passive. You take less damage from every hit, before your armour takes its share."
+        }
+        (world::Class::Tank, 2) => {
+            "Toggle. Stand as a wall: a crewmate close behind you is in cover against anything shot through you. You walk slower while it is up."
+        }
+        (world::Class::Tank, 3) => {
+            "Ultimate. Every enemy that can see you, at any distance, shoots at you and nobody else, and you take far less damage."
         }
         _ => "",
     }
@@ -966,6 +914,49 @@ pub fn ranked_stats(class: world::Class, slot: u8) -> Vec<Stat> {
             Stat::one("Range", " tiles", fig(c::CLOAK_RANGE as f64)),
             cooldown(&c::CLOAK_COOLDOWN),
         ],
+        // The tank's (task 139).
+        (world::Class::Tank, 0) => vec![
+            Stat::ranks("Radius", " tiles", |r| fig(c::TAUNT_RADIUS[r] as f64)),
+            Stat::ranks("Duration", " s", |r| fig(c::TAUNT_SECONDS[r])),
+            Stat::from_rank(
+                "Turns charging blades",
+                c::TAUNT_MAGNET_RANK,
+                "Yes".to_string(),
+            ),
+            cooldown(&c::TAUNT_COOLDOWN),
+        ],
+        (world::Class::Tank, 1) => vec![
+            Stat::ranks("Damage taken", "", |r| by(c::PLATED_DAMAGE_TAKEN[r] as f64)),
+            Stat::ranks("Armour drain", "", |r| {
+                let fortress = r + 1 >= c::FORTRESS_RANK as usize;
+                by(if fortress {
+                    (c::TANK_DRAIN * c::FORTRESS_DRAIN) as f64
+                } else {
+                    c::TANK_DRAIN as f64
+                })
+            }),
+        ],
+        (world::Class::Tank, 2) => vec![
+            Stat::ranks("Reach", " tiles", |r| fig(c::BULWARK_REACH[r] as f64)),
+            Stat::ranks("Move speed", "", |r| by(c::BULWARK_PACE[r] as f64)),
+            Stat::from_rank(
+                "Dodge while on",
+                c::GUARDED_RANK,
+                format!("+{}", pc(c::GUARDED_DODGE as f64)),
+            ),
+            Stat::from_rank(
+                "Takes a shielded ally's bolts",
+                c::INTERPOSE_RANK,
+                "Yes".to_string(),
+            ),
+        ],
+        (world::Class::Tank, 3) => vec![
+            Stat::ranks("Duration", " s", |r| fig(c::JUGGERNAUT_SECONDS[r])),
+            Stat::ranks("Damage taken", "", |r| {
+                by(c::JUGGERNAUT_DAMAGE_TAKEN[r] as f64)
+            }),
+            cooldown(&c::JUGGERNAUT_COOLDOWN),
+        ],
         _ => Vec::new(),
     }
 }
@@ -1048,223 +1039,11 @@ pub fn points_waiting(points: u8) -> Option<String> {
 pub fn ability_locked(level: u8) -> String {
     format!("Level {level}")
 }
-/// The talent tree (features 83 and 107): the class's ten levels as a tree on the
-/// character sheet, what a level's slot says, and the button that spends a point.
-pub const SKILLS_TIP: &str = "Your own crew member's class, level by level. A level with two slots is a choice: one skill point, spent on one of them, and it cannot be changed. The levels with one slot come on their own as you climb.";
+/// The Skills tab of a crew member with no class (the talent tree it once
+/// was went with the talents, task 139: every class is a ranked kit).
 pub const SKILLS_NO_CLASS: &str = "This crew member has no class, so there is nothing to learn. A class is chosen on the setup tab, before the ship first leaves its berth.";
-/// How many picks are waiting: what a point is spent on, and how many
-/// there are.
-pub fn skill_points(points: usize) -> String {
-    match points {
-        0 => "No skill points — the next one comes with the next level that offers a choice."
-            .to_string(),
-        1 => "One skill point to spend.".to_string(),
-        n => format!("{n} skill points to spend."),
-    }
-}
-pub const SKILLS_HINT: &str = "Click a slot for what it does. A slot at a level you have reached, at a level you have not chosen at, is yours for a point.";
-pub const SKILL_LEARN: &str = "Learn";
-pub const SKILL_LEARN_TIP: &str =
-    "Spends a skill point on this slot. The other at the level is given up for good.";
-/// What the tree says under the slot picked, by its state.
-pub const SKILL_LEARNT: &str = "Learnt.";
-pub const SKILL_GIVEN_UP: &str = "Given up: the other slot at this level was taken.";
-pub const SKILL_COMES_WITH: &str = "Comes with the level, with nothing to choose.";
-pub fn skill_locked(level: u8) -> String {
-    format!("Waiting on level {level}.")
-}
-pub const SKILL_OPEN: &str = "Open: one skill point, and it cannot be changed.";
-/// Where a slot of the Skills tree sits, said under its name in the
-/// column beside the tree: the level, and whether it comes with the
-/// level or is one of the two that level offers.
-pub fn skill_slot_line(level: u8, pick: bool) -> String {
-    if pick {
-        format!("Level {level} — one of two")
-    } else {
-        format!("Level {level} — the level's own")
-    }
-}
-/// What a talent that does nothing any more says, in its tip and in its
-/// numbers (task 120): the talents the old body's blood, wounds, traumas
-/// and running fed — the medic's dressings and treatments, the nerve that
-/// held a body from running, the bleeding a taunt or a rally stopped —
-/// keep their names and their slots on the tree until they are designed
-/// again, and say so in the one phrase rather than a promise the rules no
-/// longer keep.
-pub const TALENT_NO_EFFECT: &str = "No effect for now — to be redesigned.";
-/// A talent's name by its code: a code no talent has any more (the
-/// engineer's, 0 to 13, task 127, and the soldier's, 14 to 27, task 124) is
-/// an empty place.
-pub const TALENT_NAMES: [&str; 55] = [
-    // 0 to 13 were the engineer's talents, gone with its ranked kit
-    // (task 127): the codes stay free, and so do their places here.
-    "",
-    "",
-    "",
-    "",
-    "",
-    "",
-    "",
-    "",
-    "",
-    "",
-    "",
-    "",
-    "",
-    "",
-    "",
-    "",
-    "",
-    "",
-    "",
-    "",
-    "",
-    "",
-    "",
-    "",
-    "",
-    "",
-    "",
-    "",
-    // 28 to 41 were the medic's talents, gone with his ranked kit
-    // (task 130): the codes stay free, and so do their places here.
-    "",
-    "",
-    "",
-    "",
-    "",
-    "",
-    "",
-    "",
-    "",
-    "",
-    "",
-    "",
-    "",
-    "",
-    "Plated",
-    "Breacher",
-    "Unmovable",
-    "Wide wall",
-    "Fast wall",
-    "Loud taunt",
-    "Long taunt",
-    "Hold fast",
-    "Guarded",
-    "Interpose",
-    "Magnet",
-    "Fortress",
-    "Rallying wall",
-    // 55 to 68 were the commander's talents, gone with his ranked kit
-    // (task 129): the codes stay free; no talent follows them, so the
-    // table ends at the last one there is.
-];
-pub const TALENT_TIPS: [&str; 55] = [
-    // 0 to 13 were the engineer's talents, gone with its ranked kit
-    // (task 127): the codes stay free, and so do their places here.
-    "",
-    "",
-    "",
-    "",
-    "",
-    "",
-    "",
-    "",
-    "",
-    "",
-    "",
-    "",
-    "",
-    "",
-    // 14 to 27 were the soldier's talents, gone with its ranked kit (task
-    // 124): the codes stay free, and so do their places here.
-    "",
-    "",
-    "",
-    "",
-    "",
-    "",
-    "",
-    "",
-    "",
-    "",
-    "",
-    "",
-    "",
-    "",
-    // 28 to 41 were the medic's talents, gone with his ranked kit
-    // (task 130): the codes stay free, and so do their places here.
-    "",
-    "",
-    "",
-    "",
-    "",
-    "",
-    "",
-    "",
-    "",
-    "",
-    "",
-    "",
-    "",
-    "",
-    "Every piece of armour he wears protects half again as much.",
-    "Forces a locked door in half the time.",
-    TALENT_NO_EFFECT,
-    "The wall shelters twice as far to either side.",
-    "Walks half again as fast with the wall up.",
-    "A taunt reaches half again as far.",
-    "A taunt lasts half again as long.",
-    TALENT_NO_EFFECT,
-    "Ten per cent more chance of slipping a bolt while the wall is up.",
-    "A bolt that would hit somebody the wall shelters hits him instead.",
-    "A taunt turns every charging blade within its reach towards him.",
-    "His armour drains at half rate again — a quarter of anybody else's.",
-    "While he taunts, every crew member within three tiles drains armour at half rate too.",
-    // 55 to 68 were the commander's talents, gone with his ranked kit
-    // (task 129): the codes stay free; no talent follows them, so the
-    // table ends at the last one there is.
-];
-pub fn talent_name(talent: world::Talent) -> &'static str {
-    TALENT_NAMES
-        .get(talent.code() as usize)
-        .copied()
-        .unwrap_or("Talent")
-}
-pub fn talent_tip(talent: world::Talent) -> &'static str {
-    TALENT_TIPS
-        .get(talent.code() as usize)
-        .copied()
-        .unwrap_or("")
-}
-/// The fixed levels' lines, for the panel: what a class's first, third
-/// and seventh give.
-pub fn level_line(class: world::Class, level: u8) -> Option<&'static str> {
-    Some(match (class, level) {
-        (world::Class::Tank, 1) => "Bulwark: stands as a wall, and his armour drains at half rate.",
-        (world::Class::Tank, 2) => {
-            "Plated: every piece of armour he wears protects half again as much."
-        }
-        (world::Class::Tank, 3) => "Taunt: may draw the enemy's fire onto himself.",
-        (world::Class::Tank, 7) => "Iron frame: a hit rolled on his head lands on his body.",
-        _ => return None,
-    })
-}
-/// What a fixed level is *called*, for its one slot on the Skills tree —
-/// the same three levels [`level_line`] describes, said in a word or two.
-/// `None` wherever `level_line` is `None`: a pick level has two talents
-/// with names of their own, and the classless one has nothing at all.
-pub fn level_name(class: world::Class, level: u8) -> Option<&'static str> {
-    Some(match (class, level) {
-        (world::Class::Tank, 1) => "Bulwark",
-        (world::Class::Tank, 2) => "Plated",
-        (world::Class::Tank, 3) => "Taunt",
-        (world::Class::Tank, 7) => "Iron frame",
-        _ => return None,
-    })
-}
 
-/// A number said the way the Skills tree says one: two decimals at most,
+/// A number said the way the Skills tab says one: two decimals at most,
 /// and no trailing nought at all. `6.0` is "6", `1.15` is "1.15",
 /// `26.666` is "26.67".
 fn fig(v: f64) -> String {
@@ -1280,19 +1059,9 @@ fn fig(v: f64) -> String {
     }
 }
 
-/// A factor, the way a talent's line says one: `×1.15`.
+/// A factor, the way a rank's line says one: `×1.15`.
 fn by(v: f64) -> String {
     format!("×{}", fig(v))
-}
-
-/// A before and an after: `6 -> 9`, with the unit said once at the end.
-fn step(before: f64, after: f64, unit: &str) -> String {
-    let (a, b) = (fig(before), fig(after));
-    if unit.is_empty() {
-        format!("{a} -> {b}")
-    } else {
-        format!("{a} -> {b} {unit}")
-    }
 }
 
 /// A percentage, whole: `0.75` is "75%".
@@ -1300,128 +1069,6 @@ fn pc(v: f64) -> String {
     format!("{}%", fig(v * 100.0))
 }
 
-/// **What a talent is actually worth, in numbers** — the line the Skills
-/// tree puts under a slot's name, so the choice between two of them is a
-/// choice between two figures rather than between two adjectives. Every
-/// number here is the rules crates' own constant: `world::class`'s
-/// factors, and the base each one multiplies, wherever there is one to
-/// show — a sentry's health, a beam's reach, a grenade's fuse. A talent
-/// that multiplies something the weapon in hand decides (accuracy, fire
-/// rate, melee damage) says the factor and, where it helps, what it does
-/// to one worked figure.
-pub fn talent_numbers(talent: world::Talent) -> String {
-    use world::Talent as T;
-    use world::class as c;
-    match talent {
-        // The medic's went with his ranked kit (task 130).
-        // --- the tank's ---
-        T::Plated => format!(
-            "Every piece of armour he wears protects {}",
-            by(c::PLATED_PROTECTION as f64)
-        ),
-        T::Breacher => format!(
-            "Forcing a locked door {} seconds, an airlock {} ({})",
-            step(
-                bims::door::SMASH_DOOR as f64,
-                (bims::door::SMASH_DOOR * c::BREACHER_TIME) as f64,
-                ""
-            ),
-            step(
-                bims::door::SMASH_AIRLOCK as f64,
-                (bims::door::SMASH_AIRLOCK * c::BREACHER_TIME) as f64,
-                ""
-            ),
-            by(c::BREACHER_TIME as f64)
-        ),
-        T::Unmovable => TALENT_NO_EFFECT.to_string(),
-        T::WideWall => format!(
-            "Bulwark reach {} tiles ({})",
-            step(
-                c::BULWARK_REACH as f64,
-                (c::BULWARK_REACH * c::WIDE_WALL_REACH) as f64,
-                ""
-            ),
-            by(c::WIDE_WALL_REACH as f64)
-        ),
-        T::FastWall => format!(
-            "Pace with the wall up {} of his own ({})",
-            step(
-                c::BULWARK_PACE as f64,
-                (c::BULWARK_PACE * c::FAST_WALL_PACE) as f64,
-                ""
-            ),
-            by(c::FAST_WALL_PACE as f64)
-        ),
-        T::LoudTaunt => format!(
-            "Taunt radius {} tiles ({})",
-            step(
-                c::TAUNT_RADIUS as f64,
-                (c::TAUNT_RADIUS * c::LOUD_TAUNT_RADIUS) as f64,
-                ""
-            ),
-            by(c::LOUD_TAUNT_RADIUS as f64)
-        ),
-        T::LongTaunt => format!(
-            "A taunt lasts {} game minutes ({}); {} seconds between them either way",
-            step(c::TAUNT_MINUTES, c::TAUNT_MINUTES * c::LONG_TAUNT_TIME, ""),
-            by(c::LONG_TAUNT_TIME),
-            fig(c::TAUNT_COOLDOWN)
-        ),
-        T::HoldFast => TALENT_NO_EFFECT.to_string(),
-        T::Guarded => format!(
-            "Odds of slipping a bolt while Bulwark is up +{}",
-            pc(c::GUARDED_DODGE as f64)
-        ),
-        T::Interpose => format!(
-            "A bolt that would hit anybody within the wall's {} tiles hits him instead",
-            fig(c::BULWARK_REACH as f64)
-        ),
-        T::Magnet => format!(
-            "Every charging blade within the taunt's {} tiles turns towards him",
-            fig(c::TAUNT_RADIUS as f64)
-        ),
-        T::Fortress => format!(
-            "His armour drains at {} of anybody else's ({} again on the first level's {})",
-            fig((c::TANK_DRAIN * c::FORTRESS_DRAIN) as f64),
-            by(c::FORTRESS_DRAIN as f64),
-            fig(c::TANK_DRAIN as f64)
-        ),
-        T::RallyingWall => format!(
-            "While he taunts, every crew member within {} tiles drains armour at {} too",
-            fig(c::RALLYING_WALL_TILES as f64),
-            fig(c::RALLYING_WALL_DRAIN as f64)
-        ),
-    }
-}
-
-/// The same for a **fixed** level, which has no talent to look up: what
-/// the level's own ability is worth in numbers, said once. `None`
-/// wherever [`level_line`] is `None`.
-pub fn level_numbers(class: world::Class, level: u8) -> Option<String> {
-    use world::class as c;
-    Some(match (class, level) {
-        (world::Class::Tank, 1) => format!(
-            "Armour worn by him drains at {} the ordinary rate, so a piece absorbs twice as much. Bulwark shelters everybody within {} tiles, at {} his own pace",
-            by(c::TANK_DRAIN as f64),
-            fig(c::BULWARK_REACH as f64),
-            by(c::BULWARK_PACE as f64)
-        ),
-        (world::Class::Tank, 2) => format!(
-            "Every piece of armour he wears stops {} what it says it does",
-            by(c::PLATED_PROTECTION as f64)
-        ),
-        (world::Class::Tank, 3) => format!(
-            "A taunt reaches {} tiles, runs {} game minutes, and wants {} seconds between",
-            fig(c::TAUNT_RADIUS as f64),
-            fig(c::TAUNT_MINUTES),
-            fig(c::TAUNT_COOLDOWN)
-        ),
-        (world::Class::Tank, 7) => {
-            "Every hit rolled on his head lands on his body instead".to_string()
-        }
-        _ => return None,
-    })
-}
 /// The class row on the crew panel: the class, the level, and what is
 /// still wanted for the next.
 pub fn class_line(class: world::Class, level: u8, to_next: u32) -> String {
@@ -1434,7 +1081,6 @@ pub fn class_line(class: world::Class, level: u8, to_next: u32) -> String {
         )
     }
 }
-pub const PICK_PENDING: &str = "A talent to pick:";
 pub const PACK_UP: &str = "Pack up";
 /// What a deployable on the deck is called, by `world::DeployKind` code,
 /// with what it has left.
@@ -1474,6 +1120,10 @@ pub fn bulwark_refused(why: world::Refusal) -> String {
 }
 pub fn taunt_refused(why: world::Refusal) -> String {
     format!("Cannot taunt: {}.", refusal(why))
+}
+/// And for a Juggernaut refused (task 139).
+pub fn juggernaut_refused(why: world::Refusal) -> String {
+    format!("Cannot go Juggernaut: {}.", refusal(why))
 }
 /// And for a squad order and a rally (feature 78).
 pub fn squad_refused(why: world::Refusal) -> String {
@@ -1546,17 +1196,17 @@ pub fn battle_cry_line(left: f64, cooldown: f64, learnt: bool) -> String {
         "Battle Cry ready".to_string()
     }
 }
-/// The tank's rows on the crew panel (feature 77): the wall, and the
-/// taunt with its cooldown.
+/// The tank's rows on the crew panel (feature 77; task 139): the wall,
+/// and the Taunt and the Juggernaut, each with its cooldown.
 pub const WALL_UP: &str = "Wall up";
 pub const WALL_DOWN: &str = "Wall down";
-pub const WALL_TIP: &str = "Standing as a wall: half pace, and a crewmate close behind him is in cover against anything shot through him. E puts it up and down; going down takes it down.";
-pub fn taunt_line(left: f64, cooldown: f64, level_enough: bool) -> String {
-    if !level_enough {
-        return format!("Taunt at level {}", world::class::TAUNT_LEVEL);
+pub const WALL_TIP: &str = "Standing as a wall: slower, and a crewmate close behind him is in cover against anything shot through him. E puts it up and down; going down takes it down.";
+pub fn taunt_line(left: f64, cooldown: f64, learnt: bool) -> String {
+    if !learnt {
+        return TAUNT_NOT_LEARNT.to_string();
     }
     if left > 0.0 {
-        return format!("Taunting — {left:.0} min left");
+        return format!("Taunting — {left:.0} s left");
     }
     if cooldown > 0.0 {
         format!("Taunt ready in {cooldown:.0} s")
@@ -1564,6 +1214,24 @@ pub fn taunt_line(left: f64, cooldown: f64, level_enough: bool) -> String {
         "Taunt ready".to_string()
     }
 }
+/// The Taunt before its first rank (task 139).
+pub const TAUNT_NOT_LEARNT: &str = "Taunt not learnt yet";
+/// The Juggernaut's line on the crew panel (task 139), the taunt's way.
+pub fn juggernaut_line(left: f64, cooldown: f64, learnt: bool) -> String {
+    if !learnt {
+        return JUGGERNAUT_NOT_LEARNT.to_string();
+    }
+    if left > 0.0 {
+        return format!("Juggernaut — {left:.0} s left");
+    }
+    if cooldown > 0.0 {
+        format!("Juggernaut ready in {cooldown:.0} s")
+    } else {
+        "Juggernaut ready".to_string()
+    }
+}
+/// The Juggernaut before its first rank.
+pub const JUGGERNAUT_NOT_LEARNT: &str = "Juggernaut not learnt yet";
 /// The soldier's rows on the crew panel (feature 75): grenades carried,
 /// the throw's cooldown, and the brace.
 pub const BRACED: &str = "Braced";
@@ -1791,42 +1459,11 @@ pub fn event_line(event: WorldEvent) -> Option<String> {
         }
         WorldEvent::PowerRestored => "Power restored.".into(),
         WorldEvent::CrewLost => "Nobody of the crew is standing. The run is over.".into(),
-        WorldEvent::LevelUp {
-            who: w,
-            class,
-            level,
-        } if world::class::ranked(world::Class::from_code(class).unwrap_or_default()) => format!(
+        // Every class is a ranked kit since task 139: a level is a point.
+        WorldEvent::LevelUp { who: w, level, .. } => format!(
             "{} reached level {level} — a skill point to spend: Ctrl and an ability's key.",
             who(w)
         ),
-        WorldEvent::LevelUp {
-            who: w,
-            class,
-            level,
-        } => match world::class::is_pick_level(
-            world::Class::from_code(class).unwrap_or_default(),
-            level as u8,
-        ) {
-            true => format!(
-                "{} reached level {level} — a skill point to spend, on the Skills tab.",
-                who(w)
-            ),
-            false => match level_line(
-                world::Class::from_code(class).unwrap_or_default(),
-                level as u8,
-            ) {
-                Some(line) => format!("{} reached level {level}: {line}", who(w)),
-                None => format!("{} reached level {level}.", who(w)),
-            },
-        },
-        WorldEvent::TalentPicked { who: w, talent } => {
-            let talent = world::Talent::from_code(talent);
-            format!(
-                "{} learnt {}.",
-                who(w),
-                talent.map(talent_name).unwrap_or("a talent")
-            )
-        }
         WorldEvent::Deployed { who: w, kind } => format!(
             "{} set up {}.",
             who(w),
@@ -1867,6 +1504,7 @@ pub fn event_line(event: WorldEvent) -> Option<String> {
         WorldEvent::Bulwarked { who: w, on: true } => format!("{} stood as a wall.", who(w)),
         WorldEvent::Bulwarked { who: w, on: false } => format!("{} stood the wall down.", who(w)),
         WorldEvent::Taunted { who: w } => format!("{} taunted the enemy.", who(w)),
+        WorldEvent::Juggernaut { who: w } => format!("{} goes Juggernaut.", who(w)),
         WorldEvent::Squadded { who: w, kind } => match kind {
             0 => format!("{} sent the squad in.", who(w)),
             1 => format!("{} called the squad back.", who(w)),
@@ -2703,9 +2341,6 @@ pub const CRITICAL_TAG: &str = "CRITICAL";
 pub const CRITICAL_TIP: &str = "Badly hurt: under twenty hit points and bleeding \
     on the deck, or down with the countdown running. Get a medic's beam on it, \
     or get out of the fight.";
-/// The `+1` on the hero panel.
-pub const TALENT_WAITING_TIP: &str =
-    "A talent to pick — open the character sheet to spend the point.";
 /// What a downed body has left, in one line — the hero panel's and the
 /// portraits' (task 120).
 pub fn downed_short(seconds: f32) -> String {
@@ -2778,7 +2413,7 @@ pub fn sheet_title(class: &str, level: u8) -> String {
 pub const SHEET_CLOSE: &str = "Close the character sheet";
 pub const SHEET_BODY: &str = "Body";
 pub const SHEET_GEAR: &str = "Gear";
-pub const SHEET_TALENTS: &str = "Talents";
+pub const SHEET_SKILLS: &str = "Skills";
 pub const SHEET_HEALTH: &str = "Health";
 pub const NOTHING_WORN: &str = "nothing worn";
 pub const NOTHING_IN_HAND: &str = "nothing in hand";
@@ -3581,7 +3216,7 @@ mod tests {
 
     #[test]
     fn every_table_of_the_room_is_as_long_as_its_enum() {
-        // --- the_classes_and_the_talents_are_named_and_every_pick_level_tipped ---
+        // --- the_classes_and_their_four_abilities_are_named ---
         {
             assert_eq!(CLASS_NAMES.len(), world::Class::ALL.len());
             assert_eq!(SITE_KIND_NAMES.len(), world::SiteKind::ALL.len());
@@ -3589,38 +3224,7 @@ mod tests {
                 assert_eq!(kind.code() as usize, i, "{kind:?}");
             }
             assert_eq!(CLASS_TIPS.len(), world::Class::ALL.len());
-            // Indexed by code, with the codes no talent has any more left
-            // empty (task 124).
-            let places = world::Talent::ALL.iter().map(|t| t.code()).max().unwrap() as usize + 1;
-            assert_eq!(TALENT_NAMES.len(), places);
-            assert_eq!(TALENT_TIPS.len(), places);
             assert_eq!(DEPLOYABLE_NAMES.len(), world::DeployKind::ALL.len());
-            // The two boxes at the foot of the screen: a name and a tip
-            // for every class's two keys, and none for the classless
-            // one, which has no keys (feature 80).
-            assert_eq!(ABILITY_NAMES.len(), world::Class::ALL.len());
-            assert_eq!(ABILITY_TIPS.len(), world::Class::ALL.len());
-            for class in world::Class::ALL {
-                for primary in [true, false] {
-                    let named = !ability_name(class, primary).is_empty();
-                    assert_eq!(named, class != world::Class::None);
-                    assert_eq!(!ability_tip(class, primary).is_empty(), named);
-                    assert_eq!(
-                        world::class::key_level(class, primary).is_some(),
-                        named,
-                        "{class:?} has a key exactly where it has a box"
-                    );
-                }
-            }
-            for talent in world::Talent::ALL.iter() {
-                assert!(!talent_name(*talent).is_empty(), "{talent:?}");
-                assert!(!talent_tip(*talent).is_empty());
-                // And what it is actually worth, in numbers (feature 83).
-                assert!(
-                    !talent_numbers(*talent).is_empty(),
-                    "{talent:?} says what it is worth"
-                );
-            }
             for (i, class) in world::Class::ALL.iter().enumerate() {
                 assert_eq!(class.code() as usize, i);
             }
@@ -3631,64 +3235,40 @@ mod tests {
                 world::Class::Tank,
                 world::Class::Commander,
             ] {
-                // A ranked kit has no levels of talents (task 124): its
-                // words are the four abilities', pinned below.
-                if world::class::ranked(class) {
-                    for slot in 0..world::class::SLOTS as u8 {
-                        assert!(!ranked_ability(class, slot).is_empty());
-                        assert!(!ranked_what(class, slot).is_empty());
-                        // Dota 2's way: a line of words, and numbers
-                        // for every rank under it.
-                        let stats = ranked_stats(class, slot);
-                        assert!(!stats.is_empty(), "{class:?} {slot} has numbers");
+                // Every class is a ranked kit (task 139): its words are the
+                // four abilities'.
+                assert!(world::class::ranked(class));
+                for slot in 0..world::class::SLOTS as u8 {
+                    assert!(!ranked_ability(class, slot).is_empty());
+                    assert!(!ranked_what(class, slot).is_empty());
+                    // Dota 2's way: a line of words, and numbers
+                    // for every rank under it.
+                    let stats = ranked_stats(class, slot);
+                    assert!(!stats.is_empty(), "{class:?} {slot} has numbers");
+                    assert!(
+                        stats.iter().any(|s| s.values.len() > 1),
+                        "{class:?} {slot}: a rank changes something"
+                    );
+                    for stat in &stats {
                         assert!(
-                            stats.iter().any(|s| s.values.len() > 1),
-                            "{class:?} {slot}: a rank changes something"
+                            [1, world::class::MAX_RANK as usize].contains(&stat.values.len()),
+                            "{class:?} {slot} {}",
+                            stat.label
                         );
-                        for stat in &stats {
-                            assert!(
-                                [1, world::class::MAX_RANK as usize].contains(&stat.values.len()),
-                                "{class:?} {slot} {}",
-                                stat.label
-                            );
-                        }
-                        assert!(
-                            ranked_what(class, slot).len() <= 160,
-                            "{class:?} {slot}: a line, not a paragraph"
-                        );
-                        assert!(ranked_tip(class, slot, 0).contains("Not learnt"));
-                        assert!(ranked_tip(class, slot, 1).contains("Next, rank 2"));
-                        assert!(ranked_tip(class, slot, 4).contains("top rank"));
-                        assert!(!ranked_tip(class, slot, 2).contains("roll"));
                     }
-                    continue;
-                }
-                for level in 1..=world::class::LEVELS {
-                    assert_eq!(
-                        world::class::pick_at(class, level).is_none(),
-                        level_line(class, level).is_some(),
-                        "{class:?} level {level}: a fixed level has a line and a pick level two talents"
+                    assert!(
+                        ranked_what(class, slot).len() <= 160,
+                        "{class:?} {slot}: a line, not a paragraph"
                     );
-                    // And the Skills tree's one slot is named wherever
-                    // that line is said (feature 83).
-                    assert_eq!(
-                        level_line(class, level).is_some(),
-                        level_name(class, level).is_some(),
-                        "{class:?} level {level}: a fixed level is named as well as described"
-                    );
-                    // And a fixed level says what it is worth in numbers
-                    // wherever it is named at all (feature 83).
-                    assert_eq!(
-                        level_name(class, level).is_some(),
-                        level_numbers(class, level).is_some_and(|n| !n.is_empty()),
-                        "{class:?} level {level}: a fixed level says what it is worth"
-                    );
+                    assert!(ranked_tip(class, slot, 0).contains("Not learnt"));
+                    assert!(ranked_tip(class, slot, 1).contains("Next, rank 2"));
+                    assert!(ranked_tip(class, slot, 4).contains("top rank"));
+                    assert!(!ranked_tip(class, slot, 2).contains("roll"));
                 }
             }
-            for level in 1..=world::class::LEVELS {
-                assert!(level_line(world::Class::None, level).is_none());
-                assert!(level_name(world::Class::None, level).is_none());
-                assert!(level_numbers(world::Class::None, level).is_none());
+            // And the classless one has none.
+            for slot in 0..world::class::SLOTS as u8 {
+                assert!(ranked_ability(world::Class::None, slot).is_empty());
             }
             // The figures themselves, said the tree's way: no trailing
             // nought, two decimals at most.
@@ -3696,7 +3276,6 @@ mod tests {
             assert_eq!(fig(1.15), "1.15");
             assert_eq!(fig(40.0 / 1.5), "26.67");
             assert_eq!(by(1.5), "×1.5");
-            assert_eq!(step(6.0, 9.0, "tiles"), "6 -> 9 tiles");
             assert_eq!(pc(0.75), "75%");
             // The new refusals and events all say something.
             for why in [
@@ -3706,9 +3285,6 @@ mod tests {
                 Refusal::NoSentryYet,
                 Refusal::CantDeployThere,
                 Refusal::NoSuchDeployable,
-                Refusal::NotAPickLevel,
-                Refusal::LevelNotReached,
-                Refusal::AlreadyPicked,
                 Refusal::NoClass,
                 Refusal::NotASoldier,
                 Refusal::NoGrenade,
@@ -3726,7 +3302,6 @@ mod tests {
                 Refusal::NoSightOfTarget,
                 Refusal::Cloaked,
                 Refusal::NotATank,
-                Refusal::NoTauntYet,
                 Refusal::NotACommander,
                 Refusal::NoSquadInRange,
                 Refusal::NoEnemyThere,
@@ -3740,6 +3315,7 @@ mod tests {
                 assert!(cloak_refused(why).contains(refusal(why)));
                 assert!(bulwark_refused(why).contains(refusal(why)));
                 assert!(taunt_refused(why).contains(refusal(why)));
+                assert!(juggernaut_refused(why).contains(refusal(why)));
                 assert!(squad_refused(why).contains(refusal(why)));
                 assert!(rally_refused(why).contains(refusal(why)));
             }
@@ -3753,13 +3329,14 @@ mod tests {
             assert_eq!(rally_line(4.0, 12.0, true), "Rallying — 4 s left");
             assert_eq!(battle_cry_line(2.0, 9.0, true), "Battle Cry — 2 s left");
             assert_eq!(battle_cry_line(0.0, 0.0, true), "Battle Cry ready");
-            assert_eq!(
-                taunt_line(0.0, 0.0, false),
-                format!("Taunt at level {}", world::class::TAUNT_LEVEL)
-            );
+            assert_eq!(taunt_line(0.0, 0.0, false), TAUNT_NOT_LEARNT);
             assert_eq!(taunt_line(0.0, 0.0, true), "Taunt ready");
             assert_eq!(taunt_line(0.0, 7.2, true), "Taunt ready in 7 s");
-            assert_eq!(taunt_line(4.0, 12.0, true), "Taunting — 4 min left");
+            assert_eq!(taunt_line(4.0, 12.0, true), "Taunting — 4 s left");
+            assert_eq!(juggernaut_line(0.0, 0.0, false), JUGGERNAUT_NOT_LEARNT);
+            assert_eq!(juggernaut_line(6.2, 150.0, true), "Juggernaut — 6 s left");
+            assert_eq!(juggernaut_line(0.0, 90.0, true), "Juggernaut ready in 90 s");
+            assert_eq!(juggernaut_line(0.0, 0.0, true), "Juggernaut ready");
             assert_eq!(grenades_line(1, 0.0), "1 grenade");
             assert_eq!(grenades_line(2, 3.4), "2 grenades — next in 3 s");
             assert_eq!(beam_line(&[]), BEAM_OFF);
@@ -3790,7 +3367,7 @@ mod tests {
                     class: 2,
                     level: 8,
                 },
-                WorldEvent::TalentPicked { who: 0, talent: 0 },
+                WorldEvent::Juggernaut { who: 0 },
                 WorldEvent::Deployed { who: 0, kind: 0 },
                 WorldEvent::PackedUp { who: 0, kind: 1 },
                 WorldEvent::DeployableLost { kind: 1 },

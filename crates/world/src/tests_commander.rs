@@ -47,7 +47,7 @@ fn refused_with(events: &[WorldEvent], want: Refusal) -> bool {
 /// Straight to a level, off the class's own table.
 fn level_up(world: &mut World, who: usize, level: u8) {
     let mut events = Vec::new();
-    let want = class::level_xp(world.class_of(who as u32))[level as usize - 1];
+    let want = class::LEVEL_XP[level as usize - 1];
     let have = world.progress_of(who as u32).xp;
     world.award(who, want.saturating_sub(have), &mut events);
     assert!(world.level_of(who as u32) >= level);
@@ -691,20 +691,19 @@ fn the_commander_climbs_sixteen_levels_and_buys_his_ranks_as_the_soldier_does() 
     assert_eq!(world.set_class(2, Class::Tank), Ok(()));
     let c = Class::Commander;
     assert!(class::ranked(c));
-    assert_eq!(class::levels(c), 16);
-    assert_eq!(class::level_of(c, 3_199), 15);
-    assert_eq!(class::level_of(c, 3_200), 16, "the top at 3 200");
+    assert_eq!(class::LEVELS, 16);
+    assert_eq!(class::level_of(3_199), 15);
+    assert_eq!(class::level_of(3_200), 16, "the top at 3 200");
     let rank_up = |world: &mut World, slot: u32, ability_slot: u32| {
         world.step(&[Command::RankUp { slot, ability_slot }])
     };
-    // No class, and the tank's talents — the medic's kit is ranked since
-    // task 130 — are refused.
-    for slot in [1, 2] {
-        assert!(refused_with(
-            &rank_up(&mut world, slot, 0),
-            Refusal::NoRankedKit
-        ));
-    }
+    // No class is refused; the tank's kit is ranked since task 139.
+    assert!(refused_with(&rank_up(&mut world, 1, 0), Refusal::NoClass));
+    assert!(
+        rank_up(&mut world, 2, 0)
+            .iter()
+            .any(|e| matches!(e, WorldEvent::RankedUp { who: 2, .. }))
+    );
     // The ultimate wants the sixth level; the first level's point buys Q.
     assert!(refused_with(
         &rank_up(&mut world, 0, 3),
@@ -750,13 +749,6 @@ fn the_commander_climbs_sixteen_levels_and_buys_his_ranks_as_the_soldier_does() 
     }
     assert_eq!(world.rank_of(0, 3), 4);
     assert!(refused_with(&rank_up(&mut world, 0, 3), Refusal::TopRank));
-    // No talent is picked any more.
-    let events = world.step(&[Command::PickTalent {
-        slot: 0,
-        level: 2,
-        side: class::Side::Left,
-    }]);
-    assert!(refused_with(&events, Refusal::NotAPickLevel));
 }
 
 #[test]

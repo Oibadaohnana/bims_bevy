@@ -492,7 +492,10 @@ impl Survivors {
         for (class, progress) in world.classes.iter().zip(&world.progress) {
             self.eat_debug(class);
             self.eat(progress.xp as u64);
-            self.eat_debug(&progress.picks);
+            // An empty list where the talents picked were (task 139 took
+            // them away): no run ever picked one, so the reading is as it
+            // was.
+            self.eat_debug(&[(); 0]);
         }
         for fallen in &world.run.fallen {
             self.eat(fallen.slot as u64);

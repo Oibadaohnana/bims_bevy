@@ -50,7 +50,7 @@ fn refused(events: &[WorldEvent]) -> bool {
 /// Straight to a level, off the engineer's own table.
 fn level_up(world: &mut World, who: usize, level: u8) -> Vec<WorldEvent> {
     let mut events = Vec::new();
-    let want = class::RANKED_LEVEL_XP[level as usize - 1];
+    let want = class::LEVEL_XP[level as usize - 1];
     let have = world.progress_of(who as u32).xp;
     world.award(who, want.saturating_sub(have), &mut events);
     assert_eq!(world.level_of(who as u32), level);
@@ -60,8 +60,8 @@ fn level_up(world: &mut World, who: usize, level: u8) -> Vec<WorldEvent> {
 /// The top level and exactly these ranks — Q, C, E and R — with the
 /// charges they give in hand.
 fn ranks(world: &mut World, who: u32, want: [u8; 4]) {
-    if world.level_of(who) < class::RANKED_LEVELS {
-        level_up(world, who as usize, class::RANKED_LEVELS);
+    if world.level_of(who) < class::LEVELS {
+        level_up(world, who as usize, class::LEVELS);
     }
     world.set_ranks_for_probe(who, want);
     for (slot, &rank) in want.iter().enumerate() {
@@ -257,9 +257,9 @@ fn run_for_seconds(world: &mut World, seconds: f64) {
 fn the_engineer_climbs_sixteen_levels_and_buys_ranks_as_the_soldier_does() {
     let e = Class::Engineer;
     assert!(class::ranked(e));
-    assert_eq!(class::levels(e), 16);
-    assert_eq!(class::level_of(e, 3_199), 15);
-    assert_eq!(class::level_of(e, 3_200), 16, "level 16 at 3 200");
+    assert_eq!(class::LEVELS, 16);
+    assert_eq!(class::level_of(3_199), 15);
+    assert_eq!(class::level_of(3_200), 16, "level 16 at 3 200");
     for slot in [class::SLOT_Q, class::SLOT_C, class::SLOT_E] {
         for rank in 1..=4 {
             assert_eq!(class::rank_level(e, slot, rank), Some(2 * rank - 1));
@@ -312,23 +312,23 @@ fn the_engineer_climbs_sixteen_levels_and_buys_ranks_as_the_soldier_does() {
         Refusal::TopRank
     ));
     assert_eq!(world.rank_of(0, class::SLOT_Q), 4);
-    // The talents are no more the engineer's: nothing to pick.
-    let events = world.step(&[Command::PickTalent {
-        slot: 0,
-        level: 2,
-        side: crate::class::Side::Left,
-    }]);
-    assert!(refused(&events), "{events:?}");
-    // The tank is still refused a rank: the commander (task 129) and the
-    // medic (task 130) have ranked kits of their own.
-    for other in [Class::Tank] {
+    // Every other class buys a rank the same way (the tank since task
+    // 139), and a classless crew member none.
+    for (other, why) in [
+        (Class::Tank, None),
+        (Class::Medic, None),
+        (Class::None, Some(Refusal::NoClass)),
+    ] {
         let mut world = basic();
         assert_eq!(world.set_class(0, other), Ok(()));
         let events = world.step(&[Command::RankUp {
             slot: 0,
             ability_slot: 0,
         }]);
-        assert!(refused_with(&events, Refusal::NoRankedKit), "{other:?}");
+        match why {
+            Some(why) => assert!(refused_with(&events, why), "{other:?}"),
+            None => assert!(!refused(&events), "{other:?}: {events:?}"),
+        }
     }
 }
 

@@ -564,13 +564,13 @@ pub fn bim_class() -> world::Class {
 /// a different command; `BIMS_LEVEL` applies to whichever of the two it
 /// ends up being.
 ///
-/// **A `combat_droids_<class>` run opens at the class's top level**
-/// ([`combat_class_level`]; feature 80): the fight is what a class is
-/// looked at in, and at the first level there is nothing of it to look at
-/// but the one key. Every level's pick — a ranked kit's sixteen skill
-/// points (task 124) — is still the player's to spend. `BIMS_LEVEL` says
-/// otherwise; every other launch starts at the first level as before.
-/// **`BIMS_RANKS=q,c,e,r`** sets a ranked kit's four ranks outright
+/// **A `combat_droids_<class>` run opens at the top level**, the
+/// sixteenth ([`combat_class_level`]; feature 80): the fight is what a
+/// class is looked at in, and at the first level there is nothing of it
+/// to look at but one rank. Its sixteen skill points (every class a
+/// ranked kit since task 139) are still the player's to spend.
+/// `BIMS_LEVEL` says otherwise; every other launch starts at the first
+/// level as before. **`BIMS_RANKS=q,c,e,r`** sets the four ranks outright
 /// (`World::set_ranks_for_probe`), each capped by the gates of the level
 /// the crew member is at — `BIMS_RANKS=4,4,4,4` on
 /// `combat_droids_soldier` is the whole kit.
@@ -579,13 +579,13 @@ pub fn class_crew(session: &mut ship::Session, asked: world::Class) {
         world::Class::None => asked,
         chosen => chosen,
     };
-    let level = bim_level().or((asked != world::Class::None).then(|| combat_class_level(class)));
+    let level = bim_level().or((asked != world::Class::None).then(combat_class_level));
     if class != world::Class::None
         && let Some(game) = &mut session.game
     {
         let _ = game.world.set_class(0, class);
         if let Some(level) = level {
-            let want = world::class::level_xp(class)
+            let want = world::class::LEVEL_XP
                 .get(level.saturating_sub(1))
                 .copied()
                 .unwrap_or(0);
@@ -618,9 +618,10 @@ fn bim_ranks() -> Option<[u8; 4]> {
 }
 
 /// The level a `combat_droids_<class>` command opens its crew member at:
-/// the class's top — the tenth, or a ranked kit's sixteenth (task 124).
-pub fn combat_class_level(class: world::Class) -> usize {
-    world::class::levels(class) as usize
+/// the top, the sixteenth, whatever the class (task 139) — every point
+/// unspent, for `BIMS_RANKS` or the keys to spend.
+pub fn combat_class_level() -> usize {
+    world::class::LEVELS as usize
 }
 
 /// `BIMS_BEAM=1` links a medic's heal beam to crew member 1, stood a
@@ -1016,6 +1017,8 @@ fn scripted_input(
                     'a' => KeyCode::KeyA,
                     'b' => KeyCode::KeyB,
                     'h' => KeyCode::KeyH,
+                    // The character sheet (task 139's Skills tab).
+                    'k' => KeyCode::KeyK,
                     'c' => KeyCode::KeyC,
                     'd' => KeyCode::KeyD,
                     'e' => KeyCode::KeyE,

@@ -237,11 +237,11 @@ fn chip_frame() -> egui::Frame {
 // --- experience -----------------------------------------------------------------
 
 /// How far through its level `xp` is, in whole points: what is in, and
-/// what the level wants in all, on the class's own table (task 124: a
-/// ranked kit climbs sixteen). `None` at the top.
-pub fn xp_into(class: world::Class, xp: u32) -> Option<(u8, u32, u32)> {
-    let table = world::class::level_xp(class);
-    let level = world::class::level_of(class, xp);
+/// what the level wants in all, on the one table every class climbs
+/// (sixteen levels, task 139). `None` at the top.
+pub fn xp_into(xp: u32) -> Option<(u8, u32, u32)> {
+    let table = world::class::LEVEL_XP;
+    let level = world::class::level_of(xp);
     if level as usize >= table.len() {
         return None;
     }
@@ -256,15 +256,15 @@ pub fn xp_text(class: world::Class, xp: u32) -> String {
     if class == world::Class::None {
         return NO_CLASS.into();
     }
-    match xp_into(class, xp) {
+    match xp_into(xp) {
         Some((level, into, of)) => hero_xp_line(level, into, of),
-        None => hero_xp_max(world::class::levels(class)),
+        None => hero_xp_max(world::class::LEVELS),
     }
 }
 
 /// How full the experience bar is: full at the top.
-pub fn xp_fill(class: world::Class, xp: u32) -> f32 {
-    match xp_into(class, xp) {
+pub fn xp_fill(xp: u32) -> f32 {
+    match xp_into(xp) {
         Some((_, into, of)) if of > 0 => into as f32 / of as f32,
         Some(_) => 0.0,
         None => 1.0,
@@ -842,8 +842,6 @@ pub struct Hero {
     /// The worst of what is wrong with it, in a line, and its colour:
     /// the countdown while it is down, the slower walk once it was.
     pub peril: Option<(String, egui::Color32)>,
-    /// A talent waiting to be picked.
-    pub pick: bool,
     /// Skill points not spent on a ranked kit's ranks (task 124), said
     /// beside the experience bar.
     pub points_waiting: u8,
@@ -865,8 +863,6 @@ pub struct HeroOut {
     pub rect: egui::Rect,
     /// The key whose box the pointer rests on.
     pub hovered: Option<Action>,
-    /// The `+1` was pressed: the character sheet.
-    pub sheet: bool,
 }
 
 /// The circle the level stands in.
@@ -904,7 +900,6 @@ pub fn hero_panel(
         .max(canvas.min.x + MARGIN);
     let y = canvas.max.y - MARGIN - size.y;
     let mut hovered = None;
-    let mut sheet = false;
     // Critically hit, the frame is the red of the ring on the deck and
     // beats, so it is seen out of the corner of an eye in a fight.
     let critical = hero.critical();
@@ -927,7 +922,7 @@ pub fn hero_panel(
                         ui.spacing_mut().item_spacing.y = 3.0;
                         health_row(ui, hero, critical);
                         if hero.class != world::Class::None {
-                            thin_bar(ui, HERO_BAR_W, xp_fill(hero.class, hero.xp), theme::HYPER);
+                            thin_bar(ui, HERO_BAR_W, xp_fill(hero.xp), theme::HYPER);
                         }
                         ui.horizontal(|ui| {
                             ui.label(
@@ -955,23 +950,6 @@ pub fn hero_panel(
                         }
                     });
                     hovered = boxes(ui);
-                    if hero.pick {
-                        let plus = ui
-                            .add(
-                                egui::Button::new(
-                                    egui::RichText::new("+1")
-                                        .strong()
-                                        .size(16.0)
-                                        .color(theme::HYPER),
-                                )
-                                .min_size(egui::vec2(40.0, 44.0))
-                                .stroke(egui::Stroke::new(1.5, theme::HYPER)),
-                            )
-                            .on_hover_text(TALENT_WAITING_TIP);
-                        if plus.clicked() {
-                            sheet = true;
-                        }
-                    }
                 });
             });
         });
@@ -1000,11 +978,7 @@ pub fn hero_panel(
             );
         }
     }
-    HeroOut {
-        rect,
-        hovered,
-        sheet,
-    }
+    HeroOut { rect, hovered }
 }
 
 /// The health bar, tall, with the number beside it and the armour's
@@ -1069,7 +1043,7 @@ fn level_disc(ui: &mut egui::Ui, hero: &Hero) {
     painter.circle_stroke(at, LEVEL_DISC, egui::Stroke::new(3.0, theme::LINE));
     let classed = hero.class != world::Class::None;
     if classed {
-        let share = xp_fill(hero.class, hero.xp);
+        let share = xp_fill(hero.xp);
         let steps = ((share * 48.0).ceil() as usize).max(1);
         let arc: Vec<egui::Pos2> = (0..=steps)
             .map(|i| {
@@ -1082,7 +1056,7 @@ fn level_disc(ui: &mut egui::Ui, hero: &Hero) {
         }
     }
     let level = if classed {
-        world::class::level_of(hero.class, hero.xp).to_string()
+        world::class::level_of(hero.xp).to_string()
     } else {
         "–".to_string()
     };
@@ -1144,20 +1118,18 @@ mod tests {
     }
 
     /// The experience line is whole points through the level, and `Max`
-    /// with the bar full at the tenth.
+    /// with the bar full at the sixteenth.
     #[test]
     fn the_experience_line_is_whole_numbers_and_max_at_the_top() {
-        // The tank: the one class of talents left (task 130).
+        // Every class climbs the same sixteen (task 139), the tank too.
         let tank = world::Class::Tank;
         assert_eq!(xp_text(tank, 0), "Lv 1 · 0 / 100 XP");
-        assert_eq!(xp_text(tank, 500), "Lv 4 · 50 / 250 XP");
-        assert_eq!(xp_text(tank, 3_199), "Lv 9 · 699 / 700 XP");
-        assert!((xp_fill(tank, 500) - 0.2).abs() < 1e-6);
+        assert_eq!(xp_text(tank, 500), "Lv 4 · 140 / 160 XP");
+        assert!((xp_fill(500) - 140.0 / 160.0).abs() < 1e-6);
         for xp in [3_200, 3_201, u32::MAX] {
-            assert_eq!(xp_text(tank, xp), "Lv 10 · Max");
-            assert_eq!(xp_fill(tank, xp), 1.0);
+            assert_eq!(xp_text(tank, xp), "Lv 16 · Max");
+            assert_eq!(xp_fill(xp), 1.0);
         }
-        // A ranked kit climbs its own sixteen (task 124).
         let soldier = world::Class::Soldier;
         assert_eq!(xp_text(soldier, 500), "Lv 4 · 140 / 160 XP");
         assert_eq!(xp_text(soldier, 3_199), "Lv 15 · 329 / 330 XP");

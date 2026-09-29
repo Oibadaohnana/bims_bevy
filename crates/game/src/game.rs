@@ -2947,12 +2947,9 @@ impl Game {
                 if self.bims[who].character.is_walking() {
                     self.bims[who].character.halt();
                 }
-                // *Breacher* (feature 77): a tank heaves the lock open in
-                // half the time; everybody else's rate is one.
-                let rate = self.skill(who).smash_rate;
                 let door = &mut self.room.doors[i];
                 let centre = door.rect.center();
-                if let Some(cue) = door.smash_at(who, dt, rate) {
+                if let Some(cue) = door.smash(who, dt) {
                     self.room.cues.push(Cued { cue, at: centre });
                 }
                 if !self.room.doors[i].locked {
@@ -7088,6 +7085,17 @@ impl Game {
             .collect()
     }
 
+    /// Which of two taunts on the targets is the more recent, as the
+    /// world last said it (task 139): nought for none. For the tests.
+    #[allow(dead_code)]
+    pub fn hostiles_taunt_order_for_probe(&self) -> Vec<u32> {
+        self.combat
+            .targets()
+            .iter()
+            .map(|t| t.map_or(0, |t| t.taunt_order))
+            .collect()
+    }
+
     /// The targets as the room holds them, for a test that wants to see
     /// what the world handed over.
     pub fn hostiles_for_probe(&self) -> Vec<Option<crate::combat::Target>> {
@@ -7650,13 +7658,21 @@ impl Game {
         self.combat.set_bulwarks(bulwarks);
     }
 
-    /// How far a taunt runs on each of the enemies named by
-    /// [`Game::set_hostiles`], in room units — nought for one not
-    /// taunting — and whether it pulls charging blades (*magnet*).
-    /// Index for index with `set_hostiles`, the way
-    /// [`Game::set_hostiles_peeking`] is.
-    pub fn set_hostiles_taunting(&mut self, radius: &[f32], magnet: &[bool]) {
-        self.combat.set_taunting(radius, magnet);
+    /// The taunt running on each of the enemies named by
+    /// [`Game::set_hostiles`] (a [`crate::combat::Taunt`]: its radius in
+    /// room units — nought for none — whether it pulls charging blades,
+    /// and which of two is the more recent). Index for index with
+    /// `set_hostiles`, the way [`Game::set_hostiles_peeking`] is.
+    pub fn set_hostiles_taunting(&mut self, taunts: &[crate::combat::Taunt]) {
+        self.combat.set_taunting(taunts);
+    }
+
+    /// The same for the machines' own list, index for index with what
+    /// [`Game::set_machine_hostiles`] was handed (task 139): the crew
+    /// across the seam first. What makes a tank's taunt reach the
+    /// machines in a town the crew are defending.
+    pub fn set_machine_hostiles_taunting(&mut self, taunts: &[crate::combat::Taunt]) {
+        self.combat.set_machine_taunting(taunts);
     }
 
     /// Enemy hits that have landed on a body: a count that only climbs,
@@ -8352,12 +8368,6 @@ impl Game {
         // times one is the hit.
         let damage = damage * self.skill(who).damage_taken;
         if strips > 0.0 {
-            let skill = self.skill(who);
-            let part = if skill.iron_frame && part == Part::Head {
-                Part::Body
-            } else {
-                part
-            };
             let bim = &mut self.bims[who];
             bim.hit_flash = HIT_FLASH;
             if bim.surge.is_some() {
@@ -8402,13 +8412,6 @@ impl Game {
             self.drop_task(who);
         }
         let skill = self.skill(who);
-        // *Iron frame* (feature 77): a hit rolled on the head lands on
-        // the body, so the kevlar takes what the helm would have.
-        let part = if skill.iron_frame && part == Part::Head {
-            Part::Body
-        } else {
-            part
-        };
         let bim = &mut self.bims[who];
         bim.hit_flash = HIT_FLASH;
         // And the picture's flash, on the part it struck (feature 98).

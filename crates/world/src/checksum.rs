@@ -305,11 +305,9 @@ pub fn world_checksum(world: &World) -> u64 {
     hash.eat(world.progress.len() as u64);
     for progress in &world.progress {
         hash.eat(progress.xp as u64);
-        hash.eat(progress.picks.len() as u64);
-        for &(level, side) in &progress.picks {
-            hash.eat(u64::from(level));
-            hash.eat(side.code() as u64);
-        }
+        // A nought where the talents picked were counted: they went with
+        // task 139, and a crew that had picked none hashes as it did.
+        hash.eat(0);
         // And the ranks bought of a ranked kit (task 124), eaten only where
         // there is one: a crew with none hashes as it always did.
         if progress.ranks != [0; crate::class::SLOTS] {
@@ -444,6 +442,18 @@ pub fn world_checksum(world: &World) -> u64 {
                 hash.eat_rounded(minutes, FINE_GRID);
             }
             None => hash.eat(0),
+        }
+        // And the Taunt's and the Juggernaut's windows and the
+        // Juggernaut's cooldown (task 139), only where one was ever set.
+        if tank.taunt != crate::tank::Window::default()
+            || tank.last_juggernaut.is_some()
+            || tank.juggernaut != crate::tank::Window::default()
+        {
+            for window in [tank.taunt, tank.juggernaut] {
+                hash.eat_rounded(window.began, FINE_GRID);
+                hash.eat_rounded(window.until, FINE_GRID);
+            }
+            hash.eat_rounded(tank.last_juggernaut.unwrap_or(-1.0), FINE_GRID);
         }
     }
     for who in 0..crew {

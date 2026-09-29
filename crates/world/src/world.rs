@@ -53,7 +53,7 @@ use bims::sight::Stance;
 
 use crate::armour::{self, LootSource};
 use crate::build::{self, BuildSite, SiteRefusal};
-use crate::class::{self, Charge, Class, Progress, Side, Talent};
+use crate::class::{self, Charge, Class, Progress};
 use crate::commander::{Aura, Commander, SquadAsk, SquadKind, SquadOrder};
 use crate::crew::{Aboard, Residents};
 use crate::data;
@@ -232,19 +232,10 @@ pub enum Command {
         slot: u32,
         class: Class,
     },
-    /// Pick a talent for that player's own crew member: one side of a
-    /// pick level it has reached and not picked at yet. Refused
-    /// `NotAnEngineer` without a class, `NotAPickLevel`, `LevelNotReached`
-    /// or `AlreadyPicked` otherwise; a pick is never changed.
-    PickTalent {
-        slot: u32,
-        level: u32,
-        side: Side,
-    },
     /// Buy a rank of that player's own crew member's ranked kit (task
     /// 124): `ability_slot` 0 to 3 for Q, C, E and R, one skill point
-    /// spent. Refused `NoRankedKit` for a class without one (every class
-    /// but the soldier and the engineer, for now), `NoSkillPoint`, `TopRank` at
+    /// spent. Refused `NoClass` for a classless crew member, `NoRankedKit`
+    /// for a slot past R, `NoSkillPoint`, `TopRank` at
     /// [`class::MAX_RANK`] and `RankLocked` below the level the rank wants
     /// ([`class::rank_level`]). Heard between missions as well as in one.
     RankUp {
@@ -364,22 +355,36 @@ pub enum Command {
         target: u32,
     },
     /// Stand that player's own tank as a wall, or stand it down (feature
-    /// 77, `crate::class`, `crate::tank`): with it on he walks at
-    /// [`class::BULWARK_PACE`] and a crewmate within
+    /// 77; E of his ranked kit since task 139, `crate::class`,
+    /// `crate::tank`): with it on he walks at the rank's
+    /// [`class::BULWARK_PACE`] and a crewmate within its
     /// [`class::BULWARK_REACH`] of him that he stands between and the
     /// shooter is in cover against the shot. Refused `NotATank` for
-    /// anybody else and `OutOfReach` for one not fit to act.
+    /// anybody else, `OutOfReach` for one not fit to act and `NotLearnt`
+    /// at rank nought.
     Bulwark {
         slot: u32,
         on: bool,
     },
-    /// That player's own tank taunts: for [`class::TAUNT_MINUTES`] of
-    /// the clock every enemy within [`class::TAUNT_RADIUS`] that can see
-    /// him, with him in its weapon's reach, fires at him before any
-    /// nearer target. Wants the tank fit to act, at
-    /// [`class::TAUNT_LEVEL`], and [`class::TAUNT_COOLDOWN`] past his
-    /// last taunt (`World::can_taunt`).
+    /// That player's own tank **taunts** (Q, task 139): for the rank's
+    /// [`class::TAUNT_SECONDS`] of the mission clock every enemy within
+    /// its [`class::TAUNT_RADIUS`] that can see him shoots at him and
+    /// nobody else. Refused `NotATank`, `OutOfReach` (not fit to act,
+    /// downed among it), `NotLearnt` at rank nought and `CoolingDown`
+    /// within the rank's [`class::TAUNT_COOLDOWN`] of the last
+    /// (`World::can_taunt`).
     Taunt {
+        slot: u32,
+    },
+    /// That player's own tank goes **Juggernaut** (R, his ultimate, task
+    /// 139): for the rank's [`class::JUGGERNAUT_SECONDS`] every enemy
+    /// that can see him, at any distance, shoots at him and nobody else,
+    /// and he takes the rank's [`class::JUGGERNAUT_DAMAGE_TAKEN`]. Refused
+    /// `NotATank`, `OutOfReach` (not fit to act, downed among it),
+    /// `NotLearnt`, `AlreadyActive` while one runs and `CoolingDown`
+    /// within [`class::JUGGERNAUT_COOLDOWN`] of the last
+    /// (`World::can_juggernaut`).
+    Juggernaut {
         slot: u32,
     },
     /// Send that player's own commander's **squad** — every crew member
@@ -1548,7 +1553,6 @@ impl World {
             | Command::Crew { slot, .. }
             | Command::CrewLater { slot, .. }
             | Command::SetClass { slot, .. }
-            | Command::PickTalent { slot, .. }
             | Command::RankUp { slot, .. }
             | Command::Rampage { slot }
             | Command::Deploy { slot, .. }
@@ -1562,6 +1566,7 @@ impl World {
             | Command::Cloak { slot, .. }
             | Command::Bulwark { slot, .. }
             | Command::Taunt { slot }
+            | Command::Juggernaut { slot }
             | Command::Squad { slot, .. }
             | Command::Rally { slot }
             | Command::BattleCry { slot }
@@ -1673,6 +1678,7 @@ impl World {
                 | Command::Cloak { .. }
                 | Command::Bulwark { on: true, .. }
                 | Command::Taunt { .. }
+                | Command::Juggernaut { .. }
                 | Command::Squad { .. }
                 | Command::Rally { .. }
                 | Command::BattleCry { .. }
@@ -1742,7 +1748,6 @@ impl World {
                     events.push(refused(slot, why));
                 }
             }
-            Command::PickTalent { level, side, .. } => self.pick_talent(slot, level, side, events),
             Command::RankUp { ability_slot, .. } => self.rank_up(slot, ability_slot, events),
             Command::Rampage { .. } => match self.rampage(slot) {
                 Ok(()) => events.push(WorldEvent::Rampaged { who: slot }),
@@ -1791,6 +1796,10 @@ impl World {
                 Ok(()) => events.push(WorldEvent::Taunted { who: slot }),
                 Err(why) => events.push(refused(slot, why)),
             },
+            Command::Juggernaut { .. } => match self.juggernaut(slot) {
+                Ok(()) => events.push(WorldEvent::Juggernaut { who: slot }),
+                Err(why) => events.push(refused(slot, why)),
+            },
             Command::Squad { order, .. } => match self.squad_order(slot, order) {
                 Ok(kind) => events.push(WorldEvent::Squadded {
                     who: slot,
@@ -1827,6 +1836,7 @@ impl World {
                 | Command::NaniteBurst { .. }
                 | Command::Cloak { .. }
                 | Command::Taunt { .. }
+                | Command::Juggernaut { .. }
                 | Command::Rally { .. }
                 | Command::BattleCry { .. }
                 | Command::Squad { .. }
@@ -2618,24 +2628,13 @@ impl World {
                     .map(|p| (p, self.sentry_weapon(d.owner_slot)))
             })
             .collect();
-        // And which of the crew a taunt is running on (feature 77): the
-        // radius in room units — nought for anybody not taunting — and
-        // whether it pulls a charging blade too. Worked out here for the
-        // same reason as the sentries: the talents are the world's.
-        // This is the room the enemies aim and charge in, whoever they
-        // are.
-        let taunting: Vec<f32> = (0..self.aboard.crew_count())
-            .map(|who| {
-                if self.is_taunting(who) {
-                    self.taunt_radius(who) * shipdesign::TILE as f32
-                } else {
-                    0.0
-                }
-            })
-            .collect();
-        let magnet: Vec<bool> = (0..self.aboard.crew_count())
-            .map(|who| self.has_talent(who, Talent::Magnet))
-            .collect();
+        // And what each of the crew forces on the enemy (features 77 and
+        // 139): a tank's Taunt or his Juggernaut. Worked out here for the
+        // same reason as the sentries: the ranks are the world's. This is
+        // the room the enemies aim and charge in, whoever they are — and
+        // in a town the crew defend, the machines' own list starts with
+        // the crew, so it is said to that list too.
+        let taunts = self.taunts_for_the_enemy();
         // And who of the crew no enemy aims at — a relic's *Signal
         // Scrambler* (task 118), a medic's cloak (task 130) — for the
         // same reason.
@@ -2887,6 +2886,7 @@ impl World {
                 );
             }
             room.set_machine_hostiles(theirs, cross);
+            room.set_machine_hostiles_taunting(&taunts);
             // And who takes arms: **a town's guard, any mercenaries and
             // the defenders** (task 111). Everybody else walks into the
             // nearest house — the nearest bunk, at a station — and stays
@@ -2907,7 +2907,7 @@ impl World {
         } else {
             room.set_hostiles(crew.clone());
             room.set_hostiles_peeking(&self.aboard.crew_peeking());
-            room.set_hostiles_taunting(&taunting, &magnet);
+            room.set_hostiles_taunting(&taunts);
             // And the odds each dodges a bolt for its armour, the same way.
             let crew_dodge: Vec<f32> = (0..self.aboard.crew_count())
                 .map(|who| self.aboard.room.dodge(who as usize))
@@ -6970,14 +6970,6 @@ impl World {
         self.class_of(who) == Class::Soldier
     }
 
-    /// Whether a player's crew member has picked a talent — of its own
-    /// class, since a pick is a level and a side and which talent that
-    /// is depends on the class.
-    pub fn has_talent(&self, who: u32, talent: Talent) -> bool {
-        let class = self.class_of(who);
-        class == talent.class() && self.progress_of(who).has(class, talent)
-    }
-
     /// Choose a player's class — see [`Command::SetClass`]. What a class
     /// sets out with goes into, or comes out of, its pack: an engineer's
     /// kits, a soldier's rifle, pistol and grenades. A change from one
@@ -7181,27 +7173,10 @@ impl World {
         }
     }
 
-    /// A pick — see [`Command::PickTalent`].
-    fn pick_talent(&mut self, slot: u32, level: u32, side: Side, events: &mut Vec<WorldEvent>) {
-        let class = self.class_of(slot);
-        if class == Class::None || slot as usize >= self.progress.len() {
-            events.push(refused(slot, Refusal::NoClass));
-            return;
-        }
-        let level = u8::try_from(level).unwrap_or(u8::MAX);
-        match self.progress[slot as usize].pick(class, level, side) {
-            Ok(talent) => events.push(WorldEvent::TalentPicked {
-                who: slot,
-                talent: talent.code(),
-            }),
-            Err(why) => events.push(refused(slot, why)),
-        }
-    }
-
-    /// A crew member's level, on its class's own table (task 124): what
-    /// every gate a level opens asks.
+    /// A crew member's level (task 124; one table for every class since
+    /// task 139): what every gate a level opens asks.
     pub fn level_of(&self, who: u32) -> u8 {
-        self.progress_of(who).level(self.class_of(who))
+        self.progress_of(who).level()
     }
 
     /// The rank a crew member has bought of its ranked kit's ability
@@ -7315,7 +7290,7 @@ impl World {
             return;
         }
         let class = self.class_of(who as u32);
-        for level in self.progress[who].gain(class, xp) {
+        for level in self.progress[who].gain(xp) {
             events.push(WorldEvent::LevelUp {
                 who: who as u32,
                 class: class.code(),
@@ -8271,9 +8246,8 @@ impl World {
         } else {
             self.soldier_skill(who)
         };
-        // How fast a worn piece drains is everybody's business, not only
-        // a tank's: *rallying wall* gives it to the crew round him
-        // (feature 77).
+        // How fast a worn piece drains: a tank's half, a quarter from
+        // Plated's fourth rank, and one for everybody else.
         skill.armour_drain = self.armour_drain(who);
         // And so are a commander's aura, his Battle Cry and his Rally
         // (task 129): they lift whatever the crew member's own class gave
@@ -9420,12 +9394,12 @@ impl World {
             .collect()
     }
 
-    // --- the tank: the wall, the taunt and the hits (feature 77) -----------
+    // --- the tank: a ranked kit and two base traits (task 139) -------------
     //
-    // `crate::tank` is the state — when he last taunted, and nothing
-    // else. Bulwark is a flag on the Bim, the hits a count on it, and
-    // every talent is read afresh each step into the room's one
-    // `bims::combat::Skill`.
+    // `crate::tank` is the state — when his Taunt and his Juggernaut last
+    // began and the window each covers — and this is the rules. Bulwark
+    // is a flag on the Bim, and Plated and the armour's drain are read
+    // afresh each step into the room's one `bims::combat::Skill`.
 
     /// Whether crew member `who` is a player's tank.
     fn is_tank(&self, who: u32) -> bool {
@@ -9446,84 +9420,64 @@ impl World {
         &mut self.tanks[who]
     }
 
-    /// What a tank fights with: the armour passive is `skill_of`'s, and
-    /// this is the rest of the talents — the wall's pace and dodge, the
-    /// plating, the iron frame and the breacher's shoulder. *Unmovable*
-    /// is a no-op since task 120: nobody runs and low blood is gone.
+    /// The tank's half of [`World::skill_of`], off his ranks and nothing
+    /// else; `Skill::NONE` for anybody else. **Plated** is the damage he
+    /// takes, before the armour; **Bulwark**, while it is up, the rank's
+    /// pace and from the third rank the dodge; **Juggernaut**, while it
+    /// runs, the damage he takes again — every factor multiplied together,
+    /// and with a commander's Rally after (`lift_by_commanders`). The
+    /// armour's drain is `armour_drain`'s.
     fn tank_skill(&self, who: u32) -> bims::combat::Skill {
         let mut skill = bims::combat::Skill::NONE;
-        let progress = self.progress_of(who);
-        let has = |talent| progress.has(Class::Tank, talent);
-        if self.is_bulwark(who) {
+        if !self.is_tank(who) {
+            return skill;
+        }
+        if let Some(taken) =
+            class::by_rank(class::PLATED_DAMAGE_TAKEN, self.rank_of(who, class::SLOT_C))
+        {
+            skill.damage_taken *= taken;
+        }
+        let wall = self.rank_of(who, class::SLOT_E);
+        if wall > 0 && self.is_bulwark(who) {
             skill.walk = self.bulwark_pace(who);
-            if has(Talent::Guarded) {
+            if wall >= class::GUARDED_RANK {
                 skill.dodge = class::GUARDED_DODGE;
             }
         }
-        if has(Talent::Plated) {
-            skill.armour_protection = class::PLATED_PROTECTION;
-        }
-        if has(Talent::Breacher) {
-            skill.smash_rate = 1.0 / class::BREACHER_TIME;
-        }
-        if progress.level(Class::Tank) >= class::IRON_FRAME_LEVEL {
-            skill.iron_frame = true;
+        if self.is_juggernaut(who) {
+            let rank = self.rank_of(who, class::SLOT_R);
+            skill.damage_taken *=
+                class::by_rank(class::JUGGERNAUT_DAMAGE_TAKEN, rank).unwrap_or(1.0);
         }
         skill
     }
 
     /// What a crew member's worn armour drains at, of the damage that
-    /// gets past its protection: [`class::TANK_DRAIN`] for a tank —
-    /// *fortress* again on top — [`class::RALLYING_WALL_DRAIN`] for a
-    /// crewmate within [`class::RALLYING_WALL_TILES`] of a taunting tank
-    /// with *rallying wall*, and one for everybody else.
+    /// gets past its protection: [`class::TANK_DRAIN`] for a tank — again
+    /// times [`class::FORTRESS_DRAIN`] from Plated's
+    /// [`class::FORTRESS_RANK`], a quarter in all — and one for everybody
+    /// else.
     pub fn armour_drain(&self, who: u32) -> f32 {
-        if self.is_tank(who) {
-            let mut drain = class::TANK_DRAIN;
-            if self.has_talent(who, Talent::Fortress) {
-                drain *= class::FORTRESS_DRAIN;
-            }
-            return drain;
-        }
-        let crew = self.aboard.crew_count();
-        let room = &self.aboard.room;
-        if who >= crew || !room.is_alive(who as usize) || room.is_outside(who as usize) {
+        if !self.is_tank(who) {
             return 1.0;
         }
-        let at = room.bim_pos(who as usize);
-        let t = shipdesign::TILE as f32;
-        let sheltered = (0..crew).any(|tank| {
-            tank != who
-                && self.is_taunting(tank)
-                && self.has_talent(tank, Talent::RallyingWall)
-                && !room.is_outside(tank as usize)
-                && (room.bim_pos(tank as usize) - at).len() <= class::RALLYING_WALL_TILES * t
-        });
-        if sheltered {
-            class::RALLYING_WALL_DRAIN
+        if self.rank_of(who, class::SLOT_C) >= class::FORTRESS_RANK {
+            class::TANK_DRAIN * class::FORTRESS_DRAIN
         } else {
-            1.0
+            class::TANK_DRAIN
         }
     }
 
-    /// How far a tank's bulwark reaches, in tiles: the reach, twice that
-    /// with *wide wall*.
+    /// How far a tank's bulwark reaches, in tiles: its rank's
+    /// [`class::BULWARK_REACH`], nought before the first.
     pub fn bulwark_reach(&self, who: u32) -> f32 {
-        if self.has_talent(who, Talent::WideWall) {
-            class::BULWARK_REACH * class::WIDE_WALL_REACH
-        } else {
-            class::BULWARK_REACH
-        }
+        class::by_rank(class::BULWARK_REACH, self.rank_of(who, class::SLOT_E)).unwrap_or(0.0)
     }
 
-    /// What a tank's pace is multiplied by while the wall is up: half,
-    /// half again as much again with *fast wall*.
+    /// What a tank's pace is multiplied by while the wall is up: its
+    /// rank's [`class::BULWARK_PACE`], one before the first.
     pub fn bulwark_pace(&self, who: u32) -> f32 {
-        if self.has_talent(who, Talent::FastWall) {
-            class::BULWARK_PACE * class::FAST_WALL_PACE
-        } else {
-            class::BULWARK_PACE
-        }
+        class::by_rank(class::BULWARK_PACE, self.rank_of(who, class::SLOT_E)).unwrap_or(1.0)
     }
 
     /// Whether a crew member stands as a wall.
@@ -9532,14 +9486,18 @@ impl World {
     }
 
     /// Whether a player's tank may stand as a wall, or why not: a tank
-    /// (`NotATank`), and fit to act (`OutOfReach`). What the app greys
-    /// the key with and [`Command::Bulwark`] asks.
+    /// (`NotATank`), fit to act (`OutOfReach`), and a rank of Bulwark
+    /// (`NotLearnt`, task 139). What the app greys the key with and
+    /// [`Command::Bulwark`] asks.
     pub fn can_bulwark(&self, slot: u32) -> Result<(), Refusal> {
         if !class::can(self.class_of(slot), class::Ability::Bulwark) {
             return Err(Refusal::NotATank);
         }
         if !self.fit_to_act(slot) {
             return Err(Refusal::OutOfReach);
+        }
+        if self.rank_of(slot, class::SLOT_E) == 0 {
+            return Err(Refusal::NotLearnt);
         }
         Ok(())
     }
@@ -9553,42 +9511,34 @@ impl World {
         Ok(())
     }
 
-    /// Minutes of the clock a tank's taunt runs: [`class::TAUNT_MINUTES`],
-    /// half again with *long taunt*.
-    pub fn taunt_minutes(&self, who: u32) -> f64 {
-        if self.has_talent(who, Talent::LongTaunt) {
-            class::TAUNT_MINUTES * class::LONG_TAUNT_TIME
-        } else {
-            class::TAUNT_MINUTES
-        }
+    /// Seconds of the mission clock a tank's taunt runs: its rank's
+    /// [`class::TAUNT_SECONDS`], nought before the first.
+    pub fn taunt_seconds(&self, who: u32) -> f64 {
+        class::by_rank(class::TAUNT_SECONDS, self.rank_of(who, class::SLOT_Q)).unwrap_or(0.0)
     }
 
-    /// How far a tank's taunt reaches, in tiles: the radius, half again
-    /// with *loud taunt*.
+    /// How far a tank's taunt reaches, in tiles: its rank's
+    /// [`class::TAUNT_RADIUS`], nought before the first.
     pub fn taunt_radius(&self, who: u32) -> f32 {
-        if self.has_talent(who, Talent::LoudTaunt) {
-            class::TAUNT_RADIUS * class::LOUD_TAUNT_RADIUS
-        } else {
-            class::TAUNT_RADIUS
-        }
+        class::by_rank(class::TAUNT_RADIUS, self.rank_of(who, class::SLOT_Q)).unwrap_or(0.0)
     }
 
-    /// Minutes of the clock a tank's taunt has left; nought with none
-    /// running.
+    /// Seconds of the mission clock a tank's taunt has left; nought with
+    /// none running.
     pub fn taunt_left(&self, who: u32) -> f64 {
-        let Some(last) = self.tank_of(who).last_taunt else {
+        if !self.is_taunting(who) {
             return 0.0;
-        };
-        (self.taunt_minutes(who) - (self.mission_minutes() - last)).max(0.0)
+        }
+        (self.tank_of(who).taunt.until - self.mission_minutes()) / time::MINUTES_PER_SECOND
     }
 
     /// Whether a taunt is running on a crew member.
     pub fn is_taunting(&self, who: u32) -> bool {
-        self.taunt_left(who) > 0.0
+        self.is_tank(who) && self.tank_of(who).taunt.running(self.mission_minutes())
     }
 
-    /// Seconds of the clock until a tank may taunt again; nought when he
-    /// may. Read the way the grenade's cooldown is.
+    /// Seconds of the mission clock until a tank may taunt again; nought
+    /// when he may.
     pub fn taunt_cooldown_left(&self, who: u32) -> f64 {
         let Some(last) = self.tank_of(who).last_taunt else {
             return 0.0;
@@ -9597,26 +9547,28 @@ impl World {
         (self.taunt_cooldown(who) - since).max(0.0)
     }
 
-    /// Seconds of the clock between one taunt and the next:
-    /// [`class::TAUNT_COOLDOWN`], shorter with a relic's *Coolant Loop*
-    /// (feature 106).
+    /// Seconds of the mission clock between one taunt and the next: its
+    /// rank's [`class::TAUNT_COOLDOWN`] (the first's before one), shorter
+    /// with a relic's *Coolant Loop* as every class cooldown is.
     pub fn taunt_cooldown(&self, who: u32) -> f64 {
-        class::TAUNT_COOLDOWN * self.relic_factor(who, crate::relic::Stat::Cooldowns)
+        let rank = self.rank_of(who, class::SLOT_Q).max(1);
+        class::by_rank(class::TAUNT_COOLDOWN, rank).unwrap_or(0.0)
+            * self.relic_factor(who, crate::relic::Stat::Cooldowns)
     }
 
     /// Whether a player's tank may taunt, or why not, in order: a tank
-    /// (`NotATank`), fit to act (`OutOfReach`), at
-    /// [`class::TAUNT_LEVEL`] (`NoTauntYet`), and out of the cooldown
+    /// (`NotATank`), fit to act — downed among it — (`OutOfReach`), a
+    /// rank of Taunt (`NotLearnt`), and out of the cooldown
     /// (`CoolingDown`).
     pub fn can_taunt(&self, slot: u32) -> Result<(), Refusal> {
         if !class::can(self.class_of(slot), class::Ability::Taunt) {
             return Err(Refusal::NotATank);
         }
-        if !self.fit_to_act(slot) {
+        if !self.fit_to_act(slot) || self.aboard.room.is_down(slot as usize) {
             return Err(Refusal::OutOfReach);
         }
-        if self.level_of(slot) < class::TAUNT_LEVEL {
-            return Err(Refusal::NoTauntYet);
+        if self.rank_of(slot, class::SLOT_Q) == 0 {
+            return Err(Refusal::NotLearnt);
         }
         if self.taunt_cooldown_left(slot) > 0.0 {
             return Err(Refusal::CoolingDown);
@@ -9624,21 +9576,141 @@ impl World {
         Ok(())
     }
 
-    /// The taunt — see [`Command::Taunt`]: the clock noted, which is the
-    /// whole of it. What it *does* is read off that every step, in
-    /// `hand_the_room_the_tanks`.
+    /// The taunt — see [`Command::Taunt`]: the mission clock noted, and
+    /// when it ends. What it *does* is read off that every step, in
+    /// `taunts_for_the_enemy`.
     fn taunt(&mut self, slot: u32) -> Result<(), Refusal> {
         self.can_taunt(slot)?;
         let now = self.mission_minutes();
-        self.tank_mut(slot as usize).last_taunt = Some(now);
+        let until = now + self.taunt_seconds(slot) * time::MINUTES_PER_SECOND;
+        let tank = self.tank_mut(slot as usize);
+        tank.last_taunt = Some(now);
+        tank.taunt = crate::tank::Window { began: now, until };
         Ok(())
+    }
+
+    /// Seconds of the mission clock a Juggernaut runs: its rank's
+    /// [`class::JUGGERNAUT_SECONDS`], nought before the first.
+    pub fn juggernaut_seconds(&self, who: u32) -> f64 {
+        class::by_rank(class::JUGGERNAUT_SECONDS, self.rank_of(who, class::SLOT_R)).unwrap_or(0.0)
+    }
+
+    /// Whether a crew member's Juggernaut is running.
+    pub fn is_juggernaut(&self, who: u32) -> bool {
+        self.is_tank(who) && self.tank_of(who).juggernaut.running(self.mission_minutes())
+    }
+
+    /// Seconds of the mission clock the Juggernaut running has left;
+    /// nought with none.
+    pub fn juggernaut_left(&self, who: u32) -> f64 {
+        if !self.is_juggernaut(who) {
+            return 0.0;
+        }
+        (self.tank_of(who).juggernaut.until - self.mission_minutes()) / time::MINUTES_PER_SECOND
+    }
+
+    /// Seconds of the mission clock from one Juggernaut to the next: its
+    /// rank's [`class::JUGGERNAUT_COOLDOWN`], shorter with a relic's
+    /// *Coolant Loop*.
+    pub fn juggernaut_cooldown(&self, who: u32) -> f64 {
+        let rank = self.rank_of(who, class::SLOT_R).max(1);
+        class::by_rank(class::JUGGERNAUT_COOLDOWN, rank).unwrap_or(0.0)
+            * self.relic_factor(who, crate::relic::Stat::Cooldowns)
+    }
+
+    /// Seconds of the mission clock until a tank may go Juggernaut again;
+    /// nought when he may.
+    pub fn juggernaut_cooldown_left(&self, who: u32) -> f64 {
+        let Some(last) = self.tank_of(who).last_juggernaut else {
+            return 0.0;
+        };
+        let since = (self.mission_minutes() - last) / time::MINUTES_PER_SECOND;
+        (self.juggernaut_cooldown(who) - since).max(0.0)
+    }
+
+    /// Whether a player's tank may go Juggernaut, or why not, in order: a
+    /// tank (`NotATank`), fit to act — downed among it — (`OutOfReach`), a
+    /// rank of Juggernaut (`NotLearnt`), none running (`AlreadyActive`)
+    /// and out of the cooldown (`CoolingDown`). A taunt running beside it
+    /// is no bar.
+    pub fn can_juggernaut(&self, slot: u32) -> Result<(), Refusal> {
+        if !class::can(self.class_of(slot), class::Ability::Juggernaut) {
+            return Err(Refusal::NotATank);
+        }
+        if !self.fit_to_act(slot) || self.aboard.room.is_down(slot as usize) {
+            return Err(Refusal::OutOfReach);
+        }
+        if self.rank_of(slot, class::SLOT_R) == 0 {
+            return Err(Refusal::NotLearnt);
+        }
+        if self.is_juggernaut(slot) {
+            return Err(Refusal::AlreadyActive);
+        }
+        if self.juggernaut_cooldown_left(slot) > 0.0 {
+            return Err(Refusal::CoolingDown);
+        }
+        Ok(())
+    }
+
+    /// The Juggernaut — see [`Command::Juggernaut`]: the mission clock
+    /// noted, and when it ends. What it does is read off that every step,
+    /// in `tank_skill` and `taunts_for_the_enemy`.
+    fn juggernaut(&mut self, slot: u32) -> Result<(), Refusal> {
+        self.can_juggernaut(slot)?;
+        let now = self.mission_minutes();
+        let until = now + self.juggernaut_seconds(slot) * time::MINUTES_PER_SECOND;
+        let tank = self.tank_mut(slot as usize);
+        tank.last_juggernaut = Some(now);
+        tank.juggernaut = crate::tank::Window { began: now, until };
+        Ok(())
+    }
+
+    /// What each of the crew forces on the enemy, index for index with
+    /// the crew (task 139): a tank's Taunt — its rank's radius in room
+    /// units, the blades pulled from [`class::TAUNT_MAGNET_RANK`] — or his
+    /// Juggernaut, at any distance; the most recent of two tanks' the
+    /// higher `order`. `Taunt::NONE` for everybody else. A tank the enemy
+    /// may not pick — cloaked — is no target on their list at all, so his
+    /// forces nothing while it lasts.
+    fn taunts_for_the_enemy(&self) -> Vec<bims::combat::Taunt> {
+        let now = self.mission_minutes();
+        let crew = self.aboard.crew_count();
+        let since: Vec<Option<f64>> = (0..crew)
+            .map(|who| {
+                self.is_tank(who)
+                    .then(|| self.tank_of(who).forcing_since(now))
+                    .flatten()
+            })
+            .collect();
+        (0..crew)
+            .map(|who| {
+                let Some(began) = since[who as usize] else {
+                    return bims::combat::Taunt::NONE;
+                };
+                let radius = if self.is_juggernaut(who) {
+                    f32::INFINITY
+                } else {
+                    self.taunt_radius(who) * shipdesign::TILE as f32
+                };
+                let magnet = self.is_taunting(who)
+                    && self.rank_of(who, class::SLOT_Q) >= class::TAUNT_MAGNET_RANK;
+                // The more recent, the higher: one more than every
+                // forcing that began before this one.
+                let order = 1 + since.iter().flatten().filter(|&&b| b < began).count() as u32;
+                bims::combat::Taunt {
+                    radius,
+                    magnet,
+                    order,
+                }
+            })
+            .collect()
     }
 
     /// Before the rooms step: the walls standing among the crew to the
     /// crew's room, so a bolt aimed through one is dodged like a bolt in
-    /// cover (and, with *interpose*, lands on the wall). A tank not fit
-    /// to act shelters nobody, so a wall goes down with the tank the
-    /// same step he does.
+    /// cover (and, from Bulwark's [`class::INTERPOSE_RANK`], lands on the
+    /// wall). A tank not fit to act shelters nobody, so a wall goes down
+    /// with the tank the same step he does.
     fn hand_the_room_the_tanks(&mut self) {
         let crew = self.aboard.crew_count();
         if self.tanks.len() < crew as usize {
@@ -9649,7 +9721,7 @@ impl World {
             .map(|who| bims::combat::Bulwark {
                 who: who as usize,
                 reach: self.bulwark_reach(who),
-                interpose: self.has_talent(who, Talent::Interpose),
+                interpose: self.rank_of(who, class::SLOT_E) >= class::INTERPOSE_RANK,
             })
             .collect();
         self.aboard.room.set_bulwarks(walls);

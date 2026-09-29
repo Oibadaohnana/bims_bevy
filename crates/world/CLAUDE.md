@@ -6195,3 +6195,70 @@ they have the machines and the probes' `BIMS_DROID_WAVES` stand over it
 as before. `wire::PROTOCOL` 64; nothing saved changed.
 `a_site_has_one_wave_at_tier_one_two_at_tier_two_and_four_at_tier_three`
 (`tests_droid.rs`) and `droid::tests` are the rule.
+
+## The tank's ranked kit, and the talents gone (task 139)
+
+> "The tank: the wall, the taunt and the hits (feature 77)" above
+> describes the ten levels of talents **task 139 replaced**, and "What a
+> class's keys have left" its `key_level`, which went with them. Kept as
+> history; this is what the tank is now. The soldier's section's
+> `RANKED_LEVEL_XP` is `LEVEL_XP`.
+
+- **Every class is ranked, and the talents are gone whole.**
+  `class::{Side, Talent}` (codes 0 to 68, never to be reused),
+  `pick_at`, `fixed_at`, `is_pick_level`, `talent_of`, `key_level`,
+  `levels`, `level_xp`, `Progress::{picks, has, pick, picked_at,
+  pending_pick, talents}`, `World::{has_talent, pick_talent}`,
+  `Command::PickTalent`, `WorldEvent::TalentPicked` (69) and the pick's
+  refusals (48 to 50) went. `LEVEL_XP` is the sixteen-level table that
+  was `RANKED_LEVEL_XP` and `LEVELS` is 16; `level_of(xp)`,
+  `Progress::{level, to_next}` and `gain(xp)` take no class.
+  `class::ranked` is every class but `None`; `Progress::can_rank_up`
+  refuses a classless crew member `NoClass` and a slot past R
+  `NoRankedKit`.
+- **Base traits**: `armour_drain` is `TANK_DRAIN`, times `FORTRESS_DRAIN`
+  from Plated's `FORTRESS_RANK`; `give_tank_kit` as before. *Rallying
+  wall*, *breacher*, *iron frame* and *plated*'s protection went —
+  `Skill::{iron_frame, smash_rate}` with them (the room forces a lock at
+  everybody's rate).
+- **Q Taunt**: `can_taunt` — `NotATank`, `OutOfReach` (unfit or downed),
+  `NotLearnt`, `CoolingDown` — and `taunt` notes `Tank::last_taunt` (the
+  cooldown's start, moved by *Kill Relay*) and `Tank::taunt`, a
+  `tank::Window { began, until }` that never moves.
+  `taunt_radius`/`taunt_seconds`/`taunt_cooldown` read `TAUNT_RADIUS`,
+  `TAUNT_SECONDS`, `TAUNT_COOLDOWN` by rank; `taunt_left` is **seconds**
+  now.
+- **C Plated**: `tank_skill` multiplies `Skill::damage_taken` by
+  `PLATED_DAMAGE_TAKEN` — the room takes it off the hit before the armour
+  (`strike_stripping`), with Rally's (`lift_by_commanders`) and a
+  Juggernaut's.
+- **E Bulwark**: `can_bulwark` wants a rank (`NotLearnt`);
+  `bulwark_reach`/`bulwark_pace` by rank, `GUARDED_DODGE` from
+  `GUARDED_RANK`, the wall's `interpose` from `INTERPOSE_RANK`.
+- **R Juggernaut**: `Command::Juggernaut { slot }` → `WorldEvent::
+  Juggernaut` (141); `can_juggernaut` — `NotATank`, `OutOfReach`,
+  `NotLearnt`, `AlreadyActive`, `CoolingDown` — and `juggernaut` notes
+  `Tank::last_juggernaut` and `Tank::juggernaut`. While it runs
+  `tank_skill` multiplies `damage_taken` by `JUGGERNAUT_DAMAGE_TAKEN`;
+  the pace is his own, or the wall's.
+- **What the enemy is forced to**: `taunts_for_the_enemy` is a
+  `bims::combat::Taunt { radius, magnet, order }` a crew member — the
+  Taunt's radius in room units, `f32::INFINITY` for a Juggernaut, the
+  magnet from `TAUNT_MAGNET_RANK`, and `order` the recency
+  (`Tank::forcing_since`: one more than every forcing that began before).
+  `visit` hands it to the residents' room (`set_hostiles_taunting`) and,
+  in a defence, to the machines' own list too
+  (`set_machine_hostiles_taunting`), which never had the taunt before.
+  The room's rule is now **him and nobody else** (`crates/game/CLAUDE.md`).
+  A cloaked tank is `None` on the enemy's list, so it forces nothing.
+- **Timers**: mission clock; `make_whole` resets every `Tank`;
+  `cooldowns_less` moves `last_taunt` and `last_juggernaut`, never a
+  window.
+- **Checksum**: a nought where `progress.picks` was counted, and the
+  windows and `last_juggernaut` only where one was ever set — so
+  `REFERENCE_CHECKSUM`, `SURVIVORS` (still the sweep's
+  `0x_c91e_9026_9f7f_3d90`) and the ship's `PINNED` did not move.
+
+**What moved.** `SAVE_VERSION` 65, `wire::PROTOCOL` 65. `tests_tank.rs`
+is the task's tests, `class::tests` the tables and the rank gates of
+every class.

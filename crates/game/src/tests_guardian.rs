@@ -269,7 +269,14 @@ fn a_taunt_turns_a_guardian_from_the_nearer_target() {
         for _ in 0..(60 * 3) {
             game.set_hostiles(vec![Some((near, pistol)), Some((far, pistol))]);
             let radius = if taunting { 20.0 * TILE } else { 0.0 };
-            game.set_hostiles_taunting(&[0.0, radius], &[false, false]);
+            game.set_hostiles_taunting(&[
+                crate::combat::Taunt::NONE,
+                crate::combat::Taunt {
+                    radius,
+                    magnet: false,
+                    order: 1,
+                },
+            ]);
             game.simulate(DT);
         }
         let d = &game.droids()[0];

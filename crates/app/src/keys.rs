@@ -117,7 +117,7 @@ pub enum Action {
     /// them. On 2.
     HandMedkit,
     /// **The character sheet** (feature 107): the player's own Bim's
-    /// class, level, body, gear and talents, on the left of the canvas.
+    /// class, level, body, gear and skills, on the left of the canvas.
     /// Pressed again, it shuts.
     CharacterSheet,
 }
@@ -274,7 +274,7 @@ impl Action {
                 "The third ability slot: an engineer lays sandbags on the deck tile under the pointer, out of a kit in its pack; a soldier braces where it stands, or stands easy again; a medic beams the crew member under the pointer, and unlinks when pressed on the one it holds or on nobody; a tank puts its wall up, or takes it down; a commander rallies. With Ctrl held, it is ranked up instead."
             }
             Action::Ability4 => {
-                "The fourth ability slot, the ultimate: a soldier goes on a Rampage; an engineer lays its sentry on the deck tile under the pointer; a medic cloaks the crew member under the pointer, or himself with the pointer on nobody. With Ctrl held, it is ranked up instead."
+                "The fourth ability slot, the ultimate: a soldier goes on a Rampage; an engineer lays its sentry on the deck tile under the pointer; a medic cloaks the crew member under the pointer, or himself with the pointer on nobody; a tank goes Juggernaut. With Ctrl held, it is ranked up instead."
             }
             Action::SquadFallBack => {
                 "A commander calls the squad back to the deck tile under the pointer, or to himself with the pointer on nothing. Nothing for any other class."
@@ -307,7 +307,7 @@ impl Action {
                 "Take the medkit in hand: the Bim you steer holds its fire, and a right-click on a downed crewmate walks over and revives them. Their countdown stands while the hands are on them."
             }
             Action::CharacterSheet => {
-                "Open and close your Bim's character sheet: its class and level, its health, what it wears and holds, and the talent tree a level's pick is spent on."
+                "Open and close your Bim's character sheet: its class and level, its health, what it wears and holds, and the four abilities a level's skill point is spent on."
             }
         }
     }

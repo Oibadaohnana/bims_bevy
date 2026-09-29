@@ -117,12 +117,10 @@ pub enum WorldEvent {
     CrewLost,
     /// A crew member reached a level of its class (feature 74,
     /// `crate::class`): who, `Class`'s code, and the level. Said once a
-    /// level; a pick level leaves a pick pending until
-    /// `Command::PickTalent`.
+    /// level; each is a skill point to spend on a rank.
     LevelUp { who: u32, class: u32, level: u32 },
-    /// A crew member picked a talent: who, and `crate::class::Talent`'s
-    /// code.
-    TalentPicked { who: u32, talent: u32 },
+    // `TalentPicked` (69) went with the talents (task 139); its code is
+    // left free.
     /// An engineer laid a kit: who, and `crate::deploy::DeployKind`'s code.
     Deployed { who: u32, kind: u32 },
     /// An engineer packed a deployable up into a kit: who, and the kind.
@@ -312,6 +310,8 @@ pub enum WorldEvent {
     },
     /// Player `who`'s soldier went on a Rampage (task 124).
     Rampaged { who: u32 },
+    /// A tank went Juggernaut (task 139): who.
+    Juggernaut { who: u32 },
     /// Player `who`'s engineer threw an EMP (task 127, `Command::Emp`).
     EmpThrown { who: u32 },
     /// A medic's Nanite Burst went off (task 130): who, and how many
@@ -403,13 +403,9 @@ pub enum Refusal {
     CantDeployThere = 46,
     /// A pack-up or a strike of a deployable that is not there.
     NoSuchDeployable = 47,
-    /// A pick at a level that is not a pick level — a fixed one, or none.
-    NotAPickLevel = 48,
-    /// A pick at a level the crew member has not reached.
-    LevelNotReached = 49,
-    /// A pick at a level already picked: a pick is never changed.
-    AlreadyPicked = 50,
-    /// A pick by a crew member with no class.
+    // 48, 49 and 50 were a talent's pick refused — no pick level, not
+    // reached, picked already — and went with the talents (task 139).
+    /// A rank asked for a crew member with no class.
     NoClass = 52,
     /// A brace or a throw by a crew member that is not a soldier
     /// (feature 75).
@@ -443,11 +439,11 @@ pub enum Refusal {
     NoSightOfPatient = 64,
     // 65, 66 and 67 were the surge's — too early, not charged, nobody
     // linked — and went with it (task 130).
-    /// A bulwark or a taunt by a crew member that is not a tank
-    /// (feature 77).
+    /// A bulwark, a taunt or a Juggernaut by a crew member that is not a
+    /// tank (features 77 and 139).
     NotATank = 68,
-    /// A taunt before the tank's third level.
-    NoTauntYet = 69,
+    // 69, a taunt before the tank's third level, went with his talents
+    // (task 139): an ability not learnt is `NotLearnt`.
     /// A squad order or a rally by a crew member that is not a
     /// commander (feature 78).
     NotACommander = 70,
@@ -554,8 +550,8 @@ pub enum Refusal {
     NoRestock = 108,
     /// A restock asked for twice in one visit to a trader.
     Restocked = 109,
-    /// A rank asked of a class with no ranked kit (task 124) — every class
-    /// but the soldier, for now — or of a slot past R.
+    /// A rank asked of a slot past R (task 124; every class has a ranked
+    /// kit since task 139).
     NoRankedKit = 110,
     /// A rank asked with no skill point to spend on it.
     NoSkillPoint = 111,
@@ -635,7 +631,6 @@ impl WorldEvent {
             // the plunder (feature 104).
             WorldEvent::CrewLost => 63,
             WorldEvent::LevelUp { .. } => 68,
-            WorldEvent::TalentPicked { .. } => 69,
             WorldEvent::Deployed { .. } => 70,
             WorldEvent::PackedUp { .. } => 71,
             WorldEvent::DeployableLost { .. } => 72,
@@ -696,6 +691,7 @@ impl WorldEvent {
             WorldEvent::Restocked { .. } => 129,
             WorldEvent::RankedUp { .. } => 130,
             WorldEvent::Rampaged { .. } => 131,
+            WorldEvent::Juggernaut { .. } => 141,
             WorldEvent::EmpThrown { .. } => 132,
             WorldEvent::BattleCried { .. } => 134,
             WorldEvent::Reinforced { .. } => 135,
@@ -762,6 +758,7 @@ impl WorldEvent {
                 ..
             } => (who as i64) + 100 * (ability_slot as i64) + 10_000 * (rank as i64),
             WorldEvent::Rampaged { who } => who as i64,
+            WorldEvent::Juggernaut { who } => who as i64,
             WorldEvent::EmpThrown { who } => who as i64,
             WorldEvent::TownFell { station }
             | WorldEvent::HeartExposed { station }
@@ -838,7 +835,6 @@ impl WorldEvent {
             // The level, the talent and the kind in the hundreds, the same
             // way: a crew is never a hundred.
             WorldEvent::LevelUp { who, level, .. } => (who as i64) + 100 * (level as i64),
-            WorldEvent::TalentPicked { who, talent } => (who as i64) + 100 * (talent as i64),
             WorldEvent::Deployed { who, kind } | WorldEvent::PackedUp { who, kind } => {
                 (who as i64) + 100 * (kind as i64)
             }
