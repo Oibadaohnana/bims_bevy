@@ -674,10 +674,10 @@ fn a_station_defence(waves: u32, size: u32) -> (World, u32) {
 /// `DEFENSE_DELAY_STEPS`, the crew are stood on the station's deck the
 /// step it starts, the waves come in at the airlock farthest from the
 /// crew's, the defenders fight rather than shelter, and the last machine
-/// down clears the site and pays the bounty it was holding — with nobody
-/// joining the crew, and nothing held for good.
+/// down clears the site — paying nothing, since a defence is no money
+/// (task 136) — with nobody joining the crew, and nothing held for good.
 #[test]
-fn a_station_defence_counts_down_lands_at_the_far_airlock_and_pays_on_the_win() {
+fn a_station_defence_counts_down_lands_at_the_far_airlock_and_pays_nothing_on_the_win() {
     assert_eq!(data::DEFENSE_DELAY_STEPS, 1_200, "twenty seconds at 1x");
     let (mut world, id) = a_station_defence(1, 2);
     let crew = world.aboard.crew_count();
@@ -728,9 +728,8 @@ fn a_station_defence_counts_down_lands_at_the_far_airlock_and_pays_on_the_win() 
             assert!(!room.is_sheltering(who), "defender {who} sheltering");
         }
     }
-    // The win: the bounty held until the last is down, then paid.
+    // The win, and no money for it (task 136): nothing held, nothing paid.
     let money = world.money;
-    let tier = world.droid_tier().code();
     destroy_the_wave(&mut world);
     let mut events = Vec::new();
     for _ in 0..20 {
@@ -743,7 +742,13 @@ fn a_station_defence_counts_down_lands_at_the_far_airlock_and_pays_on_the_win() 
     assert!(world.defense(id).is_some_and(|d| d.won), "the defence won");
     assert!(world.site_cleared(id));
     assert!(!world.site_threatened(id), "held is threatened no more");
-    assert_eq!(world.money, money + 2 * crate::world::bounty_for(tier));
+    assert_eq!(world.money, money, "a defence pays no bounty");
+    assert!(
+        !events
+            .iter()
+            .any(|e| matches!(e, WorldEvent::Bounty { .. })),
+        "a bounty said at a defence"
+    );
     assert!(
         events
             .iter()
@@ -837,7 +842,7 @@ fn leaving_a_station_defence_early_gives_it_to_the_machines_and_pays_nothing() {
         until(&mut world, 40, |w| w.droids_standing() > 0),
         "the first wave never landed"
     );
-    // One machine down: a bounty held on the clear.
+    // One machine down, and no bounty held for it at a defence (task 136).
     if let Some(residents) = world.residents.as_mut() {
         for _ in 0..60 {
             residents
@@ -846,8 +851,9 @@ fn leaving_a_station_defence_early_gives_it_to_the_machines_and_pays_nothing() {
                 .strike_droid(0, bims::droid::DroidPart::Chassis, 100.0);
         }
     }
-    until(&mut world, 5, |w| w.run.pending_bounty > 0);
-    assert!(world.run.pending_bounty > 0, "a bounty held");
+    until(&mut world, 5, |w| w.droids_standing() < 2);
+    assert!(world.droids_standing() < 2, "the machine went down");
+    assert_eq!(world.run.pending_bounty, 0, "a bounty held at a defence");
     let money = world.money;
     let events = world.leave_for_probe();
     assert!(world.is_droid_held(id), "the machines have it");

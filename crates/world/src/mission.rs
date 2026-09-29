@@ -314,6 +314,11 @@ impl World {
         };
         let held = held_towns.binary_search(&site.station).is_ok();
         let infestation = infestations.iter().find(|it| it.station == site.station);
+        // One of the machines' outposts (task 136) in a system never
+        // visited: theirs on arrival as its memory would say, had it one.
+        let outpost = jump
+            && !self.memories.iter().any(|m| m.star == site.star)
+            && self.outposts_of(site.star, system).contains(&site.station);
         let defense = defenses.iter().find(|d| d.station == site.station);
         let won = defense.is_some_and(|d| d.won);
         let cleared = held || won || infestation.is_some_and(|it| it.cleared);
@@ -325,6 +330,7 @@ impl World {
         } else if infested
             || manufacturers
             || infestation.is_some()
+            || outpost
             || heart::is_heart(site.station)
             || jammer::is_derived(site.station)
         {
@@ -822,6 +828,17 @@ impl World {
     /// otherwise pending until it is.
     pub(super) fn earn_bounty(&mut self, amount: Money, events: &mut Vec<WorldEvent>) {
         if amount == 0 {
+            return;
+        }
+        // **A defence pays no money** (task 136): the site's people who
+        // live through it, and the Bims among them who join, are the
+        // reward. Nothing paid and nothing pending.
+        if self
+            .ship
+            .state
+            .alongside()
+            .is_some_and(|id| self.site_kind(id) == SiteKind::Defend)
+        {
             return;
         }
         if self.mission_cleared() {

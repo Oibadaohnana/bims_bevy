@@ -5836,3 +5836,43 @@ command's own run). **Off in `World::start`**: every test, the staged
 commands and the pins step at once, and the checksum eats the three
 fields only while the switch is on, so `REFERENCE_CHECKSUM` did not move.
 `tests_ready.rs` is the rule. `SAVE_VERSION` 56, `wire::PROTOCOL` 50.
+
+## Attack and defence evenly, and a defence pays nothing (task 136)
+
+> "Every site is an attack, a defence or a trader (task 111)" above says
+> every site not an enemy's is a defence; since task 136 half of them are
+> the machines' **from the first day**.
+
+- **Outposts** (`outposts.rs`, a child of `world`): `outposts::held`
+  takes a system's candidate sites in id order — the fights it offers
+  (`World::offered_fights`, task 135: its station and its town) — and
+  gives every other one to the machines, a coin off the galaxy's seed and
+  the star (`OUTPOST_SALT`) choosing whether the first is; **the crew's
+  home is never one** (in the home system the coin is the one that leaves
+  it a defence). A system whose station is the Manufacturers' has none —
+  that station is its attack. `World::outposts_of(star, system)` is the
+  rule for any system; `settle_outposts`, at the end of `settle_jammer`
+  (the start, a jump, the spread and every load), lays each through
+  `World::infest`, never over a site with a `Defense` or a held town. So
+  an outpost is an Attack site with everything a held station has, and
+  the quote of a system never visited asks `outposts_of` (`outpost` in
+  `quote_in`).
+- **Only attack in a system the machines have**: `site_kind` answers
+  Attack for every non-trader site once `infested(star_id)`, a held town
+  and a site the flip has not reached yet included (the quote already
+  did, off `infested`).
+- **A defence pays no money**: `earn_bounty` returns at once where the
+  site alongside is a Defend site — nothing paid, nothing pending, no
+  `Bounty` said. The people who live through it (and a town's joiners)
+  are the reward. *Hazard Pay* (a relic's own pay on a clear) is left.
+- **The dials**: the quiet dial (`set_quiet_sites_for_probe(true)`) makes
+  `outposts_of` empty and gives back every outpost not yet fought over
+  (`give_back_outposts`); `false` lays them again. `land_for_probe` gives
+  its town back the same way, so `test_planet`, `defense`, `BIMS_AFIELD`
+  and the town defence tests still stand in a friendly town.
+
+**What moved**: `wire::PROTOCOL` 53 (the relay wants redeploying), no
+`SAVE_VERSION` (nothing saved changed shape); `REFERENCE_CHECKSUM`,
+`SURVIVORS` and the ship's `PINNED`/`PICTURES` where a run meets an
+outpost (each note says so). `tests_defense.rs`'s two money assertions
+say a defence pays nothing.

@@ -111,6 +111,11 @@ mod garrison;
 #[path = "trading.rs"]
 mod trading;
 
+// The machines' outposts (task 136): the sites of a system theirs from
+// the first day, every other one. A child for the same reason.
+#[path = "outposts.rs"]
+pub mod outposts;
+
 /// What a player can ask the world to do.
 ///
 /// Every one of them carries the slot that sent it, because every one of them
@@ -4840,6 +4845,9 @@ impl World {
             return false;
         };
         let id = surface::surface_id(body);
+        // A town the machines hold as an outpost (task 136) is given back:
+        // what lands here is a friendly town.
+        self.give_back_outposts(Some(id));
         self.undock_for_probe();
         self.residents = None;
         self.ship.state = ShipState::Docked { station: id };
@@ -5609,6 +5617,9 @@ impl World {
         // And the Manufacturers' sites of this system held by them (feature
         // 109): the same doors — the start, a jump, a spread, every load.
         self.settle_manufacturers();
+        // And the machines' outposts (task 136), behind the Manufacturers'
+        // and the trader, which are never one.
+        self.settle_outposts();
     }
 
     /// [`World::settle_jammer`]'s own half: the derived jammer, the
@@ -6334,13 +6345,19 @@ impl World {
     /// one** of attack, defence and trader. A trader
     /// ([`World::is_trader_here`]) is a trader; a site an enemy holds —
     /// the machines, the Manufacturers, or the Machine Heart in its
-    /// fortress — is an attack, cleared or not; and every other site,
-    /// derelicts included, is a defence. Derived, never saved.
+    /// fortress, or one of the machines' outposts (task 136, every other
+    /// site of a system) — is an attack, cleared or not, and so is every
+    /// site of a system the machines have; every other site, derelicts
+    /// included, is a defence. Derived, never saved.
     pub fn site_kind(&self, station: u32) -> SiteKind {
         if self.is_trader_here(station) {
             return SiteKind::Trader;
         }
-        if self.is_droid_held(station)
+        // **A system the machines have is only attacks** (task 136): a
+        // town held there, or a site the flip has not reached yet while the
+        // crew are docked, is not somewhere to defend.
+        if self.infested(self.star_id)
+            || self.is_droid_held(station)
             || self.is_manufacturer_station(station)
             || heart::is_heart(station)
             || jammer::is_derived(station)
@@ -6376,7 +6393,15 @@ impl World {
     /// for `SURVIVORS`, the ship's `PINNED` and `PICTURES`, or the
     /// reference run: the game is what they pin.
     pub fn set_quiet_sites_for_probe(&mut self, quiet: bool) {
+        // And no outposts (task 136): the ones laid here and not yet
+        // fought over are nobody's again; the dial off lays them back.
+        if quiet && !self.quiet_sites {
+            self.drop_outposts();
+        }
         self.quiet_sites = quiet;
+        if !quiet {
+            self.settle_outposts();
+        }
         // A room already open was opened with the defenders the old
         // setting called for: opened again with the new one's.
         if let Some(id) = self.residents.as_ref().map(|r| r.station) {
