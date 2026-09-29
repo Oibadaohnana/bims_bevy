@@ -362,11 +362,14 @@ fn the_map_is_north_up_and_the_ship_is_in_the_middle_of_both_views() {
     // --- the_ship_is_in_the_middle_of_both_views ---
     {
         let mut game = game();
-        for mode in [ViewMode::Ship, ViewMode::Map] {
-            game.set_mode(mode);
-            assert!((game.camera().offset_x() - CANVAS.0 / 2.0).abs() < 1e-3);
-            assert!((game.camera().offset_y() - CANVAS.1 / 2.0).abs() < 1e-3);
-        }
+        game.set_mode(ViewMode::Ship);
+        assert!((game.camera().offset_x() - CANVAS.0 / 2.0).abs() < 1e-3);
+        assert!((game.camera().offset_y() - CANVAS.1 / 2.0).abs() < 1e-3);
+        // The map opens fitted to the system's sites (the map rework), the ship
+        // among them, rather than about the ship.
+        game.set_mode(ViewMode::Map);
+        game.follow_player();
+        every_site_on_the_canvas(&game);
 
         // And a pan cannot shove it off the edge, however hard it is shoved —
         // once the view is tethered; it opens free, and free goes anywhere.
@@ -385,10 +388,19 @@ fn a_click_on_the_map_is_a_thing_or_nothing() {
     let mut game = game();
     game.set_mode(ViewMode::Map);
 
-    // The dock the ship is tied to is at the ship's own position, which is the
-    // middle of the canvas.
-    let picked = game.pick(CANVAS.0 / 2.0, CANVAS.1 / 2.0, 20.0);
-    assert!(picked.is_some(), "the station under the ship should pick");
+    // The dock the ship is tied to picks off its icon, wherever the fit
+    // put it.
+    game.follow_player();
+    let dock = world::surface_body(game.world.ship.state.alongside().unwrap())
+        .map(worldgen::Node::Body)
+        .unwrap_or_else(|| worldgen::Node::Station(game.world.ship.state.alongside().unwrap()));
+    let (ox, oy) = game.map_spot(dock).expect("the dock is on the map");
+    let cam = &game.map_view;
+    let (sx, sy) = (
+        cam.offset_x() + ox * cam.scale(),
+        cam.offset_y() + oy * cam.scale(),
+    );
+    assert_eq!(game.pick(sx, sy, 20.0), Some(dock), "the dock should pick");
 
     // Somewhere out in the corner is nothing.
     assert!(game.pick(4.0, 4.0, 20.0).is_none());
@@ -565,11 +577,13 @@ fn the_map_let_go_holds_a_place_in_the_system_still() {
     };
     let near =
         |a: (f32, f32), b: (f32, f32), tol: f32| (a.0 - b.0).abs() < tol && (a.1 - b.1).abs() < tol;
-    // The map opens free, about the ship.
+    // The map opens free, fitted to the system's sites with the ship
+    // among them (the map rework).
     assert!(!game.follow);
     game.follow_player();
     let ship = game.world.ship.position();
-    assert!(near(pixel_of(&game, ship), middle, 1e-2));
+    let on = |p: (f32, f32)| p.0 >= 0.0 && p.1 >= 0.0 && p.0 <= CANVAS.0 && p.1 <= CANVAS.1;
+    assert!(on(pixel_of(&game, ship)));
 
     // A place off to one side, zoomed in on about the pointer, twice: it
     // stays under the pointer, and the ship leaves the canvas.
@@ -602,35 +616,14 @@ fn the_map_let_go_holds_a_place_in_the_system_still() {
         "the place flew with the ship: {:?}",
         pixel_of(&game, place)
     );
-    // The scale is kept across a visit to the ship view.
-    let scale = game.map_view.scale();
-    game.set_mode(ViewMode::Ship);
-    game.follow_player();
-    game.set_mode(ViewMode::Map);
-    game.follow_player();
-    assert_eq!(game.map_view.scale(), scale);
-    assert!(near(pixel_of(&game, place), middle, 1.0));
-
-    // Following, the ship is the middle whatever it does; let go again,
-    // nothing moves for the flip of the switch, and Select brings the
-    // map back to the ship.
+    // Following or not, the map stays where it was put: it is the
+    // system's, not the crew's (the map rework).
     game.set_follow(true);
     game.follow_player();
-    assert!(near(
-        pixel_of(&game, game.world.ship.position()),
-        middle,
-        1e-2
-    ));
-    game.pan(-50.0, 40.0);
-    game.follow_player();
-    let held = pixel_of(&game, game.world.ship.position());
+    assert!(near(pixel_of(&game, place), middle, 1.0));
     game.set_follow(false);
     game.follow_player();
-    assert!(near(
-        pixel_of(&game, game.world.ship.position()),
-        held,
-        1e-2
-    ));
+    assert!(near(pixel_of(&game, place), middle, 1.0));
     game.pan(-100_000.0, 0.0);
     game.follow_player();
     assert!(
@@ -644,6 +637,65 @@ fn the_map_let_go_holds_a_place_in_the_system_still() {
         middle,
         1e-2
     ));
+}
+
+/// Every site the map shows is on the canvas: what the fit is for.
+fn every_site_on_the_canvas(game: &Game) {
+    let cam = &game.map_view;
+    for site in game.map_sites() {
+        let (ox, oy) = game.map_spot(site.node).expect("a site is on the map");
+        let (sx, sy) = (
+            cam.offset_x() + ox * cam.scale(),
+            cam.offset_y() + oy * cam.scale(),
+        );
+        assert!(
+            sx >= 0.0 && sy >= 0.0 && sx <= CANVAS.0 && sy <= CANVAS.1,
+            "{site:?} off the canvas at {sx}, {sy}"
+        );
+    }
+}
+
+/// **The map shows the system picked, fitted, its sites apart** (the map
+/// rework): a star next door shown is that system's sites, every one on the
+/// canvas and no two nearer than `MAP_SEPARATION`; the ship's own again is
+/// the ship's.
+#[test]
+fn the_map_shows_the_system_picked_every_site_in_view_and_apart() {
+    let mut game = game();
+    game.set_mode(ViewMode::Map);
+    let own = game.world.star_id;
+    game.show_system(None);
+    game.follow_player();
+    every_site_on_the_canvas(&game);
+    for star in game.world.reachable_stars() {
+        if star == own {
+            continue;
+        }
+        game.show_system(Some(star));
+        game.follow_player();
+        assert_eq!(game.shown_star(), star);
+        assert!(!game.shows_own_system());
+        let sites = game.map_sites();
+        assert!(!sites.is_empty(), "{star} offers somewhere");
+        assert!(sites.iter().all(|s| s.site.star == star));
+        every_site_on_the_canvas(&game);
+        let scale = game.map_view.scale();
+        let spots: Vec<(f32, f32)> = sites
+            .iter()
+            .map(|s| game.map_spot(s.node).unwrap())
+            .collect();
+        for (i, a) in spots.iter().enumerate() {
+            for b in &spots[i + 1..] {
+                let apart = (a.0 - b.0).hypot(a.1 - b.1) * scale;
+                assert!(
+                    apart >= crate::game::MAP_SEPARATION * 0.99,
+                    "two sites of {star} {apart} px apart"
+                );
+            }
+        }
+    }
+    game.show_system(Some(own));
+    assert!(game.shows_own_system());
 }
 
 /// The blueprint in hand is the world's answer about the tile under the
@@ -1735,7 +1787,11 @@ fn a_droid_held_station_is_saved_and_read_back_whole() {
         let room = &mut world.residents.as_mut().unwrap().aboard.room;
         room.strike_droid(0, bims::droid::DroidPart::Chassis, 1e6);
         room.strike_droid(1, bims::droid::DroidPart::Legs, 5.0);
-        let arms = room.droid(2).unwrap().body.max(bims::droid::DroidPart::Arms);
+        let arms = room
+            .droid(2)
+            .unwrap()
+            .body
+            .max(bims::droid::DroidPart::Arms);
         room.strike_droid(2, bims::droid::DroidPart::Arms, arms);
     }
     session.world_step();

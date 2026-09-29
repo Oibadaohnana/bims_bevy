@@ -32,6 +32,10 @@ use worldgen::math::{DVec2, dvec2};
 use crate::camera::Camera;
 use crate::starfield::Starfield;
 
+#[path = "map_layout.rs"]
+mod map_layout;
+pub use map_layout::{MAP_SEPARATION, MapSite};
+
 /// Which picture is being drawn.
 ///
 /// The discriminants cross the wasm boundary. Two of them, and there is no
@@ -164,6 +168,13 @@ pub struct Game {
     /// (`world_paint::KeptStation`, task 122). The picture's and nothing
     /// else's: never saved, and a game read back starts with none.
     pub(crate) kept_stations: Vec<crate::world_paint::KeptStation>,
+    /// The system the map shows when it is not the ship's own (the map rework,
+    /// `map_layout`): a star picked on the galaxy chart or off the list.
+    /// A view setting, this window's own.
+    shown: Option<map_layout::Shown>,
+    /// The star the ship was in when the map was last fitted, so a jump
+    /// fits it again.
+    shown_own: Option<u32>,
 }
 
 impl Game {
@@ -249,6 +260,8 @@ impl Game {
             airlock_ajar: 0.0,
             kept_stations: Vec::new(),
             stars: Starfield::new(seed),
+            shown: None,
+            shown_own: None,
         };
         game.fit_ship();
         game.fit_map();
@@ -294,6 +307,8 @@ impl Game {
             airlock_ajar: 0.0,
             kept_stations: Vec::new(),
             stars: Starfield::new(seed),
+            shown: None,
+            shown_own: None,
         };
         game.fit_ship();
         game.fit_map();
@@ -378,18 +393,17 @@ impl Game {
     /// the camera's focus is where they stand, in the camera's units about
     /// the ship, so the view follows them off the ship and into a station
     /// and can never be panned until they are off the edge. Once a frame,
-    /// from `ship_render`. The map is put about the ship the same way.
-    /// Let go (`follow` off), the ship view is left wherever it was
-    /// dragged; the map is held on `map_anchor`, a place in the system,
-    /// which is not the same thing, since its camera is measured from a
-    /// ship that moves.
+    /// from `ship_render`. Let go (`follow` off), the ship view is left
+    /// wherever it was dragged. The map is held on `map_anchor`, a place in
+    /// the system it shows, either way.
     pub fn follow_player(&mut self) {
+        // The map is held where it was fitted or dragged to, following or
+        // not (the map rework): it shows a system's sites, not the ship.
+        let (x, y) = self.map_focus_of(self.map_anchor);
+        self.map_view.set_focus(x, y);
         if !self.follow {
-            let (x, y) = self.map_focus_of(self.map_anchor);
-            self.map_view.set_focus(x, y);
             return;
         }
-        self.map_view.set_focus(0.0, 0.0);
         let who = self.spectate.unwrap_or(self.local);
         if who >= self.world.aboard.count() {
             return;
@@ -428,7 +442,7 @@ impl Game {
     /// A place in the system as the map camera's focus: from the ship, y
     /// flipped, turned with the camera — the way `pick` lays the nodes out.
     fn map_focus_of(&self, at: DVec2) -> (f32, f32) {
-        let offset = at.sub(self.world.ship.position());
+        let offset = at.sub(self.map_origin());
         turned(offset.x as f32, -offset.y as f32, self.camera_turn() as f32)
     }
 
@@ -470,15 +484,11 @@ impl Game {
 
     /// Follow the crew member the player steers, or stop: the ship view is
     /// let loose so a drag takes it anywhere, and tethered again it snaps
-    /// back to them on the next frame. The map goes with it — let loose it
-    /// is held where it is looking, on the ship if it was following.
+    /// back to them on the next frame. The map is not the crew's and stays
+    /// where it is.
     pub fn set_follow(&mut self, on: bool) {
         self.follow = on;
         self.ship_view.set_loose(!on);
-        self.map_view.set_loose(!on);
-        if !on {
-            self.map_anchor = self.point_at(self.map_view.width / 2.0, self.map_view.height / 2.0);
-        }
     }
 
     /// Move the airlock door on one frame: open while anybody in the room
@@ -515,11 +525,13 @@ impl Game {
         })
     }
 
-    /// Switch views. Each camera keeps its own scale and its place between
-    /// visits: a map zoomed in on a planet is still zoomed in on that planet
-    /// when it is opened again, wherever the ship has got to — or, following,
-    /// on the ship.
+    /// Switch views. The ship view keeps its scale and its place between
+    /// visits; the map opens fitted to every site of the system it shows
+    /// (the map rework), and keeps a pan or a zoom only while it is up.
     pub fn set_mode(&mut self, mode: ViewMode) {
+        if mode == ViewMode::Map && self.mode != ViewMode::Map {
+            self.fit_map();
+        }
         self.mode = mode;
     }
 
@@ -528,26 +540,6 @@ impl Game {
         let span = self.world.ship.design.build_area as f32 * TILE as f32;
         let fit = (self.ship_view.width / span).min(self.ship_view.height / span);
         self.ship_view.set_scale(fit * 0.9);
-    }
-
-    /// Start the map showing everything the crew have found.
-    ///
-    /// Measured from the ship, because the ship is what the camera is centred
-    /// on — a fit worked out from the star would put the ship off the edge the
-    /// moment it flew anywhere.
-    fn fit_map(&mut self) {
-        let here = self.world.ship.position();
-        let mut furthest = self.world.detection_range();
-        // The star is always there to be seen, and it is the origin.
-        furthest = furthest.max(here.length());
-        for &node in &self.world.discovered {
-            if let Some(at) = self.world.system.absolute_position(node) {
-                furthest = furthest.max(at.distance(here));
-            }
-        }
-        let half = (self.map_view.width.min(self.map_view.height) / 2.0) as f64;
-        let scale = (half * MAP_FIT as f64 / furthest.max(1.0)) as f32;
-        self.map_view.set_scale(scale);
     }
 
     // --- the clock ----------------------------------------------------------
@@ -638,11 +630,7 @@ impl Game {
         let (vx, vy) = self.map_view.to_view(x, y);
         // Back through the camera's turn before the y-flip, since the turn
         // was made on screen, after it.
-        let (vx, vy) = turned(vx, vy, -self.camera_turn() as f32);
-        self.world
-            .ship
-            .position()
-            .add(dvec2(vx as f64, -(vy as f64)))
+        self.map_point_of((vx, vy))
     }
 
     /// Where the map puts a node, in the camera's units about the ship:
@@ -651,13 +639,10 @@ impl Game {
     /// same way by `pick` and by the words the app writes over an icon.
     /// `None` for a node the system cannot place.
     pub fn map_spot(&self, node: worldgen::Node) -> Option<(f32, f32)> {
-        let at = self.world.system.absolute_position(node)?;
-        let offset = at.sub(self.world.ship.position());
-        Some(turned(
-            offset.x as f32,
-            -offset.y as f32,
-            self.camera_turn() as f32,
-        ))
+        self.map_spots()
+            .into_iter()
+            .find(|(n, _)| *n == node)
+            .map(|(_, spot)| spot)
     }
 
     /// The discovered node a click on the map is near enough to count as
@@ -669,10 +654,7 @@ impl Game {
     /// thousandth of a pixel.
     pub fn pick(&self, x: f32, y: f32, slop: f32) -> Option<worldgen::Node> {
         let mut best: Option<(f32, worldgen::Node)> = None;
-        for &node in &self.world.discovered {
-            let Some((ox, oy)) = self.map_spot(node) else {
-                continue;
-            };
+        for (node, (ox, oy)) in self.map_spots() {
             let sx = self.map_view.offset_x() + ox * self.map_view.scale();
             let sy = self.map_view.offset_y() + oy * self.map_view.scale();
             let away = ((sx - x).powi(2) + (sy - y).powi(2)).sqrt();

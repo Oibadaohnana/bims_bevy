@@ -5996,3 +5996,30 @@ part of what a system offers).
   · relics" in the list.
 
 `tests_elite.rs` is the rule. **`SAVE_VERSION` 59, `wire::PROTOCOL` 55**.
+
+## A jump is a day, a trip within a system nothing (the map rework)
+
+> "The loop" and "A jump is another system" above say a trip is the
+> hyperdrive's charge plus the leg flown, never under a day
+> (`MIN_TRAVEL_HOURS`); that is **gone**.
+
+`quote_in` puts the world clock on by `data::JUMP_MINUTES` — one day —
+for a trip to another system, however far the site lies from where the
+jump lands, and by **nought** for a trip between two sites of one
+system. `MIN_TRAVEL_HOURS`, `JUMP_CHARGE_MINUTES`,
+`TravelQuote::minimum` and `World::here` went. `CannotTravel` is still
+said for a ship whose engines could not stop it anywhere. So the jumps
+are the whole of what moves the clock, and the machines grow a step
+every `ENEMIES_HOURS / 24` jumps. The one-fight-a-system rule (task 135)
+and `AlreadyHere` keep a free trip from being a free fight.
+
+`World::system_look(star)` is any star's system as the map draws it — the
+system it offers and a `SiteLook` a site (where it lies, and
+`quote_with(.., looking: true)`: the quote with every question about
+whether the crew may go there left unasked) — so the map can show a
+system across the galaxy with its sites' kinds. Nothing saved or hashed
+changed; `REFERENCE_CHECKSUM`, `SURVIVORS` and the ship's `PINNED` move
+wherever a run takes an in-system trip or a jump (they were a leg's
+length before). `a_jump_costs_a_day_and_a_trip_in_the_system_nothing`
+and `every_quote_is_a_day_for_a_jump_and_nothing_in_the_system` are the
+rule.

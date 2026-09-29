@@ -82,20 +82,18 @@ const DEFEND: Color = Color::rgb(1.0, 0.70, 0.18);
 const TRADE: Color = Color::rgb(0.40, 0.90, 0.46);
 
 /// The ring a site of this system wears on the map (task 111): what it is
-/// to the crew, off `World::site_kind` — an attack in the enemy's red, a
+/// to the crew, off `Game::map_sites` — an attack in the enemy's red, a
 /// defence the machines are still coming for in amber, a trader in green
 /// — and how its fight stands: an attack cleared is faded, a defence
 /// fought and held is blue as a friend's, and a trader shut while its
 /// system is the machines' is faded.
-fn site_ring(world: &world::World, id: u32) -> Color {
-    match world.site_kind(id) {
-        world::SiteKind::Attack if world.site_cleared(id) => ENEMY.alpha(0.4),
+fn site_ring(site: &crate::game::MapSite) -> Color {
+    match site.kind {
+        world::SiteKind::Attack if site.cleared => ENEMY.alpha(0.4),
         world::SiteKind::Attack => ENEMY,
-        world::SiteKind::Defend if world.site_threatened(id) => DEFEND,
+        world::SiteKind::Defend if site.threatened => DEFEND,
         world::SiteKind::Defend => FRIEND,
-        world::SiteKind::Trader if world.trader_closed_on(world.star_id, world.days_gone()) => {
-            TRADE.alpha(0.4)
-        }
+        world::SiteKind::Trader if site.closed => TRADE.alpha(0.4),
         world::SiteKind::Trader => TRADE,
     }
 }
@@ -2457,7 +2455,9 @@ pub fn paint_station(list: &mut DrawList, x: f32, y: f32, size: f32, kind: Stati
 fn paint_map(game: &Game, list: &mut DrawList) {
     let camera = &game.map_view;
     let scale = camera.scale().max(1e-30) as f64;
-    let here = game.world.ship.position();
+    let own = game.shows_own_system();
+    let system = game.map_system();
+    let turn = game.camera_turn() as f32;
 
     let half_w = camera.width as f64 / scale;
     let half_h = camera.height as f64 / scale;
@@ -2475,27 +2475,46 @@ fn paint_map(game: &Game, list: &mut DrawList) {
     // up. The marker for the ship is drawn after, through its own turn.
     let out_there = list.len();
 
-    // Where a system position lands, in the camera's units about the ship.
+    // Where a system position lands, in the camera's units about the map's
+    // origin — the ship in its own system, the star in another (the map rework).
+    let origin = if own {
+        game.world.ship.position()
+    } else {
+        DVec2::ZERO
+    };
     let place = |at: DVec2| {
-        let offset = at.sub(here);
+        let offset = at.sub(origin);
         (offset.x as f32, -offset.y as f32)
     };
+    // Where an icon is drawn: its spot, moved clear of the icons before it
+    // (`Game::map_spots`), before the camera's turn, which comes at the end.
+    let spots = game.map_spots();
+    let spot_of = |node: Node| {
+        spots
+            .iter()
+            .find(|(n, _)| *n == node)
+            .map(|(_, (x, y))| crate::game::turned(*x, *y, -turn))
+    };
+    let sites = game.map_sites();
+    let site_of = |node: Node| sites.iter().find(|s| s.node == node);
 
     // How far the crew can see. Drawn round the ship because that is where the
     // sensors are, and it is the one thing on the map that explains why the
-    // rest of it is empty.
-    let range = game.world.detection_range() as f32;
-    list.push(
-        crate::draw::KIND_ELLIPSE,
-        0.0,
-        0.0,
-        range * 2.0,
-        range * 2.0,
-        0.0,
-        0.0,
-        (2.0 / scale) as f32,
-        MUTED,
-    );
+    // rest of it is empty. Only in the ship's own system.
+    if own {
+        let range = game.world.detection_range() as f32;
+        list.push(
+            crate::draw::KIND_ELLIPSE,
+            0.0,
+            0.0,
+            range * 2.0,
+            range * 2.0,
+            0.0,
+            0.0,
+            (2.0 / scale) as f32,
+            MUTED,
+        );
+    }
 
     // The star. Always discovered: it is the thing the system is named after
     // and the origin everything else is measured from.
@@ -2507,9 +2526,10 @@ fn paint_map(game: &Game, list: &mut DrawList) {
     // map reads as a system rather than as dots. A belt's is a little
     // stronger, because a belt *is* its orbit.
     let thin = (1.0 / scale) as f32;
-    for &node in &game.world.discovered {
+    let nodes = game.map_nodes();
+    for &node in &nodes {
         let Node::Body(id) = node else { continue };
-        let Some(body) = game.world.system.body(id) else {
+        let Some(body) = system.body(id) else {
             continue;
         };
         let d = (body.position.length() * 2.0) as f32;
@@ -2522,17 +2542,17 @@ fn paint_map(game: &Game, list: &mut DrawList) {
     }
 
     // The bodies first and the stations over them, because a station sits
-    // in orbit of its body and at this scale that is on top of it. Sized in
+    // in orbit of its body and at this scale that is on top of it — or
+    // beside it, where the two are both sites (`Game::map_spots`). Sized in
     // pixels, like the icons they are: a planet drawn to scale would be a
     // fraction of one.
     let size = (26.0 / scale) as f32;
-    for &node in &game.world.discovered {
+    for &node in &nodes {
         let Node::Body(id) = node else { continue };
-        let Some(at) = game.world.system.absolute_position(node) else {
+        let Some((x, y)) = spot_of(node) else {
             continue;
         };
-        let (x, y) = place(at);
-        if let Some(body) = game.world.system.body(id) {
+        if let Some(body) = system.body(id) {
             paint_body(list, x, y, size, body.kind, thin);
             // A belt is scenery (task 111: the mining sites are gone), and
             // wears no mark.
@@ -2544,8 +2564,8 @@ fn paint_map(game: &Game, list: &mut DrawList) {
             // what it is to the crew is the other thing worth knowing
             // before coming down (task 111, `site_ring`). The pad is in
             // the ring's colour too, so the two agree.
-            if let Some(surface) = game.world.surface(id) {
-                let colour = site_ring(&game.world, surface.id);
+            if let Some(site) = site_of(node) {
+                let colour = site_ring(site);
                 let d = size * STANCE_RING;
                 ring(list, x, y, d, d, 0.0, thin * 2.5, colour);
                 paint_pad(
@@ -2558,28 +2578,33 @@ fn paint_map(game: &Game, list: &mut DrawList) {
             }
         }
     }
-    for &node in &game.world.discovered {
+    for &node in &nodes {
         let Node::Station(id) = node else { continue };
-        let Some(at) = game.world.system.absolute_position(node) else {
+        let Some((x, y)) = spot_of(node) else {
             continue;
         };
-        let (x, y) = place(at);
-        let Some(station) = game.world.system.station(id) else {
+        // A derived jammer or the fortress of a system looked at from
+        // afar is no station of the generated system: the machines' relay.
+        let kind = system
+            .station(id)
+            .map(|s| s.kind)
+            .unwrap_or(StationKind::Relay);
+        paint_station(list, x, y, size * 0.75, kind, thin * 1.5);
+        let Some(site) = site_of(node) else {
             continue;
         };
-        paint_station(list, x, y, size * 0.75, station.kind, thin * 1.5);
         // Ringed by what it is to the crew (task 111, `site_ring`), outside
         // the aim ring so the two read apart when one is picked: an attack
         // red, a defence amber, a trader green — every site, a derelict
         // too, since every site is one of the three. A little heavier than
         // the stance ring it replaced, since it is the thing the map is
         // read for now.
-        let colour = site_ring(&game.world, id);
+        let colour = site_ring(site);
         let d = size * STANCE_RING;
         ring(list, x, y, d, d, 0.0, thin * 2.5, colour);
         // And an elite crowned, a second ring outside the first.
-        if game.world.is_elite_here(id) {
-            let elite = if game.world.site_cleared(id) {
+        if site.elite {
+            let elite = if site.cleared {
                 ELITE.alpha(0.4)
             } else {
                 ELITE
@@ -2602,36 +2627,36 @@ fn paint_map(game: &Game, list: &mut DrawList) {
     // alike, drawn over the icons and under the ring round the pick.
     // The chart is what remembers this — `World::visited`, filed with
     // the system when the ship jumps out — so a system met twice opens
-    // with its ticks on.
-    for &node in &game.world.visited {
-        let Some(at) = game.world.system.absolute_position(node) else {
-            continue;
-        };
-        let (x, y) = place(at);
-        paint_tick(
-            list,
-            x - TICK_SHOULDER * size,
-            y - TICK_SHOULDER * size,
-            size * TICK_SIZE,
-            thin * 1.5,
-        );
+    // with its ticks on. Only in the ship's own system.
+    if own {
+        for &node in &game.world.visited {
+            let Some((x, y)) = spot_of(node) else {
+                continue;
+            };
+            paint_tick(
+                list,
+                x - TICK_SHOULDER * size,
+                y - TICK_SHOULDER * size,
+                size * TICK_SIZE,
+                thin * 1.5,
+            );
+        }
     }
 
     // The site picked on the world map's list, ringed, so a click has
     // visibly landed on the thing and not beside it.
     let aimed_at = match game.aimed {
-        Some(flight::Target::Body(id)) => game.world.system.absolute_position(Node::Body(id)),
-        Some(flight::Target::Station(id)) => game.world.system.absolute_position(Node::Station(id)),
-        Some(flight::Target::Point(p)) => Some(p),
+        Some(flight::Target::Body(id)) => spot_of(Node::Body(id)),
+        Some(flight::Target::Station(id)) => spot_of(Node::Station(id)),
+        Some(flight::Target::Point(p)) => Some(place(p)),
         None => None,
     };
-    if let Some(at) = aimed_at {
-        let (x, y) = place(at);
+    if let Some((x, y)) = aimed_at {
         let d = (26.0 / scale) as f32;
         ring(list, x, y, d, d, 0.0, (1.5 / scale) as f32, GLOW.alpha(0.9));
     }
 
-    list.turn_from(out_there, game.camera_turn() as f32);
+    list.turn_from(out_there, turn);
 
     // Where you are, over everything: a reticle round the ship — a ring
     // wider than any icon, so it stands out from the station the ship is
@@ -2641,8 +2666,11 @@ fn paint_map(game: &Game, list: &mut DrawList) {
     // and that it is the ship. Head up, that is straight up, and it is the
     // map that says where north went. The reticle is not turned with the
     // world: it is the screen's, and its ticks stay square to the window.
-    here_reticle(list, scale as f32, game.frame);
-    hull::marker(list, game.ship_turn() as f32, (18.0 / scale) as f32, GLOW);
+    // Only in the ship's own system: another has no ship in it.
+    if own {
+        here_reticle(list, scale as f32, game.frame);
+        hull::marker(list, game.ship_turn() as f32, (18.0 / scale) as f32, GLOW);
+    }
 }
 
 /// How wide the reticle round the ship is on the map, in pixels: outside

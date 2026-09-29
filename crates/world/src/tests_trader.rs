@@ -509,8 +509,22 @@ fn a_trader_in_an_infested_system_is_closed_until_it_is_liberated() {
 fn closed_on_arrival_is_the_crisis_on_the_arrival_day() {
     let mut world = basic(1);
     let site = on_the_map(&mut world);
+    // The trader a jump away: a jump is a day, and a trip within the
+    // system no time at all (the map rework), so only a jump arrives a day on.
+    // A trader of this system is looked at from the next system over.
+    if site.star == world.star_id {
+        let away = world
+            .destinations()
+            .into_iter()
+            .find(|&s| s.star != world.star_id && !world.is_trader(s))
+            .filter(|&s| world.travel_quote(s).is_ok())
+            .expect("a site a hyperlane off");
+        travel_to(&mut world, away);
+        world.leave_for_probe();
+    }
+    assert_ne!(site.star, world.star_id, "a jump away");
     world.set_droid_origin_for_probe(site.star);
-    // A day after now: every trip is at least a day (feature 105).
+    // A day after now: the jump's day.
     world.set_crisis_first_day_for_probe(world.days_gone() + 1);
     assert!(!world.infested(site.star), "not theirs today");
     assert_eq!(world.travel_quote(site), Err(Refusal::ClosedOnArrival));

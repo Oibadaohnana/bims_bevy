@@ -85,6 +85,9 @@ const HERE_TAG: &str = "You";
 /// How far above the ship's mark on the map its words sit: clear of the
 /// reticle `ship::world_paint` draws round it, ring and ticks.
 const HERE_LIFT: f32 = 36.0;
+/// How far down the system view the name of the system it shows sits
+/// (the map rework).
+const SHOWN_DROP: f32 = 22.0;
 /// How far **below** a site's icon on the map its words' baseline sits:
 /// under it rather than over, because the ship's own words go over, and a
 /// ship docked at a planet's station is drawn on the planet. Clear of the
@@ -167,6 +170,10 @@ pub struct GameScreen {
     /// Whether the middle drag began on the galaxy chart rather than the
     /// system (task 135).
     pan_galaxy: bool,
+    /// A left press on the galaxy chart (the map rework): where it landed, and
+    /// whether it has moved far enough to be a drag of the chart rather
+    /// than a click on a star, which is said at the release.
+    chart_press: Option<(Vec2, bool)>,
     /// The size the map's camera was last given: the system's part of
     /// the canvas while the world map is up (task 135).
     system_size: Vec2,
@@ -894,6 +901,7 @@ impl GameScreen {
             fog: crate::fogmap::FogTexture::default(),
             plain_fog: std::collections::BTreeMap::new(),
             pan_galaxy: false,
+            chart_press: None,
             system_size: Vec2::ZERO,
             galaxy: None,
             galaxy_list: lobby::draw::DrawList::new(),
@@ -1680,6 +1688,25 @@ fn frame(
             screen.pan_galaxy = false;
         }
     }
+    // A left press on the galaxy chart (the map rework) is a click on a star or
+    // a drag of the chart, whichever it turns out to be: past the click's
+    // slop it pans, and a release short of it picks (below, with the
+    // hover).
+    if !galaxy_up {
+        screen.chart_press = None;
+    }
+    if let Some(p) = on_galaxy.filter(|_| galaxy_up && pointer.primary_pressed) {
+        screen.chart_press = Some((p, false));
+    }
+    if let Some((from, moved)) = screen.chart_press
+        && pointer.primary_down
+        && let Some(p) = at_galaxy
+        && let Some(chart) = &mut screen.galaxy
+        && (moved || (p - from).length() > CLICK_SLOP)
+    {
+        chart.preview.pan(p.x - from.x, p.y - from.y);
+        screen.chart_press = Some((p, true));
+    }
     if let Some(from) = screen.pan_from {
         let now_at = if screen.pan_galaxy { at_galaxy } else { here };
         match now_at {
@@ -1722,16 +1749,24 @@ fn frame(
                 Some(p) => chart.hover(p.x, p.y),
                 None => chart.hovered = None,
             }
-            if on_galaxy.is_some()
-                && pointer.primary_pressed
-                && let Some(star) = chart.hovered
+            // A left press let go before it became a drag is the click:
+            // the star picked, its system into the system view (the map
+            // rework).
+            if let Some((_, moved)) = screen.chart_press
+                && !pointer.primary_down
             {
-                chart.inspect(star);
-                screen.picked_star = Some(star);
-                // And its first place the crew could go picked on the
-                // list, so the card offers the trip: a star is flown
-                // to by one of its sites.
-                screen.world_map.pick_star(star);
+                screen.chart_press = None;
+                if !moved
+                    && on_galaxy.is_some()
+                    && let Some(star) = chart.hovered
+                {
+                    chart.inspect(star);
+                    screen.picked_star = Some(star);
+                    // And its first place the crew could go picked on the
+                    // list, so the card offers the trip: a star is flown
+                    // to by one of its sites.
+                    screen.world_map.pick_star(star);
+                }
             }
         }
         // Nothing is flown (feature 103): a station or a planet with a
@@ -1740,15 +1775,14 @@ fn frame(
         // which is where the trip is quoted and put to the crew.
         if let Some(p) = on_canvas {
             let game = session.game.as_ref().unwrap();
-            let star = game.world.star_id;
-            let site = match game.pick(p.x, p.y, MAP_PICK_SLOP) {
-                Some(Node::Station(id)) => Some(world::Site { star, station: id }),
-                Some(Node::Body(body)) => game.world.surface(body).map(|_| world::Site {
-                    star,
-                    station: world::surface_id(body),
-                }),
-                None => None,
-            };
+            // Of the system the map shows (the map rework), which need not be
+            // the one the ship is in.
+            let site = game.pick(p.x, p.y, MAP_PICK_SLOP).and_then(|node| {
+                game.map_sites()
+                    .into_iter()
+                    .find(|s| s.node == node)
+                    .map(|s| s.site)
+            });
             screen.world_map.hovered = site;
             if pointer.primary_pressed && site.is_some() {
                 screen.world_map.picked = site;
@@ -2234,8 +2268,9 @@ fn frame(
     // middle drag pans — the deck, or the galaxy chart — by the same
     // calls, so Follow takes it as it takes a drag; beside WASD, and
     // paused as well, since it is the camera and not the world.
-    let edge = edge_pan_now(&ctx, &pointer, &keys_now, window.focused, dt as f32)
-        .filter(|_| screen.sheet.is_none() && screen.pan_from.is_none());
+    let edge = edge_pan_now(&ctx, &pointer, &keys_now, window.focused, dt as f32).filter(|_| {
+        screen.sheet.is_none() && screen.pan_from.is_none() && screen.chart_press.is_none()
+    });
     if let Some(d) = edge {
         match &mut screen.galaxy {
             Some(chart) if galaxy_up && on_galaxy.is_some() => chart.preview.pan(d.x, d.y),
@@ -2245,7 +2280,10 @@ fn frame(
     // The map rings the site picked on the world map's list (feature
     // 103): a ring and nothing more, since nothing is flown.
     if let Some(game) = &mut session.game {
-        let star = game.world.star_id;
+        // The system view shows the star picked on the chart or off the
+        // list (the map rework), else the ship's own.
+        game.show_system(screen.picked_star);
+        let star = game.shown_star();
         game.aimed = screen.world_map.picked.filter(|s| s.star == star).map(|s| {
             match world::surface_body(s.station) {
                 Some(body) => Target::Body(body),
@@ -2593,6 +2631,23 @@ fn frame(
         } else {
             ViewMode::Map
         });
+    }
+    // A place picked on the list (the map rework): its star picked on the chart
+    // — brought into view there if it was off it — and its system in the
+    // system view.
+    if let Some(star) = column.as_ref().and_then(|ask| ask.show)
+        && let Some(chart) = &mut screen.galaxy
+    {
+        chart.inspect(star);
+        screen.picked_star = Some(star);
+        if let Some(s) = chart.galaxy.star(star) {
+            let (x, y) = chart.preview.to_screen(s.position.x, s.position.y);
+            let (w, h) = (chart.preview.width, chart.preview.height);
+            let edge = 0.1 * w.min(h);
+            if x < edge || y < edge || x > w - edge || y > h - edge {
+                chart.preview.pan(w / 2.0 - x, h / 2.0 - y);
+            }
+        }
     }
     if let Some(ask) = column
         && ask.close
@@ -2988,14 +3043,41 @@ fn frame(
                 };
                 theme::name_over(&painter, at, &tag, colour);
             }
-            let at = view.to_canvas(Vec2::ZERO) + canvas.min;
-            let at = egui::pos2(at.x, at.y - HERE_LIFT);
+            // Which system the view shows (the map rework), along its top: the
+            // ship's own, or one picked on the chart or off the list.
+            let game = session.game.as_ref().unwrap();
+            let own = game.shows_own_system();
+            let shown = game.shown_star();
+            let name = screen
+                .galaxy
+                .as_ref()
+                .and_then(|chart| chart.galaxy.star(shown))
+                .map(|s| star_name(s.name))
+                .unwrap_or_default();
             theme::name_over(
                 &painter,
-                at,
-                &format!("{HERE_TAG} · {}", whereabouts(session)),
-                theme::YOURS,
+                egui::pos2(
+                    (canvas.min.x + canvas.max.x) / 2.0,
+                    canvas.min.y + SHOWN_DROP,
+                ),
+                &if own {
+                    format!("{name} · {MAP_THIS_SYSTEM}")
+                } else {
+                    name
+                },
+                if own { theme::YOURS } else { theme::INK },
             );
+            // The ship is only in its own system.
+            if own {
+                let at = view.to_canvas(Vec2::ZERO) + canvas.min;
+                let at = egui::pos2(at.x, at.y - HERE_LIFT);
+                theme::name_over(
+                    &painter,
+                    at,
+                    &format!("{HERE_TAG} · {}", whereabouts(session)),
+                    theme::YOURS,
+                );
+            }
         }
         // The smooth fog over the deck — what the crew do not see, and
         // the dark where no light reaches — as the room's light map,

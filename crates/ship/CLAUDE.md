@@ -1132,3 +1132,30 @@ stepped until `heart_status` answers and `set_heart_phase_for_probe` is
 asked; the restart's *Beginning* is taken after that, so *Start again*
 opens in the same phase. **`SAVE_VERSION` 38** (the history is in
 `save.rs`).
+
+## The map shows any system, fitted to its sites, the sites apart (the map rework)
+
+> "The ship view is about the crew member you steer" above says the map
+> follows the ship; since this rework it does not.
+
+`map_layout.rs` (a child of `game`): `Game::show_system(Option<star>)`,
+called by the app every frame with the star picked on the galaxy chart
+or off the list, shows that system — `World::system_look`, looked at
+again when the ship jumps or the clock moves — or the ship's own with
+`None`. Its origin (`map_origin`) is the ship in its own system and the
+star in another; `map_nodes`, `map_position`, `map_sites` (a `MapSite`:
+kind, threatened, cleared, closed, passed, elite — the world's rules)
+and `map_spots` are what `paint_map`, `pick`, `map_spot` and
+`Session::site_marks` read, so the picture, the click and the words
+agree. **`map_spots` spreads the sites**: every site pushed clear of the
+star and of the sites laid before it to `MAP_SEPARATION` (72) pixels at
+the camera's scale — the site the crew are at first and never moved,
+so the reticle stays on it, then towns' planets, then stations; a body
+with nothing on it is not an obstacle. **`fit_map`** fits the star, every
+site and (in its own system) the ship into `MAP_FIT` of the canvas, the
+middle of them in the middle — at every change of system, on opening
+the map (`set_mode`), and at a resize. The map is held on `map_anchor`
+whatever `follow` says: it is a system's, not the crew's. The ship, its
+reticle, the sensors' ring and the visited ticks are drawn in its own
+system only. `the_map_shows_the_system_picked_every_site_in_view_and_apart`
+is the test.

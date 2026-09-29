@@ -88,21 +88,6 @@ pub const RESIDENTS_RANGE: f64 = 50.0 * shipdesign::TILE as f64;
 /// another way — so it grows for as long as the clock runs.
 pub const ENEMIES_HOURS: u32 = 21 * 24;
 
-/// The least any trip puts the world clock on by, in hours, however
-/// close together its two ends are (feature 105): a trip shorter than
-/// this is quoted, shown and taken as this long (`World::travel_quote`).
-///
-/// It is there to shut the zero-time re-entry: the machines scale on the
-/// world clock and nothing else ([`ENEMIES_HOURS`]), and a site left
-/// uncleared is put back as the crew met it (`crate::run`), so two sites
-/// a few minutes apart would otherwise be a fresh fight at day nought's
-/// strength as often as a crew liked. A day, which is a turn of the date
-/// the map shows, the least an in-system trip was quoted at is 0.11 of
-/// (`tests_mission::travel_days_over_ten_galaxies`), and under the p25
-/// of both kinds of trip (1.2 and 1.4 days) — so it only reaches the odd
-/// short hop and changes nothing about a typical one.
-pub const MIN_TRAVEL_HOURS: u32 = 24;
-
 /// The arena the `droids` command docks at (`crate::station::arena`): how
 /// many tiles across — bigger than any kind of station, for corridors
 /// worth fighting down — and how many columns of bunks its quarters hold,
@@ -122,11 +107,14 @@ pub const TEST_MERCENARY: u32 = 1;
 /// into the picture as a speck and grows, rather than appearing.
 pub const STATION_VISIBLE: f64 = 2.0 * LOCAL_RADIUS_STATION;
 
-/// How long the hyperdrive charges before a jump, in game minutes: what a
-/// trip across a hyperlane adds to its length (`World::travel_quote`,
-/// feature 103). Twenty seconds of real time at 1x, since a game minute
-/// is a real second there (`time::MINUTES_PER_SECOND`).
-pub const JUMP_CHARGE_MINUTES: f64 = 20.0 * time::MINUTES_PER_SECOND;
+/// What a trip across a hyperlane puts the world clock on by, in game
+/// minutes: **one day**, however far the site lies from where the jump
+/// lands (the map rework). A trip between two sites of one system costs
+/// nothing (`World::travel_quote`), so the jumps are the whole of what
+/// moves the world clock, and the machines grow a step every so many of
+/// them ([`ENEMIES_HOURS`]). It was the hyperdrive's twenty-minute charge
+/// plus the leg flown in the system, never under a day, until then.
+pub const JUMP_MINUTES: u64 = time::DAY as u64;
 
 /// How far from everything in a system a jump lands, in world units. Four
 /// times a body's arrival radius, so the ship is in empty space and not on

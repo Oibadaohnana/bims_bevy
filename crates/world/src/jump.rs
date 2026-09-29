@@ -5,10 +5,10 @@
 //! generated afresh from the galaxy seed and the star's id the way the
 //! lobby generates one to look at, standing still in **empty space**
 //! wherever [`landing_point`] says — a point well clear of everything the
-//! system holds — and the trip's leg in the system runs from there to the
-//! site. The charge, [`crate::data::JUMP_CHARGE_MINUTES`], is part of the
-//! trip's length (`World::travel_quote`); nothing is flown, and no part
-//! of the ship is asked for.
+//! system holds — and the trip docks it at the site from there. A jump is a
+//! day on the world clock, [`crate::data::JUMP_MINUTES`]
+//! (`World::travel_quote`); nothing is flown, and no part of the ship is
+//! asked for.
 //!
 //! Only the ship makes the trip. What belonged to the system stays behind:
 //! its stations and their people, the chart of it, the keys on its desks.

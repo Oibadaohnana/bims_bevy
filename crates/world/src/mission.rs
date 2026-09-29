@@ -7,7 +7,10 @@
 //! `crate::run`'s, public, since the app draws them.
 
 use super::*;
-use crate::run::{Departure, Fallen, Phase as RunPhase, Proposal, Site, SiteSnapshot, TravelQuote};
+use crate::run::{
+    Departure, Fallen, Phase as RunPhase, Proposal, Site, SiteLook, SiteSnapshot, SystemLook,
+    TravelQuote,
+};
 
 impl World {
     // --- the two clocks -----------------------------------------------------
@@ -159,14 +162,6 @@ impl World {
         system.absolute_position(Node::Station(station))
     }
 
-    /// Where a trip from here starts, in this system: the site the crew
-    /// are at, else wherever the ship is.
-    fn here(&self) -> DVec2 {
-        self.current_site()
-            .and_then(|site| self.site_position(&self.system, site.station))
-            .unwrap_or_else(|| self.ship.position())
-    }
-
     /// What a trip to `site` would be — how long, when the crew get there
     /// and what they find — or why there is no such trip: a place that
     /// is not there ([`Refusal::NoSuchPlace`]), a star more than a lane
@@ -177,17 +172,12 @@ impl World {
     /// put back as the crew met it, so going back into it without the
     /// clock moving would be the same fight again at the same strength.
     ///
-    /// **The length** is the hyperdrive's charge, for a jump, and
-    /// `physics::travel_days` of the leg in the system at the ship's own
-    /// accelerations — from the site the crew are at, or from where the
-    /// jump lands them (`crate::jump::landing_point`) to the site. The
-    /// forward engines push, and whichever way pushes harder brakes: a
-    /// ship with nothing aft turns over and brakes on the same engines.
-    /// Rounded **up** to whole minutes for the clock, so the day it puts
-    /// the world on to is a whole number of minutes on every machine —
-    /// and never under [`data::MIN_TRAVEL_HOURS`], however close the two
-    /// ends (feature 105; [`TravelQuote::minimum`] says when that is what
-    /// the trip is).
+    /// **The length** is a day for a jump and nothing for a trip in the
+    /// system (the map rework): [`data::JUMP_MINUTES`] on the world clock for
+    /// crossing a hyperlane, however far the site lies from where the jump
+    /// lands, and not a minute for moving between the sites of one system.
+    /// A ship with no engine to stop it at the far end goes nowhere either
+    /// way.
     pub fn travel_quote(&self, site: Site) -> Result<TravelQuote, Refusal> {
         if site.star == self.star_id {
             return self.quote_in(None, site);
@@ -195,10 +185,51 @@ impl World {
         self.quote_in(Some(&self.galaxy()), site)
     }
 
+    /// Every site of `star` as the map draws it (the map rework) — where it
+    /// lies in that system and what it is — whether or not a trip could go
+    /// there: this system's, a neighbour's, or a star across the galaxy
+    /// picked on the chart to be looked at. The system is what it offers
+    /// (task 135). `None` for a star the galaxy has not got.
+    pub fn system_look(&self, star: u32) -> Option<SystemLook> {
+        let generated;
+        let (galaxy, system) = if star == self.star_id {
+            (None, self.system.clone())
+        } else {
+            generated = self.galaxy();
+            let mut system = generated.system(star)?;
+            self.trim_system(star, &mut system);
+            (Some(&generated), system)
+        };
+        let sites = self
+            .sites_in(galaxy, star)
+            .into_iter()
+            .filter_map(|site| {
+                let at = self.site_position(&system, site.station)?;
+                let quote = self.quote_with(galaxy, site, true).ok()?;
+                Some(SiteLook { site, at, quote })
+            })
+            .collect();
+        Some(SystemLook { system, sites })
+    }
+
     /// [`World::travel_quote`] off a galaxy already generated. A trip in
     /// this system reads nothing of it.
     fn quote_in(&self, galaxy: Option<&Galaxy>, site: Site) -> Result<TravelQuote, Refusal> {
-        if self.current_site() == Some(site) {
+        self.quote_with(galaxy, site, false)
+    }
+
+    /// The quote, or — `looking` — what the site would be on arrival
+    /// with every question about whether the crew may go there left
+    /// unasked: here, too far, jammed, the other fight chosen, the ship
+    /// unable to move, the trader shut. Only a place that is not there is
+    /// refused then.
+    fn quote_with(
+        &self,
+        galaxy: Option<&Galaxy>,
+        site: Site,
+        looking: bool,
+    ) -> Result<TravelQuote, Refusal> {
+        if !looking && self.current_site() == Some(site) {
             return Err(Refusal::AlreadyHere);
         }
         let jump = site.star != self.star_id;
@@ -212,10 +243,10 @@ impl World {
             };
             // What it offers alone (task 135).
             self.trim_system(site.star, &mut there);
-            if !galaxy.lanes(self.star_id).contains(&site.star) {
+            if !looking && !galaxy.lanes(self.star_id).contains(&site.star) {
                 return Err(Refusal::TooFar);
             }
-            if self.jammed_step(self.star_id, site.star) {
+            if !looking && self.jammed_step(self.star_id, site.star) {
                 return Err(Refusal::Jammed);
             }
             elsewhere = there;
@@ -228,54 +259,34 @@ impl World {
             return Err(Refusal::NoSuchPlace);
         }
         // One fight a system (task 135): the other one fought already.
-        if self.other_site_chosen(site, system) {
+        if !looking && self.other_site_chosen(site, system) {
             return Err(Refusal::OtherSiteChosen);
         }
-        let to = self
-            .site_position(system, site.station)
+        self.site_position(system, site.station)
             .ok_or(Refusal::NoSuchPlace)?;
-        let from = if jump {
-            crate::jump::landing_point(system)
-        } else {
-            self.here()
-        };
+        // A ship with no engine to stop it at the far end goes nowhere;
+        // how far the far end is no longer matters.
         let dynamics = &self.ship.dynamics;
         let (push, brake) = (
             dynamics.a_forward,
             dynamics.a_forward.max(dynamics.a_backward),
         );
-        let leg =
-            physics::travel_days(from.distance(to), push, brake).ok_or(Refusal::CannotTravel)?;
-        let charge = if jump {
-            time::days(data::JUMP_CHARGE_MINUTES)
-        } else {
-            0.0
-        };
-        // The least a trip is (feature 105): the machines scale on the
-        // world clock, so no trip may leave it where it was.
-        let least = u64::from(data::MIN_TRAVEL_HOURS) * time::HOUR as u64;
-        let flown = (leg + charge) * time::DAY;
-        let minimum = flown.ceil() < least as f64;
-        let minutes = if minimum {
-            least
-        } else {
-            flown.ceil().max(0.0) as u64
-        };
-        let days = if minimum {
-            least as f64 / time::DAY
-        } else {
-            leg + charge
-        };
+        if !looking {
+            physics::travel_days(1.0, push, brake).ok_or(Refusal::CannotTravel)?;
+        }
+        // A day across a hyperlane, nothing within a system (the map rework).
+        let minutes = if jump { data::JUMP_MINUTES } else { 0 };
+        let days = minutes as f64 / time::DAY;
         let arrival = self.clock_minutes.floor() as u64 + minutes;
         let arrival_day = (arrival / (time::DAY as u64)) as u32;
         // A trader (task 114) is closed while its system is the machines'
         // and not liberated — now, or by the day the crew would get there,
         // which the crisis being a function of the day makes exact.
         let trader = self.trader_in(galaxy, site);
-        if trader && self.trader_closed_on(site.star, self.days_gone()) {
+        if !looking && trader && self.trader_closed_on(site.star, self.days_gone()) {
             return Err(Refusal::TraderClosed);
         }
-        if trader && self.trader_closed_on(site.star, arrival_day) {
+        if !looking && trader && self.trader_closed_on(site.star, arrival_day) {
             return Err(Refusal::ClosedOnArrival);
         }
         // A site of the Manufacturers' (feature 109): theirs whatever the
@@ -360,7 +371,6 @@ impl World {
             jump,
             days,
             minutes,
-            minimum,
             arrival_day,
             arrival_date: bims::clock::day_at(self.clock_minutes + minutes as f64),
             infested,

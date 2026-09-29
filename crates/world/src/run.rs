@@ -414,18 +414,13 @@ pub struct TravelQuote {
     pub site: Site,
     /// Whether it is a jump to another system.
     pub jump: bool,
-    /// How long it takes, in days: [`crate::data::JUMP_CHARGE_MINUTES`]
-    /// for a jump, and `physics::travel_days` of the leg in the system —
-    /// from the site the crew are at, or from where a jump lands them —
-    /// or [`crate::data::MIN_TRAVEL_HOURS`] where that is less.
+    /// How long it takes, in days: a day for a jump
+    /// ([`crate::data::JUMP_MINUTES`]) and nought within a system (the map
+    /// rework).
     pub days: f64,
     /// The same in whole minutes, rounded up: what the world clock is put
     /// on by.
     pub minutes: u64,
-    /// Whether the trip is the least a trip may be
-    /// ([`crate::data::MIN_TRAVEL_HOURS`], feature 105) rather than its
-    /// flown length, which was shorter: what the map says beside it.
-    pub minimum: bool,
     /// The day the crew arrive on, by `World::days_gone` — the day the
     /// crisis is read at.
     pub arrival_day: u32,
@@ -465,4 +460,22 @@ pub struct TravelQuote {
     /// meet on arrival: the conduits, the core, and the waves at the
     /// arrival day. `None` at every other site.
     pub heart: Option<crate::heart::HeartPreview>,
+}
+
+/// A star's system as the map draws it (the map rework,
+/// [`crate::World::system_look`]): what it offers, and every site of it.
+#[derive(Clone, Debug)]
+pub struct SystemLook {
+    pub system: worldgen::StarSystem,
+    pub sites: Vec<SiteLook>,
+}
+
+/// One site of a [`SystemLook`]: where it lies in its system and what it
+/// would be on arrival — a quote with every question about whether the
+/// crew may go there left unasked.
+#[derive(Clone, Copy, Debug)]
+pub struct SiteLook {
+    pub site: Site,
+    pub at: worldgen::math::DVec2,
+    pub quote: TravelQuote,
 }

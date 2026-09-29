@@ -40,10 +40,10 @@
 //! world clock. What the crew own, what they have learnt, and how many
 //! bots, mercenaries and recruits walk with them are none of the
 //! machines' business — growing stronger makes the fight easier, and
-//! money kept is not punished. Only travel moves the world clock, and
-//! every trip moves it by at least [`data::MIN_TRAVEL_HOURS`], so the
-//! machines grow with the run and never with a site left and entered
-//! again. See [`wave_size`] and [`wave_count`].
+//! money kept is not punished. Only a jump moves the world clock — a day
+//! each, [`data::JUMP_MINUTES`], and nothing for a trip within a system
+//! (the map rework) — so the machines grow with the systems crossed. See
+//! [`wave_size`] and [`wave_count`].
 
 use crate::data;
 use worldgen::Galaxy;

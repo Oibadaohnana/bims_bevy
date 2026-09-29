@@ -127,7 +127,7 @@ pub struct SiteMark {
     /// The system's elite (`world::elite`): crowned on the map, its word
     /// in the crown's colour.
     pub elite: bool,
-    /// Where the map draws it, in the camera's units about the ship.
+    /// Where the map draws it, in the camera's units about the map's origin.
     pub at: (f32, f32),
 }
 
@@ -1819,48 +1819,42 @@ impl Session {
         let Some(game) = &self.game else { return 0 };
         match node {
             Node::Body(id) => game
-                .world
-                .system
+                .map_system()
                 .body(id)
                 .map(|b| b.kind as u32)
                 .unwrap_or(0),
             Node::Station(id) => game
-                .world
-                .system
+                .map_system()
                 .station(id)
                 .map(|s| s.kind as u32)
-                .unwrap_or(0),
+                // A derived jammer or the fortress looked at from afar.
+                .unwrap_or(worldgen::StationKind::Relay as u32),
         }
     }
 
-    /// Every charted site of this system — its stations and its planets'
-    /// settlements — with what it is (task 111): what the map writes under
-    /// each icon. The rules are the world's (`World::site_kind`,
-    /// `site_threatened`, `site_cleared`, `trader_closed_on`).
+    /// Every charted site of the system the map shows — its stations and
+    /// its planets' settlements — with what it is (task 111): what the map
+    /// writes under each icon. The rules are the world's
+    /// (`ship::Game::map_sites`); where it is drawn, the map's
+    /// (`Game::map_spots`, the map rework).
     pub fn site_marks(&self) -> Vec<SiteMark> {
         let Some(game) = &self.game else {
             return Vec::new();
         };
-        let world = &game.world;
-        let closed = world.trader_closed_on(world.star_id, world.days_gone());
-        world
-            .discovered
-            .iter()
-            .filter_map(|&node| {
-                let id = match node {
-                    Node::Station(id) => id,
-                    Node::Body(body) => world.surface(body)?.id,
-                };
-                let kind = world.site_kind(id);
+        let spots = game.map_spots();
+        game.map_sites()
+            .into_iter()
+            .filter_map(|site| {
+                let at = spots.iter().find(|(n, _)| *n == site.node)?.1;
                 Some(SiteMark {
-                    node,
-                    kind,
-                    threatened: world.site_threatened(id),
-                    cleared: world.site_cleared(id) && !world.site_threatened(id),
-                    closed: kind == world::SiteKind::Trader && closed,
-                    passed: world.passed_over(id),
-                    elite: world.is_elite_here(id),
-                    at: game.map_spot(node)?,
+                    node: site.node,
+                    kind: site.kind,
+                    threatened: site.threatened,
+                    cleared: site.cleared,
+                    closed: site.closed,
+                    passed: site.passed,
+                    elite: site.elite,
+                    at,
                 })
             })
             .collect()

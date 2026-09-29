@@ -281,6 +281,9 @@ pub struct ColumnAsk {
     /// The map closed (during a mission only: between missions it is the
     /// one thing there is to do).
     pub close: bool,
+    /// A place picked on the list (the map rework): its star, to be picked on
+    /// the chart and shown in the system view.
+    pub show: Option<u32>,
 }
 
 /// The world map's column (feature 107), down the right of the canvas
@@ -403,6 +406,7 @@ pub fn map_column(
                             }
                             if row.clicked() {
                                 map.picked = Some(d.site);
+                                ask.show = Some(d.site.star);
                             }
                             if map.scroll_to_pick && map.picked == Some(d.site) {
                                 row.scroll_to_me(Some(egui::Align::Center));
@@ -471,11 +475,7 @@ fn row_words(d: &Destination, at: bool) -> (String, egui::Color32) {
     match &d.quote {
         Ok(q) => {
             let tags = tags(q);
-            let mut line = format!(
-                "{}  {}",
-                d.name,
-                trip_quote(q.minutes, q.minimum, q.arrival_date)
-            );
+            let mut line = format!("{}  {}", d.name, trip_quote(q.minutes, q.arrival_date));
             if !tags.is_empty() {
                 line.push_str(&format!("  · {tags}"));
             }
@@ -600,7 +600,7 @@ fn destination_card(
                 ui.end_row();
             };
             row(ui, CARD_HOPS, hops_words(quote.jump));
-            row(ui, CARD_TRAVEL, days_words(quote.days, quote.minimum));
+            row(ui, CARD_TRAVEL, days_words(quote.days));
             row(ui, CARD_ARRIVAL, quote.arrival_date.to_string());
         });
     // What is there on arrival, wrapped under the rows: a grid gives a

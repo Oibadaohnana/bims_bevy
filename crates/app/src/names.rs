@@ -2409,7 +2409,7 @@ pub const MAP_READ_ONLY: &str =
 /// At a trader (task 114): the visit is here, and the vote goes on.
 pub const MAP_AT_TRADER: &str =
     "At a trader. Buy what you want, then choose where to go next — everybody has to accept.";
-pub const MAP_TIP: &str = "A trip is one step: to another station or settlement in this system, or to one in a system a hyperlane joins to this one. Nothing is flown. The world clock goes on by the trip's length the moment everybody has accepted — the crisis spreads by the day — and the crew arrive docked or landed with a mission begun. The world clock moves for nothing else: not during a mission, and not here.";
+pub const MAP_TIP: &str = "A trip is one step: to another station or settlement in this system, or to one in a system a hyperlane joins to this one. Nothing is flown. A jump to another system puts the world clock on by one day the moment everybody has accepted — the crisis spreads by the day — and a trip within this system takes no time at all. The crew arrive docked or landed with a mission begun. The world clock moves for nothing else: not during a mission, and not here. Drag the galaxy chart with the left button; a system clicked on it, or a place picked on the list, is shown in the system view.";
 /// The two halves of the list.
 pub const MAP_THIS_SYSTEM: &str = "This system";
 pub fn map_next_system(star: &str) -> String {
@@ -2422,18 +2422,16 @@ pub const MAP_SORT_DISTANCE: &str = "By distance";
 pub const MAP_SORT_TIP: &str = "By system lists this system's sites, then each system a hyperlane joins, under its name. By distance lists every site together, the shortest trip first, with its system beside it; the sites no trip can go to come last.";
 /// The site the crew are at, in the list.
 pub const MAP_HERE: &str = "here";
-/// Beside a trip that is the least a trip may be (`world::data::MIN_TRAVEL_HOURS`,
-/// feature 105) rather than its flown length.
-pub const TRIP_MINIMUM: &str = "the minimum";
-/// A trip's length and the day it ends on — and, where the trip is the
-/// least a trip may be, that it is.
-pub fn trip_quote(minutes: u64, minimum: bool, arrival_day: u32) -> String {
-    let length = crate::format::trip_length(minutes);
-    if minimum {
-        format!("{length} ({TRIP_MINIMUM}) · day {arrival_day}")
-    } else {
-        format!("{length} · day {arrival_day}")
+/// A trip within the system, which takes no time (the map rework).
+pub const TRIP_FREE: &str = "no time";
+/// A trip's length and the day it ends on: a day for a jump, no time
+/// within a system.
+pub fn trip_quote(minutes: u64, arrival_day: u32) -> String {
+    if minutes == 0 {
+        return format!("{TRIP_FREE} · day {arrival_day}");
     }
+    let length = crate::format::trip_length(minutes);
+    format!("{length} · day {arrival_day}")
 }
 /// What a site is to the crew (task 111), by `world::SiteKind::code`: the
 /// word every row of the map's list and every icon of the system map leads
@@ -2838,11 +2836,15 @@ pub fn hops_words(jump: bool) -> String {
         "this system".into()
     }
 }
-pub fn days_words(days: f64, minimum: bool) -> String {
-    if minimum {
-        format!("{days:.1} days ({TRIP_MINIMUM})")
+pub fn days_words(days: f64) -> String {
+    if days <= 0.0 {
+        return TRIP_FREE.to_string();
+    }
+    let days = days.round() as u64;
+    if days == 1 {
+        "1 day".to_string()
     } else {
-        format!("{days:.1} days")
+        format!("{days} days")
     }
 }
 pub fn proposed_by(who: &str) -> String {
