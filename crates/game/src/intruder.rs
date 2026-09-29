@@ -171,7 +171,7 @@ impl Game {
         }
         bim.character.set_aim(Some(at));
         if bim.trigger.pull(dt, &stats) {
-            let muzzle = self.shot_from(who, eye);
+            let muzzle = self.shot_from(who, eye, at);
             self.reveal(who);
             self.lit_muzzle(muzzle, at, weapon);
             if mark < cross {

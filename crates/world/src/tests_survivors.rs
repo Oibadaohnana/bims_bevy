@@ -198,6 +198,15 @@ const TILE: f32 = shipdesign::TILE as f32;
 /// `0x_0276_3b8b_1c2e_7309`. The shared tree read `0x_702c_7b50_cfc9_f862`
 /// without it (other agents' uncommitted work) and `0x_cc3d_8f02_97f0_2873`
 /// with it, so the constant is left for the sweep to take.
+///
+/// **Not in the constant yet either, and moving it on purpose**: a shot
+/// out of a peek leaves the eye rather than the muzzle when the muzzle's
+/// line to the target clips the corner or a lamp (`Game::shot_from`),
+/// so the gun held on the right no longer puts bolts into the wall a
+/// corner on that side. On 3adce24 plus the working tree's `crates/game`
+/// (and HEAD's `earn_bounty` hunk put right) it read
+/// `0x_8d00_61ed_88c8_6121`, and `0x_cc3d_8f02_97f0_2873` with that one
+/// check taken out. Left for the sweep as well.
 const SURVIVORS: u64 = 0x_11a9_33d1_6eeb_9209;
 
 /// A gun in every hand, the kinds dealt round, as the fight's probes arm

@@ -9,7 +9,7 @@ use crate::clock::MINUTES_PER_SECOND;
 use crate::clock::{self, Clock};
 use crate::combat::{
     ArmourKind, Blow, COVER_WORTH, Combat, FIST_DAMAGE, Gear, Grenade, Hit, Item, MELEE_PERIOD,
-    MELEE_RANGE, Piece, Sentry, Shot, Skill, Tactics, Weapon, WeaponStats,
+    MELEE_RANGE, Piece, Sentry, Shot, Skill, Tactics, Weapon, WeaponStats, line_of_fire,
 };
 use crate::cue::{Cue, Cued};
 use crate::door;
@@ -1390,16 +1390,27 @@ impl Game {
     /// a bolt started there would land on that wall. A body with nothing
     /// drawn in its hands has no muzzle and shoots from the eye as it
     /// always did.
-    fn shot_from(&self, who: usize, eye: Vec2) -> Vec2 {
+    ///
+    /// **And the muzzle's own line to `at` has to be clear** — no wall,
+    /// no lamp still lit (`combat::line_of_fire`) — or the eye's is taken
+    /// when that one is. The gun is held over the firing shoulder, on the
+    /// body's right (`GRIP_ACROSS`), so leaning out past a corner on its
+    /// right the muzzle sits beside the corner the eye sees past, and its
+    /// bolts clipped the wall or a lamp hanging on it; round a corner on
+    /// the left the gun is on the far side and never did. With neither
+    /// line clear it is the muzzle, as before.
+    fn shot_from(&self, who: usize, eye: Vec2, at: Vec2) -> Vec2 {
         let Some(muzzle) = self.bims[who].character.muzzle() else {
             return eye;
         };
-        let tile = self.room.sight.tile_of(muzzle);
-        if self.room.sight.clear_line(eye, tile) {
-            muzzle
-        } else {
-            eye
+        let sight = &self.room.sight;
+        if !sight.clear_line(eye, sight.tile_of(muzzle)) {
+            return eye;
         }
+        if !line_of_fire(sight, muzzle, at) && line_of_fire(sight, eye, at) {
+            return eye;
+        }
+        muzzle
     }
 
     /// An enemy's muzzle glowing where its body stands (feature 98): a
@@ -1847,7 +1858,7 @@ impl Game {
                 // Out of the gun, not out of the chest: the emitter where
                 // the picture puts it, falling back to the eye for a body
                 // with nothing drawn in its hands.
-                let muzzle = self.shot_from(who, eye);
+                let muzzle = self.shot_from(who, eye, at);
                 self.reveal(who);
                 if self.hostile_bodies {
                     self.lit_muzzle(muzzle, at, weapon);
@@ -10272,6 +10283,61 @@ mod tests {
         // The origin *is* the muzzle of the gun the picture draws.
         let muzzle = game.bims[0].character.muzzle().expect("a gun is up");
         assert!((muzzle - from).len() < 8.0, "fired from the muzzle");
+    }
+
+    /// Peeking round a corner, every shot starts where its line to the
+    /// target is clear, the corner on the body's right as on its left.
+    /// The gun is held over the right shoulder, so leaning out with the
+    /// wall on that side put the muzzle beside the corner, and the bolts
+    /// went into the wall (`Game::shot_from`).
+    #[test]
+    fn a_peek_shoots_clear_of_the_corner_on_either_side() {
+        for wall_on_the_right in [true, false] {
+            let mut game = room();
+            game.set_autonomous(false);
+            let origin = game.room.bounds.min;
+            let tile = |x: i32, y: i32| {
+                let min = origin + vec2(x as f32 * TILE, y as f32 * TILE);
+                Rect::from_corners(min, min + vec2(TILE, TILE))
+            };
+            // A wall three tiles long east of the body's tile, running
+            // away from the side it peeks out of: south of the line to
+            // the target when the wall is on its right (facing east, in
+            // a y-down room), north of it when on its left.
+            let (rows, target_row) = if wall_on_the_right {
+                ([5, 6, 7], 4)
+            } else {
+                ([3, 4, 5], 6)
+            };
+            let walls: Vec<Rect> = rows.iter().map(|&y| tile(6, y)).collect();
+            let interior = game.room.interior;
+            game.room.others.extend(walls.iter().copied());
+            game.room.sight = Sight::new(game.room.bounds, interior, TILE, &walls, &[]);
+            game.refresh_maps();
+            game.refresh_blockers();
+            game.put_for_probe(0, tile(5, 5).center());
+            game.put_for_probe(1, tile(2, 9).center());
+            game.issue(1, Gear::default());
+            game.recruit_for_probe(0, true);
+            let target = tile(12, target_row).center();
+            game.set_hostiles(vec![Some((target, WeaponKind::LaserPistol.basic()))]);
+            let mut shots = 0;
+            for _ in 0..(60 * 6) {
+                let before = game.bolts_in_flight();
+                game.simulate(DT);
+                if game.bolts_in_flight() > before {
+                    let from = game.combat.bolts.last().expect("a bolt").fired_from;
+                    assert!(game.peek(0).is_some(), "it shoots from the peek");
+                    assert!(
+                        line_of_fire(&game.room.sight, from, target),
+                        "wall on the right {wall_on_the_right}: a shot from {from:?} \
+                         has the corner in its way"
+                    );
+                    shots += 1;
+                }
+            }
+            assert!(shots >= 3, "it fires: {shots}");
+        }
     }
 
     #[test]

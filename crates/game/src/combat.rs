@@ -3690,6 +3690,19 @@ fn along(a: Vec2, b: Vec2, centre: Vec2, radius: f32) -> Option<f32> {
         / len2.sqrt();
     Some((t - back).max(0.0))
 }
+
+/// Whether a bolt from `from` gets to `to` with nothing in its way: no
+/// wall, and no lamp still lit that it would pass near enough to break —
+/// the two things a flying bolt stops at before the bodies
+/// (`Combat::step`). What `Game::shot_from` picks a shot's start
+/// by.
+pub fn line_of_fire(sight: &Sight, from: Vec2, to: Vec2) -> bool {
+    sight.first_opaque_along(from, to).is_none()
+        && sight
+            .lamps()
+            .iter()
+            .all(|l| l.is_out() || along(from, to, l.at, LAMP_RADIUS).is_none())
+}
 /// What a candidate stand is worth to the enemy, in **tiles of walking**
 /// — every term is in that one unit, so the trade-offs read off the
 /// numbers. Cover is worth walking [`COVER_WORTH`] tiles for, so cover a

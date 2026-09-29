@@ -4270,3 +4270,18 @@ straight line it always was. A body idle on its own best spot short of
 the banner walks the whole route. The world's
 `a_banner_round_a_corner_is_reached_by_every_bot` pins it on the spawn
 station.
+
+## A peek shoots clear of its corner on either side
+
+The gun is held over the right shoulder (`GRIP_ACROSS`), and a body
+leaning out of a peek is drawn only `LEAN` of the way there, so with the
+corner on its **right** the muzzle sat beside the corner the eye saw
+past — in the body's own tile, which the eye sees, so `shot_from` took
+it — and the bolt clipped the wall or a lamp hanging on it; with the
+corner on the left the gun is on the far side and never did.
+`Game::shot_from(who, eye, at)` now takes the muzzle only when its own
+line to `at` is clear too (`combat::line_of_fire`: no wall, no lamp
+still lit — what a flying bolt stops at before the bodies), else the eye
+when the eye's line is; neither clear, the muzzle as before.
+`a_peek_shoots_clear_of_the_corner_on_either_side` pins both sides. It
+moves `SURVIVORS` (its runs peek).
