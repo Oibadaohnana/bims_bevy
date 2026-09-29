@@ -3042,27 +3042,6 @@ pub const MONTH_NAMES: [&str; 12] = [
     "December",
 ];
 
-/// How a Bim says each thing it remembers, by the code from
-/// `crates/game/src/memory.rs`. First person, because it is its diary. `d`
-/// is the one detail that came with the entry. The one thing written down
-/// is a crewmate's death (`What::CrewDied`, `d` the crewmate); an entry
-/// with no line here is dropped from the page rather than padded out.
-pub fn memory_line(what: u32, d: u32) -> Option<String> {
-    match what {
-        30 => Some(format!("{} died today.", crew_or(d, "One of the crew"))),
-        _ => None,
-    }
-}
-
-fn crew_or(who: u32, fallback: &str) -> String {
-    given_name(who).unwrap_or_else(|| {
-        CREW_NAMES
-            .get(who as usize)
-            .map(|s| s.to_string())
-            .unwrap_or_else(|| fallback.to_string())
-    })
-}
-
 /// What `spot_at` says is under the pointer. Must match the `SPOT_` codes
 /// in `crates/game/src/room.rs`.
 pub const SPOT_NAMES: [&str; 21] = [
@@ -3454,8 +3433,6 @@ mod tests {
         assert_eq!(crew_name(0), "James");
         assert_eq!(crew_name(1), "Ada");
         assert_eq!(crew_name(2), "Priya");
-        assert_eq!(crew_or(1, "One of the crew"), "Ada");
-        assert!(memory_line(30, 1).unwrap().starts_with("Ada died"));
         set_crew_names(&[]);
         assert_eq!(crew_name(1), "Kate");
     }

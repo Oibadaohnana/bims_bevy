@@ -2,7 +2,7 @@
 //!
 //! A cue is a thing that just happened that a host may want to *play*: a
 //! door starting to slide, a shot
-//! leaving a gun, a bolt landing. The same arrangement as the diary and the
+//! leaving a gun, a bolt landing. The same arrangement as the
 //! world's events, and for the same reason: **no sound comes out of the
 //! room**. A cue is a code and a place, `crates/app/src/sound.rs` owns the
 //! recordings and decides what each is played as, and a native server, which

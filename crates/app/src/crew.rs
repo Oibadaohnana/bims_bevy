@@ -2,7 +2,7 @@
 //! rather than about the deck they are standing on — the room aboard,
 //! stepped by the world.
 //!
-//! The selected crew member's health and diary, the tray with its Stash
+//! The selected crew member's health and sheet, the tray with its Stash
 //! and Squad (feature 107), the character sheet, the fixture menus, and
 //! the tooltips everything hangs off. What is *not* here is the canvas and the
 //! pointer, because those are the screen's own — the ship turns the deck
@@ -55,7 +55,7 @@ use bims::{door, health};
 use physics::ResourceId;
 use world::LootSource;
 
-use crate::format::{clock_text, date_text};
+use crate::format::date_text;
 use crate::icons;
 use crate::keys::{Action, Keys};
 use crate::names::*;
@@ -571,8 +571,6 @@ pub struct CrewPanels {
     /// Whether the character sheet is up (feature 107): K, the `+1` on the
     /// hero panel, or the player's own portrait twice.
     pub sheet_open: bool,
-    /// The side panel's page, per crew member: `true` for the diary.
-    diary_open: Vec<bool>,
     /// The spot the pointer's row rang last frame, and the one the rows
     /// hovered this frame want.
     ringed: u32,
@@ -646,7 +644,6 @@ impl CrewPanels {
             crew_count,
             tray: crate::dev::tray(),
             sheet_open: crate::dev::sheet(),
-            diary_open: vec![false; crew_count as usize],
             ringed: SPOT_NOTHING,
             wanted: SPOT_NOTHING,
             menu: None,
@@ -677,7 +674,6 @@ impl CrewPanels {
             return;
         }
         self.crew_count = count;
-        self.diary_open = vec![false; count as usize];
         self.menu = None;
         // The room was rebuilt with it, and the station's people with it:
         // a mercenary the Hire window was over has gone with its room.
@@ -1285,86 +1281,26 @@ impl CrewPanels {
             self.class_section(ui, &view);
         }
 
-        // The character sheet: two pages under the bars.
+        // The character sheet under the bars.
         ui.add_space(6.0);
-        let diary = self.diary_open.get(w).copied().unwrap_or(false);
-        ui.horizontal(|ui| {
-            if theme::toggle(ui, !diary, "About").clicked() {
-                self.diary_open[w] = false;
-            }
-            if theme::toggle(ui, diary, "Memory").clicked() {
-                self.diary_open[w] = true;
-            }
-        });
-        if !diary {
-            egui::Grid::new(("about", who))
-                .num_columns(2)
-                .show(ui, |ui| {
-                    ui.label(egui::RichText::new("Name").color(theme::MUTED));
-                    ui.label(name(who));
-                    ui.end_row();
-                    ui.label(egui::RichText::new("Age").color(theme::MUTED));
-                    ui.label(format!("{}", game.age(w)));
-                    ui.end_row();
-                    ui.label(egui::RichText::new("Born").color(theme::MUTED));
-                    ui.label(date_text(
-                        game.born_date(w),
-                        game.born_month(w),
-                        game.born_year(w),
-                    ));
-                    ui.end_row();
-                });
-        } else {
-            self.diary(ui, game, w);
-        }
-        true
-    }
-
-    /// The Bim's own account of its days: newest day first, and within a
-    /// day in the order it happened. An empty page is the *good* outcome:
-    /// the diary keeps only what went wrong.
-    fn diary(&self, ui: &mut egui::Ui, game: &Game, who: usize) {
-        let count = game.memory_len(who);
-        egui::ScrollArea::vertical()
-            .max_height(220.0)
+        egui::Grid::new(("about", who))
+            .num_columns(2)
             .show(ui, |ui| {
-                if count == 0 {
-                    ui.label(egui::RichText::new("Nothing has gone wrong.").color(theme::MUTED));
-                    return;
-                }
-                let mut days: Vec<(u32, Vec<(f32, String)>)> = Vec::new();
-                for i in 0..count {
-                    let day = game.memory_day(who, i);
-                    let Some(words) =
-                        memory_line(game.memory_what(who, i), game.memory_detail(who, i))
-                    else {
-                        continue;
-                    };
-                    let at = game.memory_at(who, i);
-                    match days.iter_mut().find(|(d, _)| *d == day) {
-                        Some((_, lines)) => lines.push((at, words)),
-                        None => days.push((day, vec![(at, words)])),
-                    }
-                }
-                days.sort_by_key(|a| std::cmp::Reverse(a.0));
-                for (day, lines) in days {
-                    ui.label(
-                        egui::RichText::new(format!("Day {day}"))
-                            .strong()
-                            .color(theme::MUTED),
-                    );
-                    for (at, words) in lines {
-                        ui.horizontal_wrapped(|ui| {
-                            ui.label(
-                                egui::RichText::new(clock_text(at))
-                                    .small()
-                                    .color(theme::MUTED),
-                            );
-                            ui.label(words);
-                        });
-                    }
-                }
+                ui.label(egui::RichText::new("Name").color(theme::MUTED));
+                ui.label(name(who));
+                ui.end_row();
+                ui.label(egui::RichText::new("Age").color(theme::MUTED));
+                ui.label(format!("{}", game.age(w)));
+                ui.end_row();
+                ui.label(egui::RichText::new("Born").color(theme::MUTED));
+                ui.label(date_text(
+                    game.born_date(w),
+                    game.born_month(w),
+                    game.born_year(w),
+                ));
+                ui.end_row();
             });
+        true
     }
 
     // --- the tray ---------------------------------------------------------------

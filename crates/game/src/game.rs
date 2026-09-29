@@ -17,7 +17,6 @@ use crate::draw::{Color, DrawList};
 use crate::droid::{Droid, DroidPart};
 use crate::health::{Health, Part};
 use crate::math::{Rect, TAU, Vec2, clamp, vec2};
-use crate::memory::What;
 use crate::nav::{self, Maps, Nav};
 use crate::rng::Rng;
 use crate::room::{self, GLOW, HIT_BIM, HIT_BODY, HIT_NONE, HIT_VISITOR, Room, Switch, TILE, WARN};
@@ -1025,7 +1024,7 @@ impl Game {
     /// is being replaced by a bigger one, a docked ship's by the ship's and
     /// the station's together. Every errand is given up first, the way a
     /// blocked one is: whatever was carried goes back where it came from.
-    /// What survives is the Bim — its health, its diary, where it stands —
+    /// What survives is the Bim — its health, its gear, where it stands —
     /// and not what it was in the middle of, because the thing it was
     /// walking to is in another room now.
     pub fn take_crew(&mut self) -> Vec<Bim> {
@@ -3886,14 +3885,6 @@ impl Game {
         if close { CROWDED_PACE } else { 1.0 }
     }
 
-    // --- what a Bim remembers ---------------------------------------------
-
-    /// Write one line of the diary.
-    fn remember(&mut self, who: usize, what: What, detail: u32) {
-        let (day, at) = (self.clock.day(), self.clock.minutes());
-        self.bims[who].memory.note(day, at, what, detail);
-    }
-
     // --- interrupting, and getting back to it ----------------------------
 
     /// Put the running chain down and queue it to be picked up next.
@@ -4189,14 +4180,6 @@ impl Game {
     /// The end of it. Whatever it was doing is dropped, and so is everything
     /// waiting behind it: there is no one left to do any of it.
     fn die(&mut self, who: usize) {
-        // The others are told. This is the one thing that can happen aboard
-        // that nobody could fail to notice, so it goes in every surviving
-        // diary regardless of where they were standing.
-        for other in 0..self.bims.len() {
-            if other != who && self.bims[other].is_alive() {
-                self.remember(other, What::CrewDied, who as u32);
-            }
-        }
         self.bims[who].task = None;
         self.bims[who].queue.clear();
         self.bims[who].character.die();
@@ -6283,42 +6266,6 @@ impl Game {
         self.bims[who].age(self.clock.year(), self.clock.day_of_year())
     }
 
-    // --- what they remember -------------------------------------------------
-
-    pub fn memory_len(&self, who: usize) -> u32 {
-        self.bims[who].memory.len() as u32
-    }
-
-    /// One line of the diary, oldest first. Four numbers and no words: what
-    /// day, what time, what happened, and the one detail that goes with it.
-    pub fn memory_day(&self, who: usize, i: u32) -> u32 {
-        self.bims[who]
-            .memory
-            .at(i as usize)
-            .map_or(0, |moment| moment.day)
-    }
-
-    pub fn memory_at(&self, who: usize, i: u32) -> f32 {
-        self.bims[who]
-            .memory
-            .at(i as usize)
-            .map_or(0.0, |moment| moment.at)
-    }
-
-    pub fn memory_what(&self, who: usize, i: u32) -> u32 {
-        self.bims[who]
-            .memory
-            .at(i as usize)
-            .map_or(0, |moment| moment.what.code())
-    }
-
-    pub fn memory_detail(&self, who: usize, i: u32) -> u32 {
-        self.bims[who]
-            .memory
-            .at(i as usize)
-            .map_or(0, |moment| moment.detail)
-    }
-
     // --- fixtures ---------------------------------------------------------
 
     /// Which fixture is at a point, without disturbing the selection. The
@@ -8108,9 +8055,9 @@ impl Game {
     /// A body laid where it fell, for a room built over a grave (feature
     /// 85): stood at `at` — snapped to somewhere a body fits, the way an
     /// [`Game::adopt`] snaps one — and dead from this instant, without
-    /// waiting for a tick and without a word in anybody's diary. The
-    /// death happened before this room was built; what is being laid out
-    /// is the station's memory of it, and the living here never saw it.
+    /// waiting for a tick. The death happened before this room was built;
+    /// what is being laid out is the station's memory of it, and the living
+    /// here never saw it.
     pub fn lay_out_dead(&mut self, who: usize, at: Vec2) {
         if who >= self.bims.len() {
             return;

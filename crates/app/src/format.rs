@@ -25,19 +25,6 @@ pub fn euros(value: u64) -> String {
     format!("€{}", grouped(value))
 }
 
-/// Minutes in a game day.
-pub const MINUTES_PER_DAY: f32 = 24.0 * 60.0;
-
-/// A clock reading, wrapped into one day.
-pub fn clock_text(minutes: f32) -> String {
-    let m = ((minutes % MINUTES_PER_DAY) + MINUTES_PER_DAY) % MINUTES_PER_DAY;
-    format!(
-        "{:02}:{:02}",
-        (m / 60.0).floor() as u32,
-        (m % 60.0).floor() as u32
-    )
-}
-
 /// How long a trip takes, in whole words (feature 103): "2 days 5
 /// hours", "5 hours 20 minutes", "40 minutes" — the world clock a trip
 /// puts on, which is the one span in a run long enough for days.
@@ -98,7 +85,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn money_is_grouped_in_threes_and_a_clock_wraps() {
+    fn money_is_grouped_in_threes_and_a_numeral_is_roman() {
         // --- money_is_grouped_in_threes ---
         {
             assert_eq!(euros(100_000), "€100\u{a0}000");
@@ -106,10 +93,8 @@ mod tests {
             assert_eq!(grouped(1_234_567), "1\u{a0}234\u{a0}567");
         }
 
-        // --- a_clock_wraps ---
+        // --- a_numeral_is_roman ---
         {
-            assert_eq!(clock_text(1441.0), "00:01");
-            assert_eq!(clock_text(-1.0), "23:59");
             assert_eq!(roman(9), "IX");
         }
     }

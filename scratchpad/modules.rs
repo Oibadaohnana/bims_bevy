@@ -31,8 +31,6 @@ mod fx;
 mod game;
 #[path = "../crates/game/src/health.rs"]
 mod health;
-#[path = "../crates/game/src/memory.rs"]
-mod memory;
 #[path = "../crates/game/src/math.rs"]
 mod math;
 #[path = "../crates/game/src/nav.rs"]

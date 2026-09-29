@@ -55,7 +55,7 @@ ever see a probe pass that you expected to fail, check it actually rebuilt.
 
 `modules.rs` lists every module of the room — `balance`, `bim`, `blood`,
 `character`, `clock`, `combat`, `cue`, `door`, `draw`, `droid`, `fixtures`,
-`fx`, `game`, `health`, `math`, `memory`, `nav`, `order`, `rng`, `room`,
+`fx`, `game`, `health`, `math`, `nav`, `order`, `rng`, `room`,
 `routine`, `sight`, `task`, `terrain` and `work` — and the shared `time`
 crate stood over its own `lib.rs` as a plain module, which is why the room
 reaches it as `crate::time`.

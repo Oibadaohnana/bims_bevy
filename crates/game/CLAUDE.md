@@ -134,7 +134,7 @@ wants an arm there too, or its row rings nothing.
 
 `Game` holds `bims: Vec<Bim>` and almost every method that touches one takes a
 `who: usize` first. `crates/game/src/bim.rs` owns the per-body state — the
-figure, the errand and its queue, the health, the gear, the diary, the round —
+figure, the errand and its queue, the health, the gear, the round —
 and the room, the room's clock, the blood on the deck and the work list stay
 on `Game` and `Room`, because they are the deck's.
 
@@ -376,7 +376,7 @@ the world's `tests_orders` pin it.
 
 ## The room says what it sounds like, and plays nothing
 
-`cue.rs` is the diary's arrangement for sound: a `Cue` is a code and a
+`cue.rs` is the world events' arrangement for sound: a `Cue` is a code and a
 place — a door's leaves starting to slide, a locked door heaved at and
 giving, a shot leaving a gun, a bolt landing on a body or a bulkhead or
 glancing off, a blow landing, a weapon drawn or put away, a grenade thrown
@@ -411,33 +411,16 @@ drained by the app through `Game::take_cues`. What each is played as is
   now that the probe that counted the cues (`scratchpad/cues.rs`) went
   with the stew and the heads' door it counted.
 
-## The diary keeps no words, and one entry
+## A Bim keeps no diary (task 134)
 
-`memory.rs` stores `(day, minutes, code, one number)` and nothing else;
-`names::memory_line` in `crates/app/src/names.rs` is where the sentence lives.
-
-**It only records what went wrong, and since feature 104 that is one thing:
-a crewmate's death** (`What::CrewDied`, code 30, written into everybody
-else's diary by `Game::die` and not into the dead one's). Every other entry —
-the meals, the nights, the accidents, the poisoning — went with the needs it
-recorded, and the day's work was never written down: a page that filled
-with "Went to the heads." three times a day was the reason. So a run in which
-nobody died leaves the diary *empty*, and that is the intended reading. If you
-find yourself adding a `What` for something that goes right, that is the rule
-saying no.
-
-An entry with no line in `memory_line` is **dropped from the page** rather
-than rendered as a placeholder. **A new `What` is two edits**: the variant in
-`memory.rs`, with a code no other has had, and its arm in `memory_line` —
-miss the second and the entry never appears, which nothing but reading the
-page would notice.
-
-An entry is dated off the room's clock, which stands where the room was built
-("The needs deleted" at the end), so every death in one mission carries the
-day and the minute its room was built at. **`born_year` and `born_day`** on
-`Bim` are the one other thing of a Bim's past that is kept: only the About tab
-reads them, and they stay because they are two draws on the room's stream at
-a Bim's making.
+The diary — `memory.rs`, `Bim::memory`, the one entry `Game::die` wrote
+into every survivor's (`What::CrewDied`), `Game::memory_*`, the app's
+Memory tab and `names::memory_line` — was deleted by task 134. It drew
+nothing off any stream, so no pin moved; `SAVE_VERSION` 57 and
+`wire::PROTOCOL` 51 cover `Bim`'s changed shape. **`born_year` and
+`born_day`** on `Bim` are the one thing of a Bim's past that is kept: only
+the side panel's name, age and birthday read them, and they stay because
+they are two draws on the room's stream at a Bim's making.
 
 ## The crew pass through each other on purpose — in peace
 
@@ -503,7 +486,7 @@ Add a held item and this is the place to touch.
 `WORK_NAMES` in `crates/app/src/names.rs` for the word and `WORK_SPOTS` in
 `crates/app/src/crew.rs` for the fixture the row rings (`SPOT_NOTHING` for
 a job with no fixed place, like building and doctoring), both pinned
-against `Job::ALL` by length tests. Same shape as `memory.rs`'s `What` and
+against `Job::ALL` by length tests. Same shape as `cue.rs`'s `Cue` and
 for the same reason — no strings cross the boundary, so the ship knows
 `Job::Haul` and only the host knows "Hauling". Miss the name and the row
 comes up blank, and a blank row is a row the player cannot use that nothing
@@ -1797,9 +1780,8 @@ the chain run for real, twice over and back.
 `Game::lay_out_dead(who, at)` (feature 85) stands one of the room's
 bodies at a point — snapped to somewhere a body fits, as `adopt` snaps
 one — and kills it **outright**: `Health::give_up`, `Character::die`,
-the errand and the queue dropped, the bunk given back, and **nothing in
-anybody's diary** — `Game::die`'s `What::CrewDied` is for a death the
-room watched, and this one happened before the room existed. It is the
+the errand and the queue dropped, the bunk given back — since this death
+happened before the room existed. It is the
 world's door for laying a station's dead back on its deck when its room
 opens again (`world::memory::Grave`, `crates/world/CLAUDE.md`, "The dead
 lie where they fell"): the room is built with that many extra bodies,
@@ -3549,7 +3531,7 @@ What stayed, and why each one looks as if it should have gone:
   probe's `set_day_for_probe`. That was `set_clock_runs(false)`, told every
   step by the world's `hand_the_rooms_the_run`; with the switch gone it is
   simply what a room does, and nothing tells it. The night's wash over the
-  deck and a diary entry's time are read off it, and so is `World::day`.
+  deck is read off it, and so is `World::day`.
 - **`born_year` and `born_day` stay on `Bim`**, though only the About tab
   reads them: they are two draws on the room's stream at a Bim's making,
   and dropping them would re-roll everything after.

@@ -169,7 +169,8 @@ use crate::game::Game;
 /// 55: no cap on a wave (task 132) — the world's `droid_wave_max` went.
 /// 56: the ready check — the run keeps its switch, whether the mission is
 /// held for it and who has pressed *Ready*.
-pub const SAVE_VERSION: u32 = 56;
+/// 57: no memories (task 134) — a Bim keeps no diary.
+pub const SAVE_VERSION: u32 = 57;
 
 /// What the file holds, read back.
 #[derive(serde::Deserialize)]

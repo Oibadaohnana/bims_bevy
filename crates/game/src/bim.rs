@@ -1,6 +1,6 @@
 //! One body on a deck: everything that belongs to a Bim rather than to the
 //! room — its figure, its health, its errand and the queue of errands put
-//! down, its gear, its memory — whether it is one of the crew or one of a
+//! down, its gear — whether it is one of the crew or one of a
 //! station's people. They are not distinguishable in code; `game.rs` is where
 //! what they share is arbitrated.
 //!
@@ -13,7 +13,6 @@ use crate::clock;
 use crate::combat::{Blow, Gear, Trigger};
 use crate::health::Health;
 use crate::math::{Vec2, vec2};
-use crate::memory::Memory;
 use crate::rng::Rng;
 use crate::task::{Saved, Task};
 
@@ -126,8 +125,6 @@ pub struct Bim {
     /// of what a birthday is.
     pub born_year: u32,
     pub born_day: u32,
-    /// What it remembers of its days. See `memory.rs`.
-    pub memory: Memory,
     /// Its bunk, carried between rooms and read nowhere else: `Game::take_crew`
     /// writes the room's [`crate::room::Room::bunk_of`] entry here and
     /// `Game::adopt` reads it back, since the crew leave one room for
@@ -242,7 +239,6 @@ impl Bim {
             stuck: 0.0,
             born_year: BORN_FROM + rng.below(BORN_TO - BORN_FROM + 1),
             born_day: rng.below(clock::DAYS_IN_YEAR),
-            memory: Memory::new(),
             bed: None,
             gear: Gear::issued(),
             trigger: Trigger::default(),

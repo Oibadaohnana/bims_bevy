@@ -29,7 +29,6 @@ pub mod fx;
 pub mod game;
 pub mod health;
 pub mod math;
-pub mod memory;
 pub mod nav;
 pub mod order;
 pub mod rng;
