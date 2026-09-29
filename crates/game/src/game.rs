@@ -375,10 +375,16 @@ struct Seen {
 /// (`Game::last_seen`), and the machines about their own targets when the
 /// world has given them a list of their own (`Game::machine_seen`,
 /// feature 94).
+///
+/// And a side that is `told` where its targets are — a room with a
+/// reinforcement wave of the machines standing in it (`Droid::seeking`)
+/// — believes every one it was handed where it stands now, seen or not:
+/// still stale out of sight, so it is walked towards and never fired at.
 fn believe(
     seen: &mut Vec<Option<Seen>>,
     sight: &Sight,
     watched: Option<Vec2>,
+    told: bool,
     eyes: &[Vec2],
     at: Vec<Option<(Vec2, Weapon)>>,
 ) -> (Vec<Option<(Vec2, Weapon)>>, Vec<bool>) {
@@ -392,7 +398,7 @@ fn believe(
             Some((p, weapon)) => {
                 in_sight = watched.is_some_and(|w| (w - p).len() <= AIRLOCK_WATCH * TILE)
                     || eyes.iter().any(|&eye| sight.sees_from(eye, p).is_some());
-                if in_sight {
+                if in_sight || told {
                     seen[i] = Some(Seen {
                         at: p,
                         weapon,
@@ -6853,7 +6859,17 @@ impl Game {
             .chain(self.droids.iter().filter(|d| !d.destroyed).map(|d| d.pos))
             .collect();
         let watched = self.watched;
-        let (believed, stale) = believe(&mut self.last_seen, &self.room.sight, watched, &eyes, at);
+        // A reinforcement wave of the machines standing here was told
+        // where the crew are, and comes looking for them.
+        let told = self.droids.iter().any(|d| d.seeking && !d.destroyed);
+        let (believed, stale) = believe(
+            &mut self.last_seen,
+            &self.room.sight,
+            watched,
+            told,
+            &eyes,
+            at,
+        );
         self.combat.set_targets(believed);
         self.combat.set_stale(&stale);
     }
@@ -6886,7 +6902,14 @@ impl Game {
                     .map(|b| b.character.pos),
             )
             .collect();
-        let (believed, stale) = believe(&mut self.machine_seen, &self.room.sight, None, &eyes, at);
+        let (believed, stale) = believe(
+            &mut self.machine_seen,
+            &self.room.sight,
+            None,
+            false,
+            &eyes,
+            at,
+        );
         self.combat.set_machine_targets(believed, cross);
         self.combat.set_machine_stale(&stale);
     }

@@ -6361,7 +6361,13 @@ impl World {
         droids.extend(if wave == 1 {
             self.first_wave(&station, n, wave)
         } else {
-            self.arriving_wave(&station, n, wave)
+            // A reinforcement was told where the crew are, and comes
+            // looking for them rather than waiting at its airlock.
+            let mut arriving = self.arriving_wave(&station, n, wave);
+            for d in &mut arriving {
+                d.seeking = true;
+            }
+            arriving
         });
         if let Some(residents) = &mut self.residents {
             residents

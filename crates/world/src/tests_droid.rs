@@ -852,6 +852,67 @@ fn every_machine_of_a_landing_wave_stands_where_a_body_fits() {
     assert_eq!(land_the_next_wave(&mut world, station), 3);
 }
 
+/// How far each standing machine is from the nearest crew member the
+/// residents' room believes in, in its own units; `None` for one with
+/// nobody believed in at all.
+fn to_the_crew(world: &World) -> Vec<Option<f32>> {
+    let room = room!(world);
+    let believed: Vec<bims::math::Vec2> = room.believed_for_probe().into_iter().flatten().collect();
+    (0..room.droid_count() as usize)
+        .filter_map(|i| room.droid(i).filter(|d| !d.destroyed))
+        .map(|d| {
+            believed
+                .iter()
+                .map(|&at| (at - d.pos).len())
+                .min_by(|a, b| a.total_cmp(b))
+        })
+        .collect()
+}
+
+/// **A reinforcement comes looking for the crew.** The first wave stands
+/// about the station and knows only what it has seen, so a crew keeping
+/// out of its sight is left alone; a wave that lands after it was told
+/// where the crew are, and walks at them from its airlock rather than
+/// waiting there for a fight to come to it.
+#[test]
+fn a_reinforcement_wave_hunts_the_crew_and_the_first_wave_waits() {
+    let (mut world, station) = held_arena();
+    world.set_droid_waves_for_probe(3);
+    open_the_room(&mut world);
+    // Nobody ashore: the first wave has seen nobody and stands.
+    for _ in 0..120 {
+        world.step(&[]);
+    }
+    assert!(
+        to_the_crew(&world).iter().all(Option::is_none),
+        "the first wave believes in nobody it has not seen"
+    );
+    assert!(
+        (0..room!(world).droid_count() as usize).all(|i| !room!(world).droid(i).unwrap().seeking)
+    );
+
+    assert_eq!(land_the_next_wave(&mut world, station), 2);
+    let n = room!(world).droid_count() as usize;
+    assert!((0..n).all(|i| room!(world).droid(i).unwrap().seeking));
+    world.step(&[]);
+    let landed: Vec<f32> = to_the_crew(&world)
+        .into_iter()
+        .map(|d| d.expect("a reinforcement knows where the crew are"))
+        .collect();
+    for _ in 0..600 {
+        world.step(&[]);
+    }
+    let now: Vec<f32> = to_the_crew(&world).into_iter().flatten().collect();
+    let tile = shipdesign::TILE as f32;
+    let mean = |v: &[f32]| v.iter().sum::<f32>() / v.len().max(1) as f32;
+    assert!(
+        mean(&now) < mean(&landed) - 4.0 * tile,
+        "the wave closed on the crew: {:.1} tiles off on landing, {:.1} ten seconds on",
+        mean(&landed) / tile,
+        mean(&now) / tile
+    );
+}
+
 /// **A wave cleared takes the room's memory of it with it.** The lists
 /// `visit` keeps are one entry a body and only ever grow; left as they
 /// were, every machine of the next wave was born already flagged down —

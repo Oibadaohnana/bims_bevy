@@ -6109,3 +6109,24 @@ flag). **`SAVE_VERSION` 62, `wire::PROTOCOL` 61**. `SURVIVORS` moved
 (its runs' crew earn experience, and the progress is hashed; taken on a
 clean tree with this change alone); `REFERENCE_CHECKSUM` and the ship's
 `PINNED` did not.
+
+## A reinforcement comes looking for the crew
+
+> "The machines hold a station" and "The enemy shoots back" above say
+> the machines know only what they have seen; that holds for a **first
+> wave** and no longer for the waves after it.
+
+`settle_droids` marks every machine of an **arriving** wave at a held
+site (`wave > 1`, the reinforcements of an attack) `Droid::seeking`
+(saved, serde default). While any such machine stands in the residents'
+room, `Game::set_hostiles` hands `believe` `told = true`: every target
+the world names is believed where it stands **now**, seen or not — still
+stale out of sight, so it is walked towards (`Tactics::charge`, the
+hunter's rule in `plan_droid_stand`) and never fired at. So the wave is
+at war from its landing and walks from its airlock to the crew instead
+of waiting there. The first wave, a defence's waves (the machines' own
+list, `set_machine_hostiles`) and the Heart's machines are untouched.
+`a_reinforcement_wave_hunts_the_crew_and_the_first_wave_waits`
+(`tests_droid.rs`) is the rule. `SAVE_VERSION` 63, `wire::PROTOCOL` 62
+(both carried on by later bumps); no pin moved (`SURVIVORS`, `REFERENCE_CHECKSUM`
+and the ship's `PINNED` read the same with the rule on and off).

@@ -631,6 +631,14 @@ pub struct Droid {
     /// something was last seen. Same rule as a hostile Bim's hunt: a
     /// hunter holds or closes and never gives ground.
     pub hunting: bool,
+    /// Sent in as a **reinforcement** of a site the crew are attacking:
+    /// its ship was told where the crew are, so while one of these
+    /// stands the room knows where every target is and goes looking
+    /// (`Game::set_hostiles`) rather than waiting at the airlock for a
+    /// fight to come to it. Never set for a first wave, a defence
+    /// (`World::droid_waves`).
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub seeking: bool,
     /// The trigger of the arm, kept between steps like a Bim's.
     pub trigger: crate::combat::Trigger,
     /// Seconds until the next blow may be started, and the blow on its
@@ -715,6 +723,7 @@ impl Droid {
             breach_wait: 0.0,
             smashing: None,
             hunting: false,
+            seeking: false,
             trigger: crate::combat::Trigger::default(),
             melee_timer: 0.0,
             blow: None,

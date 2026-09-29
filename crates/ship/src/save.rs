@@ -179,7 +179,9 @@ use crate::game::Game;
 /// parts added together, which every hit comes off.
 /// 62: a death after a down is worth no experience — a station's residents
 /// no longer keep who has been paid for dying (`xp_dead`).
-pub const SAVE_VERSION: u32 = 62;
+/// 63: a machine keeps whether it came as a reinforcement that goes
+/// looking for the crew (`Droid::seeking`).
+pub const SAVE_VERSION: u32 = 63;
 
 /// What the file holds, read back.
 #[derive(serde::Deserialize)]
