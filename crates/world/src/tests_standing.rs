@@ -400,3 +400,61 @@ fn a_banner_is_dropped_when_its_ground_goes_and_a_release_never_wants_any() {
         "the ground went, so the order did"
     );
 }
+
+/// **A banner round a corner is reached.** The push towards it once
+/// measured ground made good as the crow flies, so the corner of a room
+/// nearest a banner beyond its wall was the best spot: the bots walked
+/// into it, set off round by the door, were turned back into the corner
+/// at the next plan, and stood there for ever. Two banners across the
+/// spawn station from the bots' start, both behind walls, and every bot
+/// is at the first within a minute of the clock.
+#[test]
+fn a_banner_round_a_corner_is_reached_by_every_bot() {
+    let mut world = crewed();
+    world.step(&[]);
+    let room = &world.aboard.room;
+    let start = room.bim_pos(1);
+    let area = room.interior();
+    let (x0, y0) = ((area.min.x / TILE) as i32, (area.min.y / TILE) as i32);
+    let (x1, y1) = ((area.max.x / TILE) as i32, (area.max.y / TILE) as i32);
+    let middle = |t: (i32, i32)| vec2((t.0 as f32 + 0.5) * TILE, (t.1 as f32 + 0.5) * TILE);
+    // Every ninth tile, the first two a banner may go on that the bots
+    // can walk to and that are well away — both round a wall from them.
+    let far: Vec<(i32, i32)> = (y0..y1)
+        .step_by(9)
+        .flat_map(|y| (x0..x1).step_by(9).map(move |x| (x, y)))
+        .filter(|&t| {
+            let m = middle(t);
+            room.is_banner_tile(m)
+                && room.reachable_for_probe(1, &[m])
+                && (m - start).len() > 15.0 * TILE
+                && !room.line_clear(start, m)
+        })
+        .take(2)
+        .collect();
+    assert_eq!(far.len(), 2, "two banners round a corner");
+    for tile in far {
+        let mut world = crewed();
+        world.step(&[]);
+        world.step(&[Command::Orders {
+            slot: 0,
+            order: Standing::Attack { tile },
+        }]);
+        let at = middle(tile);
+        let bots = world.aboard.room.crew_count() as usize;
+        let there = |world: &World| {
+            (1..bots).all(|w| (world.aboard.room.bim_pos(w) - at).len() < 5.0 * TILE)
+        };
+        for _ in 0..(60 * 60) {
+            if there(&world) {
+                break;
+            }
+            world.step(&[]);
+        }
+        let now: Vec<_> = (1..bots).map(|w| world.aboard.room.bim_pos(w)).collect();
+        assert!(
+            there(&world),
+            "every bot at the banner {tile:?} ({at:?}): {now:?}"
+        );
+    }
+}

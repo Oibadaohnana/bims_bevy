@@ -519,7 +519,7 @@ impl Nav {
     ///
     /// The width costs two extra samples per step and buys a route the body
     /// can hold to without the physics arguing with it.
-    fn line_clear(&self, a: Vec2, b: Vec2) -> bool {
+    pub fn line_clear(&self, a: Vec2, b: Vec2) -> bool {
         let span = b - a;
         let steps = (span.len() / (self.cell * 0.4)).ceil().max(1.0) as usize;
         let side = span.normalize_or_zero().perp() * (self.cell * 0.5);

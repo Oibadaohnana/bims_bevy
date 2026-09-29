@@ -3739,6 +3739,50 @@ const ADVANCE_LOOK: f32 = 8.0;
 /// cover half the way back is not.
 const GROUND_WORTH: f32 = 4.0;
 
+/// A planned walk to a point, read as how far is left of it
+/// ([`Tactics::advance`]): the waypoints, the walk left from each, and
+/// the whole of it from where the body stands.
+struct Walk<'a> {
+    route: &'a [Vec2],
+    left: Vec<f32>,
+    whole: f32,
+}
+
+impl<'a> Walk<'a> {
+    /// `None` for no route.
+    fn along(from: Vec2, route: &'a [Vec2]) -> Option<Walk<'a>> {
+        let first = *route.first()?;
+        let mut left = vec![0.0; route.len()];
+        for i in (0..route.len() - 1).rev() {
+            left[i] = left[i + 1] + (route[i + 1] - route[i]).len();
+        }
+        let whole = (first - from).len() + left[0];
+        Some(Walk { route, left, whole })
+    }
+
+    /// The walk left from `c`: straight to a waypoint it can walk
+    /// straight to and the route from there, the shortest of those —
+    /// never shorter than the walk really is, since it is a walk. Only
+    /// the waypoints within twice [`ADVANCE_LOOK`] of the walk's start
+    /// are asked, the cells being within the look of it; `None` when `c`
+    /// can walk straight to none of them.
+    fn left_from(&self, nav: &Nav, c: Vec2) -> Option<f32> {
+        let reach = self.whole - 2.0 * ADVANCE_LOOK * TILE;
+        let mut best: Option<f32> = None;
+        for (i, &p) in self.route.iter().enumerate() {
+            if i > 0 && self.left[i - 1] < reach {
+                break;
+            }
+            let walk = (p - c).len() + self.left[i];
+            if best.is_some_and(|b| walk >= b) || !nav.line_clear(c, p) {
+                continue;
+            }
+            best = Some(walk);
+        }
+        best
+    }
+}
+
 /// Where the tactics say to stand, and whether it is cover: a peek beside
 /// a wall, or close behind sandbags.
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -3833,16 +3877,30 @@ impl Tactics {
 
     /// Where a body fighting its way to a point should make for next
     /// (feature 84): the reachable free cell within [`ADVANCE_LOOK`]
-    /// tiles of `from` that gets it nearest `to`, with the cover between
-    /// it and the enemy worth [`COVER_WORTH`] tiles of the walk and a
-    /// tile of ground made good worth [`GROUND_WORTH`] of it — so a body
-    /// sent across a station goes by the barricades rather than straight
-    /// down the middle, and goes nonetheless where there are none.
+    /// tiles of `from` that gets it nearest the point, with the cover
+    /// between it and the enemy worth [`COVER_WORTH`] tiles of the walk
+    /// and a tile of ground made good worth [`GROUND_WORTH`] of it — so a
+    /// body sent across a station goes by the barricades rather than
+    /// straight down the middle, and goes nonetheless where there are
+    /// none.
     ///
-    /// Only a cell nearer `to` than `from` is is a candidate, and never a
-    /// doorway or a cell one of its own side has taken. `None` when
-    /// nothing within the look is nearer, which is a body round a corner
-    /// from the point: the caller walks the whole way instead.
+    /// **Nearest is by the walk, not as the crow flies.** `route` is the
+    /// walk from `from` to the point as [`Nav::path`] plans it, and a
+    /// cell's distance is the straight line to the furthest-on waypoint
+    /// of it the cell can walk straight to, and the route from there
+    /// ([`Walk::left_from`]). Measured as the crow flies, the corner of a room
+    /// nearest a banner beyond its wall was ground made good: a bot
+    /// walked into it, set off round by the door when nothing nearer was
+    /// left, and was turned back into the corner at the next plan — and
+    /// stood there for ever once the corner was where it stood. The walk
+    /// left can only shrink, so every pick is ground truly made good. In
+    /// the open the route is one leg and this is the straight line it
+    /// always was.
+    ///
+    /// Only a cell nearer by the walk than `from` is is a candidate, and
+    /// never a doorway or a cell one of its own side has taken. `None`
+    /// when nothing within the look is nearer or there is no route: the
+    /// caller walks the whole way instead.
     ///
     /// Cover is judged against the nearest target that is up, since that
     /// is the one the ground is being made good under; with no target at
@@ -3852,13 +3910,14 @@ impl Tactics {
         sight: &Sight,
         nav: &Nav,
         from: Vec2,
-        to: Vec2,
+        route: &[Vec2],
         targets: &[Option<Target>],
         doors: &[Rect],
         taken: &[Vec2],
         cover_worth: f32,
     ) -> Option<Vec2> {
-        let here = (from - to).len() / TILE;
+        let way = Walk::along(from, route)?;
+        let here = way.whole / TILE;
         let enemy = targets
             .iter()
             .flatten()
@@ -3868,8 +3927,14 @@ impl Tactics {
         let is_taken = |c: Vec2| taken.iter().any(|&t| (t - c).len() < TILE);
         let mut best: Option<(f32, Vec2)> = None;
         for c in nav.free_cells_within(from, ADVANCE_LOOK * TILE, TILE) {
-            let ground = here - (c - to).len() / TILE;
-            if ground <= 0.0 || in_a_doorway(c) || is_taken(c) || !nav.can_reach(from, c) {
+            if in_a_doorway(c) || is_taken(c) || !nav.can_reach(from, c) {
+                continue;
+            }
+            let Some(left) = way.left_from(nav, c) else {
+                continue;
+            };
+            let ground = here - left / TILE;
+            if ground <= 0.0 {
                 continue;
             }
             let cover = match enemy {

@@ -1457,11 +1457,12 @@ prints the curves itself.
     the weapon's reach and it fights its own stand, cover and all;
     nothing in reach and the banner more than `BANNER_HOLD` tiles off and
     it **pushes** (`Tactics::advance` — the reachable cell within
-    `ADVANCE_LOOK` that gets it nearest, a tile of ground made good worth
-    `GROUND_WORTH` against `COVER_WORTH` for cover from the nearest
-    target, never a doorway, never a cell of its own side's, and the
-    whole walk planned instead where nothing near is nearer, which is a
-    banner round a corner or out on a plain); nothing in reach and the
+    `ADVANCE_LOOK` that gets it nearest **by the walk**, a tile of ground
+    made good worth `GROUND_WORTH` against `COVER_WORTH` for cover from
+    the nearest target, never a doorway, never a cell of its own side's,
+    and the whole walk planned instead where nothing near is nearer or
+    the body stands on its own best spot short of the banner, or out on
+    a plain); nothing in reach and the
     banner reached and it holds the ring round the banner. *Retreat* is
     that ring round `ship_anchor()` — the deck just inside the port —
     and, unlike a commander's *fall back*, it does **not** hold its fire
@@ -4251,3 +4252,21 @@ whatever way the barrel points, neither is saved (`serde(skip)`) or
 hashed, and `set_sentries` carries them over with the trigger. The ship
 painter draws the turret's head at `facing` with the flash at its
 muzzles (`ship::fittings::turret`).
+
+## A banner's ground is measured by the walk
+
+`Tactics::advance` once scored a cell's ground made good towards an
+attack banner as the crow flies, and the corner of a room nearest a
+banner beyond its wall read as ground: the bots walked into it, set off
+round by the door when nothing nearer was left, were turned back into
+the corner at the next plan, and in the end stood in it for ever (the
+pick within a tile of where they stood was never walked). Now
+`push_towards` plans the whole walk (`Nav::path`) and `advance` reads a
+cell's distance as the straight line to the furthest-on waypoint it can
+walk straight to (`Nav::line_clear`, public for it) plus the route from
+there (`combat::Walk`) — never shorter than the real walk, so every pick
+shortens it. In the open the route is one leg and the number is the
+straight line it always was. A body idle on its own best spot short of
+the banner walks the whole route. The world's
+`a_banner_round_a_corner_is_reached_by_every_bot` pins it on the spawn
+station.

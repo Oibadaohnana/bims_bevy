@@ -3417,11 +3417,19 @@ impl Game {
             })
             .map(|(_, b)| b.character.destination().unwrap_or(b.character.pos))
             .collect();
+        // The whole walk there on the deck's grid, which the push reads
+        // its ground off — none for a body out on the plain, whose grid
+        // is its own window.
+        let whole = if self.bims[who].character.is_afield() {
+            Vec::new()
+        } else {
+            nav.path(from, nav.nearest_free(at))
+        };
         let step = Tactics::advance(
             &self.room.sight,
             nav,
             from,
-            at,
+            &whole,
             &targets,
             &doorways,
             &taken,
@@ -3430,20 +3438,25 @@ impl Game {
         // Off the deck's box on a plain the cover lattice says nothing —
         // the grids are the body's own window out there — so the walk is
         // planned the way an order onto the plain is, leg by leg.
-        let Some(to) = step else {
-            if self.on_a_window(who, at) {
-                self.plan_route(who, at);
-            } else {
-                let to = nav.nearest_free(at);
-                let route = nav.path(from, to);
-                if !route.is_empty() {
-                    self.bims[who].character.follow_path(route);
-                }
+        let walk_it_all = |game: &mut Game| {
+            if game.on_a_window(who, at) {
+                game.plan_route(who, at);
+            } else if !whole.is_empty() {
+                game.bims[who].character.follow_path(whole.clone());
             }
+        };
+        let Some(to) = step else {
+            walk_it_all(self);
             return;
         };
-        let going = self.bims[who].character.destination().unwrap_or(from);
+        let destination = self.bims[who].character.destination();
+        let going = destination.unwrap_or(from);
         if (to - going).len() <= TILE {
+            // A body standing on the best spot short of the banner is
+            // not there yet: it walks on rather than stand for ever.
+            if destination.is_none() && (to - from).len() <= TILE {
+                walk_it_all(self);
+            }
             return;
         }
         let route = nav.path(from, to);

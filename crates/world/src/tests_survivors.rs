@@ -189,6 +189,15 @@ const TILE: f32 = shipdesign::TILE as f32;
 /// worktree of f749c42 with that change alone, since other agents'
 /// uncommitted work in the tree moved it as well (the tree read
 /// `0x_702c_7b50_cfc9_f862` with theirs in). Was `0x_0276_3b8b_1c2e_7309`.
+///
+/// **Not in the constant yet, and moving it on purpose**: the bots under
+/// an attack banner measure the ground they make good by the walk rather
+/// than as the crow flies (`Tactics::advance`), and this run puts a
+/// banner down. On a clean worktree of f749c42 with that change alone it
+/// read `0x_6590_3c89_ab90_c124` where that tree pinned
+/// `0x_0276_3b8b_1c2e_7309`. The shared tree read `0x_702c_7b50_cfc9_f862`
+/// without it (other agents' uncommitted work) and `0x_cc3d_8f02_97f0_2873`
+/// with it, so the constant is left for the sweep to take.
 const SURVIVORS: u64 = 0x_11a9_33d1_6eeb_9209;
 
 /// A gun in every hand, the kinds dealt round, as the fight's probes arm
