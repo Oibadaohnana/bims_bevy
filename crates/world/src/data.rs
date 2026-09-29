@@ -416,11 +416,6 @@ pub const REPUBLIC_BOUNTY: [Money; 4] = [0, 500, 1_500, 4_500];
 /// does not wait for money. The same as a player's share of the starting
 /// pool ([`START_MONEY_PER_BIM`]).
 pub const BUYBACK_COST: Money = 5_000;
-/// What a **bot** Bim's death costs the pool — a hired hand, a townsperson
-/// who joined, any crew member no player steers. It is gone for good, and
-/// the pool pays this the moment it dies, never going below nought: what
-/// it cannot pay is dropped.
-pub const BOT_DEATH_PENALTY: Money = 5_000;
 
 // --- how hard the machines are, by time and distance (feature 106) ---------
 

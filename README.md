@@ -187,8 +187,8 @@ there is no helm to stand at and no trip to sit through.
   pool pays **5 000** for it, or what it holds if that is less: a Bim
   never waits for money, and the pool never goes below nought. Gear is
   never lost. A bot that dies or is left behind — a hired hand, a
-  townsperson who joined — is gone for good and costs the pool **5 000**,
-  never taking it below nought, and **its gun and armour go into the
+  townsperson who joined — is gone for good but **costs nothing**: only a
+  player's Bim is paid for. **Its gun and armour go into the
   armory**. **The run is over when every player's Bim is dead at once**: a screen says
   so, with the day, and its *Start again* puts the run back to where it
   opened.

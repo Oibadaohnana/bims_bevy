@@ -65,8 +65,7 @@
 //! class, level and talents, the pool paying
 //! [`crate::data::BUYBACK_COST`] — or what it holds, down to nought, since
 //! a respawn never waits for money (task 113). Gear is never lost. A
-//! bot's is gone for good and costs the pool
-//! [`crate::data::BOT_DEATH_PENALTY`], never below nought. The run is
+//! bot's is gone for good and costs nothing. The run is
 //! over when every player's Bim is dead at once.
 
 use economy::Money;

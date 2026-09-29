@@ -880,8 +880,8 @@ impl World {
     /// A crew member has died — said once, from `casualties` or from
     /// being left behind. A player's Bim is **out** for the rest of the
     /// mission and back at its end with everything it wore (task 113),
-    /// its class and progress kept; a bot's is gone for good, and the pool
-    /// pays [`data::BOT_DEATH_PENALTY`] for it, as much as it holds.
+    /// its class and progress kept; a bot's is gone for good and costs
+    /// nothing — only a player's Bim is paid for (its buyback).
     pub(super) fn fall(&mut self, who: u32, events: &mut Vec<WorldEvent>) {
         // A commander's reinforcement (task 129) costs nothing, dead or
         // alive: it is off the deck at once and off the crew at the end.
@@ -896,9 +896,7 @@ impl World {
             }
             return;
         }
-        let paid = self.money.min(data::BOT_DEATH_PENALTY);
-        self.money -= paid;
-        events.push(WorldEvent::BotLost { who, paid });
+        events.push(WorldEvent::BotLost { who });
     }
 
     /// The run is lost when every player's Bim is dead at once — out and

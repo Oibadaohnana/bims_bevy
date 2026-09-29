@@ -507,30 +507,25 @@ fn a_town_left_under_assault_becomes_infested() {
 
 // --- dying ----------------------------------------------------------------------
 
-/// **A bot's death costs the pool**, never below nought, and it is gone
-/// for good when the ship leaves.
+/// **A bot's death costs the pool nothing** — only a player's Bim is paid
+/// for — and it is gone for good when the ship leaves.
 #[test]
-fn a_bot_s_death_costs_the_penalty_and_never_takes_the_pool_below_nought() {
-    let mut world = crewed_world(flyer(2), 3_000, 1, 2);
+fn a_bot_s_death_costs_nothing_and_it_is_gone_for_good() {
+    let mut world = crewed_world(flyer(2), 12_000, 1, 2);
     world.aboard.room.kill_for_probe(1);
     let events = world.step(&[]);
-    assert!(events.iter().any(|e| matches!(
-        e,
-        WorldEvent::BotLost {
-            who: 1,
-            paid: 3_000
-        }
-    )));
-    assert_eq!(world.money, 0, "never below nought");
+    assert!(
+        events
+            .iter()
+            .any(|e| matches!(e, WorldEvent::BotLost { who: 1 })),
+        "{events:?}"
+    );
+    assert_eq!(world.money, 12_000, "the pool untouched");
     assert!(!world.lost, "a bot does not end a run");
     let crew = world.aboard.crew_count();
     to_the_map(&mut world);
     assert_eq!(world.aboard.crew_count(), crew - 1, "gone for good");
-    // And a second bot with money in the pool costs the whole penalty.
-    let mut world = crewed_world(flyer(2), 12_000, 1, 2);
-    world.aboard.room.kill_for_probe(1);
-    world.step(&[]);
-    assert_eq!(world.money, 12_000 - data::BOT_DEATH_PENALTY);
+    assert_eq!(world.money, 12_000, "and nothing paid when the ship leaves");
 }
 
 /// **The run is over when every player's Bim is dead at once** — not

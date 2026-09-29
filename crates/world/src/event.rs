@@ -223,9 +223,9 @@ pub enum WorldEvent {
     LeftSite { station: u32, cleared: bool },
     /// A crew member left outside the ship when it went, and dead for it.
     LeftBehind { who: u32 },
-    /// A bot died, gone for good, and the pool paid for it — as much of
-    /// the penalty as it held.
-    BotLost { who: u32, paid: economy::Money },
+    /// A bot died, gone for good. It costs the pool nothing: only a
+    /// player's Bim is paid for (its buyback).
+    BotLost { who: u32 },
     /// A town the machines were attacking was left before it was held,
     /// and fell to them: an infested site like any other.
     TownFell { station: u32 },
@@ -726,10 +726,9 @@ impl WorldEvent {
             WorldEvent::DepartureAsked { behind } => behind as i64,
             WorldEvent::LeftSite { station, cleared } => (station as i64) * 2 + i64::from(cleared),
             WorldEvent::LeftBehind { who } => who as i64,
-            // The penalty paid in the hundreds: a crew is never a hundred.
-            WorldEvent::BotLost { who, paid } | WorldEvent::Respawned { who, paid } => {
-                (who as i64) + 100 * (paid as i64)
-            }
+            WorldEvent::BotLost { who } => who as i64,
+            // The buyback paid in the hundreds: a crew is never a hundred.
+            WorldEvent::Respawned { who, paid } => (who as i64) + 100 * (paid as i64),
             // The slot in the tens, the Bim in the units: four slots, and a
             // crew is never ten (task 113).
             WorldEvent::GearChanged { who, part } => (who + 10 * part) as i64,

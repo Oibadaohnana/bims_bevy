@@ -4409,8 +4409,9 @@ ship `Holding` at the site's place, `undocked_once`, and `Phase::Map`.
 
 **Dying.** `casualties` no longer resets a dead crew member's `Progress`
 (it is kept for the buyback) and calls `fall`: a player onto `run.fallen`
-in death order, a bot `BotLost` and `min(money, BOT_DEATH_PENALTY)` off the
-pool. `check_run_lost`: every player slot's Bim dead — out cold is alive,
+in death order, a bot `BotLost` and — since the bot-deaths task, which
+deleted `BOT_DEATH_PENALTY` and `BotLost::paid` — nothing off the pool:
+only a player's Bim costs money (its buyback). `check_run_lost`: every player slot's Bim dead — out cold is alive,
 and the bots do not count.
 
 **What moved.** `Refusal` 83–91, `WorldEvent` 93–106, `data::BUYBACK_COST`,

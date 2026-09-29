@@ -1974,11 +1974,7 @@ pub fn event_line(event: WorldEvent) -> Option<String> {
         WorldEvent::KeyFound { keys } => format!(
             "A research key picked up — the crew hold {keys}."
         ),
-        WorldEvent::BotLost { who: w, paid } => format!(
-            "{} is gone for good. The pool pays {}.",
-            who(w),
-            crate::format::euros(paid)
-        ),
+        WorldEvent::BotLost { who: w } => format!("{} is gone for good.", who(w)),
         WorldEvent::TownFell { .. } => TOWN_FELL.into(),
         WorldEvent::PlayerGone { slot } => format!("{} has left the game.", player_name(slot)),
         WorldEvent::Readied { slot, yes: true } => format!("{} is ready.", player_name(slot)),
@@ -2617,6 +2613,9 @@ pub fn heart_preview_rows(p: &world::heart::HeartPreview) -> [(&'static str, Str
 pub const HEART_CHART_LINE: &str = "Where the machines began: the Machine Heart's fortress";
 /// Beside a name in the departure check: down and cannot walk in.
 pub const DOWNED_WORD: &str = "down";
+/// The departure list's cost column for a bot: it costs nothing, only
+/// gone.
+pub const BOT_GONE_WORD: &str = "gone for good";
 
 // --- the HUD (feature 107) ----------------------------------------------------
 

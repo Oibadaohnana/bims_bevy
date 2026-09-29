@@ -813,7 +813,7 @@ pub fn departure_window(
                         ui.label(if who < players {
                             buyback_cost(world::data::BUYBACK_COST)
                         } else {
-                            euros(world::data::BOT_DEATH_PENALTY)
+                            BOT_GONE_WORD.to_owned()
                         });
                         ui.end_row();
                     }

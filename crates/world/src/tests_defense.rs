@@ -863,8 +863,8 @@ fn leaving_a_station_defence_early_gives_it_to_the_machines_and_pays_nothing() {
             .iter()
             .any(|e| matches!(e, WorldEvent::TownFell { station } if *station == id))
     );
-    // No bounty paid — the pool may fall by the crew left ashore, the
-    // bots' penalty and the players' respawns, and by nothing it gains.
+    // No bounty paid — the pool may fall by the players left ashore and
+    // their respawns (a bot costs nothing), and by nothing it gains.
     assert!(world.money <= money);
     assert!(
         !events
