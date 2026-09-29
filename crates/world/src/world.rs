@@ -457,8 +457,9 @@ pub enum Command {
     },
     /// *Back to ship*: this player is done here. The first press sends
     /// every bot home; the departure check runs once every standing
-    /// player has pressed it and is aboard. Pressed again, it asks a
-    /// turned-down departure again.
+    /// player has pressed it and is aboard — or, once the fight is won,
+    /// once every player alive has pressed it, wherever they are (task
+    /// 133). Pressed again, it asks a turned-down departure again.
     Return {
         slot: u32,
     },
@@ -1306,6 +1307,20 @@ impl World {
             self.steps += 1;
             return events;
         }
+        //    And a fight won (task 133): from the step after the site is
+        //    cleared the deck is frozen — the room is not stepped, so
+        //    nobody moves and nobody downed bleeds out, and the mission
+        //    clock stops. What is heard is what the ready check hears
+        //    and *Back to ship*, and the departure check still runs: it
+        //    takes everybody alive home from where they lie.
+        if self.fight_over() {
+            for &command in commands {
+                self.apply(command, &mut events);
+            }
+            self.steps += 1;
+            self.settle_run(&mut events);
+            return events;
+        }
         //    And the first step of a mission photographs the site before
         //    anything has moved: what leaving it uncleared puts back.
         self.open_the_mission();
@@ -1585,6 +1600,27 @@ impl World {
             )
         {
             events.push(refused(slot, Refusal::AwaitingReady));
+            return;
+        }
+        // A fight won is a frozen deck (task 133): the loadouts, a rank,
+        // *Back to ship* and its question are heard, and nothing that
+        // would move anybody or start anything.
+        if self.fight_over()
+            && !matches!(
+                command,
+                Command::SetSpeed { .. }
+                    | Command::Return { .. }
+                    | Command::LeaveBehind { .. }
+                    | Command::PlayerGone { .. }
+                    | Command::Ready { .. }
+                    | Command::Equip { .. }
+                    | Command::Unequip { .. }
+                    | Command::Offer { .. }
+                    | Command::AnswerOffer { .. }
+                    | Command::RankUp { .. }
+            )
+        {
+            events.push(refused(slot, Refusal::FightOver));
             return;
         }
         let before = events.len();

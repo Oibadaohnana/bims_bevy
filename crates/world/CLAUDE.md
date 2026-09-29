@@ -5837,6 +5837,31 @@ commands and the pins step at once, and the checksum eats the three
 fields only while the switch is on, so `REFERENCE_CHECKSUM` did not move.
 `tests_ready.rs` is the rule. `SAVE_VERSION` 56, `wire::PROTOCOL` 50.
 
+## A fight won is a frozen deck (task 133)
+
+> "The loop" and "One bar of hit points" above say a downed body is left
+> behind and that *Back to ship* waits for the players to be aboard;
+> **after a fight won** neither holds any more.
+
+`World::fight_over()` is `Run::fought` and `mission_cleared()` in a
+mission. From the step after the clear, `World::step` takes a path of its
+own beside the ready check's: the commands, the step counted and
+`settle_run` — **the room is not stepped**, so nobody moves, a downed
+body's countdown stands and nobody bleeds out, and the mission clock
+stops. `apply` hears the speed, `Return`, `LeaveBehind`, `PlayerGone`,
+`Ready`, the loadouts and `RankUp`, and refuses the rest
+`Refusal::FightOver` (121). `comes_home` is every crew member alive,
+downed or not, so `left_behind` is empty and the departure never asks;
+`waited_for` takes a downed player too (it has the button like the
+rest); and a press counts as home wherever the Bim lies
+(`home_for_departure`), so the last player's press is the ship leaving —
+`press_return` walks nobody. `bring_home` stands them all at the gangway,
+and the next mission's `make_whole` gets the downed up. A site with no
+fight (`fought` false) is as before: walk home or be left.
+`after_a_fight_won_the_deck_is_frozen_and_everybody_alive_comes_home`
+(`tests_mission.rs`) is the rule. The app's button reads *Fight won —
+Back to ship*. `wire::PROTOCOL` 52; nothing saved changed.
+
 ## Attack and defence evenly, and a defence pays nothing (task 136)
 
 > "Every site is an attack, a defence or a trader (task 111)" above says

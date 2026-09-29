@@ -52,6 +52,12 @@
 //! yes, and the ship leaves; one no, and it does not, the presses
 //! standing. Left behind is dead.
 //!
+//! **Once the fight is won** (`World::fight_over`, task 133) the deck is
+//! frozen — the room is not stepped, so nobody moves and nobody downed
+//! bleeds out — and nobody walks home: the ship leaves when every player
+//! alive, downed or not, has pressed *Back to ship*, and takes every crew
+//! member alive with it from where it lies.
+//!
 //! # Dying
 //!
 //! A player's Bim that dies is **out** ([`Fallen`]) for the rest of the

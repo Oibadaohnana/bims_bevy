@@ -691,10 +691,17 @@ pub fn back_to_ship(
                             orders.push(Order::ReturnToShip);
                         }
                     } else {
-                        let press = ui.add(
-                            egui::Button::new(egui::RichText::new(BACK_TO_SHIP).strong())
-                                .min_size(egui::vec2(150.0, 32.0)),
-                        );
+                        // A fight won says so on the button: the deck is
+                        // frozen and the press is all that is left (task 133).
+                        let label = if world.fight_over() {
+                            egui::RichText::new(FIGHT_WON_BACK_TO_SHIP)
+                                .strong()
+                                .color(theme::ACCENT)
+                        } else {
+                            egui::RichText::new(BACK_TO_SHIP).strong()
+                        };
+                        let press =
+                            ui.add(egui::Button::new(label).min_size(egui::vec2(150.0, 32.0)));
                         if press.clicked() {
                             orders.push(Order::ReturnToShip);
                         }

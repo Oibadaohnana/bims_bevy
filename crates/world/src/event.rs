@@ -579,6 +579,9 @@ pub enum Refusal {
     AwaitingReady = 119,
     /// *Ready* pressed with no ready check running.
     NoReadyCheck = 120,
+    /// Anything but *Back to ship*, the loadouts or a rank once the
+    /// mission's fight is won (task 133): the deck is frozen.
+    FightOver = 121,
 }
 
 impl Refusal {

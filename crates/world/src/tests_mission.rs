@@ -696,26 +696,19 @@ fn the_departure_check_waits_for_standing_players_lists_everyone_outside_and_wan
     assert_eq!(world.ship.state, ShipState::Holding);
 }
 
-/// **After a fight won, those on their feet come home.** The arena
-/// cleared, four of the crew outside the ship: one whole, one hurt, and
-/// two downed. The ship takes the first two home whoever carried them —
-/// the departure never asks about them — and leaves the downed behind,
-/// dead for it (task 120).
+/// **After a fight won the deck is frozen, and everybody alive comes
+/// home** (task 133). The arena cleared with four of the crew outside the
+/// ship: one whole, one hurt, and two downed. From the step after, the
+/// room is not stepped — nobody moves, a downed body's countdown stands,
+/// the mission clock stops — and an order to the crew is refused. The
+/// player's *Back to ship* is the ship leaving at once, without a walk:
+/// nobody is left behind, the downed come home too, and nobody died.
 #[test]
-fn after_a_fight_won_those_on_their_feet_come_home_and_the_downed_are_left() {
+fn after_a_fight_won_the_deck_is_frozen_and_everybody_alive_comes_home() {
     let (mut world, station) = held_arena();
     world.set_droid_waves_for_probe(1);
     world.set_droid_wave_for_probe(3);
     open_the_room(&mut world);
-    wreck_them_all(&mut world);
-    for _ in 0..200 {
-        world.step(&[]);
-        if world.droid_station_cleared(station) {
-            break;
-        }
-    }
-    assert!(world.droid_station_cleared(station), "the arena cleared");
-    assert!(world.run.fought, "and there was a fight");
     for who in 1..=4 {
         ashore(&mut world, who);
     }
@@ -725,7 +718,16 @@ fn after_a_fight_won_those_on_their_feet_come_home_and_the_downed_are_left() {
     world.aboard.room.wound(2, Part::Legs, 40.0);
     world.aboard.room.knock_out_for_probe(3);
     world.aboard.room.wound(4, Part::Body, 1000.0);
-    world.step(&[]);
+    wreck_them_all(&mut world);
+    for _ in 0..200 {
+        world.step(&[]);
+        if world.droid_station_cleared(station) {
+            break;
+        }
+    }
+    assert!(world.droid_station_cleared(station), "the arena cleared");
+    assert!(world.run.fought, "and there was a fight");
+    assert!(world.fight_over(), "so the fight is over");
     let room = &world.aboard.room;
     assert!(!room.is_downed(1) && !room.is_downed(2));
     assert!(room.health(2) < bims::health::MAX_HEALTH, "2 is hurt");
@@ -733,30 +735,60 @@ fn after_a_fight_won_those_on_their_feet_come_home_and_the_downed_are_left() {
     for who in 1..=4 {
         assert!(!world.inside_ship(who), "{who} is outside");
     }
-    let behind = world.left_behind();
-    assert!(!behind.contains(&1) && !behind.contains(&2), "{behind:?}");
-    assert!(behind.contains(&3) && behind.contains(&4), "{behind:?}");
-    let events = world.leave_for_probe();
-    for who in [3, 4] {
-        assert!(
-            events
-                .iter()
-                .any(|e| matches!(e, WorldEvent::LeftBehind { who: w } if *w == who)),
-            "{who} left behind"
-        );
+    assert!(world.left_behind().is_empty(), "{:?}", world.left_behind());
+
+    // Frozen: a long while later nothing has moved and nobody bled out.
+    let crew = world.aboard.crew_count();
+    let before: Vec<_> = (0..crew).map(|who| world.aboard.position(who)).collect();
+    let down_left = world.aboard.room.down_left(4);
+    assert!(down_left.is_some(), "4 is counting down");
+    let clock = world.mission_steps();
+    for _ in 0..600 {
+        world.step(&[]);
     }
-    for who in [1, 2] {
-        assert!(
-            !events
-                .iter()
-                .any(|e| matches!(e, WorldEvent::LeftBehind { who: w } if *w == who)),
-            "{who} not left behind"
-        );
-        // The dead bots are buried after, and 1 and 2 are before them.
+    let after: Vec<_> = (0..crew).map(|who| world.aboard.position(who)).collect();
+    assert_eq!(before, after, "nobody moved");
+    assert_eq!(
+        world.aboard.room.down_left(4),
+        down_left,
+        "the countdown stands"
+    );
+    assert!(world.aboard.room.is_downed(3) && world.aboard.room.is_downed(4));
+    assert_eq!(world.mission_steps(), clock, "the mission clock stops");
+    let at = world.aboard.gangway.unwrap();
+    let events = world.step(&[Command::Crew {
+        slot: 0,
+        order: bims::order::CrewOrder::SendTo {
+            who: 1,
+            x: at.x as f32,
+            y: at.y as f32,
+        },
+    }]);
+    assert!(
+        events.contains(&WorldEvent::Refused {
+            slot: 0,
+            why: Refusal::FightOver
+        }),
+        "{events:?}"
+    );
+
+    // Back to ship: the one press, and the ship goes with everybody.
+    let mut events = world.step(&[Command::Return { slot: 0 }]);
+    if world.in_mission() {
+        events.extend(world.step(&[]));
+    }
+    assert!(!world.in_mission(), "the ship left without a walk");
+    assert!(
+        !events
+            .iter()
+            .any(|e| matches!(e, WorldEvent::LeftBehind { .. })),
+        "nobody left behind: {events:?}"
+    );
+    for who in 1..=4 {
         assert!(world.aboard.room.is_alive(who as usize), "{who} alive");
         assert!(world.inside_ship(who), "{who} aboard");
     }
-    assert_eq!(world.aboard.crew_count(), COMBAT_CREW - 2, "two bots gone");
+    assert_eq!(world.aboard.crew_count(), COMBAT_CREW, "no bot lost");
 }
 
 /// Without a fight won, nobody is taken home: a quiet site's departure

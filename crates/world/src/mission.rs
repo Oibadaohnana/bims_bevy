@@ -1015,7 +1015,11 @@ impl World {
         if !again {
             events.push(WorldEvent::Returning { slot });
         }
-        self.walk_the_player_home(slot);
+        // After a fight won nobody walks (task 133): the deck is frozen
+        // and the ship takes everybody from where they stand.
+        if !self.fight_over() {
+            self.walk_the_player_home(slot);
+        }
     }
 
     /// The player's own Bim sent walking to the deck just inside the
@@ -1062,14 +1066,40 @@ impl World {
     }
 
     /// Whether a player's Bim is one the departure waits for: a player
-    /// still at the keyboard, alive, not out and not downed.
+    /// still at the keyboard, alive, not out and not downed — downed too
+    /// after a fight won (task 133), when a downed player is going home
+    /// with the rest and has the button like them.
     fn waited_for(&self, slot: u32) -> bool {
         let who = slot as usize;
         slot < self.aboard.crew_count()
             && self.run.is_connected(slot)
             && !self.run.is_out(slot)
             && self.aboard.room.is_alive(who)
-            && !self.aboard.room.is_down(who)
+            && (!self.aboard.room.is_down(who) || self.fight_over())
+    }
+
+    /// Whether this mission's fight is **over and won** (task 133): there
+    /// was one (`Run::fought`) and the site is cleared. From the step
+    /// after, the deck is frozen — the room is not stepped, so nobody
+    /// moves and nobody downed bleeds out — and *Back to ship* takes
+    /// every crew member alive home from wherever it lies, without a walk
+    /// ([`World::comes_home`]).
+    /// Tied up at the site, and not `mission_cleared`'s "nowhere counts
+    /// as clear": a probe that undocks mid-fight is not a fight won.
+    pub fn fight_over(&self) -> bool {
+        self.run.phase == RunPhase::Mission
+            && self.run.fought
+            && self
+                .ship
+                .state
+                .alongside()
+                .is_some_and(|id| self.site_cleared(id))
+    }
+
+    /// Whether a player it waits for counts as home for the departure:
+    /// aboard, or anywhere once the fight is won (task 133).
+    fn home_for_departure(&self, slot: u32) -> bool {
+        self.fight_over() || self.inside_ship(slot)
     }
 
     /// Whether crew member `who` is inside the ship: on a tile of the
@@ -1096,22 +1126,19 @@ impl World {
 
     /// Whether the ship takes crew member `who` home with it wherever it
     /// stands: once the mission's fight is **won** — there was one
-    /// (`Run::fought`) and the site is cleared — every crew member alive
-    /// and **on its feet**. One downed is left behind (task 120), unless
-    /// somebody revives it or carries it aboard.
+    /// (`Run::fought`) and the site is cleared — every crew member alive,
+    /// on its feet or **downed**: the deck is frozen from then on and
+    /// nobody bleeds out on it (task 133, where task 120 left the downed
+    /// behind). The next mission makes them whole.
     pub fn comes_home(&self, who: u32) -> bool {
-        let room = &self.aboard.room;
-        let at = who as usize;
         who < self.aboard.crew_count()
-            && self.run.fought
-            && self.mission_cleared()
-            && room.is_alive(at)
-            && !room.is_downed(at)
+            && self.fight_over()
+            && self.aboard.room.is_alive(who as usize)
     }
 
-    /// The stable crew outside the ship after a fight won, stood just
-    /// inside its airlock as it leaves ([`World::comes_home`]), so the
-    /// rooms come apart with them aboard.
+    /// The crew outside the ship after a fight won, stood just inside its
+    /// airlock as it leaves ([`World::comes_home`]), so the rooms come
+    /// apart with them aboard.
     fn bring_home(&mut self) {
         let Some(at) = self.aboard.gangway else {
             return;
@@ -1132,7 +1159,7 @@ impl World {
             .collect();
         let home = waited
             .iter()
-            .filter(|&&s| self.run.is_returning(s) && self.inside_ship(s))
+            .filter(|&&s| self.run.is_returning(s) && self.home_for_departure(s))
             .count() as u32;
         (home, waited.len() as u32)
     }
@@ -1150,7 +1177,7 @@ impl World {
         let ready = !waited.is_empty()
             && waited
                 .iter()
-                .all(|&s| self.run.is_returning(s) && self.inside_ship(s));
+                .all(|&s| self.run.is_returning(s) && self.home_for_departure(s));
         if !ready {
             // A question still asking when somebody has walked back out
             // is no longer the question: dropped, to be asked afresh.
@@ -1187,7 +1214,7 @@ impl World {
     /// The ship leaves the site and the map comes up (feature 103).
     ///
     /// Everybody outside the ship is left behind, and dead for it — bar,
-    /// after a fight won, the stable, who are stood aboard first
+    /// after a fight won, everybody alive, who are stood aboard first
     /// ([`World::comes_home`]). The site is kept as it is if it was
     /// cleared — its bounty paid by then — and otherwise put back as the
     /// mission met it, the bounty thrown

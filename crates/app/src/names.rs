@@ -471,6 +471,7 @@ pub fn refusal(why: Refusal) -> &'static str {
         Refusal::Cloaked => "a cloaked Bim uses no ability",
         Refusal::AwaitingReady => "not yet — the mission starts when every player is ready",
         Refusal::NoReadyCheck => "the mission is already under way",
+        Refusal::FightOver => "the fight is won — press Back to ship",
     }
 }
 
@@ -2316,7 +2317,7 @@ pub const FIGHT_WON_BOTS: &str = "The rest of the crew";
 pub const FIGHT_WON_RELIC: &str = "Relic kept";
 pub const FIGHT_WON_JOINED: &str = "Townsfolk joined";
 pub const FIGHT_WON_LOST: &str = "Crew lost";
-pub const FIGHT_WON_NEXT: &str = "Back aboard, the crew choose a relic of the site's tier together, then where to go next on the map. Stay, and the button at the bottom right takes you back when you are done here.";
+pub const FIGHT_WON_NEXT: &str = "Back aboard, the crew choose a relic of the site's tier together, then where to go next on the map. Stay, and everything stands still — nobody moves and nobody downed bleeds out — until the button at the bottom right takes everybody back, wherever they are.";
 pub const FIGHT_WON_STAY: &str = "Stay here";
 
 /// A player's Bim's experience from the fight, and the levels it rose.
@@ -2490,7 +2491,9 @@ pub fn out_line() -> String {
     )
 }
 pub const BACK_TO_SHIP: &str = "Back to ship";
-pub const BACK_TO_SHIP_TIP: &str = "Say you are done here. The first press sends every bot back to the ship, and every press walks your own Bim there too. The ship leaves once every player still on their feet has pressed it and is aboard: anybody outside then is left behind, and dead for it, if everybody agrees. Leave before the place is cleared and it is put back as you found it — the bounty is lost, the experience is kept.";
+/// The same button once the fight is won and the deck frozen (task 133).
+pub const FIGHT_WON_BACK_TO_SHIP: &str = "Fight won — Back to ship";
+pub const BACK_TO_SHIP_TIP: &str = "Say you are done here. The first press sends every bot back to the ship, and every press walks your own Bim there too. The ship leaves once every player still on their feet has pressed it and is aboard: anybody outside then is left behind, and dead for it, if everybody agrees. Leave before the place is cleared and it is put back as you found it — the bounty is lost, the experience is kept. Once the fight is won everything stands still, nobody bleeds out, and nobody has to walk: the ship leaves when every player has pressed it and takes everybody alive, the downed too.";
 /// *Back to ship* pressed (feature 107's words for feature 103's count):
 /// the players aboard who have pressed it, of the players the ship waits
 /// for — `World::returning_count`, the departure check's own rule.
