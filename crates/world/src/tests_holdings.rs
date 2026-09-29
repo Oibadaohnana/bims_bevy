@@ -202,6 +202,64 @@ fn a_crew_arriving_at_a_site_kits_out_from_the_armory_aboard() {
     assert!(refused(&events, Refusal::GearLocked), "{events:?}");
 }
 
+/// **Nobody goes into a fight empty-handed**: a bot whose weapon went
+/// into the armory aboard keeps its empty hand at peace, and the crew
+/// under arms, it has a pistol — the armory's own, and a fresh one when
+/// the armory has none.
+#[test]
+fn a_crewmate_under_arms_with_an_empty_hand_is_given_a_pistol() {
+    let mut world = crewed_world(flyer(2), REFERENCE_MONEY, 1, 3);
+    world.step(&[]);
+    assert_eq!(world.run.phase, Phase::Mission);
+    let pistol = Item::Weapon(WeaponKind::LaserPistol.basic());
+    let pistols = |world: &World| {
+        world
+            .holdings
+            .armory
+            .iter()
+            .filter(|s| s.item == pistol)
+            .count()
+    };
+    let before = pistols(&world);
+    for who in [1, 2] {
+        let events = world.step(&[Command::Unequip {
+            slot: 0,
+            who,
+            part: GearSlot::Weapon,
+        }]);
+        assert!(!any_refusal(&events), "{events:?}");
+    }
+    // One of the two stowed pistols gone again, so that the armory has
+    // one for one bot and none for the other.
+    let taken = world
+        .holdings
+        .armory
+        .iter()
+        .rev()
+        .find(|s| s.item == pistol)
+        .map(|s| s.id)
+        .expect("stowed");
+    world.holdings.take(taken);
+    world.step(&[]);
+    assert!(!world.aboard.room.is_mustered(), "at peace");
+    assert_eq!(world.aboard.room.weapon(1), None, "an empty hand at peace");
+    assert_eq!(pistols(&world), before + 1);
+
+    // The player draws its weapon, and the crew are under arms.
+    world.aboard.room.recruit_for_probe(0, true);
+    world.step(&[]);
+    world.step(&[]);
+    assert!(world.aboard.room.is_mustered());
+    for who in [1, 2] {
+        assert_eq!(
+            world.aboard.room.weapon(who),
+            Some(WeaponKind::LaserPistol.basic()),
+            "crewmate {who} armed"
+        );
+    }
+    assert_eq!(pistols(&world), before, "the stowed one drawn, one made");
+}
+
 /// **The combat runs' armory holds everything**: every carried weapon and
 /// every piece at every tier it is made at, and nothing below one.
 #[test]

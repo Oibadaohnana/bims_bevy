@@ -1449,6 +1449,8 @@ impl World {
         //    the squad is a commander's and outranks the standing one.
         self.hand_the_room_the_standing();
         self.hand_the_room_the_soldiers();
+        //    And a pistol for every empty hand under arms.
+        self.arm_the_empty_handed(&mut events);
         //    How many hits each player's Bim had taken before the rooms
         //    stepped, for a relic that fires on one (feature 106).
         let hits_before = self.hits_before_the_step();
@@ -7069,19 +7071,48 @@ impl World {
         self.set_charges_held(who as u32, Charge::Grenade, 0);
         let mut gear = self.aboard.room.gear(who);
         if gear.weapon == Some(WeaponKind::AutoRifle.basic()) {
-            let pistol = Item::Weapon(WeaponKind::LaserPistol.basic());
-            if let Some(id) = self
-                .holdings
-                .armory
-                .iter()
-                .rev()
-                .find(|s| s.item == pistol)
-                .map(|s| s.id)
-            {
-                self.holdings.take(id);
-            }
-            gear.weapon = Some(WeaponKind::LaserPistol.basic());
+            gear.weapon = Some(self.draw_pistol());
             self.aboard.room.issue(who, gear);
+        }
+    }
+
+    /// A basic laser pistol out of the armory — a fresh one if the
+    /// armory has none. What an empty hand is given.
+    fn draw_pistol(&mut self) -> bims::combat::Weapon {
+        let pistol = WeaponKind::LaserPistol.basic();
+        if let Some(id) = self
+            .holdings
+            .armory
+            .iter()
+            .rev()
+            .find(|s| s.item == Item::Weapon(pistol))
+            .map(|s| s.id)
+        {
+            self.holdings.take(id);
+        }
+        pistol
+    }
+
+    /// Nobody goes into a fight empty-handed: while the crew are under
+    /// arms in a mission, every living crew member with nothing in its
+    /// weapon slot — the armory took it, or another Bim did — is given a
+    /// basic pistol ([`World::draw_pistol`]). A bot with no weapon never
+    /// reaches its stand, and stood aboard while the others fought.
+    fn arm_the_empty_handed(&mut self, events: &mut Vec<WorldEvent>) {
+        if !self.in_mission() || !self.aboard.room.is_mustered() {
+            return;
+        }
+        for who in 0..self.aboard.crew_count() as usize {
+            let mut gear = self.aboard.room.gear(who);
+            if gear.weapon.is_some() || !self.aboard.room.is_alive(who) {
+                continue;
+            }
+            gear.weapon = Some(self.draw_pistol());
+            self.aboard.room.issue(who, gear);
+            events.push(WorldEvent::GearChanged {
+                who: who as u32,
+                part: GearSlot::Weapon.code(),
+            });
         }
     }
 
