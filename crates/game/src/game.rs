@@ -1,7 +1,7 @@
 //! The room's game: the deck, the bodies on it, the errand each is on, the
 //! fight, and the per-frame draw list handed to the renderer.
 
-use crate::bim::{Bim, CREW, PLAYER, TRAIL_LIFE};
+use crate::bim::{Bim, CREW, Hand, PLAYER, TRAIL_LIFE};
 use crate::character::{
     ACCENT, Action, BODY_MARGIN, FallBack, Look, Outfit, PICK_RADIUS, SWING_TIME, Tint, Worn,
 };
@@ -1542,7 +1542,18 @@ impl Game {
                 // 86): both hands are the carry.
                 && bim.carrying.is_none()
                 // A body being carried shoots nothing either.
+                && !carried
+                // And the medkit in hand is no weapon (task 138).
+                && bim.hand == Hand::Weapon;
+            // The medkit is drawn in the hand while it is picked and the
+            // hands are free for it.
+            let kit = bim.hand == Hand::Medkit
+                && bim.is_alive()
+                && !bim.character.is_unconscious()
+                && !bim.character.is_outside()
+                && bim.carrying.is_none()
                 && !carried;
+            bim.character.set_medkit(kit);
             let weapon = bim.gear.weapon.filter(|_| armed);
             // The hand changing is heard: the weapon coming out, or going
             // back. Said for everybody; the app plays a player's own.
@@ -3434,8 +3445,13 @@ impl Game {
         }
 
         // The body's own clock: a downed body's countdown, run on the
-        // room's steps (task 120) — nothing mends on its own.
-        self.bims[who].health.update(dt);
+        // room's steps (task 120) — nothing mends on its own. It stands
+        // while somebody's hands are on it (task 138): a revive under way
+        // is a patient that does not die in the middle of it.
+        let held = self.bims[who].health.downed() && self.revive_share(who).is_some();
+        if !held {
+            self.bims[who].health.update(dt);
+        }
         // What the fight has done to it slows it down: once downed this
         // mission it walks at `health::DOWNED_PACE`, and nothing else
         // damage does costs any pace.
@@ -5876,6 +5892,7 @@ impl Game {
             let to = self.nearest_stand(who, vec2(x, y));
             let bim = &mut self.bims[who];
             bim.attack_move = Some(to);
+            bim.hand = Hand::Weapon;
             bim.character.set_recruited(true);
             bim.character.select_for(slot, true);
             if let Some(ping) = self.markers.last_mut() {
@@ -5890,6 +5907,27 @@ impl Game {
     pub(crate) fn call_off_attack_move(&mut self, who: usize) {
         self.bims[who].attack_move = None;
         self.bims[who].focus = None;
+    }
+
+    /// The quickselect (task 138): player `slot`'s own crew member takes
+    /// the weapon or the medkit in hand. With the medkit it holds its
+    /// fire (`tick_combat`), so an attack it was on is called off; an
+    /// attack order puts the weapon back in hand (`order_attack`,
+    /// `order_attack_move`).
+    pub fn order_hand(&mut self, slot: u32, hand: Hand) {
+        let who = slot as usize;
+        if who >= self.bims.len() || who >= self.players {
+            return;
+        }
+        if hand == Hand::Medkit {
+            self.call_off_attack_move(who);
+        }
+        self.bims[who].hand = hand;
+    }
+
+    /// What `who` holds (task 138): the weapon, or the medkit.
+    pub fn hand(&self, who: usize) -> Hand {
+        self.bims.get(who).map_or(Hand::Weapon, |b| b.hand)
     }
 
     /// Where `who`'s attack-move is bound, if it is on one.
@@ -5924,6 +5962,7 @@ impl Game {
         let bim = &mut self.bims[who];
         bim.attack_move = None;
         bim.focus = Some(enemy);
+        bim.hand = Hand::Weapon;
         bim.plan_wait = 0.0;
         bim.character.set_post(None);
         bim.character.set_recruited(true);
@@ -8797,6 +8836,13 @@ impl Game {
         self.room.doors.get(i).is_some_and(|d| d.locked)
     }
 
+    /// Whether `who` may lock a door from its panel (task 138): its
+    /// skill's `locks_doors`, which no class sets yet. Unlocking is
+    /// anybody's.
+    pub fn may_lock_doors(&self, who: usize) -> bool {
+        self.skill(who).locks_doors
+    }
+
     /// The Bim walks to the door's panel and works it.
     pub fn order_door(&mut self, who: usize, i: usize, order: door::Order) {
         if i < self.room.doors.len() {
@@ -8813,6 +8859,11 @@ impl Game {
     /// state only moves when the Bim's hand gets there, and this displaces
     /// whatever it was doing exactly like any other errand.
     fn send_to_switch(&mut self, who: usize, which: Switch) {
+        // Locking a door is no longer anybody's (task 138): only a body
+        // whose skill says so may, and none does yet.
+        if matches!(which, Switch::Door(_, door::Order::Lock)) && !self.may_lock_doors(who) {
+            return;
+        }
         if !self.can_begin(who, Kind::Switch(which)) || !self.take_over(who, Kind::Switch(which)) {
             return;
         }
@@ -11480,6 +11531,129 @@ mod tests {
             game.simulate(DT);
         }
         assert!(!game.is_downed(1), "ordered, it did");
+    }
+
+    /// Hands on a downed body stand its countdown (task 138): a revive
+    /// slower than the seconds the patient had left still brings it up,
+    /// and the countdown runs on again from where it stood once the hands
+    /// are off.
+    #[test]
+    fn a_revive_under_way_stands_the_patient_s_countdown() {
+        let mut game = room();
+        game.set_autonomous(false);
+        game.set_revivers(false);
+        let mut skills = vec![crate::combat::Skill::NONE; 2];
+        skills[1].revive = 20.0;
+        game.set_skills(skills);
+        let at = game.put_for_probe(0, vec2(ROOM_W * 0.5, ROOM_H * 0.5));
+        game.put_for_probe(1, at + vec2(TILE, 0.0));
+        knock_out(&mut game, 0);
+        // Twenty-five of its thirty seconds gone before anybody comes.
+        for _ in 0..(60 * 25) {
+            game.simulate(DT);
+        }
+        let left = game.down_left(0).expect("still downed");
+        assert!(left < 6.0, "{left}");
+        assert!(game.revive_crewmate(1, 0));
+        // Hands on it, the countdown stands.
+        let mut steps = 0;
+        while game.revive_share(0).is_none() && steps < 60 * 2 {
+            game.simulate(DT);
+            steps += 1;
+        }
+        let kneeling = game.down_left(0).expect("still downed");
+        for _ in 0..(60 * 8) {
+            game.simulate(DT);
+        }
+        assert_eq!(game.down_left(0), Some(kneeling), "it stood");
+        // Let go, it runs on from there.
+        assert!(game.order(0, crate::order::CrewOrder::StandDown { who: 1 }) == 0);
+        game.simulate(DT);
+        game.simulate(DT);
+        assert!(game.down_left(0).unwrap() < kneeling, "and runs again");
+        // Twenty seconds of hands on it bring it up though it had five.
+        assert!(game.revive_crewmate(1, 0));
+        for _ in 0..(60 * 23) {
+            game.simulate(DT);
+        }
+        assert!(game.is_alive(0) && !game.is_downed(0), "revived");
+    }
+
+    /// The quickselect (task 138): with the medkit in hand the player's
+    /// own Bim holds its fire and the kit is drawn; the weapon back in
+    /// hand, it fires. An attack order takes the weapon up by itself, and
+    /// only a player's own Bim changes hands.
+    #[test]
+    fn with_the_medkit_in_hand_the_player_s_bim_holds_its_fire() {
+        use crate::bim::Hand;
+        use crate::order::CrewOrder;
+        let mut game = room();
+        game.set_autonomous(false);
+        game.put_for_probe(0, vec2(ROOM_W * 0.2, ROOM_H * 0.5));
+        game.put_for_probe(1, vec2(ROOM_W * 0.2, ROOM_H * 0.85));
+        game.issue(1, Gear::default());
+        let near = vec2(ROOM_W * 0.4, ROOM_H * 0.5);
+        let pistol = WeaponKind::LaserPistol.basic();
+        game.set_hostiles(vec![Some((near, pistol))]);
+        assert_eq!(game.hand(0), Hand::Weapon);
+        game.order(0, CrewOrder::Hand { hand: Hand::Medkit });
+        assert_eq!(game.hand(0), Hand::Medkit);
+        let mut hits = 0;
+        for _ in 0..(60 * 4) {
+            game.simulate(DT);
+            hits += game.take_hits().len();
+        }
+        assert!(game.is_recruited(0), "the alarm took it up");
+        assert_eq!(hits, 0, "a medkit shoots nothing");
+        assert!(!game.bims[0].character.is_armed());
+        assert!(game.bims[0].character.has_medkit());
+        game.order(0, CrewOrder::Hand { hand: Hand::Weapon });
+        for _ in 0..(60 * 4) {
+            game.simulate(DT);
+            hits += game.take_hits().len();
+        }
+        assert!(hits > 0, "the weapon back in hand shoots");
+        assert!(!game.bims[0].character.has_medkit());
+        // An attack order puts the weapon in hand.
+        game.order(0, CrewOrder::Hand { hand: Hand::Medkit });
+        game.observe();
+        assert_eq!(game.order(0, CrewOrder::Attack { enemy: 0 }), ORDER_MOVING);
+        assert_eq!(game.hand(0), Hand::Weapon);
+        // A bot's hand is nobody's to change: slot 1 is no player here.
+        game.order(1, CrewOrder::Hand { hand: Hand::Medkit });
+        assert_eq!(game.hand(1), Hand::Weapon);
+    }
+
+    /// Locking a door is not everybody's (task 138): the order is refused
+    /// unless the body's skill says it may lock, and unlocking stays
+    /// anybody's.
+    #[test]
+    fn only_a_body_whose_skill_says_so_locks_a_door() {
+        let layout = crate::aboard::layout_of(&shipdesign::fixture::playtest_ship());
+        let (w, h) = (layout.bounds.width(), layout.bounds.height());
+        let mut game = Game::with_layout(layout, 7, &[tile_middle(8.0, 10.0)], w, h);
+        game.set_autonomous(false);
+        let door = door_at_tile(&game, 15.0, 13.0);
+        let run = |game: &mut Game| {
+            for _ in 0..(60 * 20) {
+                game.simulate(DT);
+            }
+        };
+        game.order_door(0, door, door::Order::Lock);
+        run(&mut game);
+        assert!(!game.ship_door_is_locked(door), "nobody locks");
+        assert!(!game.may_lock_doors(0));
+        let mut skill = Skill::NONE;
+        skill.locks_doors = true;
+        game.set_skills(vec![skill]);
+        assert!(game.may_lock_doors(0));
+        game.order_door(0, door, door::Order::Lock);
+        run(&mut game);
+        assert!(game.ship_door_is_locked(door), "the class that may, does");
+        game.set_skills(vec![Skill::NONE]);
+        game.order_door(0, door, door::Order::Unlock);
+        run(&mut game);
+        assert!(!game.ship_door_is_locked(door), "anybody unlocks");
     }
 
     /// A bot on its way to a downed crewmate gives way to the player's own

@@ -173,7 +173,9 @@ use crate::game::Game;
 /// 58: one fight a system (task 135) — the run keeps the site chosen in
 /// each system.
 /// 59: elites — the world keeps the site a probe made an elite.
-pub const SAVE_VERSION: u32 = 59;
+/// 60: the quickselect (task 138) — a Bim keeps what is in its hands,
+/// the figure the medkit it draws, and a skill whether it may lock a door.
+pub const SAVE_VERSION: u32 = 60;
 
 /// What the file holds, read back.
 #[derive(serde::Deserialize)]

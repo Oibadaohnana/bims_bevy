@@ -100,6 +100,8 @@ const SHADOW: Color = Color::rgba(0.0, 0.0, 0.0, 0.20);
 /// round it.
 const CRATE: Color = Color::rgb(0.55, 0.47, 0.32);
 const CRATE_STRAP: Color = Color::rgb(0.32, 0.27, 0.19);
+/// The medkit in the hand (task 138): a white case with the red cross.
+const MEDKIT_CASE: Color = Color::rgb(0.93, 0.94, 0.92);
 /// The red of a medic's cross.
 const MEDKIT_CROSS: Color = Color::rgb(0.80, 0.16, 0.16);
 /// A pick's haft.
@@ -879,6 +881,11 @@ pub struct Character {
     /// hands. Drawing only — `Game::tick_combat` sets it every step from
     /// the gear and the orders.
     armed: Option<WeaponKind>,
+    /// The medkit in the hand (task 138): the quickselect's second
+    /// pick, drawn in front of the body. Drawing only — `Game::tick_combat`
+    /// sets it every step from the hand.
+    #[cfg_attr(feature = "serde", serde(default))]
+    medkit: bool,
     /// Where it leans out to, aiming from a peek beside a wall: the eye,
     /// and the body is drawn part of the way there ([`LEAN`]) and turned
     /// to look from it. Drawing only; `Game::tick_combat` sets it.
@@ -979,6 +986,7 @@ impl Character {
             far: None,
             antic: 0.0,
             armed: None,
+            medkit: false,
             lean: None,
             aim: None,
             falling_back: None,
@@ -1275,6 +1283,15 @@ impl Character {
 
     pub fn is_armed(&self) -> bool {
         self.armed.is_some()
+    }
+
+    /// The medkit in the hand, or not (task 138). Drawing only.
+    pub fn set_medkit(&mut self, on: bool) {
+        self.medkit = on;
+    }
+
+    pub fn has_medkit(&self) -> bool {
+        self.medkit
     }
 
     /// Leaning out to a peek eye to aim from it, or standing square.
@@ -2331,6 +2348,15 @@ impl Character {
 
         if let Some(weapon) = self.armed.filter(|_| !self.dead) {
             self.draw_weapon(list, pose, weapon);
+        }
+        // The medkit (task 138): a case held out in front, the cross on
+        // its lid, where a free hand carries a thing.
+        if self.medkit && !self.dead && self.armed.is_none() {
+            let at = to_world(vec2(17.0, 6.0));
+            list.rect(at, vec2(14.0, 17.0), self.heading, 2.5, OUTLINE);
+            list.rect(at, vec2(12.0, 15.0), self.heading, 2.0, MEDKIT_CASE);
+            list.rect(at, vec2(3.0, 10.0), self.heading, 0.0, MEDKIT_CROSS);
+            list.rect(at, vec2(10.0, 3.0), self.heading, 0.0, MEDKIT_CROSS);
         }
 
         match self.main {

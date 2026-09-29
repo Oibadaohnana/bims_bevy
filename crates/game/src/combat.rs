@@ -765,6 +765,12 @@ pub struct Skill {
     /// soldier's Brace (task 124). Nought for everybody else.
     #[cfg_attr(feature = "serde", serde(default))]
     pub miss_cut: f32,
+    /// Whether this body may lock a door from its panel (task 138):
+    /// nobody may since the lock stopped being everybody's — the code is
+    /// kept for a class that will use it. Unlocking is anybody's, so no
+    /// door stays shut against the crew.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub locks_doors: bool,
 }
 
 impl Skill {
@@ -799,6 +805,7 @@ impl Skill {
         damage_taken: 1.0,
         crit_chance: 0.0,
         miss_cut: 0.0,
+        locks_doors: false,
     };
 
     /// The skill for this body's next shot, with `shots` fired before it:

@@ -4149,6 +4149,9 @@ The survivor pins moved for it (their notes say so).
 
 ## A body on the deck takes no right-click (September 2026)
 
+> Since task 138 a right-click opens no menu at all and the app no longer
+> asks `hit_order_at` (the last section).
+
 `Game::hit_order_at` is `hit_at` for a right-click, which is an order: a
 body lying on the deck — downed, dead, a machine's wreck, a station's
 person down — is not there for it, so the click lands on the deck (or the
@@ -4159,3 +4162,41 @@ In both, **one standing before one lying**: a body earlier in the list no
 longer hides the crewmate standing over it. `enemy_at` never picked a
 target down. `a_right_click_order_passes_over_a_body_lying_on_the_deck`
 and `a_crewmate_standing_over_a_body_is_the_crewmate` pin it.
+
+## The quickselect, the medkit, and nobody locks a door (task 138)
+
+- **A right-click opens nothing.** The app's right-click on the deck is
+  an order and only an order: an enemy is the attack, a downed crewmate
+  with the medkit in hand is the revive, and everything else — a body, a
+  door, a fixture — is `CrewOrder::Move` to that point. The menus (a
+  door's, a downed crewmate's *Get up* / *Carry*, a mercenary's *Hire*,
+  the relic cache) are a left click's. `Game::hit_order_at` is kept and
+  no longer asked by the app.
+- **`Bim::hand`** (`bim::Hand::{Weapon, Medkit}`, serde default the
+  weapon) is what a player's own Bim holds, set by `CrewOrder::Hand
+  { hand }` (appended last; the app's 1 and 2, `keys::Action::HandWeapon`
+  / `HandMedkit`) through `Game::order_hand(slot, hand)` — the slot's own
+  Bim and only a player's (`who < players`), so no bot ever changes hands.
+  With the medkit `tick_combat`'s `armed` is false (the body is recruited
+  by the alarm as ever, and fires nothing), an attack it was on is called
+  off, and `Character::set_medkit` draws the white case with the red cross
+  in front of the body (`has_medkit`). An attack or an attack-move order
+  puts the weapon back in hand. `Game::hand(who)` reads it.
+- **A revive under way stands the patient's countdown**: `tick_bim` skips
+  `Health::update` for a downed body while `revive_share(who)` is `Some`
+  — hands on it, the walk over not counted — and the countdown runs on
+  from where it stood when the hands come off.
+- **Locking a door is `Skill::locks_doors`** (serde default false, no
+  class sets it): `send_to_switch` drops a `door::Order::Lock` for a body
+  without it — the live order and a queued one alike — and
+  `Game::may_lock_doors(who)` is the question the app's door menu asks
+  before it offers *Lock*. Unlocking is anybody's, so a door locked some
+  other way never stays shut against the crew. The panel, the errand and
+  `JOB_DOOR_LOCK` are all kept for the class that will use it.
+
+`a_revive_under_way_stands_the_patient_s_countdown`,
+`with_the_medkit_in_hand_the_player_s_bim_holds_its_fire` and
+`only_a_body_whose_skill_says_so_locks_a_door` pin it; the world's
+`a_locked_door_is_a_wall_and_an_unlocked_one_is_not` locks its door
+outright now, after the panel's lock is refused. `SAVE_VERSION` 60,
+`wire::PROTOCOL` 56.

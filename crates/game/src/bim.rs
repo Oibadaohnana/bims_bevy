@@ -211,6 +211,25 @@ pub struct Bim {
     /// False for every other body.
     #[cfg_attr(feature = "serde", serde(default))]
     pub gone: bool,
+    /// What is in its hands (task 138): the weapon, or the medkit a
+    /// player picks with the quickselect's second key — with that in
+    /// hand it holds its fire, and a right-click on a downed crewmate is
+    /// the revive. Only a player's own Bim ever changes it
+    /// (`Game::order_hand`); everybody else keeps the weapon.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub hand: Hand,
+}
+
+/// The quickselect (task 138): what a player's own Bim holds.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub enum Hand {
+    /// The weapon, which it fires as it always did.
+    #[default]
+    Weapon,
+    /// The medkit: no shooting, and a right-click on a downed crewmate
+    /// revives it.
+    Medkit,
 }
 
 /// The years the crew were born in. Everyone aboard is somewhere between
@@ -258,6 +277,7 @@ impl Bim {
             attack_move: None,
             focus: None,
             gone: false,
+            hand: Hand::Weapon,
         }
     }
 

@@ -19,6 +19,7 @@
 //! pointer is turned into, so an order applied on another machine lands on
 //! the same tile.
 
+use crate::bim::Hand;
 use crate::door;
 use crate::game::{Game, ORDER_IGNORED};
 use crate::math::vec2;
@@ -108,6 +109,11 @@ pub enum CrewOrder {
     Attack {
         enemy: u32,
     },
+    /// The quickselect (task 138): what player `slot`'s own crew member
+    /// holds — the weapon (1) or the medkit (2). Appended last.
+    Hand {
+        hand: Hand,
+    },
 }
 
 impl CrewOrder {
@@ -131,7 +137,8 @@ impl CrewOrder {
             | CrewOrder::WorkPriority { .. }
             | CrewOrder::Autonomous { .. }
             | CrewOrder::AttackMove { .. }
-            | CrewOrder::Attack { .. } => None,
+            | CrewOrder::Attack { .. }
+            | CrewOrder::Hand { .. } => None,
         }
     }
 }
@@ -215,6 +222,10 @@ impl Game {
             }
             CrewOrder::AttackMove { x, y } => self.order_attack_move(slot, x, y),
             CrewOrder::Attack { enemy } => self.order_attack(slot, enemy as usize),
+            CrewOrder::Hand { hand } => {
+                self.order_hand(slot, hand);
+                0
+            }
         }
     }
 
@@ -271,7 +282,8 @@ impl Game {
             | CrewOrder::WorkPriority { .. }
             | CrewOrder::Autonomous { .. }
             | CrewOrder::AttackMove { .. }
-            | CrewOrder::Attack { .. } => return self.order(slot, order),
+            | CrewOrder::Attack { .. }
+            | CrewOrder::Hand { .. } => return self.order(slot, order),
         };
         if who(w) < crew {
             self.queue_order(Saved::ordered(who(w), kind, minutes, None));

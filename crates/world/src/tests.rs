@@ -2346,16 +2346,18 @@ fn a_bim_can_be_sent_to_stand_in_a_doorway_and_a_locked_door_is_a_wall() {
         // Door 0 is the bridge bulkhead's, the first the design lays, and it is
         // the whole two-tile doorway: locked, the bridge is sealed.
         assert!(!world.aboard.room.ship_door_is_locked(0));
+        // Nobody locks a door from its panel since task 138 — no class's
+        // skill says it may — so the order is refused and the door is
+        // locked outright for the rest of the test.
         world.aboard.room.order_door(0, 0, bims::door::Order::Lock);
-        let mut budget = 60 * 60 * 5;
-        while budget > 0 && !world.aboard.room.ship_door_is_locked(0) {
+        for _ in 0..60 * 5 {
             world.step(&[]);
-            budget -= 1;
         }
         assert!(
-            world.aboard.room.ship_door_is_locked(0),
-            "the door never got locked"
+            !world.aboard.room.ship_door_is_locked(0),
+            "a crew member locked a door from its panel"
         );
+        assert!(world.aboard.room.lock_door_for_probe(0, true));
         let mut budget = 60 * 5;
         while budget > 0 && world.aboard.room.is_walking(0) {
             world.step(&[]);

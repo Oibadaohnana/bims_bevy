@@ -802,26 +802,31 @@ impl CrewPanels {
                         },
                     },
                 ));
-                items.push(Item::run(
-                    if locked { "Unlock" } else { "Lock" },
-                    takes_over
-                        .unwrap_or(if locked {
-                            "at the panel"
-                        } else {
-                            "shuts it, and nobody gets through"
-                        })
-                        .to_string(),
-                    false,
-                    CrewOrder::Door {
-                        who: who as u32,
-                        door: door as u32,
-                        order: if locked {
-                            door::Order::Unlock
-                        } else {
-                            door::Order::Lock
+                // Locking is no longer anybody's (task 138): the row is
+                // there for a body whose skill may lock, and Unlock for
+                // everybody, so no door stays shut against the crew.
+                if locked || game.may_lock_doors(who) {
+                    items.push(Item::run(
+                        if locked { "Unlock" } else { "Lock" },
+                        takes_over
+                            .unwrap_or(if locked {
+                                "at the panel"
+                            } else {
+                                "shuts it, and nobody gets through"
+                            })
+                            .to_string(),
+                        false,
+                        CrewOrder::Door {
+                            who: who as u32,
+                            door: door as u32,
+                            order: if locked {
+                                door::Order::Unlock
+                            } else {
+                                door::Order::Lock
+                            },
                         },
-                    },
-                ));
+                    ));
+                }
             }
             HIT_BIM => {
                 // A body on the deck — the player's own, or a crewmate

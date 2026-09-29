@@ -13,7 +13,7 @@
 use bevy::prelude::*;
 use bevy_egui::{EguiContexts, EguiPrimaryContextPass, egui};
 use bims::order::CrewOrder;
-use bims::room::{HIT_BIM, HIT_SHIP_DOOR};
+use bims::room::HIT_BIM;
 use flight::Target;
 use ship::Session;
 use ship::game::ViewMode;
@@ -1838,30 +1838,28 @@ fn frame(
                         enemy: enemy as u32,
                     }));
                 } else if let Some(room) = session.room() {
-                    // A body lying on the deck — downed, dead, a wreck, a
-                    // station's person down — takes no right-click: the
-                    // click is the deck under it and the Bim walks there
-                    // (`Game::hit_order_at`). A crewmate down is a left
-                    // click's menu, *Get up* and *Carry*; holding the
-                    // revive key beside it is the quick way to the first.
-                    let fixture = room.hit_order_at(rx, ry);
-                    if fixture != 0 {
-                        let at = pointer.pos.unwrap();
-                        panels.open_menu(fixture, egui::pos2(at.x, at.y), room);
-                    }
-                    // A doorway is somewhere to stand as well as something
-                    // to work: the door's menu opens *and* the order goes
-                    // through, so a right-click on one walks the Bim into
-                    // it. Every other fixture keeps the click for its menu
-                    // — a living body included (`HIT_BIM`, or one of the
-                    // station's people for hire, `HIT_VISITOR`): never the
-                    // deck it stands on.
+                    // A right-click opens nothing (task 138): it is an
+                    // order and only an order. With the medkit in hand a
+                    // downed crewmate under it is the revive — the walk
+                    // over and the hands on it; everything else, a body,
+                    // a door or a fixture, is the deck to walk to. The
+                    // menus are a left click's.
                     // The order goes the moment the button goes down, the
                     // way Dota gives one, and it is for the player's own
                     // Bim alone whoever is selected (`Game::orderable`).
                     // With Shift held it waits its turn (feature 69).
-                    if fixture == 0 || fixture == HIT_SHIP_DOOR {
-                        orders.push(crew_order(CrewOrder::Move { x: rx, y: ry }, pointer.shift));
+                    match medkit_patient(room, panels.player, rx, ry, &crew_name) {
+                        Some(Ok(patient)) => orders.push(crew_order(
+                            CrewOrder::Revive {
+                                who: panels.player as u32,
+                                patient,
+                            },
+                            pointer.shift,
+                        )),
+                        Some(Err(why)) => screen.log.push(why),
+                        None => {
+                            orders.push(crew_order(CrewOrder::Move { x: rx, y: ry }, pointer.shift))
+                        }
                     }
                 }
             }
@@ -1958,6 +1956,19 @@ fn frame(
                 }
                 if keys_now.pressed(i, Action::Speed1) {
                     orders.push(Order::Speed(Speed::Real));
+                }
+                // The quickselect (task 138): 1 the weapon, 2 the medkit,
+                // in the player's own Bim's hands. An order, so every
+                // copy of the room sees the same hands.
+                if keys_now.pressed(i, Action::HandWeapon) {
+                    orders.push(Order::Crew(CrewOrder::Hand {
+                        hand: bims::bim::Hand::Weapon,
+                    }));
+                }
+                if keys_now.pressed(i, Action::HandMedkit) {
+                    orders.push(Order::Crew(CrewOrder::Hand {
+                        hand: bims::bim::Hand::Medkit,
+                    }));
                 }
                 // Select: the crew member you steer, selected and in the middle.
                 if keys_now.pressed(i, Action::Select) {
@@ -2471,13 +2482,21 @@ fn frame(
             // key are (task 123) — not with the Esc sheet up, nor a
             // text field holding the keyboard, the key's own rule.
             let mut clicked = None;
+            // The quickselect (task 138) before the slots: what is in the
+            // hands, and a click the key's own order.
+            let hand = room.hand(w);
+            let mut hand_picked = None;
             let got = hud::hero_panel(&ctx, area, clear, right, &hero, |ui| {
+                hand_picked = quickselect(ui, hand, &keys_now);
                 let row = ability_row(ui, &boxes);
                 clicked = row.rank_up;
                 row.hovered
             });
             if keys {
                 rank_up_asked = rank_up_asked.or(clicked);
+            }
+            if let Some(hand) = hand_picked.filter(|&h| h != hand) {
+                orders.push(Order::Crew(CrewOrder::Hand { hand }));
             }
             // Whom the box the pointer rests on would reach (feature 86),
             // for the ring on the deck below.
@@ -4588,6 +4607,38 @@ fn affected_by(world: &world::World, slot: u32, action: Action) -> Vec<u32> {
 /// box the pointer rests on, for the ring round whom its cast would
 /// reach, and the rank-up a Ctrl-click on a slot's box asked for (task
 /// 123).
+/// The quickselect in the hero panel (task 138): the weapon over the
+/// medkit, each with its key, the one in hand lit. The one clicked, if
+/// any.
+fn quickselect(ui: &mut egui::Ui, hand: bims::bim::Hand, keys: &Keys) -> Option<bims::bim::Hand> {
+    use bims::bim::Hand;
+    let mut picked = None;
+    ui.vertical(|ui| {
+        ui.spacing_mut().item_spacing.y = 3.0;
+        for (one, action, word, tip) in [
+            (
+                Hand::Weapon,
+                Action::HandWeapon,
+                HAND_WEAPON,
+                HAND_WEAPON_TIP,
+            ),
+            (
+                Hand::Medkit,
+                Action::HandMedkit,
+                HAND_MEDKIT,
+                HAND_MEDKIT_TIP,
+            ),
+        ] {
+            let text = egui::RichText::new(format!("{}  {word}", keys.key(action).name())).small();
+            let button = theme::toggle_button(one == hand, text).min_size(egui::vec2(78.0, 20.0));
+            if ui.add(button).on_hover_text(tip).clicked() {
+                picked = Some(one);
+            }
+        }
+    });
+    picked
+}
+
 fn ability_row(ui: &mut egui::Ui, boxes: &[AbilityBox]) -> RowOut {
     let mut out = RowOut {
         hovered: None,
@@ -5144,6 +5195,31 @@ const CARRY_WALK_GRACE: u32 = 30;
 /// * let go with the revive still in hand, and it is stopped
 ///   (`CrewOrder::StandDown`, which lets a revive go);
 /// * pressed with nobody near, the log says so.
+/// What a right-click at room point `(x, y)` revives with the medkit in
+/// `own`'s hand (task 138): `None` when the kit is not in hand or no
+/// downed crewmate is under the pointer — the click is a walk then — else
+/// the patient, or the reason it cannot be revived, for the log.
+fn medkit_patient(
+    room: &bims::game::Game,
+    own: usize,
+    x: f32,
+    y: f32,
+    name: &dyn Fn(u32) -> String,
+) -> Option<Result<u32, String>> {
+    if room.hand(own) != bims::bim::Hand::Medkit {
+        return None;
+    }
+    let patient = room
+        .crew_at(x, y)
+        .filter(|&p| p != own && room.is_downed(p))?;
+    Some(
+        match crate::crew::revive_refused(room, own, patient, name) {
+            Some(why) => Err(why),
+            None => Ok(patient as u32),
+        },
+    )
+}
+
 fn held_revive(
     room: &bims::game::Game,
     own: usize,

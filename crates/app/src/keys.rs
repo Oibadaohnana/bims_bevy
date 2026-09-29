@@ -108,6 +108,14 @@ pub enum Action {
     /// nearest it back up — it must be standing close — and lets go when
     /// the key comes up before they are. On G; the carry moved to H.
     Revive,
+    /// **The quickselect's first** (task 138): the weapon in the hands of
+    /// the Bim you steer, which fires as it always did. On 1, which the
+    /// 1× speed had until then.
+    HandWeapon,
+    /// **The quickselect's second** (task 138): the medkit in its hands —
+    /// it holds its fire, and a right-click on a downed crewmate revives
+    /// them. On 2.
+    HandMedkit,
     /// **The character sheet** (feature 107): the player's own Bim's
     /// class, level, body, gear and talents, on the left of the canvas.
     /// Pressed again, it shuts.
@@ -124,7 +132,7 @@ impl Action {
         Action::Ability4,
     ];
 
-    pub const ALL: [Action; 26] = [
+    pub const ALL: [Action; 28] = [
         Action::Map,
         Action::NorthUp,
         Action::Follow,
@@ -150,6 +158,8 @@ impl Action {
         Action::Retreat,
         Action::Carry,
         Action::Revive,
+        Action::HandWeapon,
+        Action::HandMedkit,
         Action::CharacterSheet,
     ];
 
@@ -163,7 +173,9 @@ impl Action {
             // from feature 84 until then — so following the camera is V.
             Action::Follow => Key::V,
             Action::Pause => Key::Space,
-            Action::Speed1 => Key::Num1,
+            // 1 and 2 are the quickselect (task 138), so the 1× speed
+            // went to the key left of them.
+            Action::Speed1 => Key::Backtick,
             Action::PanLeft => Key::A,
             Action::PanRight => Key::D,
             Action::PanUp => Key::W,
@@ -190,6 +202,8 @@ impl Action {
             // G is the held revive, so the medic's carry went to H.
             Action::Carry => Key::H,
             Action::Revive => Key::G,
+            Action::HandWeapon => Key::Num1,
+            Action::HandMedkit => Key::Num2,
             Action::CharacterSheet => Key::K,
         }
     }
@@ -222,6 +236,8 @@ impl Action {
             Action::Retreat => "retreat",
             Action::Carry => "carry",
             Action::Revive => "revive",
+            Action::HandWeapon => "hand-weapon",
+            Action::HandMedkit => "hand-medkit",
             Action::CharacterSheet => "character-sheet",
         }
     }
@@ -279,10 +295,16 @@ impl Action {
                 "The crew that follow you fall back to the ship and hold there. Press it again and they go back to keeping to your side. Nobody leaves a fight aboard the ship: cornered in your own hull they stand and shoot whatever they were told."
             }
             Action::Carry => {
-                "A medic picks the downed crewmate under the pointer up and carries them out of the fire, holding its fire and walking slowly while it does. Press it again to set them down, and revive them where it is quiet. Nothing for anybody but a medic or a hired field medic. A right-click on a downed crewmate offers the same."
+                "A medic picks the downed crewmate under the pointer up and carries them out of the fire, holding its fire and walking slowly while it does. Press it again to set them down, and revive them where it is quiet. Nothing for anybody but a medic or a hired field medic. A left click on a downed crewmate offers the same."
             }
             Action::Revive => {
                 "Hold it standing close to a downed crewmate and the Bim you steer gets them back up — the nearest of them. Let go before they are up and it stops. A bar over them shows how far it has got."
+            }
+            Action::HandWeapon => {
+                "Take the weapon in hand: the Bim you steer fires as it always does. An attack order takes it up by itself."
+            }
+            Action::HandMedkit => {
+                "Take the medkit in hand: the Bim you steer holds its fire, and a right-click on a downed crewmate walks over and revives them. Their countdown stands while the hands are on them."
             }
             Action::CharacterSheet => {
                 "Open and close your Bim's character sheet: its class and level, its health, what it wears and holds, and the talent tree a level's pick is spent on."
@@ -430,6 +452,12 @@ impl Keys {
         // and no revive line: the carry goes to its new key, H, rather
         // than sharing G with the revive.
         let old_carry = !text.lines().any(|l| l.trim_start().starts_with("revive="));
+        // And one from before the quickselect took 1 (task 138) has the
+        // 1× speed there: it goes to its new key rather than sharing 1
+        // with the weapon.
+        let old_speed = !text
+            .lines()
+            .any(|l| l.trim_start().starts_with("hand-weapon="));
         for line in text.lines() {
             let Some((name, key)) = line.split_once('=') else {
                 continue;
@@ -451,6 +479,10 @@ impl Keys {
                 egui::Key::from_name(key.trim()),
             ) {
                 if old_carry && action == Action::Carry && key == Action::Revive.default_key() {
+                    continue;
+                }
+                if old_speed && action == Action::Speed1 && key == Action::HandWeapon.default_key()
+                {
                     continue;
                 }
                 keys.set(action, key);
@@ -662,6 +694,27 @@ mod tests {
         let both = Keys::from_text("carry=G\nrevive=J\n");
         assert_eq!(both.key(Action::Carry), egui::Key::G);
         assert_eq!(both.key(Action::Revive), egui::Key::J);
+        assert_eq!(Keys::from_text(&keys.to_text()), keys);
+    }
+
+    /// The quickselect is 1 and 2 (task 138) and the 1× speed left 1; a
+    /// file from before, with the speed on 1 and no quickselect line, is
+    /// read with the speed on its new key, and one that says both keeps
+    /// its word.
+    #[test]
+    fn the_quickselect_is_one_and_two_and_an_old_speed_on_one_moves() {
+        let keys = Keys::default();
+        assert_eq!(keys.key(Action::HandWeapon), egui::Key::Num1);
+        assert_eq!(keys.key(Action::HandMedkit), egui::Key::Num2);
+        assert!(keys.shared_with(Action::HandWeapon).is_empty());
+        assert!(keys.shared_with(Action::HandMedkit).is_empty());
+        assert!(keys.shared_with(Action::Speed1).is_empty());
+        let old = Keys::from_text("speed-1=1\n");
+        assert_eq!(old.key(Action::Speed1), Action::Speed1.default_key());
+        assert_eq!(old.key(Action::HandWeapon), egui::Key::Num1);
+        let both = Keys::from_text("speed-1=1\nhand-weapon=3\n");
+        assert_eq!(both.key(Action::Speed1), egui::Key::Num1);
+        assert_eq!(both.key(Action::HandWeapon), egui::Key::Num3);
         assert_eq!(Keys::from_text(&keys.to_text()), keys);
     }
 
