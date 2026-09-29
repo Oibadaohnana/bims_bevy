@@ -254,18 +254,29 @@ fn commands() -> Vec<(&'static str, u64)> {
 /// `0x_606f_c276_801f_6d7e`, `0x_9012_786f_22c6_0c02`,
 /// `0x_281f_b990_f3c9_e671`, `0x_5376_eb05_b524_e099`,
 /// `0x_c5f1_4fd2_88f6_6279` and `0x_6507_468b_fa27_bde8`.
+///
+/// **Six moved, on purpose**, for three changes of 29 September 2026 in
+/// the tree together: task 137's follow-up (a machine has one health that
+/// every hit comes off), the map rework (a jump is a day, a trip within a
+/// system nothing) and the bots' deaths (a bot lost costs nothing) — the
+/// six commands that fight machines. Their shares were not taken apart;
+/// the empty-handed crewmate's pistol moves none of them (checked with
+/// that rule switched off). They were `0x_e1f2_77b7_3739_64aa`,
+/// `0x_7840_b21d_4488_7899`, `0x_6f28_4ad3_5486_cfbe`,
+/// `0x_5379_eedc_d57e_9612`, `0x_bb40_ce94_1cfa_873c` and
+/// `0x_0d7f_2c9a_94c7_19e8`.
 const PINNED: [(&str, u64); 11] = [
     ("simulation", 0x_73b2_eae7_e74e_9684),
     ("game", 0x_2ba5_0425_4c88_c171),
-    ("droids", 0x_e1f2_77b7_3739_64aa),
-    ("tier2_test", 0x_7840_b21d_4488_7899),
-    ("combat_droids_medic", 0x_6f28_4ad3_5486_cfbe),
+    ("droids", 0x_6bc6_e563_4740_f31b),
+    ("tier2_test", 0x_7f3f_61cd_1727_d600),
+    ("combat_droids_medic", 0x_6900_5ef7_e616_5287),
     ("test", 0x_b8c7_dab8_5450_1537),
     ("test_planet", 0x_9e0b_4049_7a5b_e561),
-    ("droids_planet", 0x_5379_eedc_d57e_9612),
-    ("defense", 0x_bb40_ce94_1cfa_873c),
+    ("droids_planet", 0x_01a1_86b4_7407_4d8a),
+    ("defense", 0x_0cab_dd44_d055_bfbc),
     ("crisis", 0x_c257_27a9_1785_d070),
-    ("jammer", 0x_0d7f_2c9a_94c7_19e8),
+    ("jammer", 0x_a253_e753_3a70_d468),
 ];
 
 /// **Every command plays as it did**: each session the app builds, read
@@ -413,18 +424,21 @@ fn the_fixtures_and_a_run_s_deck_are_drawn_as_they_were() {
 /// And again for tasks 135, 136 and 133 (`PINNED`'s last note), the same
 /// eight `PINNED`'s own; the three towns were `0x_a68e_2287_bf07_7dbd`,
 /// `0x_6401_fed0_37d3_fa63` and `0x_6619_454b_19a3_2754`.
+/// And again for the three changes of 29 September 2026 in `PINNED`'s last
+/// note, the same eight `PINNED`'s own; the two towns that moved were
+/// `0x_f28b_ae2e_c456_dfa2` and `0x_eb85_850a_64dc_1c74`.
 const PINNED_BEFORE_112: [(&str, u64); 11] = [
     ("simulation", 0x_73b2_eae7_e74e_9684),
     ("game", 0x_2ba5_0425_4c88_c171),
-    ("droids", 0x_e1f2_77b7_3739_64aa),
-    ("tier2_test", 0x_7840_b21d_4488_7899),
-    ("combat_droids_medic", 0x_6f28_4ad3_5486_cfbe),
+    ("droids", 0x_6bc6_e563_4740_f31b),
+    ("tier2_test", 0x_7f3f_61cd_1727_d600),
+    ("combat_droids_medic", 0x_6900_5ef7_e616_5287),
     ("test", 0x_b8c7_dab8_5450_1537),
     ("test_planet", 0x_dc0b_b3bb_316f_2cb2),
-    ("droids_planet", 0x_f28b_ae2e_c456_dfa2),
-    ("defense", 0x_eb85_850a_64dc_1c74),
+    ("droids_planet", 0x_ecce_0859_25c9_4ece),
+    ("defense", 0x_8ff4_9ad5_ae66_5b74),
     ("crisis", 0x_c257_27a9_1785_d070),
-    ("jammer", 0x_0d7f_2c9a_94c7_19e8),
+    ("jammer", 0x_a253_e753_3a70_d468),
 ];
 
 /// Not a test of its own, and **run alone** (`--exact`), since it flips

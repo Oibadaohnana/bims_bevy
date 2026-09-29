@@ -539,9 +539,14 @@ fn print_town() {
 /// for the same reason: they were `0x_c7b1_8af4_f64f_0fa1` and
 /// `0x_a881_25c7_68e4_5807`. And taken again under worldgen's
 /// `GENERATOR_VERSION` 8, which is another galaxy on every layout: they
-/// were `0x_e03e_343e_8918_672c` and `0x_e1c2_f369_96f5_fb38`.
-const REFERENCE_BEFORE_112: u64 = 0x_e50d_58ec_b57a_d470;
-const SURVIVORS_BEFORE_112: u64 = 0x_6b0f_8e4d_f02e_4348;
+/// were `0x_e03e_343e_8918_672c` and `0x_e1c2_f369_96f5_fb38`. And taken
+/// again on 29 September 2026 after the machine's one health, the map
+/// rework and the bots' deaths (the constants' notes), and with them
+/// every move since `GENERATOR_VERSION` 8 that was never taken here —
+/// task 136's outposts and the elites: they were `0x_e50d_58ec_b57a_d470`
+/// and `0x_6b0f_8e4d_f02e_4348`.
+const REFERENCE_BEFORE_112: u64 = 0x_12cc_5e55_13c6_6fd3;
+const SURVIVORS_BEFORE_112: u64 = 0x_bc3f_3b30_b53e_59c3;
 
 /// Not a test of its own, and **run alone** (`--exact`): the process-wide
 /// switch to the old layouts is flipped here, and a test running beside

@@ -13,11 +13,11 @@
 //
 // The values below are the built-in ones.
 (
-    base: 2,
+    base: 1,
     per_player: 1,
-    per_step: 1,
+    per_step: 5,
     step_hours: 504, // 21 days
-    waves_base: 2,
+    waves_base: 1,
     steps_per_wave: 2,
     first_mission_ease: 1,
 )

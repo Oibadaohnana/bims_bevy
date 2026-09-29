@@ -207,7 +207,16 @@ pub const REFERENCE_STEPS: u32 = 600;
 /// commit alone: 5175dd8 before it came out at the old number. Task 138
 /// (a revive under way stands the countdown) did not move it. Was
 /// `0x_c6be_4221_4565_e460`.
-pub const REFERENCE_CHECKSUM: u64 = 0x_3e51_51c8_9fc9_08a0;
+/// And for three changes of 29 September 2026 in the tree together,
+/// **each meant to alter how a run plays**: task 137's follow-up (a04aade:
+/// a machine has one health, every hit comes off it, wrecked at nought),
+/// the map rework (5ce3038: a jump is a day and a trip within a system
+/// nothing, so the reference run's trip moves the clock another way) and
+/// the bots' deaths (7b97be5: a bot lost costs the pool nothing). Their
+/// shares were not taken apart. The empty-handed crewmate's pistol
+/// (e5d8655) does not move it: with that rule switched off the run came
+/// out at this same number. Was `0x_3e51_51c8_9fc9_08a0`.
+pub const REFERENCE_CHECKSUM: u64 = 0x_df17_c099_88c7_21d1;
 
 /// A world with the flyable fixture docked at the simulation's spawn: the
 /// default seed's first dock, which is where every fixture world starts.

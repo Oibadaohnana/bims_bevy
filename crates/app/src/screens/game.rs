@@ -3009,7 +3009,7 @@ fn frame(
         // player's own things are, the way the chart tags the star the ship
         // is at. The ship is the map's origin, wherever it has been panned
         // to; off the canvas the words go with it and the strip still says.
-        if map_up && session.game.is_some() {
+        if map_up && let Some(game) = session.game.as_ref() {
             // **Every site of the system says what it is** (task 111),
             // under its icon — `ATTACK`, `DEFEND` or `TRADER` in the
             // colour of the ring the map draws round it, and nothing else:
@@ -3045,7 +3045,6 @@ fn frame(
             }
             // Which system the view shows (the map rework), along its top: the
             // ship's own, or one picked on the chart or off the list.
-            let game = session.game.as_ref().unwrap();
             let own = game.shows_own_system();
             let shown = game.shown_star();
             let name = screen

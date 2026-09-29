@@ -174,7 +174,15 @@ const TILE: f32 = shipdesign::TILE as f32;
 /// (`World::set_whole_systems_for_probe`), and a start that never trims
 /// read the same as one that trims and puts back. Was
 /// `0x_1278_0108_e96e_dc55`.
-const SURVIVORS: u64 = 0x_dd01_665e_6048_4ba8;
+///
+/// **And again, on purpose**, for three changes of 29 September 2026 in
+/// the tree together: task 137's follow-up (a machine has one health that
+/// every hit comes off, wrecked at nought and not by its head), the map
+/// rework (a jump is a day, a trip within a system nothing) and the bots'
+/// deaths (a bot lost costs the pool nothing). Their shares were not taken
+/// apart. The empty-handed crewmate's pistol does not move it: with that
+/// rule switched off the run read the same. Was `0x_dd01_665e_6048_4ba8`.
+const SURVIVORS: u64 = 0x_0276_3b8b_1c2e_7309;
 
 /// A gun in every hand, the kinds dealt round, as the fight's probes arm
 /// a crew — the five there were when the reading was taken: the minigun
