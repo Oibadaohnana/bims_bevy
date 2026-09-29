@@ -186,7 +186,7 @@ fn a_hit_reaches_the_machine_it_was_aimed_at_and_no_other() {
 }
 
 #[test]
-fn a_wreck_is_down_carries_nothing_and_is_worth_fifteen_once() {
+fn a_wreck_is_down_carries_nothing_and_is_worth_twenty_once() {
     let (mut world, station) = held_arena();
     open_the_room(&mut world);
     // The crew member that does it has a class, so it earns.
@@ -203,7 +203,7 @@ fn a_wreck_is_down_carries_nothing_and_is_worth_fifteen_once() {
     assert!(!room!(world).is_downed(0), "and never out cold");
 
     // Stand the crew member next to it so the experience is in range,
-    // and step: `XP_ENEMY_DOWN` and `XP_ENEMY_DEAD` together (task 119), once.
+    // and step: `XP_ENEMY_DOWN` alone, once.
     let events = world.step(&[]);
     // A machine is said as a machine, not as an enemy with a name.
     assert!(
@@ -231,8 +231,8 @@ fn a_wreck_is_down_carries_nothing_and_is_worth_fifteen_once() {
     if gained > 0 {
         assert_eq!(
             gained,
-            class::XP_ENEMY_DOWN + class::XP_ENEMY_DEAD,
-            "down and dead together"
+            class::XP_ENEMY_DOWN,
+            "the down alone, its death nothing more"
         );
     }
 }

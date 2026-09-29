@@ -633,10 +633,9 @@ pub struct Residents {
     /// than read off the hit — see `World::visit`.
     pub down: Vec<bool>,
     /// Which of them the crew have already been given experience for
-    /// going down — downed or dead — and for dying, by index, so each
-    /// enemy counts once for each (feature 74, `crate::class`).
+    /// going down — downed or dead — by index, so each enemy counts once
+    /// (feature 74, `crate::class`); its death after a down is nothing.
     pub xp_down: Vec<bool>,
-    pub xp_dead: Vec<bool>,
     /// Which crew member last landed a hit on each of them, by index —
     /// a bolt's, a blow's or a burst's shooter, `None` for a sentry's —
     /// so the soldier's *rampage* knows who downed whom (feature 75).
@@ -799,7 +798,6 @@ impl Residents {
             station,
             aboard,
             xp_down: down.clone(),
-            xp_dead: down.clone(),
             last_hit_by: vec![None; down.len()],
             down,
             fee,

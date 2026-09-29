@@ -6059,3 +6059,20 @@ constants (`wavecfg`'s test). No `SAVE_VERSION` or `wire::PROTOCOL`: the
 dials cross no wire, and in a two-player run each end reads its own files.
 `tests_defense.rs`' two money assertions say a defence pays. The ship's
 `PINNED` moved for `jammer` alone (its clock is past five days).
+
+## Twenty for an enemy down, and nothing for its death
+
+> "One speed, and experience alike for every class (task 119)" and the
+> engineer's "Experience is given in the step" above say an enemy's death
+> is `XP_ENEMY_DEAD` (5) on top of its down; that is **gone** again, as
+> feature 109 once had it.
+
+`experience` pays `class::XP_ENEMY_DOWN` — **twenty** now, where it was
+ten — once, at an enemy's first down or death, and nothing else: a
+machine destroyed is twenty, a Manufacturer downed is twenty, and a
+downed one bleeding out or finished afterwards is nothing more.
+`XP_ENEMY_DEAD` and `Residents::xp_dead` went (`xp_down` is the one
+flag). **`SAVE_VERSION` 62, `wire::PROTOCOL` 61**. `SURVIVORS` moved
+(its runs' crew earn experience, and the progress is hashed; taken on a
+clean tree with this change alone); `REFERENCE_CHECKSUM` and the ship's
+`PINNED` did not.
