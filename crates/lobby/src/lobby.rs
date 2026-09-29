@@ -69,6 +69,10 @@ pub struct Lobby {
     /// from `here` (feature 93, `World::reachable_stars`). The page sets
     /// it every frame; empty in the lobby.
     pub reachable: Vec<u32>,
+    /// In the game: the stars two lanes off a trip could still reach
+    /// (the second map rework, `World::stars_two_lanes_off`). The page sets it every
+    /// frame; empty in the lobby.
+    pub far: Vec<u32>,
     /// In the game: the shortest route from `here` to the picked star,
     /// both ends in it, and which of its steps a jammer shuts —
     /// `jammed.len()` is one short of `route.len()`. Empty with nothing
@@ -119,6 +123,7 @@ impl Lobby {
             visited: Vec::new(),
             infested: Vec::new(),
             reachable: Vec::new(),
+            far: Vec::new(),
             route: Vec::new(),
             jammed: Vec::new(),
             heart: None,
@@ -234,6 +239,7 @@ impl Lobby {
             visited: &self.visited,
             infested: &self.infested,
             reachable: &self.reachable,
+            far: &self.far,
             route: &self.route,
             jammed: &self.jammed,
             heart: self.heart,

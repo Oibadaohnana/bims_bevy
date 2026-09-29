@@ -5964,27 +5964,41 @@ impl World {
         self.wave_scaling
     }
 
+    /// Tune what a fight pays and what things cost (`rewards.ron`, read
+    /// by the app while the game runs): from the next enemy down and the
+    /// next price asked. Not saved and not hashed.
+    pub fn set_rewards(&mut self, rewards: crate::rewards::Rewards) {
+        self.rewards = rewards;
+    }
+
+    /// The reward and price dials as they stand.
+    pub fn rewards(&self) -> crate::rewards::Rewards {
+        self.rewards
+    }
+
     /// The wave size a probe has forced (`BIMS_DROID_WAVE`), if any.
     pub fn droid_wave_forced(&self) -> Option<u32> {
         self.droid_wave_forced
     }
 
-    /// How many waves a held station has all told, worked out now. Only
-    /// ever asked once a station, at the crew's first dock.
+    /// How many waves a held station has all told, worked out now: the
+    /// scaling's count at the tier the machines come at
+    /// ([`World::droid_tier`]). Only ever asked once a station, at the
+    /// crew's first dock.
     pub fn droid_wave_count(&self) -> u32 {
-        self.wave_count_at(self.hours_gone())
+        self.wave_count_for(self.droid_tier())
     }
 
-    /// [`World::droid_wave_count`] with the world clock at `hours` gone.
-    pub fn wave_count_at(&self, hours: u32) -> u32 {
+    /// [`World::droid_wave_count`] for machines at `tier`.
+    pub fn wave_count_for(&self, tier: Tier) -> u32 {
         // The probes' dial says it outright, the way `droid_wave_size`
         // takes its own: the `droids` commands are looked at for what a
-        // wave *after* the first does, and the formula's two at day
-        // nought gave one landing and then nothing.
+        // wave *after* the first does, and a tier-one site's one wave
+        // is one landing and then nothing.
         if let Some(forced) = self.droid_waves_forced {
             return forced.max(1);
         }
-        self.wave_scaling.count(hours).max(1)
+        self.wave_scaling.count(tier).max(1)
     }
 
     /// The probes' dial: a held station has this many waves all told,
@@ -6002,18 +6016,6 @@ impl World {
         let id = self.residents.as_ref()?.station;
         let it = self.infestation(id)?;
         (it.wave > 0).then_some((it.wave, it.waves_left))
-    }
-
-    /// Tune what a fight pays and what things cost (`rewards.ron`, read
-    /// by the app while the game runs): from the next enemy down and the
-    /// next price asked. Not saved and not hashed.
-    pub fn set_rewards(&mut self, rewards: crate::rewards::Rewards) {
-        self.rewards = rewards;
-    }
-
-    /// The reward and price dials as they stand.
-    pub fn rewards(&self) -> crate::rewards::Rewards {
-        self.rewards
     }
 
     /// How long until the next wave lands at the held station

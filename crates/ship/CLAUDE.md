@@ -1159,3 +1159,13 @@ whatever `follow` says: it is a system's, not the crew's. The ship, its
 reticle, the sensors' ring and the visited ticks are drawn in its own
 system only. `the_map_shows_the_system_picked_every_site_in_view_and_apart`
 is the test.
+
+## The map says where the crew have been and where they are heading (the second map rework)
+
+`VISITED` is the lobby's pale white now, and `paint_tick` stands the tick
+on a dark disc at `TICK_SIZE` 0.62 so it reads over any icon; another
+system looked at shows the ticks of its `SystemMemory::visited`. The site
+the app aims at (`Game::aimed`: picked, else the one on the table) is a
+`HEADING_RING` in `HEADING` violet over a dark edge, with a dashed line
+from the ship in its own system. A trader's icon wears `paint_euro` at its
+upper-right shoulder. The ship's reticle is a pixel heavier.

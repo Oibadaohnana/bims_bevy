@@ -171,10 +171,10 @@ fn a_jump_costs_a_day_and_a_trip_in_the_system_nothing() {
     assert_eq!(world.mission_steps(), 0);
 }
 
-/// A trip is one hop at most, and only between missions; a place that is
+/// A trip is two hops at most (the second map rework), and only between missions; a place that is
 /// not there is refused.
 #[test]
-fn a_trip_is_one_hop_at_most_and_chosen_between_missions() {
+fn a_trip_is_two_hops_at_most_and_chosen_between_missions() {
     let mut world = basic(1);
     let site = another_site_here(&world);
     // During a mission the map is read-only.
@@ -190,19 +190,19 @@ fn a_trip_is_one_hop_at_most_and_chosen_between_missions() {
             ..
         }
     )));
-    // Two hops is too far.
-    let galaxy = world.galaxy();
-    let near = galaxy.lanes(world.star_id).to_vec();
-    let two = near
-        .iter()
-        .flat_map(|&s| galaxy.lanes(s).to_vec())
-        .find(|s| *s != world.star_id && !near.contains(s))
-        .expect("somewhere two hops off");
+    // Three hops is too far (the second map rework: two is a trip).
+    let hops = world.galaxy().hops_from(world.star_id);
+    let three = (0..hops.len() as u32)
+        .find(|&s| hops[s as usize] == 3)
+        .expect("somewhere three hops off");
     let far = world
         .galaxy()
-        .system(two)
+        .system(three)
         .and_then(|s| s.stations.first().map(|b| b.id))
-        .map(|station| Site { star: two, station });
+        .map(|station| Site {
+            star: three,
+            station,
+        });
     if let Some(far) = far {
         assert_eq!(world.travel_quote(far), Err(Refusal::TooFar));
     }
@@ -900,10 +900,10 @@ fn the_site_the_crew_are_at_cannot_be_chosen() {
     assert_eq!(world.clock_minutes, clock, "nothing within a system");
 }
 
-/// Every quote on the map is a day for a jump and nothing within the
-/// system (the map rework), whatever the distance.
+/// Every quote on the map is a day a lane crossed and nothing within the
+/// system (the map rework, the second map rework), whatever the distance.
 #[test]
-fn every_quote_is_a_day_for_a_jump_and_nothing_in_the_system() {
+fn every_quote_is_a_day_a_lane_and_nothing_in_the_system() {
     let mut world = basic(1);
     to_the_map(&mut world);
     let quotes: Vec<_> = world
@@ -913,8 +913,10 @@ fn every_quote_is_a_day_for_a_jump_and_nothing_in_the_system() {
         .collect();
     assert!(quotes.iter().any(|q| q.jump), "a jump on the list");
     assert!(quotes.iter().any(|q| !q.jump), "a trip in the system too");
+    assert!(quotes.iter().any(|q| q.hops == 2), "a trip two lanes off");
     for q in &quotes {
-        let minutes = if q.jump { data::JUMP_MINUTES } else { 0 };
+        assert_eq!(q.jump, q.hops > 0, "{q:?}");
+        let minutes = data::JUMP_MINUTES * u64::from(q.hops);
         assert_eq!(q.minutes, minutes, "{q:?}");
         assert_eq!(q.days * time::DAY, minutes as f64, "{q:?}");
     }
@@ -1000,9 +1002,9 @@ fn travel_days_over_ten_galaxies() {
             .collect();
         println!(
             "to the origin, {name}: {days:.0} days, {steps} steps of {}h: \
-             waves of {sizes:?} for 1..=4 players, {} of them",
+             waves of {sizes:?} for 1..=4 players, {} of them at tier three",
             data::ENEMIES_HOURS,
-            crate::droid::wave_count(steps),
+            crate::droid::wave_count(bims::combat::Tier::Three),
         );
     }
 }

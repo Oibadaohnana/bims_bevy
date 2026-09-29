@@ -107,7 +107,8 @@ impl World {
 
     /// Every place a trip can go from here: this system's sites, then
     /// those of every star a hyperlane joins to this one, stars in id
-    /// order. A jammed lane's sites are among them — the quote is what
+    /// order, then those of every star two lanes off (the second map rework), in id
+    /// order too. A jammed lane's sites are among them — the quote is what
     /// refuses one, and says why.
     pub fn destinations(&self) -> Vec<Site> {
         self.destinations_in(&self.galaxy())
@@ -118,10 +119,81 @@ impl World {
         let mut stars = galaxy.lanes(self.star_id).to_vec();
         stars.sort_unstable();
         stars.dedup();
+        stars.extend(self.two_lanes_off(galaxy));
         for star in stars {
             sites.extend(self.sites_in(Some(galaxy), star));
         }
         sites
+    }
+
+    /// The stars two hyperlanes off and no nearer, in id order (task
+    /// 139): where a trip through a star between can go — off a galaxy
+    /// already generated, which the chart has.
+    pub fn two_lanes_off(&self, galaxy: &Galaxy) -> Vec<u32> {
+        let near = galaxy.lanes(self.star_id);
+        let mut far: Vec<u32> = near
+            .iter()
+            .flat_map(|&via| galaxy.lanes(via).iter().copied())
+            .filter(|&star| star != self.star_id && !near.contains(&star))
+            .collect();
+        far.sort_unstable();
+        far.dedup();
+        far
+    }
+
+    /// The stars a trip could reach two lanes off (the second map rework), in id
+    /// order: what the chart rings beyond the lit lanes.
+    pub fn stars_two_lanes_off(&self) -> Vec<u32> {
+        self.two_lanes_off(&self.galaxy())
+    }
+
+    /// The way a trip to `star` goes (the second map rework): the stars it passes, both
+    /// ends in, and whether a jammer turns it back — `None` for a star more
+    /// than [`data::MAX_TRIP_HOPS`] lanes off. Two lanes off, the star
+    /// between is the first in id order whose two steps no jammer shuts,
+    /// else the first; so a way round a jammer is taken where there is
+    /// one. What the quote refuses by and the chart draws.
+    pub fn trip_route(&self, star: u32) -> Option<(Vec<u32>, bool)> {
+        self.trip_route_in(&self.galaxy(), star)
+    }
+
+    /// [`World::trip_route`] off a galaxy already generated.
+    pub fn trip_route_in(&self, galaxy: &Galaxy, to: u32) -> Option<(Vec<u32>, bool)> {
+        // The shape below is two lanes, and no more.
+        const _: () = assert!(data::MAX_TRIP_HOPS == 2);
+        let from = self.star_id;
+        if to == from {
+            return Some((vec![from], false));
+        }
+        let near = galaxy.lanes(from);
+        if near.contains(&to) {
+            return Some((vec![from, to], self.jammed_step(from, to)));
+        }
+        let mut ways: Vec<u32> = near
+            .iter()
+            .copied()
+            .filter(|&via| galaxy.lanes(via).contains(&to))
+            .collect();
+        ways.sort_unstable();
+        ways.dedup();
+        let shut = |via: u32| self.jammed_step(from, via) || self.jammed_step(via, to);
+        let via = ways
+            .iter()
+            .copied()
+            .find(|&via| !shut(via))
+            .or_else(|| ways.first().copied())?;
+        Some((vec![from, via, to], shut(via)))
+    }
+
+    /// How many days a trip to `star` costs, as its quote would say: a
+    /// day a hyperlane crossed, nothing within the system — `None` for a
+    /// star past [`data::MAX_TRIP_HOPS`] lanes. What the chart and the
+    /// system map write beside a star; a jammer shutting the way does not
+    /// change the count.
+    pub fn trip_days_in(&self, galaxy: &Galaxy, star: u32) -> Option<f64> {
+        let (route, _) = self.trip_route_in(galaxy, star)?;
+        let minutes = data::JUMP_MINUTES * (route.len() as u64 - 1);
+        Some(minutes as f64 / time::DAY)
     }
 
     /// Every destination with its quote, or why there is no trip there —
@@ -164,17 +236,18 @@ impl World {
 
     /// What a trip to `site` would be — how long, when the crew get there
     /// and what they find — or why there is no such trip: a place that
-    /// is not there ([`Refusal::NoSuchPlace`]), a star more than a lane
-    /// away ([`Refusal::TooFar`]), a jump inward out of a jammed system
-    /// ([`Refusal::Jammed`]), a ship that cannot move at all
+    /// is not there ([`Refusal::NoSuchPlace`]), a star more than two lanes
+    /// away ([`Refusal::TooFar`], the second map rework), a jump inward out of a jammed
+    /// system — every way there, two lanes off ([`Refusal::Jammed`],
+    /// [`World::trip_route`]), a ship that cannot move at all
     /// ([`Refusal::CannotTravel`]), or **the site the crew are at**
     /// ([`Refusal::AlreadyHere`], feature 105): a site left uncleared is
     /// put back as the crew met it, so going back into it without the
     /// clock moving would be the same fight again at the same strength.
     ///
-    /// **The length** is a day for a jump and nothing for a trip in the
-    /// system (the map rework): [`data::JUMP_MINUTES`] on the world clock for
-    /// crossing a hyperlane, however far the site lies from where the jump
+    /// **The length** is a day a lane for a jump and nothing for a trip in
+    /// the system (the map rework): [`data::JUMP_MINUTES`] on the world clock
+    /// for each hyperlane crossed, however far the site lies from where the jump
     /// lands, and not a minute for moving between the sites of one system.
     /// A ship with no engine to stop it at the far end goes nowhere either
     /// way.
@@ -233,6 +306,7 @@ impl World {
             return Err(Refusal::AlreadyHere);
         }
         let jump = site.star != self.star_id;
+        let mut hops = 0;
         let elsewhere;
         let system = if jump {
             let Some(galaxy) = galaxy else {
@@ -243,11 +317,20 @@ impl World {
             };
             // What it offers alone (task 135).
             self.trim_system(site.star, &mut there);
-            if !looking && !galaxy.lanes(self.star_id).contains(&site.star) {
-                return Err(Refusal::TooFar);
-            }
-            if !looking && self.jammed_step(self.star_id, site.star) {
-                return Err(Refusal::Jammed);
+            // Two lanes a trip at most (the second map rework), and none a jammer shuts.
+            match self.trip_route_in(galaxy, site.star) {
+                Some((route, shut)) => {
+                    hops = route.len() as u32 - 1;
+                    if !looking && shut {
+                        return Err(Refusal::Jammed);
+                    }
+                }
+                None if looking => {
+                    hops = galaxy
+                        .route(self.star_id, site.star)
+                        .map_or(1, |route| route.len() as u32 - 1);
+                }
+                None => return Err(Refusal::TooFar),
             }
             elsewhere = there;
             &elsewhere
@@ -274,8 +357,9 @@ impl World {
         if !looking {
             physics::travel_days(1.0, push, brake).ok_or(Refusal::CannotTravel)?;
         }
-        // A day across a hyperlane, nothing within a system (the map rework).
-        let minutes = if jump { data::JUMP_MINUTES } else { 0 };
+        // A day a hyperlane crossed, nothing within a system (the map
+        // rework, the second map rework).
+        let minutes = data::JUMP_MINUTES * hops as u64;
         let days = minutes as f64 / time::DAY;
         let arrival = self.clock_minutes.floor() as u64 + minutes;
         let arrival_day = (arrival / (time::DAY as u64)) as u32;
@@ -369,6 +453,7 @@ impl World {
         Ok(TravelQuote {
             site,
             jump,
+            hops,
             days,
             minutes,
             arrival_day,
@@ -861,6 +946,11 @@ impl World {
             .alongside()
             .is_some_and(|id| self.site_kind(id) == SiteKind::Defend)
         {
+            self.rewards.at_defense(amount)
+        } else {
+            amount
+        };
+        if amount == 0 {
             return;
         }
         if self.mission_cleared() || !self.rewards.bounty_waits_for_clear {
@@ -935,11 +1025,6 @@ impl World {
         let crew = self.aboard.crew_count();
         for who in (players..crew).rev() {
             if !self.aboard.room.is_alive(who as usize) {
-            self.rewards.at_defense(amount)
-        } else {
-            amount
-        };
-        if amount == 0 {
                 self.store_loadout(who);
                 self.drop_crew_member(who);
             }

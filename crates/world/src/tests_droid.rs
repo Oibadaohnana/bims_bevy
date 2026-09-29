@@ -308,6 +308,8 @@ fn a_broken_piece_is_no_shield_and_the_part_takes_the_damage() {
 #[test]
 fn no_reinforcement_while_a_machine_lives_and_one_a_clock_after_the_last_dies() {
     let (mut world, station) = held_arena();
+    // The `droids` command's three: a tier-one site has one wave.
+    world.set_droid_waves_for_probe(3);
     let first = open_the_room(&mut world) as usize;
     let waves = world.infestation(station).unwrap().waves_left;
     assert!(waves > 0, "the arena has more to come");
@@ -381,6 +383,7 @@ fn no_reinforcement_while_a_machine_lives_and_one_a_clock_after_the_last_dies() 
 #[test]
 fn the_waves_arrive_at_every_airlock_but_the_port_in_turn() {
     let (mut world, station) = held_arena();
+    world.set_droid_waves_for_probe(3);
     open_the_room(&mut world);
     // Wave one is stood about the rooms; the *next* one comes in at a
     // door. Clear the deck and let it land.
@@ -566,27 +569,44 @@ fn the_waves_are_the_same_for_a_richer_better_armed_more_levelled_or_bigger_crew
 
 /// The waves never shrink as the world clock runs on, and over a run's
 /// worth of it — the hundred and twenty days `data::ENEMIES_HOURS` was
-/// set against — both the size and the count have grown.
+/// set against — they have grown. How many there are is the tier's, and
+/// the clock alone never moves it.
 #[test]
 fn the_waves_never_shrink_with_the_clock_and_grow_over_a_run() {
     let mut world = crate::fixture::crewed_world(combat_ship(), REFERENCE_MONEY, 1, 4);
+    world.set_droid_tier_for_probe(Some(Tier::One));
     let (first_size, first_count) = (world.droid_wave_size(), world.droid_wave_count());
-    let (mut size, mut count) = (first_size, first_count);
+    let mut size = first_size;
     for hours in (0..=120 * 24).step_by(11) {
         world.clock_minutes = f64::from(hours) * 60.0;
-        let now = (world.droid_wave_size(), world.droid_wave_count());
-        assert!(now.0 >= size, "the size fell at {hours}h");
-        assert!(now.1 >= count, "the count fell at {hours}h");
-        (size, count) = now;
+        let now = world.droid_wave_size();
+        assert!(now >= size, "the size fell at {hours}h");
+        assert_eq!(world.droid_wave_count(), first_count, "at {hours}h");
+        size = now;
     }
     assert!(
         size > first_size,
         "the waves grew over a run: {first_size} to {size}"
     );
-    assert!(
-        count > first_count,
-        "and there were more: {first_count} to {count}"
-    );
+}
+
+/// A site's count of waves is its tier's: one at tier one, two at tier
+/// two, four at tier three ([`data::DROID_TIER_WAVES`]), and the
+/// scaling's dial moves it.
+#[test]
+fn a_site_has_one_wave_at_tier_one_two_at_tier_two_and_four_at_tier_three() {
+    let mut world = crate::fixture::crewed_world(combat_ship(), REFERENCE_MONEY, 1, 4);
+    for (tier, waves) in [(Tier::One, 1), (Tier::Two, 2), (Tier::Three, 4)] {
+        world.set_droid_tier_for_probe(Some(tier));
+        assert_eq!(world.droid_wave_count(), waves, "{tier:?}");
+    }
+    world.set_wave_scaling(crate::droid::WaveScaling {
+        tier_waves: [2, 3, 5],
+        ..crate::droid::WaveScaling::DEFAULT
+    });
+    assert_eq!(world.droid_wave_count(), 5, "tier three, tuned");
+    world.set_droid_tier_for_probe(Some(Tier::One));
+    assert_eq!(world.droid_wave_count(), 2, "tier one, tuned");
 }
 
 /// A player more is a machine more a wave; a bot more is nothing.
@@ -973,13 +993,16 @@ fn the_next_wave_s_machines_are_said_down_and_paid_for_like_the_first() {
 }
 
 /// The probes' dial for how many waves a held station has — three on the
-/// `droids` commands, where the formula's own at day nought is two
-/// ([`data::DROID_WAVES_BASE`]) — read at the first dock and never
-/// again, like the formula it stands in for.
+/// `droids` commands, where a site's own is its tier's
+/// ([`crate::droid::wave_count`]) — read at the first dock and never
+/// again, like the count it stands in for.
 #[test]
 fn a_probe_says_how_many_waves_a_held_station_has() {
     let (mut world, station) = held_arena();
-    assert_eq!(world.droid_wave_count(), data::DROID_WAVES_BASE);
+    assert_eq!(
+        world.droid_wave_count(),
+        crate::droid::wave_count(world.droid_tier())
+    );
     world.set_droid_waves_for_probe(3);
     assert_eq!(world.droid_wave_count(), 3);
     open_the_room(&mut world);

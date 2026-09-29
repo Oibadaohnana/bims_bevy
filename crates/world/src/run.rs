@@ -414,6 +414,9 @@ pub struct TravelQuote {
     pub site: Site,
     /// Whether it is a jump to another system.
     pub jump: bool,
+    /// How many hyperlanes it crosses (the second map rework): nought within the
+    /// system, one or two for a jump ([`crate::data::MAX_TRIP_HOPS`]).
+    pub hops: u32,
     /// How long it takes, in days: a day for a jump
     /// ([`crate::data::JUMP_MINUTES`]) and nought within a system (the map
     /// rework).

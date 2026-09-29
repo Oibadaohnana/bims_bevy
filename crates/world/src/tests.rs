@@ -1324,8 +1324,10 @@ fn the_playtest_ship_can_travel_somewhere_from_the_simulation_spawn() {
         let Ok(quote) = quote else {
             continue;
         };
-        // A day a jump, nothing within the system (the map rework).
-        let minutes = if quote.jump { data::JUMP_MINUTES } else { 0 };
+        // A day a lane, nothing within the system (the map rework, task
+        // 139).
+        let minutes = data::JUMP_MINUTES * u64::from(quote.hops);
+        assert_eq!(quote.jump, quote.hops > 0, "{site:?}");
         assert_eq!(quote.minutes, minutes, "{site:?}");
         if quote.jump {
             hops += 1;

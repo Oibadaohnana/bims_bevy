@@ -124,3 +124,19 @@ reaches it should read as the same thing. Empty in the lobby proper,
 where there is no ship and nothing to jump. (`target` was the star picked
 for the helm's jump until feature 104 took the flown jump away; it is the
 star last clicked on the chart now, `picked_star` in `screens/game.rs`.)
+
+## Where the crew have been, where they are and where they are going (the second map rework)
+
+`VISITED` is a pale white now (it was a grey lost among the stars): a
+1.8px ring on every visited star, and every lane between two visited
+stars drawn in it as a `TRAIL_WIDTH` trail over the web. A trip two lanes
+off leaves no trail line — the star between is not visited. `Marks::far`
+(`World::two_lanes_off`) rings the stars a two-lane trip reaches, fainter
+than a lane off's. `here` is a reticle — wash, heavy ring, four ticks —
+the system map's round the ship, in the chart's green; `target` (the
+star picked, else the one on the table, never the one the crew are at)
+is a heavy violet ring and diamond over a dark edge; the route to it is
+wider (`ROUTE_WIDTH`) over a dark edge with a chevron a step pointing
+the way. A trader's square wears a euro sign (`euro`, lines only — the
+format has no text), the system map's `ship::world_paint::paint_euro`
+drawn again as the crown is.

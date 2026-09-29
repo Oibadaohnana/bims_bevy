@@ -110,6 +110,11 @@ pub const STATION_VISIBLE: f64 = 2.0 * LOCAL_RADIUS_STATION;
 /// plus the leg flown in the system, never under a day, until then.
 pub const JUMP_MINUTES: u64 = time::DAY as u64;
 
+/// How many hyperlanes one trip may cross (the second map rework): a star two lanes
+/// off is one trip, through the star between, and costs a
+/// [`JUMP_MINUTES`] a lane. It was one lane a trip until then.
+pub const MAX_TRIP_HOPS: u32 = 2;
+
 /// How far from everything in a system a jump lands, in world units. Four
 /// times a body's arrival radius, so the ship is in empty space and not on
 /// the doorstep of whatever it happens to be nearest — a trip from there
@@ -193,11 +198,12 @@ pub const DROID_WAVE_BASE: u32 = 2;
 /// says, never under one: the first fight a little gentler. Not a
 /// forced wave's (the probes' dials say theirs outright).
 pub const FIRST_MISSION_WAVE_EASE: u32 = 1;
-/// How many waves an infested station has, before the crew are counted
-/// (`crate::droid::wave_count`): this many, and one every second
-/// [`ENEMIES_HOURS`] of the world clock. Fixed at the crew's **first
-/// dock** and never worked out again.
-pub const DROID_WAVES_BASE: u32 = 2;
+/// How many waves a held site has all told, by the **tier** its machines
+/// come at (`crate::droid::wave_count`) — tier one, two, three: one wave
+/// of tier one, two of tier two, four of tier three. The world clock
+/// makes the waves bigger, never more of them. Fixed at the crew's
+/// **first dock** and never worked out again.
+pub const DROID_TIER_WAVES: [u32; 3] = [1, 2, 4];
 /// How long after the last machine of a wave is destroyed the next one
 /// arrives, in steps of the **mission clock** (feature 103) — thirty
 /// seconds of it at 1× (it was two minutes), which was half an
@@ -388,17 +394,17 @@ pub const DEFENDERS_MAX: u32 = 8;
 /// worth pushing towards, which is what the crisis wants of them.
 /// Placeholders, like every other number here.
 pub const REPUBLIC_BOUNTY: [Money; 4] = [0, 500, 1_500, 4_500];
-
-// --- the run: death and buyback (feature 103) ------------------------------
-
-/// What the pool pays to bring a dead player's Bim back, at the end of
-/// the mission it died in (task 113): it respawns aboard the ship with its
 /// How much of [`REPUBLIC_BOUNTY`] a **defence** pays, in per cent. Task
 /// 136 made it nothing — the survivors were the reward — and the player
 /// then asked for money for every enemy downed or destroyed, wherever:
 /// a hundred, the same as an attack, pending until the site is cleared
 /// like any. Tuned in the app's `rewards.ron` (`crate::rewards`).
 pub const DEFENSE_BOUNTY_PERCENT: u32 = 100;
+
+// --- the run: death and buyback (feature 103) ------------------------------
+
+/// What the pool pays to bring a dead player's Bim back, at the end of
+/// the mission it died in (task 113): it respawns aboard the ship with its
 /// whole loadout, its level, experience and talents kept. Paid
 /// automatically; a pool that holds less goes to nought, and the respawn
 /// does not wait for money. The same as a player's share of the starting

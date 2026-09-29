@@ -1,7 +1,7 @@
 //! Jumping along lanes, and the jammer (feature 93).
 //!
 //! Three things, and they lean on one another. A trip takes the ship
-//! **one hop at most, and only down a lane** ([`Refusal::TooFar`]); an
+//! **two lanes at most, and only down them** ([`Refusal::TooFar`]); an
 //! infested system's jammer holds the lanes **inward** shut while it
 //! stands ([`Refusal::Jammed`]); and what tier the machines come at is how
 //! far the system is from where they began. The lane graph and the route are
@@ -71,32 +71,49 @@ fn three_ways(world: &World) -> (u32, u32, u32, u32) {
     panic!("no origin gives the crew's star a lane each way");
 }
 
-/// A star the lanes do **not** join to this one.
-fn unlaned_star(world: &World) -> u32 {
-    let galaxy = world.galaxy();
-    let here = world.star_id;
-    (0..galaxy.stars.len() as u32)
-        .find(|&s| s != here && !galaxy.lanes(here).contains(&s))
+/// The first star exactly `hops` lanes from this one.
+fn star_lanes_off(world: &World, hops: u16) -> u32 {
+    let from = world.galaxy().hops_from(world.star_id);
+    (0..from.len() as u32)
+        .find(|&s| from[s as usize] == hops)
         .expect("a galaxy of a thousand stars is not one clique")
 }
 
 // --- 1: a jump follows the lanes ------------------------------------------
 
-/// A trip is **one hop at most, and only down a lane**. A star the lanes
-/// do not reach from here is [`Refusal::TooFar`]; one they do is a trip
+/// A trip is **two lanes at most, and only down them** (the second map rework). A
+/// star three lanes off is [`Refusal::TooFar`]; one two lanes off is a
+/// trip of two days, through the star between; one a lane off is a trip
 /// like any other, and a star the galaxy has not got is no place at all.
 #[test]
-fn a_trip_wants_a_lane_out_of_the_star_the_ship_is_at() {
+fn a_trip_wants_two_lanes_or_fewer_out_of_the_star_the_ship_is_at() {
     let world = jumper_world();
     let here = world.star_id;
     let lane = world.galaxy().lanes(here)[0];
-    let away = unlaned_star(&world);
+    let two = star_lanes_off(&world, 2);
+    let away = star_lanes_off(&world, 3);
 
     assert!(world.laned_to(lane));
-    assert!(!world.laned_to(away));
+    assert!(!world.laned_to(two));
     assert!(!world.laned_to(here), "a star is never laned to itself");
 
     assert_eq!(quote_to(&world, away).1, Err(Refusal::TooFar));
+    assert_eq!(world.trip_route(away), None);
+    assert!(world.stars_two_lanes_off().contains(&two));
+    assert!(!world.stars_two_lanes_off().contains(&lane));
+    assert!(!world.stars_two_lanes_off().contains(&away));
+    // Two lanes off is a trip, a day a lane, through a star a lane off.
+    let (site, quote) = quote_to(&world, two);
+    let quote = quote.unwrap_or_else(|why| panic!("{site:?}: {why:?}"));
+    assert!(quote.jump);
+    assert_eq!(quote.hops, 2);
+    assert_eq!(quote.minutes, 2 * data::JUMP_MINUTES);
+    let (route, shut) = world.trip_route(two).expect("two lanes off");
+    assert!(!shut);
+    assert_eq!(route.len(), 3);
+    assert_eq!((route[0], route[2]), (here, two));
+    assert!(world.laned_to(route[1]));
+    assert!(world.destinations().contains(&site));
     assert_eq!(
         world.travel_quote(Site {
             star: 1_000_000,
@@ -108,6 +125,25 @@ fn a_trip_wants_a_lane_out_of_the_star_the_ship_is_at() {
     let (site, quote) = quote_to(&world, lane);
     let quote = quote.unwrap_or_else(|why| panic!("{site:?}: {why:?}"));
     assert!(quote.jump);
+    assert_eq!(quote.hops, 1);
+    assert_eq!(quote.minutes, data::JUMP_MINUTES);
+}
+
+/// What the chart and the system map say a star costs is what its quote
+/// says: nothing here, a day a lane, and no count past two lanes.
+#[test]
+fn a_stars_trip_days_are_its_quotes() {
+    let world = jumper_world();
+    let galaxy = world.galaxy();
+    let here = world.star_id;
+    for star in [galaxy.lanes(here)[0], star_lanes_off(&world, 2)] {
+        let (site, quote) = quote_to(&world, star);
+        let quote = quote.unwrap_or_else(|why| panic!("{site:?}: {why:?}"));
+        assert_eq!(world.trip_days_in(&galaxy, star), Some(quote.days));
+    }
+    assert_eq!(world.trip_days_in(&galaxy, here), Some(0.0));
+    let away = star_lanes_off(&world, 3);
+    assert_eq!(world.trip_days_in(&galaxy, away), None);
 }
 
 /// The route the chart draws and the Jump button charges the first step
@@ -195,6 +231,30 @@ fn a_standing_jammer_shuts_the_lanes_inward_and_no_others() {
     assert!(world.jammed_step(here, inward));
     assert!(!world.jammed_step(here, level));
     assert!(!world.jammed_step(here, outward));
+
+    // Two lanes off (the second map rework): turned back only where every star between
+    // shuts a step, and a way round the jammer taken where there is one.
+    let galaxy = world.galaxy();
+    for far in world.stars_two_lanes_off() {
+        let ways: Vec<u32> = galaxy
+            .lanes(here)
+            .iter()
+            .copied()
+            .filter(|&via| galaxy.lanes(via).contains(&far))
+            .collect();
+        let shut = ways
+            .iter()
+            .all(|&via| world.jammed_step(here, via) || world.jammed_step(via, far));
+        let (route, said) = world.trip_route(far).expect("two lanes off");
+        assert_eq!(said, shut, "star {far}");
+        if !shut {
+            assert!(!world.jammed_step(here, route[1]) && !world.jammed_step(route[1], far));
+        }
+        let (site, quote) = quote_to(&world, far);
+        if shut && !world.sites_at(far).is_empty() {
+            assert_eq!(quote.map(|_| ()), Err(Refusal::Jammed), "{site:?}");
+        }
+    }
 }
 
 /// Clearing the station the jammer stands on lifts it, and lifts it for

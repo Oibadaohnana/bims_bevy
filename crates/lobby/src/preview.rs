@@ -222,9 +222,11 @@ pub struct Marks<'a> {
     /// The star picked for a jump: ringed in the hyperdrive's violet.
     pub target: Option<u32>,
     /// Every star the crew have been to, on the chart in the game
-    /// (feature 85): a small grey ring each, under the marks above and
-    /// over the star itself. Sorted or not, it is drawn as it is given.
-    /// Empty in the lobby, where nobody has been anywhere yet.
+    /// (feature 85): a ring each in [`VISITED`]'s pale white, under the
+    /// marks above and over the star itself, and every lane between two
+    /// of them drawn in it as a trail (the second map rework). Sorted or not, it is
+    /// drawn as it is given. Empty in the lobby, where nobody has been
+    /// anywhere yet.
     pub visited: &'a [u32],
     /// Every star the machines hold, on the chart in the game (feature
     /// 92, `World::infested_stars`): a red ring with a cross through it,
@@ -238,9 +240,14 @@ pub struct Marks<'a> {
     /// star, drawn bright over the faint web, with a small ring on each
     /// star at their far end. Empty in the lobby, where there is no ship.
     pub reachable: &'a [u32],
+    /// The stars two lanes off that a trip still reaches (the second map rework,
+    /// `World::stars_two_lanes_off`): a small ring each in the lit lanes'
+    /// violet, fainter than a star a lane off. Empty in the lobby.
+    pub far: &'a [u32],
     /// The shortest route from `here` to the picked star, in order and
     /// both ends in it (feature 93, `World::route_to`), drawn as a chain
-    /// of bright segments over the web. Empty where nothing is picked.
+    /// of bright segments over the web, a chevron on each pointing the
+    /// way the trip goes. Empty where nothing is picked.
     pub route: &'a [u32],
     /// Which steps of `route` a jammer would turn back — one `bool` a
     /// **step**, so `jammed.len()` is `route.len() - 1`. A jammed step is
@@ -278,9 +285,20 @@ const SPAWN: Color = Color::rgb(1.0, 0.86, 0.45);
 const PING: Color = Color::rgb(0.55, 0.80, 0.95);
 const HERE: Color = Color::rgb(0.50, 0.82, 0.66);
 const TARGET: Color = Color::rgb(0.62, 0.42, 0.86);
-/// A star the crew have been to: a cool grey, nobody else's colour on
+/// A star the crew have been to: a pale white, nobody else's colour on
 /// the map, so a wake of them reads as a trail rather than as a warning.
-const VISITED: Color = Color::rgb(0.62, 0.70, 0.76);
+/// Brighter than the grey it was until the second map rework, which was lost among
+/// the stars; the system map's tick is the same value
+/// (`ship::world_paint`'s `VISITED`).
+const VISITED: Color = Color::rgb(0.86, 0.92, 1.0);
+/// How wide a lane between two stars the crew have been to is drawn:
+/// over the lit lanes' width, so the trail is the first thing read.
+const TRAIL_WIDTH: f32 = 2.2;
+/// How far round a star the ring saying *the crew are here* is drawn,
+/// and the ticks outside it: the system map's reticle, in the chart's
+/// green, so the ship reads as one mark on both.
+const HERE_RING: f32 = 26.0;
+const HERE_TICK: f32 = 7.0;
 /// A hyperlane. Faint, and under every star: the web is what the crisis
 /// crawls along and is not somewhere anything flies, so it has to be
 /// legible as structure and invisible as a route.
@@ -296,6 +314,9 @@ const REACHABLE: Color = Color::rgb(0.62, 0.42, 0.86);
 /// How wide a lit lane is drawn. Over a pixel, where the web is under
 /// one, so a reachable lane is a line rather than a brighter hair.
 const REACHABLE_WIDTH: f32 = 1.6;
+/// How wide a step of the route to the picked star is drawn: wider than
+/// a lit lane, since it is where the crew will go (the second map rework).
+const ROUTE_WIDTH: f32 = 2.6;
 /// A step of a route a jammer would turn back.
 const JAMMED: Color = crate::draw::ENEMY;
 /// A star the machines hold: the enemy's red, which is the colour a
@@ -390,6 +411,28 @@ pub fn paint(
         }
     }
 
+    // Over the web, the trail: every lane between two stars the crew have
+    // been to (the second map rework), each once, from the lower id.
+    for &id in marks.visited {
+        let (Some(star), Some(joined)) = (stars.get(id as usize), lanes.get(id as usize)) else {
+            continue;
+        };
+        let (x0, y0) = preview.to_screen(star.position.x, star.position.y);
+        for &to in joined {
+            if to <= id || !marks.visited.contains(&to) {
+                continue;
+            }
+            let Some(other) = stars.get(to as usize) else {
+                continue;
+            };
+            let (x1, y1) = preview.to_screen(other.position.x, other.position.y);
+            if !preview.on_canvas(x0, y0, 8.0) && !preview.on_canvas(x1, y1, 8.0) {
+                continue;
+            }
+            list.line(x0, y0, x1, y1, TRAIL_WIDTH, VISITED.alpha(0.55));
+        }
+    }
+
     // Over the web, the lanes out of the ship's own star: where a charge
     // could take it this jump (feature 93).
     if let Some(from) = marks.here.and_then(|id| stars.get(id as usize)) {
@@ -418,8 +461,30 @@ pub fn paint(
         }
     }
 
+    // And the stars two lanes off a trip still reaches (the second map rework): a
+    // fainter ring than a lane off's, and no lane lit to them.
+    for star in marks.far.iter().filter_map(|&id| stars.get(id as usize)) {
+        let (x, y) = preview.to_screen(star.position.x, star.position.y);
+        if !preview.on_canvas(x, y, 8.0) {
+            continue;
+        }
+        list.push(
+            crate::draw::KIND_ELLIPSE,
+            x,
+            y,
+            8.0,
+            8.0,
+            0.0,
+            0.0,
+            1.0,
+            REACHABLE.alpha(0.5),
+        );
+    }
+
     // And the route to the picked star, step by step: bright where it can
-    // be flown, the enemy's red and barred where a jammer shuts it.
+    // be flown, the enemy's red and barred where a jammer shuts it, over a
+    // dark edge so it reads over the trail and the web, and a chevron on
+    // each step pointing the way the trip goes (the second map rework).
     for (step, pair) in marks.route.windows(2).enumerate() {
         let (Some(a), Some(b)) = (stars.get(pair[0] as usize), stars.get(pair[1] as usize)) else {
             continue;
@@ -431,7 +496,11 @@ pub fn paint(
         }
         let shut = marks.jammed.get(step).copied().unwrap_or(false);
         let colour = if shut { JAMMED } else { REACHABLE };
-        list.line(x0, y0, x1, y1, REACHABLE_WIDTH, colour);
+        list.line(x0, y0, x1, y1, ROUTE_WIDTH + 2.4, VOID.alpha(0.8));
+        list.line(x0, y0, x1, y1, ROUTE_WIDTH, colour);
+        if !shut {
+            chevron(list, (x0, y0), (x1, y1), colour);
+        }
         if shut {
             // A bar across the middle of the step, square to it: the one
             // mark on this map that says "not this way".
@@ -485,8 +554,8 @@ pub fn paint(
             13.0,
             0.0,
             0.0,
-            1.0,
-            VISITED.alpha(0.75),
+            1.8,
+            VISITED,
         );
     }
 
@@ -557,6 +626,9 @@ pub fn paint(
         }
         let colour = if open { TRADER } else { TRADER.alpha(0.4) };
         list.stroke_rect(x, y, 15.0, 15.0, 2.0, 1.4, colour);
+        // And a euro sign at its right shoulder (the second map rework): what a trader
+        // is for, said without a word.
+        euro(list, x + 14.0, y - 6.0, 9.0, 1.3, colour);
     }
 
     // And every elite's system: a ring and a crown over the star, the
@@ -653,55 +725,72 @@ pub fn paint(
         );
     }
 
+    // Where the crew are, over every other mark (the second map rework): a soft wash, a
+    // heavy ring and a tick at each compass point outside it — the system
+    // map's reticle round the ship, in the chart's green.
     if let Some(star) = marks.here.and_then(|id| stars.get(id as usize)) {
         let (x, y) = preview.to_screen(star.position.x, star.position.y);
+        list.ellipse(x, y, HERE_RING + 10.0, HERE_RING + 10.0, HERE.alpha(0.16));
         list.push(
             crate::draw::KIND_ELLIPSE,
             x,
             y,
-            22.0,
-            22.0,
+            HERE_RING,
+            HERE_RING,
             0.0,
             0.0,
-            2.0,
+            3.0,
             HERE,
         );
-        list.push(
-            crate::draw::KIND_ELLIPSE,
-            x,
-            y,
-            30.0,
-            30.0,
-            0.0,
-            0.0,
-            1.0,
-            HERE.alpha(0.5),
-        );
-        list.ellipse(x, y, 5.0, 5.0, HERE);
+        let (from, to) = (HERE_RING / 2.0 + 2.0, HERE_RING / 2.0 + 2.0 + HERE_TICK);
+        for (dx, dy) in [(1.0, 0.0), (-1.0, 0.0), (0.0, 1.0), (0.0, -1.0)] {
+            list.line(
+                x + dx * from,
+                y + dy * from,
+                x + dx * to,
+                y + dy * to,
+                2.4,
+                HERE,
+            );
+        }
+        list.ellipse(x, y, 6.0, 6.0, HERE);
     }
+    // And where they will go: the hyperdrive's violet, a heavy ring and a
+    // diamond round it, over a dark edge so it reads on a busy chart.
     if let Some(star) = marks.target.and_then(|id| stars.get(id as usize)) {
         let (x, y) = preview.to_screen(star.position.x, star.position.y);
         list.push(
             crate::draw::KIND_ELLIPSE,
             x,
             y,
-            22.0,
-            22.0,
+            24.0,
+            24.0,
             0.0,
             0.0,
-            2.0,
+            5.0,
+            VOID.alpha(0.7),
+        );
+        list.push(
+            crate::draw::KIND_ELLIPSE,
+            x,
+            y,
+            24.0,
+            24.0,
+            0.0,
+            0.0,
+            3.0,
             TARGET,
         );
         list.push(
             crate::draw::KIND_RECT,
             x,
             y,
-            24.0,
-            24.0,
+            28.0,
+            28.0,
             core::f32::consts::FRAC_PI_4,
             0.0,
-            1.0,
-            TARGET.alpha(0.7),
+            1.8,
+            TARGET,
         );
     }
     for ping in marks.pings {
@@ -750,5 +839,47 @@ fn crown(list: &mut DrawList, x: f32, y: f32, width: f32, thin: f32, c: Color) {
     for (px, py) in [points[1], points[3], points[5]] {
         let d = thin * 2.4;
         list.push(crate::draw::KIND_ELLIPSE, px, py, d, d, 0.0, 0.0, 0.0, c);
+    }
+}
+
+/// A chevron at the middle of a step from `a` to `b`, pointing at `b`:
+/// which way the route goes (the second map rework). Nothing on a step too short to
+/// hold one.
+fn chevron(list: &mut DrawList, a: (f32, f32), b: (f32, f32), c: Color) {
+    let (dx, dy) = (b.0 - a.0, b.1 - a.1);
+    let len = (dx * dx + dy * dy).sqrt();
+    if len < 24.0 {
+        return;
+    }
+    let (ux, uy) = (dx / len, dy / len);
+    let tip = ((a.0 + b.0) / 2.0 + ux * 3.0, (a.1 + b.1) / 2.0 + uy * 3.0);
+    let (back, side) = (6.0, 4.5);
+    for s in [1.0f32, -1.0] {
+        let end = (
+            tip.0 - ux * back - uy * side * s,
+            tip.1 - uy * back + ux * side * s,
+        );
+        list.line(tip.0, tip.1, end.0, end.1, 2.0, c);
+    }
+}
+
+/// A euro sign, `size` tall, centred on `(x, y)`: a C open to the right
+/// in short straight pieces and two bars across it — the trader's mark
+/// (the second map rework). The system map's `ship::world_paint::paint_euro`, drawn
+/// again here as the crown is.
+fn euro(list: &mut DrawList, x: f32, y: f32, size: f32, thin: f32, c: Color) {
+    let r = size / 2.0;
+    let (from, to) = (0.8f32, core::f32::consts::TAU - 0.8);
+    let pieces = 8;
+    let at = |i: u32| {
+        let a = from + (to - from) * i as f32 / pieces as f32;
+        (x + r * a.cos(), y - r * a.sin())
+    };
+    for i in 0..pieces {
+        let (p, q) = (at(i), at(i + 1));
+        list.line(p.0, p.1, q.0, q.1, thin, c);
+    }
+    for dy in [-0.22 * size, 0.12 * size] {
+        list.line(x - r * 1.25, y + dy, x + r * 0.35, y + dy, thin, c);
     }
 }

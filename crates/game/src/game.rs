@@ -7295,6 +7295,8 @@ impl Game {
             .map(|mut s| {
                 if let Some(was) = old.iter().find(|o| o.id == s.id) {
                     s.trigger = was.trigger;
+                    s.facing = was.facing;
+                    s.flash = was.flash;
                 }
                 s
             })
@@ -7308,8 +7310,6 @@ impl Game {
 
     /// The damage each sentry took since last asked, by id, a hit a row.
     pub fn take_sentry_hits(&mut self) -> Vec<(u32, f32)> {
-                    s.facing = was.facing;
-                    s.flash = was.flash;
         std::mem::take(&mut self.sentry_hits)
     }
 

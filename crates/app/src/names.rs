@@ -429,7 +429,7 @@ pub fn refusal(why: Refusal) -> &'static str {
         Refusal::BetweenMissions => "not between missions — choose where to go next",
         Refusal::MidMission => "the map is read-only during a mission — go back to the ship first",
         Refusal::NoSuchPlace => "there is no such place to go",
-        Refusal::TooFar => "that is more than one hyperlane hop away — one hop a trip",
+        Refusal::TooFar => "that is more than two hyperlane hops away — two hops a trip at most",
         Refusal::NoProposal => "nobody has put a destination to the crew",
         Refusal::NotAsked => "nobody is being asked about leaving",
         Refusal::PlayerOut => "your Bim is dead — it is back when the mission ends",
@@ -2413,17 +2413,23 @@ pub const MAP_READ_ONLY: &str =
 /// At a trader (task 114): the visit is here, and the vote goes on.
 pub const MAP_AT_TRADER: &str =
     "At a trader. Buy what you want, then choose where to go next — everybody has to accept.";
-pub const MAP_TIP: &str = "A trip is one step: to another station or settlement in this system, or to one in a system a hyperlane joins to this one. Nothing is flown. A jump to another system puts the world clock on by one day the moment everybody has accepted — the crisis spreads by the day — and a trip within this system takes no time at all. The crew arrive docked or landed with a mission begun. The world clock moves for nothing else: not during a mission, and not here. Drag the galaxy chart with the left button; a system clicked on it, or a place picked on the list, is shown in the system view.";
+pub const MAP_TIP: &str = "A trip is one step: to another station or settlement in this system, or to one in a system one or two hyperlanes off. Nothing is flown. A jump to another system puts the world clock on by one day a hyperlane crossed the moment everybody has accepted — the crisis spreads by the day — and a trip within this system takes no time at all. Pick a place and press Propose at the bottom of the map. The crew arrive docked or landed with a mission begun. The world clock moves for nothing else: not during a mission, and not here. Drag the galaxy chart with the left button; a system clicked on it, or a place picked on the list, is shown in the system view.";
 /// The two halves of the list.
 pub const MAP_THIS_SYSTEM: &str = "This system";
-pub fn map_next_system(star: &str) -> String {
-    format!("{star} · one hop")
+/// A system's heading on the list, by how many hyperlanes off it is
+/// (the second map rework: one or two).
+pub fn map_next_system(star: &str, hops: u32) -> String {
+    match hops {
+        1 => format!("{star} · one hop"),
+        2 => format!("{star} · two hops"),
+        n => format!("{star} · {n} hops"),
+    }
 }
 /// The list's order (task 135): by system, or every site by how long the
 /// trip to it is, the nearest first.
 pub const MAP_SORT_SYSTEM: &str = "By system";
 pub const MAP_SORT_DISTANCE: &str = "By distance";
-pub const MAP_SORT_TIP: &str = "By system lists this system's sites, then each system a hyperlane joins, under its name. By distance lists every site together, the shortest trip first, with its system beside it; the sites no trip can go to come last.";
+pub const MAP_SORT_TIP: &str = "By system lists this system's sites, then each system one or two hyperlanes off, under its name. By distance lists every site together, the shortest trip first, with its system beside it; the sites no trip can go to come last.";
 /// The site the crew are at, in the list.
 pub const MAP_HERE: &str = "here";
 /// A trip within the system, which takes no time (the map rework).
@@ -2437,6 +2443,16 @@ pub fn trip_quote(minutes: u64, arrival_day: u32) -> String {
     let length = crate::format::trip_length(minutes);
     format!("{length} · day {arrival_day}")
 }
+/// What a trip to a star costs, beside its name on the galaxy chart and
+/// over the system view (`World::trip_days_in`): `costs 2 days`, or that
+/// no trip reaches it.
+pub fn trip_cost(days: Option<f64>) -> String {
+    match days {
+        Some(days) => format!("costs {}", days_words(days)),
+        None => TRIP_OUT_OF_REACH.to_string(),
+    }
+}
+pub const TRIP_OUT_OF_REACH: &str = "out of reach";
 /// What a site is to the crew (task 111), by `world::SiteKind::code`: the
 /// word every row of the map's list and every icon of the system map leads
 /// with, in capitals so it is read first.
@@ -2797,6 +2813,18 @@ pub const MAP_DAY: &str = "Day";
 pub const MAP_POOL: &str = "Pool";
 pub const MAP_PICK_HINT: &str =
     "Pick a place on the list or on the chart: the trip is quoted here, and put to the crew.";
+/// The bar at the foot of the map (the second map rework): the trip picked and the
+/// button that puts it to the crew, or the one on the table and the
+/// answers to it.
+pub const PROPOSE_NOTHING: &str = "Pick a place on the chart or the list to go to.";
+pub const PROPOSE_TIP: &str =
+    "Put this trip to the crew. Everybody has to accept it before the ship goes.";
+pub fn propose_trip(site: &str) -> String {
+    format!("Propose · {site}")
+}
+pub fn on_the_table(who: &str, site: &str) -> String {
+    format!("{who} proposed {site}")
+}
 
 /// The galaxy chart's tag under a star: the least and the most tier its
 /// sites' enemies come at (`World::system_tiers`) — one number where the
@@ -2823,8 +2851,10 @@ pub const CHART_TRADER_CLOSED: &str = "Trader in this system · closed";
 /// How the crew get to a star picked on the chart.
 pub const CHART_HERE: &str = "The crew are here.";
 pub const CHART_ONE_LANE: &str = "One hyperlane away: its places are on the list.";
+pub const CHART_TWO_LANES: &str =
+    "Two hyperlanes away — a trip of two days: its places are on the list.";
 pub fn chart_lanes_away(hops: usize) -> String {
-    format!("{hops} hyperlanes away — a trip crosses one lane at a time.")
+    format!("{hops} hyperlanes away — a trip crosses two lanes at most.")
 }
 pub const BUYBACK_HEADING: &str = "Buyback";
 pub const BUYBACK_COVERED: &str = "covered";
@@ -2833,11 +2863,12 @@ pub const BUYBACK_SHORT: &str = "not covered";
 pub const CARD_HOPS: &str = "Where";
 pub const CARD_TRAVEL: &str = "Travel";
 pub const CARD_ARRIVAL: &str = "Arrive on day";
-pub fn hops_words(jump: bool) -> String {
-    if jump {
-        "one hop away".into()
-    } else {
-        "this system".into()
+pub fn hops_words(hops: u32) -> String {
+    match hops {
+        0 => "this system".into(),
+        1 => "one hop away".into(),
+        2 => "two hops away".into(),
+        n => format!("{n} hops away"),
     }
 }
 pub fn days_words(days: f64) -> String {

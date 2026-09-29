@@ -207,6 +207,13 @@ const TILE: f32 = shipdesign::TILE as f32;
 /// (and HEAD's `earn_bounty` hunk put right) it read
 /// `0x_8d00_61ed_88c8_6121`, and `0x_cc3d_8f02_97f0_2873` with that one
 /// check taken out. Left for the sweep as well.
+///
+/// **And a site's waves by its tier, on purpose** (no task number: one
+/// wave at tier one, two at tier two, four at tier three,
+/// `data::DROID_TIER_WAVES`, where it was two and a wave every second
+/// step): the tree read `0x_8d00_61ed_88c8_6121` with the count put back
+/// to two at every tier and `0x_c91e_9026_9f7f_3d90` with it. Left for
+/// the sweep with the two above.
 const SURVIVORS: u64 = 0x_11a9_33d1_6eeb_9209;
 
 /// A gun in every hand, the kinds dealt round, as the fight's probes arm

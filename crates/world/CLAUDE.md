@@ -3424,14 +3424,17 @@ size of the fight.
 
 - **The wave count is fixed at the crew's first dock and never worked
   out again** (`Infestation::settle`, called from `droid_waves` the first
-  step the rooms are joined): `DROID_WAVES_BASE` + a wave every second
-  `ENEMIES_HOURS` of the world clock (`droid::wave_count`, feature
-  105 — it read the worth and the levels before), or whatever
+  step the rooms are joined): **the tier's** — one wave at tier one, two
+  at tier two, four at tier three (`data::DROID_TIER_WAVES`,
+  `droid::wave_count(tier)`, the tier `World::droid_tier` answers; the
+  scaling's `tier_waves` dial over it) — or whatever
   `World::set_droid_waves_for_probe` says — the `droids` commands set
   **three** (`screens::game::DROID_WAVES_IN_PROBE`, `BIMS_DROID_WAVES=n`
-  over it), since the formula's two at day nought is one wave landing and
-  then a cleared station, and what those commands are for is the wave
-  after the first. That dial is neither saved nor hashed, unlike the
+  over it), since a tier-one site's one wave is one landing and then a
+  cleared station, and what those commands are for is the wave after the
+  first. (Until the player asked for a count by tier it was
+  `DROID_WAVES_BASE` + a wave every second step of the world clock,
+  feature 105.) That dial is neither saved nor hashed, unlike the
   other three: it is read once and what it decides —
   `Infestation::waves_left` — is both. Wave one is aboard then,
   stood about the station's rooms (`droid::spots_about`, free deck tiles
@@ -4830,8 +4833,8 @@ and the rules; `fortress.rs` (a child of `world`, like `mission.rs` and
 - **The map**: a heart site is listed at the origin (`sites_in`), placed by
   `heart::blueprint` (`site_position`), and its quote carries
   `TravelQuote::heart` — `World::heart_preview` at the arrival's world
-  clock, off `wave_size_at` / `wave_count_at`, which `droid_wave_size` and
-  `droid_wave_count` are now at the clock's own hours.
+  clock, off `wave_size_at` (which `droid_wave_size` is at the clock's
+  own hours) and `wave_count_for(Tier::Three)`.
   `World::origin_seen` (a visited star within a hop of the origin, off the
   kept hop table) is what the chart's diamond waits on.
 - **The run's summary**: `Run::{machines_destroyed, sites_cleared,
@@ -6025,6 +6028,23 @@ length before). `a_jump_costs_a_day_and_a_trip_in_the_system_nothing`
 and `every_quote_is_a_day_for_a_jump_and_nothing_in_the_system` are the
 rule.
 
+## Twenty for an enemy down, and nothing for its death
+
+> "One speed, and experience alike for every class (task 119)" and the
+> engineer's "Experience is given in the step" above say an enemy's death
+> is `XP_ENEMY_DEAD` (5) on top of its down; that is **gone** again, as
+> feature 109 once had it.
+
+`experience` pays `class::XP_ENEMY_DOWN` — **twenty** now, where it was
+ten — once, at an enemy's first down or death, and nothing else: a
+machine destroyed is twenty, a Manufacturer downed is twenty, and a
+downed one bleeding out or finished afterwards is nothing more.
+`XP_ENEMY_DEAD` and `Residents::xp_dead` went (`xp_down` is the one
+flag). **`SAVE_VERSION` 62, `wire::PROTOCOL` 61**. `SURVIVORS` moved
+(its runs' crew earn experience, and the progress is hashed; taken on a
+clean tree with this change alone); `REFERENCE_CHECKSUM` and the ship's
+`PINNED` did not.
+
 ## A townsperson is picked up with the medkit
 
 A station's person downed — a townsperson or a defender fallen fighting
@@ -6056,6 +6076,29 @@ The bots never revive one of their own accord (`revive_on_offer` is the
 crew's bodies alone). `a_townsperson_downed_is_picked_up_with_the_medkit`
 (`tests_defense.rs`) is the rule; `BIMS_DOWN_RESIDENT=1` downs a town's
 guard beside the player's Bim for a look. `wire::PROTOCOL` 60.
+
+## A trip crosses two lanes at most (the second map rework)
+
+> "Jumping along lanes" above says a trip is one hop; since the second map rework it
+> is **two lanes at most** (`data::MAX_TRIP_HOPS`).
+
+`World::destinations` lists this system, then the stars a lane off, then
+the stars two lanes off (`World::two_lanes_off(galaxy)`, id order), so a
+seeded run that takes the first quotable site of a star next door is the
+run it was. `World::trip_route(star)` / `trip_route_in(galaxy, star)` is
+the way a trip goes — `None` past two lanes (`TooFar`) — and, two lanes
+off, goes through the first star between (id order) whose two steps no
+jammer shuts (`jammed_step`), else the first: a trip is `Jammed` only
+when every way is. `TravelQuote::hops` says how many lanes;
+`minutes = JUMP_MINUTES × hops`, and `travel` jumps straight to the far
+star — the star between is passed, not visited, and keeps no memory. A
+look (`quote_with(.., looking: true)`) at a star further off reads its
+arrival day off the plain shortest route. The app passes the chart's own
+galaxy to the `_in` forms, since `World::galaxy()` generates one a call.
+`tests_jammer::a_trip_wants_two_lanes_or_fewer_out_of_the_star_the_ship_is_at`
+and the jammer test's two-lane half are the rule. **`wire::PROTOCOL` 59**
+(what a trip may be is what both ends must agree on); nothing saved
+changed, and no pin moved.
 
 ## A step every five days, and the two tuning files
 
@@ -6093,22 +6136,25 @@ dials cross no wire, and in a two-player run each end reads its own files.
 `tests_defense.rs`' two money assertions say a defence pays. The ship's
 `PINNED` moved for `jammer` alone (its clock is past five days).
 
-## Twenty for an enemy down, and nothing for its death
+## The sentry stands until it is destroyed
 
-> "One speed, and experience alike for every class (task 119)" and the
-> engineer's "Experience is given in the step" above say an enemy's death
-> is `XP_ENEMY_DEAD` (5) on top of its down; that is **gone** again, as
-> feature 109 once had it.
+> "The engineer's ranked kit" above says the ultimate's sentry is
+> removed when `SENTRY_SECONDS` have run (`expire_sentries`,
+> `Deployable::expires`, `WorldEvent::SentryDone`); that is **gone**.
 
-`experience` pays `class::XP_ENEMY_DOWN` — **twenty** now, where it was
-ten — once, at an enemy's first down or death, and nothing else: a
-machine destroyed is twenty, a Manufacturer downed is twenty, and a
-downed one bleeding out or finished afterwards is nothing more.
-`XP_ENEMY_DEAD` and `Residents::xp_dead` went (`xp_down` is the one
-flag). **`SAVE_VERSION` 62, `wire::PROTOCOL` 61**. `SURVIVORS` moved
-(its runs' crew earn experience, and the progress is hashed; taken on a
-clean tree with this change alone); `REFERENCE_CHECKSUM` and the ship's
-`PINNED` did not.
+The engineer's sentry stands until it is shot to nothing, another is
+laid (one at a time, as before), the mission ends (`make_whole`) or the
+rooms unjoin. `class::SENTRY_SECONDS`, `World::{sentry_seconds,
+sentry_left, expire_sentries}`, `Deployable::expires` (and its checksum
+line) and `WorldEvent::SentryDone` (133, left free) went;
+`World::sentry_standing(who)` is the app's reading. **Its reach**:
+`class::SENTRY_RANGE` — five tiles a rank, from the first — goes on
+`sentry_skill`'s `Skill::range`, the tiles the room adds to the
+minigun's range. Which way it turns to fire is the room's
+(`crates/game/CLAUDE.md`). `SAVE_VERSION` 64, `wire::PROTOCOL` 63; no
+survivor pin moved (no seeded run has an R rank).
+`the_sentry_is_laid_through_a_hit_stands_until_destroyed_and_is_never_packed_up`
+and `the_sentry_s_weapon_rate_health_and_range_are_its_rank_s` are the rule.
 
 ## A reinforcement comes looking for the crew
 
@@ -6131,22 +6177,21 @@ list, `set_machine_hostiles`) and the Heart's machines are untouched.
 (both carried on by later bumps); no pin moved (`SURVIVORS`, `REFERENCE_CHECKSUM`
 and the ship's `PINNED` read the same with the rule on and off).
 
-## The sentry stands until it is destroyed
+## A site's waves are its tier's
 
-> "The engineer's ranked kit" above says the ultimate's sentry is
-> removed when `SENTRY_SECONDS` have run (`expire_sentries`,
-> `Deployable::expires`, `WorldEvent::SentryDone`); that is **gone**.
+> "The machines hold a station" above says a site's wave count grows a
+> wave every second step of the world clock; that is **gone**.
 
-The engineer's sentry stands until it is shot to nothing, another is
-laid (one at a time, as before), the mission ends (`make_whole`) or the
-rooms unjoin. `class::SENTRY_SECONDS`, `World::{sentry_seconds,
-sentry_left, expire_sentries}`, `Deployable::expires` (and its checksum
-line) and `WorldEvent::SentryDone` (133, left free) went;
-`World::sentry_standing(who)` is the app's reading. **Its reach**:
-`class::SENTRY_RANGE` — five tiles a rank, from the first — goes on
-`sentry_skill`'s `Skill::range`, the tiles the room adds to the
-minigun's range. Which way it turns to fire is the room's
-(`crates/game/CLAUDE.md`). `SAVE_VERSION` 64, `wire::PROTOCOL` 63; no
-survivor pin moved (no seeded run has an R rank).
-`the_sentry_is_laid_through_a_hit_stands_until_destroyed_and_is_never_packed_up`
-and `the_sentry_s_weapon_rate_health_and_range_are_its_rank_s` are the rule.
+How many waves a site has — fixed at the crew's first dock, as ever — is
+the tier its machines come at (`World::droid_tier`): **one at tier one,
+two at tier two, four at tier three** (`data::DROID_TIER_WAVES`,
+`droid::wave_count(tier)`). The clock and the players still make each
+wave bigger; they no longer make more of them. `droid::WaveScaling`'s
+`tier_waves: [u32; 3]` replaced `waves_base` and `steps_per_wave`
+(`scaling.ron`: `tier_waves: (1, 2, 4)`), `World::wave_count_at(hours)`
+is `wave_count_for(tier)`, and the Heart's preview asks tier three's.
+An elite's floor of two (`ELITE_WAVES`), the Manufacturers' one while
+they have the machines and the probes' `BIMS_DROID_WAVES` stand over it
+as before. `wire::PROTOCOL` 64; nothing saved changed.
+`a_site_has_one_wave_at_tier_one_two_at_tier_two_and_four_at_tier_three`
+(`tests_droid.rs`) and `droid::tests` are the rule.

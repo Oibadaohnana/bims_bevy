@@ -113,7 +113,11 @@ impl WorldMap {
                 let title = if site.star == world.star_id {
                     MAP_THIS_SYSTEM.to_string()
                 } else {
-                    map_next_system(&star)
+                    // One or two lanes off (the second map rework).
+                    let hops = world
+                        .trip_route_in(&galaxy, site.star)
+                        .map_or(1, |(route, _)| route.len() as u32 - 1);
+                    map_next_system(&star, hops)
                 };
                 groups.push(Group {
                     title,
@@ -143,8 +147,8 @@ impl WorldMap {
     /// A star picked on the galaxy chart: its first place a trip can go
     /// picked on the list — a trader first, else the first quoted, else
     /// the first listed — so the card offers the trip. A star with no
-    /// place on the list (the ship's own is on it; one more than a lane
-    /// off is not) leaves nothing picked, and the chart's panel says why.
+    /// place on the list (the ship's own is on it; one more than two
+    /// lanes off is not) leaves nothing picked, and the chart's panel says why.
     pub fn pick_star(&mut self, star: u32) {
         let of_star = || {
             self.groups
@@ -293,14 +297,12 @@ pub struct ColumnAsk {
 /// table — with the vote on it. The charts are the canvas to its left:
 /// the galaxy and the system side by side (task 135). `name` names a
 /// player's slot.
-#[allow(clippy::too_many_arguments)]
 pub fn map_column(
     ctx: &egui::Context,
     canvas: egui::Rect,
     map: &mut WorldMap,
     world: &World,
     local: u32,
-    orders: &mut Vec<Order>,
     name: &dyn Fn(u32) -> String,
 ) -> ColumnAsk {
     map.refresh(world);
@@ -439,7 +441,7 @@ pub fn map_column(
                 let proposed = world.run.proposal.as_ref().map(|p| p.site);
                 let shown = map.hovered.or(hovered_before).or(map.picked).or(proposed);
                 if let Some(site) = shown {
-                    destination_card(ui, map, world, site, local, between, orders, name);
+                    destination_card(ui, map, world, site, name);
                 } else {
                     ui.label(
                         egui::RichText::new(MAP_PICK_HINT)
@@ -517,9 +519,9 @@ fn buyback_queue(ui: &mut egui::Ui, world: &World, name: &dyn Fn(u32) -> String)
     ui.add_space(4.0);
     theme::heading(ui, BUYBACK_HEADING);
     let mut left = world.money;
+    let cost = world.rewards().buyback;
     egui::Grid::new("map-buyback")
         .num_columns(3)
-    let cost = world.rewards().buyback;
         .spacing([12.0, 2.0])
         .show(ui, |ui| {
             for fallen in &world.run.fallen {
@@ -544,18 +546,14 @@ fn buyback_queue(ui: &mut egui::Ui, world: &World, name: &dyn Fn(u32) -> String)
 }
 
 /// The card for one destination: its name and how many hops, the trip,
-/// the day of arrival, what is there on it, and — for the one on the
-/// table — who put it and who has said yes, with this player's answer;
-/// for any other, the button that puts it.
-#[allow(clippy::too_many_arguments)]
+/// the day of arrival, what is there on it, and who put it on the table
+/// if it is there. It only reads: the vote is the bar's at the foot of
+/// the map ([`propose_bar`], the second map rework).
 fn destination_card(
     ui: &mut egui::Ui,
     map: &WorldMap,
     world: &World,
     site: Site,
-    local: u32,
-    between: bool,
-    orders: &mut Vec<Order>,
     name: &dyn Fn(u32) -> String,
 ) {
     let Some(d) = map.find(site) else {
@@ -600,7 +598,7 @@ fn destination_card(
                 ui.label(value);
                 ui.end_row();
             };
-            row(ui, CARD_HOPS, hops_words(quote.jump));
+            row(ui, CARD_HOPS, hops_words(quote.hops));
             row(ui, CARD_TRAVEL, days_words(quote.days));
             row(ui, CARD_ARRIVAL, quote.arrival_date.to_string());
         });
@@ -642,60 +640,136 @@ fn destination_card(
             });
     }
     ui.add_space(4.0);
-    match world.run.proposal.as_ref().filter(|p| p.site == site) {
-        Some(proposal) => {
-            ui.label(egui::RichText::new(proposed_by(&name(proposal.by))).color(theme::ACCENT));
-            ui.horizontal_wrapped(|ui| {
-                for (slot, &yes) in proposal.accepted.iter().enumerate() {
-                    let slot = slot as u32;
-                    ui.label(
-                        egui::RichText::new(accepted_line(
-                            &name(slot),
-                            yes,
-                            !world.run.is_connected(slot),
-                        ))
-                        .small()
-                        .color(if yes {
-                            theme::ACCENT
-                        } else {
-                            theme::MUTED
-                        }),
-                    );
-                }
-            });
-            let mine = proposal
-                .accepted
-                .get(local as usize)
-                .copied()
-                .unwrap_or(false);
-            ui.horizontal(|ui| {
-                if ui
-                    .add_enabled(between && !mine, egui::Button::new(ACCEPT_TRIP))
-                    .clicked()
-                {
-                    orders.push(Order::AcceptTrip(true));
-                }
-                if ui
-                    .add_enabled(between && mine, egui::Button::new(TAKE_BACK))
-                    .clicked()
-                {
-                    orders.push(Order::AcceptTrip(false));
-                }
-            });
-        }
-        None => {
-            if ui
-                .add_enabled(between, egui::Button::new(PROPOSE))
-                .on_disabled_hover_text(MAP_READ_ONLY)
-                .clicked()
-            {
-                orders.push(Order::Propose {
-                    star: site.star,
-                    station: site.station,
-                });
-            }
-        }
+    // The trip on the table says so; the vote itself is the bar's at the
+    // foot of the map (the second map rework).
+    if let Some(proposal) = world.run.proposal.as_ref().filter(|p| p.site == site) {
+        ui.label(egui::RichText::new(proposed_by(&name(proposal.by))).color(theme::ACCENT));
     }
+}
+
+/// How wide the bar at the foot of the map is, in points.
+const BAR_W: f32 = 460.0;
+
+/// The bar at the foot of the map (the second map rework), centred on `centre_x` with
+/// its foot at `bottom`, between missions: the trip on the table — who
+/// put it, every player's answer and this player's two buttons — and the
+/// trip picked on the chart or the list with *Propose*, which is the one
+/// place a trip is put to the crew; the card in the column only reads.
+/// Nothing during a mission, where the map is to be looked at. The
+/// rectangle it took, for the log to stand above it.
+#[allow(clippy::too_many_arguments)]
+pub fn propose_bar(
+    ctx: &egui::Context,
+    centre_x: f32,
+    bottom: f32,
+    map: &WorldMap,
+    world: &World,
+    local: u32,
+    orders: &mut Vec<Order>,
+    name: &dyn Fn(u32) -> String,
+) -> Option<egui::Rect> {
+    if world.in_mission() || world.relic_choice().is_some() {
+        return None;
+    }
+    let proposal = world.run.proposal.as_ref();
+    let picked = map
+        .picked
+        .and_then(|site| map.find(site))
+        .filter(|d| proposal.is_none_or(|p| p.site != d.site));
+    let area = egui::Area::new(egui::Id::new("map-propose-bar"))
+        .pivot(egui::Align2::CENTER_BOTTOM)
+        .fixed_pos(egui::pos2(centre_x, bottom))
+        .order(egui::Order::Middle)
+        .show(ctx, |ui| {
+            theme::tray_frame().inner_margin(10.0).show(ui, |ui| {
+                ui.set_width(BAR_W);
+                ui.vertical_centered(|ui| {
+                    if let Some(p) = proposal {
+                        let site = map.find(p.site).map(|d| d.name.clone()).unwrap_or_default();
+                        ui.label(
+                            egui::RichText::new(on_the_table(&name(p.by), &site))
+                                .strong()
+                                .color(theme::ACCENT),
+                        );
+                        ui.horizontal_wrapped(|ui| {
+                            for (slot, &yes) in p.accepted.iter().enumerate() {
+                                let slot = slot as u32;
+                                ui.label(
+                                    egui::RichText::new(accepted_line(
+                                        &name(slot),
+                                        yes,
+                                        !world.run.is_connected(slot),
+                                    ))
+                                    .small()
+                                    .color(if yes {
+                                        theme::ACCENT
+                                    } else {
+                                        theme::MUTED
+                                    }),
+                                );
+                            }
+                        });
+                        let mine = p.accepted.get(local as usize).copied().unwrap_or(false);
+                        ui.horizontal(|ui| {
+                            let size = egui::vec2(140.0, 30.0);
+                            let accept =
+                                egui::Button::new(egui::RichText::new(ACCEPT_TRIP).strong())
+                                    .min_size(size);
+                            if ui.add_enabled(!mine, accept).clicked() {
+                                orders.push(Order::AcceptTrip(true));
+                            }
+                            if ui
+                                .add_enabled(mine, egui::Button::new(TAKE_BACK).min_size(size))
+                                .clicked()
+                            {
+                                orders.push(Order::AcceptTrip(false));
+                            }
+                        });
+                    }
+                    if proposal.is_some() && picked.is_some() {
+                        ui.separator();
+                    }
+                    match picked {
+                        Some(d) => {
+                            let at = world.current_site() == Some(d.site);
+                            let (text, colour) = row_words(d, at);
+                            ui.label(row_job(ui.style(), d.kind, &text, colour));
+                            let press = ui
+                                .add_enabled(
+                                    d.quote.is_ok(),
+                                    egui::Button::new(
+                                        egui::RichText::new(propose_trip(&d.name))
+                                            .strong()
+                                            .size(16.0),
+                                    )
+                                    .min_size(egui::vec2(240.0, 34.0)),
+                                )
+                                .on_hover_text(PROPOSE_TIP);
+                            if press.clicked() {
+                                orders.push(Order::Propose {
+                                    star: d.site.star,
+                                    station: d.site.station,
+                                });
+                            }
+                        }
+                        None if proposal.is_none() => {
+                            ui.label(
+                                egui::RichText::new(PROPOSE_NOTHING)
+                                    .small()
+                                    .color(theme::MUTED),
+                            );
+                            ui.add_enabled(
+                                false,
+                                egui::Button::new(egui::RichText::new(PROPOSE).strong().size(16.0))
+                                    .min_size(egui::vec2(240.0, 34.0)),
+                            );
+                        }
+                        None => {}
+                    }
+                });
+            });
+        });
+    Some(area.response.rect)
 }
 
 /// The *Back to ship* button, at the bottom right of the canvas, during a

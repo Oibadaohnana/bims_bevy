@@ -2,7 +2,7 @@
 //! system that holds the hyperlanes shut.
 //!
 //! The crisis spreads along the lanes (`crate::droid`, feature 92) and a
-//! trip follows them too — one hop at most, and only down a lane
+//! trip follows them too — two lanes at most (the second map rework), and only down them
 //! (`World::travel_quote`, [`crate::event::Refusal::TooFar`]). The jammer
 //! is what makes that a corner rather than a map: while it stands, a ship
 //! in an infested system may go **sideways or outward** — to a star the

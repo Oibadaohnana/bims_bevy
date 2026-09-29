@@ -8,7 +8,8 @@
 //
 //   a wave            = base + per_player * players + per_step * steps
 //   steps             = whole step_days of the world clock (a jump is a day)
-//   waves at a station = waves_base + steps / steps_per_wave   (0: never more)
+//   waves at a site   = tier_waves by the tier its machines come at:
+//                       (tier one, tier two, tier three)
 //   the run's first mission: every wave first_mission_ease fewer, never under 1
 //
 // Only player Bims count as players; bots do not.
@@ -18,7 +19,6 @@
     per_player: 1,
     per_step: 1,
     step_days: 5,
-    waves_base: 2,
-    steps_per_wave: 2,
+    tier_waves: (1, 2, 4),
     first_mission_ease: 1,
 )

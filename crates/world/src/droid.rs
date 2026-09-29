@@ -34,8 +34,10 @@
 //!
 //! # How many
 //!
-//! **World time and the number of players, and nothing else** (feature
-//! 105). Integers only, and nothing doubles: a wave grows by *addition*,
+//! **A wave's size is world time and the number of players, and nothing
+//! else** (feature 105); **a site's count of waves is the tier its
+//! machines come at**, one, two or four ([`data::DROID_TIER_WAVES`]).
+//! Integers only, and nothing doubles: a wave grows by *addition*,
 //! one machine a player and one every [`data::ENEMIES_HOURS`] of the
 //! world clock. What the crew own, what they have learnt, and how many
 //! bots, mercenaries and recruits walk with them are none of the
@@ -46,6 +48,7 @@
 //! [`wave_size`] and [`wave_count`].
 
 use crate::data;
+use bims::combat::Tier;
 use worldgen::Galaxy;
 use worldgen::rng::{Purpose, Rng};
 
@@ -159,15 +162,23 @@ pub fn wave_size(players: u32, time_steps: u32) -> u32 {
 }
 
 /// How many waves a held station has all told, the one aboard counted:
-///
-/// `DROID_WAVES_BASE + time_steps / 2` — a wave more every second of
-/// [`time_steps`], so a fight grows longer at half the rate its waves
-/// grow thicker. Not the players: a crew of four meets bigger waves, not
+/// [`data::DROID_TIER_WAVES`] at the `tier` its machines come at — one at
+/// tier one, two at tier two, four at tier three. Not the clock and not
+/// the players: a crew of four and a later day meet bigger waves, not
 /// more of them.
 ///
 /// Worked out once, at the crew's first dock, and never again.
-pub fn wave_count(time_steps: u32) -> u32 {
-    data::DROID_WAVES_BASE.saturating_add(time_steps / 2)
+pub fn wave_count(tier: Tier) -> u32 {
+    by_tier(data::DROID_TIER_WAVES, tier)
+}
+
+/// The entry of a table of three — tier one, two, three — for `tier`.
+fn by_tier(table: [u32; 3], tier: Tier) -> u32 {
+    match tier {
+        Tier::One => table[0],
+        Tier::Two => table[1],
+        Tier::Three => table[2],
+    }
 }
 
 /// Whole [`data::ENEMIES_HOURS`] in `hours_gone` of the world clock
@@ -185,7 +196,7 @@ pub fn time_steps(hours_gone: u32) -> u32 {
 ///
 /// A wave is `base + per_player × players + per_step × steps`, `steps`
 /// being whole `step_days` of the world clock, and a held station has
-/// `waves_base + steps / steps_per_wave` waves (nought: never more).
+/// `tier_waves` waves by the tier its machines come at.
 /// Every wave of the run's first mission is `first_mission_ease`
 /// fewer. Integers only, like the formula.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -204,10 +215,9 @@ pub struct WaveScaling {
     /// How many days of the world clock one time step is (one at the
     /// least). A jump is a day, so this is jumps too.
     pub step_days: u32,
-    /// Waves a held station has before the clock is counted.
-    pub waves_base: u32,
-    /// A wave more every this many time steps; nought for never.
-    pub steps_per_wave: u32,
+    /// Waves a held station has, by the tier its machines come at — tier
+    /// one, two, three (`(1, 2, 4)` in the file).
+    pub tier_waves: [u32; 3],
     /// Machines fewer in every wave of the run's first mission.
     pub first_mission_ease: u32,
 }
@@ -219,8 +229,7 @@ impl WaveScaling {
         per_player: 1,
         per_step: 1,
         step_days: data::ENEMIES_HOURS / 24,
-        waves_base: data::DROID_WAVES_BASE,
-        steps_per_wave: 2,
+        tier_waves: data::DROID_TIER_WAVES,
         first_mission_ease: data::FIRST_MISSION_WAVE_EASE,
     };
 
@@ -236,13 +245,9 @@ impl WaveScaling {
             .saturating_add(self.per_step.saturating_mul(self.steps(hours_gone)))
     }
 
-    /// How many waves a held station has at `hours_gone`.
-    pub fn count(&self, hours_gone: u32) -> u32 {
-        let more = match self.steps_per_wave {
-            0 => 0,
-            n => self.steps(hours_gone) / n,
-        };
-        self.waves_base.saturating_add(more)
+    /// How many waves a held station has whose machines come at `tier`.
+    pub fn count(&self, tier: Tier) -> u32 {
+        by_tier(self.tier_waves, tier)
     }
 }
 
@@ -330,21 +335,24 @@ mod tests {
                     d.size(players, hours),
                     wave_size(players, time_steps(hours))
                 );
-                assert_eq!(d.count(hours), wave_count(time_steps(hours)));
             }
+        }
+        for tier in Tier::ALL {
+            assert_eq!(d.count(tier), wave_count(tier));
         }
         let tuned = WaveScaling {
             base: 5,
             per_player: 2,
             per_step: 3,
             step_days: 1,
-            waves_base: 1,
-            steps_per_wave: 0,
+            tier_waves: [3, 5, 7],
             first_mission_ease: 0,
         };
         // Two players, three days in.
         assert_eq!(tuned.size(2, 3 * 24 + 5), 5 + 2 * 2 + 3 * 3);
-        assert_eq!(tuned.count(100 * 24), 1, "nought steps a wave: never more");
+        assert_eq!(tuned.count(Tier::One), 3);
+        assert_eq!(tuned.count(Tier::Two), 5);
+        assert_eq!(tuned.count(Tier::Three), 7);
         // A step of nought days is a step of one, not a division by nought.
         let zero = WaveScaling {
             step_days: 0,
@@ -364,33 +372,27 @@ mod tests {
         assert_eq!(wave_size(4, 500), data::DROID_WAVE_BASE + 4 + 500);
     }
 
+    /// One wave at tier one, two at tier two and four at tier three.
     #[test]
-    fn the_wave_count_grows_a_wave_every_second_step() {
-        assert_eq!(wave_count(0), data::DROID_WAVES_BASE);
-        assert_eq!(wave_count(1), data::DROID_WAVES_BASE);
-        assert_eq!(wave_count(2), data::DROID_WAVES_BASE + 1);
-        assert_eq!(wave_count(9), data::DROID_WAVES_BASE + 4);
+    fn the_wave_count_is_the_tier_s() {
+        assert_eq!(wave_count(Tier::One), 1);
+        assert_eq!(wave_count(Tier::Two), 2);
+        assert_eq!(wave_count(Tier::Three), 4);
     }
 
-    /// Neither ever falls as the clock runs on, for any number of players
-    /// — and both have risen by the end of a run's worth of the clock.
+    /// The size never falls as the clock runs on, for any number of
+    /// players, and has risen by the end of a run's worth of the clock.
     #[test]
-    fn neither_falls_as_the_clock_runs_and_both_rise_over_a_run() {
+    fn the_size_never_falls_as_the_clock_runs_and_rises_over_a_run() {
         let run_hours = 24 * 120;
         for players in 1..=4 {
-            let (mut size, mut count) = (0, 0);
+            let mut size = 0;
             for hours in (0..=run_hours).step_by(7) {
                 let steps = time_steps(hours);
                 assert!(wave_size(players, steps) >= size, "{players} at {hours}h");
-                assert!(wave_count(steps) >= count, "{players} at {hours}h");
                 size = wave_size(players, steps);
-                count = wave_count(steps);
             }
             assert!(size > wave_size(players, 0), "{players}: the waves grew");
-            assert!(
-                count > wave_count(0),
-                "{players}: and there were more of them"
-            );
         }
     }
 

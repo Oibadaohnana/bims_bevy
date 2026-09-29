@@ -21,7 +21,13 @@ use crate::world::World;
 /// One player and a bot, docked at the nearest site of the
 /// Manufacturers' on `day`, with the garrison laid.
 fn at_their_site(day: u32) -> (World, u32) {
+    at_their_site_with(day, |_| {})
+}
+
+/// [`at_their_site`] with something done to the world before the dock.
+fn at_their_site_with(day: u32, before: impl FnOnce(&mut World)) -> (World, u32) {
     let mut world = crewed_world(flyer(2), REFERENCE_MONEY, 1, 2);
+    before(&mut world);
     // A class, so the fight pays experience: chosen at home, where it may be.
     world.set_class(0, Class::Soldier).unwrap();
     let station = world
@@ -310,7 +316,8 @@ fn a_day_eight_garrison_is_about_half_troopers_fighting_beside_them() {
 /// left.
 #[test]
 fn from_day_ten_they_come_in_waves_of_their_own_people_alone() {
-    let (mut world, station) = at_their_site(12);
+    // A tier-one site has one wave; this is the waves after it.
+    let (mut world, station) = at_their_site_with(12, |w| w.set_droid_waves_for_probe(3));
     let it = world.infestation(station).unwrap().clone();
     assert!(it.waves_left >= 1, "waves: {it:?}");
     let room = &world.residents.as_ref().unwrap().aboard.room;

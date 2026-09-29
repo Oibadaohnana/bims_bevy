@@ -3,7 +3,7 @@
 //! - `scaling.ron` (or the file `BIMS_SCALING` names) holds a
 //!   [`world::droid::WaveScaling`]: the base machines a wave, how many a
 //!   player and a time step add, how many days a time step is, the waves a
-//!   held station has and the first mission's ease.
+//!   held station has at each tier and the first mission's ease.
 //! - `rewards.ron` (or `BIMS_REWARDS`) holds a [`world::rewards::Rewards`]:
 //!   the experience and the money an enemy down is worth, what a defence
 //!   pays of it, whether the money waits for the clear, and what the
@@ -66,13 +66,12 @@ impl Dials for WaveScaling {
     const UNTUNED: Self = WaveScaling::DEFAULT;
     fn describe(&self) -> String {
         format!(
-            "{} + {}/player + {}/step of {} days, {} waves + 1 every {} steps, first mission -{}",
+            "{} + {}/player + {}/step of {} days, waves {:?} by tier, first mission -{}",
             self.base,
             self.per_player,
             self.per_step,
             self.step_days.max(1),
-            self.waves_base,
-            self.steps_per_wave,
+            self.tier_waves,
             self.first_mission_ease
         )
     }
@@ -220,6 +219,9 @@ mod tests {
         assert_eq!(s.base, 7);
         assert_eq!(s.step_days, WaveScaling::DEFAULT.step_days);
         assert!(parse::<WaveScaling>("(base: -1)").is_err());
+        let s: WaveScaling = parse("(tier_waves: (2, 3, 6))").unwrap();
+        assert_eq!(s.tier_waves, [2, 3, 6]);
+        assert_eq!(s.base, WaveScaling::DEFAULT.base);
         let r: Rewards = parse("(buyback: 3)").unwrap();
         assert_eq!(r.buyback, 3);
         assert_eq!(r.bounty, Rewards::DEFAULT.bounty);

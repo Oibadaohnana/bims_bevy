@@ -64,12 +64,11 @@ const BLACKOUT_FADE: f32 = 0.6;
 const DROID_REINFORCE_IN_PROBE: f64 = 1.0;
 
 /// How many waves of machines the `droids` probes give a held station,
-/// the one aboard counted — where the game's own is
-/// `droid::wave_count`'s sum, which at day nought is
-/// `data::DROID_WAVES_BASE` (two). **Three**, because these commands
-/// exist to look at what a wave *after* the first does: with two, one
-/// landed and the station was cleared. `BIMS_DROID_WAVES=n` says
-/// otherwise.
+/// the one aboard counted — where the game's own is the tier's
+/// (`droid::wave_count`: one at tier one, two at two, four at three).
+/// **Three**, because these commands exist to look at what a wave
+/// *after* the first does: with one, it landed and the station was
+/// cleared. `BIMS_DROID_WAVES=n` says otherwise.
 const DROID_WAVES_IN_PROBE: u32 = 3;
 
 /// How long the `defense` command waits between the crew setting down at
@@ -1587,7 +1586,19 @@ fn frame(
     let galaxy_up = map_up && screen.galaxy.is_some();
     if galaxy_up && let Some(chart) = &mut screen.galaxy {
         chart.here = session.game.as_ref().map(|g| g.world.star_id);
-        chart.target = screen.picked_star;
+        // Where the crew are heading (the second map rework): the star picked, else the
+        // one on the table.
+        let heading = screen
+            .picked_star
+            .or_else(|| {
+                session
+                    .game
+                    .as_ref()
+                    .and_then(|g| g.world.run.proposal.as_ref())
+                    .map(|p| p.site.star)
+            })
+            .filter(|&star| Some(star) != chart.here);
+        chart.target = heading;
         // And every star the crew have been to, ringed (feature 85).
         chart.visited = session
             .game
@@ -1608,6 +1619,13 @@ fn frame(
             .game
             .as_ref()
             .map(|g| g.world.reachable_stars())
+            .unwrap_or_default();
+        // And the stars two lanes off a trip still reaches (the second map rework), off
+        // the chart's own galaxy rather than a fresh one a frame.
+        chart.far = session
+            .game
+            .as_ref()
+            .map(|g| g.world.two_lanes_off(&chart.galaxy))
             .unwrap_or_default();
         // And the machines' origin, where the Machine Heart stands, once
         // the crew have seen its system or one next to it (feature 108).
@@ -1646,11 +1664,15 @@ fn frame(
                     .collect()
             })
             .unwrap_or_default();
-        let plotted = session
-            .game
-            .as_ref()
-            .zip(screen.picked_star)
-            .and_then(|(g, star)| g.world.route_to(star).map(|route| (g, route)));
+        // The way a trip goes where it can (two lanes at most, round a
+        // jammer where there is a way round, the second map rework), else the shortest.
+        let plotted = session.game.as_ref().zip(heading).and_then(|(g, star)| {
+            g.world
+                .trip_route_in(&chart.galaxy, star)
+                .map(|(route, _)| route)
+                .or_else(|| g.world.route_to(star))
+                .map(|route| (g, route))
+        });
         (chart.route, chart.jammed) = match plotted {
             Some((g, route)) => {
                 let jammed = route
@@ -2282,12 +2304,19 @@ fn frame(
         // list (the map rework), else the ship's own.
         game.show_system(screen.picked_star);
         let star = game.shown_star();
-        game.aimed = screen.world_map.picked.filter(|s| s.star == star).map(|s| {
-            match world::surface_body(s.station) {
-                Some(body) => Target::Body(body),
-                None => Target::Station(s.station),
-            }
-        });
+        // The site picked, else the one on the table (the second map rework).
+        let heading = screen
+            .world_map
+            .picked
+            .or_else(|| game.world.run.proposal.as_ref().map(|p| p.site))
+            .filter(|&s| Some(s) != game.world.current_site());
+        game.aimed =
+            heading
+                .filter(|s| s.star == star)
+                .map(|s| match world::surface_body(s.station) {
+                    Some(body) => Target::Body(body),
+                    None => Target::Station(s.station),
+                });
     }
 
     // Everything that changes the ship goes through the seam.
@@ -2385,7 +2414,6 @@ fn frame(
             &mut screen.world_map,
             world,
             local,
-            &mut orders,
             &crew_name,
         ));
         // The galaxy chart's word on the star looked at, where the strip
@@ -2434,11 +2462,24 @@ fn frame(
                     }
                 });
         }
+        // The bar that puts a trip to the crew, at the foot of the map
+        // in the middle of the two charts (the second map rework), and the log over it.
+        let map_right = area.max.x - MARGIN - super::worldmap::COLUMN_W;
+        let bar = super::worldmap::propose_bar(
+            &ctx,
+            (area.min.x + map_right) / 2.0,
+            area.max.y - MARGIN,
+            &screen.world_map,
+            world,
+            local,
+            &mut orders,
+            &crew_name,
+        );
         hud::log_area(
             &ctx,
             area,
-            area.max.x - MARGIN - super::worldmap::COLUMN_W - GAP,
-            0.0,
+            map_right - GAP,
+            bar.map_or(0.0, |r| r.height() + GAP),
             &screen.log,
         );
     } else {
@@ -2967,19 +3008,25 @@ fn frame(
             chart.paint(&mut screen.galaxy_list);
         }
         world_canvas.shapes(&ctx, galaxy_rect, View::PIXELS, screen.galaxy_list.shapes());
-        for (star, color, tag) in [
-            (chart.here, theme::YOURS, "here"),
-            (screen.picked_star, theme::HYPER, "picked"),
+        // The ship's star named over its reticle, and the star it is heading
+        // for under its own mark and tier tag (the second map rework), so two stars a
+        // lane apart never write over each other. The one heading for says
+        // what the trip there costs — `costs 2 days`.
+        for (star, color, tag, lift) in [
+            (chart.here, theme::YOURS, "here", -24.0),
+            (chart.target, theme::HYPER, "heading", 36.0),
         ] {
             if let Some(s) = star.and_then(|id| chart.galaxy.star(id)) {
                 let (x, y) = chart.preview.to_screen(s.position.x, s.position.y);
-                let at = egui::pos2(galaxy_rect.min.x + x, galaxy_rect.min.y + y - 16.0);
-                theme::name_over(
-                    &chart_painter,
-                    at,
-                    &format!("{} · {tag}", star_name(s.name)),
-                    color,
-                );
+                let at = egui::pos2(galaxy_rect.min.x + x, galaxy_rect.min.y + y + lift);
+                let mut words = format!("{} · {tag}", star_name(s.name));
+                if star != chart.here
+                    && let Some(game) = session.game.as_ref()
+                {
+                    let days = game.world.trip_days_in(&chart.galaxy, s.id);
+                    words = format!("{words} · {}", trip_cost(days));
+                }
+                theme::name_over(&chart_painter, at, &words, color);
             }
         }
         // Every star's tier under it (`World::system_tiers`), on a
@@ -3076,14 +3123,21 @@ fn frame(
                 theme::name_over(&painter, at, &tag, colour);
             }
             // Which system the view shows (the map rework), along its top: the
-            // ship's own, or one picked on the chart or off the list.
+            // ship's own, or one picked on the chart or off the list — that
+            // one with what the trip there costs, `costs 2 days`.
             let own = game.shows_own_system();
             let shown = game.shown_star();
             let name = screen
                 .galaxy
                 .as_ref()
-                .and_then(|chart| chart.galaxy.star(shown))
-                .map(|s| star_name(s.name))
+                .and_then(|chart| {
+                    let s = chart.galaxy.star(shown)?;
+                    if own {
+                        return Some(star_name(s.name));
+                    }
+                    let days = game.world.trip_days_in(&chart.galaxy, shown);
+                    Some(format!("{} · {}", star_name(s.name), trip_cost(days)))
+                })
                 .unwrap_or_default();
             theme::name_over(
                 &painter,
@@ -3871,6 +3925,7 @@ fn chart_star_lines(
     let words = match hops {
         None | Some(0) => CHART_HERE.to_string(),
         Some(1) => CHART_ONE_LANE.to_string(),
+        Some(2) => CHART_TWO_LANES.to_string(),
         Some(n) => chart_lanes_away(n),
     };
     ui.label(egui::RichText::new(words).small().color(theme::MUTED));

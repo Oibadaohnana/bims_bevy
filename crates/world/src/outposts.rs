@@ -213,7 +213,14 @@ mod tests {
         let mut by_star: Vec<(u32, i32, i32)> = vec![(world.star_id, 0, 1)];
         for (site, quote) in world.travel_quotes() {
             let Ok(quote) = quote else { continue };
-            if quote.trader || quote.manufacturers || quote.infested || quote.heart.is_some() {
+            // An elite is its system's attack beside the even split
+            // (`crate::elite`), as the trader and the Manufacturers' are.
+            if quote.trader
+                || quote.manufacturers
+                || quote.infested
+                || quote.elite
+                || quote.heart.is_some()
+            {
                 continue;
             }
             if heart::is_heart(site.station) || jammer::is_derived(site.station) {

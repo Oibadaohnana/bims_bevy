@@ -158,6 +158,9 @@ fn deploy_now_keeping(
 /// put and firing nothing: a hit drops a deploy.
 fn fight_with(kind: DroidKind) -> World {
     let mut world = engineer();
+    // A wave still to come, so the staged machine going down is not the
+    // site cleared and the deck frozen under a test that is not done.
+    world.set_droid_waves_for_probe(2);
     assert!(world.stage_droid_fight_for_probe(kind, None));
     for _ in 0..3 {
         world.step(&[]);

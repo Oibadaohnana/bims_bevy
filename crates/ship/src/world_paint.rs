@@ -115,15 +115,20 @@ const STANCE_RING: f32 = 1.3;
 /// Somewhere the crew have already been, on the map (feature 85): a
 /// small tick at the node's upper-left shoulder — the upper-right one is
 /// the settlement's pad, and under the icon is
-/// where its name is written. The pale grey the galaxy chart
+/// where its name is written. The pale white the galaxy chart
 /// rings a visited star in (`lobby::preview`'s `VISITED`), written out
 /// here for the reason the enemy's red is: this crate imports neither
-/// the lobby nor the room.
-const VISITED: Color = Color::rgb(0.62, 0.70, 0.76);
+/// the lobby nor the room. A grey until the second map rework, which was lost on the
+/// map; the tick sits on a dark disc now, so it reads over any icon.
+const VISITED: Color = Color::rgb(0.86, 0.92, 1.0);
 /// How far out the tick sits, as a share of the icon size, and how big
 /// it is drawn.
 const TICK_SHOULDER: f32 = 0.85;
-const TICK_SIZE: f32 = 0.5;
+const TICK_SIZE: f32 = 0.62;
+/// The site the crew will go to next, on the map (the second map rework): the
+/// hyperdrive's violet the galaxy chart rings the picked star in
+/// (`lobby::preview`'s `TARGET`), by value.
+const HEADING: Color = Color::rgb(0.62, 0.42, 0.86);
 
 /// A construction site: the blueprint's blue, and how far through the
 /// part's own picture shows for a site and for the blueprint in hand.
@@ -2274,10 +2279,33 @@ pub fn paint_pad(list: &mut DrawList, x: f32, y: f32, size: f32, colour: Color) 
 /// one at a glance, whatever else is marked on it.
 pub fn paint_tick(list: &mut DrawList, x: f32, y: f32, size: f32, thin: f32) {
     let (w, h) = (size / 2.0, size / 2.0);
+    // A dark disc under it, so it reads over an icon or a ring (the second map rework).
+    disc(list, x, y, size * 1.5, VOID.alpha(0.85));
     // The short stroke down into the corner, and the long one back up.
     let (cx, cy) = (x - 0.15 * w, y + h);
     list.line(x - w, y + 0.25 * h, cx, cy, thin, VISITED);
     list.line(cx, cy, x + w, y - h, thin, VISITED);
+}
+
+/// A euro sign, `size` tall, centred on `(x, y)`: a C open to the right
+/// in short straight pieces and two bars across it — a trader's mark on
+/// the map (the second map rework), which the galaxy chart puts by a trader's star
+/// too (`lobby::preview`'s `euro`, drawn again there as the crown is).
+pub fn paint_euro(list: &mut DrawList, x: f32, y: f32, size: f32, thin: f32, c: Color) {
+    let r = size / 2.0;
+    let (from, to) = (0.8f32, core::f32::consts::TAU - 0.8);
+    let pieces = 8;
+    let at = |i: u32| {
+        let a = from + (to - from) * i as f32 / pieces as f32;
+        (x + r * a.cos(), y - r * a.sin())
+    };
+    for i in 0..pieces {
+        let (p, q) = (at(i), at(i + 1));
+        list.line(p.0, p.1, q.0, q.1, thin, c);
+    }
+    for dy in [-0.22 * size, 0.12 * size] {
+        list.line(x - r * 1.25, y + dy, x + r * 0.35, y + dy, thin, c);
+    }
 }
 
 /// An elite's crown, `width` across, its foot centred on `(x, y)`: a
@@ -2608,6 +2636,18 @@ fn paint_map(game: &Game, list: &mut DrawList) {
         let colour = site_ring(site);
         let d = size * STANCE_RING;
         ring(list, x, y, d, d, 0.0, thin * 2.5, colour);
+        // A trader wears a euro sign at its upper-right shoulder (task
+        // 139), in its ring's green.
+        if site.kind == world::SiteKind::Trader {
+            paint_euro(
+                list,
+                x + TICK_SHOULDER * size,
+                y - TICK_SHOULDER * size,
+                size * 0.55,
+                thin * 1.8,
+                colour,
+            );
+        }
         // And an elite crowned, a second ring outside the first.
         if site.elite {
             let elite = if site.cleared {
@@ -2633,24 +2673,35 @@ fn paint_map(game: &Game, list: &mut DrawList) {
     // alike, drawn over the icons and under the ring round the pick.
     // The chart is what remembers this — `World::visited`, filed with
     // the system when the ship jumps out — so a system met twice opens
-    // with its ticks on. Only in the ship's own system.
-    if own {
-        for &node in &game.world.visited {
-            let Some((x, y)) = spot_of(node) else {
-                continue;
-            };
-            paint_tick(
-                list,
-                x - TICK_SHOULDER * size,
-                y - TICK_SHOULDER * size,
-                size * TICK_SIZE,
-                thin * 1.5,
-            );
-        }
+    // with its ticks on. In another system looked at, its memory's ticks
+    // (the second map rework), so a system the crew have been to says where.
+    let visited = if own {
+        Some(&game.world.visited)
+    } else {
+        let star = game.shown_star();
+        game.world
+            .memories
+            .iter()
+            .find(|m| m.star == star)
+            .map(|m| &m.visited)
+    };
+    for &node in visited.into_iter().flatten() {
+        let Some((x, y)) = spot_of(node) else {
+            continue;
+        };
+        paint_tick(
+            list,
+            x - TICK_SHOULDER * size,
+            y - TICK_SHOULDER * size,
+            size * TICK_SIZE,
+            thin * 2.2,
+        );
     }
 
-    // The site picked on the world map's list, ringed, so a click has
-    // visibly landed on the thing and not beside it.
+    // The site the crew will go to next — picked on the world map, or the
+    // one on the table (the app's `aimed`) — ringed heavily in the
+    // hyperdrive's violet over a dark edge, and in the ship's own system a
+    // dashed line from the ship to it (the second map rework): where they are heading.
     let aimed_at = match game.aimed {
         Some(flight::Target::Body(id)) => spot_of(Node::Body(id)),
         Some(flight::Target::Station(id)) => spot_of(Node::Station(id)),
@@ -2658,8 +2709,22 @@ fn paint_map(game: &Game, list: &mut DrawList) {
         None => None,
     };
     if let Some((x, y)) = aimed_at {
-        let d = (26.0 / scale) as f32;
-        ring(list, x, y, d, d, 0.0, (1.5 / scale) as f32, GLOW.alpha(0.9));
+        let px = (1.0 / scale) as f32;
+        if own {
+            let (length, dash) = ((x * x + y * y).sqrt(), 10.0 * px);
+            let reach = length - HEADING_RING * px / 2.0 - 4.0 * px;
+            let from = HERE_RING * px / 2.0 + 4.0 * px;
+            let mut at = from;
+            while length > 0.0 && at < reach {
+                let end = (at + dash).min(reach);
+                let (a, b) = (at / length, end / length);
+                list.line(a * x, a * y, b * x, b * y, 2.0 * px, HEADING.alpha(0.85));
+                at += dash * 1.8;
+            }
+        }
+        let d = HEADING_RING * px;
+        ring(list, x, y, d, d, 0.0, 5.0 * px, VOID.alpha(0.7));
+        ring(list, x, y, d, d, 0.0, 3.0 * px, HEADING);
     }
 
     list.turn_from(out_there, turn);
@@ -2685,6 +2750,10 @@ fn paint_map(game: &Game, list: &mut DrawList) {
 const HERE_RING: f32 = 44.0;
 /// How long a tick of it is, and how far outside the ring it starts.
 const HERE_TICK: f32 = 9.0;
+/// How wide the ring round the site the crew will go to next is, in
+/// pixels (the second map rework): outside a site's stance ring and an elite's second
+/// one, so it rings them both.
+const HEADING_RING: f32 = 48.0;
 /// How many frames one breath of its wash takes.
 const HERE_PULSE: f32 = 120.0;
 
@@ -2696,8 +2765,8 @@ fn here_reticle(list: &mut DrawList, scale: f32, frame: u32) {
     let breath = 0.5 + 0.5 * (frame as f32 / HERE_PULSE * core::f32::consts::TAU).sin();
     // The wash: a soft disc that breathes, so the eye is drawn to it even
     // on a busy map, and never so strong that the icon under it is lost.
-    list.ellipse(0.0, 0.0, d, d, GLOW.alpha(0.06 + 0.10 * breath));
-    ring(list, 0.0, 0.0, d, d, 0.0, 2.0 * px, GLOW.alpha(0.95));
+    list.ellipse(0.0, 0.0, d, d, GLOW.alpha(0.10 + 0.14 * breath));
+    ring(list, 0.0, 0.0, d, d, 0.0, 3.0 * px, GLOW.alpha(0.95));
     // Four ticks, outside the ring at the compass points of the window.
     let (from, to) = (d / 2.0 + 2.0 * px, d / 2.0 + 2.0 * px + HERE_TICK * px);
     for (dx, dy) in [(1.0, 0.0), (-1.0, 0.0), (0.0, 1.0), (0.0, -1.0)] {
@@ -2706,7 +2775,7 @@ fn here_reticle(list: &mut DrawList, scale: f32, frame: u32) {
             dy * from,
             dx * to,
             dy * to,
-            2.0 * px,
+            2.6 * px,
             GLOW.alpha(0.95),
         );
     }

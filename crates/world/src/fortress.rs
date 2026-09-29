@@ -409,8 +409,9 @@ impl World {
 
     /// What the fortress would be on arrival at the world clock
     /// `arrival_minutes` (feature 108): the conduits and the core, which
-    /// the players decide, and the waves' size and count, which the clock
-    /// does — the numbers the fight will be built with, so the map shows
+    /// the players decide, the waves' size, which the clock does, and
+    /// their count, tier three's — the numbers the fight will be built
+    /// with, so the map shows
     /// what waiting costs. `None` for any site but a fortress, and for one
     /// already destroyed.
     pub fn heart_preview(&self, station: u32, arrival_minutes: f64) -> Option<HeartPreview> {
@@ -425,7 +426,7 @@ impl World {
             conduits: heart::conduits_for(players),
             core_health: heart::core_health_for(players),
             wave_size: self.wave_size_at(hours),
-            wave_count: self.wave_count_at(hours),
+            wave_count: self.wave_count_for(Tier::Three),
         })
     }
 

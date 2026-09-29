@@ -216,7 +216,13 @@ pub const REFERENCE_STEPS: u32 = 600;
 /// shares were not taken apart. The empty-handed crewmate's pistol
 /// (e5d8655) does not move it: with that rule switched off the run came
 /// out at this same number. Was `0x_3e51_51c8_9fc9_08a0`.
-pub const REFERENCE_CHECKSUM: u64 = 0x_df17_c099_88c7_21d1;
+/// And for a site's waves by its tier (no task number), on purpose: one
+/// wave at tier one, two at tier two, four at tier three
+/// (`data::DROID_TIER_WAVES`), where it was two and a wave every second
+/// step — the reference run's sites are tier one, so their fight is one
+/// wave now. With the count put back to two at every tier the run came
+/// out at the old number. Was `0x_df17_c099_88c7_21d1`.
+pub const REFERENCE_CHECKSUM: u64 = 0x_aca1_40d8_3ab7_360d;
 
 /// A world with the flyable fixture docked at the simulation's spawn: the
 /// default seed's first dock, which is where every fixture world starts.
