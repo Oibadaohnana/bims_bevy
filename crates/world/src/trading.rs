@@ -18,19 +18,28 @@ impl World {
     /// ([`trader::near_sites`]): what `trader_near` is derived as, at the
     /// start and at every load, behind `manufacturer_near`.
     pub(super) fn trader_near_sites(&self, galaxy: &Galaxy) -> Vec<(u32, u32)> {
-        trader::near_sites(galaxy, self.home_star, |star, _, station| {
-            self.trader_eligible(star, station)
+        trader::near_sites(galaxy, self.home_star, |star, system, station| {
+            self.trader_eligible(star, &system.stations, station)
         })
     }
 
-    /// Whether a station of `star`'s system could be a trader at all
-    /// ([`trader::eligible`]).
-    fn trader_eligible(&self, star: u32, station: &worldgen::StationBlueprint) -> bool {
-        trader::eligible(
-            station,
-            star == self.home_star && station.id == self.home,
-            self.is_manufacturer_site(star, station),
-        )
+    /// Whether a station of `star`'s system, whose stations are `stations`,
+    /// could be a trader at all ([`trader::eligible`]) — and, since a system
+    /// offers one station besides its trader (task 135), never that one,
+    /// the system's primary, and never in the crew's home system.
+    fn trader_eligible(
+        &self,
+        star: u32,
+        stations: &[worldgen::StationBlueprint],
+        station: &worldgen::StationBlueprint,
+    ) -> bool {
+        (self.whole_systems
+            || (star != self.home_star && Some(station.id) != super::offered::primary(stations)))
+            && trader::eligible(
+                station,
+                star == self.home_star && station.id == self.home,
+                self.is_manufacturer_site(star, station),
+            )
     }
 
     /// Whether a station of `star`'s system is a **trader**: its system's
@@ -48,12 +57,16 @@ impl World {
     /// The trader of `star`'s system, whose stations are `stations`, if it
     /// has one: its [`trader::pick`], where the system rolled one or had
     /// one made up near home.
-    fn trader_of(&self, star: u32, stations: &[worldgen::StationBlueprint]) -> Option<u32> {
+    pub(super) fn trader_of(
+        &self,
+        star: u32,
+        stations: &[worldgen::StationBlueprint],
+    ) -> Option<u32> {
         let near = self.trader_near.iter().any(|&(s, _)| s == star);
         if !near && !trader::rolled(self.galaxy_seed, star) {
             return None;
         }
-        trader::pick(stations, |s| self.trader_eligible(star, s))
+        trader::pick(stations, |s| self.trader_eligible(star, stations, s))
             .filter(|&id| trader::holds(self.galaxy_seed, &self.trader_near, star, id))
     }
 

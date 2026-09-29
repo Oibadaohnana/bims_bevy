@@ -164,7 +164,17 @@ const TILE: f32 = shipdesign::TILE as f32;
 /// two fifths, a Healing Sentry heals four times as much); and task 132's
 /// uncapped wave. Their shares were not taken apart. Was
 /// `0x_5051_196b_e073_7b74`.
-const SURVIVORS: u64 = 0x_1278_0108_e96e_dc55;
+///
+/// **And once more, on purpose**, for the tasks of 29 September 2026 in
+/// the tree together: task 133 (a fight won freezes the deck, the downed
+/// do not die and go home with the rest), and task 136 (the machines hold
+/// every other site from the first day, a defence pays no money). With
+/// 136's outposts switched off the run read `0x_d6d3_1a11_58ab_2616`, so
+/// both move it. Task 135 does not: the fixture keeps whole systems
+/// (`World::set_whole_systems_for_probe`), and a start that never trims
+/// read the same as one that trims and puts back. Was
+/// `0x_1278_0108_e96e_dc55`.
+const SURVIVORS: u64 = 0x_dd01_665e_6048_4ba8;
 
 /// A gun in every hand, the kinds dealt round, as the fight's probes arm
 /// a crew — the five there were when the reading was taken: the minigun

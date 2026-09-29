@@ -170,7 +170,9 @@ use crate::game::Game;
 /// 56: the ready check — the run keeps its switch, whether the mission is
 /// held for it and who has pressed *Ready*.
 /// 57: no memories (task 134) — a Bim keeps no diary.
-pub const SAVE_VERSION: u32 = 57;
+/// 58: one fight a system (task 135) — the run keeps the site chosen in
+/// each system.
+pub const SAVE_VERSION: u32 = 58;
 
 /// What the file holds, read back.
 #[derive(serde::Deserialize)]

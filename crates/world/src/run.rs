@@ -343,6 +343,12 @@ pub struct Run {
     /// One a player slot: pressed *Ready* for this mission.
     #[cfg_attr(feature = "serde", serde(default))]
     pub ready: Vec<bool>,
+    /// The fight chosen in each system (task 135): the Attack or Defend
+    /// site a mission was begun at, one a star, sorted. The other fight of
+    /// that system is refused for the rest of the run
+    /// ([`crate::Refusal::OtherSiteChosen`]).
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub chosen: Vec<Site>,
 }
 
 impl Run {
@@ -376,6 +382,7 @@ impl Run {
             ready_check: false,
             briefing: false,
             ready: vec![false; players as usize],
+            chosen: Vec::new(),
         }
     }
 

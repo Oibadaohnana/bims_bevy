@@ -308,6 +308,14 @@ impl Game {
         self.map_view.resize(width, height);
     }
 
+    /// The map's camera alone (task 135, `Session::resize_map`), fitted
+    /// again to everything found: the part of the canvas it is given is
+    /// not the one it was first fitted to.
+    pub fn resize_map(&mut self, width: f32, height: f32) {
+        self.map_view.resize(width, height);
+        self.fit_map();
+    }
+
     /// The canvas is this big, and the views are to start again from it:
     /// the whole hull in the ship view, everything found in the map. For a
     /// host that only learns the canvas's size after the game has opened —

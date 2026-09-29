@@ -121,6 +121,9 @@ pub struct SiteMark {
     pub cleared: bool,
     /// A trader shut while its system is the machines'.
     pub closed: bool,
+    /// The fight the crew passed over: they fought this system's other
+    /// one (task 135, `World::passed_over`).
+    pub passed: bool,
     /// Where the map draws it, in the camera's units about the ship.
     pub at: (f32, f32),
 }
@@ -1277,6 +1280,15 @@ impl Session {
         }
     }
 
+    /// The map's camera alone at another size (task 135): the world map
+    /// shares the canvas with the galaxy chart and the list, and the
+    /// system is drawn in its own part of it.
+    pub fn resize_map(&mut self, width: f32, height: f32) {
+        if let Some(game) = &mut self.game {
+            game.resize_map(width, height);
+        }
+    }
+
     /// Resize, and start the views again from that size — the whole build
     /// area, the whole hull, everything found. What a host does the first
     /// time it knows how big its canvas really is.
@@ -1836,6 +1848,7 @@ impl Session {
                     threatened: world.site_threatened(id),
                     cleared: world.site_cleared(id) && !world.site_threatened(id),
                     closed: kind == world::SiteKind::Trader && closed,
+                    passed: world.passed_over(id),
                     at: game.map_spot(node)?,
                 })
             })

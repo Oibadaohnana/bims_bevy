@@ -64,23 +64,40 @@ impl World {
 
     /// [`World::outposts_of`] whatever the dial says.
     fn outposts_by_rule(&self, star: u32, system: &StarSystem) -> Vec<u32> {
-        let mut candidates: Vec<u32> = system
-            .stations
-            .iter()
-            .filter(|s| !heart::is_heart(s.id) && !jammer::is_derived(s.id))
-            .filter(|s| !self.is_trader_station(star, &system.stations, s))
-            .filter(|s| !self.is_manufacturer_site(star, s))
-            .map(|s| s.id)
-            .collect();
-        candidates.extend(
-            system
-                .bodies
+        // The candidates are the two fights the system offers (task 135):
+        // its station and its town. Where the station is the
+        // Manufacturers', that is the attack and the town the defence.
+        // Under the tests' dial that keeps whole systems, every station and
+        // town but the trader's, the Manufacturers' and the derived.
+        let candidates = if self.whole_systems {
+            let mut all: Vec<u32> = system
+                .stations
                 .iter()
-                .filter(|b| surface::landable(b.kind))
-                .map(|b| surface::surface_id(b.id)),
-        );
-        candidates.sort_unstable();
-        candidates.dedup();
+                .filter(|s| !heart::is_heart(s.id) && !jammer::is_derived(s.id))
+                .filter(|s| !self.is_trader_station(star, &system.stations, s))
+                .filter(|s| !self.is_manufacturer_site(star, s))
+                .map(|s| s.id)
+                .collect();
+            all.extend(
+                system
+                    .bodies
+                    .iter()
+                    .filter(|b| surface::landable(b.kind))
+                    .map(|b| surface::surface_id(b.id)),
+            );
+            all.sort_unstable();
+            all
+        } else {
+            self.offered_fights(star, system)
+        };
+        if !self.whole_systems
+            && system
+                .stations
+                .iter()
+                .any(|s| candidates.contains(&s.id) && self.is_manufacturer_site(star, s))
+        {
+            return Vec::new();
+        }
         let home = (star == self.home_star).then_some(self.home);
         held(self.galaxy_seed, star, home, &candidates)
     }

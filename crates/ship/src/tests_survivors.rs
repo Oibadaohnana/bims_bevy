@@ -240,18 +240,32 @@ fn commands() -> Vec<(&'static str, u64)> {
 /// force theirs or meet none, and did not move. They were
 /// `0x_a052_db80_4b5e_a436`, `0x_f913_4921_8ef6_d21b` and
 /// `0x_5c5f_3a45_26c7_942e`.
+///
+/// **All eleven moved, on purpose**, for the tasks of 29 September 2026
+/// in the tree together: task 135 (a system offers one station and one
+/// town — the home station and a town at home — so every command's world
+/// holds fewer sites, and one fight a system), task 136 (the machines hold
+/// every other site from the first day, a defence pays no money) and
+/// task 133 (a fight won freezes the deck: `test_planet`'s). The
+/// sessions use no dial, so they are the game as it plays; the shares
+/// were not taken apart. They were `0x_f6c6_0d7c_076a_1bcf`,
+/// `0x_ef2f_154c_5bef_a8ba`, `0x_ed09_7fbe_b2fa_4fa1`,
+/// `0x_14ad_eda0_295a_98d2`, `0x_a988_b611_0ad1_42b5`,
+/// `0x_606f_c276_801f_6d7e`, `0x_9012_786f_22c6_0c02`,
+/// `0x_281f_b990_f3c9_e671`, `0x_5376_eb05_b524_e099`,
+/// `0x_c5f1_4fd2_88f6_6279` and `0x_6507_468b_fa27_bde8`.
 const PINNED: [(&str, u64); 11] = [
-    ("simulation", 0x_f6c6_0d7c_076a_1bcf),
-    ("game", 0x_ef2f_154c_5bef_a8ba),
-    ("droids", 0x_ed09_7fbe_b2fa_4fa1),
-    ("tier2_test", 0x_14ad_eda0_295a_98d2),
-    ("combat_droids_medic", 0x_a988_b611_0ad1_42b5),
-    ("test", 0x_606f_c276_801f_6d7e),
-    ("test_planet", 0x_9012_786f_22c6_0c02),
-    ("droids_planet", 0x_281f_b990_f3c9_e671),
-    ("defense", 0x_5376_eb05_b524_e099),
-    ("crisis", 0x_c5f1_4fd2_88f6_6279),
-    ("jammer", 0x_6507_468b_fa27_bde8),
+    ("simulation", 0x_73b2_eae7_e74e_9684),
+    ("game", 0x_2ba5_0425_4c88_c171),
+    ("droids", 0x_e1f2_77b7_3739_64aa),
+    ("tier2_test", 0x_7840_b21d_4488_7899),
+    ("combat_droids_medic", 0x_6f28_4ad3_5486_cfbe),
+    ("test", 0x_b8c7_dab8_5450_1537),
+    ("test_planet", 0x_9e0b_4049_7a5b_e561),
+    ("droids_planet", 0x_5379_eedc_d57e_9612),
+    ("defense", 0x_bb40_ce94_1cfa_873c),
+    ("crisis", 0x_c257_27a9_1785_d070),
+    ("jammer", 0x_0d7f_2c9a_94c7_19e8),
 ];
 
 /// **Every command plays as it did**: each session the app builds, read
@@ -396,18 +410,21 @@ fn the_fixtures_and_a_run_s_deck_are_drawn_as_they_were() {
 /// every layout), the same eight `PINNED`'s own again; the three towns
 /// were `0x_a7cb_07a5_991b_0776`, `0x_8841_e762_737f_2e95` and
 /// `0x_6c59_a77a_0351_e662`.
+/// And again for tasks 135, 136 and 133 (`PINNED`'s last note), the same
+/// eight `PINNED`'s own; the three towns were `0x_a68e_2287_bf07_7dbd`,
+/// `0x_6401_fed0_37d3_fa63` and `0x_6619_454b_19a3_2754`.
 const PINNED_BEFORE_112: [(&str, u64); 11] = [
-    ("simulation", 0x_97f1_bc58_be4b_3934),
-    ("game", 0x_0342_a7aa_dddd_ee12),
-    ("droids", 0x_b1eb_4f60_28a6_a0ab),
-    ("tier2_test", 0x_cf1d_e29c_baeb_ef27),
-    ("combat_droids_medic", 0x_498b_db72_80bb_60ea),
-    ("test", 0x_cdcd_f1e3_0d39_a470),
-    ("test_planet", 0x_a68e_2287_bf07_7dbd),
-    ("droids_planet", 0x_6401_fed0_37d3_fa63),
-    ("defense", 0x_6619_454b_19a3_2754),
-    ("crisis", 0x_f4ba_4e20_6eee_6acb),
-    ("jammer", 0x_b77c_ecb6_e0f6_2c3a),
+    ("simulation", 0x_73b2_eae7_e74e_9684),
+    ("game", 0x_2ba5_0425_4c88_c171),
+    ("droids", 0x_e1f2_77b7_3739_64aa),
+    ("tier2_test", 0x_7840_b21d_4488_7899),
+    ("combat_droids_medic", 0x_6f28_4ad3_5486_cfbe),
+    ("test", 0x_b8c7_dab8_5450_1537),
+    ("test_planet", 0x_dc0b_b3bb_316f_2cb2),
+    ("droids_planet", 0x_f28b_ae2e_c456_dfa2),
+    ("defense", 0x_eb85_850a_64dc_1c74),
+    ("crisis", 0x_c257_27a9_1785_d070),
+    ("jammer", 0x_0d7f_2c9a_94c7_19e8),
 ];
 
 /// Not a test of its own, and **run alone** (`--exact`), since it flips

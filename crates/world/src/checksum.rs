@@ -774,6 +774,16 @@ pub fn world_checksum(world: &World) -> u64 {
             }
         }
     }
+    // The fight chosen in each system (task 135). Eaten only where there
+    // is any, so a run that has begun no mission since the start hashes
+    // as it always did.
+    if !run.chosen.is_empty() {
+        hash.eat(run.chosen.len() as u64);
+        for site in &run.chosen {
+            hash.eat(u64::from(site.star));
+            hash.eat(u64::from(site.station));
+        }
+    }
 
     // The soldiers' ranked kit (task 124): every Rampage's clock, and
     // Weak Spot's own stream. Eaten only where there is any — a Rampage

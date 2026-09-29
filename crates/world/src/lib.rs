@@ -137,6 +137,8 @@ mod tests_mission;
 #[cfg(test)]
 mod tests_money;
 #[cfg(test)]
+mod tests_offered;
+#[cfg(test)]
 mod tests_orders;
 #[cfg(test)]
 mod tests_ready;

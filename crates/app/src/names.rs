@@ -472,6 +472,7 @@ pub fn refusal(why: Refusal) -> &'static str {
         Refusal::AwaitingReady => "not yet — the mission starts when every player is ready",
         Refusal::NoReadyCheck => "the mission is already under way",
         Refusal::FightOver => "the fight is won — press Back to ship",
+        Refusal::OtherSiteChosen => "the crew fought this system's other site",
     }
 }
 
@@ -2418,6 +2419,11 @@ pub const MAP_THIS_SYSTEM: &str = "This system";
 pub fn map_next_system(star: &str) -> String {
     format!("{star} · one hop")
 }
+/// The list's order (task 135): by system, or every site by how long the
+/// trip to it is, the nearest first.
+pub const MAP_SORT_SYSTEM: &str = "By system";
+pub const MAP_SORT_DISTANCE: &str = "By distance";
+pub const MAP_SORT_TIP: &str = "By system lists this system's sites, then each system a hyperlane joins, under its name. By distance lists every site together, the shortest trip first, with its system beside it; the sites no trip can go to come last.";
 /// The site the crew are at, in the list.
 pub const MAP_HERE: &str = "here";
 /// Beside a trip that is the least a trip may be (`world::data::MIN_TRAVEL_HOURS`,
@@ -2447,6 +2453,9 @@ pub fn site_kind_word(kind: world::SiteKind) -> &'static str {
 pub const SITE_KIND_TIP: &str = "Every site is one of three. ATTACK: the machines, the Manufacturers or the Machine Heart hold it — go in and clear it. DEFEND: the machines are coming for it — twenty seconds after you arrive the first wave lands, and its own people and armed defenders fight beside you; hold the last wave and it is cleared (no money: its people are the reward), leave before and it falls. TRADER: buy gear and relics on the map; the machines never come for one. A system has as many sites to attack as to defend; in one the machines have taken, every site is an attack.";
 /// A defence held, on the map: its fight is over.
 pub const SITE_HELD: &str = "held";
+/// Under a site on the system map whose system's other fight the crew
+/// fought (task 135): it is refused for the rest of the run.
+pub const SITE_PASSED: &str = "not chosen";
 /// What the crew find on arrival, a word each.
 pub const ARRIVE_MACHINES: &str = "machines";
 pub const ARRIVE_JAMMER: &str = "jammer";
@@ -2778,8 +2787,6 @@ pub const VIEW_POWER_HINT: &str =
 
 /// The world map's column.
 pub const MAP_CLOSE: &str = "Close";
-pub const GALAXY_VIEW: &str = "Galaxy view";
-pub const SYSTEM_VIEW: &str = "System view";
 pub const MAP_DAY: &str = "Day";
 pub const MAP_POOL: &str = "Pool";
 pub const MAP_PICK_HINT: &str =

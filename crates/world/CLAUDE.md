@@ -5901,3 +5901,58 @@ Back to ship*. `wire::PROTOCOL` 52; nothing saved changed.
 `SURVIVORS` and the ship's `PINNED`/`PICTURES` where a run meets an
 outpost (each note says so). `tests_defense.rs`'s two money assertions
 say a defence pays nothing.
+
+## One station and one town a system, and one fight a system (task 135)
+
+> Every section above that walks a system's many stations — the spawn
+> system's other orbitals, a trip to "another site here", the trader
+> picked among any of them — describes the world **under the tests'
+> dial** below. In a run a system offers two sites.
+
+`offered.rs` (a child of `world`, like `outposts.rs`) is the rule.
+
+- **What a system offers**: its **primary** station — the lowest id the
+  generator made (`offered::primary`; never a derived jammer or the
+  fortress) — or, in the crew's home system, the **home** station
+  (`World::offered_station`); the **town** of its lowest landable body
+  (`offered::town_body`); its **trader** where it has one; and whatever
+  derived jammer or fortress is laid beside them. Every other station and
+  settlement is gone: `settle_offered`, the first line of
+  `settle_jammer` (the start, a jump, the spread, every load), trims
+  `system.stations`, `stations`, `surfaces` and `discovered`; another
+  star's system is trimmed the same way (`trim_system`,
+  `offered_surfaces`) before `sites_in` lists it and `quote_in` quotes
+  it. The bodies stay — a planet with no town is scenery.
+- **The trader is never the primary and never at home**
+  (`trader_eligible`), so a system with a trader keeps two stations and a
+  system whose one station would have been its trader has none — the
+  share over the galaxy falls to about one system in twenty (the
+  measurement in `tests_trader.rs` says so).
+- **The Manufacturers' made-up sites near home are primaries**
+  (`manufacturer::near_sites(.., primaries_only)`), so the two a run is
+  promised are sites it can go to.
+- **The machines' outposts** (task 136) are dealt among the two fights
+  (`World::offered_fights`: the offered station unless it is the trader,
+  and the town), so a system is one attack and one defence; a system
+  whose station is the Manufacturers' has no outpost — that is its
+  attack, the town its defence.
+- **One fight a system**: `begin_mission` at one of a system's two fights
+  records it on `Run::chosen` (saved; hashed only where any, so no pin
+  moved for it), and from then on the other is `Refusal::OtherSiteChosen`
+  (122) for the rest of the run — the quote, the list (greyed with the
+  reason) and a vote. A trader and the Heart are never refused so.
+  `World::passed_over(station)` is the system map's word for it.
+
+**The tests' dial**: `World::set_whole_systems_for_probe(true)` (saved,
+serde default, not hashed) is task 135 off — every station and town the
+generator made, the trader and the Manufacturers' made-up sites picked
+among all of them, the outposts' old candidates and no one-fight rule;
+turned on after the start it puts back what the start trimmed, keeping
+the stations the world holds (the spawn as the hub). `fixture::
+open_simulation_world` and `open_crewed_world` set it, so every test
+written against whole systems — and `REFERENCE_CHECKSUM` and
+`SURVIVORS` — runs on them; `tests_offered.rs` opens its worlds without
+it. The ship's sessions (`PINNED`, `PICTURES`) use no dial.
+
+**What moved**: `SAVE_VERSION` 58, `wire::PROTOCOL` 54 (the relay wants
+redeploying), `Refusal::OtherSiteChosen` = 122.

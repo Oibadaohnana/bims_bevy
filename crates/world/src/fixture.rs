@@ -193,7 +193,14 @@ pub const REFERENCE_STEPS: u32 = 600;
 /// kit, its timers and cloaks hashed where set); and task 132 (the wave's
 /// cap, hashed as sixteen, is a forced size, nought unforced). Their
 /// shares were not taken apart. Was `0x_240c_b1c5_daa2_167b`.
-pub const REFERENCE_CHECKSUM: u64 = 0x_4284_750b_5249_4340;
+/// And for task 136, on purpose: the machines hold every other site of
+/// a system from the first day (`outposts.rs`), so the reference run's
+/// second mission meets an outpost's hold. Task 135 (one station and one
+/// town a system, one fight a system) is not in it: the fixture keeps
+/// whole systems (`World::set_whole_systems_for_probe`), and with the
+/// outposts switched off the run came out at the old number. Was
+/// `0x_4284_750b_5249_4340`.
+pub const REFERENCE_CHECKSUM: u64 = 0x_c6be_4221_4565_e460;
 
 /// A world with the flyable fixture docked at the simulation's spawn: the
 /// default seed's first dock, which is where every fixture world starts.
@@ -208,6 +215,10 @@ pub fn reference_world() -> World {
 /// does with [`shipdesign::fixture::playtest_ship`] and
 /// [`data::SIMULATION_MONEY`], and what every fixture here does with its own
 /// ship and purse.
+///
+/// **Whole** (task 135, [`World::set_whole_systems_for_probe`]): every
+/// system keeps every station and town, as every test here was written
+/// against; `tests_offered.rs` opens its own worlds without the dial.
 ///
 /// **Quiet** (task 111, [`World::set_quiet_sites_for_probe`]): every site
 /// neither a trader nor an enemy's is a peaceful stop, since the tests
@@ -232,7 +243,7 @@ pub fn open_simulation_world(
 ) -> World {
     let galaxy = worldgen::Galaxy::new(data::DEFAULT_SEED, GalaxyType::SpiralTwoArm);
     let (star, station) = crate::spawn(&galaxy).expect("the default seed has a dock somewhere");
-    World::start(
+    let mut world = World::start(
         design,
         money,
         players,
@@ -241,7 +252,9 @@ pub fn open_simulation_world(
         star,
         station,
     )
-    .expect("the default seed should have somewhere to spawn")
+    .expect("the default seed should have somewhere to spawn");
+    world.set_whole_systems_for_probe(true);
+    world
 }
 
 /// [`simulation_world`] with `crew` aboard, of whom the first `players`
@@ -271,7 +284,7 @@ pub fn open_crewed_world(
 ) -> World {
     let galaxy = worldgen::Galaxy::new(data::DEFAULT_SEED, GalaxyType::SpiralTwoArm);
     let (star, station) = crate::spawn(&galaxy).expect("the default seed has a dock somewhere");
-    World::start_with_crew(
+    let mut world = World::start_with_crew(
         design,
         money,
         players,
@@ -281,7 +294,9 @@ pub fn open_crewed_world(
         star,
         station,
     )
-    .expect("the default seed should have somewhere to spawn")
+    .expect("the default seed should have somewhere to spawn");
+    world.set_whole_systems_for_probe(true);
+    world
 }
 
 /// The scenario: open a world, run a mission at the spawn for

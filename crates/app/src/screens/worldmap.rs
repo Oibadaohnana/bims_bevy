@@ -38,6 +38,9 @@ pub struct Destination {
 /// The destinations of one system, under its heading.
 pub struct Group {
     pub title: String,
+    /// The system's star, by name: what a row says beside itself when the
+    /// list is sorted by distance and the headings are gone (task 135).
+    pub star: String,
     pub destinations: Vec<Destination>,
 }
 
@@ -58,6 +61,9 @@ pub struct WorldMap {
     /// The pick came from the galaxy chart ([`WorldMap::pick_star`]): the
     /// list scrolls its row into view the next frame, once.
     scroll_to_pick: bool,
+    /// The list sorted by how long each trip is rather than grouped by
+    /// system (task 135): the viewer's choice, kept while the map is.
+    pub by_distance: bool,
 }
 
 /// Everything a quote reads that changes in a run: the star, the day,
@@ -100,18 +106,18 @@ impl WorldMap {
                 .last()
                 .is_none_or(|g| g.destinations.last().map(|d| d.site.star) != Some(site.star))
             {
+                let star = galaxy
+                    .star(site.star)
+                    .map(|s| star_name(s.name))
+                    .unwrap_or_default();
                 let title = if site.star == world.star_id {
                     MAP_THIS_SYSTEM.to_string()
                 } else {
-                    map_next_system(
-                        &galaxy
-                            .star(site.star)
-                            .map(|s| star_name(s.name))
-                            .unwrap_or_default(),
-                    )
+                    map_next_system(&star)
                 };
                 groups.push(Group {
                     title,
+                    star,
                     destinations: Vec::new(),
                 });
             }
@@ -269,8 +275,6 @@ pub const COLUMN_W: f32 = 360.0;
 /// What the column asked of the screen that it cannot do itself.
 #[derive(Default)]
 pub struct ColumnAsk {
-    /// The galaxy chart put up, or taken down again.
-    pub chart: bool,
     /// The map closed (during a mission only: between missions it is the
     /// one thing there is to do).
     pub close: bool,
@@ -280,9 +284,9 @@ pub struct ColumnAsk {
 /// while the map is up: the day and the pool, the buyback queue, every
 /// destination with its quote, and the card for the one looked at — the
 /// one the pointer rests on, else the one picked, else the one on the
-/// table — with the vote on it. The chart is the canvas to its left.
-/// `chart_up` says which chart that is, for the toggle's word; `name`
-/// names a player's slot.
+/// table — with the vote on it. The charts are the canvas to its left:
+/// the galaxy and the system side by side (task 135). `name` names a
+/// player's slot.
 #[allow(clippy::too_many_arguments)]
 pub fn map_column(
     ctx: &egui::Context,
@@ -290,7 +294,6 @@ pub fn map_column(
     map: &mut WorldMap,
     world: &World,
     local: u32,
-    chart_up: bool,
     orders: &mut Vec<Order>,
     name: &dyn Fn(u32) -> String,
 ) -> ColumnAsk {
@@ -313,19 +316,13 @@ pub fn map_column(
                 ui.set_width(COLUMN_W - 16.0);
                 ui.set_min_height(height - 16.0);
                 ui.set_max_height(height - 16.0);
-                // The head: the title, the chart's toggle, and the way out.
+                // The head: the title and the way out.
                 ui.horizontal(|ui| {
                     ui.label(egui::RichText::new(MAP_TITLE).strong().size(17.0));
                     theme::question_mark(ui, MAP_TIP);
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if !between && ui.button(MAP_CLOSE).clicked() {
                             ask.close = true;
-                        }
-                        if ui
-                            .button(if chart_up { SYSTEM_VIEW } else { GALAXY_VIEW })
-                            .clicked()
-                        {
-                            ask.chart = true;
                         }
                     });
                 });
@@ -365,37 +362,69 @@ pub fn map_column(
                     );
                 }
                 ui.separator();
-                // Every destination, a row each, under its system.
+                // The list's order (task 135): by system, or by distance.
+                ui.horizontal(|ui| {
+                    for (by_distance, word) in [(false, MAP_SORT_SYSTEM), (true, MAP_SORT_DISTANCE)]
+                    {
+                        let chosen = map.by_distance == by_distance;
+                        if ui
+                            .selectable_label(chosen, egui::RichText::new(word).small())
+                            .clicked()
+                        {
+                            map.by_distance = by_distance;
+                        }
+                    }
+                    theme::question_mark(ui, MAP_SORT_TIP);
+                });
+                // The groups out of the map while the rows pick on it.
+                let groups = std::mem::take(&mut map.groups);
+                let sorted = map.by_distance;
+                // Every destination, a row each: under its system, or all
+                // together the nearest first with its system beside it.
                 egui::ScrollArea::vertical()
                     .id_salt("map-list")
                     .max_height((height * 0.38).max(120.0))
                     .min_scrolled_height((height * 0.38).max(120.0))
                     .auto_shrink([false, true])
                     .show(ui, |ui| {
-                        for group in &map.groups {
-                            ui.label(
-                                egui::RichText::new(&group.title)
-                                    .small()
-                                    .color(theme::MUTED),
-                            );
-                            for d in &group.destinations {
-                                let at = here == Some(d.site);
-                                let (text, colour) = row_words(d, at);
-                                let job = row_job(ui.style(), d.kind, &text, colour);
-                                let row = ui.selectable_label(map.picked == Some(d.site), job);
-                                if row.hovered() {
-                                    map.hovered = Some(d.site);
-                                }
-                                if row.clicked() {
-                                    map.picked = Some(d.site);
-                                }
-                                if map.scroll_to_pick && map.picked == Some(d.site) {
-                                    row.scroll_to_me(Some(egui::Align::Center));
-                                    map.scroll_to_pick = false;
+                        let mut row = |ui: &mut egui::Ui, d: &Destination, star: Option<&str>| {
+                            let at = here == Some(d.site);
+                            let (mut text, colour) = row_words(d, at);
+                            if let Some(star) = star {
+                                text.push_str(&format!("  · {star}"));
+                            }
+                            let job = row_job(ui.style(), d.kind, &text, colour);
+                            let row = ui.selectable_label(map.picked == Some(d.site), job);
+                            if row.hovered() {
+                                map.hovered = Some(d.site);
+                            }
+                            if row.clicked() {
+                                map.picked = Some(d.site);
+                            }
+                            if map.scroll_to_pick && map.picked == Some(d.site) {
+                                row.scroll_to_me(Some(egui::Align::Center));
+                                map.scroll_to_pick = false;
+                            }
+                        };
+                        if sorted {
+                            for (group, d) in by_distance(&groups, here) {
+                                let other = d.site.star != world.star_id;
+                                row(ui, d, other.then_some(group.star.as_str()));
+                            }
+                        } else {
+                            for group in &groups {
+                                ui.label(
+                                    egui::RichText::new(&group.title)
+                                        .small()
+                                        .color(theme::MUTED),
+                                );
+                                for d in &group.destinations {
+                                    row(ui, d, None);
                                 }
                             }
                         }
                     });
+                map.groups = groups;
                 ui.separator();
                 // The card: what the pointer rests on, else the pick, else
                 // the proposal on the table. The chart's hover came in
@@ -414,6 +443,23 @@ pub fn map_column(
             });
         });
     ask
+}
+
+/// Every destination of every group, the nearest first (task 135): the
+/// site the crew are at, then every trip by its length in minutes, then
+/// the sites no trip goes to. Ties keep the list's own order — this
+/// system first, then the stars in id order.
+fn by_distance(groups: &[Group], here: Option<Site>) -> Vec<(&Group, &Destination)> {
+    let mut rows: Vec<(&Group, &Destination)> = groups
+        .iter()
+        .flat_map(|g| g.destinations.iter().map(move |d| (g, d)))
+        .collect();
+    rows.sort_by_key(|(_, d)| match &d.quote {
+        _ if here == Some(d.site) => (0, 0),
+        Ok(q) => (1, q.minutes),
+        Err(_) => (2, 0),
+    });
+    rows
 }
 
 /// The words of a row of the list, and their colour: the danger colour

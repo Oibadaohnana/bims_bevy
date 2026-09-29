@@ -582,6 +582,9 @@ pub enum Refusal {
     /// Anything but *Back to ship*, the loadouts or a rank once the
     /// mission's fight is won (task 133): the deck is frozen.
     FightOver = 121,
+    /// A trip to a system's Attack or Defend site once the crew have
+    /// fought its other one (task 135): one fight a system.
+    OtherSiteChosen = 122,
 }
 
 impl Refusal {

@@ -164,6 +164,12 @@ pub struct GameScreen {
     /// A marquee under way on the deck: where the press landed.
     marquee_from: Option<Vec2>,
     pan_from: Option<Vec2>,
+    /// Whether the middle drag began on the galaxy chart rather than the
+    /// system (task 135).
+    pan_galaxy: bool,
+    /// The size the map's camera was last given: the system's part of
+    /// the canvas while the world map is up (task 135).
+    system_size: Vec2,
     /// The Esc sheet, if it is up, and which page.
     sheet: Option<Sheet>,
     /// The sheet's save and load pages' state — `crate::save`.
@@ -174,10 +180,9 @@ pub struct GameScreen {
     /// The same over the plain beyond the box, on a planet: a texture a
     /// chunk of the room, kept while the room composes the chunk.
     plain_fog: std::collections::BTreeMap<(i32, i32), crate::fogmap::FogTexture>,
-    /// The galaxy chart, up over the system map: the strip's `Galaxy view`.
-    /// The chart itself is the lobby's, made the first time it is asked
-    /// for — it generates every system once — and kept for the game.
-    galaxy_up: bool,
+    /// The galaxy chart, on the left of the world map (task 135): the
+    /// lobby's, made the first time the map is up — it generates every
+    /// system once — and kept for the game.
     galaxy: Option<lobby::Lobby>,
     galaxy_list: lobby::draw::DrawList,
     galaxy_size: Vec2,
@@ -881,7 +886,8 @@ impl GameScreen {
             size: Vec2::ZERO,
             fog: crate::fogmap::FogTexture::default(),
             plain_fog: std::collections::BTreeMap::new(),
-            galaxy_up: false,
+            pan_galaxy: false,
+            system_size: Vec2::ZERO,
             galaxy: None,
             galaxy_list: lobby::draw::DrawList::new(),
             galaxy_size: Vec2::ZERO,
@@ -1272,7 +1278,6 @@ fn frame(
             }
             if matches!(event, WorldEvent::Travelled { .. }) {
                 arrived = true;
-                screen.galaxy_up = false;
                 screen.world_map.picked = None;
                 screen.blackout = BLACKOUT_HOLD;
             }
@@ -1509,8 +1514,28 @@ fn frame(
         }
         screen.size = size;
     }
+    let map_up = session
+        .game
+        .as_ref()
+        .is_some_and(|g| g.mode == ViewMode::Map);
+    // The world map splits the canvas (task 135): the galaxy chart on the
+    // left, the system in the middle and the list's column on the right.
+    // While it is up `canvas` is the system's part — everything the system
+    // map reads and draws is in it — and `full` the whole, which the HUD
+    // lays itself out on.
+    let full = canvas;
+    let (galaxy_rect, canvas) = if map_up {
+        split_map(full)
+    } else {
+        (crate::shapes::Rect::new(full.min, full.min), full)
+    };
+    if map_up && canvas.size() != screen.system_size && canvas.size().x > 0.0 {
+        screen.system_size = canvas.size();
+        session.resize_map(canvas.size().x, canvas.size().y);
+    }
     let pointer = Pointer::read(&ctx);
     let on_canvas = pointer.on(canvas);
+    let on_galaxy = pointer.on(galaxy_rect);
     let here = pointer.pos.map(|p| p - canvas.min);
     crate::keys::release_tab_focus(
         &ctx,
@@ -1518,13 +1543,20 @@ fn frame(
         !ctx.egui_wants_keyboard_input() && screen.sheet.is_none(),
     );
     let keys = !ctx.egui_wants_keyboard_input() && screen.sheet.is_none();
-    let map_up = session
-        .game
-        .as_ref()
-        .is_some_and(|g| g.mode == ViewMode::Map);
-    // The galaxy chart over the system map, once it has been made. Its
-    // marks are the world's: the star the ship is at, and the one picked.
-    let galaxy_up = map_up && screen.galaxy_up && screen.galaxy.is_some();
+    // The galaxy chart beside the system map (task 135): the lobby's own
+    // picture, made the first time the map is up. Its marks are the
+    // world's: the star the ship is at, and the one picked.
+    if map_up
+        && screen.galaxy.is_none()
+        && let Some(game) = &session.game
+    {
+        let world = &game.world;
+        let mut chart = lobby::Lobby::new(world.galaxy_seed, world.galaxy_type, 800.0, 600.0);
+        screen.chart_traders = world.trader_stars(&chart.galaxy);
+        chart.inspect(screen.picked_star.unwrap_or(world.star_id));
+        screen.galaxy = Some(chart);
+    }
+    let galaxy_up = map_up && screen.galaxy.is_some();
     if galaxy_up && let Some(chart) = &mut screen.galaxy {
         chart.here = session.game.as_ref().map(|g| g.world.star_id);
         chart.target = screen.picked_star;
@@ -1595,9 +1627,11 @@ fn frame(
             }
             None => (Vec::new(), Vec::new()),
         };
-        if canvas.size() != screen.galaxy_size {
-            screen.galaxy_size = canvas.size();
-            chart.preview.resize(canvas.size().x, canvas.size().y);
+        if galaxy_rect.size() != screen.galaxy_size {
+            screen.galaxy_size = galaxy_rect.size();
+            chart
+                .preview
+                .resize(galaxy_rect.size().x, galaxy_rect.size().y);
         }
     }
     let panels = screen.panels.as_mut().unwrap();
@@ -1612,17 +1646,26 @@ fn frame(
             .map(|p| session.design_point(p.x, p.y)),
     );
 
-    // Middle drags pan, in either view.
-    if let Some(p) = on_canvas
-        && pointer.middle_pressed
-    {
-        screen.pan_from = Some(p);
+    // Middle drags pan, in either view — and with the map up, the part
+    // the drag began in: the galaxy chart or the system (task 135).
+    let at_galaxy = pointer.pos.map(|p| p - galaxy_rect.min);
+    if pointer.middle_pressed {
+        if let Some(p) = on_galaxy.filter(|_| galaxy_up) {
+            screen.pan_from = Some(p);
+            screen.pan_galaxy = true;
+        } else if let Some(p) = on_canvas {
+            screen.pan_from = Some(p);
+            screen.pan_galaxy = false;
+        }
     }
     if let Some(from) = screen.pan_from {
-        match here {
+        let now_at = if screen.pan_galaxy { at_galaxy } else { here };
+        match now_at {
             Some(p) if pointer.middle_down => {
                 match &mut screen.galaxy {
-                    Some(chart) if galaxy_up => chart.preview.pan(p.x - from.x, p.y - from.y),
+                    Some(chart) if galaxy_up && screen.pan_galaxy => {
+                        chart.preview.pan(p.x - from.x, p.y - from.y)
+                    }
                     _ => session.pan(p.x - from.x, p.y - from.y),
                 }
                 screen.pan_from = Some(p);
@@ -1630,12 +1673,17 @@ fn frame(
             _ => screen.pan_from = None,
         }
     }
-    if let Some(p) = on_canvas
-        && pointer.scroll != 0.0
-    {
+    if pointer.scroll != 0.0 {
         match &mut screen.galaxy {
-            Some(chart) if galaxy_up => chart.preview.zoom(p.x, p.y, zoom_factor(pointer.scroll)),
-            _ => session.zoom(p.x, p.y, zoom_factor(pointer.scroll)),
+            Some(chart) if galaxy_up && on_galaxy.is_some() => {
+                let p = on_galaxy.unwrap_or_default();
+                chart.preview.zoom(p.x, p.y, zoom_factor(pointer.scroll))
+            }
+            _ => {
+                if let Some(p) = on_canvas {
+                    session.zoom(p.x, p.y, zoom_factor(pointer.scroll))
+                }
+            }
         }
     }
 
@@ -1647,30 +1695,28 @@ fn frame(
         // On the chart, the pointer is over stars: the one under it is
         // rung, and a click picks it — the crisis's word on it goes into
         // the strip, and the route to it is drawn.
-        if galaxy_up {
-            if let Some(chart) = &mut screen.galaxy {
-                match here.filter(|_| on_canvas.is_some()) {
-                    Some(p) => chart.hover(p.x, p.y),
-                    None => chart.hovered = None,
-                }
-                if on_canvas.is_some()
-                    && pointer.primary_pressed
-                    && let Some(star) = chart.hovered
-                {
-                    chart.inspect(star);
-                    screen.picked_star = Some(star);
-                    // And its first place the crew could go picked on the
-                    // list, so the card offers the trip: a star is flown
-                    // to by one of its sites.
-                    screen.world_map.pick_star(star);
-                }
+        if galaxy_up && let Some(chart) = &mut screen.galaxy {
+            match on_galaxy {
+                Some(p) => chart.hover(p.x, p.y),
+                None => chart.hovered = None,
+            }
+            if on_galaxy.is_some()
+                && pointer.primary_pressed
+                && let Some(star) = chart.hovered
+            {
+                chart.inspect(star);
+                screen.picked_star = Some(star);
+                // And its first place the crew could go picked on the
+                // list, so the card offers the trip: a star is flown
+                // to by one of its sites.
+                screen.world_map.pick_star(star);
             }
         }
         // Nothing is flown (feature 103): a station or a planet with a
         // settlement under the pointer is the one the column's card shows
         // (feature 107), and a click picks it on the world map's list,
         // which is where the trip is quoted and put to the crew.
-        else if let Some(p) = on_canvas {
+        if let Some(p) = on_canvas {
             let game = session.game.as_ref().unwrap();
             let star = game.world.star_id;
             let site = match game.pick(p.x, p.y, MAP_PICK_SLOP) {
@@ -2159,7 +2205,7 @@ fn frame(
         .filter(|_| screen.sheet.is_none() && screen.pan_from.is_none());
     if let Some(d) = edge {
         match &mut screen.galaxy {
-            Some(chart) if galaxy_up => chart.preview.pan(d.x, d.y),
+            Some(chart) if galaxy_up && on_galaxy.is_some() => chart.preview.pan(d.x, d.y),
             _ => session.pan(d.x, d.y),
         }
     }
@@ -2191,7 +2237,7 @@ fn frame(
     // piece sits and why none of them lands on another. With the map up
     // the canvas is the chart and a column down its right, and nothing
     // else.
-    let area = egui_rect(canvas);
+    let area = egui_rect(full);
     let out = session
         .game
         .as_ref()
@@ -2269,7 +2315,6 @@ fn frame(
             &mut screen.world_map,
             world,
             local,
-            screen.galaxy_up,
             &mut orders,
             &crew_name,
         ));
@@ -2508,31 +2553,11 @@ fn frame(
             ViewMode::Map
         });
     }
-    if let Some(ask) = column {
-        if ask.close
-            && let Some(game) = &mut session.game
-        {
-            game.set_mode(ViewMode::Ship);
-        }
-        // The galaxy chart up in place of the system map, or down again:
-        // the lobby's own picture, made the first time it is asked for.
-        if ask.chart {
-            screen.galaxy_up = !screen.galaxy_up;
-            if screen.galaxy_up
-                && let Some(game) = &session.game
-            {
-                let world = &game.world;
-                if screen.galaxy.is_none() {
-                    let chart =
-                        lobby::Lobby::new(world.galaxy_seed, world.galaxy_type, 800.0, 600.0);
-                    screen.chart_traders = world.trader_stars(&chart.galaxy);
-                    screen.galaxy = Some(chart);
-                }
-                if let Some(chart) = screen.galaxy.as_mut() {
-                    chart.inspect(screen.picked_star.unwrap_or(world.star_id));
-                }
-            }
-        }
+    if let Some(ask) = column
+        && ask.close
+        && let Some(game) = &mut session.game
+    {
+        game.set_mode(ViewMode::Ship);
     }
     // A portrait clicked picks that crew member as a click on it on the
     // deck would — a click at where it stands, through the seam — or, for
@@ -2801,8 +2826,11 @@ fn frame(
     let painter = canvas_painter(&ctx, canvas);
     // Everything painted over the shapes — names, marks, the numbers —
     // is timed as one (feature 96); it starts once the buffer is down.
-    let mut overlay_timed = None;
+    let overlay_timed;
     if galaxy_up && let Some(chart) = &screen.galaxy {
+        // The chart on the left of the canvas (task 135), beside the
+        // system map, with a painter of its own clipped to it.
+        let chart_painter = canvas_painter(&ctx, galaxy_rect);
         // The chart in place of the map: the lobby's picture, in pixels,
         // and the names of the star the ship is at and the one picked over
         // them, since the buffer holds no words.
@@ -2810,16 +2838,16 @@ fn frame(
             let _timed = crate::perf::scope(crate::perf::Phase::Render);
             chart.paint(&mut screen.galaxy_list);
         }
-        world_canvas.shapes(&ctx, canvas, View::PIXELS, screen.galaxy_list.shapes());
+        world_canvas.shapes(&ctx, galaxy_rect, View::PIXELS, screen.galaxy_list.shapes());
         for (star, color, tag) in [
             (chart.here, theme::YOURS, "here"),
             (screen.picked_star, theme::HYPER, "picked"),
         ] {
             if let Some(s) = star.and_then(|id| chart.galaxy.star(id)) {
                 let (x, y) = chart.preview.to_screen(s.position.x, s.position.y);
-                let at = egui::pos2(canvas.min.x + x, canvas.min.y + y - 16.0);
+                let at = egui::pos2(galaxy_rect.min.x + x, galaxy_rect.min.y + y - 16.0);
                 theme::name_over(
-                    &painter,
+                    &chart_painter,
                     at,
                     &format!("{} · {tag}", star_name(s.name)),
                     color,
@@ -2827,7 +2855,7 @@ fn frame(
             }
         }
         // Every star's tier under it (`World::system_tiers`), on a
-        // small dark tag in the tier's colour: every star on the canvas
+        // small dark tag in the tier's colour: every star on the galaxy_rect
         // once the chart is zoomed in far enough that the tags do not
         // crowd, and before that the ship's own, the picked one and the
         // stars a lane away — the rings the chart draws round every star
@@ -2836,7 +2864,7 @@ fn frame(
             let world = &game.world;
             let all = chart.preview.zoom_level() >= CHART_TIERS_ZOOM;
             let font = egui::FontId::proportional(CHART_TIER_TEXT);
-            let bounds = egui_rect(canvas).expand(8.0);
+            let bounds = egui_rect(galaxy_rect).expand(8.0);
             for s in &chart.galaxy.stars {
                 let (low, high) = world.system_tiers(s.id, world.clock_minutes);
                 let near = chart.here == Some(s.id)
@@ -2846,27 +2874,32 @@ fn frame(
                     continue;
                 }
                 let (x, y) = chart.preview.to_screen(s.position.x, s.position.y);
-                let at = egui::pos2(canvas.min.x + x, canvas.min.y + y + CHART_TIER_DROP);
+                let at = egui::pos2(
+                    galaxy_rect.min.x + x,
+                    galaxy_rect.min.y + y + CHART_TIER_DROP,
+                );
                 if !bounds.contains(at) {
                     continue;
                 }
                 let colour = tier_colour(high);
-                let galley = painter.layout_no_wrap(system_tier(low, high), font.clone(), colour);
+                let galley =
+                    chart_painter.layout_no_wrap(system_tier(low, high), font.clone(), colour);
                 let tag = egui::Rect::from_center_size(
                     at + egui::vec2(0.0, galley.size().y / 2.0),
                     galley.size() + egui::vec2(6.0, 1.0),
                 );
-                painter.rect_filled(tag, 3.0, theme::PANEL_DEEP.gamma_multiply(0.85));
-                painter.rect_stroke(
+                chart_painter.rect_filled(tag, 3.0, theme::PANEL_DEEP.gamma_multiply(0.85));
+                chart_painter.rect_stroke(
                     tag,
                     3.0,
                     egui::Stroke::new(1.0, colour.gamma_multiply(0.6)),
                     egui::StrokeKind::Inside,
                 );
-                painter.galley(tag.center() - galley.size() / 2.0, galley, colour);
+                chart_painter.galley(tag.center() - galley.size() / 2.0, galley, colour);
             }
         }
-    } else {
+    }
+    {
         {
             let _timed = crate::perf::scope(crate::perf::Phase::Render);
             session.render();
@@ -2874,7 +2907,7 @@ fn frame(
         // The world under the fog now; what goes over the fog — the
         // shots, the rings — once the fog is down (feature 97).
         world_canvas.shapes(&ctx, canvas, view, session.fog_split().0);
-        overlay_timed = Some(crate::perf::scope(crate::perf::Phase::Overlay));
+        overlay_timed = crate::perf::scope(crate::perf::Phase::Overlay);
         // Where you are, in words, over the reticle the map draws round the
         // ship — `You`, and the berth or the place — in the colour the
         // player's own things are, the way the chart tags the star the ship
@@ -2901,6 +2934,8 @@ fn frame(
                 let word = site_kind_word(mark.kind);
                 let (tag, colour) = if mark.closed {
                     (format!("{word} · {TRADER_CLOSED}"), theme::MUTED)
+                } else if mark.passed {
+                    (format!("{word} · {SITE_PASSED}"), theme::MUTED)
                 } else if mark.cleared && mark.kind == world::SiteKind::Defend {
                     (format!("{word} · {SITE_HELD}"), theme::MUTED)
                 } else if mark.cleared && mark.kind == world::SiteKind::Attack {
@@ -3514,6 +3549,22 @@ fn frame(
 /// crosshair where the system's cursor was, each stroke over a dark one
 /// so it reads on the deck and on the void alike. Red because what the
 /// next click does is send people into a fight.
+/// The world map's canvas split in two (task 135): the galaxy chart on
+/// the left, the system on the right, each half of what the list's
+/// column leaves — the column itself lies over the rest.
+fn split_map(full: crate::shapes::Rect) -> (crate::shapes::Rect, crate::shapes::Rect) {
+    use crate::shapes::Rect;
+    let right = full.max.x - super::worldmap::COLUMN_W - 2.0 * MARGIN;
+    let middle = full.min.x + ((right - full.min.x) / 2.0).max(0.0);
+    (
+        Rect::new(full.min, Vec2::new(middle, full.max.y)),
+        Rect::new(
+            Vec2::new(middle, full.min.y),
+            Vec2::new(right.max(middle + 1.0), full.max.y),
+        ),
+    )
+}
+
 fn attack_cursor(painter: &egui::Painter, at: egui::Pos2) {
     let arms = [
         [at + egui::vec2(-13.0, 0.0), at + egui::vec2(-4.0, 0.0)],

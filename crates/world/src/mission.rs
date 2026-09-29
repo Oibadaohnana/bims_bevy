@@ -63,9 +63,12 @@ impl World {
             }));
             return sites;
         }
-        let Some(system) = galaxy.and_then(|g| g.system(star)) else {
+        let Some(mut system) = galaxy.and_then(|g| g.system(star)) else {
             return Vec::new();
         };
+        // What it offers alone (task 135): one station, its trader and one
+        // town.
+        self.trim_system(star, &mut system);
         let mut sites: Vec<Site> = system
             .stations
             .iter()
@@ -92,14 +95,10 @@ impl World {
                 station: heart::heart_id(star),
             });
         }
-        sites.extend(
-            Surface::all_of(&system, self.galaxy_seed)
-                .iter()
-                .map(|s| Site {
-                    star,
-                    station: surface::surface_id(s.body),
-                }),
-        );
+        sites.extend(self.offered_surfaces(&system).iter().map(|s| Site {
+            star,
+            station: surface::surface_id(s.body),
+        }));
         sites
     }
 
@@ -208,9 +207,11 @@ impl World {
             let Some(galaxy) = galaxy else {
                 return Err(Refusal::NoSuchPlace);
             };
-            let Some(there) = galaxy.system(site.star) else {
+            let Some(mut there) = galaxy.system(site.star) else {
                 return Err(Refusal::NoSuchPlace);
             };
+            // What it offers alone (task 135).
+            self.trim_system(site.star, &mut there);
             if !galaxy.lanes(self.star_id).contains(&site.star) {
                 return Err(Refusal::TooFar);
             }
@@ -225,6 +226,10 @@ impl World {
         let sites = self.sites_in(galaxy, site.star);
         if !sites.contains(&site) {
             return Err(Refusal::NoSuchPlace);
+        }
+        // One fight a system (task 135): the other one fought already.
+        if self.other_site_chosen(site, system) {
+            return Err(Refusal::OtherSiteChosen);
         }
         let to = self
             .site_position(system, site.station)
@@ -549,6 +554,9 @@ impl World {
         self.run.snapshot = None;
         self.run.snapped = false;
         self.run.site = self.ship.state.alongside();
+        if let Some(station) = self.run.site {
+            self.choose_site(station);
+        }
         self.run.pending_bounty = 0;
         self.run.proposal = None;
         self.run.returning = vec![false; players as usize];

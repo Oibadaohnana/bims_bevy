@@ -60,8 +60,10 @@ pub fn rolled(galaxy_seed: u64, star: u32, station: u32) -> bool {
 /// crew's own star (and not in it) were rolled, that many more of the
 /// others there, picked in an order off the galaxy's seed. `(star,
 /// station)` pairs, sorted. Empty where the roll already did it — and
-/// where there is nothing near to pick from.
-pub fn near_sites(galaxy: &Galaxy, home: u32) -> Vec<(u32, u32)> {
+/// where there is nothing near to pick from. `primaries_only` keeps to the
+/// one station each system offers (task 135, `World::offered_station`);
+/// off only under the tests' dial that keeps whole systems.
+pub fn near_sites(galaxy: &Galaxy, home: u32, primaries_only: bool) -> Vec<(u32, u32)> {
     let hops = galaxy.hops_from(home);
     let mut rolled_near = 0usize;
     let mut rest: Vec<(u64, u32, u32)> = Vec::new();
@@ -73,7 +75,14 @@ pub fn near_sites(galaxy: &Galaxy, home: u32) -> Vec<(u32, u32)> {
         let Some(system) = galaxy.system(star) else {
             continue;
         };
-        for station in system.stations.iter().filter(|s| eligible(s)) {
+        // Only the station the system offers (task 135): the rest are never
+        // met — bar under the tests' dial.
+        let primary = crate::world::offered::primary(&system.stations);
+        for station in system
+            .stations
+            .iter()
+            .filter(|s| eligible(s) && (!primaries_only || Some(s.id) == primary))
+        {
             if rolled(galaxy.seed, star, station.id) {
                 rolled_near += 1;
             } else {
@@ -255,7 +264,7 @@ mod tests {
             let Some((home, _)) = crate::spawn_anywhere(&galaxy, 0) else {
                 continue;
             };
-            let near = near_sites(&galaxy, home);
+            let near = near_sites(&galaxy, home, true);
             let hops = galaxy.hops_from(home);
             let mut close = 0;
             for (star, &h) in hops.iter().enumerate() {
@@ -285,7 +294,7 @@ mod tests {
                 "seed {seed}: {close} near"
             );
             // The same galaxy and home, the same answer.
-            assert_eq!(near, near_sites(&galaxy, home));
+            assert_eq!(near, near_sites(&galaxy, home, true));
         }
         let percent = theirs * 100 / all.max(1);
         assert!((7..=13).contains(&percent), "{percent}% of {all}");

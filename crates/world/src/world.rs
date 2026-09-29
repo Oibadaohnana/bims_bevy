@@ -116,6 +116,11 @@ mod trading;
 #[path = "outposts.rs"]
 pub mod outposts;
 
+// What a system offers (task 135): one station and one town, and one
+// fight a system. A child for the same reason.
+#[path = "offered.rs"]
+pub mod offered;
+
 /// What a player can ask the world to do.
 ///
 /// Every one of them carries the slot that sent it, because every one of them
@@ -803,6 +808,12 @@ pub struct World {
     /// not a state of the game.
     #[cfg_attr(feature = "serde", serde(default))]
     quiet_sites: bool,
+    /// The tests' other dial (task 135, [`World::set_whole_systems_for_probe`]):
+    /// every system keeps every station and town the generator made, as
+    /// before a system offered one of each, with no one-fight rule. Off in
+    /// every run. Saved, so a load settles the same system, and not hashed.
+    #[cfg_attr(feature = "serde", serde(default))]
+    whole_systems: bool,
     /// The ship's power over its live networks, worked out from the parts
     /// once per change to them — `on_ship_changed` — rather than once a
     /// step: it is a union-find over every tile of the grid, and the
@@ -1123,7 +1134,7 @@ impl World {
         let home_hops = galaxy.hops_from(star_id);
         // And which sites near home are the Manufacturers' on top of the
         // roll (feature 109): derived the same way.
-        let manufacturer_near = crate::manufacturer::near_sites(&galaxy, star_id);
+        let manufacturer_near = crate::manufacturer::near_sites(&galaxy, star_id, true);
 
         let dynamics = flight::dynamics(&design, crew).map_err(StartError::NotAShip)?;
         let aboard = Aboard::new(&design, crew, seed);
@@ -1179,6 +1190,7 @@ impl World {
             held_towns: Vec::new(),
             defense_delay: data::DEFENSE_DELAY_STEPS,
             quiet_sites: false,
+            whole_systems: false,
             power_budget: shipdesign::power_budget(&design_for_charge),
             discovered: Vec::new(),
             // Everybody starts at real time. Anything else would have the
@@ -5335,7 +5347,8 @@ impl World {
         let galaxy = self.galaxy();
         self.droid_hops = galaxy.hops_from(self.droid_origin);
         self.home_hops = galaxy.hops_from(self.home_star);
-        self.manufacturer_near = crate::manufacturer::near_sites(&galaxy, self.home_star);
+        self.manufacturer_near =
+            crate::manufacturer::near_sites(&galaxy, self.home_star, !self.whole_systems);
         self.trader_near = self.trader_near_sites(&galaxy);
         // The hop table is what says whether this system is theirs, so
         // the jammer is settled behind it — and this is the call every
@@ -5642,6 +5655,9 @@ impl World {
     /// is not a secret: a jammer the crew cannot find is a system they
     /// cannot leave.
     pub fn settle_jammer(&mut self) {
+        // First the system cut to what it offers (task 135): one station
+        // and one town, its trader beside them — the same doors.
+        self.settle_offered();
         // The Machine Heart's fortress (feature 108) is taken out first and
         // laid again last: it is never the jammer, it is not a station of
         // the system's own for the rule below, and a derived jammer is
