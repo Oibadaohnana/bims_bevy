@@ -1,0 +1,33 @@
+// What a fight pays and what things cost, tuned while the game runs.
+//
+// The game reads this file again whenever it is saved (BIMS_REWARDS names
+// another). The next enemy down and the next price asked take the new
+// numbers. A field left out is the built-in value, and a file that does not
+// parse keeps the last good numbers (the reason is printed on the terminal).
+//
+//   xp_per_down             experience for an enemy down or destroyed, once,
+//                           to every classed crew member within fifty tiles
+//   bounty                  money for an enemy down or destroyed, once, by
+//                           the tier of its gear (a machine: its own tier):
+//                           tier one, two, three
+//   defense_bounty_percent  how much of that a defence pays (100 = the same
+//                           as an attack, 0 = nothing)
+//   bounty_waits_for_clear  true: the money waits until the site is cleared
+//                           and is lost if the crew leave first;
+//                           false: paid the moment the enemy goes down
+//   buyback                 what bringing a dead player's Bim back costs
+//   relic_price             a trader's relic, by its tier: one, two, three
+//   combine_fee             combining two things into the next tier
+//   shelf_price_percent     a trader's shelf prices, in per cent
+//
+// The values below are the built-in ones.
+(
+    xp_per_down: 20,
+    bounty: (500, 1500, 4500),
+    defense_bounty_percent: 100,
+    bounty_waits_for_clear: true,
+    buyback: 5000,
+    relic_price: (1500, 3000, 5000),
+    combine_fee: 0,
+    shelf_price_percent: 100,
+)

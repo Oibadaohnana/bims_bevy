@@ -682,7 +682,7 @@ impl World {
             if who >= self.aboard.crew_count() as usize {
                 continue;
             }
-            let paid = self.money.min(data::BUYBACK_COST);
+            let paid = self.money.min(self.rewards.buyback);
             self.money -= paid;
             self.aboard.room.revive(who);
             if let Some(down) = self.crew_down.get_mut(who) {
@@ -851,13 +851,11 @@ impl World {
     /// at a site that is cleared — nothing is waiting on it — and
     /// otherwise pending until it is.
     pub(super) fn earn_bounty(&mut self, amount: Money, events: &mut Vec<WorldEvent>) {
-        if amount == 0 {
-            return;
-        }
-        // **A defence pays no money** (task 136): the site's people who
-        // live through it, and the Bims among them who join, are the
-        // reward. Nothing paid and nothing pending.
-        if self
+        // **A defence pays its share** (`Rewards::defense_bounty_percent`):
+        // task 136 made it nothing, the survivors being the reward, and
+        // the player then asked for money for every enemy down wherever
+        // it falls — a hundred per cent, untuned.
+        let amount = if self
             .ship
             .state
             .alongside()
@@ -865,7 +863,7 @@ impl World {
         {
             return;
         }
-        if self.mission_cleared() {
+        if self.mission_cleared() || !self.rewards.bounty_waits_for_clear {
             self.money = self.money.saturating_add(amount);
             events.push(WorldEvent::Bounty { amount });
         } else {
@@ -937,6 +935,11 @@ impl World {
         let crew = self.aboard.crew_count();
         for who in (players..crew).rev() {
             if !self.aboard.room.is_alive(who as usize) {
+            self.rewards.at_defense(amount)
+        } else {
+            amount
+        };
+        if amount == 0 {
                 self.store_loadout(who);
                 self.drop_crew_member(who);
             }

@@ -71,12 +71,15 @@ desktop):
   `BIMS_FREEZE`, `BIMS_ZOOM`, `BIMS_MAP`, `BIMS_ARMORY`, `BIMS_STATION_SEED`,
   …) are documented at the top of `crates/app/src/dev.rs` and in
   `crates/ship/src/session.rs`; grep for `BIMS_`.
-- `waves.ron` at the root is the wave formula's dials (base, per player,
-  per time step, the step's hours, waves a station, the first mission's
-  ease), read again whenever it is saved while the game runs
-  (`crates/app/src/wavecfg.rs`, `world::droid::WaveScaling`;
-  `BIMS_WAVES=file` names another). Keep the committed file at the
-  constants — its test says so.
+- `scaling.ron` at the root is the wave formula's dials (base, per
+  player, per time step, the step's days, waves a station, the first
+  mission's ease; `world::droid::WaveScaling`, `BIMS_SCALING=file` names
+  another) and `rewards.ron` what a fight pays and things cost (xp and
+  money an enemy down, a defence's share, the buyback, relic, combine
+  and shelf prices; `world::rewards::Rewards`, `BIMS_REWARDS`), both
+  read again whenever saved while the game runs
+  (`crates/app/src/wavecfg.rs`). Keep the committed files at the
+  constants — their test says so.
 - Two-player runs: a relay (`PORT=18792 target/debug/bims-server`),
   `BIMS_SERVER=ws://127.0.0.1:18792`, `BIMS_AUTO=create` on the host and
   `BIMS_AUTO=join:<code>` on the guest; `scratchpad/duo_resync.sh` is a

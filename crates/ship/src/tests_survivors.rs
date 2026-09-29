@@ -265,6 +265,12 @@ fn commands() -> Vec<(&'static str, u64)> {
 /// `0x_7840_b21d_4488_7899`, `0x_6f28_4ad3_5486_cfbe`,
 /// `0x_5379_eedc_d57e_9612`, `0x_bb40_ce94_1cfa_873c` and
 /// `0x_0d7f_2c9a_94c7_19e8`.
+///
+/// **`jammer` moved, on purpose**: the machines grow a step every five
+/// days of the world clock (`data::ENEMIES_HOURS`), not every three
+/// weeks, and the `jammer` probe's clock is past the first five. With
+/// the three weeks put back it read its old number again. It was
+/// `0x_a253_e753_3a70_d468`.
 const PINNED: [(&str, u64); 11] = [
     ("simulation", 0x_73b2_eae7_e74e_9684),
     ("game", 0x_2ba5_0425_4c88_c171),
@@ -276,7 +282,7 @@ const PINNED: [(&str, u64); 11] = [
     ("droids_planet", 0x_01a1_86b4_7407_4d8a),
     ("defense", 0x_0cab_dd44_d055_bfbc),
     ("crisis", 0x_c257_27a9_1785_d070),
-    ("jammer", 0x_a253_e753_3a70_d468),
+    ("jammer", 0x_390f_0810_a0f4_7aae),
 ];
 
 /// **Every command plays as it did**: each session the app builds, read

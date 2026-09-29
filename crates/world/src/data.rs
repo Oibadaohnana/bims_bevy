@@ -68,25 +68,19 @@ pub const RESIDENTS_RANGE: f64 = 50.0 * shipdesign::TILE as f64;
 /// opened (`World::hours_gone`), not the crew's calendar. Only travel
 /// moves that clock, so this is a step every so many trips.
 ///
-/// **Three weeks**, from `tests_mission::travel_days_over_ten_galaxies`
-/// (`cargo test --release -p world -- --ignored --nocapture
-/// travel_days_over_ten_galaxies`): the crew start 8 to 152 hops from the
-/// machines' origin, 76 at the median, and a jump is 2.4 days at the
-/// median and a trip within a system 2.9. So a run to the origin at the
-/// medians is about **167 days** taking one jump a hop and about **363**
-/// taking a jump and a trip in every system. So:
-///
-/// - at three weeks the jump-a-hop run arrives seven steps up — a solo
-///   wave of ten, five waves — and the jump-and-a-trip run about
-///   seventeen steps up, a solo wave of twenty, ten waves at the origin;
-/// - at four (near the thirty days this replaced) the shorter run
-///   arrived only six steps up, and the first month was the waves of
-///   day nought.
+/// **Five days**, which is five jumps since a jump is a day and a trip
+/// within a system nothing ([`JUMP_MINUTES`]). It was three weeks, set
+/// when a jump was 2.4 days at the median and a trip 2.9
+/// (`tests_mission::travel_days_over_ten_galaxies`); once a jump became
+/// a day the crew met the waves of day nought for three weeks of jumps —
+/// a wave of two on day twelve against a crew of five. At five days a
+/// solo crew meets a wave of five on day twelve, three waves of it.
 ///
 /// Four players start at six. A wave has **no cap** since task 132 —
 /// the sixteen it stopped at (`DROID_WAVE_MAX`) went, to be balanced
-/// another way — so it grows for as long as the clock runs.
-pub const ENEMIES_HOURS: u32 = 21 * 24;
+/// another way — so it grows for as long as the clock runs. The app's
+/// `scaling.ron` tunes it while the game runs (`step_days`).
+pub const ENEMIES_HOURS: u32 = 5 * 24;
 
 /// The arena the `droids` command docks at (`crate::station::arena`): how
 /// many tiles across — bigger than any kind of station, for corridors
@@ -399,6 +393,12 @@ pub const REPUBLIC_BOUNTY: [Money; 4] = [0, 500, 1_500, 4_500];
 
 /// What the pool pays to bring a dead player's Bim back, at the end of
 /// the mission it died in (task 113): it respawns aboard the ship with its
+/// How much of [`REPUBLIC_BOUNTY`] a **defence** pays, in per cent. Task
+/// 136 made it nothing — the survivors were the reward — and the player
+/// then asked for money for every enemy downed or destroyed, wherever:
+/// a hundred, the same as an attack, pending until the site is cleared
+/// like any. Tuned in the app's `rewards.ron` (`crate::rewards`).
+pub const DEFENSE_BOUNTY_PERCENT: u32 = 100;
 /// whole loadout, its level, experience and talents kept. Paid
 /// automatically; a pool that holds less goes to nought, and the respawn
 /// does not wait for money. The same as a player's share of the starting

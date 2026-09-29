@@ -1,60 +1,140 @@
-//! The wave formula's dials, tuned while the game runs.
+//! The tuning files, read again while the game runs.
 //!
-//! `waves.ron` (or the file `BIMS_WAVES` names) holds a
-//! [`world::droid::WaveScaling`]: the base machines a wave, how many a
-//! player and a time step add, how long a time step is, the waves a held
-//! station has and the first mission's ease. The file is looked at twice a
-//! second; when it changes it is read again and the world is handed the new
-//! dials, which the next wave laid and the next wave count settled take.
-//! A wave already standing keeps its size. A field left out is the
+//! - `scaling.ron` (or the file `BIMS_SCALING` names) holds a
+//!   [`world::droid::WaveScaling`]: the base machines a wave, how many a
+//!   player and a time step add, how many days a time step is, the waves a
+//!   held station has and the first mission's ease.
+//! - `rewards.ron` (or `BIMS_REWARDS`) holds a [`world::rewards::Rewards`]:
+//!   the experience and the money an enemy down is worth, what a defence
+//!   pays of it, whether the money waits for the clear, and what the
+//!   buyback, a relic, a combine and the trader's shelf cost.
+//!
+//! Each file is looked at twice a second; when it changes it is read again
+//! and the world is handed the new dials, which the next wave laid, the
+//! next enemy down and the next price asked take. A field left out is the
 //! constant's; a file that does not parse keeps the last good dials and
 //! says why on stderr; no file at all is the constants.
 //!
 //! The dials are neither saved nor hashed: they are handed over again every
 //! frame the world's differ, so a restart or a load takes them too. In a
-//! two-player run each game reads its own file, and the two have to agree.
+//! two-player run each game reads its own files, and the two have to agree.
 
 use bevy::prelude::*;
 use std::path::PathBuf;
 use std::time::SystemTime;
 use world::droid::WaveScaling;
+use world::rewards::Rewards;
 
 use crate::screens::designer::ShipSession;
 
-/// How often the file's time stamp is looked at, in seconds.
+/// How often a file's time stamp is looked at, in seconds.
 const LOOK_EVERY: f32 = 0.5;
 
 pub struct WaveConfigPlugin;
 
 impl Plugin for WaveConfigPlugin {
     fn build(&self, app: &mut App) {
-        app.insert_resource(WaveConfig::new())
-            .add_systems(Update, (reload, apply).chain());
+        app.insert_resource(Watched::<WaveScaling>::new())
+            .insert_resource(Watched::<Rewards>::new())
+            .add_systems(
+                Update,
+                (
+                    (reload::<WaveScaling>, apply::<WaveScaling>).chain(),
+                    (reload::<Rewards>, apply::<Rewards>).chain(),
+                ),
+            );
     }
 }
 
-/// The file, when it was last read, and the dials it said.
+/// A set of dials one file holds, and where the world keeps them.
+trait Dials: Copy + PartialEq + serde::de::DeserializeOwned + Send + Sync + 'static {
+    /// The file at the root of the tree.
+    const FILE: &'static str;
+    /// The variable that names another.
+    const ENV: &'static str;
+    /// The constants.
+    const UNTUNED: Self;
+    /// One line of what the dials say.
+    fn describe(&self) -> String;
+    fn of(world: &world::World) -> Self;
+    fn hand(self, world: &mut world::World);
+}
+
+impl Dials for WaveScaling {
+    const FILE: &'static str = "scaling.ron";
+    const ENV: &'static str = "BIMS_SCALING";
+    const UNTUNED: Self = WaveScaling::DEFAULT;
+    fn describe(&self) -> String {
+        format!(
+            "{} + {}/player + {}/step of {} days, {} waves + 1 every {} steps, first mission -{}",
+            self.base,
+            self.per_player,
+            self.per_step,
+            self.step_days.max(1),
+            self.waves_base,
+            self.steps_per_wave,
+            self.first_mission_ease
+        )
+    }
+    fn of(world: &world::World) -> Self {
+        world.wave_scaling()
+    }
+    fn hand(self, world: &mut world::World) {
+        world.set_wave_scaling(self);
+    }
+}
+
+impl Dials for Rewards {
+    const FILE: &'static str = "rewards.ron";
+    const ENV: &'static str = "BIMS_REWARDS";
+    const UNTUNED: Self = Rewards::DEFAULT;
+    fn describe(&self) -> String {
+        format!(
+            "{} xp and €{:?} a down (defence {}%, {}), buyback €{}, relics €{:?}, combine €{}, shelf {}%",
+            self.xp_per_down,
+            self.bounty,
+            self.defense_bounty_percent,
+            if self.bounty_waits_for_clear {
+                "paid at the clear"
+            } else {
+                "paid at once"
+            },
+            self.buyback,
+            self.relic_price,
+            self.combine_fee,
+            self.shelf_price_percent
+        )
+    }
+    fn of(world: &world::World) -> Self {
+        world.rewards()
+    }
+    fn hand(self, world: &mut world::World) {
+        world.set_rewards(self);
+    }
+}
+
+/// A file, when it was last read, and the dials it said.
 #[derive(Resource)]
-struct WaveConfig {
+struct Watched<T: Dials> {
     path: PathBuf,
     /// The modification time last read; `None` for no file.
     stamp: Option<SystemTime>,
     since_look: f32,
-    scaling: WaveScaling,
+    dials: T,
 }
 
-impl WaveConfig {
-    fn new() -> WaveConfig {
-        let path = std::env::var("BIMS_WAVES").unwrap_or_else(|_| "waves.ron".to_string());
-        let mut config = WaveConfig {
+impl<T: Dials> Watched<T> {
+    fn new() -> Watched<T> {
+        let path = std::env::var(T::ENV).unwrap_or_else(|_| T::FILE.to_string());
+        let mut watched = Watched {
             path: PathBuf::from(path),
             stamp: None,
             // Look at once, on the first frame.
             since_look: LOOK_EVERY,
-            scaling: WaveScaling::DEFAULT,
+            dials: T::UNTUNED,
         };
-        config.look();
-        config
+        watched.look();
+        watched
     }
 
     /// Read the file again if its time stamp moved.
@@ -67,26 +147,22 @@ impl WaveConfig {
         }
         self.stamp = stamp;
         if stamp.is_none() {
-            if self.scaling != WaveScaling::DEFAULT {
-                eprintln!("waves: {} gone, the constants again", self.path.display());
+            if self.dials != T::UNTUNED {
+                eprintln!("tuning: {} gone, the constants again", self.path.display());
             }
-            self.scaling = WaveScaling::DEFAULT;
+            self.dials = T::UNTUNED;
             return;
         }
         match std::fs::read_to_string(&self.path)
             .map_err(|e| e.to_string())
-            .and_then(|text| parse(&text))
+            .and_then(|text| parse::<T>(&text))
         {
-            Ok(scaling) => {
-                self.scaling = scaling;
-                eprintln!(
-                    "waves: {} read: {}",
-                    self.path.display(),
-                    describe(&scaling)
-                );
+            Ok(dials) => {
+                self.dials = dials;
+                eprintln!("tuning: {} read: {}", self.path.display(), dials.describe());
             }
             Err(why) => eprintln!(
-                "waves: {} not read, the last good dials kept: {why}",
+                "tuning: {} not read, the last good dials kept: {why}",
                 self.path.display()
             ),
         }
@@ -94,36 +170,22 @@ impl WaveConfig {
 }
 
 /// The dials a file says.
-fn parse(text: &str) -> Result<WaveScaling, String> {
-    ron::from_str::<WaveScaling>(text).map_err(|e| e.to_string())
+fn parse<T: Dials>(text: &str) -> Result<T, String> {
+    ron::from_str::<T>(text).map_err(|e| e.to_string())
 }
 
-/// One line of what the dials make of a wave.
-fn describe(s: &WaveScaling) -> String {
-    format!(
-        "{} + {}/player + {}/step of {} h, {} waves + 1 every {} steps, first mission -{}",
-        s.base,
-        s.per_player,
-        s.per_step,
-        s.step_hours.max(1),
-        s.waves_base,
-        s.steps_per_wave,
-        s.first_mission_ease
-    )
-}
-
-fn reload(time: Res<Time>, mut config: ResMut<WaveConfig>) {
-    config.since_look += time.delta_secs();
-    if config.since_look < LOOK_EVERY {
+fn reload<T: Dials>(time: Res<Time>, mut watched: ResMut<Watched<T>>) {
+    watched.since_look += time.delta_secs();
+    if watched.since_look < LOOK_EVERY {
         return;
     }
-    config.since_look = 0.0;
-    config.look();
+    watched.since_look = 0.0;
+    watched.look();
 }
 
 /// Hand the world the dials whenever its own differ: a new file, a new
 /// game, a restart or a load.
-fn apply(config: Res<WaveConfig>, session: Option<ResMut<ShipSession>>) {
+fn apply<T: Dials>(watched: Res<Watched<T>>, session: Option<ResMut<ShipSession>>) {
     let Some(mut session) = session else {
         return;
     };
@@ -131,9 +193,9 @@ fn apply(config: Res<WaveConfig>, session: Option<ResMut<ShipSession>>) {
         .0
         .game
         .as_ref()
-        .is_some_and(|game| game.world.wave_scaling() != config.scaling);
+        .is_some_and(|game| T::of(&game.world) != watched.dials);
     if differs && let Some(game) = session.0.game.as_mut() {
-        game.world.set_wave_scaling(config.scaling);
+        watched.dials.hand(&mut game.world);
     }
 }
 
@@ -141,20 +203,25 @@ fn apply(config: Res<WaveConfig>, session: Option<ResMut<ShipSession>>) {
 mod tests {
     use super::*;
 
-    /// The file at the root of the tree is the constants, so a game run
-    /// from there plays as it would untuned — and it parses.
+    /// The files at the root of the tree are the constants, so a game run
+    /// from there plays as it would untuned — and they parse.
     #[test]
-    fn the_shipped_file_is_the_constants() {
-        let text = include_str!("../../../waves.ron");
+    fn the_shipped_files_are_the_constants() {
+        let text = include_str!("../../../scaling.ron");
         assert_eq!(parse(text), Ok(WaveScaling::DEFAULT));
+        let text = include_str!("../../../rewards.ron");
+        assert_eq!(parse(text), Ok(Rewards::DEFAULT));
     }
 
     /// A field left out is the constant's.
     #[test]
     fn a_field_left_out_is_the_constant_s() {
-        let s = parse("(base: 7)").unwrap();
+        let s: WaveScaling = parse("(base: 7)").unwrap();
         assert_eq!(s.base, 7);
-        assert_eq!(s.step_hours, WaveScaling::DEFAULT.step_hours);
-        assert!(parse("(base: -1)").is_err());
+        assert_eq!(s.step_days, WaveScaling::DEFAULT.step_days);
+        assert!(parse::<WaveScaling>("(base: -1)").is_err());
+        let r: Rewards = parse("(buyback: 3)").unwrap();
+        assert_eq!(r.buyback, 3);
+        assert_eq!(r.bounty, Rewards::DEFAULT.bounty);
     }
 }

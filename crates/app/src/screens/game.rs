@@ -2452,9 +2452,15 @@ fn frame(
         let top = hud::top_frame(&ctx, area, faces.max.x, world, &threats, paused);
         let mut top_foot = top.max.y;
         if out {
-            top_foot = hud::out_banner(&ctx, top.center().x, top.max.y + 6.0, world.money)
-                .max
-                .y;
+            top_foot = hud::out_banner(
+                &ctx,
+                top.center().x,
+                top.max.y + 6.0,
+                world.money,
+                world.rewards().buyback,
+            )
+            .max
+            .y;
         }
 
         // The tray, anchored at the bottom left and growing upwards.

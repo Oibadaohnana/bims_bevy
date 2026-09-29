@@ -710,13 +710,19 @@ pub struct World {
     /// `world_checksum` with the rest.
     droid_wave_forced: Option<u32>,
     /// The wave formula's dials ([`droidplan::WaveScaling`]), the
-    /// constants unless the app's `waves.ron` says otherwise — tuning
+    /// constants unless the app's `scaling.ron` says otherwise — tuning
     /// while the game runs. **Neither saved nor hashed**: the app hands
     /// them over again every frame they differ, a load and a restart
     /// included, and what they decide (`Infestation::waves_left`, the
     /// machines laid) is what is kept.
     #[cfg_attr(feature = "serde", serde(skip))]
     wave_scaling: droidplan::WaveScaling,
+    /// What a fight pays and what things cost ([`crate::rewards::Rewards`]),
+    /// the constants unless the app's `rewards.ron` says otherwise.
+    /// Neither saved nor hashed, like `wave_scaling`: the money and the
+    /// experience they decide are.
+    #[cfg_attr(feature = "serde", serde(skip))]
+    rewards: crate::rewards::Rewards,
     /// How many waves a held station has all told, forced by a probe
     /// (`BIMS_DROID_WAVES`, and three on the `droids` commands) whatever
     /// the formula says; `None` in the game. **Neither saved nor
@@ -1177,6 +1183,7 @@ impl World {
             droid_reinforce: data::DROID_REINFORCE_STEPS,
             droid_wave_forced: None,
             wave_scaling: droidplan::WaveScaling::DEFAULT,
+            rewards: crate::rewards::Rewards::DEFAULT,
             droid_waves_forced: None,
             droid_kinds_forced: None,
             defense_by_machines_forced: false,
@@ -2727,7 +2734,7 @@ impl World {
                     };
                     machine_kills.push(relic_hooks::MachineKill {
                         by,
-                        bounty: bounty_for(d.tier.code()),
+                        bounty: self.rewards.bounty_for(d.tier.code()),
                         crippled,
                         flanked,
                     });
@@ -5905,7 +5912,7 @@ impl World {
         self.defense_by_machines_forced = true;
     }
 
-    /// Tune the wave formula (`waves.ron`, read by the app while the
+    /// Tune the wave formula (`scaling.ron`, read by the app while the
     /// game runs): from the next wave laid and the next count settled
     /// on, the dials are these. Not saved and not hashed.
     pub fn set_wave_scaling(&mut self, scaling: droidplan::WaveScaling) {
@@ -5955,6 +5962,18 @@ impl World {
         let id = self.residents.as_ref()?.station;
         let it = self.infestation(id)?;
         (it.wave > 0).then_some((it.wave, it.waves_left))
+    }
+
+    /// Tune what a fight pays and what things cost (`rewards.ron`, read
+    /// by the app while the game runs): from the next enemy down and the
+    /// next price asked. Not saved and not hashed.
+    pub fn set_rewards(&mut self, rewards: crate::rewards::Rewards) {
+        self.rewards = rewards;
+    }
+
+    /// The reward and price dials as they stand.
+    pub fn rewards(&self) -> crate::rewards::Rewards {
+        self.rewards
     }
 
     /// How long until the next wave lands at the held station
@@ -7326,13 +7345,13 @@ impl World {
                 gained.push((at, class::XP_ENEMY_DEAD));
             }
             if down && !residents.xp_down[who] {
-                gained.push((at, class::XP_ENEMY_DOWN));
+                gained.push((at, self.rewards.xp_per_down));
                 downed.push((who, residents.last_hit_by.get(who).copied().flatten()));
                 // The Republic's bounty (feature 95), once per enemy at
                 // the first down or death, whoever did it. A machine is
                 // worth nothing: the Republic pays for people.
                 if who < residents.aboard.room.crew_count() as usize {
-                    bounty = bounty.saturating_add(bounty_for(gear_tier(room, who)));
+                    bounty = bounty.saturating_add(self.rewards.bounty_for(gear_tier(room, who)));
                 }
             }
         }

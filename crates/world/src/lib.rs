@@ -69,6 +69,7 @@ pub mod memory;
 pub mod mercenary;
 pub mod orders;
 pub mod relic;
+pub mod rewards;
 pub mod run;
 pub mod soldier;
 pub mod speed;

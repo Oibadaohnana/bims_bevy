@@ -178,13 +178,13 @@ pub fn time_steps(hours_gone: u32) -> u32 {
 }
 
 /// The dials of the wave formula, for tuning while the game runs: the
-/// app reads them from `waves.ron` and hands them to
+/// app reads them from `scaling.ron` and hands them to
 /// `World::set_wave_scaling` whenever the file changes. The default is
 /// the constants in [`data`], so a world never told is the formula
 /// above to the machine.
 ///
 /// A wave is `base + per_player × players + per_step × steps`, `steps`
-/// being whole `step_hours` of the world clock, and a held station has
+/// being whole `step_days` of the world clock, and a held station has
 /// `waves_base + steps / steps_per_wave` waves (nought: never more).
 /// Every wave of the run's first mission is `first_mission_ease`
 /// fewer. Integers only, like the formula.
@@ -201,9 +201,9 @@ pub struct WaveScaling {
     pub per_player: u32,
     /// Machines added for each time step gone.
     pub per_step: u32,
-    /// How many hours of the world clock one time step is (one at the
-    /// least).
-    pub step_hours: u32,
+    /// How many days of the world clock one time step is (one at the
+    /// least). A jump is a day, so this is jumps too.
+    pub step_days: u32,
     /// Waves a held station has before the clock is counted.
     pub waves_base: u32,
     /// A wave more every this many time steps; nought for never.
@@ -218,7 +218,7 @@ impl WaveScaling {
         base: data::DROID_WAVE_BASE,
         per_player: 1,
         per_step: 1,
-        step_hours: data::ENEMIES_HOURS,
+        step_days: data::ENEMIES_HOURS / 24,
         waves_base: data::DROID_WAVES_BASE,
         steps_per_wave: 2,
         first_mission_ease: data::FIRST_MISSION_WAVE_EASE,
@@ -226,7 +226,7 @@ impl WaveScaling {
 
     /// Whole time steps in `hours_gone` of the world clock.
     pub fn steps(&self, hours_gone: u32) -> u32 {
-        hours_gone / self.step_hours.max(1)
+        hours_gone / self.step_days.max(1).saturating_mul(24)
     }
 
     /// How many machines a wave is for `players` at `hours_gone`.
@@ -337,7 +337,7 @@ mod tests {
             base: 5,
             per_player: 2,
             per_step: 3,
-            step_hours: 24,
+            step_days: 1,
             waves_base: 1,
             steps_per_wave: 0,
             first_mission_ease: 0,
@@ -345,12 +345,12 @@ mod tests {
         // Two players, three days in.
         assert_eq!(tuned.size(2, 3 * 24 + 5), 5 + 2 * 2 + 3 * 3);
         assert_eq!(tuned.count(100 * 24), 1, "nought steps a wave: never more");
-        // A step of nought hours is a step of one, not a division by nought.
+        // A step of nought days is a step of one, not a division by nought.
         let zero = WaveScaling {
-            step_hours: 0,
+            step_days: 0,
             ..tuned
         };
-        assert_eq!(zero.steps(7), 7);
+        assert_eq!(zero.steps(7 * 24 + 5), 7);
     }
 
     #[test]

@@ -362,7 +362,7 @@ pub fn map_column(
                 buyback_queue(ui, world, name);
                 if world.run.is_out(local) {
                     ui.label(
-                        egui::RichText::new(out_line())
+                        egui::RichText::new(out_line(world.rewards().buyback))
                             .small()
                             .color(theme::CAUTION),
                     );
@@ -519,15 +519,16 @@ fn buyback_queue(ui: &mut egui::Ui, world: &World, name: &dyn Fn(u32) -> String)
     let mut left = world.money;
     egui::Grid::new("map-buyback")
         .num_columns(3)
+    let cost = world.rewards().buyback;
         .spacing([12.0, 2.0])
         .show(ui, |ui| {
             for fallen in &world.run.fallen {
-                let covered = left >= world::data::BUYBACK_COST;
+                let covered = left >= cost;
                 if covered {
-                    left -= world::data::BUYBACK_COST;
+                    left -= cost;
                 }
                 ui.label(name(fallen.slot));
-                ui.label(euros(world::data::BUYBACK_COST));
+                ui.label(euros(cost));
                 ui.label(
                     egui::RichText::new(if covered {
                         BUYBACK_COVERED
@@ -811,7 +812,7 @@ pub fn departure_window(
                             .color(theme::BAD),
                         );
                         ui.label(if who < players {
-                            buyback_cost(world::data::BUYBACK_COST)
+                            buyback_cost(world.rewards().buyback)
                         } else {
                             BOT_GONE_WORD.to_owned()
                         });
@@ -1430,7 +1431,7 @@ fn combine_rows(
         let from = combine_from(worn.map(name).as_deref());
         ui.horizontal(|ui| {
             ui.label(egui::RichText::new(combine_line(what, k.2, &from)).small());
-            let fee = world::data::COMBINE_FEE;
+            let fee = world.rewards().combine_fee;
             if ui
                 .add_enabled(fee <= world.money, egui::Button::new(TRADER_COMBINE))
                 .clicked()

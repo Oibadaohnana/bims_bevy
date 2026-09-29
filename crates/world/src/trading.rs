@@ -271,8 +271,8 @@ impl World {
             .unwrap_or_else(|| {
                 economy::trade_price(item.resource).saturating_mul(economy::tier_price(tier))
             });
-        // *Trade License* (task 118).
-        self.trader_discount(ask)
+        // The reward dials' shelf per cent, then *Trade License* (task 118).
+        self.trader_discount(self.rewards.shelf_price(ask))
     }
 
     // --- buying ---------------------------------------------------------------
@@ -530,11 +530,12 @@ impl World {
                 return;
             }
         };
-        if data::COMBINE_FEE > self.money {
+        let fee = self.rewards.combine_fee;
+        if fee > self.money {
             events.push(refused(slot, Refusal::Unaffordable));
             return;
         }
-        self.money -= data::COMBINE_FEE;
+        self.money -= fee;
         // A piece made is numbered off the holdings like one bought.
         let made = match made {
             Item::Armour(mut piece) => {

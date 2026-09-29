@@ -6023,3 +6023,39 @@ wherever a run takes an in-system trip or a jump (they were a leg's
 length before). `a_jump_costs_a_day_and_a_trip_in_the_system_nothing`
 and `every_quote_is_a_day_for_a_jump_and_nothing_in_the_system` are the
 rule.
+
+## A step every five days, and the two tuning files
+
+> "The machines hold a station" above says a wave grows a step every
+> `ENEMIES_HOURS`, three weeks; it is **five days** now, and "Attack and
+> defence evenly" says a defence pays nothing — it pays like an attack
+> now.
+
+Once a jump became a day the three-week step left a crew meeting the
+waves of day nought for three weeks of jumps — two machines on day
+twelve against a crew of five. `data::ENEMIES_HOURS` is `5 * 24`: a solo
+crew meets a wave of five on day twelve, three waves of it.
+
+**Two sets of dials, neither saved nor hashed**, handed over by the app
+every frame the world's differ (`crates/app/src/wavecfg.rs`, which
+watches both files):
+
+- `droid::WaveScaling` (`World::set_wave_scaling`), the app's
+  `scaling.ron` — `step_days` where it was `step_hours`;
+- `rewards::Rewards` (`World::set_rewards`), the app's `rewards.ron`:
+  `xp_per_down` (read in `experience`), `bounty` by tier (`visit`'s
+  machines and `experience`'s Bims; the free `world::bounty_for` is the
+  untuned table, for the tests), `defense_bounty_percent`
+  (`data::DEFENSE_BOUNTY_PERCENT`, a hundred — the player asked for money
+  for every enemy down, so task 136's "a defence pays nothing" is gone
+  unless the dial says nought), `bounty_waits_for_clear` (`earn_bounty`:
+  false pays at once), `buyback` (`respawn_the_fallen`), `relic_price`
+  (`trader_relic_price`), `combine_fee` (`combine`) and
+  `shelf_price_percent` (`shelf_price`, before *Trade License*). The app
+  reads `World::rewards()` wherever it shows one of those prices.
+
+`Rewards::DEFAULT` is the constants; the committed files are the
+constants (`wavecfg`'s test). No `SAVE_VERSION` or `wire::PROTOCOL`: the
+dials cross no wire, and in a two-player run each end reads its own files.
+`tests_defense.rs`' two money assertions say a defence pays. The ship's
+`PINNED` moved for `jammer` alone (its clock is past five days).

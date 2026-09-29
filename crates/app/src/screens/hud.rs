@@ -804,7 +804,7 @@ pub fn top_frame(
 
 /// The banner under the top frame for a player whose Bim is out: that it
 /// is, what buying it back costs and what the pool holds.
-pub fn out_banner(ctx: &egui::Context, centre: f32, top: f32, pool: u64) -> egui::Rect {
+pub fn out_banner(ctx: &egui::Context, centre: f32, top: f32, pool: u64, cost: u64) -> egui::Rect {
     let id = egui::Id::new("hud-out");
     let width = ctx
         .memory(|m| m.area_rect(id).map(|r| r.width()))
@@ -816,10 +816,7 @@ pub fn out_banner(ctx: &egui::Context, centre: f32, top: f32, pool: u64) -> egui
             warning_frame().show(ui, |ui| {
                 ui.horizontal(|ui| {
                     ui.label(egui::RichText::new(OUT_BANNER).strong().color(theme::BAD));
-                    ui.label(
-                        egui::RichText::new(out_banner_line(world::data::BUYBACK_COST, pool))
-                            .color(theme::INK),
-                    );
+                    ui.label(egui::RichText::new(out_banner_line(cost, pool)).color(theme::INK));
                 });
             });
         })

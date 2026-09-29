@@ -715,7 +715,7 @@ impl World {
     /// What the trader's relic costs this crew: [`crate::trader::relic_price`]
     /// with *Trade License*.
     pub fn trader_relic_price(&self, relic: Relic) -> Money {
-        self.trader_discount(crate::trader::relic_price(relic))
+        self.trader_discount(self.rewards.relic_price_of(relic.tier() as u32))
     }
 
     /// Whether the crew may restock the trader they are at (*Restock
