@@ -2379,6 +2379,7 @@ fn frame(
     // top under the top frame, its foot over whatever shares the right of
     // the canvas with it.
     let mut side_at: Option<(egui::Pos2, f32)> = None;
+    let mut focus_here = false;
     if map_up {
         column = Some(super::worldmap::map_column(
             &ctx,
@@ -2414,6 +2415,25 @@ fn frame(
                             .map(|chart| chart.route.len().saturating_sub(1));
                         chart_star_lines(ui, world, star, hops, &screen.chart_traders);
                     });
+                });
+            // The chart's own control, in its top right corner: bring the
+            // ship's system back to the middle of the chart after a drag
+            // has lost it.
+            let corner = egui::pos2(galaxy_rect.max.x - MARGIN, galaxy_rect.min.y + MARGIN);
+            egui::Area::new(egui::Id::new("chart-focus"))
+                .fixed_pos(corner)
+                .pivot(egui::Align2::RIGHT_TOP)
+                .order(egui::Order::Middle)
+                .show(&ctx, |ui| {
+                    let button = egui::Button::new("Focus current system")
+                        .wrap_mode(egui::TextWrapMode::Extend);
+                    if ui
+                        .add(button)
+                        .on_hover_text("Centre the galaxy chart on the system the ship is in")
+                        .clicked()
+                    {
+                        focus_here = true;
+                    }
                 });
         }
         hud::log_area(
@@ -2648,6 +2668,14 @@ fn frame(
                 chart.preview.pan(w / 2.0 - x, h / 2.0 - y);
             }
         }
+    }
+    if focus_here
+        && let Some(chart) = &mut screen.galaxy
+        && let Some(s) = chart.here.and_then(|id| chart.galaxy.star(id))
+    {
+        let (x, y) = chart.preview.to_screen(s.position.x, s.position.y);
+        let (w, h) = (chart.preview.width, chart.preview.height);
+        chart.preview.pan(w / 2.0 - x, h / 2.0 - y);
     }
     if let Some(ask) = column
         && ask.close
