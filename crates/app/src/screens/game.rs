@@ -223,6 +223,9 @@ pub struct GameScreen {
     /// back is the body's own count going up, and neither the room nor
     /// the world records it as an event to be read.
     heals: Heals,
+    /// The health bar over every body on the deck and what each lost or
+    /// got back a moment ago (task 137, `crate::healthbars`).
+    bars: crate::healthbars::HealthBars,
     /// The world map's list of destinations and the one picked on it
     /// (feature 103, `super::worldmap`): worked out when the world it
     /// reads has moved, not every frame.
@@ -900,6 +903,7 @@ impl GameScreen {
             freeze: crate::dev::freeze_at_shot(),
             blackout: 0.0,
             heals: Heals::default(),
+            bars: crate::healthbars::HealthBars::default(),
             world_map: super::worldmap::WorldMap::default(),
             fight: super::fightwon::FightTally::default(),
         }
@@ -1215,6 +1219,9 @@ fn frame(
         .as_ref()
         .is_some_and(|g| g.world.effective_speed().multiplier() > 0);
     session.age_effects(if running { dt as f32 } else { 0.0 });
+    // And the white and the light on the health bars (task 137), on the
+    // same clock.
+    let bars_dt = if running { dt as f32 } else { 0.0 };
     // What just happened. An event is a thing that happened once, so the
     // list is drained after it is read.
     if let Some(game) = &mut session.game {
@@ -3458,6 +3465,17 @@ fn frame(
         theme::burst_ring(&painter, egui::pos2(at.x, at.y), radius, ok);
     }
 
+    // The health bar over every body standing (task 137), under the names:
+    // read off the rooms here, after the step, so a bar stays over its body
+    // as it walks.
+    if !map_up && let Some(game) = &session.game {
+        screen.bars.update(game, bars_dt);
+        screen.bars.paint(&painter, view.scale, |(x, y)| {
+            let at = view.to_canvas(Vec2::new(x, y)) + canvas.min;
+            egui::pos2(at.x, at.y)
+        });
+    }
+
     // The crew's names, over their heads, where the ship says each Bim
     // landed — the same camera the shapes went through, so a name stays over
     // its head as the ship turns.
@@ -3465,7 +3483,10 @@ fn frame(
         for who in 0..crew_count {
             if let Some((x, y)) = session.crew_on_screen(who) {
                 let at = view.to_canvas(Vec2::new(x, y)) + canvas.min;
-                let at = egui::pos2(at.x, at.y - theme::NAME_LIFT * view.scale);
+                let at = egui::pos2(
+                    at.x,
+                    at.y - theme::NAME_LIFT * view.scale - crate::healthbars::name_room(view.scale),
+                );
                 let color = if who == local {
                     theme::YOURS
                 } else {
@@ -3487,7 +3508,10 @@ fn frame(
         for who in 0..session.resident_count() {
             if let Some((x, y)) = session.resident_on_screen(who) {
                 let at = view.to_canvas(Vec2::new(x, y)) + canvas.min;
-                let at = egui::pos2(at.x, at.y - theme::NAME_LIFT * view.scale);
+                let at = egui::pos2(
+                    at.x,
+                    at.y - theme::NAME_LIFT * view.scale - crate::healthbars::name_room(view.scale),
+                );
                 // A machine wears its kind, not a name: it is not
                 // somebody (feature 83).
                 let label = match session.resident_droid(who) {
