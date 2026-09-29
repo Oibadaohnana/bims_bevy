@@ -2710,7 +2710,6 @@ impl World {
         let bodies = room.body_count() as usize;
         residents.down.resize(bodies, false);
         residents.xp_down.resize(bodies, false);
-        residents.xp_dead.resize(bodies, false);
         residents.last_hit_by.resize(bodies, None);
         residents.fee.resize(bodies, None);
         residents.medic.resize(bodies, false);
@@ -4384,7 +4383,6 @@ impl World {
         residents.aboard.crew = residents.aboard.room.crew_count();
         residents.down.remove(resident as usize);
         residents.xp_down.remove(resident as usize);
-        residents.xp_dead.remove(resident as usize);
         residents.last_hit_by.remove(resident as usize);
         residents.fee.remove(resident as usize);
         let was_medic = residents.medic.remove(resident as usize);
@@ -6451,7 +6449,6 @@ impl World {
                 let bims = residents.aboard.room.crew_count() as usize + kept;
                 residents.down.truncate(bims);
                 residents.xp_down.truncate(bims);
-                residents.xp_dead.truncate(bims);
                 residents.last_hit_by.truncate(bims);
                 residents.fee.truncate(bims);
                 residents.medic.truncate(bims);
@@ -6861,7 +6858,6 @@ impl World {
         let bims = residents.aboard.room.crew_count() as usize;
         residents.down.truncate(bims);
         residents.xp_down.truncate(bims);
-        residents.xp_dead.truncate(bims);
         residents.last_hit_by.truncate(bims);
         residents.fee.truncate(bims);
         residents.medic.truncate(bims);
@@ -7382,12 +7378,8 @@ impl World {
             // **The only experience there is, and every class's alike**
             // (task 119): an enemy going down — downed, or dead without
             // being down first, which is every machine — is
-            // [`class::XP_ENEMY_DOWN`], once; and its death
-            // [`class::XP_ENEMY_DEAD`] on top, once, whether it died the
-            // step it went down or bled out later.
-            if dead && !residents.xp_dead[who] {
-                gained.push((at, class::XP_ENEMY_DEAD));
-            }
+            // [`class::XP_ENEMY_DOWN`], once. A downed Manufacturer
+            // dying after — bled out or finished — is worth nothing more.
             if down && !residents.xp_down[who] {
                 gained.push((at, self.rewards.xp_per_down));
                 downed.push((who, residents.last_hit_by.get(who).copied().flatten()));
@@ -7402,9 +7394,7 @@ impl World {
         if let Some(residents) = &mut self.residents {
             for who in 0..count.min(residents.xp_down.len()) {
                 let room = &residents.aboard.room;
-                let dead = !room.is_alive(who);
-                residents.xp_down[who] |= dead || room.is_downed(who);
-                residents.xp_dead[who] |= dead;
+                residents.xp_down[who] |= !room.is_alive(who) || room.is_downed(who);
             }
         }
         for (at, xp) in gained {
