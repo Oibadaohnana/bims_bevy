@@ -271,17 +271,27 @@ fn commands() -> Vec<(&'static str, u64)> {
 /// weeks, and the `jammer` probe's clock is past the first five. With
 /// the three weeks put back it read its old number again. It was
 /// `0x_a253_e753_3a70_d468`.
+///
+/// **Five moved, on purpose**, for a site's waves by its tier (no task
+/// number): one wave at tier one, two at tier two, four at tier three
+/// (`data::DROID_TIER_WAVES`), where it was two and a wave every second
+/// step — `simulation`, `game`, `test`, `test_planet` and `crisis` meet a
+/// held or defended site whose count is settled. With the count put back
+/// to two at every tier all eleven read their old numbers. They were
+/// `0x_73b2_eae7_e74e_9684`, `0x_2ba5_0425_4c88_c171`,
+/// `0x_b8c7_dab8_5450_1537`, `0x_9e0b_4049_7a5b_e561` and
+/// `0x_c257_27a9_1785_d070`.
 const PINNED: [(&str, u64); 11] = [
-    ("simulation", 0x_73b2_eae7_e74e_9684),
-    ("game", 0x_2ba5_0425_4c88_c171),
+    ("simulation", 0x_15db_400e_1677_7b45),
+    ("game", 0x_fe54_af78_4073_1d30),
     ("droids", 0x_6bc6_e563_4740_f31b),
     ("tier2_test", 0x_7f3f_61cd_1727_d600),
     ("combat_droids_medic", 0x_6900_5ef7_e616_5287),
-    ("test", 0x_b8c7_dab8_5450_1537),
-    ("test_planet", 0x_9e0b_4049_7a5b_e561),
+    ("test", 0x_6468_d231_b53f_bff6),
+    ("test_planet", 0x_c168_244e_1787_ab60),
     ("droids_planet", 0x_01a1_86b4_7407_4d8a),
     ("defense", 0x_0cab_dd44_d055_bfbc),
-    ("crisis", 0x_c257_27a9_1785_d070),
+    ("crisis", 0x_c017_e76c_f9c7_9af2),
     ("jammer", 0x_390f_0810_a0f4_7aae),
 ];
 
@@ -433,18 +443,22 @@ fn the_fixtures_and_a_run_s_deck_are_drawn_as_they_were() {
 /// And again for the three changes of 29 September 2026 in `PINNED`'s last
 /// note, the same eight `PINNED`'s own; the two towns that moved were
 /// `0x_f28b_ae2e_c456_dfa2` and `0x_eb85_850a_64dc_1c74`.
+/// And again for a site's waves by its tier (`PINNED`'s last note), the
+/// same eight `PINNED`'s own — `jammer` taken with them, which the step
+/// every five days had moved and nobody had taken here; the town that
+/// moved was `0x_dc0b_b3bb_316f_2cb2`.
 const PINNED_BEFORE_112: [(&str, u64); 11] = [
-    ("simulation", 0x_73b2_eae7_e74e_9684),
-    ("game", 0x_2ba5_0425_4c88_c171),
+    ("simulation", 0x_15db_400e_1677_7b45),
+    ("game", 0x_fe54_af78_4073_1d30),
     ("droids", 0x_6bc6_e563_4740_f31b),
     ("tier2_test", 0x_7f3f_61cd_1727_d600),
     ("combat_droids_medic", 0x_6900_5ef7_e616_5287),
-    ("test", 0x_b8c7_dab8_5450_1537),
-    ("test_planet", 0x_dc0b_b3bb_316f_2cb2),
+    ("test", 0x_6468_d231_b53f_bff6),
+    ("test_planet", 0x_1dee_d84c_11b3_62b3),
     ("droids_planet", 0x_ecce_0859_25c9_4ece),
     ("defense", 0x_8ff4_9ad5_ae66_5b74),
-    ("crisis", 0x_c257_27a9_1785_d070),
-    ("jammer", 0x_a253_e753_3a70_d468),
+    ("crisis", 0x_c017_e76c_f9c7_9af2),
+    ("jammer", 0x_390f_0810_a0f4_7aae),
 ];
 
 /// Not a test of its own, and **run alone** (`--exact`), since it flips
