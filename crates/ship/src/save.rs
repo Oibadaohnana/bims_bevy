@@ -172,7 +172,8 @@ use crate::game::Game;
 /// 57: no memories (task 134) — a Bim keeps no diary.
 /// 58: one fight a system (task 135) — the run keeps the site chosen in
 /// each system.
-pub const SAVE_VERSION: u32 = 58;
+/// 59: elites — the world keeps the site a probe made an elite.
+pub const SAVE_VERSION: u32 = 59;
 
 /// What the file holds, read back.
 #[derive(serde::Deserialize)]

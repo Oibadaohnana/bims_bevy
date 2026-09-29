@@ -258,6 +258,11 @@ pub struct Marks<'a> {
     /// closed (`bool` is open). Charted or not, since which systems have
     /// one is a roll the crew are told. Empty in the lobby.
     pub traders: &'a [(u32, bool)],
+    /// Every star whose system holds an elite, in the game
+    /// (`World::elite_stars`): a crown over the star and a ring round it
+    /// in [`ELITE`] — the mark the system map puts on the elite itself.
+    /// Charted or not, like the traders. Empty in the lobby.
+    pub elites: &'a [u32],
     /// Every star's tier in the game, indexed by star id — the most its
     /// sites' enemies come at today (`World::system_tiers`): a thin ring
     /// round a star at tier two in amber and at tier three in red, nothing
@@ -300,6 +305,9 @@ const INFESTED: Color = crate::draw::ENEMY;
 /// (`ship::world_paint`'s `TRADE`), written out again for the reason the
 /// enemy's red is.
 const TRADER: Color = Color::rgb(0.40, 0.90, 0.46);
+/// An elite's system: a magenta no other mark here is, the system map's
+/// `ship::world_paint::ELITE` by value (this crate imports neither).
+pub const ELITE: Color = Color::rgb(1.0, 0.40, 0.90);
 /// The rings of a star at tier two and at tier three: the app's caution
 /// amber and its attack red (`theme::CAUTION`, `theme::ATTACK`).
 const TIER_TWO: Color = Color::rgb(1.0, 0.84, 0.65);
@@ -551,6 +559,30 @@ pub fn paint(
         list.stroke_rect(x, y, 15.0, 15.0, 2.0, 1.4, colour);
     }
 
+    // And every elite's system: a ring and a crown over the star, the
+    // system map's own mark for the elite.
+    for &id in marks.elites {
+        let Some(star) = stars.get(id as usize) else {
+            continue;
+        };
+        let (x, y) = preview.to_screen(star.position.x, star.position.y);
+        if !preview.on_canvas(x, y, 18.0) {
+            continue;
+        }
+        list.push(
+            crate::draw::KIND_ELLIPSE,
+            x,
+            y,
+            17.0,
+            17.0,
+            0.0,
+            0.0,
+            1.3,
+            ELITE,
+        );
+        crown(list, x, y - 10.0, 9.0, 1.2, ELITE);
+    }
+
     // And the Machine Heart, once it has been seen: a diamond round the
     // origin, a second inside it, and a dot at its middle — a shape of its
     // own, as the cross is.
@@ -693,5 +725,30 @@ pub fn paint(
             2.0,
             PING.alpha(1.0 - t),
         );
+    }
+}
+
+/// An elite's crown, `width` across, its foot centred on `(x, y)`: a band,
+/// three points — the middle one tallest — and a jewel on each. The system
+/// map's `ship::world_paint::paint_crown`, drawn again here.
+fn crown(list: &mut DrawList, x: f32, y: f32, width: f32, thin: f32, c: Color) {
+    let w = width / 2.0;
+    let h = width * 0.7;
+    let points = [
+        (x - w, y),
+        (x - w, y - h),
+        (x - w / 2.0, y - h * 0.45),
+        (x, y - h * 1.15),
+        (x + w / 2.0, y - h * 0.45),
+        (x + w, y - h),
+        (x + w, y),
+        (x - w, y),
+    ];
+    for pair in points.windows(2) {
+        list.line(pair[0].0, pair[0].1, pair[1].0, pair[1].1, thin, c);
+    }
+    for (px, py) in [points[1], points[3], points[5]] {
+        let d = thin * 2.4;
+        list.push(crate::draw::KIND_ELLIPSE, px, py, d, d, 0.0, 0.0, 0.0, c);
     }
 }

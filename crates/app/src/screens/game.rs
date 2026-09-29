@@ -710,6 +710,10 @@ fn open(
             if crate::dev::lost() {
                 session.lose_for_probe();
             }
+            // At the nearest elite, its mission begun.
+            if crate::dev::elite() && session.elite_for_probe().is_none() {
+                eprintln!("BIMS_ELITE: no elite in reach");
+            }
             // The run's loop (feature 103): between missions with the map
             // up, or the departure check asking.
             if crate::dev::map() {
@@ -1612,6 +1616,12 @@ fn frame(
                     .map(|&star| (star, !g.world.trader_closed_on(star, day)))
                     .collect()
             })
+            .unwrap_or_default();
+        // And every elite's system, crowned.
+        chart.elites = session
+            .game
+            .as_ref()
+            .map(|g| g.world.elite_stars(chart.galaxy.stars.len() as u32))
             .unwrap_or_default();
         // And every star's tier today, for the rings round the stars past
         // tier one.
@@ -2952,6 +2962,8 @@ fn frame(
                     (format!("{word} · {SITE_HELD}"), theme::MUTED)
                 } else if mark.cleared && mark.kind == world::SiteKind::Attack {
                     (format!("{word} · {ARRIVE_CLEARED}"), theme::MUTED)
+                } else if mark.elite {
+                    (format!("{word} · {SITE_ELITE}"), theme::SITE_ELITE)
                 } else {
                     (word.to_string(), theme::site_kind_colour(mark.kind))
                 };
@@ -3706,6 +3718,13 @@ fn chart_star_lines(
             })
             .small()
             .color(if closed { theme::MUTED } else { theme::ACCENT }),
+        );
+    }
+    if world.holds_elite(star) {
+        ui.label(
+            egui::RichText::new(CHART_ELITE)
+                .small()
+                .color(theme::SITE_ELITE),
         );
     }
     let words = match hops {

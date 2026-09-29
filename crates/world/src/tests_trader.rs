@@ -548,6 +548,9 @@ fn what_a_trader_has_left_is_in_the_checksum() {
 /// **A trader in one system in ten** (`data::TRADER_SYSTEM_CHANCE`), two
 /// galaxies over: never two in one system, and the stars the galaxy chart
 /// marks (`World::trader_stars`) are exactly the systems with one.
+/// Since task 135 a trader is never the station a system offers, so a
+/// system with one station has none: the share is about one in twenty
+/// (one of the two galaxies here reads 3.3 per cent).
 #[test]
 fn a_trader_in_one_system_in_ten_and_the_chart_marks_them() {
     use worldgen::GalaxyType;
@@ -584,7 +587,7 @@ fn a_trader_in_one_system_in_ten_and_the_chart_marks_them() {
         assert_eq!(world.trader_stars(&galaxy), with);
         let share = with.len() as f64 / galaxy.stars.len() as f64;
         assert!(
-            (0.06..0.14).contains(&share),
+            (0.03..0.14).contains(&share),
             "seed {seed}: {share} of systems have a trader"
         );
     }

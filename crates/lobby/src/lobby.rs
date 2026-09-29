@@ -84,6 +84,9 @@ pub struct Lobby {
     /// is open (`World::trader_stars`). The page sets it; empty in the
     /// lobby.
     pub traders: Vec<(u32, bool)>,
+    /// In the game: every star whose system holds an elite
+    /// (`World::elite_stars`). The page sets it; empty in the lobby.
+    pub elites: Vec<u32>,
     /// In the game: every star's tier, indexed by star id (see
     /// `preview::Marks::tiers`). The page sets it; empty in the lobby.
     pub tiers: Vec<u8>,
@@ -120,6 +123,7 @@ impl Lobby {
             jammed: Vec::new(),
             heart: None,
             traders: Vec::new(),
+            elites: Vec::new(),
             tiers: Vec::new(),
             pings: Vec::new(),
             inspected: None,
@@ -234,6 +238,7 @@ impl Lobby {
             jammed: &self.jammed,
             heart: self.heart,
             traders: &self.traders,
+            elites: &self.elites,
             tiers: &self.tiers,
             pings: &self.pings,
         };

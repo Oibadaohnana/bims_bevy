@@ -450,6 +450,10 @@ pub struct TravelQuote {
     /// Whether the site is the Manufacturers' (feature 109): their people
     /// on the deck, and [`TravelQuote::tier`] what they will carry.
     pub manufacturers: bool,
+    /// Whether the site is its system's **elite** (`crate::elite`): the
+    /// machines', at least two waves, a Guardian in the second, and relics
+    /// on the clear.
+    pub elite: bool,
     /// Whether the site is a **trader** (task 114): the visit is on the
     /// map, no mission. A trader closed now or on arrival is no quote at
     /// all but a refusal (`Refusal::TraderClosed`,

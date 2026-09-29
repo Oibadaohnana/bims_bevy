@@ -211,6 +211,9 @@ pub fn site_name(world: &World, galaxy: &Galaxy, site: Site) -> String {
 /// (`row_job`) and these do not repeat.
 fn tags(quote: &TravelQuote) -> String {
     let mut words: Vec<String> = Vec::new();
+    if quote.elite {
+        words.push(ARRIVE_ELITE.into());
+    }
     if quote.infested {
         words.push(ARRIVE_MACHINES.into());
         words.push(arrive_tier(quote.tier.code()));
@@ -922,6 +925,10 @@ struct RelicPick {
     to: u32,
 }
 
+/// The side of a relic's picture on the choice, in points: bigger than the
+/// sheet's (`icons::RELIC`), since here it is the thing chosen.
+const RELIC_PLATE: f32 = 44.0;
+
 /// The relic choice (feature 106): the reward screen after a site cleared
 /// with machines in it — a modal over a dimmed canvas, since the map waits
 /// on it — or a cache's one relic in the mission, a window beside the
@@ -957,20 +964,34 @@ pub fn relic_window(
         ui.label(egui::RichText::new(title).strong().size(18.0));
         ui.add(egui::Label::new(egui::RichText::new(intro).color(theme::MUTED)).wrap());
         ui.add_space(6.0);
+        // Each relic its picture (task 136), then its name to pick it by
+        // and what it does; a click on the picture picks it too.
         for &relic in &choice.options {
             let on = pick.relic == Some(relic.code());
-            let text = egui::RichText::new(relic_name(relic)).strong();
-            if theme::toggle(ui, on, text).clicked() {
-                pick.relic = Some(relic.code());
-            }
-            ui.add(
-                egui::Label::new(
-                    egui::RichText::new(relic_line(relic))
-                        .small()
-                        .color(theme::INK),
-                )
-                .wrap(),
-            );
+            ui.with_layout(egui::Layout::left_to_right(egui::Align::Min), |ui| {
+                let (rect, plate) = ui.allocate_exact_size(
+                    egui::vec2(RELIC_PLATE, RELIC_PLATE),
+                    egui::Sense::click(),
+                );
+                crate::icons::relic(ui.painter(), rect, relic);
+                if plate.clicked() {
+                    pick.relic = Some(relic.code());
+                }
+                ui.vertical(|ui| {
+                    let text = egui::RichText::new(relic_name(relic)).strong();
+                    if theme::toggle(ui, on, text).clicked() {
+                        pick.relic = Some(relic.code());
+                    }
+                    ui.add(
+                        egui::Label::new(
+                            egui::RichText::new(relic_line(relic))
+                                .small()
+                                .color(theme::INK),
+                        )
+                        .wrap(),
+                    );
+                });
+            });
             ui.add_space(3.0);
         }
         if theme::toggle(ui, pick.relic == Some(u32::MAX), TAKE_NONE).clicked() {

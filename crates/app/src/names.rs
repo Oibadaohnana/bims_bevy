@@ -2596,6 +2596,11 @@ pub fn combine_from(worn_by: Option<&str>) -> String {
 pub const MANUFACTURER_NAME: &str = "Manufacturer";
 pub const MANUFACTURER_DOWN: &str = "A Manufacturer is dead.";
 pub const ARRIVE_MANUFACTURERS: &str = "Manufacturers";
+/// An elite (`world::elite`), in a row of the map's list and under its
+/// site on the system map, and the galaxy chart's line on its star.
+pub const ARRIVE_ELITE: &str = "elite · Guardian in wave 2 · relics";
+pub const SITE_ELITE: &str = "ELITE";
+pub const CHART_ELITE: &str = "An elite in this system: a Guardian in its second wave, and relics.";
 pub fn heart_preview_rows(p: &world::heart::HeartPreview) -> [(&'static str, String); 4] {
     [
         ("Conduits", p.conduits.to_string()),
@@ -3007,6 +3012,12 @@ pub const CARRY_TAKEN: &str = "somebody is already carrying them";
 /// What the log says when the revive key is held with nobody down close
 /// enough to get up.
 pub const REVIVE_NOBODY_NEAR: &str = "Nobody down close enough to get up.";
+/// The quickselect in the hero panel (task 138), each after its key.
+pub const HAND_WEAPON: &str = "Weapon";
+pub const HAND_MEDKIT: &str = "Medkit";
+pub const HAND_WEAPON_TIP: &str =
+    "The weapon in hand: your Bim fires as it always does. An attack order takes it up by itself.";
+pub const HAND_MEDKIT_TIP: &str = "The medkit in hand: your Bim holds its fire, and a right-click on a downed crewmate walks over and revives them — their countdown stands while your hands are on them.";
 /// The countdown's seconds over a downed body on the deck.
 pub fn downed_seconds(seconds: f32) -> String {
     format!("{}", seconds.ceil().max(0.0) as u32)

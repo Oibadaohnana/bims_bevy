@@ -814,6 +814,11 @@ pub struct World {
     /// every run. Saved, so a load settles the same system, and not hashed.
     #[cfg_attr(feature = "serde", serde(default))]
     whole_systems: bool,
+    /// A site made an elite by a probe ([`World::set_elite_for_probe`]),
+    /// beside the galaxy's roll. Saved, so a restart brings it again, and
+    /// not hashed, like the forced wave kinds.
+    #[cfg_attr(feature = "serde", serde(default))]
+    elite_forced: Option<run::Site>,
     /// The ship's power over its live networks, worked out from the parts
     /// once per change to them — `on_ship_changed` — rather than once a
     /// step: it is a union-find over every tile of the grid, and the
@@ -1191,6 +1196,7 @@ impl World {
             defense_delay: data::DEFENSE_DELAY_STEPS,
             quiet_sites: false,
             whole_systems: false,
+            elite_forced: None,
             power_budget: shipdesign::power_budget(&design_for_charge),
             discovered: Vec::new(),
             // Everybody starts at real time. Anything else would have the
@@ -5306,7 +5312,8 @@ impl World {
         // And whether it hides a relic cache (feature 106): rolled here,
         // once, off the galaxy's seed.
         let mut it = Infestation::new(id);
-        it.cache = crate::relic::cache_rolled(self.galaxy_seed, self.star_id, id);
+        it.cache = self.is_elite_here(id)
+            && crate::relic::cache_rolled(self.galaxy_seed, self.star_id, id);
         self.infested.push(it);
         self.infested.sort_by_key(|it| it.station);
         // The station's people are gone the moment the machines have it:
@@ -5669,6 +5676,9 @@ impl World {
         // And the Manufacturers' sites of this system held by them (feature
         // 109): the same doors — the start, a jump, a spread, every load.
         self.settle_manufacturers();
+        // And the system's elite, the machines' from the first day, before
+        // the outposts are dealt round it.
+        self.settle_elite();
         // And the machines' outposts (task 136), behind the Manufacturers'
         // and the trader, which are never one.
         self.settle_outposts();
@@ -6112,9 +6122,21 @@ impl World {
     ) -> Vec<bims::droid::Droid> {
         let tier = self.droid_tier();
         let mut troopers = 0usize;
-        self.droid_kinds_forced
+        let kinds = self
+            .droid_kinds_forced
             .clone()
-            .unwrap_or_else(|| bims::droid::wave_kinds(n, tier))
+            .unwrap_or_else(|| bims::droid::wave_kinds(n, tier));
+        // An elite's Guardian comes in its wave, whatever the tier.
+        let elite = self
+            .residents
+            .as_ref()
+            .is_some_and(|r| self.is_elite_here(r.station));
+        let kinds = if elite {
+            crate::elite::with_guardian(kinds, wave)
+        } else {
+            kinds
+        };
+        kinds
             .into_iter()
             .enumerate()
             .map(|(i, kind)| {

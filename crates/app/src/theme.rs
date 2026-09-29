@@ -61,6 +61,9 @@ pub const HYPER: egui::Color32 = egui::Color32::from_rgb(0x9e, 0x6b, 0xdb);
 pub const SITE_ATTACK: egui::Color32 = egui::Color32::from_rgb(0xff, 0x47, 0x38);
 pub const SITE_DEFEND: egui::Color32 = egui::Color32::from_rgb(0xff, 0xb3, 0x2e);
 pub const SITE_TRADER: egui::Color32 = egui::Color32::from_rgb(0x66, 0xe6, 0x75);
+/// An elite, on the maps and the list: the magenta of its crown
+/// (`ship::world_paint::ELITE`).
+pub const SITE_ELITE: egui::Color32 = egui::Color32::from_rgb(255, 102, 230);
 /// A site kind's colour.
 pub fn site_kind_colour(kind: world::SiteKind) -> egui::Color32 {
     match kind {

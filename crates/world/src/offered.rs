@@ -171,6 +171,118 @@ impl World {
         self.run.chosen.sort_by_key(|c| (c.star, c.station));
     }
 
+    // --- elites (`crate::elite`) ------------------------------------------------
+
+    /// The elite of `star`'s system, whose stations are `stations`, if it
+    /// holds one ([`crate::elite::holds`]): the station it offers. None under
+    /// the tests' quiet dial, as the outposts are none.
+    pub fn elite_station(&self, star: u32, stations: &[StationBlueprint]) -> Option<u32> {
+        if let Some(forced) = self.elite_forced.filter(|f| f.star == star) {
+            return Some(forced.station);
+        }
+        if !self.holds_elite(star) {
+            return None;
+        }
+        primary(stations)
+    }
+
+    /// Whether a station of this system is its elite.
+    pub fn is_elite_here(&self, id: u32) -> bool {
+        self.elite_station(self.star_id, &self.system.stations) == Some(id)
+    }
+
+    /// Whether a site anywhere is an elite: this system's off the world,
+    /// any other's off the galaxy (generated here).
+    pub fn is_elite(&self, site: run::Site) -> bool {
+        if site.star == self.star_id {
+            return self.is_elite_here(site.station);
+        }
+        if !self.holds_elite(site.star) {
+            return false;
+        }
+        self.galaxy().system(site.star).is_some_and(|system| {
+            self.elite_station(site.star, &system.stations) == Some(site.station)
+        })
+    }
+
+    /// Whether `star`'s system holds an elite ([`crate::elite::holds`]),
+    /// none under the tests' quiet dial — or one a probe forced there.
+    pub fn holds_elite(&self, star: u32) -> bool {
+        self.elite_forced.is_some_and(|f| f.star == star)
+            || (!self.quiet_sites && crate::elite::holds(self.galaxy_seed, self.home_star, star))
+    }
+
+    /// The probes' dial: `station` of this system an elite whatever the
+    /// roll says — its waves, its Guardian and its relics. Before the
+    /// machines take it, for its cache to be rolled.
+    pub fn set_elite_for_probe(&mut self, station: u32) {
+        self.elite_forced = Some(run::Site {
+            star: self.star_id,
+            station,
+        });
+    }
+
+    /// Every star whose system holds an elite, in id order — what the
+    /// galaxy chart marks. A roll the crew are told, charted or not.
+    pub fn elite_stars(&self, stars: u32) -> Vec<u32> {
+        (0..stars).filter(|&star| self.holds_elite(star)).collect()
+    }
+
+    /// The nearest elite by the lanes, as `(star, station)`: this system's,
+    /// else the fewest hops off, the lower star on a tie.
+    pub fn nearest_elite_site(&self) -> Option<(u32, u32)> {
+        let galaxy = self.galaxy();
+        let hops = galaxy.hops_from(self.star_id);
+        let mut stars: Vec<(u16, u32)> = hops
+            .iter()
+            .enumerate()
+            .filter(|&(star, &h)| h != u16::MAX && self.holds_elite(star as u32))
+            .map(|(star, &h)| (h, star as u32))
+            .collect();
+        stars.sort_unstable();
+        stars.into_iter().find_map(|(_, star)| {
+            let system = galaxy.system(star)?;
+            self.elite_station(star, &system.stations)
+                .map(|station| (star, station))
+        })
+    }
+
+    /// The `BIMS_ELITE` probe and the tests': the crew travel to the nearest
+    /// elite ([`World::nearest_elite_site`]) through a site of every star on
+    /// the way, a trip being one lane, and a mission there begins. The
+    /// station, or `None` with nowhere to go.
+    pub fn elite_dock_for_probe(&mut self) -> Option<u32> {
+        let (star, station) = self.nearest_elite_site()?;
+        let route = if star == self.star_id {
+            vec![star]
+        } else {
+            self.route_to(star)?
+        };
+        for &via in route.iter().skip(1).take(route.len().saturating_sub(2)) {
+            let site = self
+                .sites_at(via)
+                .into_iter()
+                .find(|s| self.travel_quote(*s).is_ok())?;
+            self.probe_trip(site)?;
+        }
+        self.probe_trip(run::Site { star, station })?;
+        Some(station)
+    }
+
+    /// This system's elite laid as the machines' from the first day,
+    /// through [`World::infest`] — never over a site the crew have met
+    /// otherwise (a defence, a town held). At the doors the outposts are
+    /// laid at (`settle_jammer`).
+    pub(super) fn settle_elite(&mut self) {
+        let Some(id) = self.elite_station(self.star_id, &self.system.stations) else {
+            return;
+        };
+        if self.is_droid_held(id) || self.defense(id).is_some() || self.town_held(id) {
+            return;
+        }
+        self.infest(id);
+    }
+
     /// The tests' dial (task 135): `true` is every system as the generator
     /// made it — every station and town, the trader and the Manufacturers'
     /// made-up sites picked among all of them, and no one-fight rule — for

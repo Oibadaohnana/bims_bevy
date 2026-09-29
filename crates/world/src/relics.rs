@@ -852,8 +852,10 @@ impl World {
         // Cleared by now whatever `settle_clear` last saw: what is pending
         // is kept.
         self.settle_clear(events);
+        // Only an elite drops relics (`crate::elite`): every other fight
+        // goes straight to the map.
         match station {
-            Some(id) if self.run.fought => self.offer_reward(id, events),
+            Some(id) if self.run.fought && self.is_elite_here(id) => self.offer_reward(id, events),
             _ => false,
         }
     }

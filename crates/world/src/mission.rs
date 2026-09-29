@@ -321,6 +321,10 @@ impl World {
         let infestation = infestations.iter().find(|it| it.station == site.station);
         // One of the machines' outposts (task 136) in a system never
         // visited: theirs on arrival as its memory would say, had it one.
+        // The system's elite (`crate::elite`): the machines' from the
+        // first day, an attack.
+        let elite =
+            !trader && self.elite_station(site.star, &system.stations) == Some(site.station);
         let outpost = jump
             && !self.memories.iter().any(|m| m.star == site.star)
             && self.outposts_of(site.star, system).contains(&site.station);
@@ -333,6 +337,7 @@ impl World {
         let kind = if trader {
             SiteKind::Trader
         } else if infested
+            || elite
             || manufacturers
             || infestation.is_some()
             || outpost
@@ -364,6 +369,7 @@ impl World {
             threatened,
             cleared,
             manufacturers,
+            elite,
             trader,
             kind,
             // The Machine Heart's strength on arrival (feature 108).

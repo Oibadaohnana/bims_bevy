@@ -72,6 +72,10 @@ pub fn near_sites(galaxy: &Galaxy, home: u32, primaries_only: bool) -> Vec<(u32,
             continue;
         }
         let star = star as u32;
+        // Never in an elite's system: its station is the machines'.
+        if crate::elite::rolled(galaxy.seed, star) {
+            continue;
+        }
         let Some(system) = galaxy.system(star) else {
             continue;
         };
@@ -117,6 +121,7 @@ pub fn holds(
     station: &StationBlueprint,
 ) -> bool {
     star != home
+        && !crate::elite::rolled(galaxy_seed, star)
         && eligible(station)
         && (rolled(galaxy_seed, star, station.id) || near.contains(&(star, station.id)))
 }

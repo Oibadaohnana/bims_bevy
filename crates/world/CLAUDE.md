@@ -5956,3 +5956,42 @@ it. The ship's sessions (`PINNED`, `PICTURES`) use no dial.
 
 **What moved**: `SAVE_VERSION` 58, `wire::PROTOCOL` 54 (the relay wants
 redeploying), `Refusal::OtherSiteChosen` = 122.
+
+## Elites: one system in ten, a Guardian, and the only relics
+
+`crate::elite` is the rule, `offered.rs` the world's side (an elite is
+part of what a system offers).
+
+- **Which**: a star's system holds an elite where the galaxy's seed rolls
+  it (`data::ELITE_SYSTEM_CHANCE`, ten in a hundred, a salt of its own)
+  and it is not the crew's own (`elite::holds`). The elite is the station
+  the system offers (`World::elite_station`: the primary of task 135).
+  Stateless, never saved; `World::holds_elite`, `is_elite`,
+  `is_elite_here`, `elite_stars` (the chart's), `nearest_elite_site`.
+  None under the tests' quiet dial.
+- **Always an attack**: `settle_elite` (in `settle_jammer`, after the
+  Manufacturers, before the outposts) lays it as the machines' through
+  `infest` from the first day. Never the Manufacturers' (`manufacturer::
+  holds` and `near_sites` skip an elite's system), never an outpost's
+  coin (no outposts in an elite's system; under the whole-systems dial
+  the elite is taken out of the candidates). `TravelQuote::elite`, and
+  the quote's kind is Attack.
+- **The fight**: `wave_count_here` is at least `data::ELITE_WAVES` (2),
+  bar a count the probes forced; `build_wave` puts a Guardian in wave
+  `data::ELITE_GUARDIAN_WAVE` (2) whatever the tier
+  (`elite::with_guardian`: in the last Trooper's place, after the
+  Wardens), a wave with Guardians of its own left alone.
+- **Only an elite drops relics**: `relics_on_leaving` offers the reward
+  only at an elite, and `infest` rolls a relic cache only there (a site of
+  the Manufacturers' has none). Traders still sell theirs.
+- **Probes**: `World::set_elite_for_probe(station)` (saved, not hashed)
+  makes a site an elite — `tests_relic.rs`'s arena is one — and
+  `elite_dock_for_probe` takes the crew to the nearest elite, a mission
+  begun (`BIMS_ELITE=1` in the app).
+- **The pictures**: a crown and a second ring in magenta
+  (`ship::world_paint::{ELITE, paint_crown}`) on the system map, the same
+  crown over the star on the galaxy chart (`lobby::preview`'s `ELITE`,
+  `Marks::elites`), `ELITE` under the site and "elite · Guardian in wave 2
+  · relics" in the list.
+
+`tests_elite.rs` is the rule. **`SAVE_VERSION` 59, `wire::PROTOCOL` 55**.

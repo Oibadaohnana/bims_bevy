@@ -46,6 +46,9 @@ fn held_arena(players: u32) -> (World, u32) {
             },
         );
     }
+    // An elite: only an elite drops relics (`crate::elite`), a reward on
+    // its clear and a cache on its desk.
+    world.set_elite_for_probe(station);
     world.infest(station);
     world.set_droid_reinforce_minutes_for_probe(1.0);
     world.set_droid_waves_for_probe(1);

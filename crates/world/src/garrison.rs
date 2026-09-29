@@ -76,11 +76,9 @@ impl World {
             if self.infestation(id).is_some() {
                 continue;
             }
-            let mut it = Infestation::manufacturers(id);
-            // A site of theirs may hide a relic cache on its research desk
-            // as a held station may (feature 106): rolled here, once.
-            it.cache = crate::relic::cache_rolled(self.galaxy_seed, self.star_id, id);
-            self.infested.push(it);
+            // No relic cache: only an elite hides one, and a site of theirs
+            // is never an elite (`crate::elite`).
+            self.infested.push(Infestation::manufacturers(id));
             added = true;
         }
         if added {
@@ -110,6 +108,11 @@ impl World {
     pub(super) fn wave_count_here(&self, id: u32) -> u32 {
         if self.is_manufacturer_held(id) && manufacturer::has_droids(self.days_gone()) {
             return 1;
+        }
+        // An elite comes in at least two (`crate::elite`), bar a count the
+        // probes forced.
+        if self.is_elite_here(id) && self.droid_waves_forced.is_none() {
+            return self.droid_wave_count().max(data::ELITE_WAVES);
         }
         self.droid_wave_count()
     }
@@ -362,7 +365,7 @@ impl World {
 
     /// One trip for a probe: off the site the crew are at, onto the map,
     /// and away to `site` as a vote carried would take them.
-    fn probe_trip(&mut self, site: run::Site) -> Option<()> {
+    pub(super) fn probe_trip(&mut self, site: run::Site) -> Option<()> {
         let mut events = Vec::new();
         if self.run.phase == run::Phase::Mission {
             self.leave_mission(&mut events);

@@ -54,6 +54,7 @@ pub mod defense;
 pub mod deploy;
 pub mod docking;
 pub mod droid;
+pub mod elite;
 pub mod engineer;
 pub mod event;
 pub mod fixture;
@@ -112,6 +113,8 @@ mod tests_crisis;
 mod tests_defense;
 #[cfg(test)]
 mod tests_droid;
+#[cfg(test)]
+mod tests_elite;
 #[cfg(test)]
 mod tests_engineer;
 #[cfg(test)]

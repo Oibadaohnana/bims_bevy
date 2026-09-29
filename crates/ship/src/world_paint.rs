@@ -99,6 +99,16 @@ fn site_ring(world: &world::World, id: u32) -> Color {
         world::SiteKind::Trader => TRADE,
     }
 }
+/// An **elite** (`world::elite`), on the map: a crown over its icon and
+/// a second ring outside the attack's, in a magenta no other mark on
+/// either map is — the galaxy chart crowns the elite's star the same
+/// way (`lobby::preview`'s `ELITE`, by value). Faded once cleared.
+pub const ELITE: Color = Color::rgb(1.0, 0.40, 0.90);
+/// How far over the icon's middle the crown's foot sits, and how wide
+/// the crown is, as shares of the icon size.
+const CROWN_LIFT: f32 = 0.95;
+const CROWN_WIDTH: f32 = 0.9;
+
 /// The stance ring on the map, as a share of the icon size: outside the
 /// aim ring (which is the icon size across), so the two never sit on each
 /// other when an enemy's station is the one picked.
@@ -2266,6 +2276,29 @@ pub fn paint_tick(list: &mut DrawList, x: f32, y: f32, size: f32, thin: f32) {
     list.line(cx, cy, x + w, y - h, thin, VISITED);
 }
 
+/// An elite's crown, `width` across, its foot centred on `(x, y)`: a
+/// band, three points — the middle one tallest — and a jewel on each.
+pub fn paint_crown(list: &mut DrawList, x: f32, y: f32, width: f32, thin: f32, c: Color) {
+    let w = width / 2.0;
+    let h = width * 0.7;
+    let points = [
+        (x - w, y),
+        (x - w, y - h),
+        (x - w / 2.0, y - h * 0.45),
+        (x, y - h * 1.15),
+        (x + w / 2.0, y - h * 0.45),
+        (x + w, y - h),
+        (x + w, y),
+        (x - w, y),
+    ];
+    for pair in points.windows(2) {
+        list.line(pair[0].0, pair[0].1, pair[1].0, pair[1].1, thin, c);
+    }
+    for (px, py) in [points[1], points[3], points[5]] {
+        disc(list, px, py, thin * 2.6, c);
+    }
+}
+
 /// A station, `size` across, centred on `(x, y)`.
 pub fn paint_station(list: &mut DrawList, x: f32, y: f32, size: f32, kind: StationKind, thin: f32) {
     let color = station_color(Some(kind));
@@ -2544,6 +2577,24 @@ fn paint_map(game: &Game, list: &mut DrawList) {
         let colour = site_ring(&game.world, id);
         let d = size * STANCE_RING;
         ring(list, x, y, d, d, 0.0, thin * 2.5, colour);
+        // And an elite crowned, a second ring outside the first.
+        if game.world.is_elite_here(id) {
+            let elite = if game.world.site_cleared(id) {
+                ELITE.alpha(0.4)
+            } else {
+                ELITE
+            };
+            let d = d * 1.3;
+            ring(list, x, y, d, d, 0.0, thin * 2.0, elite);
+            paint_crown(
+                list,
+                x,
+                y - CROWN_LIFT * size,
+                size * CROWN_WIDTH,
+                thin * 1.6,
+                elite,
+            );
+        }
     }
 
     // Where the crew have already been (feature 85): a tick at the lower

@@ -173,6 +173,13 @@ pub fn relic_dials(session: &mut ship::Session) {
     }
 }
 
+/// `BIMS_ELITE=1` opens the run at the nearest **elite** (`world::elite`),
+/// the trips there taken and its mission begun — its crown on the system
+/// map and its fight (`Session::elite_for_probe`).
+pub fn elite() -> bool {
+    std::env::var("BIMS_ELITE").as_deref() == Ok("1")
+}
+
 /// `BIMS_MAP=1` opens the run **between missions** (feature 103): the
 /// ship off the site it opened at and the world map up for everybody —
 /// how the list of destinations and the vote are looked at without

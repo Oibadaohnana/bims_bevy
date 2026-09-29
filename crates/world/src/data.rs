@@ -609,6 +609,15 @@ pub const RELICS_UNLOCKED_PER_WIN: usize = 2;
 /// It was twenty in a hundred a *station*, which with every system given a
 /// station (worldgen's `GENERATOR_VERSION` 8) was a trader in half of them.
 pub const TRADER_SYSTEM_CHANCE: u32 = 10;
+/// The odds a star's system holds an **elite**, in per cent, off the
+/// galaxy's seed (`crate::elite`): its station the machines' from the
+/// first day, at least [`ELITE_WAVES`] waves, a Guardian in the second —
+/// and the only fights that drop relics. Never the crew's own system.
+pub const ELITE_SYSTEM_CHANCE: u32 = 10;
+/// The fewest waves an elite's machines come in.
+pub const ELITE_WAVES: u32 = 2;
+/// The wave an elite's Guardian comes in (the first is wave one).
+pub const ELITE_GUARDIAN_WAVE: u32 = 2;
 /// And at least this many traders within [`TRADER_NEAR_HOPS`] lanes of the
 /// crew's own star, their own system counted: somewhere to buy a gun
 /// before the first fight has paid for one. Made up out of the systems

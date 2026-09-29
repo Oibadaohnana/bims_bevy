@@ -69,11 +69,18 @@ impl World {
         // Manufacturers', that is the attack and the town the defence.
         // Under the tests' dial that keeps whole systems, every station and
         // town but the trader's, the Manufacturers' and the derived.
+        // An elite is its system's attack (`crate::elite`): no outpost
+        // beside it, and under the dial none dealt to it.
+        let elite = self.elite_station(star, &system.stations);
+        if elite.is_some() && !self.whole_systems {
+            return Vec::new();
+        }
         let candidates = if self.whole_systems {
             let mut all: Vec<u32> = system
                 .stations
                 .iter()
                 .filter(|s| !heart::is_heart(s.id) && !jammer::is_derived(s.id))
+                .filter(|s| Some(s.id) != elite)
                 .filter(|s| !self.is_trader_station(star, &system.stations, s))
                 .filter(|s| !self.is_manufacturer_site(star, s))
                 .map(|s| s.id)

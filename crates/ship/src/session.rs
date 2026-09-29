@@ -124,6 +124,9 @@ pub struct SiteMark {
     /// The fight the crew passed over: they fought this system's other
     /// one (task 135, `World::passed_over`).
     pub passed: bool,
+    /// The system's elite (`world::elite`): crowned on the map, its word
+    /// in the crown's colour.
+    pub elite: bool,
     /// Where the map draws it, in the camera's units about the ship.
     pub at: (f32, f32),
 }
@@ -866,6 +869,13 @@ impl Session {
         };
         game.world.leave_for_probe();
         true
+    }
+
+    /// Any run opened at an elite (`world::elite`): the trips to the nearest
+    /// one taken and its mission begun (`World::elite_dock_for_probe`).
+    /// `BIMS_ELITE=1`. The station, or `None` with none in reach.
+    pub fn elite_for_probe(&mut self) -> Option<u32> {
+        self.game.as_mut()?.world.elite_dock_for_probe()
     }
 
     /// Any run opened at a trader (task 114): the mission left and the
@@ -1849,6 +1859,7 @@ impl Session {
                     cleared: world.site_cleared(id) && !world.site_threatened(id),
                     closed: kind == world::SiteKind::Trader && closed,
                     passed: world.passed_over(id),
+                    elite: world.is_elite_here(id),
                     at: game.map_spot(node)?,
                 })
             })
