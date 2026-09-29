@@ -127,6 +127,27 @@ pub struct FogTexture {
     version: u64,
 }
 
+impl FogTexture {
+    /// Keep `image`, of `size`, as the picture: under the handle held
+    /// while it is the same size, else under a new one. A canvas
+    /// material's bind group is made once over the texture its picture
+    /// had then and is never made again for the picture changing under
+    /// the same handle; a picture of another size is another texture, so
+    /// kept under the old handle the fog went on drawing the texture
+    /// before — the station left behind, stretched over this one. A new
+    /// handle is a new picture to the canvas (`scene.rs`), which makes its
+    /// material again.
+    fn keep(&mut self, images: &mut Assets<Image>, image: Image, size: (usize, usize)) {
+        match &self.handle {
+            Some(handle) if self.size == size => {
+                let _ = images.insert(handle.id(), image);
+            }
+            _ => self.handle = Some(images.add(image)),
+        }
+        self.size = size;
+    }
+}
+
 /// A piece of the texture to draw: the part of it between `uv0` and
 /// `uv1` (nought to one across the map), at `corners` on the canvas in
 /// window points — the piece's origin, then clockwise.
@@ -227,13 +248,7 @@ impl FogTexture {
                 RenderAssetUsages::RENDER_WORLD,
             )
         };
-        match &self.handle {
-            Some(handle) => {
-                let _ = images.insert(handle.id(), image);
-            }
-            None => self.handle = Some(images.add(image)),
-        }
-        self.size = (map.width, map.height);
+        self.keep(images, image, (map.width, map.height));
         // A picture this holds is the GPU's now, not a version of the
         // CPU's: the next map worked out here uploads the lot.
         self.version = u64::MAX;
@@ -296,13 +311,7 @@ impl FogTexture {
                         RenderAssetUsages::MAIN_WORLD | RenderAssetUsages::RENDER_WORLD,
                     )
                 };
-                match &self.handle {
-                    Some(handle) => {
-                        let _ = images.insert(handle.id(), image);
-                    }
-                    None => self.handle = Some(images.add(image)),
-                }
-                self.size = (w, h);
+                self.keep(images, image, (w, h));
             }
         }
         self.version = map.version;
