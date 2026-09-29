@@ -4200,3 +4200,25 @@ and `a_crewmate_standing_over_a_body_is_the_crewmate` pin it.
 `a_locked_door_is_a_wall_and_an_unlocked_one_is_not` locks its door
 outright now, after the panel's lock is refused. `SAVE_VERSION` 60,
 `wire::PROTOCOL` 56.
+
+## A machine has one health (task 137)
+
+> "The body is four parts and there is no dying" in "A droid is not a
+> Bim" above says **head or chassis at nothing is destroyed**: that is
+> what this change took away.
+
+`DroidBody` keeps `life`/`life_max` beside the parts: the four parts'
+healths added together at the tier (a Trooper 105), a solid Heart body
+its one number. `take` takes the **whole** damage off `life` wherever the
+hit lands, as well as off the part — a limb **or the head** already at
+nothing passes the hit to the chassis — and `destroyed()` is `life` at
+nothing and nothing else, so a head or a chassis at nothing only breaks
+that part (a dim sensor, and hits land on the chassis), the way broken
+legs stop the walk and broken arms the aim. `life_share()` is the app's
+health bar (`crates/app/src/healthbars.rs`). **A test or a probe that
+breaks a limb strikes it with `body.max(limb)`, never `1e6`** — that
+empties the whole health now and wrecks the machine.
+`every_hit_comes_off_one_health_and_no_part_alone_destroys` pins it.
+`SAVE_VERSION` 61; `wire::PROTOCOL` 58 (task #11's, which carried this
+one's 57). The survivor pins move with it on purpose: a fight against
+machines plays differently.

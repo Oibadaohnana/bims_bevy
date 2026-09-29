@@ -9,8 +9,9 @@
 //! # A picture, kept by the screen
 //!
 //! Nothing here is the world's. A bar is read off the room every frame —
-//! a Bim's hit points out of [`bims::health::MAX_HEALTH`], a machine's
-//! weaker of its head and chassis, whichever finishes it — and the white
+//! a Bim's hit points out of [`bims::health::MAX_HEALTH`] with its worn
+//! armour's health in the armour's blue on the end, as the HUD draws it;
+//! a machine's one health, its four parts' added together — and the white
 //! and the light parts are this window's memory of what the bar was a
 //! moment ago, aged on its own clock: real seconds at every speed, held
 //! still while the game is paused, like the fight's passing lights.
@@ -113,42 +114,76 @@ impl Trail {
     }
 }
 
+/// What a body has, each a share of its whole bar: its hit points, and
+/// the armour it wears on the end of them.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct Reading {
+    health: f32,
+    armour: f32,
+}
+
+/// A body's two trails: its health alone, for the light of a heal —
+/// only hit points are ever put back — and its health and armour
+/// together, for the white of a hit, which takes the armour first.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct Trails {
+    health: Trail,
+    all: Trail,
+}
+
+impl Trails {
+    fn new(r: Reading) -> Trails {
+        Trails {
+            health: Trail::new(r.health),
+            all: Trail::new(r.health + r.armour),
+        }
+    }
+
+    fn step(&mut self, r: Reading, dt: f32) {
+        self.health.step(r.health, dt);
+        self.all.step(r.health + r.armour, dt);
+    }
+}
+
 /// One bar to draw: where the body is in the camera's units, whose side
-/// it is on, and its trail.
+/// it is on, and its trails.
 struct Bar {
     at: (f32, f32),
     friendly: bool,
-    trail: Trail,
+    trails: Trails,
 }
 
 /// Every bar on the deck and what each remembers. Kept by the game
 /// screen.
 #[derive(Default)]
 pub struct HealthBars {
-    trails: HashMap<(Room, u32), Trail>,
+    trails: HashMap<(Room, u32), Trails>,
     shown: Vec<Bar>,
 }
 
-/// How much of its bar a body of `room` has, or `None` for one that is
-/// down: a Bim downed or dead, a machine a wreck.
-fn share(room: &bims::game::Game, who: usize) -> Option<f32> {
+/// What a body of `room` has, or `None` for one that is down: a Bim
+/// downed or dead, a machine a wreck. A Bim's bar is its hit points and
+/// its worn armour's health laid end to end, the HUD's bar; a machine's
+/// is its one health (task 137), and it wears nothing.
+fn reading(room: &bims::game::Game, who: usize) -> Option<Reading> {
     if room.is_down(who) {
         return None;
     }
     let bims = room.crew_count() as usize;
-    let share = match who.checked_sub(bims) {
-        None => room.health(who) / bims::health::MAX_HEALTH,
-        Some(i) => {
-            let body = &room.droid(i)?.body;
-            use bims::droid::DroidPart::{Chassis, Head};
-            if body.is_solid() {
-                body.share(Chassis)
-            } else {
-                body.share(Head).min(body.share(Chassis))
-            }
+    match who.checked_sub(bims) {
+        None => {
+            let armour = room.armour_health(who).max(0.0);
+            let whole = bims::health::MAX_HEALTH + armour;
+            Some(Reading {
+                health: (room.health(who) / whole).clamp(0.0, 1.0),
+                armour: armour / whole,
+            })
         }
-    };
-    Some(share.clamp(0.0, 1.0))
+        Some(i) => Some(Reading {
+            health: room.droid(i)?.body.life_share(),
+            armour: 0.0,
+        }),
+    }
 }
 
 /// The bar's height at the view's `scale`, in points.
@@ -167,20 +202,20 @@ impl HealthBars {
     /// frame — nought while the game is paused. Called every frame the
     /// bars are drawn, just before [`HealthBars::paint`].
     pub fn update(&mut self, game: &Game, dt: f32) {
-        let mut next: HashMap<(Room, u32), Trail> = HashMap::new();
+        let mut next: HashMap<(Room, u32), Trails> = HashMap::new();
         self.shown.clear();
-        let mut take = |key: (Room, u32), share: f32, at: (f32, f32), friendly: bool| {
-            let mut trail = self
+        let mut take = |key: (Room, u32), r: Reading, at: (f32, f32), friendly: bool| {
+            let mut trails = self
                 .trails
                 .get(&key)
                 .copied()
-                .unwrap_or_else(|| Trail::new(share));
-            trail.step(share, dt);
-            next.insert(key, trail);
+                .unwrap_or_else(|| Trails::new(r));
+            trails.step(r, dt);
+            next.insert(key, trails);
             self.shown.push(Bar {
                 at,
                 friendly,
-                trail,
+                trails,
             });
         };
         let crew = &game.world.aboard;
@@ -189,7 +224,7 @@ impl HealthBars {
             if !room.body_seen(who as usize) {
                 continue;
             }
-            if let Some(s) = share(room, who as usize) {
+            if let Some(s) = reading(room, who as usize) {
                 let at = world_paint::crew_on_screen(game, who);
                 take(
                     (Room::Crew, who),
@@ -205,7 +240,7 @@ impl HealthBars {
                 if !room.body_seen(who as usize) {
                     continue;
                 }
-                if let Some(s) = share(room, who as usize) {
+                if let Some(s) = reading(room, who as usize) {
                     let at = world_paint::resident_on_screen(game, who);
                     take(
                         (Room::Residents(residents.station), who),
@@ -239,18 +274,19 @@ impl HealthBars {
             } else {
                 (ENEMY, ENEMY_HEALED)
             };
-            paint_bar(painter, track, bar.trail, solid, healed);
+            paint_bar(painter, track, bar.trails, solid, healed);
         }
     }
 }
 
 /// One bar in `track`: the dark track with an outline, the solid fill up
-/// to what the body kept, the light up to where it stands now, and the
-/// white up to what it had before its last hits.
+/// to the hit points the body kept, the light up to the ones it has now,
+/// the armour's blue after them, and the white up to what it had before
+/// its last hits.
 fn paint_bar(
     painter: &egui::Painter,
     track: egui::Rect,
-    trail: Trail,
+    trails: Trails,
     solid: egui::Color32,
     healed: egui::Color32,
 ) {
@@ -262,21 +298,23 @@ fn paint_bar(
             egui::pos2(track.min.x + track.width() * to, track.max.y),
         )
     };
-    let Trail {
-        now, lost, kept, ..
-    } = trail;
+    let (health, kept) = (trails.health.now, trails.health.kept);
+    let (all, lost) = (trails.all.now, trails.all.lost);
     if kept > 0.0 {
         painter.rect_filled(span(0.0, kept), 1.0, solid);
     }
-    if now > kept {
-        painter.rect_filled(span(kept, now), 0.0, healed);
+    if health > kept {
+        painter.rect_filled(span(kept, health), 0.0, healed);
     }
-    if lost > now {
-        painter.rect_filled(span(now, lost), 0.0, DAMAGE);
+    if all > health {
+        painter.rect_filled(span(health, all), 0.0, crate::theme::ARMOUR);
+    }
+    if lost > all {
+        painter.rect_filled(span(all, lost), 0.0, DAMAGE);
     }
     // A sheen along the top of the fill, as Dota's bars have.
-    if now > 0.0 {
-        let top = span(0.0, now.max(lost));
+    if lost > 0.0 {
+        let top = span(0.0, lost);
         let sheen = egui::Rect::from_min_max(
             top.min,
             egui::pos2(top.max.x, top.min.y + track.height() * 0.35),
@@ -344,6 +382,28 @@ mod tests {
         assert_eq!(t.lost, 0.7);
         t.step(0.3, 0.016);
         assert_eq!(t.kept, 0.3, "and a hit below it takes the solid");
+    }
+
+    #[test]
+    fn a_hit_the_armour_takes_whitens_the_blue_and_a_heal_lights_the_health() {
+        // Sixty hit points and forty of armour on a bar of a hundred and
+        // forty.
+        let r = |health: f32, armour: f32| Reading {
+            health: health / 140.0,
+            armour: armour / 140.0,
+        };
+        let mut t = Trails::new(r(60.0, 40.0));
+        // The armour takes a hit of ten: the health is untouched and the
+        // white runs from the end of the blue to where the blue was.
+        t.step(r(60.0, 30.0), 0.016);
+        assert_eq!(t.health.now, 60.0 / 140.0);
+        assert_eq!(t.health.kept, 60.0 / 140.0);
+        assert_eq!(t.all.now, 90.0 / 140.0);
+        assert_eq!(t.all.lost, 100.0 / 140.0);
+        // A heal of twenty: light on the health, the solid where it was.
+        t.step(r(80.0, 30.0), 0.016);
+        assert_eq!(t.health.kept, 60.0 / 140.0);
+        assert_eq!(t.health.now, 80.0 / 140.0);
     }
 
     #[test]

@@ -463,7 +463,9 @@ fn a_taunting_tank_is_shot_at_before_a_nearer_crewmate_and_two_runs_agree() {
         // a walk rather than a choice. Nobody of the crew is armed, so
         // nothing else of it is ever hit.
         if let Some(residents) = &mut world.residents {
-            residents.aboard.room.strike_droid(0, DroidPart::Legs, 1e6);
+            let room = &mut residents.aboard.room;
+            let legs = room.droid(0).unwrap().body.max(DroidPart::Legs);
+            room.strike_droid(0, DroidPart::Legs, legs);
         }
         let (mut on_tank, mut on_mate) = (0, 0);
         for _ in 0..400 {

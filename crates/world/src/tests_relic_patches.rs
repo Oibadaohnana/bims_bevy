@@ -198,9 +198,11 @@ fn servo_cutter_crippler_s_mark_and_total_teardown() {
         taken(&mut world, 0, i, DroidPart::Chassis, DroidPart::Chassis),
         10.0
     ));
-    // The arms gone: crippled.
+    // The arms gone: crippled — their own health and no more, since
+    // every hit comes off the machine's one health (task 137).
     let room = &mut world.residents.as_mut().unwrap().aboard.room;
-    room.strike_droid(i, DroidPart::Arms, 1e6);
+    let arms = room.droid(i).unwrap().body.max(DroidPart::Arms);
+    room.strike_droid(i, DroidPart::Arms, arms);
     world.give_relic_for_probe(0, Relic::CripplersMark);
     assert!(close(
         taken(&mut world, 0, i, DroidPart::Chassis, DroidPart::Chassis),

@@ -175,7 +175,9 @@ use crate::game::Game;
 /// 59: elites — the world keeps the site a probe made an elite.
 /// 60: the quickselect (task 138) — a Bim keeps what is in its hands,
 /// the figure the medkit it draws, and a skill whether it may lock a door.
-pub const SAVE_VERSION: u32 = 60;
+/// 61: a machine has one health (task 137) — its body keeps the four
+/// parts added together, which every hit comes off.
+pub const SAVE_VERSION: u32 = 61;
 
 /// What the file holds, read back.
 #[derive(serde::Deserialize)]

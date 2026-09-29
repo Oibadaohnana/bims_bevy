@@ -1735,7 +1735,8 @@ fn a_droid_held_station_is_saved_and_read_back_whole() {
         let room = &mut world.residents.as_mut().unwrap().aboard.room;
         room.strike_droid(0, bims::droid::DroidPart::Chassis, 1e6);
         room.strike_droid(1, bims::droid::DroidPart::Legs, 5.0);
-        room.strike_droid(2, bims::droid::DroidPart::Arms, 1e6);
+        let arms = room.droid(2).unwrap().body.max(bims::droid::DroidPart::Arms);
+        room.strike_droid(2, bims::droid::DroidPart::Arms, arms);
     }
     session.world_step();
 

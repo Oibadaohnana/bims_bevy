@@ -412,12 +412,20 @@ impl DroidKind {
     }
 }
 
-/// One machine's four parts, each with what it has and what it had.
+/// One machine's body: **one health** (task 137) — its four parts' own
+/// added together — that every hit comes off wherever it lands, and the
+/// four parts, each with what it has and what it had, that a hit breaks
+/// as well: legs at nothing stop the walk, arms at nothing spoil the
+/// aim, a head at nothing dims the sensor. Only the one health at
+/// nothing destroys it.
 #[derive(Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct DroidBody {
     health: [f32; 4],
     max: [f32; 4],
+    /// The one health (task 137), nought to `life_max`.
+    life: f32,
+    life_max: f32,
     /// One health rather than four parts: a Heart's machine (feature
     /// 108), where every hit lands on the Chassis and only the Chassis
     /// at nothing destroys it.
@@ -433,6 +441,7 @@ impl core::fmt::Debug for DroidBody {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         let mut s = f.debug_struct("DroidBody");
         s.field("health", &self.health).field("max", &self.max);
+        s.field("life", &self.life);
         if self.solid {
             s.field("solid", &self.solid);
         }
@@ -442,7 +451,8 @@ impl core::fmt::Debug for DroidBody {
 
 impl DroidBody {
     /// A whole body of that kind at that tier: every part multiplied by
-    /// `ARMOUR_TIER_STEP` for each tier above one.
+    /// `ARMOUR_TIER_STEP` for each tier above one, and the one health the
+    /// four added together.
     pub fn new(kind: DroidKind, tier: Tier) -> DroidBody {
         let step = match tier {
             Tier::One => 1.0,
@@ -453,9 +463,12 @@ impl DroidBody {
         for h in &mut max {
             *h *= step;
         }
+        let life = max[0] + max[1] + max[2] + max[3];
         DroidBody {
             health: max,
             max,
+            life,
+            life_max: life,
             solid: false,
         }
     }
@@ -467,6 +480,8 @@ impl DroidBody {
         DroidBody {
             health: [health; 4],
             max: [health; 4],
+            life: health,
+            life_max: health,
             solid: true,
         }
     }
@@ -498,27 +513,50 @@ impl DroidBody {
         self.health(part) <= 0.0
     }
 
-    /// Whether the machine is finished: head or chassis at nothing.
-    /// There is no dying state — it stops the instant either goes.
-    pub fn destroyed(&self) -> bool {
-        if self.solid {
-            return self.gone(DroidPart::Chassis);
-        }
-        self.gone(DroidPart::Head) || self.gone(DroidPart::Chassis)
+    /// The one health (task 137): what every hit comes off.
+    pub fn life(&self) -> f32 {
+        self.life
     }
 
-    /// Take `damage` off `part`, and answer which part actually took it:
-    /// **a hit on a limb already at nothing lands on the Chassis**, so
-    /// nothing can be made unkillable by shooting its legs off first.
-    /// The head and the chassis themselves take what they are given.
+    /// What the one health is when the machine is whole.
+    pub fn life_max(&self) -> f32 {
+        self.life_max
+    }
+
+    /// The one health as a share of the whole, 0 to 1: its health bar.
+    pub fn life_share(&self) -> f32 {
+        if self.life_max <= 0.0 {
+            0.0
+        } else {
+            clamp(self.life / self.life_max, 0.0, 1.0)
+        }
+    }
+
+    /// Whether the machine is finished: the one health at nothing (task
+    /// 137). No part at nothing finishes it on its own, the head and the
+    /// chassis included. There is no dying state — it stops the instant
+    /// the health goes.
+    pub fn destroyed(&self) -> bool {
+        self.life <= 0.0
+    }
+
+    /// Take `damage` off the one health and off `part`, and answer which
+    /// part actually took it: **a hit on a limb or the head already at
+    /// nothing lands on the Chassis** (task 137). The whole of the damage
+    /// comes off the health wherever it lands, so every hit counts
+    /// towards the wreck.
     pub fn take(&mut self, part: DroidPart, damage: f32) -> DroidPart {
         let part = match part {
             _ if self.solid => DroidPart::Chassis,
-            DroidPart::Arms | DroidPart::Legs if self.gone(part) => DroidPart::Chassis,
+            DroidPart::Arms | DroidPart::Legs | DroidPart::Head if self.gone(part) => {
+                DroidPart::Chassis
+            }
             other => other,
         };
+        let damage = damage.max(0.0);
         let i = part.code() as usize;
-        self.health[i] = (self.health[i] - damage.max(0.0)).max(0.0);
+        self.health[i] = (self.health[i] - damage).max(0.0);
+        self.life = (self.life - damage).max(0.0);
         part
     }
 }
@@ -746,11 +784,11 @@ impl Droid {
     }
 
     /// A hit on it: the part rolled by the caller off the combat
-    /// stream's own draw, the damage taken off it, and the machine
-    /// destroyed at once if the head or the chassis goes. Answers the
-    /// part that actually took it — a limb already gone passes it to the
-    /// chassis — so a caller that wants to say what was struck says the
-    /// truth. A wreck takes nothing.
+    /// stream's own draw, the damage taken off it and off the one health,
+    /// and the machine destroyed at once when that health goes (task
+    /// 137). Answers the part that actually took it — a limb or a head
+    /// already gone passes it to the chassis — so a caller that wants to
+    /// say what was struck says the truth. A wreck takes nothing.
     pub fn strike(&mut self, part: DroidPart, damage: f32) -> Option<DroidPart> {
         if self.destroyed {
             return None;
@@ -2283,16 +2321,60 @@ mod tests {
     }
 
     #[test]
-    fn head_or_chassis_at_nothing_destroys_and_there_is_no_dying() {
-        for part in [DroidPart::Head, DroidPart::Chassis] {
+    fn the_one_health_at_nothing_destroys_and_there_is_no_dying() {
+        for part in DroidPart::ALL {
             let mut d = Droid::new(DroidKind::Trooper, Tier::One, 0, 0, Vec2::ZERO, 0.0, 7);
             assert!(!d.destroyed);
             d.strike(part, 1e6);
-            assert!(d.destroyed, "{part:?} at nothing destroys");
+            assert!(
+                d.destroyed,
+                "a hit on the {part:?} that empties the health destroys"
+            );
             // A wreck takes nothing more, and is still a wreck.
             assert_eq!(d.strike(DroidPart::Chassis, 1e6), None);
             assert!(d.destroyed);
         }
+    }
+
+    /// Task 137: a machine's health is its four parts added together,
+    /// every hit comes off it wherever it lands, and a head or a chassis
+    /// at nothing no longer finishes it on its own.
+    #[test]
+    fn every_hit_comes_off_one_health_and_no_part_alone_destroys() {
+        let whole = |kind: DroidKind| kind.body().iter().sum::<f32>();
+        let mut d = Droid::new(DroidKind::Trooper, Tier::One, 0, 0, Vec2::ZERO, 0.0, 7);
+        assert_eq!(d.body.life_max(), whole(DroidKind::Trooper));
+        assert_eq!(d.body.life_share(), 1.0);
+        // A hit on each part is off the health, the limbs' included.
+        let mut left = d.body.life();
+        for part in DroidPart::ALL {
+            d.strike(part, 3.0);
+            left -= 3.0;
+            assert_eq!(d.body.life(), left, "a hit on the {part:?} counts");
+        }
+        // The head shot away: dimmed, not destroyed, and the next hit on
+        // it lands on the chassis and still counts.
+        let head = d.body.health(DroidPart::Head);
+        d.strike(DroidPart::Head, head);
+        assert!(d.body.gone(DroidPart::Head));
+        assert!(!d.destroyed, "a head at nothing no longer destroys");
+        let chassis = d.body.health(DroidPart::Chassis);
+        let life = d.body.life();
+        assert_eq!(d.strike(DroidPart::Head, 5.0), Some(DroidPart::Chassis));
+        assert_eq!(d.body.health(DroidPart::Chassis), chassis - 5.0);
+        assert_eq!(d.body.life(), life - 5.0);
+        // The chassis at nothing with health left: still standing.
+        let chassis = d.body.health(DroidPart::Chassis);
+        d.strike(DroidPart::Chassis, chassis);
+        assert!(d.body.gone(DroidPart::Chassis));
+        assert!(d.body.life() > 0.0);
+        assert!(!d.destroyed, "a chassis at nothing no longer destroys");
+        // A tier multiplies the whole the way it multiplies the parts.
+        let tier_two = Droid::new(DroidKind::Warden, Tier::Two, 0, 0, Vec2::ZERO, 0.0, 1);
+        assert!(
+            (tier_two.body.life_max() - whole(DroidKind::Warden) * balance::ARMOUR_TIER_STEP).abs()
+                < 1e-3
+        );
     }
 
     #[test]
