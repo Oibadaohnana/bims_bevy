@@ -468,6 +468,12 @@ impl WorldCanvas<'_> {
         self.light.picture = Some(picture);
     }
 
+    /// Hand the GPU a map the CPU worked out, to blur and colour into its
+    /// picture this frame (`lightmap.rs`, task 140).
+    pub fn raw_light_job(&mut self, job: crate::lightmap::RawJob) {
+        self.light.raw.push(job);
+    }
+
     fn push(&mut self, ppp: f32, layer: Layer) {
         self.frame.pixels_per_point = Some(ppp);
         self.frame.layers.push(layer);

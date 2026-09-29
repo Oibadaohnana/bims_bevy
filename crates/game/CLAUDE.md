@@ -4057,6 +4057,16 @@ GPU's read-back went with it): the inputs carry the sight's `PictureId`
 views and revisions to one sight. Nothing the simulation reads is in the
 inputs; the tile masks are untouched.
 
+**Two bits more a cell, for the host's softening alone** (task 140):
+`CELL_FIXED` — in the way in the fixed picture, the walls and the tall
+parts and never a door, what a lamp's light stops at — and `CELL_SOFT`,
+furniture rather than wall. The march and the composing never read
+them. The host's cells are made again only when `cells_version` moves
+(every change of a cell moves it: `set_shut`, `set_tall`, `relight`,
+`set_range`) or for a sight the host has none of yet; they were made and
+compared every frame before. Change a cell without moving the version
+and the host's picture goes stale.
+
 ## The engineer's EMP, Healing Sentry and sentry: what the room is handed (task 127)
 
 - **A stun is a machine's** (`Droid::stunned`, `exposed`): `Droid::stun`

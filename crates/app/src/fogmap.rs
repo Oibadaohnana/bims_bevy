@@ -6,10 +6,14 @@
 //! they see that no light reaches; and the glow: how much lamplight falls
 //! there — worked out by the room
 //! as the crew move. The shape buffer cannot carry it (it holds rectangles
-//! and ellipses), so it comes over as a texture: uploaded when its version
-//! changes — only the box the map says changed, when this holds the
-//! version before it, else the whole of it — the two bytes composed into
-//! one premultiplied pixel (black under lamplight), drawn as one textured
+//! and ellipses), so it comes over as a texture the GPU fills
+//! (`lightmap.rs`): from the room's inputs for the deck (task 121), and
+//! for a map the CPU worked out — a planet's plain, the deck under
+//! `BIMS_LIGHTMAP=cpu` — from its two channels, packed a word a pixel
+//! when its version changes, only the box the map says changed when this
+//! holds the version before it (task 140). Either way the two bytes are
+//! composed on the GPU into one premultiplied pixel (black under
+//! lamplight) and drawn as one textured
 //! quad on the world's canvas (`scene.rs`) — over the world's shapes,
 //! under the shots and the rings the room draws over its fog, and under
 //! every word, which egui puts on after the canvas is drawn.
@@ -30,9 +34,11 @@
 //! ([`TAPS`]) as the texture is composed, which turns the stair into a
 //! ramp half a tile wide: a penumbra, the way a shadow's edge is. The
 //! blur is the picture's alone — the room's map, which the fight reads,
-//! is untouched — and a partial upload is widened by the blur's reach
-//! ([`REACH`]) either way, since a pixel just outside the box the room
-//! says changed has neighbours inside it.
+//! is untouched. The blur is the GPU's (`lightmap.wgsl`'s `blur`); the
+//! Rust here ([`blurred`], [`texel`]) is the reference it is held to,
+//! byte for byte, under `BIMS_LIGHTMAP=check`.
+
+use std::sync::Arc;
 
 use bevy::asset::RenderAssetUsages;
 use bevy::image::ImageSampler;
@@ -41,6 +47,7 @@ use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 use bevy_egui::egui;
 use bims::sight::LightMap;
 
+use crate::lightmap::RawJob;
 use crate::scene::WorldCanvas;
 use crate::shapes::Rect;
 
@@ -122,9 +129,14 @@ pub fn texels(map: &LightMap) -> Vec<[u8; 4]> {
 #[derive(Default)]
 pub struct FogTexture {
     handle: Option<Handle<Image>>,
-    /// The picture's size in pixels, which a partial upload has to match.
+    /// The picture's size in pixels.
     size: (usize, usize),
+    /// A map the CPU worked out, as the GPU takes it (task 140): its two
+    /// channels a word a pixel, which version of the map they are, and
+    /// the box that version changed from the one before in.
+    packed: Option<Arc<Vec<u32>>>,
     version: u64,
+    changed: Option<(usize, usize, usize, usize)>,
 }
 
 impl FogTexture {
@@ -196,17 +208,20 @@ impl FogTexture {
         if map.width == 0 || map.height == 0 {
             return;
         }
-        match &map.inputs {
-            // Drawn on the GPU (task 121): a blank picture of the map's
-            // size, which `lightmap.rs` fills this frame before it is
-            // drawn, and the job handed over.
-            Some(inputs) => {
-                self.blank(canvas.images(), map);
-                if let Some(handle) = &self.handle {
-                    canvas.light_job(inputs.clone(), handle.id());
+        let _timed = crate::perf::scope(crate::perf::Phase::Fog);
+        // Drawn on the GPU either way: a blank picture of the map's size,
+        // which `lightmap.rs` fills this frame before it is drawn — from
+        // the room's inputs (task 121), or from the two channels the CPU
+        // worked out, blurred and coloured there (task 140).
+        self.blank(canvas.images(), map);
+        if let Some(id) = self.handle.as_ref().map(|h| h.id()) {
+            match &map.inputs {
+                Some(inputs) => canvas.light_job(inputs.clone(), id),
+                None => {
+                    let job = self.pack(map, id);
+                    canvas.raw_light_job(job);
                 }
             }
-            None => self.upload(canvas.images(), map),
         }
         let Some(handle) = &self.handle else {
             return;
@@ -249,72 +264,46 @@ impl FogTexture {
             )
         };
         self.keep(images, image, (map.width, map.height));
-        // A picture this holds is the GPU's now, not a version of the
-        // CPU's: the next map worked out here uploads the lot.
-        self.version = u64::MAX;
     }
 
-    /// Take the map's picture, if this holds another version of it: the
-    /// box it says changed when this holds the version before, else the
-    /// lot.
-    fn upload(&mut self, images: &mut Assets<Image>, map: &LightMap) {
-        if self.handle.is_some() && self.version == map.version {
-            return;
-        }
-        // What the room composed again since the version this holds,
-        // if that is the one before: the box it says, else the lot.
-        let follows =
-            self.version.wrapping_add(1) == map.version && self.size == (map.width, map.height);
-        let region = match (follows, map.changed, &self.handle) {
-            (true, Some(r), Some(_)) => r,
-            _ => (0, 0, map.width, map.height),
-        };
-        // The box, widened by the blur's reach: what changed inside it
-        // shows for that far outside it.
-        let (x, y, w, h) = {
-            let (x, y, w, h) = region;
-            let (x0, y0) = (x.saturating_sub(REACH), y.saturating_sub(REACH));
-            let x1 = (x + w + REACH).min(map.width);
-            let y1 = (y + h + REACH).min(map.height);
-            (x0, y0, x1 - x0, y1 - y0)
-        };
-        let pixels = blurred(map, (x, y, w, h))
-            .into_iter()
-            .map(|(a, g)| texel(a, g));
-        let whole = (w, h) == (map.width, map.height);
-        match &self.handle {
-            // The box, written into the picture this holds: every row of
-            // it where that row sits in the whole.
-            Some(handle) if !whole => {
-                if let Some(mut image) = images.get_mut(handle)
-                    && let Some(data) = image.data.as_mut()
-                {
-                    let stride = map.width * 4;
-                    for (i, pixel) in pixels.enumerate() {
-                        let at = (y + i / w) * stride + (x + i % w) * 4;
-                        data[at..at + 4].copy_from_slice(&pixel);
+    /// The map's two channels as the GPU takes them, packed again only
+    /// where this version changed them — the box the map says, when this
+    /// holds the version before, else the lot — and handed over whole: a
+    /// job the GPU uploads the changed rows of and blurs.
+    fn pack(&mut self, map: &LightMap, picture: AssetId<Image>) -> RawJob {
+        let (w, h) = (map.width, map.height);
+        let pixel = |i: usize| map.alpha[i] as u32 | (map.glow[i] as u32) << 8;
+        let held = self.packed.as_ref().is_some_and(|p| p.len() == w * h);
+        if !held || self.version != map.version {
+            let follows = held && self.version.wrapping_add(1) == map.version;
+            match (follows, map.changed, &mut self.packed) {
+                (true, Some((x, y, bw, bh)), Some(packed)) => {
+                    // Copied first only if the GPU's side still holds
+                    // this frame's; one row of the box at a time.
+                    let data = Arc::make_mut(packed);
+                    for row in y..y + bh {
+                        let from = row * w + x;
+                        for (k, out) in data[from..from + bw].iter_mut().enumerate() {
+                            *out = pixel(from + k);
+                        }
                     }
+                    self.changed = Some((x, y, bw, bh));
+                }
+                _ => {
+                    self.packed = Some(Arc::new((0..w * h).map(pixel).collect()));
+                    self.changed = None;
                 }
             }
-            _ => {
-                let image = Image {
-                    sampler: ImageSampler::linear(),
-                    ..Image::new(
-                        Extent3d {
-                            width: w as u32,
-                            height: h as u32,
-                            depth_or_array_layers: 1,
-                        },
-                        TextureDimension::D2,
-                        pixels.flatten().collect(),
-                        TextureFormat::Rgba8UnormSrgb,
-                        RenderAssetUsages::MAIN_WORLD | RenderAssetUsages::RENDER_WORLD,
-                    )
-                };
-                self.keep(images, image, (w, h));
-            }
+            self.version = map.version;
         }
-        self.version = map.version;
+        RawJob {
+            picture,
+            width: w,
+            height: h,
+            version: self.version,
+            changed: self.changed,
+            pixels: self.packed.clone().unwrap_or_default(),
+        }
     }
 }
 
@@ -357,5 +346,53 @@ mod tests {
             let part: Vec<u8> = blurred(&m, (5, 0, 3, 1)).iter().map(|p| p.0).collect();
             assert_eq!(part, whole[5..8]);
         }
+    }
+}
+
+#[cfg(test)]
+mod packing {
+    use super::*;
+
+    /// A map the CPU worked out goes to the GPU a word a pixel — the
+    /// darkness low, the lamplight above (task 140). The version after the
+    /// one held is packed again over its changed box alone and comes out
+    /// what packing it whole would; a version skipped is packed whole; and
+    /// the same version asked for twice is the same job.
+    #[test]
+    fn a_map_is_packed_again_only_where_it_changed() {
+        let picture = AssetId::<Image>::default();
+        let mut map = LightMap {
+            width: 4,
+            height: 3,
+            alpha: (0..12).collect(),
+            glow: (100..112).collect(),
+            version: 1,
+            ..Default::default()
+        };
+        let mut fog = FogTexture::default();
+        let first = fog.pack(&map, picture);
+        assert_eq!(first.changed, None);
+        assert_eq!(first.pixels[5], 5 | 105 << 8);
+        let again = fog.pack(&map, picture);
+        assert!(Arc::ptr_eq(&first.pixels, &again.pixels));
+
+        // The next version, changed in a box: that box packed again.
+        map.alpha[6] = 200;
+        map.glow[6] = 7;
+        map.alpha[0] = 99; // outside the box: not taken, as the room says
+        map.version = 2;
+        map.changed = Some((1, 1, 2, 1));
+        let next = fog.pack(&map, picture);
+        assert_eq!(next.changed, Some((1, 1, 2, 1)));
+        assert_eq!(next.pixels[6], 200 | 7 << 8);
+        assert_eq!(next.pixels[0], 100 << 8);
+        // The job the GPU still holds is untouched.
+        assert_eq!(first.pixels[6], 6 | 106 << 8);
+
+        // A version skipped: the whole of it.
+        map.version = 4;
+        let whole = fog.pack(&map, picture);
+        assert_eq!(whole.changed, None);
+        assert_eq!(whole.pixels[0], 99 | 100 << 8);
     }
 }

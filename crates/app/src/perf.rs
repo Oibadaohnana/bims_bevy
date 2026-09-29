@@ -50,11 +50,12 @@ pub enum Phase {
     Render,
     Tessellate,
     Overlay,
+    Fog,
     Upload,
 }
 
 impl Phase {
-    pub const ALL: [Phase; 10] = [
+    pub const ALL: [Phase; 11] = [
         Phase::Frame,
         Phase::Wire,
         Phase::Step,
@@ -64,6 +65,7 @@ impl Phase {
         Phase::Render,
         Phase::Tessellate,
         Phase::Overlay,
+        Phase::Fog,
         Phase::Upload,
     ];
 
@@ -82,6 +84,10 @@ impl Phase {
             // The row keeps its name so the two read side by side.
             Phase::Tessellate => ("tessellate", 1),
             Phase::Overlay => ("overlay words", 1),
+            // Inside the overlay's scope: the fog's pictures made ready on
+            // the CPU (`fogmap.rs`) — the plain's chunks composed and
+            // blurred, the deck's picture handed to the GPU (task 140).
+            Phase::Fog => ("fog picture", 2),
             // Outside the screen's system: the canvas's layers handed to
             // Bevy as meshes (`scene::sync`), after egui's pass.
             Phase::Upload => ("canvas to bevy", 0),
@@ -232,7 +238,8 @@ pub fn report(at_frame: u32) -> Vec<String> {
         let (name, depth) = phase.row();
         if phase == Phase::Frame || depth > 0 {
             let ms = ms_of(phase);
-            if depth > 0 {
+            // A row under a row is a part of it, counted there already.
+            if depth == 1 {
                 named += ms;
             }
             lines.push(row(

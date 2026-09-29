@@ -29,7 +29,9 @@ struct Params {
     // The texture's rows, in texels (a row padded to 256 bytes).
     stride: u32,
     fog: u32,
-    pad0: u32,
+    // Bit 0: the lamps' shadows softened (`BIMS_SHADOWS`); bit 1: the
+    // corners shaded (`BIMS_AO`) — read by `lightsoften.wgsl` alone.
+    flags: u32,
     pad1: u32,
     pad2: u32,
 };

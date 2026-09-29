@@ -157,7 +157,40 @@ plus `wire` and `server` (the relay, `bims-server`).
   picks up only colours past white (`draw::Color::glowing`);
   `BIMS_BLOOM=0` turns it off.
 - The crew's light map runs on the GPU (`lightmap.rs`, `lightmap.wgsl`),
-  byte for byte the CPU's; `BIMS_LIGHTMAP=cpu|check`.
+  byte for byte the CPU's; `BIMS_LIGHTMAP=cpu|check`. A map the CPU
+  works out — a planet's plain chunks, the deck under `=cpu` — goes up
+  as its two raw channels (only the changed rows) and is blurred and
+  coloured by the same `blur` pass (task 140; `check` compares those
+  too). Nothing on the GPU is read back into the game.
+- **Soft shadows and the corners' shade** (task 140,
+  `lightsoften.wgsl`, compiled *after* `lightmap.wgsl` as a second
+  module — in the same module the old passes ran 15% slower on RADV, so
+  keep them apart). Picture only, over the deck's light map, never the
+  plain's chunks. Passes, all compute, in `draw_light_map`'s encoder
+  before the main pass: `distance` (exact distance to the nearest
+  wall/furniture tile within 2 tiles, from the door-free cells — lamp
+  light ignores doors too; once per layout) → `soften_across/down` (the
+  shown light, a Gaussian whose reach is `0.5 × distance`, capped at
+  **1 tile**; once per lamp change) → `compose_soft` (AO: 0.30 at a
+  wall, 0.18 at furniture, over 1.5 tiles) → `sight_across/down` (the
+  edge of what is seen, the same penumbra) → the old `blur`. **The
+  class cap**: a pixel the room lights (shown ≥ 32/255) is never
+  softened under it or shaded darker than the dimmest lit pixel, a dark
+  one never over it or into the fog; a seen pixel is ≥ half seen, an
+  unseen one < 0.49. `BIMS_SOFTEN_CHECK=1` reads back and counts
+  pixels that break it (0 on every scene tried; it does catch a wrong
+  bound). `BIMS_SHADOWS=0`, `BIMS_AO=0` turn each off; both off is the
+  old picture, 0 px on a screenshot diff. The softening's four
+  buffers are group 1, allocated only with a switch on (16 bytes a map
+  pixel: 16 MB at a planet's 1072×944). Measured (RX 7800 XT / RADV,
+  Ryzen 3700X, release): the light-map pass +0.054 ms on the frames it
+  runs (~1 in 8 in a fight), `light soften` 0.09 ms (0.18 on a planet)
+  once per layout or lamp change; CPU down 0.004–0.036 ms a frame (the
+  plain's CPU blur gone, the cells made only when `cells_version`
+  moves). No wasm build, so compute is fine. Not done: GPU lamp shadows
+  from a lamp list (a second implementation of the rule; not approved),
+  and summing a lamp's flicker on the GPU (field changes are rare —
+  not measurable in a 400-frame run).
 - **The pointer is egui's** (`canvas::Pointer`); never read Bevy's
   `ButtonInput<MouseButton>` for the canvas.
 - **egui's context lock is not reentrant**: calling anything on `ctx`

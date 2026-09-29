@@ -1343,6 +1343,12 @@ impl Clone for PictureId {
 /// sight stops there, the fog is drawn over it.
 pub const CELL_OPAQUE: u8 = 1;
 pub const CELL_FOGGED: u8 = 2;
+/// And for the host's softening alone (task 140) — nothing it marches or
+/// composes the fog by: the cell is in the way in the fixed picture, the
+/// walls and the tall parts and no door (what a lamp's light stops at),
+/// and it is furniture rather than wall (`set_tall`).
+pub const CELL_FIXED: u8 = 4;
+pub const CELL_SOFT: u8 = 8;
 
 /// Everything a host needs to draw the crew's light map itself, as of one
 /// frame (see the note above `set_host_draws`). The large parts are
@@ -1830,19 +1836,31 @@ impl Sight {
             self.host.fields_rev += 1;
             changed = true;
         }
-        // The cells: a door, the layout. Made afresh every frame and
-        // compared, since they are a byte a tile.
-        let cells: Vec<u8> = self
-            .cells
-            .iter()
-            .map(|c| {
-                (if c.opaque { CELL_OPAQUE } else { 0 }) | (if c.fogged { CELL_FOGGED } else { 0 })
-            })
-            .collect();
-        if *self.host.cells != cells {
-            self.host.cells = Arc::new(cells);
-            self.host.cells_rev += 1;
-            changed = true;
+        // The cells: a door, the layout. Made again only when their version
+        // moved — everything that changes a cell moves it (`set_shut`,
+        // `set_tall`, `relight`, `set_range`) — or for a sight the host has
+        // none of yet, and compared, since they are a byte a tile. They
+        // were made afresh every frame until task 140 put two bits more in.
+        if self.host.cells.len() != self.cells.len()
+            || self.host.cells_version != self.cells_version
+        {
+            let cells: Vec<u8> = self
+                .cells
+                .iter()
+                .zip(&self.fixed)
+                .map(|(c, f)| {
+                    let bit = |on: bool, bit: u8| if on { bit } else { 0 };
+                    bit(c.opaque, CELL_OPAQUE)
+                        | bit(c.fogged, CELL_FOGGED)
+                        | bit(f.opaque, CELL_FIXED)
+                        | bit(f.opaque && f.soft, CELL_SOFT)
+                })
+                .collect();
+            if *self.host.cells != cells {
+                self.host.cells = Arc::new(cells);
+                self.host.cells_rev += 1;
+                changed = true;
+            }
         }
         // Every view is marched again whenever `light_map_on_cpu` would
         // throw its views away — a door, the layout, a lamp going out, the
