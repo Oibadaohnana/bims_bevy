@@ -182,14 +182,7 @@ const TILE: f32 = shipdesign::TILE as f32;
 /// deaths (a bot lost costs the pool nothing). Their shares were not taken
 /// apart. The empty-handed crewmate's pistol does not move it: with that
 /// rule switched off the run read the same. Was `0x_dd01_665e_6048_4ba8`.
-///
-/// **And again, on purpose**: an enemy down is twenty experience and its
-/// death nothing more (`XP_ENEMY_DEAD` gone, `XP_ENEMY_DOWN` ten to
-/// twenty), and the crew's experience is in the reading. Taken on a clean
-/// worktree of f749c42 with that change alone, since other agents'
-/// uncommitted work in the tree moved it as well (the tree read
-/// `0x_702c_7b50_cfc9_f862` with theirs in). Was `0x_0276_3b8b_1c2e_7309`.
-const SURVIVORS: u64 = 0x_11a9_33d1_6eeb_9209;
+const SURVIVORS: u64 = 0x_0276_3b8b_1c2e_7309;
 
 /// A gun in every hand, the kinds dealt round, as the fight's probes arm
 /// a crew — the five there were when the reading was taken: the minigun

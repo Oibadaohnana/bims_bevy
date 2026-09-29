@@ -1740,6 +1740,9 @@ pub fn event_line(event: WorldEvent) -> Option<String> {
         WorldEvent::CrewRevived { who: w, by } => {
             format!("{} brought {} round.", who(by), who(w))
         }
+        WorldEvent::ResidentRevived { station, who: w, by } => {
+            format!("{} brought {} round.", who(by), resident_name(station, w))
+        }
         // A piece at nothing is still worn and does nothing for the rest of
         // the mission; it is whole again at the next (task 113).
         WorldEvent::PieceBroke { who: w, kind } => {
@@ -3912,6 +3915,14 @@ mod tests {
             assert!(
                 event_line(WorldEvent::CrewRevived { who: 0, by: 1 })
                     .is_some_and(|line| line.contains("brought") && line.contains("round"))
+            );
+            assert!(
+                event_line(WorldEvent::ResidentRevived {
+                    station: 3,
+                    who: 1,
+                    by: 0
+                })
+                .is_some_and(|line| line.contains(&resident_name(3, 1)))
             );
         }
     }

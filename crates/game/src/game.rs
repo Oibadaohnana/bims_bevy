@@ -58,6 +58,24 @@ pub struct Revived {
     pub patient: usize,
 }
 
+/// Where a revive's patient is a **visitor** rather than one of this
+/// room's own Bims: `GUEST + i` is visitor `i` (`Game::set_visitors`) —
+/// a townsperson downed in the residents' room, which the world names
+/// revivable (`Game::set_visitors_revivable`). The crew's hands go on it
+/// here and the world brings it round in its own room
+/// (`Game::take_guest_revives`). Far past any room's bodies.
+pub const GUEST: usize = 1 << 16;
+
+/// A revive of a visitor finished: whose hands, which visitor (its index
+/// in its own room, `GUEST` taken off) and the share of its bar it gets
+/// up at — the helper's, which only this room knows.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub struct GuestRevived {
+    pub helper: usize,
+    pub visitor: usize,
+    pub share: f32,
+}
+
 /// What a commander's squad order tells one body to do (feature 78,
 /// `world::commander`): the world's word, said afresh every step for
 /// every Bim, and never kept in a save — the order itself is the
@@ -609,6 +627,23 @@ pub struct Game {
     /// the world says — so that a click on one on its feet is a click on
     /// it (`HIT_VISITOR`) and not on the deck. See [`Game::set_visitors_hailable`].
     visitors_hailable: Vec<bool>,
+    /// Which of the visitors may be revived by the crew's hands — a
+    /// townsperson downed in its own room, as the world says — index for
+    /// index with `visitors`, told right after `set_visitors` every step
+    /// and cleared with it. A revive of one names it `GUEST + i`.
+    #[cfg_attr(feature = "serde", serde(skip))]
+    visitors_revivable: Vec<bool>,
+    /// Every revive of a visitor finished since the world last asked
+    /// (`take_guest_revives`), for it to bring the body round in its own
+    /// room.
+    #[cfg_attr(feature = "serde", serde(skip))]
+    guest_revives: Vec<GuestRevived>,
+    /// Which of this room's own bodies have somebody else's hands on
+    /// them — a crew member kneeling at a townsperson on the joined deck
+    /// — as the world says every step (`set_tended`): their countdown
+    /// stands the way a revive in this room stands it.
+    #[cfg_attr(feature = "serde", serde(skip))]
+    tended: Vec<bool>,
     /// Whether a Bim nobody steers picks its own work off the list.
     autonomous: bool,
     /// A `SPOT_` code the host has asked to have ringed on the deck, or
@@ -916,6 +951,9 @@ impl Game {
             visitors: Vec::new(),
             visitors_down: Vec::new(),
             visitors_hailable: Vec::new(),
+            visitors_revivable: Vec::new(),
+            guest_revives: Vec::new(),
+            tended: Vec::new(),
             autonomous: true,
             highlight: room::SPOT_NOTHING,
             fog: Fog::Crew,
@@ -3448,7 +3486,10 @@ impl Game {
         // room's steps (task 120) — nothing mends on its own. It stands
         // while somebody's hands are on it (task 138): a revive under way
         // is a patient that does not die in the middle of it.
-        let held = self.bims[who].health.downed() && self.revive_share(who).is_some();
+        // So does one the crew's hands are on from the joined deck, a
+        // townsperson revived there (`set_tended`).
+        let held = self.bims[who].health.downed()
+            && (self.revive_share(who).is_some() || self.tended.get(who).copied().unwrap_or(false));
         if !held {
             self.bims[who].health.update(dt);
         }
@@ -3571,6 +3612,18 @@ impl Game {
                 .iter()
                 .map(|b| (b.is_alive() && !b.character.is_outside()).then_some(b.character.pos)),
         );
+        // And the visitors the crew may revive, by visitor index: a walk
+        // to a townsperson down picks its spot the same way.
+        self.room.guests.clear();
+        self.room
+            .guests
+            .extend(self.visitors.iter().enumerate().map(|(i, &at)| {
+                self.visitors_revivable
+                    .get(i)
+                    .copied()
+                    .unwrap_or(false)
+                    .then_some(at)
+            }));
     }
 
     /// One frame of the body: on the deck, kept clear of the walls and
@@ -4574,6 +4627,70 @@ impl Game {
         self.visitors = at;
         self.visitors_down.clear();
         self.visitors_hailable.clear();
+        self.visitors_revivable.clear();
+    }
+
+    /// Which of the visitors the crew may revive — a townsperson downed in
+    /// its own room, never a Manufacturer or a machine — index for index
+    /// with [`Game::set_visitors`] and told right after it like
+    /// `set_visitors_down`. A revive of one is `CrewOrder::Revive` with the
+    /// patient [`GUEST`]` + i`: the walk over and the hands on it here, the
+    /// body brought round in its own room by the world
+    /// (`take_guest_revives`).
+    pub fn set_visitors_revivable(&mut self, revivable: &[bool]) {
+        self.visitors_revivable = revivable.to_vec();
+    }
+
+    /// Whether `patient` names a visitor the crew may revive this step:
+    /// [`GUEST`]` + i` with visitor `i` marked revivable.
+    pub fn is_revivable_guest(&self, patient: usize) -> bool {
+        patient
+            .checked_sub(GUEST)
+            .is_some_and(|i| self.visitors_revivable.get(i).copied().unwrap_or(false))
+    }
+
+    /// The revivable visitor under a room point, if any, as its patient
+    /// index ([`GUEST`]` + i`): a click's reach, the first by index — the
+    /// medkit's right-click on a townsperson down.
+    pub fn guest_at(&self, x: f32, y: f32) -> Option<usize> {
+        let p = vec2(x, y);
+        (0..self.visitors.len())
+            .find(|&i| {
+                self.visitors_revivable.get(i).copied().unwrap_or(false)
+                    && (self.visitors[i] - p).len() <= PICK_RADIUS
+            })
+            .map(|i| GUEST + i)
+    }
+
+    /// Every visitor the crew may revive this step, as its patient index
+    /// ([`GUEST`]` + i`), by visitor index.
+    pub fn revivable_guests(&self) -> Vec<usize> {
+        (0..self.visitors.len())
+            .filter(|&i| self.visitors_revivable.get(i).copied().unwrap_or(false))
+            .map(|i| GUEST + i)
+            .collect()
+    }
+
+    /// Where a revivable visitor lies, by patient index ([`GUEST`]` + i`).
+    pub fn guest_pos(&self, patient: usize) -> Option<Vec2> {
+        if !self.is_revivable_guest(patient) {
+            return None;
+        }
+        self.visitors.get(patient - GUEST).copied()
+    }
+
+    /// Every revive of a visitor finished since the world last asked:
+    /// the world brings each one round in its own room.
+    pub fn take_guest_revives(&mut self) -> Vec<GuestRevived> {
+        std::mem::take(&mut self.guest_revives)
+    }
+
+    /// Which of this room's own bodies have the crew's hands on them from
+    /// the joined deck, index for index — the world's word every step. A
+    /// downed body tended stands its countdown, as one revived in this
+    /// room does (task 138).
+    pub fn set_tended(&mut self, tended: &[bool]) {
+        self.tended = tended.to_vec();
     }
 
     /// Which of the visitors are down — dead or out cold in their own
@@ -8362,15 +8479,19 @@ impl Game {
     /// count — so a bot that claimed a patient and was held up never
     /// keeps the player from it.
     pub fn revive_crewmate(&mut self, who: usize, patient: usize) -> bool {
+        // A townsperson downed on the joined deck (`GUEST`) is revived
+        // under the same rules as a crewmate, bar what only its own room
+        // knows — whether it is carried — which the world has asked.
+        let guest = self.is_revivable_guest(patient);
         if who >= self.bims.len()
-            || patient >= self.bims.len()
+            || (patient >= self.bims.len() && !guest)
             || who == patient
             || !self.bims[who].is_alive()
             || self.bims[who].character.is_unconscious()
             || self.bims[who].health.downed()
             || self.bims[who].character.is_outside()
             || self.bims[who].carrying.is_some()
-            || !self.can_be_revived(patient)
+            || !(guest || self.can_be_revived(patient))
         {
             return false;
         }
@@ -8412,6 +8533,20 @@ impl Game {
     /// meantime, is the seconds lost and nothing else.
     fn apply_revives(&mut self) {
         for (helper, patient) in core::mem::take(&mut self.room.revived) {
+            // A townsperson on the joined deck: the same two tiles, and
+            // the world brings it round in its own room.
+            if let Some(at) = self.guest_pos(patient) {
+                if helper < self.bims.len()
+                    && (self.bims[helper].character.pos - at).len() <= 2.0 * TILE
+                {
+                    self.guest_revives.push(GuestRevived {
+                        helper,
+                        visitor: patient - GUEST,
+                        share: self.skill(helper).revived_to,
+                    });
+                }
+                continue;
+            }
             if helper >= self.bims.len() || !self.can_be_revived(patient) {
                 continue;
             }

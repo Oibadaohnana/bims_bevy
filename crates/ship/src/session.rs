@@ -1050,6 +1050,14 @@ impl Session {
         true
     }
 
+    /// The first of the station alongside's people downed a tile from
+    /// crew member 0 — see `World::down_resident_for_probe`.
+    pub fn down_resident_for_probe(&mut self) -> bool {
+        self.game
+            .as_mut()
+            .is_some_and(|g| g.world.down_resident_for_probe())
+    }
+
     /// `n` of the station alongside dead where they stand, the room
     /// built again over the bodies — see `World::lay_graves_for_probe`.
     pub fn lay_graves_for_probe(&mut self, n: u32) -> bool {

@@ -5465,8 +5465,9 @@ for step; `relic::tests` pin the rows.
   never under `data::REVIVE_FLOOR_SECONDS` (1) — handed to the room as
   `Skill::revive` in `skill_of`. The crew's room revives of its own
   accord (`set_revivers(true)` every step); a station's or a town's never
-  (`Residents::open`, `replace_room`), so a Manufacturer and a
-  townsperson downed stay down and die.
+  (`Residents::open`, `replace_room`), so a Manufacturer downed stays
+  down and dies, and so does a townsperson nobody of the crew picks up
+  ("A townsperson is picked up with the medkit" at the end).
 - **The medic** (`hand_the_room_the_medics`): the beam heals hit points
   through `Game::heal` at `beam_rate` an hour of the clock
   (`class::HEAL_BEAM_HP`, 30, marked for tuning; *strong beam* times
@@ -6024,6 +6025,38 @@ length before). `a_jump_costs_a_day_and_a_trip_in_the_system_nothing`
 and `every_quote_is_a_day_for_a_jump_and_nothing_in_the_system` are the
 rule.
 
+## A townsperson is picked up with the medkit
+
+A station's person downed — a townsperson or a defender fallen fighting
+the machines, never a Manufacturer or a machine — can be revived by the
+crew exactly as a crewmate is (the medkit's right-click, or G held
+beside it), though its body is in the residents' room and the crew's
+hands are in theirs. Three handovers, all in `world.rs`, and nothing
+saved or hashed:
+
+- **`revivable_residents`**, in `visit` after the visitors: which of
+  the residents' bodies are a Bim, not a Manufacturer, alive and
+  downed, on the deck and in nobody's arms, at a station not Hostile —
+  told the crew's room as `Game::set_visitors_revivable`. The crew's
+  room names one as the patient `bims::game::GUEST + i`
+  (`CrewOrder::Revive`), walks to it and kneels as for a crewmate
+  (`Room::guests`, `Room::patient_at`), and on the hands coming off
+  hands the world a `GuestRevived` (`take_guest_revives`).
+- **`tended_residents`**, before the residents' room steps: which of
+  them the crew's room has hands on (`revive_share(GUEST + i)`), told as
+  `Game::set_tended`, so their countdown stands like a crewmate's
+  (task 138).
+- **`settle_medics`** brings each round in its own room
+  (`Game::bring_round` at the helper's `revived_to`) and says
+  `WorldEvent::ResidentRevived { station, who, by }` (140). No relic
+  fires for it and it is nobody's experience. The crew's room hears the
+  patient is up the next step, with the visitors.
+
+The bots never revive one of their own accord (`revive_on_offer` is the
+crew's bodies alone). `a_townsperson_downed_is_picked_up_with_the_medkit`
+(`tests_defense.rs`) is the rule; `BIMS_DOWN_RESIDENT=1` downs a town's
+guard beside the player's Bim for a look. `wire::PROTOCOL` 60.
+
 ## A step every five days, and the two tuning files
 
 > "The machines hold a station" above says a wave grows a step every
@@ -6059,20 +6092,3 @@ constants (`wavecfg`'s test). No `SAVE_VERSION` or `wire::PROTOCOL`: the
 dials cross no wire, and in a two-player run each end reads its own files.
 `tests_defense.rs`' two money assertions say a defence pays. The ship's
 `PINNED` moved for `jammer` alone (its clock is past five days).
-
-## Twenty for an enemy down, and nothing for its death
-
-> "One speed, and experience alike for every class (task 119)" and the
-> engineer's "Experience is given in the step" above say an enemy's death
-> is `XP_ENEMY_DEAD` (5) on top of its down; that is **gone** again, as
-> feature 109 once had it.
-
-`experience` pays `class::XP_ENEMY_DOWN` — **twenty** now, where it was
-ten — once, at an enemy's first down or death, and nothing else: a
-machine destroyed is twenty, a Manufacturer downed is twenty, and a
-downed one bleeding out or finished afterwards is nothing more.
-`XP_ENEMY_DEAD` and `Residents::xp_dead` went (`xp_down` is the one
-flag). **`SAVE_VERSION` 62, `wire::PROTOCOL` 61**. `SURVIVORS` moved
-(its runs' crew earn experience, and the progress is hashed; taken on a
-clean tree with this change alone); `REFERENCE_CHECKSUM` and the ship's
-`PINNED` did not.

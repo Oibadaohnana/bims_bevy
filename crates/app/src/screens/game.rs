@@ -708,6 +708,10 @@ fn open(
             if let Some(n) = crate::dev::graves() {
                 session.lay_graves_for_probe(n);
             }
+            // A townsperson down beside the player's Bim, to pick up.
+            if crate::dev::down_resident() && !session.down_resident_for_probe() {
+                eprintln!("BIMS_DOWN_RESIDENT: nobody of the station to down");
+            }
             // Every state a machine can be drawn in, laid out on the
             // arena's deck for one picture (feature 83). The wave the
             // probe laid out is replaced by the showcase.
@@ -3261,11 +3265,20 @@ fn frame(
         }
         if let Some(residents) = &game.world.residents {
             let room = &residents.aboard.room;
+            let crew_room = &game.world.aboard.room;
             for who in 0..session.resident_count() {
                 if let Some(left) = room.down_left(who as usize)
                     && let Some(at) = session.resident_on_screen(who)
                 {
                     ring(left, at);
+                    // A townsperson a crew member is bringing round with
+                    // the medkit: the crew's room has the hands on it.
+                    if let Some((_, share)) =
+                        crew_room.revive_share(bims::game::GUEST + who as usize)
+                    {
+                        let p = view.to_canvas(Vec2::new(at.0, at.1)) + canvas.min;
+                        theme::revive_bar(&painter, egui::pos2(p.x, p.y), view.scale, share);
+                    }
                 }
             }
         }
@@ -5300,7 +5313,8 @@ const CARRY_WALK_GRACE: u32 = 30;
 
 /// What a right-click at room point `(x, y)` revives with the medkit in
 /// `own`'s hand (task 138): `None` when the kit is not in hand or no
-/// downed crewmate is under the pointer — the click is a walk then — else
+/// downed crewmate or townsperson (`bims::game::GUEST`) is under the
+/// pointer — the click is a walk then — else
 /// the patient, or the reason it cannot be revived, for the log.
 fn medkit_patient(
     room: &bims::game::Game,
@@ -5312,9 +5326,12 @@ fn medkit_patient(
     if room.hand(own) != bims::bim::Hand::Medkit {
         return None;
     }
+    // A downed crewmate, else a townsperson down on the joined deck — a
+    // fighting townsperson is picked up with the medkit the same way.
     let patient = room
         .crew_at(x, y)
-        .filter(|&p| p != own && room.is_downed(p))?;
+        .filter(|&p| p != own && room.is_downed(p))
+        .or_else(|| room.guest_at(x, y))?;
     Some(
         match crate::crew::revive_refused(room, own, patient, name) {
             Some(why) => Err(why),
@@ -5327,9 +5344,10 @@ fn medkit_patient(
 /// to send, and the log's line. `held` is the patient the key sent the
 /// player's own Bim `own` to, kept on the screen between frames.
 ///
-/// * the key goes down beside a downed crewmate — the nearest within
-///   [`REVIVE_HOLD_REACH`] that `crew::revive_refused` passes — and it is
-///   the revive (`CrewOrder::Revive`), the walk over and the hands on;
+/// * the key goes down beside a downed crewmate or townsperson — the
+///   nearest within [`REVIVE_HOLD_REACH`] that `crew::revive_refused`
+///   passes — and it is the revive (`CrewOrder::Revive`), the walk over
+///   and the hands on;
 /// * held, nothing more is sent while that one is still down; once it is
 ///   up the next one near is taken, the key still held;
 /// * let go with the revive still in hand, and it is stopped
@@ -5354,8 +5372,24 @@ fn held_revive(
         }
         return (None, None);
     }
+    // A crewmate down, or a townsperson down on the joined deck
+    // (`bims::game::GUEST`), whose body is in its own room.
+    let still_down = |p: usize| {
+        if p >= bims::game::GUEST {
+            room.is_revivable_guest(p)
+        } else {
+            room.is_downed(p)
+        }
+    };
+    let lies_at = |p: usize| {
+        if p >= bims::game::GUEST {
+            room.guest_pos(p)
+        } else {
+            Some(room.bim_pos(p))
+        }
+    };
     if let Some(patient) = *held {
-        if room.is_downed(patient as usize) {
+        if still_down(patient as usize) {
             return (None, None);
         }
         *held = None;
@@ -5365,18 +5399,12 @@ fn held_revive(
     }
     let at = room.bim_pos(own);
     let reach = REVIVE_HOLD_REACH * shipdesign::TILE as f32;
+    let away = |p: usize| lies_at(p).map_or(f32::MAX, |q| (q - at).len());
     let nearest = (0..room.crew_count() as usize)
-        .filter(|&p| {
-            p != own
-                && room.is_downed(p)
-                && (room.bim_pos(p) - at).len() <= reach
-                && crate::crew::revive_refused(room, own, p, name).is_none()
-        })
-        .min_by(|&a, &b| {
-            (room.bim_pos(a) - at)
-                .len()
-                .total_cmp(&(room.bim_pos(b) - at).len())
-        });
+        .filter(|&p| p != own && room.is_downed(p))
+        .chain(room.revivable_guests())
+        .filter(|&p| away(p) <= reach && crate::crew::revive_refused(room, own, p, name).is_none())
+        .min_by(|&a, &b| away(a).total_cmp(&away(b)));
     match nearest {
         Some(patient) => {
             *held = Some(patient as u32);

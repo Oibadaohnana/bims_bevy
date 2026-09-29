@@ -329,6 +329,10 @@ pub enum WorldEvent {
     /// Every connected player is ready: the mission held for the ready
     /// check is under way.
     AllReady,
+    /// A crew member brought one of a station's people round with the
+    /// medkit — a townsperson downed defending its town: which station,
+    /// who of its people, and by whom of the crew.
+    ResidentRevived { station: u32, who: u32, by: u32 },
 }
 
 /// Why a command did nothing.
@@ -701,6 +705,7 @@ impl WorldEvent {
             WorldEvent::Cloaked { .. } => 137,
             WorldEvent::Readied { .. } => 138,
             WorldEvent::AllReady => 139,
+            WorldEvent::ResidentRevived { .. } => 140,
         }
     }
 
@@ -800,6 +805,11 @@ impl WorldEvent {
             // The helper in the **hundreds**, the one brought round in the
             // units, the way a carry is packed.
             WorldEvent::CrewRevived { who, by } => (who + 100 * by) as i64,
+            // The station in the millions, the helper in the thousands, the
+            // one brought round in the units.
+            WorldEvent::ResidentRevived { station, who, by } => {
+                who as i64 + 1_000 * by as i64 + 1_000_000 * station as i64
+            }
             // The kind in the tens the same way: three kinds, and a crew
             // is never ten.
             WorldEvent::PieceBroke { who, kind } => (who + 10 * kind.code()) as i64,

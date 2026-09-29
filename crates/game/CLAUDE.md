@@ -4222,3 +4222,20 @@ empties the whole health now and wrecks the machine.
 `SAVE_VERSION` 61; `wire::PROTOCOL` 58 (task #11's, which carried this
 one's 57). The survivor pins move with it on purpose: a fight against
 machines plays differently.
+
+## A revive's patient may be a visitor (`GUEST`)
+
+`game::GUEST` (1 << 16) plus a visitor's index is a revive's patient
+when it is one of the station's people lying on the joined deck — its
+body in its own room. The world says which visitors may be revived
+(`set_visitors_revivable`, cleared by `set_visitors`); `Room::guests`
+is where they lie, filled beside `Room::crew`, and `Room::patient_at`
+is the one reading every revive step takes of where its patient is, so
+the walk, the follow and the kneel are a crewmate's. `revive_crewmate`
+and `CrewOrder::Revive` take one (`is_revivable_guest`), `apply_revives`
+hands it to the world as a `GuestRevived` (helper, visitor, the helper's
+`revived_to`) instead of bringing a body round, and `set_tended` is the
+other room's half: a body the crew's hands are on from the joined deck
+stands its countdown. `guest_at`, `guest_pos` and `revivable_guests`
+are the app's readings. The bots never offer to revive one. See
+`crates/world/CLAUDE.md`, "A townsperson is picked up with the medkit".

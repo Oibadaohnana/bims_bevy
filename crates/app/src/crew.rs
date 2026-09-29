@@ -2593,16 +2593,24 @@ pub fn revive_refused(
     if patient == who {
         return Some(REVIVE_YOURSELF.to_string());
     }
-    if !game.is_downed(patient) {
+    // A townsperson down on the joined deck (`bims::game::GUEST`): the
+    // world has asked of its own room whether it may be picked up.
+    let guest = patient >= bims::game::GUEST;
+    let down = if guest {
+        game.is_revivable_guest(patient)
+    } else {
+        game.is_downed(patient)
+    };
+    if !down {
         return Some(REVIVE_NOT_DOWN.to_string());
     }
     if !game.is_alive(who) || game.is_downed(who) || game.is_outside(who) {
         return Some(HELPER_OUT.to_string());
     }
-    if game.is_outside(patient) {
+    if !guest && game.is_outside(patient) {
         return Some(PATIENT_OUT.to_string());
     }
-    if game.is_carried(patient) {
+    if !guest && game.is_carried(patient) {
         return Some(REVIVE_CARRIED.to_string());
     }
     // A bot on its way gives way to a player's own Bim (the room drops

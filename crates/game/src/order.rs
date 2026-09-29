@@ -72,7 +72,8 @@ pub enum CrewOrder {
         who: u32,
     },
     /// Revive `patient`, a downed crewmate (task 120): the walk over and
-    /// `who`'s revive time kneeling at it.
+    /// `who`'s revive time kneeling at it. `game::GUEST + i` is visitor
+    /// `i`, a townsperson down on the joined deck.
     Revive {
         who: u32,
         patient: u32,
@@ -192,7 +193,11 @@ impl Game {
                 0
             }
             CrewOrder::Revive { who: w, patient } => {
-                if who(w) < self.crew_count() as usize && who(patient) < self.crew_count() as usize
+                // The patient a crewmate, or a townsperson down on the
+                // joined deck (`GUEST`).
+                if who(w) < self.crew_count() as usize
+                    && (who(patient) < self.crew_count() as usize
+                        || self.is_revivable_guest(who(patient)))
                 {
                     self.revive_crewmate(who(w), who(patient));
                 }

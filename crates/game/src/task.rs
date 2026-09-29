@@ -524,7 +524,7 @@ pub fn patient_stand(
     if patient == who {
         return Some(from);
     }
-    let at = room.crew.get(patient).copied().flatten()?;
+    let at = room.patient_at(patient)?;
     let nav = maps.deck();
     let toward = from - at;
     let step = if toward.len() > 1e-3 {
@@ -905,7 +905,7 @@ impl Task {
                     unreachable!("GoToPatient is a Revive's step")
                 };
                 self.target = patient_stand(room, maps, self.who, patient, ch.pos);
-                self.patient_at = room.crew.get(patient).copied().flatten();
+                self.patient_at = room.patient_at(patient);
                 if self.target.is_none() {
                     self.blocked = true;
                     return;
@@ -984,9 +984,9 @@ impl Task {
             Revive => {
                 if let Some(patient) = self.kind.patient()
                     && patient != self.who
-                    && let Some(Some(at)) = room.crew.get(patient)
+                    && let Some(at) = room.patient_at(patient)
                 {
-                    let d = *at - ch.pos;
+                    let d = at - ch.pos;
                     if d.len() > 1e-3 {
                         ch.face(d.y.atan2(d.x));
                     }
@@ -1095,7 +1095,7 @@ impl Task {
             && let Some(patient) = self.kind.patient()
             && patient != self.who
             && let Some(was) = self.patient_at
-            && let Some(Some(now)) = room.crew.get(patient).copied()
+            && let Some(now) = room.patient_at(patient)
             && (now - was).len() > FOLLOW_SLACK * TILE
         {
             self.enter(ch, room, maps);

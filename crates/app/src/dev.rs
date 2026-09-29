@@ -36,6 +36,8 @@
 //! stand and builds its room again over the bodies (feature 85), which
 //! is how the dead lying on a station's deck are looked at without
 //! fighting, flying away and coming back.
+//! `BIMS_DOWN_RESIDENT=1` downs a town's guard a tile from the player's
+//! Bim, to be picked up with the medkit (`2`, then a right-click or `+G`).
 //! `BIMS_TRADER=1` opens any run at the nearest open trader, the Trader
 //! panel up on the map (task 114). `BIMS_ARMORY=1` opens any run
 //! with the Armory panel up (task 113), which is how the loadouts and the
@@ -86,6 +88,14 @@ pub fn zoom() -> Option<f32> {
 /// `BIMS_ZOOM` out, the whole of what is seen.
 pub fn afield() -> bool {
     std::env::var("BIMS_AFIELD").as_deref() == Ok("1")
+}
+
+/// `BIMS_DOWN_RESIDENT=1` downs the first of the station alongside's
+/// people — a town's guard in `defense` — a tile from the player's own
+/// Bim, so picking a townsperson up with the medkit is looked at without
+/// waiting for a machine to do it.
+pub fn down_resident() -> bool {
+    std::env::var("BIMS_DOWN_RESIDENT").as_deref() == Ok("1")
 }
 
 /// `BIMS_GRAVES=n` opens the simulation with `n` of the station

@@ -1474,7 +1474,11 @@ impl World {
         // An EMP that burst in the crew's room stuns the machines it
         // reached before their own room steps (task 127).
         self.settle_stuns();
+        // A townsperson with a crew member's hands on it stands its
+        // countdown, as a crewmate being revived does.
+        let tended = self.tended_residents();
         if let Some(residents) = &mut self.residents {
+            residents.aboard.room.set_tended(&tended);
             residents.aboard.step();
         }
         self.visit(&mut events);
@@ -2563,6 +2567,11 @@ impl World {
                 .room
                 .set_visitors_hailable(&residents.hailable());
         }
+        // And which of them the crew may pick up with the medkit: a
+        // station's own person downed — a townsperson fallen defending
+        // it — at a station that is not at war with the crew.
+        let revivable = self.revivable_residents();
+        self.aboard.room.set_visitors_revivable(&revivable);
         // And which of them the crew can see, for their own room to draw.
         // Off the last trace, which is a frame's rather than a step's —
         // nobody crosses a bulkhead in a sixtieth of a minute.
@@ -2701,6 +2710,7 @@ impl World {
         let bodies = room.body_count() as usize;
         residents.down.resize(bodies, false);
         residents.xp_down.resize(bodies, false);
+        residents.xp_dead.resize(bodies, false);
         residents.last_hit_by.resize(bodies, None);
         residents.fee.resize(bodies, None);
         residents.medic.resize(bodies, false);
@@ -4374,6 +4384,7 @@ impl World {
         residents.aboard.crew = residents.aboard.room.crew_count();
         residents.down.remove(resident as usize);
         residents.xp_down.remove(resident as usize);
+        residents.xp_dead.remove(resident as usize);
         residents.last_hit_by.remove(resident as usize);
         residents.fee.remove(resident as usize);
         let was_medic = residents.medic.remove(resident as usize);
@@ -5116,6 +5127,41 @@ impl World {
         self.residents = None;
         self.ship.state = ShipState::Docked { station: id };
         self.dock_at(id);
+        true
+    }
+
+    /// The first of the station alongside's people — a town's guard —
+    /// stood a tile from crew member 0 and downed there, its countdown
+    /// running: a townsperson to pick up with the medkit, without a fight.
+    /// `false`, and nothing moved, with no room joined or nobody in it.
+    /// For `BIMS_DOWN_RESIDENT` in the app.
+    pub fn down_resident_for_probe(&mut self) -> bool {
+        // A landing's room is peopled by the steps after it, and a
+        // defence's first step stands the crew ashore.
+        for step in 0..10 {
+            if step >= 2
+                && self
+                    .residents
+                    .as_ref()
+                    .is_some_and(|r| r.aboard.room.crew_count() > 0)
+            {
+                break;
+            }
+            self.step(&[]);
+        }
+        let near = self.aboard.room.bim_pos(0) + bims::math::vec2(shipdesign::TILE as f32, 0.0);
+        let Some(station) = self.aboard.to_station(dvec2(near.x as f64, near.y as f64)) else {
+            return false;
+        };
+        let Some(residents) = self.residents.as_mut() else {
+            return false;
+        };
+        if residents.aboard.room.crew_count() == 0 {
+            return false;
+        }
+        let there = residents.aboard.to_room(station);
+        residents.aboard.room.put_for_probe(0, there);
+        residents.aboard.room.knock_out_for_probe(0);
         true
     }
 
@@ -6405,6 +6451,7 @@ impl World {
                 let bims = residents.aboard.room.crew_count() as usize + kept;
                 residents.down.truncate(bims);
                 residents.xp_down.truncate(bims);
+                residents.xp_dead.truncate(bims);
                 residents.last_hit_by.truncate(bims);
                 residents.fee.truncate(bims);
                 residents.medic.truncate(bims);
@@ -6814,6 +6861,7 @@ impl World {
         let bims = residents.aboard.room.crew_count() as usize;
         residents.down.truncate(bims);
         residents.xp_down.truncate(bims);
+        residents.xp_dead.truncate(bims);
         residents.last_hit_by.truncate(bims);
         residents.fee.truncate(bims);
         residents.medic.truncate(bims);
@@ -7334,8 +7382,12 @@ impl World {
             // **The only experience there is, and every class's alike**
             // (task 119): an enemy going down — downed, or dead without
             // being down first, which is every machine — is
-            // [`class::XP_ENEMY_DOWN`], once. A downed Manufacturer
-            // dying after — bled out or finished — is worth nothing more.
+            // [`class::XP_ENEMY_DOWN`], once; and its death
+            // [`class::XP_ENEMY_DEAD`] on top, once, whether it died the
+            // step it went down or bled out later.
+            if dead && !residents.xp_dead[who] {
+                gained.push((at, class::XP_ENEMY_DEAD));
+            }
             if down && !residents.xp_down[who] {
                 gained.push((at, self.rewards.xp_per_down));
                 downed.push((who, residents.last_hit_by.get(who).copied().flatten()));
@@ -7350,7 +7402,9 @@ impl World {
         if let Some(residents) = &mut self.residents {
             for who in 0..count.min(residents.xp_down.len()) {
                 let room = &residents.aboard.room;
-                residents.xp_down[who] |= !room.is_alive(who) || room.is_downed(who);
+                let dead = !room.is_alive(who);
+                residents.xp_down[who] |= dead || room.is_downed(who);
+                residents.xp_dead[who] |= dead;
             }
         }
         for (at, xp) in gained {
@@ -9340,6 +9394,69 @@ impl World {
                 self.relics_on_a_revive(revived.helper, revived.patient, events);
             }
         }
+        // And a townsperson the crew's hands brought round on the joined
+        // deck: up in its own room at the helper's share of the bar, and
+        // back in the fight. No relic fires for it — they are the crew's.
+        let guests = self.aboard.room.take_guest_revives();
+        if let Some(residents) = &mut self.residents {
+            for revived in guests {
+                if residents
+                    .aboard
+                    .room
+                    .bring_round(revived.visitor, revived.share)
+                {
+                    events.push(WorldEvent::ResidentRevived {
+                        station: residents.station,
+                        who: revived.visitor as u32,
+                        by: revived.helper as u32,
+                    });
+                }
+            }
+        }
+    }
+
+    /// Which of the station's people the crew may pick up with the medkit,
+    /// index for index with the visitors (`Aboard::visit`): a Bim of the
+    /// residents' room — never a machine, never a Manufacturer — downed and
+    /// still alive, on the deck and in nobody's arms, at a station not at
+    /// war with the crew. What `Game::set_visitors_revivable` is told.
+    fn revivable_residents(&self) -> Vec<bool> {
+        let Some(residents) = &self.residents else {
+            return Vec::new();
+        };
+        if self.stance(residents.station) == Stance::Hostile {
+            return Vec::new();
+        }
+        let room = &residents.aboard.room;
+        let bims = room.crew_count() as usize;
+        (0..residents.aboard.count() as usize)
+            .map(|who| {
+                who < bims
+                    && !room.is_manufacturer(who)
+                    && room.is_alive(who)
+                    && room.is_downed(who)
+                    && !room.is_outside(who)
+                    && !room.is_carried(who)
+            })
+            .collect()
+    }
+
+    /// Which of the station's people have a crew member's hands on them,
+    /// index for index with its room, for the residents' room to stand
+    /// their countdowns (`Game::set_tended`): what the crew's room says of
+    /// every revive of a visitor under way.
+    fn tended_residents(&self) -> Vec<bool> {
+        let Some(residents) = &self.residents else {
+            return Vec::new();
+        };
+        (0..residents.aboard.count() as usize)
+            .map(|who| {
+                self.aboard
+                    .room
+                    .revive_share(bims::game::GUEST + who)
+                    .is_some()
+            })
+            .collect()
     }
 
     // --- the tank: the wall, the taunt and the hits (feature 77) -----------

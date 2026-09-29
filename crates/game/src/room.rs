@@ -463,12 +463,28 @@ pub struct Room {
     /// to a *crewmate* — the revive — can pick its spot as the walk is
     /// entered. Nothing else reads it.
     pub crew: Vec<Option<Vec2>>,
+    /// Where every visitor the crew may revive lies this step, by visitor
+    /// index — `None` for one that may not be (`Game::set_visitors_revivable`)
+    /// — set with `crew`, for a revive's walk to a townsperson down
+    /// (`game::GUEST`). Never saved: the world says it again every step.
+    #[cfg_attr(feature = "serde", serde(skip))]
+    pub guests: Vec<Option<Vec2>>,
     /// What happened this step that a host may want to hear — see
     /// `crate::cue`. Said by the doors; drained through `Game::take_cues`.
     pub cues: Vec<Cued>,
 }
 
 impl Room {
+    /// Where a revive's patient lies this step: one of the crew
+    /// (`Room::crew`) or, past `game::GUEST`, a visitor the crew may
+    /// revive (`Room::guests`). `None` for one gone, dead or outside.
+    pub fn patient_at(&self, patient: usize) -> Option<Vec2> {
+        match patient.checked_sub(crate::game::GUEST) {
+            Some(i) => self.guests.get(i).copied().flatten(),
+            None => self.crew.get(patient).copied().flatten(),
+        }
+    }
+
     /// A bare room: `width` by `height`, bulkheads all round, a deck plate
     /// inside them and nothing standing on it. Lit throughout, since it is
     /// handed no lamps. What the tests and the probes stand bodies in.
@@ -515,6 +531,7 @@ impl Room {
             blood: Blood::new(interior),
             revived: Vec::new(),
             crew: Vec::new(),
+            guests: Vec::new(),
             cues: Vec::new(),
         }
     }
@@ -634,6 +651,7 @@ impl Room {
             blood: Blood::new(interior),
             revived: Vec::new(),
             crew: Vec::new(),
+            guests: Vec::new(),
             cues: Vec::new(),
         }
     }

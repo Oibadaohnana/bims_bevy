@@ -1427,7 +1427,7 @@ fn a_machine_destroyed_is_experience_once_each_to_the_classed_crew_in_range() {
     for _ in 0..3 {
         world.step(&[]);
     }
-    let paid = class::XP_ENEMY_DOWN;
+    let paid = class::XP_ENEMY_DOWN + class::XP_ENEMY_DEAD;
     assert_eq!(world.progress_of(0).xp, a + paid, "James");
     assert_eq!(world.progress_of(1).xp, b + paid, "Kate");
     world.step(&[]);
@@ -1469,6 +1469,6 @@ fn each_class_gets_identical_experience_for_the_same_kills() {
             world.progress_of(1).xp - before.1,
         );
         assert_eq!(gained.0, gained.1, "{class:?} beside {other:?}");
-        assert_eq!(gained.0, class::XP_ENEMY_DOWN);
+        assert_eq!(gained.0, class::XP_ENEMY_DOWN + class::XP_ENEMY_DEAD);
     }
 }

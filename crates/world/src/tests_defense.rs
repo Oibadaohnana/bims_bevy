@@ -527,7 +527,7 @@ fn down_by_crew_member_0(world: &mut World, i: usize) {
 }
 
 /// A machine taken down in a town's defence is experience, as one at a
-/// station the machines hold is: `XP_ENEMY_DOWN` (twenty) to
+/// station the machines hold is: `XP_ENEMY_DOWN` and `XP_ENEMY_DEAD` (task 119) to
 /// every classed crew member within the vicinity, once. A townsperson
 /// going down is nobody's. And a soldier's *rampage* counts it while the
 /// rest of the wave stands, since a defended town's machines are the
@@ -562,10 +562,10 @@ fn a_machine_downed_in_a_town_s_defence_is_experience_and_a_townsperson_is_not()
         world.step(&[]);
     }
     assert_eq!(world.progress_of(0).xp, xp, "a townsperson is nobody's");
-    // A machine down by the crew member: the down, once; its death nothing more.
+    // A machine down by the crew member: the down and the death, once.
     down_by_crew_member_0(&mut world, 0);
     world.step(&[]);
-    let paid = class::XP_ENEMY_DOWN;
+    let paid = class::XP_ENEMY_DOWN + class::XP_ENEMY_DEAD;
     assert_eq!(
         world.progress_of(0).xp,
         xp + paid,
@@ -878,6 +878,89 @@ fn leaving_a_station_defence_early_gives_it_to_the_machines_and_pays_nothing() {
             .iter()
             .any(|e| matches!(e, WorldEvent::TownsfolkJoined { .. }))
     );
+}
+
+/// A townsperson downed fighting for its town is picked up with the
+/// medkit like a crewmate: the crew's room is told it may be revived
+/// (`GUEST + i`), a crew member ordered to it walks over and kneels, its
+/// countdown stands while the hands are on it, and it gets up in its own
+/// room — said as `ResidentRevived`.
+#[test]
+fn a_townsperson_downed_is_picked_up_with_the_medkit() {
+    let Some((mut world, id)) = a_threatened_town(1.0, 2, None) else {
+        return;
+    };
+    world.step(&[]);
+    world.aboard.room.set_autonomous(false);
+    let guard = surface::GUARD as usize;
+    // The guard down a tile from crew member 0.
+    let near = world.aboard.room.bim_pos(0) + bims::math::vec2(shipdesign::TILE as f32, 0.0);
+    let station = world
+        .aboard
+        .to_station(worldgen::math::dvec2(near.x as f64, near.y as f64))
+        .expect("the rooms joined");
+    {
+        let residents = world.residents.as_mut().expect("the town's room");
+        let there = residents.aboard.to_room(station);
+        residents.aboard.room.put_for_probe(guard, there);
+        residents.aboard.room.knock_out_for_probe(guard);
+    }
+    world.step(&[]);
+    world.step(&[]);
+    let patient = bims::game::GUEST + guard;
+    let room = &world.residents.as_ref().unwrap().aboard.room;
+    assert!(room.is_downed(guard), "the guard is down");
+    assert!(
+        world.aboard.room.is_revivable_guest(patient),
+        "the crew's room may pick the guard up"
+    );
+    assert!(world.aboard.room.guest_pos(patient).is_some());
+
+    world.step(&[Command::Crew {
+        slot: 0,
+        order: bims::order::CrewOrder::Revive {
+            who: 0,
+            patient: patient as u32,
+        },
+    }]);
+    assert_eq!(world.aboard.room.reviving(0), Some(patient));
+    // Hands on it: the countdown stands.
+    assert!(
+        until(&mut world, 400, |w| w
+            .aboard
+            .room
+            .revive_share(patient)
+            .is_some()),
+        "crew member 0 never knelt at the guard"
+    );
+    world.step(&[]);
+    let left = |w: &World| w.residents.as_ref().unwrap().aboard.room.down_left(guard);
+    let was = left(&world).expect("still down");
+    for _ in 0..10 {
+        world.step(&[]);
+    }
+    assert_eq!(left(&world), Some(was), "the countdown ran under the hands");
+    // And it gets up in its own room, said once.
+    let mut said = false;
+    for _ in 0..2_000 {
+        let events = world.step(&[]);
+        said |= events.iter().any(|e| {
+            matches!(e, WorldEvent::ResidentRevived { station, who, by: 0 }
+                if *station == id && *who == guard as u32)
+        });
+        if said {
+            break;
+        }
+    }
+    assert!(said, "no ResidentRevived");
+    let room = &world.residents.as_ref().unwrap().aboard.room;
+    assert!(
+        !room.is_downed(guard) && room.is_alive(guard),
+        "the guard is up"
+    );
+    // The crew's room hears it the next step, as it hears every visitor.
+    world.step(&[]);
+    assert!(!world.aboard.room.is_revivable_guest(patient));
 }
 
 /// **Before day ten a defence is attacked by the Manufacturers** (task

@@ -37,17 +37,17 @@
 //!
 //! # Experience
 //!
-//! **The same for every class** (task 119). One thing gives it, and
+//! **The same for every class** (task 119). Two things give it, and
 //! nothing else:
 //!
 //! | what | xp | who |
 //! |---|---|---|
 //! | an enemy goes down within [`VICINITY_TILES`] — downed, or dead without being down first | [`XP_ENEMY_DOWN`] | every classed crew member in range |
+//! | an enemy dies within it — the step it went down, or bled out later | [`XP_ENEMY_DEAD`] | the same |
 //!
-//! Each enemy counts once, at its first down or death: a machine
-//! destroyed and a Manufacturer downed are worth the same twenty, and a
-//! downed one dying after is worth nothing more. A crewmate or a
-//! mercenary going down gives nothing. The vicinity is measured on the deck the fight is
+//! Each enemy counts once for going down and once for dying, so a
+//! machine destroyed outright is both; a crewmate or a mercenary going
+//! down gives nothing. The vicinity is measured on the deck the fight is
 //! on, between the crew member and the enemy. No class has a source of
 //! its own: building, laying a kit, healing, taking hits and hiring gave
 //! the engineer, the medic, the tank and the commander experience of
@@ -750,11 +750,12 @@ pub fn by_rank<T: Copy>(table: [T; MAX_RANK as usize], rank: u8) -> Option<T> {
 
 /// What an enemy going down within the vicinity is worth, to every
 /// classed crew member in range, whatever its class: once an enemy — out
-/// cold, or dead without being down first, which is every machine. A
-/// Manufacturer downed is worth it, a machine destroyed the same, and
-/// neither is worth anything more when it dies after: the death's own
-/// `XP_ENEMY_DEAD` (task 119) went, and this went from ten to twenty.
-pub const XP_ENEMY_DOWN: u32 = 20;
+/// cold, or dead without being down first, which is every machine.
+pub const XP_ENEMY_DOWN: u32 = 10;
+/// What an enemy dying within the vicinity is worth, the same way and on
+/// top (task 119; feature 109 had taken it out): once an enemy, the step
+/// it went down or later.
+pub const XP_ENEMY_DEAD: u32 = 5;
 /// How far the vicinity reaches, in tiles.
 pub const VICINITY_TILES: f32 = 50.0;
 
