@@ -2339,6 +2339,7 @@ fn a_bim_can_be_sent_to_stand_in_a_doorway_and_a_locked_door_is_a_wall() {
         // The pilot's spot, in the joined room's coordinates.
         let helm = bims::math::vec2(offset.x as f32 + 9.5 * tile, offset.y as f32 + 4.5 * tile);
         world.aboard.room.recruit_for_probe(0, true);
+        let start = world.aboard.room.bim_pos(0);
         assert!(
             world.aboard.room.send_for_probe(0, helm),
             "no route to the helm to begin with"
@@ -2357,6 +2358,14 @@ fn a_bim_can_be_sent_to_stand_in_a_doorway_and_a_locked_door_is_a_wall() {
             !world.aboard.room.ship_door_is_locked(0),
             "a crew member locked a door from its panel"
         );
+        // The refused lock left the walk to the helm standing, so the Bim
+        // is on the bridge now: walk it back out before sealing it.
+        assert!(world.aboard.room.send_for_probe(0, start));
+        let mut budget = 60 * 60;
+        while budget > 0 && world.aboard.room.is_walking(0) {
+            world.step(&[]);
+            budget -= 1;
+        }
         assert!(world.aboard.room.lock_door_for_probe(0, true));
         let mut budget = 60 * 5;
         while budget > 0 && world.aboard.room.is_walking(0) {

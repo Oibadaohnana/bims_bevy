@@ -200,7 +200,14 @@ pub const REFERENCE_STEPS: u32 = 600;
 /// whole systems (`World::set_whole_systems_for_probe`), and with the
 /// outposts switched off the run came out at the old number. Was
 /// `0x_4284_750b_5249_4340`.
-pub const REFERENCE_CHECKSUM: u64 = 0x_c6be_4221_4565_e460;
+/// And for the elites (079ffe0, no task number), on purpose: one system in
+/// ten holds an elite, a Guardian in its second wave, and only elites drop
+/// relics — a plain cleared site no longer offers them, the Manufacturers'
+/// sites keep no cache and none stand in an elite system. Measured on that
+/// commit alone: 5175dd8 before it came out at the old number. Task 138
+/// (a revive under way stands the countdown) did not move it. Was
+/// `0x_c6be_4221_4565_e460`.
+pub const REFERENCE_CHECKSUM: u64 = 0x_3e51_51c8_9fc9_08a0;
 
 /// A world with the flyable fixture docked at the simulation's spawn: the
 /// default seed's first dock, which is where every fixture world starts.

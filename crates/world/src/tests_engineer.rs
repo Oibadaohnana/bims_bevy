@@ -877,7 +877,7 @@ fn a_healing_sentry_heals_at_its_rank_s_share_of_the_beam() {
 /// **Not through a wall, not a downed Bim, not an enemy, not above full.**
 #[test]
 fn a_healing_sentry_heals_nobody_behind_a_wall_down_or_an_enemy() {
-    let (mut world, id, at) = healing(4);
+    let (mut world, id, _) = healing(4);
     assert!(
         world
             .healing_links()

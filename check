@@ -182,7 +182,7 @@ smoke_one() {
   # are where the buttons are in a 1400x900 window at 100%; the run only
   # counts if the world actually went back, which is what `wants` looks for.
   [ "$what" = restarted ] && {
-    staged="BIMS_KEYS=30:Escape BIMS_POINTER='60:move:673,496;62:click:673,496;90:move:562,489;92:click:562,489' "
+    staged="BIMS_KEYS=30:Escape BIMS_POINTER='60:move:634,565;62:click:634,565;90:move:562,489;92:click:562,489' "
     run=droids
     frames=150
     wants="^restart: "

@@ -5183,18 +5183,6 @@ const REVIVE_HOLD_REACH: f32 = 2.5;
 /// the walk goes through the seam and starts a frame or two later.
 const CARRY_WALK_GRACE: u32 = 30;
 
-/// The held revive key (G), a frame at a time: the order if there is one
-/// to send, and the log's line. `held` is the patient the key sent the
-/// player's own Bim `own` to, kept on the screen between frames.
-///
-/// * the key goes down beside a downed crewmate — the nearest within
-///   [`REVIVE_HOLD_REACH`] that `crew::revive_refused` passes — and it is
-///   the revive (`CrewOrder::Revive`), the walk over and the hands on;
-/// * held, nothing more is sent while that one is still down; once it is
-///   up the next one near is taken, the key still held;
-/// * let go with the revive still in hand, and it is stopped
-///   (`CrewOrder::StandDown`, which lets a revive go);
-/// * pressed with nobody near, the log says so.
 /// What a right-click at room point `(x, y)` revives with the medkit in
 /// `own`'s hand (task 138): `None` when the kit is not in hand or no
 /// downed crewmate is under the pointer — the click is a walk then — else
@@ -5220,6 +5208,18 @@ fn medkit_patient(
     )
 }
 
+/// The held revive key (G), a frame at a time: the order if there is one
+/// to send, and the log's line. `held` is the patient the key sent the
+/// player's own Bim `own` to, kept on the screen between frames.
+///
+/// * the key goes down beside a downed crewmate — the nearest within
+///   [`REVIVE_HOLD_REACH`] that `crew::revive_refused` passes — and it is
+///   the revive (`CrewOrder::Revive`), the walk over and the hands on;
+/// * held, nothing more is sent while that one is still down; once it is
+///   up the next one near is taken, the key still held;
+/// * let go with the revive still in hand, and it is stopped
+///   (`CrewOrder::StandDown`, which lets a revive go);
+/// * pressed with nobody near, the log says so.
 fn held_revive(
     room: &bims::game::Game,
     own: usize,
