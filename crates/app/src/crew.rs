@@ -613,6 +613,11 @@ pub struct CrewPanels {
     /// The player's own class, as the screen last handed it over
     /// (feature 74): drawn under the health of their own crew member.
     pub class_view: Option<ClassView>,
+    /// Every player's relics (feature 106), a list a slot, as the screen
+    /// last handed them over (`World::relics_of`): what the side panel
+    /// shows of a crewmate picked (task 136). A bot holds none and has no
+    /// list.
+    pub player_relics: Vec<Vec<world::Relic>>,
     /// How long the player's own Bim takes to revive a crewmate, in
     /// seconds, as the screen last handed it over off the world
     /// (`World::revive_seconds`, task 120): the class, a hired medic's
@@ -658,6 +663,7 @@ impl CrewPanels {
             may_lift: false,
             nearby: Vec::new(),
             class_view: None,
+            player_relics: Vec::new(),
             revive_seconds: bims::health::REVIVE_SECONDS,
             deploy_orders: Vec::new(),
             keys: Keys::default(),
@@ -1300,6 +1306,11 @@ impl CrewPanels {
                 ));
                 ui.end_row();
             });
+        // A player's relics, as the character sheet shows its own (task
+        // 136): what help the crewmate picked carries.
+        if let Some(relics) = self.player_relics.get(w) {
+            sheet_relics(ui, relics);
+        }
         true
     }
 
@@ -2503,8 +2514,10 @@ fn sheet_body(ui: &mut egui::Ui, game: &Game, w: usize) {
 /// The character sheet's gear (feature 107): each piece worn with its
 /// tier and how much of it is left, and the weapon in hand with its
 /// tier — what the inventory's slots say, in a line each.
-/// The relics its Bim holds (feature 106): each by name and tier, with
-/// what it does. Here and nowhere on the deck.
+/// The relics a player's Bim holds (feature 106): each its picture (task
+/// 136) beside its name and what it does. On the character sheet for the
+/// player's own, on the side panel for a crewmate picked; nowhere on the
+/// deck.
 fn sheet_relics(ui: &mut egui::Ui, relics: &[world::Relic]) {
     theme::heading(ui, RELICS_HEADING);
     if relics.is_empty() {
@@ -2512,12 +2525,18 @@ fn sheet_relics(ui: &mut egui::Ui, relics: &[world::Relic]) {
         return;
     }
     for &relic in relics {
-        ui.label(
-            egui::RichText::new(relic_name(relic))
-                .strong()
-                .color(theme::INK),
-        );
-        ui.add(egui::Label::new(egui::RichText::new(relic_line(relic)).small()).wrap());
+        ui.with_layout(egui::Layout::left_to_right(egui::Align::Min), |ui| {
+            icons::relic_cell(ui, relic);
+            ui.vertical(|ui| {
+                ui.label(
+                    egui::RichText::new(relic_name(relic))
+                        .strong()
+                        .color(theme::INK),
+                );
+                ui.add(egui::Label::new(egui::RichText::new(relic_line(relic)).small()).wrap());
+            });
+        });
+        ui.add_space(2.0);
     }
 }
 

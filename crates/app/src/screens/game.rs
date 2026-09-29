@@ -1433,6 +1433,11 @@ fn frame(
         if let Some(game) = session.game.as_ref() {
             panels.revive_seconds = game.world.revive_seconds(panels.player as u32);
             panels.may_lift = game.world.can_lift(panels.player as u32);
+            // Every player's relics, for the side panel of a crewmate
+            // picked (task 136).
+            panels.player_relics = (0..game.world.players())
+                .map(|slot| game.world.relics_of(slot).to_vec())
+                .collect();
         }
         // And the player's own class, for the section under the health
         // (feature 74).
