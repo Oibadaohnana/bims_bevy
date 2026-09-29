@@ -1422,8 +1422,6 @@ impl World {
         //    cooldown (features 88 and 90, task 127), before the boxes at
         //    the foot of the screen are read.
         self.restock_charges();
-        //    And the engineer's sentry gone when its time is up (task 127).
-        self.expire_sentries(&mut events);
         self.hand_the_room_the_engineers();
         //    And what each class wears (feature 81): drawing only, said
         //    every step because a class is chosen, a crew member joins
@@ -7526,12 +7524,14 @@ impl World {
     }
 
     /// What the sentry's rank does to its shooting (task 127): the fire
-    /// rate multiplied by [`class::SENTRY_FIRE_RATE`]; the room applies it
+    /// rate multiplied by [`class::SENTRY_FIRE_RATE`] and the tiles
+    /// [`class::SENTRY_RANGE`] adds to its reach; the room applies both
     /// through the one `fire_as` a Bim's skill goes through.
     pub(crate) fn sentry_skill(&self, owner: u32) -> bims::combat::Skill {
         let mut skill = bims::combat::Skill::NONE;
         let rank = self.rank_of(owner, class::SLOT_R).max(1);
         skill.fire_rate = class::by_rank(class::SENTRY_FIRE_RATE, rank).unwrap_or(1.0);
+        skill.range = class::by_rank(class::SENTRY_RANGE, rank).unwrap_or(0.0);
         skill
     }
 
@@ -7759,22 +7759,13 @@ impl World {
         (self.sentry_cooldown(who) - since).max(0.0)
     }
 
-    /// Seconds a sentry laid by that engineer now stands: its R rank's
-    /// [`class::SENTRY_SECONDS`].
-    pub fn sentry_seconds(&self, who: u32) -> f64 {
-        let rank = self.rank_of(who, class::SLOT_R).max(1);
-        class::by_rank(class::SENTRY_SECONDS, rank).unwrap_or(0.0)
-    }
-
-    /// Seconds the sentry of that engineer standing has left, if one
-    /// stands.
-    pub fn sentry_left(&self, who: u32) -> Option<f64> {
-        let now = self.mission_minutes();
+    /// Whether that engineer's sentry stands. It stands until it is
+    /// destroyed, another is laid, the mission ends or the rooms unjoin —
+    /// there is no timer.
+    pub fn sentry_standing(&self, who: u32) -> bool {
         self.deployables
             .iter()
-            .find(|d| d.kind == DeployKind::Sentry && d.owner_slot == who)
-            .and_then(|d| d.expires)
-            .map(|until| ((until - now) / time::MINUTES_PER_SECOND).max(0.0))
+            .any(|d| d.kind == DeployKind::Sentry && d.owner_slot == who)
     }
 
     /// What laying the sentry asks: the slot's Bim fit to act
@@ -7801,26 +7792,6 @@ impl World {
     fn lay_sentry(&mut self, slot: u32, tile: (i32, i32)) -> Result<(), Refusal> {
         self.can_lay_sentry(slot, tile)?;
         self.start_laying(slot, DeployKind::Sentry, tile)
-    }
-
-    /// Every sentry whose time has run out taken off the deck, said as
-    /// done (task 127): its end, not a loss.
-    fn expire_sentries(&mut self, events: &mut Vec<WorldEvent>) {
-        let now = self.mission_minutes();
-        let done: Vec<u32> = self
-            .deployables
-            .iter()
-            .filter(|d| d.expires.is_some_and(|until| now >= until))
-            .map(|d| d.owner_slot)
-            .collect();
-        if done.is_empty() {
-            return;
-        }
-        self.deployables
-            .retain(|d| d.expires.is_none_or(|until| now < until));
-        for who in done {
-            events.push(WorldEvent::SentryDone { who });
-        }
     }
 
     /// Which deck a point of the crew's room is on, and which tile of
@@ -7868,7 +7839,6 @@ impl World {
         if self.deployable_at(deck, tile).is_some() {
             return;
         }
-        let mut expires = None;
         match kind.charge() {
             Some(charge) => {
                 let held = self.charges_of(slot, charge);
@@ -7887,7 +7857,6 @@ impl World {
                         .resize(who + 1, crate::engineer::Engineer::default());
                 }
                 self.engineers[who].sentry_laid = Some(now);
-                expires = Some(now + self.sentry_seconds(slot) * time::MINUTES_PER_SECOND);
             }
         }
         // The standing limit: one sentry, and a Healing Sentry's charges.
@@ -7909,7 +7878,7 @@ impl World {
             self.deployables.retain(|d| d.id != oldest);
             events.push(WorldEvent::DeployableLost { kind: kind.code() });
         }
-        self.lay(kind, slot, deck, tile, expires);
+        self.lay(kind, slot, deck, tile);
         if kind == DeployKind::Sandbags
             && self.rank_of(slot, class::SLOT_E) >= class::SANDBAG_DOUBLE_RANK
         {
@@ -7922,7 +7891,7 @@ impl World {
                 });
             if let Some(p) = beside {
                 let (deck, tile) = self.deck_of(p);
-                self.lay(DeployKind::Sandbags, slot, deck, tile, None);
+                self.lay(DeployKind::Sandbags, slot, deck, tile);
             }
         }
         events.push(WorldEvent::Deployed {
@@ -7934,14 +7903,7 @@ impl World {
     }
 
     /// One deployable down, fresh, for `owner`.
-    fn lay(
-        &mut self,
-        kind: DeployKind,
-        owner: u32,
-        deck: Deck,
-        tile: (u32, u32),
-        expires: Option<f64>,
-    ) {
+    fn lay(&mut self, kind: DeployKind, owner: u32, deck: Deck, tile: (u32, u32)) {
         let id = self.next_deployable;
         self.next_deployable += 1;
         let health = self.laid_health(kind, owner);
@@ -7952,7 +7914,6 @@ impl World {
             deck,
             tile,
             health,
-            expires,
         });
         self.deployables.sort_by_key(|d| d.id);
     }
@@ -8043,6 +8004,8 @@ impl World {
                     skill: self.sentry_skill(d.owner_slot),
                     heals: d.kind == DeployKind::HealingSentry,
                     trigger: bims::combat::Trigger::default(),
+                    facing: 0.0,
+                    flash: 0.0,
                 })
             })
             .collect();

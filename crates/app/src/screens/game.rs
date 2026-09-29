@@ -4390,7 +4390,7 @@ fn ranked_box(world: &world::World, slot: u32, action: Action, keys: &Keys) -> A
         (world::Class::Engineer, 3) => Face {
             cooldown: world.sentry_cooldown_left(slot),
             cooldown_whole: world.sentry_cooldown(slot),
-            on: world.sentry_left(slot).is_some(),
+            on: world.sentry_standing(slot),
             ..Face::of(Mark::Charge(icons::ChargeIcon::Sentry))
         },
         // The commander's (task 129): two shouts on their cooldowns, lit

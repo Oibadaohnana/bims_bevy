@@ -35,9 +35,10 @@
 //! fired there through the one trigger and the one hit calculation a Bim
 //! uses — a minigun at `class::SENTRY_TIER` of the rank, its fire rate
 //! times `class::SENTRY_FIRE_RATE`, `class::SENTRY_HEALTH` in one pool.
-//! One stands at a time; it is removed when `class::SENTRY_SECONDS` of
-//! the mission clock have run ([`Deployable::expires`]), when it is
-//! destroyed, or when the rooms unjoin. It cannot be packed up.
+//! Its reach is the minigun's and `class::SENTRY_RANGE` tiles more. One
+//! stands at a time, and it stands until it is destroyed, another is
+//! laid, the mission ends or the rooms unjoin — there is no timer. It
+//! cannot be packed up.
 //!
 //! Both sentries are the enemies' targets: a station's people and its
 //! machines are handed them after the crew, their hits drain its health,
@@ -153,11 +154,6 @@ pub struct Deployable {
     pub tile: (u32, u32),
     /// What it has left: its kind's health of the owner's rank when laid.
     pub health: f32,
-    /// The mission minute it is removed at — the ultimate's sentry, its
-    /// rank's `class::SENTRY_SECONDS` after it was laid — or `None` for
-    /// one that stands until it is destroyed or packed up.
-    #[cfg_attr(feature = "serde", serde(default))]
-    pub expires: Option<f64>,
 }
 
 #[cfg(test)]

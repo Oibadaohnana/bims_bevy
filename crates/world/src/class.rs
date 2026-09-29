@@ -820,8 +820,9 @@ pub const SENTRY_TIER: [bims::combat::Tier; 4] = [
 pub const SENTRY_FIRE_RATE: [f32; 4] = [1.0, 1.0, 1.5, 2.0];
 /// Its health, one pool, a rank.
 pub const SENTRY_HEALTH: [f32; 4] = [200.0, 250.0, 300.0, 400.0];
-/// Seconds of the mission clock it stands before it is removed, a rank.
-pub const SENTRY_SECONDS: [f64; 4] = [30.0, 35.0, 40.0, 45.0];
+/// Tiles added to its minigun's range, a rank: five from the first. It
+/// stands until it is destroyed — there is no timer.
+pub const SENTRY_RANGE: [f32; 4] = [5.0, 5.0, 5.0, 5.0];
 /// Seconds of the mission clock from one laid to the next, a rank —
 /// counted from the laying.
 pub const SENTRY_COOLDOWN: [f64; 4] = [150.0, 140.0, 130.0, 120.0];

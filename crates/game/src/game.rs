@@ -1894,11 +1894,18 @@ impl Game {
                 }
                 let stats = sentry.skill.stats(sentry.weapon);
                 self.sentries[i].trigger.tick(dt);
+                self.sentries[i].flash = (self.sentries[i].flash - dt).max(0.0);
                 let Some((_, _, at)) = self.combat.aim(&self.room.sight, sentry.at, &stats) else {
                     self.sentries[i].trigger.hold();
                     continue;
                 };
+                // The barrel swings onto what it aims at: the picture's
+                // alone, since the shot below is fired at `at` whatever
+                // way it points.
+                let to = at - sentry.at;
+                self.sentries[i].turn_toward(to.y.atan2(to.x), dt);
                 if self.sentries[i].trigger.pull(dt, &stats) {
+                    self.sentries[i].flash = crate::combat::SENTRY_FLASH;
                     self.combat.fire_as(
                         sentry.at,
                         at,
@@ -7277,6 +7284,8 @@ impl Game {
 
     /// The damage each sentry took since last asked, by id, a hit a row.
     pub fn take_sentry_hits(&mut self) -> Vec<(u32, f32)> {
+                    s.facing = was.facing;
+                    s.flash = was.flash;
         std::mem::take(&mut self.sentry_hits)
     }
 

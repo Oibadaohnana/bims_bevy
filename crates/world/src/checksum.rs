@@ -328,10 +328,6 @@ pub fn world_checksum(world: &World) -> u64 {
         hash.eat(d.tile.0 as u64);
         hash.eat(d.tile.1 as u64);
         hash.eat_rounded(d.health as f64, HEALTH_GRID);
-        // The sentry's end (task 127), only where there is one.
-        if let Some(until) = d.expires {
-            hash.eat_rounded(until, FINE_GRID);
-        }
     }
     hash.eat(world.next_deployable as u64);
     // Every crew member's charges held (task 127): counters, by code.

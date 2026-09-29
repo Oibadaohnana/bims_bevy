@@ -181,7 +181,9 @@ use crate::game::Game;
 /// no longer keep who has been paid for dying (`xp_dead`).
 /// 63: a machine keeps whether it came as a reinforcement that goes
 /// looking for the crew (`Droid::seeking`).
-pub const SAVE_VERSION: u32 = 63;
+/// 64: the engineer's sentry stands until it is destroyed — a laid
+/// deployable keeps no end (`Deployable::expires` gone).
+pub const SAVE_VERSION: u32 = 64;
 
 /// What the file holds, read back.
 #[derive(serde::Deserialize)]

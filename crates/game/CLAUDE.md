@@ -4239,3 +4239,15 @@ other room's half: a body the crew's hands are on from the joined deck
 stands its countdown. `guest_at`, `guest_pos` and `revivable_guests`
 are the app's readings. The bots never offer to revive one. See
 `crates/world/CLAUDE.md`, "A townsperson is picked up with the medkit".
+
+## A sentry turns to fire
+
+`combat::Sentry::facing` (radians, nought east) is which way its barrel
+points: `tick_combat` swings it toward what `aim` answers by
+`combat::SENTRY_TURN` a second (`Sentry::turn_toward`, the short way
+round) and `Sentry::flash` is set to `SENTRY_FLASH` on every shot and
+runs down. **Both are drawing only**: the shot is fired at the target
+whatever way the barrel points, neither is saved (`serde(skip)`) or
+hashed, and `set_sentries` carries them over with the trigger. The ship
+painter draws the turret's head at `facing` with the flash at its
+muzzles (`ship::fittings::turret`).

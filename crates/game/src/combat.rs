@@ -964,6 +964,40 @@ pub struct Sentry {
     pub heals: bool,
     /// Its trigger, kept between steps the way a Bim's is.
     pub trigger: Trigger,
+    /// Which way its barrel points, radians in the room's frame (nought
+    /// is east): it swings toward what it aims at by [`SENTRY_TURN`] a
+    /// second, and holds where it was left while nothing is in sight.
+    /// **Drawing only** — it never decides a shot — so it is neither saved
+    /// nor hashed, and kept between steps as the trigger is.
+    #[cfg_attr(feature = "serde", serde(skip))]
+    pub facing: f32,
+    /// Seconds left of the flash at its muzzle after a shot, for the
+    /// picture ([`SENTRY_FLASH`] when it fires). Drawing only, like
+    /// `facing`.
+    #[cfg_attr(feature = "serde", serde(skip))]
+    pub flash: f32,
+}
+
+/// How fast a sentry's barrel swings round to its target, radians a
+/// second — a half turn in a quarter of a second.
+pub const SENTRY_TURN: f32 = 4.0 * core::f32::consts::PI;
+/// How long the flash at a sentry's muzzle shows after a shot, seconds.
+pub const SENTRY_FLASH: f32 = 0.06;
+
+impl Sentry {
+    /// Swing the barrel toward the bearing `to` (radians) by at most `dt`
+    /// seconds of [`SENTRY_TURN`], the short way round.
+    pub fn turn_toward(&mut self, to: f32, dt: f32) {
+        let tau = core::f32::consts::TAU;
+        let mut off = (to - self.facing) % tau;
+        if off > core::f32::consts::PI {
+            off -= tau;
+        } else if off < -core::f32::consts::PI {
+            off += tau;
+        }
+        let most = SENTRY_TURN * dt;
+        self.facing = (self.facing + off.max(-most).min(most)) % tau;
+    }
 }
 /// What a Bim can wear. The discriminants are the codes the app names
 /// (`ARMOUR_NAMES`), written out like the weapons'; `0` is the empty

@@ -6130,3 +6130,23 @@ list, `set_machine_hostiles`) and the Heart's machines are untouched.
 (`tests_droid.rs`) is the rule. `SAVE_VERSION` 63, `wire::PROTOCOL` 62
 (both carried on by later bumps); no pin moved (`SURVIVORS`, `REFERENCE_CHECKSUM`
 and the ship's `PINNED` read the same with the rule on and off).
+
+## The sentry stands until it is destroyed
+
+> "The engineer's ranked kit" above says the ultimate's sentry is
+> removed when `SENTRY_SECONDS` have run (`expire_sentries`,
+> `Deployable::expires`, `WorldEvent::SentryDone`); that is **gone**.
+
+The engineer's sentry stands until it is shot to nothing, another is
+laid (one at a time, as before), the mission ends (`make_whole`) or the
+rooms unjoin. `class::SENTRY_SECONDS`, `World::{sentry_seconds,
+sentry_left, expire_sentries}`, `Deployable::expires` (and its checksum
+line) and `WorldEvent::SentryDone` (133, left free) went;
+`World::sentry_standing(who)` is the app's reading. **Its reach**:
+`class::SENTRY_RANGE` — five tiles a rank, from the first — goes on
+`sentry_skill`'s `Skill::range`, the tiles the room adds to the
+minigun's range. Which way it turns to fire is the room's
+(`crates/game/CLAUDE.md`). `SAVE_VERSION` 64, `wire::PROTOCOL` 63; no
+survivor pin moved (no seeded run has an R rank).
+`the_sentry_is_laid_through_a_hit_stands_until_destroyed_and_is_never_packed_up`
+and `the_sentry_s_weapon_rate_health_and_range_are_its_rank_s` are the rule.

@@ -266,7 +266,6 @@ fn lay_bags(world: &mut World, at: Vec2) -> u32 {
         deck: Deck::Ship,
         tile: design_tile(world, at),
         health: class::SANDBAG_HEALTH[0],
-        expires: None,
     });
     id
 }
@@ -794,7 +793,6 @@ fn a_burst_hurts_the_thrower_a_crewmate_and_a_sentry_and_blows_the_sandbags_up()
         deck: Deck::Ship,
         tile: design_tile(&world, middle(run[2])),
         health: SENTRY_HEALTH,
-        expires: None,
     });
     world.step(&[]);
     assert_eq!(world.aboard.room.sentries().len(), 1);

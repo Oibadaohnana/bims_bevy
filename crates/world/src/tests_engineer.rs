@@ -1214,16 +1214,17 @@ fn sandbags_take_the_bolts_they_stop_and_are_gone_at_nothing() {
 
 // --- R: the sentry ------------------------------------------------------------------
 
-/// **Weapon, fire rate, health and lifetime per rank.**
+/// **Weapon, fire rate, health and the range it adds per rank** — five
+/// tiles from the first.
 #[test]
-fn the_sentry_s_weapon_rate_health_and_time_are_its_rank_s() {
+fn the_sentry_s_weapon_rate_health_and_range_are_its_rank_s() {
     let want = [
-        (Tier::Two, 1.0, 200.0, 30.0, 150.0),
-        (Tier::Three, 1.0, 250.0, 35.0, 140.0),
-        (Tier::Three, 1.5, 300.0, 40.0, 130.0),
-        (Tier::Three, 2.0, 400.0, 45.0, 120.0),
+        (Tier::Two, 1.0, 200.0, 5.0, 150.0),
+        (Tier::Three, 1.0, 250.0, 5.0, 140.0),
+        (Tier::Three, 1.5, 300.0, 5.0, 130.0),
+        (Tier::Three, 2.0, 400.0, 5.0, 120.0),
     ];
-    for (i, (tier, rate, health, seconds, cooldown)) in want.into_iter().enumerate() {
+    for (i, (tier, rate, health, range, cooldown)) in want.into_iter().enumerate() {
         let rank = i as u8 + 1;
         let mut world = engineer();
         ranks(&mut world, 0, [0, 0, 0, rank]);
@@ -1234,16 +1235,16 @@ fn the_sentry_s_weapon_rate_health_and_time_are_its_rank_s() {
         );
         assert_eq!(world.sentry_skill(0).fire_rate, rate);
         assert_eq!(world.laid_health(DeployKind::Sentry, 0), health);
-        assert_eq!(world.sentry_seconds(0), seconds);
+        assert_eq!(world.sentry_skill(0).range, range);
         assert_eq!(world.sentry_cooldown(0), cooldown);
     }
 }
 
-/// **Its cooldown starts when it is laid, it is removed when its time
-/// runs out, one stands at a time, a hit does not interrupt the laying,
-/// and it can't be packed up.**
+/// **Its cooldown starts when it is laid, it stands until it is
+/// destroyed — no timer —, one stands at a time, a hit does not interrupt
+/// the laying, and it can't be packed up.**
 #[test]
-fn the_sentry_is_laid_through_a_hit_stands_its_time_and_is_never_packed_up() {
+fn the_sentry_is_laid_through_a_hit_stands_until_destroyed_and_is_never_packed_up() {
     let mut world = engineer();
     ranks(&mut world, 0, [0, 0, 0, 1]);
     let free = tiles_near(&world, 0, DeployKind::Sentry);
@@ -1290,25 +1291,12 @@ fn the_sentry_is_laid_through_a_hit_stands_its_time_and_is_never_packed_up() {
     let (_, second) = deploy_now(&mut world, 0, DeployKind::Sentry, tile2);
     assert!(world.deployable(id).is_none(), "one stands");
     assert!(world.deployable(second).is_some());
-    // Its time runs out and it is removed.
-    let seconds = world.sentry_seconds(0);
-    run_for_seconds(&mut world, seconds - 2.0);
+    // No time runs out: a minute and more on, it still stands.
+    assert!(world.sentry_standing(0));
+    run_for_seconds(&mut world, 90.0);
     assert!(world.deployable(second).is_some(), "still standing");
-    assert!(world.sentry_left(0).is_some_and(|s| s < 3.0));
-    let mut gone = false;
-    for _ in 0..(5.0 * 60.0) as u32 {
-        let events = world.step(&[]);
-        if events
-            .iter()
-            .any(|e| matches!(e, WorldEvent::SentryDone { who: 0 }))
-        {
-            gone = true;
-            break;
-        }
-    }
-    assert!(gone, "removed when its time ran out");
-    assert!(world.deployable(second).is_none());
-    assert!(world.aboard.room.sentries().is_empty());
+    assert!(world.sentry_standing(0));
+    assert_eq!(world.aboard.room.sentries().len(), 1);
 }
 
 /// **Ready at every mission's start**: the cooldown left in the last
@@ -1378,19 +1366,63 @@ fn the_sentry_fires_at_the_enemy_and_is_the_enemy_s_target() {
     }
     assert!(hit, "the sentry hit the machine ({before})");
     let mut lost = false;
-    for _ in 0..(40 * 60) {
+    for _ in 0..(5 * 60 * 60) {
         mend_machine(&mut world);
         let events = world.step(&[]);
         if events.iter().any(|e| {
             matches!(e, WorldEvent::DeployableLost { kind } if *kind == DeployKind::Sentry.code())
-                || matches!(e, WorldEvent::SentryDone { .. })
         }) {
             lost = true;
             break;
         }
     }
-    assert!(lost, "shot to nothing or its time up");
+    assert!(lost, "shot to nothing");
     assert!(world.deployable(id).is_none());
+}
+
+/// **It turns to fire**: laid facing east, once it has fired its barrel
+/// points at the machine it fires at, and the flash is at its muzzle.
+#[test]
+fn the_sentry_turns_to_face_what_it_fires_at() {
+    let (mut world, id) = sentry_fight();
+    world.aboard.room.knock_out_for_probe(0);
+    let sentry = |world: &World| {
+        *world
+            .aboard
+            .room
+            .sentries()
+            .iter()
+            .find(|s| s.id == id)
+            .expect("the sentry stands")
+    };
+    let mut fired = false;
+    for _ in 0..600 {
+        mend_machine(&mut world);
+        world.step(&[]);
+        if sentry(&world).flash > 0.0 {
+            fired = true;
+            break;
+        }
+    }
+    assert!(fired, "the sentry fired");
+    for _ in 0..30 {
+        mend_machine(&mut world);
+        world.step(&[]);
+    }
+    let s = sentry(&world);
+    let target = world
+        .aboard
+        .room
+        .combat_targets_for_probe()
+        .into_iter()
+        .flatten()
+        .next()
+        .expect("the machine");
+    let to = target - s.at;
+    let tau = std::f32::consts::TAU;
+    let off = (to.y.atan2(to.x) - s.facing).rem_euclid(tau);
+    let off = off.min(tau - off);
+    assert!(off < 0.2, "facing {} is {off} off the machine", s.facing);
 }
 
 #[test]

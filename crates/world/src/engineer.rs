@@ -7,8 +7,8 @@
 //! ranked kit lives where it is used: the ranks on `class::Progress`, the
 //! EMP's, the Healing Sentry's and the sandbags' charges on the world's
 //! counters (`World::charges_held`), what is laid on
-//! `World::deployables` — the sentry's lifetime on its
-//! `Deployable::expires` — and a machine's stun on the machine
+//! `World::deployables` — the sentry stands there until it is destroyed
+//! — and a machine's stun on the machine
 //! (`bims::droid::Droid::stun`). The rules are all on the world.
 
 /// One crew member's engineer state.

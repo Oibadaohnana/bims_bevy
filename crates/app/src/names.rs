@@ -736,7 +736,7 @@ pub fn ranked_what(class: world::Class, slot: u8) -> &'static str {
         }
         (world::Class::Engineer, 2) => SANDBAGS_WHAT,
         (world::Class::Engineer, 3) => {
-            "Ultimate. Lay a minigun sentry that shoots whatever it sees until it expires or is destroyed. Ready at every mission's start."
+            "Ultimate. Lay a minigun sentry that turns to shoot what it sees, five tiles further than a minigun, and stands until destroyed. Ready every mission."
         }
         (world::Class::Commander, 0) => "Allies around you as you shout fire faster.",
         (world::Class::Commander, 1) => {
@@ -895,7 +895,9 @@ pub fn ranked_stats(class: world::Class, slot: u8) -> Vec<Stat> {
             Stat::ranks("Minigun tier", "", |r| c::SENTRY_TIER[r].code().to_string()),
             Stat::ranks("Fire rate", "", |r| by(c::SENTRY_FIRE_RATE[r] as f64)),
             Stat::ranks("Health", "", |r| fig(c::SENTRY_HEALTH[r] as f64)),
-            Stat::ranks("Duration", " s", |r| fig(c::SENTRY_SECONDS[r])),
+            Stat::ranks("Range", " tiles", |r| {
+                format!("+{}", fig(c::SENTRY_RANGE[r] as f64))
+            }),
             Stat::one("Lay time", " min", fig(c::SENTRY_MINUTES)),
             cooldown(&c::SENTRY_COOLDOWN),
         ],
@@ -1849,7 +1851,6 @@ pub fn event_line(event: WorldEvent) -> Option<String> {
             _ => "A sentry is shot to pieces.".into(),
         },
         WorldEvent::EmpThrown { who: w } => format!("{} threw an EMP.", who(w)),
-        WorldEvent::SentryDone { who: w } => format!("{}'s sentry has stood its time.", who(w)),
         WorldEvent::Braced { who: w, on: true } => format!("{} braced.", who(w)),
         WorldEvent::Braced { who: w, on: false } => format!("{} stood easy.", who(w)),
         WorldEvent::Thrown { who: w } => format!("{} threw a grenade.", who(w)),
@@ -3766,7 +3767,6 @@ mod tests {
                 WorldEvent::Braced { who: 0, on: false },
                 WorldEvent::Thrown { who: 0 },
                 WorldEvent::EmpThrown { who: 0 },
-                WorldEvent::SentryDone { who: 0 },
                 WorldEvent::DeployableLost { kind: 2 },
                 WorldEvent::Beamed {
                     who: 0,

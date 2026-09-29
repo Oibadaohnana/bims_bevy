@@ -314,9 +314,6 @@ pub enum WorldEvent {
     Rampaged { who: u32 },
     /// Player `who`'s engineer threw an EMP (task 127, `Command::Emp`).
     EmpThrown { who: u32 },
-    /// The sentry of player `who`'s engineer stood its time and is gone
-    /// (task 127): its end, not a loss.
-    SentryDone { who: u32 },
     /// A medic's Nanite Burst went off (task 130): who, and how many
     /// friendly Bims it healed, the medic among them.
     NaniteBurst { who: u32, healed: u32 },
@@ -614,6 +611,8 @@ impl WorldEvent {
             // 1 to 5 and 11 to 13 are free: flight's (feature 104). 16 was
             // `Mined`, which went with the mining (feature 95), and 17 to
             // 26 the radiation dose's (feature 104).
+            // 133 was a sentry standing its time out, gone when the sentry
+            // came to stand until it is destroyed.
             WorldEvent::SitePlaced { .. } => 27,
             WorldEvent::SiteCancelled { .. } => 28,
             WorldEvent::Built { .. } => 29,
@@ -698,7 +697,6 @@ impl WorldEvent {
             WorldEvent::RankedUp { .. } => 130,
             WorldEvent::Rampaged { .. } => 131,
             WorldEvent::EmpThrown { .. } => 132,
-            WorldEvent::SentryDone { .. } => 133,
             WorldEvent::BattleCried { .. } => 134,
             WorldEvent::Reinforced { .. } => 135,
             WorldEvent::NaniteBurst { .. } => 136,
@@ -764,7 +762,7 @@ impl WorldEvent {
                 ..
             } => (who as i64) + 100 * (ability_slot as i64) + 10_000 * (rank as i64),
             WorldEvent::Rampaged { who } => who as i64,
-            WorldEvent::EmpThrown { who } | WorldEvent::SentryDone { who } => who as i64,
+            WorldEvent::EmpThrown { who } => who as i64,
             WorldEvent::TownFell { station }
             | WorldEvent::HeartExposed { station }
             | WorldEvent::HeartOverload { station }

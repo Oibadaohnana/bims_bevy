@@ -1940,31 +1940,21 @@ pub(crate) fn sandbags(list: &mut DrawList, part: &PlacedPart) {
     );
 }
 
-// --- the engineer's sentry (feature 74) ------------------------------------
+// --- the engineer's sentries (feature 74, task 127) -----------------------------
 
-/// The turret's grey and the eye it aims with.
+/// The Healing Sentry's grey, and the dark of its feet and base.
 const SENTRY: Color = Color::rgb(0.40, 0.44, 0.50);
 const SENTRY_DARK: Color = Color::rgb(0.24, 0.26, 0.30);
-const SENTRY_EYE: Color = Color::rgb(0.40, 0.72, 1.0);
 /// The Healing Sentry's cross (task 127): the medic's beam's green.
 const HEALING_CROSS: Color = Color::rgb(0.55, 0.95, 0.75);
 
-/// A sentry on its tile: a squat base on three feet, the turret's drum
-/// on it with the barrel out to the right, and the eye it aims with —
-/// lit for as long as it stands, since a sentry never runs out of shots
-/// (feature 88). `health` is nought to one, for the dark ring that grows
-/// as it is shot up; `scale` is how much bigger than a tile it is drawn
-/// (the engineer's ultimate is drawn larger, task 127); a `healing` one
-/// is the Healing Sentry, no barrel and a green cross for an eye.
-pub(crate) fn sentry(
-    list: &mut DrawList,
-    part: &PlacedPart,
-    health: f32,
-    scale: f32,
-    healing: bool,
-) {
+/// The Healing Sentry on its tile: a squat base on three feet, the drum
+/// on it and a green cross where a gun's eye would be — it has no
+/// barrel. `health` is nought to one, for the dark ring that grows as it
+/// is shot up.
+pub(crate) fn healing_sentry(list: &mut DrawList, part: &PlacedPart, health: f32) {
     let (local, across, along) = Local::of(part);
-    let side = across.min(along) * scale;
+    let side = across.min(along);
     // The feet, three round pads.
     for (u, v) in [(-0.30, 0.26), (0.30, 0.26), (0.0, -0.34)] {
         local.push(
@@ -2017,46 +2007,203 @@ pub(crate) fn sentry(
             SENTRY_DARK,
         );
     }
-    if healing {
-        // No barrel: a green cross where the eye would be.
-        for (w, h) in [(0.10, 0.34), (0.34, 0.10)] {
-            local.push(
-                list,
-                KIND_RECT,
+    for (w, h) in [(0.10, 0.34), (0.34, 0.10)] {
+        local.push(
+            list,
+            KIND_RECT,
+            0.0,
+            0.0,
+            side * w,
+            side * h,
+            0.0,
+            0.0,
+            HEALING_CROSS,
+        );
+    }
+}
+
+/// The gun turret's colours: its armour, the dark of its joints and
+/// barrels, the plate's lit edge, the hazard stripes round its base, the
+/// eye it aims with and the flash at its muzzles. The eye and the flash
+/// are past white, so the bloom picks them up.
+const TURRET_ARMOUR: Color = Color::rgb(0.36, 0.40, 0.46);
+const TURRET_PLATE: Color = Color::rgb(0.52, 0.57, 0.64);
+const TURRET_DARK: Color = Color::rgb(0.13, 0.14, 0.17);
+const TURRET_BARREL: Color = Color::rgb(0.30, 0.33, 0.38);
+const TURRET_SHINE: Color = Color::rgb(0.62, 0.68, 0.76);
+const TURRET_SHADOW: Color = Color::rgba(0.0, 0.0, 0.0, 0.35);
+const TURRET_HAZARD: Color = Color::rgb(0.95, 0.70, 0.12);
+const TURRET_EYE: Color = Color::rgb(0.55, 1.35, 1.9);
+const TURRET_LASER: Color = Color::rgba(0.40, 0.85, 1.0, 0.22);
+const TURRET_FLASH: Color = Color::rgb(2.4, 1.9, 1.1);
+/// Its health as a ring of segments round the base: how many, and the
+/// colours of a full and an empty one.
+const TURRET_HEALTH_PIECES: u32 = 12;
+const TURRET_HEALTH_FULL: Color = Color::rgb(0.30, 0.85, 1.0);
+const TURRET_HEALTH_LOW: Color = Color::rgb(1.0, 0.30, 0.22);
+const TURRET_HEALTH_GONE: Color = Color::rgba(0.10, 0.11, 0.13, 0.8);
+/// How far its aiming laser runs past the muzzles, in its own sides.
+const TURRET_LASER_REACH: f32 = 1.6;
+
+/// The engineer's ultimate on its tile (task 127): a tripod with a
+/// hazard-striped base plate, its health a ring of lit segments round
+/// the plate, and on it a **head that turns** — `facing` radians in the
+/// room's frame, nought east — an armoured drum carrying twin minigun
+/// barrels, a glowing eye, a faint aiming laser, and a flash at the
+/// muzzles while `flash` is above nought. `scale` is how much bigger
+/// than a tile it is drawn.
+pub(crate) fn turret(
+    list: &mut DrawList,
+    part: &PlacedPart,
+    health: f32,
+    scale: f32,
+    facing: f32,
+    flash: f32,
+) {
+    let (local, across, along) = Local::of(part);
+    let side = across.min(along) * scale;
+    let (cx, cy) = local.at(0.0, 0.0);
+    let health = health.clamp(0.0, 1.0);
+    let tau = core::f32::consts::TAU;
+    // The ground under it.
+    list.push(
+        KIND_ELLIPSE,
+        cx + side * 0.04,
+        cy + side * 0.06,
+        side * 0.92,
+        side * 0.92,
+        0.0,
+        0.0,
+        0.0,
+        TURRET_SHADOW,
+    );
+    // The tripod: three legs splayed from the plate to their pads, fixed
+    // to the deck whichever way the head turns.
+    for k in 0..3 {
+        let a = -core::f32::consts::FRAC_PI_2 + k as f32 * tau / 3.0;
+        let (c, s) = (a.cos(), a.sin());
+        let (fx, fy) = (cx + c * side * 0.44, cy + s * side * 0.44);
+        list.line(cx, cy, fx, fy, side * 0.09, TURRET_DARK);
+        list.push(
+            KIND_RECT,
+            fx,
+            fy,
+            side * 0.16,
+            side * 0.11,
+            a,
+            side * 0.03,
+            0.0,
+            TURRET_ARMOUR,
+        );
+    }
+    // The base plate, its hazard ring, and the health round it.
+    list.ellipse(cx, cy, side * 0.64, side * 0.64, TURRET_DARK);
+    for k in 0..8 {
+        let a = k as f32 * tau / 8.0 + tau / 16.0;
+        let r = side * 0.27;
+        list.push(
+            KIND_RECT,
+            cx + a.cos() * r,
+            cy + a.sin() * r,
+            side * 0.07,
+            side * 0.035,
+            a + core::f32::consts::FRAC_PI_2,
+            0.0,
+            0.0,
+            TURRET_HAZARD,
+        );
+    }
+    let lit = (health * TURRET_HEALTH_PIECES as f32).ceil() as u32;
+    let tint = mix(TURRET_HEALTH_LOW, TURRET_HEALTH_FULL, health);
+    let step = tau / TURRET_HEALTH_PIECES as f32;
+    let r = side * 0.36;
+    for k in 0..TURRET_HEALTH_PIECES {
+        let a = -core::f32::consts::FRAC_PI_2 + (k as f32 + 0.5) * step;
+        list.push(
+            KIND_RECT,
+            cx + a.cos() * r,
+            cy + a.sin() * r,
+            side * 0.13,
+            side * 0.05,
+            a + core::f32::consts::FRAC_PI_2,
+            side * 0.02,
+            0.0,
+            if k < lit { tint } else { TURRET_HEALTH_GONE },
+        );
+    }
+    // The head, in its own frame: `u` along the barrels, `v` across.
+    let (c, s) = (facing.cos(), facing.sin());
+    let at = |u: f32, v: f32| (cx + u * c - v * s, cy + u * s + v * c);
+    let part_of = |list: &mut DrawList, u: f32, v: f32, w: f32, h: f32, round: f32, colour| {
+        let (x, y) = at(u * side, v * side);
+        list.push(
+            KIND_RECT,
+            x,
+            y,
+            w * side,
+            h * side,
+            facing,
+            round * side,
+            0.0,
+            colour,
+        );
+    };
+    // The aiming laser, under everything of the head.
+    let (lx, ly) = at(side * 0.70, 0.0);
+    let (tx, ty) = at(side * (0.70 + TURRET_LASER_REACH), 0.0);
+    list.line(lx, ly, tx, ty, side * 0.02, TURRET_LASER);
+    // The barrels: two, side by side, with a shroud round their roots
+    // and a brake on each muzzle.
+    for v in [-0.075, 0.075] {
+        part_of(list, 0.38, v, 0.58, 0.085, 0.01, TURRET_DARK);
+        part_of(list, 0.38, v, 0.56, 0.05, 0.0, TURRET_BARREL);
+        part_of(list, 0.38, v - 0.012, 0.52, 0.012, 0.0, TURRET_SHINE);
+        part_of(list, 0.66, v, 0.08, 0.10, 0.015, TURRET_DARK);
+        part_of(list, 0.66, v, 0.06, 0.07, 0.01, TURRET_PLATE);
+    }
+    part_of(list, 0.22, 0.0, 0.18, 0.28, 0.03, TURRET_ARMOUR);
+    // The ammunition drum to one side, the counterweight behind.
+    part_of(list, -0.02, 0.24, 0.26, 0.14, 0.04, TURRET_DARK);
+    part_of(list, -0.28, 0.0, 0.14, 0.34, 0.05, TURRET_DARK);
+    // The armoured head: a plate with a lighter face and two cheeks.
+    part_of(list, 0.0, 0.0, 0.50, 0.44, 0.12, TURRET_DARK);
+    part_of(list, 0.0, 0.0, 0.46, 0.40, 0.10, TURRET_ARMOUR);
+    part_of(list, 0.04, 0.0, 0.30, 0.26, 0.07, TURRET_PLATE);
+    part_of(list, 0.02, -0.21, 0.30, 0.06, 0.02, TURRET_DARK);
+    part_of(list, 0.02, 0.21, 0.30, 0.06, 0.02, TURRET_DARK);
+    // The eye it aims with.
+    let (ex, ey) = at(side * 0.15, 0.0);
+    list.ellipse(ex, ey, side * 0.12, side * 0.12, TURRET_DARK);
+    list.ellipse(ex, ey, side * 0.07, side * 0.07, TURRET_EYE);
+    // The flash at both muzzles, fading as it runs out.
+    if flash > 0.0 {
+        let bright = (flash / bims::combat::SENTRY_FLASH).clamp(0.0, 1.0);
+        for v in [-0.075, 0.075] {
+            let (mx, my) = at(side * 0.78, v * side);
+            list.push(
+                KIND_ELLIPSE,
+                mx,
+                my,
+                side * 0.26 * bright,
+                side * 0.12 * bright,
+                facing,
                 0.0,
                 0.0,
-                side * w,
-                side * h,
-                0.0,
-                0.0,
-                HEALING_CROSS,
+                TURRET_FLASH,
             );
         }
-        return;
     }
-    // The barrel, out to the right, and the eye.
-    local.push(
-        list,
-        KIND_RECT,
-        side * 0.30,
-        0.0,
-        side * 0.42,
-        side * 0.10,
-        0.0,
-        0.0,
-        GUNMETAL,
-    );
-    local.push(
-        list,
-        KIND_ELLIPSE,
-        0.0,
-        0.0,
-        side * 0.14,
-        side * 0.14,
-        0.0,
-        0.0,
-        SENTRY_EYE,
-    );
+}
+
+/// Between two colours: `a` at nought, `b` at one.
+fn mix(a: Color, b: Color, t: f32) -> Color {
+    let t = t.clamp(0.0, 1.0);
+    Color::rgba(
+        a.r + (b.r - a.r) * t,
+        a.g + (b.g - a.g) * t,
+        a.b + (b.b - a.b) * t,
+        a.a + (b.a - a.a) * t,
+    )
 }
 
 // --- the ground's walls ---------------------------------------------------------------
