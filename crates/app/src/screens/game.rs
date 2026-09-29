@@ -2178,19 +2178,13 @@ fn frame(
                     screen.log.extend(line);
                 }
                 // And every player's own two (feature 84). **Attack**
-                // arms the pointer rather than doing anything: the
-                // banner goes down on the click after it, below, so
-                // that the player picks the ground. Pressed while the
-                // pointer is already armed, it is thought better of.
-                //
-                // **With a banner already down it is the banner taken
-                // up**, which is the key's second press and the only
-                // way there is to it: the world reads the *same* order
-                // given again as a release (`Standing::same_as`), and
-                // the same order means the same *tile* — a second
-                // banner anywhere else is a fresh attack, so a crew
-                // left under one after a fight would stand under arms
-                // at it for ever, taking no errand.
+                // arms the pointer rather than doing anything — on the
+                // first press, banner down or not: the banner goes down
+                // on the click after it, below, so that the player
+                // picks the ground. Pressed while the pointer is
+                // already armed, it is thought better of, and **a
+                // banner already down is taken up** with it (the key's
+                // second press, `attack_key`).
                 // **Attack-move** arms the pointer for the player's own
                 // Bim: the next click on the deck is where it walks
                 // under arms. Pressed again, it is thought better of.
@@ -5249,22 +5243,24 @@ fn orders_key(
 /// give — always a release, never a fresh banner — and what the pointer
 /// is armed to afterwards.
 ///
-/// Three cases. A banner already down and the pointer at rest: the
-/// banner is **taken up**, since the world reads the same order given
-/// again as a release ([`world::Standing::same_as`]) and *the same
-/// order* means the same **tile** — a second banner anywhere else is a
-/// fresh attack, so without this there is no press that ever lets the
-/// crew go and they stand under arms at the banner for ever, taking no
-/// errand. The pointer already armed: thought better of. Anything else:
-/// armed, so the click after it picks the ground — unless the map is up,
-/// which has no deck to put a banner on.
+/// The pointer at rest: **armed**, on the first press whatever is down,
+/// so the click after it picks the ground (a fresh tile moves the
+/// banner there, its own tile takes it up) — unless the map is up, which
+/// has no deck to put a banner on. The pointer already armed: thought
+/// better of, and a banner already down is **taken up** with it, since
+/// the world reads the same order given again as a release
+/// ([`world::Standing::same_as`]) and *the same order* means the same
+/// **tile** — a second banner anywhere else is a fresh attack, so
+/// without this there is no key that ever lets the crew go and they
+/// stand under arms at the banner for ever, taking no errand. Esc or a
+/// right-click puts the armed pointer away and leaves the banner be.
 fn attack_key(
     standing: world::Standing,
     armed: bool,
     map_up: bool,
 ) -> (Option<world::Standing>, bool) {
     match standing {
-        world::Standing::Attack { .. } if !armed => (Some(standing), false),
+        world::Standing::Attack { .. } if armed => (Some(standing), false),
         _ => (None, !armed && !map_up),
     }
 }
@@ -6234,10 +6230,10 @@ mod rank_up_tests {
 mod attack_key_tests {
     use super::*;
 
-    /// The Attack key arms the pointer with nothing down, thinks better
-    /// of it while armed, and — the half that was missing — **takes the
-    /// banner up** when one is already down, which is the only press
-    /// there is that lets the crew go back to their errands.
+    /// The Attack key arms the pointer on its first press, banner down
+    /// or not, thinks better of it while armed, and **takes the banner
+    /// up** on that second press when one is down, which is the key's
+    /// way of letting the crew go back to their errands.
     #[test]
     fn the_attack_key_arms_the_pointer_and_takes_a_banner_back_up() {
         use world::Standing;
@@ -6247,14 +6243,14 @@ mod attack_key_tests {
         assert_eq!(attack_key(Standing::Follow, true, false), (None, false));
         // The map is up, which has no deck to put a banner on.
         assert_eq!(attack_key(Standing::Follow, false, true), (None, false));
-        // A banner down: the same order back, which the world reads as
-        // a release — and the pointer is left at rest rather than armed
-        // for a second banner nobody could take up.
+        // A banner down: still armed at once, with nothing given — the
+        // click after it moves the banner (or, on its own tile, takes
+        // it up). One press, the crosshair.
         let order = Standing::Attack { tile: (7, 9) };
-        assert_eq!(attack_key(order, false, false), (Some(order), false));
-        // Armed over a banner, it is still only thought better of: the
-        // click is already on its way to a fresh tile.
-        assert_eq!(attack_key(order, true, false), (None, false));
+        assert_eq!(attack_key(order, false, false), (None, true));
+        // Armed over a banner: the same order back, which the world
+        // reads as a release, and the pointer put away.
+        assert_eq!(attack_key(order, true, false), (Some(order), false));
         // A retreat is the Retreat key's to call off, not this one's.
         assert_eq!(attack_key(Standing::Retreat, false, false), (None, true));
     }
