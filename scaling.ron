@@ -15,7 +15,7 @@
 // Only player Bims count as players; bots do not.
 // The values below are the built-in ones.
 (
-    base: 2,
+    base: 1,
     per_player: 1,
     per_step: 1,
     step_days: 5,
