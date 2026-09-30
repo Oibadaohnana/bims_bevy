@@ -6414,3 +6414,26 @@ moved. `would_travel_foretells_the_trip` (`tests_mission.rs`) is the rule.
 
 **`SAVE_VERSION` 68, `wire::PROTOCOL` 69**; `REFERENCE_CHECKSUM`,
 `SURVIVORS` and the ship's `PINNED` re-pinned (each note says why).
+
+## The `end` command's classed bots (no task number)
+
+`World::classed_crew_for_probe(tier)` is the app's `end` command's crew:
+`classes` made **as long as the crew**, every crew member past the
+players dealt a class (`Class::ALL`'s five in turn — ten bots are two of
+each), its kit (`change_class_kit`, `set_class`'s swap), the top level
+and every rank (`set_ranks_for_probe`); the players' own Bims the top
+level with every point to spend; everybody's kit at `tier`; and the
+commanders' Reinforcements. `class_of` reads `classes` by crew index, so
+that is all a bot needs to be classed — its passives, charges, outfit
+and experience follow. Nothing else ever makes `classes` longer than the
+players, so the two places that now walk it rather than the players —
+`bring_reinforcements` (every classed commander) and `drop_crew_member`
+(a dropped bot's class, never a player's) — do what they did in every
+other run, and no pin moved. **Bots never use an ability**: nothing in
+the room casts one for a bot, so a classed bot has its passives (the
+tank's Plated, the commander's aura, the soldier's Weak Spot, the
+engineer's charges held and unused…) and not its keys. The app's
+`Session::end_for_probe` docks at the Heart first
+(`heart_dock_for_probe`); `tests_heart::the_end_command_s_bots_are_every_class_at_the_top_in_tier_three_kit`
+is the rule. `wire::PROTOCOL` 70 (the lobby's settings carry `end`, and
+the relay's `ClientCtl::CreateAt` opens a room at a code asked for).

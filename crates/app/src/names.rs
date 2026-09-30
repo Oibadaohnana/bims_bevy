@@ -502,6 +502,7 @@ pub fn relay_refusal(why: wire::Refusal) -> String {
         wire::Refusal::NotInRoom => "You are not in a lobby.".into(),
         wire::Refusal::NotHost => "Only the host can start the game.".into(),
         wire::Refusal::TooBig => "That was too much to send at once.".into(),
+        wire::Refusal::CodeTaken => "A lobby is open at that code already.".into(),
     }
 }
 

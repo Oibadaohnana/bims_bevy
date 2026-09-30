@@ -380,6 +380,9 @@ pub struct SettingsWire {
     /// The run's difficulty as the host picked it; `None` is each
     /// machine's tuning file (`scaling.ron`).
     pub difficulty: Option<world::droid::Difficulty>,
+    /// The `end` command's run: the Machine Heart with ten bots
+    /// (`designer::build_run`).
+    pub end: bool,
 }
 
 impl SettingsWire {
@@ -393,6 +396,7 @@ impl SettingsWire {
             relics: settings.unlocks.relics,
             classes: settings.unlocks.classes,
             difficulty: settings.difficulty,
+            end: settings.end,
         }
     }
 
@@ -408,6 +412,7 @@ impl SettingsWire {
             classes: self.classes,
         };
         settings.difficulty = self.difficulty;
+        settings.end = self.end;
     }
 }
 
@@ -586,6 +591,8 @@ pub enum Event {
 #[derive(Clone, Debug)]
 enum Pending {
     Create,
+    /// A room at this code (`ClientCtl::CreateAt`), the `end` command's.
+    CreateAt(String),
     Join(String),
 }
 
@@ -642,6 +649,12 @@ impl Online {
     /// `Event::Joined`.
     pub fn create(&mut self) {
         self.open(Pending::Create);
+    }
+
+    /// Open a room at a code known ahead of time — the `end` command's
+    /// [`crate::dev::END_CODE`] — refused by the relay if somebody has it.
+    pub fn create_at(&mut self, code: &str) {
+        self.open(Pending::CreateAt(wire::normalise_code(code)));
     }
 
     /// Walk into somebody else's room.
@@ -1063,6 +1076,9 @@ impl Online {
                     self.me = Some(you);
                     match self.pending.take() {
                         Some(Pending::Create) => self.link.send(ClientCtl::Create),
+                        Some(Pending::CreateAt(code)) => {
+                            self.link.send(ClientCtl::CreateAt { code })
+                        }
                         Some(Pending::Join(code)) => self.link.send(ClientCtl::Join { code }),
                         None => {}
                     }

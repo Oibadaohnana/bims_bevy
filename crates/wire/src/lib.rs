@@ -33,7 +33,10 @@ use serde::{Deserialize, Serialize};
 /// 69: individual money (a wallet a player, a trader a player, the
 /// trader's relic bought outright) and an enemy's pay said as
 /// `WorldEvent::EnemyRewarded`, the bounty by its strength.
-pub const PROTOCOL: u32 = 69;
+/// 70: `ClientCtl::CreateAt` (a room at a code of the host's choosing,
+/// the app's `end` command's) and the lobby's settings saying whether
+/// the run is that command's (the Machine Heart with ten bots).
+pub const PROTOCOL: u32 = 70;
 
 /// Where the relay lives. `BIMS_SERVER` in the environment overrides it
 /// — `ws://127.0.0.1:8792` for one on the same machine.
@@ -103,6 +106,11 @@ pub enum ClientCtl {
     /// being reaped by something in the middle, and measures the round
     /// trip.
     Ping { stamp: u64 },
+    /// Open a fresh room at this code and be its host: a code known
+    /// before anybody asks, for a game people are told to join ahead of
+    /// time (the app's `end` command). Refused if it is no code
+    /// ([`is_code`] after [`normalise_code`]) or a room has it already.
+    CreateAt { code: String },
 }
 
 /// Relay to client.
@@ -176,6 +184,8 @@ pub enum Refusal {
     NotHost,
     /// A payload over [`MAX_PAYLOAD`].
     TooBig,
+    /// A `CreateAt` whose code is no code, or a live room's already.
+    CodeTaken,
 }
 
 /// Why a room closed under its members.

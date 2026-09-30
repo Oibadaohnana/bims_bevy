@@ -481,6 +481,18 @@ pub fn desync_at() -> Option<u64> {
     std::env::var("BIMS_DESYNC_AT").ok()?.parse().ok()
 }
 
+/// The `end` command's room code: the lobby it opens at the relay, for
+/// the others to type in. Six of `wire::CODE_ALPHABET`'s letters, which
+/// has no I, O, 0 or 1.
+pub const END_CODE: &str = "THEEND";
+
+/// How many the `end` command's host waits for in its lobby — itself and
+/// one other — before it presses Start on its own.
+pub const END_PLAYERS: usize = 2;
+
+/// The `end` command's bots: two of every class (`World::classed_crew_for_probe`).
+pub const END_BOTS: u32 = 10;
+
 /// How many the host waits for before it presses Start, under `BIMS_AUTO`.
 pub fn auto_players() -> usize {
     std::env::var("BIMS_AUTO_PLAYERS")

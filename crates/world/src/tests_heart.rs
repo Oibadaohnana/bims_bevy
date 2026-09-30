@@ -497,3 +497,64 @@ fn the_fight_is_the_same_on_two_worlds() {
         "the fabricators built"
     );
 }
+
+/// **The `end` command's crew** (`World::classed_crew_for_probe`): two
+/// players and ten bots at the fortress, the bots two of every class at
+/// the top level with every rank bought, the players at the top level
+/// with every point to spend, everybody in tier-three kit — and two
+/// worlds made so step alike through the fight, the bots' classes in
+/// the checksum.
+#[test]
+fn the_end_command_s_bots_are_every_class_at_the_top_in_tier_three_kit() {
+    use crate::class::{self, Class};
+    use bims::combat::{ArmourKind, Tier};
+    let open = || {
+        let mut world = at_the_heart(2, 12);
+        world.set_class(0, Class::Soldier).unwrap();
+        world.set_class(1, Class::Medic).unwrap();
+        world.classed_crew_for_probe(Tier::Three);
+        world
+    };
+    let world = open();
+    for class in Class::ALL.into_iter().filter(|c| *c != Class::None) {
+        let bots = (2..12).filter(|&who| world.class_of(who) == class).count();
+        assert_eq!(bots, 2, "{class:?}");
+    }
+    for who in 0..12u32 {
+        assert_eq!(world.level_of(who), class::LEVELS, "crew member {who}");
+        let gear = world.aboard.room.gear(who as usize);
+        assert_eq!(gear.weapon.map(|w| w.tier), Some(Tier::Three), "{who}");
+        for kind in ArmourKind::BASIC {
+            let worn = gear.worn(kind.slot()).expect("worn");
+            assert_eq!(worn.tier, Tier::Three, "{who}");
+        }
+    }
+    for who in 0..2u32 {
+        assert_eq!(
+            world.points_of(who),
+            class::LEVELS,
+            "player {who} spends its own"
+        );
+    }
+    assert_eq!(
+        world.class_of(0),
+        Class::Soldier,
+        "a player keeps its own class"
+    );
+    for who in 2..12u32 {
+        assert_eq!(world.points_of(who), 0, "every point spent on bot {who}");
+        for slot in 0..class::SLOTS as u8 {
+            assert_eq!(world.rank_of(who, slot), class::MAX_RANK, "bot {who}");
+        }
+    }
+    // Two commanders among the bots, so their Reinforcements are aboard.
+    assert!(world.aboard.crew_count() > 12, "the Reinforcements came");
+    let (mut one, mut two) = (open(), open());
+    assert_eq!(world_checksum(&one), world_checksum(&two));
+    for step in 0..600 {
+        let a = one.step(&[]);
+        let b = two.step(&[]);
+        assert_eq!(a, b, "step {step}");
+    }
+    assert_eq!(world_checksum(&one), world_checksum(&two));
+}

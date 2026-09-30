@@ -119,7 +119,8 @@ impl Hub {
             // Twice is a client bug rather than an attack, but a second
             // hello could rename a peer mid-room, so it is refused.
             ClientCtl::Hello { .. } => reject(id, Refusal::Greeted),
-            ClientCtl::Create => self.create_room(id),
+            ClientCtl::Create => self.create_room(id, None),
+            ClientCtl::CreateAt { code } => self.create_room(id, Some(code)),
             ClientCtl::Join { code } => self.join_room(id, &code),
             ClientCtl::Leave => self.leave_room(id),
             ClientCtl::Begin => self.begin(id),
@@ -148,14 +149,21 @@ impl Hub {
         }]
     }
 
-    fn create_room(&mut self, id: PeerId) -> Vec<Outbound> {
+    /// A fresh room with `id` its host: at a code the relay deals, or at
+    /// the one asked for (`CreateAt`) if it is a code nobody has.
+    fn create_room(&mut self, id: PeerId, asked: Option<String>) -> Vec<Outbound> {
         // Already somewhere: leaving first is the client's job, so that
         // "create" can never silently abandon a room full of people.
         if self.peers[&id].room.is_some() {
             return reject(id, Refusal::InRoom);
         }
-        let Some(code) = self.free_code() else {
-            return reject(id, Refusal::NoCodes);
+        let code = match asked.map(|raw| normalise_code(&raw)) {
+            Some(code) if wire::is_code(&code) && !self.rooms.contains_key(&code) => code,
+            Some(_) => return reject(id, Refusal::CodeTaken),
+            None => match self.free_code() {
+                Some(code) => code,
+                None => return reject(id, Refusal::NoCodes),
+            },
         };
         self.rooms.insert(
             code.clone(),
@@ -486,6 +494,58 @@ mod tests {
             &hub.handle(nobody, ClientCtl::Join { code: code.clone() }),
             Refusal::RoomFull
         ));
+    }
+
+    /// `CreateAt` opens the room at the code asked for, read as a join
+    /// reads one; a second host asking for it, or a code outside the
+    /// alphabet, is refused, and the code is free again once its host
+    /// has gone.
+    #[test]
+    fn a_room_can_be_opened_at_a_code_of_the_hosts_choosing() {
+        let mut hub = Hub::new();
+        let host = greeted(&mut hub, "James");
+        let out = hub.handle(
+            host,
+            ClientCtl::CreateAt {
+                code: "the-end".into(),
+            },
+        );
+        assert_eq!(code_of(&out), "THEEND");
+        let rival = greeted(&mut hub, "Kate");
+        assert!(refused(
+            &hub.handle(
+                rival,
+                ClientCtl::CreateAt {
+                    code: "THEEND".into()
+                }
+            ),
+            Refusal::CodeTaken
+        ));
+        assert!(refused(
+            &hub.handle(
+                rival,
+                ClientCtl::CreateAt {
+                    code: "111111".into()
+                }
+            ),
+            Refusal::CodeTaken
+        ));
+        let guest = greeted(&mut hub, "Nobody");
+        let out = hub.handle(
+            guest,
+            ClientCtl::Join {
+                code: "theend".into(),
+            },
+        );
+        assert!(!refused(&out, Refusal::NoSuchRoom));
+        hub.handle(host, ClientCtl::Leave);
+        let out = hub.handle(
+            rival,
+            ClientCtl::CreateAt {
+                code: "THEEND".into(),
+            },
+        );
+        assert_eq!(code_of(&out), "THEEND");
     }
 
     #[test]

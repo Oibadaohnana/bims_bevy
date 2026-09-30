@@ -658,9 +658,12 @@ fn open(
 /// the loading screen (`screens::loading::Loading::start_run`), and
 /// [`open_run`] hands the session on. Nothing of Bevy's in it.
 pub fn build_run(s: &Settings, size: Vec2) -> Session {
-    let mut session = Session::run(
+    // The `end` command's run has its ten bots aboard from the start.
+    let bots = if s.end { crate::dev::END_BOTS } else { 0 };
+    let mut session = Session::run_with_bots(
         s.money_per_bim,
         s.players,
+        bots,
         s.slot,
         s.seed,
         s.galaxy,
@@ -680,6 +683,12 @@ pub fn build_run(s: &Settings, size: Vec2) -> Session {
     // And the difficulty the host picked, on every machine the same.
     if let Some(game) = &mut session.game {
         game.world.set_difficulty(s.difficulty);
+    }
+    // The `end` command's (`crate::Launch::End`): at the Machine Heart,
+    // after the difficulty so its waves are the set scaling's, the bots
+    // classed at the top in tier-three kit — on every machine alike.
+    if s.end && !session.end_for_probe() {
+        eprintln!("end: the Machine Heart's fortress could not be laid");
     }
     // And the relic dials, on the `game` command as on any other.
     crate::dev::relic_dials(&mut session);

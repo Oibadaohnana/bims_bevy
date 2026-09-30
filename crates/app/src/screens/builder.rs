@@ -169,6 +169,10 @@ pub struct Settings {
     /// scaling), the host's to pick and dealt with the rest; `None`
     /// until one is picked, which is the tuning file's (`scaling.ron`).
     pub difficulty: Option<world::droid::Difficulty>,
+    /// The `end` command's run (`crate::Launch::End`): the lobby's run
+    /// opened at the Machine Heart with ten classed bots at the top level
+    /// in tier-three kit (`designer::build_run`). Dealt with the rest.
+    pub end: bool,
 }
 
 impl Default for Settings {
@@ -187,6 +191,7 @@ impl Default for Settings {
             tints: Vec::new(),
             unlocks: crate::profile::RunUnlocks::of(&crate::profile::load()),
             difficulty: None,
+            end: false,
         }
     }
 }
@@ -297,6 +302,9 @@ pub struct BuilderScreen {
     seen: Vec<wire::PeerId>,
     /// `BIMS_AUTO` has pressed Start; once.
     auto_done: bool,
+    /// The `end` command has asked the relay for its room; once, so a
+    /// refusal leaves the menu up rather than asking every frame.
+    end_asked: bool,
     /// The galaxy: built once, moved between the two tools. There is one
     /// galaxy, one camera over it and one canvas.
     lobby: Lobby,
@@ -331,7 +339,9 @@ impl Plugin for BuilderPlugin {
             .add_plugins(super::backdrop::BackdropPlugin)
             .add_systems(
                 Startup,
-                open.run_if(|l: Res<crate::Launch>| *l == crate::Launch::Game),
+                open.run_if(|l: Res<crate::Launch>| {
+                    matches!(*l, crate::Launch::Game | crate::Launch::End)
+                }),
             )
             .add_systems(
                 EguiPrimaryContextPass,
@@ -368,6 +378,7 @@ fn open(mut commands: Commands, settings: Res<Settings>) {
         lobby_said: None,
         seen: Vec::new(),
         auto_done: false,
+        end_asked: false,
         lobby,
         inspected: None,
         pressed: None,
@@ -399,6 +410,7 @@ fn frame(
     mut bindings: ResMut<Keys>,
     scaling_file: Res<Watched<WaveScaling>>,
     mut loading: ResMut<super::loading::Loading>,
+    launch: Res<crate::Launch>,
 ) -> Result {
     let ctx = contexts.ctx_mut()?.clone();
     // The run being built behind the loading screen (`screens::loading`):
@@ -444,6 +456,34 @@ fn frame(
         }
     }
 
+    // The `end` command (`crate::Launch::End`): a lobby opened at the
+    // menu at `dev::END_CODE` for the others to join, and Start pressed on
+    // its own once `dev::END_PLAYERS` are in it — straight to the ready
+    // check at the Machine Heart. Every run it starts is the `end` run,
+    // a Start pressed by hand too.
+    if *launch == crate::Launch::End {
+        settings.end = true;
+        if !screen.end_asked
+            && *state.get() == Screen::Menu
+            && online.link.state() == &crate::net::LinkState::Offline
+        {
+            online.create_at(crate::dev::END_CODE);
+            screen.end_asked = true;
+            go = Some(Screen::Lobby);
+        }
+        if !screen.auto_done
+            && *state.get() == Screen::Lobby
+            && online.is_host()
+            && online.peers.len() >= crate::dev::END_PLAYERS
+        {
+            if settings.spawn.is_none() {
+                pick_random_start(screen, settings, online);
+            }
+            start = true;
+            screen.auto_done = true;
+        }
+    }
+
     // What the room said since last frame: the relay, and the others in
     // it. A guest's settings and its Start come from the host this way;
     // a refusal or a closed room is a line and the menu again.
@@ -452,7 +492,7 @@ fn frame(
             Event::Connected => {}
             Event::Joined => {
                 screen.seen = online.peers.iter().map(|p| p.id).collect();
-                if crate::dev::auto().is_some()
+                if (crate::dev::auto().is_some() || *launch == crate::Launch::End)
                     && let Some(code) = &online.code
                 {
                     println!("lobby: {code}");

@@ -8,7 +8,7 @@
 //! the world and the galaxy are the crates beside this one, and this crate
 //! is the window, the pointer and the words.
 //!
-//! Nineteen things to run, and each is a name rather than a flag:
+//! Twenty things to run, and each is a name rather than a flag:
 //!
 //! ```text
 //! bims               the whole game in order — menu, setup or lobby, world
@@ -49,6 +49,12 @@
 //!                    the machines' origin, everybody in tier-three kit;
 //!                    `BIMS_HEART_PHASE=2` or `3` opens the fight past its
 //!                    seal or in its overload
+//! bims end           the Machine Heart with company: a lobby at code THEEND,
+//!                    Start pressed once a second player joins, and the
+//!                    ready check at the fortress with ten bots — two of
+//!                    every class at the top level, every rank bought —
+//!                    everybody in tier-three kit, the waves the lobby's
+//!                    difficulty
 //! bims manufacturers the combat crew at the nearest site of the
 //!                    Manufacturers' on day `BIMS_MANUFACTURER_DAY` (eight
 //!                    unless it says: their people with Troopers beside them)
@@ -91,7 +97,7 @@ mod wavecfg;
 use bevy::prelude::*;
 use bevy_egui::EguiPlugin;
 
-/// Which of the eighteen things this process is.
+/// Which of the twenty things this process is.
 #[derive(Resource, Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Launch {
     Game,
@@ -164,6 +170,14 @@ pub enum Launch {
     /// ship's crew at the nearest site of theirs on the day
     /// `BIMS_MANUFACTURER_DAY` says (eight unless it does).
     Manufacturers,
+    /// The end fight with company: the `game` run's lobby opened at the
+    /// menu on its own at `dev::END_CODE` for others to join, Start pressed
+    /// once `dev::END_PLAYERS` are in, and the run opened at the Machine
+    /// Heart's fortress with `dev::END_BOTS` bots aboard — two of every
+    /// class, at the top level with every rank bought — everybody in
+    /// tier-three kit and the waves the lobby's difficulty (the
+    /// scaling file unless the host moved it). `builder::Settings::end`.
+    End,
     StationBuilder,
 }
 
@@ -191,7 +205,7 @@ pub enum Screen {
 
 fn usage() -> ! {
     eprintln!(
-        "usage: bims [game|simulation|design|test|test_planet|droids|combat_droids_<class>|tier2_test|tier3_test|droids_planet|crisis|jammer|defense|guardian|relics|stationbuilder [name]|list|--self-check]"
+        "usage: bims [game|simulation|design|test|test_planet|droids|combat_droids_<class>|tier2_test|tier3_test|droids_planet|crisis|jammer|defense|guardian|relics|heart|manufacturers|end|stationbuilder [name]|list|--self-check]"
     );
     eprintln!("       a class is one of: {}", class_words().join(", "));
     eprintln!("       `bims list` says what each of them opens");
@@ -202,7 +216,7 @@ fn usage() -> ! {
 /// — the one list, printed by [`list`] and nothing else. A new command is
 /// a row here and an arm in `main`; the classes' commands are not written
 /// out, since [`class_words`] reads them off `Class::ALL`.
-const COMMANDS: [(&str, &str); 19] = [
+const COMMANDS: [(&str, &str); 20] = [
     (
         "game",
         "The whole game in order: menu, setup or lobby, world and station, then the run: a mission where you docked, on the default ship, 5 000 a Bim in the pool",
@@ -260,6 +274,10 @@ const COMMANDS: [(&str, &str); 19] = [
     (
         "manufacturers",
         "A site of the Manufacturers': the combat crew at the nearest one on day BIMS_MANUFACTURER_DAY (eight: Troopers beside them; nought: pistols alone; ten or more: their own waves)",
+    ),
+    (
+        "end",
+        "The end fight with company: a lobby at code THEEND for others to join, Start pressed once a second player is in, then the ready check at the Machine Heart with ten bots (two of every class, top level, every rank) and everybody in tier-three kit; the waves are the setup's difficulty",
     ),
     (
         "stationbuilder [name]",
@@ -368,6 +386,7 @@ fn main() {
         Some("relics") => Launch::Relics,
         Some("heart") => Launch::Heart,
         Some("manufacturers") => Launch::Manufacturers,
+        Some("end") => Launch::End,
         Some("stationbuilder") => Launch::StationBuilder,
         // What there is to run, printed rather than opened.
         Some("list") | Some("--list") | Some("--help") | Some("-h") => {
@@ -450,7 +469,7 @@ fn main() {
 /// dock for a spawn.
 fn open(launch: Res<Launch>, mut commands: Commands, mut next: ResMut<NextState<Screen>>) {
     match *launch {
-        Launch::Game => {}
+        Launch::Game | Launch::End => {}
         Launch::Simulation
         | Launch::Test
         | Launch::TestPlanet

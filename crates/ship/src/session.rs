@@ -352,16 +352,47 @@ impl Session {
         width: f32,
         height: f32,
     ) -> Session {
+        Session::run_with_bots(
+            money_per_bim,
+            players,
+            0,
+            local_slot,
+            seed,
+            galaxy,
+            spawn,
+            classes,
+            width,
+            height,
+        )
+    }
+
+    /// [`Session::run`] with `bots` crew members nobody steers aboard
+    /// after the players — the `end` command's ten
+    /// ([`Session::end_for_probe`]). They cost the pool nothing.
+    #[allow(clippy::too_many_arguments)]
+    pub fn run_with_bots(
+        money_per_bim: Money,
+        players: u32,
+        bots: u32,
+        local_slot: u32,
+        seed: u64,
+        galaxy: u32,
+        spawn: Option<(u32, u32)>,
+        classes: &[Class],
+        width: f32,
+        height: f32,
+    ) -> Session {
         let players = players.max(1);
         let local_slot = local_slot.min(players - 1);
         let design = shipdesign::fixture::playtest_ship();
         let editor = Editor::settled(design.clone(), players, local_slot, width, height);
         let money = money_per_bim.saturating_mul(Money::from(players));
         let game = spawn.and_then(|(star, station)| {
-            Game::start(
+            Game::start_with_crew(
                 design,
                 money,
                 players,
+                players + bots,
                 local_slot,
                 seed,
                 galaxy_type(galaxy),
@@ -701,6 +732,25 @@ impl Session {
             world.set_heart_phase_for_probe(phase);
         }
         session
+    }
+
+    /// The `end` command's run (the app's), after [`Session::run_with_bots`]
+    /// and the lobby's difficulty: the crew docked at the Machine Heart's
+    /// fortress laid at their own star (`World::heart_dock_for_probe`),
+    /// every bot a class at the top level with every rank bought and
+    /// everybody in tier-three kit (`World::classed_crew_for_probe`) — the
+    /// same on every machine of the lobby. `false` with no game, or where
+    /// the fortress could not be laid.
+    pub fn end_for_probe(&mut self) -> bool {
+        let Some(game) = self.game.as_mut() else {
+            return false;
+        };
+        if !game.world.heart_dock_for_probe() {
+            return false;
+        }
+        game.world.classed_crew_for_probe(bims::combat::Tier::Three);
+        self.dress_crew();
+        true
     }
 
     /// `BIMS_WIN=1`: the run won the next time a site is cleared with
