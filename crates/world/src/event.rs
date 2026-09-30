@@ -152,6 +152,9 @@ pub enum WorldEvent {
     /// (task 129): who, and how many stood by him — fewer than his rank
     /// gives where the deck round him was short.
     Reinforced { who: u32, count: u32 },
+    /// A commander called a medic of the Republic's in with his C, the
+    /// Medivac: who, and the crew member the medic is.
+    Medivac { who: u32, medic: u32 },
     /// A fresh wave of machines has landed at a droid-held station
     /// (feature 83): which station.
     DroidReinforcements { station: u32 },
@@ -712,6 +715,7 @@ impl WorldEvent {
             WorldEvent::EmpThrown { .. } => 132,
             WorldEvent::BattleCried { .. } => 134,
             WorldEvent::Reinforced { .. } => 135,
+            WorldEvent::Medivac { .. } => 144,
             WorldEvent::NaniteBurst { .. } => 136,
             WorldEvent::Cloaked { .. } => 137,
             WorldEvent::Readied { .. } => 138,
@@ -867,6 +871,8 @@ impl WorldEvent {
             | WorldEvent::BattleCried { who } => who as i64,
             // The count in the hundreds: a crew is never a hundred.
             WorldEvent::Reinforced { who, count } => (who as i64) + 100 * (count as i64),
+            // The medic in the hundreds.
+            WorldEvent::Medivac { who, medic } => (who as i64) + 100 * (medic as i64),
             // How many it healed, and whom it cloaked, in the hundreds.
             WorldEvent::NaniteBurst { who, healed } => (who as i64) + 100 * (healed as i64),
             WorldEvent::Cloaked { who, target } => (who as i64) + 100 * (target as i64),

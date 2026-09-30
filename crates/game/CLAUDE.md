@@ -4487,3 +4487,18 @@ only. Its kit is nobody's to change (`World::may_change`, the world's
 `a_machine_shot_at_from_the_dark_goes_for_the_shooter` and
 `a_hunting_machine_follows_the_trail_from_the_spot_it_searched` pin it.
 `SAVE_VERSION` 74, `wire::PROTOCOL` 76. No survivor pin moved.
+
+## A Medivac medic runs to a player downed
+
+`Bim::medivac` (serde default, said by the world every step through
+`Game::set_medivac`) is a commander's Medivac medic. At the top of each
+bot's turn in `tick_combat`, `medivac_rush` starts a revive on
+`medivac_patient` — the nearest **player's own** Bim downed that nobody
+else has hands on or is walking to, and that it can stand beside —
+**whatever the fight round the body**, where a bot of its own accord waits
+for the patient to lie out of harm (`revive_on_offer`). `care_gives_way`
+never puts such a revive down for a shot. Otherwise it is a bot like any
+other. It is drawn `Outfit::RepublicMedic(Tint)`: the Republic soldier's
+armour with a white plate and a red cross on the chest and on each
+pauldron. `a_medivac_medic_revives_a_player_downed_in_the_fight` pins it
+(and that a plain bot there does not).

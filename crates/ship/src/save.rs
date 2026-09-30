@@ -203,7 +203,9 @@ use crate::game::Game;
 /// its cooldown.
 /// 74: `Droid::under_fire` — a machine shot at knows where from, and
 /// goes for the shooter.
-pub const SAVE_VERSION: u32 = 74;
+/// 75: the commander's C is the Medivac — `Commander::last_medivac`,
+/// `Reinforcement::medic`, `Bim::medivac` — where it was an aura.
+pub const SAVE_VERSION: u32 = 75;
 
 /// What the file holds, read back.
 #[derive(serde::Deserialize)]

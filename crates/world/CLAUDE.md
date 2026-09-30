@@ -6485,3 +6485,34 @@ commander's call with no cooldown asked, for the tests. The app's R box
 shows the cooldown and the count standing. `SAVE_VERSION` 73,
 `wire::PROTOCOL` 75. `reinforcements_are_on_a_hundred_and_forty_second_cooldown`
 and `reinforcements_are_called_in_with_r_by_rank` are the rule.
+
+## The commander's C is the Medivac (no task number)
+
+> "The commander's ranked kit (task 129)" above says C is a Command Aura
+> (`aura_radius`, `aura_reaching`, `commander::Aura`, `AURA_*`); that is
+> **gone**.
+
+C is `Command::Medivac { slot }` (`class::Ability::Medivac`):
+`World::can_medivac` refuses as `can_reinforce` does (`NotACommander`,
+`OutOfReach`, `NotLearnt` — a rank of C —, `CoolingDown`,
+`CantDeployThere`), on `class::MEDIVAC_COOLDOWN` (140/130/120/110 s by
+rank, times the cooldown relics; `Commander::last_medivac`, saved, hashed
+only where set, moved back by *Kill Relay*, forgotten at every mission's
+start). A call (`medivac`) stands **one** classless Bim beside him through
+the reinforcements' own door (`enlist_republic`,
+`size_for_the_reinforcements`), marked `Reinforcement::medic` (saved,
+hashed only where true): the pistol, and `MEDIVAC_VEST` — none, a tier-one
+vest, a tier-three vest, and from `MEDIVAC_FULL_ARMOUR_RANK` (4) helm, vest
+and leg guards at tier three — pieces off the holdings.
+`WorldEvent::Medivac { who, medic }` (144). Being a reinforcement it is
+gone when it dies and at the mission's end, and nobody's kit to change
+(`may_change`, `NotYours`). `reinforcements_of` is the R's soldiers alone,
+`medivacs_of` the medics; `is_medivac` makes it a medic to `skill_of`
+(`Skill::medic`, the medic's revive time) and to the room
+(`Game::set_medivac`, every step in `hand_the_room_the_field_medics`),
+which runs it to a downed player (`crates/game/CLAUDE.md`). Drawn
+`Outfit::RepublicMedic` (`set_republic`'s third argument).
+`SAVE_VERSION` 75, `wire::PROTOCOL` 77. No pin moved (`SURVIVORS`,
+`REFERENCE_CHECKSUM`, the ship's). `the_medivac_calls_a_medic_in_armoured_by_rank`,
+`the_medivac_is_on_its_rank_s_cooldown` and
+`a_medivac_medic_s_kit_is_nobody_s_to_change` are the rule.

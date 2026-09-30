@@ -47,7 +47,9 @@ use serde::{Deserialize, Serialize};
 /// cooldown rather than his reinforcements at every mission's start.
 /// 76: a machine shot at goes for the shooter, and a hunt follows the
 /// trail from the spot it searched (`Droid::under_fire`).
-pub const PROTOCOL: u32 = 76;
+/// 77: `Command::Medivac`, the commander's C calling a Republic medic in
+/// where it was a damage aura.
+pub const PROTOCOL: u32 = 77;
 
 /// Where the relay lives. `BIMS_SERVER` in the environment overrides it
 /// — `ws://127.0.0.1:8792` for one on the same machine.

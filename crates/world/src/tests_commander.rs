@@ -1,7 +1,7 @@
 //! The commander class (feature 78, its ranked kit task 129):
 //! `crate::class`'s fifth class. His start; the sixteen levels and a skill
 //! point a level; the base trait — hiring at a discount; and the four
-//! abilities a rank at a time — Battle Cry, Command Aura, Rally and
+//! abilities a rank at a time — Battle Cry, Medivac, Rally and
 //! Reinforcements — each doing what its rank says. (His squad orders were
 //! removed.)
 
@@ -414,7 +414,7 @@ fn battle_cry_is_refused_downed_multiplies_with_a_rampage_and_lifts_no_sentry() 
     assert_eq!(world.set_class(2, Class::Engineer), Ok(()));
     world.step(&[]);
     hold_still(&mut world);
-    ranks(&mut world, 0, [1, 4, 1, 0]);
+    ranks(&mut world, 0, [1, 0, 1, 0]);
     ranks(&mut world, 1, [0, 0, 0, 1]);
     ranks(&mut world, 2, [0, 0, 0, 2]);
     stand_near(&mut world, 1, 1.0);
@@ -439,8 +439,7 @@ fn battle_cry_is_refused_downed_multiplies_with_a_rampage_and_lifts_no_sentry() 
     assert_eq!(world.battle_cry_reaching(2), Some(0));
     let sentry = world.sentry_skill(2);
     assert_eq!(sentry.fire_rate, class::SENTRY_FIRE_RATE[1]);
-    assert_eq!(sentry.damage, 1.0, "no aura on a sentry");
-    assert!(world.skill_of(2).damage > 1.0, "the engineer's own is");
+    assert!(world.skill_of(2).fire_rate > 1.0, "the engineer's own is");
 }
 
 #[test]
@@ -476,60 +475,157 @@ fn battle_cry_and_rally_are_ready_at_every_mission_and_shortened_by_the_relics()
     assert!(world.commander_of(0).cried.is_empty());
 }
 
+// --- C: the Medivac -----------------------------------------------------------
+
+/// Every medic called in, off a step's events: who called and who came.
+fn medivacs(events: &[WorldEvent]) -> Vec<(u32, u32)> {
+    events
+        .iter()
+        .filter_map(|e| match *e {
+            WorldEvent::Medivac { who, medic } => Some((who, medic)),
+            _ => None,
+        })
+        .collect()
+}
+
+/// C calls one medic of the Republic's in: the pistol, the rank's armour,
+/// a medic's revive, the Republic's medic's look, and none of the R's.
 #[test]
-fn command_aura_lifts_the_damage_by_rank_within_its_radius_himself_included() {
-    let mut world = commander();
-    hold_still(&mut world);
-    stand_near(&mut world, 1, 1.0);
-    world.step(&[]);
-    assert!(world.aura_reaching(1).is_none(), "nothing before a rank");
-    assert_eq!(world.aura_radius(0), 0.0);
-    let want = [(1.08, 6.0), (1.12, 7.0), (1.16, 8.0), (1.20, 10.0)];
-    for (rank, &(damage, radius)) in (1..=4u8).zip(&want) {
+fn the_medivac_calls_a_medic_in_armoured_by_rank() {
+    use bims::character::{Outfit, Tint};
+    use bims::combat::ArmourKind;
+    let vests = [None, Some(Tier::One), Some(Tier::Three), Some(Tier::Three)];
+    for (rank, &vest) in (1..=4u8).zip(&vests) {
         let mut world = commander();
-        hold_still(&mut world);
         ranks(&mut world, 0, [0, rank, 0, 0]);
-        assert_eq!(world.aura_radius(0), radius, "rank {rank}");
-        stand_near(&mut world, 1, radius - 0.5);
-        stand_near(&mut world, 2, radius + 1.0);
+        next_mission(&mut world);
+        let crew = world.aboard.crew_count();
+        let events = world.step(&[Command::Medivac { slot: 0 }]);
+        assert_eq!(medivacs(&events), vec![(0, crew)], "rank {rank}");
+        assert_eq!(world.medivacs_of(0), vec![crew], "rank {rank}");
+        assert!(world.reinforcements_of(0).is_empty(), "no soldier of R's");
+        assert!(world.is_medivac(crew) && world.is_reinforcement(crew));
+        assert_eq!(world.class_of(crew), Class::None);
+        let gear = world.aboard.room.gear(crew as usize);
+        assert_eq!(gear.weapon, Some(WeaponKind::LaserPistol.basic()));
+        let body = gear.body.map(|p| (p.kind, p.tier));
+        assert_eq!(
+            body,
+            vest.map(|t| (ArmourKind::BasicKevlar, t)),
+            "rank {rank}"
+        );
+        let full = rank >= class::MEDIVAC_FULL_ARMOUR_RANK;
+        assert_eq!(
+            gear.head.map(|p| (p.kind, p.tier)),
+            vest.filter(|_| full).map(|t| (ArmourKind::BasicHelm, t))
+        );
+        assert_eq!(
+            gear.legs.map(|p| (p.kind, p.tier)),
+            vest.filter(|_| full).map(|t| (ArmourKind::BasicLegs, t))
+        );
+        let skill = world.skill_of(crew);
+        assert!(skill.medic, "a medic to the room");
+        assert_eq!(skill.revive, class::MEDIC_REVIVE_SECONDS);
+        assert_eq!(
+            world.medivac_cooldown(0),
+            class::MEDIVAC_COOLDOWN[rank as usize - 1]
+        );
         world.step(&[]);
-        let inside = world.skill_of(1);
-        assert!((inside.damage - damage).abs() < 1e-5, "rank {rank}");
-        assert!((inside.melee - damage).abs() < 1e-5, "and a blow's");
-        assert_eq!(world.skill_of(2).damage, 1.0, "outside");
-        assert!((world.skill_of(0).damage - damage).abs() < 1e-5, "himself");
-        assert_eq!(skill(&world, 1).damage, inside.damage, "the room is told");
-        // A bot and a hire are in it as a player's Bim is.
-        stand_near(&mut world, 4, 1.0);
-        world.step(&[]);
-        assert!(world.aura_reaching(4).is_some());
-        // Downed, he lifts nobody.
-        world.aboard.room.knock_out_for_probe(0);
-        world.step(&[]);
-        world.step(&[]);
-        assert!(world.aura_reaching(1).is_none(), "rank {rank}: downed");
-        assert_eq!(world.skill_of(1).damage, 1.0);
+        assert_eq!(
+            world.aboard.room.outfit(crew as usize),
+            Outfit::RepublicMedic(Tint::ALL[0])
+        );
+        assert!(world.aboard.room.is_medivac(crew as usize));
     }
 }
 
+/// C is pressed as often as the rank's cooldown allows, the medics called
+/// before stay, and it is ready again at every mission's start, the
+/// medics gone.
 #[test]
-fn two_commanders_auras_take_the_higher_factor_and_never_both() {
-    let mut world = basic();
-    assert_eq!(world.set_class(0, Class::Commander), Ok(()));
-    assert_eq!(world.set_class(1, Class::Commander), Ok(()));
-    world.step(&[]);
-    hold_still(&mut world);
-    ranks(&mut world, 0, [0, 1, 0, 0]);
-    ranks(&mut world, 1, [0, 4, 0, 0]);
-    stand_near(&mut world, 1, 1.0);
-    stand_near(&mut world, 2, 2.0);
-    world.step(&[]);
-    let aura = world.aura_reaching(2).expect("in both");
-    assert!((aura.damage - class::AURA_DAMAGE[3]).abs() < 1e-5);
-    assert!(
-        (world.skill_of(2).damage - class::AURA_DAMAGE[3]).abs() < 1e-5,
-        "the higher alone, and no product of the two"
+fn the_medivac_is_on_its_rank_s_cooldown() {
+    let mut world = commander();
+    let events = world.step(&[Command::Medivac { slot: 0 }]);
+    assert!(refused_with(&events, Refusal::NotLearnt), "{events:?}");
+    ranks(&mut world, 0, [0, 4, 0, 0]);
+    assert_eq!(world.medivac_cooldown(0), 110.0);
+    assert_eq!(
+        medivacs(&world.step(&[Command::Medivac { slot: 0 }])).len(),
+        1
     );
+    run_for(&mut world, 60.0);
+    let events = world.step(&[Command::Medivac { slot: 0 }]);
+    assert!(refused_with(&events, Refusal::CoolingDown), "{events:?}");
+    run_for(&mut world, 51.0);
+    assert_eq!(world.medivac_cooldown_left(0), 0.0);
+    assert_eq!(
+        medivacs(&world.step(&[Command::Medivac { slot: 0 }])).len(),
+        1
+    );
+    assert_eq!(world.medivacs_of(0).len(), 2);
+    // Its own cooldown: R is untouched by it.
+    assert_eq!(world.reinforcement_cooldown_left(0), 0.0);
+    next_mission(&mut world);
+    assert!(world.medivacs_of(0).is_empty());
+    assert_eq!(world.medivac_cooldown_left(0), 0.0);
+    assert_eq!(world.can_medivac(0), Ok(()));
+    // Not between missions, and nobody's but a commander's.
+    world.leave_for_probe();
+    assert_eq!(world.can_medivac(0), Err(Refusal::OutOfReach));
+    assert_eq!(world.can_medivac(1), Err(Refusal::NotACommander));
+}
+
+/// The medic's kit is the Republic's as a soldier's is: nothing put on
+/// him, taken off him or moved off him onto anybody else.
+#[test]
+fn a_medivac_medic_s_kit_is_nobody_s_to_change() {
+    use crate::holdings::{GearSlot, GearSource};
+    use bims::combat::Item;
+    let mut world = commander();
+    ranks(&mut world, 0, [0, 2, 0, 0]);
+    next_mission(&mut world);
+    world.step(&[Command::Medivac { slot: 0 }]);
+    let medic = world.medivacs_of(0)[0];
+    let gear = world.aboard.room.gear(medic as usize);
+    assert!(!world.may_change(0, medic) && !world.may_change_now(0, medic));
+    let helm = world
+        .holdings
+        .put(Item::Armour(bims::combat::Piece::new(
+            9_000,
+            bims::combat::ArmourKind::BasicHelm,
+            Tier::One,
+        )))
+        .unwrap();
+    for command in [
+        Command::Equip {
+            slot: 0,
+            who: medic,
+            from: GearSource::Armory { id: helm },
+        },
+        Command::Unequip {
+            slot: 0,
+            who: medic,
+            part: GearSlot::Body,
+        },
+        Command::Equip {
+            slot: 0,
+            who: 0,
+            from: GearSource::Worn {
+                who: medic,
+                slot: GearSlot::Body,
+            },
+        },
+    ] {
+        let events = world.step(&[command]);
+        assert!(
+            refused_with(&events, Refusal::NotYours),
+            "{command:?}: {events:?}"
+        );
+        let now = world.aboard.room.gear(medic as usize);
+        assert_eq!(now.weapon, gear.weapon);
+        assert_eq!(now.body.map(|p| p.id), gear.body.map(|p| p.id));
+        assert!(now.head.is_none());
+    }
 }
 
 /// A critical hit by crew member `by` on the staged machine's chassis,
@@ -572,7 +668,7 @@ fn crit_on_machine(world: &mut World, by: usize, damage: f32, flat: f32) -> f32 
 }
 
 #[test]
-fn weak_spot_s_crit_inside_the_aura_is_the_flat_damage_s_share_alone() {
+fn weak_spot_s_crit_on_a_lifted_hit_is_the_flat_damage_s_share_alone() {
     let mut world = basic();
     assert_eq!(world.set_class(0, Class::Commander), Ok(()));
     assert_eq!(world.set_class(1, Class::Soldier), Ok(()));
@@ -587,17 +683,17 @@ fn weak_spot_s_crit_inside_the_aura_is_the_flat_damage_s_share_alone() {
     ranks(&mut world, 1, [0, 4, 0, 0]);
     stand_near(&mut world, 1, 1.0);
     world.step(&[]);
-    let aura = world.skill_of(1).damage;
-    assert!((aura - class::AURA_DAMAGE[3]).abs() < 1e-5, "in the aura");
-    // The bolt lands at the aura's damage; the crit adds its share of the
-    // flat damage, and never a share of the aura.
+    // A bolt landed at half again its flat damage (a relic, a cry): the
+    // crit adds its share of the flat damage, and never a share of the
+    // lift.
+    let aura = 1.5;
     let took = crit_on_machine(&mut world, 1, 10.0 * aura, 10.0);
     let bonus = took - 10.0 * aura;
     assert!(
         (bonus - 10.0 * (class::WEAK_SPOT_DAMAGE[3] - 1.0)).abs() < 1e-3,
         "the crit's share {bonus}"
     );
-    // A commander's own slot C is his aura, not a Weak Spot: a hit said
+    // A commander's own slot C is his Medivac, not a Weak Spot: a hit said
     // critical by him adds nothing.
     let took = crit_on_machine(&mut world, 0, 10.0, 10.0);
     assert!((took - 10.0).abs() < 1e-3, "{took}");

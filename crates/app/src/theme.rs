@@ -827,33 +827,8 @@ pub fn taunt_ring(painter: &egui::Painter, at: egui::Pos2, radius: f32) {
     }
 }
 
-/// A commander's aura (feature 78): the radius it lifts every friendly
-/// Bim within, drawn faintly — it is always on, so it must not shout —
-/// as a thin ring with a wash inside it, in the crew's own colour.
-pub fn aura_ring(painter: &egui::Painter, at: egui::Pos2, radius: f32) {
-    let radius = radius.max(8.0);
-    painter.circle_filled(at, radius, YOURS.gamma_multiply(0.05));
-    painter.circle_stroke(
-        at,
-        radius,
-        egui::Stroke::new(1.0, YOURS.gamma_multiply(0.35)),
-    );
-}
-
-/// A Bim the aura lifts (feature 78): a small open ring under it, in
-/// the same colour — enough to say "this one is in it" and no more.
-pub fn lifted_mark(painter: &egui::Painter, at: egui::Pos2, scale: f32) {
-    let radius = (10.0 * scale).clamp(4.0, 16.0);
-    painter.circle_stroke(
-        at,
-        radius,
-        egui::Stroke::new(1.0, YOURS.gamma_multiply(0.55)),
-    );
-}
-
 /// A Bim a cast of the commander's is **working on** (feature 86): a
-/// ring on the ground under it, brighter than [`lifted_mark`]'s and in
-/// the caution colour, drawn while the
+/// ring on the ground under it, in the caution colour, drawn while the
 /// pointer rests on the box for that cast. It is the panels' rule said
 /// on the deck — resting on a row rings what it names — and it is what
 /// answers "who does this reach".
@@ -871,9 +846,8 @@ pub fn affected_ring(painter: &egui::Painter, at: egui::Pos2, scale: f32) {
     );
 }
 
-/// A Bim a **rally** is lifting (feature 86): the aura's own ring with a
-/// chevron over it, so a rally running is told from the aura standing.
-/// Drawn in place of [`lifted_mark`] for as long as the rally does.
+/// A Bim a **rally** is lifting (feature 86): a small ring with a chevron
+/// over it, for as long as the rally does.
 pub fn rallied_mark(painter: &egui::Painter, at: egui::Pos2, scale: f32) {
     let radius = (10.0 * scale).clamp(4.0, 16.0);
     painter.circle_stroke(
@@ -1322,12 +1296,9 @@ const TAUNT_PULSE: f32 = 0.9;
 /// [`rallied_mark`]'s one chevron said twice, so the caller reads
 /// differently from the called.
 ///
-/// He needs a mark of his own because `World::aura_reaching` answers
-/// `None` for a commander asked about his own aura — nobody is in their
-/// own — so the one Bim on the deck that is certainly rallying had
-/// nothing on it to say so; and it goes over the head because a small
-/// ring at the body is lost under his own rig and his selection ring,
-/// which is where [`rallied_mark`] puts it.
+/// It goes over the head because a small ring at the body is lost under
+/// his own rig and his selection ring, which is where [`rallied_mark`]
+/// puts it.
 pub fn rally_call(painter: &egui::Painter, at: egui::Pos2, scale: f32) {
     let w = (9.0 * scale).clamp(4.0, 13.0);
     let lift = (0.62 * NAME_LIFT * scale).clamp(10.0, 32.0);
@@ -1370,7 +1341,7 @@ pub fn nanite_burst_ring(painter: &egui::Painter, at: egui::Pos2, reach: f32, t:
 }
 
 /// A medic's Healing Aura (task 130): the radius round him, faint, in
-/// the beam's green — the commander's aura ring in the heal's colour.
+/// the beam's green, with a wash inside it.
 pub fn healing_aura_ring(painter: &egui::Painter, at: egui::Pos2, radius: f32) {
     let radius = radius.max(8.0);
     painter.circle_filled(at, radius, HEAL.gamma_multiply(0.04));

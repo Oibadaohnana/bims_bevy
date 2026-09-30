@@ -607,6 +607,11 @@ impl World {
                 *last -= minutes;
                 any = true;
             }
+            // Nor has his call for a medic.
+            if let Some(last) = commander.last_medivac.as_mut() {
+                *last -= minutes;
+                any = true;
+            }
         }
         // The engineer's sentry's cooldown (task 127), never its time.
         if let Some(engineer) = self.engineers.get_mut(who as usize)

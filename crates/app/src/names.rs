@@ -630,7 +630,7 @@ pub const CLASS_TIPS: [&str; 6] = [
     "Braces to hold a line (E) — steadier shooting and no errands until stood easy — and from the third level throws grenades (Q), two charges of them, each back thirty seconds after it is thrown. Sets out with an auto rifle in hand and the pistol in the pack.",
     "Four ranked abilities, a skill point a level: a Nanite Burst that heals everybody near him at once (Q), a Healing Aura that makes every heal worth more to the crew round him (C), the heal beam on a crewmate or himself (E), and for his ultimate a cloak no enemy can pick (R). Revives a downed crewmate in four seconds where anybody else takes ten, and gets them up at 40% of their bar where anybody else manages 30%.",
     "Four ranked abilities, a skill point a level: a Taunt that makes every enemy near him that can see him shoot at him and nobody else (Q), Plated, less damage from every hit (C), a wall the crew shelter behind (E), and for his ultimate the Juggernaut, every enemy that sees him shooting at him while he shrugs it off (R). His armour drains at half rate, so the same kevlar takes twice as much on him. Sets out with the pistol and a basic helm, kevlar and leg guards on.",
-    "Four ranked abilities, a skill point a level: a Battle Cry that makes everybody near him fire faster (Q), a Command Aura in which every friendly Bim hits harder (C), a Rally that has the crew near him take less damage and move faster (E), and for his ultimate Republic soldiers called in beside him (R). Hires a mercenary at a quarter off. Sets out with the pistol.",
+    "Four ranked abilities, a skill point a level: a Battle Cry that makes everybody near him fire faster (Q), a Medivac, a Republic medic called in beside him who runs to a player downed and revives him (C), a Rally that has the crew near him take less damage and move faster (E), and for his ultimate Republic soldiers called in beside him (R). Hires a mercenary at a quarter off. Sets out with the pistol.",
 ];
 pub fn class_name(class: world::Class) -> &'static str {
     CLASS_NAMES
@@ -671,7 +671,7 @@ pub fn ranked_ability(class: world::Class, slot: u8) -> &'static str {
         (world::Class::Engineer, 2) => "Sandbags",
         (world::Class::Engineer, 3) => "Sentry",
         (world::Class::Commander, 0) => "Battle Cry",
-        (world::Class::Commander, 1) => "Command Aura",
+        (world::Class::Commander, 1) => "Medivac",
         (world::Class::Commander, 2) => "Rally",
         (world::Class::Commander, 3) => "Reinforcements",
         (world::Class::Medic, 0) => "Nanite Burst",
@@ -711,7 +711,7 @@ pub fn ranked_what(class: world::Class, slot: u8) -> &'static str {
         }
         (world::Class::Commander, 0) => "Allies around you as you shout fire faster.",
         (world::Class::Commander, 1) => {
-            "Passive. Allies near you deal more damage. Does not stack."
+            "Call in a Republic medic with a pistol. He fights like any bot and runs to revive a downed player, fight or not. Armoured by rank."
         }
         (world::Class::Commander, 2) => {
             "Allies around you as you call it take less damage and move faster."
@@ -789,6 +789,20 @@ impl Stat {
     #[cfg(test)]
     pub fn line(&self) -> String {
         format!("{}: {}{}", self.label, self.values.join(" / "), self.unit)
+    }
+}
+/// What the commander's Medivac medic wears at rank index `r` (nought the
+/// first rank), off `class::MEDIVAC_VEST` and the full suit's rank.
+fn medivac_armour(r: usize) -> &'static str {
+    let full = r + 1 >= world::class::MEDIVAC_FULL_ARMOUR_RANK as usize;
+    match (world::class::MEDIVAC_VEST[r], full) {
+        (None, _) => "None",
+        (Some(bims::combat::Tier::One), false) => "Vest T1",
+        (Some(bims::combat::Tier::Two), false) => "Vest T2",
+        (Some(_), false) => "Vest T3",
+        (Some(bims::combat::Tier::One), true) => "Full T1",
+        (Some(bims::combat::Tier::Two), true) => "Full T2",
+        (Some(_), true) => "Full T3",
     }
 }
 /// A ranked ability's numbers, every rank's at once (Dota 2's tooltip):
@@ -891,8 +905,8 @@ pub fn ranked_stats(class: world::Class, slot: u8) -> Vec<Stat> {
             cooldown(&c::BATTLE_CRY_COOLDOWN),
         ],
         (world::Class::Commander, 1) => vec![
-            Stat::ranks("Damage", "", |r| by(c::AURA_DAMAGE[r] as f64)),
-            Stat::ranks("Radius", " tiles", |r| fig(c::AURA_TILES[r] as f64)),
+            Stat::ranks("Armour", "", |r| medivac_armour(r).to_string()),
+            cooldown(&c::MEDIVAC_COOLDOWN),
         ],
         (world::Class::Commander, 2) => vec![
             Stat::ranks("Damage taken", "", |r| by(c::RALLY_DAMAGE_TAKEN[r] as f64)),
@@ -1039,6 +1053,10 @@ pub fn reinforce_refused(why: world::Refusal) -> String {
     format!("Cannot call reinforcements: {}.", refusal(why))
 }
 /// And for a Rampage refused.
+/// And for a Medivac refused.
+pub fn medivac_refused(why: world::Refusal) -> String {
+    format!("Cannot call a medic in: {}.", refusal(why))
+}
 pub fn rampage_refused(why: world::Refusal) -> String {
     format!("Cannot go on a Rampage: {}.", refusal(why))
 }
@@ -1553,6 +1571,9 @@ pub fn event_line(event: WorldEvent) -> Option<String> {
             who(w),
             if count == 1 { "soldier" } else { "soldiers" }
         ),
+        WorldEvent::Medivac { who: w, .. } => {
+            format!("{} called a Republic medic in.", who(w))
+        }
         WorldEvent::DroidReinforcements { .. } => DROID_REINFORCEMENTS.into(),
         WorldEvent::DroidDown { kind, .. } => format!("{} is down.", droid_name(kind)),
         WorldEvent::DroidStationCleared { .. } => DROID_CLEARED.into(),

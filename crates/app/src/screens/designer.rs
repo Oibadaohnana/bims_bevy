@@ -205,6 +205,8 @@ pub enum Order {
     BattleCry,
     /// The commander's Reinforcements — `Command::Reinforce`, the R key.
     Reinforce,
+    /// The commander's Medivac — `Command::Medivac`, the C key.
+    Medivac,
     /// Every player's own standing order to the bots that follow them —
     /// `Command::Orders`, the F and T keys (feature 84).
     Orders(world::Standing),
@@ -494,6 +496,7 @@ impl Net {
                         Order::Rally => Command::Rally { slot },
                         Order::BattleCry => Command::BattleCry { slot },
                         Order::Reinforce => Command::Reinforce { slot },
+                        Order::Medivac => Command::Medivac { slot },
                         Order::Orders(order) => Command::Orders { slot, order },
                         Order::Carry(who) => Command::Carry { slot, who },
                         Order::Propose { star, station } => Command::Propose {

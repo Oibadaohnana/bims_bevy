@@ -54,7 +54,7 @@ use bims::sight::Stance;
 use crate::armour::{self, LootSource};
 use crate::build::{self, BuildSite, SiteRefusal};
 use crate::class::{self, Charge, Class, Progress};
-use crate::commander::{Aura, Commander};
+use crate::commander::Commander;
 use crate::crew::{Aboard, Residents};
 use crate::data;
 use crate::defense::{self, Defense};
@@ -433,6 +433,16 @@ pub enum Command {
     /// call and `CantDeployThere` with no free deck round him
     /// (`World::can_reinforce`).
     Reinforce {
+        slot: u32,
+    },
+    /// That player's own commander **calls a medic in** (his C, the
+    /// Medivac): one classless Bim of the Republic's with the pistol and
+    /// the rank's armour ([`class::MEDIVAC_VEST`]), on the free deck
+    /// nearest him, for the rest of the mission, who runs to a player
+    /// downed and revives him. Refused as a call for reinforcements is
+    /// (`World::can_medivac`), within [`class::MEDIVAC_COOLDOWN`] of the
+    /// last call.
+    Medivac {
         slot: u32,
     },
     /// That player's **standing order** to the bots that follow them
@@ -1110,6 +1120,9 @@ const CRIT_SALT: u64 = 0x_C817_5EED_0124;
 /// 129): off the seed and the mission, never the room's stream, so laying
 /// them moves no roll a fight makes.
 const REINFORCEMENT_SALT: u64 = 0x_5E1F_0CE5_0129;
+/// And what a Medivac's medic's face is salted with on top of it, so the
+/// medic is never a soldier's double.
+const MEDIVAC_SALT: u64 = 0x_3ED1_7AC0;
 
 impl World {
     /// Open a world with the accepted ship docked at a station.
@@ -1619,6 +1632,7 @@ impl World {
             | Command::Rally { slot }
             | Command::BattleCry { slot }
             | Command::Reinforce { slot }
+            | Command::Medivac { slot }
             | Command::Carry { slot, .. }
             | Command::Orders { slot, .. }
             | Command::Propose { slot, .. }
@@ -1732,6 +1746,7 @@ impl World {
                 | Command::Rally { .. }
                 | Command::BattleCry { .. }
                 | Command::Reinforce { .. }
+                | Command::Medivac { .. }
         );
         if class_ability && self.is_cloaked(slot) {
             events.push(refused(slot, Refusal::Cloaked));
@@ -1872,6 +1887,11 @@ impl World {
                     events.push(refused(slot, why));
                 }
             }
+            Command::Medivac { .. } => {
+                if let Err(why) = self.medivac(slot, events) {
+                    events.push(refused(slot, why));
+                }
+            }
             Command::Orders { order, .. } => match self.give_orders(slot, order) {
                 Ok(kind) => events.push(WorldEvent::Ordered { who: slot, kind }),
                 Err(why) => events.push(refused(slot, why)),
@@ -1897,6 +1917,7 @@ impl World {
                 | Command::Rally { .. }
                 | Command::BattleCry { .. }
                 | Command::Reinforce { .. }
+                | Command::Medivac { .. }
         );
         let turned_down = events[before..]
             .iter()
@@ -8177,7 +8198,9 @@ impl World {
         // A commander's reinforcements are the Republic's soldiers, in
         // their caller's colour.
         for r in &self.reinforcements {
-            self.aboard.room.set_republic(r.who as usize, r.by as usize);
+            self.aboard
+                .room
+                .set_republic(r.who as usize, r.by as usize, r.medic);
         }
     }
 
@@ -8467,12 +8490,12 @@ impl World {
         // How fast a worn piece drains: a tank's half, a quarter from
         // Plated's fourth rank, and one for everybody else.
         skill.armour_drain = self.armour_drain(who);
-        // And so are a commander's aura, his Battle Cry and his Rally
+        // And so are a commander's Battle Cry and his Rally
         // (task 129): they lift whatever the crew member's own class gave
         // it, a player's own steered Bim included.
         self.lift_by_commanders(who, &mut skill);
         // And a player's relics (feature 106), last: a share on top of
-        // whatever the class and the aura made of it.
+        // whatever the class and the commanders made of it.
         self.lift_by_relics(who, &mut skill);
         // And task 118's, which read the crew round it as well.
         self.lift_by_relic_hooks(who, &mut skill);
@@ -8482,19 +8505,19 @@ impl World {
         // And how long it takes to revive a downed crewmate (task 120).
         skill.revive = self.revive_seconds(who);
         // And whether it is a medic, whom the other bots leave a downed
-        // crewmate to (task 125).
-        skill.medic = self.is_medic(who) || self.is_field_medic(who);
+        // crewmate to (task 125) — a Medivac's medic among them.
+        skill.medic = self.is_medic(who) || self.is_field_medic(who) || self.is_medivac(who);
         skill
     }
 
     /// How long crew member `who` takes to revive a downed crewmate, in
     /// seconds (task 120): `bims::health::REVIVE_SECONDS` (ten) for
     /// anybody, [`class::MEDIC_REVIVE_SECONDS`] (four) for a medic — of the
-    /// class, or a hired field medic — and a *Trauma Kit* on it
+    /// class, a hired field medic or a Medivac's — and a *Trauma Kit* on it
     /// [`data::TRAUMA_KIT_REVIVE_SECONDS`] quicker again, never under
     /// [`data::REVIVE_FLOOR_SECONDS`].
     pub fn revive_seconds(&self, who: u32) -> f32 {
-        let medic = self.is_medic(who) || self.is_field_medic(who);
+        let medic = self.is_medic(who) || self.is_field_medic(who) || self.is_medivac(who);
         let quicker = crate::relic::rule_of(self.relics_of(who), |r| match r {
             crate::relic::Rule::QuickRevive { seconds } => Some(seconds),
             _ => None,
@@ -9595,6 +9618,9 @@ impl World {
         for who in 0..self.aboard.crew_count() {
             let medic = self.is_field_medic(who);
             self.aboard.room.set_field_medic(who as usize, medic);
+            // And a commander's Medivac medic, who runs to a player down.
+            let medivac = self.is_medivac(who);
+            self.aboard.room.set_medivac(who as usize, medivac);
         }
     }
 
@@ -10107,11 +10133,9 @@ impl World {
     //
     // `crate::commander` is the state — when each commander last cried
     // and rallied and whom each reached, and the reinforcements of the
-    // mission — and this is the rules. The aura is not kept at all: it
-    // is worked out every step from where the commanders stand and goes
-    // to the room through `skill_of`.
+    // mission, his medics among them — and this is the rules.
     //
-    // **Whom each reaches.** The aura, the Battle Cry and the Rally lift
+    // **Whom each reaches.** The Battle Cry and the Rally lift
     // every friendly Bim in range, a player's own steered Bim and the
     // commander himself included. His squad orders (attack, fall back,
     // stand ground) were removed; the cheaper hire is his one base trait.
@@ -10162,52 +10186,6 @@ impl World {
                 self.on_the_deck(who) && (room.bim_pos(who as usize) - at).len() <= reach
             })
             .collect()
-    }
-
-    /// How far a commander's **Command Aura** reaches, in tiles: its
-    /// rank's radius ([`class::AURA_TILES`]), nought before the first.
-    pub fn aura_radius(&self, who: u32) -> f32 {
-        if !self.is_commander(who) {
-            return 0.0;
-        }
-        class::by_rank(class::AURA_TILES, self.rank_of(who, class::SLOT_C)).unwrap_or(0.0)
-    }
-
-    /// What one commander's aura does to a Bim standing in it: its rank's
-    /// damage factor ([`class::AURA_DAMAGE`]).
-    fn aura_cast_by(&self, who: u32) -> Aura {
-        Aura {
-            damage: class::by_rank(class::AURA_DAMAGE, self.rank_of(who, class::SLOT_C))
-                .unwrap_or(1.0),
-        }
-    }
-
-    /// Whether a commander's aura reaches a crew member: a commander with
-    /// a rank of it, on his feet — fit to act, not downed — the Bim on
-    /// the deck, and the two within the aura's radius. **Himself
-    /// included** since task 129, and never an enemy — the crew's room is
-    /// the only room asked.
-    pub fn in_aura_of(&self, commander: u32, who: u32) -> bool {
-        if !self.is_commander(commander) || !self.fit_to_act(commander) {
-            return false;
-        }
-        let radius = self.aura_radius(commander);
-        if radius <= 0.0 || !self.on_the_deck(who) {
-            return false;
-        }
-        let room = &self.aboard.room;
-        let gap = room.bim_pos(who as usize) - room.bim_pos(commander as usize);
-        gap.len() <= radius * shipdesign::TILE as f32
-    }
-
-    /// The strongest aura reaching a crew member, or `None`. **Two
-    /// commanders' auras never stack**: the higher factor holds it, and
-    /// the others do nothing.
-    pub fn aura_reaching(&self, who: u32) -> Option<Aura> {
-        (0..self.aboard.crew_count())
-            .filter(|&c| self.in_aura_of(c, who))
-            .map(|c| self.aura_cast_by(c))
-            .max_by(|a, b| a.damage.total_cmp(&b.damage))
     }
 
     // The Rally (E) and the Battle Cry (Q): a timestamp and a list each,
@@ -10520,18 +10498,13 @@ impl World {
     }
 
     /// What the commanders do to a crew member's fighting, over whatever
-    /// its own class gave it (task 129): the strongest **Command Aura**
-    /// reaching it on its damage, bolt and blow alike; a **Battle Cry**
+    /// its own class gave it (task 129): a **Battle Cry**
     /// that reached it on its fire rate; a **Rally** that reached it on the
     /// damage it takes and on its pace. Everything here reaches a player's
     /// own steered Bim as readily as a bot, and each multiplies into the
     /// skill with every other factor. A sentry has a skill of its own
     /// (`sentry_skill`) and is lifted by none of it.
     fn lift_by_commanders(&self, who: u32, skill: &mut bims::combat::Skill) {
-        if let Some(aura) = self.aura_reaching(who) {
-            skill.damage *= aura.damage;
-            skill.melee *= aura.damage;
-        }
         if let Some(c) = self.battle_cry_reaching(who) {
             let rank = self.rank_of(c, class::SLOT_Q);
             skill.fire_rate *= class::by_rank(class::BATTLE_CRY_FIRE_RATE, rank).unwrap_or(1.0);
@@ -10570,11 +10543,12 @@ impl World {
     //
     // A reinforcement is a crew member marked with the commander who
     // brought it, for one mission: laid on free deck beside him when he
-    // calls them in (`reinforce`, his R), gone from the deck the moment it
+    // calls them in (`reinforce`, his R) or his medic in (`medivac`, his
+    // C), gone from the deck the moment it
     // dies (`settle_reinforcements`, the room's `vanish` — its index kept,
     // so nobody else's shifts in the middle of a fight) and off the crew
     // at its end, alive or not (`send_reinforcements_home`). It is a bot
-    // to everything that asks — the aura, a revive — and to
+    // to everything that asks — a cry, a rally, a revive — and to
     // nothing that pays or counts: no experience (it has no class), no
     // loot, no wages, no penalty, no worth, and no run is kept going by it.
 
@@ -10592,12 +10566,12 @@ impl World {
         self.reinforcement_of(who).is_some()
     }
 
-    /// The reinforcements a commander brought that are still alive, by
-    /// crew index.
+    /// The soldiers a commander's R brought that are still alive, by crew
+    /// index — his medics are [`World::medivacs_of`].
     pub fn reinforcements_of(&self, commander: u32) -> Vec<u32> {
         self.reinforcements
             .iter()
-            .filter(|r| r.by == commander && self.aboard.room.is_alive(r.who as usize))
+            .filter(|r| r.by == commander && !r.medic && self.aboard.room.is_alive(r.who as usize))
             .map(|r| r.who)
             .collect()
     }
@@ -10706,17 +10680,42 @@ impl World {
                 weapon: Some(bims::combat::WeaponKind::AutoRifle.at(tier)),
                 ..bims::combat::Gear::default()
             };
-            let who = self.aboard.room.enlist_reinforcement(spot, gear, seed) as u32;
-            self.crew_down.push(false);
-            self.crew_locked.push(false);
-            self.reinforcements
-                .push(crate::commander::Reinforcement { who, by: slot });
+            self.enlist_republic(slot, spot, gear, seed, false);
             count += 1;
         }
         if count == 0 {
             return;
         }
         events.push(WorldEvent::Reinforced { who: slot, count });
+        self.size_for_the_reinforcements();
+    }
+
+    /// One Bim of the Republic's onto the crew at `spot`, marked as
+    /// commander `slot`'s — a soldier of his R, or his Medivac's medic —
+    /// its face off `seed`. The world's lists a crew member are grown
+    /// after, once, by [`World::size_for_the_reinforcements`].
+    fn enlist_republic(
+        &mut self,
+        slot: u32,
+        spot: bims::math::Vec2,
+        gear: bims::combat::Gear,
+        seed: u64,
+        medic: bool,
+    ) -> u32 {
+        let who = self.aboard.room.enlist_reinforcement(spot, gear, seed) as u32;
+        self.crew_down.push(false);
+        self.crew_locked.push(false);
+        self.reinforcements.push(crate::commander::Reinforcement {
+            who,
+            by: slot,
+            medic,
+        });
+        who
+    }
+
+    /// Every list the world keeps a crew member grown to the room's crew,
+    /// after a call brought Bims in.
+    fn size_for_the_reinforcements(&mut self) {
         let crew = self.aboard.room.crew_count();
         self.aboard.crew = crew;
         self.ship.crew_count = crew;
@@ -10737,6 +10736,128 @@ impl World {
             }
         }
         events
+    }
+
+    // --- the commander's Medivac (his C) ------------------------------------
+    //
+    // One medic of the Republic's a call: a reinforcement like the R's
+    // soldiers (the same list, marked `medic`, gone when it dies and at
+    // the mission's end, nobody's to kit out), with the pistol and the
+    // rank's armour, and a medic to the room — revived in a medic's time,
+    // left the downed by the other bots, and running to a player downed
+    // whatever the fight (`Game::set_medivac`).
+
+    /// The medics a commander's Medivac brought that are still alive, by
+    /// crew index.
+    pub fn medivacs_of(&self, commander: u32) -> Vec<u32> {
+        self.reinforcements
+            .iter()
+            .filter(|r| r.by == commander && r.medic && self.aboard.room.is_alive(r.who as usize))
+            .map(|r| r.who)
+            .collect()
+    }
+
+    /// Whether a crew member is a Medivac's medic.
+    pub fn is_medivac(&self, who: u32) -> bool {
+        self.reinforcements.iter().any(|r| r.who == who && r.medic)
+    }
+
+    /// Seconds of the mission clock from one medic called in to the next:
+    /// the rank's [`class::MEDIVAC_COOLDOWN`], times the cooldown relics;
+    /// nought before the first rank.
+    pub fn medivac_cooldown(&self, who: u32) -> f64 {
+        class::by_rank(class::MEDIVAC_COOLDOWN, self.rank_of(who, class::SLOT_C)).unwrap_or(0.0)
+            * self.relic_factor(who, crate::relic::Stat::Cooldowns)
+    }
+
+    /// Seconds of the mission clock until he may call a medic in again;
+    /// nought when he may.
+    pub fn medivac_cooldown_left(&self, who: u32) -> f64 {
+        let Some(called) = self.commander_of(who).last_medivac else {
+            return 0.0;
+        };
+        let since = (self.mission_minutes() - called) / time::MINUTES_PER_SECOND;
+        (self.medivac_cooldown(who) - since).max(0.0)
+    }
+
+    /// Whether a player's commander may call a medic in, or why not — the
+    /// reinforcements' refusals in their order, the rank asked of his C.
+    pub fn can_medivac(&self, slot: u32) -> Result<(), Refusal> {
+        if !class::can(self.class_of(slot), class::Ability::Medivac) {
+            return Err(Refusal::NotACommander);
+        }
+        if !self.in_mission()
+            || slot >= self.aboard.crew_count()
+            || !self.fit_to_act(slot)
+            || self.aboard.room.is_down(slot as usize)
+        {
+            return Err(Refusal::OutOfReach);
+        }
+        if self.rank_of(slot, class::SLOT_C) == 0 {
+            return Err(Refusal::NotLearnt);
+        }
+        if self.medivac_cooldown_left(slot) > 0.0 {
+            return Err(Refusal::CoolingDown);
+        }
+        if self.medivac_spot(slot).is_none() {
+            return Err(Refusal::CantDeployThere);
+        }
+        Ok(())
+    }
+
+    /// Where a call would stand the medic: the free deck nearest him within
+    /// [`class::REINFORCEMENT_REACH_TILES`].
+    fn medivac_spot(&self, slot: u32) -> Option<bims::math::Vec2> {
+        let t = shipdesign::TILE as f32;
+        let at = self.aboard.room.bim_pos(slot as usize);
+        self.aboard
+            .room
+            .free_tiles_near(at, class::REINFORCEMENT_REACH_TILES * t)
+            .first()
+            .copied()
+    }
+
+    /// What the medic carries at a rank: the pistol, and from the second
+    /// a plate vest ([`class::MEDIVAC_VEST`]), from
+    /// [`class::MEDIVAC_FULL_ARMOUR_RANK`] a helm and leg guards at its
+    /// tier too — pieces of the world's, numbered off the holdings.
+    fn medivac_gear(&mut self, rank: u8) -> bims::combat::Gear {
+        use bims::combat::ArmourKind;
+        let mut gear = bims::combat::Gear::issued();
+        if let Some(Some(tier)) = class::by_rank(class::MEDIVAC_VEST, rank) {
+            gear.body = Some(self.holdings.new_piece(ArmourKind::BasicKevlar, tier));
+            if rank >= class::MEDIVAC_FULL_ARMOUR_RANK {
+                gear.head = Some(self.holdings.new_piece(ArmourKind::BasicHelm, tier));
+                gear.legs = Some(self.holdings.new_piece(ArmourKind::BasicLegs, tier));
+            }
+        }
+        gear
+    }
+
+    /// The call — see [`Command::Medivac`]: the medic stood beside him and
+    /// the mission clock noted for the cooldown.
+    fn medivac(&mut self, slot: u32, events: &mut Vec<WorldEvent>) -> Result<(), Refusal> {
+        self.can_medivac(slot)?;
+        let Some(spot) = self.medivac_spot(slot) else {
+            return Err(Refusal::CantDeployThere);
+        };
+        let now = self.mission_minutes();
+        let gear = self.medivac_gear(self.rank_of(slot, class::SLOT_C));
+        let seed = self.galaxy_seed
+            ^ REINFORCEMENT_SALT
+            ^ MEDIVAC_SALT
+            ^ (u64::from(self.run.missions) << 24)
+            ^ ((self.reinforcements.len() as u64) << 12)
+            ^ (u64::from(slot) << 8);
+        let who = self.enlist_republic(slot, spot, gear, seed, true);
+        self.size_for_the_reinforcements();
+        self.aboard.room.set_medivac(who as usize, true);
+        self.commander_mut(slot as usize).last_medivac = Some(now);
+        events.push(WorldEvent::Medivac {
+            who: slot,
+            medic: who,
+        });
+        Ok(())
     }
 
     /// After the deaths are said: a reinforcement that died is **gone

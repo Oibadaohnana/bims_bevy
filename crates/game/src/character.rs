@@ -311,6 +311,10 @@ const DYE: f32 = 0.45;
 const KIT_REPUBLIC: Color = Color::rgb(0.25, 0.28, 0.33);
 const KIT_REPUBLIC_FACE: Color = Color::rgb(0.40, 0.44, 0.50);
 const REPUBLIC_DYE: f32 = 0.80;
+/// A Republic medic's white plate and the red cross on it
+/// ([`Outfit::RepublicMedic`]).
+const REPUBLIC_MEDIC_WHITE: Color = Color::rgb(0.94, 0.95, 0.96);
+const REPUBLIC_MEDIC_CROSS: Color = Color::rgb(0.86, 0.12, 0.14);
 /// The visor-glasses' lens: the player's colour this much past white, so
 /// the bloom lights a thin band across the eyes.
 const VISOR_GLOW: f32 = 1.45;
@@ -409,6 +413,11 @@ pub enum Outfit {
     /// [`Outfit::ALL`], which is the classes'; the world says it
     /// ([`crate::game::Game::set_republic`]) and nothing else does.
     Republic(Tint),
+    /// A Republic medic — a commander's Medivac (his C): the soldier's
+    /// power armour and visor, with a white plate and a red cross on the
+    /// chest and on each pauldron. Said by the world alone, like
+    /// [`Outfit::Republic`].
+    RepublicMedic(Tint),
 }
 
 impl Outfit {
@@ -432,7 +441,7 @@ impl Outfit {
             Outfit::Medic => Some(KIT_MEDIC),
             Outfit::Tank => Some(KIT_TANK),
             Outfit::Commander => Some(KIT_COMMANDER),
-            Outfit::Republic(_) => Some(KIT_REPUBLIC),
+            Outfit::Republic(_) | Outfit::RepublicMedic(_) => Some(KIT_REPUBLIC),
         }
     }
 
@@ -441,7 +450,7 @@ impl Outfit {
     /// dyed: a pressure suit is a pressure suit.
     fn dye(self, cloth: Color, uniform: Uniform) -> Color {
         let by = match self {
-            Outfit::Republic(_) => REPUBLIC_DYE,
+            Outfit::Republic(_) | Outfit::RepublicMedic(_) => REPUBLIC_DYE,
             _ => DYE,
         };
         match self.colour() {
@@ -455,7 +464,7 @@ impl Outfit {
     /// reach and where a click lands are the same for all.
     pub fn scale(self) -> f32 {
         match self {
-            Outfit::Republic(_) => 1.10,
+            Outfit::Republic(_) | Outfit::RepublicMedic(_) => 1.10,
             Outfit::Tank => 1.08,
             Outfit::Soldier => 1.02,
             Outfit::Medic => 0.96,
@@ -2154,7 +2163,7 @@ impl Character {
         // eyes, wider than the head, in a dark frame, the lens its
         // player's colour with a bar of it lit past white along the
         // middle and a white glint at one end.
-        if let Outfit::Republic(tint) = self.outfit
+        if let Outfit::Republic(tint) | Outfit::RepublicMedic(tint) = self.outfit
             && self.uniform != Uniform::Suit
         {
             let lens = tint.colour();
@@ -2847,7 +2856,7 @@ fn draw_class_head(b: &mut Brush, outfit: Outfit, at: &impl Fn(Vec2) -> Vec2, tu
         // over the crown, a crest down the middle in the player's colour
         // and a comms pod over each ear. The visor goes on last, in
         // `draw`, over the eyes.
-        Outfit::Republic(tint) => {
+        Outfit::Republic(tint) | Outfit::RepublicMedic(tint) => {
             b.ellipse(at(vec2(-1.5, 0.0)), vec2(15.0, 16.5), turn, KIT_DARK);
             b.ellipse(
                 at(vec2(-1.5, 0.0)),
@@ -2968,7 +2977,7 @@ fn draw_class_rig(b: &mut Brush, outfit: Outfit) {
         // player's colour, a chest plate with a chevron of it, and a great
         // pauldron over each shoulder rimmed in it — broader even than the
         // tank's, so a squad of them reads as nobody else's.
-        Outfit::Republic(tint) => {
+        Outfit::Republic(tint) | Outfit::RepublicMedic(tint) => {
             let trim = tint.colour();
             b.rect(vec2(-11.0, 0.0), vec2(8.0, 17.0), 0.0, 2.5, KIT_DARK);
             b.rect(vec2(-11.0, 0.0), vec2(6.0, 15.0), 0.0, 2.0, KIT_REPUBLIC);
@@ -3008,6 +3017,31 @@ fn draw_class_rig(b: &mut Brush, outfit: Outfit) {
                     KIT_REPUBLIC_FACE,
                 );
                 b.rect(vec2(-1.0, 17.0 * side), vec2(12.5, 2.0), 0.0, 1.0, trim);
+            }
+            // A medic's: a white plate over the chest and a red cross on
+            // it, and a small one on each pauldron, read from any side.
+            if matches!(outfit, Outfit::RepublicMedic(_)) {
+                b.ellipse(vec2(4.5, 0.0), vec2(9.5, 9.5), 0.0, REPUBLIC_MEDIC_WHITE);
+                b.rect(
+                    vec2(4.5, 0.0),
+                    vec2(6.4, 2.2),
+                    0.0,
+                    0.4,
+                    REPUBLIC_MEDIC_CROSS,
+                );
+                b.rect(
+                    vec2(4.5, 0.0),
+                    vec2(2.2, 6.4),
+                    0.0,
+                    0.4,
+                    REPUBLIC_MEDIC_CROSS,
+                );
+                for side in [-1.0f32, 1.0] {
+                    let at = vec2(-1.0, 12.5 * side);
+                    b.ellipse(at, vec2(6.0, 6.0), 0.0, REPUBLIC_MEDIC_WHITE);
+                    b.rect(at, vec2(4.2, 1.5), 0.0, 0.3, REPUBLIC_MEDIC_CROSS);
+                    b.rect(at, vec2(1.5, 4.2), 0.0, 0.3, REPUBLIC_MEDIC_CROSS);
+                }
             }
         }
     }

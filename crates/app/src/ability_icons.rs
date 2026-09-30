@@ -45,7 +45,7 @@ pub enum Glyph {
     Juggernaut,
     // The commander's (task 129).
     BattleCry,
-    CommandAura,
+    Medivac,
     Rally,
     Reinforcements,
 }
@@ -71,7 +71,7 @@ impl Glyph {
         Glyph::Bulwark,
         Glyph::Juggernaut,
         Glyph::BattleCry,
-        Glyph::CommandAura,
+        Glyph::Medivac,
         Glyph::Rally,
         Glyph::Reinforcements,
     ];
@@ -108,7 +108,7 @@ impl Glyph {
             ],
             Class::Commander => [
                 Glyph::BattleCry,
-                Glyph::CommandAura,
+                Glyph::Medivac,
                 Glyph::Rally,
                 Glyph::Reinforcements,
             ],
@@ -130,7 +130,7 @@ impl Glyph {
             Emp | HealingSentry | Sandbags | Sentry => ENGINEER,
             NaniteBurst | HealingAura | HealBeam | Cloak | Carry => MEDIC,
             Taunt | Plated | Bulwark | Juggernaut => TANK,
-            BattleCry | CommandAura | Rally | Reinforcements => COMMANDER,
+            BattleCry | Medivac | Rally | Reinforcements => COMMANDER,
         }
     }
 
@@ -938,18 +938,16 @@ fn figure(p: &mut Pen, glyph: Glyph) {
                 p.arc(0.60, 0.51, r, -42.0, 42.0, 0.05, k.glow.gamma_multiply(a));
             }
         }
-        // Command Aura: a rank's star over its chevrons, ringed round.
-        Glyph::CommandAura => {
-            p.ring(0.5, 0.5, 0.42, 0.03, k.bright.gamma_multiply(0.5));
-            for i in 0..12 {
-                let a = (15.0 + 30.0 * i as f32).to_radians();
-                p.circle(0.5 + 0.42 * a.cos(), 0.5 + 0.42 * a.sin(), 0.02, k.glow);
+        // Medivac: one helmeted Bim dropped in, a medic's cross on a
+        // badge over the chest.
+        Glyph::Medivac => {
+            p.bust(0.50, 0.96, 0.62, k.mid, k.bright, k.glow);
+            p.circle(0.50, 0.80, 0.13, k.glow);
+            p.rect(0.47, 0.72, 0.53, 0.88, 0.01, k.dark);
+            p.rect(0.42, 0.77, 0.58, 0.83, 0.01, k.dark);
+            for y in [0.04, 0.14] {
+                p.path(&[(0.40, y), (0.50, y + 0.08), (0.60, y)], 0.05, k.glow);
             }
-            p.star(0.5, 0.38, 5, 0.22, 0.09, -90.0, k.bright);
-            p.star(0.5, 0.38, 5, 0.12, 0.05, -90.0, k.glow);
-            p.path(&[(0.28, 0.62), (0.5, 0.74), (0.72, 0.62)], 0.065, k.mid);
-            p.path(&[(0.28, 0.74), (0.5, 0.86), (0.72, 0.74)], 0.065, k.mid);
-            p.path(&[(0.30, 0.62), (0.5, 0.73), (0.70, 0.62)], 0.02, k.bright);
         }
         // Rally: a swallow-tailed banner on its pole, and the crew's
         // pace quickening under it.

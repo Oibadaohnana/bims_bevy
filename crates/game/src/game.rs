@@ -1598,6 +1598,11 @@ impl Game {
                 self.tick_intruder(who, dt);
                 continue;
             }
+            // A commander's Medivac medic runs to a player downed, whatever
+            // the fight round the body (a revive already under way goes on).
+            if self.is_bot(who) {
+                self.medivac_rush(who);
+            }
             // A bot's revive gives way to the fight: the moment it has
             // something to shoot at, the revive is put down for good and
             // the weapon comes out this very step. It began with the
@@ -5190,6 +5195,11 @@ impl Game {
         if !reviving || !self.is_bot(who) || !bim.character.is_recruited() || skill.holds_fire {
             return false;
         }
+        // A Medivac medic keeps its hands on a player whatever it could
+        // shoot at: that is what it was called in for.
+        if bim.medivac && self.reviving(who).is_some_and(|p| p < self.players) {
+            return false;
+        }
         let Some(weapon) = bim.gear.weapon else {
             return false;
         };
@@ -7995,6 +8005,58 @@ impl Game {
         }
     }
 
+    /// The world's word that a crew member is a commander's Medivac medic
+    /// (his C): said every step, as a field medic's trade is.
+    pub fn set_medivac(&mut self, who: usize, on: bool) {
+        if let Some(bim) = self.bims.get_mut(who) {
+            bim.medivac = on;
+        }
+    }
+
+    /// Whether this body is a Medivac medic, as the world last said.
+    pub fn is_medivac(&self, who: usize) -> bool {
+        self.bims.get(who).is_some_and(|b| b.medivac)
+    }
+
+    /// The player a Medivac medic runs to: the nearest player's own Bim
+    /// downed that it can get beside, that nobody else has hands on or is
+    /// on the way to — **the fight round the body never asked**, where a
+    /// bot's own revive waits for the patient to lie out of harm. `None`
+    /// for anybody but a medic on its feet with its arms free.
+    fn medivac_patient(&self, who: usize) -> Option<usize> {
+        let bim = self.bims.get(who)?;
+        if !bim.medivac
+            || !bim.is_alive()
+            || bim.health.downed()
+            || bim.character.is_unconscious()
+            || bim.character.is_outside()
+            || bim.carrying.is_some()
+        {
+            return None;
+        }
+        let from = bim.character.pos;
+        (0..self.players.min(self.bims.len()))
+            .filter(|&p| p != who && self.can_be_revived(p))
+            .filter(|&p| !self.is_being_seen_to_by_another(p, who))
+            .filter(|&p| task::patient_stand(&self.room, &self.maps, who, p, from).is_some())
+            .min_by(|&a, &b| {
+                (self.bims[a].character.pos - from)
+                    .len()
+                    .total_cmp(&(self.bims[b].character.pos - from).len())
+            })
+    }
+
+    /// A Medivac medic with a player down to reach and no revive in hand
+    /// puts whatever it was doing down and goes to it.
+    fn medivac_rush(&mut self, who: usize) {
+        if !self.is_medivac(who) || self.reviving(who).is_some() {
+            return;
+        }
+        if let Some(patient) = self.medivac_patient(who) {
+            self.revive_crewmate(who, patient);
+        }
+    }
+
     /// Every carried body stood where its carrier stands, and every
     /// carry that can no longer hold let go: a carrier dead, out cold or
     /// outside, or a body that has died in its arms. Run at the end of
@@ -8894,14 +8956,20 @@ impl Game {
     /// called it in: that player's own Bim's ring (`set_tints`), or the
     /// slot's place in [`Tint::ALL`] where nobody has said one — which
     /// is the colour a session deals the slot by default. Drawing only,
-    /// the world's to say every step like `set_outfit`.
-    pub fn set_republic(&mut self, who: usize, by: usize) {
+    /// the world's to say every step like `set_outfit`. A `medic` (the
+    /// commander's Medivac) wears the medic's [`Outfit::RepublicMedic`].
+    pub fn set_republic(&mut self, who: usize, by: usize, medic: bool) {
         let tint = self
             .bims
             .get(by)
             .and_then(|b| b.character.tint())
             .unwrap_or(Tint::ALL[by % Tint::ALL.len()]);
-        self.set_outfit(who, Outfit::Republic(tint));
+        let outfit = if medic {
+            Outfit::RepublicMedic(tint)
+        } else {
+            Outfit::Republic(tint)
+        };
+        self.set_outfit(who, outfit);
     }
 
     pub fn outfit(&self, who: usize) -> Outfit {
@@ -12054,6 +12122,37 @@ mod tests {
             assert_eq!(up, on, "revivers {on}");
             if on {
                 assert!(game.is_alive(0));
+                assert_eq!(game.take_revives().len(), 1);
+            }
+        }
+    }
+
+    /// A commander's Medivac medic runs to a player downed with an enemy
+    /// in plain sight beside the body and revives him, where a bot of its
+    /// own accord waits for the patient to lie out of harm; and it keeps
+    /// its hands on him though it has a shot.
+    #[test]
+    fn a_medivac_medic_revives_a_player_downed_in_the_fight() {
+        for medivac in [true, false] {
+            let mut game = room();
+            let at = game.put_for_probe(0, vec2(ROOM_W * 0.5, ROOM_H * 0.5));
+            game.put_for_probe(1, at + vec2(4.0 * TILE, 0.0));
+            game.set_medivac(1, medivac);
+            game.set_hostiles(vec![Some((
+                at + vec2(0.0, 2.0 * TILE),
+                WeaponKind::LaserPistol.basic(),
+            ))]);
+            knock_out(&mut game, 0);
+            let mut up = false;
+            for _ in 0..(60 * 20) {
+                game.simulate(DT);
+                if !game.is_downed(0) {
+                    up = true;
+                    break;
+                }
+            }
+            assert_eq!(up, medivac, "medivac {medivac}");
+            if medivac {
                 assert_eq!(game.take_revives().len(), 1);
             }
         }

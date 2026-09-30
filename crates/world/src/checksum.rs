@@ -536,6 +536,18 @@ pub fn world_checksum(world: &World) -> u64 {
         for r in &world.reinforcements {
             hash.eat(r.who as u64);
             hash.eat(r.by as u64);
+            // A Medivac's medic marked, only where it is one.
+            if r.medic {
+                hash.eat(1);
+            }
+        }
+    }
+    // When each commander last called a medic in (his C), only where one
+    // has this mission.
+    for (who, commander) in world.commanders.iter().enumerate() {
+        if let Some(minutes) = commander.last_medivac {
+            hash.eat(who as u64);
+            hash.eat_rounded(minutes, FINE_GRID);
         }
     }
     // A nought where the squad order was hashed, so no number moved when

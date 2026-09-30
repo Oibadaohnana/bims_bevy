@@ -322,19 +322,20 @@
 //! | 3 | ×1.35 | 5 s | 16 s |
 //! | 4 | ×1.40 | 6 s | 14 s |
 //!
-//! **C, Command Aura** (passive): every friendly Bim within its radius of
-//! a commander on his feet, himself included — never a sentry — deals
-//! more damage. Two commanders reaching one Bim: the higher factor, never
-//! both. For Weak Spot it is a share like a relic's: the crit adds the
-//! weapon's flat damage times the crit less one, never a share of the
-//! aura.
+//! **C, Medivac** (active, cooldown): he calls a medic of the Republic's
+//! in, on the free deck nearest him within [`REINFORCEMENT_REACH_TILES`]
+//! — a classless crew member with the pistol, for that mission alone, a
+//! reinforcement like the R's (`World::reinforcements`, marked `medic`),
+//! who fights as any bot does and **runs to a player who goes down and
+//! revives him** whatever the fight round the body, in a medic's time.
+//! Those called before stay.
 //!
-//! | rank | damage | radius |
+//! | rank | armour | cooldown |
 //! |---|---|---|
-//! | 1 | ×1.08 | 6 tiles |
-//! | 2 | ×1.12 | 7 tiles |
-//! | 3 | ×1.16 | 8 tiles |
-//! | 4 | ×1.20 | 10 tiles |
+//! | 1 | none | 140 s |
+//! | 2 | a tier-one plate vest | 130 s |
+//! | 3 | a tier-three plate vest | 120 s |
+//! | 4 | tier-three helm, vest and leg guards | 110 s |
 //!
 //! **E, Rally** (active, cooldown): every friendly Bim within
 //! [`RALLY_TILES`] of him when he calls it, himself included, takes less
@@ -367,9 +368,9 @@
 //! at every mission's start and are shortened by the cooldown relics as
 //! every class cooldown is.
 //!
-//! **His aura, his cry and his rally lift every friendly Bim they reach,
-//! a player's own steered Bims included** — the crew's own bots, the
-//! hired hands and the reinforcements alike. See [`crate::commander`].
+//! **His cry and his rally lift every friendly Bim they reach, a
+//! player's own steered Bims included** — the crew's own bots, the hired
+//! hands and the reinforcements alike. See [`crate::commander`].
 //!
 //! Every multiplier is a named constant here; what each rank *does* is
 //! `crate::deploy` and the world's step for the engineer, the room's
@@ -401,8 +402,8 @@ pub enum Class {
     /// The tank: a taunt, plating, a wall the crew shelter behind, and a
     /// Juggernaut.
     Tank = 4,
-    /// The commander: a battle cry, an aura the crew round him hit harder
-    /// in, a rally, reinforcements, and a cheaper hand at the dock.
+    /// The commander: a battle cry, a medic called in, a rally,
+    /// reinforcements, and a cheaper hand at the dock.
     Commander = 5,
 }
 
@@ -489,12 +490,14 @@ pub enum Ability {
     BattleCry,
     /// Call reinforcements in: the commander's ultimate.
     Reinforce,
+    /// Call a medic of the Republic's in: the commander's C.
+    Medivac,
     /// Go on a rampage: the soldier's ultimate (task 124).
     Rampage,
 }
 
 impl Ability {
-    pub const ALL: [Ability; 15] = [
+    pub const ALL: [Ability; 16] = [
         Ability::Deploy,
         Ability::Emp,
         Ability::Sentry,
@@ -510,6 +513,7 @@ impl Ability {
         Ability::Rampage,
         Ability::BattleCry,
         Ability::Reinforce,
+        Ability::Medivac,
     ];
 }
 
@@ -521,7 +525,9 @@ pub fn can(class: Class, ability: Ability) -> bool {
         Ability::Brace | Ability::Throw | Ability::Rampage => class == Class::Soldier,
         Ability::Beam | Ability::NaniteBurst | Ability::Cloak => class == Class::Medic,
         Ability::Bulwark | Ability::Taunt | Ability::Juggernaut => class == Class::Tank,
-        Ability::Rally | Ability::BattleCry | Ability::Reinforce => class == Class::Commander,
+        Ability::Rally | Ability::BattleCry | Ability::Reinforce | Ability::Medivac => {
+            class == Class::Commander
+        }
     }
 }
 
@@ -947,11 +953,21 @@ pub const BATTLE_CRY_SECONDS: [f64; 4] = [3.0, 4.0, 5.0, 6.0];
 /// Seconds of the mission clock from one cry to the next, a rank.
 pub const BATTLE_CRY_COOLDOWN: [f64; 4] = [20.0, 18.0, 16.0, 14.0];
 
-/// **C, Command Aura**: what the damage of a Bim in it is multiplied by,
-/// a rank.
-pub const AURA_DAMAGE: [f32; 4] = [1.08, 1.12, 1.16, 1.20];
-/// How far the aura reaches, in tiles, a rank.
-pub const AURA_TILES: [f32; 4] = [6.0, 7.0, 8.0, 10.0];
+/// **C, Medivac**: seconds of the mission clock from one medic called in
+/// to the next, a rank — ready at every mission's start, shortened by the
+/// cooldown relics as every class cooldown is.
+pub const MEDIVAC_COOLDOWN: [f64; 4] = [140.0, 130.0, 120.0, 110.0];
+/// The tier of the medic's plate vest, a rank: none at the first, tier
+/// one at the second, tier three from the third.
+pub const MEDIVAC_VEST: [Option<bims::combat::Tier>; 4] = [
+    None,
+    Some(bims::combat::Tier::One),
+    Some(bims::combat::Tier::Three),
+    Some(bims::combat::Tier::Three),
+];
+/// The rank from which the medic wears the whole suit: a helm and leg
+/// guards at the vest's tier as well.
+pub const MEDIVAC_FULL_ARMOUR_RANK: u8 = 4;
 
 /// **E, Rally**: how far it reaches when he calls it, in tiles, at every
 /// rank.

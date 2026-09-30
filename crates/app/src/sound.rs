@@ -671,8 +671,8 @@ impl Sounds {
     /// for it, which every window hears — a teammate's taunt as well as
     /// one's own. What the room hears of an ability afterwards (the
     /// grenade's burst, the EMP's) is its cue. The passive ones (Weak
-    /// Spot, Healing Aura, Plated, Command Aura) are never used, and are
-    /// not heard.
+    /// Spot, Healing Aura, Plated) are never used, and are not heard.
+    /// The Medivac borrows the reinforcements' clip, a little quieter.
     pub fn ability(&mut self, commands: &mut Commands, event: world::WorldEvent) {
         use world::WorldEvent as E;
         use world::deploy::DeployKind;
@@ -702,6 +702,7 @@ impl Sounds {
             E::BattleCried { who } => (who, Clip::BattleCry, 0.35),
             E::Rallied { who } => (who, Clip::Rally, 0.3),
             E::Reinforced { who, .. } => (who, Clip::Reinforcements, 0.5),
+            E::Medivac { who, .. } => (who, Clip::Reinforcements, 0.4),
             _ => return,
         };
         if self.admit_in(Kind::Ability, (clip as i32, who as i32)) {

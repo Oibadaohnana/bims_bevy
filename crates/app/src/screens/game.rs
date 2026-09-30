@@ -3793,12 +3793,6 @@ fn frame(
             let Some(at) = on_screen(who) else {
                 continue;
             };
-            // His Command Aura's radius (task 129), once he has a rank of
-            // it.
-            let radius = game.world.aura_radius(who);
-            if radius > 0.0 {
-                theme::aura_ring(&painter, at, radius * t * view.scale);
-            }
             // A Battle Cry called: a short gold ring running out to its
             // reach over its first moments.
             if game.world.is_crying(who) {
@@ -3852,21 +3846,14 @@ fn frame(
                 theme::cloak_ring(&painter, at, view.scale, (left / whole) as f32);
             }
         }
-        // A Bim the aura lifts, and — while a rally runs over it
-        // (feature 86) — the rally's own mark in its place, so a rally
-        // called is told from the aura standing there all along. The
-        // aura and the rally take in the commander himself (task 129).
+        // A Bim a rally runs over (feature 86), the commander himself
+        // included (task 129).
         for who in 0..crew {
-            let rallied = game.world.rally_reaching(who).is_some();
-            if game.world.aura_reaching(who).is_none() && !rallied {
+            if game.world.rally_reaching(who).is_none() {
                 continue;
             }
             if let Some(at) = on_screen(who) {
-                if rallied {
-                    theme::rallied_mark(&painter, at, view.scale);
-                } else {
-                    theme::lifted_mark(&painter, at, view.scale);
-                }
+                theme::rallied_mark(&painter, at, view.scale);
             }
         }
         // And the caller of it (feature 91): two chevrons over his head,
@@ -4611,11 +4598,15 @@ fn ranked_key(
             Some(ability) => engineer_key(world, slot, ability as u8, tile),
             None => (None, None),
         },
-        // The commander's (task 129): Q calls a Battle Cry, E a Rally and
-        // R his reinforcements in; C, his aura, is passive.
+        // The commander's (task 129): Q calls a Battle Cry, C a medic in,
+        // E a Rally and R his reinforcements in.
         (world::Class::Commander, Action::Ability1) => match world.can_battle_cry(slot) {
             Ok(()) => (Some(Order::BattleCry), None),
             Err(why) => (None, Some(crate::names::battle_cry_refused(why))),
+        },
+        (world::Class::Commander, Action::Ability2) => match world.can_medivac(slot) {
+            Ok(()) => (Some(Order::Medivac), None),
+            Err(why) => (None, Some(crate::names::medivac_refused(why))),
         },
         (world::Class::Commander, Action::Ability3) => match world.can_rally(slot) {
             Ok(()) => (Some(Order::Rally), None),
@@ -4798,9 +4789,8 @@ fn ranked_box(world: &world::World, slot: u32, action: Action, keys: &Keys) -> A
             ..Face::of(Some(Glyph::Sentry))
         },
         // The commander's (task 129): two shouts on their cooldowns, lit
-        // while they run; the aura lit while he stands in it; his
-        // reinforcements on their cooldown, counted, those still standing
-        // this mission.
+        // while they run; his medics and his reinforcements on their
+        // cooldowns, counted, those still standing this mission.
         (world::Class::Commander, 0) => Face {
             cooldown: world.battle_cry_cooldown_left(slot),
             cooldown_whole: world.battle_cry_cooldown(slot),
@@ -4808,8 +4798,10 @@ fn ranked_box(world: &world::World, slot: u32, action: Action, keys: &Keys) -> A
             ..Face::of(Some(Glyph::BattleCry))
         },
         (world::Class::Commander, 1) => Face {
-            on: world.aura_reaching(slot).is_some(),
-            ..Face::of(Some(Glyph::CommandAura))
+            cooldown: world.medivac_cooldown_left(slot),
+            cooldown_whole: world.medivac_cooldown(slot),
+            count: Some(world.medivacs_of(slot).len() as u32),
+            ..Face::of(Some(Glyph::Medivac))
         },
         (world::Class::Commander, 2) => Face {
             cooldown: world.rally_cooldown_left(slot),
@@ -5008,14 +5000,12 @@ fn affected_by(world: &world::World, slot: u32, action: Action) -> Vec<u32> {
     match (class, action) {
         // The commander's (task 129): a Battle Cry or a Rally called now
         // reaches everybody on the deck within its tiles of him, himself
-        // included; his aura everybody in its radius; his reinforcements
-        // are the ones he brought.
+        // included; his medics and his reinforcements are the ones he
+        // brought.
         (Class::Commander, Action::Ability1) => {
             world.crew_within(slot, world::class::BATTLE_CRY_TILES)
         }
-        (Class::Commander, Action::Ability2) => (0..world.aboard.crew_count())
-            .filter(|&who| world.in_aura_of(slot, who))
-            .collect(),
+        (Class::Commander, Action::Ability2) => world.medivacs_of(slot),
         (Class::Commander, Action::Ability3) => world.crew_within(slot, world::class::RALLY_TILES),
         (Class::Commander, Action::Ability4) => world.reinforcements_of(slot),
         // The medic's (task 130): a burst set off now heals everybody it
@@ -6038,10 +6028,13 @@ mod class_key_tests {
             ranked_key(&world, 0, Action::Ability3, None, None),
             (Some(Order::Rally), None)
         );
-        // The aura, passive, does nothing when pressed; R wants its rank.
+        // C and R want their ranks.
         assert_eq!(
             ranked_key(&world, 0, Action::Ability2, None, None),
-            (None, None)
+            (
+                None,
+                Some(crate::names::medivac_refused(Refusal::NotLearnt))
+            )
         );
         assert_eq!(
             ranked_key(&world, 0, Action::Ability4, None, None),
@@ -6057,6 +6050,12 @@ mod class_key_tests {
         assert_eq!(
             ranked_key(&world, 0, Action::Ability4, None, None),
             (Some(Order::Reinforce), None)
+        );
+        // And C at its first rank calls the medic.
+        world.set_ranks_for_probe(0, [1, 1, 1, 1]);
+        assert_eq!(
+            ranked_key(&world, 0, Action::Ability2, None, None),
+            (Some(Order::Medivac), None)
         );
         // A classless crew member's Q and E do nothing at all.
         assert_eq!(class_key(&world, 2, true, None, None), (None, None));

@@ -19,13 +19,12 @@
 //!   `Commander::last_reinforcement`'s cooldown), gone from the deck the
 //!   moment it dies and off the crew at the mission's end, alive or not.
 //!
-//! **The aura is not kept.** It is worked out every step from where the
-//! commanders stand (`World::aura_reaching`) and goes to the room
-//! through `bims::combat::Skill` like every other class's numbers, so it
-//! follows him about with no state to keep in step. It is **damage and
-//! nothing else** since task 129.
+//! His C, the **Medivac**, calls one medic of the Republic's in, kept as a
+//! [`Reinforcement`] marked `medic` on the same list, on
+//! `Commander::last_medivac`'s cooldown. (It was a damage aura, the
+//! Command Aura, until the medivac replaced it.)
 //!
-//! **Who each reaches.** The aura, the cry and the rally lift *every
+//! **Who each reaches.** The cry and the rally lift *every
 //! friendly Bim* in range — a player's own steered Bim, the crew's bots,
 //! the hired hands and the reinforcements alike, the commander himself
 //! among them, and never a sentry.
@@ -60,6 +59,11 @@ pub struct Commander {
     /// The next call waits `World::reinforcement_cooldown` from it.
     #[cfg_attr(feature = "serde", serde(default))]
     pub last_reinforcement: Option<f64>,
+    /// The mission minute he last called a medic in (his C, the
+    /// Medivac); `None` until he has this mission. The next call waits
+    /// `World::medivac_cooldown` from it.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub last_medivac: Option<f64>,
 }
 
 impl Commander {
@@ -77,25 +81,10 @@ impl Commander {
     }
 }
 
-/// What a commander's **Command Aura** does to a Bim standing in it: a
-/// factor on its damage, one meaning nothing. Worked out fresh every step
-/// (`World::aura_reaching`) and never kept; two commanders reaching one
-/// Bim hold it by the higher factor.
-#[derive(Clone, Copy, PartialEq, Debug)]
-pub struct Aura {
-    /// What its damage is multiplied by, bolt and blow alike.
-    pub damage: f32,
-}
-
-impl Aura {
-    /// No aura at all.
-    pub const NONE: Aura = Aura { damage: 1.0 };
-}
-
 /// A Bim a commander brought to the mission (task 129, his
-/// Reinforcements): a crew member marked with the commander who brought
-/// it. It fights and is revived like any bot; it earns nothing, costs
-/// nothing, drops nothing and keeps no run going.
+/// Reinforcements, or his Medivac's medic): a crew member marked with
+/// the commander who brought it. It fights and is revived like any bot;
+/// it earns nothing, costs nothing, drops nothing and keeps no run going.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Reinforcement {
@@ -103,4 +92,8 @@ pub struct Reinforcement {
     pub who: u32,
     /// The player slot of the commander who brought it.
     pub by: u32,
+    /// Whether it is the medic his Medivac (C) called in rather than one
+    /// of his R's soldiers: it runs to a player downed and revives him.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub medic: bool,
 }

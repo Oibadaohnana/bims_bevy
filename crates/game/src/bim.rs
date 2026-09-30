@@ -141,6 +141,13 @@ pub struct Bim {
     /// the way the squad's orders are, and so neither saved here nor
     /// hashed.
     pub field_medic: bool,
+    /// Whether this body is a commander's **Medivac medic** (his C): a
+    /// reinforcement of the Republic's who fights as any bot does and
+    /// runs to a player downed to revive him, whatever the fight round the
+    /// body (`Game::medivac_patient`). Set by the world every step
+    /// (`Game::set_medivac`) off `world::Reinforcement::medic`.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub medivac: bool,
     pub trail: Vec<Footprint>,
     pub trail_timer: f32,
     /// Where it was last frame and how long it has been marching without
@@ -287,6 +294,7 @@ impl Bim {
             shots: 0,
             carrying: None,
             field_medic: false,
+            medivac: false,
             trail: Vec::new(),
             trail_timer: 0.0,
             last_pos: at,
