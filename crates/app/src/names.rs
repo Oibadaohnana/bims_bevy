@@ -630,7 +630,7 @@ pub const CLASS_TIPS: [&str; 6] = [
     "Braces to hold a line (E) — steadier shooting and no errands until stood easy — and from the third level throws grenades (Q), two charges of them, each back thirty seconds after it is thrown. Sets out with an auto rifle in hand and the pistol in the pack.",
     "Four ranked abilities, a skill point a level: a Nanite Burst that heals everybody near him at once (Q), a Healing Aura that makes every heal worth more to the crew round him (C), the heal beam on a crewmate or himself (E), and for his ultimate a cloak no enemy can pick (R). Revives a downed crewmate in four seconds where anybody else takes ten, and gets them up at 40% of their bar where anybody else manages 30%.",
     "Four ranked abilities, a skill point a level: a Taunt that makes every enemy near him that can see him shoot at him and nobody else (Q), Plated, less damage from every hit (C), a wall the crew shelter behind (E), and for his ultimate the Juggernaut, every enemy that sees him shooting at him while he shrugs it off (R). His armour drains at half rate, so the same kevlar takes twice as much on him. Sets out with the pistol and a basic helm, kevlar and leg guards on.",
-    "Four ranked abilities, a skill point a level: a Battle Cry that makes everybody near him fire faster (Q), a Command Aura in which every friendly Bim hits harder (C), a Rally that has the crew near him take less damage and move faster (E), and for his ultimate Republic soldiers beside him at every mission's start (R). Hires a mercenary at a quarter off. Sets out with the pistol.",
+    "Four ranked abilities, a skill point a level: a Battle Cry that makes everybody near him fire faster (Q), a Command Aura in which every friendly Bim hits harder (C), a Rally that has the crew near him take less damage and move faster (E), and for his ultimate Republic soldiers called in beside him (R). Hires a mercenary at a quarter off. Sets out with the pistol.",
 ];
 pub fn class_name(class: world::Class) -> &'static str {
     CLASS_NAMES
@@ -717,7 +717,7 @@ pub fn ranked_what(class: world::Class, slot: u8) -> &'static str {
             "Allies around you as you call it take less damage and move faster."
         }
         (world::Class::Commander, 3) => {
-            "Ultimate, passive. Every mission starts with Republic soldiers beside you. They fight like any bot; the fallen are back next mission."
+            "Ultimate. Call Republic soldiers in beside you. They fight like any bot for the rest of the mission; those called before stay. Ready every mission."
         }
         (world::Class::Medic, 0) => NANITE_BURST_WHAT,
         (world::Class::Medic, 1) => {
@@ -911,6 +911,7 @@ pub fn ranked_stats(class: world::Class, slot: u8) -> Vec<Stat> {
                 " tiles",
                 fig(c::REINFORCEMENT_REACH_TILES as f64),
             ),
+            Stat::one("Cooldown", " s", fig(c::REINFORCEMENT_COOLDOWN)),
         ],
         (world::Class::Medic, 0) => vec![
             Stat::ranks("Heal", "", |r| fig(c::NANITE_BURST_HEAL[r] as f64)),
@@ -1032,6 +1033,10 @@ pub fn rank_refused(why: world::Refusal) -> String {
 /// And for a Battle Cry refused (task 129).
 pub fn battle_cry_refused(why: world::Refusal) -> String {
     format!("Cannot call a Battle Cry: {}.", refusal(why))
+}
+/// And for reinforcements refused.
+pub fn reinforce_refused(why: world::Refusal) -> String {
+    format!("Cannot call reinforcements: {}.", refusal(why))
 }
 /// And for a Rampage refused.
 pub fn rampage_refused(why: world::Refusal) -> String {

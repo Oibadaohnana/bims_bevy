@@ -4611,8 +4611,8 @@ fn ranked_key(
             Some(ability) => engineer_key(world, slot, ability as u8, tile),
             None => (None, None),
         },
-        // The commander's (task 129): Q calls a Battle Cry and E a Rally;
-        // C, his aura, and R, his reinforcements, are passive.
+        // The commander's (task 129): Q calls a Battle Cry, E a Rally and
+        // R his reinforcements in; C, his aura, is passive.
         (world::Class::Commander, Action::Ability1) => match world.can_battle_cry(slot) {
             Ok(()) => (Some(Order::BattleCry), None),
             Err(why) => (None, Some(crate::names::battle_cry_refused(why))),
@@ -4620,6 +4620,10 @@ fn ranked_key(
         (world::Class::Commander, Action::Ability3) => match world.can_rally(slot) {
             Ok(()) => (Some(Order::Rally), None),
             Err(why) => (None, Some(rally_refused(why))),
+        },
+        (world::Class::Commander, Action::Ability4) => match world.can_reinforce(slot) {
+            Ok(()) => (Some(Order::Reinforce), None),
+            Err(why) => (None, Some(crate::names::reinforce_refused(why))),
         },
         // The medic's (task 130): Q sets off a Nanite Burst; C, his aura,
         // is passive; E beams the crew member under the pointer — on the
@@ -4795,7 +4799,8 @@ fn ranked_box(world: &world::World, slot: u32, action: Action, keys: &Keys) -> A
         },
         // The commander's (task 129): two shouts on their cooldowns, lit
         // while they run; the aura lit while he stands in it; his
-        // reinforcements counted, those still standing this mission.
+        // reinforcements on their cooldown, counted, those still standing
+        // this mission.
         (world::Class::Commander, 0) => Face {
             cooldown: world.battle_cry_cooldown_left(slot),
             cooldown_whole: world.battle_cry_cooldown(slot),
@@ -4813,6 +4818,8 @@ fn ranked_box(world: &world::World, slot: u32, action: Action, keys: &Keys) -> A
             ..Face::of(Some(Glyph::Rally))
         },
         (world::Class::Commander, 3) => Face {
+            cooldown: world.reinforcement_cooldown_left(slot),
+            cooldown_whole: world.reinforcement_cooldown(slot),
             count: Some(world.reinforcements_of(slot).len() as u32),
             ..Face::of(Some(Glyph::Reinforcements))
         },
@@ -6001,8 +6008,9 @@ mod class_key_tests {
         );
     }
 
-    /// The commander's keys (task 129): Q a Battle Cry and E a Rally,
-    /// each wanting its first rank; a classless crew member's do nothing.
+    /// The commander's keys (task 129): Q a Battle Cry, E a Rally and R
+    /// his reinforcements, each wanting its first rank; a classless crew
+    /// member's do nothing.
     #[test]
     fn the_commanders_keys_are_his_ranked_kit_s() {
         let mut world = simulation_world(flyer(3), REFERENCE_MONEY, 3);
@@ -6030,14 +6038,25 @@ mod class_key_tests {
             ranked_key(&world, 0, Action::Ability3, None, None),
             (Some(Order::Rally), None)
         );
-        // The passive two do nothing when pressed.
+        // The aura, passive, does nothing when pressed; R wants its rank.
         assert_eq!(
             ranked_key(&world, 0, Action::Ability2, None, None),
             (None, None)
         );
         assert_eq!(
             ranked_key(&world, 0, Action::Ability4, None, None),
-            (None, None)
+            (
+                None,
+                Some(crate::names::reinforce_refused(Refusal::NotLearnt))
+            )
+        );
+        // R, the ultimate, is bought from the sixth level.
+        let mut events = Vec::new();
+        world.award(0, world::class::LEVEL_XP[5], &mut events);
+        world.set_ranks_for_probe(0, [1, 0, 1, 1]);
+        assert_eq!(
+            ranked_key(&world, 0, Action::Ability4, None, None),
+            (Some(Order::Reinforce), None)
         );
         // A classless crew member's Q and E do nothing at all.
         assert_eq!(class_key(&world, 2, true, None, None), (None, None));

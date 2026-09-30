@@ -601,6 +601,12 @@ impl World {
                 *last -= minutes;
                 any = true;
             }
+            // His call for reinforcements has nothing that runs: its
+            // cooldown alone.
+            if let Some(last) = commander.last_reinforcement.as_mut() {
+                *last -= minutes;
+                any = true;
+            }
         }
         // The engineer's sentry's cooldown (task 127), never its time.
         if let Some(engineer) = self.engineers.get_mut(who as usize)

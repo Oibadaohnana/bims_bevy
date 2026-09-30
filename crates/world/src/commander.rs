@@ -15,8 +15,9 @@
 //!   was given and one that walks in is given nothing;
 //! * one [`Reinforcement`] a Bim he brought, on `World::reinforcements`:
 //!   a crew member marked with the commander who brought it, **for one
-//!   mission** — laid at its start, gone from the deck the moment it dies
-//!   and off the crew at its end, alive or not.
+//!   mission** — called in with his R (`Command::Reinforce`, on
+//!   `Commander::last_reinforcement`'s cooldown), gone from the deck the
+//!   moment it dies and off the crew at the mission's end, alive or not.
 //!
 //! **The aura is not kept.** It is worked out every step from where the
 //! commanders stand (`World::aura_reaching`) and goes to the room
@@ -54,6 +55,11 @@ pub struct Commander {
     /// Whom the last Battle Cry reached, by crew index, lowest first.
     #[cfg_attr(feature = "serde", serde(default))]
     pub cried: Vec<u32>,
+    /// The mission minute he last called reinforcements in (his R); `None`
+    /// until he has this mission — every mission starts with it ready.
+    /// The next call waits `World::reinforcement_cooldown` from it.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub last_reinforcement: Option<f64>,
 }
 
 impl Commander {

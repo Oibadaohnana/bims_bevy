@@ -721,9 +721,8 @@ impl World {
         for order in &mut self.standing {
             *order = Standing::Follow;
         }
-        // And every commander's Reinforcements beside him (task 129),
-        // fresh for this mission alone.
-        self.bring_reinforcements(events);
+        // A commander's Reinforcements are his to call in (his R, on its
+        // cooldown, which `make_whole` just made ready).
         // And held for the ready check, if there is a fight here.
         self.open_briefing();
     }

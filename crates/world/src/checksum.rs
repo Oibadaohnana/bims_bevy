@@ -523,6 +523,14 @@ pub fn world_checksum(world: &World) -> u64 {
             hash.eat(c as u64);
         }
     }
+    // When each commander last called reinforcements in, only where one
+    // has this mission.
+    for (who, commander) in world.commanders.iter().enumerate() {
+        if let Some(minutes) = commander.last_reinforcement {
+            hash.eat(who as u64);
+            hash.eat_rounded(minutes, FINE_GRID);
+        }
+    }
     if !world.reinforcements.is_empty() {
         hash.eat(world.reinforcements.len() as u64);
         for r in &world.reinforcements {

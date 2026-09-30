@@ -6464,3 +6464,24 @@ saved, not hashed), which `droid_wave_size` asks before taking
 `first_mission_ease` off — the Heart being that run's first mission.
 `tests_heart::the_end_command_s_waves_are_day_sixty_s_and_not_eased`.
 **`SAVE_VERSION` 69, `wire::PROTOCOL` 71.**
+
+## The commander's Reinforcements are pressed (no task number)
+
+> "The commander's ranked kit (task 129)" above says R brings his Bims
+> at every mission's start; that is **gone**.
+
+R is `Command::Reinforce { slot }` (`class::Ability::Reinforce`):
+`World::can_reinforce` refuses `NotACommander`, `OutOfReach` (not in a
+mission, not fit to act, downed), `NotLearnt`, `CoolingDown` within
+`World::reinforcement_cooldown` — `class::REINFORCEMENT_COOLDOWN` (140 s
+of the mission clock) at every rank, times the cooldown relics — and
+`CantDeployThere` with no free deck round him. A call (`reinforce` →
+`bring_reinforcements_of`) stands the rank's `REINFORCEMENTS` beside him
+as before and notes `Commander::last_reinforcement` (saved; hashed only
+where set, so no pin moved); those called before stay, each still for
+the mission alone. `make_whole` makes it ready at every mission's start,
+*Kill Relay* moves its start back. `reinforce_for_probe` is every
+commander's call with no cooldown asked, for the tests. The app's R box
+shows the cooldown and the count standing. `SAVE_VERSION` 73,
+`wire::PROTOCOL` 75. `reinforcements_are_on_a_hundred_and_forty_second_cooldown`
+and `reinforcements_are_called_in_with_r_by_rank` are the rule.

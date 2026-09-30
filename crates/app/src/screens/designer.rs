@@ -203,6 +203,8 @@ pub enum Order {
     /// The commander's Battle Cry — `Command::BattleCry`, the Q key (task
     /// 129).
     BattleCry,
+    /// The commander's Reinforcements — `Command::Reinforce`, the R key.
+    Reinforce,
     /// Every player's own standing order to the bots that follow them —
     /// `Command::Orders`, the F and T keys (feature 84).
     Orders(world::Standing),
@@ -491,6 +493,7 @@ impl Net {
                         Order::Juggernaut => Command::Juggernaut { slot },
                         Order::Rally => Command::Rally { slot },
                         Order::BattleCry => Command::BattleCry { slot },
+                        Order::Reinforce => Command::Reinforce { slot },
                         Order::Orders(order) => Command::Orders { slot, order },
                         Order::Carry(who) => Command::Carry { slot, who },
                         Order::Propose { star, station } => Command::Propose {

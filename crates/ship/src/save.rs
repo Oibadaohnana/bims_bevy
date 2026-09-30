@@ -197,7 +197,11 @@ use crate::game::Game;
 /// 70: `HeartFight::links_down`, the conduits answered with a wave.
 /// 71: a Guardian's plate breaks (`Droid::plate_taken`, `plate_age`) and
 /// what shields stopped waits for the world (`Combat::plate_hits`).
-pub const SAVE_VERSION: u32 = 71;
+/// 72: `Bim::under_fire`, how long since an enemy hit a body — a bot
+/// under fire fights and takes up no revive.
+/// 73: `Commander::last_reinforcement`, the commander's R called in on
+/// its cooldown.
+pub const SAVE_VERSION: u32 = 73;
 
 /// What the file holds, read back.
 #[derive(serde::Deserialize)]

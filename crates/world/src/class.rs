@@ -348,11 +348,13 @@
 //! | 3 | ×0.75 | ×1.20 | 8 s | 35 s |
 //! | 4 | ×0.70 | ×1.20 | 9 s | 30 s |
 //!
-//! **R, Reinforcements** (passive ultimate): at every mission's start he
-//! brings Bims of the Republic's with him, on free deck next to him within
+//! **R, Reinforcements** (the ultimate, pressed): he calls Bims of the
+//! Republic's in, on free deck next to him within
 //! [`REINFORCEMENT_REACH_TILES`] — fewer where the tiles are short — each
 //! a classless crew member with the rank's auto rifle and nothing to wear,
-//! for that mission alone (`World::reinforcements`):
+//! for that mission alone (`World::reinforcements`), as often as
+//! [`REINFORCEMENT_COOLDOWN`] (140 s at every rank) lets him — those already
+//! called stay:
 //!
 //! | rank | Bims | weapon |
 //! |---|---|---|
@@ -485,12 +487,14 @@ pub enum Ability {
     Rally,
     /// Call a battle cry: the commander's (task 129).
     BattleCry,
+    /// Call reinforcements in: the commander's ultimate.
+    Reinforce,
     /// Go on a rampage: the soldier's ultimate (task 124).
     Rampage,
 }
 
 impl Ability {
-    pub const ALL: [Ability; 14] = [
+    pub const ALL: [Ability; 15] = [
         Ability::Deploy,
         Ability::Emp,
         Ability::Sentry,
@@ -505,6 +509,7 @@ impl Ability {
         Ability::Rally,
         Ability::Rampage,
         Ability::BattleCry,
+        Ability::Reinforce,
     ];
 }
 
@@ -516,7 +521,7 @@ pub fn can(class: Class, ability: Ability) -> bool {
         Ability::Brace | Ability::Throw | Ability::Rampage => class == Class::Soldier,
         Ability::Beam | Ability::NaniteBurst | Ability::Cloak => class == Class::Medic,
         Ability::Bulwark | Ability::Taunt | Ability::Juggernaut => class == Class::Tank,
-        Ability::Rally | Ability::BattleCry => class == Class::Commander,
+        Ability::Rally | Ability::BattleCry | Ability::Reinforce => class == Class::Commander,
     }
 }
 
@@ -960,8 +965,7 @@ pub const RALLY_SECONDS: [f64; 4] = [6.0, 7.0, 8.0, 9.0];
 /// Seconds of the mission clock from one rally to the next, a rank.
 pub const RALLY_COOLDOWN: [f64; 4] = [45.0, 40.0, 35.0, 30.0];
 
-/// **R, Reinforcements**: how many Bims he brings at a mission's start, a
-/// rank.
+/// **R, Reinforcements**: how many Bims one call brings in, a rank.
 pub const REINFORCEMENTS: [u32; 4] = [2, 3, 3, 4];
 /// The tier of the auto rifle each carries, a rank.
 pub const REINFORCEMENT_TIER: [bims::combat::Tier; 4] = [
@@ -973,6 +977,10 @@ pub const REINFORCEMENT_TIER: [bims::combat::Tier; 4] = [
 /// How far from him, in tiles, a free tile of deck is looked for to stand
 /// one on: fewer arrive where fewer are found.
 pub const REINFORCEMENT_REACH_TILES: f32 = 5.0;
+/// Seconds of the mission clock from one call for reinforcements to the
+/// next, at every rank: ready at every mission's start, shortened by the
+/// cooldown relics as every class cooldown is.
+pub const REINFORCEMENT_COOLDOWN: f64 = 140.0;
 
 /// The level `xp` makes: one to sixteen on [`LEVEL_XP`], whatever the
 /// class.

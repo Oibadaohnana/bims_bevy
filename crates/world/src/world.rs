@@ -423,6 +423,18 @@ pub enum Command {
     BattleCry {
         slot: u32,
     },
+    /// That player's own commander **calls reinforcements in** (his R):
+    /// [`class::REINFORCEMENTS`] of his rank, each a classless Bim with
+    /// the rank's auto rifle, on the free deck nearest him within
+    /// [`class::REINFORCEMENT_REACH_TILES`], for the rest of the mission;
+    /// those called before stay. Refused `NotACommander`, `OutOfReach`
+    /// (not fit to act, downed among it), `NotLearnt` at rank nought,
+    /// `CoolingDown` within [`class::REINFORCEMENT_COOLDOWN`] of the last
+    /// call and `CantDeployThere` with no free deck round him
+    /// (`World::can_reinforce`).
+    Reinforce {
+        slot: u32,
+    },
     /// That player's **standing order** to the bots that follow them
     /// (feature 84, `crate::orders`): fight their way to a tile of the
     /// crew's room and hold it, fall back to the ship, or go back to
@@ -1606,6 +1618,7 @@ impl World {
             | Command::Juggernaut { slot }
             | Command::Rally { slot }
             | Command::BattleCry { slot }
+            | Command::Reinforce { slot }
             | Command::Carry { slot, .. }
             | Command::Orders { slot, .. }
             | Command::Propose { slot, .. }
@@ -1718,6 +1731,7 @@ impl World {
                 | Command::Juggernaut { .. }
                 | Command::Rally { .. }
                 | Command::BattleCry { .. }
+                | Command::Reinforce { .. }
         );
         if class_ability && self.is_cloaked(slot) {
             events.push(refused(slot, Refusal::Cloaked));
@@ -1853,6 +1867,11 @@ impl World {
                 Ok(()) => events.push(WorldEvent::BattleCried { who: slot }),
                 Err(why) => events.push(refused(slot, why)),
             },
+            Command::Reinforce { .. } => {
+                if let Err(why) = self.reinforce(slot, events) {
+                    events.push(refused(slot, why));
+                }
+            }
             Command::Orders { order, .. } => match self.give_orders(slot, order) {
                 Ok(kind) => events.push(WorldEvent::Ordered { who: slot, kind }),
                 Err(why) => events.push(refused(slot, why)),
@@ -1877,6 +1896,7 @@ impl World {
                 | Command::Juggernaut { .. }
                 | Command::Rally { .. }
                 | Command::BattleCry { .. }
+                | Command::Reinforce { .. }
         );
         let turned_down = events[before..]
             .iter()
@@ -10536,8 +10556,8 @@ impl World {
     // --- the commander's Reinforcements (task 129) --------------------------
     //
     // A reinforcement is a crew member marked with the commander who
-    // brought it, for one mission: laid on free deck beside him at its
-    // start (`bring_reinforcements`), gone from the deck the moment it
+    // brought it, for one mission: laid on free deck beside him when he
+    // calls them in (`reinforce`, his R), gone from the deck the moment it
     // dies (`settle_reinforcements`, the room's `vanish` — its index kept,
     // so nobody else's shifts in the middle of a fight) and off the crew
     // at its end, alive or not (`send_reinforcements_home`). It is a bot
@@ -10569,7 +10589,7 @@ impl World {
             .collect()
     }
 
-    /// How many Bims a commander brings to a mission's start at his rank
+    /// How many Bims one call brings in at his rank
     /// ([`class::REINFORCEMENTS`]); nought before the first, and for
     /// anybody but a commander.
     pub fn reinforcements_due(&self, commander: u32) -> u32 {
@@ -10583,58 +10603,107 @@ impl World {
         .unwrap_or(0)
     }
 
-    /// A mission's start: every commander with a rank of Reinforcements —
-    /// each player's in slot order — brings his, onto the free deck
-    /// nearest him within [`class::REINFORCEMENT_REACH_TILES`], as many as
-    /// his rank gives and as the tiles found allow. Each is a classless
-    /// Bim in the crew's coverall with the rank's auto rifle and nothing
-    /// to wear, its face rolled off the galaxy's seed and the mission
-    /// rather than the room's stream. Every classed crew member is asked,
-    /// which is every player in a run.
-    fn bring_reinforcements(&mut self, events: &mut Vec<WorldEvent>) {
+    /// Seconds of the mission clock from one call for reinforcements to
+    /// the next: [`class::REINFORCEMENT_COOLDOWN`] at every rank, times
+    /// the cooldown relics.
+    pub fn reinforcement_cooldown(&self, who: u32) -> f64 {
+        class::REINFORCEMENT_COOLDOWN * self.relic_factor(who, crate::relic::Stat::Cooldowns)
+    }
+
+    /// Seconds of the mission clock until he may call reinforcements in
+    /// again; nought when he may.
+    pub fn reinforcement_cooldown_left(&self, who: u32) -> f64 {
+        let Some(called) = self.commander_of(who).last_reinforcement else {
+            return 0.0;
+        };
+        let since = (self.mission_minutes() - called) / time::MINUTES_PER_SECOND;
+        (self.reinforcement_cooldown(who) - since).max(0.0)
+    }
+
+    /// Where a call would stand them: the free deck nearest him within
+    /// [`class::REINFORCEMENT_REACH_TILES`], as many as his rank brings —
+    /// fewer where the tiles are short.
+    fn reinforcement_spots(&self, slot: u32) -> Vec<bims::math::Vec2> {
         let t = shipdesign::TILE as f32;
-        let mut brought = false;
-        for slot in 0..self.classes.len() as u32 {
-            if slot >= self.aboard.crew_count() || !self.aboard.room.is_alive(slot as usize) {
-                continue;
-            }
-            let due = self.reinforcements_due(slot);
-            if due == 0 {
-                continue;
-            }
-            let rank = self.rank_of(slot, class::SLOT_R);
-            let tier = class::by_rank(class::REINFORCEMENT_TIER, rank).unwrap_or(Tier::One);
-            let at = self.aboard.room.bim_pos(slot as usize);
-            let spots = self
-                .aboard
-                .room
-                .free_tiles_near(at, class::REINFORCEMENT_REACH_TILES * t);
-            let mut count = 0u32;
-            for spot in spots.into_iter().take(due as usize) {
-                let seed = self.galaxy_seed
-                    ^ REINFORCEMENT_SALT
-                    ^ (u64::from(self.run.missions) << 24)
-                    ^ (u64::from(slot) << 8)
-                    ^ u64::from(count);
-                let gear = bims::combat::Gear {
-                    weapon: Some(bims::combat::WeaponKind::AutoRifle.at(tier)),
-                    ..bims::combat::Gear::default()
-                };
-                let who = self.aboard.room.enlist_reinforcement(spot, gear, seed) as u32;
-                self.crew_down.push(false);
-                self.crew_locked.push(false);
-                self.reinforcements
-                    .push(crate::commander::Reinforcement { who, by: slot });
-                count += 1;
-            }
-            if count > 0 {
-                brought = true;
-                events.push(WorldEvent::Reinforced { who: slot, count });
-            }
+        let at = self.aboard.room.bim_pos(slot as usize);
+        let due = self.reinforcements_due(slot) as usize;
+        let mut spots = self
+            .aboard
+            .room
+            .free_tiles_near(at, class::REINFORCEMENT_REACH_TILES * t);
+        spots.truncate(due);
+        spots
+    }
+
+    /// Whether a player's commander may call reinforcements in, or why
+    /// not, in order: a commander (`NotACommander`), in a mission and fit
+    /// to act — downed among it — (`OutOfReach`), a rank of
+    /// Reinforcements (`NotLearnt`), out of the cooldown (`CoolingDown`)
+    /// and a free tile of deck round him (`CantDeployThere`).
+    pub fn can_reinforce(&self, slot: u32) -> Result<(), Refusal> {
+        if !class::can(self.class_of(slot), class::Ability::Reinforce) {
+            return Err(Refusal::NotACommander);
         }
-        if !brought {
+        if !self.in_mission()
+            || slot >= self.aboard.crew_count()
+            || !self.fit_to_act(slot)
+            || self.aboard.room.is_down(slot as usize)
+        {
+            return Err(Refusal::OutOfReach);
+        }
+        if self.rank_of(slot, class::SLOT_R) == 0 {
+            return Err(Refusal::NotLearnt);
+        }
+        if self.reinforcement_cooldown_left(slot) > 0.0 {
+            return Err(Refusal::CoolingDown);
+        }
+        if self.reinforcement_spots(slot).is_empty() {
+            return Err(Refusal::CantDeployThere);
+        }
+        Ok(())
+    }
+
+    /// The call — see [`Command::Reinforce`]: the Bims brought beside him
+    /// and the mission clock noted for the cooldown.
+    fn reinforce(&mut self, slot: u32, events: &mut Vec<WorldEvent>) -> Result<(), Refusal> {
+        self.can_reinforce(slot)?;
+        let now = self.mission_minutes();
+        self.bring_reinforcements_of(slot, events);
+        self.commander_mut(slot as usize).last_reinforcement = Some(now);
+        Ok(())
+    }
+
+    /// Stand a commander's reinforcements on the free deck nearest him
+    /// (`reinforcement_spots`). Each is a classless Bim in the crew's
+    /// coverall with the rank's auto rifle and nothing to wear, its face
+    /// rolled off the galaxy's seed, the mission and how many have been
+    /// called in so far rather than the room's stream.
+    fn bring_reinforcements_of(&mut self, slot: u32, events: &mut Vec<WorldEvent>) {
+        let rank = self.rank_of(slot, class::SLOT_R);
+        let tier = class::by_rank(class::REINFORCEMENT_TIER, rank).unwrap_or(Tier::One);
+        let mut count = 0u32;
+        for spot in self.reinforcement_spots(slot) {
+            let seed = self.galaxy_seed
+                ^ REINFORCEMENT_SALT
+                ^ (u64::from(self.run.missions) << 24)
+                ^ ((self.reinforcements.len() as u64) << 12)
+                ^ (u64::from(slot) << 8)
+                ^ u64::from(count);
+            let gear = bims::combat::Gear {
+                weapon: Some(bims::combat::WeaponKind::AutoRifle.at(tier)),
+                ..bims::combat::Gear::default()
+            };
+            let who = self.aboard.room.enlist_reinforcement(spot, gear, seed) as u32;
+            self.crew_down.push(false);
+            self.crew_locked.push(false);
+            self.reinforcements
+                .push(crate::commander::Reinforcement { who, by: slot });
+            count += 1;
+        }
+        if count == 0 {
             return;
         }
+        events.push(WorldEvent::Reinforced { who: slot, count });
         let crew = self.aboard.room.crew_count();
         self.aboard.crew = crew;
         self.ship.crew_count = crew;
@@ -10644,14 +10713,15 @@ impl World {
         self.on_ship_changed();
     }
 
-    /// A probe's way to the Reinforcements of a mission already under way
-    /// (`BIMS_RANKS` sets the ranks after the probe's mission began):
-    /// every commander brings his as a mission's start would, unless he
-    /// has some already.
+    /// A probe's way to Reinforcements with no key pressed and no
+    /// cooldown asked: every living commander with a rank calls his in
+    /// now.
     pub fn reinforce_for_probe(&mut self) -> Vec<WorldEvent> {
         let mut events = Vec::new();
-        if self.reinforcements.is_empty() {
-            self.bring_reinforcements(&mut events);
+        for slot in 0..self.classes.len() as u32 {
+            if slot < self.aboard.crew_count() && self.aboard.room.is_alive(slot as usize) {
+                self.bring_reinforcements_of(slot, &mut events);
+            }
         }
         events
     }

@@ -683,16 +683,18 @@ fn reinforced(events: &[WorldEvent]) -> Vec<(u32, u32)> {
 }
 
 #[test]
-fn reinforcements_arrive_at_the_next_mission_s_start_by_rank() {
+fn reinforcements_are_called_in_with_r_by_rank() {
     let tiers = [Tier::One, Tier::One, Tier::Two, Tier::Three];
     for (rank, (&count, &tier)) in (1..=4u8).zip(class::REINFORCEMENTS.iter().zip(&tiers)) {
         let mut world = commander();
         ranks(&mut world, 0, [0, 0, 0, rank]);
-        // A rank bought during a mission waits for the next one.
+        // Nobody comes of their own accord, now or at a mission's start.
         world.step(&[]);
         assert!(world.reinforcements_of(0).is_empty(), "rank {rank}");
+        next_mission(&mut world);
+        assert!(world.reinforcements_of(0).is_empty(), "rank {rank}");
         let crew = world.aboard.crew_count();
-        let events = next_mission(&mut world);
+        let events = world.step(&[Command::Reinforce { slot: 0 }]);
         assert_eq!(reinforced(&events), vec![(0, count)], "rank {rank}");
         let brought = world.reinforcements_of(0);
         assert_eq!(brought.len() as u32, count, "rank {rank}");
@@ -713,6 +715,49 @@ fn reinforcements_arrive_at_the_next_mission_s_start_by_rank() {
             assert!(far <= class::REINFORCEMENT_REACH_TILES + 0.5, "{far}");
         }
     }
+}
+
+/// R is pressed as often as its 140 seconds allow, those called before
+/// stay, and it is ready again at every mission's start.
+#[test]
+fn reinforcements_are_on_a_hundred_and_forty_second_cooldown() {
+    let mut world = commander();
+    // Not learnt: refused.
+    let events = world.step(&[Command::Reinforce { slot: 0 }]);
+    assert!(refused_with(&events, Refusal::NotLearnt), "{events:?}");
+    ranks(&mut world, 0, [0, 0, 0, 1]);
+    let events = world.step(&[Command::Reinforce { slot: 0 }]);
+    assert_eq!(reinforced(&events), vec![(0, 2)]);
+    assert_eq!(
+        world.reinforcement_cooldown(0),
+        class::REINFORCEMENT_COOLDOWN
+    );
+    assert!(world.reinforcement_cooldown_left(0) > 139.0);
+    // Not a second time within the cooldown.
+    run_for(&mut world, 60.0);
+    let events = world.step(&[Command::Reinforce { slot: 0 }]);
+    assert!(refused_with(&events, Refusal::CoolingDown), "{events:?}");
+    assert_eq!(world.reinforcements_of(0).len(), 2);
+    // Past it: two more, and the first two still there.
+    run_for(&mut world, 81.0);
+    assert_eq!(world.reinforcement_cooldown_left(0), 0.0);
+    let events = world.step(&[Command::Reinforce { slot: 0 }]);
+    assert_eq!(reinforced(&events), vec![(0, 2)], "{events:?}");
+    assert_eq!(world.reinforcements_of(0).len(), 4);
+    // A mission's start: they are gone, and R is ready again.
+    next_mission(&mut world);
+    assert!(world.reinforcements_of(0).is_empty());
+    assert_eq!(world.reinforcement_cooldown_left(0), 0.0);
+    let events = world.step(&[Command::Reinforce { slot: 0 }]);
+    assert_eq!(reinforced(&events), vec![(0, 2)]);
+    // Not between missions.
+    world.leave_for_probe();
+    assert_eq!(world.can_reinforce(0), Err(Refusal::OutOfReach));
+    let events = world.step(&[Command::Reinforce { slot: 0 }]);
+    assert!(
+        refused_with(&events, Refusal::BetweenMissions),
+        "{events:?}"
+    );
 }
 
 #[test]
@@ -789,6 +834,7 @@ fn a_dead_reinforcement_is_gone_at_once_and_all_go_at_the_mission_s_end() {
     let mut world = commander();
     ranks(&mut world, 0, [0, 0, 0, 4]);
     next_mission(&mut world);
+    world.step(&[Command::Reinforce { slot: 0 }]);
     let brought = world.reinforcements_of(0);
     assert_eq!(brought.len(), 4);
     let crew = world.aboard.crew_count();
@@ -822,8 +868,11 @@ fn a_dead_reinforcement_is_gone_at_once_and_all_go_at_the_mission_s_end() {
     assert!(world.reinforcements.is_empty());
     assert_eq!(world.holdings.armory.len(), armory, "nothing dropped");
     assert_eq!(world.money, money, "nothing paid");
-    // And the next mission they are back, fresh, all four.
+    // And the next mission they come again, fresh, all four, when he
+    // calls them.
     next_mission(&mut world);
+    assert!(world.reinforcements_of(0).is_empty());
+    world.step(&[Command::Reinforce { slot: 0 }]);
     let again = world.reinforcements_of(0);
     assert_eq!(again.len(), 4);
     for &who in &again {
