@@ -2656,11 +2656,25 @@ impl Game {
         } else {
             0.0
         };
+        let aim = (!stats.melee)
+            .then(|| Combat::aim_among(&targets, &self.room.sight, from, stats))
+            .flatten();
+        // A Trooper fights from its own eye alone, never a peek, so only
+        // that is a shot to it; and it weighs its stands by what it could
+        // shoot from there (`own_eye`, `Tactics::stand_scored`).
+        let trooper = self.droids[i].kind == crate::droid::DroidKind::Trooper;
+        let trooper_shot = trooper
+            .then_some(aim)
+            .flatten()
+            .filter(|&(_, eye, _)| eye == from)
+            .map(|(_, _, at)| at);
         // A Guardian weighs no tile of distance for its own sake: the
         // Sweeper's worth falling off past its sweet range
         // (`balance::SWEEPER`) is what places it, so it walks in to that
-        // range rather than standing off at the beam's full reach.
-        let distance_worth = if self.droids[i].is_guardian() {
+        // range rather than standing off at the beam's full reach. Nor
+        // does a Trooper with a shot: the far end of its reach is where
+        // it goes looking for one, not where it runs to from one.
+        let distance_worth = if self.droids[i].is_guardian() || trooper_shot.is_some() {
             0.0
         } else {
             crate::combat::DISTANCE_WORTH
@@ -2676,6 +2690,7 @@ impl Game {
             closing,
             cover_worth,
             distance_worth,
+            trooper,
         ) else {
             return;
         };
@@ -2684,9 +2699,19 @@ impl Game {
         // it stops where it is and shoots — except a Trooper, which
         // advances in the open and fires as it walks.
         let advances = !self.droids[i].kind.takes_cover();
-        let has_a_shot =
-            !stats.melee && Combat::aim_among(&targets, &self.room.sight, from, stats).is_some();
-        if has_a_shot && !stand.cover && !advances {
+        if aim.is_some() && !stand.cover && !advances {
+            if self.droids[i].is_walking() {
+                self.droids[i].halt();
+            }
+            return;
+        }
+        // A Trooper with a shot holds or closes: a stand farther from
+        // what it is shooting at than it is now is ground given, and it
+        // stays and shoots instead (the user's report: Troopers ran off
+        // to the end of their reach rather than fire).
+        if let Some(at) = trooper_shot
+            && (to - at).len() > (from - at).len()
+        {
             if self.droids[i].is_walking() {
                 self.droids[i].halt();
             }
@@ -9928,6 +9953,42 @@ mod tests {
             "walked at the shooter: {pos:?}"
         );
         assert!(shots > 0, "and shot at it once it saw it");
+    }
+
+    /// A Trooper with a shot holds or closes and shoots: it does not walk
+    /// off to the far end of its reach, however the weapons fit (the
+    /// user's report: Troopers ran away rather than fire). And it takes
+    /// no stand it could not shoot from — twelve tiles off in the dark
+    /// is nobody to it.
+    #[test]
+    fn a_trooper_with_a_shot_holds_or_closes_and_shoots() {
+        let start = tile_middle(9.0, 9.0);
+        let target = tile_middle(5.0, 9.0);
+        for weapon in [
+            WeaponKind::Shotgun,
+            WeaponKind::LaserPistol,
+            WeaponKind::AutoRifle,
+        ] {
+            let held = weapon.basic();
+            let mut game = dark_box_with_a_trooper(start);
+            assert!(game.room.sight.sees_from(start, target).is_some());
+            let away = (start - target).len();
+            let mut farthest = away;
+            let mut shots = 0;
+            for _ in 0..(60 * 10) {
+                game.set_hostiles(vec![Some((target, held))]);
+                game.simulate(DT);
+                shots += game.take_shots().len();
+                farthest = farthest.max((game.droids()[0].pos - target).len());
+            }
+            assert!(
+                farthest <= away + 0.25 * TILE,
+                "{weapon:?}: gave ground to {} tiles from {}",
+                farthest / TILE,
+                away / TILE
+            );
+            assert!(shots > 0, "{weapon:?}: it shot");
+        }
     }
 
     /// A machine that lost sight of its quarry and searched the spot it

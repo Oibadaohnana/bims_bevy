@@ -814,6 +814,15 @@ impl Sight {
         self.inside(x, y) && self.lit[self.index(x, y)]
     }
 
+    /// Whether an eye at `from` could make out a body at `at` at all —
+    /// [`Sight::in_the_light`] for a point, the line not asked about.
+    /// What a Trooper's stand is weighed by: a spot it would not see its
+    /// target from in the dark is no spot to shoot from.
+    pub fn makes_out(&self, from: Vec2, at: Vec2) -> bool {
+        let tile = self.tile_of(at);
+        self.inside(tile.0, tile.1) && self.in_the_light(from, tile)
+    }
+
     /// Whether an eye at `from` can make the tile out at all: lit, or
     /// within [`DARK_RANGE`] of the eye. The dark rule, on top of the
     /// line being clear.

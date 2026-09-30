@@ -245,6 +245,7 @@ impl Game {
             closing,
             COVER_WORTH,
             DISTANCE_WORTH,
+            false,
         ) else {
             return;
         };
