@@ -2419,6 +2419,20 @@ pub const VIEW_POWER_HINT: &str =
 
 /// The world map's column.
 pub const MAP_CLOSE: &str = "Close";
+/// The column pops out from the right edge and is retracted to begin
+/// with, leaving the width to the charts: the tab that brings it out,
+/// and the one on its head that puts it away.
+pub const MAP_COLUMN_OPEN: &str = "« Destinations";
+pub const MAP_COLUMN_OPEN_TIP: &str = "The day, the pool, every place a trip can go with its quote, and the card for the place looked at.";
+pub const MAP_COLUMN_SHUT: &str = "»";
+pub const MAP_COLUMN_SHUT_TIP: &str = "Put the column away: more room for the charts.";
+/// The Trader panel shut to look at the map, and the button that
+/// brings it back.
+pub const TRADER_SHUT: &str = "×";
+pub const TRADER_SHUT_TIP: &str =
+    "Put the purchase order away to look at the map. The Trader button brings it back.";
+pub const TRADER_REOPEN: &str = "Trader";
+pub const TRADER_REOPEN_TIP: &str = "Bring back the trader's purchase order.";
 pub const MAP_DAY: &str = "Day";
 pub const MAP_POOL: &str = "Pool";
 pub const MAP_PICK_HINT: &str =

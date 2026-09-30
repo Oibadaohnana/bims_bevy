@@ -64,6 +64,9 @@ pub struct WorldMap {
     /// The list sorted by how long each trip is rather than grouped by
     /// system (task 135): the viewer's choice, kept while the map is.
     pub by_distance: bool,
+    /// The column popped out from the right edge; retracted to begin
+    /// with, so the charts have the width.
+    pub column_open: bool,
 }
 
 /// Everything a quote reads that changes in a run: the star, the day,
@@ -81,6 +84,12 @@ struct Key {
 }
 
 impl WorldMap {
+    /// How much of the canvas's right the column takes: nought while it
+    /// is retracted, when only its tab lies over the system view.
+    pub fn column_w(&self) -> f32 {
+        if self.column_open { COLUMN_W } else { 0.0 }
+    }
+
     /// The list again, if anything it depends on has moved.
     pub fn refresh(&mut self, world: &World) {
         let key = Key {
@@ -312,6 +321,34 @@ pub fn map_column(
     // Hovered is this frame's: the rows below and the chart under the
     // pointer set it afresh.
     let hovered_before = map.hovered.take();
+    // Retracted: only its tab on the right edge, the way out and the
+    // trader's beside it.
+    if !map.column_open {
+        egui::Area::new(egui::Id::new("hud-map-tab"))
+            .fixed_pos(egui::pos2(
+                canvas.max.x - crate::screens::hud::MARGIN,
+                canvas.min.y + crate::screens::hud::MARGIN,
+            ))
+            .pivot(egui::Align2::RIGHT_TOP)
+            .order(egui::Order::Middle)
+            .show(ctx, |ui| {
+                theme::tray_frame().show(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        if !between && ui.button(MAP_CLOSE).clicked() {
+                            ask.close = true;
+                        }
+                        trader_reopen(ui, world);
+                        let tab = egui::Button::new(
+                            egui::RichText::new(MAP_COLUMN_OPEN).strong().size(15.0),
+                        );
+                        if ui.add(tab).on_hover_text(MAP_COLUMN_OPEN_TIP).clicked() {
+                            map.column_open = true;
+                        }
+                    });
+                });
+            });
+        return ask;
+    }
     let height = canvas.height() - 2.0 * crate::screens::hud::MARGIN;
     egui::Area::new(egui::Id::new("hud-map-column"))
         .fixed_pos(egui::pos2(
@@ -329,9 +366,17 @@ pub fn map_column(
                     ui.label(egui::RichText::new(MAP_TITLE).strong().size(17.0));
                     theme::question_mark(ui, MAP_TIP);
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if ui
+                            .button(egui::RichText::new(MAP_COLUMN_SHUT).strong())
+                            .on_hover_text(MAP_COLUMN_SHUT_TIP)
+                            .clicked()
+                        {
+                            map.column_open = false;
+                        }
                         if !between && ui.button(MAP_CLOSE).clicked() {
                             ask.close = true;
                         }
+                        trader_reopen(ui, world);
                     });
                 });
                 ui.label(
@@ -1166,6 +1211,9 @@ pub fn trader_window(
     let Some(trader) = world.trader_here() else {
         return;
     };
+    if trader_shut(ctx, trader) {
+        return;
+    }
     // Whom a purchase is for, kept between frames: a crew index, or the
     // armory as `u32::MAX`. The player's own Bim to begin with.
     let id = egui::Id::new("trader-for");
@@ -1185,7 +1233,10 @@ pub fn trader_window(
         .frame(form_frame())
         .show(ctx, |ui| {
             ui.set_width(FORM_WIDTH);
-            form_header(ui, world, trader);
+            if form_header(ui, world, trader) {
+                let at = (trader.site.star, trader.site.station);
+                ui.ctx().data_mut(|d| d.insert_temp(trader_shut_id(), at));
+            }
             ui.add_space(6.0);
             // Deliver to: the player's own Bim, every bot, or the armory.
             ui.horizontal_wrapped(|ui| {
@@ -1262,7 +1313,42 @@ fn form_frame() -> egui::Frame {
 
 /// The header band: *TRADER* over *PURCHASE ORDER · No. 0042-01*, the
 /// front's stamp where the machines are near, and the "?".
-fn form_header(ui: &mut egui::Ui, world: &World, trader: &world::trader::Trader) {
+/// Where the trader the player put the Trader panel away at is kept:
+/// shut at one trader, it comes up again at the next.
+fn trader_shut_id() -> egui::Id {
+    egui::Id::new("trader-shut-at")
+}
+
+/// Whether the player has put the panel away at this trader.
+fn trader_shut(ctx: &egui::Context, trader: &world::trader::Trader) -> bool {
+    let at = (trader.site.star, trader.site.station);
+    ctx.data(|d| d.get_temp::<(u32, u32)>(trader_shut_id())) == Some(at)
+}
+
+/// The button that brings the Trader panel back, while the crew are at
+/// a trader and the panel is put away; on the map column's head or
+/// under its tab.
+fn trader_reopen(ui: &mut egui::Ui, world: &World) {
+    let Some(trader) = world.trader_here() else {
+        return;
+    };
+    if !trader_shut(ui.ctx(), trader) {
+        return;
+    }
+    let button = egui::Button::new(
+        egui::RichText::new(TRADER_REOPEN)
+            .strong()
+            .color(theme::SITE_TRADER),
+    );
+    if ui.add(button).on_hover_text(TRADER_REOPEN_TIP).clicked() {
+        ui.ctx()
+            .data_mut(|d| d.remove::<(u32, u32)>(trader_shut_id()));
+    }
+}
+
+/// The form's header band; true when its × put the panel away.
+fn form_header(ui: &mut egui::Ui, world: &World, trader: &world::trader::Trader) -> bool {
+    let mut shut = false;
     let top = ui.cursor().min;
     let band = egui::Rect::from_min_size(top, egui::vec2(FORM_WIDTH, 46.0));
     ui.painter().rect_filled(band, 3.0, theme::RAISED);
@@ -1301,6 +1387,13 @@ fn form_header(ui: &mut egui::Ui, world: &World, trader: &world::trader::Trader)
                     );
                 });
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if ui
+                        .button(egui::RichText::new(TRADER_SHUT).strong().size(16.0))
+                        .on_hover_text(TRADER_SHUT_TIP)
+                        .clicked()
+                    {
+                        shut = true;
+                    }
                     theme::question_mark(ui, TRADER_TIP);
                     // A trader near the machines charges over the odds for
                     // what a fight is fought with (feature 94): stamped.
@@ -1313,6 +1406,7 @@ fn form_header(ui: &mut egui::Ui, world: &World, trader: &world::trader::Trader)
         },
     );
     ui.advance_cursor_after_rect(band);
+    shut
 }
 
 /// A word in a stamped box, tilted a little, in `color`.

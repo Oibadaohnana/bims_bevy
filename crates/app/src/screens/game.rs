@@ -1558,7 +1558,7 @@ fn frame(
     // lays itself out on.
     let full = canvas;
     let (galaxy_rect, canvas) = if map_up {
-        split_map(full)
+        split_map(full, screen.world_map.column_w())
     } else {
         (crate::shapes::Rect::new(full.min, full.min), full)
     };
@@ -2417,7 +2417,7 @@ fn frame(
         }
         // The bar that puts a trip to the crew, at the foot of the map
         // in the middle of the two charts (the second map rework), and the log over it.
-        let map_right = area.max.x - MARGIN - super::worldmap::COLUMN_W;
+        let map_right = area.max.x - MARGIN - screen.world_map.column_w();
         let bar = super::worldmap::propose_bar(
             &ctx,
             (area.min.x + map_right) / 2.0,
@@ -3702,10 +3702,18 @@ fn frame(
 /// next click does is send people into a fight.
 /// The world map's canvas split in two (task 135): the galaxy chart on
 /// the left, the system on the right, each half of what the list's
-/// column leaves — the column itself lies over the rest.
-fn split_map(full: crate::shapes::Rect) -> (crate::shapes::Rect, crate::shapes::Rect) {
+/// column leaves while it is popped out — the column itself lies over
+/// the rest — and of the whole width while it is retracted.
+fn split_map(
+    full: crate::shapes::Rect,
+    column_w: f32,
+) -> (crate::shapes::Rect, crate::shapes::Rect) {
     use crate::shapes::Rect;
-    let right = full.max.x - super::worldmap::COLUMN_W - 2.0 * MARGIN;
+    let right = if column_w > 0.0 {
+        full.max.x - column_w - 2.0 * MARGIN
+    } else {
+        full.max.x
+    };
     let middle = full.min.x + ((right - full.min.x) / 2.0).max(0.0);
     (
         Rect::new(full.min, Vec2::new(middle, full.max.y)),
