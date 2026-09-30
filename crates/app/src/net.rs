@@ -383,6 +383,8 @@ pub struct SettingsWire {
     /// The `end` command's run: the Machine Heart with ten bots
     /// (`designer::build_run`).
     pub end: bool,
+    /// The world clock's day the `end` run opens on (`dev::end_day`).
+    pub end_day: u32,
 }
 
 impl SettingsWire {
@@ -397,6 +399,7 @@ impl SettingsWire {
             classes: settings.unlocks.classes,
             difficulty: settings.difficulty,
             end: settings.end,
+            end_day: settings.end_day,
         }
     }
 
@@ -413,6 +416,7 @@ impl SettingsWire {
         };
         settings.difficulty = self.difficulty;
         settings.end = self.end;
+        settings.end_day = self.end_day;
     }
 }
 

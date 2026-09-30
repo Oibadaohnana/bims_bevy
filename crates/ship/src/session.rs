@@ -739,12 +739,17 @@ impl Session {
     /// fortress laid at their own star (`World::heart_dock_for_probe`),
     /// every bot a class at the top level with every rank bought and
     /// everybody in tier-three kit (`World::classed_crew_for_probe`) — the
-    /// same on every machine of the lobby. `false` with no game, or where
-    /// the fortress could not be laid.
-    pub fn end_for_probe(&mut self) -> bool {
+    /// same on every machine of the lobby. The world clock is put at `day`
+    /// first (`World::set_day_for_probe`), so the waves are a run's that
+    /// far on, and the first mission's ease is off
+    /// (`World::set_first_mission_uneased_for_probe`), the Heart being it.
+    /// `false` with no game, or where the fortress could not be laid.
+    pub fn end_for_probe(&mut self, day: u32) -> bool {
         let Some(game) = self.game.as_mut() else {
             return false;
         };
+        game.world.set_day_for_probe(day);
+        game.world.set_first_mission_uneased_for_probe();
         if !game.world.heart_dock_for_probe() {
             return false;
         }

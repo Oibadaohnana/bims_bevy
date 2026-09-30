@@ -173,6 +173,9 @@ pub struct Settings {
     /// opened at the Machine Heart with ten classed bots at the top level
     /// in tier-three kit (`designer::build_run`). Dealt with the rest.
     pub end: bool,
+    /// The world clock's day the `end` run opens on, so its waves are a
+    /// run's that far on (`dev::end_day`, the host's, dealt with the rest).
+    pub end_day: u32,
 }
 
 impl Default for Settings {
@@ -192,6 +195,7 @@ impl Default for Settings {
             unlocks: crate::profile::RunUnlocks::of(&crate::profile::load()),
             difficulty: None,
             end: false,
+            end_day: crate::dev::end_day(),
         }
     }
 }
@@ -340,7 +344,10 @@ impl Plugin for BuilderPlugin {
             .add_systems(
                 Startup,
                 open.run_if(|l: Res<crate::Launch>| {
-                    matches!(*l, crate::Launch::Game | crate::Launch::End)
+                    matches!(
+                        *l,
+                        crate::Launch::Game | crate::Launch::End | crate::Launch::EndOffline
+                    )
                 }),
             )
             .add_systems(
@@ -481,6 +488,19 @@ fn frame(
             }
             start = true;
             screen.auto_done = true;
+        }
+    }
+    // `end offline` (`crate::Launch::EndOffline`): the same run alone, no
+    // relay — the solo game setup opened once with a start picked, for a
+    // class and a Start.
+    if *launch == crate::Launch::EndOffline {
+        settings.end = true;
+        if !screen.end_asked && *state.get() == Screen::Menu {
+            if settings.spawn.is_none() {
+                pick_random_start(screen, settings, online);
+            }
+            screen.end_asked = true;
+            go = Some(Screen::Setup);
         }
     }
 

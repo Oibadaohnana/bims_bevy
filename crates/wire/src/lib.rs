@@ -36,7 +36,8 @@ use serde::{Deserialize, Serialize};
 /// 70: `ClientCtl::CreateAt` (a room at a code of the host's choosing,
 /// the app's `end` command's) and the lobby's settings saying whether
 /// the run is that command's (the Machine Heart with ten bots).
-pub const PROTOCOL: u32 = 70;
+/// 71: the lobby's settings carry the `end` run's start day.
+pub const PROTOCOL: u32 = 71;
 
 /// Where the relay lives. `BIMS_SERVER` in the environment overrides it
 /// — `ws://127.0.0.1:8792` for one on the same machine.

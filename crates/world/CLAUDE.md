@@ -6437,3 +6437,11 @@ engineer's charges held and unused…) and not its keys. The app's
 (`heart_dock_for_probe`); `tests_heart::the_end_command_s_bots_are_every_class_at_the_top_in_tier_three_kit`
 is the rule. `wire::PROTOCOL` 70 (the lobby's settings carry `end`, and
 the relay's `ClientCtl::CreateAt` opens a room at a code asked for).
+`Session::end_for_probe(day)` also puts the world clock at `day`
+(`set_day_for_probe`; the app's `dev::end_day`, sixty unless
+`BIMS_END_DAY`, dealt to guests in `SettingsWire::end_day`) and sets
+`World::first_mission_uneased` (`set_first_mission_uneased_for_probe`:
+saved, not hashed), which `droid_wave_size` asks before taking
+`first_mission_ease` off — the Heart being that run's first mission.
+`tests_heart::the_end_command_s_waves_are_day_sixty_s_and_not_eased`.
+**`SAVE_VERSION` 69, `wire::PROTOCOL` 71.**

@@ -8,7 +8,7 @@
 //! the world and the galaxy are the crates beside this one, and this crate
 //! is the window, the pointer and the words.
 //!
-//! Twenty things to run, and each is a name rather than a flag:
+//! Twenty-one things to run, and each is a name rather than a flag:
 //!
 //! ```text
 //! bims               the whole game in order — menu, setup or lobby, world
@@ -54,7 +54,9 @@
 //!                    ready check at the fortress with ten bots — two of
 //!                    every class at the top level, every rank bought —
 //!                    everybody in tier-three kit, the waves the lobby's
-//!                    difficulty
+//!                    difficulty on day sixty (`BIMS_END_DAY`), the first
+//!                    mission not eased; `bims end offline` is that alone,
+//!                    from the game setup, with no relay
 //! bims manufacturers the combat crew at the nearest site of the
 //!                    Manufacturers' on day `BIMS_MANUFACTURER_DAY` (eight
 //!                    unless it says: their people with Troopers beside them)
@@ -97,7 +99,7 @@ mod wavecfg;
 use bevy::prelude::*;
 use bevy_egui::EguiPlugin;
 
-/// Which of the twenty things this process is.
+/// Which of the twenty-one things this process is.
 #[derive(Resource, Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Launch {
     Game,
@@ -178,6 +180,11 @@ pub enum Launch {
     /// tier-three kit and the waves the lobby's difficulty (the
     /// scaling file unless the host moved it). `builder::Settings::end`.
     End,
+    /// `End` with nobody else and no relay (`end offline`): the solo game
+    /// setup opened with a start picked, for a class and a Start, and the
+    /// same run — the Machine Heart, the ten bots, the day, the waves
+    /// uneased — for one player.
+    EndOffline,
     StationBuilder,
 }
 
@@ -205,7 +212,7 @@ pub enum Screen {
 
 fn usage() -> ! {
     eprintln!(
-        "usage: bims [game|simulation|design|test|test_planet|droids|combat_droids_<class>|tier2_test|tier3_test|droids_planet|crisis|jammer|defense|guardian|relics|heart|manufacturers|end|stationbuilder [name]|list|--self-check]"
+        "usage: bims [game|simulation|design|test|test_planet|droids|combat_droids_<class>|tier2_test|tier3_test|droids_planet|crisis|jammer|defense|guardian|relics|heart|manufacturers|end [offline]|stationbuilder [name]|list|--self-check]"
     );
     eprintln!("       a class is one of: {}", class_words().join(", "));
     eprintln!("       `bims list` says what each of them opens");
@@ -216,7 +223,7 @@ fn usage() -> ! {
 /// — the one list, printed by [`list`] and nothing else. A new command is
 /// a row here and an arm in `main`; the classes' commands are not written
 /// out, since [`class_words`] reads them off `Class::ALL`.
-const COMMANDS: [(&str, &str); 20] = [
+const COMMANDS: [(&str, &str); 21] = [
     (
         "game",
         "The whole game in order: menu, setup or lobby, world and station, then the run: a mission where you docked, on the default ship, 5 000 a Bim in the pool",
@@ -277,7 +284,11 @@ const COMMANDS: [(&str, &str); 20] = [
     ),
     (
         "end",
-        "The end fight with company: a lobby at code THEEND for others to join, Start pressed once a second player is in, then the ready check at the Machine Heart with ten bots (two of every class, top level, every rank) and everybody in tier-three kit; the waves are the setup's difficulty",
+        "The end fight with company: a lobby at code THEEND for others to join, Start pressed once a second player is in, then the ready check at the Machine Heart with ten bots (two of every class, top level, every rank) and everybody in tier-three kit; the waves are the setup's difficulty on day 60 (BIMS_END_DAY) with no first-mission ease",
+    ),
+    (
+        "end offline",
+        "That run alone, no relay: the game setup opens with a start picked; choose your class and press Start",
     ),
     (
         "stationbuilder [name]",
@@ -386,7 +397,12 @@ fn main() {
         Some("relics") => Launch::Relics,
         Some("heart") => Launch::Heart,
         Some("manufacturers") => Launch::Manufacturers,
-        Some("end") => Launch::End,
+        Some("end") => match std::env::args().nth(2).as_deref() {
+            None => Launch::End,
+            Some("offline") => Launch::EndOffline,
+            Some(_) => usage(),
+        },
+        Some("end_offline") => Launch::EndOffline,
         Some("stationbuilder") => Launch::StationBuilder,
         // What there is to run, printed rather than opened.
         Some("list") | Some("--list") | Some("--help") | Some("-h") => {
@@ -469,7 +485,7 @@ fn main() {
 /// dock for a spawn.
 fn open(launch: Res<Launch>, mut commands: Commands, mut next: ResMut<NextState<Screen>>) {
     match *launch {
-        Launch::Game | Launch::End => {}
+        Launch::Game | Launch::End | Launch::EndOffline => {}
         Launch::Simulation
         | Launch::Test
         | Launch::TestPlanet

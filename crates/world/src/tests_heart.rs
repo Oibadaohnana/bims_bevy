@@ -558,3 +558,24 @@ fn the_end_command_s_bots_are_every_class_at_the_top_in_tier_three_kit() {
     }
     assert_eq!(world_checksum(&one), world_checksum(&two));
 }
+
+/// The `end` command's waves: the world clock put at day sixty makes
+/// them a run's twelve steps on, and the first mission's ease is off with
+/// the switch — a wave the formula's whole, where the first mission's
+/// is otherwise `first_mission_ease` fewer.
+#[test]
+fn the_end_command_s_waves_are_day_sixty_s_and_not_eased() {
+    let mut world = at_the_heart(2, 2);
+    world.set_day_for_probe(60);
+    let whole = world.scaling().size(2, world.hours_gone());
+    assert_eq!(world.scaling().steps(world.hours_gone()), 12);
+    let eased = world.droid_wave_size();
+    assert_eq!(
+        eased,
+        whole
+            .saturating_sub(world.scaling().first_mission_ease)
+            .max(1)
+    );
+    world.set_first_mission_uneased_for_probe();
+    assert_eq!(world.droid_wave_size(), whole);
+}

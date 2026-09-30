@@ -776,6 +776,12 @@ pub struct World {
     /// `droid_kinds_forced` is.
     #[cfg_attr(feature = "serde", serde(default))]
     defense_by_machines_forced: bool,
+    /// The probes' word that the run's first mission is **not** eased
+    /// (`WaveScaling::first_mission_ease`): the app's `end` command,
+    /// whose first mission is the Machine Heart. Saved and not hashed,
+    /// as `droid_kinds_forced` is: what it decides is the machines laid.
+    #[cfg_attr(feature = "serde", serde(default))]
+    first_mission_uneased: bool,
     /// Where the machines began (feature 92): the one star the crisis
     /// spreads out from, rolled once at [`World::start`]
     /// ([`droidplan::origin`]) at least [`data::DROID_ORIGIN_MIN_HOPS`]
@@ -1221,6 +1227,7 @@ impl World {
             droid_waves_forced: None,
             droid_kinds_forced: None,
             defense_by_machines_forced: false,
+            first_mission_uneased: false,
             droid_origin,
             droid_hops,
             home_hops,
@@ -5970,7 +5977,7 @@ impl World {
         };
         let size = self.wave_size_with(self.hours_gone(), defenders);
         let forced = self.droid_kinds_forced.is_some() || self.droid_wave_forced.is_some();
-        if self.run.missions <= 1 && !forced {
+        if self.run.missions <= 1 && !forced && !self.first_mission_uneased {
             size.saturating_sub(self.scaling().first_mission_ease)
                 .max(1)
         } else {
@@ -6019,6 +6026,12 @@ impl World {
     /// which run at day nought, where the game sends the Manufacturers.
     pub fn set_defense_by_machines_for_probe(&mut self) {
         self.defense_by_machines_forced = true;
+    }
+
+    /// The run's first mission as strong as any other: no
+    /// `first_mission_ease` off its waves (the app's `end` command).
+    pub fn set_first_mission_uneased_for_probe(&mut self) {
+        self.first_mission_uneased = true;
     }
 
     /// Tune the wave formula (`scaling.ron`, read by the app while the

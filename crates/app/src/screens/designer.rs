@@ -687,7 +687,7 @@ pub fn build_run(s: &Settings, size: Vec2) -> Session {
     // The `end` command's (`crate::Launch::End`): at the Machine Heart,
     // after the difficulty so its waves are the set scaling's, the bots
     // classed at the top in tier-three kit — on every machine alike.
-    if s.end && !session.end_for_probe() {
+    if s.end && !session.end_for_probe(s.end_day) {
         eprintln!("end: the Machine Heart's fortress could not be laid");
     }
     // And the relic dials, on the `game` command as on any other.
