@@ -17,8 +17,10 @@
 // The game setup's Difficulty shows base, per_player and per_step (its
 // "Scaling") as this file has them; once the host moves one, the run keeps
 // the setup's three (saved with it, dealt to every guest) and this file
-// still says the rest.
-// The values below are the built-in ones.
+// still says the rest. The setup's "Save as default" writes its three
+// numbers into this file, leaving the comments and the other lines alone.
+// The built-in values: base 2, per_player 1, per_step 1, step_days 5,
+// tier_waves (1, 2, 4), first_mission_ease 1.
 (
     base: 1,
     per_player: 1,

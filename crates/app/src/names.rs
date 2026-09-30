@@ -581,6 +581,15 @@ pub fn wave_per_step_note(days: u32) -> String {
 }
 pub const DIFFICULTY_RESET: &str = "Default";
 pub const DIFFICULTY_RESET_HOVER: &str = "Back to the numbers in scaling.ron";
+/// The button that writes the three into `scaling.ron`, and what it says
+/// after.
+pub const DIFFICULTY_SAVE: &str = "Save as default";
+pub const DIFFICULTY_SAVE_HOVER: &str =
+    "Write these three into scaling.ron: every new game starts from them";
+pub const DIFFICULTY_SAVED: &str = "Saved into scaling.ron.";
+pub fn difficulty_not_saved(why: &str) -> String {
+    format!("Not saved: {why}")
+}
 /// What the run's first wave comes to, for the players in the lobby.
 pub fn first_wave_line(machines: u32, players: u32) -> String {
     let who = if players == 1 {

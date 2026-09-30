@@ -313,6 +313,8 @@ pub struct BuilderScreen {
     /// The wave formula as the tuning file says it (`crate::wavecfg`),
     /// this frame: what the difficulty shows until the host picks one.
     file_scaling: WaveScaling,
+    /// What Save as default said, for a few seconds under the difficulty.
+    difficulty_note: Option<Remark>,
 }
 
 pub struct BuilderPlugin;
@@ -370,6 +372,7 @@ fn open(mut commands: Commands, settings: Res<Settings>) {
         loading: false,
         saves: crate::save::Saves::default(),
         file_scaling: WaveScaling::DEFAULT,
+        difficulty_note: None,
     });
 }
 
@@ -993,7 +996,15 @@ fn tool(
                 &mut settings.money_per_bim,
             );
             let players = (online.peers.len() as u32).max(1);
-            difficulty_rows(ui, settings, screen.file_scaling, players, editable);
+            difficulty_rows(
+                ui,
+                settings,
+                screen.file_scaling,
+                players,
+                editable,
+                &mut screen.difficulty_note,
+                now,
+            );
             // The player's own crew member's name: everybody's to type,
             // host or guest, since each names their own.
             ui.add_space(6.0);
@@ -1215,19 +1226,41 @@ fn difficulty_rows(
     file: WaveScaling,
     players: u32,
     editable: bool,
+    note: &mut Option<Remark>,
+    now: f64,
 ) {
     ui.add_space(6.0);
+    // Both buttons only when the numbers are not the file's already.
+    let apart = settings
+        .difficulty
+        .is_some_and(|d| d != Difficulty::of(file));
     ui.horizontal(|ui| {
         ui.label(egui::RichText::new(DIFFICULTY).strong());
         if ui
             .add_enabled(
-                editable && settings.difficulty.is_some(),
+                editable && apart,
                 egui::Button::new(DIFFICULTY_RESET).small(),
             )
             .on_hover_text(DIFFICULTY_RESET_HOVER)
             .clicked()
         {
             settings.difficulty = None;
+        }
+        if ui
+            .add_enabled(
+                editable && apart,
+                egui::Button::new(DIFFICULTY_SAVE).small(),
+            )
+            .on_hover_text(DIFFICULTY_SAVE_HOVER)
+            .clicked()
+            && let Some(d) = settings.difficulty
+        {
+            // The file is read again by its watcher, and the buttons go
+            // grey once it says these numbers.
+            *note = match crate::wavecfg::save_difficulty(d) {
+                Ok(()) => Remark::say(DIFFICULTY_SAVED, false, now),
+                Err(why) => Remark::say(difficulty_not_saved(&why), true, now),
+            };
         }
     });
     ui.label(
@@ -1288,6 +1321,9 @@ fn difficulty_rows(
             .small()
             .color(theme::ACCENT),
     );
+    if note.is_some() {
+        Remark::show(note, ui, now, "");
+    }
 }
 
 fn choice_row<T: PartialEq + Copy>(

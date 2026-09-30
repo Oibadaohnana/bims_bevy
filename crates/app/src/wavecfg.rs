@@ -28,7 +28,7 @@
 use bevy::prelude::*;
 use std::path::PathBuf;
 use std::time::SystemTime;
-use world::droid::WaveScaling;
+use world::droid::{Difficulty, WaveScaling};
 use world::rewards::Rewards;
 
 use crate::screens::designer::ShipSession;
@@ -132,9 +132,8 @@ pub(crate) struct Watched<T: Dials> {
 
 impl<T: Dials> Watched<T> {
     fn new() -> Watched<T> {
-        let path = std::env::var(T::ENV).unwrap_or_else(|_| T::FILE.to_string());
         let mut watched = Watched {
-            path: PathBuf::from(path),
+            path: path_of::<T>(),
             stamp: None,
             // Look at once, on the first frame.
             since_look: LOOK_EVERY,
@@ -187,6 +186,90 @@ fn parse<T: Dials>(text: &str) -> Result<T, String> {
     ron::from_str::<T>(text).map_err(|e| e.to_string())
 }
 
+/// Where a set of dials is read from: the file its variable names, or
+/// the one at the root of the tree.
+fn path_of<T: Dials>() -> PathBuf {
+    PathBuf::from(std::env::var(T::ENV).unwrap_or_else(|_| T::FILE.to_string()))
+}
+
+/// Write the game setup's difficulty into the wave file as its base, per
+/// player and per step — the setup's Save as default. Only those three
+/// numbers change: the comments and the other dials stay as they were
+/// written, a field the file left out is put in, and no file at all
+/// becomes one holding the three. The text is read back before it
+/// replaces the file, so a file this could not have edited is refused
+/// rather than broken; the watcher reads it again like any other save.
+pub(crate) fn save_difficulty(difficulty: Difficulty) -> Result<(), String> {
+    let path = path_of::<WaveScaling>();
+    let old = match std::fs::read_to_string(&path) {
+        Ok(text) => text,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => "(\n)\n".to_string(),
+        Err(e) => return Err(e.to_string()),
+    };
+    let before = parse::<WaveScaling>(&old)?;
+    let new = with_difficulty(&old, difficulty).ok_or("no closing bracket to write before")?;
+    if parse::<WaveScaling>(&new) != Ok(difficulty.over(before)) {
+        return Err("the file is not laid out one dial a line".into());
+    }
+    // Beside it and then over it, so a reader never sees half a file.
+    let mut part = path.clone().into_os_string();
+    part.push(".part");
+    std::fs::write(&part, new).map_err(|e| e.to_string())?;
+    std::fs::rename(&part, &path).map_err(|e| e.to_string())
+}
+
+/// `text` with the three difficulty dials' numbers put in: each on the
+/// line that sets it, or on a line of its own before the closing bracket
+/// when none does. `None` when there is no closing bracket.
+fn with_difficulty(text: &str, d: Difficulty) -> Option<String> {
+    let fields = [
+        ("base", d.base),
+        ("per_player", d.per_player),
+        ("per_step", d.per_step),
+    ];
+    let mut done = [false; 3];
+    let mut lines: Vec<String> = text.lines().map(str::to_string).collect();
+    for line in &mut lines {
+        let code = line.split("//").next().unwrap_or("");
+        let at = code.len() - code.trim_start().len();
+        let mut put = None;
+        for (i, (name, value)) in fields.iter().enumerate() {
+            let Some(after) = code[at..].strip_prefix(name) else {
+                continue;
+            };
+            let Some(after) = after.trim_start().strip_prefix(':') else {
+                continue;
+            };
+            // Past the number to whatever follows it: the comma, a
+            // comment, nothing.
+            let number = after.trim_start();
+            let rest = number.trim_start_matches(|c: char| c.is_ascii_digit());
+            let tail = &line[code.len() - rest.len()..];
+            put = Some(format!("{}{name}: {value}{tail}", &code[..at]));
+            done[i] = true;
+            break;
+        }
+        if let Some(put) = put {
+            *line = put;
+        }
+    }
+    let close = lines
+        .iter()
+        .rposition(|l| l.split("//").next().unwrap_or("").contains(')'))?;
+    let missing: Vec<String> = fields
+        .iter()
+        .zip(done)
+        .filter(|(_, done)| !done)
+        .map(|((name, value), _)| format!("    {name}: {value},"))
+        .collect();
+    lines.splice(close..close, missing);
+    let mut out = lines.join("\n");
+    if text.ends_with('\n') {
+        out.push('\n');
+    }
+    Some(out)
+}
+
 fn reload<T: Dials>(time: Res<Time>, mut watched: ResMut<Watched<T>>) {
     watched.since_look += time.delta_secs();
     if watched.since_look < LOOK_EVERY {
@@ -216,14 +299,48 @@ fn apply<T: Dials>(watched: Res<Watched<T>>, session: Option<ResMut<ShipSession>
 mod tests {
     use super::*;
 
-    /// The files at the root of the tree are the constants, so a game run
-    /// from there plays as it would untuned — and they parse.
+    /// The rewards file at the root of the tree is the constants, so a
+    /// game run from there pays as it would untuned. The wave file is the
+    /// player's — the setup's Save as default writes it — so it only has
+    /// to parse.
     #[test]
-    fn the_shipped_files_are_the_constants() {
+    fn the_shipped_files_parse_and_the_rewards_are_the_constants() {
         let text = include_str!("../../../scaling.ron");
-        assert_eq!(parse(text), Ok(WaveScaling::DEFAULT));
+        assert!(parse::<WaveScaling>(text).is_ok());
         let text = include_str!("../../../rewards.ron");
         assert_eq!(parse(text), Ok(Rewards::DEFAULT));
+    }
+
+    /// Save as default puts the three numbers in and leaves every other
+    /// line of the file as it was written.
+    #[test]
+    fn saving_the_difficulty_changes_its_three_numbers_and_nothing_else() {
+        let d = Difficulty {
+            base: 4,
+            per_player: 12,
+            per_step: 0,
+        };
+        let text = include_str!("../../../scaling.ron");
+        let new = with_difficulty(text, d).unwrap();
+        let before: WaveScaling = parse(text).unwrap();
+        assert_eq!(parse(&new), Ok(d.over(before)));
+        let changed: Vec<(&str, &str)> = text
+            .lines()
+            .zip(new.lines())
+            .filter(|(a, b)| a != b)
+            .collect();
+        assert_eq!(changed.len(), 3, "{changed:?}");
+        assert_eq!(text.lines().count(), new.lines().count());
+        // A comment after the number stays, and a field left out is put in.
+        let new = with_difficulty("(\n    base: 1, // one\n    step_days: 3,\n)\n", d).unwrap();
+        assert_eq!(
+            new,
+            "(\n    base: 4, // one\n    step_days: 3,\n    per_player: 12,\n    per_step: 0,\n)\n"
+        );
+        // A word in a comment is not a field.
+        let new = with_difficulty("// base: 9\n(\n)\n", d).unwrap();
+        assert!(new.starts_with("// base: 9\n"));
+        assert_eq!(parse::<WaveScaling>(&new).unwrap().base, 4);
     }
 
     /// A field left out is the constant's.
