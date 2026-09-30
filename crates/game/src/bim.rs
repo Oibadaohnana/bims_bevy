@@ -181,6 +181,12 @@ pub struct Bim {
     pub peek: Option<Vec2>,
     /// Seconds left of the flash a hit puts on the body.
     pub hit_flash: f32,
+    /// Seconds left of being **under fire**: an enemy's hit landed on the
+    /// body within [`crate::game::UNDER_FIRE`] seconds. A bot under fire
+    /// fights (`Game::bot_stand`) and starts no revive, whether or not it
+    /// can see who shot it.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub under_fire: f32,
     /// How long until the next drop of blood on the deck. See
     /// [`Bim::tick_drips`].
     pub drip_timer: f32,
@@ -295,6 +301,7 @@ impl Bim {
             blow: None,
             peek: None,
             hit_flash: 0.0,
+            under_fire: 0.0,
             drip_timer: 0.0,
             plan_wait: 0.0,
             breach_wait: 0.0,

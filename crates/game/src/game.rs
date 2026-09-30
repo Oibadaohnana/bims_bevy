@@ -192,6 +192,12 @@ pub const GATHER_SLOTS: [(f32, f32); 6] = [
 /// How far off its slot a gathered crew member may stand before it walks
 /// to it again, in tiles.
 pub const GATHER_SLACK: f32 = 1.0;
+/// How long a body counts as **under fire** after an enemy's hit lands
+/// on it, in seconds: a bot under fire leaves the ring round its player
+/// for a stand of its own and takes up no revive, since a machine
+/// shooting from the dark is one nobody sees, and the crew used to stand
+/// in the ring being shot at (the user's report).
+pub const UNDER_FIRE: f32 = 5.0;
 /// How near an **attack banner** counts as reached, in tiles (feature
 /// 84): inside this, a bot with nothing in its weapon's reach holds the
 /// ring round the banner instead of pushing on to stand on it. Two tiles
@@ -1490,6 +1496,7 @@ impl Game {
             // backing walk the moment there is something to shoot at.
             bim.character.set_falling_back(None);
             bim.hit_flash = (bim.hit_flash - dt).max(0.0);
+            bim.under_fire = (bim.under_fire - dt).max(0.0);
             bim.melee_timer = (bim.melee_timer - dt).max(0.0);
             if let Some(blow) = bim.blow.as_mut() {
                 blow.left -= dt;
@@ -2954,11 +2961,46 @@ impl Game {
         // Round the nearest player's own that is up and in; with several
         // players the crew gather round whichever is closest.
         let player = (0..self.players.min(self.bims.len()))
-            .filter(|&p| self.bims[p].is_alive() && !self.bims[p].character.is_outside())
+            .filter(|&p| self.leads(p))
             .map(|p| self.bims[p].character.pos)
             .min_by(|a, b| (*a - from).len().total_cmp(&(*b - from).len()))
             .unwrap_or(self.bims[PLAYER].character.pos);
         self.gather_round(who, dt, player);
+    }
+
+    /// A crewmate with nothing in its sight that is being shot at, or has
+    /// no player up to keep to, going after the nearest enemy it can walk
+    /// to ([`Tactics::charge`]) on its own `plan_wait` clock, until one is
+    /// in sight and `plan_stand` takes over. A stand scored from where it
+    /// is reads being blind to the enemy as cover, and held it where a
+    /// machine out in the dark was shooting it.
+    fn seek(&mut self, who: usize, dt: f32) {
+        let bim = &mut self.bims[who];
+        bim.plan_wait -= dt;
+        if bim.plan_wait > 0.0 {
+            return;
+        }
+        bim.plan_wait = PLAN_EVERY;
+        let from = bim.character.pos;
+        let going = bim.character.destination().unwrap_or(from);
+        let nav = self.maps.for_body(false);
+        let Some(to) = Tactics::charge(nav, from, self.combat.targets()) else {
+            return;
+        };
+        if (to - going).len() <= TILE {
+            return;
+        }
+        let route = nav.path(from, to);
+        if !route.is_empty() {
+            self.bims[who].character.follow_path(route);
+        }
+    }
+
+    /// Whether a player's own Bim is one for the crew to gather round:
+    /// alive, on its feet — not downed — and on the deck.
+    fn leads(&self, p: usize) -> bool {
+        let bim = &self.bims[p];
+        bim.is_alive() && !bim.health.downed() && !bim.character.is_outside()
     }
 
     /// The same ring round a point of the room rather than round a
@@ -3136,10 +3178,16 @@ impl Game {
             Standing::Follow => {
                 let from = self.bims[who].character.pos;
                 // Somebody's own to gather round: any player's, up and in.
-                let player_up = (0..self.players.min(self.bims.len()))
-                    .any(|p| self.bims[p].is_alive() && !self.bims[p].character.is_outside());
-                if !player_up || self.combat.sees_any(&self.room.sight, from) {
+                // A player downed is nobody to follow — the crew stood in
+                // a ring round the body while the machine that shot it
+                // shot them — and a bot under fire fights whether or not
+                // it sees who is shooting.
+                let player_up = (0..self.players.min(self.bims.len())).any(|p| self.leads(p));
+                let under_fire = self.bims[who].under_fire > 0.0;
+                if self.combat.sees_any(&self.room.sight, from) {
                     self.plan_stand(who, dt, stats);
+                } else if !player_up || under_fire {
+                    self.seek(who, dt);
                 } else {
                     self.gather(who, dt);
                 }
@@ -4989,8 +5037,10 @@ impl Game {
     /// Whether `who` may take a revive of its own accord this step,
     /// whoever the patient: a bot in a room whose people revive one
     /// another, alive, awake, on the deck, its arms free, not a
-    /// Manufacturer — and, under arms, with no enemy in its sight and no
-    /// blade at its throat.
+    /// Manufacturer — and, under arms, with no enemy in its sight, no
+    /// blade at its throat and not under fire ([`UNDER_FIRE`]): a bot
+    /// being shot at fights back first. A revive already in hand goes on
+    /// (damage does not interrupt one).
     fn ready_to_revive(&self, who: usize) -> bool {
         if !self.revivers
             || !self.is_bot(who)
@@ -5006,6 +5056,7 @@ impl Game {
         !self.bims[who].character.is_recruited()
             || (self.bims[who].locked.is_none()
                 && self.bims[who].blow.is_none()
+                && self.bims[who].under_fire <= 0.0
                 && !self
                     .combat
                     .sees_any(&self.room.sight, self.bims[who].character.pos))
@@ -7647,6 +7698,7 @@ impl Game {
             && let Some(bim) = self.bims.get_mut(hit.who)
         {
             bim.hits_taken = bim.hits_taken.saturating_add(1);
+            bim.under_fire = UNDER_FIRE;
         }
     }
 
@@ -10873,6 +10925,68 @@ mod tests {
         game.simulate(DT);
         assert!(!game.is_alarmed());
         assert!(!game.bims[1].character.is_recruited());
+    }
+
+    /// A bot under the alarm leaves the ring round its player for a stand
+    /// of its own the moment it is shot at, whether or not it sees who
+    /// fired — and a downed player is nobody to gather round at all (the
+    /// user's report: the crew stood round the body while the last
+    /// machine shot at them). Nobody is revived here, so the ring is the
+    /// only thing that could hold them by the body.
+    #[test]
+    fn a_bot_under_fire_or_with_its_player_down_fights_rather_than_gathers() {
+        for case in ["quiet", "shot at", "player down"] {
+            let (mut game, closet) = room_with_a_closet();
+            game.set_autonomous(false);
+            game.set_revivers(false);
+            let james = game.put_for_probe(0, vec2(ROOM_W * 0.12, ROOM_H * 0.15));
+            game.put_for_probe(1, james + vec2(1.5 * TILE, 0.0));
+            // The machine in the closet: nobody sees it, and the alarm is up.
+            let rifle = WeaponKind::AutoRifle.basic();
+            game.set_hostiles(vec![Some((closet, rifle))]);
+            for _ in 0..(60 * 2) {
+                game.simulate(DT);
+            }
+            assert!(game.is_alarmed(), "{case}");
+            assert!(
+                !game.combat.sees_any(&game.room.sight, game.bim_pos(1)),
+                "{case}: out of sight"
+            );
+            match case {
+                "shot at" => {
+                    let at = game.bim_pos(1);
+                    assert!(game.enemy_strike(at, 1, 5.0, false));
+                    assert!(game.bims[1].under_fire > 0.0);
+                }
+                "player down" => knock_out(&mut game, 0),
+                _ => {}
+            }
+            let mut left_the_ring = false;
+            for _ in 0..(60 * 4) {
+                game.set_hostiles(vec![Some((closet, rifle))]);
+                game.simulate(DT);
+                let going = game.destination_for_probe(1).unwrap_or(game.bim_pos(1));
+                left_the_ring |= (going - james).len() > 3.0 * TILE;
+            }
+            assert_eq!(left_the_ring, case != "quiet", "{case}");
+        }
+    }
+
+    /// A bot under fire starts no revive until the fire has stopped for
+    /// [`UNDER_FIRE`] seconds; out of it, it does.
+    #[test]
+    fn a_bot_under_fire_takes_up_no_revive() {
+        let mut game = room();
+        let at = game.put_for_probe(1, vec2(ROOM_W * 0.5, ROOM_H * 0.5));
+        game.bims[1].character.set_recruited(true);
+        assert!(game.ready_to_revive(1));
+        assert!(game.enemy_strike(at, 1, 5.0, false));
+        assert!(!game.ready_to_revive(1), "shot at");
+        for _ in 0..((UNDER_FIRE / DT) as usize + 2) {
+            game.simulate(DT);
+        }
+        game.bims[1].character.set_recruited(true);
+        assert!(game.ready_to_revive(1), "the fire over");
     }
 
     /// An attack-move: the player's own Bim walks where it was sent with

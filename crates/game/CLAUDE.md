@@ -4413,3 +4413,28 @@ one.
 
 `the_still_range_is_on_standing_still_and_off_walking` and
 `a_shield_takes_the_hit_first_and_runs_out` pin them.
+
+## A bot shot at fights, and a downed player is nobody to follow
+
+> "*Follow* is the ring round the nearest player that is up" in "The
+> bots follow a player" above is what this narrowed.
+
+- **`Bim::under_fire`** (serde default) is seconds left of
+  `UNDER_FIRE` (5), set in `count_hit_taken` — every enemy hit applied
+  to the body, bolt or blow — and run down in `tick_combat`.
+- **The Follow branch of `bot_stand`**: anything in sight is
+  `plan_stand` as before; else, **under fire or with no player up**, the
+  bot `seek`s — `Tactics::charge` at the nearest enemy it can walk to, on
+  its `plan_wait` clock, until one is in sight; else it gathers. A stand
+  scored from where it stood read being blind to the enemy as cover and
+  held it there, which is how a crew stood in a ring round a downed
+  player while the last machine shot them from the dark (the user's
+  report).
+- **"Up" is not downed** (`Game::leads`): a downed player is no anchor
+  for `gather` and does not count as a player up.
+- **A bot under fire takes up no revive** (`ready_to_revive`); one in
+  hand goes on, since damage does not interrupt a revive.
+
+`a_bot_under_fire_or_with_its_player_down_fights_rather_than_gathers`
+and `a_bot_under_fire_takes_up_no_revive` pin it. `SAVE_VERSION` 72,
+`wire::PROTOCOL` 74. No survivor pin moved.
