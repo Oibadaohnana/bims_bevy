@@ -1456,7 +1456,9 @@ fn a_ship_without_the_comforts_says_so_without_refusing() {
         assert!(!all_codes(&fed, 1).contains(&IssueCode::NoFoodAboard.code()));
     }
 
-    // --- a_ship_with_no_bay_and_no_locker_says_so_without_refusing ---
+    // --- a_ship_with_no_locker_says_so_without_refusing ---
+    // A ship with no bay says nothing: nothing aboard eats since feature
+    // 104, and the default ship has none.
     {
         let mut design = reference(1);
         design
@@ -1465,8 +1467,8 @@ fn a_ship_without_the_comforts_says_so_without_refusing() {
         let issues = validate(&design, 1);
         assert!(!has_errors(&issues));
         let codes: Vec<u32> = issues.iter().map(|i| i.code).collect();
-        assert!(codes.contains(&IssueCode::NoHydroBay.code()));
         assert!(codes.contains(&IssueCode::NoBroomLocker.code()));
+        assert!(!codes.contains(&22), "the bay's retired warning: {codes:?}");
     }
 }
 
@@ -2174,7 +2176,7 @@ fn the_playtest_ship_is_a_whole_ship_for_one_and_moves_onto_a_bigger_grid_whole(
             (PartKind::Toilet, 1),
             (PartKind::Basin, 1),
             (PartKind::Shower, 1),
-            (PartKind::HydroBay, 1),
+            (PartKind::HydroBay, 0),
             (PartKind::BroomLocker, 1),
             // Two: the armoury is the fourth bench, and the first reactor had
             // three units to spare.
@@ -2189,7 +2191,7 @@ fn the_playtest_ship_is_a_whole_ship_for_one_and_moves_onto_a_bigger_grid_whole(
             (PartKind::Wall, 24),
             // The spine, bow to reactor, and the branches to every consumer —
             // the seven lamps among them.
-            (PartKind::PowerConduit, 70),
+            (PartKind::PowerConduit, 69),
         ] {
             assert_eq!(design.count(kind), want, "{kind:?}");
         }
@@ -3095,12 +3097,12 @@ fn the_fixtures_are_wired() {
     assert_eq!(power.supply, 2.0 * REACTOR_OUTPUT);
     // The one engine, wired along row 16, which is what it burns.
     assert_eq!(power.engine_draw, ENGINE_POWER);
-    // Life support, the helm, the array, the cold store, the bay, two
-    // doors, the workbench, the armoury and the research desk: 92, the
-    // smelter's 40 gone with the smelter and the drug lab's 5 with the
-    // medicine (task 120) — and the six wall lights and the standing
-    // light, 190 between them, since the lamps went on the bill.
-    assert_eq!(power.draw, 282.0);
+    // Life support, the helm, the array, the cold store, two doors, the
+    // workbench, the armoury and the research desk: 77, the smelter's 40
+    // gone with the smelter, the drug lab's 5 with the medicine (task 120)
+    // and the bay's 15 with the bay — and the six wall lights and the
+    // standing light, 190 between them, since the lamps went on the bill.
+    assert_eq!(power.draw, 267.0);
     assert_eq!(power.storage, crate::parts::BATTERY_CHARGE);
     let codes = all_codes(&design, 1);
     assert!(!codes.contains(&IssueCode::Unpowered.code()));

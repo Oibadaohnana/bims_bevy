@@ -90,8 +90,8 @@ pub enum IssueCode {
     /// is dead weight. The code is unchanged because these cross the wasm
     /// boundary; the meaning and the sentence in `ISSUE_LINES` are not.
     NoForwardEngine = 21,
-    /// No hydroponic bay. The food aboard is all the food there will be.
-    NoHydroBay = 22,
+    // 22 was `NoHydroBay`, a warning for a ship with no bay: nothing aboard
+    // eats since feature 104, and the default ship lost its bay. A hole.
     NoBroomLocker = 23,
     /// The outside can see in. Tiles the radiation reaches — see
     /// [`exposure`], and the module note above for why this is a warning
@@ -717,9 +717,6 @@ fn engines(design: &ShipDesign, issues: &mut Vec<Issue>) {
 }
 
 fn comforts(design: &ShipDesign, issues: &mut Vec<Issue>) {
-    if design.count(PartKind::HydroBay) == 0 {
-        issues.push(Issue::warning(IssueCode::NoHydroBay));
-    }
     if design.count(PartKind::BroomLocker) == 0 {
         issues.push(Issue::warning(IssueCode::NoBroomLocker));
     }
@@ -727,8 +724,7 @@ fn comforts(design: &ShipDesign, issues: &mut Vec<Issue>) {
         issues.push(Issue::warning(IssueCode::NoHelm));
     }
     // Food is what is *aboard*, not what the ship could hold: a cold store
-    // with nothing in it feeds nobody. The bay is a separate warning and a
-    // separate problem — it makes more, slowly.
+    // with nothing in it feeds nobody.
     let food = design.carrying(ResourceId::Vegetable) + design.carrying(ResourceId::Tofu);
     if food == 0 {
         issues.push(Issue::warning(IssueCode::NoFoodAboard));

@@ -2442,12 +2442,44 @@ fn a_bim_can_be_sent_to_stand_in_a_doorway_and_a_locked_door_is_a_wall() {
 fn the_bay_aboard_is_a_tray_a_tile_along_its_run() {
     use bims::aboard::layout_of;
     use bims::fixtures::Bay;
-    use shipdesign::fixture::playtest_ship;
     use shipdesign::parts::TILE;
     let tile = TILE as f32;
 
-    // The playtest ship's bay lies east–west and is worked from the north.
-    let layout = layout_of(&playtest_ship());
+    // A bay on a square of deck, turned `rotation`. The playtest ship's
+    // lay east–west until the bay went off it.
+    let budget = Budget::new(1_000_000);
+    let bay_on_deck = |rotation| {
+        let mut design = ShipDesign::new(12);
+        for y in 1..11 {
+            for x in 1..11 {
+                for kind in [PartKind::Structure, PartKind::Floor] {
+                    design = apply(
+                        &design,
+                        &budget,
+                        Edit::Place {
+                            kind,
+                            origin: (x, y),
+                            rotation: Rotation::R0,
+                        },
+                    )
+                    .unwrap();
+                }
+            }
+        }
+        apply(
+            &design,
+            &budget,
+            Edit::Place {
+                kind: PartKind::HydroBay,
+                origin: (2, 2),
+                rotation,
+            },
+        )
+        .expect("a bay")
+    };
+
+    // One lying east–west is worked from the north.
+    let layout = layout_of(&bay_on_deck(Rotation::R0));
     assert_eq!((layout.bay_side.x, layout.bay_side.y), (0.0, -1.0));
     let bay = Bay::at(layout.bay, layout.bay_side);
     for (i, tray) in bay.trays().iter().enumerate() {
@@ -2459,35 +2491,7 @@ fn the_bay_aboard_is_a_tray_a_tile_along_its_run() {
     }
 
     // One standing north–south, worked from the east: the same spots turned.
-    let budget = Budget::new(1_000_000);
-    let mut design = ShipDesign::new(12);
-    for y in 1..11 {
-        for x in 1..11 {
-            for kind in [PartKind::Structure, PartKind::Floor] {
-                design = apply(
-                    &design,
-                    &budget,
-                    Edit::Place {
-                        kind,
-                        origin: (x, y),
-                        rotation: Rotation::R0,
-                    },
-                )
-                .unwrap();
-            }
-        }
-    }
-    design = apply(
-        &design,
-        &budget,
-        Edit::Place {
-            kind: PartKind::HydroBay,
-            origin: (2, 2),
-            rotation: Rotation::R90,
-        },
-    )
-    .expect("a turned bay");
-    let layout = layout_of(&design);
+    let layout = layout_of(&bay_on_deck(Rotation::R90));
     assert_eq!((layout.bay_side.x, layout.bay_side.y), (1.0, 0.0));
     let bay = Bay::at(layout.bay, layout.bay_side);
     for (i, tray) in bay.trays().iter().enumerate() {
@@ -2834,7 +2838,7 @@ fn a_brownout_darkens_the_ship_and_stops_the_benches_until_the_power_is_back() {
     // The reactors held under the draw: the battery drains, and the ship
     // is not browned out.
     let draw = world.power().draw;
-    assert_eq!(draw, 282.0);
+    assert_eq!(draw, 267.0);
     world.throttle_reactors_for_probe(draw - 27.0);
     let events = world.step(&[]);
     assert!(!events.iter().any(|e| matches!(e, WorldEvent::Brownout)));

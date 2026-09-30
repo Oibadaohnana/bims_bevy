@@ -343,7 +343,6 @@ pub fn issue_line(code: u32) -> Option<&'static str> {
         12 => "Parts nobody could walk between.",
         20 => "No engine — the ship goes nowhere.",
         21 => "No engine pushes it forward, so it cannot set off.",
-        22 => "No hydroponic bay. The food aboard is all the food there will be.",
         23 => "No broom locker, so nothing to sweep the deck with.",
         24 => "The outside can see in. The crew will be irradiated here.",
         25 => "Nothing to eat aboard.",

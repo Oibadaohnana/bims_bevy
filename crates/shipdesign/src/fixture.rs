@@ -359,13 +359,16 @@ pub fn flyer(crew: u32) -> ShipDesign {
 /// slots (task 115), the ship itself untouched, from
 /// `0x9647_17e1_0fef_b96c` for two more (task 116), and from
 /// `0xa5d6_d976_ad54_1eec` for the drug lab taken out and the bandages and
-/// medkits out of the cargo (task 120).
-pub const PLAYTEST_HASH: u64 = 0x8046_76c8_2953_29f7;
+/// medkits out of the cargo (task 120), and from `0x8046_76c8_2953_29f7`
+/// for the hydroponic bay and its tile of conduit taken out (the bots
+/// wedged themselves beside it).
+pub const PLAYTEST_HASH: u64 = 0xad31_5e8e_0e0d_0049;
 
 /// How many parts [`playtest_ship`] ends up with. What notices a placement
 /// that was quietly refused — the builder skips rather than panics, for the
-/// reason [`REFERENCE_PARTS`] gives.
-pub const PLAYTEST_PARTS: u32 = 666;
+/// reason [`REFERENCE_PARTS`] gives. 666 until the bay and its conduit
+/// went.
+pub const PLAYTEST_PARTS: u32 = 664;
 
 /// The playtest hull, as columns of the grid: the west skin and the east,
 /// the bow row and the stern row. Sixteen tiles across and eighteen long,
@@ -417,7 +420,7 @@ const PLAYTEST_PLANT: (u32, u32) = (16, 10);
 
 /// Where the playtest ship's conduit leaves its spine, column 8. See
 /// [`playtest_ship`].
-const PLAYTEST_BRANCHES: [(u32, u32); 54] = [
+const PLAYTEST_BRANCHES: [(u32, u32); 53] = [
     // the reactor, along row 16 to the spine
     (4, 16),
     (5, 16),
@@ -453,8 +456,7 @@ const PLAYTEST_BRANCHES: [(u32, u32); 54] = [
     (11, 17),
     // the drug lab, to port of the engine, off the reactor's run
     (7, 17),
-    // the bay, the bridge door, and the aft door along its bulkhead
-    (9, 10),
+    // the bridge door, and the aft door along its bulkhead
     (9, 6),
     (9, 13),
     (10, 13),
@@ -571,7 +573,7 @@ fn playtest_skin(x: u32, y: u32) -> bool {
 /// else (`T` thruster, `S` sensor array, `A` airlock, `E` engine, `H` helm,
 /// `L` life support, `B` battery, then `C` cold store, `W` worktop, `H` hob,
 /// `D` dishwasher, `B` locker, `S` suit locker, `A` armoury, `T` table,
-/// `C` chair, `H` bay, `R` its reactor, `B` bunk, `S` shelf,
+/// `C` chair, `R` the armoury's reactor, `B` bunk, `S` shelf,
 /// `T` toilet, `B` basin, `S` shower, `R` reactor, `D` drug lab, `W`
 /// workbench, `S` smelter):
 ///
@@ -585,7 +587,7 @@ fn playtest_skin(x: u32, y: u32) -> bool {
 ///  7   TCWWHD...BS.AA.T
 ///  8   #.............B#
 ///  9   #.............B#
-/// 10   #.TT...HHHHHH..#
+/// 10   #.TT...........#
 /// 11   #.C........RR..A
 /// 12   #..........RR..A
 /// 13   #============++#
@@ -692,10 +694,12 @@ pub fn playtest_ship() -> ShipDesign {
 
     // The main deck: the galley along the bridge bulkhead to port, worked
     // from the row below it, with the locker beyond the door; the table and
-    // its chair under the galley; the bay's six trays across the middle of
-    // the deck, worked from the row above them; the bunk against the
-    // starboard skin, forward of the airlock so the way through it stays
-    // clear.
+    // its chair under the galley; the bunk against the starboard skin,
+    // forward of the airlock so the way through it stays clear. The
+    // hydroponic bay's six trays stood across the middle of the deck at
+    // (9, 10) until the bots kept wedging themselves in the one-tile gap
+    // between its east end and the plant at the foot of the bunk; nothing
+    // replaced it, and nothing aboard eats since feature 104.
     put(&mut design, PartKind::ColdStore, (3, 7), Rotation::R0);
     put(&mut design, PartKind::Worktop, (4, 7), Rotation::R0);
     put(&mut design, PartKind::Hob, (6, 7), Rotation::R0);
@@ -704,11 +708,10 @@ pub fn playtest_ship() -> ShipDesign {
     put(&mut design, PartKind::SuitLocker, (12, 7), Rotation::R0);
     put(&mut design, PartKind::Table, (4, 10), Rotation::R0);
     put(&mut design, PartKind::Chair, (4, 11), Rotation::R0);
-    put(&mut design, PartKind::HydroBay, (9, 10), Rotation::R0);
     put(&mut design, PartKind::Bunk, (16, 8), Rotation::R0);
     // The armoury along the bridge bulkhead to starboard, forward of the
     // bunk and worked from the row below it like the galley; and the
-    // second reactor that pays for it, under the bay by the airlock. The
+    // second reactor that pays for it, amidships by the airlock. The
     // first reactor had three units to spare and the armoury draws ten
     // (see "Power is a column" in the crate's notes), so a fourth bench
     // was always going to be a second reactor.
@@ -773,8 +776,8 @@ pub fn playtest_ship() -> ShipDesign {
     // ship to the bow, through the bulkheads — conduit shares a tile with
     // what stands in it — and a branch off it to everything that draws:
     // the helm and the array at the bow, life support and the battery
-    // across the bridge, the galley along its row to the cold store, the
-    // bay, and both doors. Every consumer is on the one network, which is
+    // across the bridge, the galley along its row to the cold store, and
+    // both doors. Every consumer is on the one network, which is
     // what `the_playtest_ship_is_wired` pins.
     for y in 1..=16 {
         put(&mut design, PartKind::PowerConduit, (8, y), Rotation::R0);
