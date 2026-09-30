@@ -2164,16 +2164,26 @@ impl World {
             self.mercenaries_of(station),
             station.map_seed,
         );
+        // The three rooms below are nearly all a site's building, counted
+        // for the app's loading bar (`crate::loading`).
+        let units = crate::loading::units(&design);
+        crate::loading::site(2 * units + crate::loading::DECK_UNITS);
         // The residents' room: the one already open, or opened now if the
         // ship arrived faster than the room did.
         let residents = match self.residents.take() {
-            Some(residents) if residents.station == id => residents,
+            Some(residents) if residents.station == id => {
+                crate::loading::skip(units);
+                residents
+            }
             other => {
                 // Another station's room, if that is what was open, is
                 // closed the way the range closes one: its dead counted.
                 self.residents = other;
                 self.close_residents();
-                self.open_residents(id, &design, count, mercs, seed)
+                crate::loading::begin(units);
+                let opened = self.open_residents(id, &design, count, mercs, seed);
+                crate::loading::end();
+                opened
             }
         };
         let ship_seed = self.galaxy_seed ^ self.steps;
@@ -2186,6 +2196,7 @@ impl World {
         let terrain = surface::surface_body(id)
             .and_then(|body| self.surface(body))
             .map(|surface| surface.terrain());
+        crate::loading::begin(crate::loading::DECK_UNITS);
         self.aboard = Aboard::joined(
             joined,
             &self.ship.design,
@@ -2195,6 +2206,7 @@ impl World {
             self.clock_minutes,
             terrain,
         );
+        crate::loading::end();
         // Landed, the town's ground on the joined deck is under the sky.
         if surface::surface_body(id).is_some() {
             self.aboard.daylight_over_station();
@@ -2209,6 +2221,7 @@ impl World {
         residents.aboard.room.set_fog(bims::sight::Fog::None);
         // And the ship is on its deck too, turned into the station's frame,
         // so its people can follow the crew aboard.
+        crate::loading::begin(units);
         if let Some(station) = self.station(id) {
             residents.join(
                 &self.ship.design,
@@ -2218,6 +2231,7 @@ impl World {
                 self.clock_minutes,
             );
         }
+        crate::loading::end();
         self.residents = Some(residents);
         self.apply_stances();
         self.restore_lamps();

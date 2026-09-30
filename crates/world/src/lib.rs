@@ -63,6 +63,7 @@ pub mod heart;
 pub mod holdings;
 pub mod jammer;
 pub mod jump;
+pub mod loading;
 pub mod manufacturer;
 pub mod medic;
 pub mod memory;
