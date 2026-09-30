@@ -47,6 +47,9 @@ The main ones:
 | `crisis`, `jammer`, `guardian`, `relics`, `heart`, `manufacturers` | one mechanic each, staged |
 | `stationbuilder [name]` | a sketch tool for station layouts |
 
+`BUILD` at the root is the build number shown in every window's top left
+corner and the nix packages' version; `ship` (`~/nixcfg/scripts/server-ship.sh`)
+moves it up 0.1 each time it pushes the repo to the server — leave it be.
 `bims --self-check` checks the pinned constants. Esc → Restart puts any
 run back to its start.
 
