@@ -133,6 +133,13 @@ fn a_crew_member_s_bolts_are_stopped_by_the_shield_across_the_seam_and_land_from
         whole,
         "every bolt from the front stopped at the plate"
     );
+    // Each of them worn off the plate, across the seam.
+    let worn = guardian(&world).plate_taken;
+    assert!(worn > 0.0, "the plate took what it stopped");
+    assert!(
+        worn < bims::balance::GUARDIAN_SHIELD_HP,
+        "and is not broken: {worn}"
+    );
     // And the shield handed across is the machine's own, turned onto the
     // joined deck: facing back down the corridor at the crew.
     let facing = guardian(&world).facing();
@@ -151,6 +158,45 @@ fn a_crew_member_s_bolts_are_stopped_by_the_shield_across_the_seam_and_land_from
         }
     }
     assert!(hurt, "from behind the bolts land");
+}
+
+/// The plate breaks when it has stopped its hit points' worth, and from
+/// then on the crew member's bolts land from the front.
+#[test]
+fn a_plate_worn_through_across_the_seam_breaks_and_the_front_is_open() {
+    let mut world = simulation_world(flyer(2), REFERENCE_MONEY, 2);
+    world.set_droid_tier_for_probe(Some(Tier::Three));
+    assert!(world.stage_droid_fight_for_probe(DroidKind::Guardian, None));
+    let whole = guardian_health(&world);
+    // A hair short of broken.
+    world
+        .residents
+        .as_mut()
+        .unwrap()
+        .aboard
+        .room
+        .droid_mut_for_probe(0)
+        .unwrap()
+        .plate_taken = bims::balance::GUARDIAN_SHIELD_HP - 1.0;
+    assert!(guardian(&world).shield().is_some());
+    let mut broke = None;
+    let mut hurt = false;
+    for frame in 0..(60 * 20) {
+        world.aboard.room.patch_up_for_probe(0);
+        world.step(&[]);
+        if broke.is_none() && guardian(&world).shield().is_none() {
+            // The bolt that broke it was stopped: nothing on the body yet.
+            assert_eq!(guardian_health(&world), whole);
+            broke = Some(frame);
+        }
+        if guardian_health(&world) < whole {
+            hurt = true;
+            break;
+        }
+    }
+    assert!(broke.is_some(), "the next bolt broke the plate");
+    assert!(guardian(&world).plate_broken());
+    assert!(hurt, "and the bolts after it land from the front");
 }
 
 /// A Guardian armed and awake four tiles down the corridor from the

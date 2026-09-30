@@ -2670,6 +2670,9 @@ impl World {
                 .as_ref()
                 .is_some_and(|r| Some(r.station) == self.ship.state.station());
         let hits = self.aboard.room.take_hits();
+        // And what the Guardians' plates stopped of the crew's bolts and
+        // blows, for the plate to take (a sealed core's shell takes none).
+        let plate_hits = self.aboard.room.take_plate_hits();
         // The engineers' sentries (feature 74), for the residents to be
         // handed after the crew: each at its spot in the station's own
         // units, with its rifle. Worked out before the residents' room
@@ -2758,6 +2761,13 @@ impl World {
             }
             if let Some(last) = residents.last_hit_by.get_mut(who) {
                 *last = hit.by;
+            }
+        }
+        // A plate that stopped a bolt took it, by the same index a hit
+        // lands by: past the room's Bims, a machine.
+        for (who, damage) in plate_hits {
+            if let Some(i) = who.checked_sub(bims) {
+                room.strike_plate(i, damage);
             }
         }
         // Who is down, asked of the room rather than read off the hits: a
@@ -2996,6 +3006,11 @@ impl World {
         // past the Bims and a Manufacturer's among them.
         let own = room.take_hits();
         let bims = room.crew_count() as usize;
+        for (who, damage) in room.take_plate_hits() {
+            if let Some(i) = who.checked_sub(bims) {
+                room.strike_plate(i, damage);
+            }
+        }
         for hit in own {
             match hit.who.checked_sub(bims) {
                 Some(i) => {

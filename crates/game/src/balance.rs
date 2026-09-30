@@ -439,6 +439,11 @@ pub const GUARDIAN_SHIELD_COS: f32 = 0.5;
 /// How far out from the Guardian's middle the shield's plate stands, in
 /// room units: where a stopped bolt stops and where the plate is drawn.
 pub const GUARDIAN_SHIELD_RADIUS: f32 = 34.0;
+/// How much the Guardian's plate stops before it breaks: every bolt and
+/// blow it stops takes its damage (at the distance flown, unarmoured)
+/// off this, and at nothing the plate is gone for good and the machine
+/// stands open from every side.
+pub const GUARDIAN_SHIELD_HP: f32 = 1000.0;
 /// What a Guardian walks at, as a share of a Bim's marching pace.
 pub const GUARDIAN_PACE: f32 = 0.7;
 

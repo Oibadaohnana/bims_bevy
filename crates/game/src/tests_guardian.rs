@@ -580,3 +580,127 @@ fn arms_gone_halve_the_beam_it_lets_go() {
     }
     assert!((damage[1] - damage[0] * balance::DROID_ARMS_DAMAGE).abs() < 1e-3);
 }
+
+/// The plate has [`balance::GUARDIAN_SHIELD_HP`]: every bolt it stops is
+/// handed over as a plate hit carrying the damage it would have struck
+/// with, and once the machine's plate has taken that much it breaks —
+/// no shield from then on, so a bolt from the front lands.
+#[test]
+fn the_plate_stops_its_hit_points_worth_and_then_breaks() {
+    let sight = open_sight();
+    let centre = vec2(15.0 * TILE, 15.0 * TILE);
+    let heading = vec2(1.0, 0.0);
+    let sniper = WeaponKind::SniperRifle.basic();
+    let from = centre + heading * (6.0 * TILE);
+    let mut combat = Combat::new(5);
+    combat.set_targets(vec![Some((centre, WeaponKind::Sweeper.at(Tier::Three)))]);
+    combat.set_shields(&[Some(heading)]);
+    combat.fire(from, centre, sniper, false, false);
+    for _ in 0..60 {
+        combat.step(DT, &sight, &[]);
+    }
+    assert!(combat.take_hits().is_empty(), "stopped at the plate");
+    let plated = combat.take_plate_hits();
+    assert_eq!(plated.len(), 1, "one bolt, one plate hit");
+    let flown = (6.0 * TILE - balance::GUARDIAN_SHIELD_RADIUS) / TILE;
+    let want = sniper.stats().damage_at(flown);
+    assert_eq!(plated[0].0, 0);
+    assert!(
+        (plated[0].1 - want).abs() < 1e-3,
+        "the damage it carried: {} against {want}",
+        plated[0].1
+    );
+    // A blow from the front is a plate hit too, as hard as the blow.
+    combat.brawl(
+        centre + heading * (0.8 * TILE),
+        0,
+        WeaponKind::Schword.basic(),
+        42.0,
+        true,
+        false,
+        Some(0),
+        42.0,
+    );
+    assert_eq!(combat.take_plate_hits(), vec![(0, 42.0)]);
+
+    // The machine's side: the plate wears to nothing and breaks once.
+    let mut d = guardian_at(centre, heading);
+    assert_eq!(d.shield(), Some(heading));
+    assert_eq!(d.plate_left(), 1.0);
+    assert!(!d.strike_plate(balance::GUARDIAN_SHIELD_HP - 1.0));
+    assert_eq!(d.shield(), Some(heading), "a hair left still stops");
+    assert!(d.strike_plate(1.0), "the one that breaks it says so");
+    assert_eq!(d.shield(), None, "broken: no shield from any side");
+    assert_eq!(d.plate_left(), 0.0);
+    assert!(!d.strike_plate(50.0), "nothing more to break");
+    // And the body is untouched by all that the plate took.
+    assert!(!d.destroyed);
+    // No other kind has a plate to wear.
+    let mut trooper = Droid::new(DroidKind::Trooper, Tier::Three, 0, 1, centre, 0.0, 3);
+    assert!(!trooper.strike_plate(5000.0));
+    assert_eq!(trooper.plate_taken, 0.0);
+
+    // Through the room: the plate broken there, the shield handed over
+    // is none and the bolt lands.
+    let mut game = machines_room();
+    game.add_droid(guardian_at(centre, heading));
+    assert!(game.strike_plate(0, balance::GUARDIAN_SHIELD_HP));
+    assert_eq!(game.droids()[0].shield(), None);
+    let mut combat = Combat::new(5);
+    combat.set_targets(vec![Some((centre, WeaponKind::Sweeper.at(Tier::Three)))]);
+    combat.set_shields(&[game.droids()[0].shield()]);
+    let mut hits = 0;
+    for _ in 0..10 {
+        combat.fire(from, centre, sniper, false, false);
+        for _ in 0..60 {
+            combat.step(DT, &sight, &[]);
+        }
+        hits += combat.take_hits().len();
+    }
+    assert!(hits > 5, "{hits} of 10 through a broken plate");
+    assert!(combat.take_plate_hits().is_empty());
+}
+
+/// A sealed core (feature 108) is no target for a bot: nobody aims at
+/// it, picks a stand against it or charges it. Unsealed, it is a target
+/// like any other.
+#[test]
+fn a_sealed_core_is_no_stand_and_no_charge_until_it_opens() {
+    use crate::character::BODY_MARGIN;
+    use crate::combat::Tactics;
+    let interior = Rect::from_min_size(Vec2::ZERO, vec2(30.0 * TILE, 30.0 * TILE));
+    let nav = &crate::nav::Nav::tiled(interior, &[], BODY_MARGIN, TILE);
+    let from = vec2(10.0 * TILE, 15.0 * TILE);
+    let core = from + vec2(4.0 * TILE, 0.0);
+    let arm = WeaponKind::Sweeper.at(Tier::Three);
+    let mut combat = Combat::new(3);
+    combat.set_targets(vec![Some((core, arm))]);
+    let sight = open_sight();
+    let rifle = WeaponKind::LaserPistol.basic().stats();
+    let blade = WeaponKind::Schword.basic().stats();
+    let stand = |c: &Combat, stats| {
+        Tactics::stand_with_cover(
+            &sight,
+            nav,
+            from,
+            c.targets(),
+            stats,
+            &[],
+            &[],
+            false,
+            crate::combat::DISTANCE_WORTH,
+        )
+    };
+    // Open: a stand, a charge and a shot.
+    assert!(combat.aim(&sight, from, &rifle).is_some());
+    assert!(stand(&combat, &rifle).is_some());
+    assert!(stand(&combat, &blade).is_some());
+    assert!(Tactics::charge(nav, from, combat.targets()).is_some());
+    // Sealed: none of them.
+    combat.set_shields(&[Some(Vec2::ZERO)]);
+    assert!(combat.targets()[0].unwrap().sealed());
+    assert!(combat.aim(&sight, from, &rifle).is_none());
+    assert!(stand(&combat, &rifle).is_none());
+    assert!(stand(&combat, &blade).is_none());
+    assert!(Tactics::charge(nav, from, combat.targets()).is_none());
+}

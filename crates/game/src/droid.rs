@@ -674,6 +674,16 @@ pub struct Droid {
     /// (`class::EMP_EXPOSE_PERCENT`, the world's).
     #[cfg_attr(feature = "serde", serde(default))]
     pub exposed: bool,
+    /// What a Guardian's plate has stopped so far: the damage of every
+    /// bolt and blow it turned (`Game::strike_plate`). At
+    /// [`balance::GUARDIAN_SHIELD_HP`] the plate is broken and
+    /// [`Droid::shield`] is `None` for good. Nought for every other kind.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub plate_taken: f32,
+    /// How long its plate has been broken, for the picture of it
+    /// collapsing; nought while it stands.
+    #[cfg_attr(feature = "serde", serde(default))]
+    plate_age: f32,
     /// How long it has been one, for the sparks that die away.
     wreck_age: f32,
     /// The walk phase, the idle phase, and the timers the picture reads.
@@ -734,6 +744,8 @@ impl Droid {
             lit: false,
             stunned: 0.0,
             exposed: false,
+            plate_taken: 0.0,
+            plate_age: 0.0,
             wreck_age: 0.0,
             stride: 0.0,
             idle: 0.0,
@@ -988,8 +1000,9 @@ impl Droid {
 
     /// The way its shield faces, for a standing Guardian — what the world
     /// hands the crew's room with the target (`Combat::set_shields`) — and
-    /// `None` for a wreck or any other kind. **The shield cannot be
-    /// broken**: nothing but the machine being destroyed takes it away.
+    /// `None` for a wreck or any other kind. **The plate breaks** once it
+    /// has stopped [`balance::GUARDIAN_SHIELD_HP`] of damage
+    /// ([`Droid::strike_plate`]), and is `None` from then on.
     pub fn shield(&self) -> Option<Vec2> {
         if self.destroyed {
             return None;
@@ -1004,7 +1017,41 @@ impl Droid {
         if self.is_stunned() {
             return None;
         }
-        self.is_guardian().then_some(self.facing)
+        (self.is_guardian() && !self.plate_broken()).then_some(self.facing)
+    }
+
+    /// Whether a Guardian's plate has stopped all it can and is gone.
+    pub fn plate_broken(&self) -> bool {
+        self.plate_taken >= balance::GUARDIAN_SHIELD_HP
+    }
+
+    /// What is left of a Guardian's plate, 0 to 1; nought for any other
+    /// kind.
+    pub fn plate_left(&self) -> f32 {
+        if !self.is_guardian() {
+            return 0.0;
+        }
+        clamp(
+            1.0 - self.plate_taken / balance::GUARDIAN_SHIELD_HP,
+            0.0,
+            1.0,
+        )
+    }
+
+    /// A bolt or a blow its plate stopped, `damage` hard: taken off the
+    /// plate. Whether this is the one that broke it. Nothing for a wreck,
+    /// any other kind — a sealed core's shell is not a plate — or a plate
+    /// already gone.
+    pub fn strike_plate(&mut self, damage: f32) -> bool {
+        if self.destroyed || !self.is_guardian() || self.plate_broken() {
+            return false;
+        }
+        self.plate_taken += damage.max(0.0);
+        if self.plate_broken() {
+            self.plate_age = 0.0;
+            return true;
+        }
+        false
     }
 
     /// Whether it is stunned (task 127).
@@ -1116,6 +1163,10 @@ impl Droid {
         } else {
             self.flash = (self.flash - dt).max(0.0);
             self.snap = (self.snap - dt).max(0.0);
+        }
+        // A broken plate collapses on its own clock, a wreck's or not.
+        if self.plate_broken() {
+            self.plate_age += dt;
         }
         if self.destroyed {
             self.wreck_age += dt;
@@ -1841,19 +1892,22 @@ impl Droid {
         const STEPS: usize = 12;
         let half = SHIELD_HALF_ARC;
         let r = balance::GUARDIAN_SHIELD_RADIUS * SHIELD_DECK_REACH;
-        let mut prev = self.on_arc(-half, r);
-        for i in 1..=STEPS {
-            let next = self.on_arc(-half + 2.0 * half * i as f32 / STEPS as f32, r);
-            list.line(prev, next, 1.5, SHIELD_DECK);
-            prev = next;
-        }
-        for side in [-1.0f32, 1.0] {
-            list.line(
-                self.on_arc(side * half, balance::GUARDIAN_SHIELD_RADIUS * 0.8),
-                self.on_arc(side * half, r),
-                1.2,
-                SHIELD_DECK,
-            );
+        // A broken plate stops nothing, so its arc is not marked.
+        if !self.plate_broken() {
+            let mut prev = self.on_arc(-half, r);
+            for i in 1..=STEPS {
+                let next = self.on_arc(-half + 2.0 * half * i as f32 / STEPS as f32, r);
+                list.line(prev, next, 1.5, SHIELD_DECK);
+                prev = next;
+            }
+            for side in [-1.0f32, 1.0] {
+                list.line(
+                    self.on_arc(side * half, balance::GUARDIAN_SHIELD_RADIUS * 0.8),
+                    self.on_arc(side * half, r),
+                    1.2,
+                    SHIELD_DECK,
+                );
+            }
         }
         if let Some((t, aim, _)) = self.wind_up() {
             let lens = self.muzzle();
@@ -1885,13 +1939,20 @@ impl Droid {
     fn draw_guardian_over(&self, list: &mut DrawList) {
         const SEGMENTS: usize = 9;
         let half = SHIELD_HALF_ARC;
-        let (reach, shown) = if self.destroyed {
-            let u = self.wreck_age / SHIELD_COLLAPSE;
+        // Collapsing since the plate broke, or since the machine did —
+        // whichever came first.
+        let collapsing = if self.plate_broken() {
+            Some(self.plate_age)
+        } else {
+            self.destroyed.then_some(self.wreck_age)
+        };
+        let (reach, shown) = if let Some(age) = collapsing {
+            let u = age / SHIELD_COLLAPSE;
             if u >= 1.0 {
                 (0.0, 0.0)
             } else {
                 // Flickering out: a hash of the moment, never a roll.
-                let flick = self.scatter(200 + (self.wreck_age * 30.0) as u32);
+                let flick = self.scatter(200 + (age * 30.0) as u32);
                 (
                     1.0 - 0.45 * u,
                     if flick < 0.5 * (1.0 - u) + 0.2 {
@@ -1902,7 +1963,9 @@ impl Droid {
                 )
             }
         } else {
-            (1.0, 1.0)
+            // A worn plate thins as it takes its damage; whole, it is the
+            // plate it always was.
+            (1.0, 0.35 + 0.65 * self.plate_left())
         };
         if shown > 0.0 {
             let r = balance::GUARDIAN_SHIELD_RADIUS * reach;

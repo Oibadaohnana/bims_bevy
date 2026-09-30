@@ -195,7 +195,9 @@ use crate::game::Game;
 /// the run's trader-relic vote gone.
 /// 69: `World::first_mission_uneased`, the `end` command's switch.
 /// 70: `HeartFight::links_down`, the conduits answered with a wave.
-pub const SAVE_VERSION: u32 = 70;
+/// 71: a Guardian's plate breaks (`Droid::plate_taken`, `plate_age`) and
+/// what shields stopped waits for the world (`Combat::plate_hits`).
+pub const SAVE_VERSION: u32 = 71;
 
 /// What the file holds, read back.
 #[derive(serde::Deserialize)]

@@ -3571,7 +3571,18 @@ legs at nothing stop the walk and nothing else.
   a sub-step of the want it faces the want exactly. `Droid::walk` does not
   ease a Guardian's heading the way it eases every other kind's.
 - **The shield is `Droid::shield()`**: `Some(facing)` for a standing
-  Guardian, `None` for a wreck and every other kind; it cannot be broken.
+  Guardian, `None` for a wreck and every other kind. **The plate breaks**
+  after `balance::GUARDIAN_SHIELD_HP` (1000): every bolt it stops is
+  handed over as a plate hit (`Combat::plate_hits`, target index and the
+  damage it would have struck with — the curve at the distance flown,
+  its own and point-blank factors, no armour; a stopped blow its
+  damage), which the world takes (`Game::take_plate_hits`) and lays on
+  the machine (`Game::strike_plate` → `Droid::strike_plate`, onto
+  `Droid::plate_taken`, saved and hashed where non-zero). At the
+  hit points the plate is gone for good — `shield()` `None`, a burst
+  where it stood, its deck arc no longer marked, the plate collapsing on
+  `plate_age` as a wreck's does; worn, the plate's band thins with
+  `plate_left()`. A sealed core's shell is no plate and takes none.
   The world hands it across with the targets
   (`Game::set_hostiles_shields` → `Combat::set_shields` →
   `Target::shield`), turned through the station's frame, and it is
@@ -3705,8 +3716,11 @@ walkers' branch.
   `Some(Vec2::ZERO)`, which `combat::shield_stops` reads as a shell all
   round: a bolt or a blow from any side stops at
   `GUARDIAN_SHIELD_RADIUS` and flares. `Target::sealed` keeps it out of
-  `aim_among` and `melee_among` unless it is marked, so the bots do not
-  spend a fight on it.
+  `aim_among` and `melee_among`, and out of the stands and the charges
+  (`Tactics::stand_scored` and `charge` weigh `open_targets`, the list
+  with every sealed core `None`), so the bots neither shoot at it nor
+  move to get a shot at it until it opens; a player's attack order
+  (`aim_only`) still may.
 - **The beams are the Guardian's.** Each emitter runs the `Beam` rhythm —
   wind-up, sweep, cooldown — with no turn (a core faces every way), on the
   nearest body it sees within reach, the second on somebody the first is

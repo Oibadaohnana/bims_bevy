@@ -1975,6 +1975,14 @@ pub struct Combat {
     /// the world takes it off a laid deployable's health
     /// (`Game::take_cover_hits`); a sandbag *part* shrugs it off.
     cover_hits: Vec<((i32, i32), f32)>,
+    /// Every bolt and blow a target's shield stopped since the world
+    /// last asked: the target's index and the damage it carried there,
+    /// unarmoured (the bolt's curve at the distance flown, its own
+    /// factors). The world takes it off a Guardian's plate
+    /// (`Droid::strike_plate`); a sealed core's shell is no plate and
+    /// shrugs it off.
+    #[cfg_attr(feature = "serde", serde(default))]
+    plate_hits: Vec<(usize, f32)>,
     /// What was heard: every bolt fired here, every one that landed, and
     /// every blow that did. See `crate::cue`. A hostile room's recorded
     /// `shots` say nothing — they are heard where they are flown.
@@ -2024,6 +2032,7 @@ impl Combat {
             shots: Vec::new(),
             lamp_hits: Vec::new(),
             cover_hits: Vec::new(),
+            plate_hits: Vec::new(),
             cues: Vec::new(),
             // A fresh room has been quiet for ever.
             lull: f32::MAX,
@@ -2248,6 +2257,12 @@ impl Combat {
     /// and the damage. See `cover_hits`.
     pub fn take_cover_hits(&mut self) -> Vec<((i32, i32), f32)> {
         std::mem::take(&mut self.cover_hits)
+    }
+
+    /// Every bolt and blow a shield stopped since the last call: the
+    /// target and the damage. See `plate_hits`.
+    pub fn take_plate_hits(&mut self) -> Vec<(usize, f32)> {
+        std::mem::take(&mut self.plate_hits)
     }
 
     /// A hit landed on a target as a bolt or a blow would land it, for
@@ -2970,6 +2985,7 @@ impl Combat {
             {
                 let plate = at + toward * balance::GUARDIAN_SHIELD_RADIUS;
                 self.fx.shield(at, plate);
+                self.plate_hits.push((target, damage));
                 self.cues.push(Cued {
                     cue: Cue::Shielded,
                     at: plate,
@@ -3084,6 +3100,7 @@ impl Combat {
         let mut heard: Vec<Cued> = Vec::new();
         let mut broken: Vec<(usize, f32)> = Vec::new();
         let mut bagged: Vec<((i32, i32), f32)> = Vec::new();
+        let mut plated: Vec<(usize, f32)> = Vec::new();
         self.bolts.retain_mut(|bolt| {
             let mut flight = bolt.vel * dt;
             let mut span = flight.len();
@@ -3334,6 +3351,16 @@ impl Combat {
                         // Nothing nearer than the lamp: the lamp took it.
                         let flown = (at - bolt.fired_from).len() / TILE;
                         broken.push((lamp, bolt.stats().damage_at(flown) * bolt.damage));
+                    } else if let Some(i) = shielded {
+                        // The plate took it, at the distance flown, as
+                        // hard as it would have struck the body.
+                        let flown = (at - bolt.fired_from).len() / TILE;
+                        let close = if flown <= bolt.stats().sweet {
+                            bolt.point_blank
+                        } else {
+                            1.0
+                        };
+                        plated.push((i, bolt.stats().damage_at(flown) * bolt.damage * close));
                     }
                     heard.push(Cued {
                         cue: match who {
@@ -3407,6 +3434,7 @@ impl Combat {
         self.bolts.extend(reflected);
         self.lamp_hits.extend(broken);
         self.cover_hits.extend(bagged);
+        self.plate_hits.extend(plated);
         self.sparks.extend(sparks);
         self.cues.extend(heard);
         // And the beams, after the bolts (feature 100).
@@ -3886,6 +3914,14 @@ impl Tactics {
         best.map(|(_, at)| at)
     }
 
+    /// The targets with every sealed core (feature 108) taken off the
+    /// list — `None` in its place, so the indices hold. What a body picks
+    /// a stand or a charge from: a shell that stops everything from every
+    /// side is nothing to go after until it opens.
+    fn open_targets(targets: &[Option<Target>]) -> Vec<Option<Target>> {
+        targets.iter().map(|t| t.filter(|t| !t.sealed())).collect()
+    }
+
     /// Where a body at `from` with a blade should go: the free cell it
     /// can reach nearest the nearest target — a charge. Cover means
     /// nothing to a blade, and distance is the one thing it wants less
@@ -3899,6 +3935,9 @@ impl Tactics {
     /// its own radius of `from` is gone for before any nearer one. A
     /// plain taunt, and a Juggernaut, do not move a blade.
     pub fn charge(nav: &Nav, from: Vec2, targets: &[Option<Target>]) -> Option<Vec2> {
+        // Never at a sealed core, which no blade gets through.
+        let open = Tactics::open_targets(targets);
+        let targets = &open[..];
         let by_distance_to = |to: Vec2| {
             move |a: &Vec2, b: &Vec2| {
                 (*a - to)
@@ -4131,6 +4170,11 @@ impl Tactics {
         cover_worth: f32,
         distance_worth: f32,
     ) -> Option<Stand> {
+        // A sealed core is nothing to stand against (feature 108): its
+        // shell stops everything, so nobody picks a spot for a shot at
+        // it — only the targets open to a shot are weighed.
+        let open = Tactics::open_targets(targets);
+        let targets = &open[..];
         if stats.melee {
             return Tactics::charge(nav, from, targets).map(|at| Stand { at, cover: false });
         }

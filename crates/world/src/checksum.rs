@@ -358,6 +358,13 @@ pub fn world_checksum(world: &World) -> u64 {
                 hash.eat(u64::from(d.exposed));
             }
         }
+        // And what each Guardian's plate has stopped, only where it has.
+        for i in 0..room.droid_count() as usize {
+            if let Some(d) = room.droid(i).filter(|d| d.plate_taken > 0.0) {
+                hash.eat(i as u64);
+                hash.eat_rounded(d.plate_taken as f64, FINE_GRID);
+            }
+        }
     }
     // And when each crew member's next charge of each kind is due, on
     // the clock's grid (features 88 and 90): a charge in the pack is a

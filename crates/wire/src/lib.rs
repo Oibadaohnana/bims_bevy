@@ -39,7 +39,9 @@ use serde::{Deserialize, Serialize};
 /// 71: the lobby's settings carry the `end` run's start day.
 /// 72: a conduit of the Machine Heart shot down brings a wave, and the
 /// `end` run's bots are plain classless Bims.
-pub const PROTOCOL: u32 = 72;
+/// 73: a Guardian's plate breaks after 1000 stopped, and bots stand and
+/// charge against a sealed core no more.
+pub const PROTOCOL: u32 = 73;
 
 /// Where the relay lives. `BIMS_SERVER` in the environment overrides it
 /// — `ws://127.0.0.1:8792` for one on the same machine.

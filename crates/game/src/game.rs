@@ -5630,6 +5630,32 @@ impl Game {
         true
     }
 
+    /// Machine `i`'s plate stopped a bolt or a blow `damage` hard (a
+    /// Guardian's, [`crate::balance::GUARDIAN_SHIELD_HP`] in all): taken off the
+    /// plate, which flares out where it stands the moment it breaks.
+    /// Whether this was the one that broke it.
+    pub fn strike_plate(&mut self, i: usize, damage: f32) -> bool {
+        let Some(droid) = self.droids.get_mut(i) else {
+            return false;
+        };
+        let broke = droid.strike_plate(damage);
+        if broke {
+            let (at, reach) = (droid.pos, crate::balance::GUARDIAN_SHIELD_RADIUS);
+            self.combat.lull_break();
+            self.combat
+                .fx
+                .burst(at + droid.front() * reach, reach * 0.5);
+        }
+        broke
+    }
+
+    /// Every bolt and blow a target's shield stopped here since the last
+    /// call: the target's index and the damage (`Combat::take_plate_hits`),
+    /// for the world to take off the machine's plate.
+    pub fn take_plate_hits(&mut self) -> Vec<(usize, f32)> {
+        self.combat.take_plate_hits()
+    }
+
     pub fn selected_count(&self, slot: u32) -> u32 {
         self.selected_all(slot).len() as u32
     }
