@@ -534,6 +534,53 @@ impl World {
         }
     }
 
+    /// Whether `command`, applied now, would carry the vote and take the
+    /// crew on the trip — the question [`World::go_if_carried`] answers,
+    /// asked without changing anything. A trip builds the site it lands
+    /// at, which is seconds, so the app asks first and applies such a
+    /// command off the window's thread behind a loading screen. A
+    /// refusal the command would meet on the way is not looked for
+    /// beyond the quote: a wrong yes is a loading screen for a moment.
+    pub fn would_travel(&self, command: &Command) -> bool {
+        if !matches!(self.run.phase, RunPhase::Map | RunPhase::Trade) {
+            return false;
+        }
+        let proposal = match *command {
+            Command::Propose {
+                slot,
+                star,
+                station,
+            } => {
+                let site = Site { star, station };
+                if self.travel_quote(site).is_err() {
+                    return false;
+                }
+                Proposal::new(site, slot, self.players())
+            }
+            Command::Accept { slot, yes: true } => {
+                let Some(mut proposal) = self.run.proposal.clone() else {
+                    return false;
+                };
+                if let Some(a) = proposal.accepted.get_mut(slot as usize) {
+                    *a = true;
+                }
+                proposal
+            }
+            Command::PlayerGone { slot } => {
+                let Some(proposal) = self.run.proposal.clone() else {
+                    return false;
+                };
+                let mut connected = self.run.connected.clone();
+                if let Some(c) = connected.get_mut(slot as usize) {
+                    *c = false;
+                }
+                return proposal.carried(&connected) && self.travel_quote(proposal.site).is_ok();
+            }
+            _ => return false,
+        };
+        proposal.carried(&self.run.connected) && self.travel_quote(proposal.site).is_ok()
+    }
+
     /// A player gone from the game — see [`Command::PlayerGone`]. A vote
     /// that was waiting only on them is carried.
     pub(super) fn player_gone(&mut self, slot: u32, events: &mut Vec<WorldEvent>) {

@@ -19,6 +19,7 @@ use worldgen::{Galaxy, StarSystem};
 use super::designer::Order;
 use crate::format::{euros, roman};
 use crate::names::*;
+use crate::net::{Choice, Spot, TradeLine};
 use crate::theme;
 
 /// One place a trip could go: its name, and the quote or why not.
@@ -1036,6 +1037,66 @@ pub fn ready_window(
         });
 }
 
+/// The other players as the windows over the map show them: where each
+/// one's pointer is, with the name it is labelled by, and what each has
+/// their eye on — both in their colours. Their pointer over the trader's
+/// window or the relic choice is drawn over this player's own copy of
+/// it, and the line or relic each has their eye on is outlined.
+#[derive(Default)]
+pub struct Mates {
+    pub pointers: Vec<(egui::Color32, String, Spot)>,
+    pub choices: Vec<(egui::Color32, Choice)>,
+}
+
+/// Where the trader's window and the relic choice stood the last frame
+/// they were laid out, for the pointer to be read against before this
+/// frame lays them out again: `None` for one not up then.
+pub fn trader_rect(ctx: &egui::Context) -> Option<egui::Rect> {
+    shown_rect(ctx, "trader-window-rect")
+}
+
+pub fn relic_rect(ctx: &egui::Context) -> Option<egui::Rect> {
+    shown_rect(ctx, "relic-window-rect")
+}
+
+fn shown_rect(ctx: &egui::Context, key: &str) -> Option<egui::Rect> {
+    let now = ctx.cumulative_pass_nr();
+    ctx.data(|d| d.get_temp::<(egui::Rect, u64)>(egui::Id::new(key)))
+        .filter(|&(_, pass)| pass + 1 >= now)
+        .map(|(rect, _)| rect)
+}
+
+/// A window laid out this frame at `rect`: kept for [`shown_rect`], and
+/// the others' pointers over it drawn over it, above every window.
+fn window_shown(ctx: &egui::Context, key: &str, rect: egui::Rect, mates: &Mates, relic: bool) {
+    let pass = ctx.cumulative_pass_nr();
+    ctx.data_mut(|d| d.insert_temp(egui::Id::new(key), (rect, pass)));
+    let painter = ctx.layer_painter(egui::LayerId::new(
+        egui::Order::Tooltip,
+        egui::Id::new("mates-over-windows"),
+    ));
+    for (colour, name, spot) in &mates.pointers {
+        let (x, y) = match (*spot, relic) {
+            (Spot::Trader(x, y), false) | (Spot::Relic(x, y), true) => (x, y),
+            _ => continue,
+        };
+        theme::ghost_pointer(&painter, rect.min + egui::vec2(x, y), *colour, name);
+    }
+}
+
+/// Outlines round `rect`, one a colour, each inside the last: the
+/// players who have their eye on what it holds.
+fn mark_chosen(painter: &egui::Painter, rect: egui::Rect, colours: &[egui::Color32]) {
+    for (i, &colour) in colours.iter().enumerate() {
+        painter.rect_stroke(
+            rect.shrink(1.0 + 3.0 * i as f32),
+            3.0,
+            egui::Stroke::new(2.0, colour),
+            egui::StrokeKind::Inside,
+        );
+    }
+}
+
 /// What this player has picked in the relic window and not yet proposed:
 /// a relic's code or `u32::MAX` for none, and whose Bim. The window's own,
 /// kept in egui's memory between frames.
@@ -1062,9 +1123,21 @@ pub fn relic_window(
     local: u32,
     orders: &mut Vec<Order>,
     name: &dyn Fn(u32) -> String,
+    mates: &Mates,
+    mine: &mut Choice,
 ) {
+    mine.relic = None;
     let Some(choice) = world.relic_choice() else {
         return;
+    };
+    // Who else has their eye on which relic, in their colours.
+    let eyed = |code: u32| -> Vec<egui::Color32> {
+        mates
+            .choices
+            .iter()
+            .filter(|(_, c)| c.relic == Some(code))
+            .map(|(colour, _)| *colour)
+            .collect()
     };
     let id = egui::Id::new("relic-pick");
     let mut pick = ctx
@@ -1088,7 +1161,7 @@ pub fn relic_window(
         // and what it does; a click on the picture picks it too.
         for &relic in &choice.options {
             let on = pick.relic == Some(relic.code());
-            ui.with_layout(egui::Layout::left_to_right(egui::Align::Min), |ui| {
+            let row = ui.with_layout(egui::Layout::left_to_right(egui::Align::Min), |ui| {
                 let (rect, plate) = ui.allocate_exact_size(
                     egui::vec2(RELIC_PLATE, RELIC_PLATE),
                     egui::Sense::click(),
@@ -1112,11 +1185,18 @@ pub fn relic_window(
                     );
                 });
             });
+            mark_chosen(
+                ui.painter(),
+                row.response.rect.expand(3.0),
+                &eyed(relic.code()),
+            );
             ui.add_space(3.0);
         }
-        if theme::toggle(ui, pick.relic == Some(u32::MAX), TAKE_NONE).clicked() {
+        let none = theme::toggle(ui, pick.relic == Some(u32::MAX), TAKE_NONE);
+        if none.clicked() {
             pick.relic = Some(u32::MAX);
         }
+        mark_chosen(ui.painter(), none.rect.expand(3.0), &eyed(u32::MAX));
         ui.add_space(4.0);
         // Whose Bim: a player's, never a bot's.
         ui.horizontal_wrapped(|ui| {
@@ -1171,11 +1251,12 @@ pub fn relic_window(
             });
         }
     };
-    if reward {
-        egui::Modal::new(egui::Id::new("relic-reward"))
+    let rect = if reward {
+        let shown = egui::Modal::new(egui::Id::new("relic-reward"))
             .backdrop_color(egui::Color32::from_black_alpha(150))
             .frame(theme::tray_frame().inner_margin(14.0))
             .show(ctx, |ui| body(ui, &mut pick, orders));
+        Some(shown.response.rect)
     } else {
         egui::Window::new(CACHE_TITLE)
             .id(egui::Id::new("relic-cache"))
@@ -1184,8 +1265,13 @@ pub fn relic_window(
             .collapsible(false)
             .anchor(egui::Align2::CENTER_TOP, egui::vec2(0.0, 90.0))
             .frame(theme::tray_frame().inner_margin(14.0))
-            .show(ctx, |ui| body(ui, &mut pick, orders));
+            .show(ctx, |ui| body(ui, &mut pick, orders))
+            .map(|shown| shown.response.rect)
+    };
+    if let Some(rect) = rect {
+        window_shown(ctx, "relic-window-rect", rect, mates, true);
     }
+    mine.relic = pick.relic;
     ctx.data_mut(|d| d.insert_temp(id, pick));
 }
 
@@ -1207,7 +1293,10 @@ pub fn trader_window(
     local: u32,
     orders: &mut Vec<Order>,
     name: &dyn Fn(u32) -> String,
+    mates: &Mates,
+    mine: &mut Choice,
 ) {
+    mine.line = None;
     let Some(trader) = world.trader_here() else {
         return;
     };
@@ -1224,7 +1313,18 @@ pub fn trader_window(
     }
     let relic_id = egui::Id::new("trader-relic-for");
     let mut relic_to = ctx.data(|d| d.get_temp::<u32>(relic_id)).unwrap_or(local);
-    egui::Window::new(TRADER_TITLE)
+    // The lines the others have their eye on, for `line_item` to outline,
+    // and the one this player's pointer is on, which it notes.
+    let marks: Vec<(TradeLine, egui::Color32)> = mates
+        .choices
+        .iter()
+        .filter_map(|(colour, c)| c.line.map(|line| (line, *colour)))
+        .collect();
+    ctx.data_mut(|d| {
+        d.insert_temp(line_marks_id(), marks);
+        d.insert_temp(line_eyed_id(), None::<TradeLine>);
+    });
+    let shown = egui::Window::new(TRADER_TITLE)
         .id(egui::Id::new("trader-window"))
         .title_bar(false)
         .default_pos(egui::pos2(24.0, 90.0))
@@ -1279,10 +1379,26 @@ pub fn trader_window(
                 });
             form_total(ui, world, orders);
         });
+    if let Some(shown) = shown {
+        window_shown(ctx, "trader-window-rect", shown.response.rect, mates, false);
+    }
+    mine.line = ctx
+        .data(|d| d.get_temp::<Option<TradeLine>>(line_eyed_id()))
+        .flatten();
     ctx.data_mut(|d| {
         d.insert_temp(id, to);
         d.insert_temp(relic_id, relic_to);
     });
+}
+
+/// Where the trader's window keeps, for its line items, the lines the
+/// others have their eye on, and the one this player's pointer is on.
+fn line_marks_id() -> egui::Id {
+    egui::Id::new("trader-line-marks")
+}
+
+fn line_eyed_id() -> egui::Id {
+    egui::Id::new("trader-line-eyed")
 }
 
 /// The form's width, in points, and a line item's height.
@@ -1509,6 +1625,8 @@ struct Line<'a> {
     /// The hover over the line: a thing's numbers, a relic's effect.
     tip: Option<String>,
     row: usize,
+    /// Which line of the form it is, for the others' eyes on it.
+    key: Option<TradeLine>,
 }
 
 /// Draws a line item and answers whether its button was pressed. A line
@@ -1527,6 +1645,22 @@ fn line_item(ui: &mut egui::Ui, world: &World, line: Line) -> bool {
         painter.rect_filled(rect, 3.0, FORM_HOVER);
     } else if line.row % 2 == 1 {
         painter.rect_filled(rect, 3.0, FORM_STRIPE);
+    }
+    if let Some(key) = line.key {
+        if ui.rect_contains_pointer(rect) {
+            ui.ctx()
+                .data_mut(|d| d.insert_temp(line_eyed_id(), Some(key)));
+        }
+        let marks: Vec<(TradeLine, egui::Color32)> = ui
+            .ctx()
+            .data(|d| d.get_temp(line_marks_id()))
+            .unwrap_or_default();
+        let colours: Vec<egui::Color32> = marks
+            .iter()
+            .filter(|(k, _)| *k == key)
+            .map(|(_, c)| *c)
+            .collect();
+        mark_chosen(&painter, rect, &colours);
     }
     // The icon, in its cell.
     let cell = egui::Rect::from_center_size(
@@ -1776,6 +1910,7 @@ fn shelf_row(
                 open: false,
                 tip: None,
                 row,
+                key: None,
             },
         );
         return;
@@ -1800,6 +1935,7 @@ fn shelf_row(
             open: world.shelf_price(item) <= world.money,
             tip: Some(crate::crew::tip_of(thing, 1)),
             row,
+            key: Some(TradeLine::Shelf(index as u32)),
         },
     );
     if bought {
@@ -1850,6 +1986,7 @@ fn relic_at_trader(
             open: true,
             tip: Some(relic_line(relic)),
             row: 0,
+            key: Some(TradeLine::Relic),
         },
     );
     if proposed {
@@ -1972,6 +2109,7 @@ fn combine_rows(
                 open: world.rewards().combine_fee <= world.money,
                 tip: None,
                 row: seen.len(),
+                key: Some(TradeLine::Combine(seen.len() as u32)),
             },
         );
         seen.push(k);

@@ -474,3 +474,112 @@ fn they_shoot_the_crew_and_the_crew_shoot_back() {
     assert!(hit, "a Manufacturer's shot landed on the crew member");
     assert!(struck, "and the crew's landed on one of them");
 }
+
+/// **A reinforcement of theirs comes looking for the crew**, as the
+/// machines' does (`a_reinforcement_wave_hunts_the_crew_and_the_first_wave_waits`):
+/// the garrison stands about the station and knows only what it has
+/// seen, and the wave their ship brings after it was told where the crew
+/// are and walks at them from the airlock. It stood at the airlock
+/// instead — "just standing behind the airlock they came from" — since
+/// the telling was a machine's (`Droid::seeking`) and a reinforcement of
+/// theirs is their people alone.
+#[test]
+fn a_reinforcement_of_theirs_hunts_the_crew_from_its_airlock() {
+    reinforcement_hunts(false);
+}
+
+/// **And one that lands after the room has forgotten the crew** — the
+/// garrison down a minute and more and nobody of theirs looking — was
+/// told where they are all the same, as the machines' is.
+#[test]
+fn a_reinforcement_of_theirs_is_told_where_the_crew_are() {
+    reinforcement_hunts(true);
+}
+
+/// The garrison down, crew member 0 ashore, the next wave landed —
+/// `forgotten` a minute and more after, crew member 0 out where the
+/// garrison stood — and the wave walked at it from its airlock.
+fn reinforcement_hunts(forgotten: bool) {
+    let (mut world, station) = at_their_site_with(12, |w| w.set_droid_waves_for_probe(3));
+    let garrison = theirs(&world);
+    if forgotten {
+        // Where one of the garrison stood, off the watched airlock.
+        beside(&mut world, garrison[0]);
+    } else {
+        // At the crew's own airlock, far from where the next wave comes in.
+        let ashore = world.aboard.ashore.expect("docked, so there is a door");
+        world
+            .aboard
+            .room
+            .put_for_probe(0, bims::math::vec2(ashore.x as f32, ashore.y as f32));
+    }
+    world.aboard.room.recruit_for_probe(0, true);
+    // The garrison down and gone, and the next wave a moment off.
+    knock_them_all_out(&mut world);
+    world.step(&[]);
+    world.step(&[]);
+    if forgotten {
+        // Past `FORGET_AFTER`, with nobody of theirs on their feet to see,
+        // and the next wave held off until then.
+        let now = world.mission_steps();
+        world.infestation_mut_for_probe(station).unwrap().next_wave = Some(now + 100_000);
+        for _ in 0..(bims::game::FORGET_AFTER as u32 + 5) * 60 {
+            world.aboard.room.patch_up_for_probe(0);
+            world.step(&[]);
+        }
+    }
+    let now = world.mission_steps();
+    world.infestation_mut_for_probe(station).unwrap().next_wave = Some(now + 30);
+    let mut landed = false;
+    for _ in 0..200 {
+        let events = world.step(&[]);
+        if events
+            .iter()
+            .any(|e| matches!(e, WorldEvent::DroidReinforcements { .. }))
+        {
+            landed = true;
+            break;
+        }
+    }
+    assert!(landed, "the next wave docked");
+    world.step(&[]);
+    let wave: Vec<usize> = theirs(&world)
+        .into_iter()
+        .filter(|w| !garrison.contains(w))
+        .collect();
+    assert!(!wave.is_empty());
+    // How far each of the wave is from the crew member, as the room
+    // believes: a reinforcement believes in the crew from the start.
+    let to_the_crew = |world: &World| -> Vec<f32> {
+        let room = &world.residents.as_ref().unwrap().aboard.room;
+        let believed: Vec<bims::math::Vec2> =
+            room.believed_for_probe().into_iter().flatten().collect();
+        wave.iter()
+            .filter(|&&w| room.is_alive(w) && !room.is_downed(w))
+            .map(|&w| {
+                believed
+                    .iter()
+                    .map(|&at| (at - room.bim_pos(w)).len())
+                    .fold(f32::MAX, f32::min)
+            })
+            .collect()
+    };
+    let landed_at = to_the_crew(&world);
+    assert!(
+        landed_at.iter().all(|&d| d < f32::MAX),
+        "a reinforcement knows where the crew are: {landed_at:?}"
+    );
+    for _ in 0..600 {
+        world.aboard.room.patch_up_for_probe(0);
+        world.step(&[]);
+    }
+    let now_at = to_the_crew(&world);
+    let tile = shipdesign::TILE as f32;
+    let mean = |v: &[f32]| v.iter().sum::<f32>() / v.len().max(1) as f32;
+    assert!(
+        mean(&now_at) < mean(&landed_at) - 4.0 * tile,
+        "the wave closed on the crew: {:.1} tiles off on landing, {:.1} ten seconds on",
+        mean(&landed_at) / tile,
+        mean(&now_at) / tile
+    );
+}

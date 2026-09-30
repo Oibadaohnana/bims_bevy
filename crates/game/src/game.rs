@@ -405,6 +405,12 @@ struct Marker {
     /// attack-move's red. Never read for a refusal.
     #[cfg_attr(feature = "serde", serde(default))]
     kind: Ping,
+    /// The Bim the order was for, so that another player's ping is drawn
+    /// in their colour and see-through ([`Game::draw_pings`]). A picture
+    /// matter only, left out of a save: a ping lives under a second, and
+    /// one loaded without it is drawn as the viewer's own.
+    #[cfg_attr(feature = "serde", serde(skip))]
+    by: Option<usize>,
 }
 
 /// The two orders a ping on the deck can stand for, drawn the way Dota
@@ -423,6 +429,9 @@ enum Ping {
 const PING_MOVE: Color = Color::rgb(0.30, 1.0, 0.42);
 /// An attack-move's: the enemy's red, as hot.
 const PING_ATTACK: Color = Color::rgb(1.0, 0.24, 0.18);
+/// How much of another player's ping shows through: theirs are drawn in
+/// their own colour and this see-through, the viewer's own whole.
+const OTHER_PING_ALPHA: f32 = 0.5;
 /// How far out the ping's arrows start, and how far in they close, in
 /// room units: most of a tile each side down to a body's width.
 const PING_OUTER: f32 = 44.0;
@@ -816,6 +825,13 @@ pub struct Game {
     /// with the picture (`set_viewer`).
     #[cfg_attr(feature = "serde", serde(skip))]
     viewer: u32,
+    /// Whether this room's people were told where the crew are: a
+    /// reinforcement of the Manufacturers' standing here, as the world
+    /// says every step before it hands the hostiles over (`set_told`) —
+    /// what `Droid::seeking` is for the machines'. Worked out again by
+    /// the world every step, so left out of a save.
+    #[cfg_attr(feature = "serde", serde(skip))]
+    told: bool,
 }
 
 impl Game {
@@ -968,6 +984,7 @@ impl Game {
             view_offset: Vec2::ZERO,
             players: 1,
             viewer: 0,
+            told: false,
         };
         game.refresh_blockers();
         game.resize(width, height);
@@ -4244,7 +4261,7 @@ impl Game {
         if post {
             self.bims[who].character.set_post(Some(target));
         }
-        self.mark(target, false);
+        self.mark(who, target, false);
         true
     }
 
@@ -4638,6 +4655,14 @@ impl Game {
         bim.manufacturer = true;
         bim.plan_wait = plan_wait;
         bim.breach_wait = plan_wait;
+        // Into a fight already under way it comes under arms, as the
+        // war's start put everybody here (`muster`): the war musters only
+        // as it changes, and one enlisted mid-war stood unarmed where it
+        // was put — a reinforcement of theirs, waiting behind the airlock
+        // it came in by for as long as the fight went on.
+        if self.hostile_bodies && self.at_war {
+            bim.character.set_recruited(true);
+        }
         self.adopt(vec![bim], Vec2::ZERO);
         who
     }
@@ -5750,13 +5775,13 @@ impl Game {
         }
         let stand = self.nearest_stand(who, to);
         if !self.on_a_window(who, to) && !self.can_reach(who, stand) {
-            self.mark(stand, true);
+            self.mark(who, stand, true);
             return ORDER_NOWHERE;
         }
         self.bims[who]
             .queue
             .push(Saved::ordered(who, Kind::Walk { post }, 0.0, Some(stand)));
-        self.mark(stand, false);
+        self.mark(who, stand, false);
         ORDER_MOVING
     }
 
@@ -5963,6 +5988,7 @@ impl Game {
             age: 0.0,
             bad: false,
             kind: Ping::Attack,
+            by: Some(who),
         });
         ORDER_MOVING
     }
@@ -6095,7 +6121,7 @@ impl Game {
         // to work — the ground has none.
         if self.on_a_window(who, want) {
             if !self.plan_route(who, want) {
-                self.mark(want, true);
+                self.mark(who, want, true);
                 return ORDER_NOWHERE;
             }
             self.interrupt_for_order(who);
@@ -6103,7 +6129,7 @@ impl Game {
             // else: the walk is planned again from there.
             self.plan_route(who, want);
             let stand = self.nearest_stand(who, want);
-            self.mark(stand, false);
+            self.mark(who, stand, false);
             return ORDER_MOVING;
         }
 
@@ -6117,12 +6143,12 @@ impl Game {
             // the queue and is picked up once it has been where it was sent.
             self.interrupt_for_order(who);
             self.bims[who].character.follow_path(route);
-            self.mark(target, false);
+            self.mark(who, target, false);
             return ORDER_MOVING;
         }
 
         // No route there at all.
-        self.mark(target, true);
+        self.mark(who, target, true);
         ORDER_NOWHERE
     }
 
@@ -6132,6 +6158,11 @@ impl Game {
     /// while fresh so the bloom lifts them off a dark deck, and a dark
     /// edge under each stroke so they read on a lit one. A refusal is a
     /// cross in the warm colour where the Bim cannot get to.
+    ///
+    /// Another player's pings are drawn in that player's own colour
+    /// rather than the walk's green, unlit and see-through
+    /// ([`OTHER_PING_ALPHA`]), so a deck with four players ordering about
+    /// it tells the viewer's own orders from theirs at a glance.
     fn draw_pings(&mut self) {
         const SHADE: Color = Color::rgba(0.0, 0.0, 0.0, 1.0);
         // An enemy a player told its Bim to attack (task 126) wears four
@@ -6162,7 +6193,18 @@ impl Game {
         }
         for m in &self.markers {
             let t = (m.age / MARKER_LIFE).clamp(0.0, 1.0);
+            // Whose colour it is when it is another player's own Bim's.
+            let theirs =
+                m.by.filter(|&w| w != self.viewer as usize && w < self.players)
+                    .and_then(|w| self.bims.get(w))
+                    .and_then(|b| b.character.tint())
+                    .map(|tint| tint.colour());
             let fade = if t < 0.6 { 1.0 } else { (1.0 - t) / 0.4 };
+            let fade = if theirs.is_some() {
+                fade * OTHER_PING_ALPHA
+            } else {
+                fade
+            };
             let at = m.pos;
             if m.bad {
                 let size = vec2(30.0, 4.0);
@@ -6180,11 +6222,15 @@ impl Game {
                     .ring(at, 16.0 + 18.0 * t, 2.5, WARN.alpha(0.8 * fade));
                 continue;
             }
-            let colour = match m.kind {
-                Ping::Move => PING_MOVE,
-                Ping::Attack => PING_ATTACK,
+            let colour = match (theirs, m.kind) {
+                (Some(c), _) => c,
+                (None, Ping::Move) => PING_MOVE,
+                (None, Ping::Attack) => PING_ATTACK,
             };
-            let lit = colour.glowing(1.0 + 0.5 * (1.0 - t));
+            let lit = match theirs {
+                Some(_) => colour,
+                None => colour.glowing(1.0 + 0.5 * (1.0 - t)),
+            };
             let close = 1.0 - (1.0 - t) * (1.0 - t);
             let r = PING_OUTER + (PING_INNER - PING_OUTER) * close;
             // The ring drawing in behind the arrows, and the spot itself.
@@ -6224,12 +6270,14 @@ impl Game {
         }
     }
 
-    fn mark(&mut self, pos: Vec2, bad: bool) {
+    /// A ping where Bim `who` was sent, or a cross where it cannot go.
+    fn mark(&mut self, who: usize, pos: Vec2, bad: bool) {
         self.markers.push(Marker {
             pos,
             age: 0.0,
             bad,
             kind: Ping::Move,
+            by: Some(who),
         });
     }
 
@@ -6728,8 +6776,9 @@ impl Game {
             .collect();
         let watched = self.watched;
         // A reinforcement wave of the machines standing here was told
-        // where the crew are, and comes looking for them.
-        let told = self.droids.iter().any(|d| d.seeking && !d.destroyed);
+        // where the crew are, and comes looking for them — and so was one
+        // of the Manufacturers' people, as the world says (`set_told`).
+        let told = self.told || self.droids.iter().any(|d| d.seeking && !d.destroyed);
         let (believed, stale) = believe(
             &mut self.last_seen,
             &self.room.sight,
@@ -6740,6 +6789,15 @@ impl Game {
         );
         self.combat.set_targets(believed);
         self.combat.set_stale(&stale);
+    }
+
+    /// Whether this room's people were told where the crew are — a
+    /// reinforcement of the Manufacturers' standing here — for
+    /// [`Game::set_hostiles`] to believe every target it is handed, the
+    /// way a reinforcement of the machines' (`Droid::seeking`) makes it.
+    /// The world says it every step before it hands the hostiles over.
+    pub fn set_told(&mut self, told: bool) {
+        self.told = told;
     }
 
     /// **The machines' own targets** (feature 94), for the one fight

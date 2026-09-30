@@ -641,11 +641,14 @@ fn open(
 /// straight onto the world — the default ship docked at the station the
 /// lobby picked, `money_per_bim` a player's Bim in the pool
 /// (`Session::run`) — with the names, the hair, the colours and the
-/// classes the lobby dealt, and the screen to go to is handed back: the
-/// game, or the lost screen when there is nowhere to start. Every machine
+/// classes the lobby dealt. Every machine
 /// of a lobby calls this with the same numbers, the host at its own Start
 /// and every guest at the host's, so the worlds are one world.
-pub fn start_run(commands: &mut Commands, s: &Settings, size: Vec2) -> Screen {
+///
+/// Seconds of work, so the builder runs it on a thread of its own behind
+/// the loading screen (`screens::loading::Loading::start_run`), and
+/// [`open_run`] hands the session on. Nothing of Bevy's in it.
+pub fn build_run(s: &Settings, size: Vec2) -> Session {
     let mut session = Session::run(
         s.money_per_bim,
         s.players,
@@ -665,7 +668,6 @@ pub fn start_run(commands: &mut Commands, s: &Settings, size: Vec2) -> Screen {
     // The host's profile's relics, the run's pool on every machine
     // (feature 106), before the world's first step.
     session.set_relic_pool(&s.unlocks.pool());
-    commands.insert_resource(s.unlocks);
     // And the difficulty the host picked, on every machine the same.
     if let Some(game) = &mut session.game {
         game.world.set_difficulty(s.difficulty);
@@ -678,6 +680,13 @@ pub fn start_run(commands: &mut Commands, s: &Settings, size: Vec2) -> Screen {
         game.world
             .set_ready_check(crate::dev::ready_check().unwrap_or(true));
     }
+    session
+}
+
+/// The run's other half, on Bevy's thread: the session [`build_run`]
+/// built handed to the game — the screen to go to handed back — or the
+/// lost screen when there is nowhere to start.
+pub fn open_run(commands: &mut Commands, s: &Settings, session: Session) -> Screen {
     let ok = session.spawn_ok() && session.game.is_some();
     commands.remove_resource::<Start>();
     if ok {
@@ -1140,7 +1149,13 @@ fn frame(
     }
     // Where this pointer is over the grid, to the room, as a design point;
     // off it — over a panel, out of the window — as nothing.
-    online.point(now, on_grid.map(|p| session.design_point(p.x, p.y)));
+    online.point(
+        now,
+        on_grid.map(|p| {
+            let (x, y) = session.design_point(p.x, p.y);
+            crate::net::Spot::Deck(x, y)
+        }),
+    );
 
     if keys {
         ctx.input(|i| {
@@ -1308,7 +1323,10 @@ fn frame(
     // The others' pointers over the grid, each in its player's colour
     // with their Bim's name, where the tile they are over is on this
     // screen.
-    for (slot, (x, y)) in online.others_pointing() {
+    for (slot, spot) in online.others_pointing() {
+        let crate::net::Spot::Deck(x, y) = spot else {
+            continue;
+        };
         let (x, y) = session.design_point_on_screen(x, y);
         let at = view.to_canvas(Vec2::new(x, y)) + canvas.min;
         theme::ghost_pointer(

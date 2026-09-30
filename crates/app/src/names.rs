@@ -2147,6 +2147,10 @@ pub fn arrive_state(infested: bool, tier: u32, jammer: bool, threatened: bool) -
 pub const PROPOSE: &str = "Propose";
 pub const ACCEPT_TRIP: &str = "Accept";
 pub const TAKE_BACK: &str = "Take back";
+/// The loading screen (`screens::loading`): the run opening, and a trip's
+/// site being built.
+pub const LOADING_RUN: &str = "Setting out…";
+pub const LOADING_MISSION: &str = "Loading mission…";
 pub fn accepted_line(who: &str, yes: bool, gone: bool) -> String {
     if gone {
         format!("{who}: gone")
@@ -2392,6 +2396,11 @@ pub const ARMORY_TITLE: &str = "Armory";
 pub const ARMORY_HOW: &str = "Drag a thing onto a Bim to put it on, or onto the armory to take it off. Yours onto another player's Bim is an offer. Right-click for the same.";
 pub const ARMORY_LOCKED: &str = "In a mission: drag a thing onto a Bim inside the ship to put it on. A Bim out on the deck keeps what it has, and offers wait for the map.";
 pub const ARMORY_BOT: &str = "bot";
+/// The Armory panel's rows: the players' own Bims, then the bots.
+pub const ARMORY_PLAYERS: &str = "Players";
+pub const ARMORY_BOTS: &str = "Bots";
+/// Under a player's name, where its relics would be.
+pub const ARMORY_NO_RELICS: &str = "no relics";
 pub const ARMORY_EMPTY_SLOT: &str = "—";
 pub const ARMORY_TAKE_OFF: &str = "Take off, into the armory";
 pub const ARMORY_OFFER_TO: &str = "Offer to";

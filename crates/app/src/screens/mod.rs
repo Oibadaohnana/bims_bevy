@@ -8,6 +8,7 @@ pub mod designer;
 pub mod fightwon;
 pub mod game;
 pub mod hud;
+pub mod loading;
 pub mod station;
 pub mod worldmap;
 

@@ -411,6 +411,58 @@ impl SettingsWire {
     }
 }
 
+/// Where a player's pointer is, or where they put a ping (Alt and a left
+/// click): a spot on the deck, as a design point
+/// (`Session::design_point`); a place in a system on the system view,
+/// in the system's own units, with the star so a player looking at
+/// another system is not shown it in the wrong one; a place on the
+/// galaxy chart, in the galaxy's units; or a place over the trader's
+/// window or the relic choice, in points from the window's top left
+/// corner, since both are laid out alike on every machine. Each is the
+/// same place on every machine whatever each has panned, zoomed and
+/// turned. A ping is never put on a window.
+#[derive(Clone, Copy, PartialEq, Debug, serde::Serialize, serde::Deserialize)]
+pub enum Spot {
+    Deck(f32, f32),
+    System { star: u32, x: f64, y: f64 },
+    Galaxy(f64, f64),
+    Trader(f32, f32),
+    Relic(f32, f32),
+}
+
+/// What a player has their eye on in the trader's window or the relic
+/// choice, to everybody, so each is outlined in their colour on the
+/// others' screens: the relic they picked in the choice (a relic's code,
+/// `u32::MAX` for none), and the trader's line their pointer is on.
+/// Sent when it changes. A picture, like the pointer: nothing the world
+/// hears of until somebody proposes.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default, serde::Serialize, serde::Deserialize)]
+pub struct Choice {
+    pub relic: Option<u32>,
+    pub line: Option<TradeLine>,
+}
+
+/// A line of the trader's form: a slot of the shelf, its relic, or one
+/// of the pairs that combine, by its place in the list.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, serde::Serialize, serde::Deserialize)]
+pub enum TradeLine {
+    Shelf(u32),
+    Relic,
+    Combine(u32),
+}
+
+/// A ping on everybody's screen: whose, where, and when it went up, in
+/// the egui clock's seconds. Gone after [`PING_SECONDS`].
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub struct Ping {
+    pub slot: u32,
+    pub at: Spot,
+    pub born: f64,
+}
+
+/// How long a ping stays up.
+pub const PING_SECONDS: f64 = 3.0;
+
 /// One thing a player said to the others. The relay passes it as bytes.
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub enum Packet {
@@ -452,13 +504,21 @@ pub enum Packet {
     /// to everybody like the hair: on every change and again whenever
     /// somebody joins (feature 74).
     BimClass(u32),
-    /// Where the player's pointer is, as a point on the ship's grid
-    /// (`Session::design_point`) — the same tile on every machine
-    /// whatever each has zoomed and turned — or `None` when it left the
-    /// ship for a panel or the map. Everybody draws everybody else's,
-    /// faint, in their colour (feature 60). Sent at most `CURSOR_EVERY`
-    /// apart, and only when it moved.
-    Cursor(Option<(f32, f32)>),
+    /// Where the player's pointer is, as a [`Spot`] — a point on the
+    /// ship's grid, the same tile on every machine whatever each has
+    /// zoomed and turned; a place on either map; a place over the
+    /// trader's window or the relic choice — or `None` when it is over
+    /// none of them. Everybody draws everybody else's, faint, in their
+    /// colour (feature 60). Sent at most `CURSOR_EVERY` apart, and only
+    /// when it moved.
+    Cursor(Option<Spot>),
+    /// What the player has their eye on in the trader's window or the
+    /// relic choice ([`Choice`]), to everybody, when it changes.
+    Choice(Choice),
+    /// A ping put down (Alt and a left click), to everybody: a mark in
+    /// the player's colour that runs out and fades. A picture, like the
+    /// pointer, and nothing the world hears of.
+    Ping(Spot),
     /// A guest asking the host to apply an edit or an order, stamped with
     /// the design hash it was made against.
     Ask { at: u64, message: Message },
@@ -559,12 +619,21 @@ pub struct Online {
     /// Where each peer's pointer is over the ship — a design point — for
     /// those whose pointer is over it. Folded in from `Packet::Cursor`
     /// as it arrives, never an event: it is a picture, not a decision.
-    pub cursors: Vec<(PeerId, (f32, f32))>,
+    pub cursors: Vec<(PeerId, Spot)>,
+    /// The pings up now, everybody's and this player's own, oldest
+    /// first: folded in from `Packet::Ping` like the pointers, and
+    /// dropped once [`PING_SECONDS`] old (`Online::pings_now`).
+    pings: Vec<Ping>,
+    /// What each peer has their eye on in the trader's window or the
+    /// relic choice (`Packet::Choice`), and this player's own as last
+    /// said, so it goes out on a change and not every frame.
+    choices: Vec<(PeerId, Choice)>,
+    said_choice: Option<Choice>,
     pending: Option<Pending>,
     /// When the last ping went, in the egui clock's seconds.
     pinged: f64,
     /// The pointer as last sent, and when — `Self::point`'s throttle.
-    sent_cursor: Option<(f32, f32)>,
+    sent_cursor: Option<Spot>,
     cursor_at: f64,
 }
 
@@ -599,6 +668,9 @@ impl Online {
         self.tints.clear();
         self.classes.clear();
         self.cursors.clear();
+        self.pings.clear();
+        self.choices.clear();
+        self.said_choice = None;
         self.pending = None;
         self.sent_cursor = None;
     }
@@ -777,7 +849,7 @@ impl Online {
     /// is left drawing a pointer that is not there. Called every frame;
     /// a pointer that moved and stopped inside the interval goes out on
     /// the first frame after it.
-    pub fn point(&mut self, now: f64, at: Option<(f32, f32)>) {
+    pub fn point(&mut self, now: f64, at: Option<Spot>) {
         if !self.is_online() || at == self.sent_cursor {
             return;
         }
@@ -791,9 +863,49 @@ impl Online {
         self.send(To::All, &Packet::Cursor(at));
     }
 
+    /// Put a ping down: up on this screen at once, and to the room when
+    /// there is company. Alone it is this player's own mark and nobody
+    /// else's.
+    pub fn ping(&mut self, now: f64, at: Spot) {
+        let slot = self.my_slot();
+        self.pings.push(Ping {
+            slot,
+            at,
+            born: now,
+        });
+        if self.is_online() {
+            self.send(To::All, &Packet::Ping(at));
+        }
+    }
+
+    /// The pings up now, oldest first, the spent ones dropped.
+    pub fn pings_now(&mut self, now: f64) -> &[Ping] {
+        self.pings.retain(|p| now - p.born < PING_SECONDS);
+        &self.pings
+    }
+
+    /// Say what this player has their eye on ([`Choice`]): to the room
+    /// when it changed. Nobody joins a game under way, so once is enough.
+    pub fn say_choice(&mut self, choice: Choice) {
+        if !self.is_online() || self.said_choice == Some(choice) {
+            return;
+        }
+        self.said_choice = Some(choice);
+        self.send(To::All, &Packet::Choice(choice));
+    }
+
+    /// What every other player has their eye on: their slot and it.
+    pub fn others_choosing(&self) -> Vec<(u32, Choice)> {
+        self.choices
+            .iter()
+            .filter(|(p, _)| Some(*p) != self.me)
+            .filter_map(|(p, c)| self.slot_of(*p).map(|slot| (slot, *c)))
+            .collect()
+    }
+
     /// Every other player's pointer over the ship: their slot, the point,
     /// for the screens to draw. Nothing for a peer not dealt a slot.
-    pub fn others_pointing(&self) -> Vec<(u32, (f32, f32))> {
+    pub fn others_pointing(&self) -> Vec<(u32, Spot)> {
         self.cursors
             .iter()
             .filter(|(p, _)| Some(*p) != self.me)
@@ -845,7 +957,7 @@ impl Online {
         changed
     }
 
-    fn set_cursor(&mut self, peer: PeerId, at: Option<(f32, f32)>) {
+    fn set_cursor(&mut self, peer: PeerId, at: Option<Spot>) {
         self.cursors.retain(|(p, _)| *p != peer);
         if let Some(at) = at {
             self.cursors.push((peer, at));
@@ -860,6 +972,7 @@ impl Online {
         self.tints.retain(|(p, _)| keep.contains(p));
         self.classes.retain(|(p, _)| keep.contains(p));
         self.cursors.retain(|(p, _)| keep.contains(p));
+        self.choices.retain(|(p, _)| keep.contains(p));
     }
 
     pub fn is_online(&self) -> bool {
@@ -929,6 +1042,16 @@ impl Online {
         self.link.send(ClientCtl::Begin);
     }
 
+    /// The ping [`Online::drain`] sends, without draining: what keeps the
+    /// socket from being reaped while the loading screen leaves the
+    /// room's words waiting (`screens::loading`).
+    pub fn keep_alive(&mut self, now: f64) {
+        if self.link.state() == &LinkState::Connected && now - self.pinged > PING_EVERY {
+            self.pinged = now;
+            self.link.send(ClientCtl::Ping { stamp: 0 });
+        }
+    }
+
     /// Everything the relay and the others said since last frame, in
     /// order, with the room's own state kept up on the way past. `now`
     /// is the clock the ping runs on.
@@ -974,6 +1097,24 @@ impl Online {
                     // state, kept here for the screens to read; neither
                     // is anything a screen has to act on.
                     Ok(Packet::Cursor(at)) => self.set_cursor(from, at),
+                    Ok(Packet::Choice(choice)) => {
+                        self.choices.retain(|(p, _)| *p != from);
+                        self.choices.push((from, choice));
+                    }
+                    // A ping likewise; this player's own went up when it
+                    // was put down, and one from nobody dealt a slot is
+                    // nobody's.
+                    Ok(Packet::Ping(at)) => {
+                        if Some(from) != self.me
+                            && let Some(slot) = self.slot_of(from)
+                        {
+                            self.pings.push(Ping {
+                                slot,
+                                at,
+                                born: now,
+                            });
+                        }
+                    }
                     Ok(Packet::BimName(name)) => {
                         let name = wire::tidy_name(&name);
                         self.bims.retain(|(p, _)| *p != from);
@@ -1383,6 +1524,103 @@ mod tests {
         assert_eq!(world(&ends[0]).checksum(), world(&ends[1]).checksum());
     }
 
+    /// A ping and a choice off the wire (Alt and a left click; what a
+    /// player has their eye on in the trader's window or the relic
+    /// choice): both the room's own state like the pointer. This
+    /// player's own ping is up at once and goes to the room; another's
+    /// arrives with its slot; each is gone after `PING_SECONDS`. A choice
+    /// goes out when it changed and not again while it stands.
+    #[test]
+    fn pings_and_choices_are_the_room_s_to_keep() {
+        let (tx, rx) = channel::<ClientCtl>();
+        let mut online = Online {
+            link: Link {
+                state: LinkState::Connected,
+                outgoing: Some(tx),
+                incoming: None,
+            },
+            me: Some(1),
+            code: Some("ABCDEF".into()),
+            host: Some(1),
+            slots: vec![1, 2],
+            ..Default::default()
+        };
+        let sent = |rx: &Receiver<ClientCtl>| -> Vec<Packet> {
+            let mut out = Vec::new();
+            while let Ok(ClientCtl::Relay { payload, .. }) = rx.try_recv() {
+                out.push(decode(&payload).unwrap());
+            }
+            out
+        };
+        online.ping(1.0, Spot::Galaxy(3.0, 4.0));
+        let eye = Choice {
+            relic: Some(7),
+            line: Some(TradeLine::Shelf(2)),
+        };
+        online.say_choice(eye);
+        online.say_choice(eye);
+        let went = sent(&rx);
+        assert!(
+            matches!(
+                went.as_slice(),
+                [Packet::Ping(Spot::Galaxy(3.0, 4.0)), Packet::Choice(c)] if *c == eye
+            ),
+            "{went:?}"
+        );
+        let (in_tx, in_rx) = channel::<Incoming>();
+        online.link.incoming = Some(Mutex::new(in_rx));
+        for packet in [
+            Packet::Ping(Spot::System {
+                star: 5,
+                x: 1.0,
+                y: 2.0,
+            }),
+            Packet::Choice(Choice {
+                relic: None,
+                line: Some(TradeLine::Relic),
+            }),
+        ] {
+            in_tx
+                .send(Incoming::Msg(ServerCtl::Relayed {
+                    from: 2,
+                    payload: encode(&packet).unwrap(),
+                }))
+                .unwrap();
+        }
+        assert!(online.drain(2.0).is_empty());
+        let up: Vec<(u32, Spot)> = online
+            .pings_now(2.5)
+            .iter()
+            .map(|p| (p.slot, p.at))
+            .collect();
+        assert_eq!(
+            up,
+            vec![
+                (0, Spot::Galaxy(3.0, 4.0)),
+                (
+                    1,
+                    Spot::System {
+                        star: 5,
+                        x: 1.0,
+                        y: 2.0
+                    }
+                )
+            ]
+        );
+        assert_eq!(online.pings_now(1.0 + PING_SECONDS).len(), 1);
+        assert!(online.pings_now(2.0 + PING_SECONDS).is_empty());
+        assert_eq!(
+            online.others_choosing(),
+            vec![(
+                1,
+                Choice {
+                    relic: None,
+                    line: Some(TradeLine::Relic)
+                }
+            )]
+        );
+    }
+
     /// The room's own state off the wire: a Bim's name and a pointer are
     /// folded into `Online` as they arrive, never events, and a pointer
     /// goes out only when it moved and the interval has gone by — or at
@@ -1421,19 +1659,19 @@ mod tests {
         };
         // A pointer: the first goes, the next inside the interval waits,
         // and the one after the interval goes where it is *now*.
-        online.point(0.0, Some((10.0, 10.0)));
-        online.point(0.01, Some((11.0, 10.0)));
-        online.point(0.02, Some((12.0, 10.0)));
-        online.point(0.02 + CURSOR_EVERY, Some((13.0, 10.0)));
-        online.point(0.03 + CURSOR_EVERY, Some((13.0, 10.0)));
+        online.point(0.0, Some(Spot::Deck(10.0, 10.0)));
+        online.point(0.01, Some(Spot::Deck(11.0, 10.0)));
+        online.point(0.02, Some(Spot::Deck(12.0, 10.0)));
+        online.point(0.02 + CURSOR_EVERY, Some(Spot::Deck(13.0, 10.0)));
+        online.point(0.03 + CURSOR_EVERY, Some(Spot::Deck(13.0, 10.0)));
         online.point(0.04 + CURSOR_EVERY, None);
         let went = sent(&rx);
         assert!(
             matches!(
                 went.as_slice(),
                 [
-                    Packet::Cursor(Some((10.0, 10.0))),
-                    Packet::Cursor(Some((13.0, 10.0))),
+                    Packet::Cursor(Some(Spot::Deck(10.0, 10.0))),
+                    Packet::Cursor(Some(Spot::Deck(13.0, 10.0))),
                     Packet::Cursor(None)
                 ]
             ),
@@ -1453,12 +1691,15 @@ mod tests {
             )))
             .unwrap();
         in_tx
-            .send(Incoming::Msg(relayed(2, &Packet::Cursor(Some((3.0, 4.0))))))
+            .send(Incoming::Msg(relayed(
+                2,
+                &Packet::Cursor(Some(Spot::Deck(3.0, 4.0))),
+            )))
             .unwrap();
         let events = online.drain(1.0);
         assert!(events.is_empty(), "{events:?}");
         assert_eq!(online.bim_name(2), Some("Ada"));
-        assert_eq!(online.others_pointing(), vec![(1, (3.0, 4.0))]);
+        assert_eq!(online.others_pointing(), vec![(1, Spot::Deck(3.0, 4.0))]);
         assert_eq!(
             online.deal_names(&[1, 2]),
             vec!["".to_string(), "Ada".to_string()]

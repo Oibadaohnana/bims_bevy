@@ -27,9 +27,12 @@ use world::droid::{Difficulty, WaveScaling};
 use super::backdrop::{Backdrop, Backdrops};
 use crate::canvas::{paint_shapes, rect_of, root_ui};
 use crate::format::{euros, roman};
+use crate::keys::Keys;
 use crate::names::*;
 use crate::net::{Event, Online, Packet, SettingsWire};
+use crate::settings::{Allowed, Sheet, settings_sheet};
 use crate::shapes::View;
+use crate::sound::Sounds;
 use crate::wavecfg::Watched;
 use crate::{Screen, theme};
 
@@ -310,6 +313,9 @@ pub struct BuilderScreen {
     /// setup: the session is stood up round it and the game screen opens.
     loading: bool,
     saves: crate::save::Saves,
+    /// The Esc sheet, if it is up: the settings alone, as the game's
+    /// Esc brings them up, with no game here yet to save or load.
+    sheet: Option<Sheet>,
     /// The wave formula as the tuning file says it (`crate::wavecfg`),
     /// this frame: what the difficulty shows until the host picks one.
     file_scaling: WaveScaling,
@@ -371,6 +377,7 @@ fn open(mut commands: Commands, settings: Res<Settings>) {
         galaxy_list: lobby::draw::DrawList::new(),
         loading: false,
         saves: crate::save::Saves::default(),
+        sheet: None,
         file_scaling: WaveScaling::DEFAULT,
         difficulty_note: None,
     });
@@ -388,10 +395,21 @@ fn frame(
     window: Single<&Window>,
     mut online: ResMut<Online>,
     backdrops: Res<Backdrops>,
+    mut sounds: ResMut<Sounds>,
+    mut bindings: ResMut<Keys>,
     scaling_file: Res<Watched<WaveScaling>>,
+    mut loading: ResMut<super::loading::Loading>,
 ) -> Result {
     let ctx = contexts.ctx_mut()?.clone();
+    // The run being built behind the loading screen (`screens::loading`):
+    // nothing here moves, and the room's words wait for the game.
+    if loading.busy() {
+        return Ok(());
+    }
     screen.file_scaling = scaling_file.dials();
+    // Read before anything is laid out: an Esc that shuts the Load window
+    // or leaves a text field is theirs, not the sheet's.
+    let esc_taken = screen.loading || ctx.egui_wants_keyboard_input();
     let screen = &mut *screen;
     let settings = &mut *settings;
     let online = &mut *online;
@@ -562,11 +580,7 @@ fn frame(
                     // Straight into the run, as the host does at its own
                     // Start (feature 102): the same numbers, the same world.
                     let size = Vec2::new(window.width().max(64.0), window.height().max(64.0));
-                    go = Some(crate::screens::designer::start_run(
-                        &mut commands,
-                        settings,
-                        size,
-                    ));
+                    loading.start_run(&mut commands, settings, size);
                 }
                 // The host loaded a game: its world, whole, is this end's
                 // now, and the game screen opens round it as it does for
@@ -887,6 +901,26 @@ fn frame(
         _ => {}
     }
 
+    // Esc brings the settings up over any of the three and puts them
+    // away again, as in a game; while the controls page waits on a key
+    // the Esc is that page's.
+    if !esc_taken && bindings.listening.is_none() && ctx.input(|i| i.key_pressed(egui::Key::Escape))
+    {
+        screen.sheet = match screen.sheet {
+            None => Some(Sheet::Menu),
+            Some(_) => None,
+        };
+    }
+    settings_sheet(
+        &ctx,
+        &mut screen.sheet,
+        &mut sounds.mix,
+        &mut bindings,
+        &mut screen.saves,
+        Allowed::SETTINGS_ONLY,
+        None,
+    );
+
     if start && lobby_start_refusal(settings, online).is_none() {
         // Start opens the run. What crosses is the numbers and nothing
         // else: the money each Bim brings, how many players there are,
@@ -935,11 +969,10 @@ fn frame(
         // Straight into the run (feature 102): no design phase, the default
         // ship docked at the station picked.
         let size = Vec2::new(window.width().max(64.0), window.height().max(64.0));
-        go = Some(crate::screens::designer::start_run(
-            &mut commands,
-            settings,
-            size,
-        ));
+        loading.start_run(&mut commands, settings, size);
+    }
+    if go.is_some() {
+        screen.sheet = None;
     }
     if let Some(screen) = go {
         next.set(screen);

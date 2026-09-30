@@ -436,6 +436,7 @@ fn main() {
         screens::builder::BuilderPlugin,
         screens::designer::DesignerPlugin,
         screens::game::GamePlugin,
+        screens::loading::LoadingPlugin,
         screens::station::StationBuilderPlugin,
         wavecfg::WaveConfigPlugin,
     ))

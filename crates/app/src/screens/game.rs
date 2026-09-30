@@ -24,6 +24,7 @@ use worldgen::Node;
 
 use super::designer::{Net, Order, ShipSession};
 use super::hud::{self, GAP, MARGIN};
+use super::loading::{Apply, Loading};
 use crate::ability_icons::{self, Glyph};
 use crate::canvas::{
     Pointer, canvas_painter, edge_pan_now, egui_rect, rect_of, root_ui, zoom_factor,
@@ -31,7 +32,7 @@ use crate::canvas::{
 use crate::crew::{CLICK_SLOP, CrewPanels, GearOrder, Hold, Near, Open, TrayAsk, TrayView};
 use crate::keys::{Action, Keys};
 use crate::names::*;
-use crate::net::{CHECK_EVERY, Event, Online, Packet};
+use crate::net::{CHECK_EVERY, Choice, Event, Online, PING_SECONDS, Packet, Spot};
 use crate::save::{Beginning, Request};
 use crate::scene::WorldCanvas;
 use crate::settings::{Allowed, Sheet, settings_sheet};
@@ -121,6 +122,23 @@ fn crew_order(order: CrewOrder, later: bool) -> Order {
     } else {
         Order::Crew(order)
     }
+}
+
+/// A player's colour: the one they picked for their Bim's ring (feature
+/// 84), off the session's list by slot, else the slot's place in the
+/// list of colours. Their pointer, their pings and what they have their
+/// eye on are all drawn in it.
+fn slot_colour(tints: &[bims::character::Tint], slot: u32) -> egui::Color32 {
+    let tint = tints
+        .get(slot as usize)
+        .copied()
+        .unwrap_or_else(|| bims::character::Tint::from_code(slot as u8));
+    let (red, green, blue) = tint.rgb();
+    egui::Color32::from_rgb(
+        (red * 255.0) as u8,
+        (green * 255.0) as u8,
+        (blue * 255.0) as u8,
+    )
 }
 
 #[derive(Resource)]
@@ -991,6 +1009,8 @@ fn frame(
     unlocks: Option<Res<crate::profile::RunUnlocks>>,
     // Whether the window has the focus, for the edge scroll (task 123).
     window: Single<&Window>,
+    // A mission being built off this thread (`screens::loading`).
+    mut loading: ResMut<super::loading::Loading>,
 ) -> Result {
     // `BIMS_PERF`: where the frame goes (feature 96). Nothing at all
     // without it.
@@ -1002,6 +1022,12 @@ fn frame(
     let now = ctx.input(|i| i.time);
     let dt = time.delta_secs().min(super::designer::MAX_FRAME_DT) as f64;
     let mut root = root_ui(&ctx);
+    // A trip being built behind the loading screen, or one this end's own
+    // order set off last frame (`screens::loading`): the frame is the
+    // loading screen's, and the session here a stand-in.
+    if loading.busy() || loading.begin_deferred(&screen.net, session) {
+        return Ok(());
+    }
     // The log's clock first: a line said this frame is stamped with it.
     screen.log.tick(now);
 
@@ -1011,15 +1037,39 @@ fn frame(
     // orders and its steps are what the world is made of. The host gone
     // is the end of company: the clock is this window's from here.
     let wire_timed = crate::perf::scope(crate::perf::Phase::Wire);
-    for event in online.drain(now) {
+    // What a trip left waiting goes first. A message that is the trip is
+    // applied on a thread (`screens::loading`), and whatever came behind
+    // it waits for it: the order everything is applied in holds.
+    let mut drained = loading.take_stash();
+    drained.extend(online.drain(now));
+    let mut drained = drained.into_iter();
+    while let Some(event) = drained.next() {
         match event {
             Event::Packet { from, packet } => match packet {
                 Packet::Ask { at, message } => {
                     if let Some(slot) = online.slot_of(from) {
+                        if screen.net.wire.as_ref().is_some_and(|w| w.host)
+                            && Loading::travels(session, slot, &message)
+                        {
+                            let apply = Apply::Asked {
+                                from: slot,
+                                at,
+                                message,
+                                peer: from,
+                            };
+                            loading.trip(&screen.net, session, apply);
+                            loading.stash(drained.by_ref());
+                            break;
+                        }
                         screen.net.asked(session, slot, at, message, from);
                     }
                 }
                 Packet::Applied { from, at, message } => {
+                    if !screen.net.is_clock() && Loading::travels(session, from, &message) {
+                        loading.trip(&screen.net, session, Apply::Applied { from, at, message });
+                        loading.stash(drained.by_ref());
+                        break;
+                    }
                     screen.net.applied(session, from, at, message);
                 }
                 Packet::Refused { why } => {
@@ -1123,7 +1173,7 @@ fn frame(
                         // vote or a departure does not wait on somebody
                         // who is not there (feature 103).
                         if screen.net.wire.as_ref().is_some_and(|w| w.host) {
-                            screen.net.order(session, Order::PlayerGone(slot));
+                            loading.order(&screen.net, session, Order::PlayerGone(slot));
                         }
                     }
                 }
@@ -1134,6 +1184,10 @@ fn frame(
             }
             _ => {}
         }
+    }
+
+    if loading.busy() {
+        return Ok(());
     }
 
     // A Bim's name said late — after the host's Start, or typed since —
@@ -1566,7 +1620,7 @@ fn frame(
         screen.system_size = canvas.size();
         session.resize_map(canvas.size().x, canvas.size().y);
     }
-    let pointer = Pointer::read(&ctx);
+    let mut pointer = Pointer::read(&ctx);
     let on_canvas = pointer.on(canvas);
     let on_galaxy = pointer.on(galaxy_rect);
     let here = pointer.pos.map(|p| p - canvas.min);
@@ -1696,17 +1750,62 @@ fn frame(
                 .resize(galaxy_rect.size().x, galaxy_rect.size().y);
         }
     }
+    // Where the pointer is in the world's views, the same place on every
+    // machine: on the galaxy chart, on the system view, or on the deck.
+    // Nothing over a panel.
+    let in_view = if let Some(p) = on_galaxy.filter(|_| galaxy_up) {
+        screen.galaxy.as_ref().map(|chart| {
+            let (x, y) = chart.preview.to_galaxy(p.x, p.y);
+            Spot::Galaxy(x, y)
+        })
+    } else if let Some(p) = on_canvas {
+        match session.game.as_ref() {
+            Some(game) if map_up => {
+                let at = game.point_at(p.x, p.y);
+                Some(Spot::System {
+                    star: game.shown_star(),
+                    x: at.x,
+                    y: at.y,
+                })
+            }
+            _ => {
+                let (x, y) = session.design_point(p.x, p.y);
+                Some(Spot::Deck(x, y))
+            }
+        }
+    } else {
+        None
+    };
+    // Alt and a left click is a ping, on the deck, the system view or the
+    // galaxy chart: a mark in this player's colour on everybody's screen
+    // where it was put. The press is the ping's and nothing else's — it
+    // is taken off the pointer, so no pick, marquee or drag follows it.
+    if pointer.primary_pressed
+        && ctx.input(|i| i.modifiers.alt)
+        && let Some(at) = in_view
+    {
+        online.ping(now, at);
+        pointer.primary_pressed = false;
+    }
     let panels = screen.panels.as_mut().unwrap();
 
-    // Where this pointer is over the deck, to the room, as a design point
-    // — nothing over a panel, and nothing with the map up, where a tile
-    // means nothing.
-    online.point(
-        now,
-        on_canvas
-            .filter(|_| !map_up)
-            .map(|p| session.design_point(p.x, p.y)),
-    );
+    // Where this pointer is, to the room: over the trader's window or the
+    // relic choice (where they stood last frame, since they are laid out
+    // below), else wherever it is in the views.
+    let over_window = pointer.pos.and_then(|p| {
+        let p = egui::pos2(p.x, p.y);
+        let from = |r: egui::Rect| (p.x - r.min.x, p.y - r.min.y);
+        if let Some(r) = super::worldmap::relic_rect(&ctx).filter(|r| r.contains(p)) {
+            let (x, y) = from(r);
+            Some(Spot::Relic(x, y))
+        } else if let Some(r) = super::worldmap::trader_rect(&ctx).filter(|r| r.contains(p)) {
+            let (x, y) = from(r);
+            Some(Spot::Trader(x, y))
+        } else {
+            None
+        }
+    });
+    online.point(now, over_window.or(in_view));
 
     // Middle drags pan, in either view — and with the map up, the part
     // the drag began in: the galaxy chart or the system (task 135).
@@ -2274,7 +2373,7 @@ fn frame(
 
     // Everything that changes the ship goes through the seam.
     for order in orders.drain(..) {
-        screen.net.order(session, order);
+        loading.order(&screen.net, session, order);
     }
 
     drop(canvas_timed);
@@ -2296,7 +2395,9 @@ fn frame(
         || crate::dev::out();
     // A player whose Bim is out watches a crewmate's, which the portraits
     // pick: the camera follows the one watched, tethered to it the first
-    // frame out. Back in, the camera is the player's own again.
+    // frame out. Back in, the camera is the player's own again, and free
+    // as it opens — the tether was the watching's, and left on it had the
+    // camera chasing the player's own Bim round the deck.
     if let Some(game) = session.game.as_mut() {
         let crew = game.world.aboard.crew_count();
         let room = &game.world.aboard.room;
@@ -2309,9 +2410,13 @@ fn frame(
             None
         };
         let first = next.is_some() && game.spectate.is_none();
+        let back = !out && game.spectate.is_some();
         game.spectate = next;
         if first {
             game.set_follow(true);
+        }
+        if back {
+            game.set_follow(false);
         }
     }
 
@@ -2577,7 +2682,38 @@ fn frame(
     super::worldmap::ready_window(&ctx, world, local, &mut orders, &crew_name);
     // And a relic being chosen (feature 106): the reward screen after a
     // site cleared, over the map, or a cache's in the mission.
-    super::worldmap::relic_window(&ctx, world, local, &mut orders, &crew_name);
+    // The others as the two windows over the map show them: their
+    // pointers over this player's copy of each, and what each has their
+    // eye on outlined, in their colours; and what this player has, said
+    // to them once both are laid out.
+    let mates = super::worldmap::Mates {
+        pointers: online
+            .others_pointing()
+            .into_iter()
+            .map(|(slot, spot)| {
+                (
+                    slot_colour(&session.crew_tints, slot),
+                    crew_name(slot),
+                    spot,
+                )
+            })
+            .collect(),
+        choices: online
+            .others_choosing()
+            .into_iter()
+            .map(|(slot, choice)| (slot_colour(&session.crew_tints, slot), choice))
+            .collect(),
+    };
+    let mut eyed = Choice::default();
+    super::worldmap::relic_window(
+        &ctx,
+        world,
+        local,
+        &mut orders,
+        &crew_name,
+        &mates,
+        &mut eyed,
+    );
     // A rank-up asked for this frame, by Ctrl and a slot's key or by a
     // Ctrl-click on its box (task 123), for the player's own Bim — the
     // one place both go through.
@@ -2598,7 +2734,18 @@ fn frame(
     );
     // And the trader the crew are at (task 114): the whole visit is on the
     // map, and the Armory panel may be up beside it.
-    super::worldmap::trader_window(&ctx, world, local, &mut orders, &crew_name);
+    let mut on_line = Choice::default();
+    super::worldmap::trader_window(
+        &ctx,
+        world,
+        local,
+        &mut orders,
+        &crew_name,
+        &mates,
+        &mut on_line,
+    );
+    eyed.line = on_line.line;
+    online.say_choice(eyed);
 
     // What the HUD asked for: the orders now, off the world as it stands,
     // and the windows once it is let go of.
@@ -2721,7 +2868,7 @@ fn frame(
             });
     }
     for order in orders.drain(..) {
-        screen.net.order(session, order);
+        loading.order(&screen.net, session, order);
     }
 
     // The class section's, the sheet's and the deployable rows' (feature 74).
@@ -2733,7 +2880,7 @@ fn frame(
         });
     }
     for order in orders.drain(..) {
-        screen.net.order(session, order);
+        loading.order(&screen.net, session, order);
     }
 
     if let Some(room) = session.room() {
@@ -2830,7 +2977,7 @@ fn frame(
         orders.push(Order::CrewLater(order));
     }
     for order in orders.drain(..) {
-        screen.net.order(session, order);
+        loading.order(&screen.net, session, order);
     }
     let allowed = Allowed::of(session.playing(), online.is_guest());
     let asked = settings_sheet(
@@ -3160,19 +3307,67 @@ fn frame(
     {
         attack_cursor(&painter, egui::pos2(p.x + canvas.min.x, p.y + canvas.min.y));
     }
-    // The others' pointers over the deck, each in its player's colour
-    // with their Bim's name, through the ship's camera and heading like
-    // the names: over the tile they are over, whichever way each has
-    // turned the ship.
-    if !map_up {
-        for (slot, (x, y)) in online.others_pointing() {
-            let (x, y) = session.design_point_on_screen(x, y);
-            let at = view.to_canvas(Vec2::new(x, y)) + canvas.min;
-            theme::ghost_pointer(
-                &painter,
-                egui::pos2(at.x, at.y),
-                theme::ship_color32(ship::world_paint::player_color(slot)),
-                &crew_name(slot),
+    // The others' pointers and everybody's pings (Alt and a left click),
+    // each in its player's colour, wherever it is in whichever view this
+    // player has up: over the tile it is over on the deck, through the
+    // ship's camera and heading like the names; the place in the system
+    // shown (the same star only); the place on the galaxy chart. A
+    // pointer over the trader's window or the relic choice is drawn by
+    // the window (`worldmap::Mates`).
+    {
+        let chart_painter = canvas_painter(&ctx, galaxy_rect);
+        let place = |spot: Spot| -> Option<(&egui::Painter, egui::Pos2)> {
+            match spot {
+                Spot::Deck(x, y) if !map_up => {
+                    let (x, y) = session.design_point_on_screen(x, y);
+                    let at = view.to_canvas(Vec2::new(x, y)) + canvas.min;
+                    Some((&painter, egui::pos2(at.x, at.y)))
+                }
+                Spot::System { star, x, y } if map_up => session
+                    .game
+                    .as_ref()
+                    .filter(|game| game.shown_star() == star)
+                    .map(|game| {
+                        let (sx, sy) = game.map_screen_of(worldgen::math::dvec2(x, y));
+                        (&painter, egui::pos2(canvas.min.x + sx, canvas.min.y + sy))
+                    }),
+                Spot::Galaxy(x, y) if galaxy_up => screen.galaxy.as_ref().map(|chart| {
+                    let (sx, sy) = chart.preview.to_screen(x, y);
+                    (
+                        &chart_painter,
+                        egui::pos2(galaxy_rect.min.x + sx, galaxy_rect.min.y + sy),
+                    )
+                }),
+                _ => None,
+            }
+        };
+        for (slot, spot) in online.others_pointing() {
+            if let Some((on, at)) = place(spot) {
+                theme::ghost_pointer(
+                    on,
+                    at,
+                    slot_colour(&session.crew_tints, slot),
+                    &crew_name(slot),
+                );
+            }
+        }
+        let me = online.my_slot();
+        for ping in online.pings_now(now).to_vec() {
+            let Some((on, at)) = place(ping.at) else {
+                continue;
+            };
+            let name = if ping.slot == me {
+                String::new()
+            } else {
+                crew_name(ping.slot)
+            };
+            theme::ping_mark(
+                on,
+                at,
+                slot_colour(&session.crew_tints, ping.slot),
+                &name,
+                (now - ping.born) as f32,
+                PING_SECONDS as f32,
             );
         }
     }
@@ -3911,6 +4106,7 @@ fn armory_of(world: &world::World, local: u32) -> crate::crew::ArmoryView {
                 may_change: world.may_change_now(local, who),
                 offers_in,
                 offers_out,
+                relics: world.relics_of(who).to_vec(),
                 portrait,
             }
         })

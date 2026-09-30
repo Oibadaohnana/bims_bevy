@@ -1003,6 +1003,8 @@ fn scripted_input(
         let (key_code, logical) = match name {
             "Escape" | "Esc" => (KeyCode::Escape, Key::Escape),
             "Shift" => (KeyCode::ShiftLeft, Key::Shift),
+            // Held round a left click it is a ping.
+            "Alt" => (KeyCode::AltLeft, Key::Alt),
             "Enter" => (KeyCode::Enter, Key::Enter),
             "Tab" => (KeyCode::Tab, Key::Tab),
             "Space" => (KeyCode::Space, Key::Space),

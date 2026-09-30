@@ -1505,17 +1505,40 @@ impl CrewPanels {
                     ui.label(egui::RichText::new(ARMORY_HOW).small().color(theme::MUTED));
                 }
                 ui.add_space(4.0);
-                egui::ScrollArea::horizontal()
-                    .id_salt("armory-columns")
+                // Three rows: the players' own Bims, the bots, and the
+                // armory under them. A row with nobody in it is left out.
+                // Scrolled up and down past the screen's height, so the armory
+                // is never cut off below a long crew.
+                let tall = (ui.ctx().content_rect().height() - ARMORY_TOP - 90.0).max(200.0);
+                egui::ScrollArea::vertical()
+                    .id_salt("armory-rows")
+                    .max_height(tall)
+                    .min_scrolled_height(tall)
                     .show(ui, |ui| {
-                        ui.horizontal_top(|ui| {
-                            for column in &view.columns {
-                                armory_column(ui, view, column, &mut asked);
+                        for (players, heading, salt) in [
+                            (true, ARMORY_PLAYERS, "armory-players"),
+                            (false, ARMORY_BOTS, "armory-bots"),
+                        ] {
+                            let row: Vec<&ArmoryColumn> = view
+                                .columns
+                                .iter()
+                                .filter(|c| c.portrait.player == players)
+                                .collect();
+                            if row.is_empty() {
+                                continue;
                             }
-                        });
+                            theme::heading(ui, heading);
+                            egui::ScrollArea::horizontal().id_salt(salt).show(ui, |ui| {
+                                ui.horizontal_top(|ui| {
+                                    for column in row {
+                                        armory_column(ui, view, column, &mut asked);
+                                    }
+                                });
+                            });
+                            ui.separator();
+                        }
+                        armory_stock(ui, view, &mut asked);
                     });
-                ui.separator();
-                armory_stock(ui, view, &mut asked);
             });
         self.armory_open = open;
         self.orders.extend(asked);
@@ -2282,7 +2305,13 @@ pub struct ArmoryColumn {
     pub offers_in: Vec<(u32, world::GearSlot, PackItem, String)>,
     /// Offers this column's player has made: which slot, to whom by name.
     pub offers_out: Vec<(world::GearSlot, u32, String)>,
+    /// The relics its Bim holds (`World::relics_of`), shown as their
+    /// pictures under a player's name — a bot holds none.
+    pub relics: Vec<world::Relic>,
 }
+
+/// The side of a relic's picture on an Armory column, in points.
+const ARMORY_RELIC: f32 = 22.0;
 
 /// The Armory panel's whole reading (task 113): a column a crew member,
 /// the armory, the money and the keys, and whether a mission is running —
@@ -2369,6 +2398,31 @@ fn armory_column(
                     }
                 });
             });
+            // A player's relics, each its picture, its name and what it
+            // does on the hover.
+            if column.portrait.player {
+                ui.horizontal_wrapped(|ui| {
+                    ui.spacing_mut().item_spacing.x = 3.0;
+                    if column.relics.is_empty() {
+                        ui.label(
+                            egui::RichText::new(ARMORY_NO_RELICS)
+                                .small()
+                                .color(theme::MUTED),
+                        );
+                    }
+                    for &relic in &column.relics {
+                        let (rect, plate) = ui.allocate_exact_size(
+                            egui::vec2(ARMORY_RELIC, ARMORY_RELIC),
+                            egui::Sense::hover(),
+                        );
+                        icons::relic(ui.painter(), rect, relic);
+                        plate.on_hover_ui(|ui| {
+                            ui.label(egui::RichText::new(relic_name(relic)).strong());
+                            ui.label(relic_line(relic));
+                        });
+                    }
+                });
+            }
             for slot in [
                 world::GearSlot::Weapon,
                 world::GearSlot::Head,

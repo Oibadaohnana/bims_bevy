@@ -836,6 +836,48 @@ fn a_proposal_wants_every_connected_player_and_any_change_clears_it() {
     assert_eq!(world.star_id, b.star);
 }
 
+/// **`would_travel` says beforehand what a command will do**: asked
+/// before every vote of a three-player trip — a proposal, yeses short of
+/// all, the last yes — and before a player going carries one, it answers
+/// what the step then does, and changes nothing by being asked. Nothing
+/// travels from inside a mission.
+#[test]
+fn would_travel_foretells_the_trip() {
+    let mut world = basic(3);
+    let a = another_site_here(&world);
+    let propose = |slot| Command::Propose {
+        slot,
+        star: a.star,
+        station: a.station,
+    };
+    assert!(!world.would_travel(&propose(0)), "mid-mission");
+    to_the_map(&mut world);
+    for command in [
+        propose(0),
+        Command::Accept { slot: 1, yes: true },
+        Command::Accept {
+            slot: 1,
+            yes: false,
+        },
+        Command::Accept { slot: 1, yes: true },
+        Command::Accept { slot: 2, yes: true },
+    ] {
+        let before = crate::world_checksum(&world);
+        let said = world.would_travel(&command);
+        assert_eq!(crate::world_checksum(&world), before, "only asked");
+        let events = world.step(&[command]);
+        assert_eq!(said, travelled(&events), "{command:?}");
+    }
+    assert!(world.in_mission(), "the last yes went");
+    // And a player going, when that carries it.
+    let mut world = basic(2);
+    to_the_map(&mut world);
+    world.step(&[propose(0)]);
+    let gone = Command::PlayerGone { slot: 1 };
+    assert!(world.would_travel(&gone));
+    assert!(travelled(&world.step(&[gone])));
+}
+
 /// The pinned reference scenario does what its note says: a mission at the
 /// spawn, then back to the ship, a trip, and a mission somewhere else,
 /// the world clock on by the trip and no further.

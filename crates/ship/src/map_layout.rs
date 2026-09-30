@@ -231,6 +231,18 @@ impl Game {
         turned(offset.x as f32, -offset.y as f32, self.camera_turn() as f32)
     }
 
+    /// A place of the system shown on the canvas: [`Game::point_at`]
+    /// backwards. What a ping on the system view is put back on the glass
+    /// by, wherever this player has the map panned and zoomed.
+    pub fn map_screen_of(&self, at: DVec2) -> (f32, f32) {
+        let (x, y) = self.raw_spot(at);
+        let scale = self.map_view.scale();
+        (
+            self.map_view.offset_x() + x * scale,
+            self.map_view.offset_y() + y * scale,
+        )
+    }
+
     /// Where the map draws every node, in the camera's units about its
     /// origin: where it lies, and then every **site** pushed clear of the
     /// star and of every site laid before it until the two are

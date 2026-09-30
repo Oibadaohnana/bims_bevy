@@ -106,7 +106,7 @@ want the ship holding somewhere that is not a berth; it lays nothing out.
 ## The design phase, then the game, and one clock in it
 
 The yard (`bims design`) is the one way into the design phase now — the
-`game` flow has had none since feature 102, `screens::designer::start_run`
+`game` flow has had none since feature 102, `screens::designer::build_run`
 standing `Session::run` up on the default ship instead. There the last
 Accept settles the ship **and** opens the world — one event, in
 `Session::accept`, because two calls for it would be two things that
@@ -4766,7 +4766,7 @@ where the step does nothing else.
 
 **The pool** opens as a new profile's (`Run::new`) and is replaced once
 by `set_relic_pool` — the host's, from `Session::set_relic_pool` in the
-app's `start_run` — before the world's first step. `give_relic_for_probe`
+app's `build_run` — before the world's first step. `give_relic_for_probe`
 (`BIMS_RELICS`) takes the relic out of the pool too.
 
 **Tier two** is `site_tier` (the root `CLAUDE.md` has the rule), read by
@@ -5842,7 +5842,7 @@ with nothing held is `NoReadyCheck` (120).
 
 `begin_mission` opens the hold (`open_briefing`), and so does
 `World::set_ready_check(true)` at the top of a mission — how the `game`
-run's first mission gets it (`screens::designer::start_run`,
+run's first mission gets it (`screens::designer::build_run`,
 `BIMS_READY=0` to switch it off there, `=1` to switch it on for a
 command's own run). **Off in `World::start`**: every test, the staged
 commands and the pins step at once, and the checksum eats the three
@@ -6184,6 +6184,22 @@ list, `set_machine_hostiles`) and the Heart's machines are untouched.
 (both carried on by later bumps); no pin moved (`SURVIVORS`, `REFERENCE_CHECKSUM`
 and the ship's `PINNED` read the same with the rule on and off).
 
+**And so does one of the Manufacturers'.** A reinforcement at a site of
+theirs is their people alone — Bims, no machine to carry `seeking` — so
+it stood behind the airlock it came in by ("the attackers just stand
+there"), for two reasons: the room was not told, and a body enlisted
+while the room was already at war was never mustered (the room's half,
+`crates/game/CLAUDE.md`, "A Manufacturer is a hostile Bim"). The world
+now says `Game::set_told(residents.manufacturers_laid > 1)` in `visit`'s
+hostile branch, right before `set_hostiles` — their garrison is wave
+one, and a wave of theirs lands only once the one before is down — which
+`set_hostiles` reads beside the machines' `seeking`. The room's flag is
+`serde(skip)`, said again every step, so nothing saved or hashed moved.
+`a_reinforcement_of_theirs_hunts_the_crew_from_its_airlock` (the room
+still at war when it lands) and
+`a_reinforcement_of_theirs_is_told_where_the_crew_are` (landing after the
+room forgot the crew) in `tests_manufacturer.rs` are the rule.
+
 ## A site's waves are its tier's
 
 > "The machines hold a station" above says a site's wave count grows a
@@ -6289,3 +6305,15 @@ its length; the checksum eats a nought where the squad order was, so
 `REFERENCE_CHECKSUM`, `SURVIVORS` and the ship's `PINNED` did not move.
 The everybody's standing orders (the X banner, the retreat) are
 untouched. **`SAVE_VERSION` 66, `wire::PROTOCOL` 66.**
+
+## `World::would_travel`: the trip asked about before it is taken
+
+`World::would_travel(&command)` (in `mission.rs`) answers whether a
+`Propose`, an `Accept { yes: true }` or a `PlayerGone`, applied now,
+would carry the vote and take the crew on the trip — `go_if_carried`'s
+question, changing nothing. A trip builds the site it lands at (two
+seconds for the run's first station, eight or more for a planet's town,
+release build), so the app asks first and applies such a command on a
+thread behind a loading screen (`crates/app/src/screens/loading.rs`);
+the world itself is untouched and nothing saved, hashed or on the wire
+moved. `would_travel_foretells_the_trip` (`tests_mission.rs`) is the rule.

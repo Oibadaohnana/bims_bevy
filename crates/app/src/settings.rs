@@ -11,7 +11,9 @@
 //! the screen to carry out. Esc opens it from any
 //! screen that has one and closes it again from any page; the screens
 //! own whether it is up and which page, as a [`Sheet`], and lay it out
-//! with [`settings_sheet`] after their panels so it sits over them.
+//! with [`settings_sheet`] after their panels so it sits over them. The
+//! menu, the setup and the lobby have it too, as the settings alone
+//! ([`Allowed::SETTINGS_ONLY`]): there is no game yet to save or load.
 
 use bevy_egui::egui;
 
@@ -39,9 +41,21 @@ pub struct Allowed {
     pub save: bool,
     pub load: bool,
     pub restart: bool,
+    /// Whether there is a game to speak of at all: none on the menu,
+    /// the setup and in the lobby, where the sheet is the settings alone
+    /// and the save, load and restart row is not shown.
+    pub game: bool,
 }
 
 impl Allowed {
+    /// The sheet before a game: the settings and nothing else.
+    pub const SETTINGS_ONLY: Allowed = Allowed {
+        save: false,
+        load: false,
+        restart: false,
+        game: false,
+    };
+
     /// The screen's phase and company, in one: `playing` is whether the
     /// world is open, `guest` whether this end is somebody's guest.
     pub fn of(playing: bool, guest: bool) -> Allowed {
@@ -49,6 +63,7 @@ impl Allowed {
             save: playing,
             load: !guest,
             restart: playing && !guest,
+            game: true,
         }
     }
 
@@ -207,6 +222,17 @@ fn menu(
     ui.add_space(8.0);
     // The game, written out and read back. The directory is read again as
     // a page opens, so a file from another run is there.
+    if allowed.game {
+        game_row(ui, sheet, saves, allowed);
+        ui.add_space(8.0);
+    }
+    if ui.button("Close").clicked() {
+        *sheet = None;
+    }
+}
+
+/// The menu's Save, Load and Restart, where there is a game.
+fn game_row(ui: &mut egui::Ui, sheet: &mut Option<Sheet>, saves: &mut Saves, allowed: Allowed) {
     ui.horizontal(|ui| {
         let save = ui
             .add_enabled(allowed.save, egui::Button::new("Save"))
@@ -236,10 +262,6 @@ fn menu(
             *sheet = Some(Sheet::Restart);
         }
     });
-    ui.add_space(8.0);
-    if ui.button("Close").clicked() {
-        *sheet = None;
-    }
 }
 
 /// The player's volumes: one over everything, one over the sounds that

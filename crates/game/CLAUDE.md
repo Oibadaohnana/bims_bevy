@@ -3753,6 +3753,18 @@ Everything the kept hostile-Bim code does it does — the war, the muster,
 - **Its gun stays with the body**: `drop_weapon` only puts it out of the
   hands, so nothing lies on the deck.
 
+**One enlisted into a fight under way comes under arms.** `muster` runs
+only when `at_war` *changes*, and a Bim fights only recruited (`armed`
+in `tick_combat` asks `is_recruited`), so a reinforcement of theirs
+enlisted while the room was already at war stood unarmed where it was
+put — behind its airlock — for as long as the fight went on.
+`enlist_manufacturer` recruits it when `hostile_bodies && at_war`. A
+machine has no recruiting and never had the trouble. And
+`Game::set_told` (a `serde(skip)` flag the world says every step) makes
+`set_hostiles` believe every target it is handed, as a reinforcement of
+the machines' does (`Droid::seeking`) — `crates/world/CLAUDE.md`, "A
+reinforcement comes looking for the crew".
+
 The look is `Uniform::Manufacturer`: a charcoal black coverall (lifted off
 the outline so the figure holds its shape in the dark), a **gold** yoke
 (`Uniform::yoke`) where everybody else wears their own colour, and gold

@@ -579,6 +579,83 @@ pub fn ghost_pointer(painter: &egui::Painter, at: egui::Pos2, color: egui::Color
 /// How see-through another player's pointer is.
 const GHOST_POINTER_ALPHA: f32 = 0.6;
 
+/// A ping (Alt and a left click), `age` seconds after it went up of the
+/// `life` it has: three rings running out from the spot one after
+/// another, and again every [`PING_RING_CYCLE`], and a diamond on the spot, all in the
+/// player's colour with a dark edge under them so they read on a pale
+/// deck; the whole fading over its last second. `name` over it is whose,
+/// for another player's — empty for this player's own. In points, like
+/// the pointers, the same size at any zoom.
+pub fn ping_mark(
+    painter: &egui::Painter,
+    at: egui::Pos2,
+    color: egui::Color32,
+    name: &str,
+    age: f32,
+    life: f32,
+) {
+    let fade = ((life - age) / 1.0).clamp(0.0, 1.0);
+    for k in 0..3 {
+        let run = (age % PING_RING_CYCLE - k as f32 * PING_RING_GAP) / PING_RING_SECONDS;
+        if !(0.0..1.0).contains(&run) {
+            continue;
+        }
+        let r = 6.0 + PING_RING_REACH * run;
+        let a = (1.0 - run) * fade;
+        painter.circle_stroke(
+            at,
+            r,
+            egui::Stroke::new(4.0, NAME_STROKE.gamma_multiply(0.5 * a)),
+        );
+        painter.circle_stroke(at, r, egui::Stroke::new(2.0, color.gamma_multiply(a)));
+    }
+    // The diamond drops onto the spot as it goes up.
+    let drop = (1.0 - (age / 0.18).min(1.0)) * 10.0;
+    let c = at - egui::vec2(0.0, drop);
+    let diamond = |s: f32| {
+        [(0.0, -s * 1.4), (s, 0.0), (0.0, s * 1.4), (-s, 0.0)]
+            .into_iter()
+            .map(|(dx, dy)| c + egui::vec2(dx, dy))
+            .collect::<Vec<_>>()
+    };
+    painter.add(egui::Shape::convex_polygon(
+        diamond(8.5),
+        NAME_STROKE.gamma_multiply(fade),
+        egui::Stroke::NONE,
+    ));
+    painter.add(egui::Shape::convex_polygon(
+        diamond(6.0),
+        color.gamma_multiply(fade),
+        egui::Stroke::NONE,
+    ));
+    if !name.is_empty() {
+        let font = egui::FontId::proportional(NAME_SIZE * 0.85);
+        let label = c - egui::vec2(0.0, 14.0);
+        painter.text(
+            label + egui::vec2(1.0, 1.0),
+            egui::Align2::CENTER_BOTTOM,
+            name,
+            font.clone(),
+            NAME_STROKE.gamma_multiply(fade),
+        );
+        painter.text(
+            label,
+            egui::Align2::CENTER_BOTTOM,
+            name,
+            font,
+            color.gamma_multiply(fade),
+        );
+    }
+}
+
+/// A ping's rings: how long each takes to run out, how far apart they
+/// start, and how far out they run, in points.
+const PING_RING_SECONDS: f32 = 0.9;
+const PING_RING_GAP: f32 = 0.3;
+const PING_RING_REACH: f32 = 34.0;
+/// And how often the three go again while the ping is up.
+const PING_RING_CYCLE: f32 = 1.5;
+
 /// A mark over a name — the `?` over a mercenary for hire: a small disc in
 /// the void's darkness with the glyph on it in `color`, on the background
 /// layer like [`name_over`]. `at` is the bottom middle, as for a name.

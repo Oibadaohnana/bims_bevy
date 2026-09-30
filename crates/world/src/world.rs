@@ -2878,6 +2878,12 @@ impl World {
             let room = &mut residents.aboard.room;
             room.set_sheltering(&sheltering);
         } else {
+            // A reinforcement of the Manufacturers' standing here was told
+            // where the crew are, as the machines' is (`Droid::seeking`),
+            // and comes looking for them rather than waiting at its
+            // airlock: their garrison is wave one, and a wave of theirs
+            // lands only once the one before it is down.
+            room.set_told(residents.manufacturers_laid > 1);
             room.set_hostiles(crew.clone());
             room.set_hostiles_peeking(&self.aboard.crew_peeking());
             room.set_hostiles_taunting(&taunts);
