@@ -2659,22 +2659,26 @@ impl Game {
         let aim = (!stats.melee)
             .then(|| Combat::aim_among(&targets, &self.room.sight, from, stats))
             .flatten();
-        // A Trooper fights from its own eye alone, never a peek, so only
-        // that is a shot to it; and it weighs its stands by what it could
-        // shoot from there (`own_eye`, `Tactics::stand_scored`).
-        let trooper = self.droids[i].kind == crate::droid::DroidKind::Trooper;
-        let trooper_shot = trooper
-            .then_some(aim)
-            .flatten()
-            .filter(|&(_, eye, _)| eye == from)
+        // A Warden shoots from a peek as well as its own eye; a Trooper
+        // and a Guardian from their own eye alone, so only that is a shot
+        // to them. Each weighs its stands by what it could shoot from
+        // there (`Seeing`, `Tactics::stand_scored`).
+        let peeks = self.droids[i].kind.takes_cover();
+        let seeing = if peeks {
+            crate::combat::Seeing::MadeOut
+        } else {
+            crate::combat::Seeing::OwnEye
+        };
+        let shot = aim
+            .filter(|&(_, eye, _)| peeks || eye == from)
             .map(|(_, _, at)| at);
         // A Guardian weighs no tile of distance for its own sake: the
         // Sweeper's worth falling off past its sweet range
         // (`balance::SWEEPER`) is what places it, so it walks in to that
         // range rather than standing off at the beam's full reach. Nor
-        // does a Trooper with a shot: the far end of its reach is where
+        // does any machine with a shot: the far end of its reach is where
         // it goes looking for one, not where it runs to from one.
-        let distance_worth = if self.droids[i].is_guardian() || trooper_shot.is_some() {
+        let distance_worth = if self.droids[i].is_guardian() || shot.is_some() {
             0.0
         } else {
             crate::combat::DISTANCE_WORTH
@@ -2690,26 +2694,27 @@ impl Game {
             closing,
             cover_worth,
             distance_worth,
-            trooper,
+            seeing,
         ) else {
             return;
         };
         let to = stand.at;
         // A shot from here and nothing better than the open over there:
-        // it stops where it is and shoots — except a Trooper, which
-        // advances in the open and fires as it walks.
-        let advances = !self.droids[i].kind.takes_cover();
-        if aim.is_some() && !stand.cover && !advances {
+        // it stops where it is and shoots — except a Trooper or a
+        // Guardian, which advance in the open.
+        let advances = !peeks;
+        if shot.is_some() && !stand.cover && !advances {
             if self.droids[i].is_walking() {
                 self.droids[i].halt();
             }
             return;
         }
-        // A Trooper with a shot holds or closes: a stand farther from
-        // what it is shooting at than it is now is ground given, and it
-        // stays and shoots instead (the user's report: Troopers ran off
-        // to the end of their reach rather than fire).
-        if let Some(at) = trooper_shot
+        // A machine with a shot holds or closes: a stand farther from
+        // what it is shooting at than it is now — cover included — is
+        // ground given, and it stays and shoots instead (the user's
+        // report: Troopers ran off to the end of their reach rather than
+        // fire).
+        if let Some(at) = shot
             && (to - at).len() > (from - at).len()
         {
             if self.droids[i].is_walking() {

@@ -245,7 +245,7 @@ impl Game {
             closing,
             COVER_WORTH,
             DISTANCE_WORTH,
-            false,
+            crate::combat::Seeing::Line,
         ) else {
             return;
         };

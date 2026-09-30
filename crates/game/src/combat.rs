@@ -3905,6 +3905,21 @@ pub struct Stand {
     pub cover: bool,
 }
 
+/// What a spot is weighed by in [`Tactics::stand_scored`]: which eyes
+/// count, and whether the dark does.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Seeing {
+    /// A clear line from the body's eye or a peek beside a wall, lit or
+    /// not — every Bim's, as it always was.
+    Line,
+    /// The same eyes, and only a target the body could make out there
+    /// ([`Sight::makes_out`]): a Warden, which peeks.
+    MadeOut,
+    /// The body's own eye alone, never a peek, and only a target it
+    /// could make out: a Trooper and a Guardian.
+    OwnEye,
+}
+
 /// The enemy's choice of where to stand. See the module note.
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Tactics;
@@ -4172,7 +4187,7 @@ impl Tactics {
             closing,
             COVER_WORTH,
             distance_worth,
-            false,
+            Seeing::Line,
         )
     }
 
@@ -4184,14 +4199,13 @@ impl Tactics {
     /// to. That is a Trooper (feature 83, `crate::droid`), and nothing
     /// else so far; a Warden and every Bim take the cover.
     ///
-    /// `own_eye` is a body that fights from its own eye alone — no peek
-    /// round a wall — and only at what it can make out there: a spot is
-    /// a stand against a target only if the body's own eye has a clear
-    /// line to it and it is lit or within `DARK_RANGE`
-    /// ([`Sight::makes_out`]), the rule its trigger is pulled by
-    /// (`Combat::aim_among`). A Trooper and a Guardian, which never
-    /// peek; before it a Trooper walked off to a spot it could not see a
-    /// crew in the dark from, or saw only round a corner it does not
+    /// `seeing` says what a spot is weighed by ([`Seeing`]). The
+    /// machines' is the rule their triggers are pulled by
+    /// (`Combat::aim_among`): only a target they could make out there —
+    /// lit or within `DARK_RANGE` ([`Sight::makes_out`]) — and for a
+    /// Trooper and a Guardian, which never peek, from their own eye
+    /// alone. Before it a Trooper walked off to a spot it could not see
+    /// a crew in the dark from, or saw only round a corner it does not
     /// shoot round, and stood there not shooting.
     #[allow(clippy::too_many_arguments)]
     pub fn stand_scored(
@@ -4205,7 +4219,7 @@ impl Tactics {
         closing: bool,
         cover_worth: f32,
         distance_worth: f32,
-        own_eye: bool,
+        seeing: Seeing,
     ) -> Option<Stand> {
         // A sealed core is nothing to stand against (feature 108): its
         // shell stops everything, so nobody picks a spot for a shot at
@@ -4265,7 +4279,7 @@ impl Tactics {
                 stats,
                 cover_worth,
                 distance_worth,
-                own_eye,
+                seeing,
             ) else {
                 continue;
             };
@@ -4299,8 +4313,7 @@ impl Tactics {
     /// in tiles of walking: cover or the open by what is seen from there,
     /// the weapon's fit at that distance, and the distance itself — and
     /// whether that best is cover. `None` when no target can be shot at
-    /// from the spot. `own_eye`: the body's own eye alone, and only what it
-    /// can make out from there ([`Tactics::stand_scored`]).
+    /// from the spot. `seeing`: which eyes count, and the dark ([`Seeing`]).
     fn view_from(
         sight: &Sight,
         c: Vec2,
@@ -4308,21 +4321,21 @@ impl Tactics {
         stats: &WeaponStats,
         cover_worth: f32,
         distance_worth: f32,
-        own_eye: bool,
+        seeing: Seeing,
     ) -> Option<(f32, bool)> {
         let reach = stats.reach();
         let eyes = sight.eyes_from(c);
         let mut best: Option<(f32, bool)> = None;
         for target in targets.iter().flatten() {
             let d = (target.at - c).len();
-            if d > reach || (own_eye && !sight.makes_out(c, target.at)) {
+            if d > reach || (seeing != Seeing::Line && !sight.makes_out(c, target.at)) {
                 continue;
             }
             let tile = sight.tile_of(target.at);
             let mut body_sees = false;
             let mut peek_sees = false;
             for eye in &eyes {
-                if (own_eye && eye.is_peek())
+                if (seeing == Seeing::OwnEye && eye.is_peek())
                     || !eye.admits(tile)
                     || !sight.clear_line(eye.at, tile)
                 {

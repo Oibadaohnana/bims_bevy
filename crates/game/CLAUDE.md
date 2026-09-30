@@ -4503,28 +4503,33 @@ armour with a white plate and a red cross on the chest and on each
 pauldron. `a_medivac_medic_revives_a_player_downed_in_the_fight` pins it
 (and that a plain bot there does not).
 
-## A Trooper with a shot holds or closes
+## A machine with a shot holds or closes
 
 > "A **Trooper** is scored at a cover worth of *nought*" in "A droid is
-> not a Bim" is still so; this is what it gained.
+> not a Bim" is still so; this is what every gunner machine gained.
 
-- **With a shot from its own eye** (`Combat::aim_among`, the eye the
-  body) a Trooper's stand weighs **no tile of distance**, and a stand
-  farther from what it is shooting at than it is now is not walked to:
-  it halts and shoots. It advances in the open as ever. Before this
-  `DISTANCE_WORTH` (a tile of distance worth two of walking) had it
-  back off to the far end of its reach every plan — against a shotgun,
-  from four tiles to twelve — rather than fire (the user's report).
-- **Without one** it looks for a shot at the far end of its reach as
-  before, but `Tactics::stand_scored`'s `own_eye` (true for a Trooper
-  alone) weighs a spot only by what the body's **own eye** sees from
-  there, no peek, and only a target it could **make out**
-  (`Sight::makes_out`: lit or within `DARK_RANGE`) — the rule its
-  trigger is pulled by. It walked off to spots it could not see a crew
-  in the dark from, or saw only round a corner it never shoots round,
-  and stood there silent.
+- **With a shot** (`Combat::aim_among` — from a Trooper's or a
+  Guardian's own eye only, a Warden's peek counting) a machine's stand
+  weighs **no tile of distance**, and a stand farther from what it is
+  shooting at than it is now — cover included — is not walked to: it
+  halts and shoots. A Trooper and a Guardian advance in the open as
+  ever; a Warden still walks to cover no farther off. Before this
+  `DISTANCE_WORTH` (a tile of distance worth two of walking) had a
+  Trooper back off to the far end of its reach every plan — against a
+  shotgun, from four tiles to twelve — rather than fire (the user's
+  report); a Guardian already weighed none.
+- **Without one** it looks for a shot at range as before, but
+  `Tactics::stand_scored` takes a `combat::Seeing`: `Line` (a Bim's,
+  any eye, lit or not, as ever), `MadeOut` (a Warden: its eyes and
+  peeks, only a target it could **make out** — `Sight::makes_out`, lit
+  or within `DARK_RANGE`), `OwnEye` (a Trooper, a Guardian: the body's
+  own eye, no peek, made out) — the rule each trigger is pulled by. A
+  Trooper walked off to spots it could not see a crew in the dark
+  from, or saw only round a corner it never shoots round, and stood
+  there silent.
 
-`a_trooper_with_a_shot_holds_or_closes_and_shoots` pins it (fails
-without it). No `SAVE_VERSION`/`PROTOCOL` change; the survivor pins
-were not re-run (the user said to skip testing) and may move, since
-Troopers play differently.
+`a_trooper_with_a_shot_holds_or_closes_and_shoots` pins the Trooper
+(fails without it); the Warden and the Guardian have no test of their
+own. No `SAVE_VERSION`/`PROTOCOL` change; the survivor pins were not
+re-run (the user said to skip testing) and may move, since the machines
+play differently.
