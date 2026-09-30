@@ -4763,6 +4763,13 @@ impl Game {
         bim.character
             .set_look(crate::character::Look::of(2 + (seed % 4_096) as usize));
         bim.gear = gear;
+        // Called into a fight the crew are already under arms for, it is
+        // under arms with them, as `muster_crew` put them: the muster runs
+        // only as it changes, and one enlisted after stood where it was
+        // put with its rifle away while the fight went on round it.
+        if !self.hostile_bodies && self.mustered {
+            bim.character.set_recruited(true);
+        }
         self.adopt(vec![bim], Vec2::ZERO);
         self.refresh_worn(who);
         who
@@ -10970,6 +10977,44 @@ mod tests {
             }
             assert_eq!(left_the_ring, case != "quiet", "{case}");
         }
+    }
+
+    /// A commander's reinforcement called in while the crew are under
+    /// arms is under arms with them — its rifle out, gathering round the
+    /// player as the rest do — and in peace it is not, as they are not
+    /// (the user's report: the ones called in stood where they came doing
+    /// nothing).
+    #[test]
+    fn a_reinforcement_called_into_the_alarm_takes_arms_with_the_crew() {
+        let rifle = Gear {
+            weapon: Some(WeaponKind::AutoRifle.basic()),
+            ..Gear::default()
+        };
+        let mut game = room();
+        game.set_autonomous(false);
+        let james = game.put_for_probe(0, vec2(ROOM_W * 0.3, ROOM_H * 0.5));
+        let calm = game.enlist_reinforcement(vec2(ROOM_W * 0.5, ROOM_H * 0.2), rifle, 1);
+        game.simulate(DT);
+        assert!(!game.is_mustered());
+        assert!(!game.bims[calm].character.is_recruited(), "peace");
+        // The alarm up, an enemy out of sight beyond the walls.
+        let unseen = james + vec2((ALARM_RANGE - 5.0) * TILE, 0.0);
+        game.set_hostiles(vec![Some((unseen, WeaponKind::LaserPistol.basic()))]);
+        game.simulate(DT);
+        assert!(game.is_mustered());
+        let far = vec2(ROOM_W * 0.85, ROOM_H * 0.85);
+        let late = game.enlist_reinforcement(far, rifle, 2);
+        assert!(game.bims[late].character.is_recruited(), "under arms");
+        let mut gathered = false;
+        for _ in 0..(60 * 20) {
+            game.simulate(DT);
+            if (game.bim_pos(late) - game.bim_pos(0)).len() < 3.0 * TILE {
+                gathered = true;
+                break;
+            }
+        }
+        assert!(game.is_armed(late), "its rifle out");
+        assert!(gathered, "beside James: {:?}", game.bim_pos(late));
     }
 
     /// A bot under fire starts no revive until the fire has stopped for

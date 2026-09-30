@@ -4438,3 +4438,14 @@ one.
 `a_bot_under_fire_or_with_its_player_down_fights_rather_than_gathers`
 and `a_bot_under_fire_takes_up_no_revive` pin it. `SAVE_VERSION` 72,
 `wire::PROTOCOL` 74. No survivor pin moved.
+
+## A reinforcement called into a fight takes arms with the crew
+
+`muster_crew` runs only on `mustered`'s edge, so a commander's
+reinforcement enlisted while the crew were already under arms was never
+recruited — and recruited is what `tick_combat` arms and `bot_stand`
+steers — and stood where it came doing nothing (the user's report).
+`enlist_reinforcement` recruits it when `mustered` (as
+`enlist_manufacturer` does a hostile one mid-war); in peace it is let be,
+as the rest are. `a_reinforcement_called_into_the_alarm_takes_arms_with_the_crew`
+pins it. No pin, save or wire change.
