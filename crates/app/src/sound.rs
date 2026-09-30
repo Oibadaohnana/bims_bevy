@@ -59,12 +59,34 @@ pub enum Clip {
     Desert,
     Arctic,
     Bought,
+    // The classes' abilities, one clip an ability (built by
+    // `sounds/abilities.py`, not cut from a recording).
+    GrenadeThrow,
+    GrenadeBurst,
+    Brace,
+    Rampage,
+    EmpThrow,
+    EmpBurst,
+    HealingSentry,
+    Sandbags,
+    Sentry,
+    NaniteBurst,
+    BeamOn,
+    BeamOff,
+    Cloak,
+    Taunt,
+    BulwarkOn,
+    BulwarkOff,
+    Juggernaut,
+    BattleCry,
+    Rally,
+    Reinforcements,
 }
 
 /// The bytes of each clip, indexed by [`Clip`]. Ogg Vorbis, mono, 48 kHz,
 /// peaks at -1 dBFS for the one-shots and -22 or -30 LUFS for the loops —
 /// see `prepare.sh` — so every level below is relative to that.
-const CLIPS: [&[u8]; 23] = [
+const CLIPS: [&[u8]; 43] = [
     include_bytes!("../sounds/laser_1.ogg"),
     include_bytes!("../sounds/laser_2.ogg"),
     include_bytes!("../sounds/laser_3.ogg"),
@@ -88,6 +110,26 @@ const CLIPS: [&[u8]; 23] = [
     include_bytes!("../sounds/desert.ogg"),
     include_bytes!("../sounds/arctic.ogg"),
     include_bytes!("../sounds/bought.ogg"),
+    include_bytes!("../sounds/grenade_throw.ogg"),
+    include_bytes!("../sounds/grenade_burst.ogg"),
+    include_bytes!("../sounds/brace.ogg"),
+    include_bytes!("../sounds/rampage.ogg"),
+    include_bytes!("../sounds/emp_throw.ogg"),
+    include_bytes!("../sounds/emp_burst.ogg"),
+    include_bytes!("../sounds/healing_sentry.ogg"),
+    include_bytes!("../sounds/sandbags.ogg"),
+    include_bytes!("../sounds/sentry.ogg"),
+    include_bytes!("../sounds/nanite_burst.ogg"),
+    include_bytes!("../sounds/beam_on.ogg"),
+    include_bytes!("../sounds/beam_off.ogg"),
+    include_bytes!("../sounds/cloak.ogg"),
+    include_bytes!("../sounds/taunt.ogg"),
+    include_bytes!("../sounds/bulwark_on.ogg"),
+    include_bytes!("../sounds/bulwark_off.ogg"),
+    include_bytes!("../sounds/juggernaut.ogg"),
+    include_bytes!("../sounds/battle_cry.ogg"),
+    include_bytes!("../sounds/rally.ogg"),
+    include_bytes!("../sounds/reinforcements.ogg"),
 ];
 
 /// The loops that run the whole time. The order is the order of the
@@ -176,6 +218,8 @@ enum Kind {
     Burst,
     /// Something bought off the trader, by anyone in the crew.
     Bought,
+    /// A class's ability used, told apart by clip and by who used it.
+    Ability,
 }
 
 /// How many one-shots a frame may start, whatever the room says. Enough
@@ -201,7 +245,7 @@ impl Kind {
             Cue::Blow { .. } => Kind::Blow,
             Cue::Holster { .. } => Kind::Holster,
             Cue::Throw => Kind::Blow,
-            Cue::Burst => Kind::Burst,
+            Cue::Burst | Cue::EmpBurst => Kind::Burst,
         }
     }
 
@@ -236,6 +280,9 @@ impl Kind {
             // order landing together) are one till ringing, two a moment
             // apart are two.
             Kind::Bought => 0.3,
+            // One body's same ability twice in a quarter-second is the
+            // world saying one use over several steps of a fast frame.
+            Kind::Ability => 0.25,
         }
     }
 }
@@ -372,12 +419,18 @@ impl Sounds {
     /// Whether a `kind` may be played now at `at`, and if so, not again
     /// there until its cool-down is up.
     fn admit(&mut self, kind: Kind, at: bims::math::Vec2) -> bool {
+        let cell = ((at.x / PLACE).floor() as i32, (at.y / PLACE).floor() as i32);
+        self.admit_in(kind, cell)
+    }
+
+    /// The same by a cell given outright, for what has no place in the
+    /// room.
+    fn admit_in(&mut self, kind: Kind, cell: (i32, i32)) -> bool {
         if self.started >= SHOTS_PER_FRAME {
             return false;
         }
         let now = self.clock;
         self.recent.retain(|&(_, _, until)| until > now);
-        let cell = ((at.x / PLACE).floor() as i32, (at.y / PLACE).floor() as i32);
         if self.recent.iter().any(|&(k, c, _)| k == kind && c == cell) {
             return false;
         }
@@ -454,14 +507,12 @@ impl Sounds {
             // A bolt on a Guardian's shield has no recording of its own yet
             // (sounds are not in feature 100): it borrows the wall's.
             Cue::Ricochet | Cue::Shielded => self.one_shot(commands, Clip::LaserWall, 0.18),
-            // The throw is the pin and the pitch: the holster's click will
-            // do. The burst is the shotgun's report and a door giving at
-            // once — no recording of its own yet.
-            Cue::Throw => self.one_shot(commands, Clip::Holster, 0.4),
-            Cue::Burst => {
-                self.one_shot(commands, Clip::Shotgun, 1.0);
-                self.one_shot(commands, Clip::DoorForce, 0.9);
-            }
+            // The throw is heard from the world's `Thrown` and
+            // `EmpThrown` (see [`Sounds::ability`]), which tell a grenade
+            // from an EMP; the room says both as one `Throw`.
+            Cue::Throw => {}
+            Cue::Burst => self.one_shot(commands, Clip::GrenadeBurst, 0.9),
+            Cue::EmpBurst => self.one_shot(commands, Clip::EmpBurst, 0.6),
             Cue::Blow { cut, on_crew } => {
                 if cut {
                     self.one_shot(commands, Clip::Schword, 0.6);
@@ -482,6 +533,48 @@ impl Sounds {
     pub fn bought(&mut self, commands: &mut Commands) {
         if self.admit(Kind::Bought, bims::math::Vec2::ZERO) {
             self.one_shot(commands, Clip::Bought, 0.45);
+        }
+    }
+
+    /// A class's ability used, by anyone in the crew: the world's event
+    /// for it, which every window hears — a teammate's taunt as well as
+    /// one's own. What the room hears of an ability afterwards (the
+    /// grenade's burst, the EMP's) is its cue. The passive ones (Weak
+    /// Spot, Healing Aura, Plated, Command Aura) are never used, and are
+    /// not heard.
+    pub fn ability(&mut self, commands: &mut Commands, event: world::WorldEvent) {
+        use world::WorldEvent as E;
+        use world::deploy::DeployKind;
+        let (who, clip, level) = match event {
+            E::Thrown { who } => (who, Clip::GrenadeThrow, 0.5),
+            E::Braced { who, on: true } => (who, Clip::Brace, 0.55),
+            E::Braced { who, on: false } => (who, Clip::Holster, 0.35),
+            E::Rampaged { who } => (who, Clip::Rampage, 0.7),
+            E::EmpThrown { who } => (who, Clip::EmpThrow, 0.35),
+            E::Deployed { who, kind } => match DeployKind::from_code(kind) {
+                Some(DeployKind::Sandbags) => (who, Clip::Sandbags, 0.6),
+                Some(DeployKind::HealingSentry) => (who, Clip::HealingSentry, 0.5),
+                Some(DeployKind::Sentry) => (who, Clip::Sentry, 0.6),
+                None => return,
+            },
+            E::NaniteBurst { who, .. } => (who, Clip::NaniteBurst, 0.5),
+            E::Beamed {
+                who,
+                patient: Some(_),
+            } => (who, Clip::BeamOn, 0.3),
+            E::Beamed { who, patient: None } => (who, Clip::BeamOff, 0.3),
+            E::Cloaked { who, .. } => (who, Clip::Cloak, 0.5),
+            E::Taunted { who } => (who, Clip::Taunt, 0.6),
+            E::Bulwarked { who, on: true } => (who, Clip::BulwarkOn, 0.7),
+            E::Bulwarked { who, on: false } => (who, Clip::BulwarkOff, 0.45),
+            E::Juggernaut { who } => (who, Clip::Juggernaut, 0.75),
+            E::BattleCried { who } => (who, Clip::BattleCry, 0.35),
+            E::Rallied { who } => (who, Clip::Rally, 0.3),
+            E::Reinforced { who, .. } => (who, Clip::Reinforcements, 0.5),
+            _ => return,
+        };
+        if self.admit_in(Kind::Ability, (clip as i32, who as i32)) {
+            self.one_shot(commands, clip, level);
         }
     }
 
@@ -546,6 +639,6 @@ mod tests {
             assert!(clip.starts_with(b"OggS"), "clip {i} is not an Ogg stream");
             assert!(clip.len() > 1_000, "clip {i} is only {} bytes", clip.len());
         }
-        assert_eq!(CLIPS.len(), Clip::Bought as usize + 1);
+        assert_eq!(CLIPS.len(), Clip::Reinforcements as usize + 1);
     }
 }

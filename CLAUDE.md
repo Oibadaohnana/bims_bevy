@@ -204,7 +204,10 @@ plus `wire` and `server` (the relay, `bims-server`).
 - The default font has no arrows (`▾`, `←` come out as boxes) — check a
   new glyph on screen.
 - Clips are `include_bytes!`'d `.ogg`s made by
-  `crates/app/sounds/prepare.sh`; every level lives in `sound.rs`'s tables.
+  `crates/app/sounds/prepare.sh` (cut from `Sounds/`) and
+  `crates/app/sounds/abilities.py` (the classes' abilities, synthesised,
+  played off the world's ability events by `Sounds::ability`); every
+  level lives in `sound.rs`'s tables.
 
 ## Editing gotchas
 

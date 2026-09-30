@@ -1257,6 +1257,9 @@ fn frame(
             ) {
                 sounds.bought(&mut commands);
             }
+            // A class's ability, whoever in the crew used it, heard the
+            // same way.
+            sounds.ability(&mut commands, event);
             // One of the Manufacturers dead is said as one (feature 109):
             // they have no names the crew know.
             let theirs = match event {

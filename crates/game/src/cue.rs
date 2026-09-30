@@ -55,6 +55,9 @@ pub enum Cue {
     Throw,
     /// A grenade burst.
     Burst,
+    /// An engineer's EMP burst (task 127): the same fuse and flight as a
+    /// grenade, and heard as its own thing — a pulse, not a blast.
+    EmpBurst,
 }
 
 /// A cue and where in the room it happened, in room units — the door's

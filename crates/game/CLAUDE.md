@@ -2872,7 +2872,7 @@ asks of the beam's line.
 fuse and then on the tile with the fuse blinking quicker as it runs
 down (`Grenade::pos`, `Combat::draw`), and `Combat::tick_grenades` hands
 every one whose fuse ran out to `Game::burst` and lights a `Blast` (a
-`Cue::Burst`). The burst is one rule over four lists, in a fixed order
+`Cue::Burst`, an EMP's `Cue::EmpBurst`). The burst is one rule over four lists, in a fixed order
 so two runs on one seed roll the same: every own body up and on the
 deck, then every target standing, each within `radius` of the burst
 with `line_clear` to it (walls and shut doors, never sandbags), takes

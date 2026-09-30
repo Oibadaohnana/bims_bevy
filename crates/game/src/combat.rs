@@ -2346,7 +2346,11 @@ impl Combat {
                 emp: g.stun > 0.0,
             });
             self.cues.push(Cued {
-                cue: Cue::Burst,
+                cue: if g.stun > 0.0 {
+                    Cue::EmpBurst
+                } else {
+                    Cue::Burst
+                },
                 at: g.at,
             });
             self.lull = 0.0;
