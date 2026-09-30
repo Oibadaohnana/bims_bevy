@@ -639,6 +639,15 @@ pub struct Droid {
     /// (`World::droid_waves`).
     #[cfg_attr(feature = "serde", serde(default))]
     pub seeking: bool,
+    /// Seconds it is still **under fire**: re-armed to
+    /// [`crate::game::UNDER_FIRE`] by every hit or plate hit it takes
+    /// (`Game::strike_droid`, `Game::strike_plate`). While it lasts its
+    /// side knows where whoever most likely fired stands — the nearest
+    /// target with a clear line to it, seen or not (`believe`) — so a
+    /// machine shot at out of the dark goes for the shooter rather than
+    /// standing in the fire.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub under_fire: f32,
     /// The trigger of the arm, kept between steps like a Bim's.
     pub trigger: crate::combat::Trigger,
     /// Seconds until the next blow may be started, and the blow on its
@@ -734,6 +743,7 @@ impl Droid {
             smashing: None,
             hunting: false,
             seeking: false,
+            under_fire: 0.0,
             trigger: crate::combat::Trigger::default(),
             melee_timer: 0.0,
             blow: None,

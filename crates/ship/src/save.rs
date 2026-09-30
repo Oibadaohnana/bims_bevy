@@ -201,7 +201,9 @@ use crate::game::Game;
 /// under fire fights and takes up no revive.
 /// 73: `Commander::last_reinforcement`, the commander's R called in on
 /// its cooldown.
-pub const SAVE_VERSION: u32 = 73;
+/// 74: `Droid::under_fire` — a machine shot at knows where from, and
+/// goes for the shooter.
+pub const SAVE_VERSION: u32 = 74;
 
 /// What the file holds, read back.
 #[derive(serde::Deserialize)]

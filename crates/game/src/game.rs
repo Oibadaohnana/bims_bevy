@@ -162,6 +162,17 @@ pub const ALARM_HOLD: f32 = 30.0;
 /// of them last saw it, in seconds, once nobody sees it any more. They
 /// chase that spot for this long and then give the hunt up.
 pub const FORGET_AFTER: f32 = 60.0;
+/// How long after a target was last seen its trail is still followed, in
+/// seconds: one of the hunting side come within [`SEARCHED`] tiles of
+/// the spot it is believed at, and nobody there, is a spot searched, and
+/// the belief moves on to where the target has got to — its age kept, so
+/// the trail goes cold this long after the sighting however often it is
+/// followed. Past it a searched spot is where the hunt stands until the
+/// belief is forgotten.
+pub const TRAIL_FOR: f32 = 20.0;
+/// How near one of a side must come to a believed spot for it to count
+/// as searched, in tiles.
+pub const SEARCHED: f32 = 1.5;
 /// How long a room has to have been **calm**, in seconds at 1x: no shot
 /// fired and no blow landed here, either side's, and no enemy in any of
 /// its people's sight, for this long — and none within [`CALM_RANGE`]
@@ -363,15 +374,50 @@ struct Seen {
 /// reinforcement wave of the machines standing in it (`Droid::seeking`)
 /// — believes every one it was handed where it stands now, seen or not:
 /// still stale out of sight, so it is walked towards and never fired at.
+///
+/// **A body shot at knows where from.** Each of `shot_at` — the side's
+/// bodies under fire ([`UNDER_FIRE`]) — gives away the target that most
+/// likely fired: the nearest with a clear line to it, lit or not
+/// (`Sight::sees_from_in_the_dark`), else the nearest of all (a grenade
+/// over a wall). That one is believed where it stands, as a told side
+/// believes, so a machine shot out of the dark walks at the shooter
+/// instead of standing in the fire; still stale, so nothing fires at it
+/// until it is seen.
+///
+/// **And a trail is followed.** A stale belief one of `eyes` has come
+/// within [`SEARCHED`] tiles of — the spot searched and nobody there —
+/// moves on to where the target is now while it was seen within
+/// [`TRAIL_FOR`], its age kept, so a hunt does not end at the corner the
+/// quarry was last seen turning.
 fn believe(
     seen: &mut Vec<Option<Seen>>,
     sight: &Sight,
     watched: Option<Vec2>,
     told: bool,
     eyes: &[Vec2],
+    shot_at: &[Vec2],
     at: Vec<Option<(Vec2, Weapon)>>,
 ) -> (Vec<Option<(Vec2, Weapon)>>, Vec<bool>) {
     seen.resize(at.len(), None);
+    let fired: Vec<usize> = shot_at
+        .iter()
+        .filter_map(|&body| {
+            let nearest = |clear: bool| {
+                at.iter()
+                    .enumerate()
+                    .filter_map(|(i, t)| t.map(|(p, _)| (i, p)))
+                    .filter(|&(_, p)| !clear || sight.sees_from_in_the_dark(body, p).is_some())
+                    .min_by(|a, b| {
+                        (a.1 - body)
+                            .len()
+                            .partial_cmp(&(b.1 - body).len())
+                            .unwrap_or(std::cmp::Ordering::Equal)
+                    })
+                    .map(|(i, _)| i)
+            };
+            nearest(true).or_else(|| nearest(false))
+        })
+        .collect();
     let mut believed = Vec::with_capacity(at.len());
     let mut stale = Vec::with_capacity(at.len());
     for (i, target) in at.into_iter().enumerate() {
@@ -381,7 +427,7 @@ fn believe(
             Some((p, weapon)) => {
                 in_sight = watched.is_some_and(|w| (w - p).len() <= AIRLOCK_WATCH * TILE)
                     || eyes.iter().any(|&eye| sight.sees_from(eye, p).is_some());
-                if in_sight || told {
+                if in_sight || told || fired.contains(&i) {
                     seen[i] = Some(Seen {
                         at: p,
                         weapon,
@@ -391,6 +437,12 @@ fn believe(
                     // The weapon it carries is known whether or not it is
                     // in sight — the world says — and the tactics read it.
                     was.weapon = weapon;
+                    let searched = eyes
+                        .iter()
+                        .any(|&eye| (eye - was.at).len() <= SEARCHED * TILE);
+                    if searched && was.ago < TRAIL_FOR {
+                        was.at = p;
+                    }
                 }
             }
         }
@@ -2132,6 +2184,7 @@ impl Game {
             if self.droids[i].destroyed {
                 continue;
             }
+            self.droids[i].under_fire = (self.droids[i].under_fire - dt).max(0.0);
             // A machine held for a picture stands where it was put and
             // does nothing at all (`World::stage_droids_for_probe`).
             if self.droids[i].posing {
@@ -5692,6 +5745,9 @@ impl Game {
         };
         let was = droid.destroyed;
         let struck = droid.strike(part, damage);
+        if struck.is_some() {
+            droid.under_fire = UNDER_FIRE;
+        }
         let (at, size, gone) = (droid.pos, droid.kind.half_width(), !was && droid.destroyed);
         // The flash on the part it struck, and a machine bursting apart
         // where it has just gone (feature 98) — drawing only.
@@ -5717,6 +5773,9 @@ impl Game {
             return false;
         };
         let broke = droid.strike_plate(damage);
+        if !droid.destroyed {
+            droid.under_fire = UNDER_FIRE;
+        }
         if broke {
             let (at, reach) = (droid.pos, crate::balance::GUARDIAN_SHIELD_RADIUS);
             self.combat.lull_break();
@@ -6906,12 +6965,26 @@ impl Game {
         // where the crew are, and comes looking for them — and so was one
         // of the Manufacturers' people, as the world says (`set_told`).
         let told = self.told || self.droids.iter().any(|d| d.seeking && !d.destroyed);
+        // And whoever of them is being shot at knows where from.
+        let shot_at: Vec<Vec2> = self
+            .bims
+            .iter()
+            .filter(|b| b.is_alive() && !b.character.is_unconscious() && b.under_fire > 0.0)
+            .map(|b| b.character.pos)
+            .chain(
+                self.droids
+                    .iter()
+                    .filter(|d| !d.destroyed && d.under_fire > 0.0)
+                    .map(|d| d.pos),
+            )
+            .collect();
         let (believed, stale) = believe(
             &mut self.last_seen,
             &self.room.sight,
             watched,
             told,
             &eyes,
+            &shot_at,
             at,
         );
         self.combat.set_targets(believed);
@@ -6955,12 +7028,25 @@ impl Game {
                     .map(|b| b.character.pos),
             )
             .collect();
+        let shot_at: Vec<Vec2> = self
+            .droids
+            .iter()
+            .filter(|d| !d.destroyed && d.under_fire > 0.0)
+            .map(|d| d.pos)
+            .chain(
+                self.bims
+                    .iter()
+                    .filter(|b| b.manufacturer && b.is_alive() && b.under_fire > 0.0)
+                    .map(|b| b.character.pos),
+            )
+            .collect();
         let (believed, stale) = believe(
             &mut self.machine_seen,
             &self.room.sight,
             None,
             false,
             &eyes,
+            &shot_at,
             at,
         );
         self.combat.set_machine_targets(believed, cross);
@@ -8396,6 +8482,12 @@ impl Game {
         if !self.bims.get(who).is_some_and(|b| b.is_alive()) {
             return out;
         }
+        // One of the Manufacturers struck knows it is shot at, as a
+        // machine does (`believe`'s `shot_at`): the crew's hits reach it
+        // here, not through `count_hit_taken`.
+        if self.bims[who].manufacturer {
+            self.bims[who].under_fire = UNDER_FIRE;
+        }
         // What a relic makes of every hit on this body (task 118): *Tether
         // Field*, *Cover Formation*. One for everybody else, and a hit
         // times one is the hit.
@@ -9700,6 +9792,98 @@ mod tests {
         // And it is still the one machine, still standing.
         assert_eq!(game.droid_count(), 1);
         assert!(!game.droids()[0].destroyed);
+    }
+
+    /// A dark box with one Trooper in it, the room hostile: for the
+    /// machines' hunt, where twelve tiles off in the dark is nobody.
+    fn dark_box_with_a_trooper(at: Vec2) -> Game {
+        use crate::droid::{Droid, DroidKind};
+        let layout = crate::aboard::layout_of(&box_ship(&[]));
+        let (w, h) = (layout.bounds.width(), layout.bounds.height());
+        let mut game = Game::with_layout(layout, 7, &[], w, h);
+        game.set_autonomous(false);
+        game.set_hostile_bodies(true);
+        game.add_droid(Droid::new(DroidKind::Trooper, Tier::One, 0, 1, at, 0.0, 5));
+        game
+    }
+
+    /// A machine shot at from the dark goes for the shooter: struck, it
+    /// believes the target with a clear line to it where it stands, walks
+    /// at it, and shoots the moment it sees it. Never struck, it stands
+    /// where it was put with nobody in its sight (the user's report:
+    /// Troopers stood in a corridor while the crew shot them from the
+    /// dark).
+    #[test]
+    fn a_machine_shot_at_from_the_dark_goes_for_the_shooter() {
+        let start = tile_middle(3.0, 3.0);
+        let shooter = tile_middle(16.0, 16.0);
+        let pistol = WeaponKind::LaserPistol.basic();
+        let mut game = dark_box_with_a_trooper(start);
+        assert!(game.room.sight.sees_from(start, shooter).is_none());
+        for _ in 0..(60 * 4) {
+            game.set_hostiles(vec![Some((shooter, pistol))]);
+            game.simulate(DT);
+        }
+        assert_eq!(game.believed_for_probe(), vec![None], "nobody seen");
+        assert!((game.droids()[0].pos - start).len() < 0.1, "it stood");
+        assert!(game.take_shots().is_empty());
+
+        // Struck: it knows where from, and goes.
+        game.strike_droid(0, crate::droid::DroidPart::Chassis, 1.0);
+        let mut shots = 0;
+        for _ in 0..(60 * 20) {
+            game.set_hostiles(vec![Some((shooter, pistol))]);
+            game.simulate(DT);
+            shots += game.take_shots().len();
+            if shots > 0 {
+                break;
+            }
+        }
+        let pos = game.droids()[0].pos;
+        assert!(
+            (pos - shooter).len() < (start - shooter).len() - 3.0 * TILE,
+            "walked at the shooter: {pos:?}"
+        );
+        assert!(shots > 0, "and shot at it once it saw it");
+    }
+
+    /// A machine that lost sight of its quarry and searched the spot it
+    /// was last seen at follows the trail on to where it went, while the
+    /// sighting is fresh; a trail gone cold is not followed.
+    #[test]
+    fn a_hunting_machine_follows_the_trail_from_the_spot_it_searched() {
+        let start = tile_middle(3.0, 3.0);
+        let first = tile_middle(10.0, 3.0);
+        let gone = tile_middle(16.0, 16.0);
+        let pistol = WeaponKind::LaserPistol.basic();
+        let hunt = |cold: bool| {
+            let mut game = dark_box_with_a_trooper(start);
+            game.set_hostiles(vec![Some((first, pistol))]);
+            game.simulate(DT);
+            assert_eq!(game.believed_for_probe(), vec![Some(first)], "seen");
+            if cold {
+                // The belief aged past the trail before anybody got there.
+                for seen in game.last_seen.iter_mut().flatten() {
+                    seen.ago = TRAIL_FOR;
+                }
+            }
+            game.take_shots();
+            let mut shots = 0;
+            for _ in 0..(60 * 25) {
+                game.set_hostiles(vec![Some((gone, pistol))]);
+                game.simulate(DT);
+                shots += game.take_shots().len();
+                if shots > 0 {
+                    break;
+                }
+            }
+            (game.droids()[0].pos, shots)
+        };
+        let (pos, shots) = hunt(false);
+        assert!(shots > 0, "found it and shot: {pos:?}");
+        let (pos, shots) = hunt(true);
+        assert_eq!(shots, 0, "cold: {pos:?}");
+        assert!((pos - first).len() < 3.0 * TILE, "it stands at the spot");
     }
 
     /// A machine shoots the way a hostile Bim does: the shot is recorded

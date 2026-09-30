@@ -45,7 +45,9 @@ use serde::{Deserialize, Serialize};
 /// rather than gathering (`Bim::under_fire`).
 /// 75: `Command::Reinforce`, the commander's R pressed on a 140 s
 /// cooldown rather than his reinforcements at every mission's start.
-pub const PROTOCOL: u32 = 75;
+/// 76: a machine shot at goes for the shooter, and a hunt follows the
+/// trail from the spot it searched (`Droid::under_fire`).
+pub const PROTOCOL: u32 = 76;
 
 /// Where the relay lives. `BIMS_SERVER` in the environment overrides it
 /// — `ws://127.0.0.1:8792` for one on the same machine.

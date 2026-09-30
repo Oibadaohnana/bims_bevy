@@ -4449,3 +4449,30 @@ steers — and stood where it came doing nothing (the user's report).
 `enlist_manufacturer` does a hostile one mid-war); in peace it is let be,
 as the rest are. `a_reinforcement_called_into_the_alarm_takes_arms_with_the_crew`
 pins it. No pin, save or wire change.
+
+## A machine shot at goes for the shooter, and a hunt follows the trail
+
+> "The hunter's rule" in "A droid is not a Bim" says a gunner with
+> nobody in sight walks to where something was last seen and stops
+> there; this is what it grew.
+
+- **`Droid::under_fire`** (serde default) is `UNDER_FIRE` (5 s), re-armed
+  by `Game::strike_droid` for every hit that lands and by `strike_plate`,
+  run down in `tick_droids`. One of the Manufacturers struck
+  (`strike_stripping`) arms its `Bim::under_fire` the same way.
+- **`believe` takes `shot_at`**, the side's bodies under fire: each gives
+  away the target that most likely fired — the nearest with a clear line
+  to it, lit or not (`sees_from_in_the_dark`), else the nearest of all —
+  believed where it stands, as a told side believes, and still stale, so
+  it is walked at and never fired at until seen. Troopers shot from the
+  dark stood in their corridor for the whole fight before this (the
+  user's report and screenshot).
+- **A trail is followed**: a stale belief with one of the side's eyes
+  within `SEARCHED` (1.5) tiles of it — searched, nobody there — moves on
+  to where the target is now while it was seen within `TRAIL_FOR` (20 s),
+  its age kept, so the trail goes cold on the sighting's clock and
+  `FORGET_AFTER` still ends the hunt.
+
+`a_machine_shot_at_from_the_dark_goes_for_the_shooter` and
+`a_hunting_machine_follows_the_trail_from_the_spot_it_searched` pin it.
+`SAVE_VERSION` 74, `wire::PROTOCOL` 76. No survivor pin moved.
