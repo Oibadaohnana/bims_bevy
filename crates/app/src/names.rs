@@ -409,8 +409,6 @@ pub fn refusal(why: Refusal) -> &'static str {
         Refusal::NoSightOfPatient => "the medic cannot see them",
         Refusal::NotATank => "only a tank can do that",
         Refusal::NotACommander => "only a commander can do that",
-        Refusal::NoSquadInRange => "nobody of the squad is near enough to hear it",
-        Refusal::NoEnemyThere => "there is no enemy under the pointer",
         Refusal::NoGroundThere => "there is no ground to attack there",
         Refusal::NotCarrying => "only a medic carries somebody, and only one at a time",
         Refusal::NotHurt => "they are on their feet and can walk out themselves",
@@ -583,7 +581,7 @@ pub const CLASS_TIPS: [&str; 6] = [
     "Braces to hold a line (E) — steadier shooting and no errands until stood easy — and from the third level throws grenades (Q), two charges of them, each back thirty seconds after it is thrown. Sets out with an auto rifle in hand and the pistol in the pack.",
     "Four ranked abilities, a skill point a level: a Nanite Burst that heals everybody near him at once (Q), a Healing Aura that makes every heal worth more to the crew round him (C), the heal beam on a crewmate or himself (E), and for his ultimate a cloak no enemy can pick (R). Revives a downed crewmate in four seconds where anybody else takes ten, and gets them up at 40% of their bar where anybody else manages 30%.",
     "Four ranked abilities, a skill point a level: a Taunt that makes every enemy near him that can see him shoot at him and nobody else (Q), Plated, less damage from every hit (C), a wall the crew shelter behind (E), and for his ultimate the Juggernaut, every enemy that sees him shooting at him while he shrugs it off (R). His armour drains at half rate, so the same kevlar takes twice as much on him. Sets out with the pistol and a basic helm, kevlar and leg guards on.",
-    "Lifts every friendly Bim within eight tiles of him — yours as well as the crew's — a tenth faster at work, and a tenth steadier with a gun; and orders the squad, which is every crew member nobody is steering: attack the enemy under the pointer (E), fall back to a tile (X), stand ground (Z). From the third level he rallies (Q). Hires a mercenary at a quarter off. Sets out with the pistol.",
+    "Four ranked abilities, a skill point a level: a Battle Cry that makes everybody near him fire faster (Q), a Command Aura in which every friendly Bim hits harder (C), a Rally that has the crew near him take less damage and move faster (E), and for his ultimate Republic soldiers beside him at every mission's start (R). Hires a mercenary at a quarter off. Sets out with the pistol.",
 ];
 pub fn class_name(class: world::Class) -> &'static str {
     CLASS_NAMES
@@ -605,20 +603,8 @@ const SANDBAGS_WHAT: &str = "Lay sandbags on the tile under the pointer: low cov
 const NANITE_BURST_WHAT: &str =
     "Heal every standing ally around you in sight, yourself included. Revives nobody.";
 const HEAL_BEAM_WHAT: &str = "Toggle. Beam the crewmate under the pointer, or yourself, healing over time. The number is how many more you could link.";
-/// The boxes past the class's own two (feature 86): the commander's
-/// other two squad orders, which had keys and no box until now, and the
-/// medic's carry. Named off the [`crate::keys::Action`] rather than off
-/// a class's pair, since these are one class's each and a pair has no
-/// room for a third.
-/// The squad's attack (task 129: off E, which the Rally took, onto a key
-/// of its own).
-pub const SQUAD_ORDER_ATTACK: &str = "Squad attack";
-pub const SQUAD_ORDER_ATTACK_TIP: &str = "Send the squad (every crew member nobody steers) at the enemy under the pointer. Again on it to call them off. The number is the squad's size.";
-pub const FALL_BACK: &str = "Fall back";
-pub const FALL_BACK_TIP: &str = "The squad holds fire and walks back to the pointer, or to you. The number is the squad's size.";
-pub const STAND_GROUND: &str = "Stand ground";
-pub const STAND_GROUND_TIP: &str =
-    "The squad holds where it stands and shoots what it sees. The number is the squad's size.";
+/// The box past the class's four (feature 86): the medic's carry, named
+/// off the [`crate::keys::Action`] rather than off a slot.
 pub const CARRY: &str = "Carry";
 pub const CARRY_TIP: &str = "Pick up the downed crewmate under the pointer and carry them out of the fire, slowly and without shooting. Again to set them down; their countdown keeps running. The number is how many near you are down.";
 
@@ -682,7 +668,7 @@ pub fn ranked_what(class: world::Class, slot: u8) -> &'static str {
             "Allies around you as you call it take less damage and move faster."
         }
         (world::Class::Commander, 3) => {
-            "Ultimate, passive. Every mission starts with Republic soldiers beside you. They follow squad orders; the fallen are back next mission."
+            "Ultimate, passive. Every mission starts with Republic soldiers beside you. They fight like any bot; the fallen are back next mission."
         }
         (world::Class::Medic, 0) => NANITE_BURST_WHAT,
         (world::Class::Medic, 1) => {
@@ -1125,10 +1111,7 @@ pub fn taunt_refused(why: world::Refusal) -> String {
 pub fn juggernaut_refused(why: world::Refusal) -> String {
     format!("Cannot go Juggernaut: {}.", refusal(why))
 }
-/// And for a squad order and a rally (feature 78).
-pub fn squad_refused(why: world::Refusal) -> String {
-    format!("Cannot order the squad: {}.", refusal(why))
-}
+/// And for a rally (feature 78).
 pub fn rally_refused(why: world::Refusal) -> String {
     format!("Cannot rally: {}.", refusal(why))
 }
@@ -1152,21 +1135,8 @@ pub fn orders_line(kind: u32) -> Option<&'static str> {
     }
 }
 pub const ORDERS_TIP: &str = "The crew nobody is steering keep to your side and fight for themselves when they see an enemy. X puts an attack banner down for them to fight their way to; Y calls them back to the ship; either key again lets them follow you again. A right-click moves your own Bim and nobody else, and F then a click walks it there shooting whatever it meets. Nobody leaves a fight aboard the ship.";
-/// The commander's rows on the crew panel (feature 78): what the squad
-/// is under, and the rally with its cooldown.
-pub const SQUAD_NONE: &str = "Squad: free";
-pub const SQUAD_TIP: &str = "The squad is every crew member nobody is steering, your reinforcements among them. H sends it at the enemy under the pointer, T calls it back to a tile, Z has it hold where it stands; the same key again lets it go. Your own Bim is never ordered by it.";
-pub fn squad_line(kind: Option<u32>, members: usize) -> String {
-    let Some(kind) = kind else {
-        return SQUAD_NONE.to_string();
-    };
-    let what = match kind {
-        0 => "attacking",
-        1 => "falling back",
-        _ => "holding ground",
-    };
-    format!("Squad {what} — {members}")
-}
+/// The commander's rows on the crew panel (feature 78): the rally with
+/// its cooldown.
 pub fn rally_line(left: f64, cooldown: f64, level_enough: bool) -> String {
     if !level_enough {
         return RALLY_NOT_LEARNT.to_string();
@@ -1505,12 +1475,6 @@ pub fn event_line(event: WorldEvent) -> Option<String> {
         WorldEvent::Bulwarked { who: w, on: false } => format!("{} stood the wall down.", who(w)),
         WorldEvent::Taunted { who: w } => format!("{} taunted the enemy.", who(w)),
         WorldEvent::Juggernaut { who: w } => format!("{} goes Juggernaut.", who(w)),
-        WorldEvent::Squadded { who: w, kind } => match kind {
-            0 => format!("{} sent the squad in.", who(w)),
-            1 => format!("{} called the squad back.", who(w)),
-            2 => format!("{} had the squad hold its ground.", who(w)),
-            _ => format!("{} released the squad.", who(w)),
-        },
         WorldEvent::Rallied { who: w } => format!("{} rallied the crew.", who(w)),
         WorldEvent::BattleCried { who: w } => format!("{} called a Battle Cry.", who(w)),
         WorldEvent::Reinforced { who: w, count } => format!(
@@ -3305,8 +3269,6 @@ mod tests {
                 Refusal::Cloaked,
                 Refusal::NotATank,
                 Refusal::NotACommander,
-                Refusal::NoSquadInRange,
-                Refusal::NoEnemyThere,
             ] {
                 assert!(!refusal(why).is_empty());
                 assert!(deploy_refused(why).contains(refusal(why)));
@@ -3318,13 +3280,8 @@ mod tests {
                 assert!(bulwark_refused(why).contains(refusal(why)));
                 assert!(taunt_refused(why).contains(refusal(why)));
                 assert!(juggernaut_refused(why).contains(refusal(why)));
-                assert!(squad_refused(why).contains(refusal(why)));
                 assert!(rally_refused(why).contains(refusal(why)));
             }
-            assert_eq!(squad_line(None, 0), SQUAD_NONE);
-            assert_eq!(squad_line(Some(0), 3), "Squad attacking — 3");
-            assert_eq!(squad_line(Some(1), 2), "Squad falling back — 2");
-            assert_eq!(squad_line(Some(2), 1), "Squad holding ground — 1");
             assert_eq!(rally_line(0.0, 0.0, false), RALLY_NOT_LEARNT);
             assert_eq!(rally_line(0.0, 0.0, true), "Rally ready");
             assert_eq!(rally_line(0.0, 7.2, true), "Rally ready in 7 s");
@@ -3392,13 +3349,6 @@ mod tests {
                 WorldEvent::Bulwarked { who: 0, on: true },
                 WorldEvent::Bulwarked { who: 0, on: false },
                 WorldEvent::Taunted { who: 0 },
-                WorldEvent::Squadded { who: 0, kind: 0 },
-                WorldEvent::Squadded { who: 0, kind: 1 },
-                WorldEvent::Squadded { who: 0, kind: 2 },
-                WorldEvent::Squadded {
-                    who: 0,
-                    kind: u32::MAX,
-                },
                 WorldEvent::Rallied { who: 0 },
                 WorldEvent::BattleCried { who: 0 },
                 WorldEvent::Reinforced { who: 0, count: 3 },

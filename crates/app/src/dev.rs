@@ -1034,7 +1034,7 @@ fn scripted_input(
                     't' => KeyCode::KeyT,
                     'v' => KeyCode::KeyV,
                     'w' => KeyCode::KeyW,
-                    // The commander's two squad keys (feature 78).
+                    // The bots' attack banner (feature 84).
                     'x' => KeyCode::KeyX,
                     'z' => KeyCode::KeyZ,
                     // The held revive and the medic's carry.

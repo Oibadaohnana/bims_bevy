@@ -142,7 +142,6 @@ impl Game {
                 &self.room.sight,
                 from,
                 &stats,
-                None,
             )
         };
         let bim = &mut self.bims[who];
@@ -249,8 +248,8 @@ impl Game {
         ) else {
             return;
         };
-        let has_a_shot = !stats.melee
-            && Combat::aim_among(&targets, &self.room.sight, from, stats, None).is_some();
+        let has_a_shot =
+            !stats.melee && Combat::aim_among(&targets, &self.room.sight, from, stats).is_some();
         if has_a_shot && !stand.cover {
             if self.bims[who].character.is_walking() {
                 self.bims[who].character.halt();

@@ -1,17 +1,16 @@
 //! The commander class (feature 78, its ranked kit task 129):
 //! `crate::class`'s fifth class. His start; the sixteen levels and a skill
-//! point a level; the two base traits — hiring at a discount and the
-//! three squad orders, and whom *they* reach; and the four abilities a
-//! rank at a time — Battle Cry, Command Aura, Rally and Reinforcements —
-//! each doing what its rank says.
+//! point a level; the base trait — hiring at a discount; and the four
+//! abilities a rank at a time — Battle Cry, Command Aura, Rally and
+//! Reinforcements — each doing what its rank says. (His squad orders were
+//! removed.)
 
 use bims::combat::{Gear, Tier, WeaponKind};
-use bims::droid::{Droid, DroidKind, DroidPart};
+use bims::droid::{DroidKind, DroidPart};
 use bims::math::vec2;
 use shipdesign::fixture::combat_ship;
 
 use crate::class::{self, Class};
-use crate::commander::{SquadAsk, SquadKind};
 use crate::event::{Refusal, WorldEvent};
 use crate::fixture::{REFERENCE_MONEY, crewed_world};
 use crate::world::{Command, World};
@@ -23,8 +22,7 @@ const TILE: f32 = shipdesign::TILE as f32;
 const SECONDS_A_STEP: f64 = crate::data::STEP_MINUTES / time::MINUTES_PER_SECOND;
 
 /// The combat ship — bunks for five, armour and guns in the hold — with
-/// three players and three crewmates nobody steers, which is what a
-/// squad is made of.
+/// three players and three crewmates nobody steers.
 fn basic() -> World {
     crewed_world(combat_ship(), REFERENCE_MONEY, 3, 6)
 }
@@ -263,425 +261,7 @@ fn a_hire_by_anybody_else_pays_in_full_and_gives_no_experience() {
     );
 }
 
-// --- B: the squad orders ---------------------------------------------------
-
-/// A fight staged with slot 0 a commander at the station's door, the
-/// crew held still and everybody but the commander a squad member —
-/// against two machines down the corridor, both held where they are put
-/// and firing nothing, so an order can mark one and then the other.
-fn fight() -> World {
-    let mut world = basic();
-    assert_eq!(world.set_class(0, Class::Commander), Ok(()));
-    assert!(world.stage_droid_fight_for_probe(DroidKind::Trooper, None));
-    second_machine(&mut world);
-    world.step(&[]);
-    hold_still(&mut world);
-    world
-}
-
-/// A second machine a tile and a half from the one the probe stood,
-/// held where it is put the same way.
-fn second_machine(world: &mut World) {
-    machine_off(world, 1.5);
-}
-
-/// Another machine `tiles` tiles along the station's own y from the one
-/// the probe stood — the other way for a negative count — held where it
-/// is put the same way.
-fn machine_off(world: &mut World, tiles: f32) {
-    let residents = world.residents.as_mut().expect("alongside");
-    let room = &mut residents.aboard.room;
-    let index = room.droid_count() as usize;
-    let first = room.droid(0).expect("the staged machine");
-    let at = first.pos + vec2(0.0, tiles * shipdesign::TILE as f32);
-    let mut other = Droid::new(
-        first.kind,
-        first.tier,
-        index,
-        first.wave,
-        at,
-        first.heading,
-        0x5EC0_4D,
-    );
-    other.posing = true;
-    room.adopt_droids(vec![other], vec2(0.0, 0.0));
-    residents.aboard.crew = residents.aboard.room.body_count();
-}
-
-/// A machine destroyed where it stands.
-fn wreck(world: &mut World, enemy: u32) {
-    world.residents.as_mut().unwrap().aboard.room.strike_droid(
-        enemy as usize,
-        DroidPart::Chassis,
-        1e6,
-    );
-}
-
-fn enemy_up(world: &World) -> u32 {
-    let residents = world.residents.as_ref().expect("alongside");
-    (0..residents.aboard.count())
-        .find(|&i| {
-            residents.aboard.room.is_alive(i as usize)
-                && !residents.aboard.room.is_downed(i as usize)
-        })
-        .expect("an enemy standing")
-}
-
-#[test]
-fn a_squad_order_reaches_the_squad_and_never_a_players_own_bim() {
-    let mut world = fight();
-    for who in 1..world.aboard.crew_count() {
-        stand_near(&mut world, who as usize, 2.0);
-    }
-    world.step(&[]);
-    let events = world.step(&[Command::Squad {
-        slot: 0,
-        order: SquadAsk::StandGround,
-    }]);
-    assert!(
-        events
-            .iter()
-            .any(|e| matches!(e, WorldEvent::Squadded { .. })),
-        "{events:?}"
-    );
-    let order = world.squad.as_ref().expect("an order");
-    assert_eq!(order.by_slot, 0);
-    assert!(
-        order.members.iter().all(|&m| m >= world.players()),
-        "no Bim a player steers is in it: {:?}",
-        order.members
-    );
-    assert!(!order.members.is_empty());
-    // The room is told, one a crew member: nothing for the players'
-    // own, the order for everybody else in it.
-    world.step(&[]);
-    for who in 0..world.aboard.crew_count() as usize {
-        let said = world.aboard.room.squad_for_probe(who);
-        if world.squad.as_ref().unwrap().has(who as u32) {
-            assert_eq!(said, bims::game::Squad::StandGround, "crew {who}");
-        } else {
-            assert_eq!(said, bims::game::Squad::None, "crew {who}");
-        }
-    }
-    // And a squad member is under arms whether or not the alarm is up.
-    let member = world.squad.as_ref().unwrap().members[0] as usize;
-    assert!(world.aboard.room.is_recruited(member as u32));
-}
-
-#[test]
-fn a_squad_order_reaches_twenty_tiles_from_the_first_level_and_no_further_at_the_top() {
-    let mut world = fight();
-    assert_eq!(world.level_of(0), 1, "a base trait: the first level");
-    assert_eq!(world.squad_range(0), class::SQUAD_RANGE);
-    for who in 1..world.aboard.crew_count() {
-        stand_near(&mut world, who as usize, class::SQUAD_RANGE + 5.0);
-    }
-    stand_near(&mut world, 3, 2.0);
-    world.step(&[]);
-    let near = world.squad_members(0);
-    assert!(near.contains(&3), "{near:?}");
-    assert!(!near.contains(&4), "beyond the range");
-    // No level takes it further: the long reach went with the talents.
-    level_up(&mut world, 0, 16);
-    world.step(&[]);
-    assert_eq!(world.squad_members(0), near);
-}
-
-#[test]
-fn an_attack_marks_an_enemy_and_ends_when_it_goes_down() {
-    let mut world = fight();
-    let enemy = enemy_up(&world);
-    for who in 1..world.aboard.crew_count() {
-        stand_near(&mut world, who as usize, 2.0);
-    }
-    world.step(&[]);
-    // An attack with no enemy there is refused.
-    let events = world.step(&[Command::Squad {
-        slot: 0,
-        order: SquadAsk::Attack { enemy: 9_000 },
-    }]);
-    assert!(refused_with(&events, Refusal::NoEnemyThere));
-    assert!(world.squad.is_none());
-    world.step(&[Command::Squad {
-        slot: 0,
-        order: SquadAsk::Attack { enemy },
-    }]);
-    let order = world.squad.as_ref().expect("an attack");
-    assert_eq!(order.kind, SquadKind::Attack { enemy });
-    let member = order.members[0];
-    world.step(&[]);
-    assert_eq!(
-        world.aboard.room.squad_for_probe(member as usize),
-        bims::game::Squad::Attack {
-            enemy: enemy as usize,
-            seen: true
-        }
-    );
-    // The mark ends when that enemy is down.
-    wreck(&mut world, enemy);
-    // A step for the world to read the wreck back, and one for the order
-    // to be pruned: the squad is handed over before the rooms step.
-    world.step(&[]);
-    world.step(&[]);
-    assert!(world.squad.is_none(), "the mark is down, the order is over");
-}
-
-#[test]
-fn an_attack_prefers_the_marked_enemy_over_a_nearer_one() {
-    let mut world = fight();
-    // Two machines, both in sight of the squad member: the order marks
-    // the one it would not have picked for itself.
-    let residents = world.residents.as_ref().unwrap();
-    let up: Vec<u32> = (0..residents.aboard.count())
-        .filter(|&i| {
-            residents.aboard.room.is_alive(i as usize)
-                && !residents.aboard.room.is_downed(i as usize)
-        })
-        .collect();
-    assert!(up.len() >= 2, "two machines standing: {up:?}");
-    // The squad member stands where the commander does — beside the
-    // station's door — and shoots whichever enemy it would pick for
-    // itself; the order marks another one it can see, and that one
-    // comes first.
-    let member = 3u32;
-    stand_near(&mut world, member as usize, 1.0);
-    world.step(&[]);
-    let own = world
-        .aboard
-        .room
-        .aims_at_for_probe(member as usize)
-        .expect("the squad member has a machine in its sights");
-    let here = world.aboard.room.bim_pos(member as usize);
-    let seen: Vec<u32> = up
-        .iter()
-        .copied()
-        .filter(|&e| {
-            e as usize != own
-                && world
-                    .body_position(crate::LootSource::Resident(e))
-                    .is_some_and(|p| world.aboard.room.sees(member as usize, p))
-        })
-        .collect();
-    let &mark = seen.first().expect("and sees the other one too");
-    let _ = here;
-    world.step(&[Command::Squad {
-        slot: 0,
-        order: SquadAsk::Attack { enemy: mark },
-    }]);
-    world.aboard.room.put_for_probe(member as usize, here);
-    world.step(&[]);
-    assert_eq!(
-        world.aboard.room.aims_at_for_probe(member as usize),
-        Some(mark as usize),
-        "the mark comes before the one it would pick for itself"
-    );
-}
-
-#[test]
-fn fall_back_gathers_round_a_tile_and_round_the_commander() {
-    let mut world = fight();
-    for who in 1..world.aboard.crew_count() {
-        stand_near(&mut world, who as usize, 3.0);
-    }
-    world.step(&[]);
-    let here = world.aboard.room.bim_pos(0);
-    let his_tile = (
-        (here.x / TILE).floor() as i32,
-        (here.y / TILE).floor() as i32,
-    );
-    // A tile of the deck a little way off him, so the fall back on to
-    // himself below is a different order and not a repeat.
-    let tile = (1..6)
-        .flat_map(|d| [(his_tile.0 + d, his_tile.1), (his_tile.0 - d, his_tile.1)])
-        .find(|&(x, y)| {
-            world
-                .aboard
-                .room
-                .is_deck_tile(vec2((x as f32 + 0.5) * TILE, (y as f32 + 0.5) * TILE))
-        })
-        .expect("a tile of deck beside him");
-    world.step(&[Command::Squad {
-        slot: 0,
-        order: SquadAsk::FallBack { tile: Some(tile) },
-    }]);
-    assert_eq!(
-        world.squad.as_ref().unwrap().kind,
-        SquadKind::FallBack { tile }
-    );
-    // A tile that is no deck of the room falls back on the commander
-    // himself, which is what the pointer on nothing means.
-    world.step(&[Command::Squad {
-        slot: 0,
-        order: SquadAsk::FallBack {
-            tile: Some((-9_000, -9_000)),
-        },
-    }]);
-    let kind = world.squad.as_ref().unwrap().kind.clone();
-    assert!(matches!(kind, SquadKind::FallBack { .. }));
-    assert_ne!(
-        kind,
-        SquadKind::FallBack {
-            tile: (-9_000, -9_000)
-        }
-    );
-    assert_eq!(kind, SquadKind::FallBack { tile: his_tile });
-    // And the squad walks: a member three tiles off ends up nearer the
-    // tile than it began.
-    let member = world.squad.as_ref().unwrap().members[0] as usize;
-    let began = (world.aboard.room.bim_pos(member) - here).len();
-    world.aboard.room.set_autonomous(false);
-    for _ in 0..600 {
-        world.step(&[]);
-    }
-    let ended = (world.aboard.room.bim_pos(member) - here).len();
-    assert!(ended <= began + TILE, "{ended} against {began}");
-}
-
-#[test]
-fn stand_ground_holds_where_it_stands() {
-    let mut world = fight();
-    for who in 1..world.aboard.crew_count() {
-        stand_near(&mut world, who as usize, 6.0);
-    }
-    world.step(&[]);
-    world.step(&[Command::Squad {
-        slot: 0,
-        order: SquadAsk::StandGround,
-    }]);
-    let member = world.squad.as_ref().unwrap().members[0] as usize;
-    let began = world.aboard.room.bim_pos(member);
-    for _ in 0..300 {
-        world.step(&[]);
-    }
-    let moved = (world.aboard.room.bim_pos(member) - began).len();
-    assert!(moved <= TILE, "it held its ground: {moved}");
-}
-
-#[test]
-fn an_order_ends_on_a_repeat_a_new_one_a_click_and_his_going_down() {
-    let mut world = fight();
-    for who in 1..world.aboard.crew_count() {
-        stand_near(&mut world, who as usize, 2.0);
-    }
-    world.step(&[]);
-    let send = |world: &mut World, ask: SquadAsk| {
-        world.step(&[Command::Squad {
-            slot: 0,
-            order: ask,
-        }]);
-    };
-    send(&mut world, SquadAsk::StandGround);
-    assert!(world.squad.is_some());
-    // The same order again releases the squad.
-    send(&mut world, SquadAsk::StandGround);
-    assert!(world.squad.is_none(), "a repeat lets it go");
-    // A new order replaces the old.
-    send(&mut world, SquadAsk::StandGround);
-    let here = world.aboard.room.bim_pos(0);
-    let tile = (
-        (here.x / TILE).floor() as i32,
-        (here.y / TILE).floor() as i32,
-    );
-    send(&mut world, SquadAsk::FallBack { tile: Some(tile) });
-    assert!(matches!(
-        world.squad.as_ref().unwrap().kind,
-        SquadKind::FallBack { .. }
-    ));
-    // A player's own click order takes that member out of it.
-    let member = world.squad.as_ref().unwrap().members[0];
-    let at = world.aboard.room.bim_pos(member as usize);
-    world.step(&[Command::Crew {
-        slot: 0,
-        order: bims::order::CrewOrder::SendTo {
-            who: member,
-            x: at.x,
-            y: at.y,
-        },
-    }]);
-    assert!(
-        world.squad.as_ref().is_none_or(|o| !o.has(member)),
-        "the member the player ordered is out of it"
-    );
-    // And his going down ends the whole order.
-    send(&mut world, SquadAsk::StandGround);
-    assert!(world.squad.is_some());
-    world.aboard.room.knock_out_for_probe(0);
-    world.step(&[]);
-    world.step(&[]);
-    assert!(world.squad.is_none(), "down, his orders are over");
-}
-
-#[test]
-fn an_order_is_cleared_by_an_unjoin() {
-    let mut world = fight();
-    for who in 1..world.aboard.crew_count() {
-        stand_near(&mut world, who as usize, 2.0);
-    }
-    world.step(&[]);
-    world.step(&[Command::Squad {
-        slot: 0,
-        order: SquadAsk::StandGround,
-    }]);
-    assert!(world.squad.is_some());
-    world.undock_for_probe();
-    world.step(&[]);
-    assert!(world.squad.is_none(), "the rooms unjoined");
-}
-
-#[test]
-fn every_other_player_orders_the_crew_during_the_alarm_as_before() {
-    let mut world = fight();
-    for who in 1..world.aboard.crew_count() {
-        stand_near(&mut world, who as usize, 2.0);
-    }
-    world.step(&[]);
-    // A commander's squad order is on, and player 1 orders a crewmate
-    // somewhere all the same: an order is a player's, and the squad is
-    // an addition to it.
-    world.step(&[Command::Squad {
-        slot: 0,
-        order: SquadAsk::StandGround,
-    }]);
-    let who = 4u32.min(world.aboard.crew_count() - 1);
-    let at = world.aboard.room.bim_pos(0);
-    let events = world.step(&[Command::Crew {
-        slot: 1,
-        order: bims::order::CrewOrder::SendTo {
-            who,
-            x: at.x,
-            y: at.y,
-        },
-    }]);
-    assert!(
-        !events
-            .iter()
-            .any(|e| matches!(e, WorldEvent::Refused { .. })),
-        "{events:?}"
-    );
-}
-
-#[test]
-fn two_runs_of_a_squad_order_on_one_seed_are_the_same_world() {
-    let run = || -> u64 {
-        let mut world = fight();
-        for who in 1..world.aboard.crew_count() {
-            stand_near(&mut world, who as usize, 2.0);
-        }
-        world.step(&[]);
-        let enemy = enemy_up(&world);
-        world.step(&[Command::Squad {
-            slot: 0,
-            order: SquadAsk::Attack { enemy },
-        }]);
-        for _ in 0..200 {
-            world.step(&[]);
-        }
-        world_checksum(&world)
-    };
-    assert_eq!(run(), run());
-}
-
-// --- C: the ranked kit (task 129) ------------------------------------------
+// --- B: the ranked kit (task 129) ------------------------------------------
 
 #[test]
 fn the_commander_climbs_sixteen_levels_and_buys_his_ranks_as_the_soldier_does() {
@@ -1089,7 +669,7 @@ fn rally_reaches_those_near_at_the_call_and_keeps_to_them() {
     assert_eq!(world.skill_of(2).damage_taken, 1.0);
 }
 
-// --- D: the Reinforcements -------------------------------------------------
+// --- C: the Reinforcements -------------------------------------------------
 
 /// Every reinforcement's events said in the steps a mission's start took.
 fn reinforced(events: &[WorldEvent]) -> Vec<(u32, u32)> {
@@ -1132,9 +712,6 @@ fn reinforcements_arrive_at_the_next_mission_s_start_by_rank() {
             let far = (world.aboard.room.bim_pos(who as usize) - at).len() / TILE;
             assert!(far <= class::REINFORCEMENT_REACH_TILES + 0.5, "{far}");
         }
-        // They are the squad's, as any bot is.
-        let squad = world.squad_members(0);
-        assert!(brought.iter().all(|w| squad.contains(w)), "{squad:?}");
     }
 }
 

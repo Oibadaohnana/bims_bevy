@@ -28,7 +28,7 @@
 //! is no medicine to carry since task 120: a downed crewmate is revived
 //! by standing beside it, and a medic's heal beam puts hit points back.
 //! The abilities that spend nothing are held instead of thrown — a
-//! brace, a beam, a bulwark, a squad order — and the ones that are
+//! brace, a beam, a bulwark — and the ones that are
 //! neither wait out a cooldown of their own: the tank's Taunt and
 //! Juggernaut at [`TAUNT_COOLDOWN`] and [`JUGGERNAUT_COOLDOWN`] of their
 //! ranks, the commander's Battle Cry and Rally at [`BATTLE_CRY_COOLDOWN`]
@@ -304,11 +304,10 @@
 //!
 //! A ranked kit like the soldier's and the engineer's: sixteen levels on
 //! [`LEVEL_XP`], a skill point a level, Q, C and E rank `n` at
-//! level `2n − 1` and the ultimate R at 6, 9, 12 and 15. **Two base
-//! traits** are his whatever his ranks: **squad orders** — attack, fall
-//! back, stand ground — from the first level, reaching every squad member
-//! within [`SQUAD_RANGE`] tiles, an attack marking one enemy; and every
-//! mercenary he hires at [`HIRE_DISCOUNT_PERCENT`] off.
+//! level `2n − 1` and the ultimate R at 6, 9, 12 and 15. **One base
+//! trait** is his whatever his ranks: every mercenary he hires at
+//! [`HIRE_DISCOUNT_PERCENT`] off. (His squad orders — attack, fall back,
+//! stand ground — were removed.)
 //!
 //! **Q, Battle Cry** (active, cooldown): every friendly Bim within
 //! [`BATTLE_CRY_TILES`] of him **when he calls it** — himself, a player's
@@ -367,18 +366,16 @@
 //! every class cooldown is.
 //!
 //! **His aura, his cry and his rally lift every friendly Bim they reach,
-//! a player's own steered Bims included; his squad orders command only
-//! the squad** — every crew member no player is steering: the crew's own
-//! bots, the hired hands and the reinforcements alike. See
-//! [`crate::commander`].
+//! a player's own steered Bims included** — the crew's own bots, the
+//! hired hands and the reinforcements alike. See [`crate::commander`].
 //!
 //! Every multiplier is a named constant here; what each rank *does* is
 //! `crate::deploy` and the world's step for the engineer, the room's
 //! one shooter (`bims::combat::Skill`, `World::skill_of`) for the
 //! soldier, `crate::medic` with the world's step for the medic, and
 //! `crate::tank` with the same `Skill`, the room's own bulwarks and its
-//! taunts for the tank, and `crate::commander` with the same `Skill` and
-//! the room's own squad orders for the commander. No strings: the app
+//! taunts for the tank, and `crate::commander` with the same `Skill` for
+//! the commander. No strings: the app
 //! names the classes and the abilities (`CLASS_NAMES`,
 //! `ranked_ability`).
 
@@ -403,8 +400,7 @@ pub enum Class {
     /// Juggernaut.
     Tank = 4,
     /// The commander: a battle cry, an aura the crew round him hit harder
-    /// in, a rally, reinforcements, orders for the squad, and a cheaper
-    /// hand at the dock.
+    /// in, a rally, reinforcements, and a cheaper hand at the dock.
     Commander = 5,
 }
 
@@ -485,8 +481,6 @@ pub enum Ability {
     /// Draw every enemy's fire at any distance and shrug it off: the
     /// tank's ultimate (task 139).
     Juggernaut,
-    /// Send the squad — attack, fall back, stand ground: the commander's.
-    SquadOrder,
     /// Call a rally: the commander's.
     Rally,
     /// Call a battle cry: the commander's (task 129).
@@ -496,7 +490,7 @@ pub enum Ability {
 }
 
 impl Ability {
-    pub const ALL: [Ability; 15] = [
+    pub const ALL: [Ability; 14] = [
         Ability::Deploy,
         Ability::Emp,
         Ability::Sentry,
@@ -508,7 +502,6 @@ impl Ability {
         Ability::Bulwark,
         Ability::Taunt,
         Ability::Juggernaut,
-        Ability::SquadOrder,
         Ability::Rally,
         Ability::Rampage,
         Ability::BattleCry,
@@ -523,7 +516,7 @@ pub fn can(class: Class, ability: Ability) -> bool {
         Ability::Brace | Ability::Throw | Ability::Rampage => class == Class::Soldier,
         Ability::Beam | Ability::NaniteBurst | Ability::Cloak => class == Class::Medic,
         Ability::Bulwark | Ability::Taunt | Ability::Juggernaut => class == Class::Tank,
-        Ability::SquadOrder | Ability::Rally | Ability::BattleCry => class == Class::Commander,
+        Ability::Rally | Ability::BattleCry => class == Class::Commander,
     }
 }
 
@@ -932,9 +925,6 @@ pub const JUGGERNAUT_COOLDOWN: [f64; 4] = [150.0, 140.0, 130.0, 120.0];
 /// **Base trait**: what a commander takes off a mercenary's fee, in whole
 /// per cent, at every level.
 pub const HIRE_DISCOUNT_PERCENT: u32 = 25;
-/// **Base trait**: how far a squad order reaches from the commander, in
-/// tiles, at every level.
-pub const SQUAD_RANGE: f32 = 20.0;
 
 /// **Q, Battle Cry**: how far it reaches when he calls it, in tiles, at
 /// every rank.
@@ -1105,13 +1095,11 @@ mod tests {
         assert!(!can(Class::Tank, Ability::Deploy));
         assert!(!can(Class::Medic, Ability::Bulwark));
         assert!(!can(Class::Soldier, Ability::Taunt));
-        assert!(can(Class::Commander, Ability::SquadOrder));
         assert!(can(Class::Commander, Ability::Rally));
         assert!(can(Class::Commander, Ability::BattleCry));
         assert!(!can(Class::Soldier, Ability::BattleCry));
         assert!(!can(Class::Commander, Ability::Taunt));
         assert!(!can(Class::Commander, Ability::Deploy));
-        assert!(!can(Class::Tank, Ability::SquadOrder));
         assert!(!can(Class::Medic, Ability::Rally));
         for ability in Ability::ALL {
             assert!(!can(Class::None, ability));

@@ -53,8 +53,7 @@ fn refused_with(events: &[WorldEvent], want: Refusal) -> bool {
 }
 
 /// The order is given, said, and the same order again lets the crew go
-/// — the commander's squad rule, and for the same reason: one key does
-/// both.
+/// — one key does both.
 #[test]
 fn an_order_is_given_said_and_released_by_the_same_key_again() {
     let mut world = crewed();
@@ -117,7 +116,7 @@ fn an_order_is_given_said_and_released_by_the_same_key_again() {
 }
 
 /// It is not a class's, and it is not free: the player has to be fit to
-/// act, the same gate a trip and a squad order stand behind.
+/// act, the same gate a trip stands behind.
 #[test]
 fn an_order_wants_the_player_on_its_feet_and_no_class_at_all() {
     let mut world = crewed();

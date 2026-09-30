@@ -55,6 +55,7 @@ use bims::{door, health};
 use physics::ResourceId;
 use world::LootSource;
 
+use crate::ability_icons;
 use crate::format::date_text;
 use crate::icons;
 use crate::keys::{Action, Keys};
@@ -236,14 +237,11 @@ pub struct TankView {
     pub juggernaut_learnt: bool,
 }
 
-/// What the panel says of a commander (feature 78): what his squad is
-/// under — `world::SquadKind`'s code, `None` with no order — how many
-/// are in it, minutes of the rally left, seconds until he may rally
-/// again, and whether the level for one has been reached.
+/// What the panel says of a commander (feature 78): minutes of the rally
+/// left, seconds until he may rally again, and whether he has a rank of
+/// it.
 #[derive(Clone, Copy, PartialEq, Debug, Default)]
 pub struct CommanderView {
-    pub squad: Option<u32>,
-    pub members: usize,
     pub rally_left: f64,
     pub cooldown: f64,
     pub can_rally: bool,
@@ -272,9 +270,6 @@ pub struct TrayView {
     pub bots: Vec<crate::screens::hud::Portrait>,
     /// The player's standing order to the crew — `world::Standing::code`.
     pub standing: u32,
-    /// The player steers a commander, whose squad has two orders that
-    /// want no target: fall back and stand ground.
-    pub commander: bool,
 }
 
 /// What a press in the tray asked the screen for: a window of its own, or
@@ -289,11 +284,6 @@ pub enum TrayAsk {
     Retreat,
     /// Whatever the crew are under let go, so they follow again.
     Follow,
-    /// The commander's squad called back to him, as X with the pointer
-    /// on nothing.
-    FallBack,
-    /// The commander's squad held where it stands, as Z.
-    StandGround,
 }
 
 /// How wide [`CrewPanels::side`] draws itself once somebody is picked:
@@ -379,6 +369,9 @@ const SKILL_TEXT: f32 = 13.5;
 const SKILL_BOX_TEXT: f32 = 12.5;
 /// An ability's name, and the sheet's title.
 const SKILL_NAME_TEXT: f32 = 17.0;
+/// The side of an ability's picture beside its name: the hero panel's
+/// box, smaller.
+const SKILL_ICON: f32 = 30.0;
 
 /// An open fixture menu: which fixture, and where on the window it was
 /// asked for.
@@ -991,18 +984,6 @@ impl CrewPanels {
             );
         }
         if let Some(commander) = view.commander {
-            ui.horizontal(|ui| {
-                ui.label(
-                    egui::RichText::new(squad_line(commander.squad, commander.members))
-                        .small()
-                        .color(if commander.squad.is_some() {
-                            theme::CAUTION
-                        } else {
-                            theme::MUTED
-                        }),
-                );
-                theme::question_mark(ui, SQUAD_TIP);
-            });
             let rallying = commander.rally_left > 0.0;
             ui.label(
                 egui::RichText::new(rally_line(
@@ -1243,7 +1224,7 @@ impl CrewPanels {
 
     /// The Squad (feature 107): the player's standing order to the crew
     /// and the buttons that give the others — the same orders F and T
-    /// give, and a commander's two that want no target — then every bot
+    /// give — then every bot
     /// with its class, its level and its health.
     fn squad(&mut self, ui: &mut egui::Ui, view: &TrayView, asks: &mut Vec<TrayAsk>) {
         ui.set_max_width(TRAY_W);
@@ -1279,25 +1260,6 @@ impl CrewPanels {
                 asks.push(TrayAsk::Follow);
             }
         });
-        if view.commander {
-            ui.horizontal_wrapped(|ui| {
-                if ui
-                    .button(keyed(FALL_BACK, keys.key(Action::SquadFallBack)))
-                    .on_hover_text(FALL_BACK_TIP)
-                    .clicked()
-                {
-                    asks.push(TrayAsk::FallBack);
-                }
-                if ui
-                    .button(keyed(STAND_GROUND, keys.key(Action::SquadStandGround)))
-                    .on_hover_text(STAND_GROUND_TIP)
-                    .clicked()
-                {
-                    asks.push(TrayAsk::StandGround);
-                }
-                theme::question_mark(ui, SQUAD_TIP);
-            });
-        }
         ui.separator();
         if view.bots.is_empty() {
             ui.label(
@@ -1710,6 +1672,14 @@ impl CrewPanels {
                 .show(ui, |ui| {
                     ui.set_width(ui.available_width());
                     ui.horizontal(|ui| {
+                        // Its picture, the one on its box on the hero panel.
+                        if let Some(glyph) = ability_icons::Glyph::of(class, slot) {
+                            let (rect, _) = ui.allocate_exact_size(
+                                egui::vec2(SKILL_ICON, SKILL_ICON),
+                                egui::Sense::hover(),
+                            );
+                            ability_icons::paint(ui.painter(), rect, glyph, false, 3.0);
+                        }
                         ui.label(
                             egui::RichText::new(format!(
                                 "{} {}",

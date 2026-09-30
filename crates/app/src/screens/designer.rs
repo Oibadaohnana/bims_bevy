@@ -190,9 +190,6 @@ pub enum Order {
     /// The tank's Juggernaut — `Command::Juggernaut`, the R key (task
     /// 139).
     Juggernaut,
-    /// The commander's squad sent, called back or held —
-    /// `Command::Squad`, the E, X and Z keys (feature 78).
-    Squad(world::SquadAsk),
     /// The commander's rally — `Command::Rally`, the E key (task 129).
     Rally,
     /// The commander's Battle Cry — `Command::BattleCry`, the Q key (task
@@ -483,7 +480,6 @@ impl Net {
                         Order::Bulwark(on) => Command::Bulwark { slot, on },
                         Order::Taunt => Command::Taunt { slot },
                         Order::Juggernaut => Command::Juggernaut { slot },
-                        Order::Squad(order) => Command::Squad { slot, order },
                         Order::Rally => Command::Rally { slot },
                         Order::BattleCry => Command::BattleCry { slot },
                         Order::Orders(order) => Command::Orders { slot, order },

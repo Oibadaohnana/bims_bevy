@@ -76,29 +76,6 @@ pub struct GuestRevived {
     pub share: f32,
 }
 
-/// What a commander's squad order tells one body to do (feature 78,
-/// `world::commander`): the world's word, said afresh every step for
-/// every Bim, and never kept in a save — the order itself is the
-/// world's. [`Squad::None`] for a body under none, which is everybody
-/// until a commander says otherwise, and **always** a body a player
-/// steers: an order never moves, holds or aims one of those.
-#[derive(Clone, Copy, PartialEq, Debug, Default)]
-pub enum Squad {
-    #[default]
-    None,
-    /// Fire on that target ahead of any nearer one, and advance on it
-    /// the way a body that sees an enemy for itself does. `seen` is
-    /// whether it is a sighting rather than a belief: a mark nobody can
-    /// see is walked towards and never fired at.
-    Attack { enemy: usize, seen: bool },
-    /// Walk to a slot round that point, holding fire on the way, and
-    /// hold there shooting what can be seen.
-    FallBack { at: Vec2 },
-    /// Hold exactly where it stands, shooting what it can see: no walk
-    /// to cover, and no running.
-    StandGround,
-}
-
 /// What a player's **standing order** tells the bots that follow them to
 /// do (feature 84, `world::Standing`): one a player slot, the world's word,
 /// said afresh every step. [`Standing::Follow`] until a player says
@@ -751,12 +728,6 @@ pub struct Game {
     /// 75): a soldier's talents and its brace, `Skill::NONE` for anybody
     /// the world does not name.
     skills: Vec<Skill>,
-    /// What a commander's squad order tells each Bim to do (`set_squad`,
-    /// feature 78): `Squad::None` for a body under none. The world's
-    /// word, said every step, and left out of a save with it — the
-    /// order itself is the world's (`world::SquadOrder`).
-    #[cfg_attr(feature = "serde", serde(skip))]
-    squad: Vec<Squad>,
     /// What each player's standing order to the bots is (`set_orders`,
     /// feature 84): one an entry, by player slot, [`Standing::Follow`] for
     /// a slot that has not said. The world's word, said every step, and
@@ -764,12 +735,6 @@ pub struct Game {
     /// (`world::Standing`).
     #[cfg_attr(feature = "serde", serde(skip))]
     standing: Vec<Standing>,
-    /// Which Bims the squad order itself put under arms, so that its
-    /// ending lets go of those and of nobody else — a Bim recruited by
-    /// the alarm, or by a probe, is left as it was found. Derived from
-    /// `squad` a step behind, and left out of a save with it.
-    #[cfg_attr(feature = "serde", serde(skip))]
-    squad_armed: Vec<bool>,
     /// Which players' own Bims the alarm recruited (September 2026): a
     /// player's Bim takes arms by itself when a fight starts, and the
     /// alarm's end lets go of those and of nobody the player recruited.
@@ -985,9 +950,7 @@ impl Game {
             work_factors: Vec::new(),
             steady_hands: Vec::new(),
             skills: Vec::new(),
-            squad: Vec::new(),
             standing: Vec::new(),
-            squad_armed: Vec::new(),
             alarm_armed: Vec::new(),
             revives: Vec::new(),
             revivers: true,
@@ -1082,10 +1045,8 @@ impl Game {
         //
         // **It is `mustered` and not `alarm`**, since feature 84: the
         // alarm is only one of the two things that put the crew under
-        // arms, and a crew led by a player — or by a squad order, whose
-        // `squad_armed` is rebuilt empty in the new room and so can
-        // never let anybody go — was carried over recruited with the
-        // edge already spent.
+        // arms, and a crew led by a player was carried over recruited
+        // with the edge already spent.
         if self.at_war {
             self.at_war = false;
             self.muster(false);
@@ -1097,7 +1058,6 @@ impl Game {
             self.alarm = false;
             self.mustered = false;
             self.muster_crew(false);
-            self.squad_armed.clear();
         }
         for bim in &mut self.bims {
             if let Some(task) = bim.task.take() {
@@ -1494,9 +1454,6 @@ impl Game {
                 }
             }
         }
-        // And a commander's squad, which is under arms with the alarm
-        // or without it (feature 78).
-        self.muster_squad(mustered);
         // The soldiers' odds in cover, for the bolts below (feature 75).
         let cover_odds: Vec<f32> = (0..self.bims.len())
             .map(|who| self.skill(who).cover_dodge)
@@ -1676,7 +1633,6 @@ impl Game {
             // and shoots from where it stands.
             let seen_to = self.is_being_seen_to(who);
             let holds_post = self.bims[who].character.post().is_some();
-            let squad = self.squad_of(who);
             if let Some(enemy) = focus
                 && !seen_to
             {
@@ -1685,15 +1641,9 @@ impl Game {
                 // enemy until it has a shot.
                 self.chase(who, dt, &stats, enemy);
             } else if war && !seen_to {
-                self.plan_stand(who, dt, &stats, None);
+                self.plan_stand(who, dt, &stats);
                 // And, with nobody it can get to, the doors in the way.
                 self.breach(who, dt);
-            } else if squad != Squad::None && !seen_to {
-                // A commander's squad order comes before the ring round
-                // the player and before the squad member's own stand
-                // (feature 78) — and never reaches a Bim a player
-                // steers, which the world sees to.
-                self.squad_stand(who, dt, &stats, squad);
             } else if mustered
                 && !seen_to
                 && (!self.is_player(who) || self.under_attack())
@@ -1774,46 +1724,23 @@ impl Game {
                 self.keep_attack_moving(who, false);
                 continue;
             }
-            // Falling back under a commander's order holds its fire
-            // while it walks, and shoots what it sees once it is there
-            // (feature 78).
-            if matches!(squad, Squad::FallBack { .. }) && bim.character.is_walking() {
-                bim.trigger.hold();
-                bim.peek = None;
-                bim.character.set_lean(None);
-                bim.character.set_aim(None);
-                continue;
-            }
-            // The enemy a squad order marked comes before any nearer
-            // one, and a mark nobody can see is never fired at.
-            let mark = match squad {
-                Squad::Attack { enemy, seen: true } => Some(enemy),
-                _ => None,
-            };
             // A target the player named (task 126) is the only one it
             // fires at: out of sight or out of reach, it holds its fire
             // and walks after it (`chase`).
             let aimed = match focus {
                 Some(enemy) => self.combat.aim_only(&self.room.sight, from, &stats, enemy),
-                None => self.combat.aim_marked(&self.room.sight, from, &stats, mark),
+                None => self.combat.aim(&self.room.sight, from, &stats),
             };
             // An attack-move stands still for a shot and walks on without
             // one, before the walk is read below.
             self.keep_attack_moving(who, aimed.is_some());
             let bim = &mut self.bims[who];
-            let Some((which, eye, at)) = aimed else {
+            let Some((_, eye, at)) = aimed else {
                 bim.trigger.hold();
                 bim.peek = None;
                 bim.character.set_lean(None);
                 bim.character.set_aim(None);
                 continue;
-            };
-            // *Focus fire* is the odds against the mark alone, so the
-            // shot's numbers are read again once it is known which.
-            let stats = if mark == Some(which) {
-                skill.stats_at(weapon, true)
-            } else {
-                stats
             };
             // Squared up to it, and a shot the moment the weapon is ready.
             // On the move too, crew and enemy alike, at half the odds
@@ -2107,43 +2034,10 @@ impl Game {
     /// One crew member put under arms: the errand put down onto the
     /// queue. What it holds and wears is its loadout, which changes only
     /// between missions (task 113), so there is nothing to take out.
-    /// What the alarm does to each of them, and what a commander's squad
-    /// order does to one without waiting for an alarm (feature 78).
+    /// What the alarm does to each of them.
     fn take_up_arms(&mut self, who: usize) {
         self.interrupt(who);
         self.bims[who].plan_wait = 0.0;
-    }
-
-    /// Every crew member under a commander's squad order under arms,
-    /// alarm or no alarm — an order works with the alarm and without it
-    /// (feature 78) — and let go again when the order ends, unless the
-    /// alarm is holding it. A player's own Bim is never in a squad
-    /// order and is never touched.
-    fn muster_squad(&mut self, alarm: bool) {
-        if self.hostile_bodies {
-            return;
-        }
-        for who in 0..self.bims.len() {
-            if self.is_player(who) || !self.bims[who].is_alive() {
-                continue;
-            }
-            let under = self.squad_of(who) != Squad::None;
-            let recruited = self.bims[who].character.is_recruited();
-            let was_the_order_s = self.squad_armed.get(who).copied().unwrap_or(false);
-            if under && !recruited {
-                self.take_up_arms(who);
-                self.bims[who].character.set_post(None);
-                self.bims[who].character.set_recruited(true);
-            } else if !under && !alarm && recruited && was_the_order_s {
-                // Only what the order put under arms is let go by its
-                // ending: a Bim somebody else recruited stays recruited.
-                self.bims[who].character.set_recruited(false);
-            }
-            if self.squad_armed.len() <= who {
-                self.squad_armed.resize(who + 1, false);
-            }
-            self.squad_armed[who] = under;
-        }
     }
 
     /// Whether any target the world named is within `range` room units of
@@ -2344,7 +2238,6 @@ impl Game {
                 &self.room.sight,
                 from,
                 &stats,
-                None,
             ) else {
                 self.droids[i].trigger.hold();
                 self.droids[i].peek = None;
@@ -2487,14 +2380,9 @@ impl Game {
         let from = self.droids[i].pos;
         // Only what it sees from its own eyes: a Guardian never leans out
         // of cover, having none but its shield.
-        let sighted = Combat::aim_among(
-            self.combat.machine_targets(),
-            &self.room.sight,
-            from,
-            stats,
-            None,
-        )
-        .filter(|&(_, eye, _)| eye == from);
+        let sighted =
+            Combat::aim_among(self.combat.machine_targets(), &self.room.sight, from, stats)
+                .filter(|&(_, eye, _)| eye == from);
         let d = &mut self.droids[i];
         d.charging(dt, false);
         let want = sighted
@@ -2693,8 +2581,8 @@ impl Game {
         // it stops where it is and shoots — except a Trooper, which
         // advances in the open and fires as it walks.
         let advances = !self.droids[i].kind.takes_cover();
-        let has_a_shot = !stats.melee
-            && Combat::aim_among(&targets, &self.room.sight, from, stats, None).is_some();
+        let has_a_shot =
+            !stats.melee && Combat::aim_among(&targets, &self.room.sight, from, stats).is_some();
         if has_a_shot && !stand.cover && !advances {
             if self.droids[i].is_walking() {
                 self.droids[i].halt();
@@ -2811,7 +2699,7 @@ impl Game {
     /// the weapon's range, and a hunter that stood there never followed
     /// anybody through a passage. The crew's bots take the list as it
     /// comes and never hunt: they are the player's to send.
-    fn plan_stand(&mut self, who: usize, dt: f32, stats: &WeaponStats, mark: Option<usize>) {
+    fn plan_stand(&mut self, who: usize, dt: f32, stats: &WeaponStats) {
         let bim = &mut self.bims[who];
         bim.plan_wait -= dt;
         if bim.plan_wait > 0.0 {
@@ -2820,20 +2708,7 @@ impl Game {
         bim.plan_wait = PLAN_EVERY;
         let from = bim.character.pos;
         let nav = self.maps.for_body(false);
-        // A squad member attacking a marked enemy advances on **it**
-        // (feature 78): the rest are nobody's business for the stand,
-        // so they are taken off the list the spot is scored against.
-        let mut targets = self.combat.targets().to_vec();
-        if let Some(mark) = mark
-            && targets.get(mark).is_some_and(|t| t.is_some())
-        {
-            for (i, t) in targets.iter_mut().enumerate() {
-                if i != mark {
-                    *t = None;
-                }
-            }
-        }
-        let targets = targets;
+        let targets = self.combat.targets().to_vec();
         let nobody_in_sight = targets.iter().flatten().all(|t| t.stale);
         if self.hostile_bodies && !stats.melee && nobody_in_sight {
             bim.hunting = true;
@@ -3049,9 +2924,7 @@ impl Game {
     }
 
     /// The same ring round a point of the room rather than round a
-    /// player's Bim: what a commander's **fall back** puts the squad in
-    /// (feature 78), anchored on the tile he named instead of on
-    /// somebody who moves.
+    /// player's Bim: an attack banner's, or the ship's for a retreat.
     fn gather_round(&mut self, who: usize, dt: f32, anchor: Vec2) {
         let bim = &mut self.bims[who];
         bim.plan_wait -= dt;
@@ -3216,7 +3089,7 @@ impl Game {
         // to fall back to (feature 94): it is defending the place it
         // lives in, so it picks its own stand and fights.
         if self.under_attack() || self.cornered(who) {
-            self.plan_stand(who, dt, stats, None);
+            self.plan_stand(who, dt, stats);
             return;
         }
         match self.standing_for(who) {
@@ -3228,7 +3101,7 @@ impl Game {
                 let player_up = (0..self.players.min(self.bims.len()))
                     .any(|p| self.bims[p].is_alive() && !self.bims[p].character.is_outside());
                 if !player_up || self.combat.sees_any(&self.room.sight, from) {
-                    self.plan_stand(who, dt, stats, None);
+                    self.plan_stand(who, dt, stats);
                 } else {
                     self.gather(who, dt);
                 }
@@ -3371,7 +3244,7 @@ impl Game {
             .flatten()
             .any(|t| !t.stale && (t.at - from).len() <= stats.reach());
         if in_reach {
-            self.plan_stand(who, dt, stats, None);
+            self.plan_stand(who, dt, stats);
         } else if (at - from).len() > BANNER_HOLD * TILE {
             self.push_towards(who, dt, at);
         } else {
@@ -3470,39 +3343,6 @@ impl Game {
         let route = nav.path(from, to);
         if !route.is_empty() {
             self.bims[who].character.follow_path(route);
-        }
-    }
-
-    /// A squad member's stand under a commander's order (feature 78),
-    /// in place of the ring round the player and of its own tactics:
-    ///
-    /// * **attack** — the stand its own tactics would pick, scored
-    ///   against the marked enemy alone, so it advances on that one to
-    ///   cover within range and peeks round it. A mark nobody can see is
-    ///   still walked towards (*relentless*) and never fired at, which
-    ///   is what `Target::stale` already does.
-    /// * **fall back** — the gather ring anchored on the tile he named.
-    /// * **stand ground** — exactly where it stands: a walk under way
-    ///   is halted and nothing is planned.
-    fn squad_stand(&mut self, who: usize, dt: f32, stats: &WeaponStats, squad: Squad) {
-        match squad {
-            Squad::None => {}
-            Squad::Attack { enemy, .. } => self.plan_stand(who, dt, stats, Some(enemy)),
-            Squad::FallBack { at } => {
-                // A commander's fall back holds its fire while it walks
-                // (below), so it is the **full sprint**: head down and a
-                // little faster, never the backing walk a crew member
-                // covering its own retreat gives ground with.
-                self.bims[who]
-                    .character
-                    .set_falling_back(Some(FallBack::Sprint));
-                self.gather_round(who, dt, at);
-            }
-            Squad::StandGround => {
-                if self.bims[who].character.is_walking() {
-                    self.bims[who].character.halt();
-                }
-            }
         }
     }
 
@@ -7493,28 +7333,6 @@ impl Game {
         self.skill(who)
     }
 
-    // --- the commander: the squad's orders (feature 78) --------------------
-
-    /// What a commander's squad order tells `who` to do, or
-    /// [`Squad::None`].
-    fn squad_of(&self, who: usize) -> Squad {
-        self.squad.get(who).copied().unwrap_or_default()
-    }
-
-    /// What the squad is under, by index (`world::SquadOrder`): the
-    /// world works it out every step from the commander's order, who is
-    /// in range of him and who a player steers, and says it here.
-    /// Anybody not named is under nothing.
-    pub fn set_squad(&mut self, squad: Vec<Squad>) {
-        self.squad = squad;
-    }
-
-    /// What the world last told `who` to do, for the tests.
-    #[allow(dead_code)]
-    pub fn squad_for_probe(&self, who: usize) -> Squad {
-        self.squad_of(who)
-    }
-
     /// A body stopped where it stands, for the tests: the walk dropped,
     /// which `put_for_probe` on its own does not do.
     #[allow(dead_code)]
@@ -7614,12 +7432,8 @@ impl Game {
     pub fn aims_at_for_probe(&self, who: usize) -> Option<usize> {
         let bim = self.bims.get(who)?;
         let stats = self.skill(who).stats(bim.gear.weapon?);
-        let mark = match self.squad_of(who) {
-            Squad::Attack { enemy, seen: true } => Some(enemy),
-            _ => None,
-        };
         self.combat
-            .aim_marked(&self.room.sight, bim.character.pos, &stats, mark)
+            .aim(&self.room.sight, bim.character.pos, &stats)
             .map(|(i, _, _)| i)
     }
 

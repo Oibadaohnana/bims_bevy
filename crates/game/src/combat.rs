@@ -703,11 +703,6 @@ pub struct Skill {
     /// effort: a commander's aura (feature 78). One for everybody out of
     /// one.
     pub effort: f32,
-    /// What the odds against the enemy a squad order marked are
-    /// multiplied by, over [`Skill::accuracy`]: a commander's *focus
-    /// fire* (feature 78). One against anybody else, and against
-    /// everybody with no mark.
-    pub marked_accuracy: f32,
     /// What every bolt's damage is multiplied by at any distance, near
     /// and far alike — where [`Skill::point_blank`] bites only within the
     /// weapon's sweet range: an engineer's *sentry mark III* (feature
@@ -789,7 +784,6 @@ impl Skill {
         armour_drain: 1.0,
         armour_protection: 1.0,
         effort: 1.0,
-        marked_accuracy: 1.0,
         damage: 1.0,
         range: 0.0,
         armour_protection_add: 0.0,
@@ -820,14 +814,8 @@ impl Skill {
     /// rate multiplied. The range, the damage curve, the burst are the
     /// weapon's own.
     pub fn stats(&self, weapon: Weapon) -> WeaponStats {
-        self.stats_at(weapon, false)
-    }
-
-    /// The same, at the enemy a squad order marked or at anybody else:
-    /// the marked odds carry *focus fire* on top (feature 78).
-    pub fn stats_at(&self, weapon: Weapon, marked: bool) -> WeaponStats {
         let base = weapon.stats();
-        let odds = self.accuracy * if marked { self.marked_accuracy } else { 1.0 };
+        let odds = self.accuracy;
         // A braced soldier's misses cut by a share (task 124): the miss
         // chance times one less it, after every other factor, the hit
         // chance never past one. With none the odds are left as they were,
@@ -2690,28 +2678,14 @@ impl Combat {
         from: Vec2,
         stats: &WeaponStats,
     ) -> Option<(usize, Vec2, Vec2)> {
-        self.aim_marked(sight, from, stats, None)
-    }
-
-    /// [`Combat::aim`] with one target **marked** — a commander's squad
-    /// order, feature 78: the mark comes before a taunt and before any
-    /// nearer target, as long as it is seen and in reach. A mark that
-    /// cannot be shot falls through to the ordinary rule.
-    pub fn aim_marked(
-        &self,
-        sight: &Sight,
-        from: Vec2,
-        stats: &WeaponStats,
-        mark: Option<usize>,
-    ) -> Option<(usize, Vec2, Vec2)> {
-        Combat::aim_among(&self.targets, sight, from, stats, mark)
+        Combat::aim_among(&self.targets, sight, from, stats)
     }
 
     /// [`Combat::aim`] at one target and no other — a player's attack
     /// order, task 126: its index, the eye and where it is aimed at if
     /// that one is up, seen and in reach, and nothing otherwise, so
     /// nobody else is fired at in its place. A sealed core may be aimed
-    /// at, as a mark may.
+    /// at this way.
     pub fn aim_only(
         &self,
         sight: &Sight,
@@ -2726,7 +2700,7 @@ impl Combat {
         sight.sees_from(from, t.at).map(|eye| (which, eye, t.at))
     }
 
-    /// [`Combat::aim_marked`] over a target list of the caller's — what
+    /// [`Combat::aim`] over a target list of the caller's — what
     /// a machine aims with, since it has a list of its own in a town the
     /// crew are defending (feature 94).
     pub fn aim_among(
@@ -2734,21 +2708,13 @@ impl Combat {
         sight: &Sight,
         from: Vec2,
         stats: &WeaponStats,
-        mark: Option<usize>,
     ) -> Option<(usize, Vec2, Vec2)> {
         let reach = stats.reach();
         // **A taunt is him and nobody else** (task 139): a target taunting
         // within its own radius of the shooter that the shooter can see —
         // the most recent of two, the nearer of two as recent — is the
         // only one it may pick. In the weapon's reach it is shot at;
-        // beyond it, nobody is. A mark still comes first.
-        let marked = mark
-            .and_then(|m| targets.get(m).copied().flatten().map(|t| (m, t)))
-            .filter(|(_, t)| !t.stale && (t.at - from).len() <= reach)
-            .and_then(|(m, t)| sight.sees_from(from, t.at).map(|eye| (m, eye, t.at)));
-        if marked.is_some() {
-            return marked;
-        }
+        // beyond it, nobody is.
         let mut forced: Option<((u32, f32), usize, Vec2, Vec2)> = None;
         for (i, target) in targets.iter().enumerate() {
             let Some(t) = target.filter(|t| !t.stale && t.taunting > 0.0) else {
@@ -2769,16 +2735,15 @@ impl Combat {
         if let Some(((_, d), i, eye, at)) = forced {
             return (-d <= reach).then_some((i, eye, at));
         }
-        // Otherwise the nearest; a mark that could not be shot is no
-        // longer asked about.
+        // Otherwise the nearest.
         let mut best: Option<(f32, usize, Vec2, Vec2)> = None;
         for (i, target) in targets.iter().enumerate() {
             let Some(t) = target.filter(|t| !t.stale) else {
                 continue;
             };
             // A sealed core is nothing to spend a shot on (feature 108):
-            // nobody aims at one of their own accord, though a mark still
-            // may (above).
+            // nobody aims at one of their own accord, though a player's
+            // attack order still may (`aim_only`).
             if t.sealed() {
                 continue;
             }

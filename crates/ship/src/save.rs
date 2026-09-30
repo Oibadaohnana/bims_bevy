@@ -186,7 +186,9 @@ use crate::game::Game;
 /// 65: the tank is a ranked kit (task 139) — the talents picked are gone
 /// from `Progress`, a tank keeps his Taunt's and Juggernaut's windows,
 /// and `Skill` lost *iron frame* and *breacher*.
-pub const SAVE_VERSION: u32 = 65;
+/// 66: the commander's squad orders removed — the world keeps no squad
+/// order, and `Skill` lost *focus fire*'s `marked_accuracy`.
+pub const SAVE_VERSION: u32 = 66;
 
 /// What the file holds, read back.
 #[derive(serde::Deserialize)]

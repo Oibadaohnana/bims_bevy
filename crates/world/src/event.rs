@@ -142,10 +142,8 @@ pub enum WorldEvent {
     Bulwarked { who: u32, on: bool },
     /// A tank taunted: who.
     Taunted { who: u32 },
-    /// A commander sent the squad, or released it (feature 78): who,
-    /// and `crate::SquadKind`'s code — `u32::MAX` for the order called
-    /// off.
-    Squadded { who: u32, kind: u32 },
+    // `Squadded` (81) went with the commander's squad orders; its code
+    // is not used again.
     /// A commander rallied: who.
     Rallied { who: u32 },
     /// A commander called a Battle Cry (task 129): who.
@@ -444,15 +442,13 @@ pub enum Refusal {
     NotATank = 68,
     // 69, a taunt before the tank's third level, went with his talents
     // (task 139): an ability not learnt is `NotLearnt`.
-    /// A squad order or a rally by a crew member that is not a
+    /// A rally or a battle cry by a crew member that is not a
     /// commander (feature 78).
     NotACommander = 70,
     // 71, a rally before the commander's third level, went with his
     // talents (task 129): an ability not learnt is `NotLearnt`.
-    /// A squad order with nobody of the squad in range of him.
-    NoSquadInRange = 72,
-    /// An attack with no enemy where the pointer was.
-    NoEnemyThere = 73,
+    // 72 and 73, nobody of the squad in range and no enemy under the
+    // pointer, went with the commander's squad orders.
     /// An attack banner put down on something that is not deck of the
     /// crew's room (feature 84).
     NoGroundThere = 74,
@@ -640,7 +636,7 @@ impl WorldEvent {
             // 78 was a surge, which went with it (task 130).
             WorldEvent::Bulwarked { .. } => 79,
             WorldEvent::Taunted { .. } => 80,
-            WorldEvent::Squadded { .. } => 81,
+            // 81 was a squad order, which went with them.
             WorldEvent::Rallied { .. } => 82,
             WorldEvent::DroidReinforcements { .. } => 83,
             WorldEvent::DroidStationCleared { .. } => 84,
@@ -848,11 +844,6 @@ impl WorldEvent {
             // How many it healed, and whom it cloaked, in the hundreds.
             WorldEvent::NaniteBurst { who, healed } => (who as i64) + 100 * (healed as i64),
             WorldEvent::Cloaked { who, target } => (who as i64) + 100 * (target as i64),
-            // The order's code in the hundreds, and nought for the
-            // order called off: a crew is never a hundred.
-            WorldEvent::Squadded { who, kind } => {
-                (who as i64) + 100 * if kind == u32::MAX { 0 } else { kind as i64 + 1 }
-            }
             WorldEvent::Braced { who, on } | WorldEvent::Bulwarked { who, on } => {
                 (who as i64) + 100 * i64::from(on)
             }

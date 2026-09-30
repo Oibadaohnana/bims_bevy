@@ -6262,3 +6262,23 @@ as before. `wire::PROTOCOL` 64; nothing saved changed.
 **What moved.** `SAVE_VERSION` 65, `wire::PROTOCOL` 65. `tests_tank.rs`
 is the task's tests, `class::tests` the tables and the rank gates of
 every class.
+
+## The commander's squad orders removed
+
+> "The commander: the aura, the squad and the rally (feature 78)", "Every
+> player has two orders for the bots" (the squad's handed first) and the
+> commander's ranked kit's "base traits" above describe what this
+> removed.
+
+The commander's squad orders — attack (B), fall back (T), stand ground
+(Z) — are gone: `SquadAsk`, `SquadKind`, `SquadOrder`, `World::squad`,
+`Command::Squad`, `can_squad`, `squad_members`, `squad_range`,
+`class::SQUAD_RANGE`, `Ability::SquadOrder`, `WorldEvent::Squadded` (81)
+and the refusals `NoSquadInRange` (72) and `NoEnemyThere` (73), their
+codes left free. His one base trait is the cheaper hire (`hire_fee` asks
+`is_commander`). `size_the_commanders`, where the squad's hand-off was,
+keeps `World::commanders` as long as the crew, since the checksum eats
+its length; the checksum eats a nought where the squad order was, so
+`REFERENCE_CHECKSUM`, `SURVIVORS` and the ship's `PINNED` did not move.
+The everybody's standing orders (the X banner, the retreat) are
+untouched. **`SAVE_VERSION` 66, `wire::PROTOCOL` 66.**

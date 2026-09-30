@@ -15,10 +15,10 @@
 //!
 //! **What an order does not reach.** A Bim a player steers is never
 //! moved by one — a player's own Bim is the player's. Neither is a crew
-//! member on a chain, one a commander's squad order has claimed, or one
-//! holding a post its player right-clicked for it: an order to one crew
-//! member outranks the standing order to the rest, which is how a player
-//! picks a bot out of the line and sends it somewhere else.
+//! member on a chain, or one holding a post its player right-clicked for
+//! it: an order to one crew member outranks the standing order to the
+//! rest, which is how a player picks a bot out of the line and sends it
+//! somewhere else.
 //!
 //! **The ship is the last stand.** No order takes a bot out of a fight
 //! aboard the ship: cornered in its own hull it fights, retreat or no

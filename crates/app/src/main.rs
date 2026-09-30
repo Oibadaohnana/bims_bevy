@@ -65,6 +65,7 @@
 //! bims --self-check  the pinned constants, checked, and the verdict printed
 //! ```
 
+mod ability_icons;
 mod canvas;
 mod crew;
 mod dev;

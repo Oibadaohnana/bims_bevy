@@ -1090,7 +1090,6 @@ impl World {
                 r.who -= 1;
             }
         }
-        self.clear_squad();
         self.hired.retain(|h| h.who != who);
         for h in &mut self.hired {
             if h.who > who {

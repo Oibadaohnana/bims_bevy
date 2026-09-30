@@ -54,7 +54,7 @@ use bims::sight::Stance;
 use crate::armour::{self, LootSource};
 use crate::build::{self, BuildSite, SiteRefusal};
 use crate::class::{self, Charge, Class, Progress};
-use crate::commander::{Aura, Commander, SquadAsk, SquadKind, SquadOrder};
+use crate::commander::{Aura, Commander};
 use crate::crew::{Aboard, Residents};
 use crate::data;
 use crate::defense::{self, Defense};
@@ -386,20 +386,6 @@ pub enum Command {
     /// (`World::can_juggernaut`).
     Juggernaut {
         slot: u32,
-    },
-    /// Send that player's own commander's **squad** — every crew member
-    /// no player is steering, within [`class::SQUAD_RANGE`] tiles of him —
-    /// after an enemy, back to a tile, or to stand its ground (feature 78,
-    /// a base trait of his since task 129, `crate::class`,
-    /// `crate::commander`). Wants the commander fit to act
-    /// (`World::can_squad`) and, for an attack, an enemy of the station
-    /// alongside; a squad order works with the alarm and without it.
-    /// The same order given again releases the squad, and so does the
-    /// commander going down. It never moves, holds or aims a Bim a
-    /// player steers.
-    Squad {
-        slot: u32,
-        order: SquadAsk,
     },
     /// That player's own commander **rallies** (task 129, his E): for
     /// [`class::RALLY_SECONDS`] of his rank on the mission clock every
@@ -1015,10 +1001,6 @@ pub struct World {
     /// a fight moves because a soldier has it. Saved and in
     /// `world_checksum`.
     pub crit_rng: bims::rng::Rng,
-    /// The one squad order the crew are under, while they are under one
-    /// (feature 78): whose it is, what it is, and which crew members it
-    /// reaches. `None` with none. In `world_checksum`.
-    pub squad: Option<SquadOrder>,
     /// What each player's bots are under, by player slot (feature 84,
     /// `crate::orders`): [`Standing::Follow`] for a slot that has said
     /// nothing, which is every slot until somebody presses a key. As
@@ -1250,7 +1232,6 @@ impl World {
             reinforcements: Vec::new(),
             soldiers: vec![crate::soldier::Soldier::default(); crew as usize],
             crit_rng: bims::rng::Rng::new(seed ^ CRIT_SALT),
-            squad: None,
             standing: vec![Standing::Follow; players as usize],
             // Feature 102: a run has no shipyard. The tests that are
             // about building switch it on (`set_shipyard_enabled`).
@@ -1444,19 +1425,15 @@ impl World {
         self.heal_by_sentries();
         //    And which crew members are hired **field medics** (feature
         //    86), whose business under arms is the fallen: said every
-        //    step like the squad's orders, since it is the contract that
+        //    step, since it is the contract that
         //    knows and a save reads the contract back.
         self.hand_the_room_the_field_medics();
         //    And the tanks' (feature 77): the walls standing among the
         //    crew, before the skills, which read the bulwark off the room.
         self.hand_the_room_the_tanks();
-        //    And the commander's (feature 78): the squad order pruned and
-        //    handed over, before the skills, which read *focus fire* and
-        //    *stand ground* off it.
-        self.hand_the_room_the_squad();
-        //    And every player's own two standing orders (feature 84),
-        //    which the crew's bots read after the squad's: an order to
-        //    the squad is a commander's and outranks the standing one.
+        //    The commanders' list kept as long as the crew.
+        self.size_the_commanders();
+        //    And every player's own two standing orders (feature 84).
         self.hand_the_room_the_standing();
         self.hand_the_room_the_soldiers();
         //    And a pistol for every empty hand under arms.
@@ -1567,7 +1544,6 @@ impl World {
             | Command::Bulwark { slot, .. }
             | Command::Taunt { slot }
             | Command::Juggernaut { slot }
-            | Command::Squad { slot, .. }
             | Command::Rally { slot }
             | Command::BattleCry { slot }
             | Command::Carry { slot, .. }
@@ -1679,7 +1655,6 @@ impl World {
                 | Command::Bulwark { on: true, .. }
                 | Command::Taunt { .. }
                 | Command::Juggernaut { .. }
-                | Command::Squad { .. }
                 | Command::Rally { .. }
                 | Command::BattleCry { .. }
         );
@@ -1725,9 +1700,6 @@ impl World {
             Command::Crew { order, .. } => {
                 // A room built since the last step starts at one player.
                 self.aboard.room.set_players(self.players());
-                // A player's own order to a squad member takes it out of
-                // the squad order until the next one (feature 78).
-                self.take_the_ordered_out_of_squad(slot, order);
                 let code = self.aboard.room.order(slot, order);
                 // A walk with no way there is the one order that is said:
                 // the room's `ORDER_NOWHERE`.
@@ -1737,7 +1709,6 @@ impl World {
             }
             Command::CrewLater { order, .. } => {
                 self.aboard.room.set_players(self.players());
-                self.take_the_ordered_out_of_squad(slot, order);
                 let code = self.aboard.room.order_later(slot, order);
                 if let Some(why) = walk_refusal(code) {
                     events.push(refused(slot, why));
@@ -1800,13 +1771,6 @@ impl World {
                 Ok(()) => events.push(WorldEvent::Juggernaut { who: slot }),
                 Err(why) => events.push(refused(slot, why)),
             },
-            Command::Squad { order, .. } => match self.squad_order(slot, order) {
-                Ok(kind) => events.push(WorldEvent::Squadded {
-                    who: slot,
-                    kind: kind.map_or(u32::MAX, |k| k.code()),
-                }),
-                Err(why) => events.push(refused(slot, why)),
-            },
             Command::Rally { .. } => match self.rally(slot) {
                 Ok(()) => events.push(WorldEvent::Rallied { who: slot }),
                 Err(why) => events.push(refused(slot, why)),
@@ -1839,7 +1803,6 @@ impl World {
                 | Command::Juggernaut { .. }
                 | Command::Rally { .. }
                 | Command::BattleCry { .. }
-                | Command::Squad { .. }
         );
         let turned_down = events[before..]
             .iter()
@@ -3158,9 +3121,6 @@ impl World {
         if !self.aboard.is_joined() {
             return;
         }
-        // A squad order marks residents of the station alongside, so it
-        // goes with the deck (feature 78).
-        self.clear_squad();
         let seed = self.galaxy_seed ^ self.steps;
         // As at the join: the crew out first, then what that banked.
         let mut old = std::mem::replace(&mut self.aboard, Aboard::new(&self.ship.design, 1, 0));
@@ -4426,12 +4386,8 @@ impl World {
             .resize(self.aboard.crew as usize, crate::medic::Cloak::default());
         self.tanks
             .resize(self.aboard.crew as usize, Tank::default());
-        // And the crew's indices have moved, so the squad order — whose
-        // members are crew indices and whose marks are residents' — is
-        // called off (feature 78).
         self.commanders
             .resize(self.aboard.crew as usize, Commander::default());
-        self.clear_squad();
         self.ship.crew_count = self.aboard.crew;
         Some((new_who, was_medic))
     }
@@ -9727,18 +9683,18 @@ impl World {
         self.aboard.room.set_bulwarks(walls);
     }
 
-    // --- the commander: a ranked kit and two base traits (task 129) ---------
+    // --- the commander: a ranked kit and a base trait (task 129) ----------
     //
     // `crate::commander` is the state — when each commander last cried
-    // and rallied and whom each reached, the one squad order, and the
-    // reinforcements of the mission — and this is the rules. The aura is
-    // not kept at all: it is worked out every step from where the
-    // commanders stand and goes to the room through `skill_of`.
+    // and rallied and whom each reached, and the reinforcements of the
+    // mission — and this is the rules. The aura is not kept at all: it
+    // is worked out every step from where the commanders stand and goes
+    // to the room through `skill_of`.
     //
     // **Whom each reaches.** The aura, the Battle Cry and the Rally lift
     // every friendly Bim in range, a player's own steered Bim and the
-    // commander himself included; a squad order commands only the squad,
-    // which is every crew member no player is steering.
+    // commander himself included. His squad orders (attack, fall back,
+    // stand ground) were removed; the cheaper hire is his one base trait.
 
     /// Whether crew member `who` is a player's commander.
     fn is_commander(&self, who: u32) -> bool {
@@ -9760,12 +9716,6 @@ impl World {
             self.commanders.resize(who + 1, Commander::default());
         }
         &mut self.commanders[who]
-    }
-
-    /// Whether a crew member is somebody a player steers: a slot's own
-    /// Bim, which no squad order ever touches.
-    fn is_steered(&self, who: u32) -> bool {
-        who < self.players()
     }
 
     /// Whether a crew member is on the crew's deck to be reached at all:
@@ -10171,222 +10121,12 @@ impl World {
         }
     }
 
-    /// How far a commander's squad orders reach, in tiles: the base
-    /// trait's [`class::SQUAD_RANGE`] at every level.
-    pub fn squad_range(&self, _who: u32) -> f32 {
-        class::SQUAD_RANGE
-    }
-
-    /// Whether a player's commander may send the squad, or why not: a
-    /// commander (`NotACommander`) and fit to act (`OutOfReach`). A base
-    /// trait: no rank is asked.
-    pub fn can_squad(&self, slot: u32) -> Result<(), Refusal> {
-        if !class::can(self.class_of(slot), class::Ability::SquadOrder) {
-            return Err(Refusal::NotACommander);
-        }
-        if !self.fit_to_act(slot) {
-            return Err(Refusal::OutOfReach);
-        }
-        Ok(())
-    }
-
-    /// Who a commander's order would reach: every crew member no player
-    /// is steering — the reinforcements among them — alive and on the
-    /// deck, within his reach, lowest index first.
-    pub fn squad_members(&self, slot: u32) -> Vec<u32> {
-        if !self.on_the_deck(slot) {
-            return Vec::new();
-        }
-        let room = &self.aboard.room;
-        let at = room.bim_pos(slot as usize);
-        let reach = self.squad_range(slot) * shipdesign::TILE as f32;
-        (0..self.aboard.crew_count())
-            .filter(|&who| {
-                !self.is_steered(who)
-                    && self.on_the_deck(who)
-                    && (room.bim_pos(who as usize) - at).len() <= reach
-            })
-            .collect()
-    }
-
-    /// Whether that resident of the station alongside is an enemy still
-    /// standing: the rooms joined, the station hostile, and the body
-    /// alive and on its feet.
-    fn enemy_standing_at(&self, enemy: u32) -> bool {
-        let Some(residents) = &self.residents else {
-            return false;
-        };
-        if self.stance(residents.station) != Stance::Hostile || !self.aboard.is_joined() {
-            return false;
-        }
-        let room = &residents.aboard.room;
-        enemy < residents.aboard.count()
-            && room.is_alive(enemy as usize)
-            && !room.is_downed(enemy as usize)
-    }
-
-    /// The order a player's ask comes out as: an attack's enemy checked
-    /// — one, the only mark there is since task 129 — and a fall back's
-    /// tile the one named or, for a tile that is not deck of the room,
-    /// the commander's own.
-    fn squad_kind_of(&self, slot: u32, ask: SquadAsk) -> Result<SquadKind, Refusal> {
-        Ok(match ask {
-            SquadAsk::Attack { enemy } => {
-                if !self.enemy_standing_at(enemy) {
-                    return Err(Refusal::NoEnemyThere);
-                }
-                SquadKind::Attack { enemy }
-            }
-            SquadAsk::FallBack { tile } => {
-                let t = shipdesign::TILE as f32;
-                let deck = tile.filter(|&(x, y)| {
-                    self.aboard
-                        .room
-                        .is_deck_tile(bims::math::vec2((x as f32 + 0.5) * t, (y as f32 + 0.5) * t))
-                });
-                SquadKind::FallBack {
-                    tile: deck.unwrap_or_else(|| {
-                        let at = self.aboard.room.bim_pos(slot as usize);
-                        ((at.x / t).floor() as i32, (at.y / t).floor() as i32)
-                    }),
-                }
-            }
-            SquadAsk::StandGround => SquadKind::StandGround,
-        })
-    }
-
-    /// A squad order — see [`Command::Squad`]. `Ok(None)` is the same
-    /// order given again, which releases the squad.
-    fn squad_order(&mut self, slot: u32, ask: SquadAsk) -> Result<Option<SquadKind>, Refusal> {
-        self.can_squad(slot)?;
-        let kind = self.squad_kind_of(slot, ask)?;
-        if let Some(order) = &self.squad
-            && order.by_slot == slot
-            && order.kind.same_as(&kind)
-        {
-            self.squad = None;
-            return Ok(None);
-        }
-        let members = self.squad_members(slot);
-        if members.is_empty() {
-            return Err(Refusal::NoSquadInRange);
-        }
-        self.squad = Some(SquadOrder {
-            by_slot: slot,
-            kind: kind.clone(),
-            members,
-        });
-        Ok(Some(kind))
-    }
-
-    /// The squad order called off, whatever it was: what a hire, a bot
-    /// dropped off the crew and an unjoin do, since the members are crew
-    /// indices and the mark is a resident's.
-    fn clear_squad(&mut self) {
-        self.squad = None;
-    }
-
-    /// One crew member out of the squad order until the next one: what
-    /// its own player's click order does to it.
-    fn take_out_of_squad(&mut self, who: u32) {
-        if let Some(order) = &mut self.squad {
-            order.members.retain(|&m| m != who);
-            if order.members.is_empty() {
-                self.squad = None;
-            }
-        }
-    }
-
-    /// Everybody a player's own order moved out of the squad: the crew
-    /// member an errand names, or the player's own for a walk on the
-    /// deck.
-    fn take_the_ordered_out_of_squad(&mut self, slot: u32, order: bims::order::CrewOrder) {
-        if self.squad.is_none() {
-            return;
-        }
-        if let Some(who) = order.errand_for() {
-            self.take_out_of_squad(who);
-            return;
-        }
-        // A walk on the deck moves the player's own Bim and nobody else,
-        // whoever is selected (`bims::game::Game::orderable`).
-        if matches!(
-            order,
-            bims::order::CrewOrder::Move { .. }
-                | bims::order::CrewOrder::Line { .. }
-                | bims::order::CrewOrder::AttackMove { .. }
-                | bims::order::CrewOrder::Attack { .. }
-        ) {
-            self.take_out_of_squad(slot);
-        }
-    }
-
-    /// Before the rooms step: the squad order pruned — a member a
-    /// player has begun steering, one dead or outside, and the whole
-    /// order when the commander is no longer fit to act or the mark is
-    /// gone — and then handed to the room, one [`bims::game::Squad`] a
-    /// crew member.
-    fn hand_the_room_the_squad(&mut self) {
-        self.settle_squad();
-        let crew = self.aboard.crew_count() as usize;
-        let mut squad = vec![bims::game::Squad::None; crew];
-        if let Some(order) = self.squad.clone() {
-            let t = shipdesign::TILE as f32;
-            for &who in &order.members {
-                if who as usize >= crew {
-                    continue;
-                }
-                squad[who as usize] = match &order.kind {
-                    SquadKind::Attack { .. } => match order.mark_for(who) {
-                        Some(enemy) => bims::game::Squad::Attack {
-                            enemy: enemy as usize,
-                            seen: self.enemy_standing_at(enemy),
-                        },
-                        None => bims::game::Squad::None,
-                    },
-                    SquadKind::FallBack { tile } => bims::game::Squad::FallBack {
-                        at: bims::math::vec2((tile.0 as f32 + 0.5) * t, (tile.1 as f32 + 0.5) * t),
-                    },
-                    SquadKind::StandGround => bims::game::Squad::StandGround,
-                };
-            }
-        }
-        self.aboard.room.set_squad(squad);
-    }
-
-    /// The pruning half of the step: an order ends when the commander
-    /// goes down or dies, when an attack's mark is down or dead, or when
-    /// nobody is left under it.
-    fn settle_squad(&mut self) {
+    /// Before the rooms step: a commander's state for every crew member,
+    /// the list grown with the crew (the checksum reads its length).
+    fn size_the_commanders(&mut self) {
         if self.commanders.len() < self.aboard.crew_count() as usize {
             self.commanders
                 .resize(self.aboard.crew_count() as usize, Commander::default());
-        }
-        let Some(order) = &self.squad else {
-            return;
-        };
-        let by = order.by_slot;
-        if !self.fit_to_act(by) || !self.is_commander(by) {
-            self.squad = None;
-            return;
-        }
-        if let SquadKind::Attack { enemy } = order.kind
-            && !self.enemy_standing_at(enemy)
-        {
-            self.squad = None;
-            return;
-        }
-        let keep: Vec<u32> = self
-            .squad
-            .as_ref()
-            .map(|o| o.members.clone())
-            .unwrap_or_default()
-            .into_iter()
-            .filter(|&who| !self.is_steered(who) && self.on_the_deck(who))
-            .collect();
-        match self.squad.as_mut() {
-            Some(order) if !keep.is_empty() => order.members = keep,
-            _ => self.squad = None,
         }
     }
 
@@ -10398,7 +10138,7 @@ impl World {
     /// him.
     pub fn hire_fee(&self, slot: u32, resident: u32) -> Option<Money> {
         let fee = self.mercenary_fee(resident)?;
-        if !class::can(self.class_of(slot), class::Ability::SquadOrder) || !self.fit_to_act(slot) {
+        if !self.is_commander(slot) || !self.fit_to_act(slot) {
             return Some(fee);
         }
         Some(fee - fee * Money::from(class::HIRE_DISCOUNT_PERCENT) / 100)
@@ -10412,7 +10152,7 @@ impl World {
     // dies (`settle_reinforcements`, the room's `vanish` — its index kept,
     // so nobody else's shifts in the middle of a fight) and off the crew
     // at its end, alive or not (`send_reinforcements_home`). It is a bot
-    // to everything that asks — the squad, the aura, a revive — and to
+    // to everything that asks — the aura, a revive — and to
     // nothing that pays or counts: no experience (it has no class), no
     // loot, no wages, no penalty, no worth, and no run is kept going by it.
 

@@ -70,12 +70,8 @@ const KEY_EDGE: Color32 = Color32::from_rgb(0xcc, 0xa8, 0x4c);
 const KEY_TRACE: Color32 = Color32::from_rgb(0xff, 0xdb, 0x66);
 // The engineer's kits: the sack's hessian and a sentry crate's grey
 // with its barrel.
-const SACK: Color32 = Color32::from_rgb(0xb8, 0xa2, 0x70);
 const SACK_DARK: Color32 = Color32::from_rgb(0x7e, 0x6c, 0x48);
 const CRATE: Color32 = Color32::from_rgb(0x6a, 0x72, 0x7e);
-// The soldier's grenade: a dark shell with a band, and the fuse's cap.
-const SHELL: Color32 = Color32::from_rgb(0x2e, 0x33, 0x28);
-const SHELL_BAND: Color32 = Color32::from_rgb(0x6b, 0x73, 0x4c);
 /// The Healing Sentry's cross (task 127), the medic's beam's green.
 const HEAL: Color32 = Color32::from_rgb(0x6c, 0xe0, 0x8a);
 /// An EMP's band and spark (task 127): the stun's pale blue.
@@ -347,92 +343,6 @@ fn draw_resource(s: &mut Sketch, b: &Box_, id: ResourceId) {
         // slab with its rim and trace in the theme's tier-two colour.
         ResourceId::ResearchKey => key(s, b, KEY_EDGE, KEY_TRACE),
         ResourceId::ResearchKeyTwo => key(s, b, theme::TIER_TWO, theme::TIER_TWO),
-    }
-}
-
-/// The picture of one class charge (task 127): what the ability boxes on
-/// the hero panel show. A charge is a counter the world keeps and never a
-/// thing in a pack, so these are no resource's icons.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum ChargeIcon {
-    Sandbags,
-    Sentry,
-    HealingSentry,
-    Grenade,
-    Emp,
-}
-
-/// One class charge's picture, into `rect`: square, in the middle of it.
-pub fn charge(painter: &egui::Painter, rect: Rect, which: ChargeIcon) {
-    let mut s = Sketch::default();
-    let b = Box_::new(rect);
-    draw_charge(&mut s, &b, which);
-    painter.extend(s.shapes);
-}
-
-fn draw_charge(s: &mut Sketch, b: &Box_, which: ChargeIcon) {
-    match which {
-        // Sandbags: three courses of sacks, the way the part is drawn on
-        // the deck.
-        ChargeIcon::Sandbags => {
-            s.rect_filled(b.rect(0.10, 0.22, 0.90, 0.86), b.px(0.04), SACK_DARK);
-            for (row, y) in [0.26, 0.46, 0.66].into_iter().enumerate() {
-                let bags = if row % 2 == 0 { 3 } else { 2 };
-                let w = 0.76 / bags as f32;
-                for i in 0..bags {
-                    let x = 0.12 + w * i as f32;
-                    s.rect_filled(
-                        b.rect(x + 0.01, y, x + w - 0.01, y + 0.17),
-                        b.px(0.06),
-                        SACK,
-                    );
-                }
-            }
-        }
-        // The sentry: a crate with the turret's barrel and eye showing.
-        ChargeIcon::Sentry => {
-            s.rect_filled(b.rect(0.12, 0.30, 0.88, 0.86), b.px(0.05), CRATE);
-            s.rect_filled(b.rect(0.12, 0.30, 0.88, 0.40), b.px(0.03), GUN);
-            s.circle_filled(b.at(0.40, 0.62), b.px(0.16), GUN);
-            s.rect_filled(b.rect(0.40, 0.57, 0.86, 0.67), b.px(0.02), GUN);
-            s.circle_filled(b.at(0.40, 0.62), b.px(0.06), GUN_LIGHT);
-        }
-        // The Healing Sentry: the sentry's crate with no barrel and a
-        // green cross on its face.
-        ChargeIcon::HealingSentry => {
-            s.rect_filled(b.rect(0.12, 0.30, 0.88, 0.86), b.px(0.05), CRATE);
-            s.rect_filled(b.rect(0.12, 0.30, 0.88, 0.40), b.px(0.03), GUN);
-            s.circle_filled(b.at(0.50, 0.62), b.px(0.18), GUN);
-            s.rect_filled(b.rect(0.45, 0.50, 0.55, 0.74), b.px(0.01), HEAL);
-            s.rect_filled(b.rect(0.38, 0.57, 0.62, 0.67), b.px(0.01), HEAL);
-        }
-        // The grenade: a round shell with a band across it and the fuse's
-        // cap and lever on top.
-        ChargeIcon::Grenade => {
-            s.circle_filled(b.at(0.50, 0.58), b.px(0.30), SHELL);
-            s.rect_filled(b.rect(0.22, 0.52, 0.78, 0.64), b.px(0.02), SHELL_BAND);
-            s.rect_filled(b.rect(0.42, 0.18, 0.58, 0.34), b.px(0.03), FUSE_CAP);
-            s.rect_filled(b.rect(0.56, 0.20, 0.80, 0.28), b.px(0.02), FUSE_CAP);
-        }
-        // The EMP: the grenade's shell with a pale blue band and a spark
-        // across it.
-        ChargeIcon::Emp => {
-            s.circle_filled(b.at(0.50, 0.58), b.px(0.30), SHELL);
-            s.rect_filled(b.rect(0.22, 0.52, 0.78, 0.64), b.px(0.02), EMP_BAND);
-            s.rect_filled(b.rect(0.42, 0.18, 0.58, 0.34), b.px(0.03), FUSE_CAP);
-            s.line_segment(
-                [b.at(0.36, 0.44), b.at(0.54, 0.60)],
-                Stroke::new(b.px(0.05), EMP_BAND),
-            );
-            s.line_segment(
-                [b.at(0.54, 0.60), b.at(0.46, 0.66)],
-                Stroke::new(b.px(0.05), EMP_BAND),
-            );
-            s.line_segment(
-                [b.at(0.46, 0.66), b.at(0.66, 0.80)],
-                Stroke::new(b.px(0.05), EMP_BAND),
-            );
-        }
     }
 }
 

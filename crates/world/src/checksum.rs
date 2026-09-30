@@ -462,9 +462,7 @@ pub fn world_checksum(world: &World) -> u64 {
     }
 
     // The commanders (feature 78): when each last rallied, on the
-    // clock's grid, and the one squad order the crew are under — whose
-    // it is, what it is and who is in it. A squad ordered somewhere is
-    // a different fight. The aura is not here: it is worked out afresh
+    // clock's grid. The aura is not here: it is worked out afresh
     // every step from where the commanders stand.
     hash.eat(world.commanders.len() as u64);
     for commander in &world.commanders {
@@ -508,31 +506,9 @@ pub fn world_checksum(world: &World) -> u64 {
             hash.eat(r.by as u64);
         }
     }
-    match &world.squad {
-        None => hash.eat(0),
-        Some(order) => {
-            hash.eat(1);
-            hash.eat(order.by_slot as u64);
-            hash.eat(u64::from(order.kind.code()));
-            match &order.kind {
-                crate::commander::SquadKind::Attack { enemy } => {
-                    // One mark since task 129, hashed as the list of one
-                    // it was, so no number moved.
-                    hash.eat(1);
-                    hash.eat(*enemy as u64);
-                }
-                crate::commander::SquadKind::FallBack { tile } => {
-                    hash.eat(tile.0 as i64 as u64);
-                    hash.eat(tile.1 as i64 as u64);
-                }
-                crate::commander::SquadKind::StandGround => {}
-            }
-            hash.eat(order.members.len() as u64);
-            for &who in &order.members {
-                hash.eat(who as u64);
-            }
-        }
-    }
+    // A nought where the squad order was hashed, so no number moved when
+    // the commander's squad orders were removed.
+    hash.eat(0);
     // And every player's standing order to the bots (feature 84,
     // `crate::orders`): it moves bodies, so two clients that disagree
     // about it disagree about where the crew are standing.

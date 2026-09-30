@@ -4321,3 +4321,16 @@ moves `SURVIVORS` (its runs peek).
 
 `a_taunting_target_is_the_only_one_aimed_at_and_a_magnet_is_charged_at_first`
 (`combat::tests`) pins it, a wall hiding the taunter included.
+
+## No squad orders
+
+> "The commander's aura, and the squad's orders (feature 78)" above
+> describes what this removed.
+
+`game::Squad`, `Game::{set_squad, squad_for_probe}`, `squad_stand`,
+`muster_squad` and `squad_armed`, `Combat::aim_marked`, the `mark`
+argument of `Combat::aim_among` and `plan_stand`, and
+`Skill::{marked_accuracy, stats_at}` (*focus fire*) are gone: a body
+aims with `Combat::aim` (or `aim_only` for a player's attack order).
+Nothing any run did moved, since the world never gave a squad order in
+one.

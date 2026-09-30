@@ -749,141 +749,9 @@ pub fn lifted_mark(painter: &egui::Painter, at: egui::Pos2, scale: f32) {
     );
 }
 
-/// A squad member under a commander's order (feature 78): a short
-/// bracket over its head in the caution colour, and a thread to what
-/// the order is about — the enemy it was sent at, or the tile it was
-/// called back to. `to` is `None` for stand ground, which is about
-/// nowhere but where it stands.
-pub fn squad_mark(painter: &egui::Painter, at: egui::Pos2, to: Option<egui::Pos2>, scale: f32) {
-    let r = (9.0 * scale).clamp(4.0, 14.0);
-    let stroke = egui::Stroke::new((1.5 * scale).clamp(1.0, 2.5), CAUTION.gamma_multiply(0.8));
-    painter.line_segment(
-        [
-            egui::pos2(at.x - r, at.y - r),
-            egui::pos2(at.x, at.y - r * 1.4),
-        ],
-        stroke,
-    );
-    painter.line_segment(
-        [
-            egui::pos2(at.x, at.y - r * 1.4),
-            egui::pos2(at.x + r, at.y - r),
-        ],
-        stroke,
-    );
-    let Some(to) = to else {
-        return;
-    };
-    // A dashed thread, like the queued walks': the order has a place.
-    let step = (to - at) / 16.0;
-    for i in (0..16).step_by(2) {
-        let a = at + step * i as f32;
-        let b = at + step * (i + 1) as f32;
-        painter.line_segment([a, b], egui::Stroke::new(1.0, CAUTION.gamma_multiply(0.5)));
-    }
-}
-
-/// A commander's **fall back** (feature 86, for the ability box and the
-/// deck): two chevrons pointing back at a bar — the order to give
-/// ground to a line. Laid out in a box `radius` from the middle, the way
-/// every other box mark is.
-pub fn fall_back_mark(painter: &egui::Painter, at: egui::Pos2, radius: f32) {
-    let stroke = egui::Stroke::new((radius * 0.16).clamp(1.0, 3.0), CAUTION);
-    // The line held, on the left.
-    painter.line_segment(
-        [
-            egui::pos2(at.x - radius, at.y - radius * 0.8),
-            egui::pos2(at.x - radius, at.y + radius * 0.8),
-        ],
-        stroke,
-    );
-    // And two chevrons walking back to it.
-    for n in 0..2 {
-        let x = at.x + radius * (0.1 + 0.55 * n as f32);
-        painter.line_segment(
-            [
-                egui::pos2(x, at.y - radius * 0.6),
-                egui::pos2(x - radius * 0.45, at.y),
-            ],
-            stroke,
-        );
-        painter.line_segment(
-            [
-                egui::pos2(x - radius * 0.45, at.y),
-                egui::pos2(x, at.y + radius * 0.6),
-            ],
-            stroke,
-        );
-    }
-}
-
-/// A commander's **stand ground** (feature 86): a body's bracket planted
-/// on a line — hold exactly where you are. The bracket is the squad
-/// mark's own shape, so the two read as one family.
-pub fn stand_ground_mark(painter: &egui::Painter, at: egui::Pos2, radius: f32) {
-    let stroke = egui::Stroke::new((radius * 0.16).clamp(1.0, 3.0), CAUTION);
-    let base = at.y + radius * 0.7;
-    painter.line_segment(
-        [
-            egui::pos2(at.x - radius, base),
-            egui::pos2(at.x + radius, base),
-        ],
-        stroke,
-    );
-    painter.line_segment(
-        [
-            egui::pos2(at.x - radius * 0.7, at.y - radius * 0.2),
-            egui::pos2(at.x, at.y - radius * 0.8),
-        ],
-        stroke,
-    );
-    painter.line_segment(
-        [
-            egui::pos2(at.x, at.y - radius * 0.8),
-            egui::pos2(at.x + radius * 0.7, at.y - radius * 0.2),
-        ],
-        stroke,
-    );
-    painter.line_segment(
-        [
-            egui::pos2(at.x, at.y - radius * 0.8),
-            egui::pos2(at.x, base),
-        ],
-        stroke,
-    );
-}
-
-/// A medic's **carry** (feature 86): a body lying across two arms — a
-/// capsule with a bar under each end of it, which is a stretcher seen
-/// from above and reads as one at box size.
-pub fn carry_mark(painter: &egui::Painter, at: egui::Pos2, radius: f32) {
-    let stroke = egui::Stroke::new((radius * 0.16).clamp(1.0, 3.0), HEAL);
-    let body = egui::Rect::from_center_size(
-        egui::pos2(at.x, at.y - radius * 0.2),
-        egui::vec2(radius * 1.7, radius * 0.7),
-    );
-    painter.rect_filled(body, radius * 0.35, HEAL.gamma_multiply(0.55));
-    painter.circle_filled(
-        egui::pos2(body.min.x + radius * 0.1, body.center().y),
-        radius * 0.3,
-        HEAL,
-    );
-    // The two arms under it.
-    for n in 0..2 {
-        let y = at.y + radius * (0.45 + 0.35 * n as f32);
-        painter.line_segment(
-            [
-                egui::pos2(at.x - radius * 0.9, y),
-                egui::pos2(at.x + radius * 0.9, y),
-            ],
-            stroke,
-        );
-    }
-}
-
 /// A Bim a cast of the commander's is **working on** (feature 86): a
 /// ring on the ground under it, brighter than [`lifted_mark`]'s and in
-/// the caution colour the squad's bracket is in, drawn while the
+/// the caution colour, drawn while the
 /// pointer rests on the box for that cast. It is the panels' rule said
 /// on the deck — resting on a row rings what it names — and it is what
 /// answers "who does this reach".
@@ -1018,87 +886,6 @@ pub fn burst_ring(painter: &egui::Painter, at: egui::Pos2, radius: f32, ok: bool
         egui::Stroke::new(2.0, color.gamma_multiply(0.8)),
     );
     painter.circle_filled(at, 3.0, color);
-}
-
-/// A soldier braced (feature 80): feet planted — a base line with two
-/// struts down onto it and a chevron over them, in the caution colour.
-/// Drawn in the ability box at the foot of the screen and nowhere on the
-/// deck, where the panel's word says it.
-pub fn brace_mark(painter: &egui::Painter, at: egui::Pos2, radius: f32) {
-    let r = radius.max(4.0);
-    let stroke = egui::Stroke::new((r * 0.18).clamp(1.0, 3.0), CAUTION.gamma_multiply(0.85));
-    let foot = at.y + r * 0.7;
-    painter.line_segment(
-        [egui::pos2(at.x - r, foot), egui::pos2(at.x + r, foot)],
-        stroke,
-    );
-    for side in [-1.0f32, 1.0] {
-        painter.line_segment(
-            [
-                egui::pos2(at.x + side * r * 0.2, at.y - r * 0.2),
-                egui::pos2(at.x + side * r * 0.7, foot),
-            ],
-            stroke,
-        );
-    }
-    painter.line_segment(
-        [
-            egui::pos2(at.x - r * 0.7, at.y - r * 0.25),
-            egui::pos2(at.x, at.y - r * 0.8),
-        ],
-        stroke,
-    );
-    painter.line_segment(
-        [
-            egui::pos2(at.x, at.y - r * 0.8),
-            egui::pos2(at.x + r * 0.7, at.y - r * 0.25),
-        ],
-        stroke,
-    );
-}
-
-/// A weak spot (task 124, the soldier's C): a crosshair on a cracked
-/// plate — a ring, four ticks and a hot dot where the hit goes in.
-/// Drawn in its ability box alone.
-pub fn weak_spot_mark(painter: &egui::Painter, at: egui::Pos2, radius: f32) {
-    let r = radius.max(4.0);
-    let stroke = egui::Stroke::new((r * 0.14).clamp(1.0, 2.5), BAD.gamma_multiply(0.9));
-    painter.circle_stroke(at, r * 0.62, stroke);
-    for (dx, dy) in [(1.0f32, 0.0f32), (-1.0, 0.0), (0.0, 1.0), (0.0, -1.0)] {
-        painter.line_segment(
-            [
-                egui::pos2(at.x + dx * r * 0.35, at.y + dy * r * 0.35),
-                egui::pos2(at.x + dx * r, at.y + dy * r),
-            ],
-            stroke,
-        );
-    }
-    painter.circle_filled(at, (r * 0.16).max(1.5), CAUTION);
-}
-
-/// A Rampage (task 124, the soldier's R): three chevrons stacked and
-/// pointing up, in the attack's red — fire coming faster. Drawn in its
-/// ability box alone.
-pub fn rampage_mark(painter: &egui::Painter, at: egui::Pos2, radius: f32) {
-    let r = radius.max(4.0);
-    let stroke = egui::Stroke::new((r * 0.2).clamp(1.2, 3.2), ATTACK);
-    for k in 0..3 {
-        let y = at.y + r * (0.55 - 0.5 * k as f32);
-        painter.line_segment(
-            [
-                egui::pos2(at.x - r * 0.7, y),
-                egui::pos2(at.x, y - r * 0.45),
-            ],
-            stroke,
-        );
-        painter.line_segment(
-            [
-                egui::pos2(at.x, y - r * 0.45),
-                egui::pos2(at.x + r * 0.7, y),
-            ],
-            stroke,
-        );
-    }
 }
 
 /// The charge bar over a tile something is being put together on
@@ -1352,37 +1139,9 @@ pub fn rally_call(painter: &egui::Painter, at: egui::Pos2, scale: f32) {
 /// kit that is no side's.
 pub const BATTLE_CRY: egui::Color32 = egui::Color32::from_rgb(0xff, 0xc8, 0x3c);
 
-/// The Battle Cry's picture on its box (task 129): a burst — eight short
-/// gold rays round a ring — which is a shout seen from above.
-pub fn battle_cry_mark(painter: &egui::Painter, at: egui::Pos2, radius: f32) {
-    let inner = radius * 0.35;
-    let stroke = egui::Stroke::new((radius / 8.0).clamp(1.2, 2.6), BATTLE_CRY);
-    painter.circle_stroke(at, inner, stroke);
-    for i in 0..8 {
-        let a = i as f32 * core::f32::consts::TAU / 8.0;
-        let dir = egui::vec2(a.cos(), a.sin());
-        let far = if i % 2 == 0 { 0.9 } else { 0.7 };
-        painter.line_segment([at + dir * inner * 1.4, at + dir * radius * far], stroke);
-    }
-}
-
 /// The pale blue of a medic's cloak (task 130): the room's own shimmer,
 /// `character::CLOAK_SHIMMER`, so the box, the ring and the body agree.
 pub const CLOAK: egui::Color32 = egui::Color32::from_rgb(0xb3, 0xd9, 0xff);
-
-/// The medic's Nanite Burst in its box (task 130): a green disc and eight
-/// short sparks off it, the burst's own picture.
-pub fn nanite_burst_mark(painter: &egui::Painter, at: egui::Pos2, radius: f32) {
-    let inner = radius * 0.32;
-    let stroke = egui::Stroke::new((radius / 9.0).clamp(1.2, 2.4), HEAL);
-    painter.circle_filled(at, inner, HEAL.gamma_multiply(0.55));
-    for i in 0..8 {
-        let a = i as f32 * core::f32::consts::TAU / 8.0 + 0.2;
-        let dir = egui::vec2(a.cos(), a.sin());
-        let far = if i % 2 == 0 { 0.9 } else { 0.72 };
-        painter.line_segment([at + dir * inner * 1.5, at + dir * radius * far], stroke);
-    }
-}
 
 /// A Nanite Burst set off, on the deck (task 130): a short green ring
 /// running out from the medic to the burst's reach, `t` nought to one
@@ -1408,39 +1167,6 @@ pub fn healing_aura_ring(painter: &egui::Painter, at: egui::Pos2, radius: f32) {
         radius,
         egui::Stroke::new(1.0, HEAL.gamma_multiply(0.30)),
     );
-}
-
-/// The medic's Cloak in its box (task 130): a body's outline drawn faint
-/// and a dashed ring round it — somebody there and hard to see.
-pub fn cloak_mark(painter: &egui::Painter, at: egui::Pos2, radius: f32) {
-    let faint = CLOAK.gamma_multiply(0.45);
-    painter.circle_stroke(
-        egui::pos2(at.x, at.y - radius * 0.22),
-        radius * 0.2,
-        egui::Stroke::new(1.5, faint),
-    );
-    painter.rect_stroke(
-        egui::Rect::from_center_size(
-            egui::pos2(at.x, at.y + radius * 0.2),
-            egui::vec2(radius * 0.5, radius * 0.45),
-        ),
-        radius * 0.12,
-        egui::Stroke::new(1.5, faint),
-        egui::StrokeKind::Middle,
-    );
-    let steps = 12;
-    for i in 0..steps {
-        let a0 = i as f32 * core::f32::consts::TAU / steps as f32;
-        let a1 = a0 + core::f32::consts::TAU / steps as f32 * 0.55;
-        let r = radius * 0.85;
-        painter.line_segment(
-            [
-                at + egui::vec2(a0.cos(), a0.sin()) * r,
-                at + egui::vec2(a1.cos(), a1.sin()) * r,
-            ],
-            egui::Stroke::new(1.5, CLOAK),
-        );
-    }
 }
 
 /// How long a cloak has left, under the Bim it covers (task 130): a thin
@@ -1538,42 +1264,4 @@ pub fn juggernaut_outline(painter: &egui::Painter, at: egui::Pos2, scale: f32, p
             JUGGERNAUT.gamma_multiply(0.35 + 0.45 * breath),
         ),
     );
-}
-
-/// The tank's Juggernaut in its box (task 139): a thick dark red ring
-/// round a solid heavy core — an unmoving weight everything is drawn to.
-pub fn juggernaut_mark(painter: &egui::Painter, at: egui::Pos2, radius: f32) {
-    let r = radius.max(4.0);
-    painter.circle_stroke(
-        at,
-        r * 0.8,
-        egui::Stroke::new((r * 0.2).clamp(1.5, 4.0), JUGGERNAUT),
-    );
-    painter.circle_filled(at, r * 0.36, JUGGERNAUT.gamma_multiply(0.85));
-    for k in 0..4 {
-        let a = k as f32 * std::f32::consts::FRAC_PI_2 + std::f32::consts::FRAC_PI_4;
-        let dir = egui::vec2(a.cos(), a.sin());
-        painter.line_segment(
-            [at + dir * r * 0.95, at + dir * r * 0.55],
-            egui::Stroke::new((r * 0.12).clamp(1.0, 2.4), ATTACK),
-        );
-    }
-}
-
-/// The tank's Plated in its box (task 139): three overlapping plates, a
-/// breastplate of steel in the caution colour — the hits come off less.
-pub fn plated_mark(painter: &egui::Painter, at: egui::Pos2, radius: f32) {
-    let r = radius.max(4.0);
-    let stroke = egui::Stroke::new((r * 0.12).clamp(1.0, 2.2), CAUTION);
-    for k in 0..3 {
-        let y = at.y - r * 0.5 + r * 0.38 * k as f32;
-        let w = r * (0.95 - 0.12 * k as f32);
-        painter.rect(
-            egui::Rect::from_center_size(egui::pos2(at.x, y), egui::vec2(w * 1.4, r * 0.42)),
-            r * 0.12,
-            CAUTION.gamma_multiply(0.22 + 0.1 * k as f32),
-            stroke,
-            egui::StrokeKind::Middle,
-        );
-    }
 }

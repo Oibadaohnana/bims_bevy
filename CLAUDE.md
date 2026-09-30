@@ -203,6 +203,11 @@ plus `wire` and `server` (the relay, `bims-server`).
 - A fixture menu opened by a press must not be shut by it (`Menu::fresh`).
 - The default font has no arrows (`▾`, `←` come out as boxes) — check a
   new glyph on screen.
+- An ability's picture (hero panel box, Skills tab) is
+  `ability_icons.rs`: one `Glyph` an ability, drawn in its class's
+  family of colours (soldier blue, engineer amber, medic green, tank red,
+  commander violet) on a shaded plate. A new ability is a `Glyph`, an arm
+  in `Glyph::of` and a figure; convex pieces only.
 - Clips are `include_bytes!`'d `.ogg`s made by
   `crates/app/sounds/prepare.sh` (cut from `Sounds/`) and
   `crates/app/sounds/abilities.py` (the classes' abilities, synthesised,

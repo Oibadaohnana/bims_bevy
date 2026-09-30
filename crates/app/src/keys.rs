@@ -74,16 +74,6 @@ pub enum Action {
     Ability3,
     /// The fourth, on R: empty for every class so far.
     Ability4,
-    /// A commander calls the squad back to the deck tile under the
-    /// pointer, or to himself with the pointer on nothing (feature 78).
-    /// Nothing for any other class.
-    SquadFallBack,
-    /// A commander has the squad hold exactly where it stands.
-    SquadStandGround,
-    /// A commander sends the squad at the enemy under the pointer (task
-    /// 129: off E, which his Rally took). On B. Nothing for any other
-    /// class.
-    SquadAttack,
     /// **Attack-move**: arms the pointer, and the next click on the deck
     /// sends the Bim you steer there with its weapon out, stopping to
     /// shoot whatever comes into its sights on the way — Dota's
@@ -132,7 +122,7 @@ impl Action {
         Action::Ability4,
     ];
 
-    pub const ALL: [Action; 28] = [
+    pub const ALL: [Action; 25] = [
         Action::Map,
         Action::NorthUp,
         Action::Follow,
@@ -150,9 +140,6 @@ impl Action {
         Action::Ability2,
         Action::Ability3,
         Action::Ability4,
-        Action::SquadFallBack,
-        Action::SquadStandGround,
-        Action::SquadAttack,
         Action::AttackMove,
         Action::Attack,
         Action::Retreat,
@@ -192,10 +179,6 @@ impl Action {
             Action::Ability2 => Key::C,
             Action::Ability3 => Key::E,
             Action::Ability4 => Key::R,
-            Action::SquadFallBack => Key::T,
-            Action::SquadStandGround => Key::Z,
-            // E is the commander's Rally since task 129.
-            Action::SquadAttack => Key::B,
             Action::AttackMove => Key::F,
             Action::Attack => Key::X,
             Action::Retreat => Key::Y,
@@ -228,9 +211,6 @@ impl Action {
             Action::Ability2 => "ability-2",
             Action::Ability3 => "ability-3",
             Action::Ability4 => "ability-4",
-            Action::SquadFallBack => "squad-fall-back",
-            Action::SquadStandGround => "squad-stand-ground",
-            Action::SquadAttack => "squad-attack",
             Action::AttackMove => "attack-move",
             Action::Attack => "attack",
             Action::Retreat => "retreat",
@@ -275,15 +255,6 @@ impl Action {
             }
             Action::Ability4 => {
                 "The fourth ability slot, the ultimate: a soldier goes on a Rampage; an engineer lays its sentry on the deck tile under the pointer; a medic cloaks the crew member under the pointer, or himself with the pointer on nobody; a tank goes Juggernaut. With Ctrl held, it is ranked up instead."
-            }
-            Action::SquadFallBack => {
-                "A commander calls the squad back to the deck tile under the pointer, or to himself with the pointer on nothing. Nothing for any other class."
-            }
-            Action::SquadStandGround => {
-                "A commander has the squad hold exactly where it stands. Nothing for any other class."
-            }
-            Action::SquadAttack => {
-                "A commander sends the squad at the enemy under the pointer; on the same enemy again, lets them go. Nothing for any other class."
             }
             Action::AttackMove => {
                 "Arm the pointer — it turns red — and the next click on the deck sends the Bim you steer there with its weapon out. It stops to shoot whatever comes into its sights on the way, and walks on once nothing is left."
@@ -578,13 +549,6 @@ mod tests {
         assert_eq!(keys.key(Action::PanRight), egui::Key::D);
         assert_eq!(keys.key(Action::PanUp), egui::Key::W);
         assert_eq!(keys.key(Action::PanDown), egui::Key::S);
-        // And the commander's two squad keys (feature 78): T and Z,
-        // bound to nothing else — the fall back on T since the bots'
-        // banner took X.
-        assert_eq!(keys.key(Action::SquadFallBack), egui::Key::T);
-        assert_eq!(keys.key(Action::SquadStandGround), egui::Key::Z);
-        assert!(keys.shared_with(Action::SquadFallBack).is_empty());
-        assert!(keys.shared_with(Action::SquadStandGround).is_empty());
         // The attack-move is F, for the Bim you steer; every player's
         // two orders for the bots (feature 84) are X to attack and Y to
         // fall back to the ship; none shares its key. F was the bots'
