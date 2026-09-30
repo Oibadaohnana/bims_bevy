@@ -2206,34 +2206,36 @@ pub const TRADER_TIP: &str = "A trader is visited on the map: no mission, no roo
 pub const TRADER_CLOSED: &str = "closed";
 pub const TRADER_CLOSED_ON_ARRIVAL: &str = "closed on arrival";
 pub const TRADER_TITLE: &str = "Trader";
-pub const TRADER_INTRO: &str = "Buy off the shelf out of the pool — onto your own Bim, a bot, or into the armory. What it replaces goes into the armory. Nothing comes back once it is sold.";
+/// The Trader panel is drawn as a purchase order: the form's name under
+/// the title, and its number — the trader's star and station.
+pub const TRADER_FORM: &str = "Purchase order";
+pub fn trader_form_no(star: u32, station: u32) -> String {
+    format!("No. {star:04}-{station:02}")
+}
+pub const TRADER_DELIVER_TO: &str = "Deliver to";
+/// A stamp by the title where the machines are near; the long line
+/// (`front_premium`) is its hover.
+pub const TRADER_FRONT_STAMP: &str = "Front prices";
+/// The total line at the foot of the form.
+pub const TRADER_BALANCE: &str = "Pool balance";
+pub const TRADER_INTRO: &str = "Buy off the shelf out of the pool — onto your own Bim, a bot, or into the armory. What it replaces goes into the armory. Nothing comes back once it is sold. Tab opens the Armory beside this.";
 pub const TRADER_WEAPONS: &str = "Weapons";
 pub const TRADER_ARMOUR: &str = "Armour";
-pub const TRADER_SOLD: &str = "sold";
+pub const TRADER_SOLD: &str = "SOLD";
 pub const TRADER_BUY: &str = "Buy";
-pub const TRADER_INTO_ARMORY: &str = "Into the armory";
+pub const TRADER_INTO_ARMORY: &str = "Armory";
 pub const TRADER_RELIC: &str = "Relic";
-pub const TRADER_NO_RELIC: &str = "The relic here is sold.";
+pub const TRADER_NO_RELIC: &str = "Sold.";
 pub const TRADER_RELIC_INTRO: &str = "Bought together: propose it for a player's Bim and every player has to say yes. A new proposal clears them. The pool pays when it carries.";
 pub const TRADER_PROPOSE: &str = "Propose";
 pub const TRADER_WITHDRAW: &str = "Withdraw";
 pub const TRADER_COMBINE: &str = "Combine";
 pub const TRADER_COMBINE_INTRO: &str = "Two weapons or two pieces of one kind at one tier make one of the next tier, whole. Out of the armory, off your own Bim or off a bot. Where one of the two is worn, the result is worn in its place. Tier three is as far as it goes.";
-pub const TRADER_COMBINE_NONE: &str =
-    "Nothing to combine: no two of one kind at one tier below three.";
-pub const TRADER_ARMORY_HINT: &str = "Tab opens the Armory beside this.";
+pub const TRADER_COMBINE_NONE: &str = "Nothing to combine.";
 /// *Restock Codes* (task 118): the button, and what it does.
-pub const TRADER_RESTOCK: &str = "Restock the shelf";
+pub const TRADER_RESTOCK: &str = "Restock";
 pub const TRADER_RESTOCK_TIP: &str =
     "Restock Codes: roll the trader's weapons and armour again, once a visit. The relic stays.";
-/// A thing on the shelf: its name and tier.
-pub fn shelf_line(name: &str, tier: u32) -> String {
-    format!("{name} · tier {tier}")
-}
-/// A pair that combines: what it is and where the two are.
-pub fn combine_line(name: &str, tier: u32, from: &str) -> String {
-    format!("Two {name} · tier {tier} into tier {} · {from}", tier + 1)
-}
 /// Where a thing to combine is.
 pub fn combine_from(worn_by: Option<&str>) -> String {
     match worn_by {

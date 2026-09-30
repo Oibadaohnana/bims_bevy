@@ -1145,14 +1145,17 @@ pub fn relic_window(
 }
 
 /// The Trader panel (task 114), while the crew are at a trader: the whole
-/// visit on the map. The shelf in weapons and armour — each thing's kind,
-/// tier, numbers and price, and *Buy* for whoever the player has chosen
-/// (its own Bim, a bot, or the armory) — then the relic with its vote,
-/// then what the armory and the Bims the player may change have to
-/// combine, and the pool. A window of its own that may be moved, so the
-/// Armory panel (Tab) can be up beside it. Nothing here decides anything:
-/// every press is an [`Order`] the world may refuse, and the refusal is
-/// the log's line.
+/// visit on the map, drawn as a purchase order. A header band with the
+/// form's number, *Deliver to* (the player's own Bim, a bot it may change,
+/// or the armory), then one line item a thing — its icon in its tier's
+/// cell, its name, its tier as pips, a dotted leader out to its price and
+/// *Buy* — for the weapons, the armour, the relic (with its vote) and the
+/// pairs that combine, and the pool's balance as the total at the foot.
+/// The words that explain are hovers: a thing's numbers on its line, a
+/// section's rules on its "?". A window of its own that may be moved, so
+/// the Armory panel (Tab) can be up beside it. Nothing here decides
+/// anything: every press is an [`Order`] the world may refuse, and the
+/// refusal is the log's line.
 pub fn trader_window(
     ctx: &egui::Context,
     world: &World,
@@ -1179,37 +1182,14 @@ pub fn trader_window(
         .default_pos(egui::pos2(24.0, 90.0))
         .collapsible(false)
         .resizable(false)
-        .frame(theme::panel_frame())
+        .frame(form_frame())
         .show(ctx, |ui| {
-            ui.set_width(420.0);
-            ui.horizontal(|ui| {
-                ui.label(egui::RichText::new(TRADER_TITLE).strong().size(17.0));
-                theme::question_mark(ui, TRADER_TIP);
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    ui.label(
-                        egui::RichText::new(euros(world.money))
-                            .strong()
-                            .color(theme::ACCENT),
-                    );
-                    ui.label(egui::RichText::new(MAP_POOL).color(theme::MUTED));
-                });
-            });
-            ui.add(
-                egui::Label::new(
-                    egui::RichText::new(TRADER_INTRO)
-                        .small()
-                        .color(theme::MUTED),
-                )
-                .wrap(),
-            );
-            // A trader near the machines charges over the odds for what a
-            // fight is fought with (feature 94): said outright.
-            if let Some(hops) = world.run.site.and_then(|id| world.front_at(id)) {
-                theme::asks(ui, &front_premium(hops), FRONT_PREMIUM_TIP);
-            }
-            // For whom: the player's own Bim, every bot, or the armory.
+            ui.set_width(FORM_WIDTH);
+            form_header(ui, world, trader);
+            ui.add_space(6.0);
+            // Deliver to: the player's own Bim, every bot, or the armory.
             ui.horizontal_wrapped(|ui| {
-                ui.label(egui::RichText::new(FOR_BIM).color(theme::MUTED));
+                theme::asks(ui, TRADER_DELIVER_TO, TRADER_INTRO);
                 for who in 0..crew {
                     if world.may_change(local, who)
                         && world.aboard.room.is_alive(who as usize)
@@ -1222,36 +1202,31 @@ pub fn trader_window(
                     to = u32::MAX;
                 }
             });
-            ui.add_space(4.0);
+            ui.add_space(2.0);
+            perforation(ui);
             egui::ScrollArea::vertical()
                 .id_salt("trader-body")
-                .max_height(520.0)
+                .max_height(500.0)
                 .show(ui, |ui| {
                     for (heading, weapons) in [(TRADER_WEAPONS, true), (TRADER_ARMOUR, false)] {
-                        theme::heading(ui, heading);
-                        egui::Grid::new(("trader-shelf", weapons))
-                            .num_columns(3)
-                            .spacing([10.0, 3.0])
-                            .show(ui, |ui| {
-                                for (index, slot) in trader.shelf.iter().enumerate() {
-                                    shelf_row(ui, world, index, *slot, weapons, to, orders);
-                                }
-                            });
-                        ui.add_space(4.0);
+                        form_heading(ui, heading, None);
+                        let mut row = 0;
+                        for (index, slot) in trader.shelf.iter().enumerate() {
+                            // A slot sold is shown under the heading of the
+                            // half of the shelf it was in: the weapons come
+                            // first, [`world::data::TRADER_WEAPONS`] of them.
+                            if (index < world::data::TRADER_WEAPONS) == weapons {
+                                shelf_row(ui, world, index, *slot, row, to, orders);
+                                row += 1;
+                            }
+                        }
                     }
-                    restock_row(ui, world, orders);
-                    theme::heading(ui, TRADER_RELIC);
+                    form_heading(ui, TRADER_RELIC, Some(TRADER_RELIC_INTRO));
                     relic_at_trader(ui, world, trader, local, &mut relic_to, orders, name);
-                    ui.add_space(4.0);
-                    theme::heading(ui, TRADER_COMBINE);
+                    form_heading(ui, TRADER_COMBINE, Some(TRADER_COMBINE_INTRO));
                     combine_rows(ui, world, local, orders, name);
                 });
-            ui.add_space(2.0);
-            ui.label(
-                egui::RichText::new(TRADER_ARMORY_HINT)
-                    .small()
-                    .color(theme::MUTED),
-            );
+            form_total(ui, world, orders);
         });
     ctx.data_mut(|d| {
         d.insert_temp(id, to);
@@ -1259,9 +1234,405 @@ pub fn trader_window(
     });
 }
 
+/// The form's width, in points, and a line item's height.
+const FORM_WIDTH: f32 = 440.0;
+const LINE_HEIGHT: f32 = 42.0;
+/// The side of a line item's icon cell.
+const LINE_ICON: f32 = 34.0;
+/// The form's paper: darker and more solid than a panel, ruled in the
+/// accent, so it reads as a document laid over the map.
+const FORM_PAPER: egui::Color32 = egui::Color32::from_rgba_premultiplied(13, 19, 17, 246);
+const FORM_RULE: egui::Color32 = egui::Color32::from_rgb(0x3a, 0x5a, 0x4b);
+const FORM_STRIPE: egui::Color32 = egui::Color32::from_rgba_premultiplied(24, 34, 30, 150);
+const FORM_HOVER: egui::Color32 = egui::Color32::from_rgba_premultiplied(34, 51, 43, 200);
+
+fn form_frame() -> egui::Frame {
+    egui::Frame::new()
+        .fill(FORM_PAPER)
+        .stroke(egui::Stroke::new(1.0, FORM_RULE))
+        .corner_radius(4.0)
+        .inner_margin(12.0)
+        .shadow(egui::epaint::Shadow {
+            offset: [0, 6],
+            blur: 18,
+            spread: 0,
+            color: egui::Color32::from_black_alpha(140),
+        })
+}
+
+/// The header band: *TRADER* over *PURCHASE ORDER · No. 0042-01*, the
+/// front's stamp where the machines are near, and the "?".
+fn form_header(ui: &mut egui::Ui, world: &World, trader: &world::trader::Trader) {
+    let top = ui.cursor().min;
+    let band = egui::Rect::from_min_size(top, egui::vec2(FORM_WIDTH, 46.0));
+    ui.painter().rect_filled(band, 3.0, theme::RAISED);
+    // An accent edge down the band's left, the form's spine.
+    ui.painter().rect_filled(
+        egui::Rect::from_min_size(band.min, egui::vec2(4.0, band.height())),
+        egui::CornerRadius {
+            nw: 3,
+            sw: 3,
+            ne: 0,
+            se: 0,
+        },
+        theme::SITE_TRADER,
+    );
+    ui.scope_builder(
+        egui::UiBuilder::new().max_rect(band.shrink2(egui::vec2(12.0, 5.0))),
+        |ui| {
+            ui.horizontal(|ui| {
+                ui.vertical(|ui| {
+                    ui.spacing_mut().item_spacing.y = 0.0;
+                    ui.label(
+                        egui::RichText::new(TRADER_TITLE.to_uppercase())
+                            .strong()
+                            .size(18.0)
+                            .color(theme::INK),
+                    );
+                    ui.label(
+                        egui::RichText::new(format!(
+                            "{} · {}",
+                            TRADER_FORM.to_uppercase(),
+                            trader_form_no(trader.site.star, trader.site.station)
+                        ))
+                        .monospace()
+                        .size(10.5)
+                        .color(theme::MUTED),
+                    );
+                });
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    theme::question_mark(ui, TRADER_TIP);
+                    // A trader near the machines charges over the odds for
+                    // what a fight is fought with (feature 94): stamped.
+                    if let Some(hops) = world.run.site.and_then(|id| world.front_at(id)) {
+                        stamp(ui, TRADER_FRONT_STAMP, theme::WARN)
+                            .on_hover_text(format!("{}\n{FRONT_PREMIUM_TIP}", front_premium(hops)));
+                    }
+                });
+            });
+        },
+    );
+    ui.advance_cursor_after_rect(band);
+}
+
+/// A word in a stamped box, tilted a little, in `color`.
+fn stamp(ui: &mut egui::Ui, word: &str, color: egui::Color32) -> egui::Response {
+    let galley =
+        ui.painter()
+            .layout_no_wrap(word.to_uppercase(), egui::FontId::monospace(11.0), color);
+    let size = galley.size() + egui::vec2(10.0, 6.0);
+    let (rect, response) = ui.allocate_exact_size(size, egui::Sense::hover());
+    paint_stamp(ui.painter(), rect.center(), galley, color, -0.06);
+    response.on_hover_cursor(egui::CursorIcon::Help)
+}
+
+/// A stamp's box and word, turned by `angle` about `at`.
+fn paint_stamp(
+    painter: &egui::Painter,
+    at: egui::Pos2,
+    galley: std::sync::Arc<egui::Galley>,
+    color: egui::Color32,
+    angle: f32,
+) {
+    let half = (galley.size() + egui::vec2(10.0, 6.0)) / 2.0;
+    let rot = egui::emath::Rot2::from_angle(angle);
+    let corners: Vec<egui::Pos2> = [(-1.0, -1.0), (1.0, -1.0), (1.0, 1.0), (-1.0, 1.0)]
+        .iter()
+        .map(|&(x, y)| at + rot * egui::vec2(x * half.x, y * half.y))
+        .collect();
+    painter.add(egui::Shape::convex_polygon(
+        corners.clone(),
+        egui::Color32::from_rgba_unmultiplied(color.r(), color.g(), color.b(), 22),
+        egui::Stroke::new(1.5, color),
+    ));
+    let text_at = at + rot * (-galley.size() / 2.0);
+    painter.add(egui::epaint::TextShape::new(text_at, galley, color).with_angle(angle));
+}
+
+/// A row of short dashes across the form: the tear-off line between the
+/// header and the order.
+fn perforation(ui: &mut egui::Ui) {
+    let (rect, _) = ui.allocate_exact_size(egui::vec2(FORM_WIDTH, 8.0), egui::Sense::hover());
+    ui.painter().add(egui::Shape::dashed_line(
+        &[rect.left_center(), rect.right_center()],
+        egui::Stroke::new(1.0, FORM_RULE),
+        5.0,
+        4.0,
+    ));
+}
+
+/// A section's heading: the word in small capitals, the section's rules
+/// on a "?" if it has any, and a rule drawn out to the form's edge.
+fn form_heading(ui: &mut egui::Ui, text: &str, tip: Option<&str>) {
+    ui.add_space(6.0);
+    ui.horizontal(|ui| {
+        ui.label(
+            egui::RichText::new(text.to_uppercase())
+                .small()
+                .strong()
+                .color(theme::ACCENT),
+        );
+        if let Some(tip) = tip {
+            theme::question_mark(ui, tip);
+        }
+        let (rect, _) = ui.allocate_exact_size(
+            egui::vec2(ui.available_width().max(0.0), 10.0),
+            egui::Sense::hover(),
+        );
+        ui.painter().hline(
+            rect.x_range(),
+            rect.center().y,
+            egui::Stroke::new(1.0, FORM_RULE),
+        );
+    });
+    ui.add_space(2.0);
+}
+
+/// What a line item's icon cell shows.
+#[derive(Clone, Copy)]
+enum Face {
+    Thing(bims::combat::Item),
+    Relic(world::Relic),
+    /// A slot sold: the cell left empty.
+    Empty,
+}
+
+/// One line of the order.
+struct Line<'a> {
+    face: Face,
+    /// The cell's tint: its tier's colour, if above one.
+    tint: Option<egui::Color32>,
+    name: &'a str,
+    /// Pips under the name: a tier, and the tier it becomes (a combine).
+    tier: Option<(u32, Option<u32>)>,
+    /// A short word under the name, after the pips.
+    note: Option<String>,
+    price: u64,
+    button: &'a str,
+    /// Whether the button may be pressed: the pool can pay, or (the
+    /// relic) pays only later.
+    open: bool,
+    /// The hover over the line: a thing's numbers, a relic's effect.
+    tip: Option<String>,
+    row: usize,
+}
+
+/// Draws a line item and answers whether its button was pressed. A line
+/// the pool cannot pay for shows its price in the warning colour, its
+/// button greyed.
+fn line_item(ui: &mut egui::Ui, world: &World, line: Line) -> bool {
+    let (rect, response) =
+        ui.allocate_exact_size(egui::vec2(FORM_WIDTH, LINE_HEIGHT), egui::Sense::hover());
+    ui.add_space(2.0);
+    if !ui.is_rect_visible(rect) {
+        return false;
+    }
+    let painter = ui.painter().clone();
+    let hovered = response.hovered();
+    if hovered {
+        painter.rect_filled(rect, 3.0, FORM_HOVER);
+    } else if line.row % 2 == 1 {
+        painter.rect_filled(rect, 3.0, FORM_STRIPE);
+    }
+    // The icon, in its cell.
+    let cell = egui::Rect::from_center_size(
+        egui::pos2(rect.left() + 6.0 + LINE_ICON / 2.0, rect.center().y),
+        egui::vec2(LINE_ICON, LINE_ICON),
+    );
+    painter.rect(
+        cell,
+        4.0,
+        theme::PANEL_DEEP,
+        egui::Stroke::new(1.0, theme::LINE),
+        egui::StrokeKind::Inside,
+    );
+    if let Some(tint) = line.tint {
+        theme::tint_cell(&painter, cell, 4.0, tint);
+    }
+    let inner = cell.shrink(4.0);
+    match line.face {
+        Face::Thing(item) => crate::icons::icon(&painter, inner, item),
+        Face::Relic(relic) => crate::icons::relic(&painter, cell.shrink(1.0), relic),
+        Face::Empty => {}
+    }
+    let sold = matches!(line.face, Face::Empty);
+    // The button at the right edge, the price before it.
+    let button_rect = egui::Rect::from_min_size(
+        egui::pos2(rect.right() - 76.0, rect.center().y - 12.0),
+        egui::vec2(70.0, 24.0),
+    );
+    let affordable = line.price <= world.money;
+    let text_x = cell.right() + 10.0;
+    let name_y = rect.center().y - 8.0;
+    let name_galley = painter.layout_no_wrap(
+        line.name.to_string(),
+        egui::FontId::proportional(14.5),
+        if sold { theme::MUTED } else { theme::INK },
+    );
+    let name_end = text_x + name_galley.size().x;
+    painter.galley(
+        egui::pos2(text_x, name_y - name_galley.size().y / 2.0),
+        name_galley,
+        theme::INK,
+    );
+    // Under the name: the tier's pips, and the note after them.
+    let mut under_x = text_x;
+    let under_y = rect.center().y + 10.0;
+    if let Some((tier, next)) = line.tier {
+        under_x = pips(&painter, egui::pos2(under_x, under_y), tier);
+        if let Some(next) = next {
+            let a = egui::pos2(under_x + 3.0, under_y);
+            let b = egui::pos2(under_x + 15.0, under_y);
+            painter.line_segment([a, b], egui::Stroke::new(1.5, theme::MUTED));
+            painter.add(egui::Shape::convex_polygon(
+                vec![
+                    b + egui::vec2(3.0, 0.0),
+                    b + egui::vec2(-2.0, -3.5),
+                    b + egui::vec2(-2.0, 3.5),
+                ],
+                theme::MUTED,
+                egui::Stroke::NONE,
+            ));
+            under_x = pips(&painter, egui::pos2(b.x + 8.0, under_y), next);
+        }
+        under_x += 8.0;
+    }
+    if let Some(note) = &line.note {
+        // Cut short of the button: a long one is whole on the hover.
+        let mut clip = rect;
+        clip.set_right(button_rect.left() - 6.0);
+        painter
+            .with_clip_rect(clip.intersect(painter.clip_rect()))
+            .text(
+                egui::pos2(under_x, under_y),
+                egui::Align2::LEFT_CENTER,
+                note,
+                egui::FontId::proportional(11.0),
+                theme::MUTED,
+            );
+    }
+    if sold {
+        let galley = painter.layout_no_wrap(
+            TRADER_SOLD.to_string(),
+            egui::FontId::monospace(15.0),
+            theme::WARN,
+        );
+        paint_stamp(
+            &painter,
+            egui::pos2(button_rect.center().x - 30.0, rect.center().y),
+            galley,
+            theme::WARN,
+            -0.10,
+        );
+        return false;
+    }
+    // The price, and the dotted leader out to it along the name's line.
+    let price_galley = painter.layout_no_wrap(
+        euros(line.price),
+        egui::FontId::monospace(14.0),
+        if affordable { theme::INK } else { theme::WARN },
+    );
+    let price_left = button_rect.left() - 10.0 - price_galley.size().x;
+    painter.galley(
+        egui::pos2(price_left, name_y - price_galley.size().y / 2.0),
+        price_galley,
+        theme::INK,
+    );
+    let dot_y = name_y + 4.0;
+    let mut x = name_end + 8.0;
+    while x < price_left - 6.0 {
+        painter.circle_filled(egui::pos2(x, dot_y), 0.9, FORM_RULE);
+        x += 4.0;
+    }
+    if let Some(tip) = &line.tip {
+        response.on_hover_text(tip);
+    }
+    ui.put(
+        button_rect,
+        egui::Button::new(
+            egui::RichText::new(line.button.to_uppercase())
+                .strong()
+                .size(12.0),
+        )
+        .fill(if line.open {
+            theme::RAISED_ON
+        } else {
+            theme::RAISED
+        }),
+    )
+    .clicked()
+        && line.open
+}
+
+/// Three pips from `at` (their left edge, their middle), `tier` of them
+/// lit in the tier's colour. Answers where they end.
+fn pips(painter: &egui::Painter, at: egui::Pos2, tier: u32) -> f32 {
+    let lit = tier_colour(tier);
+    let mut x = at.x;
+    for k in 1..=3 {
+        let r = egui::Rect::from_min_size(egui::pos2(x, at.y - 2.5), egui::vec2(9.0, 5.0));
+        if k <= tier {
+            painter.rect_filled(r, 1.5, lit);
+        } else {
+            painter.rect_stroke(
+                r,
+                1.5,
+                egui::Stroke::new(1.0, theme::LINE),
+                egui::StrokeKind::Inside,
+            );
+        }
+        x += 11.0;
+    }
+    x - 2.0
+}
+
+/// A tier's colour: its tint, or the ink's for tier one.
+fn tier_colour(tier: u32) -> egui::Color32 {
+    match tier {
+        2 => theme::TIER_TWO,
+        3 => theme::TIER_THREE,
+        _ => theme::MUTED,
+    }
+}
+
+/// A tier's cell tint, `None` for tier one.
+fn tier_cell_tint(tier: u32) -> Option<egui::Color32> {
+    (tier >= 2).then(|| tier_colour(tier))
+}
+
+/// The foot of the form: a double rule, *Restock* while a player holds
+/// Restock Codes (task 118), and the pool's balance as the total.
+fn form_total(ui: &mut egui::Ui, world: &World, orders: &mut Vec<Order>) {
+    ui.add_space(4.0);
+    let (rule, _) = ui.allocate_exact_size(egui::vec2(FORM_WIDTH, 5.0), egui::Sense::hover());
+    for y in [rule.top() + 1.0, rule.bottom() - 1.0] {
+        ui.painter()
+            .hline(rule.x_range(), y, egui::Stroke::new(1.0, FORM_RULE));
+    }
+    ui.add_space(2.0);
+    ui.horizontal(|ui| {
+        restock_button(ui, world, orders);
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            ui.label(
+                egui::RichText::new(euros(world.money))
+                    .monospace()
+                    .strong()
+                    .size(20.0)
+                    .color(theme::ACCENT),
+            );
+            ui.label(
+                egui::RichText::new(TRADER_BALANCE.to_uppercase())
+                    .small()
+                    .strong()
+                    .color(theme::MUTED),
+            );
+        });
+    });
+}
+
 /// *Restock Codes* (task 118): a button that rolls the shelf again, while
 /// a player holds the relic — greyed once it has been pressed this visit.
-fn restock_row(ui: &mut egui::Ui, world: &World, orders: &mut Vec<Order>) {
+fn restock_button(ui: &mut egui::Ui, world: &World, orders: &mut Vec<Order>) {
     let can = world.can_restock();
     if can == Err(world::Refusal::NoRestock) {
         return;
@@ -1272,7 +1643,6 @@ fn restock_row(ui: &mut egui::Ui, world: &World, orders: &mut Vec<Order>) {
     if button.clicked() {
         orders.push(Order::Restock);
     }
-    ui.add_space(4.0);
 }
 
 /// The thing a shelf slot holds, as a thing: a weapon, or a whole piece.
@@ -1286,30 +1656,34 @@ fn shelf_thing(item: world::trader::ShelfItem) -> bims::combat::Item {
     }
 }
 
-/// One row of the shelf, if the slot belongs under this heading: the
-/// thing's kind and tier (its numbers on a hover), its price, and *Buy*
-/// — or the word that it is sold.
+/// One line of the shelf: the thing's icon, name and tier (its numbers on
+/// a hover), its price, and *Buy* — or the stamp that it is sold.
 fn shelf_row(
     ui: &mut egui::Ui,
     world: &World,
     index: usize,
     slot: Option<world::trader::ShelfItem>,
-    weapons: bool,
+    row: usize,
     to: u32,
     orders: &mut Vec<Order>,
 ) {
-    // A slot sold is shown under the heading of the half of the shelf it
-    // was in: the weapons come first, [`world::data::TRADER_WEAPONS`] of
-    // them.
-    let in_weapons = index < world::data::TRADER_WEAPONS;
-    if in_weapons != weapons {
-        return;
-    }
     let Some(item) = slot else {
-        ui.label(egui::RichText::new("—").color(theme::MUTED));
-        ui.label(egui::RichText::new(TRADER_SOLD).small().color(theme::MUTED));
-        ui.label("");
-        ui.end_row();
+        line_item(
+            ui,
+            world,
+            Line {
+                face: Face::Empty,
+                tint: None,
+                name: "—",
+                tier: None,
+                note: None,
+                price: 0,
+                button: "",
+                open: false,
+                tip: None,
+                row,
+            },
+        );
         return;
     };
     let thing = shelf_thing(item);
@@ -1318,43 +1692,33 @@ fn shelf_row(
         bims::combat::Item::Armour(p) => armour_name(Some(p.kind)),
         bims::combat::Item::Stack(_) => resource_name(item.resource),
     };
-    // Its numbers under its name: the tooltip's second line, a piece's
-    // without the state it is in (whole, as anything bought is).
-    let tip = crate::crew::tip_of(thing, 1);
-    let numbers = tip
-        .lines()
-        .nth(1)
-        .map(|l| l.split(" · ").next().unwrap_or(l).to_string())
-        .unwrap_or_default();
-    ui.vertical(|ui| {
-        ui.set_min_width(250.0);
-        ui.label(shelf_line(what, item.tier.code()))
-            .on_hover_text(&tip);
-        ui.label(egui::RichText::new(numbers).small().color(theme::MUTED));
-    });
-    let price = world.shelf_price(item);
-    ui.label(
-        egui::RichText::new(euros(price)).color(if price <= world.money {
-            theme::INK
-        } else {
-            theme::WARN
-        }),
+    let bought = line_item(
+        ui,
+        world,
+        Line {
+            face: Face::Thing(thing),
+            tint: theme::item_tint(thing),
+            name: what,
+            tier: Some((item.tier.code(), None)),
+            note: None,
+            price: world.shelf_price(item),
+            button: TRADER_BUY,
+            open: world.shelf_price(item) <= world.money,
+            tip: Some(crate::crew::tip_of(thing, 1)),
+            row,
+        },
     );
-    if ui
-        .add_enabled(price <= world.money, egui::Button::new(TRADER_BUY))
-        .clicked()
-    {
+    if bought {
         orders.push(Order::BuyShelf {
             index: index as u32,
             to: (to != u32::MAX).then_some(to),
         });
     }
-    ui.end_row();
 }
 
-/// The trader's relic: what it is and costs, whose Bim to propose it for,
-/// and the vote on the table — the reward's own vote, the pool paying the
-/// price when it carries.
+/// The trader's relic: its plate, name and effect, its price and
+/// *Propose*, whose Bim it is for, and the vote on the table — the
+/// reward's own vote, the pool paying the price when it carries.
 fn relic_at_trader(
     ui: &mut egui::Ui,
     world: &World,
@@ -1365,51 +1729,60 @@ fn relic_at_trader(
     name: &dyn Fn(u32) -> String,
 ) {
     let Some(relic) = trader.relic else {
-        ui.label(egui::RichText::new(TRADER_NO_RELIC).color(theme::MUTED));
-        return;
-    };
-    // With *Trade License* off it (task 118).
-    let price = world.trader_relic_price(relic);
-    ui.horizontal(|ui| {
-        ui.label(egui::RichText::new(relic_name(relic)).strong());
         ui.label(
-            egui::RichText::new(euros(price)).color(if price <= world.money {
-                theme::MUTED
-            } else {
-                theme::WARN
-            }),
-        );
-    });
-    ui.add(egui::Label::new(egui::RichText::new(relic_line(relic)).small()).wrap());
-    ui.add(
-        egui::Label::new(
-            egui::RichText::new(TRADER_RELIC_INTRO)
+            egui::RichText::new(TRADER_NO_RELIC)
                 .small()
                 .color(theme::MUTED),
-        )
-        .wrap(),
-    );
+        );
+        return;
+    };
     if *to >= world.players() {
         *to = local;
     }
-    ui.horizontal_wrapped(|ui| {
-        ui.label(egui::RichText::new(FOR_BIM).color(theme::MUTED));
-        for slot in 0..world.players() {
-            if theme::toggle(ui, *to == slot, name(slot)).clicked() {
-                *to = slot;
+    // With *Trade License* off it (task 118).
+    let proposed = line_item(
+        ui,
+        world,
+        Line {
+            face: Face::Relic(relic),
+            tint: None,
+            name: relic_name(relic),
+            tier: None,
+            note: Some(relic_line(relic)),
+            price: world.trader_relic_price(relic),
+            button: TRADER_PROPOSE,
+            // Proposing costs nothing yet: the pool pays when the vote
+            // carries, and the world refuses it then if it cannot.
+            open: true,
+            tip: Some(relic_line(relic)),
+            row: 0,
+        },
+    );
+    if proposed {
+        orders.push(Order::ProposeRelic {
+            relic: Some(relic),
+            to: *to,
+        });
+    }
+    if world.players() > 1 {
+        ui.horizontal_wrapped(|ui| {
+            ui.label(egui::RichText::new(FOR_BIM).small().color(theme::MUTED));
+            for slot in 0..world.players() {
+                if theme::toggle(ui, *to == slot, name(slot)).clicked() {
+                    *to = slot;
+                }
             }
-        }
-        if ui.button(TRADER_PROPOSE).clicked() {
-            orders.push(Order::ProposeRelic {
-                relic: Some(relic),
-                to: *to,
-            });
-        }
-    });
+        });
+    }
     let Some(p) = world.trade_relic() else {
         return;
     };
-    ui.label(egui::RichText::new(relic_proposal_line(p.relic, p.to)).strong());
+    ui.add_space(2.0);
+    ui.label(
+        egui::RichText::new(relic_proposal_line(p.relic, p.to))
+            .small()
+            .strong(),
+    );
     ui.horizontal_wrapped(|ui| {
         for (slot, &yes) in p.accepted.iter().enumerate() {
             let slot = slot as u32;
@@ -1442,7 +1815,7 @@ fn relic_at_trader(
 }
 
 /// Every pair the player may combine: two of one kind at one tier under
-/// three, out of the armory or off its own Bim or a bot, a row a pair —
+/// three, out of the armory or off its own Bim or a bot, a line a pair —
 /// a worn one first, so the result is worn in its place.
 fn combine_rows(
     ui: &mut egui::Ui,
@@ -1451,14 +1824,6 @@ fn combine_rows(
     orders: &mut Vec<Order>,
     name: &dyn Fn(u32) -> String,
 ) {
-    ui.add(
-        egui::Label::new(
-            egui::RichText::new(TRADER_COMBINE_INTRO)
-                .small()
-                .color(theme::MUTED),
-        )
-        .wrap(),
-    );
     // Every thing the player may use, with where it is: the worn first.
     let mut things: Vec<(world::GearSource, bims::combat::Item, Option<u32>)> = Vec::new();
     for who in 0..world.aboard.crew_count() {
@@ -1484,7 +1849,6 @@ fn combine_rows(
         bims::combat::Item::Stack(_) => None,
     };
     let mut seen: Vec<(u32, u32, u32)> = Vec::new();
-    let mut any = false;
     for (i, &(a, first, worn)) in things.iter().enumerate() {
         let Some(k) = key(first) else {
             continue;
@@ -1495,26 +1859,33 @@ fn combine_rows(
         let Some(&(b, _, _)) = things[i + 1..].iter().find(|t| key(t.1) == Some(k)) else {
             continue;
         };
-        seen.push(k);
-        any = true;
         let what = match first {
             bims::combat::Item::Weapon(w) => weapon_name(Some(w.kind)),
             bims::combat::Item::Armour(p) => armour_name(Some(p.kind)),
             bims::combat::Item::Stack(_) => "",
         };
-        let from = combine_from(worn.map(name).as_deref());
-        ui.horizontal(|ui| {
-            ui.label(egui::RichText::new(combine_line(what, k.2, &from)).small());
-            let fee = world.rewards().combine_fee;
-            if ui
-                .add_enabled(fee <= world.money, egui::Button::new(TRADER_COMBINE))
-                .clicked()
-            {
-                orders.push(Order::Combine { a, b });
-            }
-        });
+        let combined = line_item(
+            ui,
+            world,
+            Line {
+                face: Face::Thing(first),
+                tint: tier_cell_tint(k.2 + 1),
+                name: what,
+                tier: Some((k.2, Some(k.2 + 1))),
+                note: Some(combine_from(worn.map(name).as_deref())),
+                price: world.rewards().combine_fee,
+                button: TRADER_COMBINE,
+                open: world.rewards().combine_fee <= world.money,
+                tip: None,
+                row: seen.len(),
+            },
+        );
+        seen.push(k);
+        if combined {
+            orders.push(Order::Combine { a, b });
+        }
     }
-    if !any {
+    if seen.is_empty() {
         ui.label(
             egui::RichText::new(TRADER_COMBINE_NONE)
                 .small()
