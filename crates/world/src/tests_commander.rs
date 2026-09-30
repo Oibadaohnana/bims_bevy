@@ -760,6 +760,70 @@ fn reinforcements_are_on_a_hundred_and_forty_second_cooldown() {
     );
 }
 
+/// A reinforcement keeps the Republic's rifle it came with: nothing is
+/// put on it, taken off it or moved off it onto anybody else, and it wears
+/// the Republic's armour in its caller's colour.
+#[test]
+fn a_reinforcement_keeps_its_rifle_and_wears_the_republic_s_armour() {
+    use crate::holdings::{GearSlot, GearSource};
+    use bims::character::{Outfit, Tint};
+    use bims::combat::Item;
+    let mut world = commander();
+    ranks(&mut world, 0, [0, 0, 0, 1]);
+    next_mission(&mut world);
+    world.step(&[Command::Reinforce { slot: 0 }]);
+    let soldier = world.reinforcements_of(0)[0];
+    let rifle = world.aboard.room.weapon(soldier as usize);
+    assert!(rifle.is_some());
+    assert_eq!(
+        world.aboard.room.outfit(soldier as usize),
+        Outfit::Republic(Tint::ALL[0])
+    );
+    assert!(!world.may_change(0, soldier) && !world.may_change_now(0, soldier));
+    let sniper = world
+        .holdings
+        .put(Item::Weapon(WeaponKind::SniperRifle.basic()))
+        .unwrap();
+    let armory = world.holdings.armory.len();
+    for command in [
+        Command::Equip {
+            slot: 0,
+            who: soldier,
+            from: GearSource::Armory { id: sniper },
+        },
+        Command::Unequip {
+            slot: 0,
+            who: soldier,
+            part: GearSlot::Weapon,
+        },
+        Command::Equip {
+            slot: 0,
+            who: 0,
+            from: GearSource::Worn {
+                who: soldier,
+                slot: GearSlot::Weapon,
+            },
+        },
+    ] {
+        let events = world.step(&[command]);
+        assert!(
+            events
+                .iter()
+                .any(|e| matches!(e, WorldEvent::Refused { .. })),
+            "{command:?}: {events:?}"
+        );
+        assert_eq!(world.aboard.room.weapon(soldier as usize), rifle);
+        assert_eq!(world.holdings.armory.len(), armory);
+    }
+    // The Republic's rifle is never the crew's.
+    let events = world.step(&[Command::Unequip {
+        slot: 0,
+        who: soldier,
+        part: GearSlot::Weapon,
+    }]);
+    assert!(refused_with(&events, Refusal::NotYours), "{events:?}");
+}
+
 #[test]
 fn fewer_arrive_where_the_free_deck_round_him_is_short() {
     let mut world = commander();

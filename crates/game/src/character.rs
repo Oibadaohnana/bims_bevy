@@ -303,6 +303,17 @@ const SHADES_RIM: Color = Color::rgb(0.58, 0.62, 0.68);
 const SHADES_GLINT: Color = Color::rgba(0.78, 0.90, 1.0, 0.80);
 /// How far the coverall is dyed towards the class's colour.
 const DYE: f32 = 0.45;
+/// A Republic soldier's power armour (a commander's reinforcement): dark
+/// gunmetal plate, a lighter face to each plate, and the coverall dyed
+/// most of the way to it — a suit of armour rather than a coverall with
+/// kit on. Its trim and the visor over its eyes are the calling player's
+/// own colour ([`Outfit::Republic`]).
+const KIT_REPUBLIC: Color = Color::rgb(0.25, 0.28, 0.33);
+const KIT_REPUBLIC_FACE: Color = Color::rgb(0.40, 0.44, 0.50);
+const REPUBLIC_DYE: f32 = 0.80;
+/// The visor-glasses' lens: the player's colour this much past white, so
+/// the bloom lights a thin band across the eyes.
+const VISOR_GLOW: f32 = 1.45;
 
 /// Whose coverall a Bim is wearing: the ship's or the station's.
 ///
@@ -391,6 +402,13 @@ pub enum Outfit {
     /// An officer's peaked cap banded in gold, gold shoulder boards and a
     /// sash across the chest, in navy.
     Commander,
+    /// A Republic soldier — a commander's reinforcement, never a class:
+    /// power armour in gunmetal with a crested helm, great pauldrons, a
+    /// chest plate and a power pack, trimmed in the calling player's
+    /// colour, and a wraparound visor of glasses glowing in it. Not in
+    /// [`Outfit::ALL`], which is the classes'; the world says it
+    /// ([`crate::game::Game::set_republic`]) and nothing else does.
+    Republic(Tint),
 }
 
 impl Outfit {
@@ -414,14 +432,20 @@ impl Outfit {
             Outfit::Medic => Some(KIT_MEDIC),
             Outfit::Tank => Some(KIT_TANK),
             Outfit::Commander => Some(KIT_COMMANDER),
+            Outfit::Republic(_) => Some(KIT_REPUBLIC),
         }
     }
 
-    /// A cloth of the coverall's, dyed towards the class's colour. The
-    /// suit is not dyed: a pressure suit is a pressure suit.
+    /// A cloth of the coverall's, dyed towards the class's colour — a
+    /// Republic soldier's most of the way, being armour. The suit is not
+    /// dyed: a pressure suit is a pressure suit.
     fn dye(self, cloth: Color, uniform: Uniform) -> Color {
+        let by = match self {
+            Outfit::Republic(_) => REPUBLIC_DYE,
+            _ => DYE,
+        };
         match self.colour() {
-            Some(c) if uniform != Uniform::Suit => cloth.mix(c, DYE),
+            Some(c) if uniform != Uniform::Suit => cloth.mix(c, by),
             _ => cloth,
         }
     }
@@ -431,6 +455,7 @@ impl Outfit {
     /// reach and where a click lands are the same for all.
     pub fn scale(self) -> f32 {
         match self {
+            Outfit::Republic(_) => 1.10,
             Outfit::Tank => 1.08,
             Outfit::Soldier => 1.02,
             Outfit::Medic => 0.96,
@@ -2125,6 +2150,35 @@ impl Character {
             }
             b.rect(at(vec2(4.6, -4.2)), vec2(1.3, 2.8), look, 0.5, SHADES_GLINT);
         }
+        // A Republic soldier's glasses: one wraparound visor across the
+        // eyes, wider than the head, in a dark frame, the lens its
+        // player's colour with a bar of it lit past white along the
+        // middle and a white glint at one end.
+        if let Outfit::Republic(tint) = self.outfit
+            && self.uniform != Uniform::Suit
+        {
+            let lens = tint.colour();
+            // The arms of the wrap, back along each side of the helm.
+            for side in [-1.0f32, 1.0] {
+                b.rect(at(vec2(2.2, 7.6 * side)), vec2(4.6, 2.4), look, 1.0, SHADES);
+            }
+            b.rect(at(vec2(4.4, 0.0)), vec2(5.6, 17.5), look, 2.6, SHADES);
+            b.rect(
+                at(vec2(4.6, 0.0)),
+                vec2(4.0, 16.0),
+                look,
+                1.9,
+                lens.mix(SHADES, 0.20),
+            );
+            b.rect(
+                at(vec2(4.8, 0.0)),
+                vec2(1.5, 13.0),
+                look,
+                0.7,
+                lens.glowing(VISOR_GLOW),
+            );
+            b.rect(at(vec2(5.4, -6.0)), vec2(1.3, 2.4), look, 0.6, SHADES_GLINT);
+        }
         // A wound on the head: a blotch over the crown — on the helm, if
         // one is worn, since the shot went through it.
         if self.wounds[0] {
@@ -2789,6 +2843,43 @@ fn draw_class_head(b: &mut Brush, outfit: Outfit, at: &impl Fn(Vec2) -> Vec2, tu
                 KIT_COMMANDER.mix(KIT_DARK, 0.40),
             );
         }
+        // A power-armour helm with the face open: a rimmed gunmetal shell
+        // over the crown, a crest down the middle in the player's colour
+        // and a comms pod over each ear. The visor goes on last, in
+        // `draw`, over the eyes.
+        Outfit::Republic(tint) => {
+            b.ellipse(at(vec2(-1.5, 0.0)), vec2(15.0, 16.5), turn, KIT_DARK);
+            b.ellipse(
+                at(vec2(-1.5, 0.0)),
+                vec2(13.0, 14.5),
+                turn,
+                KIT_REPUBLIC_FACE,
+            );
+            b.ellipse(at(vec2(-3.0, 0.0)), vec2(9.0, 10.5), turn, KIT_REPUBLIC);
+            b.rect(
+                at(vec2(-3.0, 0.0)),
+                vec2(11.0, 2.4),
+                turn,
+                1.0,
+                tint.colour(),
+            );
+            for side in [-1.0f32, 1.0] {
+                b.rect(
+                    at(vec2(0.0, 7.4 * side)),
+                    vec2(4.6, 3.0),
+                    turn,
+                    1.2,
+                    KIT_DARK,
+                );
+                b.rect(
+                    at(vec2(0.0, 7.4 * side)),
+                    vec2(2.4, 1.6),
+                    turn,
+                    0.6,
+                    tint.colour(),
+                );
+            }
+        }
     }
 }
 
@@ -2871,6 +2962,52 @@ fn draw_class_rig(b: &mut Brush, outfit: Outfit) {
                     0.6,
                     KIT_COMMANDER,
                 );
+            }
+        }
+        // Power armour: a pack on the back with two vents lit in the
+        // player's colour, a chest plate with a chevron of it, and a great
+        // pauldron over each shoulder rimmed in it — broader even than the
+        // tank's, so a squad of them reads as nobody else's.
+        Outfit::Republic(tint) => {
+            let trim = tint.colour();
+            b.rect(vec2(-11.0, 0.0), vec2(8.0, 17.0), 0.0, 2.5, KIT_DARK);
+            b.rect(vec2(-11.0, 0.0), vec2(6.0, 15.0), 0.0, 2.0, KIT_REPUBLIC);
+            for side in [-1.0f32, 1.0] {
+                b.rect(vec2(-12.0, 3.8 * side), vec2(2.6, 4.6), 0.0, 1.0, trim);
+            }
+            b.rect(vec2(4.0, 0.0), vec2(12.0, 19.0), 0.0, 3.5, KIT_DARK);
+            b.rect(
+                vec2(4.0, 0.0),
+                vec2(10.0, 17.0),
+                0.0,
+                3.0,
+                KIT_REPUBLIC_FACE,
+            );
+            for side in [-1.0f32, 1.0] {
+                b.rect(
+                    vec2(5.0, 2.6 * side),
+                    vec2(2.0, 7.0),
+                    -0.9 * side,
+                    0.8,
+                    trim,
+                );
+            }
+            for side in [-1.0f32, 1.0] {
+                b.rect(
+                    vec2(-1.0, 13.0 * side),
+                    vec2(16.5, 12.0),
+                    0.0,
+                    4.5,
+                    KIT_DARK,
+                );
+                b.rect(
+                    vec2(-1.0, 13.0 * side),
+                    vec2(14.5, 10.0),
+                    0.0,
+                    4.0,
+                    KIT_REPUBLIC_FACE,
+                );
+                b.rect(vec2(-1.0, 17.0 * side), vec2(12.5, 2.0), 0.0, 1.0, trim);
             }
         }
     }

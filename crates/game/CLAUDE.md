@@ -4450,6 +4450,17 @@ steers — and stood where it came doing nothing (the user's report).
 as the rest are. `a_reinforcement_called_into_the_alarm_takes_arms_with_the_crew`
 pins it. No pin, save or wire change.
 
+**It is drawn as the Republic's soldier**: `Outfit::Republic(Tint)`
+(not in `Outfit::ALL`, which is the classes'), said every step by the
+world through `Game::set_republic(who, by)` — the tint is the calling
+player's own Bim's ring colour, else `Tint::ALL[by]`, the session's
+default. Power armour in gunmetal (`KIT_REPUBLIC`, the coverall dyed
+`REPUBLIC_DYE`), body scale 1.10, a crested helm, great pauldrons, a
+chest plate and a power pack trimmed in the tint, and a wraparound
+visor whose lens is the tint lit past white (`VISOR_GLOW`). Drawing
+only. Its kit is nobody's to change (`World::may_change`, the world's
+`a_reinforcement_keeps_its_rifle_and_wears_the_republic_s_armour`).
+
 ## A machine shot at goes for the shooter, and a hunt follows the trail
 
 > "The hunter's rule" in "A droid is not a Bim" says a gunner with

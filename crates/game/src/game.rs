@@ -8889,6 +8889,21 @@ impl Game {
         }
     }
 
+    /// A commander's reinforcement is a Republic soldier
+    /// ([`Outfit::Republic`]), trimmed in the colour of the player who
+    /// called it in: that player's own Bim's ring (`set_tints`), or the
+    /// slot's place in [`Tint::ALL`] where nobody has said one — which
+    /// is the colour a session deals the slot by default. Drawing only,
+    /// the world's to say every step like `set_outfit`.
+    pub fn set_republic(&mut self, who: usize, by: usize) {
+        let tint = self
+            .bims
+            .get(by)
+            .and_then(|b| b.character.tint())
+            .unwrap_or(Tint::ALL[by % Tint::ALL.len()]);
+        self.set_outfit(who, Outfit::Republic(tint));
+    }
+
     pub fn outfit(&self, who: usize) -> Outfit {
         self.bims[who].character.outfit()
     }

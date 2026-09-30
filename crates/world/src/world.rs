@@ -4083,11 +4083,15 @@ impl World {
     /// Whether player `slot` may change crew member `who`'s loadout: its
     /// own Bim, or a bot's — anybody past the players — and nobody
     /// else's. A player's Bim is given a thing only by an offer it
-    /// accepts.
+    /// accepts. A commander's reinforcement is nobody's to change: it
+    /// fights with the Republic's rifle it came with, is given nothing
+    /// and has nothing taken off it — equipped, stripped, bought for or
+    /// combined from.
     pub fn may_change(&self, slot: u32, who: u32) -> bool {
         slot < self.players()
             && who < self.aboard.crew_count()
             && (who == slot || who >= self.players())
+            && !self.is_reinforcement(who)
     }
 
     /// Why a loadout or armory command by `slot` on `who` would be
@@ -4099,6 +4103,10 @@ impl World {
     fn gear_refusal(&self, slot: u32, who: u32) -> Option<Refusal> {
         if who >= self.aboard.crew_count() {
             return Some(Refusal::NotAboard);
+        }
+        // A reinforcement's kit is the Republic's wherever it stands.
+        if self.is_reinforcement(who) {
+            return Some(Refusal::NotYours);
         }
         if self.in_mission() && !(self.inside_ship(who) && self.aboard.room.is_alive(who as usize))
         {
@@ -8165,6 +8173,11 @@ impl World {
             .collect();
         for (who, outfit) in outfits.into_iter().enumerate() {
             self.aboard.room.set_outfit(who, outfit);
+        }
+        // A commander's reinforcements are the Republic's soldiers, in
+        // their caller's colour.
+        for r in &self.reinforcements {
+            self.aboard.room.set_republic(r.who as usize, r.by as usize);
         }
     }
 
