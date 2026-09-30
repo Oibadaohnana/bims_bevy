@@ -161,7 +161,7 @@ fn a_bought_thing_never_reappears_and_a_revisit_is_the_same_trader() {
     let mut world = basic(1);
     let site = at_a_trader(&mut world);
     let item = world.trader_here(0).unwrap().shelf[0].unwrap();
-    let price = world.shelf_price(item);
+    let price = world.shelf_price(0, item);
     let money = world.wallet(0);
     let armory = world.holdings.armory.len();
     let events = world.step(&[Command::BuyShelf {
@@ -230,7 +230,7 @@ fn a_thing_goes_onto_a_bim_or_the_armory_and_the_pool_must_pay() {
     assert!(refused_with(&events, Refusal::NotYours), "{events:?}");
 
     // Not with its wallet short.
-    world.wallets[0] = world.shelf_price(item) - 1;
+    world.wallets[0] = world.shelf_price(0, item) - 1;
     let events = world.step(&[Command::BuyShelf {
         slot: 0,
         index,
@@ -294,8 +294,8 @@ fn two_players_buy_the_same_slot_each_off_its_own_shelf() {
             "{events:?}"
         );
     }
-    assert_eq!(world.wallet(0), w0 - world.shelf_price(mine));
-    assert_eq!(world.wallet(1), w1 - world.shelf_price(theirs));
+    assert_eq!(world.wallet(0), w0 - world.shelf_price(0, mine));
+    assert_eq!(world.wallet(1), w1 - world.shelf_price(1, theirs));
     assert!(world.trader_here(0).unwrap().shelf[1].is_none());
     assert!(world.trader_here(1).unwrap().shelf[1].is_none());
 }
@@ -312,7 +312,7 @@ fn every_player_buys_its_own_trader_s_relic_with_its_own_money() {
     let mine = world.trader_here(0).unwrap().relic.unwrap();
     let theirs = world.trader_here(1).unwrap().relic.unwrap();
     assert_ne!(mine, theirs, "no two players are offered one relic");
-    let price = world.trader_relic_price(mine);
+    let price = world.trader_relic_price(0, mine);
     let (w0, w1) = (world.wallet(0), world.wallet(1));
 
     let buy = |relic: crate::relic::Relic, to| Command::ProposeRelic {

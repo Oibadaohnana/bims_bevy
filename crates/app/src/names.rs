@@ -1711,7 +1711,8 @@ pub fn event_line(event: WorldEvent) -> Option<String> {
                 format!("{} calls a Rally Point — the fallen get up.", who(w))
             }
             Some(world::Relic::HazardPay) => format!(
-                "Hazard Pay: the crew are paid {} for the site.",
+                "Hazard Pay: {} takes a share of {} for the site.",
+                who(w),
                 crate::format::euros(world::data::HAZARD_PAY)
             ),
             // Fired every kill or every ability: the log would be nothing

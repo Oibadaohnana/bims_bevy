@@ -266,10 +266,10 @@ impl World {
         }
     }
 
-    /// What a thing off the shelf costs: the trader's own ask for it at its
-    /// tier (`World::quote_at`, the existing tier pricing), else the book at
-    /// the tier.
-    pub fn shelf_price(&self, item: ShelfItem) -> Money {
+    /// What a thing off the shelf costs player `slot`: the trader's own ask
+    /// for it at its tier (`World::quote_at`, the existing tier pricing),
+    /// else the book at the tier.
+    pub fn shelf_price(&self, slot: u32, item: ShelfItem) -> Money {
         let tier = item.tier.code();
         let ask = self
             .run
@@ -281,7 +281,7 @@ impl World {
             });
         // The reward dials' shelf per cent, then *Trade License* (task 118),
         // then the players' share.
-        self.trader_share(self.trader_discount(self.rewards.shelf_price(ask)))
+        self.trader_share(self.trader_discount_for(slot, self.rewards.shelf_price(ask)))
     }
 
     /// A trader's price shared by the players: each has money of their
@@ -333,7 +333,7 @@ impl World {
                 return;
             }
         }
-        let price = self.shelf_price(item);
+        let price = self.shelf_price(slot, item);
         if !self.pay_from(slot, price) {
             events.push(refused(slot, Refusal::Unaffordable));
             return;
@@ -399,7 +399,7 @@ impl World {
             events.push(refused(slot, Refusal::NotAPlayer));
             return;
         }
-        let price = self.trader_relic_price(relic);
+        let price = self.trader_relic_price(slot, relic);
         if !self.pay_from(slot, price) {
             events.push(refused(slot, Refusal::Unaffordable));
             return;

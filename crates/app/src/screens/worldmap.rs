@@ -1367,16 +1367,7 @@ pub fn trader_window(
                             // half of the shelf it was in: the weapons come
                             // first, [`world::data::TRADER_WEAPONS`] of them.
                             if (index < world::data::TRADER_WEAPONS) == weapons {
-                                shelf_row(
-                                    ui,
-                                    world,
-                                    world.wallet(local),
-                                    index,
-                                    *slot,
-                                    row,
-                                    to,
-                                    orders,
-                                );
+                                shelf_row(ui, world, local, index, *slot, row, to, orders);
                                 row += 1;
                             }
                         }
@@ -1896,13 +1887,14 @@ fn shelf_thing(item: world::trader::ShelfItem) -> bims::combat::Item {
 fn shelf_row(
     ui: &mut egui::Ui,
     world: &World,
-    wallet: economy::Money,
+    local: u32,
     index: usize,
     slot: Option<world::trader::ShelfItem>,
     row: usize,
     to: u32,
     orders: &mut Vec<Order>,
 ) {
+    let wallet = world.wallet(local);
     let Some(item) = slot else {
         line_item(
             ui,
@@ -1938,9 +1930,9 @@ fn shelf_row(
             name: what,
             tier: Some((item.tier.code(), None)),
             note: None,
-            price: world.shelf_price(item),
+            price: world.shelf_price(local, item),
             button: TRADER_BUY,
-            open: world.shelf_price(item) <= wallet,
+            open: world.shelf_price(local, item) <= wallet,
             tip: Some(crate::crew::tip_of(thing, 1)),
             row,
             key: Some(TradeLine::Shelf(index as u32)),
@@ -1974,7 +1966,7 @@ fn relic_at_trader(
         return;
     };
     // With *Trade License* off it (task 118).
-    let price = world.trader_relic_price(relic);
+    let price = world.trader_relic_price(local, relic);
     let bought = line_item(
         ui,
         world.wallet(local),

@@ -576,8 +576,9 @@ impl World {
         }
     }
 
-    /// *Hazard Pay*: the site just cleared pays the relic's holder, once
-    /// a relic held, into their own wallet. Part of `settle_clear`.
+    /// *Hazard Pay*: the site just cleared pays the relic's holder its
+    /// money over the players, once a relic held, into their own wallet.
+    /// Part of `settle_clear`.
     pub(super) fn relics_pay_the_clear(&mut self, events: &mut Vec<WorldEvent>) {
         for slot in 0..self.players() {
             let Some(money) = relic::rule_of(self.relics_of(slot), |r| match r {
@@ -586,7 +587,9 @@ impl World {
             }) else {
                 continue;
             };
-            self.credit(slot, money);
+            // Shared by the players (task 142): each has money of their own.
+            let share = money / Money::from(self.players().max(1));
+            self.credit(slot, share);
             events.push(WorldEvent::RelicFired {
                 who: slot,
                 relic: Relic::HazardPay.code(),
@@ -707,24 +710,35 @@ impl World {
 
     // --- the trader ---------------------------------------------------------------------
 
-    /// *Trade License*: what a trader's `price` comes to for this crew —
-    /// the best of the players' discounts, whole euros rounded down.
-    pub fn trader_discount(&self, price: Money) -> Money {
-        let percent = (0..self.players())
+    /// *Trade License*: what a trader's `price` comes to for player `slot`
+    /// — the best of the players' discounts ([`data::TRADE_LICENSE_PERCENT`]
+    /// for everybody while anybody holds it), and the holder's own
+    /// [`data::TRADE_LICENSE_HOLDER_PERCENT`] (task 142) — whole euros
+    /// rounded down.
+    pub fn trader_discount_for(&self, slot: u32, price: Money) -> Money {
+        let crew = (0..self.players())
             .map(|s| self.relic_percent(s, Stat::TraderPrices))
             .min()
             .unwrap_or(0)
             .min(0);
+        let own = if self.relics_of(slot).contains(&Relic::TradeLicense) {
+            -data::TRADE_LICENSE_HOLDER_PERCENT
+        } else {
+            0
+        };
+        let percent = crew.min(own);
         if percent == 0 {
             return price;
         }
         price - price * Money::from(percent.unsigned_abs()) / 100
     }
 
-    /// What the trader's relic costs this crew: [`crate::trader::relic_price`]
-    /// with *Trade License*.
-    pub fn trader_relic_price(&self, relic: Relic) -> Money {
-        self.trader_discount(self.rewards.relic_price_of(relic.tier() as u32))
+    /// What the trader's relic costs player `slot`: [`crate::trader::relic_price`]
+    /// with *Trade License*, then the players' share.
+    pub fn trader_relic_price(&self, slot: u32, relic: Relic) -> Money {
+        self.trader_share(
+            self.trader_discount_for(slot, self.rewards.relic_price_of(relic.tier() as u32)),
+        )
     }
 
     /// Whether the crew may restock the trader they are at (*Restock

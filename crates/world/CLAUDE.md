@@ -6355,13 +6355,14 @@ moved. `would_travel_foretells_the_trip` (`tests_mission.rs`) is the rule.
   within `LIFELINE_TILES`, once a mission. The shield is the room's
   (`Game::set_shield`, `crates/game/CLAUDE.md`) and in `world_checksum`
   only where one stands.
-- **Hazard Pay** and **Trade License** ride on the per-player wallets,
-  and are **not done yet** (agent #12 left them for after the wallets
-  were committed): the holder is to be paid `HAZARD_PAY / players` a
-  clear (today the whole `HAZARD_PAY` is `credit`ed to the holder), and a
-  trader is to ask every player `TRADE_LICENSE_PERCENT` less and the
-  holder `TRADE_LICENSE_HOLDER_PERCENT` less (a `trader_discount_for`;
-  today `trader_discount` is the crew's best, the constant unread).
+- **Hazard Pay** and **Trade License** ride on the per-player wallets:
+  the holder is `credit`ed `HAZARD_PAY / players` a clear
+  (`relics_pay_the_clear`), and a trader asks every player
+  `TRADE_LICENSE_PERCENT` less while anybody holds it and the holder
+  `TRADE_LICENSE_HOLDER_PERCENT` less (`trader_discount_for(slot,
+  price)`): `shelf_price(slot, item)` and `trader_relic_price(slot,
+  relic)` take the buyer, and the relic's price is the players' share
+  (`trader_share`) like the shelf's.
 
 `tests_relic_patches.rs` has a test a relic.
 

@@ -846,7 +846,9 @@ fn hazard_pay_pays_a_site_cleared() {
             _ => 0,
         })
         .sum();
-    assert_eq!(world.crew_money(), money + bounty + data::HAZARD_PAY);
+    // The holder's share: the pay over the players (task 142).
+    let share = data::HAZARD_PAY / u64::from(world.players());
+    assert_eq!(world.crew_money(), money + bounty + share);
 }
 
 /// **War Chest**: its damage up with the pool a player, to its cap.
@@ -889,19 +891,35 @@ fn at_a_trader() -> World {
     world
 }
 
-/// **Trade License** takes its share off the shelf and the relic.
+/// **Trade License** takes its share off the shelf and the relic: the
+/// holder's own [`data::TRADE_LICENSE_HOLDER_PERCENT`], every other
+/// player's [`data::TRADE_LICENSE_PERCENT`] (task 142).
 #[test]
 fn trade_license_is_cheaper_at_the_trader() {
     let mut world = at_a_trader();
     let item = world.trader_here(0).unwrap().shelf[0].unwrap();
-    let price = world.shelf_price(item);
-    let relic_price = world.trader_relic_price(Relic::FocusingLens);
+    let price = world.shelf_price(0, item);
+    let relic_price = world.trader_relic_price(0, Relic::FocusingLens);
     world.give_relic_for_probe(0, Relic::TradeLicense);
-    let off = |p: u64| p - p * data::TRADE_LICENSE_PERCENT as u64 / 100;
-    assert_eq!(world.shelf_price(item), off(price));
+    let off = |p: u64, pct: i32| p - p * pct as u64 / 100;
+    let holder = data::TRADE_LICENSE_HOLDER_PERCENT;
+    assert_eq!(world.shelf_price(0, item), off(price, holder));
     assert_eq!(
-        world.trader_relic_price(Relic::FocusingLens),
-        off(relic_price)
+        world.trader_relic_price(0, Relic::FocusingLens),
+        off(relic_price, holder)
+    );
+
+    // Two players: the holder's price and the other's.
+    let mut two = simulation_world(flyer(2), 10_000_000, 2);
+    assert_eq!(two.trader_discount_for(1, 1_000), 1_000, "nobody holds it");
+    two.give_relic_for_probe(0, Relic::TradeLicense);
+    assert_eq!(
+        two.trader_discount_for(0, 1_000),
+        off(1_000, data::TRADE_LICENSE_HOLDER_PERCENT)
+    );
+    assert_eq!(
+        two.trader_discount_for(1, 1_000),
+        off(1_000, data::TRADE_LICENSE_PERCENT)
     );
 }
 
