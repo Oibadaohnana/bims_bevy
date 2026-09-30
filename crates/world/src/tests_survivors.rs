@@ -223,7 +223,13 @@ const TILE: f32 = shipdesign::TILE as f32;
 /// the tree as it stood — the three moves above that were left for the
 /// sweep, and agent #12's relic rebalance (task 142, no relic in this
 /// run), with it. Was `0x_11a9_33d1_6eeb_9209`.
-const SURVIVORS: u64 = 0x_eacb_4bf8_f39d_85b2;
+///
+/// **And moved, on purpose, for the hydroponic bay taken off the
+/// playtest ship** (no task number: the bots wedged themselves in the
+/// one-tile gap beside it), so the combat ship's main deck is open and
+/// the crew walk it differently. Measured on HEAD 77d0f8e with that
+/// change alone. Was `0x_eacb_4bf8_f39d_85b2`.
+const SURVIVORS: u64 = 0x_d3b2_ad2d_e4a7_a78e;
 
 /// A gun in every hand, the kinds dealt round, as the fight's probes arm
 /// a crew — the five there were when the reading was taken: the minigun
