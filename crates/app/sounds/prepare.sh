@@ -195,3 +195,11 @@ shot holster Unholster_and_holstering.mp3 0.06 0.54 "asetrate=48000*0.85,aresamp
 # front (`adelay`) and the onset is a quarter-second in; it has died away
 # by 1.8 s, and the last tenths are a long fade rather than a cut.
 shot bought baught.mp3 0.25 1.80 "adelay=250,highpass=f=80" 0.30
+
+# An enemy down and its pay floating over it: nothing recorded, a soft
+# two-note chime made here — an E6 with a fast decay and a B6 a
+# twentieth of a second after it, each with a few milliseconds' rise so
+# neither clicks — peaking well under the others, since it rings for
+# every enemy of a fight.
+"${ff[@]}" -f lavfi -i "aevalsrc='0.45*sin(2*PI*1319*t)*exp(-t*28)*(1-exp(-t*500)) + 0.4*gt(t,0.055)*sin(2*PI*1976*(t-0.055))*exp(-(t-0.055)*16)*(1-exp(-(t-0.055)*500))':d=0.35:s=48000" \
+  -af "afade=t=out:st=0.28:d=0.07,alimiter=limit=0.89" -ac 1 "${enc[@]}" "$out/reward.ogg"

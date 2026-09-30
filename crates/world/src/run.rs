@@ -322,11 +322,6 @@ pub struct Run {
     /// reroll. Sorted by site.
     #[cfg_attr(feature = "serde", serde(default))]
     pub traders: Vec<crate::trader::Trader>,
-    /// The vote on the relic of the trader the crew are at, while they are
-    /// at one: which player's Bim, who put it, who has said yes. Every
-    /// connected player has to; a new proposal clears every yes.
-    #[cfg_attr(feature = "serde", serde(default))]
-    pub trade_relic: Option<crate::relic::RelicProposal>,
     /// The ready check's switch: on, a mission with a fight in it — an
     /// Attack site not yet cleared, a Defend site threatened — opens
     /// held, nothing moving, until every connected player has pressed
@@ -377,7 +372,6 @@ impl Run {
             sites_cleared: 0,
             systems_liberated: 0,
             traders: Vec::new(),
-            trade_relic: None,
             ready_check: false,
             briefing: false,
             ready: vec![false; players as usize],

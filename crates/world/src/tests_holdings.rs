@@ -533,9 +533,10 @@ fn a_dead_player_is_back_at_the_mission_s_end_with_everything_it_wore() {
     }
     assert!(!world.aboard.room.is_alive(1), "out while the mission runs");
 
-    // The mission ends: back, with the sniper and the helm, the pool
-    // charged the buyback.
-    world.money = data::BUYBACK_COST + 7;
+    // The mission ends: back, with the sniper and the helm, its own
+    // wallet charged the buyback, since it holds it.
+    world.money = 0;
+    world.wallets = vec![0, data::BUYBACK_COST + 7];
     let events = world.leave_for_probe();
     assert!(
         events.iter().any(|e| matches!(
@@ -549,7 +550,7 @@ fn a_dead_player_is_back_at_the_mission_s_end_with_everything_it_wore() {
     );
     assert!(world.aboard.room.is_alive(1));
     assert!(!world.run.is_out(1));
-    assert_eq!(world.money, 7);
+    assert_eq!(world.wallets, vec![0, 7], "its own money, nobody else's");
     assert_eq!(world.aboard.room.weapon(1), Some(rifle), "its gun kept");
     assert!(
         world.aboard.room.worn(1, Part::Head).is_some(),
@@ -557,12 +558,14 @@ fn a_dead_player_is_back_at_the_mission_s_end_with_everything_it_wore() {
     );
     assert_eq!(world.level_of(1), level, "the level kept");
 
-    // Again, with less in the pool than the buyback: nought, not below.
+    // Again, with less than the buyback between the two of them: all of
+    // it, and nought, not below.
     let site = another_site_here(&world);
     travel_to(&mut world, site);
     world.aboard.room.kill_for_probe(1);
     world.step(&[]);
-    world.money = 1_000;
+    world.money = 0;
+    world.wallets = vec![600, 400];
     let events = world.leave_for_probe();
     assert!(
         events.iter().any(|e| matches!(
@@ -574,7 +577,7 @@ fn a_dead_player_is_back_at_the_mission_s_end_with_everything_it_wore() {
         )),
         "{events:?}"
     );
-    assert_eq!(world.money, 0, "never below nought");
+    assert_eq!(world.wallets, vec![0, 0], "never below nought");
     assert!(world.aboard.room.is_alive(1), "back without the money");
     assert_eq!(world.aboard.room.weapon(1), Some(rifle));
 }
@@ -710,4 +713,29 @@ fn the_design_s_gear_is_in_the_armory_and_not_the_hold() {
     }
     assert_eq!(world.held(ResourceId::Helm), helms);
     assert_eq!(world.held(ResourceId::Shotgun), pistols);
+}
+
+/// **A buyback the fallen cannot pay pools every player's money**: the
+/// user's own example — three players, C fallen with 2 000, A with 1 000
+/// and B with 10 000 — 13 000 pooled, the 5 000 paid, and of the 8 000
+/// left A gets 1/11 and B 10/11 back, C nothing; what the division leaves
+/// over goes into the takings. A fallen player holding the buyback pays
+/// it alone and keeps the rest.
+#[test]
+fn a_buyback_the_fallen_cannot_pay_pools_every_player_s_money() {
+    let mut world = crewed_world(flyer(2), REFERENCE_MONEY, 3, 3);
+    world.money = 0;
+    world.wallets = vec![1_000, 10_000, 2_000];
+    assert_eq!(world.buy_back(2), data::BUYBACK_COST);
+    assert_eq!(world.wallets, vec![727, 7_272, 0]);
+    assert_eq!(world.money, 1, "the rounding into the takings");
+    assert_eq!(
+        world.crew_money(),
+        1_000 + 10_000 + 2_000 - data::BUYBACK_COST
+    );
+
+    world.money = 0;
+    world.wallets = vec![1_000, 10_000, 6_000];
+    assert_eq!(world.buy_back(2), data::BUYBACK_COST);
+    assert_eq!(world.wallets, vec![1_000, 10_000, 1_000], "its own alone");
 }

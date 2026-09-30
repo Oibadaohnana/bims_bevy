@@ -4346,3 +4346,22 @@ argument of `Combat::aim_among` and `plan_stand`, and
 aims with `Combat::aim` (or `aim_only` for a player's attack order).
 Nothing any run did moved, since the world never gave a squad order in
 one.
+
+## A relic's shield and a reach standing still (task 142)
+
+- **`Bim::shield`** (`bim::Shield { hp, left, full }`, serde default) is
+  *Lifeline*'s: `Game::set_shield(who, hp, seconds)` puts a fresh one on
+  a living body, `strike_stripping` takes what it can of every hit off it
+  **before** the strip or the armour — after `damage_taken`, and never
+  while a surge runs, which takes the hit whole and leaves the shield —
+  and `tick_combat` counts its seconds down beside the surge's.
+  `Game::{shield_hp, shield_left}` are the readings. Drawn as a pale blue
+  bubble and a ring of `SHIELD_PLATES` plates, one going dark for every
+  share spent (`Character::set_shield`, `serde(skip)`).
+- **`Skill::still_range`** is tiles added to `Skill::range` while the Bim
+  is not walking: `Game::shot_skill(who)` is the skill `tick_combat` aims
+  and shoots with, so the aim and the shot agree. Nought for everybody
+  but *Wide Angle Optics*' holder.
+
+`the_still_range_is_on_standing_still_and_off_walking` and
+`a_shield_takes_the_hit_first_and_runs_out` pin them.

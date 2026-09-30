@@ -197,6 +197,19 @@ pub fn roll_shelf(galaxy_seed: u64, star: u32, station: u32) -> Vec<ShelfItem> {
     shelf_off(seed)
 }
 
+/// Player `owner`'s shelf at a trader: the first player's is
+/// [`roll_shelf`]'s, every other's a roll of its own off a seed that also
+/// mixes the slot.
+pub fn roll_shelf_for(galaxy_seed: u64, star: u32, station: u32, owner: u32) -> Vec<ShelfItem> {
+    if owner == 0 {
+        return roll_shelf(galaxy_seed, star, station);
+    }
+    let seed = worldgen::rng::mix(galaxy_seed ^ 0x_5348_454C_4600)
+        ^ worldgen::rng::mix(u64::from(star) << 32 | u64::from(station))
+        ^ worldgen::rng::mix(0x_4F57_4E45_5200 + u64::from(owner));
+    shelf_off(seed)
+}
+
 /// A trader's shelf **rolled again** (task 118, *Restock Codes*): the
 /// draws of [`roll_shelf`] off a seed that also mixes `again` — the world
 /// clock's minute of the visit — so a restock is the same on every
@@ -249,11 +262,17 @@ pub fn shelf_candidates(list: &[ResourceId]) -> Vec<ShelfItem> {
 /// left on its shelf — a slot a thing, `None` once bought, so a slot's
 /// number is the same on every visit — and its relic, drawn the first time
 /// the crew arrived and there until bought. Saved, and in
-/// `world_checksum`.
+/// `world_checksum`. **Every player has a trader of their own** at a
+/// trader's site — its own shelf and its own relic, bought with their own
+/// money — so one player's buying never takes from another's: `owner`
+/// is whose.
 #[derive(Clone, PartialEq, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Trader {
     pub site: Site,
+    /// The player this one sells to.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub owner: u32,
     pub shelf: Vec<Option<ShelfItem>>,
     /// The relic, until it is bought: drawn by the day's odds the first
     /// time the crew arrived (task 117). It stays in the run's pool and out
@@ -264,12 +283,14 @@ pub struct Trader {
 }
 
 impl Trader {
-    /// A trader met for the first time: its shelf rolled, its relic the one
+    /// Player `owner`'s trader met for the first time: its shelf rolled
+    /// (a roll of the player's own, [`roll_shelf_for`]), its relic the one
     /// drawn for it.
-    pub fn new(galaxy_seed: u64, site: Site, relic: Option<Relic>) -> Trader {
+    pub fn new(galaxy_seed: u64, site: Site, relic: Option<Relic>, owner: u32) -> Trader {
         Trader {
             site,
-            shelf: roll_shelf(galaxy_seed, site.star, site.station)
+            owner,
+            shelf: roll_shelf_for(galaxy_seed, site.star, site.station, owner)
                 .into_iter()
                 .map(Some)
                 .collect(),

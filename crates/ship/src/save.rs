@@ -190,7 +190,10 @@ use crate::game::Game;
 /// order, and `Skill` lost *focus fire*'s `marked_accuracy`.
 /// 67: the world keeps the run's difficulty, the game setup's pick
 /// (`World::difficulty`).
-pub const SAVE_VERSION: u32 = 67;
+/// 68: individual money — every player's `World::wallets`, a trader a
+/// player (`Trader::owner`), a hired hand's signer (`Hired::by`), and
+/// the run's trader-relic vote gone.
+pub const SAVE_VERSION: u32 = 68;
 
 /// What the file holds, read back.
 #[derive(serde::Deserialize)]

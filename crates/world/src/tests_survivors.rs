@@ -214,7 +214,16 @@ const TILE: f32 = shipdesign::TILE as f32;
 /// step): the tree read `0x_8d00_61ed_88c8_6121` with the count put back
 /// to two at every tier and `0x_c91e_9026_9f7f_3d90` with it. Left for
 /// the sweep with the two above.
-const SURVIVORS: u64 = 0x_11a9_33d1_6eeb_9209;
+///
+/// **And taken, on purpose, for individual money and a bounty by the
+/// enemy's strength** (no task number): the pool shared out into every
+/// player's wallet at the opening and at every mission's end (the
+/// wallets are in `Survivors::eat_world`), and a machine's bounty its
+/// kind's share of its tier's (a Husk 90 %, a Warden 110 %). Taken on
+/// the tree as it stood — the three moves above that were left for the
+/// sweep, and agent #12's relic rebalance (task 142, no relic in this
+/// run), with it. Was `0x_11a9_33d1_6eeb_9209`.
+const SURVIVORS: u64 = 0x_eacb_4bf8_f39d_85b2;
 
 /// A gun in every hand, the kinds dealt round, as the fight's probes arm
 /// a crew — the five there were when the reading was taken: the minigun

@@ -299,6 +299,22 @@ pub fn grenades() -> Option<u32> {
     std::env::var("BIMS_GRENADES").ok()?.trim().parse().ok()
 }
 
+/// `BIMS_DUEL=trooper` (or `husk`, `warden`, `guardian`) stages a fight at
+/// the dock: the station the machines', one machine of that kind armed
+/// a few tiles down its corridor and the steered Bim inside the door
+/// under arms (`World::stage_droid_fight_for_probe`) — how the numbers
+/// over a hit and a kill are looked at without walking to a fight.
+pub fn duel() -> Option<bims::droid::DroidKind> {
+    use bims::droid::DroidKind;
+    match std::env::var("BIMS_DUEL").ok()?.as_str() {
+        "husk" => Some(DroidKind::Husk),
+        "trooper" => Some(DroidKind::Trooper),
+        "warden" => Some(DroidKind::Warden),
+        "guardian" => Some(DroidKind::Guardian),
+        _ => None,
+    }
+}
+
 /// `BIMS_LAMPS_OUT=n` shoots the `n` lamps nearest the crew member out at
 /// open and leaves the next one failing — how a lamp out, the dark round
 /// it and a failing lamp's flicker are looked at without a fight that

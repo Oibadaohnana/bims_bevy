@@ -1990,7 +1990,7 @@ fn a_run_opens_docked_on_the_default_ship_with_five_thousand_a_bim() {
         assert!(session.playing(), "no design phase in front of a run");
         let world = &session.game.as_ref().expect("the world opened").world;
         assert_eq!(
-            world.money,
+            world.crew_money(),
             START_MONEY_PER_BIM * u64::from(players),
             "{players} players"
         );

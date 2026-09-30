@@ -975,10 +975,28 @@ pub fn defend_banner(painter: &egui::Painter, at: egui::Pos2, scale: f32) {
     );
 }
 
-/// The burst a soldier is aiming a grenade at (feature 75): the radius
-/// round the tile under the pointer, in canvas pixels, a faint wash and
-/// a ring — the caution colour while the world would take the throw,
-/// the warning one when it would refuse it.
+/// An ability's reach round the Bim aiming it (the ability range
+/// indicators): `radius` in canvas pixels, a barely-there wash and a
+/// faint rim in the ability's class's colour.
+pub fn reach_ring(painter: &egui::Painter, at: egui::Pos2, radius: f32, colour: egui::Color32) {
+    painter.circle_filled(at, radius, colour.gamma_multiply(REACH_FILL));
+    painter.circle_stroke(
+        at,
+        radius,
+        egui::Stroke::new(1.5, colour.gamma_multiply(REACH_RIM)),
+    );
+}
+
+/// How much of an ability's colour its reach is washed in, and its rim:
+/// barely there, so the deck and the fight read through it.
+const REACH_FILL: f32 = 0.05;
+const REACH_RIM: f32 = 0.35;
+
+/// The burst a soldier is aiming a grenade at (feature 75), or an
+/// engineer an EMP: the radius round the tile under the pointer, in
+/// canvas pixels, a faint wash and a ring — the caution colour while the
+/// world would take the throw (walked out to or not), the warning one
+/// when it would refuse it.
 pub fn burst_ring(painter: &egui::Painter, at: egui::Pos2, radius: f32, ok: bool) {
     let color = if ok { CAUTION } else { WARN };
     painter.circle_filled(at, radius, color.gamma_multiply(0.12));
@@ -1138,6 +1156,98 @@ pub fn heal_number(painter: &egui::Painter, at: egui::Pos2, scale: f32, text: &s
         HEAL.gamma_multiply(fade),
     );
 }
+
+/// What an enemy down paid, rising off where it fell: the money in gold
+/// and under it the experience in blue, each over a dark shadow, climbing
+/// quickly and gone by the end — `rise` nought as it appears and one as
+/// it goes, as for [`heal_number`], but out over the second half, since
+/// a fight downs many and the numbers must not pile up.
+pub fn reward_numbers(
+    painter: &egui::Painter,
+    at: egui::Pos2,
+    scale: f32,
+    money: &str,
+    xp: &str,
+    rise: f32,
+) {
+    let rise = rise.clamp(0.0, 1.0);
+    let lift = (NAME_LIFT * 0.6 * scale).clamp(10.0, 34.0);
+    let top = egui::pos2(at.x, at.y - lift - rise * lift);
+    let fade = (1.0 - (rise - 0.5) / 0.5).clamp(0.0, 1.0);
+    let size = (NAME_SIZE * 1.1).max(11.0);
+    for (text, colour, down) in [(money, REWARD_MONEY, 0.0), (xp, REWARD_XP, size + 1.0)] {
+        let p = top + egui::vec2(0.0, down);
+        painter.text(
+            p + egui::vec2(1.0, 1.0),
+            egui::Align2::CENTER_CENTER,
+            text,
+            egui::FontId::proportional(size),
+            egui::Color32::from_black_alpha(170).gamma_multiply(fade),
+        );
+        painter.text(
+            p,
+            egui::Align2::CENTER_CENTER,
+            text,
+            egui::FontId::proportional(size),
+            colour.gamma_multiply(fade),
+        );
+    }
+}
+
+/// A hit landing (`WorldEvent::Hit`), on an enemy or one of the crew: its
+/// damage in red, small, rising off the body and out over the second
+/// half; a **critical** hit bigger, in gold with a red edge, and popping
+/// larger as it appears, so it is never read as an ordinary one.
+pub fn hit_number(
+    painter: &egui::Painter,
+    at: egui::Pos2,
+    scale: f32,
+    text: &str,
+    crit: bool,
+    rise: f32,
+) {
+    let rise = rise.clamp(0.0, 1.0);
+    let lift = (NAME_LIFT * 0.45 * scale).clamp(8.0, 26.0);
+    let p = egui::pos2(at.x, at.y - lift - rise * lift * 1.2);
+    let fade = (1.0 - (rise - 0.5) / 0.5).clamp(0.0, 1.0);
+    let (size, colour) = if crit {
+        let pop = 1.0 + 0.35 * (1.0 - (rise / 0.25).min(1.0));
+        ((NAME_SIZE * 1.25 * pop).max(12.0), HIT_CRIT)
+    } else {
+        ((NAME_SIZE * 0.85).max(10.0), HIT_RED)
+    };
+    let font = egui::FontId::proportional(size);
+    let edge = if crit {
+        HIT_RED.gamma_multiply(fade)
+    } else {
+        egui::Color32::from_black_alpha(170).gamma_multiply(fade)
+    };
+    for d in [(1.0, 1.0), (-1.0, 1.0), (1.0, -1.0), (-1.0, -1.0)] {
+        painter.text(
+            p + egui::vec2(d.0, d.1),
+            egui::Align2::CENTER_CENTER,
+            text,
+            font.clone(),
+            edge,
+        );
+    }
+    painter.text(
+        p,
+        egui::Align2::CENTER_CENTER,
+        text,
+        font,
+        colour.gamma_multiply(fade),
+    );
+}
+
+/// A hit's number (`hit_number`): red, and a critical one gold.
+pub const HIT_RED: egui::Color32 = egui::Color32::from_rgb(0xff, 0x45, 0x3a);
+pub const HIT_CRIT: egui::Color32 = egui::Color32::from_rgb(0xff, 0xc4, 0x2e);
+
+/// An enemy's pay (`reward_numbers`): the money a warm gold, the
+/// experience a clear blue.
+pub const REWARD_MONEY: egui::Color32 = egui::Color32::from_rgb(0xff, 0xd3, 0x4d);
+pub const REWARD_XP: egui::Color32 = egui::Color32::from_rgb(0x6c, 0xb6, 0xff);
 
 /// A tank standing as a wall, on the tank itself (feature 91): a small
 /// shield over its head in the wall's own caution colour, inside the

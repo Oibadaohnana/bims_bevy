@@ -102,7 +102,7 @@ fn a_world_opens_docked_at_the_spawn_station_with_the_money_left_over() {
     let ShipState::Docked { station } = world.ship.state else {
         panic!("it should start docked, not {:?}", world.ship.state);
     };
-    assert_eq!(world.money, REFERENCE_MONEY);
+    assert_eq!(world.crew_money(), REFERENCE_MONEY);
     assert_eq!(world.clock_minutes, 0.0);
     assert_eq!(world.steps, 0);
 
@@ -1086,7 +1086,7 @@ fn the_checksum_notices_every_kind_of_change() {
         assert_ne!(world.checksum(), was, "a step should show");
 
         let mut spent = basic();
-        spent.money -= 1;
+        spent.wallets[0] -= 1;
         assert_ne!(spent.checksum(), basic().checksum(), "a euro should show");
 
         let mut travelled = basic();
@@ -1305,7 +1305,7 @@ fn a_world_starts_at_the_station_it_was_told_to_and_a_spawn_that_does_not_exist_
 fn the_playtest_ship_can_travel_somewhere_from_the_simulation_spawn() {
     use shipdesign::fixture::playtest_ship;
     let world = simulation_world(playtest_ship(), data::SIMULATION_MONEY, 1);
-    assert_eq!(world.money, data::SIMULATION_MONEY);
+    assert_eq!(world.crew_money(), data::SIMULATION_MONEY);
     assert_eq!(world.ship.crew_count, 1);
     assert!(matches!(world.ship.state, ShipState::Docked { .. }));
     assert_eq!(world.ship.dynamics.forward_throttle, 1.0);
@@ -2981,7 +2981,7 @@ fn a_site_on_the_deck_is_paid_for_and_built_by_the_crew() {
     // accord (September 2026), and the site is nobody's order.
     let mut world = crate::fixture::crewed_world(playtest_ship(), data::SIMULATION_MONEY, 1, 2);
     world.set_shipyard_enabled(true);
-    let money = world.money;
+    let money = world.crew_money();
     let price = PartKind::Wall.def().price;
     let mass = world.ship.dynamics.mass.get();
     let walls = world.ship.design.count(PartKind::Wall);
@@ -3011,7 +3011,7 @@ fn a_site_on_the_deck_is_paid_for_and_built_by_the_crew() {
     );
     assert_eq!(world.builds.len(), 1);
     // Nothing is spent until the part goes down: a site is a plan.
-    assert_eq!(world.money, money, "nothing spent yet");
+    assert_eq!(world.crew_money(), money, "nothing spent yet");
 
     // The crew walk over and put it together. Nothing is hauled — the
     // one errand is the build.
@@ -3038,7 +3038,7 @@ fn a_site_on_the_deck_is_paid_for_and_built_by_the_crew() {
         0
     );
     // Paid for, and the ship is heavier by exactly the wall.
-    assert_eq!(world.money, money - price);
+    assert_eq!(world.crew_money(), money - price);
     let want = mass + shipdesign::part_mass(PartKind::Wall);
     assert!(
         (world.ship.dynamics.mass.get() - want).abs() < 1e-6,
@@ -3062,7 +3062,7 @@ fn a_site_waits_while_the_pool_cannot_cover_it() {
     world.set_shipyard_enabled(true);
     let price = PartKind::Wall.def().price;
     // Just short of one wall.
-    world.money = price - 1;
+    world.set_money_for_probe(price - 1);
     world.step(&[Command::PlaceSite {
         slot: 0,
         kind: PartKind::Wall,
@@ -3090,7 +3090,7 @@ fn a_site_waits_while_the_pool_cannot_cover_it() {
     });
 
     // The Republic pays, and it goes on.
-    world.money = price * 4;
+    world.set_money_for_probe(price * 4);
     let site = world.builds[0].clone();
     assert!(world.affordable_site(&site));
     let mut built = false;
@@ -3105,7 +3105,7 @@ fn a_site_waits_while_the_pool_cannot_cover_it() {
         }
     }
     assert!(built, "the wall was never built once there was money");
-    assert_eq!(world.money, price * 3);
+    assert_eq!(world.crew_money(), price * 3);
 }
 
 /// Deck plating outside the hull is built from outside: laid against the
@@ -3120,7 +3120,7 @@ fn a_site_beyond_the_hull_is_built_in_a_suit() {
     let mut world = crate::fixture::crewed_world(playtest_ship(), data::SIMULATION_MONEY, 1, 2);
     world.set_shipyard_enabled(true);
     world.undock_for_probe();
-    let money = world.money;
+    let money = world.crew_money();
     let price = PartKind::Floor.def().price + PartKind::Structure.def().price;
 
     // The tile west of the west wall, amidships: nothing there at all.
@@ -3177,7 +3177,7 @@ fn a_site_beyond_the_hull_is_built_in_a_suit() {
             .get(Layer::Floor, (at.0 as i32, at.1 as i32)),
         0
     );
-    assert_eq!(world.money, money - price, "the deck and its frame");
+    assert_eq!(world.crew_money(), money - price, "the deck and its frame");
 }
 
 /// A blueprint nobody has walked to holds nothing: it is not under
@@ -3190,7 +3190,7 @@ fn a_site_is_begun_once_somebody_is_on_the_way_and_a_cancel_frees_its_price() {
     use shipdesign::fixture::playtest_ship;
     let mut world = crate::fixture::crewed_world(playtest_ship(), data::SIMULATION_MONEY, 1, 2);
     world.set_shipyard_enabled(true);
-    let money = world.money;
+    let money = world.crew_money();
     let place = |slot: u32| Command::PlaceSite {
         slot,
         kind: PartKind::Wall,
@@ -3237,7 +3237,7 @@ fn a_site_is_begun_once_somebody_is_on_the_way_and_a_cancel_frees_its_price() {
     )));
     assert!(world.builds.is_empty());
     assert_eq!(world.free_money(), money);
-    assert_eq!(world.money, money);
+    assert_eq!(world.crew_money(), money);
     for _ in 0..(30 * 60) {
         world.step(&[]);
     }
@@ -4409,14 +4409,14 @@ fn a_mercenary_is_hired_from_the_station_and_paid_by_the_month() {
 
     // With nothing to spend it is refused, and one of the station's own
     // is nobody's to hire.
-    let money = world.money;
-    world.money = 0;
+    let money = world.crew_money();
+    world.set_money_for_probe(0);
     let events = world.step(&[hire]);
     assert!(events.contains(&WorldEvent::Refused {
         slot: 0,
         why: Refusal::Unaffordable
     }));
-    world.money = money;
+    world.set_money_for_probe(money);
     let plain = Command::Hire {
         slot: 0,
         who: 0,
@@ -4438,7 +4438,7 @@ fn a_mercenary_is_hired_from_the_station_and_paid_by_the_month() {
     assert!(events.contains(&WorldEvent::Hired { who: 1 }), "{events:?}");
     assert_eq!(world.aboard.crew_count(), 2, "one more aboard");
     assert_eq!(world.ship.crew_count, 2);
-    assert_eq!(world.money, money - fee, "the first month paid");
+    assert_eq!(world.crew_money(), money - fee, "the first month paid");
     assert_eq!(world.residents.as_ref().unwrap().aboard.count(), count - 1);
     assert_eq!(world.hired().len(), 1);
     assert_eq!((world.hired()[0].who, world.hired()[0].fee), (1, fee));
@@ -4487,19 +4487,19 @@ fn a_mercenary_is_hired_from_the_station_and_paid_by_the_month() {
             station: site.station,
         }])
     };
-    let money = world.money;
+    let money = world.wallet(0);
     let events = trip(&mut world);
     assert!(
         events.contains(&WorldEvent::MercenaryPaid { who: 1, fee }),
         "{events:?}"
     );
-    assert_eq!(world.money, money - fee);
+    assert_eq!(world.wallet(0), money - fee);
     assert!(world.hired()[0].due > world.clock_minutes);
     assert_eq!(world.aboard.crew_count(), 2);
 
     // Broke a month later: owed, and said once. The hand sails on owed —
     // the ship is holding when a trip pays, never at a berth.
-    world.money = fee - 1;
+    world.wallets[0] = fee - 1;
     let events = trip(&mut world);
     assert!(
         events.contains(&WorldEvent::MercenaryLeft { who: 1 }),

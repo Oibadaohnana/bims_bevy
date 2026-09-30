@@ -523,7 +523,7 @@ fn the_waves_are_the_same_for_a_richer_better_armed_more_levelled_or_bigger_crew
 
             // A hundred times as rich.
             let mut rich = plain();
-            rich.money = rich.money.saturating_mul(100);
+            rich.set_money_for_probe(rich.crew_money().saturating_mul(100));
             assert!(rich.worth() > base.worth());
             // Every crew member with a tier-three gun in hand.
             let mut armed = plain();

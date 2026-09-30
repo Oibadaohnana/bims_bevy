@@ -401,6 +401,12 @@ pub const REPUBLIC_BOUNTY: [Money; 4] = [0, 500, 1_500, 4_500];
 /// like any. Tuned in the app's `rewards.ron` (`crate::rewards`).
 pub const DEFENSE_BOUNTY_PERCENT: u32 = 100;
 
+/// How far an enemy's bounty strays from its tier's own, in per cent, by
+/// how strong it is: the weaker of a tier this much less, the stronger
+/// this much more (`world::droid_bounty_percent`,
+/// `manufacturer_bounty_percent`).
+pub const BOUNTY_SPREAD_PERCENT: u32 = 10;
+
 // --- the run: death and buyback (feature 103) ------------------------------
 
 /// What the pool pays to bring a dead player's Bim back, at the end of
@@ -483,8 +489,8 @@ pub const PHASE_HARNESS_SECONDS: f32 = 2.0;
 /// them, does more, in per cent.
 pub const SERVO_CUTTER_DAMAGE_PERCENT: i32 = 25;
 /// *Crippler's Mark*: what a hit on a machine missing its arms or its legs
-/// does more, in per cent.
-pub const CRIPPLERS_MARK_DAMAGE_PERCENT: i32 = 20;
+/// does more, in per cent (task 142; it was twenty).
+pub const CRIPPLERS_MARK_DAMAGE_PERCENT: i32 = 35;
 /// *Parts Broker*: what the bounty for a machine it destroys missing its
 /// arms or its legs is raised by, in per cent.
 pub const PARTS_BROKER_BOUNTY_PERCENT: i32 = 50;
@@ -504,13 +510,20 @@ pub const CLOT_BOOSTER_HP_PER_SECOND: f32 = 2.0;
 pub const CLOT_BOOSTER_SECONDS: f64 = 15.0;
 /// *Tether Field*: how much less of every hit a crewmate it revived takes,
 /// in per cent, and for how many seconds (task 120; it was one it
-/// dressed).
-pub const TETHER_FIELD_PERCENT: i32 = 25;
-pub const TETHER_FIELD_SECONDS: f64 = 6.0;
-/// *Lifeline*: how near a crewmate going down has to be, in tiles, and how
-/// long the two of them are untouchable, in seconds — once a mission.
-pub const LIFELINE_TILES: f32 = 4.0;
-pub const LIFELINE_SECONDS: f32 = 3.0;
+/// dressed. Task 142; it was 25 per cent for six seconds).
+pub const TETHER_FIELD_PERCENT: i32 = 40;
+pub const TETHER_FIELD_SECONDS: f64 = 10.0;
+/// *Lifeline* (task 142): once a mission, when a player's Bim within so
+/// many tiles of its holder — or the holder itself — falls under
+/// [`LIFELINE_BELOW_PERCENT`] of its health, the holder and that Bim each
+/// get a shield of [`LIFELINE_SHIELD_HP`] hit points for
+/// [`LIFELINE_SECONDS`]. A bot never sets it off. (It was both
+/// untouchable for three seconds when a crewmate within four tiles went
+/// down.)
+pub const LIFELINE_TILES: f32 = 5.0;
+pub const LIFELINE_BELOW_PERCENT: u32 = 25;
+pub const LIFELINE_SHIELD_HP: f32 = 300.0;
+pub const LIFELINE_SECONDS: f32 = 10.0;
 /// *Blind Spot*: what a hit on a machine from the side or behind does
 /// more, in per cent.
 pub const BLIND_SPOT_DAMAGE_PERCENT: i32 = 15;
@@ -523,12 +536,10 @@ pub const SPRINT_COIL_SECONDS: f64 = 3.0;
 /// again.
 pub const SIGNAL_SCRAMBLER_SECONDS: f64 = 5.0;
 pub const SIGNAL_SCRAMBLER_COOLDOWN: f64 = 20.0;
-/// *Wide Angle Optics*: the cosine of the half-width of a machine's front
-/// for its hits — thirty degrees a side, where everybody else's is the
-/// Guardian shield's sixty (`bims::balance::GUARDIAN_SHIELD_COS`), so the
-/// side and the back are thirty degrees wider each way. Its shots are
-/// stopped by a Guardian's shield across that narrower front too.
-pub const WIDE_ANGLE_OPTICS_FRONT_COS: f32 = 0.866_025_4;
+/// *Wide Angle Optics* (task 142): the tiles added to its weapon's range
+/// while it stands still (`bims::combat::Skill::still_range`). It was a
+/// machine's front narrowed to thirty degrees a side for its hits.
+pub const WIDE_ANGLE_OPTICS_TILES: f32 = 7.0;
 /// *Crossfire*: what it and the crewmate opposite do more to the machine
 /// between them, in per cent; the cosine two bearings from the machine
 /// must be under to be opposite (a hundred and twenty degrees); and how
@@ -537,32 +548,39 @@ pub const CROSSFIRE_DAMAGE_PERCENT: i32 = 40;
 pub const CROSSFIRE_APART_COS: f32 = -0.5;
 pub const CROSSFIRE_TILES: f32 = 12.0;
 /// *Field Radio*: what the odds of a crewmate within so many tiles of it
-/// are raised by, in per cent.
-pub const FIELD_RADIO_ACCURACY_PERCENT: i32 = 5;
-pub const FIELD_RADIO_TILES: f32 = 3.0;
+/// are raised by, in per cent (task 142; it was five within three).
+pub const FIELD_RADIO_ACCURACY_PERCENT: i32 = 7;
+pub const FIELD_RADIO_TILES: f32 = 5.0;
 /// *Spotter*: what the machine it hit last takes more from every crewmate,
 /// in per cent, and for how many seconds after the hit.
 pub const SPOTTER_DAMAGE_PERCENT: i32 = 10;
 pub const SPOTTER_SECONDS: f64 = 3.0;
 /// *Squad Morale*: the seconds every class cooldown running on it loses
-/// when a machine it or any bot hit last is destroyed.
+/// when a machine is destroyed — by anybody (task 142; it was its own
+/// kills and the bots').
 pub const SQUAD_MORALE_SECONDS: f64 = 1.0;
-/// *Cover Formation*: how much less of every hit a bot within so many
-/// tiles of it takes, in per cent.
-pub const COVER_FORMATION_PERCENT: i32 = 20;
-pub const COVER_FORMATION_TILES: f32 = 3.0;
+/// *Cover Formation*: how much less of every hit the crew within so many
+/// tiles of it — bots, players and the holder itself — take, in per cent
+/// (task 142; it was the bots alone, twenty within three).
+pub const COVER_FORMATION_PERCENT: i32 = 15;
+pub const COVER_FORMATION_TILES: f32 = 5.0;
 /// *Rally Point*: how near a crewmate down has to be, in tiles, and the
 /// share of its health it gets up with, in per cent — once a mission, on
 /// an ability used.
 pub const RALLY_POINT_TILES: f32 = 4.0;
 pub const RALLY_POINT_HEALTH_PERCENT: u32 = 20;
-/// *Hazard Pay*: what the crew are paid every site cleared.
+/// *Hazard Pay*: what its holder is paid every site cleared, shared by the
+/// players — [`HAZARD_PAY`] over their count, into the holder's own
+/// wallet (task 142).
 pub const HAZARD_PAY: Money = 500;
-/// *Trade License*: how much less a trader asks of the crew, in per cent.
+/// *Trade License*: how much less a trader asks of every player, in per
+/// cent, and of its holder (task 142).
 pub const TRADE_LICENSE_PERCENT: i32 = 15;
-/// *Scrap Collector*: what the crew earn for every machine it destroys,
-/// pending with the bounty until the site is cleared.
-pub const SCRAP_COLLECTOR_PAY: Money = 100;
+pub const TRADE_LICENSE_HOLDER_PERCENT: i32 = 20;
+/// *Strong Will* (task 142, in *Scrap Collector*'s place): how much longer
+/// its holder's abilities last, in per cent — a Rampage, an EMP's stun, a
+/// Cloak, a Taunt, a Juggernaut, a Rally and a Battle Cry.
+pub const STRONG_WILL_PERCENT: i32 = 20;
 /// *War Chest*: its damage up this many per cent for every thousand in
 /// the pool a player, and never more than the cap.
 pub const WAR_CHEST_PERCENT_PER_THOUSAND: i32 = 2;

@@ -328,6 +328,27 @@ pub enum WorldEvent {
     /// medkit — a townsperson downed defending its town: which station,
     /// who of its people, and by whom of the crew.
     ResidentRevived { station: u32, who: u32, by: u32 },
+    /// An enemy went down and what it was worth, said once, the step it is
+    /// counted: which station, which body of its room, the experience
+    /// every classed crew member in range was given and the Republic's
+    /// bounty for it (paid or pending). A picture's event — the numbers
+    /// the app floats over the body — beside `Bounty`, which is the money.
+    EnemyRewarded {
+        station: u32,
+        who: u32,
+        xp: u32,
+        money: economy::Money,
+    },
+    /// A hit landed: on one of the station's bodies (`resident`, a body
+    /// of its room — a machine past its Bims) or on one of the crew, how
+    /// much, whole points, and whether it was a critical one. A picture's
+    /// event, for the red number over the body; nothing reads it.
+    Hit {
+        resident: bool,
+        who: u32,
+        damage: u32,
+        crit: bool,
+    },
 }
 
 /// Why a command did nothing.
@@ -696,6 +717,8 @@ impl WorldEvent {
             WorldEvent::Readied { .. } => 138,
             WorldEvent::AllReady => 139,
             WorldEvent::ResidentRevived { .. } => 140,
+            WorldEvent::EnemyRewarded { .. } => 142,
+            WorldEvent::Hit { .. } => 143,
         }
     }
 
@@ -801,6 +824,9 @@ impl WorldEvent {
             WorldEvent::ResidentRevived { station, who, by } => {
                 who as i64 + 1_000 * by as i64 + 1_000_000 * station as i64
             }
+            // The money: the body is in the event for the picture.
+            WorldEvent::EnemyRewarded { money, .. } => money as i64,
+            WorldEvent::Hit { damage, .. } => i64::from(damage),
             // The kind in the tens the same way: three kinds, and a crew
             // is never ten.
             WorldEvent::PieceBroke { who, kind } => (who + 10 * kind.code()) as i64,

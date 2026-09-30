@@ -281,18 +281,32 @@ fn commands() -> Vec<(&'static str, u64)> {
 /// `0x_73b2_eae7_e74e_9684`, `0x_2ba5_0425_4c88_c171`,
 /// `0x_b8c7_dab8_5450_1537`, `0x_9e0b_4049_7a5b_e561` and
 /// `0x_c257_27a9_1785_d070`.
+///
+/// **All eleven moved, on purpose**, for individual money (no task
+/// number): the pool shared out into every player's wallet when the world
+/// opens, and the wallets are read (`Survivors::eat_world`) — so every
+/// command reads anew with nothing about its play changed but a
+/// machine's bounty, its kind's share of its tier's. Taken on the tree
+/// with agent #12's relic rebalance (task 142) in it. `PINNED_BEFORE_112`
+/// (the old layouts, ignored) was not taken again. They were, in order,
+/// `0x_15db_400e_1677_7b45`, `0x_fe54_af78_4073_1d30`,
+/// `0x_6bc6_e563_4740_f31b`, `0x_7f3f_61cd_1727_d600`,
+/// `0x_6900_5ef7_e616_5287`, `0x_6468_d231_b53f_bff6`,
+/// `0x_c168_244e_1787_ab60`, `0x_01a1_86b4_7407_4d8a`,
+/// `0x_0cab_dd44_d055_bfbc`, `0x_c017_e76c_f9c7_9af2` and
+/// `0x_390f_0810_a0f4_7aae`.
 const PINNED: [(&str, u64); 11] = [
-    ("simulation", 0x_15db_400e_1677_7b45),
-    ("game", 0x_fe54_af78_4073_1d30),
-    ("droids", 0x_6bc6_e563_4740_f31b),
-    ("tier2_test", 0x_7f3f_61cd_1727_d600),
-    ("combat_droids_medic", 0x_6900_5ef7_e616_5287),
-    ("test", 0x_6468_d231_b53f_bff6),
-    ("test_planet", 0x_c168_244e_1787_ab60),
-    ("droids_planet", 0x_01a1_86b4_7407_4d8a),
-    ("defense", 0x_0cab_dd44_d055_bfbc),
-    ("crisis", 0x_c017_e76c_f9c7_9af2),
-    ("jammer", 0x_390f_0810_a0f4_7aae),
+    ("simulation", 0x_e867_573e_a12d_3d05),
+    ("game", 0x_0b72_33b1_7fd3_4e05),
+    ("droids", 0x_3336_1e37_52ae_b23b),
+    ("tier2_test", 0x_6932_ad10_13c2_eaa0),
+    ("combat_droids_medic", 0x_2d23_c271_06d2_fba7),
+    ("test", 0x_5804_2103_2c7c_8e36),
+    ("test_planet", 0x_d424_7a18_c2d7_c680),
+    ("droids_planet", 0x_5b63_62f9_a9b6_20aa),
+    ("defense", 0x_6897_fcf7_5afd_a91c),
+    ("crisis", 0x_d142_ba9a_729e_79d2),
+    ("jammer", 0x_6830_8839_2ff5_40ce),
 ];
 
 /// **Every command plays as it did**: each session the app builds, read

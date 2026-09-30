@@ -7,7 +7,7 @@
 //! world's private fields; the trader's own types are `crate::trader`'s.
 
 use super::*;
-use crate::relic::{Relic, RelicProposal};
+use crate::relic::Relic;
 use crate::run::{Phase as RunPhase, Site};
 use crate::trader::{self, CombineError, ShelfItem, Trader};
 
@@ -197,30 +197,28 @@ impl World {
         self.run.phase == RunPhase::Trade
     }
 
-    /// The trader the crew are at, with what is left on its shelf and its
-    /// relic.
-    pub fn trader_here(&self) -> Option<&Trader> {
-        let at = self.trader_index()?;
+    /// Player `slot`'s own trader where the crew are at one, with what is
+    /// left on its shelf and its relic.
+    pub fn trader_here(&self, slot: u32) -> Option<&Trader> {
+        let at = self.trader_index(slot)?;
         self.run.traders.get(at)
     }
 
-    /// Where the trader the crew are at is kept on the run.
-    fn trader_index(&self) -> Option<usize> {
+    /// Where player `slot`'s trader at the crew's site is kept on the run.
+    fn trader_index(&self, slot: u32) -> Option<usize> {
         if !self.at_trader() {
             return None;
         }
         let site = self.current_site()?;
-        self.run.traders.iter().position(|t| t.site == site)
+        self.run
+            .traders
+            .iter()
+            .position(|t| t.site == site && t.owner == slot)
     }
 
     /// Every trader the crew have been to this run, with what is left.
     pub fn traders_met(&self) -> &[Trader] {
         &self.run.traders
-    }
-
-    /// The vote on the trader's relic, while there is one.
-    pub fn trade_relic(&self) -> Option<&RelicProposal> {
-        self.run.trade_relic.as_ref()
     }
 
     /// Arrived at a trader (from `travel`): the ship holding off it, the
@@ -242,20 +240,30 @@ impl World {
         self.run.snapped = false;
         self.run.proposal = None;
         self.run.departure = None;
-        self.run.trade_relic = None;
         // *Restock Codes* (task 118) is once a visit, and this is one.
         self.run.relics.restocked = false;
-        if self.run.traders.iter().any(|t| t.site == site) {
-            return;
-        }
-        // Drawn by the day's odds like a reward's (task 117), and kept out
+        // A trader of their own for every player not met here yet: its relic
+        // drawn by the day's odds like a reward's (task 117), and kept out
         // of every other draw while it is on the table — never out of the
-        // pool until it is bought.
-        let relic = self.draw_relics(1, site.station).first().copied();
-        let at = self.run.traders.partition_point(|t| t.site < site);
-        self.run
-            .traders
-            .insert(at, Trader::new(self.galaxy_seed, site, relic));
+        // pool until it is bought — so no two players are offered one relic.
+        for owner in 0..self.players() {
+            if self
+                .run
+                .traders
+                .iter()
+                .any(|t| t.site == site && t.owner == owner)
+            {
+                continue;
+            }
+            let relic = self.draw_relics(1, site.station).first().copied();
+            let at = self
+                .run
+                .traders
+                .partition_point(|t| (t.site, t.owner) < (site, owner));
+            self.run
+                .traders
+                .insert(at, Trader::new(self.galaxy_seed, site, relic, owner));
+        }
     }
 
     /// What a thing off the shelf costs: the trader's own ask for it at its
@@ -271,14 +279,28 @@ impl World {
             .unwrap_or_else(|| {
                 economy::trade_price(item.resource).saturating_mul(economy::tier_price(tier))
             });
-        // The reward dials' shelf per cent, then *Trade License* (task 118).
-        self.trader_discount(self.rewards.shelf_price(ask))
+        // The reward dials' shelf per cent, then *Trade License* (task 118),
+        // then the players' share.
+        self.trader_share(self.trader_discount(self.rewards.shelf_price(ask)))
+    }
+
+    /// A trader's price shared by the players: each has money of their
+    /// own now, a share of what the crew earn, so a thing costs each the
+    /// price over the number of players, rounded up.
+    pub fn trader_share(&self, price: Money) -> Money {
+        price.div_ceil(Money::from(self.players().max(1)))
+    }
+
+    /// What a combining costs a player: the dials' fee, the players'
+    /// share of it.
+    pub fn combine_fee(&self) -> Money {
+        self.trader_share(self.rewards.combine_fee)
     }
 
     // --- buying ---------------------------------------------------------------
 
-    /// [`Command::BuyShelf`]: the thing in the shelf's slot `index` paid for
-    /// out of the pool and onto crew member `to`'s loadout — what was there
+    /// [`Command::BuyShelf`]: the thing in the slot `index` of player
+    /// `slot`'s own shelf paid for out of its own wallet and onto crew member `to`'s loadout — what was there
     /// into the armory — or into the armory with `None`. Any player, no
     /// vote; the first command to want a thing has it.
     pub(super) fn buy_shelf(
@@ -288,7 +310,7 @@ impl World {
         to: Option<u32>,
         events: &mut Vec<WorldEvent>,
     ) {
-        let Some(at) = self.trader_index() else {
+        let Some(at) = self.trader_index(slot) else {
             events.push(refused(slot, Refusal::NotAtATrader));
             return;
         };
@@ -312,11 +334,10 @@ impl World {
             }
         }
         let price = self.shelf_price(item);
-        if price > self.money {
+        if !self.pay_from(slot, price) {
             events.push(refused(slot, Refusal::Unaffordable));
             return;
         }
-        self.money -= price;
         self.run.traders[at].shelf[index as usize] = None;
         let thing = match item.weapon() {
             Some(weapon) => Item::Weapon(weapon),
@@ -348,121 +369,46 @@ impl World {
 
     // --- the relic ----------------------------------------------------------------
 
-    /// [`Command::ProposeRelic`] at a trader: its relic for player `to`'s
-    /// Bim, or — with `None` — the proposal on the table taken off it. A
-    /// new proposal clears every yes but the proposer's.
-    pub(super) fn propose_trader_relic(
+    /// [`Command::ProposeRelic`] at a trader: player `slot` buys its own
+    /// trader's relic outright for its own Bim — no vote, since the money
+    /// is its own — for [`World::trader_relic_price`] out of its wallet.
+    /// The relic leaves the pool and the trader for good. `None` does
+    /// nothing: there is no proposal to take back.
+    pub(super) fn buy_trader_relic(
         &mut self,
         slot: u32,
         relic: Option<Relic>,
-        to: u32,
         events: &mut Vec<WorldEvent>,
     ) {
-        let Some(at) = self.trader_index() else {
+        let Some(at) = self.trader_index(slot) else {
             events.push(refused(slot, Refusal::NotAtATrader));
+            return;
+        };
+        let Some(relic) = relic else {
             return;
         };
         let Some(here) = self.run.traders[at].relic else {
             events.push(refused(slot, Refusal::SoldOut));
             return;
         };
-        let Some(relic) = relic else {
-            self.run.trade_relic = None;
-            events.push(WorldEvent::RelicProposed {
-                slot,
-                relic: u32::MAX,
-                to,
-            });
-            return;
-        };
         if relic != here {
             events.push(refused(slot, Refusal::NotOnOffer));
             return;
         }
-        let players = self.players();
-        if to >= players {
+        if slot >= self.players() {
             events.push(refused(slot, Refusal::NotAPlayer));
             return;
         }
-        let mut accepted = vec![false; players as usize];
-        if let Some(a) = accepted.get_mut(slot as usize) {
-            *a = true;
-        }
-        self.run.trade_relic = Some(RelicProposal {
-            relic: Some(relic),
-            to,
-            by: slot,
-            accepted,
-        });
-        events.push(WorldEvent::RelicProposed {
-            slot,
-            relic: relic.code(),
-            to,
-        });
-        self.trade_relic_if_carried(events);
-    }
-
-    /// [`Command::AcceptRelic`] at a trader: a yes to the relic on the
-    /// table, or one taken back.
-    pub(super) fn accept_trader_relic(
-        &mut self,
-        slot: u32,
-        yes: bool,
-        events: &mut Vec<WorldEvent>,
-    ) {
-        if !self.at_trader() {
-            events.push(refused(slot, Refusal::NotAtATrader));
-            return;
-        }
-        let Some(proposal) = self.run.trade_relic.as_mut() else {
-            events.push(refused(slot, Refusal::NoRelicChoice));
-            return;
-        };
-        if let Some(a) = proposal.accepted.get_mut(slot as usize) {
-            *a = yes;
-        }
-        events.push(WorldEvent::RelicAccepted { slot, yes });
-        self.trade_relic_if_carried(events);
-    }
-
-    /// The relic bought, the moment every connected player has said yes:
-    /// [`trader::relic_price`] out of the pool — refused to whoever put it,
-    /// and the proposal gone, when the pool cannot pay — and the relic to
-    /// its Bim, gone off the trader for good.
-    pub(super) fn trade_relic_if_carried(&mut self, events: &mut Vec<WorldEvent>) {
-        let carried = self
-            .run
-            .trade_relic
-            .as_ref()
-            .is_some_and(|p| p.carried(&self.run.connected));
-        if !carried {
-            return;
-        }
-        let Some(proposal) = self.run.trade_relic.take() else {
-            return;
-        };
-        let Some(at) = self.trader_index() else {
-            return;
-        };
-        let (Some(relic), Some(here)) = (proposal.relic, self.run.traders[at].relic) else {
-            events.push(refused(proposal.by, Refusal::SoldOut));
-            return;
-        };
-        if relic != here {
-            events.push(refused(proposal.by, Refusal::SoldOut));
-            return;
-        }
         let price = self.trader_relic_price(relic);
-        if price > self.money {
-            events.push(refused(proposal.by, Refusal::Unaffordable));
+        if !self.pay_from(slot, price) {
+            events.push(refused(slot, Refusal::Unaffordable));
             return;
         }
-        self.money -= price;
         self.run.traders[at].relic = None;
         self.run.relics.take_from_pool(relic);
-        self.run.relics.give(proposal.to, relic);
+        self.run.relics.give(slot, relic);
         events.push(WorldEvent::RelicBought {
-            slot: proposal.to,
+            slot,
             relic: relic.code(),
             price,
         });
@@ -530,12 +476,11 @@ impl World {
                 return;
             }
         };
-        let fee = self.rewards.combine_fee;
-        if fee > self.money {
+        let fee = self.combine_fee();
+        if !self.pay_from(slot, fee) {
             events.push(refused(slot, Refusal::Unaffordable));
             return;
         }
-        self.money -= fee;
         // A piece made is numbered off the holdings like one bought.
         let made = match made {
             Item::Armour(mut piece) => {

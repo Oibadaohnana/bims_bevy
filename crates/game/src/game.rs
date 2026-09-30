@@ -1527,7 +1527,16 @@ impl Game {
                 }
             }
             bim.character.set_surging(bim.surge.is_some());
-            let skill = self.skills.get(who).copied().unwrap_or(Skill::NONE);
+            // A relic's shield (task 142) runs its seconds out the same way.
+            if let Some(shield) = bim.shield.as_mut() {
+                shield.left -= dt;
+                if shield.left <= 0.0 || shield.hp <= 0.0 || !bim.is_alive() {
+                    bim.shield = None;
+                }
+            }
+            bim.character
+                .set_shield(bim.shield.map_or(0.0, |s| s.share()));
+            let skill = self.shot_skill(who);
             // A Manufacturer among a site's own people (task 131) fights
             // off the machines' list, and nothing below is its.
             if self.is_intruder(who) {
@@ -4823,6 +4832,20 @@ impl Game {
         self.bims[who].task.as_ref().map(|t| job_code(t.kind()))
     }
 
+    /// Whether Bim `who`'s walk is over — nothing left of its route, and
+    /// no leg on the plain still to go. What a throw walked out to asks
+    /// before it gives up (`World::throws`).
+    pub fn has_arrived(&self, who: usize) -> bool {
+        self.bims.get(who).is_none_or(|b| b.character.arrived())
+    }
+
+    /// Whether Bim `who` could walk to `to` on the deck's grid from where
+    /// it stands: what the world asks of the spot a throw is walked out
+    /// to.
+    pub fn reaches(&self, who: usize, to: Vec2) -> bool {
+        who < self.bims.len() && self.can_reach(who, to)
+    }
+
     /// Whether a Bim's walk is over. For the probes.
     #[allow(dead_code)]
     pub fn arrived_for_probe(&self, who: usize) -> bool {
@@ -7356,6 +7379,21 @@ impl Game {
         self.skills.get(who).copied().unwrap_or(Skill::NONE)
     }
 
+    /// The skill a Bim aims and shoots with now: its own, with *Wide Angle
+    /// Optics*' tiles on the range while it stands still (task 142). What
+    /// `tick_combat` reads for the aim and the shot alike.
+    pub fn shot_skill(&self, who: usize) -> Skill {
+        let mut skill = self.skill(who);
+        if self
+            .bims
+            .get(who)
+            .is_some_and(|b| !b.character.is_walking())
+        {
+            skill.range += skill.still_range;
+        }
+        skill
+    }
+
     /// What each Bim's talents do to the one shooter, by index
     /// (`combat::Skill`): a soldier's, worked out by the world every step
     /// from its class, its talents and its brace. `Skill::NONE` for
@@ -7489,7 +7527,7 @@ impl Game {
     #[allow(dead_code)]
     pub fn aims_at_for_probe(&self, who: usize) -> Option<usize> {
         let bim = self.bims.get(who)?;
-        let stats = self.skill(who).stats(bim.gear.weapon?);
+        let stats = self.shot_skill(who).stats(bim.gear.weapon?);
         self.combat
             .aim(&self.room.sight, bim.character.pos, &stats)
             .map(|(i, _, _)| i)
@@ -7605,6 +7643,36 @@ impl Game {
             bim.surge = Some(crate::bim::Surge { left: seconds });
             bim.character.set_surging(true);
         }
+    }
+
+    /// A shield of `hp` hit points on a living body for `seconds` (task
+    /// 142, a relic's *Lifeline*): a fresh one in place of what was left.
+    pub fn set_shield(&mut self, who: usize, hp: f32, seconds: f32) {
+        if let Some(bim) = self.bims.get_mut(who).filter(|b| b.is_alive()) {
+            bim.shield = Some(crate::bim::Shield {
+                hp,
+                left: seconds,
+                full: hp,
+            });
+            bim.character.set_shield(1.0);
+        }
+    }
+
+    /// The hit points a body's shield still takes; nought with none.
+    pub fn shield_hp(&self, who: usize) -> f32 {
+        self.bims
+            .get(who)
+            .and_then(|b| b.shield)
+            .map_or(0.0, |s| s.hp.max(0.0))
+    }
+
+    /// Seconds of the room's clock a body's shield has left; nought with
+    /// none.
+    pub fn shield_left(&self, who: usize) -> f32 {
+        self.bims
+            .get(who)
+            .and_then(|b| b.shield)
+            .map_or(0.0, |s| s.left.max(0.0))
     }
 
     /// Seconds of the room's clock a body's surge has left; nought with
@@ -8239,6 +8307,34 @@ impl Game {
         // Field*, *Cover Formation*. One for everybody else, and a hit
         // times one is the hit.
         let damage = damage * self.skill(who).damage_taken;
+        // A relic's shield (task 142) takes what it can of the hit before
+        // anything else does — a surge excepted, which takes the whole of
+        // it and leaves the shield as it was.
+        let mut out_shield = 0.0;
+        let damage = {
+            let bim = &mut self.bims[who];
+            match bim.shield.as_mut() {
+                Some(shield) if bim.surge.is_none() => {
+                    let took = damage.min(shield.hp.max(0.0));
+                    shield.hp -= took;
+                    if shield.hp <= 0.0 {
+                        bim.shield = None;
+                    }
+                    bim.character
+                        .set_shield(bim.shield.map_or(0.0, |s| s.share()));
+                    out_shield = took;
+                    damage - took
+                }
+                _ => damage,
+            }
+        };
+        if out_shield > 0.0 && damage <= 0.0 {
+            let bim = &mut self.bims[who];
+            bim.hit_flash = HIT_FLASH;
+            self.combat.fx.struck(who, part.code());
+            out.absorbed = out_shield;
+            return out;
+        }
         if strips > 0.0 {
             let bim = &mut self.bims[who];
             bim.hit_flash = HIT_FLASH;
@@ -11920,5 +12016,60 @@ mod tests {
             game.simulate(DT);
         }
         assert_eq!(game.bloody_tiles(), 0);
+    }
+
+    /// *Wide Angle Optics* (task 142): the range a Bim aims and shoots at
+    /// is its skill's, with the still range on while it stands still and
+    /// off while it walks.
+    #[test]
+    fn the_still_range_is_on_standing_still_and_off_walking() {
+        let mut game = room();
+        game.set_autonomous(false);
+        let mut skills = vec![crate::combat::Skill::NONE; 2];
+        skills[0].still_range = 7.0;
+        game.set_skills(skills);
+        let at = game.put_for_probe(0, vec2(ROOM_W * 0.25, ROOM_H * 0.5));
+        game.simulate(DT);
+        assert_eq!(game.shot_skill(0).range, 7.0, "standing still");
+        assert_eq!(game.shot_skill(1).range, 0.0, "nobody else's");
+        let there = at + vec2(TILE * 6.0, 0.0);
+        assert_eq!(game.order_move(0, there.x, there.y), ORDER_MOVING);
+        for _ in 0..5 {
+            game.simulate(DT);
+        }
+        assert!(game.is_walking(0));
+        assert_eq!(game.shot_skill(0).range, 0.0, "walking");
+    }
+
+    /// *Lifeline*'s shield (task 142): it takes a hit's hit points before
+    /// the armour or the body does, runs out with them or with its
+    /// seconds, and a surge leaves it alone.
+    #[test]
+    fn a_shield_takes_the_hit_first_and_runs_out() {
+        let mut game = room();
+        game.set_autonomous(false);
+        game.issue(0, Gear::issued());
+        game.set_shield(0, 30.0, 10.0);
+        let full = game.health(0);
+        game.wound(0, Part::Body, 20.0);
+        assert_eq!(game.health(0), full, "the shield took it");
+        assert!((game.shield_hp(0) - 10.0).abs() < 1e-4);
+        game.wound(0, Part::Body, 25.0);
+        assert!(
+            (full - game.health(0) - 15.0).abs() < 1e-3,
+            "the rest through"
+        );
+        assert_eq!(game.shield_hp(0), 0.0, "spent");
+        // A surge takes the hit whole and the shield keeps what it had.
+        game.set_shield(0, 30.0, 10.0);
+        game.set_surge(0, 5.0);
+        game.wound(0, Part::Body, 20.0);
+        assert_eq!(game.shield_hp(0), 30.0);
+        // And its seconds run out.
+        for _ in 0..(60 * 11) {
+            game.simulate(DT);
+        }
+        assert_eq!(game.shield_hp(0), 0.0, "for its seconds");
+        assert_eq!(game.shield_left(0), 0.0);
     }
 }

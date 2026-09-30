@@ -187,7 +187,11 @@ pub fn fight_won_window(
                                 .strong()
                                 .color(theme::ACCENT),
                         );
-                        row(ui, FIGHT_WON_POOL, egui::RichText::new(euros(world.money)));
+                        row(
+                            ui,
+                            FIGHT_WON_POOL,
+                            egui::RichText::new(euros(world.share_of(local))),
+                        );
                         for slot in 0..players.min(crew) {
                             let (xp, from, to) = gained(slot);
                             // A classless Bim earns nothing, and a row of noughts

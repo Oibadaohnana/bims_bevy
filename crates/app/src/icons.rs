@@ -393,7 +393,7 @@ fn relic_rim(relic: Relic) -> Color32 {
         PressureSeal | QuickWrap | ClotBooster | TetherField | Lifeline => RIM_LIFELINE,
         BlindSpot | SprintCoil | SignalScrambler | WideAngleOptics | Crossfire => RIM_FLANKER,
         FieldRadio | Spotter | SquadMorale | CoverFormation | RallyPoint => RIM_COMMAND,
-        HazardPay | TradeLicense | RestockCodes | ScrapCollector | WarChest => RIM_SUPPLY,
+        HazardPay | TradeLicense | RestockCodes | StrongWill | WarChest => RIM_SUPPLY,
     }
 }
 
@@ -835,16 +835,21 @@ fn draw_relic(s: &mut Sketch, b: &Box_, relic: Relic) {
             s.circle_filled(b.at(0.40, 0.40), b.px(0.09), PLATE);
             coin(s, b, 0.72, 0.74, 0.22);
         }
-        // A horseshoe magnet, and the scrap it pulls.
-        Relic::ScrapCollector => {
-            s.path(b.arc(0.50, 0.60, 0.26, 0.0, 180.0), st(0.16, CROSS));
-            s.rect_filled(b.rect(0.16, 0.30, 0.32, 0.60), 0.0, CROSS);
-            s.rect_filled(b.rect(0.68, 0.30, 0.84, 0.60), 0.0, CROSS);
-            s.rect_filled(b.rect(0.16, 0.30, 0.32, 0.40), 0.0, GUN_STEEL);
-            s.rect_filled(b.rect(0.68, 0.30, 0.84, 0.40), 0.0, GUN_STEEL);
-            s.rect_filled(b.rect(0.18, 0.04, 0.28, 0.14), b.px(0.01), GUN_STEEL);
-            s.rect_filled(b.rect(0.44, 0.10, 0.56, 0.20), b.px(0.01), MACHINE);
-            s.rect_filled(b.rect(0.72, 0.02, 0.82, 0.12), b.px(0.01), GUN_STEEL);
+        // An hourglass with its sand held high: an ability that lasts.
+        Relic::StrongWill => {
+            s.rect_filled(b.rect(0.20, 0.06, 0.80, 0.15), b.px(0.02), GUN_STEEL);
+            s.rect_filled(b.rect(0.20, 0.85, 0.80, 0.94), b.px(0.02), GUN_STEEL);
+            s.fill(b.poly(&[(0.27, 0.15), (0.73, 0.15), (0.50, 0.50)]), LENS);
+            s.fill(b.poly(&[(0.50, 0.50), (0.73, 0.85), (0.27, 0.85)]), LENS);
+            s.fill(
+                b.poly(&[(0.33, 0.20), (0.67, 0.20), (0.50, 0.46)]),
+                KEY_TRACE,
+            );
+            s.fill(
+                b.poly(&[(0.50, 0.72), (0.62, 0.85), (0.38, 0.85)]),
+                KEY_TRACE,
+            );
+            s.line_segment([b.at(0.50, 0.50), b.at(0.50, 0.72)], st(0.02, KEY_TRACE));
         }
         // A machine down a leg with its chassis cracked through.
         Relic::TotalTeardown => {

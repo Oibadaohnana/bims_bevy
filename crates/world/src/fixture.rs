@@ -222,7 +222,13 @@ pub const REFERENCE_STEPS: u32 = 600;
 /// step — the reference run's sites are tier one, so their fight is one
 /// wave now. With the count put back to two at every tier the run came
 /// out at the old number. Was `0x_df17_c099_88c7_21d1`.
-pub const REFERENCE_CHECKSUM: u64 = 0x_aca1_40d8_3ab7_360d;
+/// And for individual money (no task number), on purpose: the pool is
+/// shared out into every player's wallet when the world opens and at the
+/// end of every mission (`World::share_out`), and the wallets and each
+/// hired hand's signer are hashed — and, taken in the same tree, every
+/// relic unlocked from the start (`relic.rs`, agent #12: the run's pool
+/// is hashed). Was `0x_aca1_40d8_3ab7_360d`.
+pub const REFERENCE_CHECKSUM: u64 = 0x_6996_9850_bcab_0e80;
 
 /// A world with the flyable fixture docked at the simulation's spawn: the
 /// default seed's first dock, which is where every fixture world starts.
@@ -485,6 +491,9 @@ impl Survivors {
         self.eat(world.run.deaths);
         self.eat(world.run.pending_bounty);
         self.eat(world.money);
+        for &wallet in &world.wallets {
+            self.eat(wallet);
+        }
         self.eat(world.star_id as u64);
         self.eat_debug(&world.ship.state.alongside());
         // Experience and the class it is spent in, crew member by crew

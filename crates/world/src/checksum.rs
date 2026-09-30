@@ -87,6 +87,11 @@ pub fn world_checksum(world: &World) -> u64 {
     hash.eat(world.galaxy_type as u64);
     hash.eat(world.star_id as u64);
     hash.eat(world.money);
+    // And every player's own money.
+    hash.eat(world.wallets.len() as u64);
+    for &wallet in &world.wallets {
+        hash.eat(wallet);
+    }
 
     let ship = &world.ship;
     hash.eat(world.design_hash());
@@ -175,6 +180,7 @@ pub fn world_checksum(world: &World) -> u64 {
     hash.eat(world.hired.len() as u64);
     for hired in &world.hired {
         hash.eat(hired.who as u64);
+        hash.eat(u64::from(hired.by));
         hash.eat(hired.fee);
         hash.eat_rounded(hired.due, FINE_GRID);
         hash.eat(hired.owed as u64);
@@ -402,6 +408,17 @@ pub fn world_checksum(world: &World) -> u64 {
     for who in 0..crew {
         hash.eat(u64::from(world.aboard.room.is_surging(who)));
         hash.eat_rounded(world.aboard.room.surge_left(who) as f64, HEALTH_GRID);
+    }
+    // *Lifeline*'s shields (task 142), only where one stands: the hit
+    // points each still takes and its seconds, to a hundredth.
+    for who in 0..crew {
+        let hp = world.aboard.room.shield_hp(who);
+        if hp <= 0.0 {
+            continue;
+        }
+        hash.eat(who as u64);
+        hash.eat_rounded(hp as f64, HEALTH_GRID);
+        hash.eat_rounded(world.aboard.room.shield_left(who) as f64, HEALTH_GRID);
     }
     // And the medic's ranked kit (task 130), only where there is any: each
     // medic's last Nanite Burst and Cloak, and every cloak on the crew —
@@ -723,15 +740,16 @@ pub fn world_checksum(world: &World) -> u64 {
             hash.eat(u64::from(r));
         }
     }
-    // The traders (task 114): every one met, what is left on its shelf and
-    // its relic, and the vote on the relic of the one the crew are at.
+    // The traders (task 114): every one met, whose it is, what is left on
+    // its shelf and its relic.
     // Eaten only where there is any, so a run that has met none hashes as
     // it always did.
-    if !run.traders.is_empty() || run.trade_relic.is_some() {
+    if !run.traders.is_empty() {
         hash.eat(run.traders.len() as u64);
         for trader in &run.traders {
             hash.eat(u64::from(trader.site.star));
             hash.eat(u64::from(trader.site.station));
+            hash.eat(u64::from(trader.owner));
             hash.eat(trader.shelf.len() as u64);
             for item in &trader.shelf {
                 match item {
@@ -743,17 +761,6 @@ pub fn world_checksum(world: &World) -> u64 {
                 }
             }
             hash.eat(trader.relic.map_or(u64::MAX, |r| u64::from(r.code())));
-        }
-        match &run.trade_relic {
-            None => hash.eat(u64::MAX),
-            Some(p) => {
-                hash.eat(p.relic.map_or(u64::MAX, |r| u64::from(r.code())));
-                hash.eat(u64::from(p.to));
-                hash.eat(u64::from(p.by));
-                for &yes in &p.accepted {
-                    hash.eat(u64::from(yes));
-                }
-            }
         }
     }
     // The fight chosen in each system (task 135). Eaten only where there
@@ -780,6 +787,19 @@ pub fn world_checksum(world: &World) -> u64 {
             }
             hash.eat_rounded(s.until, FINE_GRID);
             hash.eat_rounded(s.extended, FINE_GRID);
+        }
+    }
+    // A throw walked out to (`Command::ThrowAt`): who, which, the tile and
+    // the spot. Eaten only where there is any, so a run that never walks
+    // to throw hashes as it always did.
+    if !world.throws.is_empty() {
+        hash.eat(world.throws.len() as u64);
+        for p in &world.throws {
+            hash.eat(u64::from(p.who));
+            hash.eat(u64::from(p.emp));
+            for n in [p.tile.0, p.tile.1, p.stand.0, p.stand.1] {
+                hash.eat(n as u64);
+            }
         }
     }
     if world.crit_rng != world.fresh_crit_rng() {

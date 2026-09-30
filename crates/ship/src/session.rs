@@ -1512,7 +1512,7 @@ impl Session {
     /// from a ship.
     pub fn remaining(&self) -> Money {
         match &self.game {
-            Some(game) => game.world.money,
+            Some(game) => game.world.crew_money(),
             None => self.editor.budget.remaining(&self.editor.design),
         }
     }

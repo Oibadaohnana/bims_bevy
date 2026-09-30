@@ -338,7 +338,7 @@ pub fn map_column(
                         if !between && ui.button(MAP_CLOSE).clicked() {
                             ask.close = true;
                         }
-                        trader_reopen(ui, world);
+                        trader_reopen(ui, world, local);
                         let tab = egui::Button::new(
                             egui::RichText::new(MAP_COLUMN_OPEN).strong().size(15.0),
                         );
@@ -377,7 +377,7 @@ pub fn map_column(
                         if !between && ui.button(MAP_CLOSE).clicked() {
                             ask.close = true;
                         }
-                        trader_reopen(ui, world);
+                        trader_reopen(ui, world, local);
                     });
                 });
                 ui.label(
@@ -401,7 +401,7 @@ pub fn map_column(
                         ui.end_row();
                         ui.label(egui::RichText::new(MAP_POOL).color(theme::MUTED));
                         ui.label(
-                            egui::RichText::new(euros(world.money))
+                            egui::RichText::new(euros(world.share_of(local)))
                                 .strong()
                                 .color(theme::ACCENT),
                         );
@@ -556,15 +556,17 @@ fn row_words(d: &Destination, at: bool) -> (String, egui::Color32) {
 }
 
 /// The dead players waiting to be bought back, longest dead first, what
-/// each costs and whether the pool covers it by the time their turn
-/// comes — the order the next mission's start pays them in.
+/// each costs and whether the crew's money between them covers it by
+/// the time their turn comes — the order they are paid for in, a fallen
+/// player's own money first and everybody's pooled after
+/// (`World::buy_back`).
 fn buyback_queue(ui: &mut egui::Ui, world: &World, name: &dyn Fn(u32) -> String) {
     if world.run.fallen.is_empty() {
         return;
     }
     ui.add_space(4.0);
     theme::heading(ui, BUYBACK_HEADING);
-    let mut left = world.money;
+    let mut left = world.crew_money();
     let cost = world.rewards().buyback;
     egui::Grid::new("map-buyback")
         .num_columns(3)
@@ -1297,7 +1299,7 @@ pub fn trader_window(
     mine: &mut Choice,
 ) {
     mine.line = None;
-    let Some(trader) = world.trader_here() else {
+    let Some(trader) = world.trader_here(local) else {
         return;
     };
     if trader_shut(ctx, trader) {
@@ -1311,8 +1313,6 @@ pub fn trader_window(
     if to != u32::MAX && !(to < crew && world.may_change(local, to)) {
         to = local;
     }
-    let relic_id = egui::Id::new("trader-relic-for");
-    let mut relic_to = ctx.data(|d| d.get_temp::<u32>(relic_id)).unwrap_or(local);
     // The lines the others have their eye on, for `line_item` to outline,
     // and the one this player's pointer is on, which it notes.
     let marks: Vec<(TradeLine, egui::Color32)> = mates
@@ -1367,17 +1367,26 @@ pub fn trader_window(
                             // half of the shelf it was in: the weapons come
                             // first, [`world::data::TRADER_WEAPONS`] of them.
                             if (index < world::data::TRADER_WEAPONS) == weapons {
-                                shelf_row(ui, world, index, *slot, row, to, orders);
+                                shelf_row(
+                                    ui,
+                                    world,
+                                    world.wallet(local),
+                                    index,
+                                    *slot,
+                                    row,
+                                    to,
+                                    orders,
+                                );
                                 row += 1;
                             }
                         }
                     }
                     form_heading(ui, TRADER_RELIC, Some(TRADER_RELIC_INTRO));
-                    relic_at_trader(ui, world, trader, local, &mut relic_to, orders, name);
+                    relic_at_trader(ui, world, trader, local, orders);
                     form_heading(ui, TRADER_COMBINE, Some(TRADER_COMBINE_INTRO));
                     combine_rows(ui, world, local, orders, name);
                 });
-            form_total(ui, world, orders);
+            form_total(ui, world, local, orders);
         });
     if let Some(shown) = shown {
         window_shown(ctx, "trader-window-rect", shown.response.rect, mates, false);
@@ -1385,10 +1394,7 @@ pub fn trader_window(
     mine.line = ctx
         .data(|d| d.get_temp::<Option<TradeLine>>(line_eyed_id()))
         .flatten();
-    ctx.data_mut(|d| {
-        d.insert_temp(id, to);
-        d.insert_temp(relic_id, relic_to);
-    });
+    ctx.data_mut(|d| d.insert_temp(id, to));
 }
 
 /// Where the trader's window keeps, for its line items, the lines the
@@ -1444,8 +1450,8 @@ fn trader_shut(ctx: &egui::Context, trader: &world::trader::Trader) -> bool {
 /// The button that brings the Trader panel back, while the crew are at
 /// a trader and the panel is put away; on the map column's head or
 /// under its tab.
-fn trader_reopen(ui: &mut egui::Ui, world: &World) {
-    let Some(trader) = world.trader_here() else {
+fn trader_reopen(ui: &mut egui::Ui, world: &World, local: u32) {
+    let Some(trader) = world.trader_here(local) else {
         return;
     };
     if !trader_shut(ui.ctx(), trader) {
@@ -1632,7 +1638,7 @@ struct Line<'a> {
 /// Draws a line item and answers whether its button was pressed. A line
 /// the pool cannot pay for shows its price in the warning colour, its
 /// button greyed.
-fn line_item(ui: &mut egui::Ui, world: &World, line: Line) -> bool {
+fn line_item(ui: &mut egui::Ui, wallet: economy::Money, line: Line) -> bool {
     let (rect, response) =
         ui.allocate_exact_size(egui::vec2(FORM_WIDTH, LINE_HEIGHT), egui::Sense::hover());
     ui.add_space(2.0);
@@ -1689,7 +1695,7 @@ fn line_item(ui: &mut egui::Ui, world: &World, line: Line) -> bool {
         egui::pos2(rect.right() - 76.0, rect.center().y - 12.0),
         egui::vec2(70.0, 24.0),
     );
-    let affordable = line.price <= world.money;
+    let affordable = line.price <= wallet;
     let text_x = cell.right() + 10.0;
     let name_y = rect.center().y - 8.0;
     let name_galley = painter.layout_no_wrap(
@@ -1829,8 +1835,8 @@ fn tier_cell_tint(tier: u32) -> Option<egui::Color32> {
 }
 
 /// The foot of the form: a double rule, *Restock* while a player holds
-/// Restock Codes (task 118), and the pool's balance as the total.
-fn form_total(ui: &mut egui::Ui, world: &World, orders: &mut Vec<Order>) {
+/// Restock Codes (task 118), and this player's own balance as the total.
+fn form_total(ui: &mut egui::Ui, world: &World, local: u32, orders: &mut Vec<Order>) {
     ui.add_space(4.0);
     let (rule, _) = ui.allocate_exact_size(egui::vec2(FORM_WIDTH, 5.0), egui::Sense::hover());
     for y in [rule.top() + 1.0, rule.bottom() - 1.0] {
@@ -1842,7 +1848,7 @@ fn form_total(ui: &mut egui::Ui, world: &World, orders: &mut Vec<Order>) {
         restock_button(ui, world, orders);
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             ui.label(
-                egui::RichText::new(euros(world.money))
+                egui::RichText::new(euros(world.wallet(local)))
                     .monospace()
                     .strong()
                     .size(20.0)
@@ -1886,9 +1892,11 @@ fn shelf_thing(item: world::trader::ShelfItem) -> bims::combat::Item {
 
 /// One line of the shelf: the thing's icon, name and tier (its numbers on
 /// a hover), its price, and *Buy* — or the stamp that it is sold.
+#[allow(clippy::too_many_arguments)]
 fn shelf_row(
     ui: &mut egui::Ui,
     world: &World,
+    wallet: economy::Money,
     index: usize,
     slot: Option<world::trader::ShelfItem>,
     row: usize,
@@ -1898,7 +1906,7 @@ fn shelf_row(
     let Some(item) = slot else {
         line_item(
             ui,
-            world,
+            wallet,
             Line {
                 face: Face::Empty,
                 tint: None,
@@ -1923,7 +1931,7 @@ fn shelf_row(
     };
     let bought = line_item(
         ui,
-        world,
+        wallet,
         Line {
             face: Face::Thing(thing),
             tint: theme::item_tint(thing),
@@ -1932,7 +1940,7 @@ fn shelf_row(
             note: None,
             price: world.shelf_price(item),
             button: TRADER_BUY,
-            open: world.shelf_price(item) <= world.money,
+            open: world.shelf_price(item) <= wallet,
             tip: Some(crate::crew::tip_of(thing, 1)),
             row,
             key: Some(TradeLine::Shelf(index as u32)),
@@ -1946,17 +1954,16 @@ fn shelf_row(
     }
 }
 
-/// The trader's relic: its plate, name and effect, its price and
-/// *Propose*, whose Bim it is for, and the vote on the table — the
-/// reward's own vote, the pool paying the price when it carries.
+/// This player's own trader's relic: its plate, name and effect, its
+/// price and *Buy* — bought outright for the player's own Bim with its
+/// own money, no vote (every player has a trader, and a relic, of its
+/// own).
 fn relic_at_trader(
     ui: &mut egui::Ui,
     world: &World,
     trader: &world::trader::Trader,
     local: u32,
-    to: &mut u32,
     orders: &mut Vec<Order>,
-    name: &dyn Fn(u32) -> String,
 ) {
     let Some(relic) = trader.relic else {
         ui.label(
@@ -1966,83 +1973,31 @@ fn relic_at_trader(
         );
         return;
     };
-    if *to >= world.players() {
-        *to = local;
-    }
     // With *Trade License* off it (task 118).
-    let proposed = line_item(
+    let price = world.trader_relic_price(relic);
+    let bought = line_item(
         ui,
-        world,
+        world.wallet(local),
         Line {
             face: Face::Relic(relic),
             tint: None,
             name: relic_name(relic),
             tier: None,
             note: Some(relic_line(relic)),
-            price: world.trader_relic_price(relic),
-            button: TRADER_PROPOSE,
-            // Proposing costs nothing yet: the pool pays when the vote
-            // carries, and the world refuses it then if it cannot.
-            open: true,
+            price,
+            button: TRADER_BUY,
+            open: price <= world.wallet(local),
             tip: Some(relic_line(relic)),
             row: 0,
             key: Some(TradeLine::Relic),
         },
     );
-    if proposed {
+    if bought {
         orders.push(Order::ProposeRelic {
             relic: Some(relic),
-            to: *to,
+            to: local,
         });
     }
-    if world.players() > 1 {
-        ui.horizontal_wrapped(|ui| {
-            ui.label(egui::RichText::new(FOR_BIM).small().color(theme::MUTED));
-            for slot in 0..world.players() {
-                if theme::toggle(ui, *to == slot, name(slot)).clicked() {
-                    *to = slot;
-                }
-            }
-        });
-    }
-    let Some(p) = world.trade_relic() else {
-        return;
-    };
-    ui.add_space(2.0);
-    ui.label(
-        egui::RichText::new(relic_proposal_line(p.relic, p.to))
-            .small()
-            .strong(),
-    );
-    ui.horizontal_wrapped(|ui| {
-        for (slot, &yes) in p.accepted.iter().enumerate() {
-            let slot = slot as u32;
-            ui.label(
-                egui::RichText::new(relic_answer(
-                    &name(slot),
-                    yes,
-                    !world.run.is_connected(slot),
-                ))
-                .small()
-                .color(if yes { theme::ACCENT } else { theme::MUTED }),
-            );
-        }
-    });
-    let mine = p.accepted.get(local as usize).copied().unwrap_or(false);
-    ui.horizontal(|ui| {
-        if ui.add_enabled(!mine, egui::Button::new(ACCEPT)).clicked() {
-            orders.push(Order::AcceptRelic(true));
-        }
-        if ui.add_enabled(mine, egui::Button::new(TAKE_BACK)).clicked() {
-            orders.push(Order::AcceptRelic(false));
-        }
-        if ui.button(TRADER_WITHDRAW).clicked() {
-            orders.push(Order::ProposeRelic {
-                relic: None,
-                to: p.to,
-            });
-        }
-    });
 }
 
 /// Every pair the player may combine: two of one kind at one tier under
@@ -2097,16 +2052,16 @@ fn combine_rows(
         };
         let combined = line_item(
             ui,
-            world,
+            world.wallet(local),
             Line {
                 face: Face::Thing(first),
                 tint: tier_cell_tint(k.2 + 1),
                 name: what,
                 tier: Some((k.2, Some(k.2 + 1))),
                 note: Some(combine_from(worn.map(name).as_deref())),
-                price: world.rewards().combine_fee,
+                price: world.combine_fee(),
                 button: TRADER_COMBINE,
-                open: world.rewards().combine_fee <= world.money,
+                open: world.combine_fee() <= world.wallet(local),
                 tip: None,
                 row: seen.len(),
                 key: Some(TradeLine::Combine(seen.len() as u32)),

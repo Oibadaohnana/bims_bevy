@@ -153,8 +153,12 @@ fn a_day_nought_site_is_pistols_and_no_armour_and_clears_on_the_last_down() {
     assert!(!world.droid_station_cleared(station));
     assert_eq!(
         world.run.pending_bounty,
-        (them.len() as u64 - 1) * crate::world::bounty_for(1),
-        "owed for each down, at tier one"
+        (them.len() as u64 - 1)
+            * crate::world::bounty_share(
+                crate::world::bounty_for(1),
+                100 - data::BOUNTY_SPREAD_PERCENT
+            ),
+        "owed for each down, at tier one, a pistol and nothing worn the least"
     );
     // The last one down clears it, there and then, and pays.
     world
@@ -165,22 +169,30 @@ fn a_day_nought_site_is_pistols_and_no_armour_and_clears_on_the_last_down() {
         .room
         .knock_out_for_probe(last);
     let mut cleared = false;
+    let mut rewarded = false;
+    let worth = crate::world::bounty_share(
+        crate::world::bounty_for(1),
+        100 - data::BOUNTY_SPREAD_PERCENT,
+    );
     for _ in 0..3 {
         let events = world.step(&[]);
         cleared |= events
             .iter()
             .any(|e| matches!(e, WorldEvent::DroidStationCleared { .. }));
+        // And its pay said for the numbers over the body.
+        rewarded |= events.iter().any(|e| {
+            matches!(e, WorldEvent::EnemyRewarded { who, xp, money, .. }
+                if *who == last as u32 && *xp == class::XP_ENEMY_DOWN && *money == worth)
+        });
     }
+    assert!(rewarded, "the last one's pay said");
     assert!(cleared && world.droid_station_cleared(station));
     let room = &world.residents.as_ref().unwrap().aboard.room;
     assert!(
         them.iter().all(|&w| room.is_alive(w)),
         "down, not dead: the clear waits on nobody bleeding out"
     );
-    assert_eq!(
-        world.money,
-        money + them.len() as u64 * crate::world::bounty_for(1)
-    );
+    assert_eq!(world.money, money + them.len() as u64 * worth);
     assert_eq!(world.run.pending_bounty, 0);
     assert_eq!(
         world.progress_of(0).xp,

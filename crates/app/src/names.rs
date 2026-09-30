@@ -1311,6 +1311,23 @@ pub fn grenades_line(carried: u32, cooldown: f64) -> String {
 pub fn heal_gain(points: u32) -> String {
     format!("+{points}")
 }
+/// What an enemy down paid, over where it fell: the money and the
+/// experience, a line each (`theme::reward_numbers`).
+pub fn reward_money(money: u64) -> String {
+    format!("+{}", crate::format::euros(money))
+}
+pub fn reward_xp(xp: u32) -> String {
+    format!("+{xp} XP")
+}
+/// A hit's number over whoever took it (`theme::hit_number`): the damage,
+/// and a critical one marked.
+pub fn hit_damage(damage: u32, crit: bool) -> String {
+    if crit {
+        format!("{damage}!")
+    } else {
+        damage.to_string()
+    }
+}
 pub const HAIR_NAMES: [&str; 8] = [
     "Cropped", "Long", "Bald", "Bob", "Bun", "Mohawk", "Ponytail", "Curly",
 ];
@@ -1545,6 +1562,10 @@ pub fn event_line(event: WorldEvent) -> Option<String> {
         WorldEvent::Carried { who: w, .. } => format!("{} sets them down.", who(w)),
         WorldEvent::TownHeld { .. } => TOWN_HELD.into(),
         WorldEvent::TownsfolkJoined { count } => townsfolk_joined(count),
+        // A picture's event: the numbers over the body say it, and the
+        // Republic's own line says the money.
+        WorldEvent::EnemyRewarded { .. } => return None,
+        WorldEvent::Hit { .. } => return None,
         WorldEvent::Bounty { amount } => {
             format!("The Republic pays {}.", crate::format::euros(amount))
         }
@@ -1750,7 +1771,7 @@ pub const RELIC_NAMES: [&str; 37] = [
     "Tether Field",
     "Wide Angle Optics",
     "Cover Formation",
-    "Scrap Collector",
+    "Strong Will",
     "Total Teardown",
     "Lifeline",
     "Crossfire",
@@ -1856,8 +1877,10 @@ pub fn relic_line(relic: world::Relic) -> String {
             d::TETHER_FIELD_SECONDS
         ),
         Lifeline => format!(
-            "Once a mission, when a crewmate within {} tiles goes down, both of them are untouchable for {} s.",
+            "Once a mission, when a player's Bim within {} tiles — or this one — falls under {}% health, both get a shield of {} HP for {} s. A bot never sets it off.",
             d::LIFELINE_TILES,
+            d::LIFELINE_BELOW_PERCENT,
+            d::LIFELINE_SHIELD_HP,
             d::LIFELINE_SECONDS
         ),
         // Flanker.
@@ -1875,10 +1898,10 @@ pub fn relic_line(relic: world::Relic) -> String {
             d::SIGNAL_SCRAMBLER_SECONDS,
             d::SIGNAL_SCRAMBLER_COOLDOWN
         ),
-        WideAngleOptics => {
-            "This Bim's side-or-behind zone is 30° wider on each side — and so is a Guardian's shield narrower against its shots."
-                .into()
-        }
+        WideAngleOptics => format!(
+            "+{} tiles of weapon range while this Bim stands still.",
+            d::WIDE_ANGLE_OPTICS_TILES
+        ),
         Crossfire => format!(
             "While this Bim and a crewmate stand on opposite sides of a machine, both deal +{}% damage to it.",
             d::CROSSFIRE_DAMAGE_PERCENT
@@ -1895,11 +1918,11 @@ pub fn relic_line(relic: world::Relic) -> String {
             d::SPOTTER_SECONDS
         ),
         SquadMorale => format!(
-            "Each machine this Bim or a bot destroys takes {} s off this Bim's class ability cooldowns.",
+            "Each machine destroyed, by anybody, takes {} s off this Bim's class ability cooldowns.",
             d::SQUAD_MORALE_SECONDS
         ),
         CoverFormation => format!(
-            "Bots within {} tiles take {}% less damage.",
+            "This Bim and the crew within {} tiles take {}% less damage.",
             d::COVER_FORMATION_TILES,
             d::COVER_FORMATION_PERCENT
         ),
@@ -1910,20 +1933,21 @@ pub fn relic_line(relic: world::Relic) -> String {
         ),
         // Supply Line.
         HazardPay => format!(
-            "The crew are paid {} each time a site is cleared.",
+            "This Bim's player is paid {} divided by the number of players each time a site is cleared.",
             crate::format::euros(d::HAZARD_PAY)
         ),
         TradeLicense => format!(
-            "Trader prices are {}% lower for the crew.",
-            d::TRADE_LICENSE_PERCENT
+            "Trader prices are {}% lower for every player, {}% for this Bim's.",
+            d::TRADE_LICENSE_PERCENT,
+            d::TRADE_LICENSE_HOLDER_PERCENT
         ),
         RestockCodes => {
             "Once a trader visit, the trader's weapons and armour can be rolled again. The relic is not."
                 .into()
         }
-        ScrapCollector => format!(
-            "Each machine this Bim destroys earns the crew {}, paid when the site is cleared.",
-            crate::format::euros(d::SCRAP_COLLECTOR_PAY)
+        StrongWill => format!(
+            "This Bim's abilities last {}% longer: a Rampage, an EMP's stun, a Cloak, a Taunt, a Juggernaut, a Rally and a Battle Cry.",
+            d::STRONG_WILL_PERCENT
         ),
         WarChest => format!(
             "+{}% damage for every {} in the crew's pool a player, up to +{}%.",
@@ -1963,7 +1987,7 @@ pub const FIGHT_WON_HELD: &str =
 pub const FIGHT_WON_MACHINES: &str = "Machines destroyed";
 pub const FIGHT_WON_PEOPLE: &str = "Manufacturers down";
 pub const FIGHT_WON_BOUNTY: &str = "Bounty paid";
-pub const FIGHT_WON_POOL: &str = "The pool";
+pub const FIGHT_WON_POOL: &str = "Your share";
 pub const FIGHT_WON_BOTS: &str = "The rest of the crew";
 pub const FIGHT_WON_RELIC: &str = "Relic kept";
 pub const FIGHT_WON_JOINED: &str = "Townsfolk joined";
@@ -2233,8 +2257,8 @@ pub const TRADER_DELIVER_TO: &str = "Deliver to";
 /// (`front_premium`) is its hover.
 pub const TRADER_FRONT_STAMP: &str = "Front prices";
 /// The total line at the foot of the form.
-pub const TRADER_BALANCE: &str = "Pool balance";
-pub const TRADER_INTRO: &str = "Buy off the shelf out of the pool — onto your own Bim, a bot, or into the armory. What it replaces goes into the armory. Nothing comes back once it is sold. Tab opens the Armory beside this.";
+pub const TRADER_BALANCE: &str = "Your balance";
+pub const TRADER_INTRO: &str = "Buy off your own shelf with your own money — every player has a trader of their own, prices shared by the crew — onto your own Bim, a bot, or into the armory. What it replaces goes into the armory. Nothing comes back once it is sold. Tab opens the Armory beside this.";
 pub const TRADER_WEAPONS: &str = "Weapons";
 pub const TRADER_ARMOUR: &str = "Armour";
 pub const TRADER_SOLD: &str = "SOLD";
@@ -2242,9 +2266,7 @@ pub const TRADER_BUY: &str = "Buy";
 pub const TRADER_INTO_ARMORY: &str = "Armory";
 pub const TRADER_RELIC: &str = "Relic";
 pub const TRADER_NO_RELIC: &str = "Sold.";
-pub const TRADER_RELIC_INTRO: &str = "Bought together: propose it for a player's Bim and every player has to say yes. A new proposal clears them. The pool pays when it carries.";
-pub const TRADER_PROPOSE: &str = "Propose";
-pub const TRADER_WITHDRAW: &str = "Withdraw";
+pub const TRADER_RELIC_INTRO: &str = "Your own: every player's trader has a relic of its own, bought outright for your own Bim with your own money.";
 pub const TRADER_COMBINE: &str = "Combine";
 pub const TRADER_COMBINE_INTRO: &str = "Two weapons or two pieces of one kind at one tier make one of the next tier, whole. Out of the armory, off your own Bim or off a bot. Where one of the two is worn, the result is worn in its place. Tier three is as far as it goes.";
 pub const TRADER_COMBINE_NONE: &str = "Nothing to combine.";
@@ -2482,7 +2504,7 @@ pub const TRADER_SHUT_TIP: &str =
 pub const TRADER_REOPEN: &str = "Trader";
 pub const TRADER_REOPEN_TIP: &str = "Bring back the trader's purchase order.";
 pub const MAP_DAY: &str = "Day";
-pub const MAP_POOL: &str = "Pool";
+pub const MAP_POOL: &str = "Your money";
 pub const MAP_PICK_HINT: &str =
     "Pick a place on the list or on the chart: the trip is quoted here, and put to the crew.";
 /// The bar at the foot of the map (the second map rework): the trip picked and the

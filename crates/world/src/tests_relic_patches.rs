@@ -254,7 +254,7 @@ fn parts_broker_pays_for_a_crippled_machine() {
 /// **Blind Spot** is more damage from the side or behind; **Wide Angle
 /// Optics** makes the side wider.
 #[test]
-fn blind_spot_and_wide_angle_optics_read_the_machine_s_front() {
+fn blind_spot_reads_the_machine_s_front() {
     let mut world = arena(1);
     let i = a_machine(&world);
     world.give_relic_for_probe(0, Relic::BlindSpot);
@@ -284,8 +284,8 @@ fn blind_spot_and_wide_angle_optics_read_the_machine_s_front() {
         ),
         "side"
     );
-    // Forty-five degrees off: the front for everybody, the side with the
-    // optics.
+    // Forty-five degrees off is the front, for everybody (task 142: *Wide
+    // Angle Optics* made it the side for its holder until then).
     let (c, s) = (
         std::f32::consts::FRAC_1_SQRT_2,
         std::f32::consts::FRAC_1_SQRT_2,
@@ -298,44 +298,27 @@ fn blind_spot_and_wide_angle_optics_read_the_machine_s_front() {
     world.give_relic_for_probe(0, Relic::WideAngleOptics);
     assert!(close(
         taken(&mut world, 0, i, DroidPart::Chassis, DroidPart::Chassis),
-        10.0 * f
+        10.0
     ));
-    assert_eq!(world.front_cos_of(0), data::WIDE_ANGLE_OPTICS_FRONT_COS);
-    assert_eq!(world.front_cos_of(1), bims::balance::GUARDIAN_SHIELD_COS);
 }
 
-/// **Wide Angle Optics** narrows a Guardian's shield against its holder's
-/// shots alone: a bolt coming in forty-five degrees off the shield's
-/// middle is stopped for everybody else and not for it.
+/// **Wide Angle Optics** (task 142): its holder's skill carries its tiles
+/// as the still range, which the room puts on the reach while the Bim
+/// stands still; nobody else's does.
 #[test]
-fn wide_angle_optics_narrows_the_guardian_s_shield_for_its_holder() {
-    use bims::combat::shield_stops_within;
-    let heading = vec2(1.0, 0.0);
-    let (c, s) = (
-        std::f32::consts::FRAC_1_SQRT_2,
-        std::f32::consts::FRAC_1_SQRT_2,
-    );
-    let toward = heading.rotate_by(c, s);
-    assert!(shield_stops_within(
-        heading,
-        toward,
-        bims::balance::GUARDIAN_SHIELD_COS
-    ));
-    assert!(!shield_stops_within(
-        heading,
-        toward,
-        data::WIDE_ANGLE_OPTICS_FRONT_COS
-    ));
-    assert!(shield_stops_within(
-        heading,
-        heading,
-        data::WIDE_ANGLE_OPTICS_FRONT_COS
-    ));
-    // And the world hands the room the holder's front, nobody else's.
+fn wide_angle_optics_is_range_standing_still() {
     let mut world = crewed_world(flyer(2), REFERENCE_MONEY, 2, 2);
+    assert_eq!(world.skill_of(1).still_range, 0.0);
     world.give_relic_for_probe(1, Relic::WideAngleOptics);
-    assert_eq!(world.front_cos_of(1), data::WIDE_ANGLE_OPTICS_FRONT_COS);
-    assert_eq!(world.front_cos_of(0), bims::balance::GUARDIAN_SHIELD_COS);
+    assert_eq!(world.skill_of(1).still_range, data::WIDE_ANGLE_OPTICS_TILES);
+    assert_eq!(world.skill_of(0).still_range, 0.0, "the holder's alone");
+    world.step(&[]);
+    assert!(!world.aboard.room.is_walking(1));
+    assert_eq!(
+        world.aboard.room.shot_skill(1).range,
+        data::WIDE_ANGLE_OPTICS_TILES,
+        "standing, handed to the room"
+    );
 }
 
 /// **Crossfire**: the holder and a crewmate on opposite sides of a
@@ -468,8 +451,8 @@ fn stand_near(world: &mut World, who: usize, tiles: f32) {
 }
 
 /// **Field Radio** lifts a crewmate's odds within its tiles, never its
-/// holder's; **Cover Formation** takes a share off every hit on a bot
-/// within its tiles, never a player's.
+/// holder's; **Cover Formation** takes a share off every hit on its holder
+/// and on every crewmate within its tiles, bot or player (task 142).
 #[test]
 fn field_radio_and_cover_formation_are_auras() {
     let mut world = crewed_world(flyer(2), REFERENCE_MONEY, 2, 3);
@@ -490,11 +473,20 @@ fn field_radio_and_cover_formation_are_auras() {
         close(world.skill_of(2).damage_taken, cover),
         "a bot beside it"
     );
-    assert!(close(world.skill_of(1).damage_taken, 1.0), "a bot's alone");
-    stand_near(&mut world, 1, 8.0);
-    stand_near(&mut world, 2, 8.0);
+    assert!(
+        close(world.skill_of(1).damage_taken, cover),
+        "a player beside it"
+    );
+    assert!(close(world.skill_of(0).damage_taken, cover), "its own");
+    stand_near(&mut world, 1, data::COVER_FORMATION_TILES + 3.0);
+    stand_near(&mut world, 2, data::COVER_FORMATION_TILES + 3.0);
     assert!(close(world.skill_of(1).accuracy, aim), "out of its tiles");
     assert!(close(world.skill_of(2).damage_taken, 1.0));
+    assert!(close(world.skill_of(1).damage_taken, 1.0));
+    assert!(
+        close(world.skill_of(0).damage_taken, cover),
+        "its own still"
+    );
 }
 
 /// **Spotter**: the machine its holder hit last takes more from every
@@ -537,9 +529,10 @@ fn spotter_marks_the_machine_it_hit_last() {
     );
 }
 
-/// **Squad Morale**: a second off its holder's class cooldowns for its own
-/// kill and a bot's; with **Kill Relay** four for its own. Kill Relay is
-/// three seconds now.
+/// **Squad Morale**: a second off its holder's class cooldowns for every
+/// kill, whoever made it — its own, a bot's, another player's, a sentry's
+/// (task 142); with **Kill Relay** four for its own. Kill Relay is three
+/// seconds now.
 #[test]
 fn squad_morale_and_kill_relay_take_seconds_off_for_kills() {
     let mut world = crewed_world(flyer(2), REFERENCE_MONEY, 2, 3);
@@ -566,7 +559,29 @@ fn squad_morale_and_kill_relay_take_seconds_off_for_kills() {
     let bot = seconds_off(&mut world, 2);
     assert!((bot - data::SQUAD_MORALE_SECONDS).abs() < 1e-6, "{bot}");
     let player = seconds_off(&mut world, 1);
-    assert!(player.abs() < 1e-6, "another player's kill is not a bot's");
+    assert!(
+        (player - data::SQUAD_MORALE_SECONDS).abs() < 1e-6,
+        "another player's: {player}"
+    );
+    // Nobody's hit last (a sentry's bolt, a grenade): a kill all the same.
+    let now = world.mission_minutes();
+    world.charge_timers[0][Charge::Grenade.code() as usize] = Some(now);
+    let left = world.charge_cooldown_left(0, Charge::Grenade);
+    let mut events = Vec::new();
+    world.machine_kills_noted(
+        &[MachineKill {
+            by: None,
+            bounty,
+            crippled: false,
+            flanked: false,
+        }],
+        &mut events,
+    );
+    let nobody = left - world.charge_cooldown_left(0, Charge::Grenade);
+    assert!(
+        (nobody - data::SQUAD_MORALE_SECONDS).abs() < 1e-6,
+        "{nobody}"
+    );
 }
 
 /// **Rally Point**: once a mission, an ability used gets every crewmate
@@ -699,53 +714,108 @@ fn tether_field_shelters_the_crewmate_revived() {
     );
 }
 
-/// **Lifeline**: once a mission, a crewmate going down near its holder
-/// makes the two of them untouchable.
+/// Crew member `who` hit from its full bar to `left` hit points, and the
+/// relics' reading of it: what `settle_relic_downs` says of a fall.
+fn fall_to(world: &mut World, who: usize, left: f32) -> Vec<WorldEvent> {
+    world.aboard.room.issue(who, Gear::issued());
+    let full = bims::health::MAX_HEALTH;
+    let short = full - world.aboard.room.health(who);
+    world.aboard.room.heal(who, short);
+    let before = world.downs_before_the_step();
+    world.aboard.room.wound(who, Part::Body, full - left);
+    let mut events = Vec::new();
+    world.settle_relic_downs(&before, &mut events);
+    events
+}
+
+/// **Lifeline** (task 142): once a mission, a player's Bim near its holder
+/// — or the holder itself — falling under a quarter of its health gives
+/// the two of them a shield for its seconds. A bot falling sets nothing
+/// off, and neither does a player out of its tiles.
 #[test]
-fn lifeline_shelters_a_crewmate_going_down_once_a_mission() {
+fn lifeline_shields_a_player_falling_low_once_a_mission() {
+    let fired = |events: &[WorldEvent]| {
+        events.contains(&WorldEvent::RelicFired {
+            who: 0,
+            relic: Relic::Lifeline.code(),
+        })
+    };
+    let hp = data::LIFELINE_SHIELD_HP;
+    let mut world = crewed_world(flyer(2), REFERENCE_MONEY, 2, 3);
+    world.give_relic_for_probe(0, Relic::Lifeline);
+    // A bot beside it: nothing.
+    stand_near(&mut world, 2, 2.0);
+    assert!(!fired(&fall_to(&mut world, 2, 10.0)), "a bot");
+    // A player out of its tiles: nothing.
+    stand_near(&mut world, 1, data::LIFELINE_TILES + 3.0);
+    assert!(!fired(&fall_to(&mut world, 1, 10.0)), "out of its tiles");
+    // Still over the line: nothing.
+    stand_near(&mut world, 1, 2.0);
+    assert!(!fired(&fall_to(&mut world, 1, 30.0)), "over the line");
+    // Under it: the two shielded.
+    assert!(fired(&fall_to(&mut world, 1, 10.0)));
+    assert_eq!(world.aboard.room.shield_hp(0), hp);
+    assert_eq!(world.aboard.room.shield_hp(1), hp);
+    assert_eq!(world.aboard.room.shield_hp(2), 0.0, "nobody else");
+    run_seconds(&mut world, f64::from(data::LIFELINE_SECONDS) + 0.5);
+    assert_eq!(world.aboard.room.shield_hp(0), 0.0, "for its seconds");
+    // Again the same mission: nothing.
+    assert!(!fired(&fall_to(&mut world, 1, 10.0)), "once a mission");
+    assert_eq!(world.aboard.room.shield_hp(1), 0.0);
+
+    // The holder falling low itself: its own shield.
     let mut world = crewed_world(flyer(2), REFERENCE_MONEY, 2, 2);
     world.give_relic_for_probe(0, Relic::Lifeline);
-    stand_near(&mut world, 1, 2.0);
-    world.aboard.room.knock_out_for_probe(1);
-    let events = world.step(&[]);
-    assert!(world.aboard.room.is_down(1));
-    assert!(events.contains(&WorldEvent::RelicFired {
-        who: 0,
-        relic: Relic::Lifeline.code()
-    }));
-    assert!(world.aboard.room.is_surging(0) && world.aboard.room.is_surging(1));
-    run_seconds(&mut world, f64::from(data::LIFELINE_SECONDS) + 0.5);
-    assert!(!world.aboard.room.is_surging(0), "for its seconds");
-    // Up and down again the same mission: nothing.
-    world.aboard.room.bring_round(1, 0.5);
-    world.step(&[]);
-    world.aboard.room.knock_out_for_probe(1);
-    world.step(&[]);
-    assert!(world.aboard.room.is_down(1));
-    assert!(!world.aboard.room.is_surging(0), "once a mission");
+    stand_near(&mut world, 1, data::LIFELINE_TILES + 3.0);
+    assert!(fired(&fall_to(&mut world, 0, 10.0)));
+    assert_eq!(world.aboard.room.shield_hp(0), hp);
+    assert_eq!(world.aboard.room.shield_hp(1), 0.0);
 }
 
 // --- Supply Line ---------------------------------------------------------------------------
 
-/// **Scrap Collector** is money on its holder's own kills, pending with
-/// the bounty.
+/// **Strong Will** (task 142, in *Scrap Collector*'s place): every one of
+/// its holder's abilities with a length lasts its share longer, and
+/// nobody else's.
 #[test]
-fn scrap_collector_pays_for_its_holder_s_kills() {
+fn strong_will_lengthens_its_holder_s_abilities() {
     let mut world = crewed_world(flyer(2), REFERENCE_MONEY, 2, 2);
-    world.give_relic_for_probe(0, Relic::ScrapCollector);
-    let bounty = crate::world::bounty_for(1);
-    let kill = |by| MachineKill {
-        by: Some(by),
-        bounty,
-        crippled: false,
-        flanked: false,
+    let lengths = |world: &World, who: u32| {
+        [
+            world.rampage_seconds(who),
+            f64::from(world.emp_stun(who)),
+            world.cloak_seconds(who),
+            world.taunt_seconds(who),
+            world.juggernaut_seconds(who),
+            world.rally_seconds(who),
+            world.battle_cry_seconds(who),
+        ]
     };
-    let mut events = Vec::new();
-    assert_eq!(
-        world.machine_kills_noted(&[kill(0)], &mut events),
-        bounty + data::SCRAP_COLLECTOR_PAY
-    );
-    assert_eq!(world.machine_kills_noted(&[kill(1)], &mut events), bounty);
+    for (class, slot) in [
+        (Class::Soldier, 0),
+        (Class::Engineer, 0),
+        (Class::Medic, 0),
+        (Class::Tank, 0),
+        (Class::Commander, 0),
+    ] {
+        world.set_class(slot, class).unwrap();
+        world.set_class(1, class).unwrap();
+        let mut events = Vec::new();
+        for who in [0, 1] {
+            world.award(who, crate::class::LEVEL_XP[15], &mut events);
+        }
+        world.set_ranks_for_probe(slot, [4, 4, 4, 4]);
+        world.set_ranks_for_probe(1, [4, 4, 4, 4]);
+        let plain = lengths(&world, 0);
+        world.give_relic_for_probe(0, Relic::StrongWill);
+        let longer = lengths(&world, 0);
+        let f = relic::factor(data::STRONG_WILL_PERCENT);
+        for (a, b) in plain.iter().zip(longer) {
+            assert!((a * f - b).abs() < 1e-4, "{class:?}: {a} {b}");
+        }
+        assert_eq!(lengths(&world, 1), plain, "nobody else's");
+        world.run.relics.held[0].clear();
+    }
 }
 
 /// **Hazard Pay**: a site cleared pays the crew.
@@ -757,7 +827,7 @@ fn hazard_pay_pays_a_site_cleared() {
     for i in 0..room.droid_count() as usize {
         room.strike_droid(i, DroidPart::Chassis, 1e6);
     }
-    let money = world.money;
+    let money = world.crew_money();
     let mut events = Vec::new();
     for _ in 0..200 {
         events.extend(world.step(&[]));
@@ -776,7 +846,7 @@ fn hazard_pay_pays_a_site_cleared() {
             _ => 0,
         })
         .sum();
-    assert_eq!(world.money, money + bounty + data::HAZARD_PAY);
+    assert_eq!(world.crew_money(), money + bounty + data::HAZARD_PAY);
 }
 
 /// **War Chest**: its damage up with the pool a player, to its cap.
@@ -785,7 +855,7 @@ fn war_chest_reads_the_pool_a_player() {
     let mut world = crewed_world(flyer(2), REFERENCE_MONEY, 2, 2);
     let base = world.skill_of(0).damage;
     world.give_relic_for_probe(0, Relic::WarChest);
-    world.money = 10_999;
+    world.set_money_for_probe(10_999);
     // Five thousand and a bit a player: five steps.
     assert_eq!(
         world.war_chest_percent(0),
@@ -793,9 +863,9 @@ fn war_chest_reads_the_pool_a_player() {
     );
     let f = relic::factor(world.war_chest_percent(0)) as f32;
     assert!(close(world.skill_of(0).damage, base * f));
-    world.money = 100_000_000;
+    world.set_money_for_probe(100_000_000);
     assert_eq!(world.war_chest_percent(0), data::WAR_CHEST_CAP_PERCENT);
-    world.money = 0;
+    world.set_money_for_probe(0);
     assert!(close(world.skill_of(0).damage, base));
     assert_eq!(world.war_chest_percent(1), 0, "the holder's");
 }
@@ -823,7 +893,7 @@ fn at_a_trader() -> World {
 #[test]
 fn trade_license_is_cheaper_at_the_trader() {
     let mut world = at_a_trader();
-    let item = world.trader_here().unwrap().shelf[0].unwrap();
+    let item = world.trader_here(0).unwrap().shelf[0].unwrap();
     let price = world.shelf_price(item);
     let relic_price = world.trader_relic_price(Relic::FocusingLens);
     world.give_relic_for_probe(0, Relic::TradeLicense);
@@ -849,15 +919,15 @@ fn restock_codes_rolls_the_shelf_again_once_a_visit() {
         }
     )));
     world.give_relic_for_probe(0, Relic::RestockCodes);
-    let shelf = world.trader_here().unwrap().shelf.clone();
-    let relic = world.trader_here().unwrap().relic;
+    let shelf = world.trader_here(0).unwrap().shelf.clone();
+    let relic = world.trader_here(0).unwrap().relic;
     let before = world_checksum(&world);
     let events = world.step(&[Command::Restock { slot: 0 }]);
     assert!(
         events.contains(&WorldEvent::Restocked { slot: 0 }),
         "{events:?}"
     );
-    let after = world.trader_here().unwrap();
+    let after = world.trader_here(0).unwrap();
     assert_ne!(after.shelf, shelf, "another shelf");
     assert_eq!(after.shelf.len(), shelf.len());
     assert_eq!(after.relic, relic, "the relic is never rolled");

@@ -48,6 +48,28 @@ pub struct Surge {
     pub left: f32,
 }
 
+/// A shield on a body (task 142, a relic's *Lifeline*): the hit points it
+/// still takes before a hit reaches the armour, the seconds of the room's
+/// clock it has left, and what it began with, for the picture.
+#[derive(Clone, Copy, PartialEq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct Shield {
+    pub hp: f32,
+    pub left: f32,
+    pub full: f32,
+}
+
+impl Shield {
+    /// What is left of it, nought to one.
+    pub fn share(&self) -> f32 {
+        if self.full > 0.0 {
+            (self.hp / self.full).clamp(0.0, 1.0)
+        } else {
+            0.0
+        }
+    }
+}
+
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Footprint {
     pub pos: Vec2,
@@ -78,6 +100,12 @@ pub struct Bim {
     /// (`Game::strike`). Set by the world (`Game::set_surge`), counted
     /// down here. Saved with the room and in `world_checksum`.
     pub surge: Option<Surge>,
+    /// A relic's shield on this body (task 142): a hit takes it down
+    /// before it reaches the armour, a surge's hit leaves it alone
+    /// (`Game::strike`). Set by the world (`Game::set_shield`), counted
+    /// down here. Saved with the room and in `world_checksum` where set.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub shield: Option<Shield>,
     /// Standing as a wall (feature 77): a tank with Bulwark on — half
     /// pace, and the crew close behind him are in cover against a shot
     /// that comes through him. Toggled by the world
@@ -247,6 +275,7 @@ impl Bim {
             braced: false,
             beaming: false,
             surge: None,
+            shield: None,
             bulwark: false,
             hits_taken: 0,
             shots: 0,

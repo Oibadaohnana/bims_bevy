@@ -705,7 +705,8 @@ pub fn initials(name: &str) -> String {
 
 // --- the top frame ------------------------------------------------------------------
 
-/// The frame at the top centre: the day, the pool, the bounty waiting on
+/// The frame at the top centre: the day, this player's money (`local`'s
+/// wallet and its share of the takings), the bounty waiting on
 /// the site, the one warning that matters most with how many more are up
 /// behind it, and the pause. Never left of `clear`, which is the
 /// portraits' right edge. The rectangle it took.
@@ -714,6 +715,7 @@ pub fn top_frame(
     canvas: egui::Rect,
     clear: f32,
     world: &world::World,
+    local: u32,
     threats: &[Threat],
     paused: bool,
 ) -> egui::Rect {
@@ -731,7 +733,7 @@ pub fn top_frame(
                     ui.label(egui::RichText::new(day_word(world.day())).strong());
                     ui.add_space(4.0);
                     ui.label(
-                        egui::RichText::new(euros(world.money))
+                        egui::RichText::new(euros(world.share_of(local)))
                             .strong()
                             .color(theme::ACCENT),
                     );

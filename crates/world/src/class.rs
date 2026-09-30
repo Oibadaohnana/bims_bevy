@@ -731,7 +731,7 @@ pub const SENTRY_HEALTH: [f32; 4] = [200.0, 250.0, 300.0, 400.0];
 pub const SENTRY_RANGE: [f32; 4] = [5.0, 5.0, 5.0, 5.0];
 /// Seconds of the mission clock from one laid to the next, a rank —
 /// counted from the laying.
-pub const SENTRY_COOLDOWN: [f64; 4] = [150.0, 140.0, 130.0, 120.0];
+pub const SENTRY_COOLDOWN: [f64; 4] = ULTIMATE_COOLDOWN;
 /// Game minutes of working steps to lay it, at every rank. A hit does
 /// not interrupt it.
 pub const SENTRY_MINUTES: f64 = 3.0;
@@ -781,7 +781,7 @@ pub const RAMPAGE_FIRE_RATE: [f32; 4] = [1.5, 1.75, 2.0, 2.0];
 /// What the damage taken is multiplied by while it runs, a rank.
 pub const RAMPAGE_DAMAGE_TAKEN: [f32; 4] = [0.80, 0.75, 0.70, 0.70];
 /// Seconds of the mission clock from one Rampage to the next, a rank.
-pub const RAMPAGE_COOLDOWN: [f64; 4] = [150.0, 135.0, 120.0, 120.0];
+pub const RAMPAGE_COOLDOWN: [f64; 4] = ULTIMATE_COOLDOWN;
 /// The rank from which a machine the soldier downs during a Rampage adds
 /// [`RAMPAGE_EXTEND_SECONDS`] to it.
 pub const RAMPAGE_EXTEND_RANK: u8 = 4;
@@ -914,7 +914,13 @@ pub const JUGGERNAUT_SECONDS: [f64; 4] = [6.0, 7.0, 8.0, 10.0];
 /// What the damage he takes is multiplied by while it runs, a rank.
 pub const JUGGERNAUT_DAMAGE_TAKEN: [f32; 4] = [0.50, 0.40, 0.35, 0.30];
 /// Seconds of the mission clock from one Juggernaut to the next, a rank.
-pub const JUGGERNAUT_COOLDOWN: [f64; 4] = [150.0, 140.0, 130.0, 120.0];
+pub const JUGGERNAUT_COOLDOWN: [f64; 4] = ULTIMATE_COOLDOWN;
+
+/// Every timed ultimate's cooldown, a rank: seventy seconds at the first
+/// and ten fewer a rank after it (the Sentry, Rampage and Juggernaut; the
+/// Cloak's own [`CLOAK_COOLDOWN`] is under it already, and Reinforcements
+/// come once a mission).
+pub const ULTIMATE_COOLDOWN: [f64; 4] = [70.0, 60.0, 50.0, 40.0];
 
 // --- the commander's numbers (task 129) ---------------------------------------
 //
@@ -1195,6 +1201,6 @@ mod tests {
         assert_eq!(BULWARK_PACE, [0.5, 0.6, 0.7, 0.8]);
         assert_eq!(JUGGERNAUT_SECONDS, [6.0, 7.0, 8.0, 10.0]);
         assert_eq!(JUGGERNAUT_DAMAGE_TAKEN, [0.50, 0.40, 0.35, 0.30]);
-        assert_eq!(JUGGERNAUT_COOLDOWN, [150.0, 140.0, 130.0, 120.0]);
+        assert_eq!(JUGGERNAUT_COOLDOWN, [70.0, 60.0, 50.0, 40.0]);
     }
 }

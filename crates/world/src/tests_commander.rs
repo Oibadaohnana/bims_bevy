@@ -207,7 +207,7 @@ fn a_hire_a_commander_makes_is_cheaper_and_nobody_s_experience() {
         .body_position(crate::LootSource::Resident(merc))
         .expect("alongside");
     world.aboard.room.put_for_probe(0, at);
-    let money = world.money;
+    let money = world.wallet(0);
     let events = world.step(&[Command::Hire {
         slot: 0,
         who: 0,
@@ -217,7 +217,7 @@ fn a_hire_a_commander_makes_is_cheaper_and_nobody_s_experience() {
         events.iter().any(|e| matches!(e, WorldEvent::Hired { .. })),
         "{events:?}"
     );
-    assert_eq!(world.money, money - discounted);
+    assert_eq!(world.wallet(0), money - discounted);
     let hired = world.hired().last().expect("a contract");
     assert_eq!(hired.fee, discounted, "the contract's fee is the discount");
     assert_eq!(world.progress_of(0).xp, before, "the commander who hired");
@@ -246,14 +246,14 @@ fn a_hire_by_anybody_else_pays_in_full_and_gives_no_experience() {
     // Crew member 2 does the hiring, standing beside the commander.
     world.aboard.room.put_for_probe(2, at);
     world.aboard.room.put_for_probe(0, at);
-    let money = world.money;
+    let money = world.wallet(2);
     let events = world.step(&[Command::Hire {
         slot: 2,
         who: 2,
         resident: merc,
     }]);
     assert!(events.iter().any(|e| matches!(e, WorldEvent::Hired { .. })));
-    assert_eq!(world.money, money - full, "the full fee");
+    assert_eq!(world.wallet(2), money - full, "the full fee");
     assert_eq!(
         world.progress_of(0).xp,
         0,

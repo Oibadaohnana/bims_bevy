@@ -143,7 +143,7 @@ fn building_and_deconstructing_leave_worth_unchanged() {
     )
     .expect("a wall on open deck");
     world.ship.design = next;
-    world.money -= price;
+    world.spend_shared(price);
     world.on_ship_changed();
     assert_eq!(world.worth(), before, "a wall bought is a wall owned");
 
@@ -269,4 +269,47 @@ fn every_tier_is_priced_at_the_book_times_its_multiplier() {
     // And a resource that comes at no tier ignores the tier entirely.
     let food = world.quote_at(station, ResourceId::Vegetable, 3).unwrap();
     assert_eq!(food, world.quote(station, ResourceId::Vegetable).unwrap());
+}
+
+/// **An enemy is worth its tier's bounty give or take a tenth, by how
+/// strong it is**: a Husk the less, a Trooper the tier's own, a Warden and
+/// a Guardian the more; one of the Manufacturers the less with a pistol
+/// and nothing worn, the tier's own with one of the two, the more with a
+/// better gun in armour. Over a wave's usual mix it comes to about the
+/// tier's own.
+#[test]
+fn an_enemy_is_worth_its_tier_s_bounty_give_or_take_a_tenth_by_its_strength() {
+    use crate::world::{bounty_share, droid_bounty_percent, manufacturer_bounty_percent};
+    use bims::combat::Gear;
+    use bims::droid::DroidKind;
+    let spread = data::BOUNTY_SPREAD_PERCENT;
+    assert_eq!(droid_bounty_percent(DroidKind::Husk), 100 - spread);
+    assert_eq!(droid_bounty_percent(DroidKind::Trooper), 100);
+    assert_eq!(droid_bounty_percent(DroidKind::Warden), 100 + spread);
+    assert_eq!(droid_bounty_percent(DroidKind::Guardian), 100 + spread);
+    // A wave of twelve: two Wardens, four Husks, six Troopers.
+    let mix = 2 * droid_bounty_percent(DroidKind::Warden)
+        + 4 * droid_bounty_percent(DroidKind::Husk)
+        + 6 * droid_bounty_percent(DroidKind::Trooper);
+    assert!((1150..=1250).contains(&mix), "about the tier's own: {mix}");
+
+    let pistol = Gear {
+        weapon: Some(WeaponKind::LaserPistol.at(Tier::One)),
+        ..Gear::default()
+    };
+    assert_eq!(manufacturer_bounty_percent(&pistol), 100 - spread);
+    let rifle = Gear {
+        weapon: Some(WeaponKind::AutoRifle.at(Tier::One)),
+        ..Gear::default()
+    };
+    assert_eq!(manufacturer_bounty_percent(&rifle), 100);
+    let mut armoured = rifle;
+    armoured.body = Some(bims::combat::Piece::new(
+        1,
+        ArmourKind::BasicKevlar,
+        Tier::One,
+    ));
+    assert_eq!(manufacturer_bounty_percent(&armoured), 100 + spread);
+    assert_eq!(bounty_share(1_500, 110), 1_650);
+    assert_eq!(bounty_share(1_500, 90), 1_350);
 }

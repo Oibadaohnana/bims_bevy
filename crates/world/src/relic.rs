@@ -105,7 +105,7 @@ pub enum Relic {
     TetherField = 28,
     WideAngleOptics = 29,
     CoverFormation = 30,
-    ScrapCollector = 31,
+    StrongWill = 31,
     TotalTeardown = 32,
     Lifeline = 33,
     Crossfire = 34,
@@ -147,7 +147,7 @@ impl Relic {
         Relic::TetherField,
         Relic::WideAngleOptics,
         Relic::CoverFormation,
-        Relic::ScrapCollector,
+        Relic::StrongWill,
         Relic::TotalTeardown,
         Relic::Lifeline,
         Relic::Crossfire,
@@ -250,15 +250,18 @@ pub enum Trigger {
     Downed,
     /// It uses one of its class's two keys.
     AbilityUse,
-    /// A machine destroyed that it or any bot of the crew hit last.
+    /// A machine destroyed, by anybody (task 142; it was one it or a bot
+    /// hit last).
     CrewKill,
     /// A machine it hit last destroyed by that hit from the side or
     /// behind.
     FlankKill,
     /// It revives a downed crewmate (task 120; it was a dressing).
     Revived,
-    /// A crewmate within reach of it goes down.
-    CrewmateDowned,
+    /// A player's Bim — another's, or its own — falls under
+    /// `data::LIFELINE_BELOW_PERCENT` of its health (task 142). A bot never
+    /// says it.
+    PlayerLow,
 }
 
 /// What a relic's trigger does.
@@ -278,9 +281,10 @@ pub enum Action {
     /// The crewmate it revived takes `percent` less of every hit for
     /// `seconds`.
     Tether { percent: i32, seconds: f64 },
-    /// It and the crewmate that went down within `tiles` of it untouchable
-    /// for `seconds`.
-    Shelter { tiles: f32, seconds: f32 },
+    /// It and the player's Bim that fell low within `tiles` of it — or it
+    /// alone, when that was itself — each given a shield of `hp` hit points
+    /// for `seconds` (task 142).
+    Shield { tiles: f32, hp: f32, seconds: f32 },
     /// Every crewmate down within `tiles` of it up again at
     /// `health_percent` of its health.
     RallyUp { tiles: f32, health_percent: u32 },
@@ -337,10 +341,9 @@ pub enum Rule {
     /// goes down, while it is up again — a downed body is healed by
     /// nothing but a revive (task 120): *Clot Booster*.
     MendWhileDown { hp_per_second: f32, seconds: f64 },
-    /// A machine's front arc, for its hits, only `front_cos` wide — a
-    /// cosine, so a flank is wider — and a Guardian's shield the same
-    /// against its shots: *Wide Angle Optics*.
-    WideAngle { front_cos: f32 },
+    /// `tiles` added to its weapon's range while it stands still: *Wide
+    /// Angle Optics* (task 142; it was a machine's front narrowed).
+    StillRange { tiles: f32 },
     /// It and a crewmate further apart round a machine than `apart_cos`
     /// (a cosine), both within `tiles` of it, both do `damage_percent`
     /// more to it: *Crossfire*.
@@ -354,9 +357,9 @@ pub enum Rule {
     Spotter { damage_percent: i32, seconds: f64 },
     /// Money to the crew every site cleared: *Hazard Pay*.
     SitePay { money: economy::Money },
-    /// Money to the crew for every machine it destroys, pending with the
-    /// bounty: *Scrap Collector*.
-    KillPay { money: economy::Money },
+    /// Its abilities' effects last `percent` longer: *Strong Will* (task
+    /// 142, where *Scrap Collector* paid for every machine it destroyed).
+    LongerAbilities { percent: i32 },
     /// The trader's shelf rolled again, once a visit: *Restock Codes*.
     Restock,
     /// Its revives of a crewmate `seconds` quicker, never under
@@ -384,12 +387,13 @@ pub enum Effect {
     /// Several hooks, each on its own trigger.
     OnEach(&'static [Hook]),
     /// A stat of every crewmate within `tiles` of it moved by `percent` —
-    /// every bot of the crew alone with `bots_only`. Never its own.
+    /// its own too with `own` (task 142; it was a flag for the bots alone,
+    /// which *Cover Formation* was until then).
     Aura {
         stat: Stat,
         percent: i32,
         tiles: f32,
-        bots_only: bool,
+        own: bool,
     },
     /// A rule of its own ([`Rule`]).
     Rule(Rule),
@@ -630,7 +634,7 @@ pub const RELICS: [RelicDef; 37] = [
             stat: Stat::Accuracy,
             percent: data::FIELD_RADIO_ACCURACY_PERCENT,
             tiles: data::FIELD_RADIO_TILES,
-            bots_only: false,
+            own: false,
         },
     ),
     rule(
@@ -693,8 +697,8 @@ pub const RELICS: [RelicDef; 37] = [
         Relic::WideAngleOptics,
         2,
         true,
-        Rule::WideAngle {
-            front_cos: data::WIDE_ANGLE_OPTICS_FRONT_COS,
+        Rule::StillRange {
+            tiles: data::WIDE_ANGLE_OPTICS_TILES,
         },
     ),
     row(
@@ -705,15 +709,15 @@ pub const RELICS: [RelicDef; 37] = [
             stat: Stat::DamageTaken,
             percent: -data::COVER_FORMATION_PERCENT,
             tiles: data::COVER_FORMATION_TILES,
-            bots_only: true,
+            own: true,
         },
     ),
     rule(
-        Relic::ScrapCollector,
+        Relic::StrongWill,
         2,
         true,
-        Rule::KillPay {
-            money: data::SCRAP_COLLECTOR_PAY,
+        Rule::LongerAbilities {
+            percent: data::STRONG_WILL_PERCENT,
         },
     ),
     rule(
@@ -729,9 +733,10 @@ pub const RELICS: [RelicDef; 37] = [
         3,
         true,
         Effect::On(once(
-            Trigger::CrewmateDowned,
-            Action::Shelter {
+            Trigger::PlayerLow,
+            Action::Shield {
                 tiles: data::LIFELINE_TILES,
+                hp: data::LIFELINE_SHIELD_HP,
                 seconds: data::LIFELINE_SECONDS,
             },
         )),
@@ -829,8 +834,8 @@ pub fn auras(held: &[Relic], stat: Stat) -> impl Iterator<Item = (i32, f32, bool
             stat: s,
             percent,
             tiles,
-            bots_only,
-        } if s == stat => Some((percent, tiles, bots_only)),
+            own,
+        } if s == stat => Some((percent, tiles, own)),
         _ => None,
     })
 }
@@ -1597,9 +1602,9 @@ mod tests {
         };
         assert_eq!(off(Trigger::Kill) + off(Trigger::CrewKill), 4.0);
         // The once-a-mission ones, and the scrambler's cooldown.
-        let (_, lifeline) = hooks(&[Relic::Lifeline], Trigger::CrewmateDowned)
+        let (_, lifeline) = hooks(&[Relic::Lifeline], Trigger::PlayerLow)
             .next()
-            .expect("Lifeline waits on a crewmate down");
+            .expect("Lifeline waits on a player falling low");
         assert!(lifeline.once_per_mission);
         let (_, rally) = hooks(&[Relic::RallyPoint], Trigger::AbilityUse)
             .next()
@@ -1609,7 +1614,8 @@ mod tests {
             .next()
             .expect("Signal Scrambler waits on a kill from behind");
         assert_eq!(scrambler.cooldown, Some(data::SIGNAL_SCRAMBLER_COOLDOWN));
-        // The auras: Field Radio lifts anybody, Cover Formation bots alone.
+        // The auras: Field Radio lifts the others, Cover Formation its holder
+        // too (task 142).
         assert_eq!(
             auras(&[Relic::FieldRadio], Stat::Accuracy).collect::<Vec<_>>(),
             vec![(

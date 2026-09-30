@@ -160,6 +160,17 @@ pub struct GameScreen {
     /// crosshair, and the next left click on the deck sends the player's
     /// own Bim there under arms, shooting what it meets on the way.
     aiming_move: bool,
+    /// The throw key (Q: a soldier's grenade, or with `true` an
+    /// engineer's EMP) has armed the pointer: the throw's reach is drawn
+    /// round the player's own Bim, and the next left click on the deck
+    /// throws there — walking out to it first where it must
+    /// (`Order::ThrowAt`). Esc, a right-click or the key again puts it
+    /// away.
+    aiming_throw: Option<bool>,
+    /// The reach of a key held that aims at somebody rather than at a
+    /// tile — a medic's beam (E) or cloak (R) — in tiles, and the
+    /// ability, drawn round the player's own Bim while the key is down.
+    held_reach: Option<(f32, Glyph)>,
     /// The downed crewmate the held revive key (G) sent the player's own
     /// Bim to get up: let go of when the key comes up before they are.
     held_revive: Option<u32>,
@@ -248,6 +259,10 @@ pub struct GameScreen {
     /// back is the body's own count going up, and neither the room nor
     /// the world records it as an event to be read.
     heals: Heals,
+    /// What the enemies down lately paid, floating over where they fell.
+    rewards: Vec<Reward>,
+    /// The numbers of the hits landed lately, over whoever took them.
+    hits: Vec<HitNumber>,
     /// The health bar over every body on the deck and what each lost or
     /// got back a moment ago (task 137, `crate::healthbars`).
     bars: crate::healthbars::HealthBars,
@@ -297,6 +312,43 @@ struct Heals {
     watched: std::collections::BTreeMap<u32, Watched>,
     floating: Vec<Floater>,
 }
+
+/// An enemy down and what it paid, rising off where it fell: which body
+/// of the station's room, the money and the experience, when it went up,
+/// and where it was last on the screen — kept, so the numbers finish
+/// where the body lay if it is lost from sight.
+#[derive(Clone, Copy)]
+struct Reward {
+    who: u32,
+    money: u64,
+    xp: u32,
+    born: f64,
+    at: Option<(f32, f32)>,
+}
+
+/// A hit's number in the air (`WorldEvent::Hit`): on one of the station's
+/// bodies or one of the crew, how much, whether critical, when, where it
+/// was last on the screen, and a nudge sideways so a burst's numbers do
+/// not stand on one another.
+#[derive(Clone, Copy)]
+struct HitNumber {
+    resident: bool,
+    who: u32,
+    damage: u32,
+    crit: bool,
+    born: f64,
+    at: Option<(f32, f32)>,
+    nudge: f32,
+}
+
+/// How long a hit's number is in the air, and the most in the air at
+/// once: a minigun lands a dozen a second, and past that they are noise.
+const HIT_SECONDS: f64 = 0.7;
+const HITS_SHOWN: usize = 48;
+
+/// How long an enemy's pay is in the air: short, since a fight downs
+/// many, and a deck of old numbers would hide the next.
+const REWARD_SECONDS: f64 = 0.9;
 
 /// What every beam on the deck has put back since last frame, gathered
 /// into whole numbers to float over each patient (feature 91). Called
@@ -766,6 +818,13 @@ fn open(
             if crate::dev::reward() && !session.reward_for_probe() {
                 eprintln!("BIMS_REWARD: no held site to clear, or nothing left to offer");
             }
+            // A fight staged at the dock, one machine and the steered Bim.
+            if let Some(kind) = crate::dev::duel()
+                && let Some(game) = session.game.as_mut()
+            {
+                let arm = kind.arm(0).at(bims::combat::Tier::One);
+                game.world.stage_droid_fight_for_probe(kind, Some(arm));
+            }
             if let Some(n) = crate::dev::lamps_out() {
                 session.shoot_lamps_for_probe(n);
             }
@@ -907,6 +966,8 @@ impl GameScreen {
             throw_aim: None,
             aiming_attack: false,
             aiming_move: false,
+            aiming_throw: None,
+            held_reach: None,
             held_revive: None,
             carry_walk: None,
             tab_took_focus: false,
@@ -937,6 +998,8 @@ impl GameScreen {
             freeze: crate::dev::freeze_at_shot(),
             blackout: 0.0,
             heals: Heals::default(),
+            rewards: Vec::new(),
+            hits: Vec::new(),
             bars: crate::healthbars::HealthBars::default(),
             world_map: super::worldmap::WorldMap::default(),
             fight: super::fightwon::FightTally::default(),
@@ -1315,6 +1378,37 @@ fn frame(
             // A class's ability, whoever in the crew used it, heard the
             // same way.
             sounds.ability(&mut commands, event);
+            // An enemy down: its pay floats up over it, with a soft chime.
+            // A hit: its number over whoever took it.
+            if let WorldEvent::Hit {
+                resident,
+                who,
+                damage,
+                crit,
+            } = event
+                && screen.hits.len() < HITS_SHOWN
+            {
+                let nudge = (screen.hits.len() % 5) as f32 - 2.0;
+                screen.hits.push(HitNumber {
+                    resident,
+                    who,
+                    damage,
+                    crit,
+                    born: now,
+                    at: None,
+                    nudge,
+                });
+            }
+            if let WorldEvent::EnemyRewarded { who, xp, money, .. } = event {
+                screen.rewards.push(Reward {
+                    who,
+                    money,
+                    xp,
+                    born: now,
+                    at: None,
+                });
+                sounds.reward(&mut commands);
+            }
             // One of the Manufacturers dead is said as one (feature 109):
             // they have no names the crew know.
             let theirs = match event {
@@ -1940,7 +2034,27 @@ fn frame(
         // of it. The Mine tool's shape, and for the same reason — a
         // click that both selected a Bim and sent the crew somewhere
         // would be a click nobody could undo.
-        if screen.aiming_move {
+        if let Some(emp) = screen.aiming_throw {
+            // The throw's armed pointer: a left click throws at the tile
+            // under it, walking out first where it must; a right-click
+            // thinks better of it.
+            if let Some(p) = on_canvas {
+                ctx.set_cursor_icon(egui::CursorIcon::Crosshair);
+                if pointer.primary_pressed {
+                    let (rx, ry) = session.room_point(p.x, p.y);
+                    let t = shipdesign::TILE as f32;
+                    orders.push(Order::ThrowAt {
+                        emp,
+                        x: (rx / t).floor() as i32,
+                        y: (ry / t).floor() as i32,
+                    });
+                    screen.aiming_throw = None;
+                }
+                if pointer.secondary_pressed {
+                    screen.aiming_throw = None;
+                }
+            }
+        } else if screen.aiming_move {
             // The attack-move's armed pointer: a left click sends the
             // player's own Bim there under arms, a right-click thinks
             // better of it — the banner's shape, for the same reason.
@@ -2166,12 +2280,17 @@ fn frame(
                 // with a classless crew member steered, nothing at all.
                 // Read with Ctrl up (`Keys::used`): with it held the key
                 // is the slot's rank-up, below.
-                // While Q is held with a soldier steered, the burst's ring
-                // is drawn on the tile under the pointer.
+                // While a medic's beam or cloak key is held, its reach is
+                // drawn round the player's own Bim.
+                screen.held_reach = session
+                    .game
+                    .as_ref()
+                    .filter(|_| !map_up)
+                    .and_then(|game| held_reach(&game.world, screen.net.slot, &keys_now, i));
+                // While a throw has the pointer armed, the burst's ring is
+                // drawn on the tile under the pointer.
                 screen.throw_aim = None;
-                if keys_now.down(i, Action::Ability1)
-                    && let Some(game) = &session.game
-                    && game.world.class_of(screen.net.slot) == world::Class::Soldier
+                if screen.aiming_throw.is_some()
                     && let Some(p) = on_canvas.filter(|_| !map_up)
                 {
                     let (rx, ry) = session.room_point(p.x, p.y);
@@ -2196,6 +2315,21 @@ fn frame(
                     let Some(game) = &session.game else {
                         continue;
                     };
+                    // Q's throw — a soldier's grenade, an engineer's EMP —
+                    // arms the pointer rather than throwing at once: the
+                    // reach is drawn, and the click picks the tile.
+                    if let Some(emp) = throw_key(game.world.class_of(slot), action) {
+                        match can_arm_throw(&game.world, slot, emp) {
+                            Ok(()) => {
+                                screen.aiming_throw =
+                                    (screen.aiming_throw != Some(emp) && !map_up).then_some(emp);
+                                screen.aiming_attack = false;
+                                screen.aiming_move = false;
+                            }
+                            Err(line) => screen.log.push(line),
+                        }
+                        continue;
+                    }
                     let room = on_canvas
                         .filter(|_| !map_up)
                         .map(|p| session.room_point(p.x, p.y));
@@ -2265,9 +2399,11 @@ fn frame(
                 if keys_now.pressed(i, Action::AttackMove) {
                     screen.aiming_move = !screen.aiming_move && !map_up;
                     screen.aiming_attack = false;
+                    screen.aiming_throw = None;
                 }
                 if keys_now.pressed(i, Action::Attack) {
                     screen.aiming_move = false;
+                    screen.aiming_throw = None;
                     let standing = session
                         .game
                         .as_ref()
@@ -2300,11 +2436,12 @@ fn frame(
             // Ctrl-click on its box, through the one `rank_up`.
             rank_up_asked = rank_up_by_key(&keys_now, &i.events, i.modifiers).or(rank_up_asked);
             if i.key_pressed(egui::Key::Escape) {
-                if screen.aiming_attack || screen.aiming_move {
+                if screen.aiming_attack || screen.aiming_move || screen.aiming_throw.is_some() {
                     // The armed pointer is put away first, and nothing
                     // else happens — the Mine tool's rule.
                     screen.aiming_attack = false;
                     screen.aiming_move = false;
+                    screen.aiming_throw = None;
                 } else if panels.escape() {
                     // A menu, a container window or the character sheet
                     // is shut without opening the sheet.
@@ -2546,14 +2683,14 @@ fn frame(
         let cells = hud::portraits_of(world, local, game.spectate);
         let (faces, press) = hud::portraits(&ctx, area.min + egui::vec2(MARGIN, MARGIN), &cells);
         portrait_press = press;
-        let top = hud::top_frame(&ctx, area, faces.max.x, world, &threats, paused);
+        let top = hud::top_frame(&ctx, area, faces.max.x, world, local, &threats, paused);
         let mut top_foot = top.max.y;
         if out {
             top_foot = hud::out_banner(
                 &ctx,
                 top.center().x,
                 top.max.y + 6.0,
-                world.money,
+                world.crew_money(),
                 world.rewards().buyback,
             )
             .max
@@ -2779,6 +2916,7 @@ fn frame(
     if let Some(armed) = arm {
         screen.aiming_attack = armed;
         screen.aiming_move = false;
+        screen.aiming_throw = None;
     }
     if map_asked && let Some(game) = &mut session.game {
         game.set_mode(if game.mode == ViewMode::Map {
@@ -3538,6 +3676,53 @@ fn frame(
                 rise,
             );
         }
+        // And every hit landed, a small red number rising off whoever
+        // took it — enemy or crew — a critical one bigger, in gold, with
+        // a mark; gone in well under a second.
+        screen.hits.retain(|h| now - h.born < HIT_SECONDS);
+        for hit in &mut screen.hits {
+            let on = if hit.resident {
+                session.resident_on_screen(hit.who)
+            } else {
+                session.crew_on_screen(hit.who)
+            };
+            if let Some(p) = on {
+                hit.at = Some(p);
+            }
+            let Some((x, y)) = hit.at else {
+                continue;
+            };
+            let at = view.to_canvas(Vec2::new(x, y)) + canvas.min;
+            theme::hit_number(
+                &painter,
+                egui::pos2(at.x + hit.nudge * 9.0, at.y),
+                view.scale,
+                &crate::names::hit_damage(hit.damage, hit.crit),
+                hit.crit,
+                ((now - hit.born) / HIT_SECONDS) as f32,
+            );
+        }
+        // And what each enemy down paid, rising off where it fell: the
+        // money in gold over the experience in blue, gone within a
+        // second.
+        screen.rewards.retain(|r| now - r.born < REWARD_SECONDS);
+        for reward in &mut screen.rewards {
+            if let Some(p) = session.resident_on_screen(reward.who) {
+                reward.at = Some(p);
+            }
+            let Some((x, y)) = reward.at else {
+                continue;
+            };
+            let at = view.to_canvas(Vec2::new(x, y)) + canvas.min;
+            theme::reward_numbers(
+                &painter,
+                egui::pos2(at.x, at.y),
+                view.scale,
+                &crate::names::reward_money(reward.money),
+                &crate::names::reward_xp(reward.xp),
+                ((now - reward.born) / REWARD_SECONDS) as f32,
+            );
+        }
         // The charge bar over every tile being worked (feature 91): an
         // engineer laying a kit, or anybody putting a site together. It
         // stands on the tile rather than over the builder, because what
@@ -3759,10 +3944,37 @@ fn frame(
         }
     }
 
-    // A grenade being aimed (feature 75): the burst's radius round the
-    // tile under the pointer while Q is held, in the throw's colour when
-    // the world would take it and the refusal's when not.
+    // A throw being aimed (feature 75; its reach since the ability range
+    // indicators): the throw's reach round the player's own Bim, very
+    // faint, in its class's colour — a click past it or behind a wall
+    // walks out to throw — and the burst's radius round the tile under
+    // the pointer, in the throw's colour where it would be thrown,
+    // walked out to or not, and the refusal's where it would not.
     if !map_up
+        && let Some(emp) = screen.aiming_throw
+        && let Some(game) = &session.game
+        && let Some((x, y)) = session.crew_on_screen(screen.net.slot)
+    {
+        let t = shipdesign::TILE as f32;
+        let at = view.to_canvas(Vec2::new(x, y)) + canvas.min;
+        let glyph = if emp { Glyph::Emp } else { Glyph::FragGrenade };
+        theme::reach_ring(
+            &painter,
+            egui::pos2(at.x, at.y),
+            game.world.throw_range(screen.net.slot, emp) * t * view.scale,
+            glyph.colour(),
+        );
+    }
+    if !map_up
+        && let Some((tiles, glyph)) = screen.held_reach
+        && let Some((x, y)) = session.crew_on_screen(screen.net.slot)
+    {
+        let at = view.to_canvas(Vec2::new(x, y)) + canvas.min;
+        let radius = tiles * shipdesign::TILE as f32 * view.scale;
+        theme::reach_ring(&painter, egui::pos2(at.x, at.y), radius, glyph.colour());
+    }
+    if !map_up
+        && let Some(emp) = screen.aiming_throw
         && let Some(tile) = screen.throw_aim
         && let Some(game) = &session.game
     {
@@ -3777,8 +3989,16 @@ fn frame(
             (tile.1 as f32 + 0.5) * t - oy,
         );
         let at = view.to_canvas(Vec2::new(x, y)) + canvas.min;
-        let radius = game.world.grenade_radius(slot) * t * view.scale;
-        let ok = game.world.can_throw(slot, tile).is_ok();
+        let radius = if emp {
+            game.world.emp_radius(slot)
+        } else {
+            game.world.grenade_radius(slot)
+        } * t
+            * view.scale;
+        let ok = matches!(
+            game.world.can_throw_now(slot, emp, tile),
+            Ok(()) | Err(Refusal::OutOfThrowRange | Refusal::NoLineToTile)
+        );
         theme::burst_ring(&painter, egui::pos2(at.x, at.y), radius, ok);
     }
 
@@ -4115,7 +4335,7 @@ fn armory_of(world: &world::World, local: u32) -> crate::crew::ArmoryView {
         local,
         columns,
         armory: world.holdings.armory.clone(),
-        money: world.money,
+        money: world.share_of(local),
         keys: world.holdings.keys,
         locked: world.in_mission(),
     }
@@ -4438,6 +4658,51 @@ fn ranked_key(
             Err(why) => (None, Some(crate::names::juggernaut_refused(why))),
         },
         _ => (None, None),
+    }
+}
+
+/// The reach of a medic's key held down that aims at a crew member — the
+/// beam's (E) or the cloak's (R) — once it has a rank, in tiles, with
+/// the ability's glyph for its colour.
+fn held_reach(
+    world: &world::World,
+    slot: u32,
+    keys: &Keys,
+    input: &egui::InputState,
+) -> Option<(f32, Glyph)> {
+    if world.class_of(slot) != world::Class::Medic {
+        return None;
+    }
+    if keys.down(input, Action::Ability3) && world.rank_of(slot, world::class::SLOT_E) > 0 {
+        return Some((world.beam_range(slot), Glyph::HealBeam));
+    }
+    if keys.down(input, Action::Ability4) && world.rank_of(slot, world::class::SLOT_R) > 0 {
+        return Some((world::class::CLOAK_RANGE, Glyph::Cloak));
+    }
+    None
+}
+
+/// Whether an ability key is a throw that arms the pointer: the soldier's
+/// Q, a grenade, and the engineer's Q, an EMP (`Some(true)`).
+fn throw_key(class: world::Class, action: Action) -> Option<bool> {
+    match (class, action) {
+        (world::Class::Soldier, Action::Ability1) => Some(false),
+        (world::Class::Engineer, Action::Ability1) => Some(true),
+        _ => None,
+    }
+}
+
+/// Whether the throw key may arm the pointer: everything the throw asks
+/// but the tile — which the click picks, and which a walk out may yet
+/// make good — asked with the Bim's own tile; the log's line otherwise.
+fn can_arm_throw(world: &world::World, slot: u32, emp: bool) -> Result<(), String> {
+    let t = shipdesign::TILE as f32;
+    let at = world.aboard.room.bim_pos(slot as usize);
+    let tile = ((at.x / t).floor() as i32, (at.y / t).floor() as i32);
+    match world.can_throw_now(slot, emp, tile) {
+        Ok(())
+        | Err(Refusal::CantThrowThere | Refusal::OutOfThrowRange | Refusal::NoLineToTile) => Ok(()),
+        Err(why) => Err(throw_refused(why)),
     }
 }
 

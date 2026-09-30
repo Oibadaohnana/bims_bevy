@@ -88,6 +88,10 @@ pub const ARMOUR_FEE: [(ArmourKind, Money); 3] = [
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Hired {
     pub who: u32,
+    /// The player who signed the contract, whose own wallet pays its
+    /// months.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub by: u32,
     pub fee: Money,
     pub due: f64,
     /// A month fell due that the money did not cover, said once; the

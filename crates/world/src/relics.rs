@@ -269,9 +269,10 @@ impl World {
         to: u32,
         events: &mut Vec<WorldEvent>,
     ) {
-        // At a trader the relic on the table is the trader's (task 114).
+        // At a trader the relic is the player's own trader's (task 114),
+        // bought outright with its own money: no vote.
         if self.run.phase == RunPhase::Trade {
-            self.propose_trader_relic(slot, relic, to, events);
+            self.buy_trader_relic(slot, relic, events);
             return;
         }
         let players = self.players();
@@ -308,10 +309,6 @@ impl World {
     /// A yes to the relic on the table, or one taken back — see
     /// [`Command::AcceptRelic`].
     pub(super) fn accept_relic(&mut self, slot: u32, yes: bool, events: &mut Vec<WorldEvent>) {
-        if self.run.phase == RunPhase::Trade {
-            self.accept_trader_relic(slot, yes, events);
-            return;
-        }
         let Some(proposal) = self
             .run
             .relics
@@ -542,7 +539,9 @@ impl World {
                 }
                 None => false,
             },
-            Action::Shelter { tiles, seconds } => self.relic_shelter(who, other, tiles, seconds),
+            Action::Shield { tiles, hp, seconds } => {
+                self.relic_shield(who, other, tiles, hp, seconds)
+            }
             Action::RallyUp {
                 tiles,
                 health_percent,
@@ -665,8 +664,8 @@ impl World {
     }
 
     /// [`World::machine_kills`] with how each machine went (task 118):
-    /// *Parts Broker*'s share on one missing a limb, and what
-    /// `relics_on_a_kill` adds.
+    /// *Parts Broker*'s share on one missing a limb, and the triggers
+    /// `relics_on_a_kill` says.
     pub(crate) fn machine_kills_noted(
         &mut self,
         kills: &[relic_hooks::MachineKill],
@@ -699,8 +698,7 @@ impl World {
                 self.rampage_kill(b);
             }
             if self.any_relics() {
-                let more = self.relics_on_a_kill(kill, events);
-                total = total.saturating_add(more);
+                self.relics_on_a_kill(kill, events);
             }
         }
         total

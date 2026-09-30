@@ -30,7 +30,10 @@ use serde::{Deserialize, Serialize};
 ///
 /// 68: the app's pointer crosses as a `Spot` (the deck, either map, the
 /// trader's window, the relic choice), and pings and choices went in.
-pub const PROTOCOL: u32 = 68;
+/// 69: individual money (a wallet a player, a trader a player, the
+/// trader's relic bought outright) and an enemy's pay said as
+/// `WorldEvent::EnemyRewarded`, the bounty by its strength.
+pub const PROTOCOL: u32 = 69;
 
 /// Where the relay lives. `BIMS_SERVER` in the environment overrides it
 /// — `ws://127.0.0.1:8792` for one on the same machine.

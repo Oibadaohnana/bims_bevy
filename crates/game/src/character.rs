@@ -164,6 +164,11 @@ const BRACE_CROUCH: f32 = 0.93;
 /// healing green, wide and breathing, so a body that cannot be hurt
 /// reads as such.
 pub const SURGE: Color = Color::rgb(0.55, 0.95, 0.75);
+/// A relic's shield round a body (task 142, *Lifeline*): a cold blue
+/// ring of plates, one fewer lit for every share of it spent.
+pub const SHIELD: Color = Color::rgb(0.45, 0.75, 1.0);
+/// How many plates the ring is cut into.
+const SHIELD_PLATES: usize = 12;
 /// How opaque a body under a medic's cloak is drawn (task 130), and the
 /// cool shimmer over it.
 pub const CLOAK_OPACITY: f32 = 0.35;
@@ -925,6 +930,11 @@ pub struct Character {
     /// says it every step (`Game::set_cloaked`).
     #[cfg_attr(feature = "serde", serde(default))]
     cloaked: bool,
+    /// What is left of a relic's shield on it (task 142), nought to one:
+    /// a ring of plates. Drawing only; `Game::tick_combat` sets it off the
+    /// Bim's own shield, so it is never saved.
+    #[cfg_attr(feature = "serde", serde(skip))]
+    shield: f32,
     /// Out cold for want of blood: lying where it dropped, alive, doing
     /// nothing until it comes round. Set by `Game::tick_bim` off the
     /// health; it drops the route.
@@ -994,6 +1004,7 @@ impl Character {
             braced: false,
             surging: false,
             cloaked: false,
+            shield: 0.0,
             unconscious: false,
             wounds: [false; 3],
             armour: [None; 3],
@@ -1348,6 +1359,12 @@ impl Character {
     /// Under a surge, or not: the halo round the body. Drawing only.
     pub fn set_surging(&mut self, surging: bool) {
         self.surging = surging;
+    }
+
+    /// What is left of a relic's shield, nought to one (task 142).
+    /// Drawing only.
+    pub fn set_shield(&mut self, share: f32) {
+        self.shield = share;
     }
 
     /// Under a medic's cloak, or not (task 130). Drawing only.
@@ -2172,6 +2189,21 @@ impl Character {
             let pulse = (1.0 + (self.select_pulse * 0.7).sin() * 0.06) * self.body_scale();
             list.circle(pos, 58.0 * pulse, SURGE.alpha(0.16));
             list.ring(pos, 58.0 * pulse, 3.0, SURGE.alpha(0.9));
+        }
+
+        if self.shield > 0.0 {
+            // A relic's shield (task 142): a faint bubble and a ring of
+            // plates round it, a plate going dark for every share of the
+            // shield a hit takes.
+            let span = 64.0 * self.body_scale();
+            list.circle(pos, span, SHIELD.alpha(0.10));
+            list.ring(pos, span, 1.5, SHIELD.alpha(0.45));
+            let lit = (self.shield * SHIELD_PLATES as f32).ceil() as usize;
+            for i in 0..lit.min(SHIELD_PLATES) {
+                let a = (i as f32 + 0.5) * (TAU / SHIELD_PLATES as f32);
+                let at = pos + Vec2::from_angle(a) * (span * 0.5);
+                list.rect(at, vec2(4.0, 12.0), a, 1.0, SHIELD.alpha(0.9));
+            }
         }
 
         if self.recruited && self.tint.is_some() {

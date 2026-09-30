@@ -714,6 +714,11 @@ pub struct Skill {
     /// span the odds and the damage fall across, so a longer reach is
     /// also a gentler falloff.
     pub range: f32,
+    /// **Tiles added** to [`Skill::range`] while the shooter stands still:
+    /// a relic's *Wide Angle Optics* (task 142). The room adds it where a
+    /// Bim's skill is read for its shot (`Game::tick_combat`). Nought for
+    /// everybody else.
+    pub still_range: f32,
     /// **Added** to a worn piece's protection, after
     /// [`Skill::armour_protection`] has multiplied it: an engineer's
     /// *higher quality armour* (feature 88). Nought for everybody else.
@@ -786,6 +791,7 @@ impl Skill {
         effort: 1.0,
         damage: 1.0,
         range: 0.0,
+        still_range: 0.0,
         armour_protection_add: 0.0,
         revive: crate::health::REVIVE_SECONDS,
         medic: false,

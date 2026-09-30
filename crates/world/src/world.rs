@@ -310,6 +310,21 @@ pub enum Command {
         x: i32,
         y: i32,
     },
+    /// That player's own Bim throws at the tile `(x, y)` of the crew's
+    /// room — a grenade, or with `emp` an engineer's EMP — **walking
+    /// first where it must**: within reach and with a line to the tile it
+    /// is [`Command::Throw`] (or [`Command::Emp`]) at once; out of reach
+    /// or behind a wall it walks to the nearest spot it can throw from
+    /// (`World::throw_stand`) and throws the step it can
+    /// ([`World::throws`]). Called off by any other order that moves it,
+    /// by it going down, and by a spot it walked to that will not do. The
+    /// other refusals are the throw's own, said at once.
+    ThrowAt {
+        slot: u32,
+        emp: bool,
+        x: i32,
+        y: i32,
+    },
     /// That player's own soldier goes on a **Rampage** (task 124, its
     /// ultimate, R): for [`class::RAMPAGE_SECONDS`] of its rank on the
     /// mission clock it fires faster, takes less and aims on the move as
@@ -644,9 +659,24 @@ pub struct World {
     pub galaxy_type: GalaxyType,
     pub star_id: u32,
     pub system: StarSystem,
-    /// What is left of the pool the ship was designed against. It buys
-    /// nothing away from a station.
+    /// The crew's takings not yet shared out: what a fight pays goes in
+    /// here, and at the end of every mission it is shared evenly into
+    /// the players' [`World::wallets`] (`share_out`), what does not
+    /// divide left for the next. The design phase's pool, which it was,
+    /// is shared out the same way when the world opens. Only a build
+    /// site still pays out of it.
     pub money: Money,
+    /// Each player's own money, slot for slot: what they buy with at
+    /// their own trader, combine and hire with, and what a buyback draws
+    /// on — one player's spending never drains another's.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub wallets: Vec<Money>,
+    /// The crew's hits on the machines landed through the relics this step
+    /// (`land_on_machines`), for `visit` to say as `WorldEvent::Hit`s: on
+    /// whom, how much, and whether critical. A picture's; never saved or
+    /// hashed.
+    #[cfg_attr(feature = "serde", serde(skip))]
+    shown_hits: Vec<(u32, f32, bool)>,
     pub ship: Ship,
     /// The people aboard, and the room they live in: the room's whole
     /// simulation, laid out on this ship, one Bim per player at their own
@@ -1004,6 +1034,11 @@ pub struct World {
     /// in `world_checksum`.
     #[cfg_attr(feature = "serde", serde(default))]
     pub soldiers: Vec<crate::soldier::Soldier>,
+    /// The throws a crew member is walking out to make ([`Command::ThrowAt`]):
+    /// one at most a crew member, sorted by who. Saved, and in
+    /// `world_checksum` where there is any.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub throws: Vec<PendingThrow>,
     /// The stream Weak Spot's critical hits are rolled off (task 124):
     /// seeded from the galaxy's seed, used for nothing else, lent to the
     /// crew's room for its step and taken back after, so no other roll of
@@ -1168,6 +1203,8 @@ impl World {
             star_id,
             system,
             money,
+            wallets: Vec::new(),
+            shown_hits: Vec::new(),
             ship,
             aboard,
             stations,
@@ -1241,6 +1278,7 @@ impl World {
             commanders: vec![Commander::default(); crew as usize],
             reinforcements: Vec::new(),
             soldiers: vec![crate::soldier::Soldier::default(); crew as usize],
+            throws: Vec::new(),
             crit_rng: bims::rng::Rng::new(seed ^ CRIT_SALT),
             standing: vec![Standing::Follow; players as usize],
             // Feature 102: a run has no shipyard. The tests that are
@@ -1276,6 +1314,8 @@ impl World {
         // whoever lives there already up and about.
         world.dock_at(station_id);
         world.settle_residents();
+        // Every player's share of the pool in their own hands.
+        world.share_out();
         // What the crew set out with, for the enemies to be scaled
         // against — the **same** sum `worth` gives from then on, the
         // starting pool included, so unspent money is never counted as
@@ -1464,6 +1504,8 @@ impl World {
         // An EMP that burst in the crew's room stuns the machines it
         // reached before their own room steps (task 127).
         self.settle_stuns();
+        // And a throw a crew member walked out to make, the step it can.
+        self.settle_throws(&mut events);
         // A townsperson with a crew member's hands on it stands its
         // countdown, as a crewmate being revived does.
         let tended = self.tended_residents();
@@ -1548,6 +1590,7 @@ impl World {
             | Command::PackUp { slot, .. }
             | Command::Brace { slot, .. }
             | Command::Throw { slot, .. }
+            | Command::ThrowAt { slot, .. }
             | Command::Beam { slot, .. }
             | Command::NaniteBurst { slot }
             | Command::Cloak { slot, .. }
@@ -1654,6 +1697,7 @@ impl World {
                 | Command::Sentry { .. }
                 | Command::Emp { .. }
                 | Command::Throw { .. }
+                | Command::ThrowAt { .. }
                 | Command::Rampage { .. }
                 | Command::Brace { on: true, .. }
                 | Command::Beam {
@@ -1708,6 +1752,11 @@ impl World {
             } => self.answer_offer(slot, from, part, yes, events),
             Command::Hire { who, resident, .. } => self.hire(slot, who, resident, events),
             Command::Crew { order, .. } => {
+                // An order that moves the Bim calls off a throw it was
+                // walking out to make.
+                if calls_off_a_throw(order) {
+                    self.throws.retain(|p| p.who != slot);
+                }
                 // A room built since the last step starts at one player.
                 self.aboard.room.set_players(self.players());
                 let code = self.aboard.room.order(slot, order);
@@ -1718,6 +1767,9 @@ impl World {
                 }
             }
             Command::CrewLater { order, .. } => {
+                if calls_off_a_throw(order) {
+                    self.throws.retain(|p| p.who != slot);
+                }
                 self.aboard.room.set_players(self.players());
                 let code = self.aboard.room.order_later(slot, order);
                 if let Some(why) = walk_refusal(code) {
@@ -1757,6 +1809,11 @@ impl World {
                 Ok(()) => events.push(WorldEvent::Thrown { who: slot }),
                 Err(why) => events.push(refused(slot, why)),
             },
+            Command::ThrowAt { emp, x, y, .. } => {
+                if let Err(why) = self.throw_at(slot, emp, (x, y), events) {
+                    events.push(refused(slot, why));
+                }
+            }
             Command::Beam { patient, .. } => match self.beam(slot, patient) {
                 Ok(()) => events.push(WorldEvent::Beamed { who: slot, patient }),
                 Err(why) => events.push(refused(slot, why)),
@@ -1981,7 +2038,11 @@ impl World {
         sum = sum.saturating_add(
             trade_price(ResourceId::ResearchKey).saturating_mul(self.holdings.keys as Money),
         );
-        sum.saturating_add(self.money)
+        self.wallets
+            .iter()
+            .fold(sum.saturating_add(self.money), |sum, &w| {
+                sum.saturating_add(w)
+            })
     }
 
     /// How many whole days the game has run: `clock_minutes` — elapsed
@@ -2643,11 +2704,17 @@ impl World {
         let shift = residents.aboard.offset;
         let room = &mut residents.aboard.room;
         let bims = room.crew_count() as usize;
+        // What the relics' hits on the machines did, said for the numbers
+        // over them (`land_on_machines`), and every hit below the same way.
+        for (who, damage, crit) in std::mem::take(&mut self.shown_hits) {
+            events.push(shown_hit(true, who, damage, crit));
+        }
         for hit in hits {
             let who = hit.who;
             if who >= room.body_count() as usize || !room.is_alive(who) {
                 continue;
             }
+            events.push(shown_hit(true, who as u32, hit.damage, hit.crit));
             // A hit past the room's Bims landed on one of the machines
             // (feature 83): a droid's four parts are not a body's three,
             // so the part is read off the hit's own roll rather than off
@@ -2712,7 +2779,10 @@ impl World {
                     };
                     machine_kills.push(relic_hooks::MachineKill {
                         by,
-                        bounty: self.rewards.bounty_for(d.tier.code()),
+                        bounty: bounty_share(
+                            self.rewards.bounty_for(d.tier.code()),
+                            droid_bounty_percent(d.kind),
+                        ),
                         crippled,
                         flanked,
                     });
@@ -2909,8 +2979,10 @@ impl World {
             match hit.who.checked_sub(bims) {
                 Some(i) => {
                     room.strike_droid(i, bims::droid::DroidPart::hit_by(hit.roll), hit.damage);
+                    events.push(shown_hit(true, hit.who as u32, hit.damage, hit.crit));
                 }
                 None if room.is_manufacturer(hit.who) => {
+                    events.push(shown_hit(true, hit.who as u32, hit.damage, hit.crit));
                     if hit.blast {
                         room.blast(hit.who, hit.part, hit.damage);
                     } else {
@@ -3092,6 +3164,7 @@ impl World {
                     who: hit.who as u32,
                     part: hit.part.code(),
                 });
+                events.push(shown_hit(false, hit.who as u32, hit.damage, hit.crit));
             }
         }
         for who in self.aboard.room.take_downs() {
@@ -3602,7 +3675,31 @@ impl World {
             .iter()
             .filter(|s| self.aboard.room.building_at(s.id))
             .fold(0, |sum, s| sum.saturating_add(s.price(design)));
-        self.money.saturating_sub(spoken_for)
+        self.crew_money().saturating_sub(spoken_for)
+    }
+
+    /// What the crew hold between them: the takings not yet shared out
+    /// and every player's wallet. What a build site — the crew's, not
+    /// any one player's — is paid out of ([`World::spend_shared`]).
+    pub fn crew_money(&self) -> Money {
+        self.wallets
+            .iter()
+            .fold(self.money, |sum, &w| sum.saturating_add(w))
+    }
+
+    /// `price` out of what the crew hold between them: the takings first,
+    /// then the wallets in slot order. The caller has asked
+    /// [`World::crew_money`] first.
+    pub(crate) fn spend_shared(&mut self, price: Money) {
+        let mut left = price;
+        let from_takings = left.min(self.money);
+        self.money -= from_takings;
+        left -= from_takings;
+        for wallet in &mut self.wallets {
+            let take = left.min(*wallet);
+            *wallet -= take;
+            left -= take;
+        }
     }
 
     /// Whether a site may be begun now: its price is inside what the pool
@@ -3695,7 +3792,7 @@ impl World {
                 // Paid for at the moment the part goes down, wherever the
                 // ship is: money is the one thing that may be spent away
                 // from a station (`shipdesign::materials`).
-                self.money -= price;
+                self.spend_shared(price);
                 self.on_ship_changed();
                 self.relayout_room();
                 events.push(WorldEvent::Built { kind: site.kind });
@@ -4297,7 +4394,7 @@ impl World {
         Some(Offer {
             fee,
             in_reach: self.in_reach_of_body(who, LootSource::Resident(resident)),
-            affordable: self.money >= fee,
+            affordable: self.wallet(who) >= fee,
             docked: self.residents.as_ref().map(|r| r.station) == self.ship.state.station(),
             medic: self.mercenary_is_medic(resident),
         })
@@ -4436,7 +4533,7 @@ impl World {
         // is his own, and it is what goes into the contract (feature
         // 78).
         let fee = self.hire_fee(slot, resident).unwrap_or(offer.fee);
-        if self.money < fee {
+        if self.wallet(slot) < fee {
             events.push(refused(slot, Refusal::Unaffordable));
             return;
         }
@@ -4444,9 +4541,10 @@ impl World {
             events.push(refused(slot, Refusal::NotDocked));
             return;
         };
-        self.money -= fee;
+        self.pay_from(slot, fee);
         self.hired.push(Hired {
             who: new_who,
+            by: slot,
             fee,
             due: self.clock_minutes + mercenary::MONTH,
             owed: false,
@@ -4470,8 +4568,7 @@ impl World {
             if !mercenary::owed(&hired, clock) {
                 continue;
             }
-            if self.money >= hired.fee {
-                self.money -= hired.fee;
+            if self.pay_from(hired.by, hired.fee) {
                 self.hired[i].due += mercenary::MONTH;
                 self.hired[i].owed = false;
                 events.push(WorldEvent::MercenaryPaid {
@@ -7333,6 +7430,10 @@ impl World {
         };
         let mut gained: Vec<(bims::math::Vec2, u32)> = Vec::new();
         let mut bounty: Money = 0;
+        // Every enemy counted this step and its worth, for the numbers the
+        // app floats over it.
+        let mut rewarded: Vec<(u32, Money)> = Vec::new();
+        let station = residents.station;
         let count = residents.aboard.count() as usize;
         for who in 0..count.min(residents.xp_down.len()) {
             let room = &residents.aboard.room;
@@ -7361,9 +7462,21 @@ impl World {
                 // The Republic's bounty (feature 95), once per enemy at
                 // the first down or death, whoever did it. A machine is
                 // worth nothing: the Republic pays for people.
-                if who < residents.aboard.room.crew_count() as usize {
-                    bounty = bounty.saturating_add(self.rewards.bounty_for(gear_tier(room, who)));
+                let crew = residents.aboard.room.crew_count() as usize;
+                let worth = if who < crew {
+                    manufacturer_bounty(&self.rewards, room, who)
+                } else {
+                    room.droid(who - crew).map_or(0, |d| {
+                        bounty_share(
+                            self.rewards.bounty_for(d.tier.code()),
+                            droid_bounty_percent(d.kind),
+                        )
+                    })
+                };
+                if who < crew {
+                    bounty = bounty.saturating_add(worth);
                 }
+                rewarded.push((who as u32, self.bounty_here(worth)));
             }
         }
         if let Some(residents) = &mut self.residents {
@@ -7374,6 +7487,14 @@ impl World {
         }
         for (at, xp) in gained {
             self.award_classed_near(at, xp, events);
+        }
+        for (who, money) in rewarded {
+            events.push(WorldEvent::EnemyRewarded {
+                station,
+                who,
+                xp: self.rewards.xp_per_down,
+                money,
+            });
         }
         // And what the Republic owes for them, said once however many
         // went down this step — paid at once where there is nothing left
@@ -8150,6 +8271,7 @@ impl World {
     /// Seconds an EMP stuns for: the Q rank's [`class::EMP_STUN`].
     pub fn emp_stun(&self, who: u32) -> f32 {
         class::by_rank(class::EMP_STUN, self.rank_of(who, class::SLOT_Q)).unwrap_or(0.0)
+            * self.ability_length_factor(who) as f32
     }
 
     /// What an EMP throw asks, in the order the refusals are said: the
@@ -8444,6 +8566,159 @@ impl World {
         Ok(())
     }
 
+    // --- a throw walked out to (the ability range indicators) -------------
+
+    /// How far a throw reaches, in tiles: the grenade's, or the EMP's,
+    /// which is the grenade's own.
+    pub fn throw_range(&self, who: u32, emp: bool) -> f32 {
+        if emp {
+            class::GRENADE_RANGE
+        } else {
+            self.grenade_range(who)
+        }
+    }
+
+    /// Whether `slot` could throw at `tile` from where it stands now:
+    /// [`World::can_throw`] or [`World::can_throw_emp`].
+    pub fn can_throw_now(&self, slot: u32, emp: bool, tile: (i32, i32)) -> Result<(), Refusal> {
+        if emp {
+            self.can_throw_emp(slot, tile)
+        } else {
+            self.can_throw(slot, tile)
+        }
+    }
+
+    /// The throw made now, with its event and the relics told of an
+    /// ability used.
+    fn throw_now(
+        &mut self,
+        slot: u32,
+        emp: bool,
+        tile: (i32, i32),
+        events: &mut Vec<WorldEvent>,
+    ) -> Result<(), Refusal> {
+        if emp {
+            self.throw_emp(slot, tile)?;
+            events.push(WorldEvent::EmpThrown { who: slot });
+        } else {
+            self.throw(slot, tile)?;
+            events.push(WorldEvent::Thrown { who: slot });
+        }
+        self.relic_trigger(slot, crate::relic::Trigger::AbilityUse, events);
+        Ok(())
+    }
+
+    /// [`Command::ThrowAt`]: thrown now where it can be; out of reach or
+    /// behind a wall, the Bim walked to [`World::throw_stand`] and the
+    /// throw kept on [`World::throws`] until it can be made. Whatever it
+    /// was walking out to throw before is called off either way.
+    fn throw_at(
+        &mut self,
+        slot: u32,
+        emp: bool,
+        tile: (i32, i32),
+        events: &mut Vec<WorldEvent>,
+    ) -> Result<(), Refusal> {
+        self.throws.retain(|p| p.who != slot);
+        match self.can_throw_now(slot, emp, tile) {
+            Ok(()) => self.throw_now(slot, emp, tile, events),
+            Err(Refusal::OutOfThrowRange | Refusal::NoLineToTile) => {
+                let Some(stand) = self.throw_stand(slot, emp, tile) else {
+                    return Err(Refusal::NoLineToTile);
+                };
+                if !self.aboard.room.walk_to(slot as usize, tile_centre(stand)) {
+                    return Err(Refusal::NoLineToTile);
+                }
+                let at = self.throws.partition_point(|p| p.who < slot);
+                self.throws.insert(
+                    at,
+                    PendingThrow {
+                        who: slot,
+                        emp,
+                        tile,
+                        stand,
+                    },
+                );
+                Ok(())
+            }
+            Err(why) => Err(why),
+        }
+    }
+
+    /// Where `who` could throw at `tile` from: the deck tile nearest the
+    /// Bim whose middle is within reach of the tile — a body's width short
+    /// of it, since a walk ends on the free cell nearest the spot and not
+    /// on its middle — with a clear line to it, and that the Bim can walk
+    /// to. The candidates are every such tile, taken nearest first, a tie
+    /// by row then column, so every machine picks the same. `None` for a
+    /// tile nobody could throw at from anywhere near.
+    pub fn throw_stand(&self, who: u32, emp: bool, tile: (i32, i32)) -> Option<(i32, i32)> {
+        /// How many of the nearest candidates are asked whether the Bim
+        /// can walk there: a route search each.
+        const TRIED: usize = 24;
+        let room = &self.aboard.room;
+        let t = shipdesign::TILE as f32;
+        let reach = (self.throw_range(who, emp) - THROW_STAND_MARGIN) * t;
+        let target = tile_centre(tile);
+        if !room.is_deck_tile(target) {
+            return None;
+        }
+        let from = room.bim_pos(who as usize);
+        let span = (reach / t).ceil() as i32;
+        let mut found: Vec<(f32, i32, i32)> = Vec::new();
+        for dy in -span..=span {
+            for dx in -span..=span {
+                let stand = (tile.0 + dx, tile.1 + dy);
+                let p = tile_centre(stand);
+                if (p - target).len() > reach
+                    || !room.is_deck_tile(p)
+                    || !room.line_clear(p, target)
+                {
+                    continue;
+                }
+                found.push(((p - from).len(), stand.1, stand.0));
+            }
+        }
+        found.sort_by(|a, b| a.0.total_cmp(&b.0).then(a.1.cmp(&b.1)).then(a.2.cmp(&b.2)));
+        found
+            .into_iter()
+            .take(TRIED)
+            .map(|(_, y, x)| (x, y))
+            .find(|&stand| room.reaches(who as usize, tile_centre(stand)))
+    }
+
+    /// Every throw walked out to, once the rooms have stepped: made the
+    /// step it can be; called off for a Bim no longer fit to act, and
+    /// for one that got where it was going and still cannot — said, like
+    /// a refusal — or that cannot for another reason (its last charge
+    /// spent, its rank gone).
+    fn settle_throws(&mut self, events: &mut Vec<WorldEvent>) {
+        if self.throws.is_empty() {
+            return;
+        }
+        for pending in std::mem::take(&mut self.throws) {
+            let who = pending.who;
+            if !self.fit_to_act(who) {
+                continue;
+            }
+            match self.can_throw_now(who, pending.emp, pending.tile) {
+                Ok(()) => {
+                    if let Err(why) = self.throw_now(who, pending.emp, pending.tile, events) {
+                        events.push(refused(who, why));
+                    }
+                }
+                Err(why @ (Refusal::OutOfThrowRange | Refusal::NoLineToTile)) => {
+                    if self.aboard.room.has_arrived(who as usize) {
+                        events.push(refused(who, why));
+                    } else {
+                        self.throws.push(pending);
+                    }
+                }
+                Err(why) => events.push(refused(who, why)),
+            }
+        }
+    }
+
     // --- the soldier's Rampage (task 124) ----------------------------------
 
     /// Weak Spot's stream as the world opened with it (task 124): what
@@ -8486,6 +8761,7 @@ impl World {
     /// before any extension ([`class::RAMPAGE_SECONDS`]).
     pub fn rampage_seconds(&self, who: u32) -> f64 {
         class::by_rank(class::RAMPAGE_SECONDS, self.rank_of(who, class::SLOT_R)).unwrap_or(0.0)
+            * self.ability_length_factor(who)
     }
 
     /// Seconds of the mission clock from one Rampage to the next:
@@ -8909,6 +9185,7 @@ impl World {
     /// rank ([`class::CLOAK_SECONDS`]); nought before the first.
     pub fn cloak_seconds(&self, medic: u32) -> f64 {
         class::by_rank(class::CLOAK_SECONDS, self.rank_of(medic, class::SLOT_R)).unwrap_or(0.0)
+            * self.ability_length_factor(medic)
     }
 
     /// Seconds of the mission clock between one cloak and the next:
@@ -9078,6 +9355,7 @@ impl World {
         }
         self.hired.push(Hired {
             who,
+            by: 0,
             fee: 0,
             due: self.clock_minutes + mercenary::MONTH,
             owed: false,
@@ -9509,6 +9787,7 @@ impl World {
     /// [`class::TAUNT_SECONDS`], nought before the first.
     pub fn taunt_seconds(&self, who: u32) -> f64 {
         class::by_rank(class::TAUNT_SECONDS, self.rank_of(who, class::SLOT_Q)).unwrap_or(0.0)
+            * self.ability_length_factor(who)
     }
 
     /// How far a tank's taunt reaches, in tiles: its rank's
@@ -9587,6 +9866,7 @@ impl World {
     /// [`class::JUGGERNAUT_SECONDS`], nought before the first.
     pub fn juggernaut_seconds(&self, who: u32) -> f64 {
         class::by_rank(class::JUGGERNAUT_SECONDS, self.rank_of(who, class::SLOT_R)).unwrap_or(0.0)
+            * self.ability_length_factor(who)
     }
 
     /// Whether a crew member's Juggernaut is running.
@@ -9835,6 +10115,7 @@ impl World {
     /// ([`class::RALLY_SECONDS`]).
     pub fn rally_seconds(&self, who: u32) -> f64 {
         class::by_rank(class::RALLY_SECONDS, self.rank_of(who, class::SLOT_E)).unwrap_or(0.0)
+            * self.ability_length_factor(who)
     }
 
     /// Seconds of the mission clock between one Rally and the next:
@@ -9923,6 +10204,7 @@ impl World {
     /// rank ([`class::BATTLE_CRY_SECONDS`]).
     pub fn battle_cry_seconds(&self, who: u32) -> f64 {
         class::by_rank(class::BATTLE_CRY_SECONDS, self.rank_of(who, class::SLOT_Q)).unwrap_or(0.0)
+            * self.ability_length_factor(who)
     }
 
     /// Seconds of the mission clock between one Battle Cry and the next:
@@ -10395,6 +10677,44 @@ fn refused(slot: u32, why: Refusal) -> WorldEvent {
     WorldEvent::Refused { slot, why }
 }
 
+/// A throw a crew member is walking out to make ([`Command::ThrowAt`]):
+/// whose, a grenade or an EMP, the room tile it is for and the tile it
+/// walks to to throw from.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct PendingThrow {
+    pub who: u32,
+    pub emp: bool,
+    pub tile: (i32, i32),
+    pub stand: (i32, i32),
+}
+
+/// How far inside a throw's reach the spot walked to has to be, in
+/// tiles: a walk ends on the free cell nearest the spot, not its middle.
+const THROW_STAND_MARGIN: f32 = 0.75;
+
+/// The middle of a room tile, in room units.
+fn tile_centre(tile: (i32, i32)) -> bims::math::Vec2 {
+    let t = shipdesign::TILE as f32;
+    bims::math::vec2((tile.0 as f32 + 0.5) * t, (tile.1 as f32 + 0.5) * t)
+}
+
+/// Whether an order to the room calls off a throw its Bim was walking
+/// out to make: everything that moves it or sets it to something, and
+/// not a selection, a recruit, the hands or a box on the Management tab.
+fn calls_off_a_throw(order: bims::order::CrewOrder) -> bool {
+    use bims::order::CrewOrder;
+    !matches!(
+        order,
+        CrewOrder::Select { .. }
+            | CrewOrder::SelectOwn
+            | CrewOrder::Recruit
+            | CrewOrder::WorkPriority { .. }
+            | CrewOrder::Autonomous { .. }
+            | CrewOrder::Hand { .. }
+    )
+}
+
 /// The refusal a walk's code is, if it is one: the room's `ORDER_NOWHERE`
 /// — see `bims::order`. `None` for a walk that went, or an order that was
 /// not a walk.
@@ -10551,6 +10871,65 @@ pub fn bounty_for(tier: u32) -> Money {
         .get(tier as usize)
         .copied()
         .unwrap_or(0)
+}
+
+/// A hit as the picture is told it (`WorldEvent::Hit`): whole points, a
+/// scratch under one said as one.
+fn shown_hit(resident: bool, who: u32, damage: f32, crit: bool) -> WorldEvent {
+    WorldEvent::Hit {
+        resident,
+        who,
+        damage: damage.round().max(1.0) as u32,
+        crit,
+    }
+}
+
+/// How much of its tier's bounty an enemy is worth, in per cent: the weaker
+/// of a tier [`data::BOUNTY_SPREAD_PERCENT`] less, the stronger as much
+/// more, so a fight pays about what it did. A machine by its kind: a Husk,
+/// claws and nothing else, the less; a Trooper the tier's own; a Warden
+/// and a Guardian the more — a wave being half Troopers, a third Husks and
+/// a sixth Wardens, it comes to about the tier's own.
+pub fn droid_bounty_percent(kind: bims::droid::DroidKind) -> u32 {
+    use bims::droid::DroidKind;
+    match kind {
+        DroidKind::Husk => 100 - data::BOUNTY_SPREAD_PERCENT,
+        DroidKind::Trooper => 100,
+        DroidKind::Warden | DroidKind::Guardian => 100 + data::BOUNTY_SPREAD_PERCENT,
+        // The Machine Heart's own pay as a tier's.
+        DroidKind::Core | DroidKind::Conduit | DroidKind::Fabricator => 100,
+    }
+}
+
+/// One of the Manufacturers' worth in per cent, by what it carries: the
+/// spread under the tier's own for a pistol and nothing worn, the spread
+/// back for a better gun and again for any armour — so a better gun in
+/// armour is the spread over.
+pub fn manufacturer_bounty_percent(gear: &bims::combat::Gear) -> u32 {
+    let step = data::BOUNTY_SPREAD_PERCENT;
+    let gun = gear
+        .weapon
+        .is_some_and(|w| w.kind != bims::combat::WeaponKind::LaserPistol);
+    let armour = gear.head.is_some() || gear.body.is_some() || gear.legs.is_some();
+    100 - step + step * u32::from(gun) + step * u32::from(armour)
+}
+
+/// A bounty at `percent` of itself, rounded down to whole euros.
+pub fn bounty_share(amount: Money, percent: u32) -> Money {
+    amount.saturating_mul(Money::from(percent)) / 100
+}
+
+/// What the Republic pays for one of the Manufacturers' people down: its
+/// gear tier's bounty at its gear's share.
+fn manufacturer_bounty(
+    rewards: &crate::rewards::Rewards,
+    room: &bims::game::Game,
+    who: usize,
+) -> Money {
+    bounty_share(
+        rewards.bounty_for(gear_tier(room, who)),
+        manufacturer_bounty_percent(&room.gear(who)),
+    )
 }
 
 /// What tier of gear a body in `room` carries: the best of what is in its

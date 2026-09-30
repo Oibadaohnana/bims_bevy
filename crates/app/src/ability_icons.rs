@@ -116,6 +116,12 @@ impl Glyph {
         four.get(usize::from(slot)).copied()
     }
 
+    /// Its class's colour, a figure's body's: what a mark on the deck
+    /// for the ability — its reach while it is aimed — is drawn in.
+    pub fn colour(self) -> Color32 {
+        self.family().bright
+    }
+
     /// Whose colours it is drawn in.
     fn family(self) -> Ink {
         use Glyph::*;

@@ -1327,10 +1327,10 @@ fn rampage_fires_faster_takes_less_and_aims_on_the_move_for_its_seconds() {
     let events = world.step(&[Command::Rampage { slot: 0 }]);
     assert!(refused_with(&events, Refusal::NotLearnt), "{events:?}");
     let want = [
-        (8.0, 1.5, 0.80, 150.0),
-        (10.0, 1.75, 0.75, 135.0),
-        (12.0, 2.0, 0.70, 120.0),
-        (12.0, 2.0, 0.70, 120.0),
+        (8.0, 1.5, 0.80, 70.0),
+        (10.0, 1.75, 0.75, 60.0),
+        (12.0, 2.0, 0.70, 50.0),
+        (12.0, 2.0, 0.70, 40.0),
     ];
     for (rank, &(seconds, rate, taken, cooldown)) in (1..=4u8).zip(&want) {
         let mut world = soldier();
@@ -1488,4 +1488,160 @@ fn a_soldier_s_ranks_and_rampage_are_saved_and_hashed() {
         before,
         "a Rampage is in the checksum"
     );
+}
+
+/// A deck tile `lo` to `hi` tiles off the soldier that it could throw at
+/// from somewhere it can walk to, and that it cannot throw at from where
+/// it stands for `why`: the nearest such, by row then column on a tie.
+fn throw_target(world: &World, lo: f32, hi: f32, why: Refusal) -> (i32, i32) {
+    let from = world.aboard.room.bim_pos(0);
+    let here = tile_of(from);
+    let span = hi.ceil() as i32;
+    let mut found: Vec<(f32, i32, i32)> = (-span..=span)
+        .flat_map(|dy| (-span..=span).map(move |dx| (here.0 + dx, here.1 + dy)))
+        .filter(|&t| {
+            let d = (middle(t) - from).len() / TILE;
+            (lo..=hi).contains(&d)
+                && world.aboard.room.is_deck_tile(middle(t))
+                && world.can_throw(0, t) == Err(why)
+                && world.throw_stand(0, false, t).is_some()
+        })
+        .map(|t| ((middle(t) - from).len(), t.1, t.0))
+        .collect();
+    found.sort_by(|a, b| a.0.total_cmp(&b.0).then(a.1.cmp(&b.1)).then(a.2.cmp(&b.2)));
+    let (_, y, x) = *found.first().expect("a tile to walk out and throw at");
+    (x, y)
+}
+
+fn throw_at(world: &mut World, tile: (i32, i32)) -> Vec<WorldEvent> {
+    world.step(&[Command::ThrowAt {
+        slot: 0,
+        emp: false,
+        x: tile.0,
+        y: tile.1,
+    }])
+}
+
+/// Step until the soldier throws, at most `seconds` of the clock: the
+/// step it did, or `None`.
+fn steps_to_the_throw(world: &mut World, seconds: u32) -> Option<u32> {
+    for step in 1..=seconds * 60 {
+        let events = world.step(&[]);
+        if events
+            .iter()
+            .any(|e| matches!(e, WorldEvent::Thrown { who: 0 }))
+        {
+            return Some(step);
+        }
+    }
+    None
+}
+
+/// **A throw out of reach is walked out to** (the ability range
+/// indicators): the soldier is not refused, walks to a spot within reach
+/// of the tile and throws from there, the grenade in the room and the
+/// pending throw gone.
+#[test]
+fn a_throw_out_of_reach_walks_to_a_spot_in_reach_and_lands() {
+    let mut world = soldier();
+    ranks(&mut world, 0, [1, 0, 0, 0]);
+    let range = world.grenade_range(0);
+    let tile = throw_target(&world, range + 2.0, range + 8.0, Refusal::OutOfThrowRange);
+    let start = world.aboard.room.bim_pos(0);
+    let held = grenades(&world, 0);
+    let events = throw_at(&mut world, tile);
+    assert!(
+        !events
+            .iter()
+            .any(|e| matches!(e, WorldEvent::Refused { .. })),
+        "{events:?}"
+    );
+    assert_eq!(world.throws.len(), 1, "walking out to throw");
+    assert_eq!(grenades(&world, 0), held, "nothing thrown yet");
+    let step = steps_to_the_throw(&mut world, 30).expect("thrown within thirty seconds");
+    assert!(step > 1, "it walked first");
+    let at = world.aboard.room.bim_pos(0);
+    assert!((at - start).len() > TILE, "the soldier moved");
+    assert!(
+        (middle(tile) - at).len() <= range * TILE,
+        "thrown from within reach"
+    );
+    assert_eq!(grenades(&world, 0), held - 1);
+    assert!(world.throws.is_empty());
+    assert!(
+        !world.aboard.room.grenades().is_empty(),
+        "a grenade in the air"
+    );
+}
+
+/// **A throw behind a wall walks round to a line**: in reach but with a
+/// wall between, the soldier walks to where it can see the tile and
+/// throws from there.
+#[test]
+fn a_throw_behind_a_wall_walks_round_to_a_line_and_lands() {
+    let mut world = soldier();
+    ranks(&mut world, 0, [1, 0, 0, 0]);
+    let range = world.grenade_range(0);
+    let tile = throw_target(&world, 1.0, range, Refusal::NoLineToTile);
+    let events = throw_at(&mut world, tile);
+    assert!(
+        !events
+            .iter()
+            .any(|e| matches!(e, WorldEvent::Refused { .. })),
+        "{events:?}"
+    );
+    steps_to_the_throw(&mut world, 30).expect("thrown within thirty seconds");
+    let at = world.aboard.room.bim_pos(0);
+    assert!(
+        world.aboard.room.line_clear(at, middle(tile)),
+        "a line from where it threw"
+    );
+}
+
+/// **Another order calls a throw walked out to off**: a move given while
+/// the soldier walks out means the throw is not made, the grenade kept;
+/// in reach it is thrown at once, and a tile no spot reaches is refused.
+#[test]
+fn another_order_calls_off_a_throw_walked_out_to() {
+    let mut world = soldier();
+    ranks(&mut world, 0, [1, 0, 0, 0]);
+    let range = world.grenade_range(0);
+    let far = throw_target(&world, range + 2.0, range + 8.0, Refusal::OutOfThrowRange);
+    let held = grenades(&world, 0);
+    assert!(held > 0, "a grenade to throw");
+    throw_at(&mut world, far);
+    assert_eq!(world.throws.len(), 1);
+    let here = world.aboard.room.bim_pos(0);
+    world.step(&[Command::Crew {
+        slot: 0,
+        order: bims::order::CrewOrder::Move {
+            x: here.x,
+            y: here.y,
+        },
+    }]);
+    assert!(world.throws.is_empty(), "called off");
+    assert_eq!(steps_to_the_throw(&mut world, 10), None, "and never made");
+    assert_eq!(grenades(&world, 0), held);
+
+    // In reach with a line: thrown the step it is ordered.
+    let near = open_run(&world, 0, 3)[2];
+    let events = throw_at(&mut world, near);
+    assert!(
+        events
+            .iter()
+            .any(|e| matches!(e, WorldEvent::Thrown { who: 0 })),
+        "{events:?}"
+    );
+    assert!(world.throws.is_empty());
+
+    // Not deck at all: nowhere to throw from, refused at once.
+    give_grenade(&mut world, 0);
+    let at = tile_of(world.aboard.room.bim_pos(0));
+    let void = (-40..=40)
+        .flat_map(|dx| (-40..=40).map(move |dy| (at.0 + dx, at.1 + dy)))
+        .find(|&t| !world.aboard.room.is_deck_tile(middle(t)))
+        .expect("a tile that is not deck");
+    let events = throw_at(&mut world, void);
+    assert!(refused_with(&events, Refusal::CantThrowThere), "{events:?}");
+    assert!(world.throws.is_empty());
 }

@@ -166,6 +166,14 @@ pub enum Order {
         x: i32,
         y: i32,
     },
+    /// A grenade, or with `emp` an EMP, thrown at a room tile the Bim
+    /// walks out to reach where it must — `Command::ThrowAt`, the click
+    /// after the armed Q key.
+    ThrowAt {
+        emp: bool,
+        x: i32,
+        y: i32,
+    },
     /// The soldier's Rampage — `Command::Rampage`, the R key (task 124).
     Rampage,
     /// A rank of the player's own ranked kit bought — `Command::RankUp`,
@@ -472,6 +480,7 @@ impl Net {
                         Order::PackUp(id) => Command::PackUp { slot, id },
                         Order::Brace(on) => Command::Brace { slot, on },
                         Order::Throw { x, y } => Command::Throw { slot, x, y },
+                        Order::ThrowAt { emp, x, y } => Command::ThrowAt { slot, emp, x, y },
                         Order::Rampage => Command::Rampage { slot },
                         Order::RankUp { ability_slot } => Command::RankUp { slot, ability_slot },
                         Order::Beam(patient) => Command::Beam { slot, patient },

@@ -81,12 +81,15 @@ pub enum Clip {
     BattleCry,
     Rally,
     Reinforcements,
+    // An enemy down and what it was worth: a soft two-note chime,
+    // synthesised (`prepare.sh`'s last line).
+    Reward,
 }
 
 /// The bytes of each clip, indexed by [`Clip`]. Ogg Vorbis, mono, 48 kHz,
 /// peaks at -1 dBFS for the one-shots and -22 or -30 LUFS for the loops —
 /// see `prepare.sh` — so every level below is relative to that.
-const CLIPS: [&[u8]; 43] = [
+const CLIPS: [&[u8]; 44] = [
     include_bytes!("../sounds/laser_1.ogg"),
     include_bytes!("../sounds/laser_2.ogg"),
     include_bytes!("../sounds/laser_3.ogg"),
@@ -130,6 +133,7 @@ const CLIPS: [&[u8]; 43] = [
     include_bytes!("../sounds/battle_cry.ogg"),
     include_bytes!("../sounds/rally.ogg"),
     include_bytes!("../sounds/reinforcements.ogg"),
+    include_bytes!("../sounds/reward.ogg"),
 ];
 
 /// The loops that run the whole time. The order is the order of the
@@ -220,6 +224,8 @@ enum Kind {
     Bought,
     /// A class's ability used, told apart by clip and by who used it.
     Ability,
+    /// An enemy down and its pay floating up over it.
+    Reward,
 }
 
 /// How many one-shots a frame may start, whatever the room says. Enough
@@ -283,6 +289,8 @@ impl Kind {
             // One body's same ability twice in a quarter-second is the
             // world saying one use over several steps of a fast frame.
             Kind::Ability => 0.25,
+            // A whole wave falling in one frame is one chime.
+            Kind::Reward => 0.12,
         }
     }
 }
@@ -536,6 +544,15 @@ impl Sounds {
         }
     }
 
+    /// An enemy down, with the money and the experience it was worth
+    /// floating up over it: a soft chime, quiet under the fight, heard
+    /// in every window like a purchase.
+    pub fn reward(&mut self, commands: &mut Commands) {
+        if self.admit(Kind::Reward, bims::math::Vec2::ZERO) {
+            self.one_shot(commands, Clip::Reward, 0.22);
+        }
+    }
+
     /// A class's ability used, by anyone in the crew: the world's event
     /// for it, which every window hears — a teammate's taunt as well as
     /// one's own. What the room hears of an ability afterwards (the
@@ -639,6 +656,6 @@ mod tests {
             assert!(clip.starts_with(b"OggS"), "clip {i} is not an Ogg stream");
             assert!(clip.len() > 1_000, "clip {i} is only {} bytes", clip.len());
         }
-        assert_eq!(CLIPS.len(), Clip::Reinforcements as usize + 1);
+        assert_eq!(CLIPS.len(), Clip::Reward as usize + 1);
     }
 }

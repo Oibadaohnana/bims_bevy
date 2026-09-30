@@ -1,12 +1,13 @@
 //! What task 118's relics do in a fight (`crate::relic`, the rows): a
 //! crew hit landing on a machine — *Marksman's Habit*, *Servo Cutter*,
-//! *Crippler's Mark*, *Total Teardown*, *Blind Spot*, *Wide Angle
-//! Optics*, *Crossfire*, *Spotter* — the auras (*Field Radio*, *Cover
-//! Formation*), the timed effects (*Sprint Coil*, *Tether Field*,
-//! *Signal Scrambler*), the healing (*Pressure Seal*, *Clot Booster*,
-//! *Quick Wrap*), a crewmate down (*Lifeline*, *Rally Point*), the pay (*Hazard
-//! Pay*, *Scrap Collector*, *Parts Broker*, *Squad Morale*) and *War
-//! Chest*.
+//! *Crippler's Mark*, *Total Teardown*, *Blind Spot*, *Crossfire*,
+//! *Spotter* — the auras (*Field Radio*, *Cover Formation*), the reach
+//! standing still (*Wide Angle Optics*), the timed effects (*Sprint
+//! Coil*, *Tether Field*, *Signal Scrambler*) and how long an ability's
+//! last (*Strong Will*), the healing (*Pressure Seal*, *Clot Booster*,
+//! *Quick Wrap*), a player falling low or a crewmate down (*Lifeline*,
+//! *Rally Point*), the pay (*Hazard Pay*, *Parts Broker*, *Squad Morale*)
+//! and *War Chest*.
 //!
 //! The Lifeline patch heals hit points and never touches the blood.
 //!
@@ -115,17 +116,20 @@ impl World {
         gap.len() <= tiles * shipdesign::TILE as f32
     }
 
-    /// The percentage the relics of **other** players put on crew member
-    /// `who`'s `stat` by their auras: every holder fit to act within its
-    /// tiles, a bot alone for an aura that lifts bots alone.
+    /// The percentage the players' auras put on crew member `who`'s
+    /// `stat`: every holder fit to act within its tiles — the holder's own
+    /// too for an aura that says so (*Cover Formation*, task 142).
     fn aura_percent(&self, who: u32, stat: Stat) -> i32 {
-        let players = self.players();
-        (0..players)
-            .filter(|&p| p != who && self.fit_to_act(p))
+        (0..self.players())
+            .filter(|&p| self.fit_to_act(p))
             .flat_map(|p| {
                 relic::auras(self.relics_of(p), stat)
-                    .filter(move |&(_, tiles, bots_only)| {
-                        (!bots_only || who >= players) && self.within_tiles(p, who, tiles)
+                    .filter(move |&(_, tiles, own)| {
+                        if p == who {
+                            own
+                        } else {
+                            self.within_tiles(p, who, tiles)
+                        }
                     })
                     .map(|(percent, _, _)| percent)
             })
@@ -133,7 +137,7 @@ impl World {
     }
 
     /// *War Chest*'s share of `slot`'s damage now, in per cent: its step
-    /// for every thousand in the pool a player, to its cap.
+    /// for every thousand in the player's own wallet, to its cap.
     pub fn war_chest_percent(&self, slot: u32) -> i32 {
         let Some((per, cap)) = relic::rule_of(self.relics_of(slot), |r| match r {
             Rule::WarChest {
@@ -144,20 +148,30 @@ impl World {
         }) else {
             return 0;
         };
-        let each = self.money / Money::from(self.players().max(1));
-        let thousands = (each / 1_000).min(i32::MAX as Money) as i32;
+        let thousands = (self.wallet(slot) / 1_000).min(i32::MAX as Money) as i32;
         thousands.saturating_mul(per).min(cap)
     }
 
-    /// How wide a machine's front is for crew member `who`'s hits, as a
-    /// cosine: the Guardian's shield for everybody, narrower with *Wide
-    /// Angle Optics*.
-    pub fn front_cos_of(&self, who: u32) -> f32 {
+    /// The tiles *Wide Angle Optics* adds to crew member `who`'s range
+    /// while it stands still (task 142); nought without it.
+    pub fn still_range_of(&self, who: u32) -> f32 {
         relic::rule_of(self.relics_of(who), |r| match r {
-            Rule::WideAngle { front_cos } => Some(front_cos),
+            Rule::StillRange { tiles } => Some(tiles),
             _ => None,
         })
-        .unwrap_or(bims::balance::GUARDIAN_SHIELD_COS)
+        .unwrap_or(0.0)
+    }
+
+    /// What crew member `who`'s ability effects' length is multiplied by:
+    /// one, or more with *Strong Will* (task 142). Read by every ability
+    /// with a length — a Rampage, an EMP's stun, a Cloak, a Taunt, a
+    /// Juggernaut, a Rally and a Battle Cry.
+    pub fn ability_length_factor(&self, who: u32) -> f64 {
+        relic::rule_of(self.relics_of(who), |r| match r {
+            Rule::LongerAbilities { percent } => Some(relic::factor(percent)),
+            _ => None,
+        })
+        .unwrap_or(1.0)
     }
 
     // --- the skill ----------------------------------------------------------------
@@ -192,19 +206,15 @@ impl World {
         if aim != 0 {
             skill.accuracy *= relic::factor(aim) as f32;
         }
+        skill.still_range += self.still_range_of(who);
     }
 
     /// A shield's front against every crew member's shots, for the room
-    /// (`Game::set_shield_fronts`): *Wide Angle Optics* narrows it.
+    /// (`Game::set_shield_fronts`): the Guardian's own for everybody since
+    /// *Wide Angle Optics* stopped narrowing it (task 142), which an empty
+    /// list says.
     pub(super) fn hand_the_room_the_shield_fronts(&mut self) {
-        let fronts: Vec<f32> = if self.any_relics() {
-            (0..self.aboard.crew_count())
-                .map(|who| self.front_cos_of(who))
-                .collect()
-        } else {
-            Vec::new()
-        };
-        self.aboard.room.set_shield_fronts(fronts);
+        self.aboard.room.set_shield_fronts(Vec::new());
     }
 
     /// Which of the crew no machine aims at now: *Signal Scrambler*'s
@@ -340,6 +350,8 @@ impl World {
                 break;
             };
             residents.aboard.room.strike_droid(i, part, damage);
+            // And what it did, for the number over the machine.
+            self.shown_hits.push((hit.who as u32, damage, hit.crit));
             if let Some(last) = residents.last_hit_by.get_mut(hit.who) {
                 *last = hit.by;
             }
@@ -400,13 +412,12 @@ impl World {
         let tear = !solid && limb(part) && gone(part);
 
         // From the side or behind: the shooter outside the machine's front
-        // arc — the Guardian shield's, or narrower with *Wide Angle
-        // Optics*.
+        // arc, the Guardian shield's.
         let shooter = hit.by.and_then(|b| crew_at.get(b).copied().flatten());
         let flanked = match (slot, shooter) {
-            (Some(s), Some(at)) => {
+            (Some(_), Some(at)) => {
                 let toward = (at - pos).normalize_or_zero();
-                toward != Vec2::ZERO && front.dot(toward) < self.front_cos_of(s)
+                toward != Vec2::ZERO && front.dot(toward) < bims::balance::GUARDIAN_SHIELD_COS
             }
             _ => false,
         };
@@ -549,43 +560,24 @@ impl World {
     // --- kills and pay -----------------------------------------------------------
 
     /// What task 118's relics make of one machine destroyed, beside the
-    /// bounty `machine_kills` already pays: *Scrap Collector*'s money on the
-    /// holder's own, *Signal Scrambler* on one from the side, and *Squad
-    /// Morale* on the holder's own and every bot's. The money is added to
-    /// what the bounty comes to.
-    pub(super) fn relics_on_a_kill(
-        &mut self,
-        kill: &MachineKill,
-        events: &mut Vec<WorldEvent>,
-    ) -> Money {
+    /// bounty `machine_kills` already pays: *Signal Scrambler* on one from
+    /// the side, and *Squad Morale* on every one, whoever destroyed it
+    /// (task 142; it was the holder's own and the bots').
+    pub(super) fn relics_on_a_kill(&mut self, kill: &MachineKill, events: &mut Vec<WorldEvent>) {
         let players = self.players();
-        let crew = self.aboard.crew_count();
         let slot = kill.by.map(|b| b as u32).filter(|&b| b < players);
-        let mut pay: Money = 0;
-        if let Some(s) = slot {
-            if let Some(money) = relic::rule_of(self.relics_of(s), |r| match r {
-                Rule::KillPay { money } => Some(money),
-                _ => None,
-            }) {
-                pay = pay.saturating_add(money);
-            }
-            if kill.flanked {
-                self.relic_trigger(s, Trigger::FlankKill, events);
-            }
+        if let Some(s) = slot
+            && kill.flanked
+        {
+            self.relic_trigger(s, Trigger::FlankKill, events);
         }
-        let by_bot = kill
-            .by
-            .is_some_and(|b| (b as u32) >= players && (b as u32) < crew);
         for p in 0..players {
-            if slot == Some(p) || by_bot {
-                self.relic_trigger(p, Trigger::CrewKill, events);
-            }
+            self.relic_trigger(p, Trigger::CrewKill, events);
         }
-        pay
     }
 
-    /// *Hazard Pay*: the site just cleared pays the crew, once a relic
-    /// held. Part of `settle_clear`.
+    /// *Hazard Pay*: the site just cleared pays the relic's holder, once
+    /// a relic held, into their own wallet. Part of `settle_clear`.
     pub(super) fn relics_pay_the_clear(&mut self, events: &mut Vec<WorldEvent>) {
         for slot in 0..self.players() {
             let Some(money) = relic::rule_of(self.relics_of(slot), |r| match r {
@@ -594,7 +586,7 @@ impl World {
             }) else {
                 continue;
             };
-            self.money = self.money.saturating_add(money);
+            self.credit(slot, money);
             events.push(WorldEvent::RelicFired {
                 who: slot,
                 relic: Relic::HazardPay.code(),
@@ -605,19 +597,31 @@ impl World {
     // --- a crewmate down ------------------------------------------------------------
 
     /// Which of the crew were down — alive and downed — before the rooms
-    /// stepped: what [`World::settle_relic_downs`] reads a fall off.
-    pub(crate) fn downs_before_the_step(&self) -> Vec<bool> {
+    /// stepped, and each one's share of its health then: what
+    /// [`World::settle_relic_downs`] reads a fall and a fall low (*Lifeline*,
+    /// task 142) off.
+    pub(crate) fn downs_before_the_step(&self) -> Vec<(bool, f32)> {
         let room = &self.aboard.room;
-        (0..self.aboard.crew_count() as usize)
-            .map(|who| room.is_alive(who) && room.is_down(who))
+        (0..self.aboard.crew_count())
+            .map(|who| {
+                let at = who as usize;
+                (
+                    room.is_alive(at) && room.is_down(at),
+                    self.health_share(who),
+                )
+            })
             .collect()
     }
 
     /// After `settle_relics`: when each player's Bim last went down (*Clot
-    /// Booster*, kept after it is revived), and every crewmate that went
-    /// down this step said to the players near it
-    /// (`Trigger::CrewmateDowned`, *Lifeline*).
-    pub(crate) fn settle_relic_downs(&mut self, before: &[bool], events: &mut Vec<WorldEvent>) {
+    /// Booster*, kept after it is revived), and every player's Bim that
+    /// fell under *Lifeline*'s share of its health this step said to every
+    /// player (`Trigger::PlayerLow`) — a bot's never.
+    pub(crate) fn settle_relic_downs(
+        &mut self,
+        before: &[(bool, f32)],
+        events: &mut Vec<WorldEvent>,
+    ) {
         if !self.any_relics() {
             return;
         }
@@ -631,41 +635,46 @@ impl World {
             if downed.len() <= at {
                 downed.resize(at + 1, None);
             }
-            if down && !before.get(at).copied().unwrap_or(false) {
+            if down && !before.get(at).is_some_and(|b| b.0) {
                 downed[at] = Some(now);
             }
         }
-        for c in 0..crew {
-            let at = c as usize;
-            let down = self.aboard.room.is_alive(at) && self.aboard.room.is_down(at);
-            if !down || before.get(at).copied().unwrap_or(false) {
+        // A player's Bim fallen under the line this step: it was over it
+        // (or at it) before the rooms stepped and is under it now.
+        let line = data::LIFELINE_BELOW_PERCENT as f32 / 100.0;
+        for c in 0..players.min(crew) {
+            let was = before.get(c as usize).map_or(0.0, |b| b.1);
+            if !self.aboard.room.is_alive(c as usize) || was < line || self.health_share(c) >= line
+            {
                 continue;
             }
             for p in 0..players {
-                if p != c {
-                    self.relic_trigger_on(p, Trigger::CrewmateDowned, Some(c), events);
-                }
+                self.relic_trigger_on(p, Trigger::PlayerLow, Some(c), events);
             }
         }
     }
 
-    /// *Lifeline*: `who` on its feet and the crewmate `other` that went
-    /// down within `tiles` of it, both untouchable for `seconds`.
-    pub(super) fn relic_shelter(
+    /// *Lifeline* (task 142): holder `who`, alive, and the player's Bim
+    /// `other` that fell low within `tiles` of it — or `who` itself — each
+    /// given a shield of `hp` hit points for `seconds`. True when one was.
+    pub(super) fn relic_shield(
         &mut self,
         who: u32,
         other: Option<u32>,
         tiles: f32,
+        hp: f32,
         seconds: f32,
     ) -> bool {
         let Some(other) = other else {
             return false;
         };
-        if !self.fit_to_act(who) || !self.within_tiles(who, other, tiles) {
+        if !self.aboard.room.is_alive(who as usize)
+            || (other != who && !self.within_tiles(who, other, tiles))
+        {
             return false;
         }
-        self.aboard.room.set_surge(who as usize, seconds);
-        self.aboard.room.set_surge(other as usize, seconds);
+        self.aboard.room.set_shield(who as usize, hp, seconds);
+        self.aboard.room.set_shield(other as usize, hp, seconds);
         true
     }
 
@@ -738,8 +747,8 @@ impl World {
 }
 
 impl World {
-    /// [`Command::Restock`]: the shelf of the trader the crew are at rolled
-    /// again — its weapons and its armour, never its relic — off the
+    /// [`Command::Restock`]: the shelf of the pressing player's own trader
+    /// rolled again — its weapons and its armour, never its relic — off the
     /// galaxy's seed, the site and the world clock's minute, so every
     /// machine rolls the same. A slot bought before is a thing again.
     pub(super) fn restock(&mut self, slot: u32, events: &mut Vec<WorldEvent>) {
@@ -747,7 +756,7 @@ impl World {
             events.push(refused(slot, why));
             return;
         }
-        let Some(site) = self.trader_here().map(|t| t.site) else {
+        let Some(site) = self.trader_here(slot).map(|t| t.site) else {
             events.push(refused(slot, Refusal::NotAtATrader));
             return;
         };
@@ -755,9 +764,14 @@ impl World {
             self.galaxy_seed,
             site.star,
             site.station,
-            self.clock_minutes.to_bits(),
+            self.clock_minutes.to_bits() ^ (u64::from(slot) << 56),
         );
-        if let Some(trader) = self.run.traders.iter_mut().find(|t| t.site == site) {
+        if let Some(trader) = self
+            .run
+            .traders
+            .iter_mut()
+            .find(|t| t.site == site && t.owner == slot)
+        {
             trader.shelf = shelf.into_iter().map(Some).collect();
         }
         self.run.relics.restocked = true;

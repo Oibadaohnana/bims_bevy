@@ -592,9 +592,6 @@ impl World {
         }
         *connected = false;
         events.push(WorldEvent::PlayerGone { slot });
-        if self.run.phase == RunPhase::Trade {
-            self.trade_relic_if_carried(events);
-        }
         if matches!(self.run.phase, RunPhase::Map | RunPhase::Trade) {
             self.go_if_carried(events);
         }
@@ -617,8 +614,6 @@ impl World {
     /// its day on, whatever happened in between.
     pub(super) fn travel(&mut self, quote: TravelQuote, events: &mut Vec<WorldEvent>) {
         let site = quote.site;
-        // The vote on a trader's relic goes with the trader (task 114).
-        self.run.trade_relic = None;
         self.clock_minutes += quote.minutes as f64;
         // The hired hands' months that fell due on the way.
         self.pay_wages_due(events);
@@ -805,17 +800,15 @@ impl World {
 
     /// The dead players back, at the end of the mission they died in
     /// (task 113): each up again where its body lies aboard with its whole
-    /// loadout, relics, class, level and talents, and the pool charged
-    /// [`data::BUYBACK_COST`] for it — or whatever the pool holds, down to
-    /// nought, since a respawn never waits for money.
+    /// loadout, relics, class, level and talents, and its buyback paid
+    /// ([`World::buy_back`]: its own money, else the players' pooled).
     fn respawn_the_fallen(&mut self, events: &mut Vec<WorldEvent>) {
         for fallen in std::mem::take(&mut self.run.fallen) {
             let who = fallen.slot as usize;
             if who >= self.aboard.crew_count() as usize {
                 continue;
             }
-            let paid = self.money.min(self.rewards.buyback);
-            self.money -= paid;
+            let paid = self.buy_back(fallen.slot);
             self.aboard.room.revive(who);
             if let Some(down) = self.crew_down.get_mut(who) {
                 *down = false;
@@ -827,12 +820,134 @@ impl World {
         }
     }
 
+    /// Player `slot`'s buyback paid: out of its own wallet when that holds
+    /// the whole [`Rewards::buyback`](crate::rewards::Rewards); otherwise
+    /// every player's money is pooled — the fallen's with it — the
+    /// buyback taken out of the pool (or what the pool holds, down to
+    /// nought, since a respawn never waits for money), and what is left
+    /// handed back to the **others** in proportion to what each put in.
+    /// The fallen's own is spent. What the division leaves over goes into
+    /// the takings. Answers what was paid.
+    ///
+    /// Three players, C fallen with 2000, A with 1000 and B with 10 000:
+    /// 13 000 pooled, 5000 paid, and of the 8000 left A has 1/11 and B
+    /// 10/11 back.
+    pub(crate) fn buy_back(&mut self, slot: u32) -> Money {
+        let cost = self.rewards.buyback;
+        let players = self.players().max(1) as usize;
+        self.wallets.resize(players, 0);
+        let fallen = slot as usize;
+        if self.wallet(slot) >= cost {
+            self.wallets[fallen] -= cost;
+            return cost;
+        }
+        let pool = self
+            .wallets
+            .iter()
+            .fold(0 as Money, |sum, &w| sum.saturating_add(w));
+        let paid = pool.min(cost);
+        let left = pool - paid;
+        let put_in: Money = self
+            .wallets
+            .iter()
+            .enumerate()
+            .filter(|&(i, _)| i != fallen)
+            .fold(0, |sum, (_, &w)| sum.saturating_add(w));
+        let shares: Vec<Money> = self
+            .wallets
+            .iter()
+            .enumerate()
+            .map(|(i, &w)| {
+                if i == fallen || put_in == 0 {
+                    0
+                } else {
+                    (u128::from(left) * u128::from(w) / u128::from(put_in)) as Money
+                }
+            })
+            .collect();
+        let handed = shares
+            .iter()
+            .fold(0 as Money, |sum, &s| sum.saturating_add(s));
+        self.wallets = shares;
+        self.money = self.money.saturating_add(left - handed);
+        paid
+    }
+
+    /// Player `slot`'s own money.
+    pub fn wallet(&self, slot: u32) -> Money {
+        self.wallets.get(slot as usize).copied().unwrap_or(0)
+    }
+
+    /// What player `slot` has to its name: its own money and its share of
+    /// the takings not yet shared out — what it will have when the mission
+    /// ends. What the screens show as a player's money.
+    pub fn share_of(&self, slot: u32) -> Money {
+        let players = Money::from(self.players().max(1));
+        self.wallet(slot).saturating_add(self.money / players)
+    }
+
+    /// The crew's takings shared out evenly into every player's wallet —
+    /// at the world's opening and at the end of every mission — what
+    /// does not divide left in the takings for the next time.
+    pub(super) fn share_out(&mut self) {
+        let players = self.players().max(1) as usize;
+        self.wallets.resize(players, 0);
+        let each = self.money / players as Money;
+        if each == 0 {
+            return;
+        }
+        for wallet in &mut self.wallets {
+            *wallet = wallet.saturating_add(each);
+        }
+        self.money -= each * players as Money;
+    }
+
+    /// `price` out of player `slot`'s wallet, if it holds it: false, and
+    /// nothing taken, if not.
+    pub(crate) fn pay_from(&mut self, slot: u32, price: Money) -> bool {
+        if price == 0 {
+            return true;
+        }
+        match self.wallets.get_mut(slot as usize) {
+            Some(wallet) if *wallet >= price => {
+                *wallet -= price;
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// The crew's money set outright, as a test wants it: every wallet
+    /// emptied and `money` shared out into them evenly, the way the
+    /// world's opening shares its pool.
+    pub fn set_money_for_probe(&mut self, money: Money) {
+        for wallet in &mut self.wallets {
+            *wallet = 0;
+        }
+        self.money = money;
+        self.share_out();
+    }
+
+    /// `amount` into player `slot`'s wallet.
+    pub(crate) fn credit(&mut self, slot: u32, amount: Money) {
+        let players = self.players().max(1) as usize;
+        if self.wallets.len() < players {
+            self.wallets.resize(players, 0);
+        }
+        if let Some(wallet) = self.wallets.get_mut(slot as usize) {
+            *wallet = wallet.saturating_add(amount);
+        }
+    }
+
     /// Every living crew member made whole (`Game::restore_health`), and
     /// every class charge and cooldown fresh: a mission starts at the top
     /// of the mission clock, and a cooldown begun in the last one would
     /// otherwise read as running on for however long the last one lasted.
     fn make_whole(&mut self) {
         let crew = self.aboard.crew_count() as usize;
+        // No throw a crew member was walking out to make outlives the
+        // mission it was ordered in.
+        self.throws.clear();
         for who in 0..crew {
             if !self.aboard.room.is_alive(who) {
                 continue;
@@ -983,12 +1098,10 @@ impl World {
     /// The Republic's bounty for enemies taken down, earned: paid at once
     /// at a site that is cleared — nothing is waiting on it — and
     /// otherwise pending until it is.
-    pub(super) fn earn_bounty(&mut self, amount: Money, events: &mut Vec<WorldEvent>) {
-        // **A defence pays its share** (`Rewards::defense_bounty_percent`):
-        // task 136 made it nothing, the survivors being the reward, and
-        // the player then asked for money for every enemy down wherever
-        // it falls — a hundred per cent, untuned.
-        let amount = if self
+    /// A bounty as the site the crew are at pays it: a defence its share
+    /// (`Rewards::defense_bounty_percent`), anywhere else the whole.
+    pub(crate) fn bounty_here(&self, amount: Money) -> Money {
+        if self
             .ship
             .state
             .alongside()
@@ -997,7 +1110,15 @@ impl World {
             self.rewards.at_defense(amount)
         } else {
             amount
-        };
+        }
+    }
+
+    pub(super) fn earn_bounty(&mut self, amount: Money, events: &mut Vec<WorldEvent>) {
+        // **A defence pays its share** (`Rewards::defense_bounty_percent`):
+        // task 136 made it nothing, the survivors being the reward, and
+        // the player then asked for money for every enemy down wherever
+        // it falls — a hundred per cent, untuned.
+        let amount = self.bounty_here(amount);
         if amount == 0 {
             return;
         }
@@ -1417,8 +1538,12 @@ impl World {
         } else if !cleared && let Some(snapshot) = self.run.snapshot.take() {
             self.restore_site(snapshot);
         }
-        // The dead bots go, their loadouts into the armory, and the dead
-        // players come back with theirs (task 113).
+        // The mission's takings shared out evenly between the players —
+        // the fallen's share with the rest, since it goes to the pool
+        // that buys them back — and then the dead bots go, their
+        // loadouts into the armory, and the dead players come back with
+        // theirs (task 113).
+        self.share_out();
         self.bury_the_bots();
         self.respawn_the_fallen(events);
         // The slow a downing left is the mission's and ends with it (task

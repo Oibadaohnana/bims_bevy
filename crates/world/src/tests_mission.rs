@@ -351,11 +351,19 @@ fn the_bounty_is_paid_only_on_clear_and_only_once() {
     world.step(&[]);
     let pending = world.run.pending_bounty;
     let tier = world.droid_tier().code();
-    assert_eq!(
-        pending,
-        3 * crate::world::bounty_for(tier),
-        "three owed for"
-    );
+    // Each at its kind's share of the tier's bounty.
+    let room = &world.residents.as_ref().unwrap().aboard.room;
+    let owed: economy::Money = (0..room.droid_count() as usize)
+        .filter_map(|i| room.droid(i))
+        .map(|d| {
+            crate::world::bounty_share(
+                crate::world::bounty_for(tier),
+                crate::world::droid_bounty_percent(d.kind),
+            )
+        })
+        .sum();
+    assert_eq!(pending, owed, "three owed for");
+    assert_eq!(room.droid_count(), 3);
     assert_eq!(world.money, money, "and not paid yet");
     assert!(!world.droid_station_cleared(station));
     // The second wave lands and is destroyed: the station is cleared, and
@@ -491,12 +499,16 @@ fn a_bot_s_death_costs_nothing_and_it_is_gone_for_good() {
             .any(|e| matches!(e, WorldEvent::BotLost { who: 1 })),
         "{events:?}"
     );
-    assert_eq!(world.money, 12_000, "the pool untouched");
+    assert_eq!(world.crew_money(), 12_000, "the pool untouched");
     assert!(!world.lost, "a bot does not end a run");
     let crew = world.aboard.crew_count();
     to_the_map(&mut world);
     assert_eq!(world.aboard.crew_count(), crew - 1, "gone for good");
-    assert_eq!(world.money, 12_000, "and nothing paid when the ship leaves");
+    assert_eq!(
+        world.crew_money(),
+        12_000,
+        "and nothing paid when the ship leaves"
+    );
 }
 
 /// **The run is over when every player's Bim is dead at once** — not

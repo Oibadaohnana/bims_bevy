@@ -6317,3 +6317,99 @@ release build), so the app asks first and applies such a command on a
 thread behind a loading screen (`crates/app/src/screens/loading.rs`);
 the world itself is untouched and nothing saved, hashed or on the wire
 moved. `would_travel_foretells_the_trip` (`tests_mission.rs`) is the rule.
+
+## The relic rebalance (task 142)
+
+> "Five patches of relics (task 118)" above says *Wide Angle Optics*
+> narrows a machine's front, *Scrap Collector* pays for kills, *Lifeline*
+> surges a crewmate going down, *Cover Formation* covers bots alone and
+> *Squad Morale* counts its holder's and the bots' kills: this is what
+> each is now. The numbers are `data.rs`'s, their notes say what they were.
+
+- **Field Radio** 7% within 5 tiles; **Crippler's Mark** +35%; **Tether
+  Field** 40% for 10 s — constants only.
+- **Cover Formation**: `Effect::Aura`'s flag is `own` now (the holder's
+  own too), not `bots_only`; `aura_percent` counts every holder fit to act
+  — the holder itself where `own`, everybody else within its tiles. 15%
+  within 5 tiles.
+- **Squad Morale**: `Trigger::CrewKill` is said to every player for
+  every machine destroyed, whoever hit it last (`relics_on_a_kill`).
+- **Wide Angle Optics** is `Rule::StillRange { tiles }`: 7 tiles on
+  `Skill::still_range`, which the room adds to the range while the Bim
+  stands still (`Game::shot_skill`). A machine's front is the Guardian's
+  for everybody again, and `hand_the_room_the_shield_fronts` hands an
+  empty list.
+- **Strong Will** took *Scrap Collector*'s code (31):
+  `Rule::LongerAbilities { percent }`, read by
+  `World::ability_length_factor` in the seven ability lengths —
+  `rampage_seconds`, `emp_stun`, `cloak_seconds`, `taunt_seconds`,
+  `juggernaut_seconds`, `rally_seconds`, `battle_cry_seconds`. `KillPay`
+  and `SCRAP_COLLECTOR_PAY` went; `relics_on_a_kill` pays nothing.
+- **Lifeline**: `Trigger::PlayerLow` (was `CrewmateDowned`) and
+  `Action::Shield { tiles, hp, seconds }` (was `Shelter`).
+  `downs_before_the_step` keeps each body's health share beside its down,
+  and `settle_relic_downs` says the trigger to every player for a
+  player's Bim (never a bot) that crossed `LIFELINE_BELOW_PERCENT` this
+  step; `relic_shield` shields the holder and that Bim (the holder alone
+  when it was itself) with `LIFELINE_SHIELD_HP` for `LIFELINE_SECONDS`,
+  within `LIFELINE_TILES`, once a mission. The shield is the room's
+  (`Game::set_shield`, `crates/game/CLAUDE.md`) and in `world_checksum`
+  only where one stands.
+- **Hazard Pay** and **Trade License** ride on the per-player wallets,
+  and are **not done yet** (agent #12 left them for after the wallets
+  were committed): the holder is to be paid `HAZARD_PAY / players` a
+  clear (today the whole `HAZARD_PAY` is `credit`ed to the holder), and a
+  trader is to ask every player `TRADE_LICENSE_PERCENT` less and the
+  holder `TRADE_LICENSE_HOLDER_PERCENT` less (a `trader_discount_for`;
+  today `trader_discount` is the crew's best, the constant unread).
+
+`tests_relic_patches.rs` has a test a relic.
+
+## Every player's own money (no task number)
+
+> "Money, the bounty and what a crew are worth", "The trader" and the
+> buyback in "Nothing is stored" above speak of **the pool**; since this
+> change it is split.
+
+- **`World::wallets`** (saved, hashed) is a player slot's own money, and
+  `World::money` is only the **takings** not yet shared out: a bounty and
+  anything else earned goes there, and `share_out` (mission.rs) divides it
+  evenly into every wallet at `World::start` and at every mission's end
+  (`leave_mission`, before the buyback), what does not divide left for
+  the next. `wallet(slot)`, `credit(slot, amount)`, `pay_from(slot,
+  price)` (all or nothing), `share_of(slot)` (the wallet and its share of
+  the takings — what the screens show), `crew_money()` (everything, what
+  a build site draws on through `spend_shared`) and `set_money_for_probe`
+  (the tests' dial: the amount shared out as the opening shares it).
+- **A trader a player** (`Trader::owner`): `arrive_at_trader` meets one
+  for every player at a trader site, each its own shelf
+  (`trader::roll_shelf_for`, the first player's `roll_shelf`) and its own
+  relic (drawn one at a time, so no two alike); `trader_here(slot)`. A
+  buy, a combine and the relic are paid out of the buyer's wallet; the
+  relic is **bought outright** for the buyer's own Bim — `ProposeRelic` at
+  a trader is `buy_trader_relic`, and the trader-relic vote
+  (`Run::trade_relic`) went. Prices are the crew's share:
+  `trader_share(price)` is the price over the players, rounded up, on
+  `shelf_price`, `trader_relic_price` and `combine_fee()`. *Restock
+  Codes* rolls the presser's own shelf.
+- **The buyback** (`World::buy_back`): the fallen's own wallet when it
+  holds `Rewards::buyback`; otherwise every wallet pooled, the buyback
+  (or what there is) taken, and the rest handed back to the **others** in
+  proportion to what each put in, the fallen's spent, the rounding into
+  the takings. `a_buyback_the_fallen_cannot_pay_pools_every_player_s_money`
+  is the user's own example.
+- A hire and its wages are the signer's (`Hired::by`); *War Chest* reads
+  the holder's wallet; *Hazard Pay* is `credit`ed to the holder.
+- **An enemy's worth by its strength**: `droid_bounty_percent` (a Husk
+  90, a Trooper 100, a Warden or a Guardian 110) and
+  `manufacturer_bounty_percent` (a pistol and nothing worn 90, a better
+  gun or armour a tenth more each), `data::BOUNTY_SPREAD_PERCENT`, through
+  `bounty_share`. `WorldEvent::EnemyRewarded { station, who, xp, money }`
+  (142) says each enemy's pay the step it is counted, and
+  `WorldEvent::Hit { resident, who, damage, crit }` (143) every hit
+  landed on either side — pictures' events, for the numbers the app
+  floats (`World::shown_hits` carries the relics' hits on the machines
+  out of `land_on_machines`).
+
+**`SAVE_VERSION` 68, `wire::PROTOCOL` 69**; `REFERENCE_CHECKSUM`,
+`SURVIVORS` and the ship's `PINNED` re-pinned (each note says why).

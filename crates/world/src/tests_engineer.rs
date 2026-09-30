@@ -1222,10 +1222,10 @@ fn sandbags_take_the_bolts_they_stop_and_are_gone_at_nothing() {
 #[test]
 fn the_sentry_s_weapon_rate_health_and_range_are_its_rank_s() {
     let want = [
-        (Tier::Two, 1.0, 200.0, 5.0, 150.0),
-        (Tier::Three, 1.0, 250.0, 5.0, 140.0),
-        (Tier::Three, 1.5, 300.0, 5.0, 130.0),
-        (Tier::Three, 2.0, 400.0, 5.0, 120.0),
+        (Tier::Two, 1.0, 200.0, 5.0, 70.0),
+        (Tier::Three, 1.0, 250.0, 5.0, 60.0),
+        (Tier::Three, 1.5, 300.0, 5.0, 50.0),
+        (Tier::Three, 2.0, 400.0, 5.0, 40.0),
     ];
     for (i, (tier, rate, health, range, cooldown)) in want.into_iter().enumerate() {
         let rank = i as u8 + 1;

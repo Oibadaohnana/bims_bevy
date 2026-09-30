@@ -794,10 +794,10 @@ fn the_wall_adds_dodge_from_its_third_rank_and_interposes_at_its_fourth() {
 #[test]
 fn the_juggernaut_s_time_damage_taken_and_cooldown_go_by_its_rank() {
     let want = [
-        (6.0, 0.50, 150.0),
-        (7.0, 0.40, 140.0),
-        (8.0, 0.35, 130.0),
-        (10.0, 0.30, 120.0),
+        (6.0, 0.50, 70.0),
+        (7.0, 0.40, 60.0),
+        (8.0, 0.35, 50.0),
+        (10.0, 0.30, 40.0),
     ];
     for (rank, &(seconds, taken, cooldown)) in (1..=4u8).zip(&want) {
         let mut world = tank_at([0, 0, 0, rank]);
