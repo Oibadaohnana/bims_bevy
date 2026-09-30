@@ -50,7 +50,7 @@ worldgen = { path = "../worldgen" }
 # bar ring's C, which the nix build compiles like anything else.
 wire = { path = "../wire" }
 serde = { version = "1", features = ["derive"] }
-# The tuning files, `scaling.ron` and `rewards.ron`, read while the game
+# The tuning files, `scaling.ron`, `rewards.ron` and `audio.ron`, read while the game
 # runs (`wavecfg.rs`).
 ron = "0.12"
 tungstenite = { version = "0.24", features = ["rustls-tls-webpki-roots"] }

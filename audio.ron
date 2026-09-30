@@ -1,0 +1,79 @@
+// How loud each sound is, tuned while the game runs.
+//
+// The game reads this file again whenever it is saved (BIMS_AUDIO names
+// another). Each number multiplies the level the game plays that sound at:
+// 1 is as built, 0 is never heard, 0.5 half as loud, 2 twice. A sound left
+// out is 1, a misspelt name or a file that does not parse keeps the last
+// good numbers (the reason is printed on the terminal).
+//
+// These sit under the Esc sheet's audio page: master, effects (every
+// one-shot below) and ambience (the five loops) still turn the lot.
+//
+// A sound is named as its clip in crates/app/sounds/ is, and a clip heard
+// in several places is turned in all of them — but a weapon that borrows
+// another's report has its own line at the end.
+(
+    // The crew's and the machines' guns.
+    laser_1: 1.0,           // the laser pistol, four takes in turn
+    laser_2: 1.0,
+    laser_3: 1.0,
+    laser_4: 1.0,
+    shotgun: 1.0,
+    rifle: 1.0,             // the auto rifle
+    sniper: 1.0,            // the sniper rifle
+
+    // Hits.
+    laser_hit: 1.0,         // a bolt landing on a body
+    laser_wall: 1.0,        // a bolt off a wall, or a Guardian's shield
+    ouch: 1.0,              // one of the crew hit
+    schword: 1.0,           // a blade's cut
+    punch: 1.0,             // a blow that is not a cut
+
+    // Doors.
+    door_open: 1.0,
+    door_close: 1.0,
+    door_force: 1.0,        // a body heaving at a locked door, and it giving
+
+    // A player's hand.
+    draw: 1.0,              // a weapon out of its holster
+    holster: 1.0,           // and back in; also a Brace let go
+
+    // The trader and the pay.
+    bought: 1.0,            // anything bought, by anyone in the crew
+    reward: 1.0,            // the chime of an enemy down and its pay
+
+    // The classes' abilities.
+    grenade_throw: 1.0,
+    grenade_burst: 1.0,
+    brace: 1.0,
+    rampage: 1.0,
+    emp_throw: 1.0,
+    emp_burst: 1.0,
+    healing_sentry: 1.0,
+    sandbags: 1.0,
+    sentry: 1.0,
+    nanite_burst: 1.0,
+    beam_on: 1.0,
+    beam_off: 1.0,
+    cloak: 1.0,
+    taunt: 1.0,
+    bulwark_on: 1.0,
+    bulwark_off: 1.0,
+    juggernaut: 1.0,
+    battle_cry: 1.0,
+    rally: 1.0,
+    reinforcements: 1.0,
+
+    // The loops.
+    ship: 1.0,              // the ship's hum
+    station: 1.0,           // a station's, docked
+    temperate: 1.0,         // a planet's air, by biome
+    desert: 1.0,
+    arctic: 1.0,
+
+    // Weapons with no clip of their own, turned apart from the one they
+    // borrow.
+    minigun: 1.0,           // the rifle's report, quiet
+    rail_lance: 1.0,        // the sniper's, loud
+    unmaker: 1.0,           // the sniper's
+)

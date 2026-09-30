@@ -8,6 +8,9 @@
 //!   the experience and the money an enemy down is worth, what a defence
 //!   pays of it, whether the money waits for the clear, and what the
 //!   buyback, a relic, a combine and the trader's shelf cost.
+//! - `audio.ron` (or `BIMS_AUDIO`) holds a [`crate::sound::Volumes`]: the
+//!   player's volume for each sound, handed to the sound player rather
+//!   than the world.
 //!
 //! Each file is looked at twice a second; when it changes it is read again
 //! and the world is handed the new dials, which the next wave laid, the
@@ -32,6 +35,7 @@ use world::droid::{Difficulty, WaveScaling};
 use world::rewards::Rewards;
 
 use crate::screens::designer::ShipSession;
+use crate::sound::{Sounds, Volumes};
 
 /// How often a file's time stamp is looked at, in seconds.
 const LOOK_EVERY: f32 = 0.5;
@@ -42,18 +46,20 @@ impl Plugin for WaveConfigPlugin {
     fn build(&self, app: &mut App) {
         app.insert_resource(Watched::<WaveScaling>::new())
             .insert_resource(Watched::<Rewards>::new())
+            .insert_resource(Watched::<Volumes>::new())
             .add_systems(
                 Update,
                 (
                     (reload::<WaveScaling>, apply::<WaveScaling>).chain(),
                     (reload::<Rewards>, apply::<Rewards>).chain(),
+                    (reload::<Volumes>, hear).chain(),
                 ),
             );
     }
 }
 
-/// A set of dials one file holds, and where the world keeps them.
-pub(crate) trait Dials:
+/// A set of dials one file holds.
+pub(crate) trait Tuning:
     Copy + PartialEq + serde::de::DeserializeOwned + Send + Sync + 'static
 {
     /// The file at the root of the tree.
@@ -64,11 +70,15 @@ pub(crate) trait Dials:
     const UNTUNED: Self;
     /// One line of what the dials say.
     fn describe(&self) -> String;
+}
+
+/// Dials the world keeps.
+pub(crate) trait Dials: Tuning {
     fn of(world: &world::World) -> Self;
     fn hand(self, world: &mut world::World);
 }
 
-impl Dials for WaveScaling {
+impl Tuning for WaveScaling {
     const FILE: &'static str = "scaling.ron";
     const ENV: &'static str = "BIMS_SCALING";
     const UNTUNED: Self = WaveScaling::DEFAULT;
@@ -83,6 +93,9 @@ impl Dials for WaveScaling {
             self.first_mission_ease
         )
     }
+}
+
+impl Dials for WaveScaling {
     fn of(world: &world::World) -> Self {
         world.wave_scaling()
     }
@@ -91,7 +104,7 @@ impl Dials for WaveScaling {
     }
 }
 
-impl Dials for Rewards {
+impl Tuning for Rewards {
     const FILE: &'static str = "rewards.ron";
     const ENV: &'static str = "BIMS_REWARDS";
     const UNTUNED: Self = Rewards::DEFAULT;
@@ -112,6 +125,9 @@ impl Dials for Rewards {
             self.shelf_price_percent
         )
     }
+}
+
+impl Dials for Rewards {
     fn of(world: &world::World) -> Self {
         world.rewards()
     }
@@ -120,9 +136,26 @@ impl Dials for Rewards {
     }
 }
 
+impl Tuning for Volumes {
+    const FILE: &'static str = "audio.ron";
+    const ENV: &'static str = "BIMS_AUDIO";
+    const UNTUNED: Self = Volumes::AS_BUILT;
+    fn describe(&self) -> String {
+        let turned: Vec<String> = self
+            .turned()
+            .map(|(name, v)| format!("{name} {v}"))
+            .collect();
+        if turned.is_empty() {
+            "every sound as built".into()
+        } else {
+            turned.join(", ")
+        }
+    }
+}
+
 /// A file, when it was last read, and the dials it said.
 #[derive(Resource)]
-pub(crate) struct Watched<T: Dials> {
+pub(crate) struct Watched<T: Tuning> {
     path: PathBuf,
     /// The modification time last read; `None` for no file.
     stamp: Option<SystemTime>,
@@ -130,7 +163,7 @@ pub(crate) struct Watched<T: Dials> {
     dials: T,
 }
 
-impl<T: Dials> Watched<T> {
+impl<T: Tuning> Watched<T> {
     fn new() -> Watched<T> {
         let mut watched = Watched {
             path: path_of::<T>(),
@@ -182,13 +215,13 @@ impl<T: Dials> Watched<T> {
 }
 
 /// The dials a file says.
-fn parse<T: Dials>(text: &str) -> Result<T, String> {
+fn parse<T: Tuning>(text: &str) -> Result<T, String> {
     ron::from_str::<T>(text).map_err(|e| e.to_string())
 }
 
 /// Where a set of dials is read from: the file its variable names, or
 /// the one at the root of the tree.
-fn path_of<T: Dials>() -> PathBuf {
+fn path_of<T: Tuning>() -> PathBuf {
     PathBuf::from(std::env::var(T::ENV).unwrap_or_else(|_| T::FILE.to_string()))
 }
 
@@ -270,13 +303,22 @@ fn with_difficulty(text: &str, d: Difficulty) -> Option<String> {
     Some(out)
 }
 
-fn reload<T: Dials>(time: Res<Time>, mut watched: ResMut<Watched<T>>) {
+fn reload<T: Tuning>(time: Res<Time>, mut watched: ResMut<Watched<T>>) {
     watched.since_look += time.delta_secs();
     if watched.since_look < LOOK_EVERY {
         return;
     }
     watched.since_look = 0.0;
     watched.look();
+}
+
+/// Hand the sound player the file's volumes whenever its own differ.
+fn hear(watched: Res<Watched<Volumes>>, sounds: Option<ResMut<Sounds>>) {
+    if let Some(mut sounds) = sounds
+        && sounds.volumes != watched.dials
+    {
+        sounds.volumes = watched.dials;
+    }
 }
 
 /// Hand the world the dials whenever its own differ: a new file, a new

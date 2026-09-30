@@ -136,6 +136,107 @@ const CLIPS: [&[u8]; 44] = [
     include_bytes!("../sounds/reward.ogg"),
 ];
 
+/// The player's own volume for each sound, from `audio.ron` at the root
+/// (`BIMS_AUDIO` names another; `wavecfg.rs` reads it again whenever it is
+/// saved). Each is a multiple of the level the tables here play it at — 1
+/// is as built, 0 is never heard, 2 twice as loud — one a clip, named as
+/// its `.ogg` is, and one for each weapon that borrows another's report,
+/// so a minigun can be turned down without the rifle. A sound left out of
+/// the file is 1.
+macro_rules! volumes {
+    ($($clip:ident => $key:ident,)* ; $($borrower:ident,)*) => {
+        #[derive(Clone, Copy, PartialEq, Debug, serde::Deserialize)]
+        #[serde(default, deny_unknown_fields)]
+        pub struct Volumes {
+            $(pub $key: f32,)*
+            $(pub $borrower: f32,)*
+        }
+
+        impl Volumes {
+            pub const AS_BUILT: Volumes = Volumes {
+                $($key: 1.0,)*
+                $($borrower: 1.0,)*
+            };
+
+            /// Every sound's name in the file.
+            pub const NAMES: &[&str] = &[$(stringify!($key),)* $(stringify!($borrower),)*];
+
+            /// The sounds the player turned from 1, by name.
+            pub fn turned(&self) -> impl Iterator<Item = (&'static str, f32)> {
+                Volumes::NAMES
+                    .iter()
+                    .copied()
+                    .zip([$(self.$key,)* $(self.$borrower,)*])
+                    .filter(|&(_, v)| v != 1.0)
+            }
+
+            /// The player's multiple for a clip.
+            fn of(&self, clip: Clip) -> f32 {
+                match clip {
+                    $(Clip::$clip => self.$key,)*
+                }
+            }
+        }
+    };
+}
+
+volumes! {
+    Laser1 => laser_1,
+    Laser2 => laser_2,
+    Laser3 => laser_3,
+    Laser4 => laser_4,
+    Shotgun => shotgun,
+    Rifle => rifle,
+    Sniper => sniper,
+    LaserHit => laser_hit,
+    LaserWall => laser_wall,
+    Schword => schword,
+    Punch => punch,
+    Ouch => ouch,
+    DoorOpen => door_open,
+    DoorClose => door_close,
+    DoorForce => door_force,
+    Ship => ship,
+    Station => station,
+    Draw => draw,
+    Holster => holster,
+    Temperate => temperate,
+    Desert => desert,
+    Arctic => arctic,
+    Bought => bought,
+    GrenadeThrow => grenade_throw,
+    GrenadeBurst => grenade_burst,
+    Brace => brace,
+    Rampage => rampage,
+    EmpThrow => emp_throw,
+    EmpBurst => emp_burst,
+    HealingSentry => healing_sentry,
+    Sandbags => sandbags,
+    Sentry => sentry,
+    NaniteBurst => nanite_burst,
+    BeamOn => beam_on,
+    BeamOff => beam_off,
+    Cloak => cloak,
+    Taunt => taunt,
+    BulwarkOn => bulwark_on,
+    BulwarkOff => bulwark_off,
+    Juggernaut => juggernaut,
+    BattleCry => battle_cry,
+    Rally => rally,
+    Reinforcements => reinforcements,
+    Reward => reward,
+    ;
+    minigun,
+    rail_lance,
+    unmaker,
+}
+
+impl Default for Volumes {
+    fn default() -> Self {
+        Volumes::AS_BUILT
+    }
+}
+
 /// The loops that run the whole time. The order is the order of the
 /// `beds` array on [`Sounds`].
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -324,6 +425,8 @@ pub struct Sounds {
     log: bool,
     /// What the player set on the Esc sheet's audio page.
     pub mix: Mix,
+    /// And in `audio.ron`, a sound at a time.
+    pub volumes: Volumes,
 }
 
 /// The player's volumes, nought to one each, from the Esc sheet: one over
@@ -403,14 +506,23 @@ impl Sounds {
                 muted: crate::dev::silent(),
                 ..Mix::default()
             },
+            volumes: Volumes::AS_BUILT,
         });
     }
 
-    /// One clip, once, at `level` of its own under the player's effects
-    /// volume — spawned to play and despawn itself when it has. Nothing is
-    /// spawned while muted: a one-shot's volume is set when it starts,
-    /// and a mute lifted a moment later would not reach it.
+    /// One clip, once, at `level` of its own under the player's volume
+    /// for it and the effects volume — spawned to play and despawn itself
+    /// when it has. Nothing is spawned while muted: a one-shot's volume is
+    /// set when it starts, and a mute lifted a moment later would not
+    /// reach it.
     fn one_shot(&self, commands: &mut Commands, clip: Clip, level: f32) {
+        self.one_shot_as(commands, clip, level, self.volumes.of(clip));
+    }
+
+    /// The same under a volume of the player's given outright: a weapon
+    /// that borrows another's clip is turned up and down by its own.
+    fn one_shot_as(&self, commands: &mut Commands, clip: Clip, level: f32, volume: f32) {
+        let level = level * volume.max(0.0);
         if self.log {
             println!("sound: {clip:?} at {level:.2}");
         }
@@ -478,19 +590,21 @@ impl Sounds {
                 // An enemy's shot a shade quieter: it is the crew's fight
                 // the player is listening to.
                 let theirs = if hostile { 0.8 } else { 1.0 };
-                let (clip, level) = match weapon {
+                let v = self.volumes;
+                let (clip, level, volume) = match weapon {
                     WeaponKind::LaserPistol => {
                         let takes = [Clip::Laser1, Clip::Laser2, Clip::Laser3, Clip::Laser4];
-                        (takes[self.take(4) as usize], 0.5)
+                        let clip = takes[self.take(4) as usize];
+                        (clip, 0.5, v.of(clip))
                     }
-                    WeaponKind::Shotgun => (Clip::Shotgun, 0.7),
-                    WeaponKind::AutoRifle => (Clip::Rifle, 0.35),
-                    WeaponKind::SniperRifle => (Clip::Sniper, 0.6),
+                    WeaponKind::Shotgun => (Clip::Shotgun, 0.7, v.shotgun),
+                    WeaponKind::AutoRifle => (Clip::Rifle, 0.35, v.rifle),
+                    WeaponKind::SniperRifle => (Clip::Sniper, 0.6, v.sniper),
                     // No recordings of their own (task 115): the minigun
                     // borrows the rifle's report, quiet, and the lance the
                     // sniper's, loud.
-                    WeaponKind::Minigun => (Clip::Rifle, 0.2),
-                    WeaponKind::RailLance => (Clip::Sniper, 0.7),
+                    WeaponKind::Minigun => (Clip::Rifle, 0.2, v.minigun),
+                    WeaponKind::RailLance => (Clip::Sniper, 0.7, v.rail_lance),
                     // A blade is never fired, nor is a claw; the room
                     // does not say either is.
                     // Sounds are not in feature 100: the Guardian's beam is
@@ -500,9 +614,9 @@ impl Sounds {
                     // droid sounds are their own step — so it borrows
                     // the sniper's report, which is the nearest thing
                     // to a heavy single shot the box holds.
-                    WeaponKind::Unmaker => (Clip::Sniper, 0.6),
+                    WeaponKind::Unmaker => (Clip::Sniper, 0.6, v.unmaker),
                 };
-                self.one_shot(commands, clip, level * theirs);
+                self.one_shot_as(commands, clip, level * theirs, volume);
             }
             Cue::Impact { on_crew } => {
                 if on_crew {
@@ -628,7 +742,10 @@ fn fade(mut sounds: ResMut<Sounds>, mut sinks: Query<&mut AudioSink>, time: Res<
         // asked, and there is nothing to set.
         if let Ok(mut sink) = sinks.get_mut(state.entity) {
             sink.set_volume(Volume::Linear(
-                state.level * bed.level() * sounds.mix.ambience(),
+                state.level
+                    * bed.level()
+                    * sounds.volumes.of(bed.clip()).max(0.0)
+                    * sounds.mix.ambience(),
             ));
         }
     }
@@ -657,5 +774,26 @@ mod tests {
             assert!(clip.len() > 1_000, "clip {i} is only {} bytes", clip.len());
         }
         assert_eq!(CLIPS.len(), Clip::Reward as usize + 1);
+    }
+
+    /// `audio.ron` at the root parses and names every sound, so the player
+    /// finds each one there to turn.
+    #[test]
+    fn the_audio_file_names_every_sound() {
+        let text = include_str!("../../../audio.ron");
+        assert!(ron::from_str::<Volumes>(text).is_ok());
+        for name in Volumes::NAMES {
+            assert!(
+                text.lines()
+                    .any(|l| l.trim_start().starts_with(&format!("{name}:"))),
+                "audio.ron has no {name}"
+            );
+        }
+        assert_eq!(Volumes::NAMES.len(), CLIPS.len() + 3);
+        // A sound left out is as built; a misspelt one is refused.
+        let v: Volumes = ron::from_str("(ouch: 0.5)").unwrap();
+        assert_eq!(v.of(Clip::Ouch), 0.5);
+        assert_eq!(v.of(Clip::Rifle), 1.0);
+        assert!(ron::from_str::<Volumes>("(ouhc: 0.5)").is_err());
     }
 }

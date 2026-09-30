@@ -87,6 +87,10 @@ desktop):
   Difficulty shows its base, per player and per step, and *Save as
   default* writes them into it (only it has to parse). A smoke run that
   presses that button wants `BIMS_SCALING` pointed at a scratch copy.
+  `audio.ron` (`BIMS_AUDIO`) is the player's volume for each sound, a
+  multiple of `sound.rs`'s level — one a clip, plus the weapons that
+  borrow a clip; also read again when saved. A new `Clip` wants its line
+  in `sound.rs`'s `volumes!` and in the file (its test says so).
 - Two-player runs: a relay (`PORT=18792 target/debug/bims-server`),
   `BIMS_SERVER=ws://127.0.0.1:18792`, `BIMS_AUTO=create` on the host and
   `BIMS_AUTO=join:<code>` on the guest; `scratchpad/duo_resync.sh` is a
