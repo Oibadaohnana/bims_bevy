@@ -60,7 +60,9 @@
 //! relics and classes a player has unlocked and how many runs they have
 //! won. A won run unlocks [`data::RELICS_UNLOCKED_PER_WIN`] relics, the
 //! first still locked in [`Relic::ALL`]'s order ([`Profile::record_run`]).
-//! The host's profile is the run's pool, fixed at the start.
+//! The host's profile is the run's pool, fixed at the start. Every relic
+//! starts unlocked now, so a win unlocks nothing; the machinery stays for
+//! a relic marked locked again in [`RELICS`].
 
 use crate::class::Class;
 use crate::data;
@@ -473,14 +475,14 @@ pub const RELICS: [RelicDef; 37] = [
     stat(
         Relic::SteadyGrip,
         1,
-        false,
+        true,
         Stat::Accuracy,
         data::STEADY_GRIP_ACCURACY_PERCENT,
     ),
     rule(
         Relic::TraumaKit,
         1,
-        false,
+        true,
         Rule::QuickRevive {
             seconds: data::TRAUMA_KIT_REVIVE_SECONDS,
         },
@@ -507,7 +509,7 @@ pub const RELICS: [RelicDef; 37] = [
     row(
         Relic::OverchargeCell,
         2,
-        false,
+        true,
         Effect::EveryNthShot {
             every: data::OVERCHARGE_CELL_EVERY,
             damage_percent: data::OVERCHARGE_CELL_DAMAGE_PERCENT,
@@ -535,7 +537,7 @@ pub const RELICS: [RelicDef; 37] = [
     row(
         Relic::PhaseHarness,
         3,
-        false,
+        true,
         Effect::On(Hook {
             below_health: Some(data::PHASE_HARNESS_BELOW_PERCENT),
             ..once(
@@ -548,8 +550,8 @@ pub const RELICS: [RelicDef; 37] = [
     ),
     // --- task 118 --------------------------------------------------------
     // Dismantler, Lifeline, Flanker, Command Net, Supply Line: their tier
-    // ones and twos first, in the new profile's pool (task 117 section 7),
-    // then the rest a win unlocks.
+    // ones and twos first, then the rest a win used to unlock. Every relic
+    // is in a new profile's pool now; a `false` here locks one again.
     rule(Relic::MarksmansHabit, 1, true, Rule::FirstHitOnLimb),
     when(
         Relic::ServoCutter,
@@ -670,7 +672,7 @@ pub const RELICS: [RelicDef; 37] = [
     when(
         Relic::PartsBroker,
         2,
-        false,
+        true,
         Stat::Bounty,
         data::PARTS_BROKER_BOUNTY_PERCENT,
         When::Crippled,
@@ -678,7 +680,7 @@ pub const RELICS: [RelicDef; 37] = [
     row(
         Relic::TetherField,
         2,
-        false,
+        true,
         Effect::On(on(
             Trigger::Revived,
             Action::Tether {
@@ -690,7 +692,7 @@ pub const RELICS: [RelicDef; 37] = [
     rule(
         Relic::WideAngleOptics,
         2,
-        false,
+        true,
         Rule::WideAngle {
             front_cos: data::WIDE_ANGLE_OPTICS_FRONT_COS,
         },
@@ -698,7 +700,7 @@ pub const RELICS: [RelicDef; 37] = [
     row(
         Relic::CoverFormation,
         2,
-        false,
+        true,
         Effect::Aura {
             stat: Stat::DamageTaken,
             percent: -data::COVER_FORMATION_PERCENT,
@@ -709,7 +711,7 @@ pub const RELICS: [RelicDef; 37] = [
     rule(
         Relic::ScrapCollector,
         2,
-        false,
+        true,
         Rule::KillPay {
             money: data::SCRAP_COLLECTOR_PAY,
         },
@@ -717,7 +719,7 @@ pub const RELICS: [RelicDef; 37] = [
     rule(
         Relic::TotalTeardown,
         3,
-        false,
+        true,
         Rule::TearIntoChassis {
             damage_percent: data::TOTAL_TEARDOWN_DAMAGE_PERCENT,
         },
@@ -725,7 +727,7 @@ pub const RELICS: [RelicDef; 37] = [
     row(
         Relic::Lifeline,
         3,
-        false,
+        true,
         Effect::On(once(
             Trigger::CrewmateDowned,
             Action::Shelter {
@@ -737,7 +739,7 @@ pub const RELICS: [RelicDef; 37] = [
     rule(
         Relic::Crossfire,
         3,
-        false,
+        true,
         Rule::Crossfire {
             damage_percent: data::CROSSFIRE_DAMAGE_PERCENT,
             apart_cos: data::CROSSFIRE_APART_COS,
@@ -747,7 +749,7 @@ pub const RELICS: [RelicDef; 37] = [
     row(
         Relic::RallyPoint,
         3,
-        false,
+        true,
         Effect::On(once(
             Trigger::AbilityUse,
             Action::RallyUp {
@@ -759,7 +761,7 @@ pub const RELICS: [RelicDef; 37] = [
     rule(
         Relic::WarChest,
         3,
-        false,
+        true,
         Rule::WarChest {
             percent_per_thousand: data::WAR_CHEST_PERCENT_PER_THOUSAND,
             cap: data::WAR_CHEST_CAP_PERCENT,
@@ -1316,69 +1318,15 @@ mod tests {
     }
 
     #[test]
-    fn the_starting_pool_is_the_table_s_first_column() {
-        use Relic::*;
-        assert_eq!(
-            starting_pool(),
-            vec![
-                FocusingLens,
-                ServoBraces,
-                FieldPlating,
-                CoolantLoop,
-                SecondWind,
-                SalvageBeacon,
-                LastStand,
-                KillRelay,
-                MarksmansHabit,
-                ServoCutter,
-                CripplersMark,
-                PressureSeal,
-                QuickWrap,
-                ClotBooster,
-                BlindSpot,
-                SprintCoil,
-                SignalScrambler,
-                FieldRadio,
-                Spotter,
-                SquadMorale,
-                HazardPay,
-                TradeLicense,
-                RestockCodes,
-            ]
-        );
-        assert_eq!(starting_pool().len(), 23, "task 117: 23 to start");
-        // The fourteen locked, in the order task 117 says a win unlocks them.
-        let locked: Vec<Relic> = Relic::ALL
-            .into_iter()
-            .filter(|r| !r.starts_unlocked())
-            .collect();
-        assert_eq!(
-            locked,
-            vec![
-                SteadyGrip,
-                TraumaKit,
-                OverchargeCell,
-                PhaseHarness,
-                PartsBroker,
-                TetherField,
-                WideAngleOptics,
-                CoverFormation,
-                ScrapCollector,
-                TotalTeardown,
-                Lifeline,
-                Crossfire,
-                RallyPoint,
-                WarChest,
-            ]
-        );
-        // Seven wins unlock them all.
+    fn every_relic_starts_unlocked_and_a_win_unlocks_nothing() {
+        // The player asked for every relic in the pool from the start (it
+        // was 23, task 117, with fourteen unlocked by wins).
+        assert_eq!(starting_pool(), Relic::ALL.to_vec());
+        assert!(Relic::ALL.iter().all(|r| r.starts_unlocked()));
         let mut profile = Profile::new();
-        for _ in 0..7 {
-            assert_eq!(
-                profile.record_run(true).len(),
-                data::RELICS_UNLOCKED_PER_WIN
-            );
-        }
+        assert_eq!(profile.pool(), Relic::ALL.to_vec());
+        assert!(profile.record_run(true).is_empty());
+        assert_eq!(profile.wins, 1);
         assert_eq!(profile.pool(), Relic::ALL.to_vec());
     }
 
@@ -1516,33 +1464,11 @@ mod tests {
     }
 
     #[test]
-    fn a_win_unlocks_the_first_locked_relics_in_list_order_and_a_loss_nothing() {
+    fn a_loss_unlocks_nothing_and_counts_no_win() {
         let mut profile = Profile::new();
         assert!(profile.record_run(false).is_empty());
         assert_eq!(profile.wins, 0);
         assert_eq!(profile.pool(), starting_pool());
-        let first = profile.record_run(true);
-        let locked: Vec<Relic> = Relic::ALL
-            .into_iter()
-            .filter(|r| !r.starts_unlocked())
-            .collect();
-        assert_eq!(first, locked[..data::RELICS_UNLOCKED_PER_WIN].to_vec());
-        assert_eq!(profile.wins, 1);
-        let second = profile.record_run(true);
-        assert_eq!(
-            second,
-            locked[data::RELICS_UNLOCKED_PER_WIN..]
-                .iter()
-                .copied()
-                .take(data::RELICS_UNLOCKED_PER_WIN)
-                .collect::<Vec<_>>()
-        );
-        // Everything unlocked: a win unlocks nothing more, and counts.
-        for _ in 0..10 {
-            profile.record_run(true);
-        }
-        assert_eq!(profile.pool(), Relic::ALL.to_vec());
-        assert!(profile.record_run(true).is_empty());
     }
 
     #[test]
@@ -1730,9 +1656,10 @@ mod tests {
             let n = new.iter().filter(|r| r.tier() == tier).count();
             assert_eq!(n, [10, 10, 5][tier as usize - 1], "tier {tier}");
         }
-        // A new profile has codes 12 to 26 and not 27 to 36 (task 117).
+        // A new profile has every one of them (codes 27 to 36 were
+        // unlocked by wins until every relic started unlocked).
         for r in new {
-            assert_eq!(r.starts_unlocked(), r.code() <= 26, "{r:?}");
+            assert!(r.starts_unlocked(), "{r:?}");
         }
     }
 }
