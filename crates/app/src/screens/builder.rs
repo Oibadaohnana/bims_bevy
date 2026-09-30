@@ -1155,6 +1155,15 @@ fn world(
                 ui.label(egui::RichText::new("nowhere yet — pick a station").color(theme::MUTED))
             }
         };
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            if ui
+                .add_enabled(editable, egui::Button::new("Random start"))
+                .on_hover_text("A new seed, a galaxy of any shape, and a station anywhere in it")
+                .clicked()
+            {
+                roll_everything(screen, settings, online);
+            }
+        });
     });
 
     // The seed: a decimal field for a u64.
@@ -1230,13 +1239,7 @@ fn world(
         changed = true;
     }
     if changed {
-        screen.seed_text = settings.seed.to_string();
-        settings.spawn = None;
-        screen.inspected = None;
-        screen
-            .lobby
-            .set_world(settings.seed, ship::session::galaxy_type(settings.galaxy));
-        screen.lobby.spawn = None;
+        new_world(screen, settings);
         screen.net.push(online, settings, false);
     }
 
@@ -1292,7 +1295,8 @@ fn world(
                 ui.label(egui::RichText::new(said).small().color(theme::MUTED));
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if ui
-                        .add_enabled(editable, egui::Button::new("Random start"))
+                        .add_enabled(editable, egui::Button::new("Random station"))
+                        .on_hover_text("A station anywhere in this galaxy")
                         .clicked()
                     {
                         pick_random_start(screen, settings, online);
@@ -1557,12 +1561,35 @@ fn system_card(
         });
 }
 
+/// The settings' seed or galaxy type moved: a different galaxy, and
+/// nothing chosen in the old one means anything in it. The caller pushes.
+fn new_world(screen: &mut BuilderScreen, settings: &mut Settings) {
+    screen.seed_text = settings.seed.to_string();
+    settings.spawn = None;
+    screen.inspected = None;
+    screen
+        .lobby
+        .set_world(settings.seed, ship::session::galaxy_type(settings.galaxy));
+    screen.lobby.spawn = None;
+}
+
+/// Everything at random: a new seed, a galaxy of any shape, and a station
+/// anywhere in it.
+fn roll_everything(screen: &mut BuilderScreen, settings: &mut Settings, online: &Online) {
+    let roll = crate::screens::rand_seed();
+    settings.seed = crate::screens::rand_seed();
+    settings.galaxy = (roll % GALAXIES.len() as u64) as u32;
+    new_world(screen, settings);
+    pick_random_start(screen, settings, online);
+}
+
 /// A random station among every star that has one a crew can start at:
 /// the lobby's rule (`Lobby::random_start`), which skips the hostile
 /// ones — a crew cannot start at an enemy's — off this page's roll.
 fn pick_random_start(screen: &mut BuilderScreen, settings: &mut Settings, online: &Online) {
     let roll = crate::screens::rand_seed();
     let Some((star, station)) = screen.lobby.random_start(roll) else {
+        screen.net.push(online, settings, false);
         return;
     };
     inspect(screen, star);
