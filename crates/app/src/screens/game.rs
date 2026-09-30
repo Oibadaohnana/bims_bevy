@@ -1248,6 +1248,15 @@ fn frame(
         screen.fight.follow(&game.world);
         for event in game.events.drain(..) {
             machines_down |= matches!(event, WorldEvent::DroidDown { .. });
+            // Anyone's purchase at the trader rings the till in every
+            // window: the event is the world's, so a guest's buy is
+            // heard by the host and the other way round.
+            if matches!(
+                event,
+                WorldEvent::ShelfBought { .. } | WorldEvent::RelicBought { .. }
+            ) {
+                sounds.bought(&mut commands);
+            }
             // One of the Manufacturers dead is said as one (feature 109):
             // they have no names the crew know.
             let theirs = match event {
