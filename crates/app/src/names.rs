@@ -12,6 +12,15 @@ use physics::ResourceId;
 use shipdesign::parts::PartKind;
 use world::{Refusal, WorldEvent};
 
+/// Which build this is, from `BUILD` at the root: 0.1 up in tenths, one
+/// step each time `ship` puts the game on the server.
+pub const BUILD: &str = include_str!("../../../BUILD");
+
+/// The corner's line: `build 0.1`.
+pub fn build_label() -> String {
+    format!("build {}", BUILD.trim())
+}
+
 /// Who is aboard, by lobby slot. The room calls crew 0 James.
 pub const CREW_NAMES: [&str; 5] = ["James", "Kate", "Priya", "Tomas", "Mateo"];
 

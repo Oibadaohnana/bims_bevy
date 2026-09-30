@@ -85,8 +85,33 @@ pub struct ThemePlugin;
 
 impl Plugin for ThemePlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(EguiPrimaryContextPass, style.run_if(run_once));
+        app.add_systems(EguiPrimaryContextPass, style.run_if(run_once))
+            .add_systems(EguiPrimaryContextPass, build_label);
     }
+}
+
+/// The build's number in the window's top left corner, on every screen,
+/// over the panels and taking no input.
+fn build_label(mut contexts: EguiContexts) -> Result {
+    let ctx = contexts.ctx_mut()?;
+    let painter = ctx.layer_painter(egui::LayerId::new(
+        egui::Order::Tooltip,
+        egui::Id::new("build label"),
+    ));
+    let at = ctx.content_rect().left_top() + egui::vec2(4.0, 2.0);
+    let font = egui::FontId::proportional(10.5);
+    let text = crate::names::build_label();
+    // A dark copy a point down and right, so the line reads over the deck
+    // and the panels alike.
+    painter.text(
+        at + egui::vec2(1.0, 1.0),
+        egui::Align2::LEFT_TOP,
+        &text,
+        font.clone(),
+        egui::Color32::from_black_alpha(200),
+    );
+    painter.text(at, egui::Align2::LEFT_TOP, text, font, MUTED);
+    Ok(())
 }
 
 fn style(mut contexts: EguiContexts) -> Result {

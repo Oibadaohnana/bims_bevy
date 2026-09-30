@@ -71,7 +71,7 @@
 
           bims = pkgs.rustPlatform.buildRustPackage {
             pname = "bims";
-            version = "0.1.0";
+            version = nixpkgs.lib.fileContents ./BUILD;
             inherit src;
 
             cargoLock.lockFile = ./Cargo.lock;
@@ -115,7 +115,7 @@
           # The workspace's own lock, so the two are pinned together.
           bims-server = pkgs.rustPlatform.buildRustPackage {
             pname = "bims-server";
-            version = "0.1.0";
+            version = nixpkgs.lib.fileContents ./BUILD;
             inherit src;
 
             cargoLock.lockFile = ./Cargo.lock;
