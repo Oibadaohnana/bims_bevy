@@ -58,12 +58,13 @@ pub enum Clip {
     Temperate,
     Desert,
     Arctic,
+    Bought,
 }
 
 /// The bytes of each clip, indexed by [`Clip`]. Ogg Vorbis, mono, 48 kHz,
 /// peaks at -1 dBFS for the one-shots and -22 or -30 LUFS for the loops —
 /// see `prepare.sh` — so every level below is relative to that.
-const CLIPS: [&[u8]; 22] = [
+const CLIPS: [&[u8]; 23] = [
     include_bytes!("../sounds/laser_1.ogg"),
     include_bytes!("../sounds/laser_2.ogg"),
     include_bytes!("../sounds/laser_3.ogg"),
@@ -86,6 +87,7 @@ const CLIPS: [&[u8]; 22] = [
     include_bytes!("../sounds/temperate.ogg"),
     include_bytes!("../sounds/desert.ogg"),
     include_bytes!("../sounds/arctic.ogg"),
+    include_bytes!("../sounds/bought.ogg"),
 ];
 
 /// The loops that run the whole time. The order is the order of the
@@ -172,6 +174,8 @@ enum Kind {
     Holster,
     /// A grenade going off (feature 75).
     Burst,
+    /// Something bought off the trader, by anyone in the crew.
+    Bought,
 }
 
 /// How many one-shots a frame may start, whatever the room says. Enough
@@ -228,6 +232,10 @@ impl Kind {
             Kind::Holster => 0.3,
             // A grenade bursts once; two in a frame are two.
             Kind::Burst => 0.05,
+            // Two things bought in one frame (a click and a guest's
+            // order landing together) are one till ringing, two a moment
+            // apart are two.
+            Kind::Bought => 0.3,
         }
     }
 }
@@ -467,6 +475,16 @@ impl Sounds {
         }
     }
 
+    /// A purchase at the trader — a thing off the shelf or the relic —
+    /// by anyone in the crew, the player or another: the world's
+    /// `ShelfBought` or `RelicBought`, which every window hears. Not a
+    /// place in the room, so all purchases share one cool-down.
+    pub fn bought(&mut self, commands: &mut Commands) {
+        if self.admit(Kind::Bought, bims::math::Vec2::ZERO) {
+            self.one_shot(commands, Clip::Bought, 0.45);
+        }
+    }
+
     /// Ask for a bed this frame: it fades up to its level and stays
     /// while it keeps being asked for, and fades out when it stops. A
     /// screen asks every frame, in its own system.
@@ -528,6 +546,6 @@ mod tests {
             assert!(clip.starts_with(b"OggS"), "clip {i} is not an Ogg stream");
             assert!(clip.len() > 1_000, "clip {i} is only {} bytes", clip.len());
         }
-        assert_eq!(CLIPS.len(), Clip::Arctic as usize + 1);
+        assert_eq!(CLIPS.len(), Clip::Bought as usize + 1);
     }
 }

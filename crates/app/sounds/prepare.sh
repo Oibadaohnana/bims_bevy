@@ -29,7 +29,9 @@ here=$(cd "$(dirname "$0")" && pwd)
 src="$here/../../../Sounds"
 out="$here"
 ff=(ffmpeg -hide_banner -loglevel error -y)
-enc=(-ar 48000 -c:a libvorbis -q:a 5)
+# `-vn`: some recordings carry cover art, which would be encoded as a
+# video stream beside the sound.
+enc=(-vn -ar 48000 -c:a libvorbis -q:a 5)
 # Every clip is mono — the game has no left and right — and the mix-down
 # is the first thing in each chain, so the peak measured is the one encoded.
 mono="aformat=channel_layouts=mono"
@@ -184,3 +186,12 @@ loop arctic Arctic_world_ambiance.mp3 2.7 56.5 2.0 "highpass=f=40,lowpass=f=9000
 # apart by ear: out is quick, back is unhurried.
 shot draw Unholster_and_holstering.mp3 0.06 0.46 "highpass=f=100" 0.08
 shot holster Unholster_and_holstering.mp3 0.06 0.54 "asetrate=48000*0.85,aresample=48000,highpass=f=100" 0.10 0.85
+
+# --- the trader -----------------------------------------------------------
+
+# A purchase: anyone in the crew buying a thing or a relic off the
+# trader's shelf. The recording starts on its first sample, with no
+# silence to run a filter up over, so a quarter-second of it is put in
+# front (`adelay`) and the onset is a quarter-second in; it has died away
+# by 1.8 s, and the last tenths are a long fade rather than a cut.
+shot bought baught.mp3 0.25 1.80 "adelay=250,highpass=f=80" 0.30
