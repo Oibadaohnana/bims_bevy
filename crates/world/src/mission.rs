@@ -1221,8 +1221,8 @@ impl World {
         if index < self.progress.len() {
             self.progress.remove(index);
         }
-        // A bot's class, where it has one (`classed_crew_for_probe`): a
-        // player's is never dropped, so `classes` is otherwise shorter.
+        // A bot's class, where it has one: a player's is never dropped,
+        // and `classes` is otherwise no longer than the players.
         if index < self.classes.len() && index >= self.players() as usize {
             self.classes.remove(index);
         }

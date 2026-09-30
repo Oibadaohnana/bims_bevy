@@ -490,7 +490,7 @@ pub const END_CODE: &str = "THEEND";
 /// one other — before it presses Start on its own.
 pub const END_PLAYERS: usize = 2;
 
-/// The `end` command's bots: two of every class (`World::classed_crew_for_probe`).
+/// The `end` command's bots: plain classless Bims (`World::end_crew_for_probe`).
 pub const END_BOTS: u32 = 10;
 
 /// The day of the world clock the `end` command's run opens on: sixty

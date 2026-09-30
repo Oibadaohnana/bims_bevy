@@ -7120,49 +7120,26 @@ impl World {
     }
 
     /// The `end` command's crew (the app's): every crew member past the
-    /// players a bot **of a class** — the classes of `Class::ALL` dealt
-    /// down them in turn, so ten bots are two of each — at the top level
-    /// with every rank bought, and the players' own Bims at the top level
-    /// with every point still to spend; then everybody's kit at `tier`
-    /// (`outfit_for_probe`), a bot that is no soldier with a gun of its
-    /// own (`WeaponKind::ALL` dealt the same way) first, and a
-    /// commander's Reinforcements brought for the ranks just bought.
-    /// A class is a player slot's everywhere else, so `classes` is made
-    /// as long as the crew here and nowhere else; `class_of` reads it by
-    /// crew index, which is what makes the bots' classes count. The same
-    /// on every machine of a lobby, which all call it with the same
-    /// world. For the app.
-    pub fn classed_crew_for_probe(&mut self, tier: Tier) {
+    /// players a **plain** Bim bot — no class, a gun of its own
+    /// (`WeaponKind::ALL` dealt down them in turn) — and the players' own
+    /// Bims at the top level with every point still to spend; then
+    /// everybody's kit at `tier` (`outfit_for_probe`). The same on every
+    /// machine of a lobby, which all call it with the same world. For the
+    /// app.
+    pub fn end_crew_for_probe(&mut self, tier: Tier) {
         let players = self.players() as usize;
         let crew = self.aboard.crew_count() as usize;
-        if self.classes.len() < crew {
-            self.classes.resize(crew, Class::None);
-        }
-        let dealt: Vec<Class> = Class::ALL
-            .into_iter()
-            .filter(|c| *c != Class::None)
-            .collect();
         for (n, who) in (players..crew).enumerate() {
-            let class = dealt[n % dealt.len()];
-            if class != Class::Soldier {
-                let mut gear = self.aboard.room.gear(who);
-                gear.weapon = Some(WeaponKind::ALL[n % WeaponKind::ALL.len()].basic());
-                self.aboard.room.issue(who, gear);
-            }
-            let was = self.classes[who];
-            self.classes[who] = class;
-            self.change_class_kit(who, was, class);
+            let mut gear = self.aboard.room.gear(who);
+            gear.weapon = Some(WeaponKind::ALL[n % WeaponKind::ALL.len()].basic());
+            self.aboard.room.issue(who, gear);
         }
         let top = class::LEVEL_XP[class::LEVELS as usize - 1];
         let mut events = Vec::new();
-        for who in 0..crew {
+        for who in 0..players {
             self.award(who, top, &mut events);
         }
-        for who in players..crew {
-            self.set_ranks_for_probe(who as u32, [class::MAX_RANK; class::SLOTS]);
-        }
         self.outfit_for_probe(tier);
-        self.reinforce_for_probe();
     }
 
     /// The tank's start (feature 77): the laser pistol he has in hand
@@ -10585,8 +10562,7 @@ impl World {
     /// Bim in the crew's coverall with the rank's auto rifle and nothing
     /// to wear, its face rolled off the galaxy's seed and the mission
     /// rather than the room's stream. Every classed crew member is asked,
-    /// which is every player in a run and the `end` command's classed bots
-    /// after them (`classed_crew_for_probe`).
+    /// which is every player in a run.
     fn bring_reinforcements(&mut self, events: &mut Vec<WorldEvent>) {
         let t = shipdesign::TILE as f32;
         let mut brought = false;

@@ -857,6 +857,7 @@ fn eat_heart(hash: &mut Fnv, fight: Option<&crate::heart::HeartFight>) {
     hash.eat(u64::from(f.laid));
     hash.eat(f.next_build.map_or(u64::MAX, |s| s));
     hash.eat(u64::from(f.built));
+    hash.eat(u64::from(f.links_down));
 }
 
 /// What the stations have lost, station by station.

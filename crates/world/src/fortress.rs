@@ -233,10 +233,17 @@ impl World {
             return Vec::new();
         };
         let machines = self.heart_machines(station, &fight);
+        // A conduit laid a wreck was shot down before and has had its
+        // wave; it brings no other.
+        let wrecks = machines
+            .iter()
+            .filter(|d| d.kind == DroidKind::Conduit && d.destroyed)
+            .count() as u32;
         if let Some(it) = self.infestation_mut(station.id)
             && let Some(f) = it.heart.as_mut()
         {
             f.laid = true;
+            f.links_down = f.links_down.max(wrecks);
         }
         machines
     }
@@ -262,6 +269,21 @@ impl World {
             return;
         };
         let now = self.run.mission_steps;
+        // Every conduit shot down since the last step brings a wave in by
+        // the airlocks, on top of whatever is still standing.
+        let down = self.residents.as_ref().map_or(0, |r| {
+            r.aboard
+                .room
+                .droids()
+                .iter()
+                .filter(|d| d.kind == DroidKind::Conduit && d.destroyed)
+                .count() as u32
+        });
+        let mut links_down = fight.links_down;
+        while links_down < down {
+            links_down += 1;
+            self.conduit_wave(id, events);
+        }
         let mut phase = fight.phase;
         let mut next_build = fight.next_build;
         if phase == HeartPhase::Sealed && status.conduits_left == 0 {
@@ -294,6 +316,7 @@ impl World {
                 f.phase = phase;
                 f.next_build = next_build;
                 f.built = built;
+                f.links_down = links_down;
             }
             if phase == HeartPhase::Destroyed && !it.cleared {
                 // The last machine that matters is down: the station is
@@ -307,6 +330,36 @@ impl World {
             }
         }
         self.tell_the_heart(phase);
+    }
+
+    /// A wave for a conduit shot down: the wave's size the station's own,
+    /// in by the next airlock in turn and looking for the crew, like a
+    /// reinforcement — but **added** to the deck, never clearing it, and
+    /// counted as a wave of the station's (`Infestation::wave`), which
+    /// leaves the waves still to come by the clock as they were.
+    fn conduit_wave(&mut self, id: u32, events: &mut Vec<WorldEvent>) {
+        let Some(station) = self.station(id).cloned() else {
+            return;
+        };
+        let Some(wave) = self.infestation_mut(id).map(|it| {
+            it.wave += 1;
+            it.wave
+        }) else {
+            return;
+        };
+        let n = self.droid_wave_size();
+        let mut arriving = self.arriving_wave(&station, n, wave);
+        for d in &mut arriving {
+            d.seeking = true;
+        }
+        if let Some(residents) = &mut self.residents {
+            residents
+                .aboard
+                .room
+                .adopt_droids(arriving, bims::math::Vec2::ZERO);
+            residents.aboard.crew = residents.aboard.room.body_count();
+        }
+        events.push(WorldEvent::DroidReinforcements { station: id });
     }
 
     /// How long between two builds of the fabricators, in steps of the
@@ -475,6 +528,14 @@ impl World {
     pub fn set_heart_phase_for_probe(&mut self, phase: HeartPhase) -> bool {
         if phase == HeartPhase::Sealed {
             return self.heart_status().is_some();
+        }
+        // Wound on, not fought: the conduits bring no waves.
+        let id = self.residents.as_ref().map(|r| r.station);
+        if let Some(f) = id
+            .and_then(|id| self.infestation_mut(id))
+            .and_then(|it| it.heart.as_mut())
+        {
+            f.links_down = f.conduits;
         }
         let Some(residents) = self.residents.as_mut() else {
             return false;

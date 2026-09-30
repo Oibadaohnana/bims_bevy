@@ -246,6 +246,56 @@ fn the_core_takes_nothing_while_a_conduit_stands() {
     );
 }
 
+/// **Every conduit shot down brings a wave** in by the airlocks, on top of
+/// whatever still stands — one a conduit, two for two downed in one step,
+/// none for a conduit already answered — and the waves by the clock still
+/// to come are left as they were.
+#[test]
+fn every_conduit_shot_down_brings_a_wave() {
+    let mut world = at_the_heart(1, 2);
+    laid(&mut world);
+    let machines = |world: &mut World| {
+        let room = room(world);
+        (0..room.droid_count() as usize)
+            .filter(|&i| room.droid(i).is_some_and(|d| !d.kind.is_structure()))
+            .count()
+    };
+    let (wave, left) = world.droid_wave_standing().unwrap();
+    let before = machines(&mut world);
+    assert!(before > 0, "the first wave is aboard");
+    let size = world.droid_wave_size() as usize;
+    let conduits = of_kind(&mut world, DroidKind::Conduit);
+    assert!(conduits.len() >= 3);
+    room(&mut world).strike_droid(conduits[0], DroidPart::Chassis, 1e9);
+    let events = world.step(&[]);
+    assert!(
+        events
+            .iter()
+            .any(|e| matches!(e, WorldEvent::DroidReinforcements { .. })),
+        "a wave is said"
+    );
+    assert_eq!(world.droid_wave_standing(), Some((wave + 1, left)));
+    assert_eq!(
+        machines(&mut world),
+        before + size,
+        "added, nothing cleared"
+    );
+    assert_eq!(world.heart_fight().unwrap().links_down, 1);
+    let events = world.step(&[]);
+    assert!(
+        !events
+            .iter()
+            .any(|e| matches!(e, WorldEvent::DroidReinforcements { .. })),
+        "a conduit is answered once"
+    );
+    room(&mut world).strike_droid(conduits[1], DroidPart::Chassis, 1e9);
+    room(&mut world).strike_droid(conduits[2], DroidPart::Chassis, 1e9);
+    world.step(&[]);
+    assert_eq!(world.droid_wave_standing(), Some((wave + 3, left)));
+    assert_eq!(world.heart_fight().unwrap().links_down, 3);
+    assert_eq!(machines(&mut world), before + 3 * size, "two more came");
+}
+
 /// **Exposed, the core fires one beam** — never two — at a crew member it
 /// can see, and **the fabricators build on their interval**; a fabricator
 /// destroyed builds no more.
@@ -498,30 +548,27 @@ fn the_fight_is_the_same_on_two_worlds() {
     );
 }
 
-/// **The `end` command's crew** (`World::classed_crew_for_probe`): two
-/// players and ten bots at the fortress, the bots two of every class at
-/// the top level with every rank bought, the players at the top level
-/// with every point to spend, everybody in tier-three kit — and two
-/// worlds made so step alike through the fight, the bots' classes in
-/// the checksum.
+/// **The `end` command's crew** (`World::end_crew_for_probe`): two
+/// players and ten bots at the fortress, the bots plain Bims with no
+/// class, the players at the top level with every point to spend,
+/// everybody in tier-three kit — and two worlds made so step alike
+/// through the fight.
 #[test]
-fn the_end_command_s_bots_are_every_class_at_the_top_in_tier_three_kit() {
+fn the_end_command_s_bots_are_plain_bims_in_tier_three_kit() {
     use crate::class::{self, Class};
     use bims::combat::{ArmourKind, Tier};
     let open = || {
         let mut world = at_the_heart(2, 12);
         world.set_class(0, Class::Soldier).unwrap();
         world.set_class(1, Class::Medic).unwrap();
-        world.classed_crew_for_probe(Tier::Three);
+        world.end_crew_for_probe(Tier::Three);
         world
     };
     let world = open();
-    for class in Class::ALL.into_iter().filter(|c| *c != Class::None) {
-        let bots = (2..12).filter(|&who| world.class_of(who) == class).count();
-        assert_eq!(bots, 2, "{class:?}");
+    for who in 2..12u32 {
+        assert_eq!(world.class_of(who), Class::None, "bot {who} has no class");
     }
     for who in 0..12u32 {
-        assert_eq!(world.level_of(who), class::LEVELS, "crew member {who}");
         let gear = world.aboard.room.gear(who as usize);
         assert_eq!(gear.weapon.map(|w| w.tier), Some(Tier::Three), "{who}");
         for kind in ArmourKind::BASIC {
@@ -530,6 +577,7 @@ fn the_end_command_s_bots_are_every_class_at_the_top_in_tier_three_kit() {
         }
     }
     for who in 0..2u32 {
+        assert_eq!(world.level_of(who), class::LEVELS, "player {who}");
         assert_eq!(
             world.points_of(who),
             class::LEVELS,
@@ -541,14 +589,7 @@ fn the_end_command_s_bots_are_every_class_at_the_top_in_tier_three_kit() {
         Class::Soldier,
         "a player keeps its own class"
     );
-    for who in 2..12u32 {
-        assert_eq!(world.points_of(who), 0, "every point spent on bot {who}");
-        for slot in 0..class::SLOTS as u8 {
-            assert_eq!(world.rank_of(who, slot), class::MAX_RANK, "bot {who}");
-        }
-    }
-    // Two commanders among the bots, so their Reinforcements are aboard.
-    assert!(world.aboard.crew_count() > 12, "the Reinforcements came");
+    assert_eq!(world.aboard.crew_count(), 12, "nobody else came");
     let (mut one, mut two) = (open(), open());
     assert_eq!(world_checksum(&one), world_checksum(&two));
     for step in 0..600 {

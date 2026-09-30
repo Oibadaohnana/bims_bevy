@@ -194,7 +194,8 @@ use crate::game::Game;
 /// player (`Trader::owner`), a hired hand's signer (`Hired::by`), and
 /// the run's trader-relic vote gone.
 /// 69: `World::first_mission_uneased`, the `end` command's switch.
-pub const SAVE_VERSION: u32 = 69;
+/// 70: `HeartFight::links_down`, the conduits answered with a wave.
+pub const SAVE_VERSION: u32 = 70;
 
 /// What the file holds, read back.
 #[derive(serde::Deserialize)]

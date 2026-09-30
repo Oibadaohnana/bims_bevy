@@ -37,7 +37,9 @@ use serde::{Deserialize, Serialize};
 /// the app's `end` command's) and the lobby's settings saying whether
 /// the run is that command's (the Machine Heart with ten bots).
 /// 71: the lobby's settings carry the `end` run's start day.
-pub const PROTOCOL: u32 = 71;
+/// 72: a conduit of the Machine Heart shot down brings a wave, and the
+/// `end` run's bots are plain classless Bims.
+pub const PROTOCOL: u32 = 72;
 
 /// Where the relay lives. `BIMS_SERVER` in the environment overrides it
 /// — `ws://127.0.0.1:8792` for one on the same machine.

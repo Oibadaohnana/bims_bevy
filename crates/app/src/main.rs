@@ -175,8 +175,8 @@ pub enum Launch {
     /// The end fight with company: the `game` run's lobby opened at the
     /// menu on its own at `dev::END_CODE` for others to join, Start pressed
     /// once `dev::END_PLAYERS` are in, and the run opened at the Machine
-    /// Heart's fortress with `dev::END_BOTS` bots aboard — two of every
-    /// class, at the top level with every rank bought — everybody in
+    /// Heart's fortress with `dev::END_BOTS` bots aboard — plain
+    /// classless Bims — everybody in
     /// tier-three kit and the waves the lobby's difficulty (the
     /// scaling file unless the host moved it). `builder::Settings::end`.
     End,
@@ -284,7 +284,7 @@ const COMMANDS: [(&str, &str); 21] = [
     ),
     (
         "end",
-        "The end fight with company: a lobby at code THEEND for others to join, Start pressed once a second player is in, then the ready check at the Machine Heart with ten bots (two of every class, top level, every rank) and everybody in tier-three kit; the waves are the setup's difficulty on day 60 (BIMS_END_DAY) with no first-mission ease",
+        "The end fight with company: a lobby at code THEEND for others to join, Start pressed once a second player is in, then the ready check at the Machine Heart with ten plain classless bots and everybody in tier-three kit; the waves are the setup's difficulty on day 60 (BIMS_END_DAY) with no first-mission ease",
     ),
     (
         "end offline",

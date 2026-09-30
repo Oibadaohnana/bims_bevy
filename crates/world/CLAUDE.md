@@ -4832,6 +4832,17 @@ and the rules; `fortress.rs` (a child of `world`, like `mission.rs` and
   `tell_the_heart` puts the phase on the core's and the fabricators'
   `HeartState` for the room's next step. `check_run_lost` does nothing once
   the run is won.
+- **Every conduit shot down brings a wave** (`heart_step`,
+  `conduit_wave`): each conduit a wreck past `HeartFight::links_down`
+  (saved, hashed, serde default) is a wave of `droid_wave_size` in by the
+  next airlock in turn, looking for the crew like a reinforcement —
+  **added** to the deck, never clearing it, whatever still stands —
+  counted on `Infestation::wave` (the waves still to come by the clock,
+  `waves_left`, untouched) and said as `DroidReinforcements`. A conduit
+  laid a wreck (a room built afresh past the seal) and the probe's
+  `set_heart_phase_for_probe` count as answered.
+  `every_conduit_shot_down_brings_a_wave`. **`SAVE_VERSION` 70,
+  `wire::PROTOCOL` 72.**
 - **Waves come in by every airlock but the crew's in turn**
   (`droid::arrival_airlock_at`), and the lander is drawn at the one they
   used.
@@ -6416,6 +6427,14 @@ moved. `would_travel_foretells_the_trip` (`tests_mission.rs`) is the rule.
 `SURVIVORS` and the ship's `PINNED` re-pinned (each note says why).
 
 ## The `end` command's classed bots (no task number)
+
+> **Since the conduit waves** the bots are plain classless Bims:
+> `World::end_crew_for_probe(tier)` in place of `classed_crew_for_probe`
+> — a gun of its own dealt down them (`WeaponKind::ALL`), no class, no
+> level, no ranks, no Reinforcements, everybody's kit at `tier`; the
+> players at the top level with every point to spend.
+> `tests_heart::the_end_command_s_bots_are_plain_bims_in_tier_three_kit`.
+> What follows is the history.
 
 `World::classed_crew_for_probe(tier)` is the app's `end` command's crew:
 `classes` made **as long as the crew**, every crew member past the

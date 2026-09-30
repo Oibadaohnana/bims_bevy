@@ -737,8 +737,8 @@ impl Session {
     /// The `end` command's run (the app's), after [`Session::run_with_bots`]
     /// and the lobby's difficulty: the crew docked at the Machine Heart's
     /// fortress laid at their own star (`World::heart_dock_for_probe`),
-    /// every bot a class at the top level with every rank bought and
-    /// everybody in tier-three kit (`World::classed_crew_for_probe`) — the
+    /// every bot a plain classless Bim and everybody in tier-three kit
+    /// (`World::end_crew_for_probe`) — the
     /// same on every machine of the lobby. The world clock is put at `day`
     /// first (`World::set_day_for_probe`), so the waves are a run's that
     /// far on, and the first mission's ease is off
@@ -753,7 +753,7 @@ impl Session {
         if !game.world.heart_dock_for_probe() {
             return false;
         }
-        game.world.classed_crew_for_probe(bims::combat::Tier::Three);
+        game.world.end_crew_for_probe(bims::combat::Tier::Three);
         self.dress_crew();
         true
     }

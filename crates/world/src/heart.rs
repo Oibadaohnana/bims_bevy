@@ -25,7 +25,8 @@
 //! room every step (`World::heart_step`):
 //!
 //! 1. **Sealed** while any conduit stands: the core takes nothing and
-//!    fires nothing.
+//!    fires nothing, and every conduit shot down brings a wave of the
+//!    machines in by the airlocks, whatever is still standing.
 //! 2. **Exposed** once the last conduit is down: the core sweeps one beam
 //!    and every fabricator still standing builds a tier-three machine every
 //!    [`data::HEART_FABRICATOR_INTERVAL`] of the mission clock.
@@ -199,6 +200,11 @@ pub struct HeartFight {
     /// How many machines the fabricators have built: what each one's
     /// seed, kind and place are read off, so every client builds alike.
     pub built: u32,
+    /// How many conduits have been shot down and answered with a wave
+    /// (`World::heart_step`): every conduit down past this brings one
+    /// more wave in by the airlocks, on top of whatever stands.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub links_down: u32,
 }
 
 impl HeartFight {
@@ -211,6 +217,7 @@ impl HeartFight {
             laid: false,
             next_build: None,
             built: 0,
+            links_down: 0,
         }
     }
 }
