@@ -18,6 +18,12 @@
 //! The dials are neither saved nor hashed: they are handed over again every
 //! frame the world's differ, so a restart or a load takes them too. In a
 //! two-player run each game reads its own files, and the two have to agree.
+//!
+//! The game setup's difficulty (`world::droid::Difficulty`: the base, the
+//! per player and the scaling) stands over this file's three for the run
+//! it starts — the world keeps it and saves it, and the host deals it to
+//! every guest — so those three in the file move a run only when the
+//! setup left them as the file had them.
 
 use bevy::prelude::*;
 use std::path::PathBuf;
@@ -47,7 +53,9 @@ impl Plugin for WaveConfigPlugin {
 }
 
 /// A set of dials one file holds, and where the world keeps them.
-trait Dials: Copy + PartialEq + serde::de::DeserializeOwned + Send + Sync + 'static {
+pub(crate) trait Dials:
+    Copy + PartialEq + serde::de::DeserializeOwned + Send + Sync + 'static
+{
     /// The file at the root of the tree.
     const FILE: &'static str;
     /// The variable that names another.
@@ -114,7 +122,7 @@ impl Dials for Rewards {
 
 /// A file, when it was last read, and the dials it said.
 #[derive(Resource)]
-struct Watched<T: Dials> {
+pub(crate) struct Watched<T: Dials> {
     path: PathBuf,
     /// The modification time last read; `None` for no file.
     stamp: Option<SystemTime>,
@@ -134,6 +142,12 @@ impl<T: Dials> Watched<T> {
         };
         watched.look();
         watched
+    }
+
+    /// The dials the file says now: the game setup's difficulty shows the
+    /// wave file's three until the host picks others.
+    pub(crate) fn dials(&self) -> T {
+        self.dials
     }
 
     /// Read the file again if its time stamp moved.

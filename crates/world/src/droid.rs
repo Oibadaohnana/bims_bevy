@@ -257,6 +257,46 @@ impl Default for WaveScaling {
     }
 }
 
+/// The run's difficulty, as the game setup picked it: three of the wave
+/// formula's dials — the base machines a wave, how many each player adds
+/// and how many each time step adds — laid over whatever
+/// [`WaveScaling`] the tuning file says (`World::set_difficulty`). The
+/// rest of the formula (the step's days, the waves a site, the first
+/// mission's ease) stays the file's. Saved with the world, so a load or
+/// a restart plays at the difficulty the run was begun at, and dealt to
+/// every machine of a lobby with the rest of the settings.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct Difficulty {
+    /// Machines in every wave before anything is counted.
+    pub base: u32,
+    /// Machines added for each player Bim.
+    pub per_player: u32,
+    /// Machines added for each time step gone.
+    pub per_step: u32,
+}
+
+impl Difficulty {
+    /// The three dials as `scaling` has them.
+    pub fn of(scaling: WaveScaling) -> Difficulty {
+        Difficulty {
+            base: scaling.base,
+            per_player: scaling.per_player,
+            per_step: scaling.per_step,
+        }
+    }
+
+    /// `scaling` with these three in place of its own.
+    pub fn over(self, scaling: WaveScaling) -> WaveScaling {
+        WaveScaling {
+            base: self.base,
+            per_player: self.per_player,
+            per_step: self.per_step,
+            ..scaling
+        }
+    }
+}
+
 // --- the crisis (feature 92) ---------------------------------------------
 
 /// Where the machines began: the one star the crisis spreads out from.

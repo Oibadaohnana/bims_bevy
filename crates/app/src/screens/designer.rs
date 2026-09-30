@@ -666,6 +666,10 @@ pub fn start_run(commands: &mut Commands, s: &Settings, size: Vec2) -> Screen {
     // (feature 106), before the world's first step.
     session.set_relic_pool(&s.unlocks.pool());
     commands.insert_resource(s.unlocks);
+    // And the difficulty the host picked, on every machine the same.
+    if let Some(game) = &mut session.game {
+        game.world.set_difficulty(s.difficulty);
+    }
     // And the relic dials, on the `game` command as on any other.
     crate::dev::relic_dials(&mut session);
     // The ready check: every mission with a fight in it — this first one

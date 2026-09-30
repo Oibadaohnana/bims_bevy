@@ -377,6 +377,9 @@ pub struct SettingsWire {
     /// 106, `profile::RunUnlocks`): the run's, on every machine.
     pub relics: u64,
     pub classes: u32,
+    /// The run's difficulty as the host picked it; `None` is each
+    /// machine's tuning file (`scaling.ron`).
+    pub difficulty: Option<world::droid::Difficulty>,
 }
 
 impl SettingsWire {
@@ -389,6 +392,7 @@ impl SettingsWire {
             spawn: settings.spawn,
             relics: settings.unlocks.relics,
             classes: settings.unlocks.classes,
+            difficulty: settings.difficulty,
         }
     }
 
@@ -403,6 +407,7 @@ impl SettingsWire {
             relics: self.relics,
             classes: self.classes,
         };
+        settings.difficulty = self.difficulty;
     }
 }
 

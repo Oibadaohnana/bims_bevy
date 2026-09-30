@@ -188,7 +188,9 @@ use crate::game::Game;
 /// and `Skill` lost *iron frame* and *breacher*.
 /// 66: the commander's squad orders removed — the world keeps no squad
 /// order, and `Skill` lost *focus fire*'s `marked_accuracy`.
-pub const SAVE_VERSION: u32 = 66;
+/// 67: the world keeps the run's difficulty, the game setup's pick
+/// (`World::difficulty`).
+pub const SAVE_VERSION: u32 = 67;
 
 /// What the file holds, read back.
 #[derive(serde::Deserialize)]

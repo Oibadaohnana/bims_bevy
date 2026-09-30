@@ -609,6 +609,34 @@ fn a_site_has_one_wave_at_tier_one_two_at_tier_two_and_four_at_tier_three() {
     assert_eq!(world.droid_wave_count(), 2, "tier one, tuned");
 }
 
+/// The setup's difficulty stands over the tuning file's three dials and
+/// leaves the rest of the formula the file's; `None` is the file again.
+#[test]
+fn the_difficulty_stands_over_the_tuning_files_three_dials() {
+    let mut world = crate::fixture::crewed_world(combat_ship(), REFERENCE_MONEY, 1, 4);
+    let players = world.players();
+    let later = data::ENEMIES_HOURS * 3;
+    let untuned = world.wave_size_at(later);
+    world.set_difficulty(Some(crate::droid::Difficulty {
+        base: 5,
+        per_player: 3,
+        per_step: 2,
+    }));
+    assert_eq!(world.wave_size_at(0), 5 + 3 * players);
+    assert_eq!(world.wave_size_at(later), 5 + 3 * players + 2 * 3);
+    // The file's other dials still count: a step of twice the days.
+    world.set_wave_scaling(crate::droid::WaveScaling {
+        base: 40,
+        step_days: 2 * crate::droid::WaveScaling::DEFAULT.step_days,
+        ..crate::droid::WaveScaling::DEFAULT
+    });
+    assert_eq!(world.wave_size_at(later), 5 + 3 * players + 2);
+    assert_eq!(world.wave_scaling().base, 40, "the file's own, unmixed");
+    world.set_wave_scaling(crate::droid::WaveScaling::DEFAULT);
+    world.set_difficulty(None);
+    assert_eq!(world.wave_size_at(later), untuned);
+}
+
 /// A player more is a machine more a wave; a bot more is nothing.
 #[test]
 fn a_wave_grows_with_the_players() {

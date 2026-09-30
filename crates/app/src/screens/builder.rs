@@ -22,6 +22,7 @@ use bims::character::{Hair, Look, Shade, Tint};
 use lobby::{Lobby, NONE};
 use wire::To;
 use world::Class;
+use world::droid::{Difficulty, WaveScaling};
 
 use super::backdrop::{Backdrop, Backdrops};
 use crate::canvas::{paint_shapes, rect_of, root_ui};
@@ -29,6 +30,7 @@ use crate::format::{euros, roman};
 use crate::names::*;
 use crate::net::{Event, Online, Packet, SettingsWire};
 use crate::shapes::View;
+use crate::wavecfg::Watched;
 use crate::{Screen, theme};
 
 /// What each of the crew brings, in whole euros. It all goes into one pool.
@@ -160,6 +162,10 @@ pub struct Settings {
     /// relic pool and the classes that may be picked. This machine's own
     /// until a host's settings arrive, and the host's after.
     pub unlocks: crate::profile::RunUnlocks,
+    /// The run's difficulty (the wave formula's base, per player and
+    /// scaling), the host's to pick and dealt with the rest; `None`
+    /// until one is picked, which is the tuning file's (`scaling.ron`).
+    pub difficulty: Option<world::droid::Difficulty>,
 }
 
 impl Default for Settings {
@@ -177,6 +183,7 @@ impl Default for Settings {
             classes: Vec::new(),
             tints: Vec::new(),
             unlocks: crate::profile::RunUnlocks::of(&crate::profile::load()),
+            difficulty: None,
         }
     }
 }
@@ -303,6 +310,9 @@ pub struct BuilderScreen {
     /// setup: the session is stood up round it and the game screen opens.
     loading: bool,
     saves: crate::save::Saves,
+    /// The wave formula as the tuning file says it (`crate::wavecfg`),
+    /// this frame: what the difficulty shows until the host picks one.
+    file_scaling: WaveScaling,
 }
 
 pub struct BuilderPlugin;
@@ -359,6 +369,7 @@ fn open(mut commands: Commands, settings: Res<Settings>) {
         galaxy_list: lobby::draw::DrawList::new(),
         loading: false,
         saves: crate::save::Saves::default(),
+        file_scaling: WaveScaling::DEFAULT,
     });
 }
 
@@ -374,8 +385,10 @@ fn frame(
     window: Single<&Window>,
     mut online: ResMut<Online>,
     backdrops: Res<Backdrops>,
+    scaling_file: Res<Watched<WaveScaling>>,
 ) -> Result {
     let ctx = contexts.ctx_mut()?.clone();
+    screen.file_scaling = scaling_file.dials();
     let screen = &mut *screen;
     let settings = &mut *settings;
     let online = &mut *online;
@@ -979,6 +992,8 @@ fn tool(
                 &MONEY.map(|(label, amount)| (label, euros(amount), amount)),
                 &mut settings.money_per_bim,
             );
+            let players = (online.peers.len() as u32).max(1);
+            difficulty_rows(ui, settings, screen.file_scaling, players, editable);
             // The player's own crew member's name: everybody's to type,
             // host or guest, since each names their own.
             ui.add_space(6.0);
@@ -1187,6 +1202,94 @@ fn class_chooser(
 /// A row of mutually exclusive choices, each one a number written into the
 /// setting. A guest in somebody else's lobby watches the settings rather
 /// than setting them.
+/// The most machines any of the difficulty's dials goes to.
+const DIFFICULTY_MOST: u32 = 99;
+
+/// The setup's difficulty: the wave formula's base, per player and
+/// scaling, a stepper each, the host's to move. They show the tuning
+/// file's (`file`) until one is moved; Default puts them back to it.
+/// Under them, what the first wave comes to for the `players` here.
+fn difficulty_rows(
+    ui: &mut egui::Ui,
+    settings: &mut Settings,
+    file: WaveScaling,
+    players: u32,
+    editable: bool,
+) {
+    ui.add_space(6.0);
+    ui.horizontal(|ui| {
+        ui.label(egui::RichText::new(DIFFICULTY).strong());
+        if ui
+            .add_enabled(
+                editable && settings.difficulty.is_some(),
+                egui::Button::new(DIFFICULTY_RESET).small(),
+            )
+            .on_hover_text(DIFFICULTY_RESET_HOVER)
+            .clicked()
+        {
+            settings.difficulty = None;
+        }
+    });
+    ui.label(
+        egui::RichText::new(DIFFICULTY_NOTE)
+            .small()
+            .color(theme::MUTED),
+    );
+    let mut d = settings.difficulty.unwrap_or(Difficulty::of(file));
+    let step_note = wave_per_step_note(file.step_days.max(1));
+    egui::Grid::new("difficulty")
+        .num_columns(3)
+        .spacing(egui::vec2(10.0, 4.0))
+        .show(ui, |ui| {
+            for (name, note, value) in [
+                (WAVE_BASE, WAVE_BASE_NOTE, &mut d.base),
+                (WAVE_PER_PLAYER, WAVE_PER_PLAYER_NOTE, &mut d.per_player),
+                (WAVE_PER_STEP, step_note.as_str(), &mut d.per_step),
+            ] {
+                ui.label(name);
+                ui.horizontal(|ui| {
+                    let less = ui.add_enabled(
+                        editable && *value > 0,
+                        egui::Button::new("-").min_size(egui::vec2(22.0, 22.0)),
+                    );
+                    if less.clicked() {
+                        *value -= 1;
+                    }
+                    ui.add_enabled(
+                        editable,
+                        egui::DragValue::new(value)
+                            .range(0..=DIFFICULTY_MOST)
+                            .speed(0.1),
+                    );
+                    let more = ui.add_enabled(
+                        editable && *value < DIFFICULTY_MOST,
+                        egui::Button::new("+").min_size(egui::vec2(22.0, 22.0)),
+                    );
+                    if more.clicked() {
+                        *value += 1;
+                    }
+                });
+                ui.label(egui::RichText::new(note).small().color(theme::MUTED));
+                ui.end_row();
+            }
+        });
+    if editable && d != settings.difficulty.unwrap_or(Difficulty::of(file)) {
+        settings.difficulty = Some(d);
+    }
+    // The first wave as the world works it: the formula at day nought,
+    // less the first mission's ease, one at the least.
+    let first = d
+        .over(file)
+        .size(players, 0)
+        .saturating_sub(file.first_mission_ease)
+        .max(1);
+    ui.label(
+        egui::RichText::new(first_wave_line(first, players))
+            .small()
+            .color(theme::ACCENT),
+    );
+}
+
 fn choice_row<T: PartialEq + Copy>(
     ui: &mut egui::Ui,
     name: &str,

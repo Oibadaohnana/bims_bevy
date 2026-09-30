@@ -708,6 +708,15 @@ pub struct World {
     /// machines laid) is what is kept.
     #[cfg_attr(feature = "serde", serde(skip))]
     wave_scaling: droidplan::WaveScaling,
+    /// The run's difficulty as the game setup picked it
+    /// ([`droidplan::Difficulty`]): the base machines a wave, a player's
+    /// and a time step's, laid over `wave_scaling`; `None` is the tuning
+    /// file's own. **Saved** — a load plays at the difficulty the run was
+    /// begun at — **but not hashed**, like `wave_scaling`: every machine
+    /// of a lobby is dealt the same at Start, and what it decides (the
+    /// machines laid) is hashed.
+    #[cfg_attr(feature = "serde", serde(default))]
+    difficulty: Option<droidplan::Difficulty>,
     /// What a fight pays and what things cost ([`crate::rewards::Rewards`]),
     /// the constants unless the app's `rewards.ron` says otherwise.
     /// Neither saved nor hashed, like `wave_scaling`: the money and the
@@ -1170,6 +1179,7 @@ impl World {
             droid_reinforce: data::DROID_REINFORCE_STEPS,
             droid_wave_forced: None,
             wave_scaling: droidplan::WaveScaling::DEFAULT,
+            difficulty: None,
             rewards: crate::rewards::Rewards::DEFAULT,
             droid_waves_forced: None,
             droid_kinds_forced: None,
@@ -5858,7 +5868,7 @@ impl World {
         let size = self.wave_size_with(self.hours_gone(), defenders);
         let forced = self.droid_kinds_forced.is_some() || self.droid_wave_forced.is_some();
         if self.run.missions <= 1 && !forced {
-            size.saturating_sub(self.wave_scaling.first_mission_ease)
+            size.saturating_sub(self.scaling().first_mission_ease)
                 .max(1)
         } else {
             size
@@ -5884,7 +5894,7 @@ impl World {
         if let Some(forced) = self.droid_wave_forced {
             return forced.max(1);
         }
-        self.wave_scaling.size(self.players() + more, hours).max(1)
+        self.scaling().size(self.players() + more, hours).max(1)
     }
 
     /// The probes' other dial (`BIMS_DROID_WAVE`): every wave from now
@@ -5915,9 +5925,31 @@ impl World {
         self.wave_scaling = scaling;
     }
 
-    /// The wave formula's dials as they stand.
+    /// The wave formula's dials as the tuning file handed them, without
+    /// the run's [`World::difficulty`] over them.
     pub fn wave_scaling(&self) -> droidplan::WaveScaling {
         self.wave_scaling
+    }
+
+    /// Set the run's difficulty (the game setup's pick, dealt at Start):
+    /// from the next wave laid and the next count settled on, its three
+    /// dials stand over the tuning file's. `None` is the file's own.
+    pub fn set_difficulty(&mut self, difficulty: Option<droidplan::Difficulty>) {
+        self.difficulty = difficulty;
+    }
+
+    /// The run's difficulty, if the setup picked one.
+    pub fn difficulty(&self) -> Option<droidplan::Difficulty> {
+        self.difficulty
+    }
+
+    /// The wave formula as it is worked: the tuning file's dials with the
+    /// run's difficulty over them.
+    pub fn scaling(&self) -> droidplan::WaveScaling {
+        match self.difficulty {
+            Some(d) => d.over(self.wave_scaling),
+            None => self.wave_scaling,
+        }
     }
 
     /// Tune what a fight pays and what things cost (`rewards.ron`, read
@@ -5954,7 +5986,7 @@ impl World {
         if let Some(forced) = self.droid_waves_forced {
             return forced.max(1);
         }
-        self.wave_scaling.count(tier).max(1)
+        self.scaling().count(tier).max(1)
     }
 
     /// The probes' dial: a held station has this many waves all told,
