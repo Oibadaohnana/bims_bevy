@@ -502,11 +502,23 @@ impl Sight {
     /// which eye — its own, or a peek beside a wall. `None` when it does
     /// not.
     pub fn sees_from(&self, from: Vec2, target: Vec2) -> Option<Vec2> {
+        self.sees_from_as(from, target, false)
+    }
+
+    /// [`Sight::sees_from`] with the dark no object: a clear line is
+    /// enough, lit or not, however far. What an engineer's sentry sees
+    /// with — a sensor, not an eye — so a machine standing where the
+    /// lamps are shot out is no safer from it than one in the light.
+    pub fn sees_from_in_the_dark(&self, from: Vec2, target: Vec2) -> Option<Vec2> {
+        self.sees_from_as(from, target, true)
+    }
+
+    fn sees_from_as(&self, from: Vec2, target: Vec2, in_the_dark: bool) -> Option<Vec2> {
         let tile = self.tile_of(target);
         if !self.inside(tile.0, tile.1) {
             return None;
         }
-        if !self.in_the_light(from, tile) {
+        if !in_the_dark && !self.in_the_light(from, tile) {
             return None;
         }
         self.eyes_from(from)

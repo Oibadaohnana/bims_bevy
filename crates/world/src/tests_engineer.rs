@@ -1069,10 +1069,10 @@ fn sandbags_charges_health_time_and_cooldown_are_their_rank_s() {
     }
 }
 
-/// A hit on the engineer interrupts laying sandbags or a Healing Sentry,
-/// and the charge is kept.
+/// A hit on the engineer does not interrupt laying sandbags or a Healing
+/// Sentry: it keeps at the work, and the kit is laid.
 #[test]
-fn a_hit_drops_the_sandbags_and_the_healing_sentry_with_the_charge_kept() {
+fn a_hit_does_not_drop_the_sandbags_or_the_healing_sentry() {
     for kind in [DeployKind::Sandbags, DeployKind::HealingSentry] {
         let mut world = engineer_at(1);
         let charge = kind.charge().unwrap();
@@ -1083,11 +1083,100 @@ fn a_hit_drops_the_sandbags_and_the_healing_sentry_with_the_charge_kept() {
         assert!(world.aboard.room.is_deploying(0));
         world.step(&[]);
         world.aboard.room.wound(0, Part::Body, 5.0);
-        assert!(!world.aboard.room.is_deploying(0), "{kind:?} dropped");
-        run_for_seconds(&mut world, 10.0);
-        assert!(world.deployables.is_empty(), "nothing laid");
-        assert_eq!(world.charges_of(0, charge), held, "the charge kept");
+        assert!(world.aboard.room.is_deploying(0), "{kind:?} kept at");
+        run_for_seconds(&mut world, 30.0);
+        assert!(
+            world.deployable_under(centre(tile)).is_some(),
+            "{kind:?} laid"
+        );
+        assert_eq!(world.charges_of(0, charge), held - 1, "the charge spent");
     }
+}
+
+/// A kit placed somewhere else while the first is on its way replaces
+/// it: the first is dropped, never queued to be laid after.
+#[test]
+fn a_second_placement_replaces_the_first() {
+    let mut world = engineer_at(1);
+    let kind = DeployKind::Sandbags;
+    let tiles = tiles_near(&world, 0, kind);
+    let (first, second) = (tiles[0], *tiles.last().unwrap());
+    assert!(!refused(&world.step(&[lay(0, kind, first)])));
+    world.step(&[]);
+    assert!(!refused(&world.step(&[lay(0, kind, second)])));
+    run_for_seconds(&mut world, 60.0);
+    assert!(
+        world.deployable_under(centre(second)).is_some(),
+        "the second laid"
+    );
+    assert!(
+        world.deployable_under(centre(first)).is_none(),
+        "the first dropped"
+    );
+    assert_eq!(world.deployables.len(), 1);
+    assert!(!world.aboard.room.is_deploying(0), "nothing left queued");
+}
+
+/// The work is done within two tiles of the kit's tile, its bar empty
+/// until the engineer is there: the walk counts nothing.
+#[test]
+fn a_kit_is_worked_within_two_tiles_and_the_walk_fills_no_bar() {
+    let mut world = engineer_at(1);
+    let kind = DeployKind::Sandbags;
+    let from = world.aboard.room.bim_pos(0);
+    let tile = tiles_near(&world, 0, kind)
+        .into_iter()
+        .rev()
+        .find(|&t| (centre(t) - from).len() > 4.0 * TILE)
+        .expect("a tile four away");
+    assert!(!refused(&world.step(&[lay(0, kind, tile)])));
+    let reach = bims::task::DEPLOY_REACH * TILE + 1e-3;
+    let mut worked = false;
+    for _ in 0..20_000 {
+        if !world.aboard.room.is_deploying(0) {
+            break;
+        }
+        if let Some((_, progress)) = world.aboard.room.working_at(0)
+            && progress > 0.0
+        {
+            let off = (world.aboard.room.bim_pos(0) - centre(tile)).len();
+            assert!(off <= reach, "worked {} tiles off", off / TILE);
+            worked = true;
+        }
+        world.step(&[]);
+    }
+    assert!(worked, "the kit was worked");
+    assert!(world.deployable_under(centre(tile)).is_some(), "and laid");
+}
+
+/// Under arms the engineer holsters while it lays a kit, and draws again
+/// once it is down.
+#[test]
+fn an_engineer_fires_nothing_while_it_lays_a_kit() {
+    let mut world = fight();
+    for _ in 0..200 {
+        if world.aboard.room.is_armed(0) {
+            break;
+        }
+        world.step(&[]);
+    }
+    assert!(world.aboard.room.is_armed(0), "armed in the fight");
+    ranks(&mut world, 0, [1; 4]);
+    let kind = DeployKind::Sandbags;
+    let tile = tile_near(&world, 0, kind);
+    let (_, id) = deploy_now_keeping(&mut world, 0, kind, tile, |world| {
+        if world
+            .aboard
+            .room
+            .working_at(0)
+            .is_some_and(|(_, p)| p > 0.0)
+        {
+            assert!(!world.aboard.room.is_armed(0), "holstered while laying");
+        }
+    });
+    assert!(world.deployable(id).is_some());
+    world.step(&[]);
+    assert!(world.aboard.room.is_armed(0), "armed again after");
 }
 
 /// A tile with all four neighbours free to lay on, near James.

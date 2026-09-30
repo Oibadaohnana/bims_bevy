@@ -730,9 +730,6 @@ pub struct Game {
     /// an engineer's talents do to a craft's and a build's working steps,
     /// one each way, applied in the `effort` product and nowhere else.
     work_factors: Vec<(f32, f32)>,
-    /// Which Bims keep at a deploy when hit (`set_steady_hands`): the
-    /// engineer's *steady hands* talent. Anybody else drops it.
-    steady_hands: Vec<bool>,
     /// What each Bim shoots with over its weapon (`set_skills`, feature
     /// 75): a soldier's talents and its brace, `Skill::NONE` for anybody
     /// the world does not name.
@@ -964,7 +961,6 @@ impl Game {
             sentries: Vec::new(),
             sentry_hits: Vec::new(),
             work_factors: Vec::new(),
-            steady_hands: Vec::new(),
             skills: Vec::new(),
             standing: Vec::new(),
             alarm_armed: Vec::new(),
@@ -1564,6 +1560,9 @@ impl Game {
                 .task
                 .as_ref()
                 .is_some_and(|t| matches!(t.kind(), Kind::Revive { .. }));
+            // Nor while laying a kit: the hands are on the build — the
+            // walk over is armed.
+            let laying = bim.task.as_ref().is_some_and(Task::is_laying);
             // In somebody's arms (feature 86): it goes where they go and
             // shoots nothing on the way.
             let carried = self.is_carried(who);
@@ -1574,6 +1573,7 @@ impl Game {
                 && !bim.character.is_outside()
                 && !bim.character.is_unconscious()
                 && !reviving
+                && !laying
                 // A medic beaming holds its fire (feature 76).
                 && !skill.holds_fire
                 // And so does one with a crewmate in its arms (feature
@@ -1859,7 +1859,12 @@ impl Game {
                 let stats = sentry.skill.stats(sentry.weapon);
                 self.sentries[i].trigger.tick(dt);
                 self.sentries[i].flash = (self.sentries[i].flash - dt).max(0.0);
-                let Some((_, _, at)) = self.combat.aim(&self.room.sight, sentry.at, &stats) else {
+                // Its sensor sees in the dark: a machine standing where
+                // the lamps are shot out is fired at like one in the light.
+                let aim = self
+                    .combat
+                    .aim_in_the_dark(&self.room.sight, sentry.at, &stats);
+                let Some((_, _, at)) = aim else {
                     self.sentries[i].trigger.hold();
                     continue;
                 };
@@ -1956,8 +1961,12 @@ impl Game {
                 continue;
             }
             self.bims[who].character.set_recruited(war);
-            if war {
+            // A kit being laid is laid on under arms: it was begun for
+            // the fight.
+            if war && !self.is_deploying(who) {
                 self.interrupt(who);
+            }
+            if war {
                 // A post is where peace put it; the fight puts it elsewhere.
                 self.bims[who].character.set_post(None);
                 self.bims[who].plan_wait = 0.0;
@@ -2062,7 +2071,10 @@ impl Game {
     /// between missions (task 113), so there is nothing to take out.
     /// What the alarm does to each of them.
     fn take_up_arms(&mut self, who: usize) {
-        self.interrupt(who);
+        // A kit being laid is laid on under arms, as in `muster`.
+        if !self.is_deploying(who) {
+            self.interrupt(who);
+        }
         self.bims[who].plan_wait = 0.0;
     }
 
@@ -3861,7 +3873,15 @@ impl Game {
     /// It goes on the *front*, so when one interruption interrupts another the
     /// chains come back in the order they were displaced: the most recently
     /// dropped is the first one resumed.
+    ///
+    /// A deploy is the exception: displaced, it is dropped for good, so a
+    /// kit the player placed somewhere else — or walked away from — is
+    /// never laid later behind their back.
     fn interrupt(&mut self, who: usize) {
+        if self.is_deploying(who) {
+            self.drop_task(who);
+            return;
+        }
         if let Some(task) = self.bims[who].task.take() {
             let saved = task.suspend(&mut self.bims[who].character, &mut self.room);
             self.bims[who].queue.insert(0, saved);
@@ -3870,7 +3890,7 @@ impl Game {
 
     /// The errand dropped for good rather than put down: suspended, so the
     /// hands and the scripting come back the way a suspend leaves them,
-    /// and then not kept. What a hit does to a deploy.
+    /// and then not kept. What displacing a deploy does to it.
     fn drop_task(&mut self, who: usize) {
         if let Some(task) = self.bims[who].task.take() {
             let _ = task.suspend(&mut self.bims[who].character, &mut self.room);
@@ -7321,29 +7341,18 @@ impl Game {
         self.work_factors = factors;
     }
 
-    /// Which Bims keep at a deploy when a hit lands on them — the
-    /// engineer's *steady hands* — by index; anybody not named drops it
-    /// and keeps the kit.
-    pub fn set_steady_hands(&mut self, steady: Vec<bool>) {
-        self.steady_hands = steady;
-    }
-
     /// Send `who` to lay a kit on the tile at `tile` (room units, the
-    /// tile's middle) beside which it will stand for `minutes` of working
-    /// steps — one of an engineer's deployables, the world having checked
-    /// the charge and the tile. `kind` is the world's code, only carried
-    /// back on `take_deployed`; a hit does not put a `steady` one down. The walk is to the nearest tile
-    /// beside it, or the tile itself; nowhere to stand is `false` and
-    /// nothing begun. A live order: what the Bim was on is put down onto
-    /// the queue, as any order does.
-    pub fn deploy(
-        &mut self,
-        who: usize,
-        tile: Vec2,
-        kind: u32,
-        steady: bool,
-        minutes: f32,
-    ) -> bool {
+    /// tile's middle), within `task::DEPLOY_REACH` tiles of which it will
+    /// stand for `minutes` of working steps — one of an engineer's
+    /// deployables, the world having checked the charge and the tile.
+    /// `kind` is the world's code, only carried back on `take_deployed`.
+    /// The walk is towards the nearest tile beside it, or the tile
+    /// itself; nowhere to stand is `false` and nothing begun. A live
+    /// order: what the Bim was on is put down onto the queue, as any order
+    /// does — but a deploy it was on is dropped (`interrupt`), so a kit
+    /// placed somewhere else replaces the first rather than queueing
+    /// behind it. A hit does not put it down.
+    pub fn deploy(&mut self, who: usize, tile: Vec2, kind: u32, minutes: f32) -> bool {
         if who >= self.bims.len() || !self.bims[who].is_alive() {
             return false;
         }
@@ -7358,7 +7367,6 @@ impl Game {
             who,
             tile,
             kind,
-            steady,
             minutes,
             &mut bim.character,
             &mut self.room,
@@ -8390,21 +8398,8 @@ impl Game {
             // Nothing over it, or nothing left of what is: the part
             // takes the damage like any other hit.
         }
-        // A hit on an engineer laying a kit is the kit put down where it
-        // was — in the pack — and the errand dropped, not put down onto
-        // the queue to be picked up again under fire; unless the errand is
-        // a steady one (the engineer's sentry, task 127) or its hands are
-        // (`set_steady_hands`), when it keeps at it.
-        let steady_errand = self.bims[who]
-            .task
-            .as_ref()
-            .is_some_and(|t| matches!(t.kind(), Kind::Deploy { steady: true, .. }));
-        if self.is_deploying(who)
-            && !steady_errand
-            && !self.steady_hands.get(who).copied().unwrap_or(false)
-        {
-            self.drop_task(who);
-        }
+        // A hit on an engineer laying a kit puts nothing down: it keeps
+        // at the work under fire.
         let skill = self.skill(who);
         let bim = &mut self.bims[who];
         bim.hit_flash = HIT_FLASH;
@@ -9823,6 +9818,9 @@ mod tests {
         assert!(!dark.seen_at(far.x, far.y), "twelve tiles, in the dark");
         assert!(dark.room.sight.sees_from(eye, mid).is_some());
         assert!(dark.room.sight.sees_from(eye, far).is_none());
+        // A sentry's sensor is not stopped by the dark: twelve tiles is
+        // seen with a clear line.
+        assert!(dark.room.sight.sees_from_in_the_dark(eye, far).is_some());
 
         // A wall light on the far hull: the far tile is lit and seen.
         let layout = crate::aboard::layout_of(&box_ship(&[(PartKind::WallLight, (17, 10))]));

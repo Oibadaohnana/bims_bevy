@@ -2730,6 +2730,31 @@ impl Combat {
         from: Vec2,
         stats: &WeaponStats,
     ) -> Option<(usize, Vec2, Vec2)> {
+        Combat::aim_seeing(targets, from, stats, |a, b| sight.sees_from(a, b))
+    }
+
+    /// [`Combat::aim`] for a sentry, whose sensor the dark does not stop
+    /// (`Sight::sees_from_in_the_dark`): a machine in reach with a clear
+    /// line to it is fired at, lamps or no lamps.
+    pub fn aim_in_the_dark(
+        &self,
+        sight: &Sight,
+        from: Vec2,
+        stats: &WeaponStats,
+    ) -> Option<(usize, Vec2, Vec2)> {
+        Combat::aim_seeing(&self.targets, from, stats, |a, b| {
+            sight.sees_from_in_the_dark(a, b)
+        })
+    }
+
+    /// The aim's one rule, with `sees` saying which eye (if any) sees a
+    /// point from `from`.
+    fn aim_seeing(
+        targets: &[Option<Target>],
+        from: Vec2,
+        stats: &WeaponStats,
+        sees: impl Fn(Vec2, Vec2) -> Option<Vec2>,
+    ) -> Option<(usize, Vec2, Vec2)> {
         let reach = stats.reach();
         // **A taunt is him and nobody else** (task 139): a target taunting
         // within its own radius of the shooter that the shooter can see —
@@ -2749,7 +2774,7 @@ impl Combat {
             if forced.is_some_and(|f| f.0 >= key) {
                 continue;
             }
-            if let Some(eye) = sight.sees_from(from, t.at) {
+            if let Some(eye) = sees(from, t.at) {
                 forced = Some((key, i, eye, t.at));
             }
         }
@@ -2776,7 +2801,7 @@ impl Combat {
             if best.is_some_and(|b| b.0 <= key) {
                 continue;
             }
-            if let Some(eye) = sight.sees_from(from, at) {
+            if let Some(eye) = sees(from, at) {
                 best = Some((key, i, eye, at));
             }
         }

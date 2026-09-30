@@ -7874,11 +7874,10 @@ impl World {
     ) -> Result<(), Refusal> {
         let at = self.deploy_tile(slot, tile)?;
         let minutes = self.deploy_minutes(slot, kind);
-        let steady = kind == DeployKind::Sentry;
         if !self
             .aboard
             .room
-            .deploy(slot as usize, at, kind.code(), steady, minutes as f32)
+            .deploy(slot as usize, at, kind.code(), minutes as f32)
         {
             return Err(Refusal::CantDeployThere);
         }

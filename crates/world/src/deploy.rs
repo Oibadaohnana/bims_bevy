@@ -60,10 +60,11 @@
 //! a charge (or the ultimate ready), and a tile of reachable deck floor
 //! that is not a door or an airlock, holds no blocking part and no
 //! deployable. The Bim does it as an errand (`bims::task::Kind::Deploy`):
-//! it walks beside the tile and works the rank's minutes there, `effort`
-//! applying; a hit on it drops the errand for sandbags and a Healing
-//! Sentry, never for the sentry. The charge is spent only when the work
-//! is done. `Command::PackUp` is an engineer beside one of the crew's
+//! it walks towards the tile until within `bims::task::DEPLOY_REACH`
+//! (two tiles, a clear line) and works the rank's minutes there, `effort`
+//! applying, its weapon holstered; a hit never drops it, and another
+//! order — a second kit placed — drops it rather than queueing it. The
+//! charge is spent only when the work is done. `Command::PackUp` is an engineer beside one of the crew's
 //! sandbags or Healing Sentries taking it up and getting that charge
 //! back, capped at its charges.
 //!

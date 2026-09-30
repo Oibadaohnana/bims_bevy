@@ -37,6 +37,10 @@ const WIDTH: f32 = 50.0;
 const WIDTH_RANGE: (f32, f32) = (40.0, 70.0);
 const HEIGHT: f32 = 7.0;
 const HEIGHT_RANGE: (f32, f32) = (6.0, 10.0);
+/// A sentry's bar is this share of a body's, and sits this share as
+/// high: a thing laid on the deck, not somebody standing there.
+const SMALL: f32 = 0.7;
+const SMALL_LIFT: f32 = 0.8;
 
 const ALLY: egui::Color32 = egui::Color32::from_rgb(0x3f, 0xc2, 0x4a);
 const ALLY_HEALED: egui::Color32 = egui::Color32::from_rgb(0xa8, 0xf0, 0xae);
@@ -54,6 +58,8 @@ const CHUNKS: u32 = 4;
 enum Room {
     Crew,
     Residents(u32),
+    /// One of the crew's sentries, by the world's id.
+    Sentry,
 }
 
 /// One body's bar as this window remembers it, every share nought to one.
@@ -151,6 +157,8 @@ struct Bar {
     at: (f32, f32),
     friendly: bool,
     trails: Trails,
+    /// A sentry's: the smaller bar, lower down.
+    small: bool,
 }
 
 /// Every bar on the deck and what each remembers. Kept by the game
@@ -204,20 +212,22 @@ impl HealthBars {
     pub fn update(&mut self, game: &Game, dt: f32) {
         let mut next: HashMap<(Room, u32), Trails> = HashMap::new();
         self.shown.clear();
-        let mut take = |key: (Room, u32), r: Reading, at: (f32, f32), friendly: bool| {
-            let mut trails = self
-                .trails
-                .get(&key)
-                .copied()
-                .unwrap_or_else(|| Trails::new(r));
-            trails.step(r, dt);
-            next.insert(key, trails);
-            self.shown.push(Bar {
-                at,
-                friendly,
-                trails,
-            });
-        };
+        let mut take =
+            |key: (Room, u32), r: Reading, at: (f32, f32), friendly: bool, small: bool| {
+                let mut trails = self
+                    .trails
+                    .get(&key)
+                    .copied()
+                    .unwrap_or_else(|| Trails::new(r));
+                trails.step(r, dt);
+                next.insert(key, trails);
+                self.shown.push(Bar {
+                    at,
+                    friendly,
+                    trails,
+                    small,
+                });
+            };
         let crew = &game.world.aboard;
         for who in 0..crew.count() {
             let room = &crew.room;
@@ -231,6 +241,7 @@ impl HealthBars {
                     s,
                     at,
                     room.is_friendly_body(who as usize),
+                    false,
                 );
             }
         }
@@ -247,9 +258,24 @@ impl HealthBars {
                         s,
                         at,
                         room.is_friendly_body(who as usize),
+                        false,
                     );
                 }
             }
+        }
+        // The crew's sentries, the shooting one and the Healing Sentry:
+        // what they have left of what they were laid with.
+        for (d, at) in game.world.deployables_in_room() {
+            if !d.kind.is_sentry() {
+                continue;
+            }
+            let whole = game.world.laid_health(d.kind, d.owner_slot).max(1.0);
+            let r = Reading {
+                health: (d.health / whole).clamp(0.0, 1.0),
+                armour: 0.0,
+            };
+            let at = world_paint::room_point_on_screen(game, at);
+            take((Room::Sentry, d.id), r, at, true, true);
         }
         self.trails = next;
     }
@@ -266,8 +292,16 @@ impl HealthBars {
         let w = (WIDTH * scale).clamp(WIDTH_RANGE.0, WIDTH_RANGE.1);
         let h = height(scale);
         for bar in &self.shown {
+            let (w, h, lift) = if bar.small {
+                (w * SMALL, h * SMALL, SMALL_LIFT)
+            } else {
+                (w, h, 1.0)
+            };
             let head = to_screen(bar.at);
-            let middle = egui::pos2(head.x, head.y - crate::theme::NAME_LIFT * scale - h * 0.5);
+            let middle = egui::pos2(
+                head.x,
+                head.y - crate::theme::NAME_LIFT * lift * scale - h * 0.5,
+            );
             let track = egui::Rect::from_center_size(middle, egui::vec2(w, h));
             let (solid, healed) = if bar.friendly {
                 (ALLY, ALLY_HEALED)

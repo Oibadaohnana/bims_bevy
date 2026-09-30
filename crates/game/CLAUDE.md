@@ -4109,9 +4109,43 @@ and the host's picture goes stale.
 - **`combat::Sentry::heals`** is a Healing Sentry: on the bodies list a
   hostile bolt looks for, never fired. The engineer's *dug in* went, and
   with it the sentry's `dug_in`.
-- **`Kind::Deploy { kind, steady }`**: `kind` the world's `DeployKind`
-  code, carried back on `Room::deployed`; `steady` (the ultimate's) is
-  not dropped by a hit.
+- **`Kind::Deploy { x, y, kind }`**: `kind` the world's `DeployKind`
+  code, carried back on `Room::deployed`. (`steady` and
+  `set_steady_hands` went: see "A kit is laid within two tiles" below.)
+
+## A kit is laid within two tiles, under fire, holstered, and never queued
+
+> "A hit drops it" in feature 74's section and `working_at`'s "the walk
+> counts towards it" describe what this took away.
+
+- **The walk stops at `task::DEPLOY_REACH` (2) tiles** of the kit's tile
+  with a clear line (`task::in_deploy_reach`, `Nav::line_clear`), read
+  every step of `GoToDeploySpot` in `Task::update` — the body halted and
+  the walk done there; at worst it arrives beside the tile as before.
+- **The walk weighs nothing in the bar** (`progress_of`, for a `Deploy`
+  alone), so `working_at` stands an empty bar on the tile until the
+  engineer is in reach, and fills it only with the work.
+- **A hit puts nothing down** — `strike` no longer drops a deploy.
+- **Laying holsters the weapon** (`Task::is_laying`, the `Deploy` step
+  alone; the walk over is armed), read beside `reviving` in
+  `tick_combat`'s `armed`.
+- **A deploy is never put onto the queue**: `interrupt` drops it
+  (`drop_task`), so another kit placed — or any order — replaces it
+  rather than having it laid later. `muster` and `take_up_arms` leave a
+  deploy running: a fight starting does not take the engineer off it.
+
+**A sentry sees in the dark**: it aims with `Combat::aim_in_the_dark`
+(`Sight::sees_from_in_the_dark` — a clear line, lit or not, however
+far), where a Bim's eyes stop at `DARK_RANGE` in an unlit room. Before
+it, a machine standing where the lamps were shot out shot the sentry to
+nothing while the sentry fired nothing. The app draws a smaller health
+bar over both sentries (`healthbars.rs`, `Room::Sentry`).
+
+`a_hit_does_not_drop_the_sandbags_or_the_healing_sentry`,
+`a_second_placement_replaces_the_first`,
+`a_kit_is_worked_within_two_tiles_and_the_walk_fills_no_bar` and
+`an_engineer_fires_nothing_while_it_lays_a_kit` (the world's
+`tests_engineer`) pin it.
 
 ## The medic's cloak: what the room is handed (task 130)
 

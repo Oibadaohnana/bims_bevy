@@ -17,6 +17,11 @@ use crate::room::{Room, Switch, TILE};
 /// from where it is now. See `Task::patient_at`.
 pub const FOLLOW_SLACK: f32 = 1.5;
 
+/// How near a kit's tile, in tiles, an engineer has to be to work at it:
+/// the walk over ends the moment the body is this close with a clear
+/// line to the tile's middle, and the bar fills only from there.
+pub const DEPLOY_REACH: f32 = 2.0;
+
 #[derive(Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum Step {
@@ -67,8 +72,9 @@ pub enum Step {
     // leg like any other order.
     GoToSpot,
 
-    // Laying a kit — `Kind::Deploy`: over to a tile beside the one it goes
-    // on (`deploy_stand`) and the minutes at it, `rest_minutes` like a
+    // Laying a kit — `Kind::Deploy`: towards a tile beside the one it goes
+    // on (`deploy_stand`), stopping once within `DEPLOY_REACH` of it
+    // (`in_deploy_reach`), and the minutes at it, `rest_minutes` like a
     // build's. `Deploy` only says, on the way out, that it was laid
     // (`Room::deployed`); the world owns what was laid.
     GoToDeploySpot,
@@ -168,20 +174,16 @@ pub enum Kind {
     /// Laying one of an engineer's deployables on the deck tile `(x, y)`
     /// — a room tile, in tiles — `kind` the world's code for what it is
     /// (feature 74, task 127), which the room only carries back.
-    /// The walk to a tile beside it and the minutes riding in
-    /// `rest_minutes` of working steps at it, with `effort` on them the
-    /// way a build's are. The room says it was laid on `Room::deployed`;
-    /// the world puts the deployable down and spends the charge then,
-    /// so a deploy given up has spent nothing. A hit on the Bim
-    /// drops it (`Game::strike`) unless it is `steady` — the engineer's
-    /// sentry — or its hands are.
-    Deploy {
-        x: i32,
-        y: i32,
-        kind: u32,
-        #[cfg_attr(feature = "serde", serde(default))]
-        steady: bool,
-    },
+    /// The walk towards it — over as soon as the Bim is within
+    /// [`DEPLOY_REACH`] tiles of it with a clear line, at the latest
+    /// beside it — and the minutes riding in `rest_minutes` of working
+    /// steps there, with `effort` on them the way a build's are; the
+    /// walk counts nothing towards its bar. The room says it was laid on
+    /// `Room::deployed`; the world puts the deployable down and spends
+    /// the charge then, so a deploy given up has spent nothing. A hit
+    /// does not put it down, and it is never put down onto the queue:
+    /// anything that displaces it drops it (`Game::interrupt`).
+    Deploy { x: i32, y: i32, kind: u32 },
 }
 
 impl Kind {
@@ -478,6 +480,12 @@ pub fn site_stand(room: &Room, maps: &Maps, site: u32, from: Vec2, outside: bool
     pick(ring).or_else(|| pick(own))
 }
 
+/// Whether a body at `at` is near enough the kit's tile `tile` to work
+/// at it: within [`DEPLOY_REACH`] tiles, with a clear line on the deck.
+pub fn in_deploy_reach(maps: &Maps, tile: Vec2, at: Vec2) -> bool {
+    (tile - at).len() <= DEPLOY_REACH * TILE && maps.deck().line_clear(at, tile)
+}
+
 /// Where to stand to lay a kit on the tile whose middle is `tile`, from
 /// `from`: the nearest of the four tiles beside it — never a corner, like
 /// a site — that the deck's grid has a route to, and failing that the
@@ -579,14 +587,24 @@ fn weight(step: Step, rest_minutes: f32) -> f32 {
 /// How far through a chain a given step is, 0 to 1, weighted by how long each
 /// step takes rather than by how many there are — otherwise a twenty-minute
 /// treatment would read as half done the moment the helper arrived.
+///
+/// A deploy's walk weighs nothing: its bar is the work within reach of the
+/// tile alone, and stands empty on the tile until the engineer is there.
 fn progress_of(kind: Kind, step: Step, elapsed: f32, rest_minutes: f32) -> f32 {
+    let weight = |s: Step| {
+        if matches!(kind, Kind::Deploy { .. }) && s.is_walk() {
+            0.0
+        } else {
+            weight(s, rest_minutes)
+        }
+    };
     let mut total = 0.0;
     let mut before = None;
     for s in kind.steps() {
         if s == step && before.is_none() {
             before = Some(total);
         }
-        total += weight(s, rest_minutes);
+        total += weight(s);
     }
     if total <= 0.0 {
         return 1.0;
@@ -594,7 +612,7 @@ fn progress_of(kind: Kind, step: Step, elapsed: f32, rest_minutes: f32) -> f32 {
     let Some(before) = before else {
         return 1.0;
     };
-    let here = weight(step, rest_minutes);
+    let here = weight(step);
     let within = if here > 0.0 {
         (elapsed / here).clamp(0.0, 1.0)
     } else {
@@ -719,13 +737,11 @@ impl Task {
     }
 
     /// Off to lay deployable `kind` (the world's code) on the tile whose
-    /// middle is `tile`, for `minutes` of working steps beside it, a hit
-    /// not putting it down if `steady`.
+    /// middle is `tile`, for `minutes` of working steps within reach of it.
     pub fn deploy(
         who: usize,
         tile: Vec2,
         kind: u32,
-        steady: bool,
         minutes: f32,
         ch: &mut Character,
         room: &mut Room,
@@ -736,7 +752,6 @@ impl Task {
             x: (tile.x / t).floor() as i32,
             y: (tile.y / t).floor() as i32,
             kind,
-            steady,
         };
         Task::starting_at(who, kind, kind.first_step(), minutes, ch, room, maps)
     }
@@ -860,6 +875,13 @@ impl Task {
     /// for a weapon — `Game::tick_combat` holsters it for the while.
     pub fn is_reviving(&self) -> bool {
         self.step == Step::Revive
+    }
+
+    /// Whether the hands are on a kit this instant: the laying itself,
+    /// not the walk over. An engineer building fires nothing —
+    /// `Game::tick_combat` holsters the weapon for the while.
+    pub fn is_laying(&self) -> bool {
+        self.step == Step::Deploy
     }
 
     /// How far through the hands-on part of a revive this chain is, from
@@ -1102,8 +1124,20 @@ impl Task {
             return;
         }
 
+        // Near enough the kit's tile to work at it: the walk over is done
+        // where the body stands, beside the tile or not.
+        let in_reach = self.step == Step::GoToDeploySpot
+            && self.resume.is_none()
+            && self
+                .kind
+                .deploy_tile()
+                .is_some_and(|tile| in_deploy_reach(maps, tile, ch.pos));
+        if in_reach && !ch.arrived() {
+            ch.halt();
+        }
+
         let finished = if self.step.is_walk() {
-            ch.arrived()
+            ch.arrived() || in_reach
         } else {
             // Standing steps also wait for the turn-on-the-spot to settle, so
             // the Bim is never seen reaching into a bench sideways.
