@@ -23,6 +23,7 @@ use lobby::{Lobby, NONE};
 use wire::To;
 use world::Class;
 
+use super::backdrop::{Backdrop, Backdrops};
 use crate::canvas::{paint_shapes, rect_of, root_ui};
 use crate::format::{euros, roman};
 use crate::names::*;
@@ -71,6 +72,54 @@ const NOTE_SECONDS: f64 = 4.0;
 /// A press that moves less than this before it lets go is a click on a
 /// star, not a drag of the map.
 const DRAG_SLOP: f32 = 4.0;
+
+/// The start menu's card over its picture: how wide, in points, and how
+/// far down the window its top is.
+const MENU_CARD_WIDTH: f32 = 470.0;
+const MENU_CARD_DOWN: f32 = 0.22;
+/// The setup's card over its picture: as wide as this at most, in points,
+/// and the whole height between the bars.
+const SETUP_CARD_WIDTH: f32 = 880.0;
+/// The setup's bars and card: the panels' green, dark enough to read on
+/// and thin enough that the cockpit shows through.
+const SETUP_BAR: egui::Color32 = egui::Color32::from_rgba_premultiplied(15, 22, 19, 215);
+const SETUP_CARD: egui::Color32 = egui::Color32::from_rgba_premultiplied(11, 16, 14, 238);
+
+/// Where the start menu's card goes in a panel `full` big: centred across
+/// it, `MENU_CARD_DOWN` of the way down, narrowed to fit a small window.
+fn menu_card_slot(full: egui::Rect) -> egui::Rect {
+    let width = MENU_CARD_WIDTH.min(full.width());
+    egui::Rect::from_min_max(
+        egui::pos2(
+            full.center().x - width / 2.0,
+            full.top() + full.height() * MENU_CARD_DOWN,
+        ),
+        egui::pos2(full.center().x + width / 2.0, full.bottom()),
+    )
+}
+
+/// The start menu's card: dark glass over the picture.
+fn menu_card() -> egui::Frame {
+    egui::Frame::new()
+        .fill(egui::Color32::from_rgba_premultiplied(9, 13, 12, 228))
+        .stroke(egui::Stroke::new(1.0, theme::LINE))
+        .corner_radius(10.0)
+        .inner_margin(24.0)
+}
+
+/// Where the setup's card goes in its panel: centred, the full height.
+fn setup_card_slot(full: egui::Rect) -> egui::Rect {
+    let width = SETUP_CARD_WIDTH.min(full.width());
+    egui::Rect::from_min_max(
+        egui::pos2(full.center().x - width / 2.0, full.top()),
+        egui::pos2(full.center().x + width / 2.0, full.bottom()),
+    )
+}
+
+/// The setup's card, the menu's glass a shade lighter.
+fn setup_card() -> egui::Frame {
+    menu_card().fill(SETUP_CARD).inner_margin(16.0)
+}
 
 /// What the lobby's footer says when nothing has happened lately: where
 /// the room is.
@@ -261,6 +310,7 @@ pub struct BuilderPlugin;
 impl Plugin for BuilderPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Settings>()
+            .add_plugins(super::backdrop::BackdropPlugin)
             .add_systems(
                 Startup,
                 open.run_if(|l: Res<crate::Launch>| *l == crate::Launch::Game),
@@ -323,6 +373,7 @@ fn frame(
     time: Res<Time>,
     window: Single<&Window>,
     mut online: ResMut<Online>,
+    backdrops: Res<Backdrops>,
 ) -> Result {
     let ctx = contexts.ctx_mut()?.clone();
     let screen = &mut *screen;
@@ -568,63 +619,76 @@ fn frame(
 
     match state.get() {
         Screen::Menu => {
-            egui::CentralPanel::default().show(&mut root, |ui| {
-                ui.vertical_centered(|ui| {
-                    ui.add_space(ui.available_height() * 0.25);
-                    ui.label(egui::RichText::new("Bims").size(40.0).strong());
-                    ui.label(
-                        egui::RichText::new("A ship, a crew, and whatever they can grow.")
-                            .color(theme::MUTED),
-                    );
-                    ui.add_space(20.0);
-                    ui.horizontal(|ui| {
-                        ui.add_space((ui.available_width() - 390.0).max(0.0) / 2.0);
-                        if theme::big(ui, "Play", true).clicked() {
-                            go = Some(Screen::Setup);
-                        }
-                        if theme::big(ui, "Create lobby", true).clicked() {
-                            online.create();
-                            screen.net.pushed = None;
-                            screen.lobby_said = Remark::say(CONNECTING, false, now);
-                            go = Some(Screen::Lobby);
-                        }
-                        // A saved game, picked up where it was left: the
-                        // window lists what is on disk, read afresh each
-                        // time it opens. Not for a guest, whose world is
-                        // the host's (feature 67).
-                        let load = theme::big(ui, "Load", !online.is_guest())
-                            .on_disabled_hover_text(LOAD_GUEST);
-                        if load.clicked() {
-                            screen.saves.note = None;
-                            screen.saves.refresh();
-                            screen.loading = true;
-                        }
+            // The start picture behind it all, and the menu on a dark card
+            // over it so the words read against the nebula.
+            super::backdrop::paint(&ctx, &backdrops, Backdrop::Start);
+            egui::CentralPanel::default()
+                .frame(egui::Frame::NONE)
+                .show(&mut root, |ui| {
+                    let slot = menu_card_slot(ui.max_rect());
+                    ui.scope_builder(egui::UiBuilder::new().max_rect(slot), |ui| {
+                        menu_card().show(ui, |ui| {
+                            ui.vertical_centered(|ui| {
+                                ui.label(egui::RichText::new("Bims").size(40.0).strong());
+                                ui.label(
+                                    egui::RichText::new(
+                                        "A ship, a crew, and whatever they can grow.",
+                                    )
+                                    .color(theme::MUTED),
+                                );
+                                ui.add_space(20.0);
+                                ui.horizontal(|ui| {
+                                    ui.add_space((ui.available_width() - 390.0).max(0.0) / 2.0);
+                                    if theme::big(ui, "Play", true).clicked() {
+                                        go = Some(Screen::Setup);
+                                    }
+                                    if theme::big(ui, "Create lobby", true).clicked() {
+                                        online.create();
+                                        screen.net.pushed = None;
+                                        screen.lobby_said = Remark::say(CONNECTING, false, now);
+                                        go = Some(Screen::Lobby);
+                                    }
+                                    // A saved game, picked up where it was left: the
+                                    // window lists what is on disk, read afresh each
+                                    // time it opens. Not for a guest, whose world is
+                                    // the host's (feature 67).
+                                    let load = theme::big(ui, "Load", !online.is_guest())
+                                        .on_disabled_hover_text(LOAD_GUEST);
+                                    if load.clicked() {
+                                        screen.saves.note = None;
+                                        screen.saves.refresh();
+                                        screen.loading = true;
+                                    }
+                                });
+                                ui.add_space(20.0);
+                                ui.horizontal(|ui| {
+                                    ui.add_space((ui.available_width() - 300.0).max(0.0) / 2.0);
+                                    ui.label(
+                                        egui::RichText::new("Join with a code").color(theme::MUTED),
+                                    );
+                                    let field = ui.add(
+                                        egui::TextEdit::singleline(&mut screen.join_code)
+                                            .char_limit(CODE_LENGTH)
+                                            .hint_text("——————")
+                                            .desired_width(90.0),
+                                    );
+                                    let submitted = field.lost_focus()
+                                        && ui.input(|i| i.key_pressed(egui::Key::Enter));
+                                    if ui.button("Join").clicked() || submitted {
+                                        let typed = wire::normalise_code(&screen.join_code);
+                                        if wire::is_code(&typed) {
+                                            online.join(&typed);
+                                            screen.join_note = Remark::say(CONNECTING, false, now);
+                                        } else {
+                                            screen.join_note = Remark::say(NOT_A_CODE, true, now);
+                                        }
+                                    }
+                                });
+                                Remark::show(&mut screen.join_note, ui, now, "");
+                            });
+                        });
                     });
-                    ui.add_space(20.0);
-                    ui.horizontal(|ui| {
-                        ui.add_space((ui.available_width() - 300.0).max(0.0) / 2.0);
-                        ui.label(egui::RichText::new("Join with a code").color(theme::MUTED));
-                        let field = ui.add(
-                            egui::TextEdit::singleline(&mut screen.join_code)
-                                .char_limit(CODE_LENGTH)
-                                .hint_text("——————")
-                                .desired_width(90.0),
-                        );
-                        let submitted =
-                            field.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
-                        if ui.button("Join").clicked() || submitted {
-                            let typed = wire::normalise_code(&screen.join_code);
-                            if wire::is_code(&typed) {
-                                online.join(&typed);
-                                screen.join_note = Remark::say(CONNECTING, false, now);
-                            } else {
-                                screen.join_note = Remark::say(NOT_A_CODE, true, now);
-                            }
-                        }
-                    });
-                    Remark::show(&mut screen.join_note, ui, now, "");
                 });
-            });
             if screen.loading {
                 let mut open = true;
                 let mut asked = None;
@@ -657,31 +721,47 @@ fn frame(
             }
         }
         Screen::Setup => {
-            egui::Panel::top("setup-head").show(&mut root, |ui| {
-                ui.horizontal(|ui| {
-                    if ui.button("< Back").clicked() {
-                        go = Some(Screen::Menu);
-                    }
-                    ui.heading("Game setup");
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        ui.label(egui::RichText::new("One crew, no lobby").color(theme::MUTED));
-                    });
-                });
-            });
-            egui::Panel::bottom("setup-foot").show(&mut root, |ui| {
-                ui.horizontal(|ui| {
-                    let why = start_refusal(settings);
-                    ui.label(egui::RichText::new(why.unwrap_or("")).color(theme::CAUTION));
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if theme::big(ui, "Start", why.is_none()).clicked() {
-                            start = true;
+            // The cockpit behind it, moving; the bars and the settings'
+            // card see-through over it.
+            super::backdrop::paint(&ctx, &backdrops, Backdrop::Setup);
+            let bar = egui::Frame::side_top_panel(&ctx.global_style()).fill(SETUP_BAR);
+            egui::Panel::top("setup-head")
+                .frame(bar)
+                .show(&mut root, |ui| {
+                    ui.horizontal(|ui| {
+                        if ui.button("< Back").clicked() {
+                            go = Some(Screen::Menu);
                         }
+                        ui.heading("Game setup");
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            ui.label(egui::RichText::new("One crew, no lobby").color(theme::MUTED));
+                        });
                     });
                 });
-            });
-            egui::CentralPanel::default().show(&mut root, |ui| {
-                tool(ui, screen, settings, online, true, now);
-            });
+            egui::Panel::bottom("setup-foot")
+                .frame(bar)
+                .show(&mut root, |ui| {
+                    ui.horizontal(|ui| {
+                        let why = start_refusal(settings);
+                        ui.label(egui::RichText::new(why.unwrap_or("")).color(theme::CAUTION));
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            if theme::big(ui, "Start", why.is_none()).clicked() {
+                                start = true;
+                            }
+                        });
+                    });
+                });
+            egui::CentralPanel::default()
+                .frame(egui::Frame::NONE.inner_margin(12.0))
+                .show(&mut root, |ui| {
+                    let slot = setup_card_slot(ui.max_rect());
+                    ui.scope_builder(egui::UiBuilder::new().max_rect(slot), |ui| {
+                        setup_card().show(ui, |ui| {
+                            ui.set_min_size(ui.available_size());
+                            tool(ui, screen, settings, online, true, now);
+                        });
+                    });
+                });
         }
         Screen::Lobby => {
             egui::Panel::top("lobby-head").show(&mut root, |ui| {
