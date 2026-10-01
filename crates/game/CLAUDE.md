@@ -4700,11 +4700,13 @@ the step it reaches the room, once `balance::SEMI_AUTO_COOLDOWN` (0.3 s,
 shortened by `Skill::fire_rate`) has passed since the last shot
 (`Trigger::press`) — a click inside it is kept owed
 (`Character::trigger_pending`, its clock standing) and fired the step
-the cooldown runs out — and a button held is that one shot and no more.
+the cooldown runs out — and a button held fires again every time the
+cooldown runs out (it was that one shot and no more until the player
+asked for the hold, October 2026): held, the pistol is 3.3 shots a second.
 A body nobody steers (a bot, a station's people, a Trooper's arm) still fires it at its `fire_rate` (1.5), which is all that number
 is for it now. The pistol went to 6 a shot (7.2) with it, so it takes
 three bolts to put a lamp out and none leaves it failing on the way.
-`a_steered_pistol_fires_every_click_and_once_while_held` pins it;
+`a_steered_pistol_fires_every_click_and_at_its_cooldown_while_held` pins it;
 `a_steered_bim_fires_along_its_facing_only_while_the_trigger_is_held`
 holds an auto rifle now. The survivor pins move (every pistol hits for
 less).

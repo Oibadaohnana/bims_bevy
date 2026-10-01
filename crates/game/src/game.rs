@@ -1869,17 +1869,17 @@ impl Game {
                 bim.character.set_aim(Some(at));
                 // A click is a shot even if the button came up before
                 // this step saw it held (`TRIGGER_OWED`). A pistol
-                // (`WeaponKind::semi_automatic`) fires that click and
-                // nothing else — nothing more while the button stays
-                // down — once `SEMI_AUTO_COOLDOWN` has passed since its
-                // last shot; a click inside it waits for it, owed.
+                // (`WeaponKind::semi_automatic`) fires every click once
+                // `SEMI_AUTO_COOLDOWN` has passed since its last shot — a
+                // click inside it waits for it, owed — and held down, a
+                // shot every time the cooldown runs out.
                 let semi = weapon.kind.semi_automatic();
                 let owed = if semi && bim.trigger.reload > 0.0 {
                     bim.character.trigger_pending()
                 } else {
                     bim.character.trigger_owed(dt)
                 };
-                if (!s.fire || semi) && !owed {
+                if !s.fire && !owed {
                     bim.trigger.hold();
                     continue;
                 }
@@ -13005,7 +13005,7 @@ mod tests {
     }
 
     #[test]
-    fn a_steered_pistol_fires_every_click_and_once_while_held() {
+    fn a_steered_pistol_fires_every_click_and_at_its_cooldown_while_held() {
         use crate::order::{CrewOrder, angle_code};
         let mut game = room();
         game.set_autonomous(false);
@@ -13034,13 +13034,14 @@ mod tests {
         for _ in 0..60 {
             game.simulate(DT);
         }
-        // Held down for three seconds: the one shot of the press.
+        // Held down for three seconds: the press, and then a shot every
+        // time the cooldown runs out — ten in all.
         game.order(0, control(true));
         let mut fired = 0;
         for _ in 0..180 {
             step(&mut game, &mut fired);
         }
-        assert_eq!(fired, 1, "a pistol held down fires once");
+        assert_eq!(fired, 10, "a pistol held down fires at its cooldown");
         // Clicked three times a second, twice the 1.5 a second a bot
         // fires it at and just past the cooldown: every click is a shot,
         // the moment it is clicked.

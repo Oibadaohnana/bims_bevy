@@ -303,10 +303,11 @@ impl WeaponKind {
 
     /// Whether a player's hand fires it one shot a click (October 2026):
     /// the pistol. Every press of the button is a shot the step it
-    /// reaches the room, however quick the clicks, and a button held
-    /// down is that one shot and no more — the `fire_rate` is no limit
-    /// on it. A body nobody steers (a bot, a station's people) still
-    /// fires it at its `fire_rate`, since nobody clicks for it.
+    /// reaches the room, once `SEMI_AUTO_COOLDOWN` has passed since the
+    /// last — the `fire_rate` is no limit on it — and a button held down
+    /// fires again every time that cooldown runs out. A body nobody
+    /// steers (a bot, a station's people) still fires it at its
+    /// `fire_rate`, since nobody clicks for it.
     pub fn semi_automatic(self) -> bool {
         self == WeaponKind::LaserPistol
     }
