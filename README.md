@@ -16,7 +16,7 @@ the bounty buys guns, armour, hands for hire and the dead back. The run
 is over when every player's Bim is dead at once.
 
 **You steer your own Bim** — WASD walk it, the pointer aims it and the
-left button fires; Shift sprints (1.6 times the walk, firing
+left button fires; Shift sprints (1.8 times the walk, firing
 nothing) and Alt dodge-rolls the way it walks, slipping every bolt —
 and the crew nobody steers are bots that follow the players into a
 fight. [A run](#a-run) is what a run is made of, [the

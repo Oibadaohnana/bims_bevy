@@ -79,7 +79,7 @@ pub const AIM_SPREAD: f32 = 0.25;
 
 /// The pistol everybody is issued: quick, light, fifteen and a half
 /// tiles (twenty-two before October 2026). In a player's hand it fires
-/// a shot every click and only the one while held
+/// a shot every click, and held one every [`SEMI_AUTO_COOLDOWN`]
 /// (`WeaponKind::semi_automatic`), so its `fire_rate` is only the pace
 /// of a body nobody steers. 6 a shot since October 2026, when every
 /// click became a shot (7.2 before).
@@ -517,7 +517,7 @@ pub const MARCH_SPEED: f32 = 144.0;
 
 /// A player's own Bim sprinting under Shift (task 150): its walk times
 /// this, its weapon held across the chest and silent.
-pub const SPRINT: f32 = 1.6;
+pub const SPRINT: f32 = 1.8;
 /// A dodge roll under Alt (task 150): how long it lasts, in seconds, how
 /// far it carries the body, in room units (two and a half tiles), and the
 /// seconds from one roll's start before the next may start. Bolts and a

@@ -1883,9 +1883,14 @@ impl Character {
         }
 
         // Ease the speed so starts and stops have weight — less of it
-        // under the keys.
-        let step = ACCEL * if steer.is_some() { STEER_ACCEL } else { 1.0 } * dt;
-        self.speed += clamp(self.target_speed - self.speed, -step, step);
+        // under the keys, and none into a sprint: Shift is its full
+        // pace at once (the player's word).
+        if sprinting {
+            self.speed = self.target_speed;
+        } else {
+            let step = ACCEL * if steer.is_some() { STEER_ACCEL } else { 1.0 } * dt;
+            self.speed += clamp(self.target_speed - self.speed, -step, step);
+        }
 
         let along = Vec2::from_angle(if backing.is_some() || steer.is_some() {
             self.intent

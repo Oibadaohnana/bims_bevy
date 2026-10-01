@@ -13142,13 +13142,27 @@ mod tests {
         let sprint = walked(&mut game, true);
         assert!(game.is_sprinting(0));
         assert!(
-            sprint > walk * 1.4,
+            sprint > walk * 1.7,
             "a second's sprint goes {sprint}, a walk {walk}"
         );
         assert!(
             game.bims[0].character.heading.abs() < 0.05,
             "sprinting it faces the run: {}",
             game.bims[0].character.heading
+        );
+        // And no easing up to it: from a standstill the first step is
+        // at the sprint's whole pace.
+        game.order(0, control(false, false, false));
+        for _ in 0..60 {
+            game.simulate(DT);
+        }
+        game.order(0, control(true, true, false));
+        game.simulate(DT);
+        let full = crate::balance::MARCH_SPEED * crate::balance::SPRINT;
+        assert!(
+            (game.bims[0].character.speed - full).abs() < 0.01,
+            "full pace at once: {} of {full}",
+            game.bims[0].character.speed
         );
         // The trigger held: nothing fires while it sprints, and the
         // moment it walks again it does.
