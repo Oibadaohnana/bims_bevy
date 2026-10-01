@@ -56,7 +56,10 @@ use serde::{Deserialize, Serialize};
 /// 80: a system offers one mission — its station or its town, by a coin —
 /// or its trader alone, the trader being its primary station (the
 /// galaxy-only map): what both ends generate a system to.
-pub const PROTOCOL: u32 = 80;
+/// 81: no exceptions to it — the jammer is the system's one site (a town
+/// or a trader too, never a derived station), the machines' origin offers
+/// the Heart's fortress alone, and a fallen trader is fought for.
+pub const PROTOCOL: u32 = 81;
 
 /// Where the relay lives. `BIMS_SERVER` in the environment overrides it
 /// — `ws://127.0.0.1:8792` for one on the same machine.

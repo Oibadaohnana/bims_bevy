@@ -2212,7 +2212,7 @@ pub fn site_kind_word(kind: world::SiteKind) -> &'static str {
     SITE_KIND_NAMES[kind.code() as usize]
 }
 /// What a site kind means, for the `?` beside the map's list.
-pub const SITE_KIND_TIP: &str = "Every system offers one mission, marked on its star. ATTACK (crossed blades): the machines, the Manufacturers or the Machine Heart hold it — go in and clear it. DEFEND (a shield): the machines are coming for it — twenty seconds after you arrive the first wave lands, and its own people and armed defenders fight beside you; hold the last wave and it is cleared (no money: its people are the reward), leave before and it falls. TRADER (the green square): a system with a trader has no mission — buy gear and relics on the map; the machines never come for one. In a system the machines have taken, the mission is an attack.";
+pub const SITE_KIND_TIP: &str = "Every system offers one mission, marked on its star. ATTACK (crossed blades): the machines, the Manufacturers or the Machine Heart hold it — go in and clear it. DEFEND (a shield): the machines are coming for it — twenty seconds after you arrive the first wave lands, and its own people and armed defenders fight beside you; hold the last wave and it is cleared (no money: its people are the reward), leave before and it falls. TRADER (the green square): a system with a trader has no mission — buy gear and relics on the map. In a system the machines have taken, its one site is an attack and their jammer — the Heart at their origin, and a trader too, which trades again once you have cleared it.";
 /// A defence held, on the galaxy chart's word on its star: its fight is
 /// over.
 pub const SITE_HELD: &str = "held";
@@ -2612,7 +2612,8 @@ pub fn system_tier_line(low: bims::combat::Tier, high: bims::combat::Tier) -> St
 pub const SYSTEM_TIER_TIP: &str = "What tier the machines and the Manufacturers come at in this system on the day it is quoted: tier 3 within two hyperlanes of where the machines began, tier 2 further out once a fortnight has gone by — sure six lanes from home, a roll a site nearer — and tier 1 everywhere else. On the chart a star at tier 2 is ringed in amber and one at tier 3 in red; zoomed in, every star has its tier written under it.";
 /// The star panel on the galaxy chart: a system with a trader.
 pub const CHART_TRADER: &str = "Trader in this system";
-pub const CHART_TRADER_CLOSED: &str = "Trader in this system · closed";
+pub const CHART_TRADER_CLOSED: &str =
+    "Trader in this system · the machines hold it: clear it to trade";
 /// How the crew get to a star picked on the chart.
 pub const CHART_HERE: &str = "The crew are here.";
 pub const CHART_ONE_LANE: &str = "One hyperlane away: a trip of a day.";

@@ -87,9 +87,10 @@ impl World {
             .collect();
         // No station the jammer could be on: none at all, or only the
         // Manufacturers', who have none (feature 109), and the system's
-        // trader, which is never one.
+        // trader, which is never one — under the tests' whole-systems dial
+        // alone: in a run the jammer is the system's one site.
         let none = self.jammer_site_among(star, &system.stations).is_none();
-        if none && self.infested(star) {
+        if self.whole_systems && none && self.infested(star) {
             sites.push(Site {
                 star,
                 station: jammer::jammer_id(star),
@@ -290,11 +291,11 @@ impl World {
         Some(SystemLook { system, sites })
     }
 
-    /// Every star's one mission, or its trader, as the galaxy chart marks
-    /// it (the galaxy-only map): what [`World::offered_fight`] or the
-    /// trader is, quoted as [`World::system_look`] does — on arrival, with
+    /// Every star's one site as the galaxy chart marks it (the galaxy-only
+    /// map): [`World::mission_site`] — its mission, its trader or the
+    /// Heart — quoted as [`World::system_look`] does, on arrival, with
     /// every question about whether the crew may go there left unasked.
-    /// One per star that offers either, in star order, off `galaxy` already
+    /// One a star, in star order, off `galaxy` already
     /// generated, and each system generated once: it is every star of the
     /// galaxy, asked again whenever the run moves on.
     pub fn star_missions(&self, galaxy: &Galaxy) -> Vec<run::StarMission> {
@@ -311,10 +312,7 @@ impl World {
                 generated = system;
                 &generated
             };
-            let Some(station) = self
-                .offered_fight(star, system)
-                .or_else(|| self.trader_of(star, &system.stations))
-            else {
+            let Some(station) = self.mission_site(star, system) else {
                 continue;
             };
             let site = Site { star, station };
@@ -434,7 +432,9 @@ impl World {
         let arrival_day = (arrival / (time::DAY as u64)) as u32;
         // A trader (task 114) is closed while its system is the machines'
         // and not liberated — now, or by the day the crew would get there,
-        // which the crisis being a function of the day makes exact.
+        // which the crisis being a function of the day makes exact. Under
+        // the tests' whole-systems dial alone: in a run a fallen trader is
+        // its system's jammer, an attack (`World::traders_fall`).
         let trader = if jump {
             system
                 .station(site.station)
@@ -442,10 +442,18 @@ impl World {
         } else {
             self.trader_in(None, site)
         };
-        if !looking && trader && self.trader_closed_on(site.star, self.days_gone()) {
+        if !looking
+            && trader
+            && !self.traders_fall()
+            && self.trader_closed_on(site.star, self.days_gone())
+        {
             return Err(Refusal::TraderClosed);
         }
-        if !looking && trader && self.trader_closed_on(site.star, arrival_day) {
+        if !looking
+            && trader
+            && !self.traders_fall()
+            && self.trader_closed_on(site.star, arrival_day)
+        {
             return Err(Refusal::ClosedOnArrival);
         }
         // A site of the Manufacturers' (feature 109): theirs whatever the
@@ -455,7 +463,10 @@ impl World {
             .station(site.station)
             .is_some_and(|s| self.is_manufacturer_site(site.star, s));
         let turns = self.infested_on(site.star);
-        let infested = !manufacturers && !trader && turns != u32::MAX && arrival_day >= turns;
+        let infested = !manufacturers
+            && (!trader || self.traders_fall())
+            && turns != u32::MAX
+            && arrival_day >= turns;
         let tier = match self.droid_tier {
             Some(tier) => tier,
             None => self.site_tier(site.star, Some(site.station), arrival as f64),
@@ -465,16 +476,9 @@ impl World {
         } else {
             tier
         };
-        // The jammer on arrival: the lowest orbital station of a system
-        // the machines have by then, not its trader, or theirs where it has
-        // none.
-        let orbital = self.jammer_site_among(site.star, &system.stations);
-        let jammer = infested
-            && surface::surface_body(site.station).is_none()
-            && match orbital {
-                Some(id) => id == site.station,
-                None => jammer::is_derived(site.station),
-            };
+        // The jammer on arrival: the system's one site, where the machines
+        // have it by then (`World::jammer_site_of`).
+        let jammer = infested && self.jammer_site_of(site.star, system) == Some(site.station);
         // What the site is and how its fight stands, off that system's own
         // lists: this one's off the world, another's off its memory (a
         // station id is only its system's), and nothing for a system never
@@ -504,7 +508,11 @@ impl World {
         // **Every site is exactly one kind** (task 111): a trader, an
         // enemy's — the machines' on arrival, the Manufacturers', the
         // fortress, a derived jammer — or else a site to defend.
-        let kind = if trader {
+        // A fallen trader (`World::traders_fall`) is an attack until it is
+        // cleared.
+        let fought =
+            trader && self.traders_fall() && (infested || infestation.is_some()) && !cleared;
+        let kind = if trader && !fought {
             SiteKind::Trader
         } else if infested
             || elite
@@ -710,8 +718,10 @@ impl World {
         // The crisis at the new day, before the ship is tied up anywhere.
         self.spread_crisis(events);
         // A trader is visited on the map (task 114): no room, no mission,
-        // nothing a mission's start does. Anywhere else a mission begins.
-        if quote.trader {
+        // nothing a mission's start does — unless the machines hold it
+        // (`World::traders_fall`), when it is a fight like any other.
+        // Anywhere else a mission begins.
+        if quote.kind == SiteKind::Trader {
             self.arrive_at_trader(site);
         } else {
             self.arrive_at(site.station);
@@ -1669,6 +1679,19 @@ impl World {
             station: station.unwrap_or(u32::MAX),
             cleared,
         });
+        // A trader won back from the machines (`World::traders_fall`) is
+        // open the moment the crew are back aboard: the visit begins where
+        // the fight ended.
+        if cleared
+            && !reward
+            && let Some(id) = station
+            && self.is_trader_here(id)
+        {
+            self.arrive_at_trader(Site {
+                star: self.star_id,
+                station: id,
+            });
+        }
     }
 
     /// The run's stage at the end of a mission step: the pending bounty

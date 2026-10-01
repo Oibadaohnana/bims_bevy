@@ -82,7 +82,7 @@ fn every_system_offers_one_mission_or_its_trader_and_home_is_its_own() {
     // --- every system of the galaxy: one site, its mission or its trader ---
     let (mut on_stations, mut in_towns, mut traders) = (0, 0, 0);
     for star in 0..galaxy.stars.len() as u32 {
-        if star == world.home_star {
+        if star == world.home_star || star == world.droid_origin() {
             continue;
         }
         let whole = galaxy.system(star).unwrap();
@@ -179,4 +179,102 @@ fn every_star_is_marked_with_its_one_mission() {
             assert_eq!(quote.kind, mark.kind, "{mark:?}");
         }
     }
+}
+
+/// No exceptions: every star within a trip's reach lists exactly one site,
+/// the machines' origin its Heart's fortress and nothing else — and in a
+/// system the machines have, that one site is the jammer: no derived
+/// station is ever laid beside it.
+#[test]
+fn every_system_is_one_site_and_the_jammer_is_that_site() {
+    let mut world = offered_world();
+    let galaxy = world.galaxy();
+    let mut stars = world.reachable_stars();
+    stars.extend(world.stars_two_lanes_off());
+    stars.push(world.home_star);
+    for &star in &stars {
+        let sites = world.sites_at(star);
+        assert_eq!(sites.len(), 1, "star {star}: {sites:?}");
+    }
+    // The origin, wherever it is: the fortress alone.
+    let origin = world.droid_origin();
+    assert_eq!(
+        world.sites_at(origin),
+        vec![Site {
+            star: origin,
+            station: heart::heart_id(origin)
+        }]
+    );
+    assert!(
+        !world.holds_elite(origin),
+        "the origin is the Heart's, not an elite's"
+    );
+    // The machines in this system: the jammer is home's one site, and no
+    // derived jammer stands beside it.
+    world.set_droid_origin_for_probe(galaxy.lanes(world.home_star)[0]);
+    world.set_crisis_first_day_for_probe(0);
+    world.set_day_for_probe(world.infested_on(world.home_star));
+    world.settle_crisis();
+    assert!(world.infested(world.star_id));
+    assert_eq!(world.jammer_station(), Some(world.home));
+    assert!(
+        world.stations.iter().all(|s| !jammer::is_derived(s.id)),
+        "no derived jammer"
+    );
+    assert_eq!(world.sites_at(world.home_star).len(), 1);
+}
+
+/// A trader in a system the machines have is their jammer: an attack, a
+/// mission when the crew go there, and once it is cleared the trader is
+/// open the moment the crew are back aboard.
+#[test]
+fn a_fallen_trader_is_fought_for_and_trades_once_won() {
+    let mut world = offered_world();
+    world.leave_for_probe();
+    let galaxy = world.galaxy();
+    let from_home = galaxy.hops_from(world.home_star);
+    // A trader a trip reaches, and an origin next to it further from home,
+    // so its system falls before the crew's own does.
+    let (trader, origin) = world
+        .trader_sites()
+        .into_iter()
+        .filter(|&s| world.travel_quote(s).is_ok())
+        .find_map(|s| {
+            let origin = galaxy.lanes(s.star).iter().copied().find(|&o| {
+                o != world.home_star && from_home[o as usize] > from_home[s.star as usize]
+            })?;
+            Some((s, origin))
+        })
+        .expect("a trader in reach with a star beyond it");
+    world.set_droid_origin_for_probe(origin);
+    world.set_crisis_first_day_for_probe(0);
+    world.set_day_for_probe(world.infested_on(trader.star));
+    assert!(!world.infested(world.star_id), "home still the crew's");
+    let quote = world
+        .travel_quote(trader)
+        .expect("a fallen trader is a trip");
+    assert!(quote.trader && quote.infested && quote.jammer);
+    assert_eq!(quote.kind, SiteKind::Attack, "an attack, not a shop");
+
+    world.step(&[crate::world::Command::Propose {
+        slot: 0,
+        star: trader.star,
+        station: trader.station,
+    }]);
+    assert_eq!(world.run.phase, crate::run::Phase::Mission, "a fight there");
+    assert!(world.is_droid_held(trader.station));
+    assert_eq!(world.jammer_station(), Some(trader.station));
+    assert_eq!(world.site_kind(trader.station), SiteKind::Attack);
+    assert!(!world.at_trader());
+
+    // Won: back aboard, and the trader's purchase order is up.
+    world
+        .infestation_mut_for_probe(trader.station)
+        .expect("held")
+        .cleared = true;
+    world.leave_for_probe();
+    assert!(world.at_trader(), "trading where the fight ended");
+    assert!(world.trader_here(0).is_some());
+    assert_eq!(world.site_kind(trader.station), SiteKind::Trader);
+    assert!(!world.trader_closed_on(trader.star, world.days_gone()));
 }

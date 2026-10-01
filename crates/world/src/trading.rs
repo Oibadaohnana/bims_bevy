@@ -36,6 +36,7 @@ impl World {
     ) -> bool {
         (self.whole_systems
             || (star != self.home_star
+                && star != self.droid_origin
                 && Some(station.id) == super::offered::primary(stations)
                 && !crate::elite::holds(self.galaxy_seed, self.home_star, star)))
             && trader::eligible(

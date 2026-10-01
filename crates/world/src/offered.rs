@@ -84,6 +84,11 @@ impl World {
     /// at home, at an elite and where it is the Manufacturers' — `None`
     /// where the system's trader is all it offers.
     pub fn offered_fight(&self, star: u32, system: &StarSystem) -> Option<u32> {
+        // The machines' origin offers the Heart's fortress and nothing
+        // else ([`World::mission_site`]).
+        if !self.whole_systems && star == self.droid_origin {
+            return None;
+        }
         if self.trader_of(star, &system.stations).is_some() {
             return None;
         }
@@ -146,6 +151,43 @@ impl World {
     /// dealt among.
     pub fn offered_fights(&self, star: u32, system: &StarSystem) -> Vec<u32> {
         self.offered_fight(star, system).into_iter().collect()
+    }
+
+    /// **The one site of `star`'s system**, whatever it is: the Machine
+    /// Heart's fortress at the machines' origin, else its mission
+    /// ([`World::offered_fight`]), else its trader. What the galaxy chart
+    /// marks and goes to, and — the system being the machines' — its
+    /// jammer ([`World::jammer_site_of`]), so a system never offers two.
+    pub fn mission_site(&self, star: u32, system: &StarSystem) -> Option<u32> {
+        if !self.whole_systems && star == self.droid_origin {
+            return Some(heart::heart_id(star));
+        }
+        self.offered_fight(star, system)
+            .or_else(|| self.trader_of(star, &system.stations))
+    }
+
+    /// Where the jammer of `star`'s system, generated as `system`, stands
+    /// once the machines have it: the system's one site
+    /// ([`World::mission_site`]) — a station, a town, a trader or the
+    /// Heart, an attack whatever it was. Under the tests' whole-systems
+    /// dial the rule as it was: the lowest orbital that is neither the
+    /// Manufacturers' nor the trader, else the machines' own derived one.
+    pub fn jammer_site_of(&self, star: u32, system: &StarSystem) -> Option<u32> {
+        if self.whole_systems {
+            return Some(
+                self.jammer_site_among(star, &system.stations)
+                    .unwrap_or_else(|| jammer::jammer_id(star)),
+            );
+        }
+        self.mission_site(star, system)
+    }
+
+    /// Whether an infested system's trader is fought for: in a run (not
+    /// under the tests' whole-systems dial) the machines take it as they
+    /// take any site — it is the system's one site, so its jammer — and
+    /// once it is cleared it trades again.
+    pub fn traders_fall(&self) -> bool {
+        !self.whole_systems
     }
 
     /// This system cut to what it offers ([`World::trim_system`]): the
@@ -254,8 +296,11 @@ impl World {
     /// Whether `star`'s system holds an elite ([`crate::elite::holds`]),
     /// none under the tests' quiet dial — or one a probe forced there.
     pub fn holds_elite(&self, star: u32) -> bool {
+        // Never the machines' origin in a run: its one site is the Heart.
         self.elite_forced.is_some_and(|f| f.star == star)
-            || (!self.quiet_sites && crate::elite::holds(self.galaxy_seed, self.home_star, star))
+            || (!self.quiet_sites
+                && (self.whole_systems || star != self.droid_origin)
+                && crate::elite::holds(self.galaxy_seed, self.home_star, star))
     }
 
     /// The probes' dial: `station` of this system an elite whatever the

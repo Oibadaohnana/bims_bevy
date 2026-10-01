@@ -6580,11 +6580,22 @@ choice. `tests_relic.rs`'s
 - **Every rule answers the same trimmed or whole** — the primary is kept
   wherever it is the answer, the town's body stays — so `trim_system`
   twice changes nothing (`tests_offered.rs` checks every star).
-- **Besides the one**: a derived jammer (an infested system with no
-  station the jammer could stand on — a town's or a trader's) and the
-  Heart's fortress are still laid beside it. The app's chart goes to the
-  Heart first, then a jammer standing, then the mission
-  (`WorldMap::star_site`).
+- **No exceptions: one site a system, always** (the user's follow-up).
+  `World::mission_site(star, system)` is it — the Heart's fortress at the
+  machines' origin (`offered_fight` is `None` there, no trader and no
+  elite either), else the mission, else the trader. **The jammer is that
+  site** (`World::jammer_site_of`; `jammer_station` asks it): a town, a
+  trader or the Heart can be it, an attack whatever it was, and no
+  derived jammer is laid in a run (`settle_derived_jammer` and `sites_of`
+  only under the whole-systems dial, which keeps the old lowest-orbital
+  rule). **A fallen trader is fought for** (`World::traders_fall`, true
+  outside the dial): `infest` and `spread_crisis` take it, the quote no
+  longer refuses it `TraderClosed`/`ClosedOnArrival` but reads it Attack
+  (`infested`, `jammer`), `site_kind` says Attack until it is cleared,
+  `travel` begins a mission there (the visit is for `kind == Trader`),
+  and `leave_mission` with it cleared calls `arrive_at_trader` — the
+  purchase order is up the moment the crew are back aboard. The app's
+  `WorldMap::star_site` is the star's one listed site.
 - **Home offers its station alone**, so `land_for_probe` (and
   `reseed_ground_for_probe`) lay the home system's town back first
   (`lay_ground_for_probe`) for `test_planet`, `defense`, `BIMS_AFIELD`.
@@ -6599,8 +6610,8 @@ choice. `tests_relic.rs`'s
 - `Run::chosen` / `OtherSiteChosen` stay, and refuse nothing while a
   system offers one fight.
 
-No saved shape changed; **`wire::PROTOCOL` 80** (what both ends generate
-a system to). The whole-systems dial is untouched, so `REFERENCE_CHECKSUM`
+No saved shape changed; **`wire::PROTOCOL` 80**, **81** with the
+follow-up (what both ends generate a system to). The whole-systems dial is untouched, so `REFERENCE_CHECKSUM`
 and `SURVIVORS` (on it) do not move for this; the ship's `PINNED` and
 `PICTURES` (no dial) do. `tests_offered.rs` is the rule;
 `tests_run::no_human_is_ever_hostile_in_a_generated_galaxy` opens whole

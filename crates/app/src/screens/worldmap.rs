@@ -160,29 +160,15 @@ impl WorldMap {
     }
 
     /// The site a star is gone to by, off the galaxy chart (the galaxy-only
-    /// map): of its places on the list, the Machine Heart's fortress, else
-    /// a jammer still standing, else its one mission or its trader — the
-    /// first a trip could go to, else the first listed. `None` for a star
-    /// with no place on the list (the ship's own is on it; one more than
-    /// two lanes off is not).
+    /// map): its one place on the list — a system offers one, the
+    /// Heart's fortress at the machines' origin and a fallen trader
+    /// included. `None` for a star with no place on the list (the ship's
+    /// own is on it; one more than two lanes off is not).
     pub fn star_site(&self, star: u32) -> Option<Site> {
-        let of_star = || {
-            self.groups
-                .iter()
-                .flat_map(|g| g.destinations.iter())
-                .filter(move |d| d.site.star == star)
-        };
-        let open = |d: &&Destination| d.quote.is_ok();
-        of_star()
-            .filter(open)
-            .find(|d| world::heart::is_heart(d.site.station))
-            .or_else(|| {
-                of_star()
-                    .filter(open)
-                    .find(|d| d.quote.as_ref().is_ok_and(|q| q.jammer && !q.cleared))
-            })
-            .or_else(|| of_star().find(open))
-            .or_else(|| of_star().next())
+        self.groups
+            .iter()
+            .flat_map(|g| g.destinations.iter())
+            .find(|d| d.site.star == star)
             .map(|d| d.site)
     }
 

@@ -5519,9 +5519,11 @@ impl World {
         if self.town_held(id) {
             return;
         }
-        // **Nor is a trader** (tasks 114 and 111): the crisis passes one
-        // by, and a trader is never somewhere to attack.
-        if self.is_trader_here(id) {
+        // **Nor is a trader** under the tests' whole-systems dial (tasks 114
+        // and 111). In a run it is its system's one site, so its jammer
+        // (`World::traders_fall`): taken, fought for, and trading again
+        // once cleared.
+        if self.is_trader_here(id) && !self.traders_fall() {
             return;
         }
         // A town with a defence still running has **lost** it: the day
@@ -5724,7 +5726,10 @@ impl World {
         for id in ids {
             // Passed by as the crisis passes it (task 114), bar the dock
             // the probe opens tied up at.
-            if self.is_trader_here(id) && self.ship.state.alongside() != Some(id) {
+            if self.is_trader_here(id)
+                && !self.traders_fall()
+                && self.ship.state.alongside() != Some(id)
+            {
                 continue;
             }
             self.infest(id);
@@ -5769,9 +5774,9 @@ impl World {
             if self.is_droid_held(id) {
                 continue;
             }
-            // A trader is never the machines' (task 114): it is closed while
-            // its system is theirs, and open again once it is liberated.
-            if self.is_trader_here(id) {
+            // A trader is passed by under the whole-systems dial (task 114);
+            // in a run it is taken with the rest (`World::traders_fall`).
+            if self.is_trader_here(id) && !self.traders_fall() {
                 continue;
             }
             self.infest(id);
@@ -5808,24 +5813,21 @@ impl World {
             .unwrap_or(u16::MAX)
     }
 
-    /// Which station in this system holds the machines' jammer, or `None`
+    /// Which site in this system holds the machines' jammer, or `None`
     /// when the system is not infested.
     ///
-    /// The **orbital station with the lowest id**, a derived jammer
-    /// excluded from the running — and, when the system has no orbital
-    /// station at all, the derived one ([`crate::jammer`]), which
-    /// [`World::settle_jammer`] has already put in the system by the time
-    /// anybody asks. A town on a planet's surface is never it: a system
-    /// may have no orbit worth the name, and the jammer has to be
-    /// somewhere in every infested one.
+    /// **The system's one site** ([`World::jammer_site_of`]): a system
+    /// offers one mission (the galaxy-only map), and once the machines
+    /// have it that is their jammer — a station, a town, the trader or, at
+    /// the origin, the Heart's fortress — and an attack. Under the tests'
+    /// whole-systems dial the old rule: the orbital station with the lowest
+    /// id, never the Manufacturers' or the trader, else the derived one
+    /// ([`crate::jammer`]) that [`World::settle_jammer`] has laid.
     pub fn jammer_station(&self) -> Option<u32> {
         if !self.infested(self.star_id) {
             return None;
         }
-        // Never a site of the Manufacturers' (feature 109), who have no
-        // jammer, nor the system's trader, which is never a site to clear.
-        self.jammer_site_among(self.star_id, &self.system.stations)
-            .or_else(|| Some(jammer::jammer_id(self.star_id)))
+        self.jammer_site_of(self.star_id, &self.system)
     }
 
     /// Whether the lanes inward are shut: the system is infested and its
@@ -5923,8 +5925,11 @@ impl World {
             .filter(|s| !heart::is_heart(s.id))
             .cloned()
             .collect();
-        let wanted =
-            self.infested(self.star_id) && self.jammer_site_among(self.star_id, &own).is_none();
+        // In a run never: the jammer stands on the system's one site
+        // (`World::jammer_site_of`), and a system offers no other.
+        let wanted = self.whole_systems
+            && self.infested(self.star_id)
+            && self.jammer_site_among(self.star_id, &own).is_none();
         let had = self.stations.iter().any(|s| s.id == derived);
         if wanted && had {
             return;
@@ -6696,7 +6701,13 @@ impl World {
     /// site of a system the machines have; every other site, derelicts
     /// included, is a defence. Derived, never saved.
     pub fn site_kind(&self, station: u32) -> SiteKind {
-        if self.is_trader_here(station) {
+        // A trader in a system the machines have is their jammer in a run
+        // (`World::traders_fall`): an attack until it is cleared, a trader
+        // again after.
+        let fought = self.traders_fall()
+            && (self.infested(self.star_id) || self.is_droid_held(station))
+            && !self.droid_station_cleared(station);
+        if self.is_trader_here(station) && !fought {
             return SiteKind::Trader;
         }
         // **A system the machines have is only attacks** (task 136): a
