@@ -218,7 +218,9 @@ use crate::game::Game;
 /// may name a star the galaxy no longer has.
 /// 81: the electricity gone — the part codes closed up, three layers
 /// where there were four, `Ship::charge` and `Lamp::powered` gone.
-pub const SAVE_VERSION: u32 = 81;
+/// 82: the game setup's difficulty carries the early ease and its days
+/// (`world::droid::Difficulty::{early_ease, early_days}`).
+pub const SAVE_VERSION: u32 = 82;
 
 /// What the file holds, read back.
 #[derive(serde::Deserialize)]

@@ -549,12 +549,12 @@ pub fn player_joined(name: &str) -> String {
 }
 /// Somebody left the lobby; the relay says the roster, not who.
 pub const SOMEBODY_LEFT: &str = "Somebody left.";
-/// The setup's difficulty: the wave formula's three dials the host picks
+/// The setup's difficulty: the wave formula's five dials the host picks
 /// for the run (`world::droid::Difficulty`), their notes, and the button
 /// that puts them back to the tuning file's (`scaling.ron`).
 pub const DIFFICULTY: &str = "Difficulty";
 pub const DIFFICULTY_NOTE: &str =
-    "How many machines a wave is: base + per player × players + scaling × time steps";
+    "How many machines a wave is: base + per player × players + scaling × time steps - early ease";
 pub const WAVE_BASE: &str = "Base";
 pub const WAVE_BASE_NOTE: &str = "Machines in every wave";
 pub const WAVE_PER_PLAYER: &str = "Per player";
@@ -567,13 +567,24 @@ pub fn wave_per_step_note(days: u32) -> String {
         n => format!("Machines more every {n} days of the run"),
     }
 }
+pub const WAVE_EARLY_EASE: &str = "Early ease";
+/// The early ease's note: how many days it holds for.
+pub fn wave_early_ease_note(days: u32) -> String {
+    match days {
+        0 => "Machines fewer in every wave early on; off while Early days is 0".to_string(),
+        1 => "Machines fewer in every wave of the run's first day".to_string(),
+        n => format!("Machines fewer in every wave of the run's first {n} days"),
+    }
+}
+pub const WAVE_EARLY_DAYS: &str = "Early days";
+pub const WAVE_EARLY_DAYS_NOTE: &str = "How many days of the run the early ease lasts";
 pub const DIFFICULTY_RESET: &str = "Default";
 pub const DIFFICULTY_RESET_HOVER: &str = "Back to the numbers in scaling.ron";
-/// The button that writes the three into `scaling.ron`, and what it says
+/// The button that writes the five into `scaling.ron`, and what it says
 /// after.
 pub const DIFFICULTY_SAVE: &str = "Save as default";
 pub const DIFFICULTY_SAVE_HOVER: &str =
-    "Write these three into scaling.ron: every new game starts from them";
+    "Write these five into scaling.ron: every new game starts from them";
 pub const DIFFICULTY_SAVED: &str = "Saved into scaling.ron.";
 pub fn difficulty_not_saved(why: &str) -> String {
     format!("Not saved: {why}")

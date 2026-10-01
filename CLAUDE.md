@@ -85,9 +85,10 @@ desktop):
   read again whenever saved while the game runs
   (`crates/app/src/wavecfg.rs`). Keep `rewards.ron` at the constants —
   its test says so. `scaling.ron` is the player's: the game setup's
-  Difficulty shows its base, per player and per step, and *Save as
-  default* writes them into it (only it has to parse). A smoke run that
-  presses that button wants `BIMS_SCALING` pointed at a scratch copy.
+  Difficulty shows its base, per player, per step, early ease and early
+  days, and *Save as default* writes them into it (only it has to
+  parse). A smoke run that presses that button wants `BIMS_SCALING`
+  pointed at a scratch copy.
   `audio.ron` (`BIMS_AUDIO`) is the player's volume for each sound, a
   multiple of `sound.rs`'s level — one a clip, plus the weapons that
   borrow a clip; also read again when saved. A new `Clip` wants its line

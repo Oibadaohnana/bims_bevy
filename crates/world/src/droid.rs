@@ -274,14 +274,15 @@ impl Default for WaveScaling {
     }
 }
 
-/// The run's difficulty, as the game setup picked it: three of the wave
-/// formula's dials — the base machines a wave, how many each player adds
-/// and how many each time step adds — laid over whatever
-/// [`WaveScaling`] the tuning file says (`World::set_difficulty`). The
-/// rest of the formula (the step's days, the waves a site, the first
-/// mission's ease) stays the file's. Saved with the world, so a load or
-/// a restart plays at the difficulty the run was begun at, and dealt to
-/// every machine of a lobby with the rest of the settings.
+/// The run's difficulty, as the game setup picked it: five of the wave
+/// formula's dials — the base machines a wave, how many each player adds,
+/// how many each time step adds, and the early ease with the days it
+/// holds for — laid over whatever [`WaveScaling`] the tuning file says
+/// (`World::set_difficulty`). The rest of the formula (the step's days,
+/// the waves a site, the first mission's ease) stays the file's. Saved
+/// with the world, so a load or a restart plays at the difficulty the run
+/// was begun at, and dealt to every machine of a lobby with the rest of
+/// the settings.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Difficulty {
@@ -291,24 +292,32 @@ pub struct Difficulty {
     pub per_player: u32,
     /// Machines added for each time step gone.
     pub per_step: u32,
+    /// Machines fewer in every wave inside the first `early_days` days.
+    pub early_ease: u32,
+    /// How many days of the world clock the early ease holds for.
+    pub early_days: u32,
 }
 
 impl Difficulty {
-    /// The three dials as `scaling` has them.
+    /// The five dials as `scaling` has them.
     pub fn of(scaling: WaveScaling) -> Difficulty {
         Difficulty {
             base: scaling.base,
             per_player: scaling.per_player,
             per_step: scaling.per_step,
+            early_ease: scaling.early_ease,
+            early_days: scaling.early_days,
         }
     }
 
-    /// `scaling` with these three in place of its own.
+    /// `scaling` with these five in place of its own.
     pub fn over(self, scaling: WaveScaling) -> WaveScaling {
         WaveScaling {
             base: self.base,
             per_player: self.per_player,
             per_step: self.per_step,
+            early_ease: self.early_ease,
+            early_days: self.early_days,
             ..scaling
         }
     }

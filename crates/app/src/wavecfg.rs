@@ -28,10 +28,10 @@
 //! two-player run each game reads its own files, and the two have to agree.
 //!
 //! The game setup's difficulty (`world::droid::Difficulty`: the base, the
-//! per player and the scaling) stands over this file's three for the run
-//! it starts — the world keeps it and saves it, and the host deals it to
-//! every guest — so those three in the file move a run only when the
-//! setup left them as the file had them.
+//! per player, the scaling and the early ease with its days) stands over
+//! this file's five for the run it starts — the world keeps it and saves
+//! it, and the host deals it to every guest — so those five in the file
+//! move a run only when the setup left them as the file had them.
 
 use bevy::prelude::*;
 use bims::balance::WeaponDamage;
@@ -209,7 +209,7 @@ impl<T: Tuning> Watched<T> {
     }
 
     /// The dials the file says now: the game setup's difficulty shows the
-    /// wave file's three until the host picks others.
+    /// wave file's five until the host picks others.
     pub(crate) fn dials(&self) -> T {
         self.dials
     }
@@ -258,12 +258,13 @@ fn path_of<T: Tuning>() -> PathBuf {
 }
 
 /// Write the game setup's difficulty into the wave file as its base, per
-/// player and per step — the setup's Save as default. Only those three
-/// numbers change: the comments and the other dials stay as they were
-/// written, a field the file left out is put in, and no file at all
-/// becomes one holding the three. The text is read back before it
-/// replaces the file, so a file this could not have edited is refused
-/// rather than broken; the watcher reads it again like any other save.
+/// player, per step, early ease and early days — the setup's Save as
+/// default. Only those five numbers change: the comments and the other
+/// dials stay as they were written, a field the file left out is put in,
+/// and no file at all becomes one holding the five. The text is read back
+/// before it replaces the file, so a file this could not have edited is
+/// refused rather than broken; the watcher reads it again like any other
+/// save.
 pub(crate) fn save_difficulty(difficulty: Difficulty) -> Result<(), String> {
     let path = path_of::<WaveScaling>();
     let old = match std::fs::read_to_string(&path) {
@@ -283,7 +284,7 @@ pub(crate) fn save_difficulty(difficulty: Difficulty) -> Result<(), String> {
     std::fs::rename(&part, &path).map_err(|e| e.to_string())
 }
 
-/// `text` with the three difficulty dials' numbers put in: each on the
+/// `text` with the five difficulty dials' numbers put in: each on the
 /// line that sets it, or on a line of its own before the closing bracket
 /// when none does. `None` when there is no closing bracket.
 fn with_difficulty(text: &str, d: Difficulty) -> Option<String> {
@@ -291,8 +292,10 @@ fn with_difficulty(text: &str, d: Difficulty) -> Option<String> {
         ("base", d.base),
         ("per_player", d.per_player),
         ("per_step", d.per_step),
+        ("early_ease", d.early_ease),
+        ("early_days", d.early_days),
     ];
-    let mut done = [false; 3];
+    let mut done = [false; 5];
     let mut lines: Vec<String> = text.lines().map(str::to_string).collect();
     for line in &mut lines {
         let code = line.split("//").next().unwrap_or("");
@@ -394,14 +397,16 @@ mod tests {
         assert_eq!(parse(text), Ok(WeaponDamage::DEFAULT));
     }
 
-    /// Save as default puts the three numbers in and leaves every other
+    /// Save as default puts the five numbers in and leaves every other
     /// line of the file as it was written.
     #[test]
-    fn saving_the_difficulty_changes_its_three_numbers_and_nothing_else() {
+    fn saving_the_difficulty_changes_its_five_numbers_and_nothing_else() {
         let d = Difficulty {
             base: 4,
             per_player: 12,
             per_step: 0,
+            early_ease: 0,
+            early_days: 3,
         };
         let text = include_str!("../../../scaling.ron");
         let new = with_difficulty(text, d).unwrap();
@@ -412,13 +417,13 @@ mod tests {
             .zip(new.lines())
             .filter(|(a, b)| a != b)
             .collect();
-        assert_eq!(changed.len(), 3, "{changed:?}");
+        assert_eq!(changed.len(), 5, "{changed:?}");
         assert_eq!(text.lines().count(), new.lines().count());
         // A comment after the number stays, and a field left out is put in.
         let new = with_difficulty("(\n    base: 1, // one\n    step_days: 3,\n)\n", d).unwrap();
         assert_eq!(
             new,
-            "(\n    base: 4, // one\n    step_days: 3,\n    per_player: 12,\n    per_step: 0,\n)\n"
+            "(\n    base: 4, // one\n    step_days: 3,\n    per_player: 12,\n    per_step: 0,\n    early_ease: 0,\n    early_days: 3,\n)\n"
         );
         // A word in a comment is not a field.
         let new = with_difficulty("// base: 9\n(\n)\n", d).unwrap();

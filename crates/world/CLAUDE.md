@@ -3461,12 +3461,14 @@ size of the fight.
   `DROID_WAVE_MAX` (sixteen, a performance limit), went in task 132, to
   be balanced another way.
 - **The run's difficulty** (`droid::Difficulty`, `World::set_difficulty`):
-  the game setup's base, per player and scaling (per step), laid over
-  the tuning file's `WaveScaling` by `World::scaling`, which every wave
-  size and count reads; `wave_scaling()` stays the file's own, so the
-  app's live reload compares against that. `None` is the file's three.
-  **Saved, not hashed** (SAVE 67, PROTOCOL 67 — `SettingsWire` carries it
-  to the guests at Start): what it decides, the machines laid, is hashed.
+  the game setup's base, per player, scaling (per step), early ease and
+  early days, laid over the tuning file's `WaveScaling` by
+  `World::scaling`, which every wave size and count reads;
+  `wave_scaling()` stays the file's own, so the app's live reload
+  compares against that. `None` is the file's five. **Saved, not
+  hashed** (SAVE 67, PROTOCOL 67 — `SettingsWire` carries it to the
+  guests at Start; the early ease's two at SAVE 82, PROTOCOL 85): what
+  it decides, the machines laid, is hashed.
 - **The mix is `bims::droid::mix_of`**: Wardens `n / 6`, Husks `n / 3`,
   Troopers the rest, and `wave_kinds` orders them Wardens, Husks,
   Troopers so a Trooper's arm is dealt by its place *among the Troopers*

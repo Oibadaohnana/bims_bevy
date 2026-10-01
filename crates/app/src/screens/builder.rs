@@ -1364,6 +1364,7 @@ fn difficulty_rows(
     );
     let mut d = settings.difficulty.unwrap_or(Difficulty::of(file));
     let step_note = wave_per_step_note(file.step_days.max(1));
+    let ease_note = wave_early_ease_note(d.early_days);
     egui::Grid::new("difficulty")
         .num_columns(3)
         .spacing(egui::vec2(10.0, 4.0))
@@ -1372,6 +1373,8 @@ fn difficulty_rows(
                 (WAVE_BASE, WAVE_BASE_NOTE, &mut d.base),
                 (WAVE_PER_PLAYER, WAVE_PER_PLAYER_NOTE, &mut d.per_player),
                 (WAVE_PER_STEP, step_note.as_str(), &mut d.per_step),
+                (WAVE_EARLY_EASE, ease_note.as_str(), &mut d.early_ease),
+                (WAVE_EARLY_DAYS, WAVE_EARLY_DAYS_NOTE, &mut d.early_days),
             ] {
                 ui.label(name);
                 ui.horizontal(|ui| {

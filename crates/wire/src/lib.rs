@@ -69,7 +69,9 @@ use serde::{Deserialize, Serialize};
 /// large fusion reactor out of `PartKind` (every code after the helm three
 /// lower, after the research desk four), no utility layer, no battery
 /// charge on the ship, `Brownout` and `PowerRestored` (56, 57) left free.
-pub const PROTOCOL: u32 = 84;
+/// 85: the lobby's settings carry the setup's early ease and its days
+/// (`world::droid::Difficulty`, five dials where there were three).
+pub const PROTOCOL: u32 = 85;
 
 /// Where the relay lives. `BIMS_SERVER` in the environment overrides it
 /// — `ws://127.0.0.1:8792` for one on the same machine.

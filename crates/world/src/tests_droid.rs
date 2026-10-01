@@ -609,10 +609,10 @@ fn a_site_has_one_wave_at_tier_one_two_at_tier_two_and_four_at_tier_three() {
     assert_eq!(world.droid_wave_count(), 2, "tier one, tuned");
 }
 
-/// The setup's difficulty stands over the tuning file's three dials and
+/// The setup's difficulty stands over the tuning file's five dials and
 /// leaves the rest of the formula the file's; `None` is the file again.
 #[test]
-fn the_difficulty_stands_over_the_tuning_files_three_dials() {
+fn the_difficulty_stands_over_the_tuning_files_five_dials() {
     let mut world = crate::fixture::crewed_world(combat_ship(), REFERENCE_MONEY, 1, 4);
     let players = world.players();
     let later = data::ENEMIES_HOURS * 3;
@@ -621,9 +621,29 @@ fn the_difficulty_stands_over_the_tuning_files_three_dials() {
         base: 5,
         per_player: 3,
         per_step: 2,
+        early_ease: 0,
+        early_days: 6,
     }));
     assert_eq!(world.wave_size_at(0), 5 + 3 * players);
     assert_eq!(world.wave_size_at(later), 5 + 3 * players + 2 * 3);
+    // The setup's early ease too: two fewer inside its first day, none
+    // after it.
+    world.set_difficulty(Some(crate::droid::Difficulty {
+        base: 5,
+        per_player: 3,
+        per_step: 2,
+        early_ease: 2,
+        early_days: 1,
+    }));
+    assert_eq!(world.wave_size_at(0), 5 + 3 * players - 2);
+    assert_eq!(world.wave_size_at(later), 5 + 3 * players + 2 * 3);
+    world.set_difficulty(Some(crate::droid::Difficulty {
+        base: 5,
+        per_player: 3,
+        per_step: 2,
+        early_ease: 0,
+        early_days: 6,
+    }));
     // The file's other dials still count: a step of twice the days.
     world.set_wave_scaling(crate::droid::WaveScaling {
         base: 40,
