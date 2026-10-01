@@ -1844,7 +1844,7 @@ impl Game {
                 continue;
             }
             // A body its player steers (task 144) aims where it faces —
-            // turned to the pointer at `STEER_TURN` — and fires along it
+            // turned to the pointer at once — and fires along it
             // whenever the button is down and the weapon ready, a burst
             // and all; nothing is picked for it.
             if let Some(s) = steer {
@@ -12661,8 +12661,7 @@ mod tests {
     }
 
     #[test]
-    fn the_keys_walk_the_player_s_bim_and_it_turns_to_the_aim_a_turn_a_second() {
-        use crate::character::STEER_TURN;
+    fn the_keys_walk_the_player_s_bim_and_it_turns_to_the_aim_at_once() {
         use crate::math::PI;
         use crate::order::{CrewOrder, angle_code};
         let mut game = room();
@@ -12679,22 +12678,16 @@ mod tests {
         };
         game.order(0, control(Some(0.0), PI / 2.0));
         assert!(game.is_steered(0));
-        // A tenth of a second turns it a tenth of a turn and no more.
-        for _ in 0..6 {
-            game.simulate(DT);
-        }
-        let turned = game.bims[0].character.heading;
-        assert!(
-            (turned - STEER_TURN * 0.1).abs() < 0.03,
-            "a tenth of a turn in a tenth of a second, not {turned}"
-        );
-        for _ in 0..60 {
-            game.simulate(DT);
-        }
+        // One step and it faces the aim: no turn rate.
+        game.simulate(DT);
         assert!(
             game.bims[0].character.faces_aim(),
-            "and then it faces the aim"
+            "it faces the aim in one step, not {}",
+            game.bims[0].character.heading
         );
+        for _ in 0..66 {
+            game.simulate(DT);
+        }
         let to = game.bim_pos(0);
         assert!(
             to.x - from.x > TILE,

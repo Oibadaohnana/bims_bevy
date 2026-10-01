@@ -4581,9 +4581,9 @@ play differently.
   is the keys', put back to `Pausing` when they come up), the feet go
   along `intent` whichever way it faces, the speed eases at
   `STEER_ACCEL` (4×) `ACCEL`, a walk away from the facing strides
-  backwards, and the **heading turns to `aim` at `STEER_TURN` (a turn a
-  second) at a steady rate**, the short way round, exactly onto it within
-  a step's turn. `pump_queue` holds while the keys walk it; on a plain
+  backwards, and the **heading is `aim` at once** — no turn rate (it
+  was `STEER_TURN`, a turn a second, until the player called it too
+  slow). `pump_queue` holds while the keys walk it; on a plain
   the body takes its window (`refresh_afield`, `move_body`) so the keys
   can walk it past the box.
 - **In `tick_combat` a steered body is armed whenever it can be**,

@@ -2249,7 +2249,7 @@ fn frame(
 
     // The player's own Bim under the keys and the pointer (task 144):
     // WASD walk it up, left, down and right on the screen, it turns to
-    // the pointer at a turn a second, and the left button held fires
+    // the pointer at once, and the left button held fires
     // along its facing as fast as the weapon goes. Said to the room as a
     // `CrewOrder::Control` whenever it changes (`control_due`); with the
     // pointer off the deck the aim is the last one said.

@@ -43,10 +43,6 @@ const FAR_LEG: f32 = crate::room::TILE;
 pub const BODY_SCALE: f32 = 1.45;
 /// How far the body centre is kept clear of walls and furniture.
 pub const BODY_MARGIN: f32 = 23.0;
-/// How fast a body its player steers turns to where the pointer aims
-/// (task 144): a whole turn a second, at a steady rate rather than
-/// [`TURN_RATE`]'s easing, so a flick behind takes half a second.
-pub const STEER_TURN: f32 = TAU;
 /// How much quicker a body its player steers gets up to its pace and
 /// stops again than [`ACCEL`] (task 144): the keys want an answer, not
 /// a body with weight.
@@ -766,8 +762,8 @@ impl Look {
 pub struct Steer {
     /// The way the keys walk it, or `None` with no key down.
     pub walk: Option<f32>,
-    /// Where the pointer is from the body: what it turns to face, at
-    /// [`STEER_TURN`], and what its weapon is fired along once it does.
+    /// Where the pointer is from the body: what it faces, at once, and
+    /// what its weapon is fired along.
     pub aim: f32,
     /// The fire button held: a shot every time the weapon is ready.
     pub fire: bool,
@@ -1717,17 +1713,11 @@ impl Character {
             _ => None,
         };
         // A body its player steers faces where the pointer aims and
-        // nowhere else, turning at a steady [`STEER_TURN`] the short way
-        // round, and its feet go where they are bound whichever way it
-        // faces (task 144).
+        // nowhere else, at once — no turn rate (the player's word, October
+        // 2026: a turn a second was too slow) — and its feet go where they
+        // are bound whichever way it faces (task 144).
         if let Some(s) = steer {
-            let off = wrap_angle(s.aim - self.heading);
-            let turn = STEER_TURN * dt;
-            self.heading = if off.abs() <= turn {
-                wrap_angle(s.aim)
-            } else {
-                wrap_angle(self.heading + if off > 0.0 { turn } else { -turn })
-            };
+            self.heading = wrap_angle(s.aim);
         } else {
             self.heading = angle_lerp(
                 self.heading,
