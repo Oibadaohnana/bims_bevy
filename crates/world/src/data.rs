@@ -362,11 +362,11 @@ pub const FRONT_BIAS: i32 = 5;
 /// only a town on the front was ever defended) — the prep time, to get
 /// the crew to where they want to stand before the shooting starts.
 pub const DEFENSE_DELAY_STEPS: u64 = 1_200;
-/// What share of a defended town's surviving people join the crew, in per
-/// cent, when the last wave is destroyed. A fifth, rounded down, and never
-/// fewer than one while there is anybody but the guard left to come. A
-/// station or a derelict held sends nobody (task 111).
-pub const DEFENSE_JOIN_PERCENT: u32 = 20;
+/// How many of a defended town's surviving people join the crew when the
+/// last wave is destroyed: two, not more and not less, whatever the
+/// town's size — fewer only when fewer than two are left besides the
+/// guard. A station or a derelict held sends nobody (task 111).
+pub const DEFENSE_JOINERS: u32 = 2;
 
 // --- defend missions (task 111) -------------------------------------------
 //

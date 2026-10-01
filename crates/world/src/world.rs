@@ -5850,46 +5850,48 @@ impl World {
     }
 
     /// How many machines the next wave is, worked out now: the base, the
-    /// players and the world clock ([`droidplan::wave_size`]) — never
-    /// the bots, the worth or the levels (feature 105). Asked as each wave
+    /// players and the world clock ([`droidplan::WaveScaling::size`]) —
+    /// never the worth or the levels (feature 105). Asked as each wave
     /// appears, never stored.
     ///
-    /// **At a site the crew are defending** (task 111) the defenders the
-    /// site fielded — standing or fallen — count as that many more
-    /// players: a site that brings its own guns meets a wave the size
-    /// those guns would have met aboard. Nothing else about the formula
-    /// moves.
+    /// **At a site the crew are defending** (task 111) every defender the
+    /// site fielded — standing or fallen — brings one machine more.
     ///
     /// **In the run's first mission** every wave is
     /// `first_mission_ease` fewer ([`droidplan::WaveScaling`];
-    /// [`data::FIRST_MISSION_WAVE_EASE`] untuned), never under one — unless a
-    /// probe forced it. Inside the run's first `early_days` days the
-    /// formula itself is `early_ease` fewer (`WaveScaling::size`).
+    /// [`data::FIRST_MISSION_WAVE_EASE`] untuned) — unless a probe forced
+    /// it. Inside the run's first `early_days` days the formula is
+    /// `early_ease` fewer as well. Neither ease takes a wave under the
+    /// `base`: that many are guaranteed.
+    ///
+    /// **And the machines are never outnumbered**: a wave is at least as
+    /// many as the Bims it meets ([`World::bims_fighting`]) — only a
+    /// commander's reinforcements, which are not counted, can tip it.
     pub fn droid_wave_size(&self) -> u32 {
         let defenders = if self.defense_here().is_some() {
             self.defenders_fielded()
         } else {
             0
         };
-        let size = self.wave_size_with(self.hours_gone(), defenders);
         let forced = self.droid_kinds_forced.is_some() || self.droid_wave_forced.is_some();
-        if self.run.missions <= 1 && !forced && !self.first_mission_uneased {
-            size.saturating_sub(self.scaling().first_mission_ease)
-                .max(1)
+        let ease = if self.run.missions <= 1 && !forced && !self.first_mission_uneased {
+            self.scaling().first_mission_ease
         } else {
-            size
-        }
+            0
+        };
+        self.wave_size_with(self.hours_gone(), defenders, ease)
     }
 
     /// [`World::droid_wave_size`] with the world clock at `hours` gone:
     /// what a wave would be on arrival, for the map's preview of the
     /// Machine Heart (feature 108) as well as for the wave appearing now.
     pub fn wave_size_at(&self, hours: u32) -> u32 {
-        self.wave_size_with(hours, 0)
+        self.wave_size_with(hours, 0, 0)
     }
 
-    /// The wave at `hours` gone with `more` on top of the players.
-    fn wave_size_with(&self, hours: u32, more: u32) -> u32 {
+    /// The wave at `hours` gone with `more` machines on top of the
+    /// formula and `ease` more off it, never fewer than the Bims fighting.
+    fn wave_size_with(&self, hours: u32, more: u32, ease: u32) -> u32 {
         // A wave forced to its machines is as many as it names.
         if let Some(kinds) = &self.droid_kinds_forced {
             return (kinds.len() as u32).max(1);
@@ -5900,7 +5902,32 @@ impl World {
         if let Some(forced) = self.droid_wave_forced {
             return forced.max(1);
         }
-        self.scaling().size(self.players() + more, hours).max(1)
+        self.scaling()
+            .size_eased(self.players(), hours, ease)
+            .saturating_add(more)
+            .max(self.bims_fighting())
+            .max(1)
+    }
+
+    /// How many Bims a wave meets: every crew member alive (downed ones
+    /// too, who may be got up) but a commander's reinforcements, and at a
+    /// site the crew are defending its defenders still alive. What a wave
+    /// is never fewer machines than ([`World::droid_wave_size`]).
+    pub fn bims_fighting(&self) -> u32 {
+        let room = &self.aboard.room;
+        let crew = (0..room.crew_count())
+            .filter(|&who| room.is_alive(who as usize) && !self.is_reinforcement(who))
+            .count() as u32;
+        let defenders = match &self.residents {
+            Some(r) if self.defense_here().is_some() => {
+                let bims = r.aboard.room.crew_count() as usize;
+                (0..bims.min(r.defender.len()))
+                    .filter(|&who| r.defender[who] && r.aboard.room.is_alive(who))
+                    .count() as u32
+            }
+            _ => 0,
+        };
+        crew + defenders
     }
 
     /// The probes' other dial (`BIMS_DROID_WAVE`): every wave from now
@@ -6902,8 +6929,8 @@ impl World {
 
     /// The town is held: the survivors who go with the crew.
     ///
-    /// The larger of one and a fifth of the town's own people still
-    /// alive, never more than the survivors other than the guard, taken
+    /// Two of the town's own people still alive ([`defense::joiners`]),
+    /// never more than the survivors other than the guard, taken
     /// **lowest index first and never the guard** — and each moved out
     /// of the residents' room into the crew's the way a hire is, with no
     /// contract, no wages and no bunk asked for: a classless crew bot

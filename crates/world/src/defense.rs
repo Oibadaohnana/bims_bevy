@@ -103,20 +103,16 @@ impl Defense {
     }
 }
 
-/// How many of a town's survivors join the crew: the larger of one and
-/// `survivors × DEFENSE_JOIN_PERCENT / 100` rounded down, but never more
-/// than the survivors **other than the guard** — so a town with nobody
+/// How many of a town's survivors join the crew: always
+/// [`data::DEFENSE_JOINERS`] (two), however big the town — but never more
+/// than the survivors **other than the guard**, so a town with nobody
 /// left, or only the guard, sends none.
 ///
 /// `survivors` counts the town's own people alive, the guard included;
 /// mercenaries are none of it, being nobody's townsfolk.
 pub fn joiners(survivors: u32, guard_alive: bool) -> u32 {
     let spare = survivors.saturating_sub(u32::from(guard_alive));
-    if spare == 0 {
-        return 0;
-    }
-    let share = survivors * data::DEFENSE_JOIN_PERCENT / 100;
-    share.max(1).min(spare)
+    data::DEFENSE_JOINERS.min(spare)
 }
 
 /// How many armed **defenders** stand with a site's own people while the
@@ -160,24 +156,23 @@ mod tests {
         assert_ne!(defender_seed(7, 0), crate::mercenary::seed_for(7, 0));
     }
 
-    /// The share the feature asked for, the floor of one, and the guard
-    /// never counted among who actually goes.
+    /// Two, not more and not less, and the guard never counted among who
+    /// actually goes.
     #[test]
-    fn a_fifth_of_the_survivors_join_and_never_the_guard_alone() {
+    fn two_of_the_survivors_join_and_never_the_guard_alone() {
         // Nobody left, or only the guard: none.
         assert_eq!(joiners(0, false), 0);
         assert_eq!(joiners(1, true), 0);
-        // One townsperson besides the guard: the floor of one.
+        // One townsperson besides the guard: that one.
         assert_eq!(joiners(2, true), 1);
         assert_eq!(joiners(1, false), 1);
-        // A fifth, rounded down, once there is a fifth to have.
+        // Two, however big the town.
+        assert_eq!(data::DEFENSE_JOINERS, 2);
+        assert_eq!(joiners(3, true), 2);
+        assert_eq!(joiners(2, false), 2);
         assert_eq!(joiners(10, true), 2);
-        assert_eq!(joiners(14, true), 2);
-        assert_eq!(joiners(15, true), 3);
-        assert_eq!(joiners(30, true), 6);
+        assert_eq!(joiners(30, true), 2);
         // And never more than the survivors other than the guard.
-        assert_eq!(joiners(6, true), 1);
-        assert_eq!(joiners(6, false), 1);
         for survivors in 0..60u32 {
             for guard in [false, true] {
                 let n = joiners(survivors, guard);

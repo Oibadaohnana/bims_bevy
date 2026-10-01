@@ -553,10 +553,9 @@ pub const SOMEBODY_LEFT: &str = "Somebody left.";
 /// for the run (`world::droid::Difficulty`), their notes, and the button
 /// that puts them back to the tuning file's (`scaling.ron`).
 pub const DIFFICULTY: &str = "Difficulty";
-pub const DIFFICULTY_NOTE: &str =
-    "How many machines a wave is: base + per player × players + scaling × time steps - early ease";
+pub const DIFFICULTY_NOTE: &str = "How many machines a wave is: base + per player × players + scaling × time steps - early ease (never under the base, never fewer than the Bims)";
 pub const WAVE_BASE: &str = "Base";
-pub const WAVE_BASE_NOTE: &str = "Machines in every wave";
+pub const WAVE_BASE_NOTE: &str = "Machines in every wave at the least, whatever the ease";
 pub const WAVE_PER_PLAYER: &str = "Per player";
 pub const WAVE_PER_PLAYER_NOTE: &str = "Machines more for each player";
 pub const WAVE_PER_STEP: &str = "Scaling";

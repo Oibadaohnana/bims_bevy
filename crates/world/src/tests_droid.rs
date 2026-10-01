@@ -465,14 +465,17 @@ fn the_wave_count_is_fixed_at_the_first_dock_and_a_rich_crew_is_not_doubled() {
 
     // And the **size** is the formula's, never a doubling: a crew ten
     // times as rich meets the players and the clock, and not a thousand
-    // machines. The run's first mission, so its ease off.
+    // machines. The run's first mission, so its ease off — and never
+    // fewer than the Bims it meets.
     let want = crate::droid::wave_size(
         world.players(),
         crate::droid::time_steps(world.hours_gone()),
     );
     assert_eq!(
         world.droid_wave_size(),
-        want.saturating_sub(data::FIRST_MISSION_WAVE_EASE).max(1)
+        want.saturating_sub(data::FIRST_MISSION_WAVE_EASE)
+            .max(data::DROID_WAVE_BASE)
+            .max(world.bims_fighting())
     );
 }
 
@@ -481,7 +484,8 @@ fn the_wave_count_is_fixed_at_the_first_dock_and_a_rich_crew_is_not_doubled() {
 /// the second mission on it is the formula's — unless a probe forced it.
 #[test]
 fn the_first_missions_waves_are_one_machine_fewer() {
-    let mut world = crate::fixture::crewed_world(combat_ship(), REFERENCE_MONEY, 1, 4);
+    // A crew of two, so the floor of the Bims fighting stays under it.
+    let mut world = crate::fixture::crewed_world(combat_ship(), REFERENCE_MONEY, 2, 2);
     assert_eq!(world.run.missions, 1);
     let formula = crate::droid::wave_size(world.players(), 0);
     assert_eq!(
@@ -555,11 +559,13 @@ fn the_waves_are_the_same_for_a_richer_better_armed_more_levelled_or_bigger_crew
                     "{name}, {players} players at {hours}h"
                 );
             }
-            // And any number of bots beside the players.
+            // And bots beside the players are nothing to the formula: a
+            // wave is the formula's until the Bims would outnumber it,
+            // and then as many as the Bims.
             for crew in [players + 1, players + 4, COMBAT_CREW] {
                 assert_eq!(
                     waves_for(players, crew, hours),
-                    want,
+                    (want.0.max(crew), want.1),
                     "{crew} aboard, {players} players at {hours}h"
                 );
             }
@@ -657,11 +663,53 @@ fn the_difficulty_stands_over_the_tuning_files_five_dials() {
     assert_eq!(world.wave_size_at(later), untuned);
 }
 
-/// A player more is a machine more a wave; a bot more is nothing.
+/// **The base is guaranteed**: however much the early ease and the first
+/// mission's take off, a wave is never fewer than the base.
+#[test]
+fn no_ease_takes_a_wave_under_its_base() {
+    let mut world = crate::fixture::crewed_world(combat_ship(), REFERENCE_MONEY, 1, 1);
+    assert_eq!(world.run.missions, 1);
+    world.set_wave_scaling(crate::droid::WaveScaling {
+        base: 4,
+        per_player: 2,
+        early_ease: 5,
+        early_days: 6,
+        first_mission_ease: 3,
+        ..crate::droid::WaveScaling::DEFAULT
+    });
+    assert_eq!(world.droid_wave_size(), 4, "both eases, the base on top");
+    world.run.missions = 2;
+    assert_eq!(world.droid_wave_size(), 4, "the early ease alone");
+    world.clock_minutes = 6.0 * 24.0 * 60.0;
+    assert_eq!(world.droid_wave_size(), 4 + 2 + 1, "past the early days");
+}
+
+/// **The machines are never outnumbered**: a wave is at least as many as
+/// the Bims alive on the crew's side — bots and all, downed or not —
+/// and a dead one no longer counts.
+#[test]
+fn a_wave_is_never_fewer_than_the_bims_it_meets() {
+    let mut world = crate::fixture::crewed_world(combat_ship(), REFERENCE_MONEY, 1, 8);
+    world.run.missions = 2;
+    let formula = world.scaling().size(world.players(), world.hours_gone());
+    assert!(formula < 8, "the formula under the crew: {formula}");
+    assert_eq!(world.bims_fighting(), 8);
+    assert_eq!(world.droid_wave_size(), 8);
+    world.aboard.room.kill_for_probe(7);
+    // The room settles the death as it steps.
+    world.step(&[]);
+    assert_eq!(world.droid_wave_size(), 7, "the dead are not met");
+    // A forced wave is as forced.
+    world.set_droid_wave_for_probe(3);
+    assert_eq!(world.droid_wave_size(), 3);
+}
+
+/// A player more is a machine more a wave; a bot more is nothing to the
+/// formula (only to the floor of the Bims fighting).
 #[test]
 fn a_wave_grows_with_the_players() {
     for hours in [0, data::ENEMIES_HOURS * 4] {
-        let sizes: Vec<u32> = (1..=4).map(|p| waves_for(p, 4, hours).0).collect();
+        let sizes: Vec<u32> = (1..=4).map(|p| waves_for(p, p, hours).0).collect();
         for pair in sizes.windows(2) {
             assert!(pair[1] > pair[0], "{sizes:?} at {hours}h");
         }

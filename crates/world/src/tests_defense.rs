@@ -770,27 +770,32 @@ fn a_station_defence_counts_down_lands_at_the_far_airlock_and_pays_on_the_win() 
     assert!(world.defense(id).is_some_and(|d| d.won && !d.lost));
 }
 
-/// **The defenders count as crew towards the wave** (task 111): a
-/// defence's wave is the formula's with that many more players, and
-/// anywhere else it is the formula's alone.
+/// **Every defender brings a machine** (task 111): a defence's wave is
+/// the formula's with one more for each defender the site fielded, and
+/// anywhere else it is the formula's alone — either way never fewer than
+/// the Bims it meets.
 #[test]
-fn the_wave_at_a_defence_is_the_wave_with_its_defenders_as_players() {
+fn the_wave_at_a_defence_is_the_wave_with_a_machine_for_each_defender() {
     let mut world = basic();
     world.step(&[]);
     let n = world.defenders_fielded();
     assert!(n > 0, "defenders fielded");
-    let steps = crate::droid::time_steps(world.hours_gone());
+    let hours = world.hours_gone();
     // The run's first mission: the formula's less its ease.
-    let eased = |w: u32| w.saturating_sub(data::FIRST_MISSION_WAVE_EASE).max(1);
-    let want = eased(crate::droid::wave_size(world.players() + n, steps));
+    let eased = |w: &World| {
+        w.scaling()
+            .size_eased(w.players(), hours, w.scaling().first_mission_ease)
+    };
+    let want = (eased(&world) + n).max(world.bims_fighting());
     assert_eq!(world.droid_wave_size(), want);
+    assert!(world.droid_wave_size() >= world.bims_fighting());
     let mut quiet = basic();
     quiet.set_quiet_sites_for_probe(true);
     quiet.step(&[]);
     assert_eq!(quiet.defenders_fielded(), 0, "no defenders at a quiet site");
     assert_eq!(
         quiet.droid_wave_size(),
-        eased(crate::droid::wave_size(quiet.players(), steps))
+        eased(&quiet).max(quiet.bims_fighting()).max(1)
     );
 }
 

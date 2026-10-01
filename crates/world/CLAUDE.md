@@ -4189,10 +4189,11 @@ system's memory for *held* and *cleared*. `SAVE_VERSION` 40,
 `wire::PROTOCOL` 32 (the relay wants redeploying);
 `a_town_held_in_one_system_is_not_held_in_the_next` is the test.
 
-**And some of its people go with the crew.** `defense::joiners` is the
-larger of one and `survivors × DEFENSE_JOIN_PERCENT (20) / 100` rounded
-down, never more than the survivors other than the guard — so a town with
-nobody left, or only the guard, sends none. Who: the lowest indices,
+**And some of its people go with the crew.** `defense::joiners` is
+`DEFENSE_JOINERS` — **two**, however big the town (it was a fifth of the
+survivors, `DEFENSE_JOIN_PERCENT`, until October 2026) — never more than
+the survivors other than the guard, so a town with nobody left, or only
+the guard, sends none. Who: the lowest indices,
 never the guard and never a mercenary. Each goes through
 `World::take_resident_aboard(who, for_hire: false)` — the block lifted
 out of `World::hire` — which is the hire's own move **without** the fee,
@@ -6653,3 +6654,33 @@ systems now.
   `shipdesign::fixture::PLAYTEST_HASH` (the playtest cargo's three pieces
   are one), `worldgen`'s `REFERENCE_CHECKSUMS` (four leans shorter, no
   bump), and every survivor pin a fight with armour in it reads.
+
+## The base is guaranteed, and the machines are never outnumbered (October 2026)
+
+> "The machines hold a station" above says a defence counts its defenders
+> as players and a wave is the formula's alone; both moved.
+
+`World::droid_wave_size` (through `wave_size_with`) is now, unforced:
+
+- `WaveScaling::size_eased(players, hours, ease)` — the formula less the
+  early ease and (`ease`) the first mission's, **never under `base`**:
+  the base is what every wave is sure of, whatever the eases take off
+  (`size` is the same with no extra ease);
+- **plus one machine a defender** the site fielded, at a defence (they
+  were that many more *players*, so `per_player` each);
+- **never fewer than `World::bims_fighting`**: every crew member alive
+  (downed too; bots, hands and joiners all) but a commander's
+  reinforcements, plus a defence's defenders still alive. Only the
+  commander's R and C can tip the count — nothing else adds a crew Bim
+  mid-mission. `wave_size_at` (the Heart's preview) takes the same floor
+  off the crew as it stands.
+
+A forced wave (`BIMS_DROID_WAVE`, `droid_kinds_forced`) is as forced.
+No `SAVE_VERSION` or `wire::PROTOCOL`: nothing saved or carried changed
+shape, and both ends work the size out alike. **The survivor pins
+(`SURVIVORS`, the ship's `PINNED`) and `REFERENCE_CHECKSUM` move** where
+a run's crew outnumber the formula or a town's joiners differ from two —
+not re-run here. `no_ease_takes_a_wave_under_its_base`,
+`a_wave_is_never_fewer_than_the_bims_it_meets` (`tests_droid.rs`) and
+`the_wave_at_a_defence_is_the_wave_with_a_machine_for_each_defender`
+(`tests_defense.rs`) are the rule.

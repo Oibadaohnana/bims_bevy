@@ -199,7 +199,8 @@ pub fn time_steps(hours_gone: u32) -> u32 {
 /// `tier_waves` waves by the tier its machines come at.
 /// Every wave of the run's first mission is `first_mission_ease`
 /// fewer, and every wave inside the first `early_days` days of the
-/// world clock `early_ease` fewer (the two add up). Integers only, like
+/// world clock `early_ease` fewer (the two add up), but never fewer than
+/// `base`: the base is what every wave is guaranteed. Integers only, like
 /// the formula.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 #[cfg_attr(
@@ -248,18 +249,29 @@ impl WaveScaling {
     }
 
     /// How many machines a wave is for `players` at `hours_gone`: the
-    /// sum, less `early_ease` inside the first `early_days` days. Nought
-    /// at the least; the world makes it one.
+    /// sum, less `early_ease` inside the first `early_days` days, and
+    /// never under `base` — the base is what a wave is guaranteed however
+    /// much an ease takes off. The world makes it one at the least.
     pub fn size(&self, players: u32, hours_gone: u32) -> u32 {
+        self.size_eased(players, hours_gone, 0)
+    }
+
+    /// [`WaveScaling::size`] with `more_ease` taken off as well (the run's
+    /// first mission's), still never under `base`.
+    pub fn size_eased(&self, players: u32, hours_gone: u32, more_ease: u32) -> u32 {
         let whole = self
             .base
             .saturating_add(self.per_player.saturating_mul(players))
             .saturating_add(self.per_step.saturating_mul(self.steps(hours_gone)));
-        if hours_gone < self.early_days.saturating_mul(24) {
-            whole.saturating_sub(self.early_ease)
+        let early = if hours_gone < self.early_days.saturating_mul(24) {
+            self.early_ease
         } else {
-            whole
-        }
+            0
+        };
+        whole
+            .saturating_sub(early)
+            .saturating_sub(more_ease)
+            .max(self.base)
     }
 
     /// How many waves a held station has whose machines come at `tier`.
@@ -436,7 +448,10 @@ mod tests {
         assert_eq!(early.size(2, 3 * 24 + 5), 5 + 2 * 2 + 3 * 3 - 5);
         assert_eq!(early.size(2, 6 * 24 - 1), 5 + 2 * 2 + 3 * 5 - 5);
         assert_eq!(early.size(2, 6 * 24), 5 + 2 * 2 + 3 * 6);
-        assert_eq!(early.size(0, 0), 0, "never under nought");
+        assert_eq!(early.size(0, 0), 5, "never under the base");
+        // The first mission's ease on top, still never under the base.
+        assert_eq!(early.size_eased(2, 0, 3), 5, "the base comes out on top");
+        assert_eq!(early.size_eased(2, 6 * 24, 3), 5 + 2 * 2 + 3 * 6 - 3);
     }
 
     #[test]

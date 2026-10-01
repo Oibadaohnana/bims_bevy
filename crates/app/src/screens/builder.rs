@@ -1407,12 +1407,13 @@ fn difficulty_rows(
         settings.difficulty = Some(d);
     }
     // The first wave as the world works it: the formula at day nought
-    // (the early ease off it), less the first mission's ease, one at the
-    // least.
+    // less the early ease and the first mission's, never under the base,
+    // and never fewer than the players' own Bims (the bots aboard can
+    // raise it further in the run).
     let first = d
         .over(file)
-        .size(players, 0)
-        .saturating_sub(file.first_mission_ease)
+        .size_eased(players, 0, file.first_mission_ease)
+        .max(players)
         .max(1);
     ui.label(
         egui::RichText::new(first_wave_line(first, players))
