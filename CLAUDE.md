@@ -77,7 +77,7 @@ desktop):
   `crates/ship/src/session.rs`; grep for `BIMS_`.
 - `scaling.ron` at the root is the whole of how the enemies scale
   (task 147: enemies per player, the day scaling and its days, enemies
-  per defender, the wave days and the three tier timings, all read off
+  per bot (the crew's bots and a defence's defenders), the wave days and the three tier timings, all read off
   the run day; `world::droid::WaveScaling`, `BIMS_SCALING=file` names
   another) and `rewards.ron` what a fight pays and things cost (xp and
   money an enemy down, a defence's share, the buyback, relic, combine

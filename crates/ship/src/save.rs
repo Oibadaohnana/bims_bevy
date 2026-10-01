@@ -224,7 +224,9 @@ use crate::game::Game;
 /// is the whole `WaveScaling` (per player, the day's scaling and its days,
 /// per defender, the waves' days and the three tier timings), and
 /// `World::first_mission_uneased` is gone.
-pub const SAVE_VERSION: u32 = 83;
+/// 84: `WaveScaling::enemies_per_defender` is `enemies_per_bot` (the
+/// old name still reads), and the crew's bots count towards it.
+pub const SAVE_VERSION: u32 = 84;
 
 /// What the file holds, read back.
 #[derive(serde::Deserialize)]

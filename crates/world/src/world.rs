@@ -5840,9 +5840,10 @@ impl World {
 
     /// How many machines the next wave is, worked out now (task 147):
     /// `(enemies per player + day scaling × steps) × players` — the player
-    /// Bims alone, never the bots, the worth or the levels — and at a site
-    /// the crew are defending `⌈enemies per defender × defenders⌉` on top,
-    /// every defender the site fielded, standing or fallen
+    /// Bims alone, never the worth or the levels — and
+    /// `⌈enemies per bot × bots⌉` on top: the crew's bots alive
+    /// ([`World::crew_bots`]) and, at a site the crew are defending, every
+    /// defender the site fielded, standing or fallen
     /// ([`droidplan::WaveScaling::size`], read at the run day). Nothing
     /// else: no base, no ease, no floor at the crew's numbers. Asked as
     /// each wave appears, never stored.
@@ -5852,19 +5853,32 @@ impl World {
         } else {
             0
         };
-        self.wave_size_with(self.run_day(), defenders)
+        let bots = self.crew_bots().saturating_add(defenders);
+        self.wave_size_with(self.run_day(), bots)
+    }
+
+    /// How many of the crew are bots, for the waves (task 147): every crew
+    /// member alive (downed too) who is not a player's own — the bots, the
+    /// hired hands and the townsfolk who joined — bar a commander's
+    /// reinforcements, which come for one mission.
+    pub fn crew_bots(&self) -> u32 {
+        let room = &self.aboard.room;
+        (self.players()..room.crew_count())
+            .filter(|&who| room.is_alive(who as usize) && !self.is_reinforcement(who))
+            .count() as u32
     }
 
     /// [`World::droid_wave_size`] with the world clock at `hours` gone and
-    /// nobody defending: what a wave would be on arrival, for the map's
-    /// preview of the Machine Heart (feature 108).
+    /// nobody defending, the crew's bots as they stand: what a wave would
+    /// be on arrival, for the map's preview of the Machine Heart (feature
+    /// 108).
     pub fn wave_size_at(&self, hours: u32) -> u32 {
-        self.wave_size_with((hours / 24).saturating_add(1), 0)
+        self.wave_size_with((hours / 24).saturating_add(1), self.crew_bots())
     }
 
-    /// The wave on run day `day` with `defenders` fielded, one at the
-    /// least.
-    fn wave_size_with(&self, day: u32, defenders: u32) -> u32 {
+    /// The wave on run day `day` with `bots` beside the players, one at
+    /// the least.
+    fn wave_size_with(&self, day: u32, bots: u32) -> u32 {
         // A wave forced to its machines is as many as it names.
         if let Some(kinds) = &self.droid_kinds_forced {
             return (kinds.len() as u32).max(1);
@@ -5875,7 +5889,7 @@ impl World {
         if let Some(forced) = self.droid_wave_forced {
             return forced.max(1);
         }
-        self.scaling().size(self.players(), defenders, day).max(1)
+        self.scaling().size(self.players(), bots, day).max(1)
     }
 
     /// The probes' other dial (`BIMS_DROID_WAVE`): every wave from now

@@ -74,7 +74,9 @@ use serde::{Deserialize, Serialize};
 /// 86: the lobby's settings carry the new wave dials (task 147:
 /// `world::droid::Difficulty` is the whole `WaveScaling`), and how many
 /// machines, waves and tiers a site has is worked out by them alone.
-pub const PROTOCOL: u32 = 86;
+/// 87: `enemies_per_bot` in the lobby's difficulty, and every crew bot
+/// a machine more in a wave both ends work out.
+pub const PROTOCOL: u32 = 87;
 
 /// Where the relay lives. `BIMS_SERVER` in the environment overrides it
 /// — `ws://127.0.0.1:8792` for one on the same machine.

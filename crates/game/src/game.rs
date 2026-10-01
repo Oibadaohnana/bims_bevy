@@ -6291,6 +6291,20 @@ impl Game {
             .is_some_and(|s| s.fire)
     }
 
+    /// How far, in room units, a shot `who` fires now reaches: its
+    /// weapon through the skill it shoots with now (`shot_skill`, the
+    /// optics' tiles standing still too) — where a bolt dies, and a
+    /// blade's arm's length. `None` with nothing to shoot: no weapon, or
+    /// the medkit in hand. What the player's crosshair greys past.
+    pub fn shot_reach(&self, who: usize) -> Option<f32> {
+        let bim = self.bims.get(who)?;
+        if bim.hand == Hand::Medkit {
+            return None;
+        }
+        let weapon = bim.gear.weapon?;
+        Some(self.shot_skill(who).stats(weapon).reach())
+    }
+
     /// What `who` holds (task 138): the weapon, or the medkit.
     pub fn hand(&self, who: usize) -> Hand {
         self.bims.get(who).map_or(Hand::Weapon, |b| b.hand)
@@ -12785,6 +12799,33 @@ mod tests {
             step(&mut game, &mut fired);
         }
         assert_eq!(fired, 2, "and once");
+    }
+
+    /// What the player's crosshair greys past: the weapon's reach through
+    /// the skill it shoots with, the optics' tiles standing still too,
+    /// and nothing with the medkit in hand.
+    #[test]
+    fn a_shot_reaches_the_weapon_s_range_through_the_skill_and_none_with_the_medkit() {
+        use crate::bim::Hand;
+        use crate::order::CrewOrder;
+        let mut game = room();
+        game.set_autonomous(false);
+        game.put_for_probe(0, vec2(ROOM_W * 0.3, ROOM_H * 0.5));
+        let pistol = WeaponKind::LaserPistol.basic();
+        assert_eq!(game.weapon(0), Some(pistol));
+        assert_eq!(game.shot_reach(0), Some(pistol.stats().reach()));
+        let optics = Skill {
+            range: 2.0,
+            still_range: 3.0,
+            ..Skill::NONE
+        };
+        game.set_skills(vec![optics]);
+        assert_eq!(
+            game.shot_reach(0),
+            Some((pistol.stats().range + 5.0) * TILE)
+        );
+        game.order(0, CrewOrder::Hand { hand: Hand::Medkit });
+        assert_eq!(game.shot_reach(0), None);
     }
 
     #[test]

@@ -553,7 +553,7 @@ pub const SOMEBODY_LEFT: &str = "Somebody left.";
 /// for the run (`world::droid::Difficulty`, task 147), their notes, and
 /// the button that puts them back to the tuning file's (`scaling.ron`).
 pub const DIFFICULTY: &str = "Difficulty";
-pub const DIFFICULTY_NOTE: &str = "How many machines a wave is: (per player + day scaling × steps) × players, plus per defender × defenders at a defence (rounded up). Nothing else scales them. Tiers come by the day: the tier timings are the day every enemy has reached that tier (half of them at half the days).";
+pub const DIFFICULTY_NOTE: &str = "How many machines a wave is: (per player + day scaling × steps) × players, plus per bot × bots (rounded up; the crew's bots, and a defence's defenders). Nothing else scales them. Tiers come by the day: the tier timings are the day every enemy has reached that tier (half of them at half the days).";
 pub const WAVE_PER_PLAYER: &str = "Enemies per player";
 pub const WAVE_PER_PLAYER_NOTE: &str = "Machines in every wave for each player";
 pub const WAVE_DAY_SCALING: &str = "Day scaling";
@@ -567,9 +567,8 @@ pub fn wave_day_scaling_note(days: u32) -> String {
 }
 pub const WAVE_SCALING_DAYS: &str = "Scaling days";
 pub const WAVE_SCALING_DAYS_NOTE: &str = "How many days one step of the day scaling is";
-pub const WAVE_PER_DEFENDER: &str = "Enemies per defender";
-pub const WAVE_PER_DEFENDER_NOTE: &str =
-    "Machines for each defender at a defence; the total is rounded up (1.5 × 3 = 5)";
+pub const WAVE_PER_BOT: &str = "Enemies per bot";
+pub const WAVE_PER_BOT_NOTE: &str = "Machines for each bot crewmate, and each defender at a defence; the total is rounded up (1.5 × 3 = 5)";
 pub const WAVE_DAYS: &str = "Wave days";
 /// The wave days' note: how often a site has one wave more.
 pub fn wave_days_note(days: u32) -> String {

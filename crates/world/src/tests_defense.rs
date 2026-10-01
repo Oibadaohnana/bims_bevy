@@ -802,20 +802,21 @@ fn a_defence_s_next_wave_lands_ten_seconds_after_the_last_is_down() {
     assert_eq!(world.defense(id).map(|d| d.wave), Some(2));
 }
 
-/// **Every defender brings its machines** (task 147): a defence's wave is
-/// the players' share with `⌈enemies per defender × defenders⌉` on top —
-/// a decimal rounded up — and anywhere else the players' share alone.
+/// **Every bot brings its machines** (task 147): a defence's wave is the
+/// players' share with `⌈enemies per bot × bots⌉` on top — the crew's
+/// bots and the site's defenders, a decimal rounded up — and anywhere
+/// else the players' share and the crew's bots alone.
 #[test]
 fn the_wave_at_a_defence_is_the_wave_with_a_machine_for_each_defender() {
     let mut world = basic();
     world.step(&[]);
-    let n = world.defenders_fielded();
-    assert!(n > 0, "defenders fielded");
+    let n = world.defenders_fielded() + world.crew_bots();
+    assert!(world.defenders_fielded() > 0, "defenders fielded");
     let day = world.run_day();
     let players = |w: &World| w.scaling().size(w.players(), 0, day);
     assert_eq!(world.droid_wave_size(), players(&world) + n);
     world.set_wave_scaling(crate::droid::WaveScaling {
-        enemies_per_defender: 1.5,
+        enemies_per_bot: 1.5,
         ..crate::droid::WaveScaling::DEFAULT
     });
     assert_eq!(
@@ -826,7 +827,10 @@ fn the_wave_at_a_defence_is_the_wave_with_a_machine_for_each_defender() {
     quiet.set_quiet_sites_for_probe(true);
     quiet.step(&[]);
     assert_eq!(quiet.defenders_fielded(), 0, "no defenders at a quiet site");
-    assert_eq!(quiet.droid_wave_size(), players(&quiet).max(1));
+    assert_eq!(
+        quiet.droid_wave_size(),
+        (players(&quiet) + quiet.crew_bots()).max(1)
+    );
 }
 
 /// **A defender is nobody's loss** (task 111): one dead is not in the

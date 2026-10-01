@@ -4619,7 +4619,11 @@ reads), the camera following the player's own Bim from the first frame
 (`GameScreen::free_camera` once the follow key lets it go) and zooming
 about the middle while it follows, no edge pan then, and the pointer over
 the deck the aim's reticle (`aim_cursor`, `theme::AIM`), closing in while
-the trigger is held.
+the trigger is held, and grey (`theme::AIM_OUT`) where the pointer is
+farther from the Bim than `Game::shot_reach` — the weapon's reach through
+`shot_skill`, the optics' tiles standing still too; `None` with the
+medkit in hand, which leaves it cyan. Another player's crosshair is not
+greyed.
 
 ## A player's own Bim never misses
 

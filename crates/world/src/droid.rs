@@ -37,7 +37,7 @@
 //! **The machines scale on the run day and the players, and nothing else**
 //! (task 147, [`WaveScaling`]): a wave is the players' share — which
 //! grows by `day_scaling` every `scaling_days` — and at a defence the
-//! defenders'; a site has a wave more every `wave_days`; and each enemy's
+//! bots' (the crew's bots and a defence's defenders); a site has a wave more every `wave_days`; and each enemy's
 //! tier is dealt by the day's tier-two and tier-three shares. What the
 //! crew own, what they have learnt, and how many bots, mercenaries and
 //! recruits walk with them are none of the machines' business. Only a
@@ -153,7 +153,8 @@ impl Infestation {
 /// the day the world opens (`World::run_day`):
 ///
 /// - a wave is `(per_player + day_scaling × steps) × players +
-///   ⌈per_defender × defenders⌉`, `steps` being whole `scaling_days` in
+///   ⌈per_bot × bots⌉` (the crew's bots and a
+///   defence's defenders), `steps` being whole `scaling_days` in
 ///   the run day ([`WaveScaling::size`]);
 /// - a site has `1 + whole wave_days` waves ([`WaveScaling::waves`]);
 /// - the share of enemies at tier two is `day / tier2_days`, all of them
@@ -177,9 +178,13 @@ pub struct WaveScaling {
     pub day_scaling: u32,
     /// How many days one step of `day_scaling` is (the "x").
     pub scaling_days: u32,
-    /// Machines added for each defender the site fields at a defence,
-    /// the product rounded up: `1.5` and three defenders is five.
-    pub enemies_per_defender: f32,
+    /// Machines added for each bot: every crew member alive who is not a
+    /// player (bots, hands and joiners — not a commander's reinforcements)
+    /// and at a defence every defender the site fields; the product
+    /// rounded up, `1.5` and three bots is five. (`enemies_per_defender`
+    /// in a file or a save written before.)
+    #[cfg_attr(feature = "serde", serde(alias = "enemies_per_defender"))]
+    pub enemies_per_bot: f32,
     /// Every this many days a site has one wave more (the "z").
     pub wave_days: u32,
     /// The day every Manufacturer carries tier-one gear (a gun and
@@ -200,7 +205,7 @@ impl WaveScaling {
         enemies_per_player: data::ENEMIES_PER_PLAYER,
         day_scaling: data::DAY_SCALING,
         scaling_days: data::SCALING_DAYS,
-        enemies_per_defender: data::ENEMIES_PER_DEFENDER,
+        enemies_per_bot: data::ENEMIES_PER_BOT,
         wave_days: data::WAVE_DAYS,
         tier1_days: data::TIER1_DAYS,
         tier2_days: data::TIER2_DAYS,
@@ -219,21 +224,21 @@ impl WaveScaling {
             .saturating_add(self.day_scaling.saturating_mul(self.steps(day)))
     }
 
-    /// Machines `defenders` bring, `enemies_per_defender` each, the
+    /// Machines `bots` bring, `enemies_per_bot` each, the
     /// product rounded up — worked in hundredths, so two machines agree
     /// to the machine.
-    pub fn for_defenders(&self, defenders: u32) -> u32 {
-        let hundredths = (f64::from(self.enemies_per_defender.max(0.0)) * 100.0).round() as u64;
-        let whole = (hundredths * u64::from(defenders)).div_ceil(100);
+    pub fn for_bots(&self, bots: u32) -> u32 {
+        let hundredths = (f64::from(self.enemies_per_bot.max(0.0)) * 100.0).round() as u64;
+        let whole = (hundredths * u64::from(bots)).div_ceil(100);
         whole.min(u64::from(u32::MAX)) as u32
     }
 
-    /// How many machines a wave is for `players` and `defenders` on run
+    /// How many machines a wave is for `players` and `bots` on run
     /// day `day`. The world makes it one at the least.
-    pub fn size(&self, players: u32, defenders: u32, day: u32) -> u32 {
+    pub fn size(&self, players: u32, bots: u32, day: u32) -> u32 {
         self.per_player_on(day)
             .saturating_mul(players)
-            .saturating_add(self.for_defenders(defenders))
+            .saturating_add(self.for_bots(bots))
     }
 
     /// How many waves a site has all told on run day `day`, the first
@@ -401,7 +406,7 @@ mod tests {
             enemies_per_player: 2,
             day_scaling: 1,
             scaling_days: 5,
-            enemies_per_defender: 1.0,
+            enemies_per_bot: 1.0,
             wave_days: 10,
             tier1_days: 5,
             tier2_days: 20,
@@ -410,10 +415,10 @@ mod tests {
     }
 
     /// The player's own example (task 147): day two, a defence with
-    /// three defenders, one player at two a player, a step of five days
+    /// three bots, one player at two a player, a step of five days
     /// not yet come — five machines.
     #[test]
-    fn a_wave_is_per_player_with_the_day_s_growth_and_per_defender() {
+    fn a_wave_is_per_player_with_the_day_s_growth_and_per_bot() {
         let d = dials();
         assert_eq!(d.size(1, 3, 2), 3 + 2);
         // The step comes on day five, and raises every player's share.
@@ -421,19 +426,19 @@ mod tests {
         assert_eq!(d.size(1, 0, 5), 3);
         assert_eq!(d.size(3, 0, 5), 9);
         assert_eq!(d.size(2, 0, 12), 2 * (2 + 2));
-        // A decimal per defender is rounded up on the whole.
+        // A decimal per bot is rounded up on the whole.
         let half = WaveScaling {
-            enemies_per_defender: 1.5,
+            enemies_per_bot: 1.5,
             ..d
         };
-        assert_eq!(half.for_defenders(3), 5);
-        assert_eq!(half.for_defenders(2), 3);
-        assert_eq!(half.for_defenders(0), 0);
+        assert_eq!(half.for_bots(3), 5);
+        assert_eq!(half.for_bots(2), 3);
+        assert_eq!(half.for_bots(0), 0);
         let third = WaveScaling {
-            enemies_per_defender: 0.34,
+            enemies_per_bot: 0.34,
             ..d
         };
-        assert_eq!(third.for_defenders(3), 2, "1.02 is two");
+        assert_eq!(third.for_bots(3), 2, "1.02 is two");
         // No step length is no growth, not a division by nought.
         let flat = WaveScaling {
             scaling_days: 0,

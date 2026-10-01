@@ -177,9 +177,9 @@ pub const ENEMIES_PER_PLAYER: u32 = 2;
 pub const DAY_SCALING: u32 = 1;
 /// The days of one step of [`DAY_SCALING`] (the "x").
 pub const SCALING_DAYS: u32 = 5;
-/// Machines each defender a defended site fields brings, the product
-/// rounded up.
-pub const ENEMIES_PER_DEFENDER: f32 = 1.0;
+/// Machines each bot brings — the crew's bots and a defence's
+/// defenders — the product rounded up.
+pub const ENEMIES_PER_BOT: f32 = 1.0;
 /// Every this many days a site has one wave more, one to begin with.
 pub const WAVE_DAYS: u32 = 10;
 /// The day every Manufacturer carries tier-one gear, a gun and armour;

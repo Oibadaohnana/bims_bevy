@@ -3542,7 +3542,21 @@ fn frame(
             attack_cursor(&top, at);
         } else {
             let firing = screen.control.is_some_and(|((_, _, fire), _)| fire);
-            aim_cursor(&top, at, firing, theme::AIM, 1.0);
+            // Grey past where a shot of the player's own Bim reaches
+            // (`Game::shot_reach`): the reticle shows where it can hit.
+            let beyond = here.is_some_and(|h| {
+                let me = screen.net.slot as usize;
+                session.room_ref().is_some_and(|room| {
+                    me < room.crew_count() as usize
+                        && room.shot_reach(me).is_some_and(|reach| {
+                            let (rx, ry) = session.room_point(h.x, h.y);
+                            let at = room.bim_pos(me);
+                            (rx - at.x).hypot(ry - at.y) > reach
+                        })
+                })
+            });
+            let colour = if beyond { theme::AIM_OUT } else { theme::AIM };
+            aim_cursor(&top, at, firing, colour, 1.0);
         }
     } else if (screen.aiming_attack || screen.aiming_move)
         && let Some(p) = on_canvas

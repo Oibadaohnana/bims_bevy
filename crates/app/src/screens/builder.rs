@@ -1311,12 +1311,12 @@ fn class_chooser(
 const DIFFICULTY_MOST: u32 = 99;
 /// The most days a day dial of the difficulty goes to.
 const DIFFICULTY_DAYS_MOST: u32 = 365;
-/// How far one press of − or + moves the enemies per defender.
-const PER_DEFENDER_STEP: f32 = 0.5;
+/// How far one press of − or + moves the enemies per bot.
+const PER_BOT_STEP: f32 = 0.5;
 
 /// The setup's difficulty (task 147): every dial of the wave formula —
 /// enemies per player, the day's scaling and its days, enemies per
-/// defender, the waves' days and the three tier timings — a stepper each,
+/// bot, the waves' days and the three tier timings — a stepper each,
 /// the host's to move. They show the tuning file's (`file`) until one is
 /// moved; Default puts them back to it. Under them, what the first wave
 /// comes to for the `players` here.
@@ -1400,7 +1400,7 @@ fn difficulty_rows(
             ] {
                 count_row(ui, name, note, value, most, editable);
             }
-            defender_row(ui, &mut d.enemies_per_defender, editable);
+            bot_row(ui, &mut d.enemies_per_bot, editable);
             for (name, note, value) in [
                 (WAVE_DAYS, wave_days_note.as_str(), &mut d.wave_days),
                 (TIER1_TIMING, tier_notes[0].as_str(), &mut d.tier1_days),
@@ -1461,18 +1461,18 @@ fn count_row(
     ui.end_row();
 }
 
-/// The enemies per defender, the one dial with decimals: − and + move it
-/// by [`PER_DEFENDER_STEP`], the drag box by hundredths.
-fn defender_row(ui: &mut egui::Ui, value: &mut f32, editable: bool) {
+/// The enemies per bot, the one dial with decimals: − and + move it
+/// by [`PER_BOT_STEP`], the drag box by hundredths.
+fn bot_row(ui: &mut egui::Ui, value: &mut f32, editable: bool) {
     let most = DIFFICULTY_MOST as f32;
-    ui.label(WAVE_PER_DEFENDER);
+    ui.label(WAVE_PER_BOT);
     ui.horizontal(|ui| {
         let less = ui.add_enabled(
             editable && *value > 0.0,
             egui::Button::new("-").min_size(egui::vec2(22.0, 22.0)),
         );
         if less.clicked() {
-            *value = (*value - PER_DEFENDER_STEP).max(0.0);
+            *value = (*value - PER_BOT_STEP).max(0.0);
         }
         ui.add_enabled(
             editable,
@@ -1486,11 +1486,11 @@ fn defender_row(ui: &mut egui::Ui, value: &mut f32, editable: bool) {
             egui::Button::new("+").min_size(egui::vec2(22.0, 22.0)),
         );
         if more.clicked() {
-            *value = (*value + PER_DEFENDER_STEP).min(most);
+            *value = (*value + PER_BOT_STEP).min(most);
         }
     });
     ui.label(
-        egui::RichText::new(WAVE_PER_DEFENDER_NOTE)
+        egui::RichText::new(WAVE_PER_BOT_NOTE)
             .small()
             .color(theme::MUTED),
     );

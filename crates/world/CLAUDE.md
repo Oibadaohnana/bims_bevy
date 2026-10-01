@@ -6703,10 +6703,14 @@ the same type — `pub type Difficulty = WaveScaling` — stands **in
 place of** it for a run) is eight dials, every one read off
 **`World::run_day`** (`days_gone + 1`, the day the top bar shows):
 
-- **a wave** (`size(players, defenders, day)`): `(enemies_per_player +
+- **a wave** (`size(players, bots, day)`): `(enemies_per_player +
   day_scaling × ⌊day / scaling_days⌋) × players`, plus at a defence
   `⌈enemies_per_defender × defenders fielded⌉` (an `f32`, worked in
-  hundredths). No base, no first-mission or early ease, no floor at the
+  hundredths) — renamed `enemies_per_bot` since (the old name still
+  reads, SAVE 84 / PROTOCOL 87): every **crew bot** alive, downed too
+  (bots, hired hands, joiners; never a commander's reinforcements —
+  `World::crew_bots`), plus at a defence the defenders fielded, so a
+  site attacked with two bots is two machines more. No base, no first-mission or early ease, no floor at the
   Bims fighting (`bims_fighting` went). `scaling_days` nought never grows.
 - **a site's waves** (`waves(day)`): `1 + ⌊day / wave_days⌋` (nought: one),
   fixed at the first dock as ever; the Machine Heart's are

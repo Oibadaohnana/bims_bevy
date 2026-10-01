@@ -2,7 +2,7 @@
 //!
 //! - `scaling.ron` (or the file `BIMS_SCALING` names) holds a
 //!   [`world::droid::WaveScaling`] (task 147): the machines a player brings,
-//!   how much that grows and every how many days, the machines a defender
+//!   how much that grows and every how many days, the machines a bot
 //!   brings, every how many days a site has a wave more, and the three tier
 //!   timings — the whole of how the enemies scale.
 //! - `rewards.ron` (or `BIMS_REWARDS`) holds a [`world::rewards::Rewards`]:
@@ -92,11 +92,11 @@ impl Tuning for WaveScaling {
     const UNTUNED: Self = WaveScaling::DEFAULT;
     fn describe(&self) -> String {
         format!(
-            "{}/player +{} every {} days, {}/defender, a wave more every {} days, tiers by day {}/{}/{}",
+            "{}/player +{} every {} days, {}/bot, a wave more every {} days, tiers by day {}/{}/{}",
             self.enemies_per_player,
             self.day_scaling,
             self.scaling_days,
-            self.enemies_per_defender,
+            self.enemies_per_bot,
             self.wave_days,
             self.tier1_days,
             self.tier2_days,
@@ -291,10 +291,7 @@ fn with_difficulty(text: &str, d: WaveScaling) -> Option<String> {
         ("day_scaling", d.day_scaling.to_string()),
         ("scaling_days", d.scaling_days.to_string()),
         // `{:?}` keeps the point, so the file reads it back as a float.
-        (
-            "enemies_per_defender",
-            format!("{:?}", d.enemies_per_defender),
-        ),
+        ("enemies_per_bot", format!("{:?}", d.enemies_per_bot)),
         ("wave_days", d.wave_days.to_string()),
         ("tier1_days", d.tier1_days.to_string()),
         ("tier2_days", d.tier2_days.to_string()),
@@ -410,7 +407,7 @@ mod tests {
             enemies_per_player: 4,
             day_scaling: 2,
             scaling_days: 7,
-            enemies_per_defender: 1.5,
+            enemies_per_bot: 1.5,
             wave_days: 12,
             tier1_days: 3,
             tier2_days: 25,
@@ -427,9 +424,9 @@ mod tests {
         assert!(changed <= 8, "{changed} lines changed");
         assert_eq!(text.lines().count(), new.lines().count());
         // A comment after the number stays, and a field left out is put in.
-        let new = with_difficulty("(\n    enemies_per_defender: 1.0, // one\n)\n", d).unwrap();
+        let new = with_difficulty("(\n    enemies_per_bot: 1.0, // one\n)\n", d).unwrap();
         assert!(
-            new.starts_with("(\n    enemies_per_defender: 1.5, // one\n"),
+            new.starts_with("(\n    enemies_per_bot: 1.5, // one\n"),
             "{new}"
         );
         assert_eq!(parse(&new), Ok(d));
@@ -446,8 +443,11 @@ mod tests {
         assert_eq!(s.enemies_per_player, 7);
         assert_eq!(s.scaling_days, WaveScaling::DEFAULT.scaling_days);
         assert!(parse::<WaveScaling>("(enemies_per_player: -1)").is_err());
-        let s: WaveScaling = parse("(enemies_per_defender: 1.5)").unwrap();
-        assert_eq!(s.enemies_per_defender, 1.5);
+        let s: WaveScaling = parse("(enemies_per_bot: 1.5)").unwrap();
+        assert_eq!(s.enemies_per_bot, 1.5);
+        // The name it had before still reads.
+        let s: WaveScaling = parse("(enemies_per_defender: 2.5)").unwrap();
+        assert_eq!(s.enemies_per_bot, 2.5);
         assert_eq!(s.tier2_days, WaveScaling::DEFAULT.tier2_days);
         let r: Rewards = parse("(buyback: 3)").unwrap();
         assert_eq!(r.buyback, 3);

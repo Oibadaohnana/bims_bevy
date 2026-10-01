@@ -11,8 +11,10 @@
 // "day" is the day the top bar shows, one on the day the run opens.
 //
 //   a wave        = (enemies_per_player + day_scaling * steps) * players
-//                   + enemies_per_defender * defenders, rounded up (at a
-//                   defence only; 1.5 and three defenders is five)
+//                   + enemies_per_bot * bots, rounded up (1.5 and three
+//                   bots is five). Bots are the crew's bots, hands and
+//                   joiners (never a commander's reinforcements), and at a
+//                   defence the site's defenders too
 //   steps         = whole scaling_days in the day (0: never grows)
 //   waves a site  = 1 + whole wave_days in the day (0: always one)
 //   tier timings  = the day every enemy has reached that tier; before it
@@ -31,13 +33,13 @@
 // every guest). The setup's "Save as default" writes its numbers into this
 // file, leaving the comments alone.
 // The built-in values: enemies_per_player 2, day_scaling 1, scaling_days 5,
-// enemies_per_defender 1.0, wave_days 10, tier1_days 5, tier2_days 20,
+// enemies_per_bot 1.0, wave_days 10, tier1_days 5, tier2_days 20,
 // tier3_days 40.
 (
     enemies_per_player: 2,
     day_scaling: 1,
     scaling_days: 5,
-    enemies_per_defender: 1.0,
+    enemies_per_bot: 1.0,
     wave_days: 10,
     tier1_days: 5,
     tier2_days: 20,
