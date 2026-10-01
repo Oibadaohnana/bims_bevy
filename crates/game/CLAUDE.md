@@ -4578,6 +4578,13 @@ play differently.
   move) fall short of one, off the combat stream, and strikes whatever it
   reaches first. `fire_as` and it share `Combat::loose`. A blade still
   swings at whoever locks it.
+- **A click is owed its shot**: orders reach the room together at its
+  next step, so a press and a release can arrive in one batch and the
+  trigger is never seen held. `set_steer` arms `Character::trigger_owed`
+  for `TRIGGER_OWED` (0.25 s) on the trigger's down edge, and the steered
+  branch fires while it is owed as well as while held, paying it with the
+  shot (`SAVE_VERSION` 78). The app counts `secondary_pressed` as held
+  for the same reason: a click inside one frame is never `down`.
 - Nothing is steered until a `Control` arrives, so no test, probe or bot
   moved and no survivor pin changed. `Game::is_steered(who)` is the
   question. `SAVE_VERSION` 77, `wire::PROTOCOL` 79.

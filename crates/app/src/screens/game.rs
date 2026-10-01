@@ -187,6 +187,12 @@ pub struct GameScreen {
     /// the ship view follows the player's own Bim from the first frame
     /// of a run, and of a world a resync stood up.
     free_camera: bool,
+    /// The pointer is the crosshair this frame (task 144): the system's
+    /// cursor hidden (`hide_the_cursor`) and the reticle drawn over
+    /// everything — over the deck, unless a window wants the pointer: the
+    /// trader, a relic to choose, the Esc sheet, the map, the Armory and
+    /// the character sheet.
+    crosshair: bool,
     /// Tab went down last frame with the keys ours: the focus egui gave a
     /// widget for it is to be surrendered (`keys::release_tab_focus`).
     tab_took_focus: bool,
@@ -416,7 +422,24 @@ impl Plugin for GamePlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(OnEnter(Screen::Game), open)
             .add_systems(EguiPrimaryContextPass, frame.run_if(in_state(Screen::Game)))
-            .add_systems(EguiPrimaryContextPass, over.run_if(in_state(Screen::Over)));
+            .add_systems(EguiPrimaryContextPass, over.run_if(in_state(Screen::Over)))
+            .add_systems(Update, hide_the_cursor);
+    }
+}
+
+/// The system's cursor hidden while the pointer is the crosshair (task
+/// 144, `GameScreen::crosshair`) and shown again everywhere else: another
+/// screen, or a window on this one that wants the pointer. Through the
+/// window's own `CursorOptions`, since bevy_egui turns `CursorIcon::None`
+/// into the arrow.
+fn hide_the_cursor(
+    state: Res<State<Screen>>,
+    screen: Option<Res<GameScreen>>,
+    mut cursor: Single<&mut bevy::window::CursorOptions, With<bevy::window::PrimaryWindow>>,
+) {
+    let hide = *state.get() == Screen::Game && screen.is_some_and(|s| s.crosshair);
+    if cursor.visible == hide {
+        cursor.visible = !hide;
     }
 }
 
@@ -990,6 +1013,7 @@ impl GameScreen {
             carry_walk: None,
             control: None,
             free_camera: false,
+            crosshair: false,
             tab_took_focus: false,
             backlog: 0.0,
             log: hud::Log::default(),
@@ -2289,7 +2313,10 @@ fn frame(
                 angle_code((ry - at.y).atan2(rx - at.x))
             })
             .or(screen.control.map(|((_, aim, _), _)| aim));
-        let fire = pointer.secondary_down
+        // A press counts as well as a button held: a quick click goes down
+        // and up within one frame, and the room owes it its shot
+        // (`character::TRIGGER_OWED`).
+        let fire = (pointer.secondary_down || pointer.secondary_pressed)
             && on_canvas.is_some()
             && !screen.aiming_attack
             && !screen.aiming_move
@@ -3335,6 +3362,14 @@ fn frame(
     drop(panels_timed);
 
     // --- painting ------------------------------------------------------------------
+    {
+        let _timed = crate::perf::scope(crate::perf::Phase::Render);
+        session.render();
+    }
+    // The view is read only after `render`, which is what puts the camera on
+    // the player's own Bim where this frame's steps left it: a view read
+    // before it drew the Bim through last frame's camera — a step off,
+    // every frame it walked, which shook it (task 144).
     let view = View {
         scale: session.view_scale(),
         offset: {
@@ -3425,10 +3460,6 @@ fn frame(
         }
     }
     {
-        {
-            let _timed = crate::perf::scope(crate::perf::Phase::Render);
-            session.render();
-        }
         // The world under the fog now; what goes over the fog — the
         // shots, the rings — once the fog is down (feature 97).
         world_canvas.shapes(&ctx, canvas, view, session.fog_split().0);
@@ -3563,21 +3594,43 @@ fn frame(
 
     // And the red crosshair while the attack key has the pointer armed
     // (feature 84), in the same place for the same reason.
-    if (screen.aiming_attack || screen.aiming_move)
+    // Over the deck the pointer is the crosshair and nothing else (task
+    // 144): the system's cursor is hidden (`hide_the_cursor`) and the
+    // reticle drawn over everything, the panels too — unless a window
+    // wants the pointer: the trader, a relic to choose, the Esc sheet, the
+    // map, the Armory or the character sheet.
+    let windowed = map_up
+        || screen.sheet.is_some()
+        || super::worldmap::trader_rect(&ctx).is_some()
+        || super::worldmap::relic_rect(&ctx).is_some()
+        || screen
+            .panels
+            .as_ref()
+            .is_some_and(|p| p.armory_open || p.sheet_open);
+    let inside = pointer
+        .pos
+        .is_some_and(|p| egui_rect(full).contains(egui::pos2(p.x, p.y)));
+    screen.crosshair = !windowed && inside && session.game.is_some();
+    if screen.crosshair
+        && let Some(p) = pointer.pos
+    {
+        let top = ctx.layer_painter(egui::LayerId::new(
+            egui::Order::Tooltip,
+            egui::Id::new("crosshair"),
+        ));
+        let at = egui::pos2(p.x, p.y);
+        if screen.aiming_attack || screen.aiming_move {
+            // The red one while the attack key has the pointer armed
+            // (feature 84).
+            attack_cursor(&top, at);
+        } else {
+            let firing = screen.control.is_some_and(|((_, _, fire), _)| fire);
+            aim_cursor(&top, at, firing);
+        }
+    } else if (screen.aiming_attack || screen.aiming_move)
         && let Some(p) = on_canvas
     {
         attack_cursor(&painter, egui::pos2(p.x + canvas.min.x, p.y + canvas.min.y));
-    } else if !map_up
-        && screen.aiming_throw.is_none()
-        && let Some(p) = on_canvas
-    {
-        // Else over the deck the pointer is the aim (task 144).
-        let firing = screen.control.is_some_and(|((_, _, fire), _)| fire);
-        aim_cursor(
-            &painter,
-            egui::pos2(p.x + canvas.min.x, p.y + canvas.min.y),
-            firing,
-        );
     }
     // The others' pointers and everybody's pings (Alt and a left click),
     // each in its player's colour, wherever it is in whichever view this

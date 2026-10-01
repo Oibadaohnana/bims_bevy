@@ -209,7 +209,9 @@ use crate::game::Game;
 /// `round`.
 /// 77: a player's keys and pointer on its Bim (task 144) —
 /// `Character::steer`.
-pub const SAVE_VERSION: u32 = 77;
+/// 78: a click of the fire button owed its shot (task 144) —
+/// `Character::trigger_owed`.
+pub const SAVE_VERSION: u32 = 78;
 
 /// What the file holds, read back.
 #[derive(serde::Deserialize)]

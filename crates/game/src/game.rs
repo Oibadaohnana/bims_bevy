@@ -1833,11 +1833,15 @@ impl Game {
                 bim.peek = None;
                 bim.character.set_lean(None);
                 bim.character.set_aim(Some(at));
-                if !s.fire {
+                // A click is a shot even if the button came up before
+                // this step saw it held (`TRIGGER_OWED`).
+                let owed = bim.character.trigger_owed(dt);
+                if !s.fire && !owed {
                     bim.trigger.hold();
                     continue;
                 }
                 if bim.trigger.pull(dt, &stats) {
+                    bim.character.trigger_paid();
                     let walking = bim.character.is_walking();
                     let muzzle = self.shot_from(who, from, at);
                     self.reveal(who);
@@ -12797,6 +12801,26 @@ mod tests {
             hits += game.take_hits().len();
         }
         assert!(hits > 0, "aimed at it, it is hit");
+
+        // A quick click: the press and the release reach the room before
+        // one step has seen the button held. It is a shot all the same —
+        // one, and no burst of them.
+        game.order(0, control(0.0, false));
+        for _ in 0..120 {
+            game.simulate(DT);
+        }
+        let before = game.bolts_in_flight();
+        game.order(0, control(0.0, true));
+        game.order(0, control(0.0, false));
+        game.simulate(DT);
+        assert_eq!(game.bolts_in_flight(), before + 1, "the click fired");
+        let mut more = 0;
+        for _ in 0..180 {
+            let was = game.bolts_in_flight();
+            game.simulate(DT);
+            more += usize::from(game.bolts_in_flight() > was);
+        }
+        assert_eq!(more, 0, "and only once");
     }
 
     #[test]

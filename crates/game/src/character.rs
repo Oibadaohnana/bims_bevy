@@ -51,6 +51,12 @@ pub const STEER_TURN: f32 = TAU;
 /// stops again than [`ACCEL`] (task 144): the keys want an answer, not
 /// a body with weight.
 const STEER_ACCEL: f32 = 4.0;
+/// How long a press of the fire button is owed a shot after it, in seconds
+/// (task 144): a quick click goes down and up again between two of the
+/// room's steps — the orders reach it together — and would otherwise
+/// never be seen held; and one a moment before the weapon is ready is
+/// fired the moment it is.
+pub const TRIGGER_OWED: f32 = 0.25;
 /// How close a click or marquee has to come to count as touching the Bim.
 pub const PICK_RADIUS: f32 = 26.0;
 
@@ -979,6 +985,10 @@ pub struct Character {
     /// stood up off the host's world walks on with the keys still down.
     #[cfg_attr(feature = "serde", serde(default))]
     steer: Option<Steer>,
+    /// Seconds left on a press of the fire button not yet fired
+    /// ([`TRIGGER_OWED`]).
+    #[cfg_attr(feature = "serde", serde(default))]
+    trigger_owed: f32,
     /// An enemy, to whoever is looking: ringed in red under the body.
     /// Drawing only; the world says who is.
     hostile: bool,
@@ -1066,6 +1076,7 @@ impl Character {
             aim: None,
             falling_back: None,
             steer: None,
+            trigger_owed: 0.0,
             hostile: false,
             braced: false,
             surging: false,
@@ -1412,7 +1423,23 @@ impl Character {
             self.path.clear();
             self.far = None;
         }
+        if steer.fire && !self.steer.is_some_and(|s| s.fire) {
+            self.trigger_owed = TRIGGER_OWED;
+        }
         self.steer = Some(steer);
+    }
+
+    /// Whether a press of the fire button is still owed a shot, and the
+    /// clock on it run down by `dt`.
+    pub fn trigger_owed(&mut self, dt: f32) -> bool {
+        let owed = self.trigger_owed > 0.0;
+        self.trigger_owed = (self.trigger_owed - dt).max(0.0);
+        owed
+    }
+
+    /// The press paid: a shot went.
+    pub fn trigger_paid(&mut self) {
+        self.trigger_owed = 0.0;
     }
 
     /// Whether the keys are walking it this step.
