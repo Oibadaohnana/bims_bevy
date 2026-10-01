@@ -5246,6 +5246,10 @@ off its `SystemMemory`). Derived, never saved.
   snapped by the new **`Game::stand_at`** (`put_for_probe` is it now).
   `data::DEFENSE_DELAY_STEPS` is **1 200** (twenty seconds at 1×); the
   first wave's arrival puts everybody back to 1× as any wave's does.
+  The gap after a wave is down is `data::DEFENSE_REINFORCE_STEPS`,
+  **600** (ten seconds), not an attack's `DROID_REINFORCE_STEPS`
+  (thirty): `defense_waves` uses it while `droid_reinforce` is at the
+  game's own, so a probe's dial still wins.
 - **Defenders** (`Residents::defender`, serde default, kept in step with
   `fee`, `medic` and `grave` at every resize, remove and truncate):
   `Residents::open` takes `defenders` after the mercenaries, **not** cut

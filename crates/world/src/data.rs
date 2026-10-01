@@ -362,6 +362,12 @@ pub const FRONT_BIAS: i32 = 5;
 /// only a town on the front was ever defended) — the prep time, to get
 /// the crew to where they want to stand before the shooting starts.
 pub const DEFENSE_DELAY_STEPS: u64 = 1_200;
+/// How long after the last machine of a wave at a site the crew defend
+/// is destroyed the next one lands, in steps of the mission clock: ten
+/// seconds of it at 1×, where an attacked station's waves are
+/// [`DROID_REINFORCE_STEPS`] (thirty) apart. The probes' reinforcement
+/// dial still shortens it.
+pub const DEFENSE_REINFORCE_STEPS: u64 = 600;
 /// How many of a defended town's surviving people join the crew when the
 /// last wave is destroyed: two, not more and not less, whatever the
 /// town's size — fewer only when fewer than two are left besides the

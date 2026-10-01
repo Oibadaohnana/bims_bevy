@@ -770,6 +770,38 @@ fn a_station_defence_counts_down_lands_at_the_far_airlock_and_pays_on_the_win() 
     assert!(world.defense(id).is_some_and(|d| d.won && !d.lost));
 }
 
+/// **A defence's waves are ten seconds apart**: the last machine of one
+/// down, the next lands `DEFENSE_REINFORCE_STEPS` later — not the thirty
+/// seconds (`DROID_REINFORCE_STEPS`) of an attacked station's.
+#[test]
+fn a_defence_s_next_wave_lands_ten_seconds_after_the_last_is_down() {
+    assert_eq!(data::DEFENSE_REINFORCE_STEPS, 600, "ten seconds at 1x");
+    let (mut world, id) = a_station_defence(2, 2);
+    let landed = until(&mut world, data::DEFENSE_DELAY_STEPS as u32 + 2, |w| {
+        w.droids_standing() > 0
+    });
+    assert!(landed, "no first wave");
+    destroy_the_wave(&mut world);
+    let mut steps = 0;
+    while world.droids_standing() == 0 {
+        world.step(&[]);
+        steps += 1;
+        if steps == 2 {
+            let left = world.defense(id).and_then(|d| d.next_in);
+            assert!(
+                left.is_some_and(|left| left <= data::DEFENSE_REINFORCE_STEPS),
+                "the countdown reads {left:?}"
+            );
+        }
+        assert!(
+            steps <= data::DEFENSE_REINFORCE_STEPS + 2,
+            "no wave by {steps}"
+        );
+    }
+    assert!(steps >= data::DEFENSE_REINFORCE_STEPS, "a wave at {steps}");
+    assert_eq!(world.defense(id).map(|d| d.wave), Some(2));
+}
+
 /// **Every defender brings a machine** (task 111): a defence's wave is
 /// the formula's with one more for each defender the site fielded, and
 /// anywhere else it is the formula's alone — either way never fewer than

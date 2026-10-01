@@ -6764,8 +6764,13 @@ impl World {
             d.standing = standing;
         }
         // Steps of the mission clock (feature 103), counted down one a
-        // step while the crew are here.
-        let reinforce = self.droid_reinforce;
+        // step while the crew are here: a defence's waves come
+        // `DEFENSE_REINFORCE_STEPS` apart, unless a probe set the dial.
+        let reinforce = if self.droid_reinforce == data::DROID_REINFORCE_STEPS {
+            data::DEFENSE_REINFORCE_STEPS
+        } else {
+            self.droid_reinforce
+        };
         let mut arrive = false;
         let mut won = false;
         // **Not won until every wreck is counted** (task 111): `visit`
