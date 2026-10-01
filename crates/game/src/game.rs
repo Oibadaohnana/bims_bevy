@@ -12860,6 +12860,33 @@ mod tests {
         assert_eq!(more, 0, "and only once");
     }
 
+    /// What the player's crosshair greys past: the weapon's reach through
+    /// the skill it shoots with, the optics' tiles standing still too,
+    /// and nothing with the medkit in hand.
+    #[test]
+    fn a_shot_reaches_the_weapon_s_range_through_the_skill_and_none_with_the_medkit() {
+        use crate::bim::Hand;
+        use crate::order::CrewOrder;
+        let mut game = room();
+        game.set_autonomous(false);
+        game.put_for_probe(0, vec2(ROOM_W * 0.3, ROOM_H * 0.5));
+        let pistol = WeaponKind::LaserPistol.basic();
+        assert_eq!(game.weapon(0), Some(pistol));
+        assert_eq!(game.shot_reach(0), Some(pistol.stats().reach()));
+        let optics = Skill {
+            range: 2.0,
+            still_range: 3.0,
+            ..Skill::NONE
+        };
+        game.set_skills(vec![optics]);
+        assert_eq!(
+            game.shot_reach(0),
+            Some((pistol.stats().range + 5.0) * TILE)
+        );
+        game.order(0, CrewOrder::Hand { hand: Hand::Medkit });
+        assert_eq!(game.shot_reach(0), None);
+    }
+
     #[test]
     fn a_steered_pistol_fires_every_click_and_once_while_held() {
         use crate::order::{CrewOrder, angle_code};
@@ -12949,33 +12976,6 @@ mod tests {
             step(&mut game, &mut fired);
         }
         assert_eq!(fired, 2, "and once");
-    }
-
-    /// What the player's crosshair greys past: the weapon's reach through
-    /// the skill it shoots with, the optics' tiles standing still too,
-    /// and nothing with the medkit in hand.
-    #[test]
-    fn a_shot_reaches_the_weapon_s_range_through_the_skill_and_none_with_the_medkit() {
-        use crate::bim::Hand;
-        use crate::order::CrewOrder;
-        let mut game = room();
-        game.set_autonomous(false);
-        game.put_for_probe(0, vec2(ROOM_W * 0.3, ROOM_H * 0.5));
-        let pistol = WeaponKind::LaserPistol.basic();
-        assert_eq!(game.weapon(0), Some(pistol));
-        assert_eq!(game.shot_reach(0), Some(pistol.stats().reach()));
-        let optics = Skill {
-            range: 2.0,
-            still_range: 3.0,
-            ..Skill::NONE
-        };
-        game.set_skills(vec![optics]);
-        assert_eq!(
-            game.shot_reach(0),
-            Some((pistol.stats().range + 5.0) * TILE)
-        );
-        game.order(0, CrewOrder::Hand { hand: Hand::Medkit });
-        assert_eq!(game.shot_reach(0), None);
     }
 
     #[test]

@@ -137,7 +137,7 @@ const STUN_FLICKER: f32 = 38.0;
 const TURN_RATE: f32 = 4.0;
 /// What a Bim marches at, in room units a second, and what each kind's
 /// pace is a share of.
-const MARCH: f32 = 96.0;
+const MARCH: f32 = balance::MARCH_SPEED;
 /// How close to a waypoint counts as rounded, and how close to the last
 /// one counts as arrived.
 const WAYPOINT_RADIUS: f32 = 11.0;

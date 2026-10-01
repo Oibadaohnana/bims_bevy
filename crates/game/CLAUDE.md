@@ -732,7 +732,7 @@ start something else) and `interrupt`s the chain onto the queue, where
 `queue_ready` holds it until the way is open again.
 
 The case it was written for: **the turn is an arc.** A body turns at
-`TURN_RATE` while moving at `MARCH_SPEED`, a radius of some seventeen units,
+`TURN_RATE` while moving at `MARCH_SPEED`, a radius of some twenty-six units (seventeen before the march went to 144),
 so a walk that starts facing the wrong way leaves the line it was given by
 up to a body's width. Off the line against the inflated face of the table
 with the next waypoint straight through it, the push-out undid every step
@@ -4640,6 +4640,18 @@ untouched (`Game::shot_skill` is not sure). Cover, a peek's dodge, the
 target's armour and a Guardian's plate still stop what they stopped.
 `a_player_s_shot_always_lands_and_a_bot_s_keeps_its_odds` pins it. In
 seeded runs Bim 0 is a player's, so the survivor pins move with it.
+
+## Everybody walks half again as quick (October 2026)
+
+`balance::MARCH_SPEED` (144 room units a second, was 96) is the one
+march: `character::MARCH_SPEED` — every Bim, a player's, a bot, a
+station's people, a Manufacturer — and `droid::MARCH`, which each
+machine's kind pace (`HUSK_PACE` and the rest) is a share of. Every pace
+factor (crowding, carrying, downed, a relic's or a class's `walk`, the
+sprint and the backstep) multiplies it as before; `ACCEL` and
+`STEER_ACCEL` were left, so a body takes a little longer to reach its
+pace. Every route takes two thirds of the time, so the survivor pins
+move.
 
 ## One armour, and a hit lands nowhere in particular (October 2026)
 

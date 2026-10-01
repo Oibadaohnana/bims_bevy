@@ -15,8 +15,9 @@ const TURN_RATE: f32 = 5.5;
 const ACCEL: f32 = 220.0;
 /// Odds that a new walk picks a wholly new direction instead of a gentle turn.
 const REVERSAL_CHANCE: f32 = 0.15;
-/// Speed when marching to a spot a task or the player picked.
-const MARCH_SPEED: f32 = 96.0;
+/// Speed when marching to a spot a task or the player picked
+/// (`balance::MARCH_SPEED`, the machines' too).
+const MARCH_SPEED: f32 = crate::balance::MARCH_SPEED;
 /// How close counts as arrived at the final waypoint.
 const ARRIVE_RADIUS: f32 = 5.0;
 /// How close counts as having rounded an intermediate corner. Looser than

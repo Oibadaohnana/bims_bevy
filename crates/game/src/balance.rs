@@ -509,6 +509,12 @@ pub const GUARDIAN_PACE: f32 = 0.7;
 pub const DROID_ARMS_ACCURACY: f32 = 0.5;
 pub const DROID_ARMS_DAMAGE: f32 = 0.5;
 
+/// What a body marches at, in room units a second: every Bim — a player's,
+/// a bot, a station's people, a Manufacturer — and, times its kind's pace
+/// below, every machine. It was 96 until October 2026, when everybody
+/// was made half again as quick.
+pub const MARCH_SPEED: f32 = 144.0;
+
 /// What each kind walks at, as a share of a Bim's marching pace.
 pub const HUSK_PACE: f32 = 1.3;
 pub const TROOPER_PACE: f32 = 1.0;

@@ -23,11 +23,11 @@
     sniper: 1.0,            // the sniper rifle
 
     // Hits.
-    laser_hit: 0.7,         // a bolt landing on a body
-    laser_wall: 0.7,        // a bolt off a wall, or a Guardian's shield
-    ouch: 0.7,              // one of the crew hit
+    laser_hit: 0.5,         // a bolt landing on a body
+    laser_wall: 0.5,        // a bolt off a wall, or a Guardian's shield
+    ouch: 0.4,              // one of the crew hit
     schword: 0.9,           // a blade's cut
-    punch: 1.0,             // a blow that is not a cut
+    punch: 0.8,             // a blow that is not a cut
 
     // Doors.
     door_open: 1.0,
