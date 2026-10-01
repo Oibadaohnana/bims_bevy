@@ -1637,6 +1637,10 @@ impl World {
         self.share_out();
         self.bury_the_bots();
         self.respawn_the_fallen(events);
+        // And every piece whole again for the map, the reward screen and
+        // a trader, the fight won or not: nothing stays broken past its
+        // mission.
+        self.mend_all_armour();
         // The slow a downing left is the mission's and ends with it (task
         // 120).
         for who in 0..self.aboard.crew_count() {

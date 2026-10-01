@@ -4168,8 +4168,9 @@ impl World {
     }
 
     /// Every piece there is made whole, worn or in the armory: what a
-    /// mission's start does (task 113). Armour is never destroyed — a
-    /// piece at nothing stays worn and does nothing until then.
+    /// mission's start does (task 113), and its end — the site cleared,
+    /// or the ship leaving it. Armour is never destroyed — a piece at
+    /// nothing stays worn and does nothing for the rest of the fight.
     fn mend_all_armour(&mut self) {
         for stored in &mut self.holdings.armory {
             stored.item = holdings::mend(stored.item);

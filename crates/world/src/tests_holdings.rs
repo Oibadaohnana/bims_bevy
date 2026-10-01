@@ -439,10 +439,12 @@ fn no_player_takes_another_player_s_gear_without_its_yes() {
 }
 
 /// **Armour is never destroyed**: a piece worn down to nothing stays
-/// worn, does nothing for the rest of the mission, and is whole again at
-/// the next mission's start — and so is one in the armory.
+/// worn, does nothing for the rest of the mission, and is whole again the
+/// moment the ship leaves the site — on the map, the reward screen and at
+/// a trader, not only at the next mission's start — and so is one in the
+/// armory.
 #[test]
-fn armour_at_nothing_stays_worn_and_is_whole_at_the_next_mission() {
+fn armour_at_nothing_stays_worn_and_is_whole_once_the_mission_is_left() {
     let mut world = simulation_world(playtest_ship(), data::SIMULATION_MONEY, 1);
     world.leave_for_probe();
     let id = stock(&mut world, helm());
@@ -477,8 +479,15 @@ fn armour_at_nothing_stays_worn_and_is_whole_at_the_next_mission() {
     dented.health = 1.0;
     let in_armory = stock(&mut world, Item::Armour(dented));
 
-    // The next mission: both whole.
+    // The mission left: both whole on the map already.
     world.leave_for_probe();
+    let helm = world.aboard.room.worn(0).expect("still worn");
+    assert_eq!(helm.health, helm.stats().health, "whole on the map");
+    assert!(world.holdings.get(in_armory).is_some_and(|s| match s.item {
+        Item::Armour(p) => p.health == p.stats().health,
+        _ => false,
+    }));
+    // And at the next mission.
     let site = another_site_here(&world);
     travel_to(&mut world, site);
     let helm = world.aboard.room.worn(0).expect("still worn");

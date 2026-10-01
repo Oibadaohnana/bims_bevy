@@ -945,6 +945,10 @@ impl World {
             return;
         }
         self.run.cleared_here = true;
+        // The fight over, the armour whole again: mended only at the next
+        // mission's start, the crew sheet, the reward screen and a trader
+        // showed a broken piece until then.
+        self.mend_all_armour();
         // The run's summary (feature 108): a site cleared of machines, and
         // a system liberated when the site was its jammer.
         self.run.sites_cleared = self.run.sites_cleared.saturating_add(1);

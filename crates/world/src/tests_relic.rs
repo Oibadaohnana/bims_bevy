@@ -407,6 +407,29 @@ fn a_cache_s_relic_is_kept_when_the_site_is_cleared() {
     assert!(world.pending_relics().is_empty());
 }
 
+/// **A piece broken in the fight is whole the moment the site is
+/// cleared**: the crew sheet never shows it broken after the fight, nor
+/// does a trader or the reward screen.
+#[test]
+fn armour_broken_in_the_fight_is_whole_once_the_site_is_cleared() {
+    let (mut world, station) = held_arena(1);
+    // Worn down to nothing in the fight.
+    let mut worn = bims::combat::Piece::new(9_200, bims::combat::ArmourKind::Armour, Tier::One);
+    worn.health = 0.0;
+    let gear = world.aboard.room.gear(0);
+    world.aboard.room.issue(
+        0,
+        Gear {
+            armour: Some(worn),
+            ..gear
+        },
+    );
+    assert!(world.aboard.room.worn(0).is_some_and(|p| p.broken()));
+    clear(&mut world, station);
+    let piece = world.aboard.room.worn(0).expect("still worn");
+    assert_eq!(piece.health, piece.stats().health, "whole after the fight");
+}
+
 /// **A cache's relic is lost when the site is left uncleared**, and the
 /// site put back — the cache on its desk again.
 #[test]

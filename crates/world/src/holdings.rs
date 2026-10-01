@@ -22,8 +22,9 @@
 //! the recipient accepts.
 //!
 //! Armour is **never destroyed**: a piece at nought stays worn and stops
-//! protecting for the rest of the mission, and every piece — worn or in
-//! the armory — is whole again at the next mission's start.
+//! protecting for the rest of the fight, and every piece — worn or in
+//! the armory — is whole again the moment the site is cleared, when the
+//! ship leaves it, and at the next mission's start.
 
 use bims::combat::{Item, Piece};
 
