@@ -93,6 +93,109 @@ pub fn icon(painter: &egui::Painter, rect: Rect, item: Item) {
             Some(id) => resource(painter, rect, id),
             None => unknown(painter, rect),
         },
+        Item::Module(item) => module(painter, rect, item),
+    }
+}
+
+// The items' pictures (October 2026): a dark plate rimmed in brass, the
+// thing on it in its own colour, and its tier as pips in the corner.
+const ITEM_PLATE: Color32 = Color32::from_rgb(0x1c, 0x1e, 0x26);
+const ITEM_RIM: Color32 = Color32::from_rgb(0xb8, 0x92, 0x4a);
+const BLINK: Color32 = Color32::from_rgb(0xb4, 0x80, 0xff);
+const BLINK_PALE: Color32 = Color32::from_rgb(0xe6, 0xd8, 0xff);
+const EXECUTE: Color32 = Color32::from_rgb(0xe8, 0x4c, 0x3c);
+const HEART: Color32 = Color32::from_rgb(0xc8, 0x34, 0x40);
+const HEART_CORE: Color32 = Color32::from_rgb(0x7c, 0xf0, 0x9a);
+const CORE_GOLD: Color32 = Color32::from_rgb(0xf0, 0xc0, 0x48);
+const CORE_DEEP: Color32 = Color32::from_rgb(0x6a, 0x4c, 0x18);
+
+/// An item's picture, into `rect` (October 2026): its plate and the
+/// thing, with one pip a tier in the top right for a tiered kind.
+pub fn module(painter: &egui::Painter, rect: Rect, item: bims::module::Module) {
+    let mut s = Sketch::default();
+    let plate = Box_::new(rect);
+    let r = plate.px(0.16);
+    s.rect_filled(plate.rect(0.02, 0.02, 0.98, 0.98), r, ITEM_PLATE);
+    s.rect_stroke(
+        plate.rect(0.02, 0.02, 0.98, 0.98),
+        r,
+        Stroke::new(plate.px(0.05), ITEM_RIM),
+        egui::StrokeKind::Inside,
+    );
+    let b = Box_::new(plate.rect(0.14, 0.14, 0.86, 0.86));
+    draw_module(&mut s, &b, item.kind);
+    if item.kind.tiered() {
+        for n in 0..item.tier.code() {
+            let x = 0.84 - 0.13 * n as f32;
+            s.circle_filled(plate.at(x, 0.14), plate.px(0.05), ITEM_RIM);
+        }
+    }
+    painter.extend(s.shapes);
+}
+
+/// One item's thing, drawn in fractions of the plate's inside.
+fn draw_module(s: &mut Sketch, b: &Box_, kind: bims::module::ModuleKind) {
+    use bims::module::ModuleKind;
+    let st = |width: f32, colour: Color32| Stroke::new(b.px(width), colour);
+    match kind {
+        // A shard flying up and right, the streaks it leaves behind it.
+        ModuleKind::BlinkDrive => {
+            for (x, y) in [(0.06, 0.70), (0.14, 0.86), (0.02, 0.54)] {
+                s.line_segment([b.at(x, y), b.at(x + 0.26, y - 0.26)], st(0.05, BLINK));
+            }
+            s.fill(
+                b.poly(&[(0.92, 0.08), (0.80, 0.46), (0.54, 0.46), (0.54, 0.20)]),
+                BLINK,
+            );
+            s.fill(
+                b.poly(&[(0.54, 0.46), (0.80, 0.46), (0.36, 0.86), (0.26, 0.76)]),
+                BLINK,
+            );
+            s.line_segment([b.at(0.88, 0.12), b.at(0.40, 0.72)], st(0.05, BLINK_PALE));
+            s.circle_filled(b.at(0.88, 0.12), b.px(0.07), BLINK_PALE);
+        }
+        // A reticle, its four ticks, and the red mark in it.
+        ModuleKind::Executioner => {
+            s.circle_stroke(b.at(0.5, 0.5), b.px(0.34), st(0.07, EXECUTE));
+            for (a, c) in [
+                ((0.5, 0.02), (0.5, 0.24)),
+                ((0.5, 0.76), (0.5, 0.98)),
+                ((0.02, 0.5), (0.24, 0.5)),
+                ((0.76, 0.5), (0.98, 0.5)),
+            ] {
+                s.line_segment([b.at(a.0, a.1), b.at(c.0, c.1)], st(0.07, EXECUTE));
+            }
+            s.circle_filled(b.at(0.5, 0.5), b.px(0.10), EXECUTE);
+            s.circle_filled(b.at(0.47, 0.47), b.px(0.04), SHINE);
+        }
+        // A heart, a reactor's green core lit in it.
+        ModuleKind::ReactorHeart => {
+            s.circle_filled(b.at(0.32, 0.36), b.px(0.22), HEART);
+            s.circle_filled(b.at(0.68, 0.36), b.px(0.22), HEART);
+            s.fill(b.poly(&[(0.12, 0.44), (0.88, 0.44), (0.50, 0.92)]), HEART);
+            s.circle_filled(b.at(0.5, 0.48), b.px(0.15), HEART_CORE);
+            s.circle_stroke(b.at(0.5, 0.48), b.px(0.22), st(0.03, HEART_CORE));
+            s.circle_filled(b.at(0.28, 0.30), b.px(0.06), SHINE);
+        }
+        // A gold hexagon, a chevron up through it: one rank more.
+        ModuleKind::OverrideCore => {
+            let hex: Vec<(f32, f32)> = (0..6)
+                .map(|i| polar_at(0.5, 0.5, 0.46, 60.0 * i as f32 + 30.0))
+                .collect();
+            s.fill(b.poly(&hex), CORE_DEEP);
+            let inner: Vec<(f32, f32)> = (0..6)
+                .map(|i| polar_at(0.5, 0.5, 0.36, 60.0 * i as f32 + 30.0))
+                .collect();
+            s.fill(b.poly(&inner), CORE_GOLD);
+            s.path(
+                b.poly(&[(0.28, 0.62), (0.5, 0.36), (0.72, 0.62)]),
+                st(0.10, CORE_DEEP),
+            );
+            s.path(
+                b.poly(&[(0.32, 0.80), (0.5, 0.58), (0.68, 0.80)]),
+                st(0.08, CORE_DEEP),
+            );
+        }
     }
 }
 
@@ -1087,6 +1190,11 @@ mod tests {
             icon(&painter, rect, Item::Weapon(weapon.basic()));
         }
         icon(&painter, rect, Item::Stack(u32::MAX));
+        for kind in bims::module::ModuleKind::ALL {
+            for tier in Tier::ALL {
+                icon(&painter, rect, Item::Module(kind.at(tier)));
+            }
+        }
     }
 
     /// Every relic has a picture, and they are not one another's: no two

@@ -33,6 +33,8 @@ mod game;
 mod health;
 #[path = "../crates/game/src/math.rs"]
 mod math;
+#[path = "../crates/game/src/module.rs"]
+mod module;
 #[path = "../crates/game/src/nav.rs"]
 mod nav;
 #[path = "../crates/game/src/order.rs"]

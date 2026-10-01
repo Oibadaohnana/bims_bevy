@@ -341,7 +341,8 @@ pub fn item_tint(item: bims::combat::Item) -> Option<egui::Color32> {
     match item {
         bims::combat::Item::Armour(piece) => tier_tint(piece.tier),
         bims::combat::Item::Weapon(weapon) => tier_tint(weapon.tier),
-        bims::combat::Item::Stack(_) => None,
+        bims::combat::Item::Module(item) if item.kind.tiered() => tier_tint(item.tier),
+        bims::combat::Item::Module(_) | bims::combat::Item::Stack(_) => None,
     }
 }
 

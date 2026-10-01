@@ -9,7 +9,7 @@
 //! # A picture, kept by the screen
 //!
 //! Nothing here is the world's. A bar is read off the room every frame —
-//! a Bim's hit points out of [`bims::health::MAX_HEALTH`] with its worn
+//! a Bim's hit points out of its whole bar (`Game::max_health`) with its worn
 //! armour's health in the armour's blue on the end, as the HUD draws it;
 //! a machine's one health, its four parts' added together — and the white
 //! and the light parts are this window's memory of what the bar was a
@@ -181,7 +181,7 @@ fn reading(room: &bims::game::Game, who: usize) -> Option<Reading> {
     match who.checked_sub(bims) {
         None => {
             let armour = room.armour_health(who).max(0.0);
-            let whole = bims::health::MAX_HEALTH + armour;
+            let whole = room.max_health(who) + armour;
             Some(Reading {
                 health: (room.health(who) / whole).clamp(0.0, 1.0),
                 armour: armour / whole,

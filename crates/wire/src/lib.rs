@@ -76,7 +76,10 @@ use serde::{Deserialize, Serialize};
 /// machines, waves and tiers a site has is worked out by them alone.
 /// 87: `enemies_per_bot` in the lobby's difficulty, and every crew bot
 /// a machine more in a wave both ends work out.
-pub const PROTOCOL: u32 = 87;
+/// 88: items (October 2026) — `Command::{UseItem, BuyItem, EquipAt}`, the
+/// four item slots on every loadout, the blink, the ultimate's fifth rank
+/// and a trader's shelf of one gun and one piece at the day's tier.
+pub const PROTOCOL: u32 = 88;
 
 /// Where the relay lives. `BIMS_SERVER` in the environment overrides it
 /// — `ws://127.0.0.1:8792` for one on the same machine.

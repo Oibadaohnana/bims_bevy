@@ -250,6 +250,14 @@ impl World {
         // drawn by the day's odds like a reward's (task 117), and kept out
         // of every other draw while it is on the table — never out of the
         // pool until it is bought — so no two players are offered one relic.
+        // The shelf is rolled afresh every visit, at the tier the day has
+        // reached (October 2026); the relic stays until it is bought.
+        let visit = self.clock_minutes.to_bits();
+        let tier = self.shop_tier();
+        let seed = self.galaxy_seed;
+        for trader in self.run.traders.iter_mut().filter(|t| t.site == site) {
+            trader.restock(seed, visit, tier);
+        }
         for owner in 0..self.players() {
             if self
                 .run
@@ -266,7 +274,7 @@ impl World {
                 .partition_point(|t| (t.site, t.owner) < (site, owner));
             self.run
                 .traders
-                .insert(at, Trader::new(self.galaxy_seed, site, relic, owner));
+                .insert(at, Trader::new(seed, site, relic, owner, visit, tier));
         }
     }
 
@@ -367,6 +375,95 @@ impl World {
         events.push(WorldEvent::ShelfBought {
             slot,
             index,
+            to: to.unwrap_or(u32::MAX),
+        });
+    }
+
+    // --- the items (October 2026) ------------------------------------------------
+
+    /// The tier a trader sells at today: [`crate::items::shop_tier`] off the
+    /// scaling's tier days and the run day — its gun, its armour and its
+    /// items alike.
+    pub fn shop_tier(&self) -> Tier {
+        crate::items::shop_tier(&self.scaling(), self.run_day())
+    }
+
+    /// The trader's item shelf today ([`crate::items::shop`]): every kind
+    /// at the day's tier. The same for every player, and never sold out.
+    pub fn item_shelf(&self) -> Vec<bims::module::Module> {
+        crate::items::shop(self.shop_tier())
+    }
+
+    /// What an item costs player `slot`: [`crate::items::price`], through
+    /// the reward dials' shelf per cent, *Trade License* and the players'
+    /// share, as a thing off the shelf is.
+    pub fn item_price(&self, slot: u32, item: bims::module::Module) -> Money {
+        let price = self.rewards.shelf_price(crate::items::price(item));
+        self.trader_share(self.trader_discount_for(slot, price))
+    }
+
+    /// [`Command::BuyItem`]: the item of `kind` off today's item shelf,
+    /// paid out of player `slot`'s own wallet, onto `to`'s first free item
+    /// slot — a player's own Bim alone — or into the armory with `None`.
+    pub(super) fn buy_item(
+        &mut self,
+        slot: u32,
+        kind: u32,
+        to: Option<u32>,
+        events: &mut Vec<WorldEvent>,
+    ) {
+        if self.trader_index(slot).is_none() {
+            events.push(refused(slot, Refusal::NotAtATrader));
+            return;
+        }
+        let Some(item) = bims::module::ModuleKind::from_code(kind)
+            .and_then(|kind| self.item_shelf().into_iter().find(|m| m.kind == kind))
+        else {
+            events.push(refused(slot, Refusal::NotForSale));
+            return;
+        };
+        let onto = match to {
+            Some(who) => {
+                if who >= self.aboard.crew_count() {
+                    events.push(refused(slot, Refusal::NotAboard));
+                    return;
+                }
+                if !self.may_change(slot, who) {
+                    events.push(refused(slot, Refusal::NotYours));
+                    return;
+                }
+                match self.item_slot_for(who, None) {
+                    Ok(part) => Some((who, part)),
+                    Err(why) => {
+                        events.push(refused(slot, why));
+                        return;
+                    }
+                }
+            }
+            None => None,
+        };
+        let price = self.item_price(slot, item);
+        if !self.pay_from(slot, price) {
+            events.push(refused(slot, Refusal::Unaffordable));
+            return;
+        }
+        let thing = Item::Module(item);
+        match onto {
+            Some((who, part)) => {
+                self.set_slot(who, part, Some(thing), events);
+                events.push(WorldEvent::GearChanged {
+                    who,
+                    part: part.code(),
+                });
+            }
+            None => {
+                self.holdings.put(thing);
+            }
+        }
+        events.push(WorldEvent::ItemBought {
+            slot,
+            kind: item.kind.code(),
+            tier: item.tier.code(),
             to: to.unwrap_or(u32::MAX),
         });
     }
@@ -496,6 +593,7 @@ impl World {
         let tier = match made {
             Item::Weapon(w) => w.tier.code(),
             Item::Armour(p) => p.tier.code(),
+            Item::Module(m) => m.tier.code(),
             Item::Stack(_) => 0,
         };
         // The worn one, if either was, takes the result; the other goes.

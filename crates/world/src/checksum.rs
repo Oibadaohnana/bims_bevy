@@ -959,6 +959,15 @@ fn eat_gear(hash: &mut Fnv, gear: &bims::combat::Gear) {
             hash.eat(n as u64);
         }
     }
+    // The items (October 2026), only where one is carried, so a loadout
+    // with none hashes what it always did.
+    for (slot, item) in gear.items.iter().enumerate() {
+        if let Some(item) = item {
+            hash.eat(0x_4954_454D + slot as u64);
+            hash.eat(item.kind.code() as u64);
+            hash.eat(item.tier.code() as u64);
+        }
+    }
 }
 
 /// One thing of the armory: which of the three, what it is, and a
@@ -981,6 +990,11 @@ fn eat_item(hash: &mut Fnv, item: &bims::combat::Item) {
         Item::Stack(code) => {
             hash.eat(2);
             hash.eat(*code as u64);
+        }
+        Item::Module(item) => {
+            hash.eat(3);
+            hash.eat(item.kind.code() as u64);
+            hash.eat(item.tier.code() as u64);
         }
     }
 }

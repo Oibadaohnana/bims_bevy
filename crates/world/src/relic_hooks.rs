@@ -779,6 +779,7 @@ impl World {
             site.star,
             site.station,
             self.clock_minutes.to_bits() ^ (u64::from(slot) << 56),
+            self.shop_tier(),
         );
         if let Some(trader) = self
             .run

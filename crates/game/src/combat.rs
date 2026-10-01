@@ -798,6 +798,10 @@ pub struct Skill {
     /// door stays shut against the crew.
     #[cfg_attr(feature = "serde", serde(default))]
     pub locks_doors: bool,
+    /// Whether no hit takes this body under one hit point: a tank's
+    /// Juggernaut at the Override Core's fifth rank (October 2026).
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub unyielding: bool,
 }
 
 impl Skill {
@@ -831,6 +835,7 @@ impl Skill {
         crit_chance: 0.0,
         miss_cut: 0.0,
         locks_doors: false,
+        unyielding: false,
     };
 
     /// The skill for this body's next shot, with `shots` fired before it:
@@ -1165,6 +1170,9 @@ pub enum Item {
     Armour(Piece),
     Weapon(Weapon),
     Stack(u32),
+    /// One of a player's Bim's four items (October 2026,
+    /// [`crate::module`]).
+    Module(crate::module::Module),
 }
 
 /// How many resource codes a body keeps a charge count for: every
@@ -1185,6 +1193,10 @@ pub struct Gear {
     /// code: an engineer's kits, a grenade. The world sets them at a
     /// mission's start and fills them on their cooldowns.
     pub charges: [u32; CHARGE_CODES],
+    /// The four items (October 2026, [`crate::module`]): a player's Bim's
+    /// alone, empty on everybody else.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub items: [Option<crate::module::Module>; crate::module::ITEM_SLOTS],
 }
 
 impl Gear {

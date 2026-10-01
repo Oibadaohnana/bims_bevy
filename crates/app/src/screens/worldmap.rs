@@ -1505,6 +1505,8 @@ pub fn trader_window(
                             }
                         }
                     }
+                    form_heading(ui, TRADER_ITEMS, Some(TRADER_ITEMS_INTRO));
+                    item_rows(ui, world, local, to, orders);
                     form_heading(ui, TRADER_RELIC, Some(TRADER_RELIC_INTRO));
                     relic_at_trader(ui, world, trader, local, orders);
                     form_heading(ui, TRADER_COMBINE, Some(TRADER_COMBINE_INTRO));
@@ -2052,6 +2054,7 @@ fn shelf_row(
     let what = match thing {
         bims::combat::Item::Weapon(w) => weapon_name(Some(w.kind)),
         bims::combat::Item::Armour(p) => armour_name(Some(p.kind)),
+        bims::combat::Item::Module(m) => crate::names::item_name(m.kind),
         bims::combat::Item::Stack(_) => resource_name(item.resource),
     };
     let bought = line_item(
@@ -2125,6 +2128,41 @@ fn relic_at_trader(
     }
 }
 
+/// The trader's item shelf (October 2026): every item at the day's tier,
+/// a line each, bought onto the player's own Bim when it is the one
+/// delivered to, and into the armory otherwise — a bot carries none.
+fn item_rows(ui: &mut egui::Ui, world: &World, local: u32, to: u32, orders: &mut Vec<Order>) {
+    let wallet = world.wallet(local);
+    let onto = (to == local).then_some(local);
+    for (row, item) in world.item_shelf().into_iter().enumerate() {
+        let price = world.item_price(local, item);
+        let thing = bims::combat::Item::Module(item);
+        let bought = line_item(
+            ui,
+            wallet,
+            Line {
+                face: Face::Thing(thing),
+                tint: theme::item_tint(thing),
+                name: crate::names::item_name(item.kind),
+                tier: item.kind.tiered().then_some((item.tier.code(), None)),
+                note: None,
+                price,
+                button: TRADER_BUY,
+                open: price <= wallet,
+                tip: Some(crate::names::module_tip(item, !item.kind.active())),
+                row,
+                key: Some(TradeLine::Item(item.kind.code())),
+            },
+        );
+        if bought {
+            orders.push(Order::BuyItem {
+                kind: item.kind.code(),
+                to: onto,
+            });
+        }
+    }
+}
+
 /// Every pair the player may combine: two of one kind at one tier under
 /// three, out of the armory or off its own Bim or a bot, a line a pair —
 /// a worn one first, so the result is worn in its place.
@@ -2157,7 +2195,11 @@ fn combine_rows(
     let key = |item: bims::combat::Item| match item {
         bims::combat::Item::Weapon(w) => Some((0u32, w.kind.code(), w.tier.code())),
         bims::combat::Item::Armour(p) => Some((1u32, p.kind.code(), p.tier.code())),
-        bims::combat::Item::Stack(_) => None,
+        // An item of a kind made a tier up (October 2026).
+        bims::combat::Item::Module(m) if m.kind.tiered() => {
+            Some((2u32, m.kind.code(), m.tier.code()))
+        }
+        bims::combat::Item::Module(_) | bims::combat::Item::Stack(_) => None,
     };
     let mut seen: Vec<(u32, u32, u32)> = Vec::new();
     for (i, &(a, first, worn)) in things.iter().enumerate() {
@@ -2173,6 +2215,7 @@ fn combine_rows(
         let what = match first {
             bims::combat::Item::Weapon(w) => weapon_name(Some(w.kind)),
             bims::combat::Item::Armour(p) => armour_name(Some(p.kind)),
+            bims::combat::Item::Module(m) => crate::names::item_name(m.kind),
             bims::combat::Item::Stack(_) => "",
         };
         let combined = line_item(

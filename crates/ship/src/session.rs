@@ -604,6 +604,15 @@ impl Session {
         }
     }
 
+    /// `BIMS_ITEMS`: the steered Bim given these items at the start
+    /// (October 2026), in its item slots in order.
+    pub fn give_items_for_probe(&mut self, items: &[bims::module::Module]) {
+        if let Some(game) = self.game.as_mut() {
+            let local = game.local;
+            game.world.give_items_for_probe(local, items);
+        }
+    }
+
     /// `BIMS_RELICS`: the steered Bim given these relics at the start.
     pub fn give_relics_for_probe(&mut self, relics: &[world::Relic]) {
         if let Some(game) = self.game.as_mut() {

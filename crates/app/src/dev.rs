@@ -180,12 +180,54 @@ pub fn cache() -> bool {
     std::env::var("BIMS_CACHE").as_deref() == Ok("1")
 }
 
-/// The two relic dials on a session a command or the lobby just stood
-/// up: `BIMS_RELICS` and `BIMS_WIN`.
+/// `BIMS_ITEMS=blink,executioner:3,heart:2,core` gives the steered Bim
+/// those items at the start (October 2026), into its item slots in order:
+/// each an item's name in lower case with the words joined by `_`
+/// (`names::ITEM_NAMES`) or its first word (`blink`, `heart`, `core`),
+/// and `:n` a tier, one without. A word that is no item is said on the
+/// terminal and skipped.
+pub fn items() -> Vec<bims::module::Module> {
+    use bims::module::ModuleKind;
+    let Ok(list) = std::env::var("BIMS_ITEMS") else {
+        return Vec::new();
+    };
+    list.split(',')
+        .map(str::trim)
+        .filter(|w| !w.is_empty())
+        .filter_map(|word| {
+            let (name, tier) = word.split_once(':').unwrap_or((word, "1"));
+            let name = name.to_lowercase();
+            let kind = ModuleKind::ALL.into_iter().find(|&k| {
+                let full = crate::names::item_name(k).to_lowercase();
+                full.replace(' ', "_") == name || full.split(' ').any(|w| w == name)
+            });
+            let tier = tier
+                .parse::<u32>()
+                .ok()
+                .and_then(bims::combat::Tier::from_code)
+                .unwrap_or(bims::combat::Tier::One);
+            match kind {
+                Some(kind) if kind.made_at(tier) => Some(kind.at(tier)),
+                Some(kind) => Some(kind.at(bims::combat::Tier::One)),
+                None => {
+                    eprintln!("BIMS_ITEMS: no item called {word}");
+                    None
+                }
+            }
+        })
+        .collect()
+}
+
+/// The relic and item dials on a session a command or the lobby just
+/// stood up: `BIMS_RELICS`, `BIMS_ITEMS` and `BIMS_WIN`.
 pub fn relic_dials(session: &mut ship::Session) {
     let relics = relics();
     if !relics.is_empty() {
         session.give_relics_for_probe(&relics);
+    }
+    let items = items();
+    if !items.is_empty() {
+        session.give_items_for_probe(&items);
     }
     if win() {
         session.win_on_clear_for_probe();

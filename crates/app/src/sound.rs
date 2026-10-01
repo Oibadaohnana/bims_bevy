@@ -765,6 +765,9 @@ impl Sounds {
             E::Rallied { who } => (who, Clip::Rally, 0.3),
             E::Reinforced { who, .. } => (who, Clip::Reinforcements, 0.5),
             E::Medivac { who, .. } => (who, Clip::Reinforcements, 0.4),
+            // A Blink Drive (October 2026): the cloak's shimmer, short of a
+            // clip of its own.
+            E::Blinked { who } => (who, Clip::Cloak, 0.45),
             _ => return,
         };
         if self.admit_in(Kind::Ability, (clip as i32, who as i32)) {

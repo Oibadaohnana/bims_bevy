@@ -116,10 +116,17 @@ fn the_same_seed_gives_the_same_shelf_and_the_same_relic() {
     travel_to(&mut b, there);
     let (ta, tb) = (a.trader_here(0).unwrap(), b.trader_here(0).unwrap());
     assert_eq!(ta, tb);
-    let rolled: Vec<_> = trader::roll_shelf(a.galaxy_seed, site.star, site.station)
-        .into_iter()
-        .map(Some)
-        .collect();
+    let rolled: Vec<_> = trader::roll_shelf(
+        a.galaxy_seed,
+        site.star,
+        site.station,
+        0,
+        a.clock_minutes.to_bits(),
+        a.shop_tier(),
+    )
+    .into_iter()
+    .map(Some)
+    .collect();
     assert_eq!(ta.shelf, rolled);
     let relic = ta
         .relic
@@ -152,12 +159,13 @@ fn a_closed_trader_s_relic_goes_back_in_the_running() {
     assert_eq!(met.relic, None, "off the table");
 }
 
-/// **A bought thing never comes back**: bought, its slot is empty; the
-/// crew leave, fight somewhere else, come back, and meet the same shelf
-/// with the same hole in it and the same relic — no restock, no reroll —
-/// and the slot is still sold out.
+/// **A bought thing is gone for the visit, and a revisit is a new shelf**
+/// (October 2026): bought, its slot is empty and sold out; the crew leave,
+/// fight somewhere else, come back, and meet the same trader — the same
+/// relic — with its shelf rolled again for the visit, one gun and one
+/// piece at the day's tier.
 #[test]
-fn a_bought_thing_never_reappears_and_a_revisit_is_the_same_trader() {
+fn a_bought_thing_is_gone_for_the_visit_and_a_revisit_rolls_the_shelf_again() {
     let mut world = basic(1);
     let site = at_a_trader(&mut world);
     let item = world.trader_here(0).unwrap().shelf[0].unwrap();
@@ -181,6 +189,12 @@ fn a_bought_thing_never_reappears_and_a_revisit_is_the_same_trader() {
     assert_eq!(bought.tier(), item.tier.code());
     let left = world.trader_here(0).unwrap().clone();
     assert_eq!(left.shelf[0], None);
+    let events = world.step(&[Command::BuyShelf {
+        slot: 0,
+        index: 0,
+        to: None,
+    }]);
+    assert!(refused_with(&events, Refusal::SoldOut), "{events:?}");
 
     // Somewhere else, and back.
     let elsewhere = world
@@ -196,13 +210,24 @@ fn a_bought_thing_never_reappears_and_a_revisit_is_the_same_trader() {
     world.run.relics.choice = None;
     travel_to(&mut world, site);
     assert_eq!(world.run.phase, Phase::Trade);
-    assert_eq!(world.trader_here(0), Some(&left), "the same trader");
-    let events = world.step(&[Command::BuyShelf {
-        slot: 0,
-        index: 0,
-        to: None,
-    }]);
-    assert!(refused_with(&events, Refusal::SoldOut), "{events:?}");
+    let again = world.trader_here(0).unwrap().clone();
+    assert_eq!(
+        (again.site, again.relic),
+        (left.site, left.relic),
+        "the same trader"
+    );
+    let rolled: Vec<_> = trader::roll_shelf(
+        world.galaxy_seed,
+        site.star,
+        site.station,
+        0,
+        world.clock_minutes.to_bits(),
+        world.shop_tier(),
+    )
+    .into_iter()
+    .map(Some)
+    .collect();
+    assert_eq!(again.shelf, rolled, "the shelf rolled for this visit");
 }
 
 /// **Bought onto a Bim**: the thing on its own slot, what was there into
@@ -543,7 +568,7 @@ fn what_a_trader_has_left_is_in_the_checksum() {
     assert_eq!(world_checksum(&a), world_checksum(&b));
     a.step(&[Command::BuyShelf {
         slot: 0,
-        index: 2,
+        index: 1,
         to: None,
     }]);
     b.step(&[]);

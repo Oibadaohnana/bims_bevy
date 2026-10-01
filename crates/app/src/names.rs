@@ -461,6 +461,12 @@ pub fn refusal(why: Refusal) -> &'static str {
         Refusal::NoReadyCheck => "the mission is already under way",
         Refusal::FightOver => "the fight is won — press Back to ship",
         Refusal::OtherSiteChosen => "the crew fought this system's other site",
+        Refusal::NoSuchItem => "there is no item there to use",
+        Refusal::BlinkLocked => "the Blink Drive will not go so soon after a hit",
+        Refusal::NowhereToBlink => "there is no ground in sight to blink to",
+        Refusal::ItemsFull => "every item slot is full",
+        Refusal::BotsCarryNoItems => "only a player's Bim carries items",
+        Refusal::NotForSale => "the trader does not sell that",
     }
 }
 
@@ -821,9 +827,9 @@ fn medivac_armour(r: usize) -> &'static str {
 /// the rules crates' own tables.
 pub fn ranked_stats(class: world::Class, slot: u8) -> Vec<Stat> {
     use world::class as c;
-    let charges = |n: &'static [u32; 4]| Stat::ranks("Charges", "", move |r| n[r].to_string());
-    let cooldown = |s: &'static [f64; 4]| Stat::ranks("Cooldown", " s", move |r| fig(s[r]));
-    match (class, slot) {
+    let charges = |n: &'static [u32]| Stat::ranks("Charges", "", move |r| n[r].to_string());
+    let cooldown = |s: &'static [f64]| Stat::ranks("Cooldown", " s", move |r| fig(s[r]));
+    let mut stats = match (class, slot) {
         (world::Class::Soldier, 0) => vec![
             Stat::ranks("Damage", "", |r| fig(c::GRENADE_DAMAGE[r] as f64)),
             Stat::ranks("Radius", " tiles", |r| fig(c::GRENADE_RADIUS[r] as f64)),
@@ -1020,7 +1026,47 @@ pub fn ranked_stats(class: world::Class, slot: u8) -> Vec<Stat> {
             cooldown(&c::JUGGERNAUT_COOLDOWN),
         ],
         _ => Vec::new(),
+    };
+    // The ultimate's fifth rank, which an Override Core gives (October
+    // 2026).
+    if slot == world::class::SLOT_R
+        && let Some(line) = override_rank(class)
+    {
+        stats.push(Stat::one("With an Override Core", "", line));
     }
+    stats
+}
+/// What an *Override Core* makes of a class's ultimate at its fifth rank,
+/// in a line (October 2026). `None` for no class.
+pub fn override_rank(class: world::Class) -> Option<String> {
+    use world::class as c;
+    let r = (c::OVERRIDE_RANK - 1) as usize;
+    Some(match class {
+        world::Class::None => return None,
+        world::Class::Soldier => format!(
+            "{} s, fire rate {}, damage taken {}, and every grenade back in hand",
+            fig(c::RAMPAGE_SECONDS[r]),
+            by(c::RAMPAGE_FIRE_RATE[r] as f64),
+            by(c::RAMPAGE_DAMAGE_TAKEN[r] as f64),
+        ),
+        world::Class::Engineer => format!(
+            "health {}, fire rate {}, and two sentries standing at once",
+            fig(c::SENTRY_HEALTH[r] as f64),
+            by(c::SENTRY_FIRE_RATE[r] as f64),
+        ),
+        world::Class::Medic => format!(
+            "{} s, pace {}, and everybody within {} tiles of the target cloaked too",
+            fig(c::CLOAK_SECONDS[r]),
+            by(c::CLOAK_PACE[r] as f64),
+            fig(c::CLOAK_SPREAD_TILES as f64),
+        ),
+        world::Class::Tank => format!(
+            "{} s, damage taken {}, and nothing takes him down while it runs",
+            fig(c::JUGGERNAUT_SECONDS[r]),
+            by(c::JUGGERNAUT_DAMAGE_TAKEN[r] as f64),
+        ),
+        world::Class::Commander => format!("{} Bims, each in armour", c::REINFORCEMENTS[r]),
+    })
 }
 /// The foot of a ranked ability's tip: the rank it is at, and the level
 /// the next wants.
@@ -1596,6 +1642,23 @@ pub fn event_line(event: WorldEvent) -> Option<String> {
         // Republic's own line says the money.
         WorldEvent::EnemyRewarded { .. } => return None,
         WorldEvent::Hit { .. } => return None,
+        // A blink is seen and heard, not logged.
+        WorldEvent::Blinked { .. } => return None,
+        WorldEvent::ItemBought {
+            slot,
+            kind,
+            tier,
+            to,
+        } => {
+            let item = bims::module::ModuleKind::from_code(kind)
+                .zip(bims::combat::Tier::from_code(tier))
+                .map_or_else(|| "an item".to_string(), |(k, t)| item_title(k.at(t)));
+            if to == u32::MAX {
+                format!("{} bought {item} into the armory.", player_name(slot))
+            } else {
+                format!("{} bought {item} for {}.", player_name(slot), who(to))
+            }
+        }
         WorldEvent::Bounty { amount } => {
             format!("The Republic pays {}.", crate::format::euros(amount))
         }
@@ -1832,6 +1895,70 @@ pub const RELIC_NAMES: [&str; 37] = [
     "Rally Point",
     "War Chest",
 ];
+
+/// The items' names (October 2026), by `bims::module::ModuleKind` code.
+pub const ITEM_NAMES: [&str; 4] = [
+    "Blink Drive",
+    "Executioner",
+    "Reactor Heart",
+    "Override Core",
+];
+
+/// An item's name.
+pub fn item_name(kind: bims::module::ModuleKind) -> &'static str {
+    ITEM_NAMES
+        .get(kind.code() as usize)
+        .copied()
+        .unwrap_or("Item")
+}
+
+/// An item's name with its tier, for a line of the log: "a Blink Drive,
+/// tier 2"; the *Override Core*, which has one tier, without.
+pub fn item_title(item: bims::module::Module) -> String {
+    let name = item_name(item.kind);
+    let a = if name.starts_with(['A', 'E', 'I', 'O', 'U']) {
+        "an"
+    } else {
+        "a"
+    };
+    if item.kind.tiered() {
+        format!("{a} {name}, {}", tier_name(item.tier.code()))
+    } else {
+        format!("{a} {name}")
+    }
+}
+
+/// What an item does, in a line or two, off `bims::module`'s numbers at
+/// its tier: an item's tooltip.
+pub fn item_line(item: bims::module::Module) -> String {
+    use bims::module::{self as m, ModuleKind};
+    let t = (item.tier.code().clamp(1, 3) - 1) as usize;
+    match item.kind {
+        ModuleKind::BlinkDrive => format!(
+            "Active: puts the Bim where the pointer is, up to {} tiles off, on ground it can see. {} s cooldown, and not for {} s after a hit.",
+            fig(m::BLINK_RANGE_TILES[t] as f64),
+            fig(m::BLINK_COOLDOWN_SECONDS[t] as f64),
+            fig(m::BLINK_HIT_LOCK_SECONDS as f64),
+        ),
+        ModuleKind::Executioner => format!(
+            "{} of weapon hits are critical, for {} damage. Rolls on its own beside a soldier's Weak Spot; the bigger crit counts.",
+            pc(m::EXECUTIONER_CHANCE[t] as f64),
+            pc(m::EXECUTIONER_DAMAGE[t] as f64),
+        ),
+        ModuleKind::ReactorHeart => format!(
+            "+{} health. Regenerates {} HP/s, {} HP/s after {} s without a hit.",
+            fig(m::HEART_HEALTH[t] as f64),
+            fig(m::HEART_REGEN[t] as f64),
+            fig(m::HEART_QUIET_REGEN[t] as f64),
+            fig(m::HEART_QUIET_SECONDS as f64),
+        ),
+        ModuleKind::OverrideCore => format!(
+            "The class's ultimate plays one rank higher than bought, up to a fifth rank no skill point buys (needs a rank bought). Rank {}: {}",
+            world::class::OVERRIDE_RANK,
+            "see the ultimate's tooltip.",
+        ),
+    }
+}
 
 pub fn relic_name(relic: world::Relic) -> &'static str {
     RELIC_NAMES
@@ -2359,9 +2486,13 @@ pub const TRADER_DELIVER_TO: &str = "Deliver to";
 pub const TRADER_FRONT_STAMP: &str = "Front prices";
 /// The total line at the foot of the form.
 pub const TRADER_BALANCE: &str = "Your balance";
-pub const TRADER_INTRO: &str = "Buy off your own shelf with your own money — every player has a trader of their own, prices shared by the crew — onto your own Bim, a bot, or into the armory. What it replaces goes into the armory. Nothing comes back once it is sold. Tab opens the Armory beside this.";
-pub const TRADER_WEAPONS: &str = "Weapons";
+pub const TRADER_INTRO: &str = "Buy off your own shelf with your own money — every player has a trader of their own, prices shared by the crew — onto your own Bim, a bot, or into the armory. What it replaces goes into the armory. The shelf is one weapon and one armour at the tier the day has reached, rolled again every visit. Tab opens the Armory beside this.";
+pub const TRADER_WEAPONS: &str = "Weapon";
 pub const TRADER_ARMOUR: &str = "Armour";
+/// The item shelf (October 2026): every item at the day's tier, never
+/// sold out.
+pub const TRADER_ITEMS: &str = "Items";
+pub const TRADER_ITEMS_INTRO: &str = "Every item at the tier the day has reached, and never sold out. Onto your own Bim's first free item slot, or into the armory — a bot carries none. Two of a kind at one tier combine into one of the next.";
 pub const TRADER_SOLD: &str = "SOLD";
 pub const TRADER_BUY: &str = "Buy";
 pub const TRADER_INTO_ARMORY: &str = "Armory";
@@ -2801,12 +2932,32 @@ pub const CARRY_TAKEN: &str = "somebody is already carrying them";
 /// What the log says when the revive key is held with nobody down close
 /// enough to get up.
 pub const REVIVE_NOBODY_NEAR: &str = "Nobody down close enough to get up.";
-/// The quickselect in the hero panel (task 138), each after its key.
+/// The quickselect in the hero panel (task 138): the one in hand lit,
+/// and one key swapping them (October 2026).
 pub const HAND_WEAPON: &str = "Weapon";
 pub const HAND_MEDKIT: &str = "Medkit";
 pub const HAND_WEAPON_TIP: &str =
     "The weapon in hand: your Bim fires as it always does. An attack order takes it up by itself.";
 pub const HAND_MEDKIT_TIP: &str = "The medkit in hand: your Bim holds its fire, and a right-click on a downed crewmate walks over and revives them — their countdown stands while your hands are on them.";
+/// Under the two: the key that swaps them.
+pub fn hand_swap_key(key: &str) -> String {
+    format!("{key}: swap")
+}
+/// An item's tip in the hero panel (October 2026): its name with its
+/// tier, what it does, and whether its key does anything.
+pub fn module_tip(item: bims::module::Module, passive: bool) -> String {
+    let name = item_name(item.kind);
+    let name = match tier_word(item.tier).filter(|_| item.kind.tiered()) {
+        Some(tier) => format!("{name} — {tier}"),
+        None => name.to_string(),
+    };
+    let how = if passive {
+        "Passive."
+    } else {
+        "Active: press its key."
+    };
+    format!("{name}\n{}\n{how}", item_line(item))
+}
 /// The countdown's seconds over a downed body on the deck.
 pub fn downed_seconds(seconds: f32) -> String {
     format!("{}", seconds.ceil().max(0.0) as u32)
@@ -2936,7 +3087,7 @@ pub fn armour_name(kind: Option<bims::combat::ArmourKind>) -> &'static str {
 
 /// A loadout's two slots, by `world::GearSlot::code`: the weapon and the
 /// armour (October 2026: there were a head, a body and legs).
-pub const SLOT_NAMES: [&str; 2] = ["Weapon", "Armour"];
+pub const SLOT_NAMES: [&str; 6] = ["Weapon", "Armour", "Item 1", "Item 2", "Item 3", "Item 4"];
 
 /// A weapon's numbers as the Inventory says them, off the two-point
 /// curves in `bims::combat::WeaponStats`: each number is its best out to
@@ -3668,6 +3819,48 @@ mod tests {
             for &id in ResourceId::ALL.iter() {
                 assert!(!item_tip(id).is_empty(), "{id:?} has no tip");
             }
+        }
+    }
+
+    /// The items (October 2026): a name a kind, a line at every tier it is
+    /// made at, a name a loadout slot, and the Override Core's fifth rank
+    /// said for every class.
+    #[test]
+    fn every_item_has_a_name_a_line_and_every_slot_a_name() {
+        use bims::module::ModuleKind;
+        assert_eq!(ITEM_NAMES.len(), ModuleKind::ALL.len());
+        for kind in ModuleKind::ALL {
+            assert_eq!(item_name(kind), ITEM_NAMES[kind.code() as usize]);
+            for tier in bims::combat::Tier::ALL
+                .into_iter()
+                .filter(|&t| kind.made_at(t))
+            {
+                let item = kind.at(tier);
+                assert!(!item_line(item).is_empty());
+                assert!(module_tip(item, !kind.active()).starts_with(item_name(kind)));
+            }
+        }
+        assert_eq!(
+            item_title(ModuleKind::Executioner.at(bims::combat::Tier::Two)),
+            "an Executioner, tier 2"
+        );
+        assert_eq!(
+            item_title(ModuleKind::OverrideCore.at(bims::combat::Tier::One)),
+            "an Override Core"
+        );
+        assert_eq!(SLOT_NAMES.len(), world::GearSlot::ALL.len());
+        for class in world::Class::ALL {
+            assert_eq!(override_rank(class).is_some(), class != world::Class::None);
+        }
+        for why in [
+            Refusal::NoSuchItem,
+            Refusal::BlinkLocked,
+            Refusal::NowhereToBlink,
+            Refusal::ItemsFull,
+            Refusal::BotsCarryNoItems,
+            Refusal::NotForSale,
+        ] {
+            assert!(!refusal(why).is_empty());
         }
     }
 }

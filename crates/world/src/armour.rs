@@ -111,5 +111,7 @@ pub fn resource_of_item(item: Item) -> Option<ResourceId> {
         Item::Armour(piece) => Some(resource_of(piece.kind)),
         Item::Weapon(weapon) => Some(weapon_resource(weapon.kind)),
         Item::Stack(code) => ResourceId::from_code(code),
+        // An item is no resource of the desk's (October 2026).
+        Item::Module(_) => None,
     }
 }

@@ -791,6 +791,8 @@ impl World {
         self.run.returning = vec![false; players as usize];
         self.run.recalled = false;
         self.run.departure = None;
+        // Every item ready again, nobody hit yet (October 2026).
+        self.run.items.new_mission();
         for offer in std::mem::take(&mut self.holdings.offers) {
             events.push(WorldEvent::OfferWithdrawn {
                 from: offer.from,

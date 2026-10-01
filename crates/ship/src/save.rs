@@ -226,7 +226,11 @@ use crate::game::Game;
 /// `World::first_mission_uneased` is gone.
 /// 84: `WaveScaling::enemies_per_defender` is `enemies_per_bot` (the
 /// old name still reads), and the crew's bots count towards it.
-pub const SAVE_VERSION: u32 = 84;
+/// 85: items (October 2026) — `Gear::items` (four `bims::module::Module`
+/// slots), `Item::Module`, `Health::max`, `GearSlot::Item1..Item4`,
+/// `Run::items` (the blink's cooldowns and when each player was last
+/// hit), `Skill::unyielding`, and a trader's shelf rolled every visit.
+pub const SAVE_VERSION: u32 = 85;
 
 /// What the file holds, read back.
 #[derive(serde::Deserialize)]

@@ -596,11 +596,22 @@ pub const ELITE_GUARDIAN_WAVE: u32 = 2;
 /// there where the roll gave fewer.
 pub const TRADER_NEAR_SITES: usize = 1;
 pub const TRADER_NEAR_HOPS: u16 = 1;
-/// How many weapons a trader's shelf holds, rolled once a trader a run:
-/// any kind, any tier. A placeholder.
-pub const TRADER_WEAPONS: usize = 4;
-/// How many pieces of armour it holds beside them. A placeholder.
-pub const TRADER_ARMOUR: usize = 3;
+/// How many weapons a trader's shelf holds: one (October 2026; it was
+/// four), any kind made at the day's tier, rolled again every visit.
+pub const TRADER_WEAPONS: usize = 1;
+/// How many pieces of armour it holds beside it: one (it was three).
+pub const TRADER_ARMOUR: usize = 1;
+/// What an item costs at a trader (October 2026, `crate::items`), by its
+/// kind's code and its tier, one to three: the *Blink Drive*, the
+/// *Executioner*, the *Reactor Heart* and the *Override Core* (made at
+/// tier one alone, so its row is one price). Placeholders, like the
+/// rest of the prices.
+pub const ITEM_PRICE: [[Money; 3]; 4] = [
+    [2_000, 3_500, 6_000],
+    [2_500, 4_500, 8_000],
+    [2_000, 4_000, 7_000],
+    [6_000, 6_000, 6_000],
+];
 /// What the relic at a trader costs, by the relic's own tier: one, two,
 /// three (task 117). The tier is never shown, so the price is the only
 /// sign of it.

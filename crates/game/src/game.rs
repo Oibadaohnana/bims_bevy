@@ -4420,6 +4420,14 @@ impl Game {
         self.bims[who].health.points()
     }
 
+    /// A whole bar for `who`: [`crate::health::MAX_HEALTH`], and more with
+    /// a *Reactor Heart* carried (October 2026).
+    pub fn max_health(&self, who: usize) -> f32 {
+        self.bims
+            .get(who)
+            .map_or(crate::health::MAX_HEALTH, |b| b.health.max())
+    }
+
     /// Whether it is actually going somewhere. For the probes: a Bim that is
     /// merely being shoved aside by the other one is not walking.
     #[allow(dead_code)]
@@ -4608,6 +4616,67 @@ impl Game {
             return false;
         }
         bim.character.knock_out(false);
+        true
+    }
+
+    /// Where a *Blink Drive* would put `who` aimed at `to` with a reach
+    /// of `reach` room units (October 2026): the spot `to` is, or the
+    /// farthest along the way to it within the reach, then stepped back
+    /// towards the body half a tile at a time until it is free ground the
+    /// body itself sees (`Sight::sees_from`: the walls, the shut doors and
+    /// the dark, traced every step, so every copy of the room agrees) and
+    /// could walk to — so a blink at a wall or into the dark lands short. `None` for a body that
+    /// cannot go (down, outside, carried or carrying) or when nothing is
+    /// more than a tile off.
+    pub fn blink_spot(&self, who: usize, to: Vec2, reach: f32) -> Option<Vec2> {
+        let bim = self.bims.get(who)?;
+        let ch = &bim.character;
+        if !bim.is_alive()
+            || bim.health.downed()
+            || ch.is_unconscious()
+            || ch.is_outside()
+            || self.is_carried(who)
+            || self.carrying(who).is_some()
+        {
+            return None;
+        }
+        let from = ch.pos;
+        let way = to - from;
+        let far = way.len().min(reach.max(0.0));
+        if far < crate::room::TILE {
+            return None;
+        }
+        let dir = way.normalize_or_zero();
+        let nav = self.nav_for(who);
+        let mut along = far;
+        while along >= crate::room::TILE {
+            let at = nav.nearest_free(from + dir * along);
+            if (at - from).len() >= crate::room::TILE
+                && self.room.sight.sees_from(from, at).is_some()
+                && nav.can_reach(from, at)
+            {
+                return Some(at);
+            }
+            along -= crate::room::TILE * 0.5;
+        }
+        None
+    }
+
+    /// Blink `who` to `at` (a [`Game::blink_spot`]): stood there this
+    /// instant, the walk and whatever it had in hand dropped — a revive or
+    /// a kit is a channel, and a blink walks away from it — and the
+    /// drive's light at both ends. The keys go on steering it from there.
+    pub fn blink(&mut self, who: usize, at: Vec2) -> bool {
+        if who >= self.bims.len() {
+            return false;
+        }
+        let from = self.bims[who].character.pos;
+        self.interrupt_for_order(who);
+        self.call_off_attack_move(who);
+        let ch = &mut self.bims[who].character;
+        ch.halt();
+        ch.stand_at(at);
+        self.combat.fx.blink(from, at);
         true
     }
 
@@ -7515,6 +7584,8 @@ impl Game {
     pub fn issue(&mut self, who: usize, gear: Gear) {
         if who < self.bims.len() {
             self.bims[who].gear = gear;
+            // A Reactor Heart's health on the bar (October 2026).
+            self.bims[who].health.set_max(gear.max_health());
             self.refresh_worn(who);
         }
     }
@@ -8821,6 +8892,11 @@ impl Game {
             }
         }
         let _ = cut;
+        // A body that may not go down (a Juggernaut at the Override Core's
+        // fifth rank, October 2026) keeps a hit point whatever comes.
+        if skill.unyielding {
+            through = through.min((self.bims[who].health.points() - 1.0).max(0.0));
+        }
         if through > 0.0 {
             let bim = &mut self.bims[who];
             let taken = bim.health.hit(through);

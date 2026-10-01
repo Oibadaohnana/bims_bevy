@@ -615,6 +615,47 @@ impl Fx {
         );
     }
 
+    /// A *Blink Drive* going off (October 2026): a violet ring falling in
+    /// where the body was, a streak of motes along the way it went, and a
+    /// ring of sparks thrown out where it stands now.
+    pub fn blink(&mut self, from: Vec2, to: Vec2) {
+        let violet = Color::rgb(0.72, 0.5, 1.0);
+        let up = vec2(0.0, -1.0);
+        self.spray(
+            Spray::along(SprayKind::Nova, from, up)
+                .reach(30.0)
+                .life(0.35)
+                .colour(violet.glowing(2.0))
+                .count(28)
+                .dot(4.0),
+        );
+        self.spray(
+            Spray::new(SprayKind::Trail, from, to)
+                .reach(6.0)
+                .life(0.4)
+                .colour(violet.mix(CORE_WHITE, 0.4).glowing(1.8))
+                .count(24)
+                .dot(2.2),
+        );
+        self.spray(
+            Spray::along(SprayKind::Nova, to, up)
+                .reach(34.0)
+                .life(0.4)
+                .colour(violet.mix(CORE_WHITE, 0.3).glowing(2.4))
+                .count(32)
+                .dot(4.0),
+        );
+        self.spray(
+            Spray::along(SprayKind::Sparks, to, up)
+                .reach(28.0)
+                .life(0.35)
+                .colour(violet.glowing(2.2))
+                .count(14)
+                .spread(TAU)
+                .dot(1.4),
+        );
+    }
+
     /// A bolt's wake this frame: a few motes along the stretch of its
     /// flight from `tail` to `head`, in its side's colour.
     pub fn trail(&mut self, tail: Vec2, head: Vec2, weapon: Weapon, hostile: bool) {

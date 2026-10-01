@@ -61,6 +61,7 @@ pub mod fixture;
 pub mod frame;
 pub mod heart;
 pub mod holdings;
+pub mod items;
 pub mod jammer;
 pub mod jump;
 pub mod loading;
@@ -130,6 +131,8 @@ mod tests_guardian;
 mod tests_heart;
 #[cfg(test)]
 mod tests_holdings;
+#[cfg(test)]
+mod tests_items;
 #[cfg(test)]
 mod tests_jammer;
 #[cfg(test)]

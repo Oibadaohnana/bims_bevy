@@ -518,7 +518,7 @@ pub fn portraits_of(world: &world::World, local: u32, watched: Option<u32>) -> V
             let class = world.class_of(who);
             let points = room.health(w);
             let armour = if alive { room.armour_health(w) } else { 0.0 };
-            let total = bims::health::MAX_HEALTH + armour;
+            let total = room.max_health(w) + armour;
             let player = who < players;
             Portrait {
                 who,
@@ -834,6 +834,8 @@ pub struct Hero {
     pub xp: u32,
     /// The body's points and the armour's, as the side panel reads them.
     pub points: f32,
+    /// A whole bar for it (October 2026: a Reactor Heart raises it).
+    pub max: f32,
     pub armour: f32,
     pub hurt: bool,
     /// Downed on the deck, with the countdown running (task 120).
@@ -995,7 +997,7 @@ fn health_row(ui: &mut egui::Ui, hero: &Hero, critical: bool) {
     };
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = 6.0;
-        let total = bims::health::MAX_HEALTH + hero.armour;
+        let total = hero.max + hero.armour;
         theme::bar_of_height(
             ui,
             HERO_BAR_W,

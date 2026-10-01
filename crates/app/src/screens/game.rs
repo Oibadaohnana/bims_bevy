@@ -2356,18 +2356,35 @@ fn frame(
                 if keys_now.pressed(i, Action::Speed1) {
                     orders.push(Order::Speed(Speed::Real));
                 }
-                // The quickselect (task 138): 1 the weapon, 2 the medkit,
-                // in the player's own Bim's hands. An order, so every
-                // copy of the room sees the same hands.
-                if keys_now.pressed(i, Action::HandWeapon) {
-                    orders.push(Order::Crew(CrewOrder::Hand {
-                        hand: bims::bim::Hand::Weapon,
-                    }));
+                // The medkit (task 138; one key, H, since October 2026):
+                // into the player's own Bim's hands, or the weapon back
+                // with it there already. An order, so every copy of the
+                // room sees the same hands.
+                if keys_now.pressed(i, Action::Medkit)
+                    && let Some(game) = &session.game
+                {
+                    let held = game.world.aboard.room.hand(screen.net.slot as usize);
+                    let hand = if held == bims::bim::Hand::Medkit {
+                        bims::bim::Hand::Weapon
+                    } else {
+                        bims::bim::Hand::Medkit
+                    };
+                    orders.push(Order::Crew(CrewOrder::Hand { hand }));
                 }
-                if keys_now.pressed(i, Action::HandMedkit) {
-                    orders.push(Order::Crew(CrewOrder::Hand {
-                        hand: bims::bim::Hand::Medkit,
-                    }));
+                // The four item slots, 1 to 4 (October 2026): the item in
+                // that slot used at the pointer — a Blink Drive blinks
+                // there. The world says why not, into the log.
+                if let Some(p) = on_canvas {
+                    for (index, action) in Action::ITEMS.into_iter().enumerate() {
+                        if keys_now.pressed(i, action) {
+                            let (rx, ry) = session.room_point(p.x, p.y);
+                            orders.push(Order::UseItem {
+                                item: index as u32,
+                                x: rx.round() as i32,
+                                y: ry.round() as i32,
+                            });
+                        }
+                    }
                 }
                 // Select: the crew member you steer, selected and in the middle.
                 if keys_now.pressed(i, Action::Select) {
@@ -2875,6 +2892,7 @@ fn frame(
                 class: world.class_of(local),
                 xp: world.progress_of(local).xp,
                 points: room.health(w),
+                max: room.max_health(w),
                 armour: if alive { room.armour_health(w) } else { 0.0 },
                 hurt: crate::crew::is_hurt(room, w),
                 downed: alive && room.is_down(w),
@@ -2908,6 +2926,10 @@ fn frame(
                 hand_picked = quickselect(ui, hand, &keys_now);
                 let row = ability_row(ui, &boxes);
                 clicked = row.rank_up;
+                // The four items beside the abilities, Dota's way
+                // (October 2026): a player's own Bim's alone.
+                ui.separator();
+                item_grid(ui, world, local, &keys_now);
                 row.hovered
             });
             if keys {
@@ -5306,28 +5328,96 @@ fn quickselect(ui: &mut egui::Ui, hand: bims::bim::Hand, keys: &Keys) -> Option<
     let mut picked = None;
     ui.vertical(|ui| {
         ui.spacing_mut().item_spacing.y = 3.0;
-        for (one, action, word, tip) in [
-            (
-                Hand::Weapon,
-                Action::HandWeapon,
-                HAND_WEAPON,
-                HAND_WEAPON_TIP,
-            ),
-            (
-                Hand::Medkit,
-                Action::HandMedkit,
-                HAND_MEDKIT,
-                HAND_MEDKIT_TIP,
-            ),
+        // One key swaps the two (October 2026): the one in hand is lit,
+        // and the key is said under them.
+        for (one, word, tip) in [
+            (Hand::Weapon, HAND_WEAPON, HAND_WEAPON_TIP),
+            (Hand::Medkit, HAND_MEDKIT, HAND_MEDKIT_TIP),
         ] {
-            let text = egui::RichText::new(format!("{}  {word}", keys.key(action).name())).small();
-            let button = theme::toggle_button(one == hand, text).min_size(egui::vec2(78.0, 20.0));
+            let text = egui::RichText::new(word).small();
+            let button = theme::toggle_button(one == hand, text).min_size(egui::vec2(66.0, 18.0));
             if ui.add(button).on_hover_text(tip).clicked() {
                 picked = Some(one);
             }
         }
+        ui.label(
+            egui::RichText::new(crate::names::hand_swap_key(keys.key(Action::Medkit).name()))
+                .small()
+                .color(theme::MUTED),
+        );
     });
     picked
+}
+
+/// How big one item box is: Dota's inventory, two by two beside the
+/// abilities, a little smaller than an ability's box.
+const ITEM_SIDE: f32 = 32.0;
+
+/// The four item slots of the player's own Bim, two by two (October
+/// 2026): each its picture, its key in the corner, an active one's
+/// cooldown swept back as an ability's is, and greyed while a hit locks
+/// a blink. Empty, a dark frame with the key. Resting on one names it and
+/// says what it does.
+fn item_grid(ui: &mut egui::Ui, world: &world::World, who: u32, keys: &Keys) {
+    let items = world.items_of(who);
+    let locked = world.blink_locked_left(who) > 0.0;
+    egui::Grid::new("hud-items")
+        .spacing(egui::vec2(3.0, 3.0))
+        .min_col_width(ITEM_SIDE)
+        .min_row_height(ITEM_SIDE)
+        .show(ui, |ui| {
+            for (index, action) in Action::ITEMS.into_iter().enumerate() {
+                let (rect, response) =
+                    ui.allocate_exact_size(egui::vec2(ITEM_SIDE, ITEM_SIDE), egui::Sense::hover());
+                let painter = ui.painter();
+                let key = keys.key(action).name();
+                match items[index] {
+                    None => {
+                        painter.rect_filled(rect, 4.0, theme::RAISED.gamma_multiply(0.4));
+                        painter.rect_stroke(
+                            rect,
+                            4.0,
+                            egui::Stroke::new(1.0, theme::LINE),
+                            egui::StrokeKind::Inside,
+                        );
+                    }
+                    Some(item) => {
+                        crate::icons::module(painter, rect, item);
+                        let left = world.item_cooldown_left(who, index);
+                        let whole = world.item_cooldown(who, index);
+                        if left > 0.0 && whole > 0.0 {
+                            cooldown_sweep(
+                                painter,
+                                rect,
+                                (left / whole).clamp(0.0, 1.0) as f32,
+                                theme::PANEL_DEEP.gamma_multiply(0.85),
+                            );
+                            painter.text(
+                                rect.center(),
+                                egui::Align2::CENTER_CENTER,
+                                format!("{}", left.ceil()),
+                                egui::FontId::proportional(13.0),
+                                theme::INK,
+                            );
+                        } else if item.is_blink() && locked {
+                            painter.rect_filled(rect, 4.0, theme::PANEL_DEEP.gamma_multiply(0.6));
+                        }
+                        let passive = !item.kind.active();
+                        response.on_hover_text(crate::names::module_tip(item, passive));
+                    }
+                }
+                painter.text(
+                    rect.min + egui::vec2(4.0, 2.0),
+                    egui::Align2::LEFT_TOP,
+                    key,
+                    egui::FontId::proportional(10.0),
+                    theme::MUTED,
+                );
+                if index % 2 == 1 {
+                    ui.end_row();
+                }
+            }
+        });
 }
 
 fn ability_row(ui: &mut egui::Ui, boxes: &[AbilityBox]) -> RowOut {

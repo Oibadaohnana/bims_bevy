@@ -458,6 +458,8 @@ pub enum TradeLine {
     Shelf(u32),
     Relic,
     Combine(u32),
+    /// An item off the item shelf, by its kind's code (October 2026).
+    Item(u32),
 }
 
 /// A ping on everybody's screen: whose, where, and when it went up, in

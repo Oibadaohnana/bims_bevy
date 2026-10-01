@@ -322,6 +322,9 @@ pub struct Run {
     /// reroll. Sorted by site.
     #[cfg_attr(feature = "serde", serde(default))]
     pub traders: Vec<crate::trader::Trader>,
+    /// The items' clocks (October 2026, [`crate::items::ItemClocks`]).
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub items: crate::items::ItemClocks,
     /// The ready check's switch: on, a mission with a fight in it — an
     /// Attack site not yet cleared, a Defend site threatened — opens
     /// held, nothing moving, until every connected player has pressed
@@ -372,6 +375,7 @@ impl Run {
             sites_cleared: 0,
             systems_liberated: 0,
             traders: Vec::new(),
+            items: crate::items::ItemClocks::default(),
             ready_check: false,
             briefing: false,
             ready: vec![false; players as usize],

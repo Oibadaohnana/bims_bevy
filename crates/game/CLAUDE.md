@@ -4713,3 +4713,31 @@ route. `walking_away_from_a_revive_drops_it_for_good` pins it, and
 says the revive is gone. No `SAVE_VERSION`/`PROTOCOL`; a bot whose
 revive was interrupted takes it up again only through `revive_on_offer`,
 so the survivor pins may move.
+
+## Items: a bar of its own, a blink, and a body that keeps a hit point (October 2026)
+
+`crate::module` is the items' numbers and type (`Module { kind, tier }`,
+`ModuleKind::{BlinkDrive, Executioner, ReactorHeart, OverrideCore}`, codes
+0–3, `ITEM_SLOTS` four); `Gear::items` holds them (serde default) and
+`Item::Module` is one in the armory. The world's half is
+`crates/world/CLAUDE.md`, "Items". In the room:
+
+- **`Health::max`** (serde default `MAX_HEALTH`) is a body's whole bar;
+  `Game::issue` sets it off `Gear::max_health` (a *Reactor Heart*'s
+  health on top), `Health::set_max` keeping the share of the bar, so a
+  full body stays full. `heal`, `revive_at`, `restore`, `is_hurt` and
+  `respawn` read it; `Game::max_health(who)` is the panels'.
+- **`Game::blink_spot(who, to, reach)`** and **`Game::blink(who, at)`**:
+  the spot off the body's own sight (`Sight::sees_from`, traced every
+  step, so every copy agrees — never `seen_at`, which is the frame's) and
+  its walk (`nav_for`, `can_reach`); the blink interrupts the errand (a
+  revive or a kit dropped), calls the attack-move off, halts the walk and
+  stands the body there, `Fx::blink` lighting both ends.
+- **`Skill::unyielding`** (serde default false): `strike_stripping`
+  takes no more than leaves a hit point — a Juggernaut at the Override
+  Core's fifth rank.
+- `module::combine_crits` folds crits that roll apart (`a + b − ab`, the
+  biggest multiple); the world hands the room one chance as ever.
+
+`module::tests` pin the bar, the crit and the one tier of the Core. No
+body without an item moved.

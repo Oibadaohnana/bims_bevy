@@ -656,12 +656,29 @@ pub fn rank_level(class: Class, ability_slot: u8, rank: u8) -> Option<u8> {
     })
 }
 
-/// A rank's number off a table of four, one a rank: `None` at rank
-/// nought, the ability not learnt, and the top at anything past it.
-pub fn by_rank<T: Copy>(table: [T; MAX_RANK as usize], rank: u8) -> Option<T> {
+/// A rank's number off a table, one a rank: `None` at rank nought, the
+/// ability not learnt, and the top at anything past it. The tables of
+/// the ultimates are [`OVERRIDE_RANK`] long, the rest [`MAX_RANK`].
+pub fn by_rank<T: Copy, const N: usize>(table: [T; N], rank: u8) -> Option<T> {
     match rank {
         0 => None,
-        r => Some(table[(r.min(MAX_RANK) - 1) as usize]),
+        r => Some(table[(r as usize).min(N) - 1]),
+    }
+}
+
+/// The rank of the ultimate no skill point buys (October 2026): what an
+/// *Override Core* carried makes of a fourth (`bims::module`), one over
+/// whatever is bought. Every ultimate's table has a row for it.
+pub const OVERRIDE_RANK: u8 = 5;
+
+/// The ultimate's rank with `bought` ranks of it and an *Override Core*
+/// carried or not: one higher with it, up to [`OVERRIDE_RANK`], and
+/// nothing without a rank bought.
+pub fn ultimate_rank(bought: u8, override_core: bool) -> u8 {
+    if override_core && bought > 0 {
+        (bought + 1).min(OVERRIDE_RANK)
+    } else {
+        bought
     }
 }
 
@@ -728,22 +745,27 @@ pub const SANDBAG_COOLDOWN: [f64; 4] = [45.0, 45.0, 40.0, 35.0];
 pub const SANDBAG_DOUBLE_RANK: u8 = 4;
 
 /// **R, Sentry** (the ultimate): the minigun's tier, a rank.
-pub const SENTRY_TIER: [bims::combat::Tier; 4] = [
+pub const SENTRY_TIER: [bims::combat::Tier; 5] = [
     bims::combat::Tier::Two,
+    bims::combat::Tier::Three,
     bims::combat::Tier::Three,
     bims::combat::Tier::Three,
     bims::combat::Tier::Three,
 ];
 /// What its fire rate is multiplied by, a rank.
-pub const SENTRY_FIRE_RATE: [f32; 4] = [1.0, 1.0, 1.5, 2.0];
+pub const SENTRY_FIRE_RATE: [f32; 5] = [1.0, 1.0, 1.5, 2.0, 2.0];
 /// Its health, one pool, a rank.
-pub const SENTRY_HEALTH: [f32; 4] = [200.0, 250.0, 300.0, 400.0];
+pub const SENTRY_HEALTH: [f32; 5] = [200.0, 250.0, 300.0, 400.0, 500.0];
 /// Tiles added to its minigun's range, a rank: five from the first. It
 /// stands until it is destroyed — there is no timer.
-pub const SENTRY_RANGE: [f32; 4] = [5.0, 5.0, 5.0, 5.0];
+pub const SENTRY_RANGE: [f32; 5] = [5.0, 5.0, 5.0, 5.0, 5.0];
 /// Seconds of the mission clock from one laid to the next, a rank —
 /// counted from the laying.
-pub const SENTRY_COOLDOWN: [f64; 4] = ULTIMATE_COOLDOWN;
+pub const SENTRY_COOLDOWN: [f64; 5] = ULTIMATE_COOLDOWN;
+/// How many sentries one engineer may have standing, a rank: one, and two
+/// at the [`OVERRIDE_RANK`] (October 2026) — the oldest goes when another
+/// is laid past it.
+pub const SENTRY_STANDING: [usize; 5] = [1, 1, 1, 1, 2];
 /// Game minutes of working steps to lay it, at every rank. A hit does
 /// not interrupt it.
 pub const SENTRY_MINUTES: f64 = 3.0;
@@ -787,13 +809,13 @@ pub const BRACE_DEADEYE_RANK: u8 = 4;
 
 /// **R, Rampage**: how long it runs, in seconds of the mission clock, a
 /// rank.
-pub const RAMPAGE_SECONDS: [f64; 4] = [8.0, 10.0, 12.0, 12.0];
+pub const RAMPAGE_SECONDS: [f64; 5] = [8.0, 10.0, 12.0, 12.0, 14.0];
 /// What the fire rate is multiplied by while it runs, a rank.
-pub const RAMPAGE_FIRE_RATE: [f32; 4] = [1.5, 1.75, 2.0, 2.0];
+pub const RAMPAGE_FIRE_RATE: [f32; 5] = [1.5, 1.75, 2.0, 2.0, 2.25];
 /// What the damage taken is multiplied by while it runs, a rank.
-pub const RAMPAGE_DAMAGE_TAKEN: [f32; 4] = [0.80, 0.75, 0.70, 0.70];
+pub const RAMPAGE_DAMAGE_TAKEN: [f32; 5] = [0.80, 0.75, 0.70, 0.70, 0.65];
 /// Seconds of the mission clock from one Rampage to the next, a rank.
-pub const RAMPAGE_COOLDOWN: [f64; 4] = ULTIMATE_COOLDOWN;
+pub const RAMPAGE_COOLDOWN: [f64; 5] = ULTIMATE_COOLDOWN;
 /// The rank from which a machine the soldier downs during a Rampage adds
 /// [`RAMPAGE_EXTEND_SECONDS`] to it.
 pub const RAMPAGE_EXTEND_RANK: u8 = 4;
@@ -855,11 +877,14 @@ pub const HEAL_BEAM_FIRE_RATE: f32 = 0.5;
 /// tiles, at every rank.
 pub const CLOAK_RANGE: f32 = 8.0;
 /// Seconds of the mission clock a cloak lasts, a rank.
-pub const CLOAK_SECONDS: [f64; 4] = [6.0, 7.0, 8.0, 10.0];
+pub const CLOAK_SECONDS: [f64; 5] = [6.0, 7.0, 8.0, 10.0, 12.0];
 /// What a cloaked Bim's pace is multiplied by, a rank.
-pub const CLOAK_PACE: [f32; 4] = [1.10, 1.15, 1.20, 1.25];
+pub const CLOAK_PACE: [f32; 5] = [1.10, 1.15, 1.20, 1.25, 1.30];
 /// Seconds of the mission clock from one cloak to the next, a rank.
-pub const CLOAK_COOLDOWN: [f64; 4] = [60.0, 55.0, 50.0, 45.0];
+pub const CLOAK_COOLDOWN: [f64; 5] = [60.0, 55.0, 50.0, 45.0, 40.0];
+/// At the [`OVERRIDE_RANK`] (October 2026) a cloak takes every friendly
+/// Bim within this many tiles of its target as well.
+pub const CLOAK_SPREAD_TILES: f32 = 3.0;
 
 /// How long a revive takes (task 120): ten seconds, four for a `medic`,
 /// less `quicker` seconds — a relic's *Trauma Kit* — and never under
@@ -922,17 +947,17 @@ pub const GUARDED_DODGE: f32 = 0.10;
 pub const INTERPOSE_RANK: u8 = 4;
 
 /// **R, Juggernaut**: seconds of the mission clock it runs, a rank.
-pub const JUGGERNAUT_SECONDS: [f64; 4] = [6.0, 7.0, 8.0, 10.0];
+pub const JUGGERNAUT_SECONDS: [f64; 5] = [6.0, 7.0, 8.0, 10.0, 12.0];
 /// What the damage he takes is multiplied by while it runs, a rank.
-pub const JUGGERNAUT_DAMAGE_TAKEN: [f32; 4] = [0.50, 0.40, 0.35, 0.30];
+pub const JUGGERNAUT_DAMAGE_TAKEN: [f32; 5] = [0.50, 0.40, 0.35, 0.30, 0.25];
 /// Seconds of the mission clock from one Juggernaut to the next, a rank.
-pub const JUGGERNAUT_COOLDOWN: [f64; 4] = ULTIMATE_COOLDOWN;
+pub const JUGGERNAUT_COOLDOWN: [f64; 5] = ULTIMATE_COOLDOWN;
 
 /// Every timed ultimate's cooldown, a rank: seventy seconds at the first
 /// and ten fewer a rank after it (the Sentry, Rampage and Juggernaut; the
 /// Cloak's own [`CLOAK_COOLDOWN`] is under it already, and Reinforcements
 /// come once a mission).
-pub const ULTIMATE_COOLDOWN: [f64; 4] = [70.0, 60.0, 50.0, 40.0];
+pub const ULTIMATE_COOLDOWN: [f64; 5] = [70.0, 60.0, 50.0, 40.0, 35.0];
 
 // --- the commander's numbers (task 129) ---------------------------------------
 //
@@ -981,14 +1006,19 @@ pub const RALLY_SECONDS: [f64; 4] = [6.0, 7.0, 8.0, 9.0];
 pub const RALLY_COOLDOWN: [f64; 4] = [45.0, 40.0, 35.0, 30.0];
 
 /// **R, Reinforcements**: how many Bims one call brings in, a rank.
-pub const REINFORCEMENTS: [u32; 4] = [2, 3, 3, 4];
+pub const REINFORCEMENTS: [u32; 5] = [2, 3, 3, 4, 5];
 /// The tier of the auto rifle each carries, a rank.
-pub const REINFORCEMENT_TIER: [bims::combat::Tier; 4] = [
+pub const REINFORCEMENT_TIER: [bims::combat::Tier; 5] = [
     bims::combat::Tier::One,
     bims::combat::Tier::One,
     bims::combat::Tier::Two,
     bims::combat::Tier::Three,
+    bims::combat::Tier::Three,
 ];
+/// The armour each reinforcement wears, a rank: none until the
+/// [`OVERRIDE_RANK`] (October 2026), a tier-one plate there.
+pub const REINFORCEMENT_VEST: [Option<bims::combat::Tier>; 5] =
+    [None, None, None, None, Some(bims::combat::Tier::One)];
 /// How far from him, in tiles, a free tile of deck is looked for to stand
 /// one on: fewer arrive where fewer are found.
 pub const REINFORCEMENT_REACH_TILES: f32 = 5.0;
@@ -1222,8 +1252,8 @@ mod tests {
         assert_eq!(TANK_DRAIN * FORTRESS_DRAIN, 0.25, "a quarter in all");
         assert_eq!(BULWARK_REACH, [1.5, 2.0, 2.5, 3.0]);
         assert_eq!(BULWARK_PACE, [0.5, 0.6, 0.7, 0.8]);
-        assert_eq!(JUGGERNAUT_SECONDS, [6.0, 7.0, 8.0, 10.0]);
-        assert_eq!(JUGGERNAUT_DAMAGE_TAKEN, [0.50, 0.40, 0.35, 0.30]);
-        assert_eq!(JUGGERNAUT_COOLDOWN, [70.0, 60.0, 50.0, 40.0]);
+        assert_eq!(JUGGERNAUT_SECONDS, [6.0, 7.0, 8.0, 10.0, 12.0]);
+        assert_eq!(JUGGERNAUT_DAMAGE_TAKEN, [0.50, 0.40, 0.35, 0.30, 0.25]);
+        assert_eq!(JUGGERNAUT_COOLDOWN, [70.0, 60.0, 50.0, 40.0, 35.0]);
     }
 }

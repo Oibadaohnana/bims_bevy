@@ -355,6 +355,17 @@ pub enum WorldEvent {
         damage: u32,
         crit: bool,
     },
+    /// A player's Bim went off on its *Blink Drive* (October 2026): it
+    /// stands where the drive put it.
+    Blinked { who: u32 },
+    /// A player bought an item at a trader (October 2026): which kind at
+    /// which tier, and onto which Bim — `u32::MAX` the armory.
+    ItemBought {
+        slot: u32,
+        kind: u32,
+        tier: u32,
+        to: u32,
+    },
 }
 
 /// Why a command did nothing.
@@ -605,6 +616,20 @@ pub enum Refusal {
     /// A trip to a system's Attack or Defend site once the crew have
     /// fought its other one (task 135): one fight a system.
     OtherSiteChosen = 122,
+    /// An item asked of a slot with none in it, or with one whose key does
+    /// nothing (October 2026).
+    NoSuchItem = 123,
+    /// A *Blink Drive* within a few seconds of a hit taken.
+    BlinkLocked = 124,
+    /// A *Blink Drive* aimed where there is no ground the crew see within
+    /// its reach.
+    NowhereToBlink = 125,
+    /// An item onto a Bim whose four item slots are full.
+    ItemsFull = 126,
+    /// An item onto a bot: only a player's Bim carries one.
+    BotsCarryNoItems = 127,
+    /// An item asked of a trader that does not sell it at that tier today.
+    NotForSale = 128,
 }
 
 impl Refusal {
@@ -728,6 +753,8 @@ impl WorldEvent {
             WorldEvent::ResidentRevived { .. } => 140,
             WorldEvent::EnemyRewarded { .. } => 142,
             WorldEvent::Hit { .. } => 143,
+            WorldEvent::Blinked { .. } => 147,
+            WorldEvent::ItemBought { .. } => 148,
         }
     }
 
@@ -838,6 +865,19 @@ impl WorldEvent {
             // The money: the body is in the event for the picture.
             WorldEvent::EnemyRewarded { money, .. } => money as i64,
             WorldEvent::Hit { damage, .. } => i64::from(damage),
+            WorldEvent::Blinked { who } => who as i64,
+            // The buyer in the units, the kind in the tens, the tier in the
+            // hundreds and the Bim plus one in the thousands, nought for the
+            // armory.
+            WorldEvent::ItemBought {
+                slot,
+                kind,
+                tier,
+                to,
+            } => {
+                let to = if to == u32::MAX { 0 } else { to as i64 + 1 };
+                (slot as i64) + 10 * (kind as i64) + 100 * (tier as i64) + 1_000 * to
+            }
             // The kind in the tens the same way: three kinds, and a crew
             // is never ten.
             WorldEvent::PieceBroke { who, kind } => (who + 10 * kind.code()) as i64,

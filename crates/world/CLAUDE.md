@@ -6756,3 +6756,69 @@ move (every wave's size and tiers did) — not re-pinned. `droid::tests`,
 `tests_defense.rs`' per-defender test and `tests_jammer.rs`'
 `the_machines_come_at_the_day_s_tier_however_near_their_origin` are the
 rule.
+
+## Items: four slots a player's Bim (October 2026, step one)
+
+> "The trader (task 114)" above says the shelf is four weapons and three
+> pieces rolled once a run and never restocked; it is **one weapon and
+> one armour at the day's tier, rolled every visit** now.
+
+Dota 2's items. The rules no room needs are `crate::items` (the price,
+`shop_tier`, `shop`, `combined`, `ItemClocks`); what they do in a mission
+is `item_use.rs` (a child of `world`, like `relics.rs`); the numbers are
+`bims::module` (`crates/game/CLAUDE.md`, "Items").
+
+- **Where they live**: `Gear::items` (four `Option<Module>`), so they ride
+  every loadout path there is — `GearSlot::Item1..Item4` (codes 2–5,
+  `GearSlot::ITEMS`, `of_item` gives `Item1` for "an item slot",
+  `takes(item)` any of the four), the armory (`Item::Module`), `Equip`
+  (the first free slot, `ItemsFull`), `Command::EquipAt` (a slot named;
+  between a Bim's own two slots a swap), `Unequip`, `Offer`, `Combine`
+  (`trader::combined` → `items::combined`; the *Override Core* never).
+  **A bot carries none**: `item_slot_for` refuses `BotsCarryNoItems`.
+  Hashed only where one is carried (`eat_gear`), so no pin moved for an
+  empty loadout.
+- **The trader**: `World::shop_tier` (tier one, then the scaling's
+  `tier2_days`, `tier3_days` off `run_day`) is the tier of the shelf's one
+  gun and one piece (`trader::roll_shelf(.., owner, visit, tier)`,
+  `Trader::restock` at every `arrive_at_trader`, the visit the world
+  clock's minute) and of the item shelf (`item_shelf`: every kind,
+  never sold out). `Command::BuyItem { kind, to }` (`buy_item`):
+  `NotForSale`, the player's own Bim's first free slot or the armory,
+  `item_price` through the dials, *Trade License* and the players'
+  share. `WorldEvent::ItemBought` (148).
+- **Blink Drive**: `Command::UseItem { item, x, y }` (room units) —
+  `can_use_item`: `NotAPlayer`, `NoSuchItem` (empty or passive),
+  `OutOfReach` (not in a mission or not fit), `CoolingDown`,
+  `BlinkLocked` within `BLINK_HIT_LOCK_SECONDS` of a hit — then
+  `Game::blink_spot` (the room's: the point or as far towards it as the
+  reach goes, stepped back half a tile at a time to free ground the body
+  `sees_from` and can reach) and `Game::blink`; `NowhereToBlink`
+  otherwise. `Run::items` (`ItemClocks`, saved, not hashed — the
+  positions are) keeps `ready_at` and `hurt_at`, cleared at every
+  mission's start. `WorldEvent::Blinked` (147).
+- **Executioner**: `World::crit_of(who)` is the soldier's Weak Spot and
+  every Executioner carried as one (`bims::module::combine_crits`: either
+  comes up, the biggest multiple counts) — `skill_of` hands its chance to
+  the room, `crit_extra` takes its multiple. No new draw on the crit
+  stream: a body rolls once a hit, as ever.
+- **Reactor Heart**: the bar is the room's (`Gear::max_health`); the
+  regeneration is `settle_items` after `relics_mend` — `hurt_at` off
+  `hits_before_the_step`, then the plain or the quiet rate through
+  `heal_crew` (a medic's aura lifts it). Nothing runs for a crew carrying
+  no item.
+- **Override Core**: `rank_of(who, SLOT_R)` is `class::ultimate_rank`
+  (bought + 1 with a Core and a rank bought, up to `OVERRIDE_RANK`, five);
+  `bought_rank_of` is the points' own. Every ultimate's table is five
+  long (`by_rank` is generic over the length); the fifth row's twists are
+  `SENTRY_STANDING` (two), the Rampage refilling the grenades,
+  `CLOAK_SPREAD_TILES`, `Skill::unyielding` on a Juggernaut (the room
+  keeps a hit point), `REINFORCEMENT_VEST`.
+
+`tests_items.rs` is the rule; `tests_trader.rs`' revisit test says the
+shelf is rolled again. **`SAVE_VERSION` 85, `wire::PROTOCOL` 88.**
+`REFERENCE_CHECKSUM` and `SURVIVORS` were not re-pinned (they fail in this
+tree with another change's march speed in it; a world with no item and no
+trader visit hashes what it did). Step two (the user's): more items, and
+*Coolant Loop*, *Pressure Seal* and *Steady Grip* moved from relics into
+item form.

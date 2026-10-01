@@ -107,6 +107,19 @@ pub enum Order {
     /// The trader's shelf rolled again, a relic's *Restock Codes* (task
     /// 118) — `Command::Restock`.
     Restock,
+    /// An item off the trader's item shelf (October 2026), onto a
+    /// player's Bim or into the armory with `None` — `Command::BuyItem`.
+    BuyItem {
+        kind: u32,
+        to: Option<u32>,
+    },
+    /// The item in the player's own Bim's item slot used at a room point
+    /// (October 2026) — `Command::UseItem`.
+    UseItem {
+        item: u32,
+        x: i32,
+        y: i32,
+    },
     /// Lay out a part to be built, at a design tile, turned so.
     Build {
         kind: PartKind,
@@ -438,6 +451,8 @@ impl Net {
                         Order::BuyShelf { index, to } => Command::BuyShelf { slot, index, to },
                         Order::Combine { a, b } => Command::Combine { slot, a, b },
                         Order::Restock => Command::Restock { slot },
+                        Order::BuyItem { kind, to } => Command::BuyItem { slot, kind, to },
+                        Order::UseItem { item, x, y } => Command::UseItem { slot, item, x, y },
                         Order::Build {
                             kind,
                             x,
@@ -453,6 +468,12 @@ impl Net {
                         Order::Gear(GearOrder::Equip { who, from }) => {
                             Command::Equip { slot, who, from }
                         }
+                        Order::Gear(GearOrder::EquipAt { who, from, at }) => Command::EquipAt {
+                            slot,
+                            who,
+                            from,
+                            at,
+                        },
                         Order::Gear(GearOrder::Unequip { who, part }) => {
                             Command::Unequip { slot, who, part }
                         }

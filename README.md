@@ -332,6 +332,29 @@ back to the ship, and the reward screen offers the site's relics.
 start, `BIMS_REWARD=1` opens straight on the reward screen and
 `BIMS_CACHE=1` with a cache opened in the mission.
 
+## Items
+
+Dota 2's items, beside the relics (October 2026): **four item slots on
+every player's Bim**, from the first day — a bot carries none. An item is
+bought at a [trader](#the-trader) at the tier the day has reached, moved
+in the Armory like a gun (drag it onto one of the four cells under a
+player's Bim, or onto another), offered to another player, combined two
+of a kind at one tier into one of the next, and kept through a death like
+the rest of the loadout. The hero panel at the foot of the screen shows
+the four two by two at the right of the abilities, each with its key
+(`1` to `4`), its tier as pips and an active one's cooldown swept back.
+
+| item | | tier one / two / three | price |
+| --- | --- | --- | --- |
+| **Blink Drive** | Active (its key): the Bim put where the pointer is, as far as the drive reaches, on ground it can see and walk to. Not within 3 s of a hit | 6 / 8 / 10 tiles, 14 / 12 / 10 s cooldown | 2 000 / 3 500 / 6 000 |
+| **Executioner** | Weapon hits may be critical. Rolls on its own beside a soldier's Weak Spot — either may come up, and the bigger multiple counts | 12% ×1.6 / 18% ×1.9 / 25% ×2.25 | 2 500 / 4 500 / 8 000 |
+| **Reactor Heart** | More health, and regeneration — faster after 6 s without a hit | +25 / +40 / +60 HP; 0.5 / 1 / 1 HP/s, 1.5 / 3 / 5 HP/s quiet | 2 000 / 4 000 / 7 000 |
+| **Override Core** | The class's ultimate plays **one rank higher** than bought (a rank must be bought), up to a **fifth** rank no skill point buys: the Sentry two at once, the Rampage every grenade back, the Cloak everybody within 3 tiles of the target, the Juggernaut nothing takes him down, the Reinforcements five in armour — and every number a step on | one tier | 6 000 |
+
+The prices are placeholders, shared by the players like every price at a
+trader. `BIMS_ITEMS=blink:3,executioner:2,heart,core` gives the steered
+Bim those items at the start of any run, to look at one.
+
 ## Attack, defend or trade
 
 **Every place a trip can go is one of three**, and the map says which
@@ -521,13 +544,17 @@ arrival there is no mission and no room: nothing moves and neither clock
 runs while you are there, and the **Trader panel** comes up beside the
 map. **Tab** opens the Armory beside it.
 
-- **The shelf**: four weapons and three pieces of armour, any kind at any
-  tier, priced at the trader's own tier prices. It is rolled once for the
-  run and **never restocked**: a thing bought is gone from that shelf for
-  good, and coming back shows what is left. Any player buys, with no vote,
-  out of the pool — onto their own Bim, onto a bot, or into the armory;
-  what it replaces goes into the armory. Two players after the same thing:
-  the first has it, the second is told it is gone.
+- **The shelf**: **one weapon and one armour**, of any kind made at the
+  tier the day has reached — tier one, then tier two from the scaling's
+  tier-two day, tier three from its tier-three day (`scaling.ron`, the
+  days the machines' tiers run on) — priced at the trader's own tier
+  prices. It is **rolled again every visit**: a thing bought is gone for
+  that visit, and the next visit is another shelf. A tier above the day's
+  is had by combining. Any player buys, with no vote, out of their own
+  money — onto their own Bim, onto a bot, or into the armory; what it
+  replaces goes into the armory.
+- **The items**: every [item](#items) at the day's tier, never sold out —
+  onto your own Bim's first free item slot, or into the armory.
 - **The relic**: one a trader, drawn the first time you arrive by the
   same roll as a reward (see [Relics](#relics-and-what-a-won-run-unlocks)),
   and there until bought — kept out of every other draw while it is, and
@@ -2738,6 +2765,9 @@ overlapping is allowed the whole apparatus has nothing left to do.
 | Ctrl-click a cell | The quick move: container to pack, pack to the open container |
 | Click or right-click a door | Menu: hold open, close, lock, unlock — the Bim walks to the panel |
 | Right-click a Bim | A downed crewmate — a bot's or a player's: the menu with **Get up** (your own Bim walks over and revives it) and **Carry** (a medic walks over and picks it up), each greyed with the reason when it cannot. A bot already on its way gives way to you |
+| `1` – `4` | Use the **item** in that slot of the Bim you steer at the pointer: a *Blink Drive* blinks there. The slots are the two-by-two grid at the right of the hero panel — see [Items](#items) |
+| `h` | Swap the **medkit** and the weapon in your Bim's hands: with the medkit it holds its fire, and a right-click on a downed crewmate walks over and revives them. The hero panel lights the one in hand and says the key under them |
+| `b` | A medic picks up the downed crewmate under the pointer (or sets down the one it carries) |
 | Hold `g` | Standing close to a downed crewmate (two and a half tiles): your own Bim **gets the nearest back up** while the key is held, and stops if you let go first. A green bar over the body fills with the revive |
 | `F1` | Select the Bim you steer and put it in the middle of the view |
 | `l` | Recruit it, or let it go — see below |

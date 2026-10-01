@@ -27,6 +27,12 @@
 /// A whole bar.
 pub const MAX_HEALTH: f32 = 100.0;
 
+/// What a bar read from a save that knew nothing of items is: whole.
+#[cfg(feature = "serde")]
+fn whole_bar() -> f32 {
+    MAX_HEALTH
+}
+
 /// How long a downed body lies before it is dead, in seconds of the
 /// room's steps: 1 800 steps at 1× (task 120).
 pub const DOWNED_SECONDS: f32 = 30.0;
@@ -56,8 +62,13 @@ pub const REVIVE_SECONDS: f32 = 10.0;
 #[derive(Clone, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Health {
-    /// The bar, nought to [`MAX_HEALTH`].
+    /// The bar, nought to [`Health::max`].
     points: f32,
+    /// A whole bar: [`MAX_HEALTH`], and more with a *Reactor Heart*
+    /// carried (October 2026, `Gear::max_health`), said by the room off
+    /// the loadout.
+    #[cfg_attr(feature = "serde", serde(default = "whole_bar"))]
+    max: f32,
     /// Seconds left before a downed body is dead; `None` while it is up,
     /// and once it is dead.
     down_left: Option<f32>,
@@ -77,6 +88,7 @@ impl Health {
     pub fn new() -> Health {
         Health {
             points: MAX_HEALTH,
+            max: MAX_HEALTH,
             down_left: None,
             dead: false,
             was_downed: false,
@@ -86,6 +98,28 @@ impl Health {
     /// The bar: what the panel shows.
     pub fn points(&self) -> f32 {
         self.points
+    }
+
+    /// A whole bar for this body (October 2026: a *Reactor Heart* raises
+    /// it).
+    pub fn max(&self) -> f32 {
+        self.max
+    }
+
+    /// A whole bar of `max` from now on, what is in it kept at the same
+    /// share of the bar, as Dota keeps it — a body at full stays at full
+    /// with an item put on. Nothing for the dead or a body down.
+    pub fn set_max(&mut self, max: f32) {
+        let max = max.max(1.0);
+        if max == self.max {
+            return;
+        }
+        if !self.dead && self.down_left.is_none() {
+            self.points = (self.points * max / self.max).clamp(0.0, max);
+        } else {
+            self.points = self.points.min(max);
+        }
+        self.max = max;
     }
 
     pub fn is_dead(&self) -> bool {
@@ -111,7 +145,7 @@ impl Health {
 
     /// Short of a whole bar, and alive.
     pub fn is_hurt(&self) -> bool {
-        !self.dead && self.points < MAX_HEALTH
+        !self.dead && self.points < self.max
     }
 
     /// Whether it bleeds on the deck: alive — downed or up — and under
@@ -158,7 +192,7 @@ impl Health {
             return false;
         }
         self.down_left = None;
-        self.points = (MAX_HEALTH * share).clamp(1.0, MAX_HEALTH);
+        self.points = (self.max * share).clamp(1.0, self.max);
         self.was_downed = true;
         true
     }
@@ -170,7 +204,7 @@ impl Health {
         if self.dead || self.down_left.is_some() || points <= 0.0 {
             return 0.0;
         }
-        let given = points.min(MAX_HEALTH - self.points).max(0.0);
+        let given = points.min(self.max - self.points).max(0.0);
         self.points += given;
         given
     }
@@ -181,7 +215,7 @@ impl Health {
         if self.dead {
             return;
         }
-        self.points = MAX_HEALTH;
+        self.points = self.max;
         self.down_left = None;
         self.was_downed = false;
     }
@@ -204,7 +238,10 @@ impl Health {
     /// Back from the dead with a whole bar: a player's Bim respawning at
     /// its mission's end (`Game::revive`).
     pub fn respawn(&mut self) {
+        let max = self.max;
         *self = Health::new();
+        self.max = max;
+        self.points = max;
     }
 
     /// `seconds` of the room's own steps: the countdown of a downed body.
@@ -225,7 +262,7 @@ impl Health {
     /// Set the bar outright, for a probe: nought is downed.
     #[allow(dead_code)]
     pub fn set_points_for_probe(&mut self, points: f32) {
-        self.points = points.clamp(0.0, MAX_HEALTH);
+        self.points = points.clamp(0.0, self.max);
         self.dead = false;
         self.down_left = (self.points <= 0.0).then_some(DOWNED_SECONDS);
     }

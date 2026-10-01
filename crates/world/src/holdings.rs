@@ -30,16 +30,36 @@ use bims::combat::{Item, Piece};
 
 /// One slot of a loadout: the weapon, or the armour — one piece over the
 /// whole body since October 2026, where there were a head, a body and
-/// legs. Codes across the seam, like everything else.
+/// legs — or one of the four **items** (October 2026, `bims::module`), a
+/// player's Bim's alone. Codes across the seam, like everything else.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, PartialOrd, Ord)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum GearSlot {
     Weapon = 0,
     Armour = 1,
+    Item1 = 2,
+    Item2 = 3,
+    Item3 = 4,
+    Item4 = 5,
 }
 
 impl GearSlot {
-    pub const ALL: [GearSlot; 2] = [GearSlot::Weapon, GearSlot::Armour];
+    pub const ALL: [GearSlot; 6] = [
+        GearSlot::Weapon,
+        GearSlot::Armour,
+        GearSlot::Item1,
+        GearSlot::Item2,
+        GearSlot::Item3,
+        GearSlot::Item4,
+    ];
+
+    /// The four item slots, in the order the keys 1 to 4 name them.
+    pub const ITEMS: [GearSlot; 4] = [
+        GearSlot::Item1,
+        GearSlot::Item2,
+        GearSlot::Item3,
+        GearSlot::Item4,
+    ];
 
     pub fn code(self) -> u32 {
         self as u32
@@ -49,14 +69,40 @@ impl GearSlot {
         GearSlot::ALL.get(code as usize).copied()
     }
 
+    /// Which item slot it is, nought to three; `None` for the weapon and
+    /// the armour.
+    pub fn item_index(self) -> Option<usize> {
+        GearSlot::ITEMS.iter().position(|&s| s == self)
+    }
+
+    /// The item slot `index` (nought to three).
+    pub fn item(index: usize) -> Option<GearSlot> {
+        GearSlot::ITEMS.get(index).copied()
+    }
+
+    /// Whether it is one of the four item slots.
+    pub fn is_item(self) -> bool {
+        self.item_index().is_some()
+    }
+
     /// The slot a thing goes on: a weapon in the hand, a piece of armour
-    /// on the body. `None` for a charge, which is never a thing in a
-    /// slot.
+    /// on the body, an item in the first item slot — which of the four is
+    /// the caller's to choose ([`GearSlot::takes`]). `None` for a charge,
+    /// which is never a thing in a slot.
     pub fn of_item(item: Item) -> Option<GearSlot> {
         match item {
             Item::Weapon(_) => Some(GearSlot::Weapon),
             Item::Armour(_) => Some(GearSlot::Armour),
+            Item::Module(_) => Some(GearSlot::Item1),
             Item::Stack(_) => None,
+        }
+    }
+
+    /// Whether `item` goes on this slot: an item on any of the four.
+    pub fn takes(self, item: Item) -> bool {
+        match item {
+            Item::Module(_) => self.is_item(),
+            other => GearSlot::of_item(other) == Some(self),
         }
     }
 
@@ -65,6 +111,10 @@ impl GearSlot {
         match self {
             GearSlot::Weapon => gear.weapon.map(Item::Weapon),
             GearSlot::Armour => gear.armour.map(Item::Armour),
+            item => item
+                .item_index()
+                .and_then(|i| gear.items[i])
+                .map(Item::Module),
         }
     }
 
@@ -77,7 +127,7 @@ impl GearSlot {
         item: Option<Item>,
     ) -> Result<Option<Item>, ()> {
         if let Some(item) = item
-            && GearSlot::of_item(item) != Some(self)
+            && !self.takes(item)
         {
             return Err(());
         }
@@ -87,6 +137,15 @@ impl GearSlot {
             (GearSlot::Weapon, _) => gear.weapon = None,
             (GearSlot::Armour, Some(Item::Armour(piece))) => gear.armour = Some(piece),
             (GearSlot::Armour, _) => gear.armour = None,
+            (slot, item) => {
+                let Some(i) = slot.item_index() else {
+                    return Err(());
+                };
+                gear.items[i] = match item {
+                    Some(Item::Module(m)) => Some(m),
+                    _ => None,
+                };
+            }
         }
         Ok(was)
     }
@@ -108,6 +167,7 @@ impl Stored {
         match self.item {
             Item::Weapon(w) => w.tier.code(),
             Item::Armour(p) => p.tier.code(),
+            Item::Module(m) => m.tier.code(),
             Item::Stack(_) => 0,
         }
     }

@@ -103,6 +103,13 @@ pub enum GearOrder {
     /// Put a thing — out of the armory, or off another Bim's slot — on
     /// `who`, what was there into the armory (task 113).
     Equip { who: u32, from: world::GearSource },
+    /// [`GearOrder::Equip`] onto one slot named — an item dragged onto one
+    /// of the four item boxes (October 2026).
+    EquipAt {
+        who: u32,
+        from: world::GearSource,
+        at: world::GearSlot,
+    },
     /// Take what `who` has on `part` off into the armory.
     Unequip { who: u32, part: world::GearSlot },
     /// Offer what the player's own Bim has on `part` to player `to`.
@@ -1055,7 +1062,7 @@ impl CrewPanels {
             } else {
                 ui.label("Health");
             }
-            let total = health::MAX_HEALTH + armour;
+            let total = game.max_health(w) + armour;
             theme::health_bar(
                 ui,
                 BAR_W,
@@ -2003,6 +2010,14 @@ pub(crate) fn tip_of(item: PackItem, count: u32) -> String {
             Some(id) => format!("{}\n{}", resource_name(id), item_tip(id)),
             None => "Something the hold does not know".into(),
         },
+        PackItem::Module(item) => {
+            let name = if item.kind.tiered() {
+                tiered(crate::names::item_name(item.kind), item.tier)
+            } else {
+                crate::names::item_name(item.kind).to_string()
+            };
+            format!("{name}\n{}", crate::names::item_line(item))
+        }
     }
 }
 
@@ -2073,10 +2088,10 @@ fn sheet_body(ui: &mut egui::Ui, game: &Game, w: usize) {
         .show(ui, |ui| {
             ui.label(egui::RichText::new(SHEET_HEALTH).color(theme::MUTED));
             ui.label(
-                egui::RichText::new(health_line(points, health::MAX_HEALTH, armour)).color(
+                egui::RichText::new(health_line(points, game.max_health(w), armour)).color(
                     if is_hurt(game, w) {
                         theme::BAD
-                    } else if points < health::MAX_HEALTH {
+                    } else if points < game.max_health(w) {
                         theme::CAUTION
                     } else {
                         theme::INK
@@ -2390,6 +2405,8 @@ fn armory_column(
     let frame = egui::Frame::new()
         .inner_margin(egui::Margin::same(4))
         .corner_radius(4.0);
+    // A drop on one of the item cells is theirs, not the column's.
+    let mut inner_drop = false;
     let (_, dropped) = ui.dnd_drop_zone::<ArmoryDrag, ()>(frame, |ui| {
         ui.set_width(ARMORY_COLUMN_W);
         ui.vertical(|ui| {
@@ -2438,7 +2455,7 @@ fn armory_column(
                     }
                 });
             }
-            for slot in world::GearSlot::ALL {
+            for slot in [world::GearSlot::Weapon, world::GearSlot::Armour] {
                 let item = slot.read(&column.gear);
                 let (name, line) = match item {
                     Some(PackItem::Weapon(w)) => (
@@ -2500,6 +2517,11 @@ fn armory_column(
                     });
                 }
             }
+            // The four items (October 2026), a player's Bim's alone: a
+            // cell each, a thing dragged onto one going on that slot.
+            if column.portrait.player {
+                inner_drop |= item_cells(ui, view, column, asked);
+            }
             // Offers made to this Bim's player, the thing and the giver,
             // with the two answers — the recipient's alone to press.
             for (from, slot, item, giver) in &column.offers_in {
@@ -2554,11 +2576,106 @@ fn armory_column(
         });
     });
     if let Some(drag) = dropped
+        && !inner_drop
         && (column.may_change || !view.locked)
         && let Some(order) = drop_on_column(view, *drag, column)
     {
         asked.push(order);
     }
+}
+
+/// A player's column's four item cells, in a row (October 2026): each
+/// its picture or empty, a drag source when the player may change it, a
+/// drop zone that puts what is dropped on that slot, and a right-click to
+/// take it off or offer it. Whether something was dropped on one.
+fn item_cells(
+    ui: &mut egui::Ui,
+    view: &ArmoryView,
+    column: &ArmoryColumn,
+    asked: &mut Vec<GearOrder>,
+) -> bool {
+    let mut dropped_here = false;
+    ui.add_space(2.0);
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = 3.0;
+        for slot in world::GearSlot::ITEMS {
+            let item = slot.read(&column.gear);
+            let movable =
+                item.is_some() && (column.may_change || (column.who == view.local && !view.locked));
+            let frame = egui::Frame::new();
+            let (_, dropped) = ui.dnd_drop_zone::<ArmoryDrag, ()>(frame, |ui| {
+                let cell = |ui: &mut egui::Ui| match item {
+                    Some(thing) => stash_cell(ui, 1, |p, r| icons::icon(p, r.expand(3.0), thing)),
+                    None => stash_cell(ui, 1, |p, r| {
+                        p.rect_stroke(
+                            r.expand(4.0),
+                            3.0,
+                            egui::Stroke::new(1.0, theme::LINE),
+                            egui::StrokeKind::Inside,
+                        );
+                    }),
+                };
+                let response = if movable {
+                    ui.dnd_drag_source(
+                        egui::Id::new(("armory-item", column.who, slot.code())),
+                        ArmoryDrag(world::GearSource::Worn {
+                            who: column.who,
+                            slot,
+                        }),
+                        cell,
+                    )
+                    .response
+                } else {
+                    cell(ui)
+                };
+                let response = match item {
+                    Some(thing) => response.on_hover_text(tip_of(thing, 1)),
+                    None => response.on_hover_text(slot_label(slot)),
+                };
+                if movable {
+                    response.context_menu(|ui| {
+                        if column.may_change && ui.button(ARMORY_TAKE_OFF).clicked() {
+                            asked.push(GearOrder::Unequip {
+                                who: column.who,
+                                part: slot,
+                            });
+                            ui.close();
+                        }
+                        if column.who == view.local && !view.locked {
+                            for other in view
+                                .columns
+                                .iter()
+                                .filter(|c| c.portrait.player && c.who != view.local)
+                            {
+                                if ui
+                                    .button(format!("{ARMORY_OFFER_TO} {}", other.portrait.name))
+                                    .clicked()
+                                {
+                                    asked.push(GearOrder::Offer {
+                                        part: slot,
+                                        to: other.who,
+                                    });
+                                    ui.close();
+                                }
+                            }
+                        }
+                    });
+                }
+            });
+            if let Some(drag) = dropped {
+                dropped_here = true;
+                let ArmoryDrag(from) = *drag;
+                if column.may_change {
+                    asked.push(GearOrder::EquipAt {
+                        who: column.who,
+                        from,
+                        at: slot,
+                    });
+                }
+            }
+        }
+    });
+    dropped_here
 }
 
 /// The armory, the money and the keys: every thing nobody wears, a
@@ -2660,6 +2777,7 @@ fn item_name(item: PackItem) -> &'static str {
     match item {
         PackItem::Armour(p) => armour_name(Some(p.kind)),
         PackItem::Weapon(w) => weapon_name(Some(w.kind)),
+        PackItem::Module(m) => crate::names::item_name(m.kind),
         PackItem::Stack(_) => "",
     }
 }

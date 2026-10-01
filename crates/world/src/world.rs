@@ -47,6 +47,7 @@ use worldgen::{Galaxy, GalaxyType, Node, StarSystem};
 
 use bims::combat::{ArmourKind, Item, Sentry, Tier, Weapon, WeaponKind};
 use bims::game::Container;
+use bims::module::ModuleKind;
 use bims::order::CrewOrder;
 use bims::sight::Stance;
 
@@ -109,6 +110,11 @@ mod garrison;
 // combining. A child for the same reason.
 #[path = "trading.rs"]
 mod trading;
+
+// The items' half of the world (October 2026): the blink, the crit and
+// the regeneration. A child for the same reason.
+#[path = "item_use.rs"]
+mod item_use;
 
 // The machines' outposts (task 136): the sites of a system theirs from
 // the first day, every other one. A child for the same reason.
@@ -567,6 +573,34 @@ pub enum Command {
     /// once a visit, any player while one of them holds it.
     Restock {
         slot: u32,
+    },
+    /// Use the item in that player's own Bim's item slot `item` (nought
+    /// to three, the keys 1 to 4; October 2026) at the crew's room point
+    /// `(x, y)`, room units: a *Blink Drive* blinks there
+    /// ([`World::can_use_item`]). In a mission only.
+    UseItem {
+        slot: u32,
+        item: u32,
+        x: i32,
+        y: i32,
+    },
+    /// Buy an item off the trader's item shelf (October 2026,
+    /// [`crate::items::shop`]): the kind at the tier the shelf sells it
+    /// at today, out of the player's own money, onto `to`'s first free
+    /// item slot — a player's own Bim — or into the armory with `None`.
+    BuyItem {
+        slot: u32,
+        kind: u32,
+        to: Option<u32>,
+    },
+    /// [`Command::Equip`] onto one slot named: what an item dragged onto
+    /// one of the four item boxes asks, the item there going into the
+    /// armory (October 2026).
+    EquipAt {
+        slot: u32,
+        who: u32,
+        from: GearSource,
+        at: GearSlot,
     },
 }
 
@@ -1517,6 +1551,9 @@ impl World {
         self.settle_relics(&hits_before, &mut events);
         self.settle_relic_downs(&downs_before, &mut events);
         self.relics_mend();
+        //    And the items (October 2026): a hit noted for the blink and
+        //    the Reactor Heart, and the Heart's regeneration.
+        self.settle_items(&hits_before);
         self.experience(&mut events);
         self.settle_medics(&mut events);
         self.melee_locks(&mut events);
@@ -1600,6 +1637,9 @@ impl World {
             | Command::OpenCache { slot, .. }
             | Command::BuyShelf { slot, .. }
             | Command::Combine { slot, .. }
+            | Command::UseItem { slot, .. }
+            | Command::BuyItem { slot, .. }
+            | Command::EquipAt { slot, .. }
             | Command::Restock { slot } => slot,
         };
 
@@ -1624,6 +1664,8 @@ impl World {
                     | Command::Offer { .. }
                     | Command::AnswerOffer { .. }
                     | Command::BuyShelf { .. }
+                    | Command::BuyItem { .. }
+                    | Command::EquipAt { .. }
                     | Command::Combine { .. }
                     | Command::Restock { .. }
                     | Command::RankUp { .. }
@@ -1644,6 +1686,7 @@ impl World {
                     | Command::Crew { .. }
                     | Command::CrewLater { .. }
                     | Command::Equip { .. }
+                    | Command::EquipAt { .. }
                     | Command::Unequip { .. }
                     | Command::Offer { .. }
                     | Command::AnswerOffer { .. }
@@ -1665,6 +1708,7 @@ impl World {
                     | Command::PlayerGone { .. }
                     | Command::Ready { .. }
                     | Command::Equip { .. }
+                    | Command::EquipAt { .. }
                     | Command::Unequip { .. }
                     | Command::Offer { .. }
                     | Command::AnswerOffer { .. }
@@ -1727,6 +1771,15 @@ impl World {
             Command::BuyShelf { index, to, .. } => self.buy_shelf(slot, index, to, events),
             Command::Combine { a, b, .. } => self.combine(slot, a, b, events),
             Command::Restock { .. } => self.restock(slot, events),
+            Command::BuyItem { kind, to, .. } => self.buy_item(slot, kind, to, events),
+            Command::UseItem { item, x, y, .. } => {
+                if let Err(why) = self.use_item(slot, item, (x, y), events) {
+                    events.push(refused(slot, why));
+                }
+            }
+            Command::EquipAt { who, from, at, .. } => {
+                self.equip_onto(slot, who, from, Some(at), events)
+            }
             Command::PlaceSite {
                 kind,
                 origin,
@@ -2017,6 +2070,7 @@ impl World {
         let value = |item: Item| match item {
             Item::Weapon(w) => gear_value(armour::weapon_resource(w.kind), w.tier.code()),
             Item::Armour(p) => gear_value(armour::resource_of(p.kind), p.tier.code()),
+            Item::Module(m) => crate::items::price(m),
             Item::Stack(_) => 0,
         };
         for stored in &self.holdings.armory {
@@ -4011,6 +4065,40 @@ impl World {
     /// Bim's slot, onto `who`'s — the slot the thing is made for — and
     /// what was there into the armory.
     fn equip(&mut self, slot: u32, who: u32, from: GearSource, events: &mut Vec<WorldEvent>) {
+        self.equip_onto(slot, who, from, None, events)
+    }
+
+    /// The item slot an item goes on, put onto `who`: the one named, or
+    /// the first free (October 2026). Only a player's Bim carries one
+    /// (`BotsCarryNoItems`), and four is all it carries (`ItemsFull`).
+    fn item_slot_for(&self, who: u32, at: Option<GearSlot>) -> Result<GearSlot, Refusal> {
+        if who >= self.players() {
+            return Err(Refusal::BotsCarryNoItems);
+        }
+        if let Some(at) = at {
+            return if at.is_item() {
+                Ok(at)
+            } else {
+                Err(Refusal::NoSuchGear)
+            };
+        }
+        self.aboard
+            .room
+            .gear(who as usize)
+            .free_item_slot()
+            .and_then(GearSlot::item)
+            .ok_or(Refusal::ItemsFull)
+    }
+
+    /// [`Command::Equip`], or [`Command::EquipAt`] with the slot named.
+    fn equip_onto(
+        &mut self,
+        slot: u32,
+        who: u32,
+        from: GearSource,
+        at: Option<GearSlot>,
+        events: &mut Vec<WorldEvent>,
+    ) {
         if let Some(why) = self.gear_refusal(slot, who) {
             events.push(refused(slot, why));
             return;
@@ -4032,9 +4120,48 @@ impl World {
             events.push(refused(slot, Refusal::NoSuchGear));
             return;
         };
-        let Some(part) = GearSlot::of_item(item) else {
-            events.push(refused(slot, Refusal::NoSuchGear));
-            return;
+        let part = match item {
+            // An item goes on the slot named, or the first free one, of a
+            // player's Bim alone (October 2026).
+            Item::Module(_) => {
+                // Moved between two of one Bim's own item slots: the two
+                // swap, nothing going into the armory.
+                if let (
+                    GearSource::Worn {
+                        who: other,
+                        slot: was,
+                    },
+                    Some(to),
+                ) = (from, at)
+                    && other == who
+                    && to.is_item()
+                {
+                    if was != to {
+                        let there = self.worn_on(who, to);
+                        self.set_slot(who, to, Some(item), events);
+                        self.set_slot(who, was, there, events);
+                        events.push(WorldEvent::GearChanged {
+                            who,
+                            part: to.code(),
+                        });
+                    }
+                    return;
+                }
+                match self.item_slot_for(who, at) {
+                    Ok(part) => part,
+                    Err(why) => {
+                        events.push(refused(slot, why));
+                        return;
+                    }
+                }
+            }
+            _ => match GearSlot::of_item(item) {
+                Some(part) if at.is_none_or(|at| at == part) => part,
+                _ => {
+                    events.push(refused(slot, Refusal::NoSuchGear));
+                    return;
+                }
+            },
         };
         if matches!(from, GearSource::Worn { who: other, .. } if other == who) {
             // Onto the slot it is already on: nothing to do.
@@ -4736,12 +4863,14 @@ impl World {
                 // reward screen, where nothing steps, and refused in a
                 // mission whenever they land.
                 | Command::Equip { .. }
+                | Command::EquipAt { .. }
                 | Command::Unequip { .. }
                 | Command::Offer { .. }
                 | Command::AnswerOffer { .. }
                 // And the trader's (task 114): bought and combined on the
                 // map, where nothing steps.
                 | Command::BuyShelf { .. }
+                | Command::BuyItem { .. }
                 | Command::Combine { .. }
                 | Command::Restock { .. }
         )
@@ -7201,6 +7330,21 @@ impl World {
         if !class::ranked(self.class_of(who)) {
             return 0;
         }
+        let bought = self.progress_of(who).rank(ability_slot);
+        // An *Override Core* carried (October 2026) plays the ultimate a
+        // rank higher than bought, up to the fifth no point buys.
+        if ability_slot == class::SLOT_R {
+            return class::ultimate_rank(bought, self.carries_item(who, ModuleKind::OverrideCore));
+        }
+        bought
+    }
+
+    /// The ranks of an ability bought with skill points, whatever an item
+    /// adds: what ranking up and the pips count.
+    pub fn bought_rank_of(&self, who: u32, ability_slot: u8) -> u8 {
+        if !class::ranked(self.class_of(who)) {
+            return 0;
+        }
         self.progress_of(who).rank(ability_slot)
     }
 
@@ -7555,12 +7699,15 @@ impl World {
     /// rank the owner has of its slot (task 127) — the first rank's for
     /// one laid at none, which only a probe does.
     pub fn laid_health(&self, kind: DeployKind, owner: u32) -> f32 {
-        let (table, slot) = match kind {
-            DeployKind::Sandbags => (class::SANDBAG_HEALTH, class::SLOT_E),
-            DeployKind::HealingSentry => (class::HEALING_SENTRY_HEALTH, class::SLOT_C),
-            DeployKind::Sentry => (class::SENTRY_HEALTH, class::SLOT_R),
-        };
-        class::by_rank(table, self.rank_of(owner, slot).max(1)).unwrap_or(table[0])
+        let at = |slot| self.rank_of(owner, slot).max(1);
+        match kind {
+            DeployKind::Sandbags => class::by_rank(class::SANDBAG_HEALTH, at(class::SLOT_E)),
+            DeployKind::HealingSentry => {
+                class::by_rank(class::HEALING_SENTRY_HEALTH, at(class::SLOT_C))
+            }
+            DeployKind::Sentry => class::by_rank(class::SENTRY_HEALTH, at(class::SLOT_R)),
+        }
+        .unwrap_or(0.0)
     }
 
     /// **Charges** a crew member has of one thing its class spends
@@ -7874,9 +8021,13 @@ impl World {
                 self.engineers[who].sentry_laid = Some(now);
             }
         }
-        // The standing limit: one sentry, and a Healing Sentry's charges.
+        // The standing limit: one sentry — two at the Override Core's
+        // fifth rank (October 2026) — and a Healing Sentry's charges.
         let limit = match kind {
-            DeployKind::Sentry => 1,
+            DeployKind::Sentry => {
+                class::by_rank(class::SENTRY_STANDING, self.rank_of(slot, class::SLOT_R))
+                    .unwrap_or(1) as u32
+            }
             DeployKind::HealingSentry => self.charges(slot, Charge::HealingSentry).max(1),
             DeployKind::Sandbags => u32::MAX,
         };
@@ -8292,6 +8443,9 @@ impl World {
         } else {
             self.soldier_skill(who)
         };
+        // Every crit: the soldier's Weak Spot and the Executioners
+        // carried, rolled as one (October 2026).
+        skill.crit_chance = self.crit_of(who).map_or(0.0, |(chance, _)| chance);
         // How fast a worn piece drains: a tank's half, a quarter from
         // Plated's fourth rank, and one for everybody else.
         skill.armour_drain = self.armour_drain(who);
@@ -8748,6 +8902,12 @@ impl World {
         soldier.began = Some(now);
         soldier.until = until;
         soldier.extended = 0.0;
+        // At the Override Core's fifth rank (October 2026) every grenade
+        // charge is in hand again.
+        if self.rank_of(slot, class::SLOT_R) >= class::OVERRIDE_RANK {
+            let full = self.charges(slot, Charge::Grenade);
+            self.set_charges_held(slot, Charge::Grenade, full);
+        }
         Ok(())
     }
 
@@ -8781,14 +8941,10 @@ impl World {
         let Some(by) = hit.by.filter(|_| hit.crit) else {
             return 0.0;
         };
-        // Slot C is Weak Spot on a soldier alone: a commander's is his
-        // aura (task 129).
-        if !self.is_soldier(by as u32) {
-            return 0.0;
-        }
-        let rank = self.rank_of(by as u32, class::SLOT_C);
-        class::by_rank(class::WEAK_SPOT_DAMAGE, rank)
-            .map_or(0.0, |crit| crate::soldier::crit_bonus(hit.flat, crit))
+        // Weak Spot on a soldier and every Executioner carried (October
+        // 2026): the biggest multiple of them.
+        self.crit_of(by as u32)
+            .map_or(0.0, |(_, crit)| crate::soldier::crit_bonus(hit.flat, crit))
     }
 
     // --- the medic: a ranked kit (task 130) -------------------------------
@@ -9207,29 +9363,41 @@ impl World {
         self.can_cloak(slot, target)?;
         let now = self.mission_minutes();
         let until = now + self.cloak_seconds(slot) * time::MINUTES_PER_SECOND;
-        let pace =
-            class::by_rank(class::CLOAK_PACE, self.rank_of(slot, class::SLOT_R)).unwrap_or(1.0);
-        let was = self.cloak_of(target);
-        let running = self.is_cloaked(target);
-        let t = target as usize;
-        if self.cloaks.len() <= t {
-            self.cloaks.resize(t + 1, crate::medic::Cloak::default());
+        let rank = self.rank_of(slot, class::SLOT_R);
+        let pace = class::by_rank(class::CLOAK_PACE, rank).unwrap_or(1.0);
+        // At the Override Core's fifth rank (October 2026) every friendly
+        // Bim within its tiles of the target is cloaked with it.
+        let mut cloaked = vec![target];
+        if rank >= class::OVERRIDE_RANK {
+            for who in self.crew_within(target, class::CLOAK_SPREAD_TILES) {
+                if !cloaked.contains(&who) && !self.aboard.room.is_downed(who as usize) {
+                    cloaked.push(who);
+                }
+            }
         }
-        let end = match was.until {
-            Some(end) if running => end.max(until),
-            _ => until,
-        };
-        self.cloaks[t] = crate::medic::Cloak {
-            until: Some(end),
-            pace: if running { was.pace.max(pace) } else { pace },
-            seconds: (end - now) / time::MINUTES_PER_SECOND,
-        };
+        for target in cloaked {
+            let was = self.cloak_of(target);
+            let running = self.is_cloaked(target);
+            let t = target as usize;
+            if self.cloaks.len() <= t {
+                self.cloaks.resize(t + 1, crate::medic::Cloak::default());
+            }
+            let end = match was.until {
+                Some(end) if running => end.max(until),
+                _ => until,
+            };
+            self.cloaks[t] = crate::medic::Cloak {
+                until: Some(end),
+                pace: if running { was.pace.max(pace) } else { pace },
+                seconds: (end - now) / time::MINUTES_PER_SECOND,
+            };
+            if target == slot {
+                self.medic_mut(slot as usize).unlink();
+                self.aboard.room.set_beaming(slot as usize, false);
+            }
+            self.aboard.room.set_cloaked(t, true);
+        }
         self.medic_mut(slot as usize).last_cloak = Some(now);
-        if target == slot {
-            self.medic_mut(slot as usize).unlink();
-            self.aboard.room.set_beaming(slot as usize, false);
-        }
-        self.aboard.room.set_cloaked(t, true);
         Ok(())
     }
 
@@ -9653,6 +9821,9 @@ impl World {
             let rank = self.rank_of(who, class::SLOT_R);
             skill.damage_taken *=
                 class::by_rank(class::JUGGERNAUT_DAMAGE_TAKEN, rank).unwrap_or(1.0);
+            // At the Override Core's fifth rank (October 2026) nothing
+            // takes him down while it runs.
+            skill.unyielding = rank >= class::OVERRIDE_RANK;
         }
         skill
     }
@@ -10481,10 +10652,17 @@ impl World {
                 ^ ((self.reinforcements.len() as u64) << 12)
                 ^ (u64::from(slot) << 8)
                 ^ u64::from(count);
-            let gear = bims::combat::Gear {
+            let mut gear = bims::combat::Gear {
                 weapon: Some(bims::combat::WeaponKind::AutoRifle.at(tier)),
                 ..bims::combat::Gear::default()
             };
+            // A plate at the Override Core's fifth rank (October 2026).
+            if let Some(Some(vest)) = class::by_rank(class::REINFORCEMENT_VEST, rank) {
+                gear.armour = Some(
+                    self.holdings
+                        .new_piece(bims::combat::ArmourKind::Armour, vest),
+                );
+            }
             self.enlist_republic(slot, spot, gear, seed, false);
             count += 1;
         }
