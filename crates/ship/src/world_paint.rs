@@ -1153,7 +1153,7 @@ fn plain(game: &Game, list: &mut DrawList) {
             Ground::Forest => {
                 picture.surface_box(ground_surface(Biome::Temperate), corners, forest)
             }
-            _ => picture.box_between(corners.0, corners.1, corners.2, corners.3, 0.0, water),
+            _ => picture.surface_box(crate::fittings::water_look(biome).0, corners, water),
         }
     };
     for ry in wy0..=wy1 {

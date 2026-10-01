@@ -684,6 +684,75 @@ def concrete():
     finish("concrete", rgb, (0.24, 0.25, 0.27))
 
 
+def water():
+    """A lake from above: long swells and fine wind ripples on them, the
+    deep water dark and the shallows lighter, and the sky caught bright
+    on the ripples that face it."""
+    rng = np.random.default_rng(111)
+    swell = spectral(rng, 3.8, lo=1, hi=16, aniso=(1.0, 0.55)) * 7.0
+    ripple = spectral(rng, 3.0, lo=10, hi=60, aniso=(1.0, 0.45)) * 0.9
+    h = swell + ripple
+    gx = (np.roll(h, -1, 1) - np.roll(h, 1, 1)) * 0.5
+    gy = (np.roll(h, -1, 0) - np.roll(h, 1, 0)) * 0.5
+    nz = 1.0 / np.sqrt(gx * gx + gy * gy + 1.0)
+    nx, ny = -gx * nz, -gy * nz
+    # The sky's glare: the half vector between the eye (straight down)
+    # and a sun low in the north-west.
+    half = np.array([-0.35, -0.35, 1.0])
+    half /= np.linalg.norm(half)
+    spec = np.clip(nx * half[0] + ny * half[1] + nz * half[2], 0, 1) ** 400
+    depth = smooth((spectral(rng, 3.0, lo=1, hi=10) + 1.0) / 2.0)
+    deep = colour((0.10, 0.26, 0.40))
+    shallow = colour((0.22, 0.48, 0.60))
+    base = mix(deep, shallow, depth * 0.8)
+    # The face of a ripple towards the light a shade lighter, away darker.
+    tilt = (nx * -0.7 + ny * -0.7)
+    base = base * (1.0 + 0.7 * tilt[..., None])
+    rgb = base + spec[..., None] * colour((0.85, 0.92, 1.0)) * 0.9
+    rgb = blur(rgb, 0.5)
+    finish("water", rgb, (0.24, 0.44, 0.64))
+
+
+def ice():
+    """A frozen lake: clear blue ice with the depth showing dark under it,
+    frost and snow dusted over in patches, white fracture lines and a
+    scatter of bubbles caught as it froze."""
+    rng = np.random.default_rng(121)
+    depth = smooth((spectral(rng, 2.8, lo=1, hi=30) + 0.8) / 2.0)
+    base = mix(colour((0.46, 0.62, 0.76)), colour((0.74, 0.86, 0.94)), depth)
+    frost = smooth((spectral(rng, 2.4, lo=2, hi=80) - 0.5) / 1.2)
+    base = mix(base, colour((0.92, 0.95, 0.98)), frost * 0.7)
+    # Fractures: the edges of plates the ice cracked into, white where
+    # the crack scatters the light, with a dark line down the middle.
+    pts = rng.uniform(0, N, (34, 2))
+    d1, d2, _ = torus_distance(pts)
+    gap = (d2 - d1) + spectral(rng, 3.0, lo=4, hi=40) * 1.2
+    white = smooth((3.5 - gap) / 3.0)
+    dark = smooth((0.9 - gap) / 0.6)
+    pts2 = rng.uniform(0, N, (160, 2))
+    e1, e2, _ = torus_distance(pts2)
+    fine = smooth((1.4 - ((e2 - e1) + spectral(rng, 2.2, lo=8, hi=100) * 2.0)) / 1.0)
+    fine *= smooth((spectral(rng, 2.0, lo=2, hi=20) - 0.3) / 0.8)
+    base = mix(base, colour((0.95, 0.97, 1.0)), np.clip(white * 0.8 + fine * 0.5, 0, 1))
+    base = base * (1.0 - 0.25 * dark[..., None])
+    # Bubbles.
+    img = Image.new("L", (N, N), 0)
+    d = ImageDraw.Draw(img)
+    for _ in range(900):
+        x, y = rng.uniform(0, N, 2)
+        r = rng.uniform(1.0, 3.5)
+
+        def one(dx, dy, x=x, y=y, r=r):
+            d.ellipse([x - r + dx, y - r + dy, x + r + dx, y + r + dy], fill=255)
+
+        wrapped_draw(one)
+    bubbles = blur(np.asarray(img, np.float64) / 255.0, 0.6)
+    base = mix(base, colour((0.96, 0.98, 1.0)), bubbles * 0.6)
+    h = depth * 2.0 + frost * 1.5
+    rgb = base * (0.9 + 0.1 * lit(h, 1.0))[..., None]
+    finish("ice", rgb, (0.70, 0.82, 0.90))
+
+
 MAKERS = {
     "deck": deck,
     "bulkhead": bulkhead,
@@ -696,6 +765,8 @@ MAKERS = {
     "floorboard": floorboard,
     "concrete": concrete,
     "rock": rock,
+    "water": water,
+    "ice": ice,
 }
 
 if __name__ == "__main__":

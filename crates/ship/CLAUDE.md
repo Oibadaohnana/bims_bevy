@@ -1244,8 +1244,13 @@ dark patches went, the texture having its own. A tile's own surface is
 anchored at the tile's centre, so plates, panels and stone courses line
 up with the grid; the ground is tied to the world by the app, so the
 backdrop and the town's yards are one field. Tiles and runs are drawn
-`fittings::LAP` past their edges, or their feathered edges show the
-backdrop as seams. Water and the designer's yard are still flat colour.
+`fittings::LAP` past their edges. Water is `Surface::Water` (a lake, an
+oasis) or `Ice` by biome, tied to the world so a lake is one sheet
+(`fittings::water_look`, the part and the plain's runs alike), and the
+designer's yard lays the game's deck plate (`paint::deck`). The dark lines
+along a town's tile rows were not the rows: `shape.wgsl` took a pixel's
+coverage through the sRGB curve with its colour, so any two shapes of one
+colour that met left a dark seam; it covers after the curve now.
 `PICTURES`' two decks in `tests_survivors.rs` move with this (the deck's
 shapes are other shapes now). The pin was already stale in this tree —
 its designer pictures, which this change does not reach, had moved with

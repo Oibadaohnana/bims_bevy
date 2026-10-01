@@ -19,7 +19,7 @@ use shipdesign::parts::{Layer, PartKind, Rotation, footprint, is_diagonal, use_s
 use shipdesign::validate::Severity;
 use shipdesign::{Grid, PlacedPart, ShipDesign, TILE};
 
-use crate::draw::{Color, DrawList};
+use crate::draw::{Color, DrawList, Surface};
 use crate::editor::Editor;
 
 const VOID: Color = Color::rgb(0.03, 0.04, 0.05);
@@ -27,7 +27,6 @@ const AREA: Color = Color::rgb(0.07, 0.09, 0.11);
 const AREA_EDGE: Color = Color::rgba(0.38, 0.86, 0.95, 0.35);
 const SEAM: Color = Color::rgba(0.55, 0.85, 0.95, 0.07);
 const DECK: Color = Color::rgb(0.13, 0.15, 0.18);
-const DECK_EDGE: Color = Color::rgba(0.55, 0.85, 0.95, 0.10);
 
 const GLOW: Color = Color::rgb(0.38, 0.86, 0.95);
 const WARN: Color = Color::rgb(0.98, 0.45, 0.32);
@@ -280,8 +279,10 @@ fn deck(editor: &Editor, list: &mut DrawList) {
         }
         for (x, y) in part.tiles() {
             let (x0, y0) = (world(x as i32) + 1.0, world(y as i32) + 1.0);
-            list.box_between(x0, y0, x0 + t - 2.0, y0 + t - 2.0, 2.0, DECK);
-            list.stroke_between(x0, y0, x0 + t - 2.0, y0 + t - 2.0, 2.0, 1.0, DECK_EDGE);
+            // The game's deck plate, so the yard is the ship it builds.
+            let (cx, cy) = (x0 + t / 2.0 - 1.0, y0 + t / 2.0 - 1.0);
+            let size = t + crate::fittings::LAP;
+            list.surface(Surface::Deck, cx, cy, size, size, 0.0, (cx, cy), DECK);
         }
     }
 }

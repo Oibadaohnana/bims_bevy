@@ -42,7 +42,7 @@ struct Def {
 const TILE: f32 = 52.0;
 
 /// Every surface, in `ship::draw::Surface`'s order.
-const SURFACES: [Def; 11] = [
+const SURFACES: [Def; 13] = [
     // Deck: a steel plate a tile, sixteen to a repeat.
     Def {
         png: include_bytes!("../textures/deck.png"),
@@ -99,6 +99,16 @@ const SURFACES: [Def; 11] = [
     },
     Def {
         png: include_bytes!("../textures/rock.png"),
+        repeat: 8.0 * TILE,
+        world: true,
+    },
+    Def {
+        png: include_bytes!("../textures/water.png"),
+        repeat: 8.0 * TILE,
+        world: true,
+    },
+    Def {
+        png: include_bytes!("../textures/ice.png"),
         repeat: 8.0 * TILE,
         world: true,
     },

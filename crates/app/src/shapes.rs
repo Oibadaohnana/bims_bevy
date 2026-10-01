@@ -43,9 +43,9 @@ const KIND_TRIANGLE: f32 = 2.0;
 pub const KIND_SURFACE: f32 = 16.0;
 /// The same as a triangle (`ship::draw::KIND_SURFACE_TRIANGLE`).
 pub const KIND_SURFACE_TRIANGLE: f32 = 32.0;
-/// What an anchor is kept under: sixteen tiles, a whole number of every
-/// surface's repeat (`ship::draw::SURFACE_REPEAT`).
-const SURFACE_REPEAT: f32 = 16.0 * 52.0;
+/// What a record's surface number has added for one tied to the world
+/// (`shape.wgsl`'s `TIED`), which the shader breaks the repeat of.
+const TIED: f32 = 64.0;
 
 /// How a canvas maps world units to its own pixels: `px = offset + scale *
 /// world`. The room fits a fixed deck to the window, the designer pans and
@@ -651,7 +651,8 @@ pub fn pack(shapes: &[f32], view: View, clip: Rect, pixels_per_point: f32, out: 
 /// the shader needs to find any of its pixels in the texture. A surface
 /// tied to the world ([`crate::surfaces::tied_to_the_world`]) is anchored
 /// where its centre is in the world, turned back by its own turn, so every
-/// shape of it at one turn is one texture whoever painted it.
+/// shape of it at one turn is one texture whoever painted it — and its
+/// surface number is [`TIED`] more, for the shader.
 fn surface_record(s: &[f32; STRIDE], view: View, clip: Rect, feather: f32) -> Option<Record> {
     let a = s[11];
     if a <= 0.0 {
@@ -677,12 +678,13 @@ fn surface_record(s: &[f32; STRIDE], view: View, clip: Rect, feather: f32) -> Op
     let surface = (s[0] - first).round();
     let repeat = crate::surfaces::repeat(surface as u32);
     let rot = s[5];
-    let anchor = if crate::surfaces::tied_to_the_world(surface as u32) {
-        let back = turned(Vec2::new(s[1], s[2]), -rot);
-        Vec2::new(
-            back.x.rem_euclid(SURFACE_REPEAT),
-            back.y.rem_euclid(SURFACE_REPEAT),
-        )
+    // Tied to the world, the anchor is not wrapped: the shader lays a
+    // second sample of the texture over the first at another scale and
+    // turn, which no wrap of the first would carry across a seam. The
+    // camera's units are about the ship, so the numbers stay small.
+    let tied = crate::surfaces::tied_to_the_world(surface as u32);
+    let anchor = if tied {
+        turned(Vec2::new(s[1], s[2]), -rot)
     } else {
         Vec2::new(s[6], s[7])
     };
@@ -711,7 +713,7 @@ fn surface_record(s: &[f32; STRIDE], view: View, clip: Rect, feather: f32) -> Op
         anchor.x / repeat,
         anchor.y / repeat,
         view.scale * repeat,
-        surface,
+        if tied { surface + TIED } else { surface },
         r,
         g,
         b,

@@ -69,6 +69,10 @@ pub enum Surface {
     Concrete = 9,
     /// A cliff on the plain: bare rock.
     Rock = 10,
+    /// A lake or a pool, from above: ripples and the sky in them.
+    Water = 11,
+    /// A frozen lake: cracked, with bubbles caught in it.
+    Ice = 12,
 }
 
 /// A `line` width of zero means fill; anything greater strokes the outline.

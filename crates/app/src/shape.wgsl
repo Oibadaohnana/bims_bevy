@@ -8,6 +8,9 @@
 // and draws the shape's colour that much — premultiplied and sRGB-encoded
 // as a vertex colour was, carried to linear the way `canvas.wgsl` carries
 // one, so an emissive channel past one is still past one for the bloom.
+// The coverage multiplies the colour once it is linear (where egui, and
+// `BIMS_SHAPES=cpu`, multiply it before), so an edge blends evenly and two
+// shapes of one colour that meet show no seam.
 //
 // Coverage: every polygon the painters' shapes come to is convex, and
 // `ShapeBuf` feathers it by moving its ring out and in half a pixel along
@@ -57,6 +60,12 @@ struct Shapes {
 // What a surface texel is multiplied by: its average is a quarter, so a
 // shape of a surface is its colour on average and up to four times it.
 const SURFACE_GAIN: f32 = 4.0;
+// A surface tied to the world has this added to its number, and its
+// repeat broken by a second sample this much smaller in texture space
+// (larger on the ground) and turned this way (cos, sin of 1.1 radians).
+const TIED: i32 = 64;
+const BREAK_SCALE: f32 = 0.61;
+const BREAK_TURN: vec2<f32> = vec2<f32>(0.4536, 0.8912);
 
 struct Vertex {
     @builtin(instance_index) instance_index: u32,
@@ -302,8 +311,8 @@ fn linear_from_gamma_rgb(srgb: vec3<f32>) -> vec3<f32> {
 }
 
 // A surface's colour at `p` (points from the shape's centre, before its
-// turn): the texel there times the shape's colour `c`, premultiplied and
-// covered as `c` is. `more` is the anchor (where the centre is, in
+// turn): the texel there times the shape's colour `c`, premultiplied as
+// `c` is (the coverage goes on after). `more` is the anchor (where the centre is, in
 // repeats), how many points a repeat spans and which surface. Sampled
 // with the gradient worked out rather than measured — the derivatives
 // want uniform control flow, and a pixel a step on is `feather / span`
@@ -313,16 +322,40 @@ fn surface(s: Shape, p: vec2<f32>, c: vec4<f32>) -> vec4<f32> {
     let span = max(s.more.z, 1.0e-6);
     let uv = s.more.xy + p / span;
     let g = max(s.head.w, 1.0e-3) / span;
-    let layer = i32(s.more.w + 0.5);
-    let texel = textureSampleGrad(
+    var code = i32(s.more.w + 0.5);
+    let tied = code >= TIED;
+    if tied {
+        code -= TIED;
+    }
+    var texel = textureSampleGrad(
         surfaces,
         surfaces_sampler,
         uv,
-        layer,
+        code,
         vec2<f32>(g, 0.0),
         vec2<f32>(0.0, g),
-    );
-    let rgb = min(c.rgb * texel.rgb * SURFACE_GAIN, vec3<f32>(c.a));
+    ).rgb;
+    // The open ground repeats every eight tiles, which a far zoom shows as
+    // a pattern: a second sample of the same texture, half again as large
+    // and turned by an angle no repeat lines up with, laid over the first
+    // so the two together never repeat. The sum keeps the average and
+    // most of the contrast of either.
+    if tied {
+        let turned = vec2<f32>(
+            uv.x * BREAK_TURN.x - uv.y * BREAK_TURN.y,
+            uv.x * BREAK_TURN.y + uv.y * BREAK_TURN.x,
+        );
+        let other = textureSampleGrad(
+            surfaces,
+            surfaces_sampler,
+            turned * BREAK_SCALE + vec2<f32>(0.37, 0.71),
+            code,
+            vec2<f32>(g * BREAK_SCALE, 0.0),
+            vec2<f32>(0.0, g * BREAK_SCALE),
+        ).rgb;
+        texel = vec3<f32>(0.25) + (texel + other - vec3<f32>(0.5)) * 0.75;
+    }
+    let rgb = min(c.rgb * texel * SURFACE_GAIN, vec3<f32>(c.a));
     return vec4<f32>(rgb, c.a);
 }
 
@@ -384,9 +417,15 @@ fn fragment(in: Varyings) -> @location(0) vec4<f32> {
     if cover <= 0.0 {
         discard;
     }
-    var c = s.color * cover;
+    var c = s.color;
     if kind == 7u || kind == 8u {
         c = surface(s, p, c);
     }
-    return vec4<f32>(linear_from_gamma_rgb(c.rgb), c.a);
+    // The coverage after the colour is carried to linear, not before: a
+    // pixel half covered is half the light. Taken through the sRGB curve
+    // with the colour it came to a fifth, so every edge was a dark fringe
+    // and two shapes of one colour side by side — a town's rows of
+    // ground, a run over the ground beyond it — showed a dark seam where
+    // they met.
+    return vec4<f32>(linear_from_gamma_rgb(c.rgb) * cover, c.a * cover);
 }

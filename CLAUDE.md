@@ -187,7 +187,12 @@ plus `wire` and `server` (the relay, `bims-server`).
   `textures/make.py` (seeded numpy; its header says how to run it); a
   tile is only 40–100 px on screen, so detail under ~12 texels is lost.
   `BIMS_SURFACES=0` draws them flat. A new surface is a `Surface`
-  variant, a `SURFACES` row and a maker in `make.py`.
+  variant, a `SURFACES` row and a maker in `make.py`. `shape.wgsl`
+  multiplies the coverage in **after** the sRGB-to-linear step (egui and
+  the CPU path before), or two same-coloured shapes meeting show a dark
+  seam. A surface tied to the world (the open ground, water) is sampled
+  twice, the second time larger and turned, so its 8-tile repeat never
+  shows at a far zoom.
 - Anti-aliasing is feathering in `shapes.rs` (`Msaa::Off`). The bloom
   picks up only colours past white (`draw::Color::glowing`);
   `BIMS_BLOOM=0` turns it off.

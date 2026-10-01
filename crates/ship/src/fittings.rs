@@ -1941,13 +1941,11 @@ const ROCK_DESERT: Color = Color::rgb(0.64, 0.44, 0.30);
 const ROCK_ARCTIC: Color = Color::rgb(0.56, 0.60, 0.64);
 const ROCK_EDGE: Color = Color::rgba(0.0, 0.0, 0.0, 0.35);
 const ROCK_GLINT: Color = Color::rgba(1.0, 1.0, 1.0, 0.12);
-/// Water by biome — a lake, an oasis pool, and ice — the wavelets on the
-/// two that are wet and the crack across the one that is frozen.
-const WATER_TEMPERATE: Color = Color::rgb(0.24, 0.44, 0.64);
-const WATER_DESERT: Color = Color::rgb(0.22, 0.54, 0.62);
-const ICE: Color = Color::rgb(0.70, 0.82, 0.90);
-const WAVELET: Color = Color::rgba(1.0, 1.0, 1.0, 0.30);
-const ICE_CRACK: Color = Color::rgba(0.30, 0.44, 0.58, 0.7);
+/// Water by biome — a lake, an oasis pool, and ice — the average colour
+/// of the [`Surface::Water`] or [`Surface::Ice`] it is drawn with.
+pub(crate) const WATER_TEMPERATE: Color = Color::rgb(0.24, 0.44, 0.64);
+pub(crate) const WATER_DESERT: Color = Color::rgb(0.22, 0.54, 0.62);
+pub(crate) const ICE: Color = Color::rgb(0.70, 0.82, 0.90);
 /// A field from afar: the soil, its edge, and the furrows along it.
 const FIELD_SOIL: Color = Color::rgb(0.42, 0.30, 0.18);
 const FIELD_EDGE: Color = Color::rgba(0.20, 0.13, 0.07, 0.6);
@@ -2304,28 +2302,20 @@ fn boulder(list: &mut DrawList, part: &PlacedPart, biome: Biome) {
 fn water(list: &mut DrawList, part: &PlacedPart, biome: Biome) {
     let (local, across, along) = Local::of(part);
     let (w, h) = (across, along);
-    let color = match biome {
-        Biome::Temperate => WATER_TEMPERATE,
-        Biome::Desert => WATER_DESERT,
-        Biome::Arctic => ICE,
-    };
-    local.push(list, KIND_RECT, 0.0, 0.0, w, h, 0.0, 0.0, color);
-    // A mark on one tile in three, so the sheet is not a pattern.
-    let roll = salt(part);
-    if roll > 0.34 {
-        return;
-    }
-    let du = (roll * 3.0 - 0.5) * w * 0.3;
-    if biome == Biome::Arctic {
-        let (x0, y0) = local.at(du - w * 0.3, h * 0.2);
-        let (x1, y1) = local.at(du + w * 0.02, -h * 0.05);
-        let (x2, y2) = local.at(du + w * 0.28, -h * 0.3);
-        list.line(x0, y0, x1, y1, 1.5, ICE_CRACK);
-        list.line(x1, y1, x2, y2, 1.5, ICE_CRACK);
-    } else {
-        for (v, len) in [(-h * 0.14, w * 0.3), (h * 0.14, w * 0.22)] {
-            local.push(list, KIND_RECT, du, v, len, 1.5, 0.0, 0.0, WAVELET);
-        }
+    let (surface, color) = water_look(biome);
+    // Tied to the world by the app, so a lake of many tiles is one sheet.
+    let (x, y) = local.at(0.0, 0.0);
+    let turn = turn_of(&local);
+    list.surface(surface, x, y, w + LAP, h + LAP, turn, (x, y), color);
+}
+
+/// The surface and colour water is drawn in, in `biome`: a lake, an
+/// oasis pool, or ice. The plain's water is the same.
+pub(crate) fn water_look(biome: Biome) -> (Surface, Color) {
+    match biome {
+        Biome::Temperate => (Surface::Water, WATER_TEMPERATE),
+        Biome::Desert => (Surface::Water, WATER_DESERT),
+        Biome::Arctic => (Surface::Ice, ICE),
     }
 }
 
