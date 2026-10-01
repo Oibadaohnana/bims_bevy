@@ -1400,6 +1400,11 @@ fn frame(
             // A class's ability, whoever in the crew used it, heard the
             // same way.
             sounds.ability(&mut commands, event);
+            // Anyone in the crew downed: every window steps the world and
+            // hears it, so every player knows to come and pick them up.
+            if let WorldEvent::CrewDowned { who } = event {
+                sounds.downed(&mut commands, who);
+            }
             // An enemy down: its pay floats up over it, with a soft chime.
             // A hit: its number over whoever took it.
             if let WorldEvent::Hit {

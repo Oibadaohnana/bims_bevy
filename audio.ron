@@ -42,6 +42,9 @@
     bought: 1.0,            // anything bought, by anyone in the crew
     reward: 1.0,            // the chime of an enemy down and its pay
 
+    // The crew.
+    downed: 1.0,            // anyone in the crew downed, heard by every player
+
     // The classes' abilities.
     grenade_throw: 1.0,
     grenade_burst: 1.0,

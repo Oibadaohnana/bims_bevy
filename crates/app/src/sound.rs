@@ -84,12 +84,15 @@ pub enum Clip {
     // An enemy down and what it was worth: a soft two-note chime,
     // synthesised (`prepare.sh`'s last line).
     Reward,
+    // A crew member downed: a cry, the body on the deck and the suit's
+    // vitals alarm, built by `sounds/abilities.py` (`downed`).
+    Downed,
 }
 
 /// The bytes of each clip, indexed by [`Clip`]. Ogg Vorbis, mono, 48 kHz,
 /// peaks at -1 dBFS for the one-shots and -22 or -30 LUFS for the loops —
 /// see `prepare.sh` — so every level below is relative to that.
-const CLIPS: [&[u8]; 44] = [
+const CLIPS: [&[u8]; 45] = [
     include_bytes!("../sounds/laser_1.ogg"),
     include_bytes!("../sounds/laser_2.ogg"),
     include_bytes!("../sounds/laser_3.ogg"),
@@ -134,6 +137,7 @@ const CLIPS: [&[u8]; 44] = [
     include_bytes!("../sounds/rally.ogg"),
     include_bytes!("../sounds/reinforcements.ogg"),
     include_bytes!("../sounds/reward.ogg"),
+    include_bytes!("../sounds/downed.ogg"),
 ];
 
 /// The player's own volume for each sound, from `audio.ron` at the root
@@ -225,6 +229,7 @@ volumes! {
     Rally => rally,
     Reinforcements => reinforcements,
     Reward => reward,
+    Downed => downed,
     ;
     minigun,
     rail_lance,
@@ -327,6 +332,8 @@ enum Kind {
     Ability,
     /// An enemy down and its pay floating up over it.
     Reward,
+    /// A crew member downed, told apart by who.
+    Downed,
 }
 
 /// How many one-shots a frame may start, whatever the room says. Enough
@@ -392,6 +399,8 @@ impl Kind {
             Kind::Ability => 0.25,
             // A whole wave falling in one frame is one chime.
             Kind::Reward => 0.12,
+            // A body goes down once; the room says it the step it does.
+            Kind::Downed => 1.0,
         }
     }
 }
@@ -667,6 +676,17 @@ impl Sounds {
         }
     }
 
+    /// A crew member downed — the player or anyone else, bot or human:
+    /// the world's `CrewDowned`, which every window hears, so the whole
+    /// crew knows someone wants reviving. Loud: it is the one sound in a
+    /// fight that asks the player to act. Two bodies down at once are
+    /// two.
+    pub fn downed(&mut self, commands: &mut Commands, who: u32) {
+        if self.admit_in(Kind::Downed, (0, who as i32)) {
+            self.one_shot(commands, Clip::Downed, 0.75);
+        }
+    }
+
     /// A class's ability used, by anyone in the crew: the world's event
     /// for it, which every window hears — a teammate's taunt as well as
     /// one's own. What the room hears of an ability afterwards (the
@@ -774,7 +794,7 @@ mod tests {
             assert!(clip.starts_with(b"OggS"), "clip {i} is not an Ogg stream");
             assert!(clip.len() > 1_000, "clip {i} is only {} bytes", clip.len());
         }
-        assert_eq!(CLIPS.len(), Clip::Reward as usize + 1);
+        assert_eq!(CLIPS.len(), Clip::Downed as usize + 1);
     }
 
     /// `audio.ron` at the root parses and names every sound, so the player

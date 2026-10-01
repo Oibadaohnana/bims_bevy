@@ -588,8 +588,49 @@ def reinforcements():
     save("reinforcements", room(out, rng, 0.12, 0.45), 0.2)
 
 
+# --- the crew: a body down ---------------------------------------------------
+
+
+def downed():
+    """A crew member downed (no ability, but built the same way): the
+    hurt cry of `ouch`, slowed and lower, a knee and then a body hitting
+    the deck with the kit rattling, and over it the suit's vitals alarm,
+    two falling tones twice — the part a teammate across the deck hears
+    and knows someone wants picking up."""
+    rng = np.random.default_rng(601)
+    out = silence(1.5)
+    cry = recording("own_bim_getting_hit.mp3", 2.545, 0.45, 0.85)
+    cry *= np.minimum(1, (len(cry) - np.arange(len(cry))) / secs(0.12))
+    place(out, cry, 0.0, 0.7 / (np.max(np.abs(cry)) + 1e-9))
+    place(out, thump(0.25, 100, 50, 0.05) + 0.4 * knock(rng, 0.25, 150, 1200, 0.025), 0.22, 0.6)
+    body = thump(0.4, 85, 40, 0.11) + 0.6 * knock(rng, 0.4, 120, 1500, 0.04)
+    place(out, body, 0.36, 1.0)
+    for _ in range(6):
+        at = 0.37 + rng.uniform(0.0, 0.18)
+        f = rng.uniform(1400, 3600)
+        rattle = modes(0.08, [(f, 0.015, 1), (f * 1.61, 0.01, 0.5)], rng)
+        place(out, rattle + 0.5 * knock(rng, 0.08, 2000, 8000, 0.004), at, rng.uniform(0.08, 0.18))
+    radio = lambda x: band(np.tanh(1.8 * x), 400, 4000, 3)
+    for at in (0.55, 0.95):
+        for k, hz in enumerate((988, 740)):
+            n = secs(0.15)
+            t = times(n)
+            tone = np.sin(2 * np.pi * hz * t) + 0.3 * np.sin(2 * np.pi * 2 * hz * t)
+            env = np.minimum(1, t / 0.006) * np.minimum(1, (t[-1] - t) / 0.02)
+            place(out, radio(tone * env), at + 0.17 * k, 0.32)
+    save("downed", room(out, rng, 0.12, 0.4), 0.12)
+
+
 if __name__ == "__main__":
+    import sys
+
     os.chdir(HERE)
+    # `abilities.py downed`: only the clips named, so the rest keep their
+    # bytes.
+    if len(sys.argv) > 1:
+        for name in sys.argv[1:]:
+            globals()[name]()
+        sys.exit()
     grenade_throw()
     grenade_burst()
     brace()
@@ -610,3 +651,4 @@ if __name__ == "__main__":
     battle_cry()
     rally()
     reinforcements()
+    downed()
