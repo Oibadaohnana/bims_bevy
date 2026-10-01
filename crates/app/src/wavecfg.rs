@@ -204,6 +204,17 @@ impl<T: Tuning> Watched<T> {
             dials: T::UNTUNED,
         };
         watched.look();
+        // A game started outside the tree's root finds none of the files
+        // and plays the constants, and an edit to the file there does
+        // nothing: said once, at the start, with where it looked.
+        if watched.stamp.is_none() {
+            let at = std::path::absolute(&watched.path).unwrap_or_else(|_| watched.path.clone());
+            eprintln!(
+                "tuning: no {} (start the game in the folder that holds it, or set {}), the constants",
+                at.display(),
+                T::ENV
+            );
+        }
         watched
     }
 

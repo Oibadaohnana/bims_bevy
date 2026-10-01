@@ -655,12 +655,15 @@ impl Sounds {
                 };
                 self.one_shot_as(commands, clip, level * theirs, volume);
             }
+            // A hit is heard under the shot that made it, never over it:
+            // every level of a hit here and on a blow was halved in
+            // October 2026, the player finding them far too loud.
             Cue::Impact { on_crew } => {
                 if on_crew {
-                    self.one_shot(commands, Clip::LaserHit, 0.4);
-                    self.one_shot(commands, Clip::Ouch, 0.6);
+                    self.one_shot(commands, Clip::LaserHit, 0.2);
+                    self.one_shot(commands, Clip::Ouch, 0.3);
                 } else {
-                    self.one_shot(commands, Clip::LaserHit, 0.5);
+                    self.one_shot(commands, Clip::LaserHit, 0.25);
                 }
             }
             // A bolt on a Guardian's shield has no recording of its own yet
@@ -674,12 +677,12 @@ impl Sounds {
             Cue::EmpBurst => self.one_shot(commands, Clip::EmpBurst, 0.6),
             Cue::Blow { cut, on_crew } => {
                 if cut {
-                    self.one_shot(commands, Clip::Schword, 0.6);
+                    self.one_shot(commands, Clip::Schword, 0.3);
                 } else {
-                    self.one_shot(commands, Clip::Punch, 0.5);
+                    self.one_shot(commands, Clip::Punch, 0.25);
                 }
                 if on_crew {
-                    self.one_shot(commands, Clip::Ouch, 0.6);
+                    self.one_shot(commands, Clip::Ouch, 0.3);
                 }
             }
         }
