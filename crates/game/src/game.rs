@@ -1389,7 +1389,7 @@ impl Game {
     ///
     /// A trigger pull is a **burst** of the weapon's `burst` shots,
     /// `burst_gap` apart, each rolled on its own and aimed afresh — the
-    /// rifle's eight in two seconds — and `reload` then waits the trigger
+    /// minigun's twenty in two seconds — and `reload` then waits the trigger
     /// rate out, recharge included. A body **in a melee** — a blade
     /// within reach, or a blade in its own hand and anybody within reach
     /// (`Combat::melee_with`) — is locked: it does not fire, and swings
@@ -10819,7 +10819,7 @@ mod tests {
     }
 
     #[test]
-    fn a_burst_is_eight_shots_in_two_seconds_and_then_a_gap() {
+    fn the_auto_rifle_fires_four_a_second_with_no_burst_and_no_gap() {
         let mut game = room();
         game.set_autonomous(false);
         let kate = game.put_for_probe(1, vec2(ROOM_W * 0.35, ROOM_H * 0.5));
@@ -10838,9 +10838,9 @@ mod tests {
         game.set_hostile_bodies(true);
         let target = kate + vec2(4.0 * TILE, 0.0);
         game.set_hostiles(vec![Some((target, WeaponKind::LaserPistol.basic()))]);
-        // Six seconds to walk to her stand — a burst a walk interrupts is
-        // over — then every shot timed: from a trigger pull, eight within
-        // two seconds, nothing for the next two, and the trigger again.
+        // Six seconds to walk to her stand, then every shot timed: four
+        // in every second from the first, steadily — the eight-shot
+        // bursts and their two seconds' recharge went in October 2026.
         for _ in 0..(60 * 6) {
             game.simulate(DT);
         }
@@ -10858,9 +10858,13 @@ mod tests {
                 .filter(|&&t| t >= t0 + lo && t < t0 + hi)
                 .count()
         };
-        assert_eq!(within(0.0, 2.0), 8, "eight in two seconds: {times:?}");
-        assert_eq!(within(2.0, 4.0), 0, "then the recharge: {times:?}");
-        assert!(within(3.9, 6.0) >= 7, "and again: {times:?}");
+        // A shot every quarter second, give or take the step it lands on.
+        let shots = within(0.0, 6.0);
+        assert!((22..=24).contains(&shots), "four a second: {times:?}");
+        assert!(
+            times.windows(2).all(|w| w[1] - w[0] < 0.3),
+            "and never a gap: {times:?}"
+        );
         assert!(game.take_hits().is_empty());
     }
 

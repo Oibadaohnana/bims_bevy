@@ -3084,7 +3084,7 @@ pub const ITEM_TIPS: [&str; 22] = [
     "Basic kevlar, for the body. Bought at a trader.",
     "Basic leg guards. Bought at a trader.",
     "A shotgun. Hits hard up close.",
-    "An auto rifle. Fires in bursts.",
+    "An auto rifle. Fires steadily while the trigger is held.",
     "A sniper rifle. Reaches furthest.",
     "A schword, a blade with a laser edge. Cuts, at arm's length.",
     "A tier-one research key: an artifact off a station's research desk. Two cells tall. Put it in the ship's research desk and consume it there to open the locked part of the research tree.",

@@ -16,10 +16,12 @@
 //! odds of a hit are `accuracy` out to `sweet` tiles and `accuracy_far`
 //! at `range`, a straight line between; `damage` and `damage_far` the
 //! same. A `burst` is that many shots to one trigger pull, `burst_gap`
-//! seconds apart, and `fire_rate` is trigger pulls a second — the auto
-//! rifle's `0.25` with `burst 8` is eight shots in two seconds, then two
-//! seconds' recharge. A `melee` weapon swings within [`MELEE_RANGE`]
-//! instead of firing, and its `fire_rate` is one over [`MELEE_PERIOD`].
+//! seconds apart, and `fire_rate` is trigger pulls a second — the
+//! minigun's `0.2` with `burst 20` is twenty bolts in two seconds, then
+//! three seconds' cooling; the auto rifle's `4.0` with `burst 1` is four
+//! shots a second, steadily. A `melee` weapon swings within
+//! [`MELEE_RANGE`] instead of firing, and its `fire_rate` is one over
+//! [`MELEE_PERIOD`].
 //! Seconds are real seconds at 1x.
 //!
 //! # How to read a piece of armour
@@ -109,19 +111,22 @@ pub const SHOTGUN: WeaponStats = WeaponStats {
     strips_far: 0.0,
 };
 
-/// Eight light shots in two seconds, then two seconds' recharge; full
-/// out to eight tiles, reaching twenty-six.
+/// Four light shots a second for as long as the trigger is held, no
+/// burst and no recharge; full out to eight tiles, reaching twenty-six.
+/// It fired eight-shot bursts of 6 (4.8 far) every four seconds until
+/// October 2026; the bursts went and each shot lost 3, the far one in
+/// proportion, so a second's damage is the twelve it was.
 pub const AUTO_RIFLE: WeaponStats = WeaponStats {
     range: 26.0,
     sweet: 8.0,
     accuracy: 0.765,
     accuracy_far: 0.45,
-    damage: 6.0,
-    damage_far: 4.8,
+    damage: 3.0,
+    damage_far: 2.4,
     speed: 22.0,
-    fire_rate: 0.25,
-    burst: 8,
-    burst_gap: 0.25,
+    fire_rate: 4.0,
+    burst: 1,
+    burst_gap: 0.0,
     melee: false,
     strips: 0.0,
     strips_far: 0.0,
@@ -183,11 +188,12 @@ pub const SCHWORD: WeaponStats = WeaponStats {
 /// | against | tier-2 minigun | tier-2 auto rifle |
 /// | --- | --- | --- |
 /// | a droid (no armour) | 18.7 | 14.3 |
-/// | tier-2 kevlar (protection 3) | 8.5 | 8.6 |
-/// | tier-3 kevlar (protection 4.5) | 3.4 | 5.7 |
+/// | tier-2 kevlar (protection 3) | 8.5 | 2.9 |
+/// | tier-3 kevlar (protection 4.5) | 3.4 | 0.0 |
 ///
 /// So it shreds the machines and bounces off good armour: many light
-/// bolts each lose the protection.
+/// bolts each lose the protection — the auto rifle's, lighter still
+/// since its bursts went, the more so.
 pub const MINIGUN: WeaponStats = WeaponStats {
     range: 20.0,
     sweet: 6.0,

@@ -71,8 +71,8 @@ pub const LANCE_COOLING: f32 = 1.6;
 
 /// How long a muzzle glows, in real seconds, and how big the glow is,
 /// per gun: the pistol's a blink, the shotgun's a wide cough with a cone
-/// of rays, the auto rifle's the smallest (it fires eight), the sniper's
-/// the biggest with a spike along the barrel.
+/// of rays, the auto rifle's the smallest (it fires four a second), the
+/// sniper's the biggest with a spike along the barrel.
 pub const MUZZLE_PISTOL: (f32, f32) = (0.08, 5.0);
 pub const MUZZLE_SHOTGUN: (f32, f32) = (0.11, 8.0);
 pub const MUZZLE_AUTO: (f32, f32) = (0.06, 4.0);

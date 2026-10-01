@@ -965,7 +965,8 @@ user asked for, after that tuning: shotgun range 10, sweet 4,
 0.81/0.54, 60/36 (so 48 at seven), speed 20, one pull every four
 seconds; auto rifle range 26, sweet 8, 0.765/0.45, 6/4.8, speed 22,
 `burst 8`, `burst_gap 0.25`, one pull every four seconds (eight in two,
-two to recharge); sniper rifle range 35, sweet 20, 0.9/0.63, 54/30,
+two to recharge) — since October 2026 no burst, four pulls a second at
+3/2.4; sniper rifle range 35, sweet 20, 0.9/0.63, 54/30,
 speed 60, one every four seconds; schword 42 a swing, its odds left at 1
 since a swing lands by reach and not by a roll. A body is 75, so no
 single shot but a head shot kills. The constants beside them:
@@ -1103,12 +1104,14 @@ prints the curves itself.
   and the first shot goes now; every `burst_gap` after, while
   `burst_left` is up, another, each rolled on its own with the aim
   **re-read** (`aim` is asked every step, so the shot follows the target).
-  The rifle's eight therefore take 1.75 s from the pull and the recharge
-  is the rest of the four; the app rounds it to the "8 in 2 s, then 2 s"
-  the user said. A walk, a lost target, a lock or the weapon going away
-  zeroes `burst_left`, so a burst is never resumed on arrival.
-  `a_burst_is_eight_shots_in_two_seconds_and_then_a_gap` in `game::tests`
-  pins it.
+  The minigun's twenty therefore take 1.9 s from the pull and the
+  cooling is the rest of the five; the auto rifle has no burst since
+  October 2026 (`burst 1`, four pulls a second, 3/2.4 a shot). A walk,
+  a lost target, a lock or the weapon going away zeroes `burst_left`,
+  so a burst is never resumed on arrival.
+  `the_auto_rifle_fires_four_a_second_with_no_burst_and_no_gap` and
+  `a_minigun_burst_is_twenty_shots_in_two_seconds_then_five_to_the_next`
+  in `game::tests` pin them.
 - **A bolt flies in one room only.** The crew and a station's people are
   two rooms, and a bolt that flew in both would be two bolts. So a
   friendly bolt (`hostile: false`) looks for the targets, a hostile one

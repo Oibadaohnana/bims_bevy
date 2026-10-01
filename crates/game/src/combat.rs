@@ -614,7 +614,7 @@ impl Trigger {
     }
 
     /// One shot a pull and no burst, at the trigger rate: finishing a
-    /// body off, where the picture is the point and a rifle's eight
+    /// body off, where the picture is the point and a minigun's twenty
     /// into a body on the deck would not be.
     pub fn pull_single(&mut self, stats: &WeaponStats) -> bool {
         if self.reload > 0.0 {
@@ -4846,16 +4846,14 @@ mod tests {
         assert!((sniper.hit_chance(35.0) - 0.63).abs() < 1e-6);
         assert_eq!(sniper.damage_at(35.0), 30.0);
 
-        // A burst counts in the rate: eight sixes every four seconds, and
-        // the rifle reaches twenty-six tiles now, full to eight.
+        // No burst: four threes a second, steadily, as much a second as
+        // the eight sixes every four seconds it had; the rifle reaches
+        // twenty-six tiles, full to eight.
         let rifle = WeaponKind::AutoRifle.stats();
-        assert_eq!(rifle.burst, 8);
+        assert_eq!((rifle.burst, rifle.fire_rate), (1, 4.0));
+        assert_eq!((rifle.damage, rifle.damage_far), (3.0, 2.4));
         assert_eq!((rifle.range, rifle.sweet), (26.0, 8.0));
         assert!((rifle.dps() - 12.0).abs() < 1e-5);
-        assert!(
-            (rifle.burst as f32 - 1.0) * rifle.burst_gap <= 2.0,
-            "eight in two seconds"
-        );
 
         // A blade reaches a tile and a bit, and swings every two seconds.
         let blade = WeaponKind::Schword.stats();
@@ -4908,9 +4906,9 @@ mod tests {
         assert!((dps(mini, 0.0) - 18.7).abs() < 0.05);
         assert!((dps(rifle_two, 0.0) - 14.3).abs() < 0.05);
         assert!((dps(mini, 3.0) - 8.5).abs() < 0.05);
-        assert!((dps(rifle_two, 3.0) - 8.6).abs() < 0.05);
+        assert!((dps(rifle_two, 3.0) - 2.9).abs() < 0.05);
         assert!((dps(mini, 4.5) - 3.4).abs() < 0.05);
-        assert!((dps(rifle_two, 4.5) - 5.7).abs() < 0.05);
+        assert!(dps(rifle_two, 4.5).abs() < 0.05);
         let sniper_three = WeaponKind::SniperRifle.at(Tier::Three);
         assert!((dps(sniper_three, 0.0) - 21.1).abs() < 0.05);
         assert!((dps(lance, 0.0) - 14.2).abs() < 0.05);
