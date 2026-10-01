@@ -12413,6 +12413,51 @@ mod tests {
         assert!(!game.is_downed(1), "ordered, it did");
     }
 
+    /// A player's own Bim faces its pointer, never the patient, so the
+    /// revive ends the moment its bar is full whichever way it aims —
+    /// it once stood full until the pointer crossed the patient.
+    #[test]
+    fn a_steered_revive_ends_when_its_bar_is_full() {
+        use crate::math::PI;
+        use crate::order::{CrewOrder, angle_code};
+        let mut game = room();
+        game.set_autonomous(false);
+        game.set_revivers(false);
+        game.set_players(1);
+        let at = game.put_for_probe(1, vec2(ROOM_W * 0.5, ROOM_H * 0.5));
+        game.put_for_probe(0, at + vec2(TILE, 0.0));
+        knock_out(&mut game, 1);
+        // Aimed straight away from the patient.
+        game.order(
+            0,
+            CrewOrder::Control {
+                walk: None,
+                aim: angle_code(0.0),
+                fire: false,
+                sprint: false,
+            },
+        );
+        game.simulate(DT);
+        assert!(game.revive_crewmate(0, 1));
+        let mut full = None;
+        for step in 0..(60 * 20) {
+            game.simulate(DT);
+            if full.is_none() && game.revive_share(1).is_some_and(|(_, s)| s >= 0.99) {
+                full = Some(step);
+            }
+            if !game.is_downed(1) {
+                let full = full.expect("the bar filled first");
+                assert!(step - full <= 8, "full at {full}, up at {step}");
+                assert!(
+                    game.bims[0].character.faces_aim(),
+                    "it faced the pointer throughout"
+                );
+                return;
+            }
+        }
+        panic!("never revived");
+    }
+
     /// Hands on a downed body stand its countdown (task 138): a revive
     /// slower than the seconds the patient had left still brings it up,
     /// and the countdown runs on again from where it stood once the hands

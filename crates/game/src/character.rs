@@ -1241,8 +1241,14 @@ impl Character {
         self.face_target = Some(angle);
     }
 
-    /// True once a `face` has very nearly finished.
+    /// True once a `face` has very nearly finished. A body its player
+    /// steers faces the pointer and never a `face` (`update`), so it is
+    /// always settled — else a revive's bar stood full until the pointer
+    /// happened to line up with the patient.
     pub fn facing_settled(&self) -> bool {
+        if self.steer.is_some() {
+            return true;
+        }
         match self.face_target {
             None => true,
             Some(a) => wrap_angle(a - self.heading).abs() < 0.12,
