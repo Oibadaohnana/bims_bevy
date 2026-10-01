@@ -1403,8 +1403,9 @@ fn difficulty_rows(
     if editable && d != settings.difficulty.unwrap_or(Difficulty::of(file)) {
         settings.difficulty = Some(d);
     }
-    // The first wave as the world works it: the formula at day nought,
-    // less the first mission's ease, one at the least.
+    // The first wave as the world works it: the formula at day nought
+    // (the early ease off it), less the first mission's ease, one at the
+    // least.
     let first = d
         .over(file)
         .size(players, 0)

@@ -5862,7 +5862,8 @@ impl World {
     /// **In the run's first mission** every wave is
     /// `first_mission_ease` fewer ([`droidplan::WaveScaling`];
     /// [`data::FIRST_MISSION_WAVE_EASE`] untuned), never under one — unless a
-    /// probe forced it.
+    /// probe forced it. Inside the run's first `early_days` days the
+    /// formula itself is `early_ease` fewer (`WaveScaling::size`).
     pub fn droid_wave_size(&self) -> u32 {
         let defenders = if self.defense_here().is_some() {
             self.defenders_fielded()

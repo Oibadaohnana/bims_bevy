@@ -77,7 +77,8 @@ desktop):
   `crates/ship/src/session.rs`; grep for `BIMS_`.
 - `scaling.ron` at the root is the wave formula's dials (base, per
   player, per time step, the step's days, waves a station, the first
-  mission's ease; `world::droid::WaveScaling`, `BIMS_SCALING=file` names
+  mission's ease, and `early_ease` machines fewer a wave for the first
+  `early_days` days; `world::droid::WaveScaling`, `BIMS_SCALING=file` names
   another) and `rewards.ron` what a fight pays and things cost (xp and
   money an enemy down, a defence's share, the buyback, relic, combine
   and shelf prices; `world::rewards::Rewards`, `BIMS_REWARDS`), both

@@ -198,7 +198,9 @@ pub fn time_steps(hours_gone: u32) -> u32 {
 /// being whole `step_days` of the world clock, and a held station has
 /// `tier_waves` waves by the tier its machines come at.
 /// Every wave of the run's first mission is `first_mission_ease`
-/// fewer. Integers only, like the formula.
+/// fewer, and every wave inside the first `early_days` days of the
+/// world clock `early_ease` fewer (the two add up). Integers only, like
+/// the formula.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 #[cfg_attr(
     feature = "serde",
@@ -220,6 +222,11 @@ pub struct WaveScaling {
     pub tier_waves: [u32; 3],
     /// Machines fewer in every wave of the run's first mission.
     pub first_mission_ease: u32,
+    /// Machines fewer in every wave while the world clock is inside its
+    /// first `early_days` days, whatever the mission; nought untuned.
+    pub early_ease: u32,
+    /// How many days of the world clock `early_ease` holds for.
+    pub early_days: u32,
 }
 
 impl WaveScaling {
@@ -231,6 +238,8 @@ impl WaveScaling {
         step_days: data::ENEMIES_HOURS / 24,
         tier_waves: data::DROID_TIER_WAVES,
         first_mission_ease: data::FIRST_MISSION_WAVE_EASE,
+        early_ease: 0,
+        early_days: 6,
     };
 
     /// Whole time steps in `hours_gone` of the world clock.
@@ -238,11 +247,19 @@ impl WaveScaling {
         hours_gone / self.step_days.max(1).saturating_mul(24)
     }
 
-    /// How many machines a wave is for `players` at `hours_gone`.
+    /// How many machines a wave is for `players` at `hours_gone`: the
+    /// sum, less `early_ease` inside the first `early_days` days. Nought
+    /// at the least; the world makes it one.
     pub fn size(&self, players: u32, hours_gone: u32) -> u32 {
-        self.base
+        let whole = self
+            .base
             .saturating_add(self.per_player.saturating_mul(players))
-            .saturating_add(self.per_step.saturating_mul(self.steps(hours_gone)))
+            .saturating_add(self.per_step.saturating_mul(self.steps(hours_gone)));
+        if hours_gone < self.early_days.saturating_mul(24) {
+            whole.saturating_sub(self.early_ease)
+        } else {
+            whole
+        }
     }
 
     /// How many waves a held station has whose machines come at `tier`.
@@ -387,6 +404,8 @@ mod tests {
             step_days: 1,
             tier_waves: [3, 5, 7],
             first_mission_ease: 0,
+            early_ease: 0,
+            early_days: 6,
         };
         // Two players, three days in.
         assert_eq!(tuned.size(2, 3 * 24 + 5), 5 + 2 * 2 + 3 * 3);
@@ -399,6 +418,16 @@ mod tests {
             ..tuned
         };
         assert_eq!(zero.steps(7 * 24 + 5), 7);
+        // The early ease holds for its days and not an hour after.
+        let early = WaveScaling {
+            early_ease: 5,
+            early_days: 6,
+            ..tuned
+        };
+        assert_eq!(early.size(2, 3 * 24 + 5), 5 + 2 * 2 + 3 * 3 - 5);
+        assert_eq!(early.size(2, 6 * 24 - 1), 5 + 2 * 2 + 3 * 5 - 5);
+        assert_eq!(early.size(2, 6 * 24), 5 + 2 * 2 + 3 * 6);
+        assert_eq!(early.size(0, 0), 0, "never under nought");
     }
 
     #[test]

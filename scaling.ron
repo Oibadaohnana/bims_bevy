@@ -11,6 +11,8 @@
 //   waves at a site   = tier_waves by the tier its machines come at:
 //                       (tier one, tier two, tier three)
 //   the run's first mission: every wave first_mission_ease fewer, never under 1
+//   the run's first early_days days (by the world clock): every wave early_ease
+//                       fewer as well, never under 1
 //
 // Only player Bims count as players; bots do not.
 //
@@ -20,7 +22,7 @@
 // still says the rest. The setup's "Save as default" writes its three
 // numbers into this file, leaving the comments and the other lines alone.
 // The built-in values: base 2, per_player 1, per_step 1, step_days 5,
-// tier_waves (1, 2, 4), first_mission_ease 1.
+// tier_waves (1, 2, 4), first_mission_ease 1, early_ease 0, early_days 6.
 (
     base: 1,
     per_player: 1,
@@ -28,4 +30,6 @@
     step_days: 5,
     tier_waves: (1, 2, 4),
     first_mission_ease: 1,
+    early_ease: 5,
+    early_days: 6,
 )

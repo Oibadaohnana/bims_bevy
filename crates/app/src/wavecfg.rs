@@ -3,7 +3,8 @@
 //! - `scaling.ron` (or the file `BIMS_SCALING` names) holds a
 //!   [`world::droid::WaveScaling`]: the base machines a wave, how many a
 //!   player and a time step add, how many days a time step is, the waves a
-//!   held station has at each tier and the first mission's ease.
+//!   held station has at each tier, the first mission's ease and the
+//!   early ease (fewer machines a wave in the run's first days).
 //! - `rewards.ron` (or `BIMS_REWARDS`) holds a [`world::rewards::Rewards`]:
 //!   the experience and the money an enemy down is worth, what a defence
 //!   pays of it, whether the money waits for the clear, and what the
@@ -92,13 +93,15 @@ impl Tuning for WaveScaling {
     const UNTUNED: Self = WaveScaling::DEFAULT;
     fn describe(&self) -> String {
         format!(
-            "{} + {}/player + {}/step of {} days, waves {:?} by tier, first mission -{}",
+            "{} + {}/player + {}/step of {} days, waves {:?} by tier, first mission -{}, first {} days -{}",
             self.base,
             self.per_player,
             self.per_step,
             self.step_days.max(1),
             self.tier_waves,
-            self.first_mission_ease
+            self.first_mission_ease,
+            self.early_days,
+            self.early_ease
         )
     }
 }
