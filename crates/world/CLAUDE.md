@@ -6861,3 +6861,24 @@ first placeholders).
 
 `tests_items.rs`' three new tests are the rule. **`SAVE_VERSION` 87,
 `wire::PROTOCOL` 90.** No pin moved for an item nobody carries.
+
+## A mission opens with the crew round the gangway (October 2026)
+
+> "The loop" above says the crew arrive where they stood when the ship
+> left; since this change `begin_mission` stands them aboard.
+
+`World::stand_the_crew_aboard` (`mission.rs`), at the end of
+`begin_mission`'s `make_whole`: every living crew member but a
+reinforcement on a free deck tile **of the ship itself** round
+`Aboard::gangway` (`Game::free_tiles_near`, the reach widening until
+there is a tile apiece), players first by slot, nearest first, and
+`Game::stand_still_at` — the walk and the post dropped. Before it, a
+body off the ship when the rooms came apart was snapped to whatever
+corner of the deck lay nearest (the bridge, beside life support), and
+the next mission opened there. The run's first mission is at home, a
+defence, whose own start stands the crew ashore as before; `World::start`
+is untouched. Nothing saved or hashed changed shape; `SURVIVORS` and
+`REFERENCE_CHECKSUM` move (their runs travel) and were already off their
+pins, so they are not re-pinned here.
+`a_mission_opens_with_the_crew_aboard_round_the_gangway`
+(`tests_mission.rs`) is the rule.

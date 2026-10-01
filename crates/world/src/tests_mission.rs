@@ -1068,3 +1068,47 @@ fn travel_days_over_ten_galaxies() {
         );
     }
 }
+
+/// **A mission opens with the crew aboard round the gangway**: wherever
+/// the last site left them — one ashore when the map came up, one in a
+/// corner of the bridge — every crew member starts the next mission on
+/// a tile of its own on the ship's deck, near the airlock, the players
+/// nearest.
+#[test]
+fn a_mission_opens_with_the_crew_aboard_round_the_gangway() {
+    let mut world = crewed_world(playtest_ship(), REFERENCE_MONEY, 2, 4);
+    world.step(&[]);
+    ashore(&mut world, 0);
+    let corner = world.aboard.to_room(worldgen::math::dvec2(
+        16.5 * shipdesign::TILE as f64,
+        5.5 * shipdesign::TILE as f64,
+    ));
+    world.aboard.room.put_for_probe(1, corner);
+    world.step(&[]);
+    to_the_map(&mut world);
+    let site = another_site_here(&world);
+    assert!(travelled(&travel_to(&mut world, site)));
+    let gangway = world.aboard.gangway.expect("docked, so a gangway");
+    let gangway = bims::math::vec2(gangway.x as f32, gangway.y as f32);
+    let tile = shipdesign::TILE as f32;
+    let at: Vec<_> = (0..4).map(|who| world.aboard.room.body_pos(who)).collect();
+    for who in 0..4 {
+        assert!(world.inside_ship(who as u32), "{who} aboard");
+        assert!(
+            (at[who] - gangway).len() <= 3.0 * tile,
+            "{who} by the gangway: {} tiles off",
+            (at[who] - gangway).len() / tile
+        );
+        for other in 0..who {
+            assert!(
+                (at[who] - at[other]).len() >= 0.9 * tile,
+                "{who} and {other} on tiles of their own"
+            );
+        }
+    }
+    let off = |who: usize| (at[who] - gangway).len();
+    assert!(
+        off(0).max(off(1)) <= off(2).min(off(3)) + 0.01 * tile,
+        "the players nearest"
+    );
+}

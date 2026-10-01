@@ -4461,6 +4461,17 @@ impl Game {
         spot
     }
 
+    /// [`Game::stand_at`], and the body still there: the walk it was on
+    /// and its post dropped, so it does not set off back towards where it
+    /// was. What a mission's start puts the crew aboard with.
+    pub fn stand_still_at(&mut self, who: usize, at: Vec2) -> Vec2 {
+        let spot = self.stand_at(who, at);
+        let character = &mut self.bims[who].character;
+        character.halt();
+        character.set_post(None);
+        spot
+    }
+
     /// Post a Bim somewhere: drop what it is doing, walk there, and stand
     /// there until told otherwise. What a walk to a desk or a container is
     /// made of. It still goes off on an errand it is given and comes back

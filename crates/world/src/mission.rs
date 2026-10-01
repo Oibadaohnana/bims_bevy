@@ -802,6 +802,9 @@ impl World {
         }
         self.mend_all_armour();
         self.make_whole();
+        // Everybody aboard round the gangway, wherever the last site
+        // left them.
+        self.stand_the_crew_aboard();
         // Every once-a-mission relic ready again (feature 106).
         self.relics_at_mission_start(events);
         // Every player's bots following again: the last mission ended
@@ -1410,6 +1413,56 @@ impl World {
             None => self.aboard.room.fall_back_point(),
         };
         self.aboard.room.walk_to(who, at);
+    }
+
+    /// Every living crew member stood **aboard, round the gangway** — the
+    /// deck just inside the ship's airlock — as a mission opens: the
+    /// players first by slot, then the bots, each on the nearest free
+    /// deck tile of the ship itself (never the passage or the station),
+    /// nearest first, then by row and column. Without it a crew starts a
+    /// mission wherever the last one left it — a body that was off the
+    /// ship when the rooms came apart snapped to whatever corner of the
+    /// deck lay nearest — or at bunks scattered over the bridge. A
+    /// reinforcement is left where it stands; a ship with no airlock
+    /// gathers round its anchor.
+    pub(super) fn stand_the_crew_aboard(&mut self) {
+        let at = match self.aboard.gangway {
+            Some(at) => bims::math::vec2(at.x as f32, at.y as f32),
+            None => self.aboard.room.fall_back_point(),
+        };
+        let crew: Vec<u32> = (0..self.aboard.crew_count())
+            .filter(|&who| self.aboard.room.is_alive(who as usize) && !self.is_reinforcement(who))
+            .collect();
+        if crew.is_empty() {
+            return;
+        }
+        let t = shipdesign::TILE as f64;
+        let grid = self.ship.design.grid();
+        let on_ship = |p: bims::math::Vec2| {
+            let d = self.aboard.to_design(p);
+            let tile = ((d.x / t).floor() as i32, (d.y / t).floor() as i32);
+            grid.get(shipdesign::parts::Layer::Structure, tile) != 0
+        };
+        // Wider until there is a tile apiece, or the whole ship has been
+        // looked at; anybody past the tiles found stands at the gangway
+        // itself and the room's pushing spreads them.
+        let mut tiles = Vec::new();
+        for reach in [4.0, 8.0, 16.0, 64.0] {
+            tiles = self
+                .aboard
+                .room
+                .free_tiles_near(at, reach * shipdesign::TILE as f32)
+                .into_iter()
+                .filter(|&p| on_ship(p))
+                .collect();
+            if tiles.len() >= crew.len() {
+                break;
+            }
+        }
+        for (i, who) in crew.into_iter().enumerate() {
+            let spot = tiles.get(i).copied().unwrap_or(at);
+            self.aboard.room.stand_still_at(who as usize, spot);
+        }
     }
 
     /// A player's answer to the departure check — see
