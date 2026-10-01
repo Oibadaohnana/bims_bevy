@@ -676,9 +676,9 @@ impl Sounds {
         }
     }
 
-    /// A crew member downed — the player or anyone else, bot or human:
-    /// the world's `CrewDowned`, which every window hears, so the whole
-    /// crew knows someone wants reviving. Loud: it is the one sound in a
+    /// Another player downed — never a bot, never this window's own Bim
+    /// (the game screen filters the world's `CrewDowned`): every other
+    /// player knows someone wants reviving. Loud: it is the one sound in a
     /// fight that asks the player to act. Two bodies down at once are
     /// two.
     pub fn downed(&mut self, commands: &mut Commands, who: u32) {

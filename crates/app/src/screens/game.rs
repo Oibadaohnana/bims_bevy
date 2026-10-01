@@ -1400,9 +1400,13 @@ fn frame(
             // A class's ability, whoever in the crew used it, heard the
             // same way.
             sounds.ability(&mut commands, event);
-            // Anyone in the crew downed: every window steps the world and
-            // hears it, so every player knows to come and pick them up.
-            if let WorldEvent::CrewDowned { who } = event {
+            // Another player downed: every window steps the world and
+            // hears it, so every other player knows to come and pick them
+            // up. Not a bot of the crew, and not this window's own Bim.
+            if let WorldEvent::CrewDowned { who } = event
+                && who != game.local
+                && !game.world.aboard.room.is_bot(who as usize)
+            {
                 sounds.downed(&mut commands, who);
             }
             // An enemy down: its pay floats up over it, with a soft chime.
