@@ -527,7 +527,7 @@ fn down_by_crew_member_0(world: &mut World, i: usize) {
 }
 
 /// A machine taken down in a town's defence is experience, as one at a
-/// station the machines hold is: `XP_ENEMY_DOWN` (twenty) to
+/// station the machines hold is: `XP_ENEMY_DOWN` (fifteen) to
 /// every classed crew member within the vicinity, once. A townsperson
 /// going down is nobody's. And a soldier's *rampage* counts it while the
 /// rest of the wave stands, since a defended town's machines are the

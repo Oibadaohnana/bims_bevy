@@ -22,7 +22,7 @@
 //
 // The values below are the built-in ones.
 (
-    xp_per_down: 20,
+    xp_per_down: 15,
     bounty: (500, 1500, 4500),
     defense_bounty_percent: 100,
     bounty_waits_for_clear: true,

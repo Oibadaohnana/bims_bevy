@@ -670,8 +670,9 @@ pub fn by_rank<T: Copy>(table: [T; MAX_RANK as usize], rank: u8) -> Option<T> {
 /// cold, or dead without being down first, which is every machine. A
 /// Manufacturer downed is worth it, a machine destroyed the same, and
 /// neither is worth anything more when it dies after: the death's own
-/// `XP_ENEMY_DEAD` (task 119) went, and this went from ten to twenty.
-pub const XP_ENEMY_DOWN: u32 = 20;
+/// `XP_ENEMY_DEAD` (task 119) went, and this went from ten to twenty,
+/// then down to fifteen.
+pub const XP_ENEMY_DOWN: u32 = 15;
 /// How far the vicinity reaches, in tiles.
 pub const VICINITY_TILES: f32 = 50.0;
 

@@ -114,7 +114,7 @@ fn a_new_run_has_their_sites_within_two_lanes_and_none_at_home() {
 /// beside them and nothing to come after. The site is hostile, nobody
 /// lives there, and it is cleared the moment the last of them is down —
 /// out cold, not dead — with the bounty paid for each, and the crew's
-/// experience twenty a head.
+/// experience fifteen a head.
 #[test]
 fn a_day_nought_site_is_pistols_and_no_armour_and_clears_on_the_last_down() {
     let (mut world, station) = at_their_site(0);
@@ -197,7 +197,7 @@ fn a_day_nought_site_is_pistols_and_no_armour_and_clears_on_the_last_down() {
     assert_eq!(
         world.progress_of(0).xp,
         xp + them.len() as u32 * class::XP_ENEMY_DOWN,
-        "twenty a head"
+        "fifteen a head"
     );
 }
 
@@ -221,7 +221,7 @@ fn a_manufacturer_downed_is_never_revived_and_nothing_of_it_is_taken() {
     let who = them[0];
     // The medkit in hand: the player's own Bim takes arms by itself among
     // them (September 2026), and a second of them shot down would be
-    // twenty more than the nothing this reads. Emptying its hands no longer
+    // fifteen more than the nothing this reads. Emptying its hands no longer
     // does — an empty hand under arms is given a pistol — so it holds its
     // fire with the medkit (task 138).
     world.aboard.room.order_hand(0, bims::bim::Hand::Medkit);
