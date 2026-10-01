@@ -196,6 +196,94 @@ fn draw_module(s: &mut Sketch, b: &Box_, kind: bims::module::ModuleKind) {
                 st(0.08, CORE_DEEP),
             );
         }
+        // The three relics in item form keep their pictures.
+        ModuleKind::CoolantLoop => draw_relic(s, b, Relic::CoolantLoop),
+        ModuleKind::PressureSeal => draw_relic(s, b, Relic::PressureSeal),
+        ModuleKind::SteadyGrip => draw_relic(s, b, Relic::SteadyGrip),
+        // A long barrel, its muzzle, and the reach beyond it.
+        ModuleKind::LongBarrel => {
+            s.rect_filled(b.rect(0.04, 0.44, 0.30, 0.62), b.px(0.03), STOCK);
+            s.rect_filled(b.rect(0.26, 0.46, 0.80, 0.56), b.px(0.02), GUN_STEEL);
+            s.rect_filled(b.rect(0.76, 0.42, 0.86, 0.60), b.px(0.02), GUN_DARK);
+            for (x, w) in [(0.90, 0.05), (0.96, 0.035)] {
+                s.line_segment([b.at(x, 0.36), b.at(x, 0.66)], st(w, GUN_LIGHT));
+            }
+            s.line_segment([b.at(0.30, 0.30), b.at(0.86, 0.30)], st(0.03, GUN_LIGHT));
+        }
+        // A capacitor's two plates, a drop of blood drawn through them.
+        ModuleKind::LeechCapacitor => {
+            s.rect_filled(b.rect(0.18, 0.20, 0.30, 0.80), b.px(0.02), GUN_STEEL);
+            s.rect_filled(b.rect(0.70, 0.20, 0.82, 0.80), b.px(0.02), GUN_STEEL);
+            s.fill(b.poly(&[(0.50, 0.20), (0.62, 0.48), (0.38, 0.48)]), CROSS);
+            s.circle_filled(b.at(0.50, 0.58), b.px(0.14), CROSS);
+            s.circle_filled(b.at(0.46, 0.54), b.px(0.04), SHINE);
+            s.line_segment([b.at(0.30, 0.50), b.at(0.36, 0.50)], st(0.04, HEAL));
+            s.line_segment([b.at(0.64, 0.50), b.at(0.70, 0.50)], st(0.04, HEAL));
+        }
+        // A coil, and the arc jumping off it.
+        ModuleKind::ArcCoil => {
+            for y in [0.56, 0.68, 0.80] {
+                s.path(b.arc(0.34, y, 0.18, 180.0, 360.0), st(0.06, KEY_EDGE));
+            }
+            s.path(
+                b.poly(&[
+                    (0.40, 0.44),
+                    (0.58, 0.30),
+                    (0.52, 0.22),
+                    (0.74, 0.10),
+                    (0.68, 0.28),
+                    (0.92, 0.20),
+                ]),
+                st(0.06, EMP_BAND),
+            );
+            s.circle_filled(b.at(0.92, 0.20), b.px(0.05), BLINK_PALE);
+        }
+        // A ring round a green cross: the crew round the holder mended.
+        ModuleKind::FieldMender => {
+            s.circle_stroke(b.at(0.5, 0.5), b.px(0.42), st(0.05, HEAL));
+            s.rect_filled(b.rect(0.40, 0.18, 0.60, 0.82), b.px(0.03), HEAL);
+            s.rect_filled(b.rect(0.18, 0.40, 0.82, 0.60), b.px(0.03), HEAL);
+            s.rect_filled(b.rect(0.44, 0.44, 0.56, 0.56), b.px(0.02), SHINE);
+        }
+        // A charge's cell, and the arrow round it back to the start.
+        ModuleKind::ResetCapacitor => {
+            s.path(b.arc(0.5, 0.5, 0.38, -60.0, 230.0), st(0.08, EMP_BAND));
+            s.fill(
+                b.poly(&[(0.70, 0.04), (0.92, 0.22), (0.62, 0.30)]),
+                EMP_BAND,
+            );
+            s.rect_filled(b.rect(0.38, 0.34, 0.62, 0.70), b.px(0.04), GUN_DARK);
+            s.rect_filled(b.rect(0.42, 0.44, 0.58, 0.66), b.px(0.02), KEY_TRACE);
+            s.rect_filled(b.rect(0.45, 0.28, 0.55, 0.34), b.px(0.01), GUN_STEEL);
+        }
+        // A shield of plates, layered.
+        ModuleKind::AblativeShell => {
+            s.fill(
+                b.poly(&[
+                    (0.50, 0.04),
+                    (0.90, 0.18),
+                    (0.84, 0.60),
+                    (0.50, 0.96),
+                    (0.16, 0.60),
+                    (0.10, 0.18),
+                ]),
+                CORE_DEEP,
+            );
+            s.fill(
+                b.poly(&[
+                    (0.50, 0.14),
+                    (0.80, 0.25),
+                    (0.75, 0.58),
+                    (0.50, 0.86),
+                    (0.25, 0.58),
+                    (0.20, 0.25),
+                ]),
+                CORE_GOLD,
+            );
+            for y in [0.38, 0.56] {
+                s.line_segment([b.at(0.26, y), b.at(0.74, y)], st(0.04, CORE_DEEP));
+            }
+        }
     }
 }
 

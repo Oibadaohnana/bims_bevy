@@ -6823,3 +6823,41 @@ tree with another change's march speed in it; a world with no item and no
 trader visit hashes what it did). Step two (the user's): more items, and
 *Coolant Loop*, *Pressure Seal* and *Steady Grip* moved from relics into
 item form.
+
+## Items, step two: nine more, three of them relics once (October 2026)
+
+`bims::module::ModuleKind` is thirteen long (codes 4–12 new); every
+number is `bims::module`'s, every price `data::ITEM_PRICE` (×4.5 the
+first placeholders).
+
+- **Three relics moved into items**: *Coolant Loop*, *Pressure Seal* and
+  *Steady Grip* are `Relic::retired()` — kept in `Relic::ALL` (a relic's
+  code is its place there) with their effects, so an old save holding one
+  keeps it, but out of `starting_pool`, `Profile::pool`, `record_run`'s
+  unlocks and `set_relic_pool` (`Relic::in_play`). As items: the cooldown
+  cut is folded into `relic_percent(Stat::Cooldowns)` (so every class
+  cooldown honours it, several adding to `COOLDOWN_CUT_MOST`), the
+  regeneration is `Module::regen` beside the Reactor Heart's, the fire
+  rate is `lift_by_items`.
+- **`World::lift_by_items`** (in `skill_of`, after the relic hooks): fire
+  rate (*Steady Grip*), range in tiles (*Long Barrel*), and while an
+  *Ablative Shell* runs `damage_taken × SHELL_DAMAGE_TAKEN` and
+  `Skill::unstrippable` (the room's `strike_stripping` strips nothing
+  then — a Warden's lance).
+- **`items_on_machine_hits`**, off `land_on_machines` with every crew hit
+  that landed on a machine (`(by, droid, damage)`): *Leech Capacitor*
+  heals the share through `heal_crew`; *Arc Coil* counts the holder's
+  hits (`ItemClocks::arc_hits`) and every `ARC_EVERY`th strikes the
+  nearest N other machines standing within `ARC_REACH_TILES` (distance,
+  then index — no draw), on the chassis, `last_hit_by` and `shown_hits`
+  kept as for any hit.
+- **The actives** go through `Command::UseItem` as the blink does:
+  *Field Mender* heals every crewmate up within `MENDER_TILES` (the user
+  included), *Reset Capacitor* readies every class cooldown
+  (`cooldowns_less`), fills every charge and readies the other items,
+  *Ablative Shell* puts `ItemClocks::shell_until` on. Each says
+  `WorldEvent::ItemUsed { who, kind }` (149). `World::shell_left` is the
+  app's reading.
+
+`tests_items.rs`' three new tests are the rule. **`SAVE_VERSION` 87,
+`wire::PROTOCOL` 90.** No pin moved for an item nobody carries.

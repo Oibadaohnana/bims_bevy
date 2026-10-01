@@ -376,3 +376,231 @@ fn an_override_core_is_a_rank_past_the_fourth() {
     carry(&mut world, 0, 0, None);
     assert_eq!(world.rank_of(0, class::SLOT_R), 4);
 }
+
+// --- step two (October 2026) ---------------------------------------------------
+
+/// **The three relics in item form, and the Long Barrel**: a Coolant
+/// Loop shortens the class's cooldowns, a Steady Grip lifts the fire rate,
+/// a Long Barrel the range, and a Pressure Seal mends all the time.
+#[test]
+fn the_passives_lift_the_skill_cut_the_cooldowns_and_mend() {
+    let mut world = basic();
+    assert_eq!(world.set_class(0, Class::Soldier), Ok(()));
+    level_up(&mut world, 0, 16);
+    world.set_ranks_for_probe(0, [1, 0, 0, 1]);
+    let charge = crate::class::Charge::Grenade;
+    let (cooldown, rampage) = (world.charge_cooldown(0, charge), world.rampage_cooldown(0));
+    let skill = world.skill_of(0);
+    carry(
+        &mut world,
+        0,
+        0,
+        Some(ModuleKind::CoolantLoop.at(Tier::Three)),
+    );
+    carry(
+        &mut world,
+        0,
+        1,
+        Some(ModuleKind::SteadyGrip.at(Tier::Three)),
+    );
+    carry(
+        &mut world,
+        0,
+        2,
+        Some(ModuleKind::LongBarrel.at(Tier::Three)),
+    );
+    let cut = 1.0 - f64::from(bims::module::COOLANT_LOOP_PERCENT[2]) / 100.0;
+    assert!((world.charge_cooldown(0, charge) - cooldown * cut).abs() < 1e-6);
+    assert!((world.rampage_cooldown(0) - rampage * cut).abs() < 1e-6);
+    let lifted = world.skill_of(0);
+    let rate = 1.0 + bims::module::STEADY_GRIP_PERCENT[2] as f32 / 100.0;
+    assert!((lifted.fire_rate - skill.fire_rate * rate).abs() < 1e-5);
+    assert_eq!(
+        lifted.range,
+        skill.range + bims::module::LONG_BARREL_TILES[2]
+    );
+    // A Pressure Seal: its rate whether hit lately or not.
+    carry(
+        &mut world,
+        0,
+        3,
+        Some(ModuleKind::PressureSeal.at(Tier::Three)),
+    );
+    world.aboard.room.wound(0, 50.0);
+    let hurt = world.aboard.room.health(0);
+    for _ in 0..60 {
+        world.step(&[]);
+    }
+    let mended = world.aboard.room.health(0) - hurt;
+    let want = bims::module::PRESSURE_SEAL_REGEN[2];
+    assert!((mended - want).abs() < 0.3, "mended {mended}, want {want}");
+}
+
+/// **The three new actives**: a Field Mender heals the crew round its
+/// holder, a Reset Capacitor makes a Rampage ready again, and an Ablative
+/// Shell takes damage down and stops the stripping while it lasts.
+#[test]
+fn the_mender_heals_the_reset_readies_and_the_shell_shields() {
+    let mut world = basic();
+    assert_eq!(world.set_class(0, Class::Soldier), Ok(()));
+    level_up(&mut world, 0, 16);
+    world.set_ranks_for_probe(0, [0, 0, 0, 1]);
+    carry(
+        &mut world,
+        0,
+        0,
+        Some(ModuleKind::FieldMender.at(Tier::One)),
+    );
+    carry(
+        &mut world,
+        0,
+        1,
+        Some(ModuleKind::ResetCapacitor.at(Tier::One)),
+    );
+    carry(
+        &mut world,
+        0,
+        2,
+        Some(ModuleKind::AblativeShell.at(Tier::One)),
+    );
+    // The bot beside its player, both hurt.
+    let at = world.aboard.room.bim_pos(0);
+    world
+        .aboard
+        .room
+        .put_for_probe(1, at + bims::math::vec2(bims::room::TILE, 0.0));
+    world.aboard.room.wound(0, 50.0);
+    world.aboard.room.wound(1, 50.0);
+    let before = [world.aboard.room.health(0), world.aboard.room.health(1)];
+    let use_item = |world: &mut World, item: u32| {
+        world.step(&[Command::UseItem {
+            slot: 0,
+            item,
+            x: 0,
+            y: 0,
+        }])
+    };
+    let events = use_item(&mut world, 0);
+    assert!(
+        events
+            .iter()
+            .any(|e| matches!(e, WorldEvent::ItemUsed { who: 0, .. })),
+        "{events:?}"
+    );
+    let heal = bims::module::MENDER_HEAL[0];
+    for who in 0..2 {
+        let healed = world.aboard.room.health(who) - before[who];
+        assert!((healed - heal).abs() < 1.0, "{who} healed {healed}");
+    }
+    let events = use_item(&mut world, 0);
+    assert!(refused_with(&events, Refusal::CoolingDown), "{events:?}");
+    // A Rampage gone on, then ready again under the Reset — and the
+    // Mender's cooldown with it.
+    world.step(&[Command::Rampage { slot: 0 }]);
+    assert!(world.rampage_cooldown_left(0) > 0.0);
+    use_item(&mut world, 1);
+    assert_eq!(world.rampage_cooldown_left(0), 0.0);
+    assert_eq!(world.item_cooldown_left(0, 0), 0.0);
+    assert!(world.item_cooldown_left(0, 1) > 0.0);
+    // The shell.
+    let skill = world.skill_of(0);
+    assert!(!skill.unstrippable);
+    use_item(&mut world, 2);
+    let shelled = world.skill_of(0);
+    assert!(shelled.unstrippable);
+    assert!(
+        (shelled.damage_taken - skill.damage_taken * bims::module::SHELL_DAMAGE_TAKEN).abs() < 1e-5
+    );
+    let steps = (bims::module::SHELL_SECONDS[0] * 60.0) as usize + 2;
+    for _ in 0..steps {
+        world.step(&[]);
+    }
+    assert!(!world.skill_of(0).unstrippable, "worn off");
+    // A passive item's key does nothing.
+    carry(&mut world, 0, 3, Some(ModuleKind::SteadyGrip.at(Tier::One)));
+    let events = use_item(&mut world, 3);
+    assert!(refused_with(&events, Refusal::NoSuchItem), "{events:?}");
+}
+
+/// **A Leech Capacitor** gives back its share of what a hit did, and an
+/// **Arc Coil** every fourth hit arcs to the machines round the one
+/// struck, the nearest first.
+#[test]
+fn a_leech_gives_back_and_an_arc_jumps_every_fourth_hit() {
+    let (mut world, _) = arena();
+    carry(
+        &mut world,
+        0,
+        0,
+        Some(ModuleKind::LeechCapacitor.at(Tier::Two)),
+    );
+    carry(&mut world, 0, 1, Some(ModuleKind::ArcCoil.at(Tier::One)));
+    world.aboard.room.wound(0, 50.0);
+    let hurt = world.aboard.room.health(0);
+    // Three machines a tile apart, a fourth far off.
+    let room = &mut world.residents.as_mut().unwrap().aboard.room;
+    assert!(room.droid_count() >= 4, "{} machines", room.droid_count());
+    let from = room.droid(0).unwrap().pos;
+    for (j, dx) in [(1, 1.0), (2, 2.0), (3, 30.0)] {
+        room.droid_mut_for_probe(j).unwrap().pos =
+            from + bims::math::vec2(dx * bims::room::TILE, 0.0);
+    }
+    let life = |world: &World, j: usize| {
+        world
+            .residents
+            .as_ref()
+            .unwrap()
+            .aboard
+            .room
+            .droid(j)
+            .unwrap()
+            .body
+            .life_share()
+    };
+    for n in 1..=4 {
+        world.items_on_machine_hits(&[(Some(0), 0, 10.0)]);
+        if n < 4 {
+            assert_eq!(life(&world, 1), 1.0, "no arc on hit {n}");
+        }
+    }
+    let healed = world.aboard.room.health(0) - hurt;
+    let want = 4.0 * 10.0 * bims::module::LEECH_SHARE[1];
+    assert!((healed - want).abs() < 0.01, "healed {healed}, want {want}");
+    assert!(
+        life(&world, 1) < 1.0 && life(&world, 2) < 1.0,
+        "the two near"
+    );
+    assert_eq!(life(&world, 3), 1.0, "not the one far off");
+}
+
+/// The fight's arena, held, its first wave standing, one player and the
+/// combat ship's crew.
+fn arena() -> (World, u32) {
+    use shipdesign::fixture::{COMBAT_CREW, combat_ship};
+    let galaxy = worldgen::Galaxy::new(
+        crate::data::DEFAULT_SEED,
+        worldgen::GalaxyType::SpiralTwoArm,
+    );
+    let (star, station) = crate::spawn(&galaxy).unwrap();
+    let mut world = World::start_with_crew(
+        combat_ship(),
+        RICH,
+        1,
+        COMBAT_CREW,
+        crate::data::DEFAULT_SEED,
+        worldgen::GalaxyType::SpiralTwoArm,
+        star,
+        station,
+    )
+    .unwrap();
+    world.arena_dock_for_probe();
+    world.infest(station);
+    world.set_droid_kinds_for_probe(vec![bims::droid::DroidKind::Trooper; 4]);
+    for _ in 0..40 {
+        world.step(&[]);
+        if world.droids_standing() > 0 {
+            break;
+        }
+    }
+    (world, station)
+}

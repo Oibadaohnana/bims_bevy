@@ -84,7 +84,7 @@ impl World {
             .get(index)
             .copied()
             .flatten()
-            .map_or(0.0, |m| f64::from(m.blink_cooldown()))
+            .map_or(0.0, |m| f64::from(m.cooldown()))
     }
 
     /// Seconds before a hit taken stops locking `who`'s *Blink Drive*;
@@ -149,7 +149,51 @@ impl World {
             self.throws.retain(|p| p.who != slot);
             events.push(WorldEvent::Blinked { who: slot });
         }
-        let until = self.mission_minutes() + Self::item_minutes(f64::from(item.blink_cooldown()));
+        let now = self.mission_minutes();
+        match item.kind {
+            ModuleKind::BlinkDrive => {}
+            // Every crewmate on its feet within reach healed, the holder
+            // too, through the medic's aura as every heal is.
+            ModuleKind::FieldMender => {
+                for who in self.crew_within(slot, bims::module::MENDER_TILES) {
+                    if !self.aboard.room.is_downed(who as usize) {
+                        self.heal_crew(who, item.mend());
+                    }
+                }
+                events.push(WorldEvent::ItemUsed {
+                    who: slot,
+                    kind: item.kind.code(),
+                });
+            }
+            // Every class cooldown ready and every charge in hand, and the
+            // holder's other items' cooldowns with them, Dota's Refresher.
+            ModuleKind::ResetCapacitor => {
+                self.cooldowns_less(slot, 1.0e9);
+                for charge in Charge::ALL {
+                    let full = self.charges(slot, charge);
+                    if full > self.charges_of(slot, charge) {
+                        self.set_charges_held(slot, charge, full);
+                    }
+                }
+                self.run.items.ready_at.retain(|&(w, _, _)| w != slot);
+                events.push(WorldEvent::ItemUsed {
+                    who: slot,
+                    kind: item.kind.code(),
+                });
+            }
+            ModuleKind::AblativeShell => {
+                let until = now + Self::item_minutes(f64::from(item.shell_seconds()));
+                let shells = &mut self.run.items.shell_until;
+                shells.retain(|&(w, _)| w != slot);
+                shells.push((slot, until));
+                events.push(WorldEvent::ItemUsed {
+                    who: slot,
+                    kind: item.kind.code(),
+                });
+            }
+            _ => return Err(Refusal::NoSuchItem),
+        }
+        let until = now + Self::item_minutes(f64::from(item.cooldown()));
         let clocks = &mut self.run.items.ready_at;
         clocks.retain(|&(w, i, _)| !(w == slot && i == index));
         clocks.push((slot, index, until));
@@ -168,6 +212,114 @@ impl World {
             *slot = Some(item);
         }
         self.aboard.room.issue(who as usize, gear);
+    }
+
+    // --- step two: the passives and the shell (October 2026) -------------------
+
+    /// The per cent `who`'s *Coolant Loop*s take off its class's
+    /// cooldowns: what `World::relic_percent` adds to the relics' for
+    /// `Stat::Cooldowns`, so every class cooldown reads it.
+    pub fn item_cooldown_cut(&self, who: u32) -> i32 {
+        if who >= self.players() || who >= self.aboard.crew_count() {
+            return 0;
+        }
+        self.aboard.room.gear(who as usize).item_cooldown_cut()
+    }
+
+    /// Seconds `who`'s *Ablative Shell* has left; nought with none on.
+    pub fn shell_left(&self, who: u32) -> f64 {
+        let now = self.mission_minutes();
+        self.run
+            .items
+            .shell_until
+            .iter()
+            .filter(|&&(w, until)| w == who && until > now)
+            .map(|&(_, until)| (until - now) / time::MINUTES_PER_SECOND)
+            .fold(0.0, f64::max)
+    }
+
+    /// What `who`'s items do to its skill (`World::skill_of`, after the
+    /// relics): a *Steady Grip*'s fire rate, a *Long Barrel*'s tiles of
+    /// range, and while an *Ablative Shell* is on the damage taken down
+    /// and nothing stripped. The skill as it was for a Bim carrying none.
+    pub(super) fn lift_by_items(&self, who: u32, skill: &mut bims::combat::Skill) {
+        if who >= self.players() || who >= self.aboard.crew_count() {
+            return;
+        }
+        let gear = self.aboard.room.gear(who as usize);
+        let rate = gear.item_fire_rate_percent();
+        if rate != 0 {
+            skill.fire_rate *= crate::relic::factor(rate) as f32;
+        }
+        skill.range += gear.item_range_tiles();
+        if self.shell_left(who) > 0.0 {
+            skill.damage_taken *= bims::module::SHELL_DAMAGE_TAKEN;
+            skill.unstrippable = true;
+        }
+    }
+
+    /// Every crew weapon hit that landed on a machine this step — who
+    /// fired it (a crew index), which machine (a droid index of the
+    /// residents' room) and what it did — through the items: a *Leech
+    /// Capacitor*'s share back as hit points, and an *Arc Coil*'s count,
+    /// every [`bims::module::ARC_EVERY`]th hit arcing from the machine struck
+    /// to the nearest others within [`bims::module::ARC_REACH_TILES`] — the
+    /// nearest first, the lower index on a tie, so every copy arcs alike.
+    pub(crate) fn items_on_machine_hits(&mut self, landed: &[(Option<usize>, usize, f32)]) {
+        if !self.any_items() {
+            return;
+        }
+        let players = self.players().min(self.aboard.crew_count());
+        for &(by, i, damage) in landed {
+            let Some(slot) = by.map(|b| b as u32).filter(|&b| b < players) else {
+                continue;
+            };
+            let gear = self.aboard.room.gear(slot as usize);
+            let leech = gear.item_leech();
+            if leech > 0.0 && damage > 0.0 {
+                self.heal_crew(slot, damage * leech);
+            }
+            let Some((targets, arc_damage)) = gear.item_arc() else {
+                continue;
+            };
+            let hits = &mut self.run.items.arc_hits;
+            if hits.len() <= slot as usize {
+                hits.resize(slot as usize + 1, 0);
+            }
+            hits[slot as usize] += 1;
+            if hits[slot as usize] % bims::module::ARC_EVERY != 0 {
+                continue;
+            }
+            let Some(residents) = self.residents.as_mut() else {
+                continue;
+            };
+            let room = &mut residents.aboard.room;
+            let Some(from) = room.droid(i).map(|d| d.pos) else {
+                continue;
+            };
+            let reach = bims::module::ARC_REACH_TILES * bims::room::TILE;
+            let mut near: Vec<(f32, usize)> = (0..room.droid_count() as usize)
+                .filter(|&j| j != i)
+                .filter_map(|j| {
+                    let d = room.droid(j)?;
+                    let far = (d.pos - from).len();
+                    (!d.destroyed && far <= reach).then_some((far, j))
+                })
+                .collect();
+            near.sort_by(|a, b| a.0.total_cmp(&b.0).then(a.1.cmp(&b.1)));
+            let bims = room.crew_count() as usize;
+            let mut shown = Vec::new();
+            for &(_, j) in near.iter().take(targets) {
+                room.strike_droid(j, bims::droid::DroidPart::Chassis, arc_damage);
+                shown.push(((bims + j) as u32, arc_damage, false));
+            }
+            for &(body, _, _) in &shown {
+                if let Some(last) = residents.last_hit_by.get_mut(body as usize) {
+                    *last = Some(slot as usize);
+                }
+            }
+            self.shown_hits.extend(shown);
+        }
     }
 
     // --- the Reactor Heart -----------------------------------------------------

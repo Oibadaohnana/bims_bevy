@@ -8790,6 +8790,13 @@ impl Game {
         // Field*, *Cover Formation*. One for everybody else, and a hit
         // times one is the hit.
         let damage = damage * self.skill(who).damage_taken;
+        // An *Ablative Shell* on (October 2026): nothing strips its armour;
+        // a lance's bolt lands as any bolt does.
+        let strips = if self.skill(who).unstrippable {
+            0.0
+        } else {
+            strips
+        };
         // A relic's shield (task 142) takes what it can of the hit before
         // anything else does — a surge excepted, which takes the whole of
         // it and leaves the shield as it was.

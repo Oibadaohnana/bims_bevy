@@ -358,6 +358,10 @@ pub enum WorldEvent {
     /// A player's Bim went off on its *Blink Drive* (October 2026): it
     /// stands where the drive put it.
     Blinked { who: u32 },
+    /// A player's Bim used an active item other than the blink — a *Field
+    /// Mender*, a *Reset Capacitor*, an *Ablative Shell* (October 2026):
+    /// whose, and the item's kind's code.
+    ItemUsed { who: u32, kind: u32 },
     /// A player bought an item at a trader (October 2026): which kind at
     /// which tier, and onto which Bim — `u32::MAX` the armory.
     ItemBought {
@@ -754,6 +758,7 @@ impl WorldEvent {
             WorldEvent::EnemyRewarded { .. } => 142,
             WorldEvent::Hit { .. } => 143,
             WorldEvent::Blinked { .. } => 147,
+            WorldEvent::ItemUsed { .. } => 149,
             WorldEvent::ItemBought { .. } => 148,
         }
     }
@@ -866,6 +871,8 @@ impl WorldEvent {
             WorldEvent::EnemyRewarded { money, .. } => money as i64,
             WorldEvent::Hit { damage, .. } => i64::from(damage),
             WorldEvent::Blinked { who } => who as i64,
+            // The kind in the hundreds, the player in the units.
+            WorldEvent::ItemUsed { who, kind } => (who as i64) + 100 * (kind as i64),
             // The buyer in the units, the kind in the tens, the tier in the
             // hundreds and the Bim plus one in the thousands, nought for the
             // armory.

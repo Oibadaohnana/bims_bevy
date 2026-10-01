@@ -42,6 +42,13 @@ pub struct ItemClocks {
     /// The mission minute each player's Bim was last hit, by slot;
     /// `None` not this mission.
     pub hurt_at: Vec<Option<f64>>,
+    /// Each player's weapon hits on machines this mission, by slot: what
+    /// an *Arc Coil* counts to [`bims::module::ARC_EVERY`] by.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub arc_hits: Vec<u32>,
+    /// `(who, mission minute)`: an *Ablative Shell* on until then.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub shell_until: Vec<(u32, f64)>,
 }
 
 impl ItemClocks {
@@ -49,6 +56,8 @@ impl ItemClocks {
     pub fn new_mission(&mut self) {
         self.ready_at.clear();
         self.hurt_at.clear();
+        self.arc_hits.clear();
+        self.shell_until.clear();
     }
 }
 

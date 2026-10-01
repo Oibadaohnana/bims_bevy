@@ -69,18 +69,27 @@ impl World {
     /// The percentage crew member `who`'s relics put on `stat` now —
     /// nought for a bot and for a Bim holding nothing for it.
     pub fn relic_percent(&self, who: u32, stat: Stat) -> i32 {
+        // A *Coolant Loop* carried (October 2026: the relic in item form)
+        // comes off the class's cooldowns with the relics', so every
+        // cooldown that reads this reads it.
+        let items = if stat == Stat::Cooldowns {
+            -self.item_cooldown_cut(who)
+        } else {
+            0
+        };
         let held = self.relics_of(who);
         if held.is_empty() {
-            return 0;
+            return items;
         }
-        relic::stat_percent(
-            held,
-            stat,
-            relic::Situation {
-                other_down: self.other_player_down(who),
-                ..relic::Situation::default()
-            },
-        )
+        items
+            + relic::stat_percent(
+                held,
+                stat,
+                relic::Situation {
+                    other_down: self.other_player_down(who),
+                    ..relic::Situation::default()
+                },
+            )
     }
 
     /// The same as a factor: 1.1 for ten per cent.
@@ -118,6 +127,8 @@ impl World {
         pool.sort_unstable();
         pool.dedup();
         pool.retain(|&r| !self.run.relics.in_play(r));
+        // The relics in item form (October 2026) are never drawn.
+        pool.retain(|r| !r.retired());
         self.run.relics.pool = pool;
     }
 
@@ -688,7 +699,7 @@ impl World {
 
     /// Every class cooldown running on crew member `who` made `seconds`
     /// shorter: the start of each moved back. True when one was running.
-    fn cooldowns_less(&mut self, who: u32, seconds: f64) -> bool {
+    pub(super) fn cooldowns_less(&mut self, who: u32, seconds: f64) -> bool {
         let minutes = seconds * time::MINUTES_PER_SECOND;
         let mut any = false;
         if let Some(timers) = self.charge_timers.get_mut(who as usize) {

@@ -81,7 +81,10 @@ use serde::{Deserialize, Serialize};
 /// and a trader's shelf of one gun and one piece at the day's tier.
 /// 89: an item bought off the trader is sold out until the next visit
 /// (`Trader::items_sold`), and the items cost three times what they did.
-pub const PROTOCOL: u32 = 89;
+/// 90: items, step two — nine more kinds (Coolant Loop, Pressure Seal and
+/// Steady Grip moved off the relics), their effects in the step, and
+/// `WorldEvent::ItemUsed`.
+pub const PROTOCOL: u32 = 90;
 
 /// Where the relay lives. `BIMS_SERVER` in the environment overrides it
 /// — `ws://127.0.0.1:8792` for one on the same machine.

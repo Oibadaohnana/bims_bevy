@@ -5407,6 +5407,18 @@ fn item_grid(ui: &mut egui::Ui, world: &world::World, who: u32, keys: &Keys) {
                         } else if item.is_blink() && locked {
                             painter.rect_filled(rect, 4.0, theme::PANEL_DEEP.gamma_multiply(0.6));
                         }
+                        // An Ablative Shell on: its box lit, as an ability
+                        // running is.
+                        if item.kind == bims::module::ModuleKind::AblativeShell
+                            && world.shell_left(who) > 0.0
+                        {
+                            painter.rect_stroke(
+                                rect,
+                                4.0,
+                                egui::Stroke::new(2.0, theme::CAUTION),
+                                egui::StrokeKind::Inside,
+                            );
+                        }
                         let passive = !item.kind.active();
                         response.on_hover_text(crate::names::module_tip(item, passive));
                     }

@@ -4741,3 +4741,8 @@ so the survivor pins may move.
 
 `module::tests` pin the bar, the crit and the one tier of the Core. No
 body without an item moved.
+
+**Step two** adds one thing the room reads: `Skill::unstrippable` (serde
+default false) — `strike_stripping` strips nothing off the armour while
+it is set (an *Ablative Shell* running). The other nine items are the
+world's (`crates/world/CLAUDE.md`, "Items, step two").

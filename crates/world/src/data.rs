@@ -604,13 +604,25 @@ pub const TRADER_ARMOUR: usize = 1;
 /// What an item costs at a trader (October 2026, `crate::items`), by its
 /// kind's code and its tier, one to three: the *Blink Drive*, the
 /// *Executioner*, the *Reactor Heart* and the *Override Core* (made at
-/// tier one alone, so its row is one price). Three times the first
-/// placeholders (the player's +200%, October 2026).
-pub const ITEM_PRICE: [[Money; 3]; 4] = [
-    [6_000, 10_500, 18_000],
-    [7_500, 13_500, 24_000],
-    [6_000, 12_000, 21_000],
-    [18_000, 18_000, 18_000],
+/// tier one alone, so its row is one price), then step two's nine (October
+/// 2026): the Coolant Loop, the Pressure Seal, the Steady Grip, the Long
+/// Barrel, the Leech Capacitor, the Arc Coil, the Field Mender, the Reset
+/// Capacitor and the Ablative Shell. Four and a half times the first
+/// placeholders (the player's +200%, then +50%).
+pub const ITEM_PRICE: [[Money; 3]; 13] = [
+    [9_000, 15_750, 27_000],
+    [11_250, 20_250, 36_000],
+    [9_000, 18_000, 31_500],
+    [27_000, 27_000, 27_000],
+    [6_750, 13_500, 22_500],
+    [4_500, 9_000, 15_750],
+    [6_750, 13_500, 22_500],
+    [6_750, 13_500, 22_500],
+    [9_000, 18_000, 31_500],
+    [11_250, 20_250, 36_000],
+    [9_000, 18_000, 31_500],
+    [18_000, 31_500, 54_000],
+    [11_250, 20_250, 36_000],
 ];
 /// What the relic at a trader costs, by the relic's own tier: one, two,
 /// three (task 117). The tier is never shown, so the price is the only

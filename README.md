@@ -212,8 +212,8 @@ player's Bim** for the rest of the run. A bot never holds one.
   | 1 | Focusing Lens | +10% weapon damage | yes |
   | 1 | Servo Braces | +10% move speed | yes |
   | 1 | Field Plating | +10% armour | yes |
-  | 1 | Coolant Loop | -10% class ability cooldowns | yes |
-  | 1 | Steady Grip | +10% fire rate | unlocked by a win |
+  | 1 | ~~Coolant Loop~~ | an [item](#items) since October 2026 | — |
+  | 1 | ~~Steady Grip~~ | an [item](#items) since October 2026 | — |
   | 1 | Trauma Kit | the Bim's revives take 2 s less (never under 1 s) | unlocked by a win |
   | 2 | Second Wind | the first time the Bim goes down in a mission, it gets up 5 s later with 25% health | yes |
   | 2 | Salvage Beacon | +20% bounty for the Bim's own kills, paid on the clear like any bounty | yes |
@@ -241,7 +241,7 @@ player's Bim** for the rest of the run. A bot never holds one.
   | 2 | Parts Broker | +50% bounty for machines the Bim destroys while they are missing a limb | unlocked by a win |
   | 3 | Total Teardown | a hit on a limb already destroyed tears into the chassis for double damage | unlocked by a win |
   | | **Lifeline** — surviving being downed, and keeping each other up | | |
-  | 1 | Pressure Seal | the Bim regenerates 0.5 HP a second | yes |
+  | 1 | ~~Pressure Seal~~ | an [item](#items) since October 2026 | — |
   | 1 | Quick Wrap | every crewmate the Bim revives also heals 10 HP | yes |
   | 2 | Clot Booster | revived within 15 s of going down, the Bim heals 2 HP a second for what is left of them | yes |
   | 2 | Tether Field | a crewmate the Bim revives takes 25% less damage for 6 s | unlocked by a win |
@@ -346,13 +346,26 @@ the four two by two at the right of the abilities, each with its key
 
 | item | | tier one / two / three | price |
 | --- | --- | --- | --- |
-| **Blink Drive** | Active (its key): the Bim put where the pointer is, as far as the drive reaches, on ground it can see and walk to. Not within 3 s of a hit | 6 / 8 / 10 tiles, 14 / 12 / 10 s cooldown | 6 000 / 10 500 / 18 000 |
-| **Executioner** | Weapon hits may be critical. Rolls on its own beside a soldier's Weak Spot — either may come up, and the bigger multiple counts | 12% ×1.6 / 18% ×1.9 / 25% ×2.25 | 7 500 / 13 500 / 24 000 |
-| **Reactor Heart** | More health, and regeneration — faster after 6 s without a hit | +25 / +40 / +60 HP; 0.5 / 1 / 1 HP/s, 1.5 / 3 / 5 HP/s quiet | 6 000 / 12 000 / 21 000 |
-| **Override Core** | The class's ultimate plays **one rank higher** than bought (a rank must be bought), up to a **fifth** rank no skill point buys: the Sentry two at once, the Rampage every grenade back, the Cloak everybody within 3 tiles of the target, the Juggernaut nothing takes him down, the Reinforcements five in armour — and every number a step on | one tier | 18 000 |
+| **Blink Drive** | Active (its key): the Bim put where the pointer is, as far as the drive reaches, on ground it can see and walk to. Not within 3 s of a hit | 6 / 8 / 10 tiles, 14 / 12 / 10 s cooldown | 9 000 / 15 750 / 27 000 |
+| **Executioner** | Weapon hits may be critical. Rolls on its own beside a soldier's Weak Spot — either may come up, and the bigger multiple counts | 12% ×1.6 / 18% ×1.9 / 25% ×2.25 | 11 250 / 20 250 / 36 000 |
+| **Reactor Heart** | More health, and regeneration — faster after 6 s without a hit | +25 / +40 / +60 HP; 0.5 / 1 / 1 HP/s, 1.5 / 3 / 5 HP/s quiet | 9 000 / 18 000 / 31 500 |
+| **Override Core** | The class's ultimate plays **one rank higher** than bought (a rank must be bought), up to a **fifth** rank no skill point buys: the Sentry two at once, the Rampage every grenade back, the Cloak everybody within 3 tiles of the target, the Juggernaut nothing takes him down, the Reinforcements five in armour — and every number a step on | one tier | 27 000 |
+| **Coolant Loop** | Class ability cooldowns shorter; several add, to −50% at most | −10 / 15 / 20% | 6 750 / 13 500 / 22 500 |
+| **Pressure Seal** | Health back all the time, hit or not | 0.5 / 1 / 1.5 HP/s | 4 500 / 9 000 / 15 750 |
+| **Steady Grip** | The trigger pulled faster | +10 / 15 / 20% fire rate | 6 750 / 13 500 / 22 500 |
+| **Long Barrel** | The weapon reaches further | +2 / 3 / 4 tiles | 6 750 / 13 500 / 22 500 |
+| **Leech Capacitor** | A share of the damage your weapon does to a machine back as health | 8 / 12 / 16% | 9 000 / 18 000 / 31 500 |
+| **Arc Coil** | Every 4th weapon hit on a machine arcs to the machines nearest it within 4 tiles | 2 / 3 / 4 machines, 15 / 25 / 40 damage | 11 250 / 20 250 / 36 000 |
+| **Field Mender** | Active: every crewmate on their feet within 5 tiles, you included, healed | 30 / 45 / 60 HP, 45 / 40 / 35 s | 9 000 / 18 000 / 31 500 |
+| **Reset Capacitor** | Active: every class cooldown ready, every charge full, your other items' cooldowns with them | 180 / 150 / 120 s | 18 000 / 31 500 / 54 000 |
+| **Ablative Shell** | Active: damage taken ×0.6, and a Warden's lance strips none of your armour | 4 / 5 / 6 s, 60 / 55 / 50 s | 11 250 / 20 250 / 36 000 |
+
+*Coolant Loop*, *Pressure Seal* and *Steady Grip* were relics; they are
+in no relic pool any more (a save holding one keeps it).
 
 The prices are placeholders, shared by the players like every price at a
-trader. `BIMS_ITEMS=blink:3,executioner:2,heart,core` gives the steered
+trader. `BIMS_ITEMS=blink:3,executioner:2,heart,core` (any item by its name or
+its first word, `field`, `reset`, `ablative`, …) gives the steered
 Bim those items at the start of any run, to look at one.
 
 ## Attack, defend or trade
@@ -2391,8 +2404,8 @@ round the body say so on the deck.
 faster, takes less, and aims on the move as well as standing still. It
 is ready at the start of every mission, runs on the mission clock (a
 pause stops it), may be used braced — the two stack — and the cooldown
-relics (*Coolant Loop*, *Kill Relay*, *Squad Morale*) shorten its
-cooldown as they do every class ability's. Its box glows while it runs.
+relics (*Kill Relay*, *Squad Morale*) and the *Coolant Loop* item
+shorten its cooldown as they do every class ability's. Its box glows while it runs.
 
 | rank | duration | fire rate | damage taken | cooldown |
 | --- | --- | --- | --- | --- |

@@ -802,6 +802,10 @@ pub struct Skill {
     /// Juggernaut at the Override Core's fifth rank (October 2026).
     #[cfg_attr(feature = "serde", serde(default))]
     pub unyielding: bool,
+    /// Whether nothing strips this body's armour: an *Ablative Shell* on
+    /// (October 2026) — a lance's bolt lands as damage, as any bolt does.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub unstrippable: bool,
 }
 
 impl Skill {
@@ -836,6 +840,7 @@ impl Skill {
         miss_cut: 0.0,
         locks_doors: false,
         unyielding: false,
+        unstrippable: false,
     };
 
     /// The skill for this body's next shot, with `shots` fired before it:

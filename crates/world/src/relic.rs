@@ -179,6 +179,23 @@ impl Relic {
         self.def().first
     }
 
+    /// Whether it went into item form (October 2026): *Coolant Loop*,
+    /// *Pressure Seal* and *Steady Grip* are items now
+    /// (`bims::module::ModuleKind`). Out of every pool, draw and unlock;
+    /// kept as a variant, and working, so a save holding one still reads.
+    pub fn retired(self) -> bool {
+        matches!(
+            self,
+            Relic::CoolantLoop | Relic::PressureSeal | Relic::SteadyGrip
+        )
+    }
+
+    /// Every relic still in the game, in list order: [`Relic::ALL`] less
+    /// the [`Relic::retired`].
+    pub fn in_play() -> Vec<Relic> {
+        Relic::ALL.into_iter().filter(|r| !r.retired()).collect()
+    }
+
     /// What it does.
     pub fn effect(self) -> Effect {
         self.def().effect
@@ -879,6 +896,7 @@ pub fn starting_pool() -> Vec<Relic> {
     Relic::ALL
         .into_iter()
         .filter(|r| r.starts_unlocked())
+        .filter(|r| !r.retired())
         .collect()
 }
 
@@ -1352,6 +1370,7 @@ impl Profile {
         Relic::ALL
             .into_iter()
             .filter(|&r| self.unlocked(r))
+            .filter(|r| !r.retired())
             .collect()
     }
 
@@ -1376,6 +1395,7 @@ impl Profile {
         let fresh: Vec<Relic> = Relic::ALL
             .into_iter()
             .filter(|&r| !self.unlocked(r))
+            .filter(|r| !r.retired())
             .take(data::RELICS_UNLOCKED_PER_WIN)
             .collect();
         for r in &fresh {
@@ -1454,14 +1474,22 @@ mod tests {
     #[test]
     fn every_relic_starts_unlocked_and_a_win_unlocks_nothing() {
         // The player asked for every relic in the pool from the start (it
-        // was 23, task 117, with fourteen unlocked by wins).
-        assert_eq!(starting_pool(), Relic::ALL.to_vec());
+        // was 23, task 117, with fourteen unlocked by wins) — all but the
+        // three in item form since October 2026, which are in no pool.
+        let in_play = Relic::in_play();
+        assert_eq!(in_play.len(), Relic::ALL.len() - 3);
+        assert!(
+            [Relic::CoolantLoop, Relic::PressureSeal, Relic::SteadyGrip]
+                .iter()
+                .all(|r| r.retired() && !in_play.contains(r))
+        );
+        assert_eq!(starting_pool(), in_play);
         assert!(Relic::ALL.iter().all(|r| r.starts_unlocked()));
         let mut profile = Profile::new();
-        assert_eq!(profile.pool(), Relic::ALL.to_vec());
+        assert_eq!(profile.pool(), in_play);
         assert!(profile.record_run(true).is_empty());
         assert_eq!(profile.wins, 1);
-        assert_eq!(profile.pool(), Relic::ALL.to_vec());
+        assert_eq!(profile.pool(), in_play);
     }
 
     #[test]

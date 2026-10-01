@@ -8458,6 +8458,9 @@ impl World {
         self.lift_by_relics(who, &mut skill);
         // And task 118's, which read the crew round it as well.
         self.lift_by_relic_hooks(who, &mut skill);
+        // And its items (October 2026): a Steady Grip, a Long Barrel, an
+        // Ablative Shell on.
+        self.lift_by_items(who, &mut skill);
         // And a medic's cloak on it (task 130): no fire, and a quicker
         // walk, whoever cast it.
         self.lift_by_cloak(who, &mut skill);

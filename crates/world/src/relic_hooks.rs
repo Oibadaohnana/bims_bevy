@@ -318,6 +318,9 @@ impl World {
         } else {
             Vec::new()
         };
+        // What each hit did to which machine, by whom: what the items
+        // read after (October 2026, `item_use.rs`).
+        let mut landed: Vec<(Option<usize>, usize, f32)> = Vec::new();
         let mut rest = Vec::new();
         for hit in hits {
             let Some(residents) = self.residents.as_ref() else {
@@ -350,12 +353,14 @@ impl World {
                 break;
             };
             residents.aboard.room.strike_droid(i, part, damage);
+            landed.push((hit.by, i, damage));
             // And what it did, for the number over the machine.
             self.shown_hits.push((hit.who as u32, damage, hit.crit));
             if let Some(last) = residents.last_hit_by.get_mut(hit.who) {
                 *last = hit.by;
             }
         }
+        self.items_on_machine_hits(&landed);
         rest
     }
 

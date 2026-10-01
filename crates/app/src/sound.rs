@@ -768,6 +768,15 @@ impl Sounds {
             // A Blink Drive (October 2026): the cloak's shimmer, short of a
             // clip of its own.
             E::Blinked { who } => (who, Clip::Cloak, 0.45),
+            // The other active items (October 2026), each the sound of the
+            // ability it is nearest: a burst of healing, a rampage's
+            // charge, a wall going up.
+            E::ItemUsed { who, kind } => match bims::module::ModuleKind::from_code(kind) {
+                Some(bims::module::ModuleKind::FieldMender) => (who, Clip::NaniteBurst, 0.5),
+                Some(bims::module::ModuleKind::ResetCapacitor) => (who, Clip::Rampage, 0.5),
+                Some(bims::module::ModuleKind::AblativeShell) => (who, Clip::BulwarkOn, 0.55),
+                _ => return,
+            },
             _ => return,
         };
         if self.admit_in(Kind::Ability, (clip as i32, who as i32)) {

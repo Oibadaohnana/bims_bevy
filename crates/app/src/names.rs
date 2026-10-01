@@ -1644,6 +1644,10 @@ pub fn event_line(event: WorldEvent) -> Option<String> {
         WorldEvent::Hit { .. } => return None,
         // A blink is seen and heard, not logged.
         WorldEvent::Blinked { .. } => return None,
+        WorldEvent::ItemUsed { who: w, kind } => {
+            let item = bims::module::ModuleKind::from_code(kind).map_or("an item", item_name);
+            format!("{} used the {item}.", who(w))
+        }
         WorldEvent::ItemBought {
             slot,
             kind,
@@ -1897,11 +1901,20 @@ pub const RELIC_NAMES: [&str; 37] = [
 ];
 
 /// The items' names (October 2026), by `bims::module::ModuleKind` code.
-pub const ITEM_NAMES: [&str; 4] = [
+pub const ITEM_NAMES: [&str; 13] = [
     "Blink Drive",
     "Executioner",
     "Reactor Heart",
     "Override Core",
+    "Coolant Loop",
+    "Pressure Seal",
+    "Steady Grip",
+    "Long Barrel",
+    "Leech Capacitor",
+    "Arc Coil",
+    "Field Mender",
+    "Reset Capacitor",
+    "Ablative Shell",
 ];
 
 /// An item's name.
@@ -1956,6 +1969,47 @@ pub fn item_line(item: bims::module::Module) -> String {
             "The class's ultimate plays one rank higher than bought, up to a fifth rank no skill point buys (needs a rank bought). Rank {}: {}",
             world::class::OVERRIDE_RANK,
             "see the ultimate's tooltip.",
+        ),
+        ModuleKind::CoolantLoop => format!(
+            "-{}% class ability cooldowns. Several add up, to -{}% at most.",
+            m::COOLANT_LOOP_PERCENT[t],
+            m::COOLDOWN_CUT_MOST,
+        ),
+        ModuleKind::PressureSeal => format!(
+            "Regenerates {} HP/s, hit or not.",
+            fig(m::PRESSURE_SEAL_REGEN[t] as f64),
+        ),
+        ModuleKind::SteadyGrip => format!("+{}% fire rate.", m::STEADY_GRIP_PERCENT[t]),
+        ModuleKind::LongBarrel => format!(
+            "+{} tiles of weapon range.",
+            fig(m::LONG_BARREL_TILES[t] as f64),
+        ),
+        ModuleKind::LeechCapacitor => format!(
+            "{} of the damage your weapon does to a machine comes back as health.",
+            pc(m::LEECH_SHARE[t] as f64),
+        ),
+        ModuleKind::ArcCoil => format!(
+            "Every {}th weapon hit on a machine arcs to the {} machines nearest it within {} tiles, {} damage each.",
+            m::ARC_EVERY,
+            m::ARC_TARGETS[t],
+            fig(m::ARC_REACH_TILES as f64),
+            fig(m::ARC_DAMAGE[t] as f64),
+        ),
+        ModuleKind::FieldMender => format!(
+            "Active: heals every crewmate on their feet within {} tiles, yourself included, {} HP. {} s cooldown.",
+            fig(m::MENDER_TILES as f64),
+            fig(m::MENDER_HEAL[t] as f64),
+            fig(m::MENDER_COOLDOWN_SECONDS[t] as f64),
+        ),
+        ModuleKind::ResetCapacitor => format!(
+            "Active: every class ability cooldown ready and every charge full, and your other items' cooldowns with them. {} s cooldown.",
+            fig(m::RESET_COOLDOWN_SECONDS[t] as f64),
+        ),
+        ModuleKind::AblativeShell => format!(
+            "Active: for {} s you take {} damage, and a Warden's lance strips none of your armour. {} s cooldown.",
+            fig(m::SHELL_SECONDS[t] as f64),
+            by(m::SHELL_DAMAGE_TAKEN as f64),
+            fig(m::SHELL_COOLDOWN_SECONDS[t] as f64),
         ),
     }
 }
