@@ -815,6 +815,17 @@ impl Skill {
         skill
     }
 
+    /// A player's own shot: every weapon at full odds, near and far,
+    /// standing or walking — all the misses cut and the walk costing
+    /// nothing. A bot's shot keeps the odds its weapon and skill give it.
+    pub fn sure(&self) -> Skill {
+        Skill {
+            miss_cut: 1.0,
+            walking: 1.0,
+            ..*self
+        }
+    }
+
     /// The weapon's numbers through the skill: the odds multiplied (and
     /// clamped to one), the far odds the near with *deadeye*, the trigger
     /// rate multiplied. The range, the damage curve, the burst are the
@@ -2918,7 +2929,9 @@ impl Combat {
     /// first. The odds are not a hit rolled but how straight it flies:
     /// it strays up to [`balance::AIM_SPREAD`] times what the near odds
     /// (through the skill, and the walking odds on the move) fall short
-    /// of one, either side, off the combat stream.
+    /// of one, either side, off the combat stream. A player's own Bim
+    /// fires with [`Skill::sure`], so its stray is nought and the bolt
+    /// flies exactly along the heading; the roll is drawn all the same.
     pub fn fire_along(
         &mut self,
         from: Vec2,
@@ -6144,5 +6157,54 @@ mod tests {
         .stats(sniper);
         assert_eq!(s.accuracy, 1.0);
         assert!(s.accuracy_far <= 1.0);
+    }
+
+    /// A player's own shot ([`Skill::sure`]): every carried weapon at
+    /// every tier at full odds near and far, a shot on the move landing
+    /// like one standing, and a shot along the heading never straying —
+    /// where the same skill without it misses some.
+    #[test]
+    fn a_player_s_shot_always_lands_and_a_bot_s_keeps_its_odds() {
+        let soldier = Skill {
+            accuracy: 0.9,
+            ..Skill::NONE
+        };
+        for kind in WeaponKind::ALL {
+            for tier in Tier::ALL.into_iter().filter(|&t| t >= kind.min_tier()) {
+                let s = soldier.sure().stats(kind.at(tier));
+                assert_eq!(
+                    (s.accuracy, s.accuracy_far),
+                    (1.0, 1.0),
+                    "{kind:?} {tier:?}"
+                );
+            }
+        }
+        let (sight, _) = room_with(&[]);
+        let theirs = middle(14.0, 5.0);
+        let from = middle(2.0, 5.0);
+        let pistol = WeaponKind::LaserPistol.basic();
+        let landed = |skill: &Skill| {
+            let mut combat = Combat::new(7);
+            combat.set_targets(vec![Some((theirs, pistol))]);
+            let mut hits = 0;
+            for _ in 0..200 {
+                combat.fire_as(from, theirs, pistol, false, true, skill, Some(0));
+                for _ in 0..40 {
+                    combat.step(0.05, &sight, &[]);
+                }
+                hits += combat.take_hits().len();
+            }
+            hits
+        };
+        assert_eq!(landed(&soldier.sure()), 200, "every shot on the move");
+        assert!(landed(&soldier) < 150, "a bot's walking shots miss");
+        let mut combat = Combat::new(7);
+        let angle = 0.3;
+        for _ in 0..50 {
+            combat.fire_along(from, angle, pistol, true, &soldier.sure(), Some(0));
+        }
+        for bolt in &combat.bolts {
+            assert!((bolt.vel.angle() - angle).abs() < 1e-5);
+        }
     }
 }

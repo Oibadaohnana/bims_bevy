@@ -65,6 +65,8 @@ pub const WALKING_ACCURACY: f32 = 0.5;
 /// body faces, in radians, at no odds at all: the miss is this times
 /// what the odds fall short of one, either side — a pistol's 0.855
 /// strays two degrees standing, eight on the move at half the odds.
+/// A player's own Bim shoots at full odds (`Skill::sure`), so its aimed
+/// shot never strays; this is for any other body steered.
 pub const AIM_SPREAD: f32 = 0.25;
 
 // ---- The weapons ----

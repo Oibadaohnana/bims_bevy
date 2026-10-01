@@ -4603,3 +4603,19 @@ reads), the camera following the player's own Bim from the first frame
 about the middle while it follows, no edge pan then, and the pointer over
 the deck the aim's reticle (`aim_cursor`, `theme::AIM`), closing in while
 the trigger is held.
+
+## A player's own Bim never misses
+
+Every shot a player's own Bim fires (`!Game::is_bot(who)`) goes through
+`Game::fired_skill`, which hands `Combat::fire_along` and `fire_as` its
+skill through `Skill::sure`: every miss cut (`miss_cut` one) and the
+walk costing nothing (`walking` one), so every carried weapon at every
+tier is at full odds near and far, standing or walking — a steered shot
+flies exactly along the heading, an auto-aimed one always hits. The
+rolls are drawn as ever, so the combat stream keeps its length. A bot,
+a sentry, a machine and every hostile body keep the odds their weapon
+and skill give them; what the aim picks and the panels' odds are
+untouched (`Game::shot_skill` is not sure). Cover, a peek's dodge, the
+target's armour and a Guardian's plate still stop what they stopped.
+`a_player_s_shot_always_lands_and_a_bot_s_keeps_its_odds` pins it. In
+seeded runs Bim 0 is a player's, so the survivor pins move with it.

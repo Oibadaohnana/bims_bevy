@@ -1845,7 +1845,7 @@ impl Game {
                     let walking = bim.character.is_walking();
                     let muzzle = self.shot_from(who, from, at);
                     self.reveal(who);
-                    let shot = skill.for_shot(self.bims[who].shots);
+                    let shot = self.fired_skill(who, &skill);
                     self.bims[who].shots = self.bims[who].shots.saturating_add(1);
                     self.combat
                         .fire_along(muzzle, heading, weapon, walking, &shot, Some(who));
@@ -1921,7 +1921,7 @@ impl Game {
                 } else {
                     // Every fifth shot of an *Overcharge Cell* (feature
                     // 106): counted on the body, the shot's damage raised.
-                    let shot = skill.for_shot(self.bims[who].shots);
+                    let shot = self.fired_skill(who, &skill);
                     self.bims[who].shots = self.bims[who].shots.saturating_add(1);
                     self.combat
                         .fire_as(muzzle, at, weapon, false, walking, &shot, Some(who));
@@ -5600,6 +5600,14 @@ impl Game {
     /// than by its own lights, and never a bot.
     pub fn is_player(&self, who: usize) -> bool {
         who < self.players
+    }
+
+    /// What `who`'s next shot fires with: its skill for that shot (an
+    /// *Overcharge Cell*'s count), and for a player's own Bim every
+    /// weapon at full odds ([`Skill::sure`]) — a bot keeps its own.
+    fn fired_skill(&self, who: usize, skill: &Skill) -> Skill {
+        let shot = skill.for_shot(self.bims[who].shots);
+        if self.is_bot(who) { shot } else { shot.sure() }
     }
 
     /// The other side of [`Game::is_player`]: a Bim that runs on its own
@@ -10636,8 +10644,8 @@ mod tests {
         assert!((game.bim_pos(1) - kate).len() < TILE, "stood where she was");
 
         // The player's own Bim, recruited and sent across the room past
-        // a target it can see, fires on the move — and every one of those
-        // shots is at half the odds.
+        // a target it can see, fires on the move — at full odds, since a
+        // player's own Bim never misses (`Skill::sure`).
         let mut game = room();
         game.set_autonomous(false);
         let james = game.put_for_probe(0, vec2(ROOM_W * 0.3, ROOM_H * 0.5));
@@ -10662,9 +10670,8 @@ mod tests {
         }
         assert!(fired_walking, "a Bim on the move still fires");
 
-        // The odds themselves, off the combat stream: from two tiles the
-        // pistol lands about 85 in 100 standing and about half that
-        // walking.
+        // A bot's odds, off the combat stream: from two tiles the pistol
+        // lands about 85 in 100 standing and about half that walking.
         let landed = |moving: bool| {
             let mut combat = crate::combat::Combat::new(3);
             let hall = Rect::from_min_size(Vec2::ZERO, vec2(20.0 * TILE, 10.0 * TILE));
@@ -11548,6 +11555,14 @@ mod tests {
                 ..Gear::default()
             },
         );
+        // The pistol's last shot — at the near one, once the far was down,
+        // and a player's own Bim never misses — lands before the blade's
+        // count starts.
+        game.set_hostiles(vec![None, None]);
+        for _ in 0..60 {
+            game.simulate(DT);
+        }
+        game.take_hits();
         game.set_hostiles(vec![Some((near, pistol)), Some((far, pistol))]);
         assert_eq!(game.order(0, attack), ORDER_MOVING);
         let mut struck = Vec::new();
@@ -11560,7 +11575,7 @@ mod tests {
             "walked up to it"
         );
         assert!(struck.contains(&1), "and struck it: {struck:?}");
-        assert!(!struck.contains(&0));
+        assert!(!struck.contains(&0), "{struck:?}");
         // A walk calls it off.
         assert_eq!(game.order_move(0, james.x, james.y), ORDER_MOVING);
         assert_eq!(game.focus_of(0), None);
