@@ -558,7 +558,7 @@ impl Plan {
 /// Every room has a doorway two tiles wide and every fixture stands with
 /// two clear tiles in front of it, because the room's navigation cannot
 /// walk a one-tile gap (see `crates/shipdesign`'s module note). A derelict
-/// is the same hull with holes in it and nobody home.
+/// is the same hull with nobody home.
 ///
 /// The seed decides how many bays, shelves and batteries there are and
 /// nothing else about the shape, so two seeds of one plan are two
@@ -637,7 +637,7 @@ pub fn town(
 /// probe). The format is the rough shape and no more, so what it cannot
 /// say is written as deck: every fixture, the skin (the builder draws the
 /// skin itself, wherever deck touches void), the sensor array in it, a
-/// derelict's holes, a town's open ground — its outermost deck comes back
+/// town's open ground — its outermost deck comes back
 /// as skin — and the wild.
 pub fn sketch_text(design: &ShipDesign, name: &str) -> String {
     let grid = design.grid();
@@ -1652,7 +1652,7 @@ pub(crate) fn build_placer(
             .placer;
         }
     };
-    furnish_placer(kind, side, floor, map_seed)
+    furnish_placer(side, floor, map_seed)
 }
 
 /// A design being furnished, with the occupancy of its four layers kept
@@ -1898,7 +1898,7 @@ impl Placer {
 /// The notes call this **`furnish`**; it hands back the placer it
 /// furnished through, since the generators check what it laid and the
 /// replay test replays it.
-pub(crate) fn furnish_placer(kind: StationKind, side: u32, floor: Floor, map_seed: u64) -> Placer {
+pub(crate) fn furnish_placer(side: u32, floor: Floor, map_seed: u64) -> Placer {
     let mut placer = Placer::new(side);
     let mut rng = Rng::new(map_seed);
 
@@ -1910,7 +1910,6 @@ pub(crate) fn furnish_placer(kind: StationKind, side: u32, floor: Floor, map_see
     };
 
     // Frame, deck and skin over the union.
-    let mut skins = Vec::new();
     for y in 1..=last {
         for x in 1..=last {
             if !inside(x as i32, y as i32) {
@@ -1919,7 +1918,6 @@ pub(crate) fn furnish_placer(kind: StationKind, side: u32, floor: Floor, map_see
             placer.put(PartKind::Structure, (x, y), Rotation::R0);
             if !floor.open && skin(x as i32, y as i32) {
                 placer.put(PartKind::OutsideWall, (x, y), Rotation::R0);
-                skins.push((x, y));
             } else {
                 placer.put(PartKind::Floor, (x, y), Rotation::R0);
             }
@@ -1929,7 +1927,6 @@ pub(crate) fn furnish_placer(kind: StationKind, side: u32, floor: Floor, map_see
     // The airlocks: two tiles of skin each, decked, with the airlock on
     // them — the first is the port, which is what a ship docks at. The
     // array in the north skin.
-    let mut kept = vec![floor.array];
     for &((x, y), rotation) in &floor.airlocks {
         let tiles = if rotation == Rotation::R0 {
             [(x, y), (x, y + 1)]
@@ -1939,7 +1936,6 @@ pub(crate) fn furnish_placer(kind: StationKind, side: u32, floor: Floor, map_see
         for tile in tiles {
             placer.take(tile);
             placer.put(PartKind::Floor, tile, Rotation::R0);
-            kept.push(tile);
         }
         placer.put(PartKind::Airlock, (x, y), rotation);
     }
@@ -2180,20 +2176,10 @@ pub(crate) fn furnish_placer(kind: StationKind, side: u32, floor: Floor, map_see
         placer.put(PartKind::StandingLight, at, Rotation::R0);
     }
 
-    // A derelict has lost some of its skin — not the port, not the other
-    // airlocks and not the array, which is what a passing ship still picks
-    // up. A roll that lands on one of those takes nothing, and is still a
-    // roll, so the stream stays in step.
-    if kind == StationKind::Derelict {
-        let holes = 6 + rng.below(6);
-        for _ in 0..holes {
-            let tile = skins[rng.below(skins.len() as u32) as usize];
-            if kept.contains(&tile) {
-                continue;
-            }
-            placer.take(tile);
-        }
-    }
+    // A derelict keeps its whole skin. It lost a few tiles of it once —
+    // a tile of frame and nothing else, drawn as a black square in the
+    // wall (the player's word) — and nothing after this draws on the
+    // stream for a station, so the rolls went with the holes.
 
     // And the wild round a town, last of all: everything the town is not,
     // out to the edge of the ground.

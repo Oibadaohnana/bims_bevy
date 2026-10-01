@@ -191,11 +191,10 @@ fn generated_stations_keep_their_invariants() {
             assert!(g.tally.loops >= 1, "{name}: no loop");
             if kind == StationKind::Derelict {
                 assert_eq!(Plan::Generated.residents(kind), 0);
-                assert!(
-                    !shipdesign::exposure(design).is_empty(),
-                    "{name}: not holed"
-                );
-            } else if sweep() || i < 10 {
+            }
+            // A derelict's skin is whole too: its holes were black squares
+            // in the wall.
+            if sweep() || i < 10 {
                 assert!(
                     shipdesign::exposure(design).is_empty(),
                     "{name}: open to space"

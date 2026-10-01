@@ -1635,7 +1635,8 @@ The minimums are `furnish`'s own offsets, pinned as constants:
 `bunks_in(w, h)` ≥ the kind's residents and two, `HEADS_MIN` (5, 4),
 `RESEARCH_MIN` (7, 6), `LAB_MIN` (7, 5), `REC_MIN` (6, 5), `STORE_MIN`
 (5, 4). Residents are `residents_of(kind)` — two, one on a relay, none on
-a derelict, which is holed as ever.
+a derelict (whose skin is whole since October 2026: the holes it had
+were drawn as black squares in the wall).
 
 **Doors are chosen after a trial furnishing.** The floor is furnished once
 with every room shut; a door goes in a wall facing corridor deck where its
@@ -1695,7 +1696,7 @@ batteries `x0 + 4` — so a reactor room is at least eight wide and eleven
 tall), walls and doors, sandbags, galley and tables, bunks, heads,
 research desk, bays (the lab's then the research room's; the broom locker
 in the lab's corner or the research room's without one), rec tables,
-shelves, lamps, comforts, holes. The hub's floor reproduces the old
+shelves, lamps, comforts (and a derelict's holes, until October 2026). The hub's floor reproduces the old
 `build_layout` step for step and its designs come out **hash-identical**
 (checked when the plans went in; the reference checksum did not move).
 The newer plans wall their rooms with `enclose` — a `Wall` on every

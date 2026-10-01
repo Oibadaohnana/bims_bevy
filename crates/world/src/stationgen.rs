@@ -1441,7 +1441,7 @@ fn candidate(
     // in: what stands where, so each room's door and every other airlock
     // goes where nothing blocks it.
     let trial_floor = floor_of(&sketch, &roles, &[], &[port], array, &[]);
-    let trial = furnish_placer(kind, side, trial_floor, map_seed);
+    let trial = furnish_placer(side, trial_floor, map_seed);
     let locks = airlocks(kind, &raster, &sketch, &trial, array, rng);
     let mut doors = Vec::new();
     for room in &rooms {
@@ -1468,7 +1468,7 @@ fn candidate(
     kept.push(((LOBBY_EAST, sketch.py as u32), Rotation::R0));
     let bags = cover(&sketch, &raster, &kept, &locks, rng);
     let floor = floor_of(&sketch, &roles, &doors, &locks, array, &bags);
-    let placer = furnish_placer(kind, side, floor.clone(), map_seed);
+    let placer = furnish_placer(side, floor.clone(), map_seed);
     Ok((placer, floor, sketch.side_on))
 }
 

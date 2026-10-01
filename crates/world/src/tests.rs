@@ -1498,12 +1498,10 @@ fn a_station_is_a_place_the_room_can_live_in() {
                     "{plan:?} {kind:?} at seed {seed}: {:?}",
                     issues.iter().map(|i| i.code).collect::<Vec<_>>()
                 );
-                if kind != worldgen::StationKind::Derelict {
-                    assert!(
-                        exposure(&design).is_empty(),
-                        "{plan:?} {kind:?} lets the radiation in"
-                    );
-                }
+                assert!(
+                    exposure(&design).is_empty(),
+                    "{plan:?} {kind:?} lets the radiation in"
+                );
                 // The one desk the key sits on, and — on the five newer
                 // plans; a hub outpost's two bunks are its two residents'
                 // — two beds to spare for mercenaries for hire beyond the

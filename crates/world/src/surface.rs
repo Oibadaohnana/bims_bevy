@@ -106,11 +106,11 @@ pub(crate) fn town_attempts(
             Ok(floor) => {
                 let mut bare = floor.clone();
                 bare.wild = None;
-                let trial = furnish_placer(SURFACE_KIND, side, bare, map_seed);
+                let trial = furnish_placer(side, bare, map_seed);
                 match towngen::check_trial(&trial, &floor, population, biome) {
                     Err(e) => Err(format!("{e:?}")),
                     Ok(()) => {
-                        let placer = furnish_placer(SURFACE_KIND, side, floor.clone(), map_seed);
+                        let placer = furnish_placer(side, floor.clone(), map_seed);
                         towngen::check_built(&placer, &floor).map_err(|e| format!("built {e:?}"))
                     }
                 }
@@ -136,11 +136,11 @@ pub(crate) fn build_town(map_seed: u64, biome: Biome, population: u32) -> BuiltT
             };
             let mut bare = floor.clone();
             bare.wild = None;
-            let trial = furnish_placer(SURFACE_KIND, side, bare, map_seed);
+            let trial = furnish_placer(side, bare, map_seed);
             if towngen::check_trial(&trial, &floor, population, biome).is_err() {
                 continue;
             }
-            let placer = furnish_placer(SURFACE_KIND, side, floor.clone(), map_seed);
+            let placer = furnish_placer(side, floor.clone(), map_seed);
             if towngen::check_built(&placer, &floor).is_ok() {
                 return BuiltTown {
                     placer,
@@ -153,7 +153,7 @@ pub(crate) fn build_town(map_seed: u64, biome: Biome, population: u32) -> BuiltT
     let floor = template_floor(side, biome, population, map_seed);
     let gates = floor.gates.clone();
     BuiltTown {
-        placer: furnish_placer(SURFACE_KIND, side, floor, map_seed),
+        placer: furnish_placer(side, floor, map_seed),
         gates,
         attempt: None,
     }
