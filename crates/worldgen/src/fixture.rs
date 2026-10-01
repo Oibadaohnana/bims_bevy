@@ -73,11 +73,17 @@ pub const REFERENCE_SEED: u64 = 0x_4c4f_4242_0000_0007;
 /// plate went out of the resources and every lean is four entries
 /// shorter. They were `0x_393e_f652_82eb_b85b`, `0x_19df_385e_9d22_d91c`,
 /// `0x_8009_4c42_c725_ac59` and `0x_3794_c50f_8b35_67d4`.
+///
+/// October 2026 moved them without a bump: 240 stars where there were six
+/// hundred, in a radius of twenty thousand where it was fifty — the star
+/// field and its lanes, not the inside of any system. They were
+/// `0x_e34f_9e80_fcdd_2871`, `0x_325e_bc41_cdea_a9de`,
+/// `0x_4f04_aca7_b928_c89b` and `0x_0d7e_71d9_b169_88b6`.
 pub const REFERENCE_CHECKSUMS: [u64; 4] = [
-    0x_e34f_9e80_fcdd_2871,
-    0x_325e_bc41_cdea_a9de,
-    0x_4f04_aca7_b928_c89b,
-    0x_0d7e_71d9_b169_88b6,
+    0x_7401_81a7_4d3b_2ca2,
+    0x_3ee7_48a7_707f_d097,
+    0x_8fe0_4fe5_7c35_8d5c,
+    0x_ee52_7add_492b_72a8,
 ];
 
 /// The reference galaxy of one type.

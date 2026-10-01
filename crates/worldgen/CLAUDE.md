@@ -197,7 +197,7 @@ lean is drawn once a resource.
 
 ## The hyperlanes are a web, and they are in the checksum (feature 92)
 
-`Galaxy::lanes` is an adjacency list over the six hundred stars, built with
+`Galaxy::lanes` is an adjacency list over the stars (240 now), built with
 them in `Galaxy::with_version` by `galaxy::weave` and hashed in
 `galaxy_checksum` right after the stars and before the systems — which
 re-pinned all four `fixture::REFERENCE_CHECKSUMS` and is **not** a
@@ -294,3 +294,17 @@ planet to land on and a station**:
 `every_system_has_a_station_and_a_planet_to_land_on` and
 `a_system_has_near_three_stations_on_average` pin it; the four
 `REFERENCE_CHECKSUMS` moved with the bump (their note has the old ones).
+
+## A smaller galaxy (October 2026)
+
+`STAR_COUNT` went from 600 to **240** (three in five fewer) and
+`GALAXY_RADIUS` from fifty thousand to **twenty thousand**, so the field
+is a little denser than it was and a galaxy fewer hops across. **No
+`GENERATOR_VERSION` bump**: neither number is on the bump list and a
+star keeps its system — only the field and its lanes moved, so the four
+`REFERENCE_CHECKSUMS` were re-pinned with a note. `wire::PROTOCOL` 83
+and `SAVE_VERSION` 80 (a save may name a star past 239).
+`the_shapes_are_different_shapes` reads its lumpiness as a mean over
+eight seeds and eight sectors, since one galaxy's outer ring is too few
+stars for sixteen sectors to tell counting noise from an arm. The world's
+tests that named stars past 239 name stars inside it now.

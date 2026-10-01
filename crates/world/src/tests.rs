@@ -453,8 +453,15 @@ fn a_jump_puts_the_ship_in_another_system() {
     // friendly (feature 104) — and nobody's home, and only what the
     // sensors reach on the chart.
     assert_eq!(world.stations.len(), Station::all_of(&world.system).len());
+    // A station the machines already hold is theirs (at 240 stars the
+    // crisis can be next door from the start).
     for s in &world.stations {
-        assert_eq!(world.stance(s.id), bims::sight::Stance::Neutral);
+        let stance = if world.is_droid_held(s.id) {
+            bims::sight::Stance::Hostile
+        } else {
+            bims::sight::Stance::Neutral
+        };
+        assert_eq!(world.stance(s.id), stance);
     }
     assert!(world.discovered.len() <= world.system.nodes().len());
     // What is the ship's came along.

@@ -214,7 +214,9 @@ use crate::game::Game;
 /// 79: one armour slot (October 2026) — `Gear::armour` where `head`,
 /// `body` and `legs` were, `ArmourKind::Armour` alone, no part on a
 /// `Hit`, `GearSlot::{Weapon, Armour}`, `Character::bleeding`.
-pub const SAVE_VERSION: u32 = 79;
+/// 80: a smaller galaxy (240 stars, not 600) — no shape moved, but a save
+/// may name a star the galaxy no longer has.
+pub const SAVE_VERSION: u32 = 80;
 
 /// What the file holds, read back.
 #[derive(serde::Deserialize)]

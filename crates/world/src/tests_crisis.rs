@@ -131,7 +131,7 @@ fn two_builds_of_a_galaxy_agree_about_every_hop() {
     for &t in &[GalaxyType::SpiralTwoArm, GalaxyType::Round] {
         let a = Galaxy::new(data::DEFAULT_SEED, t);
         let b = Galaxy::new(data::DEFAULT_SEED, t);
-        for star in [0, 1, 250, 599] {
+        for star in [0, 1, 120, 239] {
             assert_eq!(a.hops_from(star), b.hops_from(star), "{t:?} from {star}");
         }
     }

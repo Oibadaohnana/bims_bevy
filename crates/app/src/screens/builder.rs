@@ -6,11 +6,11 @@
 //! touches the galaxy, through `crates/lobby`.
 //!
 //! The multiplayer half (feature 59) is `crate::net`: the lobby is a room
-//! at the relay, the host's settings go to everybody in it, a guest can
-//! point at a star, and the host's Start takes the whole room into the
-//! yard. The screen reads the room — who is in it, whose it is — off the
-//! `Online` resource and never past it, which is what made the wire a
-//! change to that one object rather than to the screens.
+//! at the relay, the host's settings go to everybody in it, and the
+//! host's Start takes the whole room into the yard. The screen reads the
+//! room — who is in it, whose it is — off the `Online` resource and never
+//! past it, which is what made the wire a change to that one object rather
+//! than to the screens.
 //!
 //! What the settings come out as, and the only things that leave this
 //! screen, are plain numbers: a count of euros, a tile count, a seed, a
@@ -273,7 +273,6 @@ impl Remark {
 pub struct BuilderScreen {
     net: Net,
     tab: Tab,
-    seed_text: String,
     join_code: String,
     /// What this player calls their Bim, as typed: kept across lobbies,
     /// said to the room on every change (`Online::say_bim_name`) and
@@ -299,7 +298,6 @@ pub struct BuilderScreen {
     /// The chooser's picture of it, drawn afresh each frame it is shown.
     portrait: bims::draw::DrawList,
     join_note: Option<Remark>,
-    world_note: Option<Remark>,
     lobby_said: Option<Remark>,
     /// Who was in the lobby last frame, so a roster change can say who
     /// came or went.
@@ -359,17 +357,19 @@ impl Plugin for BuilderPlugin {
     }
 }
 
-fn open(mut commands: Commands, settings: Res<Settings>) {
+fn open(mut commands: Commands, mut settings: ResMut<Settings>) {
+    // The seed, the galaxy's shape and the start are never chosen: a game
+    // opens on all three at random, so Start can be pressed at once.
+    roll_galaxy(&mut settings);
     let lobby = Lobby::new(
         settings.seed,
         ship::session::galaxy_type(settings.galaxy),
         560.0,
         400.0,
     );
-    commands.insert_resource(BuilderScreen {
+    let mut screen = BuilderScreen {
         net: Net::default(),
         tab: Tab::Setup,
-        seed_text: settings.seed.to_string(),
         join_code: String::new(),
         bim_name: crate::dev::bim_name(),
         said_bim_name: None,
@@ -381,7 +381,6 @@ fn open(mut commands: Commands, settings: Res<Settings>) {
         said_bim_class: None,
         portrait: bims::draw::DrawList::new(),
         join_note: None,
-        world_note: None,
         lobby_said: None,
         seen: Vec::new(),
         auto_done: false,
@@ -398,7 +397,9 @@ fn open(mut commands: Commands, settings: Res<Settings>) {
         sheet: None,
         file_scaling: WaveScaling::DEFAULT,
         difficulty_note: None,
-    });
+    };
+    roll_start(&mut screen, &mut settings);
+    commands.insert_resource(screen);
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -574,7 +575,6 @@ fn frame(
                     let galaxy_moved = wire.seed != settings.seed || wire.galaxy != settings.galaxy;
                     wire.onto(settings);
                     if galaxy_moved {
-                        screen.seed_text = settings.seed.to_string();
                         screen.inspected = None;
                         screen
                             .lobby
@@ -730,9 +730,11 @@ fn frame(
                                 ui.horizontal(|ui| {
                                     ui.add_space((ui.available_width() - 390.0).max(0.0) / 2.0);
                                     if theme::big(ui, "Play", true).clicked() {
+                                        roll_everything(screen, settings);
                                         go = Some(Screen::Setup);
                                     }
                                     if theme::big(ui, "Create lobby", true).clicked() {
+                                        roll_everything(screen, settings);
                                         online.create();
                                         screen.net.pushed = None;
                                         screen.lobby_said = Remark::say(CONNECTING, false, now);
@@ -1043,7 +1045,7 @@ fn frame(
 /// Why Start cannot be pressed, or `None` if it can.
 fn start_refusal(settings: &Settings) -> Option<&'static str> {
     if settings.spawn.is_none() {
-        return Some("Pick a station to start at on the World tab.");
+        return Some("This galaxy has nowhere to start; go back and play again.");
     }
     None
 }
@@ -1118,7 +1120,7 @@ fn tool(
             class_chooser(ui, screen, &settings.unlocks);
             screen.net.push(online, settings, false);
         }
-        Tab::World => world(ui, screen, settings, online, editable, now),
+        Tab::World => world(ui, screen, settings),
     }
 }
 
@@ -1445,120 +1447,40 @@ fn choice_row<T: PartialEq + Copy>(
     });
 }
 
-/// The World tab: the seed, the galaxy type, the galaxy itself, and the
-/// system beside it. A start is chosen here, not explored: no distances,
-/// no travel times, nothing about what a station is like.
-fn world(
-    ui: &mut egui::Ui,
-    screen: &mut BuilderScreen,
-    settings: &mut Settings,
-    online: &Online,
-    editable: bool,
-    now: f64,
-) {
-    // The header names the start, or says there is none yet.
+/// The World tab: a look at the galaxy the game was rolled on and the
+/// system beside it, the start marked. Nothing is chosen here — the seed,
+/// the galaxy's shape and the start are rolled at random for every game —
+/// and nothing is explored: no distances, no travel times, nothing about
+/// what a station is like.
+fn world(ui: &mut egui::Ui, screen: &mut BuilderScreen, settings: &mut Settings) {
+    // The header names the start and what it was rolled from.
     ui.horizontal(|ui| {
         ui.label(egui::RichText::new("Start at").strong());
         match settings.spawn.and_then(|(star, station)| {
             place_name(&mut screen.lobby, screen.inspected, star, station)
         }) {
             Some(name) => ui.label(egui::RichText::new(name).color(theme::ACCENT)),
-            None => {
-                ui.label(egui::RichText::new("nowhere yet — pick a station").color(theme::MUTED))
-            }
+            None => ui.label(egui::RichText::new("nowhere").color(theme::MUTED)),
         };
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            if ui
-                .add_enabled(editable, egui::Button::new("Random start"))
-                .on_hover_text("A new seed, a galaxy of any shape, and a station anywhere in it")
-                .clicked()
-            {
-                roll_everything(screen, settings, online);
-            }
-        });
     });
-
-    // The seed: a decimal field for a u64.
-    ui.add_space(4.0);
-    ui.label(egui::RichText::new("Seed").strong());
+    let shape = GALAXIES
+        .get(settings.galaxy as usize)
+        .map(|(label, _)| *label)
+        .unwrap_or("?");
     ui.label(
-        egui::RichText::new("A whole number; the same one is the same galaxy")
-            .small()
-            .color(theme::MUTED),
+        egui::RichText::new(format!(
+            "{shape} galaxy · seed {} · the galaxy and the start are rolled at random for every game",
+            settings.seed
+        ))
+        .small()
+        .color(theme::MUTED),
     );
-    let mut new_seed: Option<u64> = None;
-    ui.horizontal(|ui| {
-        let field = ui.add_enabled(
-            editable,
-            egui::TextEdit::singleline(&mut screen.seed_text).desired_width(220.0),
-        );
-        let submitted = field.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
-        if ui.add_enabled(editable, egui::Button::new("Set")).clicked() || submitted {
-            match parse_seed(&screen.seed_text) {
-                Some(seed) => new_seed = Some(seed),
-                None => {
-                    screen.world_note = Remark::say(
-                        "That is not a seed: a whole number, up to twenty digits.",
-                        true,
-                        now,
-                    );
-                    screen.seed_text = settings.seed.to_string();
-                }
-            }
-        }
-        if ui
-            .add_enabled(editable, egui::Button::new("New seed"))
-            .clicked()
-        {
-            new_seed = Some(crate::screens::rand_seed());
-        }
-    });
-
-    // The galaxy type.
-    ui.add_space(4.0);
-    ui.label(egui::RichText::new("Galaxy").strong());
     ui.label(
-        egui::RichText::new("Its shape; a thousand stars either way")
-            .small()
-            .color(theme::MUTED),
-    );
-    let mut new_galaxy: Option<u32> = None;
-    ui.horizontal(|ui| {
-        for (i, (label, sub)) in GALAXIES.iter().enumerate() {
-            let on = settings.galaxy == i as u32;
-            let response = ui.add_enabled(editable, {
-                let b =
-                    egui::Button::new(format!("{label}\n{sub}")).min_size(egui::vec2(120.0, 40.0));
-                if on { b.fill(theme::RAISED_ON) } else { b }
-            });
-            if response.clicked() && !on {
-                new_galaxy = Some(i as u32);
-            }
-        }
-    });
-
-    // The seed or the type moved: a different galaxy, and nothing chosen
-    // in the old one means anything in it.
-    let mut changed = false;
-    if let Some(seed) = new_seed
-        && seed != settings.seed
-    {
-        settings.seed = seed;
-        changed = true;
-    }
-    if let Some(galaxy) = new_galaxy {
-        settings.galaxy = galaxy;
-        changed = true;
-    }
-    if changed {
-        new_world(screen, settings);
-        screen.net.push(online, settings, false);
-    }
-
-    ui.label(
-        egui::RichText::new("Drag to pan, scroll to zoom, click a star to look at its system. Dim stars have no station.")
-            .small()
-            .color(theme::MUTED),
+        egui::RichText::new(
+            "Drag to pan, scroll to zoom, click a star to look at its system. Dim stars have no station.",
+        )
+        .small()
+        .color(theme::MUTED),
     );
 
     // The preview on the left, the system on the right.
@@ -1605,21 +1527,11 @@ fn world(
                     None => String::new(),
                 };
                 ui.label(egui::RichText::new(said).small().color(theme::MUTED));
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if ui
-                        .add_enabled(editable, egui::Button::new("Random station"))
-                        .on_hover_text("A station anywhere in this galaxy")
-                        .clicked()
-                    {
-                        pick_random_start(screen, settings, online);
-                    }
-                });
             });
-            Remark::show(&mut screen.world_note, ui, now, "");
         });
         ui.vertical(|ui| {
             ui.set_width(card_w);
-            system_card(ui, screen, settings, online, editable, card_w);
+            system_card(ui, screen, settings, card_w);
         });
     });
 }
@@ -1706,14 +1618,7 @@ fn inspect(screen: &mut BuilderScreen, star: u32) {
 
 /// The side panel: the star that is open, its bodies and its stations,
 /// with a diagram of the system.
-fn system_card(
-    ui: &mut egui::Ui,
-    screen: &mut BuilderScreen,
-    settings: &mut Settings,
-    online: &Online,
-    editable: bool,
-    width: f32,
-) {
+fn system_card(ui: &mut egui::Ui, screen: &mut BuilderScreen, settings: &Settings, width: f32) {
     let Some(star) = screen.inspected else {
         ui.label(egui::RichText::new("Pick a star").strong());
         return;
@@ -1832,10 +1737,7 @@ fn system_card(
             }
             ui.separator();
             if stations.is_empty() {
-                ui.label(
-                    egui::RichText::new("No station here — nowhere to start from.")
-                        .color(theme::MUTED),
-                );
+                ui.label(egui::RichText::new("No station here.").color(theme::MUTED));
             }
             for (i, (name, whereabouts)) in stations.into_iter().enumerate() {
                 let on = settings.spawn == Some((star, i as u32));
@@ -1848,25 +1750,8 @@ fn system_card(
                         }));
                         ui.label(egui::RichText::new(whereabouts).small().color(theme::MUTED));
                     });
-                    let label = if editable {
-                        if on { "Starting here" } else { "Start here" }
-                    } else {
-                        "Suggest"
-                    };
-                    let can_start = !editable || screen.lobby.can_start_at(star, i as u32);
-                    let button =
-                        ui.add_enabled(!(editable && on) && can_start, egui::Button::new(label));
-                    if button.clicked() {
-                        if editable {
-                            settings.spawn = Some((star, i as u32));
-                            screen.lobby.spawn = settings.spawn;
-                            screen.net.push(online, settings, false);
-                        } else {
-                            // A guest pointing at a station: a ring on the map
-                            // for everybody, and a word about who.
-                            screen.lobby.ping(star);
-                            online.send(To::All, &Packet::Suggest { star });
-                        }
+                    if on {
+                        ui.label(egui::RichText::new("Your start").color(theme::ACCENT));
                     }
                 });
             }
@@ -1876,7 +1761,6 @@ fn system_card(
 /// The settings' seed or galaxy type moved: a different galaxy, and
 /// nothing chosen in the old one means anything in it. The caller pushes.
 fn new_world(screen: &mut BuilderScreen, settings: &mut Settings) {
-    screen.seed_text = settings.seed.to_string();
     settings.spawn = None;
     screen.inspected = None;
     screen
@@ -1886,27 +1770,38 @@ fn new_world(screen: &mut BuilderScreen, settings: &mut Settings) {
 }
 
 /// Everything at random: a new seed, a galaxy of any shape, and a station
-/// anywhere in it.
-fn roll_everything(screen: &mut BuilderScreen, settings: &mut Settings, online: &Online) {
+/// anywhere in it. Every game is opened so — the player picks none of the
+/// three — and the caller pushes, where there is a room to push to.
+fn roll_everything(screen: &mut BuilderScreen, settings: &mut Settings) {
+    roll_galaxy(settings);
+    new_world(screen, settings);
+    roll_start(screen, settings);
+}
+
+/// A new seed and a galaxy of any shape, on the settings alone.
+fn roll_galaxy(settings: &mut Settings) {
     let roll = crate::screens::rand_seed();
     settings.seed = crate::screens::rand_seed();
     settings.galaxy = (roll % GALAXIES.len() as u64) as u32;
-    new_world(screen, settings);
-    pick_random_start(screen, settings, online);
 }
 
 /// A random station among every star that has one a crew can start at:
 /// the lobby's rule (`Lobby::random_start`), which skips the hostile
-/// ones — a crew cannot start at an enemy's — off this page's roll.
-fn pick_random_start(screen: &mut BuilderScreen, settings: &mut Settings, online: &Online) {
+/// ones — a crew cannot start at an enemy's — off this page's roll. The
+/// World tab opens on it.
+fn roll_start(screen: &mut BuilderScreen, settings: &mut Settings) {
     let roll = crate::screens::rand_seed();
     let Some((star, station)) = screen.lobby.random_start(roll) else {
-        screen.net.push(online, settings, false);
         return;
     };
     inspect(screen, star);
     settings.spawn = Some((star, station));
     screen.lobby.spawn = settings.spawn;
+}
+
+/// [`roll_start`], and the room told.
+fn pick_random_start(screen: &mut BuilderScreen, settings: &mut Settings, online: &Online) {
+    roll_start(screen, settings);
     screen.net.push(online, settings, false);
 }
 
@@ -1939,36 +1834,12 @@ fn place_name(
     found
 }
 
-/// What was typed, as a seed — or `None` if it is not one. Every digit and
-/// nothing else, and no bigger than a u64 holds.
-fn parse_seed(text: &str) -> Option<u64> {
-    let trimmed: String = text
-        .chars()
-        .filter(|c| !c.is_whitespace() && *c != '_')
-        .collect();
-    if trimmed.is_empty() || !trimmed.chars().all(|c| c.is_ascii_digit()) {
-        return None;
-    }
-    trimmed.parse().ok()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn a_seed_is_digits_and_a_room_code_is_six_readable_letters() {
-        // --- a_seed_is_digits_and_nothing_else ---
-        {
-            assert_eq!(parse_seed("42"), Some(42));
-            assert_eq!(parse_seed(" 1 000 "), Some(1000));
-            assert_eq!(parse_seed("18446744073709551615"), Some(u64::MAX));
-            assert_eq!(parse_seed("18446744073709551616"), None);
-            assert_eq!(parse_seed("abc"), None);
-            assert_eq!(parse_seed(""), None);
-        }
-
-        // --- a_room_code_is_six_of_the_readable_letters ---
+    fn a_room_code_is_six_readable_letters() {
         // The relay deals them (`wire`); the field takes exactly that many.
         {
             assert_eq!(CODE_LENGTH, 6);

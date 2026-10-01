@@ -229,23 +229,42 @@ fn every_system_is_one_site_and_the_jammer_is_that_site() {
 /// open the moment the crew are back aboard.
 #[test]
 fn a_fallen_trader_is_fought_for_and_trades_once_won() {
-    let mut world = offered_world();
-    world.leave_for_probe();
-    let galaxy = world.galaxy();
-    let from_home = galaxy.hops_from(world.home_star);
-    // A trader a trip reaches, and an origin next to it further from home,
-    // so its system falls before the crew's own does.
-    let (trader, origin) = world
-        .trader_sites()
-        .into_iter()
-        .filter(|&s| world.travel_quote(s).is_ok())
-        .find_map(|s| {
-            let origin = galaxy.lanes(s.star).iter().copied().find(|&o| {
-                o != world.home_star && from_home[o as usize] > from_home[s.star as usize]
-            })?;
-            Some((s, origin))
+    // A trader a trip reaches, and an origin (not the trader's own star —
+    // the origin's one mission is the Heart) nearer it than home, so its
+    // system falls before the crew's own does. Any star of the galaxy, and
+    // the first seed that has one: at 240 stars the default seed's one
+    // trader in reach shares every lane with home.
+    let (mut world, trader, origin) = (0..32u64)
+        .find_map(|n| {
+            let seed = data::DEFAULT_SEED.wrapping_add(n);
+            let galaxy = worldgen::Galaxy::new(seed, GalaxyType::SpiralTwoArm);
+            let (star, station) = crate::spawn(&galaxy)?;
+            let mut world = World::start(
+                flyer(2),
+                REFERENCE_MONEY,
+                1,
+                seed,
+                GalaxyType::SpiralTwoArm,
+                star,
+                station,
+            )
+            .ok()?;
+            world.set_quiet_sites_for_probe(true);
+            world.leave_for_probe();
+            let (trader, origin) = world
+                .trader_sites()
+                .into_iter()
+                .filter(|&s| world.travel_quote(s).is_ok())
+                .find_map(|s| {
+                    let origin = (0..galaxy.stars.len() as u32).find(|&o| {
+                        let from = galaxy.hops_from(o);
+                        o != s.star && from[s.star as usize] < from[world.home_star as usize]
+                    })?;
+                    Some((s, origin))
+                })?;
+            Some((world, trader, origin))
         })
-        .expect("a trader in reach with a star beyond it");
+        .expect("a seed with a trader in reach and a star beyond it");
     world.set_droid_origin_for_probe(origin);
     world.set_crisis_first_day_for_probe(0);
     world.set_day_for_probe(world.infested_on(trader.star));

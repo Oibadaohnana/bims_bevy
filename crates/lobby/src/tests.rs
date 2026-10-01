@@ -203,7 +203,7 @@ fn the_pick_is_the_nearest_star_within_reach() {
     let lobby = lobby(GalaxyType::SpiralTwoArm);
     let stars = &lobby.galaxy.stars;
     let mut picked = 0;
-    for star in stars.iter().step_by(23) {
+    for star in stars.iter().step_by(9) {
         let (sx, sy) = lobby.preview.to_screen(star.position.x, star.position.y);
         let Some(id) = lobby.preview.pick(stars, sx, sy) else {
             panic!("nothing under star {}", star.id);

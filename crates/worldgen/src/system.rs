@@ -817,7 +817,7 @@ mod tests {
         // --- a_system_is_the_same_however_often_it_is_asked_for ---
         {
             let g = Galaxy::new(808, GalaxyType::Spiral);
-            for id in [0, 1, 17, 500, STAR_COUNT - 1] {
+            for id in [0, 1, 17, 200, STAR_COUNT - 1] {
                 let a = g.system(id).unwrap();
                 let b = g.system(id).unwrap();
                 assert_eq!(a, b);
@@ -1242,7 +1242,7 @@ mod tests {
     #[test]
     fn positions_add_up_through_the_parent_chain() {
         let g = Galaxy::new(6, GalaxyType::Spiral);
-        for id in 0..300 {
+        for id in 0..STAR_COUNT {
             let s = g.system(id).unwrap();
             for st in &s.stations {
                 let at = s.absolute_position(Node::Station(st.id)).unwrap();

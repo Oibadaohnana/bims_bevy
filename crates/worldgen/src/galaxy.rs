@@ -1,7 +1,7 @@
 //! The star field: where the stars are, and what they are.
 //!
 //! This is the only part of world generation that is drawn all at once. There
-//! are six hundred stars, each of them two numbers, a name and a class, and
+//! are 240 stars, each of them two numbers, a name and a class, and
 //! holding the lot costs less than one system's worth of bodies — so the map
 //! can be drawn, panned and clicked without generating anything.
 //!
@@ -23,14 +23,20 @@ use crate::rng::{Purpose, Rng};
 /// since `GENERATOR_VERSION` 8 every system has a station and a town
 /// (`system.rs`: `ensure_landable`, and a station put there after the
 /// pruning where the rolls left none), and there are
-/// two in five fewer stars.
-pub const STAR_COUNT: u32 = 600;
+/// two in five fewer stars. October 2026 took three in five of those six
+/// hundred away again (no `GENERATOR_VERSION` bump: neither number is on
+/// the bump list, and a star keeps its system — only the field moved).
+pub const STAR_COUNT: u32 = 240;
 
 /// How far the galaxy reaches, in light years. Interstellar distance has no
 /// bearing on anything yet: crossing between systems is a future technology
 /// and deliberately not the same question as crossing one, so this scale and
 /// the in-system one do not have to agree about anything.
-pub const GALAXY_RADIUS: f64 = 50_000.0;
+///
+/// It was fifty thousand for six hundred stars; October 2026 made it twenty
+/// with the stars cut to 240, so the field is a little denser than it was
+/// and a galaxy is a fraction of the span.
+pub const GALAXY_RADIUS: f64 = 20_000.0;
 
 /// No two stars closer than this. Not physics — a map that is *clicked* needs
 /// its targets to be separable, and two stars a pixel apart are one star that
@@ -677,9 +683,9 @@ mod tests {
     /// wrong there rather than the galaxy.
     #[test]
     fn the_shapes_are_different_shapes() {
-        let lumpiness = |t: GalaxyType| {
-            let g = Galaxy::new(5, t);
-            let mut sectors = [0u32; 16];
+        let lumpiness = |t: GalaxyType, seed: u64| {
+            let g = Galaxy::new(seed, t);
+            let mut sectors = [0u32; 8];
             for s in &g.stars {
                 let r = s.position.length();
                 if r < GALAXY_RADIUS * 0.4 {
@@ -688,22 +694,26 @@ mod tests {
                 let along = (r / GALAXY_RADIUS - ARM_INNER) / (1.0 - ARM_INNER);
                 let unwound = s.position.y.atan2(s.position.x) - ARM_SWEEP * along;
                 let a = unwound.rem_euclid(core::f64::consts::TAU);
-                let i = ((a / core::f64::consts::TAU) * 16.0) as usize % 16;
+                let i = ((a / core::f64::consts::TAU) * 8.0) as usize % 8;
                 sectors[i] += 1;
             }
             let total: u32 = sectors.iter().sum();
-            let mean = total as f64 / 16.0;
+            let mean = total as f64 / 8.0;
             let var = sectors
                 .iter()
                 .map(|&c| (c as f64 - mean).powi(2))
                 .sum::<f64>()
-                / 16.0;
+                / 8.0;
             var.sqrt() / mean
         };
-        let round = lumpiness(GalaxyType::Round);
-        let two = lumpiness(GalaxyType::SpiralTwoArm);
-        let four = lumpiness(GalaxyType::Spiral);
-        assert!(round < 0.25, "a round galaxy should be even: {round}");
+        // Eight sectors and eight seeds: at 240 stars one galaxy's outer
+        // ring is a couple of hundred, few enough that counting noise alone
+        // reads a round one a quarter lumpy, so the reading is a mean.
+        let mean_of = |t: GalaxyType| (1..=8).map(|sd| lumpiness(t, sd)).sum::<f64>() / 8.0;
+        let round = mean_of(GalaxyType::Round);
+        let two = mean_of(GalaxyType::SpiralTwoArm);
+        let four = mean_of(GalaxyType::Spiral);
+        assert!(round < 0.3, "a round galaxy should be even: {round}");
         assert!(
             two > round * 2.0,
             "two arms should be lumpy: {two} vs {round}"
@@ -756,8 +766,8 @@ mod tests {
             .iter()
             .filter(|s| s.star_class == StarClass::M)
             .count();
-        assert!(m > 270 && m < 450, "{m} of six hundred were M");
-        // But every class should turn up at least once in six hundred.
+        assert!(m > 108 && m < 180, "{m} of {STAR_COUNT} were M");
+        // But every class should turn up at least once in a galaxy.
         let seen: HashSet<_> = g.stars.iter().map(|s| s.star_class).collect();
         assert_eq!(seen.len(), StarClass::ALL.len(), "{seen:?}");
     }
@@ -847,7 +857,7 @@ mod tests {
     fn a_route_is_the_shortest_chain_of_lanes_and_the_same_every_time() {
         let g = Galaxy::new(77, GalaxyType::Spiral);
         let hops = g.hops_from(0);
-        for to in [0u32, 1, 9, 100, 512, STAR_COUNT - 1] {
+        for to in [0u32, 1, 9, 100, 212, STAR_COUNT - 1] {
             let route = g.route(0, to).expect("one connected web");
             assert_eq!(route.first().copied(), Some(0));
             assert_eq!(route.last().copied(), Some(to));

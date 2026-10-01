@@ -347,7 +347,7 @@ mod tests {
     #[test]
     fn the_fortress_stands_clear_and_is_the_same_every_time() {
         let galaxy = Galaxy::new(0x1234_5678, GalaxyType::Round);
-        for star in [0u32, 17, 400, 599] {
+        for star in [0u32, 17, 160, 239] {
             let system = galaxy.system(star).unwrap();
             let one = blueprint(&system, galaxy.seed, star);
             let two = blueprint(&system, galaxy.seed, star);
