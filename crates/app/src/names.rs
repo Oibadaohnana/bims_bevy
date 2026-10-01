@@ -2506,18 +2506,23 @@ pub fn departure_answer(who: &str, answer: Option<bool>, gone: bool) -> String {
 }
 /// The ready check: a mission with a fight in it waits for every player.
 pub fn ready_title(kind: world::SiteKind) -> String {
-    format!("{} — ready?", site_kind_word(kind))
+    site_kind_word(kind).to_string()
 }
-pub const READY_LINE: &str =
-    "Nothing moves until every player is ready. Change your loadout now if you want to.";
+pub const READY_CHECK: &str = "Ready check";
+pub const READY_LINE: &str = "The mission starts when every player is ready. Change your loadout and spend your skill points now if you want to.";
 pub const READY_YES: &str = "Ready";
 pub const READY_NO: &str = "Not ready";
-pub fn ready_answer(who: &str, ready: bool, gone: bool) -> String {
+/// What a player's card in the ready check says under its name.
+pub fn ready_state(ready: bool, gone: bool) -> &'static str {
     match (gone, ready) {
-        (true, _) => format!("{who}: gone"),
-        (false, true) => format!("{who}: ready"),
-        (false, false) => format!("{who}: …"),
+        (true, _) => "Gone",
+        (false, true) => "Ready",
+        (false, false) => "Waiting",
     }
+}
+/// How many of the players are ready, under the cards.
+pub fn ready_count(ready: u32, of: u32) -> String {
+    format!("{ready} of {of} ready")
 }
 /// The machines' own station where a system has none, named by nobody.
 pub const DERIVED_JAMMER_NAME: &str = "The machines' relay";

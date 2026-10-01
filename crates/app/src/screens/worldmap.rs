@@ -1003,16 +1003,20 @@ pub fn departure_window(
 }
 
 /// The ready check: while a mission with a fight in it is held
-/// (`World::awaiting_ready`), a panel at the top of the canvas — the
-/// site's kind, every player's answer so far and this player's button.
-/// Not a modal: the loadouts and the skill points stay in reach, and the
-/// world hears them while it waits.
+/// (`World::awaiting_ready`), Dota's ready check in the middle of the
+/// screen — the site's kind over a card a player, each lit in its
+/// player's colour with a tick once that player is ready, a bar of how
+/// many are, and this player's button. The deck is not drawn behind it
+/// (the game screen's `veiled`), only the site's backdrop. Not a modal:
+/// the loadouts and the skill points stay in reach, and the world hears
+/// them while it waits.
 pub fn ready_window(
     ctx: &egui::Context,
     world: &World,
     local: u32,
     orders: &mut Vec<Order>,
     name: &dyn Fn(u32) -> String,
+    colour: &dyn Fn(u32) -> egui::Color32,
 ) {
     if !world.in_mission() || !world.awaiting_ready() {
         return;
@@ -1023,39 +1027,96 @@ pub fn ready_window(
         .alongside()
         .map_or(SiteKind::Defend, |id| world.site_kind(id));
     let mine = world.run.is_ready(local);
+    let players = world.players();
+    let (ready, of) = world.ready_count();
+    let time = ctx.input(|i| i.time) as f32;
+    // A waiting card breathes, so the eye goes to whoever is holding the
+    // rest up.
+    ctx.request_repaint();
+    let width = (players as f32 * (READY_CARD.x + READY_GAP) + 40.0).max(440.0);
     egui::Area::new(egui::Id::new("ready-check"))
-        .anchor(egui::Align2::CENTER_TOP, egui::vec2(0.0, 90.0))
+        .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, -60.0))
         .order(egui::Order::Foreground)
         .show(ctx, |ui| {
-            theme::tray_frame().inner_margin(14.0).show(ui, |ui| {
-                ui.set_width(360.0);
+            theme::tray_frame().inner_margin(18.0).show(ui, |ui| {
+                ui.set_width(width);
                 ui.vertical_centered(|ui| {
-                    ui.label(egui::RichText::new(ready_title(kind)).strong().size(20.0));
+                    ui.label(
+                        egui::RichText::new(READY_CHECK.to_uppercase())
+                            .small()
+                            .strong()
+                            .color(theme::MUTED),
+                    );
+                    ui.label(
+                        egui::RichText::new(ready_title(kind))
+                            .strong()
+                            .size(24.0)
+                            .color(theme::site_kind_colour(kind)),
+                    );
                     ui.add(
                         egui::Label::new(egui::RichText::new(READY_LINE).color(theme::MUTED))
                             .wrap(),
                     );
-                    ui.add_space(6.0);
-                    ui.horizontal_wrapped(|ui| {
-                        for slot in 0..world.players() {
-                            let ready = world.run.is_ready(slot);
-                            let gone = !world.run.is_connected(slot);
-                            ui.label(
-                                egui::RichText::new(ready_answer(&name(slot), ready, gone))
-                                    .small()
-                                    .color(if ready { theme::ACCENT } else { theme::MUTED }),
-                            );
-                        }
-                    });
-                    ui.add_space(6.0);
-                    let (word, yes) = if mine {
-                        (READY_NO, false)
+                    ui.add_space(12.0);
+                    // The cards, one a player, in a row in the middle.
+                    let row = players as f32 * (READY_CARD.x + READY_GAP) - READY_GAP;
+                    let (strip, _) =
+                        ui.allocate_exact_size(egui::vec2(row, READY_CARD.y), egui::Sense::hover());
+                    let painter = ui.painter();
+                    for slot in 0..players {
+                        let at =
+                            strip.min + egui::vec2(slot as f32 * (READY_CARD.x + READY_GAP), 0.0);
+                        ready_card(
+                            painter,
+                            egui::Rect::from_min_size(at, READY_CARD),
+                            &name(slot),
+                            colour(slot),
+                            world.run.is_ready(slot),
+                            !world.run.is_connected(slot),
+                            slot == local,
+                            time + slot as f32 * 0.7,
+                        );
+                    }
+                    ui.add_space(10.0);
+                    // How many are ready, as a bar of a segment each.
+                    let (bar, _) = ui
+                        .allocate_exact_size(egui::vec2(row.max(200.0), 8.0), egui::Sense::hover());
+                    let segment = (bar.width() - (of.max(1) - 1) as f32 * 4.0) / of.max(1) as f32;
+                    for i in 0..of.max(1) {
+                        let x = bar.min.x + i as f32 * (segment + 4.0);
+                        let piece = egui::Rect::from_min_size(
+                            egui::pos2(x, bar.min.y),
+                            egui::vec2(segment, bar.height()),
+                        );
+                        let lit = i < ready;
+                        painter_fill(
+                            ui.painter(),
+                            piece,
+                            if lit { theme::ACCENT } else { theme::LINE },
+                        );
+                    }
+                    ui.label(egui::RichText::new(ready_count(ready, of)).small().color(
+                        if ready == of {
+                            theme::ACCENT
+                        } else {
+                            theme::MUTED
+                        },
+                    ));
+                    ui.add_space(10.0);
+                    let (word, yes, fill, ink) = if mine {
+                        (READY_NO, false, theme::RAISED, theme::MUTED)
                     } else {
-                        (READY_YES, true)
+                        (READY_YES, true, READY_GREEN, egui::Color32::WHITE)
                     };
                     let press = ui.add(
-                        egui::Button::new(egui::RichText::new(word).strong().size(16.0))
-                            .min_size(egui::vec2(160.0, 34.0)),
+                        egui::Button::new(
+                            egui::RichText::new(word.to_uppercase())
+                                .strong()
+                                .size(18.0)
+                                .color(ink),
+                        )
+                        .fill(fill)
+                        .min_size(egui::vec2(220.0, 42.0)),
                     );
                     if press.clicked() {
                         orders.push(Order::Ready(yes));
@@ -1063,6 +1124,135 @@ pub fn ready_window(
                 });
             });
         });
+}
+
+/// A player's card in the ready check, and the gap between two.
+const READY_CARD: egui::Vec2 = egui::vec2(96.0, 118.0);
+const READY_GAP: f32 = 12.0;
+/// The ready check's green: the button to press, and a card that is in.
+const READY_GREEN: egui::Color32 = egui::Color32::from_rgb(0x2f, 0x9e, 0x5b);
+
+fn painter_fill(painter: &egui::Painter, rect: egui::Rect, colour: egui::Color32) {
+    painter.rect_filled(rect, 2.0, colour);
+}
+
+/// One player's card: a disc in its colour with its initial, ringed green
+/// and ticked once it is ready, breathing grey while it is waited for,
+/// dimmed and crossed once it has gone; its name and its state under it.
+/// The tick and the cross are drawn, not glyphs (the default font has
+/// neither).
+#[allow(clippy::too_many_arguments)]
+fn ready_card(
+    painter: &egui::Painter,
+    card: egui::Rect,
+    name: &str,
+    colour: egui::Color32,
+    ready: bool,
+    gone: bool,
+    mine: bool,
+    time: f32,
+) {
+    let breathe = 0.5 + 0.5 * (time * 3.0).sin();
+    let (rim, fill) = if gone {
+        (theme::LINE, theme::PANEL_DEEP)
+    } else if ready {
+        (READY_GREEN, READY_GREEN.gamma_multiply(0.18))
+    } else {
+        (
+            theme::MUTED.gamma_multiply(0.45 + 0.4 * breathe),
+            theme::PANEL_DEEP,
+        )
+    };
+    painter.rect_filled(card, 6.0, fill);
+    painter.rect_stroke(
+        card,
+        6.0,
+        egui::Stroke::new(if mine { 2.5 } else { 1.5 }, rim),
+        egui::StrokeKind::Inside,
+    );
+    let middle = egui::pos2(card.center().x, card.min.y + 42.0);
+    let disc = if gone {
+        colour.gamma_multiply(0.3)
+    } else {
+        colour
+    };
+    painter.circle_filled(middle, 26.0, theme::PANEL_DEEP);
+    painter.circle_filled(middle, 23.0, disc);
+    let initial: String = name
+        .chars()
+        .next()
+        .map(|c| c.to_uppercase().collect())
+        .unwrap_or_default();
+    painter.text(
+        middle,
+        egui::Align2::CENTER_CENTER,
+        initial,
+        egui::FontId::proportional(22.0),
+        theme::PANEL_DEEP,
+    );
+    let ring = if ready && !gone { READY_GREEN } else { rim };
+    painter.circle_stroke(middle, 27.0, egui::Stroke::new(3.0, ring));
+    // The badge on the disc's shoulder.
+    let badge = middle + egui::vec2(20.0, 18.0);
+    if gone {
+        painter.circle_filled(badge, 10.0, theme::PANEL_DEEP);
+        let d = 4.5;
+        for (a, b) in [((-d, -d), (d, d)), ((-d, d), (d, -d))] {
+            painter.line_segment(
+                [badge + egui::vec2(a.0, a.1), badge + egui::vec2(b.0, b.1)],
+                egui::Stroke::new(2.0, theme::MUTED),
+            );
+        }
+    } else if ready {
+        painter.circle_filled(badge, 11.0, READY_GREEN);
+        painter.line_segment(
+            [badge + egui::vec2(-5.0, 0.0), badge + egui::vec2(-1.5, 4.0)],
+            egui::Stroke::new(2.6, egui::Color32::WHITE),
+        );
+        painter.line_segment(
+            [badge + egui::vec2(-1.5, 4.0), badge + egui::vec2(5.5, -4.5)],
+            egui::Stroke::new(2.6, egui::Color32::WHITE),
+        );
+    } else {
+        // Three dots taking turns: still deciding.
+        painter.circle_filled(badge, 10.0, theme::PANEL_DEEP);
+        for i in 0..3 {
+            let lit = ((time * 2.5) as i32).rem_euclid(3) == i;
+            painter.circle_filled(
+                badge + egui::vec2((i - 1) as f32 * 5.0, 0.0),
+                1.8,
+                if lit {
+                    theme::INK
+                } else {
+                    theme::MUTED.gamma_multiply(0.6)
+                },
+            );
+        }
+    }
+    let mut short: String = name.chars().take(12).collect();
+    if name.chars().count() > 12 {
+        short.push('.');
+    }
+    painter.text(
+        egui::pos2(card.center().x, card.max.y - 32.0),
+        egui::Align2::CENTER_CENTER,
+        short,
+        egui::FontId::proportional(14.0),
+        if gone { theme::MUTED } else { theme::INK },
+    );
+    painter.text(
+        egui::pos2(card.center().x, card.max.y - 14.0),
+        egui::Align2::CENTER_CENTER,
+        ready_state(ready, gone).to_uppercase(),
+        egui::FontId::proportional(11.0),
+        if gone {
+            theme::MUTED
+        } else if ready {
+            theme::ACCENT
+        } else {
+            theme::MUTED
+        },
+    );
 }
 
 /// The other players as the windows over the map show them: where each

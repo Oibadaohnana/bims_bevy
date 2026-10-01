@@ -1829,8 +1829,19 @@ fn frame(
     } else {
         (crate::shapes::Rect::new(full.min, full.min), full)
     };
+    // The ready check (a mission with a fight in it, held for every
+    // player's Ready) shows nothing of the site: the deck, the bodies and
+    // everything over them wait for the mission to start, and only the
+    // site's backdrop stands behind the check. The panels — the loadout,
+    // the skill points — stay in reach.
+    let veiled = !map_up
+        && session
+            .game
+            .as_ref()
+            .is_some_and(|g| g.world.in_mission() && g.world.awaiting_ready());
+    let deck_hidden = map_up || veiled;
     let mut pointer = Pointer::read(&ctx);
-    let on_canvas = pointer.on(canvas).filter(|_| !map_up);
+    let on_canvas = pointer.on(canvas).filter(|_| !deck_hidden);
     let on_galaxy = pointer.on(galaxy_rect);
     let here = pointer.pos.map(|p| p - canvas.min);
     crate::keys::release_tab_focus(
@@ -2770,7 +2781,7 @@ fn frame(
     // its state, and the tile — as a small readout at the pointer once it
     // has rested there; it was a panel of the left stack.
     let readout = match screen.hover_at {
-        Some(p) if !map_up && session.game_tile_inside() => {
+        Some(p) if !deck_hidden && session.game_tile_inside() => {
             let game = session.game.as_ref().unwrap();
             let part = session.game_hovered_part();
             let mut thing = part
@@ -2789,7 +2800,7 @@ fn frame(
         }
         _ => None,
     };
-    screen.rest = match (screen.rest, on_canvas.filter(|_| !map_up)) {
+    screen.rest = match (screen.rest, on_canvas.filter(|_| !deck_hidden)) {
         (Some((at, since)), Some(p)) if (p - at).length() <= 2.0 => Some((at, since)),
         (_, Some(p)) => Some((p, now)),
         _ => None,
@@ -3044,7 +3055,9 @@ fn frame(
     super::worldmap::departure_window(&ctx, world, local, &mut orders, &crew_name);
     // And the ready check, while a mission with a fight in it waits for
     // every player's *Ready*.
-    super::worldmap::ready_window(&ctx, world, local, &mut orders, &crew_name);
+    super::worldmap::ready_window(&ctx, world, local, &mut orders, &crew_name, &|slot| {
+        slot_colour(&session.crew_tints, slot)
+    });
     // And a relic being chosen (feature 106): the reward screen after a
     // site cleared, over the map, or a cache's in the mission.
     // The others as the two windows over the map show them: their
@@ -3563,17 +3576,20 @@ fn frame(
         // under the map, which is the galaxy chart alone.
         if !map_up {
             // At a station, its picture under everything (the planet's
-            // ground is the painter's own).
+            // ground is the painter's own) — behind the ready check too,
+            // with nothing of the deck over it.
             if let Some(key) = session.game.as_ref().and_then(|g| g.backdrop()) {
                 station_backdrops.paint(&mut world_canvas, &ctx, canvas, key);
             }
+        }
+        if !deck_hidden {
             world_canvas.shapes(&ctx, canvas, view, session.fog_split().0);
         }
         overlay_timed = crate::perf::scope(crate::perf::Phase::Overlay);
         // The smooth fog over the deck — what the crew do not see, and
         // the dark where no light reaches — as the room's light map,
         // through the ship's camera and heading like the crew's names.
-        if !map_up {
+        if !deck_hidden {
             // The plain's fog first, a chunk a texture: the pieces of
             // each leave the room's box to the light map, so the two
             // never lie over one another. A chunk the room let go of
@@ -3614,14 +3630,14 @@ fn frame(
         }
         // And over the fog: a bolt is always seen, whatever it flies
         // through.
-        if !map_up {
+        if !deck_hidden {
             world_canvas.shapes(&ctx, canvas, view, session.fog_split().1);
         }
         // And the particles over the shots, simulated on the GPU: what the
         // rooms and the abilities spawned this frame goes on the ring
         // whether or not the deck is shown, so none pile up behind the map.
         let sprays = session.take_sprays();
-        if !map_up {
+        if !deck_hidden {
             world_canvas.particles(&ctx, canvas, view, bars_dt, &sprays);
         }
     }
@@ -3633,7 +3649,7 @@ fn frame(
     // reticle drawn over everything, the panels too — unless a window
     // wants the pointer: the trader, a relic to choose, the Esc sheet, the
     // map, the Armory or the character sheet.
-    let windowed = map_up
+    let windowed = deck_hidden
         || screen.sheet.is_some()
         || super::worldmap::trader_rect(&ctx).is_some()
         || super::worldmap::relic_rect(&ctx).is_some()
@@ -3691,7 +3707,7 @@ fn frame(
         let chart_painter = canvas_painter(&ctx, galaxy_rect);
         let place = |spot: Spot| -> Option<(&egui::Painter, egui::Pos2)> {
             match spot {
-                Spot::Deck(x, y) if !map_up => {
+                Spot::Deck(x, y) if !deck_hidden => {
                     let (x, y) = session.design_point_on_screen(x, y);
                     let at = view.to_canvas(Vec2::new(x, y)) + canvas.min;
                     Some((&painter, egui::pos2(at.x, at.y)))
@@ -3760,7 +3776,7 @@ fn frame(
     // for a crewmate wants to see the one beside it too. The downed only:
     // nothing counts on a corpse. Drawn first, under the beams and the
     // banners, so a medic already working on one shows through.
-    if !map_up && let Some(game) = &session.game {
+    if !deck_hidden && let Some(game) = &session.game {
         let ring = |left: f32, (x, y): (f32, f32)| {
             let at = view.to_canvas(Vec2::new(x, y)) + canvas.min;
             theme::downed_ring(
@@ -3845,7 +3861,7 @@ fn frame(
     // Every heal beam on the deck (feature 76): a line from the medic to
     // each crew member it holds, and a mark on a body a surge is running
     // on, in the beam's own green.
-    if !map_up && let Some(game) = &session.game {
+    if !deck_hidden && let Some(game) = &session.game {
         let crew = game.world.aboard.crew_count();
         for medic in 0..crew {
             let Some(from) = session.crew_on_screen(medic) else {
@@ -4172,7 +4188,7 @@ fn frame(
     // walks out to throw — and the burst's radius round the tile under
     // the pointer, in the throw's colour where it would be thrown,
     // walked out to or not, and the refusal's where it would not.
-    if !map_up
+    if !deck_hidden
         && let Some(emp) = screen.aiming_throw
         && let Some(game) = &session.game
         && let Some((x, y)) = session.crew_on_screen(screen.net.slot)
@@ -4187,7 +4203,7 @@ fn frame(
             glyph.colour(),
         );
     }
-    if !map_up
+    if !deck_hidden
         && let Some((tiles, glyph)) = screen.held_reach
         && let Some((x, y)) = session.crew_on_screen(screen.net.slot)
     {
@@ -4195,7 +4211,7 @@ fn frame(
         let radius = tiles * shipdesign::TILE as f32 * view.scale;
         theme::reach_ring(&painter, egui::pos2(at.x, at.y), radius, glyph.colour());
     }
-    if !map_up
+    if !deck_hidden
         && let Some(emp) = screen.aiming_throw
         && let Some(tile) = screen.throw_aim
         && let Some(game) = &session.game
@@ -4227,7 +4243,7 @@ fn frame(
     // The health bar over every body standing (task 137), under the names:
     // read off the rooms here, after the step, so a bar stays over its body
     // as it walks.
-    if !map_up && let Some(game) = &session.game {
+    if !deck_hidden && let Some(game) = &session.game {
         screen.bars.update(game, bars_dt);
         screen.bars.paint(&painter, view.scale, |(x, y)| {
             let at = view.to_canvas(Vec2::new(x, y)) + canvas.min;
@@ -4238,7 +4254,7 @@ fn frame(
     // The crew's names, over their heads, where the ship says each Bim
     // landed — the same camera the shapes went through, so a name stays over
     // its head as the ship turns.
-    if !map_up {
+    if !deck_hidden {
         for who in 0..crew_count {
             if let Some((x, y)) = session.crew_on_screen(who) {
                 let at = view.to_canvas(Vec2::new(x, y)) + canvas.min;

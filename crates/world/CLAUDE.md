@@ -5877,6 +5877,15 @@ commands and the pins step at once, and the checksum eats the three
 fields only while the switch is on, so `REFERENCE_CHECKSUM` did not move.
 `tests_ready.rs` is the rule. `SAVE_VERSION` 56, `wire::PROTOCOL` 50.
 
+**The app shows nothing of the site while it is held** (October 2026):
+the game screen's `veiled` draws the station's backdrop and no deck, no
+bodies, no names or bars, and takes no pointer on the deck; the panels
+(the loadout, the skill points) stay. `worldmap::ready_window` is Dota's
+ready check in the middle of the screen: a card a player in its colour,
+ticked and ringed green once ready, breathing while waited for, crossed
+once gone; a segmented bar of `World::ready_count`; the Ready / Not
+ready button.
+
 ## A fight won is a frozen deck (task 133)
 
 > "The loop" and "One bar of hit points" above say a downed body is left
