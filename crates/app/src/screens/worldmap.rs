@@ -1608,10 +1608,10 @@ pub fn relic_window(
 /// *Buy* — for the weapons, the armour, the relic (with its vote) and the
 /// pairs that combine, and the pool's balance as the total at the foot.
 /// The words that explain are hovers: a thing's numbers on its line, a
-/// section's rules on its "?". A window of its own that may be moved, so
-/// the Armory panel (Tab) can be up beside it. Nothing here decides
-/// anything: every press is an [`Order`] the world may refuse, and the
-/// refusal is the log's line.
+/// section's rules on its "?". A window of its own, opened in the middle of
+/// the screen, that may be moved, so the Armory panel (Tab) can be up
+/// beside it. Nothing here decides anything: every press is an
+/// [`Order`] the world may refuse, and the refusal is the log's line.
 pub fn trader_window(
     ctx: &egui::Context,
     world: &World,
@@ -1650,7 +1650,8 @@ pub fn trader_window(
     let shown = egui::Window::new(TRADER_TITLE)
         .id(egui::Id::new("trader-window"))
         .title_bar(false)
-        .default_pos(egui::pos2(24.0, 90.0))
+        .pivot(egui::Align2::CENTER_CENTER)
+        .default_pos(ctx.content_rect().center())
         .collapsible(false)
         .resizable(false)
         .frame(form_frame())
