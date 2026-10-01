@@ -1505,39 +1505,43 @@ impl CrewPanels {
                     ui.label(egui::RichText::new(ARMORY_HOW).small().color(theme::MUTED));
                 }
                 ui.add_space(4.0);
-                // Three rows: the players' own Bims, the bots, and the
-                // armory under them. A row with nobody in it is left out.
-                // Scrolled up and down past the screen's height, so the armory
-                // is never cut off below a long crew.
+                // Two columns: on the left the players' own Bims and the
+                // armory under them, on the right the bots; each wraps its
+                // crew into rows. A side with nobody in it is left out.
+                // Scrolled up and down past the screen's height, so the
+                // armory is never cut off below a long crew.
                 let tall = (ui.ctx().content_rect().height() - ARMORY_TOP - 90.0).max(200.0);
+                let crew = |players: bool| -> Vec<&ArmoryColumn> {
+                    view.columns
+                        .iter()
+                        .filter(|c| c.portrait.player == players)
+                        .collect()
+                };
+                let (players, bots) = (crew(true), crew(false));
                 egui::ScrollArea::vertical()
                     .id_salt("armory-rows")
                     .max_height(tall)
                     .min_scrolled_height(tall)
                     .show(ui, |ui| {
-                        for (players, heading, salt) in [
-                            (true, ARMORY_PLAYERS, "armory-players"),
-                            (false, ARMORY_BOTS, "armory-bots"),
-                        ] {
-                            let row: Vec<&ArmoryColumn> = view
-                                .columns
-                                .iter()
-                                .filter(|c| c.portrait.player == players)
-                                .collect();
-                            if row.is_empty() {
-                                continue;
-                            }
-                            theme::heading(ui, heading);
-                            egui::ScrollArea::horizontal().id_salt(salt).show(ui, |ui| {
-                                ui.horizontal_top(|ui| {
-                                    for column in row {
-                                        armory_column(ui, view, column, &mut asked);
-                                    }
-                                });
+                        ui.horizontal_top(|ui| {
+                            ui.vertical(|ui| {
+                                ui.set_width(ARMORY_HALF);
+                                if !players.is_empty() {
+                                    theme::heading(ui, ARMORY_PLAYERS);
+                                    armory_crew(ui, view, &players, &mut asked);
+                                    ui.separator();
+                                }
+                                armory_stock(ui, view, &mut asked);
                             });
-                            ui.separator();
-                        }
-                        armory_stock(ui, view, &mut asked);
+                            if !bots.is_empty() {
+                                ui.add_space(12.0);
+                                ui.vertical(|ui| {
+                                    ui.set_width(ARMORY_HALF);
+                                    theme::heading(ui, ARMORY_BOTS);
+                                    armory_crew(ui, view, &bots, &mut asked);
+                                });
+                            }
+                        });
                     });
             });
         self.armory_open = open;
@@ -2284,6 +2288,9 @@ mod tests {
 /// it may grow before its columns scroll.
 const ARMORY_TOP: f32 = 110.0;
 const ARMORY_W: f32 = 980.0;
+/// Each of the panel's two columns — the players and the armory, the
+/// bots — is a little under half of it, room for three crew a row.
+const ARMORY_HALF: f32 = 470.0;
 /// A column's width: a portrait, a name and four slots under them.
 const ARMORY_COLUMN_W: f32 = SLOT_WIDTH + 12.0;
 
@@ -2361,6 +2368,24 @@ fn drop_on_column(view: &ArmoryView, drag: ArmoryDrag, onto: &ArmoryColumn) -> O
         who: onto.who,
         from,
     })
+}
+
+/// Crew members' columns, as many a row as fit across the width left.
+fn armory_crew(
+    ui: &mut egui::Ui,
+    view: &ArmoryView,
+    crew: &[&ArmoryColumn],
+    asked: &mut Vec<GearOrder>,
+) {
+    let each = ARMORY_COLUMN_W + 8.0 + ui.spacing().item_spacing.x;
+    let across = ((ui.available_width() + ui.spacing().item_spacing.x) / each).max(1.0) as usize;
+    for row in crew.chunks(across) {
+        ui.horizontal_top(|ui| {
+            for column in row {
+                armory_column(ui, view, column, asked);
+            }
+        });
+    }
 }
 
 /// One crew member's column: its portrait, its class and its four slots,
@@ -2579,7 +2604,7 @@ fn armory_stock(ui: &mut egui::Ui, view: &ArmoryView, asked: &mut Vec<GearOrder>
         .corner_radius(4.0)
         .fill(theme::PANEL_DEEP);
     let (_, dropped) = ui.dnd_drop_zone::<ArmoryDrag, ()>(frame, |ui| {
-        ui.set_min_width(ARMORY_W - 24.0);
+        ui.set_width(ARMORY_HALF - 12.0);
         ui.set_min_height(STASH_CELL + 8.0);
         if view.armory.is_empty() {
             ui.label(
@@ -2589,41 +2614,47 @@ fn armory_stock(ui: &mut egui::Ui, view: &ArmoryView, asked: &mut Vec<GearOrder>
             );
             return;
         }
-        ui.horizontal_wrapped(|ui| {
-            ui.spacing_mut().item_spacing = egui::vec2(3.0, 3.0);
-            for stored in &view.armory {
-                let item = stored.item;
-                let from = world::GearSource::Armory { id: stored.id };
-                let tip = armory_tip(stored);
-                let response = if !open {
-                    stash_cell(ui, 1, |p, r| icons::icon(p, r, item))
-                } else {
-                    ui.dnd_drag_source(
-                        egui::Id::new(("armory-stock", stored.id)),
-                        ArmoryDrag(from),
-                        |ui| stash_cell(ui, 1, |p, r| icons::icon(p, r, item)),
-                    )
-                    .response
-                };
-                let response = response.on_hover_text(tip);
-                if open {
-                    response.context_menu(|ui| {
-                        for column in view.columns.iter().filter(|c| c.may_change) {
-                            if ui
-                                .button(format!("{ARMORY_PUT_ON} {}", column.portrait.name))
-                                .clicked()
-                            {
-                                asked.push(GearOrder::Equip {
-                                    who: column.who,
-                                    from,
-                                });
-                                ui.close();
+        // Laid out in rows by hand: a drag source is a scope, and a scope
+        // never wraps in `horizontal_wrapped` — the row ran on and widened
+        // the panel.
+        ui.spacing_mut().item_spacing = egui::vec2(3.0, 3.0);
+        let across = ((ui.available_width() + 3.0) / (STASH_CELL + 3.0)).max(1.0) as usize;
+        for row in view.armory.chunks(across) {
+            ui.horizontal(|ui| {
+                for stored in row {
+                    let item = stored.item;
+                    let from = world::GearSource::Armory { id: stored.id };
+                    let tip = armory_tip(stored);
+                    let response = if !open {
+                        stash_cell(ui, 1, |p, r| icons::icon(p, r, item))
+                    } else {
+                        ui.dnd_drag_source(
+                            egui::Id::new(("armory-stock", stored.id)),
+                            ArmoryDrag(from),
+                            |ui| stash_cell(ui, 1, |p, r| icons::icon(p, r, item)),
+                        )
+                        .response
+                    };
+                    let response = response.on_hover_text(tip);
+                    if open {
+                        response.context_menu(|ui| {
+                            for column in view.columns.iter().filter(|c| c.may_change) {
+                                if ui
+                                    .button(format!("{ARMORY_PUT_ON} {}", column.portrait.name))
+                                    .clicked()
+                                {
+                                    asked.push(GearOrder::Equip {
+                                        who: column.who,
+                                        from,
+                                    });
+                                    ui.close();
+                                }
                             }
-                        }
-                    });
+                        });
+                    }
                 }
-            }
-        });
+            });
+        }
     });
     if let Some(drag) = dropped
         && open
