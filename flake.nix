@@ -120,6 +120,11 @@
 
             cargoLock.lockFile = ./Cargo.lock;
 
+            # The server's build: `release` with fat LTO (Cargo.toml's
+            # `lto`). Its tests run under it too, so nothing is built
+            # twice.
+            buildType = "lto";
+
             cargoBuildFlags = [
               "-p"
               "server"

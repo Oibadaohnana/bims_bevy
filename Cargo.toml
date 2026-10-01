@@ -51,3 +51,13 @@ opt-level = 3
 opt-level = 3
 lto = "off"
 codegen-units = 1
+
+# What the server runs: `release` with fat LTO, built by the flake's
+# `bims-server` (`nix build .#bims-server`, then `ship`). Testing stays on
+# plain `release`, which links in a fraction of the time. One word, not
+# `release-lto`: nixpkgs' cargo build hook exports
+# `CARGO_PROFILE_<NAME>_STRIP`, a hyphen is no shell name, and cargo reads
+# an underscore there as `profile.release` and a key.
+[profile.lto]
+inherits = "release"
+lto = "fat"
