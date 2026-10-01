@@ -7,7 +7,9 @@
 //! thread of their own the first time a menu is up, so the window never
 //! waits for them, and go up to the GPU as Bevy images egui is handed by
 //! id — kept only on the GPU, and let go again once the menus are left
-//! for the game.
+//! for the game. The loading screen stands on the start picture too, so
+//! while a load is under way — a trip, out of the game screen, or a run
+//! opened from the designer — that one picture is decoded and kept.
 //!
 //! A picture is 3:2 and a window anything: it is drawn to **cover** the
 //! window, scaled until neither side falls short and the overhang cut off
@@ -76,6 +78,10 @@ pub enum Backdrop {
 pub struct Backdrops {
     decoding: Option<Mutex<Receiver<(usize, Image)>>>,
     shown: Vec<Option<Shown>>,
+    /// How many of the slots, from the first, have been sent for: the
+    /// start picture alone for the loading screen, all of them for the
+    /// menus.
+    asked: usize,
 }
 
 struct Shown {
@@ -100,20 +106,32 @@ fn on_menus(screen: &Screen) -> bool {
     matches!(screen, Screen::Menu | Screen::Setup | Screen::Lobby)
 }
 
-/// Starts the decoding when a menu is first up, puts each picture on the
-/// GPU as it comes, and lets them all go once the menus are left.
+/// Starts the decoding when a menu is first up (or the start picture's
+/// alone when a load is), puts each picture on the GPU as it comes, and
+/// lets them all go once neither wants them.
 fn keep(
     mut backdrops: ResMut<Backdrops>,
     state: Res<State<Screen>>,
+    loading: Res<super::loading::Loading>,
     mut images: ResMut<Assets<Image>>,
     mut textures: ResMut<EguiUserTextures>,
 ) {
-    let wanted = on_menus(state.get());
+    let all = 1 + SETUP.len();
+    let wanted = if on_menus(state.get()) {
+        all
+    } else if loading.busy() {
+        1
+    } else {
+        0
+    };
     let backdrops = &mut *backdrops;
-    if wanted && backdrops.decoding.is_none() && backdrops.shown.is_empty() {
+    // More wanted than sent for: the rest, once a decoding under way is done.
+    if wanted > backdrops.asked && backdrops.decoding.is_none() {
+        let from = backdrops.asked;
         let (send, receive) = channel();
         std::thread::spawn(move || {
-            for (i, bytes) in std::iter::once(START).chain(SETUP).enumerate() {
+            let pictures = std::iter::once(START).chain(SETUP).enumerate();
+            for (i, bytes) in pictures.skip(from).take(wanted - from) {
                 if let Some(image) = decode(bytes)
                     && send.send((i, image)).is_err()
                 {
@@ -122,7 +140,8 @@ fn keep(
             }
         });
         backdrops.decoding = Some(Mutex::new(receive));
-        backdrops.shown = (0..=SETUP.len()).map(|_| None).collect();
+        backdrops.shown.resize_with(all, || None);
+        backdrops.asked = wanted;
     }
     if let Some(receive) = &backdrops.decoding {
         let receive = receive.lock().unwrap_or_else(|e| e.into_inner());
@@ -147,10 +166,11 @@ fn keep(
             }
         }
     }
-    if !wanted && !backdrops.shown.is_empty() {
+    if wanted == 0 && backdrops.asked > 0 {
         // Dropping the receiver ends a decoding still going at its next
         // picture; the handles going frees the GPU's copies.
         backdrops.decoding = None;
+        backdrops.asked = 0;
         for shown in backdrops.shown.drain(..).flatten() {
             textures.remove_image(&shown.image);
             images.remove(&shown.image);
