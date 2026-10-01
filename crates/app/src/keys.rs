@@ -587,6 +587,26 @@ fn path() -> Option<std::path::PathBuf> {
     Some(base.join("bims").join("keys"))
 }
 
+/// Shift held (task 150): the Bim you steer sprints while the keys walk
+/// it. Shift, Alt and Ctrl are modifiers, which egui never hands over as
+/// an [`egui::Key`], so none of the three is an [`Action`] to rebind:
+/// they are read here and nowhere else, and the Controls page lists them
+/// with the pointer.
+pub fn sprint_held(input: &egui::InputState) -> bool {
+    input.modifiers.shift
+}
+
+/// Alt held: the dodge roll goes on its way down (task 150).
+pub fn dodge_held(input: &egui::InputState) -> bool {
+    input.modifiers.alt
+}
+
+/// Ctrl held round a left click: a ping (Alt until task 150 took it for
+/// the roll).
+pub fn ping_held(input: &egui::InputState) -> bool {
+    input.modifiers.ctrl
+}
+
 /// Tab is egui's key for moving keyboard focus to the next widget, and a
 /// widget with focus is egui wanting the keyboard — so the frame after
 /// Tab opened the inventory, every key would have been egui's and none the

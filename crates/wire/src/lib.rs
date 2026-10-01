@@ -84,7 +84,9 @@ use serde::{Deserialize, Serialize};
 /// 90: items, step two — nine more kinds (Coolant Loop, Pressure Seal and
 /// Steady Grip moved off the relics), their effects in the step, and
 /// `WorldEvent::ItemUsed`.
-pub const PROTOCOL: u32 = 90;
+/// 91: Shift sprints and Alt dodge-rolls (task 150) — `CrewOrder::Control`
+/// carries `sprint`, and `CrewOrder::Dodge` is appended.
+pub const PROTOCOL: u32 = 91;
 
 /// Where the relay lives. `BIMS_SERVER` in the environment overrides it
 /// — `ws://127.0.0.1:8792` for one on the same machine.

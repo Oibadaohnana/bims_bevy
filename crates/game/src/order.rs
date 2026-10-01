@@ -125,7 +125,14 @@ pub enum CrewOrder {
         walk: Option<u16>,
         aim: u16,
         fire: bool,
+        /// Shift held (task 150): walking, it sprints and fires nothing.
+        #[cfg_attr(feature = "serde", serde(default))]
+        sprint: bool,
     },
+    /// Alt (task 150): the player's own crew member dodge-rolls the way
+    /// its keys walk it, or last walked it — never at the pointer.
+    /// Appended last.
+    Dodge,
 }
 
 /// An angle as a [`CrewOrder::Control`] carries it: radians, nought east,
@@ -163,7 +170,8 @@ impl CrewOrder {
             | CrewOrder::AttackMove { .. }
             | CrewOrder::Attack { .. }
             | CrewOrder::Hand { .. }
-            | CrewOrder::Control { .. } => None,
+            | CrewOrder::Control { .. }
+            | CrewOrder::Dodge => None,
         }
     }
 }
@@ -255,15 +263,25 @@ impl Game {
                 self.order_hand(slot, hand);
                 0
             }
-            CrewOrder::Control { walk, aim, fire } => {
+            CrewOrder::Control {
+                walk,
+                aim,
+                fire,
+                sprint,
+            } => {
                 self.order_control(
                     slot,
                     crate::character::Steer {
                         walk: walk.map(code_angle),
                         aim: code_angle(aim),
                         fire,
+                        sprint,
                     },
                 );
+                0
+            }
+            CrewOrder::Dodge => {
+                self.order_dodge(slot);
                 0
             }
         }
@@ -324,7 +342,8 @@ impl Game {
             | CrewOrder::AttackMove { .. }
             | CrewOrder::Attack { .. }
             | CrewOrder::Hand { .. }
-            | CrewOrder::Control { .. } => return self.order(slot, order),
+            | CrewOrder::Control { .. }
+            | CrewOrder::Dodge => return self.order(slot, order),
         };
         if who(w) < crew {
             self.queue_order(Saved::ordered(who(w), kind, minutes, None));

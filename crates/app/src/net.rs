@@ -444,7 +444,7 @@ impl SettingsWire {
     }
 }
 
-/// Where a player's pointer is, or where they put a ping (Alt and a left
+/// Where a player's pointer is, or where they put a ping (Ctrl and a left
 /// click): a spot on the deck, as a design point
 /// (`Session::design_point`); a place in a system on the system view,
 /// in the system's own units, with the star so a player looking at
@@ -550,7 +550,7 @@ pub enum Packet {
     /// What the player has their eye on in the trader's window or the
     /// relic choice ([`Choice`]), to everybody, when it changes.
     Choice(Choice),
-    /// A ping put down (Alt and a left click), to everybody: a mark in
+    /// A ping put down (Ctrl and a left click), to everybody: a mark in
     /// the player's colour that runs out and fades. A picture, like the
     /// pointer, and nothing the world hears of.
     Ping(Spot),
@@ -1570,7 +1570,7 @@ mod tests {
         assert_eq!(world(&ends[0]).checksum(), world(&ends[1]).checksum());
     }
 
-    /// A ping and a choice off the wire (Alt and a left click; what a
+    /// A ping and a choice off the wire (Ctrl and a left click; what a
     /// player has their eye on in the trader's window or the relic
     /// choice): both the room's own state like the pointer. This
     /// player's own ping is up at once and goes to the room; another's

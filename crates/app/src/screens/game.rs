@@ -171,6 +171,9 @@ pub struct GameScreen {
     /// The left press was an armed pointer's — a throw, an attack-move, the
     /// banner — and fires nothing until the button comes up (task 144).
     trigger_spent: bool,
+    /// The dodge roll's key (Alt, task 150) was down last frame: a roll
+    /// goes on its way down, once.
+    dodge_was: bool,
     /// Tab went down last frame with the keys ours: the focus egui gave a
     /// widget for it is to be surrendered (`keys::release_tab_focus`).
     tab_took_focus: bool,
@@ -992,6 +995,7 @@ impl GameScreen {
             free_camera: false,
             crosshair: false,
             trigger_spent: false,
+            dodge_was: false,
             tab_took_focus: false,
             backlog: 0.0,
             log: hud::Log::default(),
@@ -1983,12 +1987,13 @@ fn frame(
     } else {
         None
     };
-    // Alt and a left click is a ping, on the deck or the galaxy chart: a
+    // Ctrl and a left click is a ping, on the deck or the galaxy chart: a
     // mark in this player's colour on everybody's screen where it was
     // put. The press is the ping's and nothing else's — it is taken off
-    // the pointer, so no pick, marquee or drag follows it.
+    // the pointer, so no pick, marquee or drag follows it. It was Alt
+    // until Alt became the dodge roll (task 150).
     if pointer.primary_pressed
-        && ctx.input(|i| i.modifiers.alt)
+        && ctx.input(crate::keys::ping_held)
         && let Some(at) = in_view
     {
         online.ping(now, at);
@@ -2314,6 +2319,8 @@ fn frame(
             .map(|room| room.bim_pos(screen.net.slot as usize))
     {
         let (mut wx, mut wy) = (0.0f32, 0.0f32);
+        // Shift sprints and Alt dodge-rolls (task 150).
+        let (mut sprint, mut dodge_down) = (false, false);
         if keys {
             ctx.input(|i| {
                 for (action, dx, dy) in [
@@ -2327,8 +2334,12 @@ fn frame(
                         wy += dy;
                     }
                 }
+                sprint = crate::keys::sprint_held(i);
+                dodge_down = crate::keys::dodge_held(i);
             });
         }
+        let dodge = dodge_down && !screen.dodge_was;
+        screen.dodge_was = dodge_down;
         // Up the screen is whichever way the room lies under the camera,
         // head up or north up: two points of the canvas, through it.
         let middle = canvas.size() / 2.0;
@@ -2351,7 +2362,7 @@ fn frame(
                 let (rx, ry) = session.room_point(p.x, p.y);
                 angle_code((ry - at.y).atan2(rx - at.x))
             })
-            .or(screen.control.map(|((_, aim, _), _)| aim));
+            .or(screen.control.map(|((_, aim, _, _), _)| aim));
         // The left button. A press counts as well as a button held: a quick
         // click goes down and up within one frame, and the room owes it its
         // shot (`character::TRIGGER_OWED`). A press an armed pointer took —
@@ -2366,11 +2377,23 @@ fn frame(
             && !screen.aiming_attack
             && !screen.aiming_move
             && screen.aiming_throw.is_none();
+        // A sprint is said only while the keys walk it: Shift alone is
+        // also an order's wait-its-turn, and nothing to send then.
+        let sprint = sprint && walk.is_some();
         if let Some(aim) = aim
-            && control_due(screen.control, (walk, aim, fire), now)
+            && control_due(screen.control, (walk, aim, fire, sprint), now)
         {
-            screen.control = Some(((walk, aim, fire), now));
-            orders.push(Order::Crew(CrewOrder::Control { walk, aim, fire }));
+            screen.control = Some(((walk, aim, fire, sprint), now));
+            orders.push(Order::Crew(CrewOrder::Control {
+                walk,
+                aim,
+                fire,
+                sprint,
+            }));
+        }
+        // The roll after the keys, so it goes the way they walk it now.
+        if dodge {
+            orders.push(Order::Crew(CrewOrder::Dodge));
         }
     }
 
@@ -3635,7 +3658,7 @@ fn frame(
             // (feature 84).
             attack_cursor(&top, at);
         } else {
-            let firing = screen.control.is_some_and(|((_, _, fire), _)| fire);
+            let firing = screen.control.is_some_and(|((_, _, fire, _), _)| fire);
             // Grey past where a shot of the player's own Bim reaches
             // (`Game::shot_reach`): the reticle shows where it can hit.
             let beyond = here.is_some_and(|h| {
@@ -3657,7 +3680,7 @@ fn frame(
     {
         attack_cursor(&painter, egui::pos2(p.x + canvas.min.x, p.y + canvas.min.y));
     }
-    // The others' pointers and everybody's pings (Alt and a left click),
+    // The others' pointers and everybody's pings (Ctrl and a left click),
     // each in its player's colour, wherever it is in whichever view this
     // player has up: over the tile it is over on the deck, through the
     // ship's camera and heading like the names; the place in the system
@@ -4302,8 +4325,9 @@ fn chart_rect(full: crate::shapes::Rect, column_w: f32) -> crate::shapes::Rect {
 }
 
 /// What a `CrewOrder::Control` says (task 144): the walk's angle code,
-/// `None` with no key down, the aim's, and the trigger.
-type CrewOrderControl = (Option<u16>, u16, bool);
+/// `None` with no key down, the aim's, the trigger, and the sprint (task
+/// 150).
+type CrewOrderControl = (Option<u16>, u16, bool, bool);
 
 /// Seconds at the least between two control orders that change the aim
 /// alone (task 144): every order is a command every player's copy of the
@@ -4320,14 +4344,14 @@ const RECENTRE_RATE: f32 = 8.0;
 const AIM_STEP: u16 = 36;
 
 /// Whether the keys, the pointer and the trigger are worth a control
-/// order now (task 144): the first, a walk or a trigger changed — at
+/// order now (task 144): the first, a walk, a trigger or a sprint changed — at
 /// once, since those are what a body does — or the aim turned past
 /// [`AIM_STEP`] at least [`CONTROL_EVERY`] after the last.
 fn control_due(last: Option<(CrewOrderControl, f64)>, now: CrewOrderControl, time: f64) -> bool {
-    let Some(((walk, aim, fire), at)) = last else {
+    let Some(((walk, aim, fire, sprint), at)) = last else {
         return true;
     };
-    if walk != now.0 || fire != now.2 {
+    if walk != now.0 || fire != now.2 || sprint != now.3 {
         return true;
     }
     let turned = aim.wrapping_sub(now.1).min(now.1.wrapping_sub(aim));
@@ -6946,32 +6970,45 @@ mod control_tests {
     /// `CONTROL_EVERY` has gone by since the last (task 144).
     #[test]
     fn a_control_order_goes_for_a_walk_or_a_trigger_at_once_and_for_the_aim_now_and_then() {
-        let last = Some(((None, 1000, false), 10.0));
-        assert!(control_due(None, (None, 0, false), 0.0), "the first");
+        let last = Some(((None, 1000, false, false), 10.0));
+        assert!(control_due(None, (None, 0, false, false), 0.0), "the first");
         assert!(
-            control_due(last, (Some(0), 1000, false), 10.001),
+            control_due(last, (Some(0), 1000, false, false), 10.001),
             "a key down"
         );
-        assert!(control_due(last, (None, 1000, true), 10.001), "the trigger");
         assert!(
-            !control_due(last, (None, 1000, false), 11.0),
+            control_due(last, (None, 1000, true, false), 10.001),
+            "the trigger"
+        );
+        assert!(
+            control_due(last, (None, 1000, false, true), 10.001),
+            "the sprint (task 150)"
+        );
+        assert!(
+            !control_due(last, (None, 1000, false, false), 11.0),
             "nothing changed"
         );
         assert!(
-            !control_due(last, (None, 1000 + AIM_STEP - 1, false), 11.0),
+            !control_due(last, (None, 1000 + AIM_STEP - 1, false, false), 11.0),
             "a hair"
         );
-        assert!(!control_due(last, (None, 2000, false), 10.01), "too soon");
         assert!(
-            control_due(last, (None, 2000, false), 10.0 + CONTROL_EVERY),
+            !control_due(last, (None, 2000, false, false), 10.01),
+            "too soon"
+        );
+        assert!(
+            control_due(last, (None, 2000, false, false), 10.0 + CONTROL_EVERY),
             "turned, in time"
         );
         // Across nought the short way round.
-        let north = Some(((None, 65530, false), 0.0));
+        let north = Some(((None, 65530, false, false), 0.0));
         assert!(
-            !control_due(north, (None, 10, false), 1.0),
+            !control_due(north, (None, 10, false, false), 1.0),
             "16 codes apart"
         );
-        assert!(control_due(north, (None, 40, false), 1.0), "42 codes apart");
+        assert!(
+            control_due(north, (None, 40, false, false), 1.0),
+            "42 codes apart"
+        );
     }
 }

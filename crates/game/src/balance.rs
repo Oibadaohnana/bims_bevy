@@ -515,6 +515,17 @@ pub const DROID_ARMS_DAMAGE: f32 = 0.5;
 /// was made half again as quick.
 pub const MARCH_SPEED: f32 = 144.0;
 
+/// A player's own Bim sprinting under Shift (task 150): its walk times
+/// this, its weapon held across the chest and silent.
+pub const SPRINT: f32 = 1.35;
+/// A dodge roll under Alt (task 150): how long it lasts, in seconds, how
+/// far it carries the body, in room units (two and a half tiles), and the
+/// seconds from one roll's start before the next may start. Bolts and a
+/// beam reaching the body while it rolls are dodged; a blow is not.
+pub const ROLL_TIME: f32 = 0.38;
+pub const ROLL_DISTANCE: f32 = 130.0;
+pub const ROLL_COOLDOWN: f32 = 1.1;
+
 /// What each kind walks at, as a share of a Bim's marching pace.
 pub const HUSK_PACE: f32 = 1.3;
 pub const TROOPER_PACE: f32 = 1.0;

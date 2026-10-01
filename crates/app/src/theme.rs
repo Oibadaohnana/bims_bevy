@@ -592,7 +592,7 @@ pub fn ghost_label(painter: &egui::Painter, at: egui::Pos2, color: egui::Color32
 /// How see-through another player's pointer is.
 const GHOST_POINTER_ALPHA: f32 = 0.6;
 
-/// A ping (Alt and a left click), `age` seconds after it went up of the
+/// A ping (Ctrl and a left click), `age` seconds after it went up of the
 /// `life` it has: three rings running out from the spot one after
 /// another, and again every [`PING_RING_CYCLE`], and a diamond on the spot, all in the
 /// player's colour with a dark edge under them so they read on a pale

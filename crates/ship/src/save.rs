@@ -233,7 +233,9 @@ use crate::game::Game;
 /// 86: `Trader::items_sold`, the items bought this visit.
 /// 87: items, step two — nine more `ModuleKind`s, `ItemClocks::{arc_hits,
 /// shell_until}` and `Skill::unstrippable`.
-pub const SAVE_VERSION: u32 = 87;
+/// 88: the sprint and the dodge roll (task 150) — `Steer::sprint`, and
+/// `Character::{last_walk, roll, roll_cool}`.
+pub const SAVE_VERSION: u32 = 88;
 
 /// What the file holds, read back.
 #[derive(serde::Deserialize)]

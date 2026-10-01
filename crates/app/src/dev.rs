@@ -20,7 +20,9 @@
 //! Shift down and `-Shift` lets it go — the two frames apart, since
 //! bevy_egui reads the modifier a frame after it is written — so
 //! `BIMS_KEYS="58:+Shift,66:-Shift"` round a `right` at 62 is a
-//! Shift-right-click: an order that waits its turn (feature 69).
+//! Shift-right-click: an order that waits its turn (feature 69). Held
+//! round a walk key it is a sprint, and `Alt` is the dodge roll (task
+//! 150); `+Ctrl`/`-Ctrl` round a left click is a ping.
 //!
 //! `BIMS_AFIELD=1` opens it landed on the spawn system's first planet with
 //! ground and the crew member walked out onto the plain, and `BIMS_ZOOM`
@@ -1102,8 +1104,10 @@ fn scripted_input(
         let (key_code, logical) = match name {
             "Escape" | "Esc" => (KeyCode::Escape, Key::Escape),
             "Shift" => (KeyCode::ShiftLeft, Key::Shift),
-            // Held round a left click it is a ping.
+            // Pressed, the dodge roll (task 150).
             "Alt" => (KeyCode::AltLeft, Key::Alt),
+            // Held round a left click it is a ping.
+            "Ctrl" => (KeyCode::ControlLeft, Key::Control),
             "Enter" => (KeyCode::Enter, Key::Enter),
             "Tab" => (KeyCode::Tab, Key::Tab),
             "Space" => (KeyCode::Space, Key::Space),

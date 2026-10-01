@@ -4758,3 +4758,47 @@ body without an item moved.
 default false) — `strike_stripping` strips nothing off the armour while
 it is set (an *Ablative Shell* running). The other nine items are the
 world's (`crates/world/CLAUDE.md`, "Items, step two").
+
+## Shift sprints, Alt dodge-rolls (task 150)
+
+> "Ctrl and a left click is a ping" in the app: the ping was Alt's until
+> the roll took it.
+
+- **`Steer::sprint`** (serde default; `CrewOrder::Control`'s fourth
+  field, said only while a walk key is down) is Shift.
+  `Character::is_sprinting` — Shift and a walk, up and not rolling —
+  multiplies the keys' walk by `balance::SPRINT` (1.35) and turns the
+  body to the way it runs at `SPRINT_TURN` instead of to the pointer,
+  back on the pointer at once when it ends.
+- **`CrewOrder::Dodge`** (appended last) is Alt, `Game::order_dodge`:
+  a player's own Bim, up, neither carried nor carrying, rolls
+  (`Character::start_roll`) the way the keys walk it, else the way they
+  last did (`Character::last_walk`, kept by `set_steer`), else its
+  heading — never at the pointer — `balance::ROLL_DISTANCE` (130) in
+  `ROLL_TIME` (0.38 s), refused inside `ROLL_COOLDOWN` (1.1 s from the
+  last start) or while one rolls. It drops what the keys starting to walk
+  drop: the queue, an attack, a post, a brace, the errand. In
+  `Character::update` a roll outranks the keys: the body faces the roll,
+  goes at its pace and comes out of it at its walking pace;
+  `is_steered_walking` is true through it, so the plain's window and the
+  errand rules treat it as the keys'.
+- **Neither fires**: `tick_combat`'s steered body that `is_dashing` holds
+  its trigger, pays any owed click and locks nobody — the weapon stays
+  drawn (no holster cue), carried across the chest (`SPRINT_CARRY`) or
+  stowed for the roll.
+- **A roll slips every bolt and beam**: its dodge on the bodies list is
+  one, so `Combat::step` and `step_sweeps` roll it away (`chance(1.0)`,
+  one draw — only a steered body ever rolls, so no seeded run moved),
+  a Guardian's sweep included. A blow and a grenade's burst still land.
+- **The pictures**: sprinting, the head carried forward (`SPRINT_HEAD`),
+  the stride longer (`SPRINT_STRIDE`), the free arms pumping twice the
+  swing, and `SPRINT_STREAKS` pale streaks behind flickering with the
+  stride. Rolling, `draw_rolling` instead of the standing figure: a ball
+  at `ROLL_TUCK` of the size, lifted mid-roll, with the head, the hands
+  on the shins and the boots wheeling round it once along the roll
+  (each over the ball while it faces the eye), the yoke and the armour's
+  plate coming over the back, and `ROLL_DUST` left behind.
+
+`a_sprint_is_quicker_faces_the_run_and_fires_nothing` and
+`a_dodge_roll_goes_the_way_the_keys_walked_and_slips_every_bolt` pin it.
+`SAVE_VERSION` 88, `wire::PROTOCOL` 91.

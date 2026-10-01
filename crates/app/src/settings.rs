@@ -449,6 +449,18 @@ fn controls(ui: &mut egui::Ui, sheet: &mut Option<Sheet>, keys: &mut Keys) {
                 "Fire where the Bim you steer faces, as fast as the weapon goes. A click is one shot.",
             ),
             (
+                "Shift, walking",
+                "Sprint: the Bim you steer runs a third again as fast, facing the way it runs, its weapon across its chest — it fires nothing until you let go.",
+            ),
+            (
+                "Alt",
+                "Dodge roll: the Bim you steer rolls two and a half tiles the way you are walking it, or last walked it — not where the pointer is — and every bolt and beam misses it while it rolls. Once a second or so.",
+            ),
+            (
+                "Ctrl + left click",
+                "Ping: a mark in your colour on everybody's screen, on the deck or the galaxy chart.",
+            ),
+            (
                 "Right-click on the deck",
                 "Open the menu of what is there — a door, a downed crewmate, a mercenary, a cache — or pick the crew member under it. With the medkit in hand, a right-click on a downed crewmate revives them.",
             ),

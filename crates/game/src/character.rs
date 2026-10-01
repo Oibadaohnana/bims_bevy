@@ -48,6 +48,9 @@ pub const BODY_MARGIN: f32 = 23.0;
 /// stops again than [`ACCEL`] (task 144): the keys want an answer, not
 /// a body with weight.
 const STEER_ACCEL: f32 = 4.0;
+/// How sharply a sprinting body turns to the way it runs (task 150):
+/// quick, but a turn and not a snap, so a sprint round a corner swings.
+const SPRINT_TURN: f32 = 16.0;
 /// How long a press of the fire button is owed a shot after it, in seconds
 /// (task 144): a quick click goes down and up again between two of the
 /// room's steps — the orders reach it together — and would otherwise
@@ -232,6 +235,27 @@ const ARM_BEND: f32 = 4.5;
 /// muzzle ([`Character::muzzle`], `Game::tick_combat`) and a barrel
 /// pointing anywhere but at what it is shooting reads as broken.
 const CARRY: f32 = 0.30;
+/// The sprint's carry (task 150): the gun swung well across the chest,
+/// held there while the legs run.
+const SPRINT_CARRY: f32 = 0.95;
+/// The sprint's picture (task 150): how far forward the head is carried
+/// and the torso stretched, in the body's own units, how much longer the
+/// stride, and the streaks of speed behind — how many, how long, and how
+/// faint.
+const SPRINT_HEAD: f32 = 3.5;
+const SPRINT_STRIDE: f32 = 1.6;
+const SPRINT_STREAKS: usize = 3;
+const SPRINT_STREAK_LONG: f32 = 26.0;
+const SPEED_STREAK: Color = Color::rgba(0.92, 0.95, 1.0, 0.50);
+/// The roll's picture (task 150): the body tucked to this share of its
+/// size, a ball the parts turn round once over the roll, at this many of
+/// the body's units from its middle; and the dust it kicks up.
+const ROLL_TUCK: f32 = 0.84;
+const ROLL_WHEEL: f32 = 12.5;
+const ROLL_DUST: Color = Color::rgba(0.80, 0.78, 0.72, 0.40);
+/// The after-images behind a rolling body: how far back, in the body's
+/// units at the height of the roll, and how faint.
+const ROLL_GHOSTS: [(f32, f32); 2] = [(9.0, 0.22), (18.0, 0.10)];
 const GRIP_AHEAD: f32 = 3.0;
 const GRIP_ACROSS: f32 = 4.5;
 /// How far off the body's own facing the gun may be swung onto a target
@@ -768,6 +792,20 @@ pub struct Steer {
     pub aim: f32,
     /// The fire button held: a shot every time the weapon is ready.
     pub fire: bool,
+    /// Shift held (task 150): walking, it sprints at
+    /// `balance::SPRINT` of its pace, facing the way it runs, and fires
+    /// nothing.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub sprint: bool,
+}
+
+/// A dodge roll under way (task 150): the way it rolls, radians, nought
+/// east, and the seconds of it left.
+#[derive(Clone, Copy, PartialEq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct Roll {
+    pub dir: f32,
+    pub left: f32,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -978,6 +1016,15 @@ pub struct Character {
     /// ([`TRIGGER_OWED`]).
     #[cfg_attr(feature = "serde", serde(default))]
     trigger_owed: f32,
+    /// The way the keys last walked it (task 150): where a dodge roll
+    /// goes with no key down.
+    #[cfg_attr(feature = "serde", serde(default))]
+    last_walk: Option<f32>,
+    /// A dodge roll under way, and the seconds before another may start.
+    #[cfg_attr(feature = "serde", serde(default))]
+    roll: Option<Roll>,
+    #[cfg_attr(feature = "serde", serde(default))]
+    roll_cool: f32,
     /// An enemy, to whoever is looking: ringed in red under the body.
     /// Drawing only; the world says who is.
     hostile: bool,
@@ -1066,6 +1113,9 @@ impl Character {
             falling_back: None,
             steer: None,
             trigger_owed: 0.0,
+            last_walk: None,
+            roll: None,
+            roll_cool: 0.0,
             hostile: false,
             braced: false,
             surging: false,
@@ -1411,6 +1461,7 @@ impl Character {
         if steer.walk.is_some() {
             self.path.clear();
             self.far = None;
+            self.last_walk = steer.walk;
         }
         if steer.fire && !self.steer.is_some_and(|s| s.fire) {
             self.trigger_owed = TRIGGER_OWED;
@@ -1438,9 +1489,66 @@ impl Character {
         self.trigger_owed = 0.0;
     }
 
-    /// Whether the keys are walking it this step.
+    /// Whether the keys are walking it this step — or rolling it, which
+    /// is theirs too.
     pub fn is_steered_walking(&self) -> bool {
-        self.steer.is_some_and(|s| s.walk.is_some())
+        self.roll.is_some() || self.steer.is_some_and(|s| s.walk.is_some())
+    }
+
+    /// Whether it sprints this step (task 150): Shift and a walk key down,
+    /// on its feet and not rolling.
+    pub fn is_sprinting(&self) -> bool {
+        !self.dead
+            && !self.unconscious
+            && self.roll.is_none()
+            && self.steer.is_some_and(|s| s.sprint && s.walk.is_some())
+    }
+
+    /// Whether a dodge roll is under way.
+    pub fn is_rolling(&self) -> bool {
+        self.roll.is_some()
+    }
+
+    /// Sprinting or rolling: the weapon is carried and fires nothing.
+    pub fn is_dashing(&self) -> bool {
+        self.is_sprinting() || self.is_rolling()
+    }
+
+    /// How far through its roll it is, nought to one, or `None` with no
+    /// roll under way: what the picture tumbles by.
+    pub fn roll_share(&self) -> Option<f32> {
+        let time = crate::balance::ROLL_TIME;
+        self.roll.map(|r| clamp(1.0 - r.left / time, 0.0, 1.0))
+    }
+
+    /// Start a dodge roll (task 150) the way the keys walk it, else the
+    /// way they last walked it, else the way it faces — never where the
+    /// pointer is. Refused on a body down, outside, rolling already or
+    /// inside the last roll's cooldown; `true` when it rolls. The route
+    /// in hand is dropped: the roll has the feet.
+    pub fn start_roll(&mut self) -> bool {
+        if self.dead
+            || self.unconscious
+            || self.outside
+            || self.roll.is_some()
+            || self.roll_cool > 0.0
+        {
+            return false;
+        }
+        let dir = self
+            .steer
+            .and_then(|s| s.walk)
+            .or(self.last_walk)
+            .unwrap_or(self.heading);
+        self.roll = Some(Roll {
+            dir: wrap_angle(dir),
+            left: crate::balance::ROLL_TIME,
+        });
+        self.roll_cool = crate::balance::ROLL_COOLDOWN;
+        self.path.clear();
+        self.far = None;
+        self.activity = Activity::Walking;
+        true
     }
 
     /// Whether it faces where the pointer aims it: its heading within
@@ -1680,17 +1788,54 @@ impl Character {
             self.idle += dt;
             self.select_pulse = (self.select_pulse + dt * 2.2) % TAU;
             self.action_phase += dt;
+            self.roll = None;
+            return;
+        }
+        self.roll_cool = (self.roll_cool - dt).max(0.0);
+        // A dodge roll (task 150) outranks even the keys: the body goes
+        // the way it rolls at the roll's own pace, faces it, and comes
+        // out of it at its walking pace.
+        if let Some(roll) = self.roll.as_mut() {
+            let travel = dt.min(roll.left.max(0.0));
+            roll.left -= dt;
+            let (dir, done) = (roll.dir, roll.left <= 0.0);
+            let pace = crate::balance::ROLL_DISTANCE / crate::balance::ROLL_TIME;
+            self.path.clear();
+            self.far = None;
+            self.activity = Activity::Walking;
+            self.heading = dir;
+            self.intent = dir;
+            self.speed = pace;
+            self.pos += Vec2::from_angle(dir) * (pace * travel);
+            self.keep_clear(interior, solids);
+            self.stride = (self.stride + pace * travel * 0.10) % TAU;
+            if done {
+                self.roll = None;
+                self.speed = self.pace * MARCH_SPEED;
+                if let Some(s) = self.steer {
+                    self.heading = wrap_angle(s.aim);
+                }
+            }
+            self.run_clocks(dt);
             return;
         }
         // A player's keys outrank everything (task 144): the body walks
-        // the way they say, and no route is kept under them.
+        // the way they say, and no route is kept under them — at a sprint
+        // with Shift held (task 150).
         let steer = self.steer;
+        let sprinting = self.is_sprinting();
         let goal = if let Some(walk) = steer.and_then(|s| s.walk) {
             self.path.clear();
             self.far = None;
             self.activity = Activity::Walking;
             self.intent = walk;
-            self.target_speed = self.pace * MARCH_SPEED;
+            self.target_speed = self.pace
+                * MARCH_SPEED
+                * if sprinting {
+                    crate::balance::SPRINT
+                } else {
+                    1.0
+                };
             walk
         } else if self.activity == Activity::Marching {
             self.follow_order()
@@ -1716,8 +1861,12 @@ impl Character {
         // A body its player steers faces where the pointer aims and
         // nowhere else, at once — no turn rate (the player's word, October
         // 2026: a turn a second was too slow) — and its feet go where they
-        // are bound whichever way it faces (task 144).
-        if let Some(s) = steer {
+        // are bound whichever way it faces (task 144). Sprinting it turns
+        // to the way it runs instead, quickly, and back to the pointer
+        // at once when the sprint ends (task 150).
+        if sprinting {
+            self.heading = angle_lerp(self.heading, goal, approach(SPRINT_TURN, dt));
+        } else if let Some(s) = steer {
             self.heading = wrap_angle(s.aim);
         } else {
             self.heading = angle_lerp(
@@ -1738,13 +1887,7 @@ impl Character {
             self.heading
         });
         self.pos += along * (self.speed * dt);
-        // Keep clear of the walls, then shove out of anything walked into.
-        self.pos = interior.expand(-BODY_MARGIN).nearest(self.pos);
-        for solid in solids {
-            if let Some(out) = solid.push_out(self.pos, BODY_MARGIN) {
-                self.pos += out;
-            }
-        }
+        self.keep_clear(interior, solids);
 
         // The legs run the other way round while it backs off, so the
         // walk cycle reads as stepping backwards rather than forwards.
@@ -1754,6 +1897,21 @@ impl Character {
         let backwards = backing.is_some()
             || (steer.is_some() && along.dot(Vec2::from_angle(self.heading)) < 0.0);
         self.stride = (self.stride + if backwards { -paces } else { paces }) % TAU;
+        self.run_clocks(dt);
+    }
+
+    /// Keep clear of the walls, then shove out of anything walked into.
+    fn keep_clear(&mut self, interior: Rect, solids: &[Rect]) {
+        self.pos = interior.expand(-BODY_MARGIN).nearest(self.pos);
+        for solid in solids {
+            if let Some(out) = solid.push_out(self.pos, BODY_MARGIN) {
+                self.pos += out;
+            }
+        }
+    }
+
+    /// The clocks the picture runs off, and a swing or a punch run down.
+    fn run_clocks(&mut self, dt: f32) {
         self.idle += dt;
         self.select_pulse = (self.select_pulse + dt * 2.2) % TAU;
         self.action_phase += dt;
@@ -1790,9 +1948,10 @@ impl Character {
                 tool_rot: 0.0,
                 reach: 0.6,
             },
+            // Sprinting (task 150) the arms pump, twice the swing.
             Action::None => Pose {
-                left: -swing * 5.0 * moving,
-                right: swing * 5.0 * moving,
+                left: -swing * 5.0 * moving * self.sprint_lean(2.0),
+                right: swing * 5.0 * moving * self.sprint_lean(2.0),
                 tool: vec2(15.0, 12.0),
                 tool_rot: 0.0,
                 reach: 0.0,
@@ -1909,6 +2068,12 @@ impl Character {
         BODY_SCALE * self.look.scale() * self.outfit.scale()
     }
 
+    /// `by` while it sprints (task 150), one otherwise: what the picture
+    /// multiplies a swing or a stride by.
+    fn sprint_lean(&self, by: f32) -> f32 {
+        if self.is_sprinting() { by } else { 1.0 }
+    }
+
     /// Whether a weapon is up in both hands, which is when the arms are
     /// drawn as limbs reaching for it rather than as a blob a side.
     fn arms_on_a_weapon(&self) -> bool {
@@ -1995,6 +2160,11 @@ impl Character {
     /// the aim said — the picture and the shot are the same line
     /// (feature 84).
     fn gun_rot(&self, grip: Vec2) -> f32 {
+        // Sprinting (task 150) the gun is held high across the chest,
+        // muzzle up and away: a body that cannot shoot looks it.
+        if self.is_sprinting() {
+            return -SPRINT_CARRY;
+        }
         let Some(aim) = self.aim else {
             return -CARRY;
         };
@@ -2062,6 +2232,10 @@ impl Character {
             self.draw_lying(list);
             return;
         }
+        if let Some(share) = self.roll_share() {
+            self.draw_rolling(list, share);
+            return;
+        }
         let swing = self.stride.sin();
         let moving = clamp(self.speed / 60.0, 0.0, 1.0);
         // Breathing while still, a light bounce while walking.
@@ -2099,6 +2273,24 @@ impl Character {
 
         let mut b = list.brush(pos, self.heading, scale);
 
+        // Sprinting (task 150): streaks of speed off the shoulders and the
+        // middle, behind the body, flickering with the stride.
+        if self.is_sprinting() {
+            for i in 0..SPRINT_STREAKS {
+                let across = (i as f32 - (SPRINT_STREAKS - 1) as f32 * 0.5) * 11.0;
+                let beat = (self.stride * 2.0 + i as f32 * 2.1).sin() * 0.5 + 0.5;
+                let long = SPRINT_STREAK_LONG * (0.6 + 0.4 * beat);
+                let from = -16.0 - (i % 2) as f32 * 3.0;
+                b.rect(
+                    vec2(from - long * 0.5, across),
+                    vec2(long, 2.2),
+                    0.0,
+                    1.1,
+                    SPEED_STREAK.alpha(SPEED_STREAK.a * (0.5 + 0.5 * beat)),
+                );
+            }
+        }
+
         // Boots, under the body: one strides forward as the other trails.
         // **Braced** (feature 91) they are planted instead — set wide,
         // turned out and a little back under the body, with no stride left
@@ -2114,7 +2306,13 @@ impl Character {
                         BRACE_TOE_OUT * side,
                     )
                 } else {
-                    (vec2(swing * 8.0 * side * moving, 7.0 * side), 0.0)
+                    (
+                        vec2(
+                            swing * 8.0 * side * moving * self.sprint_lean(SPRINT_STRIDE),
+                            7.0 * side,
+                        ),
+                        0.0,
+                    )
                 };
                 b.ellipse(at, vec2(13.5, 9.0), splay, BOOT);
                 // The armour's guards: the boot darker, with a band across
@@ -2212,7 +2410,14 @@ impl Character {
 
         // Head assembly, pivoting about the neck. Seen from above it is mostly
         // hair, with the face and nose showing at the leading edge.
-        let pivot = vec2(2.5 + bob * 0.3, 0.0);
+        // Sprinting (task 150) the head is carried forward, leaning
+        // into the run.
+        let lean = if self.is_sprinting() {
+            SPRINT_HEAD
+        } else {
+            0.0
+        };
+        let pivot = vec2(2.5 + lean + bob * 0.3, 0.0);
         let at = |local: Vec2| pivot + local.rotate(look);
 
         b.ellipse(at(Vec2::ZERO), vec2(15.5, 15.5), 0.0, OUTLINE);
@@ -2273,6 +2478,106 @@ impl Character {
         }
 
         self.draw_held(list, pose);
+    }
+
+    /// A dodge roll (task 150), `share` of the way through: the body
+    /// tucked into a ball that turns over once along the roll — the head
+    /// going down in front, the boots coming over the top behind, the
+    /// hands on the shins — with the dust it kicked up left behind it.
+    /// Seen from directly above a forward roll is parts wheeling round
+    /// the middle in the plane of the roll: each lies at the `cos` of its
+    /// angle along the roll, over the ball while its `sin` faces the eye
+    /// and under it while it does not. No weapon: it is stowed for the
+    /// roll.
+    fn draw_rolling(&self, list: &mut DrawList, share: f32) {
+        let pos = self.pos;
+        let dir = self.roll.map_or(self.heading, |r| r.dir);
+        let size = self.body_scale();
+        // Up off the deck in the middle of it.
+        let lift = (share * PI).sin();
+        // The dust, where it went down, spreading and fading as it rolls on.
+        let ahead = Vec2::from_angle(dir);
+        let travelled = crate::balance::ROLL_DISTANCE * share;
+        for (i, (along, across)) in [(0.0f32, -8.0f32), (7.0, 7.0), (-6.0, 1.0)]
+            .into_iter()
+            .enumerate()
+        {
+            let at = pos - ahead * (travelled - along * size) + ahead.perp() * (across * size);
+            let grow = 1.0 + share * (1.2 + i as f32 * 0.4);
+            let fade = ROLL_DUST.a * (1.0 - share);
+            list.circle(at, 10.0 * size * grow, ROLL_DUST.alpha(fade));
+        }
+        // Two after-images of the ball, fainter the further behind: the
+        // speed of it, which a still picture of a ball cannot say alone.
+        let shirt = self.outfit.dye(self.uniform.shirt(), self.uniform);
+        for (behind, alpha) in ROLL_GHOSTS {
+            let back = behind * size * lift.max(0.35);
+            list.circle(
+                pos - ahead * back,
+                28.0 * size * ROLL_TUCK,
+                shirt.alpha(alpha),
+            );
+        }
+        list.soft_ellipse(
+            pos + vec2(0.0, 4.5 * size),
+            vec2(30.0, 30.0) * (size * (1.0 - 0.12 * lift)),
+            dir,
+            SHADOW,
+        );
+        let mut b = list.brush(pos, dir, size * ROLL_TUCK * (1.0 + 0.10 * lift));
+        let sleeve = self.outfit.dye(self.uniform.sleeve(), self.uniform);
+        // One whole turn over the roll, the head starting just over the
+        // front of the ball.
+        let head = 0.5 - share * TAU;
+        let boots = head + PI;
+        let hands = head + PI * 0.7;
+        let back = head + PI * 0.5;
+        let wheel = |angle: f32, out: f32| vec2(out * angle.cos(), 0.0);
+        for over in [false, true] {
+            if over {
+                // The ball: the back of the coverall, curled.
+                b.ellipse(Vec2::ZERO, vec2(29.0, 31.0), 0.0, OUTLINE);
+                b.ellipse(Vec2::ZERO, vec2(26.0, 28.0), 0.0, shirt);
+                // The back as it comes over: the armour's plate, then the
+                // yoke at the collar, foreshortened as it turns away.
+                let up = back.sin();
+                if up > 0.0 {
+                    if self.armour.is_some() {
+                        b.ellipse(wheel(back, 6.0), vec2(16.0 * up, 22.0), 0.0, KEVLAR);
+                    }
+                    b.ellipse(
+                        wheel(back + 0.6, ROLL_WHEEL * 0.8),
+                        vec2(7.0 * up, 23.0),
+                        0.0,
+                        self.uniform.yoke(self.look.trim()),
+                    );
+                }
+            }
+            if (boots.sin() >= 0.0) == over {
+                for side in [-1.0f32, 1.0] {
+                    b.ellipse(
+                        wheel(boots, ROLL_WHEEL) + vec2(0.0, 6.0 * side),
+                        vec2(12.0, 9.0),
+                        0.0,
+                        if self.armour.is_some() { GUARD } else { BOOT },
+                    );
+                }
+            }
+            if (hands.sin() >= 0.0) == over {
+                for side in [-1.0f32, 1.0] {
+                    let at = wheel(hands, ROLL_WHEEL * 0.9) + vec2(0.0, 11.0 * side);
+                    b.ellipse(at, vec2(SLEEVE_RIM, SLEEVE_RIM), 0.0, OUTLINE);
+                    b.ellipse(at, vec2(SLEEVE_WIDE, SLEEVE_WIDE), 0.0, sleeve);
+                }
+            }
+            if (head.sin() >= 0.0) == over {
+                let at = wheel(head, ROLL_WHEEL);
+                b.ellipse(at, vec2(15.5, 15.5), 0.0, OUTLINE);
+                b.ellipse(at, vec2(13.5, 13.5), 0.0, SKIN);
+                // The crown of the head is what shows of it, tucked.
+                b.ellipse(at, vec2(11.5, 11.5), 0.0, self.look.hair());
+            }
+        }
     }
 
     /// The rings on the deck under a living Bim: selected, an enemy, under

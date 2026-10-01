@@ -1794,6 +1794,20 @@ impl Game {
             }
             let bim = &mut self.bims[who];
 
+            // Sprinting or rolling (task 150) its player's Bim fires
+            // nothing and swings nothing: the weapon is carried across
+            // the chest, or stowed for the roll, and a click meanwhile is
+            // owed nothing.
+            if steer.is_some() && bim.character.is_dashing() {
+                bim.trigger.hold();
+                bim.character.trigger_paid();
+                bim.locked = None;
+                bim.peek = None;
+                bim.character.set_lean(None);
+                bim.character.set_aim(None);
+                continue;
+            }
+
             // A melee first: locked, it neither aims nor fires, and the
             // burst it was in the middle of is over.
             let locked = self.combat.melee_with(&self.room.sight, from, &stats);
@@ -2048,8 +2062,13 @@ impl Game {
                             b.peek.unwrap_or(b.character.pos),
                             b.peek.is_some(),
                             // Its armour's odds, and a braced soldier's *dug
-                            // in* on top (feature 75).
-                            (b.gear.dodge() + self.skill(who).dodge).min(1.0),
+                            // in* on top (feature 75). Rolling (task 150),
+                            // every bolt and beam is slipped.
+                            if b.character.is_rolling() {
+                                1.0
+                            } else {
+                                (b.gear.dodge() + self.skill(who).dodge).min(1.0)
+                            },
                         ))
                 })
                 .collect();
@@ -6363,6 +6382,45 @@ impl Game {
             self.drop_task(who);
         }
         self.bims[who].character.set_steer(steer);
+    }
+
+    /// Player `slot`'s own Bim dodge-rolls (task 150): the way its keys
+    /// walk it, else the way they last did — never at the pointer —
+    /// slipping every bolt and beam while it rolls, refused while one is
+    /// under way or cooling down, or the body is down, carried or
+    /// carrying. Like the keys starting to walk it, the roll drops what
+    /// it was on: the queue, an attack, a post, a brace, the errand.
+    pub fn order_dodge(&mut self, slot: u32) {
+        let who = slot as usize;
+        if who >= self.bims.len()
+            || who >= self.players
+            || !self.bims[who].is_alive()
+            || self.bims[who].carrying.is_some()
+            || self.is_carried(who)
+        {
+            return;
+        }
+        if !self.bims[who].character.start_roll() {
+            return;
+        }
+        self.drop_ordered(who);
+        self.call_off_attack_move(who);
+        self.bims[who].character.set_post(None);
+        self.bims[who].braced = false;
+        self.drop_task(who);
+    }
+
+    /// Whether `who` is rolling (task 150), for the app's sound and the
+    /// tests.
+    pub fn is_rolling(&self, who: usize) -> bool {
+        self.bims.get(who).is_some_and(|b| b.character.is_rolling())
+    }
+
+    /// Whether `who` sprints this step (task 150).
+    pub fn is_sprinting(&self, who: usize) -> bool {
+        self.bims
+            .get(who)
+            .is_some_and(|b| b.character.is_sprinting())
     }
 
     /// Whether `who` is steered by its player's keys and pointer (task
@@ -12693,6 +12751,7 @@ mod tests {
             walk: walk.map(angle_code),
             aim: angle_code(aim),
             fire: false,
+            sprint: false,
         };
         game.order(0, control(Some(0.0), PI / 2.0));
         assert!(game.is_steered(0));
@@ -12747,6 +12806,7 @@ mod tests {
             walk: walk.map(angle_code),
             aim: angle_code(0.0),
             fire: false,
+            sprint: false,
         };
         // Begun while the keys walk it west, away from her.
         game.order(0, control(Some(PI)));
@@ -12818,6 +12878,7 @@ mod tests {
             walk: None,
             aim: angle_code(aim),
             fire,
+            sprint: false,
         };
         // Facing south, the trigger up: nothing is fired at the target in
         // plain view, though the weapon is out.
@@ -12917,6 +12978,7 @@ mod tests {
             walk: None,
             aim: angle_code(0.0),
             fire,
+            sprint: false,
         };
         let step = |game: &mut Game, fired: &mut u32| {
             let before = game.bims[0].shots;
@@ -12987,6 +13049,165 @@ mod tests {
             step(&mut game, &mut fired);
         }
         assert_eq!(fired, 2, "and once");
+    }
+
+    /// Shift (task 150): the keys walk the player's Bim at `SPRINT` of its
+    /// pace, facing the way it runs rather than the pointer, and the
+    /// trigger held fires nothing until the sprint ends.
+    #[test]
+    fn a_sprint_is_quicker_faces_the_run_and_fires_nothing() {
+        use crate::math::PI;
+        use crate::order::{CrewOrder, angle_code};
+        let mut game = room();
+        game.set_autonomous(false);
+        game.set_players(1);
+        game.issue(1, Gear::default());
+        game.issue(
+            0,
+            Gear {
+                weapon: Some(WeaponKind::AutoRifle.basic()),
+                ..Gear::default()
+            },
+        );
+        let control = |walk: bool, sprint: bool, fire: bool| CrewOrder::Control {
+            walk: walk.then(|| angle_code(0.0)),
+            aim: angle_code(PI / 2.0),
+            fire,
+            sprint,
+        };
+        let walked = |game: &mut Game, sprint: bool| {
+            game.order(0, control(false, false, false));
+            for _ in 0..60 {
+                game.simulate(DT);
+            }
+            let from = game.put_for_probe(0, vec2(ROOM_W * 0.15, ROOM_H * 0.5));
+            game.order(0, control(true, sprint, false));
+            for _ in 0..60 {
+                game.simulate(DT);
+            }
+            game.bim_pos(0).x - from.x
+        };
+        let walk = walked(&mut game, false);
+        assert!(
+            game.bims[0].character.faces_aim(),
+            "walking, it faces the pointer"
+        );
+        assert!(!game.is_sprinting(0));
+        let sprint = walked(&mut game, true);
+        assert!(game.is_sprinting(0));
+        assert!(
+            sprint > walk * 1.25,
+            "a second's sprint goes {sprint}, a walk {walk}"
+        );
+        assert!(
+            game.bims[0].character.heading.abs() < 0.05,
+            "sprinting it faces the run: {}",
+            game.bims[0].character.heading
+        );
+        // The trigger held: nothing fires while it sprints, and the
+        // moment it walks again it does.
+        game.order(0, control(true, true, true));
+        for _ in 0..60 {
+            game.simulate(DT);
+        }
+        assert_eq!(game.bolts_in_flight(), 0, "a sprint fires nothing");
+        game.order(0, control(true, false, true));
+        game.simulate(DT);
+        assert!(
+            game.bims[0].character.faces_aim(),
+            "back on the pointer at once"
+        );
+        let mut fired = 0;
+        for _ in 0..30 {
+            let before = game.bolts_in_flight();
+            game.simulate(DT);
+            fired += usize::from(game.bolts_in_flight() > before);
+        }
+        assert!(fired > 0, "walking it fires again");
+    }
+
+    /// Alt (task 150): a dodge roll goes the way the keys walk the Bim, or
+    /// last walked it — never at the pointer — two and a half tiles in
+    /// `ROLL_TIME`, waits out its cooldown before the next, and every bolt
+    /// reaching the body while it rolls is slipped.
+    #[test]
+    fn a_dodge_roll_goes_the_way_the_keys_walked_and_slips_every_bolt() {
+        use crate::balance::{ROLL_COOLDOWN, ROLL_DISTANCE, ROLL_TIME};
+        use crate::math::PI;
+        use crate::order::{CrewOrder, angle_code};
+        let mut game = room();
+        game.set_autonomous(false);
+        game.set_players(1);
+        game.issue(1, Gear::default());
+        game.put_for_probe(0, vec2(ROOM_W * 0.6, ROOM_H * 0.5));
+        let control = |walk: Option<f32>| CrewOrder::Control {
+            walk: walk.map(angle_code),
+            aim: angle_code(0.0),
+            fire: false,
+            sprint: false,
+        };
+        // A step west on the keys, then up: it stands facing the pointer,
+        // east.
+        game.order(0, control(Some(PI)));
+        game.simulate(DT);
+        game.order(0, control(None));
+        for _ in 0..60 {
+            game.simulate(DT);
+        }
+        let stood = game.bim_pos(0);
+        game.order(0, CrewOrder::Dodge);
+        assert!(game.is_rolling(0));
+        // Alt again in the roll does nothing.
+        game.order(0, CrewOrder::Dodge);
+        let roll_steps = (ROLL_TIME / DT).ceil() as usize + 1;
+        for _ in 0..roll_steps {
+            game.simulate(DT);
+        }
+        assert!(!game.is_rolling(0));
+        let rolled = game.bim_pos(0) - stood;
+        assert!(
+            rolled.x < -0.95 * ROLL_DISTANCE && rolled.x > -1.05 * ROLL_DISTANCE,
+            "rolled west, the way it last walked, not at the pointer: {rolled:?}"
+        );
+        assert!(rolled.y.abs() < 1.0);
+        assert!(
+            game.bims[0].character.faces_aim(),
+            "out of it on the pointer"
+        );
+        // Inside the cooldown Alt is refused.
+        game.order(0, CrewOrder::Dodge);
+        assert!(!game.is_rolling(0), "the cooldown holds it");
+        for _ in 0..((ROLL_COOLDOWN / DT) as usize) {
+            game.simulate(DT);
+        }
+        // Pistol bolts from three tiles west, one a step: standing, they
+        // land; rolling towards the shooter, not one does. Fired in the
+        // first half of the roll, so each reaches it before the roll ends.
+        let volley = |game: &mut Game, steps: usize| {
+            let mut landed = 0;
+            for _ in 0..steps {
+                let at = game.bim_pos(0);
+                game.enemy_fire(
+                    at - vec2(3.0 * TILE, 0.0),
+                    at,
+                    WeaponKind::LaserPistol.basic(),
+                    false,
+                );
+                game.simulate(DT);
+                landed += game.take_wounds_taken().len();
+            }
+            landed
+        };
+        game.order(0, CrewOrder::Dodge);
+        assert!(game.is_rolling(0));
+        let rolling = volley(&mut game, roll_steps / 2);
+        for _ in 0..30 {
+            game.simulate(DT);
+            assert_eq!(game.take_wounds_taken().len(), 0, "the volley flew past");
+        }
+        assert_eq!(rolling, 0, "a roll slips every bolt");
+        let standing = volley(&mut game, roll_steps / 2);
+        assert!(standing > 0, "standing, the same volley lands: {standing}");
     }
 
     #[test]

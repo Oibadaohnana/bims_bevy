@@ -15,8 +15,11 @@ spread a hop every five of them; a machine destroyed pays a bounty, and
 the bounty buys guns, armour, hands for hire and the dead back. The run
 is over when every player's Bim is dead at once.
 
-**You steer your own Bim**, and the crew nobody steers are bots that
-follow the players into a fight. [A run](#a-run) is what a run is made of, [the
+**You steer your own Bim** — WASD walk it, the pointer aims it and the
+left button fires; Shift sprints (a third again as fast, firing
+nothing) and Alt dodge-rolls the way it walks, slipping every bolt —
+and the crew nobody steers are bots that follow the players into a
+fight. [A run](#a-run) is what a run is made of, [the
 loop](#the-loop-world-map-travel-missions) is how it goes from one place
 to the next, and [the crew](#the-crew) is who is aboard.
 
