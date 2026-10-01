@@ -775,6 +775,23 @@ machine, and guests still in the yard are brought into the game with it.
 A world in flight is a few megabytes, so it is a hitch on both ends, the
 way a load is. A game of one loads as it always did.
 
+**A shaky connection plays smoothly** (task 148). A guest's world moves
+on the host's word, a step at a time, and over Wi-Fi or a busy line that
+word comes in clumps — nothing for a tenth of a second, then six frames'
+worth at once — which used to freeze the guest's world and make it jump.
+A guest now holds the host's steps a moment in a **network buffer** and
+plays them out at the world's own pace, one a frame: it starts at two
+frames, grows by however long it last ran dry, and gives back what it
+did not need after ten quiet seconds, so a steady line costs next to
+nothing. The price is latency — the guest sees the world, and its own
+orders come back, that much later — and the Esc sheet's **Network
+buffer** slider is how much a player will pay at most (0.4 s to start
+with, up to a second, 0 for off, as before). It is the guest's alone; a
+host and a game of one never wait. Nothing is skipped or reordered, so
+the checksums agree as they did. Over a line shaken by up to 150 ms,
+a guest that played no step on 603 of its frames and three at once on
+164 played exactly one on 1076 of 1087 with the buffer on, 95 ms behind.
+
 ## The ship designer
 
 > **Not in a run any more** (feature 102, [A run](#a-run)): the lobby's

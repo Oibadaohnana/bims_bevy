@@ -354,6 +354,15 @@ pub const EDGE_SCROLL_MAX: u8 = 30;
 /// The name the edge-scroll speed is kept under in the keys file.
 const EDGE_SCROLL_NAME: &str = "edge-scroll-speed";
 
+/// The most the guest's playout buffer may hold (task 148,
+/// `crate::playout`) for a new player, in hundredths of a second: 0.4 s,
+/// which it reaches only on a line that needs it.
+pub const NET_BUFFER_DEFAULT: u8 = 40;
+/// The most the Esc sheet's slider goes to, in hundredths: one second.
+pub const NET_BUFFER_MAX: u8 = 100;
+/// The name the buffer's cap is kept under in the keys file.
+const NET_BUFFER_NAME: &str = "network-buffer";
+
 /// The bindings, one key an action, which action the Controls page is
 /// waiting on a key for, and the edge-scroll speed.
 #[derive(Resource, Clone, Copy, PartialEq, Eq, Debug)]
@@ -366,6 +375,10 @@ pub struct Keys {
     /// off. Tenths, since the slider steps by them and so the bindings
     /// stay `Eq`. Local to this player, never sent anywhere.
     pub edge_scroll: u8,
+    /// The most the playout buffer may hold back the host's steps on a
+    /// guest (task 148), in hundredths of a second: nought is off. Kept
+    /// beside the keys like the edge scroll; this player's own.
+    pub net_buffer: u8,
 }
 
 impl Default for Keys {
@@ -374,6 +387,7 @@ impl Default for Keys {
             keys: Action::ALL.map(|a| a.default_key()),
             listening: None,
             edge_scroll: EDGE_SCROLL_DEFAULT,
+            net_buffer: NET_BUFFER_DEFAULT,
         }
     }
 }
@@ -438,6 +452,11 @@ impl Keys {
         f32::from(self.edge_scroll) / 10.0
     }
 
+    /// The playout buffer's cap, in seconds; nought is off.
+    pub fn net_buffer_seconds(&self) -> f64 {
+        f64::from(self.net_buffer) / 100.0
+    }
+
     /// The other actions on the same key as this one, for the page to say.
     pub fn shared_with(&self, action: Action) -> Vec<Action> {
         let key = self.key(action);
@@ -449,7 +468,7 @@ impl Keys {
     }
 
     /// The file's text: one `action=Key` a line, and the edge-scroll
-    /// speed last.
+    /// speed and the network buffer last.
     pub fn to_text(self) -> String {
         let mut text: String = Action::ALL
             .iter()
@@ -458,6 +477,10 @@ impl Keys {
         text.push_str(&format!(
             "{EDGE_SCROLL_NAME}={:.1}\n",
             self.edge_scroll_speed()
+        ));
+        text.push_str(&format!(
+            "{NET_BUFFER_NAME}={:.2}\n",
+            self.net_buffer_seconds()
         ));
         text
     }
@@ -485,6 +508,17 @@ impl Keys {
             let Some((name, key)) = line.split_once('=') else {
                 continue;
             };
+            if name.trim() == NET_BUFFER_NAME {
+                if let Ok(seconds) = key.trim().parse::<f64>()
+                    && seconds.is_finite()
+                {
+                    keys.net_buffer = (seconds * 100.0)
+                        .round()
+                        .clamp(0.0, f64::from(NET_BUFFER_MAX))
+                        as u8;
+                }
+                continue;
+            }
             if name.trim() == EDGE_SCROLL_NAME {
                 // A number the slider could have set, or the default.
                 if let Ok(speed) = key.trim().parse::<f32>()
@@ -624,8 +658,9 @@ mod tests {
         changed.set(Action::Inventory, egui::Key::I);
         changed.set(Action::PanUp, egui::Key::ArrowUp);
         let text = changed.to_text();
-        // A line an action, and the edge-scroll speed's.
-        assert_eq!(text.lines().count(), Action::ALL.len() + 1);
+        // A line an action, the edge-scroll speed's and the network
+        // buffer's.
+        assert_eq!(text.lines().count(), Action::ALL.len() + 2);
         assert!(text.contains("inventory=I\n"));
         assert_eq!(Keys::from_text(&text), changed);
         let back = Keys::from_text("inventory=I\nnonsense=Q\nmap=NoSuchKey\n\n");
@@ -829,5 +864,27 @@ mod tests {
             EDGE_SCROLL_DEFAULT
         );
         assert_eq!(Keys::from_text("map=M\n").edge_scroll, EDGE_SCROLL_DEFAULT);
+    }
+
+    /// And the network buffer's cap (task 148), in hundredths of a
+    /// second, the same way.
+    #[test]
+    fn the_network_buffer_is_kept_beside_the_keys() {
+        let keys = Keys::default();
+        assert!(keys.to_text().contains("network-buffer=0.40\n"));
+        let mut off = keys;
+        off.net_buffer = 0;
+        let text = off.to_text();
+        assert!(text.contains("network-buffer=0.00\n"), "{text}");
+        assert_eq!(Keys::from_text(&text), off);
+        assert_eq!(
+            Keys::from_text("network-buffer=7\n").net_buffer,
+            NET_BUFFER_MAX
+        );
+        assert_eq!(
+            Keys::from_text("network-buffer=lots\n").net_buffer,
+            NET_BUFFER_DEFAULT
+        );
+        assert_eq!(Keys::from_text("map=M\n").net_buffer, NET_BUFFER_DEFAULT);
     }
 }

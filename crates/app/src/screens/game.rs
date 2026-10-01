@@ -234,6 +234,10 @@ pub struct GameScreen {
     /// stepping meanwhile — stopping would make it wronger under the
     /// pointer.
     resyncing: bool,
+    /// A guest's playout buffer (task 148): the host's steps, orders and
+    /// world, held in their order and played out at the world's pace so
+    /// a shaky line does not stop and lurch the world. Idle on the clock.
+    playout: crate::playout::Playout,
     /// The host's side of it: the step each peer was last answered a
     /// `World` at, so a guest that keeps asking gets one an
     /// `CHECK_EVERY` at most — the world is megabytes to write.
@@ -1011,6 +1015,7 @@ impl GameScreen {
             gone: Vec::new(),
             said_name: None,
             resyncing: false,
+            playout: crate::playout::Playout::default(),
             answered: Vec::new(),
             desync_at: crate::dev::desync_at(),
             freeze: crate::dev::freeze_at_shot(),
@@ -1039,6 +1044,9 @@ impl GameScreen {
         next.net.wire = self.net.wire.take();
         next.log = std::mem::take(&mut self.log);
         next.desync_at = None;
+        // What is still queued behind the world that arrived is of that
+        // world: it plays on as it would have.
+        next.playout = std::mem::take(&mut self.playout);
         next.freeze = None;
         next
     }
@@ -1101,7 +1109,43 @@ fn frame(
     // applied on a thread (`screens::loading`), and whatever came behind
     // it waits for it: the order everything is applied in holds.
     let mut drained = loading.take_stash();
-    drained.extend(online.drain(now));
+    let fresh = online.drain(now);
+    if screen.net.is_clock() {
+        drained.extend(screen.playout.flush());
+        drained.extend(fresh);
+    } else {
+        // A guest's timeline goes through the playout buffer (task 148):
+        // the host's steps, orders and world in their order, the steps
+        // at the world's pace. The host gone, all of it at once, before
+        // the word that it went: the clock is this end's after that.
+        let gone = fresh
+            .iter()
+            .any(|e| matches!(e, Event::Closed(_) | Event::Lost(_)));
+        let mut rest = Vec::new();
+        for event in fresh {
+            if crate::playout::Playout::holds(&event) {
+                screen.playout.push(event);
+            } else {
+                rest.push(event);
+            }
+        }
+        if gone {
+            drained.extend(screen.playout.flush());
+        } else {
+            let nominal = session.steps_per_second();
+            let times = session
+                .game
+                .as_ref()
+                .map_or(0, |g| g.world.effective_speed().multiplier());
+            let cap = keys_now.net_buffer_seconds();
+            drained.extend(
+                screen
+                    .playout
+                    .release(dt, nominal * f64::from(times), nominal, cap),
+            );
+        }
+        drained.extend(rest);
+    }
     let mut drained = drained.into_iter();
     while let Some(event) = drained.next() {
         match event {
@@ -1162,6 +1206,15 @@ fn frame(
                             }
                         } else if theirs == mine && crate::dev::auto().is_some() {
                             println!("checksum: {} {mine:#x}", game.world.steps);
+                        }
+                        if crate::dev::auto().is_some() {
+                            let p = &screen.playout;
+                            println!(
+                                "playout: target {:.3} gaps {} frames {:?}",
+                                p.target(),
+                                p.tally.gaps,
+                                p.tally.frames
+                            );
                         }
                     }
                 }

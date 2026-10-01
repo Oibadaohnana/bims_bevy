@@ -87,6 +87,7 @@ mod names;
 mod net;
 mod particles;
 mod perf;
+mod playout;
 mod profile;
 mod save;
 mod scene;

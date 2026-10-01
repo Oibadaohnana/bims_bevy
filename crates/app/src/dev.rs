@@ -61,6 +61,10 @@
 //! parts a guest's world from the host's on purpose at that step, for
 //! looking at the resync ([`desync_at`]); `scratchpad/duo_resync.sh` is
 //! the pair of runs that does, and the host's load with company.
+//! `BIMS_NET_JITTER=<ms>` makes this end's line a shaky one: everything
+//! the relay sends is held a random nought to that many milliseconds, none
+//! overtaking what came before it, the way TCP over a bad link delivers —
+//! for looking at the guest's playout buffer (task 148, [`net_jitter`]).
 
 use bevy::diagnostic::{DiagnosticsStore, FrameCount, FrameTimeDiagnosticsPlugin};
 use bevy::input::ButtonState;
@@ -532,6 +536,14 @@ pub fn auto() -> Option<Auto> {
 /// a host or in a game of one.
 pub fn desync_at() -> Option<u64> {
     std::env::var("BIMS_DESYNC_AT").ok()?.parse().ok()
+}
+
+/// `BIMS_NET_JITTER=<ms>`: how long at most the socket's thread holds
+/// each arrival back (`net::worker`), in order, to play a shaky line —
+/// what the playout buffer (task 148) is for. None, or nought: as it comes.
+pub fn net_jitter() -> Option<std::time::Duration> {
+    let ms: u64 = std::env::var("BIMS_NET_JITTER").ok()?.parse().ok()?;
+    (ms > 0).then(|| std::time::Duration::from_millis(ms))
 }
 
 /// The `end` command's room code: the lobby it opens at the relay, for

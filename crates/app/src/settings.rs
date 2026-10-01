@@ -2,7 +2,8 @@
 //!
 //! One window in the middle of the screen, six pages. The first is the
 //! menu — the UI scale, the edge-scroll speed (task 123, kept in the keys
-//! file beside the bindings), a button each for the audio and the controls, and
+//! file beside the bindings) and the network buffer's cap (task 148, the
+//! same), a button each for the audio and the controls, and
 //! one each for saving, loading and starting the run again, and one back to
 //! the start menu — and the other
 //! five are those, with a way back. The controls page is where every key is
@@ -18,8 +19,10 @@
 
 use bevy_egui::egui;
 
-use crate::keys::{Action, EDGE_SCROLL_MAX, Keys};
-use crate::names::{LOAD_GUEST, MENU_BUTTON, RESTART_BUTTON, RESTART_GUEST, RESTART_NONE};
+use crate::keys::{Action, EDGE_SCROLL_MAX, Keys, NET_BUFFER_MAX};
+use crate::names::{
+    LOAD_GUEST, MENU_BUTTON, NET_BUFFER_HINT, RESTART_BUTTON, RESTART_GUEST, RESTART_NONE,
+};
 use crate::save::{self, Request, Saves};
 use crate::sound::Mix;
 use crate::theme;
@@ -181,6 +184,33 @@ fn menu(
             .clamp(0.0, f32::from(EDGE_SCROLL_MAX)) as u8;
     }
     // Kept when the value settles, not every frame of a drag.
+    if slider.drag_stopped() || (slider.changed() && !slider.dragged()) {
+        keys.save();
+    }
+    ui.add_space(8.0);
+    // The most a guest's world may run behind the host's to play smoothly
+    // over a shaky line (task 148, `crate::playout`): it holds only what
+    // the line needs, up to this. Nought is off. This player's own, kept
+    // with the keys; a host and a game of one never use it.
+    theme::heading(ui, "Network buffer");
+    let mut cap = keys.net_buffer_seconds();
+    let slider = ui
+        .add(
+            egui::Slider::new(&mut cap, 0.0..=f64::from(NET_BUFFER_MAX) / 100.0)
+                .step_by(0.05)
+                .trailing_fill(true)
+                .custom_formatter(|v, _| {
+                    if v <= 0.0 {
+                        "Off".to_string()
+                    } else {
+                        format!("up to {:.0} ms", v * 1000.0)
+                    }
+                }),
+        )
+        .on_hover_text(NET_BUFFER_HINT);
+    if slider.changed() {
+        keys.net_buffer = (cap * 100.0).round().clamp(0.0, f64::from(NET_BUFFER_MAX)) as u8;
+    }
     if slider.drag_stopped() || (slider.changed() && !slider.dragged()) {
         keys.save();
     }
@@ -367,10 +397,12 @@ fn controls(ui: &mut egui::Ui, sheet: &mut Option<Sheet>, keys: &mut Keys) {
     }
     ui.add_space(4.0);
     if ui.button("Reset to defaults").clicked() {
-        // The keys, not the edge-scroll speed: that is the menu's slider.
-        let edge_scroll = keys.edge_scroll;
+        // The keys, not the edge-scroll speed or the network buffer: those
+        // are the menu's sliders.
+        let (edge_scroll, net_buffer) = (keys.edge_scroll, keys.net_buffer);
         *keys = Keys::default();
         keys.edge_scroll = edge_scroll;
+        keys.net_buffer = net_buffer;
         keys.save();
     }
     ui.add_space(8.0);

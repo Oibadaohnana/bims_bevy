@@ -101,7 +101,10 @@ desktop):
 - Two-player runs: a relay (`PORT=18792 target/debug/bims-server`),
   `BIMS_SERVER=ws://127.0.0.1:18792`, `BIMS_AUTO=create` on the host and
   `BIMS_AUTO=join:<code>` on the guest; `scratchpad/duo_resync.sh` is a
-  working pair.
+  working pair. A guest plays the host's steps through a playout buffer
+  (`crates/app/src/playout.rs`, task 148; the keys file's
+  `network-buffer`, 0 off); `BIMS_NET_JITTER=<ms>` shakes a guest's line
+  and `scratchpad/duo_jitter.sh` (`BUFFER=0` for off) compares the two.
 
 ## Verifying a change
 

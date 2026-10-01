@@ -61,12 +61,13 @@
 //! `BIMS_SERVER` names the relay (`wire::DEFAULT_SERVER` otherwise) and
 //! `BIMS_NAME` the name shown in the lobby (`$USER`, else "Player").
 
+use std::collections::VecDeque;
 use std::io::ErrorKind;
 use std::net::TcpStream;
 use std::sync::Mutex;
 use std::sync::mpsc::{Receiver, Sender, TryRecvError, channel};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use bevy::prelude::*;
 use tungstenite::stream::MaybeTlsStream;
@@ -251,6 +252,11 @@ fn worker(url: &str, hello: ClientCtl, out_rx: &Receiver<ClientCtl>, in_tx: &Sen
     if in_tx.send(Incoming::Up).is_err() {
         return;
     }
+    // `BIMS_NET_JITTER`: a shaky line, played — every arrival held back a
+    // random while, in order (`dev::net_jitter`). Off in a real game.
+    let jitter = crate::dev::net_jitter();
+    let mut held: VecDeque<(Instant, ServerCtl)> = VecDeque::new();
+    let mut dice = 0x9e37_79b9_7f4a_7c15_u64 ^ u64::from(std::process::id());
     loop {
         let mut idled = true;
         // Outgoing first, so a message queued this frame goes out in this
@@ -298,6 +304,17 @@ fn worker(url: &str, hello: ClientCtl, out_rx: &Receiver<ClientCtl>, in_tx: &Sen
                 Ok(Frame::Binary(bytes)) => {
                     idled = false;
                     match decode::<ServerCtl>(&bytes) {
+                        Ok(msg) if jitter.is_some() => {
+                            let most = jitter.unwrap_or_default();
+                            dice ^= dice << 13;
+                            dice ^= dice >> 7;
+                            dice ^= dice << 17;
+                            let wait = most.mul_f64((dice >> 11) as f64 / (1u64 << 53) as f64);
+                            let due = held.back().map_or(Instant::now() + wait, |(last, _)| {
+                                (*last).max(Instant::now() + wait)
+                            });
+                            held.push_back((due, msg));
+                        }
                         Ok(msg) => {
                             if in_tx.send(Incoming::Msg(msg)).is_err() {
                                 return; // game gone
@@ -321,6 +338,13 @@ fn worker(url: &str, hello: ClientCtl, out_rx: &Receiver<ClientCtl>, in_tx: &Sen
                     let _ = in_tx.send(Incoming::Down(format!("connection lost: {e}")));
                     return;
                 }
+            }
+        }
+        while held.front().is_some_and(|(due, _)| *due <= Instant::now()) {
+            if let Some((_, msg)) = held.pop_front()
+                && in_tx.send(Incoming::Msg(msg)).is_err()
+            {
+                return;
             }
         }
         if idled {

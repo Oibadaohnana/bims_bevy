@@ -524,6 +524,11 @@ pub const RESYNC_ASKED: &str = "Catching up with the host…";
 pub const RESYNC_DONE: &str = "Back on the host's world.";
 /// A guest's Load is greyed with this: the host's world is the world.
 pub const LOAD_GUEST: &str = "Only the host can load a game.";
+/// The Esc sheet's Network buffer slider, under the pointer (task 148).
+pub const NET_BUFFER_HINT: &str = "On a shaky connection the host's world is played a little \
+     behind, so it runs smoothly instead of stopping and jumping. Only as \
+     much as the connection needs is used, up to this. Matters only when \
+     you join somebody else's game.";
 /// The Esc sheet's Restart (feature 79): the menu's button, the page's
 /// line, the button that does it, and the two reasons it is greyed.
 pub const RESTART_BUTTON: &str = "Restart";
