@@ -509,9 +509,9 @@ mod tests {
         );
         assert_eq!(game.ordered_count(0), 0);
 
-        // A plain order is the end of what was queued: the revive is put
-        // down to be picked up (it is the Bim's own work now), the
-        // queued walk behind it is not.
+        // A plain order is the end of what was queued, and of the revive
+        // it is on: a channel walked away from is dropped, never put down
+        // to be walked back to.
         game.order_later(0, CrewOrder::Move { x: a.x, y: a.y });
         assert_eq!(game.ordered_count(0), 1);
         assert_eq!(
@@ -525,7 +525,8 @@ mod tests {
             ORDER_MOVING
         );
         assert_eq!(game.ordered_count(0), 0, "the plain walk called it off");
-        assert_eq!(game.agenda_len(0), 1, "the revive waits to be picked up");
+        assert_eq!(game.agenda_len(0), 0, "the revive is dropped, not queued");
+        assert_eq!(game.reviving(0), None);
         assert!(game.queued_walks(0).is_empty());
         // What is not an errand is done now, Shift or no.
         game.order_later(0, CrewOrder::Autonomous { on: true });

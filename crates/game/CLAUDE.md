@@ -4693,3 +4693,23 @@ three bolts to put a lamp out and none leaves it failing on the way.
 `a_steered_bim_fires_along_its_facing_only_while_the_trigger_is_held`
 holds an auto rifle now. The survivor pins move (every pistol hits for
 less).
+
+## Walking away from a channel cancels it (October 2026)
+
+> "A chain that is interrupted goes onto the queue" (feature 69's
+> section) and the plain order putting "the revive down to be picked up"
+> are what this narrowed.
+
+A **revive** is a channel like a deploy: `interrupt` drops it
+(`drop_task`) rather than putting it down onto the queue, whatever
+displaced it — a plain order, the keys, the muster, the helper downed.
+A revive put down used to be picked up again with no look at its
+patient, so a player's Bim walked back to a crewmate long since up.
+And **the keys walking a player's own Bim end any errand every step**
+(`tick_bim`), not only the step they start (`order_control`): one begun
+while they were already down — a revive's G, a kit — is dropped with its
+route. `walking_away_from_a_revive_drops_it_for_good` pins it, and
+`a_shift_order_waits_its_turn_and_a_plain_one_calls_the_queue_off` now
+says the revive is gone. No `SAVE_VERSION`/`PROTOCOL`; a bot whose
+revive was interrupted takes it up again only through `revive_on_offer`,
+so the survivor pins may move.

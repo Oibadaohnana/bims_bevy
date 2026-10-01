@@ -3690,6 +3690,14 @@ impl Game {
             Some(Kind::Revive { .. }) => 1.0,
             _ => effort * self.skill(who).effort,
         };
+        // The keys walking it are the end of any errand (task 144), not
+        // only the step they start to (`order_control`): one begun while
+        // they were already down — a revive, a kit — is dropped, never
+        // left to walk back to once they come up — its route neither.
+        if self.bims[who].character.is_steered_walking() && self.bims[who].task.is_some() {
+            self.drop_task(who);
+            self.bims[who].character.follow_path(Vec::new());
+        }
         {
             let (bims, room, maps) = (&mut self.bims, &mut self.room, &self.maps);
             let bim = &mut bims[who];
@@ -4088,11 +4096,14 @@ impl Game {
     /// chains come back in the order they were displaced: the most recently
     /// dropped is the first one resumed.
     ///
-    /// A deploy is the exception: displaced, it is dropped for good, so a
-    /// kit the player placed somewhere else — or walked away from — is
-    /// never laid later behind their back.
+    /// A channel is the exception — a deploy or a revive: displaced, it
+    /// is dropped for good, so a kit the player placed somewhere else —
+    /// or walked away from — is never laid later behind their back, and a
+    /// revive walked away from is never walked back to, the patient up by
+    /// then or not. A revive put down was picked up again with no look at
+    /// whether its patient still lay there.
     fn interrupt(&mut self, who: usize) {
-        if self.is_deploying(who) {
+        if self.is_deploying(who) || self.reviving(who).is_some() {
             self.drop_task(who);
             return;
         }
@@ -12628,6 +12639,69 @@ mod tests {
         // A bot is nobody's to steer.
         game.order(1, control(Some(0.0), 0.0));
         assert!(!game.is_steered(1));
+    }
+
+    /// Walking away from a channel cancels it: a revive begun while the
+    /// keys walk the player's Bim, or one it is kneeling at when they
+    /// start, is dropped — never queued, never walked back to once the
+    /// keys come up, the patient up by then or not.
+    #[test]
+    fn walking_away_from_a_revive_drops_it_for_good() {
+        use crate::math::PI;
+        use crate::order::{CrewOrder, angle_code};
+        let mut game = room();
+        game.set_autonomous(false);
+        game.set_players(1);
+        game.put_for_probe(0, vec2(ROOM_W * 0.3, ROOM_H * 0.5));
+        let lies = game.put_for_probe(1, vec2(ROOM_W * 0.3 + 2.0 * TILE, ROOM_H * 0.5));
+        game.knock_out_for_probe(1);
+        game.simulate(DT);
+        let control = |walk: Option<f32>| CrewOrder::Control {
+            walk: walk.map(angle_code),
+            aim: angle_code(0.0),
+            fire: false,
+        };
+        // Begun while the keys walk it west, away from her.
+        game.order(0, control(Some(PI)));
+        game.order(0, CrewOrder::Revive { who: 0, patient: 1 });
+        game.simulate(DT);
+        assert_eq!(game.reviving(0), None, "the keys walking drop it");
+        assert_eq!(game.agenda_len(0), 0, "and nothing is queued");
+        for _ in 0..20 {
+            game.simulate(DT);
+        }
+        game.order(0, control(None));
+        for _ in 0..30 {
+            game.simulate(DT);
+        }
+        let away = (game.bim_pos(0) - lies).len();
+        for _ in 0..120 {
+            game.simulate(DT);
+        }
+        assert_eq!(game.reviving(0), None);
+        let stood = game.bim_pos(0);
+        assert!(
+            (stood - lies).len() >= away - 0.5,
+            "it did not walk back to her: {stood:?}, {away} off before"
+        );
+
+        // Kneeling at her when the keys go down: dropped too.
+        assert!(game.revive_crewmate(0, 1));
+        let mut steps = 0;
+        while game.revive_share(1).is_none() && steps < 600 {
+            game.simulate(DT);
+            steps += 1;
+        }
+        assert!(game.revive_share(1).is_some(), "hands on her");
+        game.order(0, control(Some(PI)));
+        game.simulate(DT);
+        game.order(0, control(None));
+        for _ in 0..30 {
+            game.simulate(DT);
+        }
+        assert_eq!(game.reviving(0), None);
+        assert_eq!(game.agenda_len(0), 0);
+        assert!(game.is_downed(1), "and she is still down");
     }
 
     #[test]
