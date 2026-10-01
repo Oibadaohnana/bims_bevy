@@ -346,10 +346,10 @@ the four two by two at the right of the abilities, each with its key
 
 | item | | tier one / two / three | price |
 | --- | --- | --- | --- |
-| **Blink Drive** | Active (its key): the Bim put where the pointer is, as far as the drive reaches, on ground it can see and walk to. Not within 3 s of a hit | 6 / 8 / 10 tiles, 14 / 12 / 10 s cooldown | 2 000 / 3 500 / 6 000 |
-| **Executioner** | Weapon hits may be critical. Rolls on its own beside a soldier's Weak Spot — either may come up, and the bigger multiple counts | 12% ×1.6 / 18% ×1.9 / 25% ×2.25 | 2 500 / 4 500 / 8 000 |
-| **Reactor Heart** | More health, and regeneration — faster after 6 s without a hit | +25 / +40 / +60 HP; 0.5 / 1 / 1 HP/s, 1.5 / 3 / 5 HP/s quiet | 2 000 / 4 000 / 7 000 |
-| **Override Core** | The class's ultimate plays **one rank higher** than bought (a rank must be bought), up to a **fifth** rank no skill point buys: the Sentry two at once, the Rampage every grenade back, the Cloak everybody within 3 tiles of the target, the Juggernaut nothing takes him down, the Reinforcements five in armour — and every number a step on | one tier | 6 000 |
+| **Blink Drive** | Active (its key): the Bim put where the pointer is, as far as the drive reaches, on ground it can see and walk to. Not within 3 s of a hit | 6 / 8 / 10 tiles, 14 / 12 / 10 s cooldown | 6 000 / 10 500 / 18 000 |
+| **Executioner** | Weapon hits may be critical. Rolls on its own beside a soldier's Weak Spot — either may come up, and the bigger multiple counts | 12% ×1.6 / 18% ×1.9 / 25% ×2.25 | 7 500 / 13 500 / 24 000 |
+| **Reactor Heart** | More health, and regeneration — faster after 6 s without a hit | +25 / +40 / +60 HP; 0.5 / 1 / 1 HP/s, 1.5 / 3 / 5 HP/s quiet | 6 000 / 12 000 / 21 000 |
+| **Override Core** | The class's ultimate plays **one rank higher** than bought (a rank must be bought), up to a **fifth** rank no skill point buys: the Sentry two at once, the Rampage every grenade back, the Cloak everybody within 3 tiles of the target, the Juggernaut nothing takes him down, the Reinforcements five in armour — and every number a step on | one tier | 18 000 |
 
 The prices are placeholders, shared by the players like every price at a
 trader. `BIMS_ITEMS=blink:3,executioner:2,heart,core` gives the steered
@@ -553,7 +553,7 @@ map. **Tab** opens the Armory beside it.
   is had by combining. Any player buys, with no vote, out of their own
   money — onto their own Bim, onto a bot, or into the armory; what it
   replaces goes into the armory.
-- **The items**: every [item](#items) at the day's tier, never sold out —
+- **The items**: every [item](#items) at the day's tier, one of each a visit (SOLD until the next) —
   onto your own Bim's first free item slot, or into the armory.
 - **The relic**: one a trader, drawn the first time you arrive by the
   same roll as a reward (see [Relics](#relics-and-what-a-won-run-unlocks)),

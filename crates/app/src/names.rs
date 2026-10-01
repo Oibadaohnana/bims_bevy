@@ -2173,8 +2173,10 @@ pub const FIGHT_WON_BOTS: &str = "The rest of the crew";
 pub const FIGHT_WON_RELIC: &str = "Relic kept";
 pub const FIGHT_WON_JOINED: &str = "Townsfolk joined";
 pub const FIGHT_WON_LOST: &str = "Crew lost";
-pub const FIGHT_WON_NEXT: &str = "Back aboard, the crew choose a relic of the site's tier together, then where to go next on the map. Stay, and everything stands still — nobody moves and nobody downed bleeds out — until the button at the bottom right takes everybody back, wherever they are.";
-pub const FIGHT_WON_STAY: &str = "Stay here";
+pub const FIGHT_WON_NEXT: &str = "Everything stands still — nobody moves and nobody downed bleeds out — until Back to ship takes everybody back, wherever they are. Aboard, the crew choose where to go next on the map.";
+/// Under the tally for a player who has no button to press: out of the
+/// fight, the others take the ship home.
+pub const FIGHT_WON_WAITING: &str = "Waiting for the others to go back to the ship.";
 
 /// A player's Bim's experience from the fight, and the levels it rose.
 pub fn fight_won_xp(xp: u32, from: u8, to: u8) -> String {
@@ -2492,7 +2494,7 @@ pub const TRADER_ARMOUR: &str = "Armour";
 /// The item shelf (October 2026): every item at the day's tier, never
 /// sold out.
 pub const TRADER_ITEMS: &str = "Items";
-pub const TRADER_ITEMS_INTRO: &str = "Every item at the tier the day has reached, and never sold out. Onto your own Bim's first free item slot, or into the armory — a bot carries none. Two of a kind at one tier combine into one of the next.";
+pub const TRADER_ITEMS_INTRO: &str = "Every item at the tier the day has reached, one of each a visit. Onto your own Bim's first free item slot, or into the armory — a bot carries none. Two of a kind at one tier combine into one of the next.";
 pub const TRADER_SOLD: &str = "SOLD";
 pub const TRADER_BUY: &str = "Buy";
 pub const TRADER_INTO_ARMORY: &str = "Armory";

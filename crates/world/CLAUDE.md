@@ -6783,7 +6783,8 @@ is `item_use.rs` (a child of `world`, like `relics.rs`); the numbers are
   gun and one piece (`trader::roll_shelf(.., owner, visit, tier)`,
   `Trader::restock` at every `arrive_at_trader`, the visit the world
   clock's minute) and of the item shelf (`item_shelf`: every kind,
-  never sold out). `Command::BuyItem { kind, to }` (`buy_item`):
+  one of each a visit: `Trader::items_sold`, cleared by `restock`, a
+  second `SoldOut`, `World::item_sold`). `Command::BuyItem { kind, to }` (`buy_item`):
   `NotForSale`, the player's own Bim's first free slot or the armory,
   `item_price` through the dials, *Trade License* and the players'
   share. `WorldEvent::ItemBought` (148).

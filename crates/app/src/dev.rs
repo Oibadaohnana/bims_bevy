@@ -165,6 +165,14 @@ pub fn reward() -> bool {
     std::env::var("BIMS_REWARD").as_deref() == Ok("1")
 }
 
+/// `BIMS_FIGHT_WON=1` opens a held site's run with its machines wrecked
+/// wave by wave until it is cleared, the crew still on the frozen deck
+/// (`Session::fight_won_for_probe`): the *Fight won* window up, as it is
+/// after the last machine falls. `bims relics` is a site for it.
+pub fn fight_won() -> bool {
+    std::env::var("BIMS_FIGHT_WON").as_deref() == Ok("1")
+}
+
 /// `BIMS_DICE=1` plays a staged clash of the reward's dice
 /// (`screens::dice::DiceShow::staged`, task 146) the moment the game
 /// screen opens: how the dice are looked at without two players picking

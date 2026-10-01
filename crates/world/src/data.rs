@@ -604,13 +604,13 @@ pub const TRADER_ARMOUR: usize = 1;
 /// What an item costs at a trader (October 2026, `crate::items`), by its
 /// kind's code and its tier, one to three: the *Blink Drive*, the
 /// *Executioner*, the *Reactor Heart* and the *Override Core* (made at
-/// tier one alone, so its row is one price). Placeholders, like the
-/// rest of the prices.
+/// tier one alone, so its row is one price). Three times the first
+/// placeholders (the player's +200%, October 2026).
 pub const ITEM_PRICE: [[Money; 3]; 4] = [
-    [2_000, 3_500, 6_000],
-    [2_500, 4_500, 8_000],
-    [2_000, 4_000, 7_000],
-    [6_000, 6_000, 6_000],
+    [6_000, 10_500, 18_000],
+    [7_500, 13_500, 24_000],
+    [6_000, 12_000, 21_000],
+    [18_000, 18_000, 18_000],
 ];
 /// What the relic at a trader costs, by the relic's own tier: one, two,
 /// three (task 117). The tier is never shown, so the price is the only

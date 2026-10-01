@@ -623,6 +623,16 @@ impl Session {
         }
     }
 
+    /// `BIMS_FIGHT_WON=1`: the site's machines wrecked wave by wave until
+    /// it is cleared, the crew left on the frozen deck — the *Fight won*
+    /// window up. `false` where there was nothing to clear.
+    pub fn fight_won_for_probe(&mut self) -> bool {
+        let Some(game) = self.game.as_mut() else {
+            return false;
+        };
+        game.world.clear_the_site_for_probe(20_000)
+    }
+
     /// `BIMS_REWARD=1` (feature 106): the site's machines wrecked wave by
     /// wave until it is cleared, and the ship off it — the reward screen
     /// up, offering its relics. `false` where there was nothing to clear.

@@ -2135,6 +2135,28 @@ fn item_rows(ui: &mut egui::Ui, world: &World, local: u32, to: u32, orders: &mut
     let wallet = world.wallet(local);
     let onto = (to == local).then_some(local);
     for (row, item) in world.item_shelf().into_iter().enumerate() {
+        // Bought this visit: SOLD, as a slot of the shelf is, until the
+        // next visit.
+        if world.item_sold(local, item.kind.code()) {
+            line_item(
+                ui,
+                wallet,
+                Line {
+                    face: Face::Empty,
+                    tint: None,
+                    name: crate::names::item_name(item.kind),
+                    tier: None,
+                    note: None,
+                    price: 0,
+                    button: "",
+                    open: false,
+                    tip: None,
+                    row,
+                    key: None,
+                },
+            );
+            continue;
+        }
         let price = world.item_price(local, item);
         let thing = bims::combat::Item::Module(item);
         let bought = line_item(

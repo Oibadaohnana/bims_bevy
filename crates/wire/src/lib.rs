@@ -79,7 +79,9 @@ use serde::{Deserialize, Serialize};
 /// 88: items (October 2026) — `Command::{UseItem, BuyItem, EquipAt}`, the
 /// four item slots on every loadout, the blink, the ultimate's fifth rank
 /// and a trader's shelf of one gun and one piece at the day's tier.
-pub const PROTOCOL: u32 = 88;
+/// 89: an item bought off the trader is sold out until the next visit
+/// (`Trader::items_sold`), and the items cost three times what they did.
+pub const PROTOCOL: u32 = 89;
 
 /// Where the relay lives. `BIMS_SERVER` in the environment overrides it
 /// — `ws://127.0.0.1:8792` for one on the same machine.

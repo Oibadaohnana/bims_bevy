@@ -230,7 +230,8 @@ use crate::game::Game;
 /// slots), `Item::Module`, `Health::max`, `GearSlot::Item1..Item4`,
 /// `Run::items` (the blink's cooldowns and when each player was last
 /// hit), `Skill::unyielding`, and a trader's shelf rolled every visit.
-pub const SAVE_VERSION: u32 = 85;
+/// 86: `Trader::items_sold`, the items bought this visit.
+pub const SAVE_VERSION: u32 = 86;
 
 /// What the file holds, read back.
 #[derive(serde::Deserialize)]

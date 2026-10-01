@@ -797,6 +797,13 @@ pub fn world_checksum(world: &World) -> u64 {
                 }
             }
             hash.eat(trader.relic.map_or(u64::MAX, |r| u64::from(r.code())));
+            // The items sold this visit (October 2026), only where any are.
+            if !trader.items_sold.is_empty() {
+                hash.eat(0x_534F_4C44);
+                for &kind in &trader.items_sold {
+                    hash.eat(u64::from(kind));
+                }
+            }
         }
     }
     // The fight chosen in each system (task 135). Eaten only where there

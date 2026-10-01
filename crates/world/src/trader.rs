@@ -38,7 +38,7 @@
 //! rolled off the galaxy's seed, the site, the player and the visit on a
 //! stream of their own ([`roll_shelf`]) — every visit afresh. Beside it
 //! the **items** (`crate::items::shop`): every kind at the day's tier,
-//! never sold out.
+//! one of each a visit.
 
 use bims::combat::{ArmourKind, Item, Tier};
 use physics::ResourceId;
@@ -286,6 +286,10 @@ pub struct Trader {
     /// and goes back in the running — off this table — the first draw after
     /// the trader closes.
     pub relic: Option<Relic>,
+    /// The items bought off the item shelf this visit, by kind's code
+    /// (October 2026): one of a kind a visit, sold out until the next.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub items_sold: Vec<u32>,
 }
 
 impl Trader {
@@ -305,14 +309,17 @@ impl Trader {
             owner,
             shelf: Vec::new(),
             relic,
+            items_sold: Vec::new(),
         };
         trader.restock(galaxy_seed, visit, tier);
         trader
     }
 
     /// The shelf rolled afresh for a visit (October 2026): one weapon and
-    /// one piece at the day's tier, whatever was bought the visit before.
+    /// one piece at the day's tier, whatever was bought the visit before,
+    /// and every item on sale again.
     pub fn restock(&mut self, galaxy_seed: u64, visit: u64, tier: Tier) {
+        self.items_sold.clear();
         self.shelf = roll_shelf(
             galaxy_seed,
             self.site.star,

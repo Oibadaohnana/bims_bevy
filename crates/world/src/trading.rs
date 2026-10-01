@@ -389,7 +389,8 @@ impl World {
     }
 
     /// The trader's item shelf today ([`crate::items::shop`]): every kind
-    /// at the day's tier. The same for every player, and never sold out.
+    /// at the day's tier, the same for every player; one of each a visit
+    /// ([`World::item_sold`]).
     pub fn item_shelf(&self) -> Vec<bims::module::Module> {
         crate::items::shop(self.shop_tier())
     }
@@ -402,6 +403,13 @@ impl World {
         self.trader_share(self.trader_discount_for(slot, price))
     }
 
+    /// Whether player `slot` has bought the item of `kind` (its code) off
+    /// its trader this visit: sold out until the next.
+    pub fn item_sold(&self, slot: u32, kind: u32) -> bool {
+        self.trader_here(slot)
+            .is_some_and(|t| t.items_sold.contains(&kind))
+    }
+
     /// [`Command::BuyItem`]: the item of `kind` off today's item shelf,
     /// paid out of player `slot`'s own wallet, onto `to`'s first free item
     /// slot — a player's own Bim alone — or into the armory with `None`.
@@ -412,8 +420,13 @@ impl World {
         to: Option<u32>,
         events: &mut Vec<WorldEvent>,
     ) {
-        if self.trader_index(slot).is_none() {
+        let Some(at) = self.trader_index(slot) else {
             events.push(refused(slot, Refusal::NotAtATrader));
+            return;
+        };
+        // One of a kind a visit (October 2026): sold out until the next.
+        if self.run.traders[at].items_sold.contains(&kind) {
+            events.push(refused(slot, Refusal::SoldOut));
             return;
         }
         let Some(item) = bims::module::ModuleKind::from_code(kind)
@@ -447,6 +460,7 @@ impl World {
             events.push(refused(slot, Refusal::Unaffordable));
             return;
         }
+        self.run.traders[at].items_sold.push(kind);
         let thing = Item::Module(item);
         match onto {
             Some((who, part)) => {

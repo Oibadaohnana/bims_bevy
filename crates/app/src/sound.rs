@@ -688,9 +688,9 @@ impl Sounds {
         }
     }
 
-    /// A purchase at the trader — a thing off the shelf or the relic —
-    /// by anyone in the crew, the player or another: the world's
-    /// `ShelfBought` or `RelicBought`, which every window hears. Not a
+    /// A purchase at the trader — a thing off the shelf, an item or the
+    /// relic — by anyone in the crew, the player or another: the world's
+    /// `ShelfBought`, `ItemBought` or `RelicBought`, which every window hears. Not a
     /// place in the room, so all purchases share one cool-down.
     pub fn bought(&mut self, commands: &mut Commands) {
         if self.admit(Kind::Bought, bims::math::Vec2::ZERO) {

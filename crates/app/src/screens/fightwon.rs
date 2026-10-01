@@ -44,7 +44,8 @@ pub struct FightTally {
     people: u32,
     /// A town's survivors who joined the crew when it was held.
     joined: u32,
-    /// The player said *Stay here*, or pressed *Back to ship* on it.
+    /// The player pressed *Back to ship* on it: the one way it is put
+    /// away before the mission ends.
     dismissed: bool,
 }
 
@@ -102,10 +103,10 @@ impl FightTally {
 }
 
 /// The screen itself: a modal over the dimmed deck, the fight's earnings
-/// in rows, what comes next, and two buttons — *Back to ship*, which is
-/// the bottom-right button's own order, and *Stay here*, which puts the
-/// screen away for the rest of the mission (the button at the bottom
-/// right is still there for when the crew are done).
+/// in rows, what comes next, and *Back to ship* — the bottom-right
+/// button's own order, and the one way to put it away: a click beside it
+/// or Esc does nothing, so a stray click after a fight never loses it. A
+/// player who is out has no button and is told the others will go.
 pub fn fight_won_window(
     ctx: &egui::Context,
     tally: &mut FightTally,
@@ -138,8 +139,7 @@ pub fn fight_won_window(
     };
     let bots_xp: u32 = (players..crew).map(|who| gained(who).0).sum();
     let out = world.run.is_out(local);
-    let returning = world.run.is_returning(local);
-    let mut stay = false;
+    let mut pressed = false;
     let modal =
         egui::Modal::new(egui::Id::new("fight-won"))
             .backdrop_color(egui::Color32::from_black_alpha(150))
@@ -245,26 +245,24 @@ pub fn fight_won_window(
                 ui.add_space(8.0);
                 ui.add(egui::Label::new(egui::RichText::new(FIGHT_WON_NEXT).small()).wrap());
                 ui.add_space(8.0);
-                ui.horizontal(|ui| {
-                    if !out && !returning {
-                        let press = ui.add(
-                            egui::Button::new(egui::RichText::new(BACK_TO_SHIP).strong())
-                                .min_size(egui::vec2(150.0, 30.0)),
-                        );
-                        if press.clicked() {
-                            orders.push(Order::ReturnToShip);
-                            stay = true;
-                        }
+                if out {
+                    ui.label(egui::RichText::new(FIGHT_WON_WAITING).color(theme::MUTED));
+                } else {
+                    let press = ui.add(
+                        egui::Button::new(egui::RichText::new(BACK_TO_SHIP).strong())
+                            .min_size(egui::vec2(150.0, 30.0)),
+                    );
+                    if press.clicked() {
+                        orders.push(Order::ReturnToShip);
+                        pressed = true;
                     }
-                    if ui
-                        .add(egui::Button::new(FIGHT_WON_STAY).min_size(egui::vec2(110.0, 30.0)))
-                        .clicked()
-                    {
-                        stay = true;
-                    }
-                });
+                }
             });
-    if stay || modal.should_close() {
+    // Only the button puts it away: a click beside the window or Esc
+    // (what egui's modal calls closing it) is ignored, so a stray click
+    // after a fight never loses the way back.
+    let _ = modal;
+    if pressed {
         tally.dismissed = true;
     }
 }

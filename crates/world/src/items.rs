@@ -10,8 +10,8 @@
 //! A trader's **item shelf** ([`shop`]) has every kind at the tier the
 //! day has reached — tier one until the scaling's tier-two day, tier two
 //! until its tier-three day, tier three after ([`shop_tier`], the days
-//! the machines' tiers run on, `scaling.ron`) — and never runs out: it is
-//! Dota's shop, not a shelf of things. A tier above the day's is had by
+//! the machines' tiers run on, `scaling.ron`) — one of each kind a visit,
+//! sold out until the next (`Trader::items_sold`). A tier above the day's is had by
 //! **combining** two of a kind at one tier, at the trader, as a gun or a
 //! piece is ([`crate::trader::combined`]). The *Override Core* is one
 //! thing at one tier and combines into nothing.

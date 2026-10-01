@@ -163,7 +163,7 @@ fn a_trader_sells_items_at_the_day_s_tier_and_two_combine() {
     assert_eq!(world.items_of(0)[0], Some(crit));
     let events = world.step(&[Command::BuyItem {
         slot: 0,
-        kind: ModuleKind::Executioner.code(),
+        kind: ModuleKind::ReactorHeart.code(),
         to: Some(1),
     }]);
     assert!(
@@ -176,14 +176,31 @@ fn a_trader_sells_items_at_the_day_s_tier_and_two_combine() {
         to: None,
     }]);
     assert!(refused_with(&events, Refusal::NotForSale), "{events:?}");
-    // Two blinks of the day's tier into the armory, combined a tier up.
-    for _ in 0..2 {
-        world.step(&[Command::BuyItem {
-            slot: 0,
-            kind: ModuleKind::BlinkDrive.code(),
-            to: None,
-        }]);
-    }
+    // One of a kind a visit: a second Executioner is sold out until the
+    // next, and so is a second blink.
+    assert!(world.item_sold(0, ModuleKind::Executioner.code()));
+    let events = world.step(&[Command::BuyItem {
+        slot: 0,
+        kind: ModuleKind::Executioner.code(),
+        to: None,
+    }]);
+    assert!(refused_with(&events, Refusal::SoldOut), "{events:?}");
+    world.step(&[Command::BuyItem {
+        slot: 0,
+        kind: ModuleKind::BlinkDrive.code(),
+        to: None,
+    }]);
+    let events = world.step(&[Command::BuyItem {
+        slot: 0,
+        kind: ModuleKind::BlinkDrive.code(),
+        to: None,
+    }]);
+    assert!(refused_with(&events, Refusal::SoldOut), "{events:?}");
+    // A second blink of the tier from another visit, and the two combined
+    // a tier up.
+    world
+        .holdings
+        .put(Item::Module(ModuleKind::BlinkDrive.at(tier)));
     let ids: Vec<u32> = world
         .holdings
         .armory

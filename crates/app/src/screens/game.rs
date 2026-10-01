@@ -834,6 +834,9 @@ fn open(
             if crate::dev::reward() && !session.reward_for_probe() {
                 eprintln!("BIMS_REWARD: no held site to clear, or nothing left to offer");
             }
+            if crate::dev::fight_won() && !session.fight_won_for_probe() {
+                eprintln!("BIMS_FIGHT_WON: no held site to clear");
+            }
             // A fight staged at the dock, one machine and the steered Bim.
             if let Some(kind) = crate::dev::duel()
                 && let Some(game) = session.game.as_mut()
@@ -1393,7 +1396,9 @@ fn frame(
             // heard by the host and the other way round.
             if matches!(
                 event,
-                WorldEvent::ShelfBought { .. } | WorldEvent::RelicBought { .. }
+                WorldEvent::ShelfBought { .. }
+                    | WorldEvent::RelicBought { .. }
+                    | WorldEvent::ItemBought { .. }
             ) {
                 sounds.bought(&mut commands);
             }
