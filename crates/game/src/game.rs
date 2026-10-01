@@ -1275,7 +1275,30 @@ impl Game {
     /// the simulation reads is touched.
     pub fn fade(&mut self, dt: f32) {
         self.combat.fx.age(dt);
+        // A paused frame leaves no wake: nothing has moved.
+        if dt > 0.0 {
+            self.combat.wakes();
+        }
         self.age_markers(dt);
+    }
+
+    /// Whether a host ages this room's passing lights, which is when it
+    /// records any (`crate::fx::Fx::is_on`).
+    pub fn fx_on(&self) -> bool {
+        self.combat.fx.is_on()
+    }
+
+    /// The particles this room has spawned since the host last asked
+    /// (`crate::fx::Spray`), for its GPU: taken.
+    pub fn take_sprays(&mut self) -> Vec<crate::fx::Spray> {
+        self.combat.fx.take_sprays()
+    }
+
+    /// Spawn a spray in this room for the host's GPU — what the world's
+    /// abilities look like, spawned by the host off its events. Nothing
+    /// while no host ages the room.
+    pub fn spray(&mut self, spray: crate::fx::Spray) {
+        self.combat.fx.spray(spray);
     }
 
     /// The pings on the deck grown older by `dt`, and the spent ones gone.

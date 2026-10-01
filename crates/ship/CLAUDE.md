@@ -1184,3 +1184,43 @@ the app aims at (`Game::aimed`: picked, else the one on the table) is a
 `HEADING_RING` in `HEADING` violet over a dark edge, with a dashed line
 from the ship in its own system. A trader's icon wears `paint_euro` at its
 upper-right shoulder. The ship's reticle is a pixel heavier.
+
+## The fight's particles run on the GPU (October 2026)
+
+Sparks off every muzzle and landing, a bolt's wake, a grenade's fire,
+flame ring and smoke, an EMP's lightning, a machine bursting, and every
+class ability: the commander's Rally and Battle Cry are a ring of light
+running out over their whole reach with motes rising in it, plus a
+Nanite Burst's green, a Taunt's and a Juggernaut's red, the Bulwark's
+blue, a Rampage's fire, a cloak drawn in and a reinforcement beamed down.
+While an ability runs, embers, motes or a shimmer come off the body, and
+green motes run along a medic's beam and a Healing Sentry's lines.
+
+- **One record a spray, and nothing more from the CPU.**
+  `bims::fx::Spray` (kind, where, which way, reach, life, colour, count,
+  seed) is queued on the room's `Fx` (`Fx::spray`, cut into records of
+  `SPRAY_MOST` = 16), so like every passing light it is **recorded only
+  in a room a host ages**: tests, probes and servers spawn none, and
+  nothing a rule reads is touched. The room spawns its own sprays
+  (`Fx::muzzle`/`landed`/`critical`/`pierced`/`cut`/`shield`/`burst`,
+  `Fx::explosion`/`emp` from `Combat::tick_grenades`, and the wakes from
+  `Combat::wakes` in `Game::fade`). The abilities are this crate's
+  `sprays.rs`: `abilities` runs off the world events in `Game::step` and
+  `send`, so every peer sees every player's, and `running` runs once a
+  frame from `Session::age_effects`, a beat every `BEAT` of real seconds.
+- **`Session::take_sprays`** drains both rooms and puts each spray into
+  the camera's units: the crew's room through `room_point_on_screen`, the
+  residents' room through the turn and shift `stations` lays its picture
+  with.
+- **The app** (`crates/app/src/particles.rs`, `particles.wgsl`) keeps a
+  ring of `SLOTS` (2048) records, stamped with a particle clock that runs
+  on real seconds and stands still while paused. Each frame it uploads
+  the whole ring and the view to one storage buffer, over a fixed mesh of
+  `SLOTS × 16` quads. The vertex stage works out each particle (where it
+  has flown, how big, how cooled and faded) from its record and the
+  clock alone; nothing is stepped or read back. The layer goes straight
+  after the over-fog shapes (`WorldCanvas::particles`). Particles are
+  added to the picture (premultiplied, alpha nought), except smoke, which
+  is laid over it as a light grey haze, because dark smoke over the dark
+  deck did not show. A channel past white blooms. `BIMS_PARTICLES=0`
+  draws none.

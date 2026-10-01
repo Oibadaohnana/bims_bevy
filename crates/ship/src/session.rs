@@ -1385,7 +1385,18 @@ impl Session {
             if let Some(residents) = &mut game.world.residents {
                 residents.aboard.room.fade(real);
             }
+            crate::sprays::running(game, real);
         }
+    }
+
+    /// The particles every room spawned since the last call, in the
+    /// camera's units, for the host's GPU (`crate::sprays`). Empty before
+    /// there is a world.
+    pub fn take_sprays(&mut self) -> Vec<bims::fx::Spray> {
+        self.game
+            .as_mut()
+            .map(crate::sprays::take)
+            .unwrap_or_default()
     }
 
     /// Rebuild the shape buffer and hand it back.

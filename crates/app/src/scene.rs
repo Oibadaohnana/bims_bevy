@@ -131,6 +131,7 @@ impl Plugin for ScenePlugin {
     fn build(&self, app: &mut App) {
         load_internal_asset!(app, CANVAS_SHADER, "canvas.wgsl", Shader::from_wgsl);
         load_internal_asset!(app, SHAPE_SHADER, "shape.wgsl", Shader::from_wgsl);
+        crate::particles::build(app);
         app.add_plugins(Material2dPlugin::<CanvasMaterial>::default())
             .add_plugins(Material2dPlugin::<ShapeMaterial>::default())
             .init_resource::<Frame>()
@@ -142,8 +143,11 @@ impl Plugin for ScenePlugin {
                 // After the screens have painted — they run in egui's
                 // pass — and before anything reads where a layer is or
                 // whether it shows, so a layer is drawn the frame it was
-                // painted in.
-                sync.after(EguiPostUpdateSet::EndPass)
+                // painted in. The particles' layer after the rest, once
+                // `sync` has said where it goes.
+                (sync, crate::particles::sync)
+                    .chain()
+                    .after(EguiPostUpdateSet::EndPass)
                     .before(CameraUpdateSystems)
                     .before(TransformSystems::Propagate)
                     .before(VisibilitySystems::CheckVisibility),
@@ -337,6 +341,9 @@ enum Layer {
     Mesh(MeshLayer),
     /// Shapes, a record each, for `shape.wgsl`.
     Shapes { clip: Vec4, records: Vec<Record> },
+    /// The fight's particles (`particles.rs`): one layer at most, its
+    /// sprays kept in `particles::Particles`.
+    Particles { clip: Vec4 },
 }
 
 struct MeshLayer {
@@ -368,6 +375,8 @@ pub struct WorldCanvas<'w> {
     /// The crew's light map for the GPU to draw this frame, if the room
     /// handed one over (`lightmap.rs`, task 121).
     light: ResMut<'w, crate::lightmap::LightJob>,
+    /// The fight's particles, simulated on the GPU (`particles.rs`).
+    particles: ResMut<'w, crate::particles::Particles>,
 }
 
 impl WorldCanvas<'_> {
@@ -450,6 +459,26 @@ impl WorldCanvas<'_> {
             ]);
         }
         self.push(ppp, Layer::Mesh(layer));
+    }
+
+    /// Paint the fight's particles into `rect`, over whatever was painted
+    /// before them: the clock on by `dt` real seconds (nought while
+    /// paused), `sprays` — spawned since the last frame, in world units —
+    /// added to the ring, and every live one drawn under `view` by the
+    /// GPU (`particles.rs`).
+    pub fn particles(
+        &mut self,
+        ctx: &egui::Context,
+        rect: Rect,
+        view: View,
+        dt: f32,
+        sprays: &[bims::fx::Spray],
+    ) {
+        self.particles.feed(dt, sprays);
+        self.particles.set_view(view.scale, view.offset + rect.min);
+        let ppp = ctx.pixels_per_point();
+        let clip = clip_of(rect, ppp);
+        self.push(ppp, Layer::Particles { clip });
     }
 
     /// The images a picture is kept in between frames.
@@ -546,7 +575,9 @@ fn sync(
     mut placed: Query<(&mut Transform, &mut Visibility, &mut Mesh2d)>,
     mut projection: Query<&mut Projection, With<Camera2d>>,
     window: Query<&Window, With<PrimaryWindow>>,
+    mut particles: ResMut<crate::particles::Particles>,
 ) {
+    particles.placed = None;
     let _timed = crate::perf::scope(crate::perf::Phase::Upload);
     // A point, in the projection's logical pixels: what the UI scale is.
     if let (Some(ppp), Ok(window)) = (frame.pixels_per_point, window.single())
@@ -591,6 +622,7 @@ fn sync(
                 );
                 used_shapes += 1;
             }
+            Layer::Particles { clip } => particles.placed = Some((z, clip)),
         }
     }
     // A frame with no shapes at all (the menus, the map) lets the shape

@@ -3512,6 +3512,13 @@ fn frame(
         if !map_up {
             world_canvas.shapes(&ctx, canvas, view, session.fog_split().1);
         }
+        // And the particles over the shots, simulated on the GPU: what the
+        // rooms and the abilities spawned this frame goes on the ring
+        // whether or not the deck is shown, so none pile up behind the map.
+        let sprays = session.take_sprays();
+        if !map_up {
+            world_canvas.particles(&ctx, canvas, view, bars_dt, &sprays);
+        }
     }
 
     // And the red crosshair while the attack key has the pointer armed

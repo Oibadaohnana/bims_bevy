@@ -141,6 +141,10 @@ pub struct Game {
     /// door and shut when nobody is, and nothing that decides anything
     /// reads it — the passage is walkable whatever the door looks like.
     pub airlock_ajar: f32,
+    /// How many of the running abilities' particles are owed, a beat
+    /// at a time (`crate::sprays::running`): a picture clock on real
+    /// seconds, never saved.
+    pub(crate) spray_due: f32,
     /// The stations' own pictures as last drawn, kept for the next frame
     /// and used again while each is still the picture of its station
     /// (`world_paint::KeptStation`, task 122). The picture's and nothing
@@ -235,6 +239,7 @@ impl Game {
             ghost_check: None,
             frame: 0,
             airlock_ajar: 0.0,
+            spray_due: 0.0,
             kept_stations: Vec::new(),
             shown: None,
             shown_own: None,
@@ -279,6 +284,7 @@ impl Game {
             ghost_check: None,
             frame: 0,
             airlock_ajar: 0.0,
+            spray_due: 0.0,
             kept_stations: Vec::new(),
             shown: None,
             shown_own: None,
@@ -551,6 +557,7 @@ impl Game {
             self.world.ship.state.code(),
         );
         let events = self.world.step(&commands);
+        crate::sprays::abilities(self, &events);
         self.events.extend(events);
         // The ship may have changed under a still pointer — a part built, a
         // site laid out, the ship set off — and then the blueprint's answer
@@ -575,6 +582,7 @@ impl Game {
     pub fn send(&mut self, command: Command) {
         if World::applies_at_once(&command) {
             let events = self.world.apply_now(command);
+            crate::sprays::abilities(self, &events);
             self.events.extend(events);
             return;
         }

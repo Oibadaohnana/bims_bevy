@@ -939,6 +939,10 @@ struct Blast {
 /// How long a burst's flash lasts, in seconds.
 const BLAST_LIFE: f32 = 0.45;
 
+/// How far back along its flight a bolt's wake is laid each frame, in
+/// room units (`Combat::wakes`).
+const WAKE_LENGTH: f32 = 22.0;
+
 /// An engineer's sentry as the room keeps it (feature 74): a shooter
 /// that is not a body — a position on the deck, a weapon, a [`Skill`]
 /// its owner's talents made and a trigger. The world owns the sentry —
@@ -2223,6 +2227,12 @@ impl Combat {
                 age: 0.0,
                 emp: g.stun > 0.0,
             });
+            // The particles over the flash: the host's, never read back.
+            if g.stun > 0.0 {
+                self.fx.emp(g.at, g.radius);
+            } else {
+                self.fx.explosion(g.at, g.radius);
+            }
             self.cues.push(Cued {
                 cue: if g.stun > 0.0 {
                     Cue::EmpBurst
@@ -2263,6 +2273,26 @@ impl Combat {
                 cue: Cue::Impact { on_crew: false },
                 at,
             });
+        }
+    }
+
+    /// What flies leaves its wake for a frame of the host's (`Game::fade`):
+    /// motes behind every bolt along the last stretch of its flight, and a
+    /// spark off every lit fuse lying on the deck. Particles only.
+    pub fn wakes(&mut self) {
+        if !self.fx.is_on() {
+            return;
+        }
+        for bolt in &self.bolts {
+            let dir = bolt.vel.normalize_or_zero();
+            let flown = (bolt.pos - bolt.fired_from).len();
+            let tail = bolt.pos - dir * flown.min(WAKE_LENGTH);
+            self.fx.trail(tail, bolt.pos, bolt.weapon, bolt.hostile);
+        }
+        for g in &self.grenades {
+            if g.fuse - g.left >= GRENADE_FLIGHT {
+                self.fx.fuse(g.at);
+            }
         }
     }
 

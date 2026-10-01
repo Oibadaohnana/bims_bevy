@@ -30,6 +30,7 @@ pub mod hull;
 pub mod paint;
 pub mod save;
 pub mod session;
+pub mod sprays;
 pub mod view;
 pub mod world_paint;
 

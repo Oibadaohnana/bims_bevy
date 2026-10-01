@@ -156,6 +156,132 @@ pub const SCORCH_CAP: usize = 40;
 pub const STRUCK_CAP: usize = 32;
 pub const BURST_CAP: usize = 8;
 
+// --- the particles (sprays) -------------------------------------------------
+
+/// How a spray's particles move — the host's GPU works out every particle
+/// of a spray from its one record (`crates/app/src/particles.wgsl`), so
+/// the codes here are that shader's and are never renumbered.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[repr(u32)]
+pub enum SprayKind {
+    /// Streaks thrown along `to - at`, fanned `spread` either side,
+    /// slowing to a stop `reach` out.
+    Sparks = 0,
+    /// Motes left along the line `at`–`to`, drifting off it a little and
+    /// fading: a bolt's wake.
+    Trail = 1,
+    /// Hot dots flung every way out to `reach`, cooling from their colour
+    /// to a dull red as they slow.
+    Embers = 2,
+    /// Puffs pushed out to `reach`, swelling and thinning; laid over the
+    /// picture rather than added to it, so they darken.
+    Smoke = 3,
+    /// Crackling: short jagged streaks jumping about within `reach`.
+    Arcs = 4,
+    /// A ring of motes running out to `reach`: a shockwave, an aura called.
+    Nova = 5,
+    /// Motes rising out of the disc of `reach` and twinkling out.
+    Motes = 6,
+    /// Motes spiralling in from the circle of `reach` to its middle.
+    Swirl = 7,
+}
+
+/// One spray of particles: everything the host's GPU needs to draw all
+/// of them for their whole lives, at whatever frame it asks — where,
+/// which way, how far, how long, what colour, how many and the seed the
+/// GPU scatters them by. In the room's units; the host turns them onto
+/// the screen.
+#[derive(Clone, Copy, Debug)]
+pub struct Spray {
+    pub kind: SprayKind,
+    pub at: Vec2,
+    /// The way it is thrown, as a point (`at` plus the direction), or the
+    /// far end of a [`SprayKind::Trail`].
+    pub to: Vec2,
+    /// How far out it reaches, in room units.
+    pub reach: f32,
+    /// The longest a particle of it lives, in real seconds.
+    pub life: f32,
+    /// Its colour; past white glows.
+    pub colour: Color,
+    /// How many particles, at most [`SPRAY_MOST`].
+    pub count: u32,
+    /// What the GPU's hash starts from: [`Fx::spray`] numbers each.
+    pub seed: u32,
+    /// How far either side of the way a spark may turn, radians.
+    pub spread: f32,
+    /// How big one particle is across, in room units.
+    pub dot: f32,
+}
+
+impl Spray {
+    /// A spray of `kind` at `at`, thrown towards `to`: the rest left at
+    /// plain values for the builder methods below.
+    pub fn new(kind: SprayKind, at: Vec2, to: Vec2) -> Spray {
+        Spray {
+            kind,
+            at,
+            to,
+            reach: 10.0,
+            life: 0.3,
+            colour: Color::rgb(1.0, 1.0, 1.0),
+            count: 8,
+            seed: 0,
+            spread: 0.6,
+            dot: 1.5,
+        }
+    }
+
+    /// Thrown along `dir` rather than at a point.
+    pub fn along(kind: SprayKind, at: Vec2, dir: Vec2) -> Spray {
+        Spray::new(kind, at, at + dir.normalize_or_zero())
+    }
+
+    pub fn reach(self, reach: f32) -> Spray {
+        Spray { reach, ..self }
+    }
+
+    pub fn life(self, life: f32) -> Spray {
+        Spray { life, ..self }
+    }
+
+    pub fn colour(self, colour: Color) -> Spray {
+        Spray { colour, ..self }
+    }
+
+    pub fn count(self, count: u32) -> Spray {
+        Spray { count, ..self }
+    }
+
+    pub fn spread(self, spread: f32) -> Spray {
+        Spray { spread, ..self }
+    }
+
+    pub fn dot(self, dot: f32) -> Spray {
+        Spray { dot, ..self }
+    }
+}
+
+/// The most particles one spray record holds: a bigger spray is cut into
+/// records of this many. The GPU's quads are laid out by it.
+pub const SPRAY_MOST: u32 = 16;
+/// The most spray records waiting for the host between two frames, the
+/// oldest dropped first.
+pub const SPRAY_CAP: usize = 768;
+
+/// The colours the sprays are in that are no gun's side: a grenade's fire
+/// and its smoke, the plain grey of dust off a wall.
+pub const FIRE: Color = Color::rgb(1.0, 0.56, 0.2);
+pub const FIRE_HEAT: f32 = 2.2;
+/// Smoke is a grey haze laid over the deck: dark smoke over a dark deck
+/// is nothing at all.
+pub const SMOKE: Color = Color::rgba(0.40, 0.38, 0.36, 0.5);
+pub const DUST: Color = Color::rgba(0.42, 0.40, 0.37, 0.35);
+/// How many motes a bolt leaves a frame in its wake, and how long one
+/// lasts.
+pub const TRAIL_MOTES: u32 = 2;
+pub const TRAIL_LIFE: f32 = 0.24;
+
 /// How long a Guardian's shield flares where a bolt or a blow stopped
 /// on it (feature 100), and how far round the plate the flare runs either
 /// side of the spot, in radians.
@@ -311,6 +437,10 @@ pub struct Fx {
     scorches: Vec<Scorch>,
     struck: Vec<Struck>,
     bursts: Vec<Burst>,
+    /// The particles spawned since the host last took them
+    /// ([`Fx::take_sprays`]): drawn and aged by the host's GPU, never
+    /// here.
+    sprays: Vec<Spray>,
     /// Counts every effect spawned, for [`scatter`].
     seq: u32,
 }
@@ -373,6 +503,150 @@ impl Fx {
         self.seq
     }
 
+    /// Spawn a spray of particles, for the host's GPU to draw: cut into
+    /// records of [`SPRAY_MOST`], each numbered for the GPU's hash.
+    /// Nothing while no host ages the room, like every effect here.
+    pub fn spray(&mut self, spray: Spray) {
+        if !self.on || spray.life <= 0.0 {
+            return;
+        }
+        let mut left = spray.count;
+        while left > 0 {
+            let count = left.min(SPRAY_MOST);
+            left -= count;
+            let seed = self.next();
+            capped(
+                &mut self.sprays,
+                SPRAY_CAP,
+                Spray {
+                    count,
+                    seed,
+                    ..spray
+                },
+            );
+        }
+    }
+
+    /// The sprays spawned since the last call, for the host to hand its
+    /// GPU: taken, so each is drawn from once.
+    pub fn take_sprays(&mut self) -> Vec<Spray> {
+        std::mem::take(&mut self.sprays)
+    }
+
+    /// A grenade burst at `at`, `radius` round (feature 75's flash is the
+    /// fight's own, `Combat::draw`): fire flung out and cooling, sparks,
+    /// a ring of flame running out to the edge, and smoke rolling out and
+    /// hanging.
+    pub fn explosion(&mut self, at: Vec2, radius: f32) {
+        let up = vec2(0.0, -1.0);
+        self.spray(
+            Spray::along(SprayKind::Embers, at, up)
+                .reach(radius * 1.05)
+                .life(1.0)
+                .colour(FIRE.glowing(FIRE_HEAT))
+                .count(48)
+                .dot(4.0),
+        );
+        self.spray(
+            Spray::along(SprayKind::Sparks, at, up)
+                .reach(radius * 1.5)
+                .life(0.45)
+                .colour(BURST_SPARK.glowing(2.6))
+                .count(24)
+                .spread(TAU)
+                .dot(1.8),
+        );
+        self.spray(
+            Spray::along(SprayKind::Nova, at, up)
+                .reach(radius)
+                .life(0.35)
+                .colour(FIRE.glowing(1.8))
+                .count(32)
+                .dot(9.0),
+        );
+        self.spray(
+            Spray::along(SprayKind::Smoke, at, up)
+                .reach(radius * 0.85)
+                .life(2.4)
+                .colour(SMOKE)
+                .count(24)
+                .dot(radius * 0.3),
+        );
+    }
+
+    /// An EMP's burst at `at`, `radius` round (task 127): a ring of the
+    /// stun's blue running out, lightning crackling through the radius,
+    /// blue sparks and a haze of charge that lingers.
+    pub fn emp(&mut self, at: Vec2, radius: f32) {
+        let blue = crate::droid::STUNNED;
+        let up = vec2(0.0, -1.0);
+        self.spray(
+            Spray::along(SprayKind::Nova, at, up)
+                .reach(radius)
+                .life(0.5)
+                .colour(blue.glowing(2.2))
+                .count(48)
+                .dot(5.0),
+        );
+        self.spray(
+            Spray::along(SprayKind::Arcs, at, up)
+                .reach(radius * 0.95)
+                .life(0.7)
+                .colour(blue.mix(CORE_WHITE, 0.5).glowing(2.6))
+                .count(32)
+                .dot(1.6),
+        );
+        self.spray(
+            Spray::along(SprayKind::Sparks, at, up)
+                .reach(radius * 0.8)
+                .life(0.4)
+                .colour(blue.glowing(2.4))
+                .count(16)
+                .spread(TAU)
+                .dot(1.4),
+        );
+        self.spray(
+            Spray::along(SprayKind::Motes, at, up)
+                .reach(radius * 0.9)
+                .life(1.3)
+                .colour(blue.glowing(1.5))
+                .count(24)
+                .dot(3.0),
+        );
+    }
+
+    /// A bolt's wake this frame: a few motes along the stretch of its
+    /// flight from `tail` to `head`, in its side's colour.
+    pub fn trail(&mut self, tail: Vec2, head: Vec2, weapon: Weapon, hostile: bool) {
+        let (width, heat) = tier_look(weapon.tier);
+        let (count, dot) = match weapon.kind {
+            WeaponKind::SniperRifle | WeaponKind::RailLance => (TRAIL_MOTES + 1, 1.7),
+            WeaponKind::Minigun => (1, 1.0),
+            _ => (TRAIL_MOTES, 1.3),
+        };
+        self.spray(
+            Spray::new(SprayKind::Trail, tail, head)
+                .reach(5.0)
+                .life(TRAIL_LIFE)
+                .colour(hot(hostile, 1.1 + heat * 0.4))
+                .count(count)
+                .dot(dot * width),
+        );
+    }
+
+    /// A lit fuse spitting: a spark or two off a grenade lying at `at`.
+    pub fn fuse(&mut self, at: Vec2) {
+        self.spray(
+            Spray::along(SprayKind::Sparks, at + vec2(4.0, -4.0), vec2(0.3, -1.0))
+                .reach(9.0)
+                .life(0.25)
+                .colour(Color::rgb(1.0, 0.85, 0.35).glowing(2.4))
+                .count(1)
+                .spread(1.2)
+                .dot(1.0),
+        );
+    }
+
     fn flare(&mut self, at: Vec2, light: Light, hostile: bool, weapon: Weapon, life: f32) {
         if !self.on || life <= 0.0 {
             return;
@@ -402,8 +676,27 @@ impl Fx {
 
     /// A shot left a muzzle at `at`, along `dir`.
     pub fn muzzle(&mut self, at: Vec2, dir: Vec2, weapon: Weapon, hostile: bool) {
-        let (life, _) = muzzle_look(weapon.kind);
+        let (life, size) = muzzle_look(weapon.kind);
         let dir = dir.normalize_or_zero();
+        if life > 0.0 {
+            // Sparks spat out of the bore along the shot.
+            let (width, heat) = tier_look(weapon.tier);
+            let (count, spread) = match weapon.kind {
+                WeaponKind::Shotgun => (6, 0.45),
+                WeaponKind::RailLance => (8, 0.2),
+                WeaponKind::Minigun | WeaponKind::AutoRifle => (2, 0.35),
+                _ => (4, 0.3),
+            };
+            self.spray(
+                Spray::along(SprayKind::Sparks, at, dir)
+                    .reach(size * 2.6)
+                    .life(0.16)
+                    .colour(hot(hostile, 1.6 + heat))
+                    .count(count)
+                    .spread(spread)
+                    .dot(1.1 * width),
+            );
+        }
         self.flare(
             at,
             Light::Muzzle {
@@ -439,6 +732,37 @@ impl Fx {
             weapon,
             IMPACT_LIFE,
         );
+        // Sparks thrown back the way it came; off a wall, hot flecks of
+        // it and a puff of dust besides.
+        let (width, heat) = tier_look(weapon.tier);
+        let back = dir * -1.0;
+        self.spray(
+            Spray::along(SprayKind::Sparks, at, back)
+                .reach(if on_body { 16.0 } else { 24.0 } * width)
+                .life(0.3)
+                .colour(hot(hostile, 1.8 + heat))
+                .count(if on_body { 5 } else { 8 })
+                .spread(1.2)
+                .dot(1.2 * width),
+        );
+        if !on_body {
+            self.spray(
+                Spray::along(SprayKind::Embers, at, back)
+                    .reach(9.0)
+                    .life(0.55)
+                    .colour(FIRE.glowing(1.6))
+                    .count(3)
+                    .dot(1.6),
+            );
+            self.spray(
+                Spray::along(SprayKind::Smoke, at, back)
+                    .reach(7.0)
+                    .life(0.9)
+                    .colour(DUST)
+                    .count(3)
+                    .dot(5.0),
+            );
+        }
         if matches!(weapon.kind, WeaponKind::SniperRifle | WeaponKind::RailLance) {
             self.spent(from, at, weapon, hostile);
         }
@@ -477,6 +801,16 @@ impl Fx {
             weapon,
             IMPACT_LIFE,
         );
+        // And a fountain of sparks every way: the weak spot found.
+        self.spray(
+            Spray::along(SprayKind::Sparks, at, dir)
+                .reach(30.0)
+                .life(0.4)
+                .colour(hot(hostile, 2.6))
+                .count(14)
+                .spread(TAU)
+                .dot(1.6),
+        );
     }
 
     /// A bolt that flew out its range and faded: only the sniper's beam
@@ -499,6 +833,16 @@ impl Fx {
     pub fn pierced(&mut self, at: Vec2, dir: Vec2, weapon: Weapon, hostile: bool) {
         let dir = dir.normalize_or_zero();
         self.flare(at, Light::Pierce { dir }, hostile, weapon, PIERCE_LIFE);
+        // Sparks blown out of the far side, along the slug's way.
+        self.spray(
+            Spray::along(SprayKind::Sparks, at, dir)
+                .reach(26.0)
+                .life(0.3)
+                .colour(hot(hostile, 2.0))
+                .count(8)
+                .spread(0.7)
+                .dot(1.4),
+        );
     }
 
     /// A blade's blow landed: the cut glows round the swinger at `from`,
@@ -506,6 +850,21 @@ impl Fx {
     pub fn cut(&mut self, from: Vec2, toward: Vec2, weapon: Weapon, hostile: bool) {
         let facing = (toward - from).angle();
         self.flare(from, Light::Cut { facing }, hostile, weapon, CUT_LIFE);
+        // Sparks off the edge where it met, thrown on round the swing.
+        let way = Vec2::from_angle(facing);
+        self.spray(
+            Spray::along(
+                SprayKind::Sparks,
+                from + way * (CUT_REACH * 0.8),
+                way.perp() + way * 0.5,
+            )
+            .reach(20.0)
+            .life(0.25)
+            .colour(hot(hostile, 2.0))
+            .count(6)
+            .spread(0.6)
+            .dot(1.2),
+        );
     }
 
     /// A Guardian's beam burning where a wall stopped it (feature 100): a
@@ -530,6 +889,16 @@ impl Fx {
             true,
             WeaponKind::Sweeper.basic(),
             SHIELD_FLARE_LIFE,
+        );
+        // Red sparks skating off the plate.
+        self.spray(
+            Spray::along(SprayKind::Sparks, at, at - centre)
+                .reach(18.0)
+                .life(0.3)
+                .colour(hot(true, 1.8))
+                .count(6)
+                .spread(1.0)
+                .dot(1.2),
         );
     }
 
@@ -566,6 +935,24 @@ impl Fx {
                 age: 0.0,
                 seq,
             },
+        );
+        // Burning bits flung clear, and the smoke it goes up in.
+        let up = vec2(0.0, -1.0);
+        self.spray(
+            Spray::along(SprayKind::Embers, at, up)
+                .reach(size * 3.0)
+                .life(0.9)
+                .colour(BURST_HOT.glowing(2.0))
+                .count(24)
+                .dot(2.6),
+        );
+        self.spray(
+            Spray::along(SprayKind::Smoke, at, up)
+                .reach(size * 1.4)
+                .life(1.8)
+                .colour(SMOKE)
+                .count(12)
+                .dot(size * 0.7),
         );
     }
 

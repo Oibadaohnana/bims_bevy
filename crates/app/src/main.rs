@@ -85,6 +85,7 @@ mod keys;
 mod lightmap;
 mod names;
 mod net;
+mod particles;
 mod perf;
 mod profile;
 mod save;
