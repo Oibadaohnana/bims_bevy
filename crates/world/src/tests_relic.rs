@@ -97,11 +97,7 @@ fn clear(world: &mut World, station: u32) -> Vec<WorldEvent> {
 
 /// A choice of `options` put to the crew by hand, off `source`.
 fn put(world: &mut World, source: Source, options: Vec<Relic>) {
-    world.run.relics.choice = Some(RelicChoice {
-        source,
-        options,
-        proposal: None,
-    });
+    world.run.relics.choice = Some(RelicChoice::new(source, options));
 }
 
 fn propose(slot: u32, relic: Option<Relic>, to: u32) -> Command {
@@ -214,8 +210,8 @@ fn tier_two_comes_only_after_its_hours_and_follows_the_ramp() {
 /// **A clear offers three relics** on the reward screen, after the
 /// departure and before the map, drawn by the day's odds and not the
 /// site's tier (task 117): three different ones, **left in the pool**, and
-/// travel waits on the choice. Taking none puts nothing anywhere: the three
-/// are still in the pool, to be drawn again.
+/// travel waits on the choice. There is no taking none off a reward (task
+/// 146).
 #[test]
 fn a_clear_offers_three_and_leaves_them_in_the_pool() {
     let (mut world, station) = held_arena(1);
@@ -252,17 +248,22 @@ fn a_clear_offers_three_and_leaves_them_in_the_pool() {
         station: site.station,
     }]);
     assert!(refused(&events, Refusal::ChoosingRelic));
-    // Taking none: the map, and the three still in the pool.
+    // No taking none off a reward (task 146): every player picks one.
     let events = world.step(&[propose(0, None, 0)]);
-    assert!(events.contains(&WorldEvent::RelicsDeclined));
-    assert_eq!(world.run.phase, Phase::Map);
-    assert!(world.relic_choice().is_none());
+    assert!(refused(&events, Refusal::NotOnOffer));
+    assert_eq!(world.run.phase, Phase::Reward);
     assert!(world.relics_of(0).is_empty());
-    assert_eq!(
-        world.relic_pool(),
-        pool.as_slice(),
-        "declined, back in play"
-    );
+    assert_eq!(world.relic_pool(), pool.as_slice());
+}
+
+/// **A reward has a relic for every player, and one to spare** (task
+/// 146): three players are offered four.
+#[test]
+fn a_reward_offers_one_more_than_the_players() {
+    let (mut world, station) = held_arena(3);
+    clear(&mut world, station);
+    world.leave_for_probe();
+    assert_eq!(world.relic_choice().expect("an offer").options.len(), 4);
 }
 
 /// **The one taken leaves the pool, the two passed over stay**, and a
@@ -458,49 +459,145 @@ fn a_cache_is_rolled_off_the_seed_at_its_odds() {
 
 // --- 5: choosing together ----------------------------------------------------------
 
-/// **A relic choice wants every connected player's yes, and any change
+/// Whether player `slot` has `relic`, for good or pending off a cache.
+fn has_or_awaits(world: &World, slot: u32, relic: Relic) -> bool {
+    world.relics_of(slot).contains(&relic) || world.pending_relics().contains(&(slot, relic))
+}
+
+/// **A cache's relic wants every connected player's yes, and any change
 /// clears them all** — the world map's vote over again. A player gone
-/// is not waited for.
+/// is not waited for. (The reward has no vote since task 146.)
 #[test]
-fn a_relic_choice_wants_every_connected_yes_and_a_change_clears_them() {
+fn a_cache_choice_wants_every_connected_yes_and_a_change_clears_them() {
     let mut world = crewed_world(flyer(2), REFERENCE_MONEY, 3, 3);
     put(
         &mut world,
-        Source::Reward,
+        Source::Cache,
         vec![Relic::FocusingLens, Relic::ServoBraces],
     );
-    world.run.phase = Phase::Reward;
     world.apply_now(propose(0, Some(Relic::FocusingLens), 1));
     world.apply_now(Command::AcceptRelic { slot: 1, yes: true });
-    assert!(world.relics_of(1).is_empty(), "one still to say yes");
+    assert!(world.relic_choice().is_some(), "one still to say yes");
     // Player 2 puts another: every yes cleared, player 2's own counted.
     world.apply_now(propose(2, Some(Relic::ServoBraces), 1));
     let proposal = world.relic_choice().unwrap().proposal.clone().unwrap();
     assert_eq!(proposal.accepted, vec![false, false, true]);
     world.apply_now(Command::AcceptRelic { slot: 0, yes: true });
-    assert!(world.relics_of(1).is_empty());
+    assert!(world.relic_choice().is_some());
     // Player 1 leaves: the last yes it owed is not waited for.
     world.apply_now(Command::PlayerGone { slot: 1 });
     world.apply_now(Command::AcceptRelic { slot: 0, yes: true });
-    assert_eq!(world.relics_of(1), &[Relic::ServoBraces]);
-    assert_eq!(world.run.phase, Phase::Map);
+    assert!(world.relic_choice().is_none());
+    assert!(has_or_awaits(&world, 1, Relic::ServoBraces));
     // A relic not on offer, or with nothing on the table, is refused.
     let events = world.apply_now(propose(0, Some(Relic::KillRelay), 0));
     assert!(refused(&events, Refusal::NoRelicChoice));
-    put(&mut world, Source::Reward, vec![Relic::FocusingLens]);
+    put(&mut world, Source::Cache, vec![Relic::FocusingLens]);
     let events = world.apply_now(propose(0, Some(Relic::KillRelay), 0));
     assert!(refused(&events, Refusal::NotOnOffer));
 }
 
+/// **Every player picks its own off a reward, and a clash goes by the
+/// dice** (task 146): nobody says yes to anybody. A relic one player
+/// picked is its own, given once every connected player has picked; a
+/// relic two picked goes to the higher of two dice each, thrown in slot
+/// order and said as they fall; who lost picks again out of what is left,
+/// and the last pick in puts the map up. A pick can be changed until the
+/// round is settled.
+#[test]
+fn every_player_picks_its_own_and_a_clash_goes_by_the_dice() {
+    let mut world = crewed_world(flyer(2), REFERENCE_MONEY, 3, 3);
+    let options = vec![
+        Relic::FocusingLens,
+        Relic::ServoBraces,
+        Relic::FieldPlating,
+        Relic::KillRelay,
+    ];
+    put(&mut world, Source::Reward, options.clone());
+    world.run.phase = Phase::Reward;
+    world.apply_now(propose(2, Some(Relic::KillRelay), 2));
+    world.apply_now(propose(0, Some(Relic::FocusingLens), 0));
+    // Player 2 changes its mind: one pick a player, the last one counting.
+    world.apply_now(propose(2, Some(Relic::ServoBraces), 0));
+    assert!((0..3).all(|s| world.relics_of(s).is_empty()), "one to pick");
+    let choice = world.relic_choice().unwrap();
+    assert_eq!(choice.pick_of(2), Some(Relic::ServoBraces));
+    // Player 1 picks player 0's: the round settles, with dice for it.
+    let events = world.apply_now(propose(1, Some(Relic::FocusingLens), 1));
+    assert_eq!(world.relics_of(2), &[Relic::ServoBraces], "its own alone");
+    let throws: Vec<(u32, u32, u32)> = events
+        .iter()
+        .filter_map(|e| match *e {
+            WorldEvent::RelicDice { slot, relic, a, b } => {
+                assert_eq!(relic, Relic::FocusingLens.code());
+                assert!((1..=6).contains(&a) && (1..=6).contains(&b));
+                Some((slot, a, b))
+            }
+            _ => None,
+        })
+        .collect();
+    assert!(throws.len() >= 2 && throws.len() % 2 == 0, "{throws:?}");
+    assert_eq!((throws[0].0, throws[1].0), (0, 1), "in slot order");
+    let last = &throws[throws.len() - 2..];
+    let (winner, loser) = if last[0].1 + last[0].2 > last[1].1 + last[1].2 {
+        (0, 1)
+    } else {
+        (1, 0)
+    };
+    assert_eq!(world.relics_of(winner), &[Relic::FocusingLens]);
+    assert!(world.relics_of(loser).is_empty());
+    assert!(!world.relic_pool().contains(&Relic::FocusingLens));
+    // The loser picks again, out of what is left.
+    let choice = world.relic_choice().expect("one still without");
+    assert_eq!(choice.left(), vec![Relic::FieldPlating, Relic::KillRelay]);
+    assert_eq!(choice.pick_of(loser), None, "the round's picks cleared");
+    assert_eq!(world.run.phase, Phase::Reward);
+    let events = world.apply_now(propose(loser, Some(Relic::ServoBraces), loser));
+    assert!(refused(&events, Refusal::NotOnOffer), "won already");
+    let events = world.apply_now(propose(winner, Some(Relic::KillRelay), winner));
+    assert!(refused(&events, Refusal::NoRelicChoice), "one a reward");
+    world.apply_now(propose(loser, Some(Relic::KillRelay), loser));
+    assert_eq!(world.relics_of(loser), &[Relic::KillRelay]);
+    assert!(world.relic_choice().is_none());
+    assert_eq!(world.run.phase, Phase::Map);
+    assert!(
+        world.relic_pool().contains(&Relic::FieldPlating),
+        "passed over"
+    );
+}
+
+/// **A player gone is not waited for** on the reward: the others' picks
+/// settle the moment it leaves, and it wins nothing.
+#[test]
+fn a_reward_does_not_wait_on_a_player_gone() {
+    let mut world = crewed_world(flyer(2), REFERENCE_MONEY, 2, 3);
+    put(
+        &mut world,
+        Source::Reward,
+        vec![Relic::FocusingLens, Relic::ServoBraces, Relic::KillRelay],
+    );
+    world.run.phase = Phase::Reward;
+    world.apply_now(propose(0, Some(Relic::KillRelay), 0));
+    assert!(world.relics_of(0).is_empty());
+    world.apply_now(Command::PlayerGone { slot: 1 });
+    assert_eq!(world.relics_of(0), &[Relic::KillRelay]);
+    assert!(world.relics_of(1).is_empty());
+    assert_eq!(world.run.phase, Phase::Map);
+}
+
 /// **A bot is never a recipient**: a proposal for a Bim no player steers
-/// is refused, and a bot holds nothing whatever a probe tries.
+/// is refused, a pick off a reward by no player too, and a bot holds
+/// nothing whatever a probe tries.
 #[test]
 fn a_bot_can_never_be_given_a_relic() {
     let mut world = crewed_world(flyer(2), REFERENCE_MONEY, 1, 3);
-    put(&mut world, Source::Reward, vec![Relic::FocusingLens]);
+    put(&mut world, Source::Cache, vec![Relic::FocusingLens]);
     let events = world.apply_now(propose(0, Some(Relic::FocusingLens), 1));
     assert!(refused(&events, Refusal::NotAPlayer));
     let events = world.apply_now(propose(0, Some(Relic::FocusingLens), 2));
+    assert!(refused(&events, Refusal::NotAPlayer));
+    put(&mut world, Source::Reward, vec![Relic::FocusingLens]);
+    let events = world.apply_now(propose(1, Some(Relic::FocusingLens), 1));
     assert!(refused(&events, Refusal::NotAPlayer));
     world.give_relic_for_probe(2, Relic::FocusingLens);
     assert!(world.relics_of(1).is_empty() && world.relics_of(2).is_empty());

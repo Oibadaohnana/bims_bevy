@@ -1099,6 +1099,119 @@ fn mark_chosen(painter: &egui::Painter, rect: egui::Rect, colours: &[egui::Color
     }
 }
 
+/// What the reward window needs beyond the cache's (task 146): each
+/// player's colour, for whose pick is whose, and whether the dice are
+/// being played, when it stands aside.
+pub struct RewardLook<'a> {
+    pub colour: &'a dyn Fn(u32) -> egui::Color32,
+    pub hidden: bool,
+}
+
+/// The reward screen (task 146): a modal over a dimmed canvas, since the
+/// map waits on it. Every player picks one of the relics for its own Bim
+/// — a click is the pick, sent at once, and may be changed until the
+/// round is settled — and sees every other player's pick outlined in its
+/// colour. A relic won is greyed with its winner's colour round it; who
+/// lost a throw picks again out of what is left. The dice are
+/// `super::dice`'s.
+#[allow(clippy::too_many_arguments)]
+fn reward_window(
+    ctx: &egui::Context,
+    world: &World,
+    choice: &world::RelicChoice,
+    local: u32,
+    orders: &mut Vec<Order>,
+    name: &dyn Fn(u32) -> String,
+    mates: &Mates,
+    look: &RewardLook,
+) {
+    let left = choice.left();
+    let won = choice.won_by(local);
+    let players = world.players();
+    let shown = egui::Modal::new(egui::Id::new("relic-reward"))
+        .backdrop_color(egui::Color32::from_black_alpha(150))
+        .frame(theme::tray_frame().inner_margin(14.0))
+        .show(ctx, |ui| {
+            ui.set_width(420.0);
+            ui.label(egui::RichText::new(REWARD_TITLE).strong().size(18.0));
+            ui.add(egui::Label::new(egui::RichText::new(REWARD_INTRO).color(theme::MUTED)).wrap());
+            ui.add_space(4.0);
+            if let Some(relic) = won {
+                ui.label(
+                    egui::RichText::new(reward_won(relic))
+                        .strong()
+                        .color(theme::ACCENT),
+                );
+            } else if choice.round > 0 {
+                ui.label(
+                    egui::RichText::new(REWARD_PICK_AGAIN)
+                        .strong()
+                        .color(theme::ACCENT),
+                );
+            }
+            ui.add_space(6.0);
+            for &relic in &choice.options {
+                let open = left.contains(&relic) && won.is_none();
+                let on = choice.pick_of(local) == Some(relic);
+                let row = ui.with_layout(egui::Layout::left_to_right(egui::Align::Min), |ui| {
+                    ui.add_enabled_ui(open || on, |ui| {
+                        let (rect, plate) = ui.allocate_exact_size(
+                            egui::vec2(RELIC_PLATE, RELIC_PLATE),
+                            egui::Sense::click(),
+                        );
+                        crate::icons::relic(ui.painter(), rect, relic);
+                        let mut picked = plate.clicked();
+                        ui.vertical(|ui| {
+                            let text = egui::RichText::new(relic_name(relic)).strong();
+                            picked |= theme::toggle(ui, on, text).clicked();
+                            ui.add(
+                                egui::Label::new(
+                                    egui::RichText::new(relic_line(relic))
+                                        .small()
+                                        .color(theme::INK),
+                                )
+                                .wrap(),
+                            );
+                        });
+                        if picked && open && !on {
+                            orders.push(Order::ProposeRelic {
+                                relic: Some(relic),
+                                to: local,
+                            });
+                        }
+                    });
+                });
+                // Whose pick it is this round, or who won it.
+                let colours: Vec<egui::Color32> = (0..players)
+                    .filter(|&s| {
+                        choice.pick_of(s) == Some(relic) || choice.won_by(s) == Some(relic)
+                    })
+                    .map(look.colour)
+                    .collect();
+                mark_chosen(ui.painter(), row.response.rect.expand(3.0), &colours);
+                ui.add_space(3.0);
+            }
+            // Who the round still waits on.
+            let waiting: Vec<String> = (0..players)
+                .filter(|&s| {
+                    world.run.is_connected(s)
+                        && choice.won_by(s).is_none()
+                        && choice.pick_of(s).is_none()
+                })
+                .map(name)
+                .collect();
+            if !waiting.is_empty() {
+                ui.separator();
+                ui.label(
+                    egui::RichText::new(reward_waiting(&waiting))
+                        .small()
+                        .color(theme::MUTED),
+                );
+            }
+        });
+    window_shown(ctx, "relic-window-rect", shown.response.rect, mates, true);
+}
+
 /// What this player has picked in the relic window and not yet proposed:
 /// a relic's code or `u32::MAX` for none, and whose Bim. The window's own,
 /// kept in egui's memory between frames.
@@ -1113,12 +1226,13 @@ struct RelicPick {
 const RELIC_PLATE: f32 = 44.0;
 
 /// The relic choice (feature 106): the reward screen after a site cleared
-/// with machines in it — a modal over a dimmed canvas, since the map waits
-/// on it — or a cache's one relic in the mission, a window beside the
-/// fight, which goes on. Either way the same vote the map's trips are
-/// chosen by: a player picks a relic, or none, and a player's Bim for it
-/// and proposes; every connected player says yes; a new proposal clears
-/// every yes.
+/// with machines in it — every player's own pick since task 146
+/// (`reward_window`), standing aside while the dice are played — or a
+/// cache's one relic in the mission, a window beside the fight, which goes
+/// on. The cache's is the vote the map's trips are chosen by: a player
+/// picks a relic, or none, and a player's Bim for it and proposes; every
+/// connected player says yes; a new proposal clears every yes.
+#[allow(clippy::too_many_arguments)]
 pub fn relic_window(
     ctx: &egui::Context,
     world: &World,
@@ -1127,11 +1241,18 @@ pub fn relic_window(
     name: &dyn Fn(u32) -> String,
     mates: &Mates,
     mine: &mut Choice,
+    look: &RewardLook,
 ) {
     mine.relic = None;
     let Some(choice) = world.relic_choice() else {
         return;
     };
+    if choice.source == world::relic::Source::Reward {
+        if !look.hidden {
+            reward_window(ctx, world, choice, local, orders, name, mates, look);
+        }
+        return;
+    }
     // Who else has their eye on which relic, in their colours.
     let eyed = |code: u32| -> Vec<egui::Color32> {
         mates
@@ -1148,16 +1269,10 @@ pub fn relic_window(
             relic: None,
             to: local,
         });
-    let reward = choice.source == world::relic::Source::Reward;
     let body = |ui: &mut egui::Ui, pick: &mut RelicPick, orders: &mut Vec<Order>| {
         ui.set_width(420.0);
-        let (title, intro) = if reward {
-            (REWARD_TITLE, REWARD_INTRO)
-        } else {
-            (CACHE_TITLE, CACHE_INTRO)
-        };
-        ui.label(egui::RichText::new(title).strong().size(18.0));
-        ui.add(egui::Label::new(egui::RichText::new(intro).color(theme::MUTED)).wrap());
+        ui.label(egui::RichText::new(CACHE_TITLE).strong().size(18.0));
+        ui.add(egui::Label::new(egui::RichText::new(CACHE_INTRO).color(theme::MUTED)).wrap());
         ui.add_space(6.0);
         // Each relic its picture (task 136), then its name to pick it by
         // and what it does; a click on the picture picks it too.
@@ -1253,23 +1368,15 @@ pub fn relic_window(
             });
         }
     };
-    let rect = if reward {
-        let shown = egui::Modal::new(egui::Id::new("relic-reward"))
-            .backdrop_color(egui::Color32::from_black_alpha(150))
-            .frame(theme::tray_frame().inner_margin(14.0))
-            .show(ctx, |ui| body(ui, &mut pick, orders));
-        Some(shown.response.rect)
-    } else {
-        egui::Window::new(CACHE_TITLE)
-            .id(egui::Id::new("relic-cache"))
-            .title_bar(false)
-            .resizable(false)
-            .collapsible(false)
-            .anchor(egui::Align2::CENTER_TOP, egui::vec2(0.0, 90.0))
-            .frame(theme::tray_frame().inner_margin(14.0))
-            .show(ctx, |ui| body(ui, &mut pick, orders))
-            .map(|shown| shown.response.rect)
-    };
+    let rect = egui::Window::new(CACHE_TITLE)
+        .id(egui::Id::new("relic-cache"))
+        .title_bar(false)
+        .resizable(false)
+        .collapsible(false)
+        .anchor(egui::Align2::CENTER_TOP, egui::vec2(0.0, 90.0))
+        .frame(theme::tray_frame().inner_margin(14.0))
+        .show(ctx, |ui| body(ui, &mut pick, orders))
+        .map(|shown| shown.response.rect);
     if let Some(rect) = rect {
         window_shown(ctx, "relic-window-rect", rect, mates, true);
     }

@@ -1684,7 +1684,7 @@ pub fn event_line(event: WorldEvent) -> Option<String> {
         }
         WorldEvent::AllReady => "Everybody is ready. The mission is under way.".into(),
         WorldEvent::RelicsOffered { source: 0, count } => {
-            format!("The site is cleared: {count} relics on offer. Choose one together, or none.")
+            format!("The site is cleared: {count} relics on offer. Each player picks one; the same pick goes by the dice.")
         }
         WorldEvent::RelicsOffered { .. } => {
             "The cache holds a relic. Choose who takes it — kept if the site is cleared.".into()
@@ -1715,6 +1715,16 @@ pub fn event_line(event: WorldEvent) -> Option<String> {
             player_name(slot)
         ),
         WorldEvent::RelicsDeclined => "The crew take no relic.".into(),
+        WorldEvent::RelicPicked { slot, relic } => format!(
+            "{} picks {}.",
+            player_name(slot),
+            relic_of(relic).map_or("a relic", relic_name)
+        ),
+        WorldEvent::RelicDice { slot, relic, a, b } => format!(
+            "{} throws {a} + {b} for {}.",
+            player_name(slot),
+            relic_of(relic).map_or("a relic", relic_name)
+        ),
         WorldEvent::RelicLost { slot, relic } => format!(
             "{} is lost — the site was left uncleared, and {} never had it.",
             relic_of(relic).map_or("The relic", relic_name),
@@ -1998,7 +2008,7 @@ pub const RELICS_HEADING: &str = "Relics";
 pub const NO_RELICS: &str = "None yet. A site cleared of machines offers relics.";
 pub const REWARD_TITLE: &str = "The site is cleared";
 pub const CACHE_TITLE: &str = "A relic cache";
-pub const REWARD_INTRO: &str = "Choose a relic and whose Bim takes it. Every player has to say yes; a new proposal clears them.";
+pub const REWARD_INTRO: &str = "A relic for every player: pick one for your own Bim. Where two pick the same, each throws two dice — the higher wins, and the others pick again.";
 pub const CACHE_INTRO: &str =
     "One relic out of the cache. It is kept only if the site is cleared before the crew leave.";
 pub const TAKE_NONE: &str = "Take none";
@@ -2074,6 +2084,43 @@ pub fn relic_answer(who: &str, yes: bool, gone: bool) -> String {
         (false, false) => format!("{who}: …"),
     }
 }
+
+/// The reward's own picks (task 146): who is still to pick, and what this
+/// player has won while the others choose.
+pub fn reward_waiting(names: &[String]) -> String {
+    format!("Waiting for {} to pick.", names.join(", "))
+}
+
+pub fn reward_won(relic: world::Relic) -> String {
+    format!(
+        "You have {}. Waiting for the others to pick.",
+        relic_name(relic)
+    )
+}
+
+pub const REWARD_PICK_AGAIN: &str = "You lost the throw: pick again from what is left.";
+
+/// The dice (task 146, `screens::dice`): the window that plays a clash's
+/// throws one after another.
+pub const DICE_TITLE: &str = "The dice";
+
+pub fn dice_heading(relic: world::Relic) -> String {
+    format!("{} — picked by more than one", relic_name(relic))
+}
+
+pub fn dice_throwing(who: &str) -> String {
+    format!("{who} throws…")
+}
+
+pub fn dice_threw(who: &str, a: u32, b: u32) -> String {
+    format!("{who}: {a} + {b} = {}", a + b)
+}
+
+pub fn dice_winner(who: &str, relic: world::Relic) -> String {
+    format!("{who} wins {}.", relic_name(relic))
+}
+
+pub const DICE_TIE: &str = "A tie at the top: those tied throw again.";
 
 pub fn relic_proposal_line(relic: Option<world::Relic>, to: u32) -> String {
     match relic {
@@ -3553,6 +3600,14 @@ mod tests {
                     price: 3_000,
                 },
                 WorldEvent::Restocked { slot: 0 },
+                // The reward's own picks and dice (task 146).
+                WorldEvent::RelicPicked { slot: 0, relic: 3 },
+                WorldEvent::RelicDice {
+                    slot: 1,
+                    relic: 3,
+                    a: 4,
+                    b: 6,
+                },
             ] {
                 assert!(event_line(event).is_some(), "{event:?}");
             }

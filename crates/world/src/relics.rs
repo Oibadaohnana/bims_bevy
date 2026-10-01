@@ -238,21 +238,19 @@ impl World {
             source: source.code(),
             count: options.len() as u32,
         });
-        self.run.relics.choice = Some(RelicChoice {
-            source,
-            options,
-            proposal: None,
-        });
+        self.run.relics.choice = Some(RelicChoice::new(source, options));
         true
     }
 
     /// The reward for the site just left, cleared with machines in it
-    /// (called by `leave_mission` before the rooms part):
-    /// [`data::RELIC_OFFER`] relics by the day's odds, and the reward
-    /// screen up. False, and straight to the map, with nothing left to
-    /// draw.
+    /// (called by `leave_mission` before the rooms part): a relic for
+    /// every player (task 146) — [`data::RELIC_OFFER`] by the day's odds,
+    /// or one more than there are players where that is more, so the last
+    /// to pick still has a choice — and the reward screen up. False, and
+    /// straight to the map, with nothing left to draw.
     pub(super) fn offer_reward(&mut self, station: u32, events: &mut Vec<WorldEvent>) -> bool {
-        let options = self.draw_relics(data::RELIC_OFFER, station);
+        let n = data::RELIC_OFFER.max(self.players() as usize + 1);
+        let options = self.draw_relics(n, station);
         self.put_choice(Source::Reward, options, events)
     }
 
@@ -273,6 +271,17 @@ impl World {
         // bought outright with its own money: no vote.
         if self.run.phase == RunPhase::Trade {
             self.buy_trader_relic(slot, relic, events);
+            return;
+        }
+        // On the reward screen every player picks its own (task 146).
+        if self
+            .run
+            .relics
+            .choice
+            .as_ref()
+            .is_some_and(|c| c.source == Source::Reward)
+        {
+            self.pick_reward_relic(slot, relic, events);
             return;
         }
         let players = self.players();
@@ -371,6 +380,122 @@ impl World {
         }
         if choice.source == Source::Reward && self.run.phase == RunPhase::Reward {
             self.run.phase = RunPhase::Map;
+        }
+    }
+
+    /// Player `slot`'s pick off the reward, for its own Bim (task 146): a
+    /// relic still to be won, by a player that has won none yet. It
+    /// replaces the player's last pick this round; the last pick in
+    /// settles the round.
+    fn pick_reward_relic(&mut self, slot: u32, relic: Option<Relic>, events: &mut Vec<WorldEvent>) {
+        let players = self.players();
+        let Some(choice) = self.run.relics.choice.as_mut() else {
+            events.push(refused(slot, Refusal::NoRelicChoice));
+            return;
+        };
+        if slot >= players {
+            events.push(refused(slot, Refusal::NotAPlayer));
+            return;
+        }
+        if choice.won_by(slot).is_some() {
+            events.push(refused(slot, Refusal::NoRelicChoice));
+            return;
+        }
+        let Some(relic) = relic.filter(|r| choice.left().contains(r)) else {
+            events.push(refused(slot, Refusal::NotOnOffer));
+            return;
+        };
+        choice.picks.resize(players as usize, None);
+        choice.picks[slot as usize] = Some(relic);
+        events.push(WorldEvent::RelicPicked {
+            slot,
+            relic: relic.code(),
+        });
+        self.settle_reward_picks(events);
+    }
+
+    /// The reward's round settled once every connected player still
+    /// without a relic off it has picked (task 146): a relic one player
+    /// picked is that player's; one picked by more goes by the dice
+    /// ([`relic::dice`]: two each, in slot order, the highest sum, the
+    /// tied again), each throw said as [`WorldEvent::RelicDice`]. Who lost
+    /// picks again out of what is left. Once every connected player has
+    /// one — or nothing is left — the choice is over and the map up. A
+    /// player gone is not waited for, and wins nothing more.
+    pub(super) fn settle_reward_picks(&mut self, events: &mut Vec<WorldEvent>) {
+        let players = self.players();
+        let connected: Vec<bool> = (0..players).map(|s| self.run.is_connected(s)).collect();
+        let galaxy = self.galaxy_seed;
+        let offers = self.run.relics.offers;
+        let Some(choice) = self.run.relics.choice.as_mut() else {
+            return;
+        };
+        if choice.source != Source::Reward {
+            return;
+        }
+        choice.picks.resize(players as usize, None);
+        choice.won.resize(players as usize, None);
+        let mut given: Vec<(u32, Relic)> = Vec::new();
+        let waiting = |c: &RelicChoice| -> Vec<u32> {
+            (0..players)
+                .filter(|&s| connected[s as usize] && c.won_by(s).is_none())
+                .collect()
+        };
+        let waiting_now = waiting(choice);
+        let left = choice.left();
+        if !waiting_now.is_empty() && !left.is_empty() {
+            if waiting_now.iter().any(|&s| choice.pick_of(s).is_none()) {
+                return;
+            }
+            for relic in left {
+                let by: Vec<u32> = waiting_now
+                    .iter()
+                    .copied()
+                    .filter(|&s| choice.pick_of(s) == Some(relic))
+                    .collect();
+                let winner = match by.len() {
+                    0 => continue,
+                    1 => by[0],
+                    _ => {
+                        let seed = worldgen::rng::mix(
+                            galaxy
+                                ^ worldgen::rng::mix(0x_4449_4345_0000 + u64::from(offers))
+                                ^ worldgen::rng::mix(
+                                    u64::from(choice.round) << 32 | u64::from(relic.code()),
+                                ),
+                        );
+                        let (winner, throws) = relic::dice(&by, relic, seed);
+                        for t in throws {
+                            events.push(WorldEvent::RelicDice {
+                                slot: t.slot,
+                                relic: t.relic.code(),
+                                a: t.a,
+                                b: t.b,
+                            });
+                        }
+                        winner
+                    }
+                };
+                choice.won[winner as usize] = Some(relic);
+                given.push((winner, relic));
+            }
+            choice.picks = vec![None; players as usize];
+            choice.round += 1;
+        }
+        let over = waiting(choice).is_empty() || choice.left().is_empty();
+        for (slot, relic) in given {
+            self.run.relics.take_from_pool(relic);
+            self.run.relics.give(slot, relic);
+            events.push(WorldEvent::RelicGiven {
+                slot,
+                relic: relic.code(),
+            });
+        }
+        if over {
+            self.run.relics.choice = None;
+            if self.run.phase == RunPhase::Reward {
+                self.run.phase = RunPhase::Map;
+            }
         }
     }
 

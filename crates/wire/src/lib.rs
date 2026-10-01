@@ -49,7 +49,9 @@ use serde::{Deserialize, Serialize};
 /// trail from the spot it searched (`Droid::under_fire`).
 /// 77: `Command::Medivac`, the commander's C calling a Republic medic in
 /// where it was a damage aura.
-pub const PROTOCOL: u32 = 77;
+/// 78: every player picks its own relic off a reward, a clash going by
+/// the dice (task 146), where the crew voted one relic to one Bim.
+pub const PROTOCOL: u32 = 78;
 
 /// Where the relay lives. `BIMS_SERVER` in the environment overrides it
 /// — `ws://127.0.0.1:8792` for one on the same machine.

@@ -688,6 +688,16 @@ pub fn world_checksum(world: &World) -> u64 {
                     }
                 }
             }
+            // The reward's picks and who has won what (task 146).
+            let eat_slots = |hash: &mut Fnv, list: &[Option<crate::relic::Relic>]| {
+                hash.eat(list.len() as u64);
+                for r in list {
+                    hash.eat(r.map_or(u64::MAX, |r| u64::from(r.code())));
+                }
+            };
+            eat_slots(&mut hash, &choice.picks);
+            eat_slots(&mut hash, &choice.won);
+            hash.eat(u64::from(choice.round));
         }
     }
     hash.eat(relics.fired.len() as u64);

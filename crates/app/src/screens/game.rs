@@ -289,6 +289,9 @@ const HEAL_GAP: f64 = 0.45;
 struct Watched {
     /// The hit points: everything a beam puts back (task 120).
     points: f32,
+    /// A reward's clashes played back as dice (task 146, `super::dice`),
+    /// and the log's lines that wait for them.
+    dice: super::dice::DiceShow,
     /// Points gathered and not yet shown — a number is whole, and a beam
     /// puts its points back a fraction at a time.
     gathered: f32,
@@ -1021,6 +1024,11 @@ impl GameScreen {
     }
 }
 
+            dice: if crate::dev::dice() {
+                super::dice::DiceShow::staged()
+            } else {
+                super::dice::DiceShow::default()
+            },
 /// What a thing on the map is called. A kind and a number, because a kind
 /// is a fixed table and an identity is a number.
 fn node_name(session: &Session, node: Node) -> String {
@@ -1423,7 +1431,13 @@ fn frame(
             if theirs {
                 screen.log.push(crate::names::MANUFACTURER_DOWN.to_string());
             } else if let Some(line) = event_line(event) {
-                screen.log.push(line);
+                // A reward's dice and the relics they give wait for the
+                // dice to be played (task 146).
+                if screen.dice.note(&event) {
+                    screen.dice.hold(line);
+                } else {
+                    screen.log.push(line);
+                }
             }
             if let Some(freeze) = screen.freeze.as_mut()
                 && freeze.counts == crate::dev::Counted::Downs
@@ -2942,6 +2956,7 @@ fn frame(
             }
         }
     }
+    let colour = |slot: u32| slot_colour(&session.crew_tints, slot);
     if focus_here
         && let Some(chart) = &mut screen.galaxy
         && let Some(s) = chart.here.and_then(|id| chart.galaxy.star(id))
@@ -2950,7 +2965,15 @@ fn frame(
         let (w, h) = (chart.preview.width, chart.preview.height);
         chart.preview.pan(w / 2.0 - x, h / 2.0 - y);
     }
+        &super::worldmap::RewardLook {
+            colour: &colour,
+            hidden: screen.dice.playing(),
+        },
     if let Some(ask) = column
+    // And a reward's clashes, thrown over everything (task 146); the log
+    // gets the throws and the relics given once they have been played.
+    let played = screen.dice.show(&ctx, &crew_name, &colour);
+    screen.log.extend(played);
         && ask.close
         && let Some(game) = &mut session.game
     {

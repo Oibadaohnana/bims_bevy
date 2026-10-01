@@ -6516,3 +6516,44 @@ which runs it to a downed player (`crates/game/CLAUDE.md`). Drawn
 `REFERENCE_CHECKSUM`, the ship's). `the_medivac_calls_a_medic_in_armoured_by_rank`,
 `the_medivac_is_on_its_rank_s_cooldown` and
 `a_medivac_medic_s_kit_is_nobody_s_to_change` are the rule.
+
+## A relic for every player off an elite, a clash by the dice (task 146)
+
+> "The vote" in "Relics, and research gone (feature 106)" above is the
+> **cache's** alone since task 146; the reward has none.
+
+- **The offer** (`offer_reward`) is `data::RELIC_OFFER` or one more than
+  the players, whichever is more — three players see four — so the last
+  to pick still has a choice.
+- **Every player picks its own** (`pick_reward_relic`, off
+  `Command::ProposeRelic` while the choice is a `Source::Reward`; `to` is
+  not read and there is no taking none): a relic still to be won
+  (`RelicChoice::left`, `NotOnOffer` otherwise), by a player that has won
+  none off it (`NoRelicChoice`), a player's slot (`NotAPlayer`). It
+  replaces that player's last pick (`RelicChoice::picks`,
+  `WorldEvent::RelicPicked` 145).
+- **The round settles** (`settle_reward_picks`) once every connected
+  player still without a relic off it has picked — also on a
+  `PlayerGone`, so a player gone is never waited for. A relic one player
+  picked is given at once (`RelicGiven`, out of the pool). A relic picked
+  by more goes by `relic::dice`: each throws two dice in slot order, the
+  highest sum wins, those tied for the top throw again after the rest —
+  off a stream of its own (the galaxy, `Relics::offers`, the round and
+  the relic), each throw said as `WorldEvent::RelicDice { slot, relic, a,
+  b }` (146) in the order thrown. The winners go on `RelicChoice::won`;
+  the picks are cleared and `round` counts on; who lost picks again out
+  of what is left. Once every connected player has won one, or nothing
+  is left, the choice is gone and the map up.
+- **The app** plays the throws back (`screens::dice`): two dice a throw,
+  two seconds each, one after another, then the clash's winner; the
+  log's lines for the throws and the relics given wait for it, and the
+  reward window (`worldmap::reward_window`) stands aside meanwhile.
+  `BIMS_DICE=1` stages a clash to look at.
+
+`picks`, `won` and `round` are saved (serde default) and hashed with the
+choice. `tests_relic.rs`'s
+`every_player_picks_its_own_and_a_clash_goes_by_the_dice`,
+`a_reward_does_not_wait_on_a_player_gone` and
+`a_reward_offers_one_more_than_the_players`, and `relic::tests`'
+`the_dice_go_in_turn_and_a_tie_at_the_top_throws_again` are the rule.
+**`SAVE_VERSION` 76, `wire::PROTOCOL` 78.**

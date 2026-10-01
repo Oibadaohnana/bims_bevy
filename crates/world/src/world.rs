@@ -519,7 +519,10 @@ pub enum Command {
     /// 106, [`crate::relic`]) — `relic` a [`crate::Relic`] code, or
     /// `u32::MAX` for taking none. It replaces whatever was on the table,
     /// every acceptance with it, and counts as the proposer's own yes. A
-    /// relic not on offer, or a Bim no player steers, is refused.
+    /// relic not on offer, or a Bim no player steers, is refused. **On the
+    /// reward screen** it is player `slot`'s own pick for its own Bim
+    /// (task 146, `to` unread, no taking none): no vote, a clash settled
+    /// by the dice.
     ProposeRelic {
         slot: u32,
         relic: u32,

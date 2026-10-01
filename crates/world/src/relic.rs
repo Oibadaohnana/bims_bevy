@@ -1043,13 +1043,105 @@ impl RelicProposal {
     }
 }
 
-/// The relics on offer and the proposal on the table.
+/// The relics on offer and the proposal on the table — or, on the reward
+/// screen, every player's own pick (task 146).
 #[derive(Clone, PartialEq, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct RelicChoice {
     pub source: Source,
     pub options: Vec<Relic>,
+    /// A cache's vote; the reward has none.
     pub proposal: Option<RelicProposal>,
+    /// The reward's picks (task 146): one a player slot, the relic that
+    /// player has picked this round for its own Bim, `None` until it has.
+    /// Cleared when a round is settled.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub picks: Vec<Option<Relic>>,
+    /// One a player slot: the relic it has won off the reward, once it
+    /// has — given at once, and out of what the next round picks from.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub won: Vec<Option<Relic>>,
+    /// How many rounds of picks have been settled: what the dice of the
+    /// next are seeded with, beside the offer.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub round: u32,
+}
+
+impl RelicChoice {
+    /// A choice of `options` off `source`, nobody's pick in yet.
+    pub fn new(source: Source, options: Vec<Relic>) -> RelicChoice {
+        RelicChoice {
+            source,
+            options,
+            proposal: None,
+            picks: Vec::new(),
+            won: Vec::new(),
+            round: 0,
+        }
+    }
+
+    /// What is still to be won off the reward: the options nobody has
+    /// won, in the offer's order.
+    pub fn left(&self) -> Vec<Relic> {
+        self.options
+            .iter()
+            .copied()
+            .filter(|r| !self.won.contains(&Some(*r)))
+            .collect()
+    }
+
+    /// The relic player `slot` has picked this round, if it has.
+    pub fn pick_of(&self, slot: u32) -> Option<Relic> {
+        self.picks.get(slot as usize).copied().flatten()
+    }
+
+    /// The relic player `slot` has won off the reward, if it has.
+    pub fn won_by(&self, slot: u32) -> Option<Relic> {
+        self.won.get(slot as usize).copied().flatten()
+    }
+}
+
+/// Two dice, thrown by player `slot` for the relic it and another picked
+/// (task 146): `a` and `b` from one to six each, the higher sum winning.
+/// [`dice`] throws them.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct Throw {
+    pub slot: u32,
+    pub relic: Relic,
+    pub a: u32,
+    pub b: u32,
+}
+
+/// Who wins a relic more than one player picked (task 146): each of
+/// `contenders` throws two dice in turn, in the order given; the highest
+/// sum wins, and those tied for it throw again, after the rest, until one
+/// stands alone. The winner and every throw in the order thrown. Off a
+/// stream of its own — the galaxy, the offer and the round — so every
+/// client throws the same.
+pub fn dice(contenders: &[u32], relic: Relic, seed: u64) -> (u32, Vec<Throw>) {
+    let mut rng = worldgen::rng::Rng::new(seed);
+    let mut throws = Vec::new();
+    let mut left = contenders.to_vec();
+    loop {
+        let mut best = 0;
+        let mut top = Vec::new();
+        for &slot in &left {
+            let a = rng.below(6) + 1;
+            let b = rng.below(6) + 1;
+            throws.push(Throw { slot, relic, a, b });
+            if a + b > best {
+                best = a + b;
+                top.clear();
+            }
+            if a + b == best {
+                top.push(slot);
+            }
+        }
+        if top.len() <= 1 {
+            return (top.first().copied().unwrap_or(u32::MAX), throws);
+        }
+        left = top;
+    }
 }
 
 /// Everything the run keeps about relics. Saved and in `world_checksum`
@@ -1311,6 +1403,57 @@ impl Profile {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// **The dice** (task 146): two each, one to six, thrown in the order
+    /// given; the winner's the highest sum of the last round, and a tie
+    /// at the top throws again — only those tied, after the rest. The
+    /// same seed, the same throws; over many seeds every contender wins
+    /// about as often.
+    #[test]
+    fn the_dice_go_in_turn_and_a_tie_at_the_top_throws_again() {
+        let mut wins = [0u32; 3];
+        let mut rethrown = 0;
+        for seed in 0..3_000u64 {
+            let (winner, throws) = dice(&[2, 0, 1], Relic::KillRelay, seed);
+            assert_eq!(
+                (winner, throws.clone()),
+                dice(&[2, 0, 1], Relic::KillRelay, seed)
+            );
+            let order: Vec<u32> = throws.iter().take(3).map(|t| t.slot).collect();
+            assert_eq!(order, vec![2, 0, 1], "in the order given");
+            assert!(
+                throws
+                    .iter()
+                    .all(|t| (1..=6).contains(&t.a) && (1..=6).contains(&t.b))
+            );
+            assert!(throws.iter().all(|t| t.relic == Relic::KillRelay));
+            // Round by round: each round is the last one's top.
+            let mut at = 0;
+            let mut left = vec![2u32, 0, 1];
+            loop {
+                let round = &throws[at..at + left.len()];
+                let best = round.iter().map(|t| t.a + t.b).max().unwrap();
+                let top: Vec<u32> = round
+                    .iter()
+                    .filter(|t| t.a + t.b == best)
+                    .map(|t| t.slot)
+                    .collect();
+                at += left.len();
+                if top.len() == 1 {
+                    assert_eq!(top[0], winner);
+                    break;
+                }
+                left = top;
+                rethrown += 1;
+            }
+            assert_eq!(at, throws.len(), "no throw after the winner's round");
+            wins[winner as usize] += 1;
+        }
+        assert!(rethrown > 0, "ties happen");
+        for w in wins {
+            assert!((900..=1_100).contains(&w), "{wins:?}");
+        }
+    }
 
     #[test]
     fn the_list_is_in_code_order_and_every_tier_is_one_to_three() {

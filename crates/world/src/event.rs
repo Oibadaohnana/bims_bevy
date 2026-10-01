@@ -247,6 +247,17 @@ pub enum WorldEvent {
     RelicPending { slot: u32, relic: u32 },
     /// The crew chose to take none of the relics on offer.
     RelicsDeclined,
+    /// A player picked a relic off the reward for its own Bim (task 146).
+    RelicPicked { slot: u32, relic: u32 },
+    /// A player threw two dice for a relic another picked too (task 146):
+    /// `a` and `b` from one to six, the higher sum winning. Said in the
+    /// order thrown; the screen plays them one after another.
+    RelicDice {
+        slot: u32,
+        relic: u32,
+        a: u32,
+        b: u32,
+    },
     /// A relic out of a cache, lost: the crew left the site uncleared.
     RelicLost { slot: u32, relic: u32 },
     /// A crew member opened a relic cache.
@@ -692,6 +703,8 @@ impl WorldEvent {
             WorldEvent::RelicGiven { .. } => 110,
             WorldEvent::RelicPending { .. } => 111,
             WorldEvent::RelicsDeclined => 112,
+            WorldEvent::RelicPicked { .. } => 145,
+            WorldEvent::RelicDice { .. } => 146,
             WorldEvent::RelicLost { .. } => 113,
             WorldEvent::CacheOpened { .. } => 114,
             WorldEvent::RelicFired { .. } => 115,
@@ -803,6 +816,11 @@ impl WorldEvent {
                 (slot as i64) + 100 * relic + 10_000 * (to as i64)
             }
             WorldEvent::RelicAccepted { slot, yes } => (slot as i64) + 100 * i64::from(yes),
+            WorldEvent::RelicPicked { slot, relic } => (slot as i64) + 100 * (relic as i64),
+            // The dice in the hundred thousands and millions.
+            WorldEvent::RelicDice { slot, relic, a, b } => {
+                (slot as i64) + 100 * (relic as i64) + 100_000 * (a as i64) + 1_000_000 * (b as i64)
+            }
             WorldEvent::RelicsOffered { source, count } => (count as i64) + 100 * (source as i64),
             WorldEvent::CacheOpened { who } => who as i64,
             WorldEvent::RelicsDeclined | WorldEvent::RunWon | WorldEvent::AllReady => 0,

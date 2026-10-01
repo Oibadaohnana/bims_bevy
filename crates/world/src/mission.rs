@@ -597,6 +597,8 @@ impl World {
         }
         // And a ready check that was waiting only on them.
         self.start_if_ready(events);
+        // And the reward's picks, which wait on every connected player.
+        self.settle_reward_picks(events);
     }
 
     // --- travel ---------------------------------------------------------------

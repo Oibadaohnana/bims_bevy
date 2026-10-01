@@ -164,6 +164,14 @@ pub fn reward() -> bool {
     std::env::var("BIMS_REWARD").as_deref() == Ok("1")
 }
 
+/// `BIMS_DICE=1` plays a staged clash of the reward's dice
+/// (`screens::dice::DiceShow::staged`, task 146) the moment the game
+/// screen opens: how the dice are looked at without two players picking
+/// the same relic.
+pub fn dice() -> bool {
+    std::env::var("BIMS_DICE").as_deref() == Ok("1")
+}
+
 /// `BIMS_CACHE=1` opens a held site's run with a **relic cache** opened
 /// on its research desk (feature 106, `Session::cache_for_probe`): the
 /// one relic's choice up in the mission, the fight going on round it.

@@ -5,6 +5,7 @@
 pub mod backdrop;
 pub mod builder;
 pub mod designer;
+pub mod dice;
 pub mod fightwon;
 pub mod game;
 pub mod hud;

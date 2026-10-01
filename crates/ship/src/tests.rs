@@ -1316,11 +1316,14 @@ fn save_round_trip_keeps_the_relics() {
     let world = &mut session.game.as_mut().unwrap().world;
     world.set_relic_pool(world::relic::starting_pool());
     world.give_relic_for_probe(0, Relic::SecondWind);
-    world.run.relics.choice = Some(world::RelicChoice {
-        source: world::relic::Source::Reward,
-        options: vec![Relic::FocusingLens, Relic::ServoBraces],
-        proposal: None,
-    });
+    let mut choice = world::RelicChoice::new(
+        world::relic::Source::Reward,
+        vec![Relic::FocusingLens, Relic::ServoBraces],
+    );
+    // Half made (task 146): the first player's pick in, nobody's won yet.
+    choice.picks = vec![Some(Relic::ServoBraces)];
+    choice.round = 1;
+    world.run.relics.choice = Some(choice);
     let pool = world.relic_pool().to_vec();
     let checksum = world.checksum();
 
@@ -1333,6 +1336,9 @@ fn save_round_trip_keeps_the_relics() {
         world.relic_choice().map(|c| c.options.clone()),
         Some(vec![Relic::FocusingLens, Relic::ServoBraces])
     );
+    let choice = world.relic_choice().unwrap();
+    assert_eq!(choice.pick_of(0), Some(Relic::ServoBraces));
+    assert_eq!(choice.round, 1);
     assert_eq!(world.checksum(), checksum);
 }
 
