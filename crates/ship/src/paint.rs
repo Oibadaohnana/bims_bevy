@@ -293,6 +293,7 @@ fn deck(editor: &Editor, list: &mut DrawList) {
 /// with no picture anywhere is its colour with the bar of where it is used
 /// from.
 fn objects(editor: &Editor, list: &mut DrawList) {
+    let from = list.len();
     let grid = editor.design.grid();
     let rooms = bims::aboard::drawn_by_room(&editor.design);
     for part in &editor.design.parts {
@@ -327,6 +328,8 @@ fn objects(editor: &Editor, list: &mut DrawList) {
         facing_bar(part.kind, part.rotation, (x0, y0, x1, y1), list);
     }
     list.append(editor.fixtures());
+    // The objects' texture over all of it, as the game draws them.
+    list.textured_from(from);
 }
 
 /// The room's fixtures, as the room draws them, on the design as it stands:

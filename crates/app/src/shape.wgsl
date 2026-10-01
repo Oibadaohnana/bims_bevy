@@ -60,6 +60,8 @@ struct Shapes {
 // What a surface texel is multiplied by: its average is a quarter, so a
 // shape of a surface is its colour on average and up to four times it.
 const SURFACE_GAIN: f32 = 4.0;
+// How much of its colour a surface keeps: a fifth of it goes to grey.
+const SURFACE_SATURATION: f32 = 0.8;
 // A surface tied to the world has this added to its number, and its
 // repeat broken by a second sample this much smaller in texture space
 // (larger on the ground) and turned this way (cos, sin of 1.1 radians).
@@ -355,6 +357,31 @@ fn surface(s: Shape, p: vec2<f32>, c: vec4<f32>) -> vec4<f32> {
         ).rgb;
         texel = vec3<f32>(0.25) + (texel + other - vec3<f32>(0.5)) * 0.75;
     }
+    var rgb = min(c.rgb * texel * SURFACE_GAIN, vec3<f32>(c.a));
+    // A little greyer than the painters' colours: the deck, the grass and
+    // the sand read as places, not swatches.
+    let grey = dot(rgb, vec3<f32>(0.2126, 0.7152, 0.0722));
+    rgb = mix(vec3<f32>(grey), rgb, SURFACE_SATURATION);
+    return vec4<f32>(rgb, c.a);
+}
+
+// A fill with a texture laid over it (`shapes::overlay`): the objects'
+// wear and grime or the foliage, the texel times the shape's colour.
+// `more.y` is the points a repeat spans; `more.w` the layer, and in its
+// fraction where in the texture this shape starts.
+fn overlaid(s: Shape, p: vec2<f32>, c: vec4<f32>) -> vec4<f32> {
+    let span = max(s.more.y, 1.0e-6);
+    let start = fract(s.more.w) * vec2<f32>(1.0, 7.31);
+    let uv = start + p / span;
+    let g = max(s.head.w, 1.0e-3) / span;
+    let texel = textureSampleGrad(
+        surfaces,
+        surfaces_sampler,
+        uv,
+        i32(s.more.w),
+        vec2<f32>(g, 0.0),
+        vec2<f32>(0.0, g),
+    ).rgb;
     let rgb = min(c.rgb * texel * SURFACE_GAIN, vec3<f32>(c.a));
     return vec4<f32>(rgb, c.a);
 }
@@ -412,6 +439,15 @@ fn fragment(in: Varyings) -> @location(0) vec4<f32> {
         case 8u: {
             cover = tri_fill(p, triangle(h), f);
         }
+        case 9u: {
+            cover = ramp(rounded_d(p, h, radius, n), f);
+        }
+        case 10u: {
+            cover = ramp(ngon_d(p, h, n), f);
+        }
+        case 11u: {
+            cover = tri_fill(p, triangle(h), f);
+        }
         default: {}
     }
     if cover <= 0.0 {
@@ -420,6 +456,8 @@ fn fragment(in: Varyings) -> @location(0) vec4<f32> {
     var c = s.color;
     if kind == 7u || kind == 8u {
         c = surface(s, p, c);
+    } else if kind >= 9u && kind <= 11u {
+        c = overlaid(s, p, c);
     }
     // The coverage after the colour is carried to linear, not before: a
     // pixel half covered is half the light. Taken through the sRGB curve

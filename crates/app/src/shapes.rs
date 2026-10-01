@@ -327,7 +327,8 @@ impl ShapeBuf {
         self.indices.reserve(reserve * 2);
         let clip = Rect::new(Vec2::ZERO, self.clip.size());
         for s in shapes.as_chunks::<STRIDE>().0 {
-            let kind = s[0];
+            let flags = Flags::of(s[0]);
+            let kind = if flags.surface { s[0] } else { flags.kind };
             let centre = view.to_canvas(Vec2::new(s[1], s[2]));
             let size = Vec2::new(s[3].abs(), s[4].abs()) * view.scale;
             let rot = s[5];
@@ -494,6 +495,9 @@ pub const REC_TRI_STROKE: f32 = 6.0;
 pub const REC_SURFACE: f32 = 7.0;
 /// A triangle filled with a surface's texture.
 pub const REC_SURFACE_TRIANGLE: f32 = 8.0;
+/// A filled rect with a texture laid over it ([`overlay`]); the ellipse
+/// and the triangle are the next two.
+pub const REC_RECT_TEXTURED: f32 = 9.0;
 
 /// One shape as the GPU is handed it, in window points: `[kind, cx, cy,
 /// ramp, hx, hy, sin, cos, radius, line, points, 0, r, g, b, a]` — the
@@ -523,12 +527,21 @@ pub fn pack(shapes: &[f32], view: View, clip: Rect, pixels_per_point: f32, out: 
     let ramp = |extent: f32| feather.min(extent.max(0.0));
     let local = Rect::new(Vec2::ZERO, clip.size());
     out.reserve(shapes.len() / STRIDE);
+    let wind = wind_clock();
     for s in shapes.as_chunks::<STRIDE>().0 {
-        let kind = s[0];
-        if kind >= KIND_SURFACE {
+        let flags = Flags::of(s[0]);
+        if flags.surface {
             out.extend(surface_record(s, view, clip, feather));
             continue;
         }
+        let mut s = *s;
+        s[0] = flags.kind;
+        if flags.sway {
+            let (dx, dy) = sway(s[1], s[2], wind);
+            s[1] += dx;
+            s[2] += dy;
+        }
+        let kind = s[0];
         let centre = view.to_canvas(Vec2::new(s[1], s[2]));
         let size = Vec2::new(s[3].abs(), s[4].abs()) * view.scale;
         let rot = s[5];
@@ -622,7 +635,7 @@ pub fn pack(shapes: &[f32], view: View, clip: Rect, pixels_per_point: f32, out: 
         };
         let at = centre + clip.min;
         let [r, g, b, a] = color.0;
-        out.push([
+        let mut record = [
             rec,
             at.x,
             at.y,
@@ -639,9 +652,130 @@ pub fn pack(shapes: &[f32], view: View, clip: Rect, pixels_per_point: f32, out: 
             g,
             b,
             a,
-        ]);
+        ];
+        if let Some(layer) = flags.overlay {
+            overlay(&mut record, &s, layer, view.scale);
+        }
+        out.push(record);
     }
 }
+
+/// What a shape's kind says beyond its shape: a surface
+/// ([`KIND_SURFACE`], [`surface_record`]), or a plain rect, ellipse or
+/// triangle with a texture laid over its fill — the objects' (`+ 8`,
+/// `draw::KIND_TEXTURED`) or the foliage's (`+ 64`, `draw::KIND_FOLIAGE`)
+/// — and whether it **sways** in the wind (`+ 4`, `draw::KIND_SWAY`).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Flags {
+    /// The plain shape: [`KIND_ELLIPSE`], [`KIND_TRIANGLE`] or a rect.
+    pub kind: f32,
+    pub surface: bool,
+    /// The texture laid over the fill, a layer of the surfaces' array.
+    pub overlay: Option<u32>,
+    pub sway: bool,
+}
+
+/// A shape's kind plus this has the foliage laid over its fill.
+pub const KIND_FOLIAGE: f32 = 64.0;
+/// Plus this, the objects' texture.
+pub const KIND_TEXTURED: f32 = 8.0;
+/// Plus this, it sways.
+pub const KIND_SWAY: f32 = 4.0;
+
+impl Flags {
+    pub fn of(kind: f32) -> Flags {
+        let mut k = kind;
+        let mut overlay = None;
+        if k >= KIND_FOLIAGE {
+            k -= KIND_FOLIAGE;
+            overlay = Some(crate::surfaces::FOLIAGE);
+        } else if k >= KIND_SURFACE {
+            return Flags {
+                kind: k,
+                surface: true,
+                overlay: None,
+                sway: false,
+            };
+        } else if k >= KIND_TEXTURED {
+            k -= KIND_TEXTURED;
+            overlay = Some(crate::surfaces::OBJECT);
+        }
+        let sway = k >= KIND_SWAY;
+        if sway {
+            k -= KIND_SWAY;
+        }
+        Flags {
+            kind: k,
+            surface: false,
+            overlay,
+            sway,
+        }
+    }
+}
+
+/// A filled record given its texture: a rect, an ellipse or a triangle
+/// becomes [`REC_RECT_TEXTURED`] and the two after it, its line (nought,
+/// for a fill) the points one repeat of the texture spans and its unused
+/// float the layer, plus a fraction off where the shape was drawn that
+/// moves the texture under it, so two lockers side by side are not one
+/// picture twice. A stroke, a shape smaller than [`TEXTURED_LEAST`] world
+/// units either way, a translucent one or a glowing one is left plain:
+/// a texture on a seam, a glint or a glow would be noise.
+fn overlay(record: &mut Record, s: &[f32; STRIDE], layer: u32, scale: f32) {
+    let rec = match record[0] {
+        REC_RECT_FILL => REC_RECT_TEXTURED,
+        REC_ELLIPSE_FILL => REC_RECT_TEXTURED + 1.0,
+        REC_TRI_FILL => REC_RECT_TEXTURED + 2.0,
+        _ => return,
+    };
+    if s[3].abs().min(s[4].abs()) < TEXTURED_LEAST
+        || s[11] < 0.9
+        || s[8].max(s[9]).max(s[10]) > 1.0
+    {
+        return;
+    }
+    // Where it is to the tile: steady while a door slides along its
+    // track, another place for the next fitting along.
+    let cell = ((s[1] / 52.0).floor() as i32, (s[2] / 52.0).floor() as i32);
+    let mut h = (cell.0 as u32).wrapping_mul(0x9E37_79B1) ^ (cell.1 as u32).wrapping_mul(0x85EB_CA77);
+    h ^= (s[3].to_bits() ^ s[4].to_bits().rotate_left(13)).wrapping_mul(0xC2B2_AE3D);
+    h ^= h >> 15;
+    let offset = (h % 997) as f32 / 997.0;
+    record[0] = rec;
+    record[9] = scale * crate::surfaces::repeat(layer);
+    record[11] = layer as f32 + offset * 0.999;
+}
+
+/// The least a filled shape is across, in world units, to be textured.
+const TEXTURED_LEAST: f32 = 5.0;
+
+/// The wind, in seconds of the window's clock (`surfaces::wind`), for the
+/// shapes that sway; written once a frame, read by every [`pack`].
+static WIND: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
+pub fn set_wind_clock(seconds: f32) {
+    WIND.store(seconds.to_bits(), std::sync::atomic::Ordering::Relaxed);
+}
+
+fn wind_clock() -> f32 {
+    f32::from_bits(WIND.load(std::sync::atomic::Ordering::Relaxed))
+}
+
+/// How far a swaying shape at `(x, y)` in world units is blown at `t`:
+/// mostly along the wind (from the west, a little south), a slow sway and
+/// a quicker flutter on it, the phase moving across the ground the way a
+/// gust does — so a crown's leaves, each a little apart, ripple rather
+/// than slide as one, and a stand of trees bends one after the other.
+pub fn sway(x: f32, y: f32, t: f32) -> (f32, f32) {
+    let phase = x * 0.011 + y * 0.004;
+    let gust = 0.6 + 0.4 * (t * 0.23 + phase * 0.3).sin();
+    let along = gust * (SWAY * (t * 1.25 - phase).sin() + SWAY * 0.35 * (t * 3.1 - phase * 2.3).sin());
+    let across = SWAY * 0.3 * (t * 1.9 - phase * 1.7).sin();
+    (along * 0.96 + across * -0.28, along * 0.28 + across * 0.96)
+}
+
+/// How far a crown sways at the most, in world units: a tile is 52.
+const SWAY: f32 = 2.4;
 
 /// A [`KIND_SURFACE`] shape as its record: a square-cornered rectangle
 /// filled with its surface's texture times its colour (`shape.wgsl`), the

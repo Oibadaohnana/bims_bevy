@@ -42,7 +42,7 @@ struct Def {
 const TILE: f32 = 52.0;
 
 /// Every surface, in `ship::draw::Surface`'s order.
-const SURFACES: [Def; 13] = [
+const SURFACES: [Def; 15] = [
     // Deck: a steel plate a tile, sixteen to a repeat.
     Def {
         png: include_bytes!("../textures/deck.png"),
@@ -112,7 +112,31 @@ const SURFACES: [Def; 13] = [
         repeat: 8.0 * TILE,
         world: true,
     },
+    // The objects' wear and grime, laid over a fill (`shapes::overlay`).
+    Def {
+        png: include_bytes!("../textures/object.png"),
+        repeat: 2.0 * TILE,
+        world: false,
+    },
+    // Leaves, laid over a tree's crown or a bush.
+    Def {
+        png: include_bytes!("../textures/foliage.png"),
+        repeat: 2.0 * TILE,
+        world: false,
+    },
 ];
+
+/// The layer of the objects' texture, laid over a fill marked
+/// `draw::KIND_TEXTURED`.
+pub const OBJECT: u32 = 13;
+/// The layer of the foliage, laid over a fill marked `KIND_FOLIAGE`.
+pub const FOLIAGE: u32 = 14;
+
+/// The wind's clock, for the crowns that sway (`shapes::sway`): the
+/// window's seconds, put where every pack of the frame reads it.
+pub fn wind(time: Res<Time<Real>>) {
+    crate::shapes::set_wind_clock(time.elapsed_secs());
+}
 
 /// The side of every picture, in texels.
 const SIDE: u32 = 1024;

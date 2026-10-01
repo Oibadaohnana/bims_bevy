@@ -254,7 +254,12 @@ pub fn layout_of_on(design: &ShipDesign, plane: Option<&Plane>) -> Layout {
         let def = part.kind.def();
         if def.layer == Layer::Object && def.blocks_sight() && part.kind != PartKind::Door {
             opaque.push(part_rect(part));
-            if !is_wall(part.kind) {
+            // A thruster or a sensor array is bolted into the hull's line
+            // like plating, and is lit like it: furniture, its face took
+            // none of a lamp's direct fall and showed as a dark tile in
+            // the wall (a picture only — the rule reads `opaque`).
+            let hull = matches!(part.kind, PartKind::Thruster | PartKind::SensorArray);
+            if !is_wall(part.kind) && !hull {
                 tall.push(part_rect(part));
             }
         }

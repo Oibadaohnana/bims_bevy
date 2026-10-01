@@ -1251,6 +1251,14 @@ designer's yard lays the game's deck plate (`paint::deck`). The dark lines
 along a town's tile rows were not the rows: `shape.wgsl` took a pixel's
 coverage through the sRGB curve with its colour, so any two shapes of one
 colour that met left a dark seam; it covers after the curve now.
+Objects are textured over their fills (`DrawList::textured_from` in
+`hull_tiles`, `paint::objects`, the deployables and `plain`; the room's
+fixtures in `bims::room::Room::draw`), a tree's crown, a bush and a
+plant get leaves (`foliage_from`) and the crowns, a palm's fronds and a
+tussock sway (`sway_from`); the broadleaf is a crown of lobes now. The
+hull's thrusters and sensor array are lit as wall, not furniture
+(`bims::aboard`'s `tall`), or the light map left them a dark tile in the
+hull line.
 `PICTURES`' two decks in `tests_survivors.rs` move with this (the deck's
 shapes are other shapes now). The pin was already stale in this tree —
 its designer pictures, which this change does not reach, had moved with

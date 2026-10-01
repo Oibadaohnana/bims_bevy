@@ -139,6 +139,7 @@ impl Plugin for ScenePlugin {
             .init_resource::<QuadMeshes>()
             .add_systems(Startup, camera)
             .add_systems(Startup, crate::surfaces::load)
+            .add_systems(First, crate::surfaces::wind)
             .add_systems(
                 PostUpdate,
                 // After the screens have painted — they run in egui's

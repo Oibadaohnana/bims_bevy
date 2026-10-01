@@ -192,7 +192,16 @@ plus `wire` and `server` (the relay, `bims-server`).
   the CPU path before), or two same-coloured shapes meeting show a dark
   seam. A surface tied to the world (the open ground, water) is sampled
   twice, the second time larger and turned, so its 8-tile repeat never
-  shows at a far zoom.
+  shows at a far zoom. Surfaces are drawn 20% towards grey
+  (`SURFACE_SATURATION`). **Objects** wear a texture too: a plain kind
+  `+ 8` (`KIND_TEXTURED`, set by `DrawList::textured_from` over what a
+  painter drew of the objects — `hull_tiles`, `Room::draw`, the yard,
+  the deployables, the plain's wild) lays `object.png` (wear, grime) over
+  a fill, `+ 64` (`KIND_FOLIAGE`, `foliage_from`) lays `foliage.png`
+  (leaves), and `+ 4` (`KIND_SWAY`) **sways in the wind**: `shapes::pack`
+  moves the shape by `shapes::sway(x, y, t)` off the window's clock
+  (`surfaces::wind`), so a cached picture sways too. A fill under 5 world
+  units, translucent or glowing is left plain.
 - Anti-aliasing is feathering in `shapes.rs` (`Msaa::Off`). The bloom
   picks up only colours past white (`draw::Color::glowing`);
   `BIMS_BLOOM=0` turns it off.

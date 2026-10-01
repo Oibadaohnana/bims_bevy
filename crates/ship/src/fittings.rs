@@ -1428,6 +1428,10 @@ const SOIL: Color = Color::rgb(0.24, 0.17, 0.11);
 const LEAF: Color = Color::rgb(0.42, 0.66, 0.36);
 const LEAF_DARK: Color = Color::rgb(0.30, 0.56, 0.30);
 const LEAF_LIGHT: Color = Color::rgb(0.58, 0.78, 0.44);
+/// A broadleaf's crown: the shaded body under its lobes and the deepest
+/// of them.
+const LEAF_SHADE: Color = Color::rgb(0.16, 0.32, 0.16);
+const LEAF_DEEP: Color = Color::rgb(0.22, 0.44, 0.22);
 /// A picture's frame, and what is in it: a sky over a hill, which is
 /// what anybody on a ship hangs on the wall.
 pub(crate) const FRAME_BRASS: Color = Color::rgb(0.72, 0.58, 0.32);
@@ -1438,6 +1442,7 @@ const CANVAS_HILL: Color = Color::rgb(0.34, 0.52, 0.30);
 /// the dark ones under, the light ones on top, `spread` out from the
 /// middle. Both plants are this at a size.
 fn foliage(list: &mut DrawList, local: &Local, u: f32, v: f32, spread: f32, leaf: f32) {
+    let from = list.len();
     const RING: [(f32, f32); 5] = [
         (0.0, -1.0),
         (0.95, -0.31),
@@ -1482,6 +1487,8 @@ fn foliage(list: &mut DrawList, local: &Local, u: f32, v: f32, spread: f32, leaf
         0.0,
         LEAF_LIGHT,
     );
+    // Leaves laid over them, still: a plant indoors has no wind.
+    list.foliage_from(from, false);
 }
 
 /// A small plant: a pot half the tile across, its rim and the soil in it,
@@ -2005,30 +2012,54 @@ fn tree(list: &mut DrawList, part: &PlacedPart, biome: Biome) {
             SHADE,
         );
     }
+    let crown = list.len();
     match biome {
         Biome::Temperate => {
-            local.push(
-                list,
-                KIND_ELLIPSE,
-                -w * 0.06,
-                h * 0.04,
-                w * 0.74 * size,
-                h * 0.70 * size,
-                0.0,
-                0.0,
-                LEAF_DARK,
-            );
-            local.push(
-                list,
-                KIND_ELLIPSE,
-                w * 0.08,
-                -h * 0.1,
-                w * 0.58 * size,
-                h * 0.56 * size,
-                0.0,
-                0.0,
-                LEAF,
-            );
+            // A broadleaf from above: the crown's shaded body, lobes of
+            // leaves round its rim in two greens, the side towards the
+            // light (the north-west) built up in lighter clumps, and a
+            // highlight or two on top. The leaves are laid over every
+            // piece (`foliage_from`), and the whole crown sways.
+            let r = w * 0.38 * size;
+            let turn = salt(part) * core::f32::consts::TAU;
+            local.push(list, KIND_ELLIPSE, w * 0.02, h * 0.03, r * 1.9, r * 1.8, 0.0, 0.0, LEAF_SHADE);
+            for i in 0..7 {
+                let a = turn + i as f32 * core::f32::consts::TAU / 7.0;
+                let lobe = r * (0.82 + 0.18 * ((i * 5 % 7) as f32 / 6.0));
+                let colour = if i % 2 == 0 { LEAF_DARK } else { LEAF_DEEP };
+                local.push(
+                    list,
+                    KIND_ELLIPSE,
+                    a.cos() * r * 0.58,
+                    a.sin() * r * 0.58,
+                    lobe,
+                    lobe * 0.92,
+                    0.0,
+                    0.0,
+                    colour,
+                );
+            }
+            for (u, v, k, colour) in [
+                (-0.22, -0.20, 1.05, LEAF),
+                (0.18, -0.30, 0.80, LEAF),
+                (-0.36, 0.10, 0.75, LEAF),
+                (0.02, 0.02, 0.85, LEAF_DARK),
+                (-0.30, -0.34, 0.50, LEAF_LIGHT),
+                (0.05, -0.42, 0.38, LEAF_LIGHT),
+            ] {
+                local.push(
+                    list,
+                    KIND_ELLIPSE,
+                    u * r,
+                    v * r,
+                    k * r,
+                    k * r * 0.94,
+                    0.0,
+                    0.0,
+                    colour,
+                );
+            }
+            list.foliage_from(crown, true);
         }
         Biome::Desert => {
             let reach = w * 0.42 * size;
@@ -2050,6 +2081,7 @@ fn tree(list: &mut DrawList, part: &PlacedPart, biome: Biome) {
                 0.0,
                 TRUNK,
             );
+            list.sway_from(crown);
         }
         Biome::Arctic => {
             let base = w * 0.8 * size;
@@ -2064,6 +2096,7 @@ fn tree(list: &mut DrawList, part: &PlacedPart, biome: Biome) {
                 base * 0.28,
                 SNOW,
             );
+            list.foliage_from(crown, true);
         }
     }
 }
@@ -2075,6 +2108,7 @@ fn shrub(list: &mut DrawList, part: &PlacedPart, biome: Biome) {
     let (local, across, along) = Local::of(part);
     let (w, h) = (across, along);
     let lean = (salt(part) - 0.5) * w * 0.2;
+    let from = list.len();
     match biome {
         Biome::Temperate => {
             local.push(
@@ -2228,6 +2262,13 @@ fn shrub(list: &mut DrawList, part: &PlacedPart, biome: Biome) {
                 TUSSOCK_DARK,
             );
         }
+    }
+    // A bush's leaves (its shade, the first shape, stays put on the
+    // ground) and a tussock's blades sway; a cactus stands.
+    match biome {
+        Biome::Temperate => list.foliage_from(from + crate::draw::STRIDE, true),
+        Biome::Arctic => list.sway_from(from),
+        Biome::Desert => {}
     }
 }
 

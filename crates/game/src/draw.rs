@@ -19,6 +19,14 @@ pub const KIND_ELLIPSE: f32 = 1.0;
 /// format is one format and the ship's `draw.rs` has it.
 #[allow(dead_code)]
 pub const KIND_TRIANGLE: f32 = 2.0;
+/// A filled rect, ellipse or triangle **with the objects' texture**: its
+/// kind plus this (eight, nine, ten). The app lays a neutral wear-and-grime
+/// texture over the fill (`crates/app/src/surfaces.rs`, `Surface::Object`
+/// in the ship's `draw.rs`) — what makes a locker or a counter read as a
+/// made thing rather than a swatch. Its fields are the plain shape's; a
+/// canvas drawn on the CPU draws it plain. Set by
+/// [`DrawList::textured_from`] over what a painter drew of an object.
+pub const KIND_TEXTURED: f32 = 8.0;
 
 /// A `line` width of zero means fill; anything greater strokes the outline.
 const FILLED: f32 = 0.0;
@@ -117,6 +125,18 @@ impl DrawList {
         let from = from.min(self.data.len());
         for shape in self.data[from..].chunks_exact_mut(STRIDE) {
             shape[STRIDE - 1] *= factor;
+        }
+    }
+
+    /// Every filled shape pushed since `from` given the objects' texture
+    /// ([`KIND_TEXTURED`]); a stroke, or a shape already textured, is left
+    /// as it is.
+    pub fn textured_from(&mut self, from: usize) {
+        let from = from.min(self.data.len());
+        for shape in self.data[from..].chunks_exact_mut(STRIDE) {
+            if shape[0] < KIND_TEXTURED && shape[7] == 0.0 {
+                shape[0] += KIND_TEXTURED;
+            }
         }
     }
 

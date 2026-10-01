@@ -24,6 +24,21 @@ pub const KIND_ELLIPSE: f32 = 1.0;
 /// is ignored and `line` strokes as for a rectangle.
 pub const KIND_TRIANGLE: f32 = 2.0;
 
+/// A filled rect, ellipse or triangle **with the objects' texture**: its
+/// kind plus this (eight, nine, ten). The app lays a neutral wear-and-grime
+/// texture over the fill (`crates/app/src/surfaces.rs`, [`Surface::Object`]) — what makes a locker or a counter read as a
+/// made thing rather than a swatch. Its fields are the plain shape's; a
+/// canvas drawn on the CPU draws it plain. Set by
+/// [`DrawList::textured_from`] over what a painter drew of an object.
+pub const KIND_TEXTURED: f32 = 8.0;
+/// A filled shape with **leaves** laid over it instead (a tree's crown, a
+/// bush, a potted plant): its kind plus sixty-four.
+pub const KIND_FOLIAGE: f32 = 64.0;
+/// Added to a plain or textured kind, the shape **sways in the wind**:
+/// the app moves it a little each frame, by where it stands, so a crown
+/// ripples and a stand of trees bends one after another. A picture only.
+pub const KIND_SWAY: f32 = 4.0;
+
 /// A rectangle filled with a **surface** — a texture the app holds for
 /// floors, walls and ground, multiplied by the shape's colour — is this
 /// plus the surface's number ([`Surface`]): sixteen for the deck plate,
@@ -73,6 +88,9 @@ pub enum Surface {
     Water = 11,
     /// A frozen lake: cracked, with bubbles caught in it.
     Ice = 12,
+    /// The objects' texture ([`KIND_TEXTURED`]): neutral wear and grime,
+    /// laid over a fill rather than painted as a surface of its own.
+    Object = 13,
 }
 
 /// A `line` width of zero means fill; anything greater strokes the outline.
@@ -225,6 +243,48 @@ impl DrawList {
 
     pub fn len(&self) -> usize {
         self.data.len()
+    }
+
+    /// Every shape pushed since `from` made foliage: a fill's kind gets
+    /// [`KIND_FOLIAGE`], and with `sway` every shape of it — a palm's thin
+    /// fronds too — [`KIND_SWAY`]. Out of doors a crown sways; a plant
+    /// in a pot does not.
+    pub fn foliage_from(&mut self, from: usize, sway: bool) {
+        let from = from.min(self.data.len());
+        for shape in self.data[from..].chunks_exact_mut(STRIDE) {
+            if shape[0] >= KIND_TEXTURED {
+                continue;
+            }
+            if sway {
+                shape[0] += KIND_SWAY;
+            }
+            if shape[7] == 0.0 {
+                shape[0] += KIND_FOLIAGE;
+            }
+        }
+    }
+
+    /// Every shape pushed since `from` swaying ([`KIND_SWAY`]) and nothing
+    /// more: a palm's fronds, a tussock's blades, a cactus's arms.
+    pub fn sway_from(&mut self, from: usize) {
+        let from = from.min(self.data.len());
+        for shape in self.data[from..].chunks_exact_mut(STRIDE) {
+            if shape[0] < KIND_SWAY {
+                shape[0] += KIND_SWAY;
+            }
+        }
+    }
+
+    /// Every filled shape pushed since `from` given the objects' texture
+    /// ([`KIND_TEXTURED`]); a stroke, a surface or a shape already
+    /// textured is left as it is.
+    pub fn textured_from(&mut self, from: usize) {
+        let from = from.min(self.data.len());
+        for shape in self.data[from..].chunks_exact_mut(STRIDE) {
+            if shape[0] < KIND_TEXTURED && shape[7] == 0.0 {
+                shape[0] += KIND_TEXTURED;
+            }
+        }
     }
 
     /// `x`/`y` are the centre and `w`/`h` the full size, both in world units.

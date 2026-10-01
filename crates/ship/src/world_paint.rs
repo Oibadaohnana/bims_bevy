@@ -470,6 +470,7 @@ fn paint_ship(game: &Game, list: &mut DrawList, prebuilt: &[KeptStation]) {
     // joined deck, which is the room's grid and not the ship's.
     let mut laid = DrawList::default();
     deployables(game, &mut laid);
+    laid.textured_from(0);
     list.append_turned(laid.shapes(), room_centre, turn);
     let (under_fog, over_fog) = game.world.aboard.room.shapes_fog_split();
     list.append_turned(under_fog, room_centre, turn);
@@ -1221,6 +1222,7 @@ fn plain(game: &Game, list: &mut DrawList) {
                         let m = tile_middle(origin.0, origin.1);
                         let dx = ((h >> 8) & 0xF) as f32 / 15.0 - 0.5;
                         let dy = ((h >> 12) & 0xF) as f32 / 15.0 - 0.5;
+                        let from = picture.len();
                         picture.ellipse(
                             m.x as f32 + dx * tile * 0.6,
                             m.y as f32 + dy * tile * 0.6,
@@ -1228,6 +1230,7 @@ fn plain(game: &Game, list: &mut DrawList) {
                             tile * 0.8,
                             crown,
                         );
+                        picture.foliage_from(from, true);
                     }
                 }
                 Ground::Water | Ground::Cliff => {}
@@ -1253,6 +1256,9 @@ fn plain(game: &Game, list: &mut DrawList) {
         centre.x as f32 + offset.x as f32 + shift,
         centre.y as f32 + offset.y as f32 + shift,
     );
+    // The boulders and the trees' trunks get the objects' texture (the
+    // crowns have their leaves already).
+    picture.textured_from(0);
     list.append_turned(picture.shapes(), pivot, game.ship_turn() as f32);
 }
 
@@ -1280,9 +1286,15 @@ fn hull_tiles(
         ground_floor(list, grid, terrain);
     }
     let biome = terrain.map(|t| t.biome);
+    // Where the objects start: everything standing on the deck gets the
+    // objects' texture over its fills (`DrawList::textured_from`).
+    let mut objects = list.len();
     for layer in [Layer::Structure, Layer::Floor, Layer::Object] {
         if terrain.is_some() && layer != Layer::Object {
             continue;
+        }
+        if layer == Layer::Object {
+            objects = list.len();
         }
         for part in &design.parts {
             if part.layer() != layer || skip.contains(&part.id) {
@@ -1334,6 +1346,7 @@ fn hull_tiles(
             }
         }
     }
+    list.textured_from(objects);
 }
 
 /// The shade along the inner side of the walls (feature 98): how deep

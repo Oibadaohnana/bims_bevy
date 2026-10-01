@@ -753,6 +753,101 @@ def ice():
     finish("ice", rgb, (0.70, 0.82, 0.90))
 
 
+def object_wear():
+    """What every object on a deck wears over its paint (`object.png`,
+    laid over a fill rather than painted as a surface): grime gathered in
+    blotches, scuffs and scratches, a little dust and a faint grain. Grey
+    — the object's colour is the painter's — and gentle, since it lies
+    over a counter's top and a door's leaf alike. Two tiles to a repeat."""
+    rng = np.random.default_rng(131)
+    grime = smooth((spectral(rng, 2.6, lo=2, hi=40) + 0.3) / 1.6)
+    v = 1.0 - 0.16 * grime
+    v *= 1.0 + 0.05 * spectral(rng, 1.8, lo=4, hi=120)
+    v *= 1.0 + 0.03 * spectral(rng, 1.0, lo=6, hi=60, aniso=(1.0, 0.08))
+    img = Image.new("L", (N, N), 0)
+    d = ImageDraw.Draw(img)
+    for _ in range(420):
+        x, y = rng.uniform(0, N, 2)
+        a = rng.uniform(0, np.pi)
+        length = rng.uniform(30, 160)
+        x2, y2 = x + np.cos(a) * length, y + np.sin(a) * length
+        val = int(rng.uniform(80, 220))
+        w = int(rng.integers(3, 8))
+
+        def one(dx, dy, x=x, y=y, x2=x2, y2=y2, val=val, w=w):
+            d.line([(x + dx, y + dy), (x2 + dx, y2 + dy)], fill=val, width=w)
+
+        wrapped_draw(one)
+    scratch = blur(np.asarray(img, np.float64) / 255.0, 1.5)
+    v *= 1.0 + 0.10 * scratch
+    scuff = smooth((spectral(rng, 2.2, lo=4, hi=60) - 1.5) / 0.7)
+    v *= 1.0 - 0.18 * scuff
+    v *= 1.0 + 0.04 * rng.normal(0, 1, (N, N))
+    warm = colour((1.02, 1.0, 0.97))
+    rgb = v[..., None] * mix(colour((1.0, 1.0, 1.0)), warm, grime)
+    finish("object", rgb, (0.5, 0.5, 0.5))
+
+
+def foliage():
+    """Leaves from above, for a tree's crown, a bush and a potted plant
+    (`foliage.png`, laid over the crown's ellipses): thousands of leaves
+    in layers, the lower ones in the shade of the upper, each lit on its
+    north-west side, a vein down it, and dark gaps between the clusters.
+    Two tiles to a repeat."""
+    rng = np.random.default_rng(141)
+    S = 2
+    M = N * S
+    img = Image.new("RGB", (M, M), (14, 24, 10))
+    d = ImageDraw.Draw(img)
+    clumps = spectral(rng, 2.6, lo=3, hi=40)
+    for layer in range(4):
+        light = 0.45 + 0.2 * layer
+        count = 3800 if layer < 3 else 2600
+        xs = rng.uniform(0, N, count)
+        ys = rng.uniform(0, N, count)
+        for x, y in zip(xs, ys):
+            if rng.random() > smooth(0.55 + 0.45 * clumps[int(y) % N, int(x) % N] + 0.15 * layer):
+                continue
+            a = rng.uniform(0, np.pi)
+            length = rng.uniform(26, 48)
+            width = length * rng.uniform(0.38, 0.55)
+            hue = rng.uniform(-1, 1)
+            g = light * rng.uniform(0.8, 1.15)
+            base = np.array([0.30 + 0.04 * hue, 0.50, 0.24 - 0.03 * hue]) * g
+            lit = np.clip(base * 1.18, 0, 1)
+            dark = base * 0.78
+            ca, sa = np.cos(a), np.sin(a)
+
+            def leaf(dx, dy, x=x, y=y, ca=ca, sa=sa, length=length, width=width, base=base, lit=lit, dark=dark):
+                pts = []
+                for k in range(12):
+                    t = k / 12 * 2 * np.pi
+                    u = np.cos(t) * length / 2
+                    w2 = np.sin(t) * width / 2 * (1 - 0.35 * np.cos(t))
+                    pts.append(((x + dx) * S + (u * ca - w2 * sa) * S, (y + dy) * S + (u * sa + w2 * ca) * S))
+                d.polygon(pts, fill=tuple(int(c * 255) for c in dark))
+                # The lit half, nudged towards the north-west.
+                off = 1.4 * S
+                d.polygon([(px - off, py - off) for px, py in pts], fill=tuple(int(c * 255) for c in base))
+                hx, hy = (x + dx) * S - 3.0 * S, (y + dy) * S - 3.0 * S
+                d.ellipse([hx - width * 0.3 * S, hy - width * 0.3 * S, hx + width * 0.3 * S, hy + width * 0.3 * S],
+                          fill=tuple(int(c * 255) for c in lit))
+                # The vein.
+                d.line([((x + dx) * S - length / 2 * ca * S * 0.8, (y + dy) * S - length / 2 * sa * S * 0.8),
+                        ((x + dx) * S + length / 2 * ca * S * 0.8, (y + dy) * S + length / 2 * sa * S * 0.8)],
+                       fill=tuple(int(c * 255) for c in dark), width=S)
+
+            if min(x, y) < 20 or max(x, y) > N - 20:
+                wrapped_draw(leaf)
+            else:
+                leaf(0, 0)
+    img = img.resize((N, N), Image.LANCZOS)
+    rgb = np.asarray(img, np.float64) / 255.0
+    lum = rgb.mean(-1)
+    rgb = rgb * (0.75 + 0.25 * occlusion(blur(lum, 1.0) * 8.0, 6.0, 0.4))[..., None]
+    finish("foliage", rgb, (0.30, 0.56, 0.30))
+
+
 MAKERS = {
     "deck": deck,
     "bulkhead": bulkhead,
@@ -767,6 +862,8 @@ MAKERS = {
     "rock": rock,
     "water": water,
     "ice": ice,
+    "object": object_wear,
+    "foliage": foliage,
 }
 
 if __name__ == "__main__":

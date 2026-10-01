@@ -1164,6 +1164,9 @@ impl Room {
         if self.shell {
             self.draw_floor(list);
         }
+        // Everything standing on the deck gets the objects' texture over
+        // its fills (`DrawList::textured_from`), the floor not.
+        let objects = list.len();
         for worktop in &self.worktops {
             worktop.draw(list);
         }
@@ -1195,6 +1198,7 @@ impl Room {
                 door.draw(list);
             }
         }
+        list.textured_from(objects);
     }
 
     /// The fixtures alone, and only the ones asked for: the picture the
