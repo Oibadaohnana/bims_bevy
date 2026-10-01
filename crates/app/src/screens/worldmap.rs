@@ -260,16 +260,17 @@ fn tags(quote: &TravelQuote) -> String {
 }
 
 /// A row of the list as egui lays it out: the kind's word first, strong and
-/// in its colour (task 111), then the rest in the row's own colour.
+/// in its colour (task 111) — a mission's with whether it is on a station
+/// or a planet — then the rest in the row's own colour.
 fn row_job(
     style: &egui::Style,
-    kind: Option<SiteKind>,
+    d: &Destination,
     text: &str,
     colour: egui::Color32,
 ) -> egui::text::LayoutJob {
     let mut job = egui::text::LayoutJob::default();
     let small = egui::TextStyle::Small.resolve(style);
-    if let Some(kind) = kind {
+    if let Some(kind) = d.kind {
         job.append(
             site_kind_word(kind),
             0.0,
@@ -279,6 +280,17 @@ fn row_job(
                 ..Default::default()
             },
         );
+        if kind != SiteKind::Trader {
+            job.append(
+                &format!(" {}", site_place_word(d.site.station)),
+                0.0,
+                egui::TextFormat {
+                    font_id: small.clone(),
+                    color: theme::site_kind_colour(kind),
+                    ..Default::default()
+                },
+            );
+        }
         job.append("  ", 0.0, egui::TextFormat::default());
     }
     job.append(
@@ -454,7 +466,7 @@ pub fn map_column(
                             if let Some(star) = star {
                                 text.push_str(&format!("  · {star}"));
                             }
-                            let job = row_job(ui.style(), d.kind, &text, colour);
+                            let job = row_job(ui.style(), d, &text, colour);
                             let row = ui.selectable_label(map.picked == Some(d.site), job);
                             if row.hovered() {
                                 map.hovered = Some(d.site);
@@ -631,6 +643,13 @@ fn destination_card(
                     .size(18.0)
                     .color(theme::site_kind_colour(kind)),
             );
+            if kind != SiteKind::Trader {
+                ui.label(
+                    egui::RichText::new(site_place_word(site.station))
+                        .size(15.0)
+                        .color(theme::site_kind_colour(kind)),
+                );
+            }
             theme::question_mark(ui, SITE_KIND_TIP);
         });
     }
@@ -788,7 +807,7 @@ pub fn propose_bar(
                         Some(d) => {
                             let at = world.current_site() == Some(d.site);
                             let (text, colour) = row_words(d, at);
-                            ui.label(row_job(ui.style(), d.kind, &text, colour));
+                            ui.label(row_job(ui.style(), d, &text, colour));
                             let press = ui
                                 .add_enabled(
                                     d.quote.is_ok(),

@@ -80,9 +80,8 @@ pub struct Lobby {
     pub route: Vec<u32>,
     pub jammed: Vec<bool>,
     /// In the game: the machines' origin, where their Machine Heart
-    /// stands, once the crew have seen it (feature 108,
-    /// `World::origin_seen`). The page sets it every frame; `None` in the
-    /// lobby.
+    /// stands (feature 108), always marked so the crew know where the
+    /// run ends. The page sets it every frame; `None` in the lobby.
     pub heart: Option<u32>,
     /// In the game: every star whose system has a trader and whether it
     /// is open (`World::trader_stars`). The page sets it; empty in the

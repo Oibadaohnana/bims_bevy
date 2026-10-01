@@ -255,9 +255,9 @@ pub struct Marks<'a> {
     /// that cannot be flown says where it stops.
     pub jammed: &'a [bool],
     /// Where the machines began and their Machine Heart stands (feature
-    /// 108): a diamond round the star in the enemy's red, over its cross,
-    /// once the crew have seen the origin's system or one next to it
-    /// (`World::origin_seen`). `None` until then, and in the lobby.
+    /// 108): two diamonds round the star in the enemy's red on a dark
+    /// wash, over its cross — always shown in the game, so the crew know
+    /// where the run ends. `None` in the lobby.
     pub heart: Option<u32>,
     /// Every star whose system has a trader, on the chart in the game
     /// (`World::trader_stars`): a green square round the star — the
@@ -353,6 +353,11 @@ pub const ATTACK: Color = Color::rgb(1.0, 0.28, 0.22);
 /// amber and its attack red (`theme::CAUTION`, `theme::ATTACK`).
 const TIER_TWO: Color = Color::rgb(1.0, 0.84, 0.65);
 const TIER_THREE: Color = Color::rgb(1.0, 0.37, 0.29);
+/// How far the Machine Heart's mark reaches from its star, in pixels.
+const HEART_REACH: f32 = 28.0;
+/// The pale rim round the Machine Heart's diamond, so its red does not
+/// melt into the red crosses and blades round it.
+const HEART_EDGE: Color = Color::rgb(1.0, 0.86, 0.80);
 
 /// How much of a star without a station shows. Dimmed rather than hidden:
 /// it can still be inspected, and a map with holes in it reads as a map that
@@ -699,30 +704,34 @@ pub fn paint(
         }
     }
 
-    // And the Machine Heart, once it has been seen: a diamond round the
-    // origin, a second inside it, and a dot at its middle — a shape of its
-    // own, as the cross is.
+    // And the Machine Heart: a red halo on a dark wash, so it stands out of
+    // the crossed stars round it, two heavy diamonds round the origin and
+    // a dot at its middle — a shape of its own, as the cross is, and the
+    // biggest mark on the chart but the crew's own.
     if let Some(star) = marks.heart.and_then(|id| stars.get(id as usize)) {
         let (x, y) = preview.to_screen(star.position.x, star.position.y);
-        if preview.on_canvas(x, y, 16.0) {
-            for r in [14.0f32, 9.5] {
+        if preview.on_canvas(x, y, HEART_REACH) {
+            list.ellipse(
+                x,
+                y,
+                2.0 * HEART_REACH + 10.0,
+                2.0 * HEART_REACH + 10.0,
+                INFESTED.alpha(0.22),
+            );
+            list.ellipse(x, y, 2.0 * HEART_REACH, 2.0 * HEART_REACH, VOID.alpha(0.92));
+            for (r, thick, c) in [
+                (21.0f32, 5.0, HEART_EDGE),
+                (21.0, 3.0, INFESTED),
+                (13.5, 2.2, INFESTED),
+            ] {
                 let corners = [(x, y - r), (x + r, y), (x, y + r), (x - r, y)];
                 for i in 0..4 {
                     let (a, b) = (corners[i], corners[(i + 1) % 4]);
-                    list.line(a.0, a.1, b.0, b.1, 1.8, INFESTED);
+                    list.line(a.0, a.1, b.0, b.1, thick, c);
                 }
             }
-            list.push(
-                crate::draw::KIND_ELLIPSE,
-                x,
-                y,
-                5.0,
-                5.0,
-                0.0,
-                0.0,
-                0.0,
-                INFESTED,
-            );
+            list.ellipse(x, y, 9.0, 9.0, HEART_EDGE);
+            list.ellipse(x, y, 6.0, 6.0, INFESTED);
         }
     }
 

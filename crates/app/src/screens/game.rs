@@ -1809,13 +1809,9 @@ fn frame(
             .as_ref()
             .map(|g| g.world.two_lanes_off(&chart.galaxy))
             .unwrap_or_default();
-        // And the machines' origin, where the Machine Heart stands, once
-        // the crew have seen its system or one next to it (feature 108).
-        chart.heart = session
-            .game
-            .as_ref()
-            .filter(|g| g.world.origin_seen())
-            .map(|g| g.world.droid_origin());
+        // And the machines' origin, where the Machine Heart stands
+        // (feature 108) — always, so the crew know where the run ends.
+        chart.heart = session.game.as_ref().map(|g| g.world.droid_origin());
         // And every system with a trader, faded where it is closed today.
         chart.traders = session
             .game
@@ -2771,6 +2767,30 @@ fn frame(
             bar.map_or(0.0, |r| r.height() + GAP),
             &screen.log,
         );
+        // This player's money at the top middle of the chart, where the
+        // ship's top frame says it.
+        egui::Area::new(egui::Id::new("map-money"))
+            .fixed_pos(egui::pos2(
+                (area.min.x + map_right) / 2.0,
+                area.min.y + MARGIN,
+            ))
+            .pivot(egui::Align2::CENTER_TOP)
+            .order(egui::Order::Middle)
+            .show(&ctx, |ui| {
+                panel_frame().show(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        ui.label(egui::RichText::new(MAP_MONEY).color(theme::MUTED));
+                        ui.label(
+                            egui::RichText::new(crate::format::euros(world.share_of(local)))
+                                .strong()
+                                .size(16.0)
+                                .color(theme::ACCENT),
+                        );
+                    })
+                    .response
+                    .on_hover_text(MAP_MONEY_TIP);
+                });
+            });
     } else {
         let threats = hud::threats(world, local);
         let paused = world.effective_speed().multiplier() == 0;
@@ -3366,6 +3386,12 @@ fn frame(
                 }
                 theme::name_over(&chart_painter, at, &words, color);
             }
+        }
+        // The Machine Heart named over its mark, or — off the chart — an
+        // arrow at the chart's edge pointing the way to it.
+        if let Some(s) = chart.heart.and_then(|id| chart.galaxy.star(id)) {
+            let (x, y) = chart.preview.to_screen(s.position.x, s.position.y);
+            heart_tag(&chart_painter, egui_rect(galaxy_rect), egui::pos2(x, y));
         }
         // Every star's tier under it (`World::system_tiers`), on a
         // small dark tag in the tier's colour: every star on the galaxy_rect
@@ -4285,13 +4311,77 @@ fn attack_cursor(painter: &egui::Painter, at: egui::Pos2) {
     painter.circle_filled(at, 1.5, theme::ATTACK);
 }
 
+/// Where the Machine Heart is on the galaxy chart: its name in the enemy's
+/// red over its mark when the star is on the chart, and when it is not, an
+/// arrow just inside the chart's edge on the line from the middle to it,
+/// with the name beside it — so a pan or a zoom never hides the end of
+/// the run. `at` is the star in the chart's own pixels.
+fn heart_tag(painter: &egui::Painter, chart: egui::Rect, at: egui::Pos2) {
+    let star = chart.min + at.to_vec2();
+    if chart.shrink(4.0).contains(star) {
+        heart_label(painter, star - egui::vec2(0.0, 32.0));
+        return;
+    }
+    let inner = chart.shrink(34.0);
+    if inner.width() < 100.0 || inner.height() < 20.0 {
+        return;
+    }
+    let from = chart.center();
+    let way = star - from;
+    // How far along the line from the middle the inner edge is.
+    let reach = |d: f32, half: f32| {
+        if d.abs() < 1e-3 {
+            f32::MAX
+        } else {
+            half / d.abs()
+        }
+    };
+    let t = reach(way.x, inner.width() / 2.0).min(reach(way.y, inner.height() / 2.0));
+    let tip = from + way * t.min(1.0);
+    let dir = way.normalized();
+    let side = egui::vec2(-dir.y, dir.x);
+    let back = tip - dir * 16.0;
+    painter.add(egui::Shape::convex_polygon(
+        vec![tip, back + side * 9.0, back - side * 9.0],
+        theme::ATTACK,
+        egui::Stroke::new(1.5, theme::PANEL_DEEP),
+    ));
+    // The name behind the arrow, kept inside the chart.
+    let label = back - dir * 8.0 + egui::vec2(0.0, -8.0);
+    let label = egui::pos2(
+        label.x.clamp(inner.min.x + 50.0, inner.max.x - 50.0),
+        label.y.clamp(inner.min.y + 14.0, inner.max.y),
+    );
+    heart_label(painter, label);
+}
+
+/// The Machine Heart's name on a dark tag ringed in the enemy's red, its
+/// bottom middle at `at` — a tag rather than the stars' outlined names, so
+/// it reads over the red crosses and blades crowding round the origin.
+fn heart_label(painter: &egui::Painter, at: egui::Pos2) {
+    let font = egui::FontId::proportional(theme::NAME_SIZE + 1.0);
+    let galley = painter.layout_no_wrap(HEART_NAME.to_string(), font, theme::ATTACK);
+    let tag = egui::Rect::from_center_size(
+        at - egui::vec2(0.0, galley.size().y / 2.0 + 3.0),
+        galley.size() + egui::vec2(12.0, 4.0),
+    );
+    painter.rect_filled(tag, 4.0, theme::PANEL_DEEP.gamma_multiply(0.94));
+    painter.rect_stroke(
+        tag,
+        4.0,
+        egui::Stroke::new(1.5, theme::ATTACK),
+        egui::StrokeKind::Inside,
+    );
+    painter.galley(tag.center() - galley.size() / 2.0, galley, theme::ATTACK);
+}
+
 /// What the crisis has to say about a star (feature 92): that the machines
 /// hold it and what day it fell, or the day it is due to. One line, under
 /// the star's name on the chart's panel, and nothing at all for a star the
 /// lanes do not reach — which, the graph being one piece, is no star at all.
 fn crisis_line(ui: &mut egui::Ui, world: &world::World, star: u32) {
-    // The Machine Heart's star, once the crew have seen it (feature 108).
-    if star == world.droid_origin() && world.origin_seen() {
+    // The Machine Heart's star (feature 108).
+    if star == world.droid_origin() {
         ui.label(
             egui::RichText::new(HEART_CHART_LINE)
                 .strong()
@@ -4346,7 +4436,12 @@ fn chart_star_lines(
     mission: Option<(world::run::StarMission, String)>,
 ) {
     if let Some((mission, name)) = mission.filter(|(m, _)| m.kind != world::SiteKind::Trader) {
-        let word = site_kind_word(mission.kind);
+        // Its kind with where it is fought: `DEFEND planet`.
+        let word = format!(
+            "{} {}",
+            site_kind_word(mission.kind),
+            site_place_word(mission.site.station)
+        );
         let (words, colour) = match (mission.cleared, mission.kind) {
             (true, world::SiteKind::Defend) => {
                 (format!("{word} · {name} · {SITE_HELD}"), theme::MUTED)
