@@ -3621,7 +3621,7 @@ mod tests {
             let shotgun = WeaponKind::Shotgun.stats();
             assert_eq!(damage_text(&shotgun), "60 to 4 tiles, 36 at 10");
             let pistol = WeaponKind::LaserPistol.stats();
-            assert_eq!(damage_text(&pistol), "7.2 a shot");
+            assert_eq!(damage_text(&pistol), "6 a shot");
             assert_eq!(fire_rate_text(&pistol), "1.5 a second");
             let rifle = WeaponKind::AutoRifle.stats();
             assert_eq!(fire_rate_text(&rifle), "8 in 2 s, then 2 s");

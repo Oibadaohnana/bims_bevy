@@ -301,6 +301,16 @@ impl WeaponKind {
         WeaponKind::ALL.contains(&self)
     }
 
+    /// Whether a player's hand fires it one shot a click (October 2026):
+    /// the pistol. Every press of the button is a shot the step it
+    /// reaches the room, however quick the clicks, and a button held
+    /// down is that one shot and no more — the `fire_rate` is no limit
+    /// on it. A body nobody steers (a bot, a station's people) still
+    /// fires it at its `fire_rate`, since nobody clicks for it.
+    pub fn semi_automatic(self) -> bool {
+        self == WeaponKind::LaserPistol
+    }
+
     /// What the weapon is in the hold: the `ResourceId` code, the way a
     /// piece of armour has one ([`ArmourKind::resource`]) — a number,
     /// since this crate does not know `physics`.
@@ -4598,14 +4608,15 @@ mod tests {
         // The second tuning of September 2026: the pistol's odds a tenth
         // down from the 95% and 65% it had, its damage a fifth up from 6,
         // and ten tiles more range — 72% at ten tiles then, where the app
-        // used to print 70%; 68% since October 2026 cut its reach to 15.4.
+        // used to print 70%; 68% since October 2026 cut its reach to 15.4. Its
+        // damage back to 6 the same month, when every click became a shot.
         let pistol = WeaponKind::LaserPistol.stats();
         assert_eq!(pistol.range, 15.4);
         assert!((pistol.hit_chance(10.0) - 0.680).abs() < 0.01);
         assert_eq!(pistol.hit_chance(0.0), 0.855);
         assert_eq!(pistol.hit_chance(30.0), 0.585, "no worse past the range");
-        assert_eq!(pistol.damage_at(11.0), 7.2);
-        assert!((pistol.dps() - 10.8).abs() < 1e-5);
+        assert_eq!(pistol.damage_at(11.0), 6.0);
+        assert!((pistol.dps() - 9.0).abs() < 1e-5);
 
         let shotgun = WeaponKind::Shotgun.stats();
         assert_eq!(shotgun.damage_at(4.0), 60.0);

@@ -78,14 +78,18 @@ pub const AIM_SPREAD: f32 = 0.25;
 // the Husk's claws). The notes give the numbers they had before.
 
 /// The pistol everybody is issued: quick, light, fifteen and a half
-/// tiles (twenty-two before October 2026).
+/// tiles (twenty-two before October 2026). In a player's hand it fires
+/// a shot every click and only the one while held
+/// (`WeaponKind::semi_automatic`), so its `fire_rate` is only the pace
+/// of a body nobody steers. 6 a shot since October 2026, when every
+/// click became a shot (7.2 before).
 pub const LASER_PISTOL: WeaponStats = WeaponStats {
     range: 15.4,
     sweet: 0.0,
     accuracy: 0.855,
     accuracy_far: 0.585,
-    damage: 7.2,
-    damage_far: 7.2,
+    damage: 6.0,
+    damage_far: 6.0,
     speed: 18.0,
     fire_rate: 1.5,
     burst: 1,

@@ -70,9 +70,9 @@ pub struct Light {
     pub reach: f32,
 }
 
-/// What a lamp takes before it goes out: two pistol bolts leave it
-/// failing, a third puts it out, and a shotgun's or a sniper's one does
-/// on its own.
+/// What a lamp takes before it goes out: three pistol bolts put it out
+/// (two left it failing before the pistol went to 6 a shot in October
+/// 2026), and a shotgun's or a sniper's one does on its own.
 pub const LAMP_HEALTH: f32 = 16.0;
 /// Below this share of its health a lamp is **failing**: it flickers now
 /// and then, on its own.

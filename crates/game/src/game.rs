@@ -1853,13 +1853,17 @@ impl Game {
                 bim.character.set_lean(None);
                 bim.character.set_aim(Some(at));
                 // A click is a shot even if the button came up before
-                // this step saw it held (`TRIGGER_OWED`).
+                // this step saw it held (`TRIGGER_OWED`). A pistol
+                // (`WeaponKind::semi_automatic`) fires that click and
+                // nothing else: no reload to wait out, and nothing more
+                // while the button stays down.
                 let owed = bim.character.trigger_owed(dt);
-                if !s.fire && !owed {
+                let semi = weapon.kind.semi_automatic();
+                if (!s.fire || semi) && !owed {
                     bim.trigger.hold();
                     continue;
                 }
-                if bim.trigger.pull(dt, &stats) {
+                if semi || bim.trigger.pull(dt, &stats) {
                     bim.character.trigger_paid();
                     let walking = bim.character.is_walking();
                     let muzzle = self.shot_from(who, from, at);
@@ -10333,9 +10337,9 @@ mod tests {
     }
 
     /// A lamp is shot out: a bolt that passes within its radius stops
-    /// there and takes its damage off it, a hit sets it flickering, two
-    /// pistol bolts leave it failing — flickering now and then on its
-    /// own — and the third puts it out: the tile it lit is dark and seen
+    /// there and takes its damage off it, a hit sets it flickering, one
+    /// left at a fifth of its health or under is failing — flickering now
+    /// and then on its own — and the third pistol bolt puts it out: the tile it lit is dark and seen
     /// no further than the ten again, the picture round it darker, and
     /// the world's word (`set_lamp_health`) puts it back or out on a
     /// fresh room.
@@ -10372,7 +10376,8 @@ mod tests {
 
         // Shot from two tiles off, until it is out. A miss goes wide of
         // the lamp; every hit is the pistol's damage off it and a moment's
-        // flicker, and after two it is failing.
+        // flicker, and a fifth or less left is failing.
+        let damage = WeaponKind::LaserPistol.stats().damage;
         let from = lamp.at - vec2(2.0 * TILE, 0.0);
         let (mut shots, mut flickered, mut hits) = (0, false, 0);
         while !game.lamps()[0].is_out() && shots < 60 {
@@ -10386,15 +10391,17 @@ mod tests {
             if game.lamps()[0].health < health {
                 hits += 1;
                 let lamp = game.lamps()[0];
+                let left = (LAMP_HEALTH - hits as f32 * damage).max(0.0);
+                assert!((lamp.health - left).abs() < 1e-4, "after {hits}");
                 assert_eq!(
                     lamp.is_failing(),
-                    hits == 2 && !lamp.is_out(),
+                    left > 0.0 && left <= LAMP_HEALTH * crate::sight::LAMP_FAILING,
                     "after {hits}"
                 );
             }
         }
         assert!(game.lamps()[0].is_out(), "{shots} shots");
-        assert_eq!(hits, 3, "two leave it failing, the third puts it out");
+        assert_eq!(hits, 3, "the third pistol bolt puts it out");
         assert!(flickered, "a hit sets it flickering");
         assert_eq!(game.take_lamp_changes(), vec![0, 0, 0]);
         assert!(game.take_lamp_changes().is_empty(), "drained");
@@ -12531,6 +12538,15 @@ mod tests {
         let james = game.put_for_probe(0, vec2(ROOM_W * 0.3, ROOM_H * 0.5));
         game.bims[0].character.heading = PI / 2.0;
         game.put_for_probe(1, vec2(ROOM_W * 0.2, ROOM_H * 0.85));
+        // James with the auto rifle, since a pistol fires a click and not
+        // a button held (`a_steered_pistol_fires_every_click_and_once_while_held`).
+        game.issue(
+            0,
+            Gear {
+                weapon: Some(WeaponKind::AutoRifle.basic()),
+                ..Gear::default()
+            },
+        );
         // Kate unarmed: under the alarm she would fire at the target too.
         game.issue(1, Gear::default());
         let target = james + vec2(4.0 * TILE, 0.0);
@@ -12560,7 +12576,7 @@ mod tests {
         }
         assert!(
             fired >= 3,
-            "a pistol held down fires as fast as it goes: {fired}"
+            "a rifle held down fires as fast as it goes: {fired}"
         );
         assert_eq!(hits, 0, "and its bolts fly where it faces");
         // Turned onto the target, the bolts land.
@@ -12590,6 +12606,67 @@ mod tests {
             more += usize::from(game.bolts_in_flight() > was);
         }
         assert_eq!(more, 0, "and only once");
+    }
+
+    #[test]
+    fn a_steered_pistol_fires_every_click_and_once_while_held() {
+        use crate::order::{CrewOrder, angle_code};
+        let mut game = room();
+        game.set_autonomous(false);
+        game.set_players(1);
+        let james = game.put_for_probe(0, vec2(ROOM_W * 0.3, ROOM_H * 0.5));
+        game.bims[0].character.heading = 0.0;
+        game.put_for_probe(1, vec2(ROOM_W * 0.2, ROOM_H * 0.85));
+        game.issue(1, Gear::default());
+        assert_eq!(game.weapon(0), Some(WeaponKind::LaserPistol.basic()));
+        assert!(WeaponKind::LaserPistol.semi_automatic());
+        assert!(!WeaponKind::AutoRifle.semi_automatic());
+        let target = james + vec2(4.0 * TILE, 0.0);
+        game.set_hostiles(vec![Some((target, WeaponKind::LaserPistol.basic()))]);
+        let control = |fire: bool| CrewOrder::Control {
+            walk: None,
+            aim: angle_code(0.0),
+            fire,
+        };
+        let step = |game: &mut Game, fired: &mut u32| {
+            let before = game.bims[0].shots;
+            game.simulate(DT);
+            *fired += game.bims[0].shots - before;
+        };
+        game.order(0, control(false));
+        for _ in 0..60 {
+            game.simulate(DT);
+        }
+        // Held down for three seconds: the one shot of the press.
+        game.order(0, control(true));
+        let mut fired = 0;
+        for _ in 0..180 {
+            step(&mut game, &mut fired);
+        }
+        assert_eq!(fired, 1, "a pistol held down fires once");
+        // Clicked eight times a second, far quicker than the 1.5 a
+        // second a bot fires it at: every click is a shot.
+        game.order(0, control(false));
+        for _ in 0..30 {
+            game.simulate(DT);
+        }
+        let mut fired = 0;
+        for _ in 0..12 {
+            game.order(0, control(true));
+            step(&mut game, &mut fired);
+            step(&mut game, &mut fired);
+            game.order(0, control(false));
+            for _ in 0..5 {
+                step(&mut game, &mut fired);
+            }
+        }
+        assert_eq!(fired, 12, "every click a shot");
+        // And a click that is down and up again before a step sees it.
+        let mut fired = 0;
+        game.order(0, control(true));
+        game.order(0, control(false));
+        step(&mut game, &mut fired);
+        assert_eq!(fired, 1, "the quick click fired at once");
     }
 
     #[test]

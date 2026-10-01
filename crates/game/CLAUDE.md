@@ -4659,3 +4659,22 @@ seeded runs Bim 0 is a player's, so the survivor pins move with it.
   `set_wounds([bool; 3])`; `Character::hit_mark()` replaced `part_mark`,
   the flash on the body (`fx::struck` keeps `BIM_STRUCK`, nought, for a
   Bim).
+
+## The pistol fires a click (October 2026)
+
+> "held it fires as fast as the weapon goes" in task 144's section is
+> every gun but this one now.
+
+`WeaponKind::semi_automatic` (the pistol alone) is a steered body's
+trigger read another way: in `tick_combat`'s steered branch a press
+(`Character::trigger_owed`, armed on the button's down edge) is a shot
+the step it reaches the room — no `Trigger::pull`, so no reload to wait
+out however quick the clicks — and a button held is that one shot and
+no more. A body nobody steers (a bot, a station's people, a Trooper's
+arm) still fires it at its `fire_rate` (1.5), which is all that number
+is for it now. The pistol went to 6 a shot (7.2) with it, so it takes
+three bolts to put a lamp out and none leaves it failing on the way.
+`a_steered_pistol_fires_every_click_and_once_while_held` pins it;
+`a_steered_bim_fires_along_its_facing_only_while_the_trigger_is_held`
+holds an auto rifle now. The survivor pins move (every pistol hits for
+less).
