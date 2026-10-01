@@ -1,26 +1,34 @@
-//! What a system offers (task 135): **one station and one planet's
-//! town**, whatever the generator put there — and, besides, its trader
-//! where it has one, the machines' derived jammer or the Machine Heart's
-//! fortress where those stand. The crew's home system is the home station
-//! and the town alone.
+//! What a system offers: **one mission** — its station or one planet's
+//! town, an attack or a defence — or, instead, its trader; besides them,
+//! the machines' derived jammer or the Machine Heart's fortress where
+//! those stand. Task 135 made it one station and one town a system, one
+//! of them fought; the galaxy-only map cut it to the one, so the galaxy
+//! chart says what every star holds and the crew go there off the chart.
 //!
 //! The station is the system's **primary**: the lowest-numbered station
 //! the generator made ([`primary`]), or the crew's home in theirs. The
-//! trader is picked among the rest (`World::trader_of`), so a system with
-//! a trader keeps two stations; the Manufacturers' made-up sites near home
-//! are primaries (`manufacturer::near_sites`). The town is the lowest
-//! landable body's ([`town_body`]). Every other station and settlement is
-//! taken out of the system the moment it is settled
+//! town is the lowest landable body's ([`town_body`]). Which of the two
+//! is the mission is a coin off the galaxy's seed and the star
+//! ([`town_fight`]) — the station wherever there is no town, the town
+//! wherever there is no station, and the station whatever the coin says
+//! at home, at an elite and where the Manufacturers hold it
+//! ([`World::offered_fight`]). Whether it is an attack or a defence is
+//! the outposts' own coin (`outposts.rs`).
+//!
+//! A system with a **trader** (`World::trader_of`, its primary since the
+//! galaxy-only map) offers the trader and no mission. Every other station
+//! and settlement is taken out of the system the moment it is settled
 //! ([`World::settle_offered`], at the top of `World::settle_jammer`: the
 //! start, a jump, the spread and every load), and a system of another star
 //! is trimmed the same way before its sites are listed or quoted
 //! ([`World::trim_system`]). The bodies stay: a planet with no town on it
-//! is scenery.
+//! is scenery. Every rule here answers the same over a system trimmed as
+//! over it whole, so trimming twice changes nothing.
 //!
-//! **One fight a system.** Once a mission begins at a system's Attack or
-//! Defend site the other is refused for the rest of the run
-//! ([`Refusal::OtherSiteChosen`], `Run::chosen`): the crew choose which of
-//! the two to fight. A trader and the Heart are never refused so.
+//! **One fight a system** (task 135, `Run::chosen`,
+//! [`Refusal::OtherSiteChosen`]) is still the rule, and refuses nothing
+//! while a system offers one fight. A trader and the Heart are never
+//! refused so.
 
 use super::*;
 use worldgen::StationBlueprint;
@@ -48,6 +56,18 @@ pub fn town_body(system: &StarSystem) -> Option<u32> {
         .min()
 }
 
+/// Salt for the coin that picks a system's one fight, "MISSION".
+const MISSION_SALT: u64 = 0x_004d_4953_5349_4f4e;
+
+/// Whether `star`'s one fight is its town rather than its station, where
+/// it has both and nothing holds it to the station: a coin off the
+/// galaxy's seed and the star, of a salt of its own, so it falls
+/// independently of the outposts' attack-or-defence.
+pub fn town_fight(galaxy_seed: u64, star: u32) -> bool {
+    let seed = worldgen::rng::mix(galaxy_seed ^ MISSION_SALT) ^ worldgen::rng::mix(u64::from(star));
+    worldgen::rng::Rng::new(seed).below(2) == 1
+}
+
 impl World {
     /// The one station `star`'s system offers besides its trader: the
     /// crew's home in theirs, the [`primary`] of `stations` anywhere else.
@@ -59,14 +79,45 @@ impl World {
         }
     }
 
-    /// `star`'s generated `system` cut to what it offers: the offered
-    /// station, the trader, and whatever derived station or fortress it
+    /// The one mission `star`'s system, generated as `system` (trimmed or
+    /// not), offers: its station or its town ([`town_fight`]), the station
+    /// at home, at an elite and where it is the Manufacturers' — `None`
+    /// where the system's trader is all it offers.
+    pub fn offered_fight(&self, star: u32, system: &StarSystem) -> Option<u32> {
+        if self.trader_of(star, &system.stations).is_some() {
+            return None;
+        }
+        let town = town_body(system).map(surface::surface_id);
+        let Some(station) = self.offered_station(star, &system.stations) else {
+            return town;
+        };
+        let Some(town) = town else {
+            return Some(station);
+        };
+        // Stateless rolls only, never a dial: the answer must not move
+        // under the tests' quiet dial, or the system trimmed by one answer
+        // would be read by the other.
+        let held = star == self.home_star
+            || crate::elite::holds(self.galaxy_seed, self.home_star, star)
+            || self.elite_forced == Some(run::Site { star, station })
+            || system
+                .station(station)
+                .is_some_and(|s| self.is_manufacturer_site(star, s));
+        if !held && town_fight(self.galaxy_seed, star) {
+            Some(town)
+        } else {
+            Some(station)
+        }
+    }
+
+    /// `star`'s generated `system` cut to what it offers: the mission's
+    /// station or the trader, and whatever derived station or fortress it
     /// already holds. Doing it twice changes nothing.
     pub fn trim_system(&self, star: u32, system: &mut StarSystem) {
         if self.whole_systems {
             return;
         }
-        let keep = self.offered_station(star, &system.stations);
+        let keep = self.offered_fight(star, system);
         let trader = self.trader_of(star, &system.stations);
         system.stations.retain(|s| {
             jammer::is_derived(s.id)
@@ -76,31 +127,25 @@ impl World {
         });
     }
 
-    /// The towns `system` offers: the one on its [`town_body`].
+    /// The towns `system` offers: the one on its [`town_body`], where that
+    /// is its mission.
     pub fn offered_surfaces(&self, system: &StarSystem) -> Vec<Surface> {
         if self.whole_systems {
             return Surface::all_of(system, self.galaxy_seed);
         }
-        let body = town_body(system);
+        let fight = self.offered_fight(system.star_id, system);
         Surface::all_of(system, self.galaxy_seed)
             .into_iter()
-            .filter(|s| Some(s.body) == body)
+            .filter(|s| Some(surface::surface_id(s.body)) == fight)
             .collect()
     }
 
-    /// Every site `star`'s system offers that is a mission — its station,
-    /// unless that is its trader, and its town — in id order: what one
-    /// fight a system chooses between. The machines' outposts are dealt
-    /// among these, the Manufacturers' station left out.
+    /// Every site `star`'s system offers that is a mission: its one
+    /// ([`World::offered_fight`]), none where it is a trader's — what one
+    /// fight a system chooses between, and what the machines' outposts are
+    /// dealt among.
     pub fn offered_fights(&self, star: u32, system: &StarSystem) -> Vec<u32> {
-        let mut sites: Vec<u32> = self
-            .offered_station(star, &system.stations)
-            .filter(|&id| self.trader_of(star, &system.stations) != Some(id))
-            .into_iter()
-            .collect();
-        sites.extend(town_body(system).map(surface::surface_id));
-        sites.sort_unstable();
-        sites
+        self.offered_fight(star, system).into_iter().collect()
     }
 
     /// This system cut to what it offers ([`World::trim_system`]): the
@@ -115,8 +160,9 @@ impl World {
         self.system = system;
         let kept: Vec<u32> = self.system.stations.iter().map(|s| s.id).collect();
         self.stations.retain(|s| kept.contains(&s.id));
-        let body = town_body(&self.system);
-        self.surfaces.retain(|s| Some(s.body) == body);
+        let fight = self.offered_fight(self.star_id, &self.system);
+        self.surfaces
+            .retain(|s| Some(surface::surface_id(s.body)) == fight);
         self.discovered
             .retain(|n| !matches!(n, Node::Station(id) if !kept.contains(id)));
     }

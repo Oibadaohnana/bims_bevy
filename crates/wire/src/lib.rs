@@ -53,7 +53,10 @@ use serde::{Deserialize, Serialize};
 /// the dice (task 146), where the crew voted one relic to one Bim.
 /// 79: `CrewOrder::Control`, WASD, the pointer's aim and the trigger on a
 /// player's own Bim (task 144), where a right-click walked it.
-pub const PROTOCOL: u32 = 79;
+/// 80: a system offers one mission — its station or its town, by a coin —
+/// or its trader alone, the trader being its primary station (the
+/// galaxy-only map): what both ends generate a system to.
+pub const PROTOCOL: u32 = 80;
 
 /// Where the relay lives. `BIMS_SERVER` in the environment overrides it
 /// — `ws://127.0.0.1:8792` for one on the same machine.

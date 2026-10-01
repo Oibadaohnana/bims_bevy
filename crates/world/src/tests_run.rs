@@ -40,7 +40,7 @@ fn no_human_is_ever_hostile_in_a_generated_galaxy() {
             let Some((star, station)) = crate::spawn_anywhere(&galaxy, pick * 7_919) else {
                 continue;
             };
-            let world = World::start(
+            let mut world = World::start(
                 flyer(2),
                 REFERENCE_MONEY,
                 2,
@@ -50,6 +50,9 @@ fn no_human_is_ever_hostile_in_a_generated_galaxy() {
                 station,
             )
             .expect("a dock to start at");
+            // Every station and town the generator made, where a system
+            // offers one mission (the galaxy-only map) and home its station.
+            world.set_whole_systems_for_probe(true);
             for s in &world.stations {
                 rolled_hostile += usize::from(s.hostile);
                 if !world.is_droid_held(s.id) {

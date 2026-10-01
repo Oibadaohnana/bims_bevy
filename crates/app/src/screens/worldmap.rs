@@ -52,11 +52,15 @@ pub struct Group {
 pub struct WorldMap {
     key: Option<Key>,
     pub groups: Vec<Group>,
-    /// The site the player has picked, off the list or the system map:
+    /// Every star's one mission, or its trader (the galaxy-only map,
+    /// `World::star_missions`): what the galaxy chart marks a star with,
+    /// worked out with the list.
+    pub missions: Vec<world::run::StarMission>,
+    /// The site the player has picked, off the list or the galaxy chart:
     /// looking, not a vote. [`Order::Propose`] is the vote.
     pub picked: Option<Site>,
-    /// The site the pointer rests on, a row of the list or a station on
-    /// the chart: what the card shows while it does (feature 107). The
+    /// The site the pointer rests on, a row of the list or a star on the
+    /// chart: what the card shows while it does (feature 107). The
     /// screen and the column set it afresh every frame.
     pub hovered: Option<Site>,
     /// The pick came from the galaxy chart ([`WorldMap::pick_star`]): the
@@ -66,7 +70,7 @@ pub struct WorldMap {
     /// system (task 135): the viewer's choice, kept while the map is.
     pub by_distance: bool,
     /// The column popped out from the right edge; retracted to begin
-    /// with, so the charts have the width.
+    /// with, so the chart has the width.
     pub column_open: bool,
 }
 
@@ -152,25 +156,42 @@ impl WorldMap {
             }
         }
         self.groups = groups;
+        self.missions = world.star_missions(&galaxy);
     }
 
-    /// A star picked on the galaxy chart: its first place a trip can go
-    /// picked on the list — a trader first, else the first quoted, else
-    /// the first listed — so the card offers the trip. A star with no
-    /// place on the list (the ship's own is on it; one more than two
-    /// lanes off is not) leaves nothing picked, and the chart's panel says why.
-    pub fn pick_star(&mut self, star: u32) {
+    /// The site a star is gone to by, off the galaxy chart (the galaxy-only
+    /// map): of its places on the list, the Machine Heart's fortress, else
+    /// a jammer still standing, else its one mission or its trader — the
+    /// first a trip could go to, else the first listed. `None` for a star
+    /// with no place on the list (the ship's own is on it; one more than
+    /// two lanes off is not).
+    pub fn star_site(&self, star: u32) -> Option<Site> {
         let of_star = || {
             self.groups
                 .iter()
                 .flat_map(|g| g.destinations.iter())
                 .filter(move |d| d.site.star == star)
         };
-        self.picked = of_star()
-            .find(|d| d.trader && d.quote.is_ok())
-            .or_else(|| of_star().find(|d| d.quote.is_ok()))
+        let open = |d: &&Destination| d.quote.is_ok();
+        of_star()
+            .filter(open)
+            .find(|d| world::heart::is_heart(d.site.station))
+            .or_else(|| {
+                of_star()
+                    .filter(open)
+                    .find(|d| d.quote.as_ref().is_ok_and(|q| q.jammer && !q.cleared))
+            })
+            .or_else(|| of_star().find(open))
             .or_else(|| of_star().next())
-            .map(|d| d.site);
+            .map(|d| d.site)
+    }
+
+    /// A star picked on the galaxy chart: the site it is gone to by
+    /// ([`WorldMap::star_site`]) picked on the list, so the card and the
+    /// bar offer the trip. A star with no place on the list leaves nothing
+    /// picked, and the chart's panel says why.
+    pub fn pick_star(&mut self, star: u32) {
+        self.picked = self.star_site(star);
         self.scroll_to_pick = self.picked.is_some();
     }
 

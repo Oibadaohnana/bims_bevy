@@ -1,18 +1,16 @@
-//! What a system offers (task 135): one station and one planet's town —
-//! the home station in the crew's own system — its trader beside them
-//! where it has one, and one fight a system. The shared fixtures keep
-//! whole systems (`World::set_whole_systems_for_probe`); these worlds are
-//! opened without that dial.
+//! What a system offers (the galaxy-only map): one mission — its station
+//! or its town, the home station in the crew's own system — or its trader
+//! alone, and every star of the galaxy marked with it. The shared fixtures
+//! keep whole systems (`World::set_whole_systems_for_probe`); these worlds
+//! are opened without that dial.
 
 use shipdesign::fixture::flyer;
 use worldgen::GalaxyType;
 
-use crate::checksum::world_checksum;
 use crate::data;
-use crate::event::{Refusal, WorldEvent};
 use crate::fixture::REFERENCE_MONEY;
-use crate::run::{Phase, Site};
-use crate::world::{Command, World, offered};
+use crate::run::{Site, SiteKind};
+use crate::world::{World, offered};
 use crate::{heart, jammer, surface};
 
 /// The game as it opens at the default seed's spawn, the sites quiet so
@@ -51,21 +49,12 @@ fn split(sites: &[Site]) -> (Vec<u32>, Vec<u32>) {
     (stations, towns)
 }
 
-/// The trip there: the one player's yes is all of it.
-fn travel_to(world: &mut World, site: Site) -> Vec<WorldEvent> {
-    world.step(&[Command::Propose {
-        slot: 0,
-        star: site.star,
-        station: site.station,
-    }])
-}
-
 #[test]
-fn every_system_offers_one_station_and_one_town_and_home_is_its_own() {
+fn every_system_offers_one_mission_or_its_trader_and_home_is_its_own() {
     let world = offered_world();
     let galaxy = world.galaxy();
 
-    // --- the home system: the home station and one town ---
+    // --- the home system: the home station alone ---
     let whole = galaxy.system(world.home_star).expect("the spawn's system");
     assert!(
         whole.stations.len() > 1,
@@ -73,13 +62,8 @@ fn every_system_offers_one_station_and_one_town_and_home_is_its_own() {
     );
     let (stations, towns) = split(&world.sites_at(world.home_star));
     assert_eq!(stations, vec![world.home], "home alone");
-    assert_eq!(towns.len(), 1, "one town: {towns:?}");
-    assert_eq!(world.surfaces.len(), 1);
-    assert_eq!(
-        Some(surface::surface_body(towns[0]).unwrap()),
-        offered::town_body(&whole),
-        "the lowest landable body's"
-    );
+    assert!(towns.is_empty(), "no town beside home: {towns:?}");
+    assert!(world.surfaces.is_empty());
     assert!(
         world
             .stations
@@ -95,134 +79,104 @@ fn every_system_offers_one_station_and_one_town_and_home_is_its_own() {
         "no trader at home"
     );
 
-    // --- every system next door: its station, a trader maybe, a town ---
-    let mut next_door = world.reachable_stars();
-    next_door.dedup();
-    assert!(!next_door.is_empty());
-    for &star in &next_door {
-        let sites = world.sites_at(star);
-        let (stations, towns) = split(&sites);
-        assert_eq!(towns.len(), 1, "star {star}: {sites:?}");
-        let traders: Vec<u32> = stations
-            .iter()
-            .copied()
-            .filter(|&id| world.is_trader(Site { star, station: id }))
-            .collect();
-        assert_eq!(
-            stations.len(),
-            1 + traders.len(),
-            "star {star}: one station besides its trader: {sites:?}"
-        );
-        assert!(traders.len() <= 1);
-        let whole = galaxy.system(star).unwrap();
-        assert!(
-            stations.contains(&offered::primary(&whole.stations).unwrap()),
-            "star {star}: the lowest the generator made"
-        );
-    }
-
-    // --- and every system of the galaxy trims to the same shape ---
+    // --- every system of the galaxy: one site, its mission or its trader ---
+    let (mut on_stations, mut in_towns, mut traders) = (0, 0, 0);
     for star in 0..galaxy.stars.len() as u32 {
         if star == world.home_star {
             continue;
         }
-        let mut system = galaxy.system(star).unwrap();
+        let whole = galaxy.system(star).unwrap();
+        let mut system = whole.clone();
         world.trim_system(star, &mut system);
-        let made = system
+        let made: Vec<u32> = system
             .stations
             .iter()
-            .filter(|s| !jammer::is_derived(s.id) && !heart::is_heart(s.id))
-            .count();
-        assert!((1..=2).contains(&made), "star {star}: {made} stations");
-        assert_eq!(world.offered_surfaces(&system).len(), 1, "star {star}");
-        assert_eq!(world.offered_fights(star, &system).len(), 2, "star {star}");
+            .map(|s| s.id)
+            .filter(|&id| !jammer::is_derived(id) && !heart::is_heart(id))
+            .collect();
+        let surfaces = world.offered_surfaces(&system);
+        let fight = world.offered_fight(star, &system);
+        assert_eq!(
+            fight,
+            world.offered_fight(star, &whole),
+            "star {star}: the same whole or trimmed"
+        );
+        let mut again = system.clone();
+        world.trim_system(star, &mut again);
+        assert_eq!(again.stations.len(), system.stations.len(), "star {star}");
+        assert_eq!(made.len() + surfaces.len(), 1, "star {star}: one site");
+        let trader = made
+            .first()
+            .is_some_and(|&id| world.is_trader(Site { star, station: id }));
+        match fight {
+            None => {
+                assert!(trader, "star {star}: no mission is a trader's");
+                assert_eq!(made, vec![offered::primary(&whole.stations).unwrap()]);
+                traders += 1;
+            }
+            Some(id) if surface::surface_body(id).is_some() => {
+                assert_eq!(
+                    surface::surface_body(id),
+                    offered::town_body(&whole),
+                    "star {star}: the lowest landable body's"
+                );
+                in_towns += 1;
+            }
+            Some(id) => {
+                assert!(!trader);
+                assert_eq!(made, vec![id]);
+                assert_eq!(Some(id), offered::primary(&whole.stations), "star {star}");
+                on_stations += 1;
+            }
+        }
     }
+    // The coin falls both ways, and a trader is about one system in ten.
+    let all = on_stations + in_towns + traders;
+    assert!(
+        on_stations * 4 > all && in_towns * 4 > all,
+        "{on_stations} / {in_towns}"
+    );
+    assert!(
+        traders * 25 > all && traders * 5 < all,
+        "{traders} of {all}"
+    );
 }
 
+/// The galaxy chart's marks: one a star, its mission's kind or the
+/// trader, the same answer the list's quote gives — and both an attack and
+/// a defence among them.
 #[test]
-fn one_fight_a_system_and_the_other_is_refused_for_the_run() {
+fn every_star_is_marked_with_its_one_mission() {
     let mut world = offered_world();
-    // The first mission, at home, ended: the map is up.
-    world.leave_for_probe();
-    // A system next door with its station and its town both a trip.
-    let (station, town) = world
-        .reachable_stars()
-        .into_iter()
-        .find_map(|star| {
-            let sites = world.sites_at(star);
-            let fights: Vec<Site> = sites
-                .iter()
-                .copied()
-                .filter(|&s| !world.is_trader(s) && !jammer::is_derived(s.station))
-                .filter(|&s| !heart::is_heart(s.station))
-                .collect();
-            let station = fights
-                .iter()
-                .copied()
-                .find(|s| surface::surface_body(s.station).is_none())?;
-            let town = fights
-                .iter()
-                .copied()
-                .find(|s| surface::surface_body(s.station).is_some())?;
-            (world.travel_quote(station).is_ok() && world.travel_quote(town).is_ok())
-                .then_some((station, town))
-        })
-        .expect("a system next door with both fights a trip");
-    assert!(world.run.chosen.is_empty(), "nothing chosen at the start");
-    let before = world_checksum(&world);
-
-    let events = travel_to(&mut world, station);
-    assert!(
-        events
-            .iter()
-            .any(|e| matches!(e, WorldEvent::Travelled { .. })),
-        "{events:?}"
+    world.set_quiet_sites_for_probe(false);
+    let galaxy = world.galaxy();
+    let started = std::time::Instant::now();
+    let marks = world.star_missions(&galaxy);
+    eprintln!(
+        "star_missions: {} stars in {:.1} ms",
+        marks.len(),
+        started.elapsed().as_secs_f64() * 1000.0
     );
-    assert_eq!(world.run.chosen, vec![station], "the station is chosen");
-
-    world.leave_for_probe();
-    assert_eq!(world.run.phase, Phase::Map);
-    assert_eq!(
-        world.travel_quote(town),
-        Err(Refusal::OtherSiteChosen),
-        "the town is the other fight"
-    );
-    let listed = world
-        .travel_quotes()
-        .into_iter()
-        .find(|(s, _)| *s == town)
-        .expect("still listed");
-    assert_eq!(listed.1, Err(Refusal::OtherSiteChosen), "greyed on the map");
-    let events = travel_to(&mut world, town);
-    assert!(
-        events.iter().any(|e| matches!(
-            e,
-            WorldEvent::Refused {
-                why: Refusal::OtherSiteChosen,
-                ..
-            }
-        )),
-        "a vote for it is refused: {events:?}"
-    );
-    assert!(
-        !events
-            .iter()
-            .any(|e| matches!(e, WorldEvent::Travelled { .. }))
-    );
-
-    // Home's town is another system's fight, and still a trip.
-    let home_town = world
-        .sites_at(world.home_star)
-        .into_iter()
-        .find(|s| surface::surface_body(s.station).is_some());
-    if let Some(home_town) = home_town {
-        assert_ne!(world.travel_quote(home_town), Err(Refusal::OtherSiteChosen));
+    assert_eq!(marks.len(), galaxy.stars.len(), "a mark a star");
+    let kinds = |kind| marks.iter().filter(|m| m.kind == kind).count();
+    assert!(kinds(SiteKind::Attack) > 0 && kinds(SiteKind::Defend) > 0);
+    assert!(kinds(SiteKind::Trader) > 0);
+    // Home is the defence the run opens on.
+    let home = marks
+        .iter()
+        .find(|m| m.site.star == world.home_star)
+        .unwrap();
+    assert_eq!(home.site.station, world.home);
+    assert_eq!(home.kind, SiteKind::Defend);
+    // Every mark a trip goes to is the site the list quotes, as the list
+    // says.
+    let quotes = world.travel_quotes();
+    for mark in &marks {
+        let Some((_, quote)) = quotes.iter().find(|(s, _)| *s == mark.site) else {
+            continue;
+        };
+        if let Ok(quote) = quote {
+            assert_eq!(quote.kind, mark.kind, "{mark:?}");
+        }
     }
-
-    // Whoever reads the world reads the choice: saved and hashed.
-    assert_ne!(world_checksum(&world), before);
-
-    // The tests' dial lifts the rule.
-    world.set_whole_systems_for_probe(true);
-    assert_ne!(world.travel_quote(town), Err(Refusal::OtherSiteChosen));
 }

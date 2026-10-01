@@ -69,9 +69,14 @@ impl World {
         let Some(mut system) = galaxy.and_then(|g| g.system(star)) else {
             return Vec::new();
         };
-        // What it offers alone (task 135): one station, its trader and one
-        // town.
+        // What it offers alone (task 135): its mission or its trader.
         self.trim_system(star, &mut system);
+        self.sites_of(star, &system)
+    }
+
+    /// The sites of another star's `system`, generated and trimmed
+    /// ([`World::trim_system`]) already: [`World::sites_in`]'s own half.
+    fn sites_of(&self, star: u32, system: &StarSystem) -> Vec<Site> {
         let mut sites: Vec<Site> = system
             .stations
             .iter()
@@ -98,7 +103,7 @@ impl World {
                 station: heart::heart_id(star),
             });
         }
-        sites.extend(self.offered_surfaces(&system).iter().map(|s| Site {
+        sites.extend(self.offered_surfaces(system).iter().map(|s| Site {
             star,
             station: surface::surface_id(s.body),
         }));
@@ -285,6 +290,46 @@ impl World {
         Some(SystemLook { system, sites })
     }
 
+    /// Every star's one mission, or its trader, as the galaxy chart marks
+    /// it (the galaxy-only map): what [`World::offered_fight`] or the
+    /// trader is, quoted as [`World::system_look`] does — on arrival, with
+    /// every question about whether the crew may go there left unasked.
+    /// One per star that offers either, in star order, off `galaxy` already
+    /// generated, and each system generated once: it is every star of the
+    /// galaxy, asked again whenever the run moves on.
+    pub fn star_missions(&self, galaxy: &Galaxy) -> Vec<run::StarMission> {
+        let mut missions = Vec::new();
+        for star in 0..galaxy.stars.len() as u32 {
+            let generated;
+            let system = if star == self.star_id {
+                &self.system
+            } else {
+                let Some(mut system) = galaxy.system(star) else {
+                    continue;
+                };
+                self.trim_system(star, &mut system);
+                generated = system;
+                &generated
+            };
+            let Some(station) = self
+                .offered_fight(star, system)
+                .or_else(|| self.trader_of(star, &system.stations))
+            else {
+                continue;
+            };
+            let site = Site { star, station };
+            let given = (star != self.star_id).then_some(system);
+            if let Ok(quote) = self.quote_given(Some(galaxy), site, true, given) {
+                missions.push(run::StarMission {
+                    site,
+                    kind: quote.kind,
+                    cleared: quote.cleared,
+                });
+            }
+        }
+        missions
+    }
+
     /// [`World::travel_quote`] off a galaxy already generated. A trip in
     /// this system reads nothing of it.
     fn quote_in(&self, galaxy: Option<&Galaxy>, site: Site) -> Result<TravelQuote, Refusal> {
@@ -302,6 +347,20 @@ impl World {
         site: Site,
         looking: bool,
     ) -> Result<TravelQuote, Refusal> {
+        self.quote_given(galaxy, site, looking, None)
+    }
+
+    /// [`World::quote_with`] off another star's system generated and
+    /// trimmed already, `given` — or generated here where it is `None`.
+    /// The galaxy chart's marks quote every star off one generation each
+    /// ([`World::star_missions`]).
+    fn quote_given(
+        &self,
+        galaxy: Option<&Galaxy>,
+        site: Site,
+        looking: bool,
+        given: Option<&StarSystem>,
+    ) -> Result<TravelQuote, Refusal> {
         if !looking && self.current_site() == Some(site) {
             return Err(Refusal::AlreadyHere);
         }
@@ -312,11 +371,18 @@ impl World {
             let Some(galaxy) = galaxy else {
                 return Err(Refusal::NoSuchPlace);
             };
-            let Some(mut there) = galaxy.system(site.star) else {
-                return Err(Refusal::NoSuchPlace);
+            let there = match given {
+                Some(there) => there,
+                None => {
+                    let Some(mut there) = galaxy.system(site.star) else {
+                        return Err(Refusal::NoSuchPlace);
+                    };
+                    // What it offers alone (task 135).
+                    self.trim_system(site.star, &mut there);
+                    elsewhere = there;
+                    &elsewhere
+                }
             };
-            // What it offers alone (task 135).
-            self.trim_system(site.star, &mut there);
             // Two lanes a trip at most (the second map rework), and none a jammer shuts.
             match self.trip_route_in(galaxy, site.star) {
                 Some((route, shut)) => {
@@ -332,12 +398,15 @@ impl World {
                 }
                 None => return Err(Refusal::TooFar),
             }
-            elsewhere = there;
-            &elsewhere
+            there
         } else {
             &self.system
         };
-        let sites = self.sites_in(galaxy, site.star);
+        let sites = if jump {
+            self.sites_of(site.star, system)
+        } else {
+            self.sites_in(None, site.star)
+        };
         if !sites.contains(&site) {
             return Err(Refusal::NoSuchPlace);
         }
@@ -366,7 +435,13 @@ impl World {
         // A trader (task 114) is closed while its system is the machines'
         // and not liberated — now, or by the day the crew would get there,
         // which the crisis being a function of the day makes exact.
-        let trader = self.trader_in(galaxy, site);
+        let trader = if jump {
+            system
+                .station(site.station)
+                .is_some_and(|s| self.is_trader_station(site.star, &system.stations, s))
+        } else {
+            self.trader_in(None, site)
+        };
         if !looking && trader && self.trader_closed_on(site.star, self.days_gone()) {
             return Err(Refusal::TraderClosed);
         }

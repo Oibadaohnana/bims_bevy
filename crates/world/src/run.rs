@@ -476,3 +476,13 @@ pub struct SiteLook {
     pub at: worldgen::math::DVec2,
     pub quote: TravelQuote,
 }
+
+/// A star's one mission — or its trader — as the galaxy chart marks it
+/// (the galaxy-only map, [`crate::World::star_missions`]): the site, what
+/// it is today, and whether its fight is over.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct StarMission {
+    pub site: Site,
+    pub kind: SiteKind,
+    pub cleared: bool,
+}

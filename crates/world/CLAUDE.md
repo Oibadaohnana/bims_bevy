@@ -6557,3 +6557,51 @@ choice. `tests_relic.rs`'s
 `a_reward_offers_one_more_than_the_players`, and `relic::tests`'
 `the_dice_go_in_turn_and_a_tie_at_the_top_throws_again` are the rule.
 **`SAVE_VERSION` 76, `wire::PROTOCOL` 78.**
+
+## One mission a system, and the map is the galaxy chart (the galaxy-only map)
+
+> "One station and one town a system, and one fight a system (task 135)"
+> above offers a station **and** a town, one of them the machines'; that
+> is **cut to one**. The rule is still `offered.rs`.
+
+- **What a system offers**: `World::offered_fight(star, system)` — its
+  station (the primary, home in the crew's own) **or** its town (the
+  lowest landable body's), a coin off the galaxy's seed and the star
+  (`offered::town_fight`, its own salt) choosing, the station wherever
+  there is no town and always at home, at an elite (`elite::holds`,
+  stateless — never the quiet dial) and where the Manufacturers hold it.
+  Attack or defence is the outposts' coin over that one candidate (`held`
+  unchanged: one candidate, a coin; home's is a defence).
+- **A trader's system offers the trader alone**: `trader_eligible` now
+  takes the system's **primary** (never at home, never an elite's), and
+  `offered_fight` is `None` where `trader_of` is something. About one
+  system in ten, `TRADER_SYSTEM_CHANCE`; the near-home made-up trader is
+  a whole system next door.
+- **Every rule answers the same trimmed or whole** — the primary is kept
+  wherever it is the answer, the town's body stays — so `trim_system`
+  twice changes nothing (`tests_offered.rs` checks every star).
+- **Besides the one**: a derived jammer (an infested system with no
+  station the jammer could stand on — a town's or a trader's) and the
+  Heart's fortress are still laid beside it. The app's chart goes to the
+  Heart first, then a jammer standing, then the mission
+  (`WorldMap::star_site`).
+- **Home offers its station alone**, so `land_for_probe` (and
+  `reseed_ground_for_probe`) lay the home system's town back first
+  (`lay_ground_for_probe`) for `test_planet`, `defense`, `BIMS_AFIELD`.
+- **The chart's marks**: `World::star_missions(galaxy)` — every star's
+  one site with its quote's kind and `cleared` (`run::StarMission`), each
+  system generated once (`quote_given` takes it; `sites_of` is
+  `sites_in`'s half over a system in hand). 600 stars in ~11 ms. The app
+  asks it with the list (`WorldMap::refresh`, on its key) and the chart
+  draws crossed blades or a shield at each star's left shoulder
+  (`lobby::preview::Mission`, `Marks::missions`). The system view is gone
+  from the app's map; the ship's system painter is untouched and unused.
+- `Run::chosen` / `OtherSiteChosen` stay, and refuse nothing while a
+  system offers one fight.
+
+No saved shape changed; **`wire::PROTOCOL` 80** (what both ends generate
+a system to). The whole-systems dial is untouched, so `REFERENCE_CHECKSUM`
+and `SURVIVORS` (on it) do not move for this; the ship's `PINNED` and
+`PICTURES` (no dial) do. `tests_offered.rs` is the rule;
+`tests_run::no_human_is_ever_hostile_in_a_generated_galaxy` opens whole
+systems now.

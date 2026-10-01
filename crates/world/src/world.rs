@@ -5060,12 +5060,31 @@ impl World {
     /// Before the landing; the town is built when it is first asked for.
     /// Its biome and population, or `None` with no ground in the system.
     pub fn reseed_ground_for_probe(&mut self, seed: u64) -> Option<(crate::surface::Biome, u32)> {
+        self.lay_ground_for_probe();
         let surface = self.surfaces.first_mut()?;
         surface.reseed(seed);
         Some((surface.biome, surface.population))
     }
 
+    /// A system offers one mission (the galaxy-only map, `offered.rs`),
+    /// and the crew's home offers its station alone: the probes that stand
+    /// in a town lay the town of the system's lowest landable body beside
+    /// it, where the system holds none. The next settling trims it again.
+    fn lay_ground_for_probe(&mut self) {
+        if !self.surfaces.is_empty() {
+            return;
+        }
+        let Some(body) = offered::town_body(&self.system) else {
+            return;
+        };
+        self.surfaces = Surface::all_of(&self.system, self.galaxy_seed)
+            .into_iter()
+            .filter(|s| s.body == body)
+            .collect();
+    }
+
     pub fn land_for_probe(&mut self) -> bool {
+        self.lay_ground_for_probe();
         let Some(body) = self.surfaces.first().map(|s| s.body) else {
             return false;
         };

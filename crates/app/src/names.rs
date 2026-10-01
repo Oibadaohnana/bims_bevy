@@ -2161,7 +2161,7 @@ pub const MAP_READ_ONLY: &str =
 /// At a trader (task 114): the visit is here, and the vote goes on.
 pub const MAP_AT_TRADER: &str =
     "At a trader. Buy what you want, then choose where to go next — everybody has to accept.";
-pub const MAP_TIP: &str = "A trip is one step: to another station or settlement in this system, or to one in a system one or two hyperlanes off. Nothing is flown. A jump to another system puts the world clock on by one day a hyperlane crossed the moment everybody has accepted — the crisis spreads by the day — and a trip within this system takes no time at all. Pick a place and press Propose at the bottom of the map. The crew arrive docked or landed with a mission begun. The world clock moves for nothing else: not during a mission, and not here. Drag the galaxy chart with the left button; a system clicked on it, or a place picked on the list, is shown in the system view.";
+pub const MAP_TIP: &str = "Every system offers one mission, marked on its star on the galaxy chart: crossed blades to attack, a shield to defend — or a trader instead, the green square. A trip is one step: to a system one or two hyperlanes off. Nothing is flown. A jump to another system puts the world clock on by one day a hyperlane crossed the moment everybody has accepted — the crisis spreads by the day. Click a star and press Propose at the bottom of the map. The crew arrive docked or landed with a mission begun. The world clock moves for nothing else: not during a mission, and not here. Drag the galaxy chart with the left button and zoom it with the wheel; the list behind the tab on the right says the same, a row a system.";
 /// The two halves of the list.
 pub const MAP_THIS_SYSTEM: &str = "This system";
 /// A system's heading on the list, by how many hyperlanes off it is
@@ -2212,12 +2212,10 @@ pub fn site_kind_word(kind: world::SiteKind) -> &'static str {
     SITE_KIND_NAMES[kind.code() as usize]
 }
 /// What a site kind means, for the `?` beside the map's list.
-pub const SITE_KIND_TIP: &str = "Every site is one of three. ATTACK: the machines, the Manufacturers or the Machine Heart hold it — go in and clear it. DEFEND: the machines are coming for it — twenty seconds after you arrive the first wave lands, and its own people and armed defenders fight beside you; hold the last wave and it is cleared (no money: its people are the reward), leave before and it falls. TRADER: buy gear and relics on the map; the machines never come for one. A system has as many sites to attack as to defend; in one the machines have taken, every site is an attack.";
-/// A defence held, on the map: its fight is over.
+pub const SITE_KIND_TIP: &str = "Every system offers one mission, marked on its star. ATTACK (crossed blades): the machines, the Manufacturers or the Machine Heart hold it — go in and clear it. DEFEND (a shield): the machines are coming for it — twenty seconds after you arrive the first wave lands, and its own people and armed defenders fight beside you; hold the last wave and it is cleared (no money: its people are the reward), leave before and it falls. TRADER (the green square): a system with a trader has no mission — buy gear and relics on the map; the machines never come for one. In a system the machines have taken, the mission is an attack.";
+/// A defence held, on the galaxy chart's word on its star: its fight is
+/// over.
 pub const SITE_HELD: &str = "held";
-/// Under a site on the system map whose system's other fight the crew
-/// fought (task 135): it is refused for the rest of the run.
-pub const SITE_PASSED: &str = "not chosen";
 /// What the crew find on arrival, a word each.
 pub const ARRIVE_MACHINES: &str = "machines";
 pub const ARRIVE_JAMMER: &str = "jammer";
@@ -2362,10 +2360,9 @@ pub fn combine_from(worn_by: Option<&str>) -> String {
 pub const MANUFACTURER_NAME: &str = "Manufacturer";
 pub const MANUFACTURER_DOWN: &str = "A Manufacturer is dead.";
 pub const ARRIVE_MANUFACTURERS: &str = "Manufacturers";
-/// An elite (`world::elite`), in a row of the map's list and under its
-/// site on the system map, and the galaxy chart's line on its star.
+/// An elite (`world::elite`), in a row of the map's list, and the galaxy
+/// chart's line on its star.
 pub const ARRIVE_ELITE: &str = "elite · Guardian in wave 2 · relics";
-pub const SITE_ELITE: &str = "ELITE";
 pub const CHART_ELITE: &str = "An elite in this system: a Guardian in its second wave, and relics.";
 pub fn heart_preview_rows(p: &world::heart::HeartPreview) -> [(&'static str, String); 4] {
     [
@@ -2618,9 +2615,8 @@ pub const CHART_TRADER: &str = "Trader in this system";
 pub const CHART_TRADER_CLOSED: &str = "Trader in this system · closed";
 /// How the crew get to a star picked on the chart.
 pub const CHART_HERE: &str = "The crew are here.";
-pub const CHART_ONE_LANE: &str = "One hyperlane away: its places are on the list.";
-pub const CHART_TWO_LANES: &str =
-    "Two hyperlanes away — a trip of two days: its places are on the list.";
+pub const CHART_ONE_LANE: &str = "One hyperlane away: a trip of a day.";
+pub const CHART_TWO_LANES: &str = "Two hyperlanes away — a trip of two days.";
 pub fn chart_lanes_away(hops: usize) -> String {
     format!("{hops} hyperlanes away — a trip crosses two lanes at most.")
 }

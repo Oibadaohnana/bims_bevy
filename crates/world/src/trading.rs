@@ -24,9 +24,10 @@ impl World {
     }
 
     /// Whether a station of `star`'s system, whose stations are `stations`,
-    /// could be a trader at all ([`trader::eligible`]) — and, since a system
-    /// offers one station besides its trader (task 135), never that one,
-    /// the system's primary, and never in the crew's home system.
+    /// could be a trader at all ([`trader::eligible`]) — and, since a
+    /// system with a trader offers the trader alone (the galaxy-only map),
+    /// only the system's primary, never at an elite's and never in the
+    /// crew's home system. Under the tests' whole-systems dial any station.
     fn trader_eligible(
         &self,
         star: u32,
@@ -34,7 +35,9 @@ impl World {
         station: &worldgen::StationBlueprint,
     ) -> bool {
         (self.whole_systems
-            || (star != self.home_star && Some(station.id) != super::offered::primary(stations)))
+            || (star != self.home_star
+                && Some(station.id) == super::offered::primary(stations)
+                && !crate::elite::holds(self.galaxy_seed, self.home_star, star)))
             && trader::eligible(
                 station,
                 star == self.home_star && station.id == self.home,

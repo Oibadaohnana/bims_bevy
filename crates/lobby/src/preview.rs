@@ -276,7 +276,21 @@ pub struct Marks<'a> {
     /// at tier one, so the chart reads as regions at the fit. Empty in the
     /// lobby.
     pub tiers: &'a [u8],
+    /// Stars with their one mission, in the game (the galaxy-only map,
+    /// `World::star_missions`): crossed blades at the star's left shoulder
+    /// for an attack, in the enemy's red, and a shield for a defence, in
+    /// [`DEFEND`]'s amber — faded where the fight is over (`bool`). A
+    /// trader's star has none: its square says it. Whichever stars the
+    /// page gives; empty in the lobby.
+    pub missions: &'a [(u32, Mission, bool)],
     pub pings: &'a [Ping],
+}
+
+/// A star's one mission, as the chart marks it ([`Marks::missions`]).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Mission {
+    Attack,
+    Defend,
 }
 
 const VOID: Color = Color::rgb(0.03, 0.05, 0.05);
@@ -329,6 +343,12 @@ const TRADER: Color = Color::rgb(0.40, 0.90, 0.46);
 /// An elite's system: a magenta no other mark here is, the system map's
 /// `ship::world_paint::ELITE` by value (this crate imports neither).
 pub const ELITE: Color = Color::rgb(1.0, 0.40, 0.90);
+/// A defence's shield ([`Marks::missions`]): the amber the map's words
+/// have always said `DEFEND` in (`app::theme::SITE_DEFEND`, by value).
+pub const DEFEND: Color = Color::rgb(1.0, 0.70, 0.18);
+/// An attack's blades: the red the map's words say `ATTACK` in
+/// (`app::theme::SITE_ATTACK`, by value).
+pub const ATTACK: Color = Color::rgb(1.0, 0.28, 0.22);
 /// The rings of a star at tier two and at tier three: the app's caution
 /// amber and its attack red (`theme::CAUTION`, `theme::ATTACK`).
 const TIER_TWO: Color = Color::rgb(1.0, 0.84, 0.65);
@@ -655,6 +675,30 @@ pub fn paint(
         crown(list, x, y - 10.0, 9.0, 1.2, ELITE);
     }
 
+    // And every star's one mission (the galaxy-only map): crossed blades
+    // or a shield at its left shoulder, where nothing else is drawn — the
+    // crown is over the star and a trader's euro at its right.
+    for &(id, mission, over) in marks.missions {
+        let Some(star) = stars.get(id as usize) else {
+            continue;
+        };
+        let (x, y) = preview.to_screen(star.position.x, star.position.y);
+        if !preview.on_canvas(x, y, 20.0) {
+            continue;
+        }
+        let (mx, my) = (x - 13.0, y - 8.0);
+        match mission {
+            Mission::Attack => {
+                let c = if over { ATTACK.alpha(0.4) } else { ATTACK };
+                blades(list, mx, my, 10.0, 1.4, c);
+            }
+            Mission::Defend => {
+                let c = if over { DEFEND.alpha(0.4) } else { DEFEND };
+                shield(list, mx, my, 10.0, 1.4, c);
+            }
+        }
+    }
+
     // And the Machine Heart, once it has been seen: a diamond round the
     // origin, a second inside it, and a dot at its middle — a shape of its
     // own, as the cross is.
@@ -839,6 +883,43 @@ fn crown(list: &mut DrawList, x: f32, y: f32, width: f32, thin: f32, c: Color) {
     for (px, py) in [points[1], points[3], points[5]] {
         let d = thin * 2.4;
         list.push(crate::draw::KIND_ELLIPSE, px, py, d, d, 0.0, 0.0, 0.0, c);
+    }
+}
+
+/// A shield, `size` tall, centred on `(x, y)`: a flat top, straight sides
+/// and two strokes meeting in a point below, with a bar down its middle —
+/// a defence's mark ([`Marks::missions`]).
+fn shield(list: &mut DrawList, x: f32, y: f32, size: f32, thin: f32, c: Color) {
+    let (w, h) = (size * 0.42, size / 2.0);
+    let points = [
+        (x - w, y - h),
+        (x + w, y - h),
+        (x + w, y + h * 0.15),
+        (x, y + h),
+        (x - w, y + h * 0.15),
+        (x - w, y - h),
+    ];
+    for pair in points.windows(2) {
+        list.line(pair[0].0, pair[0].1, pair[1].0, pair[1].1, thin, c);
+    }
+    list.line(x, y - h, x, y + h, thin * 0.8, c);
+}
+
+/// Two blades crossed, `size` across, centred on `(x, y)`: each a stroke
+/// from its hilt at a lower corner to its point at the upper one opposite,
+/// a guard across it near the hilt — an attack's mark ([`Marks::missions`]).
+fn blades(list: &mut DrawList, x: f32, y: f32, size: f32, thin: f32, c: Color) {
+    let r = size / 2.0;
+    for s in [1.0f32, -1.0] {
+        // Hilt at (x - s r, y + r), point at (x + s r, y - r).
+        let (hx, hy) = (x - s * r, y + r);
+        let (px, py) = (x + s * r, y - r);
+        list.line(hx, hy, px, py, thin, c);
+        // The guard: across the blade a quarter of the way up from the
+        // hilt, at right angles to it.
+        let (gx, gy) = (hx + (px - hx) * 0.27, hy + (py - hy) * 0.27);
+        let g = size * 0.2;
+        list.line(gx - g, gy - s * g, gx + g, gy + s * g, thin, c);
     }
 }
 

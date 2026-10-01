@@ -94,6 +94,9 @@ pub struct Lobby {
     /// In the game: every star's tier, indexed by star id (see
     /// `preview::Marks::tiers`). The page sets it; empty in the lobby.
     pub tiers: Vec<u8>,
+    /// In the game: the stars whose one mission is marked (see
+    /// `preview::Marks::missions`). The page sets it; empty in the lobby.
+    pub missions: Vec<(u32, preview::Mission, bool)>,
     pub pings: Vec<Ping>,
     /// The star whose system is in the side panel, and the system itself.
     pub inspected: Option<(u32, StarSystem)>,
@@ -130,6 +133,7 @@ impl Lobby {
             traders: Vec::new(),
             elites: Vec::new(),
             tiers: Vec::new(),
+            missions: Vec::new(),
             pings: Vec::new(),
             inspected: None,
             placed: Placed::default(),
@@ -246,6 +250,7 @@ impl Lobby {
             traders: &self.traders,
             elites: &self.elites,
             tiers: &self.tiers,
+            missions: &self.missions,
             pings: &self.pings,
         };
         preview::paint(
