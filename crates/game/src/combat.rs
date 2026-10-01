@@ -625,6 +625,17 @@ impl Trigger {
         self.reload = (self.reload - dt).max(0.0);
     }
 
+    /// A semi-automatic's click (`WeaponKind::semi_automatic`): a shot if
+    /// the last one's `cooldown` has run out, and the next cooldown begun.
+    pub fn press(&mut self, cooldown: f32) -> bool {
+        if self.reload > 0.0 {
+            return false;
+        }
+        self.reload = cooldown;
+        self.burst_left = 0;
+        true
+    }
+
     /// Nothing to shoot at, or nothing to shoot with: whatever burst was
     /// under way is over. The reload keeps running.
     pub fn hold(&mut self) {

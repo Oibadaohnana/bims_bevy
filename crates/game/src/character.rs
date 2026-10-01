@@ -1429,6 +1429,13 @@ impl Character {
         owed
     }
 
+    /// Whether a press is owed a shot, the clock on it left standing: a
+    /// click waiting out a semi-automatic's cooldown is kept until it is
+    /// fired.
+    pub fn trigger_pending(&self) -> bool {
+        self.trigger_owed > 0.0
+    }
+
     /// The press paid: a shot went.
     pub fn trigger_paid(&mut self) {
         self.trigger_owed = 0.0;

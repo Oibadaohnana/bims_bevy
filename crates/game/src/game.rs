@@ -1856,15 +1856,26 @@ impl Game {
                 // A click is a shot even if the button came up before
                 // this step saw it held (`TRIGGER_OWED`). A pistol
                 // (`WeaponKind::semi_automatic`) fires that click and
-                // nothing else: no reload to wait out, and nothing more
-                // while the button stays down.
-                let owed = bim.character.trigger_owed(dt);
+                // nothing else — nothing more while the button stays
+                // down — once `SEMI_AUTO_COOLDOWN` has passed since its
+                // last shot; a click inside it waits for it, owed.
                 let semi = weapon.kind.semi_automatic();
+                let owed = if semi && bim.trigger.reload > 0.0 {
+                    bim.character.trigger_pending()
+                } else {
+                    bim.character.trigger_owed(dt)
+                };
                 if (!s.fire || semi) && !owed {
                     bim.trigger.hold();
                     continue;
                 }
-                if semi || bim.trigger.pull(dt, &stats) {
+                let fired = if semi {
+                    let cooldown = crate::balance::SEMI_AUTO_COOLDOWN / skill.fire_rate.max(1e-3);
+                    bim.trigger.press(cooldown)
+                } else {
+                    bim.trigger.pull(dt, &stats)
+                };
+                if fired {
                     bim.character.trigger_paid();
                     let walking = bim.character.is_walking();
                     let muzzle = self.shot_from(who, from, at);
@@ -12721,29 +12732,59 @@ mod tests {
             step(&mut game, &mut fired);
         }
         assert_eq!(fired, 1, "a pistol held down fires once");
-        // Clicked eight times a second, far quicker than the 1.5 a
-        // second a bot fires it at: every click is a shot.
+        // Clicked three times a second, twice the 1.5 a second a bot
+        // fires it at and just past the cooldown: every click is a shot,
+        // the moment it is clicked.
+        let wait = |game: &mut Game| {
+            for _ in 0..30 {
+                game.simulate(DT);
+            }
+        };
         game.order(0, control(false));
-        for _ in 0..30 {
-            game.simulate(DT);
-        }
+        wait(&mut game);
         let mut fired = 0;
         for _ in 0..12 {
             game.order(0, control(true));
-            step(&mut game, &mut fired);
+            let mut now = 0;
+            step(&mut game, &mut now);
+            assert_eq!(now, 1, "the click fired the step it came");
+            fired += now;
             step(&mut game, &mut fired);
             game.order(0, control(false));
-            for _ in 0..5 {
+            for _ in 0..18 {
                 step(&mut game, &mut fired);
             }
         }
         assert_eq!(fired, 12, "every click a shot");
         // And a click that is down and up again before a step sees it.
+        wait(&mut game);
         let mut fired = 0;
         game.order(0, control(true));
         game.order(0, control(false));
         step(&mut game, &mut fired);
         assert_eq!(fired, 1, "the quick click fired at once");
+        // A second click inside the cooldown is not lost: it waits for
+        // the cooldown to run out and is fired then, and not before.
+        let cooldown = (crate::balance::SEMI_AUTO_COOLDOWN / DT).round() as usize;
+        for _ in 0..4 {
+            step(&mut game, &mut fired);
+        }
+        game.order(0, control(true));
+        game.order(0, control(false));
+        let mut steps: usize = 4;
+        while fired < 2 && steps < 60 {
+            step(&mut game, &mut fired);
+            steps += 1;
+        }
+        assert_eq!(fired, 2, "the early click fired in the end");
+        assert!(
+            steps.abs_diff(cooldown) <= 1,
+            "{steps} steps after the first shot, the cooldown {cooldown}"
+        );
+        for _ in 0..60 {
+            step(&mut game, &mut fired);
+        }
+        assert_eq!(fired, 2, "and once");
     }
 
     #[test]

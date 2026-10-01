@@ -4677,10 +4677,12 @@ seeded runs Bim 0 is a player's, so the survivor pins move with it.
 `WeaponKind::semi_automatic` (the pistol alone) is a steered body's
 trigger read another way: in `tick_combat`'s steered branch a press
 (`Character::trigger_owed`, armed on the button's down edge) is a shot
-the step it reaches the room — no `Trigger::pull`, so no reload to wait
-out however quick the clicks — and a button held is that one shot and
-no more. A body nobody steers (a bot, a station's people, a Trooper's
-arm) still fires it at its `fire_rate` (1.5), which is all that number
+the step it reaches the room, once `balance::SEMI_AUTO_COOLDOWN` (0.3 s,
+shortened by `Skill::fire_rate`) has passed since the last shot
+(`Trigger::press`) — a click inside it is kept owed
+(`Character::trigger_pending`, its clock standing) and fired the step
+the cooldown runs out — and a button held is that one shot and no more.
+A body nobody steers (a bot, a station's people, a Trooper's arm) still fires it at its `fire_rate` (1.5), which is all that number
 is for it now. The pistol went to 6 a shot (7.2) with it, so it takes
 three bolts to put a lamp out and none leaves it failing on the way.
 `a_steered_pistol_fires_every_click_and_once_while_held` pins it;

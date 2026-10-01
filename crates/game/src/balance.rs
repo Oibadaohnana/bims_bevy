@@ -83,6 +83,8 @@ pub const AIM_SPREAD: f32 = 0.25;
 /// (`WeaponKind::semi_automatic`), so its `fire_rate` is only the pace
 /// of a body nobody steers. 6 a shot since October 2026, when every
 /// click became a shot (7.2 before).
+/// A click is held back until [`SEMI_AUTO_COOLDOWN`] has passed since the
+/// last shot.
 pub const LASER_PISTOL: WeaponStats = WeaponStats {
     range: 15.4,
     sweet: 0.0,
@@ -98,6 +100,11 @@ pub const LASER_PISTOL: WeaponStats = WeaponStats {
     strips: 0.0,
     strips_far: 0.0,
 };
+
+/// Seconds between two shots of a semi-automatic (the pistol) in a
+/// player's hand: a click sooner is fired the moment it has passed, and
+/// a fire-rate skill or relic shortens it (`Skill::fire_rate`).
+pub const SEMI_AUTO_COOLDOWN: f32 = 0.3;
 
 /// Everything it has inside four tiles, a good deal less at ten.
 pub const SHOTGUN: WeaponStats = WeaponStats {
