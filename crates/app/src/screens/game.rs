@@ -232,6 +232,12 @@ pub struct GameScreen {
     /// The slots whose players have left the game: said once each; their
     /// crew members carry on unsteered.
     gone: Vec<u32>,
+    /// What this player last told the room its own Bim is called
+    /// (`Online::say_bim_name`, task 145): said again on the deck at the
+    /// open and whenever somebody comes or goes, not only in the lobby,
+    /// so a name the host missed before its Start still lands on every
+    /// machine (`Online::names_said`). `None` until said.
+    said_name: Option<String>,
     /// A guest whose checksum has parted from the host's and has asked
     /// for its world (`Packet::Resync`, feature 67): said once, and not
     /// asked again until the world arrives. The wrong world keeps
@@ -995,6 +1001,7 @@ impl GameScreen {
             chart_traders: Vec::new(),
             picked_star: None,
             gone: Vec::new(),
+            said_name: None,
             resyncing: false,
             answered: Vec::new(),
             desync_at: crate::dev::desync_at(),
@@ -1210,8 +1217,18 @@ fn frame(
                 {
                     let size = screen.size.max(Vec2::splat(64.0));
                     match Session::restore_as(&save, online.my_slot(), size.x, size.y) {
-                        Ok(loaded) => {
+                        Ok(mut loaded) => {
                             let (slot, players) = (loaded.editor.local, loaded.editor.players);
+                            // This player's own Bim keeps what its
+                            // player called it, whatever the host's
+                            // copy says (task 145).
+                            let mine = session.crew_names.get(slot as usize).cloned();
+                            if let Some(mine) = mine.filter(|n| !n.is_empty()) {
+                                if loaded.crew_names.len() <= slot as usize {
+                                    loaded.crew_names.resize(slot as usize + 1, String::new());
+                                }
+                                loaded.crew_names[slot as usize] = mine;
+                            }
                             crate::names::set_crew_names(&loaded.crew_names);
                             *session = loaded;
                             *screen = screen.again(slot, players);
@@ -1232,6 +1249,8 @@ fn frame(
                 _ => {}
             },
             Event::Roster => {
+                // Whoever came hears this player's Bim's name again.
+                screen.said_name = None;
                 for slot in 0..screen.net.players {
                     let there = online
                         .slots
@@ -1265,6 +1284,22 @@ fn frame(
     // lands on the crew here, and on every word about them.
     if online.names_said(&mut session.crew_names) {
         crate::names::set_crew_names(&session.crew_names);
+    }
+    // And this player's own said again (task 145): in the lobby it went
+    // out only while the field changed, so a name the host had not heard
+    // by its Start — or a peer's world dealt without it — stayed the
+    // table's on the others' decks. Here it goes out at the open and
+    // after every join, and `names_said` puts it on everybody's crew.
+    if screen.net.wire.is_some() {
+        let mine = session
+            .crew_names
+            .get(screen.net.slot as usize)
+            .map(|n| wire::tidy_name(n))
+            .unwrap_or_default();
+        if screen.said_name.as_deref() != Some(mine.as_str()) {
+            online.say_bim_name(&mine);
+            screen.said_name = Some(mine);
+        }
     }
     if online.hair_said(&mut session.crew_hair) || online.tint_said(&mut session.crew_tints) {
         session.dress_crew();
