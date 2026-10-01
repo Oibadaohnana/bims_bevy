@@ -981,20 +981,6 @@ pub fn cache_rolled(galaxy_seed: u64, star: u32, station: u32) -> bool {
     site_roll(galaxy_seed, star, station, 0x_5245_4C49_4343) < data::RELIC_CACHE_CHANCE
 }
 
-/// Whether a site's machines come at tier two, `hops` from the crew's own
-/// star, once the world clock is past [`data::ENEMY_TIER2_HOURS`]: odds
-/// of `hops` in [`data::ENEMY_TIER2_SURE_HOPS`], and always from there on.
-/// Rolled once a site, off the galaxy's seed, so the map's quote and the
-/// wave on arrival agree.
-pub fn tier_two_rolled(galaxy_seed: u64, star: u32, station: u32, hops: u16) -> bool {
-    let sure = data::ENEMY_TIER2_SURE_HOPS.max(1);
-    if hops >= sure {
-        return true;
-    }
-    let odds = u32::from(hops) * 100 / u32::from(sure);
-    site_roll(galaxy_seed, star, station, 0x_5449_4552_3254) < odds
-}
-
 /// Where a relic choice came from.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]

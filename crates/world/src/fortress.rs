@@ -479,7 +479,7 @@ impl World {
             conduits: heart::conduits_for(players),
             core_health: heart::core_health_for(players),
             wave_size: self.wave_size_at(hours),
-            wave_count: self.wave_count_for(Tier::Three),
+            wave_count: self.heart_wave_count(),
         })
     }
 

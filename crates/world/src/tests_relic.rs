@@ -135,73 +135,28 @@ fn no_station_carries_a_research_key() {
     assert_eq!(world.holdings.keys, 0, "no key counted");
 }
 
-// --- 2: tier two on time and distance ------------------------------------------
+// --- 2: the tier a site is quoted at ---------------------------------------------
 
-/// **Tier two waits on the world clock** and then follows the distance
-/// ramp: nowhere before [`data::ENEMY_TIER2_HOURS`]; after it, never at
-/// home, always at [`data::ENEMY_TIER2_SURE_HOPS`] or further, a mix in
-/// between — and tier three near the origin whatever the clock says. The
-/// map's quote reads the same answer as the wave.
+/// **The quote reads the wave's tier at the arrival** (task 147): the run
+/// day's, the same at every site but the Machine Heart's fortress.
 #[test]
-fn tier_two_comes_only_after_its_hours_and_follows_the_ramp() {
+fn a_quote_says_the_tier_the_day_of_arrival_deals() {
     let (mut world, _) = held_arena(1);
     world.set_droid_tier_for_probe(None);
-    let hops = world.start_star_hops_for_probe();
-    let origin_hops = |star: u32| world.hops_from_origin(star);
-    let before = f64::from(data::ENEMY_TIER2_HOURS) * time::HOUR - 1.0;
-    let after = f64::from(data::ENEMY_TIER2_HOURS) * time::HOUR;
-    let far_from_origin = |star: u32| {
-        origin_hops(star) > data::DROID_TIER_THREE_HOPS && origin_hops(star) != u16::MAX
-    };
-    let mut seen_two = 0;
-    let mut seen_one = 0;
-    for (star, &h) in hops.iter().enumerate() {
-        let star = star as u32;
-        if h == u16::MAX || !far_from_origin(star) {
-            continue;
-        }
-        for station in [0, 1, 2] {
-            assert_eq!(
-                world.site_tier(star, Some(station), before),
-                Tier::One,
-                "nothing at tier two before its hours"
-            );
-            let tier = world.site_tier(star, Some(station), after);
-            if h == 0 {
-                assert_eq!(tier, Tier::One, "never at home");
-            } else if h >= data::ENEMY_TIER2_SURE_HOPS {
-                assert_eq!(tier, Tier::Two, "always this far out");
-            } else if tier == Tier::Two {
-                seen_two += 1;
-            } else {
-                seen_one += 1;
-            }
-        }
-    }
-    assert!(
-        seen_two > 0 && seen_one > 0,
-        "a mix on the ramp: {seen_two} {seen_one}"
-    );
-    // Tier three near the origin, before and after.
-    let near = (0..hops.len() as u32)
-        .find(|&s| origin_hops(s) <= data::DROID_TIER_THREE_HOPS)
-        .expect("the origin is a star");
-    assert_eq!(world.site_tier(near, Some(0), 0.0), Tier::Three);
-    assert_eq!(world.site_tier(near, Some(0), after), Tier::Three);
-    // The wave's tier is the site's: the arena at home, before and after.
-    assert_eq!(world.droid_tier(), Tier::One);
-    world.clock_minutes = after;
-    assert_eq!(world.droid_tier(), Tier::One, "home is never tier two");
-    // And the quote reads the rule at the arrival.
     world.leave_for_probe();
     world.run.phase = Phase::Map;
-    for (site, quote) in world.travel_quotes() {
-        let Ok(quote) = quote else { continue };
-        let at = world.clock_minutes + quote.minutes as f64;
-        assert_eq!(
-            quote.tier,
-            world.site_tier(site.star, Some(site.station), at)
-        );
+    for at_day in [1, 12, 30] {
+        world.clock_minutes = f64::from(at_day - 1) * time::DAY;
+        for (site, quote) in world.travel_quotes() {
+            let Ok(quote) = quote else { continue };
+            let at = world.clock_minutes + quote.minutes as f64;
+            let want = if crate::heart::is_heart(site.station) {
+                Tier::Three
+            } else {
+                world.tier_on(at)
+            };
+            assert_eq!(quote.tier, want, "day {at_day}");
+        }
     }
 }
 

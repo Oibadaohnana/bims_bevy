@@ -266,8 +266,8 @@ fn a_manufacturer_downed_is_never_revived_and_nothing_of_it_is_taken() {
 }
 
 /// **Day eight: about half the garrison is Troopers** — the machines they
-/// still command, at the machines' own tier — beside their people in
-/// tier-one guns and armour. Still one wave, and the Troopers have to be
+/// still command — beside their people, every one geared by now (task
+/// 147). Still one wave, and the Troopers have to be
 /// destroyed for it to clear.
 #[test]
 fn a_day_eight_garrison_is_about_half_troopers_fighting_beside_them() {
@@ -284,13 +284,15 @@ fn a_day_eight_garrison_is_about_half_troopers_fighting_beside_them() {
         for i in 0..room.droid_count() as usize {
             let d = room.droid(i).unwrap();
             assert_eq!(d.kind, DroidKind::Trooper);
-            assert_eq!(d.tier, world.droid_tier());
+            // Each at its own tier by the day (task 147).
             troopers += 1;
         }
         for who in theirs(&world) {
+            // Past the tier-one timing every one of them is geared, gun
+            // and armour at one tier.
             let gear = room.gear(who);
-            assert_eq!(gear.weapon.unwrap().tier, Tier::One);
-            assert_eq!(gear.armour.unwrap().tier, Tier::One);
+            let tier = gear.armour.unwrap().tier;
+            assert_eq!(gear.weapon.unwrap().tier, tier);
             people += 1;
         }
         assert_eq!(world.infestation(station).unwrap().waves_left, 0);
@@ -333,12 +335,22 @@ fn from_day_ten_they_come_in_waves_of_their_own_people_alone() {
     assert!(it.waves_left >= 1, "waves: {it:?}");
     let room = &world.residents.as_ref().unwrap().aboard.room;
     assert_eq!(room.droid_count(), 0, "they have lost the machines");
-    let tier = world.droid_tier();
+    // Each geared at the tier the day deals it (task 147).
+    let mut tiers: Vec<Tier> = Vec::new();
     for who in theirs(&world) {
         let gear = room.gear(who);
+        let tier = gear.armour.unwrap().tier;
         assert_eq!(gear.weapon.unwrap().tier, tier);
-        assert_eq!(gear.armour.unwrap().tier, tier);
+        tiers.push(tier);
     }
+    let mut want: Vec<Tier> = world
+        .manufacturer_gear_tiers(tiers.len() as u32)
+        .into_iter()
+        .map(|t| t.unwrap())
+        .collect();
+    tiers.sort();
+    want.sort();
+    assert_eq!(tiers, want);
     // Down, and the next is due four hours on.
     knock_them_all_out(&mut world);
     world.step(&[]);

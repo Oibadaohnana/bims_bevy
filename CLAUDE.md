@@ -75,19 +75,18 @@ desktop):
   `BIMS_FREEZE`, `BIMS_ZOOM`, `BIMS_MAP`, `BIMS_ARMORY`, `BIMS_STATION_SEED`,
   …) are documented at the top of `crates/app/src/dev.rs` and in
   `crates/ship/src/session.rs`; grep for `BIMS_`.
-- `scaling.ron` at the root is the wave formula's dials (base, per
-  player, per time step, the step's days, waves a station, the first
-  mission's ease, and `early_ease` machines fewer a wave for the first
-  `early_days` days; `world::droid::WaveScaling`, `BIMS_SCALING=file` names
+- `scaling.ron` at the root is the whole of how the enemies scale
+  (task 147: enemies per player, the day scaling and its days, enemies
+  per defender, the wave days and the three tier timings, all read off
+  the run day; `world::droid::WaveScaling`, `BIMS_SCALING=file` names
   another) and `rewards.ron` what a fight pays and things cost (xp and
   money an enemy down, a defence's share, the buyback, relic, combine
   and shelf prices; `world::rewards::Rewards`, `BIMS_REWARDS`), both
   read again whenever saved while the game runs
   (`crates/app/src/wavecfg.rs`). Keep `rewards.ron` at the constants —
   its test says so. `scaling.ron` is the player's: the game setup's
-  Difficulty shows its base, per player, per step, early ease and early
-  days, and *Save as default* writes them into it (only it has to
-  parse). A smoke run that presses that button wants `BIMS_SCALING`
+  Difficulty shows every dial, and *Save as default* writes them into
+  it (only it has to parse). A smoke run that presses that button wants `BIMS_SCALING`
   pointed at a scratch copy.
   `audio.ron` (`BIMS_AUDIO`) is the player's volume for each sound, a
   multiple of `sound.rs`'s level — one a clip, plus the weapons that

@@ -27,10 +27,10 @@
 //! garrison**: the machines' own wave size, each body rolled a Trooper at
 //! the day's [`trooper_percent`] and one of their people otherwise, and no
 //! reinforcement. From that day on it is their people alone, in the
-//! machines' own waves. What a Manufacturer carries is [`gear`], by the
-//! day: the pistol, then a tier-one gun, then tier-one armour as well, then
-//! whatever tier the machines at that site would come at. All of it is
-//! rolled off a seed the site and the world clock make, so it is fixed for
+//! machines' own waves. What a Manufacturer carries is [`gear`], at the
+//! tier the run day deals it (`crate::droid::WaveScaling::gear_tiers`,
+//! task 147): the laser pistol alone for the share not yet geared, and a
+//! gun and armour at its tier for the rest. All of it is rolled off a seed the site and the world clock make, so it is fixed for
 //! a visit (the clock stands still in a mission) and rolled afresh on the
 //! next (every trip moves it).
 
@@ -152,35 +152,12 @@ pub fn garrison(n: u32, day: u32, seed: u64) -> Vec<bool> {
     (0..n).map(|_| rng.below(100) < percent).collect()
 }
 
-/// The tier of what they carry on `day` at a site whose machines would
-/// come at `droid_tier`: tier one while they still have the machines —
-/// the pistol days counted as tier one — and the machines' own after.
-/// What their bounty is paid by and a site of theirs offers relics at.
-pub fn gear_tier(day: u32, droid_tier: Tier) -> Tier {
-    if has_droids(day) {
-        Tier::One
-    } else {
-        droid_tier
-    }
-}
-
-/// What one of them carries on `day`, off `seed`, with any armour numbered
-/// from `piece_ids`: the laser pistol alone before
-/// [`data::MANUFACTURER_ANY_GUN_DAY`]; a tier-one gun from it; tier-one
-/// armour besides from [`data::MANUFACTURER_ARMOUR_DAY`]; and from
-/// [`data::MANUFACTURER_DROIDS_LOST_DAY`] a gun and armour at
-/// `droid_tier`, the tier the machines at that site would come at.
-pub fn gear(day: u32, droid_tier: Tier, seed: u64, piece_ids: u32) -> Gear {
-    let (weapon, armour) = if day < data::MANUFACTURER_ANY_GUN_DAY {
-        (None, None)
-    } else if day < data::MANUFACTURER_ARMOUR_DAY {
-        (Some(Tier::One), None)
-    } else if has_droids(day) {
-        (Some(Tier::One), Some(Tier::One))
-    } else {
-        (Some(droid_tier), Some(droid_tier))
-    };
-    Gear::manufacturer(seed, weapon, armour, piece_ids)
+/// What one of them carries, off `seed`, with its armour numbered
+/// `piece_ids` (task 147): with no `tier` the laser pistol and nothing
+/// else; with one a gun (never the schword) and armour at it. The tier is
+/// the run day's (`World::manufacturer_gear_tiers`).
+pub fn gear(tier: Option<Tier>, seed: u64, piece_ids: u32) -> Gear {
+    Gear::manufacturer(seed, tier, tier, piece_ids)
 }
 
 /// A number under a hundred for a site, off the galaxy's seed and a salt.
@@ -211,41 +188,25 @@ mod tests {
         ] {
             assert_eq!(trooper_percent(day), share, "day {day}");
         }
-        // --- what they carry by day ---
-        for day in 0..3 {
-            for seed in 0..50 {
-                let g = gear(day, Tier::Three, seed, 1);
-                assert_eq!(g.weapon, Some(WeaponKind::LaserPistol.basic()));
-                assert!(g.armour.is_none());
-            }
+        // --- what they carry, by the tier the day deals them ---
+        for seed in 0..50 {
+            let g = gear(None, seed, 1);
+            assert_eq!(g.weapon, Some(WeaponKind::LaserPistol.basic()));
+            assert!(g.armour.is_none());
         }
         let mut kinds = std::collections::BTreeSet::new();
-        for day in 3..6 {
-            for seed in 0..200 {
-                let g = gear(day, Tier::Three, seed, 1);
-                let w = g.weapon.unwrap();
-                assert_eq!(w.tier, Tier::One);
-                assert_ne!(w.kind, WeaponKind::Schword, "never a blade");
-                kinds.insert(w.kind as u32);
-                assert!(g.armour.is_none());
-            }
+        for seed in 0..200 {
+            let g = gear(Some(Tier::One), seed, 1);
+            let w = g.weapon.unwrap();
+            assert_eq!(w.tier, Tier::One);
+            assert_ne!(w.kind, WeaponKind::Schword, "never a blade");
+            kinds.insert(w.kind as u32);
         }
         assert!(kinds.len() >= 3, "a tier-one gun of more than one kind");
-        for day in 6..10 {
-            let g = gear(day, Tier::Three, 7, 1);
-            assert_eq!(g.weapon.unwrap().tier, Tier::One);
-            for piece in [g.armour] {
-                assert_eq!(piece.unwrap().tier, Tier::One);
-            }
-        }
         for tier in Tier::ALL {
-            let g = gear(12, tier, 7, 1);
+            let g = gear(Some(tier), 7, 1);
             assert_eq!(g.weapon.unwrap().tier, tier);
-            for piece in [g.armour] {
-                assert_eq!(piece.unwrap().tier, tier);
-            }
-            assert_eq!(gear_tier(12, tier), tier);
-            assert_eq!(gear_tier(9, tier), Tier::One);
+            assert_eq!(g.armour.unwrap().tier, tier);
         }
         // --- the garrison's rolls come out near the share ---
         let troopers: usize = (0..200u64)

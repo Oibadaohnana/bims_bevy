@@ -467,14 +467,13 @@ impl World {
             && (!trader || self.traders_fall())
             && turns != u32::MAX
             && arrival_day >= turns;
-        let tier = match self.droid_tier {
-            Some(tier) => tier,
-            None => self.site_tier(site.star, Some(site.station), arrival as f64),
-        };
-        let tier = if manufacturers {
-            crate::manufacturer::gear_tier(arrival_day, tier)
+        // The tier most of the enemy come at on the arrival day (task 147),
+        // the machines' and the Manufacturers' gear alike.
+        // The Machine Heart's fortress is tier three whatever the day.
+        let tier = if heart::is_heart(site.station) {
+            Tier::Three
         } else {
-            tier
+            self.tier_on(arrival as f64)
         };
         // The jammer on arrival: the system's one site, where the machines
         // have it by then (`World::jammer_site_of`).

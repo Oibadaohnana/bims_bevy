@@ -987,7 +987,7 @@ fn every_quote_is_a_day_a_lane_and_nothing_in_the_system() {
 /// in the spawn system from the spawn, and every site of every system one
 /// hop off — and, with it, how far the crew start from the machines'
 /// origin and what a run there comes to on the world clock and in the
-/// waves (feature 105, which is what `data::ENEMIES_HOURS` was set from).
+/// waves (feature 105; task 147 for the waves).
 /// Printed, not asserted — `cargo test --release -p world -- --ignored
 /// --nocapture travel_days_over_ten_galaxies`. The root `CLAUDE.md`
 /// carries what it said.
@@ -1055,15 +1055,16 @@ fn travel_days_over_ten_galaxies() {
         ("a jump and a trip a hop", jump + trip),
     ] {
         let days = hops * per_hop;
-        let steps = crate::droid::time_steps((days * 24.0) as u32);
+        let scaling = crate::droid::WaveScaling::DEFAULT;
+        let day = days as u32 + 1;
         let sizes: Vec<u32> = (1..=4)
-            .map(|players| crate::droid::wave_size(players, steps))
+            .map(|players| scaling.size(players, 0, day))
             .collect();
         println!(
-            "to the origin, {name}: {days:.0} days, {steps} steps of {}h: \
-             waves of {sizes:?} for 1..=4 players, {} of them at tier three",
-            data::ENEMIES_HOURS,
-            crate::droid::wave_count(bims::combat::Tier::Three),
+            "to the origin, {name}: {days:.0} days: waves of {sizes:?} for 1..=4 players, \
+             {} of them, most at {:?}",
+            scaling.waves(day),
+            scaling.usual_tier(day),
         );
     }
 }

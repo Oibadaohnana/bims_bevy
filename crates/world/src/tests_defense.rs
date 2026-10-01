@@ -802,33 +802,31 @@ fn a_defence_s_next_wave_lands_ten_seconds_after_the_last_is_down() {
     assert_eq!(world.defense(id).map(|d| d.wave), Some(2));
 }
 
-/// **Every defender brings a machine** (task 111): a defence's wave is
-/// the formula's with one more for each defender the site fielded, and
-/// anywhere else it is the formula's alone — either way never fewer than
-/// the Bims it meets.
+/// **Every defender brings its machines** (task 147): a defence's wave is
+/// the players' share with `⌈enemies per defender × defenders⌉` on top —
+/// a decimal rounded up — and anywhere else the players' share alone.
 #[test]
 fn the_wave_at_a_defence_is_the_wave_with_a_machine_for_each_defender() {
     let mut world = basic();
     world.step(&[]);
     let n = world.defenders_fielded();
     assert!(n > 0, "defenders fielded");
-    let hours = world.hours_gone();
-    // The run's first mission: the formula's less its ease.
-    let eased = |w: &World| {
-        w.scaling()
-            .size_eased(w.players(), hours, w.scaling().first_mission_ease)
-    };
-    let want = (eased(&world) + n).max(world.bims_fighting());
-    assert_eq!(world.droid_wave_size(), want);
-    assert!(world.droid_wave_size() >= world.bims_fighting());
+    let day = world.run_day();
+    let players = |w: &World| w.scaling().size(w.players(), 0, day);
+    assert_eq!(world.droid_wave_size(), players(&world) + n);
+    world.set_wave_scaling(crate::droid::WaveScaling {
+        enemies_per_defender: 1.5,
+        ..crate::droid::WaveScaling::DEFAULT
+    });
+    assert_eq!(
+        world.droid_wave_size(),
+        players(&world) + (3 * n).div_ceil(2)
+    );
     let mut quiet = basic();
     quiet.set_quiet_sites_for_probe(true);
     quiet.step(&[]);
     assert_eq!(quiet.defenders_fielded(), 0, "no defenders at a quiet site");
-    assert_eq!(
-        quiet.droid_wave_size(),
-        eased(&quiet).max(quiet.bims_fighting()).max(1)
-    );
+    assert_eq!(quiet.droid_wave_size(), players(&quiet).max(1));
 }
 
 /// **A defender is nobody's loss** (task 111): one dead is not in the

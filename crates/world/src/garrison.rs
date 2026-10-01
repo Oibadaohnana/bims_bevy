@@ -128,14 +128,6 @@ impl World {
         self.droid_reinforce
     }
 
-    /// What tier the Manufacturers at the site alongside carry
-    /// ([`manufacturer::gear_tier`]): tier one while they have the machines,
-    /// the pistol days among them, and the machines' own tier after. What a
-    /// site of theirs offers its relics at.
-    pub fn manufacturer_tier(&self) -> Tier {
-        manufacturer::gear_tier(self.days_gone(), self.droid_tier())
-    }
-
     /// The seed a site's people are rolled off for one wave: the galaxy,
     /// the star, the station, the wave and the **world clock** — which
     /// stands still through a mission and moves with every trip, so a
@@ -177,7 +169,6 @@ impl World {
         };
         let day = self.days_gone();
         let n = self.droid_wave_size();
-        let tier = self.droid_tier();
         let seed = self.garrison_seed(id, it.wave);
         let first = it.wave == 1;
         let troopers = if first && manufacturer::has_droids(day) {
@@ -200,7 +191,7 @@ impl World {
         let Some((spots, facing)) = placed else {
             return;
         };
-        self.stand_manufacturers(&troopers, &spots, facing, day, tier, seed, it.wave);
+        self.stand_manufacturers(&troopers, &spots, facing, seed, it.wave);
     }
 
     /// A wave of theirs **attacking a site the crew are defending**
@@ -225,13 +216,12 @@ impl World {
             return;
         };
         let day = self.days_gone();
-        let tier = self.droid_tier();
         let seed = self.garrison_seed(id, wave) ^ DEFENSE_SALT;
         let troopers = manufacturer::garrison(n, day, seed);
         let Some((spots, facing)) = self.arrival_spots(&station, n, wave) else {
             return;
         };
-        self.stand_manufacturers(&troopers, &spots, facing, day, tier, seed, wave);
+        self.stand_manufacturers(&troopers, &spots, facing, seed, wave);
     }
 
     /// Whether the waves attacking a site the crew defend are the
@@ -254,12 +244,14 @@ impl World {
         troopers: &[bool],
         spots: &[bims::math::Vec2],
         facing: f32,
-        day: u32,
-        tier: Tier,
         seed: u64,
         wave: u32,
     ) {
         let n = troopers.len() as u32;
+        // Each body's tier by its place in the wave (task 147): the
+        // machines' own for a Trooper, the gear's for one of their people.
+        let machine = self.machine_tiers(n);
+        let geared = self.manufacturer_gear_tiers(n);
         let spot = |i: usize| spots.get(i).copied().unwrap_or(bims::math::Vec2::ZERO);
         let stagger = |i: usize| bims::game::PLAN_EVERY * (i as f32) / (n.max(1) as f32);
         let Some(residents) = &mut self.residents else {
@@ -272,7 +264,7 @@ impl World {
             // The room's pieces are its own; a thousand a body clear of
             // any other body's.
             let pieces = 10_000 + 1_000 * room.crew_count();
-            let gear = manufacturer::gear(day, tier, own, pieces);
+            let gear = manufacturer::gear(geared.get(i).copied().flatten(), own, pieces);
             room.enlist_manufacturer(spot(i), gear, own, stagger(i));
         }
         // Then the machines beside them: Troopers, armed by their place
@@ -285,7 +277,7 @@ impl World {
             .map(|(k, (i, _))| {
                 let mut droid = bims::droid::Droid::new(
                     bims::droid::DroidKind::Trooper,
-                    tier,
+                    machine.get(i).copied().unwrap_or(Tier::One),
                     k,
                     wave,
                     spot(i),

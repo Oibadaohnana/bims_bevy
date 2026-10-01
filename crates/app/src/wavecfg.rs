@@ -1,10 +1,10 @@
 //! The tuning files, read again while the game runs.
 //!
 //! - `scaling.ron` (or the file `BIMS_SCALING` names) holds a
-//!   [`world::droid::WaveScaling`]: the base machines a wave, how many a
-//!   player and a time step add, how many days a time step is, the waves a
-//!   held station has at each tier, the first mission's ease and the
-//!   early ease (fewer machines a wave in the run's first days).
+//!   [`world::droid::WaveScaling`] (task 147): the machines a player brings,
+//!   how much that grows and every how many days, the machines a defender
+//!   brings, every how many days a site has a wave more, and the three tier
+//!   timings — the whole of how the enemies scale.
 //! - `rewards.ron` (or `BIMS_REWARDS`) holds a [`world::rewards::Rewards`]:
 //!   the experience and the money an enemy down is worth, what a defence
 //!   pays of it, whether the money waits for the clear, and what the
@@ -27,18 +27,17 @@
 //! frame the world's differ, so a restart or a load takes them too. In a
 //! two-player run each game reads its own files, and the two have to agree.
 //!
-//! The game setup's difficulty (`world::droid::Difficulty`: the base, the
-//! per player, the scaling and the early ease with its days) stands over
-//! this file's five for the run it starts — the world keeps it and saves
-//! it, and the host deals it to every guest — so those five in the file
-//! move a run only when the setup left them as the file had them.
+//! The game setup's difficulty (`world::droid::Difficulty`, every dial of
+//! the formula) stands in place of this file for the run it starts — the
+//! world keeps it and saves it, and the host deals it to every guest — so
+//! the file moves a run only when the setup left it as the file had it.
 
 use bevy::prelude::*;
 use bims::balance::WeaponDamage;
 use bims::combat::WeaponKind;
 use std::path::PathBuf;
 use std::time::SystemTime;
-use world::droid::{Difficulty, WaveScaling};
+use world::droid::WaveScaling;
 use world::rewards::Rewards;
 
 use crate::screens::designer::ShipSession;
@@ -93,15 +92,15 @@ impl Tuning for WaveScaling {
     const UNTUNED: Self = WaveScaling::DEFAULT;
     fn describe(&self) -> String {
         format!(
-            "{} + {}/player + {}/step of {} days, waves {:?} by tier, first mission -{}, first {} days -{}",
-            self.base,
-            self.per_player,
-            self.per_step,
-            self.step_days.max(1),
-            self.tier_waves,
-            self.first_mission_ease,
-            self.early_days,
-            self.early_ease
+            "{}/player +{} every {} days, {}/defender, a wave more every {} days, tiers by day {}/{}/{}",
+            self.enemies_per_player,
+            self.day_scaling,
+            self.scaling_days,
+            self.enemies_per_defender,
+            self.wave_days,
+            self.tier1_days,
+            self.tier2_days,
+            self.tier3_days
         )
     }
 }
@@ -257,24 +256,23 @@ fn path_of<T: Tuning>() -> PathBuf {
     PathBuf::from(std::env::var(T::ENV).unwrap_or_else(|_| T::FILE.to_string()))
 }
 
-/// Write the game setup's difficulty into the wave file as its base, per
-/// player, per step, early ease and early days — the setup's Save as
-/// default. Only those five numbers change: the comments and the other
-/// dials stay as they were written, a field the file left out is put in,
-/// and no file at all becomes one holding the five. The text is read back
-/// before it replaces the file, so a file this could not have edited is
-/// refused rather than broken; the watcher reads it again like any other
-/// save.
-pub(crate) fn save_difficulty(difficulty: Difficulty) -> Result<(), String> {
+/// Write the game setup's difficulty into the wave file — the setup's
+/// Save as default. Only the dials' numbers change: the comments and any
+/// other line stay as they were written, a field the file left out is put
+/// in, and no file at all becomes one holding the dials. The text is read
+/// back before it replaces the file, so a file this could not have edited
+/// is refused rather than broken; the watcher reads it again like any
+/// other save.
+pub(crate) fn save_difficulty(difficulty: WaveScaling) -> Result<(), String> {
     let path = path_of::<WaveScaling>();
     let old = match std::fs::read_to_string(&path) {
         Ok(text) => text,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => "(\n)\n".to_string(),
         Err(e) => return Err(e.to_string()),
     };
-    let before = parse::<WaveScaling>(&old)?;
+    parse::<WaveScaling>(&old)?;
     let new = with_difficulty(&old, difficulty).ok_or("no closing bracket to write before")?;
-    if parse::<WaveScaling>(&new) != Ok(difficulty.over(before)) {
+    if parse::<WaveScaling>(&new) != Ok(difficulty) {
         return Err("the file is not laid out one dial a line".into());
     }
     // Beside it and then over it, so a reader never sees half a file.
@@ -284,18 +282,25 @@ pub(crate) fn save_difficulty(difficulty: Difficulty) -> Result<(), String> {
     std::fs::rename(&part, &path).map_err(|e| e.to_string())
 }
 
-/// `text` with the five difficulty dials' numbers put in: each on the
-/// line that sets it, or on a line of its own before the closing bracket
-/// when none does. `None` when there is no closing bracket.
-fn with_difficulty(text: &str, d: Difficulty) -> Option<String> {
+/// `text` with every dial's number put in: each on the line that sets it,
+/// or on a line of its own before the closing bracket when none does.
+/// `None` when there is no closing bracket.
+fn with_difficulty(text: &str, d: WaveScaling) -> Option<String> {
     let fields = [
-        ("base", d.base),
-        ("per_player", d.per_player),
-        ("per_step", d.per_step),
-        ("early_ease", d.early_ease),
-        ("early_days", d.early_days),
+        ("enemies_per_player", d.enemies_per_player.to_string()),
+        ("day_scaling", d.day_scaling.to_string()),
+        ("scaling_days", d.scaling_days.to_string()),
+        // `{:?}` keeps the point, so the file reads it back as a float.
+        (
+            "enemies_per_defender",
+            format!("{:?}", d.enemies_per_defender),
+        ),
+        ("wave_days", d.wave_days.to_string()),
+        ("tier1_days", d.tier1_days.to_string()),
+        ("tier2_days", d.tier2_days.to_string()),
+        ("tier3_days", d.tier3_days.to_string()),
     ];
-    let mut done = [false; 5];
+    let mut done = [false; 8];
     let mut lines: Vec<String> = text.lines().map(str::to_string).collect();
     for line in &mut lines {
         let code = line.split("//").next().unwrap_or("");
@@ -311,7 +316,7 @@ fn with_difficulty(text: &str, d: Difficulty) -> Option<String> {
             // Past the number to whatever follows it: the comma, a
             // comment, nothing.
             let number = after.trim_start();
-            let rest = number.trim_start_matches(|c: char| c.is_ascii_digit());
+            let rest = number.trim_start_matches(|c: char| c.is_ascii_digit() || c == '.');
             let tail = &line[code.len() - rest.len()..];
             put = Some(format!("{}{name}: {value}{tail}", &code[..at]));
             done[i] = true;
@@ -397,50 +402,53 @@ mod tests {
         assert_eq!(parse(text), Ok(WeaponDamage::DEFAULT));
     }
 
-    /// Save as default puts the five numbers in and leaves every other
+    /// Save as default puts the dials' numbers in and leaves every other
     /// line of the file as it was written.
     #[test]
-    fn saving_the_difficulty_changes_its_five_numbers_and_nothing_else() {
-        let d = Difficulty {
-            base: 4,
-            per_player: 12,
-            per_step: 0,
-            early_ease: 0,
-            early_days: 3,
+    fn saving_the_difficulty_changes_its_numbers_and_nothing_else() {
+        let d = WaveScaling {
+            enemies_per_player: 4,
+            day_scaling: 2,
+            scaling_days: 7,
+            enemies_per_defender: 1.5,
+            wave_days: 12,
+            tier1_days: 3,
+            tier2_days: 25,
+            tier3_days: 50,
         };
         let text = include_str!("../../../scaling.ron");
         let new = with_difficulty(text, d).unwrap();
-        let before: WaveScaling = parse(text).unwrap();
-        assert_eq!(parse(&new), Ok(d.over(before)));
-        let changed: Vec<(&str, &str)> = text
+        assert_eq!(parse(&new), Ok(d));
+        let changed = text
             .lines()
             .zip(new.lines())
             .filter(|(a, b)| a != b)
-            .collect();
-        assert_eq!(changed.len(), 5, "{changed:?}");
+            .count();
+        assert!(changed <= 8, "{changed} lines changed");
         assert_eq!(text.lines().count(), new.lines().count());
         // A comment after the number stays, and a field left out is put in.
-        let new = with_difficulty("(\n    base: 1, // one\n    step_days: 3,\n)\n", d).unwrap();
-        assert_eq!(
-            new,
-            "(\n    base: 4, // one\n    step_days: 3,\n    per_player: 12,\n    per_step: 0,\n    early_ease: 0,\n    early_days: 3,\n)\n"
+        let new = with_difficulty("(\n    enemies_per_defender: 1.0, // one\n)\n", d).unwrap();
+        assert!(
+            new.starts_with("(\n    enemies_per_defender: 1.5, // one\n"),
+            "{new}"
         );
+        assert_eq!(parse(&new), Ok(d));
         // A word in a comment is not a field.
-        let new = with_difficulty("// base: 9\n(\n)\n", d).unwrap();
-        assert!(new.starts_with("// base: 9\n"));
-        assert_eq!(parse::<WaveScaling>(&new).unwrap().base, 4);
+        let new = with_difficulty("// wave_days: 9\n(\n)\n", d).unwrap();
+        assert!(new.starts_with("// wave_days: 9\n"));
+        assert_eq!(parse::<WaveScaling>(&new).unwrap().wave_days, 12);
     }
 
     /// A field left out is the constant's.
     #[test]
     fn a_field_left_out_is_the_constant_s() {
-        let s: WaveScaling = parse("(base: 7)").unwrap();
-        assert_eq!(s.base, 7);
-        assert_eq!(s.step_days, WaveScaling::DEFAULT.step_days);
-        assert!(parse::<WaveScaling>("(base: -1)").is_err());
-        let s: WaveScaling = parse("(tier_waves: (2, 3, 6))").unwrap();
-        assert_eq!(s.tier_waves, [2, 3, 6]);
-        assert_eq!(s.base, WaveScaling::DEFAULT.base);
+        let s: WaveScaling = parse("(enemies_per_player: 7)").unwrap();
+        assert_eq!(s.enemies_per_player, 7);
+        assert_eq!(s.scaling_days, WaveScaling::DEFAULT.scaling_days);
+        assert!(parse::<WaveScaling>("(enemies_per_player: -1)").is_err());
+        let s: WaveScaling = parse("(enemies_per_defender: 1.5)").unwrap();
+        assert_eq!(s.enemies_per_defender, 1.5);
+        assert_eq!(s.tier2_days, WaveScaling::DEFAULT.tier2_days);
         let r: Rewards = parse("(buyback: 3)").unwrap();
         assert_eq!(r.buyback, 3);
         assert_eq!(r.bounty, Rewards::DEFAULT.bounty);

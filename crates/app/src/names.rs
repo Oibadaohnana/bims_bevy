@@ -549,41 +549,61 @@ pub fn player_joined(name: &str) -> String {
 }
 /// Somebody left the lobby; the relay says the roster, not who.
 pub const SOMEBODY_LEFT: &str = "Somebody left.";
-/// The setup's difficulty: the wave formula's five dials the host picks
-/// for the run (`world::droid::Difficulty`), their notes, and the button
-/// that puts them back to the tuning file's (`scaling.ron`).
+/// The setup's difficulty: every dial of the wave formula the host picks
+/// for the run (`world::droid::Difficulty`, task 147), their notes, and
+/// the button that puts them back to the tuning file's (`scaling.ron`).
 pub const DIFFICULTY: &str = "Difficulty";
-pub const DIFFICULTY_NOTE: &str = "How many machines a wave is: base + per player × players + scaling × time steps - early ease (never under the base, never fewer than the Bims)";
-pub const WAVE_BASE: &str = "Base";
-pub const WAVE_BASE_NOTE: &str = "Machines in every wave at the least, whatever the ease";
-pub const WAVE_PER_PLAYER: &str = "Per player";
-pub const WAVE_PER_PLAYER_NOTE: &str = "Machines more for each player";
-pub const WAVE_PER_STEP: &str = "Scaling";
-/// The scaling's note: how long a time step is, in days.
-pub fn wave_per_step_note(days: u32) -> String {
+pub const DIFFICULTY_NOTE: &str = "How many machines a wave is: (per player + day scaling × steps) × players, plus per defender × defenders at a defence (rounded up). Nothing else scales them. Tiers come by the day: the tier timings are the day every enemy has reached that tier (half of them at half the days).";
+pub const WAVE_PER_PLAYER: &str = "Enemies per player";
+pub const WAVE_PER_PLAYER_NOTE: &str = "Machines in every wave for each player";
+pub const WAVE_DAY_SCALING: &str = "Day scaling";
+/// The day scaling's note: how long its step is, in days.
+pub fn wave_day_scaling_note(days: u32) -> String {
     match days {
-        1 => "Machines more every day of the run".to_string(),
-        n => format!("Machines more every {n} days of the run"),
+        0 => "Enemies per player more each step; off while Scaling days is 0".to_string(),
+        1 => "Enemies per player more every day of the run".to_string(),
+        n => format!("Enemies per player more every {n} days of the run"),
     }
 }
-pub const WAVE_EARLY_EASE: &str = "Early ease";
-/// The early ease's note: how many days it holds for.
-pub fn wave_early_ease_note(days: u32) -> String {
+pub const WAVE_SCALING_DAYS: &str = "Scaling days";
+pub const WAVE_SCALING_DAYS_NOTE: &str = "How many days one step of the day scaling is";
+pub const WAVE_PER_DEFENDER: &str = "Enemies per defender";
+pub const WAVE_PER_DEFENDER_NOTE: &str =
+    "Machines for each defender at a defence; the total is rounded up (1.5 × 3 = 5)";
+pub const WAVE_DAYS: &str = "Wave days";
+/// The wave days' note: how often a site has one wave more.
+pub fn wave_days_note(days: u32) -> String {
     match days {
-        0 => "Machines fewer in every wave early on; off while Early days is 0".to_string(),
-        1 => "Machines fewer in every wave of the run's first day".to_string(),
-        n => format!("Machines fewer in every wave of the run's first {n} days"),
+        0 => "Every site has one wave while this is 0".to_string(),
+        1 => "A site has one wave, and one more every day".to_string(),
+        n => format!("A site has one wave, and one more every {n} days"),
     }
 }
-pub const WAVE_EARLY_DAYS: &str = "Early days";
-pub const WAVE_EARLY_DAYS_NOTE: &str = "How many days of the run the early ease lasts";
+pub const TIER1_TIMING: &str = "Tier 1 timing";
+pub const TIER2_TIMING: &str = "Tier 2 timing";
+pub const TIER3_TIMING: &str = "Tier 3 timing";
+/// A tier timing's note: whom it reaches and by which day.
+pub fn tier_timing_note(tier: u32, days: u32) -> String {
+    let who = if tier == 1 {
+        "Manufacturers with tier-1 gear (the rest carry pistols)".to_string()
+    } else {
+        format!("Machines and Manufacturer gear at tier {tier}")
+    };
+    match days {
+        0 => format!("{who}: all of them from the first day"),
+        n => format!(
+            "{who}: all of them by day {n}, half by day {}",
+            n.div_ceil(2)
+        ),
+    }
+}
 pub const DIFFICULTY_RESET: &str = "Default";
 pub const DIFFICULTY_RESET_HOVER: &str = "Back to the numbers in scaling.ron";
-/// The button that writes the five into `scaling.ron`, and what it says
+/// The button that writes the dials into `scaling.ron`, and what it says
 /// after.
 pub const DIFFICULTY_SAVE: &str = "Save as default";
 pub const DIFFICULTY_SAVE_HOVER: &str =
-    "Write these five into scaling.ron: every new game starts from them";
+    "Write these numbers into scaling.ron: every new game starts from them";
 pub const DIFFICULTY_SAVED: &str = "Saved into scaling.ron.";
 pub fn difficulty_not_saved(why: &str) -> String {
     format!("Not saved: {why}")

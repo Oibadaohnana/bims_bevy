@@ -34,18 +34,15 @@
 //!
 //! # How many
 //!
-//! **A wave's size is world time and the number of players, and nothing
-//! else** (feature 105); **a site's count of waves is the tier its
-//! machines come at**, one, two or four ([`data::DROID_TIER_WAVES`]).
-//! Integers only, and nothing doubles: a wave grows by *addition*,
-//! one machine a player and one every [`data::ENEMIES_HOURS`] of the
-//! world clock. What the crew own, what they have learnt, and how many
-//! bots, mercenaries and recruits walk with them are none of the
-//! machines' business — growing stronger makes the fight easier, and
-//! money kept is not punished. Only a jump moves the world clock — a day
-//! each, [`data::JUMP_MINUTES`], and nothing for a trip within a system
-//! (the map rework) — so the machines grow with the systems crossed. See
-//! [`wave_size`] and [`wave_count`].
+//! **The machines scale on the run day and the players, and nothing else**
+//! (task 147, [`WaveScaling`]): a wave is the players' share — which
+//! grows by `day_scaling` every `scaling_days` — and at a defence the
+//! defenders'; a site has a wave more every `wave_days`; and each enemy's
+//! tier is dealt by the day's tier-two and tier-three shares. What the
+//! crew own, what they have learnt, and how many bots, mercenaries and
+//! recruits walk with them are none of the machines' business. Only a
+//! jump moves the world clock — a day each, [`data::JUMP_MINUTES`] — so
+//! the machines grow with the systems crossed.
 
 use crate::data;
 use bims::combat::Tier;
@@ -143,140 +140,169 @@ impl Infestation {
     }
 }
 
-/// How many machines a wave is:
+/// The dials of the wave formula (task 147), and the whole of how the
+/// machines scale: **how many** a wave is, **how many waves** a site has
+/// and **what tier** each enemy comes at. Nothing else moves any of it —
+/// no base, no ease, no floor at the crew's numbers, no distance. The app
+/// reads them from `scaling.ron` and hands them to
+/// `World::set_wave_scaling` whenever the file changes, and the game
+/// setup's Difficulty lays its own over them for a run
+/// (`World::set_difficulty`). The default is the constants in [`data`].
 ///
-/// `DROID_WAVE_BASE + players + time_steps`, with no cap (task 132: the
-/// sixteen it stopped at went, to be balanced another way).
+/// Every rule reads the **run day** — the day the top bar shows, one on
+/// the day the world opens (`World::run_day`):
 ///
-/// - `players` is how many **player Bims** there are (`World::players`)
-///   — never the bots, the mercenaries, the recruits or anybody else who
-///   walks with them;
-/// - `time_steps` is [`time_steps`] — whole [`data::ENEMIES_HOURS`] the
-///   world clock has run.
+/// - a wave is `(per_player + day_scaling × steps) × players +
+///   ⌈per_defender × defenders⌉`, `steps` being whole `scaling_days` in
+///   the run day ([`WaveScaling::size`]);
+/// - a site has `1 + whole wave_days` waves ([`WaveScaling::waves`]);
+/// - the share of enemies at tier two is `day / tier2_days`, all of them
+///   from that day on, and the same for tier three; the share of the
+///   Manufacturers who carry any gear (tier one and up) is
+///   `day / tier1_days` ([`WaveScaling::machine_tiers`],
+///   [`WaveScaling::gear_tiers`]).
 ///
-/// Integers throughout, and nothing here doubles.
-pub fn wave_size(players: u32, time_steps: u32) -> u32 {
-    data::DROID_WAVE_BASE
-        .saturating_add(players)
-        .saturating_add(time_steps)
-}
-
-/// How many waves a held station has all told, the one aboard counted:
-/// [`data::DROID_TIER_WAVES`] at the `tier` its machines come at — one at
-/// tier one, two at tier two, four at tier three. Not the clock and not
-/// the players: a crew of four and a later day meet bigger waves, not
-/// more of them.
-///
-/// Worked out once, at the crew's first dock, and never again.
-pub fn wave_count(tier: Tier) -> u32 {
-    by_tier(data::DROID_TIER_WAVES, tier)
-}
-
-/// The entry of a table of three — tier one, two, three — for `tier`.
-fn by_tier(table: [u32; 3], tier: Tier) -> u32 {
-    match tier {
-        Tier::One => table[0],
-        Tier::Two => table[1],
-        Tier::Three => table[2],
-    }
-}
-
-/// Whole [`data::ENEMIES_HOURS`] in `hours_gone` of the world clock
-/// (`World::hours_gone`): the time step a wave and a station's count of
-/// waves grow by.
-pub fn time_steps(hours_gone: u32) -> u32 {
-    hours_gone / data::ENEMIES_HOURS
-}
-
-/// The dials of the wave formula, for tuning while the game runs: the
-/// app reads them from `scaling.ron` and hands them to
-/// `World::set_wave_scaling` whenever the file changes. The default is
-/// the constants in [`data`], so a world never told is the formula
-/// above to the machine.
-///
-/// A wave is `base + per_player × players + per_step × steps`, `steps`
-/// being whole `step_days` of the world clock, and a held station has
-/// `tier_waves` waves by the tier its machines come at.
-/// Every wave of the run's first mission is `first_mission_ease`
-/// fewer, and every wave inside the first `early_days` days of the
-/// world clock `early_ease` fewer (the two add up), but never fewer than
-/// `base`: the base is what every wave is guaranteed. Integers only, like
-/// the formula.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+/// A step or wave length of nought days never grows; a tier timing of
+/// nought is that tier for everybody from the first day.
+#[derive(Clone, Copy, PartialEq, Debug)]
 #[cfg_attr(
     feature = "serde",
     derive(serde::Serialize, serde::Deserialize),
     serde(default)
 )]
 pub struct WaveScaling {
-    /// Machines in every wave before anything is counted.
-    pub base: u32,
-    /// Machines added for each player Bim.
-    pub per_player: u32,
-    /// Machines added for each time step gone.
-    pub per_step: u32,
-    /// How many days of the world clock one time step is (one at the
-    /// least). A jump is a day, so this is jumps too.
-    pub step_days: u32,
-    /// Waves a held station has, by the tier its machines come at — tier
-    /// one, two, three (`(1, 2, 4)` in the file).
-    pub tier_waves: [u32; 3],
-    /// Machines fewer in every wave of the run's first mission.
-    pub first_mission_ease: u32,
-    /// Machines fewer in every wave while the world clock is inside its
-    /// first `early_days` days, whatever the mission; nought untuned.
-    pub early_ease: u32,
-    /// How many days of the world clock `early_ease` holds for.
-    pub early_days: u32,
+    /// Machines added for each player Bim (bots do not count).
+    pub enemies_per_player: u32,
+    /// How much `enemies_per_player` grows every `scaling_days` (the "y").
+    pub day_scaling: u32,
+    /// How many days one step of `day_scaling` is (the "x").
+    pub scaling_days: u32,
+    /// Machines added for each defender the site fields at a defence,
+    /// the product rounded up: `1.5` and three defenders is five.
+    pub enemies_per_defender: f32,
+    /// Every this many days a site has one wave more (the "z").
+    pub wave_days: u32,
+    /// The day every Manufacturer carries tier-one gear (a gun and
+    /// armour); before it the share that do is `day / tier1_days`, and
+    /// the rest carry the laser pistol alone.
+    pub tier1_days: u32,
+    /// The day every enemy is tier two at the least — machines and the
+    /// Manufacturers' gear alike; before it the share is
+    /// `day / tier2_days`.
+    pub tier2_days: u32,
+    /// The same for tier three.
+    pub tier3_days: u32,
 }
 
 impl WaveScaling {
     /// The constants of [`data`]: the game as it plays untuned.
     pub const DEFAULT: WaveScaling = WaveScaling {
-        base: data::DROID_WAVE_BASE,
-        per_player: 1,
-        per_step: 1,
-        step_days: data::ENEMIES_HOURS / 24,
-        tier_waves: data::DROID_TIER_WAVES,
-        first_mission_ease: data::FIRST_MISSION_WAVE_EASE,
-        early_ease: 0,
-        early_days: 6,
+        enemies_per_player: data::ENEMIES_PER_PLAYER,
+        day_scaling: data::DAY_SCALING,
+        scaling_days: data::SCALING_DAYS,
+        enemies_per_defender: data::ENEMIES_PER_DEFENDER,
+        wave_days: data::WAVE_DAYS,
+        tier1_days: data::TIER1_DAYS,
+        tier2_days: data::TIER2_DAYS,
+        tier3_days: data::TIER3_DAYS,
     };
 
-    /// Whole time steps in `hours_gone` of the world clock.
-    pub fn steps(&self, hours_gone: u32) -> u32 {
-        hours_gone / self.step_days.max(1).saturating_mul(24)
+    /// Whole `scaling_days` in run day `day`; nought with no step.
+    pub fn steps(&self, day: u32) -> u32 {
+        day.checked_div(self.scaling_days).unwrap_or(0)
     }
 
-    /// How many machines a wave is for `players` at `hours_gone`: the
-    /// sum, less `early_ease` inside the first `early_days` days, and
-    /// never under `base` — the base is what a wave is guaranteed however
-    /// much an ease takes off. The world makes it one at the least.
-    pub fn size(&self, players: u32, hours_gone: u32) -> u32 {
-        self.size_eased(players, hours_gone, 0)
+    /// Machines a player brings on run day `day`:
+    /// `enemies_per_player + day_scaling × steps`.
+    pub fn per_player_on(&self, day: u32) -> u32 {
+        self.enemies_per_player
+            .saturating_add(self.day_scaling.saturating_mul(self.steps(day)))
     }
 
-    /// [`WaveScaling::size`] with `more_ease` taken off as well (the run's
-    /// first mission's), still never under `base`.
-    pub fn size_eased(&self, players: u32, hours_gone: u32, more_ease: u32) -> u32 {
-        let whole = self
-            .base
-            .saturating_add(self.per_player.saturating_mul(players))
-            .saturating_add(self.per_step.saturating_mul(self.steps(hours_gone)));
-        let early = if hours_gone < self.early_days.saturating_mul(24) {
-            self.early_ease
+    /// Machines `defenders` bring, `enemies_per_defender` each, the
+    /// product rounded up — worked in hundredths, so two machines agree
+    /// to the machine.
+    pub fn for_defenders(&self, defenders: u32) -> u32 {
+        let hundredths = (f64::from(self.enemies_per_defender.max(0.0)) * 100.0).round() as u64;
+        let whole = (hundredths * u64::from(defenders)).div_ceil(100);
+        whole.min(u64::from(u32::MAX)) as u32
+    }
+
+    /// How many machines a wave is for `players` and `defenders` on run
+    /// day `day`. The world makes it one at the least.
+    pub fn size(&self, players: u32, defenders: u32, day: u32) -> u32 {
+        self.per_player_on(day)
+            .saturating_mul(players)
+            .saturating_add(self.for_defenders(defenders))
+    }
+
+    /// How many waves a site has all told on run day `day`, the first
+    /// counted: one, and one more every `wave_days`.
+    pub fn waves(&self, day: u32) -> u32 {
+        1u32.saturating_add(day.checked_div(self.wave_days).unwrap_or(0))
+    }
+
+    /// How many machines a wave of `n` have tier two at the least and
+    /// tier three, on run day `day`: each share of `n` in whole machines,
+    /// the tier-three ones counted among the tier-two ones.
+    fn tier_counts(&self, n: u32, day: u32) -> (u32, u32) {
+        let three = share_of(n, day, self.tier3_days);
+        let two = share_of(n, day, self.tier2_days).max(three);
+        (two, three)
+    }
+
+    /// The tier of each machine of a wave of `n` on run day `day`, in the
+    /// wave's order: tier three for the first of the day's tier-three
+    /// share, tier two for the next of the tier-two share, and tier one
+    /// for the rest.
+    pub fn machine_tiers(&self, n: u32, day: u32) -> Vec<Tier> {
+        let (two, three) = self.tier_counts(n, day);
+        (0..n)
+            .map(|i| {
+                if i < three {
+                    Tier::Three
+                } else if i < two {
+                    Tier::Two
+                } else {
+                    Tier::One
+                }
+            })
+            .collect()
+    }
+
+    /// The tier of the gear each of `n` Manufacturers carries on run day
+    /// `day`, in their order: as [`WaveScaling::machine_tiers`] for tiers
+    /// two and three, then tier one for the next of the `tier1_days`
+    /// share, and `None` — the laser pistol and no armour — for the rest.
+    pub fn gear_tiers(&self, n: u32, day: u32) -> Vec<Option<Tier>> {
+        let (two, three) = self.tier_counts(n, day);
+        let one = share_of(n, day, self.tier1_days).max(two);
+        (0..n)
+            .map(|i| {
+                if i < three {
+                    Some(Tier::Three)
+                } else if i < two {
+                    Some(Tier::Two)
+                } else if i < one {
+                    Some(Tier::One)
+                } else {
+                    None
+                }
+            })
+            .collect()
+    }
+
+    /// The tier at least half the machines come at on run day `day`: what
+    /// a site's tier is said as (the map, the chart, the checksum).
+    pub fn usual_tier(&self, day: u32) -> Tier {
+        let half = |days: u32| u64::from(day) * 2 >= u64::from(days);
+        if half(self.tier3_days) {
+            Tier::Three
+        } else if half(self.tier2_days) {
+            Tier::Two
         } else {
-            0
-        };
-        whole
-            .saturating_sub(early)
-            .saturating_sub(more_ease)
-            .max(self.base)
-    }
-
-    /// How many waves a held station has whose machines come at `tier`.
-    pub fn count(&self, tier: Tier) -> u32 {
-        by_tier(self.tier_waves, tier)
+            Tier::One
+        }
     }
 }
 
@@ -286,54 +312,22 @@ impl Default for WaveScaling {
     }
 }
 
-/// The run's difficulty, as the game setup picked it: five of the wave
-/// formula's dials — the base machines a wave, how many each player adds,
-/// how many each time step adds, and the early ease with the days it
-/// holds for — laid over whatever [`WaveScaling`] the tuning file says
-/// (`World::set_difficulty`). The rest of the formula (the step's days,
-/// the waves a site, the first mission's ease) stays the file's. Saved
-/// with the world, so a load or a restart plays at the difficulty the run
-/// was begun at, and dealt to every machine of a lobby with the rest of
-/// the settings.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub struct Difficulty {
-    /// Machines in every wave before anything is counted.
-    pub base: u32,
-    /// Machines added for each player Bim.
-    pub per_player: u32,
-    /// Machines added for each time step gone.
-    pub per_step: u32,
-    /// Machines fewer in every wave inside the first `early_days` days.
-    pub early_ease: u32,
-    /// How many days of the world clock the early ease holds for.
-    pub early_days: u32,
+/// `day / days` of `n` in whole machines — rounded down, so a tier reaches
+/// one machine once its share is a whole one — never more than `n`; all
+/// of `n` for `days` nought.
+fn share_of(n: u32, day: u32, days: u32) -> u32 {
+    if days == 0 || day >= days {
+        return n;
+    }
+    (u64::from(n) * u64::from(day) / u64::from(days)) as u32
 }
 
-impl Difficulty {
-    /// The five dials as `scaling` has them.
-    pub fn of(scaling: WaveScaling) -> Difficulty {
-        Difficulty {
-            base: scaling.base,
-            per_player: scaling.per_player,
-            per_step: scaling.per_step,
-            early_ease: scaling.early_ease,
-            early_days: scaling.early_days,
-        }
-    }
-
-    /// `scaling` with these five in place of its own.
-    pub fn over(self, scaling: WaveScaling) -> WaveScaling {
-        WaveScaling {
-            base: self.base,
-            per_player: self.per_player,
-            per_step: self.per_step,
-            early_ease: self.early_ease,
-            early_days: self.early_days,
-            ..scaling
-        }
-    }
-}
+/// The run's difficulty, as the game setup picked it: every dial of the
+/// formula ([`WaveScaling`]), laid over the tuning file's for the run
+/// (`World::set_difficulty`). Saved with the world, so a load or a
+/// restart plays at the difficulty the run was begun at, and dealt to
+/// every machine of a lobby with the rest of the settings.
+pub type Difficulty = WaveScaling;
 
 // --- the crisis (feature 92) ---------------------------------------------
 
@@ -402,100 +396,119 @@ pub fn turns_on(first: u32, hops: u16) -> u32 {
 mod tests {
     use super::*;
 
-    /// The untuned dials are the formula to the machine, and a tuned one
-    /// moves what it says.
+    fn dials() -> WaveScaling {
+        WaveScaling {
+            enemies_per_player: 2,
+            day_scaling: 1,
+            scaling_days: 5,
+            enemies_per_defender: 1.0,
+            wave_days: 10,
+            tier1_days: 5,
+            tier2_days: 20,
+            tier3_days: 40,
+        }
+    }
+
+    /// The player's own example (task 147): day two, a defence with
+    /// three defenders, one player at two a player, a step of five days
+    /// not yet come — five machines.
     #[test]
-    fn the_default_scaling_is_the_formula_and_a_dial_moves_it() {
-        let d = WaveScaling::DEFAULT;
-        for players in 1..=4 {
-            for hours in (0..=data::ENEMIES_HOURS * 12).step_by(37) {
-                assert_eq!(
-                    d.size(players, hours),
-                    wave_size(players, time_steps(hours))
-                );
-            }
-        }
-        for tier in Tier::ALL {
-            assert_eq!(d.count(tier), wave_count(tier));
-        }
-        let tuned = WaveScaling {
-            base: 5,
-            per_player: 2,
-            per_step: 3,
-            step_days: 1,
-            tier_waves: [3, 5, 7],
-            first_mission_ease: 0,
-            early_ease: 0,
-            early_days: 6,
+    fn a_wave_is_per_player_with_the_day_s_growth_and_per_defender() {
+        let d = dials();
+        assert_eq!(d.size(1, 3, 2), 3 + 2);
+        // The step comes on day five, and raises every player's share.
+        assert_eq!(d.size(1, 0, 4), 2);
+        assert_eq!(d.size(1, 0, 5), 3);
+        assert_eq!(d.size(3, 0, 5), 9);
+        assert_eq!(d.size(2, 0, 12), 2 * (2 + 2));
+        // A decimal per defender is rounded up on the whole.
+        let half = WaveScaling {
+            enemies_per_defender: 1.5,
+            ..d
         };
-        // Two players, three days in.
-        assert_eq!(tuned.size(2, 3 * 24 + 5), 5 + 2 * 2 + 3 * 3);
-        assert_eq!(tuned.count(Tier::One), 3);
-        assert_eq!(tuned.count(Tier::Two), 5);
-        assert_eq!(tuned.count(Tier::Three), 7);
-        // A step of nought days is a step of one, not a division by nought.
-        let zero = WaveScaling {
-            step_days: 0,
-            ..tuned
+        assert_eq!(half.for_defenders(3), 5);
+        assert_eq!(half.for_defenders(2), 3);
+        assert_eq!(half.for_defenders(0), 0);
+        let third = WaveScaling {
+            enemies_per_defender: 0.34,
+            ..d
         };
-        assert_eq!(zero.steps(7 * 24 + 5), 7);
-        // The early ease holds for its days and not an hour after.
-        let early = WaveScaling {
-            early_ease: 5,
-            early_days: 6,
-            ..tuned
+        assert_eq!(third.for_defenders(3), 2, "1.02 is two");
+        // No step length is no growth, not a division by nought.
+        let flat = WaveScaling {
+            scaling_days: 0,
+            ..d
         };
-        assert_eq!(early.size(2, 3 * 24 + 5), 5 + 2 * 2 + 3 * 3 - 5);
-        assert_eq!(early.size(2, 6 * 24 - 1), 5 + 2 * 2 + 3 * 5 - 5);
-        assert_eq!(early.size(2, 6 * 24), 5 + 2 * 2 + 3 * 6);
-        assert_eq!(early.size(0, 0), 5, "never under the base");
-        // The first mission's ease on top, still never under the base.
-        assert_eq!(early.size_eased(2, 0, 3), 5, "the base comes out on top");
-        assert_eq!(early.size_eased(2, 6 * 24, 3), 5 + 2 * 2 + 3 * 6 - 3);
+        assert_eq!(flat.size(1, 0, 90), 2);
     }
 
     #[test]
-    fn a_wave_is_the_sum_and_has_no_cap() {
-        // Nothing but the base and the players to begin with.
-        assert_eq!(wave_size(0, 0), data::DROID_WAVE_BASE);
-        assert_eq!(wave_size(3, 0), data::DROID_WAVE_BASE + 3);
-        // A player and two steps of the clock.
-        assert_eq!(wave_size(1, 2), data::DROID_WAVE_BASE + 1 + 2);
-        // And nothing stops it however long the run (task 132).
-        assert_eq!(wave_size(4, 500), data::DROID_WAVE_BASE + 4 + 500);
+    fn a_site_has_a_wave_more_every_wave_days() {
+        let d = dials();
+        assert_eq!(d.waves(1), 1);
+        assert_eq!(d.waves(9), 1);
+        assert_eq!(d.waves(10), 2);
+        assert_eq!(d.waves(25), 3);
+        let one = WaveScaling { wave_days: 0, ..d };
+        assert_eq!(one.waves(200), 1);
     }
 
-    /// One wave at tier one, two at tier two and four at tier three.
+    /// Twenty days to tier two: half the machines on day ten, all of them
+    /// on day twenty; tier three the same over forty, counted first.
     #[test]
-    fn the_wave_count_is_the_tier_s() {
-        assert_eq!(wave_count(Tier::One), 1);
-        assert_eq!(wave_count(Tier::Two), 2);
-        assert_eq!(wave_count(Tier::Three), 4);
+    fn the_tier_shares_grow_with_the_day() {
+        let d = dials();
+        let count = |n, day, tier| {
+            d.machine_tiers(n, day)
+                .iter()
+                .filter(|&&t| t == tier)
+                .count() as u32
+        };
+        assert_eq!(count(10, 1, Tier::One), 10, "half a machine is none yet");
+        assert_eq!(count(10, 10, Tier::Two) + count(10, 10, Tier::Three), 5);
+        assert_eq!(count(10, 20, Tier::Two) + count(10, 20, Tier::Three), 10);
+        assert_eq!(count(10, 20, Tier::Three), 5);
+        assert_eq!(count(10, 40, Tier::Three), 10);
+        assert_eq!(count(10, 90, Tier::Three), 10);
+        // One machine at a time: a wave of five on day four has one.
+        assert_eq!(count(5, 4, Tier::Two), 1);
+        assert_eq!(
+            d.machine_tiers(3, 30),
+            [Tier::Three, Tier::Three, Tier::Two]
+        );
+        // A timing of nought is the tier from the first day.
+        let at_once = WaveScaling { tier3_days: 0, ..d };
+        assert!(
+            at_once
+                .machine_tiers(4, 1)
+                .iter()
+                .all(|&t| t == Tier::Three)
+        );
+        assert_eq!(d.usual_tier(9), Tier::One);
+        assert_eq!(d.usual_tier(10), Tier::Two);
+        assert_eq!(d.usual_tier(20), Tier::Three);
     }
 
-    /// The size never falls as the clock runs on, for any number of
-    /// players, and has risen by the end of a run's worth of the clock.
+    /// The Manufacturers' gear: the pistol alone for the share not yet
+    /// geared, tier one up to `tier1_days`, then two and three as the
+    /// machines'.
     #[test]
-    fn the_size_never_falls_as_the_clock_runs_and_rises_over_a_run() {
-        let run_hours = 24 * 120;
-        for players in 1..=4 {
-            let mut size = 0;
-            for hours in (0..=run_hours).step_by(7) {
-                let steps = time_steps(hours);
-                assert!(wave_size(players, steps) >= size, "{players} at {hours}h");
-                size = wave_size(players, steps);
-            }
-            assert!(size > wave_size(players, 0), "{players}: the waves grew");
-        }
-    }
-
-    #[test]
-    fn a_wave_grows_with_the_players() {
-        for steps in [0, 3, 8] {
-            for players in 1..4 {
-                assert!(wave_size(players + 1, steps) > wave_size(players, steps));
-            }
-        }
+    fn the_manufacturers_gear_up_by_the_day() {
+        let d = dials();
+        assert!(d.gear_tiers(4, 1).iter().all(|t| t.is_none()), "the pistol");
+        let tiers = d.gear_tiers(4, 2);
+        assert_eq!(tiers.iter().filter(|t| t.is_some()).count(), 1, "{tiers:?}");
+        assert!(d.gear_tiers(4, 5).iter().all(|t| t.is_some()));
+        assert_eq!(
+            d.gear_tiers(4, 10),
+            [
+                Some(Tier::Three),
+                Some(Tier::Two),
+                Some(Tier::One),
+                Some(Tier::One)
+            ]
+        );
+        assert!(d.gear_tiers(4, 40).iter().all(|&t| t == Some(Tier::Three)));
     }
 
     #[test]
@@ -509,15 +522,6 @@ mod tests {
         it.settle(9);
         assert_eq!(it.waves_left, 2);
         assert!(it.more_to_come());
-    }
-
-    #[test]
-    fn the_time_step_is_every_enemies_hours() {
-        let h = data::ENEMIES_HOURS;
-        assert_eq!(time_steps(0), 0);
-        assert_eq!(time_steps(h - 1), 0);
-        assert_eq!(time_steps(h), 1);
-        assert_eq!(time_steps(h * 3 + 5), 3);
     }
 }
 

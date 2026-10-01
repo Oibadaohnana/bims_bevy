@@ -61,27 +61,6 @@ pub const LOCAL_HYSTERESIS: f64 = 1.25;
 /// [`LOCAL_HYSTERESIS`] further.
 pub const RESIDENTS_RANGE: f64 = 50.0 * shipdesign::TILE as f64;
 
-/// How many hours of the **world clock** go by before a wave of machines
-/// grows by one, and by one again every time as many more have — and a
-/// held station's count of waves by one every second time
-/// ([`crate::droid::time_steps`], feature 105). Hours since the world
-/// opened (`World::hours_gone`), not the crew's calendar. Only travel
-/// moves that clock, so this is a step every so many trips.
-///
-/// **Five days**, which is five jumps since a jump is a day and a trip
-/// within a system nothing ([`JUMP_MINUTES`]). It was three weeks, set
-/// when a jump was 2.4 days at the median and a trip 2.9
-/// (`tests_mission::travel_days_over_ten_galaxies`); once a jump became
-/// a day the crew met the waves of day nought for three weeks of jumps —
-/// a wave of two on day twelve against a crew of five. At five days a
-/// solo crew meets a wave of five on day twelve, three waves of it.
-///
-/// Four players start at six. A wave has **no cap** since task 132 —
-/// the sixteen it stopped at (`DROID_WAVE_MAX`) went, to be balanced
-/// another way — so it grows for as long as the clock runs. The app's
-/// `scaling.ron` tunes it while the game runs (`step_days`).
-pub const ENEMIES_HOURS: u32 = 5 * 24;
-
 /// The arena the `droids` command docks at (`crate::station::arena`): how
 /// many tiles across — bigger than any kind of station, for corridors
 /// worth fighting down — and how many columns of bunks its quarters hold,
@@ -105,8 +84,8 @@ pub const STATION_VISIBLE: f64 = 2.0 * LOCAL_RADIUS_STATION;
 /// minutes: **one day**, however far the site lies from where the jump
 /// lands (the map rework). A trip between two sites of one system costs
 /// nothing (`World::travel_quote`), so the jumps are the whole of what
-/// moves the world clock, and the machines grow a step every so many of
-/// them ([`ENEMIES_HOURS`]). It was the hyperdrive's twenty-minute charge
+/// moves the world clock, and the machines grow by the run day
+/// (`crate::droid::WaveScaling`). It was the hyperdrive's twenty-minute charge
 /// plus the leg flown in the system, never under a day, until then.
 pub const JUMP_MINUTES: u64 = time::DAY as u64;
 
@@ -188,22 +167,34 @@ pub const SURFACE_POPULATION: (u32, u32) = (5, 30);
 
 // --- the droids (feature 83) ---------------------------------------------
 
-/// How many machines a wave of an infested station is before the players
-/// and the clock are counted (`crate::droid::wave_size`): this many, one
-/// a **player** Bim, and one every [`ENEMIES_HOURS`] of the world clock.
-/// Nothing else — not the bots, the worth or the levels (feature 105).
-pub const DROID_WAVE_BASE: u32 = 2;
-/// How many machines fewer every wave of the run's **first mission** is
-/// (the one a world opens in, `Run::missions` one) than the formula
-/// says, never under one: the first fight a little gentler. Not a
-/// forced wave's (the probes' dials say theirs outright).
-pub const FIRST_MISSION_WAVE_EASE: u32 = 1;
-/// How many waves a held site has all told, by the **tier** its machines
-/// come at (`crate::droid::wave_count`) — tier one, two, three: one wave
-/// of tier one, two of tier two, four of tier three. The world clock
-/// makes the waves bigger, never more of them. Fixed at the crew's
-/// **first dock** and never worked out again.
-pub const DROID_TIER_WAVES: [u32; 3] = [1, 2, 4];
+/// How the machines scale (task 147): these and nothing else, the
+/// defaults of `crate::droid::WaveScaling` (the app's `scaling.ron` and the
+/// game setup's Difficulty tune them). Every one reads the **run day**,
+/// one on the day the world opens. Machines a **player** Bim brings to a
+/// wave — never the bots, the worth or the levels.
+pub const ENEMIES_PER_PLAYER: u32 = 2;
+/// How much [`ENEMIES_PER_PLAYER`] grows every [`SCALING_DAYS`] (the "y").
+pub const DAY_SCALING: u32 = 1;
+/// The days of one step of [`DAY_SCALING`] (the "x").
+pub const SCALING_DAYS: u32 = 5;
+/// Machines each defender a defended site fields brings, the product
+/// rounded up.
+pub const ENEMIES_PER_DEFENDER: f32 = 1.0;
+/// Every this many days a site has one wave more, one to begin with.
+pub const WAVE_DAYS: u32 = 10;
+/// The day every Manufacturer carries tier-one gear, a gun and armour;
+/// before it that share of them (`day / TIER1_DAYS`), the rest the laser
+/// pistol alone.
+pub const TIER1_DAYS: u32 = 5;
+/// The day every enemy is tier two at the least — the machines and the
+/// Manufacturers' gear alike; before it that share of them.
+pub const TIER2_DAYS: u32 = 20;
+/// The same for tier three.
+pub const TIER3_DAYS: u32 = 40;
+/// How many waves the Machine Heart's fortress has: the old count of a
+/// tier-three site, whatever the day — the fight the run is won by is
+/// the hardest there is.
+pub const HEART_WAVES: u32 = 4;
 /// How long after the last machine of a wave is destroyed the next one
 /// arrives, in steps of the **mission clock** (feature 103) — thirty
 /// seconds of it at 1× (it was two minutes), which was half an
@@ -239,11 +230,6 @@ pub const MANUFACTURER_NEAR_HOPS: u16 = 2;
 /// from it on their own people alone, in waves, geared by the machines'
 /// tier rules.
 pub const MANUFACTURER_DROIDS_LOST_DAY: u32 = 10;
-/// Before this day they carry the laser pistol and nothing else.
-pub const MANUFACTURER_ANY_GUN_DAY: u32 = 3;
-/// From this day (until [`MANUFACTURER_DROIDS_LOST_DAY`]) a tier-one helm,
-/// kevlar and leg guards besides the tier-one gun.
-pub const MANUFACTURER_ARMOUR_DAY: u32 = 6;
 /// The share of a garrison that is a **Trooper** rather than one of their
 /// people, by day: each row from its day on, until the next row's. Each
 /// body of the garrison is rolled on its own against it.
@@ -322,18 +308,6 @@ pub const DROID_SPREAD_DAYS: u32 = 5;
 pub const DROID_ORIGIN_MIN_HOPS: u16 = 8;
 
 // --- the jammer, and how hard the machines are (feature 93) --------------
-
-/// How near the machines' origin a system has to be for its machines to
-/// come at **tier three**, in hops: this many or fewer. Everywhere else
-/// they come at tier one, until there is a general rule for what tier an
-/// enemy carries. `World::droid_tier` is where it is read, and
-/// `BIMS_DROID_TIER` is what overrides it in the probes.
-///
-/// Two rather than one because the origin itself is a star the crew will
-/// hardly ever reach: what this is for is the fight getting harder as they
-/// push *towards* where the machines began, and a radius of one would be
-/// one system in the whole galaxy.
-pub const DROID_TIER_THREE_HOPS: u16 = 2;
 
 // --- the front (feature 94) ----------------------------------------------
 //
@@ -422,23 +396,6 @@ pub const BOUNTY_SPREAD_PERCENT: u32 = 10;
 /// does not wait for money. The same as a player's share of the starting
 /// pool ([`START_MONEY_PER_BIM`]).
 pub const BUYBACK_COST: Money = 5_000;
-
-// --- how hard the machines are, by time and distance (feature 106) ---------
-
-/// How long the world clock runs before the machines come at **tier two**
-/// anywhere, in hours: a fortnight, which is five or six trips (a trip is
-/// two or three days as a rule — the root `CLAUDE.md`, *How long a trip
-/// is*). Tier two used to wait on the crew researching it; with research
-/// gone from the game it waits on time, which is what the machines scale
-/// on (feature 105). Past it, [`ENEMY_TIER2_SURE_HOPS`] is the ramp.
-pub const ENEMY_TIER2_HOURS: u32 = 14 * 24;
-/// The distance ramp once [`ENEMY_TIER2_HOURS`] is past: a site's machines
-/// are tier two with odds of one in this many a hop from the crew's own
-/// star — nought at home, half at half of it — and **always** at this
-/// many hops or more. Rolled once a site, off the galaxy's seed, so a
-/// quote on the map and the wave on arrival agree. Tier three within
-/// [`DROID_TIER_THREE_HOPS`] of the origin comes first.
-pub const ENEMY_TIER2_SURE_HOPS: u16 = 6;
 
 // --- relics (feature 106, `crate::relic`) -----------------------------------
 

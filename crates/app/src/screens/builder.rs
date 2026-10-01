@@ -165,8 +165,8 @@ pub struct Settings {
     /// relic pool and the classes that may be picked. This machine's own
     /// until a host's settings arrive, and the host's after.
     pub unlocks: crate::profile::RunUnlocks,
-    /// The run's difficulty (the wave formula's base, per player and
-    /// scaling), the host's to pick and dealt with the rest; `None`
+    /// The run's difficulty (every dial of the wave formula, task 147),
+    /// the host's to pick and dealt with the rest; `None`
     /// until one is picked, which is the tuning file's (`scaling.ron`).
     pub difficulty: Option<world::droid::Difficulty>,
     /// The `end` command's run (`crate::Launch::End`): the lobby's run
@@ -1307,13 +1307,19 @@ fn class_chooser(
 /// A row of mutually exclusive choices, each one a number written into the
 /// setting. A guest in somebody else's lobby watches the settings rather
 /// than setting them.
-/// The most machines any of the difficulty's dials goes to.
+/// The most machines a count dial of the difficulty goes to.
 const DIFFICULTY_MOST: u32 = 99;
+/// The most days a day dial of the difficulty goes to.
+const DIFFICULTY_DAYS_MOST: u32 = 365;
+/// How far one press of − or + moves the enemies per defender.
+const PER_DEFENDER_STEP: f32 = 0.5;
 
-/// The setup's difficulty: the wave formula's base, per player and
-/// scaling, a stepper each, the host's to move. They show the tuning
-/// file's (`file`) until one is moved; Default puts them back to it.
-/// Under them, what the first wave comes to for the `players` here.
+/// The setup's difficulty (task 147): every dial of the wave formula —
+/// enemies per player, the day's scaling and its days, enemies per
+/// defender, the waves' days and the three tier timings — a stepper each,
+/// the host's to move. They show the tuning file's (`file`) until one is
+/// moved; Default puts them back to it. Under them, what the first wave
+/// comes to for the `players` here.
 fn difficulty_rows(
     ui: &mut egui::Ui,
     settings: &mut Settings,
@@ -1325,9 +1331,7 @@ fn difficulty_rows(
 ) {
     ui.add_space(6.0);
     // Both buttons only when the numbers are not the file's already.
-    let apart = settings
-        .difficulty
-        .is_some_and(|d| d != Difficulty::of(file));
+    let apart = settings.difficulty.is_some_and(|d| d != file);
     ui.horizontal(|ui| {
         ui.label(egui::RichText::new(DIFFICULTY).strong());
         if ui
@@ -1362,59 +1366,56 @@ fn difficulty_rows(
             .small()
             .color(theme::MUTED),
     );
-    let mut d = settings.difficulty.unwrap_or(Difficulty::of(file));
-    let step_note = wave_per_step_note(file.step_days.max(1));
-    let ease_note = wave_early_ease_note(d.early_days);
+    let mut d: Difficulty = settings.difficulty.unwrap_or(file);
+    let day_scaling_note = wave_day_scaling_note(d.scaling_days);
+    let wave_days_note = wave_days_note(d.wave_days);
+    let tier_notes = [
+        tier_timing_note(1, d.tier1_days),
+        tier_timing_note(2, d.tier2_days),
+        tier_timing_note(3, d.tier3_days),
+    ];
     egui::Grid::new("difficulty")
         .num_columns(3)
         .spacing(egui::vec2(10.0, 4.0))
         .show(ui, |ui| {
-            for (name, note, value) in [
-                (WAVE_BASE, WAVE_BASE_NOTE, &mut d.base),
-                (WAVE_PER_PLAYER, WAVE_PER_PLAYER_NOTE, &mut d.per_player),
-                (WAVE_PER_STEP, step_note.as_str(), &mut d.per_step),
-                (WAVE_EARLY_EASE, ease_note.as_str(), &mut d.early_ease),
-                (WAVE_EARLY_DAYS, WAVE_EARLY_DAYS_NOTE, &mut d.early_days),
+            for (name, note, value, most) in [
+                (
+                    WAVE_PER_PLAYER,
+                    WAVE_PER_PLAYER_NOTE,
+                    &mut d.enemies_per_player,
+                    DIFFICULTY_MOST,
+                ),
+                (
+                    WAVE_DAY_SCALING,
+                    day_scaling_note.as_str(),
+                    &mut d.day_scaling,
+                    DIFFICULTY_MOST,
+                ),
+                (
+                    WAVE_SCALING_DAYS,
+                    WAVE_SCALING_DAYS_NOTE,
+                    &mut d.scaling_days,
+                    DIFFICULTY_DAYS_MOST,
+                ),
             ] {
-                ui.label(name);
-                ui.horizontal(|ui| {
-                    let less = ui.add_enabled(
-                        editable && *value > 0,
-                        egui::Button::new("-").min_size(egui::vec2(22.0, 22.0)),
-                    );
-                    if less.clicked() {
-                        *value -= 1;
-                    }
-                    ui.add_enabled(
-                        editable,
-                        egui::DragValue::new(value)
-                            .range(0..=DIFFICULTY_MOST)
-                            .speed(0.1),
-                    );
-                    let more = ui.add_enabled(
-                        editable && *value < DIFFICULTY_MOST,
-                        egui::Button::new("+").min_size(egui::vec2(22.0, 22.0)),
-                    );
-                    if more.clicked() {
-                        *value += 1;
-                    }
-                });
-                ui.label(egui::RichText::new(note).small().color(theme::MUTED));
-                ui.end_row();
+                count_row(ui, name, note, value, most, editable);
+            }
+            defender_row(ui, &mut d.enemies_per_defender, editable);
+            for (name, note, value) in [
+                (WAVE_DAYS, wave_days_note.as_str(), &mut d.wave_days),
+                (TIER1_TIMING, tier_notes[0].as_str(), &mut d.tier1_days),
+                (TIER2_TIMING, tier_notes[1].as_str(), &mut d.tier2_days),
+                (TIER3_TIMING, tier_notes[2].as_str(), &mut d.tier3_days),
+            ] {
+                count_row(ui, name, note, value, DIFFICULTY_DAYS_MOST, editable);
             }
         });
-    if editable && d != settings.difficulty.unwrap_or(Difficulty::of(file)) {
+    if editable && d != settings.difficulty.unwrap_or(file) {
         settings.difficulty = Some(d);
     }
-    // The first wave as the world works it: the formula at day nought
-    // less the early ease and the first mission's, never under the base,
-    // and never fewer than the players' own Bims (the bots aboard can
-    // raise it further in the run).
-    let first = d
-        .over(file)
-        .size_eased(players, 0, file.first_mission_ease)
-        .max(players)
-        .max(1);
+    // The first wave as the world works it: day one's formula for the
+    // players here, nobody defending.
+    let first = d.size(players, 0, 1).max(1);
     ui.label(
         egui::RichText::new(first_wave_line(first, players))
             .small()
@@ -1423,6 +1424,77 @@ fn difficulty_rows(
     if note.is_some() {
         Remark::show(note, ui, now, "");
     }
+}
+
+/// One whole-number dial of the difficulty: its name, a − and a + beside
+/// a drag box held to `0..=most`, and its note.
+fn count_row(
+    ui: &mut egui::Ui,
+    name: &str,
+    note: &str,
+    value: &mut u32,
+    most: u32,
+    editable: bool,
+) {
+    ui.label(name);
+    ui.horizontal(|ui| {
+        let less = ui.add_enabled(
+            editable && *value > 0,
+            egui::Button::new("-").min_size(egui::vec2(22.0, 22.0)),
+        );
+        if less.clicked() {
+            *value -= 1;
+        }
+        ui.add_enabled(
+            editable,
+            egui::DragValue::new(value).range(0..=most).speed(0.1),
+        );
+        let more = ui.add_enabled(
+            editable && *value < most,
+            egui::Button::new("+").min_size(egui::vec2(22.0, 22.0)),
+        );
+        if more.clicked() {
+            *value += 1;
+        }
+    });
+    ui.label(egui::RichText::new(note).small().color(theme::MUTED));
+    ui.end_row();
+}
+
+/// The enemies per defender, the one dial with decimals: − and + move it
+/// by [`PER_DEFENDER_STEP`], the drag box by hundredths.
+fn defender_row(ui: &mut egui::Ui, value: &mut f32, editable: bool) {
+    let most = DIFFICULTY_MOST as f32;
+    ui.label(WAVE_PER_DEFENDER);
+    ui.horizontal(|ui| {
+        let less = ui.add_enabled(
+            editable && *value > 0.0,
+            egui::Button::new("-").min_size(egui::vec2(22.0, 22.0)),
+        );
+        if less.clicked() {
+            *value = (*value - PER_DEFENDER_STEP).max(0.0);
+        }
+        ui.add_enabled(
+            editable,
+            egui::DragValue::new(value)
+                .range(0.0..=most)
+                .speed(0.05)
+                .max_decimals(2),
+        );
+        let more = ui.add_enabled(
+            editable && *value < most,
+            egui::Button::new("+").min_size(egui::vec2(22.0, 22.0)),
+        );
+        if more.clicked() {
+            *value = (*value + PER_DEFENDER_STEP).min(most);
+        }
+    });
+    ui.label(
+        egui::RichText::new(WAVE_PER_DEFENDER_NOTE)
+            .small()
+            .color(theme::MUTED),
+    );
+    ui.end_row();
 }
 
 fn choice_row<T: PartialEq + Copy>(

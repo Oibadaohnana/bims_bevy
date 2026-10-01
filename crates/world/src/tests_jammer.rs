@@ -416,39 +416,41 @@ fn a_system_with_no_station_gets_the_machines_own() {
     assert!(!world.discovered.contains(&Node::Station(id)));
 }
 
-// --- 4: the tier by distance ---------------------------------------------
+// --- 4: the tier by the day, not the distance ---------------------------
 
-/// The machines come at **tier three within
-/// [`data::DROID_TIER_THREE_HOPS`] hops of their origin** and tier one
-/// anywhere else. The probes' dial still wins over it.
+/// The machines come at the **run day's** tier wherever the crew are
+/// (task 147): how far a star is from their origin says nothing of it. The
+/// probes' dial still wins over it.
 #[test]
-fn the_machines_come_at_tier_three_near_their_origin() {
+fn the_machines_come_at_the_day_s_tier_however_near_their_origin() {
     use bims::combat::Tier;
     let mut world = jumper_world();
     let here = world.star_id;
     let galaxy = world.galaxy();
-
-    for hops in 0..=data::DROID_TIER_THREE_HOPS {
+    let day = |world: &mut World, day: u32| {
+        world.clock_minutes = f64::from(day - 1) * 24.0 * 60.0;
+    };
+    let tier2 = crate::droid::WaveScaling::DEFAULT.tier2_days;
+    let tier3 = crate::droid::WaveScaling::DEFAULT.tier3_days;
+    for hops in [0, 1, 2, 3, 6, 12] {
         let origin = (0..galaxy.stars.len() as u32)
             .find(|&o| galaxy.hops_from(o)[here as usize] == hops)
             .unwrap_or_else(|| panic!("no star {hops} hops off"));
         world.set_droid_origin_for_probe(origin);
-        assert_eq!(world.hops_from_origin(here), hops);
-        assert_eq!(world.droid_tier(), Tier::Three, "{hops} hops off");
-    }
-    for hops in [data::DROID_TIER_THREE_HOPS + 1, 6, 12] {
-        let origin = (0..galaxy.stars.len() as u32)
-            .find(|&o| galaxy.hops_from(o)[here as usize] == hops)
-            .unwrap_or_else(|| panic!("no star {hops} hops off"));
-        world.set_droid_origin_for_probe(origin);
+        day(&mut world, 1);
         assert_eq!(world.droid_tier(), Tier::One, "{hops} hops off");
+        day(&mut world, tier2 / 2);
+        assert_eq!(world.droid_tier(), Tier::Two, "{hops} hops off");
+        day(&mut world, tier3 / 2);
+        assert_eq!(world.droid_tier(), Tier::Three, "{hops} hops off");
     }
 
     // And `BIMS_DROID_TIER` over the lot, either way.
+    day(&mut world, 1);
     world.set_droid_tier_for_probe(Some(Tier::Two));
     assert_eq!(world.droid_tier(), Tier::Two);
     world.set_droid_tier_for_probe(None);
-    assert_eq!(world.droid_tier(), Tier::One, "the distance rule is back");
+    assert_eq!(world.droid_tier(), Tier::One, "the day's rule is back");
 }
 
 // --- 7: two clients ------------------------------------------------------

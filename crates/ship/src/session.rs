@@ -741,15 +741,13 @@ impl Session {
     /// (`World::end_crew_for_probe`) — the
     /// same on every machine of the lobby. The world clock is put at `day`
     /// first (`World::set_day_for_probe`), so the waves are a run's that
-    /// far on, and the first mission's ease is off
-    /// (`World::set_first_mission_uneased_for_probe`), the Heart being it.
+    /// far on.
     /// `false` with no game, or where the fortress could not be laid.
     pub fn end_for_probe(&mut self, day: u32) -> bool {
         let Some(game) = self.game.as_mut() else {
             return false;
         };
         game.world.set_day_for_probe(day);
-        game.world.set_first_mission_uneased_for_probe();
         if !game.world.heart_dock_for_probe() {
             return false;
         }
@@ -837,9 +835,8 @@ impl Session {
     /// every station of the system into the machines' hands at once
     /// (`World::infest_here_for_probe`), since the crisis's own flip
     /// waits for the crew to be off the berth and the probe wants them on
-    /// one. Two hops is also inside
-    /// [`world::data::DROID_TIER_THREE_HOPS`], so the wave comes at tier
-    /// three unless `tier` says otherwise.
+    /// one. The wave comes at the run day's tiers unless `tier` says
+    /// otherwise (task 147).
     ///
     /// `false` in the design phase, or where the lanes are too short for
     /// the hop count.

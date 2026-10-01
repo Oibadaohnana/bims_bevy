@@ -735,9 +735,8 @@ pub struct World {
     #[cfg_attr(feature = "serde", serde(skip))]
     droids_to_post: Vec<bims::droid::Droid>,
     /// The probes' override of what tier the machines come at
-    /// (`BIMS_DROID_TIER`). `None` — the game's own — leaves it to how far
-    /// the system is from the origin (feature 93,
-    /// [`World::droid_tier`], [`data::DROID_TIER_THREE_HOPS`]). What
+    /// (`BIMS_DROID_TIER`): every machine at it. `None` — the game's own —
+    /// leaves it to the run day (task 147, [`World::droid_tier`]). What
     /// `world_checksum` eats is the answer rather than this, since it is
     /// the size of the fight.
     droid_tier: Option<Tier>,
@@ -759,9 +758,8 @@ pub struct World {
     #[cfg_attr(feature = "serde", serde(skip))]
     wave_scaling: droidplan::WaveScaling,
     /// The run's difficulty as the game setup picked it
-    /// ([`droidplan::Difficulty`]): the base machines a wave, a player's
-    /// and a time step's, laid over `wave_scaling`; `None` is the tuning
-    /// file's own. **Saved** — a load plays at the difficulty the run was
+    /// ([`droidplan::Difficulty`]): every dial of the formula, in place of
+    /// `wave_scaling`'s; `None` is the tuning file's own. **Saved** — a load plays at the difficulty the run was
     /// begun at — **but not hashed**, like `wave_scaling`: every machine
     /// of a lobby is dealt the same at Start, and what it decides (the
     /// machines laid) is hashed.
@@ -796,12 +794,6 @@ pub struct World {
     /// `droid_kinds_forced` is.
     #[cfg_attr(feature = "serde", serde(default))]
     defense_by_machines_forced: bool,
-    /// The probes' word that the run's first mission is **not** eased
-    /// (`WaveScaling::first_mission_ease`): the app's `end` command,
-    /// whose first mission is the Machine Heart. Saved and not hashed,
-    /// as `droid_kinds_forced` is: what it decides is the machines laid.
-    #[cfg_attr(feature = "serde", serde(default))]
-    first_mission_uneased: bool,
     /// Where the machines began (feature 92): the one star the crisis
     /// spreads out from, rolled once at [`World::start`]
     /// ([`droidplan::origin`]) at least [`data::DROID_ORIGIN_MIN_HOPS`]
@@ -925,7 +917,7 @@ pub struct World {
     /// [`World::worth`] at step nought — fixed for the whole game. Every
     /// half of it the crew's worth has grown by since is more hands for
     /// hire (`crate::mercenary::how_many`); the machines never read it
-    /// (feature 105, `crate::droid::wave_size`). Not in `world_checksum`: it
+    /// (feature 105, `crate::droid::WaveScaling`). Not in `world_checksum`: it
     /// is a function of the design the world started on, which two
     /// clients share.
     pub start_worth: Money,
@@ -1227,7 +1219,6 @@ impl World {
             droid_waves_forced: None,
             droid_kinds_forced: None,
             defense_by_machines_forced: false,
-            first_mission_uneased: false,
             droid_origin,
             droid_hops,
             home_hops,
@@ -2068,8 +2059,8 @@ impl World {
 
     /// How many whole hours the game has run, the same way as
     /// [`World::days_gone`]: the world clock, floored, read in whole
-    /// minutes. The machines grow by one every [`data::ENEMIES_HOURS`] of
-    /// it (`crate::droid::time_steps`, feature 105).
+    /// minutes. The machines grow by the day, not the hour
+    /// ([`World::run_day`], task 147).
     pub fn hours_gone(&self) -> u32 {
         let minutes = self.clock_minutes.floor() as u64;
         (minutes / (time::HOUR as u64)).min(u32::MAX as u64) as u32
@@ -5748,84 +5739,82 @@ impl World {
         self.discovered.dedup();
     }
 
-    /// What tier the machines come at (feature 93): **tier three within
-    /// [`data::DROID_TIER_THREE_HOPS`] hops of the origin** and tier one
-    /// anywhere else, until there is a general rule for what tier an enemy
-    /// carries. `BIMS_DROID_TIER` overrides it in the probes, which is the
-    /// only thing that does.
-    pub fn droid_tier(&self) -> Tier {
-        // The Machine Heart's fortress is tier three whatever else is said
-        // (feature 108): the fight the run is won by is the hardest there is.
-        if self
-            .residents
+    /// The run day (task 147): the day the top bar shows, one on the day
+    /// the world opens — [`World::days_gone`] counted from one. Every rule
+    /// of how the machines scale reads it ([`droidplan::WaveScaling`]).
+    pub fn run_day(&self) -> u32 {
+        run_day_at(self.clock_minutes)
+    }
+
+    /// Whether the room open is the Machine Heart's fortress (feature
+    /// 108): tier three and its own count of waves, whatever the day.
+    fn at_the_heart(&self) -> bool {
+        self.residents
             .as_ref()
             .is_some_and(|r| heart::is_heart(r.station))
-        {
+    }
+
+    /// The tier most of the machines come at today (task 147): the tier at
+    /// least half of them are at by the run day
+    /// ([`droidplan::WaveScaling::usual_tier`]) — what the map, the
+    /// checksum and a lone machine staged say. Each machine of a wave has
+    /// its own ([`World::machine_tiers`]). Tier three at the Machine
+    /// Heart's fortress whatever else is said (feature 108), and
+    /// `BIMS_DROID_TIER` over everything else in the probes.
+    pub fn droid_tier(&self) -> Tier {
+        if self.at_the_heart() {
             return Tier::Three;
         }
+        self.tier_on(self.clock_minutes)
+    }
+
+    /// The tier of each machine of a wave of `n`, in the wave's order
+    /// (task 147): the run day's tier-two and tier-three shares
+    /// ([`droidplan::WaveScaling::machine_tiers`]) — every one tier three
+    /// at the Heart, and the probes' dial where it is set.
+    pub fn machine_tiers(&self, n: u32) -> Vec<Tier> {
+        if self.at_the_heart() {
+            return vec![Tier::Three; n as usize];
+        }
+        if let Some(tier) = self.droid_tier {
+            return vec![tier; n as usize];
+        }
+        self.scaling().machine_tiers(n, self.run_day())
+    }
+
+    /// The tier of the gear each of `n` Manufacturers carries, in their
+    /// order (task 147): the run day's shares
+    /// ([`droidplan::WaveScaling::gear_tiers`]), `None` the laser pistol
+    /// and no armour — and the probes' dial where it is set.
+    pub fn manufacturer_gear_tiers(&self, n: u32) -> Vec<Option<Tier>> {
+        if let Some(tier) = self.droid_tier {
+            return vec![Some(tier); n as usize];
+        }
+        self.scaling().gear_tiers(n, self.run_day())
+    }
+
+    /// What tier most of the machines at any site come at, at the world
+    /// clock `clock_minutes` (task 147): the usual tier of that day, the
+    /// same at every site — the wave on arrival and the map's quote read
+    /// the same answer. The probes' dial, where set, is every site's.
+    pub fn tier_on(&self, clock_minutes: f64) -> Tier {
         if let Some(tier) = self.droid_tier {
             return tier;
         }
-        let site = self.ship.state.alongside().or(self.run.site);
-        self.site_tier(self.star_id, site, self.clock_minutes)
-    }
-
-    /// What tier the machines at a site come at, at the world clock
-    /// `clock_minutes`: **tier three within [`data::DROID_TIER_THREE_HOPS`]
-    /// hops of the origin**; past [`data::ENEMY_TIER2_HOURS`], **tier two**
-    /// on the distance ramp from the crew's own star
-    /// ([`crate::relic::tier_two_rolled`], feature 106) — tier two used to
-    /// wait on the crew researching it; and tier one everywhere else. The
-    /// wave on arrival ([`World::droid_tier`]) and the map's quote read
-    /// the same answer. `station` `None` is anywhere in the system, which
-    /// the ramp calls tier two only past its sure distance.
-    pub fn site_tier(&self, star: u32, station: Option<u32>, clock_minutes: f64) -> Tier {
-        if self.hops_from_origin(star) <= data::DROID_TIER_THREE_HOPS {
-            return Tier::Three;
-        }
-        if clock_minutes < f64::from(data::ENEMY_TIER2_HOURS) * time::HOUR {
-            return Tier::One;
-        }
-        let hops = self
-            .home_hops
-            .get(star as usize)
-            .copied()
-            .unwrap_or(u16::MAX);
-        let two = match station {
-            Some(id) => crate::relic::tier_two_rolled(self.galaxy_seed, star, id, hops),
-            None => hops >= data::ENEMY_TIER2_SURE_HOPS,
-        };
-        if two { Tier::Two } else { Tier::One }
+        self.scaling().usual_tier(run_day_at(clock_minutes))
     }
 
     /// The tiers a star's sites come at, at the world clock
-    /// `clock_minutes` — the least and the most, off [`World::site_tier`]'s
-    /// own rule without generating the system: one tier where the rule is
-    /// sure of it, and one to two on the distance ramp, where it is rolled
-    /// a site. What the galaxy chart writes beside every star. The probes'
-    /// dial, where set, is every site's.
-    pub fn system_tiers(&self, star: u32, clock_minutes: f64) -> (Tier, Tier) {
-        if let Some(tier) = self.droid_tier {
-            return (tier, tier);
-        }
-        let sure = self.site_tier(star, None, clock_minutes);
-        if sure != Tier::One || clock_minutes < f64::from(data::ENEMY_TIER2_HOURS) * time::HOUR {
-            return (sure, sure);
-        }
-        let hops = self
-            .home_hops
-            .get(star as usize)
-            .copied()
-            .unwrap_or(u16::MAX);
-        if hops == 0 {
-            (Tier::One, Tier::One)
-        } else {
-            (Tier::One, Tier::Two)
-        }
+    /// `clock_minutes`, the least and the most: since task 147 the day's
+    /// usual tier for both, at every star alike ([`World::tier_on`]).
+    /// What the galaxy chart writes beside every star.
+    pub fn system_tiers(&self, _star: u32, clock_minutes: f64) -> (Tier, Tier) {
+        let tier = self.tier_on(clock_minutes);
+        (tier, tier)
     }
 
     /// The probes' dial: every wave from now on comes at this tier, or
-    /// `None` to put the distance rule back.
+    /// `None` to put the run day's rule back.
     pub fn set_droid_tier_for_probe(&mut self, tier: Option<Tier>) {
         self.droid_tier = tier;
     }
@@ -5849,49 +5838,33 @@ impl World {
         self.droid_reinforce = steps_of(minutes);
     }
 
-    /// How many machines the next wave is, worked out now: the base, the
-    /// players and the world clock ([`droidplan::WaveScaling::size`]) —
-    /// never the worth or the levels (feature 105). Asked as each wave
-    /// appears, never stored.
-    ///
-    /// **At a site the crew are defending** (task 111) every defender the
-    /// site fielded — standing or fallen — brings one machine more.
-    ///
-    /// **In the run's first mission** every wave is
-    /// `first_mission_ease` fewer ([`droidplan::WaveScaling`];
-    /// [`data::FIRST_MISSION_WAVE_EASE`] untuned) — unless a probe forced
-    /// it. Inside the run's first `early_days` days the formula is
-    /// `early_ease` fewer as well. Neither ease takes a wave under the
-    /// `base`: that many are guaranteed.
-    ///
-    /// **And the machines are never outnumbered**: a wave is at least as
-    /// many as the Bims it meets ([`World::bims_fighting`]) — only a
-    /// commander's reinforcements, which are not counted, can tip it.
+    /// How many machines the next wave is, worked out now (task 147):
+    /// `(enemies per player + day scaling × steps) × players` — the player
+    /// Bims alone, never the bots, the worth or the levels — and at a site
+    /// the crew are defending `⌈enemies per defender × defenders⌉` on top,
+    /// every defender the site fielded, standing or fallen
+    /// ([`droidplan::WaveScaling::size`], read at the run day). Nothing
+    /// else: no base, no ease, no floor at the crew's numbers. Asked as
+    /// each wave appears, never stored.
     pub fn droid_wave_size(&self) -> u32 {
         let defenders = if self.defense_here().is_some() {
             self.defenders_fielded()
         } else {
             0
         };
-        let forced = self.droid_kinds_forced.is_some() || self.droid_wave_forced.is_some();
-        let ease = if self.run.missions <= 1 && !forced && !self.first_mission_uneased {
-            self.scaling().first_mission_ease
-        } else {
-            0
-        };
-        self.wave_size_with(self.hours_gone(), defenders, ease)
+        self.wave_size_with(self.run_day(), defenders)
     }
 
-    /// [`World::droid_wave_size`] with the world clock at `hours` gone:
-    /// what a wave would be on arrival, for the map's preview of the
-    /// Machine Heart (feature 108) as well as for the wave appearing now.
+    /// [`World::droid_wave_size`] with the world clock at `hours` gone and
+    /// nobody defending: what a wave would be on arrival, for the map's
+    /// preview of the Machine Heart (feature 108).
     pub fn wave_size_at(&self, hours: u32) -> u32 {
-        self.wave_size_with(hours, 0, 0)
+        self.wave_size_with((hours / 24).saturating_add(1), 0)
     }
 
-    /// The wave at `hours` gone with `more` machines on top of the
-    /// formula and `ease` more off it, never fewer than the Bims fighting.
-    fn wave_size_with(&self, hours: u32, more: u32, ease: u32) -> u32 {
+    /// The wave on run day `day` with `defenders` fielded, one at the
+    /// least.
+    fn wave_size_with(&self, day: u32, defenders: u32) -> u32 {
         // A wave forced to its machines is as many as it names.
         if let Some(kinds) = &self.droid_kinds_forced {
             return (kinds.len() as u32).max(1);
@@ -5902,32 +5875,7 @@ impl World {
         if let Some(forced) = self.droid_wave_forced {
             return forced.max(1);
         }
-        self.scaling()
-            .size_eased(self.players(), hours, ease)
-            .saturating_add(more)
-            .max(self.bims_fighting())
-            .max(1)
-    }
-
-    /// How many Bims a wave meets: every crew member alive (downed ones
-    /// too, who may be got up) but a commander's reinforcements, and at a
-    /// site the crew are defending its defenders still alive. What a wave
-    /// is never fewer machines than ([`World::droid_wave_size`]).
-    pub fn bims_fighting(&self) -> u32 {
-        let room = &self.aboard.room;
-        let crew = (0..room.crew_count())
-            .filter(|&who| room.is_alive(who as usize) && !self.is_reinforcement(who))
-            .count() as u32;
-        let defenders = match &self.residents {
-            Some(r) if self.defense_here().is_some() => {
-                let bims = r.aboard.room.crew_count() as usize;
-                (0..bims.min(r.defender.len()))
-                    .filter(|&who| r.defender[who] && r.aboard.room.is_alive(who))
-                    .count() as u32
-            }
-            _ => 0,
-        };
-        crew + defenders
+        self.scaling().size(self.players(), defenders, day).max(1)
     }
 
     /// The probes' other dial (`BIMS_DROID_WAVE`): every wave from now
@@ -5951,12 +5899,6 @@ impl World {
         self.defense_by_machines_forced = true;
     }
 
-    /// The run's first mission as strong as any other: no
-    /// `first_mission_ease` off its waves (the app's `end` command).
-    pub fn set_first_mission_uneased_for_probe(&mut self) {
-        self.first_mission_uneased = true;
-    }
-
     /// Tune the wave formula (`scaling.ron`, read by the app while the
     /// game runs): from the next wave laid and the next count settled
     /// on, the dials are these. Not saved and not hashed.
@@ -5971,8 +5913,8 @@ impl World {
     }
 
     /// Set the run's difficulty (the game setup's pick, dealt at Start):
-    /// from the next wave laid and the next count settled on, its three
-    /// dials stand over the tuning file's. `None` is the file's own.
+    /// from the next wave laid and the next count settled on, its dials
+    /// stand in place of the tuning file's. `None` is the file's own.
     pub fn set_difficulty(&mut self, difficulty: Option<droidplan::Difficulty>) {
         self.difficulty = difficulty;
     }
@@ -5982,13 +5924,10 @@ impl World {
         self.difficulty
     }
 
-    /// The wave formula as it is worked: the tuning file's dials with the
-    /// run's difficulty over them.
+    /// The wave formula as it is worked: the run's difficulty where the
+    /// setup picked one, the tuning file's dials otherwise.
     pub fn scaling(&self) -> droidplan::WaveScaling {
-        match self.difficulty {
-            Some(d) => d.over(self.wave_scaling),
-            None => self.wave_scaling,
-        }
+        self.difficulty.unwrap_or(self.wave_scaling)
     }
 
     /// Tune what a fight pays and what things cost (`rewards.ron`, read
@@ -6008,24 +5947,28 @@ impl World {
         self.droid_wave_forced
     }
 
-    /// How many waves a held station has all told, worked out now: the
-    /// scaling's count at the tier the machines come at
-    /// ([`World::droid_tier`]). Only ever asked once a station, at the
-    /// crew's first dock.
+    /// How many waves a held station has all told, worked out now (task
+    /// 147): one, and one more every `wave_days` of the run day
+    /// ([`droidplan::WaveScaling::waves`]) — the Machine Heart's
+    /// [`data::HEART_WAVES`] whatever the day. Only ever asked once a
+    /// station, at the crew's first dock.
     pub fn droid_wave_count(&self) -> u32 {
-        self.wave_count_for(self.droid_tier())
-    }
-
-    /// [`World::droid_wave_count`] for machines at `tier`.
-    pub fn wave_count_for(&self, tier: Tier) -> u32 {
         // The probes' dial says it outright, the way `droid_wave_size`
         // takes its own: the `droids` commands are looked at for what a
-        // wave *after* the first does, and a tier-one site's one wave
-        // is one landing and then nothing.
+        // wave *after* the first does.
         if let Some(forced) = self.droid_waves_forced {
             return forced.max(1);
         }
-        self.scaling().count(tier).max(1)
+        if self.at_the_heart() {
+            return data::HEART_WAVES;
+        }
+        self.scaling().waves(self.run_day()).max(1)
+    }
+
+    /// How many waves the Machine Heart's fortress has: [`data::HEART_WAVES`],
+    /// or the probes' dial.
+    pub fn heart_wave_count(&self) -> u32 {
+        self.droid_waves_forced.unwrap_or(data::HEART_WAVES).max(1)
     }
 
     /// The probes' dial: a held station has this many waves all told,
@@ -6198,7 +6141,8 @@ impl World {
     }
 
     /// The machines a wave of `n` is, built: the kinds
-    /// ([`bims::droid::wave_kinds`]) at the world's tier, each at one of
+    /// ([`bims::droid::wave_kinds`]) at the highest of the wave's tiers,
+    /// each machine at its own ([`World::machine_tiers`]) and at one of
     /// `spots` in the **residents' room's** own units, facing `facing`.
     /// A Trooper's arm is dealt by its place among the Troopers, which is
     /// what `wave_kinds` orders the list for.
@@ -6210,12 +6154,12 @@ impl World {
         facing: f32,
         seed: u64,
     ) -> Vec<bims::droid::Droid> {
-        let tier = self.droid_tier();
+        let top = self.machine_tiers(n).into_iter().max().unwrap_or(Tier::One);
         let mut troopers = 0usize;
         let kinds = self
             .droid_kinds_forced
             .clone()
-            .unwrap_or_else(|| bims::droid::wave_kinds(n, tier));
+            .unwrap_or_else(|| bims::droid::wave_kinds(n, top));
         // An elite's Guardian comes in its wave, whatever the tier.
         let elite = self
             .residents
@@ -6226,10 +6170,12 @@ impl World {
         } else {
             kinds
         };
+        let tiers = self.machine_tiers(kinds.len() as u32);
         kinds
             .into_iter()
             .enumerate()
             .map(|(i, kind)| {
+                let tier = tiers.get(i).copied().unwrap_or(Tier::One);
                 let index = if kind == bims::droid::DroidKind::Trooper {
                     let n = troopers;
                     troopers += 1;
@@ -11052,6 +10998,13 @@ fn manufacturer_bounty(
 /// What tier of gear a body in `room` carries: the best of what is in its
 /// hand and on its back, tier one for a body with nothing at all. What the
 /// Republic's bounty is paid by.
+/// The run day at the world clock `clock_minutes` (task 147): whole days
+/// gone, as [`World::days_gone`] floors them, counted from one.
+fn run_day_at(clock_minutes: f64) -> u32 {
+    let minutes = clock_minutes.floor().max(0.0) as u64;
+    (minutes / (time::DAY as u64)).min(u64::from(u32::MAX) - 1) as u32 + 1
+}
+
 fn gear_tier(room: &bims::game::Game, who: usize) -> u32 {
     let gear = room.gear(who);
     let worn = gear.armour.map(|p| p.tier.code());

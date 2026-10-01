@@ -5,8 +5,8 @@
 //! waves are fixed at the first dock and come one at a time, and two
 //! worlds on one seed meet the same machines.
 //!
-//! The plan's own arithmetic — [`crate::droid::wave_size`],
-//! `wave_count`, `time_steps` — is pinned next door in `droid.rs`, and
+//! The plan's own arithmetic — [`crate::droid::WaveScaling`],
+//! the size, the waves and the tiers — is pinned next door in `droid.rs`, and
 //! what a machine *is* in `bims::droid`.
 
 use bims::combat::{ArmourKind, Gear, Tier, Weapon, WeaponKind};
@@ -464,42 +464,33 @@ fn the_wave_count_is_fixed_at_the_first_dock_and_a_rich_crew_is_not_doubled() {
     );
 
     // And the **size** is the formula's, never a doubling: a crew ten
-    // times as rich meets the players and the clock, and not a thousand
-    // machines. The run's first mission, so its ease off — and never
-    // fewer than the Bims it meets.
-    let want = crate::droid::wave_size(
-        world.players(),
-        crate::droid::time_steps(world.hours_gone()),
-    );
-    assert_eq!(
-        world.droid_wave_size(),
-        want.saturating_sub(data::FIRST_MISSION_WAVE_EASE)
-            .max(data::DROID_WAVE_BASE)
-            .max(world.bims_fighting())
-    );
+    // times as rich meets the players and the day, and not a thousand
+    // machines — nor its sixteen Bims (task 147).
+    let want = world.scaling().size(world.players(), 0, world.run_day());
+    assert_eq!(world.droid_wave_size(), want.max(1));
 }
 
-/// **The first fight is gentler**: every wave of the run's first mission
-/// is [`data::FIRST_MISSION_WAVE_EASE`] fewer than the formula, and from
-/// the second mission on it is the formula's — unless a probe forced it.
+/// **The formula and nothing else** (task 147): no base, no ease on the
+/// first mission and no floor at the Bims a wave meets — a crew of eight
+/// with one player meets the one player's machines.
 #[test]
-fn the_first_missions_waves_are_one_machine_fewer() {
-    // A crew of two, so the floor of the Bims fighting stays under it.
-    let mut world = crate::fixture::crewed_world(combat_ship(), REFERENCE_MONEY, 2, 2);
+fn a_wave_is_the_players_and_the_day_and_nothing_else() {
+    let mut world = crate::fixture::crewed_world(combat_ship(), REFERENCE_MONEY, 1, 8);
     assert_eq!(world.run.missions, 1);
-    let formula = crate::droid::wave_size(world.players(), 0);
-    assert_eq!(
-        world.droid_wave_size(),
-        formula - data::FIRST_MISSION_WAVE_EASE
-    );
+    assert_eq!(world.run_day(), 1);
+    let per_player = crate::droid::WaveScaling::DEFAULT.enemies_per_player;
+    assert_eq!(world.droid_wave_size(), per_player, "the first mission");
     world.run.missions = 2;
-    assert_eq!(world.droid_wave_size(), formula, "the second mission");
-    world.run.missions = 1;
+    assert_eq!(world.droid_wave_size(), per_player, "the second");
+    // Five days on, one step of the day's scaling.
+    world.clock_minutes = 4.0 * 24.0 * 60.0;
+    assert_eq!(world.run_day(), 5);
+    assert_eq!(world.droid_wave_size(), per_player + 1);
     world.set_droid_wave_for_probe(5);
     assert_eq!(world.droid_wave_size(), 5, "a forced wave is as forced");
 }
 
-// --- what the waves scale on (feature 105) --------------------------------
+// --- what the waves scale on (feature 105, task 147) ----------------------
 
 /// A crew on the combat ship with `players` players and `crew` aboard in
 /// all, at the world clock's `hours`: what the machines would come as.
@@ -514,7 +505,7 @@ fn waves_for(players: u32, crew: u32, hours: u32) -> (u32, u32) {
 /// the run: none of that is the machines' business.
 #[test]
 fn the_waves_are_the_same_for_a_richer_better_armed_more_levelled_or_bigger_crew() {
-    for hours in [0, data::ENEMIES_HOURS * 3 + 5, data::ENEMIES_HOURS * 9] {
+    for hours in [0, 24 * 15 + 5, 24 * 45] {
         for players in [1, 2] {
             let plain = || {
                 let mut world =
@@ -559,13 +550,11 @@ fn the_waves_are_the_same_for_a_richer_better_armed_more_levelled_or_bigger_crew
                     "{name}, {players} players at {hours}h"
                 );
             }
-            // And bots beside the players are nothing to the formula: a
-            // wave is the formula's until the Bims would outnumber it,
-            // and then as many as the Bims.
+            // And bots beside the players are nothing at all.
             for crew in [players + 1, players + 4, COMBAT_CREW] {
                 assert_eq!(
                     waves_for(players, crew, hours),
-                    (want.0.max(crew), want.1),
+                    want,
                     "{crew} aboard, {players} players at {hours}h"
                 );
             }
@@ -573,142 +562,108 @@ fn the_waves_are_the_same_for_a_richer_better_armed_more_levelled_or_bigger_crew
     }
 }
 
-/// The waves never shrink as the world clock runs on, and over a run's
-/// worth of it — the hundred and twenty days `data::ENEMIES_HOURS` was
-/// set against — they have grown. How many there are is the tier's, and
-/// the clock alone never moves it.
+/// The waves never shrink as the world clock runs on, nor does a site's
+/// count of them, and over a run's worth of it both have grown.
 #[test]
 fn the_waves_never_shrink_with_the_clock_and_grow_over_a_run() {
     let mut world = crate::fixture::crewed_world(combat_ship(), REFERENCE_MONEY, 1, 4);
-    world.set_droid_tier_for_probe(Some(Tier::One));
     let (first_size, first_count) = (world.droid_wave_size(), world.droid_wave_count());
-    let mut size = first_size;
+    let (mut size, mut count) = (first_size, first_count);
     for hours in (0..=120 * 24).step_by(11) {
         world.clock_minutes = f64::from(hours) * 60.0;
-        let now = world.droid_wave_size();
-        assert!(now >= size, "the size fell at {hours}h");
-        assert_eq!(world.droid_wave_count(), first_count, "at {hours}h");
-        size = now;
+        let now = (world.droid_wave_size(), world.droid_wave_count());
+        assert!(now.0 >= size, "the size fell at {hours}h");
+        assert!(now.1 >= count, "the count fell at {hours}h");
+        (size, count) = now;
     }
+    assert!(size > first_size, "the waves grew: {first_size} to {size}");
     assert!(
-        size > first_size,
-        "the waves grew over a run: {first_size} to {size}"
+        count > first_count,
+        "and there were more: {first_count} to {count}"
     );
 }
 
-/// A site's count of waves is its tier's: one at tier one, two at tier
-/// two, four at tier three ([`data::DROID_TIER_WAVES`]), and the
-/// scaling's dial moves it.
+/// A site's count of waves is one, and one more every `wave_days` of the
+/// run day (task 147) — whatever tier the machines come at.
 #[test]
-fn a_site_has_one_wave_at_tier_one_two_at_tier_two_and_four_at_tier_three() {
+fn a_site_has_a_wave_more_every_wave_days() {
     let mut world = crate::fixture::crewed_world(combat_ship(), REFERENCE_MONEY, 1, 4);
-    for (tier, waves) in [(Tier::One, 1), (Tier::Two, 2), (Tier::Three, 4)] {
-        world.set_droid_tier_for_probe(Some(tier));
-        assert_eq!(world.droid_wave_count(), waves, "{tier:?}");
-    }
+    let days = crate::droid::WaveScaling::DEFAULT.wave_days;
+    let on = |world: &mut World, day: u32| {
+        world.clock_minutes = f64::from(day - 1) * 24.0 * 60.0;
+        world.droid_wave_count()
+    };
+    assert_eq!(on(&mut world, 1), 1);
+    assert_eq!(on(&mut world, days - 1), 1);
+    assert_eq!(on(&mut world, days), 2);
+    assert_eq!(on(&mut world, 2 * days), 3);
+    world.set_droid_tier_for_probe(Some(Tier::Three));
+    assert_eq!(on(&mut world, 1), 1, "the tier says nothing of the count");
     world.set_wave_scaling(crate::droid::WaveScaling {
-        tier_waves: [2, 3, 5],
+        wave_days: 3,
         ..crate::droid::WaveScaling::DEFAULT
     });
-    assert_eq!(world.droid_wave_count(), 5, "tier three, tuned");
-    world.set_droid_tier_for_probe(Some(Tier::One));
-    assert_eq!(world.droid_wave_count(), 2, "tier one, tuned");
+    assert_eq!(on(&mut world, 9), 4, "tuned");
 }
 
-/// The setup's difficulty stands over the tuning file's five dials and
-/// leaves the rest of the formula the file's; `None` is the file again.
+/// The setup's difficulty stands in place of the tuning file's dials;
+/// `None` is the file again.
 #[test]
-fn the_difficulty_stands_over_the_tuning_files_five_dials() {
+fn the_difficulty_stands_in_place_of_the_tuning_file() {
     let mut world = crate::fixture::crewed_world(combat_ship(), REFERENCE_MONEY, 1, 4);
     let players = world.players();
-    let later = data::ENEMIES_HOURS * 3;
-    let untuned = world.wave_size_at(later);
-    world.set_difficulty(Some(crate::droid::Difficulty {
-        base: 5,
-        per_player: 3,
-        per_step: 2,
-        early_ease: 0,
-        early_days: 6,
-    }));
-    assert_eq!(world.wave_size_at(0), 5 + 3 * players);
-    assert_eq!(world.wave_size_at(later), 5 + 3 * players + 2 * 3);
-    // The setup's early ease too: two fewer inside its first day, none
-    // after it.
-    world.set_difficulty(Some(crate::droid::Difficulty {
-        base: 5,
-        per_player: 3,
-        per_step: 2,
-        early_ease: 2,
-        early_days: 1,
-    }));
-    assert_eq!(world.wave_size_at(0), 5 + 3 * players - 2);
-    assert_eq!(world.wave_size_at(later), 5 + 3 * players + 2 * 3);
-    world.set_difficulty(Some(crate::droid::Difficulty {
-        base: 5,
-        per_player: 3,
-        per_step: 2,
-        early_ease: 0,
-        early_days: 6,
-    }));
-    // The file's other dials still count: a step of twice the days.
+    let later = 24 * 15;
     world.set_wave_scaling(crate::droid::WaveScaling {
-        base: 40,
-        step_days: 2 * crate::droid::WaveScaling::DEFAULT.step_days,
+        enemies_per_player: 7,
         ..crate::droid::WaveScaling::DEFAULT
     });
-    assert_eq!(world.wave_size_at(later), 5 + 3 * players + 2);
-    assert_eq!(world.wave_scaling().base, 40, "the file's own, unmixed");
-    world.set_wave_scaling(crate::droid::WaveScaling::DEFAULT);
+    assert_eq!(world.wave_size_at(0), 7 * players);
+    world.set_difficulty(Some(crate::droid::Difficulty {
+        enemies_per_player: 3,
+        day_scaling: 2,
+        scaling_days: 5,
+        ..crate::droid::WaveScaling::DEFAULT
+    }));
+    assert_eq!(world.wave_size_at(0), 3 * players);
+    // Day sixteen: three steps of five days, two a step.
+    assert_eq!(world.wave_size_at(later), (3 + 2 * 3) * players);
+    assert_eq!(
+        world.wave_scaling().enemies_per_player,
+        7,
+        "the file's own, unmixed"
+    );
     world.set_difficulty(None);
-    assert_eq!(world.wave_size_at(later), untuned);
+    assert_eq!(world.wave_size_at(0), 7 * players);
 }
 
-/// **The base is guaranteed**: however much the early ease and the first
-/// mission's take off, a wave is never fewer than the base.
+/// Each machine of a wave comes at its own tier, the run day's shares
+/// (task 147): day ten with the default dials is half of them at tier
+/// two or better and a quarter at three.
 #[test]
-fn no_ease_takes_a_wave_under_its_base() {
-    let mut world = crate::fixture::crewed_world(combat_ship(), REFERENCE_MONEY, 1, 1);
-    assert_eq!(world.run.missions, 1);
-    world.set_wave_scaling(crate::droid::WaveScaling {
-        base: 4,
-        per_player: 2,
-        early_ease: 5,
-        early_days: 6,
-        first_mission_ease: 3,
-        ..crate::droid::WaveScaling::DEFAULT
-    });
-    assert_eq!(world.droid_wave_size(), 4, "both eases, the base on top");
-    world.run.missions = 2;
-    assert_eq!(world.droid_wave_size(), 4, "the early ease alone");
-    world.clock_minutes = 6.0 * 24.0 * 60.0;
-    assert_eq!(world.droid_wave_size(), 4 + 2 + 1, "past the early days");
+fn a_wave_s_machines_come_at_the_tiers_the_day_deals() {
+    let (mut world, _) = held_arena();
+    world.clock_minutes = 9.0 * 24.0 * 60.0;
+    assert_eq!(world.run_day(), 10);
+    let n = open_the_room(&mut world);
+    let want = world.machine_tiers(n);
+    let got: Vec<Tier> = room!(world).droids().iter().map(|d| d.tier).collect();
+    assert_eq!(got, want);
+    let at_least_two = got.iter().filter(|&&t| t != Tier::One).count() as u32;
+    assert_eq!(at_least_two, n / 2, "{got:?}");
+    assert_eq!(
+        got.iter().filter(|&&t| t == Tier::Three).count() as u32,
+        n / 4
+    );
+    assert_eq!(world.droid_tier(), Tier::Two, "the tier most are at");
+    // The probes' dial is every machine's.
+    world.set_droid_tier_for_probe(Some(Tier::Three));
+    assert!(world.machine_tiers(5).iter().all(|&t| t == Tier::Three));
 }
 
-/// **The machines are never outnumbered**: a wave is at least as many as
-/// the Bims alive on the crew's side — bots and all, downed or not —
-/// and a dead one no longer counts.
-#[test]
-fn a_wave_is_never_fewer_than_the_bims_it_meets() {
-    let mut world = crate::fixture::crewed_world(combat_ship(), REFERENCE_MONEY, 1, 8);
-    world.run.missions = 2;
-    let formula = world.scaling().size(world.players(), world.hours_gone());
-    assert!(formula < 8, "the formula under the crew: {formula}");
-    assert_eq!(world.bims_fighting(), 8);
-    assert_eq!(world.droid_wave_size(), 8);
-    world.aboard.room.kill_for_probe(7);
-    // The room settles the death as it steps.
-    world.step(&[]);
-    assert_eq!(world.droid_wave_size(), 7, "the dead are not met");
-    // A forced wave is as forced.
-    world.set_droid_wave_for_probe(3);
-    assert_eq!(world.droid_wave_size(), 3);
-}
-
-/// A player more is a machine more a wave; a bot more is nothing to the
-/// formula (only to the floor of the Bims fighting).
+/// A player more is a machine more a wave; a bot more is nothing.
 #[test]
 fn a_wave_grows_with_the_players() {
-    for hours in [0, data::ENEMIES_HOURS * 4] {
+    for hours in [0, 24 * 20] {
         let sizes: Vec<u32> = (1..=4).map(|p| waves_for(p, p, hours).0).collect();
         for pair in sizes.windows(2) {
             assert!(pair[1] > pair[0], "{sizes:?} at {hours}h");
@@ -1089,15 +1044,15 @@ fn the_next_wave_s_machines_are_said_down_and_paid_for_like_the_first() {
 }
 
 /// The probes' dial for how many waves a held station has — three on the
-/// `droids` commands, where a site's own is its tier's
-/// ([`crate::droid::wave_count`]) — read at the first dock and never
+/// `droids` commands, where a site's own is the run day's
+/// ([`crate::droid::WaveScaling::waves`]) — read at the first dock and never
 /// again, like the count it stands in for.
 #[test]
 fn a_probe_says_how_many_waves_a_held_station_has() {
     let (mut world, station) = held_arena();
     assert_eq!(
         world.droid_wave_count(),
-        crate::droid::wave_count(world.droid_tier())
+        world.scaling().waves(world.run_day())
     );
     world.set_droid_waves_for_probe(3);
     assert_eq!(world.droid_wave_count(), 3);

@@ -220,7 +220,11 @@ use crate::game::Game;
 /// where there were four, `Ship::charge` and `Lamp::powered` gone.
 /// 82: the game setup's difficulty carries the early ease and its days
 /// (`world::droid::Difficulty::{early_ease, early_days}`).
-pub const SAVE_VERSION: u32 = 82;
+/// 83: the wave formula replaced (task 147) — `world::droid::Difficulty`
+/// is the whole `WaveScaling` (per player, the day's scaling and its days,
+/// per defender, the waves' days and the three tier timings), and
+/// `World::first_mission_uneased` is gone.
+pub const SAVE_VERSION: u32 = 83;
 
 /// What the file holds, read back.
 #[derive(serde::Deserialize)]

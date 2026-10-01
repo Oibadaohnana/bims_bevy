@@ -6688,3 +6688,67 @@ not re-run here. `no_ease_takes_a_wave_under_its_base`,
 `a_wave_is_never_fewer_than_the_bims_it_meets` (`tests_droid.rs`) and
 `the_wave_at_a_defence_is_the_wave_with_a_machine_for_each_defender`
 (`tests_defense.rs`) are the rule.
+
+## How the enemies scale: the run day and eight dials (task 147)
+
+> "A step every five days", "A site's waves are its tier's", "The base is
+> guaranteed, and the machines are never outnumbered", the tier by
+> distance in "Jumping along lanes" and "Relics" (tier two on time and
+> distance), the first mission's ease and the Manufacturers' kit by the
+> day in "The Manufacturers" describe what **task 147 deleted**. This is
+> the whole of how the enemies scale now.
+
+`droid::WaveScaling` (`scaling.ron`; the setup's Difficulty, which is
+the same type — `pub type Difficulty = WaveScaling` — stands **in
+place of** it for a run) is eight dials, every one read off
+**`World::run_day`** (`days_gone + 1`, the day the top bar shows):
+
+- **a wave** (`size(players, defenders, day)`): `(enemies_per_player +
+  day_scaling × ⌊day / scaling_days⌋) × players`, plus at a defence
+  `⌈enemies_per_defender × defenders fielded⌉` (an `f32`, worked in
+  hundredths). No base, no first-mission or early ease, no floor at the
+  Bims fighting (`bims_fighting` went). `scaling_days` nought never grows.
+- **a site's waves** (`waves(day)`): `1 + ⌊day / wave_days⌋` (nought: one),
+  fixed at the first dock as ever; the Machine Heart's are
+  `data::HEART_WAVES` (4), an elite at least `ELITE_WAVES`, the
+  Manufacturers' garrison one while they have the machines, the probes'
+  dial over all.
+- **each enemy's tier**, in whole enemies, rounded down
+  (`share_of`): tier two at the least for `n × day / tier2_days` of a
+  wave, tier three for `n × day / tier3_days` (counted first), all of
+  them from that day; a timing of nought is the tier from day one.
+  `machine_tiers(n, day)` deals the machines in wave order (the first
+  tier three, then two); `World::machine_tiers` adds the Heart (all
+  three) and `BIMS_DROID_TIER` (all at it). `build_wave` builds each
+  machine at its own and asks `wave_kinds` at the wave's highest (so a
+  Guardian comes with the first tier-three machine of a wave of four or
+  more). **The Manufacturers' gear** (`gear_tiers`,
+  `World::manufacturer_gear_tiers`) is the same shares plus
+  `tier1_days`: `None` — the laser pistol and no armour — for the share
+  not yet geared, a gun (never the schword) and armour at the tier for
+  the rest (`manufacturer::gear(tier, seed, ids)`); the pistol-day and
+  armour-day steps went. Their Troopers take the machines' tiers.
+- **a site's tier** said on the map, the chart and in the checksum is
+  `usual_tier(day)`, the tier at least half come at (`World::droid_tier`,
+  `tier_on(clock)`, `system_tiers` — the same at every star); the
+  Heart's is three. The distance rule (`site_tier`,
+  `DROID_TIER_THREE_HOPS`, `ENEMY_TIER2_*`, `relic::tier_two_rolled`)
+  and `manufacturer_tier`/`gear_tier` went.
+
+Defaults (`data`): `ENEMIES_PER_PLAYER` 2, `DAY_SCALING` 1,
+`SCALING_DAYS` 5, `ENEMIES_PER_DEFENDER` 1.0, `WAVE_DAYS` 10,
+`TIER1_DAYS` 5, `TIER2_DAYS` 20, `TIER3_DAYS` 40. `DROID_WAVE_BASE`,
+`FIRST_MISSION_WAVE_EASE`, `DROID_TIER_WAVES`, `ENEMIES_HOURS`,
+`MANUFACTURER_{ANY_GUN,ARMOUR}_DAY`, `wave_size`, `wave_count`,
+`time_steps`, `World::{wave_count_for, bims_fighting,
+set_first_mission_uneased_for_probe}` and the saved
+`first_mission_uneased` went; `World::heart_wave_count` is the Heart's
+preview. **`SAVE_VERSION` 83, `wire::PROTOCOL` 86** (the relay wants
+redeploying). `SURVIVORS`, `REFERENCE_CHECKSUM` and the ship's `PINNED`
+move (every wave's size and tiers did) — not re-pinned. `droid::tests`,
+`tests_droid.rs` (`a_wave_is_the_players_and_the_day_and_nothing_else`,
+`a_site_has_a_wave_more_every_wave_days`,
+`a_wave_s_machines_come_at_the_tiers_the_day_deals`, …),
+`tests_defense.rs`' per-defender test and `tests_jammer.rs`'
+`the_machines_come_at_the_day_s_tier_however_near_their_origin` are the
+rule.
