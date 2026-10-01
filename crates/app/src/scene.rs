@@ -138,6 +138,7 @@ impl Plugin for ScenePlugin {
             .init_resource::<Pool>()
             .init_resource::<QuadMeshes>()
             .add_systems(Startup, camera)
+            .add_systems(Startup, crate::surfaces::load)
             .add_systems(
                 PostUpdate,
                 // After the screens have painted — they run in egui's
@@ -236,6 +237,10 @@ pub struct ShapeMaterial {
     clip: Vec4,
     #[storage(1, read_only)]
     shapes: Handle<ShaderBuffer>,
+    /// The surfaces' texture array (`surfaces.rs`), the same for every layer.
+    #[texture(2, dimension = "2d_array")]
+    #[sampler(3)]
+    surfaces: Handle<Image>,
 }
 
 impl Material2d for ShapeMaterial {
@@ -572,6 +577,7 @@ fn sync(
     mut materials: ResMut<Assets<CanvasMaterial>>,
     mut shape_materials: ResMut<Assets<ShapeMaterial>>,
     mut buffers: ResMut<Assets<ShaderBuffer>>,
+    surfaces: Res<crate::surfaces::SurfaceTextures>,
     mut placed: Query<(&mut Transform, &mut Visibility, &mut Mesh2d)>,
     mut projection: Query<&mut Projection, With<Camera2d>>,
     window: Query<&Window, With<PrimaryWindow>>,
@@ -616,7 +622,7 @@ fn sync(
                     clip,
                     &records,
                     (&mut quads, &mut meshes),
-                    &mut shape_materials,
+                    (&mut shape_materials, &surfaces.0),
                     &mut buffers,
                     &mut placed,
                 );
@@ -725,7 +731,7 @@ fn shape_layer(
     clip: Vec4,
     records: &[Record],
     (quads, meshes): (&mut QuadMeshes, &mut Assets<Mesh>),
-    materials: &mut Assets<ShapeMaterial>,
+    (materials, surfaces): (&mut Assets<ShapeMaterial>, &Handle<Image>),
     buffers: &mut Assets<ShaderBuffer>,
     placed: &mut Query<(&mut Transform, &mut Visibility, &mut Mesh2d)>,
 ) {
@@ -736,6 +742,7 @@ fn shape_layer(
         let material = materials.add(ShapeMaterial {
             clip,
             shapes: buffer.clone(),
+            surfaces: surfaces.clone(),
         });
         let entity = commands
             .spawn((

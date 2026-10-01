@@ -20,13 +20,17 @@
 //! read as one deck.
 
 use shipdesign::PlacedPart;
-use shipdesign::parts::{PartKind, TILE, solid_corner};
+use shipdesign::parts::{PartKind, TILE};
 use world::Biome;
 
-use crate::draw::{Color, DrawList, KIND_ELLIPSE, KIND_RECT};
+use crate::draw::{Color, DrawList, KIND_ELLIPSE, KIND_RECT, Surface};
 use crate::hull::{Corner, Local, corner, middle};
 
 const T: f32 = TILE as f32;
+/// How far a tile of wall is drawn past its edges, so two side by side
+/// overlap and the feathering of their edges shows no seam between them;
+/// the texture is one across both, so the overlap shows nothing either.
+pub(crate) const LAP: f32 = 1.0;
 
 // --- the room's palette, again ------------------------------------------------
 
@@ -42,7 +46,6 @@ const DECK: Color = Color::rgb(0.13, 0.15, 0.18);
 
 /// A bulkhead: the room's wall shade, with a darker seam between panels.
 const WALL: Color = Color::rgb(0.30, 0.34, 0.40);
-const WALL_PANEL: Color = Color::rgb(0.25, 0.29, 0.34);
 const WALL_TRIM: Color = Color::rgba(0.62, 0.70, 0.78, 0.35);
 
 /// The shower's tray and what is in it.
@@ -133,31 +136,28 @@ pub fn part_in(list: &mut DrawList, part: &PlacedPart, biome: Option<Biome>) -> 
 
 // --- bulkheads ---------------------------------------------------------------------
 
-/// One tile of bulkhead: a slab with a panel let into it and a seam round
-/// the edge, so a run of them reads as panelling rather than as one grey
-/// bar.
+/// One tile of bulkhead: a painted steel panel in a riveted frame, the
+/// [`Surface::Bulkhead`] texture anchored to the tile so a run of them
+/// is a run of panels, joint to joint.
 fn wall(list: &mut DrawList, tile: (u32, u32)) {
     let (cx, cy) = middle(tile.0, tile.1);
-    list.rect(cx, cy, T - 1.0, T - 1.0, 0.0, WALL);
-    list.rect(cx, cy, T - 12.0, T - 12.0, 2.0, WALL_PANEL);
-    list.stroke_rect(cx, cy, T - 12.0, T - 12.0, 2.0, 1.0, WALL_TRIM);
+    list.surface(
+        Surface::Bulkhead,
+        cx,
+        cy,
+        T + LAP,
+        T + LAP,
+        0.0,
+        (cx, cy),
+        WALL,
+    );
 }
 
 /// A bulkhead cut across its tile, with the trim along the cut.
 fn diagonal_wall(list: &mut DrawList, part: &PlacedPart) {
     let (cx, cy) = middle(part.origin.0, part.origin.1);
     let c: Corner = corner(part.rotation);
-    let (sx, sy) = solid_corner(part.rotation);
-    list.triangle(cx, cy, T - 1.0, T - 1.0, c.rot, WALL);
-    let nudge = 1.0;
-    list.triangle(
-        cx + sx as f32 * nudge,
-        cy + sy as f32 * nudge,
-        T - 12.0,
-        T - 12.0,
-        c.rot,
-        WALL_PANEL,
-    );
+    list.surface_triangle(Surface::Bulkhead, cx, cy, T - 1.0, T - 1.0, c.rot, WALL);
     let trim = 2.0;
     list.push(
         KIND_RECT,
@@ -1898,57 +1898,23 @@ fn mix(a: Color, b: Color, t: f32) -> Color {
 // --- the ground's walls ---------------------------------------------------------------
 
 /// A wall on a planet is what the ground gives: dressed stone in a
-/// temperate town, the mortar (`STONE`, the tile under the blocks)
-/// showing between them; adobe in a desert one, warm and smooth; timber
-/// in an arctic one, a plank line across it.
-const STONE: Color = Color::rgb(0.40, 0.37, 0.32);
-const STONE_BLOCK: Color = Color::rgb(0.56, 0.53, 0.47);
-const ADOBE: Color = Color::rgb(0.70, 0.54, 0.36);
-const ADOBE_LIT: Color = Color::rgb(0.80, 0.64, 0.44);
+/// temperate town, adobe in a desert one, timber in an arctic one — each
+/// a [`Surface`] texture anchored to the tile, in its average colour.
+const STONE: Color = Color::rgb(0.50, 0.47, 0.42);
+const ADOBE: Color = Color::rgb(0.74, 0.58, 0.40);
 const TIMBER: Color = Color::rgb(0.44, 0.30, 0.19);
-const PLANK: Color = Color::rgba(0.14, 0.08, 0.04, 0.6);
 
-/// One tile of a town's wall, by the biome: stone blocks in a mortar
-/// seam, a slab of adobe with a lighter face, or timber with the plank
-/// line along it. The bulkhead ([`wall`]) is a ship's; this is what
-/// [`part_in`] draws for a `Wall` with a biome.
+/// One tile of a town's wall, by the biome: stone courses, plaster over
+/// mud brick, or timber planks. The bulkhead ([`wall`]) is a ship's; this
+/// is what [`part_in`] draws for a `Wall` with a biome.
 fn stone_wall(list: &mut DrawList, tile: (u32, u32), biome: Biome) {
     let (cx, cy) = middle(tile.0, tile.1);
-    match biome {
-        Biome::Temperate => {
-            // The mortar is the tile; two courses of blocks are let into
-            // it, the lower course staggered half a block — one block a
-            // course a tile, the lower one pushed left or right by the
-            // tile's parity, so the stagger runs across the neighbours
-            // rather than costing a shape.
-            list.rect(cx, cy, T, T, 0.0, STONE);
-            let course = T / 2.0;
-            let top = cy - course / 2.0;
-            let bottom = cy + course / 2.0;
-            let shove = if (tile.0 + tile.1) % 2 == 0 {
-                -1.0
-            } else {
-                1.0
-            };
-            list.rect(cx, top, T - 3.0, course - 3.0, 1.5, STONE_BLOCK);
-            list.rect(
-                cx + shove * T * 0.16,
-                bottom,
-                T * 0.68 - 3.0,
-                course - 3.0,
-                1.5,
-                STONE_BLOCK,
-            );
-        }
-        Biome::Desert => {
-            list.rect(cx, cy, T, T, 0.0, ADOBE);
-            list.rect(cx, cy, T - 8.0, T - 8.0, 5.0, ADOBE_LIT);
-        }
-        Biome::Arctic => {
-            list.rect(cx, cy, T, T, 0.0, TIMBER);
-            list.rect(cx, cy, T, 1.5, 0.0, PLANK);
-        }
-    }
+    let (surface, colour) = match biome {
+        Biome::Temperate => (Surface::Stone, STONE),
+        Biome::Desert => (Surface::Adobe, ADOBE),
+        Biome::Arctic => (Surface::Timber, TIMBER),
+    };
+    list.surface(surface, cx, cy, T + LAP, T + LAP, 0.0, (cx, cy), colour);
 }
 
 // --- the wild ------------------------------------------------------------------------

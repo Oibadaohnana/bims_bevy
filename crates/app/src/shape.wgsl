@@ -27,7 +27,9 @@ const HALF_PI: f32 = 1.57079632679489661923;
 // Sixteen floats, as `shapes::Record` lays them out:
 // head  = kind, centre x, centre y, the feather's width
 // body  = half width, half height, sin and cos of the turn
-// more  = corner radius, line width, points on a curve, unused
+// more  = corner radius, line width, points on a curve, unused — for a
+//         surface (kinds 7 and 8), its anchor in repeats, the points a
+//         repeat spans and the surface (`shapes::surface_record`)
 // color = premultiplied, sRGB-encoded, a channel past one if emissive
 struct Shape {
     head: vec4<f32>,
@@ -47,6 +49,14 @@ struct Shapes {
 // scissor, as `canvas.wgsl` has it.
 @group(#{MATERIAL_BIND_GROUP}) @binding(0) var<uniform> clip: vec4<f32>;
 @group(#{MATERIAL_BIND_GROUP}) @binding(1) var<storage, read> shapes: Shapes;
+// The surfaces (`surfaces.rs`): a layer each, the same size, repeating, with
+// their mipmaps; a texel is the surface over its average, a quarter scale.
+@group(#{MATERIAL_BIND_GROUP}) @binding(2) var surfaces: texture_2d_array<f32>;
+@group(#{MATERIAL_BIND_GROUP}) @binding(3) var surfaces_sampler: sampler;
+
+// What a surface texel is multiplied by: its average is a quarter, so a
+// shape of a surface is its colour on average and up to four times it.
+const SURFACE_GAIN: f32 = 4.0;
 
 struct Vertex {
     @builtin(instance_index) instance_index: u32,
@@ -76,7 +86,11 @@ fn vertex(v: Vertex) -> Varyings {
     }
     let s = shapes.items[i];
     let half = s.body.xy;
-    let line = s.more.y;
+    // A surface's `more` is its anchor and its span, not a corner and a line.
+    var line = s.more.y;
+    if s.head.x >= 6.5 {
+        line = 0.0;
+    }
     let f = s.head.w;
     // As far as anything of the shape reaches: its ring out by half the
     // line and the feather beyond — a triangle's sharp corners further,
@@ -287,6 +301,31 @@ fn linear_from_gamma_rgb(srgb: vec3<f32>) -> vec3<f32> {
     return select(higher, lower, cutoff);
 }
 
+// A surface's colour at `p` (points from the shape's centre, before its
+// turn): the texel there times the shape's colour `c`, premultiplied and
+// covered as `c` is. `more` is the anchor (where the centre is, in
+// repeats), how many points a repeat spans and which surface. Sampled
+// with the gradient worked out rather than measured — the derivatives
+// want uniform control flow, and a pixel a step on is `feather / span`
+// of a repeat on — so a far zoom reads the smaller mipmaps and does not
+// shimmer. Never past the alpha: a bright surface is white, not emissive.
+fn surface(s: Shape, p: vec2<f32>, c: vec4<f32>) -> vec4<f32> {
+    let span = max(s.more.z, 1.0e-6);
+    let uv = s.more.xy + p / span;
+    let g = max(s.head.w, 1.0e-3) / span;
+    let layer = i32(s.more.w + 0.5);
+    let texel = textureSampleGrad(
+        surfaces,
+        surfaces_sampler,
+        uv,
+        layer,
+        vec2<f32>(g, 0.0),
+        vec2<f32>(0.0, g),
+    );
+    let rgb = min(c.rgb * texel.rgb * SURFACE_GAIN, vec3<f32>(c.a));
+    return vec4<f32>(rgb, c.a);
+}
+
 @fragment
 fn fragment(in: Varyings) -> @location(0) vec4<f32> {
     let px = in.position.xy;
@@ -334,11 +373,20 @@ fn fragment(in: Varyings) -> @location(0) vec4<f32> {
         case 6u: {
             cover = tri_stroke(p, triangle(h), line, f);
         }
+        case 7u: {
+            cover = ramp(rounded_d(p, h, 0.0, 1u), f);
+        }
+        case 8u: {
+            cover = tri_fill(p, triangle(h), f);
+        }
         default: {}
     }
     if cover <= 0.0 {
         discard;
     }
-    let c = s.color * cover;
+    var c = s.color * cover;
+    if kind == 7u || kind == 8u {
+        c = surface(s, p, c);
+    }
     return vec4<f32>(linear_from_gamma_rgb(c.rgb), c.a);
 }

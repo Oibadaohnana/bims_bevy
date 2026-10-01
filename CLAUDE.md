@@ -175,6 +175,19 @@ plus `wire` and `server` (the relay, `bims-server`).
   it only on a mesh/material change, never a `Transform`: a layer whose
   z moves must `set_changed()` its `Mesh2d` (`scene::shape_layer`), or it
   stays at its old z — the first map's deck under its late backdrop.
+- **Floors, walls and ground are textures** (`surfaces.rs`): a shape of
+  kind `16 + surface` (`32 +` for a triangle; `ship::draw::Surface`,
+  `DrawList::surface`) is a rect filled with that layer of one texture
+  array times its colour, its `radius`/`line` the **anchor** — where its
+  centre is in the texture, in the painter's frame, so a deck's plates
+  line up with its tiles (the open ground is tied to the world instead).
+  A texel is the surface over its average at a quarter scale, so the
+  colour is the surface's average and the CPU path draws it flat. The
+  pictures are `crates/app/textures/*.png`, made by
+  `textures/make.py` (seeded numpy; its header says how to run it); a
+  tile is only 40–100 px on screen, so detail under ~12 texels is lost.
+  `BIMS_SURFACES=0` draws them flat. A new surface is a `Surface`
+  variant, a `SURFACES` row and a maker in `make.py`.
 - Anti-aliasing is feathering in `shapes.rs` (`Msaa::Off`). The bloom
   picks up only colours past white (`draw::Color::glowing`);
   `BIMS_BLOOM=0` turns it off.

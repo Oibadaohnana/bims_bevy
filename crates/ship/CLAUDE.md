@@ -1224,3 +1224,30 @@ green motes run along a medic's beam and a Healing Sentry's lines.
   is laid over it as a light grey haze, because dark smoke over the dark
   deck did not show. A channel past white blooms. `BIMS_PARTICLES=0`
   draws none.
+
+## The deck, the walls and the ground are textured (October 2026)
+
+Every floor, wall and stretch of ground the painters lay is a **surface**
+(`draw::Surface`, `DrawList::surface` / `surface_box` /
+`surface_triangle`; the textures and the shader are the app's,
+`crates/app/src/surfaces.rs`): `hull_tiles`' deck tiles are
+`Surface::Deck` (a bolted steel plate a tile), `fittings::wall` and
+`hull::plate` `Surface::Bulkhead` (a riveted panel, the hull's in its
+lighter `HULL`), a town's walls `Stone`, `Adobe` or `Timber` by biome
+(`fittings::stone_wall`), its yards and the planet's backdrop the
+biome's ground (`world_paint::ground_surface`: grass, sand, snow), its
+houses' floors `Floorboard`, the plain's cliffs `Rock` and its forest
+floor grass in the forest's green, and the pad `Concrete`. The colour
+each is drawn in is the surface's average, so every old colour constant
+still says what the place looks like on average; `ground`'s scattered
+dark patches went, the texture having its own. A tile's own surface is
+anchored at the tile's centre, so plates, panels and stone courses line
+up with the grid; the ground is tied to the world by the app, so the
+backdrop and the town's yards are one field. Tiles and runs are drawn
+`fittings::LAP` past their edges, or their feathered edges show the
+backdrop as seams. Water and the designer's yard are still flat colour.
+`PICTURES`' two decks in `tests_survivors.rs` move with this (the deck's
+shapes are other shapes now). The pin was already stale in this tree —
+its designer pictures, which this change does not reach, had moved with
+the commits since it was taken — so it was left for one re-pin of the
+whole rather than re-pinned half-understood.

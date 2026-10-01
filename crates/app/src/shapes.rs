@@ -38,6 +38,14 @@ pub const STRIDE: usize = 12;
 
 const KIND_ELLIPSE: f32 = 1.0;
 const KIND_TRIANGLE: f32 = 2.0;
+/// A rectangle filled with a surface, this plus the surface's number; its
+/// radius and line are its anchor in the texture (`ship::draw::KIND_SURFACE`).
+pub const KIND_SURFACE: f32 = 16.0;
+/// The same as a triangle (`ship::draw::KIND_SURFACE_TRIANGLE`).
+pub const KIND_SURFACE_TRIANGLE: f32 = 32.0;
+/// What an anchor is kept under: sixteen tiles, a whole number of every
+/// surface's repeat (`ship::draw::SURFACE_REPEAT`).
+const SURFACE_REPEAT: f32 = 16.0 * 52.0;
 
 /// How a canvas maps world units to its own pixels: `px = offset + scale *
 /// world`. The room fits a fixed deck to the window, the designer pans and
@@ -323,8 +331,14 @@ impl ShapeBuf {
             let centre = view.to_canvas(Vec2::new(s[1], s[2]));
             let size = Vec2::new(s[3].abs(), s[4].abs()) * view.scale;
             let rot = s[5];
-            let radius = s[6] * view.scale;
-            let line = s[7] * view.scale;
+            // A surface is its colour here: no texture on the CPU, and its
+            // radius and line are its anchor, not a corner and a stroke.
+            let surface = kind >= KIND_SURFACE;
+            let (radius, line) = if surface {
+                (0.0, 0.0)
+            } else {
+                (s[6] * view.scale, s[7] * view.scale)
+            };
             let a = s[11];
             if a <= 0.0 {
                 continue;
@@ -342,7 +356,7 @@ impl ShapeBuf {
             let color = Paint::of(s[8], s[9], s[10], a);
             if kind == KIND_ELLIPSE {
                 self.ellipse(centre, size, rot, line, color);
-            } else if kind == KIND_TRIANGLE {
+            } else if kind == KIND_TRIANGLE || kind >= KIND_SURFACE_TRIANGLE {
                 self.triangle(centre, size, rot, line, color);
             } else {
                 self.rect(centre, size, rot, radius, line, color);
@@ -476,6 +490,10 @@ pub const REC_ELLIPSE_FILL: f32 = 3.0;
 pub const REC_ELLIPSE_STROKE: f32 = 4.0;
 pub const REC_TRI_FILL: f32 = 5.0;
 pub const REC_TRI_STROKE: f32 = 6.0;
+/// A rectangle filled with a surface's texture ([`surface_record`]).
+pub const REC_SURFACE: f32 = 7.0;
+/// A triangle filled with a surface's texture.
+pub const REC_SURFACE_TRIANGLE: f32 = 8.0;
 
 /// One shape as the GPU is handed it, in window points: `[kind, cx, cy,
 /// ramp, hx, hy, sin, cos, radius, line, points, 0, r, g, b, a]` — the
@@ -507,6 +525,10 @@ pub fn pack(shapes: &[f32], view: View, clip: Rect, pixels_per_point: f32, out: 
     out.reserve(shapes.len() / STRIDE);
     for s in shapes.as_chunks::<STRIDE>().0 {
         let kind = s[0];
+        if kind >= KIND_SURFACE {
+            out.extend(surface_record(s, view, clip, feather));
+            continue;
+        }
         let centre = view.to_canvas(Vec2::new(s[1], s[2]));
         let size = Vec2::new(s[3].abs(), s[4].abs()) * view.scale;
         let rot = s[5];
@@ -619,6 +641,82 @@ pub fn pack(shapes: &[f32], view: View, clip: Rect, pixels_per_point: f32, out: 
             a,
         ]);
     }
+}
+
+/// A [`KIND_SURFACE`] shape as its record: a square-cornered rectangle
+/// filled with its surface's texture times its colour (`shape.wgsl`), the
+/// record's `[radius, line, points, 0]` being `[anchor u, anchor v, points
+/// a repeat, the surface]` — where its centre is in the texture, in
+/// repeats of it, and how many canvas points one repeat spans, which is all
+/// the shader needs to find any of its pixels in the texture. A surface
+/// tied to the world ([`crate::surfaces::tied_to_the_world`]) is anchored
+/// where its centre is in the world, turned back by its own turn, so every
+/// shape of it at one turn is one texture whoever painted it.
+fn surface_record(s: &[f32; STRIDE], view: View, clip: Rect, feather: f32) -> Option<Record> {
+    let a = s[11];
+    if a <= 0.0 {
+        return None;
+    }
+    let centre = view.to_canvas(Vec2::new(s[1], s[2]));
+    let size = Vec2::new(s[3].abs(), s[4].abs()) * view.scale;
+    let reach = size.max_element() + 1.0;
+    let local = Rect::new(Vec2::ZERO, clip.size());
+    if centre.x + reach < local.min.x
+        || centre.x - reach > local.max.x
+        || centre.y + reach < local.min.y
+        || centre.y - reach > local.max.y
+    {
+        return None;
+    }
+    let triangle = s[0] >= KIND_SURFACE_TRIANGLE;
+    let first = if triangle {
+        KIND_SURFACE_TRIANGLE
+    } else {
+        KIND_SURFACE
+    };
+    let surface = (s[0] - first).round();
+    let repeat = crate::surfaces::repeat(surface as u32);
+    let rot = s[5];
+    let anchor = if crate::surfaces::tied_to_the_world(surface as u32) {
+        let back = turned(Vec2::new(s[1], s[2]), -rot);
+        Vec2::new(
+            back.x.rem_euclid(SURFACE_REPEAT),
+            back.y.rem_euclid(SURFACE_REPEAT),
+        )
+    } else {
+        Vec2::new(s[6], s[7])
+    };
+    let half = size / 2.0;
+    let (sin, cos) = if rot == 0.0 {
+        (0.0, 1.0)
+    } else {
+        rot.sin_cos()
+    };
+    let at = centre + clip.min;
+    let [r, g, b, a] = Paint::of(s[8], s[9], s[10], a).0;
+    let f = feather.min(half.min_element().max(0.0) * 2.0);
+    Some([
+        if triangle {
+            REC_SURFACE_TRIANGLE
+        } else {
+            REC_SURFACE
+        },
+        at.x,
+        at.y,
+        f,
+        half.x,
+        half.y,
+        sin,
+        cos,
+        anchor.x / repeat,
+        anchor.y / repeat,
+        view.scale * repeat,
+        surface,
+        r,
+        g,
+        b,
+        a,
+    ])
 }
 
 fn turned(p: Vec2, rot: f32) -> Vec2 {

@@ -24,6 +24,53 @@ pub const KIND_ELLIPSE: f32 = 1.0;
 /// is ignored and `line` strokes as for a rectangle.
 pub const KIND_TRIANGLE: f32 = 2.0;
 
+/// A rectangle filled with a **surface** — a texture the app holds for
+/// floors, walls and ground, multiplied by the shape's colour — is this
+/// plus the surface's number ([`Surface`]): sixteen for the deck plate,
+/// seventeen for a bulkhead, and so on. Its `radius` and `line` are not a
+/// corner and a stroke but the **anchor**: where the shape's centre is in
+/// the texture, in world units of the painter's own frame (before any
+/// turn), so the plates of a deck line up with its tiles and two shapes
+/// side by side carry one texture across the seam. A surface the app ties
+/// to the world instead (the open ground) ignores it. Wherever there is
+/// no texture — a canvas drawn on the CPU — it is a plain rectangle of its
+/// colour, which is why the colour is the surface's average.
+pub const KIND_SURFACE: f32 = 16.0;
+/// The same with the shape a [`KIND_TRIANGLE`]: thirty-two plus the surface.
+/// The texture turns with the triangle's own `rot`.
+pub const KIND_SURFACE_TRIANGLE: f32 = 32.0;
+
+/// The anchor is kept within this much of the origin: a whole number of
+/// every surface's repeat (sixteen tiles), so taking it off moves nothing.
+pub const SURFACE_REPEAT: f32 = 16.0 * 52.0;
+
+/// The textures a [`KIND_SURFACE`] rectangle can be filled with. The
+/// numbers are the app's (`crates/app/src/surfaces.rs`), the same in the
+/// room's `draw.rs`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[repr(u8)]
+pub enum Surface {
+    /// A ship's or a station's deck: steel plates, a tile each.
+    Deck = 0,
+    /// A bulkhead's face: a painted steel panel a tile.
+    Bulkhead = 1,
+    Grass = 2,
+    Sand = 3,
+    Snow = 4,
+    /// A temperate town's wall: dressed stone, two courses a tile.
+    Stone = 5,
+    /// A desert town's wall: sun-baked plaster.
+    Adobe = 6,
+    /// An arctic town's wall: timber planks.
+    Timber = 7,
+    /// A town's indoor floor: boards.
+    Floorboard = 8,
+    /// The landing pad: concrete slabs.
+    Concrete = 9,
+    /// A cliff on the plain: bare rock.
+    Rock = 10,
+}
+
 /// A `line` width of zero means fill; anything greater strokes the outline.
 const FILLED: f32 = 0.0;
 
@@ -221,6 +268,72 @@ impl DrawList {
     /// [`KIND_TRIANGLE`] for which half at `rot` nought.
     pub fn triangle(&mut self, x: f32, y: f32, w: f32, h: f32, rot: f32, c: Color) {
         self.push(KIND_TRIANGLE, x, y, w, h, rot, 0.0, FILLED, c);
+    }
+
+    /// A rectangle filled with `surface`, its centre at `anchor` in the
+    /// texture — for a shape laid in the painter's own frame, that is its
+    /// centre, `(x, y)`, which is what [`DrawList::surface_box`] passes.
+    #[allow(clippy::too_many_arguments)]
+    pub fn surface(
+        &mut self,
+        surface: Surface,
+        x: f32,
+        y: f32,
+        w: f32,
+        h: f32,
+        rot: f32,
+        anchor: (f32, f32),
+        c: Color,
+    ) {
+        self.push(
+            KIND_SURFACE + surface as u8 as f32,
+            x,
+            y,
+            w,
+            h,
+            rot,
+            anchor.0.rem_euclid(SURFACE_REPEAT),
+            anchor.1.rem_euclid(SURFACE_REPEAT),
+            c,
+        );
+    }
+
+    /// [`DrawList::triangle`] filled with `surface`, anchored at its box's
+    /// centre `(x, y)`.
+    #[allow(clippy::too_many_arguments)]
+    pub fn surface_triangle(
+        &mut self,
+        surface: Surface,
+        x: f32,
+        y: f32,
+        w: f32,
+        h: f32,
+        rot: f32,
+        c: Color,
+    ) {
+        self.push(
+            KIND_SURFACE_TRIANGLE + surface as u8 as f32,
+            x,
+            y,
+            w,
+            h,
+            rot,
+            x.rem_euclid(SURFACE_REPEAT),
+            y.rem_euclid(SURFACE_REPEAT),
+            c,
+        );
+    }
+
+    /// [`DrawList::surface`] between two corners, unturned, anchored where
+    /// it lies.
+    pub fn surface_box(
+        &mut self,
+        surface: Surface,
+        (x0, y0, x1, y1): (f32, f32, f32, f32),
+        c: Color,
+    ) {
+        let (x, y) = ((x0 + x1) / 2.0, (y0 + y1) / 2.0);
+        self.surface(surface, x, y, x1 - x0, y1 - y0, 0.0, (x, y), c);
     }
 
     /// A rectangle given by its corners rather than its centre, which is how

@@ -31,7 +31,8 @@
 use shipdesign::parts::{Layer, PartKind, Rotation, TILE, is_diagonal, solid_corner};
 use shipdesign::{Grid, PlacedPart, ShipDesign};
 
-use crate::draw::{Color, DrawList, KIND_ELLIPSE, KIND_RECT};
+use crate::draw::{Color, DrawList, KIND_ELLIPSE, KIND_RECT, Surface};
+use crate::fittings::LAP;
 use crate::paint::PART_COLORS;
 
 const T: f32 = TILE as f32;
@@ -40,7 +41,6 @@ const SQRT_2: f32 = core::f32::consts::SQRT_2;
 // --- the palette --------------------------------------------------------------
 
 const HULL: Color = Color::rgb(0.47, 0.52, 0.59);
-const HULL_PANEL: Color = Color::rgb(0.39, 0.44, 0.51);
 const HULL_RIM: Color = Color::rgba(0.90, 0.95, 1.0, 0.45);
 /// A station too far off to draw tile by tile: one plate the size of its
 /// hull, in the hull's own colour, with its icon on it.
@@ -670,12 +670,20 @@ fn airlock(list: &mut DrawList, part: &PlacedPart, grid: &Grid, mated: bool, aja
     }
 }
 
-/// One plate of hull: a panel with a seam round it, and a bright bevel along
-/// every edge that faces open space.
+/// One plate of hull: a riveted panel ([`Surface::Bulkhead`], anchored to
+/// the tile), and a bright bevel along every edge that faces open space.
 fn plate(list: &mut DrawList, tile: (u32, u32), grid: &Grid) {
     let (cx, cy) = middle(tile.0, tile.1);
-    list.rect(cx, cy, T - 3.0, T - 3.0, 2.0, HULL);
-    list.rect(cx, cy, T - 18.0, T - 18.0, 3.0, HULL_PANEL);
+    list.surface(
+        Surface::Bulkhead,
+        cx,
+        cy,
+        T + LAP,
+        T + LAP,
+        0.0,
+        (cx, cy),
+        HULL,
+    );
     let bevel = 7.0;
     for &side in &SIDES {
         if !open(grid, tile, side) {
@@ -697,27 +705,14 @@ fn plate(list: &mut DrawList, tile: (u32, u32), grid: &Grid) {
     }
 }
 
-/// Half a plate of hull, cut across the tile: the same panel and seam as
-/// [`plate`], as triangles, with the bevel along the hypotenuse — which is
+/// Half a plate of hull, cut across the tile: the same panel as [`plate`],
+/// as a triangle, with the bevel along the hypotenuse — which is
 /// the edge that faces open space, whatever is beyond the two straight
 /// sides.
 fn diagonal_plate(list: &mut DrawList, tile: (u32, u32), rotation: Rotation) {
     let (cx, cy) = middle(tile.0, tile.1);
     let c = corner(rotation);
-    let (sx, sy) = solid_corner(rotation);
-    list.triangle(cx, cy, T - 3.0, T - 3.0, c.rot, HULL);
-    // The inner panel is shrunk about the box's centre, which moves its
-    // legs in further than its hypotenuse; nudging it into the corner evens
-    // the seam up.
-    let nudge = 1.3;
-    list.triangle(
-        cx + sx as f32 * nudge,
-        cy + sy as f32 * nudge,
-        T - 18.0,
-        T - 18.0,
-        c.rot,
-        HULL_PANEL,
-    );
+    list.surface_triangle(Surface::Bulkhead, cx, cy, T - 1.0, T - 1.0, c.rot, HULL);
     let bevel = 7.0;
     along_hypotenuse(
         list,

@@ -94,6 +94,7 @@ mod screens;
 mod settings;
 mod shapes;
 mod sound;
+mod surfaces;
 mod theme;
 mod wavecfg;
 

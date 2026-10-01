@@ -43,7 +43,7 @@ use world::Biome;
 use worldgen::math::{DVec2, dvec2};
 use worldgen::{BodyKind, Node, StationKind};
 
-use crate::draw::{Color, DrawList};
+use crate::draw::{Color, DrawList, Surface};
 use crate::game::{Game, ViewMode};
 use crate::hull;
 use crate::paint::PART_COLORS;
@@ -151,16 +151,12 @@ const CACHE_PULSE: f32 = 90.0;
 /// dark enough that the ship's deck and the bodies on the ground read on
 /// it, and each **the same colour the town's outdoor floor is drawn in**
 /// (`ground_floor`), so where the settlement's deck ends is invisible
-/// and the wild ring is what marks the edge of the ground. Beside each
-/// its darker tone: the patches `ground` scatters over the backdrop, so
-/// it is ground and not a colour. The pad under the ship: paving, with
-/// a lighter border.
+/// and the wild ring is what marks the edge of the ground. Each is the
+/// average of its texture ([`ground_surface`]), which makes it ground and
+/// not a colour. The pad under the ship: concrete, with a lighter border.
 const SAND: Color = Color::rgb(0.58, 0.46, 0.30);
-const SAND_DARK: Color = Color::rgb(0.50, 0.39, 0.25);
 const GRASS: Color = Color::rgb(0.36, 0.46, 0.28);
-const GRASS_DARK: Color = Color::rgb(0.29, 0.38, 0.22);
 const SNOW: Color = Color::rgb(0.64, 0.70, 0.76);
-const SNOW_DARK: Color = Color::rgb(0.55, 0.62, 0.69);
 /// The floor inside a town's buildings: boards, warmer than a deck.
 const FLOORBOARD: Color = Color::rgb(0.36, 0.28, 0.20);
 /// What is scattered over the ground between the wild: a tuft of grass
@@ -361,12 +357,14 @@ fn paint_ship(game: &Game, list: &mut DrawList, prebuilt: &[KeptStation]) {
         .and_then(|body| game.world.surface(body))
         .map(|surface| surface.biome);
     if let Some(biome) = landed {
-        list.rect(
+        list.surface(
+            ground_surface(biome),
             0.0,
             0.0,
             half_w * 3.0,
             half_h * 3.0,
             0.0,
+            (0.0, 0.0),
             ground_color(biome),
         );
     }
@@ -375,11 +373,9 @@ fn paint_ship(game: &Game, list: &mut DrawList, prebuilt: &[KeptStation]) {
     // the camera — which is not at all unless the view is head up. The
     // planet the ship is at is the ground under it; the stations are drawn
     // where they are, already turned, by `stations`. On the ground there
-    // is no planet in the sky: the ground itself, patched.
+    // is no planet in the sky: the ground itself, its texture's own.
     let out_there = list.len();
-    if let Some(biome) = landed {
-        ground(game, list, biome);
-    } else {
+    if landed.is_none() {
         local_node(game, list);
     }
     list.turn_from(out_there, game.camera_turn() as f32);
@@ -549,55 +545,18 @@ fn ground_color(biome: Biome) -> Color {
     }
 }
 
-/// The darker tone of the same ground: the patches on the backdrop.
-fn ground_dark(biome: Biome) -> Color {
+/// The texture of the same ground ([`ground_color`]'s), tied to the
+/// world so the backdrop and the town's yards are one field of it.
+fn ground_surface(biome: Biome) -> Surface {
     match biome {
-        Biome::Desert => SAND_DARK,
-        Biome::Temperate => GRASS_DARK,
-        Biome::Arctic => SNOW_DARK,
+        Biome::Desert => Surface::Sand,
+        Biome::Temperate => Surface::Grass,
+        Biome::Arctic => Surface::Snow,
     }
 }
 
-/// The ground about a landed ship: patches in the biome's darker tone —
-/// bare earth, drifts — scattered at fixed places in the camera's units
-/// about the ship, so they zoom and pan with the view and hold still
-/// between frames. The ship does not move on the ground, so the patches
-/// need no world position; a hash puts each where it is.
-fn ground(game: &Game, list: &mut DrawList, biome: Biome) {
-    let patch = ground_dark(biome);
-    let camera = &game.ship_view;
-    let scale = camera.scale().max(1e-9);
-    let reach = (camera.width.max(camera.height) / scale) * 1.5;
-    let tile = TILE as f32;
-    let mut h: u32 = 0x9E37_79B9;
-    let mut next = || {
-        h ^= h << 13;
-        h ^= h >> 17;
-        h ^= h << 5;
-        (h & 0xFFFF) as f32 / 65535.0
-    };
-    for _ in 0..140 {
-        let x = (next() * 2.0 - 1.0) * reach;
-        let y = (next() * 2.0 - 1.0) * reach;
-        let w = tile * (1.5 + next() * 6.0);
-        let hgt = w * (0.4 + next() * 0.5);
-        let rot = next() * core::f32::consts::PI;
-        list.push(
-            crate::draw::KIND_ELLIPSE,
-            x,
-            y,
-            w,
-            hgt,
-            rot,
-            0.0,
-            0.0,
-            patch,
-        );
-    }
-}
-
-/// The landing pad: paving under the hull's whole box and a margin past
-/// it, with a lighter border, in the ship's own frame.
+/// The landing pad: concrete slabs under the hull's whole box and a margin
+/// past it, with a lighter border, in the ship's own frame.
 fn pad(design: &ShipDesign, ship: &mut DrawList) {
     let mut span: Option<(u32, u32, u32, u32)> = None;
     for part in &design.parts {
@@ -622,7 +581,7 @@ fn pad(design: &ShipDesign, ship: &mut DrawList) {
     );
     let (w, hgt) = (x1 - x0, y1 - y0);
     let (cx, cy) = ((x0 + x1) / 2.0, (y0 + y1) / 2.0);
-    ship.rect(cx, cy, w, hgt, 0.0, PAD);
+    ship.surface(Surface::Concrete, cx, cy, w, hgt, 0.0, (x0, y0), PAD);
     ship.push(
         crate::draw::KIND_RECT,
         cx,
@@ -962,14 +921,17 @@ fn tile_hash(x: u32, y: u32) -> u32 {
 }
 
 /// A settlement's floor: one rect a **run** of floor tiles along each
-/// row — the outdoor runs in the biome's ground colour, the indoor runs
-/// in boards — rather than a rect a tile, since a town is nine thousand
-/// tiles and most of them are ground. Then, on roughly one outdoor tile
+/// row — the outdoor runs the biome's ground ([`ground_surface`], in
+/// [`ground_color`]), the indoor runs floorboards — rather
+/// than a rect a tile, since a town is nine thousand tiles and most of them are ground. Then, on roughly one outdoor tile
 /// in [`DECORATED_ONE_IN`] with nothing standing on it, the ground's
 /// decoration: a tuft of grass and now and then a flower, a ripple in
 /// the sand or a pebble, a drift of snow.
 fn ground_floor(list: &mut DrawList, grid: &Grid, terrain: &Terrain) {
     let tile = TILE as f32;
+    // A run overlaps the next by a hair, or the feathering of their edges
+    // shows the backdrop between two rows as a seam.
+    let lap = crate::fittings::LAP / 2.0;
     let side = terrain.side;
     for y in 0..side {
         let mut run: Option<(u32, bool)> = None;
@@ -979,17 +941,19 @@ fn ground_floor(list: &mut DrawList, grid: &Grid, terrain: &Terrain) {
             if let Some((x0, outdoor)) = run
                 && here != Some(outdoor)
             {
-                let color = if outdoor {
-                    ground_color(terrain.biome)
+                let (surface, color) = if outdoor {
+                    (ground_surface(terrain.biome), ground_color(terrain.biome))
                 } else {
-                    FLOORBOARD
+                    (Surface::Floorboard, FLOORBOARD)
                 };
-                list.box_between(
-                    x0 as f32 * tile,
-                    y as f32 * tile,
-                    x as f32 * tile,
-                    (y + 1) as f32 * tile,
-                    0.0,
+                list.surface_box(
+                    surface,
+                    (
+                        x0 as f32 * tile - lap,
+                        y as f32 * tile - lap,
+                        x as f32 * tile + lap,
+                        (y + 1) as f32 * tile + lap,
+                    ),
                     color,
                 );
                 run = None;
@@ -1177,15 +1141,20 @@ fn plain(game: &Game, list: &mut DrawList) {
     let deck = |rx: i32, ry: i32| grid.has_floor((rx, ry));
     // A run overlaps its neighbours by a hair, or the feathering of every
     // edge shows the ground between two rows of fog as a seam.
-    let box_run = |picture: &mut DrawList, x0: i32, x1: i32, ry: i32, color: Color| {
-        picture.box_between(
+    let box_run = |picture: &mut DrawList, x0: i32, x1: i32, ry: i32, ground: Ground| {
+        let corners = (
             (x0 + s) as f32 * tile - RUN_LAP,
             (ry + s) as f32 * tile - RUN_LAP,
             (x1 + s) as f32 * tile + RUN_LAP,
             (ry + s + 1) as f32 * tile + RUN_LAP,
-            0.0,
-            color,
         );
+        match ground {
+            Ground::Cliff => picture.surface_box(Surface::Rock, corners, cliff),
+            Ground::Forest => {
+                picture.surface_box(ground_surface(Biome::Temperate), corners, forest)
+            }
+            _ => picture.box_between(corners.0, corners.1, corners.2, corners.3, 0.0, water),
+        }
     };
     for ry in wy0..=wy1 {
         // The runs first: one rect a stretch of the same ground.
@@ -1197,12 +1166,7 @@ fn plain(game: &Game, list: &mut DrawList) {
             if let Some((x0, kind)) = run
                 && here != Some(kind)
             {
-                let color = match kind {
-                    Ground::Water => water,
-                    Ground::Cliff => cliff,
-                    _ => forest,
-                };
-                box_run(&mut picture, x0, rx, ry, color);
+                box_run(&mut picture, x0, rx, ry, kind);
                 if kind == Ground::Cliff {
                     // The lip along the top where the ground above is not
                     // cliff, and the shadow at its foot.
@@ -1346,6 +1310,14 @@ fn hull_tiles(
                 {
                     let c = hull::corner(rotation);
                     list.triangle(m.x as f32, m.y as f32, tile, tile, c.rot, color);
+                    continue;
+                }
+                // The deck is steel plate, a plate a tile, anchored to the
+                // tile so its seams are the grid's.
+                if layer == Layer::Floor {
+                    let (x, y) = (m.x as f32, m.y as f32);
+                    let size = tile + crate::fittings::LAP;
+                    list.surface(Surface::Deck, x, y, size, size, 0.0, (x, y), color);
                     continue;
                 }
                 list.push(
