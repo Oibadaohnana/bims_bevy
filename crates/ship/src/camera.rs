@@ -163,6 +163,22 @@ impl Camera {
         self.pan_y = 0.0;
     }
 
+    /// The shove eased back towards none, `keep` of it kept (task 144:
+    /// the player's own Bim walked by the keys comes back to the middle
+    /// after a middle drag shoved it off). Under half a pixel is none.
+    /// Nothing on a loose camera, which has no shove.
+    pub fn ease_pan(&mut self, keep: f32) {
+        if self.loose {
+            return;
+        }
+        self.pan_x *= keep;
+        self.pan_y *= keep;
+        if self.pan_x.abs() < 0.5 && self.pan_y.abs() < 0.5 {
+            self.pan_x = 0.0;
+            self.pan_y = 0.0;
+        }
+    }
+
     pub fn pan(&mut self, dx: f32, dy: f32) {
         if self.loose {
             // A free camera: the focus goes where it is dragged, unclamped.

@@ -13,7 +13,8 @@
 //! window's top left — the way a harness drives a screen. Move at least a
 //! frame before clicking: egui hit-tests a click against the widgets laid
 //! out on the previous frame. `press`, `move`, `release` (and `rpress`,
-//! `rrelease` for the right button) across several frames are a drag.
+//! `rrelease` for the right button, `mpress`, `mrelease` for the middle)
+//! across several frames are a drag.
 //! `wheel` and `wheelup` at a point are a notch of the wheel, which zooms.
 //! `BIMS_KEYS="60:Escape,90:M"` presses keys. `+Shift` at a frame holds
 //! Shift down and `-Shift` lets it go — the two frames apart, since
@@ -1155,6 +1156,8 @@ fn scripted_input(
             "release" => (MouseButton::Left, &[ButtonState::Released]),
             "rpress" => (MouseButton::Right, &[ButtonState::Pressed]),
             "rrelease" => (MouseButton::Right, &[ButtonState::Released]),
+            "mpress" => (MouseButton::Middle, &[ButtonState::Pressed]),
+            "mrelease" => (MouseButton::Middle, &[ButtonState::Released]),
             _ => continue,
         };
         // Both streams: Bevy's own input reads the typed message, and

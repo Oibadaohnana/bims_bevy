@@ -2330,6 +2330,15 @@ fn frame(
             let (x1, y1) = session.room_point(middle.x + wx * 100.0, middle.y + wy * 100.0);
             angle_code((y1 - y0).atan2(x1 - x0))
         });
+        // Walking brings the Bim back to the middle: a middle drag's shove
+        // on the camera following it eases away while the keys are down.
+        if walk.is_some()
+            && let Some(game) = session.game.as_mut()
+            && game.follow
+        {
+            game.ship_view
+                .ease_pan((-(dt as f32) * RECENTRE_RATE).exp());
+        }
         let aim = on_canvas
             .map(|p| {
                 let (rx, ry) = session.room_point(p.x, p.y);
@@ -4350,6 +4359,11 @@ type CrewOrderControl = (Option<u16>, u16, bool);
 /// alone (task 144): every order is a command every player's copy of the
 /// world applies, and a pointer moves every frame.
 const CONTROL_EVERY: f64 = 0.05;
+
+/// How quickly walking eases a middle drag's shove off the camera, a
+/// second (task 144): the shove falls to `e^(-rate t)` of itself, so a
+/// third of a second takes most of it.
+const RECENTRE_RATE: f32 = 8.0;
 
 /// How far the aim has to have turned, in angle codes, to be said again
 /// on its own: a fifth of a degree.
