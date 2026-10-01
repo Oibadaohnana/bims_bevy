@@ -170,7 +170,11 @@ plus `wire` and `server` (the relay, `bims-server`).
   panel** is egui's (`canvas::paint_shapes`), because egui panels paint an
   opaque fill over anything Bevy draws. A new kind of shape must go
   through `shapes.rs`'s `fill`/`stroke` **and** `pack` + `shape.wgsl`.
-  `BIMS_SHAPES=cpu` is the old path, for comparison.
+  `BIMS_SHAPES=cpu` is the old path, for comparison. Bevy keeps a
+  layer's place in the draw order from when it was queued and re-queues
+  it only on a mesh/material change, never a `Transform`: a layer whose
+  z moves must `set_changed()` its `Mesh2d` (`scene::shape_layer`), or it
+  stays at its old z — the first map's deck under its late backdrop.
 - Anti-aliasing is feathering in `shapes.rs` (`Msaa::Off`). The bloom
   picks up only colours past white (`draw::Color::glowing`);
   `BIMS_BLOOM=0` turns it off.

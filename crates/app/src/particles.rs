@@ -248,7 +248,7 @@ pub fn sync(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ParticleMaterial>>,
     mut buffers: ResMut<Assets<ShaderBuffer>>,
-    mut placed: Query<(&mut Transform, &mut Visibility)>,
+    mut placed: Query<(&mut Transform, &mut Visibility, &mut Mesh2d)>,
 ) {
     let Some((z, clip)) = particles.placed.take().filter(|_| particles_on()) else {
         if let Some(slot) = particles.slot.take() {
@@ -298,8 +298,12 @@ pub fn sync(
         slot.clip = clip;
         slot.rebind = slot.rebind.saturating_sub(1);
     }
-    if let Ok((mut transform, mut visibility)) = placed.get_mut(slot.entity) {
-        transform.set_if_neq(placement);
+    if let Ok((mut transform, mut visibility, mut mesh)) = placed.get_mut(slot.entity) {
+        // A move in the draw order has to be told as a change of mesh, or
+        // Bevy keeps drawing the layer at its old z (`scene::shape_layer`).
+        if transform.set_if_neq(placement) {
+            mesh.set_changed();
+        }
         visibility.set_if_neq(Visibility::Visible);
     }
 }

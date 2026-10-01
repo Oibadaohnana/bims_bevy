@@ -778,7 +778,15 @@ fn shape_layer(
             mesh.0 = quads.of(meshes, room);
             slot.room = room;
         }
-        transform.set_if_neq(placement(z));
+        // Bevy keeps a blended mesh's place in the draw order from the
+        // frame it was queued, and queues it again only when its mesh or
+        // material changes — never for a transform. A layer that moved up
+        // (the station's backdrop came in under the deck a few frames into
+        // a run) stayed at its old z, under the backdrop: no deck until a
+        // zoom grew the buffer. So a move is told as a change of mesh.
+        if transform.set_if_neq(placement(z)) {
+            mesh.set_changed();
+        }
         visibility.set_if_neq(Visibility::Visible);
     }
 }
