@@ -3743,8 +3743,8 @@ fn a_recruited_bim_shoots_the_machines_it_can_see_and_they_are_hurt() {
     let stats = world.aboard.room.weapon_stats(0).unwrap();
     assert_eq!(stats.dps(), stats.fire_rate * stats.damage);
     assert!(
-        (stats.hit_chance(10.0) - 0.732).abs() < 0.01,
-        "the pistol at ten tiles"
+        (stats.hit_chance(10.0) - 0.680).abs() < 0.01,
+        "the pistol at ten tiles (0.732 before October 2026 cut its reach)"
     );
     world.step(&[]);
     assert!(!world.aboard.room.is_armed(0), "holstered");

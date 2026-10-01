@@ -968,7 +968,11 @@ seconds; auto rifle range 26, sweet 8, 0.765/0.45, 6/4.8, speed 22,
 two to recharge) — since October 2026 no burst, four pulls a second at
 3/2.4; sniper rifle range 35, sweet 20, 0.9/0.63, 54/30,
 speed 60, one every four seconds; schword 42 a swing, its odds left at 1
-since a swing lands by reach and not by a roll. A body is 75, so no
+since a swing lands by reach and not by a roll. **October 2026** took three
+tenths off every `range` and `sweet` but the shotgun's and the blades'
+(schword, claw): pistol 15.4 (0.68 at ten tiles), auto rifle 18.2/5.6,
+sniper 24.5/14, minigun 14/4.2, rail lance 23.8/14, Unmaker 14/7,
+Sweeper 14/5.6; the numbers above are from before it. A body is 75, so no
 single shot but a head shot kills. The constants beside them:
 `MELEE_RANGE = 1.2` tiles, `FIST_DAMAGE = 20`, `MELEE_PERIOD = 2.0` s,
 `SWING_TIME = 0.5` s, `DODGE_IN_COVER = 0.5`, and `WALKING_ACCURACY =
@@ -1370,8 +1374,8 @@ prints the curves itself.
   cover near it wins and the cover across the station does not; the
   **weapon's fit** (`Tactics::fit`: its own `dps_at` the distance less the
   target's weapon's, as a share of the better of the two at nought, −1 to
-  1) is worth `FIT_WORTH` (30) either way — the sniper rifle at twenty
-  tiles, the shotgun inside four, the auto rifle just past a pistol's
+  1) is worth `FIT_WORTH` (30) either way — the sniper rifle at fourteen
+  tiles and more, the shotgun inside four, the auto rifle just past a pistol's
   twelve, every gun out of a blade's reach, and two pistols a match; then
   `DISTANCE_WORTH` (1) a tile of range for what is left; less
   `WALK_COST_PER_TILE` (0.5) a tile of walking, plus `STAY_BONUS` (2) for

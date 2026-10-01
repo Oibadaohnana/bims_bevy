@@ -71,10 +71,16 @@ pub const AIM_SPREAD: f32 = 0.25;
 // The second tuning of September 2026: every gun's damage up a fifth and
 // its odds down a tenth, the pistol's and the auto rifle's range up ten
 // tiles. The blade keeps its odds — a swing lands by reach, not by a roll.
+//
+// October 2026: every weapon's `range` and `sweet` cut by three tenths —
+// the guns here, the minigun and the rail lance, and the machines'
+// Unmaker and Sweeper — all but the shotgun and the blades (the Schword,
+// the Husk's claws). The notes give the numbers they had before.
 
-/// The pistol everybody is issued: quick, light, twenty-two tiles.
+/// The pistol everybody is issued: quick, light, fifteen and a half
+/// tiles (twenty-two before October 2026).
 pub const LASER_PISTOL: WeaponStats = WeaponStats {
-    range: 22.0,
+    range: 15.4,
     sweet: 0.0,
     accuracy: 0.855,
     accuracy_far: 0.585,
@@ -107,13 +113,14 @@ pub const SHOTGUN: WeaponStats = WeaponStats {
 };
 
 /// Four light shots a second for as long as the trigger is held, no
-/// burst and no recharge; full out to eight tiles, reaching twenty-six.
+/// burst and no recharge; full out to 5.6 tiles, reaching 18.2 (eight
+/// and twenty-six before October 2026's cut).
 /// It fired eight-shot bursts of 6 (4.8 far) every four seconds until
 /// October 2026; the bursts went and each shot lost 3, the far one in
 /// proportion, so a second's damage is the twelve it was.
 pub const AUTO_RIFLE: WeaponStats = WeaponStats {
-    range: 26.0,
-    sweet: 8.0,
+    range: 18.2,
+    sweet: 5.6,
     accuracy: 0.765,
     accuracy_far: 0.45,
     damage: 3.0,
@@ -127,11 +134,11 @@ pub const AUTO_RIFLE: WeaponStats = WeaponStats {
     strips_far: 0.0,
 };
 
-/// Nine in ten at twenty tiles, fewer at thirty-five; one shot every
-/// four seconds.
+/// Nine in ten at fourteen tiles, fewer at 24.5 (twenty and thirty-five
+/// before October 2026); one shot every four seconds.
 pub const SNIPER_RIFLE: WeaponStats = WeaponStats {
-    range: 35.0,
-    sweet: 20.0,
+    range: 24.5,
+    sweet: 14.0,
     accuracy: 0.9,
     accuracy_far: 0.63,
     damage: 54.0,
@@ -175,7 +182,8 @@ pub const SCHWORD: WeaponStats = WeaponStats {
 /// seconds of fire — and the rest of a five-second cycle to cool. No
 /// spin-up, no heat, no pace penalty: the burst, the trigger and the hit
 /// are every gun's. At tier two (its lowest) that is 5.5 a bolt at 0.85
-/// odds out to its sweet six tiles, reaching twenty.
+/// odds out to its sweet 4.2 tiles, reaching fourteen (six and twenty
+/// before October 2026).
 ///
 /// What it does a second in its sweet range, body hits on whole armour,
 /// against the tier-two auto rifle beside it:
@@ -190,8 +198,8 @@ pub const SCHWORD: WeaponStats = WeaponStats {
 /// bolts each lose the protection — the auto rifle's, lighter still
 /// since its bursts went, the more so.
 pub const MINIGUN: WeaponStats = WeaponStats {
-    range: 20.0,
-    sweet: 6.0,
+    range: 14.0,
+    sweet: 4.2,
     accuracy: 0.68,
     accuracy_far: 0.36,
     damage: 4.4,
@@ -208,8 +216,8 @@ pub const MINIGUN: WeaponStats = WeaponStats {
 /// One slug every five seconds that **goes through**: it strikes up to
 /// [`LANCE_PIERCE`] bodies along its line, the n-th (from nought) at the
 /// damage at the distance flown times [`LANCE_FALLOFF`] to the n. At tier
-/// three (its only tier) that is 75 a slug at 0.945 odds out to 24 tiles,
-/// reaching 40.8.
+/// three (its only tier) that is 75 a slug at 0.945 odds out to 16.8
+/// tiles, reaching 28.56 (24 and 40.8 before October 2026).
 ///
 /// Against one target the tier-three sniper rifle does about 21 a second
 /// (84.4 at certain odds, one every four) and the lance about 14 (75 at
@@ -218,8 +226,8 @@ pub const MINIGUN: WeaponStats = WeaponStats {
 /// the front stop it; a tank's *interpose* spends it. See
 /// `crate::combat::Combat::step`.
 pub const RAIL_LANCE: WeaponStats = WeaponStats {
-    range: 34.0,
-    sweet: 20.0,
+    range: 23.8,
+    sweet: 14.0,
     accuracy: 0.72,
     accuracy_far: 0.52,
     damage: 48.0,
@@ -310,8 +318,8 @@ pub const CLAW: WeaponStats = WeaponStats {
 /// ignored, and the part itself takes nothing; a bare part takes the
 /// plain damage. See `crate::combat::Combat::strip`.
 pub const UNMAKER: WeaponStats = WeaponStats {
-    range: 20.0,
-    sweet: 10.0,
+    range: 14.0,
+    sweet: 7.0,
     accuracy: 0.8,
     accuracy_far: 0.55,
     damage: 6.0,
@@ -351,8 +359,8 @@ pub const GUARDIAN_BODY: [f32; 4] = [16.0, 110.0, 25.0, 30.0];
 /// full reach. `speed` is a bolt's pace, for a beam that is nothing; it is
 /// what a Sweeper would fly at were it fired as a bolt.
 pub const SWEEPER: WeaponStats = WeaponStats {
-    range: 20.0,
-    sweet: 8.0,
+    range: 14.0,
+    sweet: 5.6,
     accuracy: 1.0,
     accuracy_far: 0.4,
     damage: 30.0,
