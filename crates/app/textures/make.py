@@ -344,7 +344,7 @@ def grass():
     h = blur(lum, 0.8) * 6.0
     rgb = rgb * (lit(h, 1.2) * occlusion(h, 3.0, 0.5))[..., None]
     rgb *= 1.0 + 0.10 * spectral(rng, 2.0, lo=2, hi=40)[..., None]
-    finish("grass", rgb, (0.36, 0.46, 0.28))
+    finish("grass", rgb, (0.27, 0.35, 0.21))
 
 
 def sand():
@@ -402,7 +402,7 @@ def sand():
     base = mix(base, peb[..., :3], peb[..., 3])
     h = h + ph
     rgb = base * (lit(h, 0.9) * occlusion(ph, 2.0, 0.6))[..., None]
-    finish("sand", rgb, (0.58, 0.46, 0.30))
+    finish("sand", rgb, (0.44, 0.35, 0.23))
 
 
 def snow():
@@ -422,7 +422,7 @@ def snow():
     glints = (rng.random((N, N)) < 0.0012) & (shade > 1.0)
     rgb[glints] = np.array([1.6, 1.6, 1.6])
     rgb = blur(rgb, 0.35)
-    finish("snow", rgb, (0.64, 0.70, 0.76))
+    finish("snow", rgb, (0.47, 0.51, 0.56))
 
 
 def rock():

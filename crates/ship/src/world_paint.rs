@@ -153,10 +153,13 @@ const CACHE_PULSE: f32 = 90.0;
 /// (`ground_floor`), so where the settlement's deck ends is invisible
 /// and the wild ring is what marks the edge of the ground. Each is the
 /// average of its texture ([`ground_surface`]), which makes it ground and
-/// not a colour. The pad under the ship: concrete, with a lighter border.
-const SAND: Color = Color::rgb(0.58, 0.46, 0.30);
-const GRASS: Color = Color::rgb(0.36, 0.46, 0.28);
-const SNOW: Color = Color::rgb(0.64, 0.70, 0.76);
+/// not a colour. Taken down a quarter from (0.58, 0.46,
+/// 0.30), (0.36, 0.46, 0.28) and (0.64, 0.70, 0.76) when the player found
+/// the Bims hard to pick out on it. The pad under the ship: concrete,
+/// with a lighter border.
+const SAND: Color = Color::rgb(0.44, 0.35, 0.23);
+const GRASS: Color = Color::rgb(0.27, 0.35, 0.21);
+const SNOW: Color = Color::rgb(0.47, 0.51, 0.56);
 /// The floor inside a town's buildings: boards, warmer than a deck.
 const FLOORBOARD: Color = Color::rgb(0.36, 0.28, 0.20);
 /// What is scattered over the ground between the wild: a tuft of grass
@@ -165,7 +168,7 @@ const FLOORBOARD: Color = Color::rgb(0.36, 0.28, 0.20);
 const TUFT: Color = Color::rgba(0.16, 0.26, 0.12, 0.7);
 const FLOWER: Color = Color::rgb(0.94, 0.82, 0.70);
 const RIPPLE: Color = Color::rgba(1.0, 0.94, 0.80, 0.30);
-const PEBBLE: Color = Color::rgb(0.46, 0.36, 0.24);
+const PEBBLE: Color = Color::rgb(0.35, 0.27, 0.18);
 const DRIFT: Color = Color::rgba(0.80, 0.88, 0.96, 0.55);
 /// Roughly one outdoor tile in this many carries a decoration.
 const DECORATED_ONE_IN: u32 = 6;
