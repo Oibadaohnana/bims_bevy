@@ -5056,7 +5056,12 @@ mod tests {
             let stand = plan(&[]);
             assert!(stand.cover, "the bags are cover: {:?}", stand.at);
             let (x, y) = sight.tile_of(stand.at);
-            assert_eq!(x, 9, "just this side of the bags, at ({x}, {y})");
+            // The tile beside the bags or the one behind it: both are within
+            // the reach, and the nearer walk wins.
+            assert!(
+                x == 8 || x == 9,
+                "just this side of the bags, at ({x}, {y})"
+            );
             // A squadmate already on that tile: the next one picks another,
             // still behind the bags.
             let second = plan(&[stand.at]);
@@ -5066,7 +5071,7 @@ mod tests {
                 "the next tile of the barricade: {:?}",
                 second.at
             );
-            assert_eq!(sight.tile_of(second.at).0, 9);
+            assert!(matches!(sight.tile_of(second.at).0, 8 | 9));
             assert!(sight.covered(stand.at, target));
             // And the body sees the target from there — no peek needed.
             let (body, _) = views(&sight, stand.at, target);
@@ -5089,12 +5094,19 @@ mod tests {
                 own
             };
             let behind = landed(&sight, middle(9.0, 3.0));
+            let back = landed(&sight, middle(8.0, 3.0));
+            let past = landed(&sight, middle(7.0, 3.0));
             let on_top = landed(&sight, middle(10.0, 3.0));
             assert!(on_top > 300, "{on_top} of 400 on the bags");
             assert!(
                 behind > on_top / 2 - 40 && behind < on_top / 2 + 40,
                 "{behind} of 400 behind them, {on_top} on them"
             );
+            assert!(
+                back > on_top / 2 - 40 && back < on_top / 2 + 40,
+                "{back} of 400 a tile back from them, {on_top} on them"
+            );
+            assert!(past > 300, "{past} of 400 two tiles back: past the reach");
         }
     }
 

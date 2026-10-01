@@ -155,9 +155,10 @@ fn noise(lamp: usize, slot: u32) -> f32 {
 }
 
 /// How close behind low cover a body has to stand to be covered by it,
-/// in tiles from the body to the sandbags' middle: the tile beside it,
-/// diagonals included, and no further.
-pub const COVER_REACH: f32 = 1.5;
+/// in whole tiles from the body's tile to the sandbags' tile, across,
+/// down or diagonally: the tile beside the bags or one tile back from
+/// them, and no further.
+pub const COVER_REACH: i32 = 2;
 
 /// Whose a structure is, to the crew: the world's word, which decides
 /// whether its people are at war with the crew. The fog is the same over
@@ -925,7 +926,7 @@ impl Sight {
     /// [`Sight::covered`] with the tile of cover that does it, for the
     /// bolt it stopped to be taken off the bags (`Combat::cover_hits`).
     pub fn cover_between(&self, body: Vec2, from: Vec2) -> Option<(i32, i32)> {
-        self.cover_along(body, from, Some(COVER_REACH * self.tile))
+        self.cover_along(body, from, Some(COVER_REACH))
     }
 
     /// The same at any distance: whether sandbags lie anywhere on the
@@ -936,8 +937,9 @@ impl Sight {
         self.cover_along(body, from, None)
     }
 
-    fn cover_along(&self, body: Vec2, from: Vec2, reach: Option<f32>) -> Option<(i32, i32)> {
+    fn cover_along(&self, body: Vec2, from: Vec2, reach: Option<i32>) -> Option<(i32, i32)> {
         let (mut x, mut y) = self.tile_of(body);
+        let (bx, by) = (x, y);
         let (tx, ty) = self.tile_of(from);
         if (x, y) == (tx, ty) || self.cover_at(x, y) {
             return None;
@@ -973,7 +975,7 @@ impl Sight {
             // Past the reach, or at the shooter: nothing between counts.
             if t >= 1.0
                 || (x, y) == (tx, ty)
-                || reach.is_some_and(|reach| (self.middle(x, y) - body).len() > reach)
+                || reach.is_some_and(|reach| (x - bx).abs().max((y - by).abs()) > reach)
             {
                 return None;
             }
@@ -2619,8 +2621,8 @@ mod tests {
 
     /// Sandbags at (5, 5) in an open room: a body just south of them is
     /// covered from the north and from nowhere else, one standing on them
-    /// is in the open, and one two tiles back is past the reach — a bolt
-    /// comes over.
+    /// is in the open, one a tile further back is still behind them, and
+    /// one three tiles back is past the reach — a bolt comes over.
     #[test]
     fn a_body_close_behind_sandbags_is_covered_from_across_them_and_from_nowhere_else() {
         let room = Rect::from_min_size(Vec2::ZERO, vec2(12.0 * TILE, 12.0 * TILE));
@@ -2650,8 +2652,16 @@ mod tests {
             "standing on them is the open"
         );
         assert!(
+            sight.covered(middle(5.0, 7.0), middle(5.0, 1.0)),
+            "one tile back from the bags is still behind them"
+        );
+        assert!(
+            sight.covered(middle(7.0, 7.0), middle(2.0, 2.0)),
+            "and one tile back on the diagonal"
+        );
+        assert!(
             !sight.covered(middle(5.0, 8.0), middle(5.0, 1.0)),
-            "two tiles back is past the reach"
+            "three tiles back is past the reach"
         );
         // Diagonally behind counts too: the sandbags' middle is within the
         // reach and on the line.

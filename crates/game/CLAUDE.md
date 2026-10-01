@@ -1334,9 +1334,10 @@ prints the curves itself.
   of this kind. `Layout::cover` collects them and the room hands them to
   `Sight::set_cover` (part of the fixed picture, so `set_shut` keeps
   them). `Sight::covered(body, from)` is the rule: a cover tile on the
-  straight line from the body towards `from` within `COVER_REACH` (1.5)
-  tiles of the body — the tile beside it, diagonals in — and the body not
-  standing on the bags itself. Two places read it: `Combat::step` dodges
+  straight line from the body towards `from` within `COVER_REACH` (2)
+  whole tiles of the body's tile — the tile beside the bags or one tile
+  back from them, diagonals in (October 2026; it was the tile beside them
+  alone) — and the body not standing on the bags itself. Two places read it: `Combat::step` dodges
   a bolt reaching a covered body with `DODGE_IN_COVER`, the same roll as
   a peek, for its own bodies and for the targets alike, each room off its
   own mask (the joined deck has the station's bags; the residents' room
@@ -1346,7 +1347,7 @@ prints the curves itself.
   each arm (`crates/world/CLAUDE.md`).
   `sandbags_are_a_stand_the_tactics_take_and_half_the_bolts_over_them_are_dodged`
   in `combat::tests` and `sight::tests` pin it. A body *on* the bags is
-  in the open, and one two tiles back is past the reach — a bolt comes
+  in the open, and one three tiles back is past the reach — a bolt comes
   over. **`Game::cover_of(who)`** is the picture's reading of the same
   two rules — peeking, or bags between the body and a live (not stale)
   target — answering the threat's point, for the app's curved blue wall
