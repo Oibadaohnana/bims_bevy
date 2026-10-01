@@ -91,6 +91,12 @@ desktop):
   multiple of `sound.rs`'s level — one a clip, plus the weapons that
   borrow a clip; also read again when saved. A new `Clip` wants its line
   in `sound.rs`'s `volumes!` and in the file (its test says so).
+  `weapons.ron` (`BIMS_WEAPONS`) is every weapon's damage, `(near,
+  far)` at tier one (`bims::balance::WeaponDamage`), armed for every
+  room in the process (`WeaponKind::stats` reads it) and read again
+  when saved; neither saved nor hashed, so two players' files have to
+  agree. Keep it at the constants — its test says so; tune the
+  constants in `balance.rs` for good.
 - Two-player runs: a relay (`PORT=18792 target/debug/bims-server`),
   `BIMS_SERVER=ws://127.0.0.1:18792`, `BIMS_AUTO=create` on the host and
   `BIMS_AUTO=join:<code>` on the guest; `scratchpad/duo_resync.sh` is a

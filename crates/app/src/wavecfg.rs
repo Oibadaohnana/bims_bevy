@@ -11,6 +11,10 @@
 //! - `audio.ron` (or `BIMS_AUDIO`) holds a [`crate::sound::Volumes`]: the
 //!   player's volume for each sound, handed to the sound player rather
 //!   than the world.
+//! - `weapons.ron` (or `BIMS_WEAPONS`) holds a
+//!   [`bims::balance::WeaponDamage`]: every weapon's damage near and far,
+//!   armed for every room in the process rather than handed to the world,
+//!   and taken from the next shot.
 //!
 //! Each file is looked at twice a second; when it changes it is read again
 //! and the world is handed the new dials, which the next wave laid, the
@@ -29,6 +33,8 @@
 //! setup left them as the file had them.
 
 use bevy::prelude::*;
+use bims::balance::WeaponDamage;
+use bims::combat::WeaponKind;
 use std::path::PathBuf;
 use std::time::SystemTime;
 use world::droid::{Difficulty, WaveScaling};
@@ -47,12 +53,14 @@ impl Plugin for WaveConfigPlugin {
         app.insert_resource(Watched::<WaveScaling>::new())
             .insert_resource(Watched::<Rewards>::new())
             .insert_resource(Watched::<Volumes>::new())
+            .insert_resource(Watched::<WeaponDamage>::new())
             .add_systems(
                 Update,
                 (
                     (reload::<WaveScaling>, apply::<WaveScaling>).chain(),
                     (reload::<Rewards>, apply::<Rewards>).chain(),
                     (reload::<Volumes>, hear).chain(),
+                    (reload::<WeaponDamage>, arm).chain(),
                 ),
             );
     }
@@ -147,6 +155,27 @@ impl Tuning for Volumes {
             .collect();
         if turned.is_empty() {
             "every sound as built".into()
+        } else {
+            turned.join(", ")
+        }
+    }
+}
+
+impl Tuning for WeaponDamage {
+    const FILE: &'static str = "weapons.ron";
+    const ENV: &'static str = "BIMS_WEAPONS";
+    const UNTUNED: Self = WeaponDamage::DEFAULT;
+    fn describe(&self) -> String {
+        let turned: Vec<String> = WeaponKind::EVERY
+            .iter()
+            .filter(|&&kind| self.of(kind) != WeaponDamage::DEFAULT.of(kind))
+            .map(|&kind| {
+                let (near, far) = self.of(kind);
+                format!("{kind:?} {near}/{far}")
+            })
+            .collect();
+        if turned.is_empty() {
+            "every weapon's damage as built".into()
         } else {
             turned.join(", ")
         }
@@ -321,6 +350,13 @@ fn hear(watched: Res<Watched<Volumes>>, sounds: Option<ResMut<Sounds>>) {
     }
 }
 
+/// Arm the file's damage for every room whenever the armed differ.
+fn arm(watched: Res<Watched<WeaponDamage>>) {
+    if WeaponDamage::armed() != watched.dials {
+        watched.dials.arm();
+    }
+}
+
 /// Hand the world the dials whenever its own differ: a new file, a new
 /// game, a restart or a load.
 fn apply<T: Dials>(watched: Res<Watched<T>>, session: Option<ResMut<ShipSession>>) {
@@ -351,6 +387,8 @@ mod tests {
         assert!(parse::<WaveScaling>(text).is_ok());
         let text = include_str!("../../../rewards.ron");
         assert_eq!(parse(text), Ok(Rewards::DEFAULT));
+        let text = include_str!("../../../weapons.ron");
+        assert_eq!(parse(text), Ok(WeaponDamage::DEFAULT));
     }
 
     /// Save as default puts the three numbers in and leaves every other
@@ -398,5 +436,8 @@ mod tests {
         let r: Rewards = parse("(buyback: 3)").unwrap();
         assert_eq!(r.buyback, 3);
         assert_eq!(r.bounty, Rewards::DEFAULT.bounty);
+        let w: WeaponDamage = parse("(auto_rifle: (9.0, 8.0))").unwrap();
+        assert_eq!(w.of(WeaponKind::AutoRifle), (9.0, 8.0));
+        assert_eq!(w.laser_pistol, WeaponDamage::DEFAULT.laser_pistol);
     }
 }

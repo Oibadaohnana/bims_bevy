@@ -36,7 +36,7 @@
 //!
 //! What a body *has* — one bar of hit points — is `crate::health`.
 
-use crate::combat::{ArmourStats, WeaponStats};
+use crate::combat::{ArmourStats, WeaponKind, WeaponStats};
 
 // ---- The melee ----
 
@@ -117,14 +117,16 @@ pub const SHOTGUN: WeaponStats = WeaponStats {
 /// and twenty-six before October 2026's cut).
 /// It fired eight-shot bursts of 6 (4.8 far) every four seconds until
 /// October 2026; the bursts went and each shot lost 3, the far one in
-/// proportion, so a second's damage is the twelve it was.
+/// proportion, so a second's damage was the twelve it had been. Later in
+/// October 2026 each shot gained 2, near and far (3 and 2.4 before):
+/// twenty a second in its sweet range.
 pub const AUTO_RIFLE: WeaponStats = WeaponStats {
     range: 18.2,
     sweet: 5.6,
     accuracy: 0.765,
     accuracy_far: 0.45,
-    damage: 3.0,
-    damage_far: 2.4,
+    damage: 5.0,
+    damage_far: 4.4,
     speed: 22.0,
     fire_rate: 4.0,
     burst: 1,
@@ -190,13 +192,13 @@ pub const SCHWORD: WeaponStats = WeaponStats {
 ///
 /// | against | tier-2 minigun | tier-2 auto rifle |
 /// | --- | --- | --- |
-/// | a droid (no armour) | 18.7 | 14.3 |
-/// | tier-2 kevlar (protection 3) | 8.5 | 2.9 |
-/// | tier-3 kevlar (protection 4.5) | 3.4 | 0.0 |
+/// | a droid (no armour) | 18.7 | 23.9 |
+/// | tier-2 kevlar (protection 3) | 8.5 | 12.4 |
+/// | tier-3 kevlar (protection 4.5) | 3.4 | 6.7 |
 ///
 /// So it shreds the machines and bounces off good armour: many light
-/// bolts each lose the protection — the auto rifle's, lighter still
-/// since its bursts went, the more so.
+/// bolts each lose the protection. (The auto rifle's column was 14.3,
+/// 2.9 and 0.0 until its shots gained 2 in October 2026.)
 pub const MINIGUN: WeaponStats = WeaponStats {
     range: 14.0,
     sweet: 4.2,
@@ -247,6 +249,93 @@ pub const LANCE_PIERCE: usize = 3;
 /// the n-th body (from nought) takes `LANCE_FALLOFF`ⁿ of it — 1, 0.6,
 /// 0.36.
 pub const LANCE_FALLOFF: f32 = 0.6;
+
+// ---- The damage as dials (October 2026) ----
+
+/// Every weapon's damage, near (within `sweet`) and far (at `range`), as
+/// dials the app tunes while the game runs — `weapons.ron` at the root,
+/// beside `rewards.ron` (`BIMS_WEAPONS` names another). What the dials
+/// say stands over the kind's `damage` and `damage_far` above in
+/// [`WeaponKind::stats`], so a tier, a talent and a broken arm scale the
+/// tuned number the way they scaled the constant.
+///
+/// The default is the constants, so a room never told fights as they
+/// say. The dials are one table for the whole process
+/// ([`WeaponDamage::arm`]), **neither saved nor hashed**: what they
+/// decide — the wounds — is. In a two-player run each game reads its own
+/// file, and the two have to agree.
+#[derive(Clone, Copy, PartialEq, Debug)]
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Serialize, serde::Deserialize),
+    serde(default)
+)]
+pub struct WeaponDamage {
+    /// The crew's weapons, each `(near, far)`.
+    pub laser_pistol: (f32, f32),
+    pub shotgun: (f32, f32),
+    pub auto_rifle: (f32, f32),
+    pub sniper_rifle: (f32, f32),
+    pub schword: (f32, f32),
+    pub minigun: (f32, f32),
+    pub rail_lance: (f32, f32),
+    /// The machines' built-in arms.
+    pub claw: (f32, f32),
+    pub unmaker: (f32, f32),
+    pub sweeper: (f32, f32),
+}
+
+impl WeaponDamage {
+    /// The constants: the fight as it plays untuned.
+    pub const DEFAULT: WeaponDamage = WeaponDamage {
+        laser_pistol: (LASER_PISTOL.damage, LASER_PISTOL.damage_far),
+        shotgun: (SHOTGUN.damage, SHOTGUN.damage_far),
+        auto_rifle: (AUTO_RIFLE.damage, AUTO_RIFLE.damage_far),
+        sniper_rifle: (SNIPER_RIFLE.damage, SNIPER_RIFLE.damage_far),
+        schword: (SCHWORD.damage, SCHWORD.damage_far),
+        minigun: (MINIGUN.damage, MINIGUN.damage_far),
+        rail_lance: (RAIL_LANCE.damage, RAIL_LANCE.damage_far),
+        claw: (CLAW.damage, CLAW.damage_far),
+        unmaker: (UNMAKER.damage, UNMAKER.damage_far),
+        sweeper: (SWEEPER.damage, SWEEPER.damage_far),
+    };
+
+    /// A kind's `(near, far)`.
+    pub fn of(&self, kind: WeaponKind) -> (f32, f32) {
+        match kind {
+            WeaponKind::LaserPistol => self.laser_pistol,
+            WeaponKind::Shotgun => self.shotgun,
+            WeaponKind::AutoRifle => self.auto_rifle,
+            WeaponKind::SniperRifle => self.sniper_rifle,
+            WeaponKind::Schword => self.schword,
+            WeaponKind::Minigun => self.minigun,
+            WeaponKind::RailLance => self.rail_lance,
+            WeaponKind::Claw => self.claw,
+            WeaponKind::Unmaker => self.unmaker,
+            WeaponKind::Sweeper => self.sweeper,
+        }
+    }
+
+    /// The dials every room fights by now.
+    pub fn armed() -> WeaponDamage {
+        *ARMED.read().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// Make these the dials every room fights by, from the next shot.
+    pub fn arm(self) {
+        *ARMED.write().unwrap_or_else(|e| e.into_inner()) = self;
+    }
+}
+
+impl Default for WeaponDamage {
+    fn default() -> WeaponDamage {
+        WeaponDamage::DEFAULT
+    }
+}
+
+/// What [`WeaponDamage::armed`] hands out: the constants until the app
+/// arms others.
+static ARMED: std::sync::RwLock<WeaponDamage> = std::sync::RwLock::new(WeaponDamage::DEFAULT);
 
 // ---- The armour ----
 

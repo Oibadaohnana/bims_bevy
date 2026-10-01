@@ -966,7 +966,7 @@ user asked for, after that tuning: shotgun range 10, sweet 4,
 seconds; auto rifle range 26, sweet 8, 0.765/0.45, 6/4.8, speed 22,
 `burst 8`, `burst_gap 0.25`, one pull every four seconds (eight in two,
 two to recharge) — since October 2026 no burst, four pulls a second at
-3/2.4; sniper rifle range 35, sweet 20, 0.9/0.63, 54/30,
+3/2.4, and later that month 5/4.4; sniper rifle range 35, sweet 20, 0.9/0.63, 54/30,
 speed 60, one every four seconds; schword 42 a swing, its odds left at 1
 since a swing lands by reach and not by a roll. **October 2026** took three
 tenths off every `range` and `sweet` but the shotgun's and the blades'

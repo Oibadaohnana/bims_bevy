@@ -1,0 +1,31 @@
+// What each weapon does a hit, tuned while the game runs.
+//
+// The game reads this file again whenever it is saved (BIMS_WEAPONS names
+// another). The next shot fired takes the new numbers. A weapon left out is
+// the built-in value, and a file that does not parse keeps the last good
+// numbers (the reason is printed on the terminal).
+//
+// Each weapon is (near, far): the damage a hit does within the weapon's
+// sweet range, and at its full range, falling in a straight line between.
+// These are tier-one numbers: tier two does a quarter more, tier three a
+// quarter more again, and armour's protection comes off what is left. A
+// blade's two are the same, since it only reaches a tile.
+//
+// In a two-player run each game reads its own file, and the two have to
+// agree.
+//
+// The values below are the built-in ones.
+(
+    laser_pistol: (7.2, 7.2),
+    shotgun: (60.0, 36.0),
+    auto_rifle: (5.0, 4.4),
+    sniper_rifle: (54.0, 30.0),
+    schword: (42.0, 42.0),
+    minigun: (4.4, 3.2),
+    rail_lance: (48.0, 32.0),
+
+    // The machines' built-in arms.
+    claw: (20.0, 20.0),
+    unmaker: (6.0, 4.0),
+    sweeper: (30.0, 30.0),
+)

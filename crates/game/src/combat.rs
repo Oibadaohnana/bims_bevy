@@ -329,8 +329,20 @@ impl WeaponKind {
 
     /// The weapon's numbers: one table, `crate::balance`, for a native
     /// server to agree with and for tuning. See the module note on the
-    /// two-point curves.
+    /// two-point curves. The damage, near and far, is the armed
+    /// [`balance::WeaponDamage`]'s — the constants unless the app's
+    /// `weapons.ron` says otherwise.
     pub fn stats(self) -> WeaponStats {
+        let (damage, damage_far) = balance::WeaponDamage::armed().of(self);
+        WeaponStats {
+            damage,
+            damage_far,
+            ..self.untuned()
+        }
+    }
+
+    /// The kind's `balance` row as written, the damage untuned.
+    fn untuned(self) -> WeaponStats {
         match self {
             WeaponKind::LaserPistol => balance::LASER_PISTOL,
             WeaponKind::Shotgun => balance::SHOTGUN,
@@ -4579,15 +4591,16 @@ mod tests {
         assert!((sniper.hit_chance(24.5) - 0.63).abs() < 1e-6);
         assert_eq!(sniper.damage_at(24.5), 30.0);
 
-        // No burst: four threes a second, steadily, as much a second as
-        // the eight sixes every four seconds it had; the rifle reaches
-        // 18.2 tiles, full to 5.6 (twenty-six and eight before October
-        // 2026 took three tenths off every reach bar the shotgun's).
+        // No burst: four fives a second, steadily (four threes, as much
+        // a second as the eight sixes every four seconds it had, until
+        // each shot gained 2); the rifle reaches 18.2 tiles, full to 5.6
+        // (twenty-six and eight before October 2026 took three tenths
+        // off every reach bar the shotgun's).
         let rifle = WeaponKind::AutoRifle.stats();
         assert_eq!((rifle.burst, rifle.fire_rate), (1, 4.0));
-        assert_eq!((rifle.damage, rifle.damage_far), (3.0, 2.4));
+        assert_eq!((rifle.damage, rifle.damage_far), (5.0, 4.4));
         assert_eq!((rifle.range, rifle.sweet), (18.2, 5.6));
-        assert!((rifle.dps() - 12.0).abs() < 1e-5);
+        assert!((rifle.dps() - 20.0).abs() < 1e-5);
 
         // A blade reaches a tile and a bit, and swings every two seconds.
         let blade = WeaponKind::Schword.stats();
@@ -4638,11 +4651,11 @@ mod tests {
         };
         let rifle_two = WeaponKind::AutoRifle.at(Tier::Two);
         assert!((dps(mini, 0.0) - 18.7).abs() < 0.05);
-        assert!((dps(rifle_two, 0.0) - 14.3).abs() < 0.05);
+        assert!((dps(rifle_two, 0.0) - 23.9).abs() < 0.05);
         assert!((dps(mini, 3.0) - 8.5).abs() < 0.05);
-        assert!((dps(rifle_two, 3.0) - 2.9).abs() < 0.05);
+        assert!((dps(rifle_two, 3.0) - 12.4).abs() < 0.05);
         assert!((dps(mini, 4.5) - 3.4).abs() < 0.05);
-        assert!(dps(rifle_two, 4.5).abs() < 0.05);
+        assert!((dps(rifle_two, 4.5) - 6.7).abs() < 0.05);
         let sniper_three = WeaponKind::SniperRifle.at(Tier::Three);
         assert!((dps(sniper_three, 0.0) - 21.1).abs() < 0.05);
         assert!((dps(lance, 0.0) - 14.2).abs() < 0.05);
