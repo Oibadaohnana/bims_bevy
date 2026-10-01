@@ -450,7 +450,7 @@ fn controls(ui: &mut egui::Ui, sheet: &mut Option<Sheet>, keys: &mut Keys) {
             ),
             (
                 "Shift, walking",
-                "Sprint: the Bim you steer runs a third again as fast, facing the way it runs, its weapon across its chest — it fires nothing until you let go.",
+                "Sprint: the Bim you steer runs at 1.6 times its walking pace, facing the way it runs, its weapon across its chest — it fires nothing until you let go.",
             ),
             (
                 "Alt",

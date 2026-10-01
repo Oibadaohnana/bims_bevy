@@ -4767,7 +4767,7 @@ world's (`crates/world/CLAUDE.md`, "Items, step two").
 - **`Steer::sprint`** (serde default; `CrewOrder::Control`'s fourth
   field, said only while a walk key is down) is Shift.
   `Character::is_sprinting` — Shift and a walk, up and not rolling —
-  multiplies the keys' walk by `balance::SPRINT` (1.35) and turns the
+  multiplies the keys' walk by `balance::SPRINT` (1.6) and turns the
   body to the way it runs at `SPRINT_TURN` instead of to the pointer,
   back on the pointer at once when it ends.
 - **`CrewOrder::Dodge`** (appended last) is Alt, `Game::order_dodge`:

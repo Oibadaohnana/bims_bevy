@@ -13096,7 +13096,7 @@ mod tests {
         let sprint = walked(&mut game, true);
         assert!(game.is_sprinting(0));
         assert!(
-            sprint > walk * 1.25,
+            sprint > walk * 1.4,
             "a second's sprint goes {sprint}, a walk {walk}"
         );
         assert!(

@@ -517,7 +517,7 @@ pub const MARCH_SPEED: f32 = 144.0;
 
 /// A player's own Bim sprinting under Shift (task 150): its walk times
 /// this, its weapon held across the chest and silent.
-pub const SPRINT: f32 = 1.35;
+pub const SPRINT: f32 = 1.6;
 /// A dodge roll under Alt (task 150): how long it lasts, in seconds, how
 /// far it carries the body, in room units (two and a half tiles), and the
 /// seconds from one roll's start before the next may start. Bolts and a
