@@ -44,6 +44,7 @@
 
     // The crew.
     downed: 1.0,            // a player downed (not a bot)
+    revived: 1.0,           // a body brought round, a player up or reviving
 
     // The classes' abilities.
     grenade_throw: 1.0,

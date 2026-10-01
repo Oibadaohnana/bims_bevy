@@ -621,6 +621,48 @@ def downed():
     save("downed", room(out, rng, 0.12, 0.4), 0.12)
 
 
+def revived():
+    """A crew member brought round (no ability either): `downed` turned
+    the other way. A defibrillator's charge whining up and its zap with
+    a thump into the chest, the heart kicking in — two beats — and the
+    suit's vitals tones rising where `downed`'s fell, three of them,
+    while the kit rattles as the body gets up off the deck."""
+    rng = np.random.default_rng(602)
+    out = silence(1.45)
+    # The charge: a thin whine sliding up an octave and a half.
+    n = secs(0.34)
+    t = times(n)
+    f = 1100 * (2.8 ** (t / t[-1]))
+    whine = np.sin(2 * np.pi * np.cumsum(f) / SR) + 0.25 * np.sin(4 * np.pi * np.cumsum(f) / SR)
+    whine *= np.minimum(1, t / 0.05) * (0.4 + 0.6 * t / t[-1])
+    place(out, whine, 0.0, 0.16)
+    # The zap: a crackle through a high band and a thump under it.
+    zap = band(rng.standard_normal(secs(0.09)), 1800, 9000) * decay(secs(0.09), 0.02, 0.0002)
+    zap *= 1 + 0.8 * np.sign(np.sin(2 * np.pi * 120 * times(len(zap))))
+    place(out, zap, 0.34, 0.55)
+    place(out, thump(0.3, 120, 55, 0.07) + 0.3 * knock(rng, 0.3, 120, 900, 0.02), 0.34, 0.9)
+    # The heart: lub-dub, twice.
+    for at in (0.62, 0.95):
+        place(out, thump(0.18, 75, 45, 0.045), at, 0.75)
+        place(out, thump(0.15, 90, 55, 0.035), at + 0.11, 0.5)
+    # Getting up: a knee and the kit settling.
+    place(out, thump(0.2, 110, 60, 0.04) + 0.4 * knock(rng, 0.2, 200, 1400, 0.02), 0.72, 0.35)
+    for _ in range(5):
+        at = 0.7 + rng.uniform(0.0, 0.25)
+        fr = rng.uniform(1400, 3600)
+        rattle = modes(0.08, [(fr, 0.015, 1), (fr * 1.61, 0.01, 0.5)], rng)
+        place(out, rattle + 0.5 * knock(rng, 0.08, 2000, 8000, 0.004), at, rng.uniform(0.05, 0.12))
+    # The vitals back: three rising tones on the suit's radio.
+    radio = lambda x: band(np.tanh(1.8 * x), 400, 4000, 3)
+    for k, hz in enumerate((740, 988, 1319)):
+        n = secs(0.13 if k < 2 else 0.26)
+        t = times(n)
+        tone = np.sin(2 * np.pi * hz * t) + 0.3 * np.sin(2 * np.pi * 2 * hz * t)
+        env = np.minimum(1, t / 0.006) * np.minimum(1, (t[-1] - t) / 0.03)
+        place(out, radio(tone * env), 0.78 + 0.14 * k, 0.3)
+    save("revived", room(out, rng, 0.12, 0.4), 0.12)
+
+
 if __name__ == "__main__":
     import sys
 
@@ -652,3 +694,4 @@ if __name__ == "__main__":
     rally()
     reinforcements()
     downed()
+    revived()

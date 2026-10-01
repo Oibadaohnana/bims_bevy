@@ -87,12 +87,15 @@ pub enum Clip {
     // A crew member downed: a cry, the body on the deck and the suit's
     // vitals alarm, built by `sounds/abilities.py` (`downed`).
     Downed,
+    // A crew member brought round: the defibrillator, the heart and
+    // the vitals rising, built by `sounds/abilities.py` (`revived`).
+    Revived,
 }
 
 /// The bytes of each clip, indexed by [`Clip`]. Ogg Vorbis, mono, 48 kHz,
 /// peaks at -1 dBFS for the one-shots and -22 or -30 LUFS for the loops —
 /// see `prepare.sh` — so every level below is relative to that.
-const CLIPS: [&[u8]; 45] = [
+const CLIPS: [&[u8]; 46] = [
     include_bytes!("../sounds/laser_1.ogg"),
     include_bytes!("../sounds/laser_2.ogg"),
     include_bytes!("../sounds/laser_3.ogg"),
@@ -138,6 +141,7 @@ const CLIPS: [&[u8]; 45] = [
     include_bytes!("../sounds/reinforcements.ogg"),
     include_bytes!("../sounds/reward.ogg"),
     include_bytes!("../sounds/downed.ogg"),
+    include_bytes!("../sounds/revived.ogg"),
 ];
 
 /// The player's own volume for each sound, from `audio.ron` at the root
@@ -230,6 +234,7 @@ volumes! {
     Reinforcements => reinforcements,
     Reward => reward,
     Downed => downed,
+    Revived => revived,
     ;
     minigun,
     rail_lance,
@@ -334,6 +339,8 @@ enum Kind {
     Reward,
     /// A crew member downed, told apart by who.
     Downed,
+    /// A crew member brought round, told apart by who.
+    Revived,
 }
 
 /// How many one-shots a frame may start, whatever the room says. Enough
@@ -406,6 +413,8 @@ impl Kind {
             Kind::Reward => 0.12,
             // A body goes down once; the room says it the step it does.
             Kind::Downed => 1.0,
+            // And comes round once.
+            Kind::Revived => 1.0,
         }
     }
 }
@@ -706,6 +715,17 @@ impl Sounds {
         }
     }
 
+    /// A body brought round where a player had a hand in it — a player
+    /// up again, or a player's Bim that did the reviving (the game screen
+    /// filters the world's `CrewRevived` and `ResidentRevived`): the
+    /// answer to [`Sounds::downed`], a little under it. `who` tells two
+    /// patients apart; a townsperson's is past the crew's.
+    pub fn revived(&mut self, commands: &mut Commands, who: u32) {
+        if self.admit_in(Kind::Revived, (1, who as i32)) {
+            self.one_shot(commands, Clip::Revived, 0.6);
+        }
+    }
+
     /// A class's ability used, by anyone in the crew: the world's event
     /// for it, which every window hears — a teammate's taunt as well as
     /// one's own. What the room hears of an ability afterwards (the
@@ -813,7 +833,7 @@ mod tests {
             assert!(clip.starts_with(b"OggS"), "clip {i} is not an Ogg stream");
             assert!(clip.len() > 1_000, "clip {i} is only {} bytes", clip.len());
         }
-        assert_eq!(CLIPS.len(), Clip::Downed as usize + 1);
+        assert_eq!(CLIPS.len(), Clip::Revived as usize + 1);
     }
 
     /// `audio.ron` at the root parses and names every sound, so the player

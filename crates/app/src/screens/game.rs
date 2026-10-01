@@ -1408,6 +1408,20 @@ fn frame(
             {
                 sounds.downed(&mut commands, who);
             }
+            // Somebody brought round, heard where a player had a hand in
+            // it: a player up again, or a player's Bim the one reviving
+            // (a crewmate or a townsperson). Two bots between themselves
+            // are left to the picture, or a fight would be all chimes.
+            let player = |w: u32| !game.world.aboard.room.is_bot(w as usize);
+            match event {
+                WorldEvent::CrewRevived { who, by } if player(who) || player(by) => {
+                    sounds.revived(&mut commands, who);
+                }
+                WorldEvent::ResidentRevived { who, by, .. } if player(by) => {
+                    sounds.revived(&mut commands, bims::game::GUEST as u32 + who);
+                }
+                _ => {}
+            }
             // An enemy down: its pay floats up over it, with a soft chime.
             // A hit: its number over whoever took it.
             if let WorldEvent::Hit {
