@@ -2910,6 +2910,50 @@ impl Combat {
         if dir == Vec2::ZERO {
             return;
         }
+        self.loose(from, dir, weapon, hostile, skill, by);
+    }
+
+    /// A shot its player aimed (task 144): along `angle` from `from`,
+    /// nobody picked, and what is struck is whatever the bolt reaches
+    /// first. The odds are not a hit rolled but how straight it flies:
+    /// it strays up to [`balance::AIM_SPREAD`] times what the near odds
+    /// (through the skill, and the walking odds on the move) fall short
+    /// of one, either side, off the combat stream.
+    pub fn fire_along(
+        &mut self,
+        from: Vec2,
+        angle: f32,
+        weapon: Weapon,
+        moving: bool,
+        skill: &Skill,
+        by: Option<usize>,
+    ) {
+        let stats = skill.stats(weapon);
+        self.lull = 0.0;
+        let odds = stats.accuracy.min(1.0) * if moving { skill.walking } else { 1.0 };
+        let stray = self.rng.signed() * (1.0 - odds).max(0.0) * balance::AIM_SPREAD;
+        self.loose(
+            from,
+            Vec2::from_angle(angle + stray),
+            weapon,
+            false,
+            skill,
+            by,
+        );
+    }
+
+    /// A bolt off along `dir` (a unit vector): heard, its muzzle lit for
+    /// our own side, and put in the air at the weapon's pace and reach.
+    fn loose(
+        &mut self,
+        from: Vec2,
+        dir: Vec2,
+        weapon: Weapon,
+        hostile: bool,
+        skill: &Skill,
+        by: Option<usize>,
+    ) {
+        let stats = skill.stats(weapon);
         self.cues.push(Cued {
             cue: Cue::Shot {
                 weapon: weapon.kind,

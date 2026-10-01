@@ -44,6 +44,13 @@ pub enum Action {
     /// Pause, or set going again.
     Pause,
     Speed1,
+    /// Walk the Bim you steer up the screen (task 144). The four walks
+    /// share W, A, S and D with the pan, which the ship view no longer
+    /// reads: there the camera follows the Bim, and the keys walk it.
+    WalkUp,
+    WalkDown,
+    WalkLeft,
+    WalkRight,
     PanLeft,
     PanRight,
     PanUp,
@@ -122,12 +129,16 @@ impl Action {
         Action::Ability4,
     ];
 
-    pub const ALL: [Action; 25] = [
+    pub const ALL: [Action; 29] = [
         Action::Map,
         Action::NorthUp,
         Action::Follow,
         Action::Pause,
         Action::Speed1,
+        Action::WalkUp,
+        Action::WalkDown,
+        Action::WalkLeft,
+        Action::WalkRight,
         Action::PanLeft,
         Action::PanRight,
         Action::PanUp,
@@ -163,6 +174,10 @@ impl Action {
             // 1 and 2 are the quickselect (task 138), so the 1× speed
             // went to the key left of them.
             Action::Speed1 => Key::Backtick,
+            Action::WalkUp => Key::W,
+            Action::WalkDown => Key::S,
+            Action::WalkLeft => Key::A,
+            Action::WalkRight => Key::D,
             Action::PanLeft => Key::A,
             Action::PanRight => Key::D,
             Action::PanUp => Key::W,
@@ -199,6 +214,10 @@ impl Action {
             Action::Follow => "follow",
             Action::Pause => "pause",
             Action::Speed1 => "speed-1",
+            Action::WalkUp => "walk-up",
+            Action::WalkDown => "walk-down",
+            Action::WalkLeft => "walk-left",
+            Action::WalkRight => "walk-right",
             Action::PanLeft => "pan-left",
             Action::PanRight => "pan-right",
             Action::PanUp => "pan-up",
@@ -232,7 +251,15 @@ impl Action {
             }
             Action::Pause => "Pause the world, or set it going again.",
             Action::Speed1 => "Run the world at 1×.",
-            Action::PanLeft => "Pan the view left. Middle-drag does the same.",
+            Action::WalkUp => {
+                "Walk the Bim you steer up the screen. The mouse aims it, and the right button fires."
+            }
+            Action::WalkDown => "Walk the Bim you steer down the screen.",
+            Action::WalkLeft => "Walk the Bim you steer left.",
+            Action::WalkRight => "Walk the Bim you steer right.",
+            Action::PanLeft => {
+                "Pan the view left: the yard and the map. Middle-drag does the same."
+            }
             Action::PanRight => "Pan the view right.",
             Action::PanUp => "Pan the view up.",
             Action::PanDown => "Pan the view down.",

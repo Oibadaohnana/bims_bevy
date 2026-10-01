@@ -25,6 +25,9 @@ pub const THEIRS: egui::Color32 = INK;
 /// 84): the enemy's own red, since what both mean is a fight, and one
 /// no other mark on the deck wears.
 pub const ATTACK: egui::Color32 = egui::Color32::from_rgb(0xff, 0x5e, 0x4a);
+/// The aim's reticle on the deck (task 144): the crew's bolt cyan, since
+/// what it points is the crew's own fire.
+pub const AIM: egui::Color32 = egui::Color32::from_rgb(0x7f, 0xe6, 0xff);
 /// The **defend sign** over the ship while the crew are falling back to
 /// it (feature 84): the armour blue, since what it means is cover and
 /// not a fight, and the one mark on the deck the attack banner's red

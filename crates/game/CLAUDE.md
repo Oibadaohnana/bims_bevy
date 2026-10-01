@@ -4533,3 +4533,63 @@ pauldron. `a_medivac_medic_revives_a_player_downed_in_the_fight` pins it
 own. No `SAVE_VERSION`/`PROTOCOL` change; the survivor pins were not
 re-run (the user said to skip testing) and may move, since the machines
 play differently.
+
+## The player's own Bim is steered: WASD, the pointer, the trigger (task 144)
+
+> "Selecting is not commanding" and "A right-click opens nothing" above
+> say a right-click walks the player's own Bim or attacks an enemy: the
+> app no longer sends either (`CrewOrder::Move` and `Attack` are kept,
+> for the tests and the queue, and nothing in the app gives them now).
+
+- **`CrewOrder::Control { walk, aim, fire }`** (appended last) is the
+  player's keys and pointer on its own Bim: the way WASD walk it
+  (`None` with none down), where the pointer is from it, and the right
+  button held. Both angles are `order::angle_code`s, a turn in 65536,
+  read back by `code_angle` — so every copy of the room turns the same
+  radians. The app sends one whenever the walk or the trigger changes,
+  and for the aim alone no more than every `CONTROL_EVERY` (0.05 s) and
+  past `AIM_STEP` (a fifth of a degree) — `control_due` in
+  `screens/game.rs`; up the screen is worked out through the camera,
+  head up or north up. `world::calls_off_a_throw` lets one with no walk
+  pass.
+- **`Game::order_control`** → `Character::set_steer`, a player's own Bim
+  (`who < players`) alone; the step the keys start walking it, its
+  queued orders, an attack, a post, a brace and the errand in hand are
+  dropped. **`character::Steer`** is kept on the body (saved, serde
+  default) once said, and from then on in `Character::update` the walk
+  outranks any route (cleared every step it is down; `Activity::Walking`
+  is the keys', put back to `Pausing` when they come up), the feet go
+  along `intent` whichever way it faces, the speed eases at
+  `STEER_ACCEL` (4×) `ACCEL`, a walk away from the facing strides
+  backwards, and the **heading turns to `aim` at `STEER_TURN` (a turn a
+  second) at a steady rate**, the short way round, exactly onto it within
+  a step's turn. `pump_queue` holds while the keys walk it; on a plain
+  the body takes its window (`refresh_afield`, `move_body`) so the keys
+  can walk it past the box.
+- **In `tick_combat` a steered body is armed whenever it can be**,
+  recruited or not, plans no stand (focus, war, mustered branches all
+  skipped), does not face a melee lock, and aims **along its heading**,
+  never at a target: the weapon laid at `pos + heading × reach`, and with
+  the trigger held a `Trigger::pull` — bursts and all, so held it fires as
+  fast as the weapon goes — fires `Combat::fire_along(muzzle, heading,
+  ..)`. The trigger up is `hold()`. `fire_along` rolls no hit: the bolt
+  strays off the heading by up to `balance::AIM_SPREAD` (0.25 rad) times
+  what the near odds (through the skill, times the walking odds on the
+  move) fall short of one, off the combat stream, and strikes whatever it
+  reaches first. `fire_as` and it share `Combat::loose`. A blade still
+  swings at whoever locks it.
+- Nothing is steered until a `Control` arrives, so no test, probe or bot
+  moved and no survivor pin changed. `Game::is_steered(who)` is the
+  question. `SAVE_VERSION` 77, `wire::PROTOCOL` 79.
+
+`the_keys_walk_the_player_s_bim_and_it_turns_to_the_aim_a_turn_a_second`,
+`a_steered_bim_fires_along_its_facing_only_while_the_trigger_is_held` and
+`an_angle_code_is_a_turn_in_sixty_five_thousand` pin it; the app's
+`a_control_order_goes_for_a_walk_or_a_trigger_at_once_and_for_the_aim_now_and_then`
+the throttle. The app's half: `keys::Action::Walk{Up,Down,Left,Right}`
+(W, S, A, D — shared with the pan keys, which the ship view no longer
+reads), the camera following the player's own Bim from the first frame
+(`GameScreen::free_camera` once the follow key lets it go) and zooming
+about the middle while it follows, no edge pan then, and the pointer over
+the deck the aim's reticle (`aim_cursor`, `theme::AIM`), closing in while
+the trigger is held.

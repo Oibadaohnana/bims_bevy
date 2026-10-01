@@ -10989,6 +10989,9 @@ fn calls_off_a_throw(order: bims::order::CrewOrder) -> bool {
             | CrewOrder::WorkPriority { .. }
             | CrewOrder::Autonomous { .. }
             | CrewOrder::Hand { .. }
+            // The pointer and the trigger alone (task 144); the keys
+            // walking it do.
+            | CrewOrder::Control { walk: None, .. }
     )
 }
 

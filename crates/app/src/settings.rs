@@ -409,7 +409,14 @@ fn controls(ui: &mut egui::Ui, sheet: &mut Option<Sheet>, keys: &mut Keys) {
         ui,
         "The pointer",
         &[
-            ("Wheel", "Zoom, about the pointer."),
+            (
+                "Wheel",
+                "Zoom: about the Bim you steer while the camera follows it, else about the pointer.",
+            ),
+            (
+                "The pointer over the deck",
+                "Aim: the Bim you steer turns to face it, a whole turn in a second.",
+            ),
             ("Middle-drag", "Pan the view."),
             (
                 "Edge of the window",
@@ -425,10 +432,9 @@ fn controls(ui: &mut egui::Ui, sheet: &mut Option<Sheet>, keys: &mut Keys) {
             ),
             ("Drag on the deck", "Select whoever is inside the box."),
             (
-                "Right-click the deck",
-                "Send the selected crew member there.",
+                "Hold the right button on the deck",
+                "Fire where the Bim you steer faces, as fast as the weapon goes. With the medkit in hand, a right-click on a downed crewmate revives them.",
             ),
-            ("Right-click a fixture", "Open its menu."),
             (
                 "Build tab",
                 "Pick a part by category, or search for one. The crew carry what it is made of from the shelves and build it; a site beyond the hull is built in a suit.",

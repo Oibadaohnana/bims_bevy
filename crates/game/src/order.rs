@@ -115,6 +115,29 @@ pub enum CrewOrder {
     Hand {
         hand: Hand,
     },
+    /// The player's keys and pointer on its own crew member (task 144):
+    /// the way WASD walk it, `None` with none down, where the pointer
+    /// aims it and whether the fire button is held. The two angles are
+    /// [`angle_code`]s, a turn in 65536, so every copy of the room reads
+    /// the same radians off them. Sent whenever one of them changes;
+    /// appended last.
+    Control {
+        walk: Option<u16>,
+        aim: u16,
+        fire: bool,
+    },
+}
+
+/// An angle as a [`CrewOrder::Control`] carries it: radians, nought east,
+/// as a sixty-five-thousandth of a turn.
+pub fn angle_code(radians: f32) -> u16 {
+    let turn = radians.rem_euclid(crate::math::TAU) / crate::math::TAU;
+    ((turn * 65536.0).round() as u32 % 65536) as u16
+}
+
+/// The radians an [`angle_code`] stands for.
+pub fn code_angle(code: u16) -> f32 {
+    code as f32 * (crate::math::TAU / 65536.0)
 }
 
 impl CrewOrder {
@@ -139,7 +162,8 @@ impl CrewOrder {
             | CrewOrder::Autonomous { .. }
             | CrewOrder::AttackMove { .. }
             | CrewOrder::Attack { .. }
-            | CrewOrder::Hand { .. } => None,
+            | CrewOrder::Hand { .. }
+            | CrewOrder::Control { .. } => None,
         }
     }
 }
@@ -231,6 +255,17 @@ impl Game {
                 self.order_hand(slot, hand);
                 0
             }
+            CrewOrder::Control { walk, aim, fire } => {
+                self.order_control(
+                    slot,
+                    crate::character::Steer {
+                        walk: walk.map(code_angle),
+                        aim: code_angle(aim),
+                        fire,
+                    },
+                );
+                0
+            }
         }
     }
 
@@ -288,7 +323,8 @@ impl Game {
             | CrewOrder::Autonomous { .. }
             | CrewOrder::AttackMove { .. }
             | CrewOrder::Attack { .. }
-            | CrewOrder::Hand { .. } => return self.order(slot, order),
+            | CrewOrder::Hand { .. }
+            | CrewOrder::Control { .. } => return self.order(slot, order),
         };
         if who(w) < crew {
             self.queue_order(Saved::ordered(who(w), kind, minutes, None));

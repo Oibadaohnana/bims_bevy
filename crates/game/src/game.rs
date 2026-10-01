@@ -1631,8 +1631,12 @@ impl Game {
             // shoots nothing on the way.
             let carried = self.is_carried(who);
             let bim = &mut self.bims[who];
+            // A body its player steers (task 144) has its weapon out
+            // whenever it can, recruited or not: it fires when the button
+            // is down and never of its own accord.
+            let steer = bim.character.steer();
             let armed = bim.is_alive()
-                && (bim.character.is_recruited() || bim.braced)
+                && (bim.character.is_recruited() || bim.braced || steer.is_some())
                 && bim.gear.weapon.is_some()
                 && !bim.character.is_outside()
                 && !bim.character.is_unconscious()
@@ -1723,7 +1727,10 @@ impl Game {
             // and shoots from where it stands.
             let seen_to = self.is_being_seen_to(who);
             let holds_post = self.bims[who].character.post().is_some();
-            if let Some(enemy) = focus
+            if steer.is_some() {
+                // Its player's keys walk it, and nothing here plans a
+                // stand for it (task 144).
+            } else if let Some(enemy) = focus
                 && !seen_to
             {
                 // The player's own attack order (task 126) comes before
@@ -1780,7 +1787,9 @@ impl Game {
                 bim.peek = None;
                 bim.character.set_lean(None);
                 bim.character.set_aim(None);
-                if let Some(at) = self.combat.targets()[enemy].map(|t| t.at) {
+                if let Some(at) = self.combat.targets()[enemy].map(|t| t.at)
+                    && steer.is_none()
+                {
                     bim.character.face((at - from).angle());
                 }
                 if bim.melee_timer <= 0.0 {
@@ -1812,6 +1821,31 @@ impl Game {
                 bim.character.set_lean(None);
                 bim.character.set_aim(None);
                 self.keep_attack_moving(who, false);
+                continue;
+            }
+            // A body its player steers (task 144) aims where it faces —
+            // turned to the pointer at `STEER_TURN` — and fires along it
+            // whenever the button is down and the weapon ready, a burst
+            // and all; nothing is picked for it.
+            if let Some(s) = steer {
+                let heading = bim.character.heading;
+                let at = from + Vec2::from_angle(heading) * stats.reach();
+                bim.peek = None;
+                bim.character.set_lean(None);
+                bim.character.set_aim(Some(at));
+                if !s.fire {
+                    bim.trigger.hold();
+                    continue;
+                }
+                if bim.trigger.pull(dt, &stats) {
+                    let walking = bim.character.is_walking();
+                    let muzzle = self.shot_from(who, from, at);
+                    self.reveal(who);
+                    let shot = skill.for_shot(self.bims[who].shots);
+                    self.bims[who].shots = self.bims[who].shots.saturating_add(1);
+                    self.combat
+                        .fire_along(muzzle, heading, weapon, walking, &shot, Some(who));
+                }
                 continue;
             }
             // A target the player named (task 126) is the only one it
@@ -3683,7 +3717,11 @@ impl Game {
         // what is in it — bound beyond the deck's box as well as out past
         // it, or the box's edge would hold it in.
         let ch = &self.bims[who].character;
-        let afield = ch.is_afield() || ch.far().is_some();
+        // So is a body its player's keys walk on a plain (task 144): they may
+        // take it past the box at any step.
+        let afield = ch.is_afield()
+            || ch.far().is_some()
+            || (ch.is_steered_walking() && self.room.plane.is_some());
         let (interior, blockers) =
             match (outside, afield, self.maps.outside(), self.maps.afield(who)) {
                 (true, _, Some(nav), _) => (nav.interior(), &self.outside_blockers),
@@ -3774,7 +3812,8 @@ impl Game {
             self.bims[who].character.set_afield(afield);
             // Everybody's chunks are kept, the deck's eyes' included.
             about.push(crate::terrain::Plane::tile_of(pos, tile));
-            let wanted = afield || self.bims[who].character.far().is_some();
+            let ch = &self.bims[who].character;
+            let wanted = afield || ch.far().is_some() || ch.is_steered_walking();
             if !wanted {
                 if self.maps.afield(who).is_some() {
                     self.maps.set_afield(who, None);
@@ -4164,11 +4203,14 @@ impl Game {
         // its queue is what its player put there, and the alarm recruits
         // it (see `arm_players`), so a Shift-queued walk carries on under
         // arms.
+        // And nothing is picked up while its player's keys walk it (task
+        // 144): the feet are theirs.
         if (self.bims[who].character.is_recruited() && self.is_bot(who))
             || self.bims[who].braced
             || self.bims[who].task.is_some()
             || self.bims[who].queue.is_empty()
             || !self.bims[who].character.arrived()
+            || self.bims[who].character.is_steered_walking()
         {
             return;
         }
@@ -6165,6 +6207,35 @@ impl Game {
             self.call_off_attack_move(who);
         }
         self.bims[who].hand = hand;
+    }
+
+    /// Player `slot`'s keys and pointer on its own crew member (task 144):
+    /// the walk WASD give it, where the pointer aims it and whether the
+    /// fire button is down, said whole every time one of them changes.
+    /// The step the keys start walking it, whatever it was walking to or
+    /// doing is dropped — the queue's orders, an attack, a post, a brace
+    /// and the errand in hand — since the feet are the keys' now.
+    pub fn order_control(&mut self, slot: u32, steer: crate::character::Steer) {
+        let who = slot as usize;
+        if who >= self.bims.len() || who >= self.players {
+            return;
+        }
+        if steer.walk.is_some() && !self.bims[who].character.is_steered_walking() {
+            self.drop_ordered(who);
+            self.call_off_attack_move(who);
+            self.bims[who].character.set_post(None);
+            self.bims[who].braced = false;
+            self.drop_task(who);
+        }
+        self.bims[who].character.set_steer(steer);
+    }
+
+    /// Whether `who` is steered by its player's keys and pointer (task
+    /// 144): it walks, turns and fires only as they say.
+    pub fn is_steered(&self, who: usize) -> bool {
+        self.bims
+            .get(who)
+            .is_some_and(|b| b.character.steer().is_some())
     }
 
     /// What `who` holds (task 138): the weapon, or the medkit.
@@ -12618,5 +12689,126 @@ mod tests {
         }
         assert_eq!(game.shield_hp(0), 0.0, "for its seconds");
         assert_eq!(game.shield_left(0), 0.0);
+    }
+
+    #[test]
+    fn the_keys_walk_the_player_s_bim_and_it_turns_to_the_aim_a_turn_a_second() {
+        use crate::character::STEER_TURN;
+        use crate::math::PI;
+        use crate::order::{CrewOrder, angle_code};
+        let mut game = room();
+        game.set_autonomous(false);
+        game.set_players(1);
+        let from = game.put_for_probe(0, vec2(ROOM_W * 0.3, ROOM_H * 0.5));
+        game.bims[0].character.heading = 0.0;
+        // East on the keys, the pointer due south of it: a quarter turn
+        // from where it faces.
+        let control = |walk: Option<f32>, aim: f32| CrewOrder::Control {
+            walk: walk.map(angle_code),
+            aim: angle_code(aim),
+            fire: false,
+        };
+        game.order(0, control(Some(0.0), PI / 2.0));
+        assert!(game.is_steered(0));
+        // A tenth of a second turns it a tenth of a turn and no more.
+        for _ in 0..6 {
+            game.simulate(DT);
+        }
+        let turned = game.bims[0].character.heading;
+        assert!(
+            (turned - STEER_TURN * 0.1).abs() < 0.03,
+            "a tenth of a turn in a tenth of a second, not {turned}"
+        );
+        for _ in 0..60 {
+            game.simulate(DT);
+        }
+        assert!(
+            game.bims[0].character.faces_aim(),
+            "and then it faces the aim"
+        );
+        let to = game.bim_pos(0);
+        assert!(
+            to.x - from.x > TILE,
+            "the keys walked it east: {from:?} to {to:?}"
+        );
+        assert!((to.y - from.y).abs() < 2.0, "facing south all the while");
+        assert!(game.is_walking(0));
+        // The keys up: it stops where it is.
+        game.order(0, control(None, PI / 2.0));
+        for _ in 0..30 {
+            game.simulate(DT);
+        }
+        let stood = game.bim_pos(0);
+        for _ in 0..60 {
+            game.simulate(DT);
+        }
+        assert!((game.bim_pos(0) - stood).len() < 0.01, "and stands");
+        // A bot is nobody's to steer.
+        game.order(1, control(Some(0.0), 0.0));
+        assert!(!game.is_steered(1));
+    }
+
+    #[test]
+    fn a_steered_bim_fires_along_its_facing_only_while_the_trigger_is_held() {
+        use crate::math::PI;
+        use crate::order::{CrewOrder, angle_code};
+        let mut game = room();
+        game.set_autonomous(false);
+        game.set_players(1);
+        let james = game.put_for_probe(0, vec2(ROOM_W * 0.3, ROOM_H * 0.5));
+        game.bims[0].character.heading = PI / 2.0;
+        game.put_for_probe(1, vec2(ROOM_W * 0.2, ROOM_H * 0.85));
+        // Kate unarmed: under the alarm she would fire at the target too.
+        game.issue(1, Gear::default());
+        let target = james + vec2(4.0 * TILE, 0.0);
+        game.set_hostiles(vec![Some((target, WeaponKind::LaserPistol.basic()))]);
+        let control = |aim: f32, fire: bool| CrewOrder::Control {
+            walk: None,
+            aim: angle_code(aim),
+            fire,
+        };
+        // Facing south, the trigger up: nothing is fired at the target in
+        // plain view, though the weapon is out.
+        game.order(0, control(PI / 2.0, false));
+        for _ in 0..120 {
+            game.simulate(DT);
+        }
+        assert_eq!(game.bolts_in_flight(), 0, "nothing fires of its own accord");
+        assert!(game.is_armed(0), "the weapon is out all the same");
+        // The trigger down, still facing south: it fires, and down the
+        // way it faces, so the target takes nothing.
+        game.order(0, control(PI / 2.0, true));
+        let (mut fired, mut hits) = (0, 0);
+        for _ in 0..180 {
+            let before = game.bolts_in_flight();
+            game.simulate(DT);
+            fired += usize::from(game.bolts_in_flight() > before);
+            hits += game.take_hits().len();
+        }
+        assert!(
+            fired >= 3,
+            "a pistol held down fires as fast as it goes: {fired}"
+        );
+        assert_eq!(hits, 0, "and its bolts fly where it faces");
+        // Turned onto the target, the bolts land.
+        game.order(0, control(0.0, true));
+        for _ in 0..240 {
+            game.simulate(DT);
+            hits += game.take_hits().len();
+        }
+        assert!(hits > 0, "aimed at it, it is hit");
+    }
+
+    #[test]
+    fn an_angle_code_is_a_turn_in_sixty_five_thousand() {
+        use crate::math::{PI, TAU};
+        use crate::order::{angle_code, code_angle};
+        assert_eq!(angle_code(0.0), 0);
+        assert_eq!(angle_code(PI), 32768);
+        assert_eq!(angle_code(-PI / 2.0), 49152);
+        assert_eq!(angle_code(TAU), 0);
+        for code in [0u16, 1, 12345, 32768, 65535] {
+            assert_eq!(angle_code(code_angle(code)), code);
+        }
     }
 }

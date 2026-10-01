@@ -43,6 +43,14 @@ const FAR_LEG: f32 = crate::room::TILE;
 pub const BODY_SCALE: f32 = 1.45;
 /// How far the body centre is kept clear of walls and furniture.
 pub const BODY_MARGIN: f32 = 23.0;
+/// How fast a body its player steers turns to where the pointer aims
+/// (task 144): a whole turn a second, at a steady rate rather than
+/// [`TURN_RATE`]'s easing, so a flick behind takes half a second.
+pub const STEER_TURN: f32 = TAU;
+/// How much quicker a body its player steers gets up to its pace and
+/// stops again than [`ACCEL`] (task 144): the keys want an answer, not
+/// a body with weight.
+const STEER_ACCEL: f32 = 4.0;
 /// How close a click or marquee has to come to count as touching the Bim.
 pub const PICK_RADIUS: f32 = 26.0;
 
@@ -749,6 +757,24 @@ impl Look {
     }
 }
 
+/// A player's own hands on its Bim (task 144): which way the keys walk
+/// it and where the pointer aims it, both angles in the room's frame
+/// (radians, nought east), and the trigger held down or not. Set whole by
+/// every `CrewOrder::Control` its player sends; `None` on every body
+/// nobody has steered this way, which walks its routes and turns the way
+/// it always did.
+#[derive(Clone, Copy, PartialEq, Debug, Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct Steer {
+    /// The way the keys walk it, or `None` with no key down.
+    pub walk: Option<f32>,
+    /// Where the pointer is from the body: what it turns to face, at
+    /// [`STEER_TURN`], and what its weapon is fired along once it does.
+    pub aim: f32,
+    /// The fire button held: a shot every time the weapon is ready.
+    pub fire: bool,
+}
+
 #[derive(Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 enum Activity {
@@ -948,6 +974,11 @@ pub struct Character {
     /// way `aim` is.
     #[cfg_attr(feature = "serde", serde(skip))]
     falling_back: Option<FallBack>,
+    /// Its player's keys and pointer (task 144), once they have said
+    /// anything: the walk, the aim and the trigger. Saved, since a guest
+    /// stood up off the host's world walks on with the keys still down.
+    #[cfg_attr(feature = "serde", serde(default))]
+    steer: Option<Steer>,
     /// An enemy, to whoever is looking: ringed in red under the body.
     /// Drawing only; the world says who is.
     hostile: bool,
@@ -1034,6 +1065,7 @@ impl Character {
             lean: None,
             aim: None,
             falling_back: None,
+            steer: None,
             hostile: false,
             braced: false,
             surging: false,
@@ -1366,6 +1398,37 @@ impl Character {
         self.falling_back.is_some()
     }
 
+    /// Its player's keys and pointer (task 144), as the last
+    /// `CrewOrder::Control` said them; `None` until one has.
+    pub fn steer(&self) -> Option<Steer> {
+        self.steer
+    }
+
+    /// Say them. A walk drops whatever route it was on: the keys have
+    /// the feet now, and a route left in hand would be walked again the
+    /// moment they come up.
+    pub fn set_steer(&mut self, steer: Steer) {
+        if steer.walk.is_some() {
+            self.path.clear();
+            self.far = None;
+        }
+        self.steer = Some(steer);
+    }
+
+    /// Whether the keys are walking it this step.
+    pub fn is_steered_walking(&self) -> bool {
+        self.steer.is_some_and(|s| s.walk.is_some())
+    }
+
+    /// Whether it faces where the pointer aims it: its heading within
+    /// half a degree of the aim. What a steered body's shot waits on
+    /// none of — it fires along wherever it faces — but the app and the
+    /// tests ask.
+    pub fn faces_aim(&self) -> bool {
+        self.steer
+            .is_some_and(|s| wrap_angle(s.aim - self.heading).abs() < 0.01)
+    }
+
     /// Whether it is walking backwards, which is what the legs and the
     /// gun are drawn from.
     pub fn is_backing(&self) -> bool {
@@ -1597,14 +1660,27 @@ impl Character {
             self.action_phase += dt;
             return;
         }
-        // A task outranks a player order, which outranks the Bim's own plans.
-        let goal = if self.activity == Activity::Marching {
+        // A player's keys outrank everything (task 144): the body walks
+        // the way they say, and no route is kept under them.
+        let steer = self.steer;
+        let goal = if let Some(walk) = steer.and_then(|s| s.walk) {
+            self.path.clear();
+            self.far = None;
+            self.activity = Activity::Walking;
+            self.intent = walk;
+            self.target_speed = self.pace * MARCH_SPEED;
+            walk
+        } else if self.activity == Activity::Marching {
             self.follow_order()
         } else {
             // Otherwise it stands where it is and waits to be told. There is
             // no wander any more (September 2026, the user's word: a Bim
             // never walks about at random) — an order, a task or a route
             // the room planned is the only thing that moves a body.
+            // A body the keys walked stands once they come up.
+            if self.activity == Activity::Walking {
+                self.activity = Activity::Pausing;
+            }
             self.hold_still()
         };
         // Backing away, the facing and the feet part company (feature
@@ -1615,17 +1691,36 @@ impl Character {
             Some(FallBack::Backwards(face)) if self.activity == Activity::Marching => Some(face),
             _ => None,
         };
-        self.heading = angle_lerp(
-            self.heading,
-            backing.unwrap_or(goal),
-            approach(TURN_RATE, dt),
-        );
+        // A body its player steers faces where the pointer aims and
+        // nowhere else, turning at a steady [`STEER_TURN`] the short way
+        // round, and its feet go where they are bound whichever way it
+        // faces (task 144).
+        if let Some(s) = steer {
+            let off = wrap_angle(s.aim - self.heading);
+            let turn = STEER_TURN * dt;
+            self.heading = if off.abs() <= turn {
+                wrap_angle(s.aim)
+            } else {
+                wrap_angle(self.heading + if off > 0.0 { turn } else { -turn })
+            };
+        } else {
+            self.heading = angle_lerp(
+                self.heading,
+                backing.unwrap_or(goal),
+                approach(TURN_RATE, dt),
+            );
+        }
 
-        // Ease the speed so starts and stops have weight.
-        let step = ACCEL * dt;
+        // Ease the speed so starts and stops have weight — less of it
+        // under the keys.
+        let step = ACCEL * if steer.is_some() { STEER_ACCEL } else { 1.0 } * dt;
         self.speed += clamp(self.target_speed - self.speed, -step, step);
 
-        let along = Vec2::from_angle(backing.map_or(self.heading, |_| self.intent));
+        let along = Vec2::from_angle(if backing.is_some() || steer.is_some() {
+            self.intent
+        } else {
+            self.heading
+        });
         self.pos += along * (self.speed * dt);
         // Keep clear of the walls, then shove out of anything walked into.
         self.pos = interior.expand(-BODY_MARGIN).nearest(self.pos);
@@ -1638,7 +1733,11 @@ impl Character {
         // The legs run the other way round while it backs off, so the
         // walk cycle reads as stepping backwards rather than forwards.
         let paces = self.speed * dt * 0.10;
-        self.stride = (self.stride + if backing.is_some() { -paces } else { paces }) % TAU;
+        // And a steered body walking away from where it faces steps
+        // backwards the same way.
+        let backwards = backing.is_some()
+            || (steer.is_some() && along.dot(Vec2::from_angle(self.heading)) < 0.0);
+        self.stride = (self.stride + if backwards { -paces } else { paces }) % TAU;
         self.idle += dt;
         self.select_pulse = (self.select_pulse + dt * 2.2) % TAU;
         self.action_phase += dt;

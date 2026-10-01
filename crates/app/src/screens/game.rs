@@ -12,7 +12,7 @@
 
 use bevy::prelude::*;
 use bevy_egui::{EguiContexts, EguiPrimaryContextPass, egui};
-use bims::order::CrewOrder;
+use bims::order::{CrewOrder, angle_code};
 use bims::room::HIT_BIM;
 use flight::Target;
 use ship::Session;
@@ -178,6 +178,15 @@ pub struct GameScreen {
     /// since the walk over was sent: the carry goes the frame the player's
     /// own Bim is within reach, and is given up once it stops short.
     carry_walk: Option<(u32, u32)>,
+    /// The keys, the pointer and the fire button as last sent to the
+    /// player's own Bim (task 144), and when: a `CrewOrder::Control`
+    /// goes whenever the walk or the trigger changes, and for the aim
+    /// alone no more than [`CONTROL_EVERY`] and only past [`AIM_STEP`].
+    control: Option<(CrewOrderControl, f64)>,
+    /// The follow key has let the camera go (task 144): until it does,
+    /// the ship view follows the player's own Bim from the first frame
+    /// of a run, and of a world a resync stood up.
+    free_camera: bool,
     /// Tab went down last frame with the keys ours: the focus egui gave a
     /// widget for it is to be surrendered (`keys::release_tab_focus`).
     tab_took_focus: bool,
@@ -280,6 +289,9 @@ pub struct GameScreen {
     /// (`super::fightwon`): the screen that comes up when the site is
     /// cleared.
     fight: super::fightwon::FightTally,
+    /// A reward's clashes played back as dice (task 146, `super::dice`),
+    /// and the log's lines that wait for them.
+    dice: super::dice::DiceShow,
 }
 
 /// How long one of those numbers is in the air, and the shortest gap
@@ -295,9 +307,6 @@ const HEAL_GAP: f64 = 0.45;
 struct Watched {
     /// The hit points: everything a beam puts back (task 120).
     points: f32,
-    /// A reward's clashes played back as dice (task 146, `super::dice`),
-    /// and the log's lines that wait for them.
-    dice: super::dice::DiceShow,
     /// Points gathered and not yet shown — a number is whole, and a beam
     /// puts its points back a fraction at a time.
     gathered: f32,
@@ -979,6 +988,8 @@ impl GameScreen {
             held_reach: None,
             held_revive: None,
             carry_walk: None,
+            control: None,
+            free_camera: false,
             tab_took_focus: false,
             backlog: 0.0,
             log: hud::Log::default(),
@@ -1013,6 +1024,11 @@ impl GameScreen {
             bars: crate::healthbars::HealthBars::default(),
             world_map: super::worldmap::WorldMap::default(),
             fight: super::fightwon::FightTally::default(),
+            dice: if crate::dev::dice() {
+                super::dice::DiceShow::staged()
+            } else {
+                super::dice::DiceShow::default()
+            },
         }
     }
 
@@ -1031,11 +1047,6 @@ impl GameScreen {
     }
 }
 
-            dice: if crate::dev::dice() {
-                super::dice::DiceShow::staged()
-            } else {
-                super::dice::DiceShow::default()
-            },
 /// What a thing on the map is called. A kind and a number, because a kind
 /// is a fixed table and an identity is a number.
 fn node_name(session: &Session, node: Node) -> String {
@@ -2004,7 +2015,12 @@ fn frame(
             }
             _ => {
                 if let Some(p) = on_canvas {
-                    session.zoom(p.x, p.y, zoom_factor(pointer.scroll))
+                    // Following the player's own Bim the ship view zooms about
+                    // the middle, where the Bim is, so it stays there (task
+                    // 144); the map and a free camera about the pointer.
+                    let follows = !map_up && session.game.as_ref().is_some_and(|g| g.follow);
+                    let at = if follows { canvas.size() / 2.0 } else { p };
+                    session.zoom(at.x, at.y, zoom_factor(pointer.scroll))
                 }
             }
         }
@@ -2150,32 +2166,18 @@ fn frame(
             }
         } else if let Some(p) = on_canvas {
             let (rx, ry) = session.room_point(p.x, p.y);
-            // An enemy under the pointer is something to attack (task
-            // 126): the crosshair says so before the click does.
-            let enemy = session.room().and_then(|room| room.enemy_at(rx, ry));
-            if enemy.is_some() {
-                ctx.set_cursor_icon(egui::CursorIcon::Crosshair);
-            }
+            // The pointer is the aim (task 144): the system's cursor goes
+            // and the aim's reticle is drawn in its place, below.
+            ctx.set_cursor_icon(egui::CursorIcon::None);
             if pointer.secondary_pressed {
                 panels.close_menu();
-                if let Some(enemy) = enemy {
-                    // A right-click on it is the attack, Dota's: the
-                    // player's own Bim keeps at that one until it is down
-                    // or dead or told otherwise, no menu between.
-                    orders.push(Order::Crew(CrewOrder::Attack {
-                        enemy: enemy as u32,
-                    }));
-                } else if let Some(room) = session.room() {
-                    // A right-click opens nothing (task 138): it is an
-                    // order and only an order. With the medkit in hand a
-                    // downed crewmate under it is the revive — the walk
-                    // over and the hands on it; everything else, a body,
-                    // a door or a fixture, is the deck to walk to. The
-                    // menus are a left click's.
-                    // The order goes the moment the button goes down, the
-                    // way Dota gives one, and it is for the player's own
-                    // Bim alone whoever is selected (`Game::orderable`).
-                    // With Shift held it waits its turn (feature 69).
+                // A right-click walks nobody anywhere and attacks nobody
+                // (task 144): held, it is the trigger, which the control
+                // order below carries. With the medkit in hand a downed
+                // crewmate under it is still the revive — the walk over
+                // and the hands on it (task 138); with Shift held it
+                // waits its turn (feature 69).
+                if let Some(room) = session.room() {
                     match medkit_patient(room, panels.player, rx, ry, &crew_name) {
                         Some(Ok(patient)) => orders.push(crew_order(
                             CrewOrder::Revive {
@@ -2185,9 +2187,7 @@ fn frame(
                             pointer.shift,
                         )),
                         Some(Err(why)) => screen.log.push(why),
-                        None => {
-                            orders.push(crew_order(CrewOrder::Move { x: rx, y: ry }, pointer.shift))
-                        }
+                        None => {}
                     }
                 }
             }
@@ -2246,6 +2246,62 @@ fn frame(
         }
     }
 
+    // The player's own Bim under the keys and the pointer (task 144):
+    // WASD walk it up, left, down and right on the screen, it turns to
+    // the pointer at a turn a second, and the right button held fires
+    // along its facing as fast as the weapon goes. Said to the room as a
+    // `CrewOrder::Control` whenever it changes (`control_due`); with the
+    // pointer off the deck the aim is the last one said.
+    if !map_up
+        && screen.sheet.is_none()
+        && let Some(at) = session
+            .room_ref()
+            .filter(|room| (screen.net.slot as usize) < room.crew_count() as usize)
+            .map(|room| room.bim_pos(screen.net.slot as usize))
+    {
+        let (mut wx, mut wy) = (0.0f32, 0.0f32);
+        if keys {
+            ctx.input(|i| {
+                for (action, dx, dy) in [
+                    (Action::WalkUp, 0.0, -1.0),
+                    (Action::WalkDown, 0.0, 1.0),
+                    (Action::WalkLeft, -1.0, 0.0),
+                    (Action::WalkRight, 1.0, 0.0),
+                ] {
+                    if keys_now.down(i, action) {
+                        wx += dx;
+                        wy += dy;
+                    }
+                }
+            });
+        }
+        // Up the screen is whichever way the room lies under the camera,
+        // head up or north up: two points of the canvas, through it.
+        let middle = canvas.size() / 2.0;
+        let walk = (wx != 0.0 || wy != 0.0).then(|| {
+            let (x0, y0) = session.room_point(middle.x, middle.y);
+            let (x1, y1) = session.room_point(middle.x + wx * 100.0, middle.y + wy * 100.0);
+            angle_code((y1 - y0).atan2(x1 - x0))
+        });
+        let aim = on_canvas
+            .map(|p| {
+                let (rx, ry) = session.room_point(p.x, p.y);
+                angle_code((ry - at.y).atan2(rx - at.x))
+            })
+            .or(screen.control.map(|((_, aim, _), _)| aim));
+        let fire = pointer.secondary_down
+            && on_canvas.is_some()
+            && !screen.aiming_attack
+            && !screen.aiming_move
+            && screen.aiming_throw.is_none();
+        if let Some(aim) = aim
+            && control_due(screen.control, (walk, aim, fire), now)
+        {
+            screen.control = Some(((walk, aim, fire), now));
+            orders.push(Order::Crew(CrewOrder::Control { walk, aim, fire }));
+        }
+    }
+
     // A rank-up asked for this frame (task 123): Ctrl and a slot's key
     // here, or Ctrl and a click on the slot's box in the hero panel below.
     let mut rank_up_asked: Option<RankUp> = None;
@@ -2266,6 +2322,7 @@ fn frame(
                 if keys_now.pressed(i, Action::Follow) {
                     let on = !game.follow;
                     game.set_follow(on);
+                    screen.free_camera = !on;
                 }
             }
             if !i.modifiers.any() {
@@ -2512,7 +2569,9 @@ fn frame(
                 d.y -= step;
             }
         });
-        if d != Vec2::ZERO {
+        // The keys pan the map alone: over the deck WASD walk the
+        // player's own Bim (task 144), and the camera follows it.
+        if d != Vec2::ZERO && map_up {
             session.pan(d.x, d.y);
         }
     } else if screen.sheet.is_some()
@@ -2526,8 +2585,14 @@ fn frame(
     // middle drag pans — the deck, or the galaxy chart — by the same
     // calls, so Follow takes it as it takes a drag; beside WASD, and
     // paused as well, since it is the camera and not the world.
+    // Not over the deck while the camera follows the player's own Bim
+    // (task 144): it would only shove the view off it.
+    let camera_pans = map_up || session.game.as_ref().is_some_and(|g| !g.follow);
     let edge = edge_pan_now(&ctx, &pointer, &keys_now, window.focused, dt as f32).filter(|_| {
-        screen.sheet.is_none() && screen.pan_from.is_none() && screen.chart_press.is_none()
+        screen.sheet.is_none()
+            && screen.pan_from.is_none()
+            && screen.chart_press.is_none()
+            && camera_pans
     });
     if let Some(d) = edge {
         match &mut screen.galaxy {
@@ -2581,10 +2646,13 @@ fn frame(
         || crate::dev::out();
     // A player whose Bim is out watches a crewmate's, which the portraits
     // pick: the camera follows the one watched, tethered to it the first
-    // frame out. Back in, the camera is the player's own again, and free
-    // as it opens — the tether was the watching's, and left on it had the
-    // camera chasing the player's own Bim round the deck.
+    // frame out. Back in, the camera follows the player's own again — as
+    // it does from the first frame of a run, since the keys walk it and
+    // the pointer aims it (task 144); the follow key lets it go.
     if let Some(game) = session.game.as_mut() {
+        if !screen.free_camera && !game.follow {
+            game.set_follow(true);
+        }
         let crew = game.world.aboard.crew_count();
         let room = &game.world.aboard.room;
         let watchable = |w: u32| w != local && w < crew && room.is_alive(w as usize);
@@ -2598,11 +2666,8 @@ fn frame(
         let first = next.is_some() && game.spectate.is_none();
         let back = !out && game.spectate.is_some();
         game.spectate = next;
-        if first {
+        if first || back {
             game.set_follow(true);
-        }
-        if back {
-            game.set_follow(false);
         }
     }
 
@@ -2891,6 +2956,7 @@ fn frame(
             .collect(),
     };
     let mut eyed = Choice::default();
+    let colour = |slot: u32| slot_colour(&session.crew_tints, slot);
     super::worldmap::relic_window(
         &ctx,
         world,
@@ -2899,7 +2965,15 @@ fn frame(
         &crew_name,
         &mates,
         &mut eyed,
+        &super::worldmap::RewardLook {
+            colour: &colour,
+            hidden: screen.dice.playing(),
+        },
     );
+    // And a reward's clashes, thrown over everything (task 146); the log
+    // gets the throws and the relics given once they have been played.
+    let played = screen.dice.show(&ctx, &crew_name, &colour);
+    screen.log.extend(played);
     // A rank-up asked for this frame, by Ctrl and a slot's key or by a
     // Ctrl-click on its box (task 123), for the player's own Bim — the
     // one place both go through.
@@ -2991,7 +3065,6 @@ fn frame(
             }
         }
     }
-    let colour = |slot: u32| slot_colour(&session.crew_tints, slot);
     if focus_here
         && let Some(chart) = &mut screen.galaxy
         && let Some(s) = chart.here.and_then(|id| chart.galaxy.star(id))
@@ -3000,15 +3073,7 @@ fn frame(
         let (w, h) = (chart.preview.width, chart.preview.height);
         chart.preview.pan(w / 2.0 - x, h / 2.0 - y);
     }
-        &super::worldmap::RewardLook {
-            colour: &colour,
-            hidden: screen.dice.playing(),
-        },
     if let Some(ask) = column
-    // And a reward's clashes, thrown over everything (task 146); the log
-    // gets the throws and the relics given once they have been played.
-    let played = screen.dice.show(&ctx, &crew_name, &colour);
-    screen.log.extend(played);
         && ask.close
         && let Some(game) = &mut session.game
     {
@@ -3502,6 +3567,17 @@ fn frame(
         && let Some(p) = on_canvas
     {
         attack_cursor(&painter, egui::pos2(p.x + canvas.min.x, p.y + canvas.min.y));
+    } else if !map_up
+        && screen.aiming_throw.is_none()
+        && let Some(p) = on_canvas
+    {
+        // Else over the deck the pointer is the aim (task 144).
+        let firing = screen.control.is_some_and(|((_, _, fire), _)| fire);
+        aim_cursor(
+            &painter,
+            egui::pos2(p.x + canvas.min.x, p.y + canvas.min.y),
+            firing,
+        );
     }
     // The others' pointers and everybody's pings (Alt and a left click),
     // each in its player's colour, wherever it is in whichever view this
@@ -4182,6 +4258,70 @@ fn split_map(
             Vec2::new(right.max(middle + 1.0), full.max.y),
         ),
     )
+}
+
+/// What a `CrewOrder::Control` says (task 144): the walk's angle code,
+/// `None` with no key down, the aim's, and the trigger.
+type CrewOrderControl = (Option<u16>, u16, bool);
+
+/// Seconds at the least between two control orders that change the aim
+/// alone (task 144): every order is a command every player's copy of the
+/// world applies, and a pointer moves every frame.
+const CONTROL_EVERY: f64 = 0.05;
+
+/// How far the aim has to have turned, in angle codes, to be said again
+/// on its own: a fifth of a degree.
+const AIM_STEP: u16 = 36;
+
+/// Whether the keys, the pointer and the trigger are worth a control
+/// order now (task 144): the first, a walk or a trigger changed — at
+/// once, since those are what a body does — or the aim turned past
+/// [`AIM_STEP`] at least [`CONTROL_EVERY`] after the last.
+fn control_due(last: Option<(CrewOrderControl, f64)>, now: CrewOrderControl, time: f64) -> bool {
+    let Some(((walk, aim, fire), at)) = last else {
+        return true;
+    };
+    if walk != now.0 || fire != now.2 {
+        return true;
+    }
+    let turned = aim.wrapping_sub(now.1).min(now.1.wrapping_sub(aim));
+    turned >= AIM_STEP && time - at >= CONTROL_EVERY
+}
+
+/// The pointer over the deck (task 144): the aim's reticle where the
+/// system's cursor was — a ring broken into four with a dot in the
+/// middle, each stroke over a dark one so it reads on the deck and the
+/// void alike, in the crew's cyan, and closing in while the trigger is
+/// held.
+fn aim_cursor(painter: &egui::Painter, at: egui::Pos2, firing: bool) {
+    let r = if firing { 8.0 } else { 10.0 };
+    let gap = 0.42;
+    for (width, color) in [
+        (4.0, egui::Color32::from_black_alpha(200)),
+        (1.8, theme::AIM),
+    ] {
+        for quarter in 0..4 {
+            let from = quarter as f32 * std::f32::consts::FRAC_PI_2 + gap;
+            let to = from + std::f32::consts::FRAC_PI_2 - 2.0 * gap;
+            let points: Vec<egui::Pos2> = (0..=6)
+                .map(|k| {
+                    let a = from + (to - from) * k as f32 / 6.0;
+                    at + egui::vec2(a.cos(), a.sin()) * r
+                })
+                .collect();
+            painter.add(egui::Shape::line(points, egui::Stroke::new(width, color)));
+            let a = from - gap;
+            let (c, s) = (a.cos(), a.sin());
+            painter.line_segment(
+                [
+                    at + egui::vec2(c, s) * (r - 3.0),
+                    at + egui::vec2(c, s) * (r + 5.0),
+                ],
+                egui::Stroke::new(width, color),
+            );
+        }
+    }
+    painter.circle_filled(at, 1.6, theme::AIM);
 }
 
 fn attack_cursor(painter: &egui::Painter, at: egui::Pos2) {
@@ -6568,5 +6708,44 @@ fn say_where(session: &Session) {
                 );
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod control_tests {
+    use super::*;
+
+    /// A control order goes at once for a walk or a trigger changed, and
+    /// for the aim alone only once it has turned past `AIM_STEP` and
+    /// `CONTROL_EVERY` has gone by since the last (task 144).
+    #[test]
+    fn a_control_order_goes_for_a_walk_or_a_trigger_at_once_and_for_the_aim_now_and_then() {
+        let last = Some(((None, 1000, false), 10.0));
+        assert!(control_due(None, (None, 0, false), 0.0), "the first");
+        assert!(
+            control_due(last, (Some(0), 1000, false), 10.001),
+            "a key down"
+        );
+        assert!(control_due(last, (None, 1000, true), 10.001), "the trigger");
+        assert!(
+            !control_due(last, (None, 1000, false), 11.0),
+            "nothing changed"
+        );
+        assert!(
+            !control_due(last, (None, 1000 + AIM_STEP - 1, false), 11.0),
+            "a hair"
+        );
+        assert!(!control_due(last, (None, 2000, false), 10.01), "too soon");
+        assert!(
+            control_due(last, (None, 2000, false), 10.0 + CONTROL_EVERY),
+            "turned, in time"
+        );
+        // Across nought the short way round.
+        let north = Some(((None, 65530, false), 0.0));
+        assert!(
+            !control_due(north, (None, 10, false), 1.0),
+            "16 codes apart"
+        );
+        assert!(control_due(north, (None, 40, false), 1.0), "42 codes apart");
     }
 }

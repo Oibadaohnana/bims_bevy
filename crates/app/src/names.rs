@@ -1205,7 +1205,7 @@ pub fn orders_line(kind: u32) -> Option<&'static str> {
         _ => None,
     }
 }
-pub const ORDERS_TIP: &str = "The crew nobody is steering keep to your side and fight for themselves when they see an enemy. X puts an attack banner down for them to fight their way to; Y calls them back to the ship; either key again lets them follow you again. A right-click moves your own Bim and nobody else, and F then a click walks it there shooting whatever it meets. Nobody leaves a fight aboard the ship.";
+pub const ORDERS_TIP: &str = "The crew nobody is steering keep to your side and fight for themselves when they see an enemy. X puts an attack banner down for them to fight their way to; Y calls them back to the ship; either key again lets them follow you again. W, A, S and D walk your own Bim, the pointer aims it and the right button fires; F then a click walks it there shooting whatever it meets. Nobody leaves a fight aboard the ship.";
 /// The commander's rows on the crew panel (feature 78): the rally with
 /// its cooldown.
 pub fn rally_line(left: f64, cooldown: f64, level_enough: bool) -> String {

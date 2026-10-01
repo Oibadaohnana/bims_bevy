@@ -61,6 +61,11 @@ pub const DODGE_IN_COVER: f32 = 0.5;
 /// What a shooter's odds are multiplied by while it walks: half. A bot
 /// therefore stands still to shoot unless the stand it wants is cover.
 pub const WALKING_ACCURACY: f32 = 0.5;
+/// How far a shot its player aims (task 144) may stray from where the
+/// body faces, in radians, at no odds at all: the miss is this times
+/// what the odds fall short of one, either side — a pistol's 0.855
+/// strays two degrees standing, eight on the move at half the odds.
+pub const AIM_SPREAD: f32 = 0.25;
 
 // ---- The weapons ----
 //

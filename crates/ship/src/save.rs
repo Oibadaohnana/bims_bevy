@@ -207,7 +207,9 @@ use crate::game::Game;
 /// `Reinforcement::medic`, `Bim::medivac` — where it was an aura.
 /// 76: the reward's own picks (task 146) — `RelicChoice::picks`, `won`,
 /// `round`.
-pub const SAVE_VERSION: u32 = 76;
+/// 77: a player's keys and pointer on its Bim (task 144) —
+/// `Character::steer`.
+pub const SAVE_VERSION: u32 = 77;
 
 /// What the file holds, read back.
 #[derive(serde::Deserialize)]
