@@ -1066,6 +1066,8 @@ fn frame(
     window: Single<&Window>,
     // A mission being built off this thread (`screens::loading`).
     mut loading: ResMut<super::loading::Loading>,
+    // The picture behind a station's deck.
+    station_backdrops: Res<super::backdrop::StationBackdrops>,
 ) -> Result {
     // `BIMS_PERF`: where the frame goes (feature 96). Nothing at all
     // without it.
@@ -3415,6 +3417,11 @@ fn frame(
         // shots, the rings — once the fog is down (feature 97). Nothing
         // under the map, which is the galaxy chart alone.
         if !map_up {
+            // At a station, its picture under everything (the planet's
+            // ground is the painter's own).
+            if let Some(key) = session.game.as_ref().and_then(|g| g.backdrop()) {
+                station_backdrops.paint(&mut world_canvas, &ctx, canvas, key);
+            }
             world_canvas.shapes(&ctx, canvas, view, session.fog_split().0);
         }
         overlay_timed = crate::perf::scope(crate::perf::Phase::Overlay);

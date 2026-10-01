@@ -113,6 +113,14 @@ section on the buttons and the key.
 
 ## The ship is drawn in its own frame, and nothing burns in a run
 
+> **The starfield is gone (October 2026).** `crate::starfield`, `Game::stars`
+> and `world_paint::starfield` were deleted with the `VOID` rect under
+> them: at a station `paint_ship` draws nothing behind the deck, and the
+> app lays one of two pictures there (`crates/app/src/screens/backdrop.rs`,
+> `StationBackdrops`, from `Background/Background_{1,2}.png`), picked by
+> `Game::backdrop` — `None` on a planet, whose ground is still drawn here.
+> What follows about the specks and the starfield's square is history.
+
 `paint_ship` builds the whole ship — rim, tiles, the hull's pictures, the
 lights, the hover ring — into a ship-space `DrawList` in design units and
 turns it once with `DrawList::append_turned`; the room's buffer goes

@@ -1,5 +1,6 @@
-//! The menus' backdrops: a picture behind the start menu and an animated
-//! one behind the game setup.
+//! The backdrops: a picture behind the start menu, an animated one behind
+//! the game setup, and one of two behind a station's deck in a run
+//! ([`StationBackdrops`]).
 //!
 //! The pictures are PNGs built into the binary (`backgrounds/`, made by
 //! its `prepare.sh` from `Background/` at the root). They are decoded on a
@@ -21,6 +22,7 @@ use bevy::prelude::*;
 use bevy_egui::{EguiTextureHandle, EguiUserTextures, egui};
 
 use crate::Screen;
+use crate::scene::WorldCanvas;
 
 /// The start menu's picture.
 const START: &[u8] = include_bytes!("../../backgrounds/start.png");
@@ -86,7 +88,9 @@ pub struct BackdropPlugin;
 
 impl Plugin for BackdropPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<Backdrops>().add_systems(Update, keep);
+        app.init_resource::<Backdrops>()
+            .init_resource::<StationBackdrops>()
+            .add_systems(Update, (keep, keep_station));
     }
 }
 
@@ -224,6 +228,111 @@ fn cover(window: egui::Vec2, picture: egui::Vec2) -> egui::Rect {
     );
     let min = egui::pos2((1.0 - seen.x) / 2.0, (1.0 - seen.y) / 2.0);
     egui::Rect::from_min_size(min, seen)
+}
+
+// --- behind a station's deck ---------------------------------------------------
+
+/// What is behind a station's deck in a run, where the void and its white
+/// specks were: `ship::Game::backdrop` picks one a station, modulo these.
+/// Drawn on the world's canvas under everything else on it
+/// ([`StationBackdrops::paint`]), covering the canvas as the menus'
+/// pictures cover the window, and still whatever the camera does — it is
+/// far away. A planet has the ground instead.
+const STATION: [&[u8]; 2] = [
+    include_bytes!("../../backgrounds/station_0.png"),
+    include_bytes!("../../backgrounds/station_1.png"),
+];
+
+/// The station pictures, as far as they have got: decoded on a thread of
+/// their own the first time the game is up, kept on the GPU while it is
+/// and let go once it is left, as [`Backdrops`] are for the menus.
+#[derive(Resource, Default)]
+pub struct StationBackdrops {
+    decoding: Option<Mutex<Receiver<(usize, Image)>>>,
+    shown: Vec<Option<(Handle<Image>, egui::Vec2)>>,
+}
+
+impl StationBackdrops {
+    /// Paints picture `key` (modulo the pictures) over the whole of
+    /// `canvas` on the world's canvas — to be called before anything else
+    /// goes on it. Until it has decoded, nothing: the window's clear
+    /// colour is the void it was.
+    pub fn paint(
+        &self,
+        world: &mut WorldCanvas,
+        ctx: &egui::Context,
+        canvas: crate::shapes::Rect,
+        key: u64,
+    ) {
+        let slot = (key % STATION.len() as u64) as usize;
+        let Some(Some((image, size))) = self.shown.get(slot) else {
+            return;
+        };
+        let (min, max) = (canvas.min, canvas.max);
+        let uv = cover(egui::vec2(max.x - min.x, max.y - min.y), *size);
+        let corners = [
+            egui::pos2(min.x, min.y),
+            egui::pos2(max.x, min.y),
+            egui::pos2(max.x, max.y),
+            egui::pos2(min.x, max.y),
+        ];
+        let uvs = [
+            uv.left_top(),
+            uv.right_top(),
+            uv.right_bottom(),
+            uv.left_bottom(),
+        ];
+        world.picture(ctx, canvas, image.clone(), &[(corners, uvs)]);
+    }
+}
+
+/// Starts the station pictures' decoding when the game is first up, puts
+/// each on the GPU as it comes, and lets them go once the game is left.
+fn keep_station(
+    mut backdrops: ResMut<StationBackdrops>,
+    state: Res<State<Screen>>,
+    mut images: ResMut<Assets<Image>>,
+) {
+    let wanted = *state.get() == Screen::Game;
+    let backdrops = &mut *backdrops;
+    if wanted && backdrops.decoding.is_none() && backdrops.shown.is_empty() {
+        let (send, receive) = channel();
+        std::thread::spawn(move || {
+            for (i, bytes) in STATION.into_iter().enumerate() {
+                if let Some(image) = decode(bytes)
+                    && send.send((i, image)).is_err()
+                {
+                    return;
+                }
+            }
+        });
+        backdrops.decoding = Some(Mutex::new(receive));
+        backdrops.shown = (0..STATION.len()).map(|_| None).collect();
+    }
+    if let Some(receive) = &backdrops.decoding {
+        let receive = receive.lock().unwrap_or_else(|e| e.into_inner());
+        loop {
+            match receive.try_recv() {
+                Ok((i, image)) => {
+                    let size = image.size();
+                    let size = egui::vec2(size.x as f32, size.y as f32);
+                    backdrops.shown[i] = Some((images.add(image), size));
+                }
+                Err(TryRecvError::Empty) => break,
+                Err(TryRecvError::Disconnected) => {
+                    drop(receive);
+                    backdrops.decoding = None;
+                    break;
+                }
+            }
+        }
+    }
+    if !wanted && !backdrops.shown.is_empty() {
+        backdrops.decoding = None;
+        for (image, _) in backdrops.shown.drain(..).flatten() {
+            images.remove(&image);
+        }
+    }
 }
 
 #[cfg(test)]

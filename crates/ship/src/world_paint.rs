@@ -22,7 +22,7 @@
 //!
 //! # What is never turned with the ship
 //!
-//! The starfield and anything drawn because it is *out there* — a station
+//! Anything drawn because it is *out there* — a station
 //! alongside, everything on the map. Those are in the world, and the world
 //! does not tip over when the ship does.
 //!
@@ -47,7 +47,6 @@ use crate::draw::{Color, DrawList};
 use crate::game::{Game, Overlay, ViewMode};
 use crate::hull;
 use crate::paint::PART_COLORS;
-use crate::starfield::FIELD;
 
 const VOID: Color = Color::rgb(0.02, 0.03, 0.04);
 const FRAME: Color = Color::rgb(0.10, 0.11, 0.13);
@@ -415,9 +414,11 @@ fn paint_ship(game: &Game, list: &mut DrawList, prebuilt: &[KeptStation]) {
     let camera = &game.ship_view;
     let scale = camera.scale().max(1e-9);
 
-    // The void first, big enough to cover the canvas at any pan — or, on
-    // a planet, the ground: there is no space down there, and the planet
-    // is the whole of the surroundings.
+    // On a planet, the ground first, big enough to cover the canvas at
+    // any pan: there is no space down there, and the planet is the whole
+    // of the surroundings. At a station nothing: the window's picture
+    // behind the deck is the app's (`Game::backdrop`), and the canvas is
+    // left clear for it.
     let half_w = camera.width / scale;
     let half_h = camera.height / scale;
     let landed = game
@@ -425,22 +426,26 @@ fn paint_ship(game: &Game, list: &mut DrawList, prebuilt: &[KeptStation]) {
         .landed()
         .and_then(|body| game.world.surface(body))
         .map(|surface| surface.biome);
-    let backdrop = match landed {
-        Some(biome) => ground_color(biome),
-        None => VOID,
-    };
-    list.rect(0.0, 0.0, half_w * 3.0, half_h * 3.0, 0.0, backdrop);
+    if let Some(biome) = landed {
+        list.rect(
+            0.0,
+            0.0,
+            half_w * 3.0,
+            half_h * 3.0,
+            0.0,
+            ground_color(biome),
+        );
+    }
 
     // Everything out there, drawn square to the window and then turned with
     // the camera — which is not at all unless the view is head up. The
     // planet the ship is at is the ground under it; the stations are drawn
     // where they are, already turned, by `stations`. On the ground there
-    // are no stars and no planet in the sky: the ground itself, patched.
+    // is no planet in the sky: the ground itself, patched.
     let out_there = list.len();
     if let Some(biome) = landed {
         ground(game, list, biome);
     } else {
-        starfield(game, list);
         local_node(game, list);
     }
     list.turn_from(out_there, game.camera_turn() as f32);
@@ -2003,64 +2008,6 @@ pub fn resident_on_screen(game: &Game, who: u32) -> (f32, f32) {
     let offset = station.centre().sub(game.world.ship.position());
     let at = crate::game::turned(offset.x as f32, -offset.y as f32, turn as f32);
     (x + at.0, y + at.1)
-}
-
-/// The three layers of stars.
-///
-/// In screen pixels, turned back into camera units on the way out — a
-/// backdrop covers the window rather than the world, so it does not tile four
-/// hundred times over when the view is zoomed out.
-fn starfield(game: &Game, list: &mut DrawList) {
-    let camera = &game.ship_view;
-    let scale = camera.scale().max(1e-9);
-
-    // The screen pixels to cover. The window, unless the field is about to be
-    // turned round the ship: then a square about the ship's own pixel wide
-    // enough to reach the furthest corner, or the corners would be bare
-    // after the turn. Worked out from the corners rather than the diagonal
-    // because the pan has the ship off the middle.
-    let (x0, y0, x1, y1) = if game.head_up {
-        let (ox, oy) = (camera.offset_x() as f64, camera.offset_y() as f64);
-        let reach = ox
-            .max(camera.width as f64 - ox)
-            .hypot(oy.max(camera.height as f64 - oy));
-        (ox - reach, oy - reach, ox + reach, oy + reach)
-    } else {
-        (0.0, 0.0, camera.width as f64, camera.height as f64)
-    };
-    // The tile the first repeat sits in, and how many repeats reach the far
-    // side. A repeat is `FIELD` wide, so the one holding `x0` starts at the
-    // multiple of `FIELD` at or below it.
-    let (first_x, first_y) = ((x0 / FIELD).floor() as i32, (y0 / FIELD).floor() as i32);
-    let across = ((x1 - x0) / FIELD).ceil() as i32 + 1;
-    let down = ((y1 - y0) / FIELD).ceil() as i32 + 1;
-
-    for layer in &game.stars.layers {
-        for speck in layer {
-            let base = dvec2(speck.at.x.rem_euclid(FIELD), speck.at.y.rem_euclid(FIELD));
-            for tx in first_x..first_x + across {
-                for ty in first_y..first_y + down {
-                    let px = base.x + tx as f64 * FIELD;
-                    let py = base.y + ty as f64 * FIELD;
-                    if px < x0 || px > x1 || py < y0 || py > y1 {
-                        continue;
-                    }
-                    // Screen pixels back into the camera's own units, so the
-                    // speck stays the same size on screen at any zoom.
-                    let x = (px as f32 - camera.offset_x()) / scale;
-                    let y = (py as f32 - camera.offset_y()) / scale;
-                    let size = speck.size / scale;
-                    list.ellipse(
-                        x,
-                        y,
-                        size,
-                        size,
-                        Color::rgba(1.0, 1.0, 1.0, speck.brightness),
-                    );
-                }
-            }
-        }
-    }
 }
 
 /// The body the ship is alongside, drawn where it actually is: the ground.

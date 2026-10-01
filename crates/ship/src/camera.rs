@@ -7,7 +7,7 @@
 //! way" would always look the same.
 //!
 //! So the *ship* rotates on screen instead, drawn through its heading, and
-//! everything else — the starfield, a station drawn alongside, the map — stays
+//! everything else — a station drawn alongside, the map — stays
 //! square to the window.
 //!
 //! That is the default and not the only way: `Game::head_up` is the player

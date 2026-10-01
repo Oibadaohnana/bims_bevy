@@ -30,7 +30,6 @@ use worldgen::GalaxyType;
 use worldgen::math::{DVec2, dvec2};
 
 use crate::camera::Camera;
-use crate::starfield::Starfield;
 
 #[path = "map_layout.rs"]
 mod map_layout;
@@ -157,7 +156,6 @@ pub struct Game {
     /// decides anything. It does not stop at a pause, which is right: a
     /// paused flame still burns.
     pub frame: u32,
-    pub stars: Starfield,
     /// How far the mated airlocks stand open, 0 shut to 1 wide. A picture
     /// clock like `frame`: it eases towards open while somebody is at the
     /// door and shut when nobody is, and nothing that decides anything
@@ -259,7 +257,6 @@ impl Game {
             frame: 0,
             airlock_ajar: 0.0,
             kept_stations: Vec::new(),
-            stars: Starfield::new(seed),
             shown: None,
             shown_own: None,
         };
@@ -274,10 +271,9 @@ impl Game {
     /// [`Game::start_with_crew`] on a world already under way — one read
     /// back from a save (`crate::save`). Everything that is not the world
     /// starts as it does at an open: the cameras fitted, nothing aimed,
-    /// no tool in hand, the sky rolled off the world's own seed.
+    /// no tool in hand.
     pub fn resume(world: World, local: u32, width: f32, height: f32) -> Game {
         let players = world.players();
-        let seed = world.galaxy_seed;
         let mut world = world;
         // The crisis's hop table is derived from the galaxy and the
         // origin, and a save carries only the origin (feature 92): every
@@ -306,7 +302,6 @@ impl Game {
             frame: 0,
             airlock_ajar: 0.0,
             kept_stations: Vec::new(),
-            stars: Starfield::new(seed),
             shown: None,
             shown_own: None,
         };
@@ -373,6 +368,28 @@ impl Game {
         } else {
             0.0
         }
+    }
+
+    /// Which picture is behind the deck: `None` on a planet, where the
+    /// ground is the surroundings, and at a station a number the app takes
+    /// modulo its pictures (`backdrop::STATION`). **Cosmetic**: off the
+    /// galaxy's seed, the system and the station, so one station has one
+    /// picture on every end and every visit, and nothing reads it but the
+    /// painter.
+    pub fn backdrop(&self) -> Option<u64> {
+        let world = &self.world;
+        if world.landed().and_then(|b| world.surface(b)).is_some() {
+            return None;
+        }
+        let station = world.ship.state.alongside().map_or(u64::MAX, u64::from);
+        // splitmix64's finish over the three, so neighbouring stations
+        // do not all fall on one picture.
+        let mut z = world.galaxy_seed
+            ^ (u64::from(world.system.star_id) << 32)
+            ^ station.wrapping_mul(0x9e37_79b9_7f4a_7c15);
+        z = (z ^ (z >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
+        z = (z ^ (z >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
+        Some(z ^ (z >> 31))
     }
 
     /// The angle the ship is drawn through: its heading, less however far the

@@ -253,7 +253,7 @@ fn head_up_holds_the_ship_square_and_turns_the_sky_the_map_and_the_pointer() {
     }
 }
 
-/// The starfield and anything drawn because it is out there are **never**
+/// Anything drawn because it is out there is **never**
 /// turned. Nothing in the shape buffer for them carries a rotation, however
 /// the ship is pointing.
 #[test]
@@ -262,8 +262,8 @@ fn the_sky_and_what_is_alongside_do_not_turn_with_the_ship() {
         let mut game = game();
         let mut list = crate::draw::DrawList::new();
 
-        // Every shape is either where it was at rest — the sky, the station
-        // alongside and the void behind them are never turned, and neither
+        // Every shape is either where it was at rest — the station
+        // alongside is never turned, and neither
         // are the turns of their own their pictures carry — or turned by
         // exactly the heading on top of what it was at rest: the hull, the
         // fittings (a lamp hung `R270` from the side wall is drawn at its own
@@ -294,7 +294,10 @@ fn the_sky_and_what_is_alongside_do_not_turn_with_the_ship() {
                 );
             }
         }
-        assert!(square > 0, "the starfield should be square to the window");
+        assert!(
+            square > 0,
+            "what is out there should be square to the window"
+        );
         assert!(turned > 0, "the ship should be turned to its heading");
     }
 }

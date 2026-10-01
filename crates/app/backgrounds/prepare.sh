@@ -7,7 +7,9 @@
 #                   frame of Game_Setup_Background_animated.gif. The gif
 #                   plays its frames there and back (0 1 2 3 4 3 2 1 0, then
 #                   0 9 10 11 12 11 10 9), so only nine are different; the
-#                   order and the delays are `backdrop::SETUP_FRAMES`.
+#                   order and the delays are `backdrop::SETUP_FRAMES`;
+#   station_N.png — behind a station's deck, Background_{N+1}.png
+#                   recompressed (`backdrop::STATION`).
 #
 # Needs imagemagick (`magick`). Run from anywhere; a changed gif wants its
 # frame order checked again (the hashes this prints) and the table redone.
@@ -19,6 +21,11 @@ trap 'rm -rf "$tmp"' EXIT
 
 magick "$src/Start_screen_Background.png" -strip -define png:compression-level=9 "$tmp/start.png"
 [ -s "$tmp/start.png" ] && cp "$tmp/start.png" "$here/start.png"
+
+for n in 0 1; do
+    magick "$src/Background_$((n + 1)).png" -strip -define png:compression-level=9 "$tmp/station_$n.png"
+    [ -s "$tmp/station_$n.png" ] && cp "$tmp/station_$n.png" "$here/station_$n.png"
+done
 
 magick "$src/Game_Setup_Background_animated.gif" -coalesce "$tmp/g%02d.png"
 for f in "$tmp"/g*.png; do
