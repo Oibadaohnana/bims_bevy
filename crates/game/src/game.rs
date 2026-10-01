@@ -375,10 +375,11 @@ struct Seen {
 /// world has given them a list of their own (`Game::machine_seen`,
 /// feature 94).
 ///
-/// And a side that is `told` where its targets are — a room with a
-/// reinforcement wave of the machines standing in it (`Droid::seeking`)
-/// — believes every one it was handed where it stands now, seen or not:
-/// still stale out of sight, so it is walked towards and never fired at.
+/// And a side that is `told` where a target is — a room with a
+/// reinforcement wave of the machines standing in it (`Droid::seeking`),
+/// or a wave attacking a site the crew defend, about everybody under arms
+/// there — believes it where it stands now, seen or not: still stale out
+/// of sight, so it is walked towards and never fired at.
 ///
 /// **A body shot at knows where from.** Each of `shot_at` — the side's
 /// bodies under fire ([`UNDER_FIRE`]) — gives away the target that most
@@ -398,7 +399,7 @@ fn believe(
     seen: &mut Vec<Option<Seen>>,
     sight: &Sight,
     watched: Option<Vec2>,
-    told: bool,
+    told: impl Fn(usize) -> bool,
     eyes: &[Vec2],
     shot_at: &[Vec2],
     at: Vec<Option<(Vec2, Weapon)>>,
@@ -432,7 +433,7 @@ fn believe(
             Some((p, weapon)) => {
                 in_sight = watched.is_some_and(|w| (w - p).len() <= AIRLOCK_WATCH * TILE)
                     || eyes.iter().any(|&eye| sight.sees_from(eye, p).is_some());
-                if in_sight || told || fired.contains(&i) {
+                if in_sight || told(i) || fired.contains(&i) {
                     seen[i] = Some(Seen {
                         at: p,
                         weapon,
@@ -7134,7 +7135,7 @@ impl Game {
             &mut self.last_seen,
             &self.room.sight,
             watched,
-            told,
+            |_| told,
             &eyes,
             &shot_at,
             at,
@@ -7165,6 +7166,15 @@ impl Game {
     /// people keep one about the crew: eyes are the machines' alone,
     /// since the town's people are not on their side and do not spot for
     /// them, and nothing here is watched.
+    ///
+    /// **But they came to attack, and know whom they came for**: the
+    /// crew and every one of the site's people under arms (the guard,
+    /// the mercenaries, the defenders — whoever is not sheltering) are
+    /// told, believed where they stand, so a wave with nobody in sight
+    /// does not wait at its gate for the defenders to come out but walks
+    /// in after the nearest (the hunter's rule, `plan_droid_stand`). Out
+    /// of sight they are still stale and nobody fires at them. Those
+    /// sheltering in the houses are found only by looking.
     pub fn set_machine_hostiles(&mut self, at: Vec<Option<(Vec2, Weapon)>>, cross: usize) {
         let eyes: Vec<Vec2> = self
             .droids
@@ -7192,11 +7202,13 @@ impl Game {
                     .map(|b| b.character.pos),
             )
             .collect();
+        let sheltering = &self.sheltering;
+        let told = |i: usize| i < cross || !sheltering.get(i - cross).copied().unwrap_or(false);
         let (believed, stale) = believe(
             &mut self.machine_seen,
             &self.room.sight,
             None,
-            false,
+            told,
             &eyes,
             &shot_at,
             at,
@@ -10035,6 +10047,71 @@ mod tests {
             "walked at the shooter: {pos:?}"
         );
         assert!(shots > 0, "and shot at it once it saw it");
+    }
+
+    /// A wave attacking a site the crew defend (the machines' own list,
+    /// `set_machine_hostiles`) does not wait at its gate with nobody in
+    /// sight: told where the crew and the site's people under arms are,
+    /// it walks in after them and shoots the moment it sees one. A
+    /// townsperson sheltering in a house is found only by looking (the
+    /// user's report: on a defend-station mission the machines stood
+    /// outside their airlock until the defenders came to them).
+    #[test]
+    fn a_wave_at_a_defended_site_walks_in_after_the_defenders() {
+        use crate::droid::{Droid, DroidKind};
+        let start = tile_middle(3.0, 3.0);
+        let far = tile_middle(16.0, 16.0);
+        let pistol = WeaponKind::LaserPistol.basic();
+        // `cross` 1: the one target is the crew's, across the seam; 0: it
+        // is this room's townsperson, sheltering or under arms.
+        let attack = |cross: usize, sheltering: bool| {
+            let layout = crate::aboard::layout_of(&box_ship(&[]));
+            let (w, h) = (layout.bounds.width(), layout.bounds.height());
+            let mut game = Game::with_layout(layout, 7, &[far], w, h);
+            game.set_autonomous(false);
+            game.add_droid(Droid::new(
+                DroidKind::Trooper,
+                Tier::One,
+                0,
+                1,
+                start,
+                0.0,
+                5,
+            ));
+            game.set_sheltering(&[sheltering]);
+            assert!(game.room.sight.sees_from(start, far).is_none());
+            let mut shots = 0;
+            for _ in 0..(60 * 20) {
+                let list = if cross == 1 {
+                    vec![Some((far, pistol)), None]
+                } else {
+                    vec![Some((game.bim_pos(0), pistol))]
+                };
+                game.set_machine_hostiles(list, cross);
+                game.simulate(DT);
+                shots += game.take_shots().len();
+                if shots > 0 {
+                    break;
+                }
+            }
+            (game.droids()[0].pos, shots)
+        };
+        let (pos, shots) = attack(1, false);
+        assert!(
+            (pos - far).len() < (start - far).len() - 3.0 * TILE,
+            "walked in after the crew: {pos:?}"
+        );
+        assert!(shots > 0, "and shot once it saw them");
+        let (pos, _) = attack(0, false);
+        assert!(
+            (pos - far).len() < (start - far).len() - 3.0 * TILE,
+            "and after a defender: {pos:?}"
+        );
+        let (pos, _) = attack(0, true);
+        assert!(
+            (pos - start).len() < 0.1,
+            "a sheltering one is not told: {pos:?}"
+        );
     }
 
     /// A Trooper with a shot holds or closes and shoots: it does not walk

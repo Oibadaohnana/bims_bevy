@@ -3294,6 +3294,15 @@ so two things were added, both of them empty and inert everywhere else.
   target at all — because a town's room is *friendly*, so `war`
   (`hostile_bodies && …`) is false in it and the machines would stand
   about doing nothing.
+- **They know whom they came for.** `set_machine_hostiles` tells their
+  belief (`believe`'s `told`, a question a target now) where the crew
+  and every one of this room's bodies not sheltering are — the guard,
+  the mercenaries, the defenders — so with nobody in sight a wave walks
+  in after the nearest by the hunter's rule rather than standing at its
+  gate until the defenders came to it (the user's report, a defended
+  station). Out of sight they are still stale and never fired at; a
+  body sheltering in a house is found only by looking.
+  `a_wave_at_a_defended_site_walks_in_after_the_defenders` pins it.
 - **`Game::sheltering`** is which of this room's own bodies take no part:
   `Game::set_sheltering(&[bool])`, said every step by the world, posts a
   body newly told to shelter at the **nearest bunk** — the nearest house
