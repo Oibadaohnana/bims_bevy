@@ -6,7 +6,6 @@
 
 use bims::combat::{ArmourKind, Item, Piece, Tier, WeaponKind};
 use bims::droid::{DroidKind, DroidPart};
-use bims::health::Part;
 use bims::math::vec2;
 use physics::ResourceId;
 use shipdesign::fixture::combat_ship;
@@ -148,19 +147,14 @@ fn wear(world: &mut World, who: usize, kind: ArmourKind, health: f32) -> u32 {
     let id = piece.id;
     piece.health = health;
     let mut gear = world.aboard.room.gear(who);
-    *gear.worn_mut(kind.slot()) = Some(piece);
+    *gear.worn_mut() = Some(piece);
     world.aboard.room.issue(who, gear);
     id
 }
 
-/// The health left on a worn piece.
-fn worn_health(world: &World, who: usize, kind: ArmourKind) -> f32 {
-    world
-        .aboard
-        .room
-        .gear(who)
-        .worn(kind.slot())
-        .map_or(0.0, |p| p.health)
+/// The health left on the armour worn.
+fn worn_health(world: &World, who: usize) -> f32 {
+    world.aboard.room.gear(who).worn().map_or(0.0, |p| p.health)
 }
 
 /// Fire `shots` pistol bolts at a crew member from six tiles off, one a
@@ -350,29 +344,20 @@ fn the_tank_sets_out_in_basic_armour_with_the_pistol_and_the_pool_is_unchanged()
         Some(WeaponKind::LaserPistol.basic()),
         "the pistol he had in hand"
     );
-    for kind in ArmourKind::BASIC {
-        let piece = world
-            .aboard
-            .room
-            .gear(0)
-            .worn(kind.slot())
-            .expect("a basic piece on every part");
-        assert_eq!((piece.kind, piece.tier), (kind, Tier::One));
-        assert_eq!(piece.health, kind.stats().health, "fresh");
-        assert!(
-            piece.id < world.holdings.next_id,
-            "numbered off the holdings"
-        );
-    }
+    let piece = world.aboard.room.gear(0).worn().expect("the armour on");
+    assert_eq!((piece.kind, piece.tier), (ArmourKind::Armour, Tier::One));
+    assert_eq!(piece.health, ArmourKind::Armour.stats().health, "fresh");
+    assert!(
+        piece.id < world.holdings.next_id,
+        "numbered off the holdings"
+    );
     // And a class put back to none takes its start off again.
     assert_eq!(world.set_class(0, Class::None), Ok(()));
-    for kind in ArmourKind::BASIC {
-        assert!(world.aboard.room.gear(0).worn(kind.slot()).is_none());
-    }
+    assert!(world.aboard.room.gear(0).worn().is_none());
     // Every crew member wears every piece of armour, whatever its class:
     // the tank's kit is a start, not a monopoly.
     assert_eq!(world.set_class(1, Class::Medic), Ok(()));
-    let helm = Item::Armour(Piece::new(9_001, ArmourKind::BasicHelm, Tier::One));
+    let helm = Item::Armour(Piece::new(9_001, ArmourKind::Armour, Tier::One));
     world.leave_for_probe();
     let id = world.holdings.put(helm).unwrap();
     world.step(&[Command::Equip {
@@ -380,7 +365,7 @@ fn the_tank_sets_out_in_basic_armour_with_the_pistol_and_the_pool_is_unchanged()
         who: 1,
         from: crate::GearSource::Armory { id },
     }]);
-    assert!(world.aboard.room.gear(1).worn(Part::Head).is_some());
+    assert!(world.aboard.room.gear(1).worn().is_some());
 }
 
 #[test]
@@ -388,36 +373,36 @@ fn armour_on_a_tank_drains_at_half_rate_and_the_overflow_reaches_the_body() {
     let mut world = tank();
     assert_eq!(world.set_class(1, Class::None), Ok(()));
     world.step(&[]);
-    let kevlar = ArmourKind::BasicKevlar;
+    let kevlar = ArmourKind::Armour;
     let protection = kevlar.stats().protection;
-    assert_eq!(kevlar.stats().health, 20.0);
+    assert_eq!(kevlar.stats().health, 45.0);
     // The same piece, at twenty, on the tank: forty past its protection
     // is exactly what it can take, and nothing reaches the body.
     wear(&mut world, 0, kevlar, 20.0);
-    let out = world.aboard.room.wound(0, Part::Body, 40.0 + protection);
+    let out = world.aboard.room.wound(0, 40.0 + protection);
     assert_eq!(out.through, 0.0, "the tank's kevlar took all forty");
     assert_eq!(out.absorbed, 40.0 + protection);
-    assert_eq!(worn_health(&world, 0, kevlar), 0.0, "and is spent");
+    assert_eq!(worn_health(&world, 0), 0.0, "and is spent");
     assert!(out.piece_broke);
     // And on anybody else it takes twenty, the other twenty reaching the
     // body.
     wear(&mut world, 1, kevlar, 20.0);
-    let out = world.aboard.room.wound(1, Part::Body, 40.0 + protection);
+    let out = world.aboard.room.wound(1, 40.0 + protection);
     assert_eq!(out.through, 20.0, "half of it through");
     assert_eq!(out.absorbed, 20.0 + protection);
-    assert_eq!(worn_health(&world, 1, kevlar), 0.0);
+    assert_eq!(worn_health(&world, 1), 0.0);
     // The overflow on a tank is exact too: sixty past the protection is
     // forty taken and twenty through.
     wear(&mut world, 0, kevlar, 20.0);
-    let out = world.aboard.room.wound(0, Part::Body, 60.0 + protection);
+    let out = world.aboard.room.wound(0, 60.0 + protection);
     assert_eq!(out.through, 20.0);
     assert_eq!(out.absorbed, 40.0 + protection);
     // A hit the protection swallows whole is swallowed for everybody,
     // and the piece's stored health is never doubled.
     wear(&mut world, 0, kevlar, 20.0);
-    let out = world.aboard.room.wound(0, Part::Body, protection);
+    let out = world.aboard.room.wound(0, protection);
     assert_eq!((out.through, out.absorbed), (0.0, protection));
-    assert_eq!(worn_health(&world, 0, kevlar), 20.0, "not a point off");
+    assert_eq!(worn_health(&world, 0), 20.0, "not a point off");
     assert_eq!(world.armour_drain(0), class::TANK_DRAIN);
     assert_eq!(world.armour_drain(1), 1.0);
 }
@@ -658,7 +643,7 @@ fn plated_cuts_the_damage_taken_by_its_rank_before_the_armour() {
         1.0,
         "nothing at rank nought"
     );
-    let kevlar = ArmourKind::BasicKevlar;
+    let kevlar = ArmourKind::Armour;
     let protection = kevlar.stats().protection;
     for (rank, taken) in (1..=4u8).zip(class::PLATED_DAMAGE_TAKEN) {
         let mut world = tank_at([0, rank, 0, 0]);
@@ -667,13 +652,13 @@ fn plated_cuts_the_damage_taken_by_its_rank_before_the_armour() {
         // Twenty on the kevlar: the hit cut first, the protection off
         // what is left, and the rest drains the piece at his rate.
         wear(&mut world, 0, kevlar, 20.0);
-        world.aboard.room.wound(0, Part::Body, 10.0);
+        world.aboard.room.wound(0, 10.0);
         let drain = world.armour_drain(0);
         let want = (10.0 * taken - protection) * drain;
         assert!(
-            (20.0 - worn_health(&world, 0, kevlar) - want).abs() < 1e-4,
+            (20.0 - worn_health(&world, 0) - want).abs() < 1e-4,
             "rank {rank}: {} off, {want} wanted",
-            20.0 - worn_health(&world, 0, kevlar)
+            20.0 - worn_health(&world, 0)
         );
     }
     // His alone.
@@ -984,7 +969,7 @@ fn the_checksum_notices_a_wall_a_taunt_a_juggernaut_and_a_hit_taken() {
     let mut tanked = basic();
     assert_eq!(tanked.set_class(0, Class::Tank), Ok(()));
     tanked.step(&[]);
-    for resource in [ResourceId::Helm, ResourceId::Kevlar, ResourceId::LegGuard] {
+    for resource in [ResourceId::Armour, ResourceId::Armour, ResourceId::Armour] {
         assert_eq!(
             none.ship.design.carrying(resource),
             tanked.ship.design.carrying(resource),

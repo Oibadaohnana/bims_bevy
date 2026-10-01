@@ -19,7 +19,7 @@ fn main() {
         // Nobody dresses her first: James would, and she would never drop.
         game.set_autonomous(false);
         for _ in 0..10 {
-            game.wound(1, health::Part::Body, 1.0);
+            game.wound(1, 1.0);
         }
     }
     // Both figures down side by side: James dead and Kate downed, for

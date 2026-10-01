@@ -556,7 +556,7 @@ fn the_fight_is_the_same_on_two_worlds() {
 #[test]
 fn the_end_command_s_bots_are_plain_bims_in_tier_three_kit() {
     use crate::class::{self, Class};
-    use bims::combat::{ArmourKind, Tier};
+    use bims::combat::Tier;
     let open = || {
         let mut world = at_the_heart(2, 12);
         world.set_class(0, Class::Soldier).unwrap();
@@ -571,10 +571,8 @@ fn the_end_command_s_bots_are_plain_bims_in_tier_three_kit() {
     for who in 0..12u32 {
         let gear = world.aboard.room.gear(who as usize);
         assert_eq!(gear.weapon.map(|w| w.tier), Some(Tier::Three), "{who}");
-        for kind in ArmourKind::BASIC {
-            let worn = gear.worn(kind.slot()).expect("worn");
-            assert_eq!(worn.tier, Tier::Three, "{who}");
-        }
+        let worn = gear.worn().expect("worn");
+        assert_eq!(worn.tier, Tier::Three, "{who}");
     }
     for who in 0..2u32 {
         assert_eq!(world.level_of(who), class::LEVELS, "player {who}");

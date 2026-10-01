@@ -1,6 +1,6 @@
 //! Arms, armour, and the shots in the air.
 //!
-//! Every Bim carries a [`Gear`]: three armour slots, a weapon slot with
+//! Every Bim carries a [`Gear`]: an armour slot, a weapon slot with
 //! the hand laser everybody is issued, and its charges. A Bim under orders
 //! — recruited — is in **combat mode**: it draws the weapon and, whenever
 //! an enemy is in range and in its own line of sight (`crate::sight`, the
@@ -22,12 +22,10 @@
 //! the wound is applied where the body is: a hit on a target goes out
 //! through [`Combat::take_hits`] for the world to carry to the residents'
 //! room, a hit on one of our own goes onto [`Combat::wounds_taken`] and
-//! the game applies it itself. A [`Hit`] carries the **part** it landed
-//! on, rolled from the combat stream the instant the bolt reaches the body
-//! ([`crate::health::Part::hit_by`]), and the **damage**, worked out then
-//! too: a weapon's damage falls off with the distance the bolt has flown
-//! ([`WeaponStats::damage_at`]), and the bolt remembers where it was fired
-//! from for exactly that.
+//! the game applies it itself. A [`Hit`] carries the **damage**, worked
+//! out the instant the bolt reaches the body: a weapon's damage falls off
+//! with the distance the bolt has flown ([`WeaponStats::damage_at`]), and
+//! the bolt remembers where it was fired from for exactly that.
 //!
 //! # Melee: a lock is a distance
 //!
@@ -84,8 +82,8 @@
 //!
 //! # Armour is clothes, and a piece is a thing
 //!
-//! A piece of armour ([`Piece`]) goes on the part it is cut for
-//! ([`ArmourKind::slot`]) and stands between that part and a hit: its
+//! A piece of armour ([`Piece`]) goes over the whole body — there is one
+//! slot for it — and stands between the body and every hit: its
 //! **protection** comes off every hit's damage before anything else, and
 //! what is left drains the piece's own **health** first — only what the
 //! piece cannot take reaches the body and opens a wound (`Game::wound`).
@@ -95,7 +93,7 @@
 //! wherever it goes — the armory, another Bim — which is why it has an
 //! `id` and is moved about as an [`Item`] rather than counted. The world
 //! keeps the pieces nobody wears in the ship's armory; the room keeps the
-//! ones on a body (`Gear`'s three slots), because the room's health reads
+//! one on a body (`Gear`'s armour slot), because the room's health reads
 //! them.
 //!
 //! # Accuracy and damage are two points and a line
@@ -125,7 +123,6 @@ use crate::cue::{Cue, Cued};
 use crate::door;
 use crate::draw::{Color, DrawList};
 use crate::fx::{self, Fx};
-use crate::health::Part;
 use crate::math::{Rect, Vec2, vec2};
 use crate::nav::Nav;
 use crate::rng::Rng;
@@ -443,8 +440,7 @@ impl Tier {
     }
 
     /// What a piece of this tier multiplies the kind's health and
-    /// protection by: [`balance::ARMOUR_TIER_STEP`] a tier — and an arc
-    /// greaves' discharge its damage (task 116).
+    /// protection by: [`balance::ARMOUR_TIER_STEP`] a tier.
     pub fn armour_factor(self) -> f32 {
         match self {
             Tier::One => 1.0,
@@ -916,17 +912,13 @@ impl Grenade {
 /// seconds: the picture, not the fuse.
 pub const GRENADE_FLIGHT: f32 = 0.6;
 
-/// A burst that has happened, briefly lit: where, how wide, how old —
-/// and whether it is a pair of arc greaves' discharge (task 116) rather
-/// than a grenade's, drawn in the crew's blue.
+/// A burst that has happened, briefly lit: where, how wide, how old.
 #[derive(Clone, Copy, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 struct Blast {
     pos: Vec2,
     radius: f32,
     age: f32,
-    #[cfg_attr(feature = "serde", serde(default))]
-    arc: bool,
     /// An EMP's burst (task 127): a pale blue ring and nothing else.
     #[cfg_attr(feature = "serde", serde(default))]
     emp: bool,
@@ -1002,48 +994,20 @@ impl Sentry {
 }
 /// What a Bim can wear. The discriminants are the codes the app names
 /// (`ARMOUR_NAMES`), written out like the weapons'; `0` is the empty
-/// slot. Each is cut for one part — see [`ArmourKind::slot`].
+/// slot. There is one kind since October 2026: **the armour**, over the
+/// whole body, where there were a helm, a kevlar vest and leg guards (and
+/// task 116's arc greaves and Reflective plate) — a hit lands on the body
+/// and nowhere in particular.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 #[repr(u32)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum ArmourKind {
-    /// A steel cap: the head.
-    BasicHelm = 1,
-    /// A plate vest: the body.
-    BasicKevlar = 2,
-    /// Shin guards over the boots: the legs.
-    BasicLegs = 3,
-    /// **Arc greaves** (task 116): leg guards wired to discharge — a
-    /// melee blow landing on the wearer throws an arc into every enemy
-    /// within [`balance::ARC_RADIUS`] ([`Combat::arc_discharge`]). Made
-    /// from tier two up ([`ArmourKind::min_tier`]), and only ever the
-    /// crew's.
-    ArcGreaves = 4,
-    /// **The Reflective plate** (task 116): a body plate that sends an
-    /// enemy's bolt back the way it came [`balance::REFLECT_ODDS`] of the
-    /// time it lands on the body, in place of tier three's dodge. Tier
-    /// three only, and only ever the crew's.
-    ReflectivePlate = 5,
+    /// The armour: one piece, at a tier.
+    Armour = 1,
 }
 
 impl ArmourKind {
-    pub const ALL: [ArmourKind; 5] = [
-        ArmourKind::BasicHelm,
-        ArmourKind::BasicKevlar,
-        ArmourKind::BasicLegs,
-        ArmourKind::ArcGreaves,
-        ArmourKind::ReflectivePlate,
-    ];
-
-    /// The three every tier is made of, one a part, in the slots' order —
-    /// what everybody who is not the crew wears, what a hire is quoted
-    /// for and what an outfit puts on. The two of task 116 are never in
-    /// it.
-    pub const BASIC: [ArmourKind; 3] = [
-        ArmourKind::BasicHelm,
-        ArmourKind::BasicKevlar,
-        ArmourKind::BasicLegs,
-    ];
+    pub const ALL: [ArmourKind; 1] = [ArmourKind::Armour];
 
     pub fn code(self) -> u32 {
         self as u32
@@ -1053,58 +1017,20 @@ impl ArmourKind {
         ArmourKind::ALL.iter().copied().find(|k| k.code() == code)
     }
 
-    /// The part it goes on. One piece a part, and each kind is cut for
-    /// one part, so the slot is the kind's and never a choice — but a slot
-    /// can take more than one kind (task 116): the legs the leg guards or
-    /// the arc greaves, the body the kevlar or the Reflective plate.
-    pub fn slot(self) -> Part {
-        match self {
-            ArmourKind::BasicHelm => Part::Head,
-            ArmourKind::BasicKevlar | ArmourKind::ReflectivePlate => Part::Body,
-            ArmourKind::BasicLegs | ArmourKind::ArcGreaves => Part::Legs,
-        }
-    }
-
-    /// The lowest tier the kind is ever made at (task 116, the weapons'
-    /// [`WeaponKind::min_tier`] over again): tier one for the three basic
-    /// pieces, two for the arc greaves, three for the Reflective plate.
-    /// **A piece below it never exists** — [`Piece::new`] asserts it.
-    pub fn min_tier(self) -> Tier {
-        match self {
-            ArmourKind::BasicHelm | ArmourKind::BasicKevlar | ArmourKind::BasicLegs => Tier::One,
-            ArmourKind::ArcGreaves => Tier::Two,
-            ArmourKind::ReflectivePlate => Tier::Three,
-        }
-    }
-
-    /// Whether the kind is ever made at `tier`: at or above its
-    /// [`ArmourKind::min_tier`].
-    pub fn made_at(self, tier: Tier) -> bool {
-        tier >= self.min_tier()
-    }
-
     /// What the piece is in the hold: the `ResourceId` code, since a piece
     /// in a container is a resource and one anywhere else is an instance.
     /// A code and not the id — this crate does not know `physics`, and a
     /// number is enough for the world to match the two.
     pub fn resource(self) -> u32 {
         match self {
-            ArmourKind::BasicHelm => 6,
-            ArmourKind::BasicKevlar => 7,
-            ArmourKind::BasicLegs => 8,
-            ArmourKind::ArcGreaves => 20,
-            ArmourKind::ReflectivePlate => 21,
+            ArmourKind::Armour => 7,
         }
     }
 
     /// The piece's numbers: in `crate::balance`, like the weapons'.
     pub fn stats(self) -> ArmourStats {
         match self {
-            ArmourKind::BasicHelm => balance::BASIC_HELM,
-            ArmourKind::BasicKevlar => balance::BASIC_KEVLAR,
-            ArmourKind::BasicLegs => balance::BASIC_LEGS,
-            ArmourKind::ArcGreaves => balance::ARC_GREAVES,
-            ArmourKind::ReflectivePlate => balance::REFLECTIVE_PLATE,
+            ArmourKind::Armour => balance::ARMOUR,
         }
     }
 }
@@ -1133,15 +1059,8 @@ pub struct Piece {
 }
 
 impl Piece {
-    /// A fresh piece, whole at the tier's health — at a tier the kind is
-    /// made at ([`ArmourKind::made_at`]), which every path that makes one
-    /// asks first.
+    /// A fresh piece, whole at the tier's health.
     pub fn new(id: u32, kind: ArmourKind, tier: Tier) -> Piece {
-        debug_assert!(
-            kind.made_at(tier),
-            "{kind:?} is never made below {:?}",
-            kind.min_tier()
-        );
         let mut piece = Piece {
             id,
             kind,
@@ -1180,33 +1099,19 @@ impl Piece {
 
     /// The odds a bolt reaching the body wearing it is dodged: a whole
     /// tier-three piece's [`balance::TIER_THREE_DODGE`], anything else
-    /// nought — and nought for the Reflective plate at any tier, whose
-    /// reflection is its answer to a bolt instead (task 116).
+    /// nought.
     pub fn dodge(&self) -> f32 {
-        if self.tier == Tier::Three && !self.broken() && self.kind != ArmourKind::ReflectivePlate {
+        if self.tier == Tier::Three && !self.broken() {
             balance::TIER_THREE_DODGE
         } else {
             0.0
         }
     }
 
-    /// What it adds to the part's health: what it has left, or nothing
+    /// What it adds to the body's health: what it has left, or nothing
     /// once it is broken.
     pub fn bonus(&self) -> f32 {
         if self.broken() { 0.0 } else { self.health }
-    }
-
-    /// Whether it sends a bolt back: a whole Reflective plate (task 116).
-    pub fn reflects(&self) -> bool {
-        self.kind == ArmourKind::ReflectivePlate && !self.broken()
-    }
-
-    /// What its discharge does to each enemy it reaches, if it has one: a
-    /// whole pair of arc greaves' [`balance::ARC_DAMAGE`] times its tier's
-    /// armour factor (task 116) — fifteen at tier two, 22.5 at three.
-    pub fn arc_damage(&self) -> Option<f32> {
-        (self.kind == ArmourKind::ArcGreaves && !self.broken())
-            .then(|| balance::ARC_DAMAGE * self.tier.armour_factor())
     }
 }
 
@@ -1229,16 +1134,15 @@ pub enum Item {
 /// `ResourceId` code is under it, which a world test pins.
 pub const CHARGE_CODES: usize = 24;
 
-/// What one Bim has on it — its **loadout** (task 113): three armour
-/// slots, top to bottom, the weapon in its hand, and how many of each
-/// charge it has left. That is everything a body carries: there is no
-/// pack, and nothing is picked up, dropped or looted.
+/// What one Bim has on it — its **loadout** (task 113): one armour slot
+/// (October 2026: there were three, head, body and legs), the weapon in
+/// its hand, and how many of each charge it has left. That is everything
+/// a body carries: there is no pack, and nothing is picked up, dropped or
+/// looted.
 #[derive(Clone, Copy, PartialEq, Debug, Default)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Gear {
-    pub head: Option<Piece>,
-    pub body: Option<Piece>,
-    pub legs: Option<Piece>,
+    pub armour: Option<Piece>,
     pub weapon: Option<Weapon>,
     /// How many of each charge the body has, by the charge's resource
     /// code: an engineer's kits, a grenade. The world sets them at a
@@ -1277,44 +1181,29 @@ impl Gear {
         gear
     }
 
-    /// Put a fresh basic helm, kevlar and leg guards on, numbered from
-    /// `first_id`, over whatever was worn — what every melee bot gets,
-    /// enemy or hired. The ids are the room's own until the world takes a
-    /// piece over (a loot renumbers it).
-    pub fn basic_armour(&mut self, first_id: u32) {
-        self.head = Some(Piece::new(first_id, ArmourKind::BasicHelm, Tier::One));
-        self.body = Some(Piece::new(first_id + 1, ArmourKind::BasicKevlar, Tier::One));
-        self.legs = Some(Piece::new(first_id + 2, ArmourKind::BasicLegs, Tier::One));
+    /// Put a fresh tier-one armour on, numbered `id`, over whatever was
+    /// worn — what every melee bot gets, enemy or hired. The id is the
+    /// room's own until the world takes the piece over.
+    pub fn basic_armour(&mut self, id: u32) {
+        self.armour = Some(Piece::new(id, ArmourKind::Armour, Tier::One));
     }
 
     /// What a mercenary carries: better arms than a resident's, rolled off
     /// `seed` against [`MERCENARY_ODDS`] — a third the pistol, the rest
-    /// the heavier guns and a few the schword — and each piece of armour
-    /// with the odds in [`MERCENARY_ARMOUR_ODDS`], fresh, with ids off the
-    /// same stream (`piece_ids` and up, since the room's pieces are only
-    /// its own until the world takes one over) — every piece, for one
-    /// carrying the schword, since a melee bot always wears the basic
-    /// armour. A function of the seed alone, like [`Gear::issued_for`],
-    /// so the world derives it.
-    pub fn hired_for(seed: u64, piece_ids: u32) -> Gear {
+    /// the heavier guns and a few the schword — and the armour with the
+    /// odds [`MERCENARY_ARMOUR_ODDS`], fresh, numbered `piece_id` (the
+    /// room's pieces are only its own until the world takes one over) —
+    /// always, for one carrying the schword, since a melee bot always
+    /// wears the basic armour. A function of the seed alone, like
+    /// [`Gear::issued_for`], so the world derives it.
+    pub fn hired_for(seed: u64, piece_id: u32) -> Gear {
         let mut rng = Rng::new(seed ^ 0x_4D45_5243);
         let weapon = roll_weapon(&mut rng, &MERCENARY_ODDS).basic();
-        let blade = weapon.stats().melee;
-        let mut next = piece_ids;
-        let mut piece = |rng: &mut Rng, kind: ArmourKind, odds: f32| {
-            // Rolled either way, so the stream is the same whatever the
-            // weapon was.
-            let worn = rng.chance(odds) || blade;
-            worn.then(|| {
-                next += 1;
-                Piece::new(next - 1, kind, Tier::One)
-            })
-        };
-        let [helm, kevlar, legs] = MERCENARY_ARMOUR_ODDS;
+        // Rolled either way, so the stream is the same whatever the
+        // weapon was.
+        let worn = rng.chance(MERCENARY_ARMOUR_ODDS) || weapon.stats().melee;
         Gear {
-            head: piece(&mut rng, ArmourKind::BasicHelm, helm),
-            body: piece(&mut rng, ArmourKind::BasicKevlar, kevlar),
-            legs: piece(&mut rng, ArmourKind::BasicLegs, legs),
+            armour: worn.then(|| Piece::new(piece_id, ArmourKind::Armour, Tier::One)),
             weapon: Some(weapon),
             ..Gear::default()
         }
@@ -1325,73 +1214,48 @@ impl Gear {
     /// all the first days of a run arm them with; with a tier, a gun rolled
     /// against [`MANUFACTURER_ODDS`] at it — a gun and never the schword,
     /// since a blade with no armour on is dead before it closes — and a
-    /// fresh helm, kevlar and leg guards at `armour`'s tier, numbered from
-    /// `piece_ids`, where there is one. A function of its arguments alone,
-    /// like [`Gear::issued_for`], so the world derives it.
+    /// fresh armour at `armour`'s tier, numbered `piece_id`, where there is
+    /// one. A function of its arguments alone, like [`Gear::issued_for`],
+    /// so the world derives it.
     pub fn manufacturer(
         seed: u64,
         weapon: Option<Tier>,
         armour: Option<Tier>,
-        piece_ids: u32,
+        piece_id: u32,
     ) -> Gear {
         let mut rng = Rng::new(seed ^ 0x_4D41_4E55);
         let weapon = match weapon {
             None => WeaponKind::LaserPistol.basic(),
             Some(tier) => roll_weapon(&mut rng, &MANUFACTURER_ODDS).at(tier),
         };
-        let piece = |n: u32, kind: ArmourKind| armour.map(|t| Piece::new(piece_ids + n, kind, t));
         Gear {
-            head: piece(0, ArmourKind::BasicHelm),
-            body: piece(1, ArmourKind::BasicKevlar),
-            legs: piece(2, ArmourKind::BasicLegs),
+            armour: armour.map(|t| Piece::new(piece_id, ArmourKind::Armour, t)),
             weapon: Some(weapon),
             ..Gear::default()
         }
     }
 
-    /// The piece on a part, if any — broken or not.
-    pub fn worn(&self, part: Part) -> Option<Piece> {
-        *self.slot(part)
+    /// The armour worn, if any — broken or not.
+    pub fn worn(&self) -> Option<Piece> {
+        self.armour
     }
 
-    pub fn worn_mut(&mut self, part: Part) -> &mut Option<Piece> {
-        match part {
-            Part::Head => &mut self.head,
-            Part::Body => &mut self.body,
-            Part::Legs => &mut self.legs,
-        }
-    }
-
-    fn slot(&self, part: Part) -> &Option<Piece> {
-        match part {
-            Part::Head => &self.head,
-            Part::Body => &self.body,
-            Part::Legs => &self.legs,
-        }
+    pub fn worn_mut(&mut self) -> &mut Option<Piece> {
+        &mut self.armour
     }
 
     /// The odds a bolt reaching this body is dodged for its armour: the
-    /// worn pieces' [`Piece::dodge`]s combined, `1 − Π(1 − d)`, so three
-    /// whole tier-three pieces are a little over a quarter. Nought for
-    /// anything below tier three, which is every body today.
+    /// worn piece's [`Piece::dodge`]. Nought for anything below tier
+    /// three.
     pub fn dodge(&self) -> f32 {
-        let missed: f32 = Part::ALL
-            .iter()
-            .map(|&part| 1.0 - self.worn(part).map_or(0.0, |p| p.dodge()))
-            .product();
-        1.0 - missed
+        self.armour.map_or(0.0, |p| p.dodge())
     }
 
-    /// What the armour adds to one part's health: the piece's health
-    /// left, nothing when there is none or it is broken.
-    pub fn part_bonus(&self, part: Part) -> f32 {
-        self.worn(part).map_or(0.0, |p| p.bonus())
-    }
-
-    /// What the armour adds all told — the unbroken worn pieces summed —
-    /// which is what the panel's blue bar is.
+    /// What the armour adds to the body's health — its health left,
+    /// nothing when there is none or it is broken — which is what the
+    /// panel's blue bar is.
     pub fn armour_health(&self) -> f32 {
-        Part::ALL.iter().map(|&p| self.part_bonus(p)).sum()
+        self.armour.map_or(0.0, |p| p.bonus())
     }
 
     /// How many of a charge the body has left.
@@ -1472,8 +1336,9 @@ pub const MANUFACTURER_ODDS: [(WeaponKind, f32); 5] = [
     (WeaponKind::AutoRifle, 0.30),
     (WeaponKind::SniperRifle, 0.15),
 ];
-/// The odds a mercenary wears a helm, a kevlar and leg guards.
-pub const MERCENARY_ARMOUR_ODDS: [f32; 3] = [0.5, 0.6, 0.4];
+/// The odds a mercenary wears armour: the helm's, the kevlar's and the
+/// leg guards' odds (a half, three fifths, two fifths) put together.
+pub const MERCENARY_ARMOUR_ODDS: f32 = 0.5;
 
 /// One weapon rolled off `rng` against a table of shares that add to
 /// one; the last kind takes whatever rounding leaves.
@@ -1690,13 +1555,12 @@ impl Bolt {
 
 /// A bolt that reached a body, or a blow that landed: whose — an index
 /// into the targets for a friendly one, into this room's own crew for a
-/// hostile one — where on it, how hard, and whether it is a cut, which
+/// hostile one — how hard, and whether it is a cut, which
 /// bleeds three times what a shot does.
 #[derive(Clone, Copy, PartialEq, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Hit {
     pub who: usize,
-    pub part: Part,
     pub damage: f32,
     pub cut: bool,
     /// Whose it was: a crew member of the room it landed in, by index,
@@ -1705,16 +1569,16 @@ pub struct Hit {
     /// A grenade's burst rather than a bolt or a blow: the body splashes
     /// blood the way a cut does, whichever room it lands in.
     pub blast: bool,
-    /// The roll `part` was drawn from, 0 to 1, kept so that a hit on a
-    /// body with a **different part table** can be read off the same
-    /// draw: a droid's four (feature 83, `crate::droid::DroidPart`).
-    /// One roll either way, so which kind of body a target turns out to
-    /// be does not move the combat stream.
+    /// A roll, 0 to 1, drawn the instant it landed, for a body with a
+    /// **part table** to read where it struck: a droid's four (feature
+    /// 83, `crate::droid::DroidPart`). A Bim has none (October 2026) and
+    /// ignores it; drawn for every hit either way, so which kind of body
+    /// a target turns out to be does not move the combat stream.
     pub roll: f32,
-    /// What this hit takes off the piece of armour over `part` instead
-    /// of off the part itself, that piece's protection ignored — the
-    /// Unmaker's ([`WeaponStats::strips`]). Nought for every other
-    /// weapon, and nought on a bare part, which takes `damage`.
+    /// What this hit takes off the armour instead of off the body, the
+    /// armour's protection ignored — the Unmaker's
+    /// ([`WeaponStats::strips`]). Nought for every other weapon, and
+    /// nought on a bare body, which takes `damage`.
     pub strips: f32,
     /// The weapon's own damage at the distance flown — before any skill,
     /// relic or ability factor — for a critical hit to add a share of
@@ -1947,15 +1811,6 @@ pub struct Combat {
     /// cover, and with *interpose* it lands on the tank instead. Never
     /// read for a friendly bolt, so an enemy shelters behind nobody.
     bulwarks: Vec<Bulwark>,
-    /// Which of this room's own bodies wear a whole **Reflective plate**
-    /// (task 116), by index, said every step with the skills: a hostile
-    /// bolt landing on the body of one is rolled against
-    /// [`balance::REFLECT_ODDS`] and, sent back, flies on as a friendly
-    /// one. One past the end, or missing, wears none — and nobody who
-    /// wears none is rolled for, so a fight without one draws off the
-    /// combat stream exactly what it did.
-    #[cfg_attr(feature = "serde", serde(default))]
-    reflecting: Vec<bool>,
     /// How wide a shield's front is against each of this room's own
     /// bodies' bolts and blows, as a cosine, by index: a relic's *Wide
     /// Angle Optics* narrows it (task 118). One past the end, or missing,
@@ -2036,7 +1891,6 @@ impl Combat {
             blasts: Vec::new(),
             own_cover_dodge: Vec::new(),
             bulwarks: Vec::new(),
-            reflecting: Vec::new(),
             shield_fronts: Vec::new(),
             hits: Vec::new(),
             wounds_taken: Vec::new(),
@@ -2117,13 +1971,6 @@ impl Combat {
     /// Said every step, like the skills; an empty list is nobody.
     pub fn set_bulwarks(&mut self, bulwarks: Vec<Bulwark>) {
         self.bulwarks = bulwarks;
-    }
-
-    /// Which of this room's own bodies wear a whole Reflective plate
-    /// (task 116), index for index; one past the end is nobody. Said
-    /// every step, like the skills.
-    pub fn set_reflecting(&mut self, reflecting: Vec<bool>) {
-        self.reflecting = reflecting;
     }
 
     /// How wide a shield's front is against each own body's shots, by
@@ -2362,7 +2209,6 @@ impl Combat {
                 pos: g.at,
                 radius: g.radius,
                 age: 0.0,
-                arc: false,
                 emp: g.stun > 0.0,
             });
             self.cues.push(Cued {
@@ -2384,7 +2230,6 @@ impl Combat {
         let roll = self.rng.unit();
         Hit {
             who,
-            part: Part::hit_by(roll),
             damage,
             cut: false,
             by,
@@ -2407,58 +2252,6 @@ impl Combat {
                 at,
             });
         }
-    }
-
-    /// A pair of arc greaves discharging round `at`, the wearer's middle,
-    /// by crew member `by` (task 116): every live target within
-    /// [`balance::ARC_RADIUS`] takes `damage` on a part rolled off the
-    /// combat stream the way [`Combat::blast`] rolls one — neither a
-    /// blast nor a cut, and the wearer's — straight onto the hits for the
-    /// world to carry to the body. A stale target is a belief and is not
-    /// there to be struck, and a target handed over as nobody's (a town's
-    /// people the crew are defending) is `None`; a shield does not stop
-    /// it, as it does not stop a grenade's burst. The ring flashes round
-    /// the wearer whether anybody was in it or not, and a short flare
-    /// runs out to each body struck. How many were.
-    pub fn arc_discharge(&mut self, at: Vec2, by: usize, damage: f32) -> usize {
-        self.lull = 0.0;
-        let reach = balance::ARC_RADIUS * TILE;
-        self.blasts.push(Blast {
-            pos: at,
-            radius: reach,
-            age: 0.0,
-            arc: true,
-            emp: false,
-        });
-        let mut struck = 0;
-        for i in 0..self.targets.len() {
-            let Some(t) = self.targets[i] else {
-                continue;
-            };
-            if t.stale || (t.at - at).len() > reach {
-                continue;
-            }
-            let roll = self.rng.unit();
-            self.hits.push(Hit {
-                who: i,
-                part: Part::hit_by(roll),
-                damage,
-                cut: false,
-                by: Some(by),
-                blast: false,
-                roll,
-                flat: 0.0,
-                crit: false,
-                strips: 0.0,
-            });
-            self.cues.push(Cued {
-                cue: Cue::Impact { on_crew: false },
-                at: t.at,
-            });
-            self.fx.arc(at, t.at);
-            struck += 1;
-        }
-        struck
     }
 
     /// Whether anything is lit or on its way: a grenade thrown counts.
@@ -2670,7 +2463,6 @@ impl Combat {
                     let roll = rng.unit();
                     taken.push(Hit {
                         who,
-                        part: Part::hit_by(roll),
                         damage: s.damage,
                         cut: false,
                         by: None,
@@ -3083,7 +2875,6 @@ impl Combat {
             }
             self.hits.push(Hit {
                 who: target,
-                part: Part::hit_by(roll),
                 damage,
                 cut,
                 by,
@@ -3125,7 +2916,6 @@ impl Combat {
         let roll = self.rng.unit();
         Hit {
             who,
-            part: Part::hit_by(roll),
             damage,
             cut,
             by: None,
@@ -3167,11 +2957,7 @@ impl Combat {
             .collect();
         let own_cover_dodge = &self.own_cover_dodge;
         let bulwarks = &self.bulwarks;
-        let reflecting = &self.reflecting;
         let shield_fronts = &self.shield_fronts;
-        // The bolts a Reflective plate sent back this step (task 116), in
-        // the order they were made, put in the air after the loop.
-        let mut reflected: Vec<Bolt> = Vec::new();
         let rng = &mut self.rng;
         let crit_rng = &mut self.crit_rng;
         let crit_chances = &self.crit_chances;
@@ -3337,10 +3123,6 @@ impl Combat {
                     // Whether a lance slug goes on past the body it struck
                     // here (task 115).
                     let mut through = false;
-                    // Whether a Reflective plate sent it back here (task
-                    // 116), and whose body it was: the wearer's middle,
-                    // for the flare round it.
-                    let mut mirrored: Option<Vec2> = None;
                     // Whether it landed a critical hit (task 124): its flare
                     // twice the size and the brightness.
                     let mut critical = false;
@@ -3369,7 +3151,6 @@ impl Combat {
                         let roll = rng.unit();
                         let hit = Hit {
                             who,
-                            part: Part::hit_by(roll),
                             damage: stats.damage_at(flown) * close * falloff,
                             cut: false,
                             by: bolt.by,
@@ -3377,40 +3158,11 @@ impl Combat {
                             roll,
                             flat: bolt.weapon.stats().damage_at(flown),
                             crit: false,
-                            // What the Unmaker takes off the armour over
-                            // the part instead of off the part; nought
-                            // for every other gun.
+                            // What the Unmaker takes off the armour instead
+                            // of off the body; nought for every other gun.
                             strips: stats.strips_at(flown) * falloff,
                         };
-                        // **A Reflective plate** (task 116): a hostile bolt on
-                        // the body of one that is whole is rolled once more
-                        // — only for such a body, so a fight without one
-                        // draws what it always did — and sent back does
-                        // nothing to the wearer or the plate: a friendly
-                        // bolt of the same gun leaves the strike point back
-                        // along the line, the wearer's, at half the damage
-                        // and the full reach, and from there on it is any
-                        // friendly bolt.
-                        let plate = bolt.hostile
-                            && hit.part == Part::Body
-                            && reflecting.get(who).copied().unwrap_or(false);
-                        if plate && rng.chance(balance::REFLECT_ODDS) {
-                            mirrored = looking_for.get(who).copied().flatten().map(|b| b.0);
-                            reflected.push(Bolt {
-                                pos: at,
-                                vel: -bolt.vel,
-                                left: bolt.weapon.stats().reach(),
-                                weapon: bolt.weapon,
-                                fired_from: at,
-                                hostile: false,
-                                by: Some(who),
-                                point_blank: 1.0,
-                                damage: balance::REFLECT_DAMAGE,
-                                range: 0.0,
-                                dodged: None,
-                                struck: [None; balance::LANCE_PIERCE],
-                            });
-                        } else if bolt.hostile {
+                        if bolt.hostile {
                             taken.push(hit);
                         } else {
                             // Weak Spot (task 124): each bolt rolled on its
@@ -3446,8 +3198,6 @@ impl Combat {
                     }
                     heard.push(Cued {
                         cue: match who {
-                            // Sent back off a plate: heard as a shield.
-                            Some(_) if mirrored.is_some() => Cue::Shielded,
                             Some(_) => Cue::Impact {
                                 on_crew: bolt.hostile,
                             },
@@ -3459,7 +3209,7 @@ impl Combat {
                     sparks.push(Spark {
                         pos: at,
                         age: 0.0,
-                        hostile: bolt.hostile && mirrored.is_none(),
+                        hostile: bolt.hostile,
                     });
                     // Through: the step ends at the body, and the slug
                     // flies on from there next step with the reach it
@@ -3491,11 +3241,6 @@ impl Combat {
                     if let Some((centre, _, _)) = shielded.and_then(|i| targets[i]) {
                         fx.shield(centre, at);
                     }
-                    // The plate flares where it sent the bolt back, in
-                    // the crew's blue.
-                    if let Some(centre) = mirrored {
-                        fx.reflect(centre, at);
-                    }
                     false
                 }
                 None => {
@@ -3513,7 +3258,6 @@ impl Combat {
         });
         self.hits.extend(landed);
         self.wounds_taken.extend(taken);
-        self.bolts.extend(reflected);
         self.lamp_hits.extend(broken);
         self.cover_hits.extend(bagged);
         self.plate_hits.extend(plated);
@@ -3777,8 +3521,6 @@ impl Combat {
         }
         // And a burst: a white flash swelling out to the radius and
         // fading, with the hot core going first.
-        // A pair of arc greaves' discharge (task 116) is the same picture
-        // at its own radius, in the crew's blue.
         for b in &self.blasts {
             let t = (b.age / BLAST_LIFE).clamp(0.0, 1.0);
             let out = 1.0 - (1.0 - t) * (1.0 - t);
@@ -3798,11 +3540,7 @@ impl Combat {
                 );
                 continue;
             }
-            let (glow, rim) = if b.arc {
-                (FRIENDLY_BOLT, ARC_RIM)
-            } else {
-                (BLAST_GLOW, BLAST_RIM)
-            };
+            let (glow, rim) = (BLAST_GLOW, BLAST_RIM);
             list.circle(b.pos, b.radius * 2.0 * out, glow.alpha(0.6 * (1.0 - t)));
             list.ring(b.pos, b.radius * 2.0 * out, 3.0, rim.alpha(0.8 * (1.0 - t)));
             list.circle(
@@ -3820,8 +3558,6 @@ const GRENADE_BAND: Color = Color::rgb(0.42, 0.45, 0.30);
 const FUSE_LIT: Color = Color::rgb(1.0, 0.85, 0.35);
 const BLAST_GLOW: Color = Color::rgb(1.0, 0.78, 0.40);
 const BLAST_RIM: Color = Color::rgb(1.0, 0.55, 0.20);
-/// The rim of an arc greaves' discharge (task 116): the crew's blue, paler.
-const ARC_RIM: Color = Color::rgb(0.62, 0.86, 1.0);
 /// An EMP's band round its canister (task 127): the stun's pale blue.
 const EMP_BAND: Color = Color::rgb(0.55, 0.78, 0.95);
 
@@ -4507,31 +4243,28 @@ mod tests {
             assert_eq!(gear.add(Item::Stack(CHARGE_CODES as u32), 1), 0);
         }
 
-        // --- a_piece_is_cut_for_one_part_and_does_nothing_once_broken ---
+        // --- the_armour_is_one_piece_and_does_nothing_once_broken ---
         {
             for kind in ArmourKind::ALL {
                 assert_eq!(ArmourKind::from_code(kind.code()), Some(kind));
                 assert!(kind.stats().health > 0.0 && kind.stats().protection > 0.0);
             }
             assert_eq!(ArmourKind::from_code(0), None);
-            assert_eq!(ArmourKind::BasicHelm.slot(), Part::Head);
-            assert_eq!(ArmourKind::BasicKevlar.slot(), Part::Body);
-            assert_eq!(ArmourKind::BasicLegs.slot(), Part::Legs);
+            assert_eq!(ArmourKind::ALL, [ArmourKind::Armour]);
+            assert_eq!(ArmourKind::Armour.resource(), 7);
 
             let mut gear = Gear::issued();
             assert_eq!(gear.armour_health(), 0.0);
-            let vest = Piece::new(1, ArmourKind::BasicKevlar, Tier::One);
-            *gear.worn_mut(Part::Body) = Some(vest);
-            assert_eq!(gear.worn(Part::Body), Some(vest));
-            assert_eq!(gear.part_bonus(Part::Body), 20.0);
-            assert_eq!(gear.armour_health(), 20.0);
-            assert_eq!(vest.effective_protection(), 2.0);
+            let vest = Piece::new(1, ArmourKind::Armour, Tier::One);
+            *gear.worn_mut() = Some(vest);
+            assert_eq!(gear.worn(), Some(vest));
+            assert_eq!(gear.armour_health(), 45.0);
+            assert_eq!(vest.effective_protection(), 1.8);
             // Worn down to nothing: still worn, worth nothing.
-            gear.worn_mut(Part::Body).as_mut().unwrap().health = 0.0;
-            let worn = gear.worn(Part::Body).unwrap();
+            gear.worn_mut().as_mut().unwrap().health = 0.0;
+            let worn = gear.worn().unwrap();
             assert!(worn.broken());
             assert_eq!(worn.effective_protection(), 0.0);
-            assert_eq!(gear.part_bonus(Part::Body), 0.0);
             assert_eq!(gear.armour_health(), 0.0);
         }
     }
@@ -5371,15 +5104,11 @@ mod tests {
         for seed in 0..400u64 {
             let gear = Gear::issued_for(seed);
             let weapon = gear.weapon.expect("always armed");
-            // A gun and nothing to wear; a blade and the whole basic set,
-            // since a melee bot always wears armour.
+            // A gun and nothing to wear; a blade and the basic armour,
+            // since a melee bot always wears it.
             if weapon.stats().melee {
-                assert_eq!(gear.armour_health(), 45.0, "the basic set on a blade");
-                assert!(
-                    Part::ALL
-                        .iter()
-                        .all(|&p| gear.worn(p).is_some_and(|w| !w.broken()))
-                );
+                assert_eq!(gear.armour_health(), 45.0, "the basic armour on a blade");
+                assert!(gear.worn().is_some_and(|w| !w.broken()));
             } else {
                 assert_eq!(gear.armour_health(), 0.0, "nothing to wear");
             }
@@ -5505,8 +5234,8 @@ mod tests {
         let blade = WeaponKind::Schword.at(Tier::Three).stats();
         assert!((blade.range - MELEE_RANGE * 1.2).abs() < 1e-5 && blade.melee);
 
-        let helm = Piece::new(1, ArmourKind::BasicHelm, Tier::Two);
-        assert_eq!(helm.stats().health, balance::BASIC_HELM.health * 1.5);
+        let helm = Piece::new(1, ArmourKind::Armour, Tier::Two);
+        assert_eq!(helm.stats().health, balance::ARMOUR.health * 1.5);
         assert_eq!(
             helm.health,
             helm.stats().health,
@@ -5514,21 +5243,16 @@ mod tests {
         );
         assert_eq!(
             helm.effective_protection(),
-            balance::BASIC_HELM.protection * 1.5
+            balance::ARMOUR.protection * 1.5
         );
         assert_eq!(helm.dodge(), 0.0);
-        let gold = Piece::new(2, ArmourKind::BasicKevlar, Tier::Three);
-        assert_eq!(
-            gold.stats().protection,
-            balance::BASIC_KEVLAR.protection * 2.25
-        );
+        let gold = Piece::new(2, ArmourKind::Armour, Tier::Three);
+        assert_eq!(gold.stats().protection, balance::ARMOUR.protection * 2.25);
         assert_eq!(gold.dodge(), balance::TIER_THREE_DODGE);
         let mut gear = Gear::default();
         assert_eq!(gear.dodge(), 0.0);
-        gear.body = Some(gold);
-        assert!((gear.dodge() - 0.10).abs() < 1e-6);
-        gear.head = Some(Piece::new(3, ArmourKind::BasicHelm, Tier::Three));
-        assert!((gear.dodge() - 0.19).abs() < 1e-6, "combined, not summed");
+        gear.armour = Some(gold);
+        assert!((gear.dodge() - 0.271).abs() < 1e-6);
         for t in Tier::ALL {
             assert_eq!(Tier::from_code(t.code()), Some(t));
         }
@@ -5727,300 +5451,6 @@ mod tests {
         assert!((at - far).len() < (at - near).len(), "the magnet's");
     }
 
-    // --- task 116: the arc greaves and the Reflective plate ---------------
-
-    /// The two new pieces' kinds, lowest tiers and numbers: the greaves at
-    /// two and three, the plate at three, `ALL` five long with the three
-    /// basic kinds first, and the plate's tier-three dodge nought where a
-    /// helm worn with it keeps its own.
-    #[test]
-    fn the_arc_greaves_and_the_reflective_plate_are_made_only_from_their_tiers() {
-        assert_eq!(ArmourKind::ALL.len(), 5);
-        assert_eq!(ArmourKind::BASIC, ArmourKind::ALL[..3]);
-        for kind in ArmourKind::BASIC {
-            assert_eq!(kind.min_tier(), Tier::One);
-        }
-        assert_eq!(ArmourKind::ArcGreaves.min_tier(), Tier::Two);
-        assert_eq!(ArmourKind::ReflectivePlate.min_tier(), Tier::Three);
-        assert!(!ArmourKind::ArcGreaves.made_at(Tier::One));
-        assert!(ArmourKind::ArcGreaves.made_at(Tier::Two));
-        assert!(!ArmourKind::ReflectivePlate.made_at(Tier::Two));
-        assert!(ArmourKind::ReflectivePlate.made_at(Tier::Three));
-        assert_eq!(ArmourKind::ArcGreaves.slot(), Part::Legs);
-        assert_eq!(ArmourKind::ReflectivePlate.slot(), Part::Body);
-        assert_eq!(ArmourKind::ArcGreaves.code(), 4);
-        assert_eq!(ArmourKind::ReflectivePlate.code(), 5);
-        assert_eq!(ArmourKind::ArcGreaves.resource(), 20);
-        assert_eq!(ArmourKind::ReflectivePlate.resource(), 21);
-
-        let near = |a: f32, b: f32| (a - b).abs() < 1e-4;
-        let stats = |kind, tier| Piece::new(1, kind, tier).stats();
-        // The greaves: 12 and 0.9 at two, 18 and 1.35 at three.
-        let two = stats(ArmourKind::ArcGreaves, Tier::Two);
-        assert!(
-            near(two.health, 12.0) && near(two.protection, 0.9),
-            "{two:?}"
-        );
-        let three = stats(ArmourKind::ArcGreaves, Tier::Three);
-        assert!(near(three.health, 18.0) && near(three.protection, 1.35));
-        // Against the tier-two leg guards' 15 and 1.5.
-        let guards = stats(ArmourKind::BasicLegs, Tier::Two);
-        assert!(near(guards.health, 15.0) && near(guards.protection, 1.5));
-        // The plate: 36 and 2.7, against the tier-three kevlar's 45 and 4.5.
-        let plate = stats(ArmourKind::ReflectivePlate, Tier::Three);
-        assert!(near(plate.health, 36.0) && near(plate.protection, 2.7));
-        let kevlar = stats(ArmourKind::BasicKevlar, Tier::Three);
-        assert!(near(kevlar.health, 45.0) && near(kevlar.protection, 4.5));
-
-        // The discharge: 15 at two, 22.5 at three, and nothing broken.
-        let mut greaves = Piece::new(2, ArmourKind::ArcGreaves, Tier::Two);
-        assert!(near(greaves.arc_damage().unwrap(), 15.0));
-        let gold = Piece::new(3, ArmourKind::ArcGreaves, Tier::Three);
-        assert!(near(gold.arc_damage().unwrap(), 22.5));
-        assert_eq!(gold.dodge(), balance::TIER_THREE_DODGE, "greaves dodge");
-        greaves.health = 0.0;
-        assert_eq!(greaves.arc_damage(), None);
-        assert_eq!(
-            Piece::new(4, ArmourKind::BasicLegs, Tier::Three).arc_damage(),
-            None
-        );
-
-        // The plate reflects while whole and has no tier-three dodge; a
-        // tier-three helm worn with it keeps its own.
-        let mut mirror = Piece::new(5, ArmourKind::ReflectivePlate, Tier::Three);
-        assert!(mirror.reflects());
-        assert_eq!(mirror.dodge(), 0.0);
-        let mut gear = Gear {
-            body: Some(mirror),
-            ..Gear::default()
-        };
-        assert_eq!(gear.dodge(), 0.0);
-        gear.head = Some(Piece::new(6, ArmourKind::BasicHelm, Tier::Three));
-        assert!((gear.dodge() - balance::TIER_THREE_DODGE).abs() < 1e-6);
-        mirror.health = 0.0;
-        assert!(!mirror.reflects(), "a broken plate sends nothing back");
-        assert!(!Piece::new(7, ArmourKind::BasicKevlar, Tier::Three).reflects());
-    }
-
-    #[test]
-    #[should_panic(expected = "never made below")]
-    #[cfg(debug_assertions)]
-    fn arc_greaves_at_tier_one_are_refused() {
-        let _ = Piece::new(1, ArmourKind::ArcGreaves, Tier::One);
-    }
-
-    #[test]
-    #[should_panic(expected = "never made below")]
-    #[cfg(debug_assertions)]
-    fn a_reflective_plate_at_tier_two_is_refused() {
-        let _ = Piece::new(1, ArmourKind::ReflectivePlate, Tier::Two);
-    }
-
-    /// Crew only: over many seeds no issued, hired or Manufacturer's gear
-    /// wears either, and the melee bot's basic armour neither.
-    #[test]
-    fn no_issued_hired_or_hostile_gear_wears_either_new_piece() {
-        let crew_only = |gear: &Gear| {
-            Part::ALL.iter().all(|&p| {
-                gear.worn(p)
-                    .is_none_or(|piece| ArmourKind::BASIC.contains(&piece.kind))
-            })
-        };
-        for seed in 0..2_000u64 {
-            assert!(crew_only(&Gear::issued_for(seed)), "issued {seed}");
-            assert!(crew_only(&Gear::hired_for(seed, 10)), "hired {seed}");
-            for tier in Tier::ALL {
-                let made = Gear::manufacturer(seed, Some(tier), Some(tier), 10);
-                assert!(crew_only(&made), "manufacturer {seed} {tier:?}");
-            }
-        }
-        let mut gear = Gear::issued();
-        gear.basic_armour(1);
-        assert!(crew_only(&gear));
-    }
-
-    /// Bolts from one tile off at a body, `n` of them, in the open: the
-    /// wounds they left and how many were sent back (heard as a shield).
-    fn fire_at_a_plate(combat: &mut Combat, sight: &Sight, n: usize) -> (Vec<Hit>, usize) {
-        let ours = middle(10.0, 5.0);
-        let from = middle(9.0, 5.0);
-        let mut wounds = Vec::new();
-        let mut sent = 0;
-        for _ in 0..n {
-            combat.fire(from, ours, WeaponKind::LaserPistol.basic(), true, false);
-            for _ in 0..40 {
-                combat.step(0.05, sight, &[Some((ours, false, 0.0))]);
-            }
-            wounds.append(&mut combat.wounds_taken);
-            sent += combat
-                .cues
-                .drain(..)
-                .filter(|c| c.cue == Cue::Shielded)
-                .count();
-            combat.take_hits();
-        }
-        (wounds, sent)
-    }
-
-    /// Over many landings on a wearer the share of body hits sent back is
-    /// `REFLECT_ODDS`, and the head and the legs take their own share of
-    /// every landing as if there were no plate: they are never sent back.
-    #[test]
-    fn a_plate_sends_back_two_body_hits_in_five_and_never_a_head_or_a_leg() {
-        let (sight, _) = room_with(&[]);
-        let mut combat = Combat::new(116);
-        combat.set_reflecting(vec![true]);
-        let (wounds, sent) = fire_at_a_plate(&mut combat, &sight, 5_000);
-        let body = wounds.iter().filter(|h| h.part == Part::Body).count();
-        let limbs = wounds.len() - body;
-        let share = sent as f32 / (sent + body) as f32;
-        assert!(
-            (share - balance::REFLECT_ODDS).abs() < 0.03,
-            "{sent} of {} body hits sent back",
-            sent + body
-        );
-        let landings = (wounds.len() + sent) as f32;
-        let limb_odds = Part::HIT_ODDS[0] + Part::HIT_ODDS[2];
-        assert!(
-            (limbs as f32 / landings - limb_odds).abs() < 0.02,
-            "{limbs} of {landings} landings on the head or the legs"
-        );
-        // A broken plate — nobody reflecting — sends nothing back.
-        combat.set_reflecting(vec![false]);
-        let (wounds, sent) = fire_at_a_plate(&mut combat, &sight, 500);
-        assert_eq!(sent, 0);
-        assert!(wounds.len() > 400);
-    }
-
-    /// A bolt sent back does nothing to the wearer, and flies home along
-    /// the line as a friendly bolt of the same gun: the wearer's, at half
-    /// the damage, landing on the machine that fired it.
-    #[test]
-    fn a_bolt_sent_back_flies_home_as_the_wearer_s_at_half_the_damage() {
-        let (sight, _) = room_with(&[]);
-        let mut combat = Combat::new(3);
-        let ours = middle(10.0, 5.0);
-        let from = middle(4.0, 5.0);
-        let pistol = WeaponKind::LaserPistol.basic();
-        combat.set_targets(vec![Some((from, pistol))]);
-        combat.set_reflecting(vec![true]);
-        let mut sent = 0;
-        let mut home = Vec::new();
-        for _ in 0..200 {
-            combat.fire(from, ours, pistol, true, false);
-            for _ in 0..60 {
-                combat.step(0.05, &sight, &[Some((ours, false, 0.0))]);
-                // Every bolt sent back flies home along the line it came
-                // in on — a hit is aimed at the body's middle.
-                for b in combat.bolts.iter().filter(|b| !b.hostile) {
-                    assert!((b.pos.y - ours.y).abs() < 1.0, "off the line: {b:?}");
-                    assert!(b.vel.x < 0.0, "back the way it came");
-                    assert_eq!((b.by, b.damage, b.range), (Some(0), 0.5, 0.0));
-                }
-            }
-            sent += combat
-                .cues
-                .drain(..)
-                .filter(|c| c.cue == Cue::Shielded)
-                .count();
-            home.extend(combat.take_hits());
-            combat.wounds_taken.clear();
-        }
-        assert!(sent > 40, "{sent} sent back");
-        // Every hit the machine took is one sent back — nothing else here
-        // fires at it — each the wearer's, half the pistol's flat 7.2.
-        assert!(home.len() > sent / 2, "{} of {sent} came home", home.len());
-        for hit in &home {
-            assert_eq!(
-                (hit.who, hit.by, hit.blast, hit.cut),
-                (0, Some(0), false, false)
-            );
-            assert!((hit.damage - 3.6).abs() < 1e-4, "{hit:?}");
-        }
-    }
-
-    /// A fight with nobody in a plate draws off the combat stream exactly
-    /// what it did: nobody reflecting and the list never said are the same
-    /// fight, wound for wound.
-    #[test]
-    fn a_fight_without_a_plate_draws_the_same_stream() {
-        let (sight, _) = room_with(&[]);
-        let mut plain = Combat::new(9);
-        let mut told = Combat::new(9);
-        told.set_reflecting(vec![false, false]);
-        let a = fire_at_a_plate(&mut plain, &sight, 300);
-        let b = fire_at_a_plate(&mut told, &sight, 300);
-        assert_eq!(a, b);
-        assert_eq!(plain.roll(), told.roll());
-    }
-
-    /// A Guardian's beam is no bolt: it burns a wearer of a whole plate as
-    /// it burns anybody, and nothing is sent back.
-    #[test]
-    fn a_sweep_is_never_sent_back() {
-        let (sight, _) = room_with(&[]);
-        let mut combat = Combat::new(4);
-        combat.set_reflecting(vec![true]);
-        let ours = middle(10.0, 5.0);
-        let from = middle(4.0, 5.0);
-        let reach = (ours - from).len() + 2.0 * TILE;
-        let start = from + (ours - from).normalize_or_zero().rotate(-0.2) * reach;
-        let end = from + (ours - from).normalize_or_zero().rotate(0.2) * reach;
-        combat.sweep(
-            from,
-            start,
-            end,
-            WeaponKind::Sweeper.basic(),
-            10.0,
-            true,
-            1.0,
-        );
-        for _ in 0..120 {
-            combat.step(0.05, &sight, &[Some((ours, false, 0.0))]);
-        }
-        assert!(!combat.wounds_taken.is_empty(), "the beam burnt the wearer");
-        assert!(combat.cues.iter().all(|c| c.cue != Cue::Shielded));
-        assert!(combat.bolts.iter().all(|b| b.hostile), "nothing sent back");
-    }
-
-    /// The discharge's reach: every live target within two tiles of the
-    /// wearer, by the wearer, neither a blast nor a cut — never one beyond
-    /// it, a stale one, or one handed over as nobody's; a shield does not
-    /// stop it.
-    #[test]
-    fn a_discharge_strikes_every_live_target_within_two_tiles() {
-        let mut combat = Combat::new(8);
-        let at = middle(10.0, 5.0);
-        let pistol = WeaponKind::LaserPistol.basic();
-        combat.set_targets(vec![
-            Some((at + vec2(1.5 * TILE, 0.0), pistol)),
-            Some((at + vec2(0.0, 2.5 * TILE), pistol)),
-            Some((at + vec2(-1.0 * TILE, 0.0), pistol)),
-            None,
-            Some((at + vec2(0.0, -1.9 * TILE), pistol)),
-        ]);
-        combat.set_stale(&[false, false, true, false, false]);
-        combat.set_shields(&[None, None, None, None, Some(vec2(0.0, 1.0))]);
-        assert_eq!(combat.arc_discharge(at, 2, 15.0), 2);
-        let hits = combat.take_hits();
-        assert_eq!(hits.iter().map(|h| h.who).collect::<Vec<_>>(), vec![0, 4]);
-        for hit in &hits {
-            assert_eq!(hit.damage, 15.0);
-            assert_eq!(
-                (hit.by, hit.blast, hit.cut, hit.strips),
-                (Some(2), false, false, 0.0)
-            );
-            assert_eq!(hit.part, Part::hit_by(hit.roll));
-        }
-        let impacts = combat
-            .cues
-            .iter()
-            .filter(|c| c.cue == Cue::Impact { on_crew: false })
-            .count();
-        assert_eq!(impacts, 2, "an impact a target struck");
-        assert!(!combat.quiet(), "the ring is lit");
-    }
-
     /// Weak Spot (task 124): every bolt rolled on its own off the lent
     /// stream at the shooter's chance, a hit keeping the weapon's flat
     /// damage, a blow rolled the same way and a burst never — and the
@@ -6060,7 +5490,7 @@ mod tests {
             // crit's stream is its own.
             assert_eq!(with.len(), without.len(), "{chance}");
             for (a, b) in with.iter().zip(&without) {
-                assert_eq!((a.who, a.part, a.roll), (b.who, b.part, b.roll));
+                assert_eq!((a.who, a.roll), (b.who, b.roll));
                 assert_eq!(a.damage, b.damage);
                 // And the flat damage is the weapon's own at the distance.
                 assert!((a.flat - pistol.stats().damage_at(2.0)).abs() < 0.5);

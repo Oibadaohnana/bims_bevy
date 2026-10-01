@@ -64,12 +64,11 @@ pub enum WorldEvent {
     /// `bims::combat`, and `World::visit`, which is where a hit crosses
     /// from the crew's room to theirs.
     EnemyDown { station: u32, who: u32 },
-    /// An enemy's shot landed on a crew member, on that part of them —
-    /// `health::Part`'s code, which says which piece of armour took it
-    /// first. The hit is already on the body: the joined room applied it
-    /// the step the bolt landed (`Game::take_wounds_taken`), and this is
-    /// the world saying so, once per hit.
-    CrewHit { who: u32, part: u32 },
+    /// An enemy's shot landed on a crew member. The hit is already on the
+    /// body: the joined room applied it the step the bolt landed
+    /// (`Game::take_wounds_taken`), and this is the world saying so, once
+    /// per hit.
+    CrewHit { who: u32 },
     /// A crew member is dead. Said the step it happens, whatever did it —
     /// a downed body's countdown run out, most often. Going down is not
     /// this: it is `CrewDowned`.
@@ -827,16 +826,13 @@ impl WorldEvent {
             WorldEvent::Readied { slot, yes } => (slot as i64) + 100 * i64::from(yes),
             // The station in the thousands, the person in the units.
             WorldEvent::EnemyDown { station, who } => (who + 1_000 * station) as i64,
-            // The kind in the hundreds and the body under it, the way
-            // `CrewHit` packs a part with a crew member. The station is
+            // The kind in the hundreds and the body under it. The station is
             // left out: the log says which machine, not whose.
             WorldEvent::DroidDown { who, kind, .. } => (who + 100 * kind) as i64,
             // The order's code in the hundreds, nought being the
             // following every slot starts on.
             WorldEvent::Ordered { who, kind } => (who as i64) + 100 * (kind as i64),
-            // The part in the tens, the person in the units: three parts,
-            // and a crew is never ten.
-            WorldEvent::CrewHit { who, part } => (who + 10 * part) as i64,
+            WorldEvent::CrewHit { who } => who as i64,
             WorldEvent::CrewDowned { who } => who as i64,
             // The helper in the **hundreds**, the one brought round in the
             // units, the way a carry is packed.

@@ -14,8 +14,8 @@
 //! # The fee is the kit
 //!
 //! A mercenary's price is a month of it, and it is what they carry: the
-//! weapon's [`WEAPON_FEE`] and a piece of armour's [`ARMOUR_FEE`] for
-//! every piece worn, added up ([`fee_of`]), then moved up or down by up
+//! weapon's [`WEAPON_FEE`] and the armour's [`ARMOUR_FEE`] when it is
+//! worn, added up ([`fee_of`]), then moved up or down by up
 //! to [`VARIANCE_PERCENT`] off the seed ([`priced`]) — whole euros in and
 //! out, so a server quotes the same. A pistol and nothing else is about
 //! two thousand; a sniper rifle in full armour about twenty.
@@ -74,13 +74,9 @@ pub const WEAPON_FEE: [(WeaponKind, Money); 5] = [
     (WeaponKind::SniperRifle, 15_000),
 ];
 
-/// What a piece of armour worn adds to the month, in euros. One tier of
-/// armour exists; a heavier tier is a row here when it does.
-pub const ARMOUR_FEE: [(ArmourKind, Money); 3] = [
-    (ArmourKind::BasicHelm, 1_000),
-    (ArmourKind::BasicKevlar, 3_000),
-    (ArmourKind::BasicLegs, 1_000),
-];
+/// What the armour worn adds to the month, in euros: what the helm, the
+/// kevlar and the leg guards it replaced (October 2026) added together.
+pub const ARMOUR_FEE: [(ArmourKind, Money); 1] = [(ArmourKind::Armour, 5_000)];
 
 /// A hired mercenary, as the world keeps it: which crew member it is,
 /// what a month costs, and the clock minute the next month falls due.
@@ -147,8 +143,8 @@ pub fn how_many(worth: Money, start_worth: Money, seed: u64, near_front: bool) -
     (grown + rolled + u32::from(near_front)).min(MERCENARIES_MAX)
 }
 
-/// A month of that kit, before the variance: the weapon's fee and every
-/// worn piece's. A body with nothing in its hand is priced as a pistol,
+/// A month of that kit, before the variance: the weapon's fee and the
+/// armour's. A body with nothing in its hand is priced as a pistol,
 /// since every mercenary carries at least that.
 pub fn fee_of(gear: &Gear) -> Money {
     let weapon = gear.weapon.map_or(WeaponKind::LaserPistol, |w| w.kind);
@@ -156,7 +152,7 @@ pub fn fee_of(gear: &Gear) -> Money {
         .iter()
         .find(|(kind, _)| *kind == weapon)
         .map_or(0, |(_, fee)| *fee);
-    for piece in [gear.head, gear.body, gear.legs].into_iter().flatten() {
+    if let Some(piece) = gear.armour {
         fee += ARMOUR_FEE
             .iter()
             .find(|(kind, _)| *kind == piece.kind)
@@ -228,9 +224,7 @@ mod tests {
         assert_eq!(fee_of(&pistol), 2_000);
         let heavy = Gear {
             weapon: Some(WeaponKind::SniperRifle.basic()),
-            head: Some(Piece::new(1, ArmourKind::BasicHelm, Tier::One)),
-            body: Some(Piece::new(2, ArmourKind::BasicKevlar, Tier::One)),
-            legs: Some(Piece::new(3, ArmourKind::BasicLegs, Tier::One)),
+            armour: Some(Piece::new(1, ArmourKind::Armour, Tier::One)),
             ..Gear::default()
         };
         assert_eq!(fee_of(&heavy), 20_000);

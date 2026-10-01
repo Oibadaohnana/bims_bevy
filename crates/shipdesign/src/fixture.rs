@@ -361,8 +361,10 @@ pub fn flyer(crew: u32) -> ShipDesign {
 /// `0xa5d6_d976_ad54_1eec` for the drug lab taken out and the bandages and
 /// medkits out of the cargo (task 120), and from `0x8046_76c8_2953_29f7`
 /// for the hydroponic bay and its tile of conduit taken out (the bots
-/// wedged themselves beside it).
-pub const PLAYTEST_HASH: u64 = 0xad31_5e8e_0e0d_0049;
+/// wedged themselves beside it), and from `0xad31_5e8e_0e0d_0049` for
+/// the helm, the kevlar and the leg guards in the cargo become one armour
+/// (October 2026, one armour slot).
+pub const PLAYTEST_HASH: u64 = 0xa708_bdd4_e7b8_4f49;
 
 /// How many parts [`playtest_ship`] ends up with. What notices a placement
 /// that was quietly refused — the builder skips rather than panics, for the
@@ -491,8 +493,8 @@ const PLAYTEST_BRANCHES: [(u32, u32); 53] = [
 
 /// What the playtest ship carries: a few days of food, one suit in the
 /// locker, a few bandages and a couple of medkits, so a wound can be
-/// dressed from the first minute and the drug lab tried, one piece of
-/// armour for each part of the body, so the armoury's grid has something
+/// dressed from the first minute and the drug lab tried, one armour,
+/// so the armoury's grid has something
 /// in it to equip, and one of each weapon after the handgun, so every gun
 /// and the schword can be put in a hand without first being bought.
 /// Bought through [`apply`], so the cold store and the lockers are what
@@ -503,13 +505,11 @@ const PLAYTEST_BRANCHES: [(u32, u32); 53] = [
 /// The materials went with the money rework (feature 95): the metal, the
 /// components and the ore for the smelter had nothing left to be spent
 /// on, and the fibre nothing left to be rolled into.
-pub const PLAYTEST_CARGO: [(ResourceId, u32); 10] = [
+pub const PLAYTEST_CARGO: [(ResourceId, u32); 8] = [
     (ResourceId::Vegetable, 40),
     (ResourceId::Tofu, 20),
     (ResourceId::Suit, 1),
-    (ResourceId::Helm, 1),
-    (ResourceId::Kevlar, 1),
-    (ResourceId::LegGuard, 1),
+    (ResourceId::Armour, 1),
     (ResourceId::Shotgun, 1),
     (ResourceId::AutoRifle, 1),
     (ResourceId::SniperRifle, 1),

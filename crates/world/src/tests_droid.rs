@@ -238,42 +238,42 @@ fn a_wreck_is_down_carries_nothing_and_is_worth_twenty_once() {
 }
 
 #[test]
-fn the_unmaker_strips_an_unbroken_piece_and_a_bare_part_takes_the_damage() {
+fn the_unmaker_strips_unbroken_armour_and_a_bare_body_takes_the_damage() {
     // The room's rule, asked of a Bim directly: a hit carrying a strip
-    // takes it off the piece over the part with the piece's protection
-    // ignored, and the part takes nothing.
+    // takes it off the armour with the armour's protection ignored, and
+    // the body takes nothing.
     let mut room = bims::game::Game::bare(7, 800.0, 600.0);
-    let kevlar = bims::combat::Piece::new(1, ArmourKind::BasicKevlar, Tier::One);
+    let kevlar = bims::combat::Piece::new(1, ArmourKind::Armour, Tier::One);
     let whole = kevlar.health;
     let protection = kevlar.stats().protection;
-    assert!(protection > 0.0, "a kevlar protects");
+    assert!(protection > 0.0, "the armour protects");
     let gear = room.gear(0);
     room.issue(
         0,
         Gear {
-            body: Some(kevlar),
+            armour: Some(kevlar),
             ..gear
         },
     );
     let body_before = room.health(0);
     let strips = WeaponKind::Unmaker.stats().strips;
 
-    room.strip_for_probe(0, bims::health::Part::Body, 6.0, strips);
+    room.strip_for_probe(0, 6.0, strips);
     // The piece lost exactly `strips`, protection ignored...
-    let worn = room.gear(0).body.unwrap();
+    let worn = room.gear(0).armour.unwrap();
     assert!(
         (worn.health - (whole - strips).max(0.0)).abs() < 1e-3,
         "the piece lost the whole strip: {} from {whole}",
         worn.health
     );
-    // ...and the part under it took nothing.
-    assert_eq!(room.health(0), body_before, "the part is untouched");
+    // ...and the body under it took nothing.
+    assert_eq!(room.health(0), body_before, "the body is untouched");
 
-    // A **bare** part takes the plain damage instead.
+    // A **bare** body takes the plain damage instead.
     let mut bare = bims::game::Game::bare(7, 800.0, 600.0);
     let was = bare.health(0);
-    bare.strip_for_probe(0, bims::health::Part::Legs, 4.0, strips);
-    assert_eq!(bare.health(0), was - 4.0, "a bare part takes the damage");
+    bare.strip_for_probe(0, 4.0, strips);
+    assert_eq!(bare.health(0), was - 4.0, "a bare body takes the damage");
 
     // And a tier scales the strip the way it scales the damage.
     let one = WeaponKind::Unmaker.basic().stats();
@@ -283,21 +283,21 @@ fn the_unmaker_strips_an_unbroken_piece_and_a_bare_part_takes_the_damage() {
 }
 
 #[test]
-fn a_broken_piece_is_no_shield_and_the_part_takes_the_damage() {
+fn a_broken_piece_is_no_shield_and_the_body_takes_the_damage() {
     let mut room = bims::game::Game::bare(11, 800.0, 600.0);
-    let mut kevlar = bims::combat::Piece::new(1, ArmourKind::BasicKevlar, Tier::One);
+    let mut kevlar = bims::combat::Piece::new(1, ArmourKind::Armour, Tier::One);
     kevlar.health = 0.0;
     assert!(kevlar.broken());
     let gear = room.gear(0);
     room.issue(
         0,
         Gear {
-            body: Some(kevlar),
+            armour: Some(kevlar),
             ..gear
         },
     );
     let was = room.health(0);
-    room.strip_for_probe(0, bims::health::Part::Body, 5.0, 30.0);
+    room.strip_for_probe(0, 5.0, 30.0);
     assert_eq!(
         room.health(0),
         was - 5.0,
@@ -1128,80 +1128,4 @@ fn a_rail_lance_fights_the_same_fight_on_two_worlds() {
         }
     }
     assert!(down, "the lance destroyed the machine");
-}
-
-/// Task 116: a Reflective plate and a pair of arc greaves worn by crew
-/// member 0 through a Trooper's fire, twice on one seed — the same events
-/// and the same checksum step for step. The plate's roll is on the room's
-/// combat stream, so two worlds that drew it differently would part.
-#[test]
-fn the_plate_and_the_greaves_fight_the_same_fight_on_two_worlds() {
-    let armoured = || {
-        let mut world =
-            crate::fixture::simulation_world(shipdesign::fixture::flyer(2), REFERENCE_MONEY, 2);
-        assert!(world.stage_droid_fight_for_probe(
-            DroidKind::Trooper,
-            Some(WeaponKind::LaserPistol.basic())
-        ));
-        let gear = world.aboard.room.gear(0);
-        let body = world
-            .holdings
-            .new_piece(ArmourKind::ReflectivePlate, Tier::Three);
-        let legs = world.holdings.new_piece(ArmourKind::ArcGreaves, Tier::Two);
-        world.aboard.room.issue(
-            0,
-            Gear {
-                body: Some(body),
-                legs: Some(legs),
-                ..gear
-            },
-        );
-        world
-    };
-    let (mut one, mut two) = (armoured(), armoured());
-    assert_eq!(world_checksum(&one), world_checksum(&two));
-    for step in 0..(60 * 40) {
-        let a = one.step(&[]);
-        let b = two.step(&[]);
-        assert_eq!(a, b, "the same events at step {step}");
-        assert_eq!(
-            world_checksum(&one),
-            world_checksum(&two),
-            "the two worlds parted at step {step}"
-        );
-    }
-}
-
-/// Task 116: nothing the world makes for a body wears either new piece —
-/// the tier tests' outfit at every tier, the tank's start, a hire — and a
-/// design carrying one stocks the armory at its own lowest tier.
-#[test]
-fn no_outfit_or_start_wears_the_greaves_or_the_plate() {
-    let basic = |gear: &Gear| {
-        bims::health::Part::ALL.iter().all(|&p| {
-            gear.worn(p)
-                .is_none_or(|piece| ArmourKind::BASIC.contains(&piece.kind))
-        })
-    };
-    for tier in Tier::ALL {
-        let mut world =
-            crate::fixture::simulation_world(shipdesign::fixture::flyer(2), REFERENCE_MONEY, 2);
-        world.outfit_for_probe(tier);
-        for who in 0..world.aboard.crew_count() as usize {
-            let gear = world.aboard.room.gear(who);
-            assert!(basic(&gear), "outfit at {tier:?}: {gear:?}");
-            assert!(
-                bims::health::Part::ALL
-                    .iter()
-                    .all(|&p| gear.worn(p).is_some())
-            );
-        }
-    }
-    let mut world =
-        crate::fixture::simulation_world(shipdesign::fixture::flyer(2), REFERENCE_MONEY, 2);
-    assert_eq!(world.set_class(0, crate::class::Class::Tank), Ok(()));
-    assert!(basic(&world.aboard.room.gear(0)), "the tank's start");
-    for seed in 0..500u64 {
-        assert!(basic(&Gear::hired_for(seed, 1)), "a hire {seed}");
-    }
 }

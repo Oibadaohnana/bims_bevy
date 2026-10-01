@@ -75,7 +75,7 @@ pub const REFERENCE_SHIP: ReferenceShip = ReferenceShip {
     facing: Facing::Forward,
     hull_mass: 1000.0,
     crew_count: 2,
-    cargo: [(ResourceId::LegGuard, 100)],
+    cargo: [(ResourceId::Bandage, 400)],
     can_flip: true,
 };
 
@@ -586,9 +586,9 @@ pub struct Stock(pub u32);
 /// until the medicine went out of the game (task 120).
 pub const STAPLES: [ResourceId; 2] = [ResourceId::Vegetable, ResourceId::Tofu];
 
-/// The seven weapons and the five pieces of armour there are to buy
-/// (feature 95; the minigun and the rail lance since task 115, the arc
-/// greaves and the Reflective plate since task 116). On no station's shelf since the trader (task 114): a
+/// The seven weapons and the one armour there are to buy
+/// (feature 95; the minigun and the rail lance since task 115, one armour
+/// since October 2026). On no station's shelf since the trader (task 114): a
 /// trader site's own shelf is drawn from these two lists
 /// (`world::trader`).
 pub const WEAPONS: [ResourceId; 7] = [
@@ -600,13 +600,7 @@ pub const WEAPONS: [ResourceId; 7] = [
     ResourceId::Minigun,
     ResourceId::RailLance,
 ];
-pub const ARMOUR: [ResourceId; 5] = [
-    ResourceId::Helm,
-    ResourceId::Kevlar,
-    ResourceId::LegGuard,
-    ResourceId::ArcGreaves,
-    ResourceId::ReflectivePlate,
-];
+pub const ARMOUR: [ResourceId; 1] = [ResourceId::Armour];
 
 /// How likely a station is to stock any one good that is not a staple.
 pub const STOCKED_CHANCE: f64 = 0.6;

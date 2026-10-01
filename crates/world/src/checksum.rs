@@ -937,7 +937,7 @@ fn eat_graves(hash: &mut Fnv, graves: &[crate::memory::Grave]) {
 /// — integers throughout but a piece's health, to a hundredth as a piece
 /// of armour's goes in anywhere else.
 fn eat_gear(hash: &mut Fnv, gear: &bims::combat::Gear) {
-    for piece in [gear.head, gear.body, gear.legs] {
+    for piece in [gear.armour] {
         match piece {
             None => hash.eat(u64::MAX),
             Some(piece) => {

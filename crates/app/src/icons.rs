@@ -35,15 +35,12 @@ const GUN_LIGHT: Color32 = Color32::from_rgb(0x66, 0xb8, 0xff);
 const MEDKIT: Color32 = Color32::from_rgb(0xf2, 0xf2, 0xf2);
 const CROSS: Color32 = Color32::from_rgb(0xe0, 0x40, 0x40);
 const BANDAGE: Color32 = Color32::from_rgb(0xe8, 0xdc, 0xc8);
-const HELM: Color32 = Color32::from_rgb(0x8c, 0x9e, 0xb8);
-const KEVLAR: Color32 = Color32::from_rgb(0x38, 0x3d, 0x47);
-const KEVLAR_YOKE: Color32 = Color32::from_rgb(0x5c, 0x64, 0x72);
-const LEGS: Color32 = Color32::from_rgb(0x3c, 0x34, 0x2c);
-const LEGS_BAND: Color32 = Color32::from_rgb(0x8c, 0x9e, 0xb8);
-// The two pieces of task 116, in the colours the deck draws them
-// (`character`): the greaves steel-blue with pale blue coils, the plate a
-// mirror with its bar of light.
-const GREAVES: Color32 = Color32::from_rgb(0x2b, 0x36, 0x4a);
+// The armour (October 2026, the one piece a Bim wears): dark plate in
+// the deck's colour, trimmed in steel-blue at the joints.
+const ARMOUR: Color32 = Color32::from_rgb(0x38, 0x3d, 0x47);
+const ARMOUR_TRIM: Color32 = Color32::from_rgb(0x8c, 0x9e, 0xb8);
+// A pale arc blue and a mirror's silver, with its bar of light: once the
+// arc greaves' and the Reflective plate's, now the relics' pictures'.
 const GREAVES_COIL: Color32 = Color32::from_rgb(0x8c, 0xd1, 0xff);
 const MIRROR: Color32 = Color32::from_rgb(0xbd, 0xc9, 0xd9);
 const MIRROR_YOKE: Color32 = Color32::from_rgb(0x8a, 0x96, 0xa8);
@@ -101,7 +98,7 @@ pub fn icon(painter: &egui::Painter, rect: Rect, item: Item) {
 
 /// A piece of armour: its resource's icon, cracked if it is broken.
 pub fn armour(painter: &egui::Painter, rect: Rect, kind: ArmourKind, broken: bool) {
-    let id = ResourceId::from_code(kind.resource()).unwrap_or(ResourceId::Helm);
+    let id = ResourceId::from_code(kind.resource()).unwrap_or(ResourceId::Armour);
     resource(painter, rect, id);
     if broken {
         let b = Box_::new(rect);
@@ -187,61 +184,7 @@ fn draw_resource(s: &mut Sketch, b: &Box_, id: ResourceId) {
                 );
             }
         }
-        ResourceId::Helm => {
-            // A cap: the dome and the brim.
-            s.add(egui::Shape::convex_polygon(
-                b.poly(&[
-                    (0.18, 0.62),
-                    (0.22, 0.40),
-                    (0.36, 0.24),
-                    (0.64, 0.24),
-                    (0.78, 0.40),
-                    (0.82, 0.62),
-                ]),
-                HELM,
-                Stroke::NONE,
-            ));
-            s.rect_filled(b.rect(0.12, 0.60, 0.88, 0.70), b.px(0.03), HELM);
-            s.rect_filled(b.rect(0.12, 0.60, 0.88, 0.70), b.px(0.03), SHADE);
-        }
-        ResourceId::Kevlar => {
-            vest(s, b, KEVLAR, KEVLAR_YOKE);
-        }
-        ResourceId::LegGuard => {
-            // Two guards, a band across each shin.
-            for x in [0.22, 0.56] {
-                s.rect_filled(b.rect(x, 0.16, x + 0.22, 0.86), b.px(0.06), LEGS);
-                s.rect_filled(b.rect(x, 0.42, x + 0.22, 0.52), b.px(0.02), LEGS_BAND);
-            }
-        }
-        // Arc greaves (task 116): the guards' shape in steel-blue, two
-        // coils round each shin and a spark jumping between them.
-        ResourceId::ArcGreaves => {
-            for x in [0.22, 0.56] {
-                s.rect_filled(b.rect(x, 0.16, x + 0.22, 0.86), b.px(0.06), GREAVES);
-                for y in [0.34, 0.54] {
-                    s.rect_filled(b.rect(x, y, x + 0.22, y + 0.05), 0.0, GREAVES_COIL);
-                }
-            }
-            let spark = [
-                b.at(0.44, 0.30),
-                b.at(0.50, 0.40),
-                b.at(0.46, 0.46),
-                b.at(0.56, 0.56),
-            ];
-            for pair in spark.windows(2) {
-                s.line_segment([pair[0], pair[1]], Stroke::new(b.px(0.035), GREAVES_COIL));
-            }
-        }
-        // The Reflective plate: the vest in silver with a bar of light
-        // across it.
-        ResourceId::ReflectivePlate => {
-            vest(s, b, MIRROR, MIRROR_YOKE);
-            s.line_segment(
-                [b.at(0.34, 0.66), b.at(0.62, 0.34)],
-                Stroke::new(b.px(0.07), MIRROR_SHINE),
-            );
-        }
+        ResourceId::Armour => armour_suit(s, b),
         // The three long guns all face right like the handgun, the muzzle
         // lit, and are told apart by what the deck tells them apart by
         // (`character::draw_gun`): the shotgun heavy and short, a wide
@@ -942,24 +885,33 @@ fn key(s: &mut Sketch, b: &Box_, edge: Color32, trace: Color32) {
     s.circle_filled(b.at(0.50, 0.80), b.px(0.05), trace);
 }
 
-/// A vest: the body of it with the neck cut out, and the yoke across the
-/// shoulders in the second colour.
-fn vest(s: &mut Sketch, b: &Box_, body: Color32, yoke: Color32) {
+/// The armour, seen from the front: a suit that covers the whole body —
+/// a plate over the chest with a ridge down it and a gorget at the neck,
+/// a plate on each shoulder, a belt, and a guard over each thigh with a
+/// band across it. Every piece convex.
+fn armour_suit(s: &mut Sketch, b: &Box_) {
+    // The chest plate, wider at the shoulders than the waist.
     s.add(egui::Shape::convex_polygon(
-        b.poly(&[
-            (0.20, 0.20),
-            (0.36, 0.20),
-            (0.50, 0.32),
-            (0.64, 0.20),
-            (0.80, 0.20),
-            (0.80, 0.86),
-            (0.20, 0.86),
-        ]),
-        body,
+        b.poly(&[(0.26, 0.22), (0.74, 0.22), (0.70, 0.58), (0.30, 0.58)]),
+        ARMOUR,
         Stroke::NONE,
     ));
-    s.rect_filled(b.rect(0.20, 0.20, 0.36, 0.40), b.px(0.02), yoke);
-    s.rect_filled(b.rect(0.64, 0.20, 0.80, 0.40), b.px(0.02), yoke);
+    s.line_segment(
+        [b.at(0.50, 0.30), b.at(0.50, 0.54)],
+        Stroke::new(b.px(0.04), SHINE),
+    );
+    // The gorget at the neck and a plate on each shoulder.
+    s.rect_filled(b.rect(0.40, 0.15, 0.60, 0.24), b.px(0.04), ARMOUR_TRIM);
+    for x in [0.10, 0.68] {
+        s.rect_filled(b.rect(x, 0.18, x + 0.22, 0.36), b.px(0.07), ARMOUR_TRIM);
+        s.rect_filled(b.rect(x, 0.30, x + 0.22, 0.36), b.px(0.03), SHADE);
+    }
+    // The belt, then a guard over each thigh with a band across it.
+    s.rect_filled(b.rect(0.28, 0.57, 0.72, 0.64), b.px(0.02), ARMOUR_TRIM);
+    for x in [0.30, 0.52] {
+        s.rect_filled(b.rect(x, 0.64, x + 0.18, 0.88), b.px(0.04), ARMOUR);
+        s.rect_filled(b.rect(x, 0.73, x + 0.18, 0.78), 0.0, ARMOUR_TRIM);
+    }
 }
 
 /// The side of an icon drawn inline in a row of text, in points: a little
@@ -1107,7 +1059,7 @@ impl Box_ {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use bims::combat::{Piece, WeaponKind};
+    use bims::combat::{Piece, Tier, WeaponKind};
 
     /// Every resource and every kind of item draws without a panic, into
     /// a painter with no window behind it: the shapes need no font, which
@@ -1126,7 +1078,7 @@ mod tests {
             icon(&painter, rect, Item::Stack(id as u32));
         }
         for &kind in ArmourKind::ALL.iter() {
-            let mut piece = Piece::new(1, kind, kind.min_tier());
+            let mut piece = Piece::new(1, kind, Tier::One);
             icon(&painter, rect, Item::Armour(piece));
             piece.health = 0.0;
             icon(&painter, rect, Item::Armour(piece));

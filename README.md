@@ -1911,6 +1911,13 @@ Bim does with a handgun is the fight, below.
 
 ### Armour
 
+> **Since October 2026 a Bim wears one armour**, over the whole body:
+> no helm, no leg guards, no arc greaves or Reflective plate. It comes
+> at three tiers; tier one is the three old pieces put together — 45
+> health, 1.8 protection — and every tier up is half as much again. A
+> hit lands on the body and nowhere in particular. The Tab panel shows
+> two slots a Bim: the weapon and the armour.
+
 > **Since task 113** a piece is never destroyed and never lost: at
 > nothing it stays worn, doing nothing, until the next mission makes it
 > whole; and it moves only on [the Armory](#the-armory), between missions.

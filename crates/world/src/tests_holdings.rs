@@ -5,7 +5,6 @@
 //! counted the moment it is picked up, and all of it in the checksum.
 
 use bims::combat::{ArmourKind, Item, Piece, Tier, WeaponKind};
-use bims::health::Part;
 use shipdesign::fixture::{flyer, playtest_ship};
 
 use crate::data;
@@ -58,7 +57,7 @@ fn stock(world: &mut World, item: Item) -> u32 {
 }
 
 fn helm() -> Item {
-    Item::Armour(Piece::new(9_000, ArmourKind::BasicHelm, Tier::One))
+    Item::Armour(Piece::new(9_000, ArmourKind::Armour, Tier::One))
 }
 
 /// A crew member off the ship onto the station's deck, just inside its
@@ -136,7 +135,7 @@ fn gear_changes_hands_between_missions_and_never_out_on_the_deck() {
         !any_refusal(&events),
         "a bot's slot is anybody's: {events:?}"
     );
-    assert!(world.aboard.room.worn(1, Part::Head).is_some());
+    assert!(world.aboard.room.worn(1).is_some());
 }
 
 /// **Arriving at a site, the crew kit out from the armory aboard**: in a
@@ -179,7 +178,7 @@ fn a_crew_arriving_at_a_site_kits_out_from_the_armory_aboard() {
     let events = world.step(&[Command::Unequip {
         slot: 0,
         who: 2,
-        part: GearSlot::Head,
+        part: GearSlot::Armour,
     }]);
     assert!(refused(&events, Refusal::GearLocked), "{events:?}");
     // Nor is anything taken off the bot ashore onto a Bim aboard.
@@ -188,11 +187,11 @@ fn a_crew_arriving_at_a_site_kits_out_from_the_armory_aboard() {
         who: 0,
         from: GearSource::Worn {
             who: 2,
-            slot: GearSlot::Head,
+            slot: GearSlot::Armour,
         },
     }]);
     assert!(refused(&events, Refusal::GearLocked), "{events:?}");
-    assert!(world.aboard.room.worn(2, Part::Head).is_some());
+    assert!(world.aboard.room.worn(2).is_some());
     // And no offer in a mission, aboard or not.
     let events = world.step(&[Command::Offer {
         slot: 0,
@@ -269,8 +268,8 @@ fn every_thing_there_is_goes_into_the_armory_for_the_combat_runs() {
     world.stock_every_thing_for_probe();
     let added = &world.holdings.armory[before..];
     // Five kinds at three tiers, the minigun at two and the lance at one;
-    // three pieces at three, the greaves at two and the plate at one.
-    assert_eq!(added.len(), 5 * 3 + 2 + 1 + 3 * 3 + 2 + 1);
+    // the armour at three.
+    assert_eq!(added.len(), 5 * 3 + 2 + 1 + 3);
     for kind in WeaponKind::ALL {
         for tier in Tier::ALL {
             let n = added
@@ -286,7 +285,7 @@ fn every_thing_there_is_goes_into_the_armory_for_the_combat_runs() {
                 .iter()
                 .filter(|s| matches!(s.item, Item::Armour(p) if p.kind == kind && p.tier == tier))
                 .count();
-            assert_eq!(n, kind.made_at(tier) as usize, "{kind:?} {tier:?}");
+            assert_eq!(n, 1, "{kind:?} {tier:?}");
         }
     }
 }
@@ -455,7 +454,7 @@ fn armour_at_nothing_stays_worn_and_is_whole_at_the_next_mission() {
     let site = another_site_here(&world);
     travel_to(&mut world, site);
     // Worn down to nothing: still worn, protecting nothing.
-    let out = world.aboard.room.wound(0, Part::Head, 40.0);
+    let out = world.aboard.room.wound(0, 100.0);
     assert!(out.piece_broke);
     let events = world.step(&[]);
     assert!(
@@ -463,22 +462,18 @@ fn armour_at_nothing_stays_worn_and_is_whole_at_the_next_mission() {
             .iter()
             .any(|e| matches!(e, WorldEvent::PieceBroke { who: 0, .. }))
     );
-    let broken = world.aboard.room.worn(0, Part::Head).expect("still worn");
+    let broken = world.aboard.room.worn(0).expect("still worn");
     assert!(broken.broken());
-    assert_eq!(world.aboard.room.part_bonus(0, Part::Head), 0.0);
+    assert_eq!(world.aboard.room.armour_health(0), 0.0);
     for _ in 0..60 {
         world.step(&[]);
     }
     assert!(
-        world
-            .aboard
-            .room
-            .worn(0, Part::Head)
-            .is_some_and(|p| p.broken()),
+        world.aboard.room.worn(0).is_some_and(|p| p.broken()),
         "worn, and broken, for the rest of the mission"
     );
     // A dented piece in the armory as well.
-    let mut dented = Piece::new(9_100, ArmourKind::BasicKevlar, Tier::Two);
+    let mut dented = Piece::new(9_100, ArmourKind::Armour, Tier::Two);
     dented.health = 1.0;
     let in_armory = stock(&mut world, Item::Armour(dented));
 
@@ -486,7 +481,7 @@ fn armour_at_nothing_stays_worn_and_is_whole_at_the_next_mission() {
     world.leave_for_probe();
     let site = another_site_here(&world);
     travel_to(&mut world, site);
-    let helm = world.aboard.room.worn(0, Part::Head).expect("still worn");
+    let helm = world.aboard.room.worn(0).expect("still worn");
     assert_eq!(helm.health, helm.stats().health, "whole again");
     let Some(Item::Armour(kevlar)) = world.holdings.get(in_armory).map(|s| s.item) else {
         panic!("the kevlar in the armory");
@@ -552,10 +547,7 @@ fn a_dead_player_is_back_at_the_mission_s_end_with_everything_it_wore() {
     assert!(!world.run.is_out(1));
     assert_eq!(world.wallets, vec![0, 7], "its own money, nobody else's");
     assert_eq!(world.aboard.room.weapon(1), Some(rifle), "its gun kept");
-    assert!(
-        world.aboard.room.worn(1, Part::Head).is_some(),
-        "its helm kept"
-    );
+    assert!(world.aboard.room.worn(1).is_some(), "its helm kept");
     assert_eq!(world.level_of(1), level, "the level kept");
 
     // Again, with less than the buyback between the two of them: all of
@@ -622,7 +614,7 @@ fn a_dead_or_left_behind_bot_s_loadout_is_in_the_armory() {
     assert!(
         armory
             .iter()
-            .any(|s| matches!(s.item, Item::Armour(p) if p.kind == ArmourKind::BasicHelm)),
+            .any(|s| matches!(s.item, Item::Armour(p) if p.kind == ArmourKind::Armour)),
         "its helm"
     );
 
@@ -704,14 +696,14 @@ fn the_holdings_change_the_checksum() {
 fn the_design_s_gear_is_in_the_armory_and_not_the_hold() {
     use physics::ResourceId;
     let design = playtest_ship();
-    let helms = design.carrying(ResourceId::Helm);
+    let helms = design.carrying(ResourceId::Armour);
     let pistols = design.carrying(ResourceId::Shotgun);
     assert!(helms > 0 && pistols > 0, "the playtest ship carries gear");
     let world = simulation_world(design, data::SIMULATION_MONEY, 1);
-    for resource in [ResourceId::Helm, ResourceId::Shotgun] {
+    for resource in [ResourceId::Armour, ResourceId::Shotgun] {
         assert_eq!(world.ship.design.carrying(resource), 0, "{resource:?}");
     }
-    assert_eq!(world.held(ResourceId::Helm), helms);
+    assert_eq!(world.held(ResourceId::Armour), helms);
     assert_eq!(world.held(ResourceId::Shotgun), pistols);
 }
 

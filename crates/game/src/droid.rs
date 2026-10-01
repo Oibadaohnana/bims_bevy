@@ -249,8 +249,7 @@ impl DroidPart {
     }
 
     /// The part a roll of 0 to 1 lands on, by
-    /// [`balance::DROID_HIT_ODDS`]. The same shape as
-    /// `health::Part::hit_by`, and read off the same draw — a
+    /// [`balance::DROID_HIT_ODDS`], read off the hit's own draw — a
     /// `combat::Hit` carries its roll so that which kind of body a
     /// target turns out to be does not move the combat stream.
     pub fn hit_by(roll: f32) -> DroidPart {

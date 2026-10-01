@@ -408,13 +408,13 @@ fn combining_makes_one_of_the_next_tier_and_refuses_what_it_should() {
     assert!(refused_with(&events, Refusal::NotAPair), "{events:?}");
 
     // Never off another player's Bim.
-    let helm = |id, t| Item::Armour(Piece::new(id, ArmourKind::BasicHelm, t));
+    let helm = |id, t| Item::Armour(Piece::new(id, ArmourKind::Armour, t));
     for who in [0usize, 1] {
         let gear = world.aboard.room.gear(who);
         world.aboard.room.issue(
             who,
             Gear {
-                head: Some(match helm(900 + who as u32, Tier::One) {
+                armour: Some(match helm(900 + who as u32, Tier::One) {
                     Item::Armour(p) => p,
                     _ => unreachable!(),
                 }),
@@ -425,7 +425,7 @@ fn combining_makes_one_of_the_next_tier_and_refuses_what_it_should() {
     let spare = world.holdings.put(helm(0, Tier::One)).unwrap();
     let theirs = GearSource::Worn {
         who: 1,
-        slot: GearSlot::Head,
+        slot: GearSlot::Armour,
     };
     let events = world.step(&[combine(theirs, armory(spare))]);
     assert!(refused_with(&events, Refusal::NotYours), "{events:?}");
@@ -433,16 +433,16 @@ fn combining_makes_one_of_the_next_tier_and_refuses_what_it_should() {
     // Off its own head: the result on its head, the spare gone.
     let mine = GearSource::Worn {
         who: 0,
-        slot: GearSlot::Head,
+        slot: GearSlot::Armour,
     };
     world.step(&[combine(armory(spare), mine)]);
-    let Some(Item::Armour(on)) = world.worn_on(0, GearSlot::Head) else {
-        panic!("a helm on its head");
+    let Some(Item::Armour(on)) = world.worn_on(0, GearSlot::Armour) else {
+        panic!("the armour on");
     };
-    assert_eq!((on.kind, on.tier), (ArmourKind::BasicHelm, Tier::Two));
+    assert_eq!((on.kind, on.tier), (ArmourKind::Armour, Tier::Two));
     assert_eq!(
         on.health,
-        Piece::new(0, ArmourKind::BasicHelm, Tier::Two).health
+        Piece::new(0, ArmourKind::Armour, Tier::Two).health
     );
     assert!(world.holdings.get(spare).is_none());
 }

@@ -5,7 +5,6 @@
 
 use bims::combat::{Gear, WeaponKind};
 use bims::droid::DroidPart;
-use bims::health::Part;
 use shipdesign::fixture::{COMBAT_CREW, combat_ship, flyer, playtest_ship};
 use worldgen::GalaxyType;
 
@@ -301,8 +300,8 @@ fn days_skipped_by_travel_spread_the_crisis_as_the_same_days_stepped() {
 #[test]
 fn health_is_made_whole_at_a_mission_s_start() {
     let mut world = crewed_world(flyer(2), REFERENCE_MONEY, 1, 2);
-    world.aboard.room.strike(0, Part::Body, 30.0, false);
-    world.aboard.room.strike(1, Part::Legs, 40.0, false);
+    world.aboard.room.strike(0, 30.0, false);
+    world.aboard.room.strike(1, 40.0, false);
     world.step(&[]);
     assert!(world.aboard.room.health(0) < bims::health::MAX_HEALTH);
     to_the_map(&mut world);
@@ -690,12 +689,18 @@ fn after_a_fight_won_the_deck_is_frozen_and_everybody_alive_comes_home() {
     for who in 1..=4 {
         ashore(&mut world, who);
     }
-    // Bare legs, so the shot takes hit points rather than dents a guard.
+    // No armour, so the shot takes hit points rather than dents it.
     let gear = world.aboard.room.gear(2);
-    world.aboard.room.issue(2, Gear { legs: None, ..gear });
-    world.aboard.room.wound(2, Part::Legs, 40.0);
+    world.aboard.room.issue(
+        2,
+        Gear {
+            armour: None,
+            ..gear
+        },
+    );
+    world.aboard.room.wound(2, 40.0);
     world.aboard.room.knock_out_for_probe(3);
-    world.aboard.room.wound(4, Part::Body, 1000.0);
+    world.aboard.room.wound(4, 1000.0);
     wreck_them_all(&mut world);
     for _ in 0..200 {
         world.step(&[]);

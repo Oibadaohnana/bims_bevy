@@ -958,17 +958,15 @@ pub const BATTLE_CRY_COOLDOWN: [f64; 4] = [20.0, 18.0, 16.0, 14.0];
 /// to the next, a rank — ready at every mission's start, shortened by the
 /// cooldown relics as every class cooldown is.
 pub const MEDIVAC_COOLDOWN: [f64; 4] = [140.0, 130.0, 120.0, 110.0];
-/// The tier of the medic's plate vest, a rank: none at the first, tier
-/// one at the second, tier three from the third.
+/// The tier of the medic's armour, a rank: none at the first, tier one
+/// at the second, tier three from the third. (A helm and leg guards came
+/// on at the fourth too, until a Bim wore one armour, October 2026.)
 pub const MEDIVAC_VEST: [Option<bims::combat::Tier>; 4] = [
     None,
     Some(bims::combat::Tier::One),
     Some(bims::combat::Tier::Three),
     Some(bims::combat::Tier::Three),
 ];
-/// The rank from which the medic wears the whole suit: a helm and leg
-/// guards at the vest's tier as well.
-pub const MEDIVAC_FULL_ARMOUR_RANK: u8 = 4;
 
 /// **E, Rally**: how far it reaches when he calls it, in tiles, at every
 /// rank.

@@ -69,16 +69,16 @@ fn worth_is_the_ship_the_hold_the_crew_s_gear_and_the_money() {
     );
 
     // And a piece on a crew member's back counts like one in the armory.
-    let helm = ResourceId::Helm;
+    let armour = ResourceId::Armour;
     let worn = world.worth();
-    let piece = world.holdings.new_piece(ArmourKind::BasicHelm, Tier::Three);
+    let piece = world.holdings.new_piece(ArmourKind::Armour, Tier::Three);
     let mut gear = world.aboard.room.gear(0);
-    gear.head = Some(piece);
+    gear.armour = Some(piece);
     world.aboard.room.issue(0, gear);
     assert_eq!(
         world.worth(),
-        worn + trade_price(helm) * TIER_PRICE[3],
-        "a tier-three helm on a head is sixteen tier-one ones"
+        worn + trade_price(armour) * TIER_PRICE[3],
+        "a tier-three armour on a back is sixteen tier-one ones"
     );
 }
 
@@ -304,11 +304,7 @@ fn an_enemy_is_worth_its_tier_s_bounty_give_or_take_a_tenth_by_its_strength() {
     };
     assert_eq!(manufacturer_bounty_percent(&rifle), 100);
     let mut armoured = rifle;
-    armoured.body = Some(bims::combat::Piece::new(
-        1,
-        ArmourKind::BasicKevlar,
-        Tier::One,
-    ));
+    armoured.armour = Some(bims::combat::Piece::new(1, ArmourKind::Armour, Tier::One));
     assert_eq!(manufacturer_bounty_percent(&armoured), 100 + spread);
     assert_eq!(bounty_share(1_500, 110), 1_650);
     assert_eq!(bounty_share(1_500, 90), 1_350);

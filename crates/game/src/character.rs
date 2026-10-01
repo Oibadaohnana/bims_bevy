@@ -275,24 +275,16 @@ const SWING_ARC: f32 = 100.0 * (PI / 180.0);
 /// How far a peeking body leans out towards the eye it aims from, as a
 /// share of the way there.
 const LEAN: f32 = 0.55;
-/// The armour, worn: a steel-blue cap over the hair, a dark plate over the
-/// torso with the yoke still showing at the collar, and darker boots with
-/// a shin band. A broken piece is drawn cracked — a lighter diagonal
-/// stroke across it — in `CRACK`.
-const HELM: Color = Color::rgb(0.55, 0.62, 0.72);
-const HELM_RIM: Color = Color::rgb(0.42, 0.48, 0.57);
+/// The armour, worn (one piece since October 2026): a dark plate over the
+/// torso with the yoke still showing at the collar, strapped at the sides,
+/// and guards over the boots with a shin band — no helm, so the class's
+/// kit on the head still shows. Broken, it is drawn cracked — a lighter
+/// diagonal stroke across the plate and each guard — in `CRACK`.
 const KEVLAR: Color = Color::rgb(0.22, 0.24, 0.28);
 const KEVLAR_STRAP: Color = Color::rgb(0.32, 0.34, 0.38);
 const GUARD: Color = Color::rgb(0.16, 0.12, 0.09);
 const GUARD_BAND: Color = Color::rgb(0.40, 0.42, 0.46);
 const CRACK: Color = Color::rgba(0.85, 0.88, 0.92, 0.75);
-/// The two pieces of task 116: arc greaves are a steel-blue boot with two
-/// coils round the shin in the crew's pale blue; the Reflective plate is a
-/// mirror — pale silver with a bright bar of light across it.
-const ARC_GREAVE: Color = Color::rgb(0.17, 0.21, 0.29);
-const ARC_COIL: Color = Color::rgb(0.55, 0.82, 1.0);
-const MIRROR: Color = Color::rgb(0.74, 0.79, 0.85);
-const MIRROR_SHINE: Color = Color::rgb(0.96, 0.98, 1.0);
 /// What a class wears (feature 81). Seen from directly above there is not
 /// much of a body to look at, so a class says itself three times over:
 /// the coverall dyed its own shade, something on the head and something
@@ -1014,15 +1006,15 @@ pub struct Character {
     /// nothing until it comes round. Set by `Game::tick_bim` off the
     /// health; it drops the route.
     unconscious: bool,
-    /// Which parts show blood — head, body, legs — for the blotch drawn on
-    /// each. Drawing only; the game sets the body's while it bleeds (under
-    /// twenty hit points, task 120).
-    wounds: [bool; 3],
-    /// What is worn on each part — head, body, legs — and whether it is
-    /// broken, for the picture of it. Drawing only; the gear itself is the
+    /// Whether the body shows blood, for the blotch drawn on the coverall.
+    /// Drawing only; the game sets it while it bleeds (under twenty hit
+    /// points, task 120).
+    bleeding: bool,
+    /// The armour worn, if any, and whether it is broken, for the picture
+    /// of it. Drawing only; the gear itself is the
     /// Bim's (`crate::combat::Gear`) and `Game` refreshes this whenever it
     /// changes.
-    armour: [Option<Worn>; 3],
+    armour: Option<Worn>,
 }
 
 /// A piece of armour as the picture needs it: what it is, and whether it
@@ -1083,8 +1075,8 @@ impl Character {
             cloaked: false,
             shield: 0.0,
             unconscious: false,
-            wounds: [false; 3],
-            armour: [None; 3],
+            bleeding: false,
+            armour: None,
         };
         // The first wander's draws are still made, so every draw after a
         // Bim's making is the one it was; the body stands all the same,
@@ -1541,15 +1533,14 @@ impl Character {
         self.unconscious
     }
 
-    /// Which parts bleed — head, body, legs — for the blotch drawn on each.
-    pub fn set_wounds(&mut self, wounds: [bool; 3]) {
-        self.wounds = wounds;
+    /// Whether the body bleeds, for the blotch drawn on it.
+    pub fn set_bleeding(&mut self, bleeding: bool) {
+        self.bleeding = bleeding;
     }
 
-    /// What is worn on each part — head, body, legs — for the picture of
-    /// it. Drawing only: the gear is the Bim's, and `Game` calls this
-    /// whenever it changes.
-    pub fn set_worn(&mut self, worn: [Option<Worn>; 3]) {
+    /// The armour worn, for the picture of it. Drawing only: the gear is
+    /// the Bim's, and `Game` calls this whenever it changes.
+    pub fn set_worn(&mut self, worn: Option<Worn>) {
         self.armour = worn;
     }
 
@@ -2043,17 +2034,12 @@ impl Character {
         Some(self.drawn_at() + (at * self.body_scale()).rotate(self.heading))
     }
 
-    /// Where a hit on `part` shows and how big (feature 98's flash on the
-    /// part struck), in room units: the head, the middle of the coverall
-    /// behind it, and the legs trailing under the body — the standing
-    /// figure's own places, turned with it and at its scale. Drawing only.
-    pub fn part_mark(&self, part: crate::health::Part) -> (Vec2, f32) {
-        use crate::health::Part;
-        let (local, radius) = match part {
-            Part::Head => (vec2(2.5, 0.0), 6.5),
-            Part::Body => (vec2(-4.0, 0.0), 9.0),
-            Part::Legs => (vec2(-12.0, 0.0), 6.5),
-        };
+    /// Where a hit shows and how big (feature 98's flash on the body
+    /// struck), in room units: the middle of the coverall, the standing
+    /// figure's own place, turned with it and at its scale. A hit lands
+    /// nowhere in particular (October 2026). Drawing only.
+    pub fn hit_mark(&self) -> (Vec2, f32) {
+        let (local, radius) = (vec2(-4.0, 0.0), 9.0);
         let scale = self.body_scale();
         (
             self.drawn_at() + (local * scale).rotate(self.heading),
@@ -2133,25 +2119,14 @@ impl Character {
                     (vec2(swing * 8.0 * side * moving, 7.0 * side), 0.0)
                 };
                 b.ellipse(at, vec2(13.5, 9.0), splay, BOOT);
-                // Leg guards: the boot darker, with a band across the shin
-                // — or arc greaves, steel-blue with two coils round it.
-                if let Some(guard) = self.armour[2] {
-                    if guard.kind == ArmourKind::ArcGreaves {
-                        b.ellipse(at, vec2(13.5, 9.0), splay, ARC_GREAVE);
-                        for dx in [-4.5f32, 0.5] {
-                            b.rect(at + vec2(dx, 0.0), vec2(1.6, 9.0), splay, 0.0, ARC_COIL);
-                        }
-                    } else {
-                        b.ellipse(at, vec2(13.5, 9.0), splay, GUARD);
-                        b.rect(at - vec2(2.5, 0.0), vec2(3.0, 9.0), splay, 0.0, GUARD_BAND);
-                    }
+                // The armour's guards: the boot darker, with a band across
+                // the shin.
+                if let Some(guard) = self.armour {
+                    b.ellipse(at, vec2(13.5, 9.0), splay, GUARD);
+                    b.rect(at - vec2(2.5, 0.0), vec2(3.0, 9.0), splay, 0.0, GUARD_BAND);
                     if guard.broken {
                         b.rect(at, vec2(10.0, 1.3), 0.7 + splay, 0.0, CRACK);
                     }
-                }
-                // A wounded leg bleeds onto the boot.
-                if self.wounds[2] {
-                    b.ellipse(at - vec2(2.0, 0.0), vec2(8.0, 6.0), splay, BLOOD);
                 }
             }
         }
@@ -2186,16 +2161,10 @@ impl Character {
             0.0,
             self.uniform.yoke(self.look.trim()),
         );
-        // The vest: a dark plate over the torso, set forward so the yoke
-        // still shows at the collar behind it, strapped on at the sides —
-        // or the Reflective plate, a mirror with a bar of light across it.
-        if let Some(vest) = self.armour[1] {
-            let mirror = vest.kind == ArmourKind::ReflectivePlate;
-            let plate = if mirror { MIRROR } else { KEVLAR };
-            b.ellipse(vec2(3.0, 0.0), vec2(16.0, 24.0), 0.0, plate);
-            if mirror {
-                b.rect(vec2(5.0, -3.0), vec2(10.0, 2.2), 0.9, 0.0, MIRROR_SHINE);
-            }
+        // The armour's plate: dark over the torso, set forward so the yoke
+        // still shows at the collar behind it, strapped on at the sides.
+        if let Some(vest) = self.armour {
+            b.ellipse(vec2(3.0, 0.0), vec2(16.0, 24.0), 0.0, KEVLAR);
             for side in [-1.0f32, 1.0] {
                 b.rect(
                     vec2(-3.0, 8.5 * side),
@@ -2210,8 +2179,8 @@ impl Character {
             }
         }
 
-        // A wound on the body: a blotch in the middle of the coverall.
-        if self.wounds[1] {
+        // Bleeding: a blotch in the middle of the coverall.
+        if self.bleeding {
             b.ellipse(vec2(1.0, 0.0), vec2(11.0, 9.0), 0.3, BLOOD);
         }
 
@@ -2253,27 +2222,11 @@ impl Character {
         draw_hair_standing(&mut b, self.look, at, look);
         // What the class wears on its head, over the hair and behind the
         // face — the nose goes on after, so it still shows under a peak.
-        // A helm is worn over the lot, and the kit is left off under it;
-        // the class says itself on the helm's own band instead.
-        let helmed = self.armour[0].is_some();
-        if self.uniform != Uniform::Suit && !helmed {
+        if self.uniform != Uniform::Suit {
             draw_class_head(&mut b, self.outfit, &at, look);
         }
         b.ellipse(at(vec2(5.6, 0.0)), vec2(4.0, 3.2), look, NOSE);
-        // The helm: a cap over the hair, rimmed, leaving the face clear.
-        if let Some(helm) = self.armour[0] {
-            b.ellipse(at(vec2(-2.5, 0.0)), vec2(12.5, 14.5), look, HELM_RIM);
-            b.ellipse(at(vec2(-2.5, 0.0)), vec2(10.5, 12.5), look, HELM);
-            // The class's band across it, so a helmeted crew is still
-            // read a class at a time.
-            if let Some(c) = self.outfit.colour() {
-                b.rect(at(vec2(-5.0, 0.0)), vec2(2.6, 11.0), look, 1.0, c);
-            }
-            if helm.broken {
-                b.rect(at(vec2(-2.5, 0.0)), vec2(11.0, 1.2), look + 0.8, 0.0, CRACK);
-            }
-        }
-        // The soldier's sunglasses, over the eyes and over a helm: the one
+        // The soldier's sunglasses, over the eyes: the one
         // piece of kit nothing is worn on top of.
         // A lens either side of a bridge, each a little wider than the
         // head, with a glint along the left one.
@@ -2313,11 +2266,6 @@ impl Character {
                 lens.glowing(VISOR_GLOW),
             );
             b.rect(at(vec2(5.4, -6.0)), vec2(1.3, 2.4), look, 0.6, SHADES_GLINT);
-        }
-        // A wound on the head: a blotch over the crown — on the helm, if
-        // one is worn, since the shot went through it.
-        if self.wounds[0] {
-            b.ellipse(at(vec2(-1.0, 2.0)), vec2(7.0, 6.0), look, BLOOD);
         }
         // The visor over all of that, in the suit: a helmet from above is
         // a bigger circle than the head, and the face shows through it.
@@ -2478,19 +2426,11 @@ impl Character {
             let at = vec2(-10.0, 9.0 * side);
             let splay = 0.55 * side;
             b.ellipse(at, vec2(13.5, 9.0), splay, tone(BOOT));
-            if let Some(guard) = self.armour[2] {
-                let greave = if guard.kind == ArmourKind::ArcGreaves {
-                    ARC_GREAVE
-                } else {
-                    GUARD
-                };
-                b.ellipse(at, vec2(13.5, 9.0), splay, tone(greave));
+            if let Some(guard) = self.armour {
+                b.ellipse(at, vec2(13.5, 9.0), splay, tone(GUARD));
                 if guard.broken {
                     b.rect(at, vec2(10.0, 1.3), 0.7 + splay, 0.0, CRACK);
                 }
-            }
-            if self.wounds[2] {
-                b.ellipse(at - vec2(2.0, 0.0), vec2(8.0, 6.0), splay, BLOOD);
             }
         }
 
@@ -2516,18 +2456,13 @@ impl Character {
             0.0,
             tone(self.uniform.yoke(self.look.trim())),
         );
-        if let Some(vest) = self.armour[1] {
-            let plate = if vest.kind == ArmourKind::ReflectivePlate {
-                MIRROR
-            } else {
-                KEVLAR
-            };
-            b.ellipse(vec2(3.0, 0.0), vec2(16.0, 24.0), 0.0, tone(plate));
+        if let Some(vest) = self.armour {
+            b.ellipse(vec2(3.0, 0.0), vec2(16.0, 24.0), 0.0, tone(KEVLAR));
             if vest.broken {
                 b.rect(vec2(3.0, 0.0), vec2(20.0, 1.4), 0.9, 0.0, CRACK);
             }
         }
-        if self.wounds[1] {
+        if self.bleeding {
             b.ellipse(vec2(1.0, 0.0), vec2(11.0, 9.0), 0.3, BLOOD);
         }
 
@@ -2540,21 +2475,6 @@ impl Character {
         b.ellipse(head, vec2(13.0, 13.0), 0.0, tone(SKIN));
         draw_hair_lying(&mut b, self.look.hair, head, hair, false);
         b.ellipse(head + vec2(3.0, 5.5), vec2(4.0, 3.0), 1.2, tone(NOSE));
-        if let Some(helm) = self.armour[0] {
-            b.ellipse(
-                head + vec2(-1.5, -3.0),
-                vec2(13.5, 11.5),
-                0.35,
-                tone(HELM_RIM),
-            );
-            b.ellipse(head + vec2(-1.5, -3.0), vec2(11.5, 9.5), 0.35, tone(HELM));
-            if helm.broken {
-                b.rect(head + vec2(-1.5, -3.0), vec2(10.0, 1.2), 1.2, 0.0, CRACK);
-            }
-        }
-        if self.wounds[0] {
-            b.ellipse(head + vec2(-1.0, -2.0), vec2(7.0, 6.0), 0.4, BLOOD);
-        }
         if self.uniform == Uniform::Suit {
             b.ellipse(head, vec2(18.0, 18.0), 0.0, OUTLINE);
             b.ellipse(head, vec2(16.5, 16.5), 0.0, VISOR.alpha(0.55));
@@ -2914,10 +2834,9 @@ pub fn portrait(look: Look, outfit: Outfit, heading: f32, list: &mut DrawList) {
 /// What the class wears on its head (feature 81), in the head's own
 /// frame: `at` puts a point local to the head — the face towards +x —
 /// onto the body, and `turn` is the glance the head is turned by. Every
-/// one of them sits back off the face, the way the armour's helm does,
-/// so the nose drawn after still shows under the peak. The soldier's
-/// sunglasses are not here: they go on over a helm as well, so `draw`
-/// puts them on last.
+/// one of them sits back off the face, so the nose drawn after still
+/// shows under the peak. The soldier's sunglasses are not here: they go
+/// on over everything, so `draw` puts them on last.
 fn draw_class_head(b: &mut Brush, outfit: Outfit, at: &impl Fn(Vec2) -> Vec2, turn: f32) {
     match outfit {
         Outfit::Plain | Outfit::Soldier => {}

@@ -224,12 +224,6 @@ pub struct Bim {
     /// nothing lying for anybody to take.
     #[cfg_attr(feature = "serde", serde(default))]
     pub manufacturer: bool,
-    /// Seconds until its arc greaves may discharge again (task 116): set
-    /// to [`crate::balance::ARC_COOLDOWN`] by a discharge
-    /// (`Game::enemy_strike`) and run down in `Game::tick_combat`. Nought
-    /// for anybody who wears none or has not been struck lately.
-    #[cfg_attr(feature = "serde", serde(default))]
-    pub arc_cool: f32,
     /// Where an **attack-move** is bound (the F key, a player's own Bim
     /// alone): the body walks there with its weapon out, stands still to
     /// shoot the moment it has something in its sights, and walks on
@@ -317,7 +311,6 @@ impl Bim {
             hunting: false,
             routine: None,
             manufacturer: false,
-            arc_cool: 0.0,
             attack_move: None,
             focus: None,
             gone: false,

@@ -68,7 +68,7 @@ use bevy::input::keyboard::{Key, KeyCode, KeyboardInput};
 use bevy::input::mouse::{MouseButton, MouseButtonInput, MouseScrollUnit, MouseWheel};
 use bevy::prelude::*;
 use bevy::window::{CursorMoved, WindowEvent, WindowResolution};
-use bims::combat::{ArmourKind, Tier};
+use bims::combat::Tier;
 
 /// `BIMS_ZOOM=0.3` zooms the game view by that factor about the middle of
 /// the canvas once it has been fitted: under one is out, over one in.
@@ -375,28 +375,22 @@ pub fn weapon_all() -> bool {
     std::env::var("BIMS_WEAPON_ALL").as_deref() == Ok("1")
 }
 
-/// `BIMS_ARMOURED=1` puts a fresh helm, kevlar and leg guards on the crew
-/// member for the run — pieces the holdings have never seen — which is how
-/// a crew member lives through a schword's first cut long enough for the
-/// melee lock to be looked at. `BIMS_ARMOURED=mirror` puts a tier-three
-/// **Reflective plate** on the body in place of the kevlar and
-/// `BIMS_ARMOURED=arc` tier-two **arc greaves** on the legs in place of
-/// the leg guards (task 116), the other two pieces basic: what each looks
-/// like worn, and what it does in a fight.
-pub fn armoured() -> Option<[(ArmourKind, Tier); 3]> {
+/// `BIMS_ARMOURED=1` puts a fresh tier-one armour on the crew member for
+/// the run — a piece the holdings have never seen — which is how a crew
+/// member lives through a schword's first cut long enough for the melee
+/// lock to be looked at; `BIMS_ARMOURED=2` and `=3` put it on at that
+/// tier.
+pub fn armoured() -> Option<Tier> {
     armour_set(std::env::var("BIMS_ARMOURED").ok()?.as_str())
 }
 
-/// What a `BIMS_ARMOURED` value puts on, head, body and legs: `None` for
+/// What tier a `BIMS_ARMOURED` value puts the armour on at: `None` for
 /// anything but the three it knows.
-pub fn armour_set(value: &str) -> Option<[(ArmourKind, Tier); 3]> {
-    let helm = (ArmourKind::BasicHelm, Tier::One);
-    let kevlar = (ArmourKind::BasicKevlar, Tier::One);
-    let guards = (ArmourKind::BasicLegs, Tier::One);
+pub fn armour_set(value: &str) -> Option<Tier> {
     match value {
-        "1" => Some([helm, kevlar, guards]),
-        "mirror" => Some([helm, (ArmourKind::ReflectivePlate, Tier::Three), guards]),
-        "arc" => Some([helm, kevlar, (ArmourKind::ArcGreaves, Tier::Two)]),
+        "1" => Some(Tier::One),
+        "2" => Some(Tier::Two),
+        "3" => Some(Tier::Three),
         _ => None,
     }
 }
@@ -1241,33 +1235,17 @@ pub fn station_kind() -> Option<worldgen::StationKind> {
 #[cfg(test)]
 mod tests {
     use super::{armour_set, weapon_named};
-    use bims::combat::{ArmourKind, Tier, WeaponKind};
+    use bims::combat::{Tier, WeaponKind};
 
-    /// Task 116: each `BIMS_ARMOURED` value wears what it says — a piece a
-    /// part, each at a tier it is made at — and nothing else is a value.
+    /// Each `BIMS_ARMOURED` value is the tier it says, and nothing else is
+    /// a value.
     #[test]
     fn each_armoured_dial_wears_what_it_says() {
-        let helm = (ArmourKind::BasicHelm, Tier::One);
-        let kevlar = (ArmourKind::BasicKevlar, Tier::One);
-        let guards = (ArmourKind::BasicLegs, Tier::One);
-        assert_eq!(armour_set("1"), Some([helm, kevlar, guards]));
-        assert_eq!(
-            armour_set("mirror"),
-            Some([helm, (ArmourKind::ReflectivePlate, Tier::Three), guards])
-        );
-        assert_eq!(
-            armour_set("arc"),
-            Some([helm, kevlar, (ArmourKind::ArcGreaves, Tier::Two)])
-        );
-        for value in ["", "0", "yes", "Mirror"] {
+        assert_eq!(armour_set("1"), Some(Tier::One));
+        assert_eq!(armour_set("2"), Some(Tier::Two));
+        assert_eq!(armour_set("3"), Some(Tier::Three));
+        for value in ["", "0", "yes", "mirror", "arc"] {
             assert_eq!(armour_set(value), None, "{value:?}");
-        }
-        for value in ["1", "mirror", "arc"] {
-            let set = armour_set(value).unwrap();
-            for (part, (kind, tier)) in bims::health::Part::ALL.iter().zip(set) {
-                assert_eq!(kind.slot(), *part, "{value}: {kind:?}");
-                assert!(kind.made_at(tier), "{value}: {kind:?} at {tier:?}");
-            }
         }
     }
 

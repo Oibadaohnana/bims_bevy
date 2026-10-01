@@ -508,21 +508,8 @@ fn the_medivac_calls_a_medic_in_armoured_by_rank() {
         assert_eq!(world.class_of(crew), Class::None);
         let gear = world.aboard.room.gear(crew as usize);
         assert_eq!(gear.weapon, Some(WeaponKind::LaserPistol.basic()));
-        let body = gear.body.map(|p| (p.kind, p.tier));
-        assert_eq!(
-            body,
-            vest.map(|t| (ArmourKind::BasicKevlar, t)),
-            "rank {rank}"
-        );
-        let full = rank >= class::MEDIVAC_FULL_ARMOUR_RANK;
-        assert_eq!(
-            gear.head.map(|p| (p.kind, p.tier)),
-            vest.filter(|_| full).map(|t| (ArmourKind::BasicHelm, t))
-        );
-        assert_eq!(
-            gear.legs.map(|p| (p.kind, p.tier)),
-            vest.filter(|_| full).map(|t| (ArmourKind::BasicLegs, t))
-        );
+        let armour = gear.armour.map(|p| (p.kind, p.tier));
+        assert_eq!(armour, vest.map(|t| (ArmourKind::Armour, t)), "rank {rank}");
         let skill = world.skill_of(crew);
         assert!(skill.medic, "a medic to the room");
         assert_eq!(skill.revive, class::MEDIC_REVIVE_SECONDS);
@@ -592,7 +579,7 @@ fn a_medivac_medic_s_kit_is_nobody_s_to_change() {
         .holdings
         .put(Item::Armour(bims::combat::Piece::new(
             9_000,
-            bims::combat::ArmourKind::BasicHelm,
+            bims::combat::ArmourKind::Armour,
             Tier::One,
         )))
         .unwrap();
@@ -605,14 +592,14 @@ fn a_medivac_medic_s_kit_is_nobody_s_to_change() {
         Command::Unequip {
             slot: 0,
             who: medic,
-            part: GearSlot::Body,
+            part: GearSlot::Armour,
         },
         Command::Equip {
             slot: 0,
             who: 0,
             from: GearSource::Worn {
                 who: medic,
-                slot: GearSlot::Body,
+                slot: GearSlot::Armour,
             },
         },
     ] {
@@ -623,8 +610,7 @@ fn a_medivac_medic_s_kit_is_nobody_s_to_change() {
         );
         let now = world.aboard.room.gear(medic as usize);
         assert_eq!(now.weapon, gear.weapon);
-        assert_eq!(now.body.map(|p| p.id), gear.body.map(|p| p.id));
-        assert!(now.head.is_none());
+        assert_eq!(now.armour.map(|p| p.id), gear.armour.map(|p| p.id));
     }
 }
 
@@ -653,7 +639,6 @@ fn crit_on_machine(world: &mut World, by: usize, damage: f32, flat: f32) -> f32 
         .unwrap();
     world.aboard.room.land_hit_for_probe(bims::combat::Hit {
         who: bims,
-        part: bims::health::Part::Body,
         damage,
         cut: false,
         by: Some(by),
@@ -802,7 +787,7 @@ fn reinforcements_are_called_in_with_r_by_rank() {
             assert_eq!(world.class_of(who), Class::None);
             let gear = world.aboard.room.gear(who as usize);
             assert_eq!(gear.weapon, Some(WeaponKind::AutoRifle.at(tier)));
-            assert!(gear.head.is_none() && gear.body.is_none() && gear.legs.is_none());
+            assert!(gear.armour.is_none());
             assert_eq!(
                 world.aboard.room.health(who as usize),
                 bims::health::MAX_HEALTH

@@ -1138,15 +1138,14 @@ fn the_checksum_notices_every_kind_of_change() {
 
     // --- the_checksum_notices_a_worn_piece (task 113: between missions) ---
     {
-        use bims::health::Part;
         use shipdesign::fixture::playtest_ship;
         let mut world = simulation_world(playtest_ship(), data::SIMULATION_MONEY, 1);
         let mut twin = simulation_world(playtest_ship(), data::SIMULATION_MONEY, 1);
         world.leave_for_probe();
         twin.leave_for_probe();
         assert_eq!(world.checksum(), twin.checksum());
-        let helm = armory_id(&world, ResourceId::Helm).expect("a helm in the armory");
-        assert_eq!(armory_id(&twin, ResourceId::Helm), Some(helm));
+        let helm = armory_id(&world, ResourceId::Armour).expect("a helm in the armory");
+        assert_eq!(armory_id(&twin, ResourceId::Armour), Some(helm));
         let equip = Command::Equip {
             slot: 0,
             who: 0,
@@ -1163,7 +1162,7 @@ fn the_checksum_notices_every_kind_of_change() {
         world.step(&[]);
         assert_eq!(world.checksum(), twin.checksum(), "both do");
         // And a dent shows.
-        world.aboard.room.wound(0, Part::Head, 5.0);
+        world.aboard.room.wound(0, 5.0);
         assert_ne!(world.checksum(), twin.checksum(), "one helm is dented");
     }
 
@@ -3733,7 +3732,7 @@ fn a_recruited_bim_shoots_the_machines_it_can_see_and_they_are_hurt() {
     // Everybody carries the issued pistol, holstered until recruited.
     let gear = world.aboard.room.gear(0);
     assert_eq!(gear.weapon, Some(WeaponKind::LaserPistol.basic()));
-    assert!(gear.head.is_none() && gear.body.is_none() && gear.legs.is_none());
+    assert!(gear.armour.is_none());
     let stats = world.aboard.room.weapon_stats(0).unwrap();
     assert_eq!(stats.dps(), stats.fire_rate * stats.damage);
     assert!(
@@ -3861,16 +3860,16 @@ fn the_machines_shoot_back_and_a_crew_member_hit_loses_hit_points() {
         }
     }
     let hit = hit.expect("the machine hit James within the run");
-    let WorldEvent::CrewHit { who, part } = hit else {
+    let WorldEvent::CrewHit { who } = hit else {
         unreachable!()
     };
     assert_eq!(who, 0);
-    let part = bims::health::Part::from_code(part).expect("a real part");
     // The hit is on the bar already (task 120: one bar, no wounds).
     assert!(world.aboard.room.health(0) < bims::health::MAX_HEALTH);
-    // The event carries the part in the tens.
+    // The event carries the crew member, and nowhere on it (October
+    // 2026: a hit lands on no part).
     assert_eq!(hit.code(), 32);
-    assert_eq!(hit.value(), (10 * part.code()) as i64);
+    assert_eq!(hit.value(), 0);
     assert_eq!(WorldEvent::CrewDown { who: 1 }.code(), 33);
     assert_eq!(WorldEvent::CrewDown { who: 1 }.value(), 1);
 }
@@ -3915,9 +3914,8 @@ fn on_deck(world: &World, who_ashore: u32) -> bims::math::Vec2 {
 /// off, and within reach the two are locked in a melee: the world says
 /// so once, the crew member fires nothing more while it holds and lands
 /// fists instead — a blow the world carries to the machine's parts — and
-/// the claw's blow comes back the other way, a crush of one wound unit on
-/// the part it landed on where a blade's cut is three. James wears the
-/// kevlar, and the machine is made whole before every step, so the lock
+/// the claw's blow comes back the other way. James wears the armour,
+/// and the machine is made whole before every step, so the lock
 /// is what is looked at rather than who wins — a Warden at tier two,
 /// whose head takes a fist and a bolt with some to spare, so no one blow
 /// ends it between two mendings.
@@ -3925,7 +3923,6 @@ fn on_deck(world: &World, who_ashore: u32) -> bims::math::Vec2 {
 fn a_claw_charges_and_locks_the_crew_member_who_fights_with_its_fists() {
     use bims::combat::{ArmourKind, Gear, MELEE_RANGE, Piece, WeaponKind};
     use bims::droid::DroidKind;
-    use bims::health::Part;
     let mut world = basic();
     world.set_droid_tier_for_probe(Some(Tier::Two));
     assert!(
@@ -3934,7 +3931,7 @@ fn a_claw_charges_and_locks_the_crew_member_who_fights_with_its_fists() {
     world.aboard.room.issue(
         0,
         Gear {
-            body: Some(Piece::new(99, ArmourKind::BasicKevlar, Tier::One)),
+            armour: Some(Piece::new(99, ArmourKind::Armour, Tier::One)),
             ..Gear::issued()
         },
     );
@@ -3949,12 +3946,11 @@ fn a_claw_charges_and_locks_the_crew_member_who_fights_with_its_fists() {
     assert_eq!(WorldEvent::Locked { who: 0 }.code(), 37);
     assert_eq!(WorldEvent::Locked { who: 1 }.value(), 1);
 
-    // A blow on James: the part it landed on — read across the one step
-    // it landed in.
+    // A blow on James — read across the one step it landed in.
     let units = |world: &World| world.aboard.room.health(0);
     let blow = |events: &[WorldEvent], _was: f32, _world: &World| {
         events.iter().find_map(|e| match e {
-            WorldEvent::CrewHit { who: 0, part } => Part::from_code(*part),
+            WorldEvent::CrewHit { who: 0 } => Some(()),
             _ => None,
         })
     };
@@ -4002,7 +3998,7 @@ fn a_claw_charges_and_locks_the_crew_member_who_fights_with_its_fists() {
     // While the lock holds nothing more is fired, and the world does not
     // say the lock again. The claw's own blow comes the other way — said
     // as a hit — before or after James's lock, since the machine reads its
-    // reach a step ahead of him; the kevlar takes the first on the body.
+    // reach a step ahead of him; the armour takes the first.
     let mut bolts = world.aboard.room.bolts_in_flight();
     let mut held = 0;
     for _ in 0..1_200 {
@@ -4029,7 +4025,7 @@ fn a_claw_charges_and_locks_the_crew_member_who_fights_with_its_fists() {
         }
     }
     assert!(held > 0, "the lock held for a step at least");
-    let _part = hit.expect("the claw landed on James");
+    hit.expect("the claw landed on James");
     assert!(
         world.aboard.room.health(0) < bims::health::MAX_HEALTH,
         "and it hurt"
@@ -4453,7 +4449,7 @@ fn a_mercenary_is_hired_from_the_station_and_paid_by_the_month() {
     // the holdings' ids.
     let gear = world.aboard.room.gear(1);
     assert!(gear.weapon.is_some(), "it came armed");
-    for piece in [gear.head, gear.body, gear.legs].iter().flatten() {
+    for piece in [gear.armour].iter().flatten() {
         assert!(piece.id < world.holdings.next_id);
     }
     assert!(

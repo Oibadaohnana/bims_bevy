@@ -65,11 +65,7 @@ pub fn war_goods(resource: ResourceId) -> bool {
         | ResourceId::RailLance => true,
         // What is worn into a fight. The pressure suit is not armour: it
         // is for going outside, and a war does not make it dearer.
-        ResourceId::Helm
-        | ResourceId::Kevlar
-        | ResourceId::LegGuard
-        | ResourceId::ArcGreaves
-        | ResourceId::ReflectivePlate => true,
+        ResourceId::Armour => true,
         // The medicine went out of the game (task 120): nobody stocks it,
         // and a war does not make what nobody sells dearer.
         ResourceId::Medkit
@@ -245,11 +241,7 @@ pub fn kind_bias(kind: MarketKind, resource: ResourceId) -> i32 {
         | ResourceId::Schword
         | ResourceId::Minigun
         | ResourceId::RailLance => [0, 0, 0, 15, 10],
-        ResourceId::Helm
-        | ResourceId::Kevlar
-        | ResourceId::LegGuard
-        | ResourceId::ArcGreaves
-        | ResourceId::ReflectivePlate => [0, 0, 0, 15, 10],
+        ResourceId::Armour => [0, 0, 0, 15, 10],
         ResourceId::Medkit => [0, 0, 0, 15, 0],
         ResourceId::Bandage => [0, 0, 0, 25, 0],
         ResourceId::ResearchKey => [0, 0, 0, 15, 0],
@@ -408,7 +400,7 @@ mod tests {
         assert!(kind_bias(Refinery, ResourceId::Suit) < 0);
         // A settlement has a militia, and pays for what arms it.
         assert!(kind_bias(Settlement, ResourceId::AutoRifle) > 0);
-        assert!(kind_bias(Settlement, ResourceId::Kevlar) > 0);
+        assert!(kind_bias(Settlement, ResourceId::Armour) > 0);
         for &resource in ResourceId::ALL.iter() {
             assert!(
                 kind_bias(Relay, resource) > 0,
@@ -429,9 +421,7 @@ mod tests {
             ResourceId::AutoRifle,
             ResourceId::SniperRifle,
             ResourceId::Schword,
-            ResourceId::Helm,
-            ResourceId::Kevlar,
-            ResourceId::LegGuard,
+            ResourceId::Armour,
         ] {
             assert!(war_goods(resource), "{resource:?} is war goods");
         }
@@ -446,13 +436,11 @@ mod tests {
         ] {
             assert!(!war_goods(resource), "{resource:?} is not war goods");
         }
-        // Twelve of them — the minigun and the rail lance (task 115)
-        // and the arc greaves and the Reflective plate (task 116) among
+        // Eight of them — the minigun and the rail lance (task 115) among
         // them — and the table covers every resource there is.
         assert!(war_goods(ResourceId::Minigun) && war_goods(ResourceId::RailLance));
-        assert!(war_goods(ResourceId::ArcGreaves) && war_goods(ResourceId::ReflectivePlate));
         let all = ResourceId::ALL.iter().filter(|&&r| war_goods(r)).count();
-        assert_eq!(all, 12, "the war goods");
+        assert_eq!(all, 8, "the war goods");
     }
 
     /// A market quotes through its own bias, and the plain one at none.

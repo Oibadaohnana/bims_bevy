@@ -216,7 +216,7 @@ mod tests {
             for seed in 0..50 {
                 let g = gear(day, Tier::Three, seed, 1);
                 assert_eq!(g.weapon, Some(WeaponKind::LaserPistol.basic()));
-                assert!(g.head.is_none() && g.body.is_none() && g.legs.is_none());
+                assert!(g.armour.is_none());
             }
         }
         let mut kinds = std::collections::BTreeSet::new();
@@ -227,21 +227,21 @@ mod tests {
                 assert_eq!(w.tier, Tier::One);
                 assert_ne!(w.kind, WeaponKind::Schword, "never a blade");
                 kinds.insert(w.kind as u32);
-                assert!(g.head.is_none() && g.body.is_none() && g.legs.is_none());
+                assert!(g.armour.is_none());
             }
         }
         assert!(kinds.len() >= 3, "a tier-one gun of more than one kind");
         for day in 6..10 {
             let g = gear(day, Tier::Three, 7, 1);
             assert_eq!(g.weapon.unwrap().tier, Tier::One);
-            for piece in [g.head, g.body, g.legs] {
+            for piece in [g.armour] {
                 assert_eq!(piece.unwrap().tier, Tier::One);
             }
         }
         for tier in Tier::ALL {
             let g = gear(12, tier, 7, 1);
             assert_eq!(g.weapon.unwrap().tier, tier);
-            for piece in [g.head, g.body, g.legs] {
+            for piece in [g.armour] {
                 assert_eq!(piece.unwrap().tier, tier);
             }
             assert_eq!(gear_tier(12, tier), tier);

@@ -26,26 +26,19 @@
 //! the armory — is whole again at the next mission's start.
 
 use bims::combat::{Item, Piece};
-use bims::health::Part;
 
-/// One slot of a loadout: the weapon, or a part of the body a piece of
-/// armour is cut for. Codes across the seam, like everything else.
+/// One slot of a loadout: the weapon, or the armour — one piece over the
+/// whole body since October 2026, where there were a head, a body and
+/// legs. Codes across the seam, like everything else.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, PartialOrd, Ord)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum GearSlot {
     Weapon = 0,
-    Head = 1,
-    Body = 2,
-    Legs = 3,
+    Armour = 1,
 }
 
 impl GearSlot {
-    pub const ALL: [GearSlot; 4] = [
-        GearSlot::Weapon,
-        GearSlot::Head,
-        GearSlot::Body,
-        GearSlot::Legs,
-    ];
+    pub const ALL: [GearSlot; 2] = [GearSlot::Weapon, GearSlot::Armour];
 
     pub fn code(self) -> u32 {
         self as u32
@@ -55,32 +48,13 @@ impl GearSlot {
         GearSlot::ALL.get(code as usize).copied()
     }
 
-    /// The slot for a part of the body.
-    pub fn of_part(part: Part) -> GearSlot {
-        match part {
-            Part::Head => GearSlot::Head,
-            Part::Body => GearSlot::Body,
-            Part::Legs => GearSlot::Legs,
-        }
-    }
-
-    /// The part of the body the slot is, for an armour slot.
-    pub fn part(self) -> Option<Part> {
-        match self {
-            GearSlot::Weapon => None,
-            GearSlot::Head => Some(Part::Head),
-            GearSlot::Body => Some(Part::Body),
-            GearSlot::Legs => Some(Part::Legs),
-        }
-    }
-
-    /// The slot a thing goes on: a weapon in the hand, a piece on the part
-    /// it is cut for. `None` for a charge, which is never a thing in a
+    /// The slot a thing goes on: a weapon in the hand, a piece of armour
+    /// on the body. `None` for a charge, which is never a thing in a
     /// slot.
     pub fn of_item(item: Item) -> Option<GearSlot> {
         match item {
             Item::Weapon(_) => Some(GearSlot::Weapon),
-            Item::Armour(piece) => Some(GearSlot::of_part(piece.kind.slot())),
+            Item::Armour(_) => Some(GearSlot::Armour),
             Item::Stack(_) => None,
         }
     }
@@ -89,9 +63,7 @@ impl GearSlot {
     pub fn read(self, gear: &bims::combat::Gear) -> Option<Item> {
         match self {
             GearSlot::Weapon => gear.weapon.map(Item::Weapon),
-            GearSlot::Head => gear.head.map(Item::Armour),
-            GearSlot::Body => gear.body.map(Item::Armour),
-            GearSlot::Legs => gear.legs.map(Item::Armour),
+            GearSlot::Armour => gear.armour.map(Item::Armour),
         }
     }
 
@@ -112,14 +84,8 @@ impl GearSlot {
         match (self, item) {
             (GearSlot::Weapon, Some(Item::Weapon(w))) => gear.weapon = Some(w),
             (GearSlot::Weapon, _) => gear.weapon = None,
-            (_, Some(Item::Armour(piece))) => {
-                *gear.worn_mut(piece.kind.slot()) = Some(piece);
-            }
-            (slot, _) => {
-                if let Some(part) = slot.part() {
-                    *gear.worn_mut(part) = None;
-                }
-            }
+            (GearSlot::Armour, Some(Item::Armour(piece))) => gear.armour = Some(piece),
+            (GearSlot::Armour, _) => gear.armour = None,
         }
         Ok(was)
     }
@@ -269,10 +235,8 @@ pub fn mend(item: Item) -> Item {
 
 /// A loadout with every piece on it made whole.
 pub fn mend_gear(gear: &mut bims::combat::Gear) {
-    for part in Part::ALL {
-        if let Some(piece) = gear.worn_mut(part) {
-            piece.health = piece.stats().health;
-        }
+    if let Some(piece) = gear.worn_mut() {
+        piece.health = piece.stats().health;
     }
 }
 
@@ -286,16 +250,17 @@ mod tests {
         let mut gear = Gear::issued();
         let pistol = Item::Weapon(WeaponKind::LaserPistol.basic());
         let rifle = Item::Weapon(WeaponKind::AutoRifle.basic());
-        let helm = Item::Armour(Piece::new(4, ArmourKind::BasicHelm, Tier::One));
+        let helm = Item::Armour(Piece::new(4, ArmourKind::Armour, Tier::One));
         assert_eq!(GearSlot::Weapon.read(&gear), Some(pistol));
         assert_eq!(
             GearSlot::Weapon.write(&mut gear, Some(rifle)),
             Ok(Some(pistol))
         );
-        assert_eq!(GearSlot::Body.write(&mut gear, Some(helm)), Err(()));
-        assert_eq!(GearSlot::Head.write(&mut gear, Some(helm)), Ok(None));
-        assert_eq!(GearSlot::Head.write(&mut gear, None), Ok(Some(helm)));
-        assert_eq!(gear.head, None);
+        assert_eq!(GearSlot::Weapon.write(&mut gear, Some(helm)), Err(()));
+        assert_eq!(GearSlot::Armour.write(&mut gear, Some(rifle)), Err(()));
+        assert_eq!(GearSlot::Armour.write(&mut gear, Some(helm)), Ok(None));
+        assert_eq!(GearSlot::Armour.write(&mut gear, None), Ok(Some(helm)));
+        assert_eq!(gear.armour, None);
         for slot in GearSlot::ALL {
             assert_eq!(GearSlot::from_code(slot.code()), Some(slot));
         }

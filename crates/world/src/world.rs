@@ -47,7 +47,6 @@ use worldgen::{Galaxy, GalaxyType, Node, StarSystem};
 
 use bims::combat::{ArmourKind, Item, Sentry, Tier, Weapon, WeaponKind};
 use bims::game::Container;
-use bims::health::Part;
 use bims::order::CrewOrder;
 use bims::sight::Stance;
 
@@ -2799,9 +2798,9 @@ impl World {
             // 75); the rest land as they always did. Whose it was is kept
             // for the *rampage*.
             if hit.blast {
-                room.blast(who, hit.part, hit.damage);
+                room.blast(who, hit.damage);
             } else {
-                room.strike(who, hit.part, hit.damage, hit.cut);
+                room.strike(who, hit.damage, hit.cut);
             }
             if let Some(last) = residents.last_hit_by.get_mut(who) {
                 *last = hit.by;
@@ -3064,9 +3063,9 @@ impl World {
                 None if room.is_manufacturer(hit.who) => {
                     events.push(shown_hit(true, hit.who as u32, hit.damage, hit.crit));
                     if hit.blast {
-                        room.blast(hit.who, hit.part, hit.damage);
+                        room.blast(hit.who, hit.damage);
                     } else {
-                        room.strike(hit.who, hit.part, hit.damage, hit.cut);
+                        room.strike(hit.who, hit.damage, hit.cut);
                     }
                 }
                 None => {}
@@ -3242,7 +3241,6 @@ impl World {
             if hit.who < self.aboard.crew_count() as usize {
                 events.push(WorldEvent::CrewHit {
                     who: hit.who as u32,
-                    part: hit.part.code(),
                 });
                 events.push(shown_hit(false, hit.who as u32, hit.damage, hit.crit));
             }
@@ -4064,10 +4062,8 @@ impl World {
                     self.holdings.put(Item::Weapon(kind.basic()));
                 }
             } else if let Some(kind) = armour::kind_of(id) {
-                // At its own lowest tier: a design carrying a Reflective
-                // plate carries one at tier three (task 116).
                 for _ in 0..units {
-                    let piece = self.holdings.new_piece(kind, kind.min_tier());
+                    let piece = self.holdings.new_piece(kind, Tier::One);
                     self.holdings.put(Item::Armour(piece));
                 }
             } else if matches!(id, ResourceId::ResearchKey | ResourceId::ResearchKeyTwo) {
@@ -4563,10 +4559,8 @@ impl World {
         let new_who = self.aboard.crew_count();
         body.bed = None;
         let mut gear = body.gear;
-        for part in Part::ALL {
-            if let Some(worn) = gear.worn_mut(part) {
-                worn.id = self.holdings.take_id();
-            }
+        if let Some(worn) = gear.worn_mut() {
+            worn.id = self.holdings.take_id();
         }
         body.character.stand_at(at);
         self.aboard.room.adopt(vec![body], bims::math::Vec2::ZERO);
@@ -5229,8 +5223,8 @@ impl World {
     /// Everybody's kit at one tier: every crew member's weapon at `tier`
     /// (its kind kept, the pistol for an empty hand — and a kind never
     /// made that low at its own lowest tier instead, task 115: a rail
-    /// lance at tier two is no weapon) and a fresh helm,
-    /// kevlar and leg guards at it over whatever was worn — ids off the
+    /// lance at tier two is no weapon) and a fresh armour at it over
+    /// whatever was worn — ids off the
     /// holdings, so the checksum and the health bars see them like any
     /// other. The crew's
     /// half of the `tier2_test` and `tier3_test` commands, whose machines
@@ -5245,16 +5239,14 @@ impl World {
         for who in 0..self.aboard.crew_count() as usize {
             let mut gear = self.aboard.room.gear(who);
             gear.weapon = armed(&gear);
-            for kind in ArmourKind::BASIC {
-                *gear.worn_mut(kind.slot()) = Some(self.holdings.new_piece(kind, tier));
-            }
+            gear.armour = Some(self.holdings.new_piece(ArmourKind::Armour, tier));
             self.aboard.room.issue(who, gear);
         }
     }
 
     /// Every weapon and every piece of armour there is, one of each kind
     /// at every tier it is made at (`WeaponKind::ALL`, the carried kinds,
-    /// and `ArmourKind::ALL`, each by `made_at`), put into the armory: what the
+    /// each by `made_at`, and `ArmourKind::ALL`), put into the armory: what the
     /// combat-ship runs open with so any kit can be tried on. For probes
     /// and for the app.
     pub fn stock_every_thing_for_probe(&mut self) {
@@ -5265,10 +5257,8 @@ impl World {
                 }
             }
             for kind in ArmourKind::ALL {
-                if kind.made_at(tier) {
-                    let piece = self.holdings.new_piece(kind, tier);
-                    self.holdings.put(Item::Armour(piece));
-                }
+                let piece = self.holdings.new_piece(kind, tier);
+                self.holdings.put(Item::Armour(piece));
             }
         }
     }
@@ -7254,36 +7244,25 @@ impl World {
     }
 
     /// The tank's start (feature 77): the laser pistol he has in hand
-    /// already, and a fresh basic helm, kevlar and leg guards on where he
-    /// wears nothing — his loadout from then on, ids off the holdings the
+    /// already, and a fresh tier-one armour on where he wears none — his loadout from then on, ids off the holdings the
     /// way `outfit_for_probe` dresses a crew. Nothing of the armory's
     /// moves: the kit comes with him, like a soldier's rifle.
     fn give_tank_kit(&mut self, who: usize) {
         let mut gear = self.aboard.room.gear(who);
-        for kind in ArmourKind::BASIC {
-            if gear.worn(kind.slot()).is_some() {
-                continue;
-            }
-            *gear.worn_mut(kind.slot()) = Some(self.holdings.new_piece(kind, Tier::One));
+        if gear.armour.is_none() {
+            gear.armour = Some(self.holdings.new_piece(ArmourKind::Armour, Tier::One));
         }
         self.aboard.room.issue(who, gear);
     }
 
-    /// And off again: every tier-one piece he wears, which is the tank's
+    /// And off again: the tier-one armour he wears, which is the tank's
     /// start — a class is chosen before the ship first leaves its berth,
     /// and a loadout changes only between missions (task 113), so
     /// nothing else can have put one on him by then.
     fn take_tank_kit(&mut self, who: usize) {
         let mut gear = self.aboard.room.gear(who);
-        let mut changed = false;
-        for kind in ArmourKind::BASIC {
-            let slot = kind.slot();
-            if gear.worn(slot).is_some_and(|p| p.tier == Tier::One) {
-                *gear.worn_mut(slot) = None;
-                changed = true;
-            }
-        }
-        if changed {
+        if gear.armour.is_some_and(|p| p.tier == Tier::One) {
+            gear.armour = None;
             self.aboard.room.issue(who, gear);
         }
     }
@@ -10851,18 +10830,13 @@ impl World {
     }
 
     /// What the medic carries at a rank: the pistol, and from the second
-    /// a plate vest ([`class::MEDIVAC_VEST`]), from
-    /// [`class::MEDIVAC_FULL_ARMOUR_RANK`] a helm and leg guards at its
-    /// tier too — pieces of the world's, numbered off the holdings.
+    /// the armour at the tier [`class::MEDIVAC_VEST`] says — a piece of
+    /// the world's, numbered off the holdings.
     fn medivac_gear(&mut self, rank: u8) -> bims::combat::Gear {
         use bims::combat::ArmourKind;
         let mut gear = bims::combat::Gear::issued();
         if let Some(Some(tier)) = class::by_rank(class::MEDIVAC_VEST, rank) {
-            gear.body = Some(self.holdings.new_piece(ArmourKind::BasicKevlar, tier));
-            if rank >= class::MEDIVAC_FULL_ARMOUR_RANK {
-                gear.head = Some(self.holdings.new_piece(ArmourKind::BasicHelm, tier));
-                gear.legs = Some(self.holdings.new_piece(ArmourKind::BasicLegs, tier));
-            }
+            gear.armour = Some(self.holdings.new_piece(ArmourKind::Armour, tier));
         }
         gear
     }
@@ -11220,7 +11194,7 @@ pub fn manufacturer_bounty_percent(gear: &bims::combat::Gear) -> u32 {
     let gun = gear
         .weapon
         .is_some_and(|w| w.kind != bims::combat::WeaponKind::LaserPistol);
-    let armour = gear.head.is_some() || gear.body.is_some() || gear.legs.is_some();
+    let armour = gear.armour.is_some();
     100 - step + step * u32::from(gun) + step * u32::from(armour)
 }
 
@@ -11247,10 +11221,7 @@ fn manufacturer_bounty(
 /// Republic's bounty is paid by.
 fn gear_tier(room: &bims::game::Game, who: usize) -> u32 {
     let gear = room.gear(who);
-    let worn = [gear.head, gear.body, gear.legs]
-        .into_iter()
-        .flatten()
-        .map(|p| p.tier.code());
+    let worn = gear.armour.map(|p| p.tier.code());
     gear.weapon
         .map(|w| w.tier.code())
         .into_iter()

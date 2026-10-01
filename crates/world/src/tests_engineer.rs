@@ -8,7 +8,7 @@
 
 use bims::combat::{Hit, Tier, WeaponKind};
 use bims::droid::{Droid, DroidBody, DroidKind, DroidPart};
-use bims::health::{MAX_HEALTH, Part};
+use bims::health::MAX_HEALTH;
 use physics::ResourceId;
 use shipdesign::fixture::flyer;
 
@@ -390,11 +390,11 @@ fn no_kit_is_a_resource_any_more_and_nothing_was_renumbered() {
             .iter()
             .all(|&id| !(15..=17).contains(&(id as u32)))
     );
-    assert_eq!(ResourceId::ALL.len(), 19);
+    assert_eq!(ResourceId::ALL.len(), 15);
     assert_eq!(ResourceId::CODES, 22);
     assert_eq!(shipdesign::CARGO_SLOTS, ResourceId::CODES);
     assert_eq!(ResourceId::Minigun as u32, 18);
-    assert_eq!(ResourceId::ReflectivePlate as u32, 21);
+    assert_eq!(ResourceId::Armour as u32, 7);
     for id in ResourceId::ALL {
         assert_eq!(ResourceId::from_code(id as u32), Some(id));
     }
@@ -788,7 +788,6 @@ fn a_stunned_machine_does_nothing_and_a_second_stun_takes_the_longer() {
 fn rank_four_s_extra_damage_is_only_while_stunned() {
     let hit = |world: &World| Hit {
         who: world.residents.as_ref().unwrap().aboard.room.crew_count() as usize,
-        part: Part::Body,
         damage: 8.0,
         cut: false,
         by: None,
@@ -1082,7 +1081,7 @@ fn a_hit_does_not_drop_the_sandbags_or_the_healing_sentry() {
         assert!(!refused(&events));
         assert!(world.aboard.room.is_deploying(0));
         world.step(&[]);
-        world.aboard.room.wound(0, Part::Body, 5.0);
+        world.aboard.room.wound(0, 5.0);
         assert!(world.aboard.room.is_deploying(0), "{kind:?} kept at");
         run_for_seconds(&mut world, 30.0);
         assert!(
@@ -1347,7 +1346,7 @@ fn the_sentry_is_laid_through_a_hit_stands_until_destroyed_and_is_never_packed_u
     assert!(!refused(&events), "{events:?}");
     world.step(&[]);
     assert!(world.aboard.room.is_deploying(0));
-    world.aboard.room.wound(0, Part::Body, 5.0);
+    world.aboard.room.wound(0, 5.0);
     assert!(
         world.aboard.room.is_deploying(0),
         "a hit does not interrupt it"

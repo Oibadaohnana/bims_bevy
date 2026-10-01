@@ -59,7 +59,11 @@ use serde::{Deserialize, Serialize};
 /// 81: no exceptions to it — the jammer is the system's one site (a town
 /// or a trader too, never a derived station), the machines' origin offers
 /// the Heart's fortress alone, and a fallen trader is fought for.
-pub const PROTOCOL: u32 = 81;
+/// 82: one armour slot — a hit lands on no part, `GearSlot` is the
+/// weapon and the armour, `CrewHit` carries no part, and the helm, the
+/// leg guards, the arc greaves and the Reflective plate are no resources
+/// (the stations' price leans one shorter each).
+pub const PROTOCOL: u32 = 82;
 
 /// Where the relay lives. `BIMS_SERVER` in the environment overrides it
 /// — `ws://127.0.0.1:8792` for one on the same machine.

@@ -142,13 +142,13 @@ fn a_desk_near_the_front_leans_on_the_guns_and_the_armour() {
     }
     // The three figures the feature was asked for, written out.
     if origin_at(&mut world, 1) {
-        assert_eq!(world.front_bias(home, ResourceId::Kevlar), 15);
+        assert_eq!(world.front_bias(home, ResourceId::Armour), 15);
     }
     if origin_at(&mut world, 2) {
-        assert_eq!(world.front_bias(home, ResourceId::Kevlar), 10);
+        assert_eq!(world.front_bias(home, ResourceId::Armour), 10);
     }
     if origin_at(&mut world, 3) {
-        assert_eq!(world.front_bias(home, ResourceId::Kevlar), 5);
+        assert_eq!(world.front_bias(home, ResourceId::Armour), 5);
     }
 }
 
@@ -171,18 +171,18 @@ fn every_quote_path_agrees_and_a_sale_pays_the_front_price() {
             "{resource:?} away from the front"
         );
     }
-    let quiet = world.quote(home, ResourceId::Kevlar).unwrap();
+    let quiet = world.quote(home, ResourceId::Armour).unwrap();
 
     // One hop out, the premium is added to the roll — and the roll is
     // still in there, since the sum is the one that is quoted.
     assert!(origin_at(&mut world, 1), "a star one hop from the crew");
-    let front = world.quote(home, ResourceId::Kevlar).unwrap();
+    let front = world.quote(home, ResourceId::Armour).unwrap();
     assert_eq!(
         front,
         market::quote(
             desk.kind,
-            desk.bias.of(ResourceId::Kevlar) + 15,
-            ResourceId::Kevlar
+            desk.bias.of(ResourceId::Armour) + 15,
+            ResourceId::Armour
         )
     );
     assert!(front.bid > quiet.bid, "{front:?} over {quiet:?}");

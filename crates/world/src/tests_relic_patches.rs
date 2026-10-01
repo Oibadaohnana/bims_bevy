@@ -6,7 +6,6 @@
 
 use bims::combat::{Gear, Hit, WeaponKind};
 use bims::droid::DroidPart;
-use bims::health::Part;
 use bims::math::{Vec2, vec2};
 use shipdesign::fixture::{COMBAT_CREW, combat_ship, flyer};
 use worldgen::GalaxyType;
@@ -90,7 +89,6 @@ fn shoot(world: &mut World, by: usize, i: usize, part: DroidPart, damage: f32) {
     let bims = world.residents.as_ref().unwrap().aboard.room.crew_count() as usize;
     let hit = Hit {
         who: bims + i,
-        part: Part::Body,
         damage,
         cut: false,
         by: Some(by),
@@ -624,7 +622,7 @@ fn run_seconds(world: &mut World, seconds: f64) -> Vec<WorldEvent> {
 /// short of health, and nothing between it and the next hit.
 fn hurt(world: &mut World, who: usize, damage: f32) {
     world.aboard.room.issue(who, Gear::issued());
-    world.aboard.room.wound(who, Part::Body, damage);
+    world.aboard.room.wound(who, damage);
 }
 
 /// **Pressure Seal** puts health back all the time, **Clot Booster** for
@@ -705,7 +703,7 @@ fn tether_field_shelters_the_crewmate_revived() {
     world.aboard.room.issue(1, Gear::issued());
     world.step(&[]);
     let before = world.aboard.room.health(1);
-    world.aboard.room.wound(1, Part::Legs, 8.0);
+    world.aboard.room.wound(1, 8.0);
     assert!(close(before - world.aboard.room.health(1), 8.0 * f));
     run_seconds(&mut world, data::TETHER_FIELD_SECONDS + 0.5);
     assert!(
@@ -722,7 +720,7 @@ fn fall_to(world: &mut World, who: usize, left: f32) -> Vec<WorldEvent> {
     let short = full - world.aboard.room.health(who);
     world.aboard.room.heal(who, short);
     let before = world.downs_before_the_step();
-    world.aboard.room.wound(who, Part::Body, full - left);
+    world.aboard.room.wound(who, full - left);
     let mut events = Vec::new();
     world.settle_relic_downs(&before, &mut events);
     events

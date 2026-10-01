@@ -4,12 +4,11 @@
 //! # One bar
 //!
 //! A Bim has [`MAX_HEALTH`] hit points and nothing else — no blood, no
-//! wounds, no traumas, no parts with health of their own. A hit still
-//! lands **somewhere** ([`Part::hit_by`] off [`Part::HIT_ODDS`]: one in
-//! twenty the head, three in four the body, one in five the legs), but
-//! the part only says which worn piece of armour takes it first
-//! (`Game::strike`); whatever gets past the armour comes off the one bar
-//! ([`Health::hit`]). Nothing mends on its own: a medic's beam and a
+//! wounds, no traumas, no parts with health of their own. A hit lands on
+//! the body and nowhere in particular (October 2026: it used to roll a
+//! head, a body or legs, for which piece of armour took it); the armour
+//! takes it first (`Game::strike`), and whatever gets past comes off the
+//! one bar ([`Health::hit`]). Nothing mends on its own: a medic's beam and a
 //! relic put hit points back ([`Health::heal`]), and a mission's start
 //! fills the bar ([`Health::restore`]).
 //!
@@ -53,44 +52,6 @@ pub const BLEEDS_UNDER: f32 = 20.0;
 /// medic's and a relic's are the world's (`world::data`), handed to the
 /// room on the helper's `Skill::revive`.
 pub const REVIVE_SECONDS: f32 = 10.0;
-
-/// Where a shot lands. The codes are the app's: the three armour slots
-/// are in the same order. It decides which worn piece of armour takes a
-/// hit first and nothing else — the bar is one.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub enum Part {
-    Head = 0,
-    Body = 1,
-    Legs = 2,
-}
-
-impl Part {
-    pub const ALL: [Part; 3] = [Part::Head, Part::Body, Part::Legs];
-
-    /// The odds a shot lands on each, in `ALL` order. They add to one.
-    pub const HIT_ODDS: [f32; 3] = [0.05, 0.75, 0.20];
-
-    pub fn code(self) -> u32 {
-        self as u32
-    }
-
-    pub fn from_code(code: u32) -> Option<Part> {
-        Part::ALL.get(code as usize).copied()
-    }
-
-    /// Which part a roll of `unit` (0 to 1) lands on, by [`Part::HIT_ODDS`].
-    pub fn hit_by(unit: f32) -> Part {
-        let mut edge = 0.0;
-        for (i, odds) in Part::HIT_ODDS.iter().enumerate() {
-            edge += odds;
-            if unit < edge {
-                return Part::ALL[i];
-            }
-        }
-        Part::Legs
-    }
-}
 
 #[derive(Clone, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -273,18 +234,6 @@ impl Health {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn the_odds_add_to_one_and_split_as_asked() {
-        let odds: f32 = Part::HIT_ODDS.iter().sum();
-        assert!((odds - 1.0).abs() < 1e-6);
-        assert_eq!(Part::hit_by(0.0), Part::Head);
-        assert_eq!(Part::hit_by(0.049), Part::Head);
-        assert_eq!(Part::hit_by(0.05), Part::Body);
-        assert_eq!(Part::hit_by(0.799), Part::Body);
-        assert_eq!(Part::hit_by(0.8), Part::Legs);
-        assert_eq!(Part::hit_by(0.999), Part::Legs);
-    }
 
     /// **Nought is downed, not dead**, and a downed body takes nothing
     /// more.

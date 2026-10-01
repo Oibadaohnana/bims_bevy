@@ -241,7 +241,8 @@ pub const NOT_A_TOOL: &[u32] = &[
 ];
 
 /// What a station sells, indexed by `physics::ResourceId`'s code — blank
-/// where a resource went (15 to 17, task 127).
+/// where a resource went (15 to 17, task 127; 6, 8, 20 and 21 when a Bim
+/// came to wear one armour, October 2026).
 pub const RESOURCE_NAMES: [&str; 22] = [
     "Vegetables",
     "Tofu",
@@ -249,9 +250,9 @@ pub const RESOURCE_NAMES: [&str; 22] = [
     "Handguns",
     "Medkits",
     "Bandages",
-    "Helm",
-    "Kevlar",
-    "Leg guards",
+    "",
+    "Armour",
+    "",
     "Shotguns",
     "Auto rifles",
     "Sniper rifles",
@@ -265,8 +266,8 @@ pub const RESOURCE_NAMES: [&str; 22] = [
     "",
     "Miniguns",
     "Rail lances",
-    "Arc greaves",
-    "Reflective plates",
+    "",
+    "",
 ];
 
 pub fn resource_name(id: ResourceId) -> &'static str {
@@ -628,7 +629,7 @@ pub const CLASS_TIPS: [&str; 6] = [
     "Four ranked abilities, a skill point a level: an EMP that stuns the machines (Q), a Healing Sentry that heals the crew round it (C), sandbags for cover (E), and for its ultimate a sentry with a minigun (R). Its charges come back on their own cooldowns, and it packs its sandbags and Healing Sentries up again.",
     "Braces to hold a line (E) — steadier shooting and no errands until stood easy — and from the third level throws grenades (Q), two charges of them, each back thirty seconds after it is thrown. Sets out with an auto rifle in hand and the pistol in the pack.",
     "Four ranked abilities, a skill point a level: a Nanite Burst that heals everybody near him at once (Q), a Healing Aura that makes every heal worth more to the crew round him (C), the heal beam on a crewmate or himself (E), and for his ultimate a cloak no enemy can pick (R). Revives a downed crewmate in four seconds where anybody else takes ten, and gets them up at 40% of their bar where anybody else manages 30%.",
-    "Four ranked abilities, a skill point a level: a Taunt that makes every enemy near him that can see him shoot at him and nobody else (Q), Plated, less damage from every hit (C), a wall the crew shelter behind (E), and for his ultimate the Juggernaut, every enemy that sees him shooting at him while he shrugs it off (R). His armour drains at half rate, so the same kevlar takes twice as much on him. Sets out with the pistol and a basic helm, kevlar and leg guards on.",
+    "Four ranked abilities, a skill point a level: a Taunt that makes every enemy near him that can see him shoot at him and nobody else (Q), Plated, less damage from every hit (C), a wall the crew shelter behind (E), and for his ultimate the Juggernaut, every enemy that sees him shooting at him while he shrugs it off (R). His armour drains at half rate, so the same armour takes twice as much on him. Sets out with the pistol and a tier-one armour on.",
     "Four ranked abilities, a skill point a level: a Battle Cry that makes everybody near him fire faster (Q), a Medivac, a Republic medic called in beside him who runs to a player downed and revives him (C), a Rally that has the crew near him take less damage and move faster (E), and for his ultimate Republic soldiers called in beside him (R). Hires a mercenary at a quarter off. Sets out with the pistol.",
 ];
 pub fn class_name(class: world::Class) -> &'static str {
@@ -791,17 +792,13 @@ impl Stat {
     }
 }
 /// What the commander's Medivac medic wears at rank index `r` (nought the
-/// first rank), off `class::MEDIVAC_VEST` and the full suit's rank.
+/// first rank), off `class::MEDIVAC_VEST`.
 fn medivac_armour(r: usize) -> &'static str {
-    let full = r + 1 >= world::class::MEDIVAC_FULL_ARMOUR_RANK as usize;
-    match (world::class::MEDIVAC_VEST[r], full) {
-        (None, _) => "None",
-        (Some(bims::combat::Tier::One), false) => "Vest T1",
-        (Some(bims::combat::Tier::Two), false) => "Vest T2",
-        (Some(_), false) => "Vest T3",
-        (Some(bims::combat::Tier::One), true) => "Full T1",
-        (Some(bims::combat::Tier::Two), true) => "Full T2",
-        (Some(_), true) => "Full T3",
+    match world::class::MEDIVAC_VEST[r] {
+        None => "None",
+        Some(bims::combat::Tier::One) => "Armour T1",
+        Some(bims::combat::Tier::Two) => "Armour T2",
+        Some(_) => "Armour T3",
     }
 }
 /// A ranked ability's numbers, every rank's at once (Dota 2's tooltip):
@@ -1451,11 +1448,8 @@ pub fn event_line(event: WorldEvent) -> Option<String> {
         WorldEvent::EnemyDown { station, who: w } => {
             format!("{} is down.", resident_name(station, w))
         }
-        // A shot that landed on one of the crew: which part, since the
-        // armour on it took the hit first.
-        WorldEvent::CrewHit { who: w, part } => {
-            format!("{} was hit in the {}.", who(w), body_part_name(part))
-        }
+        // A shot that landed on one of the crew.
+        WorldEvent::CrewHit { who: w } => format!("{} was hit.", who(w)),
         WorldEvent::CrewDown { who: w } => format!("{} is dead.", who(w)),
         // A body at nothing (task 120): down on the deck with the
         // countdown running, and a crewmate beside it the way back up —
@@ -1474,13 +1468,8 @@ pub fn event_line(event: WorldEvent) -> Option<String> {
         // A piece at nothing is still worn and does nothing for the rest of
         // the mission; it is whole again at the next (task 113).
         WorldEvent::PieceBroke { who: w, kind } => {
-            let (is, it) = if armour_is_a_pair(kind) {
-                ("are", "they stop")
-            } else {
-                ("is", "it stops")
-            };
             format!(
-                "{}'s {} {is} broken — {it} nothing until the next mission.",
+                "{}'s {} is broken — it stops nothing until the next mission.",
                 who(w),
                 armour_name(Some(kind)).to_lowercase()
             )
@@ -2655,18 +2644,6 @@ pub fn buyback_cost(cost: u64) -> String {
     format!("buyback {}", crate::format::euros(cost))
 }
 
-/// The parts of a body a shot can land on, indexed by
-/// `bims::health::Part::code`: the head, the body, the legs. Lower case,
-/// because every line that names one runs it into a sentence.
-pub const BODY_PART_NAMES: [&str; 3] = ["head", "body", "leg"];
-
-pub fn body_part_name(code: u32) -> &'static str {
-    BODY_PART_NAMES
-        .get(code as usize)
-        .copied()
-        .unwrap_or("body")
-}
-
 /// What each kind of body is called. Indexed by `worldgen::BodyKind`.
 pub const BODY_KIND_NAMES: [&str; 4] = ["Rocky planet", "Gas giant", "Ice world", "Asteroid belt"];
 
@@ -2923,51 +2900,16 @@ pub const WEAPON_NAMES: [&str; 11] = [
 ];
 
 /// What a piece of armour is called, indexed by `bims::combat::ArmourKind::code`;
-/// `0` is an empty slot. Four and five are the two pieces made only from a
-/// tier up (task 116).
-pub const ARMOUR_NAMES: [&str; 6] = [
-    "—",
-    "Basic helm",
-    "Basic kevlar",
-    "Basic leg guards",
-    "Arc greaves",
-    "Reflective plate",
-];
-
-/// What a piece does beyond its health and protection (task 116), put on
-/// the line of its numbers: the Reflective plate's bolts sent back and a
-/// pair of arc greaves' discharge at the piece's tier, off the balance's
-/// own constants. Nothing for the three basic pieces.
-pub fn armour_effect(piece: &bims::combat::Piece) -> String {
-    use bims::balance::{ARC_COOLDOWN, ARC_DAMAGE, ARC_RADIUS, REFLECT_DAMAGE, REFLECT_ODDS};
-    use bims::combat::ArmourKind;
-    match piece.kind {
-        ArmourKind::ReflectivePlate => format!(
-            ", sends {}% of the bolts on the body back at {}% damage",
-            (REFLECT_ODDS * 100.0).round(),
-            (REFLECT_DAMAGE * 100.0).round()
-        ),
-        ArmourKind::ArcGreaves => format!(
-            ", a blow on the wearer arcs {} into every enemy within {} tiles, once a {} s",
-            tidy(ARC_DAMAGE * piece.tier.armour_factor()),
-            tidy(ARC_RADIUS),
-            tidy(ARC_COOLDOWN)
-        ),
-        ArmourKind::BasicHelm | ArmourKind::BasicKevlar | ArmourKind::BasicLegs => String::new(),
-    }
-}
+/// `0` is an empty slot. There is one kind since October 2026: the armour,
+/// where there were a helm, kevlar and leg guards, arc greaves and a
+/// Reflective plate.
+pub const ARMOUR_NAMES: [&str; 2] = ["—", "Armour"];
 
 /// A number to the hundredth, the trailing noughts dropped — a piece's
 /// protection, which a tier's factor leaves at 1.35 or 2.7.
 pub fn tidy_hundredths(x: f32) -> String {
     let text = format!("{:.2}", (x * 100.0).round() / 100.0);
     text.trim_end_matches('0').trim_end_matches('.').to_string()
-}
-
-/// Whether a piece's name is a pair — the leg guards, the greaves — and
-/// is said "are" rather than "is".
-pub fn armour_is_a_pair(kind: bims::combat::ArmourKind) -> bool {
-    kind.slot() == bims::health::Part::Legs
 }
 
 pub fn weapon_name(kind: Option<bims::combat::WeaponKind>) -> &'static str {
@@ -2981,8 +2923,9 @@ pub fn armour_name(kind: Option<bims::combat::ArmourKind>) -> &'static str {
         .unwrap_or("Armour")
 }
 
-/// The three armour slots, top to bottom, and the weapon's.
-pub const SLOT_NAMES: [&str; 4] = ["Head", "Body", "Legs", "Weapon"];
+/// A loadout's two slots, by `world::GearSlot::code`: the weapon and the
+/// armour (October 2026: there were a head, a body and legs).
+pub const SLOT_NAMES: [&str; 2] = ["Weapon", "Armour"];
 
 /// A weapon's numbers as the Inventory says them, off the two-point
 /// curves in `bims::combat::WeaponStats`: each number is its best out to
@@ -3080,9 +3023,10 @@ pub const ITEM_TIPS: [&str; 22] = [
     // downed crewmate is revived by hand.
     "A medkit. Nothing uses one any more: a downed crewmate is revived by a crewmate standing beside it.",
     "A bandage. Nothing uses one any more: a downed crewmate is revived by a crewmate standing beside it.",
-    "A basic helm, for the head. Bought at a trader.",
-    "Basic kevlar, for the body. Bought at a trader.",
-    "Basic leg guards. Bought at a trader.",
+    // 6 and 8 were the helm and the leg guards (gone October 2026).
+    "",
+    "Armour, over the whole body — the one piece a Bim wears. Takes every hit first. Bought at a trader or combined.",
+    "",
     "A shotgun. Hits hard up close.",
     "An auto rifle. Fires steadily while the trigger is held.",
     "A sniper rifle. Reaches furthest.",
@@ -3095,8 +3039,9 @@ pub const ITEM_TIPS: [&str; 22] = [
     "",
     "A minigun, tier 2 and up: twenty light bolts to a pull, ten a second, then a long cool. Shreds the machines; good armour shrugs off much of each bolt. Bought at a trader or combined, and only ever the crew's.",
     "A rail lance, tier 3 only: one slug every five seconds that goes through a body and on into the next — up to three, each after the first taking less. Walls and a Guardian's shield from the front stop it. Bought at a trader, and only ever the crew's.",
-    "Arc greaves, tier 2 and up: leg guards wired to discharge. A melee blow landing on the wearer throws an arc into every enemy within two tiles — 15 at tier 2, 22.5 at tier 3 — once a second; a bolt never sets them off, and the discharge costs them nothing. Thinner than leg guards. Bought at a trader or combined, and only ever the crew's.",
-    "A Reflective plate, tier 3 only: a mirrored body plate. Two in five enemy bolts landing on the body go back the way they came at half damage, doing the wearer and the plate nothing. Beams and blows are not bolts and are never sent back. No tier-3 dodge, and less armour than tier-3 kevlar. Bought at a trader, and only ever the crew's.",
+    // 20 and 21 were the arc greaves and the Reflective plate.
+    "",
+    "",
 ];
 
 pub fn item_tip(id: ResourceId) -> &'static str {
@@ -3548,12 +3493,12 @@ mod tests {
             // event is the one most likely to have been forgotten.
             use bims::combat::ArmourKind;
             assert!(event_line(WorldEvent::EnemyDown { station: 3, who: 1 }).is_some());
-            assert!(event_line(WorldEvent::CrewHit { who: 0, part: 2 }).is_some());
+            assert!(event_line(WorldEvent::CrewHit { who: 0 }).is_some());
             assert!(event_line(WorldEvent::CrewDown { who: 0 }).is_some());
             assert!(
                 event_line(WorldEvent::PieceBroke {
                     who: 0,
-                    kind: ArmourKind::BasicKevlar
+                    kind: ArmourKind::Armour
                 })
                 .is_some()
             );
@@ -3625,16 +3570,6 @@ mod tests {
                 Refusal::Restocked,
             ] {
                 assert!(!refusal(why).is_empty());
-            }
-        }
-
-        // --- every_part_of_a_body_has_a_name ---
-        {
-            // `CrewHit` carries the part as a code, and the hit line runs it
-            // into a sentence.
-            assert_eq!(BODY_PART_NAMES.len(), bims::health::Part::ALL.len());
-            for part in bims::health::Part::ALL {
-                assert!(!body_part_name(part.code()).is_empty());
             }
         }
 

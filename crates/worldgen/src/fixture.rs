@@ -67,11 +67,17 @@ pub const REFERENCE_SEED: u64 = 0x_4c4f_4242_0000_0007;
 /// layout and no other draw moved. They were `0x_f726_4e5d_d786_d734`,
 /// `0x_cd96_b463_1cf1_1273`, `0x_d2c8_e0d1_e3b1_bd96` and
 /// `0x_977e_dc0b_a6c2_6e9b`.
+///
+/// October 2026 moved them without a bump, the same way: a Bim wears one
+/// armour, so the helm, the leg guards, the arc greaves and the Reflective
+/// plate went out of the resources and every lean is four entries
+/// shorter. They were `0x_393e_f652_82eb_b85b`, `0x_19df_385e_9d22_d91c`,
+/// `0x_8009_4c42_c725_ac59` and `0x_3794_c50f_8b35_67d4`.
 pub const REFERENCE_CHECKSUMS: [u64; 4] = [
-    0x_393e_f652_82eb_b85b,
-    0x_19df_385e_9d22_d91c,
-    0x_8009_4c42_c725_ac59,
-    0x_3794_c50f_8b35_67d4,
+    0x_e34f_9e80_fcdd_2871,
+    0x_325e_bc41_cdea_a9de,
+    0x_4f04_aca7_b928_c89b,
+    0x_0d7e_71d9_b169_88b6,
 ];
 
 /// The reference galaxy of one type.

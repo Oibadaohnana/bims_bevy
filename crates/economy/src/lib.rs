@@ -186,11 +186,7 @@ pub fn tiered(resource: ResourceId) -> bool {
         | ResourceId::Schword
         | ResourceId::Minigun
         | ResourceId::RailLance
-        | ResourceId::Helm
-        | ResourceId::Kevlar
-        | ResourceId::LegGuard
-        | ResourceId::ArcGreaves
-        | ResourceId::ReflectivePlate => true,
+        | ResourceId::Armour => true,
         ResourceId::Vegetable
         | ResourceId::Tofu
         | ResourceId::Suit
@@ -238,17 +234,10 @@ pub fn trade_price(resource: ResourceId) -> Money {
         // `TIER_PRICE[2]`, a lance 6 000 times `TIER_PRICE[3]`.
         ResourceId::Minigun => 5_000,
         ResourceId::RailLance => 6_000,
-        // The three pieces of armour, at a hundred a point of health:
-        // fifteen, twenty and ten (`bims::balance`).
-        ResourceId::LegGuard => 1_000,
-        ResourceId::Helm => 1_500,
-        ResourceId::Kevlar => 2_000,
-        // The two pieces made only from a tier up (task 116), at their
-        // tier-one book like every piece — never sold at it: a pair of
-        // tier-two arc greaves is 1 500 times `TIER_PRICE[2]`, a
-        // Reflective plate 2 500 times `TIER_PRICE[3]`.
-        ResourceId::ArcGreaves => 1_500,
-        ResourceId::ReflectivePlate => 2_500,
+        // The armour, at a hundred a point of health: forty-five
+        // (`bims::balance::ARMOUR`) — what the helm, the kevlar and the leg
+        // guards it replaced cost together.
+        ResourceId::Armour => 4_500,
         // Two vegetables and a quarter of an hour at the drug lab — the
         // one thing the crew still make — and a dressing off a shelf.
         ResourceId::Medkit => 32,
@@ -277,17 +266,13 @@ pub fn storage(resource: ResourceId) -> Storage {
         | ResourceId::Handgun
         | ResourceId::Medkit
         | ResourceId::Bandage
-        | ResourceId::Helm
-        | ResourceId::Kevlar
-        | ResourceId::LegGuard
+        | ResourceId::Armour
         | ResourceId::Shotgun
         | ResourceId::AutoRifle
         | ResourceId::SniperRifle
         | ResourceId::Schword
         | ResourceId::Minigun
-        | ResourceId::RailLance
-        | ResourceId::ArcGreaves
-        | ResourceId::ReflectivePlate => Storage::Locker,
+        | ResourceId::RailLance => Storage::Locker,
         ResourceId::ResearchKey | ResourceId::ResearchKeyTwo => Storage::Research,
     }
 }
@@ -350,13 +335,8 @@ pub fn footprint(resource: ResourceId) -> Footprint {
         ResourceId::Schword => Footprint::new(1, 5),
         ResourceId::Minigun => Footprint::new(2, 7),
         ResourceId::RailLance => Footprint::new(1, 10),
-        // The armour: the kevlar is a square, a helm lies on its side, the
-        // leg guards stand.
-        ResourceId::Kevlar => Footprint::new(4, 4),
-        ResourceId::Helm => Footprint::new(2, 4),
-        ResourceId::LegGuard => Footprint::new(3, 2),
-        ResourceId::ArcGreaves => Footprint::new(3, 2),
-        ResourceId::ReflectivePlate => Footprint::new(4, 4),
+        // The armour: a square.
+        ResourceId::Armour => Footprint::new(4, 4),
         // The suit folded, a medkit's case, and a box of dressings — a
         // bandage is gauze and tape the size of a medkit's case
         // (feature 87), and five of them go in one box (`stack_size`).
@@ -384,17 +364,13 @@ pub fn stack_size(resource: ResourceId) -> u32 {
         ResourceId::Suit
         | ResourceId::Handgun
         | ResourceId::Medkit
-        | ResourceId::Helm
-        | ResourceId::Kevlar
-        | ResourceId::LegGuard
+        | ResourceId::Armour
         | ResourceId::Shotgun
         | ResourceId::AutoRifle
         | ResourceId::SniperRifle
         | ResourceId::Schword
         | ResourceId::Minigun
         | ResourceId::RailLance
-        | ResourceId::ArcGreaves
-        | ResourceId::ReflectivePlate
         | ResourceId::ResearchKey
         | ResourceId::ResearchKeyTwo => 1,
     }
@@ -490,12 +466,7 @@ mod tests {
         // book like every gun.
         assert_eq!(trade_price(ResourceId::Minigun), 5_000);
         assert_eq!(trade_price(ResourceId::RailLance), 6_000);
-        assert_eq!(trade_price(ResourceId::LegGuard), 1_000);
-        assert_eq!(trade_price(ResourceId::Helm), 1_500);
-        assert_eq!(trade_price(ResourceId::Kevlar), 2_000);
-        // And the two pieces made only from a tier up (task 116).
-        assert_eq!(trade_price(ResourceId::ArcGreaves), 1_500);
-        assert_eq!(trade_price(ResourceId::ReflectivePlate), 2_500);
+        assert_eq!(trade_price(ResourceId::Armour), 4_500);
 
         assert_eq!(storage(ResourceId::Vegetable), Storage::ColdStore);
         assert_eq!(storage(ResourceId::Tofu), Storage::ColdStore);
@@ -503,9 +474,7 @@ mod tests {
         assert_eq!(storage(ResourceId::Handgun), Storage::Locker);
         assert_eq!(storage(ResourceId::Medkit), Storage::Locker);
         assert_eq!(storage(ResourceId::Bandage), Storage::Locker);
-        assert_eq!(storage(ResourceId::Helm), Storage::Locker);
-        assert_eq!(storage(ResourceId::Kevlar), Storage::Locker);
-        assert_eq!(storage(ResourceId::LegGuard), Storage::Locker);
+        assert_eq!(storage(ResourceId::Armour), Storage::Locker);
         assert_eq!(storage(ResourceId::Shotgun), Storage::Locker);
         assert_eq!(storage(ResourceId::AutoRifle), Storage::Locker);
         assert_eq!(storage(ResourceId::SniperRifle), Storage::Locker);
@@ -514,17 +483,12 @@ mod tests {
     }
 
     /// **Armour is a hundred euros a point of the piece's health**
-    /// (feature 95). This crate knows no `bims`, so the three healths are
-    /// written in here as the numbers `bims::balance` holds — a helm
-    /// fifteen, the kevlar twenty, the leg guards ten — and the test is
-    /// that the book values are a hundred times them.
+    /// (feature 95). This crate knows no `bims`, so the health is written
+    /// in here as the number `bims::balance::ARMOUR` holds — forty-five —
+    /// and the test is that the book value is a hundred times it.
     #[test]
     fn armour_is_a_hundred_a_point_of_health() {
-        for (piece, health) in [
-            (ResourceId::Helm, 15),
-            (ResourceId::Kevlar, 20),
-            (ResourceId::LegGuard, 10),
-        ] {
+        for (piece, health) in [(ResourceId::Armour, 45)] {
             assert_eq!(trade_price(piece), 100 * health, "{piece:?}");
         }
     }
@@ -546,9 +510,9 @@ mod tests {
         assert_eq!(tier_price(3), 16);
         assert_eq!(tier_price(0), 1);
         assert_eq!(tier_price(9), 1);
-        // The twelve things that come at a tier, and nothing else.
+        // The eight things that come at a tier, and nothing else.
         let tiered_count = ResourceId::ALL.iter().filter(|&&r| tiered(r)).count();
-        assert_eq!(tiered_count, 12);
+        assert_eq!(tiered_count, 8);
         for gear in [
             ResourceId::Handgun,
             ResourceId::Shotgun,
@@ -557,11 +521,7 @@ mod tests {
             ResourceId::Schword,
             ResourceId::Minigun,
             ResourceId::RailLance,
-            ResourceId::Helm,
-            ResourceId::Kevlar,
-            ResourceId::LegGuard,
-            ResourceId::ArcGreaves,
-            ResourceId::ReflectivePlate,
+            ResourceId::Armour,
         ] {
             assert!(tiered(gear), "{gear:?}");
         }
@@ -587,11 +547,9 @@ mod tests {
         assert_eq!(footprint(ResourceId::AutoRifle), Footprint::new(1, 7));
         assert_eq!(footprint(ResourceId::Shotgun), Footprint::new(2, 5));
         assert_eq!(footprint(ResourceId::SniperRifle), Footprint::new(1, 10));
-        assert_eq!(footprint(ResourceId::Kevlar), Footprint::new(4, 4));
-        assert_eq!(footprint(ResourceId::Helm), Footprint::new(2, 4));
-        assert_eq!(footprint(ResourceId::LegGuard), Footprint::new(3, 2));
+        assert_eq!(footprint(ResourceId::Armour), Footprint::new(4, 4));
         assert_eq!(cells(ResourceId::SniperRifle), 10);
-        assert_eq!(cells(ResourceId::Kevlar), 16);
+        assert_eq!(cells(ResourceId::Armour), 16);
         assert_eq!(
             footprint(ResourceId::Shotgun).turned(),
             Footprint::new(5, 2)

@@ -1502,7 +1502,6 @@ fn the_fight_sails_with_four_hired_field_medics_at_the_back_of_the_crew() {
 fn the_tier_tests_are_the_fight_with_everybody_s_kit_at_that_tier() {
     use crate::session::Session;
     use bims::combat::Tier;
-    use bims::health::Part;
 
     let plain = Session::combat(world::data::DEFAULT_SEED, CANVAS.0, CANVAS.1);
     let plain = plain.game.as_ref().unwrap();
@@ -1529,11 +1528,9 @@ fn the_tier_tests_are_the_fight_with_everybody_s_kit_at_that_tier() {
             // 115): the lance is tier three in the tier-two test too.
             let tier_of = tier.max(dealt.kind.min_tier());
             assert_eq!(gear.weapon, Some(dealt.kind.at(tier_of)), "crew {who}");
-            for part in Part::ALL {
-                let piece = gear.worn(part).expect("a piece on every part");
-                assert_eq!(piece.tier, tier);
-                assert!(piece.id < world.holdings.next_id, "a piece of the world's");
-            }
+            let piece = gear.worn().expect("the armour on");
+            assert_eq!(piece.tier, tier);
+            assert!(piece.id < world.holdings.next_id, "a piece of the world's");
         }
         // And the machines: the arena is theirs, nobody of its own people
         // is left, and every one of the wave is at the tier.
@@ -1557,7 +1554,7 @@ fn the_tier_tests_are_the_fight_with_everybody_s_kit_at_that_tier() {
         let gear = plain.world.aboard.room.gear(who);
         let weapon = gear.weapon.expect("a gun in every hand");
         assert_eq!(weapon, weapon.kind.basic());
-        assert!(Part::ALL.iter().all(|&p| gear.worn(p).is_none()));
+        assert!(gear.worn().is_none());
     }
 }
 
@@ -1731,7 +1728,7 @@ fn a_class_chosen_in_the_yard_leaves_the_pool_and_opens_the_world_and_is_saved()
         // Crew member 1 beside it, a wound on it, and the beam on.
         let at = world.aboard.room.bim_pos(0) + bims::math::vec2(TILE as f32, 0.0);
         world.aboard.room.put_for_probe(1, at);
-        world.aboard.room.wound(1, bims::health::Part::Legs, 20.0);
+        world.aboard.room.wound(1, 20.0);
         world.step(&[]);
         world.set_ranks_for_probe(0, [1, 0, 1, 0]);
         world.step(&[Command::Beam {

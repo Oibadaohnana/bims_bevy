@@ -884,22 +884,17 @@ fn open(
                 use bims::combat::Piece;
                 let room = &mut game.world.aboard.room;
                 let gear = room.gear(0);
-                // A piece a part, `BIMS_ARMOURED` saying which (task 116:
-                // `mirror` and `arc` put a new one on), else what is worn.
-                let piece = |i: usize| {
-                    worn.map(|set| {
-                        let (kind, tier) = set[i];
-                        Piece::new(u32::MAX - kind.code(), kind, tier)
-                    })
-                    .or(gear.worn(bims::health::Part::ALL[i]))
-                };
+                // The armour at the tier `BIMS_ARMOURED` says, else what
+                // is worn.
+                let kind = bims::combat::ArmourKind::Armour;
+                let armour = worn
+                    .map(|tier| Piece::new(u32::MAX - kind.code(), kind, tier))
+                    .or(gear.worn());
                 room.issue(
                     0,
                     bims::combat::Gear {
                         weapon: crate::dev::weapon().or(gear.weapon),
-                        head: piece(0),
-                        body: piece(1),
-                        legs: piece(2),
+                        armour,
                         ..gear
                     },
                 );

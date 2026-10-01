@@ -67,16 +67,14 @@ pub enum ResourceId {
     /// What closes a wound; used up on the wound. Kept in a locker like
     /// the medkit, five to a box.
     Bandage = 5,
-    /// A basic helm. Armour for the head — the first of three pieces a
-    /// Bim wears, one to a part of the body. A resource **in a
+    // 6 and 8 were the helm and the leg guards, gone in October 2026 when
+    // a Bim came to wear one piece of armour; the codes are left free.
+    /// **The armour** (October 2026): the one piece a Bim wears, over the
+    /// whole body — it took the kevlar vest's code. A resource **in a
     /// container** and a thing with a health of its own everywhere else
     /// (`bims::combat::Piece`; the world keeps the two in step), so
     /// buying, selling and combining it need no new mechanism.
-    Helm = 6,
-    /// Basic kevlar. Armour for the body.
-    Kevlar = 7,
-    /// Basic leg guards. Armour for the legs.
-    LegGuard = 8,
+    Armour = 7,
     /// A shotgun: the second weapon after the handgun; like it, a
     /// resource in a container and a `bims::combat::WeaponKind` in a
     /// hand, mapped one to one by `WeaponKind::resource`.
@@ -110,28 +108,23 @@ pub enum ResourceId {
     Minigun = 18,
     /// A rail lance (task 115): tier three only.
     RailLance = 19,
-    /// A pair of arc greaves (task 116): leg armour made from tier two up,
-    /// only ever the crew's — bought at a trader or combined.
-    ArcGreaves = 20,
-    /// A Reflective plate (task 116): body armour, tier three only.
-    ReflectivePlate = 21,
+    // 20 and 21 were the arc greaves and the Reflective plate (task 116),
+    // gone with the helm and the leg guards; the codes are left free.
 }
 
 impl ResourceId {
     /// Every resource, in discriminant order — with gaps where one went
-    /// (15 to 17, task 127), so a code is **not** a place in this list:
+    /// (6, 8, 15 to 17, 20 and 21), so a code is **not** a place in this list:
     /// [`ResourceId::from_code`] looks it up. [`RESOURCES`] is in the same
     /// order, which [`defs_are_sound`] checks.
-    pub const ALL: [ResourceId; 19] = [
+    pub const ALL: [ResourceId; 15] = [
         ResourceId::Vegetable,
         ResourceId::Tofu,
         ResourceId::Suit,
         ResourceId::Handgun,
         ResourceId::Medkit,
         ResourceId::Bandage,
-        ResourceId::Helm,
-        ResourceId::Kevlar,
-        ResourceId::LegGuard,
+        ResourceId::Armour,
         ResourceId::Shotgun,
         ResourceId::AutoRifle,
         ResourceId::SniperRifle,
@@ -140,8 +133,6 @@ impl ResourceId {
         ResourceId::ResearchKeyTwo,
         ResourceId::Minigun,
         ResourceId::RailLance,
-        ResourceId::ArcGreaves,
-        ResourceId::ReflectivePlate,
     ];
 
     /// How many codes there are, the free ones counted: what a table
@@ -188,7 +179,7 @@ pub struct ResourceDef {
 /// that went into it. `shipdesign::recipes` is where that recipe lives
 /// and `every_recipe_holds_together` there is what holds this column to
 /// it.
-pub static RESOURCES: [ResourceDef; 19] = [
+pub static RESOURCES: [ResourceDef; 15] = [
     ResourceDef {
         id: ResourceId::Vegetable,
         mass_per_unit: 0.5,
@@ -214,19 +205,11 @@ pub static RESOURCES: [ResourceDef; 19] = [
         id: ResourceId::Bandage,
         mass_per_unit: 2.0,
     },
-    // The three pieces of armour: a helm, a kevlar vest, a pair of leg
-    // guards.
+    // The armour: what the helm, the kevlar vest and the leg guards it
+    // replaced weighed together.
     ResourceDef {
-        id: ResourceId::Helm,
-        mass_per_unit: 16.0,
-    },
-    ResourceDef {
-        id: ResourceId::Kevlar,
-        mass_per_unit: 28.0,
-    },
-    ResourceDef {
-        id: ResourceId::LegGuard,
-        mass_per_unit: 8.0,
+        id: ResourceId::Armour,
+        mass_per_unit: 52.0,
     },
     // The four weapons after the handgun. Heavy, because a laser's
     // emitter is.
@@ -265,16 +248,6 @@ pub static RESOURCES: [ResourceDef; 19] = [
     ResourceDef {
         id: ResourceId::RailLance,
         mass_per_unit: 72.0,
-    },
-    // The two pieces of task 116: greaves a little heavier than the leg
-    // guards for their coils, and a plate heavier than the kevlar.
-    ResourceDef {
-        id: ResourceId::ArcGreaves,
-        mass_per_unit: 10.0,
-    },
-    ResourceDef {
-        id: ResourceId::ReflectivePlate,
-        mass_per_unit: 32.0,
     },
 ];
 

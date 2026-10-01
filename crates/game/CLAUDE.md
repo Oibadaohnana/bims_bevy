@@ -4622,3 +4622,35 @@ untouched (`Game::shot_skill` is not sure). Cover, a peek's dodge, the
 target's armour and a Guardian's plate still stop what they stopped.
 `a_player_s_shot_always_lands_and_a_bot_s_keeps_its_odds` pins it. In
 seeded runs Bim 0 is a player's, so the survivor pins move with it.
+
+## One armour, and a hit lands nowhere in particular (October 2026)
+
+> Every section above about three armour slots (head, body, legs),
+> `health::Part`, `Part::hit_by`, `HIT_ODDS`, a part's flash, `iron
+> frame` moving a head shot, the arc greaves and the Reflective plate
+> describes what this change took away. Kept as history.
+
+- **`Gear::armour: Option<Piece>`** is the one slot, where `head`, `body`
+  and `legs` were; `worn()`, `worn_mut()`, `dodge()` and
+  `armour_health()` read it, and `part_bonus` went. `ArmourKind` is
+  `Armour = 1` alone (`resource()` 7), its numbers `balance::ARMOUR`: the
+  three basic pieces put together — health summed (45), protection the
+  three weighed by where a hit used to land (1.8, the old average a hit;
+  summed, 5 would stop a light bolt whole).
+  `TIER_THREE_DODGE` is the three pieces' combined 0.271.
+  `MERCENARY_ARMOUR_ODDS` is one roll of a half; `Gear::hired_for` and
+  `Gear::manufacturer` number one piece.
+- **`health::Part` is gone**, and with it every `part` argument:
+  `Game::{wound, strike, strike_stripping, blast, strip_for_probe}` take
+  the damage alone, `Hit` has no `part`. **`Hit::roll` is still drawn
+  for every hit** — a droid's part is read off it — so the combat stream
+  draws exactly what it did.
+- **The arc greaves and the Reflective plate are gone**: `arc_discharge`,
+  `Blast::arc`, `Bim::arc_cool`, `Combat::{reflecting, set_reflecting}`,
+  `Fx::{reflect, arc}`, `Light::Arc`, `balance::{ARC_*, REFLECT_*}`.
+- **The picture** (`Character::armour: Option<Worn>`): the plate over the
+  torso, strapped, and the guards over the boots — no helm, so the
+  class's head kit always shows. `Character::set_bleeding(bool)` replaced
+  `set_wounds([bool; 3])`; `Character::hit_mark()` replaced `part_mark`,
+  the flash on the body (`fx::struck` keeps `BIM_STRUCK`, nought, for a
+  Bim).

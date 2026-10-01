@@ -819,12 +819,12 @@ fn second_wind_gets_up_once_a_mission() {
     assert!(!world.aboard.room.is_down(0), "ready again");
 }
 
-/// An enemy's hit on crew member 0 that takes `damage` off `part`, as the
+/// An enemy's hit on crew member 0 that takes `damage`, as the
 /// relics' stage sees it: the count before, the wound and the count up,
 /// and the stage run over it — the stage the step runs after the rooms.
-fn hit(world: &mut World, part: bims::health::Part, damage: f32) -> Vec<WorldEvent> {
+fn hit(world: &mut World, damage: f32) -> Vec<WorldEvent> {
     let before = world.hits_before_the_step();
-    world.aboard.room.wound(0, part, damage);
+    world.aboard.room.wound(0, damage);
     let hits = world.aboard.room.hits_taken(0);
     world.aboard.room.set_hits_taken(0, hits + 1);
     let mut events = Vec::new();
@@ -836,7 +836,6 @@ fn hit(world: &mut World, part: bims::health::Part, damage: f32) -> Vec<WorldEve
 /// time a hit takes it under a quarter of its health — once a mission.
 #[test]
 fn phase_harness_fires_once_a_mission_below_a_quarter() {
-    use bims::health::Part;
     let mut world = crewed_world(flyer(2), REFERENCE_MONEY, 1, 1);
     world.give_relic_for_probe(0, Relic::PhaseHarness);
     let fired = |events: &[WorldEvent]| {
@@ -846,19 +845,19 @@ fn phase_harness_fires_once_a_mission_below_a_quarter() {
         })
     };
     // A hit that leaves it above a quarter: nothing.
-    let events = hit(&mut world, Part::Legs, 5.0);
+    let events = hit(&mut world, 5.0);
     assert!(!fired(&events));
     assert!(!world.aboard.room.is_surging(0));
     // A hit that takes it under: untouchable.
-    world.aboard.room.wound(0, Part::Body, 60.0);
-    let events = hit(&mut world, Part::Legs, 20.0);
+    world.aboard.room.wound(0, 60.0);
+    let events = hit(&mut world, 20.0);
     assert!(world.health_share(0) < 0.25, "{}", world.health_share(0));
     assert!(fired(&events), "{events:?}");
     assert!(world.aboard.room.is_surging(0));
     // Two seconds of it, and not twice in one mission.
     run_seconds(&mut world, f64::from(data::PHASE_HARNESS_SECONDS) + 0.5);
     assert!(!world.aboard.room.is_surging(0), "two seconds and no more");
-    let events = hit(&mut world, Part::Head, 1.0);
+    let events = hit(&mut world, 1.0);
     assert!(!fired(&events), "once a mission");
     assert!(!world.aboard.room.is_surging(0));
 }

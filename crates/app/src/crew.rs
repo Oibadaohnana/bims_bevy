@@ -1594,10 +1594,8 @@ impl CrewPanels {
                     theme::question_mark(ui, HIRE_TIP);
                 });
                 ui.label(weapon_name(terms.gear.weapon.map(|w| w.kind)));
-                for part in health::Part::ALL {
-                    if let Some(piece) = terms.gear.worn(part) {
-                        ui.label(armour_name(Some(piece.kind)));
-                    }
+                if let Some(piece) = terms.gear.worn() {
+                    ui.label(armour_name(Some(piece.kind)));
                 }
                 ui.add_space(6.0);
                 ui.horizontal(|ui| {
@@ -1942,7 +1940,7 @@ fn worn_line(piece: Piece) -> String {
         format!(
             "+{} hp · {} prot",
             piece.health.round(),
-            piece.stats().protection
+            tidy_hundredths(piece.stats().protection)
         )
     }
 }
@@ -1950,7 +1948,7 @@ fn worn_line(piece: Piece) -> String {
 /// A cell's tooltip: the name, the numbers that matter — a piece's
 /// health and protection, and what it has left — and the resource's line.
 pub(crate) fn tip_of(item: PackItem, count: u32) -> String {
-    // A tier above one is said after the name: "Basic helm — tier 2".
+    // A tier above one is said after the name: "Armour — tier 2".
     let tiered = |name: &str, tier: bims::combat::Tier| match tier_word(tier) {
         Some(word) => format!("{name} — {word}"),
         None => name.to_string(),
@@ -1968,13 +1966,9 @@ pub(crate) fn tip_of(item: PackItem, count: u32) -> String {
             } else {
                 String::new()
             };
-            // And what a plate or a pair of greaves does besides (task
-            // 116), on the same line, so the trader's row says it too.
-            let effect = armour_effect(&piece);
             format!(
-                "{} — {}\n+{} hp, {} protection{dodge}{effect} · {state}\n{}",
+                "{}\n+{} hp, {} protection{dodge} · {state}\n{}",
                 tiered(armour_name(Some(piece.kind)), piece.tier),
-                SLOT_NAMES[piece.kind.slot() as usize].to_lowercase(),
                 stats.health,
                 tidy_hundredths(stats.protection),
                 item_tip(world::armour::resource_of(piece.kind))
@@ -2133,26 +2127,25 @@ fn sheet_gear(ui: &mut egui::Ui, game: &Game, w: usize) {
         .spacing([12.0, 2.0])
         .min_col_width(SHEET_W / 2.0 - 12.0)
         .show(ui, |ui| {
-            for (i, part) in health::Part::ALL.into_iter().enumerate() {
-                ui.label(egui::RichText::new(SLOT_NAMES[i]).color(theme::MUTED));
-                match gear.worn(part) {
-                    Some(piece) => ui.label(worn_piece_line(
-                        armour_name(Some(piece.kind)),
-                        piece.tier.code(),
-                        piece.health,
-                        piece.stats().health,
-                    )),
-                    None => ui.label(egui::RichText::new(NOTHING_WORN).color(theme::MUTED)),
-                };
-                ui.end_row();
-            }
-            ui.label(egui::RichText::new(SLOT_NAMES[3]).color(theme::MUTED));
+            let slot = |s: world::GearSlot| SLOT_NAMES[s.code() as usize];
+            ui.label(egui::RichText::new(slot(world::GearSlot::Weapon)).color(theme::MUTED));
             match gear.weapon {
                 Some(weapon) => ui.label(held_weapon_line(
                     weapon_name(Some(weapon.kind)),
                     weapon.tier.code(),
                 )),
                 None => ui.label(egui::RichText::new(NOTHING_IN_HAND).color(theme::MUTED)),
+            };
+            ui.end_row();
+            ui.label(egui::RichText::new(slot(world::GearSlot::Armour)).color(theme::MUTED));
+            match gear.worn() {
+                Some(piece) => ui.label(worn_piece_line(
+                    armour_name(Some(piece.kind)),
+                    piece.tier.code(),
+                    piece.health,
+                    piece.stats().health,
+                )),
+                None => ui.label(egui::RichText::new(NOTHING_WORN).color(theme::MUTED)),
             };
             ui.end_row();
         });
@@ -2262,7 +2255,7 @@ mod tests {
             Some(REVIVE_NOT_DOWN)
         );
 
-        let hit = game.wound(1, health::Part::Body, 1_000.0);
+        let hit = game.wound(1, 1_000.0);
         assert!(hit.downed, "a hit to nothing downs it");
         // The body lies down at the top of its next tick.
         game.simulate(1.0 / 60.0);
@@ -2339,12 +2332,9 @@ pub struct ArmoryView {
 #[derive(Clone, Copy, PartialEq, Debug)]
 struct ArmoryDrag(world::GearSource);
 
-/// The slot a thing on a loadout is in, named: the weapon, or the part.
+/// The slot a thing on a loadout is in, named: the weapon, or the armour.
 fn slot_label(slot: world::GearSlot) -> &'static str {
-    match slot.part() {
-        Some(part) => SLOT_NAMES[part as usize],
-        None => SLOT_NAMES[3],
-    }
+    SLOT_NAMES[slot.code() as usize]
 }
 
 /// What dropping `drag` on column `onto` asks for, if anything: onto a
@@ -2448,12 +2438,7 @@ fn armory_column(
                     }
                 });
             }
-            for slot in [
-                world::GearSlot::Weapon,
-                world::GearSlot::Head,
-                world::GearSlot::Body,
-                world::GearSlot::Legs,
-            ] {
+            for slot in world::GearSlot::ALL {
                 let item = slot.read(&column.gear);
                 let (name, line) = match item {
                     Some(PackItem::Weapon(w)) => (

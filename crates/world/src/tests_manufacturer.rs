@@ -6,7 +6,6 @@
 
 use bims::combat::{Tier, WeaponKind};
 use bims::droid::DroidKind;
-use bims::health::Part;
 use bims::sight::Stance;
 use shipdesign::fixture::flyer;
 
@@ -131,7 +130,7 @@ fn a_day_nought_site_is_pistols_and_no_armour_and_clears_on_the_last_down() {
     for &who in &them {
         let gear = room.gear(who);
         assert_eq!(gear.weapon, Some(WeaponKind::LaserPistol.basic()));
-        assert!(gear.head.is_none() && gear.body.is_none() && gear.legs.is_none());
+        assert!(gear.armour.is_none());
         assert_eq!(room.uniform(who), bims::character::Uniform::Manufacturer);
     }
     // Everybody down but one: not cleared.
@@ -228,7 +227,7 @@ fn a_manufacturer_downed_is_never_revived_and_nothing_of_it_is_taken() {
     beside(&mut world, who);
     {
         let room = &mut world.residents.as_mut().unwrap().aboard.room;
-        room.strike(who, Part::Legs, 1_000.0, false);
+        room.strike(who, 1_000.0, false);
     }
     world.step(&[]);
     let xp = world.progress_of(0).xp;
@@ -291,7 +290,7 @@ fn a_day_eight_garrison_is_about_half_troopers_fighting_beside_them() {
         for who in theirs(&world) {
             let gear = room.gear(who);
             assert_eq!(gear.weapon.unwrap().tier, Tier::One);
-            assert_eq!(gear.body.unwrap().tier, Tier::One);
+            assert_eq!(gear.armour.unwrap().tier, Tier::One);
             people += 1;
         }
         assert_eq!(world.infestation(station).unwrap().waves_left, 0);
@@ -338,7 +337,7 @@ fn from_day_ten_they_come_in_waves_of_their_own_people_alone() {
     for who in theirs(&world) {
         let gear = room.gear(who);
         assert_eq!(gear.weapon.unwrap().tier, tier);
-        assert_eq!(gear.head.unwrap().tier, tier);
+        assert_eq!(gear.armour.unwrap().tier, tier);
     }
     // Down, and the next is due four hours on.
     knock_them_all_out(&mut world);

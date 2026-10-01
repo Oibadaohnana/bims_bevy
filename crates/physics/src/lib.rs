@@ -286,7 +286,7 @@ mod tests {
 
         // --- mass_is_hull_plus_cargo_plus_crew ---
         {
-            let m = ship_mass(1000.0, &[(ResourceId::LegGuard, 100)], 2).unwrap();
+            let m = ship_mass(1000.0, &[(ResourceId::Bandage, 400)], 2).unwrap();
             assert!(close(m.get(), 1000.0 + 800.0 + 2.0 * PLAYER_MASS));
         }
 
@@ -365,7 +365,7 @@ mod tests {
     /// 518400 units and keeps the world generator's distances legible.
     #[test]
     fn the_reference_arrangement_accelerates_at_one() {
-        let m = ship_mass(1000.0, &[(ResourceId::LegGuard, 100)], 2).unwrap();
+        let m = ship_mass(1000.0, &[(ResourceId::Bandage, 400)], 2).unwrap();
         let engines = [
             EngineSpec::new(1000.0, Facing::Forward).unwrap(),
             EngineSpec::new(1000.0, Facing::Forward).unwrap(),

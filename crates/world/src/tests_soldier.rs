@@ -1155,7 +1155,6 @@ fn crit_on_machine(world: &mut World, damage: f32, flat: f32) -> f32 {
         .unwrap();
     world.aboard.room.land_hit_for_probe(bims::combat::Hit {
         who: bims,
-        part: bims::health::Part::Body,
         damage,
         cut: false,
         by: Some(0),
@@ -1212,9 +1211,9 @@ fn a_critical_hit_adds_its_share_of_the_flat_damage_after_every_factor() {
 
 #[test]
 fn a_critical_hit_is_added_before_the_armour_takes_its_share() {
-    // A Manufacturer in its armour (day six): a crit of a flat point on a
-    // part its piece covers is 2.25 at the fourth rank, all of it past the
-    // piece's protection of 2 — so the piece drains a quarter. Were the
+    // A Manufacturer in its armour (day six): a crit of a flat point is
+    // 2.25 at the fourth rank, all of it past the armour's protection of
+    // 1.8 — so the armour drains 0.45. Were the
     // crit added after the armour, the flat point would be stopped whole
     // and the crit's share land on the body.
     let mut world = simulation_world(flyer(2), REFERENCE_MONEY, 2);
@@ -1233,26 +1232,20 @@ fn a_critical_hit_is_added_before_the_armour_takes_its_share() {
         let room = &world.residents.as_ref().unwrap().aboard.room;
         (0..room.crew_count() as usize).find_map(|who| {
             let gear = room.gear(who);
-            bims::health::Part::ALL.into_iter().find_map(|part| {
-                gear.worn(part)
-                    .filter(|p| !p.broken() && p.stats().protection == 2.0)
-                    .map(|p| (who, part, p.kind))
-            })
+            gear.worn()
+                .filter(|p| !p.broken() && p.tier == bims::combat::Tier::One)
+                .map(|p| (who, p.kind))
         })
     };
-    let (who, part, _) = found.expect("a Manufacturer in armour on day six");
+    let (who, _) = found.expect("a Manufacturer in armour on day six");
     let piece = |world: &World| {
         let room = &world.residents.as_ref().unwrap().aboard.room;
-        (room.gear(who).worn(part).unwrap().health, room.health(who))
+        (room.gear(who).worn().unwrap().health, room.health(who))
     };
     let (armour, body) = piece(&world);
-    let roll = (0..1000)
-        .map(|k| k as f32 / 1000.0 + 0.0005)
-        .find(|&r| bims::health::Part::hit_by(r) == part)
-        .unwrap();
+    let roll = 0.5;
     world.aboard.room.land_hit_for_probe(bims::combat::Hit {
         who,
-        part,
         damage: 1.0,
         cut: false,
         by: Some(0),
@@ -1265,7 +1258,7 @@ fn a_critical_hit_is_added_before_the_armour_takes_its_share() {
     world.step(&[]);
     let (armour_now, body_now) = piece(&world);
     assert!(
-        (armour - armour_now - 0.25).abs() < 1e-3,
+        (armour - armour_now - 0.45).abs() < 1e-3,
         "the piece drained {}",
         armour - armour_now
     );

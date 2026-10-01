@@ -6616,3 +6616,28 @@ and `SURVIVORS` (on it) do not move for this; the ship's `PINNED` and
 `PICTURES` (no dial) do. `tests_offered.rs` is the rule;
 `tests_run::no_human_is_ever_hostile_in_a_generated_galaxy` opens whole
 systems now.
+
+## One armour slot (October 2026)
+
+> "A piece of armour is a resource in the hold", "The arc greaves and the
+> Reflective plate (task 116)" and every line above about a helm, kevlar,
+> leg guards or a hit's part describe what this change took away. The
+> room's half is `crates/game/CLAUDE.md` ("One armour").
+
+- **`ResourceId::Armour = 7`** (the kevlar's code) is the one armour
+  resource; 6, 8, 20 and 21 are free (`ResourceId::ALL` is fifteen,
+  `CODES` still 22). Booked at 4 500 (a hundred a point of its 45),
+  52 mass, a 4×4 footprint; `worldgen::data::ARMOUR` is one long, so a
+  trader's three armour slots are the armour at three tiers drawn from
+  three candidates.
+- **`GearSlot` is `Weapon = 0` and `Armour = 1`**; `of_part`/`part` went.
+  The Tab panel shows those two a Bim.
+- `WorldEvent::CrewHit { who }` carries no part (value: the crew
+  member). `mercenary::ARMOUR_FEE` is one row (5 000, the three pieces'
+  together). The tank's start, `outfit_for_probe`, the Outfitter, the
+  medic's Medivac (`MEDIVAC_VEST`'s tier; `MEDIVAC_FULL_ARMOUR_RANK` went)
+  and a Manufacturer's kit put the one armour on.
+- **What moved**: `SAVE_VERSION` 79, `wire::PROTOCOL` 82;
+  `shipdesign::fixture::PLAYTEST_HASH` (the playtest cargo's three pieces
+  are one), `worldgen`'s `REFERENCE_CHECKSUMS` (four leans shorter, no
+  bump), and every survivor pin a fight with armour in it reads.

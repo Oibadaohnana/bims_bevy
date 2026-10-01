@@ -15,7 +15,7 @@ use crate::cue::{Cue, Cued};
 use crate::door;
 use crate::draw::{Color, DrawList};
 use crate::droid::{Droid, DroidPart};
-use crate::health::{Health, Part};
+use crate::health::Health;
 use crate::math::{Rect, TAU, Vec2, clamp, vec2};
 use crate::nav::{self, Maps, Nav};
 use crate::rng::Rng;
@@ -49,6 +49,11 @@ pub const SEEN_FOR: f32 = 2.0;
 
 /// How long the flash a hit puts on a body lasts, in seconds.
 const HIT_FLASH: f32 = 0.22;
+
+/// The part code a Bim's flash is kept under (`Fx::struck`): a hit on a
+/// Bim lands nowhere in particular (October 2026), and only a droid's
+/// flash reads its code.
+const BIM_STRUCK: u32 = 0;
 
 /// A revive finished (task 120): whose hands brought whom round. For the
 /// world's relics (`Game::take_revives`).
@@ -1530,18 +1535,9 @@ impl Game {
             .map(|who| self.skill(who).cover_dodge)
             .collect();
         self.combat.set_own_cover_dodge(cover_odds);
-        // Who wears a whole Reflective plate, for the bolts below (task
-        // 116).
-        let reflecting: Vec<bool> = self
-            .bims
-            .iter()
-            .map(|b| b.gear.body.is_some_and(|p| p.reflects()))
-            .collect();
-        self.combat.set_reflecting(reflecting);
         for who in 0..self.bims.len() {
             let bim = &mut self.bims[who];
             bim.trigger.tick(dt);
-            bim.arc_cool = (bim.arc_cool - dt).max(0.0);
             // How a fall back is walked is worked out afresh every step
             // (feature 84): `fall_back_aboard` sets it below for a bot
             // under the order, and the aim turns a sprint into a
@@ -2046,7 +2042,7 @@ impl Game {
             self.count_hit_taken(hit);
             // The Unmaker's strip rides on the hit (feature 83): every
             // other weapon carries nought and this is the old call.
-            self.strike_stripping(hit.who, hit.part, hit.damage, hit.cut, hit.strips);
+            self.strike_stripping(hit.who, hit.damage, hit.cut, hit.strips);
         }
         if !taken.is_empty() {
             self.attacked_for = ALARM_HOLD;
@@ -4530,7 +4526,7 @@ impl Game {
         }
         bim.health.restore();
         bim.character.knock_out(false);
-        bim.character.set_wounds([false; 3]);
+        bim.character.set_bleeding(false);
     }
 
     /// The slow a downing left on a Bim taken off, the bar as it is: what
@@ -4595,14 +4591,12 @@ impl Game {
         }
         bim.character.revive();
         bim.health.respawn();
-        bim.character.set_wounds([false; 3]);
+        bim.character.set_bleeding(false);
         bim.task = None;
         bim.queue.clear();
         let mut gear = bim.gear;
-        for part in Part::ALL {
-            if let Some(piece) = gear.worn_mut(part) {
-                piece.health = piece.stats().health;
-            }
+        if let Some(piece) = gear.worn_mut() {
+            piece.health = piece.stats().health;
         }
         self.issue(who, gear);
     }
@@ -5831,8 +5825,7 @@ impl Game {
 
     /// Take `damage` off a machine's part — the part rolled by the
     /// caller off the combat stream's own draw (`Hit::roll` through
-    /// [`DroidPart::hit_by`]), since a droid's four parts are not a
-    /// body's three. By **droid** index. Whether anything was struck.
+    /// [`DroidPart::hit_by`]), since a Bim has no parts. By **droid** index. Whether anything was struck.
     pub fn strike_droid(&mut self, i: usize, part: DroidPart, damage: f32) -> bool {
         let Some(droid) = self.droids.get_mut(i) else {
             return false;
@@ -7365,8 +7358,8 @@ impl Game {
     /// One hit with a **strip** on it, laid on a body without anything
     /// flying: the Unmaker's rule asked of `strike_stripping` straight
     /// (feature 83). For a test, and nothing in the game calls it.
-    pub fn strip_for_probe(&mut self, who: usize, part: Part, damage: f32, strips: f32) {
-        self.strike_stripping(who, part, damage, false, strips);
+    pub fn strip_for_probe(&mut self, who: usize, damage: f32, strips: f32) {
+        self.strike_stripping(who, damage, false, strips);
     }
 
     pub fn set_hostiles_peeking(&mut self, peeking: &[bool]) {
@@ -7491,26 +7484,12 @@ impl Game {
         if (self.exposed_at(who) - from).len() > (MELEE_RANGE + 0.5) * TILE {
             return false;
         }
-        // Arc greaves (task 116): whole when the blow lands — asked before
-        // the blow is on the body, which may be what breaks them — and off
-        // their cooldown.
-        let arc = self.bims[who]
-            .gear
-            .legs
-            .and_then(|p| p.arc_damage())
-            .filter(|_| self.bims[who].arc_cool <= 0.0);
         let hit = self.combat.struck(who, damage, cut);
         self.count_hit_taken(&hit);
-        self.strike(who, hit.part, damage, cut);
+        self.strike(who, damage, cut);
         self.wounds_taken.push(hit);
         self.attacked_for = ALARM_HOLD;
         let at = self.bims[who].character.pos;
-        // And they discharge into every enemy near, after the blow, off
-        // the same stream.
-        if let Some(arc_damage) = arc {
-            self.bims[who].arc_cool = crate::balance::ARC_COOLDOWN;
-            self.combat.arc_discharge(at, who, arc_damage);
-        }
         self.combat.cues.push(Cued {
             cue: Cue::Blow { cut, on_crew: true },
             at,
@@ -8316,10 +8295,10 @@ impl Game {
     }
 
     /// A grenade's hit on one of this room's own: `strike` — through the
-    /// armour on the part — whose splash is every hit's that takes hit
+    /// armour — whose splash is every hit's that takes hit
     /// points (task 120).
-    pub fn blast(&mut self, who: usize, part: Part, damage: f32) -> WoundOutcome {
-        self.strike(who, part, damage, false)
+    pub fn blast(&mut self, who: usize, damage: f32) -> WoundOutcome {
+        self.strike(who, damage, false)
     }
 
     /// What a grenade's burst reaches, at `g.at` with `g.radius`: every
@@ -8328,7 +8307,7 @@ impl Game {
     /// doors stop it, sandbags do not), takes `g.damage` at the centre
     /// falling in a straight line to half at the edge — halved again for
     /// a body in cover from the burst's side, peeking or behind bags —
-    /// on a part rolled off the combat stream; the sentries in it the
+    /// with a roll off the combat stream; the sentries in it the
     /// same, on their health; the laid sandbags in it are gone. The parts
     /// of the ship and the station are untouched. Own bodies first, by
     /// index, then the targets, then the sentries, then the bags, so two
@@ -8374,7 +8353,7 @@ impl Game {
                 damage *= 0.5;
             }
             let hit = self.combat.blast(who, damage, by);
-            self.blast(who, hit.part, hit.damage);
+            self.blast(who, hit.damage);
             self.wounds_taken.push(hit);
             self.attacked_for = ALARM_HOLD;
             self.combat.cues.push(Cued {
@@ -8616,13 +8595,13 @@ impl Game {
 
     /// A shot landed on one of this room's Bims: [`Game::strike`], not a
     /// cut.
-    pub fn wound(&mut self, who: usize, part: Part, damage: f32) -> WoundOutcome {
-        self.strike(who, part, damage, false)
+    pub fn wound(&mut self, who: usize, damage: f32) -> WoundOutcome {
+        self.strike(who, damage, false)
     }
 
-    /// A shot or a blow landed on one of this room's Bims. The part it
-    /// landed on says which worn piece takes it first, if there is one and
-    /// it is not broken: the piece's protection comes off the damage —
+    /// A shot or a blow landed on one of this room's Bims. The armour
+    /// takes it first, if there is any and it is not broken — a hit lands
+    /// on the body and nowhere in particular (October 2026): the piece's protection comes off the damage —
     /// nothing left is nothing — and what remains drains the piece's
     /// health; only what the piece could not take comes off the one bar
     /// (`Health::hit`, task 120), and at nothing the body is downed. A
@@ -8637,27 +8616,23 @@ impl Game {
     /// body went down — for the caller's information; a piece breaking is also
     /// kept on [`Game::take_pieces_broken`] for the world, since the room
     /// applies an enemy's shots itself.
-    pub fn strike(&mut self, who: usize, part: Part, damage: f32, cut: bool) -> WoundOutcome {
-        self.strike_stripping(who, part, damage, cut, 0.0)
+    pub fn strike(&mut self, who: usize, damage: f32, cut: bool) -> WoundOutcome {
+        self.strike_stripping(who, damage, cut, 0.0)
     }
 
     /// [`Game::strike`] with the Unmaker's **strip** carried (feature
     /// 83, `bims::combat::WeaponStats::strips`): with `strips` above
-    /// nought and the struck part wearing an **unbroken** piece, the
-    /// piece loses that much with its own protection ignored and the
-    /// part takes nothing — what the piece cannot take is **lost**,
-    /// rather than reaching the body. A bare part, or one whose piece is
-    /// already broken, takes the plain `damage` the ordinary way. Every
-    /// other weapon strips nought and this is `strike` exactly.
+    /// nought and the body wearing **unbroken** armour, the armour loses
+    /// that much with its own protection ignored and the body takes
+    /// nothing — what the armour cannot take is **lost**, rather than
+    /// reaching the body. A bare body, or one whose armour is already
+    /// broken, takes the plain `damage` the ordinary way. Every other
+    /// weapon strips nought and this is `strike` exactly.
     ///
-    /// A medic's surge still takes the whole of it, and a tank's *iron
-    /// frame* still moves a head shot onto the body first: the strip
-    /// then lands on the kevlar, which is the piece that would have
-    /// taken the damage.
+    /// A medic's surge still takes the whole of it.
     pub fn strike_stripping(
         &mut self,
         who: usize,
-        part: Part,
         damage: f32,
         cut: bool,
         strips: f32,
@@ -8700,7 +8675,7 @@ impl Game {
         if out_shield > 0.0 && damage <= 0.0 {
             let bim = &mut self.bims[who];
             bim.hit_flash = HIT_FLASH;
-            self.combat.fx.struck(who, part.code());
+            self.combat.fx.struck(who, BIM_STRUCK);
             out.absorbed = out_shield;
             return out;
         }
@@ -8709,15 +8684,15 @@ impl Game {
             bim.hit_flash = HIT_FLASH;
             if bim.surge.is_some() {
                 out.absorbed = damage;
-                self.combat.fx.struck(who, part.code());
+                self.combat.fx.struck(who, BIM_STRUCK);
                 return out;
             }
             let mut broke = None;
-            if let Some(piece) = bim.gear.worn_mut(part).as_mut().filter(|p| !p.broken()) {
+            if let Some(piece) = bim.gear.worn_mut().as_mut().filter(|p| !p.broken()) {
                 // Protection ignored, and the rest of the strip lost
                 // with the piece: the lance unmakes the armour and does
                 // nothing to what is under it.
-                self.combat.fx.struck(who, part.code());
+                self.combat.fx.struck(who, BIM_STRUCK);
                 piece.health = (piece.health - strips).max(0.0);
                 if piece.broken() {
                     broke = Some(piece.kind);
@@ -8730,16 +8705,16 @@ impl Game {
                 }
                 return out;
             }
-            // Nothing over it, or nothing left of what is: the part
-            // takes the damage like any other hit.
+            // Nothing worn, or nothing left of it: the body takes the
+            // damage like any other hit.
         }
         // A hit on an engineer laying a kit puts nothing down: it keeps
         // at the work under fire.
         let skill = self.skill(who);
         let bim = &mut self.bims[who];
         bim.hit_flash = HIT_FLASH;
-        // And the picture's flash, on the part it struck (feature 98).
-        self.combat.fx.struck(who, part.code());
+        // And the picture's flash on the body (feature 98).
+        self.combat.fx.struck(who, BIM_STRUCK);
         // A medic's surge on it takes the whole of the hit (feature 76):
         // no wound, no armour drained, no trauma — the flash and nothing
         // else.
@@ -8749,7 +8724,7 @@ impl Game {
         }
         let mut through = damage;
         let mut broke = None;
-        if let Some(piece) = bim.gear.worn_mut(part).as_mut().filter(|p| !p.broken()) {
+        if let Some(piece) = bim.gear.worn_mut().as_mut().filter(|p| !p.broken()) {
             // *Plated* multiplies what the piece stops; an engineer's
             // *higher quality armour* adds a point on top (feature 88).
             through -= piece.effective_protection() * skill.armour_protection
@@ -8841,7 +8816,7 @@ impl Game {
     fn refresh_bleeding(&mut self, who: usize) {
         let bim = &mut self.bims[who];
         let bleeds = bim.health.bleeds();
-        bim.character.set_wounds([false, bleeds, false]);
+        bim.character.set_bleeding(bleeds);
     }
 
     // --- reviving a downed crewmate (task 120) -------------------------------
@@ -9100,15 +9075,9 @@ impl Game {
 
     // --- the loadout: what is worn and held, and the charges ------------------
 
-    /// The piece worn on a part, broken or not.
-    pub fn worn(&self, who: usize, part: Part) -> Option<Piece> {
-        self.bims[who].gear.worn(part)
-    }
-
-    /// What the armour adds to one part's health: the piece's health left,
-    /// nothing for none or a broken one.
-    pub fn part_bonus(&self, who: usize, part: Part) -> f32 {
-        self.bims[who].gear.part_bonus(part)
+    /// The armour worn, broken or not.
+    pub fn worn(&self, who: usize) -> Option<Piece> {
+        self.bims[who].gear.worn()
     }
 
     /// What the armour adds all told — the blue bar on the end of the
@@ -9161,15 +9130,13 @@ impl Game {
     }
 
     /// The picture of what a Bim wears, put right after its gear changed:
-    /// each part's piece and whether it is broken, for the cap, the plate
-    /// and the guards on the deck.
+    /// the armour and whether it is broken, for the plate and the guards
+    /// on the deck.
     fn refresh_worn(&mut self, who: usize) {
         let bim = &mut self.bims[who];
-        let worn = Part::ALL.map(|p| {
-            bim.gear.worn(p).map(|piece| Worn {
-                kind: piece.kind,
-                broken: piece.broken(),
-            })
+        let worn = bim.gear.worn().map(|piece| Worn {
+            kind: piece.kind,
+            broken: piece.broken(),
         });
         bim.character.set_worn(worn);
     }
@@ -9492,16 +9459,14 @@ impl Game {
                     self.list.fade_from(from, crate::character::CLOAK_OPACITY);
                     bim.character.draw_cloak(&mut self.list);
                 }
-                // A shot that landed: a flash on the part it struck, on the
+                // A shot that landed: a flash on the body, on the
                 // host's clock (feature 98) — or, for a host that ages no
                 // effects, the room's own flash over the whole body, gone
                 // in a blink of the simulation's.
                 if fx.is_on() {
-                    for (part, t) in fx.struck_on(who) {
-                        if let Some(part) = Part::from_code(part) {
-                            let (at, radius) = bim.character.part_mark(part);
-                            crate::fx::draw_struck(&mut self.list, at, radius, t);
-                        }
+                    for (_, t) in fx.struck_on(who) {
+                        let (at, radius) = bim.character.hit_mark();
+                        crate::fx::draw_struck(&mut self.list, at, radius, t);
                     }
                 } else if bim.hit_flash > 0.0 {
                     let t = bim.hit_flash / HIT_FLASH;
@@ -10184,43 +10149,43 @@ mod tests {
     }
 
     /// The Unmaker's rule, where it is applied: a hit carrying a strip
-    /// takes it off the piece over the part with the piece's protection
-    /// ignored and leaves the part alone; a bare part takes the damage.
+    /// takes it off the armour with the armour's protection ignored and
+    /// leaves the body alone; a bare body takes the damage.
     #[test]
     fn a_strip_unmakes_the_armour_and_leaves_the_body_alone() {
         let mut game = Game::bare(3, ROOM_W, ROOM_H);
-        let kevlar = Piece::new(1, ArmourKind::BasicKevlar, Tier::One);
+        let kevlar = Piece::new(1, ArmourKind::Armour, Tier::One);
         let whole = kevlar.health;
         let gear = game.gear(0);
         game.issue(
             0,
             Gear {
-                body: Some(kevlar),
+                armour: Some(kevlar),
                 ..gear
             },
         );
         let body = game.health(0);
         // A strip bigger than the piece's protection and smaller than
         // its health: the piece loses exactly the strip.
-        game.strike_stripping(0, Part::Body, 9.0, false, 8.0);
-        assert_eq!(game.gear(0).body.unwrap().health, whole - 8.0);
+        game.strike_stripping(0, 9.0, false, 8.0);
+        assert_eq!(game.gear(0).armour.unwrap().health, whole - 8.0);
         assert_eq!(game.health(0), body, "the part is whole");
 
         // What the piece cannot take is **lost**, not passed on: a strip
         // far bigger than what is left breaks the piece and no more.
-        game.strike_stripping(0, Part::Body, 9.0, false, 1e6);
-        assert!(game.gear(0).body.unwrap().broken());
+        game.strike_stripping(0, 9.0, false, 1e6);
+        assert!(game.gear(0).armour.unwrap().broken());
         assert_eq!(game.health(0), body, "still whole");
 
         // With the piece broken it shields nothing: the part takes the
         // plain damage the ordinary way.
-        game.strike_stripping(0, Part::Body, 9.0, false, 1e6);
+        game.strike_stripping(0, 9.0, false, 1e6);
         assert_eq!(game.health(0), body - 9.0);
 
         // And a bare part takes it from the first.
         let mut bare = Game::bare(3, ROOM_W, ROOM_H);
         let legs = bare.health(0);
-        bare.strike_stripping(0, Part::Legs, 4.0, false, 30.0);
+        bare.strike_stripping(0, 4.0, false, 30.0);
         assert_eq!(bare.health(0), legs - 4.0);
     }
 
@@ -11658,68 +11623,53 @@ mod tests {
     }
 
     #[test]
-    fn a_vest_takes_a_hit_first_and_its_protection_lifts_when_it_breaks() {
+    fn the_armour_takes_a_hit_first_and_its_protection_lifts_when_it_breaks() {
+        let near = |a: f32, b: f32| (a - b).abs() < 1e-3;
         let mut game = room();
         game.set_autonomous(false);
         game.put_for_probe(0, vec2(ROOM_W * 0.45, ROOM_H * 0.5));
-        let vest = Piece::new(7, ArmourKind::BasicKevlar, Tier::One);
+        let vest = Piece::new(7, ArmourKind::Armour, Tier::One);
         let mut gear = game.gear(0);
-        gear.body = Some(vest);
+        gear.armour = Some(vest);
         game.issue(0, gear);
-        assert_eq!(game.worn(0, Part::Body), Some(vest));
-        assert_eq!(game.armour_health(0), 20.0);
-        assert_eq!(game.part_bonus(0, Part::Body), 20.0);
-        assert_eq!(game.part_bonus(0, Part::Head), 0.0);
+        assert_eq!(game.worn(0), Some(vest));
+        assert_eq!(game.armour_health(0), 45.0);
+        assert_eq!(game.armour_health(1), 0.0);
 
-        // Two points of protection off, then the vest takes the rest:
-        // fifteen leaves the Bim untouched and the vest at seven.
-        let out = game.wound(0, Part::Body, 15.0);
-        assert_eq!(
-            out,
-            WoundOutcome {
-                downed: false,
-                absorbed: 15.0,
-                through: 0.0,
-                piece_broke: false,
-            }
-        );
-        assert_eq!(game.worn(0, Part::Body).unwrap().health, 7.0);
+        // The protection off, then the armour takes the rest: fifteen
+        // leaves the Bim untouched and the armour at 31.8.
+        let out = game.wound(0, 15.0);
+        assert_eq!(out.absorbed, 15.0);
+        assert_eq!(out.through, 0.0);
+        assert!(!out.downed && !out.piece_broke);
+        assert!(near(game.worn(0).unwrap().health, 31.8));
         assert_eq!(game.health(0), crate::health::MAX_HEALTH);
-        assert_eq!(game.armour_health(0), 7.0);
 
         // No more than the protection is no hit at all.
-        let out = game.wound(0, Part::Body, 2.0);
-        assert_eq!(out.absorbed, 2.0);
-        assert_eq!(game.worn(0, Part::Body).unwrap().health, 7.0);
+        let out = game.wound(0, 1.5);
+        assert_eq!(out.absorbed, 1.5);
+        assert!(near(game.worn(0).unwrap().health, 31.8));
 
-        // Twelve: two off, seven into the vest, three through. The vest is
-        // broken — still worn, doing nothing — and the world is told.
-        let out = game.wound(0, Part::Body, 12.0);
-        assert_eq!(out.absorbed, 9.0);
-        assert_eq!(out.through, 3.0);
+        // Forty: 1.8 off, 31.8 into the armour, 6.4 through. The armour
+        // is broken — still worn, doing nothing — and the world is told.
+        let out = game.wound(0, 40.0);
+        assert!(near(out.absorbed, 33.6));
+        assert!(near(out.through, 6.4));
         assert!(out.piece_broke);
-        let worn = game.worn(0, Part::Body).unwrap();
+        let worn = game.worn(0).unwrap();
         assert!(worn.broken());
         assert_eq!(worn.id, 7, "the same piece");
-        assert_eq!(game.health(0), crate::health::MAX_HEALTH - 3.0);
+        assert!(near(game.health(0), crate::health::MAX_HEALTH - 6.4));
         assert_eq!(game.armour_health(0), 0.0);
-        assert_eq!(
-            game.take_pieces_broken(),
-            vec![(0, ArmourKind::BasicKevlar)]
-        );
+        assert_eq!(game.take_pieces_broken(), vec![(0, ArmourKind::Armour)]);
         assert!(game.take_pieces_broken().is_empty(), "drained");
 
         // Broken, it neither protects nor takes: the whole shot goes in.
-        let out = game.wound(0, Part::Body, 12.0);
+        let out = game.wound(0, 12.0);
         assert_eq!(out.absorbed, 0.0);
         assert_eq!(out.through, 12.0);
         assert!(!out.piece_broke);
-        assert_eq!(game.health(0), crate::health::MAX_HEALTH - 15.0);
-
-        // A part with nothing on it is hit as before, off the one bar.
-        let out = game.wound(0, Part::Legs, 12.0);
-        assert_eq!(out.through, 12.0);
-        assert_eq!(game.health(0), crate::health::MAX_HEALTH - 27.0);
+        assert!(near(game.health(0), crate::health::MAX_HEALTH - 18.4));
     }
 
     #[test]
@@ -11836,7 +11786,7 @@ mod tests {
     /// Hit a Bim down to nothing so it lies there, downed, from the next
     /// step.
     fn knock_out(game: &mut Game, who: usize) {
-        let out = game.wound(who, Part::Legs, 1_000.0);
+        let out = game.wound(who, 1_000.0);
         assert!(out.downed);
         game.simulate(DT);
         assert!(game.is_downed(who), "downed");
@@ -11922,25 +11872,25 @@ mod tests {
         // Nobody ages it: nothing recorded, and the whole-body flash.
         let mut plain = room();
         plain.set_autonomous(false);
-        plain.strike(1, Part::Head, 1.0, false);
+        plain.strike(1, 1.0, false);
         plain.render();
         assert_eq!(plain.fx_count_for_probe(), (false, 0));
         assert!(flash_over_body(&plain), "the room's own flash");
 
-        // A host ages it: the part's flash, and not the body's.
+        // A host ages it: the flash on the body, and not the room's.
         let mut lit = room();
         lit.set_autonomous(false);
         lit.fade(0.0);
-        lit.strike(1, Part::Head, 1.0, false);
+        lit.strike(1, 1.0, false);
         lit.render();
         assert_eq!(lit.fx_count_for_probe(), (true, 1));
-        assert!(!flash_over_body(&lit), "the part flashes instead");
-        let (head, _) = lit.bims[1].character.part_mark(Part::Head);
+        assert!(!flash_over_body(&lit), "the body's mark flashes instead");
+        let (mark, _) = lit.bims[1].character.hit_mark();
         assert!(
             lit.shapes()
                 .chunks_exact(crate::draw::STRIDE)
-                .any(|s| (vec2(s[1], s[2]) - head).len() < 1e-3),
-            "a flash where the head is"
+                .any(|s| (vec2(s[1], s[2]) - mark).len() < 1e-3),
+            "a flash where the body is marked"
         );
         // Real seconds, not the simulation's: a minute of steps leaves
         // it, a quarter of a second of frames takes it.
@@ -11965,231 +11915,6 @@ mod tests {
         assert_eq!(lit.fx_count_for_probe().1, 3, "a wreck takes nothing more");
     }
 
-    // --- task 116: the arc greaves and the Reflective plate ---------------
-
-    /// James in a pair of tier-two arc greaves in the middle of the room,
-    /// Kate a tile off him, and a Husk at his elbow with another machine
-    /// three tiles off: the discharge off a blow the world carried in.
-    fn greaved(health: Option<f32>) -> (Game, Vec2) {
-        let mut game = room();
-        game.set_autonomous(false);
-        let james = game.put_for_probe(0, vec2(ROOM_W * 0.45, ROOM_H * 0.5));
-        game.put_for_probe(1, james + vec2(0.0, TILE));
-        let mut greaves = Piece::new(50, ArmourKind::ArcGreaves, Tier::Two);
-        if let Some(h) = health {
-            greaves.health = h;
-        }
-        let gear = game.gear(0);
-        game.issue(
-            0,
-            Gear {
-                legs: Some(greaves),
-                ..gear
-            },
-        );
-        let claw = WeaponKind::Claw.basic();
-        game.set_hostiles(vec![
-            Some((james + vec2(TILE, 0.0), claw)),
-            Some((james + vec2(3.0 * TILE, 0.0), claw)),
-        ]);
-        (game, james)
-    }
-
-    /// The discharge's hits: fifteen, the wearer's, neither a blast nor a
-    /// cut. Nothing else in these rooms does fifteen.
-    fn arcs(game: &mut Game) -> Vec<Hit> {
-        game.take_hits()
-            .into_iter()
-            .filter(|h| h.by == Some(0) && (h.damage - 15.0).abs() < 1e-4)
-            .inspect(|h| assert!(!h.blast && !h.cut, "{h:?}"))
-            .collect()
-    }
-
-    /// A Husk's blow landing on a wearer of whole tier-two arc greaves
-    /// throws fifteen into every enemy within two tiles and none beyond,
-    /// nor into the crew; a second blow inside the second does not, one
-    /// after it does.
-    #[test]
-    fn a_husk_s_blow_on_arc_greaves_discharges_into_the_enemies_near() {
-        let (mut game, james) = greaved(None);
-        let husk = james + vec2(TILE, 0.0);
-        let kate = game.health(1);
-        assert!(game.enemy_strike(husk, 0, crate::balance::CLAW.damage, false));
-        let hits = arcs(&mut game);
-        assert_eq!(hits.iter().map(|h| h.who).collect::<Vec<_>>(), vec![0]);
-        assert_eq!(game.health(1), kate, "the crew are never struck");
-        let cues = game.take_cues();
-        assert!(
-            cues.iter()
-                .any(|c| c.cue == Cue::Impact { on_crew: false } && c.at == husk),
-            "the impact heard on the machine struck"
-        );
-        // The claws may have broken them, landing on the legs: fresh ones,
-        // as at a mission's start, and lighter blows from here on, which
-        // two of cannot break a pair.
-        let fresh = |game: &mut Game| {
-            let gear = game.gear(0);
-            let legs = Some(Piece::new(50, ArmourKind::ArcGreaves, Tier::Two));
-            game.issue(0, Gear { legs, ..gear });
-        };
-        fresh(&mut game);
-        // Inside the cooldown, nothing.
-        assert!(game.enemy_strike(husk, 0, 5.0, false));
-        assert!(arcs(&mut game).is_empty(), "within the cooldown");
-        // A second on, it discharges again.
-        for _ in 0..(crate::balance::ARC_COOLDOWN / DT) as usize + 2 {
-            game.simulate(DT);
-        }
-        game.take_hits();
-        // He has stepped back from the claws meanwhile: the Husk follows.
-        let james = game.exposed_at(0);
-        let husk = james + vec2(TILE, 0.0);
-        let claw = WeaponKind::Claw.basic();
-        let far = husk + vec2(2.0 * TILE, 0.0);
-        game.set_hostiles(vec![Some((husk, claw)), Some((far, claw))]);
-        assert!(game.enemy_strike(husk, 0, 5.0, false));
-        let hits = arcs(&mut game);
-        let struck: Vec<usize> = hits.iter().map(|h| h.who).collect();
-        assert_eq!(struck, vec![0], "after the cooldown");
-    }
-
-    /// Broken greaves never discharge, and a bolt never sets whole ones
-    /// off.
-    #[test]
-    fn broken_greaves_never_discharge_and_a_bolt_never_does() {
-        let (mut broken, james) = greaved(Some(0.0));
-        for _ in 0..3 {
-            assert!(broken.enemy_strike(james + vec2(TILE, 0.0), 0, 20.0, false));
-            assert!(arcs(&mut broken).is_empty());
-        }
-        let (mut whole, _) = greaved(None);
-        let mut landed = 0;
-        for _ in 0..30 {
-            // Wherever he has got to, from a tile and a half off.
-            let james = whole.exposed_at(0);
-            let from = james + vec2(1.5 * TILE, 0.0);
-            whole.enemy_fire(from, james, WeaponKind::LaserPistol.basic(), false);
-            for _ in 0..20 {
-                whole.simulate(DT);
-            }
-            landed += whole.take_wounds_taken().len();
-            assert!(arcs(&mut whole).is_empty(), "a bolt discharges nothing");
-        }
-        assert!(landed > 10, "{landed} bolts landed");
-    }
-
-    /// A tier-three Reflective plate on James: a bolt it sends back wounds
-    /// nobody and drains nothing — the plate's health and James's wounds
-    /// are what they were — and once the bolts have broken it nothing is
-    /// sent back. A claw's blow is never sent back.
-    #[test]
-    fn a_plate_sends_bolts_back_for_nothing_until_it_breaks_and_never_a_blow() {
-        let mut game = room();
-        game.set_autonomous(false);
-        game.put_for_probe(0, vec2(ROOM_W * 0.45, ROOM_H * 0.5));
-        game.put_for_probe(1, vec2(ROOM_W * 0.25, ROOM_H * 0.8));
-        let gear = game.gear(0);
-        game.issue(
-            0,
-            Gear {
-                body: Some(Piece::new(60, ArmourKind::ReflectivePlate, Tier::Three)),
-                ..gear
-            },
-        );
-        let pistol = WeaponKind::LaserPistol.basic();
-        let plate = |game: &Game| game.gear(0).body.unwrap();
-        let (mut sent, mut after_broken) = (0, 0);
-        for _ in 0..60 {
-            // Up again for every bolt: the plate is what is measured.
-            game.set_health_for_probe(0, crate::health::MAX_HEALTH);
-            game.simulate(DT);
-            let before = (plate(&game).health, game.health(0));
-            let was_whole = plate(&game).reflects();
-            // Wherever he has got to, from two tiles off.
-            let james = game.exposed_at(0);
-            game.enemy_fire(james + vec2(2.0 * TILE, 0.0), james, pistol, false);
-            for _ in 0..20 {
-                game.simulate(DT);
-            }
-            let wounds = game.take_wounds_taken();
-            let back = game
-                .take_cues()
-                .iter()
-                .filter(|c| c.cue == Cue::Shielded)
-                .count();
-            if back > 0 {
-                assert!(wounds.is_empty(), "sent back and landed: {wounds:?}");
-                assert_eq!(
-                    (plate(&game).health, game.health(0)),
-                    before,
-                    "a bolt sent back drains nothing"
-                );
-                sent += back;
-            }
-            if !was_whole {
-                after_broken += back;
-            }
-        }
-        assert!(sent > 0, "the plate sent something back");
-        assert!(plate(&game).broken(), "sixty pistol bolts broke it");
-        assert_eq!(after_broken, 0, "a broken plate sends nothing back");
-
-        // A claw's blow on a whole plate lands, and nothing flies back.
-        let mut game = room();
-        game.set_autonomous(false);
-        let james = game.put_for_probe(0, vec2(ROOM_W * 0.45, ROOM_H * 0.5));
-        let gear = game.gear(0);
-        game.issue(
-            0,
-            Gear {
-                body: Some(Piece::new(61, ArmourKind::ReflectivePlate, Tier::Three)),
-                ..gear
-            },
-        );
-        for _ in 0..10 {
-            assert!(game.enemy_strike(james + vec2(TILE, 0.0), 0, 5.0, false));
-        }
-        assert_eq!(game.take_wounds_taken().len(), 10);
-        assert!(game.take_cues().iter().all(|c| c.cue != Cue::Shielded));
-        assert!(game.combat.bolts.is_empty(), "nothing sent back");
-    }
-
-    /// One seed, one fight: the plate and the greaves on the same bodies
-    /// under the same fire strike alike on two rooms.
-    #[test]
-    fn the_plate_and_the_greaves_fight_alike_on_one_seed() {
-        let run = || {
-            let (mut game, james) = greaved(None);
-            let gear = game.gear(0);
-            game.issue(
-                0,
-                Gear {
-                    body: Some(Piece::new(62, ArmourKind::ReflectivePlate, Tier::Three)),
-                    ..gear
-                },
-            );
-            let mut out = Vec::new();
-            for i in 0..40 {
-                game.enemy_fire(
-                    james + vec2(4.0 * TILE, 0.0),
-                    james,
-                    WeaponKind::AutoRifle.at(Tier::Three),
-                    false,
-                );
-                if i % 5 == 0 {
-                    game.enemy_strike(james + vec2(TILE, 0.0), 0, 20.0, false);
-                }
-                for _ in 0..15 {
-                    game.simulate(DT);
-                }
-                out.extend(game.take_wounds_taken());
-                out.extend(game.take_hits());
-            }
-            (out, game.gear(0))
-        };
-        assert_eq!(run(), run());
-    }
-
     // --- task 120: one bar, downed, revived ----------------------------------
 
     /// A hit that takes the bar to nothing downs the Bim: out on the deck,
@@ -12198,10 +11923,10 @@ mod tests {
     fn hit_points_at_nothing_down_a_bim_and_start_its_countdown() {
         let mut game = room();
         game.set_autonomous(false);
-        let out = game.wound(0, Part::Body, 60.0);
+        let out = game.wound(0, 60.0);
         assert!(!out.downed);
         assert_eq!(game.health(0), crate::health::MAX_HEALTH - 60.0);
-        let out = game.wound(0, Part::Head, 60.0);
+        let out = game.wound(0, 60.0);
         assert!(out.downed);
         assert_eq!(game.take_downs(), vec![0]);
         game.simulate(DT);
@@ -12357,9 +12082,9 @@ mod tests {
             // Both in the one step, so bot 2 is not already on its way to
             // the medic when 1 goes down.
             let at_down = game.body_pos(1);
-            assert!(game.wound(1, Part::Legs, 1_000.0).downed);
+            assert!(game.wound(1, 1_000.0).downed);
             if case == "medic down" {
-                assert!(game.wound(3, Part::Legs, 1_000.0).downed);
+                assert!(game.wound(3, 1_000.0).downed);
             }
             game.simulate(DT);
             assert!(game.is_downed(1));
@@ -12604,13 +12329,13 @@ mod tests {
         game.put_for_probe(0, vec2(ROOM_W * 0.5, ROOM_H * 0.5));
         game.put_for_probe(1, vec2(ROOM_W * 0.2, ROOM_H * 0.8));
         let mut gear = game.gear(0);
-        gear.body = Some(Piece::new(7, ArmourKind::BasicKevlar, Tier::Three));
+        gear.armour = Some(Piece::new(7, ArmourKind::Armour, Tier::One));
         game.issue(0, gear);
-        let out = game.wound(0, Part::Body, 1.0);
+        let out = game.wound(0, 1.0);
         assert!(out.absorbed > 0.0 && out.through == 0.0, "{out:?}");
         assert_eq!(game.health(0), crate::health::MAX_HEALTH);
         assert_eq!(game.bloody_tiles(), 0, "absorbed whole: no blood");
-        let out = game.wound(0, Part::Legs, 30.0);
+        let out = game.wound(0, 60.0);
         assert!(out.through > 0.0);
         assert!(game.health(0) < crate::health::MAX_HEALTH);
         let bloody = game.bloody_tiles();
@@ -12701,10 +12426,10 @@ mod tests {
         game.issue(0, Gear::issued());
         game.set_shield(0, 30.0, 10.0);
         let full = game.health(0);
-        game.wound(0, Part::Body, 20.0);
+        game.wound(0, 20.0);
         assert_eq!(game.health(0), full, "the shield took it");
         assert!((game.shield_hp(0) - 10.0).abs() < 1e-4);
-        game.wound(0, Part::Body, 25.0);
+        game.wound(0, 25.0);
         assert!(
             (full - game.health(0) - 15.0).abs() < 1e-3,
             "the rest through"
@@ -12713,7 +12438,7 @@ mod tests {
         // A surge takes the hit whole and the shield keeps what it had.
         game.set_shield(0, 30.0, 10.0);
         game.set_surge(0, 5.0);
-        game.wound(0, Part::Body, 20.0);
+        game.wound(0, 20.0);
         assert_eq!(game.shield_hp(0), 30.0);
         // And its seconds run out.
         for _ in 0..(60 * 11) {

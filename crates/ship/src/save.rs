@@ -211,7 +211,10 @@ use crate::game::Game;
 /// `Character::steer`.
 /// 78: a click of the fire button owed its shot (task 144) —
 /// `Character::trigger_owed`.
-pub const SAVE_VERSION: u32 = 78;
+/// 79: one armour slot (October 2026) — `Gear::armour` where `head`,
+/// `body` and `legs` were, `ArmourKind::Armour` alone, no part on a
+/// `Hit`, `GearSlot::{Weapon, Armour}`, `Character::bleeding`.
+pub const SAVE_VERSION: u32 = 79;
 
 /// What the file holds, read back.
 #[derive(serde::Deserialize)]

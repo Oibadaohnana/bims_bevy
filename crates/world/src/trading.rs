@@ -346,7 +346,7 @@ impl World {
         let thing = match item.weapon() {
             Some(weapon) => Item::Weapon(weapon),
             None => {
-                let kind = item.armour().unwrap_or(ArmourKind::BasicHelm);
+                let kind = item.armour().unwrap_or(ArmourKind::Armour);
                 Item::Armour(self.holdings.new_piece(kind, item.tier))
             }
         };

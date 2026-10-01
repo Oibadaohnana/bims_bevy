@@ -4,7 +4,7 @@
 //! Since task 113 nothing is stored: a piece or a gun is either on a Bim
 //! (its loadout, `bims::combat::Gear`) or in the ship's armory
 //! (`crate::holdings`). A **resource** is only what a desk quotes and
-//! sells — so buying a helm is buying `ResourceId::Helm` at a tier, and
+//! sells — so buying a helm is buying `ResourceId::Armour` at a tier, and
 //! what arrives is a piece in the armory. This module is the one table
 //! between the two ways of naming a thing.
 
