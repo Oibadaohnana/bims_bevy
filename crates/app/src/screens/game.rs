@@ -2715,30 +2715,16 @@ fn frame(
                 .show(&ctx, |ui| {
                     panel_frame().show(ui, |ui| {
                         ui.set_max_width(360.0);
-                        let name = screen
-                            .galaxy
-                            .as_ref()
-                            .and_then(|chart| chart.galaxy.star(star))
-                            .map(|s| star_name(s.name))
-                            .unwrap_or_default();
-                        ui.label(egui::RichText::new(name).strong());
-                        crisis_line(ui, world, star);
-                        let hops = screen
-                            .galaxy
-                            .as_ref()
-                            .filter(|_| screen.picked_star.is_some())
-                            .map(|chart| chart.route.len().saturating_sub(1));
-                        // Its one mission, and where it is.
+                        // Its one mission and where it is fought, and
+                        // nothing else: the chart's marks say the rest.
                         let mission = screen
                             .world_map
                             .missions
                             .iter()
-                            .find(|m| m.site.star == star)
-                            .zip(screen.galaxy.as_ref())
-                            .map(|(m, chart)| {
-                                (*m, super::worldmap::site_name(world, &chart.galaxy, m.site))
-                            });
-                        chart_star_lines(ui, world, star, hops, &screen.chart_traders, mission);
+                            .find(|m| m.site.star == star);
+                        if let Some(mission) = mission {
+                            chart_mission_line(ui, mission);
+                        }
                         // The chart's own control: bring the ship's system back to
                         // the middle of the chart after a drag has lost it. In
                         // this panel, since the chart's top right corner is the
@@ -4370,123 +4356,137 @@ fn heart_label(painter: &egui::Painter, at: egui::Pos2) {
     painter.galley(tag.center() - galley.size() / 2.0, galley, theme::ATTACK);
 }
 
-/// What the crisis has to say about a star (feature 92): that the machines
-/// hold it and what day it fell, or the day it is due to. One line, under
-/// the star's name on the chart's panel, and nothing at all for a star the
-/// lanes do not reach — which, the graph being one piece, is no star at all.
-fn crisis_line(ui: &mut egui::Ui, world: &world::World, star: u32) {
-    // The Machine Heart's star (feature 108).
-    if star == world.droid_origin() {
-        ui.label(
-            egui::RichText::new(HEART_CHART_LINE)
-                .strong()
-                .color(theme::BAD),
-        );
-    }
-    let day = world.infested_on(star);
-    if day == u32::MAX {
+/// The galaxy chart's word on the star looked at: its one mission as two
+/// pictures — crossed blades or a shield, a ringed planet or a wheel of a
+/// station — and its kind and place, `DEFEND station`. Faded once the
+/// fight there is over; nothing for a trader's star.
+fn chart_mission_line(ui: &mut egui::Ui, mission: &world::run::StarMission) {
+    if mission.kind == world::SiteKind::Trader {
         return;
     }
-    // The day the crisis counts by is `World::days_gone` — days the *world*
-    // has run — and the strip at the top reads the crew's own calendar,
-    // which starts at the waking hour and is a day ahead for part of every
-    // day. So the day is said with how far off it is beside it, and the two
-    // readings cannot be mistaken for one another.
-    let now = world.days_gone();
-    let (words, colour) = if world.infested(star) {
-        let since = match now - day {
-            0 => "today".to_string(),
-            1 => "yesterday".to_string(),
-            n => format!("{n} days ago"),
-        };
-        (
-            format!("Held by the machines · day {day}, {since}"),
-            theme::BAD,
-        )
+    let colour = if mission.cleared {
+        theme::MUTED
     } else {
-        let off = match day - now {
-            0 => "today".to_string(),
-            1 => "tomorrow".to_string(),
-            n => format!("{n} days off"),
-        };
-        (
-            format!("The machines reach it on day {day} · {off}"),
-            theme::WARN,
-        )
+        theme::site_kind_colour(mission.kind)
     };
-    ui.label(egui::RichText::new(words).small().color(colour));
-}
-
-/// The rest of the galaxy chart's word on the star looked at: its one
-/// mission and where (the galaxy-only map, `mission` and its site's name),
-/// its tier today (`World::system_tiers`), whether its system has a
-/// trader, and how the crew get there — `hops` lanes off, `None` for the
-/// star the ship is at.
-fn chart_star_lines(
-    ui: &mut egui::Ui,
-    world: &world::World,
-    star: u32,
-    hops: Option<usize>,
-    traders: &[u32],
-    mission: Option<(world::run::StarMission, String)>,
-) {
-    if let Some((mission, name)) = mission.filter(|(m, _)| m.kind != world::SiteKind::Trader) {
-        // Its kind with where it is fought: `DEFEND planet`.
+    let planet = world::surface_body(mission.site.station).is_some();
+    let place = if mission.cleared {
+        theme::MUTED
+    } else {
+        ui.visuals().strong_text_color()
+    };
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = 6.0;
+        let size = egui::vec2(20.0, 20.0);
+        let (rect, _) = ui.allocate_exact_size(size, egui::Sense::hover());
+        let painter = ui.painter();
+        match mission.kind {
+            world::SiteKind::Attack => blades_icon(painter, rect.center(), 15.0, colour),
+            _ => shield_icon(painter, rect.center(), 16.0, colour),
+        }
+        let (rect, _) = ui.allocate_exact_size(size, egui::Sense::hover());
+        let painter = ui.painter();
+        if planet {
+            planet_icon(painter, rect.center(), 19.0, place);
+        } else {
+            station_icon(painter, rect.center(), 16.0, place);
+        }
         let word = format!(
             "{} {}",
             site_kind_word(mission.kind),
             site_place_word(mission.site.station)
         );
-        let (words, colour) = match (mission.cleared, mission.kind) {
-            (true, world::SiteKind::Defend) => {
-                (format!("{word} · {name} · {SITE_HELD}"), theme::MUTED)
-            }
-            (true, _) => (format!("{word} · {name} · {ARRIVE_CLEARED}"), theme::MUTED),
-            _ => (
-                format!("{word} · {name}"),
-                theme::site_kind_colour(mission.kind),
-            ),
-        };
-        ui.horizontal(|ui| {
-            ui.label(egui::RichText::new(words).strong().color(colour));
-            theme::question_mark(ui, SITE_KIND_TIP);
-        });
-    }
-    let (low, high) = world.system_tiers(star, world.clock_minutes);
-    ui.horizontal(|ui| {
-        ui.label(
-            egui::RichText::new(system_tier_line(low, high))
-                .small()
-                .color(tier_colour(high)),
-        );
-        theme::question_mark(ui, SYSTEM_TIER_TIP);
+        ui.label(egui::RichText::new(word).strong().color(colour));
     });
-    if traders.binary_search(&star).is_ok() {
-        let closed = world.trader_closed_on(star, world.days_gone());
-        ui.label(
-            egui::RichText::new(if closed {
-                CHART_TRADER_CLOSED
-            } else {
-                CHART_TRADER
+}
+
+/// A shield, `size` tall, centred on `at`: a flat top, straight sides
+/// meeting in a point below and a bar down its middle — the chart's mark
+/// for a defence (`lobby::preview`'s `shield`), drawn again in egui.
+fn shield_icon(painter: &egui::Painter, at: egui::Pos2, size: f32, colour: egui::Color32) {
+    let (w, h) = (size * 0.42, size / 2.0);
+    let points = vec![
+        at + egui::vec2(-w, -h),
+        at + egui::vec2(w, -h),
+        at + egui::vec2(w, h * 0.15),
+        at + egui::vec2(0.0, h),
+        at + egui::vec2(-w, h * 0.15),
+    ];
+    painter.add(egui::Shape::closed_line(
+        points,
+        egui::Stroke::new(1.8, colour),
+    ));
+    painter.line_segment(
+        [at + egui::vec2(0.0, -h), at + egui::vec2(0.0, h)],
+        egui::Stroke::new(1.4, colour),
+    );
+}
+
+/// Two blades crossed, `size` across, centred on `at`, a guard across each
+/// near its hilt — the chart's mark for an attack (`lobby::preview`'s
+/// `blades`).
+fn blades_icon(painter: &egui::Painter, at: egui::Pos2, size: f32, colour: egui::Color32) {
+    let r = size / 2.0;
+    let stroke = egui::Stroke::new(1.8, colour);
+    for s in [1.0f32, -1.0] {
+        let hilt = at + egui::vec2(-s * r, r);
+        let point = at + egui::vec2(s * r, -r);
+        painter.line_segment([hilt, point], stroke);
+        let guard = hilt + (point - hilt) * 0.27;
+        let g = size * 0.2;
+        painter.line_segment(
+            [guard + egui::vec2(-g, -s * g), guard + egui::vec2(g, s * g)],
+            stroke,
+        );
+    }
+}
+
+/// A planet, `size` across with its ring, centred on `at`: a disc with a
+/// tilted ring, the ring's far half behind the disc and its near half
+/// across it.
+fn planet_icon(painter: &egui::Painter, at: egui::Pos2, size: f32, colour: egui::Color32) {
+    let (rx, ry) = (size / 2.0, size * 0.18);
+    let tilt = -0.35f32;
+    let (sin, cos) = tilt.sin_cos();
+    let ring = |from: f32, to: f32| -> Vec<egui::Pos2> {
+        (0..=12)
+            .map(|i| {
+                let t = from + (to - from) * i as f32 / 12.0;
+                let (x, y) = (rx * t.cos(), ry * t.sin());
+                at + egui::vec2(x * cos - y * sin, x * sin + y * cos)
             })
-            .small()
-            .color(if closed { theme::MUTED } else { theme::ACCENT }),
-        );
-    }
-    if world.holds_elite(star) {
-        ui.label(
-            egui::RichText::new(CHART_ELITE)
-                .small()
-                .color(theme::SITE_ELITE),
-        );
-    }
-    let words = match hops {
-        None | Some(0) => CHART_HERE.to_string(),
-        Some(1) => CHART_ONE_LANE.to_string(),
-        Some(2) => CHART_TWO_LANES.to_string(),
-        Some(n) => chart_lanes_away(n),
+            .collect()
     };
-    ui.label(egui::RichText::new(words).small().color(theme::MUTED));
+    let stroke = egui::Stroke::new(1.4, colour);
+    let pi = std::f32::consts::PI;
+    painter.add(egui::Shape::line(ring(pi, 2.0 * pi), stroke));
+    painter.circle_filled(at, size * 0.29, colour);
+    // A gap of the panel's dark (`theme::panel_frame`) round the near
+    // half, so it reads in front.
+    painter.add(egui::Shape::line(
+        ring(0.0, pi),
+        egui::Stroke::new(2.6, egui::Color32::from_rgb(20, 29, 25)),
+    ));
+    painter.add(egui::Shape::line(ring(0.0, pi), stroke));
+}
+
+/// A wheel of a station, `size` across, centred on `at`: a rim, a hub and
+/// four spokes.
+fn station_icon(painter: &egui::Painter, at: egui::Pos2, size: f32, colour: egui::Color32) {
+    let r = size / 2.0 - 1.0;
+    let stroke = egui::Stroke::new(1.6, colour);
+    painter.circle_stroke(at, r, stroke);
+    painter.circle_filled(at, size * 0.14, colour);
+    for (x, y) in [(1.0f32, 0.0f32), (0.0, 1.0), (-1.0, 0.0), (0.0, -1.0)] {
+        let d = egui::vec2(x, y);
+        painter.line_segment(
+            [at + d * size * 0.14, at + d * r],
+            egui::Stroke::new(1.2, colour),
+        );
+    }
+    // The docking arm: a short bar off the rim's top right.
+    let arm = egui::vec2(1.0, -1.0) * std::f32::consts::FRAC_1_SQRT_2;
+    painter.line_segment([at + arm * r, at + arm * (r + 2.5)], stroke);
 }
 
 /// A tier's colour on the galaxy chart: the muted grey for one, the

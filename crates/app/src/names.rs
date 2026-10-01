@@ -2216,9 +2216,6 @@ pub const MAP_MONEY_TIP: &str =
     "Your money: your wallet and your share of the takings, as the top frame shows it on the ship.";
 /// What a site kind means, for the `?` beside the map's list.
 pub const SITE_KIND_TIP: &str = "Every system offers one mission, marked on its star. ATTACK (crossed blades): the machines, the Manufacturers or the Machine Heart hold it — go in and clear it. DEFEND (a shield): the machines are coming for it — twenty seconds after you arrive the first wave lands, and its own people and armed defenders fight beside you; hold the last wave and it is cleared (no money: its people are the reward), leave before and it falls. TRADER (the green square): a system with a trader has no mission — buy gear and relics on the map. In a system the machines have taken, its one site is an attack and their jammer — the Heart at their origin, and a trader too, which trades again once you have cleared it.";
-/// A defence held, on the galaxy chart's word on its star: its fight is
-/// over.
-pub const SITE_HELD: &str = "held";
 /// What the crew find on arrival, a word each.
 pub const ARRIVE_MACHINES: &str = "machines";
 pub const ARRIVE_JAMMER: &str = "jammer";
@@ -2363,10 +2360,8 @@ pub fn combine_from(worn_by: Option<&str>) -> String {
 pub const MANUFACTURER_NAME: &str = "Manufacturer";
 pub const MANUFACTURER_DOWN: &str = "A Manufacturer is dead.";
 pub const ARRIVE_MANUFACTURERS: &str = "Manufacturers";
-/// An elite (`world::elite`), in a row of the map's list, and the galaxy
-/// chart's line on its star.
+/// An elite (`world::elite`), in a row of the map's list.
 pub const ARRIVE_ELITE: &str = "elite · Guardian in wave 2 · relics";
-pub const CHART_ELITE: &str = "An elite in this system: a Guardian in its second wave, and relics.";
 pub fn heart_preview_rows(p: &world::heart::HeartPreview) -> [(&'static str, String); 4] {
     [
         ("Conduits", p.conduits.to_string()),
@@ -2378,9 +2373,6 @@ pub fn heart_preview_rows(p: &world::heart::HeartPreview) -> [(&'static str, Str
         ("Waves", p.wave_count.to_string()),
     ]
 }
-/// What the galaxy chart says under the machines' origin, once the crew
-/// have seen it.
-pub const HEART_CHART_LINE: &str = "Where the machines began: the Machine Heart's fortress";
 /// Beside a name in the departure check: down and cannot walk in.
 pub const DOWNED_WORD: &str = "down";
 /// The departure list's cost column for a bot: it costs nothing, only
@@ -2599,22 +2591,6 @@ fn tier_span(low: bims::combat::Tier, high: bims::combat::Tier) -> String {
     } else {
         format!("{}–{}", low.code(), high.code())
     }
-}
-/// The same, as the star panel's line.
-pub fn system_tier_line(low: bims::combat::Tier, high: bims::combat::Tier) -> String {
-    format!("Tier {}", tier_span(low, high))
-}
-pub const SYSTEM_TIER_TIP: &str = "What tier the machines and the Manufacturers come at in this system on the day it is quoted: tier 3 within two hyperlanes of where the machines began, tier 2 further out once a fortnight has gone by — sure six lanes from home, a roll a site nearer — and tier 1 everywhere else. On the chart a star at tier 2 is ringed in amber and one at tier 3 in red; zoomed in, every star has its tier written under it.";
-/// The star panel on the galaxy chart: a system with a trader.
-pub const CHART_TRADER: &str = "Trader in this system";
-pub const CHART_TRADER_CLOSED: &str =
-    "Trader in this system · the machines hold it: clear it to trade";
-/// How the crew get to a star picked on the chart.
-pub const CHART_HERE: &str = "The crew are here.";
-pub const CHART_ONE_LANE: &str = "One hyperlane away: a trip of a day.";
-pub const CHART_TWO_LANES: &str = "Two hyperlanes away — a trip of two days.";
-pub fn chart_lanes_away(hops: usize) -> String {
-    format!("{hops} hyperlanes away — a trip crosses two lanes at most.")
 }
 pub const BUYBACK_HEADING: &str = "Buyback";
 pub const BUYBACK_COVERED: &str = "covered";
