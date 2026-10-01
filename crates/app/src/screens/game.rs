@@ -193,6 +193,9 @@ pub struct GameScreen {
     /// trader, a relic to choose, the Esc sheet, the map, the Armory and
     /// the character sheet.
     crosshair: bool,
+    /// The left press was an armed pointer's — a throw, an attack-move, the
+    /// banner — and fires nothing until the button comes up (task 144).
+    trigger_spent: bool,
     /// Tab went down last frame with the keys ours: the focus egui gave a
     /// widget for it is to be surrendered (`keys::release_tab_focus`).
     tab_took_focus: bool,
@@ -1014,6 +1017,7 @@ impl GameScreen {
             control: None,
             free_camera: false,
             crosshair: false,
+            trigger_spent: false,
             tab_took_focus: false,
             backlog: 0.0,
             log: hud::Log::default(),
@@ -2138,6 +2142,7 @@ fn frame(
                         y: (ry / t).floor() as i32,
                     });
                     screen.aiming_throw = None;
+                    screen.trigger_spent = true;
                 }
                 if pointer.secondary_pressed {
                     screen.aiming_throw = None;
@@ -2161,6 +2166,7 @@ fn frame(
                     };
                     orders.push(crew_order(order, pointer.shift));
                     screen.aiming_move = false;
+                    screen.trigger_spent = true;
                 }
                 if pointer.secondary_pressed {
                     screen.aiming_move = false;
@@ -2183,6 +2189,7 @@ fn frame(
                         screen.log.extend(line);
                     }
                     screen.aiming_attack = false;
+                    screen.trigger_spent = true;
                 }
                 if pointer.secondary_pressed {
                     screen.aiming_attack = false;
@@ -2193,14 +2200,21 @@ fn frame(
             // The pointer is the aim (task 144): the system's cursor goes
             // and the aim's reticle is drawn in its place, below.
             ctx.set_cursor_icon(egui::CursorIcon::None);
+            // The left button is the trigger (task 144), which the control
+            // order below carries, and a left press closes any menu open.
+            if pointer.primary_pressed {
+                panels.close_menu();
+            }
+            // A right-click walks nobody anywhere and attacks nobody (task
+            // 144). With the medkit in hand a downed crewmate under it is
+            // the revive — the walk over and the hands on it (task 138);
+            // with Shift held it waits its turn (feature 69). Otherwise it
+            // is what a left click was until the left button became the
+            // trigger: the one under it picked, and the menu of what is
+            // there opened — a door, a body down, a mercenary for hire,
+            // a cache. A living crew member is picked, not menued.
             if pointer.secondary_pressed {
                 panels.close_menu();
-                // A right-click walks nobody anywhere and attacks nobody
-                // (task 144): held, it is the trigger, which the control
-                // order below carries. With the medkit in hand a downed
-                // crewmate under it is still the revive — the walk over
-                // and the hands on it (task 138); with Shift held it
-                // waits its turn (feature 69).
                 if let Some(room) = session.room() {
                     match medkit_patient(room, panels.player, rx, ry, &crew_name) {
                         Some(Ok(patient)) => orders.push(crew_order(
@@ -2211,15 +2225,24 @@ fn frame(
                             pointer.shift,
                         )),
                         Some(Err(why)) => screen.log.push(why),
-                        None => {}
+                        None => {
+                            orders.push(Order::Crew(CrewOrder::Select {
+                                x0: rx,
+                                y0: ry,
+                                x1: rx,
+                                y1: ry,
+                            }));
+                            let mut fixture = room.hit_at(rx, ry);
+                            if fixture == HIT_BIM && !room.is_down(room.hit_bim()) {
+                                fixture = 0;
+                            }
+                            if fixture != 0
+                                && let Some(at) = pointer.pos
+                            {
+                                panels.open_menu(fixture, egui::pos2(at.x, at.y), room);
+                            }
+                        }
                     }
-                }
-            }
-            if pointer.primary_pressed {
-                panels.close_menu();
-                screen.marquee_from = Some(p);
-                if let Some(room) = session.room() {
-                    room.drag_begin(rx, ry);
                 }
             }
         }
@@ -2272,7 +2295,7 @@ fn frame(
 
     // The player's own Bim under the keys and the pointer (task 144):
     // WASD walk it up, left, down and right on the screen, it turns to
-    // the pointer at a turn a second, and the right button held fires
+    // the pointer at a turn a second, and the left button held fires
     // along its facing as fast as the weapon goes. Said to the room as a
     // `CrewOrder::Control` whenever it changes (`control_due`); with the
     // pointer off the deck the aim is the last one said.
@@ -2313,10 +2336,16 @@ fn frame(
                 angle_code((ry - at.y).atan2(rx - at.x))
             })
             .or(screen.control.map(|((_, aim, _), _)| aim));
-        // A press counts as well as a button held: a quick click goes down
-        // and up within one frame, and the room owes it its shot
-        // (`character::TRIGGER_OWED`).
-        let fire = (pointer.secondary_down || pointer.secondary_pressed)
+        // The left button. A press counts as well as a button held: a quick
+        // click goes down and up within one frame, and the room owes it its
+        // shot (`character::TRIGGER_OWED`). A press an armed pointer took —
+        // a throw, an attack-move, the banner — fires nothing until the
+        // button has come up.
+        if !pointer.primary_down && !pointer.primary_pressed {
+            screen.trigger_spent = false;
+        }
+        let fire = (pointer.primary_down || pointer.primary_pressed)
+            && !screen.trigger_spent
             && on_canvas.is_some()
             && !screen.aiming_attack
             && !screen.aiming_move

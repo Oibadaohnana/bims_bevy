@@ -430,10 +430,13 @@ fn controls(ui: &mut egui::Ui, sheet: &mut Option<Sheet>, keys: &mut Keys) {
                 "Click the map",
                 "Pick a station, or a planet with a settlement, on the world map's list: the trip is quoted there and put to the crew.",
             ),
-            ("Drag on the deck", "Select whoever is inside the box."),
             (
-                "Hold the right button on the deck",
-                "Fire where the Bim you steer faces, as fast as the weapon goes. With the medkit in hand, a right-click on a downed crewmate revives them.",
+                "Hold the left button on the deck",
+                "Fire where the Bim you steer faces, as fast as the weapon goes. A click is one shot.",
+            ),
+            (
+                "Right-click on the deck",
+                "Open the menu of what is there — a door, a downed crewmate, a mercenary, a cache — or pick the crew member under it. With the medkit in hand, a right-click on a downed crewmate revives them.",
             ),
             (
                 "Build tab",

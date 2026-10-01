@@ -57,9 +57,6 @@ pub struct Pointer {
     pub primary_down: bool,
     pub secondary_pressed: bool,
     pub secondary_released: bool,
-    /// The fire button held (task 144): a shot every time the weapon is
-    /// ready.
-    pub secondary_down: bool,
     pub middle_down: bool,
     pub middle_pressed: bool,
     /// Wheel, in points, up positive.
@@ -84,7 +81,6 @@ impl Pointer {
             primary_down: i.pointer.button_down(Primary),
             secondary_pressed: i.pointer.button_pressed(Secondary),
             secondary_released: i.pointer.button_released(Secondary),
-            secondary_down: i.pointer.button_down(Secondary),
             middle_down: i.pointer.button_down(Middle),
             middle_pressed: i.pointer.button_pressed(Middle),
             shift: i.modifiers.shift,

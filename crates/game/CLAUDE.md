@@ -4543,8 +4543,11 @@ play differently.
 
 - **`CrewOrder::Control { walk, aim, fire }`** (appended last) is the
   player's keys and pointer on its own Bim: the way WASD walk it
-  (`None` with none down), where the pointer is from it, and the right
-  button held. Both angles are `order::angle_code`s, a turn in 65536,
+  (`None` with none down), where the pointer is from it, and the left
+  button held (the right one until the user moved it: a right-click is
+  now what a left click was — the pick and the menu of what is under it
+  — and the medkit's revive; a left press an armed pointer took fires
+  nothing, `GameScreen::trigger_spent`). Both angles are `order::angle_code`s, a turn in 65536,
   read back by `code_angle` — so every copy of the room turns the same
   radians. The app sends one whenever the walk or the trigger changes,
   and for the aim alone no more than every `CONTROL_EVERY` (0.05 s) and
@@ -4583,7 +4586,7 @@ play differently.
   trigger is never seen held. `set_steer` arms `Character::trigger_owed`
   for `TRIGGER_OWED` (0.25 s) on the trigger's down edge, and the steered
   branch fires while it is owed as well as while held, paying it with the
-  shot (`SAVE_VERSION` 78). The app counts `secondary_pressed` as held
+  shot (`SAVE_VERSION` 78). The app counts `primary_pressed` as held
   for the same reason: a click inside one frame is never `down`.
 - Nothing is steered until a `Control` arrives, so no test, probe or bot
   moved and no survivor pin changed. `Game::is_steered(who)` is the

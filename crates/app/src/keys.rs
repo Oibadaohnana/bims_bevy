@@ -252,7 +252,7 @@ impl Action {
             Action::Pause => "Pause the world, or set it going again.",
             Action::Speed1 => "Run the world at 1×.",
             Action::WalkUp => {
-                "Walk the Bim you steer up the screen. The mouse aims it, and the right button fires."
+                "Walk the Bim you steer up the screen. The mouse aims it, and the left button fires."
             }
             Action::WalkDown => "Walk the Bim you steer down the screen.",
             Action::WalkLeft => "Walk the Bim you steer left.",
