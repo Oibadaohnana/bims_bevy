@@ -6250,6 +6250,15 @@ impl Game {
             .is_some_and(|b| b.character.steer().is_some())
     }
 
+    /// Whether `who`'s player holds its trigger down: what another
+    /// player's screen closes that player's crosshair on.
+    pub fn trigger_held(&self, who: usize) -> bool {
+        self.bims
+            .get(who)
+            .and_then(|b| b.character.steer())
+            .is_some_and(|s| s.fire)
+    }
+
     /// What `who` holds (task 138): the weapon, or the medkit.
     pub fn hand(&self, who: usize) -> Hand {
         self.bims.get(who).map_or(Hand::Weapon, |b| b.hand)

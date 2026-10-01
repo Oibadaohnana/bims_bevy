@@ -565,18 +565,30 @@ pub fn ghost_pointer(painter: &egui::Painter, at: egui::Pos2, color: egui::Color
     ));
     painter.line_segment(tail, egui::Stroke::new(3.0, fill));
     painter.add(egui::Shape::convex_polygon(head, fill, egui::Stroke::NONE));
-    if !name.is_empty() {
-        let font = egui::FontId::proportional(NAME_SIZE * 0.85);
-        let label = at + egui::vec2(14.0, 12.0);
-        painter.text(
-            label + egui::vec2(1.0, 1.0),
-            egui::Align2::LEFT_TOP,
-            name,
-            font.clone(),
-            NAME_STROKE.gamma_multiply(GHOST_POINTER_ALPHA),
-        );
-        painter.text(label, egui::Align2::LEFT_TOP, name, font, fill);
+    ghost_label(painter, at + egui::vec2(14.0, 12.0), color, name);
+}
+
+/// Another player's name beside their pointer or their crosshair, its
+/// top left at `at`: small, in their colour, as see-through as the mark.
+pub fn ghost_label(painter: &egui::Painter, at: egui::Pos2, color: egui::Color32, name: &str) {
+    if name.is_empty() {
+        return;
     }
+    let font = egui::FontId::proportional(NAME_SIZE * 0.85);
+    painter.text(
+        at + egui::vec2(1.0, 1.0),
+        egui::Align2::LEFT_TOP,
+        name,
+        font.clone(),
+        NAME_STROKE.gamma_multiply(GHOST_POINTER_ALPHA),
+    );
+    painter.text(
+        at,
+        egui::Align2::LEFT_TOP,
+        name,
+        font,
+        color.gamma_multiply(GHOST_POINTER_ALPHA),
+    );
 }
 
 /// How see-through another player's pointer is.

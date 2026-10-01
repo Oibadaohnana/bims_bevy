@@ -3505,7 +3505,7 @@ fn frame(
             attack_cursor(&top, at);
         } else {
             let firing = screen.control.is_some_and(|((_, _, fire), _)| fire);
-            aim_cursor(&top, at, firing);
+            aim_cursor(&top, at, firing, theme::AIM, 1.0);
         }
     } else if (screen.aiming_attack || screen.aiming_move)
         && let Some(p) = on_canvas
@@ -3538,14 +3538,22 @@ fn frame(
                 _ => None,
             }
         };
+        // Over the deck another player's pointer is their crosshair, as
+        // it is on their own screen, in their colour and closing in while
+        // their trigger is held; on the chart it is the arrow.
         for (slot, spot) in online.others_pointing() {
             if let Some((on, at)) = place(spot) {
-                theme::ghost_pointer(
-                    on,
-                    at,
-                    slot_colour(&session.crew_tints, slot),
-                    &crew_name(slot),
-                );
+                let colour = slot_colour(&session.crew_tints, slot);
+                if matches!(spot, Spot::Deck(..)) {
+                    let firing = session
+                        .game
+                        .as_ref()
+                        .is_some_and(|g| g.world.aboard.room.trigger_held(slot as usize));
+                    aim_cursor(on, at, firing, colour, OTHERS_AIM_ALPHA);
+                    theme::ghost_label(on, at + egui::vec2(12.0, 8.0), colour, &crew_name(slot));
+                } else {
+                    theme::ghost_pointer(on, at, colour, &crew_name(slot));
+                }
             }
         }
         let me = online.my_slot();
@@ -4206,17 +4214,31 @@ fn control_due(last: Option<(CrewOrderControl, f64)>, now: CrewOrderControl, tim
     turned >= AIM_STEP && time - at >= CONTROL_EVERY
 }
 
+/// How see-through another player's crosshair is: less than their arrow
+/// on the chart, since it is small and wants to read on a dark deck.
+const OTHERS_AIM_ALPHA: f32 = 0.85;
+
 /// The pointer over the deck (task 144): the aim's reticle where the
 /// system's cursor was — a ring broken into four with a dot in the
 /// middle, each stroke over a dark one so it reads on the deck and the
 /// void alike, in the crew's cyan, and closing in while the trigger is
-/// held.
-fn aim_cursor(painter: &egui::Painter, at: egui::Pos2, firing: bool) {
+/// held. Another player's is the same in their `colour`, as see-through
+/// as `alpha` says.
+fn aim_cursor(
+    painter: &egui::Painter,
+    at: egui::Pos2,
+    firing: bool,
+    colour: egui::Color32,
+    alpha: f32,
+) {
     let r = if firing { 8.0 } else { 10.0 };
     let gap = 0.42;
     for (width, color) in [
-        (4.0, egui::Color32::from_black_alpha(200)),
-        (1.8, theme::AIM),
+        (
+            4.0,
+            egui::Color32::from_black_alpha(200).gamma_multiply(alpha),
+        ),
+        (1.8, colour.gamma_multiply(alpha)),
     ] {
         for quarter in 0..4 {
             let from = quarter as f32 * std::f32::consts::FRAC_PI_2 + gap;
@@ -4239,7 +4261,7 @@ fn aim_cursor(painter: &egui::Painter, at: egui::Pos2, firing: bool) {
             );
         }
     }
-    painter.circle_filled(at, 1.6, theme::AIM);
+    painter.circle_filled(at, 1.6, colour.gamma_multiply(alpha));
 }
 
 fn attack_cursor(painter: &egui::Painter, at: egui::Pos2) {
