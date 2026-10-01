@@ -239,12 +239,7 @@ impl Grid {
         let cells = (side as usize) * (side as usize);
         Grid {
             side,
-            layers: [
-                vec![0; cells],
-                vec![0; cells],
-                vec![0; cells],
-                vec![0; cells],
-            ],
+            layers: [vec![0; cells], vec![0; cells], vec![0; cells]],
         }
     }
 
@@ -436,14 +431,14 @@ pub fn apply(design: &ShipDesign, budget: &Budget, edit: Edit) -> Result<ShipDes
 
 /// What to say when the layer a part needs is empty.
 ///
-/// Two of the four can be required today and they have a sentence each.
-/// Nothing requires `Object` or `Utility` — a part standing on a bunk, or on
-/// a conduit, is not a thing — and if one ever does it wants a code of its
-/// own rather than borrowing this one.
+/// Two of the three can be required today and they have a sentence each.
+/// Nothing requires `Object` — a part standing on a bunk is not a thing —
+/// and if one ever does it wants a code of its own rather than borrowing
+/// this one.
 fn missing(layer: Layer) -> EditError {
     match layer {
         Layer::Floor => EditError::MissingFloor,
-        Layer::Structure | Layer::Object | Layer::Utility => EditError::MissingStructure,
+        Layer::Structure | Layer::Object => EditError::MissingStructure,
     }
 }
 
@@ -452,7 +447,7 @@ fn occupied(layer: Layer) -> EditError {
     match layer {
         Layer::Floor => EditError::DuplicateFloor,
         Layer::Object => EditError::ObjectOverlap,
-        Layer::Structure | Layer::Utility => EditError::LayerOccupied,
+        Layer::Structure => EditError::LayerOccupied,
     }
 }
 

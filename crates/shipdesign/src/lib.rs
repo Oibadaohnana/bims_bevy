@@ -103,8 +103,8 @@
 //! Oxygen and airtightness, construction labour, hauling, construction
 //! sites, scrap, undo, and the final art. A part has a mass, a price, a
 //! footprint, somewhere to stand, a thrust or a turning force since the
-//! flight step, and a power figure since [`power`] — and nothing else,
-//! because every field that exists is a field something has to keep true.
+//! flight step — and nothing else, because every field that exists is a
+//! field something has to keep true.
 
 pub mod budget;
 pub mod design;
@@ -114,7 +114,6 @@ pub mod hyperdrive;
 pub mod mass;
 pub mod materials;
 pub mod parts;
-pub mod power;
 pub mod recipes;
 pub mod research;
 pub mod validate;
@@ -135,15 +134,10 @@ pub use economy::{
 pub use mass::{acceleration, hull_mass, ship_mass};
 pub use materials::{refund_for, site_price};
 pub use parts::{
-    BATTERY_CHARGE, BIG_PLANT_LIFT, BIG_PLANT_TILES, Comfort, ENGINE_POWER, FUSION_OUTPUT,
-    GRID_COLS, Layer, PICTURE_LIFT, PICTURE_TILES, PartDef, PartKind, REACTOR_OUTPUT, Rotation,
-    SMALL_PLANT_LIFT, SMALL_PLANT_TILES, STANDING_LIGHT_POWER, STANDING_LIGHT_TILES, TILE,
-    WALL_LIGHT_POWER, WALL_LIGHT_TILES, comfort, essential, hangs_on_wall, is_comfort, is_cover,
-    is_diagonal, is_light, is_wall, light_tiles, part_mass, solid_corner, wall_light_back,
-};
-pub use power::{
-    Budget as PowerBudget, Network, Thrust, budget as power_budget, is_powered, networks,
-    powered_parts, thrust, unpowered,
+    BIG_PLANT_LIFT, BIG_PLANT_TILES, Comfort, GRID_COLS, Layer, PICTURE_LIFT, PICTURE_TILES,
+    PartDef, PartKind, Rotation, SMALL_PLANT_LIFT, SMALL_PLANT_TILES, STANDING_LIGHT_TILES, TILE,
+    WALL_LIGHT_TILES, comfort, hangs_on_wall, is_comfort, is_cover, is_diagonal, is_light, is_wall,
+    light_tiles, part_mass, solid_corner, wall_light_back,
 };
 pub use recipes::{RECIPES, Recipe, is_workstation, recipes_are_sound};
 pub use research::{

@@ -1695,12 +1695,7 @@ impl Placer {
         Placer {
             design: ShipDesign::new(side),
             side,
-            layers: [
-                vec![0; cells],
-                vec![0; cells],
-                vec![0; cells],
-                vec![0; cells],
-            ],
+            layers: [vec![0; cells], vec![0; cells], vec![0; cells]],
             #[cfg(test)]
             attempts: Vec::new(),
         }
@@ -1951,32 +1946,26 @@ pub(crate) fn furnish_placer(kind: StationKind, side: u32, floor: Floor, map_see
     placer.take(floor.array);
     placer.put(PartKind::SensorArray, floor.array, Rotation::R0);
 
-    // The reactor room: the trading desk against its north wall by the
-    // port, worked from the row below — the first thing a crew coming
+    // The reactor room (the name stuck, though there is no reactor since
+    // the electricity went): the trading desk against its north wall by
+    // the port, worked from the row below — the first thing a crew coming
     // aboard meets, clear of the spot the station's people are sent home
-    // to — the reactor beyond it along the same wall with two tiles of
-    // gangway between, and life support, the batteries and the tank along
-    // the south wall; the corridor runs through the middle.
+    // to — and life support and the tank along the south wall; the
+    // corridor runs through the middle.
     let lobby = floor.lobby;
     placer.put(
         PartKind::TradingDesk,
         (lobby.x0 + 1, lobby.y0),
         Rotation::R0,
     );
-    placer.put(PartKind::Reactor, (lobby.x0 + 5, lobby.y0), Rotation::R0);
     placer.put(
         PartKind::LifeSupport,
         (lobby.x0 + 6, lobby.y1 - 1),
         Rotation::R0,
     );
-    let batteries = rng.below(3);
-    for i in 0..batteries {
-        placer.put(
-            PartKind::Battery,
-            (lobby.x0 + 4, lobby.y1 - i),
-            Rotation::R0,
-        );
-    }
+    // The draw that said how many batteries, kept so the rest of the
+    // station's stream — and so every station — is what it was.
+    let _ = rng.below(3);
 
     // The partitions and their doors.
     for &(x, y) in &floor.walls {

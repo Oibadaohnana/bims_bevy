@@ -99,7 +99,6 @@ pub fn world_checksum(world: &World) -> u64 {
     hash.eat_rounded(ship.anchor.x, POSITION_GRID);
     hash.eat_rounded(ship.anchor.y, POSITION_GRID);
     hash.eat_rounded(ship.heading, FINE_GRID);
-    hash.eat_rounded(ship.charge, FINE_GRID);
     hash.eat(ship.frame.code() as u64);
     if let Some(node) = ship.frame.node() {
         let (kind, id) = node_key(&node);

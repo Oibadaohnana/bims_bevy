@@ -104,13 +104,6 @@ pub enum WorldEvent {
     /// The ship is in another system: the one round `star`, in empty space
     /// — a trip across a hyperlane on its way (`World::jump`).
     Jumped { star: u32 },
-    /// The batteries went flat under an overdraw and the ship is browned
-    /// out — see `World::run_brownout`: the lamps are dark and the
-    /// benches have stopped. Said once, the step it starts.
-    Brownout,
-    /// The brownout is over: the reactors cover the draw again, or a
-    /// battery has something in it. What stopped is running again.
-    PowerRestored,
     /// No crew member is standing — dead or downed, every one — and
     /// the run is over. Said once.
     CrewLost,
@@ -655,8 +648,8 @@ impl WorldEvent {
             WorldEvent::CrewRevived { .. } => 43,
             // 50 and 52 to 55 were the charge and the landing (feature 104).
             WorldEvent::Jumped { .. } => 51,
-            WorldEvent::Brownout => 56,
-            WorldEvent::PowerRestored => 57,
+            // 56 and 57 are free: the brownout's and the power coming back,
+            // which went with the electricity (October 2026).
             // 58 was the food spoiling, 59 to 62 and 67 the raids and 64
             // the plunder (feature 104).
             WorldEvent::CrewLost => 63,
@@ -871,7 +864,7 @@ impl WorldEvent {
             WorldEvent::Refused { why, .. } => why.code() as i64,
             // The star: a galaxy has a thousand.
             WorldEvent::Jumped { star } | WorldEvent::Infested { star } => star as i64,
-            WorldEvent::Brownout | WorldEvent::PowerRestored | WorldEvent::CrewLost => 0,
+            WorldEvent::CrewLost => 0,
             // The level, the talent and the kind in the hundreds, the same
             // way: a crew is never a hundred.
             WorldEvent::LevelUp { who, level, .. } => (who as i64) + 100 * (level as i64),

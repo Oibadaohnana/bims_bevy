@@ -628,10 +628,6 @@ pub struct Ship {
     pub heading: f64,
     pub state: ShipState,
     pub frame: Frame,
-    /// What is in the batteries, in power units — never more than what
-    /// the wired batteries hold. Full when the world opens, and moved by
-    /// [`World::run_power`] alone; see [`Power`].
-    pub charge: f64,
 }
 
 impl Ship {
@@ -885,11 +881,6 @@ pub struct World {
     /// not hashed, like the forced wave kinds.
     #[cfg_attr(feature = "serde", serde(default))]
     elite_forced: Option<run::Site>,
-    /// The ship's power over its live networks, worked out from the parts
-    /// once per change to them — `on_ship_changed` — rather than once a
-    /// step: it is a union-find over every tile of the grid, and the
-    /// parts change when something is built and not otherwise.
-    power_budget: shipdesign::PowerBudget,
     /// What the crew have seen, shared between all of them and never
     /// forgotten. Sorted, so a checksum over it means something.
     pub discovered: Vec<Node>,
@@ -945,21 +936,6 @@ pub struct World {
     /// ([`World::sync_lamps`]). In `world_checksum`, the health to a
     /// hundredth like a piece of armour's.
     pub lamps: Vec<LampDamage>,
-    /// Every part on a live network, by id ascending
-    /// (`shipdesign::powered_parts`), worked out beside the power budget
-    /// at every change to the ship rather than once a lamp a step. What
-    /// [`World::powered`] and [`World::sync_lamp_power`] read.
-    powered_parts: Vec<u32>,
-    /// Whether the ship was browned out at the end of the last step: what
-    /// [`World::run_brownout`] compares against to say `Brownout` and
-    /// `PowerRestored` once each way. Derived — `Power::brownout` off the
-    /// charge and the budget, both of which are hashed — so not in the
-    /// checksum itself.
-    browned_out: bool,
-    /// What a probe told the reactors to make instead of what they make
-    /// (`throttle_reactors_for_probe`), kept across `on_ship_changed`.
-    /// Never set by the game.
-    probe_supply: Option<f64>,
     /// Whether the run is over: no crew member standing — dead or out
     /// cold, every one — said once as [`WorldEvent::CrewLost`] and kept,
     /// since the app ends the run on it. In `world_checksum`.
@@ -1213,7 +1189,6 @@ impl World {
 
         let dynamics = flight::dynamics(&design, crew).map_err(StartError::NotAShip)?;
         let aboard = Aboard::new(&design, crew, seed);
-        let design_for_charge = design.clone();
         let ship = Ship {
             design,
             crew_count: crew,
@@ -1224,8 +1199,6 @@ impl World {
                 station: station_id,
             },
             frame: Frame::Local(Node::Station(station_id)),
-            // Full: the ship has been sitting at a station's dock.
-            charge: shipdesign::power_budget(&design_for_charge).storage,
         };
 
         let mut world = World {
@@ -1272,7 +1245,6 @@ impl World {
             quiet_sites: false,
             whole_systems: false,
             elite_forced: None,
-            power_budget: shipdesign::power_budget(&design_for_charge),
             discovered: Vec::new(),
             // Everybody starts at real time. Anything else would have the
             // world already moving before the first player had looked at it.
@@ -1290,9 +1262,6 @@ impl World {
             // crew's gear and the pool as well as the ship.
             start_worth: 0,
             lamps: Vec::new(),
-            powered_parts: shipdesign::powered_parts(&design_for_charge),
-            browned_out: false,
-            probe_supply: None,
             lost: false,
             losses: Vec::new(),
             graves: Vec::new(),
@@ -1570,14 +1539,6 @@ impl World {
         //    And what the fight did to the armour: a piece broken is said
         //    once, and stays worn (task 113).
         self.say_pieces_broken(&mut events);
-
-        // 6. Power: what the reactors made this step against what the
-        //    wired consumers drew, into or out of the batteries. What is
-        //    running in a brownout is `World::powered`, read by whatever
-        //    draws — the benches — and what the
-        //    brownout does to the rest is `run_brownout`: the lamps dark.
-        self.run_power();
-        self.run_brownout(&mut events);
 
         // 7. Construction: what the crew did at the sites this step — a
         //    part put together. Nothing is carried to a site since
@@ -2546,8 +2507,7 @@ impl World {
         self.restore_lamps();
     }
 
-    /// Every lamp remembered damaged, set so on the rooms it hangs in —
-    /// and the ship's lamps' power with them ([`World::sync_lamp_power`]).
+    /// Every lamp remembered damaged, set so on the rooms it hangs in.
     fn restore_lamps(&mut self) {
         let docked = self.ship.state.alongside();
         for d in &self.lamps {
@@ -2578,9 +2538,6 @@ impl World {
                 }
             }
         }
-        // And the ship's lamps' power, which a fresh room does not know
-        // either.
-        self.sync_lamp_power();
     }
 
     /// A lamp as it is to be drawn: what it has left of its health as a
@@ -3536,18 +3493,6 @@ impl World {
         if let Ok(dynamics) = flight::dynamics(&self.ship.design, self.ship.crew_count) {
             self.ship.dynamics = dynamics;
         }
-        // A battery taken off takes what was in it; one put on arrives
-        // empty. Either way the charge cannot exceed what is there to hold
-        // it.
-        self.power_budget = shipdesign::power_budget(&self.ship.design);
-        if let Some(supply) = self.probe_supply {
-            self.power_budget.supply = supply;
-        }
-        self.powered_parts = shipdesign::powered_parts(&self.ship.design);
-        let storage = self.power_budget.storage;
-        if self.ship.charge > storage {
-            self.ship.charge = storage;
-        }
     }
 
     /// The hold emptied, for a run that sets out with nothing aboard
@@ -3562,76 +3507,6 @@ impl World {
         self.holdings.keys = 0;
         self.on_ship_changed();
         self.start_worth = self.worth();
-    }
-
-    /// Stage 6 of [`World::step`]: the reactors' output less the wired
-    /// consumers' draw, over one step, into the batteries and clamped to
-    /// what they hold. Closed form off the step length, so a browser at 24x
-    /// and a server catching up land on the same charge.
-    ///
-    /// The draw is charged in full whether or not the ship is browned
-    /// out: what stops in a brownout is the consumers, and what they would
-    /// have drawn was never there to take. The clamp at nought *is* the
-    /// brownout. The engines draw nothing: nothing is flown.
-    fn run_power(&mut self) {
-        let budget = self.power_budget;
-        let net = (budget.supply - budget.draw) * data::STEP_MINUTES;
-        self.ship.charge = (self.ship.charge + net).clamp(0.0, budget.storage);
-    }
-
-    /// The other half of stage 6: what the brownout does, none of it
-    /// lethal and all of it recoverable. Said once each way — `Brownout`
-    /// the step the batteries go flat under an overdraw, `PowerRestored`
-    /// the step the reactors cover the draw again or a battery has
-    /// something in it — and put to the room: the ship's lamps dark
-    /// ([`World::sync_lamp_power`]) while it lasts.
-    fn run_brownout(&mut self, events: &mut Vec<WorldEvent>) {
-        let now = self.power().brownout();
-        if now != self.browned_out {
-            self.browned_out = now;
-            events.push(if now {
-                WorldEvent::Brownout
-            } else {
-                WorldEvent::PowerRestored
-            });
-            self.sync_lamp_power();
-        }
-    }
-
-    /// The ship's lamps lit or dark by their power: a lamp on a live
-    /// network has it unless the ship is browned out, one on none never
-    /// does — set on the crew's deck, where the ship's lamps are the
-    /// room's own, and on the residents' mirror of the ship while it is
-    /// on their deck. A station's lamps are furniture — nothing reads a
-    /// station's power — and stay lit. Every step, from
-    /// [`World::restore_lamps`], since a room built afresh starts every
-    /// lamp lit; and the step the brownout turns, so the dark lands with
-    /// the event.
-    fn sync_lamp_power(&mut self) {
-        let dark = self.browned_out;
-        let lamps: Vec<((u32, u32), bool)> = self
-            .ship
-            .design
-            .parts
-            .iter()
-            .filter(|p| shipdesign::is_light(p.kind))
-            .map(|p| {
-                (
-                    p.origin,
-                    !dark && self.powered_parts.binary_search(&p.id).is_ok(),
-                )
-            })
-            .collect();
-        for (tile, on) in lamps {
-            if let Some(i) = Self::lamp_index(&self.aboard, false, tile) {
-                self.aboard.room.set_lamp_powered(i, on);
-            }
-            if let Some(residents) = &mut self.residents
-                && let Some(i) = Self::lamp_index(&residents.aboard, true, tile)
-            {
-                residents.aboard.room.set_lamp_powered(i, on);
-            }
-        }
     }
 
     // --- building -------------------------------------------------------------
@@ -3928,40 +3803,6 @@ impl World {
         self.put_for_probe(belt.position);
         self.settle_frame_for_probe();
         true
-    }
-
-    /// The ship's power, as the crew would read it off a panel.
-    pub fn power(&self) -> Power {
-        let budget = self.power_budget;
-        Power {
-            supply: budget.supply,
-            draw: budget.draw,
-            storage: budget.storage,
-            charge: self.ship.charge,
-        }
-    }
-
-    /// Whether a consumer of this kind is running: some part of that kind
-    /// is on a live network, and either the ship is not browned out or the
-    /// kind is one of the essentials, which run off the reactor's own
-    /// output when the batteries are flat. A kind that draws nothing is
-    /// running by definition; a kind that draws and is not aboard is not.
-    ///
-    /// Asked per **kind** rather than per part, because what asks it is a
-    /// chain deciding whether a bench works, and a chain has a kind in
-    /// hand and not an id.
-    pub fn powered(&self, kind: PartKind) -> bool {
-        let def = kind.def();
-        if !def.draws() {
-            return true;
-        }
-        let wired = self
-            .ship
-            .design
-            .parts
-            .iter()
-            .any(|p| p.kind == kind && self.powered_parts.binary_search(&p.id).is_ok());
-        wired && (!self.power().brownout() || shipdesign::essential(kind))
     }
 
     /// Whether that player's crew member is in a state to do anything at
@@ -5130,16 +4971,6 @@ impl World {
         self.dock_at(id);
     }
 
-    /// Pretend the reactors make `supply` a minute, through every change
-    /// to the ship, until told otherwise. For probes of a short network:
-    /// with a basic reactor making two and a half thousand, nothing a
-    /// twenty-tile ship can carry draws more than it makes, and the
-    /// brownout is otherwise a long way off.
-    pub fn throttle_reactors_for_probe(&mut self, supply: f64) {
-        self.probe_supply = Some(supply);
-        self.power_budget.supply = supply;
-    }
-
     /// Settle the local frame, for a probe that has just moved the ship.
     pub fn settle_frame_for_probe(&mut self) -> Vec<WorldEvent> {
         let mut events = Vec::new();
@@ -5424,38 +5255,6 @@ impl World {
         self.residents = Some(residents);
         self.apply_stances();
         true
-    }
-}
-
-/// The ship's power at this instant: units a minute in and out, and what
-/// the batteries hold and have.
-#[derive(Clone, Copy, PartialEq, Debug)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub struct Power {
-    pub supply: f64,
-    /// The day-long draw: every wired consumer. The engines draw nothing,
-    /// since nothing is flown.
-    pub draw: f64,
-    pub storage: f64,
-    pub charge: f64,
-}
-
-impl Power {
-    /// How hard the reactors are working: everything drawn now over what
-    /// they make, `0.0` idle to `1.0` flat out and past it when short.
-    /// Nought with no reactor. What the reactor's glow is drawn from.
-    pub fn load(&self) -> f64 {
-        if self.supply <= 0.0 {
-            return 0.0;
-        }
-        self.draw / self.supply
-    }
-
-    /// Whether the optional consumers have stopped: more drawn than made,
-    /// and nothing left in the batteries to cover the difference. A ship
-    /// with no batteries and a short network is browned out for good.
-    pub fn brownout(&self) -> bool {
-        self.draw > self.supply && self.charge <= 0.0
     }
 }
 

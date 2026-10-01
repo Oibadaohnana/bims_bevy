@@ -44,8 +44,11 @@ pub const REFERENCE_POOL: Money = 10_000_000;
 /// `CARGO_SLOTS` 22) from `0xb4b9_08bd_0dda_d32c` and
 /// `0xa7a4_60c0_b042_7fd7`, and the drug lab gone (task 120: every part's
 /// code after it one lower) from `0x4b3b_e276_e853_f0ac` and
-/// `0xe89b_f26c_b13f_a0b7`.
-pub const REFERENCE_HASH: [u64; 2] = [0x6254_985d_4f75_5c03, 0x67b6_c899_2733_a7d8];
+/// `0xe89b_f26c_b13f_a0b7`, and the electricity gone (October 2026: the
+/// reactor and its fifty tiles of conduit off the ship, every part code
+/// after the helm three lower and after the research desk four) from
+/// `0x6254_985d_4f75_5c03` and `0x67b6_c899_2733_a7d8`.
+pub const REFERENCE_HASH: [u64; 2] = [0xf78d_b964_dda6_07dd, 0x8d2f_f62b_d15f_1146];
 
 /// What [`reference`] is carrying, whatever the crew size: a few days of
 /// vegetables and tofu, bought through [`apply`] like everything else.
@@ -60,8 +63,9 @@ pub const REFERENCE_CARGO: [(ResourceId, u32); 2] =
 ///
 /// [`reference`] skips an edit that does not take rather than panicking — a
 /// panic in a cdylib is an abort and tells nobody anything. This is what
-/// notices the skip instead.
-pub const REFERENCE_PARTS: [u32; 2] = [717, 723];
+/// notices the skip instead. 717 and 723 until the reactor and its
+/// conduit went with the electricity.
+pub const REFERENCE_PARTS: [u32; 2] = [666, 672];
 
 /// The two columns of the stern row the reference's engine stands in, its
 /// bell in the skin. Two, because the engine is two across.
@@ -72,64 +76,6 @@ const REFERENCE_ENGINE_STERN: [u32; 2] = [7, 8];
 /// standing light stands, amidships.
 const REFERENCE_LIGHTS: [(u32, u32); 4] = [(2, 5), (17, 5), (2, 14), (17, 14)];
 const REFERENCE_LAMP: (u32, u32) = (10, 9);
-
-/// Where the reference's conduit runs. See [`reference`].
-const REFERENCE_CONDUIT: [(u32, u32); 50] = [
-    (3, 3),
-    (4, 3),
-    (5, 3),
-    (6, 3),
-    (7, 3),
-    (8, 3),
-    (8, 4),
-    (8, 5),
-    (8, 6),
-    (8, 7),
-    (8, 8),
-    (8, 9),
-    (8, 10),
-    (8, 11),
-    (8, 12),
-    (8, 13),
-    (9, 13),
-    (10, 13),
-    (5, 2),
-    (5, 1),
-    (8, 14),
-    (8, 15),
-    (8, 16),
-    // The lamps, which draw like anything else: the forward pair off the
-    // galley's run and along row 5, the aft pair along row 14 from the
-    // spine and from the reactor's second tile, and the standing light
-    // off the spine.
-    (3, 4),
-    (3, 5),
-    (2, 5),
-    (9, 5),
-    (10, 5),
-    (11, 5),
-    (12, 5),
-    (13, 5),
-    (14, 5),
-    (15, 5),
-    (16, 5),
-    (17, 5),
-    (7, 14),
-    (6, 14),
-    (5, 14),
-    (4, 14),
-    (3, 14),
-    (2, 14),
-    (11, 14),
-    (12, 14),
-    (13, 14),
-    (14, 14),
-    (15, 14),
-    (16, 14),
-    (17, 14),
-    (9, 9),
-    (10, 9),
-];
 
 /// The reference ship: a framed, floored, hull-plated compartment with a
 /// galley along the top, a table and chairs, bunks down the right, a helm, an
@@ -213,19 +159,6 @@ pub fn reference(crew: u32) -> ShipDesign {
         Rotation::R0,
     );
 
-    // The reactor aft to starboard of the bay, and one run of conduit from
-    // it: up column 8 through the helm and the bay, along row 3 under the
-    // galley to the cold store, and up column 5 to the bow skin, which is
-    // where the flyer's sensor array will stand; and on down column 8 to
-    // the engine, which runs on the reactor like everything else. Every
-    // consumer is on it, so the reference warns about nothing it need not
-    // — and it is why `REFERENCE_HASH` moved when power arrived, and again
-    // when the fuel went.
-    put(&mut design, PartKind::Reactor, (10, 13), Rotation::R0);
-    for tile in REFERENCE_CONDUIT {
-        put(&mut design, PartKind::PowerConduit, tile, Rotation::R0);
-    }
-
     // Light: a wall light on each side wall, fore and aft, and a standing
     // light amidships. Without them the deck is dark and the crew see
     // ten tiles — `bims::sight`.
@@ -290,8 +223,7 @@ const AIRLOCK_TILES: [(u32, u32); 2] = [(18, 11), (18, 12)];
 /// the flight warnings and is exactly the fixture those warnings are tested
 /// against. This is the other one — four thrusters to turn with, an airlock
 /// to dock through, a sensor array to see with — and it is what `flight` and
-/// `world` measure their scenarios against. Its engine runs on the
-/// reference's reactor, which has more than enough over to feed it.
+/// `world` measure their scenarios against.
 ///
 /// Its hash is deliberately **not** pinned. [`REFERENCE_HASH`] is about two
 /// targets agreeing; this one is about a trip being flyable, and pinning a
@@ -363,14 +295,16 @@ pub fn flyer(crew: u32) -> ShipDesign {
 /// for the hydroponic bay and its tile of conduit taken out (the bots
 /// wedged themselves beside it), and from `0xad31_5e8e_0e0d_0049` for
 /// the helm, the kevlar and the leg guards in the cargo become one armour
-/// (October 2026, one armour slot).
-pub const PLAYTEST_HASH: u64 = 0xa708_bdd4_e7b8_4f49;
+/// (October 2026, one armour slot), and from `0xa708_bdd4_e7b8_4f49` for
+/// the electricity gone (October 2026: both reactors, the battery and the
+/// sixty-nine tiles of conduit off the ship).
+pub const PLAYTEST_HASH: u64 = 0x92a7_b1c3_5e26_ef7f;
 
 /// How many parts [`playtest_ship`] ends up with. What notices a placement
 /// that was quietly refused — the builder skips rather than panics, for the
 /// reason [`REFERENCE_PARTS`] gives. 666 until the bay and its conduit
-/// went.
-pub const PLAYTEST_PARTS: u32 = 664;
+/// went, 664 until the reactors, the battery and the conduit did.
+pub const PLAYTEST_PARTS: u32 = 592;
 
 /// The playtest hull, as columns of the grid: the west skin and the east,
 /// the bow row and the stern row. Sixteen tiles across and eighteen long,
@@ -419,77 +353,6 @@ const PLAYTEST_LAMP: (u32, u32) = (7, 9);
 /// bunk.
 const PLAYTEST_PICTURE: (u32, u32) = (8, 7);
 const PLAYTEST_PLANT: (u32, u32) = (16, 10);
-
-/// Where the playtest ship's conduit leaves its spine, column 8. See
-/// [`playtest_ship`].
-const PLAYTEST_BRANCHES: [(u32, u32); 53] = [
-    // the reactor, along row 16 to the spine
-    (4, 16),
-    (5, 16),
-    (6, 16),
-    (7, 16),
-    // the helm and the array
-    (9, 3),
-    (9, 1),
-    // life support, along row 4, and the battery the other way
-    (9, 4),
-    (10, 4),
-    (11, 4),
-    (12, 4),
-    (13, 4),
-    (14, 4),
-    (4, 4),
-    (5, 4),
-    (6, 4),
-    (7, 4),
-    // the galley along row 7 to the cold store
-    (3, 7),
-    (4, 7),
-    (5, 7),
-    (6, 7),
-    (7, 7),
-    // the workshop, along row 16 from the spine, under the engine
-    (9, 16),
-    (10, 16),
-    (11, 16),
-    (12, 16),
-    (13, 16),
-    (14, 16),
-    (11, 17),
-    // the drug lab, to port of the engine, off the reactor's run
-    (7, 17),
-    // the bridge door, and the aft door along its bulkhead
-    (9, 6),
-    (9, 13),
-    (10, 13),
-    (11, 13),
-    (12, 13),
-    (13, 13),
-    (14, 13),
-    (15, 13),
-    // the armoury, down from life support's run through the bulkhead,
-    // and the second reactor, one tile up from the aft door's run
-    (14, 5),
-    (14, 6),
-    (14, 7),
-    (13, 12),
-    // the lamps, which draw like anything else: the bridge's pair a tile
-    // up from row 4, the main deck's three down the port hull from the
-    // galley's run, engineering's off the aft door's run, and the
-    // standing light off the spine
-    (5, 3),
-    (14, 3),
-    (3, 8),
-    (3, 9),
-    (3, 10),
-    (3, 11),
-    (4, 15),
-    (3, 15),
-    (15, 14),
-    (15, 15),
-    (16, 15),
-    (7, 9),
-];
 
 /// What the playtest ship carries: a few days of food, one suit in the
 /// locker, a few bandages and a couple of medkits, so a wound can be
@@ -557,7 +420,7 @@ fn playtest_skin(x: u32, y: u32) -> bool {
 /// It is laid out the way a small ship would be: a pointed bow with the
 /// bridge in it, the main deck amidships with the galley to port and the
 /// armoury, the bunk and the airlock to starboard, and engineering aft —
-/// the reactor, the heads, a shelf of stores, and the main engine set
+/// the heads, a shelf of stores, and the main engine set
 /// into the stern so its bell is the stern. Three compartments,
 /// and every doorway and every gangway two tiles wide, because the room's
 /// navigation cannot walk a one-tile gap (see the crate's module note);
@@ -571,30 +434,29 @@ fn playtest_skin(x: u32, y: u32) -> bool {
 /// The grid, `x` across and `y` down, hull `#`, corner pieces `/` and `\`,
 /// bulkheads `=`, doors `+`, deck `.`, and the first letter of everything
 /// else (`T` thruster, `S` sensor array, `A` airlock, `E` engine, `H` helm,
-/// `L` life support, `B` battery, then `C` cold store, `W` worktop, `H` hob,
+/// `L` life support, then `C` cold store, `W` worktop, `H` hob,
 /// `D` dishwasher, `B` locker, `S` suit locker, `A` armoury, `T` table,
-/// `C` chair, `R` the armoury's reactor, `B` bunk, `S` shelf,
-/// `T` toilet, `B` basin, `S` shower, `R` reactor, `D` drug lab, `W`
-/// workbench, `S` smelter):
+/// `C` chair, `B` bunk, `S` shelf, `T` toilet, `B` basin, `S` shower,
+/// `W` workbench):
 ///
 /// ```text
 ///  1       \##S###/
 ///  2      \......../
 ///  3     \....HH..../
-///  4    \B.........LL/
+///  4    \..........LL/
 ///  5   \...........LL./
 ///  6   #======++======#
 ///  7   TCWWHD...BS.AA.T
 ///  8   #.............B#
 ///  9   #.............B#
 /// 10   #.TT...........#
-/// 11   #.C........RR..A
-/// 12   #..........RR..A
+/// 11   #.C............A
+/// 12   #..............A
 /// 13   #============++#
 /// 14   #...SS...TBS...#
 /// 15   #..............#
-/// 16   TRR....EE...SS.T
-/// 17   #RR.DD.EEWW.SS.#
+/// 16   T......EE...SS.T
+/// 17   #......EEWW.SS.#
 /// 18   #######EE#######
 /// ```
 pub fn playtest_ship() -> ShipDesign {
@@ -686,11 +548,9 @@ pub fn playtest_ship() -> ShipDesign {
     }
 
     // The bridge: the helm on the centreline facing the bow, the pilot's
-    // spot behind it, life support and a battery in the corners the cut
-    // leaves.
+    // spot behind it, life support in the corner the cut leaves.
     put(&mut design, PartKind::Helm, (9, 3), Rotation::R0);
     put(&mut design, PartKind::LifeSupport, (14, 4), Rotation::R0);
-    put(&mut design, PartKind::Battery, (4, 4), Rotation::R0);
 
     // The main deck: the galley along the bridge bulkhead to port, worked
     // from the row below it, with the locker beyond the door; the table and
@@ -710,20 +570,11 @@ pub fn playtest_ship() -> ShipDesign {
     put(&mut design, PartKind::Chair, (4, 11), Rotation::R0);
     put(&mut design, PartKind::Bunk, (16, 8), Rotation::R0);
     // The armoury along the bridge bulkhead to starboard, forward of the
-    // bunk and worked from the row below it like the galley; and the
-    // second reactor that pays for it, amidships by the airlock. The
-    // first reactor had three units to spare and the armoury draws ten
-    // (see "Power is a column" in the crate's notes), so a fourth bench
-    // was always going to be a second reactor.
+    // bunk and worked from the row below it like the galley.
     put(&mut design, PartKind::Armoury, (14, 7), Rotation::R0);
-    put(&mut design, PartKind::Reactor, (13, 11), Rotation::R0);
 
-    // Engineering: the reactor down the port side, with the deck forward
-    // of it clear where the fuel tank stood before the engines went over
-    // to reactor power; a shelf of stores; the heads along the bulkhead to
-    // starboard; and the engine on the centreline, its bell in the stern,
-    // on the conduit that runs under it along row 16.
-    put(&mut design, PartKind::Reactor, (3, 16), Rotation::R0);
+    // Engineering: a shelf of stores; the heads along the bulkhead to
+    // starboard; and the engine on the centreline, its bell in the stern.
     put(&mut design, PartKind::Shelf, (6, 14), Rotation::R0);
     put(&mut design, PartKind::Toilet, (11, 14), Rotation::R0);
     put(&mut design, PartKind::Basin, (12, 14), Rotation::R0);
@@ -738,8 +589,8 @@ pub fn playtest_ship() -> ShipDesign {
     // The drug lab stood in the stern row to port of the engine until the
     // medicine went out of the game (task 120); nothing replaced it.
     // The research desk on the spine in engineering's forward row, between
-    // the shelves and the heads, worked from the row below it: on the
-    // conduit already, and the one two-tile spot on the ship with deck on
+    // the shelves and the heads, worked from the row below it: the one
+    // two-tile spot on the ship with deck on
     // the far side of its use spot — a spot between two solids is one the
     // room's navigation will not walk. Where a research key goes, and
     // where the AI does its thinking.
@@ -772,20 +623,6 @@ pub fn playtest_ship() -> ShipDesign {
         Rotation::R0,
     );
 
-    // The wiring: a spine of conduit from the reactor up the middle of the
-    // ship to the bow, through the bulkheads — conduit shares a tile with
-    // what stands in it — and a branch off it to everything that draws:
-    // the helm and the array at the bow, life support and the battery
-    // across the bridge, the galley along its row to the cold store, and
-    // both doors. Every consumer is on the one network, which is
-    // what `the_playtest_ship_is_wired` pins.
-    for y in 1..=16 {
-        put(&mut design, PartKind::PowerConduit, (8, y), Rotation::R0);
-    }
-    for tile in PLAYTEST_BRANCHES {
-        put(&mut design, PartKind::PowerConduit, tile, Rotation::R0);
-    }
-
     for (resource, units) in PLAYTEST_CARGO {
         if let Ok(next) = apply(&design, &budget, Edit::Buy { resource, units }) {
             design = next;
@@ -814,7 +651,7 @@ pub const COMBAT_CREW: u32 = 16;
 /// above the bulkhead, and a bunk there seals a pocket of deck. One lies
 /// along the bow to port, got into from the row below; two stand against
 /// the life support to starboard, got into from the west; one stands
-/// beside the battery to port, got into from the east — each with a
+/// in the port corner, got into from the east — each with a
 /// two-tile gangway to it, since the room's navigation cannot walk a
 /// one-tile gap. The pilot's spot and the doorway stay clear.
 pub const COMBAT_BUNKS: [((u32, u32), Rotation); 4] = [

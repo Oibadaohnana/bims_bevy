@@ -7,10 +7,9 @@
 //! naming what it wants researched first, which **tier** it sits in, and
 //! whether it is **locked** — wanting a key of that tier consumed for it. The crew set out
 //! knowing everything a crew needs to live and to fight — the hydroponic
-//! bay, the galley, the heads, the hull, the fission reactor, the
-//! workbench, the armoury, the suit locker and medicine — and research
-//! the two things that are left: fusion power, and the hyperdrive behind
-//! it.
+//! bay, the galley, the heads, the hull, the workbench, the armoury, the
+//! suit locker and medicine — and research the two things that are left:
+//! the hyperdrive, and the workbench's upgrades.
 //!
 //! # Keys
 //!
@@ -37,19 +36,17 @@
 //! [`Research::recipe_allowed`] before a bench is offered a recipe, and the
 //! app hides the rest of the palette. A design accepted in the design
 //! phase is never re-checked — the yard built it — so a ship that came
-//! with a fusion reactor keeps it; it stands idle until the crew know
-//! what to do at it.
+//! with a hyperdrive keeps it.
 //!
 //! # The queue
 //!
 //! The AI thinks about one node at a time, but it can be given a list:
 //! [`Research::enqueue`] puts a node at the back of the **queue**, and
 //! whatever it needs that is not yet known, on the AI or queued goes in
-//! ahead of it — so queueing the hyperdrive on a fresh crew queues
-//! fusion power first — refused only when
-//! something in that chain is still behind a key. [`Research::next`]
+//! ahead of it — refused only when something in that
+//! chain is still behind a key. [`Research::next`]
 //! takes an idle AI onto the first queued node it can begin, and `world`
-//! calls it every step the desk has power, so a node queued while the AI
+//! calls it every step, so a node queued while the AI
 //! is idle begins that step. Taking a node out — [`Research::dequeue`],
 //! or [`Research::cancel`] on the one the AI is on — takes out with it
 //! everything queued that needed it: the queue is always a plan that can
@@ -82,32 +79,29 @@ pub const KEY_CELLS: (u32, u32) = (1, 2);
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum Node {
     /// Everything a crew needs to live and to fly: the hull, the galley,
-    /// the heads, the bunks, the bay, the fission reactor, the helm, the
+    /// the heads, the bunks, the bay, the helm, the
     /// engines, the suit locker, the workbench and the armoury. Known at
     /// the start.
     Survival = 0,
     /// Medkits at the drug lab. Known at the start.
     Medicine = 1,
-    /// The fusion reactor. Keyless, and the one node a crew have to work
-    /// for without a key.
-    FusionPower = 2,
-    /// The hyperdrive: a jump to another star. After fusion power, behind
-    /// a tier-one key of its own.
-    Hyperdrive = 3,
+    /// The hyperdrive: a jump to another star, behind a tier-one key of
+    /// its own. (2 was fusion power, until the electricity went in October
+    /// 2026; the nodes after it closed up.)
+    Hyperdrive = 2,
     /// The workbench's upgrades: two of a kind at one tier into one of
     /// the next, one to two and two to three alike. Behind a tier-two key
     /// — the one tier-two node, and the one thing the enemy's desks are
     /// worth walking to.
-    Upgrades = 4,
+    Upgrades = 3,
 }
 
 impl Node {
     /// Every node, in discriminant order. `ALL[n as usize] == n`, which
     /// [`Node::def`] relies on and [`tree_is_sound`] checks.
-    pub const ALL: [Node; 5] = [
+    pub const ALL: [Node; 4] = [
         Node::Survival,
         Node::Medicine,
-        Node::FusionPower,
         Node::Hyperdrive,
         Node::Upgrades,
     ];
@@ -152,8 +146,7 @@ pub struct NodeDef {
 }
 
 /// The tree. Placeholder times throughout, unchanged since feature 64
-/// doubled them: two days for the fusion reactor and a day and a quarter
-/// for the hyperdrive behind it.
+/// doubled them: a day and a quarter for the hyperdrive.
 ///
 /// The money rework (feature 95) took **five nodes** out of it — mining,
 /// smelting, the workshop, emitters and the armoury — because every one
@@ -177,15 +170,8 @@ pub static RESEARCH: [NodeDef; NODES] = [
         minutes: 0,
     },
     NodeDef {
-        node: Node::FusionPower,
-        requires: &[],
-        tier: 1,
-        locked: false,
-        minutes: 2_880,
-    },
-    NodeDef {
         node: Node::Hyperdrive,
-        requires: &[Node::FusionPower],
+        requires: &[],
         tier: 1,
         locked: true,
         minutes: 1_800,
@@ -203,13 +189,12 @@ pub static RESEARCH: [NodeDef; NODES] = [
 /// at the start — which is the safe default: a new part the tree has not
 /// heard of is a part the crew can build, not one nobody can.
 ///
-/// Two parts are named and no more. The suit locker, the workbench and
+/// One part is named and no more. The suit locker, the workbench and
 /// the armoury were behind nodes the money rework took away, and are
 /// known at the start with everything else; the drug lab, the medicine's,
 /// went with the medicine (task 120).
 pub fn node_of_part(kind: PartKind) -> Node {
     match kind {
-        PartKind::FusionReactor => Node::FusionPower,
         PartKind::Hyperdrive => Node::Hyperdrive,
         _ => Node::Survival,
     }

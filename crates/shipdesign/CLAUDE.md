@@ -101,6 +101,18 @@ line in `EVENT_LINES` is dropped from the log the same way.
 
 ## Power is a column, a flood and one number
 
+> **Deleted with the electricity (October 2026).** `shipdesign::power`, the
+> reactor, the conduit, the battery and the large fusion reactor
+> (`PartKind` closed up: every code after the helm three lower, after the
+> research desk four), the utility layer, `PartDef::{power, thrust_power,
+> charge}`, `essential`, the validator's `Unpowered`, `PowerShort` and
+> `EnginesThrottled` (33–35, holes), the research tree's fusion power
+> (`Node::Hyperdrive` is 2 and `Upgrades` 3 now) — all gone. The engines
+> push flat out (`flight::dynamics` off `mass::engines`), the hyperdrive is
+> ready when it touches an engine, and the fixtures lost their reactors,
+> battery and cabling (`REFERENCE_HASH`, `REFERENCE_PARTS`, `PLAYTEST_HASH`
+> and `PLAYTEST_PARTS` re-pinned with notes). What follows is the history.
+
 `PartDef::power` is signed — `REACTOR_OUTPUT` on the reactor, negative on
 what draws, nought elsewhere — and `PartDef::charge` is `BATTERY_CHARGE` on
 the battery and nothing else. `supplies()`, `draws()` and `stores()` are
@@ -490,6 +502,9 @@ crosses the longest hop sooner, draws the whole of the reactor's spare doing
 it, and a unit of push costs the same a minute on either.
 
 ## There is no fuel: the engines run on the reactor (September 2026)
+
+> Since October 2026 there is no reactor either: the engines push flat
+> out, and nothing below about the throttle holds.
 
 `ResourceId::Fuel`, `PartKind::FuelTank` and `Storage::FuelTank` are gone,
 and — there being no save format yet — the discriminants after each were

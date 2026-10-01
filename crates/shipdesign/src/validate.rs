@@ -113,7 +113,7 @@ pub enum IssueCode {
     /// nothing at all.
     NoSensorArray = 29,
     // 30 was `NoFuelAboard`, retired with the fuel in September 2026: the
-    // engines run on the reactor now. The code is left a hole.
+    // engines ran on the reactor then. The code is left a hole.
     /// There is an airlock, and no side of it opens onto space: it stands
     /// on the deck with hull or parts all round it, a door to nowhere. A
     /// ship docks by an airlock in its skin — `crate::dock::port` — and
@@ -127,18 +127,8 @@ pub enum IssueCode {
     /// its own crew the first time the helm was touched is not a ship to
     /// accept. [`exhaust_tiles`] is which tiles, for the painter as well.
     ExhaustBlocked = 32,
-    /// A consumer with no live conduit under it — see [`crate::power`].
-    /// The parts are the consumers and the tiles their footprints.
-    Unpowered = 33,
-    /// A network drawing more than its reactors make. One issue per such
-    /// network; the parts are everything on it and the tiles its conduit.
-    PowerShort = 34,
-    /// The reactors cannot feed the engines flat out: what they have over
-    /// after the day-long draw is less than the wired engines facing one
-    /// way would burn, so the ship pushes with a fraction of its thrust —
-    /// `crate::power::thrust`. A warning, like every flight issue: the ship
-    /// still flies, slower. The parts are the throttled engines.
-    EnginesThrottled = 35,
+    // 33 to 35 were `Unpowered`, `PowerShort` and `EnginesThrottled`,
+    // retired with the electricity in October 2026. The codes are left holes.
     /// A hyperdrive with no main engine against it — see
     /// [`crate::hyperdrive`]. The parts are the loose drives and the tiles
     /// their footprints. A warning: the ship still flies, and simply cannot
@@ -243,7 +233,6 @@ pub fn validate(design: &ShipDesign, crew_count: u32) -> Vec<Issue> {
     engines(design, &mut issues);
     exhausts(design, &grid, &mut issues);
     comforts(design, &mut issues);
-    power(design, &mut issues);
     hung(design, &mut issues);
 
     issues
@@ -668,9 +657,7 @@ fn reachability(design: &ShipDesign, grid: &Grid, issues: &mut Vec<Issue>) {
 /// The four here are exactly what a trip asks for, in the order it asks:
 /// something to push with **forward** (the autopilot flies the start–arrival
 /// line and burns along it), something to turn with, somewhere to fly from,
-/// and a way off at the far end. What feeds the engines is the reactor, and
-/// that is [`power`]'s warning. A ship missing any of
-/// them still docks at the spawn station and still feeds its crew; it simply
+/// and a way off at the far end. A ship missing any of them still docks at the spawn station and still feeds its crew; it simply
 /// never leaves.
 fn engines(design: &ShipDesign, issues: &mut Vec<Issue>) {
     let engines: Vec<&crate::design::PlacedPart> = design
@@ -697,8 +684,7 @@ fn engines(design: &ShipDesign, issues: &mut Vec<Issue>) {
     if design.count(PartKind::SensorArray) == 0 {
         issues.push(Issue::warning(IssueCode::NoSensorArray));
     }
-    // A hyperdrive bolted to nothing jumps nothing. Its power is the power
-    // check's, like any consumer's.
+    // A hyperdrive bolted to nothing jumps nothing.
     let loose = crate::hyperdrive::unconnected(design);
     if !loose.is_empty() {
         let mut tiles: Vec<(u32, u32)> = Vec::new();
@@ -728,78 +714,6 @@ fn comforts(design: &ShipDesign, issues: &mut Vec<Issue>) {
     let food = design.carrying(ResourceId::Vegetable) + design.carrying(ResourceId::Tofu);
     if food == 0 {
         issues.push(Issue::warning(IssueCode::NoFoodAboard));
-    }
-}
-
-/// What is wired and what is not, and what the wiring can feed. Three
-/// warnings, like the flight ones and for the same reason: a ship that cannot run its cold store is still a
-/// ship you can live on, for a while, and refusing it would be the design
-/// phase having an opinion about how to play.
-///
-/// Unpowered consumers are one issue with every one of them in it, so the
-/// deck shows them all at once; a short network is one issue each, because
-/// the fix is on that run; and throttled engines are one issue, because the
-/// fix is a reactor.
-fn power(design: &ShipDesign, issues: &mut Vec<Issue>) {
-    let dark = crate::power::unpowered(design);
-    if !dark.is_empty() {
-        let mut tiles: Vec<(u32, u32)> = Vec::new();
-        for &id in &dark {
-            if let Some(part) = design.part(id) {
-                tiles.extend(part.tiles());
-            }
-        }
-        issues.push(Issue {
-            severity: Severity::Warning,
-            code: IssueCode::Unpowered.code(),
-            parts: dark,
-            tiles,
-        });
-    }
-    for net in crate::power::networks(design) {
-        if net.live() && net.short() {
-            issues.push(Issue {
-                severity: Severity::Warning,
-                code: IssueCode::PowerShort.code(),
-                parts: net.parts,
-                tiles: net.tiles,
-            });
-        }
-    }
-    // And the engines the reactors cannot feed flat out: one issue, the
-    // throttled sets' engines in it. Only the wired ones — a dark engine
-    // is `Unpowered` above, and pushes nothing rather than less.
-    let thrust = crate::power::thrust(design);
-    if thrust.throttled() {
-        let live = crate::power::networks(design)
-            .into_iter()
-            .filter(|net| net.live())
-            .flat_map(|net| net.parts)
-            .collect::<Vec<u32>>();
-        let mut parts: Vec<u32> = design
-            .parts
-            .iter()
-            .filter(|p| p.kind.def().pushes() && live.contains(&p.id))
-            .filter(|p| match p.rotation.facing() {
-                Facing::Forward => thrust.forward_throttle < 1.0,
-                Facing::Backward => thrust.backward_throttle < 1.0,
-                Facing::Left | Facing::Right => false,
-            })
-            .map(|p| p.id)
-            .collect();
-        parts.sort_unstable();
-        let mut tiles: Vec<(u32, u32)> = Vec::new();
-        for &id in &parts {
-            if let Some(part) = design.part(id) {
-                tiles.extend(part.tiles());
-            }
-        }
-        issues.push(Issue {
-            severity: Severity::Warning,
-            code: IssueCode::EnginesThrottled.code(),
-            parts,
-            tiles,
-        });
     }
 }
 

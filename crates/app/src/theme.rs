@@ -50,9 +50,6 @@ pub const ARMOUR: egui::Color32 = egui::Color32::from_rgb(0x6f, 0xa8, 0xe8);
 /// and slot, a tier-three one gold; tier one is untinted.
 pub const TIER_TWO: egui::Color32 = egui::Color32::from_rgb(0x5a, 0x9c, 0xf0);
 pub const TIER_THREE: egui::Color32 = egui::Color32::from_rgb(0xf0, 0xc4, 0x4a);
-/// The numbers the electricity view writes over the drainers: what each
-/// draws, in the yellow of a meter's needle.
-pub const DRAW: egui::Color32 = egui::Color32::from_rgb(0xff, 0xe0, 0x3c);
 /// The hyperdrive's violet: the star picked on the galaxy chart, and the
 /// charge bar.
 pub const HYPER: egui::Color32 = egui::Color32::from_rgb(0x9e, 0x6b, 0xdb);

@@ -1773,16 +1773,6 @@ impl Session {
         }
     }
 
-    /// The numbers the electricity view puts over the drainers, in the
-    /// camera's units — `world_paint::power_labels`. Empty before there is
-    /// a world.
-    pub fn power_labels(&self) -> Vec<world_paint::PowerLabel> {
-        match &self.game {
-            Some(game) => world_paint::power_labels(game),
-            None => Vec::new(),
-        }
-    }
-
     /// How many residents are being simulated. Nought away from any
     /// station, and nought at a derelict. Docked or not, they are in the
     /// station's own room.
@@ -1927,21 +1917,15 @@ impl Session {
 
     /// The part under the pointer in the ship view, or `None` — the top of
     /// the tile, the way the designer's `hovered_part` answers: what is
-    /// standing there, else the conduit through it, else the deck, else the
-    /// frame.
+    /// standing there, else the deck, else the frame.
     pub fn game_hovered_part(&self) -> Option<u32> {
         let game = self.game.as_ref()?;
         let tile = game.hover?;
         let grid = game.world.ship.design.grid();
-        [
-            Layer::Object,
-            Layer::Utility,
-            Layer::Floor,
-            Layer::Structure,
-        ]
-        .into_iter()
-        .map(|layer| grid.get(layer, tile))
-        .find(|&id| id != 0)
+        [Layer::Object, Layer::Floor, Layer::Structure]
+            .into_iter()
+            .map(|layer| grid.get(layer, tile))
+            .find(|&id| id != 0)
     }
 
     /// Whether the pointer is over the hull at all.

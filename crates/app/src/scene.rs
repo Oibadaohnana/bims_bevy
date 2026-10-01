@@ -593,6 +593,22 @@ fn sync(
             }
         }
     }
+    // A frame with no shapes at all (the menus, the map) lets the shape
+    // slots and the shared quad meshes go, and the next frame with some
+    // makes them afresh. A quad mesh lives on the GPU alone
+    // (`RENDER_WORLD`), and once nothing drew with it for a while — the
+    // menus between two runs — its GPU copy was gone while the cache still
+    // handed out its handle: the next run drew no deck at all.
+    if used_shapes == 0 {
+        for slot in pool.shapes.drain(..) {
+            commands.entity(slot.entity).despawn();
+            shape_materials.remove(&slot.material);
+            buffers.remove(&slot.buffer);
+        }
+        for (_, mesh) in quads.by_size.drain(..) {
+            meshes.remove(&mesh);
+        }
+    }
     let idle = pool.slots[used..].iter().map(|s| s.entity);
     let idle = idle.chain(pool.shapes[used_shapes..].iter().map(|s| s.entity));
     for entity in idle {

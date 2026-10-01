@@ -1300,8 +1300,11 @@ fn frame(
         &mut bindings,
         &mut screen.saves,
         Allowed::of(false, online.is_guest()),
-        None,
     );
+    if asked == Some(crate::save::Request::ToMenu) {
+        online.leave();
+        next.set(Screen::Menu);
+    }
     if let Some(crate::save::Request::Load(path)) = asked {
         let read = crate::save::read(&path).and_then(|text| {
             if let Some(here) = online.room_size()

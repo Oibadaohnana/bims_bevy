@@ -453,6 +453,13 @@ real ones. `BIMS_AT_BELT=1 bims simulation` is the picture, and
 
 ## The conduit is drawn linked, and only in the electricity view
 
+> **Deleted with the electricity (October 2026):** the conduit, its
+> pictures (`fittings::conduit`, `conduit_links`, `paint::conduit`), the
+> Electricity overlay (`Game::overlay`, `Overlay`, `world_paint::electricity`,
+> `power_labels`, `Session::power_labels`) and the Esc sheet's View toggle;
+> the reactor's and the battery's pictures and the reactor's glow with them.
+> What follows is the history.
+
 `fittings::conduit` is **not** reached through `fittings::part`: it takes
 `links` — which of the four neighbours is also conduit, from
 `fittings::conduit_links`, the same four-neighbour rule `shipdesign::power`

@@ -8512,13 +8512,6 @@ impl Game {
         self.room.sight.set_daylight(over);
     }
 
-    /// Lamp `i` has power or has not — dark and whole without it. The
-    /// world's, off the ship's wiring and its brownout. See
-    /// `Sight::set_lamp_powered`.
-    pub fn set_lamp_powered(&mut self, i: usize, powered: bool) {
-        self.room.sight.set_lamp_powered(i, powered);
-    }
-
     /// A bolt landed on lamp `i` for `damage`, with nothing fired: the
     /// hit as the fight would land it, flicker and all, and the world
     /// told of it like any other. For probes and `BIMS_LAMPS_OUT`.

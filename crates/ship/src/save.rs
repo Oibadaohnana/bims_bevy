@@ -216,7 +216,9 @@ use crate::game::Game;
 /// `Hit`, `GearSlot::{Weapon, Armour}`, `Character::bleeding`.
 /// 80: a smaller galaxy (240 stars, not 600) — no shape moved, but a save
 /// may name a star the galaxy no longer has.
-pub const SAVE_VERSION: u32 = 80;
+/// 81: the electricity gone — the part codes closed up, three layers
+/// where there were four, `Ship::charge` and `Lamp::powered` gone.
+pub const SAVE_VERSION: u32 = 81;
 
 /// What the file holds, read back.
 #[derive(serde::Deserialize)]

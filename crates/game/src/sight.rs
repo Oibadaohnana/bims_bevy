@@ -108,13 +108,6 @@ pub struct Lamp {
     pub at: Vec2,
     /// What it has left of [`LAMP_HEALTH`]; nought or under is out.
     pub health: f32,
-    /// Whether it has power: off, it is as dark as one shot out — its
-    /// light off the tile mask and the picture — but whole, and comes
-    /// back the moment the power does. The world's to set
-    /// (`Sight::set_lamp_powered`): a lamp on no live network, or any
-    /// lamp in a brownout. On to start with, since a room never told is
-    /// a bare room, which has no reactor to lose.
-    pub powered: bool,
     /// How bright it is shown, nought to one: one steady, nought dark,
     /// between while it flickers.
     pub level: f32,
@@ -125,16 +118,9 @@ pub struct Lamp {
 }
 
 impl Lamp {
-    /// Whether it is broken: shot to nothing. Never true of a lamp that
-    /// is merely unpowered.
+    /// Whether it is broken: shot to nothing.
     pub fn is_out(&self) -> bool {
         self.health <= 0.0
-    }
-
-    /// Whether it gives no light: out, or unpowered. What the tile mask,
-    /// the field and the picture read.
-    pub fn is_dark(&self) -> bool {
-        self.is_out() || !self.powered
     }
 
     pub fn is_failing(&self) -> bool {
@@ -564,7 +550,6 @@ impl Sight {
             .map(|l| Lamp {
                 at: l.at,
                 health: LAMP_HEALTH,
-                powered: true,
                 level: 1.0,
                 flicker: 0.0,
                 window: 0,
@@ -587,7 +572,7 @@ impl Sight {
             *l = false;
         }
         for (light, lamp) in self.lights.iter().zip(&self.lamps) {
-            if lamp.is_dark() {
+            if lamp.is_out() {
                 continue;
             }
             let (lx, ly) = self.tile_of(light.at);
@@ -730,31 +715,12 @@ impl Sight {
         std::mem::take(&mut self.lamp_changes)
     }
 
-    /// Lamp `i` has power, or has not: unpowered it is dark — off the
-    /// tile mask and the picture like one shot out — and whole, so it
-    /// comes straight back when the power does. The world's, every step,
-    /// off the ship's wiring and its brownout; nothing here decides it.
-    /// No flicker either way: a reactor does not gutter.
-    pub fn set_lamp_powered(&mut self, i: usize, powered: bool) {
-        let Some(lamp) = self.lamps.get_mut(i) else {
-            return;
-        };
-        if lamp.powered == powered {
-            return;
-        }
-        let was_dark = lamp.is_dark();
-        lamp.powered = powered;
-        if lamp.is_dark() != was_dark {
-            self.lamp_switched(i);
-        }
-    }
-
     /// Lamp `i` went dark, or came back: nothing shown or all of it, its
     /// light off the tile mask or on it, its share of the field taken
     /// out or put back over its reach, and every eye marched again,
     /// since what a lamp lit is what was seen by it.
     fn lamp_switched(&mut self, i: usize) {
-        self.lamps[i].level = if self.lamps[i].is_dark() { 0.0 } else { 1.0 };
+        self.lamps[i].level = if self.lamps[i].is_out() { 0.0 } else { 1.0 };
         self.lamps[i].flicker = 0.0;
         self.relight();
         if let Some(field) = self.lamp_fields.get(i) {
@@ -777,7 +743,7 @@ impl Sight {
         let t = self.lamp_seconds;
         for i in 0..self.lamps.len() {
             let lamp = &mut self.lamps[i];
-            if lamp.is_dark() {
+            if lamp.is_out() {
                 continue;
             }
             if lamp.flicker <= 0.0 && lamp.is_failing() {
@@ -1657,7 +1623,7 @@ impl Sight {
         let mut shown = vec![0u32; width * (y1 + 1 - y0)];
         let mut nominal = vec![0u32; if eyes { shown.len() } else { 0 }];
         for (field, lamp) in self.lamp_fields.iter().zip(&self.lamps) {
-            if lamp.is_dark() {
+            if lamp.is_out() {
                 continue;
             }
             let level = (lamp.level.clamp(0.0, 1.0) * 256.0) as u32;

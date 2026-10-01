@@ -12,10 +12,8 @@
 //! comment: `four_thrusters_flip_the_reference_inside_two_hours`.
 //!
 //! There used to be a second, the fuel a unit of thrust burnt a minute, set
-//! so one tank crossed the longest reference hop. There is no fuel now: the
-//! engines run on the reactor, and what bounds a trip is how hard the
-//! reactor lets them push — `shipdesign::power::thrust` — which is in the
-//! `Dynamics` before a plan is made.
+//! so one tank crossed the longest reference hop. There is no fuel now, and no
+//! power either: the engines push flat out.
 
 /// How close to a station a trip finishes.
 ///

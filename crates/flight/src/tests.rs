@@ -5,13 +5,11 @@
 //! arithmetic is what is under test and a real ship's numbers would only make
 //! the sums harder to read. The last few use
 //! `shipdesign::fixture::flyer`, because the placeholder constants —
-//! `torque_thrust`, and the reactor's output against the engine's draw —
-//! are chosen against *that ship* and a scenario, and a test with
+//! `torque_thrust` among them — are chosen against *that ship* and a scenario, and a test with
 //! hand-picked numbers in it could not tell you whether they were still any
 //! good.
 
 use shipdesign::fixture::flyer;
-use shipdesign::parts::ENGINE_POWER;
 use worldgen::math::{DVec2, dvec2};
 
 use crate::angle;
@@ -39,10 +37,6 @@ fn made_up(a_forward: f64, a_backward: f64, alpha: f64) -> Dynamics {
         alpha,
         forward_engines: 1,
         backward_engines: if a_backward > 0.0 { 1 } else { 0 },
-        forward_power: if a_forward > 0.0 { ENGINE_POWER } else { 0.0 },
-        backward_power: if a_backward > 0.0 { ENGINE_POWER } else { 0.0 },
-        forward_throttle: 1.0,
-        backward_throttle: 1.0,
         has_helm: true,
         has_airlock: true,
     }
@@ -366,45 +360,6 @@ fn the_quicker_brake_is_the_one_that_is_used() {
     assert!(plan.segments.iter().any(|s| s.phase == Phase::Flip));
 }
 
-/// A thruster draws nothing, so the engines' power is nought through every
-/// turn and the dynamics' figure under the engines — the forward set's on
-/// the way out and after a flip, the backward set's braking without one.
-#[test]
-fn power_is_drawn_by_engines_and_by_nothing_else() {
-    let d = made_up(0.05, 0.0, 1e-3);
-    let plan = northward(&d, 400_000.0, 2.0);
-    assert_eq!(effort_at(&plan, -1.0).power, 0.0);
-    assert_eq!(effort_at(&plan, plan.duration() + 1.0).power, 0.0);
-
-    let mut at = 0.0;
-    for segment in &plan.segments {
-        let effort = effort_at(&plan, at + segment.duration / 2.0);
-        if segment.engines == 0 {
-            assert_eq!(
-                effort.power, 0.0,
-                "{:?} drew with nothing lit",
-                segment.phase
-            );
-        } else {
-            assert_eq!(effort.power, d.forward_power, "{:?}", segment.phase);
-        }
-        at += segment.duration;
-    }
-
-    // Braking on the backward engines is that set's draw, not the other's.
-    let mut both = made_up(0.05, 0.05, 1e-3);
-    both.backward_power = 250.0;
-    let plan = northward(&both, 400_000.0, 0.0);
-    let brake = plan
-        .segments
-        .iter()
-        .find(|s| s.phase == Phase::Brake)
-        .expect("a brake");
-    assert!(!plan.segments.iter().any(|s| s.phase == Phase::Flip));
-    assert_eq!(brake.power, 250.0);
-    assert_eq!(plan.segments[0].power, ENGINE_POWER);
-}
-
 /// Every refusal, each from the smallest case that produces it.
 #[test]
 fn a_trip_that_cannot_be_flown_says_which_way_it_cannot() {
@@ -503,10 +458,10 @@ fn docking_wants_an_airlock_as_well_as_a_station() {
 /// the one thing "come to rest along the current line" must not do.
 /// Aborting while still turning to face the target is the one case with
 /// nothing to brake. It takes the spin out and holds.
-/// An abort's brake is a burn like any other: it draws the set's power
-/// while the engines are lit and nothing through the turn before it.
+/// An abort's brake is a burn like any other: the set's engines lit, and
+/// nothing through the turn before it.
 #[test]
-fn an_abort_ends_at_rest_stops_an_align_and_its_brake_draws_the_engines_draw() {
+fn an_abort_ends_at_rest_stops_an_align_and_its_brake_lights_the_engines() {
     // --- an_abort_ends_at_rest_without_going_backwards ---
     {
         let d = made_up(0.05, 0.0, 1e-3);
@@ -557,14 +512,10 @@ fn an_abort_ends_at_rest_stops_an_align_and_its_brake_draws_the_engines_draw() {
             close(end.heading, stop.final_heading()),
             "the plan and the walk disagree about where it finished pointing",
         );
-        assert!(
-            stop.segments
-                .iter()
-                .all(|s| s.power == 0.0 && s.engines == 0)
-        );
+        assert!(stop.segments.iter().all(|s| s.engines == 0));
     }
 
-    // --- an_abort_s_brake_draws_what_the_engines_draw ---
+    // --- an_abort_s_brake_lights_the_engines ---
     {
         let d = made_up(0.05, 0.0, 1e-3);
         let plan = northward(&d, 400_000.0, 0.0);
@@ -575,10 +526,9 @@ fn an_abort_ends_at_rest_stops_an_align_and_its_brake_draws_the_engines_draw() {
             .iter()
             .find(|s| s.phase == Phase::Brake)
             .expect("a brake");
-        assert_eq!(brake.power, d.forward_power);
         assert_eq!(brake.engines, d.forward_engines);
         for turn in stop.segments.iter().filter(|s| s.phase == Phase::Flip) {
-            assert_eq!(turn.power, 0.0);
+            assert_eq!(turn.engines, 0);
         }
     }
 }
@@ -603,20 +553,13 @@ fn four_thrusters_flip_the_reference_inside_two_hours() {
     );
 }
 
-/// One reactor, and the longest hop the world generator will ever put
-/// between two things in a system. This is what `REACTOR_OUTPUT` against
-/// `ENGINE_POWER` is set by: the flyer's one engine is fed flat out off its
-/// one reactor with the ship's systems running, and a ship that cannot
-/// cross its own system is a ship with nowhere to go.
+/// The longest hop the world generator will ever put between two things in
+/// a system: a ship that cannot cross its own system is a ship with nowhere
+/// to go.
 #[test]
-fn the_flyer_crosses_the_longest_reference_hop_on_its_reactor() {
+fn the_flyer_crosses_the_longest_reference_hop() {
     let design = flyer(4);
     let d = dynamics(&design, 4).unwrap();
-    assert_eq!(
-        d.forward_throttle, 1.0,
-        "the reactor feeds the engine flat out"
-    );
-    assert_eq!(d.forward_power, ENGINE_POWER);
     assert_eq!(d.forward_engines, 1);
     let hop = worldgen::data::reference_distance(worldgen::data::TRAVEL_BAND.max_days)
         .expect("the reference ship has a longest hop");
@@ -632,16 +575,10 @@ fn the_flyer_crosses_the_longest_reference_hop_on_its_reactor() {
     assert!(days < 400.0, "the longest hop took {days} days");
 }
 
-/// The second engine, and the trade it is: the flyer with its engine swapped
-/// for a heavy one crosses the longest hop **faster** and draws **more**
-/// doing it — the whole of what the one reactor has over, since a heavy
-/// engine flat out wants twice a basic reactor, so it is throttled to under
-/// half and still out-pushes the small one. Power goes as thrust, so what a
-/// unit of push costs a minute is the same for both whatever the ship
-/// weighs — which is what keeps the heavy one from being the only engine
-/// worth having.
+/// The second engine: the flyer with its engine swapped for a heavy one is
+/// heavier and still crosses the longest hop **faster**.
 #[test]
-fn the_heavy_engine_is_faster_and_dearer_over_the_same_hop() {
+fn the_heavy_engine_is_faster_over_the_same_hop() {
     let light = flyer(4);
     let mut heavy = light.clone();
     // Swapped in place rather than placed: the kind is what is under test,
@@ -660,22 +597,6 @@ fn the_heavy_engine_is_faster_and_dearer_over_the_same_hop() {
         dh.a_forward > dl.a_forward,
         "and still pushes the ship harder"
     );
-    assert_eq!(dl.forward_throttle, 1.0);
-    assert!(
-        dh.forward_throttle < 0.5,
-        "throttled to {}",
-        dh.forward_throttle
-    );
-    assert!(
-        dh.forward_throttle > 0.4,
-        "throttled to {}",
-        dh.forward_throttle
-    );
-    assert!(dh.forward_power > dl.forward_power);
-    assert!(close(
-        dh.forward_power / (dh.a_forward * dh.mass.get()),
-        dl.forward_power / (dl.a_forward * dl.mass.get()),
-    ));
 
     let hop = worldgen::data::reference_distance(worldgen::data::TRAVEL_BAND.max_days).unwrap();
     let there = dvec2(0.0, hop);
@@ -686,12 +607,6 @@ fn the_heavy_engine_is_faster_and_dearer_over_the_same_hop() {
         "heavy {} min, light {} min",
         ph.duration(),
         pl.duration()
-    );
-    assert!(
-        ph.segments[0].power > pl.segments[0].power,
-        "heavy {} a minute, light {} a minute",
-        ph.segments[0].power,
-        pl.segments[0].power
     );
 }
 
@@ -728,15 +643,13 @@ fn the_flyer_can_be_flown_somewhere_and_this_is_what_it_flies_like() {
         let plan = plan_trip(&d, DVec2::ZERO, 0.0, Target::Station(0), there).unwrap();
         println!(
             "mass {:.0}  a_forward {:.5}  inertia {:.3e}  alpha {:.3e}\n\
-             flip {:.1} min  longest hop {:.1} days, throttle {:.2}, {:.0} a minute under way",
+             flip {:.1} min  longest hop {:.1} days",
             d.mass.get(),
             d.a_forward,
             d.inertia,
             d.alpha,
             Spin::swing(std::f64::consts::PI, d.alpha).duration(),
             time::days(plan.duration()),
-            d.forward_throttle,
-            d.forward_power,
         );
     }
 }

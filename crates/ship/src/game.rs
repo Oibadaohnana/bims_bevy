@@ -72,23 +72,6 @@ const AIRLOCK_EASE: f32 = 0.18;
 /// the map is first opened.
 const MAP_FIT: f32 = 0.8;
 
-/// What the ship view is drawn to show, over and above the ship: the Esc
-/// sheet's View toggle (the tray's View tab until feature 107). A view
-/// setting like `Game::head_up` — this window's own, read
-/// by the painter and by nothing that decides anything.
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
-pub enum Overlay {
-    /// The ship as it is: the deck, the parts, the crew. The conduit under
-    /// the deck is not drawn, because at the game's scale a run through
-    /// every powered room is wiring over the picture.
-    #[default]
-    Plain,
-    /// Electricity: the conduit is drawn, and everything that makes, holds
-    /// or draws power is rung — lit if it is on a live network, warned if
-    /// it is not.
-    Electricity,
-}
-
 pub struct Game {
     pub world: World,
     pub mode: ViewMode,
@@ -120,9 +103,6 @@ pub struct Game {
     /// on, so a rock under the pointer is rung. A tool setting, this
     /// window's own; a mark itself is a command and crosses the seam.
     pub marking: bool,
-    /// What the ship view is showing over the ship — the Esc sheet's View toggle.
-    /// A view setting like `head_up`, this window's own.
-    pub overlay: Overlay,
     /// The part the player is about to lay out, and which way round: the
     /// Build tab's tool, drawn as a blueprint under the pointer. A tool
     /// setting, this window's own, like `marking`; the site itself is a
@@ -251,7 +231,6 @@ impl Game {
             spectate: None,
             map_anchor: DVec2::ZERO,
             marking: false,
-            overlay: Overlay::default(),
             placing: None,
             ghost_check: None,
             frame: 0,
@@ -296,7 +275,6 @@ impl Game {
             spectate: None,
             map_anchor: DVec2::ZERO,
             marking: false,
-            overlay: Overlay::default(),
             placing: None,
             ghost_check: None,
             frame: 0,

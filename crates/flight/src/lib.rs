@@ -23,11 +23,8 @@
 //! # What is deliberately absent
 //!
 //! Manual flight, collisions, gravity, moving bodies, a speed limit, engine
-//! exhaust, fuel, and any notion of a ship that is not a rigid body. Power
-//! comes in exactly once, as the throttle `shipdesign::power::thrust` puts
-//! on the engines before the dynamics are worked out, and as what the lit
-//! engines draw, carried on every segment for the world to charge. A trip
-//! is a straight line between two points that do not move, because in this
+//! exhaust, fuel, power, and any notion of a ship that is not a rigid body.
+//! A trip is a straight line between two points that do not move, because in this
 //! world nothing in a system moves except the ship.
 
 pub mod angle;

@@ -32,7 +32,7 @@
 //! "keep twenty medkits" — is the world's, set by the player, and it is
 //! what turns a row into an errand: a recipe is on offer while the hold has
 //! fewer of its output than the target, the inputs for one, room for the
-//! output, a bench of its station aboard, and that station powered.
+//! output, and a bench of its station aboard.
 //!
 //! # What a made thing is worth
 //!
@@ -49,9 +49,7 @@ use crate::parts::PartKind;
 /// One thing the crew can make.
 #[derive(Clone, Copy, Debug)]
 pub struct Recipe {
-    /// Which part a Bim stands at to make it. Has to draw power — a
-    /// workstation that ran in a brownout would be one the reactor was
-    /// not needed for.
+    /// Which part a Bim stands at to make it: a workstation.
     pub station: PartKind,
     /// Units of each resource taken out of the hold. Never empty, and no
     /// resource twice.
@@ -82,13 +80,13 @@ impl Recipe {
     }
 }
 
-/// Whether the table holds together: every recipe on a station that draws,
-/// with something in, one thing out that is not also in, no input twice,
+/// Whether the table holds together: every recipe on a workstation, with
+/// something in, one thing out that is not also in, no input twice,
 /// every count above nought, and the mass rule — what comes out weighs
 /// exactly what went in.
 pub fn recipes_are_sound() -> bool {
     RECIPES.iter().all(|r| {
-        let station = r.station.def().draws();
+        let station = is_workstation(r.station);
         let inputs = !r.inputs.is_empty()
             && r.inputs.iter().enumerate().all(|(i, &(id, units))| {
                 units > 0 && id != r.output.0 && !r.inputs[..i].iter().any(|&(seen, _)| seen == id)

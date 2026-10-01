@@ -80,7 +80,7 @@ pub fn resident_name(station: u32, who: u32) -> String {
 
 /// What each part is called. Indexed by the `PartKind` discriminant in
 /// `crates/shipdesign/src/parts.rs`.
-pub const PART_NAMES: [&str; 48] = [
+pub const PART_NAMES: [&str; 44] = [
     "Deck plating",
     "Wall",
     "Door",
@@ -99,9 +99,6 @@ pub const PART_NAMES: [&str; 48] = [
     "Structure",
     "Outside wall",
     "Helm",
-    "Fusion reactor",
-    "Power conduit",
-    "Battery",
     "Life support",
     "Airlock",
     "Sensor array",
@@ -117,7 +114,6 @@ pub const PART_NAMES: [&str; 48] = [
     "Trading desk",
     "Sandbags",
     "Research desk",
-    "Large fusion reactor",
     "Hyperdrive",
     "Wall light",
     "Standing light",
@@ -169,10 +165,6 @@ pub const PART_GROUPS: &[(&str, &[u32])] = &[
             PartKind::Thruster as u32,
             PartKind::Hyperdrive as u32,
             PartKind::Helm as u32,
-            PartKind::Reactor as u32,
-            PartKind::FusionReactor as u32,
-            PartKind::PowerConduit as u32,
-            PartKind::Battery as u32,
             PartKind::LifeSupport as u32,
             PartKind::SensorArray as u32,
         ],
@@ -357,13 +349,6 @@ pub fn issue_line(code: u32) -> Option<&'static str> {
         32 => {
             "An engine is firing into the ship — the tiles behind its bell have to be open space. Put it at the stern, bell outwards."
         }
-        33 => "Nothing powers this. Run conduit under it from a reactor.",
-        34 => {
-            "This run draws more than its reactor makes. The batteries will go flat and the ship will brown out."
-        }
-        35 => {
-            "The reactor cannot feed these engines flat out: the ship will push with a fraction of its thrust. Add a reactor, or take an engine off."
-        }
         36 => {
             "The hyperdrive is bolted to nothing: put it against a main engine, block to block, or it will never jump."
         }
@@ -536,6 +521,8 @@ pub const LOAD_GUEST: &str = "Only the host can load a game.";
 /// The Esc sheet's Restart (feature 79): the menu's button, the page's
 /// line, the button that does it, and the two reasons it is greyed.
 pub const RESTART_BUTTON: &str = "Restart";
+/// The Esc sheet's way out of a game, back to the start menu.
+pub const MENU_BUTTON: &str = "Back to menu";
 pub const RESTART_LINE: &str = "Play this run again from the situation it opened in — the fight, the town, the landing, or the run the lobby started. Everything since is lost, and a saved game is not touched.";
 pub const RESTART_AGAIN: &str = "Start again";
 pub const RESTART_NONE: &str = "Nothing to restart yet: the run starts when the ship is accepted.";
@@ -1462,7 +1449,11 @@ pub fn event_line(event: WorldEvent) -> Option<String> {
         WorldEvent::CrewRevived { who: w, by } => {
             format!("{} brought {} round.", who(by), who(w))
         }
-        WorldEvent::ResidentRevived { station, who: w, by } => {
+        WorldEvent::ResidentRevived {
+            station,
+            who: w,
+            by,
+        } => {
             format!("{} brought {} round.", who(by), resident_name(station, w))
         }
         // A piece at nothing is still worn and does nothing for the rest of
@@ -1500,11 +1491,6 @@ pub fn event_line(event: WorldEvent) -> Option<String> {
         WorldEvent::Infested { star } => format!(
             "The machines have this system. Every station round star {star} is theirs: nobody left aboard, nothing to trade, nobody to hire."
         ),
-        WorldEvent::Brownout => {
-            "Brownout: the batteries are flat and the ship draws more than it makes. The lamps are out and the benches have stopped."
-                .into()
-        }
-        WorldEvent::PowerRestored => "Power restored.".into(),
         WorldEvent::CrewLost => "Nobody of the crew is standing. The run is over.".into(),
         // Every class is a ranked kit since task 139: a level is a point.
         WorldEvent::LevelUp { who: w, level, .. } => format!(
@@ -1604,7 +1590,10 @@ pub fn event_line(event: WorldEvent) -> Option<String> {
         WorldEvent::Returning { slot } => format!("{} is heading back to the ship.", who(slot)),
         WorldEvent::DepartureAsked { behind } => departure_asked(behind),
         WorldEvent::DepartureDeclined { slot } => {
-            format!("{} will not leave them behind. The ship stays.", player_name(slot))
+            format!(
+                "{} will not leave them behind. The ship stays.",
+                player_name(slot)
+            )
         }
         WorldEvent::LeftSite { cleared: true, .. } => LEFT_CLEARED.into(),
         WorldEvent::LeftSite { cleared: false, .. } => LEFT_UNCLEARED.into(),
@@ -1623,7 +1612,10 @@ pub fn event_line(event: WorldEvent) -> Option<String> {
             }
         }
         WorldEvent::Combined { slot, tier, .. } => {
-            format!("{} combined two into one of tier {tier}.", player_name(slot))
+            format!(
+                "{} combined two into one of tier {tier}.",
+                player_name(slot)
+            )
         }
         WorldEvent::RelicBought { slot, relic, price } => format!(
             "{} holds {} now. The pool paid {}.",
@@ -1656,14 +1648,18 @@ pub fn event_line(event: WorldEvent) -> Option<String> {
             player_name(to)
         ),
         WorldEvent::OfferTaken { from, to, .. } => {
-            format!("{} took what {} offered.", player_name(to), player_name(from))
+            format!(
+                "{} took what {} offered.",
+                player_name(to),
+                player_name(from)
+            )
         }
         WorldEvent::OfferWithdrawn { from, .. } => {
             format!("{}'s offer is withdrawn.", player_name(from))
         }
-        WorldEvent::KeyFound { keys } => format!(
-            "A research key picked up — the crew hold {keys}."
-        ),
+        WorldEvent::KeyFound { keys } => {
+            format!("A research key picked up — the crew hold {keys}.")
+        }
         WorldEvent::BotLost { who: w } => format!("{} is gone for good.", who(w)),
         WorldEvent::TownFell { .. } => TOWN_FELL.into(),
         WorldEvent::PlayerGone { slot } => format!("{} has left the game.", player_name(slot)),
@@ -1673,7 +1669,9 @@ pub fn event_line(event: WorldEvent) -> Option<String> {
         }
         WorldEvent::AllReady => "Everybody is ready. The mission is under way.".into(),
         WorldEvent::RelicsOffered { source: 0, count } => {
-            format!("The site is cleared: {count} relics on offer. Each player picks one; the same pick goes by the dice.")
+            format!(
+                "The site is cleared: {count} relics on offer. Each player picks one; the same pick goes by the dice."
+            )
         }
         WorldEvent::RelicsOffered { .. } => {
             "The cache holds a relic. Choose who takes it — kept if the site is cleared.".into()
@@ -1726,7 +1724,10 @@ pub fn event_line(event: WorldEvent) -> Option<String> {
                 format!("{} phases out — nothing hurts for a moment.", who(w))
             }
             Some(world::Relic::SignalScrambler) => {
-                format!("{} drops off the machines' sights — Signal Scrambler.", who(w))
+                format!(
+                    "{} drops off the machines' sights — Signal Scrambler.",
+                    who(w)
+                )
             }
             Some(world::Relic::Lifeline) => format!(
                 "{} throws a Lifeline — nothing hurts either of them for a moment.",
@@ -1743,9 +1744,7 @@ pub fn event_line(event: WorldEvent) -> Option<String> {
             // Fired every kill or every ability: the log would be nothing
             // else in a fight.
             Some(
-                world::Relic::SquadMorale
-                | world::Relic::SprintCoil
-                | world::Relic::TetherField,
+                world::Relic::SquadMorale | world::Relic::SprintCoil | world::Relic::TetherField,
             ) => String::new(),
             Some(r) => format!("{}: {}.", who(w), relic_name(r)),
             None => String::new(),
@@ -2554,14 +2553,6 @@ pub fn held_weapon_line(name: &str, tier: u32) -> String {
     format!("{name} T{tier}")
 }
 
-/// The Esc sheet's view toggle, which the View tab was.
-pub const VIEW_HEADING: &str = "View";
-pub const VIEW_PLAIN: &str = "Plain";
-pub const VIEW_PLAIN_HINT: &str = "The ship as it is.";
-pub const VIEW_POWER: &str = "Electricity";
-pub const VIEW_POWER_HINT: &str =
-    "The power cables, and everything that makes, holds or draws power.";
-
 /// The world map's column.
 pub const MAP_CLOSE: &str = "Close";
 /// The column pops out from the right edge and is retracted to begin
@@ -3296,11 +3287,15 @@ mod tests {
         {
             // The codes are written out in `IssueCode` and never renumbered:
             // 1 to 12 and 20 to 37, with the gap on purpose — and 30, the fuel
-            // warning, retired with the fuel and left a hole.
-            for code in (1..=12).chain(20..=37).filter(|&c| c != 30) {
+            // warning, retired with the fuel, and 33 to 35, the power's,
+            // retired with the electricity, left holes.
+            let retired = |c: u32| c == 30 || (33..=35).contains(&c);
+            for code in (1..=12).chain(20..=37).filter(|&c| !retired(c)) {
                 assert!(issue_line(code).is_some(), "issue {code} has no line");
             }
-            assert!(issue_line(30).is_none(), "30 was retired");
+            for code in [30, 33, 34, 35] {
+                assert!(issue_line(code).is_none(), "{code} was retired");
+            }
         }
     }
 

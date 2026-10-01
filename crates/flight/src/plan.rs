@@ -25,9 +25,7 @@
 //! 1. **Align** — turn to the bearing. Bang-bang: full angular acceleration
 //!    for half the turn, full deceleration for the other half, so the ship
 //!    starts and finishes at rest. Skipped when already pointing there.
-//! 2. **Burn** — the forward engines, as hard as the reactor feeds them
-//!    (`shipdesign::power::thrust`; there is no fuel, and the throttle is
-//!    in the [`Dynamics`] already).
+//! 2. **Burn** — the forward engines, flat out (there is no fuel).
 //! 3. **Brake** — one of two, whichever is quicker:
 //!    - **flip**: coast through a half turn, then the *same* forward engines
 //!      pointing the other way;
@@ -307,10 +305,6 @@ pub struct Effort {
     pub accel: f64,
     /// Engines burning. Nothing while turning, and never the thrusters.
     pub engines: u32,
-    /// What those engines draw off the reactor, in units a minute — the
-    /// segment's [`Segment::power`]. Nothing while turning. What the
-    /// world's power stage charges the ship for flying.
-    pub power: f64,
     /// Angular acceleration, signed: positive is the heading climbing.
     /// Nothing while the ship is not turning or is coasting through a flip.
     pub alpha: f64,
@@ -320,7 +314,6 @@ impl Effort {
     pub const NONE: Effort = Effort {
         accel: 0.0,
         engines: 0,
-        power: 0.0,
         alpha: 0.0,
     };
 }
@@ -337,7 +330,6 @@ pub fn effort_at(plan: &Plan, minutes: f64) -> Effort {
             return Effort {
                 accel: segment.accel,
                 engines: segment.engines,
-                power: segment.power,
                 alpha: segment.spin.alpha_at(left),
             };
         }
@@ -358,11 +350,6 @@ pub struct Segment {
     /// Engines burning through it. Zero while turning, and zero always for
     /// thrusters — they draw nothing.
     pub engines: u32,
-    /// What the burning engines draw off the reactor through it, in units
-    /// a minute: the dynamics' `forward_power` or `backward_power`, whichever
-    /// set is lit, and nought while turning. Constant through the segment
-    /// like everything else in one.
-    pub power: f64,
     pub spin: Spin,
 }
 
@@ -460,11 +447,8 @@ pub fn state_at(plan: &Plan, minutes: f64) -> State {
 
 /// Plan a trip from rest.
 ///
-/// Nothing about the hold comes into it: the engines run on the reactor,
-/// and what the reactor can feed them is in the [`Dynamics`] already, as
-/// the acceleration. A ship with a reactor flies; one without has no
-/// forward engine as far as this is concerned, since a dark engine pushes
-/// nothing.
+/// Nothing about the hold comes into it: what the engines can do is in the
+/// [`Dynamics`] already, as the acceleration.
 pub fn plan_trip(
     dynamics: &Dynamics,
     start: DVec2,
@@ -517,7 +501,6 @@ pub fn plan_trip(
             duration: align.duration(),
             accel: 0.0,
             engines: 0,
-            power: 0.0,
             spin: align,
         });
     }
@@ -575,7 +558,6 @@ fn choose_brake(dynamics: &Dynamics, distance: f64) -> Option<Braking> {
                         duration: t1,
                         accel: a_f,
                         engines: dynamics.forward_engines,
-                        power: dynamics.forward_power,
                         spin: Spin::Still,
                     },
                     Segment {
@@ -583,7 +565,6 @@ fn choose_brake(dynamics: &Dynamics, distance: f64) -> Option<Braking> {
                         duration: t_flip,
                         accel: 0.0,
                         engines: 0,
-                        power: 0.0,
                         spin: turn,
                     },
                     Segment {
@@ -591,7 +572,6 @@ fn choose_brake(dynamics: &Dynamics, distance: f64) -> Option<Braking> {
                         duration: t1,
                         accel: -a_f,
                         engines: dynamics.forward_engines,
-                        power: dynamics.forward_power,
                         spin: Spin::Still,
                     },
                 ],
@@ -614,7 +594,6 @@ fn choose_brake(dynamics: &Dynamics, distance: f64) -> Option<Braking> {
                         duration: t1,
                         accel: a_f,
                         engines: dynamics.forward_engines,
-                        power: dynamics.forward_power,
                         spin: Spin::Still,
                     },
                     Segment {
@@ -622,7 +601,6 @@ fn choose_brake(dynamics: &Dynamics, distance: f64) -> Option<Braking> {
                         duration: t2,
                         accel: -a_b,
                         engines: dynamics.backward_engines,
-                        power: dynamics.backward_power,
                         spin: Spin::Still,
                     },
                 ],
@@ -668,7 +646,6 @@ pub fn abort(plan: &Plan, minutes: f64) -> Plan {
             duration: halt.duration(),
             accel: 0.0,
             engines: 0,
-            power: 0.0,
             spin: halt,
         });
     }
@@ -726,13 +703,7 @@ fn choose_stop(dynamics: &Dynamics, speed: f64, bearing: f64, heading: f64) -> O
         let t = speed / dynamics.a_forward;
         options.push((
             turn.duration() + t,
-            brake_segments(
-                turn,
-                t,
-                -dynamics.a_forward,
-                dynamics.forward_engines,
-                dynamics.forward_power,
-            ),
+            brake_segments(turn, t, -dynamics.a_forward, dynamics.forward_engines),
         ));
     }
 
@@ -745,13 +716,7 @@ fn choose_stop(dynamics: &Dynamics, speed: f64, bearing: f64, heading: f64) -> O
         let t = speed / dynamics.a_backward;
         options.push((
             turn.duration() + t,
-            brake_segments(
-                turn,
-                t,
-                -dynamics.a_backward,
-                dynamics.backward_engines,
-                dynamics.backward_power,
-            ),
+            brake_segments(turn, t, -dynamics.a_backward, dynamics.backward_engines),
         ));
     }
 
@@ -761,7 +726,7 @@ fn choose_stop(dynamics: &Dynamics, speed: f64, bearing: f64, heading: f64) -> O
         .map(|(_, braking)| braking)
 }
 
-fn brake_segments(turn: Spin, duration: f64, accel: f64, engines: u32, power: f64) -> Braking {
+fn brake_segments(turn: Spin, duration: f64, accel: f64, engines: u32) -> Braking {
     let mut segments = Vec::with_capacity(2);
     if turn != Spin::Still {
         segments.push(Segment {
@@ -769,7 +734,6 @@ fn brake_segments(turn: Spin, duration: f64, accel: f64, engines: u32, power: f6
             duration: turn.duration(),
             accel: 0.0,
             engines: 0,
-            power: 0.0,
             spin: turn,
         });
     }
@@ -778,7 +742,6 @@ fn brake_segments(turn: Spin, duration: f64, accel: f64, engines: u32, power: f6
         duration,
         accel,
         engines,
-        power,
         spin: Spin::Still,
     });
     Braking { segments }

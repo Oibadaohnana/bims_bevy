@@ -44,7 +44,7 @@ use worldgen::math::{DVec2, dvec2};
 use worldgen::{BodyKind, Node, StationKind};
 
 use crate::draw::{Color, DrawList};
-use crate::game::{Game, Overlay, ViewMode};
+use crate::game::{Game, ViewMode};
 use crate::hull;
 use crate::paint::PART_COLORS;
 
@@ -54,7 +54,8 @@ const DECK: Color = Color::rgb(0.13, 0.15, 0.18);
 const GLOW: Color = Color::rgb(0.38, 0.86, 0.95);
 const STAR: Color = Color::rgb(0.98, 0.88, 0.55);
 const MUTED: Color = Color::rgba(0.55, 0.85, 0.95, 0.22);
-/// The electricity overlay: a part on a live network, and one that is not.
+/// A blueprint under the pointer that would go down, and one that would
+/// not.
 const LIVE: Color = Color::rgb(0.50, 0.90, 0.60);
 const DEAD: Color = Color::rgb(0.98, 0.45, 0.32);
 /// A station's stance (`World::stance`), on the map and on its far plate.
@@ -335,73 +336,6 @@ pub fn plain_fog_on_screen(
         .collect()
 }
 
-/// One number over a part in the electricity view: where it lands in the
-/// camera's units — over the top of its footprint, the same arithmetic the
-/// crew's names use — what it draws **now** and what it draws at most.
-/// The two differ only for an engine: nothing while it is not lit, its
-/// throttled share while it is, against the full draw of the table. The
-/// host writes the words; this is the numbers.
-#[derive(Clone, Copy, PartialEq, Debug)]
-pub struct PowerLabel {
-    pub x: f32,
-    pub y: f32,
-    pub now: f64,
-    pub full: f64,
-    /// Whether the part is on a live network at all. A dark consumer is
-    /// still labelled — with what it would draw — so the view says what
-    /// wiring it would cost.
-    pub live: bool,
-}
-
-/// Every consumer's draw, for the numbers the electricity view puts over
-/// the drainers. The engines are in it — they are what drains most — at
-/// nothing now against what they would draw flat out, since nothing is
-/// flown (feature 104). Asked once a frame while the view is up, and never
-/// otherwise; it is a union-find over the grid.
-pub fn power_labels(game: &Game) -> Vec<PowerLabel> {
-    let design = &game.world.ship.design;
-    let live: Vec<u32> = shipdesign::networks(design)
-        .into_iter()
-        .filter(|net| net.live())
-        .flat_map(|net| net.parts)
-        .collect();
-    let centre = game.world.ship.dynamics.centre_of_mass;
-    let turn = game.ship_turn();
-    let mut out = Vec::new();
-    for part in &design.parts {
-        let def = part.kind.def();
-        if !(def.draws() || def.pushes()) {
-            continue;
-        }
-        let is_live = live.contains(&part.id);
-        let (now, full) = if def.pushes() {
-            (0.0, def.thrust_power)
-        } else {
-            (-def.power, -def.power)
-        };
-        // Over the middle of the footprint's top edge, in design units,
-        // then through the ship's turn like everything else drawn on it.
-        let tiles = part.tiles();
-        let (x0, x1) = tiles
-            .iter()
-            .fold((u32::MAX, 0), |(lo, hi), &(x, _)| (lo.min(x), hi.max(x)));
-        let y0 = tiles.iter().map(|&(_, y)| y).min().unwrap_or(0);
-        let at = dvec2(
-            (x0 as f64 + x1 as f64 + 1.0) * 0.5 * TILE as f64,
-            y0 as f64 * TILE as f64,
-        );
-        let (x, y) = on_screen(at, centre, turn);
-        out.push(PowerLabel {
-            x,
-            y,
-            now,
-            full,
-            live: is_live,
-        });
-    }
-    out
-}
-
 /// The middle of a tile, in design world units.
 fn tile_middle(x: u32, y: u32) -> DVec2 {
     dvec2(
@@ -500,14 +434,6 @@ fn paint_ship(game: &Game, list: &mut DrawList, prebuilt: &[KeptStation]) {
     blueprint(game, &grid, &mut ship);
     hull::lights(&mut ship, design, &grid, game.frame);
     lamp_faces(&mut ship, game, design, None);
-    // The reactors' glow over their pictures: brighter the harder they
-    // work, which under a burn is the engines drawing on them.
-    let load = game.world.power().load() as f32;
-    for part in &design.parts {
-        if part.kind.def().supplies() {
-            crate::fittings::reactor_glow(&mut ship, part, load, game.frame);
-        }
-    }
 
     // The tile under the pointer, rung. Part of the ship, so turned with
     // it.
@@ -569,14 +495,6 @@ fn paint_ship(game: &Game, list: &mut DrawList, prebuilt: &[KeptStation]) {
     list.append(station_shade.shapes());
     list.append_turned(over_fog, room_centre, turn);
     list.append(visitors_over.shapes());
-    // The electricity overlay, over the lot — the room's fixtures included,
-    // since a galley that draws power is rung as much as a reactor is — in
-    // the ship's frame and turned with it like the hull.
-    if game.overlay == Overlay::Electricity {
-        let mut over = DrawList::default();
-        electricity(&mut over, design, &grid);
-        list.append_turned(over.shapes(), centre, turn);
-    }
 }
 
 /// Every deployable in the crew's room, as a part stood on its tile:
@@ -1398,8 +1316,6 @@ fn hull_tiles(
         ground_floor(list, grid, terrain);
     }
     let biome = terrain.map(|t| t.biome);
-    // Not the utility layer: the conduit under the deck is the electricity
-    // overlay's to draw, and only while that is up — see `electricity`.
     for layer in [Layer::Structure, Layer::Floor, Layer::Object] {
         if terrain.is_some() && layer != Layer::Object {
             continue;
@@ -1537,50 +1453,6 @@ fn wall_shade(list: &mut DrawList, design: &ShipDesign, grid: &Grid, ground: boo
                     }
                 }
             }
-        }
-    }
-}
-
-/// The electricity overlay, over the ship's picture: every part that makes,
-/// holds or draws power washed and rung — in the live colour when it is on
-/// a network with a reactor, in the warning colour when it is not — and
-/// the conduit under the deck drawn on top, the way the design phase draws
-/// it, so what is wired to what can be followed. The networks are asked
-/// once, for the whole ship, rather than a part at a time.
-fn electricity(list: &mut DrawList, design: &ShipDesign, grid: &Grid) {
-    let tile = TILE as f32;
-    let live: Vec<u32> = shipdesign::networks(design)
-        .into_iter()
-        .filter(|net| net.live())
-        .flat_map(|net| net.parts)
-        .collect();
-    for part in &design.parts {
-        let def = part.kind.def();
-        if !(def.supplies() || def.draws() || def.stores()) {
-            continue;
-        }
-        let color = if live.contains(&part.id) { LIVE } else { DEAD };
-        for (x, y) in part.tiles() {
-            let m = tile_middle(x, y);
-            list.rect(m.x as f32, m.y as f32, tile, tile, 0.0, color.alpha(0.18));
-            list.stroke_rect(
-                m.x as f32,
-                m.y as f32,
-                tile - 3.0,
-                tile - 3.0,
-                2.0,
-                2.0,
-                color,
-            );
-        }
-    }
-    for part in &design.parts {
-        if part.kind != PartKind::PowerConduit {
-            continue;
-        }
-        for at in part.tiles() {
-            let links = crate::fittings::conduit_links(design, grid, at);
-            crate::fittings::conduit(list, at, links);
         }
     }
 }

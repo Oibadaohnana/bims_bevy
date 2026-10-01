@@ -60,6 +60,9 @@ pub enum Request {
     /// Play the run from the beginning again: the world [`Beginning`]
     /// kept at the open, read back the way a load is (feature 79).
     Restart,
+    /// Leave the game for the start menu, unsaved — and the room, with
+    /// company.
+    ToMenu,
 }
 
 /// The pages' state: the name being typed, the files found the last time

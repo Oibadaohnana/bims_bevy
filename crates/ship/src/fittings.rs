@@ -4,9 +4,7 @@
 //! table, the bunks, the bay, the locker — with the pictures in
 //! `crates/game/src/room.rs`, and `hull` draws the skin and everything that
 //! fires. What is left is what a body walks past between them: the helm,
-//! the shelves, the shower, the bulkheads and the doors in them, the conduit
-//! under the deck (which is [`conduit`], apart from [`part`], because it
-//! needs the grid to know which way it runs). On a planet the same parts
+//! the shelves, the shower, the bulkheads and the doors in them. On a planet the same parts
 //! are asked of [`part_in`] with the ground's biome, and the wall and the
 //! wild parts — tree, shrub, boulder, water, field — are drawn as that
 //! biome has them. Those used to be a coloured block a tile, which is what
@@ -21,8 +19,8 @@
 //! Bim stands. The palette is the room's, so the two halves of the picture
 //! read as one deck.
 
-use shipdesign::parts::{Layer, PartKind, TILE, solid_corner};
-use shipdesign::{Grid, PlacedPart, ShipDesign};
+use shipdesign::PlacedPart;
+use shipdesign::parts::{PartKind, TILE, solid_corner};
 use world::Biome;
 
 use crate::draw::{Color, DrawList, KIND_ELLIPSE, KIND_RECT};
@@ -61,15 +59,8 @@ const CRATES: [Color; 4] = [
     Color::rgb(0.38, 0.46, 0.40),
 ];
 
-/// A conduit, as the design phase draws it.
-const CONDUIT: Color = Color::rgba(0.74, 0.66, 0.22, 0.75);
-
-/// The machinery's own colours: the reactor's amber, the battery's brass
-/// and life support's teal — the palette swatches, so the deck and the
-/// design phase agree about what is what.
-const REACTOR: Color = Color::rgb(0.86, 0.62, 0.24);
-const REACTOR_CORE: Color = Color::rgb(1.0, 0.80, 0.42);
-const BATTERY: Color = Color::rgb(0.62, 0.58, 0.30);
+/// Life support's teal — the palette swatch, so the deck and the design
+/// phase agree about what is what.
 const LIFE: Color = Color::rgb(0.34, 0.62, 0.52);
 const STRIPE: Color = Color::rgb(0.92, 0.72, 0.18);
 
@@ -122,8 +113,6 @@ pub fn part_in(list: &mut DrawList, part: &PlacedPart, biome: Option<Biome>) -> 
         PartKind::Helm => helm(list, part),
         PartKind::Shelf => shelf(list, part),
         PartKind::Shower => shower(list, part),
-        PartKind::Reactor => reactor(list, part),
-        PartKind::Battery => battery(list, part),
         PartKind::LifeSupport => life_support(list, part),
         PartKind::Workbench => workbench(list, part),
         PartKind::SuitLocker => suit_locker(list, part),
@@ -131,7 +120,6 @@ pub fn part_in(list: &mut DrawList, part: &PlacedPart, biome: Option<Biome>) -> 
         PartKind::TradingDesk => trading_desk(list, part),
         PartKind::Sandbags => sandbags(list, part),
         PartKind::ResearchDesk => research_desk(list, part),
-        PartKind::FusionReactor => fusion_reactor(list, part),
         PartKind::Hyperdrive => hyperdrive(list, part),
         PartKind::WallLight => wall_light(list, part),
         PartKind::StandingLight => standing_light(list, part),
@@ -245,56 +233,6 @@ fn door(list: &mut DrawList, part: &PlacedPart) {
     // And the lamp over it, lit.
     let (gx, gy) = local.at(across * 0.34, 0.0);
     list.ellipse(gx, gy, 5.0, 5.0, GOOD);
-}
-
-/// Which sides of a conduit tile another run of conduit is on — north,
-/// east, south, west — so the picture reaches only towards what it joins.
-/// The same four-neighbour rule `shipdesign::power` builds a network by; a
-/// part standing over the run is joined through the tile, not across a
-/// side, and does not show as an arm.
-pub fn conduit_links(design: &ShipDesign, grid: &Grid, (x, y): (u32, u32)) -> [bool; 4] {
-    let run = |tile: (i32, i32)| {
-        let id = grid.get(Layer::Utility, tile);
-        id != 0
-            && design
-                .part(id)
-                .is_some_and(|p| p.kind == PartKind::PowerConduit)
-    };
-    let (x, y) = (x as i32, y as i32);
-    [
-        run((x, y - 1)),
-        run((x + 1, y)),
-        run((x, y + 1)),
-        run((x - 1, y)),
-    ]
-}
-
-/// A run of conduit. Not drawn by [`part`], because it needs the grid: a
-/// straight run through the tile that reaches only the sides another run
-/// is on (`links`, from [`conduit_links`]), so a line of conduit is a line,
-/// a corner is a corner, and a tile with none beside it is a pad in the
-/// middle. Thin, so what stands on the same tile is still what the tile is
-/// about.
-pub fn conduit(list: &mut DrawList, tile: (u32, u32), links: [bool; 4]) {
-    let (cx, cy) = middle(tile.0, tile.1);
-    let thick = 4.0;
-    let half = T / 2.0;
-    let [north, east, south, west] = links;
-    // The pad every tile has, a little wider than the run so a join reads
-    // as a join; a lone tile is nothing but this.
-    list.rect(cx, cy, thick + 2.0, thick + 2.0, 1.0, CONDUIT);
-    if north {
-        list.rect(cx, cy - half / 2.0, thick, half, 0.0, CONDUIT);
-    }
-    if south {
-        list.rect(cx, cy + half / 2.0, thick, half, 0.0, CONDUIT);
-    }
-    if west {
-        list.rect(cx - half / 2.0, cy, half, thick, 0.0, CONDUIT);
-    }
-    if east {
-        list.rect(cx + half / 2.0, cy, half, thick, 0.0, CONDUIT);
-    }
 }
 
 // --- systems -------------------------------------------------------------------------
@@ -578,174 +516,6 @@ fn shower(list: &mut DrawList, part: &PlacedPart) {
 }
 
 // --- machinery ----------------------------------------------------------------------
-
-/// The reactor's glow, over its picture: the harder it works the brighter
-/// it shines. `load` is what is drawn now over what the reactors make —
-/// `world::Power::load`, or the design phase's day-long draw over its
-/// supply — nought for a reactor idling and one for one flat out, and a
-/// touch past it when the ship is short. The core brightens and a halo
-/// spreads over the housing with it, breathing a little off `frame`, so an
-/// engine lighting up can be seen at the reactor as well as at the stern.
-/// The amber of the reactor or the plasma blue of the fusion one; the
-/// picture underneath is untouched.
-pub fn reactor_glow(list: &mut DrawList, part: &PlacedPart, load: f32, frame: u32) {
-    let (core, glow) = match part.kind {
-        PartKind::Reactor => (REACTOR_CORE, REACTOR),
-        PartKind::FusionReactor => (PLASMA_CORE, PLASMA),
-        _ => return,
-    };
-    let load = if load.is_finite() {
-        load.clamp(0.0, 1.2)
-    } else {
-        0.0
-    };
-    let (local, across, along) = Local::of(part);
-    let d = (across - 6.0).min(along - 6.0) * 0.7;
-    // A slow breath, deeper the harder it runs, off the frame count the way
-    // the exhaust flickers — this is a picture, and nothing reads it back.
-    let breath = ((frame as f32 + part.id as f32 * 17.0) * 0.045).sin() * 0.5 + 0.5;
-    let pulse = 1.0 + 0.08 * load * breath;
-    // The halo over the whole housing, faint at idle and plain flat out.
-    local.push(
-        list,
-        KIND_ELLIPSE,
-        0.0,
-        0.0,
-        across * (0.9 + 0.5 * load) * pulse,
-        along * (0.9 + 0.5 * load) * pulse,
-        0.0,
-        0.0,
-        glow.alpha(0.04 + 0.22 * load),
-    );
-    // The vessel lit from within, and the core white-hot at the top.
-    local.push(
-        list,
-        KIND_ELLIPSE,
-        0.0,
-        0.0,
-        d * 0.72,
-        d * 0.72,
-        0.0,
-        0.0,
-        glow.alpha(0.10 + 0.45 * load),
-    );
-    local.push(
-        list,
-        KIND_ELLIPSE,
-        0.0,
-        0.0,
-        d * (0.3 + 0.25 * load) * pulse,
-        d * (0.3 + 0.25 * load) * pulse,
-        0.0,
-        0.0,
-        core.alpha(0.35 + 0.65 * load.min(1.0)),
-    );
-}
-
-/// The reactor: a housing with the containment vessel set into it, rings
-/// round a core that glows, and the hazard stripes along its edges that
-/// say what it is from across the deck.
-fn reactor(list: &mut DrawList, part: &PlacedPart) {
-    let (local, across, along) = Local::of(part);
-    let (w, h) = (across - 6.0, along - 6.0);
-    local.push(list, KIND_RECT, 0.0, 0.0, w, h, 5.0, 0.0, PANEL);
-    local.push(list, KIND_RECT, 0.0, 0.0, w, h, 5.0, 1.5, PANEL_EDGE);
-    // Hazard stripes down the two long edges.
-    for u in [-w / 2.0 + 5.0, w / 2.0 - 5.0] {
-        for i in 0..5 {
-            let v = -h / 2.0 + 8.0 + i as f32 * (h - 16.0) / 4.0;
-            local.push(list, KIND_RECT, u, v, 6.0, 6.0, 0.0, 0.0, STRIPE);
-        }
-    }
-    // The vessel: a ring, a darker well, and the core in it.
-    let d = w.min(h) * 0.7;
-    local.push(list, KIND_ELLIPSE, 0.0, 0.0, d, d, 0.0, 0.0, PANEL_LIT);
-    local.push(list, KIND_ELLIPSE, 0.0, 0.0, d, d, 0.0, 2.0, PANEL_EDGE);
-    local.push(
-        list,
-        KIND_ELLIPSE,
-        0.0,
-        0.0,
-        d * 0.72,
-        d * 0.72,
-        0.0,
-        0.0,
-        DRAIN,
-    );
-    local.push(
-        list,
-        KIND_ELLIPSE,
-        0.0,
-        0.0,
-        d * 0.5,
-        d * 0.5,
-        0.0,
-        0.0,
-        REACTOR.alpha(0.55),
-    );
-    local.push(
-        list,
-        KIND_ELLIPSE,
-        0.0,
-        0.0,
-        d * 0.3,
-        d * 0.3,
-        0.0,
-        0.0,
-        REACTOR_CORE,
-    );
-    // Four bolts round the vessel.
-    for (u, v) in [(-1.0f32, -1.0f32), (1.0, -1.0), (-1.0, 1.0), (1.0, 1.0)] {
-        local.push(
-            list,
-            KIND_ELLIPSE,
-            u * d * 0.42,
-            v * d * 0.42,
-            6.0,
-            6.0,
-            0.0,
-            0.0,
-            STEEL,
-        );
-    }
-}
-
-/// A battery: a cell in a casing, terminals at one end and a charge bar
-/// of lit segments down the middle.
-fn battery(list: &mut DrawList, part: &PlacedPart) {
-    let (local, across, along) = Local::of(part);
-    let (w, h) = (across - 8.0, along - 8.0);
-    local.push(list, KIND_RECT, 0.0, 0.0, w, h, 4.0, 0.0, DRAIN);
-    local.push(
-        list,
-        KIND_RECT,
-        0.0,
-        0.0,
-        w - 6.0,
-        h - 6.0,
-        3.0,
-        0.0,
-        BATTERY,
-    );
-    for u in [-w * 0.22, w * 0.22] {
-        local.push(
-            list,
-            KIND_RECT,
-            u,
-            -h / 2.0 + 2.0,
-            7.0,
-            6.0,
-            1.0,
-            0.0,
-            STEEL,
-        );
-    }
-    for i in 0..4 {
-        let v = h * 0.3 - i as f32 * h * 0.17;
-        let colour = if i < 3 { GOOD } else { GOOD.alpha(0.3) };
-        local.push(list, KIND_RECT, 0.0, v, w * 0.5, h * 0.11, 1.0, 0.0, colour);
-    }
-}
 
 /// Life support: a cabinet with the big fan behind its grille, the pipes
 /// out of one end, and a lamp that says the air is good.
@@ -1440,95 +1210,14 @@ fn research_desk(list: &mut DrawList, part: &PlacedPart) {
     }
 }
 
-// --- the fusion reactor -----------------------------------------------------------
-
-/// The fusion reactor's plasma: blue-white where the fission reactor's
-/// core is amber.
-const PLASMA: Color = Color::rgb(0.55, 0.78, 0.92);
-const PLASMA_CORE: Color = Color::rgb(0.90, 0.97, 1.0);
-
-/// The fusion reactor: the fission reactor's vessel writ large across
-/// three tiles — a panelled block with hazard stripes down both long
-/// edges, a ring of eight field coils round a well, and the plasma in
-/// it, blue-white — so the two read as the same kind of machine and not
-/// the same machine.
-fn fusion_reactor(list: &mut DrawList, part: &PlacedPart) {
-    let (local, across, along) = Local::of(part);
-    let (w, h) = (across - 6.0, along - 6.0);
-    local.push(list, KIND_RECT, 0.0, 0.0, w, h, 6.0, 0.0, PANEL);
-    local.push(list, KIND_RECT, 0.0, 0.0, w, h, 6.0, 1.5, PANEL_EDGE);
-    for u in [-w / 2.0 + 6.0, w / 2.0 - 6.0] {
-        for i in 0..7 {
-            let v = -h / 2.0 + 10.0 + i as f32 * (h - 20.0) / 6.0;
-            local.push(list, KIND_RECT, u, v, 7.0, 7.0, 0.0, 0.0, STRIPE);
-        }
-    }
-    let d = w.min(h) * 0.76;
-    local.push(list, KIND_ELLIPSE, 0.0, 0.0, d, d, 0.0, 0.0, PANEL_LIT);
-    local.push(list, KIND_ELLIPSE, 0.0, 0.0, d, d, 0.0, 2.5, PANEL_EDGE);
-    // Eight field coils round the ring.
-    for i in 0..8 {
-        let a = i as f32 * core::f32::consts::FRAC_PI_4;
-        let (u, v) = (a.cos() * d * 0.44, a.sin() * d * 0.44);
-        local.push(list, KIND_ELLIPSE, u, v, 10.0, 10.0, 0.0, 0.0, STEEL);
-        local.push(list, KIND_ELLIPSE, u, v, 5.0, 5.0, 0.0, 0.0, PANEL_EDGE);
-    }
-    local.push(
-        list,
-        KIND_ELLIPSE,
-        0.0,
-        0.0,
-        d * 0.66,
-        d * 0.66,
-        0.0,
-        0.0,
-        DRAIN,
-    );
-    local.push(
-        list,
-        KIND_ELLIPSE,
-        0.0,
-        0.0,
-        d * 0.5,
-        d * 0.5,
-        0.0,
-        0.0,
-        PLASMA.alpha(0.6),
-    );
-    local.push(
-        list,
-        KIND_ELLIPSE,
-        0.0,
-        0.0,
-        d * 0.3,
-        d * 0.3,
-        0.0,
-        0.0,
-        PLASMA,
-    );
-    local.push(
-        list,
-        KIND_ELLIPSE,
-        0.0,
-        0.0,
-        d * 0.14,
-        d * 0.14,
-        0.0,
-        0.0,
-        PLASMA_CORE,
-    );
-}
-
 // --- the hyperdrive ---------------------------------------------------------------
 
 /// The hyperdrive's violet, the far end of the exhaust: the palette swatch.
 const HYPER: Color = Color::rgb(0.62, 0.42, 0.86);
 const HYPER_CORE: Color = Color::rgb(0.90, 0.84, 1.0);
 
-/// The hyperdrive: a housing like the reactor's, six field coils round a
-/// ring, and a core that is the violet of the exhaust's tail — the
-/// reactor's shape in another colour, since it is the reactor's other
-/// customer. The picture only; whether it is bolted to an engine is the
+/// The hyperdrive: a housing, six field coils round a ring, and a core
+/// that is the violet of the exhaust's tail. The picture only; whether it is bolted to an engine is the
 /// validator's, and the checks panel says so.
 fn hyperdrive(list: &mut DrawList, part: &PlacedPart) {
     let (local, across, along) = Local::of(part);

@@ -3,7 +3,8 @@
 //! One window in the middle of the screen, six pages. The first is the
 //! menu — the UI scale, the edge-scroll speed (task 123, kept in the keys
 //! file beside the bindings), a button each for the audio and the controls, and
-//! one each for saving, loading and starting the run again — and the other
+//! one each for saving, loading and starting the run again, and one back to
+//! the start menu — and the other
 //! five are those, with a way back. The controls page is where every key is
 //! rebound (`crate::keys`); the save, load and restart pages are
 //! `crate::save`'s, and what
@@ -17,13 +18,8 @@
 
 use bevy_egui::egui;
 
-use ship::game::Overlay;
-
 use crate::keys::{Action, EDGE_SCROLL_MAX, Keys};
-use crate::names::{
-    LOAD_GUEST, RESTART_BUTTON, RESTART_GUEST, RESTART_NONE, VIEW_HEADING, VIEW_PLAIN,
-    VIEW_PLAIN_HINT, VIEW_POWER, VIEW_POWER_HINT,
-};
+use crate::names::{LOAD_GUEST, MENU_BUTTON, RESTART_BUTTON, RESTART_GUEST, RESTART_NONE};
 use crate::save::{self, Request, Saves};
 use crate::sound::Mix;
 use crate::theme;
@@ -95,10 +91,7 @@ pub enum Sheet {
 
 /// The sheet, on `page`. `None` afterwards means it was closed. While the
 /// controls page is waiting on a key (`keys.listening`) Esc is its to
-/// cancel with, and the screens leave the sheet up. `view` is what the
-/// game view draws over the ship, where there is one to draw over: the
-/// menu page's own toggle since the HUD lost its View tab (feature 107),
-/// being the one view setting with no key of its own.
+/// cancel with, and the screens leave the sheet up.
 pub fn settings_sheet(
     ctx: &egui::Context,
     sheet: &mut Option<Sheet>,
@@ -106,7 +99,6 @@ pub fn settings_sheet(
     keys: &mut Keys,
     saves: &mut Saves,
     allowed: Allowed,
-    view: Option<&mut Overlay>,
 ) -> Option<Request> {
     let page = (*sheet)?;
     let title = match page {
@@ -123,7 +115,7 @@ pub fn settings_sheet(
         .resizable(false)
         .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
         .show(ctx, |ui| match page {
-            Sheet::Menu => menu(ui, sheet, saves, allowed, view, keys),
+            Sheet::Menu => request = menu(ui, sheet, saves, allowed, keys),
             Sheet::Audio => audio(ui, sheet, mix),
             Sheet::Controls => controls(ui, sheet, keys),
             Sheet::Save => {
@@ -160,9 +152,9 @@ fn menu(
     sheet: &mut Option<Sheet>,
     saves: &mut Saves,
     allowed: Allowed,
-    view: Option<&mut Overlay>,
     keys: &mut Keys,
-) {
+) -> Option<Request> {
+    let mut request = None;
     theme::heading(ui, "UI scale");
     theme::ui_scale_row(ui);
     ui.add_space(8.0);
@@ -193,24 +185,6 @@ fn menu(
         keys.save();
     }
     ui.add_space(8.0);
-    // What the ship view shows over the ship (feature 107): the plain
-    // deck, or the electricity. Head up and the camera's follow keep
-    // their keys and nothing else.
-    if let Some(overlay) = view {
-        theme::heading(ui, VIEW_HEADING);
-        for (way, label, hint) in [
-            (Overlay::Plain, VIEW_PLAIN, VIEW_PLAIN_HINT),
-            (Overlay::Electricity, VIEW_POWER, VIEW_POWER_HINT),
-        ] {
-            ui.horizontal(|ui| {
-                if theme::toggle(ui, *overlay == way, label).clicked() {
-                    *overlay = way;
-                }
-                ui.label(egui::RichText::new(hint).small().color(theme::MUTED));
-            });
-        }
-        ui.add_space(8.0);
-    }
     ui.horizontal(|ui| {
         if ui.button("Audio").clicked() {
             *sheet = Some(Sheet::Audio);
@@ -225,10 +199,18 @@ fn menu(
     if allowed.game {
         game_row(ui, sheet, saves, allowed);
         ui.add_space(8.0);
+        // Out of the game and back to the start menu: the world is left
+        // unsaved, and with company this end leaves the room.
+        if ui.button(MENU_BUTTON).clicked() {
+            *sheet = None;
+            request = Some(Request::ToMenu);
+        }
+        ui.add_space(8.0);
     }
     if ui.button("Close").clicked() {
         *sheet = None;
     }
+    request
 }
 
 /// The menu's Save, Load and Restart, where there is a game.

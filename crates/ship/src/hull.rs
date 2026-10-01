@@ -59,7 +59,7 @@ const DISH: Color = Color::rgb(0.80, 0.86, 0.92);
 const SHADOW: Color = Color::rgba(0.0, 0.01, 0.03, 0.72);
 
 // The exhaust is **blue**: there is no fuel, and what comes out of the bell
-// is plasma off the reactor — a white-blue core, an electric blue body and
+// is plasma — a white-blue core, an electric blue body and
 // a violet tail, the way an ion drive burns rather than a rocket.
 const FLAME_CORE: Color = Color::rgb(0.86, 0.96, 1.0);
 const FLAME: Color = Color::rgb(0.30, 0.66, 1.0);

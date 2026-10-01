@@ -65,7 +65,11 @@ use serde::{Deserialize, Serialize};
 /// (the stations' price leans one shorter each).
 /// 83: a smaller galaxy — 240 stars where there were 600, in a radius of
 /// twenty thousand where it was fifty: the star field both ends generate.
-pub const PROTOCOL: u32 = 83;
+/// 84: the electricity gone — the reactor, the conduit, the battery and the
+/// large fusion reactor out of `PartKind` (every code after the helm three
+/// lower, after the research desk four), no utility layer, no battery
+/// charge on the ship, `Brownout` and `PowerRestored` (56, 57) left free.
+pub const PROTOCOL: u32 = 84;
 
 /// Where the relay lives. `BIMS_SERVER` in the environment overrides it
 /// — `ws://127.0.0.1:8792` for one on the same machine.

@@ -17,8 +17,8 @@ use crate::design::{
 use crate::fixture::{CREWS, REFERENCE_HASH, REFERENCE_PARTS, REFERENCE_POOL, flyer, reference};
 use crate::mass::{acceleration, hull_mass, ship_mass};
 use crate::parts::{
-    ENGINE_POWER, GRID_COLS, Layer, PartKind, REACTOR_OUTPUT, Rotation, TILE, covered,
-    defs_are_sound, footprint, part_mass, use_spots,
+    GRID_COLS, Layer, PartKind, Rotation, TILE, covered, defs_are_sound, footprint, part_mass,
+    use_spots,
 };
 use crate::validate::{IssueCode, REQUIRED, Severity, exposure, has_errors, validate, walkable};
 
@@ -215,7 +215,6 @@ fn every_part_needs_what_it_is_meant_to_need() {
         PartKind::OutsideWall,
         PartKind::SensorArray,
         PartKind::Thruster,
-        PartKind::PowerConduit,
         PartKind::DiagonalWall,
         PartKind::DiagonalOutsideWall,
     ] {
@@ -235,7 +234,6 @@ fn every_part_needs_what_it_is_meant_to_need() {
                 | PartKind::OutsideWall
                 | PartKind::SensorArray
                 | PartKind::Thruster
-                | PartKind::PowerConduit
                 | PartKind::DiagonalWall
                 | PartKind::DiagonalOutsideWall
         );
@@ -243,8 +241,8 @@ fn every_part_needs_what_it_is_meant_to_need() {
             assert_eq!(kind.def().requires, Some(Layer::Floor), "{kind:?}");
         }
     }
-    assert_eq!(Layer::from_code(3), Some(Layer::Utility));
-    assert_eq!(Layer::from_code(4), None);
+    assert_eq!(Layer::from_code(2), Some(Layer::Structure));
+    assert_eq!(Layer::from_code(3), None);
 }
 
 /// What keeps the radiation out, and what holds goods. Both are written out
@@ -508,20 +506,6 @@ fn what_cannot_stand_where_off_the_edge_in_one_tile_or_twice_on_a_layer() {
             place(&design, &rich(), PartKind::Structure, (2, 2), Rotation::R0),
             Err(EditError::LayerOccupied)
         );
-        let wired = put(design.clone(), PartKind::PowerConduit, (2, 2));
-        assert_eq!(
-            place(
-                &wired,
-                &rich(),
-                PartKind::PowerConduit,
-                (2, 2),
-                Rotation::R0
-            ),
-            Err(EditError::LayerOccupied)
-        );
-        // A conduit and a hob share a tile happily: different layers, and the
-        // conduit runs under the thing standing on it.
-        assert!(place(&wired, &rich(), PartKind::Hob, (2, 2), Rotation::R0).is_ok());
     }
 
     // --- deck_cannot_be_laid_twice ---
@@ -587,16 +571,6 @@ fn most_things_need_deck_under_them_and_nothing_is_built_without_frame() {
             )
             .is_ok()
         );
-        assert!(
-            place(
-                &design,
-                &rich(),
-                PartKind::PowerConduit,
-                (5, 5),
-                Rotation::R0
-            )
-            .is_ok()
-        );
     }
 
     // --- nothing_is_built_without_the_frame_under_it ---
@@ -607,7 +581,6 @@ fn most_things_need_deck_under_them_and_nothing_is_built_without_frame() {
             PartKind::Wall,
             PartKind::OutsideWall,
             PartKind::SensorArray,
-            PartKind::PowerConduit,
         ] {
             assert_eq!(
                 place(&bare, &rich(), kind, (2, 2), Rotation::R0),
@@ -622,7 +595,6 @@ fn most_things_need_deck_under_them_and_nothing_is_built_without_frame() {
             PartKind::Wall,
             PartKind::OutsideWall,
             PartKind::SensorArray,
-            PartKind::PowerConduit,
         ] {
             assert!(
                 place(&frame, &rich(), kind, (2, 2), Rotation::R0).is_ok(),
@@ -730,12 +702,7 @@ fn what_is_underneath_something_stays_put_frame_included() {
 
     // --- the_frame_under_hull_and_conduit_stays_put ---
     {
-        for kind in [
-            PartKind::Wall,
-            PartKind::OutsideWall,
-            PartKind::SensorArray,
-            PartKind::PowerConduit,
-        ] {
+        for kind in [PartKind::Wall, PartKind::OutsideWall, PartKind::SensorArray] {
             let design = put(framed(8, (2, 2), (4, 4)), kind, (2, 2));
             let frame = design.grid().get(Layer::Structure, (2, 2));
             assert_eq!(
@@ -1529,13 +1496,6 @@ fn the_flyer_is_a_ship_a_trip_can_actually_be_planned_for() {
         assert_eq!(design.count(PartKind::Thruster), 4);
         assert_eq!(design.count(PartKind::Airlock), 1);
         assert_eq!(design.count(PartKind::SensorArray), 1);
-        // The engine is fed flat out: one reactor has more than an engine's
-        // draw over after the ship's systems, and every flight scenario
-        // measures the flyer at full thrust.
-        let thrust = crate::power::thrust(&design);
-        assert_eq!(thrust.forward_throttle, 1.0);
-        assert_eq!(thrust.forward_power, ENGINE_POWER);
-        assert_eq!(thrust.count(Facing::Forward), 1);
     }
 }
 
@@ -1760,16 +1720,6 @@ fn everything_about_engines_and_a_trip_is_only_a_warning() {
             let codes: Vec<u32> = issues.iter().map(|i| i.code).collect();
             assert!(codes.contains(&code.code()), "{kind:?}: {codes:?}");
         }
-
-        // And the reactor is what feeds the engine: a flyer with its reactor
-        // taken off is a ship whose every consumer is dark, the engine among
-        // them, and that is the one warning it raises — a dark engine pushes
-        // nothing rather than less, so it is not throttled as well.
-        let mut dark = whole.clone();
-        dark.parts.retain(|p| p.kind != PartKind::Reactor);
-        let codes: Vec<u32> = validate(&dark, 1).iter().map(|i| i.code).collect();
-        assert_eq!(codes, vec![IssueCode::Unpowered.code()]);
-        assert_eq!(crate::power::thrust(&dark).engines.len(), 0);
     }
 }
 
@@ -1976,7 +1926,7 @@ fn an_axis_with_nothing_pushing_accelerates_at_nothing_and_two_engines_add_up() 
 fn a_part_weighs_what_its_recipe_weighed() {
     // kind, and what its recipe came to at metal 8, components 2 and an
     // emitter 16 — the masses those three had on the day they went.
-    let pinned: [(PartKind, f64); 48] = [
+    let pinned: [(PartKind, f64); 44] = [
         (PartKind::Floor, 8.0),
         (PartKind::Wall, 16.0),
         (PartKind::Door, 20.0),
@@ -1995,9 +1945,6 @@ fn a_part_weighs_what_its_recipe_weighed() {
         (PartKind::Structure, 16.0),
         (PartKind::OutsideWall, 34.0),
         (PartKind::Helm, 72.0),
-        (PartKind::Reactor, 300.0),
-        (PartKind::PowerConduit, 8.0),
-        (PartKind::Battery, 52.0),
         (PartKind::LifeSupport, 88.0),
         (PartKind::Airlock, 76.0),
         (PartKind::SensorArray, 48.0),
@@ -2013,7 +1960,6 @@ fn a_part_weighs_what_its_recipe_weighed() {
         (PartKind::TradingDesk, 24.0),
         (PartKind::Sandbags, 8.0),
         (PartKind::ResearchDesk, 72.0),
-        (PartKind::FusionReactor, 1_120.0),
         (PartKind::Hyperdrive, 640.0),
         (PartKind::WallLight, 10.0),
         (PartKind::StandingLight, 18.0),
@@ -2178,20 +2124,13 @@ fn the_playtest_ship_is_a_whole_ship_for_one_and_moves_onto_a_bigger_grid_whole(
             (PartKind::Shower, 1),
             (PartKind::HydroBay, 0),
             (PartKind::BroomLocker, 1),
-            // Two: the armoury is the fourth bench, and the first reactor had
-            // three units to spare.
-            (PartKind::Reactor, 2),
             (PartKind::LifeSupport, 1),
-            (PartKind::Battery, 1),
             // Five corner pieces a side cut the bow back, and two bulkheads
             // with a two-tile doorway each — one door apiece — make the three
             // compartments.
             (PartKind::DiagonalOutsideWall, 10),
             (PartKind::Door, 2),
             (PartKind::Wall, 24),
-            // The spine, bow to reactor, and the branches to every consumer —
-            // the seven lamps among them.
-            (PartKind::PowerConduit, 69),
         ] {
             assert_eq!(design.count(kind), want, "{kind:?}");
         }
@@ -2523,361 +2462,15 @@ fn an_engine_has_to_fire_into_space_from_one_free_side() {
     }
 }
 
-// --- power ----------------------------------------------------------------
-
-/// The column, said out loud: who makes it, who holds it, who draws it —
-/// and that the essentials are among the drawers, or the brownout rule
-/// would be keeping alive something that was never on.
-#[test]
-fn power_is_made_held_and_drawn_where_it_is_meant_to_be() {
-    use crate::parts::{BATTERY_CHARGE, REACTOR_OUTPUT, essential};
-    let making: Vec<PartKind> = PartKind::ALL
-        .iter()
-        .copied()
-        .filter(|k| k.def().supplies())
-        .collect();
-    assert_eq!(making, vec![PartKind::Reactor, PartKind::FusionReactor]);
-    assert_eq!(PartKind::Reactor.def().power, REACTOR_OUTPUT);
-    assert_eq!(
-        PartKind::FusionReactor.def().power,
-        crate::parts::FUSION_OUTPUT
-    );
-
-    let holding: Vec<PartKind> = PartKind::ALL
-        .iter()
-        .copied()
-        .filter(|k| k.def().stores())
-        .collect();
-    assert_eq!(holding, vec![PartKind::Battery]);
-    assert_eq!(PartKind::Battery.def().charge, BATTERY_CHARGE);
-
-    let drawing: Vec<(PartKind, f64)> = PartKind::ALL
-        .iter()
-        .copied()
-        .filter(|k| k.def().draws())
-        .map(|k| (k, -k.def().power))
-        .collect();
-    assert_eq!(
-        drawing,
-        vec![
-            (PartKind::Door, 1.0),
-            (PartKind::ColdStore, 5.0),
-            (PartKind::HydroBay, 15.0),
-            (PartKind::Helm, 5.0),
-            (PartKind::LifeSupport, 20.0),
-            (PartKind::SensorArray, 10.0),
-            (PartKind::Workbench, 15.0),
-            (PartKind::Armoury, 10.0),
-            (PartKind::ResearchDesk, 10.0),
-            (PartKind::Hyperdrive, 50.0),
-            (PartKind::WallLight, 25.0),
-            (PartKind::StandingLight, 40.0),
-        ],
-    );
-    for kind in PartKind::ALL {
-        if essential(kind) {
-            assert!(
-                kind.def().draws(),
-                "{kind:?} is essential and draws nothing"
-            );
-        }
-    }
-    assert!(essential(PartKind::LifeSupport));
-    assert!(essential(PartKind::Door));
-    assert!(!essential(PartKind::HydroBay));
-}
-
-/// A reactor with conduit under it, a run to a cold store, and a second
-/// cold store the run never reaches: the first is powered and the second
-/// is what the warning points at. Then the reactor comes off, and the run
-/// is a network nobody is on.
-/// Two runs of conduit, each under one tile of the reactor and never
-/// laid between: the reactor is the join, and it is one network making
-/// one reactor's worth — not two making two.
-#[test]
-fn a_consumer_is_powered_by_the_conduit_under_it_and_a_part_joins_it_into_one_network() {
-    // --- a_consumer_is_powered_by_conduit_under_it_on_a_run_to_a_reactor ---
-    {
-        use crate::parts::REACTOR_OUTPUT;
-        use crate::power::{is_powered, networks, unpowered};
-        let mut design = floored(10, (1, 1), (9, 9));
-        design = put(design, PartKind::Reactor, (2, 2));
-        design = put(design, PartKind::ColdStore, (6, 2));
-        design = put(design, PartKind::ColdStore, (6, 6));
-        let reactor = design
-            .parts
-            .iter()
-            .find(|p| p.kind == PartKind::Reactor)
-            .unwrap()
-            .id;
-        let near = design
-            .parts
-            .iter()
-            .find(|p| p.kind == PartKind::ColdStore && p.origin == (6, 2))
-            .unwrap()
-            .id;
-        let far = design
-            .parts
-            .iter()
-            .find(|p| p.kind == PartKind::ColdStore && p.origin == (6, 6))
-            .unwrap()
-            .id;
-
-        // Nothing wired: both in the dark, and there is no network at all.
-        assert!(networks(&design).is_empty());
-        assert_eq!(unpowered(&design), vec![near, far]);
-        assert_eq!(
-            all_codes(&design, 0)
-                .iter()
-                .filter(|&&c| c == IssueCode::Unpowered.code())
-                .count(),
-            1
-        );
-
-        // Conduit along row 2 from beside the reactor to the near store. A
-        // run to the store with no reactor on it is not a live network, so the
-        // store is unpowered whether or not there is wire under it.
-        for x in 4..=6 {
-            design = put(design, PartKind::PowerConduit, (x, 2));
-        }
-        assert_eq!(networks(&design).len(), 1);
-        assert!(!networks(&design)[0].live());
-        assert_eq!(unpowered(&design), vec![near, far]);
-
-        // One more tile, under the reactor's own footprint, and it is live.
-        design = put(design, PartKind::PowerConduit, (3, 2));
-        let nets = networks(&design);
-        assert_eq!(nets.len(), 1);
-        assert!(nets[0].live());
-        assert_eq!(nets[0].parts, vec![reactor, near]);
-        assert_eq!(nets[0].supply, REACTOR_OUTPUT);
-        assert_eq!(nets[0].draw, 5.0);
-        assert_eq!(nets[0].storage, 0.0);
-        assert!(is_powered(&design, near));
-        assert!(!is_powered(&design, far));
-        assert_eq!(unpowered(&design), vec![far]);
-        let issue = validate(&design, 0)
-            .into_iter()
-            .find(|i| i.code == IssueCode::Unpowered.code())
-            .expect("the far store should be warned about");
-        assert_eq!(issue.severity, Severity::Warning);
-        assert_eq!(issue.parts, vec![far]);
-        assert_eq!(issue.tiles, vec![(6, 6)]);
-
-        // Take the reactor away and the run goes dark; the store is still on
-        // it, and still unpowered.
-        let dark = apply(&design, &rich(), Edit::Remove { part_id: reactor }).unwrap();
-        assert!(!networks(&dark)[0].live());
-        assert_eq!(unpowered(&dark), vec![near, far]);
-    }
-
-    // --- a_part_joins_the_conduit_under_it_into_one_network ---
-    {
-        use crate::parts::REACTOR_OUTPUT;
-        use crate::power::networks;
-        let mut design = floored(10, (1, 1), (9, 9));
-        design = put(design, PartKind::Reactor, (4, 4));
-        // Left run: down column 4 from the reactor's top-left tile.
-        for y in 1..=4 {
-            design = put(design, PartKind::PowerConduit, (4, y));
-        }
-        // Right run: from the reactor's bottom-right tile to the edge.
-        for x in 5..=8 {
-            design = put(design, PartKind::PowerConduit, (x, 5));
-        }
-        let nets = networks(&design);
-        assert_eq!(nets.len(), 1, "{nets:?}");
-        assert_eq!(nets[0].supply, REACTOR_OUTPUT);
-        assert_eq!(nets[0].tiles.len(), 8);
-
-        // The same two runs under a shelf instead of a reactor are two
-        // networks: a shelf is not a wire.
-        let mut design = floored(10, (1, 1), (9, 9));
-        design = put(design, PartKind::Shelf, (4, 4));
-        for y in 1..=4 {
-            design = put(design, PartKind::PowerConduit, (4, y));
-        }
-        for x in 5..=8 {
-            design = put(design, PartKind::PowerConduit, (x, 5));
-        }
-        assert_eq!(networks(&design).len(), 2);
-    }
-}
-
-/// A hundred and twenty-five life supports on one reactor draw exactly what
-/// it makes and are not short; a hundred and twenty-sixth is, and the
-/// warning is on that run, with everything on it. A battery on the run
-/// holds the number and changes nothing about the warning. That many,
-/// because a basic fusion reactor makes a lot: the ship's systems are a
-/// small part of what it is for, the engines the rest.
-#[test]
-fn a_network_drawing_more_than_it_makes_is_warned_about_per_run() {
-    use crate::power::{budget, networks};
-    let mut design = floored(44, (1, 1), (43, 43));
-    design = put(design, PartKind::Reactor, (40, 2));
-    // A spine down column 40 under the reactor, and a run off it along
-    // every third row, with two-by-two life supports along each.
-    let rows = [2u32, 5, 8, 11, 14, 17, 20];
-    for y in 2..=20 {
-        design = put(design, PartKind::PowerConduit, (40, y));
-    }
-    for &y in &rows {
-        for x in 2..40 {
-            design = put(design, PartKind::PowerConduit, (x, y));
-        }
-    }
-    let mut spots = rows
-        .iter()
-        .flat_map(|&y| (0..18u32).map(move |i| (2 + 2 * i, y)));
-    for _ in 0..125 {
-        design = put(design, PartKind::LifeSupport, spots.next().unwrap());
-    }
-    assert!(!all_codes(&design, 0).contains(&IssueCode::PowerShort.code()));
-    assert!(!all_codes(&design, 0).contains(&IssueCode::Unpowered.code()));
-    assert_eq!(budget(&design).draw, 2_500.0);
-    assert_eq!(
-        budget(&design).draw,
-        REACTOR_OUTPUT,
-        "the test leans on this"
-    );
-
-    design = put(design, PartKind::LifeSupport, spots.next().unwrap());
-    let nets = networks(&design);
-    assert!(nets[0].short());
-    let issue = validate(&design, 0)
-        .into_iter()
-        .find(|i| i.code == IssueCode::PowerShort.code())
-        .expect("a short network should be warned about");
-    assert_eq!(issue.severity, Severity::Warning);
-    assert_eq!(issue.parts.len(), 127);
-    assert_eq!(issue.tiles, nets[0].tiles);
-    assert_eq!(budget(&design).draw, 2_520.0);
-    assert_eq!(budget(&design).supply, REACTOR_OUTPUT);
-
-    design = put(design, PartKind::Battery, (40, 23));
-    design = put(design, PartKind::PowerConduit, (40, 21));
-    design = put(design, PartKind::PowerConduit, (40, 22));
-    design = put(design, PartKind::PowerConduit, (40, 23));
-    assert!(all_codes(&design, 0).contains(&IssueCode::PowerShort.code()));
-    assert_eq!(budget(&design).storage, crate::parts::BATTERY_CHARGE);
-
-    // A second reactor on a run of its own with nothing on it counts for
-    // nothing: the budget is over live networks, but the short one is
-    // still short.
-    design = put(design, PartKind::Reactor, (30, 30));
-    design = put(design, PartKind::PowerConduit, (30, 30));
-    assert_eq!(budget(&design).supply, 2.0 * REACTOR_OUTPUT);
-    assert!(all_codes(&design, 0).contains(&IssueCode::PowerShort.code()));
-}
-
-/// There is no fuel: an engine is fed by the reactor on its network, and
-/// pushes what the reactor has over after the ship's systems. One engine on
-/// a basic reactor is fed flat out; three forward are throttled to what is
-/// left, share it, and are warned about; one on no live network pushes
-/// nothing and is warned about as unpowered like any dark consumer; and a
-/// backward engine has the whole spare to itself, because only one set
-/// burns at a time.
-#[test]
-fn the_engines_push_what_the_reactor_can_feed() {
-    use crate::power::{budget, thrust, unpowered};
-    // A frame open to the south, so the engines' bells fire into space:
-    // deck from row 1 to row 9, engines standing on rows 7 to 9, and
-    // nothing below them. Wired along row 7 from the reactor at the left.
-    let mut design = floored(20, (1, 1), (19, 10));
-    design = put(design, PartKind::Reactor, (2, 2));
-    design = put(design, PartKind::LifeSupport, (5, 2));
-    for y in 2..=7 {
-        design = put(design, PartKind::PowerConduit, (2, y));
-    }
-    for x in 3..=5 {
-        design = put(design, PartKind::PowerConduit, (x, 2));
-    }
-    for x in 3..=17 {
-        design = put(design, PartKind::PowerConduit, (x, 7));
-    }
-    design = put(design, PartKind::Engine, (4, 7));
-    let one = thrust(&design);
-    assert_eq!(budget(&design).engine_draw, ENGINE_POWER);
-    assert_eq!(budget(&design).spare(), REACTOR_OUTPUT - 20.0);
-    assert_eq!(one.forward_throttle, 1.0);
-    assert_eq!(one.forward_power, ENGINE_POWER);
-    assert_eq!(one.backward_power, 0.0);
-    assert_eq!(one.engines.len(), 1);
-    assert_eq!(one.engines[0].thrust, PartKind::Engine.def().thrust);
-    assert!(!one.throttled());
-    assert!(!all_codes(&design, 0).contains(&IssueCode::EnginesThrottled.code()));
-
-    // Two are still inside the spare; three are not, and share it.
-    design = put(design, PartKind::Engine, (7, 7));
-    assert!(!thrust(&design).throttled());
-    design = put(design, PartKind::Engine, (10, 7));
-    let three = thrust(&design);
-    let spare = REACTOR_OUTPUT - 20.0;
-    assert!((three.forward_throttle - spare / (3.0 * ENGINE_POWER)).abs() < 1e-12);
-    assert!((three.forward_power - spare).abs() < 1e-9);
-    assert_eq!(three.engines.len(), 3);
-    for engine in &three.engines {
-        assert!(
-            (engine.thrust - PartKind::Engine.def().thrust * three.forward_throttle).abs() < 1e-6
-        );
-    }
-    let issue = validate(&design, 0)
-        .into_iter()
-        .find(|i| i.code == IssueCode::EnginesThrottled.code())
-        .expect("throttled engines should be warned about");
-    assert_eq!(issue.severity, Severity::Warning);
-    assert_eq!(issue.parts.len(), 3);
-    assert_eq!(issue.tiles.len(), 18);
-
-    // A fourth engine off the conduit is in the dark: it is not in any set,
-    // and it is the unpowered warning's, not this one's.
-    design = put(design, PartKind::Engine, (14, 7));
-    let dark = design.parts.last().unwrap().id;
-    design = apply(
-        &design,
-        &rich(),
-        Edit::Remove {
-            part_id: design
-                .parts
-                .iter()
-                .find(|p| p.kind == PartKind::PowerConduit && p.origin == (14, 7))
-                .unwrap()
-                .id,
-        },
-    )
-    .unwrap();
-    design = apply(
-        &design,
-        &rich(),
-        Edit::Remove {
-            part_id: design
-                .parts
-                .iter()
-                .find(|p| p.kind == PartKind::PowerConduit && p.origin == (15, 7))
-                .unwrap()
-                .id,
-        },
-    )
-    .unwrap();
-    assert_eq!(unpowered(&design), vec![dark]);
-    assert_eq!(thrust(&design).engines.len(), 3);
-    assert!(thrust(&design).throttled());
-}
+// --- the hyperdrive -------------------------------------------------------
 
 /// A hyperdrive is bolted to an engine or it is furniture: one against an
 /// engine's block is connected, one a tile away is warned about, and
-/// `ready` wants the connection **and** a live network under it.
+/// `ready` wants the connection.
 #[test]
-fn a_hyperdrive_has_to_touch_an_engine_and_be_wired() {
+fn a_hyperdrive_has_to_touch_an_engine() {
     use crate::hyperdrive::{connected, ready, unconnected};
     let mut design = floored(20, (1, 1), (19, 10));
-    design = put(design, PartKind::Reactor, (2, 2));
-    for y in 2..=7 {
-        design = put(design, PartKind::PowerConduit, (2, y));
-    }
-    for x in 3..=12 {
-        design = put(design, PartKind::PowerConduit, (x, 7));
-    }
     design = put(design, PartKind::Engine, (6, 7));
     // A tile of air between the drive and the engine: loose.
     design = put(design, PartKind::Hyperdrive, (9, 7));
@@ -2893,7 +2486,7 @@ fn a_hyperdrive_has_to_touch_an_engine_and_be_wired() {
     assert_eq!(issue.parts, vec![loose]);
     assert_eq!(issue.tiles.len(), 4);
 
-    // Against the engine's starboard side, and wired: connected and ready.
+    // Against the engine's starboard side: connected and ready.
     design = apply(&design, &rich(), Edit::Remove { part_id: loose }).unwrap();
     design = put(design, PartKind::Hyperdrive, (8, 7));
     let snug = design.parts.last().unwrap().id;
@@ -2901,25 +2494,11 @@ fn a_hyperdrive_has_to_touch_an_engine_and_be_wired() {
     assert!(unconnected(&design).is_empty());
     assert!(ready(&design));
     assert!(!all_codes(&design, 0).contains(&IssueCode::HyperdriveUnconnected.code()));
-
-    // Connected but dark — the run under it cut — is not ready, and is the
-    // unpowered warning's, not this one's.
-    let mut dark = design.clone();
-    dark.parts
-        .retain(|p| !(p.kind == PartKind::PowerConduit && p.origin.0 >= 8 && p.origin.1 == 7));
-    assert!(connected(&dark, dark.part(snug).unwrap()));
-    assert!(!ready(&dark));
-    assert!(unpowered_ids(&dark).contains(&snug));
-}
-
-fn unpowered_ids(design: &ShipDesign) -> Vec<u32> {
-    crate::power::unpowered(design)
 }
 
 /// A wall light hangs from a wall — one of the four tiles round it holds
 /// something that blocks — or it is warned about; a standing light stands
-/// anywhere. Both are lights with a reach, walked under or seen over, and
-/// both draw: a lamp on no live network is a dark one.
+/// anywhere. Both are lights with a reach, walked under or seen over.
 #[test]
 fn a_wall_light_wants_a_wall_at_its_back() {
     use crate::parts::{is_light, light_tiles};
@@ -2931,7 +2510,6 @@ fn a_wall_light_wants_a_wall_at_its_back() {
         );
         if is_light(kind) {
             assert!(light_tiles(kind).unwrap() > 0.0);
-            assert!(kind.def().draws(), "{kind:?} wants wiring");
             assert!(!kind.def().blocks_sight(), "{kind:?} is seen past");
         }
     }
@@ -3022,7 +2600,6 @@ fn a_comfort_lifts_the_surroundings_and_a_picture_hangs_from_a_wall() {
         );
         if let Some(lift) = comfort(kind) {
             assert!(lift.lift > 0.0 && lift.tiles > 0, "{kind:?}");
-            assert!(!kind.def().draws(), "{kind:?} draws nothing");
             assert!(kind.def().use_spots.is_empty(), "{kind:?} is not worked");
             // Every comfort is seen over, bar a tree: a forest is a wall.
             assert!(
@@ -3073,42 +2650,6 @@ fn a_comfort_lifts_the_surroundings_and_a_picture_hangs_from_a_wall() {
     assert_eq!(issue.tiles, vec![(5, 4)]);
 }
 
-/// Both fixtures are wired: nothing aboard either is in the dark, one
-/// network each, and the playtest ship's figures are the ones the
-/// reactor's output was chosen against.
-#[test]
-fn the_fixtures_are_wired() {
-    use crate::fixture::playtest_ship;
-    use crate::power::{budget, networks, unpowered};
-    for &crew in CREWS.iter() {
-        for design in [reference(crew), flyer(crew)] {
-            assert!(unpowered(&design).is_empty(), "{:?}", unpowered(&design));
-            assert_eq!(networks(&design).len(), 1);
-            assert!(!networks(&design)[0].short());
-        }
-    }
-    let design = playtest_ship();
-    assert!(unpowered(&design).is_empty(), "{:?}", unpowered(&design));
-    let nets = networks(&design);
-    assert_eq!(nets.len(), 1, "{nets:?}");
-    let power = budget(&design);
-    // Two reactors, from before a basic reactor was a fusion reactor: one
-    // would feed the ship and two engines now.
-    assert_eq!(power.supply, 2.0 * REACTOR_OUTPUT);
-    // The one engine, wired along row 16, which is what it burns.
-    assert_eq!(power.engine_draw, ENGINE_POWER);
-    // Life support, the helm, the array, the cold store, two doors, the
-    // workbench, the armoury and the research desk: 77, the smelter's 40
-    // gone with the smelter, the drug lab's 5 with the medicine (task 120)
-    // and the bay's 15 with the bay — and the six wall lights and the
-    // standing light, 190 between them, since the lamps went on the bill.
-    assert_eq!(power.draw, 267.0);
-    assert_eq!(power.storage, crate::parts::BATTERY_CHARGE);
-    let codes = all_codes(&design, 1);
-    assert!(!codes.contains(&IssueCode::Unpowered.code()));
-    assert!(!codes.contains(&IssueCode::PowerShort.code()));
-}
-
 // --- recipes --------------------------------------------------------------
 
 /// The table task 120 left empty: the medkit at the drug lab went with
@@ -3126,10 +2667,6 @@ fn every_recipe_holds_together() {
     // the armoury is a cabinet.
     assert_eq!(at(PartKind::Workbench).count(), 0);
     assert_eq!(at(PartKind::Armoury).count(), 0);
-    // And every station a recipe names draws, so a brownout stops it.
-    for r in RECIPES.iter() {
-        assert!(r.station.def().draws(), "{:?} draws nothing", r.station);
-    }
 }
 
 /// Leaning a desk one more per cent in a resource's favour never lowers
@@ -3157,10 +2694,10 @@ fn quote_is_monotone_in_the_bias() {
     }
 }
 
-/// The tree the money rework left: five nodes, three known at the start,
-/// fusion power to work for and the hyperdrive behind a key of its own,
-/// with the upgrades in tier two behind a tier-two key. Everything the
-/// five deleted nodes used to gate — the suit locker, the workbench, the
+/// The tree the money rework and the electricity's going left: four
+/// nodes, two known at the start, the hyperdrive behind a key of its own
+/// in tier one and the upgrades behind a tier-two key. Everything the
+/// deleted nodes used to gate — the suit locker, the workbench, the
 /// armoury — is known from the first day.
 #[test]
 fn the_research_tree_is_sound_runs_in_order_and_a_key_opens_a_node() {
@@ -3169,17 +2706,16 @@ fn the_research_tree_is_sound_runs_in_order_and_a_key_opens_a_node() {
         use crate::recipes::RECIPES;
         use crate::research::{Node, Research, node_of_part, node_of_recipe, tree_is_sound};
         assert!(tree_is_sound());
-        assert_eq!(Node::ALL.len(), 5);
+        assert_eq!(Node::ALL.len(), 4);
         let fresh = Research::new();
         for node in Node::ALL {
             assert_eq!(fresh.is_done(node), node.known_at_start(), "{node:?}");
         }
         assert!(fresh.is_done(Node::Survival));
         assert!(fresh.is_done(Node::Medicine));
-        assert!(!fresh.is_done(Node::FusionPower));
-        // Two parts in the whole table are not buildable on day one.
+        // One part in the whole table is not buildable on day one.
         for kind in PartKind::ALL {
-            let expected = !matches!(kind, PartKind::FusionReactor | PartKind::Hyperdrive);
+            let expected = kind != PartKind::Hyperdrive;
             assert_eq!(fresh.part_allowed(kind), expected, "{kind:?}");
         }
         assert!(fresh.part_allowed(PartKind::SuitLocker));
@@ -3189,10 +2725,8 @@ fn the_research_tree_is_sound_runs_in_order_and_a_key_opens_a_node() {
         // No recipe is left (task 120), so none waits on a node.
         assert!(RECIPES.is_empty());
         assert_eq!(node_of_recipe(0), Node::Survival);
-        assert_eq!(node_of_part(PartKind::FusionReactor), Node::FusionPower);
         assert_eq!(node_of_part(PartKind::Hyperdrive), Node::Hyperdrive);
-        assert_eq!(Node::Hyperdrive.def().requires, &[Node::FusionPower]);
-        assert_eq!(Node::FusionPower.def().requires, &[]);
+        assert_eq!(Node::Hyperdrive.def().requires, &[]);
         assert_eq!(Node::Upgrades.def().requires, &[]);
         // Locked: the hyperdrive in tier one and the upgrades in tier two,
         // each wanting a key of its own tier.
@@ -3202,18 +2736,14 @@ fn the_research_tree_is_sound_runs_in_order_and_a_key_opens_a_node() {
             let tier = if node == Node::Upgrades { 2 } else { 1 };
             assert_eq!(node.def().tier, tier, "{node:?}");
         }
-        // A shut lock is a shut lock whether or not what it wants is
-        // researched: the hyperdrive still waits on fusion power as well.
         assert!(fresh.needs_key(Node::Upgrades));
         assert!(fresh.needs_key(Node::Hyperdrive));
-        assert!(!fresh.needs_key(Node::FusionPower));
         assert!(!fresh.available(Node::Hyperdrive));
         assert_eq!(Node::Upgrades.def().minutes, 1_440);
-        assert_eq!(Node::FusionPower.def().minutes, 2_880);
         assert_eq!(Node::Hyperdrive.def().minutes, 1_800);
         assert_eq!(Research::key_wanted(Node::Upgrades), Some(2));
         assert_eq!(Research::key_wanted(Node::Hyperdrive), Some(1));
-        assert_eq!(Research::key_wanted(Node::FusionPower), None);
+        assert_eq!(Research::key_wanted(Node::Survival), None);
         assert!(!fresh.upgrades_allowed());
     }
 
@@ -3221,38 +2751,12 @@ fn the_research_tree_is_sound_runs_in_order_and_a_key_opens_a_node() {
     {
         use crate::research::{Node, Research};
         let mut r = Research::new();
-        assert!(r.available(Node::FusionPower));
         assert!(!r.available(Node::Hyperdrive));
-        // The AI is idle until `next`: a node queued goes onto it then.
-        assert!(r.enqueue(Node::FusionPower));
-        assert_eq!(r.current, None);
-        assert!(!r.enqueue(Node::FusionPower), "queued already");
-        assert_eq!(r.next(), Some(Node::FusionPower));
-        assert_eq!(r.next(), None, "busy");
-        assert!(r.queue.is_empty());
-        // Not there yet: nothing finished, and the fraction climbs.
-        let fusion = Node::FusionPower.def().minutes as f64;
-        assert_eq!(r.advance(fusion * 0.45), None);
-        assert!(r.fraction() > 0.4 && r.fraction() < 0.5);
-        // A cancel loses the progress: beginning again starts over.
-        assert!(r.cancel().is_empty());
-        assert_eq!(r.current, None);
-        assert!(r.enqueue(Node::FusionPower));
-        assert_eq!(r.next(), Some(Node::FusionPower));
-        assert_eq!(r.advance(fusion - 100.0), None);
-        assert_eq!(r.advance(100.0), Some(Node::FusionPower));
-        assert!(r.is_done(Node::FusionPower));
-        assert!(r.part_allowed(PartKind::FusionReactor));
-        assert_eq!(r.current, None);
-        // Fusion power done, the hyperdrive is behind its key alone.
-        assert!(!r.available(Node::Hyperdrive));
-        assert!(r.needs_key(Node::Hyperdrive));
-        assert!(!r.enqueue(Node::Hyperdrive));
+        assert!(!r.enqueue(Node::Hyperdrive), "behind its key");
         assert!(
-            !r.unlock(Node::FusionPower),
+            !r.unlock(Node::Survival),
             "nothing to unlock on a keyless node"
         );
-        assert!(r.is_unlocked(Node::FusionPower));
         assert!(r.unlock(Node::Hyperdrive));
         assert!(!r.unlock(Node::Hyperdrive), "a node unlocks once");
         assert!(r.is_unlocked(Node::Hyperdrive));
@@ -3262,64 +2766,56 @@ fn the_research_tree_is_sound_runs_in_order_and_a_key_opens_a_node() {
             r.needs_key(Node::Upgrades),
             "a key opens one node, not the tier"
         );
+        // The AI is idle until `next`: a node queued goes onto it then.
+        assert!(r.enqueue(Node::Hyperdrive));
+        assert_eq!(r.current, None);
+        assert!(!r.enqueue(Node::Hyperdrive), "queued already");
+        assert_eq!(r.next(), Some(Node::Hyperdrive));
+        assert_eq!(r.next(), None, "busy");
+        assert!(r.queue.is_empty());
+        // Not there yet: nothing finished, and the fraction climbs.
+        let jump = Node::Hyperdrive.def().minutes as f64;
+        assert_eq!(r.advance(jump * 0.45), None);
+        assert!(r.fraction() > 0.4 && r.fraction() < 0.5);
+        // A cancel loses the progress: beginning again starts over.
+        assert!(r.cancel().is_empty());
+        assert_eq!(r.current, None);
         assert!(r.enqueue(Node::Hyperdrive));
         assert_eq!(r.next(), Some(Node::Hyperdrive));
-        assert_eq!(
-            r.advance(Node::Hyperdrive.def().minutes as f64),
-            Some(Node::Hyperdrive)
-        );
+        assert_eq!(r.advance(jump - 100.0), None);
+        assert_eq!(r.advance(100.0), Some(Node::Hyperdrive));
+        assert!(r.is_done(Node::Hyperdrive));
         assert!(r.part_allowed(PartKind::Hyperdrive));
+        assert_eq!(r.current, None);
     }
 
-    // --- a_queue_brings_its_prerequisites_and_loses_its_dependants ---
+    // --- a_queue_waits_its_turn ---
     {
         use crate::research::{Node, Research};
         let mut r = Research::new();
-        // The hyperdrive on a fresh crew: behind its key, so refused
-        // whole — nothing of the chain goes on.
         assert!(!r.queueable(Node::Hyperdrive));
-        assert!(!r.enqueue(Node::Hyperdrive));
-        assert!(r.queue.is_empty());
         assert!(r.unlock(Node::Hyperdrive));
-        assert!(r.queueable(Node::Hyperdrive));
-        // Now the whole chain, prerequisites first.
+        assert!(r.unlock(Node::Upgrades));
         assert!(r.enqueue(Node::Hyperdrive));
-        assert_eq!(r.queue, vec![Node::FusionPower, Node::Hyperdrive]);
+        assert!(r.enqueue(Node::Upgrades));
+        assert_eq!(r.queue, vec![Node::Hyperdrive, Node::Upgrades]);
         for node in r.queue.clone() {
             assert!(r.planned(node));
             assert!(!r.queueable(node), "{node:?} is queued already");
         }
         // The AI takes the head; the rest wait, and are not begun early.
-        assert_eq!(r.next(), Some(Node::FusionPower));
-        assert_eq!(r.queue.len(), 1);
+        assert_eq!(r.next(), Some(Node::Hyperdrive));
+        assert_eq!(r.queue, vec![Node::Upgrades]);
         assert_eq!(r.next(), None);
-        // Something else queued while it works goes to the back. The
-        // upgrades need nothing, so they go on alone.
-        assert!(r.unlock(Node::Upgrades));
-        assert!(r.enqueue(Node::Upgrades));
-        assert_eq!(r.queue, vec![Node::Hyperdrive, Node::Upgrades]);
-        // Taking fusion power out is not possible — the AI is on it — but
-        // cancelling it takes the hyperdrive with it and leaves the
-        // upgrades, which never needed it.
-        assert_eq!(r.cancel(), vec![Node::Hyperdrive]);
+        // Cancelling the hyperdrive takes nothing else out: the upgrades
+        // never needed it.
+        assert!(r.cancel().is_empty());
         assert_eq!(r.queue, vec![Node::Upgrades]);
         assert_eq!(r.next(), Some(Node::Upgrades));
-        assert!(r.queue.is_empty());
-        // Finished nodes hand over: fusion power done, the AI goes
-        // straight onto the hyperdrive at the next `next`.
         assert_eq!(
             r.advance(Node::Upgrades.def().minutes as f64),
             Some(Node::Upgrades)
         );
         assert!(r.upgrades_allowed());
-        assert!(r.enqueue(Node::Hyperdrive));
-        assert_eq!(r.queue, vec![Node::FusionPower, Node::Hyperdrive]);
-        assert_eq!(r.next(), Some(Node::FusionPower));
-        assert_eq!(
-            r.advance(Node::FusionPower.def().minutes as f64),
-            Some(Node::FusionPower)
-        );
-        assert_eq!(r.next(), Some(Node::Hyperdrive));
-        assert!(r.queue.is_empty());
     }
 }

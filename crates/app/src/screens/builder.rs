@@ -980,7 +980,6 @@ fn frame(
         &mut bindings,
         &mut screen.saves,
         Allowed::SETTINGS_ONLY,
-        None,
     );
 
     if start && lobby_start_refusal(settings, online).is_none() {

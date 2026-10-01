@@ -433,8 +433,8 @@ impl Editor {
     /// the way it is read.
     ///
     /// The shape depends on the tool, which is the whole of the drag
-    /// vocabulary: a rectangle for the things you fill an area with — frame,
-    /// deck, conduit — and for taking things off, a straight line for the
+    /// vocabulary: a rectangle for the things you fill an area with — frame
+    /// and deck — and for taking things off, a straight line for the
     /// things you draw a run of, which is both kinds of wall, a diagonal
     /// staircase for the two corner pieces, and one tile for everything
     /// else. A cold store is placed, not painted.
@@ -442,10 +442,7 @@ impl Editor {
         let Some(drag) = self.drag else {
             return Vec::new();
         };
-        let area = matches!(
-            self.tool,
-            PartKind::Structure | PartKind::Floor | PartKind::PowerConduit
-        );
+        let area = matches!(self.tool, PartKind::Structure | PartKind::Floor);
         let run = matches!(self.tool, PartKind::Wall | PartKind::OutsideWall);
         let cells = if drag.removing || area {
             rectangle(drag.from, drag.to)
@@ -465,8 +462,7 @@ impl Editor {
 
     /// The parts a removing drag would take off: **the top of each tile's
     /// stack, and only that**. What is standing in a tile comes off before
-    /// what runs through it, that before the deck, and the deck before the
-    /// frame — one layer a click, so a right-click on a hob takes the hob
+    /// the deck, and the deck before the frame — one layer a click, so a right-click on a hob takes the hob
     /// and leaves the deck, and a second one takes the deck. A rectangle
     /// peels every tile in it by one.
     ///
@@ -475,12 +471,7 @@ impl Editor {
     /// deck would be refused as `SupportInUse` because the neighbouring
     /// tile's object, in the same drag, had not come off yet.
     pub fn drag_parts(&self) -> Vec<u32> {
-        const TOP_DOWN: [Layer; 4] = [
-            Layer::Object,
-            Layer::Utility,
-            Layer::Floor,
-            Layer::Structure,
-        ];
+        const TOP_DOWN: [Layer; 3] = [Layer::Object, Layer::Floor, Layer::Structure];
         let tiles = self.drag_tiles();
         let grid = self.design.grid();
         let mut picked: Vec<(usize, u32)> = Vec::new();

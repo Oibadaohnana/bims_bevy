@@ -105,7 +105,7 @@ pub use station::{Berth, Plan, Station, layout_surface};
 pub use surface::{Biome, Surface, landable, surface_body, surface_id};
 pub use tank::Tank;
 pub use world::{
-    Command, Power, Ship, ShipState, StartError, World, spawn, spawn_anywhere, spawn_with_ground,
+    Command, Ship, ShipState, StartError, World, spawn, spawn_anywhere, spawn_with_ground,
 };
 
 #[cfg(test)]

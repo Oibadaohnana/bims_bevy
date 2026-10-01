@@ -4,10 +4,8 @@
 //! throws through the jump is the engines' push — so it has to be
 //! **connected** to a main engine: a tile of its footprint four-neighbour
 //! to a tile of a part that [`PartDef::pushes`](crate::parts::PartDef::pushes).
-//! Not the conduit — that is power, and the drive wants it too, like any
-//! consumer — but the block itself against the engine's block, the way a
-//! reactor is the wire between two runs under it. One engine is enough,
-//! and which size does not matter.
+//! The block itself against the engine's block. One engine is enough, and
+//! which size does not matter.
 //!
 //! [`connected`] is the question, asked here by the validator (a warning,
 //! `IssueCode::HyperdriveUnconnected`, never an error — a ship that cannot
@@ -49,13 +47,12 @@ pub fn unconnected(design: &ShipDesign) -> Vec<u32> {
     out
 }
 
-/// Whether the ship has a hyperdrive that works: connected to an engine
-/// **and** on a live network. What `world` asks before a charge; the
+/// Whether the ship has a hyperdrive that works: connected to an engine. What `world` asks before a charge; the
 /// lowest-id such drive is the one that fires, though nothing reads which.
 pub fn ready(design: &ShipDesign) -> bool {
     design
         .parts
         .iter()
         .filter(|p| p.kind == PartKind::Hyperdrive)
-        .any(|p| connected(design, p) && crate::power::is_powered(design, p.id))
+        .any(|p| connected(design, p))
 }

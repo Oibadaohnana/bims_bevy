@@ -3253,9 +3253,14 @@ fn frame(
         &mut bindings,
         &mut screen.saves,
         allowed,
-        session.game.as_mut().map(|g| &mut g.overlay),
     );
     match asked {
+        // Back to the start menu: out of the room with company, and the
+        // world left as it is, unsaved.
+        Some(Request::ToMenu) => {
+            online.leave();
+            next.set(Screen::Menu);
+        }
         Some(Request::Save(name)) => match session.save() {
             Some(text) => match crate::save::write(&name, &text) {
                 Ok(_) => screen.saves.saved(&name),
@@ -4154,31 +4159,6 @@ fn frame(
                     theme::badge_over(&painter, above, MERCENARY_MARK, theme::ACCENT);
                 }
             }
-        }
-    }
-    // The electricity view's numbers: what every drainer draws, in yellow
-    // over the top of it. A dark consumer is written muted, with the draw
-    // it would have if it were wired.
-    if !map_up
-        && session
-            .game
-            .as_ref()
-            .is_some_and(|g| g.overlay == ship::game::Overlay::Electricity)
-    {
-        for label in session.power_labels() {
-            let at = view.to_canvas(Vec2::new(label.x, label.y)) + canvas.min;
-            let at = egui::pos2(at.x, at.y - 3.0);
-            let words = if label.now == label.full {
-                format!("{}", label.now.round())
-            } else {
-                format!("{} / {}", label.now.round(), label.full.round())
-            };
-            let color = if label.live {
-                theme::DRAW
-            } else {
-                theme::MUTED
-            };
-            theme::name_over(&painter, at, &words, color);
         }
     }
     // The black after a trip, over everything on the canvas: held while

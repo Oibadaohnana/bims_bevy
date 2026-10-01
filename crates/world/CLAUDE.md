@@ -1869,6 +1869,16 @@ and the bar the crew watch is the smash in the room where it happens.
 
 ## A brownout is dark, and none of it is lethal
 
+> **Deleted with the electricity (October 2026).** `World::{run_power,
+> run_brownout, sync_lamp_power, power, powered}`, `Power`, the power budget,
+> `Ship::charge` (and its line in `world_checksum`), `throttle_reactors_for_probe`,
+> `WorldEvent::{Brownout, PowerRestored}` (56, 57, left free) and the room's
+> `Lamp::powered` / `set_lamp_powered` are gone: a lamp is dark only when it
+> is shot out. A station's reactor room keeps its name and lost its reactor
+> and batteries; the batteries' roll is still drawn (`let _ = rng.below(3)`)
+> so every station is the building it was. `SAVE_VERSION` 81,
+> `wire::PROTOCOL` 84. What follows is the history.
+
 `World::run_brownout` (September 2026) is the second half of stage 6,
 right after `run_power`: what `Power::brownout()` — draw over supply with
 the batteries flat — does to the ship, now that the lamps draw
