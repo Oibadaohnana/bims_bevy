@@ -422,7 +422,7 @@ def snow():
     glints = (rng.random((N, N)) < 0.0012) & (shade > 1.0)
     rgb[glints] = np.array([1.6, 1.6, 1.6])
     rgb = blur(rgb, 0.35)
-    finish("snow", rgb, (0.47, 0.51, 0.56))
+    finish("snow", rgb, (0.56, 0.61, 0.67))
 
 
 def rock():

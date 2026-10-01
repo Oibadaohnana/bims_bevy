@@ -155,11 +155,12 @@ const CACHE_PULSE: f32 = 90.0;
 /// average of its texture ([`ground_surface`]), which makes it ground and
 /// not a colour. Taken down a quarter from (0.58, 0.46,
 /// 0.30), (0.36, 0.46, 0.28) and (0.64, 0.70, 0.76) when the player found
-/// the Bims hard to pick out on it. The pad under the ship: concrete,
-/// with a lighter border.
+/// the Bims hard to pick out on it; the snow then brought back up
+/// halfway (from 0.47, 0.51, 0.56), the player finding it too dark. The
+/// pad under the ship: concrete, with a lighter border.
 const SAND: Color = Color::rgb(0.44, 0.35, 0.23);
 const GRASS: Color = Color::rgb(0.27, 0.35, 0.21);
-const SNOW: Color = Color::rgb(0.47, 0.51, 0.56);
+const SNOW: Color = Color::rgb(0.56, 0.61, 0.67);
 /// The floor inside a town's buildings: boards, warmer than a deck.
 const FLOORBOARD: Color = Color::rgb(0.36, 0.28, 0.20);
 /// What is scattered over the ground between the wild: a tuft of grass
