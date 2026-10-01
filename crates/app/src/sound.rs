@@ -340,6 +340,11 @@ enum Kind {
 /// for a fight; a fight at top speed is a fight heard at real speed.
 const SHOTS_PER_FRAME: u32 = 12;
 
+/// What a shot's level is multiplied by when it is anybody's but the
+/// player's own Bim's — a bot's, another player's, a sentry's, an
+/// enemy's: thirty per cent quieter, so the player's own gun stands out.
+const OTHERS_SHOTS: f32 = 0.7;
+
 /// Places are told apart this coarsely, in room units — two tiles — so a
 /// gunner walking between the steps of one frame is one place.
 const PLACE: f32 = 2.0 * bims::room::TILE;
@@ -575,7 +580,9 @@ impl Sounds {
     }
 
     /// A room's cue, played — or dropped, inside its kind's cool-down.
-    pub fn play(&mut self, commands: &mut Commands, cued: Cued) {
+    /// `own` is the player's own Bim in that room, by index, if it is
+    /// there: its shots are played louder than anybody else's.
+    pub fn play(&mut self, commands: &mut Commands, cued: Cued, own: Option<usize>) {
         let Cued { cue, at } = cued;
         // A bot's hand, or an enemy's, is not heard changing: the room
         // says every one, and only a player's own is played — before the
@@ -595,10 +602,22 @@ impl Sounds {
             // at a time, and louder the once it gives.
             Cue::DoorSmash => self.one_shot(commands, Clip::DoorForce, 0.55),
             Cue::DoorForced => self.one_shot(commands, Clip::DoorForce, 0.9),
-            Cue::Shot { weapon, hostile } => {
+            Cue::Shot {
+                weapon,
+                hostile,
+                by,
+            } => {
                 // An enemy's shot a shade quieter: it is the crew's fight
-                // the player is listening to.
+                // the player is listening to. And anybody's but the
+                // player's own a good deal quieter again, so the gun in
+                // the player's hands is the one heard over the rest.
                 let theirs = if hostile { 0.8 } else { 1.0 };
+                let others = if by.is_some() && by == own {
+                    1.0
+                } else {
+                    OTHERS_SHOTS
+                };
+                let theirs = theirs * others;
                 let v = self.volumes;
                 let (clip, level, volume) = match weapon {
                     WeaponKind::LaserPistol => {

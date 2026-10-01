@@ -29,8 +29,15 @@ pub enum Cue {
     /// And started closing.
     DoorShuts,
     /// A bolt left a gun. `hostile` is an enemy's, flown in this room at
-    /// the crew.
-    Shot { weapon: WeaponKind, hostile: bool },
+    /// the crew; `by` is the crew member of this room who fired it, by
+    /// index, `None` for an enemy's or a sentry's — the app plays a
+    /// player's own shots louder than everybody else's.
+    Shot {
+        weapon: WeaponKind,
+        hostile: bool,
+        #[cfg_attr(feature = "serde", serde(default))]
+        by: Option<usize>,
+    },
     /// A bolt reached a body. `on_crew` is one of this room's own hit by
     /// an enemy's bolt; otherwise a crew member's bolt on an enemy.
     Impact { on_crew: bool },

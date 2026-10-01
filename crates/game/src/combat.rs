@@ -2421,6 +2421,7 @@ impl Combat {
             cue: Cue::Shot {
                 weapon: weapon.kind,
                 hostile: true,
+                by: None,
             },
             at: from,
         });
@@ -2826,6 +2827,7 @@ impl Combat {
             cue: Cue::Shot {
                 weapon: weapon.kind,
                 hostile,
+                by,
             },
             at: from,
         });

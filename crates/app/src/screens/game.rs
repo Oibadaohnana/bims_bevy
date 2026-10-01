@@ -1536,6 +1536,9 @@ fn frame(
         // What the steps sounded like: the crew's room, and the station's
         // beside it while the decks are joined — its doors and its galley
         // are on the same picture.
+        // The player's own Bim is the crew's room's by its slot; the
+        // station's room has nobody of ours in it.
+        let own = Some(screen.net.slot as usize);
         for cued in game.world.aboard.room.take_cues() {
             if let Some(freeze) = screen.freeze.as_mut() {
                 use crate::dev::Counted;
@@ -1558,13 +1561,13 @@ fn frame(
                     freeze.left = freeze.left.saturating_sub(1);
                 }
             }
-            sounds.play(&mut commands, cued);
+            sounds.play(&mut commands, cued, own);
         }
         if let Some(residents) = game.world.residents.as_mut() {
             let joined = game.world.ship.state.alongside().is_some();
             for cued in residents.aboard.room.take_cues() {
                 if joined {
-                    sounds.play(&mut commands, cued);
+                    sounds.play(&mut commands, cued, None);
                 }
             }
         }
