@@ -446,8 +446,9 @@ pub const FIELD_PLATING_ARMOUR_PERCENT: i32 = 10;
 /// *Coolant Loop*: what its class's cooldowns are **shortened** by, in per
 /// cent.
 pub const COOLANT_LOOP_COOLDOWN_PERCENT: i32 = 10;
-/// *Steady Grip*: what its odds of hitting are raised by, in per cent.
-pub const STEADY_GRIP_ACCURACY_PERCENT: i32 = 10;
+/// *Steady Grip*: what its fire rate is raised by, in per cent (it was its
+/// odds of hitting).
+pub const STEADY_GRIP_FIRE_RATE_PERCENT: i32 = 10;
 /// *Trauma Kit* (task 120): how many seconds sooner its carrier brings a
 /// downed crewmate round — ten to eight, a medic's four to two — never
 /// under [`REVIVE_FLOOR_SECONDS`].
@@ -547,9 +548,10 @@ pub const WIDE_ANGLE_OPTICS_TILES: f32 = 7.0;
 pub const CROSSFIRE_DAMAGE_PERCENT: i32 = 40;
 pub const CROSSFIRE_APART_COS: f32 = -0.5;
 pub const CROSSFIRE_TILES: f32 = 12.0;
-/// *Field Radio*: what the odds of a crewmate within so many tiles of it
-/// are raised by, in per cent (task 142; it was five within three).
-pub const FIELD_RADIO_ACCURACY_PERCENT: i32 = 7;
+/// *Field Radio*: what the fire rate of a crewmate within so many tiles of
+/// it is raised by, in per cent (task 142; it was five within three; and it
+/// was the odds of hitting).
+pub const FIELD_RADIO_FIRE_RATE_PERCENT: i32 = 7;
 pub const FIELD_RADIO_TILES: f32 = 5.0;
 /// *Spotter*: what the machine it hit last takes more from every crewmate,
 /// in per cent, and for how many seconds after the hit.

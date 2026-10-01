@@ -448,25 +448,25 @@ fn stand_near(world: &mut World, who: usize, tiles: f32) {
     panic!("nowhere {tiles} tiles from crew member 0");
 }
 
-/// **Field Radio** lifts a crewmate's odds within its tiles, never its
+/// **Field Radio** lifts a crewmate's fire rate within its tiles, never its
 /// holder's; **Cover Formation** takes a share off every hit on its holder
 /// and on every crewmate within its tiles, bot or player (task 142).
 #[test]
 fn field_radio_and_cover_formation_are_auras() {
     let mut world = crewed_world(flyer(2), REFERENCE_MONEY, 2, 3);
-    let aim = world.skill_of(1).accuracy;
-    let own = world.skill_of(0).accuracy;
+    let aim = world.skill_of(1).fire_rate;
+    let own = world.skill_of(0).fire_rate;
     world.give_relic_for_probe(0, Relic::FieldRadio);
     world.give_relic_for_probe(0, Relic::CoverFormation);
     stand_near(&mut world, 1, 1.0);
     stand_near(&mut world, 2, 1.0);
-    let radio = relic::factor(data::FIELD_RADIO_ACCURACY_PERCENT) as f32;
+    let radio = relic::factor(data::FIELD_RADIO_FIRE_RATE_PERCENT) as f32;
     let cover = relic::factor(-data::COVER_FORMATION_PERCENT) as f32;
     assert!(
-        close(world.skill_of(1).accuracy, aim * radio),
+        close(world.skill_of(1).fire_rate, aim * radio),
         "a player beside it"
     );
-    assert!(close(world.skill_of(0).accuracy, own), "never its own");
+    assert!(close(world.skill_of(0).fire_rate, own), "never its own");
     assert!(
         close(world.skill_of(2).damage_taken, cover),
         "a bot beside it"
@@ -478,7 +478,7 @@ fn field_radio_and_cover_formation_are_auras() {
     assert!(close(world.skill_of(0).damage_taken, cover), "its own");
     stand_near(&mut world, 1, data::COVER_FORMATION_TILES + 3.0);
     stand_near(&mut world, 2, data::COVER_FORMATION_TILES + 3.0);
-    assert!(close(world.skill_of(1).accuracy, aim), "out of its tiles");
+    assert!(close(world.skill_of(1).fire_rate, aim), "out of its tiles");
     assert!(close(world.skill_of(2).damage_taken, 1.0));
     assert!(close(world.skill_of(1).damage_taken, 1.0));
     assert!(

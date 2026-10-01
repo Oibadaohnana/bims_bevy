@@ -179,7 +179,7 @@ impl World {
     /// What task 118's relics do to a crew member's skill
     /// (`World::skill_of`, after `lift_by_relics`): *War Chest*'s damage,
     /// *Sprint Coil*'s pace, *Tether Field*'s and *Cover Formation*'s share
-    /// of a hit, and *Field Radio*'s odds. Nothing for a crew holding no
+    /// of a hit, and *Field Radio*'s fire rate. Nothing for a crew holding no
     /// relic.
     pub(super) fn lift_by_relic_hooks(&self, who: u32, skill: &mut bims::combat::Skill) {
         if !self.any_relics() {
@@ -202,9 +202,9 @@ impl World {
         if taken != 0 {
             skill.damage_taken *= relic::factor(taken) as f32;
         }
-        let aim = self.aura_percent(who, Stat::Accuracy);
-        if aim != 0 {
-            skill.accuracy *= relic::factor(aim) as f32;
+        let rate = self.aura_percent(who, Stat::FireRate);
+        if rate != 0 {
+            skill.fire_rate *= relic::factor(rate) as f32;
         }
         skill.still_range += self.still_range_of(who);
     }

@@ -683,8 +683,8 @@ fn the_stat_relics_move_the_stat_they_name() {
     ));
     let (a, b) = skill_with(Relic::SteadyGrip);
     assert!(close(
-        b.accuracy,
-        a.accuracy * f(data::STEADY_GRIP_ACCURACY_PERCENT)
+        b.fire_rate,
+        a.fire_rate * f(data::STEADY_GRIP_FIRE_RATE_PERCENT)
     ));
     let (a, b) = skill_with(Relic::TraumaKit);
     assert!(close(b.revive, a.revive - data::TRAUMA_KIT_REVIVE_SECONDS));

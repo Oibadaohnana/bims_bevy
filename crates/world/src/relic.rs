@@ -25,7 +25,7 @@
 //! new relic is a row and at most a few lines where its hook is read:
 //!
 //! - a **stat modifier** ([`Effect::Stat`]): a percentage on a [`Stat`] —
-//!   weapon damage, accuracy, move speed, armour, class cooldowns,
+//!   weapon damage, fire rate, move speed, armour, class cooldowns,
 //!   bounty — under a [`When`] (always, or while another player's Bim is
 //!   down). `World::skill_of`, the cooldowns and the bounty read
 //!   [`stat_percent`];
@@ -190,8 +190,8 @@ impl Relic {
 pub enum Stat {
     /// What every bolt and blow of its weapon does.
     Damage,
-    /// Its odds of hitting.
-    Accuracy,
+    /// How fast it pulls the trigger (it was the odds of hitting).
+    FireRate,
     /// Its pace, at all times.
     MoveSpeed,
     /// The protection of what it wears.
@@ -480,8 +480,8 @@ pub const RELICS: [RelicDef; 37] = [
         Relic::SteadyGrip,
         1,
         true,
-        Stat::Accuracy,
-        data::STEADY_GRIP_ACCURACY_PERCENT,
+        Stat::FireRate,
+        data::STEADY_GRIP_FIRE_RATE_PERCENT,
     ),
     rule(
         Relic::TraumaKit,
@@ -631,8 +631,8 @@ pub const RELICS: [RelicDef; 37] = [
         1,
         true,
         Effect::Aura {
-            stat: Stat::Accuracy,
-            percent: data::FIELD_RADIO_ACCURACY_PERCENT,
+            stat: Stat::FireRate,
+            percent: data::FIELD_RADIO_FIRE_RATE_PERCENT,
             tiles: data::FIELD_RADIO_TILES,
             own: false,
         },
@@ -1760,9 +1760,9 @@ mod tests {
         // The auras: Field Radio lifts the others, Cover Formation its holder
         // too (task 142).
         assert_eq!(
-            auras(&[Relic::FieldRadio], Stat::Accuracy).collect::<Vec<_>>(),
+            auras(&[Relic::FieldRadio], Stat::FireRate).collect::<Vec<_>>(),
             vec![(
-                data::FIELD_RADIO_ACCURACY_PERCENT,
+                data::FIELD_RADIO_FIRE_RATE_PERCENT,
                 data::FIELD_RADIO_TILES,
                 false
             )]

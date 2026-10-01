@@ -213,7 +213,7 @@ player's Bim** for the rest of the run. A bot never holds one.
   | 1 | Servo Braces | +10% move speed | yes |
   | 1 | Field Plating | +10% armour | yes |
   | 1 | Coolant Loop | -10% class ability cooldowns | yes |
-  | 1 | Steady Grip | +10% accuracy | unlocked by a win |
+  | 1 | Steady Grip | +10% fire rate | unlocked by a win |
   | 1 | Trauma Kit | the Bim's revives take 2 s less (never under 1 s) | unlocked by a win |
   | 2 | Second Wind | the first time the Bim goes down in a mission, it gets up 5 s later with 25% health | yes |
   | 2 | Salvage Beacon | +20% bounty for the Bim's own kills, paid on the clear like any bounty | yes |
@@ -253,7 +253,7 @@ player's Bim** for the rest of the run. A bot never holds one.
   | 2 | Wide Angle Optics | the Bim's side-or-behind zone is 30° wider each side, and a Guardian's shield that much narrower against its shots | unlocked by a win |
   | 3 | Crossfire | while the Bim and a crewmate stand on opposite sides of a machine (over 120° apart, within 12 tiles), both do +40% damage to it | unlocked by a win |
   | | **Command Net** — leading the crew; anybody may carry it | | |
-  | 1 | Field Radio | crewmates within 3 tiles aim 5% better | yes |
+  | 1 | Field Radio | crewmates within 5 tiles fire 7% faster | yes |
   | 1 | Spotter | the machine the Bim hit last takes +10% damage from every crewmate for 3 s | yes |
   | 2 | Squad Morale | each machine the Bim or a bot destroys takes 1 s off the Bim's class cooldowns (with Kill Relay, 4 s for its own) | yes |
   | 2 | Cover Formation | bots within 3 tiles take 20% less damage | unlocked by a win |

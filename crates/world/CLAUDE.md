@@ -4717,7 +4717,7 @@ never holds one, and `ProposeRelic` to a bot is `Refusal::NotAPlayer`.
 
 - `World::skill_of` ends in `lift_by_relics` — `Skill::damage` and
   `melee` (*Focusing Lens*, *Last Stand* while another player's Bim is
-  down), `accuracy` (*Steady Grip*), `walk` (*Servo Braces*),
+  down), `fire_rate` (*Steady Grip*; it was `accuracy`), `walk` (*Servo Braces*),
   `armour_protection` (*Field Plating*), `healing` (*Trauma Kit*, which
   the room multiplies into a medkit's `treated_to` for the patient) and
   `overcharge` (*Overcharge Cell*, `Skill::for_shot` off `Bim::shots`,
@@ -5410,7 +5410,7 @@ a stream, and nothing there runs for a crew holding no relic**
 - **The skill**: `lift_by_relic_hooks` after `lift_by_relics` — *War
   Chest* (`war_chest_percent`: the pool over the players, a step a
   thousand, capped), the buffs, and the auras of other players fit to
-  act within their tiles (`Effect::Aura`: *Field Radio*'s odds for
+  act within their tiles (`Effect::Aura`: *Field Radio*'s fire rate for
   anybody, *Cover Formation*'s `DamageTaken` for bots). `DamageTaken`
   goes to `bims::combat::Skill::damage_taken`, which the room multiplies
   into every hit on the body before the armour (`strike_stripping`).

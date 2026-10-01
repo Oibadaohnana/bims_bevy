@@ -43,7 +43,7 @@
     reward: 1.0,            // the chime of an enemy down and its pay
 
     // The crew.
-    downed: 1.0,            // another player downed (not a bot)
+    downed: 1.0,            // a player downed (not a bot)
 
     // The classes' abilities.
     grenade_throw: 1.0,

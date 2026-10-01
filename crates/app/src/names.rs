@@ -1823,7 +1823,7 @@ pub fn relic_line(relic: world::Relic) -> String {
             "-{}% class ability cooldowns.",
             d::COOLANT_LOOP_COOLDOWN_PERCENT
         ),
-        SteadyGrip => format!("+{}% accuracy.", d::STEADY_GRIP_ACCURACY_PERCENT),
+        SteadyGrip => format!("+{}% fire rate.", d::STEADY_GRIP_FIRE_RATE_PERCENT),
         TraumaKit => format!(
             "Revives a downed crewmate {} s faster — {} s where it took {}, a medic's {} s where it took {} — and never in under {} s.",
             fig(d::TRAUMA_KIT_REVIVE_SECONDS as f64),
@@ -1933,9 +1933,9 @@ pub fn relic_line(relic: world::Relic) -> String {
         ),
         // Command Net.
         FieldRadio => format!(
-            "Crewmates within {} tiles aim {}% better.",
+            "Crewmates within {} tiles fire {}% faster.",
             d::FIELD_RADIO_TILES,
-            d::FIELD_RADIO_ACCURACY_PERCENT
+            d::FIELD_RADIO_FIRE_RATE_PERCENT
         ),
         Spotter => format!(
             "The machine this Bim hit last takes +{}% damage from every crewmate for {} s.",

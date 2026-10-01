@@ -89,7 +89,7 @@ impl World {
     }
 
     /// What a crew member's relics do to its skill (`World::skill_of`):
-    /// the damage, the odds, the pace, the armour and the overcharge. The skill as it was for anybody holding
+    /// the damage, the fire rate, the pace, the armour and the overcharge. The skill as it was for anybody holding
     /// nothing.
     pub(super) fn lift_by_relics(&self, who: u32, skill: &mut bims::combat::Skill) {
         let held = self.relics_of(who);
@@ -99,7 +99,7 @@ impl World {
         let f = |stat| self.relic_factor(who, stat) as f32;
         skill.damage *= f(Stat::Damage);
         skill.melee *= f(Stat::Damage);
-        skill.accuracy *= f(Stat::Accuracy);
+        skill.fire_rate *= f(Stat::FireRate);
         skill.walk *= f(Stat::MoveSpeed);
         skill.armour_protection *= f(Stat::Armour);
         let (every, damage) = relic::overcharge(held);
