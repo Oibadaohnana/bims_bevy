@@ -245,7 +245,9 @@ use crate::game::Game;
 /// timed effects and the rest gone), a choice voted on with no recipient
 /// and no picks, no cache on an `Infestation` and no relic on a
 /// `Trader`.
-pub const SAVE_VERSION: u32 = 91;
+/// 92: the soldier's E is a Stun Shot (October 2026) —
+/// `Soldier::{charging, last_shot}` and `Grenade::shot`.
+pub const SAVE_VERSION: u32 = 92;
 
 /// What the file holds, read back.
 #[derive(serde::Deserialize)]

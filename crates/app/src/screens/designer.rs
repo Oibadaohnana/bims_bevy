@@ -167,9 +167,12 @@ pub enum Order {
     /// Sandbags or a Healing Sentry taken back up, the charge back —
     /// `Command::PackUp`.
     PackUp(u32),
-    /// The soldier braced, or stood easy — `Command::Brace`, the E key
-    /// (feature 75).
-    Brace(bool),
+    /// The soldier's Stun Shot charged at a room tile —
+    /// `Command::StunShot`, the E key (October 2026).
+    StunShot {
+        x: i32,
+        y: i32,
+    },
     /// The soldier's grenade thrown at a room tile — `Command::Throw`,
     /// the Q key over the deck.
     Throw {
@@ -495,7 +498,7 @@ impl Net {
                         Order::Sentry { x, y } => Command::Sentry { slot, tile: (x, y) },
                         Order::Emp { x, y } => Command::Emp { slot, x, y },
                         Order::PackUp(id) => Command::PackUp { slot, id },
-                        Order::Brace(on) => Command::Brace { slot, on },
+                        Order::StunShot { x, y } => Command::StunShot { slot, x, y },
                         Order::Throw { x, y } => Command::Throw { slot, x, y },
                         Order::ThrowAt { emp, x, y } => Command::ThrowAt { slot, emp, x, y },
                         Order::Rampage => Command::Rampage { slot },

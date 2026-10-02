@@ -941,14 +941,30 @@ pub struct Grenade {
     /// while it lasts (its top rank).
     #[cfg_attr(feature = "serde", serde(default))]
     pub expose: bool,
+    /// A soldier's **Stun Shot** (October 2026) rather than a grenade: it
+    /// flies the whole of its fuse and bursts where it lands, every
+    /// target in the burst taking `damage` — the same at the edge — and
+    /// stunned for `stun` seconds, none of the room's own touched.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub shot: bool,
 }
 
 impl Grenade {
     /// Where it is now: along the throw for the first
-    /// [`GRENADE_FLIGHT`] seconds, then on the tile.
+    /// [`GRENADE_FLIGHT`] seconds, then on the tile — a shot along the
+    /// whole of its fuse.
     pub fn pos(&self) -> Vec2 {
-        let flown = ((self.fuse - self.left) / GRENADE_FLIGHT).clamp(0.0, 1.0);
+        let flown = ((self.fuse - self.left) / self.flight()).clamp(0.0, 1.0);
         self.from + (self.at - self.from) * flown
+    }
+
+    /// Seconds it is in the air.
+    pub fn flight(&self) -> f32 {
+        if self.shot {
+            self.fuse.max(1e-3)
+        } else {
+            GRENADE_FLIGHT
+        }
     }
 }
 
@@ -2214,9 +2230,51 @@ impl Combat {
             damage,
             stun: 0.0,
             expose: false,
+            shot: false,
         });
         self.cues.push(Cued {
             cue: Cue::Throw,
+            at: from,
+        });
+    }
+
+    /// A soldier's Stun Shot fired (October 2026): by crew member `by`
+    /// from `from` at `at`, flying `flight` seconds and bursting there with
+    /// `radius`, `damage` to every target in it and a stun of `stun`
+    /// seconds. Heard as the gun in its hand.
+    #[allow(clippy::too_many_arguments)]
+    pub fn fire_stun_shot(
+        &mut self,
+        by: usize,
+        from: Vec2,
+        at: Vec2,
+        flight: f32,
+        radius: f32,
+        damage: f32,
+        stun: f32,
+        weapon: Weapon,
+    ) {
+        self.lull = 0.0;
+        self.grenades.push(Grenade {
+            by,
+            from,
+            at,
+            left: flight,
+            fuse: flight,
+            radius,
+            damage,
+            stun: stun.max(f32::MIN_POSITIVE),
+            expose: false,
+            shot: true,
+        });
+        self.fx
+            .muzzle(from, (at - from).normalize_or_zero(), weapon, false);
+        self.cues.push(Cued {
+            cue: Cue::Shot {
+                weapon: weapon.kind,
+                hostile: false,
+                by: Some(by),
+            },
             at: from,
         });
     }
@@ -2267,13 +2325,17 @@ impl Combat {
                 emp: g.stun > 0.0,
             });
             // The particles over the flash: the host's, never read back.
-            if g.stun > 0.0 {
+            // A Stun Shot is both: it burns and it stuns.
+            if g.shot {
+                self.fx.explosion(g.at, g.radius * 0.6);
+                self.fx.emp(g.at, g.radius);
+            } else if g.stun > 0.0 {
                 self.fx.emp(g.at, g.radius);
             } else {
                 self.fx.explosion(g.at, g.radius);
             }
             self.cues.push(Cued {
-                cue: if g.stun > 0.0 {
+                cue: if g.stun > 0.0 && !g.shot {
                     Cue::EmpBurst
                 } else {
                     Cue::Burst
@@ -2329,7 +2391,7 @@ impl Combat {
             self.fx.trail(tail, bolt.pos, bolt.weapon, bolt.hostile);
         }
         for g in &self.grenades {
-            if g.fuse - g.left >= GRENADE_FLIGHT {
+            if !g.shot && g.fuse - g.left >= GRENADE_FLIGHT {
                 self.fx.fuse(g.at);
             }
         }
@@ -3575,6 +3637,21 @@ impl Combat {
         // down once it lies on its tile.
         for g in &self.grenades {
             let pos = g.pos();
+            // A Stun Shot (October 2026): a glowing slug of the stun's
+            // blue with a streak behind it, flat on the deck.
+            if g.shot {
+                let dir = (g.at - g.from).normalize_or_zero();
+                let tail = pos - dir * ((pos - g.from).len().min(70.0));
+                list.line(
+                    tail,
+                    pos,
+                    9.0,
+                    crate::droid::STUNNED.glowing(1.2).alpha(0.45),
+                );
+                list.circle(pos, 22.0, crate::droid::STUNNED.glowing(1.6).alpha(0.9));
+                list.circle(pos, 10.0, BOLT_CORE_WHITE);
+                continue;
+            }
             let flying = g.fuse - g.left < GRENADE_FLIGHT;
             let lift = if flying {
                 let f = ((g.fuse - g.left) / GRENADE_FLIGHT).clamp(0.0, 1.0);

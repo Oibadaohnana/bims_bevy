@@ -385,6 +385,13 @@ impl World {
             *began -= minutes;
             any = true;
         }
+        // A Stun Shot's cooldown (October 2026), never a charge.
+        if let Some(soldier) = self.soldiers.get_mut(who as usize)
+            && let Some(fired) = soldier.last_shot.as_mut()
+        {
+            *fired -= minutes;
+            any = true;
+        }
         // A medic's Nanite Burst and Cloak (task 130): each a timestamp
         // that is the cooldown alone — the cloak it cast is kept on the
         // crew member it covers, and does not move.

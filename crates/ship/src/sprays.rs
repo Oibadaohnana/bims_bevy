@@ -15,7 +15,7 @@
 //!   the same world, so every window sees every player's: a Rally's and a
 //!   Battle Cry's ring of light running out over the whole of their
 //!   reach with motes rising in it (the commander's area), a Nanite
-//!   Burst's green, a Taunt's red shockwave, a Bulwark's and a Brace's
+//!   Burst's green, a Taunt's red shockwave, a Bulwark's and a Stun Shot's
 //!   sparks, a Rampage's and a Juggernaut's flare, a cloak drawn in, a
 //!   reinforcement beamed down.
 //! - **While it runs** ([`running`]), a beat of [`BEAT`] real seconds at a
@@ -169,7 +169,7 @@ fn ability(game: &mut Game, event: WorldEvent) {
         | E::Juggernaut { who }
         | E::Rampaged { who }
         | E::Bulwarked { who, on: true }
-        | E::Braced { who, on: true }
+        | E::ShotCharging { who }
         | E::Deployed { who, .. }
         | E::Reinforced { who, .. }
         | E::Medivac { who, .. }
@@ -228,7 +228,7 @@ fn ability(game: &mut Game, event: WorldEvent) {
             );
             flare(game, at, WALL_BLUE, tiles(1.0));
         }
-        E::Braced { .. } => {
+        E::ShotCharging { .. } => {
             dust(game, at);
             game.world.aboard.room.spray(
                 Spray::along(SprayKind::Sparks, at, vec2(0.0, -1.0))

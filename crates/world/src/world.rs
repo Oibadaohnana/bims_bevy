@@ -283,16 +283,21 @@ pub enum Command {
         slot: u32,
         id: u32,
     },
-    /// Brace that player's own soldier, or stand it easy (feature 75,
-    /// `crate::class`): braced, it holds where it stands — no errands,
-    /// no running, its misses cut by [`class::BRACE_MISS_CUT`] of its
-    /// rank and the damage it takes by [`class::BRACE_DAMAGE_TAKEN`] —
-    /// until this with `on` false, an order that moves it, or going down.
-    /// Refused `NotASoldier` for anybody else, `OutOfReach` for one not
-    /// fit to act and `NotLearnt` at rank nought (task 124).
-    Brace {
+    /// That player's own soldier charges a **Stun Shot** (October 2026,
+    /// E; it was the Brace) at the room tile `(x, y)`: it plants its feet
+    /// and holds its fire for [`class::STUN_SHOT_CHARGE`] seconds of the
+    /// mission clock, then fires — no further than its weapon reaches,
+    /// stopped short of the first wall — and every enemy in the burst
+    /// takes the rank's damage and is stunned
+    /// (`World::settle_stun_shots`). Refused `NotASoldier`,
+    /// `OutOfReach` (not fit to act, downed among it), `NotLearnt` at
+    /// rank nought, `AlreadyActive` while one charges, `CoolingDown`
+    /// within its rank's [`class::STUN_SHOT_COOLDOWN`] of the last one
+    /// fired, and `NoWeaponInHand` with nothing to fire it from.
+    StunShot {
         slot: u32,
-        on: bool,
+        x: i32,
+        y: i32,
     },
     /// Throw a grenade from that player's own soldier's pack at the tile
     /// `(x, y)` of the crew's room — a room tile like a deploy's. Wants
@@ -1504,6 +1509,10 @@ impl World {
         self.size_the_commanders();
         //    And every player's own two standing orders (feature 84).
         self.hand_the_room_the_standing();
+        //    And every Stun Shot charging (October 2026): called off, or
+        //    fired into the room before it steps, before the skills, which
+        //    hold a charging soldier.s fire.
+        self.settle_stun_shots(&mut events);
         self.hand_the_room_the_soldiers();
         //    And a pistol for every empty hand under arms.
         self.arm_the_empty_handed(&mut events);
@@ -1596,7 +1605,7 @@ impl World {
             | Command::Sentry { slot, .. }
             | Command::Emp { slot, .. }
             | Command::PackUp { slot, .. }
-            | Command::Brace { slot, .. }
+            | Command::StunShot { slot, .. }
             | Command::Throw { slot, .. }
             | Command::ThrowAt { slot, .. }
             | Command::Beam { slot, .. }
@@ -1701,7 +1710,7 @@ impl World {
             return;
         }
         // **A cloaked Bim uses no class ability** (task 130): every key a
-        // class has is refused while its cloak lasts — a brace or a wall
+        // class has is refused while its cloak lasts — a wall
         // put *down*, a beam let go, a pack-up and a carry are not
         // abilities used, and go through.
         let class_ability = matches!(
@@ -1712,7 +1721,7 @@ impl World {
                 | Command::Throw { .. }
                 | Command::ThrowAt { .. }
                 | Command::Rampage { .. }
-                | Command::Brace { on: true, .. }
+                | Command::StunShot { .. }
                 | Command::Beam {
                     patient: Some(_),
                     ..
@@ -1823,8 +1832,8 @@ impl World {
                 Err(why) => events.push(refused(slot, why)),
             },
             Command::PackUp { id, .. } => self.pack_up(slot, id, events),
-            Command::Brace { on, .. } => match self.brace(slot, on) {
-                Ok(()) => events.push(WorldEvent::Braced { who: slot, on }),
+            Command::StunShot { x, y, .. } => match self.stun_shot(slot, (x, y)) {
+                Ok(()) => events.push(WorldEvent::ShotCharging { who: slot }),
                 Err(why) => events.push(refused(slot, why)),
             },
             Command::Throw { x, y, .. } => match self.throw(slot, (x, y)) {
@@ -8447,13 +8456,13 @@ impl World {
         }
     }
 
-    // --- the soldier: the brace, the skills and the grenades (feature 75) --
+    // --- the soldier: the skills and the grenades (feature 75) ------------
 
     /// What a crew member shoots with over its weapon, for the room's one
-    /// shooter (`bims::combat::Skill`): a soldier's talents and its brace,
-    /// every factor `crate::class`'s constant; `Skill::NONE` for anybody
-    /// else. Worked out fresh every step, since the brace and the
-    /// *rampage* stacks move.
+    /// shooter (`bims::combat::Skill`): every class's half, then the
+    /// commanders, the relics, the items and a cloak, every factor
+    /// `crate::class`'s constant. Worked out fresh every step, since a
+    /// charge, a Rampage and the rest come and go.
     pub fn skill_of(&self, who: u32) -> bims::combat::Skill {
         let mut skill = if self.is_medic(who) {
             self.medic_skill(who)
@@ -8500,9 +8509,7 @@ impl World {
 
     /// The soldier's half of [`World::skill_of`] (task 124), off its four
     /// ranks and nothing else; `Skill::NONE` for anybody else. **Weak
-    /// Spot** is the crit chance on every weapon hit; **Brace**, while
-    /// braced, cuts the misses by its share (and far aim equals near at
-    /// the fourth rank) and the damage taken; **Rampage**, while it runs,
+    /// Spot** is the crit chance on every weapon hit; **Rampage**, while it runs,
     /// the fire rate up, the damage taken down and full aim on the move.
     fn soldier_skill(&self, who: u32) -> bims::combat::Skill {
         let mut skill = bims::combat::Skill::NONE;
@@ -8514,12 +8521,6 @@ impl World {
         {
             skill.crit_chance = chance;
         }
-        let brace = self.rank_of(who, class::SLOT_E);
-        if brace > 0 && self.aboard.room.is_braced(who as usize) {
-            skill.miss_cut = class::by_rank(class::BRACE_MISS_CUT, brace).unwrap_or(0.0);
-            skill.damage_taken *= class::by_rank(class::BRACE_DAMAGE_TAKEN, brace).unwrap_or(1.0);
-            skill.deadeye = brace >= class::BRACE_DEADEYE_RANK;
-        }
         if self.is_rampaging(who) {
             let rank = self.rank_of(who, class::SLOT_R);
             skill.fire_rate *= class::by_rank(class::RAMPAGE_FIRE_RATE, rank).unwrap_or(1.0);
@@ -8529,35 +8530,164 @@ impl World {
         skill
     }
 
-    /// Whether a player's soldier may brace, or why not: a soldier
-    /// (`NotASoldier`), fit to act (`OutOfReach`), and a rank of Brace
-    /// (`NotLearnt`, task 124). What the app greys the key with and
-    /// [`Command::Brace`] asks.
-    pub fn can_brace(&self, slot: u32) -> Result<(), Refusal> {
-        if !class::can(self.class_of(slot), class::Ability::Brace) {
+    // --- the soldier's Stun Shot (October 2026) -----------------------------
+
+    /// Whether a soldier's Stun Shot is charging.
+    pub fn is_charging(&self, who: u32) -> bool {
+        self.is_soldier(who) && self.soldier_of(who).charging.is_some()
+    }
+
+    /// How far the Stun Shot charging has come, nought to one; nought with
+    /// none.
+    pub fn charge_share(&self, who: u32) -> f32 {
+        let Some(charging) = self.soldier_of(who).charging else {
+            return 0.0;
+        };
+        let whole = class::STUN_SHOT_CHARGE * time::MINUTES_PER_SECOND;
+        let left = (charging.until - self.mission_minutes()).max(0.0);
+        (1.0 - left / whole).clamp(0.0, 1.0) as f32
+    }
+
+    /// What the burst does to every enemy in it: the E rank's
+    /// [`class::STUN_SHOT_DAMAGE`], nought before the first.
+    pub fn stun_shot_damage(&self, who: u32) -> f32 {
+        class::by_rank(class::STUN_SHOT_DAMAGE, self.rank_of(who, class::SLOT_E)).unwrap_or(0.0)
+    }
+
+    /// How far the burst reaches, in tiles: the E rank's
+    /// [`class::STUN_SHOT_RADIUS`], nought before the first.
+    pub fn stun_shot_radius(&self, who: u32) -> f32 {
+        class::by_rank(class::STUN_SHOT_RADIUS, self.rank_of(who, class::SLOT_E)).unwrap_or(0.0)
+    }
+
+    /// Seconds every enemy in the burst is stunned: the E rank's
+    /// [`class::STUN_SHOT_STUN`].
+    pub fn stun_shot_stun(&self, who: u32) -> f32 {
+        class::by_rank(class::STUN_SHOT_STUN, self.rank_of(who, class::SLOT_E)).unwrap_or(0.0)
+    }
+
+    /// How far the shot reaches, in tiles: the weapon in the soldier's
+    /// hand through its skill, the reach its own shots have; `None` with
+    /// nothing in its hand.
+    pub fn stun_shot_range(&self, who: u32) -> Option<f32> {
+        let weapon = self.aboard.room.weapon(who as usize)?;
+        Some(self.skill_of(who).stats(weapon).range)
+    }
+
+    /// Seconds of the mission clock from one Stun Shot fired to the next:
+    /// [`class::STUN_SHOT_COOLDOWN`] of its rank, shorter with the
+    /// cooldown relics and items as every class cooldown is.
+    pub fn stun_shot_cooldown(&self, who: u32) -> f64 {
+        let rank = self.rank_of(who, class::SLOT_E).max(1);
+        class::by_rank(class::STUN_SHOT_COOLDOWN, rank).unwrap_or(0.0)
+            * self.relic_factor(who, crate::relic::Stat::Cooldowns)
+    }
+
+    /// Seconds of the mission clock until a soldier may charge a Stun Shot
+    /// again; nought when it may.
+    pub fn stun_shot_cooldown_left(&self, who: u32) -> f64 {
+        let Some(fired) = self.soldier_of(who).last_shot else {
+            return 0.0;
+        };
+        let since = (self.mission_minutes() - fired) / time::MINUTES_PER_SECOND;
+        (self.stun_shot_cooldown(who) - since).max(0.0)
+    }
+
+    /// Whether a player's soldier may charge a Stun Shot, or why not, in
+    /// order: a soldier (`NotASoldier`), fit to act — downed among it —
+    /// (`OutOfReach`), a rank of it (`NotLearnt`), none charging
+    /// (`AlreadyActive`), out of the cooldown (`CoolingDown`) and a gun in
+    /// hand (`NoWeaponInHand`). The tile is never refused: the shot goes
+    /// as far towards it as it can. What the app greys the key with and
+    /// [`Command::StunShot`] asks.
+    pub fn can_stun_shot(&self, slot: u32) -> Result<(), Refusal> {
+        if !class::can(self.class_of(slot), class::Ability::StunShot) {
             return Err(Refusal::NotASoldier);
         }
-        if !self.fit_to_act(slot) {
+        if !self.fit_to_act(slot) || self.aboard.room.is_down(slot as usize) {
             return Err(Refusal::OutOfReach);
         }
         if self.rank_of(slot, class::SLOT_E) == 0 {
             return Err(Refusal::NotLearnt);
         }
+        if self.is_charging(slot) {
+            return Err(Refusal::AlreadyActive);
+        }
+        if self.stun_shot_cooldown_left(slot) > 0.0 {
+            return Err(Refusal::CoolingDown);
+        }
+        if self.stun_shot_range(slot).is_none() {
+            return Err(Refusal::NoWeaponInHand);
+        }
         Ok(())
     }
 
-    /// Brace, or stand easy — see [`Command::Brace`]. The room holds the
-    /// flag (`Game::set_braced`), and ends it on its own when the soldier
-    /// is ordered anywhere or goes down.
-    fn brace(&mut self, slot: u32, on: bool) -> Result<(), Refusal> {
-        self.can_brace(slot)?;
-        self.aboard.room.set_braced(slot as usize, on);
+    /// The charge begun — see [`Command::StunShot`]: the soldier planted
+    /// where it stands (`Game::set_braced`, the room's stance: no errand,
+    /// the walk dropped) and the shot noted to fire
+    /// [`class::STUN_SHOT_CHARGE`] seconds on, at `tile`.
+    fn stun_shot(&mut self, slot: u32, tile: (i32, i32)) -> Result<(), Refusal> {
+        self.can_stun_shot(slot)?;
+        self.aboard.room.set_braced(slot as usize, true);
+        let until = self.mission_minutes() + class::STUN_SHOT_CHARGE * time::MINUTES_PER_SECOND;
+        self.soldier_mut(slot as usize).charging = Some(crate::soldier::Charging { until, tile });
         Ok(())
     }
 
-    /// Whether a crew member is braced.
-    pub fn is_braced(&self, who: u32) -> bool {
-        self.aboard.room.is_braced(who as usize)
+    /// Every Stun Shot charging, before the rooms step: called off for a
+    /// soldier no longer fit to act or no longer planted (the room ends
+    /// the plant on an order that moves it, a walk key pressed, a roll,
+    /// going down), and fired the step its charge is full — along the way
+    /// its player's pointer has it facing when its keys steer it, as far
+    /// as the tile first aimed at, else at that tile; never past the
+    /// weapon's reach, and stopped short of the first wall
+    /// (`Game::reach_along`). The cooldown runs from the shot. The room is
+    /// told how far each charge has come, for the glow.
+    fn settle_stun_shots(&mut self, events: &mut Vec<WorldEvent>) {
+        let now = self.mission_minutes();
+        for who in 0..self.soldiers.len() as u32 {
+            let Some(charging) = self.soldiers[who as usize].charging else {
+                continue;
+            };
+            let i = who as usize;
+            let planted = self.aboard.room.is_braced(i);
+            if !planted || !self.fit_to_act(who) || self.aboard.room.is_down(i) {
+                self.soldiers[i].charging = None;
+                self.aboard.room.set_braced(i, false);
+                self.aboard.room.set_shot_charge(i, 0.0);
+                continue;
+            }
+            if now < charging.until {
+                let share = self.charge_share(who);
+                self.aboard.room.set_shot_charge(i, share);
+                continue;
+            }
+            self.soldiers[i].charging = None;
+            self.soldiers[i].last_shot = Some(now);
+            self.aboard.room.set_braced(i, false);
+            self.aboard.room.set_shot_charge(i, 0.0);
+            let Some(range) = self.stun_shot_range(who) else {
+                continue;
+            };
+            let t = shipdesign::TILE as f32;
+            let from = self.aboard.room.bim_pos(i);
+            let aimed = tile_centre(charging.tile);
+            let far = (aimed - from).len().min(range * t);
+            let dir = match self.aboard.room.steer_of(i) {
+                Some(steer) => bims::math::Vec2::from_angle(steer.aim),
+                None => (aimed - from).normalize_or_zero(),
+            };
+            let at = self.aboard.room.reach_along(from, from + dir * far);
+            let (radius, damage, stun) = (
+                self.stun_shot_radius(who) * t,
+                self.stun_shot_damage(who),
+                self.stun_shot_stun(who),
+            );
+            self.aboard
+                .room
+                .fire_stun_shot(i, at, class::STUN_SHOT_FLIGHT, radius, damage, stun);
+            events.push(WorldEvent::StunShotFired { who });
+        }
     }
 
     /// How far a soldier throws, in tiles: [`class::GRENADE_RANGE`] at
@@ -8881,7 +9011,7 @@ impl World {
     /// order: a soldier (`NotASoldier`), fit to act — downed among it —
     /// (`OutOfReach`), a rank of Rampage (`NotLearnt`), none running
     /// (`AlreadyActive`) and out of the cooldown (`CoolingDown`). It may
-    /// go on one braced: the two stack.
+    /// go on one with a Stun Shot charging.
     pub fn can_rampage(&self, slot: u32) -> Result<(), Refusal> {
         if !class::can(self.class_of(slot), class::Ability::Rampage) {
             return Err(Refusal::NotASoldier);

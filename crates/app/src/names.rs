@@ -464,6 +464,7 @@ pub fn refusal(why: Refusal) -> &'static str {
         Refusal::ItemsFull => "every item slot is full",
         Refusal::BotsCarryNoItems => "only a player's Bim carries items",
         Refusal::NotForSale => "the trader does not sell that",
+        Refusal::NoWeaponInHand => "nothing in hand to fire it from",
     }
 }
 
@@ -651,7 +652,7 @@ pub const CLASS_NAMES: [&str; 6] = ["None", "Engineer", "Soldier", "Medic", "Tan
 pub const CLASS_TIPS: [&str; 6] = [
     "No class: learns nothing.",
     "Four ranked abilities, a skill point a level: an EMP that stuns the machines (Q), a Healing Sentry that heals the crew round it (C), sandbags for cover (E), and for its ultimate a sentry with a minigun (R). Its charges come back on their own cooldowns, and it packs its sandbags and Healing Sentries up again.",
-    "Braces to hold a line (E) — steadier shooting and no errands until stood easy — and from the third level throws grenades (Q), two charges of them, each back thirty seconds after it is thrown. Sets out with an auto rifle in hand and the pistol in the pack.",
+    "Four ranked abilities, a skill point a level: Frag Grenades (Q), Weak Spot, hits that may land critical (C), a Stun Shot charged for two seconds that bursts where it lands, hurting and stunning the machines in it (E), and for his ultimate a Rampage, firing faster and taking less (R). Sets out with an auto rifle in hand.",
     "Four ranked abilities, a skill point a level: a Nanite Burst that heals everybody near him at once (Q), a Healing Aura that makes every heal worth more to the crew round him (C), the heal beam on a crewmate or himself (E), and for his ultimate a cloak no enemy can pick (R). Revives a downed crewmate in four seconds where anybody else takes ten, and gets them up at 40% of their bar where anybody else manages 30%.",
     "Four ranked abilities, a skill point a level: a Taunt that makes every enemy near him that can see him shoot at him and nobody else (Q), Plated, less damage from every hit (C), a wall the crew shelter behind (E), and for his ultimate the Juggernaut, every enemy that sees him shooting at him while he shrugs it off (R). His armour drains at half rate, so the same armour takes twice as much on him. Sets out with the pistol and a tier-one armour on.",
     "Four ranked abilities, a skill point a level: a Battle Cry that makes everybody near him fire faster (Q), a Medivac, a Republic medic called in beside him who runs to a player downed and revives him (C), a Rally that has the crew near him take less damage and move faster (E), and for his ultimate Republic soldiers called in beside him (R). Hires a mercenary at a quarter off. Sets out with the pistol.",
@@ -688,7 +689,7 @@ pub fn ranked_ability(class: world::Class, slot: u8) -> &'static str {
     match (class, slot) {
         (world::Class::Soldier, 0) => "Frag Grenade",
         (world::Class::Soldier, 1) => "Weak Spot",
-        (world::Class::Soldier, 2) => "Brace",
+        (world::Class::Soldier, 2) => "Stun Shot",
         (world::Class::Soldier, 3) => "Rampage",
         (world::Class::Engineer, 0) => "EMP",
         (world::Class::Engineer, 1) => "Healing Sentry",
@@ -720,10 +721,10 @@ pub fn ranked_what(class: world::Class, slot: u8) -> &'static str {
             "Passive. Your hits may strike a weak spot for extra damage. Grenades never do."
         }
         (world::Class::Soldier, 2) => {
-            "Toggle. Brace where you stand: steadier aim and less damage taken. Moving ends it."
+            "Charge 2 s, planted, then fire at the pointer within your weapon's reach. The burst hurts and stuns every machine in it. Moving cancels it."
         }
         (world::Class::Soldier, 3) => {
-            "Ultimate. Fire faster, take less damage and aim on the move. Stacks with Brace."
+            "Ultimate. Fire faster, take less damage and aim on the move. Goes on with a Stun Shot charging."
         }
         (world::Class::Engineer, 0) => EMP_WHAT,
         (world::Class::Engineer, 1) => {
@@ -844,13 +845,12 @@ pub fn ranked_stats(class: world::Class, slot: u8) -> Vec<Stat> {
             Stat::ranks("Crit damage", "", |r| pc(c::WEAK_SPOT_DAMAGE[r] as f64)),
         ],
         (world::Class::Soldier, 2) => vec![
-            Stat::ranks("Fewer misses", "", |r| pc(c::BRACE_MISS_CUT[r] as f64)),
-            Stat::ranks("Damage taken", "", |r| by(c::BRACE_DAMAGE_TAKEN[r] as f64)),
-            Stat::from_rank(
-                "Full aim at range",
-                c::BRACE_DEADEYE_RANK,
-                "Yes".to_string(),
-            ),
+            Stat::ranks("Damage", "", |r| fig(c::STUN_SHOT_DAMAGE[r] as f64)),
+            Stat::ranks("Radius", " tiles", |r| fig(c::STUN_SHOT_RADIUS[r] as f64)),
+            Stat::ranks("Stun", " s", |r| fig(c::STUN_SHOT_STUN[r] as f64)),
+            Stat::one("Charge", " s", fig(c::STUN_SHOT_CHARGE)),
+            Stat::one("Range", "", "the weapon's".to_string()),
+            cooldown(&c::STUN_SHOT_COOLDOWN),
         ],
         (world::Class::Soldier, 3) => vec![
             Stat::ranks("Duration", " s", |r| fig(c::RAMPAGE_SECONDS[r])),
@@ -1224,9 +1224,9 @@ pub fn deploy_refused(why: world::Refusal) -> String {
 pub fn throw_refused(why: world::Refusal) -> String {
     format!("Cannot throw that: {}.", refusal(why))
 }
-/// And for a brace refused.
-pub fn brace_refused(why: world::Refusal) -> String {
-    format!("Cannot brace: {}.", refusal(why))
+/// And for a Stun Shot refused (October 2026).
+pub fn stun_shot_refused(why: world::Refusal) -> String {
+    format!("Cannot fire a Stun Shot: {}.", refusal(why))
 }
 /// And for a beam (feature 76).
 pub fn beam_refused(why: world::Refusal) -> String {
@@ -1335,10 +1335,16 @@ pub fn juggernaut_line(left: f64, cooldown: f64, learnt: bool) -> String {
 /// The Juggernaut before its first rank.
 pub const JUGGERNAUT_NOT_LEARNT: &str = "Juggernaut not learnt yet";
 /// The soldier's rows on the crew panel (feature 75): grenades carried,
-/// the throw's cooldown, and the brace.
-pub const BRACED: &str = "Braced";
-pub const BRACED_TIP: &str = "Holding a line: no errands, steadier shooting. E stands easy; so does any order that moves them.";
-pub const STAND_EASY: &str = "Standing easy";
+/// the throw's cooldown, and the Stun Shot (October 2026).
+pub const CHARGING: &str = "Charging a shot";
+pub const CHARGING_TIP: &str = "A Stun Shot charging: planted, holding fire, until it fires at the pointer. Any move calls it off.";
+pub fn stun_shot_ready(cooldown: f64) -> String {
+    if cooldown > 0.0 {
+        format!("Stun Shot ready in {cooldown:.0} s")
+    } else {
+        "Stun Shot ready".to_string()
+    }
+}
 /// The medic's rows on the crew panel (feature 76; task 130): who the
 /// beam holds, and whether the Nanite Burst and the Cloak are ready.
 pub const BEAM_ON: &str = "Beaming";
@@ -1598,8 +1604,8 @@ pub fn event_line(event: WorldEvent) -> Option<String> {
             _ => "A sentry is shot to pieces.".into(),
         },
         WorldEvent::EmpThrown { who: w } => format!("{} threw an EMP.", who(w)),
-        WorldEvent::Braced { who: w, on: true } => format!("{} braced.", who(w)),
-        WorldEvent::Braced { who: w, on: false } => format!("{} stood easy.", who(w)),
+        WorldEvent::ShotCharging { who: w } => format!("{} charges a Stun Shot.", who(w)),
+        WorldEvent::StunShotFired { who: w } => format!("{} fired a Stun Shot.", who(w)),
         WorldEvent::Thrown { who: w } => format!("{} threw a grenade.", who(w)),
         WorldEvent::Beamed {
             who: w,
@@ -3357,7 +3363,7 @@ mod tests {
                 assert!(!refusal(why).is_empty());
                 assert!(deploy_refused(why).contains(refusal(why)));
                 assert!(throw_refused(why).contains(refusal(why)));
-                assert!(brace_refused(why).contains(refusal(why)));
+                assert!(stun_shot_refused(why).contains(refusal(why)));
                 assert!(beam_refused(why).contains(refusal(why)));
                 assert!(nanite_burst_refused(why).contains(refusal(why)));
                 assert!(cloak_refused(why).contains(refusal(why)));
@@ -3414,8 +3420,8 @@ mod tests {
                 WorldEvent::Deployed { who: 0, kind: 0 },
                 WorldEvent::PackedUp { who: 0, kind: 1 },
                 WorldEvent::DeployableLost { kind: 1 },
-                WorldEvent::Braced { who: 0, on: true },
-                WorldEvent::Braced { who: 0, on: false },
+                WorldEvent::ShotCharging { who: 0 },
+                WorldEvent::StunShotFired { who: 0 },
                 WorldEvent::Thrown { who: 0 },
                 WorldEvent::EmpThrown { who: 0 },
                 WorldEvent::DeployableLost { kind: 2 },

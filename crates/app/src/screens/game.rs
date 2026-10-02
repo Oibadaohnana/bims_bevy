@@ -1728,7 +1728,8 @@ fn frame(
                 soldier: (class == world::Class::Soldier).then(|| crate::crew::SoldierView {
                     grenades: world.grenades_of(slot),
                     cooldown: world.grenade_cooldown_left(slot),
-                    braced: world.is_braced(slot),
+                    charging: world.is_charging(slot),
+                    shot_cooldown: world.stun_shot_cooldown_left(slot),
                 }),
                 medic: (class == world::Class::Medic).then(|| crate::crew::MedicView {
                     patients: world.patients_of(slot).iter().map(|&p| name(p)).collect(),
@@ -2480,7 +2481,7 @@ fn frame(
                 // first and third are the steered crew member's class's
                 // two actions (features 74 and 75) — an engineer's sentry
                 // and sandbags on the deck tile under the pointer, a
-                // soldier's grenade at it and its brace — and the second
+                // soldier's grenade at it and its Stun Shot — and the second
                 // and fourth are empty for every class, so pressing one
                 // does nothing. The world says why not, into the log;
                 // with a classless crew member steered, nothing at all.
@@ -4748,7 +4749,7 @@ struct AbilityBox {
     /// How charged it is, nought to one: a bar along the foot. Nothing has
     /// one since the medic's surge went (task 130); kept for a charge to come.
     charge: Option<f32>,
-    /// Whether it is running now: braced, the wall up, a beam held, a
+    /// Whether it is running now: a shot charging, the wall up, a beam held, a
     /// taunt, a rally, a body in the arms.
     on: bool,
     /// Out of stock — no charge left. Told from
@@ -4924,7 +4925,7 @@ fn rank_up(world: &world::World, slot: u32, asked: RankUp) -> (Option<Order>, Op
 }
 
 /// A key of a ranked kit (task 124), by slot: the soldier's Q throws a
-/// grenade and E braces as they always did (`class_key`), C is Weak
+/// grenade and E charges a Stun Shot (`class_key`), C is Weak
 /// Spot and does nothing when pressed, and R goes on a Rampage. `under`
 /// is the crew member under the pointer, for the medic's beam and cloak.
 fn ranked_key(
@@ -5004,14 +5005,24 @@ fn ranked_key(
 }
 
 /// The reach of a medic's key held down that aims at a crew member — the
-/// beam's (E) or the cloak's (R) — once it has a rank, in tiles, with
-/// the ability's glyph for its colour.
+/// beam's (E) or the cloak's (R) — or of a soldier's Stun Shot (E), once
+/// it has a rank, in tiles, with the ability's glyph for its colour.
 fn held_reach(
     world: &world::World,
     slot: u32,
     keys: &Keys,
     input: &egui::InputState,
 ) -> Option<(f32, Glyph)> {
+    // The soldier's Stun Shot (October 2026): its weapon's reach, while
+    // E is held through the charge.
+    if world.class_of(slot) == world::Class::Soldier
+        && keys.down(input, Action::Ability3)
+        && world.rank_of(slot, world::class::SLOT_E) > 0
+    {
+        return world
+            .stun_shot_range(slot)
+            .map(|range| (range, Glyph::StunShot));
+    }
     if world.class_of(slot) != world::Class::Medic {
         return None;
     }
@@ -5110,8 +5121,10 @@ fn ranked_box(world: &world::World, slot: u32, action: Action, keys: &Keys) -> A
         ),
         (world::Class::Soldier, 1) => Face::of(Some(Glyph::WeakSpot)),
         (world::Class::Soldier, 2) => Face {
-            on: world.is_braced(slot),
-            ..Face::of(Some(Glyph::Brace))
+            cooldown: world.stun_shot_cooldown_left(slot),
+            cooldown_whole: world.stun_shot_cooldown(slot),
+            on: world.is_charging(slot),
+            ..Face::of(Some(Glyph::StunShot))
         },
         (world::Class::Soldier, 3) => Face {
             cooldown: world.rampage_cooldown_left(slot),
@@ -5809,7 +5822,7 @@ fn recharge_badge(painter: &egui::Painter, at: egui::Pos2, recharge: Option<f32>
 /// room tile under the pointer if it is over the deck, and `under` the
 /// crew member under the pointer if there is one. An engineer's Q sets
 /// a sentry up on the tile and its E lays sandbags there; a soldier's Q
-/// throws a grenade at it and its E braces or stands easy; a medic's Q
+/// throws a grenade at it and its E charges a Stun Shot at it; a medic's Q
 /// sets off a Nanite Burst and its E beams `under` (task 130) — the medic's own Bim
 /// included, since task 120 lets a medic beam itself — and pressed on the
 /// one it already holds, or on nobody while one is held, it unlinks, and
@@ -5853,9 +5866,12 @@ fn class_key(
                 Err(why) => (None, Some(throw_refused(why))),
             }
         }
-        world::Class::Soldier => match world.can_brace(slot) {
-            Ok(()) => (Some(Order::Brace(!world.is_braced(slot))), None),
-            Err(why) => (None, Some(brace_refused(why))),
+        // The soldier's E (October 2026): a Stun Shot charged at the tile
+        // under the pointer — the world keeps it within the weapon's reach.
+        world::Class::Soldier => match (world.can_stun_shot(slot), tile) {
+            (Ok(()), Some((x, y))) => (Some(Order::StunShot { x, y }), None),
+            (Ok(()), None) => (None, Some(stun_shot_refused(Refusal::CantThrowThere))),
+            (Err(why), _) => (None, Some(stun_shot_refused(why))),
         },
         // The medic (task 130): his ranked kit's Q and E, a Nanite Burst
         // and the beam on the crew member under the pointer —
@@ -6100,7 +6116,7 @@ mod class_key_tests {
     use world::fixture::{REFERENCE_MONEY, simulation_world};
 
     /// Q and E dispatch by the steered crew member's class: an engineer's
-    /// deploys, a soldier's throws and braces, a classless one's do
+    /// deploys, a soldier's throws and Stun Shots, a classless one's do
     /// nothing — each with the world's own reason when refused.
     #[test]
     fn the_class_keys_dispatch_by_the_class_steered() {
@@ -6160,23 +6176,28 @@ mod class_key_tests {
             (None, Some(deploy_refused(Refusal::CantDeployThere))),
             "no tile under the pointer"
         );
-        // The soldier (task 124): E wants a rank of Brace, then braces,
-        // and E again stands easy; Q wants a rank of Frag Grenade, then
-        // throws at a tile within range.
+        // The soldier (task 124): E wants a rank of Stun Shot, then charges
+        // one at the tile under the pointer, and E again while it charges
+        // is refused; Q wants a rank of Frag Grenade, then throws at a
+        // tile within range.
         assert_eq!(
             class_key(&world, 1, false, None, None),
-            (None, Some(brace_refused(Refusal::NotLearnt)))
+            (None, Some(stun_shot_refused(Refusal::NotLearnt)))
         );
         world.set_ranks_for_probe(1, [0, 0, 1, 0]);
+        let (x, y) = tile_of(&world, 1);
         assert_eq!(
-            class_key(&world, 1, false, None, None),
-            (Some(Order::Brace(true)), None)
+            class_key(&world, 1, false, Some((x, y)), None),
+            (Some(Order::StunShot { x, y }), None)
         );
-        world.step(&[world::Command::Brace { slot: 1, on: true }]);
+        world.step(&[world::Command::StunShot { slot: 1, x, y }]);
         assert_eq!(
-            class_key(&world, 1, false, Some(tile_of(&world, 1)), None),
-            (Some(Order::Brace(false)), None)
+            class_key(&world, 1, false, Some((x, y)), None),
+            (None, Some(stun_shot_refused(Refusal::AlreadyActive)))
         );
+        // Called off again, for the keys below.
+        world.soldiers[1] = Default::default();
+        world.aboard.room.set_braced(1, false);
         let target = tile_of(&world, 1);
         assert_eq!(
             class_key(&world, 1, true, Some(target), None),
@@ -6269,14 +6290,14 @@ mod class_key_tests {
         );
         // And the engineer's keys are never a soldier's, nor the other
         // way about: an engineer pressing E with a tile is a deploy, not
-        // a brace, and a soldier's E with a kit in its pack is a brace.
+        // a Stun Shot, and a soldier's E with a kit in its pack is a Stun Shot.
         assert!(matches!(
             class_key(&world, 0, false, Some(beside), None).0,
             Some(Order::Deploy { .. })
         ));
         assert!(matches!(
             class_key(&world, 1, false, Some(beside), None).0,
-            Some(Order::Brace(_))
+            Some(Order::StunShot { .. })
         ));
     }
 
@@ -6291,7 +6312,7 @@ mod class_key_tests {
         assert_eq!(world.set_class(1, world::Class::Engineer), Ok(()));
         assert_eq!(world.set_class(2, world::Class::Soldier), Ok(()));
         assert_eq!(world.set_class(3, world::Class::Medic), Ok(()));
-        // The soldier's brace wants its rank (task 124).
+        // The soldier's Stun Shot wants its rank (task 124).
         world.set_ranks_for_probe(2, [0, 0, 1, 0]);
         // The wall wants its rank too (task 139).
         assert_eq!(
@@ -6357,10 +6378,13 @@ mod class_key_tests {
             "Plated is passive"
         );
         // And nobody else's keys are the tank's: the engineer throws an
-        // EMP (task 127), the soldier braces, the medic beams.
+        // EMP (task 127), the soldier charges a Stun Shot, the medic beams.
+        let t = shipdesign::TILE as f32;
+        let p = world.aboard.room.bim_pos(2);
+        let own = ((p.x / t).floor() as i32, (p.y / t).floor() as i32);
         assert!(matches!(
-            class_key(&world, 2, false, None, None).0,
-            Some(Order::Brace(_))
+            class_key(&world, 2, false, Some(own), None).0,
+            Some(Order::StunShot { .. })
         ));
         assert_eq!(
             class_key(&world, 3, false, None, None),
@@ -6583,7 +6607,10 @@ mod class_key_tests {
         // the pips its rank.
         let boxes = ability_boxes(&world, 1, &keys);
         let names: Vec<&str> = boxes.iter().map(|b| b.name).collect();
-        assert_eq!(names, vec!["Frag Grenade", "Weak Spot", "Brace", "Rampage"]);
+        assert_eq!(
+            names,
+            vec!["Frag Grenade", "Weak Spot", "Stun Shot", "Rampage"]
+        );
         assert!(boxes.iter().all(|b| b.unlearnt && !b.ready()));
         let plus: Vec<bool> = boxes.iter().map(|b| b.plus).collect();
         assert_eq!(plus, vec![true, true, true, false]);
@@ -6597,8 +6624,14 @@ mod class_key_tests {
         assert!(boxes[0].ready() && boxes[2].ready() && !boxes[2].on);
         assert!(boxes.iter().all(|b| !b.plus), "no point left");
         assert!(boxes[0].foot.contains("Next, rank 2"));
-        world.step(&[world::Command::Brace { slot: 1, on: true }]);
-        assert!(ability_boxes(&world, 1, &keys)[2].on, "braced now");
+        let p = world.aboard.room.bim_pos(1);
+        let t = shipdesign::TILE as f32;
+        world.step(&[world::Command::StunShot {
+            slot: 1,
+            x: (p.x / t).floor() as i32,
+            y: (p.y / t).floor() as i32,
+        }]);
+        assert!(ability_boxes(&world, 1, &keys)[2].on, "charging now");
         // The key's own rank-up: the order, and the world's refusal said.
         assert_eq!(
             rank_up(&world, 1, RankUp { slot: 1 }),

@@ -76,7 +76,7 @@ pub enum Action {
     Ability2,
     /// The third, on E — the class's second action as it was: an
     /// engineer lays sandbags on the tile under the pointer, a soldier
-    /// braces or stands easy, a medic beams the crew member under the
+    /// charges a Stun Shot at it, a medic beams the crew member under the
     /// pointer, a tank puts its wall up or down.
     Ability3,
     /// The fourth, on R: empty for every class so far.
@@ -295,7 +295,7 @@ impl Action {
                 "The second ability slot: empty for every class for now. With Ctrl held, it is ranked up instead."
             }
             Action::Ability3 => {
-                "The third ability slot: an engineer lays sandbags on the deck tile under the pointer, out of a kit in its pack; a soldier braces where it stands, or stands easy again; a medic beams the crew member under the pointer, and unlinks when pressed on the one it holds or on nobody; a tank puts its wall up, or takes it down; a commander rallies. With Ctrl held, it is ranked up instead."
+                "The third ability slot: an engineer lays sandbags on the deck tile under the pointer, out of a kit in its pack; a soldier charges a Stun Shot at the pointer, two seconds planted before it fires; a medic beams the crew member under the pointer, and unlinks when pressed on the one it holds or on nobody; a tank puts its wall up, or takes it down; a commander rallies. With Ctrl held, it is ranked up instead."
             }
             Action::Ability4 => {
                 "The fourth ability slot, the ultimate: a soldier goes on a Rampage; an engineer lays its sentry on the deck tile under the pointer; a medic cloaks the crew member under the pointer, or himself with the pointer on nobody; a tank goes Juggernaut. With Ctrl held, it is ranked up instead."

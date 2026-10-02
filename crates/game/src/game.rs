@@ -1822,6 +1822,20 @@ impl Game {
                 continue;
             }
 
+            // Planted for a Stun Shot (October 2026; `set_braced`): the gun
+            // up where it faces and nothing fired from it, nor swung, while
+            // the shot charges — a click meanwhile is owed nothing.
+            if bim.braced {
+                bim.trigger.hold();
+                bim.character.trigger_paid();
+                bim.locked = None;
+                bim.peek = None;
+                bim.character.set_lean(None);
+                let at = from + Vec2::from_angle(bim.character.heading) * stats.reach();
+                bim.character.set_aim(steer.is_some().then_some(at));
+                continue;
+            }
+
             // A melee first: locked, it neither aims nor fires, and the
             // burst it was in the middle of is over.
             let locked = self.combat.melee_with(&self.room.sight, from, &stats);
@@ -8014,11 +8028,14 @@ impl Game {
         }
     }
 
-    /// Brace, or stand easy: a soldier braced holds where it stands —
-    /// whatever it was on put down onto the queue, its walk dropped, no
-    /// errand taken, never running, under arms — until it is toggled off,
-    /// ordered anywhere, or goes down. The world checks who may
-    /// (`World::can_brace`); the room does as told. Whether it changed.
+    /// Plant a soldier, or let it go (feature 75's brace; since October
+    /// 2026 the stance of a Stun Shot charging): planted, it holds where
+    /// it stands — whatever it was on put down onto the queue, its walk
+    /// dropped, no errand taken, the keys held from before walking it
+    /// nowhere, the gun up and nothing fired — until it is let go,
+    /// ordered anywhere, walked by a key pressed afresh, rolls, or goes
+    /// down. The world checks who may (`World::can_stun_shot`); the room
+    /// does as told. Whether it changed.
     pub fn set_braced(&mut self, who: usize, on: bool) -> bool {
         if who >= self.bims.len() || self.bims[who].braced == on {
             return false;
@@ -8553,6 +8570,73 @@ impl Game {
             .throw_emp(who, from, at, fuse, radius, stun, expose);
     }
 
+    /// A soldier's Stun Shot fired from `who`'s gun (October 2026) at
+    /// `at`, room units: it flies `flight` seconds and bursts there with
+    /// `radius` room units, `damage` to every target in it and a stun of
+    /// `stun` seconds (`Game::take_stuns`). The world checks it and
+    /// works out where it lands ([`Game::reach_along`]); the room fires.
+    pub fn fire_stun_shot(
+        &mut self,
+        who: usize,
+        at: Vec2,
+        flight: f32,
+        radius: f32,
+        damage: f32,
+        stun: f32,
+    ) {
+        let Some(bim) = self.bims.get(who) else {
+            return;
+        };
+        let weapon = bim
+            .gear
+            .weapon
+            .unwrap_or(crate::combat::WeaponKind::LaserPistol.basic());
+        let from = bim.character.muzzle().unwrap_or(bim.character.pos);
+        if (at - from).len() > 1e-3 && !self.bims[who].character.is_walking() {
+            self.bims[who].character.face((at - from).angle());
+        }
+        self.combat
+            .fire_stun_shot(who, from, at, flight, radius, damage, stun, weapon);
+    }
+
+    /// How far a shot from `from` towards `to` gets: `to` itself where
+    /// nothing opaque stands between, else the last point short of the
+    /// first wall or shut door on the line, a quarter of a tile at a
+    /// time.
+    pub fn reach_along(&self, from: Vec2, to: Vec2) -> Vec2 {
+        if self.line_clear(from, to) {
+            return to;
+        }
+        let span = (to - from).len();
+        let step = TILE * 0.25;
+        let dir = (to - from).normalize_or_zero();
+        let mut last = from;
+        let mut flown = step;
+        while flown < span {
+            let p = from + dir * flown;
+            if !self.line_clear(from, p) {
+                break;
+            }
+            last = p;
+            flown += step;
+        }
+        last
+    }
+
+    /// How far a Stun Shot charging has come, nought to one, for the
+    /// glow at the muzzle (October 2026): drawing only.
+    pub fn set_shot_charge(&mut self, who: usize, share: f32) {
+        if let Some(b) = self.bims.get_mut(who) {
+            b.character.set_shot_charge(share);
+        }
+    }
+
+    /// The player's steer on `who`, if its keys and pointer have it: where
+    /// a Stun Shot is fired along.
+    pub fn steer_of(&self, who: usize) -> Option<crate::character::Steer> {
+        self.bims.get(who).and_then(|b| b.character.steer())
+    }
+
     /// Machine `i` of this room stunned for `seconds` (task 127,
     /// `Droid::stun`): whether it took.
     pub fn stun_droid(&mut self, i: usize, seconds: f32, expose: bool) -> bool {
@@ -8580,6 +8664,29 @@ impl Game {
     /// index, then the targets, then the sentries, then the bags, so two
     /// runs on one seed roll the same.
     fn burst(&mut self, g: Grenade) {
+        // A soldier's Stun Shot (October 2026): every target standing
+        // within its radius with nothing opaque between takes its damage,
+        // the same at the edge, and is noted for the world to stun. None
+        // of this room's own, no sentry and no sandbag is touched.
+        if g.shot {
+            let reached: Vec<usize> = self
+                .combat
+                .targets()
+                .iter()
+                .enumerate()
+                .filter_map(|(i, t)| {
+                    t.filter(|t| (t.at - g.at).len() <= g.radius && self.line_clear(g.at, t.at))
+                        .map(|_| i)
+                })
+                .collect();
+            for i in reached {
+                if g.damage > 0.0 {
+                    self.combat.blast_target(i, g.damage, Some(g.by));
+                }
+                self.stuns.push((i, g.stun, false));
+            }
+            return;
+        }
         // An EMP (task 127) harms nothing: every target standing within
         // its radius is noted for the world to stun, walls or no walls,
         // and that is all.

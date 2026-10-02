@@ -1,7 +1,7 @@
 //! The soldier class (feature 75, its ranked kit task 124): `crate::class`'s
 //! second class. A class owns abilities and nothing else; the sixteen
 //! levels and a skill point a level; the four abilities a rank at a time
-//! — Frag Grenade, Weak Spot, Brace and Rampage — each doing what its rank
+//! — Frag Grenade, Weak Spot, Stun Shot and Rampage — each doing what its rank
 //! says, to the soldier who holds it alone.
 
 use bims::combat::{Gear, Item, WeaponKind};
@@ -346,9 +346,9 @@ fn every_class_equips_every_weapon_takes_every_errand_and_places_every_site() {
     }
     assert!(class::can(Class::Engineer, Ability::Deploy));
     assert!(!class::can(Class::Soldier, Ability::Deploy));
-    assert!(class::can(Class::Soldier, Ability::Brace));
+    assert!(class::can(Class::Soldier, Ability::StunShot));
     assert!(class::can(Class::Soldier, Ability::Throw));
-    assert!(!class::can(Class::Engineer, Ability::Brace));
+    assert!(!class::can(Class::Engineer, Ability::StunShot));
     assert!(!class::can(Class::Engineer, Ability::Throw));
     // A deploy is refused a soldier and a throw an engineer, and that is
     // the whole of what a class refuses.
@@ -358,8 +358,8 @@ fn every_class_equips_every_weapon_takes_every_errand_and_places_every_site() {
         Err(Refusal::NotAnEngineer)
     );
     assert_eq!(world.can_throw(0, tile), Err(Refusal::NotASoldier));
-    assert_eq!(world.can_brace(0), Err(Refusal::NotASoldier));
-    assert_eq!(world.can_brace(2), Err(Refusal::NotASoldier));
+    assert_eq!(world.can_stun_shot(0), Err(Refusal::NotASoldier));
+    assert_eq!(world.can_stun_shot(2), Err(Refusal::NotASoldier));
 }
 
 #[test]
@@ -427,79 +427,180 @@ fn the_starting_pool_is_the_same_for_any_mix_of_classes_and_each_has_its_kit() {
     );
 }
 
-// --- B: the brace ---------------------------------------------------------------
+// --- B: the Stun Shot (October 2026; the brace until then) ---------------------
+
+/// Step until the Stun Shot fired by slot 0 has burst, the machine made
+/// whole before every step so nothing that landed before counts: what
+/// it lost to the burst, and the room's stun on it after.
+fn machine_shot(world: &mut World) -> (f32, f32) {
+    let mut fired = false;
+    for _ in 1..2_000 {
+        let droid = world
+            .residents
+            .as_mut()
+            .unwrap()
+            .aboard
+            .room
+            .droid_mut_for_probe(0)
+            .expect("the staged machine");
+        droid.body = bims::droid::DroidBody::new(droid.kind, droid.tier);
+        let health = machine_health(world);
+        let events = world.step(&[]);
+        if events
+            .iter()
+            .any(|e| matches!(e, WorldEvent::StunShotFired { who: 0 }))
+        {
+            fired = true;
+            // Nothing but the shot lands on it from here: the gun goes.
+            disarm(world, 0);
+        }
+        if fired && world.aboard.room.grenades().is_empty() {
+            return (health - machine_health(world), machine(world).stunned);
+        }
+    }
+    panic!("the shot never burst");
+}
 
 #[test]
-fn a_braced_soldier_holds_its_ground_takes_no_errand_and_shoots_steadier() {
+fn a_stun_shot_charges_two_seconds_planted_then_hurts_and_stuns_what_it_hits() {
     let mut world = fight();
-    let mut events = world.step(&[Command::Brace { slot: 0, on: true }]);
+    disarm(&mut world, 1);
+    let tile = tile_of(machine_at(&world));
+    let events = world.step(&[Command::StunShot {
+        slot: 0,
+        x: tile.0,
+        y: tile.1,
+    }]);
     assert!(
         events
             .iter()
-            .any(|e| matches!(e, WorldEvent::Braced { who: 0, on: true })),
+            .any(|e| matches!(e, WorldEvent::ShotCharging { who: 0 })),
         "{events:?}"
     );
-    assert!(world.is_braced(0));
-    assert!(world.aboard.room.is_braced(0));
+    assert!(world.is_charging(0));
+    assert!(world.aboard.room.is_braced(0), "planted");
+    assert_eq!(world.can_stun_shot(0), Err(Refusal::AlreadyActive));
+    // Charging: it stands where it is and nothing has gone yet.
     let here = world.aboard.room.bim_pos(0);
-    // It stands there, on no errand, under arms, shooting at the braced
-    // odds — the room's skill is the world's.
-    for _ in 0..300 {
-        events = world.step(&[]);
+    for _ in 0..((1.8 / SECONDS_A_STEP) as u32) {
+        let events = world.step(&[]);
+        assert!(
+            events
+                .iter()
+                .all(|e| !matches!(e, WorldEvent::StunShotFired { .. })),
+            "not before its two seconds"
+        );
     }
-    assert!(world.is_braced(0));
+    assert!(world.is_charging(0));
+    assert!(world.charge_share(0) > 0.85 && world.charge_share(0) < 1.0);
     assert!(
         (world.aboard.room.bim_pos(0) - here).len() < 1.0,
         "stood still"
     );
+    // Fired: fifteen on the machine at the first rank, and a stun of
+    // three seconds, less the flight's few steps of it worn off.
+    let (took, stunned) = machine_shot(&mut world);
+    assert_eq!(class::STUN_SHOT_DAMAGE[0], 15.0);
     assert!(
-        world.aboard.room.task_kind_for_probe(0).is_none(),
-        "no errand"
+        plausible_on_machine(&world, took, class::STUN_SHOT_DAMAGE[0]),
+        "took {took}"
     );
-    assert!(world.aboard.room.is_armed(0));
-    let skill = world.skill_of(0);
-    assert_eq!(skill.miss_cut, class::BRACE_MISS_CUT[0]);
-    assert_eq!(world.aboard.room.skill_for_probe(0), skill);
     assert!(
-        events
-            .iter()
-            .all(|e| !matches!(e, WorldEvent::Braced { .. })),
-        "said once"
+        stunned > 2.8 && stunned <= class::STUN_SHOT_STUN[0],
+        "{stunned}"
     );
-    // Toggled off: standing easy again, the errands open to it.
-    let events = world.step(&[Command::Brace { slot: 0, on: false }]);
+    assert!(machine(&world).is_stunned());
+    // Over: no longer planted, and cooling down from the shot.
+    assert!(!world.is_charging(0));
+    assert!(!world.aboard.room.is_braced(0));
+    assert_eq!(world.can_stun_shot(0), Err(Refusal::CoolingDown));
+    let left = world.stun_shot_cooldown_left(0);
     assert!(
-        events
-            .iter()
-            .any(|e| matches!(e, WorldEvent::Braced { who: 0, on: false }))
+        left > 29.0 && left <= class::STUN_SHOT_COOLDOWN[0],
+        "{left}"
     );
-    assert!(!world.is_braced(0));
-    assert_eq!(world.skill_of(0).miss_cut, 0.0);
 }
 
 #[test]
-fn a_brace_ends_on_an_order_to_move_and_on_going_down_and_is_refused_the_others() {
+fn a_stun_shot_never_reaches_past_the_weapon_and_never_hurts_the_crew() {
+    let mut world = fight();
+    disarm(&mut world, 1);
+    let from = world.aboard.room.bim_pos(0);
+    let range = world.stun_shot_range(0).expect("a rifle in hand");
+    // Aimed sixty tiles off, whichever way: it bursts within the reach.
+    let far = tile_of(from + vec2(60.0 * TILE, 0.0));
+    world.step(&[Command::StunShot {
+        slot: 0,
+        x: far.0,
+        y: far.1,
+    }]);
+    for _ in 0..2_000 {
+        world.step(&[]);
+        if let Some(g) = world.aboard.room.grenades().first() {
+            assert!(g.shot);
+            assert!(
+                (g.at - from).len() <= range * TILE + 1.0,
+                "{} past {}",
+                (g.at - from).len() / TILE,
+                range
+            );
+            break;
+        }
+    }
+    // And at its own feet: the crew are untouched by the burst.
+    let mut world = fight();
+    disarm(&mut world, 1);
+    let own = tile_of(world.aboard.room.bim_pos(0));
+    world.step(&[Command::StunShot {
+        slot: 0,
+        x: own.0,
+        y: own.1,
+    }]);
+    let crew: Vec<f32> = (0..2).map(|w| world.aboard.room.health(w)).collect();
+    let mut burst = false;
+    for _ in 0..((class::STUN_SHOT_CHARGE + 1.0) / SECONDS_A_STEP) as u32 {
+        world.step(&[]);
+        burst |= world.aboard.room.grenades().iter().any(|g| g.shot);
+    }
+    assert!(burst, "fired");
+    for (w, &before) in crew.iter().enumerate() {
+        assert!(world.aboard.room.health(w) >= before - 1e-3, "crew {w}");
+    }
+}
+
+#[test]
+fn a_stun_shot_is_refused_and_called_off_by_a_move_or_a_down() {
     let mut world = soldier();
-    // Not before a rank of Brace (task 124).
-    assert_eq!(world.can_brace(0), Err(Refusal::NotLearnt));
-    let events = world.step(&[Command::Brace { slot: 0, on: true }]);
+    let own = tile_of(world.aboard.room.bim_pos(0));
+    let shot = |slot| Command::StunShot {
+        slot,
+        x: own.0,
+        y: own.1,
+    };
+    // Not before a rank of it (task 124).
+    assert_eq!(world.can_stun_shot(0), Err(Refusal::NotLearnt));
+    let events = world.step(&[shot(0)]);
     assert!(refused_with(&events, Refusal::NotLearnt));
     ranks(&mut world, 0, [0, 0, 1, 0]);
     // Refused for anybody but a soldier, and for one not fit to act.
-    let events = world.step(&[Command::Brace { slot: 1, on: true }]);
+    let events = world.step(&[shot(1)]);
     assert!(refused_with(&events, Refusal::NotASoldier));
-    assert_eq!(world.can_brace(1), Err(Refusal::NotASoldier));
+    assert_eq!(world.can_stun_shot(1), Err(Refusal::NotASoldier));
     world.aboard.room.knock_out_for_probe(0);
     world.step(&[]);
-    assert_eq!(world.can_brace(0), Err(Refusal::OutOfReach));
-    let events = world.step(&[Command::Brace { slot: 0, on: true }]);
-    assert!(refused_with(&events, Refusal::OutOfReach));
+    assert_eq!(world.can_stun_shot(0), Err(Refusal::OutOfReach));
     world.aboard.room.patch_up_for_probe(0);
     world.step(&[]);
-    assert_eq!(world.can_brace(0), Ok(()));
-    // Braced, then ordered across the deck: the brace is over.
-    world.step(&[Command::Brace { slot: 0, on: true }]);
-    assert!(world.is_braced(0));
+    // Nothing in the hand to fire it from.
+    let gear = world.aboard.room.gear(0);
+    disarm(&mut world, 0);
+    assert_eq!(world.can_stun_shot(0), Err(Refusal::NoWeaponInHand));
+    world.aboard.room.issue(0, gear);
+    assert_eq!(world.can_stun_shot(0), Ok(()));
+    // Charging, then ordered across the deck: called off, and no
+    // cooldown for a shot never fired.
+    world.step(&[shot(0)]);
+    assert!(world.is_charging(0));
     let here = world.aboard.room.bim_pos(0);
     let there = here + vec2(3.0 * TILE, 0.0);
     world.step(&[Command::Crew {
@@ -510,19 +611,39 @@ fn a_brace_ends_on_an_order_to_move_and_on_going_down_and_is_refused_the_others(
             y: there.y,
         },
     }]);
-    assert!(!world.is_braced(0), "an order to move ends it");
-    // Braced, then down: over too.
-    world.step(&[Command::Brace { slot: 0, on: true }]);
-    assert!(world.is_braced(0));
+    world.step(&[]);
+    assert!(!world.is_charging(0), "an order to move calls it off");
+    assert_eq!(world.can_stun_shot(0), Ok(()), "no cooldown");
+    // Charging, then down: off too.
+    world.step(&[shot(0)]);
+    assert!(world.is_charging(0));
     world.aboard.room.knock_out_for_probe(0);
     world.step(&[]);
-    assert!(!world.is_braced(0), "going down ends it");
-    // And it is in the checksum: a soldier braced is a different world.
+    world.step(&[]);
+    assert!(!world.is_charging(0), "going down calls it off");
+    // And it is in the checksum: a soldier charging is a different world.
     world.aboard.room.patch_up_for_probe(0);
     world.step(&[]);
     let before = world_checksum(&world);
-    world.step(&[Command::Brace { slot: 0, on: true }]);
+    world.soldiers[0].charging = Some(crate::soldier::Charging {
+        until: world.mission_minutes() + 1.0,
+        tile: own,
+    });
     assert_ne!(world_checksum(&world), before);
+}
+
+#[test]
+fn the_stun_shot_s_numbers_are_its_rank_s() {
+    let mut world = soldier();
+    for rank in 1..=4u8 {
+        ranks(&mut world, 0, [0, 0, rank, 0]);
+        let r = rank as usize - 1;
+        assert_eq!(world.stun_shot_damage(0), class::STUN_SHOT_DAMAGE[r]);
+        assert_eq!(world.stun_shot_radius(0), class::GRENADE_RADIUS[r]);
+        assert_eq!(world.stun_shot_stun(0), 3.0);
+        assert_eq!(world.stun_shot_cooldown(0), class::STUN_SHOT_COOLDOWN[r]);
+    }
+    assert_eq!(class::STUN_SHOT_CHARGE, 2.0);
 }
 
 // --- C: grenades ----------------------------------------------------------------
@@ -1265,47 +1386,6 @@ fn a_critical_hit_is_added_before_the_armour_takes_its_share() {
     assert!(body_now >= body - 1e-3, "the body took nothing");
 }
 
-#[test]
-fn brace_cuts_the_misses_and_the_damage_taken_by_its_rank() {
-    let mut world = soldier();
-    let rifle = WeaponKind::AutoRifle.basic().stats();
-    for rank in 1..=4u8 {
-        ranks(&mut world, 0, [0, 0, rank, 0]);
-        // Standing easy, nothing.
-        world.step(&[Command::Brace { slot: 0, on: false }]);
-        let easy = world.skill_of(0);
-        assert_eq!(
-            (easy.miss_cut, easy.damage_taken, easy.deadeye),
-            (0.0, 1.0, false)
-        );
-        world.step(&[Command::Brace { slot: 0, on: true }]);
-        let s = world.skill_of(0);
-        let cut = class::BRACE_MISS_CUT[rank as usize - 1];
-        assert_eq!(s.miss_cut, cut, "rank {rank}");
-        assert_eq!(
-            s.damage_taken,
-            class::BRACE_DAMAGE_TAKEN[rank as usize - 1],
-            "rank {rank}"
-        );
-        assert_eq!(s.deadeye, rank == 4, "far aim equals near at the fourth");
-        let aimed = s.stats(WeaponKind::AutoRifle.basic());
-        let near = 1.0 - (1.0 - rifle.accuracy) * (1.0 - cut);
-        assert!((aimed.accuracy - near).abs() < 1e-6);
-        if rank == 4 {
-            assert_eq!(aimed.accuracy_far, aimed.accuracy);
-        } else {
-            let far = 1.0 - (1.0 - rifle.accuracy_far) * (1.0 - cut);
-            assert!((aimed.accuracy_far - far).abs() < 1e-6);
-        }
-        assert!(aimed.accuracy <= 1.0 && aimed.accuracy_far <= 1.0);
-        assert_eq!(
-            world.aboard.room.skill_for_probe(0),
-            s,
-            "the room's is the world's"
-        );
-    }
-}
-
 /// Steps enough for `seconds` of the mission clock.
 fn run_for(world: &mut World, seconds: f64) {
     for _ in 0..(seconds / SECONDS_A_STEP).ceil() as u32 {
@@ -1363,7 +1443,7 @@ fn rampage_fires_faster_takes_less_and_aims_on_the_move_for_its_seconds() {
 }
 
 #[test]
-fn rampage_is_refused_downed_ready_at_every_mission_and_stacks_with_brace() {
+fn rampage_is_refused_downed_ready_at_every_mission_and_goes_on_with_a_charge() {
     let mut world = soldier();
     ranks(&mut world, 0, [0, 0, 4, 4]);
     world.aboard.room.knock_out_for_probe(0);
@@ -1371,19 +1451,18 @@ fn rampage_is_refused_downed_ready_at_every_mission_and_stacks_with_brace() {
     assert_eq!(world.can_rampage(0), Err(Refusal::OutOfReach), "downed");
     world.aboard.room.patch_up_for_probe(0);
     world.step(&[]);
-    // Braced and on a Rampage: both at once.
-    world.step(&[Command::Brace { slot: 0, on: true }]);
-    assert_eq!(world.can_rampage(0), Ok(()), "may go on one braced");
+    // A Stun Shot charging and on a Rampage: both at once.
+    let own = tile_of(world.aboard.room.bim_pos(0));
+    world.step(&[Command::StunShot {
+        slot: 0,
+        x: own.0,
+        y: own.1,
+    }]);
+    assert_eq!(world.can_rampage(0), Ok(()), "may go on one charging");
     world.step(&[Command::Rampage { slot: 0 }]);
-    assert!(world.is_braced(0) && world.is_rampaging(0));
+    assert!(world.is_charging(0) && world.is_rampaging(0));
     let s = world.skill_of(0);
-    assert!(
-        (s.damage_taken - 0.80 * 0.70).abs() < 1e-6,
-        "{}",
-        s.damage_taken
-    );
-    assert_eq!(s.miss_cut, 0.5);
-    assert!(s.deadeye);
+    assert!((s.damage_taken - 0.70).abs() < 1e-6, "{}", s.damage_taken);
     assert_eq!(s.fire_rate, 2.0);
     let here = world.aboard.room.bim_pos(0);
     run_for(&mut world, 2.0);

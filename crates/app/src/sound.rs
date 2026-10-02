@@ -740,8 +740,10 @@ impl Sounds {
         use world::deploy::DeployKind;
         let (who, clip, level) = match event {
             E::Thrown { who } => (who, Clip::GrenadeThrow, 0.5),
-            E::Braced { who, on: true } => (who, Clip::Brace, 0.55),
-            E::Braced { who, on: false } => (who, Clip::Holster, 0.35),
+            // The Stun Shot (October 2026): the feet planted for the charge
+            // is the brace's clip; the shot is its gun's cue and the burst
+            // the grenade's.
+            E::ShotCharging { who } => (who, Clip::Brace, 0.55),
             E::Rampaged { who } => (who, Clip::Rampage, 0.7),
             E::EmpThrown { who } => (who, Clip::EmpThrow, 0.35),
             E::Deployed { who, kind } => match DeployKind::from_code(kind) {

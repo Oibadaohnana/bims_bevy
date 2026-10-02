@@ -83,9 +83,9 @@ pub struct Bim {
     pub task: Option<Task>,
     pub queue: Vec<Saved>,
     pub health: Health,
-    /// Holding a line (feature 75): a soldier braced where it stands —
-    /// no errands, no running, steadier shooting. Toggled by the world
-    /// (`Game::set_braced`); off again on any order that moves it
+    /// Planted (feature 75's brace; since October 2026 a soldier charging
+    /// its Stun Shot): where it stands, no errands, no walk, the gun up
+    /// and nothing fired. Set by the world (`Game::set_braced`); off again on any order that moves it
     /// (`interrupt_for_order`) and when it goes down. Saved with the
     /// room and in `world_checksum`.
     pub braced: bool,

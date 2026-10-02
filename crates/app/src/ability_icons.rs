@@ -25,7 +25,7 @@ pub enum Glyph {
     // The soldier's (task 124).
     FragGrenade,
     WeakSpot,
-    Brace,
+    StunShot,
     Rampage,
     // The engineer's (task 127).
     Emp,
@@ -55,7 +55,7 @@ impl Glyph {
     pub const ALL: [Glyph; 21] = [
         Glyph::FragGrenade,
         Glyph::WeakSpot,
-        Glyph::Brace,
+        Glyph::StunShot,
         Glyph::Rampage,
         Glyph::Emp,
         Glyph::HealingSentry,
@@ -85,7 +85,7 @@ impl Glyph {
             Class::Soldier => [
                 Glyph::FragGrenade,
                 Glyph::WeakSpot,
-                Glyph::Brace,
+                Glyph::StunShot,
                 Glyph::Rampage,
             ],
             Class::Engineer => [
@@ -126,7 +126,7 @@ impl Glyph {
     fn family(self) -> Ink {
         use Glyph::*;
         match self {
-            FragGrenade | WeakSpot | Brace | Rampage => SOLDIER,
+            FragGrenade | WeakSpot | StunShot | Rampage => SOLDIER,
             Emp | HealingSentry | Sandbags | Sentry => ENGINEER,
             NaniteBurst | HealingAura | HealBeam | Cloak | Carry => MEDIC,
             Taunt | Plated | Bulwark | Juggernaut => TANK,
@@ -586,28 +586,23 @@ fn figure(p: &mut Pen, glyph: Glyph) {
             p.circle(0.5, 0.5, 0.07, k.glow);
             p.circle(0.5, 0.5, 0.035, k.bright);
         }
-        // Brace: a rifle set down on its bipod, spiked into the deck.
-        Glyph::Brace => {
-            p.rect(0.06, 0.80, 0.94, 0.86, 0.02, k.mid);
-            for x in [0.20, 0.40, 0.60, 0.80] {
-                p.line(x, 0.86, x - 0.05, 0.94, 0.025, k.dark);
-            }
-            p.path(&[(0.52, 0.80), (0.62, 0.52), (0.74, 0.80)], 0.045, k.bright);
-            p.poly(&[(0.49, 0.83), (0.55, 0.83), (0.52, 0.76)], k.glow);
-            p.poly(&[(0.71, 0.83), (0.77, 0.83), (0.74, 0.76)], k.glow);
+        // Stun Shot (October 2026): a rifle's muzzle, the charged slug
+        // leaving it, and the stun bursting where it lands.
+        Glyph::StunShot => {
+            p.star(0.68, 0.36, 10, 0.30, 0.17, 0.0, k.mid);
+            p.ring(0.68, 0.36, 0.22, 0.04, k.bright);
+            p.circle(0.68, 0.36, 0.14, k.dark);
+            p.circle(0.68, 0.36, 0.10, k.glow);
+            p.circle(0.68, 0.36, 0.05, k.bright);
+            p.line(0.40, 0.66, 0.60, 0.44, 0.06, k.glow.gamma_multiply(0.7));
             p.poly(
-                &[(0.06, 0.44), (0.28, 0.42), (0.28, 0.58), (0.10, 0.64)],
+                &[(0.04, 0.70), (0.18, 0.66), (0.20, 0.84), (0.06, 0.92)],
                 k.mid,
             );
-            p.rect(0.26, 0.40, 0.68, 0.54, 0.02, k.mid);
-            p.rect(0.26, 0.40, 0.68, 0.44, 0.01, k.bright);
-            p.poly(
-                &[(0.40, 0.54), (0.50, 0.54), (0.47, 0.68), (0.39, 0.68)],
-                k.dark,
-            );
-            p.line(0.66, 0.47, 0.96, 0.47, 0.045, k.bright);
-            p.rect(0.34, 0.31, 0.58, 0.38, 0.02, k.dark);
-            p.circle(0.57, 0.345, 0.035, k.glow);
+            p.rect(0.16, 0.66, 0.42, 0.80, 0.02, k.mid);
+            p.rect(0.16, 0.66, 0.42, 0.70, 0.01, k.bright);
+            p.line(0.40, 0.70, 0.50, 0.62, 0.05, k.bright);
+            p.circle(0.50, 0.62, 0.04, k.glow);
         }
         // Rampage: bullets pouring out of a muzzle's blaze.
         Glyph::Rampage => {

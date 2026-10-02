@@ -7024,3 +7024,42 @@ The room's rule is `crates/game/CLAUDE.md` ("The dark"); the world's part:
 (the relay wants redeploying). `REFERENCE_CHECKSUM` and `SURVIVORS` move
 (the relics' block of the checksum is smaller, the cache is out of an
 `Infestation`'s) — both already off their pins, not re-pinned.
+
+## The soldier's E is a Stun Shot (October 2026)
+
+> "The soldier's ranked kit (task 124)" and feature 75's section above
+> say E is **Brace** (`Command::Brace`, `WorldEvent::Braced`,
+> `BRACE_*`, `can_brace`, `is_braced`, the miss cut and the damage cut
+> while braced): all of it went.
+
+- **`Command::StunShot { slot, x, y }`** (the room tile under the
+  pointer) — `can_stun_shot`: `NotASoldier`, `OutOfReach` (unfit or
+  downed), `NotLearnt`, `AlreadyActive` while one charges, `CoolingDown`
+  within `stun_shot_cooldown` (`class::STUN_SHOT_COOLDOWN`, times the
+  cooldown relics and items; *Kill Relay* moves `last_shot` back) and
+  `Refusal::NoWeaponInHand` (129). The tile is never refused.
+  `WorldEvent::ShotCharging` (150) — 75 is left free.
+- **The charge** is `Soldier::charging` (`soldier::Charging { until,
+  tile }`, a mission minute) and the room's **brace flag**, which is the
+  plant now (`Game::set_braced`: the walk dropped, no errand, the gun up
+  and nothing fired; the room ends it on an order that moves the body, a
+  walk key pressed afresh, a roll or a down). `settle_stun_shots`, right
+  before `hand_the_room_the_soldiers`, calls a charge off when the room
+  let the plant go or the soldier is unfit (no cooldown), says the room
+  the share for the glow (`Game::set_shot_charge`), and at
+  `class::STUN_SHOT_CHARGE` (2 s) fires: along the steer's aim when a
+  player steers the soldier, else at the tile, as far as the tile was,
+  never past `stun_shot_range` (the weapon in hand through `skill_of`)
+  and stopped short of a wall (`Game::reach_along`) —
+  `Game::fire_stun_shot`, `WorldEvent::StunShotFired` (151),
+  `Soldier::last_shot` noted.
+- **The burst** is the room's (`Grenade::shot`): every target in the
+  radius (`STUN_SHOT_RADIUS`, the grenade's) with a clear line takes
+  `STUN_SHOT_DAMAGE` (15/20/25/30) as a blast hit by the soldier — the
+  relics' machine factor on it like any hit, never a crit — and is
+  stunned through `settle_stuns` (`STUN_SHOT_STUN`, 3 s; the Heart's
+  machines and the Manufacturers' Bims never). None of the crew, no
+  sentry, no sandbag.
+- Hashed: the room's plant as the brace was, and `charging`/`last_shot`
+  only where any is set. **`SAVE_VERSION` 92, `wire::PROTOCOL` 98.**
+  `tests_soldier.rs`' section B is the rule.

@@ -170,7 +170,7 @@ pub struct ClassView {
     pub points: u8,
     /// The soldier's rows (feature 75): grenade charges in the pack,
     /// seconds of the clock until the next comes back (feature 90), and
-    /// whether it is braced — `None` for anybody but a soldier.
+    /// its Stun Shot — `None` for anybody but a soldier.
     pub soldier: Option<SoldierView>,
     /// The medic's rows (feature 76) — `None` for anybody but a medic.
     pub medic: Option<MedicView>,
@@ -191,7 +191,10 @@ pub struct ClassView {
 pub struct SoldierView {
     pub grenades: u32,
     pub cooldown: f64,
-    pub braced: bool,
+    /// A Stun Shot charging (October 2026).
+    pub charging: bool,
+    /// Seconds until the Stun Shot may be charged again.
+    pub shot_cooldown: f64,
 }
 
 /// What the panel says of a medic (feature 76; task 130): who the beam
@@ -856,13 +859,13 @@ impl CrewPanels {
                         .small()
                         .color(theme::INK),
                 );
-                let (word, color) = if soldier.braced {
-                    (BRACED, theme::CAUTION)
+                let (word, color) = if soldier.charging {
+                    (CHARGING.to_string(), theme::CAUTION)
                 } else {
-                    (STAND_EASY, theme::MUTED)
+                    (stun_shot_ready(soldier.shot_cooldown), theme::MUTED)
                 };
                 ui.label(egui::RichText::new(word).small().color(color));
-                theme::question_mark(ui, BRACED_TIP);
+                theme::question_mark(ui, CHARGING_TIP);
             });
         }
         if let Some(medic) = &view.medic {

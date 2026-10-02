@@ -28,7 +28,7 @@
 //! is no medicine to carry since task 120: a downed crewmate is revived
 //! by standing beside it, and a medic's heal beam puts hit points back.
 //! The abilities that spend nothing are held instead of thrown — a
-//! brace, a beam, a bulwark — and the ones that are
+//! beam, a bulwark — and the ones that are
 //! neither wait out a cooldown of their own: the tank's Taunt and
 //! Juggernaut at [`TAUNT_COOLDOWN`] and [`JUGGERNAUT_COOLDOWN`] of their
 //! ranks, the commander's Battle Cry and Rally at [`BATTLE_CRY_COOLDOWN`]
@@ -154,19 +154,29 @@
 //! | 3 | 15% | 200% |
 //! | 4 | 20% | 225% |
 //!
-//! **E, Brace** (toggle): holds where it stands. Its misses are cut by a
-//! share — the miss chance times one less the share, near and far, the
-//! hit chance never past one — and it takes less damage, before armour.
+//! **E, Stun Shot** (active, cooldown; October 2026 — Brace was E until
+//! then): the soldier plants his feet and charges a shot for
+//! [`STUN_SHOT_CHARGE`] seconds, holding his fire, then fires it at the
+//! spot he aimed at — no further than his weapon reaches, stopped short
+//! of the first wall. It bursts there as wide as his grenade
+//! ([`STUN_SHOT_RADIUS`]): every enemy in the burst with nothing opaque
+//! between takes its damage and is stunned for [`STUN_SHOT_STUN`]
+//! seconds (`bims::droid::Droid::stun`; never the Machine Heart's). It
+//! harms none of the crew. An order that moves him, a walk key pressed,
+//! a roll or going down calls the charge off, and the cooldown runs only
+//! from a shot fired. A player steering him aims it with the pointer
+//! while it charges: it flies the way he faces when it fires, as far as
+//! the spot first aimed at.
 //!
-//! | rank | misses cut by | damage taken |
-//! |---|---|---|
-//! | 1 | 20% | — |
-//! | 2 | 30% | ×0.90 |
-//! | 3 | 40% | ×0.85 |
-//! | 4 | 50%, and far aim equals near | ×0.80 |
+//! | rank | damage | radius | stun | cooldown |
+//! |---|---|---|---|---|
+//! | 1 | 15 | 2.0 tiles | 3 s | 30 s |
+//! | 2 | 20 | 2.5 tiles | 3 s | 27 s |
+//! | 3 | 25 | 2.5 tiles | 3 s | 24 s |
+//! | 4 | 30 | 3.0 tiles | 3 s | 20 s |
 //!
 //! **R, Rampage** (ultimate, active; ready at every mission's start, and
-//! may be used braced): the fire rate up, the damage taken down and full
+//! may be used charging): the fire rate up, the damage taken down and full
 //! aim on the move, for its seconds of the mission clock.
 //!
 //! | rank | duration | fire rate | damage taken | cooldown |
@@ -261,7 +271,7 @@
 //! | 4 | 12 tiles | 6 s | 14 s | every charging blade within the radius turns toward him |
 //!
 //! **C, Plated** (passive): the damage of every hit on him multiplied
-//! down, before the armour takes its share — with Brace, Rally and
+//! down, before the armour takes its share — with Rampage, Rally and
 //! Juggernaut, every factor multiplied together.
 //!
 //! | rank | damage taken | extra |
@@ -467,8 +477,8 @@ pub enum Ability {
     Emp,
     /// Lay the sentry: the engineer's ultimate (task 127).
     Sentry,
-    /// Hold a line: the soldier's.
-    Brace,
+    /// Charge and fire a stun shot: the soldier's E (October 2026).
+    StunShot,
     /// Throw a grenade: the soldier's.
     Throw,
     /// Hold a heal beam on a crewmate: the medic's.
@@ -501,7 +511,7 @@ impl Ability {
         Ability::Deploy,
         Ability::Emp,
         Ability::Sentry,
-        Ability::Brace,
+        Ability::StunShot,
         Ability::Throw,
         Ability::Beam,
         Ability::NaniteBurst,
@@ -522,7 +532,7 @@ impl Ability {
 pub fn can(class: Class, ability: Ability) -> bool {
     match ability {
         Ability::Deploy | Ability::Emp | Ability::Sentry => class == Class::Engineer,
-        Ability::Brace | Ability::Throw | Ability::Rampage => class == Class::Soldier,
+        Ability::StunShot | Ability::Throw | Ability::Rampage => class == Class::Soldier,
         Ability::Beam | Ability::NaniteBurst | Ability::Cloak => class == Class::Medic,
         Ability::Bulwark | Ability::Taunt | Ability::Juggernaut => class == Class::Tank,
         Ability::Rally | Ability::BattleCry | Ability::Reinforce | Ability::Medivac => {
@@ -810,13 +820,20 @@ pub const WEAK_SPOT_CHANCE: [f32; 4] = [0.10, 0.12, 0.15, 0.20];
 /// half the flat damage again is added to the hit.
 pub const WEAK_SPOT_DAMAGE: [f32; 4] = [1.50, 1.75, 2.00, 2.25];
 
-/// **E, Brace**: the share of the misses a braced soldier's aim takes
-/// away, a rank — the miss chance times one less it, near and far.
-pub const BRACE_MISS_CUT: [f32; 4] = [0.20, 0.30, 0.40, 0.50];
-/// What the damage a braced soldier takes is multiplied by, a rank.
-pub const BRACE_DAMAGE_TAKEN: [f32; 4] = [1.0, 0.90, 0.85, 0.80];
-/// The rank from which a braced soldier's far aim equals its near.
-pub const BRACE_DEADEYE_RANK: u8 = 4;
+/// **E, Stun Shot**: seconds of the mission clock the shot charges for
+/// before it fires, at every rank.
+pub const STUN_SHOT_CHARGE: f64 = 2.0;
+/// What the burst does to every enemy in it, a rank — the same at its
+/// edge as at its centre.
+pub const STUN_SHOT_DAMAGE: [f32; 4] = [15.0, 20.0, 25.0, 30.0];
+/// How far the burst reaches, in tiles, a rank: the grenade's.
+pub const STUN_SHOT_RADIUS: [f32; 4] = GRENADE_RADIUS;
+/// Seconds every enemy in the burst is stunned, a rank.
+pub const STUN_SHOT_STUN: [f32; 4] = [3.0, 3.0, 3.0, 3.0];
+/// Seconds of the mission clock from one shot fired to the next, a rank.
+pub const STUN_SHOT_COOLDOWN: [f64; 4] = [30.0, 27.0, 24.0, 20.0];
+/// Seconds the shot flies from the muzzle to its burst.
+pub const STUN_SHOT_FLIGHT: f32 = 0.15;
 
 /// **R, Rampage**: how long it runs, in seconds of the mission clock, a
 /// rank.
@@ -929,7 +946,7 @@ pub const TAUNT_COOLDOWN: [f64; 4] = [20.0, 18.0, 16.0, 14.0];
 pub const TAUNT_MAGNET_RANK: u8 = 4;
 
 /// **C, Plated**: what the damage of a hit on him is multiplied by, a
-/// rank — before the armour, as Brace's is.
+/// rank — before the armour, as Rampage's is.
 pub const PLATED_DAMAGE_TAKEN: [f32; 4] = [0.90, 0.85, 0.80, 0.75];
 /// The rank from which his armour drain is multiplied by
 /// [`FORTRESS_DRAIN`] again (what *fortress* was).
@@ -1140,12 +1157,12 @@ mod tests {
     #[test]
     fn a_class_owns_its_abilities_and_nothing_else() {
         assert!(can(Class::Engineer, Ability::Deploy));
-        assert!(!can(Class::Engineer, Ability::Brace));
+        assert!(!can(Class::Engineer, Ability::StunShot));
         assert!(!can(Class::Engineer, Ability::Throw));
         assert!(can(Class::Engineer, Ability::Emp) && can(Class::Engineer, Ability::Sentry));
         assert!(!can(Class::Soldier, Ability::Emp) && !can(Class::Medic, Ability::Sentry));
         assert!(!can(Class::Soldier, Ability::Deploy));
-        assert!(can(Class::Soldier, Ability::Brace));
+        assert!(can(Class::Soldier, Ability::StunShot));
         assert!(can(Class::Soldier, Ability::Throw));
         assert!(!can(Class::Soldier, Ability::Beam));
         assert!(can(Class::Medic, Ability::Beam));

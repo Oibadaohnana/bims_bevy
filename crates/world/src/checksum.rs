@@ -380,10 +380,11 @@ pub fn world_checksum(world: &World) -> u64 {
         }
     }
 
-    // The soldiers (feature 75): who is braced — the room's, read off it
+    // The soldiers (feature 75): who is planted — a Stun Shot charging
+    // since October 2026, the brace before it — the room's, read off it
     // like the positions — and a nought where the *rampage* stacks were
     // (the talent went with task 124), so the layout is what it was. A
-    // soldier braced is a different fight from one standing easy. When
+    // soldier planted is a different fight from one walking. When
     // its next grenade is due went in with the charges above (feature
     // 90), where the engineer's kits' cooldowns are.
     let crew = world.aboard.crew_count() as usize;
@@ -747,6 +748,29 @@ pub fn world_checksum(world: &World) -> u64 {
             }
             hash.eat_rounded(s.until, FINE_GRID);
             hash.eat_rounded(s.extended, FINE_GRID);
+        }
+    }
+    // And the Stun Shot (October 2026): every charge running and when
+    // the last shot was fired, eaten only where there is any.
+    if world
+        .soldiers
+        .iter()
+        .any(|s| s.charging.is_some() || s.last_shot.is_some())
+    {
+        hash.eat(world.soldiers.len() as u64);
+        for s in &world.soldiers {
+            match s.charging {
+                Some(c) => {
+                    hash.eat_rounded(c.until, FINE_GRID);
+                    hash.eat(c.tile.0 as i64 as u64);
+                    hash.eat(c.tile.1 as i64 as u64);
+                }
+                None => hash.eat(u64::MAX),
+            }
+            match s.last_shot {
+                Some(f) => hash.eat_rounded(f, FINE_GRID),
+                None => hash.eat(u64::MAX),
+            }
         }
     }
     // A throw walked out to (`Command::ThrowAt`): who, which, the tile and

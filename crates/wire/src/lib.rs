@@ -101,7 +101,9 @@ use serde::{Deserialize, Serialize};
 /// 96: *Black Market*'s price is one more wave at every elite (a bigger
 /// one, no Guardian), where it was less bounty: both ends must count and
 /// lay the waves alike.
-pub const PROTOCOL: u32 = 96;
+/// 98: the soldier's E is a Stun Shot (October 2026): `Command::StunShot`
+/// where `Command::Brace` was, and the shot fired on both ends alike.
+pub const PROTOCOL: u32 = 98;
 
 /// Where the relay lives. `BIMS_SERVER` in the environment overrides it
 /// — `ws://127.0.0.1:8792` for one on the same machine.

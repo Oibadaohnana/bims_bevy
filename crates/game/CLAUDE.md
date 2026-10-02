@@ -4866,3 +4866,26 @@ world's (`crates/world/CLAUDE.md`, "Items, step two").
 `a_sprint_is_quicker_faces_the_run_and_fires_nothing` and
 `a_dodge_roll_goes_the_way_the_keys_walked_and_slips_every_bolt` pin it.
 `SAVE_VERSION` 88, `wire::PROTOCOL` 91.
+
+## A Stun Shot: the plant, the glow and a grenade that flies straight (October 2026)
+
+> "The brace is `Bim::braced`" in feature 75's section says a braced
+> soldier is armed and shoots steadier; the flag is the soldier's Stun
+> Shot charging now, and nothing else sets it.
+
+- **`Bim::braced` is a plant**: `tick_combat` holds the trigger, pays an
+  owed click and swings nothing for a planted body, the gun up along the
+  heading when steered; `Character::update` walks a planted body nowhere
+  on keys held from before (a key pressed afresh still lets it go, in
+  `order_control`), and `is_sprinting` is false for one.
+- **`Character::shot_charge`** (`Game::set_shot_charge`, `serde(skip)`,
+  drawing only): a glow of `droid::STUNNED` past white at the muzzle
+  growing with the charge, and a ring closing on the body.
+- **`Grenade::shot`** (serde default): `Game::fire_stun_shot` →
+  `Combat::fire_stun_shot` puts one in the air from the muzzle for its
+  whole fuse (`Grenade::flight`), heard as the gun's `Cue::Shot` and lit
+  as its muzzle; drawn as a glowing slug and streak; its burst
+  (`Game::burst`) hits and stuns the targets in it with a clear line and
+  touches none of the room's own, lit as the explosion and the EMP's
+  ring at once (`Cue::Burst`). `Game::reach_along` is the furthest point
+  short of a wall on a line.

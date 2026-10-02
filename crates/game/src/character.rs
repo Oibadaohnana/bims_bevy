@@ -156,6 +156,8 @@ const COMMAND: Color = Color::rgb(1.0, 0.82, 0.35);
 /// The brackets round a braced soldier (feature 75): the command colour
 /// darkened, since it is a stance held rather than an order given.
 const BRACED: Color = Color::rgb(0.85, 0.62, 0.20);
+/// A Stun Shot gathering at the muzzle (October 2026): the stun.s pale blue.
+const CHARGE_GLOW: Color = crate::droid::STUNNED;
 /// The **braced stance** (feature 91): what a soldier holding its ground
 /// does with its feet and how far it settles onto them. The toes are
 /// turned out a good third of a right angle, the heels a little back
@@ -1032,6 +1034,11 @@ pub struct Character {
     /// four heavy brackets round it. Drawing only; `Game::tick_combat`
     /// sets it off the Bim's own flag.
     braced: bool,
+    /// How far a Stun Shot charging has come, nought to one (October
+    /// 2026): a growing glow at the muzzle. Drawing only; the world says
+    /// it every step.
+    #[cfg_attr(feature = "serde", serde(skip))]
+    shot_charge: f32,
     /// Under a medic's surge (feature 76): a halo round the body while
     /// nothing can hurt it. Drawing only; `Game::tick_combat` sets it
     /// off the Bim's own timer.
@@ -1118,6 +1125,7 @@ impl Character {
             roll_cool: 0.0,
             hostile: false,
             braced: false,
+            shot_charge: 0.0,
             surging: false,
             cloaked: false,
             shield: 0.0,
@@ -1507,6 +1515,7 @@ impl Character {
         !self.dead
             && !self.unconscious
             && self.roll.is_none()
+            && !self.braced
             && self.steer.is_some_and(|s| s.sprint && s.walk.is_some())
     }
 
@@ -1589,6 +1598,11 @@ impl Character {
     /// 124): a braced soldier stands where it braced.
     pub fn set_braced(&mut self, braced: bool) {
         self.braced = braced;
+    }
+    /// How far a Stun Shot charging has come, nought to one: the glow at
+    /// the muzzle (October 2026). Drawing only.
+    pub fn set_shot_charge(&mut self, share: f32) {
+        self.shot_charge = share.clamp(0.0, 1.0);
     }
     /// Under a surge, or not: the halo round the body. Drawing only.
     pub fn set_surging(&mut self, surging: bool) {
@@ -1830,7 +1844,10 @@ impl Character {
         // with Shift held (task 150).
         let steer = self.steer;
         let sprinting = self.is_sprinting();
-        let goal = if let Some(walk) = steer.and_then(|s| s.walk) {
+        // Planted (a soldier charging his Stun Shot, October 2026), the
+        // keys held from before walk it nowhere: a walk key pressed afresh
+        // is what calls the charge off (`Game::order_control`).
+        let goal = if let Some(walk) = steer.filter(|_| !self.braced).and_then(|s| s.walk) {
             self.path.clear();
             self.far = None;
             self.activity = Activity::Walking;
@@ -2803,6 +2820,27 @@ impl Character {
 
         if let Some(weapon) = self.armed.filter(|_| !self.dead) {
             self.draw_weapon(list, pose, weapon);
+        }
+        // A Stun Shot charging (October 2026): the stun's blue gathering
+        // at the muzzle, past white as it fills, and a ring closing on
+        // the body that meets it as the shot goes.
+        if self.shot_charge > 0.0 && !self.dead {
+            let c = self.shot_charge;
+            let at = self.muzzle().unwrap_or(pos);
+            let flicker = 1.0 + 0.15 * (self.select_pulse * 9.0).sin();
+            list.circle(
+                at,
+                (10.0 + 30.0 * c) * flicker,
+                CHARGE_GLOW.glowing(1.0 + c).alpha(0.30 + 0.5 * c),
+            );
+            list.circle(at, 5.0 + 10.0 * c, Color::rgb(1.0, 1.0, 1.0).alpha(0.9));
+            let span = (44.0 + 70.0 * (1.0 - c)) * self.body_scale();
+            list.ring(
+                pos,
+                span,
+                2.5,
+                CHARGE_GLOW.glowing(1.2).alpha(0.25 + 0.6 * c),
+            );
         }
         // The medkit (task 138): a case held out in front, the cross on
         // its lid, where a free hand carries a thing.

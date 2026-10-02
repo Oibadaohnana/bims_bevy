@@ -2118,7 +2118,7 @@ and every one brings the same money to the pool, whatever its class. A
 class only adds its own two keys and its talents, which nobody else can
 use: **Q** is the class's first action and **E** its second, whichever
 class you steer — an engineer's EMP and sandbags, a soldier's grenade
-and brace, a medic's Nanite Burst and heal beam, a tank's taunt and
+and Stun Shot, a medic's Nanite Burst and heal beam, a tank's taunt and
 wall, a commander's rally and attack order — and both are rebindable on
 the Controls page as one pair,
 not one a class. They are the first and third of **four ability slots**,
@@ -2316,24 +2316,31 @@ brightness of an ordinary one.
 | 3 | 15% | 200% |
 | 4 | 20% | 225% |
 
-**E — Brace** (toggle). Braced, the soldier holds where it stands —
-whatever it was on put down, no errand taken up, under arms — and never
-moves until `E` is pressed again, it is ordered anywhere, or it goes
-down. Its misses are cut by a share, near and far (a hit certain stays
-certain), and it takes less damage, before armour. Four heavy brackets
-round the body say so on the deck.
+**E — Stun Shot** (active, cooldown; it was Brace until October 2026).
+Pressed, the soldier plants his feet and charges a shot for two seconds
+at the pointer, holding his fire — the rifle up and glowing at the
+muzzle, a ring closing on him. Then it fires: a fast slug that bursts
+where it lands, **never past his weapon's reach** and stopped short of
+the first wall, as wide as his grenade's burst. Every enemy in it with
+nothing opaque between takes its damage and every machine is **stunned
+for three seconds** (the Machine Heart's never); the crew are never
+hurt. Steering him, the shot goes the way the pointer has him facing
+when it fires, as far as the spot first aimed at. A walk key pressed
+afresh, an order that moves him, a roll or going down calls the charge
+off, and the cooldown runs only from a shot fired. Holding `E` draws
+the weapon's reach round him.
 
-| rank | misses cut by | damage taken |
-| --- | --- | --- |
-| 1 | 20% | — |
-| 2 | 30% | ×0.90 |
-| 3 | 40% | ×0.85 |
-| 4 | 50%, and the far aim is the near | ×0.80 |
+| rank | damage | radius | stun | cooldown |
+| --- | --- | --- | --- | --- |
+| 1 | 15 | 2.0 tiles | 3 s | 30 s |
+| 2 | 20 | 2.5 tiles | 3 s | 27 s |
+| 3 | 25 | 2.5 tiles | 3 s | 24 s |
+| 4 | 30 | 3.0 tiles | 3 s | 20 s |
 
 **R — Rampage** (ultimate, active). For its seconds the soldier fires
 faster, takes less, and aims on the move as well as standing still. It
 is ready at the start of every mission, runs on the mission clock (a
-pause stops it), may be used braced — the two stack — and the cooldown
+pause stops it), may be used with a Stun Shot charging, and the cooldown
 relics (*Hair Trigger*, *Overclocked Cores*) and the *Coolant Loop* item
 move its cooldown as they do every class ability's. Its box glows while it runs.
 
@@ -2714,7 +2721,7 @@ overlapping is allowed the whole apparatus has nothing left to do.
 | Hold `g` | Standing close to a downed crewmate (two and a half tiles): your own Bim **gets the nearest back up** while the key is held, and stops if you let go first. A green bar over the body fills with the revive |
 | `F1` | Select the Bim you steer and put it in the middle of the view |
 | `l` | Recruit it, or let it go — see below |
-| `q` / `c` / `e` / `r` | The steered crew member's four **ability slots** (task 123). `q` and `e` are the **class actions**: an engineer **throws an EMP** at the deck tile under the pointer / **lays sandbags** there, and its `c` **lays a Healing Sentry** and its `r`, the ultimate, **lays its sentry** (task 127); a soldier **throws a grenade** at it (hold `q` to see the reach and the burst's radius, let go to throw) / **braces** where it stands, or stands easy, and its `c` is **Weak Spot** (passive, nothing to press) and its `r` goes on a **Rampage**; a medic **sets off a Nanite Burst** / **beams the crew member under the pointer**, and unlinks when pressed on the one it holds or on nobody, and its `r`, the ultimate, **cloaks** the crew member under the pointer, or itself with the pointer on nobody (task 130); a tank **taunts** / **puts its wall up**, or takes it down — see [Classes and levels](#classes-and-levels). `c` and `r` are empty only for the tank now. The log says why not; nothing with a classless crew member |
+| `q` / `c` / `e` / `r` | The steered crew member's four **ability slots** (task 123). `q` and `e` are the **class actions**: an engineer **throws an EMP** at the deck tile under the pointer / **lays sandbags** there, and its `c` **lays a Healing Sentry** and its `r`, the ultimate, **lays its sentry** (task 127); a soldier **throws a grenade** at it (hold `q` to see the reach and the burst's radius, let go to throw) / **charges a Stun Shot** at the pointer, two seconds planted before it fires, and its `c` is **Weak Spot** (passive, nothing to press) and its `r` goes on a **Rampage**; a medic **sets off a Nanite Burst** / **beams the crew member under the pointer**, and unlinks when pressed on the one it holds or on nobody, and its `r`, the ultimate, **cloaks** the crew member under the pointer, or itself with the pointer on nobody (task 130); a tank **taunts** / **puts its wall up**, or takes it down — see [Classes and levels](#classes-and-levels). `c` and `r` are empty only for the tank now. The log says why not; nothing with a classless crew member |
 | **Ctrl** + a slot's key, or **Ctrl-click** its box | **Ranks that ability up** rather than using it, for a skill point: the soldier's four abilities (task 124). It follows whatever key the slot is bound to |
 | **WASD**, middle-drag, or the pointer against the window's edge | Pan the view — the deck, or the galaxy chart. The edge scroll's speed is on the Esc sheet's first page (0 turns it off) |
 | `f` | **Attack-move**: the pointer turns into a red crosshair, and the next click on the deck sends the Bim you steer there with its weapon out. It stops to shoot whatever comes into its sights on the way and walks on once nothing is left — Dota's attack-move. `f` again, `Esc` or a right-click puts the crosshair away |

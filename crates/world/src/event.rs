@@ -120,9 +120,11 @@ pub enum WorldEvent {
     /// A deployable was destroyed — sandbags shot to nothing, a sentry
     /// drained — by the kind.
     DeployableLost { kind: u32 },
-    /// A soldier braced, or stood easy again (feature 75): who, and
-    /// which.
-    Braced { who: u32, on: bool },
+    /// A soldier began charging a Stun Shot (October 2026, E): who. Code
+    /// 75 was a soldier bracing, which the shot replaced.
+    ShotCharging { who: u32 },
+    /// A soldier's Stun Shot charged and fired: who.
+    StunShotFired { who: u32 },
     /// A soldier threw a grenade: who.
     Thrown { who: u32 },
     /// A medic's heal beam linked to a crew member, or unlinked (feature
@@ -419,7 +421,7 @@ pub enum Refusal {
     // reached, picked already — and went with the talents (task 139).
     /// A rank asked for a crew member with no class.
     NoClass = 52,
-    /// A brace or a throw by a crew member that is not a soldier
+    /// A Stun Shot or a throw by a crew member that is not a soldier
     /// (feature 75).
     NotASoldier = 53,
     /// A throw with no grenade in the pack.
@@ -600,6 +602,9 @@ pub enum Refusal {
     BotsCarryNoItems = 127,
     /// An item asked of a trader that does not sell it at that tier today.
     NotForSale = 128,
+    /// A Stun Shot charged with no gun in the hand to fire it from
+    /// (October 2026).
+    NoWeaponInHand = 129,
 }
 
 impl Refusal {
@@ -652,7 +657,9 @@ impl WorldEvent {
             WorldEvent::Deployed { .. } => 70,
             WorldEvent::PackedUp { .. } => 71,
             WorldEvent::DeployableLost { .. } => 72,
-            WorldEvent::Braced { .. } => 75,
+            // 75 was a soldier bracing; its Stun Shot is 150 and 151.
+            WorldEvent::ShotCharging { .. } => 150,
+            WorldEvent::StunShotFired { .. } => 151,
             WorldEvent::Thrown { .. } => 76,
             WorldEvent::Beamed { .. } => 77,
             // 78 was a surge, which went with it (task 130).
@@ -773,7 +780,9 @@ impl WorldEvent {
                 rank,
                 ..
             } => (who as i64) + 100 * (ability_slot as i64) + 10_000 * (rank as i64),
-            WorldEvent::Rampaged { who } => who as i64,
+            WorldEvent::Rampaged { who }
+            | WorldEvent::ShotCharging { who }
+            | WorldEvent::StunShotFired { who } => who as i64,
             WorldEvent::Juggernaut { who } => who as i64,
             WorldEvent::EmpThrown { who } => who as i64,
             WorldEvent::TownFell { station }
@@ -875,9 +884,7 @@ impl WorldEvent {
             // How many it healed, and whom it cloaked, in the hundreds.
             WorldEvent::NaniteBurst { who, healed } => (who as i64) + 100 * (healed as i64),
             WorldEvent::Cloaked { who, target } => (who as i64) + 100 * (target as i64),
-            WorldEvent::Braced { who, on } | WorldEvent::Bulwarked { who, on } => {
-                (who as i64) + 100 * i64::from(on)
-            }
+            WorldEvent::Bulwarked { who, on } => (who as i64) + 100 * i64::from(on),
             // The patient plus one in the hundreds: nought is the link
             // broken.
             WorldEvent::Beamed { who, patient } => {
