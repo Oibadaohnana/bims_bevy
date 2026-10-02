@@ -240,7 +240,12 @@ use crate::game::Game;
 /// 90: light and dark (task 152) — `Sight::light` (a byte a tile where
 /// `lit` was a flag), `Sight::{night, lamps_off}`, `Lamp::off`,
 /// `Plane::night`, `Residents::{night, dark}` and the probes' two dials.
-pub const SAVE_VERSION: u32 = 90;
+/// 91: the relics rebuilt (October 2026) — twelve new ones the crew's,
+/// not a Bim's (`Relics::held` one list, the pool, the pending, the
+/// timed effects and the rest gone), a choice voted on with no recipient
+/// and no picks, no cache on an `Infestation` and no relic on a
+/// `Trader`.
+pub const SAVE_VERSION: u32 = 91;
 
 /// What the file holds, read back.
 #[derive(serde::Deserialize)]

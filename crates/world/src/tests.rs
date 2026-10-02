@@ -1179,7 +1179,7 @@ fn the_checksum_notices_every_kind_of_change() {
         let mut world = simulation_world(playtest_ship(), data::SIMULATION_MONEY, 1);
         let twin = simulation_world(playtest_ship(), data::SIMULATION_MONEY, 1);
         assert_eq!(world_checksum(&world), world_checksum(&twin));
-        world.give_relic_for_probe(0, crate::relic::Relic::FocusingLens);
+        world.give_relic_for_probe(crate::relic::Relic::GlassCannon);
         assert_ne!(
             world_checksum(&world),
             world_checksum(&twin),

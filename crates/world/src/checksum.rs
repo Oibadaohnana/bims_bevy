@@ -146,7 +146,6 @@ pub fn world_checksum(world: &World) -> u64 {
         hash.eat(it.next_wave.unwrap_or(0));
         hash.eat(u64::from(it.settled));
         hash.eat(u64::from(it.cleared));
-        hash.eat(u64::from(it.cache));
         eat_heart(&mut hash, it.heart.as_ref());
         eat_manufacturers(&mut hash, it);
     }
@@ -284,7 +283,6 @@ pub fn world_checksum(world: &World) -> u64 {
             hash.eat(it.next_wave.unwrap_or(0));
             hash.eat(u64::from(it.settled));
             hash.eat(u64::from(it.cleared));
-            hash.eat(u64::from(it.cache));
             eat_heart(&mut hash, it.heart.as_ref());
             eat_manufacturers(&mut hash, it);
         }
@@ -401,8 +399,8 @@ pub fn world_checksum(world: &World) -> u64 {
     // The medics (feature 76): who each beam holds, a nought where the
     // surge's charge was until the surge went (task 130), and — the
     // room's, read off it like the brace — the seconds each body's surge
-    // has left, to a hundredth: the relics' now (*Phase Harness*,
-    // *Lifeline*).
+    // has left, to a hundredth (nothing sets it since the relics were
+    // rebuilt in October 2026, and it reads nought).
     hash.eat(world.medics.len() as u64);
     for medic in &world.medics {
         hash.eat(medic.patients.len() as u64);
@@ -649,11 +647,10 @@ pub fn world_checksum(world: &World) -> u64 {
     }
     hash.eat(run.deaths);
 
-    // The relics (feature 106), whole: what is left to offer, who holds
-    // what, what is pending on a cache, the choice on the table and who
-    // has said yes, what has fired this mission and who is waiting to get
-    // up — and the clear and the win. A relic on one client and not the
-    // other is a different Bim.
+    // The relics (feature 106), whole: what the crew hold, the choice on
+    // the table and who has said yes, and how many offers came before —
+    // and the clear and the win. A relic on one client and not the other
+    // is a different crew.
     let relics = &run.relics;
     let eat_list = |hash: &mut Fnv, list: &[crate::relic::Relic]| {
         hash.eat(list.len() as u64);
@@ -661,103 +658,24 @@ pub fn world_checksum(world: &World) -> u64 {
             hash.eat(u64::from(r.code()));
         }
     };
-    eat_list(&mut hash, &relics.pool);
-    hash.eat(relics.held.len() as u64);
-    for held in &relics.held {
-        eat_list(&mut hash, held);
-    }
-    hash.eat(relics.pending.len() as u64);
-    for &(slot, r) in &relics.pending {
-        hash.eat(u64::from(slot));
-        hash.eat(u64::from(r.code()));
-    }
+    eat_list(&mut hash, &relics.held);
     match &relics.choice {
         None => hash.eat(u64::MAX),
         Some(choice) => {
-            hash.eat(u64::from(choice.source.code()));
             eat_list(&mut hash, &choice.options);
             match &choice.proposal {
                 None => hash.eat(u64::MAX),
                 Some(p) => {
                     hash.eat(p.relic.map_or(u64::MAX, |r| u64::from(r.code())));
-                    hash.eat(u64::from(p.to));
                     hash.eat(u64::from(p.by));
                     for &yes in &p.accepted {
                         hash.eat(u64::from(yes));
                     }
                 }
             }
-            // The reward's picks and who has won what (task 146).
-            let eat_slots = |hash: &mut Fnv, list: &[Option<crate::relic::Relic>]| {
-                hash.eat(list.len() as u64);
-                for r in list {
-                    hash.eat(r.map_or(u64::MAX, |r| u64::from(r.code())));
-                }
-            };
-            eat_slots(&mut hash, &choice.picks);
-            eat_slots(&mut hash, &choice.won);
-            hash.eat(u64::from(choice.round));
-        }
-    }
-    hash.eat(relics.fired.len() as u64);
-    for fired in &relics.fired {
-        eat_list(&mut hash, fired);
-    }
-    for down in &relics.down_since {
-        match down {
-            None => hash.eat(u64::MAX),
-            Some(at) => hash.eat_rounded(*at, FINE_GRID),
         }
     }
     hash.eat(u64::from(relics.offers));
-    // Task 118's: the timed effects, the cooldowns, the marks and the
-    // notes, the downs a *Clot Booster* counts from and the restock. Eaten
-    // only where there is any, so a run holding none of them hashes as it
-    // always did.
-    let downed = relics.downed_at.iter().any(Option::is_some);
-    if !relics.buffs.is_empty()
-        || !relics.ready_at.is_empty()
-        || !relics.spotted.is_empty()
-        || !relics.limb_aimed.is_empty()
-        || !relics.flanked.is_empty()
-        || downed
-        || relics.restocked
-    {
-        hash.eat(relics.buffs.len() as u64);
-        for b in &relics.buffs {
-            hash.eat(u64::from(b.who));
-            hash.eat(u64::from(b.relic.code()));
-            hash.eat_rounded(b.until, FINE_GRID);
-        }
-        hash.eat(relics.ready_at.len() as u64);
-        for &(slot, r, at) in &relics.ready_at {
-            hash.eat(u64::from(slot));
-            hash.eat(u64::from(r.code()));
-            hash.eat_rounded(at, FINE_GRID);
-        }
-        hash.eat(relics.spotted.len() as u64);
-        for &(slot, body, until) in &relics.spotted {
-            hash.eat(u64::from(slot));
-            hash.eat(u64::from(body));
-            hash.eat_rounded(until, FINE_GRID);
-        }
-        hash.eat(relics.limb_aimed.len() as u64);
-        for &(slot, body) in &relics.limb_aimed {
-            hash.eat(u64::from(slot));
-            hash.eat(u64::from(body));
-        }
-        hash.eat(relics.flanked.len() as u64);
-        for &body in &relics.flanked {
-            hash.eat(u64::from(body));
-        }
-        for down in &relics.downed_at {
-            match down {
-                None => hash.eat(u64::MAX),
-                Some(at) => hash.eat_rounded(*at, FINE_GRID),
-            }
-        }
-        hash.eat(u64::from(relics.restocked));
-    }
     hash.eat(u64::from(run.fought));
     hash.eat(u64::from(run.cleared_here));
     hash.eat(u64::from(run.won));
@@ -777,7 +695,7 @@ pub fn world_checksum(world: &World) -> u64 {
         }
     }
     // The traders (task 114): every one met, whose it is, what is left on
-    // its shelf and its relic.
+    // its shelf.
     // Eaten only where there is any, so a run that has met none hashes as
     // it always did.
     if !run.traders.is_empty() {
@@ -796,7 +714,6 @@ pub fn world_checksum(world: &World) -> u64 {
                     }
                 }
             }
-            hash.eat(trader.relic.map_or(u64::MAX, |r| u64::from(r.code())));
             // The items sold this visit (October 2026), only where any are.
             if !trader.items_sold.is_empty() {
                 hash.eat(0x_534F_4C44);

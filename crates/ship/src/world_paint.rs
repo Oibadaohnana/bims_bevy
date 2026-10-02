@@ -137,14 +137,6 @@ const SITE_FADE: f32 = 0.55;
 const GHOST_FADE: f32 = 0.50;
 /// Where whoever uses a part would stand, as the designer marks it.
 const SPOT: Color = Color::rgba(0.98, 0.82, 0.35, 0.85);
-/// The lights round a research desk with a relic cache on it (feature
-/// 106; a research key, until research left the game): the spot's gold,
-/// pulsing, and a wash of it over the desk so it is seen from across the
-/// room.
-const CACHE_LIGHT: Color = Color::rgb(1.0, 0.86, 0.40);
-const CACHE_WASH: Color = Color::rgba(1.0, 0.86, 0.40, 0.22);
-/// How many frames one pulse of them takes.
-const CACHE_PULSE: f32 = 90.0;
 /// The ground, when the ship is on a planet (`World::landed`), by the
 /// settlement's biome (`world::Biome`): desert sand, a warm ochre;
 /// temperate grass, a muted green; arctic snow, a cold blue-grey — each
@@ -683,74 +675,6 @@ fn part_box(kind: PartKind, origin: (u32, u32), rotation: Rotation) -> (f32, f32
     let x0 = origin.0 as f32 * t;
     let y0 = origin.1 as f32 * t;
     (x0, y0, x0 + w as f32 * t, y0 + h as f32 * t)
-}
-
-/// The lights round every research desk of a design with a relic cache on
-/// it (feature 106): a wash over the desk and a ring of small lights a
-/// little way out from its footprint, pulsing together on the frame's clock — what
-/// "highlighted" is on the deck, and how a crew ashore finds the desk in
-/// a station of rooms. In the design's frame, like the hull.
-fn cache_lights(list: &mut DrawList, design: &ShipDesign, frame: u32) {
-    let pulse = 0.55 + 0.45 * (frame as f32 / CACHE_PULSE * core::f32::consts::TAU).sin();
-    let out = TILE as f32 * 0.55;
-    for part in design
-        .parts
-        .iter()
-        .filter(|p| p.kind == PartKind::ResearchDesk)
-    {
-        let (x0, y0, x1, y1) = part_box(part.kind, part.origin, part.rotation);
-        let (w, h) = (x1 - x0 + 2.0 * out, y1 - y0 + 2.0 * out);
-        let (cx, cy) = ((x0 + x1) / 2.0, (y0 + y1) / 2.0);
-        list.push(
-            crate::draw::KIND_RECT,
-            cx,
-            cy,
-            w,
-            h,
-            0.0,
-            8.0,
-            0.0,
-            CACHE_WASH.alpha(CACHE_WASH.a * pulse),
-        );
-        // The lights along each edge, a tile apart, corners included.
-        let mut spots = Vec::new();
-        let along = |a: f32, b: f32| {
-            let n = ((b - a) / TILE as f32).round().max(1.0) as u32;
-            (0..=n).map(move |i| a + (b - a) * i as f32 / n as f32)
-        };
-        for x in along(x0 - out, x1 + out) {
-            spots.push((x, y0 - out));
-            spots.push((x, y1 + out));
-        }
-        for y in along(y0 - out, y1 + out) {
-            spots.push((x0 - out, y));
-            spots.push((x1 + out, y));
-        }
-        for (x, y) in spots {
-            list.push(
-                crate::draw::KIND_ELLIPSE,
-                x,
-                y,
-                12.0 * pulse + 4.0,
-                12.0 * pulse + 4.0,
-                0.0,
-                0.0,
-                0.0,
-                CACHE_LIGHT.alpha(0.25 * pulse),
-            );
-            list.push(
-                crate::draw::KIND_ELLIPSE,
-                x,
-                y,
-                5.0,
-                5.0,
-                0.0,
-                0.0,
-                0.0,
-                CACHE_LIGHT.alpha(0.5 + 0.5 * pulse),
-            );
-        }
-    }
 }
 
 /// Every construction site, over the deck: the part shown through in the
@@ -1801,12 +1725,6 @@ fn stations(
         let lights_timed = bims::timing::scope(bims::timing::Part::StationLights);
         hull::lights(&mut picture, &station.design, grid, game.frame);
         lamp_faces(&mut picture, game, &station.design, Some(station.id));
-        // A relic cache on its research desk (feature 106), lit so the
-        // crew can find it: a
-        // ring of lights round the desk while the cache is there.
-        if game.world.cache_at(station.id) {
-            cache_lights(&mut picture, &station.design, game.frame);
-        }
         // The machines' ship, tied up at the far airlock, or their
         // lander down on the plain beyond a gate (feature 83). Drawn in
         // the station's own frame, so it turns with the station; it is a

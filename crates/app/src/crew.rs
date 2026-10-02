@@ -31,11 +31,9 @@
 //! it away, take that out — is a [`GearOrder`] left on
 //! [`CrewPanels::orders`] for the screen to send through the seam as a
 //! `world::Command`, since the hold is the world's and every player's ship
-//! has to agree about what is in it. The hold itself comes the other way
-//! as a [`Hold`] snapshot the screen sets every frame. The station's
-//! shelves on a joined deck are told from the ship's by
-//! `Hold::station_shelves`: they are not the hold's, and a click on one
-//! opens nothing.
+//! has to agree about what is in it. (A `Hold` snapshot came the other
+//! way, until the last thing it said — a relic cache on a desk — went in
+//! October 2026.)
 //!
 //! A body is handed in the same way. The Loot window is a grid over what
 //! a dead or unconscious crewmate has on it, and what it shows, whether the
@@ -65,17 +63,6 @@ use crate::theme;
 /// Below this the pointer moved so little that it counts as a click, not a
 /// sweep, in points.
 pub const CLICK_SLOP: f32 = 4.0;
-
-/// What of the ship's the panels are handed every frame that the room
-/// alone does not know: whether a relic cache lies on the station's
-/// research desk (feature 106, `World::cache_here`), which the desk's row
-/// reads.
-/// Nothing is stored anywhere since task 113: the ship's holdings are the
-/// Armory panel's ([`ArmoryView`]).
-#[derive(Clone, Default)]
-pub struct Hold {
-    pub station_cache: bool,
-}
 
 /// Where the Hire window sits: right of the character sheet and under
 /// the portraits and the top frame (feature 107).
@@ -124,11 +111,6 @@ pub enum GearOrder {
     /// Hire the mercenary that is that resident of the station, `who`
     /// doing the hiring — `Command::Hire`.
     Hire { who: u32, resident: u32 },
-    /// Open the relic cache on the station's research desk, `who` doing
-    /// it — `Command::OpenCache` (feature 106). Sent by the screen once
-    /// `who` is within reach of the desk, after the desk's row walked them
-    /// there.
-    OpenCache { who: u32 },
 }
 
 /// Something within reach of the Bim shown, for the nearby strip: the
@@ -144,10 +126,6 @@ pub struct Near {
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum Open {
     Hire(u32),
-    /// Not a window either: the station's research desk's row walks
-    /// the Bim shown to it and asks the screen to open the relic cache
-    /// on it (feature 106, `CrewPanels::cache_requested`).
-    Cache(usize),
     /// Not a window either: the engineer.s deployable within reach packed
     /// up into its pack (`Command::PackUp`) — the row on the nearby strip
     /// beside one (feature 74). By the deployable.s id. There is no
@@ -200,8 +178,8 @@ pub struct ClassView {
     pub tank: Option<TankView>,
     /// The commander's rows (feature 78) — `None` for anybody else.
     pub commander: Option<CommanderView>,
-    /// The relics its Bim holds (feature 106), in the order it was given
-    /// them: what the sheet lists under the gear.
+    /// The crew's relics (feature 106), in the order they took them: what
+    /// the sheet lists under the gear.
     pub relics: Vec<world::Relic>,
     /// The classes the host's profile opened for the run, for the sheet's
     /// chooser; empty is every class.
@@ -460,9 +438,6 @@ pub struct CrewPanels {
     /// The Armory panel (task 113): up from the Inventory key (Tab) or the
     /// tray's Armory button, on every screen of a run, until it is shut.
     pub armory_open: bool,
-    /// What the ship has that the panels read, as the screen last handed
-    /// it over. See [`Hold`].
-    pub hold: Option<Hold>,
     /// The Hire window, if one is up.
     open: Option<Open>,
     /// The mercenary the Hire row opened the window on: the screen walks
@@ -472,10 +447,6 @@ pub struct CrewPanels {
     /// handed them; `None` while none is open, or once the body is no
     /// longer for hire — hired, or the rooms parted — which shuts it.
     pub terms: Option<Terms>,
-    /// The research desk's Open row was picked for this Bim (feature
-    /// 106): the screen
-    /// opens the relic cache once they are within reach, and takes this.
-    pub cache_requested: Option<u32>,
     /// The Carry row was picked on this downed crewmate: the screen walks
     /// the player's own Bim over and sends the carry once it is within
     /// reach, and takes this.
@@ -491,11 +462,10 @@ pub struct CrewPanels {
     /// The player's own class, as the screen last handed it over
     /// (feature 74): drawn under the health of their own crew member.
     pub class_view: Option<ClassView>,
-    /// Every player's relics (feature 106), a list a slot, as the screen
-    /// last handed them over (`World::relics_of`): what the side panel
-    /// shows of a crewmate picked (task 136). A bot holds none and has no
-    /// list.
-    pub player_relics: Vec<Vec<world::Relic>>,
+    /// The crew's relics (feature 106), as the screen last handed them
+    /// over (`World::relics`): what the side panel shows of a crewmate
+    /// picked (task 136) — every relic is the whole crew's.
+    pub crew_relics: Vec<world::Relic>,
     /// How long the player's own Bim takes to revive a crewmate, in
     /// seconds, as the screen last handed it over off the world
     /// (`World::revive_seconds`, task 120): the class, a hired medic's
@@ -531,16 +501,14 @@ impl CrewPanels {
             wanted: SPOT_NOTHING,
             menu: None,
             armory_open: crate::dev::armory(),
-            hold: None,
             open: None,
             walk: None,
             terms: None,
-            cache_requested: None,
             carry_requested: None,
             may_lift: false,
             nearby: Vec::new(),
             class_view: None,
-            player_relics: Vec::new(),
+            crew_relics: Vec::new(),
             revive_seconds: bims::health::REVIVE_SECONDS,
             deploy_orders: Vec::new(),
             keys: Keys::default(),
@@ -760,15 +728,6 @@ impl CrewPanels {
                     ));
                 }
             }
-            HIT_RESEARCH => {
-                // A station's research desk: the one row walks the Bim
-                // shown over and opens the relic cache on it, if there is
-                // one (feature 106). Nothing else is done at one.
-                let desk = game.hit_research();
-                if self.hold.as_ref().is_some_and(|h| h.station_cache) {
-                    items.push(Item::opens(CACHE_ROW, CACHE_ROW_HINT, Open::Cache(desk)));
-                }
-            }
             _ => {}
         }
         // While there is something to wait behind, a word about Shift: a
@@ -810,17 +769,6 @@ impl CrewPanels {
             self.menu = None;
             match item.opens {
                 Some(Open::Hire(resident)) => self.open_hire(resident),
-                Some(Open::Cache(desk)) => {
-                    let who = self.inventory_who(game);
-                    if let Some(spot) = game.research_spot(desk) {
-                        self.crew_orders.push(CrewOrder::SendTo {
-                            who: who as u32,
-                            x: spot.x,
-                            y: spot.y,
-                        });
-                    }
-                    self.cache_requested = Some(who as u32);
-                }
                 Some(open @ Open::PackUp(_)) => self.show(open),
                 Some(Open::Carry(patient)) => self.carry_requested = Some(patient),
                 None => {
@@ -1164,11 +1112,9 @@ impl CrewPanels {
                 ));
                 ui.end_row();
             });
-        // A player's relics, as the character sheet shows its own (task
-        // 136): what help the crewmate picked carries.
-        if let Some(relics) = self.player_relics.get(w) {
-            sheet_relics(ui, relics);
-        }
+        // The crew's relics, as the character sheet shows them (task 136):
+        // what the crewmate picked is lifted and burdened by.
+        sheet_relics(ui, &self.crew_relics);
         true
     }
 
@@ -2108,9 +2054,9 @@ fn sheet_body(ui: &mut egui::Ui, game: &Game, w: usize) {
 /// The character sheet's gear (feature 107): each piece worn with its
 /// tier and how much of it is left, and the weapon in hand with its
 /// tier — what the inventory's slots say, in a line each.
-/// The relics a player's Bim holds (feature 106): each its picture (task
-/// 136) beside its name and what it does. On the character sheet for the
-/// player's own, on the side panel for a crewmate picked; nowhere on the
+/// The crew's relics (feature 106): each its picture (task 136) beside
+/// its name, its boons in green and its price in red. On the character
+/// sheet and on the side panel for a crewmate picked; nowhere on the
 /// deck.
 fn sheet_relics(ui: &mut egui::Ui, relics: &[world::Relic]) {
     theme::heading(ui, RELICS_HEADING);
@@ -2127,7 +2073,7 @@ fn sheet_relics(ui: &mut egui::Ui, relics: &[world::Relic]) {
                         .strong()
                         .color(theme::INK),
                 );
-                ui.add(egui::Label::new(egui::RichText::new(relic_line(relic)).small()).wrap());
+                crate::screens::worldmap::relic_lines_ui(ui, relic);
             });
         });
         ui.add_space(2.0);
@@ -2320,13 +2266,7 @@ pub struct ArmoryColumn {
     pub offers_in: Vec<(u32, world::GearSlot, PackItem, String)>,
     /// Offers this column's player has made: which slot, to whom by name.
     pub offers_out: Vec<(world::GearSlot, u32, String)>,
-    /// The relics its Bim holds (`World::relics_of`), shown as their
-    /// pictures under a player's name — a bot holds none.
-    pub relics: Vec<world::Relic>,
 }
-
-/// The side of a relic's picture on an Armory column, in points.
-const ARMORY_RELIC: f32 = 22.0;
 
 /// The Armory panel's whole reading (task 113): a column a crew member,
 /// the armory, the money and the keys, and whether a mission is running —
@@ -2430,31 +2370,6 @@ fn armory_column(
                     }
                 });
             });
-            // A player's relics, each its picture, its name and what it
-            // does on the hover.
-            if column.portrait.player {
-                ui.horizontal_wrapped(|ui| {
-                    ui.spacing_mut().item_spacing.x = 3.0;
-                    if column.relics.is_empty() {
-                        ui.label(
-                            egui::RichText::new(ARMORY_NO_RELICS)
-                                .small()
-                                .color(theme::MUTED),
-                        );
-                    }
-                    for &relic in &column.relics {
-                        let (rect, plate) = ui.allocate_exact_size(
-                            egui::vec2(ARMORY_RELIC, ARMORY_RELIC),
-                            egui::Sense::hover(),
-                        );
-                        icons::relic(ui.painter(), rect, relic);
-                        plate.on_hover_ui(|ui| {
-                            ui.label(egui::RichText::new(relic_name(relic)).strong());
-                            ui.label(relic_line(relic));
-                        });
-                    }
-                });
-            }
             for slot in [world::GearSlot::Weapon, world::GearSlot::Armour] {
                 let item = slot.read(&column.gear);
                 let (name, line) = match item {

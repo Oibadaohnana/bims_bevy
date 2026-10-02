@@ -146,7 +146,7 @@ fn a_trader_sells_items_at_the_day_s_tier_and_two_combine() {
     let trader = world.trader_here(0).unwrap();
     assert_eq!(trader.shelf.len(), 2);
     assert!(trader.shelf.iter().flatten().all(|i| i.tier == tier));
-    let price = world.item_price(0, crit);
+    let price = world.item_price(crit);
     let before = world.wallet(0);
     let events = world.step(&[Command::BuyItem {
         slot: 0,

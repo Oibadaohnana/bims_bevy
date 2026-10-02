@@ -448,25 +448,23 @@ fn battle_cry_and_rally_are_ready_at_every_mission_and_shortened_by_the_relics()
     ranks(&mut world, 0, [1, 0, 1, 0]);
     let cry = world.battle_cry_cooldown(0);
     let rally = world.rally_cooldown(0);
-    world.give_relic_for_probe(0, crate::relic::Relic::CoolantLoop);
-    assert!(world.battle_cry_cooldown(0) < cry, "*Coolant Loop*");
-    assert!(world.rally_cooldown(0) < rally, "*Coolant Loop*");
+    world.give_relic_for_probe(crate::relic::Relic::OverclockedCores);
+    assert!(world.battle_cry_cooldown(0) < cry, "*Overclocked Cores*");
+    assert!(world.rally_cooldown(0) < rally, "*Overclocked Cores*");
     world.step(&[Command::BattleCry { slot: 0 }]);
     world.step(&[Command::Rally { slot: 0 }]);
     run_for(&mut world, 12.0);
     assert!(world.battle_cry_cooldown_left(0) > 0.0);
     assert!(world.rally_cooldown_left(0) > 0.0);
-    // *Kill Relay*: a kill takes seconds off both once their shouts are
+    // Seconds taken off (a *Reset Capacitor*'s way) both once their shouts are
     // over.
     let (cry_left, rally_left) = (
         world.battle_cry_cooldown_left(0),
         world.rally_cooldown_left(0),
     );
-    world.give_relic_for_probe(0, crate::relic::Relic::KillRelay);
-    let mut events = Vec::new();
-    world.machine_kills(&[(Some(0), 0)], &mut events);
-    assert!(world.battle_cry_cooldown_left(0) < cry_left, "*Kill Relay*");
-    assert!(world.rally_cooldown_left(0) < rally_left, "*Kill Relay*");
+    world.cooldowns_less(0, 3.0);
+    assert!(world.battle_cry_cooldown_left(0) < cry_left, "seconds off");
+    assert!(world.rally_cooldown_left(0) < rally_left, "seconds off");
     next_mission(&mut world);
     assert_eq!(world.battle_cry_cooldown_left(0), 0.0);
     assert_eq!(world.rally_cooldown_left(0), 0.0);

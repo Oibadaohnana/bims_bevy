@@ -1185,14 +1185,14 @@ fn a_critical_hit_adds_its_share_of_the_flat_damage_after_every_factor() {
             "rank {rank}: took {took}"
         );
     }
-    // A *Focusing Lens*: the lens is on the bolt's own damage — what the
+    // A *Glass Cannon*: the share is on the bolt's own damage — what the
     // room lands — and the crit adds its share of the flat damage alone,
     // so the lens never multiplies the crit.
     let mut world = fight();
     disarm(&mut world, 0);
     world.aboard.room.issue(1, Gear::default());
     ranks(&mut world, 0, [2, 4, 1, 0]);
-    world.give_relic_for_probe(0, crate::relic::Relic::FocusingLens);
+    world.give_relic_for_probe(crate::relic::Relic::GlassCannon);
     let lens = world.skill_of(0).damage;
     assert!(lens > 1.0);
     let took = crit_on_machine(&mut world, 10.0 * lens, 10.0);
@@ -1409,8 +1409,7 @@ fn rampage_is_refused_downed_ready_at_every_mission_and_stacks_with_brace() {
     let mut other = soldier();
     ranks(&mut other, 0, [0, 0, 0, 4]);
     other.step(&[Command::Rampage { slot: 0 }]);
-    let mut events = Vec::new();
-    other.machine_kills(&[(Some(0), 0)], &mut events);
+    other.machine_kills_noted(&[(Some(0), 0)]);
     assert_eq!(other.soldier_of(0).extended, 1.0);
     // Not below the fourth rank.
     let mut third = soldier();
@@ -1446,16 +1445,14 @@ fn the_cooldown_relics_shorten_the_rampage_s_cooldown() {
     let mut world = soldier();
     ranks(&mut world, 0, [0, 0, 0, 1]);
     let plain = world.rampage_cooldown(0);
-    world.give_relic_for_probe(0, crate::relic::Relic::CoolantLoop);
-    assert!(world.rampage_cooldown(0) < plain, "*Coolant Loop*");
+    world.give_relic_for_probe(crate::relic::Relic::OverclockedCores);
+    assert!(world.rampage_cooldown(0) < plain, "*Overclocked Cores*");
     world.step(&[Command::Rampage { slot: 0 }]);
     run_for(&mut world, 10.0);
     let left = world.rampage_cooldown_left(0);
-    // *Kill Relay*: a kill takes seconds off every class cooldown running.
-    world.give_relic_for_probe(0, crate::relic::Relic::KillRelay);
-    let mut events = Vec::new();
-    world.machine_kills(&[(Some(0), 0)], &mut events);
-    assert!(world.rampage_cooldown_left(0) < left, "*Kill Relay*");
+    // Seconds taken off (a *Reset Capacitor*'s way) every class cooldown running.
+    world.cooldowns_less(0, 3.0);
+    assert!(world.rampage_cooldown_left(0) < left, "seconds off");
     // And it leaves the Rampage running's end alone.
     assert!(!world.is_rampaging(0));
 }

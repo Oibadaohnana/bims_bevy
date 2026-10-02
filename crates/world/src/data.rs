@@ -101,7 +101,7 @@ pub const MAX_TRIP_HOPS: u32 = 2;
 pub const JUMP_CLEARANCE: f64 = 4.0 * flight::data::ARRIVAL_RADIUS_BODY;
 
 /// How far a crew member may stand from a thing and still reach it, in
-/// tiles: a mercenary it hires, a relic cache on a research desk, a
+/// tiles: a mercenary it hires, a research desk, a
 /// deployable it packs up. What those are refused beyond
 /// (`Refusal::OutOfReach`).
 pub const REACH: f32 = 2.0;
@@ -397,179 +397,57 @@ pub const BOUNTY_SPREAD_PERCENT: u32 = 10;
 /// pool ([`START_MONEY_PER_BIM`]).
 pub const BUYBACK_COST: Money = 5_000;
 
-// --- relics (feature 106, `crate::relic`) -----------------------------------
+// --- relics (feature 106, rebuilt October 2026, `crate::relic`) ------------
+// Every relic is the crew's, a boon with a price: each number a share in
+// per cent (the regeneration in hit points a second), the boon's first.
+// Placeholders, not balanced.
 
-/// *Focusing Lens*: what its weapon's damage is raised by, in per cent.
-pub const FOCUSING_LENS_DAMAGE_PERCENT: i32 = 10;
-/// *Servo Braces*: what its pace is raised by, in per cent.
-pub const SERVO_BRACES_SPEED_PERCENT: i32 = 10;
-/// *Field Plating*: what the protection of what it wears is raised by, in
-/// per cent.
-pub const FIELD_PLATING_ARMOUR_PERCENT: i32 = 10;
-/// *Coolant Loop*: what its class's cooldowns are **shortened** by, in per
-/// cent.
-pub const COOLANT_LOOP_COOLDOWN_PERCENT: i32 = 10;
-/// *Steady Grip*: what its fire rate is raised by, in per cent (it was its
-/// odds of hitting).
-pub const STEADY_GRIP_FIRE_RATE_PERCENT: i32 = 10;
-/// *Trauma Kit* (task 120): how many seconds sooner its carrier brings a
-/// downed crewmate round — ten to eight, a medic's four to two — never
-/// under [`REVIVE_FLOOR_SECONDS`].
-pub const TRAUMA_KIT_REVIVE_SECONDS: f32 = 2.0;
-/// The shortest a revive ever takes, in seconds, whatever speeds it.
-pub const REVIVE_FLOOR_SECONDS: f32 = 1.0;
-/// *Second Wind*: how long after going down it gets up again, in seconds
-/// of the mission clock — the first time in a mission.
-pub const SECOND_WIND_SECONDS: f64 = 5.0;
-/// *Second Wind*: the share of its bar it gets up with, in per cent — a
-/// revive of its own (task 120), slowed for the mission like any.
-pub const SECOND_WIND_HEALTH_PERCENT: u32 = 25;
-/// *Salvage Beacon*: what the bounty for a machine it destroyed is raised
-/// by, in per cent — paid on the site's clear like every bounty.
-pub const SALVAGE_BEACON_BOUNTY_PERCENT: i32 = 20;
-/// *Overcharge Cell*: every how many shots is the charged one.
-pub const OVERCHARGE_CELL_EVERY: u32 = 5;
-/// *Overcharge Cell*: what the charged shot's damage is raised by, in per
-/// cent — a hundred is double.
-pub const OVERCHARGE_CELL_DAMAGE_PERCENT: i32 = 100;
-/// *Last Stand*: what its weapon's damage is raised by while another
-/// player's Bim is down, in per cent.
-pub const LAST_STAND_DAMAGE_PERCENT: i32 = 25;
-/// *Kill Relay*: the seconds every class cooldown running on it loses when
-/// a machine it hit last is destroyed (three since task 118; one before).
-pub const KILL_RELAY_SECONDS: f64 = 3.0;
-/// *Phase Harness*: the share of its health a hit has to take it under, in
-/// per cent — once a mission.
-pub const PHASE_HARNESS_BELOW_PERCENT: u32 = 25;
-/// *Phase Harness*: how long nothing hurts it after, in seconds — the
-/// room's own surge (`bims::game::Game::set_surge`), halo and all.
-pub const PHASE_HARNESS_SECONDS: f32 = 2.0;
-
-// --- task 118's relics: five patches of five --------------------------------
-// Placeholder numbers, not balanced. A "second" is one of the mission clock,
-// a real second at 1×; a "tile" is the room's.
-
-/// *Servo Cutter*: what a hit on a machine's arms or legs, while it has
-/// them, does more, in per cent.
-pub const SERVO_CUTTER_DAMAGE_PERCENT: i32 = 25;
-/// *Crippler's Mark*: what a hit on a machine missing its arms or its legs
-/// does more, in per cent (task 142; it was twenty).
-pub const CRIPPLERS_MARK_DAMAGE_PERCENT: i32 = 35;
-/// *Parts Broker*: what the bounty for a machine it destroys missing its
-/// arms or its legs is raised by, in per cent.
-pub const PARTS_BROKER_BOUNTY_PERCENT: i32 = 50;
-/// *Total Teardown*: what a hit on a limb already gone does more to the
-/// chassis it tears into, in per cent — a hundred is double.
-pub const TOTAL_TEARDOWN_DAMAGE_PERCENT: i32 = 100;
-/// *Pressure Seal*: the health it puts back a second, all the time it is
-/// alive.
-pub const PRESSURE_SEAL_HP_PER_SECOND: f32 = 0.5;
-/// *Quick Wrap*: the health every revive it makes puts back into the body
-/// revived, on top of the three tenths a revive gives (task 120; it was
-/// every dressing).
-pub const QUICK_WRAP_HEAL: f32 = 10.0;
-/// *Clot Booster*: the health it puts back a second for so many seconds
-/// after going down — the part of them it is revived for (task 120).
-pub const CLOT_BOOSTER_HP_PER_SECOND: f32 = 2.0;
-pub const CLOT_BOOSTER_SECONDS: f64 = 15.0;
-/// *Tether Field*: how much less of every hit a crewmate it revived takes,
-/// in per cent, and for how many seconds (task 120; it was one it
-/// dressed. Task 142; it was 25 per cent for six seconds).
-pub const TETHER_FIELD_PERCENT: i32 = 40;
-pub const TETHER_FIELD_SECONDS: f64 = 10.0;
-/// *Lifeline* (task 142): once a mission, when a player's Bim within so
-/// many tiles of its holder — or the holder itself — falls under
-/// [`LIFELINE_BELOW_PERCENT`] of its health, the holder and that Bim each
-/// get a shield of [`LIFELINE_SHIELD_HP`] hit points for
-/// [`LIFELINE_SECONDS`]. A bot never sets it off. (It was both
-/// untouchable for three seconds when a crewmate within four tiles went
-/// down.)
-pub const LIFELINE_TILES: f32 = 5.0;
-pub const LIFELINE_BELOW_PERCENT: u32 = 25;
-pub const LIFELINE_SHIELD_HP: f32 = 300.0;
-pub const LIFELINE_SECONDS: f32 = 10.0;
-/// *Blind Spot*: what a hit on a machine from the side or behind does
-/// more, in per cent.
-pub const BLIND_SPOT_DAMAGE_PERCENT: i32 = 15;
-/// *Sprint Coil*: its pace raised, in per cent, for how many seconds, at a
-/// mission's start and after every ability used.
-pub const SPRINT_COIL_SPEED_PERCENT: i32 = 20;
-pub const SPRINT_COIL_SECONDS: f64 = 3.0;
-/// *Signal Scrambler*: how long no machine aims at it after it destroys
-/// one from the side or behind, in seconds, and how long before it can
-/// again.
-pub const SIGNAL_SCRAMBLER_SECONDS: f64 = 5.0;
-pub const SIGNAL_SCRAMBLER_COOLDOWN: f64 = 20.0;
-/// *Wide Angle Optics* (task 142): the tiles added to its weapon's range
-/// while it stands still (`bims::combat::Skill::still_range`). It was a
-/// machine's front narrowed to thirty degrees a side for its hits.
-pub const WIDE_ANGLE_OPTICS_TILES: f32 = 7.0;
-/// *Crossfire*: what it and the crewmate opposite do more to the machine
-/// between them, in per cent; the cosine two bearings from the machine
-/// must be under to be opposite (a hundred and twenty degrees); and how
-/// near the machine each must stand, in tiles.
-pub const CROSSFIRE_DAMAGE_PERCENT: i32 = 40;
-pub const CROSSFIRE_APART_COS: f32 = -0.5;
-pub const CROSSFIRE_TILES: f32 = 12.0;
-/// *Field Radio*: what the fire rate of a crewmate within so many tiles of
-/// it is raised by, in per cent (task 142; it was five within three; and it
-/// was the odds of hitting).
-pub const FIELD_RADIO_FIRE_RATE_PERCENT: i32 = 7;
-pub const FIELD_RADIO_TILES: f32 = 5.0;
-/// *Spotter*: what the machine it hit last takes more from every crewmate,
-/// in per cent, and for how many seconds after the hit.
-pub const SPOTTER_DAMAGE_PERCENT: i32 = 10;
-pub const SPOTTER_SECONDS: f64 = 3.0;
-/// *Squad Morale*: the seconds every class cooldown running on it loses
-/// when a machine is destroyed — by anybody (task 142; it was its own
-/// kills and the bots').
-pub const SQUAD_MORALE_SECONDS: f64 = 1.0;
-/// *Cover Formation*: how much less of every hit the crew within so many
-/// tiles of it — bots, players and the holder itself — take, in per cent
-/// (task 142; it was the bots alone, twenty within three).
-pub const COVER_FORMATION_PERCENT: i32 = 15;
-pub const COVER_FORMATION_TILES: f32 = 5.0;
-/// *Rally Point*: how near a crewmate down has to be, in tiles, and the
-/// share of its health it gets up with, in per cent — once a mission, on
-/// an ability used.
-pub const RALLY_POINT_TILES: f32 = 4.0;
-pub const RALLY_POINT_HEALTH_PERCENT: u32 = 20;
-/// *Hazard Pay*: what its holder is paid every site cleared, shared by the
-/// players — [`HAZARD_PAY`] over their count, into the holder's own
-/// wallet (task 142).
-pub const HAZARD_PAY: Money = 500;
-/// *Trade License*: how much less a trader asks of every player, in per
-/// cent, and of its holder (task 142).
-pub const TRADE_LICENSE_PERCENT: i32 = 15;
-pub const TRADE_LICENSE_HOLDER_PERCENT: i32 = 20;
-/// *Strong Will* (task 142, in *Scrap Collector*'s place): how much longer
-/// its holder's abilities last, in per cent — a Rampage, an EMP's stun, a
-/// Cloak, a Taunt, a Juggernaut, a Rally and a Battle Cry.
-pub const STRONG_WILL_PERCENT: i32 = 20;
-/// *War Chest*: its damage up this many per cent for every thousand in
-/// the pool a player, and never more than the cap.
-pub const WAR_CHEST_PERCENT_PER_THOUSAND: i32 = 2;
-pub const WAR_CHEST_CAP_PERCENT: i32 = 20;
-
-/// The odds of each relic tier, in per cent, on day nought of the world
-/// clock: tier one, two, three (task 117, `relic::tier_odds`). A reward,
-/// a cache and a trader draw by the same odds. The tier is what the odds
-/// and a trader's price read, and the player is never shown it.
-pub const RELIC_ODDS_START: [u32; 3] = [70, 25, 5];
-/// The odds from [`RELIC_ODDS_FULL_DAY`] on. They move in a straight line
-/// from [`RELIC_ODDS_START`] to these and then stay.
-pub const RELIC_ODDS_END: [u32; 3] = [40, 35, 25];
-/// The day of the world clock the odds reach [`RELIC_ODDS_END`].
-pub const RELIC_ODDS_FULL_DAY: u32 = 30;
-/// How many relics a site cleared with machines in it offers.
+/// How many relics an elite's clear offers the crew to choose one of.
 pub const RELIC_OFFER: usize = 3;
-/// The odds a site the machines hold hides a **relic cache** on its
-/// research desk, in per cent: rolled once a site, off the galaxy's seed,
-/// when the machines take it.
-pub const RELIC_CACHE_CHANCE: u32 = 40;
-/// How many relics a won run unlocks in each player's profile: the first
-/// still locked, in list order.
-pub const RELICS_UNLOCKED_PER_WIN: usize = 2;
+/// *Glass Cannon*: everybody's weapon damage up, and everybody takes more.
+pub const GLASS_CANNON_DAMAGE: i32 = 30;
+pub const GLASS_CANNON_TAKEN: i32 = 25;
+/// *Heavy Plating*: everybody takes less, and walks slower.
+pub const HEAVY_PLATING_TAKEN: i32 = 25;
+pub const HEAVY_PLATING_SPEED: i32 = 20;
+/// *Hair Trigger*: everybody fires faster, and the class cooldowns are
+/// longer.
+pub const HAIR_TRIGGER_FIRE_RATE: i32 = 35;
+pub const HAIR_TRIGGER_COOLDOWNS: i32 = 30;
+/// *Overclocked Cores*: the class cooldowns shorter, and everybody's
+/// weapon damage down.
+pub const OVERCLOCKED_CORES_COOLDOWNS: i32 = 35;
+pub const OVERCLOCKED_CORES_DAMAGE: i32 = 20;
+/// *Bounty Contract*: every enemy down pays more, and the machines take
+/// less from the crew.
+pub const BOUNTY_CONTRACT_BOUNTY: i32 = 100;
+pub const BOUNTY_CONTRACT_DAMAGE: i32 = 20;
+/// *Hunter's Pact*: every enemy down is worth more experience, and every
+/// wave has more machines (rounded up).
+pub const HUNTERS_PACT_EXPERIENCE: i32 = 50;
+pub const HUNTERS_PACT_WAVES: i32 = 25;
+/// *Drill Sergeant*: the bots do more and take less, the players do less.
+pub const DRILL_SERGEANT_BOT_DAMAGE: i32 = 50;
+pub const DRILL_SERGEANT_BOT_TAKEN: i32 = 30;
+pub const DRILL_SERGEANT_PLAYER_DAMAGE: i32 = 20;
+/// *Lone Wolves*: the players do more and walk faster, the bots do less.
+pub const LONE_WOLVES_PLAYER_DAMAGE: i32 = 35;
+pub const LONE_WOLVES_PLAYER_SPEED: i32 = 15;
+pub const LONE_WOLVES_BOT_DAMAGE: i32 = 50;
+/// *Black Market*: a trader asks less, and every enemy down pays less.
+pub const BLACK_MARKET_PRICES: i32 = 40;
+pub const BLACK_MARKET_BOUNTY: i32 = 30;
+/// *Adrenaline*: everybody walks faster, and takes more.
+pub const ADRENALINE_SPEED: i32 = 30;
+pub const ADRENALINE_TAKEN: i32 = 15;
+/// *Salvage Burn*: the machines take more from the crew, and every enemy
+/// down pays less.
+pub const SALVAGE_BURN_DAMAGE: i32 = 40;
+pub const SALVAGE_BURN_BOUNTY: i32 = 40;
+/// *Nanite Mesh*: everybody on its feet gets hit points back a second,
+/// and everybody's weapon damage is down.
+pub const NANITE_MESH_REGEN: i32 = 2;
+pub const NANITE_MESH_DAMAGE: i32 = 15;
 
 // --- the trader (task 114, `crate::trader`) ---------------------------------
 
@@ -624,10 +502,6 @@ pub const ITEM_PRICE: [[Money; 3]; 13] = [
     [18_000, 31_500, 54_000],
     [11_250, 20_250, 36_000],
 ];
-/// What the relic at a trader costs, by the relic's own tier: one, two,
-/// three (task 117). The tier is never shown, so the price is the only
-/// sign of it.
-pub const RELIC_PRICE: [Money; 3] = [1_500, 3_000, 5_000];
 /// What combining two things of a kind and a tier into one of the next
 /// costs, out of the pool (the workbench's upgrade, at a trader now). A
 /// placeholder, and nothing yet.

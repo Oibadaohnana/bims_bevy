@@ -1,6 +1,7 @@
-//! Relics and unlocks (feature 106): research gone from the game, tier two
-//! on time and distance, the relics' offers and caches, choosing one
-//! together, what every relic does, and the win.
+//! Relics (feature 106, rebuilt October 2026): research gone from the
+//! game, the tier a site is quoted at, the offer off an elite's clear,
+//! choosing one — or none — together, what the crew's relics do to whom
+//! and to the run, and the win.
 
 use bims::combat::{Gear, Tier, WeaponKind};
 use bims::droid::DroidPart;
@@ -8,17 +9,18 @@ use shipdesign::fixture::{COMBAT_CREW, combat_ship, flyer};
 use worldgen::GalaxyType;
 
 use crate::checksum::world_checksum;
-use crate::class::{Charge, Class};
+use crate::class::Class;
 use crate::data;
 use crate::event::{Refusal, WorldEvent};
 use crate::fixture::{REFERENCE_MONEY, crewed_world};
-use crate::relic::{self, Relic, RelicChoice, Source};
+use crate::relic::{self, Relic, RelicChoice, Stat};
 use crate::run::Phase;
 use crate::world::{Command, World};
 
 /// The `droids` arena, as `tests_mission` makes it: the combat ship's
 /// crew docked at the spawn the machines hold, a gun in every hand, one
-/// wave of three to clear and reinforcements a minute apart.
+/// wave of three to clear and reinforcements a minute apart — an elite,
+/// since only an elite drops relics (`crate::elite`).
 fn held_arena(players: u32) -> (World, u32) {
     let galaxy = worldgen::Galaxy::new(data::DEFAULT_SEED, GalaxyType::SpiralTwoArm);
     let (star, station) = crate::spawn(&galaxy).unwrap();
@@ -46,8 +48,6 @@ fn held_arena(players: u32) -> (World, u32) {
             },
         );
     }
-    // An elite: only an elite drops relics (`crate::elite`), a reward on
-    // its clear and a cache on its desk.
     world.set_elite_for_probe(station);
     world.infest(station);
     world.set_droid_reinforce_minutes_for_probe(1.0);
@@ -95,16 +95,16 @@ fn clear(world: &mut World, station: u32) -> Vec<WorldEvent> {
     events
 }
 
-/// A choice of `options` put to the crew by hand, off `source`.
-fn put(world: &mut World, source: Source, options: Vec<Relic>) {
-    world.run.relics.choice = Some(RelicChoice::new(source, options));
+/// A choice of `options` put to the crew by hand, on the reward screen.
+fn put(world: &mut World, options: Vec<Relic>) {
+    world.run.relics.choice = Some(RelicChoice::new(options));
+    world.run.phase = Phase::Reward;
 }
 
-fn propose(slot: u32, relic: Option<Relic>, to: u32) -> Command {
+fn propose(slot: u32, relic: Option<Relic>) -> Command {
     Command::ProposeRelic {
         slot,
         relic: relic.map_or(u32::MAX, Relic::code),
-        to,
     }
 }
 
@@ -117,10 +117,8 @@ fn refused(events: &[WorldEvent], why: Refusal) -> bool {
 // --- 1: research is gone -------------------------------------------------------
 
 /// **No station carries a research key**: nothing of the crew's — the
-/// hold, a pack — holds one at the start, nor after the crew have walked
-/// every desk of the spawn system; there is no key to take and no tree
-/// to spend one on. (The workbench's side is
-/// `tests::a_workbench_upgrade_wants_no_research`.)
+/// hold, a pack — holds one at the start; there is no key to take and no
+/// tree to spend one on.
 #[test]
 fn no_station_carries_a_research_key() {
     use physics::ResourceId;
@@ -160,41 +158,30 @@ fn a_quote_says_the_tier_the_day_of_arrival_deals() {
     }
 }
 
-// --- 3: offers ------------------------------------------------------------------
+// --- 3: the offer and the vote -------------------------------------------------------
 
-/// **A clear offers three relics** on the reward screen, after the
-/// departure and before the map, drawn by the day's odds and not the
-/// site's tier (task 117): three different ones, **left in the pool**, and
-/// travel waits on the choice. There is no taking none off a reward (task
-/// 146).
+/// **An elite's clear offers three** on the reward screen, after the
+/// departure and before the map: three different ones, none the crew
+/// hold, and travel waits on the choice.
 #[test]
-fn a_clear_offers_three_and_leaves_them_in_the_pool() {
+fn an_elite_s_clear_offers_three_and_travel_waits_on_the_vote() {
     let (mut world, station) = held_arena(1);
-    world.set_droid_tier_for_probe(Some(Tier::Three));
-    let pool = world.relic_pool().to_vec();
-    assert_eq!(pool, relic::starting_pool());
+    world.give_relic_for_probe(Relic::GlassCannon);
     clear(&mut world, station);
     let events = world.leave_for_probe();
     assert_eq!(world.run.phase, Phase::Reward, "the reward screen");
-    assert!(events.iter().any(|e| matches!(
-        e,
-        WorldEvent::RelicsOffered {
-            source: 0,
-            count: 3
-        }
-    )));
+    assert!(
+        events
+            .iter()
+            .any(|e| matches!(e, WorldEvent::RelicsOffered { count: 3 }))
+    );
     let options = world.relic_choice().unwrap().options.clone();
     assert_eq!(options.len(), data::RELIC_OFFER);
     let mut distinct = options.clone();
     distinct.sort();
     distinct.dedup();
     assert_eq!(distinct.len(), 3, "none twice: {options:?}");
-    assert!(options.iter().all(|r| world.relic_pool().contains(r)));
-    assert_eq!(
-        world.relic_pool(),
-        pool.as_slice(),
-        "an offer takes nothing"
-    );
+    assert!(!options.contains(&Relic::GlassCannon), "never one held");
     // No travel before the choice.
     let site = world.sites_at(world.star_id)[0];
     let events = world.step(&[Command::Propose {
@@ -203,103 +190,75 @@ fn a_clear_offers_three_and_leaves_them_in_the_pool() {
         station: site.station,
     }]);
     assert!(refused(&events, Refusal::ChoosingRelic));
-    // No taking none off a reward (task 146): every player picks one.
-    let events = world.step(&[propose(0, None, 0)]);
+    // One player alone: its proposal is the crew's.
+    let events = world.step(&[propose(0, Some(options[1]))]);
+    assert!(events.contains(&WorldEvent::RelicGiven {
+        relic: options[1].code()
+    }));
+    assert_eq!(world.relics(), &[Relic::GlassCannon, options[1]]);
+    assert_eq!(world.run.phase, Phase::Map);
+}
+
+/// **The vote is every connected player's yes, and any change clears
+/// them all** — the world map's vote over again. A player gone is not
+/// waited for, and the relic is the crew's, not the proposer's.
+#[test]
+fn a_relic_wants_every_connected_yes_and_a_change_clears_them() {
+    let mut world = crewed_world(flyer(2), REFERENCE_MONEY, 3, 3);
+    put(&mut world, vec![Relic::HairTrigger, Relic::Adrenaline]);
+    world.apply_now(propose(0, Some(Relic::HairTrigger)));
+    world.apply_now(Command::AcceptRelic { slot: 1, yes: true });
+    assert!(world.relic_choice().is_some(), "one still to say yes");
+    // Player 2 puts another: every yes cleared, player 2's own counted.
+    world.apply_now(propose(2, Some(Relic::Adrenaline)));
+    let proposal = world.relic_choice().unwrap().proposal.clone().unwrap();
+    assert_eq!(proposal.accepted, vec![false, false, true]);
+    world.apply_now(Command::AcceptRelic { slot: 0, yes: true });
+    assert!(world.relic_choice().is_some());
+    // Player 1 leaves: the last yes it owed is not waited for.
+    world.apply_now(Command::PlayerGone { slot: 1 });
+    assert!(world.relic_choice().is_none());
+    assert_eq!(world.relics(), &[Relic::Adrenaline]);
+    assert_eq!(world.run.phase, Phase::Map);
+    // A relic not on offer, or with nothing on the table, is refused.
+    let events = world.apply_now(propose(0, Some(Relic::LoneWolves)));
+    assert!(refused(&events, Refusal::NoRelicChoice));
+    put(&mut world, vec![Relic::GlassCannon]);
+    let events = world.apply_now(propose(0, Some(Relic::LoneWolves)));
     assert!(refused(&events, Refusal::NotOnOffer));
-    assert_eq!(world.run.phase, Phase::Reward);
-    assert!(world.relics_of(0).is_empty());
-    assert_eq!(world.relic_pool(), pool.as_slice());
 }
 
-/// **A reward has a relic for every player, and one to spare** (task
-/// 146): three players are offered four.
+/// **Taking none is a choice** the crew vote on like any: every relic has
+/// a price, so the crew may pass them all by.
 #[test]
-fn a_reward_offers_one_more_than_the_players() {
-    let (mut world, station) = held_arena(3);
-    clear(&mut world, station);
-    world.leave_for_probe();
-    assert_eq!(world.relic_choice().expect("an offer").options.len(), 4);
+fn taking_none_is_voted_like_a_relic() {
+    let mut world = crewed_world(flyer(2), REFERENCE_MONEY, 2, 2);
+    put(&mut world, vec![Relic::GlassCannon, Relic::BlackMarket]);
+    world.apply_now(propose(1, None));
+    assert!(world.relic_choice().is_some(), "player 0 still to say");
+    let events = world.apply_now(Command::AcceptRelic { slot: 0, yes: true });
+    assert!(events.contains(&WorldEvent::RelicsDeclined));
+    assert!(world.relics().is_empty());
+    assert_eq!(world.run.phase, Phase::Map);
 }
 
-/// **The one taken leaves the pool, the two passed over stay**, and a
-/// relic held is never drawn again while one passed over may be.
+/// **What the crew hold is never offered again**, and with nothing left
+/// the map comes straight up.
 #[test]
-fn the_relic_taken_leaves_the_pool_and_the_others_stay() {
+fn a_relic_held_is_never_offered_and_nothing_left_is_no_offer() {
     let (mut world, station) = held_arena(1);
-    world.set_relic_pool(vec![
-        Relic::FocusingLens,
-        Relic::ServoBraces,
-        Relic::FieldPlating,
-        Relic::KillRelay,
-    ]);
-    clear(&mut world, station);
-    world.leave_for_probe();
-    let options = world.relic_choice().expect("an offer").options.clone();
-    assert_eq!(options.len(), 3);
-    let taken = options[1];
-    world.step(&[propose(0, Some(taken), 0)]);
-    assert_eq!(world.relics_of(0), &[taken]);
-    assert!(!world.relic_pool().contains(&taken), "got, out of the pool");
-    for r in options.iter().filter(|&&r| r != taken) {
-        assert!(world.relic_pool().contains(r), "{r:?} passed over, kept");
+    for r in Relic::ALL.into_iter().skip(1) {
+        world.give_relic_for_probe(r);
     }
-    assert_eq!(world.relic_pool().len(), 3);
-    // Every later draw leaves the held one out, and offers the rest.
     for n in 0..20u32 {
         world.run.relics.offers = n;
-        let drawn = world.draw_relics(3, station);
-        assert_eq!(drawn.len(), 3, "the three left");
-        assert!(!drawn.contains(&taken));
+        assert_eq!(world.draw_relics(3, station), vec![Relic::ALL[0]]);
     }
-}
-
-/// **A draw takes whatever tier is left**, whatever the site's machines
-/// come at, and **nothing at all is no offer**: the map comes straight up.
-#[test]
-fn an_offer_takes_any_tier_left_and_nothing_at_all_is_no_offer() {
-    let (mut world, station) = held_arena(1);
-    world.set_droid_tier_for_probe(Some(Tier::One));
-    world.set_relic_pool(vec![Relic::KillRelay]);
-    clear(&mut world, station);
-    world.leave_for_probe();
-    let options = world.relic_choice().expect("an offer").options.clone();
-    assert_eq!(
-        options,
-        vec![Relic::KillRelay],
-        "a tier-three relic at a tier-one site"
-    );
-
-    let (mut world, station) = held_arena(1);
-    world.set_relic_pool(Vec::new());
+    world.give_relic_for_probe(Relic::ALL[0]);
     clear(&mut world, station);
     world.leave_for_probe();
     assert!(world.relic_choice().is_none());
     assert_eq!(world.run.phase, Phase::Map, "nothing to choose");
-}
-
-/// **The odds follow the world clock's day at the draw**: early in a run a
-/// reward is mostly tier one, a month in the tiers are close to even
-/// (`data::RELIC_ODDS_START`, `RELIC_ODDS_END`).
-#[test]
-fn a_draw_reads_the_world_clock_s_day() {
-    let (mut world, station) = held_arena(1);
-    world.set_relic_pool(Relic::ALL.to_vec());
-    let tier_one = |world: &mut World| -> usize {
-        (0..400u32)
-            .filter(|&n| {
-                world.run.relics.offers = n;
-                world.draw_relics(1, station)[0].tier() == 1
-            })
-            .count()
-    };
-    let early = tier_one(&mut world);
-    world.clock_minutes = f64::from(data::RELIC_ODDS_FULL_DAY) * ::time::DAY;
-    assert_eq!(world.days_gone(), data::RELIC_ODDS_FULL_DAY);
-    let late = tier_one(&mut world);
-    assert!(
-        early > 240 && late < 200,
-        "tier one {early} early, {late} late"
-    );
 }
 
 /// **A site with nothing to clear offers nothing**: the spawn, peaceful,
@@ -313,62 +272,12 @@ fn a_peaceful_site_offers_no_relic() {
     assert!(world.relic_choice().is_none());
 }
 
-// --- 4: caches -------------------------------------------------------------------
-
-/// The arena with a cache on its desk and crew member 0 beside it.
-fn at_the_cache(world: &mut World, station: u32) {
-    world
-        .infested
-        .iter_mut()
-        .find(|it| it.station == station)
-        .unwrap()
-        .cache = true;
-    world.step(&[]);
-    let spot = world.cache_spot().expect("a desk on the arena's deck");
-    world.aboard.room.put_for_probe(0, spot);
-    world.step(&[]);
-}
-
-/// **A cache's relic is kept on clear**: opened, chosen and pending, then
-/// the site cleared and the relic the Bim's for good.
-#[test]
-fn a_cache_s_relic_is_kept_when_the_site_is_cleared() {
-    let (mut world, station) = held_arena(1);
-    world.set_droid_tier_for_probe(Some(Tier::One));
-    at_the_cache(&mut world, station);
-    assert!(world.cache_here());
-    let events = world.step(&[Command::OpenCache { slot: 0, who: 0 }]);
-    assert!(
-        events.contains(&WorldEvent::CacheOpened { who: 0 }),
-        "{events:?}"
-    );
-    assert!(!world.cache_here(), "the cache is gone off the desk");
-    let choice = world.relic_choice().expect("one relic on offer").clone();
-    assert_eq!(choice.source, Source::Cache);
-    assert_eq!(choice.options.len(), 1);
-    let relic = choice.options[0];
-    let events = world.step(&[propose(0, Some(relic), 0)]);
-    assert!(events.contains(&WorldEvent::RelicPending {
-        slot: 0,
-        relic: relic.code()
-    }));
-    assert!(world.relics_of(0).is_empty(), "pending, not held");
-    let events = clear(&mut world, station);
-    assert!(events.contains(&WorldEvent::RelicGiven {
-        slot: 0,
-        relic: relic.code()
-    }));
-    assert_eq!(world.relics_of(0), &[relic]);
-    assert!(world.pending_relics().is_empty());
-}
-
 /// **A piece broken in the fight is whole the moment the site is
 /// cleared**: the crew sheet never shows it broken after the fight, nor
 /// does a trader or the reward screen.
 #[test]
 fn armour_broken_in_the_fight_is_whole_once_the_site_is_cleared() {
     let (mut world, station) = held_arena(1);
-    // Worn down to nothing in the fight.
     let mut worn = bims::combat::Piece::new(9_200, bims::combat::ArmourKind::Armour, Tier::One);
     worn.health = 0.0;
     let gear = world.aboard.room.gear(0);
@@ -385,462 +294,202 @@ fn armour_broken_in_the_fight_is_whole_once_the_site_is_cleared() {
     assert_eq!(piece.health, piece.stats().health, "whole after the fight");
 }
 
-/// **A cache's relic is lost when the site is left uncleared**, and the
-/// site put back — the cache on its desk again.
-#[test]
-fn a_cache_s_relic_is_lost_and_the_cache_put_back_when_the_site_is_left() {
-    let (mut world, station) = held_arena(1);
-    at_the_cache(&mut world, station);
-    world.step(&[Command::OpenCache { slot: 0, who: 0 }]);
-    let relic = world.relic_choice().unwrap().options[0];
-    world.step(&[propose(0, Some(relic), 0)]);
-    assert_eq!(world.pending_relics(), &[(0, relic)]);
-    assert!(
-        !world.relic_pool().contains(&relic),
-        "pending, out of the pool"
-    );
-    let events = world.leave_for_probe();
-    assert!(events.contains(&WorldEvent::RelicLost {
-        slot: 0,
-        relic: relic.code()
-    }));
-    assert!(world.relics_of(0).is_empty());
-    assert!(world.pending_relics().is_empty());
-    assert!(
-        world.relic_pool().contains(&relic),
-        "lost, back in the pool"
-    );
-    assert_eq!(
-        world.run.phase,
-        Phase::Map,
-        "no reward for a site not cleared"
-    );
-    assert!(
-        world.infestation(station).is_some_and(|it| it.cache),
-        "the cache is back with the rest of the site"
-    );
-}
-
-/// **A cache is rolled once a site**, off the galaxy's seed: the same on
-/// every machine, and about as often as its odds say.
-#[test]
-fn a_cache_is_rolled_off_the_seed_at_its_odds() {
-    let mut caches = 0;
-    for station in 0..1_000u32 {
-        let a = relic::cache_rolled(7, 3, station);
-        assert_eq!(a, relic::cache_rolled(7, 3, station));
-        caches += u32::from(a);
-    }
-    let odds = data::RELIC_CACHE_CHANCE * 10;
-    assert!(caches.abs_diff(odds) < 60, "{caches} of a thousand");
-}
-
-// --- 5: choosing together ----------------------------------------------------------
-
-/// Whether player `slot` has `relic`, for good or pending off a cache.
-fn has_or_awaits(world: &World, slot: u32, relic: Relic) -> bool {
-    world.relics_of(slot).contains(&relic) || world.pending_relics().contains(&(slot, relic))
-}
-
-/// **A cache's relic wants every connected player's yes, and any change
-/// clears them all** — the world map's vote over again. A player gone
-/// is not waited for. (The reward has no vote since task 146.)
-#[test]
-fn a_cache_choice_wants_every_connected_yes_and_a_change_clears_them() {
-    let mut world = crewed_world(flyer(2), REFERENCE_MONEY, 3, 3);
-    put(
-        &mut world,
-        Source::Cache,
-        vec![Relic::FocusingLens, Relic::ServoBraces],
-    );
-    world.apply_now(propose(0, Some(Relic::FocusingLens), 1));
-    world.apply_now(Command::AcceptRelic { slot: 1, yes: true });
-    assert!(world.relic_choice().is_some(), "one still to say yes");
-    // Player 2 puts another: every yes cleared, player 2's own counted.
-    world.apply_now(propose(2, Some(Relic::ServoBraces), 1));
-    let proposal = world.relic_choice().unwrap().proposal.clone().unwrap();
-    assert_eq!(proposal.accepted, vec![false, false, true]);
-    world.apply_now(Command::AcceptRelic { slot: 0, yes: true });
-    assert!(world.relic_choice().is_some());
-    // Player 1 leaves: the last yes it owed is not waited for.
-    world.apply_now(Command::PlayerGone { slot: 1 });
-    world.apply_now(Command::AcceptRelic { slot: 0, yes: true });
-    assert!(world.relic_choice().is_none());
-    assert!(has_or_awaits(&world, 1, Relic::ServoBraces));
-    // A relic not on offer, or with nothing on the table, is refused.
-    let events = world.apply_now(propose(0, Some(Relic::KillRelay), 0));
-    assert!(refused(&events, Refusal::NoRelicChoice));
-    put(&mut world, Source::Cache, vec![Relic::FocusingLens]);
-    let events = world.apply_now(propose(0, Some(Relic::KillRelay), 0));
-    assert!(refused(&events, Refusal::NotOnOffer));
-}
-
-/// **Every player picks its own off a reward, and a clash goes by the
-/// dice** (task 146): nobody says yes to anybody. A relic one player
-/// picked is its own, given once every connected player has picked; a
-/// relic two picked goes to the higher of two dice each, thrown in slot
-/// order and said as they fall; who lost picks again out of what is left,
-/// and the last pick in puts the map up. A pick can be changed until the
-/// round is settled.
-#[test]
-fn every_player_picks_its_own_and_a_clash_goes_by_the_dice() {
-    let mut world = crewed_world(flyer(2), REFERENCE_MONEY, 3, 3);
-    let options = vec![
-        Relic::FocusingLens,
-        Relic::ServoBraces,
-        Relic::FieldPlating,
-        Relic::KillRelay,
-    ];
-    put(&mut world, Source::Reward, options.clone());
-    world.run.phase = Phase::Reward;
-    world.apply_now(propose(2, Some(Relic::KillRelay), 2));
-    world.apply_now(propose(0, Some(Relic::FocusingLens), 0));
-    // Player 2 changes its mind: one pick a player, the last one counting.
-    world.apply_now(propose(2, Some(Relic::ServoBraces), 0));
-    assert!((0..3).all(|s| world.relics_of(s).is_empty()), "one to pick");
-    let choice = world.relic_choice().unwrap();
-    assert_eq!(choice.pick_of(2), Some(Relic::ServoBraces));
-    // Player 1 picks player 0's: the round settles, with dice for it.
-    let events = world.apply_now(propose(1, Some(Relic::FocusingLens), 1));
-    assert_eq!(world.relics_of(2), &[Relic::ServoBraces], "its own alone");
-    let throws: Vec<(u32, u32, u32)> = events
-        .iter()
-        .filter_map(|e| match *e {
-            WorldEvent::RelicDice { slot, relic, a, b } => {
-                assert_eq!(relic, Relic::FocusingLens.code());
-                assert!((1..=6).contains(&a) && (1..=6).contains(&b));
-                Some((slot, a, b))
-            }
-            _ => None,
-        })
-        .collect();
-    assert!(throws.len() >= 2 && throws.len() % 2 == 0, "{throws:?}");
-    assert_eq!((throws[0].0, throws[1].0), (0, 1), "in slot order");
-    let last = &throws[throws.len() - 2..];
-    let (winner, loser) = if last[0].1 + last[0].2 > last[1].1 + last[1].2 {
-        (0, 1)
-    } else {
-        (1, 0)
-    };
-    assert_eq!(world.relics_of(winner), &[Relic::FocusingLens]);
-    assert!(world.relics_of(loser).is_empty());
-    assert!(!world.relic_pool().contains(&Relic::FocusingLens));
-    // The loser picks again, out of what is left.
-    let choice = world.relic_choice().expect("one still without");
-    assert_eq!(choice.left(), vec![Relic::FieldPlating, Relic::KillRelay]);
-    assert_eq!(choice.pick_of(loser), None, "the round's picks cleared");
-    assert_eq!(world.run.phase, Phase::Reward);
-    let events = world.apply_now(propose(loser, Some(Relic::ServoBraces), loser));
-    assert!(refused(&events, Refusal::NotOnOffer), "won already");
-    let events = world.apply_now(propose(winner, Some(Relic::KillRelay), winner));
-    assert!(refused(&events, Refusal::NoRelicChoice), "one a reward");
-    world.apply_now(propose(loser, Some(Relic::KillRelay), loser));
-    assert_eq!(world.relics_of(loser), &[Relic::KillRelay]);
-    assert!(world.relic_choice().is_none());
-    assert_eq!(world.run.phase, Phase::Map);
-    assert!(
-        world.relic_pool().contains(&Relic::FieldPlating),
-        "passed over"
-    );
-}
-
-/// **A player gone is not waited for** on the reward: the others' picks
-/// settle the moment it leaves, and it wins nothing.
-#[test]
-fn a_reward_does_not_wait_on_a_player_gone() {
-    let mut world = crewed_world(flyer(2), REFERENCE_MONEY, 2, 3);
-    put(
-        &mut world,
-        Source::Reward,
-        vec![Relic::FocusingLens, Relic::ServoBraces, Relic::KillRelay],
-    );
-    world.run.phase = Phase::Reward;
-    world.apply_now(propose(0, Some(Relic::KillRelay), 0));
-    assert!(world.relics_of(0).is_empty());
-    world.apply_now(Command::PlayerGone { slot: 1 });
-    assert_eq!(world.relics_of(0), &[Relic::KillRelay]);
-    assert!(world.relics_of(1).is_empty());
-    assert_eq!(world.run.phase, Phase::Map);
-}
-
-/// **A bot is never a recipient**: a proposal for a Bim no player steers
-/// is refused, a pick off a reward by no player too, and a bot holds
-/// nothing whatever a probe tries.
-#[test]
-fn a_bot_can_never_be_given_a_relic() {
-    let mut world = crewed_world(flyer(2), REFERENCE_MONEY, 1, 3);
-    put(&mut world, Source::Cache, vec![Relic::FocusingLens]);
-    let events = world.apply_now(propose(0, Some(Relic::FocusingLens), 1));
-    assert!(refused(&events, Refusal::NotAPlayer));
-    let events = world.apply_now(propose(0, Some(Relic::FocusingLens), 2));
-    assert!(refused(&events, Refusal::NotAPlayer));
-    put(&mut world, Source::Reward, vec![Relic::FocusingLens]);
-    let events = world.apply_now(propose(1, Some(Relic::FocusingLens), 1));
-    assert!(refused(&events, Refusal::NotAPlayer));
-    world.give_relic_for_probe(2, Relic::FocusingLens);
-    assert!(world.relics_of(1).is_empty() && world.relics_of(2).is_empty());
-    assert_eq!(
-        world.skill_of(1).damage,
-        bims::combat::Skill::NONE.damage,
-        "and a bot's skill is its own"
-    );
-}
-
-/// **A dead player keeps its relics** through its death and its respawn
-/// at the mission's end (task 113), as it keeps its level.
-#[test]
-fn a_dead_player_keeps_its_relics_through_its_respawn() {
-    let mut world = crewed_world(flyer(2), data::BUYBACK_COST, 2, 2);
-    world.give_relic_for_probe(1, Relic::FieldPlating);
-    world.aboard.room.kill_for_probe(1);
-    world.step(&[]);
-    assert!(world.run.is_out(1));
-    assert_eq!(world.relics_of(1), &[Relic::FieldPlating], "dead, and kept");
-    let events = world.leave_for_probe();
-    assert!(
-        events
-            .iter()
-            .any(|e| matches!(e, WorldEvent::Respawned { who: 1, .. })),
-        "{events:?}"
-    );
-    assert_eq!(world.relics_of(1), &[Relic::FieldPlating], "back, and kept");
-}
-
-// --- 6: what every relic does ----------------------------------------------------------
-
-/// Crew member 0's skill without a relic, and with `relic`.
-fn skill_with(relic: Relic) -> (bims::combat::Skill, bims::combat::Skill) {
-    let mut world = crewed_world(flyer(2), REFERENCE_MONEY, 2, 2);
-    let without = world.skill_of(0);
-    world.give_relic_for_probe(0, relic);
-    (without, world.skill_of(0))
-}
+// --- 4: what the crew's relics do ------------------------------------------------------
 
 fn close(a: f32, b: f32) -> bool {
     (a - b).abs() < 1e-5
 }
 
+/// Player 0's and bot 1's skills without `relic`, and with it.
+fn skills_with(relic: Relic) -> [(bims::combat::Skill, bims::combat::Skill); 2] {
+    let mut world = crewed_world(flyer(2), REFERENCE_MONEY, 1, 2);
+    let without = [world.skill_of(0), world.skill_of(1)];
+    world.give_relic_for_probe(relic);
+    [
+        (without[0], world.skill_of(0)),
+        (without[1], world.skill_of(1)),
+    ]
+}
+
+/// **A relic reaches everybody it names** — the players, the bots, or
+/// both — and moves its boon and its price where they are read.
 #[test]
-fn the_stat_relics_move_the_stat_they_name() {
+fn a_relic_reaches_whom_it_names() {
     let f = |p: i32| relic::factor(p) as f32;
-    let (a, b) = skill_with(Relic::FocusingLens);
-    assert!(close(
-        b.damage,
-        a.damage * f(data::FOCUSING_LENS_DAMAGE_PERCENT)
-    ));
-    assert!(close(b.accuracy, a.accuracy) && close(b.walk, a.walk));
-    let (a, b) = skill_with(Relic::ServoBraces);
-    assert!(close(b.walk, a.walk * f(data::SERVO_BRACES_SPEED_PERCENT)));
-    let (a, b) = skill_with(Relic::FieldPlating);
-    assert!(close(
-        b.armour_protection,
-        a.armour_protection * f(data::FIELD_PLATING_ARMOUR_PERCENT)
-    ));
-    let (a, b) = skill_with(Relic::SteadyGrip);
-    assert!(close(
-        b.fire_rate,
-        a.fire_rate * f(data::STEADY_GRIP_FIRE_RATE_PERCENT)
-    ));
-    let (a, b) = skill_with(Relic::TraumaKit);
-    assert!(close(b.revive, a.revive - data::TRAUMA_KIT_REVIVE_SECONDS));
-    let (a, b) = skill_with(Relic::OverchargeCell);
-    assert_eq!(
-        (a.overcharge, b.overcharge),
-        (0, data::OVERCHARGE_CELL_EVERY)
-    );
-    // Every fifth shot, and only it, is doubled.
-    for shots in 0..10 {
-        let damage = b.for_shot(shots).damage;
-        if (shots + 1) % data::OVERCHARGE_CELL_EVERY == 0 {
-            assert!(close(
-                damage,
-                b.damage * f(data::OVERCHARGE_CELL_DAMAGE_PERCENT)
-            ));
-        } else {
-            assert!(close(damage, b.damage));
-        }
+    // Glass Cannon: everybody hits harder and takes more.
+    for (a, b) in skills_with(Relic::GlassCannon) {
+        assert!(close(b.damage, a.damage * f(data::GLASS_CANNON_DAMAGE)));
+        assert!(close(b.melee, a.melee * f(data::GLASS_CANNON_DAMAGE)));
+        assert!(close(
+            b.damage_taken,
+            a.damage_taken * f(data::GLASS_CANNON_TAKEN)
+        ));
+        assert!(close(b.walk, a.walk) && close(b.fire_rate, a.fire_rate));
     }
-}
-
-/// **Coolant Loop** shortens the class's cooldowns — a grenade, a taunt, a
-/// rally.
-#[test]
-fn coolant_loop_shortens_the_class_s_cooldowns() {
-    let mut world = crewed_world(flyer(2), REFERENCE_MONEY, 3, 3);
-    world.set_class(0, Class::Soldier).unwrap();
-    world.set_class(1, Class::Tank).unwrap();
-    world.set_class(2, Class::Commander).unwrap();
-    let grenade = world.charge_cooldown(0, Charge::Grenade);
-    let taunt = world.taunt_cooldown(1);
-    let rally = world.rally_cooldown(2);
-    for slot in 0..3 {
-        world.give_relic_for_probe(slot, Relic::CoolantLoop);
+    // Heavy Plating: less taken, slower.
+    for (a, b) in skills_with(Relic::HeavyPlating) {
+        assert!(close(
+            b.damage_taken,
+            a.damage_taken * f(-data::HEAVY_PLATING_TAKEN)
+        ));
+        assert!(close(b.walk, a.walk * f(-data::HEAVY_PLATING_SPEED)));
     }
-    let f = relic::factor(-data::COOLANT_LOOP_COOLDOWN_PERCENT);
-    assert!((world.charge_cooldown(0, Charge::Grenade) - grenade * f).abs() < 1e-9);
-    assert!((world.taunt_cooldown(1) - taunt * f).abs() < 1e-9);
-    assert!((world.rally_cooldown(2) - rally * f).abs() < 1e-9);
-}
-
-/// **Last Stand** is more damage while another player's Bim is down, and
-/// none otherwise.
-#[test]
-fn last_stand_waits_on_another_player_down() {
-    let mut world = crewed_world(flyer(2), REFERENCE_MONEY, 2, 2);
-    let base = world.skill_of(0).damage;
-    world.give_relic_for_probe(0, Relic::LastStand);
-    assert!(close(world.skill_of(0).damage, base));
-    world.aboard.room.knock_out_for_probe(1);
-    world.step(&[]);
-    assert!(world.aboard.room.is_down(1));
-    let f = relic::factor(data::LAST_STAND_DAMAGE_PERCENT) as f32;
-    assert!(close(world.skill_of(0).damage, base * f));
-}
-
-/// **Salvage Beacon** is more bounty for its holder's own kills, and
-/// **Kill Relay** a second off every class cooldown running on it for
-/// each.
-#[test]
-fn salvage_beacon_and_kill_relay_read_their_holder_s_kills() {
-    let mut world = crewed_world(flyer(2), REFERENCE_MONEY, 2, 2);
-    world.set_class(0, Class::Soldier).unwrap();
-    let bounty = crate::world::bounty_for(1);
-    let mut events = Vec::new();
-    assert_eq!(
-        world.machine_kills(&[(Some(0), bounty)], &mut events),
-        bounty
-    );
-    world.give_relic_for_probe(0, Relic::SalvageBeacon);
-    let raised = bounty + bounty * data::SALVAGE_BEACON_BOUNTY_PERCENT as u64 / 100;
-    assert_eq!(
-        world.machine_kills(&[(Some(0), bounty)], &mut events),
-        raised
-    );
-    assert_eq!(
-        world.machine_kills(&[(Some(1), bounty), (None, bounty)], &mut events),
-        2 * bounty,
-        "nobody else's kills"
-    );
-
-    world.give_relic_for_probe(0, Relic::KillRelay);
-    let now = world.mission_minutes();
-    world.charge_timers[0][Charge::Grenade.code() as usize] = Some(now);
-    let left = world.charge_cooldown_left(0, Charge::Grenade);
-    world.machine_kills(&[(Some(0), bounty)], &mut events);
-    let after = world.charge_cooldown_left(0, Charge::Grenade);
-    assert!(
-        (left - after - data::KILL_RELAY_SECONDS).abs() < 1e-6,
-        "{left} {after}"
-    );
-    assert!(events.contains(&WorldEvent::RelicFired {
-        who: 0,
-        relic: Relic::KillRelay.code()
-    }));
-}
-
-/// Steps a world `seconds` of the mission clock on.
-fn run_seconds(world: &mut World, seconds: f64) -> Vec<WorldEvent> {
-    let steps = (seconds * time::MINUTES_PER_SECOND / data::STEP_MINUTES).ceil() as u32;
-    let mut events = Vec::new();
-    for _ in 0..steps {
-        events.extend(world.step(&[]));
+    // Hair Trigger's fire rate, for everybody.
+    for (a, b) in skills_with(Relic::HairTrigger) {
+        assert!(close(
+            b.fire_rate,
+            a.fire_rate * f(data::HAIR_TRIGGER_FIRE_RATE)
+        ));
     }
-    events
+    // Drill Sergeant: the bot's damage up and its share of a hit down,
+    // the player's damage down.
+    let [(pa, pb), (ba, bb)] = skills_with(Relic::DrillSergeant);
+    assert!(close(
+        pb.damage,
+        pa.damage * f(-data::DRILL_SERGEANT_PLAYER_DAMAGE)
+    ));
+    assert!(close(pb.damage_taken, pa.damage_taken), "not the player's");
+    assert!(close(
+        bb.damage,
+        ba.damage * f(data::DRILL_SERGEANT_BOT_DAMAGE)
+    ));
+    assert!(close(
+        bb.damage_taken,
+        ba.damage_taken * f(-data::DRILL_SERGEANT_BOT_TAKEN)
+    ));
+    // Lone Wolves the other way round.
+    let [(pa, pb), (ba, bb)] = skills_with(Relic::LoneWolves);
+    assert!(close(
+        pb.damage,
+        pa.damage * f(data::LONE_WOLVES_PLAYER_DAMAGE)
+    ));
+    assert!(close(pb.walk, pa.walk * f(data::LONE_WOLVES_PLAYER_SPEED)));
+    assert!(close(
+        bb.damage,
+        ba.damage * f(-data::LONE_WOLVES_BOT_DAMAGE)
+    ));
+    assert!(close(bb.walk, ba.walk), "not the bot's pace");
 }
 
-/// **Second Wind** gets its Bim up five seconds after it goes down, at a
-/// quarter of its health — once a mission, and again the next.
+/// **The class cooldowns** take the relics' share: longer with *Hair
+/// Trigger*, shorter with *Overclocked Cores*.
 #[test]
-fn second_wind_gets_up_once_a_mission() {
-    let mut world = crewed_world(flyer(2), REFERENCE_MONEY, 2, 2);
-    world.give_relic_for_probe(0, Relic::SecondWind);
-    world.aboard.room.knock_out_for_probe(0);
-    world.step(&[]);
-    assert!(world.aboard.room.is_down(0));
-    run_seconds(&mut world, data::SECOND_WIND_SECONDS * 0.5);
-    assert!(world.aboard.room.is_down(0), "not before its seconds");
-    let events = run_seconds(&mut world, data::SECOND_WIND_SECONDS);
-    assert!(events.contains(&WorldEvent::RelicFired {
-        who: 0,
-        relic: Relic::SecondWind.code()
-    }));
-    assert!(!world.aboard.room.is_down(0), "up again");
-    let share = world.health_share(0);
-    assert!(
-        share >= data::SECOND_WIND_HEALTH_PERCENT as f32 / 100.0 - 1e-3,
-        "{share}"
-    );
-    // Down again the same mission: it stays down.
-    world.aboard.room.knock_out_for_probe(0);
-    world.step(&[]);
-    run_seconds(&mut world, data::SECOND_WIND_SECONDS * 2.0);
-    assert!(world.aboard.room.is_down(0), "once a mission");
-    // The next mission, it is ready again.
-    world.leave_for_probe();
-    let here = world.current_site();
-    let site = world
-        .sites_at(world.star_id)
-        .into_iter()
-        .find(|&s| Some(s) != here && world.travel_quote(s).is_ok())
-        .unwrap();
-    world.step(&[Command::Propose {
-        slot: 0,
-        star: site.star,
-        station: site.station,
-    }]);
-    world.step(&[Command::Accept { slot: 1, yes: true }]);
-    assert!(world.in_mission());
-    world.aboard.room.knock_out_for_probe(0);
-    world.step(&[]);
-    assert!(world.aboard.room.is_down(0));
-    run_seconds(&mut world, data::SECOND_WIND_SECONDS * 1.5);
-    assert!(!world.aboard.room.is_down(0), "ready again");
-}
-
-/// An enemy's hit on crew member 0 that takes `damage`, as the
-/// relics' stage sees it: the count before, the wound and the count up,
-/// and the stage run over it — the stage the step runs after the rooms.
-fn hit(world: &mut World, damage: f32) -> Vec<WorldEvent> {
-    let before = world.hits_before_the_step();
-    world.aboard.room.wound(0, damage);
-    let hits = world.aboard.room.hits_taken(0);
-    world.aboard.room.set_hits_taken(0, hits + 1);
-    let mut events = Vec::new();
-    world.settle_relics(&before, &mut events);
-    events
-}
-
-/// **Phase Harness** makes its Bim untouchable for two seconds the first
-/// time a hit takes it under a quarter of its health — once a mission.
-#[test]
-fn phase_harness_fires_once_a_mission_below_a_quarter() {
+fn the_cooldown_relics_move_the_class_s_cooldowns() {
     let mut world = crewed_world(flyer(2), REFERENCE_MONEY, 1, 1);
-    world.give_relic_for_probe(0, Relic::PhaseHarness);
-    let fired = |events: &[WorldEvent]| {
-        events.contains(&WorldEvent::RelicFired {
-            who: 0,
-            relic: Relic::PhaseHarness.code(),
-        })
-    };
-    // A hit that leaves it above a quarter: nothing.
-    let events = hit(&mut world, 5.0);
-    assert!(!fired(&events));
-    assert!(!world.aboard.room.is_surging(0));
-    // A hit that takes it under: untouchable.
-    world.aboard.room.wound(0, 60.0);
-    let events = hit(&mut world, 20.0);
-    assert!(world.health_share(0) < 0.25, "{}", world.health_share(0));
-    assert!(fired(&events), "{events:?}");
-    assert!(world.aboard.room.is_surging(0));
-    // Two seconds of it, and not twice in one mission.
-    run_seconds(&mut world, f64::from(data::PHASE_HARNESS_SECONDS) + 0.5);
-    assert!(!world.aboard.room.is_surging(0), "two seconds and no more");
-    let events = hit(&mut world, 1.0);
-    assert!(!fired(&events), "once a mission");
-    assert!(!world.aboard.room.is_surging(0));
+    world.set_class(0, Class::Tank).unwrap();
+    world.set_ranks_for_probe(0, [1, 0, 0, 1]);
+    let plain = world.taunt_cooldown(0);
+    world.give_relic_for_probe(Relic::HairTrigger);
+    let longer = world.taunt_cooldown(0);
+    assert!((longer - plain * relic::factor(data::HAIR_TRIGGER_COOLDOWNS)).abs() < 1e-9);
+    world.give_relic_for_probe(Relic::OverclockedCores);
+    let both = world.taunt_cooldown(0);
+    let want =
+        plain * relic::factor(data::HAIR_TRIGGER_COOLDOWNS - data::OVERCLOCKED_CORES_COOLDOWNS);
+    assert!((both - want).abs() < 1e-9, "{both} against {want}");
 }
 
-// --- 7: the win ------------------------------------------------------------------------
+/// **The run's own numbers**: the bounty, the experience, the waves and
+/// the trader's prices move by the crew's relics, summed.
+#[test]
+fn the_run_s_own_numbers_take_the_relics_share() {
+    let (mut world, _) = held_arena(1);
+    world.set_droid_wave_for_probe(3);
+    let bounty = world.bounty_here(1_000);
+    let xp = world.xp_per_down();
+    world.give_relic_for_probe(Relic::BountyContract);
+    assert_eq!(
+        world.bounty_here(1_000),
+        bounty * (100 + data::BOUNTY_CONTRACT_BOUNTY as u64) / 100
+    );
+    world.give_relic_for_probe(Relic::BlackMarket);
+    let percent = 100 + data::BOUNTY_CONTRACT_BOUNTY - data::BLACK_MARKET_BOUNTY;
+    assert_eq!(world.bounty_here(1_000), bounty * percent as u64 / 100);
+    assert_eq!(
+        world.trader_price_by_relics(1_000),
+        1_000 * (100 - data::BLACK_MARKET_PRICES as u64) / 100
+    );
+    world.give_relic_for_probe(Relic::HuntersPact);
+    assert_eq!(
+        world.xp_per_down(),
+        xp * (100 + data::HUNTERS_PACT_EXPERIENCE as u32) / 100
+    );
+    // A wave forced by the dial is as many as it names; the formula's
+    // takes the share, rounded up.
+    assert_eq!(world.droid_wave_size(), 3);
+    let mut plain = crewed_world(flyer(2), REFERENCE_MONEY, 1, 3);
+    let n = plain.droid_wave_size();
+    plain.give_relic_for_probe(Relic::HuntersPact);
+    let want = (f64::from(n) * relic::factor(data::HUNTERS_PACT_WAVES)).ceil() as u32;
+    assert_eq!(plain.droid_wave_size(), want);
+    assert!(want > n, "more machines");
+}
+
+/// **The damage to a machine**: a crew hit on one lands at the relics'
+/// share — *Salvage Burn*'s more, *Bounty Contract*'s less.
+#[test]
+fn a_hit_on_a_machine_takes_the_relics_share() {
+    let landed = |held: &[Relic]| -> f32 {
+        let (mut world, _) = held_arena(1);
+        for &r in held {
+            world.give_relic_for_probe(r);
+        }
+        open_the_room(&mut world);
+        let residents = world.residents.as_ref().unwrap();
+        let bims = residents.aboard.room.crew_count() as usize;
+        let before = residents.aboard.room.droid(0).unwrap().body.life();
+        let hit = bims::combat::Hit {
+            who: bims,
+            damage: 10.0,
+            cut: false,
+            by: Some(0),
+            blast: false,
+            roll: 0.5,
+            strips: 0.0,
+            flat: 0.0,
+            crit: false,
+        };
+        assert!(world.land_on_machines(vec![hit]).is_empty());
+        let residents = world.residents.as_ref().unwrap();
+        before - residents.aboard.room.droid(0).unwrap().body.life()
+    };
+    let plain = landed(&[]);
+    assert!(plain > 0.0);
+    let more = landed(&[Relic::SalvageBurn]);
+    assert!((more - plain * relic::factor(data::SALVAGE_BURN_DAMAGE) as f32).abs() < 1e-3);
+    let less = landed(&[Relic::BountyContract]);
+    assert!((less - plain * relic::factor(-data::BOUNTY_CONTRACT_DAMAGE) as f32).abs() < 1e-3);
+}
+
+/// **Nanite Mesh** puts hit points back into everybody on its feet, a bot
+/// as well as a player — never into a body downed.
+#[test]
+fn nanite_mesh_mends_everybody_on_their_feet() {
+    let mut world = crewed_world(flyer(2), REFERENCE_MONEY, 1, 2);
+    world.give_relic_for_probe(Relic::NaniteMesh);
+    for who in 0..2 {
+        world.aboard.room.set_health_for_probe(who, 20.0);
+    }
+    for _ in 0..120 {
+        world.step(&[]);
+    }
+    for who in 0..2 {
+        let gained = world.aboard.room.health(who) - 20.0;
+        let want = data::NANITE_MESH_REGEN as f32 * 2.0;
+        assert!(
+            (gained - want).abs() < 0.5,
+            "{who}: {gained} against {want}"
+        );
+    }
+    assert!(
+        relic::Relic::NaniteMesh
+            .modifiers()
+            .iter()
+            .any(|m| m.stat == Stat::Regen)
+    );
+}
+
+// --- 5: the win ------------------------------------------------------------------------
 
 /// **`run_won` is said once**, and `BIMS_WIN`'s dial wins a run on the
 /// next site cleared with machines in it.
@@ -856,25 +505,18 @@ fn a_run_is_won_once_and_the_probe_wins_on_the_next_clear() {
     assert!(again.is_empty(), "said once");
 }
 
-// --- 8: one pool, one world on every client --------------------------------------------
+// --- 6: one world on every client ------------------------------------------------------
 
-/// **The host's pool is the run's on every client**, and what the relics
-/// do comes out the same on two worlds of one seed: the same offer, the
-/// same checksum, fight after fight.
+/// **What the relics do comes out the same on two worlds of one seed**:
+/// the same fight, the same offer, the same checksum.
 #[test]
-fn the_host_s_pool_and_the_relics_effects_are_the_same_on_every_client() {
-    let host_pool = vec![
-        Relic::FocusingLens,
-        Relic::SteadyGrip,
-        Relic::OverchargeCell,
-        Relic::KillRelay,
-    ];
+fn the_relics_are_the_same_on_every_client() {
     let mut worlds: Vec<(World, u32)> = (0..2).map(|_| held_arena(1)).collect();
     for (world, _) in &mut worlds {
         world.set_droid_tier_for_probe(Some(Tier::Two));
-        world.set_relic_pool(host_pool.clone());
-        world.give_relic_for_probe(0, Relic::OverchargeCell);
-        world.give_relic_for_probe(0, Relic::KillRelay);
+        world.give_relic_for_probe(Relic::GlassCannon);
+        world.give_relic_for_probe(Relic::DrillSergeant);
+        world.give_relic_for_probe(Relic::NaniteMesh);
     }
     let [(a, station), (b, _)] = &mut worlds[..] else {
         unreachable!()
@@ -897,35 +539,20 @@ fn the_host_s_pool_and_the_relics_effects_are_the_same_on_every_client() {
     }
     let offer_a = a.relic_choice().map(|c| c.options.clone());
     let offer_b = b.relic_choice().map(|c| c.options.clone());
+    assert!(offer_a.is_some(), "an elite offers");
     assert_eq!(offer_a, offer_b, "one offer");
-    for r in offer_a.into_iter().flatten() {
-        assert!(host_pool.contains(&r), "only the host's relics: {r:?}");
-    }
     assert_eq!(world_checksum(a), world_checksum(b));
 }
 
-/// **Trauma Kit** (task 120): its carrier's revives of a crewmate are two
-/// seconds quicker — ten to eight, a medic's four to two — and no revive
-/// is ever under a second.
+/// **A revive is no relic's**: no relic is paid for in revives, and the
+/// revive is the class's alone — ten seconds, a medic's four.
 #[test]
-fn trauma_kit_takes_two_seconds_off_a_revive_and_never_under_one() {
+fn no_relic_touches_a_revive() {
     let mut world = crewed_world(flyer(2), REFERENCE_MONEY, 2, 2);
+    for r in Relic::ALL {
+        world.give_relic_for_probe(r);
+    }
     assert_eq!(world.revive_seconds(0), 10.0);
-    world.give_relic_for_probe(0, Relic::TraumaKit);
-    assert_eq!(world.revive_seconds(0), 8.0);
-    assert_eq!(world.revive_seconds(1), 10.0, "the carrier's alone");
     world.set_class(1, Class::Medic).unwrap();
     assert_eq!(world.revive_seconds(1), 4.0);
-    world.give_relic_for_probe(1, Relic::TraumaKit);
-    assert_eq!(world.revive_seconds(1), 2.0);
-    // The room is handed it on the helper's skill.
-    world.step(&[]);
-    assert_eq!(world.aboard.room.skill_for_probe(0).revive, 8.0);
-    assert_eq!(world.aboard.room.skill_for_probe(1).revive, 2.0);
-    // The floor: nothing brings a revive under a second.
-    assert_eq!(
-        crate::class::revive_time(true, 3.5),
-        data::REVIVE_FLOOR_SECONDS
-    );
-    assert_eq!(crate::class::revive_time(false, 20.0), 1.0);
 }

@@ -484,26 +484,27 @@ fn nanite_burst_is_multiplied_by_the_aura_and_ready_at_every_mission() {
     world.step(&[]);
     ranks(&mut world, 0, [1, 0, 0, 1]);
     let (burst, cloak) = (world.nanite_burst_cooldown(0), world.cloak_cooldown(0));
-    world.give_relic_for_probe(0, crate::relic::Relic::CoolantLoop);
-    assert!(world.nanite_burst_cooldown(0) < burst, "*Coolant Loop*");
-    assert!(world.cloak_cooldown(0) < cloak, "*Coolant Loop*");
+    world.give_relic_for_probe(crate::relic::Relic::OverclockedCores);
+    assert!(
+        world.nanite_burst_cooldown(0) < burst,
+        "*Overclocked Cores*"
+    );
+    assert!(world.cloak_cooldown(0) < cloak, "*Overclocked Cores*");
     world.step(&[Command::NaniteBurst { slot: 0 }]);
     world.step(&[Command::Cloak { slot: 0, target: 0 }]);
     assert!(world.nanite_burst_cooldown_left(0) > 0.0);
     assert!(world.cloak_cooldown_left(0) > 0.0);
-    // *Kill Relay* takes seconds off both.
+    // Seconds taken off both (a *Reset Capacitor*'s way).
     let (burst_left, cloak_left) = (
         world.nanite_burst_cooldown_left(0),
         world.cloak_cooldown_left(0),
     );
-    world.give_relic_for_probe(0, crate::relic::Relic::KillRelay);
-    let mut events = Vec::new();
-    world.machine_kills(&[(Some(0), 0)], &mut events);
+    world.cooldowns_less(0, 3.0);
     assert!(
         world.nanite_burst_cooldown_left(0) < burst_left,
-        "*Kill Relay*"
+        "seconds off"
     );
-    assert!(world.cloak_cooldown_left(0) < cloak_left, "*Kill Relay*");
+    assert!(world.cloak_cooldown_left(0) < cloak_left, "seconds off");
     next_mission(&mut world);
     assert_eq!(world.nanite_burst_cooldown_left(0), 0.0);
     assert_eq!(world.cloak_cooldown_left(0), 0.0);
@@ -642,14 +643,14 @@ fn the_healing_aura_multiplies_a_healing_sentry_and_a_relic() {
         (lifted / plain - class::HEALING_AURA_FACTOR[3]).abs() < 0.02,
         "the sentry's heal lifted: {lifted} against {plain}"
     );
-    // *Pressure Seal*'s regeneration on slot 1, beside the medic.
+    // *Nanite Mesh*'s regeneration on slot 1, beside the medic.
     let relic_gain = |aura: u8| {
         let mut world = medic();
         if aura > 0 {
             ranks(&mut world, 0, [0, aura, 0, 0]);
         }
         beside(&mut world, 1, 0);
-        world.give_relic_for_probe(1, crate::relic::Relic::PressureSeal);
+        world.give_relic_for_probe(crate::relic::Relic::NaniteMesh);
         hurt(&mut world, 1, 20.0);
         let before = world.aboard.room.health(1);
         for _ in 0..(5 * STEPS_A_MINUTE) {

@@ -10,8 +10,8 @@
 //!
 //! **There is no surge** (task 130): the charge, the level it was learnt
 //! at and the room's timer's medic half went with it; the room's own
-//! surge timer stays, since two relics (*Phase Harness*, *Lifeline*) still
-//! use it.
+//! surge timer stays, though nothing sets it since the relics were rebuilt
+//! (October 2026).
 //!
 //! **The Healing Aura keeps nothing**: `World::heal_factor(who)` works it
 //! out from where the medics stand whenever a heal is given — the beam,

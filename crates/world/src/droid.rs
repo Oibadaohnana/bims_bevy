@@ -78,14 +78,9 @@ pub struct Infestation {
     /// before the core is down.
     #[cfg_attr(feature = "serde", serde(default))]
     pub heart: Option<crate::heart::HeartFight>,
-    /// Whether a **relic cache** still lies on the station's research desk
-    /// (feature 106, `crate::relic::cache_rolled`): rolled when the
-    /// machines take the site, and gone when a crew member opens it. Put
-    /// back with the rest of the site when the crew leave it uncleared.
-    pub cache: bool,
     /// Whether the site is the **Manufacturers'** rather than the
     /// machines' (feature 109, [`crate::manufacturer`]): the same fight's
-    /// bookkeeping — the waves, the clock, the clear, the cache — with
+    /// bookkeeping — the waves, the clock, the clear — with
     /// their people on the deck where the machines would stand. A site of
     /// theirs is not infested: the crisis never takes it, it is never a
     /// jammer, and it frees no system when it is cleared. Hashed only where
@@ -105,7 +100,6 @@ impl Infestation {
             settled: false,
             cleared: false,
             heart: None,
-            cache: false,
             manufacturers: false,
         }
     }

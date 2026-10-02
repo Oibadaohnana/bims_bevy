@@ -397,9 +397,8 @@ pub struct SettingsWire {
     pub seed: u64,
     pub galaxy: u32,
     pub spawn: Option<(u32, u32)>,
-    /// The host's profile's relic pool and open classes, as bits (feature
-    /// 106, `profile::RunUnlocks`): the run's, on every machine.
-    pub relics: u64,
+    /// The host's profile's open classes, as bits (feature 106,
+    /// `profile::RunUnlocks`): the run's, on every machine.
     pub classes: u32,
     /// The run's difficulty as the host picked it; `None` is each
     /// machine's tuning file (`scaling.ron`).
@@ -419,7 +418,6 @@ impl SettingsWire {
             seed: settings.seed,
             galaxy: settings.galaxy,
             spawn: settings.spawn,
-            relics: settings.unlocks.relics,
             classes: settings.unlocks.classes,
             difficulty: settings.difficulty,
             end: settings.end,
@@ -435,7 +433,6 @@ impl SettingsWire {
         settings.galaxy = self.galaxy;
         settings.spawn = self.spawn;
         settings.unlocks = crate::profile::RunUnlocks {
-            relics: self.relics,
             classes: self.classes,
         };
         settings.difficulty = self.difficulty;
@@ -475,12 +472,11 @@ pub struct Choice {
     pub line: Option<TradeLine>,
 }
 
-/// A line of the trader's form: a slot of the shelf, its relic, or one
-/// of the pairs that combine, by its place in the list.
+/// A line of the trader's form: a slot of the shelf, or one of the pairs
+/// that combine, by its place in the list.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, serde::Serialize, serde::Deserialize)]
 pub enum TradeLine {
     Shelf(u32),
-    Relic,
     Combine(u32),
     /// An item off the item shelf, by its kind's code (October 2026).
     Item(u32),
@@ -1623,7 +1619,7 @@ mod tests {
             }),
             Packet::Choice(Choice {
                 relic: None,
-                line: Some(TradeLine::Relic),
+                line: Some(TradeLine::Combine(1)),
             }),
         ] {
             in_tx
@@ -1661,7 +1657,7 @@ mod tests {
                 1,
                 Choice {
                     relic: None,
-                    line: Some(TradeLine::Relic)
+                    line: Some(TradeLine::Combine(1))
                 }
             )]
         );

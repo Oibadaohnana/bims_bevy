@@ -81,17 +81,11 @@ use crate::tank::Tank;
 #[path = "mission.rs"]
 mod mission;
 
-// The relics' half of the world (feature 106): what a relic does, the
-// choosing, the caches and the win. A child for the same reason.
+// The relics' half of the world (feature 106): what the crew's relics
+// do, the hits on a machine, the choosing and the win. A child for the
+// same reason.
 #[path = "relics.rs"]
 mod relics;
-
-// What task 118's relics do in a fight: the hits on a machine, the auras,
-// the timed effects, the pay. A child for the same reason.
-#[path = "relic_hooks.rs"]
-mod relic_hooks;
-#[cfg(test)]
-pub(crate) use relic_hooks::MachineKill;
 
 // The Machine Heart's half of the world (feature 108): the fortress, its
 // fight, the win and the map's preview. A child for the same reason.
@@ -106,8 +100,7 @@ pub use fortress::{HeartStatus, RunSummary};
 mod garrison;
 
 // The trader's half of the world (task 114): which sites of the galaxy
-// are traders, the visit on the map, the shelf, the relic's vote and the
-// combining. A child for the same reason.
+// are traders, the visit on the map, the shelf and the combining. A child for the same reason.
 #[path = "trading.rs"]
 mod trading;
 
@@ -520,32 +513,20 @@ pub enum Command {
         slot: u32,
         yes: bool,
     },
-    /// Put a relic on offer to the crew for player `to`'s Bim (feature
-    /// 106, [`crate::relic`]) — `relic` a [`crate::Relic`] code, or
-    /// `u32::MAX` for taking none. It replaces whatever was on the table,
-    /// every acceptance with it, and counts as the proposer's own yes. A
-    /// relic not on offer, or a Bim no player steers, is refused. **On the
-    /// reward screen** it is player `slot`'s own pick for its own Bim
-    /// (task 146, `to` unread, no taking none): no vote, a clash settled
-    /// by the dice.
+    /// Put a relic off an elite's reward to the crew (feature 106,
+    /// [`crate::relic`]) — `relic` a [`crate::Relic`] code, or `u32::MAX`
+    /// for taking none. It replaces whatever was on the table, every
+    /// acceptance with it, and counts as the proposer's own yes. A relic
+    /// not on offer is refused.
     ProposeRelic {
         slot: u32,
         relic: u32,
-        to: u32,
     },
     /// Say yes to the relic on the table, or take a yes back. The last
-    /// yes of every connected player gives it.
+    /// yes of every connected player gives it to the crew.
     AcceptRelic {
         slot: u32,
         yes: bool,
-    },
-    /// Crew member `who` opens the relic cache on the research desk of
-    /// the site the crew are at: within reach of it, and no relic choice
-    /// being made already. One relic of the site's tier is put to the
-    /// crew, pending until the site is cleared.
-    OpenCache {
-        slot: u32,
-        who: u32,
     },
     /// Buy what is in slot `index` of the shelf of the trader the crew
     /// are at (task 114, [`crate::trader`]), out of the pool: onto crew
@@ -567,12 +548,6 @@ pub enum Command {
         slot: u32,
         a: GearSource,
         b: GearSource,
-    },
-    /// Roll the shelf of the trader the crew are at again, its weapons and
-    /// its armour — never its relic: a relic's *Restock Codes* (task 118),
-    /// once a visit, any player while one of them holds it.
-    Restock {
-        slot: u32,
     },
     /// Use the item in that player's own Bim's item slot `item` (nought
     /// to three, the keys 1 to 4; October 2026) at the crew's room point
@@ -725,7 +700,7 @@ pub struct World {
     /// on — one player's spending never drains another's.
     #[cfg_attr(feature = "serde", serde(default))]
     pub wallets: Vec<Money>,
-    /// The crew's hits on the machines landed through the relics this step
+    /// The crew's hits on the machines landed this step
     /// (`land_on_machines`), for `visit` to say as `WorldEvent::Hit`s: on
     /// whom, how much, and whether critical. A picture's; never saved or
     /// hashed.
@@ -1533,11 +1508,8 @@ impl World {
         //    And a pistol for every empty hand under arms.
         self.arm_the_empty_handed(&mut events);
         //    How many hits each player's Bim had taken before the rooms
-        //    stepped, for a relic that fires on one (feature 106).
+        //    stepped, for an item that notes one.
         let hits_before = self.hits_before_the_step();
-        //    And who of the crew was down, for a relic that fires on a
-        //    crewmate going down (task 118).
-        let downs_before = self.downs_before_the_step();
         // Weak Spot's stream (task 124) lent to the crew's room for its
         // step — the one room the crew's bolts land in — and taken back.
         self.aboard.room.lend_crit_rng(self.crit_rng.clone());
@@ -1562,10 +1534,7 @@ impl World {
         self.settle_bursts(&mut events);
         self.sync_lamps();
         self.casualties(&mut events);
-        //    And the relics (feature 106): a player's Bim that went down or
-        //    was hit this step, its triggers.
-        self.settle_relics(&hits_before, &mut events);
-        self.settle_relic_downs(&downs_before, &mut events);
+        //    And the crew's relics' regeneration (feature 106).
         self.relics_mend();
         //    And the items (October 2026): a hit noted for the blink and
         //    the Reactor Heart, and the Heart's regeneration.
@@ -1650,13 +1619,11 @@ impl World {
             | Command::Ready { slot, .. }
             | Command::ProposeRelic { slot, .. }
             | Command::AcceptRelic { slot, .. }
-            | Command::OpenCache { slot, .. }
             | Command::BuyShelf { slot, .. }
             | Command::Combine { slot, .. }
             | Command::UseItem { slot, .. }
             | Command::BuyItem { slot, .. }
-            | Command::EquipAt { slot, .. }
-            | Command::Restock { slot } => slot,
+            | Command::EquipAt { slot, .. } => slot,
         };
 
         // Between missions nothing happens but the choosing: the map
@@ -1683,7 +1650,6 @@ impl World {
                     | Command::BuyItem { .. }
                     | Command::EquipAt { .. }
                     | Command::Combine { .. }
-                    | Command::Restock { .. }
                     | Command::RankUp { .. }
             )
         {
@@ -1734,7 +1700,6 @@ impl World {
             events.push(refused(slot, Refusal::FightOver));
             return;
         }
-        let before = events.len();
         // **A cloaked Bim uses no class ability** (task 130): every key a
         // class has is refused while its cloak lasts — a brace or a wall
         // put *down*, a beam let go, a pack-up and a carry are not
@@ -1779,14 +1744,12 @@ impl World {
             Command::LeaveBehind { yes, .. } => self.answer_departure(slot, yes, events),
             Command::PlayerGone { .. } => self.player_gone(slot, events),
             Command::Ready { yes, .. } => self.press_ready(slot, yes, events),
-            Command::ProposeRelic { relic, to, .. } => {
-                self.propose_relic(slot, crate::relic::Relic::from_code(relic), to, events)
+            Command::ProposeRelic { relic, .. } => {
+                self.propose_relic(slot, crate::relic::Relic::from_code(relic), events)
             }
             Command::AcceptRelic { yes, .. } => self.accept_relic(slot, yes, events),
-            Command::OpenCache { who, .. } => self.open_cache(slot, who, events),
             Command::BuyShelf { index, to, .. } => self.buy_shelf(slot, index, to, events),
             Command::Combine { a, b, .. } => self.combine(slot, a, b, events),
-            Command::Restock { .. } => self.restock(slot, events),
             Command::BuyItem { kind, to, .. } => self.buy_item(slot, kind, to, events),
             Command::UseItem { item, x, y, .. } => {
                 if let Err(why) = self.use_item(slot, item, (x, y), events) {
@@ -1923,30 +1886,6 @@ impl World {
                 Ok(patient) => events.push(WorldEvent::Carried { who: slot, patient }),
                 Err(why) => events.push(refused(slot, why)),
             },
-        }
-        // A class key gone through is an ability used (feature 106): the
-        // relics that wait on one are told.
-        let ability = matches!(
-            command,
-            Command::Deploy { .. }
-                | Command::Sentry { .. }
-                | Command::Emp { .. }
-                | Command::Throw { .. }
-                | Command::Rampage { .. }
-                | Command::NaniteBurst { .. }
-                | Command::Cloak { .. }
-                | Command::Taunt { .. }
-                | Command::Juggernaut { .. }
-                | Command::Rally { .. }
-                | Command::BattleCry { .. }
-                | Command::Reinforce { .. }
-                | Command::Medivac { .. }
-        );
-        let turned_down = events[before..]
-            .iter()
-            .any(|e| matches!(e, WorldEvent::Refused { .. }));
-        if ability && !turned_down {
-            self.relic_trigger(slot, crate::relic::Trigger::AbilityUse, events);
         }
     }
 
@@ -2659,9 +2598,8 @@ impl World {
         }
         // The machines destroyed this step, for the Republic's bounty
         // (feature 103): said when the room is done with below.
-        // Each with who hit it last, for a relic that pays or pays back
-        // for its own kills (feature 106).
-        let mut machine_kills: Vec<relic_hooks::MachineKill> = Vec::new();
+        // Each with who hit it last, for a Rampage a kill lengthens.
+        let mut machine_kills: Vec<(Option<usize>, Money)> = Vec::new();
         // And which of them are down, so a body among them is one the
         // crew can right-click and loot; after the positions, since the
         // positions clear it.
@@ -2860,29 +2798,13 @@ impl World {
                 // earns. Pending until the site is cleared.
                 if let Some(d) = who.checked_sub(bims).and_then(|i| room.droid(i)) {
                     let by = residents.last_hit_by.get(who).copied().flatten();
-                    // How it went, for a relic that pays for a crippled
-                    // machine or fires on one taken from behind (task 118).
-                    let body = &d.body;
-                    let crippled = !body.is_solid()
-                        && (body.gone(bims::droid::DroidPart::Arms)
-                            || body.gone(bims::droid::DroidPart::Legs));
-                    let flanked = {
-                        let relics = &mut self.run.relics;
-                        let was = relics.flanked.contains(&(who as u32));
-                        relics.flanked.retain(|&b| b != who as u32);
-                        relics.limb_aimed.retain(|&(_, b)| b != who as u32);
-                        relics.spotted.retain(|&(_, b, _)| b != who as u32);
-                        was
-                    };
-                    machine_kills.push(relic_hooks::MachineKill {
+                    machine_kills.push((
                         by,
-                        bounty: bounty_share(
+                        bounty_share(
                             self.rewards.bounty_for(d.tier.code()),
                             droid_bounty_percent(d.kind),
                         ),
-                        crippled,
-                        flanked,
-                    });
+                    ));
                 }
                 // A machine is said as a machine: it has no name, and
                 // the log would otherwise call a wreck Sanne.
@@ -3223,16 +3145,14 @@ impl World {
         self.aboard.room.set_hostiles_peeking(&peeking);
         self.aboard.room.set_hostiles_dodge(&dodge);
         self.aboard.room.set_hostiles_shields(&shields);
-        // And what the Republic owes for the machines destroyed this step.
-        // A machine's last hit by a player's Bim with a relic that
-        // reads kills (feature 106): *Salvage Beacon*'s share on the
-        // bounty, *Kill Relay*'s seconds off the cooldowns.
+        // And what the Republic owes for the machines destroyed this step
+        // (the crew's relics' share is `earn_bounty`'s).
         // Every machine destroyed, for the run's summary (feature 108).
         self.run.machines_destroyed = self
             .run
             .machines_destroyed
             .saturating_add(machine_kills.len() as u32);
-        let machine_bounty = self.machine_kills_noted(&machine_kills, events);
+        let machine_bounty = self.machine_kills_noted(&machine_kills);
         self.earn_bounty(machine_bounty, events);
     }
 
@@ -4671,8 +4591,7 @@ impl World {
     /// rooms are joined: the one standing in the station's box. `None` on
     /// a ship of its own, or at a station without one. Research is gone
     /// from the game (feature 106); the desk stays a solid on every
-    /// layout, and at a site the machines hold it is where a **relic
-    /// cache** lies ([`World::cache_here`]).
+    /// layout.
     pub fn station_desk(&self) -> Option<usize> {
         let (lo, hi) = self.aboard.station_box?;
         self.aboard
@@ -4911,7 +4830,6 @@ impl World {
                 | Command::BuyShelf { .. }
                 | Command::BuyItem { .. }
                 | Command::Combine { .. }
-                | Command::Restock { .. }
         )
     }
 
@@ -5485,12 +5403,7 @@ impl World {
         if let Some(d) = self.defense_mut(id).filter(|d| !d.over()) {
             d.lost = true;
         }
-        // And whether it hides a relic cache (feature 106): rolled here,
-        // once, off the galaxy's seed.
-        let mut it = Infestation::new(id);
-        it.cache = self.is_elite_here(id)
-            && crate::relic::cache_rolled(self.galaxy_seed, self.star_id, id);
-        self.infested.push(it);
+        self.infested.push(Infestation::new(id));
         self.infested.sort_by_key(|it| it.station);
         // The station's people are gone the moment the machines have it:
         // a room already open on it is opened again with nobody in it.
@@ -6109,7 +6022,9 @@ impl World {
         if let Some(forced) = self.droid_wave_forced {
             return forced.max(1);
         }
-        self.scaling().size(self.players(), bots, day).max(1)
+        // And the crew's relics' share on it, rounded up (*Hunter's Pact*).
+        self.wave_by_relics(self.scaling().size(self.players(), bots, day))
+            .max(1)
     }
 
     /// The probes' other dial (`BIMS_DROID_WAVE`): every wave from now
@@ -7616,7 +7531,7 @@ impl World {
             // [`class::XP_ENEMY_DOWN`], once. A downed Manufacturer
             // dying after — bled out or finished — is worth nothing more.
             if down && !residents.xp_down[who] {
-                gained.push((at, self.rewards.xp_per_down));
+                gained.push((at, self.xp_per_down()));
                 downed.push((who, residents.last_hit_by.get(who).copied().flatten()));
                 // The Republic's bounty (feature 95), once per enemy at
                 // the first down or death, whoever did it. A machine is
@@ -7651,7 +7566,7 @@ impl World {
             events.push(WorldEvent::EnemyRewarded {
                 station,
                 who,
-                xp: self.rewards.xp_per_down,
+                xp: self.xp_per_down(),
                 money,
             });
         }
@@ -8443,7 +8358,6 @@ impl World {
     /// Seconds an EMP stuns for: the Q rank's [`class::EMP_STUN`].
     pub fn emp_stun(&self, who: u32) -> f32 {
         class::by_rank(class::EMP_STUN, self.rank_of(who, class::SLOT_Q)).unwrap_or(0.0)
-            * self.ability_length_factor(who) as f32
     }
 
     /// What an EMP throw asks, in the order the refusals are said: the
@@ -8544,11 +8458,9 @@ impl World {
         // (task 129): they lift whatever the crew member's own class gave
         // it, a player's own steered Bim included.
         self.lift_by_commanders(who, &mut skill);
-        // And a player's relics (feature 106), last: a share on top of
+        // And the crew's relics (feature 106), last: a share on top of
         // whatever the class and the commanders made of it.
         self.lift_by_relics(who, &mut skill);
-        // And task 118's, which read the crew round it as well.
-        self.lift_by_relic_hooks(who, &mut skill);
         // And its items (October 2026): a Steady Grip, a Long Barrel, an
         // Ablative Shell on.
         self.lift_by_items(who, &mut skill);
@@ -8566,17 +8478,10 @@ impl World {
     /// How long crew member `who` takes to revive a downed crewmate, in
     /// seconds (task 120): `bims::health::REVIVE_SECONDS` (ten) for
     /// anybody, [`class::MEDIC_REVIVE_SECONDS`] (four) for a medic — of the
-    /// class, a hired field medic or a Medivac's — and a *Trauma Kit* on it
-    /// [`data::TRAUMA_KIT_REVIVE_SECONDS`] quicker again, never under
-    /// [`data::REVIVE_FLOOR_SECONDS`].
+    /// class, a hired field medic or a Medivac's.
     pub fn revive_seconds(&self, who: u32) -> f32 {
         let medic = self.is_medic(who) || self.is_field_medic(who) || self.is_medivac(who);
-        let quicker = crate::relic::rule_of(self.relics_of(who), |r| match r {
-            crate::relic::Rule::QuickRevive { seconds } => Some(seconds),
-            _ => None,
-        })
-        .unwrap_or(0.0);
-        class::revive_time(medic, quicker)
+        class::revive_time(medic)
     }
 
     /// The soldier's half of [`World::skill_of`] (task 124), off its four
@@ -8766,8 +8671,7 @@ impl World {
         }
     }
 
-    /// The throw made now, with its event and the relics told of an
-    /// ability used.
+    /// The throw made now, with its event.
     fn throw_now(
         &mut self,
         slot: u32,
@@ -8782,7 +8686,6 @@ impl World {
             self.throw(slot, tile)?;
             events.push(WorldEvent::Thrown { who: slot });
         }
-        self.relic_trigger(slot, crate::relic::Trigger::AbilityUse, events);
         Ok(())
     }
 
@@ -8939,7 +8842,6 @@ impl World {
     /// before any extension ([`class::RAMPAGE_SECONDS`]).
     pub fn rampage_seconds(&self, who: u32) -> f64 {
         class::by_rank(class::RAMPAGE_SECONDS, self.rank_of(who, class::SLOT_R)).unwrap_or(0.0)
-            * self.ability_length_factor(who)
     }
 
     /// Seconds of the mission clock from one Rampage to the next:
@@ -9365,7 +9267,6 @@ impl World {
     /// rank ([`class::CLOAK_SECONDS`]); nought before the first.
     pub fn cloak_seconds(&self, medic: u32) -> f64 {
         class::by_rank(class::CLOAK_SECONDS, self.rank_of(medic, class::SLOT_R)).unwrap_or(0.0)
-            * self.ability_length_factor(medic)
     }
 
     /// Seconds of the mission clock between one cloak and the next:
@@ -9521,18 +9422,14 @@ impl World {
     }
 
     /// Which of the crew no enemy may pick now: a medic's cloak (task
-    /// 130) or a relic's *Signal Scrambler* (task 118). Empty while
-    /// neither is on anybody, so a fight without them hands over what it
-    /// always did.
+    /// 130). Empty while it is on nobody, so a fight without one hands
+    /// over what it always did.
     pub(crate) fn hidden_from_enemies(&self) -> Vec<bool> {
-        let unseen = self.unseen_by_machines();
         let crew = self.aboard.crew_count();
-        if unseen.is_empty() && !(0..crew).any(|who| self.is_cloaked(who)) {
+        if !(0..crew).any(|who| self.is_cloaked(who)) {
             return Vec::new();
         }
-        (0..crew)
-            .map(|who| unseen.get(who as usize).copied().unwrap_or(false) || self.is_cloaked(who))
-            .collect()
+        (0..crew).map(|who| self.is_cloaked(who)).collect()
     }
 
     /// Crew member `who` made a **field medic** with nothing else about
@@ -9807,9 +9704,6 @@ impl World {
                 who: revived.patient as u32,
                 by: revived.helper as u32,
             });
-            if self.any_relics() {
-                self.relics_on_a_revive(revived.helper, revived.patient, events);
-            }
         }
         // And a townsperson the crew's hands brought round on the joined
         // deck: up in its own room at the helper's share of the bar, and
@@ -10000,7 +9894,6 @@ impl World {
     /// [`class::TAUNT_SECONDS`], nought before the first.
     pub fn taunt_seconds(&self, who: u32) -> f64 {
         class::by_rank(class::TAUNT_SECONDS, self.rank_of(who, class::SLOT_Q)).unwrap_or(0.0)
-            * self.ability_length_factor(who)
     }
 
     /// How far a tank's taunt reaches, in tiles: its rank's
@@ -10079,7 +9972,6 @@ impl World {
     /// [`class::JUGGERNAUT_SECONDS`], nought before the first.
     pub fn juggernaut_seconds(&self, who: u32) -> f64 {
         class::by_rank(class::JUGGERNAUT_SECONDS, self.rank_of(who, class::SLOT_R)).unwrap_or(0.0)
-            * self.ability_length_factor(who)
     }
 
     /// Whether a crew member's Juggernaut is running.
@@ -10280,7 +10172,6 @@ impl World {
     /// ([`class::RALLY_SECONDS`]).
     pub fn rally_seconds(&self, who: u32) -> f64 {
         class::by_rank(class::RALLY_SECONDS, self.rank_of(who, class::SLOT_E)).unwrap_or(0.0)
-            * self.ability_length_factor(who)
     }
 
     /// Seconds of the mission clock between one Rally and the next:
@@ -10369,7 +10260,6 @@ impl World {
     /// rank ([`class::BATTLE_CRY_SECONDS`]).
     pub fn battle_cry_seconds(&self, who: u32) -> f64 {
         class::by_rank(class::BATTLE_CRY_SECONDS, self.rank_of(who, class::SLOT_Q)).unwrap_or(0.0)
-            * self.ability_length_factor(who)
     }
 
     /// Seconds of the mission clock between one Battle Cry and the next:
@@ -10977,7 +10867,6 @@ impl World {
         let crew = self.aboard.crew_count();
         let skills: Vec<bims::combat::Skill> = (0..crew).map(|who| self.skill_of(who)).collect();
         self.aboard.room.set_skills(skills);
-        self.hand_the_room_the_shield_fronts();
     }
 
     /// Which of the residents' bodies are the crew's enemies, as the

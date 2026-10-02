@@ -585,23 +585,18 @@ impl Session {
     /// wave of [`RELICS_WAVE`]** at the arena's own tier, short enough to
     /// finish — clear it, go back to the ship, and the reward screen
     /// offers the site's relics. The reinforcement clock is the dial's, so
-    /// a wave destroyed says it is the last at once.
+    /// a wave destroyed says it is the last at once. The arena is made an
+    /// **elite**, since only an elite's clear offers relics.
     pub fn relics(seed: u64, reinforce: f64, width: f32, height: f32) -> Session {
         let mut session = Session::combat(seed, width, height);
         if let Some(game) = session.game.as_mut() {
             game.world.set_droid_wave_for_probe(RELICS_WAVE);
+            if let Some(station) = game.world.ship.state.alongside() {
+                game.world.set_elite_for_probe(station);
+            }
         }
         session.infest_the_dock_for_probe(None, reinforce, 1);
         session
-    }
-
-    /// The run's relic pool (feature 106): the host's profile's unlocked
-    /// relics, set on every machine of a lobby from the same numbers
-    /// before the world's first step, and fixed for the run.
-    pub fn set_relic_pool(&mut self, pool: &[world::Relic]) {
-        if let Some(game) = self.game.as_mut() {
-            game.world.set_relic_pool(pool.to_vec());
-        }
     }
 
     /// `BIMS_ITEMS`: the steered Bim given these items at the start
@@ -613,12 +608,11 @@ impl Session {
         }
     }
 
-    /// `BIMS_RELICS`: the steered Bim given these relics at the start.
+    /// `BIMS_RELICS`: the crew given these relics at the start.
     pub fn give_relics_for_probe(&mut self, relics: &[world::Relic]) {
         if let Some(game) = self.game.as_mut() {
-            let local = game.local;
             for &relic in relics {
-                game.world.give_relic_for_probe(local, relic);
+                game.world.give_relic_for_probe(relic);
             }
         }
     }
@@ -645,39 +639,6 @@ impl Session {
         }
         game.world.leave_for_probe();
         game.world.choosing_reward()
-    }
-
-    /// `BIMS_CACHE=1` (feature 106): a relic cache on the research desk of
-    /// the site the crew are at, the player's own Bim stood beside it and
-    /// the cache opened — its one relic put to the crew in the mission.
-    /// `false` where the site is not the machines' or has no desk.
-    pub fn cache_for_probe(&mut self) -> bool {
-        let Some(game) = self.game.as_mut() else {
-            return false;
-        };
-        let local = game.local;
-        let world = &mut game.world;
-        let Some(station) = world.ship.state.alongside() else {
-            return false;
-        };
-        let Some(it) = world.infested.iter_mut().find(|it| it.station == station) else {
-            return false;
-        };
-        it.cache = true;
-        // A step for the station's room to be open with its desk on the
-        // deck, and the Bim put beside the desk.
-        world.step(&[]);
-        let Some(spot) = world.cache_spot() else {
-            return false;
-        };
-        world.aboard.room.put_for_probe(local as usize, spot);
-        let events = world.step(&[world::world::Command::OpenCache {
-            slot: local,
-            who: local,
-        }]);
-        events
-            .iter()
-            .any(|e| matches!(e, world::WorldEvent::CacheOpened { .. }))
     }
 
     /// The `heart` command (feature 108): [`Session::combat`]'s ship and

@@ -304,8 +304,7 @@ impl World {
     }
 
     /// The probes' dial: `station` of this system an elite whatever the
-    /// roll says — its waves, its Guardian and its relics. Before the
-    /// machines take it, for its cache to be rolled.
+    /// roll says — its waves, its Guardian and its relics.
     pub fn set_elite_for_probe(&mut self, station: u32) {
         self.elite_forced = Some(run::Site {
             star: self.star_id,

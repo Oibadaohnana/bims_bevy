@@ -37,8 +37,6 @@ pub struct Rewards {
     pub bounty_waits_for_clear: bool,
     /// What bringing a dead player's Bim back costs the pool.
     pub buyback: Money,
-    /// What a trader's relic costs, by the relic's tier.
-    pub relic_price: [Money; 3],
     /// What combining two things into one of the next tier costs.
     pub combine_fee: Money,
     /// A trader's shelf prices, in per cent of the trader's ask.
@@ -57,7 +55,6 @@ impl Rewards {
         defense_bounty_percent: data::DEFENSE_BOUNTY_PERCENT,
         bounty_waits_for_clear: true,
         buyback: data::BUYBACK_COST,
-        relic_price: data::RELIC_PRICE,
         combine_fee: data::COMBINE_FEE,
         shelf_price_percent: 100,
     };
@@ -75,12 +72,6 @@ impl Rewards {
     /// `amount` at a defence: its per cent, rounded down.
     pub fn at_defense(&self, amount: Money) -> Money {
         amount.saturating_mul(self.defense_bounty_percent as Money) / 100
-    }
-
-    /// A relic of tier `tier` (one to three), the dearest past them.
-    pub fn relic_price_of(&self, tier: u32) -> Money {
-        let at = (tier.max(1) as usize - 1).min(self.relic_price.len() - 1);
-        self.relic_price[at]
     }
 
     /// A shelf price scaled by its per cent, rounded down.
@@ -111,9 +102,6 @@ mod tests {
                     .unwrap_or(0)
             );
         }
-        assert_eq!(d.relic_price_of(1), data::RELIC_PRICE[0]);
-        assert_eq!(d.relic_price_of(3), data::RELIC_PRICE[2]);
-        assert_eq!(d.relic_price_of(9), data::RELIC_PRICE[2]);
         assert_eq!(d.shelf_price(1_234), 1_234);
         let tuned = Rewards {
             bounty: [10, 20, 30],

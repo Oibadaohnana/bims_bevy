@@ -197,9 +197,9 @@ fn draw_module(s: &mut Sketch, b: &Box_, kind: bims::module::ModuleKind) {
             );
         }
         // The three relics in item form keep their pictures.
-        ModuleKind::CoolantLoop => draw_relic(s, b, Relic::CoolantLoop),
-        ModuleKind::PressureSeal => draw_relic(s, b, Relic::PressureSeal),
-        ModuleKind::SteadyGrip => draw_relic(s, b, Relic::SteadyGrip),
+        ModuleKind::CoolantLoop => draw_pic(s, b, Pic::CoolantLoop),
+        ModuleKind::PressureSeal => draw_pic(s, b, Pic::PressureSeal),
+        ModuleKind::SteadyGrip => draw_pic(s, b, Pic::SteadyGrip),
         // A long barrel, its muzzle, and the reach beyond it.
         ModuleKind::LongBarrel => {
             s.rect_filled(b.rect(0.04, 0.44, 0.30, 0.62), b.px(0.03), STOCK);
@@ -483,12 +483,9 @@ fn draw_resource(s: &mut Sketch, b: &Box_, id: ResourceId) {
 // --- the relics (task 136) -------------------------------------------------------
 
 // A relic is a little plate with a picture on it, the plate's rim in the
-// colour of its family (the first twelve, then task 118's five patches),
-// so a Bim's row of them says at a glance what kind of help it carries.
-// The tier is never shown (`world::relic`), and the rims are no tier's
-// colours.
+// colour of its family, so the crew's row of them says at a glance what
+// kind of help they carry. The rims are no tier's colours.
 const PLATE: Color32 = Color32::from_rgb(0x14, 0x1b, 0x18);
-const RIM_CORE: Color32 = Color32::from_rgb(0x9a, 0xa8, 0xb8);
 const RIM_DISMANTLER: Color32 = Color32::from_rgb(0xe8, 0x84, 0x3c);
 const RIM_LIFELINE: Color32 = HEAL;
 const RIM_FLANKER: Color32 = Color32::from_rgb(0xb4, 0x82, 0xf0);
@@ -512,22 +509,18 @@ const FAN: Color32 = Color32::from_rgba_premultiplied(0x30, 0x24, 0x48, 0x70);
 const CONE: Color32 = Color32::from_rgba_premultiplied(0x58, 0x16, 0x10, 0x70);
 const LID: Color32 = Color32::from_rgb(0x96, 0x68, 0x3a);
 
-/// Which family a relic is, as its plate's rim: the app's grouping, as
-/// `names::relic_line` lists them, since the rules keep none.
+/// Which family a relic is, as its plate's rim — the app's grouping by
+/// what its boon is, since the rules keep none: the gun (orange), the
+/// body (green), the pace and the trigger (violet), the crew (blue), the
+/// money (gold).
 fn relic_rim(relic: Relic) -> Color32 {
     use Relic::*;
     match relic {
-        FocusingLens | ServoBraces | FieldPlating | CoolantLoop | SteadyGrip | TraumaKit
-        | SecondWind | SalvageBeacon | OverchargeCell | LastStand | KillRelay | PhaseHarness => {
-            RIM_CORE
-        }
-        MarksmansHabit | ServoCutter | CripplersMark | PartsBroker | TotalTeardown => {
-            RIM_DISMANTLER
-        }
-        PressureSeal | QuickWrap | ClotBooster | TetherField | Lifeline => RIM_LIFELINE,
-        BlindSpot | SprintCoil | SignalScrambler | WideAngleOptics | Crossfire => RIM_FLANKER,
-        FieldRadio | Spotter | SquadMorale | CoverFormation | RallyPoint => RIM_COMMAND,
-        HazardPay | TradeLicense | RestockCodes | StrongWill | WarChest => RIM_SUPPLY,
+        GlassCannon | SalvageBurn => RIM_DISMANTLER,
+        HeavyPlating | NaniteMesh => RIM_LIFELINE,
+        HairTrigger | Adrenaline | LoneWolves => RIM_FLANKER,
+        DrillSergeant | OverclockedCores => RIM_COMMAND,
+        BountyContract | BlackMarket | HuntersPact => RIM_SUPPLY,
     }
 }
 
@@ -545,16 +538,82 @@ pub fn relic(painter: &egui::Painter, rect: Rect, relic: Relic) {
         egui::StrokeKind::Inside,
     );
     let b = Box_::new(plate.rect(0.13, 0.13, 0.87, 0.87));
-    draw_relic(&mut s, &b, relic);
+    draw_pic(&mut s, &b, pic_of(relic));
     painter.extend(s.shapes);
 }
 
-/// One relic's picture, drawn in fractions of the plate's inside.
-fn draw_relic(s: &mut Sketch, b: &Box_, relic: Relic) {
-    let st = |width: f32, colour: Color32| Stroke::new(b.px(width), colour);
+/// The plates' pictures: one a relic of the first set (features 106 and
+/// 118), kept when those relics went (October 2026) for the new ones and
+/// the items that were relics to wear ([`pic_of`]); the rest are kept for
+/// the relics to come.
+#[derive(Clone, Copy)]
+#[allow(dead_code)]
+enum Pic {
+    FocusingLens,
+    ServoBraces,
+    FieldPlating,
+    CoolantLoop,
+    SteadyGrip,
+    TraumaKit,
+    SecondWind,
+    SalvageBeacon,
+    OverchargeCell,
+    LastStand,
+    KillRelay,
+    PhaseHarness,
+    MarksmansHabit,
+    ServoCutter,
+    CripplersMark,
+    PressureSeal,
+    QuickWrap,
+    ClotBooster,
+    BlindSpot,
+    SprintCoil,
+    SignalScrambler,
+    FieldRadio,
+    Spotter,
+    SquadMorale,
+    HazardPay,
+    TradeLicense,
+    RestockCodes,
+    PartsBroker,
+    TetherField,
+    WideAngleOptics,
+    CoverFormation,
+    StrongWill,
+    TotalTeardown,
+    Lifeline,
+    Crossfire,
+    RallyPoint,
+    WarChest,
+}
+
+/// The picture a relic wears: one of the first set's, the nearest to
+/// what its boon is.
+fn pic_of(relic: Relic) -> Pic {
     match relic {
+        Relic::GlassCannon => Pic::OverchargeCell,
+        Relic::HeavyPlating => Pic::FieldPlating,
+        Relic::HairTrigger => Pic::Crossfire,
+        Relic::OverclockedCores => Pic::KillRelay,
+        Relic::BountyContract => Pic::SalvageBeacon,
+        Relic::HuntersPact => Pic::Spotter,
+        Relic::DrillSergeant => Pic::SquadMorale,
+        Relic::LoneWolves => Pic::LastStand,
+        Relic::BlackMarket => Pic::TradeLicense,
+        Relic::Adrenaline => Pic::SprintCoil,
+        Relic::SalvageBurn => Pic::PartsBroker,
+        Relic::NaniteMesh => Pic::ClotBooster,
+    }
+}
+
+/// One picture, drawn in fractions of the plate's inside.
+#[allow(clippy::match_same_arms)]
+fn draw_pic(s: &mut Sketch, b: &Box_, pic: Pic) {
+    let st = |width: f32, colour: Color32| Stroke::new(b.px(width), colour);
+    match pic {
         // A lens, and the light it gathers drawn to a point.
-        Relic::FocusingLens => {
+        Pic::FocusingLens => {
             for y in [0.30, 0.50, 0.70] {
                 s.line_segment([b.at(0.02, y), b.at(0.34, y)], st(0.04, LENS));
             }
@@ -566,7 +625,7 @@ fn draw_relic(s: &mut Sketch, b: &Box_, relic: Relic) {
             s.circle_filled(b.at(0.92, 0.50), b.px(0.07), BEAM);
         }
         // A leg in a brace, bent at a powered knee, and the speed behind it.
-        Relic::ServoBraces => {
+        Pic::ServoBraces => {
             for (y, x) in [(0.30, 0.10), (0.50, 0.02), (0.70, 0.12)] {
                 s.line_segment([b.at(x, y), b.at(x + 0.24, y)], st(0.04, LENS));
             }
@@ -577,7 +636,7 @@ fn draw_relic(s: &mut Sketch, b: &Box_, relic: Relic) {
             s.circle_filled(b.at(0.64, 0.48), b.px(0.05), GUN_LIGHT);
         }
         // A plate shield, riveted.
-        Relic::FieldPlating => {
+        Pic::FieldPlating => {
             s.fill(
                 b.poly(&[
                     (0.50, 0.04),
@@ -606,7 +665,7 @@ fn draw_relic(s: &mut Sketch, b: &Box_, relic: Relic) {
             }
         }
         // A loop of pipe with the coolant going round it, and a drop.
-        Relic::CoolantLoop => {
+        Pic::CoolantLoop => {
             s.path(b.arc(0.50, 0.52, 0.34, -60.0, 250.0), st(0.10, EMP_BAND));
             s.fill(
                 b.poly(&[(0.36, 0.09), (0.56, 0.14), (0.42, 0.31)]),
@@ -616,7 +675,7 @@ fn draw_relic(s: &mut Sketch, b: &Box_, relic: Relic) {
             s.fill(b.poly(&[(0.50, 0.34), (0.62, 0.60), (0.38, 0.60)]), LENS);
         }
         // A sight, dead still on its mark.
-        Relic::SteadyGrip => {
+        Pic::SteadyGrip => {
             s.circle_stroke(b.at(0.5, 0.5), b.px(0.30), st(0.07, SIGHT));
             for (a, z) in [((0.5, 0.02), (0.5, 0.30)), ((0.5, 0.70), (0.5, 0.98))] {
                 s.line_segment([b.at(a.0, a.1), b.at(z.0, z.1)], st(0.06, SIGHT));
@@ -625,7 +684,7 @@ fn draw_relic(s: &mut Sketch, b: &Box_, relic: Relic) {
             s.circle_filled(b.at(0.5, 0.5), b.px(0.07), EYE);
         }
         // The medkit, and a clock's face: the revive done sooner.
-        Relic::TraumaKit => {
+        Pic::TraumaKit => {
             draw_resource(s, b, ResourceId::Medkit);
             s.circle_filled(b.at(0.78, 0.76), b.px(0.20), GUN_DARK);
             s.circle_stroke(b.at(0.78, 0.76), b.px(0.20), st(0.04, MEDKIT));
@@ -633,7 +692,7 @@ fn draw_relic(s: &mut Sketch, b: &Box_, relic: Relic) {
             s.line_segment([b.at(0.78, 0.76), b.at(0.88, 0.76)], st(0.04, MEDKIT));
         }
         // A heart, and the arrow up: back on its feet.
-        Relic::SecondWind => {
+        Pic::SecondWind => {
             s.circle_filled(b.at(0.34, 0.38), b.px(0.19), CROSS);
             s.circle_filled(b.at(0.66, 0.38), b.px(0.19), CROSS);
             s.fill(b.poly(&[(0.155, 0.44), (0.845, 0.44), (0.50, 0.90)]), CROSS);
@@ -643,7 +702,7 @@ fn draw_relic(s: &mut Sketch, b: &Box_, relic: Relic) {
             );
         }
         // A beacon on its mast, calling.
-        Relic::SalvageBeacon => {
+        Pic::SalvageBeacon => {
             s.fill(
                 b.poly(&[(0.40, 0.94), (0.60, 0.94), (0.53, 0.40), (0.47, 0.40)]),
                 GUN_STEEL,
@@ -655,7 +714,7 @@ fn draw_relic(s: &mut Sketch, b: &Box_, relic: Relic) {
             }
         }
         // A cell with a bolt on it.
-        Relic::OverchargeCell => {
+        Pic::OverchargeCell => {
             s.rect_filled(b.rect(0.40, 0.04, 0.60, 0.16), b.px(0.03), GUN_STEEL);
             s.rect_filled(b.rect(0.22, 0.14, 0.78, 0.96), b.px(0.08), GUN_DARK);
             s.rect_stroke(
@@ -674,7 +733,7 @@ fn draw_relic(s: &mut Sketch, b: &Box_, relic: Relic) {
             );
         }
         // A blade held up, edged in red: fighting on with somebody down.
-        Relic::LastStand => {
+        Pic::LastStand => {
             s.fill(
                 b.poly(&[
                     (0.44, 0.64),
@@ -701,7 +760,7 @@ fn draw_relic(s: &mut Sketch, b: &Box_, relic: Relic) {
         }
         // An hourglass, and a machine's eye struck out beside it: a kill
         // is time back.
-        Relic::KillRelay => {
+        Pic::KillRelay => {
             s.rect_filled(b.rect(0.08, 0.06, 0.60, 0.14), b.px(0.02), STOCK);
             s.rect_filled(b.rect(0.08, 0.86, 0.60, 0.94), b.px(0.02), STOCK);
             s.fill(b.poly(&[(0.14, 0.14), (0.54, 0.14), (0.34, 0.50)]), SHINE);
@@ -714,21 +773,21 @@ fn draw_relic(s: &mut Sketch, b: &Box_, relic: Relic) {
             s.line_segment([b.at(0.94, 0.36), b.at(0.66, 0.64)], st(0.06, MEDKIT));
         }
         // A Bim with its ghost behind it, in a ring of light.
-        Relic::PhaseHarness => {
+        Pic::PhaseHarness => {
             s.circle_filled(b.at(0.64, 0.38), b.px(0.24), PHASE_GHOST);
             s.circle_filled(b.at(0.42, 0.58), b.px(0.24), PHASE);
             s.circle_filled(b.at(0.42, 0.58), b.px(0.12), SHINE);
             s.circle_stroke(b.at(0.42, 0.58), b.px(0.36), st(0.05, PHASE));
         }
         // A machine, and the sight on its leg.
-        Relic::MarksmansHabit => {
+        Pic::MarksmansHabit => {
             machine(s, b, [true, true], true);
             s.circle_stroke(b.at(0.62, 0.78), b.px(0.15), st(0.05, EYE));
             s.line_segment([b.at(0.62, 0.58), b.at(0.62, 0.98)], st(0.04, EYE));
             s.line_segment([b.at(0.42, 0.78), b.at(0.82, 0.78)], st(0.04, EYE));
         }
         // A saw blade.
-        Relic::ServoCutter => {
+        Pic::ServoCutter => {
             for i in 0..10 {
                 let a = i as f32 * 36.0;
                 let (x0, y0) = polar(0.30, a - 14.0);
@@ -741,7 +800,7 @@ fn draw_relic(s: &mut Sketch, b: &Box_, relic: Relic) {
             s.circle_filled(b.at(0.5, 0.5), b.px(0.09), GUN_DARK);
         }
         // A machine down a leg, sparking, marked.
-        Relic::CripplersMark => {
+        Pic::CripplersMark => {
             machine(s, b, [true, false], true);
             for (x, y) in [(0.62, 0.84), (0.74, 0.76), (0.54, 0.88)] {
                 s.line_segment([b.at(0.60, 0.66), b.at(x, y)], st(0.035, BEAM));
@@ -749,7 +808,7 @@ fn draw_relic(s: &mut Sketch, b: &Box_, relic: Relic) {
             s.circle_stroke(b.at(0.50, 0.46), b.px(0.10), st(0.05, EYE));
         }
         // A gauge with its needle in the green.
-        Relic::PressureSeal => {
+        Pic::PressureSeal => {
             s.circle_filled(b.at(0.5, 0.5), b.px(0.44), GUN_DARK);
             s.circle_stroke(b.at(0.5, 0.5), b.px(0.44), st(0.06, GUN_STEEL));
             s.path(b.arc(0.5, 0.5, 0.32, 150.0, 390.0), st(0.04, GUN_STEEL));
@@ -760,7 +819,7 @@ fn draw_relic(s: &mut Sketch, b: &Box_, relic: Relic) {
             s.rect_filled(b.rect(0.40, 0.70, 0.60, 0.78), 0.0, HEAL);
         }
         // A roll of dressing and a green cross.
-        Relic::QuickWrap => {
+        Pic::QuickWrap => {
             s.rect_filled(b.rect(0.08, 0.50, 0.84, 0.74), b.px(0.08), BANDAGE);
             s.circle_filled(b.at(0.28, 0.62), b.px(0.22), BANDAGE);
             s.circle_stroke(b.at(0.28, 0.62), b.px(0.11), st(0.04, SHADE));
@@ -768,7 +827,7 @@ fn draw_relic(s: &mut Sketch, b: &Box_, relic: Relic) {
             s.rect_filled(b.rect(0.53, 0.15, 0.89, 0.29), 0.0, HEAL);
         }
         // A syringe.
-        Relic::ClotBooster => {
+        Pic::ClotBooster => {
             s.fill(
                 b.poly(&[(0.17, 0.69), (0.63, 0.23), (0.77, 0.37), (0.31, 0.83)]),
                 LENS,
@@ -783,7 +842,7 @@ fn draw_relic(s: &mut Sketch, b: &Box_, relic: Relic) {
             s.line_segment([b.at(0.10, 0.62), b.at(0.38, 0.90)], st(0.05, GUN_STEEL));
         }
         // Two Bims tied together, the one brought round under a dome.
-        Relic::TetherField => {
+        Pic::TetherField => {
             s.path(
                 b.poly(&[(0.38, 0.66), (0.45, 0.60), (0.52, 0.72), (0.58, 0.66)]),
                 st(0.04, HEAL),
@@ -793,7 +852,7 @@ fn draw_relic(s: &mut Sketch, b: &Box_, relic: Relic) {
             s.path(b.arc(0.74, 0.70, 0.28, 180.0, 360.0), st(0.06, HEAL));
         }
         // A heartbeat.
-        Relic::Lifeline => {
+        Pic::Lifeline => {
             s.path(
                 b.poly(&[
                     (0.00, 0.56),
@@ -810,7 +869,7 @@ fn draw_relic(s: &mut Sketch, b: &Box_, relic: Relic) {
         }
         // A machine from above, its sight down the front, and the shot
         // coming into its back.
-        Relic::BlindSpot => {
+        Pic::BlindSpot => {
             s.fill(b.poly(&[(0.62, 0.50), (1.00, 0.24), (1.00, 0.76)]), CONE);
             s.circle_filled(b.at(0.58, 0.50), b.px(0.18), MACHINE);
             s.circle_filled(b.at(0.70, 0.50), b.px(0.05), EYE);
@@ -821,7 +880,7 @@ fn draw_relic(s: &mut Sketch, b: &Box_, relic: Relic) {
             );
         }
         // A spring, and the speed behind it.
-        Relic::SprintCoil => {
+        Pic::SprintCoil => {
             for (y, x) in [(0.30, 0.04), (0.50, 0.00), (0.70, 0.06)] {
                 s.line_segment([b.at(x, y), b.at(x + 0.20, y)], st(0.04, LENS));
             }
@@ -840,7 +899,7 @@ fn draw_relic(s: &mut Sketch, b: &Box_, relic: Relic) {
             );
         }
         // A machine's mast, its signal struck through.
-        Relic::SignalScrambler => {
+        Pic::SignalScrambler => {
             s.line_segment([b.at(0.30, 0.96), b.at(0.30, 0.40)], st(0.07, GUN_STEEL));
             s.circle_filled(b.at(0.30, 0.36), b.px(0.08), EYE);
             for r in [0.22, 0.38] {
@@ -849,7 +908,7 @@ fn draw_relic(s: &mut Sketch, b: &Box_, relic: Relic) {
             s.line_segment([b.at(0.36, 0.86), b.at(0.94, 0.10)], st(0.07, EYE));
         }
         // A lens, and the wide fan it takes in.
-        Relic::WideAngleOptics => {
+        Pic::WideAngleOptics => {
             let mut fan = vec![b.at(0.50, 0.84)];
             fan.extend(b.arc(0.50, 0.84, 0.54, 205.0, 335.0));
             s.fill(fan, FAN);
@@ -859,7 +918,7 @@ fn draw_relic(s: &mut Sketch, b: &Box_, relic: Relic) {
             s.circle_filled(b.at(0.50, 0.84), b.px(0.07), LENS);
         }
         // Two shots from either side meeting in one machine.
-        Relic::Crossfire => {
+        Pic::Crossfire => {
             s.circle_filled(b.at(0.50, 0.50), b.px(0.16), MACHINE);
             s.circle_filled(b.at(0.50, 0.50), b.px(0.05), EYE);
             s.line_segment([b.at(0.00, 0.50), b.at(0.24, 0.50)], st(0.06, KEY_TRACE));
@@ -874,7 +933,7 @@ fn draw_relic(s: &mut Sketch, b: &Box_, relic: Relic) {
             );
         }
         // A handset with its aerial, talking.
-        Relic::FieldRadio => {
+        Pic::FieldRadio => {
             s.rect_filled(b.rect(0.56, 0.04, 0.64, 0.30), b.px(0.02), GUN_DARK);
             s.rect_filled(b.rect(0.28, 0.26, 0.68, 0.96), b.px(0.07), GUN);
             s.rect_filled(b.rect(0.35, 0.34, 0.61, 0.48), b.px(0.02), LENS);
@@ -886,7 +945,7 @@ fn draw_relic(s: &mut Sketch, b: &Box_, relic: Relic) {
             }
         }
         // Field glasses.
-        Relic::Spotter => {
+        Pic::Spotter => {
             s.rect_filled(b.rect(0.08, 0.24, 0.44, 0.84), b.px(0.10), GUN);
             s.rect_filled(b.rect(0.56, 0.24, 0.92, 0.84), b.px(0.10), GUN);
             s.rect_filled(b.rect(0.40, 0.36, 0.60, 0.54), b.px(0.02), GUN_DARK);
@@ -896,7 +955,7 @@ fn draw_relic(s: &mut Sketch, b: &Box_, relic: Relic) {
             s.circle_filled(b.at(0.70, 0.68), b.px(0.04), SHINE);
         }
         // A sergeant's three stripes.
-        Relic::SquadMorale => {
+        Pic::SquadMorale => {
             for dy in [0.0, 0.24, 0.48] {
                 s.path(
                     b.poly(&[(0.14, 0.34 + dy), (0.50, 0.10 + dy), (0.86, 0.34 + dy)]),
@@ -905,7 +964,7 @@ fn draw_relic(s: &mut Sketch, b: &Box_, relic: Relic) {
             }
         }
         // Three bots under one shield.
-        Relic::CoverFormation => {
+        Pic::CoverFormation => {
             for (x, y) in [(0.20, 0.76), (0.50, 0.82), (0.80, 0.76)] {
                 s.circle_filled(b.at(x, y), b.px(0.12), CRATE);
                 s.circle_filled(b.at(x, y), b.px(0.04), GUN_LIGHT);
@@ -913,7 +972,7 @@ fn draw_relic(s: &mut Sketch, b: &Box_, relic: Relic) {
             s.path(b.arc(0.50, 0.96, 0.62, 212.0, 328.0), st(0.11, RIM_COMMAND));
         }
         // A flag planted, and the arrow up: on your feet.
-        Relic::RallyPoint => {
+        Pic::RallyPoint => {
             s.rect_filled(b.rect(0.10, 0.88, 0.40, 0.96), b.px(0.02), GUN_STEEL);
             s.line_segment([b.at(0.25, 0.04), b.at(0.25, 0.90)], st(0.06, GUN_STEEL));
             s.fill(
@@ -926,7 +985,7 @@ fn draw_relic(s: &mut Sketch, b: &Box_, relic: Relic) {
             );
         }
         // A warning sign, and a coin for going in anyway.
-        Relic::HazardPay => {
+        Pic::HazardPay => {
             s.fill(
                 b.poly(&[(0.38, 0.04), (0.74, 0.66), (0.02, 0.66)]),
                 FUSE_CAP,
@@ -936,7 +995,7 @@ fn draw_relic(s: &mut Sketch, b: &Box_, relic: Relic) {
             coin(s, b, 0.70, 0.72, 0.24);
         }
         // A paper with a seal on it.
-        Relic::TradeLicense => {
+        Pic::TradeLicense => {
             s.rect_filled(b.rect(0.16, 0.04, 0.78, 0.94), b.px(0.03), TOFU);
             for y in [0.20, 0.32, 0.44, 0.56] {
                 s.line_segment([b.at(0.26, y), b.at(0.68, y)], st(0.035, GUN_STEEL));
@@ -945,7 +1004,7 @@ fn draw_relic(s: &mut Sketch, b: &Box_, relic: Relic) {
             s.circle_stroke(b.at(0.70, 0.78), b.px(0.11), st(0.03, TOFU));
         }
         // A crate, and the arrow round it: again.
-        Relic::RestockCodes => {
+        Pic::RestockCodes => {
             s.rect_filled(b.rect(0.20, 0.42, 0.80, 0.92), b.px(0.04), STOCK);
             s.rect_filled(b.rect(0.20, 0.42, 0.80, 0.52), b.px(0.03), SACK_DARK);
             s.line_segment([b.at(0.50, 0.52), b.at(0.50, 0.92)], st(0.04, SACK_DARK));
@@ -956,7 +1015,7 @@ fn draw_relic(s: &mut Sketch, b: &Box_, relic: Relic) {
             );
         }
         // A gear, and the coin it fetches.
-        Relic::PartsBroker => {
+        Pic::PartsBroker => {
             for i in 0..8 {
                 let a = i as f32 * 45.0;
                 let (x0, y0) = polar_at(0.40, 0.40, 0.24, a - 13.0);
@@ -970,7 +1029,7 @@ fn draw_relic(s: &mut Sketch, b: &Box_, relic: Relic) {
             coin(s, b, 0.72, 0.74, 0.22);
         }
         // An hourglass with its sand held high: an ability that lasts.
-        Relic::StrongWill => {
+        Pic::StrongWill => {
             s.rect_filled(b.rect(0.20, 0.06, 0.80, 0.15), b.px(0.02), GUN_STEEL);
             s.rect_filled(b.rect(0.20, 0.85, 0.80, 0.94), b.px(0.02), GUN_STEEL);
             s.fill(b.poly(&[(0.27, 0.15), (0.73, 0.15), (0.50, 0.50)]), LENS);
@@ -986,7 +1045,7 @@ fn draw_relic(s: &mut Sketch, b: &Box_, relic: Relic) {
             s.line_segment([b.at(0.50, 0.50), b.at(0.50, 0.72)], st(0.02, KEY_TRACE));
         }
         // A machine down a leg with its chassis cracked through.
-        Relic::TotalTeardown => {
+        Pic::TotalTeardown => {
             machine(s, b, [false, true], false);
             s.path(
                 b.poly(&[
@@ -1004,7 +1063,7 @@ fn draw_relic(s: &mut Sketch, b: &Box_, relic: Relic) {
             }
         }
         // A strongbox, banded and locked.
-        Relic::WarChest => {
+        Pic::WarChest => {
             s.rect_filled(b.rect(0.08, 0.40, 0.92, 0.88), b.px(0.04), STOCK);
             s.rect_filled(b.rect(0.08, 0.18, 0.92, 0.40), b.px(0.10), LID);
             s.line_segment([b.at(0.08, 0.40), b.at(0.92, 0.40)], st(0.03, GOLD_DARK));
@@ -1294,7 +1353,7 @@ mod tests {
             .iter()
             .map(|&r| {
                 let mut s = Sketch::default();
-                draw_relic(&mut s, &Box_::new(rect), r);
+                draw_pic(&mut s, &Box_::new(rect), pic_of(r));
                 assert!(!s.shapes.is_empty(), "{r:?} draws nothing");
                 format!("{:?}", s.shapes)
             })

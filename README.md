@@ -84,7 +84,7 @@ What a run is, from the lobby to the end of it.
   and it goes on gear, on hands for hire and on buying the dead back.
   The workbench and the drug lab work as they always did; research is
   gone, and **relics** are what a run collects instead — see
-  [Relics](#relics-and-what-a-won-run-unlocks).
+  [Relics](#relics).
 - **Nobody eats, sleeps or goes to the heads.** The bunks, the galley,
   the heads, the shower, the hydroponic bay and the cold store are
   **furniture**: drawn as they always were, in the way of a walk as they
@@ -186,7 +186,7 @@ there is no helm to stand at and no trip to sit through.
   are lost with the body, but its class, level, experience and talents are
   kept. A player's Bim that dies is out for the rest of the mission and
   **comes back when the mission ends**, aboard, **with everything it
-  wore** — its gun, its armour, its relics, its class and level — and the
+  wore** — its gun, its armour, its class and level — and the
   pool pays **5 000** for it, or what it holds if that is less: a Bim
   never waits for money, and the pool never goes below nought. Gear is
   never lost. A bot that dies or is left behind — a hired hand, a
@@ -196,144 +196,59 @@ there is no helm to stand at and no trip to sit through.
   so, with the day, and its *Start again* puts the run back to where it
   opened.
 
-## Relics, and what a won run unlocks
+## Relics
 
-Research is gone from the game (feature 106): no desk carries a key, the
-ship's AI researches nothing, and the workbench upgrades gear from the
-first day. What a crew collects over a run instead is **relics** —
-passive items, in the manner of Slay the Spire, each held by **one
-player's Bim** for the rest of the run. A bot never holds one.
+Research is gone from the game (feature 106): no desk carries a key, and
+the workbench upgrades gear from the first day. What a crew collects over
+a run instead is **relics** — and since October 2026 a relic is **the
+whole crew's**, not one Bim's, and **every relic has a price**. Items are
+what a Bim carries; a relic changes how the run plays.
 
-- **What one does.** Every relic has a name and one effect, and the
-  character sheet (**K**) lists the ones the Bim holds, under its gear —
-  never a tier: the tier in the table is how rare a relic is (the odds of
-  drawing it and its price at a trader) and the game does not show it —
-  they are not shown on the deck. The first twelve are:
+- **Only an elite pays one.** Beating an **elite** — a crowned site, one
+  system in ten — offers **three relics** on the reward screen, after the
+  departure check and before the map. Nothing else drops one: no trader
+  sells them and no site hides a cache.
+- **Chosen together, or not at all.** The world map's vote over again:
+  any player picks a relic — or **Take none** — and proposes; every player
+  still at the keyboard says yes; a new proposal clears every yes. Taking
+  none is a fair choice: every relic costs something.
+- **Kept, and no cap.** A relic taken is the crew's for the rest of the
+  run, and is never offered again. The crew may hold as many as they take.
+- **What each does.** A relic works on everybody it names — every Bim,
+  the players' own, or the bots (every crew member no player steers:
+  bots, hired hands, townsfolk who joined, a commander's reinforcements).
+  The reward window and the character sheet (**K**) show each boon in
+  green and its price in red. None slows a revive or cuts the healing,
+  so the medic and the Medivac keep their worth. The numbers are
+  placeholders, not balanced:
 
-  | tier | relic | what it does | in a new profile |
-  | --- | --- | --- | --- |
-  | 1 | Focusing Lens | +10% weapon damage | yes |
-  | 1 | Servo Braces | +10% move speed | yes |
-  | 1 | Field Plating | +10% armour | yes |
-  | 1 | ~~Coolant Loop~~ | an [item](#items) since October 2026 | — |
-  | 1 | ~~Steady Grip~~ | an [item](#items) since October 2026 | — |
-  | 1 | Trauma Kit | the Bim's revives take 2 s less (never under 1 s) | unlocked by a win |
-  | 2 | Second Wind | the first time the Bim goes down in a mission, it gets up 5 s later with 25% health | yes |
-  | 2 | Salvage Beacon | +20% bounty for the Bim's own kills, paid on the clear like any bounty | yes |
-  | 2 | Overcharge Cell | every fifth shot does double damage | unlocked by a win |
-  | 3 | Last Stand | +25% weapon damage while another player's Bim is down | yes |
-  | 3 | Kill Relay | each kill takes three seconds off the Bim's class cooldowns | yes |
-  | 3 | Phase Harness | once a mission, when a hit takes the Bim under 25% health, nothing hurts it for 2 s | unlocked by a win |
+  | relic | what it gives | what it costs |
+  | --- | --- | --- |
+  | Glass Cannon | +30% weapon damage for everybody | +25% damage taken for everybody |
+  | Heavy Plating | -25% damage taken for everybody | -20% move speed for everybody |
+  | Hair Trigger | +35% fire rate for everybody | +30% class ability cooldowns |
+  | Overclocked Cores | -35% class ability cooldowns | -20% weapon damage for everybody |
+  | Bounty Contract | +100% money for every enemy down | -20% damage to machines |
+  | Hunter's Pact | +50% experience for every enemy down | +25% machines in every wave |
+  | Drill Sergeant | the bots: +50% weapon damage, -30% damage taken | -20% weapon damage for the players' Bims |
+  | Lone Wolves | the players' Bims: +35% weapon damage, +15% move speed | -50% weapon damage for the bots |
+  | Black Market | -40% trader prices | -30% money for every enemy down |
+  | Adrenaline | +30% move speed for everybody | +15% damage taken for everybody |
+  | Salvage Burn | +40% damage to machines | -40% money for every enemy down |
+  | Nanite Mesh | +2 HP a second for everybody on their feet | -15% weapon damage for everybody |
 
-  There are no bandages or medkits since task 120, so *Trauma Kit* is
-  about the revive, and the two Lifeline relics that fired on a dressing
-  fire on a revive.
-
-  And **five patches of five** (task 118), each built round one way to
-  fight — the numbers are placeholders, not balanced. "From the side or
-  behind" is outside the front arc a Guardian's shield covers (sixty
-  degrees each side), for every machine; a crewmate is any crew member,
-  bots included.
-
-  | tier | relic | what it does | in a new profile |
-  | --- | --- | --- | --- |
-  | | **Dismantler** — strip a machine's limbs, then punish it | | |
-  | 1 | Marksman's Habit | the Bim's first hit on each machine lands on its arms or legs | yes |
-  | 1 | Servo Cutter | +25% damage to a machine's arms and legs | yes |
-  | 2 | Crippler's Mark | +20% damage to machines missing their arms or legs | yes |
-  | 2 | Parts Broker | +50% bounty for machines the Bim destroys while they are missing a limb | unlocked by a win |
-  | 3 | Total Teardown | a hit on a limb already destroyed tears into the chassis for double damage | unlocked by a win |
-  | | **Lifeline** — surviving being downed, and keeping each other up | | |
-  | 1 | ~~Pressure Seal~~ | an [item](#items) since October 2026 | — |
-  | 1 | Quick Wrap | every crewmate the Bim revives also heals 10 HP | yes |
-  | 2 | Clot Booster | revived within 15 s of going down, the Bim heals 2 HP a second for what is left of them | yes |
-  | 2 | Tether Field | a crewmate the Bim revives takes 25% less damage for 6 s | unlocked by a win |
-  | 3 | Lifeline | once a mission, when a crewmate within 4 tiles goes down, both are untouchable for 3 s | unlocked by a win |
-  | | **Flanker** — get round the machine, hit it where it is not looking | | |
-  | 1 | Blind Spot | +15% damage on hits from the side or behind | yes |
-  | 1 | Sprint Coil | +20% move speed for 3 s at a mission's start and after each ability used | yes |
-  | 2 | Signal Scrambler | after the Bim destroys a machine from the side or behind, no machine aims at it for 5 s; once every 20 s | yes |
-  | 2 | Wide Angle Optics | the Bim's side-or-behind zone is 30° wider each side, and a Guardian's shield that much narrower against its shots | unlocked by a win |
-  | 3 | Crossfire | while the Bim and a crewmate stand on opposite sides of a machine (over 120° apart, within 12 tiles), both do +40% damage to it | unlocked by a win |
-  | | **Command Net** — leading the crew; anybody may carry it | | |
-  | 1 | Field Radio | crewmates within 5 tiles fire 7% faster | yes |
-  | 1 | Spotter | the machine the Bim hit last takes +10% damage from every crewmate for 3 s | yes |
-  | 2 | Squad Morale | each machine the Bim or a bot destroys takes 1 s off the Bim's class cooldowns (with Kill Relay, 4 s for its own) | yes |
-  | 2 | Cover Formation | bots within 3 tiles take 20% less damage | unlocked by a win |
-  | 3 | Rally Point | once a mission, using an ability gets every downed crewmate within 4 tiles back up at 20% health | unlocked by a win |
-  | | **Supply Line** — money, traders and time, for the whole crew | | |
-  | 1 | Hazard Pay | +€500 to the pool each time a site is cleared | yes |
-  | 1 | Trade License | trader prices 15% lower — the shelf and the relic | yes |
-  | 2 | Restock Codes | once a trader visit, **Restock the shelf** rolls its weapons and armour again; never the relic | yes |
-  | 2 | Scrap Collector | +€100 for each machine the Bim destroys, paid when the site is cleared | unlocked by a win |
-  | 3 | War Chest | +2% damage for every €1 000 in the pool a player, up to +20% | unlocked by a win |
-
-  `BIMS_RELICS=blind_spot,marksmans_habit` gives the steered Bim those
-  relics at the start of any run, to look at one (an apostrophe in a name
-  may be left out).
-- **Kept.** A relic cannot be moved to another Bim, dropped or sold, and a
-  player's Bim that dies keeps its relics as it keeps its level; they come
-  back with it at the mission's end.
-- **A clear pays one.** A site cleared **with machines in it** — a held
-  station, a held town, a town defended — offers **three relics** on a
-  **reward screen** after the departure check, before the world map comes
-  up; you take one or none. With nothing left to draw the map comes
-  straight up.
-- **How rare, by the day.** Every relic drawn — a reward's three, a
-  cache's one, a trader's one — is drawn the same way (task 117): a
-  tier is rolled by the odds of the world clock's day, then a relic of
-  that tier; a tier with nothing left is rolled again among the tiers
-  that have some. How tough the site's machines were has nothing to do
-  with it. The odds move in a straight line from the first day to the
-  thirtieth, and stay:
-
-  | day | tier 1 | tier 2 | tier 3 |
-  | --- | --- | --- | --- |
-  | 0 | 70% | 25% | 5% |
-  | 30 and on | 40% | 35% | 25% |
-- **Held once a run.** A relic leaves the pool when a Bim **gets** it —
-  taken off a reward or a cache, or bought — and never comes back. One
-  offered and passed over stays in the pool and may be offered again; a
-  cache's relic lost by leaving the site goes back; so does a trader's
-  relic that was never bought, once the trader closes. None is offered
-  twice in one reward.
-- **A cache pays one sooner.** A held site may hide a **relic cache** on
-  its research desk — lit gold, the ring of lights a key once had. The
-  desk's menu **Open the relic cache** walks your Bim over and opens it:
-  one relic, chosen with the fight going on. It is
-  **pending** until the site is cleared — kept then, **lost** if the crew
-  leave first, and the site put back with its cache on the desk again.
-- **Chosen together.** A choice is the world map's vote over again: any
-  player picks a relic (or **Take none**) and a player's Bim to have it
-  and proposes; every player still at the keyboard says yes; a new
-  proposal clears every yes.
-- **Unlocks between runs.** Each player has a **profile** — which relics
-  and classes they have unlocked and how many runs they have won — kept as
-  `bims/profile.ron` beside the saves (`~/.local/share/bims`, or wherever
-  `BIMS_PROFILE_DIR` says). A new profile has the twenty-three relics
-  marked above and every class; a profile written before a relic was
-  added to that list has it too. A **won** run unlocks two more relics in
-  every player's own profile — the first still locked, in the order of
-  the list, so seven wins unlock the fourteen — and the victory screen
-  says which. A lost run unlocks nothing.
-  In a lobby the **host's** profile decides the run's pool and which
-  classes can be picked, fixed at the start. A class added later can be
-  made one to unlock the same way; every class there is now is open.
 - **Winning.** A run is won by destroying the **Machine Heart** at the
   machines' origin — see [The Machine Heart](#the-machine-heart). For a
   look at the victory screen without the fight, `BIMS_WIN=1` on any command
-  wins the run the next time a site is cleared with machines in it.
-- **Tier two on time.** With no research to wait on, the machines come at
-  tier two once the world clock is **a fortnight** in: from then on a
-  site's odds of tier two climb with its distance from the crew's own star
-  — nought at home, sure six hops or more out — and tier three near the
-  machines' origin is as it was. The world map's quote says which.
+  wins the run the next time a site is cleared with machines in it. Each
+  player's **profile** (`bims/profile.ron` beside the saves, or wherever
+  `BIMS_PROFILE_DIR` says) counts the runs won and which classes are open;
+  in a lobby the host's decides the classes.
 
-`nix run .#relics` is the droids arena with one short wave: clear it, go
-back to the ship, and the reward screen offers the site's relics.
-`BIMS_RELICS=focusing_lens,second_wind` gives your Bim those relics at the
-start, `BIMS_REWARD=1` opens straight on the reward screen and
-`BIMS_CACHE=1` with a cache opened in the mission.
+`nix run .#relics` is the droids arena, an elite, with one short wave:
+clear it, go back to the ship, and the reward screen offers three relics.
+`BIMS_RELICS=glass_cannon,drill_sergeant` gives the crew those relics at
+the start, and `BIMS_REWARD=1` opens straight on the reward screen.
 
 ## Items
 
@@ -441,8 +356,8 @@ of the waves — which grow with the world clock, so waiting costs.
 - **Won.** The core destroyed is the run won, whoever of the crew is dead —
   the **victory screen** says how many days the world clock ran, the sites
   cleared, the systems liberated (their jammer cleared), the machines
-  destroyed, the deaths and every player's relics, and which relics the
-  win unlocked; from there, back to the start menu.
+  destroyed, the deaths and the crew's relics; from there, back to the
+  start menu.
 - **Leaving** before the core is down puts the whole fortress back as the
   crew met it — conduits, fabricators, core and phase — and pays nothing
   and offers no relic. The dead come back as the ship leaves, and the
@@ -481,8 +396,8 @@ the tier of what they carry on arrival.
   is destroyed and no wave is left — one down and still counting holds
   nothing up, the clear or the leaving. The Republic pays a Manufacturer's
   bounty like a machine's, for each one down or dead, on the clear; the
-  clear offers relics like any other (see
-  [Relics](#relics-and-what-a-won-run-unlocks)); and a site left
+  clear offers no relic, since none of theirs is an elite (see
+  [Relics](#relics)); and a site left
   uncleared is met afresh next time, at the new day.
 - **They attack as well as defend.** Before day ten every place you
   defend is attacked by them rather than the machines: each wave the size
@@ -571,14 +486,8 @@ map. **Tab** opens the Armory beside it.
   replaces goes into the armory.
 - **The items**: every [item](#items) at the day's tier, one of each a visit (SOLD until the next) —
   onto your own Bim's first free item slot, or into the armory.
-- **The relic**: one a trader, drawn the first time you arrive by the
-  same roll as a reward (see [Relics](#relics-and-what-a-won-run-unlocks)),
-  and there until bought — kept out of every other draw while it is, and
-  back in the running if the trader closes. It costs **1 500, 3 000 or
-  5 000** by how rare it is. Buying it is a vote, like a reward: propose
-  it for a player's Bim (never a bot's), everybody says yes, and the pool
-  pays its price when the vote carries — refused if the pool cannot. A
-  new proposal clears every yes.
+- **No relic**: a trader sells none since October 2026 — only an elite's
+  fight pays one (see [Relics](#relics)).
 - **Combining**, where the workbench used to be: two weapons or two pieces
   of one kind at one tier make one of the next tier, whole, at once — out
   of the armory, off your own Bim or off a bot, never off another
@@ -619,7 +528,7 @@ all with a line each, and is the build's own answer rather than this table's:
 | `nix run .#jammer` | `cargo run -- jammer` | the crew **inside an infested system**, two hyperlane hops from where the machines began: every station of it in their hands, a wave aboard the one the ship is tied to, and the system's **jammer** standing — so the chart's route inward is barred in red, a jump that way is refused, and the machines come at tier three because of how near the origin they are. `BIMS_DROID_TIER=1` brings them at tier one instead |
 | `nix run .#defense` | `cargo run -- defense` | **a town worth defending**: the ship set down at a friendly settlement with the machines one hyperlane hop away, so the town is next. A minute after the landing a wave sets down outside a gate and walks in; the town's guard and whatever mercenaries live there take arms, everybody else goes indoors, and the red line along the top counts the wave the way it counts a held station's. Hold the last wave and the town is yours to keep. `BIMS_DEFENSE_DELAY=n` is the wait before the first wave and `BIMS_DROID_WAVES=1` a fight short enough to finish |
 | `nix run .#guardian` | `cargo run -- guardian` | **the Guardian**: the fight at tier three with every wave one Guardian and two Troopers — the largest machine, a walker behind a shield that stops everything from the front. Get round it |
-| `nix run .#relics` | `cargo run -- relics` | **the relics**: the droids arena with one short wave of four — clear it, go back to the ship, and the **reward screen** offers the site's relics to choose from. `BIMS_RELICS=focusing_lens,second_wind` gives your Bim those at the start, `BIMS_REWARD=1` opens on the reward screen, `BIMS_CACHE=1` with a relic cache opened in the mission and `BIMS_WIN=1` (on any command) wins the run on the next clear |
+| `nix run .#relics` | `cargo run -- relics` | **the relics**: the droids arena, an elite, with one short wave of four — clear it, go back to the ship, and the **reward screen** offers three relics to vote on. `BIMS_RELICS=glass_cannon,drill_sergeant` gives the crew those at the start, `BIMS_REWARD=1` opens on the reward screen and `BIMS_WIN=1` (on any command) wins the run on the next clear |
 | `nix run .#heart` | `cargo run -- heart` | **the Machine Heart**: the crew docked at its fortress at the machines' origin, everybody in tier-three kit, the waves the game's own — bring the conduits down, then the core. `BIMS_HEART_PHASE=2` opens with every conduit down, `=3` with the core overloading as well; `BIMS_DROID_WAVES=n` shortens the waves |
 | `nix run .#manufacturers` | `cargo run -- manufacturers` | **the Manufacturers**: the combat crew at the nearest site of theirs, on day eight — their people in tier-one kit with Troopers beside them. `BIMS_MANUFACTURER_DAY=0` is pistols alone, ten or more their own waves |
 | | `cargo run -- list` | nothing: every one of these printed with a line each, and what the environment adds. `--list`, `--help` and `-h` are it too |
@@ -1360,8 +1269,7 @@ researches nothing, no station's desk carries a key, and nothing in a run
 waits on the tree — the workbench upgrades gear from the first day. The
 yard's palette is what it was, the tree's starting knowledge deciding it
 as before. The research desk stays a piece
-of furniture on every station, and on a site the machines hold it is
-where a **relic cache** lies. See [Relics](#relics-and-what-a-won-run-unlocks).
+of furniture on every station. See [Relics](#relics).
 
 ### Mining, on foot
 
@@ -2424,8 +2332,8 @@ round the body say so on the deck.
 faster, takes less, and aims on the move as well as standing still. It
 is ready at the start of every mission, runs on the mission clock (a
 pause stops it), may be used braced — the two stack — and the cooldown
-relics (*Kill Relay*, *Squad Morale*) and the *Coolant Loop* item
-shorten its cooldown as they do every class ability's. Its box glows while it runs.
+relics (*Hair Trigger*, *Overclocked Cores*) and the *Coolant Loop* item
+move its cooldown as they do every class ability's. Its box glows while it runs.
 
 | rank | duration | fire rate | damage taken | cooldown |
 | --- | --- | --- | --- | --- |

@@ -104,9 +104,6 @@ pub enum Order {
         a: world::GearSource,
         b: world::GearSource,
     },
-    /// The trader's shelf rolled again, a relic's *Restock Codes* (task
-    /// 118) — `Command::Restock`.
-    Restock,
     /// An item off the trader's item shelf (October 2026), onto a
     /// player's Bim or into the armory with `None` — `Command::BuyItem`.
     BuyItem {
@@ -242,11 +239,10 @@ pub enum Order {
     /// *Ready* for a mission held for the ready check, or taken back —
     /// `Command::Ready`.
     Ready(bool),
-    /// A relic put to the crew for a player's Bim, or none — the reward
-    /// screen's and a cache's vote, `Command::ProposeRelic` (feature 106).
+    /// A relic put to the crew, or none — the reward screen's vote,
+    /// `Command::ProposeRelic` (feature 106).
     ProposeRelic {
         relic: Option<world::Relic>,
-        to: u32,
     },
     /// A yes to the relic on the table, or one taken back —
     /// `Command::AcceptRelic`.
@@ -450,7 +446,6 @@ impl Net {
                         Order::Speed(speed) => Command::SetSpeed { slot, speed },
                         Order::BuyShelf { index, to } => Command::BuyShelf { slot, index, to },
                         Order::Combine { a, b } => Command::Combine { slot, a, b },
-                        Order::Restock => Command::Restock { slot },
                         Order::BuyItem { kind, to } => Command::BuyItem { slot, kind, to },
                         Order::UseItem { item, x, y } => Command::UseItem { slot, item, x, y },
                         Order::Build {
@@ -493,9 +488,6 @@ impl Net {
                             who,
                             resident,
                         },
-                        Order::Gear(GearOrder::OpenCache { who }) => {
-                            Command::OpenCache { slot, who }
-                        }
                         Order::Crew(order) => Command::Crew { slot, order },
                         Order::CrewLater(order) => Command::CrewLater { slot, order },
                         Order::SetClass(class) => Command::SetClass { slot, class },
@@ -529,10 +521,9 @@ impl Net {
                         Order::ReturnToShip => Command::Return { slot },
                         Order::LeaveBehind(yes) => Command::LeaveBehind { slot, yes },
                         Order::Ready(yes) => Command::Ready { slot, yes },
-                        Order::ProposeRelic { relic, to } => Command::ProposeRelic {
+                        Order::ProposeRelic { relic } => Command::ProposeRelic {
                             slot,
                             relic: relic.map_or(u32::MAX, world::Relic::code),
-                            to,
                         },
                         Order::AcceptRelic(yes) => Command::AcceptRelic { slot, yes },
                         Order::PlayerGone(gone) => Command::PlayerGone { slot: gone },
@@ -704,9 +695,6 @@ pub fn build_run(s: &Settings, size: Vec2) -> Session {
     session.crew_hair = s.hair.clone();
     session.crew_tints = s.tints.clone();
     session.dress_crew();
-    // The host's profile's relics, the run's pool on every machine
-    // (feature 106), before the world's first step.
-    session.set_relic_pool(&s.unlocks.pool());
     // And the difficulty the host picked, on every machine the same.
     if let Some(game) = &mut session.game {
         game.world.set_difficulty(s.difficulty);

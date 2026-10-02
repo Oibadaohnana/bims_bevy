@@ -1,19 +1,20 @@
-//! The player's profile between runs (feature 106): which relics and
-//! classes are unlocked and how many runs were won —
+//! The player's profile between runs (feature 106): which classes are
+//! unlocked and how many runs were won —
 //! `world::relic::Profile`, the rules' — kept as `profile.ron` in the
 //! data directory beside the saves (`$XDG_DATA_HOME/bims`, or
 //! `~/.local/share/bims`), or wherever `BIMS_PROFILE_DIR` says.
 //!
-//! Every machine keeps its own and writes it itself: a won run unlocks
-//! relics in the profile of every player who took part, each on their own
-//! disk. The **host's** decides a run's pool and its classes, which cross
-//! the lobby with the rest of the settings (`net::SettingsWire`) and are
-//! kept for the run as [`RunUnlocks`].
+//! Every machine keeps its own and writes it itself: a won run is counted
+//! in the profile of every player who took part, each on their own disk.
+//! The **host's** decides a run's classes, which cross the lobby with
+//! the rest of the settings (`net::SettingsWire`) and are kept for the run
+//! as [`RunUnlocks`]. (It decided the run's relic pool too, until every
+//! relic was in every run in October 2026.)
 
 use std::path::PathBuf;
 
 use bevy::prelude::Resource;
-use world::{Class, Profile, Relic};
+use world::{Class, Profile};
 
 /// The directory the profile lives in.
 pub fn dir() -> PathBuf {
@@ -61,25 +62,21 @@ pub fn save(profile: &Profile) -> Result<PathBuf, String> {
     Ok(path)
 }
 
-/// A run won, on this machine: the relics it unlocks — the first still
-/// locked, in list order — written to this player's profile, and said
-/// back for the victory screen. A profile that cannot be written is said
-/// on the terminal and the unlocks are still shown.
-pub fn record_win() -> Vec<Relic> {
+/// A run won, on this machine: counted in this player's profile. A
+/// profile that cannot be written is said on the terminal.
+pub fn record_win() {
     let mut profile = load();
-    let fresh = profile.record_run(true);
+    profile.record_run(true);
     if let Err(why) = save(&profile) {
         eprintln!("profile: not written: {why}");
     }
-    fresh
 }
 
-/// What the host's profile opened for this run: its relic pool and the
-/// classes that may be picked, as bits — a relic's code, a class's code.
+/// What the host's profile opened for this run: the classes that may be
+/// picked, as bits — a class's code.
 /// Fixed at the start and the same on every machine of a lobby.
 #[derive(Resource, Clone, Copy, PartialEq, Eq, Debug)]
 pub struct RunUnlocks {
-    pub relics: u64,
     pub classes: u32,
 }
 
@@ -88,17 +85,11 @@ impl RunUnlocks {
     /// opens with, and what a host sends.
     pub fn of(profile: &Profile) -> RunUnlocks {
         RunUnlocks {
-            relics: world::relic::mask_of(&profile.pool()),
             classes: Class::ALL
                 .into_iter()
                 .filter(|&c| profile.class_unlocked(c))
                 .fold(0, |m, c| m | 1 << c.code()),
         }
-    }
-
-    /// The run's pool.
-    pub fn pool(&self) -> Vec<Relic> {
-        world::relic::relics_of_mask(self.relics)
     }
 
     /// Whether a class may be picked this run.
@@ -107,14 +98,11 @@ impl RunUnlocks {
     }
 }
 
-/// A run won and written into this machine's profile: what it unlocked,
-/// for the victory screen. Present once the end screen has recorded the
-/// win, which is what keeps it to once a win; taken away when a run
-/// opens.
-#[derive(Resource, Clone, Debug, Default)]
-pub struct Victory {
-    pub unlocked: Vec<Relic>,
-}
+/// A run won and written into this machine's profile. Present once the
+/// end screen has recorded the win, which is what keeps it to once a win;
+/// taken away when a run opens.
+#[derive(Resource, Clone, Copy, Debug, Default)]
+pub struct Victory;
 
 impl Default for RunUnlocks {
     fn default() -> RunUnlocks {
@@ -127,9 +115,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_new_profile_opens_the_starting_pool_and_every_class() {
+    fn a_new_profile_opens_every_class() {
         let unlocks = RunUnlocks::default();
-        assert_eq!(unlocks.pool(), world::relic::starting_pool());
         for class in Class::ALL {
             assert!(unlocks.class_open(class));
         }
@@ -142,5 +129,15 @@ mod tests {
         let text = ship::save::profile_text(&profile).unwrap();
         assert_eq!(ship::save::read_profile(&text), Some(profile));
         assert_eq!(ship::save::read_profile("not a profile"), None);
+    }
+
+    /// A profile written before the relics were rebuilt — with the list of
+    /// relics it had unlocked — still reads, its classes and wins kept.
+    #[test]
+    fn an_old_profile_with_its_relics_still_reads() {
+        let old = "(relics: [0, 1, 2], classes: [1, 2], wins: 3)";
+        let profile = ship::save::read_profile(old).expect("an old profile reads");
+        assert_eq!(profile.classes, vec![1, 2]);
+        assert_eq!(profile.wins, 3);
     }
 }

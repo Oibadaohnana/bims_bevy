@@ -1309,39 +1309,29 @@ fn the_hair_a_player_chose_is_on_its_crew_member_when_the_world_opens() {
     assert_eq!(session.game.as_ref().unwrap().world.checksum(), before);
 }
 
-/// A save keeps the run's relics (feature 106): what the crew hold, what
-/// is still in the pool, a choice half made, and a held site's cache.
+/// A save keeps the run's relics (feature 106): what the crew hold and a
+/// vote half made.
 #[test]
 fn save_round_trip_keeps_the_relics() {
     use crate::Session;
     use world::Relic;
     let mut session = Session::simulate(world::data::DEFAULT_SEED, 0, None, CANVAS.0, CANVAS.1);
     let world = &mut session.game.as_mut().unwrap().world;
-    world.set_relic_pool(world::relic::starting_pool());
-    world.give_relic_for_probe(0, Relic::SecondWind);
-    let mut choice = world::RelicChoice::new(
-        world::relic::Source::Reward,
-        vec![Relic::FocusingLens, Relic::ServoBraces],
-    );
-    // Half made (task 146): the first player's pick in, nobody's won yet.
-    choice.picks = vec![Some(Relic::ServoBraces)];
-    choice.round = 1;
-    world.run.relics.choice = Some(choice);
-    let pool = world.relic_pool().to_vec();
+    world.give_relic_for_probe(Relic::DrillSergeant);
+    let mut choice = world::RelicChoice::new(vec![Relic::GlassCannon, Relic::Adrenaline]);
+    choice.proposal = Some(world::RelicProposal {
+        relic: Some(Relic::Adrenaline),
+        by: 0,
+        accepted: vec![true, false],
+    });
+    world.run.relics.choice = Some(choice.clone());
     let checksum = world.checksum();
 
     let text = session.save().expect("a world to save");
     let back = Session::restore(&text, CANVAS.0, CANVAS.1).expect("the text reads back");
     let world = &back.game.as_ref().unwrap().world;
-    assert_eq!(world.relics_of(0), &[Relic::SecondWind]);
-    assert_eq!(world.relic_pool(), pool.as_slice());
-    assert_eq!(
-        world.relic_choice().map(|c| c.options.clone()),
-        Some(vec![Relic::FocusingLens, Relic::ServoBraces])
-    );
-    let choice = world.relic_choice().unwrap();
-    assert_eq!(choice.pick_of(0), Some(Relic::ServoBraces));
-    assert_eq!(choice.round, 1);
+    assert_eq!(world.relics(), &[Relic::DrillSergeant]);
+    assert_eq!(world.relic_choice(), Some(&choice));
     assert_eq!(world.checksum(), checksum);
 }
 

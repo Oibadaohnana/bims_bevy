@@ -223,41 +223,22 @@ pub enum WorldEvent {
     /// The host said that player has left the game.
     PlayerGone { slot: u32 },
     /// Relics are on offer to the crew (feature 106): `count` of them, off
-    /// a site cleared with machines in it (`source` nought, the reward
-    /// screen) or a cache opened (one, in the mission).
-    RelicsOffered { source: u32, count: u32 },
-    /// A player put a relic to the crew for a player's Bim — `relic`
-    /// `u32::MAX` for taking none — every acceptance cleared.
-    RelicProposed { slot: u32, relic: u32, to: u32 },
+    /// an elite's site cleared — the reward screen.
+    RelicsOffered { count: u32 },
+    /// A player put a relic to the crew — `relic` `u32::MAX` for taking
+    /// none — every acceptance cleared.
+    RelicProposed { slot: u32, relic: u32 },
     /// A player said yes to the relic on the table, or took a yes back.
     RelicAccepted { slot: u32, yes: bool },
-    /// A player's Bim has a relic for good: chosen off a reward, or kept
-    /// off a cache the step its site was cleared.
-    RelicGiven { slot: u32, relic: u32 },
-    /// A relic out of a cache is that player's Bim's — once the site is
-    /// cleared. Lost if the crew leave first.
-    RelicPending { slot: u32, relic: u32 },
+    /// The crew hold a relic for good, chosen off a reward.
+    RelicGiven { relic: u32 },
     /// The crew chose to take none of the relics on offer.
     RelicsDeclined,
-    /// A player picked a relic off the reward for its own Bim (task 146).
-    RelicPicked { slot: u32, relic: u32 },
-    /// A player threw two dice for a relic another picked too (task 146):
-    /// `a` and `b` from one to six, the higher sum winning. Said in the
-    /// order thrown; the screen plays them one after another.
-    RelicDice {
-        slot: u32,
-        relic: u32,
-        a: u32,
-        b: u32,
-    },
-    /// A relic out of a cache, lost: the crew left the site uncleared.
-    RelicLost { slot: u32, relic: u32 },
-    /// A crew member opened a relic cache.
-    CacheOpened { who: u32 },
-    /// A relic's trigger went off on a player's Bim: *Second Wind* got it
-    /// up, *Phase Harness* made it untouchable, *Kill Relay* took seconds
-    /// off its cooldowns.
-    RelicFired { who: u32, relic: u32 },
+    // `RelicPending` (111), `RelicLost` (113), `CacheOpened` (114),
+    // `RelicFired` (115), `RelicBought` (128), `Restocked` (129),
+    // `RelicPicked` (145) and `RelicDice` (146) went with the old relics,
+    // the caches, the trader's relic and the dice (October 2026); their
+    // codes are left free.
     /// The run is won (`World::run_won`). Said once.
     RunWon,
     /// The Machine Heart's last conduit is down (feature 108): its core is
@@ -292,16 +273,6 @@ pub enum WorldEvent {
     /// Player `slot` combined two things into one of `tier` at a trader:
     /// onto crew member `who`, or into the armory, `u32::MAX`.
     Combined { slot: u32, who: u32, tier: u32 },
-    /// The trader's relic bought: player `slot`'s Bim holds `relic` (a
-    /// code), and the pool paid `price`.
-    RelicBought {
-        slot: u32,
-        relic: u32,
-        price: economy::Money,
-    },
-    /// Player `slot` had the trader's shelf rolled again (task 118,
-    /// *Restock Codes*).
-    Restocked { slot: u32 },
     /// Crew member `who` bought a rank of its ranked kit's ability
     /// `ability_slot` (0 to 3, Q C E R) with a skill point, and it is at
     /// `rank` now (task 124, `Command::RankUp`).
@@ -383,7 +354,8 @@ pub enum WorldEvent {
 /// pack's, the loot's and the workbench's, 3, 15–18, 34–36, 51 and 81,
 /// went with the storage in task 113; the desk's, 21, with the desks in task 114;
 /// a rally too early, 71, with the commander's talents in task 129; the
-/// surge's, 65–67, with the surge in task 130).
+/// surge's, 65–67, with the surge in task 130; the cache's and the
+/// restock's, 96, 108 and 109, with the old relics in October 2026).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 #[repr(u32)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -548,10 +520,9 @@ pub enum Refusal {
     NoRelicChoice = 93,
     /// A relic proposed that is not among those on offer.
     NotOnOffer = 94,
-    /// A relic proposed for a Bim no player steers: a bot never holds one.
+    /// A command only a player's own Bim may give — a relic proposed,
+    /// an item used — given for one no player steers.
     NotAPlayer = 95,
-    /// A cache opened where there is none, or none within reach.
-    NoCache = 96,
     /// A destination proposed while the crew are still choosing a relic:
     /// the map comes up once they have.
     ChoosingRelic = 97,
@@ -583,11 +554,6 @@ pub enum Refusal {
     TopTier = 106,
     /// Two things combined that are not two of one kind at one tier.
     NotAPair = 107,
-    /// A restock asked for with no player holding *Restock Codes* (task
-    /// 118).
-    NoRestock = 108,
-    /// A restock asked for twice in one visit to a trader.
-    Restocked = 109,
     /// A rank asked of a slot past R (task 124; every class has a ranked
     /// kit since task 139).
     NoRankedKit = 110,
@@ -722,13 +688,7 @@ impl WorldEvent {
             WorldEvent::RelicProposed { .. } => 108,
             WorldEvent::RelicAccepted { .. } => 109,
             WorldEvent::RelicGiven { .. } => 110,
-            WorldEvent::RelicPending { .. } => 111,
             WorldEvent::RelicsDeclined => 112,
-            WorldEvent::RelicPicked { .. } => 145,
-            WorldEvent::RelicDice { .. } => 146,
-            WorldEvent::RelicLost { .. } => 113,
-            WorldEvent::CacheOpened { .. } => 114,
-            WorldEvent::RelicFired { .. } => 115,
             WorldEvent::RunWon => 116,
             WorldEvent::HeartExposed { .. } => 117,
             WorldEvent::HeartOverload { .. } => 118,
@@ -741,8 +701,6 @@ impl WorldEvent {
             WorldEvent::Respawned { .. } => 125,
             WorldEvent::ShelfBought { .. } => 126,
             WorldEvent::Combined { .. } => 127,
-            WorldEvent::RelicBought { .. } => 128,
-            WorldEvent::Restocked { .. } => 129,
             WorldEvent::RankedUp { .. } => 130,
             WorldEvent::Rampaged { .. } => 131,
             WorldEvent::Juggernaut { .. } => 141,
@@ -807,8 +765,6 @@ impl WorldEvent {
                 let who = if who == u32::MAX { 0 } else { who as i64 + 1 };
                 (slot as i64) + 10 * (tier as i64) + 100 * who
             }
-            WorldEvent::RelicBought { slot, relic, .. } => (slot as i64) + 100 * (relic as i64),
-            WorldEvent::Restocked { slot } => slot as i64,
             // The slot in the hundreds and the rank in the ten thousands, the
             // crew member in the units: a crew is never a hundred.
             WorldEvent::RankedUp {
@@ -824,29 +780,18 @@ impl WorldEvent {
             | WorldEvent::HeartExposed { station }
             | WorldEvent::HeartOverload { station }
             | WorldEvent::HeartDestroyed { station } => station as i64,
-            // The relic in the hundreds, the player in the units: a crew
-            // is never a hundred. A proposal's relic plus one, nought being
-            // none, and its Bim in the ten thousands.
-            WorldEvent::RelicGiven { slot, relic }
-            | WorldEvent::RelicPending { slot, relic }
-            | WorldEvent::RelicLost { slot, relic } => (slot as i64) + 100 * (relic as i64),
-            WorldEvent::RelicFired { who, relic } => (who as i64) + 100 * (relic as i64),
-            WorldEvent::RelicProposed { slot, relic, to } => {
+            WorldEvent::RelicGiven { relic } => relic as i64,
+            // The relic plus one in the hundreds, nought being none.
+            WorldEvent::RelicProposed { slot, relic } => {
                 let relic = if relic == u32::MAX {
                     0
                 } else {
                     relic as i64 + 1
                 };
-                (slot as i64) + 100 * relic + 10_000 * (to as i64)
+                (slot as i64) + 100 * relic
             }
             WorldEvent::RelicAccepted { slot, yes } => (slot as i64) + 100 * i64::from(yes),
-            WorldEvent::RelicPicked { slot, relic } => (slot as i64) + 100 * (relic as i64),
-            // The dice in the hundred thousands and millions.
-            WorldEvent::RelicDice { slot, relic, a, b } => {
-                (slot as i64) + 100 * (relic as i64) + 100_000 * (a as i64) + 1_000_000 * (b as i64)
-            }
-            WorldEvent::RelicsOffered { source, count } => (count as i64) + 100 * (source as i64),
-            WorldEvent::CacheOpened { who } => who as i64,
+            WorldEvent::RelicsOffered { count } => count as i64,
             WorldEvent::RelicsDeclined | WorldEvent::RunWon | WorldEvent::AllReady => 0,
             WorldEvent::Readied { slot, yes } => (slot as i64) + 100 * i64::from(yes),
             // The station in the thousands, the person in the units.

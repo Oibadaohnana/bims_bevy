@@ -94,7 +94,11 @@ use serde::{Deserialize, Serialize};
 /// sight rule read off soft light levels and fifteen tiles of dark, a
 /// bolt lighting its tile, night at a town and a dark station one visit
 /// in five: both ends must generate and see alike.
-pub const PROTOCOL: u32 = 94;
+/// 95: the relics rebuilt (October 2026) — the crew's, twelve new ones,
+/// voted on with no recipient (`Command::ProposeRelic` lost `to`),
+/// `Command::{OpenCache, Restock}` gone, no trader's relic, and the
+/// relic events cut down.
+pub const PROTOCOL: u32 = 95;
 
 /// Where the relay lives. `BIMS_SERVER` in the environment overrides it
 /// — `ws://127.0.0.1:8792` for one on the same machine.

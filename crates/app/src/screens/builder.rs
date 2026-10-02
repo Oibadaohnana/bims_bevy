@@ -161,8 +161,8 @@ pub struct Settings {
     /// dealt at Start like the hair (feature 84). Empty is every slot
     /// its own of `Tint::ALL`.
     pub tints: Vec<Tint>,
-    /// What the **host's** profile opened for the run (feature 106): its
-    /// relic pool and the classes that may be picked. This machine's own
+    /// What the **host's** profile opened for the run (feature 106): the
+    /// classes that may be picked. This machine's own
     /// until a host's settings arrive, and the host's after.
     pub unlocks: crate::profile::RunUnlocks,
     /// The run's difficulty (every dial of the wave formula, task 147),

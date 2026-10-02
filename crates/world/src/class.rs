@@ -897,16 +897,13 @@ pub const CLOAK_COOLDOWN: [f64; 5] = [60.0, 55.0, 50.0, 45.0, 40.0];
 /// Bim within this many tiles of its target as well.
 pub const CLOAK_SPREAD_TILES: f32 = 3.0;
 
-/// How long a revive takes (task 120): ten seconds, four for a `medic`,
-/// less `quicker` seconds — a relic's *Trauma Kit* — and never under
-/// `crate::data::REVIVE_FLOOR_SECONDS`.
-pub fn revive_time(medic: bool, quicker: f32) -> f32 {
-    let base = if medic {
+/// How long a revive takes (task 120): ten seconds, four for a `medic`.
+pub fn revive_time(medic: bool) -> f32 {
+    if medic {
         MEDIC_REVIVE_SECONDS
     } else {
         bims::health::REVIVE_SECONDS
-    };
-    (base - quicker).max(crate::data::REVIVE_FLOOR_SECONDS)
+    }
 }
 
 // --- the tank's numbers (task 139) --------------------------------------------

@@ -10,7 +10,7 @@
 //! The tally is the screen's alone, like the heal numbers: the world keeps
 //! run totals and no per-mission ones, so the screen notes the totals and
 //! every crew member's experience the first frame of a mission, and adds up
-//! the bounty, the relics kept and the Manufacturers down off the events as
+//! the bounty and the Manufacturers down off the events as
 //! they come. A world loaded or restarted mid-mission starts the tally from
 //! there.
 
@@ -38,8 +38,6 @@ pub struct FightTally {
     xp: Vec<u32>,
     /// The Republic's bounty paid into the pool during the mission.
     bounty: u64,
-    /// Relics kept on the clear: whose, and the relic's code.
-    relics: Vec<(u32, u32)>,
     /// The Manufacturers' people down (they die as people, not machines).
     people: u32,
     /// A town's survivors who joined the crew when it was held.
@@ -79,7 +77,6 @@ impl FightTally {
         }
         match *event {
             WorldEvent::Bounty { amount } => self.bounty = self.bounty.saturating_add(amount),
-            WorldEvent::RelicGiven { slot, relic } => self.relics.push((slot, relic)),
             WorldEvent::EnemyDown { .. } if manufacturer => self.people += 1,
             WorldEvent::TownsfolkJoined { count } => self.joined += count,
             _ => {}
@@ -212,20 +209,6 @@ pub fn fight_won_window(
                                 FIGHT_WON_BOTS,
                                 egui::RichText::new(fight_won_bots_xp(bots_xp)),
                             );
-                        }
-                        for &(slot, relic) in &tally.relics {
-                            if let Some(relic) = world::Relic::from_code(relic) {
-                                row(
-                                    ui,
-                                    FIGHT_WON_RELIC,
-                                    egui::RichText::new(format!(
-                                        "{} · {}",
-                                        relic_name(relic),
-                                        name(slot)
-                                    ))
-                                    .color(theme::ACCENT),
-                                );
-                            }
                         }
                         if tally.joined > 0 {
                             row(

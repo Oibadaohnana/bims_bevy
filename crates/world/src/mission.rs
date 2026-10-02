@@ -679,8 +679,8 @@ impl World {
         }
         // And a ready check that was waiting only on them.
         self.start_if_ready(events);
-        // And the reward's picks, which wait on every connected player.
-        self.settle_reward_picks(events);
+        // And the relic vote, which waits on every connected player.
+        self.relic_if_carried(events);
     }
 
     // --- travel ---------------------------------------------------------------
@@ -805,8 +805,8 @@ impl World {
         // Everybody aboard round the gangway, wherever the last site
         // left them.
         self.stand_the_crew_aboard();
-        // Every once-a-mission relic ready again (feature 106).
-        self.relics_at_mission_start(events);
+        // No relic choice left standing (feature 106).
+        self.relics_at_mission_start();
         // Every player's bots following again: the last mission ended
         // with them sent home.
         for order in &mut self.standing {
@@ -1018,17 +1018,6 @@ impl World {
         self.share_out();
     }
 
-    /// `amount` into player `slot`'s wallet.
-    pub(crate) fn credit(&mut self, slot: u32, amount: Money) {
-        let players = self.players().max(1) as usize;
-        if self.wallets.len() < players {
-            self.wallets.resize(players, 0);
-        }
-        if let Some(wallet) = self.wallets.get_mut(slot as usize) {
-            *wallet = wallet.saturating_add(amount);
-        }
-    }
-
     /// Every living crew member made whole (`Game::restore_health`), and
     /// every class charge and cooldown fresh: a mission starts at the top
     /// of the mission clock, and a cooldown begun in the last one would
@@ -1189,8 +1178,10 @@ impl World {
     /// at a site that is cleared — nothing is waiting on it — and
     /// otherwise pending until it is.
     /// A bounty as the site the crew are at pays it: a defence its share
-    /// (`Rewards::defense_bounty_percent`), anywhere else the whole.
+    /// (`Rewards::defense_bounty_percent`), anywhere else the whole — and
+    /// the crew's relics' share on it either way.
     pub(crate) fn bounty_here(&self, amount: Money) -> Money {
+        let amount = self.bounty_by_relics(amount);
         if self
             .ship
             .state
@@ -1666,9 +1657,8 @@ impl World {
             self.settle_bounty(events);
         }
         self.run.pending_bounty = 0;
-        // The relics (feature 106), while the ship is still tied up and
-        // the site's tier can be read: a cache's relic kept or lost, and
-        // a site cleared with machines in it offering its reward.
+        // The relics (feature 106), while the ship is still tied up: an
+        // elite's site cleared with machines in it offering its reward.
         let reward = self.relics_on_leaving(station, cleared, events);
         let falls = station
             .filter(|_| !cleared)
@@ -1756,8 +1746,7 @@ impl World {
     /// paid if the site has just been cleared, and the departure check.
     pub(super) fn settle_run(&mut self, events: &mut Vec<WorldEvent>) {
         self.settle_bounty(events);
-        // The clear itself, said once (feature 106): a cache's relic kept,
-        // and the probes' win.
+        // The clear itself, said once (feature 106), and the probes' win.
         self.settle_clear(events);
         self.settle_departure(events);
     }

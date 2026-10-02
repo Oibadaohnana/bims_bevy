@@ -27,7 +27,7 @@ use crate::ability_icons::{self, Glyph};
 use crate::canvas::{
     Pointer, canvas_painter, edge_pan_now, egui_rect, rect_of, root_ui, zoom_factor,
 };
-use crate::crew::{CLICK_SLOP, CrewPanels, GearOrder, Hold, Near, Open, TrayAsk, TrayView};
+use crate::crew::{CLICK_SLOP, CrewPanels, Near, Open, TrayAsk, TrayView};
 use crate::keys::{Action, Keys};
 use crate::names::*;
 use crate::net::{CHECK_EVERY, Choice, Event, Online, PING_SECONDS, Packet, Spot};
@@ -277,9 +277,6 @@ pub struct GameScreen {
     /// (`super::fightwon`): the screen that comes up when the site is
     /// cleared.
     fight: super::fightwon::FightTally,
-    /// A reward's clashes played back as dice (task 146, `super::dice`),
-    /// and the log's lines that wait for them.
-    dice: super::dice::DiceShow,
 }
 
 /// How long one of those numbers is in the air, and the shortest gap
@@ -447,8 +444,8 @@ fn over(
     // every player's own, on their own disk.
     let won = session.0.game.as_ref().is_some_and(|g| g.world.is_won());
     if won && victory.is_none() {
-        let unlocked = crate::profile::record_win();
-        commands.insert_resource(crate::profile::Victory { unlocked });
+        crate::profile::record_win();
+        commands.insert_resource(crate::profile::Victory);
     }
     let when = session
         .0
@@ -476,8 +473,7 @@ fn over(
             if won {
                 ui.label(egui::RichText::new(VICTORY_TITLE).size(28.0).strong());
                 ui.label(egui::RichText::new(when).color(theme::MUTED));
-                // The run in numbers (feature 108), and each player's
-                // relics.
+                // The run in numbers (feature 108), and the crew's relics.
                 if let Some(game) = session.0.game.as_ref() {
                     let summary = game.world.run_summary();
                     ui.add_space(8.0);
@@ -486,20 +482,7 @@ fn over(
                     }
                     ui.add_space(6.0);
                     ui.label(egui::RichText::new(VICTORY_RELICS).strong());
-                    for (slot, held) in summary.relics.iter().enumerate() {
-                        ui.label(egui::RichText::new(victory_relics_of(slot as u32, held)).small());
-                    }
-                }
-                ui.add_space(8.0);
-                let unlocked = victory.as_ref().map_or(&[][..], |v| v.unlocked.as_slice());
-                if unlocked.is_empty() {
-                    ui.label(egui::RichText::new(VICTORY_NOTHING_NEW).color(theme::MUTED));
-                } else {
-                    ui.label(egui::RichText::new(VICTORY_UNLOCKED).strong());
-                    for &relic in unlocked {
-                        ui.label(egui::RichText::new(relic_name(relic)).color(theme::ACCENT));
-                        ui.label(egui::RichText::new(relic_line(relic)).small());
-                    }
+                    ui.label(egui::RichText::new(victory_relics(&summary.relics)).small());
                 }
             } else {
                 ui.label(egui::RichText::new(OVER_TITLE).size(28.0).strong());
@@ -792,10 +775,9 @@ fn open(
                 _ => world::Class::None,
             };
             crate::dev::class_crew(&mut session, asked);
-            // The run's relic pool (feature 106): with nobody else in it,
-            // this machine's own profile's, as the lobby's host's would be.
+            // The run's open classes (feature 106): with nobody else in
+            // it, this machine's own profile's, as the lobby's host's would be.
             let unlocks = crate::profile::RunUnlocks::of(&crate::profile::load());
-            session.set_relic_pool(&unlocks.pool());
             commands.insert_resource(unlocks);
             // The relics asked for, and the probes' win.
             crate::dev::relic_dials(&mut session);
@@ -845,11 +827,8 @@ fn open(
                     None => println!("trader: none in reach"),
                 }
             }
-            // And the relics' two screens (feature 106): a cache's choice
-            // in the mission, or the reward screen after a site cleared.
-            if crate::dev::cache() && !session.cache_for_probe() {
-                eprintln!("BIMS_CACHE: no held site with a desk to put a cache on");
-            }
+            // And the relics' screen (feature 106): the reward after an
+            // elite's site cleared.
             if crate::dev::reward() && !session.reward_for_probe() {
                 eprintln!("BIMS_REWARD: no held site to clear, or nothing left to offer");
             }
@@ -1042,11 +1021,6 @@ impl GameScreen {
             bars: crate::healthbars::HealthBars::default(),
             world_map: super::worldmap::WorldMap::default(),
             fight: super::fightwon::FightTally::default(),
-            dice: if crate::dev::dice() {
-                super::dice::DiceShow::staged()
-            } else {
-                super::dice::DiceShow::default()
-            },
         }
     }
 
@@ -1465,9 +1439,7 @@ fn frame(
             // heard by the host and the other way round.
             if matches!(
                 event,
-                WorldEvent::ShelfBought { .. }
-                    | WorldEvent::RelicBought { .. }
-                    | WorldEvent::ItemBought { .. }
+                WorldEvent::ShelfBought { .. } | WorldEvent::ItemBought { .. }
             ) {
                 sounds.bought(&mut commands);
             }
@@ -1541,13 +1513,7 @@ fn frame(
             if theirs {
                 screen.log.push(crate::names::MANUFACTURER_DOWN.to_string());
             } else if let Some(line) = event_line(event) {
-                // A reward's dice and the relics they give wait for the
-                // dice to be played (task 146).
-                if screen.dice.note(&event) {
-                    screen.dice.hold(line);
-                } else {
-                    screen.log.push(line);
-                }
+                screen.log.push(line);
             }
             if let Some(freeze) = screen.freeze.as_mut()
                 && freeze.counts == crate::dev::Counted::Downs
@@ -1710,12 +1676,8 @@ fn frame(
             panels.begin_frame();
         }
     }
-    // The hold, for the pack's rows and the container windows: what is
-    // in it, and whether the Bim whose inventory is shown can reach into
-    // something that takes each thing. Fresh every frame — the Bim is
-    // walking.
+    // The keys, for the panels' hints. Fresh every frame.
     if let Some(panels) = &mut screen.panels {
-        panels.hold = Some(hold_of(session));
         panels.keys = keys_now;
     }
     let crew_count = session
@@ -1743,11 +1705,9 @@ fn frame(
         if let Some(game) = session.game.as_ref() {
             panels.revive_seconds = game.world.revive_seconds(panels.player as u32);
             panels.may_lift = game.world.can_lift(panels.player as u32);
-            // Every player's relics, for the side panel of a crewmate
-            // picked (task 136).
-            panels.player_relics = (0..game.world.players())
-                .map(|slot| game.world.relics_of(slot).to_vec())
-                .collect();
+            // The crew's relics, for the side panel of a crewmate picked
+            // (task 136).
+            panels.crew_relics = game.world.relics().to_vec();
         }
         // And the player's own class, for the section under the health
         // (feature 74).
@@ -1794,7 +1754,7 @@ fn frame(
                     cry_cooldown: world.battle_cry_cooldown_left(slot),
                     can_cry: progress.rank(world::class::SLOT_Q) > 0,
                 }),
-                relics: world.relics_of(slot).to_vec(),
+                relics: world.relics().to_vec(),
                 open_classes: world::Class::ALL
                     .into_iter()
                     .filter(|&c| unlocks.as_ref().is_none_or(|u| u.class_open(c)))
@@ -2246,8 +2206,8 @@ fn frame(
             // with Shift held it waits its turn (feature 69). Otherwise it
             // is what a left click was until the left button became the
             // trigger: the one under it picked, and the menu of what is
-            // there opened — a door, a body down, a mercenary for hire,
-            // a cache. A living crew member is picked, not menued.
+            // there opened — a door, a body down, a mercenary for
+            // hire. A living crew member is picked, not menued.
             if pointer.secondary_pressed {
                 panels.close_menu();
                 if let Some(room) = session.room() {
@@ -3070,8 +3030,8 @@ fn frame(
     super::worldmap::ready_window(&ctx, world, local, &mut orders, &crew_name, &|slot| {
         slot_colour(&session.crew_tints, slot)
     });
-    // And a relic being chosen (feature 106): the reward screen after a
-    // site cleared, over the map, or a cache's in the mission.
+    // And a relic being chosen (feature 106): the reward screen after an
+    // elite's site cleared, over the map.
     // The others as the two windows over the map show them: their
     // pointers over this player's copy of each, and what each has their
     // eye on outlined, in their colours; and what this player has, said
@@ -3095,7 +3055,6 @@ fn frame(
             .collect(),
     };
     let mut eyed = Choice::default();
-    let colour = |slot: u32| slot_colour(&session.crew_tints, slot);
     super::worldmap::relic_window(
         &ctx,
         world,
@@ -3104,15 +3063,7 @@ fn frame(
         &crew_name,
         &mates,
         &mut eyed,
-        &super::worldmap::RewardLook {
-            colour: &colour,
-            hidden: screen.dice.playing(),
-        },
     );
-    // And a reward's clashes, thrown over everything (task 146); the log
-    // gets the throws and the relics given once they have been played.
-    let played = screen.dice.show(&ctx, &crew_name, &colour);
-    screen.log.extend(played);
     // A rank-up asked for this frame, by Ctrl and a slot's key or by a
     // Ctrl-click on its box (task 123), for the player's own Bim — the
     // one place both go through.
@@ -3319,17 +3270,6 @@ fn frame(
                 medic: offer.medic,
             })
         });
-        // A relic cache (feature 106): the desk's row walked the Bim over,
-        // and the opening goes through the seam the frame they are within
-        // reach — or is forgotten if the cache goes or the ship does.
-        if let Some(who) = panels.cache_requested {
-            if !world.cache_here() {
-                panels.cache_requested = None;
-            } else if world.research_desk_in_reach(who) {
-                orders.push(Order::Gear(GearOrder::OpenCache { who }));
-                panels.cache_requested = None;
-            }
-        }
         // The menu's Carry row on a downed crewmate: the player's own Bim
         // walks over, and the carry goes the frame it is within reach —
         // or is given up with the world's reason once the walk stops
@@ -3909,8 +3849,8 @@ fn frame(
                 view.scale,
             );
         }
-        // And a relic's surge on a body (*Phase Harness*, *Lifeline*):
-        // the medic's own went in task 130.
+        // And a surge on a body (nothing sets one since the relics were
+        // rebuilt; the medic's own went in task 130).
         for who in 0..crew {
             if !game.world.aboard.room.is_surging(who as usize) {
                 continue;
@@ -4662,19 +4602,6 @@ fn tier_colour(tier: bims::combat::Tier) -> egui::Color32 {
     }
 }
 
-/// What of the ship's the crew's panels read: whether a relic cache lies
-/// on the station's research desk (feature 106). Nothing
-/// is stored anywhere since task 113.
-fn hold_of(session: &Session) -> Hold {
-    let Some(game) = session.game.as_ref() else {
-        return Hold::default();
-    };
-    let world = &game.world;
-    Hold {
-        station_cache: world.cache_here(),
-    }
-}
-
 /// The Armory panel's reading (task 113), off the world as it stands: a
 /// column a crew member — its portrait as the HUD draws it, its
 /// loadout, whether the player looking may change it, and the offers
@@ -4709,7 +4636,6 @@ fn armory_of(world: &world::World, local: u32) -> crate::crew::ArmoryView {
                 may_change: world.may_change_now(local, who),
                 offers_in,
                 offers_out,
-                relics: world.relics_of(who).to_vec(),
                 portrait,
             }
         })

@@ -1,6 +1,6 @@
 //! The trader (task 114): a visit on the map with no room and no mission,
-//! the shelf rolled once a trader a run, the relic bought together, two
-//! things combined into one, and a trader closed while its system is the
+//! the shelf rolled every visit, no relic for sale, two things combined
+//! into one, and a trader closed while its system is the
 //! machines'.
 
 use bims::combat::{ArmourKind, Gear, Item, Piece, Tier, WeaponKind};
@@ -101,13 +101,11 @@ fn arriving_at_a_trader_loads_no_room_and_runs_no_mission() {
     assert!(world.residents.is_none());
 }
 
-/// **The same seed is the same shelf and the same relic**: two worlds
-/// that arrive at one trader meet one trader — its shelf the roll's,
-/// every kind and tier from the lists, and its relic drawn by the day's
-/// odds and **left in the pool** until bought (task 117), but out of every
-/// other draw while it is on the table.
+/// **The same seed is the same shelf**: two worlds that arrive at one
+/// trader meet one trader — its shelf the roll's, every kind and tier
+/// from the lists.
 #[test]
-fn the_same_seed_gives_the_same_shelf_and_the_same_relic() {
+fn the_same_seed_gives_the_same_shelf() {
     let mut a = basic(1);
     let mut b = basic(1);
     let site = at_a_trader(&mut a);
@@ -128,48 +126,19 @@ fn the_same_seed_gives_the_same_shelf_and_the_same_relic() {
     .map(Some)
     .collect();
     assert_eq!(ta.shelf, rolled);
-    let relic = ta
-        .relic
-        .expect("a relic at a trader met with the pool full");
-    assert!(a.relic_pool().contains(&relic), "in the pool until bought");
     assert_eq!(world_checksum(&a), world_checksum(&b));
-    for n in 0..30u32 {
-        a.run.relics.offers = n;
-        let drawn = a.draw_relics(3, site.station);
-        assert!(!drawn.contains(&relic), "on the table, out of other draws");
-    }
-}
-
-/// **A trader closed puts its relic back in the running**: the relic comes
-/// off the table at the next draw after its system falls, and may be drawn
-/// from then on. It never left the pool.
-#[test]
-fn a_closed_trader_s_relic_goes_back_in_the_running() {
-    let mut world = basic(1);
-    let site = at_a_trader(&mut world);
-    let relic = world.trader_here(0).unwrap().relic.expect("a relic");
-    // The trader's system falls: the crisis on it, nothing liberated.
-    world.set_crisis_first_day_for_probe(0);
-    world.set_droid_origin_for_probe(site.star);
-    assert!(world.trader_closed_on(site.star, world.days_gone()));
-    world.set_relic_pool(vec![relic]);
-    let drawn = world.draw_relics(1, site.station);
-    assert_eq!(drawn, vec![relic], "back in the running");
-    let met = world.traders_met().iter().find(|t| t.site == site).unwrap();
-    assert_eq!(met.relic, None, "off the table");
 }
 
 /// **A bought thing is gone for the visit, and a revisit is a new shelf**
 /// (October 2026): bought, its slot is empty and sold out; the crew leave,
-/// fight somewhere else, come back, and meet the same trader — the same
-/// relic — with its shelf rolled again for the visit, one gun and one
+/// fight somewhere else, come back, and meet the same trader with its shelf rolled again for the visit, one gun and one
 /// piece at the day's tier.
 #[test]
 fn a_bought_thing_is_gone_for_the_visit_and_a_revisit_rolls_the_shelf_again() {
     let mut world = basic(1);
     let site = at_a_trader(&mut world);
     let item = world.trader_here(0).unwrap().shelf[0].unwrap();
-    let price = world.shelf_price(0, item);
+    let price = world.shelf_price(item);
     let money = world.wallet(0);
     let armory = world.holdings.armory.len();
     let events = world.step(&[Command::BuyShelf {
@@ -211,11 +180,7 @@ fn a_bought_thing_is_gone_for_the_visit_and_a_revisit_rolls_the_shelf_again() {
     travel_to(&mut world, site);
     assert_eq!(world.run.phase, Phase::Trade);
     let again = world.trader_here(0).unwrap().clone();
-    assert_eq!(
-        (again.site, again.relic),
-        (left.site, left.relic),
-        "the same trader"
-    );
+    assert_eq!(again.site, left.site, "the same trader");
     let rolled: Vec<_> = trader::roll_shelf(
         world.galaxy_seed,
         site.star,
@@ -255,7 +220,7 @@ fn a_thing_goes_onto_a_bim_or_the_armory_and_the_pool_must_pay() {
     assert!(refused_with(&events, Refusal::NotYours), "{events:?}");
 
     // Not with its wallet short.
-    world.wallets[0] = world.shelf_price(0, item) - 1;
+    world.wallets[0] = world.shelf_price(item) - 1;
     let events = world.step(&[Command::BuyShelf {
         slot: 0,
         index,
@@ -319,65 +284,27 @@ fn two_players_buy_the_same_slot_each_off_its_own_shelf() {
             "{events:?}"
         );
     }
-    assert_eq!(world.wallet(0), w0 - world.shelf_price(0, mine));
-    assert_eq!(world.wallet(1), w1 - world.shelf_price(1, theirs));
+    assert_eq!(world.wallet(0), w0 - world.shelf_price(mine));
+    assert_eq!(world.wallet(1), w1 - world.shelf_price(theirs));
     assert!(world.trader_here(0).unwrap().shelf[1].is_none());
     assert!(world.trader_here(1).unwrap().shelf[1].is_none());
 }
 
-/// **Every player buys its own trader's relic with its own money**: each
-/// player's trader has a relic of its own, none two alike, bought outright
-/// for the player's own Bim — no vote — out of its own wallet, and gone
-/// off that trader and out of the pool; the other's trader and money are
-/// untouched. Another's relic is not on offer, and too poor is refused.
+/// **No trader sells a relic** (October 2026): only an elite's fight
+/// drops one. A relic proposed at a trader has nothing to be chosen from,
+/// and nobody's money moves.
 #[test]
-fn every_player_buys_its_own_trader_s_relic_with_its_own_money() {
+fn no_trader_sells_a_relic() {
     let mut world = crewed_world(flyer(2), RICH, 2, 3);
     at_a_trader(&mut world);
-    let mine = world.trader_here(0).unwrap().relic.unwrap();
-    let theirs = world.trader_here(1).unwrap().relic.unwrap();
-    assert_ne!(mine, theirs, "no two players are offered one relic");
-    let price = world.trader_relic_price(0, mine);
     let (w0, w1) = (world.wallet(0), world.wallet(1));
-
-    let buy = |relic: crate::relic::Relic, to| Command::ProposeRelic {
+    let events = world.step(&[Command::ProposeRelic {
         slot: 0,
-        relic: relic.code(),
-        to,
-    };
-    let events = world.step(&[buy(theirs, 0)]);
-    assert!(refused_with(&events, Refusal::NotOnOffer), "{events:?}");
-
-    // Too poor: refused, and the relic stays.
-    world.wallets[0] = price - 1;
-    let events = world.step(&[buy(mine, 0)]);
-    assert!(refused_with(&events, Refusal::Unaffordable), "{events:?}");
-    assert_eq!(world.trader_here(0).unwrap().relic, Some(mine));
-    assert!(world.relics_of(0).is_empty());
-
-    // With the money: bought at once, for its own Bim whoever is named.
-    world.wallets[0] = w0;
-    let events = world.step(&[buy(mine, 1)]);
-    assert!(
-        events
-            .iter()
-            .any(|e| matches!(e, WorldEvent::RelicBought { slot: 0, .. })),
-        "{events:?}"
-    );
-    assert_eq!(world.wallet(0), w0 - price);
-    assert_eq!(world.wallet(1), w1, "the other's money untouched");
-    assert_eq!(world.relics_of(0), &[mine]);
-    assert!(world.relics_of(1).is_empty());
-    assert!(
-        !world.relic_pool().contains(&mine),
-        "bought, out of the pool"
-    );
-    assert_eq!(world.trader_here(0).unwrap().relic, None);
-    assert_eq!(world.trader_here(1).unwrap().relic, Some(theirs));
-    // Again is sold out, and costs nothing.
-    let events = world.step(&[buy(mine, 0)]);
-    assert!(refused_with(&events, Refusal::SoldOut), "{events:?}");
-    assert_eq!(world.wallet(0), w0 - price);
+        relic: crate::relic::Relic::GlassCannon.code(),
+    }]);
+    assert!(refused_with(&events, Refusal::NoRelicChoice), "{events:?}");
+    assert!(world.relics().is_empty());
+    assert_eq!((world.wallet(0), world.wallet(1)), (w0, w1));
 }
 
 /// **Combining** two of a kind at a tier is one of the next, whole and at

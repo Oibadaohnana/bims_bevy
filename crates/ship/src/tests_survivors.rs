@@ -354,8 +354,9 @@ fn picture_hash(shapes: &[f32]) -> u64 {
 /// left the game, and the gold ring of lights round a station's research
 /// desk that held a key went with it — the spawn's desk, lit on both
 /// decks. Drawing that ring by the old key rule again gave back the old
-/// two numbers bit for bit, so the ring is the whole of the move. The
-/// same ring now lights a desk with a relic cache on it.
+/// two numbers bit for bit, so the ring is the whole of the move. (The
+/// same ring lit a desk with a relic cache on it, until the caches went
+/// in October 2026.)
 fn pictures() -> Vec<(&'static str, u64)> {
     use shipdesign::fixture::{combat_ship, playtest_ship};
     let seed = world::data::DEFAULT_SEED;

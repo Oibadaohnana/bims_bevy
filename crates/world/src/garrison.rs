@@ -9,8 +9,8 @@
 //! **A site of theirs is held the way a station the machines took is**: it
 //! has an [`Infestation`] — flagged [`Infestation::manufacturers`] — so the
 //! stance is hostile, nobody lives there, nothing is traded or hired, the
-//! waves and their clock, the clear, the pending bounty, the relic reward
-//! and the cache, and the site put back as it was met when it is left
+//! waves and their clock, the clear, the pending bounty, the relic reward,
+//! and the site put back as it was met when it is left
 //! uncleared, are all the machines' own machinery unchanged. What differs
 //! is who stands on the deck — [`World::lay_manufacturers`] — and the
 //! numbers: one wave while they still have the machines, the machines' own
@@ -76,8 +76,6 @@ impl World {
             if self.infestation(id).is_some() {
                 continue;
             }
-            // No relic cache: only an elite hides one, and a site of theirs
-            // is never an elite (`crate::elite`).
             self.infested.push(Infestation::manufacturers(id));
             added = true;
         }

@@ -1,13 +1,12 @@
 //! The world's side of the trader (task 114, [`crate::trader`]): which
 //! sites of the galaxy are traders, whether one is open, the visit — on
-//! the map, no room and no mission — the shelf bought from, the relic's
-//! vote, and two things combined into one.
+//! the map, no room and no mission — the shelf bought from and two things
+//! combined into one.
 //!
 //! A child of `crate::world`, as `mission.rs` is, so it reaches the
 //! world's private fields; the trader's own types are `crate::trader`'s.
 
 use super::*;
-use crate::relic::Relic;
 use crate::run::{Phase as RunPhase, Site};
 use crate::trader::{self, CombineError, ShelfItem, Trader};
 
@@ -202,7 +201,7 @@ impl World {
     }
 
     /// Player `slot`'s own trader where the crew are at one, with what is
-    /// left on its shelf and its relic.
+    /// left on its shelf.
     pub fn trader_here(&self, slot: u32) -> Option<&Trader> {
         let at = self.trader_index(slot)?;
         self.run.traders.get(at)
@@ -228,8 +227,8 @@ impl World {
     /// Arrived at a trader (from `travel`): the ship holding off it, the
     /// run in [`RunPhase::Trade`] and nothing else — no room built, no
     /// mission begun, neither clock touched, nothing a mission's start
-    /// does. The first time the crew are here the trader is met: its shelf
-    /// rolled and its relic drawn by the day's odds (task 117).
+    /// does. The first time the crew are here the trader is met, its shelf
+    /// rolled; every visit after rolls it again.
     pub(super) fn arrive_at_trader(&mut self, site: Site) {
         let at = self.site_position(&self.system, site.station);
         self.ship.state = ShipState::Holding;
@@ -244,14 +243,9 @@ impl World {
         self.run.snapped = false;
         self.run.proposal = None;
         self.run.departure = None;
-        // *Restock Codes* (task 118) is once a visit, and this is one.
-        self.run.relics.restocked = false;
-        // A trader of their own for every player not met here yet: its relic
-        // drawn by the day's odds like a reward's (task 117), and kept out
-        // of every other draw while it is on the table — never out of the
-        // pool until it is bought — so no two players are offered one relic.
-        // The shelf is rolled afresh every visit, at the tier the day has
-        // reached (October 2026); the relic stays until it is bought.
+        // A trader of their own for every player not met here yet. The
+        // shelf is rolled afresh every visit, at the tier the day has
+        // reached (October 2026). No trader sells a relic.
         let visit = self.clock_minutes.to_bits();
         let tier = self.shop_tier();
         let seed = self.galaxy_seed;
@@ -267,21 +261,20 @@ impl World {
             {
                 continue;
             }
-            let relic = self.draw_relics(1, site.station).first().copied();
             let at = self
                 .run
                 .traders
                 .partition_point(|t| (t.site, t.owner) < (site, owner));
             self.run
                 .traders
-                .insert(at, Trader::new(seed, site, relic, owner, visit, tier));
+                .insert(at, Trader::new(seed, site, owner, visit, tier));
         }
     }
 
-    /// What a thing off the shelf costs player `slot`: the trader's own ask
+    /// What a thing off the shelf costs a player: the trader's own ask
     /// for it at its tier (`World::quote_at`, the existing tier pricing),
     /// else the book at the tier.
-    pub fn shelf_price(&self, slot: u32, item: ShelfItem) -> Money {
+    pub fn shelf_price(&self, item: ShelfItem) -> Money {
         let tier = item.tier.code();
         let ask = self
             .run
@@ -291,9 +284,9 @@ impl World {
             .unwrap_or_else(|| {
                 economy::trade_price(item.resource).saturating_mul(economy::tier_price(tier))
             });
-        // The reward dials' shelf per cent, then *Trade License* (task 118),
-        // then the players' share.
-        self.trader_share(self.trader_discount_for(slot, self.rewards.shelf_price(ask)))
+        // The reward dials' shelf per cent, then the crew's relics, then
+        // the players' share.
+        self.trader_share(self.trader_price_by_relics(self.rewards.shelf_price(ask)))
     }
 
     /// A trader's price shared by the players: each has money of their
@@ -303,10 +296,10 @@ impl World {
         price.div_ceil(Money::from(self.players().max(1)))
     }
 
-    /// What a combining costs a player: the dials' fee, the players'
-    /// share of it.
+    /// What a combining costs a player: the dials' fee, through the
+    /// crew's relics, the players' share of it.
     pub fn combine_fee(&self) -> Money {
-        self.trader_share(self.rewards.combine_fee)
+        self.trader_share(self.trader_price_by_relics(self.rewards.combine_fee))
     }
 
     // --- buying ---------------------------------------------------------------
@@ -345,7 +338,7 @@ impl World {
                 return;
             }
         }
-        let price = self.shelf_price(slot, item);
+        let price = self.shelf_price(item);
         if !self.pay_from(slot, price) {
             events.push(refused(slot, Refusal::Unaffordable));
             return;
@@ -395,12 +388,12 @@ impl World {
         crate::items::shop(self.shop_tier())
     }
 
-    /// What an item costs player `slot`: [`crate::items::price`], through
-    /// the reward dials' shelf per cent, *Trade License* and the players'
-    /// share, as a thing off the shelf is.
-    pub fn item_price(&self, slot: u32, item: bims::module::Module) -> Money {
+    /// What an item costs a player: [`crate::items::price`], through
+    /// the reward dials' shelf per cent, the crew's relics and the
+    /// players' share, as a thing off the shelf is.
+    pub fn item_price(&self, item: bims::module::Module) -> Money {
         let price = self.rewards.shelf_price(crate::items::price(item));
-        self.trader_share(self.trader_discount_for(slot, price))
+        self.trader_share(self.trader_price_by_relics(price))
     }
 
     /// Whether player `slot` has bought the item of `kind` (its code) off
@@ -455,7 +448,7 @@ impl World {
             }
             None => None,
         };
-        let price = self.item_price(slot, item);
+        let price = self.item_price(item);
         if !self.pay_from(slot, price) {
             events.push(refused(slot, Refusal::Unaffordable));
             return;
@@ -479,53 +472,6 @@ impl World {
             kind: item.kind.code(),
             tier: item.tier.code(),
             to: to.unwrap_or(u32::MAX),
-        });
-    }
-
-    // --- the relic ----------------------------------------------------------------
-
-    /// [`Command::ProposeRelic`] at a trader: player `slot` buys its own
-    /// trader's relic outright for its own Bim — no vote, since the money
-    /// is its own — for [`World::trader_relic_price`] out of its wallet.
-    /// The relic leaves the pool and the trader for good. `None` does
-    /// nothing: there is no proposal to take back.
-    pub(super) fn buy_trader_relic(
-        &mut self,
-        slot: u32,
-        relic: Option<Relic>,
-        events: &mut Vec<WorldEvent>,
-    ) {
-        let Some(at) = self.trader_index(slot) else {
-            events.push(refused(slot, Refusal::NotAtATrader));
-            return;
-        };
-        let Some(relic) = relic else {
-            return;
-        };
-        let Some(here) = self.run.traders[at].relic else {
-            events.push(refused(slot, Refusal::SoldOut));
-            return;
-        };
-        if relic != here {
-            events.push(refused(slot, Refusal::NotOnOffer));
-            return;
-        }
-        if slot >= self.players() {
-            events.push(refused(slot, Refusal::NotAPlayer));
-            return;
-        }
-        let price = self.trader_relic_price(slot, relic);
-        if !self.pay_from(slot, price) {
-            events.push(refused(slot, Refusal::Unaffordable));
-            return;
-        }
-        self.run.traders[at].relic = None;
-        self.run.relics.take_from_pool(relic);
-        self.run.relics.give(slot, relic);
-        events.push(WorldEvent::RelicBought {
-            slot,
-            relic: relic.code(),
-            price,
         });
     }
 

@@ -61,7 +61,7 @@
 //! # Dying
 //!
 //! A player's Bim that dies is **out** ([`Fallen`]) for the rest of the
-//! mission and respawns when it ends, with its whole loadout, relics,
+//! mission and respawns when it ends, with its whole loadout,
 //! class, level and talents, the pool paying
 //! [`crate::data::BUYBACK_COST`] — or what it holds, down to nought, since
 //! a respawn never waits for money (task 113). Gear is never lost. A
@@ -120,15 +120,15 @@ pub enum Phase {
     /// a destination being chosen.
     Map,
     /// Between missions, before the map (feature 106): the site just left
-    /// was cleared with machines in it, and the crew are choosing which of
-    /// the relics it offers to take, and for whom
+    /// was an elite's, cleared, and the crew are choosing together which
+    /// of the relics it offers to take, if any
     /// ([`crate::relic::RelicChoice`]). Nothing moves, as on the map; the
     /// map comes up when the choice is made.
     Reward,
     /// At a trader (task 114): arrived, and the whole visit on the map.
     /// No room is loaded and no mission runs; nothing moves and neither
-    /// clock runs, as on the map. The trader's shelf, its relic and the
-    /// combining are open ([`crate::trader`]), and the vote on where next
+    /// clock runs, as on the map. The trader's shelf and the combining are
+    /// open ([`crate::trader`]), and the vote on where next
     /// works as it does on the map: carried, the crew leave and travel.
     Trade,
 }
@@ -289,9 +289,8 @@ pub struct Run {
     pub fallen: Vec<Fallen>,
     /// Deaths so far: what [`Fallen::order`] is stamped from.
     pub deaths: u64,
-    /// The relics (feature 106, [`crate::relic`]): the run's pool, who
-    /// holds what, what is pending on a cache, the choice being made and
-    /// what has fired this mission.
+    /// The relics (feature 106, [`crate::relic`]): what the crew hold and
+    /// the choice being made.
     pub relics: Relics,
     /// Whether this mission's site had machines to clear when the mission
     /// met it: what makes its clear worth a relic.
@@ -317,9 +316,8 @@ pub struct Run {
     #[cfg_attr(feature = "serde", serde(default))]
     pub systems_liberated: u32,
     /// Every trader the crew have been to this run (task 114,
-    /// [`crate::trader::Trader`]): what is left on its shelf and its relic
-    /// until bought, kept from the first arrival on — no restock and no
-    /// reroll. Sorted by site.
+    /// [`crate::trader::Trader`]): what is left on its shelf, rolled again every
+    /// visit. Sorted by site.
     #[cfg_attr(feature = "serde", serde(default))]
     pub traders: Vec<crate::trader::Trader>,
     /// The items' clocks (October 2026, [`crate::items::ItemClocks`]).
@@ -366,7 +364,7 @@ impl Run {
             connected: vec![true; players as usize],
             fallen: Vec::new(),
             deaths: 0,
-            relics: Relics::new(crate::relic::starting_pool(), players),
+            relics: Relics::default(),
             fought: false,
             cleared_here: false,
             won: false,

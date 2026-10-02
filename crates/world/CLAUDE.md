@@ -4689,6 +4689,13 @@ and has hit the crew member.
 
 ## Relics, and research gone (feature 106)
 
+> **Since October 2026 the relics are rebuilt** — "The relics rebuilt" at
+> the end of this file: twelve relics, the crew's, each a boon with a
+> price, offered only off an elite's clear and voted on; no cache, no
+> trader's relic, no dice, no hooks. What this section, "Relics drop by
+> the day", "Five patches of relics", "The relic rebalance" and "A relic
+> for every player off an elite" say is the history.
+>
 > **Since task 117** a relic is drawn by the world clock's day and not the
 > site's tier, and an offer takes nothing out of the pool — "Relics drop
 > by the day" at the end of this file. What this section says about
@@ -6951,3 +6958,64 @@ The room's rule is `crates/game/CLAUDE.md` ("The dark"); the world's part:
   `tests_droid::an_enemy_s_station_is_dark_one_visit_in_five` are the
   rule. **`SAVE_VERSION` 90, `wire::PROTOCOL` 94.** `SURVIVORS` and
   `REFERENCE_CHECKSUM` move (they were already off their pins).
+
+## The relics rebuilt (October 2026)
+
+> Every section above about a relic held by one player's Bim, the pool,
+> the caches, the dice, the trader's relic, *Restock Codes*, the hooks
+> (`relic_hooks.rs`, triggers, timed buffs, auras) and the 37 relics
+> describes what this change **deleted**. The player found relics
+> redundant with the items; a relic is now the crew's, and it changes how
+> the run plays rather than adding a number to one Bim.
+
+- **Twelve relics** (`crate::relic::RELICS`, codes 0–11): *Glass
+  Cannon*, *Heavy Plating*, *Hair Trigger*, *Overclocked Cores*, *Bounty
+  Contract*, *Hunter's Pact*, *Drill Sergeant*, *Lone Wolves*, *Black
+  Market*, *Adrenaline*, *Salvage Burn*, *Nanite Mesh*. A row is a list of
+  `Modifier { who, stat, amount }` — `Who::{Everyone, Players, Bots}`
+  (a bot is every crew member no player steers: bots, hands, joiners,
+  reinforcements) and `Stat::{Damage, FireRate, MoveSpeed, DamageTaken,
+  Cooldowns, MachineDamage, Bounty, Experience, WaveSize, TraderPrices,
+  Regen}` — and **every row helps and costs** (`Modifier::helps`, pinned
+  by `relic::tests::every_relic_helps_and_costs`). **No relic touches a
+  revive or cuts the healing** (the player: it would make the medic and
+  the commander's Medivac useless). Every number is `data.rs`'s
+  (`GLASS_CANNON_DAMAGE` …), placeholders.
+- **Where each is read**: `lift_by_relics` in `skill_of` (damage, melee,
+  fire rate, walk, damage taken, by `relic_percent(who, stat)`);
+  `relic_percent(.., Cooldowns)` in every class cooldown, as before (with
+  the *Coolant Loop* item's cut); `land_on_machines` (in `relics.rs` now,
+  the EMP's exposure on the same sum, then the crit) for `MachineDamage`;
+  `bounty_here` (`bounty_by_relics`) for `Bounty`, so the money shown and
+  the money paid agree; `xp_per_down()` in `experience`;
+  `wave_size_with` (`wave_by_relics`, rounded up; a forced wave is as
+  forced); `trader_price_by_relics` in `shelf_price`, `item_price` and
+  `combine_fee`; `relics_mend` (every crew member on its feet, through
+  `heal_crew`). A crew holding none plays exactly as it did.
+- **State**: `Relics { held: Vec<Relic>, choice, offers }` — no pool, no
+  per-slot lists. `drawable()` is every relic not held; `offer(drawable,
+  n, seed)` draws evenly, none twice. `RelicChoice { options, proposal }`,
+  `RelicProposal { relic, by, accepted }`.
+- **Only an elite's clear** offers `data::RELIC_OFFER` (three)
+  (`relics_on_leaving` → `offer_reward`, `Phase::Reward`); **the crew
+  vote**: `Command::ProposeRelic { slot, relic }` (`u32::MAX` takes none)
+  and `AcceptRelic`, the map's vote — the last connected yes gives it to
+  the crew (`RelicGiven { relic }`) or takes none (`RelicsDeclined`), and
+  the map comes up; a `PlayerGone` is not waited for.
+- **Gone**: `relic_hooks.rs`, `tests_relic_patches.rs`, the cache
+  (`Infestation::cache`, `Command::OpenCache`, `cache_rolled`,
+  `world_paint::cache_lights`), the trader's relic (`Trader::relic`,
+  `RelicBought`, `Rewards::relic_price`, `RELIC_PRICE`), *Restock Codes*
+  (`Command::Restock`), the dice (`relic::dice`, the app's
+  `screens/dice.rs`, `BIMS_DICE`), the tiers and their odds, the unlocks
+  (`Profile` keeps classes and wins; an old file's `relics` list is read
+  past), `World::ability_length_factor`, the Trauma Kit's quicker revive
+  (`class::revive_time(medic)`, `REVIVE_FLOOR_SECONDS`). Events 111,
+  113–115, 128, 129, 145 and 146 and refusals 96, 108 and 109 are free.
+- **The `relics` command's arena is an elite** now
+  (`Session::relics`), or it would offer nothing.
+
+`tests_relic.rs` is the rule. **`SAVE_VERSION` 91, `wire::PROTOCOL` 95**
+(the relay wants redeploying). `REFERENCE_CHECKSUM` and `SURVIVORS` move
+(the relics' block of the checksum is smaller, the cache is out of an
+`Infestation`'s) — both already off their pins, not re-pinned.

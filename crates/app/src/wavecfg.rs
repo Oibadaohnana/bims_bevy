@@ -8,7 +8,7 @@
 //! - `rewards.ron` (or `BIMS_REWARDS`) holds a [`world::rewards::Rewards`]:
 //!   the experience and the money an enemy down is worth, what a defence
 //!   pays of it, whether the money waits for the clear, and what the
-//!   buyback, a relic, a combine and the trader's shelf cost.
+//!   buyback, a combine and the trader's shelf cost.
 //! - `audio.ron` (or `BIMS_AUDIO`) holds a [`crate::sound::Volumes`]: the
 //!   player's volume for each sound, handed to the sound player rather
 //!   than the world.
@@ -120,7 +120,7 @@ impl Tuning for Rewards {
     const UNTUNED: Self = Rewards::DEFAULT;
     fn describe(&self) -> String {
         format!(
-            "{} xp and €{:?} a down (defence {}%, {}), buyback €{}, relics €{:?}, combine €{}, shelf {}%",
+            "{} xp and €{:?} a down (defence {}%, {}), buyback €{}, combine €{}, shelf {}%",
             self.xp_per_down,
             self.bounty,
             self.defense_bounty_percent,
@@ -130,7 +130,6 @@ impl Tuning for Rewards {
                 "paid at once"
             },
             self.buyback,
-            self.relic_price,
             self.combine_fee,
             self.shelf_price_percent
         )

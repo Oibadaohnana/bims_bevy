@@ -27,7 +27,7 @@ pub struct HeartStatus {
 /// The run in numbers, for the victory screen (feature 108): the days the
 /// world clock ran — which only travel moves — the sites cleared of
 /// machines, the systems liberated (their jammer cleared), the machines
-/// destroyed, the deaths, and each player's Bim's relics.
+/// destroyed, the deaths, and the crew's relics.
 #[derive(Clone, PartialEq, Debug)]
 pub struct RunSummary {
     pub days: f64,
@@ -35,7 +35,7 @@ pub struct RunSummary {
     pub systems_liberated: u32,
     pub machines_destroyed: u32,
     pub deaths: u64,
-    pub relics: Vec<Vec<crate::relic::Relic>>,
+    pub relics: Vec<crate::relic::Relic>,
 }
 
 impl World {

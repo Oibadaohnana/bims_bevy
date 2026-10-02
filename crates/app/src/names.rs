@@ -425,8 +425,7 @@ pub fn refusal(why: Refusal) -> &'static str {
         Refusal::AlreadyHere => "the crew are here — the next trip goes somewhere else",
         Refusal::NoRelicChoice => "there is no relic to choose now",
         Refusal::NotOnOffer => "that relic is not on offer",
-        Refusal::NotAPlayer => "only a player's Bim holds a relic",
-        Refusal::NoCache => "there is no relic cache here — walk over first",
+        Refusal::NotAPlayer => "only a player's own Bim can do that",
         Refusal::ChoosingRelic => "the crew are still choosing a relic",
         Refusal::GearLocked => {
             "gear changes aboard the ship — not out on the deck, and offers between missions"
@@ -446,8 +445,6 @@ pub fn refusal(why: Refusal) -> &'static str {
         Refusal::SoldOut => "that is gone — somebody bought it first",
         Refusal::TopTier => "tier three is as far as combining goes",
         Refusal::NotAPair => "only two of one kind at one tier combine",
-        Refusal::NoRestock => "nobody holds Restock Codes",
-        Refusal::Restocked => "the shelf has been restocked once this visit already",
         Refusal::NoRankedKit => "there is no such ability",
         Refusal::NoSkillPoint => "no skill point to spend — the next comes with the next level",
         Refusal::TopRank => "that ability is at its top rank",
@@ -1718,16 +1715,6 @@ pub fn event_line(event: WorldEvent) -> Option<String> {
                 player_name(slot)
             )
         }
-        WorldEvent::RelicBought { slot, relic, price } => format!(
-            "{} holds {} now. The pool paid {}.",
-            who(slot),
-            world::Relic::from_code(relic).map_or("a relic", relic_name),
-            crate::format::euros(price)
-        ),
-        WorldEvent::Restocked { slot } => format!(
-            "{} had the trader restock the shelf — Restock Codes.",
-            player_name(slot)
-        ),
         WorldEvent::RankedUp {
             who: w,
             class,
@@ -1769,21 +1756,11 @@ pub fn event_line(event: WorldEvent) -> Option<String> {
             format!("{} is not ready after all.", player_name(slot))
         }
         WorldEvent::AllReady => "Everybody is ready. The mission is under way.".into(),
-        WorldEvent::RelicsOffered { source: 0, count } => {
-            format!(
-                "The site is cleared: {count} relics on offer. Each player picks one; the same pick goes by the dice."
-            )
+        WorldEvent::RelicsOffered { count } => {
+            format!("The elite is beaten: {count} relics on offer. Choose one together — or none.")
         }
-        WorldEvent::RelicsOffered { .. } => {
-            "The cache holds a relic. Choose who takes it — kept if the site is cleared.".into()
-        }
-        WorldEvent::RelicProposed { slot, relic, to } => match relic_of(relic) {
-            Some(r) => format!(
-                "{} puts {} for {}.",
-                player_name(slot),
-                relic_name(r),
-                player_name(to)
-            ),
+        WorldEvent::RelicProposed { slot, relic } => match relic_of(relic) {
+            Some(r) => format!("{} puts {} to the crew.", player_name(slot), relic_name(r)),
             None => format!("{} would take no relic.", player_name(slot)),
         },
         WorldEvent::RelicAccepted { slot, yes: true } => {
@@ -1792,64 +1769,11 @@ pub fn event_line(event: WorldEvent) -> Option<String> {
         WorldEvent::RelicAccepted { slot, yes: false } => {
             format!("{} takes their yes back.", player_name(slot))
         }
-        WorldEvent::RelicGiven { slot, relic } => format!(
-            "{} has {} for the rest of the run.",
-            player_name(slot),
+        WorldEvent::RelicGiven { relic } => format!(
+            "The crew take {} for the rest of the run.",
             relic_of(relic).map_or("a relic", relic_name)
-        ),
-        WorldEvent::RelicPending { slot, relic } => format!(
-            "{} is {}'s once the site is cleared.",
-            relic_of(relic).map_or("The relic", relic_name),
-            player_name(slot)
         ),
         WorldEvent::RelicsDeclined => "The crew take no relic.".into(),
-        WorldEvent::RelicPicked { slot, relic } => format!(
-            "{} picks {}.",
-            player_name(slot),
-            relic_of(relic).map_or("a relic", relic_name)
-        ),
-        WorldEvent::RelicDice { slot, relic, a, b } => format!(
-            "{} throws {a} + {b} for {}.",
-            player_name(slot),
-            relic_of(relic).map_or("a relic", relic_name)
-        ),
-        WorldEvent::RelicLost { slot, relic } => format!(
-            "{} is lost — the site was left uncleared, and {} never had it.",
-            relic_of(relic).map_or("The relic", relic_name),
-            player_name(slot)
-        ),
-        WorldEvent::CacheOpened { who: w } => format!("{} opened the relic cache.", who(w)),
-        WorldEvent::RelicFired { who: w, relic } => match relic_of(relic) {
-            Some(world::Relic::SecondWind) => format!("{} gets up again — Second Wind.", who(w)),
-            Some(world::Relic::PhaseHarness) => {
-                format!("{} phases out — nothing hurts for a moment.", who(w))
-            }
-            Some(world::Relic::SignalScrambler) => {
-                format!(
-                    "{} drops off the machines' sights — Signal Scrambler.",
-                    who(w)
-                )
-            }
-            Some(world::Relic::Lifeline) => format!(
-                "{} throws a Lifeline — nothing hurts either of them for a moment.",
-                who(w)
-            ),
-            Some(world::Relic::RallyPoint) => {
-                format!("{} calls a Rally Point — the fallen get up.", who(w))
-            }
-            Some(world::Relic::HazardPay) => format!(
-                "Hazard Pay: {} takes a share of {} for the site.",
-                who(w),
-                crate::format::euros(world::data::HAZARD_PAY)
-            ),
-            // Fired every kill or every ability: the log would be nothing
-            // else in a fight.
-            Some(
-                world::Relic::SquadMorale | world::Relic::SprintCoil | world::Relic::TetherField,
-            ) => String::new(),
-            Some(r) => format!("{}: {}.", who(w), relic_name(r)),
-            None => String::new(),
-        },
         WorldEvent::RunWon => "The run is won.".into(),
         WorldEvent::HeartExposed { .. } => HEART_EXPOSED.into(),
         WorldEvent::HeartOverload { .. } => HEART_OVERLOAD.into(),
@@ -1864,45 +1788,19 @@ fn relic_of(code: u32) -> Option<world::Relic> {
 }
 
 /// Every relic's name, in `world::Relic::ALL`'s order.
-pub const RELIC_NAMES: [&str; 37] = [
-    "Focusing Lens",
-    "Servo Braces",
-    "Field Plating",
-    "Coolant Loop",
-    "Steady Grip",
-    "Trauma Kit",
-    "Second Wind",
-    "Salvage Beacon",
-    "Overcharge Cell",
-    "Last Stand",
-    "Kill Relay",
-    "Phase Harness",
-    // Task 118.
-    "Marksman's Habit",
-    "Servo Cutter",
-    "Crippler's Mark",
-    "Pressure Seal",
-    "Quick Wrap",
-    "Clot Booster",
-    "Blind Spot",
-    "Sprint Coil",
-    "Signal Scrambler",
-    "Field Radio",
-    "Spotter",
-    "Squad Morale",
-    "Hazard Pay",
-    "Trade License",
-    "Restock Codes",
-    "Parts Broker",
-    "Tether Field",
-    "Wide Angle Optics",
-    "Cover Formation",
-    "Strong Will",
-    "Total Teardown",
-    "Lifeline",
-    "Crossfire",
-    "Rally Point",
-    "War Chest",
+pub const RELIC_NAMES: [&str; 12] = [
+    "Glass Cannon",
+    "Heavy Plating",
+    "Hair Trigger",
+    "Overclocked Cores",
+    "Bounty Contract",
+    "Hunter's Pact",
+    "Drill Sergeant",
+    "Lone Wolves",
+    "Black Market",
+    "Adrenaline",
+    "Salvage Burn",
+    "Nanite Mesh",
 ];
 
 /// The items' names (October 2026), by `bims::module::ModuleKind` code.
@@ -2026,197 +1924,62 @@ pub fn relic_name(relic: world::Relic) -> &'static str {
         .unwrap_or("a relic")
 }
 
-/// What a relic does, in a line, off the rules' own numbers.
-pub fn relic_line(relic: world::Relic) -> String {
-    use world::Relic::*;
-    use world::data as d;
-    match relic {
-        FocusingLens => format!("+{}% weapon damage.", d::FOCUSING_LENS_DAMAGE_PERCENT),
-        ServoBraces => format!("+{}% move speed.", d::SERVO_BRACES_SPEED_PERCENT),
-        FieldPlating => format!("+{}% armour.", d::FIELD_PLATING_ARMOUR_PERCENT),
-        CoolantLoop => format!(
-            "-{}% class ability cooldowns.",
-            d::COOLANT_LOOP_COOLDOWN_PERCENT
-        ),
-        SteadyGrip => format!("+{}% fire rate.", d::STEADY_GRIP_FIRE_RATE_PERCENT),
-        TraumaKit => format!(
-            "Revives a downed crewmate {} s faster — {} s where it took {}, a medic's {} s where it took {} — and never in under {} s.",
-            fig(d::TRAUMA_KIT_REVIVE_SECONDS as f64),
-            fig(world::class::revive_time(false, d::TRAUMA_KIT_REVIVE_SECONDS) as f64),
-            fig(bims::health::REVIVE_SECONDS as f64),
-            fig(world::class::revive_time(true, d::TRAUMA_KIT_REVIVE_SECONDS) as f64),
-            fig(world::class::MEDIC_REVIVE_SECONDS as f64),
-            fig(d::REVIVE_FLOOR_SECONDS as f64)
-        ),
-        SecondWind => format!(
-            "The first time this Bim goes down in a mission, it gets up after {} s with {}% health.",
-            d::SECOND_WIND_SECONDS,
-            d::SECOND_WIND_HEALTH_PERCENT
-        ),
-        SalvageBeacon => format!(
-            "+{}% bounty for this Bim's kills, paid when the site is cleared.",
-            d::SALVAGE_BEACON_BOUNTY_PERCENT
-        ),
-        OverchargeCell => format!(
-            "Every {}th shot deals {}.",
-            d::OVERCHARGE_CELL_EVERY,
-            if d::OVERCHARGE_CELL_DAMAGE_PERCENT == 100 {
-                "double damage".to_string()
-            } else {
-                format!("+{}% damage", d::OVERCHARGE_CELL_DAMAGE_PERCENT)
-            }
-        ),
-        LastStand => format!(
-            "+{}% weapon damage while another player's Bim is down.",
-            d::LAST_STAND_DAMAGE_PERCENT
-        ),
-        KillRelay => format!(
-            "Each kill takes {} s off this Bim's class ability cooldowns.",
-            d::KILL_RELAY_SECONDS
-        ),
-        PhaseHarness => format!(
-            "Once a mission, when a hit takes this Bim under {}% health, it takes no damage for {} s.",
-            d::PHASE_HARNESS_BELOW_PERCENT,
-            d::PHASE_HARNESS_SECONDS
-        ),
-        // Task 118: Dismantler.
-        MarksmansHabit => "This Bim's first hit on each machine lands on its arms or legs.".into(),
-        ServoCutter => format!(
-            "+{}% damage to a machine's arms and legs.",
-            d::SERVO_CUTTER_DAMAGE_PERCENT
-        ),
-        CripplersMark => format!(
-            "+{}% damage to machines missing their arms or legs.",
-            d::CRIPPLERS_MARK_DAMAGE_PERCENT
-        ),
-        PartsBroker => format!(
-            "+{}% bounty for machines this Bim destroys while they are missing a limb.",
-            d::PARTS_BROKER_BOUNTY_PERCENT
-        ),
-        TotalTeardown => format!(
-            "A hit on a limb already destroyed tears into the chassis for {}.",
-            percent_more(d::TOTAL_TEARDOWN_DAMAGE_PERCENT)
-        ),
-        // Lifeline.
-        PressureSeal => format!(
-            "This Bim regenerates {} HP a second.",
-            d::PRESSURE_SEAL_HP_PER_SECOND
-        ),
-        QuickWrap => format!(
-            "Every crewmate this Bim revives gets {} HP on top.",
-            d::QUICK_WRAP_HEAL
-        ),
-        ClotBooster => format!(
-            "For the first {} s after this Bim goes down, it heals {} HP a second whenever it is back on its feet — a downed body is healed by nothing but a revive.",
-            d::CLOT_BOOSTER_SECONDS,
-            d::CLOT_BOOSTER_HP_PER_SECOND
-        ),
-        TetherField => format!(
-            "A crewmate this Bim revives takes {}% less of every hit for {} s.",
-            d::TETHER_FIELD_PERCENT,
-            d::TETHER_FIELD_SECONDS
-        ),
-        Lifeline => format!(
-            "Once a mission, when a player's Bim within {} tiles — or this one — falls under {}% health, both get a shield of {} HP for {} s. A bot never sets it off.",
-            d::LIFELINE_TILES,
-            d::LIFELINE_BELOW_PERCENT,
-            d::LIFELINE_SHIELD_HP,
-            d::LIFELINE_SECONDS
-        ),
-        // Flanker.
-        BlindSpot => format!(
-            "+{}% damage on hits that strike a machine from the side or behind.",
-            d::BLIND_SPOT_DAMAGE_PERCENT
-        ),
-        SprintCoil => format!(
-            "+{}% move speed for {} s at a mission's start and after each ability used.",
-            d::SPRINT_COIL_SPEED_PERCENT,
-            d::SPRINT_COIL_SECONDS
-        ),
-        SignalScrambler => format!(
-            "After this Bim destroys a machine from the side or behind, no machine aims at it for {} s. Once every {} s.",
-            d::SIGNAL_SCRAMBLER_SECONDS,
-            d::SIGNAL_SCRAMBLER_COOLDOWN
-        ),
-        WideAngleOptics => format!(
-            "+{} tiles of weapon range while this Bim stands still.",
-            d::WIDE_ANGLE_OPTICS_TILES
-        ),
-        Crossfire => format!(
-            "While this Bim and a crewmate stand on opposite sides of a machine, both deal +{}% damage to it.",
-            d::CROSSFIRE_DAMAGE_PERCENT
-        ),
-        // Command Net.
-        FieldRadio => format!(
-            "Crewmates within {} tiles fire {}% faster.",
-            d::FIELD_RADIO_TILES,
-            d::FIELD_RADIO_FIRE_RATE_PERCENT
-        ),
-        Spotter => format!(
-            "The machine this Bim hit last takes +{}% damage from every crewmate for {} s.",
-            d::SPOTTER_DAMAGE_PERCENT,
-            d::SPOTTER_SECONDS
-        ),
-        SquadMorale => format!(
-            "Each machine destroyed, by anybody, takes {} s off this Bim's class ability cooldowns.",
-            d::SQUAD_MORALE_SECONDS
-        ),
-        CoverFormation => format!(
-            "This Bim and the crew within {} tiles take {}% less damage.",
-            d::COVER_FORMATION_TILES,
-            d::COVER_FORMATION_PERCENT
-        ),
-        RallyPoint => format!(
-            "Once a mission, using an ability gets every downed crewmate within {} tiles back up at {}% health.",
-            d::RALLY_POINT_TILES,
-            d::RALLY_POINT_HEALTH_PERCENT
-        ),
-        // Supply Line.
-        HazardPay => format!(
-            "This Bim's player is paid {} divided by the number of players each time a site is cleared.",
-            crate::format::euros(d::HAZARD_PAY)
-        ),
-        TradeLicense => format!(
-            "Trader prices are {}% lower for every player, {}% for this Bim's.",
-            d::TRADE_LICENSE_PERCENT,
-            d::TRADE_LICENSE_HOLDER_PERCENT
-        ),
-        RestockCodes => {
-            "Once a trader visit, the trader's weapons and armour can be rolled again. The relic is not."
-                .into()
-        }
-        StrongWill => format!(
-            "This Bim's abilities last {}% longer: a Rampage, an EMP's stun, a Cloak, a Taunt, a Juggernaut, a Rally and a Battle Cry.",
-            d::STRONG_WILL_PERCENT
-        ),
-        WarChest => format!(
-            "+{}% damage for every {} in the crew's pool a player, up to +{}%.",
-            d::WAR_CHEST_PERCENT_PER_THOUSAND,
-            crate::format::euros(1_000),
-            d::WAR_CHEST_CAP_PERCENT
-        ),
+/// One thing a relic does, in words, off the rules' own number: "+30%
+/// weapon damage for everybody", "-20% move speed for the bots", "+2 HP a
+/// second for everybody".
+pub fn modifier_line(m: world::relic::Modifier) -> String {
+    use world::relic::{Stat, Who};
+    let sign = if m.amount < 0 { "-" } else { "+" };
+    let n = m.amount.unsigned_abs();
+    let what = match m.stat {
+        Stat::Damage => "weapon damage",
+        Stat::FireRate => "fire rate",
+        Stat::MoveSpeed => "move speed",
+        Stat::DamageTaken => "damage taken",
+        Stat::Cooldowns => "class ability cooldowns",
+        Stat::MachineDamage => "damage to machines",
+        Stat::Bounty => "money for every enemy down",
+        Stat::Experience => "experience for every enemy down",
+        Stat::WaveSize => "machines in every wave",
+        Stat::TraderPrices => "trader prices",
+        Stat::Regen => "HP a second, regenerated",
+    };
+    // The run's own numbers name nobody: they are the crew's whole.
+    let whom = match (m.who, m.stat) {
+        (
+            Who::Everyone,
+            Stat::MachineDamage
+            | Stat::Bounty
+            | Stat::Experience
+            | Stat::WaveSize
+            | Stat::TraderPrices,
+        ) => "",
+        (Who::Everyone, _) => " for everybody",
+        (Who::Players, _) => " for the players' Bims",
+        (Who::Bots, _) => " for the bots",
+    };
+    match m.stat {
+        Stat::Regen => format!("{sign}{n} {what}{whom}"),
+        _ => format!("{sign}{n}% {what}{whom}"),
     }
 }
 
-/// "double damage" for a hundred per cent, else "+n% damage".
-fn percent_more(percent: i32) -> String {
-    if percent == 100 {
-        "double damage".to_string()
-    } else {
-        format!("+{percent}% damage")
-    }
+/// Every line of a relic, each with whether it is a boon (true) or the
+/// price (false), in the order the relic lists them.
+pub fn relic_lines(relic: world::Relic) -> Vec<(String, bool)> {
+    relic
+        .modifiers()
+        .iter()
+        .map(|&m| (modifier_line(m), m.helps()))
+        .collect()
 }
 
 pub const RELICS_HEADING: &str = "Relics";
-pub const NO_RELICS: &str = "None yet. A site cleared of machines offers relics.";
-pub const REWARD_TITLE: &str = "The site is cleared";
-pub const CACHE_TITLE: &str = "A relic cache";
-pub const REWARD_INTRO: &str = "A relic for every player: pick one for your own Bim. Where two pick the same, each throws two dice — the higher wins, and the others pick again.";
-pub const CACHE_INTRO: &str =
-    "One relic out of the cache. It is kept only if the site is cleared before the crew leave.";
+pub const NO_RELICS: &str = "None yet. Beating an elite (a crowned site) offers relics.";
+pub const REWARD_TITLE: &str = "The elite is beaten";
+pub const REWARD_INTRO: &str = "Choose one relic for the whole crew, or none. A relic is kept for the rest of the run and works on everybody it names, the bots too. Every one has its price: green is what it gives, red what it costs. One of you proposes; the rest say yes.";
 pub const TAKE_NONE: &str = "Take none";
 pub const ACCEPT: &str = "Accept";
-pub const FOR_BIM: &str = "For";
 /// The end of a fight (`screens::fightwon`): up in the mission the moment
 /// the site is cleared, with what the fight earned.
 pub const FIGHT_WON_TITLE: &str = "Fight won";
@@ -2229,7 +1992,6 @@ pub const FIGHT_WON_PEOPLE: &str = "Manufacturers down";
 pub const FIGHT_WON_BOUNTY: &str = "Bounty paid";
 pub const FIGHT_WON_POOL: &str = "Your share";
 pub const FIGHT_WON_BOTS: &str = "The rest of the crew";
-pub const FIGHT_WON_RELIC: &str = "Relic kept";
 pub const FIGHT_WON_JOINED: &str = "Townsfolk joined";
 pub const FIGHT_WON_LOST: &str = "Crew lost";
 pub const FIGHT_WON_NEXT: &str = "Everything stands still — nobody moves and nobody downed bleeds out — until Back to ship takes everybody back, wherever they are. Aboard, the crew choose where to go next on the map.";
@@ -2252,11 +2014,9 @@ pub fn fight_won_bots_xp(xp: u32) -> String {
 }
 
 pub const VICTORY_TITLE: &str = "The run is won";
-pub const VICTORY_UNLOCKED: &str = "Unlocked for your next runs:";
-pub const VICTORY_NOTHING_NEW: &str = "Every relic is unlocked already.";
 
 /// The victory screen's summary of the run (feature 108), a line a number,
-/// and each player's Bim's relics under it.
+/// and the crew's relics under it.
 pub fn victory_summary(summary: &world::world::RunSummary) -> Vec<String> {
     vec![
         format!("Days travelled: {:.1}", summary.days),
@@ -2269,15 +2029,13 @@ pub fn victory_summary(summary: &world::world::RunSummary) -> Vec<String> {
         format!("Deaths: {}", summary.deaths),
     ]
 }
-pub const VICTORY_RELICS: &str = "Relics held:";
-pub fn victory_relics_of(who: u32, relics: &[world::Relic]) -> String {
+pub const VICTORY_RELICS: &str = "The crew's relics:";
+pub fn victory_relics(relics: &[world::Relic]) -> String {
+    if relics.is_empty() {
+        return "none".into();
+    }
     let names: Vec<&str> = relics.iter().map(|&r| relic_name(r)).collect();
-    let held = if names.is_empty() {
-        "none".to_string()
-    } else {
-        names.join(", ")
-    };
-    format!("{}: {held}", crew_name(who))
+    names.join(", ")
 }
 
 /// The line under a proposal: what is on the table and who has said yes.
@@ -2290,46 +2048,9 @@ pub fn relic_answer(who: &str, yes: bool, gone: bool) -> String {
     }
 }
 
-/// The reward's own picks (task 146): who is still to pick, and what this
-/// player has won while the others choose.
-pub fn reward_waiting(names: &[String]) -> String {
-    format!("Waiting for {} to pick.", names.join(", "))
-}
-
-pub fn reward_won(relic: world::Relic) -> String {
-    format!(
-        "You have {}. Waiting for the others to pick.",
-        relic_name(relic)
-    )
-}
-
-pub const REWARD_PICK_AGAIN: &str = "You lost the throw: pick again from what is left.";
-
-/// The dice (task 146, `screens::dice`): the window that plays a clash's
-/// throws one after another.
-pub const DICE_TITLE: &str = "The dice";
-
-pub fn dice_heading(relic: world::Relic) -> String {
-    format!("{} — picked by more than one", relic_name(relic))
-}
-
-pub fn dice_throwing(who: &str) -> String {
-    format!("{who} throws…")
-}
-
-pub fn dice_threw(who: &str, a: u32, b: u32) -> String {
-    format!("{who}: {a} + {b} = {}", a + b)
-}
-
-pub fn dice_winner(who: &str, relic: world::Relic) -> String {
-    format!("{who} wins {}.", relic_name(relic))
-}
-
-pub const DICE_TIE: &str = "A tie at the top: those tied throw again.";
-
-pub fn relic_proposal_line(relic: Option<world::Relic>, to: u32) -> String {
+pub fn relic_proposal_line(relic: Option<world::Relic>) -> String {
     match relic {
-        Some(r) => format!("On the table: {} for {}.", relic_name(r), player_name(to)),
+        Some(r) => format!("On the table: {}.", relic_name(r)),
         None => "On the table: take none.".into(),
     }
 }
@@ -2432,7 +2153,7 @@ pub const MAP_MONEY: &str = "Money";
 pub const MAP_MONEY_TIP: &str =
     "Your money: your wallet and your share of the takings, as the top frame shows it on the ship.";
 /// What a site kind means, for the `?` beside the map's list.
-pub const SITE_KIND_TIP: &str = "Every system offers one mission, marked on its star. ATTACK (crossed blades): the machines, the Manufacturers or the Machine Heart hold it — go in and clear it. DEFEND (a shield): the machines are coming for it — twenty seconds after you arrive the first wave lands, and its own people and armed defenders fight beside you; hold the last wave and it is cleared (no money: its people are the reward), leave before and it falls. TRADER (the green square): a system with a trader has no mission — buy gear and relics on the map. In a system the machines have taken, its one site is an attack and their jammer — the Heart at their origin, and a trader too, which trades again once you have cleared it.";
+pub const SITE_KIND_TIP: &str = "Every system offers one mission, marked on its star. ATTACK (crossed blades): the machines, the Manufacturers or the Machine Heart hold it — go in and clear it. DEFEND (a shield): the machines are coming for it — twenty seconds after you arrive the first wave lands, and its own people and armed defenders fight beside you; hold the last wave and it is cleared (no money: its people are the reward), leave before and it falls. TRADER (the green square): a system with a trader has no mission — buy gear and items on the map. Relics come only from beating an elite (a crowned site). In a system the machines have taken, its one site is an attack and their jammer — the Heart at their origin, and a trader too, which trades again once you have cleared it.";
 /// What the crew find on arrival, a word each.
 pub const ARRIVE_MACHINES: &str = "machines";
 pub const ARRIVE_JAMMER: &str = "jammer";
@@ -2536,7 +2257,7 @@ pub const HEART_ON_ARRIVAL: &str = "On arrival:";
 /// The trader (task 114): its tag on the map, why one is shut, and the
 /// Trader panel's every word.
 pub const ARRIVE_TRADER: &str = "TRADER";
-pub const TRADER_TIP: &str = "A trader is visited on the map: no mission, no room, and neither clock moves while the crew are there. Its shelf is rolled once for the run and never restocked, and its relic is drawn the first time the crew arrive. It is closed while the machines have its system, until every site of the system they took is cleared.";
+pub const TRADER_TIP: &str = "A trader is visited on the map: no mission, no room, and neither clock moves while the crew are there. Its shelf is rolled afresh every visit. It sells no relics: only beating an elite gives the crew one. It is closed while the machines have its system, until every site of the system they took is cleared.";
 pub const TRADER_CLOSED: &str = "closed";
 pub const TRADER_CLOSED_ON_ARRIVAL: &str = "closed on arrival";
 pub const TRADER_TITLE: &str = "Trader";
@@ -2562,16 +2283,9 @@ pub const TRADER_ITEMS_INTRO: &str = "Every item at the tier the day has reached
 pub const TRADER_SOLD: &str = "SOLD";
 pub const TRADER_BUY: &str = "Buy";
 pub const TRADER_INTO_ARMORY: &str = "Armory";
-pub const TRADER_RELIC: &str = "Relic";
-pub const TRADER_NO_RELIC: &str = "Sold.";
-pub const TRADER_RELIC_INTRO: &str = "Your own: every player's trader has a relic of its own, bought outright for your own Bim with your own money.";
 pub const TRADER_COMBINE: &str = "Combine";
 pub const TRADER_COMBINE_INTRO: &str = "Two weapons or two pieces of one kind at one tier make one of the next tier, whole. Out of the armory, off your own Bim or off a bot. Where one of the two is worn, the result is worn in its place. Tier three is as far as it goes.";
 pub const TRADER_COMBINE_NONE: &str = "Nothing to combine.";
-/// *Restock Codes* (task 118): the button, and what it does.
-pub const TRADER_RESTOCK: &str = "Restock";
-pub const TRADER_RESTOCK_TIP: &str =
-    "Restock Codes: roll the trader's weapons and armour again, once a visit. The relic stays.";
 /// Where a thing to combine is.
 pub fn combine_from(worn_by: Option<&str>) -> String {
     match worn_by {
@@ -2713,8 +2427,6 @@ pub const ARMORY_BOT: &str = "bot";
 /// The Armory panel's rows: the players' own Bims, then the bots.
 pub const ARMORY_PLAYERS: &str = "Players";
 pub const ARMORY_BOTS: &str = "Bots";
-/// Under a player's name, where its relics would be.
-pub const ARMORY_NO_RELICS: &str = "no relics";
 pub const ARMORY_EMPTY_SLOT: &str = "—";
 pub const ARMORY_TAKE_OFF: &str = "Take off, into the armory";
 pub const ARMORY_OFFER_TO: &str = "Offer to";
@@ -3276,10 +2988,6 @@ pub fn item_tip(id: ResourceId) -> &'static str {
     ITEM_TIPS.get(id as usize).copied().unwrap_or("")
 }
 
-/// The research desk's row where a relic cache lies on it (feature 106).
-pub const CACHE_ROW: &str = "Open the relic cache";
-pub const CACHE_ROW_HINT: &str = "walk over and open it — one relic, kept if the site is cleared";
-
 /// The Hire window's title, with the mercenary's name after it, the menu
 /// row on a mercenary for hire — one of a friendly station's people in
 /// the olive coverall, with a `?` over its head — that opens it, and the
@@ -3485,8 +3193,30 @@ mod tests {
         {
             assert_eq!(RELIC_NAMES.len(), world::Relic::ALL.len());
             for relic in world::Relic::ALL {
-                assert!(!relic_line(relic).is_empty());
+                // A boon and a price on every one, each its own line.
+                let lines = relic_lines(relic);
+                assert!(lines.iter().any(|&(_, good)| good), "{relic:?}");
+                assert!(lines.iter().any(|&(_, good)| !good), "{relic:?}");
             }
+            let words = |r| -> Vec<String> { relic_lines(r).into_iter().map(|(l, _)| l).collect() };
+            assert_eq!(
+                words(world::Relic::GlassCannon),
+                [
+                    "+30% weapon damage for everybody",
+                    "+25% damage taken for everybody"
+                ]
+            );
+            assert_eq!(
+                words(world::Relic::BountyContract),
+                [
+                    "+100% money for every enemy down",
+                    "-20% damage to machines"
+                ]
+            );
+            assert_eq!(
+                words(world::Relic::DrillSergeant)[2],
+                "-20% weapon damage for the players' Bims"
+            );
         }
 
         // --- every_item_and_spot_has_a_line ---
@@ -3768,20 +3498,15 @@ mod tests {
                     who: 0,
                     tier: 2,
                 },
-                WorldEvent::RelicBought {
+                // The relic vote (October 2026).
+                WorldEvent::RelicsOffered { count: 3 },
+                WorldEvent::RelicProposed { slot: 0, relic: 3 },
+                WorldEvent::RelicProposed {
                     slot: 1,
-                    relic: 0,
-                    price: 3_000,
+                    relic: u32::MAX,
                 },
-                WorldEvent::Restocked { slot: 0 },
-                // The reward's own picks and dice (task 146).
-                WorldEvent::RelicPicked { slot: 0, relic: 3 },
-                WorldEvent::RelicDice {
-                    slot: 1,
-                    relic: 3,
-                    a: 4,
-                    b: 6,
-                },
+                WorldEvent::RelicGiven { relic: 3 },
+                WorldEvent::RelicsDeclined,
             ] {
                 assert!(event_line(event).is_some(), "{event:?}");
             }
@@ -3798,8 +3523,6 @@ mod tests {
                 Refusal::SoldOut,
                 Refusal::TopTier,
                 Refusal::NotAPair,
-                Refusal::NoRestock,
-                Refusal::Restocked,
             ] {
                 assert!(!refusal(why).is_empty());
             }

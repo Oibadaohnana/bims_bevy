@@ -915,9 +915,9 @@ fn a_taunt_or_a_juggernaut_on_a_cloaked_tank_forces_nothing() {
 fn the_taunt_and_the_juggernaut_are_ready_at_every_mission_and_shortened_by_the_relics() {
     let mut world = tank_at([1, 0, 0, 1]);
     let (taunt, jug) = (world.taunt_cooldown(0), world.juggernaut_cooldown(0));
-    world.give_relic_for_probe(0, crate::relic::Relic::CoolantLoop);
-    assert!(world.taunt_cooldown(0) < taunt, "*Coolant Loop*");
-    assert!(world.juggernaut_cooldown(0) < jug, "*Coolant Loop*");
+    world.give_relic_for_probe(crate::relic::Relic::OverclockedCores);
+    assert!(world.taunt_cooldown(0) < taunt, "*Overclocked Cores*");
+    assert!(world.juggernaut_cooldown(0) < jug, "*Overclocked Cores*");
     world.step(&[Command::Taunt { slot: 0 }, Command::Juggernaut { slot: 0 }]);
     run_for(&mut world, 10.0);
     let (taunt_left, jug_left) = (
@@ -925,12 +925,10 @@ fn the_taunt_and_the_juggernaut_are_ready_at_every_mission_and_shortened_by_the_
         world.juggernaut_cooldown_left(0),
     );
     assert!(taunt_left > 0.0 && jug_left > 0.0);
-    // *Kill Relay*: a kill takes seconds off both.
-    world.give_relic_for_probe(0, crate::relic::Relic::KillRelay);
-    let mut events = Vec::new();
-    world.machine_kills(&[(Some(0), 0)], &mut events);
-    assert!(world.taunt_cooldown_left(0) < taunt_left, "*Kill Relay*");
-    assert!(world.juggernaut_cooldown_left(0) < jug_left, "*Kill Relay*");
+    // Seconds taken off (a *Reset Capacitor*'s way) both.
+    world.cooldowns_less(0, 3.0);
+    assert!(world.taunt_cooldown_left(0) < taunt_left, "seconds off");
+    assert!(world.juggernaut_cooldown_left(0) < jug_left, "seconds off");
     // Ready at every mission's start, whatever was left.
     next_mission(&mut world);
     assert_eq!(world.taunt_cooldown_left(0), 0.0);

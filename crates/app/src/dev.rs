@@ -120,10 +120,10 @@ pub fn lost() -> bool {
     std::env::var("BIMS_LOST").as_deref() == Ok("1")
 }
 
-/// `BIMS_RELICS=focusing_lens,second_wind` gives the steered Bim those
+/// `BIMS_RELICS=glass_cannon,drill_sergeant` gives the crew those
 /// relics at the start (feature 106): each a relic's name in lower case
 /// with the words joined by `_` (`names::RELIC_NAMES`) — an apostrophe or
-/// none, `marksmans_habit` — or its code. A word that is neither is said
+/// none, `hunters_pact` — or its code. A word that is neither is said
 /// on the terminal and skipped.
 pub fn relics() -> Vec<world::Relic> {
     let Ok(list) = std::env::var("BIMS_RELICS") else {
@@ -177,21 +177,6 @@ pub fn reward() -> bool {
 /// after the last machine falls. `bims relics` is a site for it.
 pub fn fight_won() -> bool {
     std::env::var("BIMS_FIGHT_WON").as_deref() == Ok("1")
-}
-
-/// `BIMS_DICE=1` plays a staged clash of the reward's dice
-/// (`screens::dice::DiceShow::staged`, task 146) the moment the game
-/// screen opens: how the dice are looked at without two players picking
-/// the same relic.
-pub fn dice() -> bool {
-    std::env::var("BIMS_DICE").as_deref() == Ok("1")
-}
-
-/// `BIMS_CACHE=1` opens a held site's run with a **relic cache** opened
-/// on its research desk (feature 106, `Session::cache_for_probe`): the
-/// one relic's choice up in the mission, the fight going on round it.
-pub fn cache() -> bool {
-    std::env::var("BIMS_CACHE").as_deref() == Ok("1")
 }
 
 /// `BIMS_ITEMS=blink,executioner:3,heart:2,core` gives the steered Bim

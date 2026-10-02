@@ -4,8 +4,8 @@
 //! This is the rules, none of them the world's to walk: **which sites are
 //! traders**, **what is on a trader's shelf**, and **what two things
 //! combine into**. `trading.rs` (a child of `world`, like `mission.rs`) is
-//! where they meet the world's fields — the visit, the purchases, the
-//! relic's vote and the combining.
+//! where they meet the world's fields — the visit, the purchases and the
+//! combining.
 //!
 //! # Which sites
 //!
@@ -44,7 +44,6 @@ use bims::combat::{ArmourKind, Item, Tier};
 use physics::ResourceId;
 use worldgen::{Galaxy, StationBlueprint, StationKind};
 
-use crate::relic::Relic;
 use crate::run::Site;
 use crate::{armour, data, heart, jammer};
 
@@ -266,11 +265,9 @@ pub fn shelf_candidates(list: &[ResourceId], tier: Option<Tier>) -> Vec<ShelfIte
 
 /// What the world keeps about one trader the crew have been to: what is
 /// left on its shelf — a slot a thing, `None` once bought, so a slot's
-/// number is the same on every visit — and its relic, drawn the first time
-/// the crew arrived and there until bought. Saved, and in
+/// number is the same on every visit. Saved, and in
 /// `world_checksum`. **Every player has a trader of their own** at a
-/// trader's site — its own shelf and its own relic, bought with their own
-/// money — so one player's buying never takes from another's: `owner`
+/// trader's site — its own shelf, bought from with their own money — so one player's buying never takes from another's: `owner`
 /// is whose.
 #[derive(Clone, PartialEq, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -280,12 +277,6 @@ pub struct Trader {
     #[cfg_attr(feature = "serde", serde(default))]
     pub owner: u32,
     pub shelf: Vec<Option<ShelfItem>>,
-    /// The relic, until it is bought: drawn by the day's odds the first
-    /// time the crew arrived (task 117). It stays in the run's pool and out
-    /// of every other draw while it is here, leaves the pool when bought,
-    /// and goes back in the running — off this table — the first draw after
-    /// the trader closes.
-    pub relic: Option<Relic>,
     /// The items bought off the item shelf this visit, by kind's code
     /// (October 2026): one of a kind a visit, sold out until the next.
     #[cfg_attr(feature = "serde", serde(default))]
@@ -294,21 +285,12 @@ pub struct Trader {
 
 impl Trader {
     /// Player `owner`'s trader met for the first time: its shelf rolled
-    /// for the visit at `tier` ([`roll_shelf`]), its relic the one drawn
-    /// for it.
-    pub fn new(
-        galaxy_seed: u64,
-        site: Site,
-        relic: Option<Relic>,
-        owner: u32,
-        visit: u64,
-        tier: Tier,
-    ) -> Trader {
+    /// for the visit at `tier` ([`roll_shelf`]).
+    pub fn new(galaxy_seed: u64, site: Site, owner: u32, visit: u64, tier: Tier) -> Trader {
         let mut trader = Trader {
             site,
             owner,
             shelf: Vec::new(),
-            relic,
             items_sold: Vec::new(),
         };
         trader.restock(galaxy_seed, visit, tier);
@@ -332,16 +314,6 @@ impl Trader {
         .map(Some)
         .collect();
     }
-}
-
-/// What a relic costs at a trader: [`data::RELIC_PRICE`] by the relic's
-/// own tier.
-pub fn relic_price(relic: Relic) -> economy::Money {
-    let at = (relic.tier().max(1) - 1) as usize;
-    data::RELIC_PRICE
-        .get(at)
-        .copied()
-        .unwrap_or(data::RELIC_PRICE[data::RELIC_PRICE.len() - 1])
 }
 
 /// Why two things will not combine.
@@ -507,15 +479,5 @@ mod tests {
             combined(helm(1, Tier::One), rifle(Tier::One), 9),
             Err(CombineError::NotAPair)
         );
-    }
-
-    #[test]
-    fn a_relic_costs_its_tier_s_price() {
-        for relic in Relic::ALL {
-            assert_eq!(
-                relic_price(relic),
-                data::RELIC_PRICE[(relic.tier() - 1) as usize]
-            );
-        }
     }
 }

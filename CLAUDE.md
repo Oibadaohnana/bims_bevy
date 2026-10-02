@@ -80,8 +80,8 @@ desktop):
   per bot (the crew's bots and a defence's defenders), the wave days and the three tier timings, all read off
   the run day; `world::droid::WaveScaling`, `BIMS_SCALING=file` names
   another) and `rewards.ron` what a fight pays and things cost (xp and
-  money an enemy down, a defence's share, the buyback, relic, combine
-  and shelf prices; `world::rewards::Rewards`, `BIMS_REWARDS`), both
+  money an enemy down, a defence's share, the buyback, combine and
+  shelf prices; `world::rewards::Rewards`, `BIMS_REWARDS`), both
   read again whenever saved while the game runs
   (`crates/app/src/wavecfg.rs`). Keep `rewards.ron` at the constants —
   its test says so. `scaling.ron` is the player's: the game setup's

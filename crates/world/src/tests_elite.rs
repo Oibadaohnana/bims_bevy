@@ -162,7 +162,6 @@ fn a_fight_that_is_no_elite_drops_no_relic() {
     world.set_droid_waves_for_probe(1);
     world.set_droid_wave_for_probe(3);
     assert!(!world.is_elite_here(station), "home is never an elite");
-    assert!(!world.infestation(station).unwrap().cache, "no cache");
     wave_up(&mut world);
     wreck_them_all(&mut world);
     for _ in 0..200 {
