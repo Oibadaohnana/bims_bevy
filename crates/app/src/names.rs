@@ -1943,6 +1943,7 @@ pub fn modifier_line(m: world::relic::Modifier) -> String {
         Stat::WaveSize => "machines in every wave",
         Stat::TraderPrices => "trader prices",
         Stat::Regen => "HP a second, regenerated",
+        Stat::EliteWave => "",
     };
     // The run's own numbers name nobody: they are the crew's whole.
     let whom = match (m.who, m.stat) {
@@ -1952,7 +1953,8 @@ pub fn modifier_line(m: world::relic::Modifier) -> String {
             | Stat::Bounty
             | Stat::Experience
             | Stat::WaveSize
-            | Stat::TraderPrices,
+            | Stat::TraderPrices
+            | Stat::EliteWave,
         ) => "",
         (Who::Everyone, _) => " for everybody",
         (Who::Players, _) => " for the players' Bims",
@@ -1960,6 +1962,10 @@ pub fn modifier_line(m: world::relic::Modifier) -> String {
     };
     match m.stat {
         Stat::Regen => format!("{sign}{n} {what}{whom}"),
+        Stat::EliteWave => format!(
+            "One more wave at every elite: {sign}{n} machine{} a player, and no Guardian",
+            if n == 1 { "" } else { "s" }
+        ),
         _ => format!("{sign}{n}% {what}{whom}"),
     }
 }
@@ -3211,6 +3217,13 @@ mod tests {
                 [
                     "+100% money for every enemy down",
                     "-20% damage to machines"
+                ]
+            );
+            assert_eq!(
+                words(world::Relic::BlackMarket),
+                [
+                    "-40% trader prices",
+                    "One more wave at every elite: +1 machine a player, and no Guardian"
                 ]
             );
             assert_eq!(

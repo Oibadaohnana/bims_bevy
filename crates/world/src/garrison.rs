@@ -108,9 +108,15 @@ impl World {
             return 1;
         }
         // An elite comes in at least two (`crate::elite`), bar a count the
-        // probes forced.
-        if self.is_elite_here(id) && self.droid_waves_forced.is_none() {
-            return self.droid_wave_count().max(data::ELITE_WAVES);
+        // probes forced — and one more, its last, while the crew hold a
+        // relic that adds it (*Black Market*), forced or not.
+        if self.is_elite_here(id) {
+            let relic = u32::from(self.elite_wave_extra() > 0);
+            let count = match self.droid_waves_forced {
+                Some(_) => self.droid_wave_count(),
+                None => self.droid_wave_count().max(data::ELITE_WAVES),
+            };
+            return count + relic;
         }
         self.droid_wave_count()
     }

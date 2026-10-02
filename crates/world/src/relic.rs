@@ -120,6 +120,10 @@ pub enum Stat {
     /// Hit points every Bim on its feet gets back a second — a number of
     /// them, not a share.
     Regen,
+    /// **One more wave at every elite**, its last: as many machines as a
+    /// wave there and this many more a player — a number, not a share —
+    /// and no Guardian among them.
+    EliteWave,
 }
 
 impl Stat {
@@ -128,7 +132,11 @@ impl Stat {
     pub fn more_is_better(self) -> bool {
         !matches!(
             self,
-            Stat::DamageTaken | Stat::Cooldowns | Stat::WaveSize | Stat::TraderPrices
+            Stat::DamageTaken
+                | Stat::Cooldowns
+                | Stat::WaveSize
+                | Stat::TraderPrices
+                | Stat::EliteWave
         )
     }
 }
@@ -260,7 +268,7 @@ pub const RELICS: [RelicDef; 12] = [
         Relic::BlackMarket,
         &[
             m(W::Everyone, S::TraderPrices, -data::BLACK_MARKET_PRICES),
-            m(W::Everyone, S::Bounty, -data::BLACK_MARKET_BOUNTY),
+            m(W::Everyone, S::EliteWave, data::BLACK_MARKET_ELITE_WAVE),
         ],
     ),
     row(
@@ -493,8 +501,12 @@ mod tests {
         );
         assert_eq!(percent(&held, Stat::FireRate, false), 0);
         assert_eq!(
-            crew_percent(&[Relic::BountyContract, Relic::BlackMarket], Stat::Bounty),
-            data::BOUNTY_CONTRACT_BOUNTY - data::BLACK_MARKET_BOUNTY
+            crew_percent(&[Relic::BountyContract, Relic::SalvageBurn], Stat::Bounty),
+            data::BOUNTY_CONTRACT_BOUNTY - data::SALVAGE_BURN_BOUNTY
+        );
+        assert_eq!(
+            crew_percent(&[Relic::BlackMarket], Stat::EliteWave),
+            data::BLACK_MARKET_ELITE_WAVE
         );
         assert_eq!(percent(&[], Stat::Damage, false), 0);
     }

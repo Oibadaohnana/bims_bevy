@@ -79,13 +79,15 @@ fn wreck_them_all(world: &mut World) {
     }
 }
 
-/// The arena's one wave wrecked and the site cleared, the events said on
-/// the way.
+/// The arena's waves wrecked as they stand and the site cleared, the
+/// events said on the way.
 fn clear(world: &mut World, station: u32) -> Vec<WorldEvent> {
     open_the_room(world);
-    wreck_them_all(world);
     let mut events = Vec::new();
-    for _ in 0..200 {
+    for _ in 0..20_000 {
+        if world.droids_standing() > 0 {
+            wreck_them_all(world);
+        }
         events.extend(world.step(&[]));
         if world.droid_station_cleared(station) {
             break;
@@ -402,9 +404,10 @@ fn the_run_s_own_numbers_take_the_relics_share() {
         world.bounty_here(1_000),
         bounty * (100 + data::BOUNTY_CONTRACT_BOUNTY as u64) / 100
     );
-    world.give_relic_for_probe(Relic::BlackMarket);
-    let percent = 100 + data::BOUNTY_CONTRACT_BOUNTY - data::BLACK_MARKET_BOUNTY;
+    world.give_relic_for_probe(Relic::SalvageBurn);
+    let percent = 100 + data::BOUNTY_CONTRACT_BOUNTY - data::SALVAGE_BURN_BOUNTY;
     assert_eq!(world.bounty_here(1_000), bounty * percent as u64 / 100);
+    world.give_relic_for_probe(Relic::BlackMarket);
     assert_eq!(
         world.trader_price_by_relics(1_000),
         1_000 * (100 - data::BLACK_MARKET_PRICES as u64) / 100
@@ -423,6 +426,68 @@ fn the_run_s_own_numbers_take_the_relics_share() {
     let want = (f64::from(n) * relic::factor(data::HUNTERS_PACT_WAVES)).ceil() as u32;
     assert_eq!(plain.droid_wave_size(), want);
     assert!(want > n, "more machines");
+}
+
+/// Steps until the wave aboard at `station` is `wave` and standing, the
+/// last one wrecked each time it stands.
+fn up_to_wave(world: &mut World, station: u32, wave: u32) {
+    for _ in 0..20_000 {
+        if world.infestation(station).unwrap().wave == wave && world.droids_standing() > 0 {
+            return;
+        }
+        if world.droids_standing() > 0 {
+            wreck_them_all(world);
+        }
+        world.step(&[]);
+    }
+    panic!("wave {wave} never stood");
+}
+
+/// **Black Market's price**: an elite has one more wave, its last — a
+/// wave there and [`data::BLACK_MARKET_ELITE_WAVE`] more machines a
+/// player — with **no Guardian** in it, whatever the tier; and the site
+/// is cleared only once it is down. Without the relic the arena is
+/// cleared after its one wave.
+#[test]
+fn black_market_brings_one_more_wave_to_an_elite_bigger_and_without_a_guardian() {
+    let players = 2;
+    let (mut world, station) = held_arena(players);
+    world.set_droid_tier_for_probe(Some(Tier::Three));
+    world.give_relic_for_probe(Relic::BlackMarket);
+    open_the_room(&mut world);
+    let it = world.infestation(station).unwrap();
+    assert_eq!(
+        (it.wave, it.waves_left),
+        (1, 1),
+        "the dial's one, and one more"
+    );
+    assert!(!world.is_relic_wave(station), "the first is the site's own");
+    up_to_wave(&mut world, station, 2);
+    assert!(world.is_relic_wave(station));
+    let room = &world.residents.as_ref().unwrap().aboard.room;
+    let kinds: Vec<_> = (0..room.droid_count() as usize)
+        .filter_map(|i| room.droid(i))
+        .filter(|d| !d.destroyed)
+        .map(|d| d.kind)
+        .collect();
+    assert_eq!(
+        kinds.len() as u32,
+        3 + data::BLACK_MARKET_ELITE_WAVE as u32 * players,
+        "the forced three and one more a player: {kinds:?}"
+    );
+    assert!(
+        !kinds.contains(&bims::droid::DroidKind::Guardian),
+        "no Guardian: {kinds:?}"
+    );
+    assert!(!world.droid_station_cleared(station), "not cleared yet");
+    clear(&mut world, station);
+
+    // Without it: one wave, and cleared after it.
+    let (mut plain, station) = held_arena(players);
+    open_the_room(&mut plain);
+    let it = plain.infestation(station).unwrap();
+    assert_eq!((it.wave, it.waves_left), (1, 0));
+    clear(&mut plain, station);
 }
 
 /// **The damage to a machine**: a crew hit on one lands at the relics'

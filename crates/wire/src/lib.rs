@@ -98,7 +98,10 @@ use serde::{Deserialize, Serialize};
 /// voted on with no recipient (`Command::ProposeRelic` lost `to`),
 /// `Command::{OpenCache, Restock}` gone, no trader's relic, and the
 /// relic events cut down.
-pub const PROTOCOL: u32 = 95;
+/// 96: *Black Market*'s price is one more wave at every elite (a bigger
+/// one, no Guardian), where it was less bounty: both ends must count and
+/// lay the waves alike.
+pub const PROTOCOL: u32 = 96;
 
 /// Where the relay lives. `BIMS_SERVER` in the environment overrides it
 /// — `ws://127.0.0.1:8792` for one on the same machine.

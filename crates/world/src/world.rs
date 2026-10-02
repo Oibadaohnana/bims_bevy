@@ -6309,12 +6309,20 @@ impl World {
             .droid_kinds_forced
             .clone()
             .unwrap_or_else(|| bims::droid::wave_kinds(n, top));
-        // An elite's Guardian comes in its wave, whatever the tier.
-        let elite = self
-            .residents
-            .as_ref()
-            .is_some_and(|r| self.is_elite_here(r.station));
-        let kinds = if elite {
+        // An elite's Guardian comes in its wave, whatever the tier — and
+        // the relics' last wave there (*Black Market*) has none at all, a
+        // Trooper in a Guardian's place.
+        let here = self.residents.as_ref().map(|r| r.station);
+        let elite = here.is_some_and(|id| self.is_elite_here(id));
+        let kinds = if here.is_some_and(|id| self.is_relic_wave(id)) {
+            kinds
+                .into_iter()
+                .map(|k| match k {
+                    bims::droid::DroidKind::Guardian => bims::droid::DroidKind::Trooper,
+                    k => k,
+                })
+                .collect()
+        } else if elite {
             crate::elite::with_guardian(kinds, wave)
         } else {
             kinds
@@ -6476,7 +6484,13 @@ impl World {
         let Some(station) = self.station(id).cloned() else {
             return;
         };
-        let n = self.droid_wave_size();
+        // The relics' last wave at an elite (*Black Market*): its many more
+        // a player on top.
+        let n = if self.is_relic_wave(id) {
+            self.droid_wave_size() + self.elite_wave_extra() * self.players()
+        } else {
+            self.droid_wave_size()
+        };
         // The Machine Heart's own go on the deck first (feature 108), so
         // they keep the front of the list through every wave after.
         let mut droids = self.heart_machines_to_lay(&station);

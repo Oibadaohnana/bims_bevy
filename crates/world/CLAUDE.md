@@ -6976,7 +6976,7 @@ The room's rule is `crates/game/CLAUDE.md` ("The dark"); the world's part:
   (a bot is every crew member no player steers: bots, hands, joiners,
   reinforcements) and `Stat::{Damage, FireRate, MoveSpeed, DamageTaken,
   Cooldowns, MachineDamage, Bounty, Experience, WaveSize, TraderPrices,
-  Regen}` — and **every row helps and costs** (`Modifier::helps`, pinned
+  Regen, EliteWave}` — and **every row helps and costs** (`Modifier::helps`, pinned
   by `relic::tests::every_relic_helps_and_costs`). **No relic touches a
   revive or cuts the healing** (the player: it would make the medic and
   the commander's Medivac useless). Every number is `data.rs`'s
@@ -6991,7 +6991,12 @@ The room's rule is `crates/game/CLAUDE.md` ("The dark"); the world's part:
   `wave_size_with` (`wave_by_relics`, rounded up; a forced wave is as
   forced); `trader_price_by_relics` in `shelf_price`, `item_price` and
   `combine_fee`; `relics_mend` (every crew member on its feet, through
-  `heal_crew`). A crew holding none plays exactly as it did.
+  `heal_crew`). And `EliteWave` (*Black Market*'s price, the player's
+  follow-up): `wave_count_here` gives an elite one more wave, forced
+  count or not; `is_relic_wave` is that last one (past the first, none
+  left), which `settle_droids` lays `elite_wave_extra() × players` bigger
+  and `build_wave` lays with a Trooper in every Guardian's place and no
+  `with_guardian`. A crew holding none plays exactly as it did.
 - **State**: `Relics { held: Vec<Relic>, choice, offers }` — no pool, no
   per-slot lists. `drawable()` is every relic not held; `offer(drawable,
   n, seed)` draws evenly, none twice. `RelicChoice { options, proposal }`,
@@ -7015,7 +7020,7 @@ The room's rule is `crates/game/CLAUDE.md` ("The dark"); the world's part:
 - **The `relics` command's arena is an elite** now
   (`Session::relics`), or it would offer nothing.
 
-`tests_relic.rs` is the rule. **`SAVE_VERSION` 91, `wire::PROTOCOL` 95**
+`tests_relic.rs` is the rule. **`SAVE_VERSION` 91, `wire::PROTOCOL` 95** (96 for Black Market's wave)
 (the relay wants redeploying). `REFERENCE_CHECKSUM` and `SURVIVORS` move
 (the relics' block of the checksum is smaller, the cache is out of an
 `Infestation`'s) — both already off their pins, not re-pinned.

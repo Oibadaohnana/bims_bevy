@@ -232,7 +232,7 @@ what a Bim carries; a relic changes how the run plays.
   | Hunter's Pact | +50% experience for every enemy down | +25% machines in every wave |
   | Drill Sergeant | the bots: +50% weapon damage, -30% damage taken | -20% weapon damage for the players' Bims |
   | Lone Wolves | the players' Bims: +35% weapon damage, +15% move speed | -50% weapon damage for the bots |
-  | Black Market | -40% trader prices | -30% money for every enemy down |
+  | Black Market | -40% trader prices | one more wave at every elite, its last: +1 machine a player, and no Guardian in it |
   | Adrenaline | +30% move speed for everybody | +15% damage taken for everybody |
   | Salvage Burn | +40% damage to machines | -40% money for every enemy down |
   | Nanite Mesh | +2 HP a second for everybody on their feet | -15% weapon damage for everybody |
