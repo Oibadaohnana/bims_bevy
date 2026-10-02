@@ -749,16 +749,6 @@ pub struct World {
     /// The station the ship is near, if it is near one, as a room: the
     /// room's whole simulation again, laid out on that station with the
     /// people who live there in it, opened when the ship comes within
-    /// The probes' word on night at a town (`BIMS_NIGHT`, task 152):
-    /// `None` — the game's own — leaves it to the seed and the day
-    /// (`crew::is_night`). Saved, not hashed: what it decides is the
-    /// room's light.
-    #[cfg_attr(feature = "serde", serde(default))]
-    night_for_probe: Option<bool>,
-    /// And on a dark station (`BIMS_DARK`, task 152): `Some(true)` every
-    /// enemy's station dark, `Some(false)` none, `None` the roll.
-    #[cfg_attr(feature = "serde", serde(default))]
-    dark_for_probe: Option<bool>,
     /// [`data::RESIDENTS_RANGE`] of the hull and closed when it leaves. One
     /// at a time — the nearest. A derelict's room has nobody in it. See
     /// [`crate::crew`].
@@ -784,6 +774,16 @@ pub struct World {
     /// `world_checksum` eats is the answer rather than this, since it is
     /// the size of the fight.
     droid_tier: Option<Tier>,
+    /// The probes' word on night at a town (`BIMS_NIGHT`, task 152):
+    /// `None` — the game's own — leaves it to the seed and the day
+    /// (`crew::is_night`). Saved, not hashed: what it decides is the
+    /// room's light.
+    #[cfg_attr(feature = "serde", serde(default))]
+    night_for_probe: Option<bool>,
+    /// And on a dark station (`BIMS_DARK`, task 152): `Some(true)` every
+    /// enemy's station dark, `Some(false)` none, `None` the roll.
+    #[cfg_attr(feature = "serde", serde(default))]
+    dark_for_probe: Option<bool>,
     /// How long after a wave is spent the next arrives, in steps of the
     /// mission clock: [`data::DROID_REINFORCE_STEPS`], bar the probes,
     /// which shorten it to a minute so a wave can be watched arriving. In
@@ -1230,8 +1230,6 @@ impl World {
             crew_count: crew,
             dynamics,
             anchor: DVec2::ZERO,
-            night_for_probe: None,
-            dark_for_probe: None,
             heading: 0.0,
             state: ShipState::Docked {
                 station: station_id,
@@ -1257,6 +1255,8 @@ impl World {
             infested: Vec::new(),
             droids_to_post: Vec::new(),
             droid_tier: None,
+            night_for_probe: None,
+            dark_for_probe: None,
             droid_reinforce: data::DROID_REINFORCE_STEPS,
             droid_wave_forced: None,
             wave_scaling: droidplan::WaveScaling::DEFAULT,
@@ -2215,8 +2215,6 @@ impl World {
         let Some(station) = self.station(id) else {
             return;
         };
-        // A dark station's lamps are off on the crew's deck too (task 152).
-        self.aboard.lamps_off_over_station(residents.dark);
         let Some(joined) = crate::docking::join(
             &self.ship.design,
             self.ship.dynamics.centre_of_mass,
@@ -2278,6 +2276,8 @@ impl World {
         if surface::surface_body(id).is_some() {
             self.aboard.daylight_over_station(residents.night);
         }
+        // A dark station's lamps are off on the crew's deck too (task 152).
+        self.aboard.lamps_off_over_station(residents.dark);
         let mut residents = residents;
         // Its doors are the joined room's to draw — one picture of each,
         // in one state — and the joined room is told where the residents
@@ -2325,9 +2325,6 @@ impl World {
     }
 
     // --- what a run has switched off (feature 102) ------------------------
-        if self.aboard.is_joined() && self.ship.state.station() == Some(station) {
-            self.aboard.lamps_off_over_station(residents.dark);
-        }
 
     /// Whether the crew build onto their ship and buy what it lives on:
     /// see the field.
@@ -2388,6 +2385,9 @@ impl World {
                     self.clock_minutes,
                 );
             }
+        }
+        if self.aboard.is_joined() && self.ship.state.station() == Some(station) {
+            self.aboard.lamps_off_over_station(residents.dark);
         }
         self.residents = Some(residents);
     }
@@ -3359,23 +3359,6 @@ impl World {
         let residents = self.residents.take()?;
         let (mut own, mut hired) = (0u32, 0u32);
         // And where each of them is lying, for the room that opens next
-        // Night or day at a town (task 152): one visit in two off its seed
-        // and the day, or the probes' word.
-        let night = self
-            .night_for_probe
-            .unwrap_or_else(|| crate::crew::is_night(seed, self.run_day()));
-        residents.set_night(night);
-        // A dark station (task 152): an enemy's station — never a town,
-        // never the Heart's fortress, whose core wants its lamps — one
-        // visit in five off its seed and the day, or the probes' word.
-        let attacked = self.is_droid_held(station)
-            && surface::surface_body(station).is_none()
-            && !heart::is_heart(station);
-        let dark = attacked
-            && self
-                .dark_for_probe
-                .unwrap_or_else(|| crate::crew::is_dark_station(seed, self.run_day()));
-        residents.set_dark(dark, design);
         // (feature 85): the bodies laid out at this open among them, so
         // what the room says is the whole of what that station's deck
         // holds.
@@ -3456,6 +3439,23 @@ impl World {
             self.clock_minutes,
             self.graves_at(station),
         );
+        // Night or day at a town (task 152): one visit in two off its seed
+        // and the day, or the probes' word.
+        let night = self
+            .night_for_probe
+            .unwrap_or_else(|| crate::crew::is_night(seed, self.run_day()));
+        residents.set_night(night);
+        // A dark station (task 152): an enemy's station — never a town,
+        // never the Heart's fortress, whose core wants its lamps — one
+        // visit in five off its seed and the day, or the probes' word.
+        let attacked = self.is_droid_held(station)
+            && surface::surface_body(station).is_none()
+            && !heart::is_heart(station);
+        let dark = attacked
+            && self
+                .dark_for_probe
+                .unwrap_or_else(|| crate::crew::is_dark_station(seed, self.run_day()));
+        residents.set_dark(dark, design);
         // And their peacetime rounds (feature 102), dealt the moment the
         // site's people are: walked only with the needs off, but dealt
         // either way so a switch thrown later finds them. Not where the
@@ -5914,50 +5914,6 @@ impl World {
         run_day_at(self.clock_minutes)
     }
 
-    /// The probes' dial: every enemy's station opened from now on dark
-    /// (`Some(true)`), lit (`Some(false)`) or the roll's (task 152). A
-    /// station's room open now has its lamps switched at once.
-    pub fn set_dark_for_probe(&mut self, dark: Option<bool>) {
-        self.dark_for_probe = dark;
-        let Some(dark) = dark else {
-            return;
-        };
-        let design = match self
-            .residents
-            .as_ref()
-            .and_then(|r| self.station(r.station))
-        {
-            Some(s) => s.design.clone(),
-            None => return,
-        };
-        let station = match self.residents.as_mut() {
-            Some(r) if self.infested.iter().any(|it| it.station == r.station) => {
-                r.set_dark(dark, &design);
-                r.station
-            }
-            _ => return,
-        };
-        if self.aboard.is_joined() && self.ship.state.station() == Some(station) {
-            self.aboard.lamps_off_over_station(dark);
-        }
-    }
-
-    /// The probes' dial: night (`Some(true)`) or day at every town
-    /// opened from now on, or `None` for the seed's and the day's own
-    /// (task 152). A town's room open now takes it at once.
-    pub fn set_night_for_probe(&mut self, night: Option<bool>) {
-        self.night_for_probe = night;
-        if let Some(night) = night
-            && let Some(residents) = self.residents.as_mut()
-            && surface::surface_body(residents.station).is_some()
-        {
-            residents.set_night(night);
-            if self.aboard.is_joined() {
-                self.aboard.daylight_over_station(night);
-            }
-        }
-    }
-
     /// Whether the room open is the Machine Heart's fortress (feature
     /// 108): tier three and its own count of waves, whatever the day.
     fn at_the_heart(&self) -> bool {
@@ -6037,6 +5993,50 @@ impl World {
     /// `None` to put the run day's rule back.
     pub fn set_droid_tier_for_probe(&mut self, tier: Option<Tier>) {
         self.droid_tier = tier;
+    }
+
+    /// The probes' dial: every enemy's station opened from now on dark
+    /// (`Some(true)`), lit (`Some(false)`) or the roll's (task 152). A
+    /// station's room open now has its lamps switched at once.
+    pub fn set_dark_for_probe(&mut self, dark: Option<bool>) {
+        self.dark_for_probe = dark;
+        let Some(dark) = dark else {
+            return;
+        };
+        let design = match self
+            .residents
+            .as_ref()
+            .and_then(|r| self.station(r.station))
+        {
+            Some(s) => s.design.clone(),
+            None => return,
+        };
+        let station = match self.residents.as_mut() {
+            Some(r) if self.infested.iter().any(|it| it.station == r.station) => {
+                r.set_dark(dark, &design);
+                r.station
+            }
+            _ => return,
+        };
+        if self.aboard.is_joined() && self.ship.state.station() == Some(station) {
+            self.aboard.lamps_off_over_station(dark);
+        }
+    }
+
+    /// The probes' dial: night (`Some(true)`) or day at every town
+    /// opened from now on, or `None` for the seed's and the day's own
+    /// (task 152). A town's room open now takes it at once.
+    pub fn set_night_for_probe(&mut self, night: Option<bool>) {
+        self.night_for_probe = night;
+        if let Some(night) = night
+            && let Some(residents) = self.residents.as_mut()
+            && surface::surface_body(residents.station).is_some()
+        {
+            residents.set_night(night);
+            if self.aboard.is_joined() {
+                self.aboard.daylight_over_station(night);
+            }
+        }
     }
 
     /// How long after a wave is spent the next arrives, in minutes of
