@@ -48,10 +48,20 @@ const ENEMY: egui::Color32 = egui::Color32::from_rgb(0xd9, 0x33, 0x2b);
 const ENEMY_HEALED: egui::Color32 = egui::Color32::from_rgb(0xff, 0xa3, 0x9c);
 const DAMAGE: egui::Color32 = egui::Color32::from_rgb(0xf4, 0xf4, 0xf0);
 const TRACK: egui::Color32 = egui::Color32::from_rgb(0x14, 0x17, 0x16);
-/// The thin ticks cutting the bar into quarters, as Dota's cut a bar into
-/// chunks so how much is left can be counted at a glance.
-const TICK: egui::Color32 = egui::Color32::from_black_alpha(90);
-const CHUNKS: u32 = 4;
+/// The ticks cutting the bar into chunks of hit points, as Dota's cut a
+/// bar, so how much is left — and how big a bar is — can be counted at a
+/// glance: a thin black line every [`TICK_HP`], a thicker one every
+/// [`BIG_TICK_HP`]. A tick closer to the next than [`TICK_ROOM`] points is
+/// left out, the thin ones first, so a machine's long bar is not solid
+/// black.
+const TICK: egui::Color32 = egui::Color32::from_black_alpha(150);
+const BIG_TICK: egui::Color32 = egui::Color32::from_black_alpha(235);
+const TICK_HP: f32 = 25.0;
+const BIG_TICK_HP: f32 = 100.0;
+/// The thin tick's and the thick one's width, in physical pixels.
+const TICK_PX: f32 = 1.0;
+const BIG_TICK_PX: f32 = 2.0;
+const TICK_ROOM: f32 = 2.5;
 
 /// Which room a body is of: the crew's, or the station's people's.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
@@ -121,11 +131,13 @@ impl Trail {
 }
 
 /// What a body has, each a share of its whole bar: its hit points, and
-/// the armour it wears on the end of them.
+/// the armour it wears on the end of them; and how many hit points the
+/// whole bar is, for the ticks.
 #[derive(Clone, Copy, Debug, PartialEq)]
 struct Reading {
     health: f32,
     armour: f32,
+    whole: f32,
 }
 
 /// A body's two trails: its health alone, for the light of a heal —
@@ -157,6 +169,8 @@ struct Bar {
     at: (f32, f32),
     friendly: bool,
     trails: Trails,
+    /// The hit points the whole bar stands for.
+    whole: f32,
     /// A sentry's: the smaller bar, lower down.
     small: bool,
 }
@@ -185,12 +199,17 @@ fn reading(room: &bims::game::Game, who: usize) -> Option<Reading> {
             Some(Reading {
                 health: (room.health(who) / whole).clamp(0.0, 1.0),
                 armour: armour / whole,
+                whole,
             })
         }
-        Some(i) => Some(Reading {
-            health: room.droid(i)?.body.life_share(),
-            armour: 0.0,
-        }),
+        Some(i) => {
+            let body = &room.droid(i)?.body;
+            Some(Reading {
+                health: body.life_share(),
+                armour: 0.0,
+                whole: body.life_max(),
+            })
+        }
     }
 }
 
@@ -225,6 +244,7 @@ impl HealthBars {
                     at,
                     friendly,
                     trails,
+                    whole: r.whole,
                     small,
                 });
             };
@@ -273,6 +293,7 @@ impl HealthBars {
             let r = Reading {
                 health: (d.health / whole).clamp(0.0, 1.0),
                 armour: 0.0,
+                whole,
             };
             let at = world_paint::room_point_on_screen(game, at);
             take((Room::Sentry, d.id), r, at, true, true);
@@ -308,7 +329,7 @@ impl HealthBars {
             } else {
                 (ENEMY, ENEMY_HEALED)
             };
-            paint_bar(painter, track, bar.trails, solid, healed);
+            paint_bar(painter, track, bar.trails, bar.whole, solid, healed);
         }
     }
 }
@@ -321,6 +342,7 @@ fn paint_bar(
     painter: &egui::Painter,
     track: egui::Rect,
     trails: Trails,
+    whole: f32,
     solid: egui::Color32,
     healed: egui::Color32,
 ) {
@@ -355,13 +377,49 @@ fn paint_bar(
         );
         painter.rect_filled(sheen, 0.0, egui::Color32::from_white_alpha(38));
     }
-    for i in 1..CHUNKS {
-        let x = track.min.x + track.width() * i as f32 / CHUNKS as f32;
-        painter.line_segment(
-            [egui::pos2(x, track.min.y), egui::pos2(x, track.max.y)],
-            egui::Stroke::new(1.0, TICK),
+    // The ticks, snapped to whole pixels so a thin one is one sharp
+    // pixel and not two grey ones.
+    let px = 1.0 / painter.pixels_per_point();
+    for (share, big) in ticks(whole, track.width()) {
+        let x = track.min.x + track.width() * share;
+        let (wide, colour) = if big {
+            (BIG_TICK_PX * px, BIG_TICK)
+        } else {
+            (TICK_PX * px, TICK)
+        };
+        let left = ((x - wide * 0.5) / px).round() * px;
+        painter.rect_filled(
+            egui::Rect::from_min_max(
+                egui::pos2(left, track.min.y),
+                egui::pos2(left + wide, track.max.y),
+            ),
+            0.0,
+            colour,
         );
     }
+}
+
+/// Where the ticks go on a bar of `whole` hit points drawn `width` points
+/// wide: each a share of the bar along it, and whether it is a thick one
+/// (every [`BIG_TICK_HP`]) or thin (every [`TICK_HP`] between). None at
+/// either end, and none of a kind packed closer than [`TICK_ROOM`].
+fn ticks(whole: f32, width: f32) -> Vec<(f32, bool)> {
+    let mut out = Vec::new();
+    if whole <= TICK_HP || width <= 0.0 {
+        return out;
+    }
+    let thin = width * TICK_HP / whole >= TICK_ROOM;
+    let thick = width * BIG_TICK_HP / whole >= TICK_ROOM;
+    let per_big = (BIG_TICK_HP / TICK_HP).round() as u32;
+    let mut n = 1;
+    while (n as f32) * TICK_HP < whole - 0.5 {
+        let big = n % per_big == 0;
+        if (big && thick) || (!big && thin) {
+            out.push((n as f32 * TICK_HP / whole, big));
+        }
+        n += 1;
+    }
+    out
 }
 
 #[cfg(test)]
@@ -425,6 +483,7 @@ mod tests {
         let r = |health: f32, armour: f32| Reading {
             health: health / 140.0,
             armour: armour / 140.0,
+            whole: 140.0,
         };
         let mut t = Trails::new(r(60.0, 40.0));
         // The armour takes a hit of ten: the health is untouched and the
@@ -438,6 +497,28 @@ mod tests {
         t.step(r(80.0, 30.0), 0.016);
         assert_eq!(t.health.kept, 60.0 / 140.0);
         assert_eq!(t.health.now, 80.0 / 140.0);
+    }
+
+    #[test]
+    fn a_tick_every_twenty_five_hit_points_and_a_thick_one_every_hundred() {
+        // A sixteenth-level player: 260 hit points, ten ticks, the
+        // hundredth and the two hundredth thick.
+        let t = ticks(260.0, WIDTH);
+        assert_eq!(t.len(), 10);
+        let thick: Vec<f32> = t.iter().filter(|(_, b)| *b).map(|(s, _)| *s).collect();
+        assert_eq!(thick, vec![100.0 / 260.0, 200.0 / 260.0]);
+        assert_eq!(t[0], (25.0 / 260.0, false));
+        // A plain hundred: three thin ticks, and none at the end.
+        assert_eq!(
+            ticks(100.0, WIDTH),
+            vec![(0.25, false), (0.5, false), (0.75, false)]
+        );
+        // A bar of a thousand on fifty points keeps only the hundreds.
+        let t = ticks(1000.0, WIDTH);
+        assert_eq!(t.len(), 9);
+        assert!(t.iter().all(|(_, b)| *b));
+        // Nothing to cut on a bar of twenty.
+        assert!(ticks(20.0, WIDTH).is_empty());
     }
 
     #[test]

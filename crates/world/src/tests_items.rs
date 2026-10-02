@@ -254,6 +254,31 @@ fn a_reactor_heart_raises_the_bar_and_mends() {
     assert_eq!(world.aboard.room.max_health(0), bims::health::MAX_HEALTH);
 }
 
+/// **Every level is ten hit points on a player's bar** (October 2026):
+/// 110 at the first level, 260 at the sixteenth, a full bar staying full
+/// as it grows and a hurt one keeping its share; a Reactor Heart's on
+/// top; a classless bot never more than a hundred.
+#[test]
+fn every_level_is_ten_hit_points_on_a_player_s_bar() {
+    let mut world = basic();
+    world.set_class(0, Class::Soldier).unwrap();
+    world.step(&[]);
+    let room = |w: &World| (w.aboard.room.health(0), w.aboard.room.max_health(0));
+    assert_eq!(room(&world), (110.0, 110.0), "the first level, full");
+    assert_eq!(world.aboard.room.max_health(1), bims::health::MAX_HEALTH);
+    level_up(&mut world, 0, 16);
+    world.step(&[]);
+    assert_eq!(room(&world), (260.0, 260.0), "the sixteenth, still full");
+    world.aboard.room.wound(0, 130.0);
+    let heart = ModuleKind::ReactorHeart.at(Tier::One);
+    carry(&mut world, 0, 0, Some(heart));
+    let max = 260.0 + bims::module::HEART_HEALTH[0];
+    assert_eq!(world.aboard.room.max_health(0), max, "the item on top");
+    world.step(&[]);
+    assert_eq!(world.aboard.room.max_health(0), max, "kept the next step");
+    assert_eq!(world.aboard.room.max_health(1), bims::health::MAX_HEALTH);
+}
+
 /// **A Blink Drive puts the Bim where it is aimed**, as far as it reaches,
 /// then cools down; and a hit taken locks it for a few seconds.
 #[test]
@@ -388,6 +413,8 @@ fn the_passives_lift_the_skill_cut_the_cooldowns_and_mend() {
     assert_eq!(world.set_class(0, Class::Soldier), Ok(()));
     level_up(&mut world, 0, 16);
     world.set_ranks_for_probe(0, [1, 0, 0, 1]);
+    // A step, so the bar is the level's before anybody is hurt.
+    world.step(&[]);
     let charge = crate::class::Charge::Grenade;
     let (cooldown, rampage) = (world.charge_cooldown(0, charge), world.rampage_cooldown(0));
     let skill = world.skill_of(0);
@@ -445,6 +472,8 @@ fn the_mender_heals_the_reset_readies_and_the_shell_shields() {
     assert_eq!(world.set_class(0, Class::Soldier), Ok(()));
     level_up(&mut world, 0, 16);
     world.set_ranks_for_probe(0, [0, 0, 0, 1]);
+    // A step, so the bar is the level's before anybody is hurt.
+    world.step(&[]);
     carry(
         &mut world,
         0,

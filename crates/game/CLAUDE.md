@@ -4741,7 +4741,9 @@ so the survivor pins may move.
 
 - **`Health::max`** (serde default `MAX_HEALTH`) is a body's whole bar;
   `Game::issue` sets it off `Gear::max_health` (a *Reactor Heart*'s
-  health on top), `Health::set_max` keeping the share of the bar, so a
+  health on top) plus `Bim::level_health` (a player's ten a level, said
+  by the world every step through `Game::set_level_health`, which sets
+  the bar again when it changes), `Health::set_max` keeping the share of the bar, so a
   full body stays full. `heal`, `revive_at`, `restore`, `is_hurt` and
   `respawn` read it; `Game::max_health(who)` is the panels'.
 - **`Game::blink_spot(who, to, reach)`** and **`Game::blink(who, at)`**:

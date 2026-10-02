@@ -6902,3 +6902,20 @@ is untouched. Nothing saved or hashed changed shape; `SURVIVORS` and
 pins, so they are not re-pinned here.
 `a_mission_opens_with_the_crew_aboard_round_the_gangway`
 (`tests_mission.rs`) is the rule.
+
+## Ten hit points a level (October 2026)
+
+A player's level is on its bar: `class::level_health(level)` —
+`LEVEL_HEALTH` (10) times the level, counted from the first, so 110 at
+level one and 260 at sixteen — said to the crew's room every step by
+`hand_the_room_the_levels` (`Game::set_level_health`, beside the field
+medics' hand-over), nought for anybody with no class (a bot, a hand, a
+reinforcement), who never levels. The room keeps it on
+`Bim::level_health` and adds it to the items' `Gear::max_health`
+whenever the bar's whole is worked out, so a level reached keeps the
+bar's share as an item put on does. `healing_links` and
+`health_share` read `Game::max_health` now, not `MAX_HEALTH`.
+`SAVE_VERSION` 89. `every_level_is_ten_hit_points_on_a_player_s_bar`
+(`tests_items.rs`) is the rule. A seeded run's classed players have
+more hit points, so `SURVIVORS` and `REFERENCE_CHECKSUM` move (both
+already off their pins; not re-pinned here).

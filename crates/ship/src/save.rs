@@ -235,7 +235,9 @@ use crate::game::Game;
 /// shell_until}` and `Skill::unstrippable`.
 /// 88: the sprint and the dodge roll (task 150) — `Steer::sprint`, and
 /// `Character::{last_walk, roll, roll_cool}`.
-pub const SAVE_VERSION: u32 = 88;
+/// 89: `Bim::level_health`, the hit points a player's level puts on its
+/// bar (ten a level).
+pub const SAVE_VERSION: u32 = 89;
 
 /// What the file holds, read back.
 #[derive(serde::Deserialize)]

@@ -779,12 +779,13 @@ impl World {
     }
 
     /// A crew member's health as a share of its full, nought to one: the
-    /// three parts added up, the one bar.
+    /// one bar, items and level included.
     pub fn health_share(&self, who: u32) -> f32 {
         if who >= self.aboard.crew_count() || !self.aboard.room.is_alive(who as usize) {
             return 0.0;
         }
-        self.aboard.room.health(who as usize) / bims::health::MAX_HEALTH
+        let room = &self.aboard.room;
+        room.health(who as usize) / room.max_health(who as usize)
     }
 
     /// The machines destroyed this step, each with who hit it last: the

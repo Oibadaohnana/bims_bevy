@@ -1506,6 +1506,10 @@ impl World {
         //    step, since it is the contract that
         //    knows and a save reads the contract back.
         self.hand_the_room_the_field_medics();
+        //    And the hit points each player's level puts on its bar
+        //    (October 2026): said every step, since a level is reached,
+        //    a class chosen and a save read without the room being told.
+        self.hand_the_room_the_levels();
         //    And the tanks' (feature 77): the walls standing among the
         //    crew, before the skills, which read the bulwark off the room.
         self.hand_the_room_the_tanks();
@@ -8222,7 +8226,7 @@ impl World {
                 if !room.is_alive(w)
                     || room.is_downed(w)
                     || room.is_outside(w)
-                    || room.health(w) >= bims::health::MAX_HEALTH
+                    || room.health(w) >= room.max_health(w)
                 {
                     continue;
                 }
@@ -9606,6 +9610,21 @@ impl World {
             // And a commander's Medivac medic, who runs to a player down.
             let medivac = self.is_medivac(who);
             self.aboard.room.set_medivac(who as usize, medivac);
+        }
+    }
+
+    /// The hit points a level puts on a classed crew member's bar
+    /// ([`class::level_health`], ten a level), said to the room every
+    /// step; nought for anybody without a class — a bot, a hand, a
+    /// reinforcement — who never levels.
+    fn hand_the_room_the_levels(&mut self) {
+        for who in 0..self.aboard.crew_count() {
+            let hp = if self.class_of(who) == Class::None {
+                0.0
+            } else {
+                class::level_health(self.level_of(who))
+            };
+            self.aboard.room.set_level_health(who as usize, hp);
         }
     }
 

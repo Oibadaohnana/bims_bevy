@@ -148,6 +148,14 @@ pub struct Bim {
     /// (`Game::set_medivac`) off `world::Reinforcement::medic`.
     #[cfg_attr(feature = "serde", serde(default))]
     pub medivac: bool,
+    /// The hit points its level puts on its bar (October 2026: ten a
+    /// level, a player's alone), on top of its items'
+    /// (`Gear::max_health`): said by the world every step
+    /// (`Game::set_level_health`) off the crew member's progress, and
+    /// saved so a room read back keeps its bar whole until it is said
+    /// again.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub level_health: f32,
     pub trail: Vec<Footprint>,
     pub trail_timer: f32,
     /// Where it was last frame and how long it has been marching without
@@ -289,6 +297,7 @@ impl Bim {
             carrying: None,
             field_medic: false,
             medivac: false,
+            level_health: 0.0,
             trail: Vec::new(),
             trail_timer: 0.0,
             last_pos: at,

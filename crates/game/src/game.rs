@@ -4440,7 +4440,7 @@ impl Game {
     }
 
     /// A whole bar for `who`: [`crate::health::MAX_HEALTH`], and more with
-    /// a *Reactor Heart* carried (October 2026).
+    /// a *Reactor Heart* carried and a player's level (October 2026).
     pub fn max_health(&self, who: usize) -> f32 {
         self.bims
             .get(who)
@@ -7653,8 +7653,10 @@ impl Game {
     pub fn issue(&mut self, who: usize, gear: Gear) {
         if who < self.bims.len() {
             self.bims[who].gear = gear;
-            // A Reactor Heart's health on the bar (October 2026).
-            self.bims[who].health.set_max(gear.max_health());
+            // A Reactor Heart's health on the bar (October 2026), and
+            // the level's.
+            let level = self.bims[who].level_health;
+            self.bims[who].health.set_max(gear.max_health() + level);
             self.refresh_worn(who);
         }
     }
@@ -8318,6 +8320,19 @@ impl Game {
     pub fn set_field_medic(&mut self, who: usize, on: bool) {
         if let Some(bim) = self.bims.get_mut(who) {
             bim.field_medic = on;
+        }
+    }
+
+    /// The world's word of the hit points a crew member's level puts on
+    /// its bar (October 2026: ten a level, a player's), said every step:
+    /// the whole bar is its items' and this, what is in it kept at the
+    /// same share ([`crate::health::Health::set_max`]).
+    pub fn set_level_health(&mut self, who: usize, hp: f32) {
+        if let Some(bim) = self.bims.get_mut(who) {
+            if bim.level_health != hp {
+                bim.level_health = hp;
+                bim.health.set_max(bim.gear.max_health() + hp);
+            }
         }
     }
 

@@ -619,6 +619,17 @@ pub const LEVEL_XP: [u32; LEVELS as usize] = [
     0, 100, 220, 360, 520, 700, 900, 1_110, 1_330, 1_560, 1_800, 2_050, 2_310, 2_580, 2_870, 3_200,
 ];
 
+/// Hit points a level puts on a player's bar (October 2026), every
+/// level counted from the first: 110 at the first, 260 at the
+/// sixteenth (the player's numbers). [`level_health`] is the sum; the
+/// room is told it every step (`bims::game::Game::set_level_health`).
+pub const LEVEL_HEALTH: f32 = 10.0;
+
+/// The hit points `level` puts on the bar.
+pub fn level_health(level: u8) -> f32 {
+    LEVEL_HEALTH * level as f32
+}
+
 /// The ranks an ability of a ranked kit has.
 pub const MAX_RANK: u8 = 4;
 
