@@ -2284,8 +2284,10 @@ the points waiting sit beside the experience bar.
 
 **Q — Frag Grenade** (active, charges). Thrown at the deck tile under
 the pointer, within **8 tiles** with nothing opaque between (walls and
-shut doors stop a throw; sandbags do not); holding `Q` draws the burst's
-radius. **2 seconds** later it bursts on everything within the radius
+shut doors stop a throw; sandbags do not): a **quick throw** — holding
+`Q` draws the reach and the burst's radius, letting it go throws at the
+pointer (a click throws sooner; a right-click or `Esc` takes it back; the
+EMP is the same). **2 seconds** later it bursts on everything within the radius
 with a line to it — every crew member, hire and enemy alike, the thrower
 included — full damage at the centre falling to half at the edge, halved
 again in cover from the burst's side; a sentry in it takes the same, and
@@ -2712,7 +2714,7 @@ overlapping is allowed the whole apparatus has nothing left to do.
 | Hold `g` | Standing close to a downed crewmate (two and a half tiles): your own Bim **gets the nearest back up** while the key is held, and stops if you let go first. A green bar over the body fills with the revive |
 | `F1` | Select the Bim you steer and put it in the middle of the view |
 | `l` | Recruit it, or let it go — see below |
-| `q` / `c` / `e` / `r` | The steered crew member's four **ability slots** (task 123). `q` and `e` are the **class actions**: an engineer **throws an EMP** at the deck tile under the pointer / **lays sandbags** there, and its `c` **lays a Healing Sentry** and its `r`, the ultimate, **lays its sentry** (task 127); a soldier **throws a grenade** at it (hold `q` to see the burst's radius) / **braces** where it stands, or stands easy, and its `c` is **Weak Spot** (passive, nothing to press) and its `r` goes on a **Rampage**; a medic **sets off a Nanite Burst** / **beams the crew member under the pointer**, and unlinks when pressed on the one it holds or on nobody, and its `r`, the ultimate, **cloaks** the crew member under the pointer, or itself with the pointer on nobody (task 130); a tank **taunts** / **puts its wall up**, or takes it down — see [Classes and levels](#classes-and-levels). `c` and `r` are empty only for the tank now. The log says why not; nothing with a classless crew member |
+| `q` / `c` / `e` / `r` | The steered crew member's four **ability slots** (task 123). `q` and `e` are the **class actions**: an engineer **throws an EMP** at the deck tile under the pointer / **lays sandbags** there, and its `c` **lays a Healing Sentry** and its `r`, the ultimate, **lays its sentry** (task 127); a soldier **throws a grenade** at it (hold `q` to see the reach and the burst's radius, let go to throw) / **braces** where it stands, or stands easy, and its `c` is **Weak Spot** (passive, nothing to press) and its `r` goes on a **Rampage**; a medic **sets off a Nanite Burst** / **beams the crew member under the pointer**, and unlinks when pressed on the one it holds or on nobody, and its `r`, the ultimate, **cloaks** the crew member under the pointer, or itself with the pointer on nobody (task 130); a tank **taunts** / **puts its wall up**, or takes it down — see [Classes and levels](#classes-and-levels). `c` and `r` are empty only for the tank now. The log says why not; nothing with a classless crew member |
 | **Ctrl** + a slot's key, or **Ctrl-click** its box | **Ranks that ability up** rather than using it, for a skill point: the soldier's four abilities (task 124). It follows whatever key the slot is bound to |
 | **WASD**, middle-drag, or the pointer against the window's edge | Pan the view — the deck, or the galaxy chart. The edge scroll's speed is on the Esc sheet's first page (0 turns it off) |
 | `f` | **Attack-move**: the pointer turns into a red crosshair, and the next click on the deck sends the Bim you steer there with its weapon out. It stops to shoot whatever comes into its sights on the way and walks on once nothing is left — Dota's attack-move. `f` again, `Esc` or a right-click puts the crosshair away |

@@ -139,8 +139,9 @@ pub struct GameScreen {
     /// engineer's EMP) has armed the pointer: the throw's reach is drawn
     /// round the player's own Bim, and the next left click on the deck
     /// throws there — walking out to it first where it must
-    /// (`Order::ThrowAt`). Esc, a right-click or the key again puts it
-    /// away.
+    /// (`Order::ThrowAt`) — and so does letting the key go: a quick
+    /// throw. Esc or a right-click puts it away, and so does letting the
+    /// key go with the pointer off the deck.
     aiming_throw: Option<bool>,
     /// The reach of a key held that aims at somebody rather than at a
     /// tile — a medic's beam (E) or cloak (R) — in tiles, and the
@@ -2521,13 +2522,15 @@ fn frame(
                         continue;
                     };
                     // Q's throw — a soldier's grenade, an engineer's EMP —
-                    // arms the pointer rather than throwing at once: the
-                    // reach is drawn, and the click picks the tile.
+                    // is a quick throw: the press arms the pointer and
+                    // draws the reach, and letting the key go throws at
+                    // the tile under it (below; a click before then
+                    // throws too, a right-click or Esc thinks better of
+                    // it).
                     if let Some(emp) = throw_key(game.world.class_of(slot), action) {
                         match can_arm_throw(&game.world, slot, emp) {
                             Ok(()) => {
-                                screen.aiming_throw =
-                                    (screen.aiming_throw != Some(emp) && !map_up).then_some(emp);
+                                screen.aiming_throw = (!map_up).then_some(emp);
                                 screen.aiming_attack = false;
                                 screen.aiming_move = false;
                             }
@@ -2555,6 +2558,24 @@ fn frame(
                     };
                     orders.extend(order);
                     screen.log.extend(line);
+                }
+                // The quick throw's other half: the throw key let go with
+                // the pointer still armed throws at the tile under it —
+                // walking out first where it must, as the click does —
+                // or, the pointer off the deck, puts the throw away.
+                if let Some(emp) = screen.aiming_throw
+                    && !keys_now.down(i, THROW_KEY)
+                {
+                    screen.aiming_throw = None;
+                    if let Some(p) = on_canvas.filter(|_| !map_up) {
+                        let (rx, ry) = session.room_point(p.x, p.y);
+                        let t = shipdesign::TILE as f32;
+                        orders.push(Order::ThrowAt {
+                            emp,
+                            x: (rx / t).floor() as i32,
+                            y: (ry / t).floor() as i32,
+                        });
+                    }
                 }
                 // The medic's carry (feature 86): the crewmate under the
                 // pointer up into its arms, or — with its arms already
@@ -5003,12 +5024,16 @@ fn held_reach(
     None
 }
 
+/// The key of every throw: held, the throw's reach is drawn; let go, it
+/// is thrown at the pointer.
+const THROW_KEY: Action = Action::Ability1;
+
 /// Whether an ability key is a throw that arms the pointer: the soldier's
 /// Q, a grenade, and the engineer's Q, an EMP (`Some(true)`).
 fn throw_key(class: world::Class, action: Action) -> Option<bool> {
     match (class, action) {
-        (world::Class::Soldier, Action::Ability1) => Some(false),
-        (world::Class::Engineer, Action::Ability1) => Some(true),
+        (world::Class::Soldier, THROW_KEY) => Some(false),
+        (world::Class::Engineer, THROW_KEY) => Some(true),
         _ => None,
     }
 }
