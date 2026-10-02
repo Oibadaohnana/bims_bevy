@@ -352,6 +352,16 @@ const NIGHT: Color = Color::rgb(0.03, 0.05, 0.13);
 /// want to see the Bims.
 const NIGHT_DEPTH: f32 = 0.46;
 
+/// A bolt's own light in the dark (task 152): the pool round it, drawn
+/// over the darkness as rings of its colour, each wider and fainter —
+/// [`BOLT_GLOW_RINGS`] of them out to [`BOLT_GLOW_REACH`] tiles across,
+/// the middle at [`BOLT_GLOW`] — and faded by how lit its tile is, so a
+/// laser lights its way down a dark corridor and adds nothing to a lamp's
+/// pool. The rule's half is `Sight::set_flares`.
+const BOLT_GLOW: f32 = 0.6;
+const BOLT_GLOW_REACH: f32 = 3.5;
+const BOLT_GLOW_RINGS: u32 = 10;
+
 /// What a hostile room's people believe about one of the world's targets:
 /// where one of them last saw it, what it carries, and how long ago.
 #[derive(Clone, Copy, Debug)]
@@ -1491,6 +1501,10 @@ impl Game {
         // as if it stood open.
         let shut = self.shut_now();
         self.room.sight.set_shut(&shut);
+        // And the bolts in flight light the tiles they are in (task 152),
+        // for every eye that looks this step.
+        let bolts: Vec<Vec2> = self.combat.bolts.iter().map(|b| b.pos).collect();
+        self.room.sight.set_flares(&bolts);
         // The calm's two clocks: how long since the last shot or blow
         // here, and how long since anybody on this side had an enemy in
         // sight. A hostile room's sightings were traced by `set_hostiles`
@@ -6665,6 +6679,29 @@ impl Game {
         ORDER_NOWHERE
     }
 
+    /// Every bolt's light on the deck round it, as dark as the deck is
+    /// there — see [`BOLT_GLOW`]. Over the light map, under the bolts.
+    fn draw_bolt_glow(&mut self) {
+        for bolt in &self.combat.bolts {
+            let dark = 1.0 - self.room.sight.lamplight_at(bolt.pos);
+            if dark < 0.05 {
+                continue;
+            }
+            let side = if bolt.hostile {
+                crate::combat::HOSTILE_BOLT
+            } else {
+                crate::combat::FRIENDLY_BOLT
+            };
+            let light = side.mix(Color::rgb(1.0, 1.0, 1.0), 0.35);
+            // The rings' alphas pile up to the middle's.
+            let each = BOLT_GLOW * dark / BOLT_GLOW_RINGS as f32;
+            for k in 0..BOLT_GLOW_RINGS {
+                let across = BOLT_GLOW_REACH * TILE * (k + 1) as f32 / BOLT_GLOW_RINGS as f32;
+                self.list.circle(bolt.pos, across, light.alpha(each));
+            }
+        }
+    }
+
     /// Every ping on the deck, the way Dota draws an order: four arrows
     /// closing on the spot from the corners with a ring drawing in behind
     /// them — green for a walk, red for an attack-move — lit past white
@@ -8742,6 +8779,41 @@ impl Game {
         self.room.sight.set_daylight(over);
     }
 
+    /// Every lamp whose middle lies in `over` switched off, or none: a dark
+    /// station (task 152). The world's word; it outlives a relayout. See
+    /// `Sight::set_lamps_off`.
+    pub fn set_lamps_off(&mut self, over: Option<Rect>) {
+        self.room.sight.set_lamps_off(over);
+    }
+
+    /// The daylight, as the world set it.
+    pub fn daylight(&self) -> Option<Rect> {
+        self.room.sight.daylight()
+    }
+
+    /// Whether the tile a room point is in counts as lit — half its light
+    /// or more (`Sight::lit_at`) — and how much light falls there, nought
+    /// to one (`Sight::light_at`).
+    pub fn lit_at(&self, x: f32, y: f32) -> bool {
+        self.room.sight.lit_at(vec2(x, y))
+    }
+
+    pub fn light_at(&self, x: f32, y: f32) -> f32 {
+        self.room.sight.light_at(vec2(x, y))
+    }
+
+    /// Night on a planet (task 152): the open ground beyond the deck is
+    /// seen [`crate::sight::DARK_RANGE`] tiles and no further, under the
+    /// dark. The deck's half is the daylight left off (`set_daylight`),
+    /// which is the world's to do beside this; only the lamps light it
+    /// then. Nothing for a room with no plain.
+    pub fn set_night(&mut self, night: bool) {
+        self.room.sight.set_night(night);
+        if let Some(plane) = self.room.plane.as_mut() {
+            plane.set_night(night);
+        }
+    }
+
     /// A bolt landed on lamp `i` for `damage`, with nothing fired: the
     /// hit as the fight would land it, flicker and all, and the world
     /// told of it like any other. For probes and `BIMS_LAMPS_OUT`.
@@ -9758,6 +9830,7 @@ impl Game {
         // The shots, over the fog: a bolt is always seen, whatever it
         // flies through.
         self.fog_from = self.list.len();
+        self.draw_bolt_glow();
         self.combat.draw(&mut self.list);
         // The pings where an order landed, over the fog as well, since an
         // order given into the dark is an order all the same.
@@ -10203,7 +10276,7 @@ mod tests {
     /// machines' hunt, where twelve tiles off in the dark is nobody.
     fn dark_box_with_a_trooper(at: Vec2) -> Game {
         use crate::droid::{Droid, DroidKind};
-        let layout = crate::aboard::layout_of(&box_ship(&[]));
+        let layout = crate::aboard::layout_of(&box_ship_of(28, &[]));
         let (w, h) = (layout.bounds.width(), layout.bounds.height());
         let mut game = Game::with_layout(layout, 7, &[], w, h);
         game.set_autonomous(false);
@@ -10360,7 +10433,7 @@ mod tests {
     fn a_hunting_machine_follows_the_trail_from_the_spot_it_searched() {
         let start = tile_middle(3.0, 3.0);
         let first = tile_middle(10.0, 3.0);
-        let gone = tile_middle(16.0, 16.0);
+        let gone = tile_middle(22.0, 22.0);
         let pistol = WeaponKind::LaserPistol.basic();
         let hunt = |cold: bool| {
             let mut game = dark_box_with_a_trooper(start);
@@ -10491,10 +10564,20 @@ mod tests {
 
     /// A bare hull twenty tiles across, decked, with these lights on it.
     fn box_ship(lights: &[(shipdesign::PartKind, (u32, u32))]) -> shipdesign::ShipDesign {
+        box_ship_of(20, lights)
+    }
+
+    /// The same, `side` tiles across: its hull on the second row and
+    /// column from each edge (task 152 wanted more than fifteen tiles of
+    /// dark deck in a line).
+    fn box_ship_of(
+        side: u32,
+        lights: &[(shipdesign::PartKind, (u32, u32))],
+    ) -> shipdesign::ShipDesign {
         use shipdesign::parts::{PartKind, Rotation};
         use shipdesign::{Budget, Edit, ShipDesign, apply};
         let budget = Budget::new(10_000_000);
-        let mut design = ShipDesign::new(20);
+        let mut design = ShipDesign::new(side);
         let put = |design: &mut ShipDesign, kind: PartKind, origin: (u32, u32)| {
             if let Ok(next) = apply(
                 design,
@@ -10508,21 +10591,21 @@ mod tests {
                 *design = next;
             }
         };
-        for y in 1..19 {
-            for x in 1..19 {
+        for y in 1..side - 1 {
+            for x in 1..side - 1 {
                 put(&mut design, PartKind::Structure, (x, y));
             }
         }
-        for y in 2..18 {
-            for x in 2..18 {
+        for y in 2..side - 2 {
+            for x in 2..side - 2 {
                 put(&mut design, PartKind::Floor, (x, y));
             }
         }
-        for i in 1..19 {
+        for i in 1..side - 1 {
             put(&mut design, PartKind::OutsideWall, (i, 1));
-            put(&mut design, PartKind::OutsideWall, (i, 18));
+            put(&mut design, PartKind::OutsideWall, (i, side - 2));
             put(&mut design, PartKind::OutsideWall, (1, i));
-            put(&mut design, PartKind::OutsideWall, (18, i));
+            put(&mut design, PartKind::OutsideWall, (side - 2, i));
         }
         for &(kind, at) in lights {
             // A wall light hangs from the hull beside it.
@@ -10542,21 +10625,26 @@ mod tests {
         design
     }
 
-    /// In the dark a Bim sees ten tiles: a tile no light reaches is seen
-    /// only from that close, however clear the line. A light on a tile is
-    /// seen from across the deck, and so is everything its reach makes
-    /// out — and a wall stops the light like it stops the eye, so a room
-    /// behind a bulkhead is dark for all the lamp on the far side.
+    /// In the dark a Bim sees fifteen tiles (task 152; ten before): a
+    /// tile no light reaches is seen only from that close, however clear
+    /// the line. A light on a tile is seen from across the deck, and so is
+    /// everything its reach makes out — and a wall stops the light like it
+    /// stops the eye, so a room behind a bulkhead is dark for all the lamp
+    /// on the far side. A tile in a lamp's soft rim counts partly lit: not
+    /// lit, but seen from further than a dark one, as far as its light
+    /// stretches the fifteen.
     #[test]
-    fn the_dark_is_seen_ten_tiles_and_a_lit_tile_further() {
+    fn the_dark_is_seen_fifteen_tiles_and_a_lit_tile_further() {
         use shipdesign::PartKind;
         let eye = tile_middle(3.0, 10.0);
         let mid = tile_middle(11.0, 10.0);
-        let far = tile_middle(15.0, 10.0);
+        let rim = tile_middle(19.0, 10.0);
+        let far = tile_middle(20.0, 10.0);
+        let lamp = [(PartKind::WallLight, (25, 10))];
 
         // No lights at all: dark everywhere, and eight tiles is seen where
-        // twelve is not.
-        let layout = crate::aboard::layout_of(&box_ship(&[]));
+        // sixteen and seventeen are not.
+        let layout = crate::aboard::layout_of(&box_ship_of(28, &[]));
         let (w, h) = (layout.bounds.width(), layout.bounds.height());
         let mut dark = Game::with_layout(layout, 7, &[eye], w, h);
         dark.set_autonomous(false);
@@ -10564,38 +10652,50 @@ mod tests {
         dark.observe();
         assert!(!dark.room.sight.lit_at(mid));
         assert!(dark.seen_at(mid.x, mid.y), "eight tiles, in the dark");
-        assert!(!dark.seen_at(far.x, far.y), "twelve tiles, in the dark");
+        assert!(!dark.seen_at(rim.x, rim.y), "sixteen tiles, in the dark");
+        assert!(!dark.seen_at(far.x, far.y), "seventeen tiles, in the dark");
         assert!(dark.room.sight.sees_from(eye, mid).is_some());
         assert!(dark.room.sight.sees_from(eye, far).is_none());
-        // A sentry's sensor is not stopped by the dark: twelve tiles is
+        // A sentry's sensor is not stopped by the dark: seventeen tiles is
         // seen with a clear line.
         assert!(dark.room.sight.sees_from_in_the_dark(eye, far).is_some());
 
-        // A wall light on the far hull: the far tile is lit and seen.
-        let layout = crate::aboard::layout_of(&box_ship(&[(PartKind::WallLight, (17, 10))]));
+        // A wall light on the far hull: the far tile is lit and seen, and
+        // the tile in its rim is partly lit — under half, so not lit, but
+        // seen at sixteen tiles where a dark one is not.
+        let layout = crate::aboard::layout_of(&box_ship_of(28, &lamp));
         let mut lit = Game::with_layout(layout, 7, &[eye], w, h);
         lit.set_autonomous(false);
         lit.simulate(DT);
         lit.observe();
         assert!(lit.room.sight.lit_at(far));
-        assert!(lit.seen_at(far.x, far.y), "twelve tiles, lit");
+        assert!(lit.seen_at(far.x, far.y), "seventeen tiles, lit");
         assert!(lit.room.sight.sees_from(eye, far).is_some());
         assert_eq!(lit.room.sight.lights().len(), 1);
+        let share = lit.light_at(rim.x, rim.y);
+        assert!(share > 0.1 && share < 0.5, "the rim is partly lit: {share}");
+        assert!(!lit.room.sight.lit_at(rim));
+        assert!(lit.seen_at(rim.x, rim.y), "sixteen tiles, partly lit");
+        // And the light falls off smoothly: no step from full to none.
+        let at = |x: f32| lit.light_at(tile_middle(x, 10.0).x, tile_middle(x, 10.0).y);
+        assert_eq!(at(22.0), 1.0, "the pool's heart is full");
+        assert!(at(20.0) > at(19.0) && at(19.0) > at(18.0), "a soft rim");
+        assert_eq!(at(17.0), 0.0, "past the reach, dark");
 
         // A wall between the lamp and the eye keeps the light behind it:
-        // the tile on the eye's side of the wall is dark again, and seen
-        // only because it is within the ten.
-        let mut walled = box_ship(&[(PartKind::WallLight, (17, 10))]);
+        // the tile on the eye's side of the wall is dark again, and not
+        // seen from seventeen tiles; one within the fifteen is.
+        let mut walled = box_ship_of(28, &lamp);
         {
             use shipdesign::{Budget, Edit, Rotation, apply};
             let budget = Budget::new(10_000_000);
-            for y in 2..18 {
+            for y in 2..26 {
                 if let Ok(next) = apply(
                     &walled,
                     &budget,
                     Edit::Place {
                         kind: PartKind::Wall,
-                        origin: (13, y),
+                        origin: (21, y),
                         rotation: Rotation::R0,
                     },
                 ) {
@@ -10608,19 +10708,51 @@ mod tests {
         walled.set_autonomous(false);
         walled.simulate(DT);
         walled.observe();
-        let before_wall = tile_middle(12.0, 10.0);
-        assert!(!walled.room.sight.lit_at(before_wall), "the wall shades it");
+        assert!(!walled.room.sight.lit_at(far), "the wall shades it");
+        assert!(!walled.seen_at(far.x, far.y), "seventeen tiles, dark");
+        let near = tile_middle(17.0, 10.0);
         assert!(
-            walled.seen_at(before_wall.x, before_wall.y),
-            "nine tiles, dark, and still within the ten"
+            walled.seen_at(near.x, near.y),
+            "fourteen tiles, dark, and still within the fifteen"
         );
+    }
+
+    /// A bolt in flight lights the tile it is in (task 152): a body there
+    /// is seen from as far as a lit one, the tiles beside it half lit, and
+    /// the light goes with the bolt.
+    #[test]
+    fn a_bolt_in_flight_lights_its_tile() {
+        let eye = tile_middle(3.0, 10.0);
+        let far = tile_middle(22.0, 10.0);
+        let layout = crate::aboard::layout_of(&box_ship_of(28, &[]));
+        let (w, h) = (layout.bounds.width(), layout.bounds.height());
+        let mut game = Game::with_layout(layout, 7, &[eye], w, h);
+        game.set_autonomous(false);
+        game.simulate(DT);
+        assert!(game.room.sight.sees_from(eye, far).is_none(), "dark");
+        game.room.sight.set_flares(&[far]);
+        assert!(game.room.sight.lit_at(far));
+        assert!(game.room.sight.sees_from(eye, far).is_some(), "lit by it");
+        let beside = far + vec2(TILE, 0.0);
+        assert!((game.light_at(beside.x, beside.y) - 0.5).abs() < 0.01);
+        // The lamps' light alone, which the glow reads, is still dark.
+        assert_eq!(game.room.sight.lamplight_at(far), 0.0);
+        game.observe();
+        assert!(game.seen_at(far.x, far.y), "the trace sees it too");
+        game.room.sight.set_flares(&[]);
+        assert!(
+            game.room.sight.sees_from(eye, far).is_none(),
+            "gone with it"
+        );
+        game.observe();
+        assert!(!game.seen_at(far.x, far.y));
     }
 
     /// A lamp is shot out: a bolt that passes within its radius stops
     /// there and takes its damage off it, a hit sets it flickering, one
     /// left at a fifth of its health or under is failing — flickering now
     /// and then on its own — and the third pistol bolt puts it out: the tile it lit is dark and seen
-    /// no further than the ten again, the picture round it darker, and
+    /// no further than the fifteen again, the picture round it darker, and
     /// the world's word (`set_lamp_health`) puts it back or out on a
     /// fresh room.
     #[test]
@@ -10628,20 +10760,20 @@ mod tests {
         use crate::sight::LAMP_HEALTH;
         use shipdesign::PartKind;
         let eye = tile_middle(3.0, 10.0);
-        let far = tile_middle(15.0, 10.0);
-        let layout = crate::aboard::layout_of(&box_ship(&[(PartKind::WallLight, (17, 10))]));
+        let far = tile_middle(20.0, 10.0);
+        let layout = crate::aboard::layout_of(&box_ship_of(28, &[(PartKind::WallLight, (25, 10))]));
         let (w, h) = (layout.bounds.width(), layout.bounds.height());
         let mut game = Game::with_layout(layout, 7, &[eye], w, h);
         game.set_autonomous(false);
         game.simulate(DT);
         game.render();
         assert!(game.room.sight.lit_at(far));
-        assert!(game.seen_at(far.x, far.y), "twelve tiles, lit");
+        assert!(game.seen_at(far.x, far.y), "seventeen tiles, lit");
         let lamp = game.lamps()[0];
         assert_eq!(lamp.health, LAMP_HEALTH);
         assert_eq!(lamp.level, 1.0);
         assert_eq!(
-            game.lamp_at(tile_middle(17.0, 10.0)).map(|(i, _)| i),
+            game.lamp_at(tile_middle(25.0, 10.0)).map(|(i, _)| i),
             Some(0)
         );
         // The lamplight over the tile in front of it, as drawn.
@@ -10686,11 +10818,11 @@ mod tests {
         assert_eq!(game.take_lamp_changes(), vec![0, 0, 0]);
         assert!(game.take_lamp_changes().is_empty(), "drained");
         assert_eq!(game.lamps()[0].level, 0.0);
-        // Out: the tile it lit is dark and seen no further than the ten,
+        // Out: the tile it lit is dark and seen no further than the fifteen,
         // and the picture says so.
         game.render();
         assert!(!game.room.sight.lit_at(far));
-        assert!(!game.seen_at(far.x, far.y), "twelve tiles, in the dark");
+        assert!(!game.seen_at(far.x, far.y), "seventeen tiles, in the dark");
         assert_eq!(glow_at(&game, far), 0, "no lamplight there now");
         for _ in 0..60 {
             game.simulate(DT);

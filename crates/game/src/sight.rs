@@ -52,8 +52,40 @@ const FOG: Color = Color::rgba(0.02, 0.04, 0.03, MAP_FOG);
 
 /// How far a Bim sees in the dark, in tiles: a tile a light does not reach
 /// is seen only from this close. Lit tiles are seen as far as the line is
-/// clear. See [`Light`].
-pub const DARK_RANGE: f32 = 10.0;
+/// clear, and a tile partly lit — the soft rim of a lamp's pool — from
+/// further the more it is lit: `DARK_RANGE / (1 − light)`, so a tile half
+/// lit is seen from twice as far (task 152; it was ten tiles, every tile
+/// lit or not).
+pub const DARK_RANGE: f32 = 15.0;
+/// How wide a lamp's soft rim is, in tiles: full light to this short of
+/// its reach, then fading smoothly to nothing at the reach, so the edge of
+/// a pool is clear — which tiles it lights and which it does not — without
+/// the tile grid's hard step. A tile at the middle of the rim counts half
+/// lit (task 152). Before, a lamp was full only to a third of its reach
+/// and faded the whole way after, with no edge to read.
+pub const LIGHT_EDGE: f32 = 2.0;
+/// How much of a lamp's light gets past furniture — a shelf, a cabinet,
+/// a table — into the shade behind it, on the rule and in the picture
+/// alike: the shadow, and it is a light one. Nothing gets past a wall.
+const SHADOW_FILL: f32 = 0.45;
+/// How much light a bolt in flight throws on the tile it is in, and on
+/// the four beside it, for the rule (task 152): a laser lights its way.
+const FLARE_ON: u8 = 255;
+const FLARE_BESIDE: u8 = 128;
+
+/// How much of a lamp's light falls `d` from it, nought to one, for a lamp
+/// of `reach` on a grid of `tile` — [`LIGHT_EDGE`]'s soft rim: one inside
+/// it, a smoothstep down to nought at the reach. The rule's tiles and the
+/// picture's pixels are both read off this, so the picture's edge is the
+/// rule's.
+pub fn lamp_fall(d: f32, reach: f32, tile: f32) -> f32 {
+    if d >= reach {
+        return 0.0;
+    }
+    let edge = (LIGHT_EDGE * tile).min(reach);
+    let t = ((reach - d) / edge).min(1.0);
+    t * t * (3.0 - 2.0 * t)
+}
 
 /// A light in the room: where it is and how far it reaches, in room units.
 /// A tile is **lit** when the straight line from some light to its middle
@@ -115,12 +147,21 @@ pub struct Lamp {
     flicker: f32,
     /// The last second-long window a failing flicker was rolled for.
     window: u32,
+    /// Switched off (task 152): a dark station's, whole and giving no
+    /// light — `Sight::set_lamps_off`. Shot at like a lit one.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub off: bool,
 }
 
 impl Lamp {
     /// Whether it is broken: shot to nothing.
     pub fn is_out(&self) -> bool {
         self.health <= 0.0
+    }
+
+    /// Whether it gives no light: out, or switched off.
+    pub fn is_dark(&self) -> bool {
+        self.is_out() || self.off
     }
 
     pub fn is_failing(&self) -> bool {
@@ -230,9 +271,18 @@ pub struct Sight {
     cells: Vec<Cell>,
     /// Whether anybody sees each tile.
     seen: Vec<bool>,
-    /// Whether a light reaches each tile — see [`Light`] — and the lights
-    /// themselves, for the picture. With no lights, every tile is lit.
-    lit: Vec<bool>,
+    /// How much light falls on each tile, nought dark to 255 lit — see
+    /// [`Light`], [`lamp_fall`] — and the lights themselves, for the
+    /// picture. With no lights, every tile is lit.
+    light: Vec<u8>,
+    /// The light the bolts in flight throw this step (`set_flares`), a
+    /// byte a tile like `light`, and which tiles it is on, so the next
+    /// step clears only those. Read by the rule beside the lamps'; the
+    /// picture draws a bolt's own glow instead.
+    #[cfg_attr(feature = "serde", serde(skip))]
+    flare: Vec<u8>,
+    #[cfg_attr(feature = "serde", serde(skip))]
+    flared: Vec<usize>,
     lights: Vec<Light>,
     /// The lamps, one a light: what each has left and how bright it is
     /// shown. See [`Lamp`].
@@ -249,6 +299,17 @@ pub struct Sight {
     /// settlement's ground (`set_daylight`); `None` aboard and on a
     /// station, where every light is a lamp.
     daylight: Option<Rect>,
+    /// Night on a planet (task 152): the dark and the fog are drawn
+    /// deeper (`MAP_DARK_NIGHT`, `MAP_FOG_NIGHT`). The picture's alone —
+    /// the rule reads the light, and night is the sky taken away
+    /// (`set_daylight`). The world's to set, kept across a relayout.
+    #[cfg_attr(feature = "serde", serde(default))]
+    night: bool,
+    /// Where the lamps are switched off (task 152): a dark station's
+    /// box, every lamp whose middle lies in it giving no light. The
+    /// world's word (`set_lamps_off`), kept across a relayout.
+    #[cfg_attr(feature = "serde", serde(default))]
+    lamps_off: Option<Rect>,
     /// How far an eye sees at all, in room units, lit or not: `None`
     /// aboard and on a station, where a lit tile is seen as far as the
     /// line is clear; a plain's sight range on a planet (`set_range`),
@@ -332,13 +393,17 @@ impl Sight {
             fixed: Vec::new(),
             cells: Vec::new(),
             seen: vec![false; (columns * rows) as usize],
-            lit: vec![true; (columns * rows) as usize],
+            light: vec![255; (columns * rows) as usize],
+            flare: Vec::new(),
+            flared: Vec::new(),
             lights: Vec::new(),
             lamps: Vec::new(),
             lamp_changes: Vec::new(),
             lamp_seconds: 0.0,
             lit_everywhere: true,
             daylight: None,
+            night: false,
+            lamps_off: None,
             range: None,
             map: LightMap::default(),
             map_stale: true,
@@ -553,8 +618,10 @@ impl Sight {
                 level: 1.0,
                 flicker: 0.0,
                 window: 0,
+                off: false,
             })
             .collect();
+        self.mark_lamps_off();
         self.lamp_changes.clear();
         self.lit_everywhere = false;
         self.light_field_stale = true;
@@ -568,26 +635,39 @@ impl Sight {
         self.stale = true;
         self.views_stale = true;
         self.cells_version += 1;
-        for l in self.lit.iter_mut() {
-            *l = false;
-        }
+        // Summed, saturating, as the picture's field is (`sum_fields`):
+        // light adds, so a tile between two lamps' rims is lit by both.
+        let mut sum = vec![0u32; self.light.len()];
         for (light, lamp) in self.lights.iter().zip(&self.lamps) {
-            if lamp.is_out() {
+            if lamp.is_dark() {
                 continue;
             }
             let (lx, ly) = self.tile_of(light.at);
             let span = (light.reach / self.tile).ceil() as i32 + 1;
             for y in (ly - span).max(0)..=(ly + span).min(self.rows - 1) {
                 for x in (lx - span).max(0)..=(lx + span).min(self.columns - 1) {
-                    let i = self.index(x, y);
-                    if self.lit[i] || (self.middle(x, y) - light.at).len() > light.reach {
+                    let fall =
+                        lamp_fall((self.middle(x, y) - light.at).len(), light.reach, self.tile);
+                    if fall <= 0.0 {
                         continue;
                     }
-                    if self.clear_line_over(&self.fixed, light.at, (x, y)) {
-                        self.lit[i] = true;
-                    }
+                    // Straight, past nothing in the way; or through the
+                    // furniture's shade at [`SHADOW_FILL`]; or not at all.
+                    let share = if self.clear_line_over(&self.fixed, light.at, (x, y)) {
+                        1.0
+                    } else if self
+                        .clear_line_by(&self.fixed, light.at, (x, y), |c| c.opaque && !c.soft)
+                    {
+                        SHADOW_FILL
+                    } else {
+                        continue;
+                    };
+                    sum[self.index(x, y)] += (fall * share * 255.0) as u32;
                 }
             }
+        }
+        for (l, s) in self.light.iter_mut().zip(sum) {
+            *l = s.min(255) as u8;
         }
         // The sky, after the lamps: a tile under it is lit whether a
         // lamp reaches it or not, and a wall shades nothing from it.
@@ -596,7 +676,7 @@ impl Sight {
                 for x in 0..self.columns {
                     if over.contains(self.middle(x, y)) {
                         let i = self.index(x, y);
-                        self.lit[i] = true;
+                        self.light[i] = 255;
                     }
                 }
             }
@@ -623,6 +703,50 @@ impl Sight {
         // The fields are summed again with the sky in, whole: the
         // picture takes it up the next time it is asked for.
         self.light_field_stale = true;
+    }
+
+    /// Every lamp whose middle lies in `over` switched off, or none (task
+    /// 152): a dark station — whole, shot at like any, giving no light,
+    /// on the mask and in the picture alike. Kept across `set_lights`.
+    pub fn set_lamps_off(&mut self, over: Option<Rect>) {
+        if self.lamps_off == over {
+            return;
+        }
+        self.lamps_off = over;
+        self.mark_lamps_off();
+        if !self.lit_everywhere {
+            self.relight();
+            self.light_field_stale = true;
+        }
+    }
+
+    pub fn lamps_off(&self) -> Option<Rect> {
+        self.lamps_off
+    }
+
+    /// Each lamp's switch off `lamps_off`, its level with it.
+    fn mark_lamps_off(&mut self) {
+        let over = self.lamps_off;
+        for lamp in &mut self.lamps {
+            lamp.off = over.is_some_and(|r| r.contains(lamp.at));
+            lamp.level = if lamp.is_dark() { 0.0 } else { 1.0 };
+            lamp.flicker = 0.0;
+        }
+    }
+
+    /// Night or not, for the picture (task 152): the whole map is composed
+    /// again at the next look with the night's dark and fog.
+    pub fn set_night(&mut self, night: bool) {
+        if self.night != night {
+            self.night = night;
+            self.map_stale = true;
+            // Built again whole, so a host drawing it takes it up too.
+            self.light_field_stale = true;
+        }
+    }
+
+    pub fn night(&self) -> bool {
+        self.night
     }
 
     /// The daylight, as set.
@@ -720,7 +844,7 @@ impl Sight {
     /// out or put back over its reach, and every eye marched again,
     /// since what a lamp lit is what was seen by it.
     fn lamp_switched(&mut self, i: usize) {
-        self.lamps[i].level = if self.lamps[i].is_out() { 0.0 } else { 1.0 };
+        self.lamps[i].level = if self.lamps[i].is_dark() { 0.0 } else { 1.0 };
         self.lamps[i].flicker = 0.0;
         self.relight();
         if let Some(field) = self.lamp_fields.get(i) {
@@ -743,7 +867,7 @@ impl Sight {
         let t = self.lamp_seconds;
         for i in 0..self.lamps.len() {
             let lamp = &mut self.lamps[i];
-            if lamp.is_out() {
+            if lamp.is_dark() {
                 continue;
             }
             if lamp.flicker <= 0.0 && lamp.is_failing() {
@@ -775,10 +899,82 @@ impl Sight {
         }
     }
 
-    /// Whether a light reaches the tile a point is in.
+    /// Whether the tile a point is in counts as lit: half its light or
+    /// more, a lamp's, the sky's or a bolt's.
     pub fn lit_at(&self, p: Vec2) -> bool {
+        self.light_at(p) >= 0.5
+    }
+
+    /// How much light falls on the tile a point is in, nought to one —
+    /// the lamps', the sky's and the bolts' in flight. Off the grid is
+    /// dark.
+    pub fn light_at(&self, p: Vec2) -> f32 {
         let (x, y) = self.tile_of(p);
-        self.inside(x, y) && self.lit[self.index(x, y)]
+        if !self.inside(x, y) {
+            return 0.0;
+        }
+        self.tile_light(self.index(x, y)) as f32 / 255.0
+    }
+
+    /// How much of the lamps' and the sky's light falls on the tile a
+    /// point is in, nought to one — the bolts' own left out: how dark it
+    /// is round a bolt, for its glow (`Game::draw_bolt_glow`).
+    pub fn lamplight_at(&self, p: Vec2) -> f32 {
+        let (x, y) = self.tile_of(p);
+        if !self.inside(x, y) {
+            return 0.0;
+        }
+        self.light[self.index(x, y)] as f32 / 255.0
+    }
+
+    /// A tile's light as the rule reads it: the lamps' and the sky's, or
+    /// a bolt's if that is more.
+    fn tile_light(&self, i: usize) -> u8 {
+        self.light[i].max(self.flare.get(i).copied().unwrap_or(0))
+    }
+
+    /// The bolts in flight this step, where each is (task 152): a laser
+    /// lights the tile it is in fully and the four beside it half — no
+    /// further through a wall — for the rule to read, so a body a bolt
+    /// passes in the dark is seen as far as a lit one. The picture draws
+    /// each bolt's own glow (`Combat::draw`). Called every step; the mask
+    /// is traced again only when the tiles lit changed.
+    pub fn set_flares(&mut self, bolts: &[Vec2]) {
+        let mut lit: Vec<(usize, u8)> = Vec::new();
+        for &p in bolts {
+            let (x, y) = self.tile_of(p);
+            if !self.inside(x, y) {
+                continue;
+            }
+            lit.push((self.index(x, y), FLARE_ON));
+            for (dx, dy) in [(1, 0), (-1, 0), (0, 1), (0, -1)] {
+                let (nx, ny) = (x + dx, y + dy);
+                if self.inside(nx, ny) && !self.cells[self.index(nx, ny)].opaque {
+                    lit.push((self.index(nx, ny), FLARE_BESIDE));
+                }
+            }
+        }
+        if lit.is_empty() && self.flared.is_empty() {
+            return;
+        }
+        if self.flare.len() != self.light.len() {
+            self.flare = vec![0; self.light.len()];
+        }
+        let before: Vec<(usize, u8)> = self.flared.iter().map(|&i| (i, self.flare[i])).collect();
+        for &i in &self.flared {
+            self.flare[i] = 0;
+        }
+        self.flared.clear();
+        for (i, v) in lit {
+            if self.flare[i] == 0 {
+                self.flared.push(i);
+            }
+            self.flare[i] = self.flare[i].max(v);
+        }
+        let now: Vec<(usize, u8)> = self.flared.iter().map(|&i| (i, self.flare[i])).collect();
+        if before != now {
+            self.stale = true;
+        }
     }
 
     /// Whether an eye at `from` could make out a body at `at` at all —
@@ -790,15 +986,18 @@ impl Sight {
         self.inside(tile.0, tile.1) && self.in_the_light(from, tile)
     }
 
-    /// Whether an eye at `from` can make the tile out at all: lit, or
-    /// within [`DARK_RANGE`] of the eye. The dark rule, on top of the
-    /// line being clear.
+    /// Whether an eye at `from` can make the tile out at all: within
+    /// [`DARK_RANGE`] of the eye in the dark, and as much further as the
+    /// tile is lit — `DARK_RANGE / (1 − light)`, so a lit tile is seen
+    /// however far and one half lit from twice as far. The dark rule, on
+    /// top of the line being clear.
     fn in_the_light(&self, from: Vec2, tile: (i32, i32)) -> bool {
         let away = (self.middle(tile.0, tile.1) - from).len();
         if self.range.is_some_and(|r| away > r) {
             return false;
         }
-        self.lit[self.index(tile.0, tile.1)] || away <= DARK_RANGE * self.tile
+        let dark = 255 - self.tile_light(self.index(tile.0, tile.1)) as u32;
+        away * dark as f32 <= DARK_RANGE * self.tile * 255.0
     }
 
     /// Mark these rectangles as low cover — sandbags: nothing to sight or
@@ -1002,6 +1201,18 @@ impl Sight {
     /// The same over any set of cells: the fixed picture for a light, the
     /// picture with the doors in for an eye.
     fn clear_line_over(&self, cells: &[Cell], from: Vec2, to: (i32, i32)) -> bool {
+        self.clear_line_by(cells, from, to, |c| c.opaque)
+    }
+
+    /// The same, stopped wherever `stops` says: a lamp's shade behind the
+    /// furniture reads the walls alone.
+    fn clear_line_by(
+        &self,
+        cells: &[Cell],
+        from: Vec2,
+        to: (i32, i32),
+        stops: impl Fn(&Cell) -> bool,
+    ) -> bool {
         let (mut x, mut y) = self.tile_of(from);
         let (tx, ty) = to;
         if (x, y) == (tx, ty) {
@@ -1039,7 +1250,7 @@ impl Sight {
             if (x, y) == (tx, ty) {
                 return true;
             }
-            if !self.inside(x, y) || cells[self.index(x, y)].opaque {
+            if !self.inside(x, y) || stops(&cells[self.index(x, y)]) {
                 return false;
             }
         }
@@ -1197,26 +1408,32 @@ pub(crate) const RAYS: u32 = 4096;
 /// The fog over everything the crew do not see — their own deck, a
 /// stranger's, the plain — whether or not anybody has looked at it: the
 /// structure shows through it, and no body does (task 128).
-pub(crate) const MAP_FOG: f32 = 0.62;
+pub(crate) const MAP_FOG: f32 = 0.66;
 /// The dark over what they see that no light reaches — deep enough that
 /// a lamp's pool reads against it, short of the fog so what is seen is
-/// always brighter than what is not.
-const MAP_DARK: f32 = 0.50;
-/// How much of a light's reach is full brightness before it fades, and
-/// how the rest falls off — steeply at first, so a pool has a bright
-/// heart and a soft rim, the way a lamp's does.
-const LIGHT_CORE: f32 = 0.35;
-const LIGHT_FALL: f32 = 1.6;
-/// How much of a lamp's light gets past furniture — a shelf, a cabinet,
-/// a table — into the shade behind it: the shadow, and it is a light one.
-/// Nothing gets past a wall.
-const SHADOW_FILL: f32 = 0.55;
+/// always brighter than what is not. Both went up with task 152 (from
+/// 0.62 and 0.50), so the edge of a pool is plain to see.
+pub(crate) const MAP_DARK: f32 = 0.56;
+/// The same two at night on a planet (task 152): the open ground under
+/// no sky is darker than a station's corridor, and what nobody sees is
+/// darker still — a night, where the lamps' pools are the town.
+pub(crate) const MAP_FOG_NIGHT: f32 = 0.86;
+pub(crate) const MAP_DARK_NIGHT: f32 = 0.78;
 /// The lamplight over a lit pixel at full brightness: the warm wash the
 /// host tints the deck with, nought to one, faded with the light — and
 /// how much of it shows through the fog over what the crew know, since
 /// the lamps are always on and the crew know where they hang.
-const GLOW: f32 = 0.24;
+const GLOW: f32 = 0.28;
 const GLOW_UNDER_FOG: f32 = 0.5;
+
+/// The fog's alpha and the dark's, by day or by night (task 152).
+pub(crate) fn fog_alpha(night: bool) -> f32 {
+    if night { MAP_FOG_NIGHT } else { MAP_FOG }
+}
+
+pub(crate) fn dark_alpha(night: bool) -> f32 {
+    if night { MAP_DARK_NIGHT } else { MAP_DARK }
+}
 
 /// The smooth picture of the crew's sight and the lamps: two bytes a
 /// pixel — the darkness to draw over the room, nought where the crew see
@@ -1368,6 +1585,10 @@ pub struct LightInputs {
     pub glow_seen: [u8; 256],
     pub glow_fog: [u8; 256],
     pub fog: u8,
+    /// The march's dark rule, [`dark_reach`]: for each darkness (255
+    /// less the light the eyes read), how far from its body — squared,
+    /// in pixels — a pixel that dark is seen.
+    pub reach: [u32; 256],
     /// One a body whose eyes the picture is through, in the bodies'
     /// order.
     pub views: Vec<Arc<ViewInputs>>,
@@ -1377,12 +1598,12 @@ pub struct LightInputs {
 }
 
 /// One body's eyes, as last marched: a revision that moves whenever they
-/// are marched again, the tiles near enough to be seen in the dark (a bit
-/// a tile, row by row), and each eye.
+/// are marched again, the map pixel the body stands in — what the dark
+/// rule is measured from ([`dark_reach`]) — and each eye.
 #[derive(Clone, Debug, Default)]
 pub struct ViewInputs {
     pub rev: u64,
-    pub near: Vec<u32>,
+    pub body: (i32, i32),
     pub eyes: Vec<EyeInputs>,
 }
 
@@ -1536,8 +1757,8 @@ impl Sight {
     /// fall, which every opaque cell stops, and a fill of [`SHADOW_FILL`]
     /// of it, which the furniture (`Cell::soft`) lets past and the walls
     /// do not — so behind a shelf is a shade and behind a bulkhead the
-    /// dark. Full brightness to [`LIGHT_CORE`] of the reach, fading to
-    /// the edge. Each lamp's fall is kept on its own ([`LampField`]) and
+    /// dark. Full brightness to [`LIGHT_EDGE`] short of the reach, then
+    /// the soft rim ([`lamp_fall`], the rule's own). Each lamp's fall is kept on its own ([`LampField`]) and
     /// the field is their **sum**, saturating — light adds, so the deck
     /// between four lamps is lit by all four, where the brightest alone
     /// left a dark star between them — read by [`Sight::light_map`].
@@ -1582,14 +1803,7 @@ impl Sight {
                         if x < x0 || x >= x1 || y < y0 || y >= y1 {
                             return;
                         }
-                        let t = d / light.reach;
-                        let bright = if t <= LIGHT_CORE {
-                            1.0
-                        } else {
-                            ((1.0 - t) / (1.0 - LIGHT_CORE))
-                                .clamp(0.0, 1.0)
-                                .powf(LIGHT_FALL)
-                        };
+                        let bright = lamp_fall(d, light.reach, self.tile);
                         let v = (bright * share * 255.0) as u8;
                         let j = (y - y0) * field.w + (x - x0);
                         if field.pixels[j] < v {
@@ -1623,7 +1837,7 @@ impl Sight {
         let mut shown = vec![0u32; width * (y1 + 1 - y0)];
         let mut nominal = vec![0u32; if eyes { shown.len() } else { 0 }];
         for (field, lamp) in self.lamp_fields.iter().zip(&self.lamps) {
-            if lamp.is_out() {
+            if lamp.is_dark() {
                 continue;
             }
             let level = (lamp.level.clamp(0.0, 1.0) * 256.0) as u32;
@@ -1729,6 +1943,16 @@ impl Sight {
         );
     }
 
+    /// The map pixel a body stands in, which the picture's dark rule is
+    /// measured from.
+    fn body_pixel(&self, body: Vec2) -> (i32, i32) {
+        let px = self.tile / MAP_PX_PER_TILE as f32;
+        (
+            ((body.x - self.origin.x) / px).floor() as i32,
+            ((body.y - self.origin.y) / px).floor() as i32,
+        )
+    }
+
     /// Whether a body's eyes are where they were last marched from: the
     /// same eyes, each within half a pixel of where it was.
     fn view_holds(&self, view: &View, eyes: &[Eye]) -> bool {
@@ -1745,19 +1969,20 @@ impl Sight {
     /// and say which pixels it reached as a box.
     fn view_of(&self, body: Vec2, eyes: &[Eye], seen: &mut [bool]) -> Option<Box> {
         seen.fill(false);
-        let range = DARK_RANGE * self.tile;
+        let reach = dark_reach();
         let w = self.map_dims().0;
+        let (bx, by) = self.body_pixel(body);
         let mut reached: Option<Box> = None;
         for eye in eyes {
             // A peek adds only what lies past its wall; the body's own eyes
             // everything. The dark rule is measured from the body, as the
-            // trace measures it.
+            // trace measures it, a pixel at a time: within the dark range
+            // as far as the pixel's light stretches it (`dark_reach`).
             self.march(eye.at, self.range, &self.cells, false, |i, tile, _| {
-                if !seen[i]
-                    && eye.admits(tile)
-                    && (self.light_field[i] > 0
-                        || (self.middle(tile.0, tile.1) - body).len() <= range)
-                {
+                if !seen[i] && eye.admits(tile) && {
+                    let (dx, dy) = ((i % w) as i64 - bx as i64, (i / w) as i64 - by as i64);
+                    (dx * dx + dy * dy) as u64 <= reach[255 - self.light_field[i] as usize] as u64
+                } {
                     seen[i] = true;
                     let (x, y) = (i % w, i / w);
                     reached = Some(match reached {
@@ -1894,7 +2119,7 @@ impl Sight {
         for level in 0..256 {
             // `compose`'s own arithmetic, a level at a time.
             let light = level as u8 as f32 / 255.0;
-            dark[level] = (MAP_DARK * (1.0 - light) * 255.0) as u8;
+            dark[level] = (dark_alpha(self.night) * (1.0 - light) * 255.0) as u8;
             glow_seen[level] = (wash * light * 255.0) as u8;
             glow_fog[level] = (wash * GLOW_UNDER_FOG * light * 255.0) as u8;
         }
@@ -1914,7 +2139,8 @@ impl Sight {
             dark,
             glow_seen,
             glow_fog,
-            fog: (MAP_FOG * 255.0) as u8,
+            fog: (fog_alpha(self.night) * 255.0) as u8,
+            reach: dark_reach(),
             views: self.host.views.clone(),
             cpu,
         }));
@@ -1933,8 +2159,8 @@ impl Sight {
     }
 
     /// One body's eyes as the host walks them: `march`'s arithmetic up to
-    /// the walk, and the tiles near enough to the body to be seen in the
-    /// dark — `view_of`'s rule, a bit a tile.
+    /// the walk, and the pixel the body is in, which `view_of`'s dark rule
+    /// is measured from.
     fn view_inputs(&self, body: Vec2, eyes: &[Eye], rev: u64) -> ViewInputs {
         let (w, h) = self.map_dims();
         let (w, h) = (w as i32, h as i32);
@@ -1943,17 +2169,6 @@ impl Sight {
             .range
             .map(|r| r / px)
             .unwrap_or((w.max(h) as f32) * 1.5);
-        let range = DARK_RANGE * self.tile;
-        let tiles = (self.columns * self.rows) as usize;
-        let mut near = vec![0u32; tiles.div_ceil(32)];
-        for ty in 0..self.rows {
-            for tx in 0..self.columns {
-                if (self.middle(tx, ty) - body).len() <= range {
-                    let i = self.index(tx, ty);
-                    near[i / 32] |= 1 << (i % 32);
-                }
-            }
-        }
         let eyes = eyes
             .iter()
             .map(|eye| {
@@ -1970,7 +2185,11 @@ impl Sight {
                 }
             })
             .collect();
-        ViewInputs { rev, near, eyes }
+        ViewInputs {
+            rev,
+            body: self.body_pixel(body),
+            eyes,
+        }
     }
 
     /// The picture of the mask from these bodies' eyes, worked out again
@@ -2070,7 +2289,8 @@ impl Sight {
         // No lamps at all — a bare room — is lit and has no lamplight
         // to wash the deck with.
         let wash = if self.lit_everywhere { 0.0 } else { GLOW };
-        let fog = (MAP_FOG * 255.0) as u8;
+        let dark = dark_alpha(self.night);
+        let fog = (fog_alpha(self.night) * 255.0) as u8;
         let (alpha, glow) = (&mut self.map.alpha, &mut self.map.glow);
         for ty in over.y0 / n..=over.y1 / n {
             for tx in over.x0 / n..=over.x1 / n {
@@ -2088,7 +2308,7 @@ impl Sight {
                         // other field, and only for what they reach.
                         let light = self.shown_field[i] as f32 / 255.0;
                         if seen {
-                            alpha[i] = (MAP_DARK * (1.0 - light) * 255.0) as u8;
+                            alpha[i] = (dark * (1.0 - light) * 255.0) as u8;
                             glow[i] = (wash * light * 255.0) as u8;
                         } else {
                             // Nobody sees it: the one fog, whoever's it is
@@ -2126,6 +2346,22 @@ impl Sight {
     }
 }
 
+/// The picture's dark rule, a squared distance in map pixels for each
+/// darkness — 255 less the light the eyes read at the pixel: how far from
+/// the body a pixel that dark is made out. [`DARK_RANGE`] in the dark,
+/// `DARK_RANGE / (1 − light)` beside a lamp — [`Sight::in_the_light`]'s
+/// rule — and anywhere in full light. Integers, so the host's march
+/// (`lightmap.wgsl`, task 121) reads the same table and agrees to the
+/// pixel.
+pub fn dark_reach() -> [u32; 256] {
+    let range = (DARK_RANGE * MAP_PX_PER_TILE as f32) as f64 * 255.0;
+    let mut reach = [u32::MAX; 256];
+    for (dark, r) in reach.iter_mut().enumerate().skip(1) {
+        *r = (range / dark as f64).powi(2).min(u32::MAX as f64) as u32;
+    }
+    reach
+}
+
 /// Walk [`RAYS`] rays out from `from` — in pixels, over a grid `dims`
 /// pixels across and down with [`MAP_PX_PER_TILE`] to a tile — calling
 /// `f` with each pixel reached: its index, its tile, and how far along
@@ -2149,6 +2385,7 @@ impl Sight {
 /// eight thousand of them for every eye that moved half a pixel
 /// (feature 96). The table is a tenth of the cost of the march it saves
 /// and is built the first time anything is marched.
+
 fn ray_directions() -> &'static [(f32, f32)] {
     static DIRS: std::sync::OnceLock<Vec<(f32, f32)>> = std::sync::OnceLock::new();
     DIRS.get_or_init(|| {
@@ -2291,8 +2528,15 @@ mod tests {
     /// hashed. They are not a rule — they are what the march came out at
     /// — so a change that moves them on purpose writes the new numbers
     /// down and says in its commit what moved.
-    const ALPHA_PINNED: u64 = 8_708_404_861_411_554_907;
-    const GLOW_PINNED: u64 = 18_347_543_318_836_694_730;
+    ///
+    /// Moved by task 152, on purpose: a lamp's light is full to two tiles
+    /// short of its reach and a soft rim after (`lamp_fall`, not the old
+    /// third and a long fall), the furniture lets less past, the dark
+    /// and the lamplight are deeper, and a pixel is seen as far as its
+    /// light stretches the fifteen tiles (`dark_reach`) — was 8 708 404 861
+    /// 411 554 907 and 18 347 543 318 836 694 730.
+    const ALPHA_PINNED: u64 = 7_876_032_499_620_110_001;
+    const GLOW_PINNED: u64 = 4_961_022_665_338_550_551;
 
     /// What a host drawing the light map keeps (task 121), and the walk
     /// and the composing it does — the GPU's `lightmap.wgsl`, written out
@@ -2349,8 +2593,9 @@ mod tests {
                                     (tile.0 - bx) * dx + (tile.1 - by) * dy >= 1
                                 }
                             };
-                            let near = view.near[ti / 32] >> (ti % 32) & 1 != 0;
-                            if admits && (inp.light_field[i] > 0 || near) {
+                            let (dx, dy) = (x - view.body.0, y - view.body.1);
+                            let d2 = (dx * dx + dy * dy) as u32;
+                            if admits && d2 <= inp.reach[255 - inp.light_field[i] as usize] {
                                 seen[i] = true;
                             }
                             if stop {

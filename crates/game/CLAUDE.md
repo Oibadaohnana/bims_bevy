@@ -2415,7 +2415,53 @@ the deck's by its middle through the station frame and copies whichever
 side changed (`Door::changed`, set by `lock`/`unlock`, cleared when
 carried), the smashing one way — see `crates/world/CLAUDE.md`.
 
-## The dark: lights, ten tiles, and a smooth picture over the tile mask
+## The dark: lights, fifteen tiles, and a smooth picture over the tile mask
+
+> **Since task 152 (October 2026)** the rule is soft light and fifteen
+> tiles of dark; what this section says below of a boolean `lit`, ten
+> tiles, `LIGHT_CORE`/`LIGHT_FALL` and the `near` tile bits is the
+> history. What it is now:
+>
+> - **A tile's light is a byte** (`Sight::light`, was `lit: Vec<bool>`):
+>   each lamp not dark adds `sight::lamp_fall(d, reach, tile)` — full to
+>   `LIGHT_EDGE` (2) tiles short of its reach, a smoothstep to nothing at
+>   the reach — straight, or `SHADOW_FILL` (0.45) of it past furniture
+>   (`clear_line_by` with the walls alone), summed and saturating; the sky
+>   is 255. The picture's field is marched off the same `lamp_fall`, so
+>   the pool's edge in the picture is the rule's.
+> - **The rule** (`in_the_light`): a tile is made out from `DARK_RANGE`
+>   (15) tiles in the dark and from `DARK_RANGE / (1 − light)` beside a
+>   lamp — a half-lit rim tile from thirty, a lit one from anywhere.
+>   `lit_at` is half or more; `light_at` the share; `lamplight_at` the
+>   lamps' and sky's alone.
+> - **A bolt lights its tile** (`Sight::set_flares`, every step from
+>   `tick_combat` with every bolt's position): 255 on its tile, 128 on the
+>   four beside it (not through a wall), read by the rule beside the
+>   lamps, the mask marked stale when the tiles change. Not in the
+>   picture's march: `Game::draw_bolt_glow` draws `BOLT_GLOW_RINGS` rings
+>   of the bolt's colour over the light map, faded by `lamplight_at`.
+> - **The picture's dark rule is per pixel**: a pixel is seen from a body
+>   when its squared distance in pixels is within `sight::dark_reach()`
+>   for its darkness (255 less the eyes' field) — integers, a 256-entry
+>   table the GPU reads as the fourth table (`lightmap.wgsl`, the body's
+>   pixel packed in `Eye::body`); the `near` tile bits and binding 8 are
+>   unread. `BIMS_LIGHTMAP=check` is 0 bytes off on a station and a town.
+> - **Deeper and bluer**: `MAP_DARK` 0.56, `MAP_FOG` 0.66, `GLOW` 0.28;
+>   at night (`Sight::set_night`, `Game::set_night`) `MAP_DARK_NIGHT`
+>   0.78 and `MAP_FOG_NIGHT` 0.86 (`dark_alpha`, `fog_alpha`, also the
+>   plain's). The host draws the dark in `fogmap::DARKNESS`, a night blue.
+> - **Night on the plain** (`Plane::set_night`): the trace and the march
+>   reach `DARK_RANGE` tiles, not `VIEW`, and what is seen is under the
+>   night's dark.
+> - **Lamps switched off** (`Sight::set_lamps_off(over)`,
+>   `Game::set_lamps_off`, a dark station): `Lamp::off` for every lamp in
+>   `over`, `is_dark()` = out or off — no light, level nought, the glass
+>   veiled, still shot at. Kept across `set_lights` and a relayout with
+>   the night and the daylight.
+> - `the_dark_is_seen_fifteen_tiles_and_a_lit_tile_further` (a 28-tile
+>   box, `box_ship_of`) and `a_bolt_in_flight_lights_its_tile` pin it;
+>   `the_light_map_is_the_same_picture_it_was` was re-pinned (its note).
+
 
 September 2026, `sight.rs`. **The rule stays on the tile grid** — the fight
 and the world read it, and a server has to agree — and a **picture** is

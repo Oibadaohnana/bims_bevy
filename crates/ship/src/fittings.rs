@@ -1282,6 +1282,11 @@ const WALL_LAMP_CORE: Color = Color::rgb(0.92, 0.97, 1.0);
 /// height, in points. The whole fitting is flat against the wall.
 const WALL_LAMP_CASE: f32 = 9.0;
 const WALL_LAMP_GLASS: f32 = 4.0;
+/// How far past white a lamp's glass is drawn (task 152): hot enough
+/// that the bloom rings it, so every light source reads as one at a
+/// glance, lit pool or dark deck. A lamp shot out draws its dead glass
+/// over this (`lamp_face`).
+const LAMP_GLOW: f32 = 1.5;
 
 /// A wall light: a flat strip lamp flush against the wall its rotation
 /// names — the top edge of its tile unturned, `wall_light_back` — a dark
@@ -1306,7 +1311,17 @@ fn wall_light(list: &mut DrawList, part: &PlacedPart) {
     );
     // The glass along it, and its hot middle.
     let (u, v, gw, gh) = wall_lamp_glass(w, h);
-    local.push(list, KIND_RECT, u, v, gw, gh, 1.0, 0.0, WALL_LAMP);
+    local.push(
+        list,
+        KIND_RECT,
+        u,
+        v,
+        gw,
+        gh,
+        1.0,
+        0.0,
+        WALL_LAMP.glowing(LAMP_GLOW),
+    );
     local.push(
         list,
         KIND_RECT,
@@ -1316,7 +1331,7 @@ fn wall_light(list: &mut DrawList, part: &PlacedPart) {
         gh * 0.4,
         0.5,
         0.0,
-        WALL_LAMP_CORE,
+        WALL_LAMP_CORE.glowing(LAMP_GLOW * 1.3),
     );
 }
 
@@ -1357,7 +1372,7 @@ fn standing_light(list: &mut DrawList, part: &PlacedPart) {
         w * 0.44,
         0.0,
         0.0,
-        LAMPLIGHT,
+        LAMPLIGHT.glowing(LAMP_GLOW),
     );
     local.push(
         list,
@@ -2022,7 +2037,17 @@ fn tree(list: &mut DrawList, part: &PlacedPart, biome: Biome) {
             // piece (`foliage_from`), and the whole crown sways.
             let r = w * 0.38 * size;
             let turn = salt(part) * core::f32::consts::TAU;
-            local.push(list, KIND_ELLIPSE, w * 0.02, h * 0.03, r * 1.9, r * 1.8, 0.0, 0.0, LEAF_SHADE);
+            local.push(
+                list,
+                KIND_ELLIPSE,
+                w * 0.02,
+                h * 0.03,
+                r * 1.9,
+                r * 1.8,
+                0.0,
+                0.0,
+                LEAF_SHADE,
+            );
             for i in 0..7 {
                 let a = turn + i as f32 * core::f32::consts::TAU / 7.0;
                 let lobe = r * (0.82 + 0.18 * ((i * 5 % 7) as f32 / 6.0));

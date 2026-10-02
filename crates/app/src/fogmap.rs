@@ -54,6 +54,10 @@ use crate::shapes::Rect;
 /// The colour a lamp washes the deck with, as the map's glow: the
 /// fittings' lamplight, warm.
 const LAMPLIGHT: [f32; 3] = [1.0, 0.92, 0.70];
+/// The colour of the dark and the fog under it: a deep night blue rather
+/// than black (task 152), so what no lamp reaches reads cold against the
+/// lamps' warm pools, and a planet's night is a night.
+const DARKNESS: [f32; 3] = [0.02, 0.04, 0.11];
 
 /// The blur over the map's edges: a binomial, one pass across and one
 /// down, the weights summing to sixteen a pass.
@@ -99,7 +103,7 @@ fn blurred(map: &LightMap, (x, y, w, h): (usize, usize, usize, usize)) -> Vec<(u
 }
 
 /// One pixel of the fog texture from the blurred darkness and lamplight:
-/// two layers in one pixel, the darkness black at the map's alpha and the
+/// two layers in one pixel, the darkness ([`DARKNESS`]) at the map's alpha and the
 /// lamplight over it at the map's glow — composed premultiplied, which is
 /// what egui's textures were and what the canvas's shader blends. The GPU
 /// reads the same pixel out of a table made of this (`lightmap.rs`).
@@ -107,9 +111,9 @@ pub fn texel(a: u8, g: u8) -> [u8; 4] {
     let (a, g) = (a as f32 / 255.0, g as f32 / 255.0);
     let over = g + a * (1.0 - g);
     [
-        (LAMPLIGHT[0] * g * 255.0) as u8,
-        (LAMPLIGHT[1] * g * 255.0) as u8,
-        (LAMPLIGHT[2] * g * 255.0) as u8,
+        ((LAMPLIGHT[0] * g + DARKNESS[0] * a * (1.0 - g)) * 255.0) as u8,
+        ((LAMPLIGHT[1] * g + DARKNESS[1] * a * (1.0 - g)) * 255.0) as u8,
+        ((LAMPLIGHT[2] * g + DARKNESS[2] * a * (1.0 - g)) * 255.0) as u8,
         (over * 255.0) as u8,
     ]
 }

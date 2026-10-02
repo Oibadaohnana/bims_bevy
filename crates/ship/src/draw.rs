@@ -116,6 +116,18 @@ impl Color {
     pub const fn alpha(self, a: f32) -> Color {
         Color { a, ..self }
     }
+
+    /// This colour `by` times as bright, alpha kept: past one it is
+    /// emissive, and the app's bloom lights the air round it — the
+    /// room's `bims::draw::Color::glowing`, for the painters here.
+    pub fn glowing(self, by: f32) -> Color {
+        Color {
+            r: self.r * by,
+            g: self.g * by,
+            b: self.b * by,
+            a: self.a,
+        }
+    }
 }
 
 #[derive(Default)]

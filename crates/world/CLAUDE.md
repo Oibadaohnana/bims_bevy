@@ -6919,3 +6919,35 @@ bar's share as an item put on does. `healing_links` and
 (`tests_items.rs`) is the rule. A seeded run's classed players have
 more hit points, so `SURVIVORS` and `REFERENCE_CHECKSUM` move (both
 already off their pins; not re-pinned here).
+
+## Light and dark: fewer lamps, night at a town, a dark station (task 152)
+
+The room's rule is `crates/game/CLAUDE.md` ("The dark"); the world's part:
+
+- **Fewer wall lights**: `furnish` hangs two opposite inner corners of a
+  lit block and one every `LAMP_SPACING` (13) tiles along its long walls,
+  first one wall and then the other — it was all four corners and every
+  six tiles of both walls, and a station was lit throughout. A town's
+  houses have fewer too (the town test asks sixteen, not forty); its
+  street lights are as they were.
+- **Night at a town**: `Residents::night`, dealt in `open_residents` by
+  `crew::is_night(map_seed, run_day)` (one visit in two) or
+  `World::set_night_for_probe` (`BIMS_NIGHT`); `Residents::set_night`
+  takes the town room's daylight away and tells its plain, `join` and
+  `unjoin` leave the sky off, and `Aboard::daylight_over_station(night)`
+  does the crew's deck (`Game::set_night`: the plain's reach and the
+  picture's deeper dark). Only the lamps light the town then.
+- **A dark station**: `Residents::dark`, dealt in `open_residents` for a
+  station an enemy holds — never a town, never the Heart's fortress —
+  by `crew::is_dark_station(map_seed, run_day)` (one visit in five) or
+  `set_dark_for_probe` (`BIMS_DARK`): `Residents::set_dark(dark, design)`
+  switches off its room's lamps (`Game::set_lamps_off` over the
+  station's ground), `join`/`unjoin` keep them off, and
+  `Aboard::lamps_off_over_station` the crew's deck's in the station box
+  (at `join_rooms` and a reopen while joined), the ship's left lit.
+- `fixture::simulation_world` and `crewed_world` land by day and keep
+  every station lit (both dials `Some(false)`); the `open_*` worlds roll.
+- `tests_surface::a_town_at_night_is_lit_by_its_lamps_alone` and
+  `tests_droid::an_enemy_s_station_is_dark_one_visit_in_five` are the
+  rule. **`SAVE_VERSION` 90, `wire::PROTOCOL` 94.** `SURVIVORS` and
+  `REFERENCE_CHECKSUM` move (they were already off their pins).

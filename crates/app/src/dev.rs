@@ -1247,6 +1247,31 @@ pub fn manufacturer_day() -> u32 {
 }
 
 /// The seed a probe's station or town is drawn from (feature 112):
+/// Night or day at a town (task 152): `BIMS_NIGHT=1` puts every town the
+/// crew land at under night — no sky, only its lamps, the plain seen
+/// fifteen tiles — and `BIMS_NIGHT=0` under daylight, on `test_planet`,
+/// `droids_planet` and `defense`. Unset is the game's own: one visit in
+/// two, off the town's seed and the day (`world::crew::is_night`).
+pub fn night() -> Option<bool> {
+    match std::env::var("BIMS_NIGHT").ok()?.trim() {
+        "1" | "true" | "yes" => Some(true),
+        "0" | "false" | "no" => Some(false),
+        _ => None,
+    }
+}
+
+/// A dark station (task 152): `BIMS_DARK=1` switches off the lamps of
+/// every station an enemy holds — the `droids` commands' dock and the
+/// stations of any run — and `BIMS_DARK=0` keeps them all lit. Unset is
+/// the game's own: one visit in five (`world::crew::is_dark_station`).
+pub fn dark() -> Option<bool> {
+    match std::env::var("BIMS_DARK").ok()?.trim() {
+        "1" | "true" | "yes" => Some(true),
+        "0" | "false" | "no" => Some(false),
+        _ => None,
+    }
+}
+
 /// `BIMS_STATION_SEED=<n>` on `test` and the `droids` commands rebuilds the
 /// station alongside as that seed generates it (its kind kept,
 /// `Session::regenerate_dock_for_probe`), and on `test_planet`,

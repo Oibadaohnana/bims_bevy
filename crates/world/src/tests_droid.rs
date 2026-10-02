@@ -1162,3 +1162,69 @@ fn a_rail_lance_fights_the_same_fight_on_two_worlds() {
     }
     assert!(down, "the lance destroyed the machine");
 }
+
+/// A dark station (task 152): an enemy's station one visit in five has
+/// its lamps switched off — whole, and giving no light — on its own room
+/// and on the crew's joined deck, the ship's own lamps left lit. A town
+/// is never dark, and a station nobody holds is lit.
+#[test]
+fn an_enemy_s_station_is_dark_one_visit_in_five() {
+    let mut world =
+        crate::fixture::simulation_world(shipdesign::fixture::flyer(2), REFERENCE_MONEY, 2);
+    world.set_dark_for_probe(Some(true));
+    let station = world.ship.state.station().expect("docked");
+    assert!(
+        !world.residents.as_ref().unwrap().dark,
+        "a station nobody holds is lit"
+    );
+    assert!(world.stage_droid_fight_for_probe(DroidKind::Trooper, None));
+    let residents = world.residents.as_ref().expect("the station's room");
+    assert_eq!(residents.station, station);
+    assert!(residents.dark, "held, and dark");
+    let theirs = residents.aboard.room.lamps();
+    assert!(!theirs.is_empty());
+    // Their room is the station and the ship as one deck too: the
+    // station's lamps off and whole, the ship's lit.
+    let off = theirs.iter().filter(|l| l.off).count();
+    assert!(
+        theirs
+            .iter()
+            .filter(|l| l.off)
+            .all(|l| l.level == 0.0 && !l.is_out())
+    );
+    let (lo, hi) = world.aboard.station_box.expect("joined");
+    let in_box = |l: &bims::sight::Lamp| {
+        (l.at.x as f64) >= lo.x
+            && (l.at.x as f64) <= hi.x
+            && (l.at.y as f64) >= lo.y
+            && (l.at.y as f64) <= hi.y
+    };
+    let deck = world.aboard.room.lamps();
+    assert!(off > 0);
+    assert_eq!(
+        deck.iter().filter(|l| in_box(l)).count(),
+        off,
+        "the same lamps"
+    );
+    for lamp in deck {
+        assert_eq!(lamp.off, in_box(lamp), "{:?}", lamp.at);
+        if lamp.off {
+            assert_eq!(world.aboard.room.light_at(lamp.at.x, lamp.at.y), 0.0);
+        }
+    }
+    assert!(deck.iter().any(|l| !l.off), "the ship's own lamps stay lit");
+    // The roll: a fifth of the visits, near enough.
+    let dark = (0..1000u64)
+        .filter(|&i| {
+            crate::crew::is_dark_station(i.wrapping_mul(0x9E37_79B9_7F4A), (i % 41) as u32)
+        })
+        .count();
+    assert!((150..=250).contains(&dark), "{dark} dark in 1000");
+
+    // A town is never dark, whatever the dial says.
+    let mut town =
+        crate::fixture::simulation_world(shipdesign::fixture::flyer(2), REFERENCE_MONEY, 2);
+    town.set_dark_for_probe(Some(true));
+    assert!(town.land_for_probe());
+    assert!(!town.residents.as_ref().unwrap().dark);
+}

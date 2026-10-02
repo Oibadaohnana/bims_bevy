@@ -723,6 +723,13 @@ fn open(
                         *launch,
                         Launch::TestPlanet | Launch::DroidsPlanet | Launch::Defense
                     ) {
+                        // `BIMS_NIGHT` (task 152): night or day at the town,
+                        // said before the landing opens its room.
+                        if let (Some(night), Some(game)) =
+                            (crate::dev::night(), session.game.as_mut())
+                        {
+                            game.world.set_night_for_probe(Some(night));
+                        }
                         session.land_for_probe();
                     }
                     // `defense` is that with the town **threatened**
@@ -763,6 +770,11 @@ fn open(
                 }
                 _ => Session::simulate(seed, 0, spawn, size.x, size.y),
             };
+            // `BIMS_DARK` (task 152): every enemy's station dark, or lit,
+            // whatever the roll — the dock the command opens at too.
+            if let (Some(dark), Some(game)) = (crate::dev::dark(), session.game.as_mut()) {
+                game.world.set_dark_for_probe(Some(dark));
+            }
             // Every run on the combat ship opens with everything there is
             // in the armory — every weapon and piece at every tier it is
             // made at — for trying any kit on aboard before stepping off.

@@ -704,6 +704,11 @@ const PORT_LOBBY_DEPTH: u32 = 11;
 const ROOM_GAP: u32 = 2;
 /// How far out from the hub's skin each arm's barricade of sandbags stands.
 const BARRICADE_OUT: u32 = 4;
+/// How far apart a lit block's wall lights hang along its long walls,
+/// first on one wall and then the other (task 152; six on both walls
+/// before): a wall light's pool is nine or ten tiles across, so a
+/// corridor is lit and dark by turns.
+const LAMP_SPACING: u32 = 13;
 /// The other plans' reactor room: the port lobby's block, eleven wide and
 /// as tall as the plan makes it, with the trading desk, the reactor, life
 /// support and the batteries at the hub's offsets in it.
@@ -2100,28 +2105,33 @@ pub(crate) fn furnish_placer(side: u32, floor: Floor, map_seed: u64) -> Placer {
         }
     }
 
-    // Light: a wall light in every lit block's inner corners and one
-    // every six tiles along its long walls, on whatever tile is still
+    // Light: a wall light in two opposite inner corners of every lit
+    // block and one every `LAMP_SPACING` tiles along its long walls,
+    // first on one wall and then on the other, on whatever tile is still
     // free — last, so a lamp never takes a fixture's tile — each turned
     // to the wall at its back (`Placer::hung`), and none where two
     // blocks open into each other and there is no wall to hang from. A
     // tile no light reaches is dark, and a dark deck is one the crew see
-    // ten tiles across (`bims::sight`).
+    // fifteen tiles across (`bims::sight`). Task 152 thinned them — all
+    // four corners and every six tiles of both walls had the whole deck
+    // lit, and the dark meant nothing — so a station is pools of light
+    // with the dark between them.
     for block in &floor.lit {
         let i = block.inner();
-        let mut lamps: Vec<(u32, u32)> =
-            vec![(i.x0, i.y0), (i.x1, i.y0), (i.x0, i.y1), (i.x1, i.y1)];
-        let mut x = i.x0 + 6;
-        while x < i.x1 {
-            lamps.push((x, i.y0));
-            lamps.push((x, i.y1));
-            x += 6;
+        let mut lamps: Vec<(u32, u32)> = vec![(i.x0, i.y0), (i.x1, i.y1)];
+        let mut far = false;
+        let mut x = i.x0 + LAMP_SPACING / 2;
+        while x + 2 < i.x1 {
+            lamps.push((x, if far { i.y1 } else { i.y0 }));
+            far = !far;
+            x += LAMP_SPACING;
         }
-        let mut y = i.y0 + 6;
-        while y < i.y1 {
-            lamps.push((i.x0, y));
-            lamps.push((i.x1, y));
-            y += 6;
+        let mut far = true;
+        let mut y = i.y0 + LAMP_SPACING / 2;
+        while y + 2 < i.y1 {
+            lamps.push((if far { i.x1 } else { i.x0 }, y));
+            far = !far;
+            y += LAMP_SPACING;
         }
         for at in lamps {
             if let Some(hung) = placer.hung(at) {

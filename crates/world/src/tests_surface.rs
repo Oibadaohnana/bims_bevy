@@ -117,8 +117,11 @@ fn a_town_is_a_place_the_room_can_live_in_and_can_be_walked_in_every_biome() {
                     "{name}: the ground is lit"
                 );
                 assert!(
-                    count(PartKind::WallLight) >= 40,
-                    "{name}: the houses are lit"
+                    // Two corners and a light every thirteen tiles a house
+                    // since task 152 thinned them (forty before).
+                    count(PartKind::WallLight) >= 16,
+                    "{name}: the houses are lit: {}",
+                    count(PartKind::WallLight)
                 );
                 match biome {
                     Biome::Arctic => {
@@ -474,6 +477,60 @@ fn a_settlement_s_ground_is_lit_by_day() {
     let residents = world.residents.as_ref().expect("the town's people");
     assert_eq!(residents.station, id);
     assert!(residents.aboard.count() >= data::SURFACE_POPULATION.0);
+}
+
+/// Night at a town (task 152): no sky over the joined deck or the town's
+/// own room — only the lamps light it, so the ground is mostly dark and
+/// every street light's pool is lit — the plain beyond is seen
+/// `DARK_RANGE` tiles and no further, and a town is night one visit in
+/// two off its seed and the day.
+#[test]
+fn a_town_at_night_is_lit_by_its_lamps_alone() {
+    let mut world = basic();
+    world.set_night_for_probe(Some(true));
+    assert!(world.land_for_probe(), "somewhere to land");
+    let residents = world.residents.as_ref().expect("the town's people");
+    assert!(residents.night, "the town is under night");
+    assert_eq!(residents.aboard.room.daylight(), None);
+    assert_eq!(world.aboard.room.daylight(), None, "no sky on the deck");
+    assert!(
+        world.aboard.room.plane().is_some_and(|p| p.is_night()),
+        "the plain is told"
+    );
+    // Every standing light's own tile is lit, and most of the ground is
+    // not: the lamps are pools in the dark.
+    let room = &world.aboard.room;
+    let lamps = room.lamps();
+    assert!(!lamps.is_empty());
+    for lamp in lamps {
+        assert!(
+            room.lit_at(lamp.at.x, lamp.at.y),
+            "a lamp lights its own tile"
+        );
+    }
+    let interior = room.interior();
+    let (mut lit, mut all) = (0, 0);
+    let mut y = interior.min.y + 26.0;
+    while y < interior.max.y {
+        let mut x = interior.min.x + 26.0;
+        while x < interior.max.x {
+            all += 1;
+            lit += room.lit_at(x, y) as u32;
+            x += 52.0;
+        }
+        y += 52.0;
+    }
+    assert!(lit * 2 < all, "{lit} of {all} tiles lit at night");
+    // By day the same town is lit throughout.
+    world.set_night_for_probe(Some(false));
+    let room = &world.aboard.room;
+    assert!(room.daylight().is_some());
+    assert!(!room.plane().is_some_and(|p| p.is_night()));
+    // The roll: half the visits, near enough, over towns and days.
+    let nights = (0..400u64)
+        .filter(|&i| crate::crew::is_night(i.wrapping_mul(0x9E37_79B9), (i % 37) as u32))
+        .count();
+    assert!((160..=240).contains(&nights), "{nights} nights in 400");
 }
 
 /// The placer `furnish` builds through answers exactly what a run of

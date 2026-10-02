@@ -90,7 +90,11 @@ use serde::{Deserialize, Serialize};
 /// ends must generate it alike.
 /// 93: a site's defenders are armed at the run day's tiers, the enemies'
 /// own shares (`World::defender_tiers`), so both ends must deal them alike.
-pub const PROTOCOL: u32 = 93;
+/// 94: light and dark (task 152) — fewer wall lights in a station, the
+/// sight rule read off soft light levels and fifteen tiles of dark, a
+/// bolt lighting its tile, night at a town and a dark station one visit
+/// in five: both ends must generate and see alike.
+pub const PROTOCOL: u32 = 94;
 
 /// Where the relay lives. `BIMS_SERVER` in the environment overrides it
 /// — `ws://127.0.0.1:8792` for one on the same machine.

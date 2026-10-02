@@ -685,8 +685,8 @@ impl Town {
     /// A building of `kind` standing on `block`, its door in the south
     /// wall when the street is to the south and in the north wall
     /// otherwise, and what stands inside it as extras. Every fixture is
-    /// laid clear of where `furnish` hangs the lamps — the inner corners
-    /// and every sixth tile along the walls — since the lamps go in
+    /// laid clear of where `furnish` may hang the lamps — the inner corners
+    /// and along the walls (fewer since task 152) — since the lamps go in
     /// first and an extra on a lamp's tile is dropped.
     fn build(&mut self, kind: Building, block: Block, south: bool, rng: &mut Rng) {
         let inner = block.inner();

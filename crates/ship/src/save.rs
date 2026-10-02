@@ -237,7 +237,10 @@ use crate::game::Game;
 /// `Character::{last_walk, roll, roll_cool}`.
 /// 89: `Bim::level_health`, the hit points a player's level puts on its
 /// bar (ten a level).
-pub const SAVE_VERSION: u32 = 89;
+/// 90: light and dark (task 152) — `Sight::light` (a byte a tile where
+/// `lit` was a flag), `Sight::{night, lamps_off}`, `Lamp::off`,
+/// `Plane::night`, `Residents::{night, dark}` and the probes' two dials.
+pub const SAVE_VERSION: u32 = 90;
 
 /// What the file holds, read back.
 #[derive(serde::Deserialize)]

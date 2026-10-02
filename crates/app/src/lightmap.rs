@@ -488,7 +488,6 @@ struct MapState {
     texels: Buffer,
     eyes: Buffer,
     starts: Buffer,
-    near: Buffer,
     tables: Buffer,
     /// The softening's (task 140): the distance field, the softened light
     /// and the pass between its two halves.
@@ -496,7 +495,7 @@ struct MapState {
     soft: Buffer,
     across: Buffer,
     vis: Buffer,
-    /// How many bodies' views the seen and near buffers hold, and how
+    /// How many bodies' views the seen buffer holds, and how
     /// many eyes the eyes and starts buffers.
     slots: usize,
     eye_room: usize,
@@ -541,8 +540,7 @@ impl MapState {
             texels: storage(device, "light map: texels", stride * h * 4),
             eyes: storage(device, "light map: eyes", EYE_BYTES * 8),
             starts: storage(device, "light map: starts", START_BYTES * 8),
-            near: storage(device, "light map: near", slots * tile_words * 4),
-            tables: storage(device, "light map: tables", 768 * 4),
+            tables: storage(device, "light map: tables", 1024 * 4),
             dist: storage(device, "light map: distance", softening),
             soft: storage(device, "light map: soft", softening),
             across: storage(device, "light map: across", softening),
@@ -573,16 +571,7 @@ impl MapState {
             0,
             (self.slots * self.words * 4) as u64,
         );
-        let near = storage(device, "light map: near", slots * self.tile_words * 4);
-        encoder.copy_buffer_to_buffer(
-            &self.near,
-            0,
-            &near,
-            0,
-            (self.slots * self.tile_words * 4) as u64,
-        );
         self.seen = seen;
-        self.near = near;
         self.slots = slots;
         self.bind = None;
     }
@@ -626,7 +615,10 @@ impl MapState {
                 &self.texels,
                 &self.eyes,
                 &self.starts,
-                &self.near,
+                // Unread since task 152 put the march's dark rule in the
+                // tables (`sight::dark_reach`) for the near tiles it was;
+                // the layout keeps its place.
+                &self.tables,
                 &kit.rays,
                 &kit.colours,
                 &self.tables,
@@ -753,11 +745,6 @@ fn draw_deck(
         m.revs[slot] = view.rev;
         let at = (slot * m.words * 4) as u64;
         encoder.clear_buffer(&m.seen, at, Some((m.words * 4) as u64));
-        queue.write_buffer(
-            &m.near,
-            (slot * m.tile_words * 4) as u64,
-            &words_of(&view.near),
-        );
         for eye in &view.eyes {
             let (beyond_tile, beyond_dir) = eye.beyond.unwrap_or(((0, 0), (0, 0)));
             let flags = eye.from_opaque as u32 | (eye.beyond.is_some() as u32) << 1;
@@ -776,7 +763,9 @@ fn draw_deck(
             eyes.extend_from_slice(&flags.to_le_bytes());
             eyes.extend_from_slice(&(slot as u32).to_le_bytes());
             eyes.extend_from_slice(&eye.far.to_le_bytes());
-            eyes.extend_from_slice(&0u32.to_le_bytes());
+            // The body's pixel, two signed sixteen-bit halves.
+            let body = (view.body.0 as u16 as u32) | (view.body.1 as u16 as u32) << 16;
+            eyes.extend_from_slice(&body.to_le_bytes());
             starts.extend(floats(
                 eye.t0.iter().flat_map(|t| [finite(t[0]), finite(t[1])]),
             ));
@@ -810,6 +799,7 @@ fn draw_deck(
         .chain(&inputs.glow_seen)
         .chain(&inputs.glow_fog)
         .map(|&v| v as u32)
+        .chain(inputs.reach)
         .collect();
     queue.write_buffer(&m.tables, 0, &words_of(&tables));
     let recolour = compose || m.texture != Some(image.texture.id());

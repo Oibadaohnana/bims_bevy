@@ -252,6 +252,11 @@ pub fn reference_world() -> World {
 /// neither a trader nor an enemy's is a peaceful stop, since the tests
 /// that open one are about something other than the fight a site's
 /// defence is. A test of the defence takes the dial off again.
+///
+/// **By day, lamps lit** (task 152, [`World::set_night_for_probe`],
+/// [`World::set_dark_for_probe`]): every town is landed at under its sky
+/// and every enemy's station lit, as every test here was written for; a
+/// test of the dark says so.
 pub fn simulation_world(
     design: shipdesign::ShipDesign,
     money: economy::Money,
@@ -259,6 +264,8 @@ pub fn simulation_world(
 ) -> World {
     let mut world = open_simulation_world(design, money, players);
     world.set_quiet_sites_for_probe(true);
+    world.set_night_for_probe(Some(false));
+    world.set_dark_for_probe(Some(false));
     world
 }
 
@@ -289,7 +296,8 @@ pub fn open_simulation_world(
 /// are players — `World::start_with_crew`. A world of one player and two
 /// crew is one where the second is a crewmate nobody steers: a bot, under
 /// the alarm, since feature 59 gave every player's own to its player.
-/// **Quiet** (task 111), as [`simulation_world`] is.
+/// **Quiet** (task 111) and **by day** (task 152), as [`simulation_world`]
+/// is.
 pub fn crewed_world(
     design: shipdesign::ShipDesign,
     money: economy::Money,
@@ -298,6 +306,8 @@ pub fn crewed_world(
 ) -> World {
     let mut world = open_crewed_world(design, money, players, crew);
     world.set_quiet_sites_for_probe(true);
+    world.set_night_for_probe(Some(false));
+    world.set_dark_for_probe(Some(false));
     world
 }
 

@@ -29,7 +29,7 @@
 //! the rule; see the note before [`PICTURE_PX`].
 
 use crate::math::{Rect, Vec2, vec2};
-use crate::sight::{LightMap, MAP_FOG, MAP_PX_PER_TILE, march_rays};
+use crate::sight::{DARK_RANGE, LightMap, MAP_PX_PER_TILE, dark_alpha, fog_alpha, march_rays};
 use std::collections::BTreeMap;
 
 /// The plane's side, in tiles. Ten thousand: a settlement's deck is
@@ -386,6 +386,12 @@ pub struct Plane {
     views: Vec<PlainView>,
     #[cfg_attr(feature = "serde", serde(skip))]
     pictures: BTreeMap<(i32, i32), Picture>,
+    /// Night on the plain (task 152): nothing out here gives light, so
+    /// the crew see [`DARK_RANGE`] tiles of it and no further, under the
+    /// dark's shade, where by day they see [`VIEW`]. The world's word
+    /// (`Game::set_night`).
+    #[cfg_attr(feature = "serde", serde(default))]
+    night: bool,
 }
 
 /// What the tile rule says of a tile of the plane, for the probes and
@@ -417,7 +423,28 @@ impl Plane {
             traced: false,
             views: Vec::new(),
             pictures: BTreeMap::new(),
+            night: false,
         }
+    }
+
+    /// Night or day on the plain; the trace and the picture are made again
+    /// at the next look.
+    pub fn set_night(&mut self, night: bool) {
+        if self.night != night {
+            self.night = night;
+            self.traced = false;
+            self.forget_views();
+        }
+    }
+
+    pub fn is_night(&self) -> bool {
+        self.night
+    }
+
+    /// How far the crew see over the open ground, in tiles: [`VIEW`] by
+    /// day, [`DARK_RANGE`] by night.
+    fn reach(&self) -> i32 {
+        if self.night { DARK_RANGE as i32 } else { VIEW }
     }
 
     pub fn terrain(&self) -> &Terrain {
@@ -600,6 +627,7 @@ impl Plane {
         self.traced = true;
         self.seen.clear();
         let side = 2 * VIEW + 1;
+        let reach = self.reach();
         for &(ex, ey) in &eyes_at {
             self.load(ex - VIEW, ey - VIEW, ex + VIEW, ey + VIEW);
             // The window round the eye, opaque or not, once a tile.
@@ -619,7 +647,7 @@ impl Plane {
             for y in ey - VIEW..=ey + VIEW {
                 for x in ex - VIEW..=ex + VIEW {
                     let (dx, dy) = (x - ex, y - ey);
-                    if dx * dx + dy * dy > VIEW * VIEW {
+                    if dx * dx + dy * dy > reach * reach {
                         continue;
                     }
                     clear[at(x, y)] = line_clear(&opaque, &at, (ex, ey), (x, y));
@@ -819,7 +847,7 @@ impl Plane {
         let from_opaque = opaque[(VIEW * tiles + VIEW) as usize];
         march_rays(
             (at.x / px - x0 as f32, at.y / px - y0 as f32),
-            (VIEW * PICTURE_PX) as f32,
+            (self.reach() * PICTURE_PX) as f32,
             (side, side),
             (VIEW, VIEW),
             from_opaque,
@@ -849,7 +877,13 @@ impl Plane {
     fn composed(&self, over: PxBox) -> Vec<u8> {
         let (bx0, by0, bx1, by1) = over;
         let w = (bx1 - bx0 + 1) as usize;
-        let fog = (MAP_FOG * 255.0) as u8;
+        let fog = (fog_alpha(self.night) * 255.0) as u8;
+        // What is seen: the open sky by day, the dark by night.
+        let open = if self.night {
+            (dark_alpha(true) * 255.0) as u8
+        } else {
+            0
+        };
         let views: Vec<&PlainView> = self
             .views
             .iter()
@@ -875,7 +909,7 @@ impl Plane {
                     *s |= r;
                 }
             }
-            alpha.extend(seen.iter().map(|&s| if s { 0 } else { fog }));
+            alpha.extend(seen.iter().map(|&s| if s { open } else { fog }));
         }
         alpha
     }
@@ -1242,7 +1276,7 @@ mod tests {
         let px = tile / PICTURE_PX as f32;
         let eye = vec2(30.5 * tile, 68.5 * tile);
         plane.picture(&[eye], tile, &|_, _| false, 0, (0, 40, 60, 140));
-        let fog = (MAP_FOG * 255.0) as u8;
+        let fog = (crate::sight::MAP_FOG * 255.0) as u8;
         let (ex, ey) = ((eye.x / px) as i32, (eye.y / px) as i32);
         let pixel = |x: i32, y: i32| -> u8 {
             let key = picture_key(x, y);
@@ -1281,7 +1315,7 @@ mod tests {
         let px = tile / PICTURE_PX as f32;
         let eye = vec2(30.5 * tile, 68.5 * tile);
         let open = |_: i32, _: i32| false;
-        let fog = (MAP_FOG * 255.0) as u8;
+        let fog = (crate::sight::MAP_FOG * 255.0) as u8;
         // A window round the eye, a few chunks each way.
         let window = (30 - 70, 68 - 70, 30 + 70, 68 + 70);
         assert!(plane.observe(&[eye], tile, &|_, _| true));

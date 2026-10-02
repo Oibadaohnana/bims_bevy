@@ -8,8 +8,9 @@
 //    walk from the pixel the eye is in, crossing to whichever pixel edge
 //    comes next, the first crossings divided on the CPU so the walk is
 //    additions and comparisons — marking every pixel it reaches that the
-//    eye may add and that is lit or near enough to its body, into that
-//    body's bits. A set of bits: the order the rays run in cannot matter.
+//    eye may add and that is lit enough for its distance from its body
+//    (`sight::dark_reach`, the fourth table; task 152), into that body's
+//    bits. A set of bits: the order the rays run in cannot matter.
 // 2. `compose`: a thread a pixel — `Sight::compose`: the fog's, the dark's
 //    and the lamplight's levels out of tables made on the CPU; the one fog
 //    over every fogged pixel nobody sees (task 128).
@@ -47,7 +48,9 @@ struct Eye {
     // Which body's bits it marks.
     view: u32,
     far: f32,
-    pad: u32,
+    // The map pixel its body stands in, two signed 16-bit halves (x low):
+    // what the dark rule is measured from.
+    body: u32,
 };
 
 @group(0) @binding(0) var<uniform> params: Params;
@@ -62,13 +65,13 @@ struct Eye {
 @group(0) @binding(6) var<storage, read> eyes: array<Eye>;
 // Each marched eye's rays' first crossings, across and down.
 @group(0) @binding(7) var<storage, read> starts: array<vec2<f32>>;
-@group(0) @binding(8) var<storage, read> near: array<u32>;
 // Each ray: its direction, and a pixel's step along it across and down.
 @group(0) @binding(9) var<storage, read> rays: array<vec4<f32>>;
 // `fogmap::texel` for every darkness and lamplight, a byte each.
 @group(0) @binding(10) var<storage, read> colours: array<u32>;
 // The composing's tables: the dark, the lamplight seen, the lamplight
-// under the fog, 256 each.
+// under the fog, 256 each; and the march's, how far — squared, in
+// pixels — a pixel of each darkness is seen from its body.
 @group(0) @binding(11) var<storage, read> tables: array<u32>;
 
 const RAYS: u32 = 4096u;
@@ -95,7 +98,7 @@ fn march(@builtin(global_invocation_id) id: vec3<u32>) {
     let from_opaque = (eye.flags & 1u) != 0u;
     let peek = (eye.flags & 2u) != 0u;
     let base = eye.view * params.words;
-    let near_base = eye.view * params.tile_words;
+    let body = vec2<i32>(i32(eye.body << 16u) >> 16u, i32(eye.body) >> 16u);
     // A ray crosses no more pixels than the map is across and down.
     let steps = params.width + params.height + 4u;
     for (var n = 0u; n < steps; n++) {
@@ -112,8 +115,10 @@ fn march(@builtin(global_invocation_id) id: vec3<u32>) {
             let d = (tile - eye.beyond_tile) * eye.beyond_dir;
             admits = d.x + d.y >= 1;
         }
-        let close = ((near[near_base + ti / 32u] >> (ti % 32u)) & 1u) != 0u;
-        if admits && ((fields[i] & 255u) > 0u || close) {
+        let d = vec2<i32>(x, y) - body;
+        let d2 = u32(d.x * d.x + d.y * d.y);
+        let close = d2 <= tables[768u + 255u - (fields[i] & 255u)];
+        if admits && close {
             let word = base + i / 32u;
             let bit = 1u << (i % 32u);
             if (atomicLoad(&seen[word]) & bit) == 0u {

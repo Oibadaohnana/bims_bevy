@@ -682,6 +682,8 @@ impl Room {
         // built on it — so it is carried across, where a lamp's health is
         // put back by the world (`Game::set_lamp_health`).
         let daylight = self.sight.daylight();
+        let night = self.sight.night();
+        let lamps_off = self.sight.lamps_off();
         // The plain is the room's own — what the crew have seen of it stays
         // seen — with its box moved to the new layout's.
         if let (Some(mine), Some(theirs)) = (self.plane.as_mut(), layout.plane.as_ref()) {
@@ -701,6 +703,8 @@ impl Room {
         self.sight.set_tall(&layout.tall);
         self.sight.set_lights(&layout.lights);
         self.sight.set_daylight(daylight);
+        self.sight.set_night(night);
+        self.sight.set_lamps_off(lamps_off);
         // The doors, by opening: one that was there keeps its state, one
         // that is new starts shut.
         let mut doors: Vec<Door> = Vec::with_capacity(layout.doors.len());

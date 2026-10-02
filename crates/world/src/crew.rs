@@ -262,8 +262,14 @@ impl Aboard {
     /// this deck, so a town's ground is lit whatever its lamps say
     /// (`Game::set_daylight`). Asked at a landing, of the crew's joined
     /// room; nothing for a ship on its own, and a station's deck is
-    /// under a roof.
-    pub fn daylight_over_station(&mut self) {
+    /// under a roof. At `night` (task 152) there is no sky: no daylight
+    /// anywhere, only the lamps, and the plain told so.
+    pub fn daylight_over_station(&mut self, night: bool) {
+        self.room.set_night(night);
+        if night {
+            self.room.set_daylight(None);
+            return;
+        }
         // On the plain the whole box is under the sky, the ground round
         // the ship included.
         if self.room.plane().is_some() {
@@ -278,6 +284,19 @@ impl Aboard {
             )
         });
         self.room.set_daylight(over);
+    }
+
+    /// A dark station's lamps switched off on this deck (task 152): every
+    /// lamp in the station's box, the ship's own left lit. Nothing for a
+    /// ship on its own.
+    pub fn lamps_off_over_station(&mut self, dark: bool) {
+        let over = self.station_box.filter(|_| dark).map(|(lo, hi)| {
+            Rect::from_corners(
+                vec2(lo.x as f32, lo.y as f32),
+                vec2(hi.x as f32, hi.y as f32),
+            )
+        });
+        self.room.set_lamps_off(over);
     }
 
     /// Where the station's people are, in the station's own units, put on
@@ -675,9 +694,80 @@ pub struct Residents {
     /// in step with `fee`, `medic` and `grave`.
     #[cfg_attr(feature = "serde", serde(default))]
     pub defender: Vec<bool>,
+    /// Night at a planet's town (task 152): no sky over its ground, so
+    /// only its lamps light it — the street lights, the houses' — and
+    /// the plain beyond is seen [`bims::sight::DARK_RANGE`] tiles. Dealt
+    /// when the room opens (`World::open_residents`, [`is_night`]), one
+    /// visit in two, and kept for the visit; never for a station, which
+    /// has a roof.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub night: bool,
+    /// A dark station (task 152): one an enemy holds, come at one visit
+    /// in five with its lamps switched off — the crew fight it by the
+    /// bolts' light and fifteen tiles of dark ([`is_dark_station`],
+    /// `World::open_residents`). Never a town.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub dark: bool,
+}
+
+/// Whether a town is under night when the crew come on `day` (task 152):
+/// half the time, off the town's own seed and the day, so two machines
+/// agree and a town visited again on another day may be in daylight.
+pub fn is_night(map_seed: u64, day: u32) -> bool {
+    let mut z = map_seed ^ (day as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15) ^ 0x4E16_47;
+    z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+    z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+    z ^= z >> 31;
+    z & 1 == 1
+}
+
+/// Whether an enemy's station is dark when the crew come on `day` (task
+/// 152): one visit in five, off the station's own seed and the day, so
+/// two machines agree.
+pub fn is_dark_station(map_seed: u64, day: u32) -> bool {
+    let mut z = map_seed ^ (day as u64).wrapping_mul(0xD1B5_4A32_D192_ED03) ^ 0xDA_4C;
+    z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+    z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+    z ^= z >> 31;
+    z % 5 == 0
 }
 
 impl Residents {
+    /// A dark station or a lit one (task 152): every lamp of the station's
+    /// own room switched off or on — `design` the station's, laid at the
+    /// mirror's shift on a joined room. A room joined later reads
+    /// [`Residents::dark`] as it is made.
+    pub fn set_dark(&mut self, dark: bool, design: &ShipDesign) {
+        self.dark = dark;
+        let at = if self.aboard.station_frame.is_some() {
+            self.aboard.offset
+        } else {
+            DVec2::ZERO
+        };
+        let over = dark.then(|| ground_at(design, at));
+        self.aboard.room.set_lamps_off(over);
+    }
+
+    /// Night or day at the town (task 152): the daylight over its own
+    /// ground taken away or put back on its room, and the plain told.
+    /// Nothing for a station. Called on a room just opened, before it is
+    /// joined; a joined room reads [`Residents::night`] as it is made.
+    pub fn set_night(&mut self, night: bool) {
+        if crate::surface::surface_body(self.station).is_none() {
+            return;
+        }
+        self.night = night;
+        let room = &mut self.aboard.room;
+        if self.aboard.station_frame.is_none() {
+            room.set_daylight((!night).then(|| ground_of(&self.aboard.design)));
+        } else if night {
+            // Joined, the town's ground lies at the mirror's shift; the
+            // sky is taken away whole, and put back by the next join.
+            room.set_daylight(None);
+        }
+        room.set_night(night);
+    }
+
     /// The station's room, with its people at their bunks and its clock
     /// wound on to the world's, so a station reached at noon is not at
     /// breakfast.
@@ -809,6 +899,8 @@ impl Residents {
             grave,
             manufacturers_laid: 0,
             defender,
+            night: false,
+            dark: false,
         }
     }
 
@@ -859,9 +951,15 @@ impl Residents {
         // A town's ground under the sky again: the station's own area,
         // shifted to where the mirror laid it. Not `station_box`, which
         // is the ship's here, and the ship has a roof.
-        if crate::surface::surface_body(self.station).is_some() {
+        // At night there is no sky (task 152): the lamps alone.
+        if crate::surface::surface_body(self.station).is_some() && !self.night {
             let ground = ground_at(&station.design, fresh.offset);
             fresh.room.set_daylight(Some(ground));
+        }
+        // A dark station's lamps stay off on the mirror too (task 152).
+        if self.dark {
+            let ground = ground_at(&station.design, fresh.offset);
+            fresh.room.set_lamps_off(Some(ground));
         }
         self.replace_room(fresh);
     }
@@ -888,8 +986,11 @@ impl Residents {
         room.wind_clock(minutes as f32);
         room.render();
         // A town's own ground under the sky again, as at the open.
-        if crate::surface::surface_body(self.station).is_some() {
+        if crate::surface::surface_body(self.station).is_some() && !self.night {
             room.set_daylight(Some(ground_of(&station.design)));
+        }
+        if self.dark {
+            room.set_lamps_off(Some(ground_of(&station.design)));
         }
         let fresh = Aboard {
             room,
