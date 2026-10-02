@@ -54,9 +54,10 @@ const FOG: Color = Color::rgba(0.02, 0.04, 0.03, MAP_FOG);
 /// is seen only from this close. Lit tiles are seen as far as the line is
 /// clear, and a tile partly lit — the soft rim of a lamp's pool — from
 /// further the more it is lit: `DARK_RANGE / (1 − light)`, so a tile half
-/// lit is seen from twice as far (task 152; it was ten tiles, every tile
-/// lit or not).
-pub const DARK_RANGE: f32 = 15.0;
+/// lit is seen from twice as far (task 152: ten tiles, every tile lit or
+/// not, before it; fifteen, then eight when the player could still see
+/// too far through the dark).
+pub const DARK_RANGE: f32 = 8.0;
 /// How wide a lamp's soft rim is, in tiles: full light to this short of
 /// its reach, then fading smoothly to nothing at the reach, so the edge of
 /// a pool is clear — which tiles it lights and which it does not — without

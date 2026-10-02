@@ -704,7 +704,7 @@ pub struct Residents {
     pub night: bool,
     /// A dark station (task 152): one an enemy holds, come at one visit
     /// in five with its lamps switched off — the crew fight it by the
-    /// bolts' light and fifteen tiles of dark ([`is_dark_station`],
+    /// bolts' light and eight tiles of dark ([`is_dark_station`],
     /// `World::open_residents`). Never a town.
     #[cfg_attr(feature = "serde", serde(default))]
     pub dark: bool,

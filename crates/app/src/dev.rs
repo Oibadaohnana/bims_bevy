@@ -1234,7 +1234,7 @@ pub fn manufacturer_day() -> u32 {
 /// The seed a probe's station or town is drawn from (feature 112):
 /// Night or day at a town (task 152): `BIMS_NIGHT=1` puts every town the
 /// crew land at under night — no sky, only its lamps, the plain seen
-/// fifteen tiles — and `BIMS_NIGHT=0` under daylight, on `test_planet`,
+/// eight tiles — and `BIMS_NIGHT=0` under daylight, on `test_planet`,
 /// `droids_planet` and `defense`. Unset is the game's own: one visit in
 /// two, off the town's seed and the day (`world::crew::is_night`).
 pub fn night() -> Option<bool> {

@@ -10625,24 +10625,26 @@ mod tests {
         design
     }
 
-    /// In the dark a Bim sees fifteen tiles (task 152; ten before): a
+    /// In the dark a Bim sees eight tiles (task 152; ten, then fifteen): a
     /// tile no light reaches is seen only from that close, however clear
     /// the line. A light on a tile is seen from across the deck, and so is
     /// everything its reach makes out — and a wall stops the light like it
     /// stops the eye, so a room behind a bulkhead is dark for all the lamp
     /// on the far side. A tile in a lamp's soft rim counts partly lit: not
     /// lit, but seen from further than a dark one, as far as its light
-    /// stretches the fifteen.
+    /// stretches the eight.
     #[test]
-    fn the_dark_is_seen_fifteen_tiles_and_a_lit_tile_further() {
+    fn the_dark_is_seen_eight_tiles_and_a_lit_tile_further() {
         use shipdesign::PartKind;
         let eye = tile_middle(3.0, 10.0);
-        let mid = tile_middle(11.0, 10.0);
+        let mid = tile_middle(10.0, 10.0);
+        // Nine tiles short of the rim tile, for the rim's own reach.
+        let nearer = tile_middle(10.0, 10.0);
         let rim = tile_middle(19.0, 10.0);
         let far = tile_middle(20.0, 10.0);
         let lamp = [(PartKind::WallLight, (25, 10))];
 
-        // No lights at all: dark everywhere, and eight tiles is seen where
+        // No lights at all: dark everywhere, and seven tiles is seen where
         // sixteen and seventeen are not.
         let layout = crate::aboard::layout_of(&box_ship_of(28, &[]));
         let (w, h) = (layout.bounds.width(), layout.bounds.height());
@@ -10651,7 +10653,7 @@ mod tests {
         dark.simulate(DT);
         dark.observe();
         assert!(!dark.room.sight.lit_at(mid));
-        assert!(dark.seen_at(mid.x, mid.y), "eight tiles, in the dark");
+        assert!(dark.seen_at(mid.x, mid.y), "seven tiles, in the dark");
         assert!(!dark.seen_at(rim.x, rim.y), "sixteen tiles, in the dark");
         assert!(!dark.seen_at(far.x, far.y), "seventeen tiles, in the dark");
         assert!(dark.room.sight.sees_from(eye, mid).is_some());
@@ -10662,7 +10664,7 @@ mod tests {
 
         // A wall light on the far hull: the far tile is lit and seen, and
         // the tile in its rim is partly lit — under half, so not lit, but
-        // seen at sixteen tiles where a dark one is not.
+        // seen from nine tiles where a dark one is not.
         let layout = crate::aboard::layout_of(&box_ship_of(28, &lamp));
         let mut lit = Game::with_layout(layout, 7, &[eye], w, h);
         lit.set_autonomous(false);
@@ -10675,7 +10677,15 @@ mod tests {
         let share = lit.light_at(rim.x, rim.y);
         assert!(share > 0.1 && share < 0.5, "the rim is partly lit: {share}");
         assert!(!lit.room.sight.lit_at(rim));
-        assert!(lit.seen_at(rim.x, rim.y), "sixteen tiles, partly lit");
+        assert!(!lit.seen_at(rim.x, rim.y), "sixteen tiles, partly lit");
+        assert!(
+            dark.room.sight.sees_from(nearer, rim).is_none(),
+            "nine, dark"
+        );
+        assert!(
+            lit.room.sight.sees_from(nearer, rim).is_some(),
+            "nine tiles, partly lit"
+        );
         // And the light falls off smoothly: no step from full to none.
         let at = |x: f32| lit.light_at(tile_middle(x, 10.0).x, tile_middle(x, 10.0).y);
         assert_eq!(at(22.0), 1.0, "the pool's heart is full");
@@ -10684,7 +10694,7 @@ mod tests {
 
         // A wall between the lamp and the eye keeps the light behind it:
         // the tile on the eye's side of the wall is dark again, and not
-        // seen from seventeen tiles; one within the fifteen is.
+        // seen from seventeen tiles; one within the eight is.
         let mut walled = box_ship_of(28, &lamp);
         {
             use shipdesign::{Budget, Edit, Rotation, apply};
@@ -10710,10 +10720,10 @@ mod tests {
         walled.observe();
         assert!(!walled.room.sight.lit_at(far), "the wall shades it");
         assert!(!walled.seen_at(far.x, far.y), "seventeen tiles, dark");
-        let near = tile_middle(17.0, 10.0);
+        let near = tile_middle(10.0, 10.0);
         assert!(
             walled.seen_at(near.x, near.y),
-            "fourteen tiles, dark, and still within the fifteen"
+            "seven tiles, dark, and still within the eight"
         );
     }
 
@@ -10752,7 +10762,7 @@ mod tests {
     /// there and takes its damage off it, a hit sets it flickering, one
     /// left at a fifth of its health or under is failing — flickering now
     /// and then on its own — and the third pistol bolt puts it out: the tile it lit is dark and seen
-    /// no further than the fifteen again, the picture round it darker, and
+    /// no further than the eight again, the picture round it darker, and
     /// the world's word (`set_lamp_health`) puts it back or out on a
     /// fresh room.
     #[test]
@@ -10818,7 +10828,7 @@ mod tests {
         assert_eq!(game.take_lamp_changes(), vec![0, 0, 0]);
         assert!(game.take_lamp_changes().is_empty(), "drained");
         assert_eq!(game.lamps()[0].level, 0.0);
-        // Out: the tile it lit is dark and seen no further than the fifteen,
+        // Out: the tile it lit is dark and seen no further than the eight,
         // and the picture says so.
         game.render();
         assert!(!game.room.sight.lit_at(far));

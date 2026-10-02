@@ -2415,9 +2415,9 @@ the deck's by its middle through the station frame and copies whichever
 side changed (`Door::changed`, set by `lock`/`unlock`, cleared when
 carried), the smashing one way — see `crates/world/CLAUDE.md`.
 
-## The dark: lights, fifteen tiles, and a smooth picture over the tile mask
+## The dark: lights, eight tiles, and a smooth picture over the tile mask
 
-> **Since task 152 (October 2026)** the rule is soft light and fifteen
+> **Since task 152 (October 2026)** the rule is soft light and eight
 > tiles of dark; what this section says below of a boolean `lit`, ten
 > tiles, `LIGHT_CORE`/`LIGHT_FALL` and the `near` tile bits is the
 > history. What it is now:
@@ -2430,8 +2430,9 @@ carried), the smashing one way — see `crates/world/CLAUDE.md`.
 >   is 255. The picture's field is marched off the same `lamp_fall`, so
 >   the pool's edge in the picture is the rule's.
 > - **The rule** (`in_the_light`): a tile is made out from `DARK_RANGE`
->   (15) tiles in the dark and from `DARK_RANGE / (1 − light)` beside a
->   lamp — a half-lit rim tile from thirty, a lit one from anywhere.
+>   (8; it was 15 until the player found that too far) tiles in the dark
+>   and from `DARK_RANGE / (1 − light)` beside a lamp — a half-lit rim
+>   tile from sixteen, a lit one from anywhere.
 >   `lit_at` is half or more; `light_at` the share; `lamplight_at` the
 >   lamps' and sky's alone.
 > - **A bolt lights its tile** (`Sight::set_flares`, every step from
@@ -2458,7 +2459,7 @@ carried), the smashing one way — see `crates/world/CLAUDE.md`.
 >   `over`, `is_dark()` = out or off — no light, level nought, the glass
 >   veiled, still shot at. Kept across `set_lights` and a relayout with
 >   the night and the daylight.
-> - `the_dark_is_seen_fifteen_tiles_and_a_lit_tile_further` (a 28-tile
+> - `the_dark_is_seen_eight_tiles_and_a_lit_tile_further` (a 28-tile
 >   box, `box_ship_of`) and `a_bolt_in_flight_lights_its_tile` pin it;
 >   `the_light_map_is_the_same_picture_it_was` was re-pinned (its note).
 

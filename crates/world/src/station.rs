@@ -2112,7 +2112,7 @@ pub(crate) fn furnish_placer(side: u32, floor: Floor, map_seed: u64) -> Placer {
     // to the wall at its back (`Placer::hung`), and none where two
     // blocks open into each other and there is no wall to hang from. A
     // tile no light reaches is dark, and a dark deck is one the crew see
-    // fifteen tiles across (`bims::sight`). Task 152 thinned them — all
+    // eight tiles across (`bims::sight`). Task 152 thinned them — all
     // four corners and every six tiles of both walls had the whole deck
     // lit, and the dark meant nothing — so a station is pools of light
     // with the dark between them.
