@@ -2451,6 +2451,11 @@ carried), the smashing one way — see `crates/world/CLAUDE.md`.
 >   at night (`Sight::set_night`, `Game::set_night`) `MAP_DARK_NIGHT`
 >   0.78 and `MAP_FOG_NIGHT` 0.86 (`dark_alpha`, `fog_alpha`, also the
 >   plain's). The host draws the dark in `fogmap::DARKNESS`, a night blue.
+> - **A dark map is seen forty tiles at most** (`DARK_MAP_VIEW`): on a
+>   night or with lamps switched off, `Sight::view_range` holds the eyes
+>   to forty tiles, lit tiles too (or the plain's own range, if
+>   shorter) — the rule, the mask and the march alike;
+>   `a_dark_map_is_seen_forty_tiles_lit_or_not`.
 > - **Night on the plain** (`Plane::set_night`): the trace and the march
 >   reach `DARK_RANGE` tiles, not `VIEW`, and what is seen is under the
 >   night's dark.
