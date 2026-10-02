@@ -2403,7 +2403,10 @@ fn frame(
                     screen.free_camera = !on;
                 }
             }
-            if !i.modifiers.any() {
+            // With no modifier held, or Shift alone: sprinting, every key
+            // below still does what it does — an ability, an item, the
+            // medkit — mid-run.
+            if crate::keys::plain_or_sprinting(i.modifiers) {
                 // The speed keys (task 119: 1× or paused, nothing else):
                 // Space pauses and sets going again, 1 sets going. Orders,
                 // so a pause by anybody is a pause for everybody.
@@ -2437,10 +2440,11 @@ fn frame(
                 }
                 // The four item slots, 1 to 4 (October 2026): the item in
                 // that slot used at the pointer — a Blink Drive blinks
-                // there. The world says why not, into the log.
+                // there. The world says why not, into the log. Read
+                // through Shift, which turns 1 into `!`.
                 if let Some(p) = on_canvas {
                     for (index, action) in Action::ITEMS.into_iter().enumerate() {
-                        if keys_now.pressed(i, action) {
+                        if keys_now.pressed_through_shift(&i.events, action) {
                             let (rx, ry) = session.room_point(p.x, p.y);
                             orders.push(Order::UseItem {
                                 item: index as u32,
@@ -2633,7 +2637,7 @@ fn frame(
             }
             // Ctrl and a slot's key: that slot ranked up (task 123),
             // never the ability used — the rows above are read with no
-            // modifier held. Handed on after the hero panel, with a
+            // modifier held but Shift. Handed on after the hero panel, with a
             // Ctrl-click on its box, through the one `rank_up`.
             rank_up_asked = rank_up_by_key(&keys_now, &i.events, i.modifiers).or(rank_up_asked);
             if i.key_pressed(egui::Key::Escape) {

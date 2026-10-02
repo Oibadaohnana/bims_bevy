@@ -413,6 +413,21 @@ impl Keys {
         input.key_down(self.key(action))
     }
 
+    /// Whether the action's key went down among `events`, Shift held or
+    /// not: under Shift a digit comes over as its symbol (`!` for 1 on
+    /// most layouts), so with Shift down a key whose symbol is no letter
+    /// counts by where it sits on the board — how an item's key is read
+    /// mid-sprint. A letter never does: on QWERTZ the key where QWERTY
+    /// has Z is Y.
+    pub fn pressed_through_shift(&self, events: &[egui::Event], action: Action) -> bool {
+        let key = self.key(action);
+        events.iter().any(|e| {
+            matches!(e, egui::Event::Key { key: k, physical_key, pressed: true, modifiers, .. }
+                if *k == key
+                    || (modifiers.shift && *physical_key == Some(key) && !is_letter(*k)))
+        })
+    }
+
     /// Whether the action's key went down among `events` **with Ctrl
     /// up** — how an ability slot's key is read as the ability itself
     /// (task 123), since with Ctrl held it is a rank-up instead.
@@ -576,6 +591,19 @@ fn key_went_down(events: &[egui::Event], key: egui::Key) -> bool {
     events
         .iter()
         .any(|e| matches!(e, egui::Event::Key { key: k, pressed: true, .. } if *k == key))
+}
+
+/// Whether `key` is a letter, A to Z.
+fn is_letter(key: egui::Key) -> bool {
+    matches!(key.name().as_bytes(), [c] if c.is_ascii_alphabetic())
+}
+
+/// Whether the game's keys are read under `modifiers`: with none held,
+/// or Shift alone — the sprint (task 150), under which an ability, an
+/// item or any other key does what it does without Shift. Ctrl and an
+/// ability's key is its rank-up, and Alt is the dodge roll.
+pub fn plain_or_sprinting(modifiers: egui::Modifiers) -> bool {
+    !(modifiers.ctrl || modifiers.alt || modifiers.command || modifiers.mac_cmd)
 }
 
 /// Where the bindings are kept: `bims/keys` under the config directory.
@@ -800,6 +828,45 @@ mod tests {
         assert_eq!(both.key(Action::Speed1), egui::Key::Num1);
         assert_eq!(both.key(Action::Item1), egui::Key::Num5);
         assert_eq!(Keys::from_text(&keys.to_text()), keys);
+    }
+
+    /// Sprinting (Shift held, task 150) an ability's key is still the
+    /// ability and an item's still the item — Shift+1 comes over as `!`
+    /// from the key where 1 is — while Ctrl and Alt still keep the rows
+    /// out. A letter is never read by where it sits: QWERTZ's Y, on
+    /// QWERTY's Z, is no Z.
+    #[test]
+    fn sprinting_an_ability_or_an_item_is_still_used() {
+        let keys = Keys::default();
+        let shift = egui::Modifiers::SHIFT;
+        assert!(plain_or_sprinting(egui::Modifiers::NONE));
+        assert!(plain_or_sprinting(shift));
+        assert!(!plain_or_sprinting(egui::Modifiers::CTRL));
+        assert!(!plain_or_sprinting(egui::Modifiers::ALT));
+        let q = [down(egui::Key::Q, shift)];
+        assert!(keys.used(&q, shift, Action::Ability1), "Shift+Q is Q");
+        assert_eq!(keys.rank_up_asked(&q, shift), None);
+        let bang = |modifiers| egui::Event::Key {
+            key: egui::Key::Exclamationmark,
+            physical_key: Some(egui::Key::Num1),
+            pressed: true,
+            repeat: false,
+            modifiers,
+        };
+        assert!(keys.pressed_through_shift(&[bang(shift)], Action::Item1));
+        assert!(!keys.pressed_through_shift(&[bang(shift)], Action::Item2));
+        assert!(!keys.pressed_through_shift(&[bang(egui::Modifiers::NONE)], Action::Item1));
+        assert!(keys.pressed_through_shift(&[down(egui::Key::Num1, shift)], Action::Item1));
+        let mut zed = Keys::default();
+        zed.set(Action::Item1, egui::Key::Z);
+        let y = egui::Event::Key {
+            key: egui::Key::Y,
+            physical_key: Some(egui::Key::Z),
+            pressed: true,
+            repeat: false,
+            modifiers: shift,
+        };
+        assert!(!zed.pressed_through_shift(&[y], Action::Item1));
     }
 
     /// Ctrl and a slot's key is that slot's rank-up (task 123) and never

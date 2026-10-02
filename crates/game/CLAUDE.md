@@ -4823,6 +4823,11 @@ world's (`crates/world/CLAUDE.md`, "Items, step two").
   multiplies the keys' walk by `balance::SPRINT` (1.8, at once — no easing up to it) and turns the
   body to the way it runs at `SPRINT_TURN` instead of to the pointer,
   back on the pointer at once when it ends.
+- **Abilities and items still work while sprinting**: the game screen
+  reads its key rows under `keys::plain_or_sprinting` (no modifier, or
+  Shift alone; Ctrl is a slot's rank-up, Alt the roll), and the item
+  keys through `Keys::pressed_through_shift`, since Shift+1 reaches
+  egui as `!`. Until then any modifier silenced every row.
 - **`CrewOrder::Dodge`** (appended last) is Alt, `Game::order_dodge`:
   a player's own Bim, up, neither carried nor carrying, rolls
   (`Character::start_roll`) the way the keys walk it, else the way they
