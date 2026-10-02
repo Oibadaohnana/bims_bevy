@@ -833,6 +833,64 @@ fn the_wave_at_a_defence_is_the_wave_with_a_machine_for_each_defender() {
     );
 }
 
+/// **The defenders keep pace with the machines**: each is armed at the
+/// tier the run day deals the enemies (`World::defender_tiers`, the
+/// machines' own shares) — a hired hand's kit lifted to it — so at the
+/// first day's tier one they carry exactly what they always did, and with
+/// every tier timing at nought every gun and every armour worn is tier
+/// three.
+#[test]
+fn the_defenders_are_armed_at_the_day_s_tier() {
+    use bims::combat::{Gear, Tier};
+    let defenders = |world: &World| -> Vec<(usize, Gear)> {
+        let residents = world.residents.as_ref().expect("the station's room");
+        (0..residents.defender.len())
+            .filter(|&who| residents.is_defender(who))
+            .map(|who| (who, residents.aboard.room.gear(who)))
+            .collect()
+    };
+    let mut world = basic();
+    world.step(&[]);
+    let first = defenders(&world);
+    assert!(!first.is_empty(), "defenders fielded");
+    assert!(
+        world
+            .defender_tiers(first.len() as u32)
+            .iter()
+            .all(|&t| t == Tier::One)
+    );
+    for (who, gear) in &first {
+        assert_eq!(
+            gear.weapon.map(|w| w.tier),
+            Some(gear.weapon.unwrap().kind.min_tier()),
+            "{who}"
+        );
+    }
+    // The same site with every tier timing at nought, the room opened
+    // again under the new dials before the defence begins (a defence
+    // running keeps its room).
+    let mut world = basic();
+    world.set_wave_scaling(crate::droid::WaveScaling {
+        tier2_days: 0,
+        tier3_days: 0,
+        ..crate::droid::WaveScaling::DEFAULT
+    });
+    world.set_quiet_sites_for_probe(true);
+    world.set_quiet_sites_for_probe(false);
+    world.step(&[]);
+    let lifted = defenders(&world);
+    assert_eq!(lifted.len(), first.len());
+    for ((who, before), (_, after)) in first.iter().zip(&lifted) {
+        let weapon = after.weapon.expect("armed");
+        assert_eq!(weapon.kind, before.weapon.unwrap().kind, "{who}'s gun");
+        assert_eq!(weapon.tier, Tier::Three, "{who}'s gun");
+        assert_eq!(after.armour.is_some(), before.armour.is_some(), "{who}");
+        if let Some(piece) = after.armour {
+            assert_eq!(piece.tier, Tier::Three, "{who}'s armour");
+        }
+    }
+}
+
 /// **A defender is nobody's loss** (task 111): one dead is not in the
 /// station's losses, and a derelict — nobody of its own — defended by its
 /// defenders alone is not lost when every one of them is dead.

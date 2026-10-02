@@ -88,7 +88,9 @@ use serde::{Deserialize, Serialize};
 /// carries `sprint`, and `CrewOrder::Dodge` is appended.
 /// 92: a derelict keeps its whole skin (no holes knocked in it), so both
 /// ends must generate it alike.
-pub const PROTOCOL: u32 = 92;
+/// 93: a site's defenders are armed at the run day's tiers, the enemies'
+/// own shares (`World::defender_tiers`), so both ends must deal them alike.
+pub const PROTOCOL: u32 = 93;
 
 /// Where the relay lives. `BIMS_SERVER` in the environment overrides it
 /// — `ws://127.0.0.1:8792` for one on the same machine.

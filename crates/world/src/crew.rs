@@ -24,7 +24,7 @@
 //!
 use bims::bim::Bim;
 use bims::character::Uniform;
-use bims::combat::Gear;
+use bims::combat::{Gear, Piece, Tier};
 use bims::game::{Container, Game as Room};
 use bims::math::{Rect, vec2};
 use bims::sight::Fog;
@@ -685,9 +685,10 @@ impl Residents {
     /// hired hands live among them (`crate::mercenary::how_many`): the
     /// last that many bodies, in the mercenary's coverall and kit and
     /// priced, as many as the bunks will take after the residents.
-    /// `defenders` (task 111) come after them — armed, in the station's
-    /// coverall, unpriced — and are **not** cut to the bunks: they are
-    /// there for the fight, not to live there.
+    /// `defenders` (task 111) come after them, one a tier — armed at that
+    /// tier ([`defender_gear`]), in the station's coverall, unpriced — and
+    /// are **not** cut to the bunks: they are there for the fight, not to
+    /// live there.
     ///
     /// **A station's room holds no more than it has bunks** — a crowd
     /// bigger than an orbital's four is four — the cut made here, since the room itself takes
@@ -700,7 +701,7 @@ impl Residents {
         design: &ShipDesign,
         count: u32,
         mercenaries: u32,
-        defenders: u32,
+        defenders: &[Tier],
         seed: u64,
         minutes: f64,
         graves: &[Grave],
@@ -708,7 +709,7 @@ impl Residents {
         let bunks = design.count(shipdesign::PartKind::Bunk).max(1);
         let count = count.min(bunks);
         let mercenaries = mercenaries.min(bunks - count);
-        let living = count + mercenaries + defenders;
+        let living = count + mercenaries + defenders.len() as u32;
         // And the dead this station has already (feature 85), on the end:
         // bodies, not people, so the bunks have nothing to say about how
         // many of them there are.
@@ -728,11 +729,14 @@ impl Residents {
         for who in 0..living {
             if who >= count + mercenaries {
                 // A defender (task 111): the station's coverall, a hired
-                // hand's kit off a seed of its own, and no price — nobody
-                // hires one.
+                // hand's kit off a seed of its own at the defender's tier,
+                // and no price — nobody hires one.
                 let n = who - count - mercenaries;
-                let gear =
-                    Gear::hired_for(crate::defense::defender_seed(seed, n), 1_000 * (who + 1));
+                let gear = defender_gear(
+                    crate::defense::defender_seed(seed, n),
+                    1_000 * (who + 1),
+                    defenders[n as usize],
+                );
                 aboard.room.set_uniform(who as usize, Uniform::Station);
                 aboard.room.issue(who as usize, gear);
                 defender[who as usize] = true;
@@ -992,6 +996,27 @@ impl core::fmt::Debug for Residents {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(f, "Residents(station {}, {:?})", self.station, self.aboard)
     }
+}
+
+/// What a defender carries at `tier`: a hired hand's kit off `seed`
+/// (`Gear::hired_for`), its gun and any armour it wears lifted to the
+/// tier — the day's share of the enemies' tiers, dealt the defenders
+/// the same way (`World::defender_tiers`). Never below what the roll made
+/// it (a minigun is tier two at the least), and at tier one the hired
+/// hand's kit exactly.
+pub fn defender_gear(seed: u64, piece_id: u32, tier: Tier) -> Gear {
+    let mut gear = Gear::hired_for(seed, piece_id);
+    if let Some(weapon) = gear.weapon.as_mut()
+        && tier > weapon.tier
+    {
+        *weapon = weapon.kind.at(tier);
+    }
+    if let Some(piece) = gear.armour.as_mut()
+        && tier > piece.tier
+    {
+        *piece = Piece::new(piece.id, piece.kind, tier);
+    }
+    gear
 }
 
 /// A design's whole area as a rect in the room's units, from its origin:

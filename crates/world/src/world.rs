@@ -3407,12 +3407,13 @@ impl World {
         mercenaries: u32,
         seed: u64,
     ) -> Residents {
+        let defenders = self.defender_tiers(self.defenders_of(station));
         let mut residents = Residents::open(
             station,
             design,
             count,
             mercenaries,
-            self.defenders_of(station),
+            &defenders,
             seed,
             self.clock_minutes,
             self.graves_at(station),
@@ -5909,6 +5910,14 @@ impl World {
             return vec![tier; n as usize];
         }
         self.scaling().machine_tiers(n, self.run_day())
+    }
+
+    /// The tier of each of `n` **defenders** a site fields, in their
+    /// order: the enemies' own shares of the run day
+    /// ([`World::machine_tiers`]) — the friendly side keeps pace with the
+    /// machines it holds off — and the probes' dial where it is set.
+    pub fn defender_tiers(&self, n: u32) -> Vec<Tier> {
+        self.machine_tiers(n)
     }
 
     /// The tier of the gear each of `n` Manufacturers carries, in their

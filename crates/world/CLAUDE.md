@@ -6742,6 +6742,16 @@ place of** it for a run) is eight dials, every one read off
   not yet geared, a gun (never the schword) and armour at the tier for
   the rest (`manufacturer::gear(tier, seed, ids)`); the pistol-day and
   armour-day steps went. Their Troopers take the machines' tiers.
+  **A site's defenders take them too** (October 2026):
+  `World::defender_tiers(n)` is `machine_tiers(n)` — the same shares, the
+  Heart's and the probes' dial included — and `Residents::open` takes a
+  tier a defender (`&[Tier]`, where it took a count), arming each with
+  `crew::defender_gear`: the hired hand's kit off its seed, its gun and
+  any armour it wears lifted to the tier, never lowered (a minigun stays
+  two), and at tier one the kit exactly. The tiers are
+  read when the room opens; a running defence keeps its room.
+  `the_defenders_are_armed_at_the_day_s_tier` (`tests_defense.rs`);
+  `wire::PROTOCOL` 93.
 - **a site's tier** said on the map, the chart and in the checksum is
   `usual_tier(day)`, the tier at least half come at (`World::droid_tier`,
   `tier_on(clock)`, `system_tiers` — the same at every star); the
