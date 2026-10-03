@@ -2000,7 +2000,8 @@ pub fn modifier_line(m: world::relic::Modifier) -> String {
     match m.stat {
         Stat::Regen => format!("{sign}{n} {what}{whom}"),
         Stat::EliteWave => format!(
-            "One more wave at every elite: {sign}{n} machine{} a player, and no Guardian",
+            "Every elite gets an extra last wave: no Guardian, but {n} {} machine{} a player",
+            if m.amount < 0 { "fewer" } else { "more" },
             if n == 1 { "" } else { "s" }
         ),
         _ => format!("{sign}{n}% {what}{whom}"),
@@ -3268,7 +3269,7 @@ mod tests {
                 words(world::Relic::BlackMarket),
                 [
                     "-40% trader prices",
-                    "One more wave at every elite: +1 machine a player, and no Guardian"
+                    "Every elite gets an extra last wave: no Guardian, but 3 more machines a player"
                 ]
             );
             assert_eq!(

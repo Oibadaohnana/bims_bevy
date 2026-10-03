@@ -144,7 +144,12 @@ use serde::{Deserialize, Serialize};
 /// 113: an elite's second wave holds a Guardian a tier of the site's —
 /// two at tier two, three at tier three (`data::ELITE_GUARDIANS`): both
 /// ends must lay the same wave.
-pub const PROTOCOL: u32 = 113;
+/// 114: the Stun Shot stuns every enemy — the Manufacturers' people
+/// (`Bim::stunned`) and the Machine Heart's machines too — and the
+/// soldier walks while it charges: both ends must fight alike.
+/// 115: Black Market's extra elite wave is three more machines a player
+/// (`data::BLACK_MARKET_ELITE_WAVE`, was one): both ends must lay it.
+pub const PROTOCOL: u32 = 115;
 
 /// Where the relay lives. `BIMS_SERVER` in the environment overrides it
 /// — `ws://127.0.0.1:8792` for one on the same machine.

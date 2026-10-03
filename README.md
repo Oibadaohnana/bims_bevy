@@ -237,7 +237,7 @@ what a Bim carries; a relic changes how the run plays.
   | Hunter's Pact | +50% experience for every enemy down | +25% machines in every wave |
   | Drill Sergeant | the bots: +50% weapon damage, -30% damage taken | -20% weapon damage for the players' Bims |
   | Lone Wolves | the players' Bims: +35% weapon damage, +15% move speed | -50% weapon damage for the bots |
-  | Black Market | -40% trader prices | one more wave at every elite, its last: +1 machine a player, and no Guardian in it |
+  | Black Market | -40% trader prices | an extra last wave at every elite, with no Guardian but 3 more machines a player |
   | Adrenaline | +30% move speed for everybody | +15% damage taken for everybody |
   | Salvage Burn | +40% damage to machines | -40% money for every enemy down |
   | Nanite Mesh | +2 HP a second for everybody on their feet | -15% weapon damage for everybody |
@@ -280,7 +280,7 @@ the four two by two at the right of the abilities, each with its key
 | **Leech Capacitor** | A share of the damage your weapon does to a machine back as health | 8 / 12 / 16% | 9 000 / 18 000 / 31 500 |
 | **Arc Coil** | Every 4th weapon hit on a machine arcs to the machines nearest it within 4 tiles | 2 / 3 / 4 machines, 15 / 25 / 40 damage | 11 250 / 20 250 / 36 000 |
 | **Field Mender** | Active: every crewmate on their feet within 5 tiles, you included, healed | 30 / 45 / 60 HP, 45 / 40 / 35 s | 9 000 / 18 000 / 31 500 |
-| **Reset Capacitor** | Active: every class cooldown ready, every charge full, your other items' cooldowns with them | 180 / 150 / 120 s | 18 000 / 31 500 / 54 000 |
+| **Reset Capacitor** | Active: every class cooldown ready, every charge full, your other items' cooldowns with them. **Tier three alone**: on no trader's shelf before the run's tier-three day, never combined | tier three: 80 s | 270 000 |
 | **Ablative Shell** | Active: damage taken ×0.6, and a Warden's lance strips none of your armour | 4 / 5 / 6 s, 60 / 55 / 50 s | 11 250 / 20 250 / 36 000 |
 
 *Coolant Loop*, *Pressure Seal* and *Steady Grip* were relics; they are

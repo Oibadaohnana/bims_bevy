@@ -436,9 +436,10 @@ pub const LONE_WOLVES_PLAYER_SPEED: i32 = 15;
 pub const LONE_WOLVES_BOT_DAMAGE: i32 = 50;
 /// *Black Market*: a trader asks less, and every elite has one more wave,
 /// its last — a wave there and this many more machines a player, with no
-/// Guardian in it (the player's, October 2026; it was less bounty).
+/// Guardian in it (the player's, October 2026; it was less bounty), three
+/// a player since October 3rd (it was one).
 pub const BLACK_MARKET_PRICES: i32 = 40;
-pub const BLACK_MARKET_ELITE_WAVE: i32 = 1;
+pub const BLACK_MARKET_ELITE_WAVE: i32 = 3;
 /// *Adrenaline*: everybody walks faster, and takes more.
 pub const ADRENALINE_SPEED: i32 = 30;
 pub const ADRENALINE_TAKEN: i32 = 15;
@@ -492,7 +493,10 @@ pub const TRADER_ARMOUR: usize = 1;
 /// 2026): the Coolant Loop, the Pressure Seal, the Steady Grip, the Long
 /// Barrel, the Leech Capacitor, the Arc Coil, the Field Mender, the Reset
 /// Capacitor and the Ablative Shell. Four and a half times the first
-/// placeholders (the player's +200%, then +50%).
+/// placeholders (the player's +200%, then +50%). The Reset Capacitor is
+/// made at tier three alone and costs five times its old tier three
+/// (October 2026; 54 000), 270 000; its lower tiers' prices are only a
+/// saved one's.
 pub const ITEM_PRICE: [[Money; 3]; 13] = [
     [9_000, 15_750, 27_000],
     [11_250, 20_250, 36_000],
@@ -505,7 +509,7 @@ pub const ITEM_PRICE: [[Money; 3]; 13] = [
     [9_000, 18_000, 31_500],
     [11_250, 20_250, 36_000],
     [9_000, 18_000, 31_500],
-    [18_000, 31_500, 54_000],
+    [18_000, 31_500, 270_000],
     [11_250, 20_250, 36_000],
 ];
 /// What combining two things of a kind and a tier into one of the next

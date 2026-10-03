@@ -454,7 +454,7 @@ fn black_market_brings_one_more_wave_to_an_elite_bigger_and_without_a_guardian()
     assert_eq!(
         kinds.len() as u32,
         3 + data::BLACK_MARKET_ELITE_WAVE as u32 * players,
-        "the forced three and one more a player: {kinds:?}"
+        "the forced three and three more a player: {kinds:?}"
     );
     assert!(
         !kinds.contains(&bims::droid::DroidKind::Guardian),
