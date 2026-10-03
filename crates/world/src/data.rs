@@ -463,13 +463,17 @@ pub const NANITE_MESH_DAMAGE: i32 = 15;
 pub const TRADER_SYSTEM_CHANCE: u32 = 10;
 /// The odds a star's system holds an **elite**, in per cent, off the
 /// galaxy's seed (`crate::elite`): its station the machines' from the
-/// first day, at least [`ELITE_WAVES`] waves, a Guardian in the second —
+/// first day, at least [`ELITE_WAVES`] waves, Guardians in the second —
 /// and the only fights that drop relics. Never the crew's own system.
 pub const ELITE_SYSTEM_CHANCE: u32 = 10;
 /// The fewest waves an elite's machines come in.
 pub const ELITE_WAVES: u32 = 2;
-/// The wave an elite's Guardian comes in (the first is wave one).
+/// The wave an elite's Guardians come in (the first is wave one).
 pub const ELITE_GUARDIAN_WAVE: u32 = 2;
+/// How many Guardians an elite's [`ELITE_GUARDIAN_WAVE`] holds at least,
+/// by the wave's tier (one, two, three): one at tier one, two at tier
+/// two, three at tier three (`crate::elite::with_guardian`).
+pub const ELITE_GUARDIANS: [u32; 3] = [1, 2, 3];
 /// And at least this many traders within [`TRADER_NEAR_HOPS`] lanes of the
 /// crew's own star, their own system counted: somewhere to buy a gun
 /// before the first fight has paid for one. Made up out of the systems

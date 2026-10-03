@@ -6284,9 +6284,10 @@ impl World {
             .droid_kinds_forced
             .clone()
             .unwrap_or_else(|| bims::droid::wave_kinds(n, top));
-        // An elite's Guardian comes in its wave, whatever the tier — and
-        // the relics' last wave there (*Black Market*) has none at all, a
-        // Trooper in a Guardian's place.
+        // An elite's Guardians come in their wave, one a tier of the
+        // site's (`droid_tier`, what the map says) — and the relics' last
+        // wave there (*Black Market*) has none at all, a Trooper in a
+        // Guardian's place.
         let here = self.residents.as_ref().map(|r| r.station);
         let elite = here.is_some_and(|id| self.is_elite_here(id));
         let kinds = if here.is_some_and(|id| self.is_relic_wave(id)) {
@@ -6298,7 +6299,7 @@ impl World {
                 })
                 .collect()
         } else if elite {
-            crate::elite::with_guardian(kinds, wave)
+            crate::elite::with_guardian(kinds, wave, self.droid_tier())
         } else {
             kinds
         };

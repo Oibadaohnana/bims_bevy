@@ -6047,10 +6047,13 @@ part of what a system offers).
   the elite is taken out of the candidates). `TravelQuote::elite`, and
   the quote's kind is Attack.
 - **The fight**: `wave_count_here` is at least `data::ELITE_WAVES` (2),
-  bar a count the probes forced; `build_wave` puts a Guardian in wave
-  `data::ELITE_GUARDIAN_WAVE` (2) whatever the tier
-  (`elite::with_guardian`: in the last Trooper's place, after the
-  Wardens), a wave with Guardians of its own left alone.
+  bar a count the probes forced; `build_wave` puts Guardians in wave
+  `data::ELITE_GUARDIAN_WAVE` (2): at least `data::ELITE_GUARDIANS`
+  for the site's tier (`droid_tier`, what the map says) — one at tier
+  one, two at tier two, three at tier three (`elite::with_guardian`:
+  each the tier's own wave did not bring in the last Trooper's place,
+  after the Wardens, never more than the wave's machines), a wave with
+  Guardians enough of its own left alone. `wire::PROTOCOL` 113.
 - **Only an elite drops relics**: `relics_on_leaving` offers the reward
   only at an elite, and `infest` rolls a relic cache only there (a site of
   the Manufacturers' has none). Traders still sell theirs.

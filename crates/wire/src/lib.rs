@@ -141,7 +141,10 @@ use serde::{Deserialize, Serialize};
 /// 112: twenty levels (`class::LEVELS`), the four past the sixteenth no
 /// skill point and five per cent more weapon damage each
 /// (`class::level_damage`): both ends must level and shoot alike.
-pub const PROTOCOL: u32 = 112;
+/// 113: an elite's second wave holds a Guardian a tier of the site's —
+/// two at tier two, three at tier three (`data::ELITE_GUARDIANS`): both
+/// ends must lay the same wave.
+pub const PROTOCOL: u32 = 113;
 
 /// Where the relay lives. `BIMS_SERVER` in the environment overrides it
 /// — `ws://127.0.0.1:8792` for one on the same machine.

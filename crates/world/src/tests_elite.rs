@@ -1,8 +1,8 @@
 //! Elites (`crate::elite`): one system in ten holds one — its station the
 //! machines' from the first day, an attack, at least two waves with a
-//! Guardian in the second — and only an elite drops relics.
+//! Guardian a tier in the second — and only an elite drops relics.
 
-use bims::combat::{Gear, WeaponKind};
+use bims::combat::{Gear, Tier, WeaponKind};
 use bims::droid::{DroidKind, DroidPart};
 use shipdesign::fixture::{COMBAT_CREW, combat_ship};
 use worldgen::GalaxyType;
@@ -138,6 +138,32 @@ fn an_elite_is_the_machines_two_waves_a_guardian_in_the_second_and_relics() {
     world.leave_for_probe();
     assert_eq!(world.run.phase, Phase::Reward, "an elite drops relics");
     assert!(world.relic_choice().is_some());
+}
+
+#[test]
+fn an_elite_s_second_wave_has_two_guardians_at_tier_two_and_three_at_tier_three() {
+    for (tier, want) in [(Tier::Two, 2), (Tier::Three, 3)] {
+        let mut world = open_crewed_world(combat_ship(), REFERENCE_MONEY, 1, COMBAT_CREW);
+        armed(&mut world);
+        world.set_droid_tier_for_probe(Some(tier));
+        let station = world.elite_dock_for_probe().expect("an elite in reach");
+        world.set_droid_reinforce_minutes_for_probe(1.0);
+        wave_up(&mut world);
+        wreck_them_all(&mut world);
+        let mut second = Vec::new();
+        for _ in 0..20 {
+            let kinds = wave_up(&mut world);
+            if world.infestation(station).unwrap().wave == data::ELITE_GUARDIAN_WAVE {
+                second = kinds;
+                break;
+            }
+        }
+        let guardians = second.iter().filter(|&&k| k == DroidKind::Guardian).count();
+        assert!(
+            guardians >= want,
+            "{tier:?}: {guardians} Guardians in {second:?}"
+        );
+    }
 }
 
 #[test]
