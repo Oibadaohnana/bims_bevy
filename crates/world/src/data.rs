@@ -419,8 +419,8 @@ pub const HAIR_TRIGGER_COOLDOWNS: i32 = 30;
 pub const OVERCLOCKED_CORES_COOLDOWNS: i32 = 35;
 pub const OVERCLOCKED_CORES_DAMAGE: i32 = 20;
 /// *Bounty Contract*: every enemy down pays more, and the machines take
-/// less from the crew.
-pub const BOUNTY_CONTRACT_BOUNTY: i32 = 100;
+/// less from the crew. It was +100% until October 2026 (the player's word).
+pub const BOUNTY_CONTRACT_BOUNTY: i32 = 50;
 pub const BOUNTY_CONTRACT_DAMAGE: i32 = 20;
 /// *Hunter's Pact*: every enemy down is worth more experience, and every
 /// wave has more machines (rounded up).

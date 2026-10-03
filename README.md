@@ -233,7 +233,7 @@ what a Bim carries; a relic changes how the run plays.
   | Heavy Plating | -25% damage taken for everybody | -20% move speed for everybody |
   | Hair Trigger | +35% fire rate for everybody | +30% class ability cooldowns |
   | Overclocked Cores | -35% class ability cooldowns | -20% weapon damage for everybody |
-  | Bounty Contract | +100% money for every enemy down | -20% damage to machines |
+  | Bounty Contract | +50% money for every enemy down | -20% damage to machines |
   | Hunter's Pact | +50% experience for every enemy down | +25% machines in every wave |
   | Drill Sergeant | the bots: +50% weapon damage, -30% damage taken | -20% weapon damage for the players' Bims |
   | Lone Wolves | the players' Bims: +35% weapon damage, +15% move speed | -50% weapon damage for the bots |

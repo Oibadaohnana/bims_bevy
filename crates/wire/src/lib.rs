@@ -121,7 +121,9 @@ use serde::{Deserialize, Serialize};
 /// restores by its rank: both ends must fight alike.
 /// 104: the run is not lost at once with every crew member down while a
 /// site's defender still stands: both ends must lose alike.
-pub const PROTOCOL: u32 = 104;
+/// 105: *Bounty Contract* pays +50% a machine down, not +100%: both ends
+/// must pay alike.
+pub const PROTOCOL: u32 = 105;
 
 /// Where the relay lives. `BIMS_SERVER` in the environment overrides it
 /// — `ws://127.0.0.1:8792` for one on the same machine.

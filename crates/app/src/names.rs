@@ -3243,7 +3243,7 @@ mod tests {
             assert_eq!(
                 words(world::Relic::BountyContract),
                 [
-                    "+100% money for every enemy down",
+                    "+50% money for every enemy down",
                     "-20% damage to machines"
                 ]
             );
