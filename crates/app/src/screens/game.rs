@@ -148,7 +148,7 @@ pub struct GameScreen {
     /// tile — a medic's beam (E) or his circle (R) — in tiles, and the
     /// ability, drawn round the player's own Bim while the key is down.
     held_reach: Option<(f32, Glyph)>,
-    /// The downed crewmate the held revive key (G) sent the player's own
+    /// The downed crewmate the held revive key (T) sent the player's own
     /// Bim to get up: let go of when the key comes up before they are.
     held_revive: Option<u32>,
     /// The downed crewmate the menu's Carry row was for, and the frames
@@ -2631,7 +2631,7 @@ fn frame(
                     orders.extend(order);
                     screen.log.extend(line);
                 }
-                // The held revive (G): standing close to a downed crewmate,
+                // The held revive (T): standing close to a downed crewmate,
                 // the player's own Bim gets the nearest back up while the
                 // key is held, and lets go when it comes up first.
                 if let Some(game) = &session.game {
@@ -6157,7 +6157,7 @@ fn downed_patient(
     )
 }
 
-/// The held revive key (G), a frame at a time: the order if there is one
+/// The held revive key (T), a frame at a time: the order if there is one
 /// to send, and the log's line. `held` is the patient the key sent the
 /// player's own Bim `own` to, kept on the screen between frames.
 ///

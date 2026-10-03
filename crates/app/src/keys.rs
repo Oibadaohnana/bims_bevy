@@ -4,8 +4,9 @@
 //! rather than a key written into the screen, so the Controls page of the
 //! Esc sheet can rebind any of them: click the key beside an action, press
 //! the one you want, Esc to think again. Two actions may share a key —
-//! Turn shares R with the fourth ability slot by default (task 123), and
-//! is read only in the yard and the armoury, where no ability is used —
+//! Turn shares R with the reload by default (task 123; the fourth ability
+//! slot had R until October 2026), and is read only in the yard and the
+//! armoury, where no gun is reloaded —
 //! so nothing refuses a binding; the page says where a key is used
 //! twice. Esc itself is not an action: it is what closes the
 //! sheet and cancels a rebind, and a key that could be bound away from
@@ -64,7 +65,8 @@ pub enum Action {
     /// took R (task 123).
     Recruit,
     /// Turn the part in hand in the yard, or a thing in the armoury. Read
-    /// only there, so it shares R with the fourth ability slot (task 123).
+    /// only there, so it shares R with the reload (the fourth ability
+    /// slot until October 2026; task 123).
     Turn,
     /// Open and close the inventory of the crew member you steer.
     Inventory,
@@ -81,7 +83,8 @@ pub enum Action {
     /// charges a Stun Shot at it, a medic beams the crew member under the
     /// pointer, a tank raises his Reflect Barrier.
     Ability3,
-    /// The fourth, on R: empty for every class so far.
+    /// The fourth, the class's ultimate: on R from task 123, on G since
+    /// October 2026, when R went to the reload.
     Ability4,
     /// **Attack-move**: arms the pointer, and the next click on the deck
     /// sends the Bim you steer there with its weapon out, stopping to
@@ -105,7 +108,9 @@ pub enum Action {
     Carry,
     /// **Revive**: held, the Bim you steer gets the downed crewmate
     /// nearest it back up — it must be standing close — and lets go when
-    /// the key comes up before they are. On G; the carry moved to H.
+    /// the key comes up before they are. On G until October 2026, when
+    /// the ultimate took G and the revive went to T, which the reload
+    /// had left.
     Revive,
     /// **The medkit** (task 138; one key since October 2026): the medkit
     /// into the hands of the Bim you steer — it holds its fire, and a
@@ -124,8 +129,8 @@ pub enum Action {
     /// Pressed again, it shuts.
     CharacterSheet,
     /// **Reload** (October 2026): the Bim you steer reloads the magazine
-    /// in its hand now, shots left in it or not. On T, R being the fourth
-    /// ability.
+    /// in its hand now, shots left in it or not. On R since October 2026
+    /// (on T until then, while R was the ultimate's).
     Reload,
 }
 
@@ -202,7 +207,7 @@ impl Action {
             // C and R are the second and fourth ability slots (task
             // 123), so Select went to F1 and Recruit to L. Turn keeps
             // R: it is read only in the yard and the armoury, where no
-            // ability is used.
+            // gun is reloaded (R is the reload since October 2026).
             Action::Select => Key::F1,
             Action::Recruit => Key::L,
             Action::Turn => Key::R,
@@ -210,21 +215,23 @@ impl Action {
             Action::Ability1 => Key::Q,
             Action::Ability2 => Key::C,
             Action::Ability3 => Key::E,
-            Action::Ability4 => Key::R,
+            // The ultimate is G and the reload R (October 2026), so the
+            // held revive went to T, which the reload had.
+            Action::Ability4 => Key::G,
             Action::AttackMove => Key::F,
             Action::Attack => Key::X,
             Action::Retreat => Key::Y,
             // G is the held revive and H the medkit, so the medic's carry
             // went to B.
             Action::Carry => Key::B,
-            Action::Revive => Key::G,
+            Action::Revive => Key::T,
             Action::Medkit => Key::H,
             Action::Item1 => Key::Num1,
             Action::Item2 => Key::Num2,
             Action::Item3 => Key::Num3,
             Action::Item4 => Key::Num4,
             Action::CharacterSheet => Key::K,
-            Action::Reload => Key::T,
+            Action::Reload => Key::R,
         }
     }
 
@@ -296,7 +303,7 @@ impl Action {
             }
             Action::Recruit => "Recruit the crew member you steer, or let them go.",
             Action::Turn => {
-                "Turn the part in hand in the yard, or a thing in the armoury. Read only there, so it shares R with the fourth ability slot."
+                "Turn the part in hand in the yard, or a thing in the armoury. Read only there, so it shares R with the reload."
             }
             Action::Inventory => "Open and close the inventory of the crew member you steer.",
             Action::Ability1 => {
@@ -533,6 +540,16 @@ impl Keys {
         // (October 2026) has the carry on H: it goes to its new key, B,
         // rather than sharing H with the medkit.
         let old_medkit = !text.lines().any(|l| l.trim_start().starts_with("medkit="));
+        // And one from before the ultimate took G and the reload R
+        // (October 2026) — its reload on T, or no reload line at all —
+        // has the ultimate on R and the revive on G: those three go to
+        // their new keys rather than the ultimate sharing R with the
+        // reload and G with the revive. A key moved off them keeps its
+        // word.
+        let old_ultimate = text.lines().all(|l| {
+            let l = l.trim_start();
+            !l.starts_with("reload=") || l.trim_end() == "reload=T"
+        });
         for line in text.lines() {
             let Some((name, key)) = line.split_once('=') else {
                 continue;
@@ -564,13 +581,23 @@ impl Keys {
                 Action::from_name(name.trim()),
                 egui::Key::from_name(key.trim()),
             ) {
-                if old_carry && action == Action::Carry && key == Action::Revive.default_key() {
+                if old_carry && action == Action::Carry && key == egui::Key::G {
                     continue;
                 }
                 if old_speed && action == Action::Speed1 && key == Action::Item1.default_key() {
                     continue;
                 }
                 if old_medkit && action == Action::Carry && key == Action::Medkit.default_key() {
+                    continue;
+                }
+                if old_ultimate
+                    && matches!(
+                        (action, key),
+                        (Action::Ability4, egui::Key::R)
+                            | (Action::Revive, egui::Key::G)
+                            | (Action::Reload, egui::Key::T)
+                    )
+                {
                     continue;
                 }
                 keys.set(action, key);
@@ -681,17 +708,20 @@ mod tests {
         // pause was, and nothing else's.
         assert_eq!(keys.key(Action::Detonate), egui::Key::Space);
         assert!(keys.shared_with(Action::Detonate).is_empty());
-        // The four ability slots are Q, C, E and R (task 123), the first
-        // three bound to nothing else and the fourth sharing R with
-        // Turn, which only the yard and the armoury read.
+        // The four ability slots are Q, C, E and G (task 123; the
+        // ultimate left R for G in October 2026), none bound to anything
+        // else. R is the reload, shared with Turn, which only the yard
+        // and the armoury read.
         assert_eq!(keys.key(Action::Ability1), egui::Key::Q);
         assert_eq!(keys.key(Action::Ability2), egui::Key::C);
         assert_eq!(keys.key(Action::Ability3), egui::Key::E);
-        assert_eq!(keys.key(Action::Ability4), egui::Key::R);
+        assert_eq!(keys.key(Action::Ability4), egui::Key::G);
         assert!(keys.shared_with(Action::Ability1).is_empty());
         assert!(keys.shared_with(Action::Ability2).is_empty());
         assert!(keys.shared_with(Action::Ability3).is_empty());
-        assert_eq!(keys.shared_with(Action::Ability4), vec![Action::Turn]);
+        assert!(keys.shared_with(Action::Ability4).is_empty());
+        assert_eq!(keys.key(Action::Reload), egui::Key::R);
+        assert_eq!(keys.shared_with(Action::Reload), vec![Action::Turn]);
         // So Select left C for F1 and Recruit left R for L; Turn stays.
         assert_eq!(keys.key(Action::Select), egui::Key::F1);
         assert_eq!(keys.key(Action::Recruit), egui::Key::L);
@@ -715,10 +745,11 @@ mod tests {
         assert!(keys.shared_with(Action::Attack).is_empty());
         assert!(keys.shared_with(Action::Retreat).is_empty());
         // And the carry (feature 86): B since the held revive took G and
-        // the medkit H, each bound to nothing else.
+        // the medkit H, each bound to nothing else. The revive is on T
+        // since the ultimate took G (October 2026).
         assert_eq!(keys.key(Action::Carry), egui::Key::B);
         assert!(keys.shared_with(Action::Carry).is_empty());
-        assert_eq!(keys.key(Action::Revive), egui::Key::G);
+        assert_eq!(keys.key(Action::Revive), egui::Key::T);
         assert!(keys.shared_with(Action::Revive).is_empty());
         let mut changed = keys;
         changed.set(Action::Inventory, egui::Key::I);
@@ -790,21 +821,22 @@ mod tests {
         assert_eq!(keys.key(Action::Ability1), egui::Key::G);
         assert_eq!(keys.key(Action::Ability3), egui::Key::H);
         assert_eq!(keys.key(Action::Ability2), egui::Key::C);
-        assert_eq!(keys.key(Action::Ability4), egui::Key::R);
+        assert_eq!(keys.key(Action::Ability4), egui::Key::G);
         let text = keys.to_text();
         assert!(text.contains("ability-1=G\n") && text.contains("ability-3=H\n"));
         assert!(!text.contains("class-"));
         assert_eq!(Keys::from_text(&text), keys);
     }
 
-    /// The held revive is G, the medkit H and the carry B; a file from
-    /// before, with the carry on G and no revive line, or on H and no
-    /// medkit line, is read with the carry on its own key rather than
-    /// sharing, and one that says both keeps its word.
+    /// The held revive is T (G until the ultimate took it), the medkit H
+    /// and the carry B; a file from before, with the carry on G and no
+    /// revive line, or on H and no medkit line, is read with the carry
+    /// on its own key rather than sharing, and one that says both keeps
+    /// its word.
     #[test]
-    fn the_revive_is_g_the_medkit_h_and_an_old_carry_moves_to_b() {
+    fn the_revive_is_t_the_medkit_h_and_an_old_carry_moves_to_b() {
         let keys = Keys::default();
-        assert_eq!(keys.key(Action::Revive), egui::Key::G);
+        assert_eq!(keys.key(Action::Revive), egui::Key::T);
         assert_eq!(keys.key(Action::Medkit), egui::Key::H);
         assert_eq!(keys.key(Action::Carry), egui::Key::B);
         assert!(keys.shared_with(Action::Revive).is_empty());
@@ -812,7 +844,7 @@ mod tests {
         assert!(keys.shared_with(Action::Medkit).is_empty());
         let old = Keys::from_text("carry=G\n");
         assert_eq!(old.key(Action::Carry), egui::Key::B);
-        assert_eq!(old.key(Action::Revive), egui::Key::G);
+        assert_eq!(old.key(Action::Revive), egui::Key::T);
         let old = Keys::from_text("revive=G\ncarry=H\n");
         assert_eq!(old.key(Action::Carry), egui::Key::B);
         assert_eq!(old.key(Action::Medkit), egui::Key::H);
@@ -820,6 +852,46 @@ mod tests {
         assert_eq!(both.key(Action::Carry), egui::Key::G);
         assert_eq!(both.key(Action::Revive), egui::Key::J);
         assert_eq!(Keys::from_text(&keys.to_text()), keys);
+    }
+
+    /// The ultimate is G, the reload R and the revive T (October 2026);
+    /// a file written before — the ultimate on R, the revive on G, the
+    /// reload on T or not named — is read with those three on their new
+    /// keys, a key the player had moved off them kept, and a file
+    /// written since keeps its word, even an ultimate put back on R.
+    #[test]
+    fn the_ultimate_is_g_the_reload_r_and_an_old_file_follows() {
+        let keys = Keys::default();
+        assert_eq!(keys.key(Action::Ability4), egui::Key::G);
+        assert_eq!(keys.key(Action::Reload), egui::Key::R);
+        assert_eq!(keys.key(Action::Revive), egui::Key::T);
+        assert!(keys.shared_with(Action::Ability4).is_empty());
+        assert!(keys.shared_with(Action::Revive).is_empty());
+        let mut before = keys;
+        before.set(Action::Ability4, egui::Key::R);
+        before.set(Action::Revive, egui::Key::G);
+        before.set(Action::Reload, egui::Key::T);
+        before.set(Action::Inventory, egui::Key::I);
+        let old = Keys::from_text(&before.to_text());
+        let mut want = keys;
+        want.set(Action::Inventory, egui::Key::I);
+        assert_eq!(old, want);
+        let older: String = before
+            .to_text()
+            .lines()
+            .filter(|l| !l.starts_with("reload="))
+            .map(|l| format!("{l}\n"))
+            .collect();
+        assert_eq!(Keys::from_text(&older), want);
+        let moved = Keys::from_text("ability-4=Z\nrevive=J\nreload=T\n");
+        assert_eq!(moved.key(Action::Ability4), egui::Key::Z);
+        assert_eq!(moved.key(Action::Revive), egui::Key::J);
+        assert_eq!(moved.key(Action::Reload), egui::Key::R);
+        let mut since = keys;
+        since.set(Action::Ability4, egui::Key::R);
+        since.set(Action::Reload, egui::Key::J);
+        since.set(Action::Revive, egui::Key::G);
+        assert_eq!(Keys::from_text(&since.to_text()), since);
     }
 
     /// The items are 1 to 4 (October 2026, where the quickselect was) and
@@ -903,8 +975,11 @@ mod tests {
         assert_eq!(keys.rank_up_asked(&q, none), None);
         let e = [down(egui::Key::E, ctrl)];
         assert_eq!(keys.rank_up_asked(&e, ctrl), Some(Action::Ability3));
+        let g = [down(egui::Key::G, ctrl)];
+        assert_eq!(keys.rank_up_asked(&g, ctrl), Some(Action::Ability4));
+        // R is the reload now, no slot's: Ctrl+R ranks nothing up.
         let r = [down(egui::Key::R, ctrl)];
-        assert_eq!(keys.rank_up_asked(&r, ctrl), Some(Action::Ability4));
+        assert_eq!(keys.rank_up_asked(&r, ctrl), None);
         // A key no slot is on asks nothing.
         let m = [down(egui::Key::M, ctrl)];
         assert_eq!(keys.rank_up_asked(&m, ctrl), None);
