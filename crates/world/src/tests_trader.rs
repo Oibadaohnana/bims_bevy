@@ -886,3 +886,53 @@ fn a_tier_up_bought_onto_a_bim_sells_the_lower_tier_it_replaces() {
         );
     }
 }
+
+/// **The minigun costs three times its ask** (October 2026, the player's
+/// word, when its magazine made it fire ten a second): its shelf price is
+/// the ordinary rule over three times the ask, and it sells back for half
+/// of that, as anything bought does.
+#[test]
+fn a_minigun_costs_three_times_its_ask_and_sells_back_for_half_of_that() {
+    use bims::combat::{Tier, WeaponKind};
+    use physics::ResourceId;
+    let mut world = basic(1);
+    at_a_trader(&mut world);
+    let tier = Tier::Two;
+    let ask = world
+        .run
+        .site
+        .and_then(|id| world.quote_at(id, ResourceId::Minigun, tier.code()))
+        .map(|q| q.ask)
+        .unwrap_or_else(|| {
+            economy::trade_price(ResourceId::Minigun)
+                .saturating_mul(economy::tier_price(tier.code()))
+        });
+    let rule = |ask: economy::Money| {
+        world.trader_share(world.trader_price_by_relics(world.rewards().shelf_price(ask)))
+    };
+    let price = world.shelf_price(trader::ShelfItem {
+        resource: ResourceId::Minigun,
+        tier,
+    });
+    assert_eq!(price, rule(ask * 3), "three times the ask");
+    assert!(price > rule(ask) * 2, "{price} against {}", rule(ask));
+    let back = world
+        .sell_value(Item::Weapon(WeaponKind::Minigun.at(tier)))
+        .unwrap();
+    assert_eq!(back, price * crate::data::SELL_BACK_PERCENT / 100);
+    // Every other kind keeps its own price.
+    let shotgun = trader::ShelfItem {
+        resource: ResourceId::Shotgun,
+        tier,
+    };
+    let shotgun_ask = world
+        .run
+        .site
+        .and_then(|id| world.quote_at(id, ResourceId::Shotgun, tier.code()))
+        .map(|q| q.ask)
+        .unwrap_or_else(|| {
+            economy::trade_price(ResourceId::Shotgun)
+                .saturating_mul(economy::tier_price(tier.code()))
+        });
+    assert_eq!(world.shelf_price(shotgun), rule(shotgun_ask));
+}

@@ -2077,7 +2077,9 @@ impl Game {
         // trigger — and shoots the way a Bim standing still does, at the
         // nearest visible enemy in range, through the one `aim` and the
         // one `fire_as`. Never in a hostile room: the world lays them on
-        // the crew's deck alone. It never runs dry (feature 88).
+        // the crew's deck alone. It reloads as its gun does — the
+        // minigun's hundred and four seconds since October 2026, the
+        // player's word; it never ran dry from feature 88 until then.
         if !self.hostile_bodies {
             for i in 0..self.sentries.len() {
                 let sentry = self.sentries[i];
@@ -2085,7 +2087,7 @@ impl Game {
                 if sentry.heals {
                     continue;
                 }
-                let stats = sentry.skill.stats(sentry.weapon).endless();
+                let stats = sentry.skill.stats(sentry.weapon);
                 self.sentries[i].trigger.tick(dt);
                 self.sentries[i].flash = (self.sentries[i].flash - dt).max(0.0);
                 // Its sensor sees in the dark: a machine standing where
@@ -11809,11 +11811,13 @@ mod tests {
         assert!(game.take_hits().is_empty());
     }
 
-    /// Task 115: the minigun in a hand is the same trigger — twenty shots
-    /// a tenth of a second apart from the pull, then nothing until five
-    /// seconds after it.
+    /// The minigun in a hand (October 2026, its magazine): the same
+    /// trigger — a bolt every tenth of a second while it has a target,
+    /// a hundred to the magazine, then nothing for its four-second
+    /// reload. (Task 115's twenty to a pull and five seconds to the next
+    /// is what this replaced.)
     #[test]
-    fn a_minigun_burst_is_twenty_shots_in_two_seconds_then_five_to_the_next() {
+    fn a_minigun_in_a_hand_fires_its_hundred_then_reloads_four_seconds() {
         let mut game = room();
         game.set_autonomous(false);
         let kate = game.put_for_probe(1, vec2(ROOM_W * 0.35, ROOM_H * 0.5));
@@ -11834,33 +11838,35 @@ mod tests {
         }
         game.take_shots();
         let mut times = Vec::new();
-        for step in 0..(60 * 12) {
+        for step in 0..(60 * 26) {
             game.simulate(DT);
             let t = step as f32 * DT;
             times.extend(game.take_shots().into_iter().map(|_| t));
         }
-        // The shots in bursts, split where a second or more goes by with
-        // none; the first is whatever was left of one when the window
-        // opened, so the second is the first whole pull.
-        let mut bursts: Vec<Vec<f32>> = Vec::new();
+        // The shots in magazines, split where a second or more goes by
+        // with none; the first is whatever was left of one when the
+        // window opened, so the second is the first whole magazine.
+        let mut runs: Vec<Vec<f32>> = Vec::new();
         for &t in &times {
-            match bursts.last_mut() {
-                Some(b) if t - b[b.len() - 1] < 1.0 => b.push(t),
-                _ => bursts.push(vec![t]),
+            match runs.last_mut() {
+                Some(r) if t - r[r.len() - 1] < 1.0 => r.push(t),
+                _ => runs.push(vec![t]),
             }
         }
-        assert!(bursts.len() >= 3, "{times:?}");
-        let (pull, next) = (&bursts[1], &bursts[2]);
-        assert_eq!(pull.len(), 20, "twenty to a pull: {pull:?}");
-        // A tenth apart, to the step: the gap runs out on the step after
-        // it has, as every burst's does.
-        for pair in pull.windows(2) {
+        assert!(runs.len() >= 3, "{times:?}");
+        let (magazine, next) = (&runs[1], &runs[2]);
+        assert_eq!(magazine.len(), 100, "a hundred to a magazine: {magazine:?}");
+        // A tenth apart, to the step.
+        for pair in magazine.windows(2) {
             let gap = pair[1] - pair[0];
-            assert!((0.1 - DT * 0.5..=0.1 + DT * 1.5).contains(&gap), "{pull:?}");
+            assert!(
+                (0.1 - DT * 0.5..=0.1 + DT * 1.5).contains(&gap),
+                "{magazine:?}"
+            );
         }
         assert!(
-            (next[0] - pull[0] - 5.0).abs() < DT * 1.5,
-            "the next pull five seconds after the first: {times:?}"
+            (reload - 4.0).abs() < 0.1 + DT * 1.5,
+            "four seconds to reload: {reload}"
         );
     }
 
@@ -11902,6 +11908,7 @@ mod tests {
                 "nothing fired while locked"
             );
             assert!(
+        let reload = next[0] - magazine[99];
                 blows.len() >= 2 && blows.len() <= 3,
                 "a fist every two seconds: {}",
                 blows.len()

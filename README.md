@@ -3124,16 +3124,18 @@ reload, and the magazine is full again — for ever, since there is no
 ammunition to run out of, only the seconds a reload takes. The **pistol**
 holds twelve and reloads in 1.2 s, the **auto rifle** thirty in 1.8 s,
 the **shotgun** six shells put in one by one over 3.5 s, the **sniper
-rifle** four in 2.4 s; the minigun's burst and cool and the rail lance's
-one slug in five seconds are their own reload and have none, and nor
-has a blade. The guns were paid for it: the pistol and the auto rifle hit
+rifle** four in 2.4 s, and the **minigun** a hundred at ten a second,
+then 4 s (its twenty-bolt burst and five-second cool until later in
+October, when it went to three times the price at a trader); the rail
+lance's one slug in five seconds is its own reload and has none, and
+nor has a blade. The guns were paid for it: the pistol and the auto rifle hit
 **2 harder** (8 a shot, and 7 near and 6.4 far), the shotgun fires
 **twice as often** (a pull every two seconds), the sniper nothing. The
 last shot of a magazine begins the reload; **R** (the *reload* key)
 reloads the Bim you steer sooner, shots left or not; a bot with nothing
 to shoot at tops its own up; and a gun put in the hand comes full.
-Everybody reloads — the crew, a station's people, a Trooper's arm — but a
-sentry never does. The hero panel shows the shots left over what the
+Everybody reloads — the crew, a station's people, a Trooper's arm, and
+the engineer's sentry with its minigun. The hero panel shows the shots left over what the
 magazine holds (warm at a quarter, red empty) and, while it reloads, a
 bar and *Reloading*; a gun's tooltip says its magazine. A reload is heard
 — the gun's recording, the shotgun's shells — your own over the rest.

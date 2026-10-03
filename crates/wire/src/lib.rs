@@ -220,7 +220,11 @@ use serde::{Deserialize, Serialize};
 /// 138: a gun or the armour bought onto a Bim over the same kind a tier
 /// lower sells the old one into the buyer's wallet rather than the
 /// armory (`trading::superseded`): both ends must pay alike.
-pub const PROTOCOL: u32 = 138;
+/// 139: the minigun fires ten a second through a magazine of a hundred
+/// and reloads four seconds, a sentry's too (`balance::MINIGUN`), and
+/// costs three times its ask at a trader: both ends must fire and price
+/// alike.
+pub const PROTOCOL: u32 = 139;
 
 /// Where the relay lives. `BIMS_SERVER` in the environment overrides it
 /// — `ws://127.0.0.1:8792` for one on the same machine.

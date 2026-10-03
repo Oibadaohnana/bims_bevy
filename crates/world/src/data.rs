@@ -515,6 +515,10 @@ pub const TRADER_WEAPONS: usize = 6;
 /// How many pieces of armour it holds beside them: the one armour (it
 /// was three).
 pub const TRADER_ARMOUR: usize = 1;
+/// What a minigun off a trader's shelf costs, times its tier's ask
+/// (October 2026, the player's word, when its magazine made it fire ten a
+/// second): the sale back is half of that, as for anything bought.
+pub const MINIGUN_SHELF_PRICE: Money = 3;
 /// What an item costs at a trader (October 2026, `crate::items`), by its
 /// kind's code and its tier, one to three: the *Blink Drive*, the
 /// *Executioner*, the *Reactor Heart* and the *Override Core* (made at

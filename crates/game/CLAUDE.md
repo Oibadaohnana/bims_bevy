@@ -5124,8 +5124,9 @@ beyond the walls so the deck is not clear. No `SAVE_VERSION`;
 
 - **`WeaponStats::{magazine, reload_time}`** (serde default): the
   pistol 12 / 1.2 s, the auto rifle 30 / 1.8, the shotgun 6 / 3.5, the
-  sniper 4 / 2.4 (`balance::*_MAGAZINE`, `*_RELOAD`); nought for the
-  minigun, the rail lance, a blade and a machine's arm. With them the
+  sniper 4 / 2.4, and since later in October the minigun 100 / 4 at ten
+  a second (`balance::*_MAGAZINE`, `*_RELOAD`); nought for the rail
+  lance, a blade and a machine's arm. With them the
   pistol went to 8 a shot, the auto rifle to 7 / 6.4, the shotgun to a
   pull every two seconds (`fire_rate` 0.5).
 - **`combat::Trigger`** counts it: `spent` (nought full), `reloading`
@@ -5135,8 +5136,9 @@ beyond the walls so the deck is not clear. No `SAVE_VERSION`;
   shot of a magazine begins the reload; `reload_now` begins one with shots
   left; `tick` fills it when the seconds run out; `load(kind)` — called
   by `tick_combat` with the weapon in the hand every step — gives a gun
-  changed in the hand a full magazine. A sentry is handed
-  `WeaponStats::endless()` and never reloads. Machines and Manufacturers
+  changed in the hand a full magazine. A sentry reloads as its gun does
+  (it was handed `WeaponStats::endless()`, which went with the
+  minigun's magazine). Machines and Manufacturers
   reload like anybody (a Trooper's pistol or rifle).
 - **A body nobody steers with nothing to aim at tops up**
   (`reload_now` where `aimed` is `None` in `tick_combat`); a player's own

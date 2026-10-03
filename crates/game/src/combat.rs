@@ -572,16 +572,6 @@ impl WeaponStats {
         pulls / (pulls / self.fire_rate.max(1e-3) + self.reload_time)
     }
 
-    /// The same with nothing reloaded: the stats with no magazine — a
-    /// sentry's, which never runs dry.
-    pub fn endless(self) -> WeaponStats {
-        WeaponStats {
-            magazine: 0,
-            reload_time: 0.0,
-            ..self
-        }
-    }
-
     /// Odds of a hit on a body `tiles` away. See the module note.
     pub fn hit_chance(&self, tiles: f32) -> f32 {
         self.along(tiles, self.accuracy, self.accuracy_far)
@@ -5217,10 +5207,11 @@ mod tests {
         );
         assert!(close(two.accuracy, 0.85) && close(two.accuracy_far, 0.45));
         assert_eq!((two.range, two.sweet), (14.0, 4.2));
-        assert_eq!((two.burst, two.burst_gap, two.fire_rate), (20, 0.1, 0.2));
+        assert_eq!((two.burst, two.fire_rate), (1, 10.0));
+        assert_eq!((two.magazine, two.reload_time), (100, 4.0));
         assert_eq!(two.speed, 24.0);
         assert!(!two.melee && two.strips == 0.0);
-        assert!((two.dps_at(4.2) - 18.7).abs() < 0.01, "{}", two.dps_at(4.2));
+        assert!((two.dps_at(4.2) - 33.4).abs() < 0.01, "{}", two.dps_at(4.2));
         let three = WeaponKind::Minigun.at(Tier::Three).stats();
         assert!(close(three.damage, 6.875) && close(three.damage_far, 6.875));
         assert!(close(three.accuracy, 0.8925) && close(three.accuracy_far, 0.4725));
@@ -5247,11 +5238,11 @@ mod tests {
             s.burst as f32 * s.pulls() * (s.damage - protection).max(0.0) * s.accuracy.min(1.0)
         };
         let rifle_two = WeaponKind::AutoRifle.at(Tier::Two);
-        assert!((dps(mini, 0.0) - 18.7).abs() < 0.05);
+        assert!((dps(mini, 0.0) - 33.4).abs() < 0.05);
         assert!((dps(rifle_two, 0.0) - 27.0).abs() < 0.05);
-        assert!((dps(mini, 3.0) - 8.5).abs() < 0.05);
+        assert!((dps(mini, 3.0) - 15.2).abs() < 0.05);
         assert!((dps(rifle_two, 3.0) - 17.7).abs() < 0.05);
-        assert!((dps(mini, 4.5) - 3.4).abs() < 0.05);
+        assert!((dps(mini, 4.5) - 6.1).abs() < 0.05);
         assert!((dps(rifle_two, 4.5) - 13.1).abs() < 0.05);
         let sniper_three = WeaponKind::SniperRifle.at(Tier::Three);
         assert!((dps(sniper_three, 0.0) - 18.3).abs() < 0.05);
@@ -5325,37 +5316,45 @@ mod tests {
         let _ = WeaponKind::Minigun.at(Tier::One);
     }
 
-    /// Task 115: one pull of a minigun is twenty bolts a tenth of a second
-    /// apart, and the next pull comes five seconds after the first.
+    /// The minigun's magazine (October 2026, the player's word): held, it
+    /// fires a bolt every tenth of a second until its hundred are gone,
+    /// then nothing for the four seconds of its reload, and then a
+    /// hundred more. (Task 115's pull of twenty and a five-second cool is
+    /// what this replaced.)
     #[test]
-    fn a_minigun_pull_is_twenty_bolts_a_tenth_apart_and_the_next_five_seconds_on() {
+    fn a_minigun_fires_ten_a_second_through_its_hundred_and_reloads_four_seconds() {
         let stats = WeaponKind::Minigun.basic().stats();
         let mut trigger = Trigger::default();
+        trigger.load(WeaponKind::Minigun);
         let dt = 1.0 / 240.0;
         let mut times = Vec::new();
-        for step in 0..(240 * 11) {
+        for step in 0..(240 * 20) {
             trigger.tick(dt);
             if trigger.pull(dt, &stats) {
                 times.push(step as f32 * dt);
             }
         }
-        let first: Vec<f32> = times.iter().copied().filter(|&t| t < 4.0).collect();
-        assert_eq!(first.len(), 20, "{times:?}");
+        let first: Vec<f32> = times.iter().copied().filter(|&t| t < 12.0).collect();
+        assert_eq!(first.len(), 100, "{times:?}");
         for pair in first.windows(2) {
             assert!(
                 (pair[1] - pair[0] - 0.1).abs() <= dt * 1.5,
                 "a tenth apart: {first:?}"
             );
         }
-        assert!((first[19] - 1.9).abs() < 0.02, "{first:?}");
-        let next = times.iter().copied().find(|&t| t >= 4.0).unwrap();
+        assert!((first[99] - 9.9).abs() < 0.05, "{first:?}");
+        let next = times.iter().copied().find(|&t| t >= 12.0).unwrap();
         assert!(
-            (next - 5.0).abs() <= dt * 1.5,
-            "the next pull at five: {next}"
+            (next - (first[99] + 4.0)).abs() <= 0.1 + dt * 1.5,
+            "the next bolt after the four-second reload: {next}"
         );
         assert_eq!(
-            times.iter().filter(|&&t| (4.0..9.0).contains(&t)).count(),
-            20
+            times
+                .iter()
+                .filter(|&&t| (next..next + 4.95).contains(&t))
+                .count(),
+            50,
+            "ten a second again"
         );
     }
 

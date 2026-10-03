@@ -17,9 +17,8 @@
 //! at `range`, a straight line between; `damage` and `damage_far` the
 //! same. A `burst` is that many shots to one trigger pull, `burst_gap`
 //! seconds apart, and `fire_rate` is trigger pulls a second — the
-//! minigun's `0.2` with `burst 20` is twenty bolts in two seconds, then
-//! three seconds' cooling; the auto rifle's `4.0` with `burst 1` is four
-//! shots a second, steadily. A `melee` weapon swings within
+//! minigun's `10.0` with `burst 1` is ten bolts a second, steadily, until
+//! its `magazine` of a hundred is spent and `reload_time` runs out. A `melee` weapon swings within
 //! [`MELEE_RANGE`] instead of firing, and its `fire_rate` is one over
 //! [`MELEE_PERIOD`].
 //! Seconds are real seconds at 1x.
@@ -81,12 +80,13 @@ pub const AIM_SPREAD: f32 = 0.25;
 // then `reload_time` seconds when nothing is fired, and the next magazine
 // full — for ever, since nothing in the game carries ammunition
 // (`combat::Trigger`). Every body that carries one reloads: a player's,
-// a bot, a station's people, a Trooper's arm; a sentry never does. The
-// guns were paid for it: the pistol and the auto rifle 2 a shot more,
+// a bot, a station's people, a Trooper's arm, and since the minigun got
+// one a sentry too. The guns were paid for it: the pistol and the auto rifle 2 a shot more,
 // near and far, the shotgun twice the trigger rate, the sniper nothing.
-// The minigun's burst and long cool and the rail lance's one slug in
-// five seconds are a reload already, and have no magazine (nought); nor
-// has a blade or a machine's built-in arm.
+// The rail lance's one slug in five seconds is a reload already, and has
+// no magazine (nought); nor has a blade or a machine's built-in arm. The
+// minigun's burst and long cool were one too, until it got a magazine of
+// its own (`MINIGUN_MAGAZINE`), and the sentries reload with it.
 //
 // And then **no damage drop over distance**: every weapon's `damage_far`
 // (and the Unmaker's `strips_far`) is its near number, so a hit does the
@@ -106,6 +106,11 @@ pub const AUTO_RIFLE_RELOAD: f32 = 1.8;
 /// The sniper rifle's.
 pub const SNIPER_MAGAZINE: u32 = 4;
 pub const SNIPER_RELOAD: f32 = 2.4;
+/// The minigun's (October 2026, the player's word): a hundred bolts at
+/// ten a second, then four seconds. Its burst and five-second cool went
+/// with it, and the sentry that fires it reloads too.
+pub const MINIGUN_MAGAZINE: u32 = 100;
+pub const MINIGUN_RELOAD: f32 = 4.0;
 
 /// The pistol everybody is issued: quick, light, fifteen and a half
 /// tiles (twenty-two before October 2026). In a player's hand it fires
@@ -235,24 +240,28 @@ pub const SCHWORD: WeaponStats = WeaponStats {
 // each lands where it was asked for **at its own lowest tier** — which is
 // the only tier nobody can combine one up to.
 
-/// Twenty bolts to a trigger pull, a tenth of a second apart — 1.9
-/// seconds of fire — and the rest of a five-second cycle to cool. No
-/// spin-up, no heat, no pace penalty: the burst, the trigger and the hit
-/// are every gun's. At tier two (its lowest) that is 5.5 a bolt at 0.85
-/// odds out to its sweet 4.2 tiles, reaching fourteen (six and twenty
-/// before October 2026).
+/// Ten bolts a second for as long as the trigger is held, a hundred to a
+/// magazine ([`MINIGUN_MAGAZINE`]) — ten seconds of fire — then four
+/// seconds to reload ([`MINIGUN_RELOAD`]). No spin-up, no heat, no pace
+/// penalty. At tier two (its lowest) that is 5.5 a bolt at 0.85 odds out
+/// to its sweet 4.2 tiles, reaching fourteen (six and twenty before
+/// October 2026). Until its magazine (October 2026, the player's word:
+/// the damage a bolt kept, the trader's price tripled) a pull was twenty
+/// bolts a tenth apart and the rest of a five-second cycle to cool.
 ///
 /// What it does a second in its sweet range, body hits on whole armour,
-/// against the tier-two auto rifle beside it:
+/// against the tier-two auto rifle beside it — over its magazine and
+/// reload, a hundred bolts in fourteen seconds:
 ///
 /// | against | tier-2 minigun | tier-2 auto rifle |
 /// | --- | --- | --- |
-/// | a droid (no armour) | 18.7 | 27.0 |
-/// | tier-2 kevlar (protection 3) | 8.5 | 17.7 |
-/// | tier-3 kevlar (protection 4.5) | 3.4 | 13.1 |
+/// | a droid (no armour) | 33.4 | 27.0 |
+/// | tier-2 kevlar (protection 3) | 15.2 | 17.7 |
+/// | tier-3 kevlar (protection 4.5) | 6.1 | 13.1 |
 ///
 /// So it shreds the machines and bounces off good armour: many light
-/// bolts each lose the protection. (The auto rifle's column was 14.3,
+/// bolts each lose the protection. (The minigun's column was 18.7, 8.5
+/// and 3.4 at twenty bolts in five seconds. The auto rifle's was 14.3,
 /// 2.9 and 0.0 until its shots gained 2 in October 2026, and 23.9, 12.4
 /// and 6.7 until they gained 2 again with its magazine, the rifle's
 /// second now over thirty shots and their reload.)
@@ -264,14 +273,14 @@ pub const MINIGUN: WeaponStats = WeaponStats {
     damage: 4.4,
     damage_far: 4.4,
     speed: 24.0,
-    fire_rate: 0.2,
-    burst: 20,
-    burst_gap: 0.1,
+    fire_rate: 10.0,
+    burst: 1,
+    burst_gap: 0.0,
     melee: false,
     strips: 0.0,
     strips_far: 0.0,
-    magazine: 0,
-    reload_time: 0.0,
+    magazine: MINIGUN_MAGAZINE,
+    reload_time: MINIGUN_RELOAD,
 };
 
 /// One slug every five seconds that **goes through**: it strikes up to

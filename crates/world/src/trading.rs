@@ -285,6 +285,12 @@ impl World {
             .unwrap_or_else(|| {
                 economy::trade_price(item.resource).saturating_mul(economy::tier_price(tier))
             });
+        // The minigun at three times its ask (October 2026).
+        let ask = if item.resource == ResourceId::Minigun {
+            ask.saturating_mul(data::MINIGUN_SHELF_PRICE)
+        } else {
+            ask
+        };
         // The reward dials' shelf per cent, then the crew's relics, then
         // the players' share.
         self.trader_share(self.trader_price_by_relics(self.rewards.shelf_price(ask)))
