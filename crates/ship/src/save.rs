@@ -259,7 +259,9 @@ use crate::game::Game;
 /// Juggernaut were, `Bim::bulwark` went, a `Shield` drains
 /// (`Shield::drain`) and a `Shot`, a `Bolt` and a `Sweep` keep who took
 /// them, `Combat` its plates where its bulwarks were.
-pub const SAVE_VERSION: u32 = 95;
+/// 96: a broken Riot Shield waits a cooldown — `Tank::shield_broke` (the
+/// minute it broke) where `shield_broken` was.
+pub const SAVE_VERSION: u32 = 96;
 
 /// What the file holds, read back.
 #[derive(serde::Deserialize)]

@@ -378,7 +378,7 @@ pub enum Command {
     /// shield's hit points and bounces it back as his. Refused `NotATank`
     /// for anybody else, `OutOfReach` for one not fit to act or downed,
     /// `NotLearnt` at rank nought and `ShieldRecharging` while a broken
-    /// shield is not yet a quarter back (`World::can_riot_shield`);
+    /// shield's cooldown runs (`World::can_riot_shield`);
     /// putting it down is never refused a tank.
     RiotShield {
         slot: u32,
@@ -9980,18 +9980,39 @@ impl World {
         self.is_tank(who) && self.tank_of(who).shield_up
     }
 
-    /// Whether a tank's Riot Shield is broken and not yet a quarter back:
-    /// it cannot be raised.
+    /// Hit points a second a tank's Riot Shield restores: its rank's
+    /// [`class::RIOT_SHIELD_REGEN`], nought before the first.
+    pub fn riot_shield_regen(&self, who: u32) -> f32 {
+        class::by_rank(class::RIOT_SHIELD_REGEN, self.rank_of(who, class::SLOT_Q)).unwrap_or(0.0)
+    }
+
+    /// Seconds of the mission clock a broken Riot Shield cannot be raised:
+    /// [`class::RIOT_SHIELD_BROKEN_COOLDOWN`], shorter with the cooldown
+    /// relics and items as every class cooldown is.
+    pub fn riot_shield_cooldown(&self, who: u32) -> f64 {
+        class::RIOT_SHIELD_BROKEN_COOLDOWN * self.relic_factor(who, crate::relic::Stat::Cooldowns)
+    }
+
+    /// Seconds of the mission clock until a tank's broken Riot Shield may
+    /// be raised again; nought when it is not broken.
+    pub fn riot_shield_cooldown_left(&self, who: u32) -> f64 {
+        let Some(broke) = self.tank_of(who).shield_broke else {
+            return 0.0;
+        };
+        let since = (self.mission_minutes() - broke) / time::MINUTES_PER_SECOND;
+        (self.riot_shield_cooldown(who) - since).max(0.0)
+    }
+
+    /// Whether a tank's Riot Shield is broken and its cooldown still
+    /// runs: it cannot be raised.
     pub fn is_shield_recharging(&self, who: u32) -> bool {
-        self.tank_of(who).shield_broken
-            && self.riot_shield_left(who)
-                < self.riot_shield_hp(who) * class::RIOT_SHIELD_RAISE_SHARE
+        self.riot_shield_cooldown_left(who) > 0.0
     }
 
     /// Whether a player's tank may raise his Riot Shield (`on`) or put it
     /// down, or why not, in order: a tank (`NotATank`); and to raise it,
     /// fit to act — downed among it — (`OutOfReach`), a rank of it
-    /// (`NotLearnt`) and not broken and short of a quarter
+    /// (`NotLearnt`) and not broken with its cooldown running
     /// (`ShieldRecharging`). Putting it down is never refused a tank.
     pub fn can_riot_shield(&self, slot: u32, on: bool) -> Result<(), Refusal> {
         if !class::can(self.class_of(slot), class::Ability::RiotShield) {
@@ -10230,10 +10251,11 @@ impl World {
 
     /// After the rooms step: what the plates stopped comes off the
     /// shields — one at nought breaks and goes down,
-    /// `WorldEvent::ShieldBroken` — every shield restores
-    /// [`class::RIOT_SHIELD_REGEN`] a second while stowed, or up and
-    /// unstruck for [`class::RIOT_SHIELD_REGEN_DELAY`], and every tank on
-    /// his feet mends Plated's hit points.
+    /// `WorldEvent::ShieldBroken`, and its cooldown starts — every shield
+    /// restores its rank's [`class::RIOT_SHIELD_REGEN`] a second while
+    /// stowed, or up and unstruck for [`class::RIOT_SHIELD_REGEN_DELAY`],
+    /// a cooldown run out is forgotten, and every tank on his feet mends
+    /// Plated's hit points.
     fn settle_tanks(&mut self, events: &mut Vec<WorldEvent>) {
         let now = self.mission_minutes();
         for (who, damage) in self.aboard.room.take_plate_blocks() {
@@ -10247,7 +10269,7 @@ impl World {
             tank.shield_struck = Some(now);
             if tank.shield_spent >= whole && tank.shield_up {
                 tank.shield_up = false;
-                tank.shield_broken = true;
+                tank.shield_broke = Some(now);
                 events.push(WorldEvent::ShieldBroken { who });
             }
         }
@@ -10257,14 +10279,14 @@ impl World {
             if !self.is_tank(who) {
                 continue;
             }
+            let restores = self.riot_shield_regen(who);
             let tank = &mut self.tanks[who as usize];
             let unstruck = tank.shield_struck.is_none_or(|t| now - t >= delay - 1e-9);
             if tank.shield_spent > 0.0 && (!tank.shield_up || unstruck) {
-                tank.shield_spent =
-                    (tank.shield_spent - class::RIOT_SHIELD_REGEN * seconds).max(0.0);
+                tank.shield_spent = (tank.shield_spent - restores * seconds).max(0.0);
             }
-            if self.tanks[who as usize].shield_broken && !self.is_shield_recharging(who) {
-                self.tanks[who as usize].shield_broken = false;
+            if self.tanks[who as usize].shield_broke.is_some() && !self.is_shield_recharging(who) {
+                self.tanks[who as usize].shield_broke = None;
             }
             let regen = self.plated_regen(who);
             if regen > 0.0 && self.fit_to_act(who) {

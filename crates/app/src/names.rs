@@ -463,7 +463,7 @@ pub fn refusal(why: Refusal) -> &'static str {
         Refusal::NotForSale => "the trader does not sell that",
         Refusal::NoWeaponInHand => "nothing in hand to fire it from",
         Refusal::NoSatchels => "no satchel charge of yours is lying out",
-        Refusal::ShieldRecharging => "the shield is broken until a quarter of it is back",
+        Refusal::ShieldRecharging => "the shield is broken until its cooldown is over",
     }
 }
 
@@ -970,13 +970,18 @@ pub fn ranked_stats(class: world::Class, slot: u8) -> Vec<Stat> {
         // The tank's (task 155).
         (world::Class::Tank, 0) => vec![
             Stat::ranks("Shield", " hp", |r| fig(c::RIOT_SHIELD_HP[r] as f64)),
+            Stat::ranks("Mends", " hp/s", |r| fig(c::RIOT_SHIELD_REGEN[r] as f64)),
             Stat::one(
-                "Mends",
-                " hp/s",
+                "Held up, mends",
+                "",
+                format!("{} s after the last hit", fig(c::RIOT_SHIELD_REGEN_DELAY)),
+            ),
+            Stat::one(
+                "Broken",
+                "",
                 format!(
-                    "{} (held up: {} s after the last hit)",
-                    fig(c::RIOT_SHIELD_REGEN as f64),
-                    fig(c::RIOT_SHIELD_REGEN_DELAY)
+                    "{} s before it can be raised",
+                    fig(c::RIOT_SHIELD_BROKEN_COOLDOWN)
                 ),
             ),
         ],
@@ -1290,14 +1295,15 @@ pub fn battle_cry_line(left: f64, cooldown: f64, learnt: bool) -> String {
     }
 }
 /// The tank's rows on the crew panel (task 155): the Riot Shield, and the
-/// Reflect Barrier and the Bastion, each with its cooldown.
-pub fn riot_shield_line(up: bool, left: f32, whole: f32, recharging: bool) -> String {
+/// Reflect Barrier and the Bastion, each with its cooldown — the shield's
+/// the seconds a broken one waits (nought when it is not broken).
+pub fn riot_shield_line(up: bool, left: f32, whole: f32, cooldown: f64) -> String {
     if whole <= 0.0 {
         return RIOT_SHIELD_NOT_LEARNT.to_string();
     }
     let hp = format!("{:.0}/{:.0}", left.max(0.0), whole);
-    if recharging {
-        format!("Shield broken — {hp}")
+    if cooldown > 0.0 {
+        format!("Shield broken — {hp}, ready in {:.0} s", cooldown.ceil())
     } else if up {
         format!("Shield up — {hp}")
     } else {
@@ -1306,7 +1312,7 @@ pub fn riot_shield_line(up: bool, left: f32, whole: f32, recharging: bool) -> St
 }
 /// The Riot Shield before its first rank.
 pub const RIOT_SHIELD_NOT_LEARNT: &str = "Riot Shield not learnt yet";
-pub const RIOT_SHIELD_TIP: &str = "The Riot Shield: up, every shot that meets it from the front is bounced back off it. Q raises it and puts it down; going down puts it down, and at nothing it breaks until a quarter of it is back.";
+pub const RIOT_SHIELD_TIP: &str = "The Riot Shield: up, every shot that meets it from the front is bounced back off it. Q raises it and puts it down; going down puts it down, and at nothing it breaks and cannot be raised for ten seconds. It mends all the while it is down, and up five seconds after the last hit.";
 pub fn reflect_line(left: f64, cooldown: f64, learnt: bool) -> String {
     if !learnt {
         return REFLECT_NOT_LEARNT.to_string();
@@ -3407,16 +3413,13 @@ mod tests {
             assert_eq!(bastion_line(90.0, true), "Bastion ready in 90 s");
             assert_eq!(bastion_line(0.0, true), "Bastion ready");
             assert_eq!(
-                riot_shield_line(false, 0.0, 0.0, false),
+                riot_shield_line(false, 0.0, 0.0, 0.0),
                 RIOT_SHIELD_NOT_LEARNT
             );
+            assert_eq!(riot_shield_line(true, 18.4, 20.0, 0.0), "Shield up — 18/20");
             assert_eq!(
-                riot_shield_line(true, 18.4, 20.0, false),
-                "Shield up — 18/20"
-            );
-            assert_eq!(
-                riot_shield_line(false, 3.0, 20.0, true),
-                "Shield broken — 3/20"
+                riot_shield_line(false, 3.0, 20.0, 6.2),
+                "Shield broken — 3/20, ready in 7 s"
             );
             assert_eq!(grenades_line(1, 0.0), "1 grenade");
             assert_eq!(grenades_line(2, 3.4), "2 grenades — next in 3 s");

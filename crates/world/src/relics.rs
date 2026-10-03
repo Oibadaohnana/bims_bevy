@@ -332,13 +332,17 @@ impl World {
                 }
             }
         }
-        // The tank's Reflect Barrier and Bastion (task 155): each timestamp is
-        // the cooldown alone — the window running is its own, and does
-        // not move.
+        // The tank's Reflect Barrier and Bastion (task 155), and his broken
+        // Riot Shield's wait: each timestamp is the cooldown alone — the
+        // window running is its own, and does not move.
         if let Some(tank) = self.tanks.get_mut(who as usize) {
-            for last in [tank.last_reflect.as_mut(), tank.last_bastion.as_mut()]
-                .into_iter()
-                .flatten()
+            for last in [
+                tank.last_reflect.as_mut(),
+                tank.last_bastion.as_mut(),
+                tank.shield_broke.as_mut(),
+            ]
+            .into_iter()
+            .flatten()
             {
                 *last -= minutes;
                 any = true;

@@ -6,7 +6,7 @@
 //! reached, which is anybody's. Saved, and in `world_checksum` where set.
 //!
 //! What is kept is what runs on a clock: the **Riot Shield**'s hit points
-//! spent, whether it is up and when it was last struck; the **Reflect
+//! spent, whether it is up, when it was last struck and when it broke; the **Reflect
 //! Barrier** running and its cooldown; the **Bastion**'s cooldown and its
 //! haste. The plate itself is handed to the room every step
 //! (`Game::set_riot_shields`), the barrier through the tank's
@@ -52,10 +52,11 @@ pub struct Tank {
     /// before a shield held up restores; `None` when never this mission.
     #[cfg_attr(feature = "serde", serde(default))]
     pub shield_struck: Option<f64>,
-    /// Whether it broke, and is not to be raised again until a quarter of
-    /// it is back.
+    /// The mission minute it last broke, the start of the cooldown before
+    /// it may be raised again; `None` once that is over, or never broken
+    /// this mission.
     #[cfg_attr(feature = "serde", serde(default))]
-    pub shield_broken: bool,
+    pub shield_broke: Option<f64>,
     /// The mission minute his last Reflect Barrier began, the cooldown's
     /// start; `None` until he has raised one this mission.
     #[cfg_attr(feature = "serde", serde(default))]

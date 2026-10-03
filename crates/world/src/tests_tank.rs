@@ -670,11 +670,11 @@ fn a_bolt_from_the_front_is_stopped_on_the_shield_and_bounced_back_at_the_shoote
 }
 
 /// **It breaks at nought** — put down, `ShieldBroken` said, and refused
-/// `ShieldRecharging` until a quarter is back — and **restores two a
-/// second**: at once while stowed, and up only five seconds after the
-/// last hit.
+/// `ShieldRecharging` for its ten-second cooldown — and **restores half a
+/// hit point a second at the first rank**: at once while stowed, the
+/// cooldown through, and up only five seconds after the last hit.
 #[test]
-fn the_shield_breaks_at_nought_and_restores_two_a_second_stowed_or_unstruck() {
+fn the_shield_breaks_at_nought_for_a_cooldown_and_restores_by_its_rank_stowed_or_unstruck() {
     let mut world = tank_in_a_fight([1, 0, 0, 0], [Class::None, Class::None]);
     hold_still(&mut world);
     let at = world.aboard.room.bim_pos(0);
@@ -716,16 +716,28 @@ fn the_shield_breaks_at_nought_and_restores_two_a_second_stowed_or_unstruck() {
         world.can_riot_shield(0, true),
         Err(Refusal::ShieldRecharging)
     );
-    // Stowed, two a second at once: a quarter of twenty is five.
+    // The cooldown is ten seconds from the break, less the steps the
+    // bolt took to fly out.
+    let cooldown = world.riot_shield_cooldown_left(0);
+    assert_eq!(world.riot_shield_cooldown(0), 10.0);
+    assert!(cooldown > 8.5 && cooldown <= 10.0, "{cooldown} s left");
+    // Stowed, half a hit point a second at once, cooling down or not.
     run_for(&mut world, 2.0);
-    assert!((world.riot_shield_left(0) - left - 4.0).abs() < 0.1);
+    assert!((world.riot_shield_left(0) - left - 1.0).abs() < 0.05);
     assert_eq!(
         world.can_riot_shield(0, true),
         Err(Refusal::ShieldRecharging)
     );
-    run_for(&mut world, 1.0);
-    assert_eq!(world.can_riot_shield(0, true), Ok(()), "a quarter back");
-    // Up and struck, nothing for five seconds; then two a second.
+    run_for(&mut world, cooldown - 2.0 - 0.2);
+    assert_eq!(
+        world.can_riot_shield(0, true),
+        Err(Refusal::ShieldRecharging),
+        "still cooling down"
+    );
+    run_for(&mut world, 0.4);
+    assert_eq!(world.can_riot_shield(0, true), Ok(()), "cooled down");
+    assert_eq!(world.tank_of(0).shield_broke, None, "and forgotten");
+    // Up and struck, nothing for five seconds; then half a point a second.
     world.step(&[Command::RiotShield { slot: 0, on: true }]);
     let now = world.mission_minutes();
     world.tanks[0].shield_struck = Some(now);
@@ -737,9 +749,32 @@ fn the_shield_breaks_at_nought_and_restores_two_a_second_stowed_or_unstruck() {
     );
     run_for(&mut world, 2.5);
     assert!(
-        world.riot_shield_left(0) > left + 2.0,
+        world.riot_shield_left(0) > left + 0.5,
         "restoring after five seconds"
     );
+}
+
+/// What the shield restores goes by its rank — half a hit point a second
+/// at the first, two at the last — and the broken shield's cooldown is
+/// cut by the cooldown relics like every class cooldown.
+#[test]
+fn the_shield_restores_by_its_rank_and_its_cooldown_is_a_class_cooldown() {
+    assert_eq!(tank().riot_shield_regen(0), 0.0, "nothing unlearnt");
+    for (rank, &regen) in (1..=4u8).zip(&class::RIOT_SHIELD_REGEN) {
+        let mut world = tank_at([rank, 0, 0, 0]);
+        assert_eq!(world.riot_shield_regen(0), regen, "rank {rank}");
+        world.tanks[0].shield_spent = 10.0;
+        let left = world.riot_shield_left(0);
+        run_for(&mut world, 2.0);
+        let restored = world.riot_shield_left(0) - left;
+        assert!(
+            (restored - 2.0 * regen).abs() < 0.05,
+            "rank {rank}: {restored} in two seconds"
+        );
+    }
+    let mut world = tank_at([1, 0, 0, 0]);
+    world.give_relic_for_probe(crate::relic::Relic::OverclockedCores);
+    assert!(world.riot_shield_cooldown(0) < class::RIOT_SHIELD_BROKEN_COOLDOWN);
 }
 
 // --- E: E, Reflect Barrier (task 155) ----------------------------------------------

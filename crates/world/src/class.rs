@@ -291,15 +291,16 @@
 //! **bounced** back as his own — the angle out the angle in — onto
 //! whatever it reaches. It restores [`RIOT_SHIELD_REGEN`] a second while
 //! stowed, and up after [`RIOT_SHIELD_REGEN_DELAY`] seconds unstruck; at
-//! nought it breaks and goes down, and is raised again once a quarter
-//! ([`RIOT_SHIELD_RAISE_SHARE`]) is back.
+//! nought it breaks and goes down, and cannot be raised again for
+//! [`RIOT_SHIELD_BROKEN_COOLDOWN`] seconds (the cooldown relics and items
+//! on it), restoring all the while.
 //!
-//! | rank | hit points |
-//! |---|---|
-//! | 1 | 20 |
-//! | 2 | 40 |
-//! | 3 | 80 |
-//! | 4 | 100 |
+//! | rank | hit points | restores |
+//! |---|---|---|
+//! | 1 | 20 | 0.5 hp/s |
+//! | 2 | 40 | 1.0 hp/s |
+//! | 3 | 80 | 1.5 hp/s |
+//! | 4 | 100 | 2.0 hp/s |
 //!
 //! **C, Plated** (passive): the damage of every hit on him multiplied
 //! down, before the armour takes its share — with Rampage, Rally and
@@ -981,14 +982,16 @@ pub const TANK_DRAIN: f32 = 0.5;
 /// **Q, Riot Shield**: the hit points the plate takes, a rank (task
 /// 155).
 pub const RIOT_SHIELD_HP: [f32; 4] = [20.0, 40.0, 80.0, 100.0];
-/// Hit points a second the shield restores, stowed or up.
-pub const RIOT_SHIELD_REGEN: f32 = 2.0;
+/// Hit points a second the shield restores, stowed or up, a rank — half
+/// a hit point at the first, two at the last.
+pub const RIOT_SHIELD_REGEN: [f32; 4] = [0.5, 1.0, 1.5, 2.0];
 /// Seconds of the mission clock a shield held up must go unstruck before
 /// it restores; a stowed one restores at once.
 pub const RIOT_SHIELD_REGEN_DELAY: f64 = 5.0;
-/// The share of its hit points a broken shield must have back before it
-/// can be raised again.
-pub const RIOT_SHIELD_RAISE_SHARE: f32 = 0.25;
+/// Seconds of the mission clock a broken shield cannot be raised again,
+/// from the hit that broke it — shorter with the cooldown relics and
+/// items, as every class cooldown is. It restores all the while.
+pub const RIOT_SHIELD_BROKEN_COOLDOWN: f64 = 10.0;
 
 /// **C, Plated**: what the damage of a hit on him is multiplied by, a
 /// rank — before the armour, as Rampage's is.
@@ -1320,7 +1323,11 @@ mod tests {
     #[test]
     fn the_tank_s_tables_are_the_spec_s() {
         assert_eq!(RIOT_SHIELD_HP, [20.0, 40.0, 80.0, 100.0]);
-        assert_eq!((RIOT_SHIELD_REGEN, RIOT_SHIELD_REGEN_DELAY), (2.0, 5.0));
+        assert_eq!(RIOT_SHIELD_REGEN, [0.5, 1.0, 1.5, 2.0]);
+        assert_eq!(
+            (RIOT_SHIELD_REGEN_DELAY, RIOT_SHIELD_BROKEN_COOLDOWN),
+            (5.0, 10.0)
+        );
         assert_eq!(PLATED_DAMAGE_TAKEN, [0.90, 0.85, 0.80, 0.75]);
         assert_eq!(PLATED_REGEN, [0.2, 0.8, 1.4, 2.0]);
         assert_eq!(TANK_DRAIN * FORTRESS_DRAIN, 0.25, "a quarter in all");

@@ -1752,7 +1752,7 @@ fn frame(
                     shield_up: world.is_shielding(slot),
                     shield_left: world.riot_shield_left(slot),
                     shield_whole: world.riot_shield_hp(slot),
-                    shield_broken: world.is_shield_recharging(slot),
+                    shield_cooldown: world.riot_shield_cooldown_left(slot),
                     reflect_left: world.reflect_left(slot),
                     reflect_cooldown: world.reflect_cooldown_left(slot),
                     reflect_learnt: world.rank_of(slot, world::class::SLOT_E) > 0,
@@ -5231,6 +5231,8 @@ fn ranked_box(world: &world::World, slot: u32, action: Action, keys: &Keys) -> A
         (world::Class::Tank, 0) => Face {
             count: (world.riot_shield_hp(slot) > 0.0)
                 .then(|| world.riot_shield_left(slot).ceil() as u32),
+            cooldown: world.riot_shield_cooldown_left(slot),
+            cooldown_whole: world.riot_shield_cooldown(slot),
             on: world.is_shielding(slot),
             ..Face::of(Some(Glyph::RiotShield))
         },
@@ -6366,6 +6368,17 @@ mod class_key_tests {
             (Some(Order::RiotShield(false)), None),
             "and down again, whatever is under the pointer"
         );
+        // Broken, it waits its cooldown, and the Q box sweeps it.
+        let now = world.mission_minutes();
+        world.tanks[0].shield_up = false;
+        world.tanks[0].shield_broke = Some(now);
+        assert_eq!(
+            class_key(&world, 0, true, None, None),
+            (None, Some(riot_shield_refused(Refusal::ShieldRecharging)))
+        );
+        let q = &ability_boxes(&world, 0, &Keys::default())[0];
+        assert!(q.cooldown > 0.0 && q.cooldown_whole == world.riot_shield_cooldown(0));
+        world.tanks[0].shield_broke = None;
         // E wants its rank, and then cools down.
         assert_eq!(
             class_key(&world, 0, false, None, None),

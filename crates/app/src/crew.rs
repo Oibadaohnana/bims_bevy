@@ -212,15 +212,15 @@ pub struct MedicView {
 }
 
 /// What the panel says of a tank (task 155): the Riot Shield — up, its
-/// hit points left and whole (nought before a rank), broken — the
-/// Reflect Barrier's seconds left and to the next, and the Bastion's
-/// seconds to the next, each with whether a rank is bought.
+/// hit points left and whole (nought before a rank), the seconds a broken
+/// one waits — the Reflect Barrier's seconds left and to the next, and
+/// the Bastion's seconds to the next, each with whether a rank is bought.
 #[derive(Clone, Copy, PartialEq, Debug, Default)]
 pub struct TankView {
     pub shield_up: bool,
     pub shield_left: f32,
     pub shield_whole: f32,
-    pub shield_broken: bool,
+    pub shield_cooldown: f64,
     pub reflect_left: f64,
     pub reflect_cooldown: f64,
     pub reflect_learnt: bool,
@@ -919,9 +919,9 @@ impl CrewPanels {
                     tank.shield_up,
                     tank.shield_left,
                     tank.shield_whole,
-                    tank.shield_broken,
+                    tank.shield_cooldown,
                 );
-                let color = if tank.shield_broken {
+                let color = if tank.shield_cooldown > 0.0 {
                     theme::WARN
                 } else if tank.shield_up {
                     theme::CAUTION

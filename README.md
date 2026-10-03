@@ -2479,17 +2479,18 @@ front** is stopped there — nothing reaches him — its damage comes off
 the shield's hit points, and it is **bounced back**: it leaves the plate
 as his own shot, at the angle it came in (head on, straight back at the
 shooter), and hurts whatever enemy it reaches. From the side or behind
-the shield is nothing. It mends **2 a second** while put away, and while
+the shield is nothing. It mends by its rank while put away, and while
 held up **5 seconds** after the last hit on it; at nothing it **breaks**,
-goes down, and cannot be raised again until a quarter of it is back. It
+goes down, and cannot be raised again for a **10-second cooldown**
+(shorter with the cooldown relics and items), mending all the while. It
 flickers when it is low, and goes down with him.
 
-| rank | hit points |
-| --- | --- |
-| 1 | 20 |
-| 2 | 40 |
-| 3 | 80 |
-| 4 | 100 |
+| rank | hit points | mends |
+| --- | --- | --- |
+| 1 | 20 | 0.5 a second |
+| 2 | 40 | 1 a second |
+| 3 | 80 | 1.5 a second |
+| 4 | 100 | 2 a second |
 
 **C, Plated** (passive): every hit on him is cut before the armour takes
 its share, and his health mends all the time.

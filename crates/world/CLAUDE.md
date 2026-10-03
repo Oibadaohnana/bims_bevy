@@ -7206,7 +7206,7 @@ The class's tables are `class.rs`'s (`HEAL_DRONE_*`, `TRIAGE`,
 The tables are `class.rs`'s (`RIOT_SHIELD_*`, `PLATED_REGEN`,
 `REFLECT_*`, `BASTION_*`); `crate::tank::Tank` keeps `shield_up`,
 `shield_spent` (nought is whole, so a fresh tank's shield is), the last
-hit on it (`shield_struck`), `shield_broken`, `last_reflect` and the
+hit on it (`shield_struck`), when it broke (`shield_broke`), `last_reflect` and the
 `reflect` window, `last_bastion`, and `hasted` — the one field anybody's
 entry carries, a tank or not. `class::Ability::{RiotShield, Reflect,
 Bastion}` are where `{Taunt, Bulwark, Juggernaut}` were.
@@ -7215,18 +7215,23 @@ Bastion}` are where `{Taunt, Bulwark, Juggernaut}` were.
   `WorldEvent::ShieldRaised { who, on }` (157), said only when it
   changed. `can_riot_shield(slot, on)`: down is never refused a tank;
   up wants `NotATank`, `OutOfReach` (unfit — downed among it),
-  `NotLearnt`, and `Refusal::ShieldRecharging` (131) while broken and
-  short of a quarter (`is_shield_recharging`). `hand_the_room_the_tanks`,
+  `NotLearnt`, and `Refusal::ShieldRecharging` (131) while a broken
+  shield's cooldown runs (`is_shield_recharging`,
+  `riot_shield_cooldown_left`: `RIOT_SHIELD_BROKEN_COOLDOWN`, ten
+  seconds from the break, times the cooldown relics and items, moved
+  back by *Kill Relay* like any class cooldown). `hand_the_room_the_tanks`,
   before the rooms step, puts down a shield whose tank is unfit or has no
   rank and hands the rest to the crew's room
   (`Game::set_riot_shields(&[(who, left, whole)])`), which stops and
   bounces the bolts (`crates/game/CLAUDE.md`). **`settle_tanks`**, after
   `casualties`: every `Game::take_plate_blocks` comes off `shield_spent`
-  and notes the minute; at the whole it breaks — down, `shield_broken`,
-  `WorldEvent::ShieldBroken` (158); then every tank's shield restores
-  `RIOT_SHIELD_REGEN` a second, stowed at once, up only
-  `RIOT_SHIELD_REGEN_DELAY` after the last hit, and a broken one is
-  unbroken once a quarter is back.
+  and notes the minute; at the whole it breaks — down, `shield_broke`
+  noted, `WorldEvent::ShieldBroken` (158); then every tank's shield
+  restores its rank's `RIOT_SHIELD_REGEN` (0.5, 1, 1.5, 2) a second
+  (`riot_shield_regen`), stowed at once — through the cooldown too — up
+  only `RIOT_SHIELD_REGEN_DELAY` after the last hit, and a cooldown run
+  out is forgotten (`shield_broke` back to `None`). `SAVE_VERSION` 96,
+  `wire::PROTOCOL` 103 for the cooldown.
 - **C, Plated**: the damage taken as before, and `plated_regen` hit
   points a second through `heal_crew` in `settle_tanks`, for a tank fit
   to act.

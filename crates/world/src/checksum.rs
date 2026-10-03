@@ -476,7 +476,7 @@ pub fn world_checksum(world: &World) -> u64 {
             || tank.hasted != crate::tank::Window::default()
             || tank.shield_spent > 0.0
             || tank.shield_struck.is_some()
-            || tank.shield_broken
+            || tank.shield_broke.is_some()
         {
             for window in [tank.reflect, tank.hasted] {
                 hash.eat_rounded(window.began, FINE_GRID);
@@ -485,7 +485,7 @@ pub fn world_checksum(world: &World) -> u64 {
             hash.eat_rounded(tank.last_bastion.unwrap_or(-1.0), FINE_GRID);
             hash.eat_rounded(tank.shield_spent as f64, HEALTH_GRID);
             hash.eat_rounded(tank.shield_struck.unwrap_or(-1.0), FINE_GRID);
-            hash.eat(u64::from(tank.shield_broken));
+            hash.eat_rounded(tank.shield_broke.unwrap_or(-1.0), FINE_GRID);
         }
     }
     for who in 0..crew {
