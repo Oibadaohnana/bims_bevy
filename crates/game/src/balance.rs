@@ -503,6 +503,22 @@ pub const GUARDIAN_SHIELD_HP: f32 = 1000.0;
 /// What a Guardian walks at, as a share of a Bim's marching pace.
 pub const GUARDIAN_PACE: f32 = 0.7;
 
+/// The Guardian's **grenade** (October 2026): a body of the crew's side
+/// coming within [`GUARDIAN_GRENADE_TRIGGER`] tiles of its middle, with a
+/// clear line, and it drops one at its feet — once every
+/// [`GUARDIAN_GRENADE_COOLDOWN`] seconds — lying there
+/// [`GUARDIAN_GRENADE_FUSE`] seconds before it bursts
+/// [`GUARDIAN_GRENADE_RADIUS`] tiles wide on the crew's side alone, the
+/// machines untouched. What it does at the centre is the Guardian's
+/// Sweeper damage (its tier and arms counted) times
+/// [`GUARDIAN_GRENADE_DAMAGE`], half that at the edge and halved again in
+/// cover, as a soldier's grenade.
+pub const GUARDIAN_GRENADE_TRIGGER: f32 = 2.0;
+pub const GUARDIAN_GRENADE_COOLDOWN: f32 = 10.0;
+pub const GUARDIAN_GRENADE_FUSE: f32 = 1.5;
+pub const GUARDIAN_GRENADE_RADIUS: f32 = 2.5;
+pub const GUARDIAN_GRENADE_DAMAGE: f32 = 1.5;
+
 /// What a droid with its arms shot away fires and strikes at: a gun's
 /// odds and a claw's damage, halved. The Unmaker counts as a gun; the
 /// Guardian's Sweeper, which rolls no odds, loses the damage instead.

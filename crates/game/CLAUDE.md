@@ -3675,9 +3675,12 @@ What stayed, and why each one looks as if it should have gone:
 
 ## The Guardian: a shield in front, a turn in sub-steps (feature 100)
 
-`DroidKind::Guardian` (code 4), a fourth machine, only ever at tier three
-(`droid::guardians_of`: `n / 8` of a wave of `n`, at least one from four,
-out of the Troopers' share; `wave_kinds(n, tier)` takes the tier now).
+`DroidKind::Guardian` (code 4), a fourth machine. **No plain wave has
+one** since October 2026 (`droid::wave_kinds(n)`, no tier; it was
+`guardians_of`, `n / 8` of a tier-three wave, until the player asked
+for Guardians at elite sites alone): the world puts them into an
+elite's second wave (`world::elite::with_guardian`), and the probes
+force them (`set_droid_kinds_for_probe`).
 Body `balance::GUARDIAN_BODY` (16 / 110 / 25 / 30), pace
 `GUARDIAN_PACE` (0.7), half-width 28, `BODY_MARGIN` like the rest. Its
 arm is `WeaponKind::Sweeper` (8), built in like the Unmaker — in
@@ -3735,6 +3738,25 @@ legs at nothing stop the walk and nothing else.
 - `tests_guardian.rs` is the rule: the shield's dot product and its edge,
   bolts from inside and outside the arc, a blow, a grenade, the turn rate,
   the heading held through a wind-up, a taunt, and the legs and arms.
+- **The grenade** (October 2026): `Game::drop_guardian_grenade`, first
+  in `tick_guardian` whatever the beam is doing (a stunned machine never
+  reaches it). `Droid::grenade_wait` runs down; at nought, at war, with a
+  live (not stale) target of `machine_targets` within
+  `balance::GUARDIAN_GRENADE_TRIGGER` (two) tiles and a clear line, it
+  drops one at its own feet and waits `GUARDIAN_GRENADE_COOLDOWN` (ten
+  seconds). It is a `Shot` with `grenade` set (`Combat::shoot_grenade`)
+  that the world lays in the crew's room (`Game::enemy_grenade`), and —
+  when the machines' list has this room's own bodies on it, a defended
+  town — a copy laid here `unseen` (neither drawn, lit nor heard), as a
+  Sweeper's beam is. Either is a `Grenade` with `hostile` set
+  (`Combat::drop_hostile_grenade`): `GUARDIAN_GRENADE_FUSE` (1.5 s) on
+  the tile, then `Game::burst` over `GUARDIAN_GRENADE_RADIUS` (2.5)
+  tiles on the room's own bodies (never an intruder), its sentries and
+  its sandbags, **never a target**, the hits carrying no `by` (an
+  enemy's); the damage at the centre is the Sweeper's (tier and arms
+  counted) times `GUARDIAN_GRENADE_DAMAGE` (1.5), the grenade's fall-off
+  and cover after. `tests_guardian.rs`' last three tests pin the drop,
+  the burst and the town's unseen copy.
 
 ### The Sweeper: a beam wound up, swept, and laid where its targets stand
 

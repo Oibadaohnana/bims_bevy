@@ -2584,6 +2584,9 @@ impl Game {
                 };
             }
         }
+        // Its grenade is its own rhythm, beside the beam's: dropped
+        // whatever the beam is doing.
+        self.drop_guardian_grenade(i, dt, war);
         // A sweep let go runs to its end, fight or no fight: the beam is in
         // the air, and the heading is held until it is done.
         if let Beam::Sweep { left, aim, side } = self.droids[i].beam {
@@ -2672,6 +2675,55 @@ impl Game {
                 };
             }
         }
+    }
+
+    /// A Guardian's **grenade** (October 2026): its wait run down, and with
+    /// it out, a fight on and a body of the crew's side standing within
+    /// [`crate::balance::GUARDIAN_GRENADE_TRIGGER`] tiles of its middle
+    /// with a clear line, one dropped at its feet, the wait set to
+    /// [`crate::balance::GUARDIAN_GRENADE_COOLDOWN`]. Recorded as a `Shot`
+    /// for the world to lay in the crew's room, and laid here as well,
+    /// unseen, when the machines' list has bodies of this room's own on
+    /// it — a town the crew are defending — as a Sweeper's beam is. What
+    /// it does at the centre is the Sweeper's damage (its tier and arms
+    /// counted) times [`crate::balance::GUARDIAN_GRENADE_DAMAGE`].
+    fn drop_guardian_grenade(&mut self, i: usize, dt: f32, war: bool) {
+        use crate::balance::{
+            GUARDIAN_GRENADE_COOLDOWN, GUARDIAN_GRENADE_DAMAGE, GUARDIAN_GRENADE_TRIGGER,
+        };
+        let d = &mut self.droids[i];
+        d.grenade_wait = (d.grenade_wait - dt).max(0.0);
+        if !war || d.grenade_wait > 0.0 {
+            return;
+        }
+        let at = d.pos;
+        let reach = GUARDIAN_GRENADE_TRIGGER * TILE;
+        let near = self
+            .combat
+            .machine_targets()
+            .iter()
+            .flatten()
+            .any(|t| !t.stale && (t.at - at).len() <= reach && self.line_clear(at, t.at));
+        if !near {
+            return;
+        }
+        let d = &mut self.droids[i];
+        d.grenade_wait = GUARDIAN_GRENADE_COOLDOWN;
+        let damage = d.stats().damage * GUARDIAN_GRENADE_DAMAGE;
+        let weapon = d.weapon;
+        self.reveal(self.bims.len() + i);
+        self.combat.shoot_grenade(at, weapon, damage);
+        if self.combat.machine_cross() < self.combat.machine_targets().len() {
+            self.combat.drop_hostile_grenade(at, damage, true);
+        }
+    }
+
+    /// A Guardian's grenade recorded in the other room, laid in this one
+    /// by the world (October 2026): lying at `at`, bursting on this room's
+    /// own bodies with `damage` at the centre — see
+    /// `Combat::drop_hostile_grenade`.
+    pub fn enemy_grenade(&mut self, at: Vec2, damage: f32) {
+        self.combat.drop_hostile_grenade(at, damage, false);
     }
 
     /// The Sweeper let go at the end of a wind-up (feature 100): the beam
@@ -3745,6 +3797,13 @@ impl Game {
             self.move_body(who, dt);
             return;
         }
+        // Stunned (October 2026, `tick_combat` wears it off): no errand,
+        // no round, no walk — the body stands where the burst caught it.
+        if self.bims[who].stunned > 0.0 {
+            self.bims[who].character.halt();
+            self.move_body(who, dt);
+            return;
+        }
 
         // A downed crewmate the medical row says is urgent — set to the
         // top — is revived *now*, whatever the Bim was in the middle of:
@@ -3798,13 +3857,6 @@ impl Game {
                 if task.is_done() {
                     bim.task = None;
                 }
-        // Stunned (October 2026, `tick_combat` wears it off): no errand,
-        // no round, no walk — the body stands where the burst caught it.
-        if self.bims[who].stunned > 0.0 {
-            self.bims[who].character.halt();
-            self.move_body(who, dt);
-            return;
-        }
             }
         }
         self.pump_queue(who);
@@ -8825,6 +8877,38 @@ impl Game {
             .is_some_and(|d| d.stun(seconds, expose))
     }
 
+    /// Bim `who` of this room stunned for `seconds` by a Stun Shot
+    /// (October 2026): the longer of two stuns, and whatever it had begun
+    /// dropped — the walk, the errand put down onto the queue, the blow
+    /// on its way. Nobody dead, down or outside. Whether it took.
+    pub fn stun_bim(&mut self, who: usize, seconds: f32) -> bool {
+        let Some(bim) = self.bims.get(who) else {
+            return false;
+        };
+        if seconds <= 0.0
+            || !bim.is_alive()
+            || bim.character.is_unconscious()
+            || bim.character.is_outside()
+        {
+            return false;
+        }
+        self.interrupt(who);
+        let bim = &mut self.bims[who];
+        bim.stunned = bim.stunned.max(seconds);
+        bim.blow = None;
+        bim.locked = None;
+        bim.peek = None;
+        bim.trigger.hold();
+        bim.character.halt();
+        bim.character.set_stunned(true);
+        true
+    }
+
+    /// Seconds Bim `who` is still stunned for; nought when it is not.
+    pub fn bim_stunned(&self, who: usize) -> f32 {
+        self.bims.get(who).map_or(0.0, |b| b.stunned)
+    }
+
     /// A grenade's hit on one of this room's own: `strike` — through the
     /// armour — whose splash is every hit's that takes hit
     /// points (task 120).
@@ -8878,48 +8962,22 @@ impl Game {
             if d > g.radius || !game.line_clear(g.at, at) {
                 return None;
             }
-    /// Bim `who` of this room stunned for `seconds` by a Stun Shot
-    /// (October 2026): the longer of two stuns, and whatever it had begun
-    /// dropped — the walk, the errand put down onto the queue, the blow
-    /// on its way. Nobody dead, down or outside. Whether it took.
-    pub fn stun_bim(&mut self, who: usize, seconds: f32) -> bool {
-        let Some(bim) = self.bims.get(who) else {
-            return false;
-        };
-        if seconds <= 0.0
-            || !bim.is_alive()
-            || bim.character.is_unconscious()
-            || bim.character.is_outside()
-        {
-            return false;
-        }
-        self.interrupt(who);
-        let bim = &mut self.bims[who];
-        bim.stunned = bim.stunned.max(seconds);
-        bim.blow = None;
-        bim.locked = None;
-        bim.peek = None;
-        bim.trigger.hold();
-        bim.character.halt();
-        bim.character.set_stunned(true);
-        true
-    }
-
-    /// Seconds Bim `who` is still stunned for; nought when it is not.
-    pub fn bim_stunned(&self, who: usize) -> f32 {
-        self.bims.get(who).map_or(0.0, |b| b.stunned)
-    }
-
             let share = 1.0 - 0.5 * (d / g.radius.max(1e-3));
             Some(g.damage * share)
         };
-        let by = Some(g.by);
+        // A Guardian's grenade (October 2026) is an enemy's: its hits carry
+        // nobody, and it bursts on this room's own alone — no target, and no
+        // intruder, who is on the machines' side.
+        let by = (!g.hostile).then_some(g.by);
         // This room's own, the thrower included — but never by an
         // engineer's mine or satchel (task 154), which hurts the enemy alone.
         let crew = if g.laid { 0 } else { self.bims.len() };
         for who in 0..crew {
             let b = &self.bims[who];
             if !b.is_alive() || b.character.is_outside() || b.character.is_unconscious() {
+                continue;
+            }
+            if g.hostile && self.is_intruder(who) {
                 continue;
             }
             let at = b.character.pos;
@@ -8940,12 +8998,15 @@ impl Game {
         }
         // The targets: the enemy's people standing on this deck, at their
         // exposed positions, in cover the same way.
-        let targets: Vec<Option<(Vec2, bool)>> = self
-            .combat
-            .targets()
-            .iter()
-            .map(|t| t.map(|t| (t.at, t.peeking)))
-            .collect();
+        let targets: Vec<Option<(Vec2, bool)>> = if g.hostile {
+            Vec::new()
+        } else {
+            self.combat
+                .targets()
+                .iter()
+                .map(|t| t.map(|t| (t.at, t.peeking)))
+                .collect()
+        };
         for (i, target) in targets.into_iter().enumerate() {
             let Some((at, peeking)) = target else {
                 continue;
@@ -12749,6 +12810,41 @@ mod tests {
         assert!(!game.is_alive(0), "dead after the countdown");
     }
 
+    /// **A Bim stunned by a Stun Shot stands where it was caught**
+    /// (October 2026): no walk until the stun wears off, then on to its
+    /// post again; a second stun takes the longer; a body down takes none.
+    #[test]
+    fn a_stunned_bim_stands_until_it_wears_off_and_a_body_down_takes_none() {
+        let mut game = room();
+        game.set_autonomous(false);
+        game.set_revivers(false);
+        game.put_for_probe(0, vec2(ROOM_W * 0.25, ROOM_H * 0.5));
+        assert!(game.send_to(0, vec2(ROOM_W * 0.75, ROOM_H * 0.5)));
+        for _ in 0..10 {
+            game.simulate(DT);
+        }
+        assert!(game.stun_bim(0, 1.0));
+        assert!(game.stun_bim(0, 0.5), "a shorter one keeps the longer");
+        assert!((game.bim_stunned(0) - 1.0).abs() < 1e-6);
+        let caught = game.bim_pos(0);
+        for _ in 0..50 {
+            game.simulate(DT);
+            assert!((game.bim_pos(0) - caught).len() < 1.0, "stands still");
+        }
+        assert!(game.bim_stunned(0) > 0.0);
+        for _ in 0..60 {
+            game.simulate(DT);
+        }
+        assert_eq!(game.bim_stunned(0), 0.0, "worn off");
+        assert!(
+            (game.bim_pos(0) - caught).len() > 20.0,
+            "walks on to its post"
+        );
+        knock_out(&mut game, 1);
+        game.simulate(DT);
+        assert!(!game.stun_bim(1, 1.0), "a body down is not stunned");
+    }
+
     /// A revive takes the helper's `Skill::revive` seconds with its hands on
     /// the patient — ten for anybody, four for a medic's — and the patient
     /// stands at three tenths of its bar, slowed for the rest of the mission.
@@ -12811,41 +12907,6 @@ mod tests {
                 assert_eq!(game.take_revives().len(), 1);
             }
         }
-    /// **A Bim stunned by a Stun Shot stands where it was caught**
-    /// (October 2026): no walk until the stun wears off, then on to its
-    /// post again; a second stun takes the longer; a body down takes none.
-    #[test]
-    fn a_stunned_bim_stands_until_it_wears_off_and_a_body_down_takes_none() {
-        let mut game = room();
-        game.set_autonomous(false);
-        game.set_revivers(false);
-        game.put_for_probe(0, vec2(ROOM_W * 0.25, ROOM_H * 0.5));
-        assert!(game.send_to(0, vec2(ROOM_W * 0.75, ROOM_H * 0.5)));
-        for _ in 0..10 {
-            game.simulate(DT);
-        }
-        assert!(game.stun_bim(0, 1.0));
-        assert!(game.stun_bim(0, 0.5), "a shorter one keeps the longer");
-        assert!((game.bim_stunned(0) - 1.0).abs() < 1e-6);
-        let caught = game.bim_pos(0);
-        for _ in 0..50 {
-            game.simulate(DT);
-            assert!((game.bim_pos(0) - caught).len() < 1.0, "stands still");
-        }
-        assert!(game.bim_stunned(0) > 0.0);
-        for _ in 0..60 {
-            game.simulate(DT);
-        }
-        assert_eq!(game.bim_stunned(0), 0.0, "worn off");
-        assert!(
-            (game.bim_pos(0) - caught).len() > 20.0,
-            "walks on to its post"
-        );
-        knock_out(&mut game, 1);
-        game.simulate(DT);
-        assert!(!game.stun_bim(1, 1.0), "a body down is not stunned");
-    }
-
     }
 
     /// A commander's Medivac medic runs to a player downed with an enemy

@@ -371,6 +371,15 @@ pub fn world_checksum(world: &World) -> u64 {
                 hash.eat_rounded(d.plate_taken as f64, FINE_GRID);
             }
         }
+        // And how long until each Guardian may drop its next grenade
+        // (October 2026), only where one is waiting, marked apart from the
+        // plates.
+        for i in 0..room.droid_count() as usize {
+            if let Some(d) = room.droid(i).filter(|d| d.grenade_wait > 0.0) {
+                hash.eat((1 << 32) | i as u64);
+                hash.eat_rounded(d.grenade_wait as f64, FINE_GRID);
+            }
+        }
     }
     // And when each crew member's next charge of each kind is due, on
     // the clock's grid (features 88 and 90): a charge in the pack is a

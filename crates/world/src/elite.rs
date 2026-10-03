@@ -41,8 +41,9 @@ pub fn holds(galaxy_seed: u64, home: u32, star: u32) -> bool {
 /// three), each one the tier did not give in a Trooper's place (the last
 /// one's, so the other Troopers' arms are dealt as before) — or the last
 /// machine's but a Guardian where there is no Trooper — and never more
-/// than the wave has machines. After the Wardens, where
-/// [`bims::droid::wave_kinds`] puts its Guardians. Any other wave as it is.
+/// than the wave has machines. After the Wardens. Any other wave as it is —
+/// and a plain wave has no Guardian ([`bims::droid::wave_kinds`]), so these
+/// are the only Guardians a run meets.
 pub fn with_guardian(mut kinds: Vec<DroidKind>, wave: u32, tier: Tier) -> Vec<DroidKind> {
     if wave != data::ELITE_GUARDIAN_WAVE {
         return kinds;
@@ -92,14 +93,14 @@ mod tests {
     fn the_second_wave_has_one_guardian_a_tier_in_a_trooper_s_place() {
         for (tier, want) in [(Tier::One, 1), (Tier::Two, 2), (Tier::Three, 3)] {
             for n in 1..=16u32 {
-                let plain = bims::droid::wave_kinds(n, tier);
+                let plain = bims::droid::wave_kinds(n);
                 assert_eq!(with_guardian(plain.clone(), 1, tier), plain, "wave one");
                 assert_eq!(with_guardian(plain.clone(), 3, tier), plain);
                 let second = with_guardian(plain.clone(), 2, tier);
                 assert_eq!(second.len(), plain.len(), "as many machines");
                 assert_eq!(
                     guardians(&second),
-                    want.min(n as usize).max(guardians(&plain)),
+                    want.min(n as usize),
                     "{tier:?} {n}: {second:?}"
                 );
                 // The Wardens, then the Guardians, then the rest.
@@ -120,9 +121,9 @@ mod tests {
                 assert!(troopers(&second) <= troopers(&plain));
             }
         }
-        // A tier-three wave with Guardians enough of its own is left alone.
-        let big = bims::droid::wave_kinds(32, Tier::Three);
-        assert_eq!(guardians(&big), 4);
-        assert_eq!(with_guardian(big.clone(), 2, Tier::Three), big);
+        // A wave with Guardians enough already (a forced one) is left alone.
+        let mut big = bims::droid::wave_kinds(32);
+        big[0] = DroidKind::Guardian;
+        assert_eq!(with_guardian(big.clone(), 2, Tier::One), big);
     }
 }

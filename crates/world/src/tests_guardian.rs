@@ -64,34 +64,29 @@ fn first_wave(world: &mut World) -> Vec<DroidKind> {
 }
 
 #[test]
-fn guardians_come_in_a_tier_three_wave_and_in_no_other() {
-    for (tier, wave, want) in [
-        (Tier::Three, 8, 1),
-        (Tier::Three, 16, 2),
-        (Tier::Three, 3, 0),
-        (Tier::Two, 16, 0),
-        (Tier::One, 16, 0),
+fn no_guardian_comes_in_a_wave_that_is_not_an_elite_s() {
+    // October 2026, the player's word: Guardians spawn only at elite
+    // sites (`tests_elite.rs`); a plain site's wave has none at any tier
+    // or size, and the Troopers keep their whole share.
+    for (tier, wave) in [
+        (Tier::Three, 8),
+        (Tier::Three, 16),
+        (Tier::Two, 16),
+        (Tier::One, 16),
     ] {
         let mut world = held_arena(tier, wave);
         let kinds = first_wave(&mut world);
         assert_eq!(kinds.len(), wave as usize);
-        let guardians = kinds.iter().filter(|&&k| k == DroidKind::Guardian).count();
-        assert_eq!(guardians, want, "a wave of {wave} at tier {tier:?}");
-        // Out of the Troopers' share, and the rest of the mix untouched.
-        let (husks, troopers, wardens) = bims::droid::mix_of(wave);
         let count = |k: DroidKind| kinds.iter().filter(|&&x| x == k).count() as u32;
+        assert_eq!(
+            count(DroidKind::Guardian),
+            0,
+            "a wave of {wave} at tier {tier:?}"
+        );
+        let (husks, troopers, wardens) = bims::droid::mix_of(wave);
         assert_eq!(count(DroidKind::Husk), husks);
         assert_eq!(count(DroidKind::Warden), wardens);
-        assert_eq!(count(DroidKind::Trooper), troopers - want as u32);
-        let room = &world.residents.as_ref().unwrap().aboard.room;
-        for i in 0..room.droid_count() as usize {
-            let d = room.droid(i).unwrap();
-            if d.kind == DroidKind::Guardian {
-                assert_eq!(d.weapon.kind, WeaponKind::Sweeper);
-                assert_eq!(d.tier, Tier::Three);
-                assert!(d.shield().is_some(), "it stands behind its shield");
-            }
-        }
+        assert_eq!(count(DroidKind::Trooper), troopers);
     }
 }
 

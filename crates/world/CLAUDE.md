@@ -4658,8 +4658,12 @@ half taken out the old number came back, so nothing else moved.
 The machine is the room's (`crates/game/CLAUDE.md`, "The Guardian"); the
 world does two things for it and keeps nothing new but a probe's dial.
 
-- **The wave.** `build_wave` asks `bims::droid::wave_kinds(n, tier)` at
-  the world's tier, so a Guardian stands in a wave only at tier three —
+- **The wave.** *Since October 2026 no plain wave has a Guardian*
+  (`wave_kinds(n)`, the player's word: Guardians spawn only at elite
+  sites, `elite::with_guardian`; and a Guardian near a Bim drops a
+  grenade, `crates/game/CLAUDE.md`). What follows is the history:
+  `build_wave` asked `bims::droid::wave_kinds(n, tier)` at
+  the world's tier, so a Guardian stood in a wave only at tier three —
   a held station, a reinforcement, a town's defence, all within
   `DROID_TIER_THREE_HOPS` of the origin, or wherever the probes force the
   tier — `n / 8` of it, at least one from four, out of the Troopers'
@@ -6052,8 +6056,9 @@ part of what a system offers).
   for the site's tier (`droid_tier`, what the map says) — one at tier
   one, two at tier two, three at tier three (`elite::with_guardian`:
   each the tier's own wave did not bring in the last Trooper's place,
-  after the Wardens, never more than the wave's machines), a wave with
-  Guardians enough of its own left alone. `wire::PROTOCOL` 113.
+  after the Wardens, never more than the wave's machines) — and those are the only Guardians a run meets, a plain
+  wave having none (`wave_kinds(n)`, October 2026). `wire::PROTOCOL` 113,
+  121 for the plain waves going without and the Guardian's grenade.
 - **Only an elite drops relics**: `relics_on_leaving` offers the reward
   only at an elite, and `infest` rolls a relic cache only there (a site of
   the Manufacturers' has none). Traders still sell theirs.

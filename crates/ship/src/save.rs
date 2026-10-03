@@ -263,7 +263,10 @@ use crate::game::Game;
 /// minute it broke) where `shield_broken` was.
 /// 97: the research keys went — `Holdings::keys` with them.
 /// 98: a Bim keeps how long a Stun Shot stunned it for (`Bim::stunned`).
-pub const SAVE_VERSION: u32 = 98;
+/// 99: a Guardian keeps how long until its next grenade (`Droid::grenade_wait`),
+/// and a grenade or a shot says whether it is a Guardian's (`Grenade::hostile`,
+/// `Grenade::unseen`, `Shot::grenade`).
+pub const SAVE_VERSION: u32 = 99;
 
 /// What the file holds, read back.
 #[derive(serde::Deserialize)]

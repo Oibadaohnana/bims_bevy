@@ -604,6 +604,11 @@ pub struct Droid {
     /// alternates by it.
     #[cfg_attr(feature = "serde", serde(default))]
     pub sweeps: u32,
+    /// Seconds until a Guardian may drop its next grenade (October 2026,
+    /// [`balance::GUARDIAN_GRENADE_COOLDOWN`] after each); nought for one
+    /// ready, and for every other kind.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub grenade_wait: f32,
     /// What the world has told a Machine Heart's machine (feature 108,
     /// [`HeartState`]): whether the core is sealed, how many beams it
     /// sweeps and how hard and fast, and a fabricator's last build. The
@@ -732,6 +737,7 @@ impl Droid {
             turn_left: 0.0,
             beam: Beam::Ready,
             sweeps: 0,
+            grenade_wait: 0.0,
             heart: HeartState::default(),
             intent: heading,
             weapon: kind.arm(index).at(tier),
@@ -1092,6 +1098,13 @@ impl Droid {
         if self.destroyed || seconds <= 0.0 {
             return false;
         }
+        for beam in &mut self.heart.beams {
+            if beam.holds_heading() {
+                *beam = Beam::Cooling {
+                    left: balance::SWEEPER_COOLDOWN,
+                };
+            }
+        }
         self.stunned = self.stunned.max(seconds);
         self.exposed |= expose;
         self.blow = None;
@@ -1105,13 +1118,6 @@ impl Droid {
         self.trigger.hold();
         if self.beam.holds_heading() {
             self.beam = Beam::Cooling {
-        for beam in &mut self.heart.beams {
-            if beam.holds_heading() {
-                *beam = Beam::Cooling {
-                    left: balance::SWEEPER_COOLDOWN,
-                };
-            }
-        }
                 left: balance::SWEEPER_COOLDOWN,
             };
         }
@@ -2377,32 +2383,18 @@ pub fn mix_of(n: u32) -> (u32, u32, u32) {
     (husks, n.saturating_sub(husks + wardens), wardens)
 }
 
-/// How many Guardians a wave of `n` at `tier` has (feature 100): **none
-/// below tier three**, and at tier three `n / 8` — at least one once the
-/// wave is four or more. They are taken out of the Troopers' share
-/// ([`mix_of`]), which is always at least half the wave and so always has
-/// them to give.
-pub fn guardians_of(n: u32, tier: Tier) -> u32 {
-    if tier != Tier::Three || n < 4 {
-        return 0;
-    }
-    (n / 8).max(1)
-}
-
-/// The kinds of a wave of `n` at `tier`, in the order they are made: the
-/// Wardens first, then the Guardians, then the Husks, then the Troopers,
-/// so the index a Trooper's arm is dealt by runs over the Troopers alone.
-pub fn wave_kinds(n: u32, tier: Tier) -> Vec<DroidKind> {
+/// The kinds of a wave of `n`, in the order they are made: the Wardens
+/// first, then the Husks, then the Troopers, so the index a Trooper's arm
+/// is dealt by runs over the Troopers alone. **No Guardian** at any tier
+/// (October 2026, the player's word): a Guardian comes only in an
+/// elite's wave, which the world puts in (`world::elite::with_guardian`).
+/// It was `n / 8` of a tier-three wave from feature 100 until then.
+pub fn wave_kinds(n: u32) -> Vec<DroidKind> {
     let (husks, troopers, wardens) = mix_of(n);
-    let guardians = guardians_of(n, tier).min(troopers);
     let mut out = Vec::with_capacity(n as usize);
     out.extend(std::iter::repeat_n(DroidKind::Warden, wardens as usize));
-    out.extend(std::iter::repeat_n(DroidKind::Guardian, guardians as usize));
     out.extend(std::iter::repeat_n(DroidKind::Husk, husks as usize));
-    out.extend(std::iter::repeat_n(
-        DroidKind::Trooper,
-        (troopers - guardians) as usize,
-    ));
+    out.extend(std::iter::repeat_n(DroidKind::Trooper, troopers as usize));
     out
 }
 
@@ -2641,31 +2633,23 @@ mod tests {
         );
     }
 
-    /// Feature 100: Guardians only at tier three, `n / 8` of a wave and
-    /// at least one from four, out of the Troopers' share.
+    /// October 2026: no plain wave has a Guardian at any size — they come
+    /// only in an elite's wave, which the world tops up.
     #[test]
-    fn guardians_come_only_at_tier_three_an_eighth_of_a_wave_and_one_from_four() {
+    fn no_plain_wave_has_a_guardian() {
         for n in 0..40u32 {
-            for tier in [Tier::One, Tier::Two] {
-                assert_eq!(guardians_of(n, tier), 0);
-                assert!(!wave_kinds(n, tier).contains(&DroidKind::Guardian));
-                assert_eq!(wave_kinds(n, tier).len(), n as usize);
-            }
-            let want = if n < 4 { 0 } else { (n / 8).max(1) };
-            assert_eq!(guardians_of(n, Tier::Three), want, "a wave of {n}");
-            let kinds = wave_kinds(n, Tier::Three);
+            let kinds = wave_kinds(n);
+            assert!(!kinds.contains(&DroidKind::Guardian), "a wave of {n}");
             let count = |k: DroidKind| kinds.iter().filter(|&&x| x == k).count() as u32;
-            let (husks, troopers, wardens) = mix_of(n);
-            assert_eq!(count(DroidKind::Guardian), want);
-            assert_eq!(count(DroidKind::Husk), husks, "the Husks untouched");
-            assert_eq!(count(DroidKind::Warden), wardens, "the Wardens untouched");
             assert_eq!(
-                count(DroidKind::Trooper),
-                troopers - want,
-                "the Troopers give"
+                (
+                    count(DroidKind::Husk),
+                    count(DroidKind::Trooper),
+                    count(DroidKind::Warden)
+                ),
+                mix_of(n)
             );
         }
-        assert_eq!(guardians_of(16, Tier::Three), 2);
     }
 
     #[test]
@@ -2675,8 +2659,7 @@ mod tests {
             assert_eq!(wardens, n / 6);
             assert_eq!(husks, n / 3);
             assert_eq!(husks + troopers + wardens, n, "a wave of {n} is {n}");
-            assert_eq!(wave_kinds(n, Tier::One).len(), n as usize);
-            assert_eq!(wave_kinds(n, Tier::Three).len(), n as usize);
+            assert_eq!(wave_kinds(n).len(), n as usize);
         }
         // The shape the spec names: a wave of twelve is two Wardens,
         // four Husks and six Troopers.

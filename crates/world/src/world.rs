@@ -2992,6 +2992,14 @@ impl World {
                     );
                     continue;
                 }
+                // A Guardian's grenade (October 2026): laid on the joined
+                // deck where it was dropped, to burst on the crew there.
+                if shot.grenade {
+                    self.aboard
+                        .room
+                        .enemy_grenade(on_deck(shot.at), shot.damage);
+                    continue;
+                }
                 if shot.melee {
                     // A blow, not a shot: nothing flies. It is aimed at
                     // the target the residents' room was handed — one of
@@ -6265,7 +6273,7 @@ impl World {
     }
 
     /// The machines a wave of `n` is, built: the kinds
-    /// ([`bims::droid::wave_kinds`]) at the highest of the wave's tiers,
+    /// ([`bims::droid::wave_kinds`], an elite's Guardians put in after),
     /// each machine at its own ([`World::machine_tiers`]) and at one of
     /// `spots` in the **residents' room's** own units, facing `facing`.
     /// A Trooper's arm is dealt by its place among the Troopers, which is
@@ -6278,12 +6286,11 @@ impl World {
         facing: f32,
         seed: u64,
     ) -> Vec<bims::droid::Droid> {
-        let top = self.machine_tiers(n).into_iter().max().unwrap_or(Tier::One);
         let mut troopers = 0usize;
         let kinds = self
             .droid_kinds_forced
             .clone()
-            .unwrap_or_else(|| bims::droid::wave_kinds(n, top));
+            .unwrap_or_else(|| bims::droid::wave_kinds(n));
         // An elite's Guardians come in their wave, one a tier of the
         // site's (`droid_tier`, what the map says) — and the relics' last
         // wave there (*Black Market*) has none at all, a Trooper in a

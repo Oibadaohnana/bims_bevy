@@ -149,9 +149,6 @@ use serde::{Deserialize, Serialize};
 /// soldier walks while it charges: both ends must fight alike.
 /// 115: Black Market's extra elite wave is three more machines a player
 /// (`data::BLACK_MARKET_ELITE_WAVE`, was one): both ends must lay it.
-/// 116: a Guardian drops a grenade at its feet when a Bim comes within two
-/// tiles, every ten seconds (`balance::GUARDIAN_GRENADE_*`): both ends must
-/// fight alike.
 /// 117: the Reset Capacitor is made at tier three alone — on no shelf
 /// before it — for 270 000, an 80 s cooldown (`ModuleKind::made_at`,
 /// `data::ITEM_PRICE`, `module::RESET_COOLDOWN_SECONDS`): both ends must
@@ -165,7 +162,11 @@ use serde::{Deserialize, Serialize};
 /// 120: a Husk with its legs shot off crawls on at `balance::HUSK_CRAWL`
 /// of its pace (`Droid::crawling`) rather than standing still: both ends
 /// must walk it alike.
-pub const PROTOCOL: u32 = 120;
+/// 121: a Guardian drops a grenade at its feet when a Bim comes within two
+/// tiles, every ten seconds (`balance::GUARDIAN_GRENADE_*`), and no plain wave
+/// has a Guardian (`droid::wave_kinds(n)`; an elite's alone): both ends must
+/// fight and lay waves alike.
+pub const PROTOCOL: u32 = 121;
 
 /// Where the relay lives. `BIMS_SERVER` in the environment overrides it
 /// — `ws://127.0.0.1:8792` for one on the same machine.

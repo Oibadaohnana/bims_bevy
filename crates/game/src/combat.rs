@@ -964,6 +964,18 @@ pub struct Grenade {
     /// on the deck (`Game::take_satchels_landed`).
     #[cfg_attr(feature = "serde", serde(default))]
     pub satchel: bool,
+    /// A **Guardian's** grenade (October 2026) rather than the crew's: it
+    /// bursts on this room's own bodies, its sentries and its sandbags,
+    /// never on the targets, and its hits on a body are an enemy's (no
+    /// `by`). `by` means nothing on one.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub hostile: bool,
+    /// Laid in the machines' own room beside the one the crew's room
+    /// flies (a town the crew defend): it bursts on that room's bodies
+    /// but is neither drawn, lit nor heard — the crew's room shows the
+    /// one grenade, as one room draws a Sweeper's beam.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub unseen: bool,
 }
 
 impl Grenade {
@@ -1743,6 +1755,12 @@ pub struct Shot {
     /// back to (task 155). `None` where nobody said.
     #[cfg_attr(feature = "serde", serde(default))]
     pub shooter: Option<usize>,
+    /// A **Guardian's grenade** (October 2026) rather than a bolt: dropped
+    /// at `at` (its feet, so `from` too), for the receiving room to lay
+    /// as a hostile grenade of its own ([`Combat::drop_hostile_grenade`])
+    /// with `damage` at the centre.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub grenade: bool,
 }
 
 /// One: the pace of every sweep but an overloaded core's.
@@ -2339,6 +2357,8 @@ impl Combat {
             shot: false,
             laid: false,
             satchel: false,
+            hostile: false,
+            unseen: false,
         });
         self.cues.push(Cued {
             cue: Cue::Throw,
@@ -2376,6 +2396,8 @@ impl Combat {
             shot: true,
             laid: false,
             satchel: false,
+            hostile: false,
+            unseen: false,
         });
         self.fx
             .muzzle(from, (at - from).normalize_or_zero(), weapon, false);
@@ -2417,6 +2439,54 @@ impl Combat {
             shot: false,
             laid: true,
             satchel: false,
+            hostile: false,
+            unseen: false,
+        });
+    }
+
+    /// A Guardian's grenade dropped at its feet, `at`, across the seam
+    /// (October 2026): a recorded [`Shot`] for the world to lay in the
+    /// crew's room as a hostile grenade with `damage` at the centre.
+    pub fn shoot_grenade(&mut self, at: Vec2, weapon: Weapon, damage: f32) {
+        self.lull = 0.0;
+        self.shots.push(Shot {
+            from: at,
+            at,
+            weapon,
+            melee: false,
+            damage,
+            cut: false,
+            moving: false,
+            sweep: None,
+            pace: 1.0,
+            shooter: None,
+            grenade: true,
+        });
+    }
+
+    /// A Guardian's grenade laid in **this** room (October 2026): lying at
+    /// `at` with [`balance::GUARDIAN_GRENADE_FUSE`] to burn, bursting
+    /// [`balance::GUARDIAN_GRENADE_RADIUS`] tiles wide with `damage` at the
+    /// centre on this room's own bodies (`Game::burst`). `unseen` for the
+    /// copy a town's room lays beside the crew's: neither drawn nor heard.
+    pub fn drop_hostile_grenade(&mut self, at: Vec2, damage: f32, unseen: bool) {
+        self.lull = 0.0;
+        let fuse = balance::GUARDIAN_GRENADE_FUSE;
+        self.grenades.push(Grenade {
+            by: 0,
+            from: at,
+            at,
+            left: fuse,
+            fuse,
+            radius: balance::GUARDIAN_GRENADE_RADIUS * TILE,
+            damage,
+            stun: 0.0,
+            expose: false,
+            shot: false,
+            laid: false,
+            satchel: false,
+            hostile: true,
+            unseen,
         });
     }
 
@@ -2437,8 +2507,9 @@ impl Combat {
             burst.push(*g);
             false
         });
-        // A satchel landing is no burst: nothing lit, nothing heard.
-        for g in burst.iter().filter(|g| !g.satchel) {
+        // A satchel landing is no burst: nothing lit, nothing heard; nor is
+        // the unseen copy of a Guardian's grenade a town's room lays.
+        for g in burst.iter().filter(|g| !g.satchel && !g.unseen) {
             self.blasts.push(Blast {
                 pos: g.at,
                 radius: g.radius,
@@ -2512,7 +2583,7 @@ impl Combat {
             self.fx.trail(tail, bolt.pos, bolt.weapon, bolt.hostile);
         }
         for g in &self.grenades {
-            if !g.shot && g.fuse - g.left >= GRENADE_FLIGHT {
+            if !g.shot && !g.unseen && g.fuse - g.left >= GRENADE_FLIGHT {
                 self.fx.fuse(g.at);
             }
         }
@@ -2558,6 +2629,7 @@ impl Combat {
             sweep: None,
             pace: 1.0,
             shooter: None,
+            grenade: false,
         });
     }
 
@@ -2614,6 +2686,7 @@ impl Combat {
             sweep: Some(end),
             pace,
             shooter: None,
+            grenade: false,
         });
     }
 
@@ -3134,6 +3207,7 @@ impl Combat {
                 sweep: None,
                 pace: 1.0,
                 shooter: None,
+                grenade: false,
             });
         } else {
             // A blow from the front of a shield is stopped at the plate
@@ -3821,7 +3895,7 @@ impl Combat {
         // A grenade (feature 75): a dark canister with a lit fuse, lifted
         // and shadowed while it flies, blinking faster as the fuse runs
         // down once it lies on its tile.
-        for g in &self.grenades {
+        for g in self.grenades.iter().filter(|g| !g.unseen) {
             let pos = g.pos();
             // A Stun Shot (October 2026): a glowing slug of the stun's
             // blue with a streak behind it, flat on the deck.

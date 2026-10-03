@@ -691,3 +691,134 @@ fn a_sealed_core_is_no_stand_and_no_charge_until_it_opens() {
     assert!(stand(&combat, &blade).is_none());
     assert!(Tactics::charge(nav, from, combat.targets()).is_none());
 }
+
+// --- the Guardian's grenade (October 2026) --------------------------------
+
+/// The grenades a Guardian's room recorded for the crew's room since last
+/// asked: where each was dropped.
+fn grenades_dropped(game: &mut Game) -> Vec<Vec2> {
+    game.take_shots()
+        .into_iter()
+        .filter(|s| s.grenade)
+        .map(|s| s.at)
+        .collect()
+}
+
+#[test]
+fn a_guardian_drops_a_grenade_at_its_feet_when_a_bim_comes_within_two_tiles_and_again_ten_seconds_on()
+ {
+    let mut game = machines_room();
+    let at = vec2(ROOM_W * 0.5, ROOM_H * 0.5);
+    game.add_droid(guardian_at(at, vec2(1.0, 0.0)));
+    // Its legs gone, so the distance is the test's and not its walk's.
+    let legs = game.droids()[0].body.max(DroidPart::Legs);
+    game.strike_droid(0, DroidPart::Legs, legs);
+    let pistol = WeaponKind::LaserPistol.basic();
+    // Three tiles off: nothing dropped, however long it stands there.
+    let far = at + vec2(3.0 * TILE, 0.0);
+    for _ in 0..(60 * 3) {
+        game.set_hostiles(vec![Some((far, pistol))]);
+        game.simulate(DT);
+        assert!(
+            grenades_dropped(&mut game).is_empty(),
+            "nothing at three tiles"
+        );
+    }
+    // Inside two: one at once, at its feet.
+    let near = at + vec2(1.5 * TILE, 0.0);
+    let mut times = Vec::new();
+    for frame in 0..(60 * 21) {
+        game.set_hostiles(vec![Some((near, pistol))]);
+        game.simulate(DT);
+        for spot in grenades_dropped(&mut game) {
+            assert_eq!(spot, at, "dropped at its feet");
+            times.push(frame);
+        }
+    }
+    assert_eq!(
+        times.len(),
+        3,
+        "one at once and one every ten seconds: {times:?}"
+    );
+    assert!(
+        times[0] <= 1,
+        "the first the step the Bim came near: {times:?}"
+    );
+    for pair in times.windows(2) {
+        let gap = (pair[1] - pair[0]) as f32 * DT;
+        assert!(
+            (gap - balance::GUARDIAN_GRENADE_COOLDOWN).abs() < 0.05,
+            "ten seconds apart: {gap}"
+        );
+    }
+}
+
+#[test]
+fn a_guardian_s_grenade_bursts_on_the_crew_after_its_fuse_and_never_on_a_machine() {
+    // The crew's room: Bim 0 a tile from where the grenade lies, Bim 1
+    // well out of it, and a machine standing on the grenade itself.
+    let mut game = Game::bare(4, ROOM_W, ROOM_H);
+    game.set_autonomous(false);
+    let spot = vec2(ROOM_W * 0.5, ROOM_H * 0.5);
+    game.put_for_probe(0, spot + vec2(TILE, 0.0));
+    game.put_for_probe(1, spot + vec2(-6.0 * TILE, 0.0));
+    let machine = Some((spot, WeaponKind::LaserPistol.basic()));
+    game.set_hostiles(vec![machine]);
+    let damage = 45.0;
+    game.enemy_grenade(spot, damage);
+    assert!(game.grenades()[0].hostile && !game.grenades()[0].unseen);
+    let whole = game.health(0);
+    let mut burst_at = None;
+    let mut machine_hit = false;
+    for frame in 0..(60 * 3) {
+        game.set_hostiles(vec![machine]);
+        game.simulate(DT);
+        machine_hit |= game.take_hits().iter().any(|h| h.blast);
+        if burst_at.is_none() && game.health(0) < whole {
+            burst_at = Some(frame);
+        }
+    }
+    let burst_at = burst_at.expect("the Bim beside it was hurt");
+    assert!(
+        ((burst_at + 1) as f32 * DT - balance::GUARDIAN_GRENADE_FUSE).abs() < 0.05,
+        "after its fuse: frame {burst_at}"
+    );
+    // A tile in from a two-and-a-half-tile edge: four fifths of the centre.
+    let expected = damage * (1.0 - 0.5 / balance::GUARDIAN_GRENADE_RADIUS);
+    assert!(
+        (whole - game.health(0) - expected).abs() < 0.5,
+        "took {} of {expected}",
+        whole - game.health(0)
+    );
+    assert_eq!(game.health(1), whole, "the Bim out of its reach was not");
+    assert!(
+        !machine_hit,
+        "and the machine on it took nothing of the burst"
+    );
+}
+
+#[test]
+fn a_guardian_at_a_defended_town_lays_its_grenade_in_the_town_s_room_unseen() {
+    // A town under attack, as for the sweep: its people on the machines'
+    // own list (the cross at nought), one of them beside the Guardian.
+    let mut game = Game::bare(8, ROOM_W, ROOM_H);
+    game.set_autonomous(false);
+    let at = vec2(ROOM_W * 0.5, ROOM_H * 0.5);
+    let person = game.put_for_probe(0, at + vec2(1.5 * TILE, 0.0));
+    game.put_for_probe(1, vec2(ROOM_W * 0.1, ROOM_H * 0.15));
+    game.add_droid(guardian_at(at, vec2(-1.0, 0.0)));
+    let pistol = WeaponKind::LaserPistol.basic();
+    game.set_machine_hostiles(vec![Some((person, pistol)), None], 0);
+    game.simulate(DT);
+    assert_eq!(
+        grenades_dropped(&mut game),
+        vec![at],
+        "recorded for the crew's room"
+    );
+    let laid = game.grenades();
+    assert_eq!(laid.len(), 1, "and laid in the town's own room");
+    assert!(
+        laid[0].hostile && laid[0].unseen,
+        "where it is neither drawn nor heard"
+    );
+}

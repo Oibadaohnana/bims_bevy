@@ -65,7 +65,7 @@ What a run is, from the lobby to the end of it.
   machines — or held by the **Manufacturers**, the people who built them,
   who are the crew's enemy from the first day; see [The
   Manufacturers](#the-manufacturers). The fights are theirs — Husks, Troopers and Wardens, in waves,
-  at tier one, two or three, and a Guardian among them at tier three — and `nix run .#droids` is how one is looked
+  at tier one, two or three, and Guardians among them at an elite alone — and `nix run .#droids` is how one is looked
   at on its own; see [The fight](#the-fight).
 - **The crisis is there from day nought.** The machines' origin is theirs
   the moment the run opens, eight hyperlane hops or more from the crew, and
@@ -1981,8 +1981,8 @@ one thing in the arms at a time, from the lockers to the bench and back.
   with a gun built into its forearm, which walks into the open and fires
   on the move; and the broad, shoulder-plated **Warden**, whose
   **Unmaker** strips the armour off whatever it hits rather than opening
-  the body under it. Close to where the machines began — tier three —
-  a wave has a fourth: the **Guardian**, the largest, a heavy walker
+  the body under it. At an **elite** — and nowhere else — a wave has a
+  fourth: the **Guardian**, the largest, a heavy walker
   behind a **shield** that stops every bolt and every blow coming at it
   from the front, the ±60° its plate covers, flaring where it stops one.
   The shield cannot be broken, but a grenade's burst is not stopped by
@@ -1998,8 +1998,12 @@ one thing in the arms at a time, from the lockers to the bench and back.
   its arc takes thirty, once a sweep. Sandbags between you and it are
   cover — the beam goes over — unless you are leaning out of them, and
   a tank's wall and a relic's surge work on it as on a bolt. It hurts
-  no machine. One in eight of a tier-three wave is a Guardian, at least
-  one from four machines up.
+  no machine. **Come within two tiles of it and it drops a grenade at
+  its feet** — once every ten seconds — that bursts a second and a half
+  later two and a half tiles wide, half again the beam's damage at the
+  middle and half that at the edge, on the crew alone: step back out of
+  it. An elite's second wave holds one Guardian at tier one, two at tier
+  two and three at tier three; no other wave has any.
   `nix run .#guardian` is the fight against one. A machine is not a Bim: it has four parts rather
   than three (head, chassis, arms, legs), no blood, no dying state — head
   or chassis at nothing and it is a wreck that instant — and nothing to
