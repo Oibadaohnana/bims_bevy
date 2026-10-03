@@ -663,6 +663,108 @@ def revived():
     save("revived", room(out, rng, 0.12, 0.4), 0.12)
 
 
+# --- the reloads' laser layer (October 2026) ----------------------------------
+
+
+def glide(length, f_from, f_to, partials=((1, 1.0), (2, 0.25))):
+    """A tone gliding exponentially from `f_from` to `f_to` over `length`,
+    with a few harmonics: a capacitor's whine."""
+    n = secs(length)
+    t = times(n)
+    f = f_from * (f_to / f_from) ** (t / max(t[-1], 1e-9))
+    phase = 2 * np.pi * np.cumsum(f) / SR
+    return sum(a * np.sin(h * phase) for h, a in partials)
+
+
+def spark(rng, length=0.02, gain=1.0):
+    """A cell's contacts meeting: a crackle high up, gone at once."""
+    n = secs(length)
+    return gain * band(rng.standard_normal(n), 3000, 11000) * decay(n, length / 4, 0.0002)
+
+
+def ready(rng):
+    """The gun's cell full: two bright pips a fifth apart and a shimmer
+    after them."""
+    out = silence(0.3)
+    for k, hz in enumerate((2637, 3951)):
+        n = secs(0.07)
+        t = times(n)
+        pip = np.sin(2 * np.pi * hz * t) + 0.2 * np.sin(4 * np.pi * hz * t)
+        place(out, pip * np.minimum(1, t / 0.003) * np.exp(-t / 0.03), 0.055 * k, 0.5)
+    n = secs(0.25)
+    t = times(n)
+    shimmer = np.sin(2 * np.pi * 3951 * t) * (1 + 0.5 * np.sin(2 * np.pi * 31 * t))
+    place(out, shimmer * np.exp(-t / 0.07) * np.minimum(1, t / 0.01), 0.06, 0.18)
+    return out + 0.3 * place(silence(0.3), spark(rng, 0.03), 0.0)
+
+
+def reload_laser():
+    """Laid over `reload.ogg` (a magazine's clicks), so the reload is a
+    laser's and not only a rifle's: the spent cell powering down as it
+    comes out with the first click, a whine charging up an octave and a
+    half from the second, and the two pips of a full cell as the last
+    click seats it. Timed to the recording's clicks (0.07, 0.52, 0.96 s)
+    and as long as it."""
+    rng = np.random.default_rng(701)
+    out = silence(1.10)
+    # Out: the charge left in the spent cell falling away.
+    down = glide(0.26, 2200, 240, ((1, 1.0), (2, 0.3), (3, 0.12)))
+    t = times(len(down))
+    down *= np.minimum(1, t / 0.004) * np.exp(-t / 0.09)
+    place(out, band(down, 150, 8000), 0.07, 0.55)
+    place(out, spark(rng, 0.025), 0.07, 0.35)
+    # In: the fresh cell's contacts, then the charge whining up, pulsing
+    # quicker as it fills.
+    place(out, spark(rng, 0.02), 0.52, 0.4)
+    length = 0.44
+    up = glide(length, 330, 2500, ((1, 1.0), (2, 0.35), (3, 0.1)))
+    t = times(len(up))
+    rate = 14 + 30 * t / length
+    pulse = 0.75 + 0.25 * np.sin(2 * np.pi * np.cumsum(rate) / SR)
+    up *= pulse * (0.25 + 0.75 * (t / length) ** 1.5) * np.minimum(1, (length - t) / 0.01)
+    place(out, up, 0.52, 0.3)
+    # Seated: full.
+    place(out, ready(rng), 0.955, 0.8)
+    save("reload_laser", room(out, rng, 0.1, 0.3), 0.06)
+
+
+def shotgun_reload_laser():
+    """Laid over `shotgun_reload.ogg` (six shells pushed in): every shell
+    a cell slotted, a quick blip upward a step higher than the last over
+    a hum that builds with them, and the last a charge whining up into a
+    full cell's pips. Timed to the recording's clicks (0.21, 0.54, 1.61,
+    1.85, 3.0 and 3.4 s) and as long as it."""
+    rng = np.random.default_rng(702)
+    out = silence(3.55)
+    shells = (0.21, 0.54, 1.61, 1.85, 3.0)
+    for k, at in enumerate(shells):
+        f0 = 520 * 1.16**k
+        blip = glide(0.09, f0, f0 * 1.9, ((1, 1.0), (2, 0.3)))
+        t = times(len(blip))
+        blip *= np.minimum(1, t / 0.004) * np.exp(-t / 0.035)
+        place(out, blip, at, 0.45)
+        place(out, spark(rng, 0.02), at, 0.3)
+    # The hum: a low buzz stepping up in level and pitch at every shell.
+    n = len(out)
+    t = times(n)
+    steps = sum((t >= at).astype(float) for at in shells)
+    level = low(steps / len(shells), 12, 1)
+    pitch = 110 * (1 + 0.06 * steps)
+    pitch = low(pitch, 20, 1)
+    phase = 2 * np.pi * np.cumsum(pitch) / SR
+    hum = low(sum(np.sin(h * phase) / h for h in range(1, 12)), 1400)
+    hum += 0.4 * np.sin(4 * phase) * (1 + 0.3 * np.sin(2 * np.pi * 6 * t))
+    hum *= level * np.minimum(1, (t[-1] - t) / 0.15)
+    place(out, hum, 0.0, 0.12)
+    # The last shell: the charge up to full.
+    up = glide(0.36, 600, 2600, ((1, 1.0), (2, 0.3)))
+    tu = times(len(up))
+    up *= (0.2 + 0.8 * (tu / tu[-1]) ** 1.5) * (0.8 + 0.2 * np.sin(2 * np.pi * np.cumsum(20 + 30 * tu) / SR))
+    place(out, up, 3.04, 0.28)
+    place(out, ready(rng), 3.4, 0.8)
+    save("shotgun_reload_laser", room(out, rng, 0.1, 0.3), 0.06)
+
+
 if __name__ == "__main__":
     import sys
 
@@ -695,3 +797,5 @@ if __name__ == "__main__":
     reinforcements()
     downed()
     revived()
+    reload_laser()
+    shotgun_reload_laser()

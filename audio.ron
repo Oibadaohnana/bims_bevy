@@ -23,6 +23,8 @@
     sniper: 1.0,            // the sniper rifle
     reload: 1.0,            // a magazine reloaded, every gun but the shotgun
     shotgun_reload: 1.0,    // the shotgun's shells put in
+    reload_laser: 1.0,      // the laser cell laid over a magazine's reload
+    shotgun_reload_laser: 1.0, // and over the shotgun's shells
 
     // Hits.
     laser_hit: 0.5,         // a bolt landing on a body

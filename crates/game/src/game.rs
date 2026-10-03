@@ -1732,6 +1732,18 @@ impl Game {
                 });
             }
             bim.character.set_armed(weapon.map(|w| w.kind));
+            // How far a reload of the gun in the hands has come, for the
+            // picture of it (October 2026).
+            let through = weapon.map_or(0.0, |w| {
+                let reload = w.stats().reload_time.max(1e-3);
+                let trigger = &bim.trigger;
+                if trigger.loaded == w.kind.code() && trigger.is_reloading() {
+                    1.0 - trigger.reloading / reload
+                } else {
+                    0.0
+                }
+            });
+            bim.character.set_reload(through);
             // Off war, a hostile body posted beyond a locked door forces
             // its way to the post (a raider's boarders were, sent to the
             // ship's gangway with the airlock shut against them, until the

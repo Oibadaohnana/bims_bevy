@@ -99,12 +99,17 @@ pub enum Clip {
     // shotgun plays, and the shotgun's shells put in one by one.
     Reload,
     ShotgunReload,
+    // The laser laid over each (`sounds/abilities.py`, `reload_laser` and
+    // `shotgun_reload_laser`), so a reload is a laser cell's and not only
+    // a magazine's clicks: played with it, at once.
+    ReloadLaser,
+    ShotgunReloadLaser,
 }
 
 /// The bytes of each clip, indexed by [`Clip`]. Ogg Vorbis, mono, 48 kHz,
 /// peaks at -1 dBFS for the one-shots and -22 or -30 LUFS for the loops —
 /// see `prepare.sh` — so every level below is relative to that.
-const CLIPS: [&[u8]; 49] = [
+const CLIPS: [&[u8]; 51] = [
     include_bytes!("../sounds/laser_1.ogg"),
     include_bytes!("../sounds/laser_2.ogg"),
     include_bytes!("../sounds/laser_3.ogg"),
@@ -154,6 +159,8 @@ const CLIPS: [&[u8]; 49] = [
     include_bytes!("../sounds/revived.ogg"),
     include_bytes!("../sounds/reload.ogg"),
     include_bytes!("../sounds/shotgun_reload.ogg"),
+    include_bytes!("../sounds/reload_laser.ogg"),
+    include_bytes!("../sounds/shotgun_reload_laser.ogg"),
 ];
 
 /// The player's own volume for each sound, from `audio.ron` at the root
@@ -250,6 +257,8 @@ volumes! {
     Revived => revived,
     Reload => reload,
     ShotgunReload => shotgun_reload,
+    ReloadLaser => reload_laser,
+    ShotgunReloadLaser => shotgun_reload_laser,
     ;
     minigun,
     rail_lance,
@@ -703,11 +712,13 @@ impl Sounds {
             // A reload, the player's own over the rest (`OTHERS_SHOTS` and a
             // half again): a crew of bots reloading round a fight is a
             // murmur under it.
+            // The laser layer goes with it, under the clicks: the shotgun's
+            // recording is far the quieter, so its layer is turned lower.
             Cue::Reload { weapon, by } => {
-                let clip = if weapon == WeaponKind::Shotgun {
-                    Clip::ShotgunReload
+                let (clip, laser, under) = if weapon == WeaponKind::Shotgun {
+                    (Clip::ShotgunReload, Clip::ShotgunReloadLaser, 0.2)
                 } else {
-                    Clip::Reload
+                    (Clip::Reload, Clip::ReloadLaser, 0.55)
                 };
                 let level = if by.is_some() && by == own {
                     0.55
@@ -715,6 +726,7 @@ impl Sounds {
                     0.55 * OTHERS_SHOTS * 0.5
                 };
                 self.one_shot(commands, clip, level);
+                self.one_shot(commands, laser, level * under);
             }
             Cue::Blow { cut, on_crew } => {
                 if cut {
@@ -912,7 +924,7 @@ mod tests {
             assert!(clip.starts_with(b"OggS"), "clip {i} is not an Ogg stream");
             assert!(clip.len() > 1_000, "clip {i} is only {} bytes", clip.len());
         }
-        assert_eq!(CLIPS.len(), Clip::ShotgunReload as usize + 1);
+        assert_eq!(CLIPS.len(), Clip::ShotgunReloadLaser as usize + 1);
     }
 
     /// `audio.ron` at the root parses and names every sound, so the player

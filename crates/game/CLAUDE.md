@@ -5152,6 +5152,23 @@ beyond the walls so the deck is not clear. No `SAVE_VERSION`;
   read it, so a gun that reloads long is weighed for it.
 - `Game::magazine(who)` is the hero panel's reading: shots left, size,
   the share of a reload still to run.
+- **A reload is drawn** (`Character::set_reload`, the share through it,
+  said by `tick_combat` beside `set_armed`; `serde(skip)`, drawing only):
+  the gun canted in (`RELOAD_CANT`) and pulled back (`RELOAD_PULL`),
+  eased over `RELOAD_EASE` at each end, and the fore hand off it
+  (`Character::reload_hand`, keyframes in the gun's frame) — to the well
+  (`reload_well`), the spent cell dropping out dark, to `RELOAD_POUCH`,
+  back with a fresh one lit in the side's colour (`magazine_shape`), the
+  rifle's own magazine left off (`draw_gun`'s `bare`) between; a shotgun
+  six shells (`SHELL`) from the pouch to the port and the pump worked.
+  Only the picture's grip and angle move (`held_grip`, `held_rot`,
+  `on_held`): `muzzle()` reads `weapon_grip` and `gun_rot` as before.
+  `a_reload_takes_the_fore_hand_off_the_gun_and_the_muzzle_stays`.
+- **A laser under the clicks**: the app plays `Clip::ReloadLaser`
+  (`ShotgunReloadLaser`) with each reload clip, at 0.55 (0.2) of its
+  level — a cell powering down, a whine charging, two pips as it seats;
+  made by `sounds/abilities.py reload_laser shotgun_reload_laser`, timed
+  to the recordings' clicks.
 
 `a_magazine_empties_reloads_and_a_new_gun_comes_full` pins it; the
 curves test pins the numbers. Two pistol bolts put a lamp out now

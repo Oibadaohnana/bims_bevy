@@ -3,7 +3,9 @@
 
 use crate::combat::{ArmourKind, WeaponKind};
 use crate::draw::{Brush, Color, DrawList};
-use crate::math::{PI, Rect, TAU, Vec2, angle_lerp, approach, clamp, lerp, vec2, wrap_angle};
+use crate::math::{
+    PI, Rect, TAU, Vec2, angle_lerp, approach, clamp, lerp, smoothstep, vec2, wrap_angle,
+};
 use crate::rng::Rng;
 use crate::room::STEEL;
 
@@ -286,6 +288,18 @@ const AIM_ACROSS: f32 = 1.15;
 /// re-numbered. At full size a rifle is longer than the figure is wide
 /// and reads as a lance.
 const GUN_SCALE: f32 = 0.72;
+/// The reload drawn (October 2026): the gun canted further across the
+/// chest by this much, in radians, and pulled this far in towards it, in
+/// the body's units, over the [`RELOAD_EASE`] share of the reload at
+/// each end; the fore hand's pouch on the off side of the chest front,
+/// in the body's frame, where a fresh magazine or a shell comes from.
+const RELOAD_CANT: f32 = 0.7;
+const RELOAD_PULL: f32 = 4.0;
+const RELOAD_EASE: f32 = 0.12;
+const RELOAD_POUCH: Vec2 = vec2(17.0, -14.0);
+/// A shotgun's shell, carried to the port: red hull, brass head.
+const SHELL: Color = Color::rgb(0.70, 0.16, 0.12);
+const SHELL_HEAD: Color = Color::rgb(0.86, 0.68, 0.30);
 /// The schword: a hilt, and a blade with a white core and a cyan laser
 /// edge — two strokes, one wide and faint, one thin and bright. The swing
 /// is the same blade swept through an arc in front of the body. In a
@@ -1107,6 +1121,13 @@ pub struct Character {
     /// it every step.
     #[cfg_attr(feature = "serde", serde(skip))]
     shot_charge: f32,
+    /// How far a reload of the gun in the hands has come, nought to one
+    /// (October 2026), nought with none under way: the reload drawn —
+    /// the gun canted in, the old magazine out, the fore hand to the
+    /// pouch and back with a fresh one; a shotgun's shells one at a time
+    /// and then the pump. Drawing only; the world says it every step.
+    #[cfg_attr(feature = "serde", serde(skip))]
+    reload: f32,
     /// Where a Stun Shot charging goes (October 2026, the player's word:
     /// he keeps facing it): the body faces it at once whatever the
     /// pointer or its walk says, its feet going their own way. The world
@@ -1214,6 +1235,7 @@ impl Character {
             hostile: false,
             braced: false,
             shot_charge: 0.0,
+            reload: 0.0,
             shot_at: None,
             stunned: false,
             surging: false,
@@ -1695,6 +1717,11 @@ impl Character {
     /// the muzzle (October 2026). Drawing only.
     pub fn set_shot_charge(&mut self, share: f32) {
         self.shot_charge = share.clamp(0.0, 1.0);
+    }
+    /// How far a reload of the gun in the hands has come, nought to one,
+    /// nought with none (October 2026). Drawing only.
+    pub fn set_reload(&mut self, through: f32) {
+        self.reload = clamp(through, 0.0, 1.0);
     }
     /// Where a Stun Shot charging goes, room units, or `None`: faced at
     /// once while it charges (October 2026).
@@ -2272,10 +2299,107 @@ impl Character {
             let hilt = grip + vec2(2.0, 0.0);
             return [hilt + vec2(-1.0, 4.2), hilt + vec2(5.5, -4.2)];
         }
-        [
-            self.on_gun(grip, vec2(0.0, 4.6)),
-            self.on_gun(grip, vec2(fore_hand(weapon), -4.6)),
-        ]
+        // A reload moves the gun and the fore hand off it (October 2026).
+        let grip = self.held_grip(pose);
+        let fore = match self.reload_hand(grip, weapon) {
+            Some((hand, _)) => hand,
+            None => vec2(fore_hand(weapon), -4.6),
+        };
+        [self.on_held(grip, vec2(0.0, 4.6)), self.on_held(grip, fore)]
+    }
+
+    /// The share through a reload of the gun in the hands, while one is
+    /// under way and the body is up to it (October 2026).
+    fn reloading(&self) -> Option<f32> {
+        let gun = self.armed.is_some_and(|w| muzzle_ahead(w) > 0.0);
+        (gun && self.reload > 0.0 && self.reload < 1.0 && !self.dead && !self.unconscious)
+            .then_some(self.reload)
+    }
+
+    /// How far the gun is canted in and pulled back for a reload, nought
+    /// to one: eased in over the first [`RELOAD_EASE`] of it and out over
+    /// the last, so the gun comes down, is worked on, and comes up again.
+    fn reload_lift(&self) -> f32 {
+        self.reloading().map_or(0.0, |t| {
+            smoothstep(t / RELOAD_EASE) * smoothstep((1.0 - t) / RELOAD_EASE)
+        })
+    }
+
+    /// The grip the picture holds the gun by: [`Character::weapon_grip`],
+    /// pulled in towards the chest through a reload. The shot leaves the
+    /// unmoved one ([`Character::muzzle`]) — none leaves mid-reload.
+    fn held_grip(&self, pose: Pose) -> Vec2 {
+        self.weapon_grip(pose) + vec2(-RELOAD_PULL, -1.5) * self.reload_lift()
+    }
+
+    /// The angle the picture holds the gun at: [`Character::gun_rot`],
+    /// canted further across the chest through a reload.
+    fn held_rot(&self, grip: Vec2) -> f32 {
+        self.gun_rot(grip) - RELOAD_CANT * self.reload_lift()
+    }
+
+    /// A point on the gun as it is drawn, in the body's own frame:
+    /// [`Character::on_gun`] at the held angle.
+    fn on_held(&self, grip: Vec2, local: Vec2) -> Vec2 {
+        grip + (local * GUN_SCALE).rotate(self.held_rot(grip))
+    }
+
+    /// The fore hand through a reload (October 2026), in the gun's own
+    /// frame at its own size (what [`draw_gun`] draws in), and what it
+    /// carries there. A gun with a magazine: to the well, the old one
+    /// out, to the pouch, a fresh one back into the well, and the hand
+    /// back on the fore-end. A shotgun: six shells from the pouch into
+    /// the port one after another, then the pump worked once.
+    fn reload_hand(&self, grip: Vec2, weapon: WeaponKind) -> Option<(Vec2, Load)> {
+        let t = self.reloading()?;
+        let fore = vec2(fore_hand(weapon), -4.6);
+        let pouch = (RELOAD_POUCH - grip).rotate(-self.held_rot(grip)) * (1.0 / GUN_SCALE);
+        let well = reload_well(weapon);
+        if weapon == WeaponKind::Shotgun {
+            const FROM: f32 = 0.10;
+            const UNTIL: f32 = 0.80;
+            const SHELLS: f32 = 6.0;
+            if t < FROM {
+                return Some((fore.lerp(pouch, smoothstep(t / FROM)), Load::Nothing));
+            }
+            if t < UNTIL {
+                let k = (t - FROM) / (UNTIL - FROM) * SHELLS;
+                let (shell, f) = (k.floor(), k.fract());
+                if f < 0.6 {
+                    return Some((pouch.lerp(well, smoothstep(f / 0.6)), Load::Shell));
+                }
+                // Back for the next one, or after the last to the pump.
+                let next = if shell + 1.0 >= SHELLS { fore } else { pouch };
+                return Some((well.lerp(next, smoothstep((f - 0.6) / 0.4)), Load::Nothing));
+            }
+            // The pump: back along the fore-end and forward again.
+            let pump = (PI * clamp((t - 0.84) / 0.14, 0.0, 1.0)).sin();
+            return Some((fore - vec2(6.0 * pump, 0.0), Load::Nothing));
+        }
+        let keys = [
+            (0.0, fore),
+            (0.14, well),
+            (0.24, well),
+            (0.46, pouch),
+            (0.54, pouch),
+            (0.76, well),
+            (0.86, well),
+            (1.0, fore),
+        ];
+        let mut at = fore;
+        for pair in keys.windows(2) {
+            let ((t0, a), (t1, b)) = (pair[0], pair[1]);
+            if t <= t1 {
+                at = a.lerp(b, smoothstep((t - t0) / (t1 - t0)));
+                break;
+            }
+        }
+        let load = if (0.50..0.84).contains(&t) {
+            Load::Magazine
+        } else {
+            Load::Nothing
+        };
+        Some((at, load))
     }
 
     /// The grip, in the body's own frame: as far forward as the two arms
@@ -3200,9 +3324,60 @@ impl Character {
         // The gun in its own frame, over the arms that already reach for
         // it, so its silhouette runs unbroken along its own line and what
         // shows of a hand is the half of it round the far side.
-        let mut b = list.brush(to_world(grip), rot + self.gun_rot(grip), blade);
+        // Through a reload (October 2026) the gun is held canted in and
+        // pulled back, and drawn as it is held.
+        let grip = self.held_grip(pose);
+        let mut b = list.brush(to_world(grip), rot + self.held_rot(grip), blade);
         let lit = if self.hostile { ENEMY } else { GUN_LIT };
-        draw_gun(&mut b, Vec2::ZERO, weapon, Some(lit));
+        let t = self.reloading();
+        // The rifle's magazine is out of it between the old one pulled
+        // and the fresh one seated.
+        let bare = t.is_some_and(|t| (0.24..0.82).contains(&t));
+        draw_gun(&mut b, Vec2::ZERO, weapon, Some(lit), bare);
+        let Some(t) = t else {
+            return;
+        };
+        let well = reload_well(weapon);
+        // The old magazine dropping out of the well, falling away and
+        // fading.
+        if let Some((size, turn)) = magazine_shape(weapon)
+            && (0.24..0.46).contains(&t)
+        {
+            let s = smoothstep((t - 0.24) / 0.22);
+            let at = well + vec2(-3.0, 9.0) * s;
+            let shade = 1.0 - s;
+            b.rect(
+                at,
+                size + vec2(1.4, 1.4),
+                turn + s,
+                1.2,
+                GUN_EDGE.alpha(shade),
+            );
+            b.rect(at, size, turn + s, 1.0, GUN.alpha(shade));
+        }
+        // What the fore hand carries, over the hand.
+        if let Some((hand, load)) = self.reload_hand(grip, weapon) {
+            match (load, magazine_shape(weapon)) {
+                // A fresh cell, charged: its stripe lit in the side's
+                // colour, where the spent one falling out is dark.
+                (Load::Magazine, Some((size, turn))) => {
+                    b.rect(hand, size + vec2(1.4, 1.4), turn, 1.2, GUN_EDGE);
+                    b.rect(hand, size, turn, 1.0, GUN);
+                    b.rect(hand, vec2(size.x * 0.4, size.y * 0.7), turn, 0.6, lit);
+                }
+                (Load::Shell, _) => {
+                    b.rect(hand, vec2(5.5, 3.2), 0.4, 1.4, SHELL);
+                    b.rect(
+                        hand + vec2(-2.2, -0.9),
+                        vec2(1.6, 3.4),
+                        0.4,
+                        0.6,
+                        SHELL_HEAD,
+                    );
+                }
+                _ => {}
+            }
+        }
     }
 }
 
@@ -3221,6 +3396,39 @@ fn fore_hand(weapon: WeaponKind) -> f32 {
         // A droid's arm is part of the machine and never in a
         // hand: answered so the match is whole, read by nobody.
         WeaponKind::Claw | WeaponKind::Unmaker | WeaponKind::Sweeper => 6.0,
+    }
+}
+
+/// What the fore hand carries through a reload (October 2026).
+#[derive(Clone, Copy, PartialEq, Debug)]
+enum Load {
+    Nothing,
+    Magazine,
+    Shell,
+}
+
+/// Where a reload is worked on each gun, in the gun's own frame: the
+/// magazine well — the pistol's in its butt, the rifle's where its
+/// magazine is canted out, the sniper's under the receiver — and the
+/// shotgun's loading port.
+fn reload_well(weapon: WeaponKind) -> Vec2 {
+    match weapon {
+        WeaponKind::LaserPistol => vec2(-3.0, 1.0),
+        WeaponKind::AutoRifle => vec2(3.5, 6.0),
+        WeaponKind::SniperRifle => vec2(3.0, 5.5),
+        WeaponKind::Shotgun => vec2(4.0, 5.0),
+        _ => vec2(0.0, 0.0),
+    }
+}
+
+/// A magazine of each gun as it is drawn in the hand: its size and how
+/// it lies in the gun's frame. `None` for a gun loaded a shell at a time.
+fn magazine_shape(weapon: WeaponKind) -> Option<(Vec2, f32)> {
+    match weapon {
+        WeaponKind::LaserPistol => Some((vec2(4.0, 6.0), 0.0)),
+        WeaponKind::AutoRifle => Some((vec2(3.4, 8.4), 0.35)),
+        WeaponKind::SniperRifle => Some((vec2(4.0, 6.5), 0.0)),
+        _ => None,
     }
 }
 
@@ -3266,11 +3474,13 @@ fn gun_reach(weapon: WeaponKind) -> f32 {
 /// place to change what a gun looks like. `lit` is the emitter's glow at
 /// the muzzle, in the side's colour — the crew's blue, an enemy's red
 /// (feature 98) — and `None` for a gun on the deck, which is cold.
+/// `bare` is a gun with its magazine pulled, part way through a reload
+/// (October 2026): the rifle's is the one that shows.
 ///
 /// Seen from above, so every piece is a block along the length and the
 /// things that would hang under the gun are canted out to the side
 /// instead: the rifle's magazine, the sniper's bipod legs.
-fn draw_gun(b: &mut Brush, grip: Vec2, weapon: WeaponKind, lit: Option<Color>) {
+fn draw_gun(b: &mut Brush, grip: Vec2, weapon: WeaponKind, lit: Option<Color>, bare: bool) {
     // A piece of the gun: a block with a rim a shade lighter round it,
     // so each piece holds its own edge against any deck colour.
     let part = |b: &mut Brush, at: Vec2, size: Vec2, rot: f32, c: Color| {
@@ -3324,8 +3534,10 @@ fn draw_gun(b: &mut Brush, grip: Vec2, weapon: WeaponKind, lit: Option<Color>) {
             // along the barrel, a sight rail down the top and a brake on
             // the end.
             part(b, vec2(-5.0, 0.0), vec2(9.0, 6.8), 0.0, GUN);
-            b.rect(grip + vec2(3.5, 6.0), vec2(5.0, 10.0), 0.35, 1.2, GUN_EDGE);
-            b.rect(grip + vec2(3.5, 6.0), vec2(3.4, 8.4), 0.35, 1.0, GUN);
+            if !bare {
+                b.rect(grip + vec2(3.5, 6.0), vec2(5.0, 10.0), 0.35, 1.2, GUN_EDGE);
+                b.rect(grip + vec2(3.5, 6.0), vec2(3.4, 8.4), 0.35, 1.0, GUN);
+            }
             part(b, vec2(2.5, 0.0), vec2(12.0, 8.0), 0.0, GUN);
             part(b, vec2(16.0, 0.0), vec2(14.0, 6.2), 0.0, GUN);
             for i in 0..3 {
@@ -3929,7 +4141,7 @@ pub fn draw_dropped(list: &mut DrawList, at: Vec2, weapon: WeaponKind) {
         return;
     }
     let mut b = list.brush(at, ASKEW, s);
-    draw_gun(&mut b, vec2(-reach * 0.5, 0.0), weapon, None);
+    draw_gun(&mut b, vec2(-reach * 0.5, 0.0), weapon, None, false);
 }
 
 /// A schword's blade from its hilt along `dir`, its edge in `edge`: two
@@ -4042,5 +4254,51 @@ mod tests {
             "a walk is between them: {}",
             walking.pos.x
         );
+    }
+
+    /// A reload is drawn (October 2026): part way through it the gun is
+    /// canted in and the fore hand is off the fore-end — at the pouch for
+    /// a fresh magazine, at the port with a shell — and at either end of
+    /// it the hold is the carry. Where a shot leaves never moves with it.
+    #[test]
+    fn a_reload_takes_the_fore_hand_off_the_gun_and_the_muzzle_stays() {
+        for weapon in [
+            WeaponKind::LaserPistol,
+            WeaponKind::Shotgun,
+            WeaponKind::AutoRifle,
+            WeaponKind::SniperRifle,
+        ] {
+            let mut ch = Character::new(vec2(0.0, 0.0), Look::CLASSIC[0], &mut Rng::new(7));
+            ch.set_armed(Some(weapon));
+            let pose = ch.current_pose();
+            let rest = ch.weapon_hands(pose, weapon);
+            let muzzle = ch.muzzle();
+            for (t, load) in [(0.5, Load::Magazine), (0.25, Load::Shell)] {
+                ch.set_reload(t);
+                let hands = ch.weapon_hands(pose, weapon);
+                assert!(
+                    (hands[1] - rest[1]).len() > 5.0,
+                    "{weapon:?} at {t}: the fore hand is off the gun"
+                );
+                assert!(ch.held_rot(ch.held_grip(pose)) < ch.gun_rot(ch.weapon_grip(pose)));
+                assert_eq!(
+                    ch.muzzle(),
+                    muzzle,
+                    "{weapon:?}: the shot leaves where it did"
+                );
+                let carried = ch.reload_hand(ch.held_grip(pose), weapon).map(|(_, l)| l);
+                if (weapon == WeaponKind::Shotgun) == (load == Load::Shell) {
+                    assert_eq!(carried, Some(load), "{weapon:?} at {t}");
+                }
+            }
+            for t in [0.0, 0.999] {
+                ch.set_reload(t);
+                let hands = ch.weapon_hands(pose, weapon);
+                assert!(
+                    (hands[1] - rest[1]).len() < 0.5 && (hands[0] - rest[0]).len() < 0.5,
+                    "{weapon:?} at {t}: the hold is the carry"
+                );
+            }
+        }
     }
 }
