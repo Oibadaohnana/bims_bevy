@@ -396,6 +396,61 @@ fn the_bounty_is_paid_only_on_clear_and_only_once() {
     assert_eq!(world.money, money + paid, "and never again");
 }
 
+/// **A bot's kill pays five per cent and a player's a tenth more** (the
+/// player's, October 2026: "If a bot kills an enemy -> 5% money, if Player
+/// kills +10%"): a machine whose last hit was a bot's is owed
+/// `Rewards::bot_bounty_percent` of its bounty, one a player, a commander's
+/// reinforcement or his medic downed `player_bounty_percent`, and one no
+/// crew member hit last the whole. The experience is everybody's alike.
+#[test]
+fn a_bot_s_kill_pays_five_per_cent_and_a_player_s_a_tenth_more() {
+    use crate::commander::Reinforcement;
+    let (mut world, _) = held_arena();
+    world.set_droid_waves_for_probe(2);
+    world.set_droid_wave_for_probe(5);
+    open_the_room(&mut world);
+    assert_eq!(world.players(), 1);
+    // Crew 2 a commander's soldier, crew 3 his medic; crew 1 a plain bot.
+    world.reinforcements.push(Reinforcement {
+        who: 2,
+        by: 0,
+        medic: false,
+    });
+    world.reinforcements.push(Reinforcement {
+        who: 3,
+        by: 0,
+        medic: true,
+    });
+    let killers = [Some(0), Some(1), Some(2), Some(3), None];
+    let tier = world.droid_tier().code();
+    let residents = world.residents.as_mut().unwrap();
+    let bims = residents.aboard.room.crew_count() as usize;
+    assert_eq!(residents.aboard.room.droid_count(), 5);
+    let mut owed: economy::Money = 0;
+    for (i, by) in killers.into_iter().enumerate() {
+        residents.last_hit_by[bims + i] = by;
+        let kind = residents.aboard.room.droid(i).unwrap().kind;
+        let whole = crate::world::bounty_share(
+            crate::world::bounty_for(tier),
+            crate::world::droid_bounty_percent(kind),
+        );
+        owed += match by {
+            Some(1) => whole * 5 / 100,
+            Some(_) => whole * 110 / 100,
+            None => whole,
+        };
+        residents
+            .aboard
+            .room
+            .strike_droid(i, DroidPart::Chassis, 1e6);
+    }
+    world.step(&[]);
+    assert_eq!(
+        world.run.pending_bounty, owed,
+        "the bot's five per cent, the players' a tenth more"
+    );
+}
+
 /// **A site left uncleared is put back as the mission met it.** The
 /// machines' station with a wave destroyed and more to come: leaving it
 /// throws the bounty away, keeps the experience, and the next visit finds

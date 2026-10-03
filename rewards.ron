@@ -12,6 +12,11 @@
 //                           tier one, two, three
 //   defense_bounty_percent  how much of that a defence pays (100 = the same
 //                           as an attack, 0 = nothing)
+//   bot_bounty_percent      how much of that is paid when one of the crew's
+//                           bots took the enemy down, in per cent
+//   player_bounty_percent   how much when a player took it down (a
+//                           commander's reinforcements and his medic count
+//                           as his own), in per cent
 //   bounty_waits_for_clear  true: the money waits until the site is cleared
 //                           and is lost if the crew leave first;
 //                           false: paid the moment the enemy goes down
@@ -23,6 +28,8 @@
     xp_per_down: 15,
     bounty: (500, 1500, 4500),
     defense_bounty_percent: 100,
+    bot_bounty_percent: 5,
+    player_bounty_percent: 110,
     bounty_waits_for_clear: true,
     buyback: 5000,
     shelf_price_percent: 100,

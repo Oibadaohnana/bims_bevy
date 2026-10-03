@@ -381,6 +381,21 @@ pub const REPUBLIC_BOUNTY: [Money; 4] = [0, 500, 1_500, 4_500];
 /// a hundred, the same as an attack, pending until the site is cleared
 /// like any. Tuned in the app's `rewards.ron` (`crate::rewards`).
 pub const DEFENSE_BOUNTY_PERCENT: u32 = 100;
+/// How much of an enemy's bounty is paid when one of the crew's **bots**
+/// took it down, in per cent (the player's, October 2026: "if a bot kills
+/// an enemy you should only be rewarded 50% of the gold", then 20%, then
+/// "If a bot kills an enemy -> 5% money, if Player kills +10%" — the
+/// experience is untouched). A bot is a crew member past the players — a
+/// bot, a hired hand, a townsperson who joined — and not one of a
+/// commander's reinforcements or his Medivac's medic, which pay as their
+/// commander's own kill ([`PLAYER_BOUNTY_PERCENT`]). A sentry's kill and an
+/// enemy no crew member hit last pay the whole. Tuned in the app's
+/// `rewards.ron` (`crate::rewards`).
+pub const BOT_BOUNTY_PERCENT: u32 = 5;
+/// How much of an enemy's bounty is paid when a player's own Bim — or a
+/// commander's reinforcement or medic — took it down, in per cent: ten
+/// more, to make up for what the bots no longer earn.
+pub const PLAYER_BOUNTY_PERCENT: u32 = 110;
 
 /// How far an enemy's bounty strays from its tier's own, in per cent, by
 /// how strong it is: the weaker of a tier this much less, the stronger

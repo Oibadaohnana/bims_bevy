@@ -188,7 +188,11 @@ use serde::{Deserialize, Serialize};
 /// Capacitor* and an *Arc Coil*, whose arc reaches them too, and one of
 /// them down lengthens a Rampage (`World::land_on_enemies`): both ends
 /// must land the hits alike.
-pub const PROTOCOL: u32 = 128;
+/// 129: a machine a crew bot finished off pays five per cent of its
+/// bounty and one a player did a tenth more (`Rewards::bot_bounty_percent`,
+/// `player_bounty_percent`; a commander's reinforcements and medic as
+/// his own): both ends must pay alike.
+pub const PROTOCOL: u32 = 129;
 
 /// Where the relay lives. `BIMS_SERVER` in the environment overrides it
 /// — `ws://127.0.0.1:8792` for one on the same machine.

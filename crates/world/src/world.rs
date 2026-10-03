@@ -2756,13 +2756,20 @@ impl World {
                 // for an enemy taken down, by its tier (feature 103):
                 // every enemy is a machine now, and a fight is how a crew
                 // earns. Pending until the site is cleared.
+                // A bot's kill pays its share (`kill_bounty`).
                 if let Some(d) = who.checked_sub(bims).and_then(|i| room.droid(i)) {
                     let by = residents.last_hit_by.get(who).copied().flatten();
                     machine_kills.push((
                         by,
-                        bounty_share(
-                            self.rewards.bounty_for(d.tier.code()),
-                            droid_bounty_percent(d.kind),
+                        kill_bounty(
+                            &self.rewards,
+                            self.speed_requests.len(),
+                            &self.reinforcements,
+                            by,
+                            bounty_share(
+                                self.rewards.bounty_for(d.tier.code()),
+                                droid_bounty_percent(d.kind),
+                            ),
                         ),
                     ));
                 }
@@ -7544,10 +7551,12 @@ impl World {
             // dying after — bled out or finished — is worth nothing more.
             if down && !residents.xp_down[who] {
                 gained.push((at, self.xp_per_down()));
-                downed.push((who, residents.last_hit_by.get(who).copied().flatten()));
+                let by = residents.last_hit_by.get(who).copied().flatten();
+                downed.push((who, by));
                 // The Republic's bounty (feature 95), once per enemy at
-                // the first down or death, whoever did it. A machine is
-                // worth nothing: the Republic pays for people.
+                // the first down or death — a bot's kill its share
+                // (`kill_bounty`). A machine is paid in `visit`; here it
+                // is only said.
                 let worth = if who < crew {
                     manufacturer_bounty(&self.rewards, room, who)
                 } else {
@@ -7558,6 +7567,13 @@ impl World {
                         )
                     })
                 };
+                let worth = kill_bounty(
+                    &self.rewards,
+                    self.speed_requests.len(),
+                    &self.reinforcements,
+                    by,
+                    worth,
+                );
                 if who < crew {
                     bounty = bounty.saturating_add(worth);
                 }
@@ -11582,6 +11598,29 @@ pub fn manufacturer_bounty_percent(gear: &bims::combat::Gear) -> u32 {
 /// A bounty at `percent` of itself, rounded down to whole euros.
 pub fn bounty_share(amount: Money, percent: u32) -> Money {
     amount.saturating_mul(Money::from(percent)) / 100
+}
+
+/// An enemy's bounty as whoever took it down earns it, by the crew index
+/// of the last hit: a bot's kill — a crew member past the `players`, not
+/// one of a commander's reinforcements or his Medivac's medic — at
+/// `Rewards::bot_bounty_percent`; a player's, and a reinforcement's or a
+/// medic's as its commander's, at `Rewards::player_bounty_percent`; one no
+/// crew member's hand landed last (a sentry's bolt, a defender's, nobody's)
+/// whole. A free function so it reads while a room is borrowed.
+fn kill_bounty(
+    rewards: &crate::rewards::Rewards,
+    players: usize,
+    reinforcements: &[crate::commander::Reinforcement],
+    by: Option<usize>,
+    amount: Money,
+) -> Money {
+    match by {
+        Some(b) if b >= players && !reinforcements.iter().any(|r| r.who as usize == b) => {
+            rewards.by_bot(amount)
+        }
+        Some(_) => rewards.by_player(amount),
+        None => amount,
+    }
 }
 
 /// What the Republic pays for one of the Manufacturers' people down: its

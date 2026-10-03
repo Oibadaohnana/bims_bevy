@@ -7497,6 +7497,28 @@ are the rule.
   `the_pistols_the_crew_set_out_with_are_never_sold`) and
   `trader::tests` are the rule.
 
+## A bot's kill pays 5%, a player's 110% (October 2026)
+
+The player's words: "if a bot kills an enemy you should only be rewarded
+50% of the gold, that does not count for the commander units (medic and
+reinforcements)", then 20%, then "If a bot kills an enemy -> 5% money, if
+Player kills +10%", the experience the same. `world::kill_bounty` (a free
+function, so it reads while a room is borrowed) takes an enemy's bounty
+and who last hit it (`Residents::last_hit_by`, a crew index): a crew
+member past the players that is not on `World::reinforcements` earns
+`Rewards::bot_bounty_percent` (`data::BOT_BOUNTY_PERCENT`, **5**); a
+player, and a commander's R soldiers and Medivac medic as his own,
+`player_bounty_percent` (`data::PLAYER_BOUNTY_PERCENT`, **110**); a kill
+no crew hand landed last (a sentry's bolt, `by` `None`) the whole. Both
+are `rewards.ron` lines. Applied in `visit`'s machine kills and in
+`experience`'s Bims (a Manufacturer), before the relics' and the
+defence's shares, so `EnemyRewarded`'s money is the share paid. The
+experience is untouched. A defender's hit never writes `last_hit_by`, so
+a machine a bot hit and a defender finished counts as the bot's.
+`wire::PROTOCOL` 129.
+`tests_mission::a_bot_s_kill_pays_five_per_cent_and_a_player_s_a_tenth_more`
+is the rule.
+
 ## Every item and ability on every enemy (October 2026)
 
 > The player's word: "all items and spells should work on all enemies,

@@ -163,7 +163,11 @@ there is no helm to stand at and no trip to sit through.
   for every machine destroyed — 500, 1 500 or 4 500 by its tier — but
   it is **pending**, "+€ n on clear" along the top, until the place is
   **cleared**: no machine left there and none still to come. Then it is
-  paid into the pool, once. Experience is always yours.
+  paid into the pool, once. Experience is always yours. **A machine one
+  of your bots finished off pays only 5%, one a player finished off 110%**
+  (`bot_bounty_percent`, `player_bounty_percent` in `rewards.ron`); a
+  commander's reinforcements and his Medivac's medic earn as he does, a
+  sentry's kill the plain bounty. The experience is the same either way.
 - **Back to ship**, at the bottom right. The first press sends every bot
   back to the ship, and every press walks your own Bim there too (click
   the deck to go somewhere else instead). When every player still on their feet has pressed

@@ -31,6 +31,12 @@ pub struct Rewards {
     /// How much of that a defence pays, in per cent of it: a hundred is
     /// the same as an attack, nought is nothing.
     pub defense_bounty_percent: u32,
+    /// How much of an enemy's money is paid when one of the crew's bots
+    /// took it down, in per cent of it.
+    pub bot_bounty_percent: u32,
+    /// How much is paid when a player's own Bim took it down (a
+    /// commander's reinforcements and his medic as his own), in per cent.
+    pub player_bounty_percent: u32,
     /// Whether the money waits for the site to be cleared (and is lost
     /// if the crew leave first); `false` pays it the step the enemy goes
     /// down.
@@ -51,6 +57,8 @@ impl Rewards {
             data::REPUBLIC_BOUNTY[3],
         ],
         defense_bounty_percent: data::DEFENSE_BOUNTY_PERCENT,
+        bot_bounty_percent: data::BOT_BOUNTY_PERCENT,
+        player_bounty_percent: data::PLAYER_BOUNTY_PERCENT,
         bounty_waits_for_clear: true,
         buyback: data::BUYBACK_COST,
         shelf_price_percent: 100,
@@ -69,6 +77,18 @@ impl Rewards {
     /// `amount` at a defence: its per cent, rounded down.
     pub fn at_defense(&self, amount: Money) -> Money {
         amount.saturating_mul(self.defense_bounty_percent as Money) / 100
+    }
+
+    /// `amount` for an enemy one of the crew's bots took down: its per
+    /// cent, rounded down.
+    pub fn by_bot(&self, amount: Money) -> Money {
+        amount.saturating_mul(self.bot_bounty_percent as Money) / 100
+    }
+
+    /// `amount` for an enemy a player took down: its per cent, rounded
+    /// down.
+    pub fn by_player(&self, amount: Money) -> Money {
+        amount.saturating_mul(self.player_bounty_percent as Money) / 100
     }
 
     /// A shelf price scaled by its per cent, rounded down.
@@ -103,11 +123,17 @@ mod tests {
         let tuned = Rewards {
             bounty: [10, 20, 30],
             defense_bounty_percent: 50,
+            bot_bounty_percent: 25,
+            player_bounty_percent: 120,
             shelf_price_percent: 150,
             ..d
         };
         assert_eq!(tuned.bounty_for(2), 20);
         assert_eq!(tuned.at_defense(25), 12);
+        assert_eq!(d.by_bot(1_500), 75);
+        assert_eq!(d.by_player(1_500), 1_650);
+        assert_eq!(tuned.by_player(1_000), 1_200);
+        assert_eq!(tuned.by_bot(1_000), 250);
         assert_eq!(tuned.shelf_price(1_000), 1_500);
     }
 }
