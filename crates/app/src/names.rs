@@ -465,6 +465,7 @@ pub fn refusal(why: Refusal) -> &'static str {
         Refusal::NoWeaponInHand => "nothing in hand to fire it from",
         Refusal::NoSatchels => "no satchel charge of yours is lying out",
         Refusal::ShieldRecharging => "the shield is broken until its cooldown is over",
+        Refusal::NotSellable => "the laser pistol is not for sale",
     }
 }
 
@@ -2384,8 +2385,8 @@ pub const TRADER_DELIVER_TO: &str = "Deliver to";
 pub const TRADER_FRONT_STAMP: &str = "Front prices";
 /// The total line at the foot of the form.
 pub const TRADER_BALANCE: &str = "Your balance";
-pub const TRADER_INTRO: &str = "Buy off your own shelf with your own money — every player has a trader of their own, prices shared by the crew — onto your own Bim, a bot, or into the armory. What it replaces goes into the armory. The shelf is one weapon and one armour at the tier the day has reached, rolled again every visit. Tab opens the Armory beside this.";
-pub const TRADER_WEAPONS: &str = "Weapon";
+pub const TRADER_INTRO: &str = "Buy off your own shelf with your own money — every player has a trader of their own, prices shared by the crew — onto your own Bim, a bot, or into the armory. What it replaces goes into the armory. The shelf is two weapons and one armour at the tier the day has reached — or a tier past the best of each you have bought — rolled again every visit. The laser pistol is neither sold nor bought. Tab opens the Armory beside this.";
+pub const TRADER_WEAPONS: &str = "Weapons";
 pub const TRADER_ARMOUR: &str = "Armour";
 /// The item shelf (October 2026): every item at the day's tier, never
 /// sold out.
@@ -3832,6 +3833,7 @@ mod tests {
             Refusal::ItemsFull,
             Refusal::BotsCarryNoItems,
             Refusal::NotForSale,
+            Refusal::NotSellable,
         ] {
             assert!(!refusal(why).is_empty());
         }

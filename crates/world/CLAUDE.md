@@ -7467,3 +7467,32 @@ are the rule.
   `a_thing_sold_fetches_half_of_what_was_paid`) and `tests_trader.rs`
   (`a_second_gun_bought_is_a_second_gun_and_another_player_s_kit_is_not_sold`)
   are the rule.
+
+## Two guns, a shelf a tier past what was bought, and the pistol kept (October 2026)
+
+> "Items: four slots a player's Bim" and the section above say a shelf
+> is one gun and one piece at the day's tier; that moved.
+
+- **The shelf** (`trader::roll_shelf`, `shelf_off`) is
+  `data::TRADER_WEAPONS` (**two**) guns, drawn without putting back so
+  never two alike, then the piece. `trader::shelf_candidates` never
+  holds the **laser pistol**: every Bim sets out with one.
+- **A shelf a tier past what was bought**: `Run::shelf_bought` (saved,
+  serde default; hashed in the traders' block only where any is set) is
+  each player slot's best tier code of gun and of armour bought off a
+  shelf this run. `World::shelf_tiers(slot)` is the tiers the slot's
+  shelf sells its guns and its armour at: the day's (`shop_tier`), or
+  one past the best bought where that is higher, three at most.
+  `arrive_at_trader` restocks each owner's trader at its own tiers;
+  `buy_shelf` records the tier and `Trader::lift`s what is left of that
+  kind on the shelf at once (the kind kept — a kind made at a tier is
+  made at every tier above). Another player's shelves are untouched.
+- **The pistol is never sold**: `sellable` refuses a laser pistol
+  wherever it is — a player's hand, a bot's, the armory —
+  `Refusal::NotSellable` (132). The trader's Sell tab lists only what
+  `sellable` allows, so it is not shown.
+- **`SAVE_VERSION` 101, `wire::PROTOCOL` 126.**
+  `tests_trader.rs`
+  (`a_thing_bought_puts_its_kind_a_tier_up_and_no_shelf_sells_a_pistol`,
+  `the_pistols_the_crew_set_out_with_are_never_sold`) and
+  `trader::tests` are the rule.

@@ -179,7 +179,11 @@ use serde::{Deserialize, Serialize};
 /// must agree which sites are traders.
 /// 125: a soldier charging a Stun Shot faces where it goes, whatever the
 /// pointer says (`Character::shot_at`): both ends must turn him alike.
-pub const PROTOCOL: u32 = 125;
+/// 126: a shelf is two guns (never the pistol) and a piece, each a tier
+/// past the best of its kind the player has bought (`Run::shelf_bought`),
+/// and the laser pistol is never sold (`Refusal::NotSellable`): both ends
+/// must trade alike.
+pub const PROTOCOL: u32 = 126;
 
 /// Where the relay lives. `BIMS_SERVER` in the environment overrides it
 /// — `ws://127.0.0.1:8792` for one on the same machine.

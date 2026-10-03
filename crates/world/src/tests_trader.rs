@@ -120,7 +120,7 @@ fn the_same_seed_gives_the_same_shelf() {
         site.station,
         0,
         a.clock_minutes.to_bits(),
-        a.shop_tier(),
+        a.shelf_tiers(0),
     )
     .into_iter()
     .map(Some)
@@ -131,8 +131,9 @@ fn the_same_seed_gives_the_same_shelf() {
 
 /// **A bought thing is gone for the visit, and a revisit is a new shelf**
 /// (October 2026): bought, its slot is empty and sold out; the crew leave,
-/// fight somewhere else, come back, and meet the same trader with its shelf rolled again for the visit, one gun and one
-/// piece at the day's tier.
+/// fight somewhere else, come back, and meet the same trader with its
+/// shelf rolled again for the visit — the guns now a tier past the one
+/// bought (`World::shelf_tiers`).
 #[test]
 fn a_bought_thing_is_gone_for_the_visit_and_a_revisit_rolls_the_shelf_again() {
     let mut world = basic(1);
@@ -187,12 +188,128 @@ fn a_bought_thing_is_gone_for_the_visit_and_a_revisit_rolls_the_shelf_again() {
         site.station,
         0,
         world.clock_minutes.to_bits(),
-        world.shop_tier(),
+        world.shelf_tiers(0),
     )
     .into_iter()
     .map(Some)
     .collect();
     assert_eq!(again.shelf, rolled, "the shelf rolled for this visit");
+}
+
+/// **Two guns, never the pistol, and a thing bought lifts its kind**
+/// (October 2026): a shelf holds two guns and a piece, no laser pistol;
+/// the armour bought, every later shelf of that player sells armour a tier
+/// up, and a gun bought puts the other gun on the shelf up at once and
+/// every later shelf's; another player's shelves are as they were.
+#[test]
+fn a_thing_bought_puts_its_kind_a_tier_up_and_no_shelf_sells_a_pistol() {
+    use bims::combat::{Tier, WeaponKind};
+    let mut world = basic(2);
+    let site = at_a_trader(&mut world);
+    let day = world.shop_tier();
+    assert_eq!(day, Tier::One, "the start's day");
+    let shelf = world.trader_here(0).unwrap().shelf.clone();
+    assert_eq!(shelf.len(), 3);
+    let guns: Vec<_> = shelf[..2].iter().map(|i| i.unwrap()).collect();
+    assert!(guns.iter().all(|g| g.is_weapon() && g.tier == day));
+    assert_ne!(guns[0], guns[1], "two different guns");
+    assert!(
+        guns.iter()
+            .all(|g| g.weapon().unwrap().kind != WeaponKind::LaserPistol)
+    );
+    assert!(shelf[2].unwrap().armour().is_some());
+
+    // The armour, then the first gun.
+    for index in [2, 0] {
+        let events = world.step(&[Command::BuyShelf {
+            slot: 0,
+            index,
+            to: None,
+        }]);
+        assert!(
+            events
+                .iter()
+                .any(|e| matches!(e, WorldEvent::ShelfBought { .. })),
+            "{events:?}"
+        );
+    }
+    assert_eq!(world.shelf_tiers(0), (Tier::Two, Tier::Two));
+    assert_eq!(world.shelf_tiers(1), (day, day), "the other player's");
+    let left = world.trader_here(0).unwrap().shelf[1].unwrap();
+    assert_eq!(left.tier, Tier::Two, "the other gun put up at once");
+    assert_eq!(left.resource, guns[1].resource, "its kind kept");
+
+    // Somewhere else, and back: the player's shelf is a tier up.
+    let elsewhere = world
+        .destinations()
+        .into_iter()
+        .find(|&s| s != site && !world.is_trader(s) && world.travel_quote(s).is_ok())
+        .expect("somewhere else to go");
+    travel_to(&mut world, elsewhere);
+    world.leave_for_probe();
+    world.run.phase = Phase::Map;
+    world.run.relics.choice = None;
+    travel_to(&mut world, site);
+    assert_eq!(world.run.phase, Phase::Trade);
+    assert_eq!(world.shop_tier(), day, "the day's tier has not moved");
+    let again = world.trader_here(0).unwrap();
+    assert!(again.shelf.iter().all(|i| i.unwrap().tier == Tier::Two));
+    let theirs = world.trader_here(1).unwrap();
+    assert!(theirs.shelf.iter().all(|i| i.unwrap().tier == day));
+
+    // Tier three bought leaves the shelf at three.
+    world.run.shelf_bought[0] = [3, 3];
+    assert_eq!(world.shelf_tiers(0), (Tier::Three, Tier::Three));
+}
+
+/// **The laser pistol is never sold**: the one a player's own Bim sets
+/// out with, and a bot's, are refused `NotSellable` and stay where they
+/// are; a gun bought is sold as ever.
+#[test]
+fn the_pistols_the_crew_set_out_with_are_never_sold() {
+    use bims::combat::WeaponKind;
+    let mut world = crewed_world(flyer(2), RICH, 1, 2);
+    at_a_trader(&mut world);
+    assert!(world.aboard.crew_count() > 1, "a bot aboard");
+    for who in [0, 1] {
+        let from = GearSource::Worn {
+            who,
+            slot: GearSlot::Weapon,
+        };
+        let held = world.worn_on(who, GearSlot::Weapon);
+        assert!(
+            matches!(held, Some(Item::Weapon(w)) if w.kind == WeaponKind::LaserPistol),
+            "{held:?}"
+        );
+        assert_eq!(world.sellable(0, from), Err(Refusal::NotSellable));
+        let money = world.wallet(0);
+        let events = world.step(&[Command::Sell { slot: 0, from }]);
+        assert!(refused_with(&events, Refusal::NotSellable), "{events:?}");
+        assert_eq!(world.worn_on(who, GearSlot::Weapon), held);
+        assert_eq!(world.wallet(0), money);
+    }
+    // A gun bought onto the Bim, the pistol into the armory: the gun is
+    // sold, the pistol in the armory is not.
+    world.step(&[Command::BuyShelf {
+        slot: 0,
+        index: 0,
+        to: Some(0),
+    }]);
+    let worn = GearSource::Worn {
+        who: 0,
+        slot: GearSlot::Weapon,
+    };
+    assert!(world.sellable(0, worn).is_ok());
+    let pistol = world
+        .holdings
+        .armory
+        .iter()
+        .find(|s| matches!(s.item, Item::Weapon(w) if w.kind == WeaponKind::LaserPistol))
+        .expect("the pistol into the armory");
+    assert_eq!(
+        world.sellable(0, GearSource::Armory { id: pistol.id }),
+        Err(Refusal::NotSellable)
+    );
 }
 
 /// **Bought onto a Bim**: the thing on its own slot, what was there into
@@ -345,24 +462,33 @@ fn a_second_gun_bought_is_a_second_gun_and_another_player_s_kit_is_not_sold() {
     assert!(refused_with(&events, Refusal::NotYours), "{events:?}");
     assert!(world.worn_on(1, GearSlot::Weapon).is_some());
 
-    let mine = GearSource::Worn {
-        who: 0,
-        slot: GearSlot::Weapon,
-    };
-    let Some(Item::Weapon(own)) = world.worn_on(0, GearSlot::Weapon) else {
-        panic!("a gun in hand");
-    };
+    // One of the two sold out of the armory, for half. (The pistol in the
+    // player's own hand is never sold: `the_pistols_the_crew_set_out_with_
+    // are_never_sold`.)
+    let id = world
+        .holdings
+        .armory
+        .iter()
+        .find(|s| s.item == Item::Weapon(weapon))
+        .unwrap()
+        .id;
     let half = world.shelf_price(trader::ShelfItem {
-        resource: crate::armour::weapon_resource(own.kind),
-        tier: own.tier,
+        resource: crate::armour::weapon_resource(weapon.kind),
+        tier: weapon.tier,
     }) / 2;
     let before = world.wallet(0);
     world.step(&[Command::Sell {
         slot: 0,
-        from: mine,
+        from: GearSource::Armory { id },
     }]);
     assert_eq!(world.wallet(0), before + half);
-    assert_eq!(world.worn_on(0, GearSlot::Weapon), None);
+    let guns = world
+        .holdings
+        .armory
+        .iter()
+        .filter(|s| s.item == Item::Weapon(weapon))
+        .count();
+    assert_eq!(guns, 1);
 }
 
 /// **A trader is closed while its system is the machines'** and not

@@ -268,7 +268,9 @@ use crate::game::Game;
 /// `Grenade::unseen`, `Shot::grenade`).
 /// 100: an item keeps what its owner paid for it (`Module::paid`, half of
 /// it back on a sale); `Command::Combine` and `WorldEvent::Combined` went.
-pub const SAVE_VERSION: u32 = 100;
+/// 101: the run keeps the best tier of gun and of armour each player has
+/// bought off a shelf (`Run::shelf_bought`), which lifts its later shelves.
+pub const SAVE_VERSION: u32 = 101;
 
 /// What the file holds, read back.
 #[derive(serde::Deserialize)]

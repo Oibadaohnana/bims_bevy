@@ -248,10 +248,12 @@ impl World {
         // shelf is rolled afresh every visit, at the tier the day has
         // reached (October 2026). No trader sells a relic.
         let visit = self.clock_minutes.to_bits();
-        let tier = self.shop_tier();
         let seed = self.galaxy_seed;
-        for trader in self.run.traders.iter_mut().filter(|t| t.site == site) {
-            trader.restock(seed, visit, tier);
+        for at in 0..self.run.traders.len() {
+            if self.run.traders[at].site == site {
+                let tiers = self.shelf_tiers(self.run.traders[at].owner);
+                self.run.traders[at].restock(seed, visit, tiers);
+            }
         }
         for owner in 0..self.players() {
             if self
@@ -266,9 +268,10 @@ impl World {
                 .run
                 .traders
                 .partition_point(|t| (t.site, t.owner) < (site, owner));
-            self.run
-                .traders
-                .insert(at, Trader::new(seed, site, owner, visit, tier));
+            self.run.traders.insert(
+                at,
+                Trader::new(seed, site, owner, visit, self.shelf_tiers(owner)),
+            );
         }
     }
 
@@ -338,6 +341,19 @@ impl World {
             return;
         }
         self.run.traders[at].shelf[index as usize] = None;
+        // Bought, every later shelf of the player's sells its kind a tier
+        // past it — and what is left of its kind on this one is put up at
+        // once (October 2026).
+        let kind = usize::from(!item.is_weapon());
+        let slot_at = slot as usize;
+        if self.run.shelf_bought.len() <= slot_at {
+            self.run.shelf_bought.resize(slot_at + 1, [0; 2]);
+        }
+        let best = &mut self.run.shelf_bought[slot_at][kind];
+        *best = (*best).max(item.tier.code());
+        let tiers = self.shelf_tiers(slot);
+        let lifted = if item.is_weapon() { tiers.0 } else { tiers.1 };
+        self.run.traders[at].lift(item.is_weapon(), lifted);
         let thing = match item.weapon() {
             Some(weapon) => Item::Weapon(weapon),
             None => {
@@ -373,6 +389,27 @@ impl World {
     /// items alike.
     pub fn shop_tier(&self) -> Tier {
         crate::items::shop_tier(&self.scaling(), self.run_day())
+    }
+
+    /// The tiers player `slot`'s shelf sells its guns and its armour at
+    /// (October 2026): each the day's ([`World::shop_tier`]), or one past
+    /// the best of its kind the player has bought off a shelf this run
+    /// where that is higher — tier three at most, so a tier-three thing
+    /// bought leaves the shelf at three.
+    pub fn shelf_tiers(&self, slot: u32) -> (Tier, Tier) {
+        let day = self.shop_tier();
+        let bought = self
+            .run
+            .shelf_bought
+            .get(slot as usize)
+            .copied()
+            .unwrap_or_default();
+        let past = |code: u32| {
+            Tier::from_code(code)
+                .map(|t| t.next().unwrap_or(t))
+                .map_or(day, |t| t.max(day))
+        };
+        (past(bought[0]), past(bought[1]))
     }
 
     /// The trader's item shelf today ([`crate::items::shop`]): every kind
@@ -525,7 +562,7 @@ impl World {
 
     /// What player `slot` may sell from `from`, if it may: a thing in the
     /// armory, or on its own Bim's or a bot's slot — never another
-    /// player's — and never a charge.
+    /// player's — and never a charge or a laser pistol (`NotSellable`).
     pub fn sellable(&self, slot: u32, from: GearSource) -> Result<(Item, Money), Refusal> {
         let thing = match from {
             GearSource::Armory { id } => self
@@ -543,6 +580,11 @@ impl World {
                 self.worn_on(who, part).ok_or(Refusal::NoSuchGear)?
             }
         };
+        // The laser pistol every Bim sets out with — a player's and a
+        // bot's — is never sold (October 2026); no trader sells one either.
+        if matches!(thing, Item::Weapon(w) if w.kind == WeaponKind::LaserPistol) {
+            return Err(Refusal::NotSellable);
+        }
         let value = self.sell_value(thing).ok_or(Refusal::NoSuchGear)?;
         Ok((thing, value))
     }

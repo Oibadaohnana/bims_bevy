@@ -752,6 +752,16 @@ pub fn world_checksum(world: &World) -> u64 {
                 }
             }
         }
+        // The best tiers each player has bought off a shelf (October
+        // 2026), which lift its later shelves; only where any is.
+        if run.shelf_bought.iter().any(|b| b != &[0; 2]) {
+            hash.eat(0x_4245_5354);
+            hash.eat(run.shelf_bought.len() as u64);
+            for best in &run.shelf_bought {
+                hash.eat(u64::from(best[0]));
+                hash.eat(u64::from(best[1]));
+            }
+        }
     }
     // The fight chosen in each system (task 135). Eaten only where there
     // is any, so a run that has begun no mission since the start hashes

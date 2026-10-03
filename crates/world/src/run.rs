@@ -320,6 +320,12 @@ pub struct Run {
     /// visit. Sorted by site.
     #[cfg_attr(feature = "serde", serde(default))]
     pub traders: Vec<crate::trader::Trader>,
+    /// The best tier of gun and of armour (codes, nought for none) each
+    /// player slot has bought off a shelf this run (October 2026): its
+    /// shelves sell each one tier past it from then on
+    /// (`World::shelf_tiers`). Hashed with the traders, where any is set.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub shelf_bought: Vec<[u32; 2]>,
     /// The items' clocks (October 2026, [`crate::items::ItemClocks`]).
     #[cfg_attr(feature = "serde", serde(default))]
     pub items: crate::items::ItemClocks,
@@ -373,6 +379,7 @@ impl Run {
             sites_cleared: 0,
             systems_liberated: 0,
             traders: Vec::new(),
+            shelf_bought: Vec::new(),
             items: crate::items::ItemClocks::default(),
             ready_check: false,
             briefing: false,

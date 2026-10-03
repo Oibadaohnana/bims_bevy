@@ -625,6 +625,9 @@ pub enum Refusal {
     /// A Riot Shield raised while it is broken and not yet a quarter
     /// back (task 155).
     ShieldRecharging = 131,
+    /// A laser pistol offered to a trader: the one every Bim sets out
+    /// with is never sold (October 2026).
+    NotSellable = 132,
 }
 
 impl Refusal {

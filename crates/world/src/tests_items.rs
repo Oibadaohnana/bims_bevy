@@ -154,9 +154,9 @@ fn a_trader_sells_items_at_the_day_s_tier_onto_the_buyer_s_own_bim() {
         world.item_offer(0, ModuleKind::Executioner.code()),
         Some(ItemOffer::Buy(crit))
     );
-    // And the gun and the piece are the day's tier too, one each.
+    // And the two guns and the piece are the day's tier too.
     let trader = world.trader_here(0).unwrap();
-    assert_eq!(trader.shelf.len(), 2);
+    assert_eq!(trader.shelf.len(), 3);
     assert!(trader.shelf.iter().flatten().all(|i| i.tier == tier));
     let price = world.item_price(crit);
     let before = world.wallet(0);
@@ -370,15 +370,24 @@ fn a_thing_sold_fetches_half_of_what_was_paid() {
     }]);
     assert_eq!(world.wallet(0), before + half);
     assert!(world.holdings.get(id).is_none());
-    // A bot's gun is the player's to sell too.
-    assert!(world.worn_on(1, GearSlot::Weapon).is_some());
+    // A bot's gun is the player's to sell too — bar the pistol it set out
+    // with, which nobody sells (October 2026).
+    let bots = GearSource::Worn {
+        who: 1,
+        slot: GearSlot::Weapon,
+    };
+    assert_eq!(world.sellable(0, bots), Err(Refusal::NotSellable));
+    let rifle = world.holdings.put(gun).unwrap();
+    world.step(&[Command::Equip {
+        slot: 0,
+        who: 1,
+        from: GearSource::Armory { id: rifle },
+    }]);
+    assert_eq!(world.worn_on(1, GearSlot::Weapon), Some(gun));
     let before = world.wallet(0);
     let events = world.step(&[Command::Sell {
         slot: 0,
-        from: GearSource::Worn {
-            who: 1,
-            slot: GearSlot::Weapon,
-        },
+        from: bots,
     }]);
     assert!(world.wallet(0) > before, "{events:?}");
     assert_eq!(world.worn_on(1, GearSlot::Weapon), None);

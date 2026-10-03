@@ -486,12 +486,17 @@ arrival there is no mission and no room: nothing moves and neither clock
 runs while you are there, and the **Trader panel** comes up beside the
 map. **Tab** opens the Armory beside it.
 
-- **The shelf**: **one weapon and one armour**, of any kind made at the
-  tier the day has reached — tier one, then tier two from the scaling's
+- **The shelf**: **two weapons** (never the same, never the laser
+  pistol) **and one armour**, of any kind made at the tier the day has
+  reached — tier one, then tier two from the scaling's
   tier-two day, tier three from its tier-three day (`scaling.ron`, the
   days the machines' tiers run on) — priced at the trader's own tier
   prices. It is **rolled again every visit**: a thing bought is gone for
-  that visit, and the next visit is another shelf. Any player buys, with no vote, out of their own
+  that visit, and the next visit is another shelf. **Buying lifts your
+  shelf**: once you have bought a weapon your shelves sell weapons a tier
+  past the best you bought (the other weapon on the shelf goes up at
+  once), and the same for armour — up to tier three; another player's
+  shelf is its own. Any player buys, with no vote, out of their own
   money — onto their own Bim, onto a bot, or into the armory; what it
   replaces goes into the armory.
 - **The items**: every [item](#items) at the day's tier, one of each a visit (SOLD until the next) —
@@ -504,6 +509,8 @@ map. **Tab** opens the Armory beside it.
   your own Bim's weapon, armour and items, a bot's, the armory's — back
   for **half of what it cost**: an item half of everything paid for it,
   a weapon or armour half its shelf price today, into your own money.
+  The **laser pistol** every Bim sets out with — yours or a bot's — is
+  never sold.
   Nothing is combined any more (October 2026).
 - **Closed**: a trader is shut while the machines have its system, and
   opens again once the system is **liberated** — every station, jammer

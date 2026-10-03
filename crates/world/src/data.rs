@@ -490,9 +490,10 @@ pub const TRADER_NEAR_HOPS: u16 = 1;
 /// eligible within reach (the edge of a galaxy hemmed in by elites and the
 /// Manufacturers) is the only one left without.
 pub const TRADER_EVERY_HOPS: u16 = 5;
-/// How many weapons a trader's shelf holds: one (October 2026; it was
-/// four), any kind made at the day's tier, rolled again every visit.
-pub const TRADER_WEAPONS: usize = 1;
+/// How many weapons a trader's shelf holds: two, never alike and never
+/// the laser pistol (October 2026; it was four, then one), any kind made
+/// at the shelf's tier, rolled again every visit.
+pub const TRADER_WEAPONS: usize = 2;
 /// How many pieces of armour it holds beside it: one (it was three).
 pub const TRADER_ARMOUR: usize = 1;
 /// What an item costs at a trader (October 2026, `crate::items`), by its
