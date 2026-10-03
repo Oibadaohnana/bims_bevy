@@ -1955,6 +1955,73 @@ pub fn item_line(item: bims::module::Module) -> String {
     }
 }
 
+/// The tier rows under an item's tooltip (October 2026): "Tier 2".
+pub fn item_tier_label(tier: u32) -> String {
+    format!("Tier {tier}")
+}
+
+/// What an item's tier `tier` (1 to 3) gives, short, only the numbers
+/// that move with the tier: a row of the tier table under its tooltip,
+/// so the player sees what the next tier adds. `None` for a kind made at
+/// one tier alone (the *Override Core*, the *Reset Capacitor*): it has
+/// nothing to compare.
+pub fn item_tier_line(kind: bims::module::ModuleKind, tier: u32) -> Option<String> {
+    use bims::module::{self as m, ModuleKind};
+    if bims::combat::Tier::ALL
+        .into_iter()
+        .filter(|&t| kind.made_at(t))
+        .count()
+        < 2
+    {
+        return None;
+    }
+    let t = (tier.clamp(1, 3) - 1) as usize;
+    Some(match kind {
+        ModuleKind::BlinkDrive => format!(
+            "{} tiles · {} s cooldown",
+            fig(m::BLINK_RANGE_TILES[t] as f64),
+            fig(m::BLINK_COOLDOWN_SECONDS[t] as f64),
+        ),
+        ModuleKind::Executioner => format!(
+            "{} crits for {}",
+            pc(m::EXECUTIONER_CHANCE[t] as f64),
+            pc(m::EXECUTIONER_DAMAGE[t] as f64),
+        ),
+        ModuleKind::ReactorHeart => format!(
+            "+{} health · {} HP/s, {} HP/s quiet",
+            fig(m::HEART_HEALTH[t] as f64),
+            fig(m::HEART_REGEN[t] as f64),
+            fig(m::HEART_QUIET_REGEN[t] as f64),
+        ),
+        ModuleKind::CoolantLoop => format!("-{}% cooldowns", m::COOLANT_LOOP_PERCENT[t]),
+        ModuleKind::PressureSeal => {
+            format!("{} HP/s", fig(m::PRESSURE_SEAL_REGEN[t] as f64))
+        }
+        ModuleKind::SteadyGrip => format!("+{}% fire rate", m::STEADY_GRIP_PERCENT[t]),
+        ModuleKind::LongBarrel => format!("+{} tiles range", fig(m::LONG_BARREL_TILES[t] as f64)),
+        ModuleKind::LeechCapacitor => format!("{} back as health", pc(m::LEECH_SHARE[t] as f64)),
+        ModuleKind::ArcCoil => format!(
+            "{} machines · {} damage each",
+            m::ARC_TARGETS[t],
+            fig(m::ARC_DAMAGE[t] as f64),
+        ),
+        ModuleKind::FieldMender => format!(
+            "{} HP · {} s cooldown",
+            fig(m::MENDER_HEAL[t] as f64),
+            fig(m::MENDER_COOLDOWN_SECONDS[t] as f64),
+        ),
+        ModuleKind::ResetCapacitor => {
+            format!("{} s cooldown", fig(m::RESET_COOLDOWN_SECONDS[t] as f64))
+        }
+        ModuleKind::AblativeShell => format!(
+            "{} s · {} s cooldown",
+            fig(m::SHELL_SECONDS[t] as f64),
+            fig(m::SHELL_COOLDOWN_SECONDS[t] as f64),
+        ),
+        ModuleKind::OverrideCore => return None,
+    })
+}
+
 pub fn relic_name(relic: world::Relic) -> &'static str {
     RELIC_NAMES
         .get(relic.code() as usize)
@@ -3726,7 +3793,20 @@ mod tests {
                 assert!(!item_line(item).is_empty());
                 assert!(module_tip(item, !kind.active()).starts_with(item_name(kind)));
             }
+            // A kind made at every tier has a row a tier, each its own
+            // numbers; one made at a tier alone has no table.
+            let rows: Vec<_> = (1..=3).filter_map(|t| item_tier_line(kind, t)).collect();
+            if kind.min_tier() == bims::combat::Tier::One && kind.tiered() {
+                assert_eq!(rows.len(), 3, "{kind:?}");
+                assert!(rows[0] != rows[1] && rows[1] != rows[2], "{kind:?}");
+            } else {
+                assert!(rows.is_empty(), "{kind:?}");
+            }
         }
+        assert_eq!(
+            item_tier_line(ModuleKind::BlinkDrive, 2).as_deref(),
+            Some("8 tiles · 12 s cooldown")
+        );
         assert_eq!(
             item_title(ModuleKind::Executioner.at(bims::combat::Tier::Two)),
             "an Executioner, tier 2"

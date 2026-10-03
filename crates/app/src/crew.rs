@@ -1914,6 +1914,58 @@ fn worn_line(piece: Piece) -> String {
     }
 }
 
+/// An item's tier table under its tooltip (October 2026): a row a tier it
+/// is made at, what that tier gives, the row of `lit` (the item's own
+/// tier, or the one a combine makes) on a plate in its tier's colour and
+/// the others muted, so the player sees what an upgrade adds. Nothing for
+/// a kind made at one tier alone.
+pub(crate) fn item_tiers(ui: &mut egui::Ui, kind: bims::module::ModuleKind, lit: u32) {
+    let rows: Vec<_> = bims::combat::Tier::ALL
+        .into_iter()
+        .filter_map(|tier| crate::names::item_tier_line(kind, tier.code()).map(|line| (tier, line)))
+        .collect();
+    if rows.is_empty() {
+        return;
+    }
+    ui.add_space(4.0);
+    for (tier, line) in rows {
+        let on = tier.code() == lit;
+        let colour = theme::tier_tint(tier).unwrap_or(theme::INK);
+        let label = egui::RichText::new(crate::names::item_tier_label(tier.code()));
+        let row = |ui: &mut egui::Ui| {
+            ui.horizontal(|ui| {
+                if on {
+                    ui.label(label.strong().color(colour));
+                    ui.label(egui::RichText::new(line).strong().color(theme::INK));
+                } else {
+                    ui.label(label.color(theme::MUTED));
+                    ui.label(egui::RichText::new(line).color(theme::MUTED));
+                }
+            });
+        };
+        let frame = egui::Frame::new()
+            .inner_margin(egui::Margin::symmetric(4, 1))
+            .corner_radius(3.0);
+        if on {
+            frame
+                .fill(colour.gamma_multiply(0.18))
+                .stroke(egui::Stroke::new(1.0, colour.gamma_multiply(0.7)))
+                .show(ui, row);
+        } else {
+            frame.show(ui, row);
+        }
+    }
+}
+
+/// A cell's tooltip, laid out: [`tip_of`]'s words and, for an item, its
+/// tier table with its own tier lit.
+pub(crate) fn tip_ui(ui: &mut egui::Ui, item: PackItem, count: u32) {
+    ui.label(tip_of(item, count));
+    if let PackItem::Module(module) = item {
+        item_tiers(ui, module.kind, module.tier.code());
+    }
+}
+
 /// A cell's tooltip: the name, the numbers that matter — a piece's
 /// health and protection, and what it has left — and the resource's line.
 pub(crate) fn tip_of(item: PackItem, count: u32) -> String {
@@ -2415,7 +2467,7 @@ fn armory_column(
                     slot_box(ui, slot_label(slot), item, &name, &line)
                 };
                 let response = match item {
-                    Some(item) => response.on_hover_text(tip_of(item, 1)),
+                    Some(item) => response.on_hover_ui(|ui| tip_ui(ui, item, 1)),
                     None => response,
                 };
                 if movable {
@@ -2560,7 +2612,7 @@ fn item_cells(
                     cell(ui)
                 };
                 let response = match item {
-                    Some(thing) => response.on_hover_text(tip_of(thing, 1)),
+                    Some(thing) => response.on_hover_ui(|ui| tip_ui(ui, thing, 1)),
                     None => response.on_hover_text(slot_label(slot)),
                 };
                 if movable {
@@ -2645,7 +2697,6 @@ fn armory_stock(ui: &mut egui::Ui, view: &ArmoryView, asked: &mut Vec<GearOrder>
                 for stored in row {
                     let item = stored.item;
                     let from = world::GearSource::Armory { id: stored.id };
-                    let tip = armory_tip(stored);
                     let response = if !open {
                         stash_cell(ui, 1, |p, r| icons::icon(p, r, item))
                     } else {
@@ -2656,7 +2707,7 @@ fn armory_stock(ui: &mut egui::Ui, view: &ArmoryView, asked: &mut Vec<GearOrder>
                         )
                         .response
                     };
-                    let response = response.on_hover_text(tip);
+                    let response = response.on_hover_ui(|ui| tip_ui(ui, item, 1));
                     if open {
                         response.context_menu(|ui| {
                             for column in view.columns.iter().filter(|c| c.may_change) {
@@ -2683,12 +2734,6 @@ fn armory_stock(ui: &mut egui::Ui, view: &ArmoryView, asked: &mut Vec<GearOrder>
     {
         asked.push(GearOrder::Unequip { who, part: slot });
     }
-}
-
-/// A thing in the armory, said: what it is, its tier, its numbers and,
-/// for a piece, what it has left.
-fn armory_tip(stored: &world::Stored) -> String {
-    tip_of(stored.item, 1)
 }
 
 /// A thing's name alone.

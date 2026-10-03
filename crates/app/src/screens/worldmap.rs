@@ -1976,7 +1976,22 @@ fn line_item(ui: &mut egui::Ui, wallet: economy::Money, line: Line) -> bool {
         x += 4.0;
     }
     if let Some(tip) = &line.tip {
-        response.on_hover_text(tip);
+        // An item's tier table under its words, the tier it would be
+        // bought at lit (a combine's, the one above).
+        let tiers = match line.face {
+            Face::Thing(bims::combat::Item::Module(item)) => Some((
+                item.kind,
+                line.tier
+                    .map_or(item.tier.code(), |(tier, up)| up.unwrap_or(tier)),
+            )),
+            _ => None,
+        };
+        response.on_hover_ui(|ui| {
+            ui.label(tip);
+            if let Some((kind, lit)) = tiers {
+                crate::crew::item_tiers(ui, kind, lit);
+            }
+        });
     }
     let mut button = egui::Button::new(
         egui::RichText::new(line.button.to_uppercase())
