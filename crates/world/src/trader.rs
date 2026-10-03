@@ -35,9 +35,9 @@
 //!
 //! **Every** gun but the laser pistol ([`data::TRADER_WEAPONS`]) and the
 //! armour ([`data::TRADER_ARMOUR`]), always (October 2026), each kind at
-//! its own tier ([`shelf`], `World::shelf_tier`): the **tier the day has
-//! reached** (`crate::items::shop_tier`, off the scaling's tier days), or
-//! one past the best of that kind the player has bought, and never below
+//! its own tier ([`shelf`], `World::shelf_tier`): **tier one** until the
+//! player buys that kind, then one past the best of it bought — the day
+//! lifts nothing (October 2026) — and never below
 //! the lowest its kind is made at (a minigun at two, a rail lance at
 //! three, task 115) — put up afresh every visit. Beside it
 //! the **items** (`crate::items::shop`): every kind at the day's tier,
@@ -294,7 +294,7 @@ impl ShelfItem {
 /// pistol), then every piece of armour, in the lists' order — each at the
 /// tier `tier_of` gives its kind (`World::shelf_tier`), put up to the
 /// lowest tier the kind is made at where that is higher: a minigun is
-/// always on the shelf, at tier two before the day reaches it.
+/// always on the shelf, at tier two until one is bought.
 pub fn shelf(tier_of: impl Fn(ResourceId) -> Tier) -> Vec<ShelfItem> {
     shelf_kinds(&worldgen::data::WEAPONS)
         .chain(shelf_kinds(&worldgen::data::ARMOUR))

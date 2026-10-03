@@ -182,8 +182,8 @@ fn a_bought_thing_is_gone_for_the_visit_and_a_revisit_rolls_the_shelf_again() {
 /// **Every gun but the pistol, and only the kind bought goes a tier up**
 /// (October 2026): a shelf lists every gun but the laser pistol and the
 /// armour; the armour and the first gun bought, every later shelf of that
-/// player sells those two kinds a tier up and every other gun at the
-/// day's; another player's shelves are as they were.
+/// player sells those two kinds a tier up and every other gun at tier
+/// one; another player's shelves are as they were.
 #[test]
 fn every_gun_is_on_the_shelf_and_only_the_kind_bought_goes_a_tier_up() {
     use bims::combat::{Tier, WeaponKind};
@@ -781,40 +781,40 @@ fn a_trader_is_never_infested_and_never_the_jammer() {
     assert!(!world.site_threatened(site.station));
 }
 
-/// **A class's start counts as bought**: the tank sets out in tier-one
-/// armour and the soldier with a tier-one auto rifle, so from the first
-/// trader on the tank's shelf sells the armour at tier two and the
-/// soldier's the auto rifle at tier two; every other kind, and a classless
-/// player's whole shelf, at the day's.
+/// **Every kind starts at tier one** (October 2026, the player's word):
+/// the tank, though it sets out in tier-one armour, and the soldier,
+/// though it sets out with a tier-one auto rifle, are offered every kind
+/// at tier one like a classless player — nothing counts as bought until
+/// it is — and a day past every tier timing lifts no shelf: only buying
+/// does.
 #[test]
-fn the_tank_and_soldier_are_offered_their_kit_a_tier_up_from_the_start() {
+fn every_kind_starts_at_tier_one_whatever_the_class_or_the_day() {
     use crate::class::Class;
     use bims::combat::Tier;
     use physics::ResourceId;
     let mut world = basic(3);
     assert_eq!(world.set_class(0, Class::Tank), Ok(()));
     assert_eq!(world.set_class(1, Class::Soldier), Ok(()));
-    let day = world.shop_tier();
-    assert_eq!(day, Tier::One, "the start's day");
+    // Every tier timing at nought: the day is past tier three.
+    world.set_wave_scaling(crate::droid::WaveScaling {
+        tier2_days: 0,
+        tier3_days: 0,
+        ..crate::droid::WaveScaling::DEFAULT
+    });
+    assert_eq!(world.shop_tier(), Tier::Three, "the day's tier");
     at_a_trader(&mut world);
-    let plain = trader::shelf(|_| day);
-    for (slot, up) in [(0, ResourceId::Armour), (1, ResourceId::AutoRifle)] {
-        let shelf = &world.trader_here(slot).unwrap().shelf;
-        for (item, was) in shelf.iter().map(|i| i.unwrap()).zip(&plain) {
-            let want = if item.resource == up {
-                Tier::Two
-            } else {
-                was.tier
-            };
-            assert_eq!(item.tier, want, "slot {slot}: {item:?}");
+    let plain = trader::shelf(|_| Tier::One);
+    for slot in 0..3 {
+        let shelf: Vec<_> = world
+            .trader_here(slot)
+            .unwrap()
+            .shelf
+            .iter()
+            .map(|i| i.unwrap())
+            .collect();
+        assert_eq!(shelf, plain, "slot {slot}");
+        for resource in [ResourceId::Armour, ResourceId::AutoRifle] {
+            assert_eq!(world.shelf_tier(slot, resource), Tier::One);
         }
     }
-    let theirs: Vec<_> = world
-        .trader_here(2)
-        .unwrap()
-        .shelf
-        .iter()
-        .map(|i| i.unwrap())
-        .collect();
-    assert_eq!(theirs, plain);
 }

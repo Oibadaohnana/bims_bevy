@@ -7578,17 +7578,20 @@ is the rule.
   `reroll_shelf`, `shelf_off`, `shelf_candidates` and `Trader::lift`
   went; `Trader::new(site, owner, shelf)` and `restock(shelf)` take the
   shelf `World::shelf_for(slot)` puts up.
-- **Each kind its own tier**: `World::shelf_tier(slot, resource)` is the
-  day's (`shop_tier`), or one past the best of **that kind** the player
-  has bought where higher, three at most; `trader::shelf` puts a kind
+- **Each kind its own tier**: `World::shelf_tier(slot, resource)` is
+  **tier one** until the player buys that kind, then one past the best
+  of **that kind** bought, three at most — the day's tier (`shop_tier`)
+  lifts no shelf since `wire::PROTOCOL` 136 (it still sets the items'); `trader::shelf` puts a kind
   not made that low up to its own lowest (the minigun at two, the lance
   at three). `Run::shelf_bought` is a `Vec<ShelfItem>` a player slot —
   the best tier of each kind bought, a kind once, sorted by resource
   (hashed in the traders' block only where any is set).
-- **A class's start counts as bought at tier one**: a tank's armour and
-  a soldier's auto rifle, so from the first trader on their shelves sell
-  that kind at tier two.
-- **`SAVE_VERSION` 103, `wire::PROTOCOL` 134.** `tests_trader.rs`
+- **No class's start counts as bought** (`wire::PROTOCOL` 136, the
+  player's word): the tank's tier-one armour and the soldier's tier-one
+  auto rifle are offered at tier one like everything else. (134 had them
+  at tier two from the first trader on.)
+- **`SAVE_VERSION` 103, `wire::PROTOCOL` 134, then 136.**
+  `tests_trader.rs`
   (`every_gun_is_on_the_shelf_and_only_the_kind_bought_goes_a_tier_up`,
-  `the_tank_and_soldier_are_offered_their_kit_a_tier_up_from_the_start`)
+  `every_kind_starts_at_tier_one_whatever_the_class_or_the_day`)
   and `trader::tests` are the rule.

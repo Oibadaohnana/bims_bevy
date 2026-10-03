@@ -211,7 +211,10 @@ use serde::{Deserialize, Serialize};
 /// 135: the tank's Bastion throws its rank's shield — 600, 800, 1000,
 /// 1200 hit points draining 60, 80, 100, 100 a second
 /// (`class::BASTION_HP`, `BASTION_DRAIN`): both ends must shield alike.
-pub const PROTOCOL: u32 = 135;
+/// 136: a shelf's every kind starts at tier one — not the day's tier,
+/// and no class's start counted as bought — and rises only one past the
+/// best of it bought (`World::shelf_tier`): both ends must stock alike.
+pub const PROTOCOL: u32 = 136;
 
 /// Where the relay lives. `BIMS_SERVER` in the environment overrides it
 /// — `ws://127.0.0.1:8792` for one on the same machine.

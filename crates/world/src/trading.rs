@@ -390,28 +390,19 @@ impl World {
     }
 
     /// The tier player `slot`'s shelf sells the kind `resource` at
-    /// (October 2026): the day's ([`World::shop_tier`]), or one past the
-    /// best of that kind the player has bought off a shelf this run where
-    /// that is higher — tier three at most, so a tier-three thing bought
-    /// leaves it at three. A class's start counts as bought at tier one:
-    /// the tank's armour and the soldier's auto rifle, so their shelves
-    /// sell that kind at tier two from the first trader on.
+    /// (October 2026): **tier one until that kind is bought**, then one
+    /// past the best of it the player has bought off a shelf this run —
+    /// tier three at most, so a tier-three thing bought leaves it at
+    /// three. The day does not lift it, and no class's start counts as
+    /// bought: the tank's armour and the soldier's auto rifle are offered
+    /// at tier one like everything else, the player's word.
     /// ([`trader::shelf`] puts a kind not made that low up to its own.)
     pub fn shelf_tier(&self, slot: u32, resource: ResourceId) -> Tier {
-        let day = self.shop_tier();
-        let start = match self.class_of(slot) {
-            Class::Soldier => Some(ResourceId::AutoRifle),
-            Class::Tank => Some(ResourceId::Armour),
-            _ => None,
-        };
-        let bought = self
-            .run
+        self.run
             .shelf_bought
             .get(slot as usize)
             .and_then(|b| b.iter().find(|b| b.resource == resource))
-            .map(|b| b.tier)
-            .or_else(|| (start == Some(resource)).then_some(Tier::One));
-        bought.map_or(day, |t| t.next().unwrap_or(t).max(day))
+            .map_or(Tier::One, |b| b.tier.next().unwrap_or(b.tier))
     }
 
     /// Player `slot`'s shelf for a visit ([`trader::shelf`]): every gun but

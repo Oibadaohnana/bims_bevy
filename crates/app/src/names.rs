@@ -2378,7 +2378,7 @@ pub const TRADER_DELIVER_TO: &str = "Deliver to";
 pub const TRADER_FRONT_STAMP: &str = "Front prices";
 /// The total line at the foot of the form.
 pub const TRADER_BALANCE: &str = "Your balance";
-pub const TRADER_INTRO: &str = "Buy off your own shelf with your own money — every player has a trader of their own, prices shared by the crew — onto your own Bim, a bot, or into the armory. What it replaces goes into the armory. The shelf is two weapons and one armour at the tier the day has reached — or a tier past the best of each you have bought — rolled again every visit. The laser pistol is neither sold nor bought. Tab opens the Armory beside this.";
+pub const TRADER_INTRO: &str = "Buy off your own shelf with your own money — every player has a trader of their own, prices shared by the crew — onto your own Bim, a bot, or into the armory. What it replaces goes into the armory. The shelf is every weapon and the armour, each at tier one until you buy that kind, then a tier past the best of it you have bought; a thing bought is gone until the next visit. The laser pistol is neither sold nor bought. Tab opens the Armory beside this.";
 pub const TRADER_WEAPONS: &str = "Weapons";
 pub const TRADER_ARMOUR: &str = "Armour";
 /// The item shelf (October 2026): every item at the day's tier, never

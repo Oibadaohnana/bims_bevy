@@ -493,18 +493,16 @@ runs while you are there, and the **Trader panel** comes up beside the
 map. **Tab** opens the Armory beside it.
 
 - **The shelf**: **every weapon** but the laser pistol **and the
-  armour**, always, each at the tier the day has reached — tier one, then
-  tier two from the scaling's tier-two day, tier three from its
-  tier-three day (`scaling.ron`, the days the machines' tiers run on) —
+  armour**, always, each **at tier one** until you buy that kind — the
+  day lifts no shelf —
   or at its own lowest tier where that is higher (the minigun at two,
   the rail lance at three), priced at the trader's own tier prices. A
   thing bought is gone for that visit, and the next visit puts it up
   again. **Buying lifts that kind**: once you have bought a shotgun your
   shelves sell the shotgun a tier past the best you bought, and nothing
-  else moves — up to tier three. A **tank** sets out in armour and a
-  **soldier** with an auto rifle, so theirs count as bought: the tank is
-  offered the armour, and the soldier the auto rifle, at tier two from
-  the first trader on. Another player's shelf is its own. Any player buys, with no vote, out of their own
+  else moves — up to tier three. A **tank** setting out in armour and a
+  **soldier** with an auto rifle are offered those at tier one too:
+  only buying lifts a kind. Another player's shelf is its own. Any player buys, with no vote, out of their own
   money — onto their own Bim, onto a bot, or into the armory; what it
   replaces goes into the armory.
 - **The items**: every [item](#items) at the day's tier, one of each a visit (SOLD until the next) —
