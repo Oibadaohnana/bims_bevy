@@ -156,7 +156,7 @@ pub enum Order {
         y: i32,
     },
     /// The engineer's remote trigger: every satchel of his set off —
-    /// `Command::Detonate`, the Space key (task 154).
+    /// `Command::Detonate`, the G key (task 154; Space until October 2026).
     Detonate,
     /// A mine or a Healing Sentry taken back up, the charge back —
     /// `Command::PackUp`.

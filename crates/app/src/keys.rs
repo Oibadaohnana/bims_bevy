@@ -44,7 +44,8 @@ pub enum Action {
     Follow,
     /// The engineer's remote trigger (task 154): every satchel charge of
     /// his set off. On Space, which paused the world until then — the
-    /// pause is the Esc sheet's now.
+    /// pause is the Esc sheet's now — and on G since October 2026, when
+    /// the ultimate took Space.
     Detonate,
     Speed1,
     /// Walk the Bim you steer up the screen (task 144). The four walks
@@ -192,7 +193,8 @@ impl Action {
             // F is the attack-move and X the bots' banner, which had F
             // from feature 84 until then — so following the camera is V.
             Action::Follow => Key::V,
-            Action::Detonate => Key::Space,
+            // G since October 2026: Space is the ultimate's.
+            Action::Detonate => Key::G,
             // 1 and 2 are the quickselect (task 138), so the 1× speed
             // went to the key left of them.
             Action::Speed1 => Key::Backtick,
@@ -215,9 +217,11 @@ impl Action {
             Action::Ability1 => Key::Q,
             Action::Ability2 => Key::C,
             Action::Ability3 => Key::E,
-            // The ultimate is G and the reload R (October 2026), so the
-            // held revive went to T, which the reload had.
-            Action::Ability4 => Key::G,
+            // The ultimate is Space and the reload R (October 2026): the
+            // ultimate went from R to G, the held revive to T, which the
+            // reload had, and then the ultimate to Space and the remote
+            // trigger to G.
+            Action::Ability4 => Key::Space,
             Action::AttackMove => Key::F,
             Action::Attack => Key::X,
             Action::Retreat => Key::Y,
@@ -313,7 +317,7 @@ impl Action {
                 "The second ability slot: empty for every class for now. With Ctrl held, it is ranked up instead."
             }
             Action::Ability3 => {
-                "The third ability slot: an engineer throws a satchel charge at the pointer, held to aim and let go to throw — several may lie on one tile, and Space sets them all off; a soldier charges a Stun Shot at the pointer, two seconds planted before it fires; a medic beams the crew member under the pointer, and unlinks when pressed on the one it holds or on nobody; a tank raises his Reflect Barrier; a commander rallies. With Ctrl held, it is ranked up instead."
+                "The third ability slot: an engineer throws a satchel charge at the pointer, held to aim and let go to throw — several may lie on one tile, and G sets them all off; a soldier charges a Stun Shot at the pointer, two seconds planted before it fires; a medic beams the crew member under the pointer, and unlinks when pressed on the one it holds or on nobody; a tank raises his Reflect Barrier; a commander rallies. With Ctrl held, it is ranked up instead."
             }
             Action::Ability4 => {
                 "The fourth ability slot, the ultimate: a soldier goes on a Rampage; an engineer lays its sentry on the deck tile under the pointer; a medic switches his Healing Circle on or off; a tank throws his Bastion over the crew round him. With Ctrl held, it is ranked up instead."
@@ -550,6 +554,11 @@ impl Keys {
             let l = l.trim_start();
             !l.starts_with("reload=") || l.trim_end() == "reload=T"
         });
+        // And one from before the ultimate took Space and the remote
+        // trigger G (October 2026) has the trigger on Space: it and an
+        // ultimate on G go to their new keys rather than the two
+        // sharing. A key moved off them keeps its word.
+        let old_space = text.lines().any(|l| l.trim() == "detonate=Space");
         for line in text.lines() {
             let Some((name, key)) = line.split_once('=') else {
                 continue;
@@ -596,6 +605,14 @@ impl Keys {
                         (Action::Ability4, egui::Key::R)
                             | (Action::Revive, egui::Key::G)
                             | (Action::Reload, egui::Key::T)
+                    )
+                {
+                    continue;
+                }
+                if old_space
+                    && matches!(
+                        (action, key),
+                        (Action::Detonate, egui::Key::Space) | (Action::Ability4, egui::Key::G)
                     )
                 {
                     continue;
@@ -704,18 +721,18 @@ mod tests {
         let keys = Keys::default();
         assert_eq!(keys.key(Action::Inventory), egui::Key::Tab);
         assert!(keys.shared_with(Action::Map).is_empty());
-        // Space is the engineer's remote trigger (task 154), where the
-        // pause was, and nothing else's.
-        assert_eq!(keys.key(Action::Detonate), egui::Key::Space);
+        // G is the engineer's remote trigger (task 154; Space, where the
+        // pause was, until October 2026), and nothing else's.
+        assert_eq!(keys.key(Action::Detonate), egui::Key::G);
         assert!(keys.shared_with(Action::Detonate).is_empty());
-        // The four ability slots are Q, C, E and G (task 123; the
-        // ultimate left R for G in October 2026), none bound to anything
-        // else. R is the reload, shared with Turn, which only the yard
-        // and the armoury read.
+        // The four ability slots are Q, C, E and Space (task 123; the
+        // ultimate left R for G and G for Space in October 2026), none
+        // bound to anything else. R is the reload, shared with Turn,
+        // which only the yard and the armoury read.
         assert_eq!(keys.key(Action::Ability1), egui::Key::Q);
         assert_eq!(keys.key(Action::Ability2), egui::Key::C);
         assert_eq!(keys.key(Action::Ability3), egui::Key::E);
-        assert_eq!(keys.key(Action::Ability4), egui::Key::G);
+        assert_eq!(keys.key(Action::Ability4), egui::Key::Space);
         assert!(keys.shared_with(Action::Ability1).is_empty());
         assert!(keys.shared_with(Action::Ability2).is_empty());
         assert!(keys.shared_with(Action::Ability3).is_empty());
@@ -821,7 +838,7 @@ mod tests {
         assert_eq!(keys.key(Action::Ability1), egui::Key::G);
         assert_eq!(keys.key(Action::Ability3), egui::Key::H);
         assert_eq!(keys.key(Action::Ability2), egui::Key::C);
-        assert_eq!(keys.key(Action::Ability4), egui::Key::G);
+        assert_eq!(keys.key(Action::Ability4), egui::Key::Space);
         let text = keys.to_text();
         assert!(text.contains("ability-1=G\n") && text.contains("ability-3=H\n"));
         assert!(!text.contains("class-"));
@@ -854,15 +871,15 @@ mod tests {
         assert_eq!(Keys::from_text(&keys.to_text()), keys);
     }
 
-    /// The ultimate is G, the reload R and the revive T (October 2026);
-    /// a file written before — the ultimate on R, the revive on G, the
-    /// reload on T or not named — is read with those three on their new
-    /// keys, a key the player had moved off them kept, and a file
-    /// written since keeps its word, even an ultimate put back on R.
+    /// The reload is R and the revive T (October 2026, when the ultimate
+    /// left R); a file written before — the ultimate on R, the revive on
+    /// G, the reload on T or not named, the trigger on Space — is read
+    /// with them all on their new keys, a key the player had moved off
+    /// them kept, and a file written since keeps its word, even an
+    /// ultimate put back on R.
     #[test]
-    fn the_ultimate_is_g_the_reload_r_and_an_old_file_follows() {
+    fn the_reload_is_r_and_an_old_file_follows() {
         let keys = Keys::default();
-        assert_eq!(keys.key(Action::Ability4), egui::Key::G);
         assert_eq!(keys.key(Action::Reload), egui::Key::R);
         assert_eq!(keys.key(Action::Revive), egui::Key::T);
         assert!(keys.shared_with(Action::Ability4).is_empty());
@@ -871,6 +888,7 @@ mod tests {
         before.set(Action::Ability4, egui::Key::R);
         before.set(Action::Revive, egui::Key::G);
         before.set(Action::Reload, egui::Key::T);
+        before.set(Action::Detonate, egui::Key::Space);
         before.set(Action::Inventory, egui::Key::I);
         let old = Keys::from_text(&before.to_text());
         let mut want = keys;
@@ -891,6 +909,31 @@ mod tests {
         since.set(Action::Ability4, egui::Key::R);
         since.set(Action::Reload, egui::Key::J);
         since.set(Action::Revive, egui::Key::G);
+        assert_eq!(Keys::from_text(&since.to_text()), since);
+    }
+
+    /// The ultimate is Space and the remote trigger G (October 2026); a
+    /// file written while the ultimate was G and the trigger Space is
+    /// read with the two swapped, a key the player had moved off them
+    /// kept, and a file written since keeps its word.
+    #[test]
+    fn the_ultimate_is_space_the_trigger_g_and_an_old_file_follows() {
+        let keys = Keys::default();
+        assert_eq!(keys.key(Action::Ability4), egui::Key::Space);
+        assert_eq!(keys.key(Action::Detonate), egui::Key::G);
+        let mut before = keys;
+        before.set(Action::Ability4, egui::Key::G);
+        before.set(Action::Detonate, egui::Key::Space);
+        before.set(Action::Inventory, egui::Key::I);
+        let mut want = keys;
+        want.set(Action::Inventory, egui::Key::I);
+        assert_eq!(Keys::from_text(&before.to_text()), want);
+        let moved = Keys::from_text("ability-4=Z\ndetonate=Space\nreload=R\n");
+        assert_eq!(moved.key(Action::Ability4), egui::Key::Z);
+        assert_eq!(moved.key(Action::Detonate), egui::Key::G);
+        let mut since = keys;
+        since.set(Action::Ability4, egui::Key::G);
+        since.set(Action::Detonate, egui::Key::J);
         assert_eq!(Keys::from_text(&since.to_text()), since);
     }
 
@@ -975,11 +1018,14 @@ mod tests {
         assert_eq!(keys.rank_up_asked(&q, none), None);
         let e = [down(egui::Key::E, ctrl)];
         assert_eq!(keys.rank_up_asked(&e, ctrl), Some(Action::Ability3));
-        let g = [down(egui::Key::G, ctrl)];
-        assert_eq!(keys.rank_up_asked(&g, ctrl), Some(Action::Ability4));
-        // R is the reload now, no slot's: Ctrl+R ranks nothing up.
+        let space = [down(egui::Key::Space, ctrl)];
+        assert_eq!(keys.rank_up_asked(&space, ctrl), Some(Action::Ability4));
+        // R is the reload now and G the remote trigger, no slot's:
+        // Ctrl and either ranks nothing up.
         let r = [down(egui::Key::R, ctrl)];
         assert_eq!(keys.rank_up_asked(&r, ctrl), None);
+        let g = [down(egui::Key::G, ctrl)];
+        assert_eq!(keys.rank_up_asked(&g, ctrl), None);
         // A key no slot is on asks nothing.
         let m = [down(egui::Key::M, ctrl)];
         assert_eq!(keys.rank_up_asked(&m, ctrl), None);

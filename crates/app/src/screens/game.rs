@@ -2442,9 +2442,10 @@ fn frame(
             // below still does what it does — an ability, an item, the
             // medkit — mid-run.
             if crate::keys::plain_or_sprinting(i.modifiers) {
-                // The engineer's remote trigger (task 154): Space sets off
-                // every satchel of his. Space paused the world until then;
-                // the pause is the Esc sheet's now.
+                // The engineer's remote trigger (task 154): G sets off
+                // every satchel of his. It was Space, which paused the
+                // world before that, until the ultimate took Space
+                // (October 2026); the pause is the Esc sheet's now.
                 if keys_now.pressed(i, Action::Detonate)
                     && let Some(game) = &session.game
                 {
@@ -5739,19 +5740,25 @@ fn ability_box(ui: &mut egui::Ui, one: &AbilityBox) -> (bool, bool) {
             );
         }
         // The key, in the top left, over a shadow so it reads on the
-        // picture.
+        // picture — a word of a key (Space, the ultimate's) smaller, so
+        // it clears the rank-up's plus in the top right.
+        let key_font = egui::FontId::proportional(if one.key.chars().count() > 3 {
+            9.0
+        } else {
+            11.0
+        });
         painter.text(
             rect.min + egui::vec2(5.0, 4.0),
             egui::Align2::LEFT_TOP,
             &one.key,
-            egui::FontId::proportional(11.0),
+            key_font.clone(),
             theme::PANEL_DEEP,
         );
         painter.text(
             rect.min + egui::vec2(4.0, 3.0),
             egui::Align2::LEFT_TOP,
             &one.key,
-            egui::FontId::proportional(11.0),
+            key_font,
             if ready { theme::INK } else { theme::MUTED },
         );
         // What is left, in the bottom right — nothing where nothing is
@@ -6722,14 +6729,14 @@ mod class_key_tests {
         // A classless crew member has no keys, so it has no boxes.
         assert!(ability_boxes(&world, 2, &keys).is_empty());
 
-        // The engineer (task 127): four ranked abilities on Q C E R, the
-        // key each is bound to, nothing learnt at rank nought — the
+        // The engineer (task 127): four ranked abilities on Q C E Space,
+        // the key each is bound to, nothing learnt at rank nought — the
         // ultimate waiting on the sixth level — and a stock counted once a
         // rank is bought.
         let boxes = ability_boxes(&world, 0, &keys);
         assert_eq!(boxes.len(), 4);
         let keys_named: Vec<&str> = boxes.iter().map(|b| b.key.as_str()).collect();
-        assert_eq!(keys_named, vec!["Q", "C", "E", "R"]);
+        assert_eq!(keys_named, vec!["Q", "C", "E", "Space"]);
         let names: Vec<&str> = boxes.iter().map(|b| b.name).collect();
         assert_eq!(
             names,

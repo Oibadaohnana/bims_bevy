@@ -1515,7 +1515,7 @@ one — so a start is rarely far from somewhere to go.
 clock is a real second. The **Esc** sheet's **Pause** button pauses and
 its **Resume** sets the world going again, and **`** sets it going too;
 **Space** paused until it became the engineer's remote trigger (task
-154). The top frame says **Paused** while the world is. **A pause by any player is a pause for everybody**, and the world runs
+154) and later the ultimate. The top frame says **Paused** while the world is. **A pause by any player is a pause for everybody**, and the world runs
 again only once every pause is lifted: the player who needs it stopped is
 the player something is going wrong for. Travel on the world map still
 puts its whole length on the clock in one go.
@@ -2233,7 +2233,7 @@ The first class (feature 74), reworked in task 127 into **four
 abilities, four ranks each**, the soldier's way: **sixteen levels**, one
 **skill point a level**, a rank bought with **Ctrl** and the ability's
 key, a **Ctrl-click** on its box, or the Skills tab's **Learn** button.
-Q, C and E take a rank at levels 1, 3, 5 and 7; R, the ultimate, at 6,
+Q, C and E take a rank at levels 1, 3, 5 and 7; Space, the ultimate, at 6,
 9, 12 and 15. An engineer at rank nought of an ability has none of it.
 
 **Charges, never kits.** The mines, the Healing Sentry and the satchel
@@ -2282,7 +2282,7 @@ doubled in task 154.
 holding `E` draws the reach (8 tiles) and the blast's ring, letting it
 go throws at the pointer, walking out first where it must. Two
 charges at every rank. A satchel lies where it lands — **several may lie
-on one tile**, stacked — until the **remote trigger, Space**, sets off
+on one tile**, stacked — until the **remote trigger, G** (Space until October 2026), sets off
 every satchel of yours at once, each its own blast on the enemy alone:
 three stacked on a tile hit three times. Nothing else sets one off, and
 it is never packed up.
@@ -2294,7 +2294,7 @@ it is never packed up.
 | 3 | 60 | 2.5 tiles | 2 | 24 s |
 | 4 | 85 | 3 tiles | 2 | 20 s |
 
-**R, Sentry (the ultimate).** A minigun on a stand, drawn larger. The
+**Space, Sentry (the ultimate).** A minigun on a stand, drawn larger. The
 engineer works three minutes beside the tile and **a hit does not stop
 it**. One stands at a time (two with an Override Core); it fires at the
 nearest enemy it can see, five tiles further than a minigun, the enemy
@@ -2324,7 +2324,7 @@ sixteenth, the first level included; the four after it are weapon
 damage (see *Classes and levels*). A point buys a **rank** of one ability: **Ctrl**
 and the ability's key, a **Ctrl-click** on its box, or the **Learn**
 button on the character sheet's Skills tab. Q, C and E take a rank at
-levels 1, 3, 5 and 7; R, the ultimate, at 6, 9, 12 and 15. A point you
+levels 1, 3, 5 and 7; Space, the ultimate, at 6, 9, 12 and 15. A point you
 do not spend is kept. The boxes on the hero panel show a pip a rank
 under each, a **+** in the corner while a point could buy the next, and
 the points waiting sit beside the experience bar.
@@ -2389,7 +2389,7 @@ runs only from a shot fired.
 | 3 | 25 | 2.5 tiles | 3 s | 24 s |
 | 4 | 30 | 3.0 tiles | 3 s | 20 s |
 
-**R — Rampage** (ultimate, active). For its seconds the soldier fires
+**Space — Rampage** (ultimate, active). For its seconds the soldier fires
 faster, takes less, and aims on the move as well as standing still. It
 is ready at the start of every mission, runs on the mission clock (a
 pause stops it), may be used with a Stun Shot charging, and the cooldown
@@ -2408,7 +2408,7 @@ move its cooldown as they do every class ability's. Its box glows while it runs.
 The third class (feature 76), a **ranked kit** since task 130 and
 **reworked by task 153**: four abilities, **four ranks each, bought with
 a skill point a level**, the soldier's way — sixteen levels, Q, C and E
-ranking up at levels 1, 3, 5 and 7 and the ultimate R at 6, 9, 12 and
+ranking up at levels 1, 3, 5 and 7 and the ultimate Space at 6, 9, 12 and
 15. A medic sets out with the **laser pistol** in hand as everybody
 does. Its experience is everybody's: healing earns nothing (task 119).
 
@@ -2473,7 +2473,7 @@ round a medic beaming itself), and the crew panel says who is held.
 | 3 | 4 HP | 8 tiles | 1 |
 | 4 | 5 HP, plus what his items regenerate him by | 9 tiles | 2, each at the full rate |
 
-**R, Healing Circle** (the ultimate, a **toggle**): switched on, every
+**Space, Healing Circle** (the ultimate, a **toggle**): switched on, every
 friendly Bim on its feet within its radius of him and in his sight
 (walls block) — not himself — heals at **the link's rate**, his E rank's
 (the first's before he has one), lifted by his Triage. **He pays for
@@ -2563,7 +2563,7 @@ ring of amber thorns turns round him while it runs.
 | 3 | 5 s | 16 s |
 | 4 | 6 s | 14 s |
 
-**R, Bastion** (ultimate, cooldown): every friend on their feet within
+**Space, Bastion** (ultimate, cooldown): every friend on their feet within
 its radius — himself, the players and the bots — gets a shield of
 **1000** hit points that **drains 100 a second**, so ten seconds at most;
 a hit comes off it before anything else. With an **Override Core** (the
@@ -2809,10 +2809,10 @@ overlapping is allowed the whole apparatus has nothing left to do.
 | `h` | Swap the **medkit** and the weapon in your Bim's hands: with the medkit it holds its fire, and a right-click on a downed crewmate walks over and revives them. The hero panel lights the one in hand and says the key under them |
 | `b` | A medic picks up the downed crewmate under the pointer (or sets down the one it carries) |
 | Hold `t` | Standing close to a downed crewmate (two and a half tiles): your own Bim **gets the nearest back up** while the key is held, and stops if you let go first. A green bar over the body fills with the revive |
-| `r` | **Reload** the gun of the Bim you steer now, shots left in the magazine or not (it was `t` until October 2026, when the ultimate took `g` and the revive `t`) |
+| `r` | **Reload** the gun of the Bim you steer now, shots left in the magazine or not (it was `t` until October 2026, when the ultimate took `g` — it is on **Space** now — and the revive `t`) |
 | `F1` | Select the Bim you steer and put it in the middle of the view |
 | `l` | Recruit it, or let it go — see below |
-| `q` / `c` / `e` / `g` | The steered crew member's four **ability slots** (task 123; the fourth, the ultimate, moved from `r` to `g` in October 2026, when `r` became the reload). `q` and `e` are the **class actions**: an engineer **lays a mine** on the deck tile under the pointer / **throws a satchel charge** at it (hold `e` to aim, let go to throw; **Space** sets them all off), and its `c` **lays a Healing Sentry** and its `g`, the ultimate, **lays its sentry** (task 154); a soldier **throws a grenade** at it (hold `q` to see the reach and the burst's radius, let go to throw) / **charges a Stun Shot** at the pointer (hold `e` to aim, let go to charge), two seconds (walking as he likes) before it fires and bursts on the first enemy in its way, and its `c` is **Weak Spot** (passive, nothing to press) and its `g` goes on a **Rampage**; a medic **drops a Heal Drone** / **beams the crew member under the pointer**, and unlinks when pressed on the one it holds or on nobody, its `c` is **Triage** (passive) and its `g`, the ultimate, **switches its Healing Circle on or off** (task 153); a tank **raises its Riot Shield** or puts it down / **raises its Reflect Barrier**, its `c` is **Plated** (passive) and its `g`, the ultimate, **throws the Bastion** over the crew round it (task 155) — see [Classes and levels](#classes-and-levels). The log says why not; nothing with a classless crew member |
+| `q` / `c` / `e` / **Space** | The steered crew member's four **ability slots** (task 123; the fourth, the ultimate, moved from `r` to `g` in October 2026, when `r` became the reload, and then to **Space**, the remote trigger going to `g`). `q` and `e` are the **class actions**: an engineer **lays a mine** on the deck tile under the pointer / **throws a satchel charge** at it (hold `e` to aim, let go to throw; `g` sets them all off), and its `c` **lays a Healing Sentry** and its **Space**, the ultimate, **lays its sentry** (task 154); a soldier **throws a grenade** at it (hold `q` to see the reach and the burst's radius, let go to throw) / **charges a Stun Shot** at the pointer (hold `e` to aim, let go to charge), two seconds (walking as he likes) before it fires and bursts on the first enemy in its way, and its `c` is **Weak Spot** (passive, nothing to press) and its **Space** goes on a **Rampage**; a medic **drops a Heal Drone** / **beams the crew member under the pointer**, and unlinks when pressed on the one it holds or on nobody, its `c` is **Triage** (passive) and its **Space**, the ultimate, **switches its Healing Circle on or off** (task 153); a tank **raises its Riot Shield** or puts it down / **raises its Reflect Barrier**, its `c` is **Plated** (passive) and its **Space**, the ultimate, **throws the Bastion** over the crew round it (task 155) — see [Classes and levels](#classes-and-levels). The log says why not; nothing with a classless crew member |
 | **Ctrl** + a slot's key, or **Ctrl-click** its box | **Ranks that ability up** rather than using it, for a skill point: the soldier's four abilities (task 124). It follows whatever key the slot is bound to |
 | **WASD**, middle-drag, or the pointer against the window's edge | Pan the view — the deck, or the galaxy chart. The edge scroll's speed is on the Esc sheet's first page (0 turns it off) |
 | `f` | **Attack-move**: the pointer turns into a red crosshair, and the next click on the deck sends the Bim you steer there with its weapon out. It stops to shoot whatever comes into its sights on the way and walks on once nothing is left — Dota's attack-move. `f` again, `Esc` or a right-click puts the crosshair away |
@@ -2829,7 +2829,7 @@ overlapping is allowed the whole apparatus has nothing left to do.
 | Tray, bottom left | **Work** — which jobs come first; **Management** — what the crew keep doing of their own accord; **Inventory**, **Research** and **Skills**; on the ship, **Build** — lay parts out for the crew to build, where the shipyard is on |
 | Point at anything | Top left says what it is |
 | Point at a row that names a place | The place is ringed on the deck |
-| **Space** | The engineer's **remote trigger**: every satchel charge he has thrown goes off at once (task 154). Nothing for any other class |
+| `g` | The engineer's **remote trigger**: every satchel charge he has thrown goes off at once (task 154; it was **Space** until October 2026, when the ultimate took it). Nothing for any other class |
 | **Esc** → **Pause** / **Resume**, **`** | Pause and set going again; set going. The world runs at 1× or not at all |
 | Rest on an underlined word or a ? | It explains itself, after a third of a second |
 
