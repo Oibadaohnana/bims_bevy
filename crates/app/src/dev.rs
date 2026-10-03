@@ -629,9 +629,9 @@ pub fn bim_tint() -> bims::character::Tint {
 
 /// What the setup's class chooser starts on — `BIMS_CLASS=<class>`, a
 /// place in `Class::ALL` or its name from `names.rs` (`engineer`), else
-/// none — so a run with nobody at the keyboard opens as an engineer
-/// (feature 74). `BIMS_CLASS` reaches the simulation and the fight too:
-/// `dev::class_crew` puts it on slot 0 of a session opened without a
+/// none (the setup then starts on the soldier) — so a run with nobody at
+/// the keyboard opens as an engineer (feature 74). `BIMS_CLASS` reaches
+/// the simulation and the fight too: `dev::class_crew` puts it on slot 0 of a session opened without a
 /// design phase.
 pub fn bim_class() -> world::Class {
     let Ok(spec) = std::env::var("BIMS_CLASS") else {

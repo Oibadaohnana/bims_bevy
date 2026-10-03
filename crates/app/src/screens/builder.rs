@@ -377,7 +377,7 @@ fn open(mut commands: Commands, mut settings: ResMut<Settings>) {
         bim_tint: crate::dev::bim_tint(),
         said_bim_tint: None,
         said_bim_hair: None,
-        bim_class: crate::dev::bim_class(),
+        bim_class: setup_class(),
         said_bim_class: None,
         portrait: bims::draw::DrawList::new(),
         join_note: None,
@@ -1274,7 +1274,8 @@ fn tint_chooser(ui: &mut egui::Ui, screen: &mut BuilderScreen, taken: &[Tint]) {
 /// Start and onto the world as it opens; playing, the crew panel's
 /// own picker changes it through `Command::SetClass` until the first
 /// undock. Only the classes the host's profile opened are offered
-/// (feature 106, `profile::RunUnlocks`).
+/// (feature 106, `profile::RunUnlocks`), and never the classless
+/// `Class::None` (October 2026): a player always plays a class.
 fn class_chooser(
     ui: &mut egui::Ui,
     screen: &mut BuilderScreen,
@@ -1288,7 +1289,10 @@ fn class_chooser(
             .color(theme::MUTED),
     );
     ui.horizontal(|ui| {
-        for class in Class::ALL.into_iter().filter(|&c| unlocks.class_open(c)) {
+        for class in Class::ALL
+            .into_iter()
+            .filter(|&c| c != Class::None && unlocks.class_open(c))
+        {
             let on = class == screen.bim_class;
             let b = egui::Button::new(class_name(class)).min_size(egui::vec2(96.0, 22.0));
             let b = if on { b.fill(theme::RAISED_ON) } else { b };
@@ -1302,6 +1306,16 @@ fn class_chooser(
             .small()
             .color(theme::MUTED),
     );
+}
+
+/// What the setup's class chooser starts on: `BIMS_CLASS`'s class
+/// (`dev::bim_class`), else the soldier, since the chooser offers no
+/// `Class::None` (October 2026).
+fn setup_class() -> Class {
+    match crate::dev::bim_class() {
+        Class::None => Class::Soldier,
+        class => class,
+    }
 }
 
 /// A row of mutually exclusive choices, each one a number written into the

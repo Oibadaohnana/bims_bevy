@@ -2105,8 +2105,8 @@ one thing in the arms at a time, from the lockers to the bench and back.
 
 ### Classes and levels
 
-Each player picks a **class** for their crew member — **None**,
-**Engineer**, **Soldier**, **Medic**, **Tank** or **Commander** — on the setup tab before Start (the lobby
+Each player picks a **class** for their crew member —
+**Engineer**, **Soldier** (the one it starts on), **Medic**, **Tank** or **Commander**; there is no classless pick — on the setup tab before Start (the lobby
 deals it with the slot, like the hair), and can still change it on the
 crew panel until the ship first leaves the place the run opened at. A crew member has one
 class, and a dead one's level, experience and picks die with it.
