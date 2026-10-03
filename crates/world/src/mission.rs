@@ -1250,8 +1250,9 @@ impl World {
     /// waiting for the mission's end counts, since that is dead too — said once
     /// as [`WorldEvent::CrewLost`] and kept. Bots and hired hands do not
     /// keep a run going: a crew is its players. And it is lost at once
-    /// when nobody of the whole crew — players and bots — is standing:
-    /// every one down or dead, nobody is left to revive anybody, so the
+    /// when nobody of the whole crew — players and bots — is standing
+    /// and no defender of the site is either: every one down or dead,
+    /// nobody is left to revive anybody or hold the machines off, so the
     /// countdowns are not waited out.
     pub(super) fn check_run_lost(&mut self, events: &mut Vec<WorldEvent>) {
         // A run won stays won (feature 108): the crew dying after the
@@ -1263,7 +1264,8 @@ impl World {
         let crew = self.aboard.crew_count() as usize;
         let room = &self.aboard.room;
         let anybody = (0..players).any(|who| room.is_alive(who));
-        let standing = (0..crew).any(|who| room.is_alive(who) && !room.is_downed(who));
+        let standing = (0..crew).any(|who| room.is_alive(who) && !room.is_downed(who))
+            || self.defender_standing();
         if !anybody || !standing {
             self.lost = true;
             events.push(WorldEvent::CrewLost);

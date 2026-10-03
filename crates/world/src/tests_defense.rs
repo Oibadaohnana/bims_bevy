@@ -1196,3 +1196,36 @@ mod manufacturers_attack {
         assert_eq!(run(), run());
     }
 }
+
+/// **A defender on its feet keeps the run going**: every crew member
+/// down is not the run lost at once while one of the site's defenders
+/// still stands to hold the machines off; once none does, it is.
+#[test]
+fn the_run_is_not_lost_at_once_while_a_defender_stands() {
+    let (mut world, _) = a_station_defence(1, 2);
+    world.step(&[]);
+    assert!(world.defender_standing(), "the site's defenders are up");
+    for who in 0..world.aboard.crew_count() as usize {
+        world.aboard.room.knock_out_for_probe(who);
+    }
+    for _ in 0..5 {
+        world.step(&[]);
+    }
+    let crew = world.aboard.crew_count() as usize;
+    assert!((0..crew).all(|who| world.aboard.room.is_downed(who)));
+    assert!(!world.lost, "a defender stands");
+    let residents = world.residents.as_mut().expect("the station's room");
+    for who in 0..residents.aboard.room.crew_count() as usize {
+        if residents.is_defender(who) {
+            residents.aboard.room.kill_now(who);
+        }
+    }
+    let lost = (0..5).any(|_| {
+        world
+            .step(&[])
+            .iter()
+            .any(|e| matches!(e, WorldEvent::CrewLost))
+    });
+    assert!(lost && world.lost, "nobody stands");
+    assert!((0..crew).all(|who| world.aboard.room.is_alive(who)));
+}

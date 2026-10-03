@@ -4438,7 +4438,11 @@ deleted `BOT_DEATH_PENALTY` and `BotLost::paid` — nothing off the pool:
 only a player's Bim costs money (its buyback). `check_run_lost`: every player slot's Bim dead — out cold is alive,
 and the bots do not count — or nobody of the whole crew standing
 (every player and bot down or dead: nobody left to revive, so the
-countdowns are not waited out; `the_run_is_lost_at_once_when_every_player_and_bot_is_down`).
+countdowns are not waited out; `the_run_is_lost_at_once_when_every_player_and_bot_is_down`)
+**and no defender of the site on its feet either** (`World::defender_standing`:
+a defender alive and not downed in the residents' room, the rooms joined —
+while one stands the machines are still held off;
+`the_run_is_not_lost_at_once_while_a_defender_stands`, `tests_defense.rs`).
 
 **What moved.** `Refusal` 83–91, `WorldEvent` 93–106, `data::BUYBACK_COST`,
 `BOT_DEATH_PENALTY`, `DROID_REINFORCE_STEPS`, `DEFENSE_DELAY_STEPS` (the two

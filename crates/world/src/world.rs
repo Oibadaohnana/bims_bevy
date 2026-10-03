@@ -6661,6 +6661,19 @@ impl World {
             .map_or(0, |r| r.defender.iter().filter(|&&d| d).count() as u32)
     }
 
+    /// Whether a defender of the site the crew are at is still on its
+    /// feet — alive and not downed: while one is, the run is not lost at
+    /// once with every crew member down ([`World::check_run_lost`]).
+    pub fn defender_standing(&self) -> bool {
+        let Some(residents) = self.residents.as_ref() else {
+            return false;
+        };
+        let room = &residents.aboard.room;
+        self.aboard.is_joined()
+            && (0..room.crew_count() as usize)
+                .any(|who| residents.is_defender(who) && room.is_alive(who) && !room.is_downed(who))
+    }
+
     /// Whether the crew have held this town: the last machine of the last
     /// wave destroyed. A held town stays friendly for good — the crisis
     /// never flips one — and goes on trading and hiring inside the
