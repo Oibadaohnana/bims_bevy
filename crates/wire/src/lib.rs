@@ -214,6 +214,9 @@ use serde::{Deserialize, Serialize};
 /// 136: a shelf's every kind starts at tier one — not the day's tier,
 /// and no class's start counted as bought — and rises only one past the
 /// best of it bought (`World::shelf_tier`): both ends must stock alike.
+/// 137: *Black Market*'s price is 35% more hit points on every enemy laid
+/// (`relic::Stat::EnemyHealth`), no longer one more wave at an elite:
+/// both ends must lay the bodies alike.
 /// 138: a gun or the armour bought onto a Bim over the same kind a tier
 /// lower sells the old one into the buyer's wallet rather than the
 /// armory (`trading::superseded`): both ends must pay alike.

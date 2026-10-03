@@ -409,66 +409,44 @@ fn the_run_s_own_numbers_take_the_relics_share() {
     assert!(want > n, "more machines");
 }
 
-/// Steps until the wave aboard at `station` is `wave` and standing, the
-/// last one wrecked each time it stands.
-fn up_to_wave(world: &mut World, station: u32, wave: u32) {
-    for _ in 0..20_000 {
-        if world.infestation(station).unwrap().wave == wave && world.droids_standing() > 0 {
-            return;
-        }
-        if world.droids_standing() > 0 {
-            wreck_them_all(world);
-        }
-        world.step(&[]);
-    }
-    panic!("wave {wave} never stood");
-}
-
-/// **Black Market's price**: an elite has one more wave, its last — a
-/// wave there and [`data::BLACK_MARKET_ELITE_WAVE`] more machines a
-/// player — with **no Guardian** in it, whatever the tier; and the site
-/// is cleared only once it is down. Without the relic the arena is
-/// cleared after its one wave.
+/// **Black Market's price**: every machine laid has
+/// [`data::BLACK_MARKET_ENEMY_HEALTH`] per cent more hit points — every
+/// part and the one health, whole — and the elite keeps its own waves,
+/// cleared after its one as it is without the relic.
 #[test]
-fn black_market_brings_one_more_wave_to_an_elite_bigger_and_without_a_guardian() {
-    let players = 2;
-    let (mut world, station) = held_arena(players);
-    world.set_droid_tier_for_probe(Some(Tier::Three));
-    world.give_relic_for_probe(Relic::BlackMarket);
-    open_the_room(&mut world);
-    let it = world.infestation(station).unwrap();
-    assert_eq!(
-        (it.wave, it.waves_left),
-        (1, 1),
-        "the dial's one, and one more"
-    );
-    assert!(!world.is_relic_wave(station), "the first is the site's own");
-    up_to_wave(&mut world, station, 2);
-    assert!(world.is_relic_wave(station));
+fn black_market_lays_every_machine_with_more_health() {
+    let laid = |relic: bool| -> (World, u32, Vec<(bims::droid::DroidKind, f32, f32)>) {
+        let (mut world, station) = held_arena(2);
+        world.set_droid_tier_for_probe(Some(Tier::Three));
+        if relic {
+            world.give_relic_for_probe(Relic::BlackMarket);
+        }
+        open_the_room(&mut world);
+        let room = &world.residents.as_ref().unwrap().aboard.room;
+        let bodies = (0..room.droid_count() as usize)
+            .filter_map(|i| room.droid(i))
+            .map(|d| (d.kind, d.body.life_max(), d.body.max(DroidPart::Chassis)))
+            .collect();
+        (world, station, bodies)
+    };
+    let (_, _, plain) = laid(false);
+    let (mut world, station, tough) = laid(true);
+    assert!(!plain.is_empty());
+    assert_eq!(plain.len(), tough.len(), "as many machines");
+    let factor = relic::factor(data::BLACK_MARKET_ENEMY_HEALTH) as f32;
+    for (p, t) in plain.iter().zip(&tough) {
+        assert_eq!(p.0, t.0, "the same kinds");
+        assert!((t.1 - p.1 * factor).abs() < 0.01, "{p:?} -> {t:?}");
+        assert!((t.2 - p.2 * factor).abs() < 0.01, "{p:?} -> {t:?}");
+    }
     let room = &world.residents.as_ref().unwrap().aboard.room;
-    let kinds: Vec<_> = (0..room.droid_count() as usize)
-        .filter_map(|i| room.droid(i))
-        .filter(|d| !d.destroyed)
-        .map(|d| d.kind)
-        .collect();
-    assert_eq!(
-        kinds.len() as u32,
-        3 + data::BLACK_MARKET_ELITE_WAVE as u32 * players,
-        "the forced three and three more a player: {kinds:?}"
-    );
-    assert!(
-        !kinds.contains(&bims::droid::DroidKind::Guardian),
-        "no Guardian: {kinds:?}"
-    );
-    assert!(!world.droid_station_cleared(station), "not cleared yet");
+    for i in 0..room.droid_count() as usize {
+        let body = room.droid(i).unwrap().body;
+        assert_eq!(body.life(), body.life_max(), "laid whole");
+    }
+    let it = world.infestation(station).unwrap();
+    assert_eq!((it.wave, it.waves_left), (1, 0), "no wave of its own");
     clear(&mut world, station);
-
-    // Without it: one wave, and cleared after it.
-    let (mut plain, station) = held_arena(players);
-    open_the_room(&mut plain);
-    let it = plain.infestation(station).unwrap();
-    assert_eq!((it.wave, it.waves_left), (1, 0));
-    clear(&mut plain, station);
 }
 
 /// **The damage to a machine**: a crew hit on one lands at the relics'

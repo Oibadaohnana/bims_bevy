@@ -6296,20 +6296,10 @@ impl World {
             .clone()
             .unwrap_or_else(|| bims::droid::wave_kinds(n));
         // An elite's Guardians come in their wave, one a tier of the
-        // site's (`droid_tier`, what the map says) — and the relics' last
-        // wave there (*Black Market*) has none at all, a Trooper in a
-        // Guardian's place.
+        // site's (`droid_tier`, what the map says).
         let here = self.residents.as_ref().map(|r| r.station);
         let elite = here.is_some_and(|id| self.is_elite_here(id));
-        let kinds = if here.is_some_and(|id| self.is_relic_wave(id)) {
-            kinds
-                .into_iter()
-                .map(|k| match k {
-                    bims::droid::DroidKind::Guardian => bims::droid::DroidKind::Trooper,
-                    k => k,
-                })
-                .collect()
-        } else if elite {
+        let kinds = if elite {
             crate::elite::with_guardian(kinds, wave, self.droid_tier())
         } else {
             kinds
@@ -6337,6 +6327,7 @@ impl World {
                     facing,
                     seed ^ (i as u64) << 8 ^ u64::from(wave),
                 );
+                self.toughen_by_relics(&mut droid);
                 // **Their planning is staggered**, and not for looks: a
                 // stand is scored against a lattice of every free cell
                 // within the weapon's reach of every target, and sixteen
@@ -6471,13 +6462,7 @@ impl World {
         let Some(station) = self.station(id).cloned() else {
             return;
         };
-        // The relics' last wave at an elite (*Black Market*): its many more
-        // a player on top.
-        let n = if self.is_relic_wave(id) {
-            self.droid_wave_size() + self.elite_wave_extra() * self.players()
-        } else {
-            self.droid_wave_size()
-        };
+        let n = self.droid_wave_size();
         // The Machine Heart's own go on the deck first (feature 108), so
         // they keep the front of the list through every wave after — and
         // in its fortress they are the whole deck: no wave stands there,

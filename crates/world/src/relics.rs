@@ -109,21 +109,21 @@ impl World {
         (f64::from(n) * self.crew_relic_factor(Stat::WaveSize)).ceil() as u32
     }
 
-    /// How many more machines a player the crew's relics put in one more
-    /// wave at every elite (*Black Market*): nought for a crew holding none.
-    pub fn elite_wave_extra(&self) -> u32 {
-        relic::crew_percent(self.relics(), Stat::EliteWave).max(0) as u32
+    /// What the crew's relics multiply an enemy's hit points by as it is
+    /// laid (*Black Market*) — a machine of a wave, a garrison or the
+    /// Heart's fabricators, or one of the Manufacturers' people — and
+    /// `None` while they move nothing, so a crew holding none lays the
+    /// bodies it always did.
+    pub fn enemy_health_factor(&self) -> Option<f32> {
+        let percent = relic::crew_percent(self.relics(), Stat::EnemyHealth);
+        (percent != 0).then(|| relic::factor(percent) as f32)
     }
 
-    /// Whether the wave aboard at `station` is the relics' wave: the last
-    /// at an elite while the crew hold one that adds it — past the first,
-    /// and none left to come.
-    pub(crate) fn is_relic_wave(&self, station: u32) -> bool {
-        self.elite_wave_extra() > 0
-            && self.is_elite_here(station)
-            && self
-                .infestation(station)
-                .is_some_and(|it| it.wave > 1 && it.waves_left == 0)
+    /// The crew's relics on a machine just built (`enemy_health_factor`).
+    pub(crate) fn toughen_by_relics(&self, droid: &mut bims::droid::Droid) {
+        if let Some(factor) = self.enemy_health_factor() {
+            droid.body.toughen(factor);
+        }
     }
 
     /// What a trader's `price` comes to with the crew's relics, whole euros

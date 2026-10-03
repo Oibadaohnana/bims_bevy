@@ -485,6 +485,19 @@ impl DroidBody {
         }
     }
 
+    /// Every part, and the one health, `factor` times what it has and
+    /// what it had: the world's relics on a machine as it is laid
+    /// (*Black Market*, October 2026).
+    pub fn toughen(&mut self, factor: f32) {
+        let factor = factor.max(0.0);
+        for i in 0..4 {
+            self.health[i] *= factor;
+            self.max[i] *= factor;
+        }
+        self.life *= factor;
+        self.life_max *= factor;
+    }
+
     /// Whether it is a body of one health.
     pub fn is_solid(&self) -> bool {
         self.solid

@@ -366,6 +366,7 @@ impl World {
                     facing,
                     station.map_seed ^ 0x_6A2D ^ (i as u64) << 8 ^ u64::from(wave),
                 );
+                self.toughen_by_relics(&mut d);
                 // Staggered planning, as `build_wave` staggers a wave's.
                 d.plan_wait = bims::game::PLAN_EVERY * (i as f32) / (n.max(1) as f32);
                 d.breach_wait = d.plan_wait;
@@ -401,6 +402,7 @@ impl World {
     /// every client builds the same. How many were built.
     fn fabricate(&mut self, id: u32, built: u32) -> u32 {
         let wave = self.infestation(id).map_or(1, |it| it.wave);
+        let toughen = self.enemy_health_factor();
         let Some(residents) = self.residents.as_mut() else {
             return 0;
         };
@@ -432,6 +434,9 @@ impl World {
                 facing.angle(),
                 u64::from(id) << 20 ^ k as u64 ^ 0x_FAB,
             );
+            if let Some(factor) = toughen {
+                droid.body.toughen(factor);
+            }
             droid.plan_wait = 0.0;
             made.push(droid);
             if let Some(h) = room.heart_state_mut(i) {

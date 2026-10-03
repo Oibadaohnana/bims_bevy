@@ -7026,7 +7026,7 @@ The room's rule is `crates/game/CLAUDE.md` ("The dark"); the world's part:
   (a bot is every crew member no player steers: bots, hands, joiners,
   reinforcements) and `Stat::{Damage, FireRate, MoveSpeed, DamageTaken,
   Cooldowns, MachineDamage, Bounty, Experience, WaveSize, TraderPrices,
-  Regen, EliteWave}` — and **every row helps and costs** (`Modifier::helps`, pinned
+  Regen, EnemyHealth}` — and **every row helps and costs** (`Modifier::helps`, pinned
   by `relic::tests::every_relic_helps_and_costs`). **No relic touches a
   revive or cuts the healing** (the player: it would make the medic and
   the commander's Medivac useless). Every number is `data.rs`'s
@@ -7041,12 +7041,17 @@ The room's rule is `crates/game/CLAUDE.md` ("The dark"); the world's part:
   `wave_size_with` (`wave_by_relics`, rounded up; a forced wave is as
   forced); `trader_price_by_relics` in `shelf_price`, `item_price` and
   `combine_fee`; `relics_mend` (every crew member on its feet, through
-  `heal_crew`). And `EliteWave` (*Black Market*'s price, the player's
-  follow-up): `wave_count_here` gives an elite one more wave, forced
-  count or not; `is_relic_wave` is that last one (past the first, none
-  left), which `settle_droids` lays `elite_wave_extra() × players` bigger
-  and `build_wave` lays with a Trooper in every Guardian's place and no
-  `with_guardian`. A crew holding none plays exactly as it did.
+  `heal_crew`). And `EnemyHealth` (*Black Market*'s price since October
+  3rd, +35%; it was one more wave at every elite, `EliteWave`, gone with
+  `is_relic_wave` and `elite_wave_extra`): `enemy_health_factor()` —
+  `None` with none held — multiplies a machine's every part and one
+  health as it is laid (`DroidBody::toughen`, through
+  `toughen_by_relics`) in `build_wave`, a garrison's
+  (`stand_manufacturers`) and the Heart's conduit Guardians and
+  fabricated machines, and puts the extra on one of the Manufacturers'
+  people's bar through `set_level_health` (where a crew member's level
+  rides, so it survives `issue`). The Heart's own core and conduits are
+  not moved. A crew holding none plays exactly as it did.
 - **State**: `Relics { held: Vec<Relic>, choice, offers }` — no pool, no
   per-slot lists. `drawable()` is every relic not held; `offer(drawable,
   n, seed)` draws evenly, none twice. `RelicChoice { options, proposal }`,

@@ -761,3 +761,39 @@ fn reinforcement_hunts(forgotten: bool) {
         mean(&now_at) / tile
     );
 }
+
+/// *Black Market*'s price on a garrison: every one of their people laid
+/// with [`data::BLACK_MARKET_ENEMY_HEALTH`] per cent more on the bar, full,
+/// and every machine beside them its share more too.
+#[test]
+fn black_market_lays_their_people_and_machines_with_more_health() {
+    let bars = |world: &World| -> (Vec<(f32, f32)>, Vec<f32>) {
+        let room = &world.residents.as_ref().unwrap().aboard.room;
+        let people = theirs(world)
+            .into_iter()
+            .map(|who| (room.health(who), room.max_health(who)))
+            .collect();
+        let machines = (0..room.droid_count() as usize)
+            .filter_map(|i| room.droid(i))
+            .map(|d| d.body.life_max())
+            .collect();
+        (people, machines)
+    };
+    let (plain, _) = at_their_site(8);
+    let (tough, _) = at_their_site_with(8, |w| {
+        w.give_relic_for_probe(crate::relic::Relic::BlackMarket)
+    });
+    let (plain_people, plain_machines) = bars(&plain);
+    let (people, machines) = bars(&tough);
+    assert!(!plain_people.is_empty() && !plain_machines.is_empty());
+    assert_eq!(plain_people.len(), people.len());
+    assert_eq!(plain_machines.len(), machines.len());
+    let factor = crate::relic::factor(data::BLACK_MARKET_ENEMY_HEALTH) as f32;
+    for (&(_, was), &(now, max)) in plain_people.iter().zip(&people) {
+        assert!((max - was * factor).abs() < 0.01, "{was} -> {max}");
+        assert_eq!(now, max, "laid full");
+    }
+    for (&was, &now) in plain_machines.iter().zip(&machines) {
+        assert!((now - was * factor).abs() < 0.01, "{was} -> {now}");
+    }
+}

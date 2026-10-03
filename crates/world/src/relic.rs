@@ -121,10 +121,9 @@ pub enum Stat {
     /// Hit points every Bim on its feet gets back a second — a number of
     /// them, not a share.
     Regen,
-    /// **One more wave at every elite**, its last: as many machines as a
-    /// wave there and this many more a player — a number, not a share —
-    /// and no Guardian among them.
-    EliteWave,
+    /// The hit points every enemy — a machine or one of the
+    /// Manufacturers' people — is laid with, in per cent.
+    EnemyHealth,
 }
 
 impl Stat {
@@ -137,7 +136,7 @@ impl Stat {
                 | Stat::Cooldowns
                 | Stat::WaveSize
                 | Stat::TraderPrices
-                | Stat::EliteWave
+                | Stat::EnemyHealth
         )
     }
 }
@@ -269,7 +268,7 @@ pub const RELICS: [RelicDef; 12] = [
         Relic::BlackMarket,
         &[
             m(W::Everyone, S::TraderPrices, -data::BLACK_MARKET_PRICES),
-            m(W::Everyone, S::EliteWave, data::BLACK_MARKET_ELITE_WAVE),
+            m(W::Everyone, S::EnemyHealth, data::BLACK_MARKET_ENEMY_HEALTH),
         ],
     ),
     row(
@@ -506,8 +505,8 @@ mod tests {
             data::BOUNTY_CONTRACT_BOUNTY - data::SALVAGE_BURN_BOUNTY
         );
         assert_eq!(
-            crew_percent(&[Relic::BlackMarket], Stat::EliteWave),
-            data::BLACK_MARKET_ELITE_WAVE
+            crew_percent(&[Relic::BlackMarket], Stat::EnemyHealth),
+            data::BLACK_MARKET_ENEMY_HEALTH
         );
         assert_eq!(percent(&[], Stat::Damage, false), 0);
     }

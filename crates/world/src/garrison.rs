@@ -108,15 +108,12 @@ impl World {
             return 1;
         }
         // An elite comes in at least two (`crate::elite`), bar a count the
-        // probes forced — and one more, its last, while the crew hold a
-        // relic that adds it (*Black Market*), forced or not.
+        // probes forced.
         if self.is_elite_here(id) {
-            let relic = u32::from(self.elite_wave_extra() > 0);
-            let count = match self.droid_waves_forced {
+            return match self.droid_waves_forced {
                 Some(_) => self.droid_wave_count(),
                 None => self.droid_wave_count().max(data::ELITE_WAVES),
             };
-            return count + relic;
         }
         self.droid_wave_count()
     }
@@ -258,6 +255,8 @@ impl World {
         let geared = self.manufacturer_gear_tiers(n);
         let spot = |i: usize| spots.get(i).copied().unwrap_or(bims::math::Vec2::ZERO);
         let stagger = |i: usize| bims::game::PLAN_EVERY * (i as f32) / (n.max(1) as f32);
+        // The crew's relics on every body laid (*Black Market*).
+        let toughen = self.enemy_health_factor();
         let Some(residents) = &mut self.residents else {
             return;
         };
@@ -269,7 +268,12 @@ impl World {
             // any other body's.
             let pieces = 10_000 + 1_000 * room.crew_count();
             let gear = manufacturer::gear(geared.get(i).copied().flatten(), own, pieces);
-            room.enlist_manufacturer(spot(i), gear, own, stagger(i));
+            let who = room.enlist_manufacturer(spot(i), gear, own, stagger(i));
+            if let Some(factor) = toughen {
+                // The bar's extra rides where a crew member's level
+                // does, so an item picked up keeps it.
+                room.set_level_health(who, room.max_health(who) * (factor - 1.0));
+            }
         }
         // Then the machines beside them: Troopers, armed by their place
         // among the Troopers as a wave's are.
@@ -288,6 +292,9 @@ impl World {
                     facing,
                     seed ^ (i as u64) << 8 ^ u64::from(wave),
                 );
+                if let Some(factor) = toughen {
+                    droid.body.toughen(factor);
+                }
                 droid.plan_wait = stagger(i);
                 droid.breach_wait = droid.plan_wait;
                 droid

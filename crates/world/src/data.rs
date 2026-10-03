@@ -452,12 +452,12 @@ pub const DRILL_SERGEANT_PLAYER_DAMAGE: i32 = 20;
 pub const LONE_WOLVES_PLAYER_DAMAGE: i32 = 35;
 pub const LONE_WOLVES_PLAYER_SPEED: i32 = 15;
 pub const LONE_WOLVES_BOT_DAMAGE: i32 = 50;
-/// *Black Market*: a trader asks less, and every elite has one more wave,
-/// its last — a wave there and this many more machines a player, with no
-/// Guardian in it (the player's, October 2026; it was less bounty), three
-/// a player since October 3rd (it was one).
+/// *Black Market*: a trader asks less, and every enemy — a machine or one
+/// of the Manufacturers' people — comes with this many per cent more hit
+/// points (the player's, October 3rd 2026; it was one more wave at every
+/// elite, and before that less bounty).
 pub const BLACK_MARKET_PRICES: i32 = 40;
-pub const BLACK_MARKET_ELITE_WAVE: i32 = 3;
+pub const BLACK_MARKET_ENEMY_HEALTH: i32 = 35;
 /// *Adrenaline*: everybody walks faster, and takes more.
 pub const ADRENALINE_SPEED: i32 = 30;
 pub const ADRENALINE_TAKEN: i32 = 15;
