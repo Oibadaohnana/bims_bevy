@@ -246,6 +246,13 @@ pub struct GameScreen {
     /// world, held in their order and played out at the world's pace so
     /// a shaky line does not stop and lurch the world. Idle on the clock.
     playout: crate::playout::Playout,
+    /// A guest's own orders played at once and the host's timeline kept
+    /// beside the world shown, rolled back to when they part (task 156,
+    /// `crate::rollback`). Idle on the clock.
+    rollback: crate::rollback::Rollback,
+    /// The host's side of it: the guests' orders stamped for a step its
+    /// world has not reached, held until it does.
+    held: crate::rollback::Held,
     /// The host's side of it: the step each peer was last answered a
     /// `World` at, so a guest that keeps asking gets one an
     /// `CHECK_EVERY` at most — the world is megabytes to write.
@@ -979,11 +986,13 @@ impl GameScreen {
     /// nothing picked, no panels yet, the canvas unmeasured so the first
     /// frame fits the world to it.
     fn fresh(slot: u32, players: u32) -> GameScreen {
+        let rollback = crate::rollback::Rollback::default();
         GameScreen {
             net: Net {
                 slot,
                 players,
                 wire: None,
+                ledger: crate::dev::rollback_on().then(|| rollback.ledger.clone()),
             },
             panels: None,
             throw_aim: None,
@@ -1023,6 +1032,8 @@ impl GameScreen {
             said_name: None,
             resyncing: false,
             playout: crate::playout::Playout::default(),
+            rollback,
+            held: crate::rollback::Held::default(),
             answered: Vec::new(),
             desync_at: crate::dev::desync_at(),
             freeze: crate::dev::freeze_at_shot(),
@@ -1134,7 +1145,10 @@ fn frame(
                 rest.push(event);
             }
         }
-        if gone {
+        // Nor is it held back while this end runs ahead of the host
+        // (task 156): the world shown keeps its own pace then, and the
+        // host's word is wanted the moment it lands.
+        if gone || screen.rollback.active() {
             drained.extend(screen.playout.flush());
         } else {
             let nominal = session.steps_per_second();
@@ -1151,15 +1165,18 @@ fn frame(
         }
         drained.extend(rest);
     }
+    // While this end runs ahead (task 156), what the host says goes to
+    // the host's timeline: it is the session's until `leave` below, the
+    // world shown stood aside.
+    screen.rollback.enter(session);
     let mut drained = drained.into_iter();
     while let Some(event) = drained.next() {
         match event {
             Event::Packet { from, packet } => match packet {
-                Packet::Ask { at, message } => {
+                Packet::Ask { at, message, stamp } => {
                     if let Some(slot) = online.slot_of(from) {
-                        if screen.net.wire.as_ref().is_some_and(|w| w.host)
-                            && Loading::travels(session, slot, &message)
-                        {
+                        let host = screen.net.wire.as_ref().is_some_and(|w| w.host);
+                        if host && Loading::travels(session, slot, &message) {
                             let apply = Apply::Asked {
                                 from: slot,
                                 at,
@@ -1170,16 +1187,40 @@ fn frame(
                             loading.stash(drained.by_ref());
                             break;
                         }
-                        screen.net.asked(session, slot, at, message, from);
+                        // A guest's order played at a step this world has
+                        // not reached is held for it (task 156).
+                        let (now, running) = session.game.as_ref().map_or((0, false), |g| {
+                            (g.world.steps, g.world.effective_speed().multiplier() > 0)
+                        });
+                        let ready = if host {
+                            screen
+                                .held
+                                .arrive(slot, from, at, message, stamp, now, running)
+                        } else {
+                            Some(None)
+                        };
+                        if let Some(asked) = ready {
+                            screen.net.asked(session, slot, at, message, from, asked);
+                        }
                     }
                 }
-                Packet::Applied { from, at, message } => {
+                Packet::Applied {
+                    from,
+                    at,
+                    message,
+                    asked,
+                } => {
                     if !screen.net.is_clock() && Loading::travels(session, from, &message) {
                         loading.trip(&screen.net, session, Apply::Applied { from, at, message });
                         loading.stash(drained.by_ref());
                         break;
                     }
-                    screen.net.applied(session, from, at, message);
+                    let net = &screen.net;
+                    screen
+                        .rollback
+                        .confirm(session, |s| net.applied(s, from, at, message));
+                    let step = session.game.as_ref().map_or(0, |g| g.world.steps);
+                    screen.rollback.applied(screen.net.slot, from, asked, step);
                 }
                 Packet::Refused { why } => {
                     let line = if why == 0 {
@@ -1191,7 +1232,7 @@ fn frame(
                 }
                 Packet::Steps { n, checksum } if !screen.net.is_clock() => {
                     for _ in 0..n {
-                        session.world_step();
+                        screen.rollback.confirm(session, |s| s.world_step());
                     }
                     if let (Some(theirs), Some(game)) = (checksum, &session.game) {
                         let mine = world::world_checksum(&game.world);
@@ -1219,6 +1260,16 @@ fn frame(
                                 p.target(),
                                 p.tally.gaps,
                                 p.tally.frames
+                            );
+                            let r = &screen.rollback;
+                            println!(
+                                "rollback: lead {:.1} pending {} rollbacks {} replayed {} on time {} late {}",
+                                r.lead(),
+                                r.pending(),
+                                r.tally.rollbacks,
+                                r.tally.replayed,
+                                r.tally.on_time,
+                                r.tally.late
                             );
                         }
                     }
@@ -1316,6 +1367,47 @@ fn frame(
         }
     }
 
+    // `BIMS_DESYNC_AT`: the guest's own crew member sent three tiles over
+    // without the host hearing of it — a world of its own from here, for
+    // the resync to mend. Done to the host's timeline, the one the
+    // checksum is taken of (and which a rollback copies the world shown
+    // from), while it is the session's.
+    if !screen.net.is_clock()
+        && !loading.busy()
+        && let Some(at) = screen.desync_at
+        && let Some(room) = session.room_ref()
+        && session.game.as_ref().is_some_and(|g| g.world.steps >= at)
+    {
+        screen.desync_at = None;
+        let slot = screen.net.slot;
+        let from = room.bim_pos(slot as usize);
+        use bims::order::CrewOrder;
+        screen
+            .net
+            .apply_unasked(session, Order::Crew(CrewOrder::SelectOwn));
+        screen.net.apply_unasked(
+            session,
+            Order::Crew(CrewOrder::Move {
+                x: from.x + 3.0 * shipdesign::parts::TILE as f32,
+                y: from.y,
+            }),
+        );
+        if crate::dev::auto().is_some() {
+            println!("diverged: {at}");
+        }
+    }
+
+    // The host's word is in: a guest in a mission runs ahead of it on its
+    // own orders, its world rolled back where the host's took something
+    // else (task 156). Not over a trip, nor once the host has gone — the
+    // clock is this end's then — nor between missions, where nothing
+    // steps and there is nothing to guess.
+    let guessing = screen.net.ledger.is_some()
+        && !loading.busy()
+        && screen.net.wire.as_ref().is_some_and(|w| !w.host)
+        && session.game.as_ref().is_some_and(|g| g.world.in_mission());
+    screen.rollback.leave(session, screen.net.slot, guessing);
+
     if loading.busy() {
         return Ok(());
     }
@@ -1375,10 +1467,31 @@ fn frame(
             .map(|g| g.world.effective_speed().multiplier())
             .unwrap_or(0) as f64;
         screen.backlog += dt * session.steps_per_second() * times;
-        let before = session.game.as_ref().map_or(0, |g| g.world.steps);
+        // The steps since the host last said how many went: said before
+        // a guest's held order goes out, so every guest applies it after
+        // the same step (task 156), and at the end.
+        let mut said = session.game.as_ref().map_or(0, |g| g.world.steps);
         {
             let _timed = crate::perf::scope(crate::perf::Phase::Step);
             while screen.backlog >= 1.0 && steps < MAX_STEPS_PER_FRAME {
+                if !screen.held.is_empty()
+                    && let Some(now) = session.game.as_ref().map(|g| g.world.steps)
+                {
+                    let due = screen.held.due(now);
+                    if !due.is_empty() {
+                        say_steps(&screen.net, session, &mut said);
+                        for ask in due {
+                            screen.net.asked(
+                                session,
+                                ask.from,
+                                ask.at,
+                                ask.message,
+                                ask.peer,
+                                Some(ask.asked),
+                            );
+                        }
+                    }
+                }
                 session.world_step();
                 screen.backlog -= 1.0;
                 steps += 1;
@@ -1388,44 +1501,31 @@ fn frame(
         if screen.backlog > MAX_STEPS_PER_FRAME as f64 {
             screen.backlog = 0.0; // gave up catching up
         }
-        if steps > 0
-            && let Some(wire) = &screen.net.wire
-            && let Some(game) = &session.game
-        {
-            let after = game.world.steps;
-            let checksum = (before / CHECK_EVERY != after / CHECK_EVERY)
-                .then(|| world::world_checksum(&game.world));
-            if let Some(mine) = checksum
-                && crate::dev::auto().is_some()
-            {
-                println!("checksum: {after} {mine:#x}");
+        say_steps(&screen.net, session, &mut said);
+        // A world stopped reaches no step: what is held goes now.
+        if times == 0.0 && !screen.held.is_empty() {
+            for ask in screen.held.all() {
+                screen.net.asked(
+                    session,
+                    ask.from,
+                    ask.at,
+                    ask.message,
+                    ask.peer,
+                    Some(ask.asked),
+                );
             }
-            wire.send(To::All, &Packet::Steps { n: steps, checksum });
         }
-    } else if let Some(at) = screen.desync_at
-        && let Some(room) = session.room_ref()
-        && session.game.as_ref().is_some_and(|g| g.world.steps >= at)
-    {
-        // `BIMS_DESYNC_AT`: the guest's own crew member sent three tiles
-        // over without the host hearing of it — a world of its own from
-        // here, for the resync to mend.
-        screen.desync_at = None;
-        let slot = screen.net.slot;
-        let from = room.bim_pos(slot as usize);
-        use bims::order::CrewOrder;
-        screen
-            .net
-            .apply_unasked(session, Order::Crew(CrewOrder::SelectOwn));
-        screen.net.apply_unasked(
-            session,
-            Order::Crew(CrewOrder::Move {
-                x: from.x + 3.0 * shipdesign::parts::TILE as f32,
-                y: from.y,
-            }),
-        );
-        if crate::dev::auto().is_some() {
-            println!("diverged: {at}");
+    } else if screen.rollback.active() {
+        // A guest running ahead of the host (task 156): its world shown
+        // goes at its own pace, holding its lead on the host's.
+        let n = screen.rollback.pace(session, dt);
+        {
+            let _timed = crate::perf::scope(crate::perf::Phase::Step);
+            for _ in 0..n {
+                screen.rollback.step_shown(session);
+            }
         }
+        crate::perf::tally(crate::perf::Count::Steps, u64::from(n));
     }
     // The fight's passing lights age on this window's own clock — real
     // seconds at any speed, held still while the game is paused (feature
@@ -1435,6 +1535,7 @@ fn frame(
         .as_ref()
         .is_some_and(|g| g.world.effective_speed().multiplier() > 0);
     session.age_effects(if running { dt as f32 } else { 0.0 });
+    screen.rollback.age(if running { dt as f32 } else { 0.0 });
     // And the white and the light on the health bars (task 137), on the
     // same clock.
     let bars_dt = if running { dt as f32 } else { 0.0 };
@@ -1603,7 +1704,9 @@ fn frame(
         // Nobody standing: the run is over, and the screen that says so
         // takes over from this one on the next frame. A run won ends on
         // the same screen, saying so (feature 106).
-        if game.world.lost || game.world.is_won() {
+        // The host's world says so, not a guess run ahead of it (task 156).
+        let truth = screen.rollback.confirmed().unwrap_or(&game.world);
+        if truth.lost || truth.is_won() {
             next.set(Screen::Over);
         }
         // What the steps sounded like: the crew's room, and the station's
@@ -4434,6 +4537,30 @@ const AIM_STEP: u16 = 36;
 /// order now (task 144): the first, a walk, a trigger or a sprint changed — at
 /// once, since those are what a body does — or the aim turned past
 /// [`AIM_STEP`] at least [`CONTROL_EVERY`] after the last.
+/// The host's steps since it last said how many (`said`, the world's step
+/// then), said to the room — with its checksum when they crossed a
+/// `CHECK_EVERY` — and `said` moved up. Nothing when none went, or with
+/// nobody to tell.
+fn say_steps(net: &Net, session: &Session, said: &mut u64) {
+    let (Some(wire), Some(game)) = (&net.wire, &session.game) else {
+        return;
+    };
+    let after = game.world.steps;
+    if after <= *said {
+        return;
+    }
+    let n = (after - *said) as u32;
+    let checksum =
+        (*said / CHECK_EVERY != after / CHECK_EVERY).then(|| world::world_checksum(&game.world));
+    if let Some(mine) = checksum
+        && crate::dev::auto().is_some()
+    {
+        println!("checksum: {after} {mine:#x}");
+    }
+    wire.send(To::All, &Packet::Steps { n, checksum });
+    *said = after;
+}
+
 fn control_due(last: Option<(CrewOrderControl, f64)>, now: CrewOrderControl, time: f64) -> bool {
     let Some(((walk, aim, fire, sprint), at)) = last else {
         return true;

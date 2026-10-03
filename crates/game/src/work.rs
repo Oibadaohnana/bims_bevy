@@ -62,6 +62,7 @@ pub const DEFAULT: u32 = 3;
 /// One number per job. The player's standing instruction to the ship rather
 /// than to a Bim: there is one list and the whole crew work to it.
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Clone)]
 pub struct Priorities {
     level: [u32; Job::ALL.len()],
 }

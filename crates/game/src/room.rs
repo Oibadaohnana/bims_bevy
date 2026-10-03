@@ -342,6 +342,7 @@ pub struct Fixtures {
     pub doors: bool,
 }
 
+#[derive(Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Room {
     /// The whole of the room, bulkheads included: what the view fits and

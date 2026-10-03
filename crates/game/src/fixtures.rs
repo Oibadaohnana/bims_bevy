@@ -392,6 +392,7 @@ pub fn draw_table_top(list: &mut DrawList, t: Rect) {
 /// the same bunk on its side, worked out in its own frame, `across` and
 /// `along` from the head end.
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Clone)]
 pub struct Berth {
     pub frame: Rect,
     side: f32,
@@ -631,6 +632,7 @@ impl Locker {
 /// A hydroponic bay — six trays along a frame, under grow lights — or a
 /// field, the same trays laid on open ground.
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Clone)]
 pub struct Bay {
     /// The frame itself, which is furniture and gets walked round.
     pub frame: Rect,
@@ -751,6 +753,7 @@ impl Bay {
 /// them, with no compartment of their own. `shell` is the two fixtures'
 /// bounding box.
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Clone)]
 pub struct Heads {
     pub shell: Rect,
     pub toilet: Rect,
@@ -839,7 +842,7 @@ pub enum Still {
 }
 
 /// The extras, ready to draw.
-#[derive(Default)]
+#[derive(Default, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Stills {
     pub tables: Vec<Rect>,

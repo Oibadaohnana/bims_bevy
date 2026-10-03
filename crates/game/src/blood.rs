@@ -59,6 +59,7 @@ const BLOOD: Color = Color::rgb(0.45, 0.04, 0.05);
 const STAIN_ALPHA: f32 = 0.72;
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Clone)]
 pub struct Blood {
     cols: usize,
     rows: usize,

@@ -2071,6 +2071,50 @@ impl Sight {
         }
     }
 
+    /// The cells as the host is handed them: a byte a tile, the flags
+    /// the light map's passes read.
+    fn cell_bytes(&self) -> Vec<u8> {
+        self.cells
+            .iter()
+            .zip(&self.fixed)
+            .map(|(c, f)| {
+                let bit = |on: bool, bit: u8| if on { bit } else { 0 };
+                bit(c.opaque, CELL_OPAQUE)
+                    | bit(c.fogged, CELL_FOGGED)
+                    | bit(f.opaque, CELL_FIXED)
+                    | bit(f.opaque && f.soft, CELL_SOFT)
+            })
+            .collect()
+    }
+
+    /// This sight takes the place of `shown`, the one drawn until now —
+    /// a guest's rollback (task 156): a copy of the host's world put where
+    /// its own guess was. What was handed to the host's light map is
+    /// `shown`'s, so it is carried over and every revision goes on
+    /// climbing from it: the cells and the lamps' fields are compared
+    /// with what the host holds and handed over again where they differ
+    /// (a view with them, its eyes being marched over other cells), and
+    /// the CPU's map is composed afresh a version past `shown`'s, which
+    /// the host takes whole. Picture only; nothing a step reads.
+    pub fn adopt_picture(&mut self, shown: &mut Sight) {
+        self.host = std::mem::take(&mut shown.host);
+        self.picture = PictureId(shown.picture.0);
+        if *self.host.cells == self.cell_bytes() {
+            self.host.cells_version = self.cells_version;
+        } else {
+            self.host.cells_version = self.cells_version.wrapping_add(1);
+        }
+        if !self.light_field_stale
+            && (*self.host.light_field != self.light_field
+                || *self.host.shown_field != self.shown_field)
+        {
+            self.light_field_stale = true;
+        }
+        self.map.version = shown.map.version.wrapping_add(2);
+        self.map.changed = None;
+        self.map_stale = true;
+    }
+
     /// What a host drawing the map needs this frame (task 121): the
     /// lamps' fields built as `light_map_on_cpu` builds them, each body's
     /// eyes compared with the ones last handed over by the same rule
@@ -2112,18 +2156,7 @@ impl Sight {
         if self.host.cells.len() != self.cells.len()
             || self.host.cells_version != self.cells_version
         {
-            let cells: Vec<u8> = self
-                .cells
-                .iter()
-                .zip(&self.fixed)
-                .map(|(c, f)| {
-                    let bit = |on: bool, bit: u8| if on { bit } else { 0 };
-                    bit(c.opaque, CELL_OPAQUE)
-                        | bit(c.fogged, CELL_FOGGED)
-                        | bit(f.opaque, CELL_FIXED)
-                        | bit(f.opaque && f.soft, CELL_SOFT)
-                })
-                .collect();
+            let cells = self.cell_bytes();
             if *self.host.cells != cells {
                 self.host.cells = Arc::new(cells);
                 self.host.cells_rev += 1;

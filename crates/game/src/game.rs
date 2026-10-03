@@ -470,6 +470,7 @@ fn believe(
 }
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Clone)]
 struct Marker {
     pos: Vec2,
     age: f32,
@@ -603,6 +604,7 @@ pub const ORDER_MOVING: u32 = 1;
 pub const ORDER_NOWHERE: u32 = 4;
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Clone)]
 pub struct Game {
     room: Room,
     /// The room's own time of day. It stands where the room was opened at —
@@ -1323,6 +1325,76 @@ impl Game {
     /// while no host ages the room.
     pub fn spray(&mut self, spray: crate::fx::Spray) {
         self.combat.fx.spray(spray);
+    }
+
+    /// How much the room has put out for the host and not had taken —
+    /// its cues, the fight's, its particles — as counts: a mark to read
+    /// what one step adds (task 156, a guest's rollback).
+    pub fn out_mark(&mut self) -> (usize, usize, usize) {
+        (
+            self.room.cues.len(),
+            self.combat.cues.len(),
+            self.combat.fx.waiting_sprays().len(),
+        )
+    }
+
+    /// What the room put out since `mark`: the cues — the room's before
+    /// the fight's, as [`Game::take_cues`] hands them — and the particles.
+    pub fn out_since(&mut self, mark: (usize, usize, usize)) -> (Vec<Cued>, Vec<crate::fx::Spray>) {
+        let tail = |v: &[Cued], from: usize| v.get(from..).unwrap_or_default().to_vec();
+        let mut cues = tail(&self.room.cues, mark.0);
+        cues.extend(tail(&self.combat.cues, mark.1));
+        let sprays = self.combat.fx.waiting_sprays();
+        let sprays = sprays.get(mark.2..).unwrap_or_default().to_vec();
+        (cues, sprays)
+    }
+
+    /// Of what the room put out since `mark`, each thing `heard` holds
+    /// taken back out, one for one: a step played again after a guest's
+    /// rollback is heard and shown only where it differs from the first
+    /// time it was played (task 156).
+    pub fn drop_heard(
+        &mut self,
+        mark: (usize, usize, usize),
+        cues: &[Cued],
+        sprays: &[crate::fx::Spray],
+    ) {
+        let mut cues_left: Vec<Cued> = cues.to_vec();
+        let mut sift = |list: &mut Vec<Cued>, from: usize| {
+            let mut i = from.min(list.len());
+            while i < list.len() {
+                if let Some(j) = cues_left.iter().position(|c| *c == list[i]) {
+                    cues_left.swap_remove(j);
+                    list.remove(i);
+                } else {
+                    i += 1;
+                }
+            }
+        };
+        sift(&mut self.room.cues, mark.0);
+        sift(&mut self.combat.cues, mark.1);
+        let mut sprays_left: Vec<crate::fx::Spray> = sprays.to_vec();
+        let list = self.combat.fx.waiting_sprays();
+        let mut i = mark.2.min(list.len());
+        while i < list.len() {
+            if let Some(j) = sprays_left.iter().position(|s| s.same(&list[i])) {
+                sprays_left.swap_remove(j);
+                list.remove(i);
+            } else {
+                i += 1;
+            }
+        }
+    }
+
+    /// Cues and particles put back in front of whatever is waiting: what
+    /// a world thrown away by a guest's rollback had put out and the host
+    /// had not taken yet (task 156).
+    pub fn put_back_unread(&mut self, cues: Vec<Cued>, sprays: Vec<crate::fx::Spray>) {
+        let mut rest = std::mem::replace(&mut self.room.cues, cues);
+        self.room.cues.append(&mut rest);
+        let waiting = self.combat.fx.waiting_sprays();
+        let mut rest = std::mem::replace(waiting, sprays);
+        waiting.append(&mut rest);
     }
 
     /// The pings on the deck grown older by `dt`, and the spent ones gone.
@@ -9374,6 +9446,16 @@ impl Game {
     /// told of it like any other. For probes and `BIMS_LAMPS_OUT`.
     pub fn damage_lamp_for_probe(&mut self, i: usize, damage: f32) {
         self.room.sight.damage_lamp(i, damage);
+    }
+
+    /// This room takes the place of `shown`, the one drawn until now — a
+    /// guest's rollback (task 156): what the host's pictures were handed
+    /// is carried across (`Sight::adopt_picture`, `Plane::adopt_picture`).
+    pub fn adopt_picture(&mut self, shown: &mut Game) {
+        self.room.sight.adopt_picture(&mut shown.room.sight);
+        if let (Some(plane), Some(was)) = (self.room.plane.as_mut(), shown.room.plane.as_mut()) {
+            plane.adopt_picture(was);
+        }
     }
 
     /// Everything worth hearing since last asked — the doors, the board

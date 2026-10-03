@@ -51,6 +51,7 @@ const STEP_SECONDS: f32 = (data::STEP_MINUTES / time::MINUTES_PER_SECOND) as f32
 /// need the offset, to put the room's picture and the room's coordinates
 /// where the ship is.
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Clone)]
 pub struct Aboard {
     pub room: Room,
     /// Where the ship's design origin sits in the room's grid, in design
@@ -642,6 +643,7 @@ impl core::fmt::Debug for Aboard {
 /// world carries — it is the honest limit of this step, and it is why a
 /// derelict, with nobody aboard, never gets a room at all.
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Clone)]
 pub struct Residents {
     pub station: u32,
     pub aboard: Aboard,

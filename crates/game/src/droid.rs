@@ -587,6 +587,7 @@ struct Spark {
 /// One machine of the infesting race. Not a Bim, and not a
 /// [`crate::character::Character`]: everything it is is here.
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Clone)]
 pub struct Droid {
     pub kind: DroidKind,
     pub tier: Tier,

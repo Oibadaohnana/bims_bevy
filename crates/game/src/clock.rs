@@ -71,6 +71,7 @@ pub fn seconds(minutes: f32) -> f32 {
 }
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Clone)]
 pub struct Clock {
     /// Minutes since midnight, fractional.
     minutes: f32,

@@ -89,6 +89,7 @@ mod particles;
 mod perf;
 mod playout;
 mod profile;
+mod rollback;
 mod save;
 mod scene;
 mod screens;

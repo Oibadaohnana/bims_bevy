@@ -43,6 +43,7 @@ pub const WARMUP: u32 = 100;
 pub enum Phase {
     Frame,
     Wire,
+    Rollback,
     Step,
     Prep,
     Canvas,
@@ -55,9 +56,10 @@ pub enum Phase {
 }
 
 impl Phase {
-    pub const ALL: [Phase; 11] = [
+    pub const ALL: [Phase; 12] = [
         Phase::Frame,
         Phase::Wire,
+        Phase::Rollback,
         Phase::Step,
         Phase::Prep,
         Phase::Canvas,
@@ -74,6 +76,9 @@ impl Phase {
         match self {
             Phase::Frame => ("frame", 0),
             Phase::Wire => ("wire", 1),
+            // Inside the wire's scope: a guest's world shown copied afresh
+            // from the host's and stepped back up (task 156, `rollback.rs`).
+            Phase::Rollback => ("rollback", 2),
             Phase::Step => ("world steps", 1),
             Phase::Prep => ("panel prep", 1),
             Phase::Canvas => ("canvas ui", 1),

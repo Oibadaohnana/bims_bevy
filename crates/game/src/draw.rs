@@ -94,7 +94,7 @@ impl Color {
     }
 }
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct DrawList {
     data: Vec<f32>,

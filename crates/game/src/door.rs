@@ -91,6 +91,7 @@ pub struct Smash {
 }
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Clone)]
 pub struct Door {
     /// The opening: the two tiles the design put the door in, a run along
     /// the bulkhead one tile deep.

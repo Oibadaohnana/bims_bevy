@@ -76,12 +76,14 @@ impl Shield {
 }
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Clone)]
 pub struct Footprint {
     pub pos: Vec2,
     pub age: f32,
 }
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Clone)]
 pub struct Bim {
     pub character: Character,
     /// The errand running now, and everything put down to make way for it.

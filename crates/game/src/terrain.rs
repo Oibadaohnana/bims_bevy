@@ -427,6 +427,21 @@ impl Plane {
         }
     }
 
+    /// This plane takes the place of `shown`, the one drawn until now —
+    /// a guest's rollback (task 156): the picture and the views it was
+    /// marched from are `shown`'s, carried over, so the chunks' versions
+    /// go on climbing from what the host holds and only a body whose eyes
+    /// moved is marched again. Nothing for another plain. Picture only.
+    pub fn adopt_picture(&mut self, shown: &mut Plane) {
+        if (self.origin, self.ex, self.ey, self.deck)
+            != (shown.origin, shown.ex, shown.ey, shown.deck)
+        {
+            return;
+        }
+        self.views = std::mem::take(&mut shown.views);
+        self.pictures = std::mem::take(&mut shown.pictures);
+    }
+
     /// Night or day on the plain; the trace and the picture are made again
     /// at the next look.
     pub fn set_night(&mut self, night: bool) {

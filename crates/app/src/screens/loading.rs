@@ -263,6 +263,7 @@ impl Loading {
             slot: net.slot,
             players: net.players,
             wire: net.wire.clone(),
+            ledger: None,
         };
         let meter = Arc::new(Meter::default());
         let watched = meter.clone();
@@ -277,7 +278,7 @@ impl Loading {
                     at,
                     message,
                     peer,
-                } => net.asked(&mut taken, from, at, message, peer),
+                } => net.asked(&mut taken, from, at, message, peer, None),
                 Apply::Applied { from, at, message } => net.applied(&mut taken, from, at, message),
             }
             taken

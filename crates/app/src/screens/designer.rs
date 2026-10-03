@@ -269,8 +269,10 @@ pub struct Outcome {
 /// machines: the **host** receives — its own messages at once, a guest's
 /// as they arrive — and tells everybody what went (`Packet::Applied`),
 /// which every guest then receives in that order; a **guest** posts an
-/// ask and applies nothing itself until the host says so. Without one
-/// the two halves are the two calls one after the other, as they were.
+/// ask and applies nothing itself until the host says so — unless it is
+/// guessing (task 156, `crate::rollback`), when an order is played on its
+/// own world at once and asked with the step it was played at. Without
+/// one the two halves are the two calls one after the other, as they were.
 pub struct Net {
     pub slot: u32,
     pub players: u32,
@@ -278,6 +280,10 @@ pub struct Net {
     /// of one — or a guest whose host has gone, which is the same thing
     /// from then on.
     pub wire: Option<Wire>,
+    /// A guest's guesses, shared with the game screen's
+    /// `crate::rollback::Rollback`: `None` where nothing is guessed — the
+    /// yard, a trip's thread.
+    pub ledger: Option<crate::rollback::Shared>,
 }
 
 impl Net {
@@ -338,12 +344,18 @@ impl Net {
     /// The host applies at once and tells the room; a guest asks the host
     /// and is told later — the outcome it gets now is a provisional yes,
     /// and a refusal comes back through `Packet::Refused` onto the said
-    /// line.
+    /// line. A guest that is guessing plays an order on its own world
+    /// first and asks with the step it played it at
+    /// (`crate::rollback::predict`).
     fn send(&self, session: &mut Session, message: Message) -> Outcome {
         let at = session.editor.hash();
         match &self.wire {
             Some(wire) if !wire.host => {
-                wire.send(To::Host, &Packet::Ask { at, message });
+                let stamp = self
+                    .ledger
+                    .as_ref()
+                    .and_then(|l| crate::rollback::predict(l, session, self.slot, at, message));
+                wire.send(To::Host, &Packet::Ask { at, message, stamp });
                 Outcome { ok: true, why: 0 }
             }
             _ => {
@@ -357,6 +369,7 @@ impl Net {
                             from: self.slot,
                             at,
                             message,
+                            asked: None,
                         },
                     );
                 }
@@ -365,17 +378,34 @@ impl Net {
         }
     }
 
-    /// A guest's ask, arrived at the host: applied in arrival order and
-    /// told to the room if it went, refused to the asker if not. Nothing
-    /// on a guest, whose asks go to the host.
-    pub fn asked(&self, session: &mut Session, from: u32, at: u64, message: Message, peer: PeerId) {
+    /// A guest's ask, arrived at the host: applied in arrival order — a
+    /// stamped one at its step (`crate::rollback::Held`) — and told to the
+    /// room if it went, with what `asked` says of the stamp, refused to
+    /// the asker if not. Nothing on a guest, whose asks go to the host.
+    pub fn asked(
+        &self,
+        session: &mut Session,
+        from: u32,
+        at: u64,
+        message: Message,
+        peer: PeerId,
+        asked: Option<crate::rollback::Asked>,
+    ) {
         let Some(wire) = &self.wire else { return };
         if !wire.host {
             return;
         }
         let outcome = Self::receive(session, from, at, message);
         if outcome.ok {
-            wire.send(To::All, &Packet::Applied { from, at, message });
+            wire.send(
+                To::All,
+                &Packet::Applied {
+                    from,
+                    at,
+                    message,
+                    asked,
+                },
+            );
         } else {
             wire.send(To::Peer(peer), &Packet::Refused { why: outcome.why });
         }
@@ -405,7 +435,7 @@ impl Net {
 
     /// The other end of the wire. Nothing is queued or reordered; one that
     /// `apply` refuses is rejected and reported to its sender.
-    fn receive(session: &mut Session, from: u32, at: u64, message: Message) -> Outcome {
+    pub(crate) fn receive(session: &mut Session, from: u32, at: u64, message: Message) -> Outcome {
         let why = match message {
             Message::Place {
                 kind,
@@ -593,6 +623,7 @@ fn open(
                 slot: 0,
                 players: 1,
                 wire: None,
+                ledger: None,
             },
             gone: Vec::new(),
             auto_accepted: false,
@@ -648,6 +679,7 @@ fn open(
             slot: session.editor.local,
             players: session.editor.players,
             wire: online.wire(),
+            ledger: None,
         },
         gone: Vec::new(),
         auto_accepted: false,
@@ -740,6 +772,7 @@ pub fn open_run(commands: &mut Commands, s: &Settings, session: Session) -> Scre
             slot: s.slot,
             players: s.players.max(1),
             wire: None,
+            ledger: None,
         },
         gone: Vec::new(),
         auto_accepted: false,
@@ -812,13 +845,15 @@ fn frame(
     for event in online.drain(now) {
         match event {
             Event::Packet { from, packet } => match packet {
-                Packet::Ask { at, message } => {
+                Packet::Ask { at, message, .. } => {
                     if let Some(slot) = online.slot_of(from) {
-                        screen.net.asked(session, slot, at, message, from);
+                        screen.net.asked(session, slot, at, message, from, None);
                         accept_for_the_gone(screen, session, message);
                     }
                 }
-                Packet::Applied { from, at, message } => {
+                Packet::Applied {
+                    from, at, message, ..
+                } => {
                     screen.net.applied(session, from, at, message);
                 }
                 // The host's first steps can land here: the last Accept
@@ -2010,6 +2045,7 @@ fn accept_for_the_gone(screen: &DesignerScreen, session: &mut Session, message: 
                         from: slot,
                         at,
                         message: Message::Accept(true),
+                        asked: None,
                     },
                 );
             }

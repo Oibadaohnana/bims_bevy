@@ -60,6 +60,104 @@ pub enum Backdrop {
     Infested,
 }
 
+/// A world and the orders queued for its next step, without the cameras
+/// and the tools round it: the host's timeline as a guest keeps it beside
+/// the one it shows, which runs ahead on its own orders (task 156,
+/// `crates/app/src/rollback.rs`). Traded into a [`Game`] with
+/// [`Game::swap`] to be stepped and told things the way the game is.
+#[derive(Clone)]
+pub struct Timeline {
+    pub world: World,
+    queued: Vec<Command>,
+}
+
+/// Where what a [`Game`] puts out stood: its events, the crew's room's
+/// cues and particles, and the station's room's with the station it is.
+#[derive(Clone, Copy, Debug)]
+pub struct OutMark {
+    events: usize,
+    aboard: (usize, usize, usize),
+    residents: Option<(u32, (usize, usize, usize))>,
+}
+
+/// The residents' room's place in a mark: its own while it is the room
+/// the mark was taken in, the start of everything for one opened since.
+fn residents_mark(mark: &OutMark, station: u32) -> (usize, usize, usize) {
+    match mark.residents {
+        Some((at, m)) if at == station => m,
+        _ => (0, 0, 0),
+    }
+}
+
+/// What a [`Game`] put out for the picture and the speakers over a step,
+/// or an order: its events, and each room's — the crew's, the station's —
+/// cues and particles.
+#[derive(Clone, Debug, Default)]
+pub struct Output {
+    pub events: Vec<WorldEvent>,
+    pub rooms: [(Vec<bims::cue::Cued>, Vec<bims::fx::Spray>); 2],
+}
+
+impl Output {
+    /// Everything in `more` this has not got, added, one for one: what was
+    /// heard at a step, the first time and since.
+    pub fn merge(&mut self, more: Output) {
+        fn add<T>(have: &mut Vec<T>, more: Vec<T>, same: impl Fn(&T, &T) -> bool) {
+            let mut unmatched: Vec<bool> = vec![true; have.len()];
+            for item in more {
+                match (0..have.len()).find(|&i| unmatched[i] && same(&have[i], &item)) {
+                    Some(i) => unmatched[i] = false,
+                    None => have.push(item),
+                }
+            }
+        }
+        add(&mut self.events, more.events, |a, b| a == b);
+        for (mine, theirs) in self.rooms.iter_mut().zip(more.rooms) {
+            add(&mut mine.0, theirs.0, |a, b| a == b);
+            add(&mut mine.1, theirs.1, |a, b| a.same(b));
+        }
+    }
+
+    /// What of this `heard` has not got, one for one: the news in it.
+    pub fn unheard(self, heard: &Output) -> Output {
+        fn sift<T: Clone>(mine: Vec<T>, heard: &[T], same: impl Fn(&T, &T) -> bool) -> Vec<T> {
+            let mut unmatched: Vec<bool> = vec![true; heard.len()];
+            mine.into_iter()
+                .filter(|item| {
+                    match (0..heard.len()).find(|&i| unmatched[i] && same(&heard[i], item)) {
+                        Some(i) => {
+                            unmatched[i] = false;
+                            false
+                        }
+                        None => true,
+                    }
+                })
+                .collect()
+        }
+        let [aboard, residents] = self.rooms;
+        let [heard_aboard, heard_residents] = &heard.rooms;
+        let room = |(cues, sprays): (Vec<_>, Vec<_>), heard: &(Vec<_>, Vec<bims::fx::Spray>)| {
+            (
+                sift(cues, &heard.0, |a, b| a == b),
+                sift(sprays, &heard.1, |a: &bims::fx::Spray, b| a.same(b)),
+            )
+        };
+        Output {
+            events: sift(self.events, &heard.events, |a, b| a == b),
+            rooms: [room(aboard, heard_aboard), room(residents, heard_residents)],
+        }
+    }
+
+    /// `more` after this, all of it.
+    pub fn extend(&mut self, more: Output) {
+        self.events.extend(more.events);
+        for (mine, theirs) in self.rooms.iter_mut().zip(more.rooms) {
+            mine.0.extend(theirs.0);
+            mine.1.extend(theirs.1);
+        }
+    }
+}
+
 /// Furthest in and out the ship view will go. The same three-times-life-size
 /// ceiling the design phase has, so the two look like one game.
 const SHIP_MIN_SCALE: f32 = 0.02;
@@ -587,6 +685,132 @@ impl Game {
         {
             self.ghost_check = None;
         }
+    }
+
+    // --- a second timeline (task 156) ---------------------------------------
+
+    /// This game's world and its queue, copied: what a guest keeps of the
+    /// host's timeline beside the one it shows (`crates/app/src/rollback.rs`).
+    pub fn fork(&self) -> Timeline {
+        Timeline {
+            world: self.world.clone(),
+            queued: self.queued.clone(),
+        }
+    }
+
+    /// Trade this game's world and queue for `other`'s: the cameras, the
+    /// tools and the events already thrown up stay this game's. The
+    /// blueprint's answer is asked again, the ship under it being another.
+    pub fn swap(&mut self, other: &mut Timeline) {
+        std::mem::swap(&mut self.world, &mut other.world);
+        std::mem::swap(&mut self.queued, &mut other.queued);
+        self.ghost_check = None;
+    }
+
+    /// Put `other`'s world and queue in this game's place, copied, and
+    /// drop what this world was: the guest's rollback. The pictures carry
+    /// on from the world they replace (`World::adopt_picture`), so the
+    /// host's light maps take the new one for a change of the old.
+    pub fn restore(&mut self, other: &Timeline) {
+        let mut world = other.world.clone();
+        world.adopt_picture(&mut self.world);
+        self.world = world;
+        self.queued.clone_from(&other.queued);
+        self.ghost_check = None;
+    }
+
+    /// Where what the game puts out for the picture and the speakers
+    /// stands now — its events, both rooms' cues and particles — to read
+    /// what a step or an order adds ([`Game::out_since`]).
+    pub fn out_mark(&mut self) -> OutMark {
+        OutMark {
+            events: self.events.len(),
+            aboard: self.world.aboard.room.out_mark(),
+            residents: self
+                .world
+                .residents
+                .as_mut()
+                .map(|r| (r.station, r.aboard.room.out_mark())),
+        }
+    }
+
+    /// What the game put out since `mark`, copied. A station's room
+    /// opened since is read whole; one closed since put out nothing here.
+    pub fn out_since(&mut self, mark: OutMark) -> Output {
+        let events = self.events.get(mark.events..).unwrap_or_default().to_vec();
+        let aboard = self.world.aboard.room.out_since(mark.aboard);
+        let residents = match self.world.residents.as_mut() {
+            Some(r) => r.aboard.room.out_since(residents_mark(&mark, r.station)),
+            None => Default::default(),
+        };
+        Output {
+            events,
+            rooms: [aboard, residents],
+        }
+    }
+
+    /// Of what the game put out since `mark`, each thing `heard` holds
+    /// taken back out, one for one: a guest's rollback playing a step
+    /// again shows and sounds only what the first time did not.
+    pub fn drop_heard(&mut self, mark: OutMark, heard: &Output) {
+        let mut left = heard.events.clone();
+        let mut i = mark.events.min(self.events.len());
+        while i < self.events.len() {
+            if let Some(j) = left.iter().position(|e| *e == self.events[i]) {
+                left.swap_remove(j);
+                self.events.remove(i);
+            } else {
+                i += 1;
+            }
+        }
+        let [aboard, residents] = &heard.rooms;
+        self.world
+            .aboard
+            .room
+            .drop_heard(mark.aboard, &aboard.0, &aboard.1);
+        if let Some(r) = self.world.residents.as_mut() {
+            let from = residents_mark(&mark, r.station);
+            r.aboard.room.drop_heard(from, &residents.0, &residents.1);
+        }
+    }
+
+    /// Both rooms' cues and particles not yet taken, taken: what a world
+    /// about to be thrown away had put out, for [`Game::put_back`].
+    pub fn take_unread(&mut self) -> Output {
+        let take = |room: &mut bims::game::Game| (room.take_cues(), room.take_sprays());
+        let aboard = take(&mut self.world.aboard.room);
+        let residents = self
+            .world
+            .residents
+            .as_mut()
+            .map(|r| take(&mut r.aboard.room))
+            .unwrap_or_default();
+        Output {
+            events: Vec::new(),
+            rooms: [aboard, residents],
+        }
+    }
+
+    /// What [`Game::take_unread`] took, back in front of whatever the
+    /// world in its place has put out since. The events are the caller's.
+    pub fn put_back(&mut self, unread: Output) {
+        let [aboard, residents] = unread.rooms;
+        self.world.aboard.room.put_back_unread(aboard.0, aboard.1);
+        if let Some(r) = self.world.residents.as_mut() {
+            r.aboard.room.put_back_unread(residents.0, residents.1);
+        }
+    }
+
+    /// Everything the world threw up for the picture and the speakers
+    /// since it was last read — its events, both rooms' cues and their
+    /// particles — dropped unread: steps nobody is to hear again.
+    pub fn silence(&mut self) {
+        self.events.clear();
+        drop(self.world.aboard.room.take_cues());
+        if let Some(residents) = self.world.residents.as_mut() {
+            drop(residents.aboard.room.take_cues());
+        }
+        drop(crate::sprays::take(self));
     }
 
     /// Queue an order for the next step.

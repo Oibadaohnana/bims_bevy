@@ -677,10 +677,13 @@ pub enum StartError {
 
 /// One star system, the ship in it, and the clock they both run on.
 ///
-/// Not `Clone` and not `PartialEq`: the room aboard is neither, and a
-/// world is compared by its [`World::checksum`] — which is the comparison
-/// two machines will make, and the one a test should make too.
-#[derive(Debug)]
+/// Not `PartialEq`: the room aboard is not, and a world is compared by
+/// its [`World::checksum`] — which is the comparison two machines will
+/// make, and the one a test should make too. `Clone` for a guest's
+/// rollback (task 156): it keeps the host's world beside the one it
+/// shows and copies the one over the other when they part. A copy is a
+/// few milliseconds — the rooms' sight is most of it.
+#[derive(Debug, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct World {
     pub clock_minutes: f64,
@@ -4735,6 +4738,21 @@ impl World {
     pub fn request_speed(&mut self, slot: u32, speed: Speed) {
         if let Some(request) = self.speed_requests.get_mut(slot as usize) {
             *request = speed;
+        }
+    }
+
+    /// This world takes the place of `shown`, the one drawn until now — a
+    /// guest's rollback (task 156, `crates/app/src/rollback.rs`): the
+    /// rooms' pictures carry on from what the host was handed of
+    /// `shown`'s (`bims::game::Game::adopt_picture`), the residents' only
+    /// while both are at the same station. Picture only: nothing a step
+    /// reads, nothing hashed.
+    pub fn adopt_picture(&mut self, shown: &mut World) {
+        self.aboard.room.adopt_picture(&mut shown.aboard.room);
+        if let (Some(mine), Some(was)) = (self.residents.as_mut(), shown.residents.as_mut())
+            && mine.station == was.station
+        {
+            mine.aboard.room.adopt_picture(&mut was.aboard.room);
         }
     }
 

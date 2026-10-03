@@ -2056,6 +2056,7 @@ impl Plate {
 /// The fight, as the room keeps it: the enemies the world named, the bolts
 /// flying, and the hits that landed since the world last asked.
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Clone)]
 pub struct Combat {
     /// Where the enemies stand and what they carry, index for index with
     /// whoever the world says they are; `None` for one that is down.

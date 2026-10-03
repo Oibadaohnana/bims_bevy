@@ -67,6 +67,10 @@
 //! the relay sends is held a random nought to that many milliseconds, none
 //! overtaking what came before it, the way TCP over a bad link delivers —
 //! for looking at the guest's playout buffer (task 148, [`net_jitter`]).
+//! `BIMS_ROLLBACK=0` has a guest wait for the host's word on its own
+//! orders rather than play them at once and roll back (task 156,
+//! [`rollback_on`]); `scratchpad/duo_rollback.sh` walks a guest about
+//! over a slow line with it on or off.
 
 use bevy::diagnostic::{DiagnosticsStore, FrameCount, FrameTimeDiagnosticsPlugin};
 use bevy::input::ButtonState;
@@ -531,6 +535,13 @@ pub fn auto() -> Option<Auto> {
 /// a host or in a game of one.
 pub fn desync_at() -> Option<u64> {
     std::env::var("BIMS_DESYNC_AT").ok()?.parse().ok()
+}
+
+/// `BIMS_ROLLBACK=0`: a guest waits for the host's word on its own
+/// orders, as before task 156, rather than playing them at once and
+/// rolling back (`crate::rollback`). On by default; for comparing the two.
+pub fn rollback_on() -> bool {
+    std::env::var("BIMS_ROLLBACK").map_or(true, |v| v != "0")
 }
 
 /// `BIMS_NET_JITTER=<ms>`: how long at most the socket's thread holds

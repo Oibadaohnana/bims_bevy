@@ -262,6 +262,7 @@ impl Kind {
 /// A chain put down part-way through, and everything needed to pick it up:
 /// which step it had reached and how far into it, and what it was holding.
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Clone)]
 pub struct Saved {
     /// Which Bim this chain belongs to. A chain is never handed over — it
     /// goes back on the queue of the Bim that put it down.
@@ -622,6 +623,7 @@ fn progress_of(kind: Kind, step: Step, elapsed: f32, rest_minutes: f32) -> f32 {
 }
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Clone)]
 pub struct Task {
     /// Which Bim is doing this.
     who: usize,

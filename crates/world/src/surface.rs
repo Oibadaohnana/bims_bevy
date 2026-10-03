@@ -372,7 +372,7 @@ pub fn gate_for_wave(gates: &[Gate], wave: u32) -> Option<Gate> {
 
 /// One landable body's settlement, as rolled: its seed, its side and its
 /// shelf, and its station once it has been built.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Surface {
     pub body: u32,

@@ -226,6 +226,22 @@ pub struct Spray {
 }
 
 impl Spray {
+    /// Whether two sprays are the same thing thrown: everything but the
+    /// seed, which numbers sprays in the order a room made them and so
+    /// differs between two copies of one room (task 156's rollback).
+    pub fn same(&self, other: &Spray) -> bool {
+        let colour = |c: Color| (c.r, c.g, c.b, c.a);
+        self.kind == other.kind
+            && self.at == other.at
+            && self.to == other.to
+            && self.reach == other.reach
+            && self.life == other.life
+            && colour(self.colour) == colour(other.colour)
+            && self.count == other.count
+            && self.spread == other.spread
+            && self.dot == other.dot
+    }
+
     /// A spray of `kind` at `at`, thrown towards `to`: the rest left at
     /// plain values for the builder methods below.
     pub fn new(kind: SprayKind, at: Vec2, to: Vec2) -> Spray {
@@ -440,7 +456,7 @@ struct Burst {
 }
 
 /// The passing lights of one room. See the module note.
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct Fx {
     /// Whether a host is ageing them: nothing is recorded until one does.
     on: bool,
@@ -546,6 +562,13 @@ impl Fx {
     /// GPU: taken, so each is drawn from once.
     pub fn take_sprays(&mut self) -> Vec<Spray> {
         std::mem::take(&mut self.sprays)
+    }
+
+    /// The sprays waiting to be taken, to be read without taking them or
+    /// sifted in place: a guest's rollback hears a step played again only
+    /// where it differs from the first time (task 156).
+    pub fn waiting_sprays(&mut self) -> &mut Vec<Spray> {
+        &mut self.sprays
     }
 
     /// A grenade burst at `at`, `radius` round (feature 75's flash is the

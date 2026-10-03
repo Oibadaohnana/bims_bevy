@@ -34,6 +34,7 @@ pub const OUTSIDE_RADIUS: i32 = 100;
 pub const OUTSIDE_RECENTRE: f32 = 25.0;
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Clone)]
 pub struct Nav {
     cols: usize,
     rows: usize,
@@ -556,6 +557,7 @@ impl Nav {
 /// Every grid a body may be walking on: the deck's, the outside's, and a
 /// window of the plain for a body out on one.
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Clone)]
 pub struct Maps {
     deck: Nav,
     /// The outside of the hull, while there is an outside to walk: built

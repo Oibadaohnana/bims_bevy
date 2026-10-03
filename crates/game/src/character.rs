@@ -984,6 +984,7 @@ const PRESS_PERIOD: f32 = 0.55;
 const BREATH_PERIOD: f32 = 5.4;
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Clone)]
 pub struct Character {
     pub pos: Vec2,
     /// Which of the crew this is to look at. Read by `draw` and nothing else.

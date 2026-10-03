@@ -111,6 +111,13 @@ desktop):
   (`crates/app/src/playout.rs`, task 148; the keys file's
   `network-buffer`, 0 off); `BIMS_NET_JITTER=<ms>` shakes a guest's line
   and `scratchpad/duo_jitter.sh` (`BUFFER=0` for off) compares the two.
+  In a mission a guest runs **ahead** of the host instead (task 156,
+  `crates/app/src/rollback.rs`): its own orders played at once and
+  stamped with their step, the host applying each at that step, the
+  host's timeline kept beside the world shown and copied over it when
+  another player's order parts them. What ends a run is read off the
+  host's timeline. `BIMS_ROLLBACK=0` is the old way;
+  `scratchpad/duo_rollback.sh` (`ROLLBACK=0`) walks a guest about.
 
 ## Verifying a change
 

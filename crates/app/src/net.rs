@@ -17,6 +17,13 @@
 //! (`screens/builder.rs`, `screens/designer.rs`) were built for before
 //! there was a wire.
 //!
+//! In a mission a guest keeps that copy of the host's world *beside* the
+//! one it shows, which runs ahead on the guest's own orders, played the
+//! moment they are given and asked with the step they were played at —
+//! the host applying each at that step — and is copied afresh from the
+//! host's whenever the two part (task 156, `crate::rollback`). The host's
+//! copy is still the one stepped and checked exactly as above.
+//!
 //! The *protocol* between the players is [`Packet`], carried as opaque
 //! bytes in the relay's `Relay`/`Relayed`. The order of packets on one
 //! connection is the order they were sent in, which is what makes the
@@ -77,6 +84,7 @@ use wire::{ClientCtl, Closed, PeerId, PeerInfo, Refusal, ServerCtl, To, decode, 
 use bims::character::{Hair, Look, Shade, Tint};
 use world::Class;
 
+use crate::rollback::{Asked, Stamp};
 use crate::screens::builder::Settings;
 use crate::screens::designer::Message;
 
@@ -551,14 +559,23 @@ pub enum Packet {
     /// pointer, and nothing the world hears of.
     Ping(Spot),
     /// A guest asking the host to apply an edit or an order, stamped with
-    /// the design hash it was made against.
-    Ask { at: u64, message: Message },
+    /// the design hash it was made against — and, an order the guest's
+    /// own world has played already (task 156, `crate::rollback`), with
+    /// the step it played it at, for the host to apply it at that step.
+    Ask {
+        at: u64,
+        message: Message,
+        stamp: Option<Stamp>,
+    },
     /// The host applied this, from that slot: every guest applies it too,
-    /// in this order. The host's own go out this way as well.
+    /// in this order. The host's own go out this way as well. A stamped
+    /// ask's number and how early it came are said with it, for the
+    /// guest that asked to know its guess from another's order.
     Applied {
         from: u32,
         at: u64,
         message: Message,
+        asked: Option<Asked>,
     },
     /// The host refused the asker's message: an `EditError` code.
     Refused { why: u32 },
@@ -586,6 +603,12 @@ pub struct Wire {
 }
 
 impl Wire {
+    /// A wire into a channel, for a test to read what was posted.
+    #[cfg(test)]
+    pub fn for_test(tx: Sender<ClientCtl>, host: bool) -> Wire {
+        Wire { tx, host }
+    }
+
     pub fn send(&self, to: To, packet: &Packet) {
         if let Ok(payload) = encode(packet) {
             let _ = self.tx.send(ClientCtl::Relay { to, payload });
@@ -1282,6 +1305,7 @@ mod tests {
                 slot,
                 players: 2,
                 wire: Some(Wire { tx, host }),
+                ledger: None,
             },
             rx,
             refused: Vec::new(),
@@ -1310,11 +1334,13 @@ mod tests {
                 let from_slot = ends.iter().position(|e| e.peer == from).unwrap() as u32;
                 let end = ends.iter_mut().find(|e| e.peer == to).unwrap();
                 match packet {
-                    Packet::Ask { at, message } => {
+                    Packet::Ask { at, message, .. } => {
                         end.net
-                            .asked(&mut end.session, from_slot, at, message, from);
+                            .asked(&mut end.session, from_slot, at, message, from, None);
                     }
-                    Packet::Applied { from, at, message } => {
+                    Packet::Applied {
+                        from, at, message, ..
+                    } => {
                         end.net.applied(&mut end.session, from, at, message);
                     }
                     Packet::Refused { why } => end.refused.push(why),
