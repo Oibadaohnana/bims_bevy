@@ -516,6 +516,48 @@ fn a_trader_in_one_system_in_ten_and_the_chart_marks_them() {
     }
 }
 
+/// **A trader every five hops** (`data::TRADER_EVERY_HOPS`): from every
+/// star of the galaxy — a trader's own included — another star's trader is
+/// at most five lanes away, over every galaxy type and a few seeds, and
+/// the made-up ones are the same for the same seed.
+#[test]
+fn from_every_star_another_trader_is_at_most_five_hops_away() {
+    use worldgen::GalaxyType;
+    let reach = crate::data::TRADER_EVERY_HOPS;
+    for (n, &kind) in GalaxyType::ALL.iter().enumerate() {
+        for m in 0..2u64 {
+            let seed = crate::data::DEFAULT_SEED
+                .wrapping_add((n as u64 * 2 + m).wrapping_mul(0x9e37_79b9));
+            let galaxy = worldgen::Galaxy::new(seed, kind);
+            let (star, station) = crate::spawn(&galaxy).expect("a dock");
+            let world =
+                World::start(flyer(2), RICH, 1, seed, kind, star, station).expect("a world");
+            let traders = world.trader_stars(&galaxy);
+            for from in 0..galaxy.stars.len() as u32 {
+                let hops = galaxy.hops_from(from);
+                let nearest = traders
+                    .iter()
+                    .filter(|&&t| t != from)
+                    .map(|&t| hops[t as usize])
+                    .min()
+                    .unwrap_or(u16::MAX);
+                assert!(
+                    nearest <= reach,
+                    "{kind:?} seed {seed}: star {from}'s nearest other trader is {nearest} hops off"
+                );
+            }
+            let again =
+                World::start(flyer(2), RICH, 1, seed, kind, star, station).expect("a world");
+            assert_eq!(again.trader_stars(&galaxy), traders);
+            println!(
+                "{kind:?} seed {seed}: {} traders of {} stars",
+                traders.len(),
+                galaxy.stars.len()
+            );
+        }
+    }
+}
+
 // --- every site one kind (task 111) ----------------------------------------
 
 /// **Every site is exactly one of attack, defence and trader** (task

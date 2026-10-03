@@ -13,7 +13,9 @@
 //! a trader or not — one in ten ([`rolled`], [`data::TRADER_SYSTEM_CHANCE`]
 //! in a hundred off the galaxy's seed), or one of the [`near_sites`] the
 //! start makes up so there are at least [`data::TRADER_NEAR_SITES`] within
-//! [`data::TRADER_NEAR_HOPS`] lanes of home — and where it has one, its
+//! [`data::TRADER_NEAR_HOPS`] lanes of home and, from every system,
+//! another system's trader within [`data::TRADER_EVERY_HOPS`] ([`cover`],
+//! October 2026) — and where it has one, its
 //! trader is the lowest-numbered station that is [`eligible`] ([`pick`]):
 //! a desk to trade across (never a derelict), not the crew's home, not the
 //! Manufacturers', not one of the machines' derived stations, never a
@@ -106,18 +108,26 @@ pub fn pick(
     stations.iter().filter(|s| eligible(s)).map(|s| s.id).min()
 }
 
-/// The traders made up on top of the roll, so a run has somewhere to buy
-/// near home: where fewer than [`data::TRADER_NEAR_SITES`] systems within
-/// [`data::TRADER_NEAR_HOPS`] lanes of the crew's own star — its own system
-/// counted — were rolled one, that many more of the others there, picked in
-/// an order off the galaxy's seed, each at its system's [`pick`].
-/// `eligible` answers for a station of a star. `(star, station)` pairs,
-/// sorted.
+/// The traders made up on top of the roll: so a run has somewhere to buy
+/// near home — where fewer than [`data::TRADER_NEAR_SITES`] systems within
+/// [`data::TRADER_NEAR_HOPS`] lanes of the crew's own star, its own system
+/// counted, were rolled one, that many more of the others there, picked in
+/// an order off the galaxy's seed — and so there is **a trader every
+/// [`data::TRADER_EVERY_HOPS`] hops** ([`cover`]). Each at its system's
+/// [`pick`]; `eligible` answers for a station of a star. `(star, station)`
+/// pairs, sorted.
 pub fn near_sites(
     galaxy: &Galaxy,
     home: u32,
     eligible: impl Fn(u32, &worldgen::StarSystem, &StationBlueprint) -> bool,
 ) -> Vec<(u32, u32)> {
+    // Every system's would-be trader, generated once.
+    let picks: Vec<Option<u32>> = (0..galaxy.stars.len() as u32)
+        .map(|star| {
+            let system = galaxy.system(star)?;
+            pick(&system.stations, |s| eligible(star, &system, s))
+        })
+        .collect();
     let hops = galaxy.hops_from(home);
     let mut rolled_near = 0usize;
     let mut rest: Vec<(u64, u32, u32)> = Vec::new();
@@ -125,13 +135,10 @@ pub fn near_sites(
         if h > data::TRADER_NEAR_HOPS {
             continue;
         }
+        let Some(station) = picks[star] else {
+            continue;
+        };
         let star = star as u32;
-        let Some(system) = galaxy.system(star) else {
-            continue;
-        };
-        let Some(station) = pick(&system.stations, |s| eligible(star, &system, s)) else {
-            continue;
-        };
         if rolled(galaxy.seed, star) {
             rolled_near += 1;
         } else {
@@ -150,8 +157,102 @@ pub fn near_sites(
         .take(wanted)
         .map(|(_, star, station)| (star, station))
         .collect();
+    let mut traders: Vec<bool> = (0..picks.len())
+        .map(|star| picks[star].is_some() && rolled(galaxy.seed, star as u32))
+        .collect();
+    for &(star, _) in &picked {
+        traders[star as usize] = true;
+    }
+    for star in cover(galaxy, &picks, &mut traders, data::TRADER_EVERY_HOPS) {
+        if let Some(station) = picks[star as usize] {
+            picked.push((star, station));
+        }
+    }
     picked.sort_unstable();
     picked
+}
+
+/// The stars made traders so that from every star — a trader's own
+/// included — **another** star's trader is at most `reach` lanes away:
+/// leaving a trader, the next is always within `reach`. `picks` is each
+/// star's would-be trader (`None` where it can have none), `traders` which
+/// stars have one already, and is marked as the made-up ones are added.
+///
+/// Greedy and deterministic: while some star is short of one, the star
+/// that can take a trader and would serve the most stars short of one is
+/// made one — a tie to the earlier in an order off the galaxy's seed, so
+/// they do not bunch at the low ids — until every star is served, or none
+/// that could take one would serve anybody more (a star hemmed in by
+/// systems that can have none, which is left without). The stars added,
+/// in the order they were.
+pub fn cover(galaxy: &Galaxy, picks: &[Option<u32>], traders: &mut [bool], reach: u16) -> Vec<u32> {
+    // Each star's ball of `reach`, itself included; a ball is symmetric,
+    // so a star's ball is also every star it would serve.
+    let balls: Vec<Vec<u32>> = (0..picks.len() as u32)
+        .map(|star| within(galaxy, star, reach))
+        .collect();
+    let order = |star: u32| {
+        worldgen::rng::mix(galaxy.seed ^ 0x_5452_4556_4552 ^ worldgen::rng::mix(u64::from(star)))
+    };
+    let mut added = Vec::new();
+    loop {
+        let short: Vec<bool> = balls
+            .iter()
+            .enumerate()
+            .map(|(star, ball)| {
+                !ball
+                    .iter()
+                    .any(|&t| t as usize != star && traders[t as usize])
+            })
+            .collect();
+        if !short.contains(&true) {
+            break;
+        }
+        let best = (0..picks.len())
+            .filter(|&star| picks[star].is_some() && !traders[star])
+            .map(|star| {
+                let serves = balls[star]
+                    .iter()
+                    .filter(|&&s| s as usize != star && short[s as usize])
+                    .count();
+                (serves, std::cmp::Reverse(order(star as u32)), star)
+            })
+            .max();
+        match best {
+            Some((serves, _, star)) if serves > 0 => {
+                traders[star] = true;
+                added.push(star as u32);
+            }
+            _ => break,
+        }
+    }
+    added
+}
+
+/// Every star within `reach` lanes of `from`, itself included, in the
+/// order a breadth-first walk meets them.
+fn within(galaxy: &Galaxy, from: u32, reach: u16) -> Vec<u32> {
+    let mut hops = vec![u16::MAX; galaxy.stars.len()];
+    let Some(start) = hops.get_mut(from as usize) else {
+        return Vec::new();
+    };
+    *start = 0;
+    let mut seen = vec![from];
+    let mut at = 0;
+    while let Some(&star) = seen.get(at) {
+        at += 1;
+        let next_hops = hops[star as usize] + 1;
+        if next_hops > reach {
+            continue;
+        }
+        for &next in galaxy.lanes(star) {
+            if hops[next as usize] == u16::MAX {
+                hops[next as usize] = next_hops;
+                seen.push(next);
+            }
+        }
+    }
+    seen
 }
 
 /// Whether a system's [`pick`] is a trader: its star [`rolled`], or it is
@@ -336,11 +437,9 @@ mod tests {
         assert_eq!(a.len(), data::TRADER_WEAPONS + data::TRADER_ARMOUR);
         assert_eq!((data::TRADER_WEAPONS, data::TRADER_ARMOUR), (1, 1));
         assert!(a[..data::TRADER_WEAPONS].iter().all(|i| i.is_weapon()));
-        assert!(
-            a[data::TRADER_WEAPONS..]
-                .iter()
-                .all(|i| i.armour().is_some())
-        );
+        assert!(a[data::TRADER_WEAPONS..]
+            .iter()
+            .all(|i| i.armour().is_some()));
         // Over many shelves every kind turns up, and only at the tier.
         for tier in Tier::ALL {
             let mut kinds = std::collections::BTreeSet::new();

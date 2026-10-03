@@ -476,8 +476,10 @@ a mission, another player's Bim, a thing that is not there any more.
 Gear is bought at a **trader** and nowhere else — no station keeps a desk
 for it any more. A trader is a station like any other on the map, marked
 *trader* in the list, and on the galaxy chart with a green square round
-its star; about one system in ten has one — never two — and there is
-always one within a lane of home. A visit happens **entirely
+its star; about one system in ten has one — never two — there is
+always one within a lane of home, and **a trader every five hops**: from
+any system, a trader's own too, another trader is at most five lanes
+away (more are put where the galaxy's roll left a gap). A visit happens **entirely
 on the world map**: choose it the way you choose any destination —
 everybody accepts — and the trip moves the world clock by its length. On
 arrival there is no mission and no room: nothing moves and neither clock

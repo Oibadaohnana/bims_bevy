@@ -482,6 +482,14 @@ pub const ELITE_GUARDIANS: [u32; 3] = [1, 2, 3];
 /// there where the roll gave fewer.
 pub const TRADER_NEAR_SITES: usize = 1;
 pub const TRADER_NEAR_HOPS: u16 = 1;
+/// **A trader every this many hops** (October 2026): from every system of
+/// the galaxy — a trader's own included — some *other* system's trader is
+/// at most this many lanes away, so a crew leaving a trader always has the
+/// next within it. Made up on top of the roll and the near ones where the
+/// galaxy left a gap (`crate::trader::near_sites`); a system with nothing
+/// eligible within reach (the edge of a galaxy hemmed in by elites and the
+/// Manufacturers) is the only one left without.
+pub const TRADER_EVERY_HOPS: u16 = 5;
 /// How many weapons a trader's shelf holds: one (October 2026; it was
 /// four), any kind made at the day's tier, rolled again every visit.
 pub const TRADER_WEAPONS: usize = 1;

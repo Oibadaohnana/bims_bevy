@@ -5117,6 +5117,17 @@ world's side, a child of `world` like `mission.rs`.
   `GENERATOR_VERSION` 8 it was twenty in a hundred a *station*, and the
   jammer's station was never eligible; with a single station in two
   systems in five that left a trader in three systems in a hundred.)
+  **A trader every five hops** (October 2026): `near_sites` also makes
+  up `trader::cover`'s — greedily, the star that can take one (its
+  `pick` is `Some`) and would serve the most stars short of one, ties by
+  an order off the seed — until from every star, a trader's own
+  included, **another** star's trader is within `data::TRADER_EVERY_HOPS`
+  (5) lanes; a star hemmed in by systems that can have none is the only
+  one left without. 4 to 11 are added a galaxy (18–28 traders of 240
+  over the four galaxy types, two seeds each);
+  `from_every_star_another_trader_is_at_most_five_hops_away` is the rule.
+  Every system is generated for it at the start and every load (about
+  1 ms). `wire::PROTOCOL` 124.
   `World::trader_stars(galaxy)` is every star with one, for the chart.
   `World::trader_near` is derived at the start and in `settle_crisis`,
   behind `manufacturer_near` which it reads, and never saved.
