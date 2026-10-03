@@ -418,7 +418,7 @@ fn a_sweep_stops_at_a_wall_and_at_a_shut_door() {
 }
 
 #[test]
-fn a_sweep_goes_over_bags_a_peek_dodges_it_and_a_bulwark_turns_it() {
+fn a_sweep_goes_over_bags_a_peek_dodges_it_and_a_reflect_barrier_sends_it_back() {
     let body = tile(13.0, 15.0);
     let bags = Rect::from_min_size(vec2(12.0 * TILE, 15.0 * TILE), vec2(TILE, TILE));
     let mut sight = open_sight();
@@ -441,40 +441,27 @@ fn a_sweep_goes_over_bags_a_peek_dodges_it_and_a_bulwark_turns_it() {
     let peeked = over(true);
     assert!((8..=32).contains(&peeked), "peeking, hit {peeked} of 40");
 
-    // A tank's Bulwark between the lens and the body, a tile in front
-    // of it: the body dodges as in cover; with *interpose* the tank
-    // takes what the wall does not turn aside, and the body nothing.
-    let open = open_sight();
-    let tank = tile(12.0, 15.0) + vec2(0.0, 0.3 * TILE);
-    let bodies = [standing(body), standing(tank)];
-    for interpose in [false, true] {
-        let mut on_body = 0;
-        let mut on_tank = 0;
-        for seed in 0..40u64 {
-            let mut combat = Combat::new(seed);
-            combat.set_bulwarks(vec![crate::combat::Bulwark {
-                who: 1,
-                reach: 2.0,
-                interpose,
-            }]);
-            for hit in swept(&mut combat, &open, &bodies) {
-                if hit.who == 0 {
-                    on_body += 1;
-                } else {
-                    on_tank += 1;
-                }
-            }
-        }
-        if interpose {
-            assert!(on_body < 30, "interposed, the body took {on_body} of 40");
-            assert!(on_tank >= 40, "and the tank took its own and the body's");
-        } else {
-            assert!(
-                (8..=32).contains(&on_body),
-                "the wall turned {on_body} of 40"
-            );
-        }
+    // A tank's Reflect Barrier (task 155): the beam lands on him whole,
+    // and as much again goes back onto the Guardian that swept it.
+    use crate::combat::{SWEEP_HALF_COS, SWEEP_HALF_SIN};
+    let weapon = WeaponKind::Sweeper.basic();
+    let reach = weapon.stats().reach();
+    let from = lens();
+    let start = from + vec2(1.0, 0.0).rotate_by(SWEEP_HALF_COS, -SWEEP_HALF_SIN) * reach;
+    let end = from + vec2(1.0, 0.0).rotate_by(SWEEP_HALF_COS, SWEEP_HALF_SIN) * reach;
+    let mut combat = Combat::new(1);
+    combat.set_reflects(vec![1.0]);
+    combat.sweep(from, start, end, weapon, 30.0, true, 1.0);
+    combat.sign_last_sweep(Some(3));
+    for _ in 0..60 {
+        combat.step(DT, &open_sight(), &[standing(body)]);
     }
+    let taken = std::mem::take(&mut combat.wounds_taken);
+    assert_eq!(taken.len(), 1, "the tank takes the beam");
+    let back = combat.take_hits();
+    assert_eq!(back.len(), 1, "and sends it back");
+    assert_eq!((back[0].who, back[0].by), (3, Some(0)));
+    assert!((back[0].damage - 30.0).abs() < 1e-4);
 }
 
 #[test]

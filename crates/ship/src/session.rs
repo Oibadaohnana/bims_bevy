@@ -1715,6 +1715,35 @@ impl Session {
         Some(world_paint::crew_on_screen(game, who))
     }
 
+    /// Every medic's Heal Drone in the air (task 153), in the camera's
+    /// units: where it is, where the Bim it is over stands while it is
+    /// within reach of it, and the share of its time it has left. Empty
+    /// before there is a world.
+    pub fn drones_on_screen(&self) -> Vec<((f32, f32), Option<(f32, f32)>, f32)> {
+        let Some(game) = self.game.as_ref() else {
+            return Vec::new();
+        };
+        let world = &game.world;
+        let reach = world::class::HEAL_DRONE_REACH * shipdesign::TILE as f32;
+        (0..world.aboard.crew_count())
+            .filter_map(|medic| {
+                let drone = world.drone_of(medic)?;
+                let at = bims::math::vec2(drone.x, drone.y);
+                let patient = drone
+                    .patient
+                    .filter(|&p| (world.aboard.room.bim_pos(p as usize) - at).len() <= reach)
+                    .map(|p| world_paint::crew_on_screen(game, p));
+                let whole = world.heal_drone_seconds(medic);
+                let share = if whole > 0.0 {
+                    (world.drone_left(medic) / whole) as f32
+                } else {
+                    0.0
+                };
+                Some((world_paint::room_point_on_screen(game, at), patient, share))
+            })
+            .collect()
+    }
+
     /// Every Healing Sentry's line to a crew member it heals this step
     /// (task 127, `World::healing_links`): the sentry and the body, in the
     /// camera's units. Empty before there is a world.

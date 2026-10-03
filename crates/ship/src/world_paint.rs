@@ -490,15 +490,17 @@ fn paint_ship(game: &Game, list: &mut DrawList, prebuilt: &[KeptStation]) {
     list.append(visitors_over.shapes());
 }
 
-/// Every deployable in the crew's room, as a part stood on its tile:
-/// laid sandbags as the part's own picture, the engineer's ultimate as
+/// Every deployable in the crew's room, as a part stood on its tile: a
+/// mine low on the deck, the satchels on a tile as one stack of them
+/// (task 154), the engineer's ultimate as
 /// the gun turret — drawn larger, its head turned the way the room last
 /// swung it and its health a ring of lit segments — and a Healing Sentry
 /// with no barrel, its health a dark ring closing on it (task 127).
 /// In the room's units, which the caller turns with the room.
 fn deployables(game: &Game, list: &mut DrawList) {
     let t = TILE as f32;
-    for (d, at) in game.world.deployables_in_room() {
+    let laid = game.world.deployables_in_room();
+    for (i, (d, at)) in laid.iter().copied().enumerate() {
         let origin = (
             (at.x / t).floor().max(0.0) as u32,
             (at.y / t).floor().max(0.0) as u32,
@@ -511,7 +513,19 @@ fn deployables(game: &Game, list: &mut DrawList) {
         };
         let health = d.health / game.world.laid_health(d.kind, d.owner_slot).max(1.0);
         match d.kind {
-            world::DeployKind::Sandbags => crate::fittings::sandbags(list, &part),
+            world::DeployKind::Mine => crate::fittings::mine(list, &part),
+            // Satchels stack (task 154): the first on a tile draws the
+            // lot, the rest of them nothing.
+            world::DeployKind::Satchel => {
+                let here = |e: &world::Deployable| {
+                    e.kind == world::DeployKind::Satchel && e.deck == d.deck && e.tile == d.tile
+                };
+                if laid[..i].iter().any(|(e, _)| here(e)) {
+                    continue;
+                }
+                let count = laid.iter().filter(|(e, _)| here(e)).count() as u32;
+                crate::fittings::satchels(list, &part, count);
+            }
             world::DeployKind::HealingSentry => {
                 crate::fittings::healing_sentry(list, &part, health)
             }

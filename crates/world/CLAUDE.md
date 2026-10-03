@@ -4436,7 +4436,9 @@ ship `Holding` at the site's place, `undocked_once`, and `Phase::Map`.
 in death order, a bot `BotLost` and — since the bot-deaths task, which
 deleted `BOT_DEATH_PENALTY` and `BotLost::paid` — nothing off the pool:
 only a player's Bim costs money (its buyback). `check_run_lost`: every player slot's Bim dead — out cold is alive,
-and the bots do not count.
+and the bots do not count — or nobody of the whole crew standing
+(every player and bot down or dead: nobody left to revive, so the
+countdowns are not waited out; `the_run_is_lost_at_once_when_every_player_and_bot_is_down`).
 
 **What moved.** `Refusal` 83–91, `WorldEvent` 93–106, `data::BUYBACK_COST`,
 `BOT_DEATH_PENALTY`, `DROID_REINFORCE_STEPS`, `DEFENSE_DELAY_STEPS` (the two
@@ -5753,6 +5755,10 @@ hashes did not move: the cargo is still twenty-two slots.
 
 ## The medic's ranked kit (task 130)
 
+> **Reworked by task 153** ("The medic reworked" at the end of this
+> file): the Nanite Burst, the Healing Aura and the Cloak are gone, and the
+> beam fires at full rate. What follows is the history.
+
 > "The medic: the heal beam and the surge (feature 76)" above describes
 > the ten levels of talents and the surge **task 130 replaced**. Kept as
 > history; this is what is there now.
@@ -7063,3 +7069,187 @@ The room's rule is `crates/game/CLAUDE.md` ("The dark"); the world's part:
 - Hashed: the room's plant as the brace was, and `charging`/`last_shot`
   only where any is set. **`SAVE_VERSION` 92, `wire::PROTOCOL` 98.**
   `tests_soldier.rs`' section B is the rule.
+
+## The medic reworked (task 153)
+
+> "The medic's ranked kit (task 130)" above describes the Nanite Burst,
+> the Healing Aura and the Cloak **task 153 replaced**, and a beam that
+> holds the medic's fire. Kept as history; this is the medic now.
+
+The class's tables are `class.rs`'s (`HEAL_DRONE_*`, `TRIAGE`,
+`OVERRIDE_HEAL`, `HEALING_CIRCLE_*`); `crate::medic::Medic` keeps
+`patients`, `last_drone`, `drone: Option<Drone { x, y, patient, until }>`,
+`circle` and `last_burn`. `class::Ability::{NaniteBurst, Cloak}` are
+`{HealDrone, HealingCircle}`.
+
+- **Every heal of a medic's goes through `World::medic_heal`**: times
+  `medic_heal_factor(medic, who)` — his **Triage**, `1 + TRIAGE[C rank]
+  × the share of its bar `who` is missing`, times `override_heal`
+  (`OVERRIDE_HEAL`, 1.5, while he carries an *Override Core* — its gift
+  to a medic, the circle's fifth rank being the fourth's). Everything
+  else heals through `heal_crew`, plain now (no aura): a Healing Sentry,
+  an item, a relic. A revive is no heal.
+- **E, the link**: `medic_skill` holds nothing (full fire at every rank);
+  `hand_the_room_the_medics` heals each patient **and the medic himself**
+  at `beam_rate` — the strongest heal reaching a body, once, so two
+  patients or himself as patient is one heal on him.
+- **Q, Heal Drone**: `Command::HealDrone { slot }` → `WorldEvent::
+  DroneLaunched` (152); `can_heal_drone`: `NotAMedic`, `OutOfReach`,
+  `NotLearnt`, `CoolingDown` (`heal_drone_cooldown`, the relics' cut,
+  *Kill Relay* moving `last_drone`). `fly_the_drones`, before the rooms
+  step: each drone moves `HEAL_DRONE_SPEED` tiles a second straight at its
+  patient (over walls), `drone_patient` keeping one still on its feet, on
+  the deck and short of its bar, else the lowest by share — the medic
+  included, the lower index on a tie — or keeping by its medic with
+  nobody hurt; within `HEAL_DRONE_REACH` it heals `HEAL_DRONE_HEAL` a
+  second through `medic_heal`. Gone at `until` or with its medic dead.
+- **R, Healing Circle**: `Command::HealingCircle { slot, on }` →
+  `WorldEvent::Circled { who, on }` (153); `can_healing_circle`: on wants
+  `NotAMedic`, `OutOfReach`, `NotLearnt`; off is never refused a medic.
+  `hand_the_room_the_circles`, after the beams: a circle whose medic is
+  unfit or off the deck goes off (`Circled { on: false }` said); else every
+  crew member on its feet within `HEALING_CIRCLE_RADIUS` with a clear line
+  (`healing_circle_reaching`, himself left out) is healed `beam_rate`
+  through `medic_heal`, the medic is drained `healing_circle_rate`
+  (the beam's rate times the core's) through `Game::drain` — **which can
+  down him** — and every `HEALING_CIRCLE_PULSE` seconds `Game::scorch`
+  burns every target in it for `HEALING_CIRCLE_BURN` of the rate.
+- **Timers**: `make_whole` clears the drone, its cooldown and the
+  circle; `casualties` the dead medic's whole state; `clear_beams`
+  forgets a drone's patient with the beams (crew indices moved).
+- **Gone**: `World::cloaks`, `hand_the_room_the_cloaks`, `lift_by_cloak`,
+  `hidden_from_enemies`, the cloaked-ability gate, `heal_factor`,
+  `healing_aura_*`, `nanite_burst_*`, `cloak_*`; `Refusal::{OutOfCloakRange,
+  NoSightOfTarget, Cloaked}` (116–118) and `WorldEvent::{NaniteBurst,
+  Cloaked}` (136, 137), codes left free. The room's cloak picture
+  (`Game::set_cloaked`, `set_targets_withheld`) stays, set by nothing.
+- **Checksum**: per medic, only where any is set, `last_drone`, the drone
+  (where on the fine grid, its patient, `until`) and the circle with its
+  last burn. **`SAVE_VERSION` 93, `wire::PROTOCOL` 99.** `tests_medic.rs`
+  is the rule (sections B, C and E new); the app's words are
+  `names::{heal_drone_line, healing_circle_line, heal_drone_refused,
+  healing_circle_refused}`, the pictures `theme::{healing_circle,
+  heal_drone}` and `ship::sprays::circles_and_drones`, and the clips the
+  burst's and the cloak's borrowed (`sound.rs`).
+
+## The engineer reworked: mines and satchel charges (task 154)
+
+> "The engineer's ranked kit, and charges without kits (task 127)" above
+> says Q is an EMP and E sandbags; both went. The room's half is
+> `crates/game/CLAUDE.md` ("The engineer's mines and satchel charges").
+
+- **Q, Mine** (`Charge::Mine`, code 4 — the EMP's; `DeployKind::Mine`,
+  3): laid through `Command::Deploy` like the Healing Sentry, in
+  `class::MINE_MINUTES`; `MINE_STANDING` of one engineer's lie at once
+  and one more takes the oldest up (`DeployableLost`). `settle_mines`,
+  right before the crew's room steps, sets off every mine with a target
+  of the crew's room standing within `MINE_TRIGGER` (one tile,
+  `Game::enemy_near`): off the deck, `Game::detonate` at the owner's
+  `mine_blast` (`MINE_DAMAGE`, `MINE_RADIUS`), `WorldEvent::MineTriggered`
+  (154). It packs up (`DeployKind::packs_up`).
+- **E, Satchel Charge** (`Charge::Satchel`, code 0 — the sandbags';
+  `DeployKind::Satchel`, 4; `class::Ability::Satchel` where
+  `Ability::Emp` was): thrown, never laid — `Command::ThrowAt { satchel:
+  true }` (`PendingThrow::satchel` where `emp` was), `can_throw_satchel`
+  the EMP's refusals, `throw_satchel` spending the charge and the room
+  lobbing it; `WorldEvent::SatchelThrown` (155). `settle_satchels_landed`,
+  after the crew's room steps, lays each that came down on its tile
+  **whatever is there** — satchels stack. `Command::Detonate { slot }`
+  (`can_detonate`: `NotAnEngineer`, `OutOfReach`, `NotLearnt`,
+  `Refusal::NoSatchels` 130) sets off every one of his in the crew's room
+  (`satchels_out`), each its own `Game::detonate` at `satchel_blast`
+  (`SATCHEL_DAMAGE`, `SATCHEL_RADIUS`), `WorldEvent::SatchelsBlown { who,
+  count }` (156). `Command::Deploy` of a satchel is `CantDeployThere`, a
+  pack-up `NoSuchDeployable`. `SATCHEL_CHARGES` is two at every rank.
+- **Gone**: `Command::Emp`, `WorldEvent::EmpThrown` (132, free),
+  `World::{can_throw_emp, throw_emp, emp_radius, emp_stun,
+  sync_deployed_cover, settle_bursts}`, `class::{EMP_*, SANDBAG_*}`,
+  `Charge::{Sandbag, Emp}`, `DeployKind::Sandbags` (0, free), the double
+  bag. Nothing laid is cover; `settle_deployables` drains the room's
+  cover hits and forgets them. A machine is stunned by the Stun Shot
+  alone now, and nothing exposes one (`land_on_machines` adds no
+  `EMP_EXPOSE_PERCENT`).
+- **The sentries' health doubled**: `SENTRY_HEALTH` 400 to 1 000,
+  `HEALING_SENTRY_HEALTH` 120 to 240.
+- **The codes reused** keep `Charge::CODES` at five, so a crew with no
+  charges hashes as it did; `REFERENCE_CHECKSUM` and the survivor pins
+  move only where an engineer's charges or deployables are in a run.
+- **The app**: Q lays a mine at the pointer, E is a quick throw like the
+  soldier's grenade (`screens::game::throw_action`), **Space** is
+  `keys::Action::Detonate` — the pause it was is the Esc sheet's
+  Pause/Resume button (`settings::Allowed::paused`,
+  `save::Request::Pause`). `Glyph::{Mine, Satchel}`, `fittings::{mine,
+  satchels}` (the satchels on a tile drawn as one stack).
+- **`SAVE_VERSION` 94, `wire::PROTOCOL` 100.** `tests_engineer.rs` is
+  the rule.
+
+## The tank reworked (task 155)
+
+> "The tank: the wall, the taunt and the hits (feature 77)" and "The
+> tank's ranked kit, and the talents gone (task 139)" above describe the
+> Taunt, the Bulwark and the Juggernaut **task 155 replaced**. Kept as
+> history; this is the tank now.
+
+The tables are `class.rs`'s (`RIOT_SHIELD_*`, `PLATED_REGEN`,
+`REFLECT_*`, `BASTION_*`); `crate::tank::Tank` keeps `shield_up`,
+`shield_spent` (nought is whole, so a fresh tank's shield is), the last
+hit on it (`shield_struck`), `shield_broken`, `last_reflect` and the
+`reflect` window, `last_bastion`, and `hasted` — the one field anybody's
+entry carries, a tank or not. `class::Ability::{RiotShield, Reflect,
+Bastion}` are where `{Taunt, Bulwark, Juggernaut}` were.
+
+- **Q, Riot Shield**: `Command::RiotShield { slot, on }` →
+  `WorldEvent::ShieldRaised { who, on }` (157), said only when it
+  changed. `can_riot_shield(slot, on)`: down is never refused a tank;
+  up wants `NotATank`, `OutOfReach` (unfit — downed among it),
+  `NotLearnt`, and `Refusal::ShieldRecharging` (131) while broken and
+  short of a quarter (`is_shield_recharging`). `hand_the_room_the_tanks`,
+  before the rooms step, puts down a shield whose tank is unfit or has no
+  rank and hands the rest to the crew's room
+  (`Game::set_riot_shields(&[(who, left, whole)])`), which stops and
+  bounces the bolts (`crates/game/CLAUDE.md`). **`settle_tanks`**, after
+  `casualties`: every `Game::take_plate_blocks` comes off `shield_spent`
+  and notes the minute; at the whole it breaks — down, `shield_broken`,
+  `WorldEvent::ShieldBroken` (158); then every tank's shield restores
+  `RIOT_SHIELD_REGEN` a second, stowed at once, up only
+  `RIOT_SHIELD_REGEN_DELAY` after the last hit, and a broken one is
+  unbroken once a quarter is back.
+- **C, Plated**: the damage taken as before, and `plated_regen` hit
+  points a second through `heal_crew` in `settle_tanks`, for a tank fit
+  to act.
+- **E, Reflect Barrier**: `Command::Reflect { slot }` →
+  `WorldEvent::Reflecting` (159); `can_reflect`: `NotATank`,
+  `OutOfReach`, `NotLearnt`, `AlreadyActive`, `CoolingDown`. While it
+  runs `tank_skill` sets `Skill::reflect` to `REFLECT_SHARE`, and the
+  room sends that share of every enemy hit on him back on the shooter.
+  **The shooter is known across the seam now**: a hostile room signs
+  every recorded `Shot` with its body index (`Combat::sign_last_shot`,
+  Bims first then the machines — the index the crew's room has it at on
+  its targets), and `visit` fires it through `Game::enemy_fire_by`,
+  `enemy_strike_by` and `enemy_sweep_by`; the hit back is an ordinary
+  crew hit by the tank, carried to the machine with the next step's
+  hits.
+- **R, Bastion**: `Command::Bastion { slot }` → `WorldEvent::Bastion
+  { who, reached }` (160); `can_bastion`: `NotATank`, `OutOfReach`,
+  `NotLearnt`, `CoolingDown` (`BASTION_COOLDOWN`, the relics' cut).
+  `bastion_reaching` is `crew_within` his radius (the Override Core's
+  fifth row a tile wider) on their feet; each gets
+  `Game::set_draining_shield(who, BASTION_HP, BASTION_SECONDS,
+  BASTION_DRAIN)` — the relic shield's own slot, so it takes a hit
+  before the armour and is drawn as that bubble. At `OVERRIDE_RANK`
+  each also gets `Tank::hasted` for the seconds, which
+  `lift_by_bastion` (in `skill_of`, after the commanders) reads as
+  `walk × BASTION_HASTE`.
+- **Timers**: `make_whole` resets every `Tank` (the shield whole and
+  down, both cooldowns ready); `cooldowns_less` moves `last_reflect` and
+  `last_bastion`; `casualties` clears a dead tank's.
+- **Gone**: `Command::{Bulwark, Taunt, Juggernaut}`,
+  `WorldEvent::{Bulwarked, Taunted, Juggernaut}` (79, 80, 141, left
+  free), `taunts_for_the_enemy` (the enemy's rooms are handed no taunt —
+  the room keeps the rule, set by nothing), `TAUNT_*`, `BULWARK_*`,
+  `GUARDED_*`, `INTERPOSE_RANK`, `JUGGERNAUT_*`.
+- **Checksum**: per tank `last_reflect` where `last_taunt` was, the
+  rest only where any is set, and every crew member's `shield_up` where
+  the room's bulwark flag was — so a world with no tank hashes what it
+  did. **`SAVE_VERSION` 95, `wire::PROTOCOL` 101.** `tests_tank.rs` is
+  the rule (sections C to G new).

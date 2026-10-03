@@ -149,6 +149,17 @@ pub const DEBRIS_DARK: Color = Color::rgb(0.15, 0.16, 0.18);
 /// [`Fx::age`].
 pub const FIRST_FRAME: f32 = 1.0 / 60.0;
 
+// --- a flickering lamp -------------------------------------------------------
+
+/// A lamp flickering — shot, or failing — spits sparks now and then
+/// ([`Fx::lamp_sparks`]): the odds of a spit per real second while it
+/// flickers, how many sparks one has at most (at least half that), how
+/// far they fly and how long they last.
+pub const LAMP_SPARK_ODDS: f32 = 6.0;
+pub const LAMP_SPARKS: u32 = 7;
+pub const LAMP_SPARK_REACH: f32 = 16.0;
+pub const LAMP_SPARK_LIFE: f32 = 0.4;
+
 // --- the caps ----------------------------------------------------------------
 
 pub const FLARE_CAP: usize = 160;
@@ -443,6 +454,9 @@ pub struct Fx {
     sprays: Vec<Spray>,
     /// Counts every effect spawned, for [`scatter`].
     seq: u32,
+    /// Counts the frames aged, for the dice of what happens on its own
+    /// now and then ([`Fx::lamp_sparks`]).
+    frames: u32,
 }
 
 /// Push onto a capped list, the oldest going first.
@@ -474,6 +488,7 @@ impl Fx {
         if dt <= 0.0 {
             return;
         }
+        self.frames = self.frames.wrapping_add(1);
         let step = |age: &mut f32| *age += if *age == 0.0 { dt.min(FIRST_FRAME) } else { dt };
         for f in &mut self.flares {
             step(&mut f.age);
@@ -672,6 +687,32 @@ impl Fx {
                 .colour(hot(hostile, 1.1 + heat * 0.4))
                 .count(count)
                 .dot(dot * width),
+        );
+    }
+
+    /// Lamp `lamp` at `at` flickering through a frame of `dt` real
+    /// seconds: at [`LAMP_SPARK_ODDS`] a second a spit of sparks flies
+    /// off it every way and falls short. The dice are [`scatter`] of the
+    /// frame and the lamp, never a stream.
+    pub fn lamp_sparks(&mut self, lamp: u32, at: Vec2, dt: f32) {
+        if !self.on || dt <= 0.0 {
+            return;
+        }
+        let frame = self.frames;
+        let roll = |i: u32| scatter(frame, lamp.wrapping_mul(4).wrapping_add(i));
+        if roll(0) >= LAMP_SPARK_ODDS * dt.min(0.1) {
+            return;
+        }
+        let way = roll(1) * TAU;
+        let count = LAMP_SPARKS / 2 + (roll(2) * (LAMP_SPARKS / 2 + 1) as f32) as u32;
+        self.spray(
+            Spray::along(SprayKind::Sparks, at, vec2(way.cos(), way.sin()))
+                .reach(LAMP_SPARK_REACH * (0.7 + 0.6 * roll(3)))
+                .life(LAMP_SPARK_LIFE)
+                .colour(BURST_SPARK.glowing(2.4))
+                .count(count)
+                .spread(TAU)
+                .dot(1.1),
         );
     }
 
@@ -940,6 +981,20 @@ impl Fx {
                 .count(6)
                 .spread(1.0)
                 .dot(1.2),
+        );
+    }
+
+    /// A bolt stopped on a tank's Riot Shield (task 155): the crew's blue
+    /// sparks skating off the plate at `at`, out the way the bolt bounced.
+    pub fn plate(&mut self, at: Vec2, out: Vec2) {
+        self.spray(
+            Spray::along(SprayKind::Sparks, at, out)
+                .reach(22.0)
+                .life(0.3)
+                .colour(hot(false, 2.0))
+                .count(8)
+                .spread(0.7)
+                .dot(1.3),
         );
     }
 
@@ -1465,5 +1520,27 @@ mod tests {
         }
         let mean = sum / 1000.0;
         assert!((0.4..0.6).contains(&mean), "mean {mean}");
+    }
+
+    /// A flickering lamp spits sparks now and then: none with no host
+    /// ageing the room, and over a second of frames a few spits, not one
+    /// a frame — each of a handful of sparks.
+    #[test]
+    fn a_flickering_lamp_spits_sparks_now_and_then() {
+        let mut fx = Fx::default();
+        fx.lamp_sparks(0, Vec2::ZERO, 1.0 / 60.0);
+        assert!(fx.take_sprays().is_empty(), "no host, nothing");
+        let mut spits = 0;
+        for _ in 0..600 {
+            fx.age(1.0 / 60.0);
+            fx.lamp_sparks(3, vec2(40.0, 40.0), 1.0 / 60.0);
+            for spray in fx.take_sprays() {
+                assert_eq!(spray.kind, SprayKind::Sparks);
+                assert!((LAMP_SPARKS / 2..=LAMP_SPARKS).contains(&spray.count));
+                spits += 1;
+            }
+        }
+        // Ten seconds at six a second.
+        assert!((35..=90).contains(&spits), "{spits} spits");
     }
 }

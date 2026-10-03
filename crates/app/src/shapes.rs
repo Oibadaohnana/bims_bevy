@@ -728,16 +728,15 @@ fn overlay(record: &mut Record, s: &[f32; STRIDE], layer: u32, scale: f32) {
         REC_TRI_FILL => REC_RECT_TEXTURED + 2.0,
         _ => return,
     };
-    if s[3].abs().min(s[4].abs()) < TEXTURED_LEAST
-        || s[11] < 0.9
-        || s[8].max(s[9]).max(s[10]) > 1.0
+    if s[3].abs().min(s[4].abs()) < TEXTURED_LEAST || s[11] < 0.9 || s[8].max(s[9]).max(s[10]) > 1.0
     {
         return;
     }
     // Where it is to the tile: steady while a door slides along its
     // track, another place for the next fitting along.
     let cell = ((s[1] / 52.0).floor() as i32, (s[2] / 52.0).floor() as i32);
-    let mut h = (cell.0 as u32).wrapping_mul(0x9E37_79B1) ^ (cell.1 as u32).wrapping_mul(0x85EB_CA77);
+    let mut h =
+        (cell.0 as u32).wrapping_mul(0x9E37_79B1) ^ (cell.1 as u32).wrapping_mul(0x85EB_CA77);
     h ^= (s[3].to_bits() ^ s[4].to_bits().rotate_left(13)).wrapping_mul(0xC2B2_AE3D);
     h ^= h >> 15;
     let offset = (h % 997) as f32 / 997.0;
@@ -769,7 +768,8 @@ fn wind_clock() -> f32 {
 pub fn sway(x: f32, y: f32, t: f32) -> (f32, f32) {
     let phase = x * 0.011 + y * 0.004;
     let gust = 0.6 + 0.4 * (t * 0.23 + phase * 0.3).sin();
-    let along = gust * (SWAY * (t * 1.25 - phase).sin() + SWAY * 0.35 * (t * 3.1 - phase * 2.3).sin());
+    let along =
+        gust * (SWAY * (t * 1.25 - phase).sin() + SWAY * 0.35 * (t * 3.1 - phase * 2.3).sin());
     let across = SWAY * 0.3 * (t * 1.9 - phase * 1.7).sin();
     (along * 0.96 + across * -0.28, along * 0.28 + across * 0.96)
 }

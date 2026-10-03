@@ -135,8 +135,8 @@ pub struct GameScreen {
     /// crosshair, and the next left click on the deck sends the player's
     /// own Bim there under arms, shooting what it meets on the way.
     aiming_move: bool,
-    /// The throw key (Q: a soldier's grenade, or with `true` an
-    /// engineer's EMP) has armed the pointer: the throw's reach is drawn
+    /// The throw key (a soldier's Q, a grenade, or with `true` an
+    /// engineer's E, a satchel charge) has armed the pointer: the throw's reach is drawn
     /// round the player's own Bim, and the next left click on the deck
     /// throws there — walking out to it first where it must
     /// (`Order::ThrowAt`) — and so does letting the key go: a quick
@@ -144,7 +144,7 @@ pub struct GameScreen {
     /// key go with the pointer off the deck.
     aiming_throw: Option<bool>,
     /// The reach of a key held that aims at somebody rather than at a
-    /// tile — a medic's beam (E) or cloak (R) — in tiles, and the
+    /// tile — a medic's beam (E) or his circle (R) — in tiles, and the
     /// ability, drawn round the player's own Bim while the key is down.
     held_reach: Option<(f32, Glyph)>,
     /// The downed crewmate the held revive key (G) sent the player's own
@@ -1733,20 +1733,22 @@ fn frame(
                 }),
                 medic: (class == world::Class::Medic).then(|| crate::crew::MedicView {
                     patients: world.patients_of(slot).iter().map(|&p| name(p)).collect(),
-                    burst_learnt: world.rank_of(slot, world::class::SLOT_Q) > 0,
-                    burst_cooldown: world.nanite_burst_cooldown_left(slot),
-                    cloak_learnt: world.rank_of(slot, world::class::SLOT_R) > 0,
-                    cloak_cooldown: world.cloak_cooldown_left(slot),
-                    cloaked: world.cloak_left(slot),
+                    drone_learnt: world.rank_of(slot, world::class::SLOT_Q) > 0,
+                    drone_cooldown: world.heal_drone_cooldown_left(slot),
+                    drone_left: world.drone_left(slot),
+                    circle_learnt: world.rank_of(slot, world::class::SLOT_R) > 0,
+                    circling: world.is_circling(slot),
                 }),
                 tank: (class == world::Class::Tank).then(|| crate::crew::TankView {
-                    bulwark: world.is_bulwark(slot),
-                    taunt_left: world.taunt_left(slot),
-                    taunt_cooldown: world.taunt_cooldown_left(slot),
-                    taunt_learnt: world.rank_of(slot, world::class::SLOT_Q) > 0,
-                    juggernaut_left: world.juggernaut_left(slot),
-                    juggernaut_cooldown: world.juggernaut_cooldown_left(slot),
-                    juggernaut_learnt: world.rank_of(slot, world::class::SLOT_R) > 0,
+                    shield_up: world.is_shielding(slot),
+                    shield_left: world.riot_shield_left(slot),
+                    shield_whole: world.riot_shield_hp(slot),
+                    shield_broken: world.is_shield_recharging(slot),
+                    reflect_left: world.reflect_left(slot),
+                    reflect_cooldown: world.reflect_cooldown_left(slot),
+                    reflect_learnt: world.rank_of(slot, world::class::SLOT_E) > 0,
+                    bastion_cooldown: world.bastion_cooldown_left(slot),
+                    bastion_learnt: world.rank_of(slot, world::class::SLOT_R) > 0,
                 }),
                 commander: (class == world::Class::Commander).then(|| crate::crew::CommanderView {
                     rally_left: world.rally_left(slot),
@@ -2124,7 +2126,7 @@ fn frame(
         // of it. The Mine tool's shape, and for the same reason — a
         // click that both selected a Bim and sent the crew somewhere
         // would be a click nobody could undo.
-        if let Some(emp) = screen.aiming_throw {
+        if let Some(satchel) = screen.aiming_throw {
             // The throw's armed pointer: a left click throws at the tile
             // under it, walking out first where it must; a right-click
             // thinks better of it.
@@ -2134,7 +2136,7 @@ fn frame(
                     let (rx, ry) = session.room_point(p.x, p.y);
                     let t = shipdesign::TILE as f32;
                     orders.push(Order::ThrowAt {
-                        emp,
+                        satchel,
                         x: (rx / t).floor() as i32,
                         y: (ry / t).floor() as i32,
                     });
@@ -2409,19 +2411,19 @@ fn frame(
             // below still does what it does — an ability, an item, the
             // medkit — mid-run.
             if crate::keys::plain_or_sprinting(i.modifiers) {
-                // The speed keys (task 119: 1× or paused, nothing else):
-                // Space pauses and sets going again, 1 sets going. Orders,
-                // so a pause by anybody is a pause for everybody.
-                if keys_now.pressed(i, Action::Pause)
+                // The engineer's remote trigger (task 154): Space sets off
+                // every satchel of his. Space paused the world until then;
+                // the pause is the Esc sheet's now.
+                if keys_now.pressed(i, Action::Detonate)
                     && let Some(game) = &session.game
                 {
-                    let mine = game.requested(screen.net.slot);
-                    orders.push(Order::Speed(if mine == Speed::Paused {
-                        Speed::Real
-                    } else {
-                        Speed::Paused
-                    }));
+                    let (order, line) = detonate_key(&game.world, screen.net.slot);
+                    orders.extend(order);
+                    screen.log.extend(line);
                 }
+                // The 1× key (task 119: 1× or paused, nothing else) sets
+                // going: an order, so a pause by anybody is a pause for
+                // everybody.
                 if keys_now.pressed(i, Action::Speed1) {
                     orders.push(Order::Speed(Speed::Real));
                 }
@@ -2487,7 +2489,7 @@ fn frame(
                 // with a classless crew member steered, nothing at all.
                 // Read with Ctrl up (`Keys::used`): with it held the key
                 // is the slot's rank-up, below.
-                // While a medic's beam or cloak key is held, its reach is
+                // While a medic's beam or circle key is held, its reach is
                 // drawn round the player's own Bim.
                 screen.held_reach = session
                     .game
@@ -2522,16 +2524,16 @@ fn frame(
                     let Some(game) = &session.game else {
                         continue;
                     };
-                    // Q's throw — a soldier's grenade, an engineer's EMP —
-                    // is a quick throw: the press arms the pointer and
-                    // draws the reach, and letting the key go throws at
-                    // the tile under it (below; a click before then
-                    // throws too, a right-click or Esc thinks better of
-                    // it).
-                    if let Some(emp) = throw_key(game.world.class_of(slot), action) {
-                        match can_arm_throw(&game.world, slot, emp) {
+                    // A throw — a soldier's grenade (Q), an engineer's
+                    // satchel charge (E) — is a quick throw: the press arms
+                    // the pointer and draws the reach, and letting the key
+                    // go throws at the tile under it (below; a click
+                    // before then throws too, a right-click or Esc thinks
+                    // better of it).
+                    if let Some(satchel) = throw_key(game.world.class_of(slot), action) {
+                        match can_arm_throw(&game.world, slot, satchel) {
                             Ok(()) => {
-                                screen.aiming_throw = (!map_up).then_some(emp);
+                                screen.aiming_throw = (!map_up).then_some(satchel);
                                 screen.aiming_attack = false;
                                 screen.aiming_move = false;
                             }
@@ -2564,15 +2566,15 @@ fn frame(
                 // the pointer still armed throws at the tile under it —
                 // walking out first where it must, as the click does —
                 // or, the pointer off the deck, puts the throw away.
-                if let Some(emp) = screen.aiming_throw
-                    && !keys_now.down(i, THROW_KEY)
+                if let Some(satchel) = screen.aiming_throw
+                    && !keys_now.down(i, throw_action(satchel))
                 {
                     screen.aiming_throw = None;
                     if let Some(p) = on_canvas.filter(|_| !map_up) {
                         let (rx, ry) = session.room_point(p.x, p.y);
                         let t = shipdesign::TILE as f32;
                         orders.push(Order::ThrowAt {
-                            emp,
+                            satchel,
                             x: (rx / t).floor() as i32,
                             y: (ry / t).floor() as i32,
                         });
@@ -3345,7 +3347,11 @@ fn frame(
     for order in orders.drain(..) {
         loading.order(&screen.net, session, order);
     }
-    let allowed = Allowed::of(session.playing(), online.is_guest());
+    let mut allowed = Allowed::of(session.playing(), online.is_guest());
+    allowed.paused = session
+        .game
+        .as_ref()
+        .map(|game| game.requested(screen.net.slot) == Speed::Paused);
     let asked = settings_sheet(
         &ctx,
         &mut screen.sheet,
@@ -3360,6 +3366,12 @@ fn frame(
         Some(Request::ToMenu) => {
             online.leave();
             next.set(Screen::Menu);
+        }
+        // The sheet's pause (task 154): an order, so a pause by anybody
+        // is a pause for everybody, as Space's was.
+        Some(Request::Pause(on)) => {
+            let speed = if on { Speed::Paused } else { Speed::Real };
+            loading.order(&screen.net, session, Order::Speed(speed));
         }
         Some(Request::Save(name)) => match session.save() {
             Some(text) => match crate::save::write(&name, &text) {
@@ -3972,41 +3984,10 @@ fn frame(
                 theme::work_bar(&painter, egui::pos2(p.x, p.y), view.scale, progress);
             }
         }
-        // And the tanks (feature 77): a wall up is a ring of shield at
-        // the bulwark's reach, and a taunt the radius it is drawing fire
-        // from, dashed. Each also wears its own mark on the **body**
-        // (feature 91) — a shield over the head, and rings thrown off
-        // him — since a ring drawn at a radius says how far the ability
-        // reaches and not which of two tanks standing together is
-        // holding it.
-        // A Juggernaut (task 139) is a dark red outline round the body
-        // itself while it runs.
+        // The tank's (task 155) are drawn on the body by the room — the
+        // Riot Shield's plate before him, the Reflect Barrier's ring of
+        // thorns, and the Bastion's shield on everybody it reached.
         let t = shipdesign::TILE as f32;
-        for who in 0..crew {
-            let wall = game.world.is_bulwark(who);
-            let taunting = game.world.is_taunting(who);
-            let juggernaut = game.world.is_juggernaut(who);
-            if !wall && !taunting && !juggernaut {
-                continue;
-            }
-            let Some((x, y)) = session.crew_on_screen(who) else {
-                continue;
-            };
-            let at = view.to_canvas(Vec2::new(x, y)) + canvas.min;
-            let at = egui::pos2(at.x, at.y);
-            if wall {
-                let radius = game.world.bulwark_reach(who) * t * view.scale;
-                theme::wall_mark(&painter, at, radius, view.scale);
-                theme::bulwark_shield(&painter, at, view.scale);
-            }
-            if taunting {
-                theme::taunt_ring(&painter, at, game.world.taunt_radius(who) * t * view.scale);
-                theme::taunt_shout(&painter, at, view.scale, now as f32);
-            }
-            if juggernaut {
-                theme::juggernaut_outline(&painter, at, view.scale, now as f32);
-            }
-        }
         // And the commander (feature 78): the aura's radius round him,
         // a ring under every Bim it lifts — a player's own included.
         let on_screen = |who: u32| {
@@ -4037,43 +4018,28 @@ fn frame(
                 }
             }
         }
-        // And the medic (task 130): his Healing Aura's radius round him
-        // once he has a rank of it, and a burst set off running out to its
-        // reach over its first moments.
+        // And the medic (task 153): his Healing Circle round him while it
+        // is on — a soft green floor, its rim breathing — and every Heal
+        // Drone in the air, with its thin green line down to the Bim it
+        // hovers over.
         for who in 0..crew {
-            if game.world.class_of(who) != world::Class::Medic {
+            if !game.world.is_circling(who) {
                 continue;
             }
             let Some(at) = on_screen(who) else {
                 continue;
             };
-            let radius = game.world.healing_aura_radius(who);
-            if radius > 0.0 {
-                theme::healing_aura_ring(&painter, at, radius * t * view.scale);
-            }
-            if let Some(since) = game.world.nanite_burst_since(who) {
-                let shown = (since / NANITE_BURST_RING_SECONDS) as f32;
-                if (0.0..1.0).contains(&shown) {
-                    theme::nanite_burst_ring(
-                        &painter,
-                        at,
-                        game.world.nanite_burst_radius(who) * t * view.scale,
-                        shown,
-                    );
-                }
-            }
+            let radius = game.world.healing_circle_radius(who) * t * view.scale;
+            theme::healing_circle(&painter, at, radius, now as f32);
         }
-        // And under every crew member a cloak covers, how long it has
-        // left: the crew's own picture — the enemy has none.
-        for who in 0..crew {
-            let left = game.world.cloak_left(who);
-            let whole = game.world.cloak_of(who).seconds;
-            if left <= 0.0 || whole <= 0.0 {
-                continue;
+        for (from, patient, share) in session.drones_on_screen() {
+            let p = view.to_canvas(Vec2::new(from.0, from.1)) + canvas.min;
+            let at = egui::pos2(p.x, p.y);
+            if let Some((x, y)) = patient {
+                let q = view.to_canvas(Vec2::new(x, y)) + canvas.min;
+                theme::healing_line(&painter, at, egui::pos2(q.x, q.y), view.scale);
             }
-            if let Some(at) = on_screen(who) {
-                theme::cloak_ring(&painter, at, view.scale, (left / whole) as f32);
-            }
+            theme::heal_drone(&painter, at, view.scale, now as f32, share);
         }
         // A Bim a rally runs over (feature 86), the commander himself
         // included (task 129).
@@ -4167,17 +4133,21 @@ fn frame(
     // the pointer, in the throw's colour where it would be thrown,
     // walked out to or not, and the refusal's where it would not.
     if !deck_hidden
-        && let Some(emp) = screen.aiming_throw
+        && let Some(satchel) = screen.aiming_throw
         && let Some(game) = &session.game
         && let Some((x, y)) = session.crew_on_screen(screen.net.slot)
     {
         let t = shipdesign::TILE as f32;
         let at = view.to_canvas(Vec2::new(x, y)) + canvas.min;
-        let glyph = if emp { Glyph::Emp } else { Glyph::FragGrenade };
+        let glyph = if satchel {
+            Glyph::Satchel
+        } else {
+            Glyph::FragGrenade
+        };
         theme::reach_ring(
             &painter,
             egui::pos2(at.x, at.y),
-            game.world.throw_range(screen.net.slot, emp) * t * view.scale,
+            game.world.throw_range(screen.net.slot, satchel) * t * view.scale,
             glyph.colour(),
         );
     }
@@ -4190,7 +4160,7 @@ fn frame(
         theme::reach_ring(&painter, egui::pos2(at.x, at.y), radius, glyph.colour());
     }
     if !deck_hidden
-        && let Some(emp) = screen.aiming_throw
+        && let Some(satchel) = screen.aiming_throw
         && let Some(tile) = screen.throw_aim
         && let Some(game) = &session.game
     {
@@ -4205,14 +4175,14 @@ fn frame(
             (tile.1 as f32 + 0.5) * t - oy,
         );
         let at = view.to_canvas(Vec2::new(x, y)) + canvas.min;
-        let radius = if emp {
-            game.world.emp_radius(slot)
+        let radius = if satchel {
+            game.world.satchel_blast(slot).1
         } else {
             game.world.grenade_radius(slot)
         } * t
             * view.scale;
         let ok = matches!(
-            game.world.can_throw_now(slot, emp, tile),
+            game.world.can_throw_now(slot, satchel, tile),
             Ok(()) | Err(Refusal::OutOfThrowRange | Refusal::NoLineToTile)
         );
         theme::burst_ring(&painter, egui::pos2(at.x, at.y), radius, ok);
@@ -4749,8 +4719,8 @@ struct AbilityBox {
     /// How charged it is, nought to one: a bar along the foot. Nothing has
     /// one since the medic's surge went (task 130); kept for a charge to come.
     charge: Option<f32>,
-    /// Whether it is running now: a shot charging, the wall up, a beam held, a
-    /// taunt, a rally, a body in the arms.
+    /// Whether it is running now: a shot charging, the shield up, a beam held, a
+    /// barrier, a rally, a body in the arms.
     on: bool,
     /// Out of stock — no charge left. Told from
     /// a count of nought that is not a stock (no beam free to link, an
@@ -4927,7 +4897,7 @@ fn rank_up(world: &world::World, slot: u32, asked: RankUp) -> (Option<Order>, Op
 /// A key of a ranked kit (task 124), by slot: the soldier's Q throws a
 /// grenade and E charges a Stun Shot (`class_key`), C is Weak
 /// Spot and does nothing when pressed, and R goes on a Rampage. `under`
-/// is the crew member under the pointer, for the medic's beam and cloak.
+/// is the crew member under the pointer, for the medic's beam.
 fn ranked_key(
     world: &world::World,
     slot: u32,
@@ -4964,14 +4934,13 @@ fn ranked_key(
             Ok(()) => (Some(Order::Reinforce), None),
             Err(why) => (None, Some(crate::names::reinforce_refused(why))),
         },
-        // The medic's (task 130): Q sets off a Nanite Burst; C, his aura,
-        // is passive; E beams the crew member under the pointer — on the
+        // The medic's (task 153): Q drops a Heal Drone; C, Triage, is
+        // passive; E beams the crew member under the pointer — on the
         // one already held, or on nobody while one is held, it unlinks;
-        // R cloaks the crew member under the pointer, or himself with
-        // nobody there.
-        (world::Class::Medic, Action::Ability1) => match world.can_nanite_burst(slot) {
-            Ok(()) => (Some(Order::NaniteBurst), None),
-            Err(why) => (None, Some(crate::names::nanite_burst_refused(why))),
+        // R switches his Healing Circle on or off.
+        (world::Class::Medic, Action::Ability1) => match world.can_heal_drone(slot) {
+            Ok(()) => (Some(Order::HealDrone), None),
+            Err(why) => (None, Some(crate::names::heal_drone_refused(why))),
         },
         (world::Class::Medic, Action::Ability3) => match under {
             None if world.is_beaming(slot) => (Some(Order::Beam(None)), None),
@@ -4985,28 +4954,28 @@ fn ranked_key(
             },
         },
         (world::Class::Medic, Action::Ability4) => {
-            let target = under.unwrap_or(slot);
-            match world.can_cloak(slot, target) {
-                Ok(()) => (Some(Order::Cloak(target)), None),
-                Err(why) => (None, Some(crate::names::cloak_refused(why))),
+            let on = !world.is_circling(slot);
+            match world.can_healing_circle(slot, on) {
+                Ok(()) => (Some(Order::HealingCircle(on)), None),
+                Err(why) => (None, Some(crate::names::healing_circle_refused(why))),
             }
         }
-        // The tank's (task 139): Q taunts and E puts the wall up and down
-        // as they always did (`class_key`); C, Plated, is passive; R goes
-        // Juggernaut.
+        // The tank's (task 155): Q raises the Riot Shield and puts it down
+        // and E raises the Reflect Barrier (`class_key`); C, Plated, is
+        // passive; R throws the Bastion.
         (world::Class::Tank, Action::Ability1) => class_key(world, slot, true, tile, None),
         (world::Class::Tank, Action::Ability3) => class_key(world, slot, false, tile, None),
-        (world::Class::Tank, Action::Ability4) => match world.can_juggernaut(slot) {
-            Ok(()) => (Some(Order::Juggernaut), None),
-            Err(why) => (None, Some(crate::names::juggernaut_refused(why))),
+        (world::Class::Tank, Action::Ability4) => match world.can_bastion(slot) {
+            Ok(()) => (Some(Order::Bastion), None),
+            Err(why) => (None, Some(crate::names::bastion_refused(why))),
         },
         _ => (None, None),
     }
 }
 
-/// The reach of a medic's key held down that aims at a crew member — the
-/// beam's (E) or the cloak's (R) — or of a soldier's Stun Shot (E), once
-/// it has a rank, in tiles, with the ability's glyph for its colour.
+/// The reach of a medic's key held down — the beam's (E) or his circle's
+/// (R) — or of a soldier's Stun Shot (E), once it has a rank, in tiles,
+/// with the ability's glyph for its colour.
 fn held_reach(
     world: &world::World,
     slot: u32,
@@ -5030,21 +4999,28 @@ fn held_reach(
         return Some((world.beam_range(slot), Glyph::HealBeam));
     }
     if keys.down(input, Action::Ability4) && world.rank_of(slot, world::class::SLOT_R) > 0 {
-        return Some((world::class::CLOAK_RANGE, Glyph::Cloak));
+        return Some((world.healing_circle_radius(slot), Glyph::HealingCircle));
     }
     None
 }
 
-/// The key of every throw: held, the throw's reach is drawn; let go, it
-/// is thrown at the pointer.
-const THROW_KEY: Action = Action::Ability1;
+/// The key of a throw: held, the throw's reach is drawn; let go, it is
+/// thrown at the pointer. The soldier's grenade is Q, the engineer's
+/// satchel charge E (task 154).
+fn throw_action(satchel: bool) -> Action {
+    if satchel {
+        Action::Ability3
+    } else {
+        Action::Ability1
+    }
+}
 
 /// Whether an ability key is a throw that arms the pointer: the soldier's
-/// Q, a grenade, and the engineer's Q, an EMP (`Some(true)`).
+/// Q, a grenade, and the engineer's E, a satchel charge (`Some(true)`).
 fn throw_key(class: world::Class, action: Action) -> Option<bool> {
-    match (class, action) {
-        (world::Class::Soldier, THROW_KEY) => Some(false),
-        (world::Class::Engineer, THROW_KEY) => Some(true),
+    match class {
+        world::Class::Soldier if action == throw_action(false) => Some(false),
+        world::Class::Engineer if action == throw_action(true) => Some(true),
         _ => None,
     }
 }
@@ -5052,21 +5028,23 @@ fn throw_key(class: world::Class, action: Action) -> Option<bool> {
 /// Whether the throw key may arm the pointer: everything the throw asks
 /// but the tile — which the click picks, and which a walk out may yet
 /// make good — asked with the Bim's own tile; the log's line otherwise.
-fn can_arm_throw(world: &world::World, slot: u32, emp: bool) -> Result<(), String> {
+fn can_arm_throw(world: &world::World, slot: u32, satchel: bool) -> Result<(), String> {
     let t = shipdesign::TILE as f32;
     let at = world.aboard.room.bim_pos(slot as usize);
     let tile = ((at.x / t).floor() as i32, (at.y / t).floor() as i32);
-    match world.can_throw_now(slot, emp, tile) {
+    match world.can_throw_now(slot, satchel, tile) {
         Ok(())
         | Err(Refusal::CantThrowThere | Refusal::OutOfThrowRange | Refusal::NoLineToTile) => Ok(()),
         Err(why) => Err(throw_refused(why)),
     }
 }
 
-/// The engineer's four keys (task 127), by ability slot: Q throws an EMP
-/// at the tile under the pointer, C lays a Healing Sentry there, E lays
-/// sandbags and R the sentry — the order, or the log's line off the
-/// world's own refusal.
+/// The engineer's keys (task 127; task 154), by ability slot: Q lays a
+/// mine on the tile under the pointer, C a Healing Sentry there, E throws
+/// a satchel charge at it and R lays the sentry — the order, or the log's
+/// line off the world's own refusal. The screen takes E as a quick throw
+/// ([`throw_key`]) before it gets here; Space sets the satchels off
+/// ([`detonate_key`]).
 fn engineer_key(
     world: &world::World,
     slot: u32,
@@ -5075,34 +5053,51 @@ fn engineer_key(
 ) -> (Option<Order>, Option<String>) {
     use world::DeployKind;
     let Some(tile) = tile else {
-        let why = if ability == world::class::SLOT_Q {
-            throw_refused(Refusal::CantThrowThere)
-        } else {
-            deploy_refused(Refusal::CantDeployThere)
-        };
-        return (None, Some(why));
+        return (None, Some(deploy_refused(Refusal::CantDeployThere)));
     };
     let (x, y) = tile;
     match ability {
-        world::class::SLOT_Q => match world.can_throw_emp(slot, tile) {
-            Ok(()) => (Some(Order::Emp { x, y }), None),
-            Err(why) => (None, Some(throw_refused(why))),
-        },
         world::class::SLOT_R => match world.can_lay_sentry(slot, tile) {
             Ok(()) => (Some(Order::Sentry { x, y }), None),
             Err(why) => (None, Some(deploy_refused(why))),
         },
-        _ => {
+        world::class::SLOT_Q | world::class::SLOT_C => {
             let kind = if ability == world::class::SLOT_C {
                 DeployKind::HealingSentry
             } else {
-                DeployKind::Sandbags
+                DeployKind::Mine
             };
             match world.can_deploy(slot, kind, tile) {
                 Ok(()) => (Some(Order::Deploy { kind, x, y }), None),
                 Err(why) => (None, Some(deploy_refused(why))),
             }
         }
+        // The satchel thrown at once, walking out first where it must.
+        world::class::SLOT_E => match world.can_throw_satchel(slot, tile) {
+            Ok(()) | Err(Refusal::OutOfThrowRange | Refusal::NoLineToTile) => (
+                Some(Order::ThrowAt {
+                    satchel: true,
+                    x,
+                    y,
+                }),
+                None,
+            ),
+            Err(why) => (None, Some(throw_refused(why))),
+        },
+        _ => (None, None),
+    }
+}
+
+/// The engineer's remote trigger (task 154, Space): every satchel of his
+/// set off, or the log's line off the world's refusal. Nothing for any
+/// other class — the key is the engineer's alone.
+fn detonate_key(world: &world::World, slot: u32) -> (Option<Order>, Option<String>) {
+    if world.class_of(slot) != world::Class::Engineer {
+        return (None, None);
+    }
+    match world.can_detonate(slot) {
+        Ok(()) => (Some(Order::Detonate), None),
+        Err(why) => (None, Some(crate::names::detonate_refused(why))),
     }
 }
 
@@ -5135,7 +5130,7 @@ fn ranked_box(world: &world::World, slot: u32, action: Action, keys: &Keys) -> A
         // The engineer's (task 127): three stocks of charges, and the
         // ultimate on its own cooldown, lit while its sentry stands.
         (world::Class::Engineer, 0) => {
-            Face::charges(world, slot, world::Charge::Emp, Some(Glyph::Emp))
+            Face::charges(world, slot, world::Charge::Mine, Some(Glyph::Mine))
         }
         (world::Class::Engineer, 1) => Face::charges(
             world,
@@ -5143,9 +5138,11 @@ fn ranked_box(world: &world::World, slot: u32, action: Action, keys: &Keys) -> A
             world::Charge::HealingSentry,
             Some(Glyph::HealingSentry),
         ),
-        (world::Class::Engineer, 2) => {
-            Face::charges(world, slot, world::Charge::Sandbag, Some(Glyph::Sandbags))
-        }
+        // The satchels: lit while any lies out for the trigger.
+        (world::Class::Engineer, 2) => Face {
+            on: world.satchels_out(slot) > 0,
+            ..Face::charges(world, slot, world::Charge::Satchel, Some(Glyph::Satchel))
+        },
         (world::Class::Engineer, 3) => Face {
             cooldown: world.sentry_cooldown_left(slot),
             cooldown_whole: world.sentry_cooldown(slot),
@@ -5179,18 +5176,19 @@ fn ranked_box(world: &world::World, slot: u32, action: Action, keys: &Keys) -> A
             count: Some(world.reinforcements_of(slot).len() as u32),
             ..Face::of(Some(Glyph::Reinforcements))
         },
-        // The medic's (task 130): the burst and the cloak on their
-        // cooldowns, the cloak lit while he is under one; the aura lit
-        // while he stands in one; the beam counting the patients it could
-        // still take, lit while it holds anybody.
+        // The medic's (task 153): the drone on its cooldown, lit while one
+        // is in the air; Triage lit once learnt; the beam counting the
+        // patients it could still take, lit while it holds anybody; the
+        // circle lit while it is on.
         (world::Class::Medic, 0) => Face {
-            cooldown: world.nanite_burst_cooldown_left(slot),
-            cooldown_whole: world.nanite_burst_cooldown(slot),
-            ..Face::of(Some(Glyph::NaniteBurst))
+            cooldown: world.heal_drone_cooldown_left(slot),
+            cooldown_whole: world.heal_drone_cooldown(slot),
+            on: world.drone_of(slot).is_some(),
+            ..Face::of(Some(Glyph::HealDrone))
         },
         (world::Class::Medic, 1) => Face {
-            on: world.healing_aura_reaching(slot).is_some(),
-            ..Face::of(Some(Glyph::HealingAura))
+            on: world.rank_of(slot, world::class::SLOT_C) > 0,
+            ..Face::of(Some(Glyph::Triage))
         },
         (world::Class::Medic, 2) => {
             let held = world.patients_of(slot).len();
@@ -5201,30 +5199,30 @@ fn ranked_box(world: &world::World, slot: u32, action: Action, keys: &Keys) -> A
             }
         }
         (world::Class::Medic, 3) => Face {
-            cooldown: world.cloak_cooldown_left(slot),
-            cooldown_whole: world.cloak_cooldown(slot),
-            on: world.is_cloaked(slot),
-            ..Face::of(Some(Glyph::Cloak))
+            on: world.is_circling(slot),
+            ..Face::of(Some(Glyph::HealingCircle))
         },
-        // The tank's (task 139): the Taunt and the Juggernaut on their
-        // cooldowns, lit while they run; Plated always on once learnt;
-        // the wall lit while it is up.
+        // The tank's (task 155): the Riot Shield lit while it is up,
+        // counting the hit points it has left; Plated always on; the
+        // Reflect Barrier and the Bastion on their cooldowns, the barrier
+        // lit while it runs.
         (world::Class::Tank, 0) => Face {
-            cooldown: world.taunt_cooldown_left(slot),
-            cooldown_whole: world.taunt_cooldown(slot),
-            on: world.is_taunting(slot),
-            ..Face::of(Some(Glyph::Taunt))
+            count: (world.riot_shield_hp(slot) > 0.0)
+                .then(|| world.riot_shield_left(slot).ceil() as u32),
+            on: world.is_shielding(slot),
+            ..Face::of(Some(Glyph::RiotShield))
         },
         (world::Class::Tank, 1) => Face::of(Some(Glyph::Plated)),
         (world::Class::Tank, 2) => Face {
-            on: world.is_bulwark(slot),
-            ..Face::of(Some(Glyph::Bulwark))
+            cooldown: world.reflect_cooldown_left(slot),
+            cooldown_whole: world.reflect_cooldown(slot),
+            on: world.is_reflecting(slot),
+            ..Face::of(Some(Glyph::Reflect))
         },
         (world::Class::Tank, 3) => Face {
-            cooldown: world.juggernaut_cooldown_left(slot),
-            cooldown_whole: world.juggernaut_cooldown(slot),
-            on: world.is_juggernaut(slot),
-            ..Face::of(Some(Glyph::Juggernaut))
+            cooldown: world.bastion_cooldown_left(slot),
+            cooldown_whole: world.bastion_cooldown(slot),
+            ..Face::of(Some(Glyph::Bastion))
         },
         _ => Face::of(None),
     };
@@ -5340,10 +5338,6 @@ fn ability_boxes(world: &world::World, slot: u32, keys: &Keys) -> Vec<AbilityBox
 /// length.
 const BATTLE_CRY_RING_SECONDS: f64 = 0.6;
 
-/// Seconds of the mission clock a Nanite Burst's green ring takes to run
-/// out to its reach on the deck (task 130).
-const NANITE_BURST_RING_SECONDS: f64 = 0.5;
-
 /// How big one box is: a key's on the hero panel (feature 107), its name
 /// in its tooltip rather than under it, so the panel stays one row.
 const ABILITY_SIDE: f32 = 44.0;
@@ -5354,9 +5348,8 @@ const ABILITY_SIDE: f32 = 44.0;
 /// about an ability instead of a fixture.
 ///
 /// The commander's are the point of it: his **rally** lifts every
-/// friendly Bim in his aura. The medic's burst names whom it would heal, his aura
-/// whom it covers, his beam its patients and his cloak whoever is under
-/// one (task 130), and the carry names everybody near enough to pick up. The rest reach
+/// friendly Bim in his aura. The medic's drone names whom it is over,
+/// his beam its patients and his circle whom it heals (task 153), and the carry names everybody near enough to pick up. The rest reach
 /// enemies or nobody, and ring nothing.
 fn affected_by(world: &world::World, slot: u32, action: Action) -> Vec<u32> {
     use world::Class;
@@ -5372,17 +5365,15 @@ fn affected_by(world: &world::World, slot: u32, action: Action) -> Vec<u32> {
         (Class::Commander, Action::Ability2) => world.medivacs_of(slot),
         (Class::Commander, Action::Ability3) => world.crew_within(slot, world::class::RALLY_TILES),
         (Class::Commander, Action::Ability4) => world.reinforcements_of(slot),
-        // The medic's (task 130): a burst set off now heals everybody it
-        // would reach; his aura covers those it is the strongest over; the
-        // beam its patients; and the cloak says who is under one.
-        (Class::Medic, Action::Ability1) => world.nanite_burst_reaching(slot),
-        (Class::Medic, Action::Ability2) => (0..world.aboard.crew_count())
-            .filter(|&who| world.healing_aura_reaching(who) == Some(slot))
+        // The medic's (task 153): the drone names whom it is over; the
+        // beam its patients; the circle whom it heals now.
+        (Class::Medic, Action::Ability1) => world
+            .drone_of(slot)
+            .and_then(|d| d.patient)
+            .into_iter()
             .collect(),
         (Class::Medic, Action::Ability3) => world.patients_of(slot),
-        (Class::Medic, Action::Ability4) => (0..world.aboard.crew_count())
-            .filter(|&who| world.is_cloaked(who))
-            .collect(),
+        (Class::Medic, Action::Ability4) => world.healing_circle_reaching(slot),
         (_, Action::Carry) => match world.carrying_of(slot) {
             Some(patient) => vec![patient],
             None => world.carryable_near(slot),
@@ -5823,11 +5814,11 @@ fn recharge_badge(painter: &egui::Painter, at: egui::Pos2, recharge: Option<f32>
 /// crew member under the pointer if there is one. An engineer's Q sets
 /// a sentry up on the tile and its E lays sandbags there; a soldier's Q
 /// throws a grenade at it and its E charges a Stun Shot at it; a medic's Q
-/// sets off a Nanite Burst and its E beams `under` (task 130) — the medic's own Bim
+/// drops a Heal Drone and its E beams `under` (task 153) — the medic's own Bim
 /// included, since task 120 lets a medic beam itself — and pressed on the
 /// one it already holds, or on nobody while one is held, it unlinks, and
-/// on nobody with no beam on it says so; a tank's Q taunts and its E puts
-/// the wall up or takes it down; a commander's are his Battle Cry and
+/// on nobody with no beam on it says so; a tank's Q raises his Riot Shield or puts
+/// it down and his E raises his Reflect Barrier; a commander's are his Battle Cry and
 /// Rally (task 129). The order to send, if the world would take it, and
 /// the log's line saying why not if it would not — both off the world's
 /// own check, so the key and the command agree. A classless crew
@@ -5841,8 +5832,8 @@ fn class_key(
 ) -> (Option<Order>, Option<String>) {
     match world.class_of(slot) {
         world::Class::None => (None, None),
-        // The engineer's Q and E are its ranked kit's EMP and sandbags
-        // (task 127).
+        // The engineer's Q and E are its ranked kit's mine and satchel
+        // charge (task 154).
         world::Class::Engineer => {
             let ability = if primary {
                 world::class::SLOT_Q
@@ -5873,7 +5864,7 @@ fn class_key(
             (Ok(()), None) => (None, Some(stun_shot_refused(Refusal::CantThrowThere))),
             (Err(why), _) => (None, Some(stun_shot_refused(why))),
         },
-        // The medic (task 130): his ranked kit's Q and E, a Nanite Burst
+        // The medic (task 153): his ranked kit's Q and E, a Heal Drone
         // and the beam on the crew member under the pointer —
         // `ranked_key`'s answer, since his slots are ranked.
         world::Class::Medic => ranked_key(
@@ -5887,14 +5878,18 @@ fn class_key(
             tile,
             under,
         ),
-        // The tank (feature 77): Q taunts, E puts the wall up and down.
-        world::Class::Tank if primary => match world.can_taunt(slot) {
-            Ok(()) => (Some(Order::Taunt), None),
-            Err(why) => (None, Some(taunt_refused(why))),
-        },
-        world::Class::Tank => match world.can_bulwark(slot) {
-            Ok(()) => (Some(Order::Bulwark(!world.is_bulwark(slot))), None),
-            Err(why) => (None, Some(bulwark_refused(why))),
+        // The tank (task 155): Q raises the Riot Shield or puts it down,
+        // E raises the Reflect Barrier.
+        world::Class::Tank if primary => {
+            let on = !world.is_shielding(slot);
+            match world.can_riot_shield(slot, on) {
+                Ok(()) => (Some(Order::RiotShield(on)), None),
+                Err(why) => (None, Some(riot_shield_refused(why))),
+            }
+        }
+        world::Class::Tank => match world.can_reflect(slot) {
+            Ok(()) => (Some(Order::Reflect), None),
+            Err(why) => (None, Some(reflect_refused(why))),
         },
         // The commander (task 129): his ranked kit's Q and E, a Battle
         // Cry and a Rally — `ranked_key`'s answer, since his slots are
@@ -6134,9 +6129,9 @@ mod class_key_tests {
             class_key(&world, 2, false, Some(tile_of(&world, 2)), Some(1)),
             (None, None)
         );
-        // The engineer (task 127): its E, sandbags, learnt, lays on a tile
-        // beside it; its Q, the EMP, not learnt yet, is refused.
-        world.set_ranks_for_probe(0, [0, 0, 1, 0]);
+        // The engineer (task 154): its Q, a mine, learnt, lays on a tile
+        // beside it; its E, the satchel, not learnt yet, is refused.
+        world.set_ranks_for_probe(0, [1, 0, 0, 0]);
         let here = tile_of(&world, 0);
         let beside = (1..6)
             .flat_map(|r| {
@@ -6147,35 +6142,41 @@ mod class_key_tests {
                     (here.0, here.1 - r),
                 ]
             })
-            .find(|&tile| {
-                world
-                    .can_deploy(0, world::DeployKind::Sandbags, tile)
-                    .is_ok()
-            })
+            .find(|&tile| world.can_deploy(0, world::DeployKind::Mine, tile).is_ok())
             .expect("a free tile beside the engineer");
         assert_eq!(
-            class_key(&world, 0, false, Some(beside), None),
+            class_key(&world, 0, true, Some(beside), None),
             (
                 Some(Order::Deploy {
-                    kind: world::DeployKind::Sandbags,
+                    kind: world::DeployKind::Mine,
                     x: beside.0,
                     y: beside.1
                 }),
                 None
             )
         );
-        let (order, line) = class_key(&world, 0, true, Some(beside), None);
+        let (order, line) = class_key(&world, 0, false, Some(beside), None);
         assert_eq!(order, None);
         assert_eq!(
             line,
             Some(throw_refused(Refusal::NotLearnt)),
-            "the EMP not learnt yet"
+            "the satchel not learnt yet"
         );
         assert_eq!(
-            class_key(&world, 0, false, None, None),
+            class_key(&world, 0, true, None, None),
             (None, Some(deploy_refused(Refusal::CantDeployThere))),
             "no tile under the pointer"
         );
+        // Space with no satchel out says so; nothing for another class.
+        world.set_ranks_for_probe(0, [1, 0, 1, 0]);
+        assert_eq!(
+            detonate_key(&world, 0),
+            (
+                None,
+                Some(crate::names::detonate_refused(Refusal::NoSatchels))
+            )
+        );
+        assert_eq!(detonate_key(&world, 1), (None, None));
         // The soldier (task 124): E wants a rank of Stun Shot, then charges
         // one at the tile under the pointer, and E again while it charges
         // is refused; Q wants a rank of Frag Grenade, then throws at a
@@ -6219,7 +6220,7 @@ mod class_key_tests {
             class_key(&world, 1, true, None, None),
             (None, Some(throw_refused(Refusal::CantThrowThere)))
         );
-        // The medic (task 130): Q sets off a Nanite Burst — refused
+        // The medic (task 153): Q drops a Heal Drone — refused
         // unlearnt — and E beams whoever is under the pointer, unlinks on
         // the one already held and on nobody.
         assert_eq!(world.set_class(2, world::Class::Medic), Ok(()));
@@ -6227,13 +6228,13 @@ mod class_key_tests {
             class_key(&world, 2, true, None, None),
             (
                 None,
-                Some(crate::names::nanite_burst_refused(Refusal::NotLearnt))
+                Some(crate::names::heal_drone_refused(Refusal::NotLearnt))
             )
         );
         world.set_ranks_for_probe(2, [1, 0, 1, 0]);
         assert_eq!(
             class_key(&world, 2, true, None, None),
-            (Some(Order::NaniteBurst), None)
+            (Some(Order::HealDrone), None)
         );
         assert_eq!(
             class_key(&world, 2, false, None, None),
@@ -6270,30 +6271,32 @@ mod class_key_tests {
             (Some(Order::Beam(None)), None),
             "and E on nobody unlinks while one is held"
         );
-        // R cloaks the crew member under the pointer, or himself on
-        // nobody, once its rank is bought at the sixth level.
+        // R switches his circle on, and off again once it is on, once its
+        // rank is bought at the sixth level.
         world.award(2, world::class::LEVEL_XP[5], &mut events);
         world.set_ranks_for_probe(2, [1, 0, 1, 1]);
         assert_eq!(
             ranked_key(&world, 2, Action::Ability4, None, None),
-            (Some(Order::Cloak(2)), None),
-            "himself, with nobody under the pointer"
+            (Some(Order::HealingCircle(true)), None),
+            "on"
         );
+        world.step(&[world::Command::HealingCircle { slot: 2, on: true }]);
         assert_eq!(
             ranked_key(&world, 2, Action::Ability4, None, Some(0)),
-            (Some(Order::Cloak(0)), None)
+            (Some(Order::HealingCircle(false)), None),
+            "and off again, whoever is under the pointer"
         );
         assert_eq!(
             ranked_key(&world, 2, Action::Ability2, None, None),
             (None, None),
-            "the aura is passive"
+            "Triage is passive"
         );
         // And the engineer's keys are never a soldier's, nor the other
-        // way about: an engineer pressing E with a tile is a deploy, not
-        // a Stun Shot, and a soldier's E with a kit in its pack is a Stun Shot.
+        // way about: an engineer pressing E with a tile throws a satchel
+        // (task 154), not a Stun Shot, and a soldier's E is a Stun Shot.
         assert!(matches!(
             class_key(&world, 0, false, Some(beside), None).0,
-            Some(Order::Deploy { .. })
+            Some(Order::ThrowAt { satchel: true, .. })
         ));
         assert!(matches!(
             class_key(&world, 1, false, Some(beside), None).0,
@@ -6301,12 +6304,12 @@ mod class_key_tests {
         ));
     }
 
-    /// And the tank's (feature 77; task 139): Q taunts and E puts the
-    /// wall up and takes it down, each from its first rank; R goes
-    /// Juggernaut from its own — none wants a tile or a crew member under
-    /// the pointer, and none is anybody else's.
+    /// And the tank's (task 155): Q raises the Riot Shield and puts it
+    /// down, E raises the Reflect Barrier, R throws the Bastion, each from
+    /// its first rank — none wants a tile or a crew member under the
+    /// pointer, and none is anybody else's.
     #[test]
-    fn the_tank_s_keys_taunt_raise_the_wall_and_go_juggernaut() {
+    fn the_tank_s_keys_raise_the_shield_and_the_barrier_and_throw_the_bastion() {
         let mut world = simulation_world(flyer(4), REFERENCE_MONEY, 4);
         assert_eq!(world.set_class(0, world::Class::Tank), Ok(()));
         assert_eq!(world.set_class(1, world::Class::Engineer), Ok(()));
@@ -6314,71 +6317,71 @@ mod class_key_tests {
         assert_eq!(world.set_class(3, world::Class::Medic), Ok(()));
         // The soldier's Stun Shot wants its rank (task 124).
         world.set_ranks_for_probe(2, [0, 0, 1, 0]);
-        // The wall wants its rank too (task 139).
+        // The shield wants its rank.
         assert_eq!(
-            class_key(&world, 0, false, None, None),
-            (None, Some(bulwark_refused(Refusal::NotLearnt)))
+            class_key(&world, 0, true, None, None),
+            (None, Some(riot_shield_refused(Refusal::NotLearnt)))
         );
-        world.set_ranks_for_probe(0, [0, 0, 1, 0]);
+        world.set_ranks_for_probe(0, [1, 0, 0, 0]);
         let t = shipdesign::TILE as f32;
         let tile_of = |world: &world::World, who: u32| {
             let p = world.aboard.room.bim_pos(who as usize);
             ((p.x / t).floor() as i32, (p.y / t).floor() as i32)
         };
-        // E puts the wall up wherever the pointer is, and down again.
-        assert_eq!(
-            class_key(&world, 0, false, None, None),
-            (Some(Order::Bulwark(true)), None)
-        );
-        world.step(&[world::Command::Bulwark { slot: 0, on: true }]);
-        assert_eq!(
-            class_key(&world, 0, false, Some(tile_of(&world, 0)), Some(1)),
-            (Some(Order::Bulwark(false)), None),
-            "and down again, whatever is under the pointer"
-        );
-        // Q wants its rank, and then cools down.
+        // Q raises it wherever the pointer is, and puts it down again.
         assert_eq!(
             class_key(&world, 0, true, None, None),
-            (None, Some(taunt_refused(Refusal::NotLearnt)))
+            (Some(Order::RiotShield(true)), None)
+        );
+        assert_eq!(
+            ranked_key(&world, 0, Action::Ability1, None, None),
+            (Some(Order::RiotShield(true)), None),
+            "Q is the same key through the ranked kit"
+        );
+        world.step(&[world::Command::RiotShield { slot: 0, on: true }]);
+        assert_eq!(
+            class_key(&world, 0, true, Some(tile_of(&world, 0)), Some(1)),
+            (Some(Order::RiotShield(false)), None),
+            "and down again, whatever is under the pointer"
+        );
+        // E wants its rank, and then cools down.
+        assert_eq!(
+            class_key(&world, 0, false, None, None),
+            (None, Some(reflect_refused(Refusal::NotLearnt)))
         );
         let mut events = Vec::new();
         world.award(0, world::class::LEVEL_XP[5], &mut events);
         world.set_ranks_for_probe(0, [1, 0, 1, 0]);
         assert_eq!(
-            ranked_key(&world, 0, Action::Ability1, None, None),
-            (Some(Order::Taunt), None),
-            "Q is the same key through the ranked kit"
+            class_key(&world, 0, false, None, None),
+            (Some(Order::Reflect), None)
         );
+        world.step(&[world::Command::Reflect { slot: 0 }]);
         assert_eq!(
-            class_key(&world, 0, true, None, None),
-            (Some(Order::Taunt), None)
+            class_key(&world, 0, false, None, None),
+            (None, Some(reflect_refused(Refusal::AlreadyActive)))
         );
-        world.step(&[world::Command::Taunt { slot: 0 }]);
-        assert_eq!(
-            class_key(&world, 0, true, None, None),
-            (None, Some(taunt_refused(Refusal::CoolingDown)))
-        );
-        // R goes Juggernaut once its rank is bought at the sixth level;
+        // R throws the Bastion once its rank is bought at the sixth level;
         // C, Plated, is passive.
         assert_eq!(
             ranked_key(&world, 0, Action::Ability4, None, None),
             (
                 None,
-                Some(crate::names::juggernaut_refused(Refusal::NotLearnt))
+                Some(crate::names::bastion_refused(Refusal::NotLearnt))
             )
         );
         world.set_ranks_for_probe(0, [1, 0, 1, 1]);
         assert_eq!(
             ranked_key(&world, 0, Action::Ability4, None, None),
-            (Some(Order::Juggernaut), None)
+            (Some(Order::Bastion), None)
         );
         assert_eq!(
             ranked_key(&world, 0, Action::Ability2, None, None),
             (None, None),
             "Plated is passive"
         );
-        // And nobody else's keys are the tank's: the engineer throws an
-        // EMP (task 127), the soldier charges a Stun Shot, the medic beams.
+        // And nobody else's keys are the tank's: the engineer lays a mine
+        // (task 154), the soldier charges a Stun Shot, the medic beams.
         let t = shipdesign::TILE as f32;
         let p = world.aboard.room.bim_pos(2);
         let own = ((p.x / t).floor() as i32, (p.y / t).floor() as i32);
@@ -6392,11 +6395,11 @@ mod class_key_tests {
         );
         assert_eq!(
             class_key(&world, 1, true, None, None),
-            (None, Some(throw_refused(Refusal::CantThrowThere)))
+            (None, Some(deploy_refused(Refusal::CantDeployThere)))
         );
         // And a tank is refused a medic's and a soldier's rules.
-        assert_eq!(world.can_bulwark(1), Err(Refusal::NotATank));
-        assert_eq!(world.can_taunt(3), Err(Refusal::NotATank));
+        assert_eq!(world.can_reflect(1), Err(Refusal::NotATank));
+        assert_eq!(world.can_riot_shield(3, true), Err(Refusal::NotATank));
     }
 
     /// The two every player has (feature 84): F and T are nobody's class
@@ -6520,15 +6523,15 @@ mod class_key_tests {
     /// A stock of charges on a box is told the way Dota 2 tells one
     /// (`Face::charges`): with none left the whole box swept over the
     /// whole of the cooldown, and with some left and the next on its way
-    /// the ring round the count part way. The engineer's sandbags, the
+    /// the ring round the count part way. The engineer's satchels, a
     /// stock a first-level class has, where the medicine's two boxes
     /// were until task 120.
     #[test]
     fn a_spent_charge_sweeps_and_a_coming_one_rings() {
         use world::Charge;
         let (charges, cooldown) = (
-            world::class::SANDBAG_CHARGES[0],
-            world::class::SANDBAG_COOLDOWN[0],
+            world::class::SATCHEL_CHARGES[0],
+            world::class::SATCHEL_COOLDOWN[0],
         );
         let keys = Keys::default();
         let mut world = simulation_world(flyer(2), REFERENCE_MONEY, 2);
@@ -6539,7 +6542,7 @@ mod class_key_tests {
         assert_eq!(full.count, Some(charges));
         assert!(full.cooldown == 0.0 && full.recharge.is_none());
         // None left: the whole box swept, over the whole of the cooldown.
-        world.set_charges_for_probe(Charge::Sandbag, 0);
+        world.set_charges_for_probe(Charge::Satchel, 0);
         world.step(&[]);
         let empty = bags(&world);
         assert!(empty.short && !empty.ready());
@@ -6548,7 +6551,7 @@ mod class_key_tests {
         assert!(empty.recharge.is_none(), "the sweep says it, not the ring");
         // Some left and the next on its way: ready, no seconds, and the
         // ring round the count part way.
-        world.set_charges_for_probe(Charge::Sandbag, charges - 1);
+        world.set_charges_for_probe(Charge::Satchel, charges - 1);
         for _ in 0..600 {
             world.step(&[]);
         }
@@ -6582,23 +6585,26 @@ mod class_key_tests {
         let keys_named: Vec<&str> = boxes.iter().map(|b| b.key.as_str()).collect();
         assert_eq!(keys_named, vec!["Q", "C", "E", "R"]);
         let names: Vec<&str> = boxes.iter().map(|b| b.name).collect();
-        assert_eq!(names, vec!["EMP", "Healing Sentry", "Sandbags", "Sentry"]);
+        assert_eq!(
+            names,
+            vec!["Mine", "Healing Sentry", "Satchel Charge", "Sentry"]
+        );
         assert!(
             boxes
                 .iter()
                 .all(|b| b.unlearnt && !b.ready() && b.count.is_none())
         );
         assert_eq!(boxes[3].locked, Some(6), "the ultimate's first rank");
-        assert_eq!(boxes[0].mark, Some(Glyph::Emp));
+        assert_eq!(boxes[0].mark, Some(Glyph::Mine));
         assert_eq!(boxes[3].mark, Some(Glyph::Sentry));
         world.set_ranks_for_probe(0, [1, 1, 1, 0]);
         let boxes = ability_boxes(&world, 0, &keys);
-        assert_eq!(boxes[0].count, Some(world::class::EMP_CHARGES[0]));
+        assert_eq!(boxes[0].count, Some(world::class::MINE_CHARGES[0]));
         assert_eq!(
             boxes[1].count,
             Some(world::class::HEALING_SENTRY_CHARGES[0])
         );
-        assert_eq!(boxes[2].count, Some(world::class::SANDBAG_CHARGES[0]));
+        assert_eq!(boxes[2].count, Some(world::class::SATCHEL_CHARGES[0]));
         assert!(boxes[..3].iter().all(|b| b.ready()));
 
         // The soldier (task 124): its four ranked abilities, nothing
@@ -6702,7 +6708,7 @@ mod class_key_tests {
             );
         }
 
-        // The medic (task 130): his four ranked abilities, the ultimate
+        // The medic (task 153): his four ranked abilities, the ultimate
         // waiting on the sixth level, and his carry after them, which
         // wants no level at all.
         let mut world = simulation_world(flyer(1), REFERENCE_MONEY, 1);
@@ -6712,22 +6718,22 @@ mod class_key_tests {
         assert_eq!(
             named,
             vec![
-                "Nanite Burst",
-                "Healing Aura",
+                "Heal Drone",
+                "Triage",
                 "Heal Beam",
-                "Cloak",
+                "Healing Circle",
                 names::CARRY
             ]
         );
-        assert_eq!(boxes[0].mark, Some(Glyph::NaniteBurst));
-        assert_eq!(boxes[1].mark, Some(Glyph::HealingAura));
-        assert_eq!(boxes[3].mark, Some(Glyph::Cloak));
+        assert_eq!(boxes[0].mark, Some(Glyph::HealDrone));
+        assert_eq!(boxes[1].mark, Some(Glyph::Triage));
+        assert_eq!(boxes[3].mark, Some(Glyph::HealingCircle));
         assert_eq!(boxes[3].locked, Some(6), "the ultimate's first rank");
         assert_eq!(boxes[4].locked, None, "the carry wants no level");
         assert!(boxes[..4].iter().all(|b| b.unlearnt && !b.ready()));
         world.set_ranks_for_probe(0, [1, 1, 1, 0]);
         let boxes = ability_boxes(&world, 0, &keys);
-        assert!(boxes[0].ready(), "the burst learnt and ready");
+        assert!(boxes[0].ready(), "the drone learnt and ready");
         assert_eq!(boxes[2].count, Some(1), "one patient the beam could take");
     }
 
@@ -6765,9 +6771,9 @@ mod rank_up_tests {
             .map(|(&action, key)| AbilityBox::empty(key.to_string(), action))
             .collect();
         row[0] = AbilityBox {
-            name: "Nanite Burst",
+            name: "Heal Drone",
             tip: "tip".to_string(),
-            mark: Some(Glyph::NaniteBurst),
+            mark: Some(Glyph::HealDrone),
             ..AbilityBox::empty("Q".to_string(), Action::Ability1)
         };
         row[2] = AbilityBox {

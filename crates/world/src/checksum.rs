@@ -425,61 +425,72 @@ pub fn world_checksum(world: &World) -> u64 {
         hash.eat_rounded(hp as f64, HEALTH_GRID);
         hash.eat_rounded(world.aboard.room.shield_left(who) as f64, HEALTH_GRID);
     }
-    // And the medic's ranked kit (task 130), only where there is any: each
-    // medic's last Nanite Burst and Cloak, and every cloak on the crew —
-    // whose target lists and whose walks a step reads.
+    // And the medic's ranked kit (task 130, reworked by task 153), only
+    // where there is any: each medic's last drone, the drone in the air
+    // (where, whom it is over, when it goes) and the circle on with its
+    // last burn — what a step heals, drains and burns by.
     for (who, medic) in world.medics.iter().enumerate() {
-        if medic.last_burst.is_none() && medic.last_cloak.is_none() {
+        if medic.last_drone.is_none() && medic.drone.is_none() && !medic.circle {
             continue;
         }
         hash.eat(who as u64);
-        for last in [medic.last_burst, medic.last_cloak] {
-            match last {
-                Some(minutes) => {
-                    hash.eat(1);
-                    hash.eat_rounded(minutes, FINE_GRID);
-                }
-                None => hash.eat(0),
-            }
-        }
-    }
-    for (who, cloak) in world.cloaks.iter().enumerate() {
-        let Some(until) = cloak.until else {
-            continue;
-        };
-        hash.eat(who as u64);
-        hash.eat_rounded(until, FINE_GRID);
-        hash.eat_rounded(cloak.pace as f64, FINE_GRID);
-    }
-
-    // The tanks (feature 77): when each last taunted, on the clock's
-    // grid, and — the room's, read off it like the brace — who stands
-    // as a wall and how many enemy hits each body has taken since its
-    // last point of experience. A wall up is a different fight.
-    hash.eat(world.tanks.len() as u64);
-    for tank in &world.tanks {
-        match tank.last_taunt {
+        match medic.last_drone {
             Some(minutes) => {
                 hash.eat(1);
                 hash.eat_rounded(minutes, FINE_GRID);
             }
             None => hash.eat(0),
         }
-        // And the Taunt's and the Juggernaut's windows and the
-        // Juggernaut's cooldown (task 139), only where one was ever set.
-        if tank.taunt != crate::tank::Window::default()
-            || tank.last_juggernaut.is_some()
-            || tank.juggernaut != crate::tank::Window::default()
+        match medic.drone {
+            Some(drone) => {
+                hash.eat(1);
+                hash.eat_rounded(drone.x as f64, FINE_GRID);
+                hash.eat_rounded(drone.y as f64, FINE_GRID);
+                hash.eat(drone.patient.map_or(u64::MAX, u64::from));
+                hash.eat_rounded(drone.until, FINE_GRID);
+            }
+            None => hash.eat(0),
+        }
+        hash.eat(u64::from(medic.circle));
+        hash.eat_rounded(medic.last_burn.unwrap_or(-1.0), FINE_GRID);
+    }
+
+    // The tanks (feature 77; task 155): when each last raised his Reflect
+    // Barrier, on the clock's grid, where the taunt's minute was, and —
+    // only where any is set — the barrier's window, the Bastion's
+    // cooldown and haste and the Riot Shield's hit points spent, its last
+    // hit and whether it broke; then who holds a shield up, where who
+    // stood as a wall was, and how many enemy hits each body has taken.
+    // A world with no tank in it hashes what it did.
+    hash.eat(world.tanks.len() as u64);
+    for tank in &world.tanks {
+        match tank.last_reflect {
+            Some(minutes) => {
+                hash.eat(1);
+                hash.eat_rounded(minutes, FINE_GRID);
+            }
+            None => hash.eat(0),
+        }
+        if tank.reflect != crate::tank::Window::default()
+            || tank.last_bastion.is_some()
+            || tank.hasted != crate::tank::Window::default()
+            || tank.shield_spent > 0.0
+            || tank.shield_struck.is_some()
+            || tank.shield_broken
         {
-            for window in [tank.taunt, tank.juggernaut] {
+            for window in [tank.reflect, tank.hasted] {
                 hash.eat_rounded(window.began, FINE_GRID);
                 hash.eat_rounded(window.until, FINE_GRID);
             }
-            hash.eat_rounded(tank.last_juggernaut.unwrap_or(-1.0), FINE_GRID);
+            hash.eat_rounded(tank.last_bastion.unwrap_or(-1.0), FINE_GRID);
+            hash.eat_rounded(tank.shield_spent as f64, HEALTH_GRID);
+            hash.eat_rounded(tank.shield_struck.unwrap_or(-1.0), FINE_GRID);
+            hash.eat(u64::from(tank.shield_broken));
         }
     }
     for who in 0..crew {
-        hash.eat(u64::from(world.aboard.room.is_bulwark(who)));
+        let up = world.tanks.get(who).is_some_and(|t| t.shield_up);
+        hash.eat(u64::from(up));
         hash.eat(world.aboard.room.hits_taken(who) as u64);
     }
 
@@ -780,7 +791,7 @@ pub fn world_checksum(world: &World) -> u64 {
         hash.eat(world.throws.len() as u64);
         for p in &world.throws {
             hash.eat(u64::from(p.who));
-            hash.eat(u64::from(p.emp));
+            hash.eat(u64::from(p.satchel));
             for n in [p.tile.0, p.tile.1, p.stand.0, p.stand.1] {
                 hash.eat(n as u64);
             }

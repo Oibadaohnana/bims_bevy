@@ -38,10 +38,10 @@
 (
     enemies_per_player: 2,
     day_scaling: 1,
-    scaling_days: 5,
+    scaling_days: 10,
     enemies_per_bot: 1.0,
-    wave_days: 10,
-    tier1_days: 5,
-    tier2_days: 20,
-    tier3_days: 40,
+    wave_days: 15,
+    tier1_days: 20,
+    tier2_days: 40,
+    tier3_days: 60,
 )

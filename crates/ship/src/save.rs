@@ -184,7 +184,7 @@ use crate::game::Game;
 /// 64: the engineer's sentry stands until it is destroyed — a laid
 /// deployable keeps no end (`Deployable::expires` gone).
 /// 65: the tank is a ranked kit (task 139) — the talents picked are gone
-/// from `Progress`, a tank keeps his Taunt's and Juggernaut's windows,
+/// from `Progress`, a tank keeps his Taunt's and Juggernaut's windows (task 155 replaced them),
 /// and `Skill` lost *iron frame* and *breacher*.
 /// 66: the commander's squad orders removed — the world keeps no squad
 /// order, and `Skill` lost *focus fire*'s `marked_accuracy`.
@@ -247,7 +247,19 @@ use crate::game::Game;
 /// `Trader`.
 /// 92: the soldier's E is a Stun Shot (October 2026) —
 /// `Soldier::{charging, last_shot}` and `Grenade::shot`.
-pub const SAVE_VERSION: u32 = 92;
+/// 93: the medic reworked (task 153) — `Medic` keeps its last drone, its
+/// drone in the air and its circle where its last burst and cloak were,
+/// and `World::cloaks` went.
+/// 94: the engineer reworked (task 154) — `DeployKind::{Mine, Satchel}`
+/// where `Sandbags` was, `Charge::{Mine, Satchel}` where `Emp` and
+/// `Sandbag` were, `PendingThrow::satchel` where its `emp` was,
+/// `Grenade::{laid, satchel}` and `Game::satchels_landed`.
+/// 95: the tank reworked (task 155) — `Tank` keeps his Riot Shield, his
+/// Reflect Barrier, his Bastion and its haste where his taunt and
+/// Juggernaut were, `Bim::bulwark` went, a `Shield` drains
+/// (`Shield::drain`) and a `Shot`, a `Bolt` and a `Sweep` keep who took
+/// them, `Combat` its plates where its bulwarks were.
+pub const SAVE_VERSION: u32 = 95;
 
 /// What the file holds, read back.
 #[derive(serde::Deserialize)]

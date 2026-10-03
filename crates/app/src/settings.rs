@@ -21,7 +21,8 @@ use bevy_egui::egui;
 
 use crate::keys::{Action, EDGE_SCROLL_MAX, Keys, NET_BUFFER_MAX};
 use crate::names::{
-    LOAD_GUEST, MENU_BUTTON, NET_BUFFER_HINT, RESTART_BUTTON, RESTART_GUEST, RESTART_NONE,
+    LOAD_GUEST, MENU_BUTTON, NET_BUFFER_HINT, PAUSE_BUTTON, RESTART_BUTTON, RESTART_GUEST,
+    RESTART_NONE, RESUME_BUTTON,
 };
 use crate::save::{self, Request, Saves};
 use crate::sound::Mix;
@@ -44,6 +45,10 @@ pub struct Allowed {
     /// the setup and in the lobby, where the sheet is the settings alone
     /// and the save, load and restart row is not shown.
     pub game: bool,
+    /// Whether the world can be paused from the sheet, and whether this
+    /// player has it paused (task 154): `None` with no world running —
+    /// the design phase, the menu, the lobby — and no Pause button.
+    pub paused: Option<bool>,
 }
 
 impl Allowed {
@@ -53,6 +58,7 @@ impl Allowed {
         load: false,
         restart: false,
         game: false,
+        paused: None,
     };
 
     /// The screen's phase and company, in one: `playing` is whether the
@@ -63,6 +69,7 @@ impl Allowed {
             load: !guest,
             restart: playing && !guest,
             game: true,
+            paused: None,
         }
     }
 
@@ -158,6 +165,22 @@ fn menu(
     keys: &mut Keys,
 ) -> Option<Request> {
     let mut request = None;
+    // The pause (task 154): Space paused the world until it became the
+    // engineer's remote trigger, so it is here, first. A pause by anybody
+    // is a pause for everybody; Resume takes this player's back.
+    if let Some(paused) = allowed.paused {
+        let label = if paused { RESUME_BUTTON } else { PAUSE_BUTTON };
+        if ui
+            .add(egui::Button::new(label).min_size(egui::vec2(120.0, 0.0)))
+            .clicked()
+        {
+            request = Some(Request::Pause(!paused));
+            if paused {
+                *sheet = None;
+            }
+        }
+        ui.add_space(8.0);
+    }
     theme::heading(ui, "UI scale");
     theme::ui_scale_row(ui);
     ui.add_space(8.0);

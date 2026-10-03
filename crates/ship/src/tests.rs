@@ -1613,9 +1613,9 @@ fn a_class_chosen_in_the_yard_leaves_the_pool_and_opens_the_world_and_is_saved()
             .as_ref()
             .unwrap()
             .world
-            .charges_of(who, Charge::Sandbag)
+            .charges_of(who, Charge::Mine)
     };
-    assert_eq!(kits(&session, 1), 0, "no sandbags at rank nought");
+    assert_eq!(kits(&session, 1), 0, "no mines at rank nought");
     assert_eq!(kits(&session, 0), 0);
     assert!(
         !session.set_class(0, Class::Engineer),
@@ -1636,16 +1636,16 @@ fn a_class_chosen_in_the_yard_leaves_the_pool_and_opens_the_world_and_is_saved()
         )));
         world.step(&[Command::RankUp {
             slot: 1,
-            ability_slot: u32::from(world::class::SLOT_E),
+            ability_slot: u32::from(world::class::SLOT_Q),
         }]);
         world.step(&[Command::RankUp {
             slot: 0,
             ability_slot: u32::from(world::class::SLOT_Q),
         }]);
         assert_eq!(
-            world.charges_of(1, Charge::Sandbag),
-            world::class::SANDBAG_CHARGES[0],
-            "a rank of Sandbags puts its charges in hand"
+            world.charges_of(1, Charge::Mine),
+            world::class::MINE_CHARGES[0],
+            "a rank of Mine puts its charges in hand"
         );
         let here = world.aboard.room.bim_pos(1);
         let t = TILE as f32;
@@ -1654,12 +1654,12 @@ fn a_class_chosen_in_the_yard_leaves_the_pool_and_opens_the_world_and_is_saved()
         'outer: for dx in -4..=4 {
             for dy in -4..=4 {
                 if world
-                    .can_deploy(1, DeployKind::Sandbags, (cx + dx, cy + dy))
+                    .can_deploy(1, DeployKind::Mine, (cx + dx, cy + dy))
                     .is_ok()
                 {
                     world.step(&[Command::Deploy {
                         slot: 1,
-                        kind: DeployKind::Sandbags,
+                        kind: DeployKind::Mine,
                         x: cx + dx,
                         y: cy + dy,
                     }]);
@@ -1695,9 +1695,10 @@ fn a_class_chosen_in_the_yard_leaves_the_pool_and_opens_the_world_and_is_saved()
         "the grenades read back as charges"
     );
 
-    // And a medic's beam, burst and cloak, the same way (feature 76, task
-    // 130): the soldier is a medic in a fresh session, linked to the
-    // engineer, and the link, the burst's time and the cloak read back.
+    // And a medic's beam, drone and circle, the same way (feature 76,
+    // task 153): the soldier is a medic in a fresh session, linked to the
+    // engineer, and the link, the drone in the air and the circle read
+    // back.
     let mut session = Session::design(
         shipdesign::fixture::AREA,
         100_000,
@@ -1728,14 +1729,14 @@ fn a_class_chosen_in_the_yard_leaves_the_pool_and_opens_the_world_and_is_saved()
             slot: 0,
             patient: Some(1),
         }]);
-        world.step(&[Command::NaniteBurst { slot: 0 }]);
+        world.step(&[Command::HealDrone { slot: 0 }]);
         assert_eq!(world.patients_of(0), vec![1]);
         // A few seconds: the two walk off about their rounds once the
         // patient is whole, and the beam breaks at its range.
         for _ in 0..120 {
             world.step(&[]);
         }
-        assert!(world.medic_of(0).last_burst.is_some(), "burst");
+        assert!(world.medic_of(0).drone.is_some(), "the drone up");
     }
     let text = session.save().expect("a world to save");
     let back = Session::restore(&text, CANVAS.0, CANVAS.1).expect("the text reads back");
@@ -1747,7 +1748,6 @@ fn a_class_chosen_in_the_yard_leaves_the_pool_and_opens_the_world_and_is_saved()
     assert_eq!(b.class_of(0), Class::Medic);
     assert_eq!(b.patients_of(0), vec![1], "the beam reads back");
     assert_eq!(b.medic_of(0), a.medic_of(0));
-    assert_eq!(b.cloaks, a.cloaks);
 }
 
 /// Feature 83: a world with the machines in it round-trips through a

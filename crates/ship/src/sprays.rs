@@ -14,15 +14,18 @@
 //!   [`crate::game::Game::step`] and `send` collect them — every peer steps
 //!   the same world, so every window sees every player's: a Rally's and a
 //!   Battle Cry's ring of light running out over the whole of their
-//!   reach with motes rising in it (the commander's area), a Nanite
-//!   Burst's green, a Taunt's red shockwave, a Bulwark's and a Stun Shot's
-//!   sparks, a Rampage's and a Juggernaut's flare, a cloak drawn in, a
-//!   reinforcement beamed down.
+//!   reach with motes rising in it (the commander's area), a Healing
+//!   Circle's green going up and a Heal Drone's light, a Reflect
+//!   Barrier's amber shockwave, a Riot Shield's and a Stun Shot's sparks,
+//!   a Rampage's flare and a Bastion's blue wave, a reinforcement beamed
+//!   down.
 //! - **While it runs** ([`running`]), a beat of [`BEAT`] real seconds at a
-//!   time: embers off a Rampage or a Juggernaut, gold motes over a Bim a
-//!   Rally reaches, sparks off a Battle Cry's crier, a shimmer off a
-//!   cloaked body, green motes along a medic's beam and a Healing
-//!   Sentry's lines.
+//!   time: embers off a Rampage or a Reflect Barrier, gold motes over a Bim a
+//!   Rally reaches, sparks off a Battle Cry's crier, green motes along a
+//!   medic's beam and a Healing Sentry's lines, and a Healing Circle's
+//!   healing (task 153): motes welling up all over it, the mending rising
+//!   off every Bim it heals, embers off every enemy it burns, and a Heal
+//!   Drone's light falling on the Bim under it.
 
 use bims::draw::Color;
 use bims::fx::{Spray, SprayKind};
@@ -35,16 +38,16 @@ use crate::game::Game;
 /// The colours of the classes' lights, each its class's family
 /// (`ability_icons.rs` in the app): the commander's gold and his cry's
 /// orange, the medic's green, the tank's red and steel blue, the
-/// soldier's blue and his rampage's fire, the cloak's pale cyan.
+/// soldier's blue and his rampage's fire, and the circle's burn.
 pub const RALLY_GOLD: Color = Color::rgb(1.0, 0.8, 0.32);
 pub const CRY_ORANGE: Color = Color::rgb(1.0, 0.52, 0.2);
 pub const NANITE_GREEN: Color = Color::rgb(0.42, 1.0, 0.58);
-pub const TAUNT_RED: Color = Color::rgb(1.0, 0.3, 0.24);
-pub const JUGGERNAUT_RED: Color = Color::rgb(0.85, 0.12, 0.1);
-pub const WALL_BLUE: Color = Color::rgb(0.55, 0.76, 1.0);
+pub const REFLECT_AMBER: Color = Color::rgb(1.0, 0.62, 0.22);
+pub const BASTION_BLUE: Color = Color::rgb(0.45, 0.8, 1.0);
+pub const SHIELD_BLUE: Color = Color::rgb(0.55, 0.76, 1.0);
 pub const BRACE_BLUE: Color = Color::rgb(0.45, 0.68, 1.0);
 pub const RAMPAGE_FIRE: Color = Color::rgb(1.0, 0.42, 0.16);
-pub const CLOAK_CYAN: Color = Color::rgb(0.72, 0.92, 1.0);
+pub const CIRCLE_BURN: Color = Color::rgb(1.0, 0.62, 0.3);
 pub const BEAM_DOWN: Color = Color::rgb(0.6, 0.85, 1.0);
 pub const KIT_AMBER: Color = Color::rgb(1.0, 0.76, 0.32);
 
@@ -125,7 +128,8 @@ fn flare(game: &mut Game, at: Vec2, colour: Color, reach: f32) {
     );
 }
 
-/// Motes drawn in to a body from round it: a cloak closing, a beam down.
+/// Motes drawn in to a body from round it: a drone lifting off, a beam
+/// down.
 fn gather(game: &mut Game, at: Vec2, colour: Color, reach: f32, count: u32) {
     game.world.aboard.room.spray(
         Spray::along(SprayKind::Swirl, at, vec2(0.0, -1.0))
@@ -164,16 +168,17 @@ fn ability(game: &mut Game, event: WorldEvent) {
     let who = match event {
         E::Rallied { who }
         | E::BattleCried { who }
-        | E::NaniteBurst { who, .. }
-        | E::Taunted { who }
-        | E::Juggernaut { who }
+        | E::DroneLaunched { who }
+        | E::Circled { who, on: true }
+        | E::Reflecting { who }
+        | E::Bastion { who, .. }
         | E::Rampaged { who }
-        | E::Bulwarked { who, on: true }
+        | E::ShieldRaised { who, on: true }
+        | E::ShieldBroken { who }
         | E::ShotCharging { who }
         | E::Deployed { who, .. }
         | E::Reinforced { who, .. }
-        | E::Medivac { who, .. }
-        | E::Cloaked { who, .. } => who,
+        | E::Medivac { who, .. } => who,
         _ => return,
     };
     let Some(at) = crew_at(game, who) else {
@@ -185,48 +190,60 @@ fn ability(game: &mut Game, event: WorldEvent) {
             aura(game, at, tiles(world::class::BATTLE_CRY_TILES), CRY_ORANGE);
             flare(game, at, CRY_ORANGE, tiles(1.4));
         }
-        E::NaniteBurst { .. } => {
-            let reach = tiles(game.world.nanite_burst_radius(who));
+        // The circle switched on: its ring of light running out to the
+        // rim and the green going up all over it.
+        E::Circled { .. } => {
+            let reach = tiles(game.world.healing_circle_radius(who));
             aura(game, at, reach, NANITE_GREEN);
         }
-        E::Taunted { .. } => {
-            let reach = tiles(game.world.taunt_radius(who));
-            let room = &mut game.world.aboard.room;
-            room.spray(
-                Spray::along(SprayKind::Nova, at, vec2(0.0, -1.0))
-                    .reach(reach)
-                    .life(0.55)
-                    .colour(TAUNT_RED.glowing(2.2))
-                    .count(64)
-                    .dot(7.0),
+        // A drone dropped: a puff of green light where it lifts off.
+        E::DroneLaunched { .. } => {
+            gather(game, at, NANITE_GREEN, tiles(0.9), 16);
+            game.world.aboard.room.spray(
+                Spray::along(SprayKind::Sparks, at, vec2(0.0, -1.0))
+                    .reach(tiles(0.8))
+                    .life(0.35)
+                    .colour(NANITE_GREEN.glowing(2.2))
+                    .count(10)
+                    .spread(core::f32::consts::TAU)
+                    .dot(1.4),
             );
-            flare(game, at, TAUNT_RED, tiles(1.2));
         }
-        E::Juggernaut { .. } => {
+        // A Reflect Barrier raised: an amber shockwave close round him.
+        E::Reflecting { .. } => {
             let room = &mut game.world.aboard.room;
             room.spray(
                 Spray::along(SprayKind::Nova, at, vec2(0.0, -1.0))
-                    .reach(tiles(5.0))
-                    .life(0.6)
-                    .colour(JUGGERNAUT_RED.glowing(2.4))
-                    .count(48)
-                    .dot(9.0),
-            );
-            flare(game, at, JUGGERNAUT_RED, tiles(2.0));
-        }
-        E::Rampaged { .. } => flare(game, at, RAMPAGE_FIRE, tiles(2.0)),
-        E::Bulwarked { .. } => {
-            let reach = tiles(game.world.bulwark_reach(who));
-            let room = &mut game.world.aboard.room;
-            room.spray(
-                Spray::along(SprayKind::Nova, at, vec2(0.0, -1.0))
-                    .reach(reach)
+                    .reach(tiles(1.6))
                     .life(0.45)
-                    .colour(WALL_BLUE.glowing(2.0))
-                    .count(32)
+                    .colour(REFLECT_AMBER.glowing(2.2))
+                    .count(40)
                     .dot(5.0),
             );
-            flare(game, at, WALL_BLUE, tiles(1.0));
+            flare(game, at, REFLECT_AMBER, tiles(1.0));
+        }
+        // A Bastion thrown: a wave of blue light out over its reach.
+        E::Bastion { .. } => {
+            let reach = tiles(game.world.bastion_radius(who));
+            aura(game, at, reach, BASTION_BLUE);
+            flare(game, at, BASTION_BLUE, tiles(2.0));
+        }
+        E::Rampaged { .. } => flare(game, at, RAMPAGE_FIRE, tiles(2.0)),
+        // The Riot Shield raised: a flicker of blue sparks off the plate.
+        E::ShieldRaised { .. } => {
+            flare(game, at, SHIELD_BLUE, tiles(0.8));
+        }
+        // And broken: the plate bursting into sparks.
+        E::ShieldBroken { .. } => {
+            game.world.aboard.room.spray(
+                Spray::along(SprayKind::Sparks, at, vec2(0.0, -1.0))
+                    .reach(tiles(1.2))
+                    .life(0.4)
+                    .colour(SHIELD_BLUE.glowing(2.4))
+                    .count(24)
+                    .spread(core::f32::consts::TAU)
+                    .dot(1.6),
+            );
         }
         E::ShotCharging { .. } => {
             dust(game, at);
@@ -250,18 +267,6 @@ fn ability(game: &mut Game, event: WorldEvent) {
                     .count(8)
                     .spread(core::f32::consts::TAU)
                     .dot(1.3),
-            );
-        }
-        E::Cloaked { target, .. } => {
-            let at = crew_at(game, target).unwrap_or(at);
-            gather(game, at, CLOAK_CYAN, tiles(1.4), 32);
-            game.world.aboard.room.spray(
-                Spray::along(SprayKind::Smoke, at, vec2(0.0, -1.0))
-                    .reach(tiles(0.5))
-                    .life(0.9)
-                    .colour(CLOAK_CYAN.alpha(0.18))
-                    .count(8)
-                    .dot(14.0),
             );
         }
         E::Reinforced { count, .. } => {
@@ -330,19 +335,18 @@ pub fn running(game: &mut Game, real: f32) {
         };
         let w = &game.world;
         let rampage = w.is_rampaging(who);
-        let juggernaut = w.is_juggernaut(who);
+        let reflecting = w.is_reflecting(who);
         let rallied = w.rally_reaching(who).is_some();
         let crying = w.is_crying(who);
-        let cloaked = w.cloak_left(who) > 0.0;
         let patients: Vec<Vec2> = w
             .patients_of(who)
             .into_iter()
             .filter_map(|p| crew_at(game, p))
             .collect();
         let room = &mut game.world.aboard.room;
-        if rampage || juggernaut {
-            let colour = if juggernaut {
-                JUGGERNAUT_RED
+        if rampage || reflecting {
+            let colour = if reflecting {
+                REFLECT_AMBER
             } else {
                 RAMPAGE_FIRE
             };
@@ -376,16 +380,6 @@ pub fn running(game: &mut Game, real: f32) {
                     .dot(1.3),
             );
         }
-        if cloaked {
-            room.spray(
-                Spray::along(SprayKind::Swirl, at, up)
-                    .reach(tiles(0.6))
-                    .life(0.5)
-                    .colour(CLOAK_CYAN.alpha(0.5))
-                    .count(1)
-                    .dot(2.0),
-            );
-        }
         for p in patients {
             room.spray(
                 Spray::new(SprayKind::Trail, at, p)
@@ -397,6 +391,8 @@ pub fn running(game: &mut Game, real: f32) {
             );
         }
     }
+    // The medics' Healing Circles and Heal Drones (task 153).
+    circles_and_drones(game);
     // A Healing Sentry's lines to the crew it heals.
     let standing = game.world.deployables_in_room();
     let links = game.world.healing_links();
@@ -415,6 +411,90 @@ pub fn running(game: &mut Game, real: f32) {
                 .count(2)
                 .dot(2.0),
         );
+    }
+}
+
+/// A beat of every Healing Circle on (task 153): motes welling up from
+/// the whole of its floor, a rising plume off every Bim it heals, and
+/// embers off every enemy standing in it — the burn; and a Heal Drone's
+/// light falling on the Bim it hovers over.
+fn circles_and_drones(game: &mut Game) {
+    let up = vec2(0.0, -1.0);
+    let crew = game.world.aboard.room.crew_count();
+    for medic in 0..crew {
+        let w = &game.world;
+        if w.is_circling(medic)
+            && let Some(at) = crew_at(game, medic)
+        {
+            let reach = tiles(w.healing_circle_radius(medic));
+            let healed: Vec<Vec2> = w
+                .healing_circle_reaching(medic)
+                .into_iter()
+                .filter_map(|who| crew_at(game, who))
+                .collect();
+            let burned: Vec<Vec2> = w
+                .aboard
+                .room
+                .combat_targets_for_probe()
+                .into_iter()
+                .flatten()
+                .filter(|&p| (p - at).len() <= reach)
+                .collect();
+            let room = &mut game.world.aboard.room;
+            room.spray(
+                Spray::along(SprayKind::Motes, at, up)
+                    .reach(reach)
+                    .life(1.4)
+                    .colour(NANITE_GREEN.glowing(1.6))
+                    .count(5)
+                    .dot(2.6),
+            );
+            for p in healed {
+                room.spray(
+                    Spray::along(SprayKind::Motes, p, up)
+                        .reach(tiles(0.45))
+                        .life(1.0)
+                        .colour(NANITE_GREEN.glowing(2.0))
+                        .count(2)
+                        .dot(2.4),
+                );
+            }
+            for p in burned {
+                room.spray(
+                    Spray::along(SprayKind::Embers, p, up)
+                        .reach(tiles(0.5))
+                        .life(0.6)
+                        .colour(CIRCLE_BURN.glowing(2.0))
+                        .count(2)
+                        .dot(2.0),
+                );
+            }
+        }
+        let Some(drone) = game.world.drone_of(medic) else {
+            continue;
+        };
+        let from = vec2(drone.x, drone.y);
+        let Some(to) = drone.patient.and_then(|p| crew_at(game, p)) else {
+            continue;
+        };
+        if (to - from).len() <= tiles(world::class::HEAL_DRONE_REACH) {
+            game.world.aboard.room.spray(
+                Spray::new(SprayKind::Trail, from, to)
+                    .reach(4.0)
+                    .life(0.5)
+                    .colour(NANITE_GREEN.glowing(1.6))
+                    .count(2)
+                    .dot(2.0),
+            );
+            game.world.aboard.room.spray(
+                Spray::along(SprayKind::Motes, to, up)
+                    .reach(tiles(0.35))
+                    .life(0.8)
+                    .colour(NANITE_GREEN.glowing(1.8))
+                    .count(1)
+                    .dot(2.2),
+            );
+        }
     }
 }
 

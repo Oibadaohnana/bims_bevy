@@ -70,9 +70,13 @@ pub enum Clip {
     HealingSentry,
     Sandbags,
     Sentry,
+    /// The old Nanite Burst's hiss: a Heal Drone lifting off (task 153)
+    /// and a *Field Mender*.
     NaniteBurst,
     BeamOn,
     BeamOff,
+    /// The old cloak's shimmer: a Healing Circle coming up (task 153)
+    /// and a *Blink Drive*.
     Cloak,
     Taunt,
     BulwarkOn,
@@ -670,8 +674,8 @@ impl Sounds {
             // (sounds are not in feature 100): it borrows the wall's.
             Cue::Ricochet | Cue::Shielded => self.one_shot(commands, Clip::LaserWall, 0.18),
             // The throw is heard from the world's `Thrown` and
-            // `EmpThrown` (see [`Sounds::ability`]), which tell a grenade
-            // from an EMP; the room says both as one `Throw`.
+            // `SatchelThrown` (see [`Sounds::ability`]), which tell a
+            // grenade from a satchel; the room says both as one `Throw`.
             Cue::Throw => {}
             Cue::Burst => self.one_shot(commands, Clip::GrenadeBurst, 0.9),
             Cue::EmpBurst => self.one_shot(commands, Clip::EmpBurst, 0.6),
@@ -745,30 +749,43 @@ impl Sounds {
             // the grenade's.
             E::ShotCharging { who } => (who, Clip::Brace, 0.55),
             E::Rampaged { who } => (who, Clip::Rampage, 0.7),
-            E::EmpThrown { who } => (who, Clip::EmpThrow, 0.35),
+            // The engineer's (task 154): a satchel thrown borrows the EMP's
+            // throw, a mine laid the sandbags' thump, and the trigger's
+            // bursts are the grenade's cue, each.
+            E::SatchelThrown { who } => (who, Clip::EmpThrow, 0.35),
             E::Deployed { who, kind } => match DeployKind::from_code(kind) {
-                Some(DeployKind::Sandbags) => (who, Clip::Sandbags, 0.6),
+                Some(DeployKind::Mine) => (who, Clip::Sandbags, 0.45),
                 Some(DeployKind::HealingSentry) => (who, Clip::HealingSentry, 0.5),
                 Some(DeployKind::Sentry) => (who, Clip::Sentry, 0.6),
-                None => return,
+                Some(DeployKind::Satchel) | None => return,
             },
-            E::NaniteBurst { who, .. } => (who, Clip::NaniteBurst, 0.5),
+            // The medic's drone and circle (task 153) borrow the clips of
+            // the burst and the cloak they replaced: the canister's hiss as
+            // a drone lifts off, the shimmer as the circle comes up, and the
+            // beam's own let-go as it goes down.
+            E::DroneLaunched { who } => (who, Clip::NaniteBurst, 0.4),
+            E::Circled { who, on: true } => (who, Clip::Cloak, 0.5),
+            E::Circled { who, on: false } => (who, Clip::BeamOff, 0.3),
             E::Beamed {
                 who,
                 patient: Some(_),
             } => (who, Clip::BeamOn, 0.3),
             E::Beamed { who, patient: None } => (who, Clip::BeamOff, 0.3),
-            E::Cloaked { who, .. } => (who, Clip::Cloak, 0.5),
-            E::Taunted { who } => (who, Clip::Taunt, 0.6),
-            E::Bulwarked { who, on: true } => (who, Clip::BulwarkOn, 0.7),
-            E::Bulwarked { who, on: false } => (who, Clip::BulwarkOff, 0.45),
-            E::Juggernaut { who } => (who, Clip::Juggernaut, 0.75),
+            // The tank's (task 155) borrow the clips of the abilities they
+            // replaced: the wall's clank as the shield comes up and goes
+            // down (louder as it breaks), the taunt's shout for the
+            // barrier, the Juggernaut's roar for the Bastion.
+            E::ShieldRaised { who, on: true } => (who, Clip::BulwarkOn, 0.6),
+            E::ShieldRaised { who, on: false } => (who, Clip::BulwarkOff, 0.4),
+            E::ShieldBroken { who } => (who, Clip::BulwarkOff, 0.75),
+            E::Reflecting { who } => (who, Clip::Taunt, 0.55),
+            E::Bastion { who, .. } => (who, Clip::Juggernaut, 0.75),
             E::BattleCried { who } => (who, Clip::BattleCry, 0.35),
             E::Rallied { who } => (who, Clip::Rally, 0.3),
             E::Reinforced { who, .. } => (who, Clip::Reinforcements, 0.5),
             E::Medivac { who, .. } => (who, Clip::Reinforcements, 0.4),
-            // A Blink Drive (October 2026): the cloak's shimmer, short of a
-            // clip of its own.
+            // A Blink Drive (October 2026): the old cloak's shimmer, short of
+            // a clip of its own.
             E::Blinked { who } => (who, Clip::Cloak, 0.45),
             // The other active items (October 2026), each the sound of the
             // ability it is nearest: a burst of healing, a rampage's

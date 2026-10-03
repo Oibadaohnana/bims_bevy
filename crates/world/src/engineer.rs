@@ -5,11 +5,11 @@
 //!
 //! Only the **ultimate's cooldown** is kept here, because the rest of the
 //! ranked kit lives where it is used: the ranks on `class::Progress`, the
-//! EMP's, the Healing Sentry's and the sandbags' charges on the world's
-//! counters (`World::charges_held`), what is laid on
-//! `World::deployables` — the sentry stands there until it is destroyed
-//! — and a machine's stun on the machine
-//! (`bims::droid::Droid::stun`). The rules are all on the world.
+//! mines', the Healing Sentry's and the satchels' charges on the world's
+//! counters (`World::charges_held`), and what is laid or thrown on
+//! `World::deployables` — the sentry stands there until it is destroyed,
+//! a mine until an enemy sets it off, a satchel until the remote trigger
+//! (task 154). The rules are all on the world.
 
 /// One crew member's engineer state.
 #[derive(Clone, PartialEq, Debug, Default)]

@@ -217,6 +217,7 @@ impl Game {
         };
         self.reveal(self.bims.len() + i);
         self.lay_beam(from, aim, side, weapon, stats.reach(), damage, pace);
+        self.combat.sign_last_shot(self.bims.len() + i);
     }
 }
 

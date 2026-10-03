@@ -2645,36 +2645,47 @@ mod tests {
         }
     }
 
-    /// An engineer's EMP (task 127) in the room: it bursts on the
-    /// grenade's fuse, lands **no hit** on anything, and notes every target
-    /// standing within its radius — and none beyond it — for the world to
-    /// stun.
+    /// An engineer's mine or satchel set off (task 154): it bursts on the
+    /// next tick where it lies, a blast hit by the engineer on the target
+    /// within its radius and none on the one beyond it, nor on the crew
+    /// standing beside it; and a satchel lobbed lands with no hit at all.
     #[test]
-    fn an_emp_bursts_on_its_fuse_hurts_nothing_and_notes_the_targets_in_its_radius() {
+    fn a_charge_set_off_hits_the_enemy_in_its_radius_alone_and_a_satchel_lands() {
         use crate::game::Game;
         use crate::room::{ROOM_H, ROOM_W};
         let mut game = Game::bare(3, ROOM_W, ROOM_H);
         game.set_autonomous(false);
-        let from = game.bim_pos(0);
-        let near = from + vec2(3.0 * TILE, 0.0);
-        let far = from + vec2(3.0 * TILE, 5.0 * TILE);
+        let from = game.bim_pos(1);
+        let near = from + vec2(0.5 * TILE, 0.0);
+        let far = from + vec2(0.0, 5.0 * TILE);
         let arm = WeaponKind::Claw.at(Tier::One);
         game.set_hostiles(vec![Some((near, arm)), Some((far, arm))]);
-        game.throw_emp(0, near, 2.0, 2.0 * TILE, 1.5, true);
-        let mut stuns = Vec::new();
-        for _ in 0..(3 * 60) {
+        assert!(
+            game.enemy_near(from, TILE) && !game.enemy_near(from + vec2(0.0, 3.0 * TILE), TILE)
+        );
+        game.detonate(0, from, 2.0 * TILE, 80.0);
+        game.simulate(1.0 / 60.0);
+        // The burst's hits, not the crew's bolts at the targets.
+        let hits: Vec<_> = game.take_hits().into_iter().filter(|h| h.blast).collect();
+        assert!(game.grenades().is_empty(), "burst at once");
+        assert_eq!(hits.len(), 1, "{hits:?}");
+        assert_eq!((hits[0].who, hits[0].by), (0, Some(0)));
+        assert!(hits[0].blast && hits[0].damage > 40.0);
+        assert!(
+            game.take_wounds_taken().is_empty(),
+            "nobody of the crew is touched"
+        );
+        game.throw_satchel(0, far);
+        let mut landed = Vec::new();
+        for _ in 0..60 {
             game.simulate(1.0 / 60.0);
-            stuns.extend(game.take_stuns());
+            landed.extend(game.take_satchels_landed());
             assert!(
                 game.take_hits().iter().all(|h| !h.blast),
-                "an EMP lands no hit"
+                "a satchel lands no hit"
             );
         }
-        assert!(game.grenades().is_empty(), "burst");
-        assert_eq!(
-            stuns,
-            vec![(0, 1.5, true)],
-            "the one in the radius, and only it"
-        );
+        assert_eq!(landed, vec![(0, far)]);
+        assert!(game.grenades().is_empty());
     }
 }

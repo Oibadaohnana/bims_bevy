@@ -394,8 +394,8 @@ fn an_override_core_is_a_rank_past_the_fourth() {
     world.set_ranks_for_probe(0, [1, 1, 1, 4]);
     assert_eq!(world.rank_of(0, class::SLOT_R), class::OVERRIDE_RANK);
     assert_eq!(
-        world.juggernaut_seconds(0),
-        class::JUGGERNAUT_SECONDS[4],
+        world.bastion_radius(0),
+        class::BASTION_RADIUS[4],
         "the fifth row read"
     );
     carry(&mut world, 0, 0, None);

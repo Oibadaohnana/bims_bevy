@@ -1191,10 +1191,13 @@ Sparks off every muzzle and landing, a bolt's wake, a grenade's fire,
 flame ring and smoke, an EMP's lightning, a machine bursting, and every
 class ability: the commander's Rally and Battle Cry are a ring of light
 running out over their whole reach with motes rising in it, plus a
-Nanite Burst's green, a Taunt's and a Juggernaut's red, the Bulwark's
-blue, a Rampage's fire, a cloak drawn in and a reinforcement beamed down.
-While an ability runs, embers, motes or a shimmer come off the body, and
-green motes run along a medic's beam and a Healing Sentry's lines.
+Healing Circle's green going up, a Taunt's and a Juggernaut's red, the
+Bulwark's blue, a Rampage's fire, a Heal Drone lifting off and a
+reinforcement beamed down. While an ability runs, embers or motes come
+off the body, green motes run along a medic's beam, a Healing Sentry's
+lines and down from a Heal Drone, and a Healing Circle wells motes over
+its floor, the mending off every Bim it heals and embers off every enemy
+it burns (task 153, `sprays::circles_and_drones`).
 
 - **One record a spray, and nothing more from the CPU.**
   `bims::fx::Spray` (kind, where, which way, reach, life, colour, count,

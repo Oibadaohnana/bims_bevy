@@ -240,8 +240,9 @@ pub enum Command {
         slot: u32,
         ability_slot: u32,
     },
-    /// Send that player's own engineer to lay sandbags (E) or a Healing
-    /// Sentry (C) — `kind`, never the sentry, which is `Command::Sentry`
+    /// Send that player's own engineer to lay a mine (Q, task 154) or a
+    /// Healing Sentry (C) — `kind`, never the sentry, which is
+    /// `Command::Sentry`, nor a satchel, which is thrown (`CantDeployThere`)
     /// — on the tile `(x, y)` of the crew's room: a room tile, which the
     /// world puts on the ship's deck or the station's by where it lies.
     /// Wants the Bim fit to act (`OutOfReach`), an engineer
@@ -265,20 +266,19 @@ pub enum Command {
         slot: u32,
         tile: (i32, i32),
     },
-    /// That player's own engineer throws an **EMP** (task 127, Q) at the
-    /// room tile `(x, y)`: the grenade's range and fuse, refused as a
-    /// throw is (`OutOfReach`, `NotAnEngineer`, `NotLearnt`, `NoKit` with
-    /// no charge, `CantThrowThere`, `OutOfThrowRange`, `NoLineToTile`).
-    /// It harms nothing; it stuns every enemy machine in its radius.
-    Emp {
+    /// That player's own engineer's **remote trigger** (task 154, Space):
+    /// every satchel charge of his lying in the crew's room bursts at
+    /// once, each on its own (`World::detonate`). Refused `NotAnEngineer`,
+    /// `OutOfReach` (not fit to act, downed among it), `NotLearnt` at
+    /// rank nought of E and `NoSatchels` with none lying there. A satchel
+    /// is thrown with [`Command::ThrowAt`] and `satchel` set.
+    Detonate {
         slot: u32,
-        x: i32,
-        y: i32,
     },
-    /// Take one of that player's own engineer's sandbags or Healing
-    /// Sentries (`id`) back up: the engineer fit to act and within
-    /// [`data::REACH`] of it, the charge back, capped at its charges. The
-    /// sentry is never taken up (`NoSuchDeployable`).
+    /// Take one of that player's own engineer's mines or Healing Sentries
+    /// (`id`) back up: the engineer fit to act and within [`data::REACH`]
+    /// of it, the charge back, capped at its charges. The sentry and a
+    /// satchel are never taken up (`NoSuchDeployable`).
     PackUp {
         slot: u32,
         id: u32,
@@ -314,9 +314,10 @@ pub enum Command {
         y: i32,
     },
     /// That player's own Bim throws at the tile `(x, y)` of the crew's
-    /// room — a grenade, or with `emp` an engineer's EMP — **walking
-    /// first where it must**: within reach and with a line to the tile it
-    /// is [`Command::Throw`] (or [`Command::Emp`]) at once; out of reach
+    /// room — a grenade, or with `satchel` an engineer's satchel charge
+    /// (task 154) — **walking first where it must**: within reach and with
+    /// a line to the tile it is [`Command::Throw`] (or the satchel's throw,
+    /// [`World::can_throw_satchel`]) at once; out of reach
     /// or behind a wall it walks to the nearest spot it can throw from
     /// (`World::throw_stand`) and throws the step it can
     /// ([`World::throws`]). Called off by any other order that moves it,
@@ -324,7 +325,7 @@ pub enum Command {
     /// other refusals are the throw's own, said at once.
     ThrowAt {
         slot: u32,
-        emp: bool,
+        satchel: bool,
         x: i32,
         y: i32,
     },
@@ -345,64 +346,60 @@ pub enum Command {
     /// alive, within [`class::HEAL_BEAM_RANGE`] tiles and in its sight
     /// (`World::can_beam`) — or the medic itself (task 120). Linked, the
     /// patient gains [`class::HEAL_BEAM_HP`] hit points an hour of the
-    /// clock times the rank's [`class::HEAL_BEAM_RATE`] (task 130); the
-    /// medic walks but does not fire until the third rank, and then at
-    /// half the rate. At the fourth a second patient is held beside the
-    /// first, and a third takes the first's place.
+    /// clock times the rank's [`class::HEAL_BEAM_RATE`] (task 130), and
+    /// the medic heals as much himself (task 153); he fires at his full
+    /// rate while linked. At the fourth a second patient is held beside
+    /// the first, and a third takes the first's place.
     Beam {
         slot: u32,
         patient: Option<u32>,
     },
-    /// Set off that player's own medic's **Nanite Burst** (task 130, Q):
-    /// every friendly Bim on its feet within the rank's
-    /// [`class::NANITE_BURST_RADIUS`] of him and in his sight, himself
-    /// included, healed at once by the rank's
-    /// [`class::NANITE_BURST_HEAL`]. Wants the medic fit to act and not
-    /// downed, a rank, and the cooldown run out (`World::can_nanite_burst`).
-    NaniteBurst {
+    /// Drop that player's own medic's **Heal Drone** (task 153, Q): it
+    /// flies to the friendly Bim lowest on its bar and heals it slowly
+    /// for the rank's [`class::HEAL_DRONE_SECONDS`]. Wants the medic fit
+    /// to act and not downed, a rank, and the cooldown run out
+    /// (`World::can_heal_drone`).
+    HealDrone {
         slot: u32,
     },
-    /// **Cloak** crew member `target` — that player's own medic's ultimate
-    /// (task 130, R): the crewmate under the pointer within
-    /// [`class::CLOAK_RANGE`] tiles and in his sight, downed or not, or the
-    /// medic himself, which the app sends with nobody under the pointer.
-    /// Wants the medic fit to act and not downed, a rank, and the cooldown
-    /// run out (`World::can_cloak`).
-    Cloak {
-        slot: u32,
-        target: u32,
-    },
-    /// Stand that player's own tank as a wall, or stand it down (feature
-    /// 77; E of his ranked kit since task 139, `crate::class`,
-    /// `crate::tank`): with it on he walks at the rank's
-    /// [`class::BULWARK_PACE`] and a crewmate within its
-    /// [`class::BULWARK_REACH`] of him that he stands between and the
-    /// shooter is in cover against the shot. Refused `NotATank` for
-    /// anybody else, `OutOfReach` for one not fit to act and `NotLearnt`
-    /// at rank nought.
-    Bulwark {
+    /// Switch that player's own medic's **Healing Circle** on or off
+    /// (task 153, R, a toggle): on, every friendly Bim round him is
+    /// healed at the link's rate, he loses as much, and every enemy in it
+    /// burns at half of it. On wants the medic fit to act and not downed
+    /// and a rank (`World::can_healing_circle`); off is never refused to a
+    /// medic.
+    HealingCircle {
         slot: u32,
         on: bool,
     },
-    /// That player's own tank **taunts** (Q, task 139): for the rank's
-    /// [`class::TAUNT_SECONDS`] of the mission clock every enemy within
-    /// its [`class::TAUNT_RADIUS`] that can see him shoots at him and
-    /// nobody else. Refused `NotATank`, `OutOfReach` (not fit to act,
-    /// downed among it), `NotLearnt` at rank nought and `CoolingDown`
-    /// within the rank's [`class::TAUNT_COOLDOWN`] of the last
-    /// (`World::can_taunt`).
-    Taunt {
+    /// That player's own tank raises his **Riot Shield**, or puts it down
+    /// (Q, task 155, `crate::class`, `crate::tank`): a plate before him
+    /// that stops a hostile bolt from the front, takes its damage off the
+    /// shield's hit points and bounces it back as his. Refused `NotATank`
+    /// for anybody else, `OutOfReach` for one not fit to act or downed,
+    /// `NotLearnt` at rank nought and `ShieldRecharging` while a broken
+    /// shield is not yet a quarter back (`World::can_riot_shield`);
+    /// putting it down is never refused a tank.
+    RiotShield {
+        slot: u32,
+        on: bool,
+    },
+    /// That player's own tank raises his **Reflect Barrier** (E, task
+    /// 155): for the rank's [`class::REFLECT_SECONDS`] every enemy hit on
+    /// him goes back on its striker. Refused `NotATank`, `OutOfReach`,
+    /// `NotLearnt`, `AlreadyActive` while one runs and `CoolingDown`
+    /// within the rank's [`class::REFLECT_COOLDOWN`] of the last
+    /// (`World::can_reflect`).
+    Reflect {
         slot: u32,
     },
-    /// That player's own tank goes **Juggernaut** (R, his ultimate, task
-    /// 139): for the rank's [`class::JUGGERNAUT_SECONDS`] every enemy
-    /// that can see him, at any distance, shoots at him and nobody else,
-    /// and he takes the rank's [`class::JUGGERNAUT_DAMAGE_TAKEN`]. Refused
-    /// `NotATank`, `OutOfReach` (not fit to act, downed among it),
-    /// `NotLearnt`, `AlreadyActive` while one runs and `CoolingDown`
-    /// within [`class::JUGGERNAUT_COOLDOWN`] of the last
-    /// (`World::can_juggernaut`).
-    Juggernaut {
+    /// That player's own tank throws his **Bastion** (R, his ultimate,
+    /// task 155): every friend on his feet within the rank's
+    /// [`class::BASTION_RADIUS`] takes a shield of [`class::BASTION_HP`]
+    /// that drains [`class::BASTION_DRAIN`] a second. Refused `NotATank`,
+    /// `OutOfReach`, `NotLearnt` and `CoolingDown` within
+    /// [`class::BASTION_COOLDOWN`] of the last (`World::can_bastion`).
+    Bastion {
         slot: u32,
     },
     /// That player's own commander **rallies** (task 129, his E): for
@@ -1000,7 +997,7 @@ pub struct World {
     /// classes. In `world_checksum`.
     pub undocked_once: bool,
     /// Every deployable laid and standing, in id order: an engineer's
-    /// sandbags and sentries, on the ship's deck or a station's. See
+    /// mines, satchels and sentries, on the ship's deck or a station's. See
     /// [`crate::deploy`]. In `world_checksum` whole.
     pub deployables: Vec<Deployable>,
     /// The next deployable's id. Only ever climbs, like a site's.
@@ -1024,19 +1021,14 @@ pub struct World {
     #[cfg_attr(feature = "serde", serde(default))]
     pub engineers: Vec<crate::engineer::Engineer>,
     /// Each crew member's medic state, by index (feature 76,
-    /// `crate::medic`): who its beam holds, and when it last set off a
-    /// Nanite Burst and cloaked somebody (task 130). Empty for anybody but
-    /// a player's medic. In `world_checksum` whole.
+    /// `crate::medic`): who its beam holds, its heal drone and when it
+    /// last dropped one, and whether its healing circle is on (task 153).
+    /// Empty for anybody but a player's medic. In `world_checksum` whole.
     pub medics: Vec<Medic>,
-    /// Each crew member's **cloak**, by index (task 130,
-    /// `crate::medic::Cloak`): when it ends and how fast it walks while
-    /// it lasts. Default for anybody not cloaked. In `world_checksum`
-    /// where any is.
-    #[cfg_attr(feature = "serde", serde(default))]
-    pub cloaks: Vec<crate::medic::Cloak>,
     /// Each crew member's tank state, by index (feature 77,
-    /// `crate::tank`): when he last taunted, which is the whole of it.
-    /// Empty for anybody but a player's tank. In `world_checksum`.
+    /// `crate::tank`): his Riot Shield, his Reflect Barrier and his Bastion,
+    /// and the haste a Bastion left on anybody (task 155). In
+    /// `world_checksum`.
     pub tanks: Vec<Tank>,
     /// Each crew member's commander state, by index (feature 78,
     /// `crate::commander`): when his last Battle Cry and Rally began and
@@ -1293,7 +1285,6 @@ impl World {
             charge_timers: vec![[None; Charge::CODES]; crew as usize],
             engineers: vec![crate::engineer::Engineer::default(); crew as usize],
             medics: vec![Medic::default(); crew as usize],
-            cloaks: vec![crate::medic::Cloak::default(); crew as usize],
             tanks: vec![Tank::default(); crew as usize],
             commanders: vec![Commander::default(); crew as usize],
             reinforcements: Vec::new(),
@@ -1470,11 +1461,11 @@ impl World {
         let builds = self.build_orders();
         let suit_ok = self.suit_ok();
         self.aboard.room.set_build_orders(builds, suit_ok);
-        //    And the engineers' work (feature 74): the sandbags laid as
-        //    cover on both rooms, and the sentries on the crew's deck to be
-        //    fired there. What the fight did to them is read back after
-        //    `visit`. And every class's charges: a spent sandbag, Healing
-        //    Sentry, EMP or grenade comes back onto its counter on its own
+        //    And the engineers' work (feature 74): the sentries on the
+        //    crew's deck to be fired there. What the fight did to them is
+        //    read back after `visit`. And every class's charges: a spent
+        //    mine, Healing Sentry, satchel or grenade comes back onto its
+        //    counter on its own
         //    cooldown (features 88 and 90, task 127), before the boxes at
         //    the foot of the screen are read.
         self.restock_charges();
@@ -1483,14 +1474,12 @@ impl World {
         //    every step because a class is chosen, a crew member joins
         //    and a save is read without anything else telling the room.
         self.hand_the_room_the_outfits();
-        //    And the medics' cloaks (task 130): one run out forgotten and
-        //    the room told who is cloaked, before the beams, which a
-        //    cloaked medic lets go.
-        self.hand_the_room_the_cloaks();
         //    And the medics' (feature 76): every beam checked and the
-        //    patients healed, before the soldiers' skills, since a
-        //    medic beaming holds its fire through them.
+        //    patients and the medic healed, then every healing circle
+        //    and every heal drone (task 153).
         self.hand_the_room_the_medics(&mut events);
+        self.hand_the_room_the_circles(&mut events);
+        self.fly_the_drones();
         //    And the engineers' Healing Sentries (task 127), beside the beam.
         self.heal_by_sentries();
         //    And which crew members are hired **field medics** (feature
@@ -1502,8 +1491,8 @@ impl World {
         //    (October 2026): said every step, since a level is reached,
         //    a class chosen and a save read without the room being told.
         self.hand_the_room_the_levels();
-        //    And the tanks' (feature 77): the walls standing among the
-        //    crew, before the skills, which read the bulwark off the room.
+        //    And the tanks' (task 155): every Riot Shield held up, for the
+        //    crew's room to stop and bounce the bolts that meet it.
         self.hand_the_room_the_tanks();
         //    The commanders' list kept as long as the crew.
         self.size_the_commanders();
@@ -1516,6 +1505,9 @@ impl World {
         self.hand_the_room_the_soldiers();
         //    And a pistol for every empty hand under arms.
         self.arm_the_empty_handed(&mut events);
+        //    And every mine an enemy has come within a tile of goes off
+        //    (task 154), into the room before it steps.
+        self.settle_mines(&mut events);
         //    How many hits each player's Bim had taken before the rooms
         //    stepped, for an item that notes one.
         let hits_before = self.hits_before_the_step();
@@ -1526,9 +1518,12 @@ impl World {
         if let Some(rng) = self.aboard.room.take_crit_rng() {
             self.crit_rng = rng;
         }
-        // An EMP that burst in the crew's room stuns the machines it
-        // reached before their own room steps (task 127).
+        // A Stun Shot that burst in the crew's room stuns the machines it
+        // reached before their own room steps.
         self.settle_stuns();
+        // The satchels that landed this step lie on the deck now (task
+        // 154), before a throw walked out to is made.
+        self.settle_satchels_landed();
         // And a throw a crew member walked out to make, the step it can.
         self.settle_throws(&mut events);
         // A townsperson with a crew member's hands on it stands its
@@ -1540,9 +1535,11 @@ impl World {
         }
         self.visit(&mut events);
         self.settle_deployables(&mut events);
-        self.settle_bursts(&mut events);
         self.sync_lamps();
         self.casualties(&mut events);
+        //    And the tanks' shields struck and restored, and Plated's mending
+        //    (task 155).
+        self.settle_tanks(&mut events);
         //    And the crew's relics' regeneration (feature 106).
         self.relics_mend();
         //    And the items (October 2026): a hit noted for the blink and
@@ -1603,17 +1600,17 @@ impl World {
             | Command::Rampage { slot }
             | Command::Deploy { slot, .. }
             | Command::Sentry { slot, .. }
-            | Command::Emp { slot, .. }
+            | Command::Detonate { slot }
             | Command::PackUp { slot, .. }
             | Command::StunShot { slot, .. }
             | Command::Throw { slot, .. }
             | Command::ThrowAt { slot, .. }
             | Command::Beam { slot, .. }
-            | Command::NaniteBurst { slot }
-            | Command::Cloak { slot, .. }
-            | Command::Bulwark { slot, .. }
-            | Command::Taunt { slot }
-            | Command::Juggernaut { slot }
+            | Command::HealDrone { slot }
+            | Command::HealingCircle { slot, .. }
+            | Command::RiotShield { slot, .. }
+            | Command::Reflect { slot }
+            | Command::Bastion { slot }
             | Command::Rally { slot }
             | Command::BattleCry { slot }
             | Command::Reinforce { slot }
@@ -1709,37 +1706,6 @@ impl World {
             events.push(refused(slot, Refusal::FightOver));
             return;
         }
-        // **A cloaked Bim uses no class ability** (task 130): every key a
-        // class has is refused while its cloak lasts — a wall
-        // put *down*, a beam let go, a pack-up and a carry are not
-        // abilities used, and go through.
-        let class_ability = matches!(
-            command,
-            Command::Deploy { .. }
-                | Command::Sentry { .. }
-                | Command::Emp { .. }
-                | Command::Throw { .. }
-                | Command::ThrowAt { .. }
-                | Command::Rampage { .. }
-                | Command::StunShot { .. }
-                | Command::Beam {
-                    patient: Some(_),
-                    ..
-                }
-                | Command::NaniteBurst { .. }
-                | Command::Cloak { .. }
-                | Command::Bulwark { on: true, .. }
-                | Command::Taunt { .. }
-                | Command::Juggernaut { .. }
-                | Command::Rally { .. }
-                | Command::BattleCry { .. }
-                | Command::Reinforce { .. }
-                | Command::Medivac { .. }
-        );
-        if class_ability && self.is_cloaked(slot) {
-            events.push(refused(slot, Refusal::Cloaked));
-            return;
-        }
         match command {
             // Speed is not an order to the ship: a player who is nowhere
             // near anything may still say they want to watch this bit
@@ -1827,8 +1793,8 @@ impl World {
                     events.push(refused(slot, why));
                 }
             }
-            Command::Emp { x, y, .. } => match self.throw_emp(slot, (x, y)) {
-                Ok(()) => events.push(WorldEvent::EmpThrown { who: slot }),
+            Command::Detonate { .. } => match self.detonate(slot) {
+                Ok(count) => events.push(WorldEvent::SatchelsBlown { who: slot, count }),
                 Err(why) => events.push(refused(slot, why)),
             },
             Command::PackUp { id, .. } => self.pack_up(slot, id, events),
@@ -1840,8 +1806,8 @@ impl World {
                 Ok(()) => events.push(WorldEvent::Thrown { who: slot }),
                 Err(why) => events.push(refused(slot, why)),
             },
-            Command::ThrowAt { emp, x, y, .. } => {
-                if let Err(why) = self.throw_at(slot, emp, (x, y), events) {
+            Command::ThrowAt { satchel, x, y, .. } => {
+                if let Err(why) = self.throw_at(slot, satchel, (x, y), events) {
                     events.push(refused(slot, why));
                 }
             }
@@ -1849,24 +1815,25 @@ impl World {
                 Ok(()) => events.push(WorldEvent::Beamed { who: slot, patient }),
                 Err(why) => events.push(refused(slot, why)),
             },
-            Command::NaniteBurst { .. } => match self.nanite_burst(slot) {
-                Ok(healed) => events.push(WorldEvent::NaniteBurst { who: slot, healed }),
+            Command::HealDrone { .. } => match self.heal_drone(slot) {
+                Ok(()) => events.push(WorldEvent::DroneLaunched { who: slot }),
                 Err(why) => events.push(refused(slot, why)),
             },
-            Command::Cloak { target, .. } => match self.cloak(slot, target) {
-                Ok(()) => events.push(WorldEvent::Cloaked { who: slot, target }),
+            Command::HealingCircle { on, .. } => match self.healing_circle(slot, on) {
+                Ok(()) => events.push(WorldEvent::Circled { who: slot, on }),
                 Err(why) => events.push(refused(slot, why)),
             },
-            Command::Bulwark { on, .. } => match self.bulwark(slot, on) {
-                Ok(()) => events.push(WorldEvent::Bulwarked { who: slot, on }),
+            Command::RiotShield { on, .. } => match self.riot_shield(slot, on) {
+                Ok(true) => events.push(WorldEvent::ShieldRaised { who: slot, on }),
+                Ok(false) => {}
                 Err(why) => events.push(refused(slot, why)),
             },
-            Command::Taunt { .. } => match self.taunt(slot) {
-                Ok(()) => events.push(WorldEvent::Taunted { who: slot }),
+            Command::Reflect { .. } => match self.reflect(slot) {
+                Ok(()) => events.push(WorldEvent::Reflecting { who: slot }),
                 Err(why) => events.push(refused(slot, why)),
             },
-            Command::Juggernaut { .. } => match self.juggernaut(slot) {
-                Ok(()) => events.push(WorldEvent::Juggernaut { who: slot }),
+            Command::Bastion { .. } => match self.bastion(slot) {
+                Ok(reached) => events.push(WorldEvent::Bastion { who: slot, reached }),
                 Err(why) => events.push(refused(slot, why)),
             },
             Command::Rally { .. } => match self.rally(slot) {
@@ -1991,8 +1958,8 @@ impl World {
     /// run is over, said once and kept.
     fn check_lost(&mut self, events: &mut Vec<WorldEvent>) {
         // Since the run (feature 103) the run is lost when every player's
-        // Bim is dead at once — not merely down, and whatever the bots are
-        // doing: see `mission.rs`.
+        // Bim is dead at once — whatever the bots are doing — or when the
+        // whole crew, bots too, is down or dead: see `mission.rs`.
         self.check_run_lost(events);
     }
 
@@ -2250,8 +2217,6 @@ impl World {
         self.residents = Some(residents);
         self.apply_stances();
         self.restore_lamps();
-        // And the laid sandbags onto both fresh rooms (feature 74).
-        self.sync_deployed_cover();
     }
 
     /// Whose a station is, to the crew: a station the machines hold is
@@ -2699,18 +2664,6 @@ impl World {
                     .map(|p| (p, self.sentry_weapon(d.owner_slot)))
             })
             .collect();
-        // And what each of the crew forces on the enemy (features 77 and
-        // 139): a tank's Taunt or his Juggernaut. Worked out here for the
-        // same reason as the sentries: the ranks are the world's. This is
-        // the room the enemies aim and charge in, whoever they are — and
-        // in a town the crew defend, the machines' own list starts with
-        // the crew, so it is said to that list too.
-        let taunts = self.taunts_for_the_enemy();
-        // And who of the crew no enemy aims at — a relic's *Signal
-        // Scrambler* (task 118), a medic's cloak (task 130) — for the
-        // same reason.
-        let unseen = self.hidden_from_enemies();
-        let withheld = unseen.iter().any(|&h| h);
         // The crew's hits on the machines, landed through the relics
         // (task 118) — with none held, the same strike the loop below made
         // — and the hits on the residents' Bims handed back to it.
@@ -2860,16 +2813,6 @@ impl World {
                 })
             })
             .collect();
-        // A crew member under *Signal Scrambler*'s cloak (task 118) or a
-        // medic's (task 130) is on nobody's list: no enemy aims at it while
-        // it lasts, and one that was drops it this step. And an enemy left
-        // with nobody it may pick holds where it stands.
-        for (who, &hidden) in unseen.iter().enumerate() {
-            if hidden && let Some(c) = crew.get_mut(who) {
-                *c = None;
-            }
-        }
-        room.set_targets_withheld(withheld);
         // And the engineers' sentries after them (feature 74), each at
         // its spot with its rifle: the nearest-target rule includes them,
         // and a hit past the crew's count is a hit on one.
@@ -2957,7 +2900,6 @@ impl World {
                 );
             }
             room.set_machine_hostiles(theirs, cross);
-            room.set_machine_hostiles_taunting(&taunts);
             // And who takes arms: **a town's guard, any mercenaries and
             // the defenders** (task 111). Everybody else walks into the
             // nearest house — the nearest bunk, at a station — and stays
@@ -2984,7 +2926,6 @@ impl World {
             room.set_told(residents.manufacturers_laid > 1);
             room.set_hostiles(crew.clone());
             room.set_hostiles_peeking(&self.aboard.crew_peeking());
-            room.set_hostiles_taunting(&taunts);
             // And the odds each dodges a bolt for its armour, the same way.
             let crew_dodge: Vec<f32> = (0..self.aboard.crew_count())
                 .map(|who| self.aboard.room.dodge(who as usize))
@@ -3040,13 +2981,17 @@ impl World {
                 // through the frame like any shot's, so a turned or
                 // mirrored station carries the sweep the right way round.
                 if let Some(end) = shot.sweep {
-                    self.aboard.room.enemy_sweep(
+                    // Signed with who swept it — the residents' body index,
+                    // which is its index on the crew's targets — for a
+                    // Reflect Barrier to send a hit back to (task 155).
+                    self.aboard.room.enemy_sweep_by(
                         on_deck(shot.from),
                         on_deck(shot.at),
                         on_deck(end),
                         shot.weapon,
                         shot.damage,
                         shot.pace,
+                        shot.shooter,
                     );
                     continue;
                 }
@@ -3071,21 +3016,23 @@ impl World {
                                 shot.damage,
                             );
                         } else {
-                            self.aboard.room.enemy_strike(
+                            self.aboard.room.enemy_strike_by(
                                 on_deck(shot.from),
                                 who,
                                 shot.damage,
                                 shot.cut,
+                                shot.shooter,
                             );
                         }
                     }
                     continue;
                 }
-                self.aboard.room.enemy_fire(
+                self.aboard.room.enemy_fire_by(
                     on_deck(shot.from),
                     on_deck(shot.at),
                     shot.weapon,
                     shot.moving,
+                    shot.shooter,
                 );
             }
         }
@@ -3210,16 +3157,13 @@ impl World {
                 // Since the run (feature 103) a dead player's level,
                 // experience and talents are **kept** for its buyback; a
                 // bot is gone for good and costs the pool (`fall`). A
-                // medic's beam and timers go with the body (feature 76),
-                // and so does a cloak on anybody (task 130).
+                // medic's beam, drone and circle go with the body (feature
+                // 76, task 153).
                 self.fall(who as u32, events);
                 if let Some(medic) = self.medics.get_mut(who) {
                     *medic = Medic::default();
                 }
-                if let Some(cloak) = self.cloaks.get_mut(who) {
-                    *cloak = crate::medic::Cloak::default();
-                }
-                // And a tank's taunt with it (feature 77), and a
+                // And a tank's shield and barrier with it (task 155), and a
                 // commander's rally (feature 78).
                 if let Some(tank) = self.tanks.get_mut(who) {
                     *tank = Tank::default();
@@ -3264,10 +3208,8 @@ impl World {
         }
         self.restore_lamps();
         // A station's deck is left behind with its deployables (feature
-        // 74); the ship's keep theirs, and both rooms are told the cover
-        // again on the next step, since a fresh `Sight` has none.
+        // 74); the ship's keep theirs.
         self.drop_station_deployables();
-        self.sync_deployed_cover();
     }
 
     /// The nearest station, and how far the ship is from its hull.
@@ -3791,8 +3733,6 @@ impl World {
             }
         }
         self.restore_lamps();
-        // A relayout is a fresh `Sight`: the laid sandbags again (feature 74).
-        self.sync_deployed_cover();
     }
 
     // --- holding at a belt ---------------------------------------------------
@@ -4505,8 +4445,6 @@ impl World {
         self.clear_carries();
         self.medics
             .resize(self.aboard.crew as usize, Medic::default());
-        self.cloaks
-            .resize(self.aboard.crew as usize, crate::medic::Cloak::default());
         self.tanks
             .resize(self.aboard.crew as usize, Tank::default());
         self.commanders
@@ -4911,7 +4849,7 @@ impl World {
     }
 
     /// The room laid out again on the ship as it is — a relayout with no
-    /// part built, which is what a relayout is to the sandbags laid on it
+    /// part built, which is what a relayout is to what is laid on it
     /// (feature 74). For the tests.
     pub fn relayout_room_for_probe(&mut self) {
         self.relayout_room();
@@ -7222,7 +7160,7 @@ impl World {
     /// none at rank nought — which is what the cooldowns fill back up to.
     /// Counters on the world, never things in a pack.
     fn give_engineer_kit(&mut self, who: usize) {
-        for charge in [Charge::Sandbag, Charge::HealingSentry, Charge::Emp] {
+        for charge in [Charge::Mine, Charge::HealingSentry, Charge::Satchel] {
             let n = self.charges(who as u32, charge);
             self.set_charges_held(who as u32, charge, n);
         }
@@ -7231,7 +7169,7 @@ impl World {
     /// And out again: every counter at nought, and the ultimate's
     /// cooldown forgotten.
     fn take_engineer_kit(&mut self, who: usize) {
-        for charge in [Charge::Sandbag, Charge::HealingSentry, Charge::Emp] {
+        for charge in [Charge::Mine, Charge::HealingSentry, Charge::Satchel] {
             self.set_charges_held(who as u32, charge, 0);
         }
         if let Some(e) = self.engineers.get_mut(who) {
@@ -7257,7 +7195,7 @@ impl World {
 
     /// The engineer's three, all at `n`: `BIMS_KITS=n`.
     pub fn set_kits_for_probe(&mut self, n: u32) {
-        for charge in [Charge::Sandbag, Charge::HealingSentry, Charge::Emp] {
+        for charge in [Charge::Mine, Charge::HealingSentry, Charge::Satchel] {
             self.set_charges_for_probe(charge, n);
         }
     }
@@ -7620,32 +7558,6 @@ impl World {
         Some(bims::math::vec2(at.x as f32, at.y as f32))
     }
 
-    /// The same in the residents' room, or `None` when it has no such
-    /// deck: the ship's, while the rooms are joined; the station's own,
-    /// whenever the room is open.
-    fn deployable_residents_pos(&self, d: &Deployable) -> Option<bims::math::Vec2> {
-        let residents = self.residents.as_ref()?;
-        let t = shipdesign::TILE as f64;
-        let p = dvec2((d.tile.0 as f64 + 0.5) * t, (d.tile.1 as f64 + 0.5) * t);
-        let at = match d.deck {
-            Deck::Ship => residents.aboard.from_station(p)?,
-            Deck::Station(id) => {
-                if residents.station != id {
-                    return None;
-                }
-                let at = residents.aboard.to_room(p);
-                return Some(at);
-            }
-        };
-        Some(bims::math::vec2(at.x as f32, at.y as f32))
-    }
-
-    /// The tile of low cover a point is the middle of.
-    fn cover_rect(at: bims::math::Vec2) -> bims::math::Rect {
-        let t = shipdesign::TILE as f32;
-        bims::math::Rect::from_center_size(at, bims::math::vec2(t, t))
-    }
-
     /// The deployable of a kind on a deck's tile, if any.
     fn deployable_at(&self, deck: Deck, tile: (u32, u32)) -> Option<&Deployable> {
         self.deployables
@@ -7708,7 +7620,9 @@ impl World {
     fn deployable_weapon(&self, d: &Deployable) -> Weapon {
         match d.kind {
             DeployKind::Sentry => self.sentry_weapon(d.owner_slot),
-            DeployKind::HealingSentry | DeployKind::Sandbags => WeaponKind::LaserPistol.basic(),
+            DeployKind::HealingSentry | DeployKind::Mine | DeployKind::Satchel => {
+                WeaponKind::LaserPistol.basic()
+            }
         }
     }
 
@@ -7730,7 +7644,8 @@ impl World {
     pub fn laid_health(&self, kind: DeployKind, owner: u32) -> f32 {
         let at = |slot| self.rank_of(owner, slot).max(1);
         match kind {
-            DeployKind::Sandbags => class::by_rank(class::SANDBAG_HEALTH, at(class::SLOT_E)),
+            // A mine and a satchel are nobody's target: a token health.
+            DeployKind::Mine | DeployKind::Satchel => Some(1.0),
             DeployKind::HealingSentry => {
                 class::by_rank(class::HEALING_SENTRY_HEALTH, at(class::SLOT_C))
             }
@@ -7753,9 +7668,9 @@ impl World {
             return 0;
         }
         let table = match charge {
-            Charge::Sandbag => class::SANDBAG_CHARGES,
+            Charge::Mine => class::MINE_CHARGES,
             Charge::HealingSentry => class::HEALING_SENTRY_CHARGES,
-            Charge::Emp => class::EMP_CHARGES,
+            Charge::Satchel => class::SATCHEL_CHARGES,
             // Frag Grenade's rank (task 124): none before the first.
             Charge::Grenade => class::GRENADE_CHARGES,
         };
@@ -7766,9 +7681,9 @@ impl World {
     /// rank's (tasks 124 and 127) — and a relic's factor on it.
     pub fn charge_cooldown(&self, who: u32, charge: Charge) -> f64 {
         let table = match charge {
-            Charge::Sandbag => class::SANDBAG_COOLDOWN,
+            Charge::Mine => class::MINE_COOLDOWN,
             Charge::HealingSentry => class::HEALING_SENTRY_COOLDOWN,
-            Charge::Emp => class::EMP_COOLDOWN,
+            Charge::Satchel => class::SATCHEL_COOLDOWN,
             Charge::Grenade => class::GRENADE_COOLDOWN,
         };
         let rank = self.rank_of(who, charge.slot()).max(1);
@@ -7862,16 +7777,20 @@ impl World {
         Ok(at)
     }
 
-    /// What a deploy of sandbags or a Healing Sentry asks, before the
+    /// What a deploy of a mine or a Healing Sentry asks, before the
     /// errand: the slot's Bim fit to act (`OutOfReach`), an engineer
     /// (`NotAnEngineer`), the ability at rank one (`NotLearnt`), a charge
     /// (`NoKit`), and the tile free to take it (`CantDeployThere`). The
-    /// sentry is asked [`World::can_lay_sentry`]. What the app greys a
-    /// press out with, and [`Command::Deploy`]'s own check.
+    /// sentry is asked [`World::can_lay_sentry`]; a satchel is thrown,
+    /// never laid (`CantDeployThere`). What the app greys a press out
+    /// with, and [`Command::Deploy`]'s own check.
     pub fn can_deploy(&self, slot: u32, kind: DeployKind, tile: (i32, i32)) -> Result<(), Refusal> {
         let Some(charge) = kind.charge() else {
             return self.can_lay_sentry(slot, tile);
         };
+        if !kind.is_laid() {
+            return Err(Refusal::CantDeployThere);
+        }
         if !self.fit_to_act(slot) {
             return Err(Refusal::OutOfReach);
         }
@@ -7918,10 +7837,8 @@ impl World {
     /// steps: its kind's at the rank (task 127).
     pub fn deploy_minutes(&self, slot: u32, kind: DeployKind) -> f64 {
         match kind {
-            DeployKind::Sandbags => {
-                let rank = self.rank_of(slot, class::SLOT_E).max(1);
-                class::by_rank(class::SANDBAG_MINUTES, rank).unwrap_or(0.0)
-            }
+            DeployKind::Mine => class::MINE_MINUTES,
+            DeployKind::Satchel => 0.0,
             DeployKind::HealingSentry => {
                 let rank = self.rank_of(slot, class::SLOT_C).max(1);
                 class::by_rank(class::HEALING_SENTRY_MINUTES, rank).unwrap_or(0.0)
@@ -8007,11 +7924,11 @@ impl World {
     /// still held, which is spent; for the sentry, if it is still ready.
     /// Nothing laid is anybody's experience (task 119).
     ///
-    /// From [`class::SANDBAG_DOUBLE_RANK`] one charge of sandbags lays a
-    /// second tile on the first free neighbour, north, east, south, west.
     /// A Healing Sentry laid with as many of that engineer's standing as
-    /// it has charges **destroys its oldest**; the sentry, one standing at
-    /// a time, destroys the one before and starts its cooldown.
+    /// it has charges **destroys its oldest**, and a mine past
+    /// [`class::MINE_STANDING`] takes the oldest up; the sentry, one
+    /// standing at a time, destroys the one before and starts its
+    /// cooldown. A satchel never comes this way: it is thrown.
     fn finish_deploy(
         &mut self,
         who: usize,
@@ -8023,7 +7940,7 @@ impl World {
         let Some(kind) = DeployKind::from_code(code) else {
             return;
         };
-        if !self.is_engineer(slot) {
+        if !self.is_engineer(slot) || kind == DeployKind::Satchel {
             return;
         }
         let (deck, tile) = self.deck_of(at);
@@ -8058,7 +7975,10 @@ impl World {
                     .unwrap_or(1) as u32
             }
             DeployKind::HealingSentry => self.charges(slot, Charge::HealingSentry).max(1),
-            DeployKind::Sandbags => u32::MAX,
+            DeployKind::Mine => {
+                class::by_rank(class::MINE_STANDING, self.rank_of(slot, class::SLOT_Q)).unwrap_or(1)
+            }
+            DeployKind::Satchel => u32::MAX,
         };
         while self.laid_of(slot, kind) >= limit {
             let Some(oldest) = self
@@ -8074,26 +7994,10 @@ impl World {
             events.push(WorldEvent::DeployableLost { kind: kind.code() });
         }
         self.lay(kind, slot, deck, tile);
-        if kind == DeployKind::Sandbags
-            && self.rank_of(slot, class::SLOT_E) >= class::SANDBAG_DOUBLE_RANK
-        {
-            let t = shipdesign::TILE as f32;
-            let beside = [(0.0, -1.0), (1.0, 0.0), (0.0, 1.0), (-1.0, 0.0)]
-                .into_iter()
-                .map(|(dx, dy)| at + bims::math::vec2(dx * t, dy * t))
-                .find(|&p| {
-                    self.aboard.room.deploy_tile_ok(who, p) && self.deployable_under(p).is_none()
-                });
-            if let Some(p) = beside {
-                let (deck, tile) = self.deck_of(p);
-                self.lay(DeployKind::Sandbags, slot, deck, tile);
-            }
-        }
         events.push(WorldEvent::Deployed {
             who: slot,
             kind: kind.code(),
         });
-        self.sync_deployed_cover();
         self.hand_the_room_the_sentries();
     }
 
@@ -8133,9 +8037,9 @@ impl World {
         Ok(d)
     }
 
-    /// Sandbags or a Healing Sentry taken back up — see
+    /// A mine or a Healing Sentry taken back up — see
     /// [`Command::PackUp`]: the charge back, capped at the engineer's
-    /// charges. The sentry is never taken up.
+    /// charges. The sentry and a satchel are never taken up.
     fn pack_up(&mut self, slot: u32, id: u32, events: &mut Vec<WorldEvent>) {
         let d = match self.deployable_in_reach(slot, id) {
             Ok(d) => d,
@@ -8144,7 +8048,7 @@ impl World {
                 return;
             }
         };
-        let Some(charge) = d.kind.charge() else {
+        let Some(charge) = d.kind.charge().filter(|_| d.kind.packs_up()) else {
             events.push(refused(slot, Refusal::NoSuchDeployable));
             return;
         };
@@ -8154,14 +8058,11 @@ impl World {
             who: slot,
             kind: d.kind.code(),
         });
-        self.sync_deployed_cover();
         self.hand_the_room_the_sentries();
     }
 
-    /// Before the rooms step: the sandbags laid as cover on both rooms,
-    /// and the sentries on the crew's deck.
+    /// Before the rooms step: the sentries on the crew's deck.
     fn hand_the_room_the_engineers(&mut self) {
-        self.sync_deployed_cover();
         self.hand_the_room_the_sentries();
     }
 
@@ -8284,29 +8185,6 @@ impl World {
         }
     }
 
-    /// The laid sandbags as cover on both rooms, as they stand now. Cheap
-    /// when nothing changed (`Sight::set_laid_cover` compares), so it is
-    /// asked every step and after every change to the list.
-    fn sync_deployed_cover(&mut self) {
-        let bags: Vec<&Deployable> = self
-            .deployables
-            .iter()
-            .filter(|d| d.kind == DeployKind::Sandbags)
-            .collect();
-        let crew: Vec<bims::math::Rect> = bags
-            .iter()
-            .filter_map(|d| self.deployable_room_pos(d).map(World::cover_rect))
-            .collect();
-        let theirs: Vec<bims::math::Rect> = bags
-            .iter()
-            .filter_map(|d| self.deployable_residents_pos(d).map(World::cover_rect))
-            .collect();
-        self.aboard.room.set_laid_cover(&crew);
-        if let Some(residents) = &mut self.residents {
-            residents.aboard.room.set_laid_cover(&theirs);
-        }
-    }
-
     /// The sentries in the crew's room, index for index with how they
     /// were handed over, with where each stands: what the residents'
     /// room is handed after the crew as targets.
@@ -8320,8 +8198,7 @@ impl World {
     }
 
     /// After `visit`: what the fight did to the deployables — the hits the
-    /// sentries took, the bolts the sandbags stopped — and what is gone
-    /// for it, said. Nothing comes back: a Healing Sentry's charge returns
+    /// sentries took — and what is gone for it, said. Nothing comes back: a Healing Sentry's charge returns
     /// on its cooldown like any other, and the sentry's cooldown runs on.
     pub(crate) fn settle_deployables(&mut self, events: &mut Vec<WorldEvent>) {
         for (id, damage) in self.aboard.room.take_sentry_hits() {
@@ -8329,20 +8206,9 @@ impl World {
                 d.health -= damage;
             }
         }
-        let hits = self.aboard.room.take_cover_hits();
-        if !hits.is_empty() {
-            let t = shipdesign::TILE as f32;
-            for ((x, y), damage) in hits {
-                let p = bims::math::vec2((x as f32 + 0.5) * t, (y as f32 + 0.5) * t);
-                if let Some((d, _)) = self
-                    .deployable_under(p)
-                    .filter(|(d, _)| d.kind == DeployKind::Sandbags)
-                    && let Some(d) = self.deployables.iter_mut().find(|x| x.id == d.id)
-                {
-                    d.health -= damage;
-                }
-            }
-        }
+        // Nothing laid is cover since the sandbags went (task 154): a bolt
+        // stopped by laid cover is the room's to forget.
+        self.aboard.room.take_cover_hits();
         let gone: Vec<Deployable> = self
             .deployables
             .iter()
@@ -8359,7 +8225,6 @@ impl World {
                 kind: d.kind.code(),
             });
         }
-        self.sync_deployed_cover();
     }
 
     /// The deployables on a station's deck are lost when the rooms
@@ -8370,40 +8235,83 @@ impl World {
             .retain(|d| d.deck == Deck::Ship && d.kind != DeployKind::Sentry);
     }
 
-    // --- the engineer's EMP (task 127) ---------------------------------------
+    // --- the engineer's mines and satchel charges (task 154) ----------------
 
-    /// How far an EMP's burst reaches, in tiles: the Q rank's
-    /// [`class::EMP_RADIUS`], nought before the first.
-    pub fn emp_radius(&self, who: u32) -> f32 {
-        class::by_rank(class::EMP_RADIUS, self.rank_of(who, class::SLOT_Q)).unwrap_or(0.0)
+    /// What one of `who`'s mines does at its centre, and how far its blast
+    /// reaches in tiles: the Q rank's [`class::MINE_DAMAGE`] and
+    /// [`class::MINE_RADIUS`] — the first rank's for one laid at none,
+    /// which only a probe does.
+    pub fn mine_blast(&self, who: u32) -> (f32, f32) {
+        let rank = self.rank_of(who, class::SLOT_Q).max(1);
+        (
+            class::by_rank(class::MINE_DAMAGE, rank).unwrap_or(0.0),
+            class::by_rank(class::MINE_RADIUS, rank).unwrap_or(0.0),
+        )
     }
 
-    /// Seconds an EMP stuns for: the Q rank's [`class::EMP_STUN`].
-    pub fn emp_stun(&self, who: u32) -> f32 {
-        class::by_rank(class::EMP_STUN, self.rank_of(who, class::SLOT_Q)).unwrap_or(0.0)
+    /// What one of `who`'s satchels does at its centre, and how far its
+    /// blast reaches in tiles: the E rank's [`class::SATCHEL_DAMAGE`] and
+    /// [`class::SATCHEL_RADIUS`].
+    pub fn satchel_blast(&self, who: u32) -> (f32, f32) {
+        let rank = self.rank_of(who, class::SLOT_E).max(1);
+        (
+            class::by_rank(class::SATCHEL_DAMAGE, rank).unwrap_or(0.0),
+            class::by_rank(class::SATCHEL_RADIUS, rank).unwrap_or(0.0),
+        )
     }
 
-    /// What an EMP throw asks, in the order the refusals are said: the
+    /// Before the crew's room steps: every mine in it with an enemy — a
+    /// target of the room's standing, a machine or a hostile Bim, never
+    /// the crew — within [`class::MINE_TRIGGER`] of it goes off: taken
+    /// off the deck, burst by the room at once (`Game::detonate`) on its
+    /// owner's rank, and said (`MineTriggered`). In id order.
+    fn settle_mines(&mut self, events: &mut Vec<WorldEvent>) {
+        if !self.deployables.iter().any(|d| d.kind == DeployKind::Mine) {
+            return;
+        }
+        let t = shipdesign::TILE as f32;
+        let reach = class::MINE_TRIGGER * t;
+        let tripped: Vec<(Deployable, bims::math::Vec2)> = self
+            .deployables_in_room()
+            .into_iter()
+            .filter(|(d, at)| d.kind == DeployKind::Mine && self.aboard.room.enemy_near(*at, reach))
+            .collect();
+        if tripped.is_empty() {
+            return;
+        }
+        for (d, at) in tripped {
+            self.deployables.retain(|x| x.id != d.id);
+            let (damage, radius) = self.mine_blast(d.owner_slot);
+            self.aboard
+                .room
+                .detonate(d.owner_slot as usize, at, radius * t, damage);
+            events.push(WorldEvent::MineTriggered { who: d.owner_slot });
+        }
+    }
+
+    /// What a satchel throw asks, in the order the refusals are said: the
     /// slot's Bim fit to act (`OutOfReach`), an engineer
-    /// (`NotAnEngineer`), a rank of EMP (`NotLearnt`), a charge (`NoKit`),
-    /// and the tile — deck of the room (`CantThrowThere`) within the
-    /// grenade's range (`OutOfThrowRange`) with nothing opaque between
-    /// (`NoLineToTile`). See [`Command::Emp`].
-    pub fn can_throw_emp(&self, slot: u32, tile: (i32, i32)) -> Result<(), Refusal> {
+    /// (`NotAnEngineer`), a rank of Satchel Charge (`NotLearnt`), a charge
+    /// (`NoKit`), and the tile — deck of the room (`CantThrowThere`)
+    /// within the grenade's range (`OutOfThrowRange`) with nothing opaque
+    /// between (`NoLineToTile`). Another deployable on the tile, a satchel
+    /// among them, is no refusal: satchels stack. See
+    /// [`Command::ThrowAt`].
+    pub fn can_throw_satchel(&self, slot: u32, tile: (i32, i32)) -> Result<(), Refusal> {
         if !self.fit_to_act(slot) {
             return Err(Refusal::OutOfReach);
         }
-        if !class::can(self.class_of(slot), class::Ability::Emp) {
+        if !class::can(self.class_of(slot), class::Ability::Satchel) {
             return Err(Refusal::NotAnEngineer);
         }
-        if self.rank_of(slot, class::SLOT_Q) == 0 {
+        if self.rank_of(slot, class::SLOT_E) == 0 {
             return Err(Refusal::NotLearnt);
         }
-        if self.charges_of(slot, Charge::Emp) == 0 {
+        if self.charges_of(slot, Charge::Satchel) == 0 {
             return Err(Refusal::NoKit);
         }
         let t = shipdesign::TILE as f32;
-        let at = bims::math::vec2((tile.0 as f32 + 0.5) * t, (tile.1 as f32 + 0.5) * t);
+        let at = tile_centre(tile);
         if !self.aboard.room.is_deck_tile(at) {
             return Err(Refusal::CantThrowThere);
         }
@@ -8417,25 +8325,88 @@ impl World {
         Ok(())
     }
 
-    /// The EMP thrown — see [`Command::Emp`]: the charge spent now, and
-    /// the room throws it with the grenade's fuse and the rank's radius,
-    /// stun and, at the top rank, the exposure.
-    fn throw_emp(&mut self, slot: u32, tile: (i32, i32)) -> Result<(), Refusal> {
-        self.can_throw_emp(slot, tile)?;
-        let held = self.charges_of(slot, Charge::Emp);
-        self.set_charges_held(slot, Charge::Emp, held - 1);
-        let t = shipdesign::TILE as f32;
-        let at = bims::math::vec2((tile.0 as f32 + 0.5) * t, (tile.1 as f32 + 0.5) * t);
-        let expose = self.rank_of(slot, class::SLOT_Q) >= class::EMP_EXPOSE_RANK;
-        let (radius, stun) = (self.emp_radius(slot) * t, self.emp_stun(slot));
+    /// The satchel thrown: the charge spent now, and the room lobs it the
+    /// grenade's way (`Game::throw_satchel`); it lies on the deck once it
+    /// lands ([`World::settle_satchels_landed`]).
+    fn throw_satchel(&mut self, slot: u32, tile: (i32, i32)) -> Result<(), Refusal> {
+        self.can_throw_satchel(slot, tile)?;
+        let held = self.charges_of(slot, Charge::Satchel);
+        self.set_charges_held(slot, Charge::Satchel, held - 1);
         self.aboard
             .room
-            .throw_emp(slot as usize, at, class::GRENADE_FUSE, radius, stun, expose);
+            .throw_satchel(slot as usize, tile_centre(tile));
         Ok(())
     }
 
-    /// The EMPs that burst in the crew's room this step, carried to the
-    /// machines they reached (task 127): a target past the residents'
+    /// After the crew's room steps: every satchel that landed this step
+    /// laid where it came down, the engineer's whatever is there already
+    /// — a satchel is never refused a tile, and satchels stack. One that
+    /// came down off the deck, or whose thrower is no engineer now, is
+    /// lost.
+    fn settle_satchels_landed(&mut self) {
+        for (who, at) in self.aboard.room.take_satchels_landed() {
+            let slot = who as u32;
+            if !self.is_engineer(slot) || !self.aboard.room.is_deck_tile(at) {
+                continue;
+            }
+            let (deck, tile) = self.deck_of(at);
+            self.lay(DeployKind::Satchel, slot, deck, tile);
+        }
+    }
+
+    /// How many satchels of `who`'s lie in the crew's room: what the remote
+    /// trigger would set off.
+    pub fn satchels_out(&self, who: u32) -> u32 {
+        self.deployables_in_room()
+            .iter()
+            .filter(|(d, _)| d.kind == DeployKind::Satchel && d.owner_slot == who)
+            .count() as u32
+    }
+
+    /// What the remote trigger asks: the slot's Bim fit to act
+    /// (`OutOfReach`), an engineer (`NotAnEngineer`), a rank of Satchel
+    /// Charge (`NotLearnt`) and a satchel of his in the room
+    /// (`NoSatchels`). See [`Command::Detonate`].
+    pub fn can_detonate(&self, slot: u32) -> Result<(), Refusal> {
+        if !self.fit_to_act(slot) {
+            return Err(Refusal::OutOfReach);
+        }
+        if !class::can(self.class_of(slot), class::Ability::Satchel) {
+            return Err(Refusal::NotAnEngineer);
+        }
+        if self.rank_of(slot, class::SLOT_E) == 0 {
+            return Err(Refusal::NotLearnt);
+        }
+        if self.satchels_out(slot) == 0 {
+            return Err(Refusal::NoSatchels);
+        }
+        Ok(())
+    }
+
+    /// The remote trigger — see [`Command::Detonate`]: every satchel of
+    /// the engineer's in the crew's room off the deck and burst by the
+    /// room at once, in id order, each its own blast on his E rank, so
+    /// satchels stacked on one tile hit as many times. How many went off.
+    fn detonate(&mut self, slot: u32) -> Result<u32, Refusal> {
+        self.can_detonate(slot)?;
+        let t = shipdesign::TILE as f32;
+        let (damage, radius) = self.satchel_blast(slot);
+        let blown: Vec<(Deployable, bims::math::Vec2)> = self
+            .deployables_in_room()
+            .into_iter()
+            .filter(|(d, _)| d.kind == DeployKind::Satchel && d.owner_slot == slot)
+            .collect();
+        for (d, at) in &blown {
+            self.deployables.retain(|x| x.id != d.id);
+            self.aboard
+                .room
+                .detonate(slot as usize, *at, radius * t, damage);
+        }
+        Ok(blown.len() as u32)
+    }
+
+    /// The Stun Shots that burst in the crew's room this step, carried to
+    /// the machines they reached: a target past the residents'
     /// Bims is a machine of their room, stunned there — every kind that
     /// walks, never the Machine Heart's (`Droid::stun` refuses one), and
     /// never an enemy Bim or the crew's own sentries, which are no target.
@@ -8460,7 +8431,7 @@ impl World {
 
     /// What a crew member shoots with over its weapon, for the room's one
     /// shooter (`bims::combat::Skill`): every class's half, then the
-    /// commanders, the relics, the items and a cloak, every factor
+    /// commanders, the relics and the items, every factor
     /// `crate::class`'s constant. Worked out fresh every step, since a
     /// charge, a Rampage and the rest come and go.
     pub fn skill_of(&self, who: u32) -> bims::combat::Skill {
@@ -8481,15 +8452,15 @@ impl World {
         // (task 129): they lift whatever the crew member's own class gave
         // it, a player's own steered Bim included.
         self.lift_by_commanders(who, &mut skill);
+        // And a Bastion's haste at the Override Core's fifth rank (task
+        // 155), on whoever it reached.
+        self.lift_by_bastion(who, &mut skill);
         // And the crew's relics (feature 106), last: a share on top of
         // whatever the class and the commanders made of it.
         self.lift_by_relics(who, &mut skill);
         // And its items (October 2026): a Steady Grip, a Long Barrel, an
         // Ablative Shell on.
         self.lift_by_items(who, &mut skill);
-        // And a medic's cloak on it (task 130): no fire, and a quicker
-        // walk, whoever cast it.
-        self.lift_by_cloak(who, &mut skill);
         // And how long it takes to revive a downed crewmate (task 120).
         skill.revive = self.revive_seconds(who);
         // And whether it is a medic, whom the other bots leave a downed
@@ -8795,10 +8766,10 @@ impl World {
 
     // --- a throw walked out to (the ability range indicators) -------------
 
-    /// How far a throw reaches, in tiles: the grenade's, or the EMP's,
-    /// which is the grenade's own.
-    pub fn throw_range(&self, who: u32, emp: bool) -> f32 {
-        if emp {
+    /// How far a throw reaches, in tiles: the grenade's, or the
+    /// satchel's, which is the grenade's own.
+    pub fn throw_range(&self, who: u32, satchel: bool) -> f32 {
+        if satchel {
             class::GRENADE_RANGE
         } else {
             self.grenade_range(who)
@@ -8806,10 +8777,10 @@ impl World {
     }
 
     /// Whether `slot` could throw at `tile` from where it stands now:
-    /// [`World::can_throw`] or [`World::can_throw_emp`].
-    pub fn can_throw_now(&self, slot: u32, emp: bool, tile: (i32, i32)) -> Result<(), Refusal> {
-        if emp {
-            self.can_throw_emp(slot, tile)
+    /// [`World::can_throw`] or [`World::can_throw_satchel`].
+    pub fn can_throw_now(&self, slot: u32, satchel: bool, tile: (i32, i32)) -> Result<(), Refusal> {
+        if satchel {
+            self.can_throw_satchel(slot, tile)
         } else {
             self.can_throw(slot, tile)
         }
@@ -8819,13 +8790,13 @@ impl World {
     fn throw_now(
         &mut self,
         slot: u32,
-        emp: bool,
+        satchel: bool,
         tile: (i32, i32),
         events: &mut Vec<WorldEvent>,
     ) -> Result<(), Refusal> {
-        if emp {
-            self.throw_emp(slot, tile)?;
-            events.push(WorldEvent::EmpThrown { who: slot });
+        if satchel {
+            self.throw_satchel(slot, tile)?;
+            events.push(WorldEvent::SatchelThrown { who: slot });
         } else {
             self.throw(slot, tile)?;
             events.push(WorldEvent::Thrown { who: slot });
@@ -8840,15 +8811,15 @@ impl World {
     fn throw_at(
         &mut self,
         slot: u32,
-        emp: bool,
+        satchel: bool,
         tile: (i32, i32),
         events: &mut Vec<WorldEvent>,
     ) -> Result<(), Refusal> {
         self.throws.retain(|p| p.who != slot);
-        match self.can_throw_now(slot, emp, tile) {
-            Ok(()) => self.throw_now(slot, emp, tile, events),
+        match self.can_throw_now(slot, satchel, tile) {
+            Ok(()) => self.throw_now(slot, satchel, tile, events),
             Err(Refusal::OutOfThrowRange | Refusal::NoLineToTile) => {
-                let Some(stand) = self.throw_stand(slot, emp, tile) else {
+                let Some(stand) = self.throw_stand(slot, satchel, tile) else {
                     return Err(Refusal::NoLineToTile);
                 };
                 if !self.aboard.room.walk_to(slot as usize, tile_centre(stand)) {
@@ -8859,7 +8830,7 @@ impl World {
                     at,
                     PendingThrow {
                         who: slot,
-                        emp,
+                        satchel,
                         tile,
                         stand,
                     },
@@ -8877,13 +8848,13 @@ impl World {
     /// to. The candidates are every such tile, taken nearest first, a tie
     /// by row then column, so every machine picks the same. `None` for a
     /// tile nobody could throw at from anywhere near.
-    pub fn throw_stand(&self, who: u32, emp: bool, tile: (i32, i32)) -> Option<(i32, i32)> {
+    pub fn throw_stand(&self, who: u32, satchel: bool, tile: (i32, i32)) -> Option<(i32, i32)> {
         /// How many of the nearest candidates are asked whether the Bim
         /// can walk there: a route search each.
         const TRIED: usize = 24;
         let room = &self.aboard.room;
         let t = shipdesign::TILE as f32;
-        let reach = (self.throw_range(who, emp) - THROW_STAND_MARGIN) * t;
+        let reach = (self.throw_range(who, satchel) - THROW_STAND_MARGIN) * t;
         let target = tile_centre(tile);
         if !room.is_deck_tile(target) {
             return None;
@@ -8926,9 +8897,9 @@ impl World {
             if !self.fit_to_act(who) {
                 continue;
             }
-            match self.can_throw_now(who, pending.emp, pending.tile) {
+            match self.can_throw_now(who, pending.satchel, pending.tile) {
                 Ok(()) => {
-                    if let Err(why) = self.throw_now(who, pending.emp, pending.tile, events) {
+                    if let Err(why) = self.throw_now(who, pending.satchel, pending.tile, events) {
                         events.push(refused(who, why));
                     }
                 }
@@ -9087,15 +9058,15 @@ impl World {
             .map_or(0.0, |(_, crit)| crate::soldier::crit_bonus(hit.flat, crit))
     }
 
-    // --- the medic: a ranked kit (task 130) -------------------------------
+    // --- the medic: a ranked kit (task 130; reworked by task 153) ----------
     //
     // `crate::medic` is the state; this is the rules. The beam is a list
     // of crew indices on the medic, checked every step before the rooms
-    // step and healed off here (`Game::heal`); the Nanite Burst and the
-    // Cloak are a mission minute each on the medic, read the soldier's
-    // Rampage's way; a cloak is a mission minute on the crew member it
-    // covers; the Healing Aura is worked out afresh whenever a heal is
-    // given (`heal_factor`). There is no surge.
+    // step and healed off here (`Game::heal`); the drone is a point on the
+    // crew's deck the world moves a step at a time; the circle is a flag
+    // and the mission minute of its last burn. Every heal a medic gives
+    // goes through `medic_heal` — his Triage on the Bim healed and the
+    // Override Core's half again. There is no surge.
 
     /// Whether crew member `who` is a player's medic.
     fn is_medic(&self, who: u32) -> bool {
@@ -9126,23 +9097,59 @@ impl World {
         &mut self.medics[who]
     }
 
-    /// What a medic shoots with (task 130): its fire held while the beam
-    /// is linked, or from the beam's third rank ([`class::HEAL_BEAM_FIRE_RANK`])
-    /// at [`class::HEAL_BEAM_FIRE_RATE`]; `Skill::NONE` unlinked. And, whatever
-    /// he is doing, a crewmate he revives gets up at
-    /// [`class::MEDIC_REVIVED_TO`] of its bar.
-    fn medic_skill(&self, who: u32) -> bims::combat::Skill {
+    /// What a medic shoots with (task 130): whatever he is doing, a
+    /// crewmate he revives gets up at [`class::MEDIC_REVIVED_TO`] of its
+    /// bar. He fires at his full rate with the beam linked (task 153).
+    fn medic_skill(&self, _who: u32) -> bims::combat::Skill {
         let mut skill = bims::combat::Skill::NONE;
         skill.revived_to = class::MEDIC_REVIVED_TO;
-        if self.is_beaming(who) {
-            if self.rank_of(who, class::SLOT_E) >= class::HEAL_BEAM_FIRE_RANK {
-                skill.fire_rate *= class::HEAL_BEAM_FIRE_RATE;
-            } else {
-                skill.holds_fire = true;
-            }
-        }
         skill
     }
+
+    // What every heal of his is lifted by (task 153).
+
+    /// What a heal of medic `medic`'s on crew member `who` is multiplied
+    /// by, where `who` stands on its bar now: his **Triage** — one plus
+    /// the rank's [`class::TRIAGE`] times the share of the bar `who` is
+    /// missing — times [`class::OVERRIDE_HEAL`] while he carries an
+    /// *Override Core*. One for anybody not a medic.
+    pub fn medic_heal_factor(&self, medic: u32, who: u32) -> f32 {
+        if !self.is_medic(medic) {
+            return 1.0;
+        }
+        let room = &self.aboard.room;
+        let w = who as usize;
+        let max = room.max_health(w);
+        let missing = if max > 0.0 {
+            (1.0 - room.health(w) / max).clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
+        let triage =
+            class::by_rank(class::TRIAGE, self.rank_of(medic, class::SLOT_C)).unwrap_or(0.0);
+        (1.0 + triage * missing) * self.override_heal(medic)
+    }
+
+    /// [`class::OVERRIDE_HEAL`] for a medic carrying an *Override Core*,
+    /// one otherwise: what his heals are worth before his Triage, and so
+    /// what his circle drains him and burns the enemy by.
+    pub fn override_heal(&self, medic: u32) -> f32 {
+        if self.is_medic(medic) && self.carries_item(medic, ModuleKind::OverrideCore) {
+            class::OVERRIDE_HEAL
+        } else {
+            1.0
+        }
+    }
+
+    /// `points` of health put into crew member `who` by medic `medic`,
+    /// times his [`World::medic_heal_factor`] on it: what the beam, the
+    /// drone and the circle heal through. How much went in.
+    fn medic_heal(&mut self, medic: u32, who: u32, points: f32) -> f32 {
+        let points = points * self.medic_heal_factor(medic, who);
+        self.aboard.room.heal(who as usize, points)
+    }
+
+    // The Heal Beam (E).
 
     /// The beam's rank, read as its first where none is bought: what the
     /// readings below take, so a box can say what the first rank would do.
@@ -9157,9 +9164,9 @@ impl World {
             .unwrap_or(class::HEAL_BEAM_RANGE)
     }
 
-    /// Hit points a beamed patient gains an hour of the clock before the
-    /// Healing Aura: [`class::HEAL_BEAM_HP`] times his rank's
-    /// [`class::HEAL_BEAM_RATE`].
+    /// Hit points a beamed patient gains an hour of the clock before his
+    /// Triage and the Override Core: [`class::HEAL_BEAM_HP`] times his
+    /// rank's [`class::HEAL_BEAM_RATE`]. The healing circle heals at it too.
     pub fn beam_rate(&self, who: u32) -> f32 {
         class::HEAL_BEAM_HP
             * class::by_rank(class::HEAL_BEAM_RATE, self.beam_rank(who)).unwrap_or(1.0)
@@ -9241,75 +9248,60 @@ impl World {
         Ok(())
     }
 
-    // The Nanite Burst (Q).
+    // The Heal Drone (Q).
 
-    /// Hit points a medic's Nanite Burst puts back into each Bim it
-    /// reaches, at his rank, before the Healing Aura
-    /// ([`class::NANITE_BURST_HEAL`]); nought before the first.
-    pub fn nanite_burst_heal(&self, who: u32) -> f32 {
-        class::by_rank(class::NANITE_BURST_HEAL, self.rank_of(who, class::SLOT_Q)).unwrap_or(0.0)
+    /// Hit points a second a medic's drone puts into the Bim it hovers
+    /// over, at his rank, before his Triage ([`class::HEAL_DRONE_HEAL`]);
+    /// nought before the first.
+    pub fn heal_drone_heal(&self, who: u32) -> f32 {
+        class::by_rank(class::HEAL_DRONE_HEAL, self.rank_of(who, class::SLOT_Q)).unwrap_or(0.0)
     }
 
-    /// How far a medic's Nanite Burst reaches, in tiles, at his rank
-    /// ([`class::NANITE_BURST_RADIUS`]); nought before the first.
-    pub fn nanite_burst_radius(&self, who: u32) -> f32 {
-        class::by_rank(class::NANITE_BURST_RADIUS, self.rank_of(who, class::SLOT_Q)).unwrap_or(0.0)
+    /// Seconds of the mission clock a medic's drone flies, at his rank
+    /// ([`class::HEAL_DRONE_SECONDS`]); nought before the first.
+    pub fn heal_drone_seconds(&self, who: u32) -> f64 {
+        class::by_rank(class::HEAL_DRONE_SECONDS, self.rank_of(who, class::SLOT_Q)).unwrap_or(0.0)
     }
 
-    /// Seconds of the mission clock between one burst and the next:
-    /// [`class::NANITE_BURST_COOLDOWN`] of his rank (the first's before
+    /// Seconds of the mission clock between one drone and the next:
+    /// [`class::HEAL_DRONE_COOLDOWN`] of his rank (the first's before
     /// one), times the cooldown relics.
-    pub fn nanite_burst_cooldown(&self, who: u32) -> f64 {
+    pub fn heal_drone_cooldown(&self, who: u32) -> f64 {
         let rank = self.rank_of(who, class::SLOT_Q).max(1);
-        class::by_rank(class::NANITE_BURST_COOLDOWN, rank).unwrap_or(0.0)
+        class::by_rank(class::HEAL_DRONE_COOLDOWN, rank).unwrap_or(0.0)
             * self.relic_factor(who, crate::relic::Stat::Cooldowns)
     }
 
-    /// Seconds of the mission clock until he may burst again; nought when
-    /// he may.
-    pub fn nanite_burst_cooldown_left(&self, who: u32) -> f64 {
-        let Some(began) = self.medic_of(who).last_burst else {
+    /// Seconds of the mission clock until he may drop a drone again;
+    /// nought when he may.
+    pub fn heal_drone_cooldown_left(&self, who: u32) -> f64 {
+        let Some(began) = self.medic_of(who).last_drone else {
             return 0.0;
         };
         let since = (self.mission_minutes() - began) / time::MINUTES_PER_SECOND;
-        (self.nanite_burst_cooldown(who) - since).max(0.0)
+        (self.heal_drone_cooldown(who) - since).max(0.0)
     }
 
-    /// Seconds of the mission clock since his last burst, for the ring the
-    /// app draws spreading out to its radius; `None` with none this
-    /// mission.
-    pub fn nanite_burst_since(&self, who: u32) -> Option<f64> {
-        let began = self.medic_of(who).last_burst?;
-        Some((self.mission_minutes() - began) / time::MINUTES_PER_SECOND)
+    /// A medic's drone in the air, if any.
+    pub fn drone_of(&self, who: u32) -> Option<crate::medic::Drone> {
+        self.medic_of(who).drone
     }
 
-    /// Whom a medic's Nanite Burst set off now would heal: every crew
-    /// member alive, on its feet and on the deck within his radius and in
-    /// his sight — walls block — himself included, lowest index first.
-    pub fn nanite_burst_reaching(&self, slot: u32) -> Vec<u32> {
-        if !self.on_the_deck(slot) {
-            return Vec::new();
-        }
-        let room = &self.aboard.room;
-        let at = room.bim_pos(slot as usize);
-        let reach = self.nanite_burst_radius(slot) * shipdesign::TILE as f32;
-        (0..self.aboard.crew_count())
-            .filter(|&who| {
-                let p = room.bim_pos(who as usize);
-                self.on_the_deck(who)
-                    && !room.is_downed(who as usize)
-                    && (p - at).len() <= reach
-                    && (who == slot || room.sees(slot as usize, p))
-            })
-            .collect()
+    /// Seconds of the mission clock a medic's drone has left in the air;
+    /// nought with none.
+    pub fn drone_left(&self, who: u32) -> f64 {
+        let Some(drone) = self.drone_of(who) else {
+            return 0.0;
+        };
+        ((drone.until - self.mission_minutes()) / time::MINUTES_PER_SECOND).max(0.0)
     }
 
-    /// Whether a player's medic may set off a Nanite Burst, or why not, in
-    /// the Rally's order: a medic (`NotAMedic`), fit to act — downed among
-    /// it — (`OutOfReach`), a rank (`NotLearnt`) and out of the cooldown
+    /// Whether a player's medic may drop a Heal Drone, or why not, in the
+    /// Rally's order: a medic (`NotAMedic`), fit to act — downed among it
+    /// — (`OutOfReach`), a rank (`NotLearnt`) and out of the cooldown
     /// (`CoolingDown`).
-    pub fn can_nanite_burst(&self, slot: u32) -> Result<(), Refusal> {
-        if !class::can(self.class_of(slot), class::Ability::NaniteBurst) {
+    pub fn can_heal_drone(&self, slot: u32) -> Result<(), Refusal> {
+        if !class::can(self.class_of(slot), class::Ability::HealDrone) {
             return Err(Refusal::NotAMedic);
         }
         if !self.fit_to_act(slot) {
@@ -9318,151 +9310,163 @@ impl World {
         if self.rank_of(slot, class::SLOT_Q) == 0 {
             return Err(Refusal::NotLearnt);
         }
-        if self.nanite_burst_cooldown_left(slot) > 0.0 {
+        if self.heal_drone_cooldown_left(slot) > 0.0 {
             return Err(Refusal::CoolingDown);
         }
         Ok(())
     }
 
-    /// The Nanite Burst — see [`Command::NaniteBurst`]: the mission clock
-    /// noted and every Bim it reaches healed at once, each by the burst
-    /// times its own Healing Aura. How many it reached.
-    fn nanite_burst(&mut self, slot: u32) -> Result<u32, Refusal> {
-        self.can_nanite_burst(slot)?;
-        let heal = self.nanite_burst_heal(slot);
-        let reached: Vec<(u32, f32)> = self
-            .nanite_burst_reaching(slot)
-            .into_iter()
-            .map(|who| (who, heal * self.heal_factor(who)))
-            .collect();
-        for &(who, points) in &reached {
-            self.aboard.room.heal(who as usize, points);
-        }
+    /// The Heal Drone — see [`Command::HealDrone`]: the mission clock
+    /// noted and a drone dropped at his feet, in place of any he had up.
+    fn heal_drone(&mut self, slot: u32) -> Result<(), Refusal> {
+        self.can_heal_drone(slot)?;
         let now = self.mission_minutes();
-        self.medic_mut(slot as usize).last_burst = Some(now);
-        Ok(reached.len() as u32)
+        let at = self.aboard.room.bim_pos(slot as usize);
+        let until = now + self.heal_drone_seconds(slot) * time::MINUTES_PER_SECOND;
+        let medic = self.medic_mut(slot as usize);
+        medic.last_drone = Some(now);
+        medic.drone = Some(crate::medic::Drone {
+            x: at.x,
+            y: at.y,
+            patient: None,
+            until,
+        });
+        Ok(())
     }
 
-    // The Healing Aura (C).
-
-    /// How far a medic's Healing Aura reaches, in tiles, at his rank
-    /// ([`class::HEALING_AURA_RADIUS`]); nought before the first and for
-    /// anybody not a medic.
-    pub fn healing_aura_radius(&self, who: u32) -> f32 {
-        if !self.is_medic(who) {
-            return 0.0;
-        }
-        class::by_rank(class::HEALING_AURA_RADIUS, self.rank_of(who, class::SLOT_C)).unwrap_or(0.0)
-    }
-
-    /// The medic whose Healing Aura covers a crew member where it stands,
-    /// if any: a medic on his feet and on the deck — itself included —
-    /// within his radius. Two reaching one Bim: the higher factor holds
-    /// it, and they never stack.
-    pub fn healing_aura_reaching(&self, who: u32) -> Option<u32> {
-        if !self.on_the_deck(who) {
-            return None;
-        }
+    /// Whom a drone flying for medic `medic` should be over: `held` while
+    /// it is still a crew member on its feet, on the deck and short of its
+    /// bar, else the one of those lowest on its bar by share — the medic
+    /// included — the lower index on a tie. `None` with nobody hurt.
+    fn drone_patient(&self, held: Option<u32>) -> Option<u32> {
         let room = &self.aboard.room;
-        let at = room.bim_pos(who as usize);
-        let t = shipdesign::TILE as f32;
+        let hurt = |who: u32| {
+            let w = who as usize;
+            self.on_the_deck(who) && !room.is_downed(w) && room.health(w) < room.max_health(w)
+        };
+        if let Some(p) = held.filter(|&p| hurt(p)) {
+            return Some(p);
+        }
+        let share = |who: u32| {
+            let w = who as usize;
+            room.health(w) / room.max_health(w).max(1.0)
+        };
         (0..self.aboard.crew_count())
-            .filter(|&m| {
-                let radius = self.healing_aura_radius(m);
-                radius > 0.0
-                    && self.on_the_deck(m)
-                    && !room.is_downed(m as usize)
-                    && (room.bim_pos(m as usize) - at).len() <= radius * t
-            })
-            .max_by(|&a, &b| {
-                let of = |m: u32| {
-                    class::by_rank(class::HEALING_AURA_FACTOR, self.rank_of(m, class::SLOT_C))
-                        .unwrap_or(1.0)
-                };
-                of(a).total_cmp(&of(b))
-            })
+            .filter(|&who| hurt(who))
+            .min_by(|&a, &b| share(a).total_cmp(&share(b)).then(a.cmp(&b)))
     }
 
-    /// What every heal crew member `who` takes is multiplied by (task
-    /// 130): the strongest Healing Aura reaching **where it stands**,
-    /// wherever the heal comes from — the beam, the burst, a Healing
-    /// Sentry, a relic — and one where none does. Every call the world
-    /// makes to `Game::heal` goes through it; a revive is not a heal and
-    /// never asks.
-    pub fn heal_factor(&self, who: u32) -> f32 {
-        self.healing_aura_reaching(who)
-            .and_then(|m| {
-                class::by_rank(class::HEALING_AURA_FACTOR, self.rank_of(m, class::SLOT_C))
-            })
-            .unwrap_or(1.0)
+    /// Before the rooms step: every drone in the air moved a step's
+    /// flight towards its patient — over walls, it flies — and the patient
+    /// healed while it hovers within [`class::HEAL_DRONE_REACH`] tiles;
+    /// with nobody hurt it keeps by its medic. One whose time is up, or
+    /// whose medic is dead, is gone.
+    fn fly_the_drones(&mut self) {
+        let crew = self.aboard.crew_count();
+        let now = self.mission_minutes();
+        let t = shipdesign::TILE as f32;
+        let seconds = (data::STEP_MINUTES / time::MINUTES_PER_SECOND) as f32;
+        for m in 0..crew.min(self.medics.len() as u32) {
+            let Some(drone) = self.medics[m as usize].drone else {
+                continue;
+            };
+            if now >= drone.until || !self.aboard.room.is_alive(m as usize) {
+                self.medics[m as usize].drone = None;
+                continue;
+            }
+            let patient = self.drone_patient(drone.patient);
+            let room = &self.aboard.room;
+            let to = room.bim_pos(patient.unwrap_or(m) as usize);
+            let at = bims::math::vec2(drone.x, drone.y);
+            let gap = to - at;
+            let step = class::HEAL_DRONE_SPEED * t * seconds;
+            let at = if gap.len() <= step {
+                to
+            } else {
+                at + gap * (step / gap.len())
+            };
+            let over = (to - at).len() <= class::HEAL_DRONE_REACH * t;
+            let heal = self.heal_drone_heal(m) * seconds;
+            self.medics[m as usize].drone = Some(crate::medic::Drone {
+                x: at.x,
+                y: at.y,
+                patient,
+                until: drone.until,
+            });
+            if let Some(p) = patient
+                && over
+                && heal > 0.0
+            {
+                self.medic_heal(m, p, heal);
+            }
+        }
     }
 
-    /// `points` of health put into crew member `who`, times its Healing
-    /// Aura (`heal_factor`): what every heal of the world's goes through.
-    /// How much went in.
+    // Triage (C) has nothing of its own to keep: `medic_heal_factor`.
+
+    /// `points` of health put into crew member `who` from anything but a
+    /// medic — a Healing Sentry, an item, a relic. How much went in.
     pub(crate) fn heal_crew(&mut self, who: u32, points: f32) -> f32 {
-        let points = points * self.heal_factor(who);
         self.aboard.room.heal(who as usize, points)
     }
 
-    // The Cloak (R).
+    // The Healing Circle (R).
 
-    /// Seconds of the mission clock a cloak a medic casts lasts, at his
-    /// rank ([`class::CLOAK_SECONDS`]); nought before the first.
-    pub fn cloak_seconds(&self, medic: u32) -> f64 {
-        class::by_rank(class::CLOAK_SECONDS, self.rank_of(medic, class::SLOT_R)).unwrap_or(0.0)
+    /// How far a medic's healing circle reaches, in tiles, at his rank
+    /// ([`class::HEALING_CIRCLE_RADIUS`]); nought before the first.
+    pub fn healing_circle_radius(&self, who: u32) -> f32 {
+        class::by_rank(
+            class::HEALING_CIRCLE_RADIUS,
+            self.rank_of(who, class::SLOT_R),
+        )
+        .unwrap_or(0.0)
     }
 
-    /// Seconds of the mission clock between one cloak and the next:
-    /// [`class::CLOAK_COOLDOWN`] of his rank (the first's before one),
-    /// times the cooldown relics.
-    pub fn cloak_cooldown(&self, medic: u32) -> f64 {
-        let rank = self.rank_of(medic, class::SLOT_R).max(1);
-        class::by_rank(class::CLOAK_COOLDOWN, rank).unwrap_or(0.0)
-            * self.relic_factor(medic, crate::relic::Stat::Cooldowns)
+    /// Whether a medic's healing circle is on.
+    pub fn is_circling(&self, who: u32) -> bool {
+        self.medic_of(who).circle
     }
 
-    /// Seconds of the mission clock until he may cloak again; nought when
-    /// he may.
-    pub fn cloak_cooldown_left(&self, medic: u32) -> f64 {
-        let Some(began) = self.medic_of(medic).last_cloak else {
-            return 0.0;
-        };
-        let since = (self.mission_minutes() - began) / time::MINUTES_PER_SECOND;
-        (self.cloak_cooldown(medic) - since).max(0.0)
+    /// Hit points a second a medic's circle heals a Bim in it by before
+    /// his Triage — the link's rate, Override Core included — which is
+    /// also what it drains him by; the enemy in it burn at
+    /// [`class::HEALING_CIRCLE_BURN`] of it.
+    pub fn healing_circle_rate(&self, who: u32) -> f32 {
+        self.beam_rate(who) / 60.0 * time::MINUTES_PER_SECOND as f32 * self.override_heal(who)
     }
 
-    /// A crew member's cloak as kept — the default, no cloak, for anybody
-    /// the world keeps none for.
-    pub fn cloak_of(&self, who: u32) -> crate::medic::Cloak {
-        self.cloaks.get(who as usize).copied().unwrap_or_default()
+    /// Whom a medic's healing circle heals now: every crew member on the
+    /// deck and on its feet within the radius of him, with nothing opaque
+    /// between, himself left out — lowest index first.
+    pub fn healing_circle_reaching(&self, slot: u32) -> Vec<u32> {
+        if !self.on_the_deck(slot) {
+            return Vec::new();
+        }
+        let room = &self.aboard.room;
+        let at = room.bim_pos(slot as usize);
+        let reach = self.healing_circle_radius(slot) * shipdesign::TILE as f32;
+        (0..self.aboard.crew_count())
+            .filter(|&who| {
+                let p = room.bim_pos(who as usize);
+                who != slot
+                    && self.on_the_deck(who)
+                    && !room.is_downed(who as usize)
+                    && (p - at).len() <= reach
+                    && room.line_clear(at, p)
+            })
+            .collect()
     }
 
-    /// Seconds of the mission clock a crew member's cloak has left;
-    /// nought with none on it.
-    pub fn cloak_left(&self, who: u32) -> f64 {
-        let Some(until) = self.cloak_of(who).until else {
-            return 0.0;
-        };
-        ((until - self.mission_minutes()) / time::MINUTES_PER_SECOND).max(0.0)
-    }
-
-    /// Whether a crew member is under a cloak now: no enemy picks it, it
-    /// fires nothing and uses no ability.
-    pub fn is_cloaked(&self, who: u32) -> bool {
-        self.cloak_left(who) > 0.0
-    }
-
-    /// Whether a player's medic may cloak crew member `target`, or why
-    /// not, in order: a medic (`NotAMedic`), fit to act — downed among it
-    /// — (`OutOfReach`), a rank (`NotLearnt`), out of the cooldown
-    /// (`CoolingDown`), a living crew member, downed or not, himself
-    /// included (`NotACrewmate`), then — for another — within
-    /// [`class::CLOAK_RANGE`] (`OutOfCloakRange`) and in his sight
-    /// (`NoSightOfTarget`).
-    pub fn can_cloak(&self, slot: u32, target: u32) -> Result<(), Refusal> {
-        if !class::can(self.class_of(slot), class::Ability::Cloak) {
+    /// Whether a player's medic may switch his circle `on` (or off), or
+    /// why not: a medic (`NotAMedic`); for on, fit to act — downed among
+    /// it — (`OutOfReach`) and a rank (`NotLearnt`). Off is never refused
+    /// a medic.
+    pub fn can_healing_circle(&self, slot: u32, on: bool) -> Result<(), Refusal> {
+        if !class::can(self.class_of(slot), class::Ability::HealingCircle) {
             return Err(Refusal::NotAMedic);
+        }
+        if !on {
+            return Ok(());
         }
         if !self.fit_to_act(slot) {
             return Err(Refusal::OutOfReach);
@@ -9470,110 +9474,58 @@ impl World {
         if self.rank_of(slot, class::SLOT_R) == 0 {
             return Err(Refusal::NotLearnt);
         }
-        if self.cloak_cooldown_left(slot) > 0.0 {
-            return Err(Refusal::CoolingDown);
-        }
-        let room = &self.aboard.room;
-        if target >= self.aboard.crew_count() || !room.is_alive(target as usize) {
-            return Err(Refusal::NotACrewmate);
-        }
-        if target == slot {
-            return Ok(());
-        }
-        if room.is_outside(target as usize) {
-            return Err(Refusal::OutOfCloakRange);
-        }
-        let at = room.bim_pos(target as usize);
-        let t = shipdesign::TILE as f32;
-        if (at - room.bim_pos(slot as usize)).len() > class::CLOAK_RANGE * t {
-            return Err(Refusal::OutOfCloakRange);
-        }
-        if !room.sees(slot as usize, at) {
-            return Err(Refusal::NoSightOfTarget);
-        }
         Ok(())
     }
 
-    /// The Cloak — see [`Command::Cloak`]: the mission clock noted on the
-    /// medic, and on the target a cloak to the later of its own end and
-    /// this one's — never the two added — at the faster of the two paces.
-    /// A medic cloaking himself lets his beam's patients go.
-    fn cloak(&mut self, slot: u32, target: u32) -> Result<(), Refusal> {
-        self.can_cloak(slot, target)?;
+    /// The Healing Circle on or off — see [`Command::HealingCircle`]. On,
+    /// the first burn is a pulse from now.
+    fn healing_circle(&mut self, slot: u32, on: bool) -> Result<(), Refusal> {
+        self.can_healing_circle(slot, on)?;
         let now = self.mission_minutes();
-        let until = now + self.cloak_seconds(slot) * time::MINUTES_PER_SECOND;
-        let rank = self.rank_of(slot, class::SLOT_R);
-        let pace = class::by_rank(class::CLOAK_PACE, rank).unwrap_or(1.0);
-        // At the Override Core's fifth rank (October 2026) every friendly
-        // Bim within its tiles of the target is cloaked with it.
-        let mut cloaked = vec![target];
-        if rank >= class::OVERRIDE_RANK {
-            for who in self.crew_within(target, class::CLOAK_SPREAD_TILES) {
-                if !cloaked.contains(&who) && !self.aboard.room.is_downed(who as usize) {
-                    cloaked.push(who);
-                }
-            }
-        }
-        for target in cloaked {
-            let was = self.cloak_of(target);
-            let running = self.is_cloaked(target);
-            let t = target as usize;
-            if self.cloaks.len() <= t {
-                self.cloaks.resize(t + 1, crate::medic::Cloak::default());
-            }
-            let end = match was.until {
-                Some(end) if running => end.max(until),
-                _ => until,
-            };
-            self.cloaks[t] = crate::medic::Cloak {
-                until: Some(end),
-                pace: if running { was.pace.max(pace) } else { pace },
-                seconds: (end - now) / time::MINUTES_PER_SECOND,
-            };
-            if target == slot {
-                self.medic_mut(slot as usize).unlink();
-                self.aboard.room.set_beaming(slot as usize, false);
-            }
-            self.aboard.room.set_cloaked(t, true);
-        }
-        self.medic_mut(slot as usize).last_cloak = Some(now);
+        let medic = self.medic_mut(slot as usize);
+        medic.circle = on;
+        medic.last_burn = on.then_some(now);
         Ok(())
     }
 
-    /// What a cloak does to a crew member's fighting (task 130): it holds
-    /// its fire and walks at the cloak's pace, at all times.
-    fn lift_by_cloak(&self, who: u32, skill: &mut bims::combat::Skill) {
-        if self.is_cloaked(who) {
-            skill.holds_fire = true;
-            skill.walk *= self.cloak_of(who).pace;
-        }
-    }
-
-    /// Before the rooms step: every cloak run out forgotten, and the room
-    /// told who is cloaked, for its picture.
-    fn hand_the_room_the_cloaks(&mut self) {
-        let crew = self.aboard.crew_count() as usize;
-        if self.cloaks.len() < crew {
-            self.cloaks.resize(crew, crate::medic::Cloak::default());
-        }
-        for who in 0..crew {
-            let on = self.is_cloaked(who as u32);
-            if !on && self.cloaks[who].until.is_some() {
-                self.cloaks[who] = crate::medic::Cloak::default();
-            }
-            self.aboard.room.set_cloaked(who, on);
-        }
-    }
-
-    /// Which of the crew no enemy may pick now: a medic's cloak (task
-    /// 130). Empty while it is on nobody, so a fight without one hands
-    /// over what it always did.
-    pub(crate) fn hidden_from_enemies(&self) -> Vec<bool> {
+    /// Before the rooms step: every healing circle on — switched off,
+    /// and said, where its medic is down or unfit to act — heals the Bims
+    /// in it a step's worth through `medic_heal`, drains the medic as
+    /// much as a Bim is healed for before his Triage (`Game::drain`,
+    /// which can down him), and every [`class::HEALING_CIRCLE_PULSE`]
+    /// seconds burns every enemy standing in it (`Game::scorch`).
+    fn hand_the_room_the_circles(&mut self, events: &mut Vec<WorldEvent>) {
         let crew = self.aboard.crew_count();
-        if !(0..crew).any(|who| self.is_cloaked(who)) {
-            return Vec::new();
+        let now = self.mission_minutes();
+        let seconds = (data::STEP_MINUTES / time::MINUTES_PER_SECOND) as f32;
+        let pulse = class::HEALING_CIRCLE_PULSE * time::MINUTES_PER_SECOND;
+        for m in 0..crew.min(self.medics.len() as u32) {
+            if !self.medics[m as usize].circle {
+                continue;
+            }
+            if !self.fit_to_act(m) || !self.on_the_deck(m) {
+                let medic = &mut self.medics[m as usize];
+                medic.circle = false;
+                medic.last_burn = None;
+                events.push(WorldEvent::Circled { who: m, on: false });
+                continue;
+            }
+            let rate = self.healing_circle_rate(m);
+            let base = rate / self.override_heal(m);
+            for who in self.healing_circle_reaching(m) {
+                self.medic_heal(m, who, base * seconds);
+            }
+            self.aboard.room.drain(m as usize, rate * seconds);
+            let last = self.medics[m as usize].last_burn.unwrap_or(now);
+            if now - last >= pulse - 1e-9 {
+                self.medics[m as usize].last_burn = Some(last + pulse);
+                let radius = self.healing_circle_radius(m) * shipdesign::TILE as f32;
+                let room = &mut self.aboard.room;
+                let at = room.bim_pos(m as usize);
+                let burn = rate * class::HEALING_CIRCLE_BURN * class::HEALING_CIRCLE_PULSE as f32;
+                room.scorch(at, radius, burn, m as usize);
+            }
         }
-        (0..crew).map(|who| self.is_cloaked(who)).collect()
     }
 
     /// Crew member `who` made a **field medic** with nothing else about
@@ -9646,44 +9598,47 @@ impl World {
     }
 
     /// Every beam broken: what a change of crew indices does, since an
-    /// index is all a link is.
+    /// index is all a link is — and every drone's patient forgotten, to be
+    /// picked again.
     fn clear_beams(&mut self) {
         for (who, medic) in self.medics.iter_mut().enumerate() {
             medic.unlink();
+            if let Some(drone) = medic.drone.as_mut() {
+                drone.patient = None;
+            }
             self.aboard.room.set_beaming(who, false);
         }
     }
 
     /// Before the rooms step: every beam checked — broken where the room
     /// ended it (an order to an errand, the medic down), the medic unfit
-    /// to act or cloaked, or a patient dead, gone from the room, out of
-    /// range or out of sight — and every beamed body given its hit points
-    /// for the step, times the Healing Aura where it stands (task 130).
-    /// Two beams on one body: the stronger. A downed body takes nothing:
-    /// only a revive gets it up.
+    /// to act, or a patient dead, gone from the room, out of range or out
+    /// of sight — and every beamed body given its hit points for the
+    /// step through `medic_heal` (task 130), **the medic too** as much as
+    /// a patient is (task 153) — once, however many he holds, and once
+    /// when the patient is himself. Two beams on one body: the stronger.
+    /// A downed body takes nothing: only a revive gets it up.
     fn hand_the_room_the_medics(&mut self, events: &mut Vec<WorldEvent>) {
         let crew = self.aboard.crew_count() as usize;
         if self.medics.len() < crew {
             self.medics.resize(crew, Medic::default());
         }
-        // Hit points an hour of the clock, by body.
-        let mut held: Vec<f32> = vec![0.0; crew];
+        // The strongest heal an hour reaching each body, and whose.
+        let mut held: Vec<Option<(f32, u32)>> = vec![None; crew];
         for m in 0..crew {
             if !self.medics[m].is_linked() {
                 continue;
             }
             let who = m as u32;
             let was = self.medics[m].patients.clone();
-            let keep: Vec<u32> =
-                if !self.aboard.room.is_beaming(m) || !self.fit_to_act(who) || self.is_cloaked(who)
-                {
-                    Vec::new()
-                } else {
-                    was.iter()
-                        .copied()
-                        .filter(|&p| self.beam_reaches(who, p).is_ok())
-                        .collect()
-                };
+            let keep: Vec<u32> = if !self.aboard.room.is_beaming(m) || !self.fit_to_act(who) {
+                Vec::new()
+            } else {
+                was.iter()
+                    .copied()
+                    .filter(|&p| self.beam_reaches(who, p).is_ok())
+                    .collect()
+            };
             if keep.is_empty() {
                 self.medics[m].unlink();
                 self.aboard.room.set_beaming(m, false);
@@ -9692,17 +9647,20 @@ impl World {
             }
             self.medics[m].patients = keep.clone();
             let rate = self.beam_rate(who);
-            for &p in &keep {
+            for p in keep.into_iter().chain(std::iter::once(who)) {
+                let worth = rate * self.medic_heal_factor(who, p);
                 let slot = &mut held[p as usize];
-                *slot = slot.max(rate);
+                if slot.is_none_or(|(best, _)| worth > best) {
+                    *slot = Some((rate, who));
+                }
             }
         }
         // An hour of the clock is sixty minutes, a step `STEP_MINUTES` of
         // them.
         let share = (data::STEP_MINUTES / 60.0) as f32;
-        for (who, rate) in held.into_iter().enumerate() {
-            if rate > 0.0 {
-                self.heal_crew(who as u32, rate * share);
+        for (who, held) in held.into_iter().enumerate() {
+            if let Some((rate, medic)) = held {
+                self.medic_heal(medic, who as u32, rate * share);
             }
         }
     }
@@ -9914,12 +9872,14 @@ impl World {
             .collect()
     }
 
-    // --- the tank: a ranked kit and two base traits (task 139) -------------
+    // --- the tank: a ranked kit and two base traits (tasks 139 and 155) ----
     //
-    // `crate::tank` is the state — when his Taunt and his Juggernaut last
-    // began and the window each covers — and this is the rules. Bulwark
-    // is a flag on the Bim, and Plated and the armour's drain are read
-    // afresh each step into the room's one `bims::combat::Skill`.
+    // `crate::tank` is the state — the Riot Shield's hit points spent and
+    // whether it is up, the Reflect Barrier's window, the Bastion's
+    // cooldown and the haste it leaves — and this is the rules. Plated
+    // and the armour's drain are read afresh each step into the room's
+    // one `bims::combat::Skill`, and so is the barrier, as
+    // `Skill::reflect`.
 
     /// Whether crew member `who` is a player's tank.
     fn is_tank(&self, who: u32) -> bool {
@@ -9942,11 +9902,11 @@ impl World {
 
     /// The tank's half of [`World::skill_of`], off his ranks and nothing
     /// else; `Skill::NONE` for anybody else. **Plated** is the damage he
-    /// takes, before the armour; **Bulwark**, while it is up, the rank's
-    /// pace and from the third rank the dodge; **Juggernaut**, while it
-    /// runs, the damage he takes again — every factor multiplied together,
-    /// and with a commander's Rally after (`lift_by_commanders`). The
-    /// armour's drain is `armour_drain`'s.
+    /// takes, before the armour — with a commander's Rally after
+    /// (`lift_by_commanders`) — and the **Reflect Barrier**, while it
+    /// runs, the share of every enemy hit on him the room sends back on
+    /// its striker. The armour's drain is `armour_drain`'s, the shield
+    /// the room's (`hand_the_room_the_tanks`).
     fn tank_skill(&self, who: u32) -> bims::combat::Skill {
         let mut skill = bims::combat::Skill::NONE;
         if !self.is_tank(who) {
@@ -9957,20 +9917,8 @@ impl World {
         {
             skill.damage_taken *= taken;
         }
-        let wall = self.rank_of(who, class::SLOT_E);
-        if wall > 0 && self.is_bulwark(who) {
-            skill.walk = self.bulwark_pace(who);
-            if wall >= class::GUARDED_RANK {
-                skill.dodge = class::GUARDED_DODGE;
-            }
-        }
-        if self.is_juggernaut(who) {
-            let rank = self.rank_of(who, class::SLOT_R);
-            skill.damage_taken *=
-                class::by_rank(class::JUGGERNAUT_DAMAGE_TAKEN, rank).unwrap_or(1.0);
-            // At the Override Core's fifth rank (October 2026) nothing
-            // takes him down while it runs.
-            skill.unyielding = rank >= class::OVERRIDE_RANK;
+        if self.is_reflecting(who) {
+            skill.reflect = class::REFLECT_SHARE;
         }
         skill
     }
@@ -9991,29 +9939,127 @@ impl World {
         }
     }
 
-    /// How far a tank's bulwark reaches, in tiles: its rank's
-    /// [`class::BULWARK_REACH`], nought before the first.
-    pub fn bulwark_reach(&self, who: u32) -> f32 {
-        class::by_rank(class::BULWARK_REACH, self.rank_of(who, class::SLOT_E)).unwrap_or(0.0)
+    /// The hit points a second a tank mends: Plated's
+    /// [`class::PLATED_REGEN`] of his rank, nought before the first and
+    /// for anybody else.
+    pub fn plated_regen(&self, who: u32) -> f32 {
+        if !self.is_tank(who) {
+            return 0.0;
+        }
+        class::by_rank(class::PLATED_REGEN, self.rank_of(who, class::SLOT_C)).unwrap_or(0.0)
     }
 
-    /// What a tank's pace is multiplied by while the wall is up: its
-    /// rank's [`class::BULWARK_PACE`], one before the first.
-    pub fn bulwark_pace(&self, who: u32) -> f32 {
-        class::by_rank(class::BULWARK_PACE, self.rank_of(who, class::SLOT_E)).unwrap_or(1.0)
+    // The Riot Shield (Q).
+
+    /// The hit points a tank's Riot Shield takes whole: its rank's
+    /// [`class::RIOT_SHIELD_HP`], nought before the first.
+    pub fn riot_shield_hp(&self, who: u32) -> f32 {
+        class::by_rank(class::RIOT_SHIELD_HP, self.rank_of(who, class::SLOT_Q)).unwrap_or(0.0)
     }
 
-    /// Whether a crew member stands as a wall.
-    pub fn is_bulwark(&self, who: u32) -> bool {
-        self.aboard.room.is_bulwark(who as usize)
+    /// The hit points a tank's Riot Shield has left.
+    pub fn riot_shield_left(&self, who: u32) -> f32 {
+        (self.riot_shield_hp(who) - self.tank_of(who).shield_spent).max(0.0)
     }
 
-    /// Whether a player's tank may stand as a wall, or why not: a tank
-    /// (`NotATank`), fit to act (`OutOfReach`), and a rank of Bulwark
-    /// (`NotLearnt`, task 139). What the app greys the key with and
-    /// [`Command::Bulwark`] asks.
-    pub fn can_bulwark(&self, slot: u32) -> Result<(), Refusal> {
-        if !class::can(self.class_of(slot), class::Ability::Bulwark) {
+    /// Whether a tank holds his Riot Shield up.
+    pub fn is_shielding(&self, who: u32) -> bool {
+        self.is_tank(who) && self.tank_of(who).shield_up
+    }
+
+    /// Whether a tank's Riot Shield is broken and not yet a quarter back:
+    /// it cannot be raised.
+    pub fn is_shield_recharging(&self, who: u32) -> bool {
+        self.tank_of(who).shield_broken
+            && self.riot_shield_left(who)
+                < self.riot_shield_hp(who) * class::RIOT_SHIELD_RAISE_SHARE
+    }
+
+    /// Whether a player's tank may raise his Riot Shield (`on`) or put it
+    /// down, or why not, in order: a tank (`NotATank`); and to raise it,
+    /// fit to act — downed among it — (`OutOfReach`), a rank of it
+    /// (`NotLearnt`) and not broken and short of a quarter
+    /// (`ShieldRecharging`). Putting it down is never refused a tank.
+    pub fn can_riot_shield(&self, slot: u32, on: bool) -> Result<(), Refusal> {
+        if !class::can(self.class_of(slot), class::Ability::RiotShield) {
+            return Err(Refusal::NotATank);
+        }
+        if !on {
+            return Ok(());
+        }
+        if !self.fit_to_act(slot) {
+            return Err(Refusal::OutOfReach);
+        }
+        if self.rank_of(slot, class::SLOT_Q) == 0 {
+            return Err(Refusal::NotLearnt);
+        }
+        if self.is_shield_recharging(slot) {
+            return Err(Refusal::ShieldRecharging);
+        }
+        Ok(())
+    }
+
+    /// Raise the Riot Shield, or put it down — see [`Command::RiotShield`].
+    /// Whether it changed: a press that asks for what already is says
+    /// nothing.
+    fn riot_shield(&mut self, slot: u32, on: bool) -> Result<bool, Refusal> {
+        self.can_riot_shield(slot, on)?;
+        let tank = self.tank_mut(slot as usize);
+        if tank.shield_up == on {
+            return Ok(false);
+        }
+        tank.shield_up = on;
+        Ok(true)
+    }
+
+    // The Reflect Barrier (E).
+
+    /// Seconds of the mission clock a tank's Reflect Barrier runs: its
+    /// rank's [`class::REFLECT_SECONDS`], nought before the first.
+    pub fn reflect_seconds(&self, who: u32) -> f64 {
+        class::by_rank(class::REFLECT_SECONDS, self.rank_of(who, class::SLOT_E)).unwrap_or(0.0)
+    }
+
+    /// Whether a tank's Reflect Barrier is running.
+    pub fn is_reflecting(&self, who: u32) -> bool {
+        self.is_tank(who) && self.tank_of(who).reflect.running(self.mission_minutes())
+    }
+
+    /// Seconds of the mission clock a tank's Reflect Barrier has left;
+    /// nought with none running.
+    pub fn reflect_left(&self, who: u32) -> f64 {
+        if !self.is_reflecting(who) {
+            return 0.0;
+        }
+        (self.tank_of(who).reflect.until - self.mission_minutes()) / time::MINUTES_PER_SECOND
+    }
+
+    /// Seconds of the mission clock between one barrier and the next: its
+    /// rank's [`class::REFLECT_COOLDOWN`] (the first's before one),
+    /// shorter with the cooldown relics and items as every class cooldown
+    /// is.
+    pub fn reflect_cooldown(&self, who: u32) -> f64 {
+        let rank = self.rank_of(who, class::SLOT_E).max(1);
+        class::by_rank(class::REFLECT_COOLDOWN, rank).unwrap_or(0.0)
+            * self.relic_factor(who, crate::relic::Stat::Cooldowns)
+    }
+
+    /// Seconds of the mission clock until a tank may raise his barrier
+    /// again; nought when he may.
+    pub fn reflect_cooldown_left(&self, who: u32) -> f64 {
+        let Some(last) = self.tank_of(who).last_reflect else {
+            return 0.0;
+        };
+        let since = (self.mission_minutes() - last) / time::MINUTES_PER_SECOND;
+        (self.reflect_cooldown(who) - since).max(0.0)
+    }
+
+    /// Whether a player's tank may raise his Reflect Barrier, or why not,
+    /// in order: a tank (`NotATank`), fit to act (`OutOfReach`), a rank of
+    /// it (`NotLearnt`), none running (`AlreadyActive`) and out of the
+    /// cooldown (`CoolingDown`).
+    pub fn can_reflect(&self, slot: u32) -> Result<(), Refusal> {
+        if !class::can(self.class_of(slot), class::Ability::Reflect) {
             return Err(Refusal::NotATank);
         }
         if !self.fit_to_act(slot) {
@@ -10022,232 +10068,196 @@ impl World {
         if self.rank_of(slot, class::SLOT_E) == 0 {
             return Err(Refusal::NotLearnt);
         }
-        Ok(())
-    }
-
-    /// Stand as a wall, or stand down — see [`Command::Bulwark`]. The
-    /// room holds the flag (`Game::set_bulwark`) and drops it when the
-    /// tank goes down.
-    fn bulwark(&mut self, slot: u32, on: bool) -> Result<(), Refusal> {
-        self.can_bulwark(slot)?;
-        self.aboard.room.set_bulwark(slot as usize, on);
-        Ok(())
-    }
-
-    /// Seconds of the mission clock a tank's taunt runs: its rank's
-    /// [`class::TAUNT_SECONDS`], nought before the first.
-    pub fn taunt_seconds(&self, who: u32) -> f64 {
-        class::by_rank(class::TAUNT_SECONDS, self.rank_of(who, class::SLOT_Q)).unwrap_or(0.0)
-    }
-
-    /// How far a tank's taunt reaches, in tiles: its rank's
-    /// [`class::TAUNT_RADIUS`], nought before the first.
-    pub fn taunt_radius(&self, who: u32) -> f32 {
-        class::by_rank(class::TAUNT_RADIUS, self.rank_of(who, class::SLOT_Q)).unwrap_or(0.0)
-    }
-
-    /// Seconds of the mission clock a tank's taunt has left; nought with
-    /// none running.
-    pub fn taunt_left(&self, who: u32) -> f64 {
-        if !self.is_taunting(who) {
-            return 0.0;
+        if self.is_reflecting(slot) {
+            return Err(Refusal::AlreadyActive);
         }
-        (self.tank_of(who).taunt.until - self.mission_minutes()) / time::MINUTES_PER_SECOND
-    }
-
-    /// Whether a taunt is running on a crew member.
-    pub fn is_taunting(&self, who: u32) -> bool {
-        self.is_tank(who) && self.tank_of(who).taunt.running(self.mission_minutes())
-    }
-
-    /// Seconds of the mission clock until a tank may taunt again; nought
-    /// when he may.
-    pub fn taunt_cooldown_left(&self, who: u32) -> f64 {
-        let Some(last) = self.tank_of(who).last_taunt else {
-            return 0.0;
-        };
-        let since = (self.mission_minutes() - last) / time::MINUTES_PER_SECOND;
-        (self.taunt_cooldown(who) - since).max(0.0)
-    }
-
-    /// Seconds of the mission clock between one taunt and the next: its
-    /// rank's [`class::TAUNT_COOLDOWN`] (the first's before one), shorter
-    /// with a relic's *Coolant Loop* as every class cooldown is.
-    pub fn taunt_cooldown(&self, who: u32) -> f64 {
-        let rank = self.rank_of(who, class::SLOT_Q).max(1);
-        class::by_rank(class::TAUNT_COOLDOWN, rank).unwrap_or(0.0)
-            * self.relic_factor(who, crate::relic::Stat::Cooldowns)
-    }
-
-    /// Whether a player's tank may taunt, or why not, in order: a tank
-    /// (`NotATank`), fit to act — downed among it — (`OutOfReach`), a
-    /// rank of Taunt (`NotLearnt`), and out of the cooldown
-    /// (`CoolingDown`).
-    pub fn can_taunt(&self, slot: u32) -> Result<(), Refusal> {
-        if !class::can(self.class_of(slot), class::Ability::Taunt) {
-            return Err(Refusal::NotATank);
-        }
-        if !self.fit_to_act(slot) || self.aboard.room.is_down(slot as usize) {
-            return Err(Refusal::OutOfReach);
-        }
-        if self.rank_of(slot, class::SLOT_Q) == 0 {
-            return Err(Refusal::NotLearnt);
-        }
-        if self.taunt_cooldown_left(slot) > 0.0 {
+        if self.reflect_cooldown_left(slot) > 0.0 {
             return Err(Refusal::CoolingDown);
         }
         Ok(())
     }
 
-    /// The taunt — see [`Command::Taunt`]: the mission clock noted, and
-    /// when it ends. What it *does* is read off that every step, in
-    /// `taunts_for_the_enemy`.
-    fn taunt(&mut self, slot: u32) -> Result<(), Refusal> {
-        self.can_taunt(slot)?;
+    /// The barrier — see [`Command::Reflect`]: the mission clock noted,
+    /// and when it ends. What it does is read off that every step, in
+    /// `tank_skill`.
+    fn reflect(&mut self, slot: u32) -> Result<(), Refusal> {
+        self.can_reflect(slot)?;
         let now = self.mission_minutes();
-        let until = now + self.taunt_seconds(slot) * time::MINUTES_PER_SECOND;
+        let until = now + self.reflect_seconds(slot) * time::MINUTES_PER_SECOND;
         let tank = self.tank_mut(slot as usize);
-        tank.last_taunt = Some(now);
-        tank.taunt = crate::tank::Window { began: now, until };
+        tank.last_reflect = Some(now);
+        tank.reflect = crate::tank::Window { began: now, until };
         Ok(())
     }
 
-    /// Seconds of the mission clock a Juggernaut runs: its rank's
-    /// [`class::JUGGERNAUT_SECONDS`], nought before the first.
-    pub fn juggernaut_seconds(&self, who: u32) -> f64 {
-        class::by_rank(class::JUGGERNAUT_SECONDS, self.rank_of(who, class::SLOT_R)).unwrap_or(0.0)
+    // The Bastion (R).
+
+    /// How far a tank's Bastion reaches, in tiles: its rank's
+    /// [`class::BASTION_RADIUS`] — the *Override Core*'s fifth with one —
+    /// nought before the first.
+    pub fn bastion_radius(&self, who: u32) -> f32 {
+        class::by_rank(class::BASTION_RADIUS, self.rank_of(who, class::SLOT_R)).unwrap_or(0.0)
     }
 
-    /// Whether a crew member's Juggernaut is running.
-    pub fn is_juggernaut(&self, who: u32) -> bool {
-        self.is_tank(who) && self.tank_of(who).juggernaut.running(self.mission_minutes())
-    }
-
-    /// Seconds of the mission clock the Juggernaut running has left;
-    /// nought with none.
-    pub fn juggernaut_left(&self, who: u32) -> f64 {
-        if !self.is_juggernaut(who) {
-            return 0.0;
-        }
-        (self.tank_of(who).juggernaut.until - self.mission_minutes()) / time::MINUTES_PER_SECOND
-    }
-
-    /// Seconds of the mission clock from one Juggernaut to the next: its
-    /// rank's [`class::JUGGERNAUT_COOLDOWN`], shorter with a relic's
-    /// *Coolant Loop*.
-    pub fn juggernaut_cooldown(&self, who: u32) -> f64 {
+    /// Seconds of the mission clock from one Bastion to the next: its
+    /// rank's [`class::BASTION_COOLDOWN`], shorter with the cooldown
+    /// relics and items.
+    pub fn bastion_cooldown(&self, who: u32) -> f64 {
         let rank = self.rank_of(who, class::SLOT_R).max(1);
-        class::by_rank(class::JUGGERNAUT_COOLDOWN, rank).unwrap_or(0.0)
+        class::by_rank(class::BASTION_COOLDOWN, rank).unwrap_or(0.0)
             * self.relic_factor(who, crate::relic::Stat::Cooldowns)
     }
 
-    /// Seconds of the mission clock until a tank may go Juggernaut again;
-    /// nought when he may.
-    pub fn juggernaut_cooldown_left(&self, who: u32) -> f64 {
-        let Some(last) = self.tank_of(who).last_juggernaut else {
+    /// Seconds of the mission clock until a tank may throw his Bastion
+    /// again; nought when he may.
+    pub fn bastion_cooldown_left(&self, who: u32) -> f64 {
+        let Some(last) = self.tank_of(who).last_bastion else {
             return 0.0;
         };
         let since = (self.mission_minutes() - last) / time::MINUTES_PER_SECOND;
-        (self.juggernaut_cooldown(who) - since).max(0.0)
+        (self.bastion_cooldown(who) - since).max(0.0)
     }
 
-    /// Whether a player's tank may go Juggernaut, or why not, in order: a
-    /// tank (`NotATank`), fit to act — downed among it — (`OutOfReach`), a
-    /// rank of Juggernaut (`NotLearnt`), none running (`AlreadyActive`)
-    /// and out of the cooldown (`CoolingDown`). A taunt running beside it
-    /// is no bar.
-    pub fn can_juggernaut(&self, slot: u32) -> Result<(), Refusal> {
-        if !class::can(self.class_of(slot), class::Ability::Juggernaut) {
+    /// Whether a player's tank may throw his Bastion, or why not, in
+    /// order: a tank (`NotATank`), fit to act (`OutOfReach`), a rank of it
+    /// (`NotLearnt`) and out of the cooldown (`CoolingDown`).
+    pub fn can_bastion(&self, slot: u32) -> Result<(), Refusal> {
+        if !class::can(self.class_of(slot), class::Ability::Bastion) {
             return Err(Refusal::NotATank);
         }
-        if !self.fit_to_act(slot) || self.aboard.room.is_down(slot as usize) {
+        if !self.fit_to_act(slot) {
             return Err(Refusal::OutOfReach);
         }
         if self.rank_of(slot, class::SLOT_R) == 0 {
             return Err(Refusal::NotLearnt);
         }
-        if self.is_juggernaut(slot) {
-            return Err(Refusal::AlreadyActive);
-        }
-        if self.juggernaut_cooldown_left(slot) > 0.0 {
+        if self.bastion_cooldown_left(slot) > 0.0 {
             return Err(Refusal::CoolingDown);
         }
         Ok(())
     }
 
-    /// The Juggernaut — see [`Command::Juggernaut`]: the mission clock
-    /// noted, and when it ends. What it does is read off that every step,
-    /// in `tank_skill` and `taunts_for_the_enemy`.
-    fn juggernaut(&mut self, slot: u32) -> Result<(), Refusal> {
-        self.can_juggernaut(slot)?;
-        let now = self.mission_minutes();
-        let until = now + self.juggernaut_seconds(slot) * time::MINUTES_PER_SECOND;
-        let tank = self.tank_mut(slot as usize);
-        tank.last_juggernaut = Some(now);
-        tank.juggernaut = crate::tank::Window { began: now, until };
-        Ok(())
-    }
-
-    /// What each of the crew forces on the enemy, index for index with
-    /// the crew (task 139): a tank's Taunt — its rank's radius in room
-    /// units, the blades pulled from [`class::TAUNT_MAGNET_RANK`] — or his
-    /// Juggernaut, at any distance; the most recent of two tanks' the
-    /// higher `order`. `Taunt::NONE` for everybody else. A tank the enemy
-    /// may not pick — cloaked — is no target on their list at all, so his
-    /// forces nothing while it lasts.
-    fn taunts_for_the_enemy(&self) -> Vec<bims::combat::Taunt> {
-        let now = self.mission_minutes();
-        let crew = self.aboard.crew_count();
-        let since: Vec<Option<f64>> = (0..crew)
-            .map(|who| {
-                self.is_tank(who)
-                    .then(|| self.tank_of(who).forcing_since(now))
-                    .flatten()
-            })
-            .collect();
-        (0..crew)
-            .map(|who| {
-                let Some(began) = since[who as usize] else {
-                    return bims::combat::Taunt::NONE;
-                };
-                let radius = if self.is_juggernaut(who) {
-                    f32::INFINITY
-                } else {
-                    self.taunt_radius(who) * shipdesign::TILE as f32
-                };
-                let magnet = self.is_taunting(who)
-                    && self.rank_of(who, class::SLOT_Q) >= class::TAUNT_MAGNET_RANK;
-                // The more recent, the higher: one more than every
-                // forcing that began before this one.
-                let order = 1 + since.iter().flatten().filter(|&&b| b < began).count() as u32;
-                bims::combat::Taunt {
-                    radius,
-                    magnet,
-                    order,
-                }
-            })
+    /// Whom a tank's Bastion thrown now reaches: every crew member on the
+    /// deck and on its feet within its radius of him, himself included —
+    /// the players, the bots and the hands alike — lowest index first.
+    pub fn bastion_reaching(&self, who: u32) -> Vec<u32> {
+        let room = &self.aboard.room;
+        self.crew_within(who, self.bastion_radius(who))
+            .into_iter()
+            .filter(|&w| !room.is_downed(w as usize))
             .collect()
     }
 
-    /// Before the rooms step: the walls standing among the crew to the
-    /// crew's room, so a bolt aimed through one is dodged like a bolt in
-    /// cover (and, from Bulwark's [`class::INTERPOSE_RANK`], lands on the
-    /// wall). A tank not fit to act shelters nobody, so a wall goes down
-    /// with the tank the same step he does.
+    /// The Bastion — see [`Command::Bastion`]: a draining shield on
+    /// everybody it reaches, the room's own (`Game::set_draining_shield`,
+    /// a fresh one in place of whatever was left), and at the
+    /// *Override Core*'s fifth rank the haste on each for its seconds.
+    /// How many it reached.
+    fn bastion(&mut self, slot: u32) -> Result<u32, Refusal> {
+        self.can_bastion(slot)?;
+        let now = self.mission_minutes();
+        let reached = self.bastion_reaching(slot);
+        let hasted = self.rank_of(slot, class::SLOT_R) >= class::OVERRIDE_RANK;
+        let until = now + class::BASTION_SECONDS * time::MINUTES_PER_SECOND;
+        for &who in &reached {
+            self.aboard.room.set_draining_shield(
+                who as usize,
+                class::BASTION_HP,
+                class::BASTION_SECONDS as f32,
+                class::BASTION_DRAIN,
+            );
+            if hasted {
+                self.tank_mut(who as usize).hasted = crate::tank::Window { began: now, until };
+            }
+        }
+        self.tank_mut(slot as usize).last_bastion = Some(now);
+        Ok(reached.len() as u32)
+    }
+
+    /// Whether a Bastion at the *Override Core*'s fifth rank hastes this
+    /// crew member now.
+    pub fn is_hasted(&self, who: u32) -> bool {
+        self.tank_of(who).hasted.running(self.mission_minutes())
+    }
+
+    /// A Bastion's haste on the pace (task 155): [`class::BASTION_HASTE`]
+    /// on `walk` — the always-on pace — while it runs.
+    fn lift_by_bastion(&self, who: u32, skill: &mut bims::combat::Skill) {
+        if self.is_hasted(who) {
+            skill.walk *= class::BASTION_HASTE;
+        }
+    }
+
+    /// Before the rooms step: every tank's Riot Shield handed to the
+    /// crew's room — a shield goes down with its tank the step he is not
+    /// fit to act, and with no rank of it — so a bolt meeting the plate
+    /// is stopped and bounced there.
     fn hand_the_room_the_tanks(&mut self) {
         let crew = self.aboard.crew_count();
         if self.tanks.len() < crew as usize {
             self.tanks.resize(crew as usize, Tank::default());
         }
-        let walls: Vec<bims::combat::Bulwark> = (0..crew)
-            .filter(|&who| self.is_tank(who) && self.is_bulwark(who) && self.fit_to_act(who))
-            .map(|who| bims::combat::Bulwark {
-                who: who as usize,
-                reach: self.bulwark_reach(who),
-                interpose: self.rank_of(who, class::SLOT_E) >= class::INTERPOSE_RANK,
-            })
-            .collect();
-        self.aboard.room.set_bulwarks(walls);
+        let mut plates = Vec::new();
+        for who in 0..crew {
+            if !self.tanks[who as usize].shield_up {
+                continue;
+            }
+            if !self.is_tank(who) || !self.fit_to_act(who) || self.riot_shield_hp(who) <= 0.0 {
+                self.tanks[who as usize].shield_up = false;
+                continue;
+            }
+            plates.push((
+                who as usize,
+                self.riot_shield_left(who),
+                self.riot_shield_hp(who),
+            ));
+        }
+        self.aboard.room.set_riot_shields(&plates);
+    }
+
+    /// After the rooms step: what the plates stopped comes off the
+    /// shields — one at nought breaks and goes down,
+    /// `WorldEvent::ShieldBroken` — every shield restores
+    /// [`class::RIOT_SHIELD_REGEN`] a second while stowed, or up and
+    /// unstruck for [`class::RIOT_SHIELD_REGEN_DELAY`], and every tank on
+    /// his feet mends Plated's hit points.
+    fn settle_tanks(&mut self, events: &mut Vec<WorldEvent>) {
+        let now = self.mission_minutes();
+        for (who, damage) in self.aboard.room.take_plate_blocks() {
+            let who = who as u32;
+            if !self.is_tank(who) {
+                continue;
+            }
+            let whole = self.riot_shield_hp(who);
+            let tank = self.tank_mut(who as usize);
+            tank.shield_spent = (tank.shield_spent + damage).min(whole);
+            tank.shield_struck = Some(now);
+            if tank.shield_spent >= whole && tank.shield_up {
+                tank.shield_up = false;
+                tank.shield_broken = true;
+                events.push(WorldEvent::ShieldBroken { who });
+            }
+        }
+        let seconds = (data::STEP_MINUTES / time::MINUTES_PER_SECOND) as f32;
+        let delay = class::RIOT_SHIELD_REGEN_DELAY * time::MINUTES_PER_SECOND;
+        for who in 0..self.aboard.crew_count().min(self.tanks.len() as u32) {
+            if !self.is_tank(who) {
+                continue;
+            }
+            let tank = &mut self.tanks[who as usize];
+            let unstruck = tank.shield_struck.is_none_or(|t| now - t >= delay - 1e-9);
+            if tank.shield_spent > 0.0 && (!tank.shield_up || unstruck) {
+                tank.shield_spent =
+                    (tank.shield_spent - class::RIOT_SHIELD_REGEN * seconds).max(0.0);
+            }
+            if self.tanks[who as usize].shield_broken && !self.is_shield_recharging(who) {
+                self.tanks[who as usize].shield_broken = false;
+            }
+            let regen = self.plated_regen(who);
+            if regen > 0.0 && self.fit_to_act(who) {
+                self.heal_crew(who, regen * seconds);
+            }
+        }
     }
 
     // --- the commander: a ranked kit and a base trait (task 129) ----------
@@ -11034,37 +11044,6 @@ impl World {
             None
         }
     }
-
-    /// After `visit`: the laid sandbags a burst reached are gone, whatever
-    /// they had left (`DeployableLost`).
-    fn settle_bursts(&mut self, events: &mut Vec<WorldEvent>) {
-        let blown = self.aboard.room.take_bags_blown();
-        if blown.is_empty() {
-            return;
-        }
-        let t = shipdesign::TILE as f32;
-        let mut gone = Vec::new();
-        for (x, y) in blown {
-            let p = bims::math::vec2((x as f32 + 0.5) * t, (y as f32 + 0.5) * t);
-            if let Some((d, _)) = self
-                .deployable_under(p)
-                .filter(|(d, _)| d.kind == DeployKind::Sandbags)
-                && !gone.contains(&d.id)
-            {
-                gone.push(d.id);
-            }
-        }
-        if gone.is_empty() {
-            return;
-        }
-        self.deployables.retain(|d| !gone.contains(&d.id));
-        for _ in &gone {
-            events.push(WorldEvent::DeployableLost {
-                kind: DeployKind::Sandbags.code(),
-            });
-        }
-        self.sync_deployed_cover();
-    }
 }
 
 fn refused(slot: u32, why: Refusal) -> WorldEvent {
@@ -11072,13 +11051,13 @@ fn refused(slot: u32, why: Refusal) -> WorldEvent {
 }
 
 /// A throw a crew member is walking out to make ([`Command::ThrowAt`]):
-/// whose, a grenade or an EMP, the room tile it is for and the tile it
-/// walks to to throw from.
+/// whose, a grenade or a satchel (task 154; an EMP until then), the room
+/// tile it is for and the tile it walks to to throw from.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct PendingThrow {
     pub who: u32,
-    pub emp: bool,
+    pub satchel: bool,
     pub tile: (i32, i32),
     pub stand: (i32, i32),
 }

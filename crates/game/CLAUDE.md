@@ -2554,7 +2554,11 @@ laid over it. Two things:
   `views_stale` — what it lit is what was seen by it), and its box of
   the field summed again. Below `LAMP_FAILING` (a fifth) it is
   **failing** and starts a `LAMP_FAIL_FLICKER` on `FAIL_FLICKER_ODDS`
-  (0.3) a second of its own. **The flicker is the picture's alone**:
+  (0.3) a second of its own. While it flickers (`Lamp::is_flickering`)
+  it spits sparks: `Game::fade` hands every flickering lamp to
+  `Fx::lamp_sparks`, a `Sparks` spray at `LAMP_SPARK_ODDS` (6) a real
+  second, dice `scatter` of `Fx`'s frame count and the lamp — host
+  only, nothing the sim reads. **The flicker is the picture's alone**:
   there are two fields, `light_field` — every lamp not out at full,
   what `view_of` reads for the seen rule — and `shown_field`, with each
   lamp at its `level`, what `compose` draws; and it is `noise(lamp,
@@ -4171,16 +4175,44 @@ and the host's picture goes stale.
   Machine Heart's machines. `tick_droids` gives a stunned machine nothing
   but the stun wearing off (`wear_off_stun`); `Droid::shield` is `None`
   while stunned. It flickers pale blue (`droid::STUNNED`).
-- **An EMP is a grenade with `stun` set** (`Combat::throw_emp`,
-  `Game::throw_emp`): the same flight and fuse, a pale blue ring for its
-  burst (`Blast::emp`), and `Game::burst` notes the targets within its
-  radius on `stuns` (`take_stuns`) and hits nothing.
+- **An EMP was a grenade with `stun` set** (`Combat::throw_emp`,
+  `Game::throw_emp`), until task 154 took the EMP away: the stun is the
+  soldier's Stun Shot's alone now (`Grenade::shot`), and `Blast::emp`'s
+  ring is drawn for nothing that bursts.
 - **`combat::Sentry::heals`** is a Healing Sentry: on the bodies list a
   hostile bolt looks for, never fired. The engineer's *dug in* went, and
   with it the sentry's `dug_in`.
 - **`Kind::Deploy { x, y, kind }`**: `kind` the world's `DeployKind`
   code, carried back on `Room::deployed`. (`steady` and
   `set_steady_hands` went: see "A kit is laid within two tiles" below.)
+
+## The engineer's mines and satchel charges (task 154)
+
+The world keeps both as deployables (`crates/world/CLAUDE.md`); the room
+bursts them and lobs the satchel, and keeps nothing of them between.
+
+- **A charge set off** is `Game::detonate(who, at, radius, damage)` →
+  `Combat::detonate`: a `Grenade` with `laid` set and no fuse, bursting on
+  the room's next tick (the world sets a mine off before the room steps,
+  so it bursts the same step). `Game::burst` with `laid` hits **the
+  targets alone** — the grenade's fall-off to half at the edge and its
+  halving in cover, a blast hit by `who` — and none of the room's own,
+  no sentry and no laid cover: the crew's loop runs over nobody and the
+  burst returns before the sentries. The flash, the particles and the
+  `Burst` cue are a grenade's.
+- **What sets a mine off** is `Game::enemy_near(at, reach)`: a target the
+  world named, standing, within `reach` of the mine — the crew's room's
+  own list, so a mine on the ship's deck and one on a station's are the
+  same question.
+- **A satchel lobbed** is `Game::throw_satchel(who, at)` →
+  `Combat::lob_satchel`: a `Grenade` with `satchel` set, its fuse the
+  grenade's flight; it is drawn in the air as a canvas pack
+  (`SATCHEL_CANVAS`, `SATCHEL_STRAP`, `FUSE_RED`), lights no blast and
+  makes no sound when it comes down, and `Game::burst` puts it on
+  `satchels_landed` (`take_satchels_landed`) for the world to lay.
+- **The sandbags' laid cover** (`Sight::set_laid_cover`, the bags' hits
+  and `bags_blown`) is still the room's, but the world lays none since the
+  sandbags went: the machinery waits for something to use it.
 
 ## A kit is laid within two tiles, under fire, holstered, and never queued
 
@@ -4218,6 +4250,12 @@ bar over both sentries (`healthbars.rs`, `Room::Sentry`).
 
 ## The medic's cloak: what the room is handed (task 130)
 
+> **Since task 153 the medic has no cloak**: nothing sets
+> `Game::set_cloaked` or `set_targets_withheld` any more (the world's
+> `cloaks`, `hidden_from_enemies` and `lift_by_cloak` went). The room's
+> half below stays, unused, like the surge timer. What the reworked
+> medic hands the room is the next section.
+
 The medic's ranked kit is the world's (`crates/world/CLAUDE.md`, "The
 medic's ranked kit"); the room is handed three things and decides nothing
 about them:
@@ -4248,6 +4286,25 @@ a grenade's burst — since both look for bodies and never for targets.
 The room's own surge timer (`Bim::surge`, `Game::set_surge`) stays for
 the relics (*Phase Harness*, *Lifeline*); the medic's surge that set it
 too went.
+
+## The medic's circle: a drain and a burn (task 153)
+
+The reworked medic (`crates/world/CLAUDE.md`, "The medic reworked") asks
+the room two new things, both before it steps, and both deciding nothing:
+
+- **`Game::drain(who, points)`** takes hit points off a living body's bar
+  outright — past the armour, a shield and a surge, no flash and no
+  blood — and at nothing the body is downed (`downs`) as by any hit:
+  what a medic pays for his own Healing Circle.
+- **`Game::scorch(at, radius, damage, by)`** lands `damage` on every
+  target standing within `radius` of `at` with a clear line
+  (`line_clear`), the same at the edge, as a blast hit by `by`
+  (`Combat::blast_target`): the circle's burn on the enemy, carried
+  across with the step's other hits. Nobody of the room's own, no sentry
+  and no sandbag. A roll off the combat stream a target, like a burst's.
+
+Every heal of the medic's is the plain `Game::heal`; his Triage and the
+Override Core are the world's factor on it.
 
 ## Nobody wanders, and the player's own Bim is moved by its player alone (September 2026)
 
@@ -4889,3 +4946,56 @@ world's (`crates/world/CLAUDE.md`, "Items, step two").
   touches none of the room's own, lit as the explosion and the EMP's
   ring at once (`Cue::Burst`). `Game::reach_along` is the furthest point
   short of a wall on a line.
+
+## The tank's plate, his barrier and his Bastion (task 155)
+
+> "The tank's wall, its armour and its hits (feature 77)" above says
+> `Bim::bulwark` and `Combat::bulwarks`: both went, with
+> `combat::Bulwark`, `Game::{set_bulwark, is_bulwark, set_bulwarks}` and
+> the *interpose* landing. The taunt's rule in `Combat::aim_among` stays,
+> and nothing sets it.
+
+- **`combat::Plate { who, facing, hp }`** is a Riot Shield held up:
+  `Game::set_riot_shields(&[(who, hp, whole)])`, said by the world every
+  step, and `tick_combat` turns each to its holder's heading
+  (`Vec2::from_angle(character.heading)`, the player's aim) right before
+  `Combat::step`. The plate is flat: `PLATE_OUT` (22) in front of the
+  body, `PLATE_HALF` (24) either side. **A hostile bolt crossing it from
+  the front** (`Plate::crossing`, the segment through the plate's line)
+  stops there — asked before the bodies, and the holder is never struck
+  by a bolt that crossed his plate in the same step (`along` backs off a
+  clamped segment end, so the body's circle could otherwise win) — its
+  damage (the curve at the distance flown, its factors) on
+  `Combat::plate_blocks` (`Game::take_plate_blocks`, for the world), and
+  a **bounced** bolt goes on `bolts` after the loop: `by` the holder,
+  friendly, from the plate along `Plate::bounce` (the way mirrored in the
+  face, `d − 2(d·n)n`), the weapon's whole reach again and its curve
+  from there. A plate spent this step stops no more. `Cue::Shielded`,
+  `Fx::plate` (blue sparks), no scorch.
+- **`Skill::reflect`** (serde default) is the share of an enemy's hit a
+  body sends back: `Game::set_skills` hands it to `Combat::reflects`, and
+  where a hostile hit lands — a bolt in `Combat::step`, a beam in
+  `step_sweeps`, a blow in `Game::enemy_strike_by` — `reflected` puts a
+  hit of the body's on the shooter onto `hits` (the same roll, no crit).
+  The shooter is `Bolt::shooter` / `Sweep::shooter` / `Shot::shooter`
+  (serde default): a hostile room signs each recorded shot with the
+  body's index (`Combat::sign_last_shot`, at the Bim's, the machine's,
+  the Guardian's, the core's and the intruder's), and the crew's room
+  takes it in `Game::enemy_fire_by` (`Combat::fire_hostile`),
+  `enemy_sweep_by` (`sign_last_sweep`) and `enemy_strike_by`. A bolt
+  flying in the room it was fired in (a machine at a town's own people)
+  has none.
+- **`bim::Shield::drain`** (serde default nought) is hit points a second
+  a shield loses whatever hits it: `Game::set_draining_shield`, the
+  Bastion's; `set_shield` is it at nought.
+- **The pictures** (`Character`, `serde(skip)`, drawing only):
+  `set_plate(Option<share>)` draws the plate in `draw_held` — a soft
+  halo, a core past white and a bright face, thinning as it is spent and
+  flickering under `RIOT_SHIELD_LOW` — and `set_reflecting` (off the
+  skill) the amber ring of thorns (`REFLECT_BARRIER`). The Bastion is the
+  shield's bubble.
+
+`combat::tests::a_riot_shield_stops_a_bolt_from_the_front_and_bounces_it_back`,
+`a_reflect_barrier_sends_the_hit_back_on_the_shooter` and
+`tests_guardian::a_sweep_goes_over_bags_a_peek_dodges_it_and_a_reflect_barrier_sends_it_back`
+pin it.

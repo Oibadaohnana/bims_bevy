@@ -131,11 +131,18 @@ pub enum WorldEvent {
     /// 76): who, and the patient — `None` for the link broken, by the
     /// medic or by the world (out of range, out of sight, down).
     Beamed { who: u32, patient: Option<u32> },
-    /// A tank stood as a wall, or stood down again (feature 77): who,
-    /// and which.
-    Bulwarked { who: u32, on: bool },
-    /// A tank taunted: who.
-    Taunted { who: u32 },
+    // `Bulwarked` (79) and `Taunted` (80) went with the tank's wall and
+    // his taunt (task 155); their codes are left free.
+    /// A tank raised his Riot Shield, or put it down (task 155): who, and
+    /// which.
+    ShieldRaised { who: u32, on: bool },
+    /// A tank's Riot Shield took its last hit point and went down: whose.
+    ShieldBroken { who: u32 },
+    /// A tank raised his Reflect Barrier (task 155): who.
+    Reflecting { who: u32 },
+    /// A tank threw his Bastion (task 155): who, and how many friends it
+    /// shielded, himself among them.
+    Bastion { who: u32, reached: u32 },
     // `Squadded` (81) went with the commander's squad orders; its code
     // is not used again.
     /// A commander rallied: who.
@@ -287,16 +294,23 @@ pub enum WorldEvent {
     },
     /// Player `who`'s soldier went on a Rampage (task 124).
     Rampaged { who: u32 },
-    /// A tank went Juggernaut (task 139): who.
-    Juggernaut { who: u32 },
-    /// Player `who`'s engineer threw an EMP (task 127, `Command::Emp`).
-    EmpThrown { who: u32 },
-    /// A medic's Nanite Burst went off (task 130): who, and how many
-    /// friendly Bims it healed, the medic among them.
-    NaniteBurst { who: u32, healed: u32 },
-    /// A medic cloaked a crew member (task 130): who, and whom — the
-    /// medic itself, or a crewmate.
-    Cloaked { who: u32, target: u32 },
+    // `Juggernaut` (141) went with the tank's ultimate (task 155); its
+    // code is left free.
+    // `EmpThrown` (132) went with the EMP (task 154); its code is left
+    // free.
+    /// A mine of player `who`'s engineer went off under an enemy (task
+    /// 154): whose it was.
+    MineTriggered { who: u32 },
+    /// Player `who`'s engineer threw a satchel charge (task 154).
+    SatchelThrown { who: u32 },
+    /// Player `who`'s engineer set off `count` satchel charges with the
+    /// remote trigger (task 154, `Command::Detonate`).
+    SatchelsBlown { who: u32, count: u32 },
+    /// A medic dropped a Heal Drone (task 153): who.
+    DroneLaunched { who: u32 },
+    /// A medic's Healing Circle went on or off (task 153): who, and
+    /// which — off by itself too, when he went down.
+    Circled { who: u32, on: bool },
     /// A player pressed *Ready* for the mission held for the ready check,
     /// or took it back.
     Readied { slot: u32, yes: bool },
@@ -428,8 +442,7 @@ pub enum Refusal {
     NoGrenade = 54,
     /// A throw before the soldier's third level.
     NoGrenadesYet = 55,
-    /// A throw within the cooldown of the last, or a taunt within the
-    /// cooldown of the last.
+    /// An ability within the cooldown of the last.
     CoolingDown = 56,
     /// A throw at a tile beyond the grenade's range.
     OutOfThrowRange = 57,
@@ -437,8 +450,8 @@ pub enum Refusal {
     NoLineToTile = 58,
     /// A throw at a tile that is not deck of the room.
     CantThrowThere = 59,
-    /// A beam, a Nanite Burst or a cloak by a crew member that is not a
-    /// medic (feature 76; task 130).
+    /// A beam, a heal drone or a healing circle by a crew member that is
+    /// not a medic (feature 76; task 153).
     NotAMedic = 60,
     /// A beam with no crew member under the pointer.
     NoPatient = 61,
@@ -453,8 +466,8 @@ pub enum Refusal {
     NoSightOfPatient = 64,
     // 65, 66 and 67 were the surge's — too early, not charged, nobody
     // linked — and went with it (task 130).
-    /// A bulwark, a taunt or a Juggernaut by a crew member that is not a
-    /// tank (features 77 and 139).
+    /// A riot shield, a reflect barrier or a Bastion by a crew member that
+    /// is not a tank (features 77, 139 and 155).
     NotATank = 68,
     // 69, a taunt before the tank's third level, went with his talents
     // (task 139): an ability not learnt is `NotLearnt`.
@@ -570,13 +583,8 @@ pub enum Refusal {
     /// An ability used while it is already running: a Rampage on top of
     /// a Rampage.
     AlreadyActive = 115,
-    /// A cloak on a crewmate beyond its reach (task 130).
-    OutOfCloakRange = 116,
-    /// A cloak on a crewmate the medic cannot see (task 130).
-    NoSightOfTarget = 117,
-    /// A class ability used by a crew member under a cloak (task 130): a
-    /// cloaked Bim fires nothing and uses no ability.
-    Cloaked = 118,
+    // 116 to 118 were the medic's cloak's (task 130), gone with it (task
+    // 153).
     /// Anything but a vote, the loadouts or *Ready* while a mission is
     /// held for the ready check: nothing has started yet.
     AwaitingReady = 119,
@@ -605,6 +613,12 @@ pub enum Refusal {
     /// A Stun Shot charged with no gun in the hand to fire it from
     /// (October 2026).
     NoWeaponInHand = 129,
+    /// The remote trigger pressed with no satchel charge of the
+    /// engineer's lying in the room (task 154).
+    NoSatchels = 130,
+    /// A Riot Shield raised while it is broken and not yet a quarter
+    /// back (task 155).
+    ShieldRecharging = 131,
 }
 
 impl Refusal {
@@ -663,8 +677,11 @@ impl WorldEvent {
             WorldEvent::Thrown { .. } => 76,
             WorldEvent::Beamed { .. } => 77,
             // 78 was a surge, which went with it (task 130).
-            WorldEvent::Bulwarked { .. } => 79,
-            WorldEvent::Taunted { .. } => 80,
+            // 79 and 80 are free: the tank's wall and taunt (task 155).
+            WorldEvent::ShieldRaised { .. } => 157,
+            WorldEvent::ShieldBroken { .. } => 158,
+            WorldEvent::Reflecting { .. } => 159,
+            WorldEvent::Bastion { .. } => 160,
             // 81 was a squad order, which went with them.
             WorldEvent::Rallied { .. } => 82,
             WorldEvent::DroidReinforcements { .. } => 83,
@@ -710,13 +727,15 @@ impl WorldEvent {
             WorldEvent::Combined { .. } => 127,
             WorldEvent::RankedUp { .. } => 130,
             WorldEvent::Rampaged { .. } => 131,
-            WorldEvent::Juggernaut { .. } => 141,
-            WorldEvent::EmpThrown { .. } => 132,
+            WorldEvent::MineTriggered { .. } => 154,
+            WorldEvent::SatchelThrown { .. } => 155,
+            WorldEvent::SatchelsBlown { .. } => 156,
             WorldEvent::BattleCried { .. } => 134,
             WorldEvent::Reinforced { .. } => 135,
             WorldEvent::Medivac { .. } => 144,
-            WorldEvent::NaniteBurst { .. } => 136,
-            WorldEvent::Cloaked { .. } => 137,
+            // 136 and 137 were a Nanite Burst and a cloak (task 130).
+            WorldEvent::DroneLaunched { .. } => 152,
+            WorldEvent::Circled { .. } => 153,
             WorldEvent::Readied { .. } => 138,
             WorldEvent::AllReady => 139,
             WorldEvent::ResidentRevived { .. } => 140,
@@ -783,8 +802,12 @@ impl WorldEvent {
             WorldEvent::Rampaged { who }
             | WorldEvent::ShotCharging { who }
             | WorldEvent::StunShotFired { who } => who as i64,
-            WorldEvent::Juggernaut { who } => who as i64,
-            WorldEvent::EmpThrown { who } => who as i64,
+            WorldEvent::ShieldBroken { who } | WorldEvent::Reflecting { who } => who as i64,
+            // How many in the hundreds: a crew is never a hundred.
+            WorldEvent::Bastion { who, reached } => (who as i64) + 100 * (reached as i64),
+            WorldEvent::MineTriggered { who } | WorldEvent::SatchelThrown { who } => who as i64,
+            // The count in the hundreds, the crew member in the units.
+            WorldEvent::SatchelsBlown { who, count } => who as i64 + 100 * count as i64,
             WorldEvent::TownFell { station }
             | WorldEvent::HeartExposed { station }
             | WorldEvent::HeartOverload { station }
@@ -874,17 +897,15 @@ impl WorldEvent {
             }
             WorldEvent::DeployableLost { kind } => kind as i64,
             WorldEvent::Thrown { who }
-            | WorldEvent::Taunted { who }
             | WorldEvent::Rallied { who }
             | WorldEvent::BattleCried { who } => who as i64,
             // The count in the hundreds: a crew is never a hundred.
             WorldEvent::Reinforced { who, count } => (who as i64) + 100 * (count as i64),
             // The medic in the hundreds.
             WorldEvent::Medivac { who, medic } => (who as i64) + 100 * (medic as i64),
-            // How many it healed, and whom it cloaked, in the hundreds.
-            WorldEvent::NaniteBurst { who, healed } => (who as i64) + 100 * (healed as i64),
-            WorldEvent::Cloaked { who, target } => (who as i64) + 100 * (target as i64),
-            WorldEvent::Bulwarked { who, on } => (who as i64) + 100 * i64::from(on),
+            WorldEvent::DroneLaunched { who } => who as i64,
+            WorldEvent::Circled { who, on } => (who as i64) + 100 * i64::from(on),
+            WorldEvent::ShieldRaised { who, on } => (who as i64) + 100 * i64::from(on),
             // The patient plus one in the hundreds: nought is the link
             // broken.
             WorldEvent::Beamed { who, patient } => {

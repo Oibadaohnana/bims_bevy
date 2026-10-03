@@ -1,28 +1,25 @@
-//! The medic's state (feature 76; a ranked kit since task 130,
-//! `crate::class`): what a crew member that is a medic holds between
-//! steps — who its heal beam is on, and when it last set off a Nanite
-//! Burst and last cloaked somebody. One [`Medic`] a crew member, by
-//! index, on `World::medics`; a crew member that is not a medic keeps an
-//! empty one. Beside it, one [`Cloak`] a crew member on `World::cloaks`:
-//! whoever it is, a player's Bim, a bot, a hired hand or a reinforcement,
-//! cloaked by whichever medic. Both saved and in `world_checksum`, the
-//! timestamps and the cloaks only where any is set.
+//! The medic's state (feature 76; a ranked kit since task 130, `crate::
+//! class`, reworked by task 153): what a crew member that is a medic
+//! holds between steps — who its heal beam is on, its heal drone in the
+//! air and when it last dropped one, and whether its healing circle is
+//! on and when it last burned. One [`Medic`] a crew member, by index, on
+//! `World::medics`; a crew member that is not a medic keeps an empty one.
+//! Saved and in `world_checksum`, the drone and the circle only where
+//! any is.
 //!
-//! **There is no surge** (task 130): the charge, the level it was learnt
-//! at and the room's timer's medic half went with it; the room's own
-//! surge timer stays, though nothing sets it since the relics were rebuilt
-//! (October 2026).
+//! **There is no surge** (task 130), and since task 153 no Nanite Burst,
+//! no Healing Aura and no cloak.
 //!
-//! **The Healing Aura keeps nothing**: `World::heal_factor(who)` works it
-//! out from where the medics stand whenever a heal is given — the beam,
-//! the burst, a Healing Sentry, a relic — and a revive, which is not a
-//! heal, never asks it.
+//! **Triage keeps nothing**: `World::medic_heal_factor(medic, who)` works
+//! it out from where the healed Bim stands on its bar whenever a heal of
+//! the medic's is given — the beam, the drone, the circle.
 //!
 //! The rules live on the world (`World::can_beam`, `beam`,
-//! `can_nanite_burst`, `nanite_burst`, `can_cloak`, `cloak`,
-//! `heal_factor`, `hand_the_room_the_medics`), and what a beam does to a
-//! body is the room's `Game::heal`, handed the step's hit points; the
-//! room knows nothing of who holds whom.
+//! `can_heal_drone`, `heal_drone`, `fly_the_drones`,
+//! `can_healing_circle`, `healing_circle`, `hand_the_room_the_circles`,
+//! `hand_the_room_the_medics`), and what a heal does to a body is the
+//! room's `Game::heal`, a circle's drain `Game::drain` and its burn
+//! `Game::scorch`; the room knows nothing of who holds whom.
 
 /// One crew member's medic state.
 #[derive(Clone, PartialEq, Debug, Default)]
@@ -33,14 +30,22 @@ pub struct Medic {
     /// (a hire, a bot dropped off the crew), since an index is all a link
     /// is.
     pub patients: Vec<u32>,
-    /// The mission minute of its last Nanite Burst (task 130): what its
-    /// cooldown runs from. `None` at every mission's start.
+    /// The mission minute it last dropped a Heal Drone (task 153): what
+    /// its cooldown runs from. `None` at every mission's start.
     #[cfg_attr(feature = "serde", serde(default))]
-    pub last_burst: Option<f64>,
-    /// The mission minute it last cloaked somebody (task 130): what the
-    /// ultimate's cooldown runs from. `None` at every mission's start.
+    pub last_drone: Option<f64>,
+    /// Its Heal Drone in the air, if any (task 153).
     #[cfg_attr(feature = "serde", serde(default))]
-    pub last_cloak: Option<f64>,
+    pub drone: Option<Drone>,
+    /// Whether its Healing Circle is on (task 153). Off at every
+    /// mission's start.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub circle: bool,
+    /// The mission minute of the circle's last burn on the enemy in it —
+    /// the moment it was switched on before the first — `None` with it
+    /// off.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub last_burn: Option<f64>,
 }
 
 impl Medic {
@@ -60,21 +65,18 @@ impl Medic {
     }
 }
 
-/// A crew member under a medic's **cloak** (task 130): no enemy picks it,
-/// it fires nothing and uses no ability, and it walks faster. Kept by the
-/// crew member cloaked, whoever cast it; the default is no cloak.
-#[derive(Clone, Copy, PartialEq, Debug, Default)]
+/// A medic's **Heal Drone** in the air (task 153): where it is on the
+/// crew's deck, in the room's units, whom it is over or flying to, and
+/// when it is gone.
+#[derive(Clone, Copy, PartialEq, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub struct Cloak {
-    /// The mission minute it ends; `None` for none. A cloak on a Bim
-    /// already cloaked keeps the later of the two ends, never their sum.
-    pub until: Option<f64>,
-    /// What its pace is multiplied by while it lasts: the rank of the
-    /// medic who cast it, the higher of two.
-    pub pace: f32,
-    /// Seconds from its last cast to its end: what the ring under a
-    /// cloaked Bim empties over. Drawing only, and not hashed — it is
-    /// what `until` was set from.
-    #[cfg_attr(feature = "serde", serde(default))]
-    pub seconds: f64,
+pub struct Drone {
+    /// Where it is, in the crew's room's units.
+    pub x: f32,
+    pub y: f32,
+    /// The crew member it is flying to or hovering over; `None` with
+    /// nobody hurt, when it keeps by its medic.
+    pub patient: Option<u32>,
+    /// The mission minute it is gone at.
+    pub until: f64,
 }

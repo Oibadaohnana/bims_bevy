@@ -380,12 +380,12 @@ fn the_cooldown_relics_move_the_class_s_cooldowns() {
     let mut world = crewed_world(flyer(2), REFERENCE_MONEY, 1, 1);
     world.set_class(0, Class::Tank).unwrap();
     world.set_ranks_for_probe(0, [1, 0, 0, 1]);
-    let plain = world.taunt_cooldown(0);
+    let plain = world.reflect_cooldown(0);
     world.give_relic_for_probe(Relic::HairTrigger);
-    let longer = world.taunt_cooldown(0);
+    let longer = world.reflect_cooldown(0);
     assert!((longer - plain * relic::factor(data::HAIR_TRIGGER_COOLDOWNS)).abs() < 1e-9);
     world.give_relic_for_probe(Relic::OverclockedCores);
-    let both = world.taunt_cooldown(0);
+    let both = world.reflect_cooldown(0);
     let want =
         plain * relic::factor(data::HAIR_TRIGGER_COOLDOWNS - data::OVERCLOCKED_CORES_COOLDOWNS);
     assert!((both - want).abs() < 1e-9, "{both} against {want}");

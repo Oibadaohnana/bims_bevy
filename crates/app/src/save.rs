@@ -63,6 +63,10 @@ pub enum Request {
     /// Leave the game for the start menu, unsaved — and the room, with
     /// company.
     ToMenu,
+    /// Pause the world (`true`), or set it going again: the sheet's
+    /// Pause button (task 154; Space paused until it became the
+    /// engineer's remote trigger).
+    Pause(bool),
 }
 
 /// The pages' state: the name being typed, the files found the last time

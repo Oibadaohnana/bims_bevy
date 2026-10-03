@@ -48,15 +48,20 @@ pub struct Surge {
     pub left: f32,
 }
 
-/// A shield on a body (task 142, a relic's *Lifeline*): the hit points it
-/// still takes before a hit reaches the armour, the seconds of the room's
-/// clock it has left, and what it began with, for the picture.
+/// A shield on a body (task 142, a relic's *Lifeline*; task 155, a tank's
+/// *Bastion*): the hit points it still takes before a hit reaches the
+/// armour, the seconds of the room's clock it has left, what it began
+/// with, for the picture, and what it loses a second whatever hits it.
 #[derive(Clone, Copy, PartialEq, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Shield {
     pub hp: f32,
     pub left: f32,
     pub full: f32,
+    /// Hit points it loses a second of the room's clock: a Bastion's
+    /// drain, nought for a relic's.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub drain: f32,
 }
 
 impl Shield {
@@ -106,12 +111,6 @@ pub struct Bim {
     /// down here. Saved with the room and in `world_checksum` where set.
     #[cfg_attr(feature = "serde", serde(default))]
     pub shield: Option<Shield>,
-    /// Standing as a wall (feature 77): a tank with Bulwark on — half
-    /// pace, and the crew close behind him are in cover against a shot
-    /// that comes through him. Toggled by the world
-    /// (`Game::set_bulwark`), off again when he goes down. Saved with
-    /// the room and in `world_checksum`.
-    pub bulwark: bool,
     /// How many enemy hits have landed on this body (feature 77): a count
     /// that only climbs, read by the relics for a hit taken. It made a
     /// tank's experience until task 119. Saved with the room and in
@@ -291,7 +290,6 @@ impl Bim {
             beaming: false,
             surge: None,
             shield: None,
-            bulwark: false,
             hits_taken: 0,
             shots: 0,
             carrying: None,

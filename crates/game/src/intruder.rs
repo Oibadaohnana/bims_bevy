@@ -92,6 +92,7 @@ impl Game {
                         None,
                         blow.flat,
                     );
+                    self.combat.sign_last_shot(who);
                 }
             } else {
                 self.enemy_strike(from, blow.target - cross, blow.damage, blow.cut);
@@ -177,6 +178,7 @@ impl Game {
                 // At the crew, across the seam: recorded here and flown
                 // by the world in the crew's room.
                 self.combat.shoot(muzzle, at, weapon, walking);
+                self.combat.sign_last_shot(who);
             } else {
                 // At one of the site's own people: a hostile bolt, here.
                 self.combat.fire(muzzle, at, weapon, true, walking);

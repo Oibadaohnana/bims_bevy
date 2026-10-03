@@ -41,8 +41,10 @@ pub enum Action {
     NorthUp,
     /// Follow the crew member you steer, or a free camera.
     Follow,
-    /// Pause, or set going again.
-    Pause,
+    /// The engineer's remote trigger (task 154): every satchel charge of
+    /// his set off. On Space, which paused the world until then — the
+    /// pause is the Esc sheet's now.
+    Detonate,
     Speed1,
     /// Walk the Bim you steer up the screen (task 144). The four walks
     /// share W, A, S and D with the pan, which the ship view no longer
@@ -68,16 +70,16 @@ pub enum Action {
     Inventory,
     /// The steered crew member's first ability slot, on Q (task 123;
     /// the class's first action since features 74 to 77): an engineer
-    /// sets a sentry up on the deck tile under the pointer, a soldier
-    /// throws a grenade at it, a medic sets off a Nanite Burst, a tank
-    /// taunts. Nothing with a classless crew member steered.
+    /// lays a mine on the deck tile under the pointer, a soldier
+    /// throws a grenade at it, a medic drops a Heal Drone, a tank
+    /// raises or puts down his Riot Shield. Nothing with a classless crew member steered.
     Ability1,
     /// The second slot, on C: empty for every class so far.
     Ability2,
     /// The third, on E — the class's second action as it was: an
-    /// engineer lays sandbags on the tile under the pointer, a soldier
+    /// engineer throws a satchel charge at the pointer, a soldier
     /// charges a Stun Shot at it, a medic beams the crew member under the
-    /// pointer, a tank puts its wall up or down.
+    /// pointer, a tank raises his Reflect Barrier.
     Ability3,
     /// The fourth, on R: empty for every class so far.
     Ability4,
@@ -140,7 +142,7 @@ impl Action {
         Action::Map,
         Action::NorthUp,
         Action::Follow,
-        Action::Pause,
+        Action::Detonate,
         Action::Speed1,
         Action::WalkUp,
         Action::WalkDown,
@@ -180,7 +182,7 @@ impl Action {
             // F is the attack-move and X the bots' banner, which had F
             // from feature 84 until then — so following the camera is V.
             Action::Follow => Key::V,
-            Action::Pause => Key::Space,
+            Action::Detonate => Key::Space,
             // 1 and 2 are the quickselect (task 138), so the 1× speed
             // went to the key left of them.
             Action::Speed1 => Key::Backtick,
@@ -226,7 +228,7 @@ impl Action {
             Action::Map => "map",
             Action::NorthUp => "north-up",
             Action::Follow => "follow",
-            Action::Pause => "pause",
+            Action::Detonate => "detonate",
             Action::Speed1 => "speed-1",
             Action::WalkUp => "walk-up",
             Action::WalkDown => "walk-down",
@@ -266,8 +268,10 @@ impl Action {
             Action::Follow => {
                 "Follow the crew member you steer, and the ship on the map, or let the camera go free."
             }
-            Action::Pause => "Pause the world, or set it going again.",
-            Action::Speed1 => "Run the world at 1×.",
+            Action::Detonate => {
+                "An engineer's remote trigger: every satchel charge he has thrown goes off at once. The pause is on the Esc sheet."
+            }
+            Action::Speed1 => "Run the world at 1×, out of a pause.",
             Action::WalkUp => {
                 "Walk the Bim you steer up the screen. The mouse aims it, and the left button fires."
             }
@@ -289,16 +293,16 @@ impl Action {
             }
             Action::Inventory => "Open and close the inventory of the crew member you steer.",
             Action::Ability1 => {
-                "The first ability slot, by the crew member you steer: an engineer sets a sentry up on the deck tile under the pointer, out of a kit in its pack; a soldier throws a grenade at it; a medic sets off a Nanite Burst; a tank taunts; a commander calls a Battle Cry. With Ctrl held, it is ranked up instead."
+                "The first ability slot, by the crew member you steer: an engineer lays a mine on the deck tile under the pointer, which goes off when an enemy comes within a tile of it; a soldier throws a grenade at it; a medic drops a Heal Drone; a tank raises or puts down his Riot Shield; a commander calls a Battle Cry. With Ctrl held, it is ranked up instead."
             }
             Action::Ability2 => {
                 "The second ability slot: empty for every class for now. With Ctrl held, it is ranked up instead."
             }
             Action::Ability3 => {
-                "The third ability slot: an engineer lays sandbags on the deck tile under the pointer, out of a kit in its pack; a soldier charges a Stun Shot at the pointer, two seconds planted before it fires; a medic beams the crew member under the pointer, and unlinks when pressed on the one it holds or on nobody; a tank puts its wall up, or takes it down; a commander rallies. With Ctrl held, it is ranked up instead."
+                "The third ability slot: an engineer throws a satchel charge at the pointer, held to aim and let go to throw — several may lie on one tile, and Space sets them all off; a soldier charges a Stun Shot at the pointer, two seconds planted before it fires; a medic beams the crew member under the pointer, and unlinks when pressed on the one it holds or on nobody; a tank raises his Reflect Barrier; a commander rallies. With Ctrl held, it is ranked up instead."
             }
             Action::Ability4 => {
-                "The fourth ability slot, the ultimate: a soldier goes on a Rampage; an engineer lays its sentry on the deck tile under the pointer; a medic cloaks the crew member under the pointer, or himself with the pointer on nobody; a tank goes Juggernaut. With Ctrl held, it is ranked up instead."
+                "The fourth ability slot, the ultimate: a soldier goes on a Rampage; an engineer lays its sentry on the deck tile under the pointer; a medic switches his Healing Circle on or off; a tank throws his Bastion over the crew round him. With Ctrl held, it is ranked up instead."
             }
             Action::AttackMove => {
                 "Arm the pointer — it turns red — and the next click on the deck sends the Bim you steer there with its weapon out. It stops to shoot whatever comes into its sights on the way, and walks on once nothing is left."
@@ -663,6 +667,10 @@ mod tests {
         let keys = Keys::default();
         assert_eq!(keys.key(Action::Inventory), egui::Key::Tab);
         assert!(keys.shared_with(Action::Map).is_empty());
+        // Space is the engineer's remote trigger (task 154), where the
+        // pause was, and nothing else's.
+        assert_eq!(keys.key(Action::Detonate), egui::Key::Space);
+        assert!(keys.shared_with(Action::Detonate).is_empty());
         // The four ability slots are Q, C, E and R (task 123), the first
         // three bound to nothing else and the fourth sharing R with
         // Turn, which only the yard and the armoury read.

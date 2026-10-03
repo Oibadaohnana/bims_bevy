@@ -719,7 +719,7 @@ pub struct Skill {
     /// medic beaming without *gunner medic* (feature 76).
     pub holds_fire: bool,
     /// What the pace is multiplied by at all times, enemy in sight or
-    /// not: the tank's bulwark (feature 77).
+    /// not: a Bastion's haste (task 155) and the relics'.
     pub walk: f32,
     /// What a worn piece's health loses of the damage that gets past its
     /// protection: one for everybody, less for a tank, so the same piece
@@ -807,6 +807,11 @@ pub struct Skill {
     /// (October 2026) — a lance's bolt lands as damage, as any bolt does.
     #[cfg_attr(feature = "serde", serde(default))]
     pub unstrippable: bool,
+    /// The share of every enemy hit on this body that goes back onto
+    /// whoever struck it, as a hit by this body: a tank's Reflect Barrier
+    /// while it runs (task 155). Nought for everybody else.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub reflect: f32,
 }
 
 impl Skill {
@@ -842,6 +847,7 @@ impl Skill {
         locks_doors: false,
         unyielding: false,
         unstrippable: false,
+        reflect: 0.0,
     };
 
     /// The skill for this body's next shot, with `shots` fired before it:
@@ -947,6 +953,17 @@ pub struct Grenade {
     /// stunned for `stun` seconds, none of the room's own touched.
     #[cfg_attr(feature = "serde", serde(default))]
     pub shot: bool,
+    /// An engineer's **mine or satchel charge** going off (task 154): it
+    /// bursts where it lies the moment it is set off, on the targets
+    /// alone — the grenade's fall-off and cover, none of the room's own,
+    /// no sentry and no sandbag touched (`Game::detonate`).
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub laid: bool,
+    /// An engineer's **satchel charge** in the air (task 154): it flies
+    /// the grenade's flight, bursts nothing and lands, for the world to lay
+    /// on the deck (`Game::take_satchels_landed`).
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub satchel: bool,
 }
 
 impl Grenade {
@@ -1591,6 +1608,11 @@ pub struct Bolt {
     /// the first body it strikes.
     #[cfg_attr(feature = "serde", serde(default))]
     struck: [Option<usize>; balance::LANCE_PIERCE],
+    /// Who fired a hostile bolt, by its index on this room's targets —
+    /// the shooter a Reflect Barrier sends the hit back to (task 155) —
+    /// or `None` for a friendly bolt and a hostile one nobody named.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub shooter: Option<usize>,
 }
 
 impl Bolt {
@@ -1715,6 +1737,12 @@ pub struct Shot {
     /// at the same pace.
     #[cfg_attr(feature = "serde", serde(default = "one"))]
     pub pace: f32,
+    /// Who took it, by its index among the bodies of the room it was
+    /// taken in — Bims first, then machines, the index the crew's room
+    /// has it at on its targets — for a Reflect Barrier to send the hit
+    /// back to (task 155). `None` where nobody said.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub shooter: Option<usize>,
 }
 
 /// One: the pace of every sweep but an overloaded core's.
@@ -1784,6 +1812,29 @@ pub struct Sweep {
     /// How many times faster than a Guardian's it sweeps: [`Shot::pace`].
     #[cfg_attr(feature = "serde", serde(default = "one"))]
     pub pace: f32,
+    /// Who swept it, as [`Bolt::shooter`].
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub shooter: Option<usize>,
+}
+
+/// A Reflect Barrier's hit back (task 155): an enemy's `hit` on body
+/// `hit.who` of this room, sent back on `shooter` at that body's share in
+/// `reflects` as a hit of its own — the part read off the same roll, no
+/// crit, nothing stripped. `None` with no share or nobody to send it to.
+fn reflected(reflects: &[f32], hit: &Hit, shooter: Option<usize>) -> Option<Hit> {
+    let share = reflects.get(hit.who).copied().unwrap_or(0.0);
+    let shooter = shooter?;
+    (share > 0.0 && hit.damage > 0.0).then_some(Hit {
+        who: shooter,
+        damage: hit.damage * share,
+        cut: false,
+        by: Some(hit.who),
+        blast: false,
+        roll: hit.roll,
+        flat: 0.0,
+        crit: false,
+        strips: 0.0,
+    })
 }
 
 /// How far `p` lies from the segment `a`–`b`: the nearest point of the
@@ -1807,36 +1858,53 @@ struct Spark {
     hostile: bool,
 }
 
-/// One tank standing as a wall (feature 77, `world::class`): which of
-/// this room's own bodies it is, how far it reaches in room units, and
-/// whether a bolt it turns aside lands on it instead (*interpose*).
+/// A tank's **Riot Shield** held up (task 155, `world::class`): which of
+/// this room's own bodies holds it, the way it faces — a unit vector, the
+/// body's aim — and the hit points it still takes. A flat plate
+/// [`PLATE_OUT`] in front of the body, [`PLATE_HALF`] either side of the
+/// facing: a hostile bolt that crosses it from the front is stopped
+/// there, its damage taken off the plate, and **bounced** — a friendly
+/// bolt of the holder's leaves the plate along the bolt's way mirrored
+/// in it, the angle out the angle in ([`Plate::bounce`]).
 #[derive(Clone, Copy, PartialEq, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub struct Bulwark {
+pub struct Plate {
     pub who: usize,
-    pub reach: f32,
-    pub interpose: bool,
+    pub facing: Vec2,
+    pub hp: f32,
 }
 
-impl Bulwark {
-    /// Whether this bulwark stands between a shot from `from` and a body
-    /// at `at`, with the tank itself at `tank`: the body within its
-    /// reach of him, him nearer the shooter than the body is, and him
-    /// within its reach of the line the shot travels. A body is never
-    /// its own bulwark — the caller checks the index.
-    pub fn shields(&self, tank: Vec2, at: Vec2, from: Vec2) -> bool {
-        let reach = self.reach * TILE;
-        if (tank - at).len() > reach {
-            return false;
+/// How far in front of its holder's middle a Riot Shield's plate stands,
+/// in room units (task 155): past the body's own [`HIT_RADIUS`], so a bolt
+/// from the front meets the plate before the body.
+pub const PLATE_OUT: f32 = 22.0;
+/// How far the plate reaches either side of its middle, in room units:
+/// a little wider than the body it covers.
+pub const PLATE_HALF: f32 = 24.0;
+
+impl Plate {
+    /// Where a bolt flying from `from` to `to` crosses the plate of a
+    /// holder standing at `body`, as a share of the way, coming in from
+    /// the front; `None` for one that misses it, passes beside it or
+    /// comes from behind.
+    pub fn crossing(&self, body: Vec2, from: Vec2, to: Vec2) -> Option<f32> {
+        let n = self.facing;
+        let centre = body + n * PLATE_OUT;
+        let before = (from - centre).dot(n);
+        let after = (to - centre).dot(n);
+        if before <= 0.0 || after > 0.0 {
+            return None;
         }
-        let to = at - from;
-        let span = to.len();
-        if span <= 1e-6 || (tank - from).len() >= span {
-            return false;
-        }
-        // How far off the line from the shooter to the body he stands.
-        let along = ((tank - from).dot(to) / span).clamp(0.0, span);
-        ((from + to.normalize_or_zero() * along) - tank).len() <= reach
+        let t = before / (before - after);
+        let at = from + (to - from) * t;
+        ((at - centre).dot(n.perp()).abs() <= PLATE_HALF).then_some(t)
+    }
+
+    /// A bolt's way `dir` bounced off the plate: mirrored in its face,
+    /// `dir − 2 (dir · n) n`, so it leaves at the angle it came in.
+    pub fn bounce(&self, dir: Vec2) -> Vec2 {
+        let n = self.facing;
+        (dir - n * (2.0 * dir.dot(n))).normalize_or_zero()
     }
 }
 
@@ -1876,12 +1944,23 @@ pub struct Combat {
     /// by index — a soldier's *cover master*, [`DODGE_IN_COVER`] for
     /// anybody not named. Set every step with the skills.
     own_cover_dodge: Vec<f32>,
-    /// The tanks standing with Bulwark on among this room's own bodies
-    /// (feature 77), said every step with the skills: a hostile bolt
-    /// aimed at a body one of them shields is dodged like a bolt in
-    /// cover, and with *interpose* it lands on the tank instead. Never
-    /// read for a friendly bolt, so an enemy shelters behind nobody.
-    bulwarks: Vec<Bulwark>,
+    /// The Riot Shields held up among this room's own bodies (task 155),
+    /// said every step before it: a hostile bolt crossing one from the
+    /// front is stopped and bounced back as the holder's own. Never read
+    /// for a friendly bolt.
+    #[cfg_attr(feature = "serde", serde(default))]
+    plates: Vec<Plate>,
+    /// What every plate stopped since the world last asked: the holder
+    /// and the damage the bolt carried there, for the world to take off
+    /// the shield.
+    #[cfg_attr(feature = "serde", serde(default))]
+    plate_blocks: Vec<(usize, f32)>,
+    /// The share of an enemy's hit each of this room's own bodies sends
+    /// back on whoever struck it, by index: a tank's Reflect Barrier
+    /// (task 155), nought for everybody else. Said every step with the
+    /// skills.
+    #[cfg_attr(feature = "serde", serde(skip))]
+    reflects: Vec<f32>,
     /// How wide a shield's front is against each of this room's own
     /// bodies' bolts and blows, as a cosine, by index: a relic's *Wide
     /// Angle Optics* narrows it (task 118). One past the end, or missing,
@@ -1961,7 +2040,9 @@ impl Combat {
             grenades: Vec::new(),
             blasts: Vec::new(),
             own_cover_dodge: Vec::new(),
-            bulwarks: Vec::new(),
+            plates: Vec::new(),
+            plate_blocks: Vec::new(),
+            reflects: Vec::new(),
             shield_fronts: Vec::new(),
             hits: Vec::new(),
             wounds_taken: Vec::new(),
@@ -2036,12 +2117,42 @@ impl Combat {
         Taunt::put_on(&mut self.machines, taunts);
     }
 
-    /// The bulwarks standing in this room (feature 77): which of the
-    /// bodies a hostile bolt is looked for among is a tank with it on,
-    /// how far it reaches in room units, and whether it *interposes*.
-    /// Said every step, like the skills; an empty list is nobody.
-    pub fn set_bulwarks(&mut self, bulwarks: Vec<Bulwark>) {
-        self.bulwarks = bulwarks;
+    /// The Riot Shields held up in this room (task 155): which of the
+    /// bodies a hostile bolt is looked for among holds one, the way it
+    /// faces and what it still takes. Said every step; an empty list is
+    /// nobody.
+    pub fn set_plates(&mut self, plates: Vec<Plate>) {
+        self.plates = plates;
+    }
+
+    /// What each of this room's own bodies sends back of an enemy's hit
+    /// on it, by index (task 155, `Skill::reflect`).
+    pub fn set_reflects(&mut self, reflects: Vec<f32>) {
+        self.reflects = reflects;
+    }
+
+    /// The Reflect Barrier's hit for an enemy's `hit` on one of this
+    /// room's own, if that body sends any back and the shooter is known:
+    /// what it sends, as a hit of the body's on the shooter.
+    pub fn reflected_hit(&self, hit: &Hit, shooter: Option<usize>) -> Option<Hit> {
+        reflected(&self.reflects, hit, shooter)
+    }
+
+    /// Put a hit on the hits the world carries across, as a bolt's would
+    /// be.
+    pub fn land(&mut self, hit: Hit) {
+        self.hits.push(hit);
+    }
+
+    /// The plates as they stand.
+    pub fn plates(&self) -> &[Plate] {
+        &self.plates
+    }
+
+    /// What the plates stopped since last asked: the holder and the
+    /// damage each bolt carried there.
+    pub fn take_plate_blocks(&mut self) -> Vec<(usize, f32)> {
+        std::mem::take(&mut self.plate_blocks)
     }
 
     /// How wide a shield's front is against each own body's shots, by
@@ -2075,11 +2186,6 @@ impl Combat {
     /// The front a shield turns against a shot of `by`'s.
     fn shield_front(&self, by: Option<usize>) -> f32 {
         shield_front_of(&self.shield_fronts, by)
-    }
-
-    /// The bulwarks as they stand.
-    pub fn bulwarks(&self) -> &[Bulwark] {
-        &self.bulwarks
     }
 
     /// Which of the targets carry a shield and which way it faces
@@ -2231,6 +2337,8 @@ impl Combat {
             stun: 0.0,
             expose: false,
             shot: false,
+            laid: false,
+            satchel: false,
         });
         self.cues.push(Cued {
             cue: Cue::Throw,
@@ -2266,6 +2374,8 @@ impl Combat {
             stun: stun.max(f32::MIN_POSITIVE),
             expose: false,
             shot: true,
+            laid: false,
+            satchel: false,
         });
         self.fx
             .muzzle(from, (at - from).normalize_or_zero(), weapon, false);
@@ -2279,25 +2389,35 @@ impl Combat {
         });
     }
 
-    /// An engineer's EMP thrown (task 127): a grenade's flight and fuse,
-    /// bursting with `radius` and stunning every machine in it for
-    /// `stun` seconds (`Game::take_stuns`), and harming nothing.
-    #[allow(clippy::too_many_arguments)]
-    pub fn throw_emp(
-        &mut self,
-        by: usize,
-        from: Vec2,
-        at: Vec2,
-        fuse: f32,
-        radius: f32,
-        stun: f32,
-        expose: bool,
-    ) {
-        self.throw(by, from, at, fuse, radius, 0.0);
+    /// An engineer's satchel charge lobbed (task 154): by crew member `by`
+    /// from `from` at `at`, the grenade's flight and no fuse after it — it
+    /// lands rather than bursts (`Game::take_satchels_landed`).
+    pub fn lob_satchel(&mut self, by: usize, from: Vec2, at: Vec2) {
+        self.throw(by, from, at, GRENADE_FLIGHT, 0.0, 0.0);
         if let Some(g) = self.grenades.last_mut() {
-            g.stun = stun.max(f32::MIN_POSITIVE);
-            g.expose = expose;
+            g.satchel = true;
         }
+    }
+
+    /// An engineer's mine or satchel set off where it lies (task 154): by
+    /// crew member `by` at `at`, bursting on the next tick with `radius`
+    /// and `damage` at the centre, on the targets alone.
+    pub fn detonate(&mut self, by: usize, at: Vec2, radius: f32, damage: f32) {
+        self.lull = 0.0;
+        self.grenades.push(Grenade {
+            by,
+            from: at,
+            at,
+            left: 0.0,
+            fuse: 0.0,
+            radius,
+            damage,
+            stun: 0.0,
+            expose: false,
+            shot: false,
+            laid: true,
+            satchel: false,
+        });
     }
 
     /// The fuses burnt down by `dt`: every grenade whose fuse ran out,
@@ -2317,7 +2437,8 @@ impl Combat {
             burst.push(*g);
             false
         });
-        for g in &burst {
+        // A satchel landing is no burst: nothing lit, nothing heard.
+        for g in burst.iter().filter(|g| !g.satchel) {
             self.blasts.push(Blast {
                 pos: g.at,
                 radius: g.radius,
@@ -2436,7 +2557,36 @@ impl Combat {
             moving,
             sweep: None,
             pace: 1.0,
+            shooter: None,
         });
+    }
+
+    /// Sign the shot recorded last with who took it: its body's index in
+    /// this room, Bims first (task 155, [`Shot::shooter`]).
+    pub fn sign_last_shot(&mut self, shooter: usize) {
+        if let Some(shot) = self.shots.last_mut() {
+            shot.shooter = Some(shooter);
+        }
+    }
+
+    /// Fly a hostile bolt here signed with who fired it, by its index on
+    /// this room's targets ([`Bolt::shooter`]): [`Combat::fire`] with the
+    /// shooter noted on the bolt it put in the air, if it put one.
+    pub fn fire_hostile(
+        &mut self,
+        from: Vec2,
+        at: Vec2,
+        weapon: Weapon,
+        moving: bool,
+        shooter: Option<usize>,
+    ) {
+        let before = self.bolts.len();
+        self.fire(from, at, weapon, true, moving);
+        if self.bolts.len() > before
+            && let Some(bolt) = self.bolts.last_mut()
+        {
+            bolt.shooter = shooter;
+        }
     }
 
     /// A Guardian's Sweeper let go across the seam (feature 100): a
@@ -2463,6 +2613,7 @@ impl Combat {
             moving: false,
             sweep: Some(end),
             pace,
+            shooter: None,
         });
     }
 
@@ -2519,7 +2670,16 @@ impl Combat {
             end: from,
             walled: false,
             pace: pace.max(0.01),
+            shooter: None,
         });
+    }
+
+    /// Sign the beam laid last with who swept it, by its index on this
+    /// room's targets ([`Sweep::shooter`], task 155).
+    pub fn sign_last_sweep(&mut self, shooter: Option<usize>) {
+        if let Some(sweep) = self.sweeps.last_mut() {
+            sweep.shooter = shooter;
+        }
     }
 
     /// The beams being swept in this room: for the picture and the tests.
@@ -2533,9 +2693,8 @@ impl Combat {
     /// of this room's own within [`HIT_RADIUS`] of it and not already
     /// rolled this sweep rolled once, and the direction turned on by the
     /// written-out sub-step. A body in cover and not peeking is not hit —
-    /// the beam goes over the bags; one peeking, or behind a tank's
-    /// Bulwark, dodges as a bolt would, and *interpose* puts it on the
-    /// tank; a tier-three body's own dodge is rolled after. What lands is
+    /// the beam goes over the bags; one peeking dodges as a bolt would; a
+    /// tier-three body's own dodge is rolled after. What lands is
     /// a hostile [`Hit`] on `wounds_taken`, applied by the room — so a
     /// surge takes it whole, as it does a bolt. It never looks for a
     /// target: a machine is never among a room's own bodies, so the beam
@@ -2545,10 +2704,11 @@ impl Combat {
             return;
         }
         let own_cover_dodge = &self.own_cover_dodge;
-        let bulwarks = &self.bulwarks;
+        let reflects = &self.reflects;
         let rng = &mut self.rng;
         let fx = &mut self.fx;
         let mut taken: Vec<Hit> = Vec::new();
+        let mut sent_back: Vec<Hit> = Vec::new();
         let mut heard: Vec<Cued> = Vec::new();
         for s in &mut self.sweeps {
             // An overloaded core sweeps faster (feature 108): the same
@@ -2578,35 +2738,16 @@ impl Combat {
                     if !peeking && sight.cover_between(at, s.from).is_some() {
                         continue;
                     }
-                    let shield = bulwarks.iter().copied().find(|b| {
-                        b.who != i
-                            && bodies
-                                .get(b.who)
-                                .copied()
-                                .flatten()
-                                .is_some_and(|(t, _, _)| b.shields(t, at, s.from))
-                    });
                     let odds = own_cover_dodge.get(i).copied().unwrap_or(DODGE_IN_COVER);
-                    if (peeking || shield.is_some()) && rng.chance(odds) {
+                    if peeking && rng.chance(odds) {
                         continue;
                     }
-                    let mut who = i;
-                    let mut slip = dodge;
-                    if let Some(b) = shield.filter(|b| b.interpose)
-                        && let Some((_, _, tank_dodge)) = bodies.get(b.who).copied().flatten()
-                    {
-                        who = b.who;
-                        slip = tank_dodge;
-                        if !s.rolled.contains(&b.who) {
-                            s.rolled.push(b.who);
-                        }
-                    }
-                    if slip > 0.0 && rng.chance(slip) {
+                    if dodge > 0.0 && rng.chance(dodge) {
                         continue;
                     }
                     let roll = rng.unit();
-                    taken.push(Hit {
-                        who,
+                    let hit = Hit {
+                        who: i,
                         damage: s.damage,
                         cut: false,
                         by: None,
@@ -2615,7 +2756,10 @@ impl Combat {
                         flat: 0.0,
                         crit: false,
                         strips: 0.0,
-                    });
+                    };
+                    // A Reflect Barrier sends its share back (task 155).
+                    sent_back.extend(reflected(reflects, &hit, s.shooter));
+                    taken.push(hit);
                     heard.push(Cued {
                         cue: Cue::Impact { on_crew: true },
                         at,
@@ -2628,6 +2772,7 @@ impl Combat {
         }
         self.sweeps.retain(|s| s.done <= SWEEP_STEPS);
         self.wounds_taken.extend(taken);
+        self.hits.extend(sent_back);
         self.cues.extend(heard);
     }
 
@@ -2932,6 +3077,7 @@ impl Combat {
             range: skill.range,
             dodged: None,
             struck: [None; balance::LANCE_PIERCE],
+            shooter: None,
         });
     }
 
@@ -2987,6 +3133,7 @@ impl Combat {
                 moving: false,
                 sweep: None,
                 pace: 1.0,
+                shooter: None,
             });
         } else {
             // A blow from the front of a shield is stopped at the plate
@@ -3101,7 +3248,8 @@ impl Combat {
             .map(|t| t.and_then(|t| t.shield))
             .collect();
         let own_cover_dodge = &self.own_cover_dodge;
-        let bulwarks = &self.bulwarks;
+        let plates = &self.plates;
+        let reflects = &self.reflects;
         let shield_fronts = &self.shield_fronts;
         let rng = &mut self.rng;
         let crit_rng = &mut self.crit_rng;
@@ -3114,6 +3262,12 @@ impl Combat {
         let mut broken: Vec<(usize, f32)> = Vec::new();
         let mut bagged: Vec<((i32, i32), f32)> = Vec::new();
         let mut plated: Vec<(usize, f32)> = Vec::new();
+        // What each Riot Shield still takes this step, and what it
+        // stopped, and the bolts it bounced (task 155) — flown from the
+        // next step on.
+        let mut plate_left: Vec<f32> = plates.iter().map(|p| p.hp).collect();
+        let mut blocked: Vec<(usize, f32)> = Vec::new();
+        let mut bounced: Vec<Bolt> = Vec::new();
         self.bolts.retain_mut(|bolt| {
             let mut flight = bolt.vel * dt;
             let mut span = flight.len();
@@ -3182,9 +3336,28 @@ impl Combat {
                     }
                 }
             }
-            // A bolt a tank turned aside with *interpose* is spent: it is
-            // never rolled onto anybody else (feature 77).
-            let mut spent = false;
+            // **A Riot Shield held up stops a hostile bolt at its plate**
+            // (task 155): one crossing the plate from the front stops
+            // there, nothing rolled — unless a body stands nearer on the
+            // way, which the loop below finds first.
+            let mut on_plate: Option<usize> = None;
+            if bolt.hostile {
+                for (k, plate) in plates.iter().enumerate() {
+                    if plate_left[k] <= 0.0 {
+                        continue;
+                    }
+                    let Some((body, _, _)) = bodies.get(plate.who).copied().flatten() else {
+                        continue;
+                    };
+                    if let Some(t) = plate.crossing(body, from, to)
+                        && stop.is_none_or(|(s, _)| t < s)
+                    {
+                        stop = Some((t, None));
+                        lamp = None;
+                        on_plate = Some(k);
+                    }
+                }
+            }
             for (i, body) in looking_for.iter().enumerate() {
                 let Some((body, peeking, dodge)) = *body else {
                     continue;
@@ -3192,29 +3365,20 @@ impl Combat {
                 if bolt.dodged == Some(i) || bolt.has_struck(i) {
                     continue;
                 }
+                // The holder of a plate the bolt crossed this step is
+                // behind it: the bolt never reaches him.
+                if on_plate.is_some_and(|k| plates[k].who == i) {
+                    continue;
+                }
                 if let Some(t) = along(from, to, body, HIT_RADIUS)
                     && stop.is_none_or(|(s, _)| t < s)
                 {
-                    // A tank standing between the shooter and this body,
-                    // with Bulwark on: only for one of this room's own,
-                    // so nobody shelters behind him but his own side.
-                    let shield = bolt
-                        .hostile
-                        .then(|| {
-                            bulwarks.iter().copied().find(|b| {
-                                b.who != i
-                                    && bodies.get(b.who).copied().flatten().is_some_and(
-                                        |(t, _, _)| b.shields(t, body, bolt.fired_from),
-                                    )
-                            })
-                        })
-                        .flatten();
-                    // In cover — leaning back in from a peek, ducking
-                    // behind the sandbags between it and the shooter, or
-                    // behind a tank — the bolt flies on past, and is not
-                    // rolled for this body again.
+                    // In cover — leaning back in from a peek, or ducking
+                    // behind the sandbags between it and the shooter —
+                    // the bolt flies on past, and is not rolled for this
+                    // body again.
                     let bags = sight.cover_between(body, bolt.fired_from);
-                    let covered = peeking || bags.is_some() || shield.is_some();
+                    let covered = peeking || bags.is_some();
                     // Half the time — or a soldier's own odds in cover,
                     // for one of this room's own bodies (`own_cover_dodge`).
                     let odds = if bolt.hostile {
@@ -3233,21 +3397,6 @@ impl Combat {
                         }
                         continue;
                     }
-                    // *Interpose*: the bolt the wall did not turn aside
-                    // lands on the wall. Rolled afresh against him —
-                    // his armour's own odds of slipping it — and gone
-                    // either way.
-                    if let Some(b) = shield.filter(|b| b.interpose) {
-                        let tank = bodies.get(b.who).copied().flatten();
-                        if let Some((_, _, tank_dodge)) = tank {
-                            bolt.dodged = Some(i);
-                            spent = true;
-                            if !(tank_dodge > 0.0 && rng.chance(tank_dodge)) {
-                                stop = Some((t, Some(b.who)));
-                            }
-                            break;
-                        }
-                    }
                     // And its armour: a tier-three piece gives its wearer
                     // a chance of slipping the bolt in the open. Rolled
                     // only for a body that has any, so a fight with none
@@ -3257,10 +3406,8 @@ impl Combat {
                         continue;
                     }
                     stop = Some((t, Some(i)));
+                    on_plate = None;
                 }
-            }
-            if spent && stop.is_none() {
-                return false;
             }
             match stop {
                 Some((t, who)) => {
@@ -3308,6 +3455,9 @@ impl Combat {
                             strips: stats.strips_at(flown) * falloff,
                         };
                         if bolt.hostile {
+                            // A Reflect Barrier on the body (task 155):
+                            // its share of the hit back on the shooter.
+                            landed.extend(reflected(reflects, &hit, bolt.shooter));
                             taken.push(hit);
                         } else {
                             // Weak Spot (task 124): each bolt rolled on its
@@ -3317,10 +3467,9 @@ impl Combat {
                             critical = hit.crit;
                             landed.push(hit);
                         }
-                        // The slug goes through — unless a tank's
-                        // *interpose* spent it on him — as long as it
-                        // has bodies left to strike.
-                        if bolt.pierces() && !spent {
+                        // The slug goes through as long as it has bodies
+                        // left to strike.
+                        if bolt.pierces() {
                             if let Some(slot) = bolt.struck.iter_mut().find(|s| s.is_none()) {
                                 *slot = Some(who);
                             }
@@ -3340,13 +3489,48 @@ impl Combat {
                             1.0
                         };
                         plated.push((i, bolt.stats().damage_at(flown) * bolt.damage * close));
+                    } else if let Some(k) = on_plate {
+                        // A Riot Shield took it (task 155), as hard as it
+                        // would have struck the holder, and **bounces**
+                        // it: a bolt of the holder's off the plate along
+                        // the way mirrored in it, the weapon's whole
+                        // reach again from there.
+                        let plate = plates[k];
+                        let flown = (at - bolt.fired_from).len() / TILE;
+                        let close = if flown <= bolt.stats().sweet {
+                            bolt.point_blank
+                        } else {
+                            1.0
+                        };
+                        let damage = bolt.stats().damage_at(flown) * bolt.damage * close;
+                        plate_left[k] -= damage;
+                        blocked.push((plate.who, damage));
+                        let out = plate.bounce(bolt.vel.normalize_or_zero());
+                        if out != Vec2::ZERO {
+                            bounced.push(Bolt {
+                                pos: at,
+                                vel: out * bolt.vel.len(),
+                                left: bolt.stats().reach(),
+                                weapon: bolt.weapon,
+                                fired_from: at,
+                                hostile: false,
+                                by: Some(plate.who),
+                                point_blank: 1.0,
+                                damage: bolt.damage,
+                                range: bolt.range,
+                                dodged: None,
+                                struck: [None; balance::LANCE_PIERCE],
+                                shooter: None,
+                            });
+                        }
+                        fx.plate(at, out);
                     }
                     heard.push(Cued {
                         cue: match who {
                             Some(_) => Cue::Impact {
                                 on_crew: bolt.hostile,
                             },
-                            None if shielded.is_some() => Cue::Shielded,
+                            None if shielded.is_some() || on_plate.is_some() => Cue::Shielded,
                             None => Cue::Ricochet,
                         },
                         at,
@@ -3378,7 +3562,7 @@ impl Combat {
                         bolt.vel,
                         bolt.weapon,
                         bolt.hostile,
-                        who.is_some() || shielded.is_some(),
+                        who.is_some() || shielded.is_some() || on_plate.is_some(),
                     );
                     if critical {
                         fx.critical(at, bolt.vel, bolt.weapon, bolt.hostile);
@@ -3406,6 +3590,8 @@ impl Combat {
         self.lamp_hits.extend(broken);
         self.cover_hits.extend(bagged);
         self.plate_hits.extend(plated);
+        self.plate_blocks.extend(blocked);
+        self.bolts.extend(bounced);
         self.sparks.extend(sparks);
         self.cues.extend(heard);
         // And the beams, after the bolts (feature 100).
@@ -3659,6 +3845,23 @@ impl Combat {
             } else {
                 0.0
             };
+            // A satchel charge in the air (task 154): a canvas pack with
+            // its strap and a red light, lifted and shadowed like a
+            // grenade.
+            if g.satchel {
+                list.ellipse(
+                    pos + vec2(0.0, 4.0 + 10.0 * lift),
+                    vec2(16.0, 9.0) * (1.0 - 0.3 * lift),
+                    0.0,
+                    Color::rgba(0.0, 0.0, 0.0, 0.35),
+                );
+                let body = pos - vec2(0.0, 12.0 * lift);
+                let size = vec2(30.0, 22.0) * (1.0 + 0.3 * lift);
+                list.rect(body, size, 0.0, 4.0, SATCHEL_CANVAS);
+                list.rect(body, vec2(size.x, size.y * 0.25), 0.0, 0.0, SATCHEL_STRAP);
+                list.circle(body + vec2(size.x * 0.3, -size.y * 0.3), 8.0, FUSE_RED);
+                continue;
+            }
             list.ellipse(
                 pos + vec2(0.0, 4.0 + 10.0 * lift),
                 vec2(12.0, 8.0) * (1.0 - 0.3 * lift),
@@ -3667,11 +3870,7 @@ impl Combat {
             );
             let body = pos - vec2(0.0, 12.0 * lift);
             list.circle(body, 18.0 * (1.0 + 0.3 * lift), GRENADE_SHELL);
-            list.circle(
-                body,
-                11.0 * (1.0 + 0.3 * lift),
-                if g.stun > 0.0 { EMP_BAND } else { GRENADE_BAND },
-            );
+            list.circle(body, 11.0 * (1.0 + 0.3 * lift), GRENADE_BAND);
             // The fuse: bright, and flashing quicker near the end.
             let rate = 2.0 + 8.0 * (1.0 - g.left / g.fuse.max(1e-3));
             let on = ((g.fuse - g.left) * rate * std::f32::consts::TAU).sin() > 0.0 || flying;
@@ -3718,8 +3917,10 @@ const GRENADE_BAND: Color = Color::rgb(0.42, 0.45, 0.30);
 const FUSE_LIT: Color = Color::rgb(1.0, 0.85, 0.35);
 const BLAST_GLOW: Color = Color::rgb(1.0, 0.78, 0.40);
 const BLAST_RIM: Color = Color::rgb(1.0, 0.55, 0.20);
-/// An EMP's band round its canister (task 127): the stun's pale blue.
-const EMP_BAND: Color = Color::rgb(0.55, 0.78, 0.95);
+/// A satchel charge's canvas, its strap and its armed light (task 154).
+pub const SATCHEL_CANVAS: Color = Color::rgb(0.42, 0.33, 0.20);
+pub const SATCHEL_STRAP: Color = Color::rgb(0.22, 0.17, 0.11);
+pub const FUSE_RED: Color = Color::rgb(1.0, 0.25, 0.20);
 
 /// Where along the segment `a`–`b`, as a fraction, a circle of `radius` at
 /// `centre` is first touched, if it is.
@@ -5478,87 +5679,130 @@ mod tests {
         );
     }
 
-    /// The tank's wall (feature 77): a crew member the tank stands
-    /// between and the shooter dodges like one in cover, one in front of
-    /// him or off to the side does not, an enemy never does, and with
-    /// *interpose* the bolt that is not turned aside lands on the tank.
+    /// A tank's Riot Shield (task 155): a hostile bolt meeting the plate
+    /// from the front stops there, nothing rolled on him, its damage
+    /// handed over as a block, and goes back as his own — head on, back
+    /// at the shooter, who is hit by him; at a slant, out at the angle it
+    /// came in. From behind the plate is nothing, a spent plate stops
+    /// nothing, and a friendly bolt never asks it.
     #[test]
-    fn a_bulwark_shelters_the_body_behind_it_and_interposes_for_it() {
+    fn a_riot_shield_stops_a_bolt_from_the_front_and_bounces_it_back() {
         let (sight, _) = room_with(&[]);
-        // Six tiles off, where the pistol lands three in four (nine tiles
-        // did before October 2026 cut its reach from 22 to 15.4): more
-        // misses fly wide past the tank and count as his.
-        let from = middle(5.0, 5.0);
-        let behind = middle(11.0, 5.0);
-        // The tank a tile short of the body and forty units off the line:
-        // clear of the bolt's own radius, well inside the wall's reach.
-        let tank = middle(10.0, 5.0) + vec2(0.0, 40.0);
-        let in_front = middle(9.0, 5.0);
-        let wall = |interpose| {
-            vec![Bulwark {
-                who: 1,
-                reach: 1.5,
-                interpose,
-            }]
+        let pistol = WeaponKind::LaserPistol.basic();
+        let tank = middle(10.0, 5.0);
+        let shooter = middle(4.0, 5.0);
+        let west = vec2(-1.0, 0.0);
+        let plate = |hp: f32| Plate {
+            who: 0,
+            facing: west,
+            hp,
         };
-        // Who was hit, of four hundred bolts down the row at index 0.
-        let run = |bulwarks: Vec<Bulwark>, target: Vec2, tank: Vec2| {
-            let mut combat = Combat::new(19);
-            combat.set_bulwarks(bulwarks);
-            let bodies = [Some((target, false, 0.0)), Some((tank, false, 0.0))];
-            let mut on_target = 0;
-            let mut on_tank = 0;
-            for _ in 0..400 {
-                combat.fire(from, target, WeaponKind::LaserPistol.basic(), true, false);
-                for _ in 0..40 {
-                    combat.step(0.05, &sight, &bodies);
-                }
-                for hit in std::mem::take(&mut combat.wounds_taken) {
-                    if hit.who == 0 {
-                        on_target += 1;
-                    } else {
-                        on_tank += 1;
-                    }
-                }
-            }
-            (on_target, on_tank)
+        let bodies = [Some((tank, false, 0.0))];
+        // One bolt loosed straight down a line, signed by target 0.
+        let volley = |plates: Vec<Plate>, from: Vec2, dir: Vec2| {
+            let mut combat = Combat::new(7);
+            combat.set_targets(vec![Some((shooter, pistol))]);
+            combat.set_plates(plates);
+            combat.loose(from, dir, pistol, true, &Skill::NONE, None);
+            combat.bolts[0].shooter = Some(0);
+            combat
         };
-        let (open, _) = run(Vec::new(), behind, tank);
-        assert!(open > 200, "{open} of 400 land with no wall up");
-        let (sheltered, _) = run(wall(false), behind, tank);
-        assert!(
-            sheltered > open / 3 && sheltered < open * 2 / 3,
-            "{sheltered} of {open} land through the wall"
-        );
-        // In front of him, and off to the side of him, the wall is no
-        // cover: he is not between the shooter and the body.
-        let (front, _) = run(wall(false), in_front, tank);
-        assert!(front > open * 4 / 5, "{front} of {open} in front of it");
-        let aside = middle(11.0, 8.0);
-        let (beside, _) = run(wall(false), aside, tank);
-        assert!(beside > open * 3 / 5, "{beside} of {open} beside it");
-        // *Interpose*: what the wall did not turn aside lands on the
-        // wall, and nothing at all on the body it shelters.
-        let (through, took) = run(wall(true), behind, tank);
-        assert_eq!(through, 0, "nothing reaches the body he stands for");
-        assert!(
-            took > open / 3 && took < open * 2 / 3,
-            "{took} of {open} land on the tank"
-        );
-        // And an enemy never shelters behind him: a friendly bolt looks
-        // for the targets, which know nothing of bulwarks.
-        let mut combat = Combat::new(19);
-        combat.set_bulwarks(wall(false));
-        combat.set_targets(vec![Some((behind, WeaponKind::LaserPistol.basic()))]);
-        let mut hits = 0;
-        for _ in 0..400 {
-            combat.fire(from, behind, WeaponKind::LaserPistol.basic(), false, false);
-            for _ in 0..40 {
-                combat.step(0.05, &sight, &[Some((tank, false, 0.0))]);
+        // Head on: stopped at the plate, the damage blocked, and back down
+        // the same line onto the shooter as the tank's.
+        let mut combat = volley(vec![plate(100.0)], shooter, vec2(1.0, 0.0));
+        let mut bounced = None;
+        for _ in 0..60 {
+            combat.step(0.05, &sight, &bodies);
+            if bounced.is_none()
+                && let Some(b) = combat.bolts.iter().find(|b| !b.hostile)
+            {
+                bounced = Some(*b);
             }
-            hits += combat.take_hits().len();
         }
-        assert!(hits > 200, "{hits} of 400 land on the enemy");
+        assert!(combat.wounds_taken.is_empty(), "nothing reaches the tank");
+        let blocks = combat.take_plate_blocks();
+        assert_eq!(blocks.len(), 1);
+        assert_eq!(blocks[0].0, 0);
+        assert!(blocks[0].1 > 0.0, "the plate takes the bolt's damage");
+        let b = bounced.expect("a bolt bounced off the plate");
+        assert_eq!(b.by, Some(0), "the bounce is the tank's");
+        assert!(
+            (b.pos.x - (tank.x - PLATE_OUT)).abs() < 1.0,
+            "off the plate"
+        );
+        assert!(b.vel.normalize_or_zero().dot(west) > 0.999, "straight back");
+        let hits = combat.take_hits();
+        assert_eq!(hits.len(), 1, "the shooter is hit by its own bolt");
+        assert_eq!((hits[0].who, hits[0].by), (0, Some(0)));
+        // At a slant: the angle out is the angle in, mirrored in the face.
+        let dir = vec2(3.0, 1.0).normalize_or_zero();
+        let from = tank + west * PLATE_OUT - dir * (4.0 * TILE);
+        let mut combat = volley(vec![plate(100.0)], from, dir);
+        let mut out = None;
+        for _ in 0..20 {
+            combat.step(0.05, &sight, &bodies);
+            if out.is_none()
+                && let Some(b) = combat.bolts.iter().find(|b| !b.hostile)
+            {
+                out = Some(b.vel.normalize_or_zero());
+            }
+        }
+        let out = out.expect("bounced");
+        assert!((out.x + dir.x).abs() < 1e-4 && (out.y - dir.y).abs() < 1e-4);
+        assert!(combat.wounds_taken.is_empty());
+        // From behind the plate is nothing: the bolt lands on him.
+        let mut combat = volley(vec![plate(100.0)], middle(16.0, 5.0), west);
+        for _ in 0..60 {
+            combat.step(0.05, &sight, &bodies);
+        }
+        assert_eq!(combat.wounds_taken.len(), 1, "a bolt from behind lands");
+        assert!(combat.take_plate_blocks().is_empty());
+        // A plate with nothing left stops nothing.
+        let mut combat = volley(vec![plate(0.0)], shooter, vec2(1.0, 0.0));
+        for _ in 0..60 {
+            combat.step(0.05, &sight, &bodies);
+        }
+        assert_eq!(combat.wounds_taken.len(), 1, "a spent plate is no plate");
+        // And a friendly bolt flies through it.
+        let mut combat = Combat::new(7);
+        combat.set_targets(vec![Some((middle(12.0, 5.0), pistol))]);
+        combat.set_plates(vec![plate(100.0)]);
+        combat.loose(shooter, vec2(1.0, 0.0), pistol, false, &Skill::NONE, None);
+        for _ in 0..60 {
+            combat.step(0.05, &sight, &[]);
+        }
+        assert_eq!(combat.take_hits().len(), 1, "our own bolt is not stopped");
+    }
+
+    /// A Reflect Barrier (task 155): an enemy's hit on a body sending its
+    /// share back lands on the shooter as a hit of that body's; a body
+    /// sending none, or a shooter nobody named, sends nothing.
+    #[test]
+    fn a_reflect_barrier_sends_the_hit_back_on_the_shooter() {
+        let (sight, _) = room_with(&[]);
+        let pistol = WeaponKind::LaserPistol.basic();
+        let ours = middle(10.0, 5.0);
+        let theirs = middle(4.0, 5.0);
+        let run = |reflect: f32, shooter: Option<usize>| {
+            let mut combat = Combat::new(3);
+            combat.set_targets(vec![Some((theirs, pistol))]);
+            combat.set_reflects(vec![reflect]);
+            combat.loose(theirs, vec2(1.0, 0.0), pistol, true, &Skill::NONE, None);
+            combat.bolts[0].shooter = shooter;
+            for _ in 0..40 {
+                combat.step(0.05, &sight, &[Some((ours, false, 0.0))]);
+            }
+            (std::mem::take(&mut combat.wounds_taken), combat.take_hits())
+        };
+        let (taken, back) = run(1.0, Some(0));
+        assert_eq!(taken.len(), 1, "the body still takes the hit");
+        assert_eq!(back.len(), 1);
+        assert_eq!((back[0].who, back[0].by), (0, Some(0)));
+        assert!((back[0].damage - taken[0].damage).abs() < 1e-5, "all of it");
+        let (_, back) = run(0.0, Some(0));
+        assert!(back.is_empty(), "no barrier, nothing back");
+        let (_, back) = run(1.0, None);
+        assert!(back.is_empty(), "nobody to send it to");
     }
 
     /// A taunt is the only target a shooter within its radius that sees it

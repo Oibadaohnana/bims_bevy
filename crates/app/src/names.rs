@@ -451,9 +451,6 @@ pub fn refusal(why: Refusal) -> &'static str {
         Refusal::RankLocked => "the next rank of that ability wants a higher level",
         Refusal::NotLearnt => "that ability wants a rank first",
         Refusal::AlreadyActive => "it is already running",
-        Refusal::OutOfCloakRange => "they are too far off to cloak",
-        Refusal::NoSightOfTarget => "the medic cannot see them",
-        Refusal::Cloaked => "a cloaked Bim uses no ability",
         Refusal::AwaitingReady => "not yet — the mission starts when every player is ready",
         Refusal::NoReadyCheck => "the mission is already under way",
         Refusal::FightOver => "the fight is won — press Back to ship",
@@ -465,6 +462,8 @@ pub fn refusal(why: Refusal) -> &'static str {
         Refusal::BotsCarryNoItems => "only a player's Bim carries items",
         Refusal::NotForSale => "the trader does not sell that",
         Refusal::NoWeaponInHand => "nothing in hand to fire it from",
+        Refusal::NoSatchels => "no satchel charge of yours is lying out",
+        Refusal::ShieldRecharging => "the shield is broken until a quarter of it is back",
     }
 }
 
@@ -532,6 +531,10 @@ pub const NET_BUFFER_HINT: &str = "On a shaky connection the host's world is pla
 pub const RESTART_BUTTON: &str = "Restart";
 /// The Esc sheet's way out of a game, back to the start menu.
 pub const MENU_BUTTON: &str = "Back to menu";
+/// The Esc sheet's pause, and its way back (task 154: Space paused until
+/// it became the engineer's remote trigger).
+pub const PAUSE_BUTTON: &str = "Pause";
+pub const RESUME_BUTTON: &str = "Resume";
 pub const RESTART_LINE: &str = "Play this run again from the situation it opened in — the fight, the town, the landing, or the run the lobby started. Everything since is lost, and a saved game is not touched.";
 pub const RESTART_AGAIN: &str = "Start again";
 pub const RESTART_NONE: &str = "Nothing to restart yet: the run starts when the ship is accepted.";
@@ -651,10 +654,10 @@ pub const BIM_CLASS_NOTE: &str = "What your crew member is. One class each, chos
 pub const CLASS_NAMES: [&str; 6] = ["None", "Engineer", "Soldier", "Medic", "Tank", "Commander"];
 pub const CLASS_TIPS: [&str; 6] = [
     "No class: learns nothing.",
-    "Four ranked abilities, a skill point a level: an EMP that stuns the machines (Q), a Healing Sentry that heals the crew round it (C), sandbags for cover (E), and for its ultimate a sentry with a minigun (R). Its charges come back on their own cooldowns, and it packs its sandbags and Healing Sentries up again.",
+    "Four ranked abilities, a skill point a level: mines that go off when an enemy comes within a tile (Q), a Healing Sentry that heals the crew round it (C), satchel charges thrown and set off together with a remote trigger on Space (E), and for its ultimate a sentry with a minigun (R). Its charges come back on their own cooldowns, and it packs its mines and Healing Sentries up again.",
     "Four ranked abilities, a skill point a level: Frag Grenades (Q), Weak Spot, hits that may land critical (C), a Stun Shot charged for two seconds that bursts where it lands, hurting and stunning the machines in it (E), and for his ultimate a Rampage, firing faster and taking less (R). Sets out with an auto rifle in hand.",
-    "Four ranked abilities, a skill point a level: a Nanite Burst that heals everybody near him at once (Q), a Healing Aura that makes every heal worth more to the crew round him (C), the heal beam on a crewmate or himself (E), and for his ultimate a cloak no enemy can pick (R). Revives a downed crewmate in four seconds where anybody else takes ten, and gets them up at 40% of their bar where anybody else manages 30%.",
-    "Four ranked abilities, a skill point a level: a Taunt that makes every enemy near him that can see him shoot at him and nobody else (Q), Plated, less damage from every hit (C), a wall the crew shelter behind (E), and for his ultimate the Juggernaut, every enemy that sees him shooting at him while he shrugs it off (R). His armour drains at half rate, so the same armour takes twice as much on him. Sets out with the pistol and a tier-one armour on.",
+    "Four ranked abilities, a skill point a level: a Heal Drone that flies to whoever is lowest and heals them slowly (Q), Triage, every heal of his stronger on the badly hurt (C), the heal beam on a crewmate or himself, which heals him as much and lets him keep shooting (E), and for his ultimate a Healing Circle he switches on and off, healing everybody round him at his own cost and burning the machines in it (R). An Override Core makes all his healing half as much again. Revives a downed crewmate in four seconds where anybody else takes ten, and gets them up at 40% of their bar where anybody else manages 30%.",
+    "Four ranked abilities, a skill point a level: a Riot Shield he holds up and puts down, bouncing every shot that meets it back where it came from (Q), Plated, less damage from every hit and his health mending as he goes (C), a Reflect Barrier sending every hit on him back on whoever struck (E), and for his ultimate the Bastion, a shield of a thousand over every friend near him that drains in ten seconds (R). His armour drains at half rate, so the same armour takes twice as much on him. Sets out with the pistol and a tier-one armour on.",
     "Four ranked abilities, a skill point a level: a Battle Cry that makes everybody near him fire faster (Q), a Medivac, a Republic medic called in beside him who runs to a player downed and revives him (C), a Rally that has the crew near him take less damage and move faster (E), and for his ultimate Republic soldiers called in beside him (R). Hires a mercenary at a quarter off. Sets out with the pistol.",
 ];
 pub fn class_name(class: world::Class) -> &'static str {
@@ -671,12 +674,11 @@ pub fn class_tip(class: world::Class) -> &'static str {
 /// that says one. (The two-key tables, `ABILITY_NAMES` and
 /// `ABILITY_TIPS`, went with the last class of talents, task 139: every
 /// box is a ranked ability's now.)
-const EMP_WHAT: &str = "Throw an EMP that bursts after 2 s, stunning every machine in the blast: no moving, aiming or firing, and a Guardian's shield drops. The Heart is immune.";
-const SANDBAGS_WHAT: &str = "Lay sandbags on the tile under the pointer: low cover for anyone behind them, worn down by the hits they stop.";
-/// What the medic's Nanite Burst and heal beam do (task 130).
-const NANITE_BURST_WHAT: &str =
-    "Heal every standing ally around you in sight, yourself included. Revives nobody.";
-const HEAL_BEAM_WHAT: &str = "Toggle. Beam the crewmate under the pointer, or yourself, healing over time. The number is how many more you could link.";
+const MINE_WHAT: &str = "Lay a mine on the tile under the pointer. It goes off when an enemy comes within a tile of it, blasting every enemy near it; never the crew.";
+const SATCHEL_WHAT: &str = "Hold to aim, let go to throw a satchel. They lie where they land, stacked if you like, until Space sets them all off: each its own blast, on enemies alone.";
+/// What the medic's Heal Drone and heal beam do (task 153).
+const HEAL_DRONE_WHAT: &str = "Drop a drone that flies — over walls — to the ally lowest on health, you included, and heals them slowly. When they are whole it finds the next.";
+const HEAL_BEAM_WHAT: &str = "Toggle. Beam the crewmate under the pointer, or yourself, healing over time — and you are healed as much. You keep shooting. The number is how many more you could link.";
 /// The box past the class's four (feature 86): the medic's carry, named
 /// off the [`crate::keys::Action`] rather than off a slot.
 pub const CARRY: &str = "Carry";
@@ -691,22 +693,22 @@ pub fn ranked_ability(class: world::Class, slot: u8) -> &'static str {
         (world::Class::Soldier, 1) => "Weak Spot",
         (world::Class::Soldier, 2) => "Stun Shot",
         (world::Class::Soldier, 3) => "Rampage",
-        (world::Class::Engineer, 0) => "EMP",
+        (world::Class::Engineer, 0) => "Mine",
         (world::Class::Engineer, 1) => "Healing Sentry",
-        (world::Class::Engineer, 2) => "Sandbags",
+        (world::Class::Engineer, 2) => "Satchel Charge",
         (world::Class::Engineer, 3) => "Sentry",
         (world::Class::Commander, 0) => "Battle Cry",
         (world::Class::Commander, 1) => "Medivac",
         (world::Class::Commander, 2) => "Rally",
         (world::Class::Commander, 3) => "Reinforcements",
-        (world::Class::Medic, 0) => "Nanite Burst",
-        (world::Class::Medic, 1) => "Healing Aura",
+        (world::Class::Medic, 0) => "Heal Drone",
+        (world::Class::Medic, 1) => "Triage",
         (world::Class::Medic, 2) => "Heal Beam",
-        (world::Class::Medic, 3) => "Cloak",
-        (world::Class::Tank, 0) => "Taunt",
+        (world::Class::Medic, 3) => "Healing Circle",
+        (world::Class::Tank, 0) => "Riot Shield",
         (world::Class::Tank, 1) => "Plated",
-        (world::Class::Tank, 2) => "Bulwark",
-        (world::Class::Tank, 3) => "Juggernaut",
+        (world::Class::Tank, 2) => "Reflect Barrier",
+        (world::Class::Tank, 3) => "Bastion",
         _ => "",
     }
 }
@@ -726,11 +728,11 @@ pub fn ranked_what(class: world::Class, slot: u8) -> &'static str {
         (world::Class::Soldier, 3) => {
             "Ultimate. Fire faster, take less damage and aim on the move. Goes on with a Stun Shot charging."
         }
-        (world::Class::Engineer, 0) => EMP_WHAT,
+        (world::Class::Engineer, 0) => MINE_WHAT,
         (world::Class::Engineer, 1) => {
             "Lay a sentry that heals crewmates in its reach and sight. One per charge; a new one replaces your oldest."
         }
-        (world::Class::Engineer, 2) => SANDBAGS_WHAT,
+        (world::Class::Engineer, 2) => SATCHEL_WHAT,
         (world::Class::Engineer, 3) => {
             "Ultimate. Lay a minigun sentry that turns to shoot what it sees, five tiles further than a minigun, and stands until destroyed. Ready every mission."
         }
@@ -744,25 +746,25 @@ pub fn ranked_what(class: world::Class, slot: u8) -> &'static str {
         (world::Class::Commander, 3) => {
             "Ultimate. Call Republic soldiers in beside you. They fight like any bot for the rest of the mission; those called before stay. Ready every mission."
         }
-        (world::Class::Medic, 0) => NANITE_BURST_WHAT,
+        (world::Class::Medic, 0) => HEAL_DRONE_WHAT,
         (world::Class::Medic, 1) => {
-            "Passive. Allies near you receive more from every heal. Does not stack."
+            "Passive. Every heal of yours is stronger the less health its target has left: the full bonus on an ally near nothing, half of it at half health."
         }
         (world::Class::Medic, 2) => HEAL_BEAM_WHAT,
         (world::Class::Medic, 3) => {
-            "Ultimate. Cloak an ally, downed or not, or yourself: enemies ignore them, they move faster but cannot shoot. Blasts still hit."
+            "Ultimate. Toggle. Allies around you in sight heal at your beam's rate while you lose as much — it can down you. Enemies in it burn at half the rate."
         }
         (world::Class::Tank, 0) => {
-            "Every enemy within the radius that can see you shoots at you and nobody else."
+            "Toggle. Hold up a flat shield in front of you: every shot that meets it from the front is stopped and bounced back off it, the angle out the angle in, and can hit the enemy. It takes the shots' damage; at nothing it breaks. It mends 2 a second put away, or held up 5 s after the last hit."
         }
         (world::Class::Tank, 1) => {
-            "Passive. You take less damage from every hit, before your armour takes its share."
+            "Passive. You take less damage from every hit, before your armour takes its share, and your health mends all the time."
         }
         (world::Class::Tank, 2) => {
-            "Toggle. Stand as a wall: a crewmate close behind you is in cover against anything shot through you. You walk slower while it is up."
+            "For its seconds every hit you take — a shot, a beam, a blow — is dealt back to whoever struck you."
         }
         (world::Class::Tank, 3) => {
-            "Ultimate. Every enemy that can see you, at any distance, shoots at you and nobody else, and you take far less damage."
+            "Ultimate. Every ally on their feet around you, you too, gets a shield of 1000 that drains 100 a second: ten seconds at most."
         }
         _ => "",
     }
@@ -872,16 +874,13 @@ pub fn ranked_stats(class: world::Class, slot: u8) -> Vec<Stat> {
             cooldown(&c::RAMPAGE_COOLDOWN),
         ],
         (world::Class::Engineer, 0) => vec![
-            Stat::ranks("Radius", " tiles", |r| fig(c::EMP_RADIUS[r] as f64)),
-            Stat::ranks("Stun", " s", |r| fig(c::EMP_STUN[r] as f64)),
-            Stat::one("Range", " tiles", fig(c::GRENADE_RANGE as f64)),
-            Stat::from_rank(
-                "Stunned take",
-                c::EMP_EXPOSE_RANK,
-                format!("+{}%", c::EMP_EXPOSE_PERCENT),
-            ),
-            charges(&c::EMP_CHARGES),
-            cooldown(&c::EMP_COOLDOWN),
+            Stat::ranks("Damage", "", |r| fig(c::MINE_DAMAGE[r] as f64)),
+            Stat::ranks("Blast", " tiles", |r| fig(c::MINE_RADIUS[r] as f64)),
+            Stat::one("Trigger", " tile", fig(c::MINE_TRIGGER as f64)),
+            Stat::ranks("Laid at once", "", |r| c::MINE_STANDING[r].to_string()),
+            Stat::one("Lay time", " min", fig(c::MINE_MINUTES)),
+            charges(&c::MINE_CHARGES),
+            cooldown(&c::MINE_COOLDOWN),
         ],
         (world::Class::Engineer, 1) => vec![
             Stat::ranks("Heal", " /s", |r| {
@@ -896,17 +895,12 @@ pub fn ranked_stats(class: world::Class, slot: u8) -> Vec<Stat> {
             cooldown(&c::HEALING_SENTRY_COOLDOWN),
         ],
         (world::Class::Engineer, 2) => vec![
-            Stat::ranks("Bag health", "", |r| fig(c::SANDBAG_HEALTH[r] as f64)),
-            Stat::ranks("Lay time", " min", |r| fig(c::SANDBAG_MINUTES[r])),
-            Stat::ranks("Tiles a charge", "", |r| {
-                if r + 1 >= c::SANDBAG_DOUBLE_RANK as usize {
-                    "2".to_string()
-                } else {
-                    "1".to_string()
-                }
-            }),
-            charges(&c::SANDBAG_CHARGES),
-            cooldown(&c::SANDBAG_COOLDOWN),
+            Stat::ranks("Damage", "", |r| fig(c::SATCHEL_DAMAGE[r] as f64)),
+            Stat::ranks("Blast", " tiles", |r| fig(c::SATCHEL_RADIUS[r] as f64)),
+            Stat::one("Range", " tiles", fig(c::GRENADE_RANGE as f64)),
+            Stat::one("Trigger", "", "Space".to_string()),
+            charges(&c::SATCHEL_CHARGES),
+            cooldown(&c::SATCHEL_COOLDOWN),
         ],
         (world::Class::Engineer, 3) => vec![
             Stat::ranks("Minigun tier", "", |r| c::SENTRY_TIER[r].code().to_string()),
@@ -948,55 +942,47 @@ pub fn ranked_stats(class: world::Class, slot: u8) -> Vec<Stat> {
             Stat::one("Cooldown", " s", fig(c::REINFORCEMENT_COOLDOWN)),
         ],
         (world::Class::Medic, 0) => vec![
-            Stat::ranks("Heal", "", |r| fig(c::NANITE_BURST_HEAL[r] as f64)),
-            Stat::ranks(
-                "Radius",
-                " tiles",
-                |r| fig(c::NANITE_BURST_RADIUS[r] as f64),
-            ),
-            cooldown(&c::NANITE_BURST_COOLDOWN),
+            Stat::ranks("Heal", " /s", |r| fig(c::HEAL_DRONE_HEAL[r] as f64)),
+            Stat::ranks("Duration", " s", |r| fig(c::HEAL_DRONE_SECONDS[r])),
+            cooldown(&c::HEAL_DRONE_COOLDOWN),
         ],
-        (world::Class::Medic, 1) => vec![
-            Stat::ranks("Healing received", "", |r| {
-                by(c::HEALING_AURA_FACTOR[r] as f64)
-            }),
-            Stat::ranks(
-                "Radius",
-                " tiles",
-                |r| fig(c::HEALING_AURA_RADIUS[r] as f64),
-            ),
-        ],
+        (world::Class::Medic, 1) => vec![Stat::ranks("Healing at no health", "", |r| {
+            by(1.0 + c::TRIAGE[r] as f64)
+        })],
         (world::Class::Medic, 2) => vec![
             Stat::ranks("Heal", " /s", |r| {
                 fig((c::HEAL_BEAM_HP * c::HEAL_BEAM_RATE[r]) as f64 / 60.0)
             }),
             Stat::ranks("Range", " tiles", |r| fig(c::HEAL_BEAM_RANGES[r] as f64)),
             Stat::ranks("Patients", "", |r| c::HEAL_BEAM_PATIENTS[r].to_string()),
-            Stat::from_rank(
-                "Fire rate while beaming",
-                c::HEAL_BEAM_FIRE_RANK,
-                by(c::HEAL_BEAM_FIRE_RATE as f64),
-            ),
         ],
         (world::Class::Medic, 3) => vec![
-            Stat::ranks("Duration", " s", |r| fig(c::CLOAK_SECONDS[r])),
-            Stat::ranks("Move speed", "", |r| by(c::CLOAK_PACE[r] as f64)),
-            Stat::one("Range", " tiles", fig(c::CLOAK_RANGE as f64)),
-            cooldown(&c::CLOAK_COOLDOWN),
-        ],
-        // The tank's (task 139).
-        (world::Class::Tank, 0) => vec![
-            Stat::ranks("Radius", " tiles", |r| fig(c::TAUNT_RADIUS[r] as f64)),
-            Stat::ranks("Duration", " s", |r| fig(c::TAUNT_SECONDS[r])),
-            Stat::from_rank(
-                "Turns charging blades",
-                c::TAUNT_MAGNET_RANK,
-                "Yes".to_string(),
+            Stat::ranks("Radius", " tiles", |r| {
+                fig(c::HEALING_CIRCLE_RADIUS[r] as f64)
+            }),
+            Stat::one("Heal and cost", "", "the beam's rate".to_string()),
+            Stat::one(
+                "Burn",
+                "",
+                format!("{}% of it", (c::HEALING_CIRCLE_BURN * 100.0).round()),
             ),
-            cooldown(&c::TAUNT_COOLDOWN),
+        ],
+        // The tank's (task 155).
+        (world::Class::Tank, 0) => vec![
+            Stat::ranks("Shield", " hp", |r| fig(c::RIOT_SHIELD_HP[r] as f64)),
+            Stat::one(
+                "Mends",
+                " hp/s",
+                format!(
+                    "{} (held up: {} s after the last hit)",
+                    fig(c::RIOT_SHIELD_REGEN as f64),
+                    fig(c::RIOT_SHIELD_REGEN_DELAY)
+                ),
+            ),
         ],
         (world::Class::Tank, 1) => vec![
             Stat::ranks("Damage taken", "", |r| by(c::PLATED_DAMAGE_TAKEN[r] as f64)),
+            Stat::ranks("Mends", " hp/s", |r| fig(c::PLATED_REGEN[r] as f64)),
             Stat::ranks("Armour drain", "", |r| {
                 let fortress = r + 1 >= c::FORTRESS_RANK as usize;
                 by(if fortress {
@@ -1007,25 +993,22 @@ pub fn ranked_stats(class: world::Class, slot: u8) -> Vec<Stat> {
             }),
         ],
         (world::Class::Tank, 2) => vec![
-            Stat::ranks("Reach", " tiles", |r| fig(c::BULWARK_REACH[r] as f64)),
-            Stat::ranks("Move speed", "", |r| by(c::BULWARK_PACE[r] as f64)),
-            Stat::from_rank(
-                "Dodge while on",
-                c::GUARDED_RANK,
-                format!("+{}", pc(c::GUARDED_DODGE as f64)),
-            ),
-            Stat::from_rank(
-                "Takes a shielded ally's bolts",
-                c::INTERPOSE_RANK,
-                "Yes".to_string(),
-            ),
+            Stat::ranks("Duration", " s", |r| fig(c::REFLECT_SECONDS[r])),
+            Stat::one("Dealt back", "", pc(c::REFLECT_SHARE as f64)),
+            cooldown(&c::REFLECT_COOLDOWN),
         ],
         (world::Class::Tank, 3) => vec![
-            Stat::ranks("Duration", " s", |r| fig(c::JUGGERNAUT_SECONDS[r])),
-            Stat::ranks("Damage taken", "", |r| {
-                by(c::JUGGERNAUT_DAMAGE_TAKEN[r] as f64)
-            }),
-            cooldown(&c::JUGGERNAUT_COOLDOWN),
+            Stat::ranks("Radius", " tiles", |r| fig(c::BASTION_RADIUS[r] as f64)),
+            Stat::one(
+                "Shield",
+                "",
+                format!(
+                    "{}, draining {} a second",
+                    fig(c::BASTION_HP as f64),
+                    fig(c::BASTION_DRAIN as f64)
+                ),
+            ),
+            cooldown(&c::BASTION_COOLDOWN),
         ],
         _ => Vec::new(),
     };
@@ -1057,15 +1040,13 @@ pub fn override_rank(class: world::Class) -> Option<String> {
             by(c::SENTRY_FIRE_RATE[r] as f64),
         ),
         world::Class::Medic => format!(
-            "{} s, pace {}, and everybody within {} tiles of the target cloaked too",
-            fig(c::CLOAK_SECONDS[r]),
-            by(c::CLOAK_PACE[r] as f64),
-            fig(c::CLOAK_SPREAD_TILES as f64),
+            "all his healing {} — the beam, the drone and the circle",
+            by(c::OVERRIDE_HEAL as f64),
         ),
         world::Class::Tank => format!(
-            "{} s, damage taken {}, and nothing takes him down while it runs",
-            fig(c::JUGGERNAUT_SECONDS[r]),
-            by(c::JUGGERNAUT_DAMAGE_TAKEN[r] as f64),
+            "{} tiles, and everybody it reached moves {} as fast while it lasts",
+            fig(c::BASTION_RADIUS[r] as f64),
+            by(c::BASTION_HASTE as f64),
         ),
         world::Class::Commander => format!("{} Bims, each in armour", c::REINFORCEMENTS[r]),
     })
@@ -1120,12 +1101,12 @@ pub fn medivac_refused(why: world::Refusal) -> String {
 pub fn rampage_refused(why: world::Refusal) -> String {
     format!("Cannot go on a Rampage: {}.", refusal(why))
 }
-/// And for a Nanite Burst and a Cloak refused (task 130).
-pub fn nanite_burst_refused(why: world::Refusal) -> String {
-    format!("Cannot set off a Nanite Burst: {}.", refusal(why))
+/// And for a Heal Drone and a Healing Circle refused (task 153).
+pub fn heal_drone_refused(why: world::Refusal) -> String {
+    format!("Cannot drop a Heal Drone: {}.", refusal(why))
 }
-pub fn cloak_refused(why: world::Refusal) -> String {
-    format!("Cannot cloak: {}.", refusal(why))
+pub fn healing_circle_refused(why: world::Refusal) -> String {
+    format!("Cannot switch the Healing Circle on: {}.", refusal(why))
 }
 /// The Skills tab of a ranked kit (task 124): what it says of the points
 /// waiting, and a rank's line and button.
@@ -1200,16 +1181,22 @@ pub fn class_line(class: world::Class, level: u8, to_next: u32) -> String {
     }
 }
 pub const PACK_UP: &str = "Pack up";
-/// What a deployable on the deck is called, by `world::DeployKind` code,
-/// with what it has left.
-pub const DEPLOYABLE_NAMES: [&str; 3] = ["Sandbags", "Sentry", "Healing Sentry"];
+/// What a deployable on the deck is called, by `world::DeployKind` code
+/// — the sandbags' 0 left free since task 154 — with what it has left.
+pub fn deployable_name(code: u32) -> &'static str {
+    match world::DeployKind::from_code(code) {
+        Some(world::DeployKind::Sentry) => "Sentry",
+        Some(world::DeployKind::HealingSentry) => "Healing Sentry",
+        Some(world::DeployKind::Mine) => "Mine",
+        Some(world::DeployKind::Satchel) => "Satchel Charge",
+        None => "Deployable",
+    }
+}
 pub fn deployable_line(d: &world::Deployable) -> String {
-    let name = DEPLOYABLE_NAMES
-        .get(d.kind.code() as usize)
-        .copied()
-        .unwrap_or("Deployable");
+    let name = deployable_name(d.kind.code());
     match d.kind {
-        world::DeployKind::Sandbags => format!("{name} — {:.0} left", d.health),
+        world::DeployKind::Mine => format!("{name} — armed"),
+        world::DeployKind::Satchel => format!("{name} — Space sets it off"),
         world::DeployKind::Sentry | world::DeployKind::HealingSentry => {
             format!("{name} — {:.0} health", d.health)
         }
@@ -1224,6 +1211,10 @@ pub fn deploy_refused(why: world::Refusal) -> String {
 pub fn throw_refused(why: world::Refusal) -> String {
     format!("Cannot throw that: {}.", refusal(why))
 }
+/// And for the engineer's remote trigger pressed and refused (task 154).
+pub fn detonate_refused(why: world::Refusal) -> String {
+    format!("Nothing to set off: {}.", refusal(why))
+}
 /// And for a Stun Shot refused (October 2026).
 pub fn stun_shot_refused(why: world::Refusal) -> String {
     format!("Cannot fire a Stun Shot: {}.", refusal(why))
@@ -1232,16 +1223,16 @@ pub fn stun_shot_refused(why: world::Refusal) -> String {
 pub fn beam_refused(why: world::Refusal) -> String {
     format!("Cannot beam: {}.", refusal(why))
 }
-/// And for a bulwark and a taunt (feature 77).
-pub fn bulwark_refused(why: world::Refusal) -> String {
-    format!("Cannot stand as a wall: {}.", refusal(why))
+/// And for the tank's three (task 155): a Riot Shield, a Reflect Barrier
+/// and a Bastion refused.
+pub fn riot_shield_refused(why: world::Refusal) -> String {
+    format!("Cannot raise the shield: {}.", refusal(why))
 }
-pub fn taunt_refused(why: world::Refusal) -> String {
-    format!("Cannot taunt: {}.", refusal(why))
+pub fn reflect_refused(why: world::Refusal) -> String {
+    format!("Cannot raise the barrier: {}.", refusal(why))
 }
-/// And for a Juggernaut refused (task 139).
-pub fn juggernaut_refused(why: world::Refusal) -> String {
-    format!("Cannot go Juggernaut: {}.", refusal(why))
+pub fn bastion_refused(why: world::Refusal) -> String {
+    format!("Cannot throw the Bastion: {}.", refusal(why))
 }
 /// And for a rally (feature 78).
 pub fn rally_refused(why: world::Refusal) -> String {
@@ -1298,42 +1289,52 @@ pub fn battle_cry_line(left: f64, cooldown: f64, learnt: bool) -> String {
         "Battle Cry ready".to_string()
     }
 }
-/// The tank's rows on the crew panel (feature 77; task 139): the wall,
-/// and the Taunt and the Juggernaut, each with its cooldown.
-pub const WALL_UP: &str = "Wall up";
-pub const WALL_DOWN: &str = "Wall down";
-pub const WALL_TIP: &str = "Standing as a wall: slower, and a crewmate close behind him is in cover against anything shot through him. E puts it up and down; going down takes it down.";
-pub fn taunt_line(left: f64, cooldown: f64, learnt: bool) -> String {
-    if !learnt {
-        return TAUNT_NOT_LEARNT.to_string();
+/// The tank's rows on the crew panel (task 155): the Riot Shield, and the
+/// Reflect Barrier and the Bastion, each with its cooldown.
+pub fn riot_shield_line(up: bool, left: f32, whole: f32, recharging: bool) -> String {
+    if whole <= 0.0 {
+        return RIOT_SHIELD_NOT_LEARNT.to_string();
     }
-    if left > 0.0 {
-        return format!("Taunting — {left:.0} s left");
-    }
-    if cooldown > 0.0 {
-        format!("Taunt ready in {cooldown:.0} s")
+    let hp = format!("{:.0}/{:.0}", left.max(0.0), whole);
+    if recharging {
+        format!("Shield broken — {hp}")
+    } else if up {
+        format!("Shield up — {hp}")
     } else {
-        "Taunt ready".to_string()
+        format!("Shield down — {hp}")
     }
 }
-/// The Taunt before its first rank (task 139).
-pub const TAUNT_NOT_LEARNT: &str = "Taunt not learnt yet";
-/// The Juggernaut's line on the crew panel (task 139), the taunt's way.
-pub fn juggernaut_line(left: f64, cooldown: f64, learnt: bool) -> String {
+/// The Riot Shield before its first rank.
+pub const RIOT_SHIELD_NOT_LEARNT: &str = "Riot Shield not learnt yet";
+pub const RIOT_SHIELD_TIP: &str = "The Riot Shield: up, every shot that meets it from the front is bounced back off it. Q raises it and puts it down; going down puts it down, and at nothing it breaks until a quarter of it is back.";
+pub fn reflect_line(left: f64, cooldown: f64, learnt: bool) -> String {
     if !learnt {
-        return JUGGERNAUT_NOT_LEARNT.to_string();
+        return REFLECT_NOT_LEARNT.to_string();
     }
     if left > 0.0 {
-        return format!("Juggernaut — {left:.0} s left");
+        return format!("Reflecting — {left:.0} s left");
     }
     if cooldown > 0.0 {
-        format!("Juggernaut ready in {cooldown:.0} s")
+        format!("Reflect Barrier ready in {cooldown:.0} s")
     } else {
-        "Juggernaut ready".to_string()
+        "Reflect Barrier ready".to_string()
     }
 }
-/// The Juggernaut before its first rank.
-pub const JUGGERNAUT_NOT_LEARNT: &str = "Juggernaut not learnt yet";
+/// The Reflect Barrier before its first rank.
+pub const REFLECT_NOT_LEARNT: &str = "Reflect Barrier not learnt yet";
+/// The Bastion's line on the crew panel, the barrier's way.
+pub fn bastion_line(cooldown: f64, learnt: bool) -> String {
+    if !learnt {
+        return BASTION_NOT_LEARNT.to_string();
+    }
+    if cooldown > 0.0 {
+        format!("Bastion ready in {cooldown:.0} s")
+    } else {
+        "Bastion ready".to_string()
+    }
+}
+/// The Bastion before its first rank.
+pub const BASTION_NOT_LEARNT: &str = "Bastion not learnt yet";
 /// The soldier's rows on the crew panel (feature 75): grenades carried,
 /// the throw's cooldown, and the Stun Shot (October 2026).
 pub const CHARGING: &str = "Charging a shot";
@@ -1346,10 +1347,10 @@ pub fn stun_shot_ready(cooldown: f64) -> String {
     }
 }
 /// The medic's rows on the crew panel (feature 76; task 130): who the
-/// beam holds, and whether the Nanite Burst and the Cloak are ready.
+/// beam holds, and how the Heal Drone and the Healing Circle stand.
 pub const BEAM_ON: &str = "Beaming";
 pub const BEAM_OFF: &str = "No beam";
-pub const BEAM_TIP: &str = "The heal beam puts hit points back into a crewmate, or into the medic itself. E over a crew member — your own Bim included — links it; E again, or on nothing, unlinks. The medic may walk, and fires nothing while it is on until the beam's third rank.";
+pub const BEAM_TIP: &str = "The heal beam puts hit points back into a crewmate, or into the medic itself. E over a crew member — your own Bim included — links it; E again, or on nothing, unlinks. The medic walks and fires as ever while it is on, and is healed as much as his patient.";
 pub fn beam_line(patients: &[String]) -> String {
     match patients {
         [] => BEAM_OFF.to_string(),
@@ -1357,29 +1358,27 @@ pub fn beam_line(patients: &[String]) -> String {
         many => format!("{BEAM_ON} {}", many.join(" and ")),
     }
 }
-pub fn nanite_burst_line(cooldown: f64, learnt: bool) -> String {
+/// The drone's row (task 153): the seconds the one up has left, else
+/// when the next may be dropped.
+pub fn heal_drone_line(left: f64, cooldown: f64, learnt: bool) -> String {
+    if left > 0.0 {
+        return format!("Heal Drone up — {left:.0} s left");
+    }
     if !learnt {
-        return "Nanite Burst not learnt yet".to_string();
+        return "Heal Drone not learnt yet".to_string();
     }
     if cooldown > 0.0 {
-        format!("Nanite Burst ready in {cooldown:.0} s")
+        format!("Heal Drone ready in {cooldown:.0} s")
     } else {
-        "Nanite Burst ready".to_string()
+        "Heal Drone ready".to_string()
     }
 }
-/// The cloak's row: the seconds of one on the medic himself, else when
-/// the next may be cast.
-pub fn cloak_line(cloaked: f64, cooldown: f64, learnt: bool) -> String {
-    if cloaked > 0.0 {
-        return format!("Cloaked — {cloaked:.0} s left");
-    }
-    if !learnt {
-        return "Cloak not learnt yet".to_string();
-    }
-    if cooldown > 0.0 {
-        format!("Cloak ready in {cooldown:.0} s")
-    } else {
-        "Cloak ready".to_string()
+/// The circle's row (task 153): on, or ready to switch on.
+pub fn healing_circle_line(on: bool, learnt: bool) -> String {
+    match (on, learnt) {
+        (true, _) => "Healing Circle on — it costs you as much as it heals".to_string(),
+        (false, true) => "Healing Circle off".to_string(),
+        (false, false) => "Healing Circle not learnt yet".to_string(),
     }
 }
 /// The soldier's grenade row: the charges in the pack and, while one is
@@ -1581,29 +1580,28 @@ pub fn event_line(event: WorldEvent) -> Option<String> {
             who(w)
         ),
         WorldEvent::Deployed { who: w, kind } => format!(
-            "{} set up {}.",
+            "{} set up a {}.",
             who(w),
-            DEPLOYABLE_NAMES
-                .get(kind as usize)
-                .copied()
-                .unwrap_or("something")
-                .to_lowercase()
+            deployable_name(kind).to_lowercase()
         ),
         WorldEvent::PackedUp { who: w, kind } => format!(
-            "{} packed {} up.",
+            "{} packed a {} up.",
             who(w),
-            DEPLOYABLE_NAMES
-                .get(kind as usize)
-                .copied()
-                .unwrap_or("something")
-                .to_lowercase()
+            deployable_name(kind).to_lowercase()
         ),
-        WorldEvent::DeployableLost { kind } => match kind {
-            0 => "The sandbags are shot to pieces.".into(),
-            2 => "A Healing Sentry is shot to pieces.".into(),
+        WorldEvent::DeployableLost { kind } => match world::DeployKind::from_code(kind) {
+            Some(world::DeployKind::HealingSentry) => "A Healing Sentry is shot to pieces.".into(),
+            Some(world::DeployKind::Mine) => "A mine is taken up: too many laid.".into(),
             _ => "A sentry is shot to pieces.".into(),
         },
-        WorldEvent::EmpThrown { who: w } => format!("{} threw an EMP.", who(w)),
+        WorldEvent::MineTriggered { who: w } => format!("{}'s mine went off.", who(w)),
+        WorldEvent::SatchelThrown { who: w } => format!("{} threw a satchel charge.", who(w)),
+        WorldEvent::SatchelsBlown { who: w, count: 1 } => {
+            format!("{} set off a satchel charge.", who(w))
+        }
+        WorldEvent::SatchelsBlown { who: w, count } => {
+            format!("{} set off {count} satchel charges.", who(w))
+        }
         WorldEvent::ShotCharging { who: w } => format!("{} charges a Stun Shot.", who(w)),
         WorldEvent::StunShotFired { who: w } => format!("{} fired a Stun Shot.", who(w)),
         WorldEvent::Thrown { who: w } => format!("{} threw a grenade.", who(w)),
@@ -1612,15 +1610,27 @@ pub fn event_line(event: WorldEvent) -> Option<String> {
             patient: Some(p),
         } => format!("{} beamed {}.", who(w), who(p)),
         WorldEvent::Beamed { who: w, .. } => format!("{}'s beam is off.", who(w)),
-        WorldEvent::NaniteBurst { who: w, healed } => {
-            format!("{}'s Nanite Burst healed {healed}.", who(w))
+        WorldEvent::DroneLaunched { who: w } => format!("{} dropped a Heal Drone.", who(w)),
+        WorldEvent::Circled { who: w, on: true } => {
+            format!("{}'s Healing Circle is on.", who(w))
         }
-        WorldEvent::Cloaked { who: w, target } if w == target => format!("{} cloaked.", who(w)),
-        WorldEvent::Cloaked { who: w, target } => format!("{} cloaked {}.", who(w), who(target)),
-        WorldEvent::Bulwarked { who: w, on: true } => format!("{} stood as a wall.", who(w)),
-        WorldEvent::Bulwarked { who: w, on: false } => format!("{} stood the wall down.", who(w)),
-        WorldEvent::Taunted { who: w } => format!("{} taunted the enemy.", who(w)),
-        WorldEvent::Juggernaut { who: w } => format!("{} goes Juggernaut.", who(w)),
+        WorldEvent::Circled { who: w, on: false } => {
+            format!("{}'s Healing Circle is off.", who(w))
+        }
+        WorldEvent::ShieldRaised { who: w, on: true } => {
+            format!("{} raised the Riot Shield.", who(w))
+        }
+        WorldEvent::ShieldRaised { who: w, on: false } => {
+            format!("{} put the Riot Shield down.", who(w))
+        }
+        WorldEvent::ShieldBroken { who: w } => format!("{}'s Riot Shield broke.", who(w)),
+        WorldEvent::Reflecting { who: w } => format!("{} raised a Reflect Barrier.", who(w)),
+        WorldEvent::Bastion { who: w, reached } => format!(
+            "{} threw the Bastion over {} {}.",
+            who(w),
+            reached,
+            if reached == 1 { "Bim" } else { "Bims" }
+        ),
         WorldEvent::Rallied { who: w } => format!("{} rallied the crew.", who(w)),
         WorldEvent::BattleCried { who: w } => format!("{} called a Battle Cry.", who(w)),
         WorldEvent::Reinforced { who: w, count } => format!(
@@ -3280,7 +3290,9 @@ mod tests {
                 assert_eq!(kind.code() as usize, i, "{kind:?}");
             }
             assert_eq!(CLASS_TIPS.len(), world::Class::ALL.len());
-            assert_eq!(DEPLOYABLE_NAMES.len(), world::DeployKind::ALL.len());
+            for kind in world::DeployKind::ALL {
+                assert_ne!(deployable_name(kind.code()), "Deployable", "{kind:?}");
+            }
             for (i, class) in world::Class::ALL.iter().enumerate() {
                 assert_eq!(class.code() as usize, i);
             }
@@ -3354,9 +3366,6 @@ mod tests {
                 Refusal::NotACrewmate,
                 Refusal::OutOfBeamRange,
                 Refusal::NoSightOfPatient,
-                Refusal::OutOfCloakRange,
-                Refusal::NoSightOfTarget,
-                Refusal::Cloaked,
                 Refusal::NotATank,
                 Refusal::NotACommander,
             ] {
@@ -3365,11 +3374,11 @@ mod tests {
                 assert!(throw_refused(why).contains(refusal(why)));
                 assert!(stun_shot_refused(why).contains(refusal(why)));
                 assert!(beam_refused(why).contains(refusal(why)));
-                assert!(nanite_burst_refused(why).contains(refusal(why)));
-                assert!(cloak_refused(why).contains(refusal(why)));
-                assert!(bulwark_refused(why).contains(refusal(why)));
-                assert!(taunt_refused(why).contains(refusal(why)));
-                assert!(juggernaut_refused(why).contains(refusal(why)));
+                assert!(heal_drone_refused(why).contains(refusal(why)));
+                assert!(healing_circle_refused(why).contains(refusal(why)));
+                assert!(riot_shield_refused(why).contains(refusal(why)));
+                assert!(reflect_refused(why).contains(refusal(why)));
+                assert!(bastion_refused(why).contains(refusal(why)));
                 assert!(rally_refused(why).contains(refusal(why)));
             }
             assert_eq!(rally_line(0.0, 0.0, false), RALLY_NOT_LEARNT);
@@ -3378,14 +3387,25 @@ mod tests {
             assert_eq!(rally_line(4.0, 12.0, true), "Rallying — 4 s left");
             assert_eq!(battle_cry_line(2.0, 9.0, true), "Battle Cry — 2 s left");
             assert_eq!(battle_cry_line(0.0, 0.0, true), "Battle Cry ready");
-            assert_eq!(taunt_line(0.0, 0.0, false), TAUNT_NOT_LEARNT);
-            assert_eq!(taunt_line(0.0, 0.0, true), "Taunt ready");
-            assert_eq!(taunt_line(0.0, 7.2, true), "Taunt ready in 7 s");
-            assert_eq!(taunt_line(4.0, 12.0, true), "Taunting — 4 s left");
-            assert_eq!(juggernaut_line(0.0, 0.0, false), JUGGERNAUT_NOT_LEARNT);
-            assert_eq!(juggernaut_line(6.2, 150.0, true), "Juggernaut — 6 s left");
-            assert_eq!(juggernaut_line(0.0, 90.0, true), "Juggernaut ready in 90 s");
-            assert_eq!(juggernaut_line(0.0, 0.0, true), "Juggernaut ready");
+            assert_eq!(reflect_line(0.0, 0.0, false), REFLECT_NOT_LEARNT);
+            assert_eq!(reflect_line(0.0, 0.0, true), "Reflect Barrier ready");
+            assert_eq!(reflect_line(0.0, 7.2, true), "Reflect Barrier ready in 7 s");
+            assert_eq!(reflect_line(4.0, 12.0, true), "Reflecting — 4 s left");
+            assert_eq!(bastion_line(0.0, false), BASTION_NOT_LEARNT);
+            assert_eq!(bastion_line(90.0, true), "Bastion ready in 90 s");
+            assert_eq!(bastion_line(0.0, true), "Bastion ready");
+            assert_eq!(
+                riot_shield_line(false, 0.0, 0.0, false),
+                RIOT_SHIELD_NOT_LEARNT
+            );
+            assert_eq!(
+                riot_shield_line(true, 18.4, 20.0, false),
+                "Shield up — 18/20"
+            );
+            assert_eq!(
+                riot_shield_line(false, 3.0, 20.0, true),
+                "Shield broken — 3/20"
+            );
             assert_eq!(grenades_line(1, 0.0), "1 grenade");
             assert_eq!(grenades_line(2, 3.4), "2 grenades — next in 3 s");
             assert_eq!(beam_line(&[]), BEAM_OFF);
@@ -3394,12 +3414,19 @@ mod tests {
                 beam_line(&["Kate".to_string(), "Ali".to_string()]),
                 "Beaming Kate and Ali"
             );
-            assert_eq!(nanite_burst_line(0.0, false), "Nanite Burst not learnt yet");
-            assert_eq!(nanite_burst_line(3.4, true), "Nanite Burst ready in 3 s");
-            assert_eq!(nanite_burst_line(0.0, true), "Nanite Burst ready");
-            assert_eq!(cloak_line(4.2, 30.0, true), "Cloaked — 4 s left");
-            assert_eq!(cloak_line(0.0, 0.0, false), "Cloak not learnt yet");
-            assert_eq!(cloak_line(0.0, 12.0, true), "Cloak ready in 12 s");
+            assert_eq!(
+                heal_drone_line(0.0, 0.0, false),
+                "Heal Drone not learnt yet"
+            );
+            assert_eq!(heal_drone_line(0.0, 3.4, true), "Heal Drone ready in 3 s");
+            assert_eq!(heal_drone_line(0.0, 0.0, true), "Heal Drone ready");
+            assert_eq!(heal_drone_line(4.2, 30.0, true), "Heal Drone up — 4 s left");
+            assert_eq!(
+                healing_circle_line(false, false),
+                "Healing Circle not learnt yet"
+            );
+            assert_eq!(healing_circle_line(false, true), "Healing Circle off");
+            assert!(healing_circle_line(true, true).starts_with("Healing Circle on"));
             for event in [
                 WorldEvent::LevelUp {
                     who: 0,
@@ -3416,14 +3443,16 @@ mod tests {
                     class: 2,
                     level: 8,
                 },
-                WorldEvent::Juggernaut { who: 0 },
-                WorldEvent::Deployed { who: 0, kind: 0 },
+                WorldEvent::Bastion { who: 0, reached: 3 },
+                WorldEvent::Deployed { who: 0, kind: 3 },
                 WorldEvent::PackedUp { who: 0, kind: 1 },
                 WorldEvent::DeployableLost { kind: 1 },
                 WorldEvent::ShotCharging { who: 0 },
                 WorldEvent::StunShotFired { who: 0 },
                 WorldEvent::Thrown { who: 0 },
-                WorldEvent::EmpThrown { who: 0 },
+                WorldEvent::MineTriggered { who: 0 },
+                WorldEvent::SatchelThrown { who: 0 },
+                WorldEvent::SatchelsBlown { who: 0, count: 2 },
                 WorldEvent::DeployableLost { kind: 2 },
                 WorldEvent::Beamed {
                     who: 0,
@@ -3433,12 +3462,13 @@ mod tests {
                     who: 0,
                     patient: None,
                 },
-                WorldEvent::NaniteBurst { who: 0, healed: 3 },
-                WorldEvent::Cloaked { who: 0, target: 0 },
-                WorldEvent::Cloaked { who: 0, target: 1 },
-                WorldEvent::Bulwarked { who: 0, on: true },
-                WorldEvent::Bulwarked { who: 0, on: false },
-                WorldEvent::Taunted { who: 0 },
+                WorldEvent::DroneLaunched { who: 0 },
+                WorldEvent::Circled { who: 0, on: true },
+                WorldEvent::Circled { who: 0, on: false },
+                WorldEvent::ShieldRaised { who: 0, on: true },
+                WorldEvent::ShieldRaised { who: 0, on: false },
+                WorldEvent::ShieldBroken { who: 0 },
+                WorldEvent::Reflecting { who: 0 },
                 WorldEvent::Rallied { who: 0 },
                 WorldEvent::BattleCried { who: 0 },
                 WorldEvent::Reinforced { who: 0, count: 3 },

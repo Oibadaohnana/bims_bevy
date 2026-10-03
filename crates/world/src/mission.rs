@@ -1043,7 +1043,8 @@ impl World {
         }
         self.deployables
             .retain(|d| d.kind != crate::deploy::DeployKind::Sentry);
-        // Every Taunt and Juggernaut ready (task 139).
+        // Every tank's shield whole and down, and his barrier and
+        // Bastion ready (task 155).
         for tank in &mut self.tanks {
             *tank = crate::tank::Tank::default();
         }
@@ -1055,15 +1056,13 @@ impl World {
         for soldier in &mut self.soldiers {
             *soldier = crate::soldier::Soldier::default();
         }
-        // Every Nanite Burst and Cloak ready, and every cloak off (task
-        // 130); the beams were let go above.
+        // Every Heal Drone ready and none in the air, and every healing
+        // circle off (task 153); the beams were let go above.
         for medic in &mut self.medics {
-            medic.last_burst = None;
-            medic.last_cloak = None;
-        }
-        self.cloaks = vec![crate::medic::Cloak::default(); crew];
-        for who in 0..crew {
-            self.aboard.room.set_cloaked(who, false);
+            medic.last_drone = None;
+            medic.drone = None;
+            medic.circle = false;
+            medic.last_burn = None;
         }
         for who in 0..crew as u32 {
             if self.aboard.room.is_alive(who as usize) {
@@ -1250,7 +1249,10 @@ impl World {
     /// The run is lost when every player's Bim is dead at once — out and
     /// waiting for the mission's end counts, since that is dead too — said once
     /// as [`WorldEvent::CrewLost`] and kept. Bots and hired hands do not
-    /// keep a run going: a crew is its players.
+    /// keep a run going: a crew is its players. And it is lost at once
+    /// when nobody of the whole crew — players and bots — is standing:
+    /// every one down or dead, nobody is left to revive anybody, so the
+    /// countdowns are not waited out.
     pub(super) fn check_run_lost(&mut self, events: &mut Vec<WorldEvent>) {
         // A run won stays won (feature 108): the crew dying after the
         // core is down loses nothing.
@@ -1258,9 +1260,11 @@ impl World {
             return;
         }
         let players = self.players().min(self.aboard.crew_count()) as usize;
+        let crew = self.aboard.crew_count() as usize;
         let room = &self.aboard.room;
         let anybody = (0..players).any(|who| room.is_alive(who));
-        if !anybody {
+        let standing = (0..crew).any(|who| room.is_alive(who) && !room.is_downed(who));
+        if !anybody || !standing {
             self.lost = true;
             events.push(WorldEvent::CrewLost);
         }
@@ -1320,9 +1324,6 @@ impl World {
         self.clear_carries();
         if index < self.medics.len() {
             self.medics.remove(index);
-        }
-        if index < self.cloaks.len() {
-            self.cloaks.remove(index);
         }
         if index < self.tanks.len() {
             self.tanks.remove(index);

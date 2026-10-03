@@ -330,7 +330,7 @@ impl World {
     /// Heart's regeneration — then every *Reactor Heart* carried by a Bim
     /// on its feet puts its hit points back: the quiet rate once nothing
     /// has hit it for [`bims::module::HEART_QUIET_SECONDS`], the plain one
-    /// before. Through [`World::heal_crew`], so a medic's aura lifts it.
+    /// before. Through [`World::heal_crew`].
     pub(crate) fn settle_items(&mut self, hits_before: &[u32]) {
         if !self.any_items() {
             return;

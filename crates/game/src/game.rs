@@ -840,6 +840,11 @@ pub struct Game {
     /// (`take_stuns`).
     #[cfg_attr(feature = "serde", serde(default))]
     stuns: Vec<(usize, f32, bool)>,
+    /// Every satchel charge that came down since the world last asked
+    /// (task 154): who threw it and where it landed, for the world to lay
+    /// it on the deck (`take_satchels_landed`).
+    #[cfg_attr(feature = "serde", serde(default))]
+    satchels_landed: Vec<(usize, Vec2)>,
     /// Every worn piece a hit broke since the world last asked — whose,
     /// and what it was — for the world to say so. See `Game::wound`.
     pieces_broken: Vec<(usize, ArmourKind)>,
@@ -1042,6 +1047,7 @@ impl Game {
             revivers: true,
             bags_blown: Vec::new(),
             stuns: Vec::new(),
+            satchels_landed: Vec::new(),
             pieces_broken: Vec::new(),
             downs: Vec::new(),
             last_seen: Vec::new(),
@@ -1289,6 +1295,12 @@ impl Game {
         // A paused frame leaves no wake: nothing has moved.
         if dt > 0.0 {
             self.combat.wakes();
+        }
+        // A flickering lamp spits sparks now and then.
+        for (i, lamp) in self.room.sight.lamps().iter().enumerate() {
+            if lamp.is_flickering() {
+                self.combat.fx.lamp_sparks(i as u32, lamp.at, dt);
+            }
         }
         self.age_markers(dt);
     }
@@ -1595,12 +1607,6 @@ impl Game {
                 bim.braced = false;
             }
             bim.character.set_braced(bim.braced);
-            // And a bulwark when the tank goes down (feature 77).
-            if bim.bulwark
-                && (!bim.is_alive() || bim.character.is_unconscious() || bim.character.is_outside())
-            {
-                bim.bulwark = false;
-            }
             // A beam ends the same way (feature 76): the world reads the
             // flag back and breaks the link. And a surge runs its seconds
             // out.
@@ -1616,9 +1622,11 @@ impl Game {
                 }
             }
             bim.character.set_surging(bim.surge.is_some());
-            // A relic's shield (task 142) runs its seconds out the same way.
+            // A relic's shield (task 142) runs its seconds out the same way,
+            // and a Bastion's (task 155) drains as it goes.
             if let Some(shield) = bim.shield.as_mut() {
                 shield.left -= dt;
+                shield.hp -= shield.drain * dt;
                 if shield.left <= 0.0 || shield.hp <= 0.0 || !bim.is_alive() {
                     bim.shield = None;
                 }
@@ -1804,6 +1812,9 @@ impl Game {
                         Some(who),
                         blow.flat,
                     );
+                    if self.hostile_bodies {
+                        self.combat.sign_last_shot(who);
+                    }
                 }
             }
             let bim = &mut self.bims[who];
@@ -1995,6 +2006,7 @@ impl Game {
                 if self.hostile_bodies {
                     self.lit_muzzle(muzzle, at, weapon);
                     self.combat.shoot(muzzle, at, weapon, walking);
+                    self.combat.sign_last_shot(who);
                 } else {
                     // Every fifth shot of an *Overcharge Cell* (feature
                     // 106): counted on the body, the shot's damage raised.
@@ -2103,6 +2115,18 @@ impl Game {
             for sentry in &self.sentries {
                 bodies.push(Some((sentry.at, false, 0.0)));
             }
+            // The Riot Shields up face the way their holders face now
+            // (task 155), the step's turn included.
+            let plates: Vec<crate::combat::Plate> = self
+                .combat
+                .plates()
+                .iter()
+                .map(|p| crate::combat::Plate {
+                    facing: self.plate_facing(p.who),
+                    ..*p
+                })
+                .collect();
+            self.combat.set_plates(plates);
             self.combat.step(dt, &self.room.sight, &bodies);
             // What landed on a lamp comes off the lamp: at nought it is
             // out, and the deck round it goes dark.
@@ -2403,6 +2427,7 @@ impl Game {
                             None,
                             blow.flat,
                         );
+                        self.combat.sign_last_shot(self.bims.len() + i);
                     }
                 } else {
                     // A body of this room (feature 94): the blow lands
@@ -2505,6 +2530,7 @@ impl Game {
                     // recorded here and flown by the world in the crew's
                     // room, where the body it is aimed at actually is.
                     self.combat.shoot(eye, at, weapon, walking);
+                    self.combat.sign_last_shot(self.bims.len() + i);
                 } else {
                     // At one of this room's own bodies (feature 94): the
                     // bolt flies **here**, hostile, and `Combat::step`
@@ -2658,6 +2684,7 @@ impl Game {
         };
         self.reveal(self.bims.len() + i);
         self.lay_beam(from, aim, side, weapon, stats.reach(), stats.damage, 1.0);
+        self.combat.sign_last_shot(self.bims.len() + i);
     }
 
     /// A Sweeper's beam out of `from` along `aim`, swept from `side` of it
@@ -4659,6 +4686,45 @@ impl Game {
         match self.bims.get_mut(who) {
             Some(bim) if bim.is_alive() => bim.health.heal(points),
             _ => 0.0,
+        }
+    }
+
+    /// `points` taken off a living body's bar outright — a medic paying
+    /// for his own healing circle (task 153): past the armour, a shield
+    /// and a surge, no flash and no blood, and at nothing the body is
+    /// downed as by any hit. How much came off.
+    pub fn drain(&mut self, who: usize, points: f32) -> f32 {
+        let Some(bim) = self.bims.get_mut(who).filter(|b| b.is_alive()) else {
+            return 0.0;
+        };
+        let taken = bim.health.hit(points);
+        if taken > 0.0 && bim.health.downed() {
+            self.downs.push(who);
+        }
+        taken
+    }
+
+    /// A medic's healing circle burning the enemy in it (task 153): every
+    /// target standing within `radius` of `at` with nothing opaque between
+    /// takes `damage`, the same at the edge, as a blast hit by `by` — the
+    /// world carries it across with the step's other hits. Nobody of this
+    /// room's own, no sentry and no sandbag is touched.
+    pub fn scorch(&mut self, at: Vec2, radius: f32, damage: f32, by: usize) {
+        if damage <= 0.0 {
+            return;
+        }
+        let reached: Vec<usize> = self
+            .combat
+            .targets()
+            .iter()
+            .enumerate()
+            .filter_map(|(i, t)| {
+                t.filter(|t| (t.at - at).len() <= radius && self.line_clear(at, t.at))
+                    .map(|_| i)
+            })
+            .collect();
+        for i in reached {
+            self.combat.blast_target(i, damage, Some(by));
         }
     }
 
@@ -7733,6 +7799,58 @@ impl Game {
         self.combat.fire(from, at, weapon, true, moving);
     }
 
+    /// [`Game::enemy_fire`] signed with who fired it, by its index on
+    /// this room's targets, for a Reflect Barrier to send the hit back to
+    /// (task 155).
+    pub fn enemy_fire_by(
+        &mut self,
+        from: Vec2,
+        at: Vec2,
+        weapon: Weapon,
+        moving: bool,
+        shooter: Option<usize>,
+    ) {
+        self.combat.fire_hostile(from, at, weapon, moving, shooter);
+    }
+
+    /// [`Game::enemy_sweep`] signed with who swept it, as
+    /// [`Game::enemy_fire_by`].
+    #[allow(clippy::too_many_arguments)]
+    pub fn enemy_sweep_by(
+        &mut self,
+        from: Vec2,
+        start: Vec2,
+        end: Vec2,
+        weapon: Weapon,
+        damage: f32,
+        pace: f32,
+        shooter: Option<usize>,
+    ) {
+        self.enemy_sweep(from, start, end, weapon, damage, pace);
+        self.combat.sign_last_sweep(shooter);
+    }
+
+    /// [`Game::enemy_strike`] signed with who struck: a Reflect Barrier
+    /// on the body sends its share back on the striker (task 155).
+    pub fn enemy_strike_by(
+        &mut self,
+        from: Vec2,
+        who: usize,
+        damage: f32,
+        cut: bool,
+        shooter: Option<usize>,
+    ) -> bool {
+        let before = self.wounds_taken.len();
+        let landed = self.enemy_strike(from, who, damage, cut);
+        if landed
+            && let Some(hit) = self.wounds_taken.get(before).copied()
+            && let Some(back) = self.combat.reflected_hit(&hit, shooter)
+        {
+            self.combat.land(back);
+        }
+        landed
+    }
+
     /// An enemy's blow, delivered: a melee `Shot` the world carried
     /// across, landing on one of this room's own — if the enemy at `from`
     /// (in this room's units) is still within reach of the body, since
@@ -7959,6 +8077,13 @@ impl Game {
         // Weak Spot's chances (task 124), for the fight to roll a crit by.
         self.combat
             .set_crit_chances(skills.iter().map(|s| s.crit_chance).collect());
+        // And what a Reflect Barrier sends back (task 155), and its glow.
+        self.combat
+            .set_reflects(skills.iter().map(|s| s.reflect).collect());
+        for (who, bim) in self.bims.iter_mut().enumerate() {
+            let on = skills.get(who).is_some_and(|s| s.reflect > 0.0);
+            bim.character.set_reflecting(on);
+        }
         self.skills = skills;
     }
 
@@ -8058,28 +8183,53 @@ impl Game {
         self.bims.get(who).is_some_and(|b| b.braced)
     }
 
-    // --- the tank: the wall, the taunt and the hits (feature 77) -----------
+    // --- the tank: the Riot Shield and the hits (task 155) -----------------
 
-    /// Stand as a wall, or stand down: a tank with Bulwark on walks at
-    /// half pace and puts the crew close behind him in cover against a
-    /// shot that would come through him. Unlike a brace it takes no
-    /// errand away — he is a wall that walks. Off again when he goes
-    /// down; the world checks who may (`World::can_bulwark`). Whether
-    /// it changed.
-    pub fn set_bulwark(&mut self, who: usize, on: bool) -> bool {
-        if who >= self.bims.len() || self.bims[who].bulwark == on {
-            return false;
+    /// The Riot Shields held up among this room's bodies, as the world
+    /// says every step: who holds one, the hit points it still takes and
+    /// what it takes whole, for the picture. A body not named holds
+    /// none. The plate faces the way its holder does, read afresh as the
+    /// bolts fly (`tick_combat`).
+    pub fn set_riot_shields(&mut self, shields: &[(usize, f32, f32)]) {
+        let plates = shields
+            .iter()
+            .filter(|&&(who, _, _)| who < self.bims.len())
+            .map(|&(who, hp, _)| crate::combat::Plate {
+                who,
+                facing: self.plate_facing(who),
+                hp,
+            })
+            .collect();
+        self.combat.set_plates(plates);
+        for (who, bim) in self.bims.iter_mut().enumerate() {
+            let share = shields.iter().find(|s| s.0 == who).map(|&(_, hp, full)| {
+                if full > 0.0 {
+                    (hp / full).clamp(0.0, 1.0)
+                } else {
+                    0.0
+                }
+            });
+            bim.character.set_plate(share);
         }
-        if on && (!self.bims[who].is_alive() || self.bims[who].character.is_unconscious()) {
-            return false;
-        }
-        self.bims[who].bulwark = on;
-        true
     }
 
-    /// Whether a Bim stands as a wall.
-    pub fn is_bulwark(&self, who: usize) -> bool {
-        self.bims.get(who).is_some_and(|b| b.bulwark)
+    /// The way a body's Riot Shield faces: the way the body does.
+    fn plate_facing(&self, who: usize) -> Vec2 {
+        self.bims
+            .get(who)
+            .map_or(Vec2::ZERO, |b| Vec2::from_angle(b.character.heading))
+    }
+
+    /// What the Riot Shields stopped since the world last asked: the
+    /// holder and the damage each bolt carried there.
+    pub fn take_plate_blocks(&mut self) -> Vec<(usize, f32)> {
+        self.combat.take_plate_blocks()
+    }
+
+    /// The plates as the shooter holds them, for the tests.
+    #[allow(dead_code)]
+    pub fn plates_for_probe(&self) -> Vec<crate::combat::Plate> {
+        self.combat.plates().to_vec()
     }
 
     /// Which target a Bim would shoot at from where it stands, for the
@@ -8091,12 +8241,6 @@ impl Game {
         self.combat
             .aim(&self.room.sight, bim.character.pos, &stats)
             .map(|(i, _, _)| i)
-    }
-
-    /// The walls the world last handed the shooter, for the tests.
-    #[allow(dead_code)]
-    pub fn bulwarks_for_probe(&self) -> Vec<crate::combat::Bulwark> {
-        self.combat.bulwarks().to_vec()
     }
 
     /// Whether nothing is in the air or lit, for a probe that fires a
@@ -8118,14 +8262,6 @@ impl Game {
     #[allow(dead_code)]
     pub fn pace_for_probe(&self, who: usize) -> f32 {
         self.bims.get(who).map_or(0.0, |b| b.character.pace())
-    }
-
-    /// The tanks standing as walls among this room's own bodies, as the
-    /// world last said: which body, how far it reaches in room units,
-    /// and whether it *interposes*. Handed to the one shooter every
-    /// step, beside the skills.
-    pub fn set_bulwarks(&mut self, bulwarks: Vec<crate::combat::Bulwark>) {
-        self.combat.set_bulwarks(bulwarks);
     }
 
     /// The taunt running on each of the enemies named by
@@ -8209,11 +8345,18 @@ impl Game {
     /// A shield of `hp` hit points on a living body for `seconds` (task
     /// 142, a relic's *Lifeline*): a fresh one in place of what was left.
     pub fn set_shield(&mut self, who: usize, hp: f32, seconds: f32) {
+        self.set_draining_shield(who, hp, seconds, 0.0);
+    }
+
+    /// [`Game::set_shield`] losing `drain` hit points a second of the
+    /// room's clock whatever hits it: a tank's Bastion (task 155).
+    pub fn set_draining_shield(&mut self, who: usize, hp: f32, seconds: f32, drain: f32) {
         if let Some(bim) = self.bims.get_mut(who).filter(|b| b.is_alive()) {
             bim.shield = Some(crate::bim::Shield {
                 hp,
                 left: seconds,
                 full: hp,
+                drain,
             });
             bim.character.set_shield(1.0);
         }
@@ -8546,19 +8689,11 @@ impl Game {
         std::mem::take(&mut self.stuns)
     }
 
-    /// An engineer's EMP thrown from `who`'s hands at `at` (task 127):
-    /// the grenade's flight and fuse, bursting with `radius` room units
-    /// and stunning every machine in it for `stun` seconds. The world
-    /// checks the throw and spends the charge; the room throws.
-    pub fn throw_emp(
-        &mut self,
-        who: usize,
-        at: Vec2,
-        fuse: f32,
-        radius: f32,
-        stun: f32,
-        expose: bool,
-    ) {
+    /// An engineer's satchel charge lobbed from `who`'s hands at `at`
+    /// (task 154), room units: the grenade's flight, and it lands rather
+    /// than bursts ([`Game::take_satchels_landed`]). The world checks the
+    /// throw and spends the charge; the room throws.
+    pub fn throw_satchel(&mut self, who: usize, at: Vec2) {
         if who >= self.bims.len() {
             return;
         }
@@ -8566,8 +8701,33 @@ impl Game {
         if (at - from).len() > 1e-3 && !self.bims[who].character.is_walking() {
             self.bims[who].character.face((at - from).angle());
         }
+        self.combat.lob_satchel(who, from, at);
+    }
+
+    /// The satchel charges that came down since last asked: who threw each
+    /// and where it landed.
+    pub fn take_satchels_landed(&mut self) -> Vec<(usize, Vec2)> {
+        std::mem::take(&mut self.satchels_landed)
+    }
+
+    /// An engineer's mine or satchel set off where it lies (task 154), by
+    /// crew member `who` at `at`: it bursts on this room's next tick with
+    /// `radius` room units and `damage` at the centre — every target
+    /// standing within it with a clear line, half at the edge and halved
+    /// again in cover, as a grenade's; none of this room's own, no sentry
+    /// and no sandbag.
+    pub fn detonate(&mut self, who: usize, at: Vec2, radius: f32, damage: f32) {
+        self.combat.detonate(who, at, radius, damage);
+    }
+
+    /// Whether an enemy — a target the world named, standing — is within
+    /// `reach` room units of `at`: what sets a mine off (task 154).
+    pub fn enemy_near(&self, at: Vec2, reach: f32) -> bool {
         self.combat
-            .throw_emp(who, from, at, fuse, radius, stun, expose);
+            .targets()
+            .iter()
+            .flatten()
+            .any(|t| (t.at - at).len() <= reach)
     }
 
     /// A soldier's Stun Shot fired from `who`'s gun (October 2026) at
@@ -8664,6 +8824,12 @@ impl Game {
     /// index, then the targets, then the sentries, then the bags, so two
     /// runs on one seed roll the same.
     fn burst(&mut self, g: Grenade) {
+        // A satchel charge landing (task 154): nothing burst, it lies where
+        // it came down once the world has laid it.
+        if g.satchel {
+            self.satchels_landed.push((g.by, g.at));
+            return;
+        }
         // A soldier's Stun Shot (October 2026): every target standing
         // within its radius with nothing opaque between takes its damage,
         // the same at the edge, and is noted for the world to stun. None
@@ -8687,22 +8853,6 @@ impl Game {
             }
             return;
         }
-        // An EMP (task 127) harms nothing: every target standing within
-        // its radius is noted for the world to stun, walls or no walls,
-        // and that is all.
-        if g.stun > 0.0 {
-            let reached: Vec<usize> = self
-                .combat
-                .targets()
-                .iter()
-                .enumerate()
-                .filter_map(|(i, t)| t.filter(|t| (t.at - g.at).len() <= g.radius).map(|_| i))
-                .collect();
-            for i in reached {
-                self.stuns.push((i, g.stun, g.expose));
-            }
-            return;
-        }
         let reaches = |game: &Game, at: Vec2| -> Option<f32> {
             let d = (at - g.at).len();
             if d > g.radius || !game.line_clear(g.at, at) {
@@ -8712,8 +8862,9 @@ impl Game {
             Some(g.damage * share)
         };
         let by = Some(g.by);
-        // This room's own, the thrower included.
-        let crew = self.bims.len();
+        // This room's own, the thrower included — but never by an
+        // engineer's mine or satchel (task 154), which hurts the enemy alone.
+        let crew = if g.laid { 0 } else { self.bims.len() };
         for who in 0..crew {
             let b = &self.bims[who];
             if !b.is_alive() || b.character.is_outside() || b.character.is_unconscious() {
@@ -8754,6 +8905,10 @@ impl Game {
                 damage *= 0.5;
             }
             self.combat.blast_target(i, damage, by);
+        }
+        // A mine or a satchel touches no sentry and no sandbag (task 154).
+        if g.laid {
+            return;
         }
         // The sentries, on their one pool.
         let sentries: Vec<(u32, Vec2)> = self.sentries.iter().map(|s| (s.id, s.at)).collect();

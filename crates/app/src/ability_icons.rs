@@ -28,21 +28,21 @@ pub enum Glyph {
     StunShot,
     Rampage,
     // The engineer's (task 127).
-    Emp,
+    Mine,
     HealingSentry,
-    Sandbags,
+    Satchel,
     Sentry,
-    // The medic's (task 130), and his carry (feature 86).
-    NaniteBurst,
-    HealingAura,
+    // The medic's (task 153), and his carry (feature 86).
+    HealDrone,
+    Triage,
     HealBeam,
-    Cloak,
+    HealingCircle,
     Carry,
-    // The tank's (task 139).
-    Taunt,
+    // The tank's (task 155).
+    RiotShield,
     Plated,
-    Bulwark,
-    Juggernaut,
+    Reflect,
+    Bastion,
     // The commander's (task 129).
     BattleCry,
     Medivac,
@@ -57,19 +57,19 @@ impl Glyph {
         Glyph::WeakSpot,
         Glyph::StunShot,
         Glyph::Rampage,
-        Glyph::Emp,
+        Glyph::Mine,
         Glyph::HealingSentry,
-        Glyph::Sandbags,
+        Glyph::Satchel,
         Glyph::Sentry,
-        Glyph::NaniteBurst,
-        Glyph::HealingAura,
+        Glyph::HealDrone,
+        Glyph::Triage,
         Glyph::HealBeam,
-        Glyph::Cloak,
+        Glyph::HealingCircle,
         Glyph::Carry,
-        Glyph::Taunt,
+        Glyph::RiotShield,
         Glyph::Plated,
-        Glyph::Bulwark,
-        Glyph::Juggernaut,
+        Glyph::Reflect,
+        Glyph::Bastion,
         Glyph::BattleCry,
         Glyph::Medivac,
         Glyph::Rally,
@@ -89,22 +89,22 @@ impl Glyph {
                 Glyph::Rampage,
             ],
             Class::Engineer => [
-                Glyph::Emp,
+                Glyph::Mine,
                 Glyph::HealingSentry,
-                Glyph::Sandbags,
+                Glyph::Satchel,
                 Glyph::Sentry,
             ],
             Class::Medic => [
-                Glyph::NaniteBurst,
-                Glyph::HealingAura,
+                Glyph::HealDrone,
+                Glyph::Triage,
                 Glyph::HealBeam,
-                Glyph::Cloak,
+                Glyph::HealingCircle,
             ],
             Class::Tank => [
-                Glyph::Taunt,
+                Glyph::RiotShield,
                 Glyph::Plated,
-                Glyph::Bulwark,
-                Glyph::Juggernaut,
+                Glyph::Reflect,
+                Glyph::Bastion,
             ],
             Class::Commander => [
                 Glyph::BattleCry,
@@ -127,9 +127,9 @@ impl Glyph {
         use Glyph::*;
         match self {
             FragGrenade | WeakSpot | StunShot | Rampage => SOLDIER,
-            Emp | HealingSentry | Sandbags | Sentry => ENGINEER,
-            NaniteBurst | HealingAura | HealBeam | Cloak | Carry => MEDIC,
-            Taunt | Plated | Bulwark | Juggernaut => TANK,
+            Mine | HealingSentry | Satchel | Sentry => ENGINEER,
+            HealDrone | Triage | HealBeam | HealingCircle | Carry => MEDIC,
+            RiotShield | Plated | Reflect | Bastion => TANK,
             BattleCry | Medivac | Rally | Reinforcements => COMMANDER,
         }
     }
@@ -140,7 +140,7 @@ impl Glyph {
     pub fn is_stock(self) -> bool {
         matches!(
             self,
-            Glyph::FragGrenade | Glyph::Emp | Glyph::HealingSentry | Glyph::Sandbags
+            Glyph::FragGrenade | Glyph::Mine | Glyph::HealingSentry | Glyph::Satchel
         )
     }
 }
@@ -614,30 +614,21 @@ fn figure(p: &mut Pen, glyph: Glyph) {
             p.bullet(0.62, 0.06, -65.0, 0.20, 0.045);
         }
         // --- the engineer's ambers ---
-        // EMP: a charged orb, a bolt inside it, the pulse going out.
-        Glyph::Emp => {
-            p.arc(0.5, 0.52, 0.42, 200.0, 250.0, 0.035, k.mid);
-            p.arc(0.5, 0.52, 0.42, 290.0, 340.0, 0.035, k.mid);
-            p.arc(0.5, 0.52, 0.42, 20.0, 70.0, 0.035, k.mid);
-            p.arc(0.5, 0.52, 0.42, 110.0, 160.0, 0.035, k.mid);
-            p.arc(
-                0.5,
-                0.52,
-                0.32,
-                160.0,
-                380.0,
-                0.04,
-                k.bright.gamma_multiply(0.8),
-            );
-            p.circle(0.5, 0.52, 0.22, k.dark);
-            p.ring(0.5, 0.52, 0.22, 0.045, k.bright);
-            p.path(
-                &[(0.56, 0.34), (0.43, 0.54), (0.56, 0.52), (0.44, 0.72)],
-                0.065,
-                k.glow,
-            );
-            p.spark(0.14, 0.24, 0.07, k.glow);
-            p.spark(0.88, 0.78, 0.07, k.glow);
+        // Mine (task 154): a squat disc on the deck, its pressure prongs
+        // up and its armed light lit, the blast's ring round it.
+        Glyph::Mine => {
+            p.arc(0.5, 0.62, 0.42, 200.0, 340.0, 0.035, k.mid);
+            p.circle(0.5, 0.70, 0.32, k.dark);
+            p.circle(0.5, 0.64, 0.30, k.mid);
+            p.ring(0.5, 0.64, 0.30, 0.04, k.bright);
+            p.circle(0.5, 0.62, 0.15, k.dark);
+            for x in [0.38, 0.5, 0.62] {
+                p.line(x, 0.58, x, 0.44, 0.045, k.bright);
+                p.circle(x, 0.43, 0.035, k.bright);
+            }
+            p.circle(0.5, 0.66, 0.06, k.glow);
+            p.spark(0.14, 0.30, 0.07, k.glow);
+            p.spark(0.86, 0.26, 0.06, k.bright);
         }
         // Healing Sentry: a domed post on three legs, a cross on its
         // face and the mending rising off it.
@@ -653,25 +644,19 @@ fn figure(p: &mut Pen, glyph: Glyph) {
             p.plus(0.80, 0.16, 0.075, k.glow);
             p.plus(0.66, 0.06, 0.04, k.bright);
         }
-        // Sandbags: a wall of them, three courses high.
-        Glyph::Sandbags => {
-            let bag = |p: &mut Pen, x: f32, y: f32| {
-                let k = p.k;
-                p.rect(x, y, x + 0.27, y + 0.17, 0.07, k.mid);
-                p.rect(x + 0.03, y + 0.02, x + 0.24, y + 0.06, 0.03, k.bright);
-                p.line(x + 0.05, y + 0.11, x + 0.22, y + 0.11, 0.02, k.dark);
-                p.circle(x + 0.02, y + 0.085, 0.022, k.glow);
-                p.circle(x + 0.25, y + 0.085, 0.022, k.glow);
-            };
-            for x in [0.08, 0.365, 0.65] {
-                bag(p, x, 0.70);
-            }
-            for x in [0.22, 0.505] {
-                bag(p, x, 0.52);
-            }
-            bag(p, 0.365, 0.34);
-            p.spark(0.18, 0.28, 0.07, k.glow);
-            p.spark(0.84, 0.36, 0.05, k.bright);
+        // Satchel Charge (task 154): a canvas pack with its flap and strap,
+        // the detonator's light lit, and the remote's aerial calling it.
+        Glyph::Satchel => {
+            p.rect(0.12, 0.42, 0.72, 0.88, 0.06, k.dark);
+            p.rect(0.14, 0.44, 0.70, 0.86, 0.05, k.mid);
+            p.rect(0.14, 0.44, 0.70, 0.58, 0.04, k.bright.gamma_multiply(0.8));
+            p.rect(0.38, 0.30, 0.46, 0.88, 0.01, k.dark);
+            p.rect(0.48, 0.64, 0.64, 0.78, 0.02, k.deep);
+            p.circle(0.56, 0.71, 0.04, k.glow);
+            p.line(0.80, 0.86, 0.80, 0.30, 0.04, k.bright);
+            p.circle(0.80, 0.28, 0.04, k.glow);
+            p.arc(0.80, 0.28, 0.11, 290.0, 430.0, 0.03, k.bright);
+            p.arc(0.80, 0.28, 0.19, 300.0, 420.0, 0.03, k.mid);
         }
         // Sentry: the minigun turret on its tripod, barrels hot.
         Glyph::Sentry => {
@@ -690,44 +675,32 @@ fn figure(p: &mut Pen, glyph: Glyph) {
             p.star(0.91, 0.53, 6, 0.10, 0.04, 0.0, k.glow);
         }
         // --- the medic's greens ---
-        // Nanite Burst: a cross at the heart of a swarm flung outwards.
-        Glyph::NaniteBurst => {
-            p.ring(0.5, 0.5, 0.33, 0.03, k.bright.gamma_multiply(0.6));
-            for i in 0..8 {
-                let a = (22.5 + 45.0 * i as f32).to_radians();
-                let (c, s) = (a.cos(), a.sin());
-                p.line(
-                    0.5 + 0.20 * c,
-                    0.5 + 0.20 * s,
-                    0.5 + 0.30 * c,
-                    0.5 + 0.30 * s,
-                    0.025,
-                    k.mid,
-                );
-                let r = if i % 2 == 0 { 0.055 } else { 0.04 };
-                let hex: Vec<(f32, f32)> = (0..6)
-                    .map(|j| {
-                        let b = (60.0 * j as f32).to_radians();
-                        (0.5 + 0.40 * c + r * b.cos(), 0.5 + 0.40 * s + r * b.sin())
-                    })
-                    .collect();
-                p.poly(&hex, if i % 2 == 0 { k.glow } else { k.bright });
+        // Heal Drone (task 153): a quadcopter seen from above, a cross on
+        // its back and a soft light thrown down under it.
+        Glyph::HealDrone => {
+            p.circle(0.5, 0.56, 0.30, k.bright.gamma_multiply(0.18));
+            for (x, y) in [(0.22, 0.28), (0.78, 0.28), (0.22, 0.72), (0.78, 0.72)] {
+                p.line(0.5, 0.5, x, y, 0.05, k.dark);
+                p.circle(x, y, 0.14, k.bright.gamma_multiply(0.25));
+                p.ring(x, y, 0.14, 0.03, k.bright);
+                p.circle(x, y, 0.04, k.glow);
             }
-            p.plus(0.5, 0.5, 0.17, k.bright);
-            p.plus(0.5, 0.5, 0.11, k.glow);
+            p.rect(0.34, 0.38, 0.66, 0.62, 0.06, k.mid);
+            p.rect(0.34, 0.38, 0.66, 0.44, 0.03, k.bright.gamma_multiply(0.7));
+            p.plus(0.5, 0.51, 0.10, k.glow);
         }
-        // Healing Aura: a Bim under a dome of light, the mending
-        // drifting up inside it.
-        Glyph::HealingAura => {
-            p.pie(0.5, 0.80, 0.40, 180.0, 360.0, k.bright.gamma_multiply(0.22));
-            p.arc(0.5, 0.80, 0.40, 180.0, 360.0, 0.035, k.bright);
-            p.rect(0.06, 0.79, 0.94, 0.84, 0.02, k.mid);
-            p.bust(0.5, 0.80, 0.34, k.bright, k.mid, k.glow);
-            p.plus(0.24, 0.62, 0.05, k.glow);
-            p.plus(0.76, 0.56, 0.06, k.glow);
-            p.plus(0.66, 0.34, 0.04, k.bright);
-            p.plus(0.30, 0.40, 0.035, k.bright);
-            p.spark(0.5, 0.08, 0.07, k.glow);
+        // Triage (task 153): a bar nearly empty, and a big cross beside it
+        // with the mending rising off it.
+        Glyph::Triage => {
+            p.rect(0.12, 0.14, 0.32, 0.88, 0.04, k.deep);
+            p.rect(0.15, 0.70, 0.29, 0.85, 0.03, k.mid);
+            p.line(0.12, 0.14, 0.32, 0.14, 0.025, k.bright);
+            p.plus(0.64, 0.56, 0.24, k.mid);
+            p.plus(0.64, 0.56, 0.16, k.bright);
+            p.plus(0.64, 0.56, 0.08, k.glow);
+            p.poly(&[(0.64, 0.06), (0.52, 0.22), (0.76, 0.22)], k.glow);
+            p.plus(0.88, 0.30, 0.05, k.bright);
+            p.plus(0.42, 0.24, 0.04, k.bright);
         }
         // Heal Beam: a projector at the foot, its beam coiling up into a
         // cross.
@@ -753,33 +726,21 @@ fn figure(p: &mut Pen, glyph: Glyph) {
             p.plus(0.76, 0.26, 0.15, k.bright);
             p.plus(0.76, 0.26, 0.09, k.glow);
         }
-        // Cloak: a hooded Bim, one half of him already gone to motes.
-        Glyph::Cloak => {
-            let hood = Pen::arc_points(0.5, 0.36, 0.18, 90.0, 270.0);
-            let cloak = [(0.50, 0.46), (0.50, 0.90), (0.24, 0.90), (0.34, 0.50)];
-            p.poly(&cloak, k.mid);
-            p.poly(&hood, k.mid);
-            let ghost = k.bright.gamma_multiply(0.28);
-            p.poly(
-                &[(0.50, 0.46), (0.66, 0.50), (0.76, 0.90), (0.50, 0.90)],
-                ghost,
-            );
-            p.poly(&Pen::arc_points(0.5, 0.36, 0.18, -90.0, 90.0), ghost);
-            p.circle(0.5, 0.39, 0.10, k.deep);
-            p.circle(0.46, 0.39, 0.022, k.glow);
-            p.circle(0.54, 0.39, 0.022, k.glow);
-            p.line(0.50, 0.18, 0.50, 0.90, 0.02, k.bright);
-            for (x, y, r) in [
-                (0.62, 0.30, 0.03),
-                (0.72, 0.44, 0.025),
-                (0.82, 0.30, 0.02),
-                (0.66, 0.64, 0.03),
-                (0.84, 0.58, 0.022),
-                (0.78, 0.78, 0.028),
-                (0.90, 0.46, 0.015),
-            ] {
-                p.rect(x - r, y - r, x + r, y + r, 0.0, k.glow);
+        // Healing Circle (task 153): a ring of light on the ground round a
+        // cross, the mending rising inside it and the rim burning.
+        Glyph::HealingCircle => {
+            p.circle(0.5, 0.5, 0.42, k.bright.gamma_multiply(0.16));
+            p.ring(0.5, 0.5, 0.42, 0.045, k.bright);
+            p.ring(0.5, 0.5, 0.30, 0.02, k.mid);
+            for i in 0..6 {
+                let a = (30.0 + 60.0 * i as f32).to_radians();
+                p.spark(0.5 + 0.42 * a.cos(), 0.5 + 0.42 * a.sin(), 0.07, k.glow);
             }
+            p.plus(0.5, 0.5, 0.16, k.bright);
+            p.plus(0.5, 0.5, 0.09, k.glow);
+            p.plus(0.30, 0.38, 0.035, k.glow);
+            p.plus(0.70, 0.64, 0.035, k.glow);
+            p.plus(0.66, 0.32, 0.03, k.bright);
         }
         // Carry: a stretcher, its poles out at either end and a cross on
         // its canvas.
@@ -794,27 +755,42 @@ fn figure(p: &mut Pen, glyph: Glyph) {
             }
         }
         // --- the tank's reds ---
-        // Taunt: a bullseye and every arrow turned on it.
-        Glyph::Taunt => {
+        // Reflect Barrier: a ring of thorns round a burning core, and
+        // every arrow turned back out of it.
+        Glyph::Reflect => {
             p.ring(0.5, 0.5, 0.21, 0.04, k.mid);
             p.circle(0.5, 0.5, 0.12, k.bright);
             p.circle(0.5, 0.5, 0.05, k.glow);
             for (dx, dy) in [(-1.0_f32, -1.0_f32), (1.0, -1.0), (1.0, 1.0), (-1.0, 1.0)] {
-                let (ox, oy) = (0.5 + dx * 0.44, 0.5 + dy * 0.44);
-                let (tx, ty) = (0.5 + dx * 0.25, 0.5 + dy * 0.25);
-                p.line(ox, oy, 0.5 + dx * 0.31, 0.5 + dy * 0.31, 0.045, k.bright);
+                // The shaft out from the ring, the head at the far end.
+                p.line(
+                    0.5 + dx * 0.24,
+                    0.5 + dy * 0.24,
+                    0.5 + dx * 0.36,
+                    0.5 + dy * 0.36,
+                    0.045,
+                    k.bright,
+                );
                 let (nx, ny) = (-dy * 0.07, dx * 0.07);
-                let (bx, by) = (0.5 + dx * 0.33, 0.5 + dy * 0.33);
-                p.poly(&[(tx, ty), (bx + nx, by + ny), (bx - nx, by - ny)], k.glow);
-                // The fletching: a V opening back from the tail.
-                let (fx, fy) = (ox + dx * 0.04, oy + dy * 0.04);
-                p.path(
+                let (bx, by) = (0.5 + dx * 0.34, 0.5 + dy * 0.34);
+                p.poly(
                     &[
-                        (fx + nx * 0.7, fy + ny * 0.7),
-                        (ox - dx * 0.02, oy - dy * 0.02),
-                        (fx - nx * 0.7, fy - ny * 0.7),
+                        (0.5 + dx * 0.44, 0.5 + dy * 0.44),
+                        (bx + nx, by + ny),
+                        (bx - nx, by - ny),
                     ],
-                    0.035,
+                    k.glow,
+                );
+            }
+            // The thorns on the ring, between the arrows.
+            for (dx, dy) in [(0.0_f32, -1.0_f32), (1.0, 0.0), (0.0, 1.0), (-1.0, 0.0)] {
+                let (nx, ny) = (-dy * 0.035, dx * 0.035);
+                p.poly(
+                    &[
+                        (0.5 + dx * 0.32, 0.5 + dy * 0.32),
+                        (0.5 + dx * 0.21 + nx, 0.5 + dy * 0.21 + ny),
+                        (0.5 + dx * 0.21 - nx, 0.5 + dy * 0.21 - ny),
+                    ],
                     k.mid,
                 );
             }
@@ -852,8 +828,8 @@ fn figure(p: &mut Pen, glyph: Glyph) {
                 p.circle(x, y, 0.025, k.glow);
             }
         }
-        // Bulwark: a tower shield set down, shots glancing off it.
-        Glyph::Bulwark => {
+        // Riot Shield: a tower shield held up, shots glancing off it.
+        Glyph::RiotShield => {
             p.rect(0.10, 0.88, 0.90, 0.92, 0.02, k.dark);
             let shield = [
                 (0.30, 0.22),
@@ -885,32 +861,23 @@ fn figure(p: &mut Pen, glyph: Glyph) {
             p.path(&[(0.02, 0.22), (0.20, 0.30), (0.06, 0.44)], 0.025, k.bright);
             p.path(&[(0.02, 0.54), (0.16, 0.60), (0.04, 0.72)], 0.025, k.bright);
         }
-        // Juggernaut: a horned helm, its visor burning, the deck
-        // shaking under it.
-        Glyph::Juggernaut => {
-            p.poly(&[(0.26, 0.40), (0.06, 0.08), (0.36, 0.30)], k.bright);
-            p.poly(&[(0.74, 0.40), (0.94, 0.08), (0.64, 0.30)], k.bright);
-            p.poly(
-                &[(0.26, 0.40), (0.12, 0.18), (0.31, 0.34)],
-                k.glow.gamma_multiply(0.6),
+        // Bastion: a dome of light thrown over the crew, its rim burning.
+        Glyph::Bastion => {
+            p.rect(0.06, 0.86, 0.94, 0.90, 0.02, k.dark);
+            p.pie(0.5, 0.88, 0.42, 180.0, 360.0, k.mid.gamma_multiply(0.35));
+            p.bust(0.30, 0.88, 0.30, k.dark, k.mid, k.bright);
+            p.bust(0.70, 0.88, 0.30, k.dark, k.mid, k.bright);
+            p.bust(0.50, 0.88, 0.38, k.mid, k.bright, k.glow);
+            p.arc(0.5, 0.88, 0.42, 180.0, 360.0, 0.05, k.glow);
+            p.arc(
+                0.5,
+                0.88,
+                0.36,
+                200.0,
+                250.0,
+                0.03,
+                k.bright.gamma_multiply(0.6),
             );
-            p.pie(0.5, 0.50, 0.30, 180.0, 360.0, k.mid);
-            p.poly(
-                &[
-                    (0.20, 0.50),
-                    (0.80, 0.50),
-                    (0.74, 0.80),
-                    (0.60, 0.86),
-                    (0.40, 0.86),
-                    (0.26, 0.80),
-                ],
-                k.mid,
-            );
-            p.pie(0.5, 0.50, 0.30, 200.0, 250.0, k.bright.gamma_multiply(0.5));
-            p.rect(0.26, 0.48, 0.74, 0.56, 0.02, k.deep);
-            p.rect(0.47, 0.54, 0.53, 0.76, 0.01, k.deep);
-            p.rect(0.28, 0.50, 0.72, 0.535, 0.01, k.glow);
-            p.line(0.5, 0.22, 0.5, 0.46, 0.03, k.dark);
         }
         // --- the commander's violets ---
         // Battle Cry: a loud-hailer, the shout going out in rings.

@@ -101,9 +101,21 @@ use serde::{Deserialize, Serialize};
 /// 96: *Black Market*'s price is one more wave at every elite (a bigger
 /// one, no Guardian), where it was less bounty: both ends must count and
 /// lay the waves alike.
+/// 97: the run is lost at once when every player and bot is down or
+/// dead, not only when every player is dead: both ends must end it alike.
 /// 98: the soldier's E is a Stun Shot (October 2026): `Command::StunShot`
 /// where `Command::Brace` was, and the shot fired on both ends alike.
-pub const PROTOCOL: u32 = 98;
+/// 99: the medic reworked (task 153): `Command::{HealDrone, HealingCircle}`
+/// where `Command::{NaniteBurst, Cloak}` were, the link healing the medic
+/// too, Triage and the Override Core's heal: both ends must heal alike.
+/// 100: the engineer reworked (task 154): mines and satchel charges for
+/// the EMP and the sandbags — `Command::Detonate` where `Command::Emp`
+/// was, `Command::ThrowAt`'s `satchel` where its `emp` was, and the
+/// sentries' health doubled: both ends must lay and burst them alike.
+/// 101: the tank reworked (task 155): `Command::{RiotShield, Reflect,
+/// Bastion}` where `Command::{Bulwark, Taunt, Juggernaut}` were, the
+/// shield's bounce and the barrier's hit back: both ends must fight alike.
+pub const PROTOCOL: u32 = 101;
 
 /// Where the relay lives. `BIMS_SERVER` in the environment overrides it
 /// — `ws://127.0.0.1:8792` for one on the same machine.

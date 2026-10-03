@@ -22,18 +22,18 @@
 //! for each crew member (`World::charges_held`, task 127), never a thing
 //! in a pack, that comes back on a cooldown of its own. A player never
 //! stands at a bench or at a dock to use a skill — the engineer's
-//! sandbags, Healing Sentry and EMP, the soldier's grenades
+//! mines, Healing Sentry and satchel charges, the soldier's grenades
 //! ([`GRENADE_CHARGES`] of them at [`GRENADE_COOLDOWN`] a charge) — and
 //! what a class added later spends goes in [`Charge`] beside them. There
 //! is no medicine to carry since task 120: a downed crewmate is revived
 //! by standing beside it, and a medic's heal beam puts hit points back.
 //! The abilities that spend nothing are held instead of thrown — a
-//! beam, a bulwark — and the ones that are
-//! neither wait out a cooldown of their own: the tank's Taunt and
-//! Juggernaut at [`TAUNT_COOLDOWN`] and [`JUGGERNAUT_COOLDOWN`] of their
+//! beam, a riot shield — and the ones that are
+//! neither wait out a cooldown of their own: the tank's Reflect Barrier
+//! and Bastion at [`REFLECT_COOLDOWN`] and [`BASTION_COOLDOWN`] of their
 //! ranks, the commander's Battle Cry and Rally at [`BATTLE_CRY_COOLDOWN`]
-//! and [`RALLY_COOLDOWN`] of theirs, the medic's Nanite Burst and Cloak
-//! at [`NANITE_BURST_COOLDOWN`] and [`CLOAK_COOLDOWN`] of theirs.
+//! and [`RALLY_COOLDOWN`] of theirs, the medic's Heal Drone at
+//! [`HEAL_DRONE_COOLDOWN`] of his.
 //!
 //! # Experience
 //!
@@ -79,50 +79,62 @@
 //! ([`rank_level`]). Every number is a table here, one a rank, read with
 //! [`by_rank`]; the deploy times are game minutes of working steps.
 //!
-//! **Q, EMP** — thrown like a grenade ([`GRENADE_RANGE`],
-//! [`GRENADE_FUSE`]), no damage; every enemy machine within the radius
-//! is stunned (`bims::droid::Droid::stun`), bar the Machine Heart's:
+//! **Q, Mine** (task 154; the EMP until then) — laid like the Healing
+//! Sentry, in [`MINE_MINUTES`]: a mine on a tile of deck that goes off
+//! the step an enemy — a machine or a hostile Bim, never the crew —
+//! stands within [`MINE_TRIGGER`] (one tile) of it, every enemy in its
+//! blast with a clear line taking its damage, half at the edge. It never
+//! touches the crew or their sentries. One more laid past the standing
+//! limit takes that engineer's oldest up:
 //!
-//! | rank | radius | stun | charges | cooldown a charge |
-//! |---|---|---|---|---|
-//! | 1 | 2.0 tiles | 1.5 s | 1 | 30 s |
-//! | 2 | 2.5 tiles | 2.0 s | 2 | 30 s |
-//! | 3 | 2.5 tiles | 2.5 s | 2 | 25 s |
-//! | 4 | 3.0 tiles | 3.0 s | 2 | 20 s — and a machine stunned by it takes +25% from everyone |
+//! | rank | damage | blast | charges | standing | cooldown a charge |
+//! |---|---|---|---|---|---|
+//! | 1 | 80 | 1.5 tiles | 2 | 4 | 25 s |
+//! | 2 | 100 | 1.5 tiles | 3 | 6 | 22 s |
+//! | 3 | 120 | 2.0 tiles | 3 | 6 | 20 s |
+//! | 4 | 150 | 2.0 tiles | 4 | 8 | 18 s |
 //!
-//! **C, Healing Sentry** — laid like sandbags; heals every crew Bim on
+//! **C, Healing Sentry** — laid like a mine; heals every crew Bim on
 //! its feet within its radius and its sight, below its full bar, at a
 //! share of the medic's beam ([`HEAL_BEAM_HP`]); several reaching one
 //! Bim do not stack, and the charges are the standing limit:
 //!
 //! | rank | heal (× beam) | radius | health | deploy | charges | cooldown a charge |
 //! |---|---|---|---|---|---|---|
-//! | 1 | 0.5 | 3 tiles | 60 | 6 min | 1 | 60 s |
-//! | 2 | 0.75 | 4 tiles | 80 | 6 min | 1 | 60 s |
-//! | 3 | 1.0 | 4 tiles | 100 | 4 min | 1 | 50 s |
-//! | 4 | 1.25 | 5 tiles | 120 | 4 min | 1 | 40 s |
+//! | 1 | 0.5 | 3 tiles | 120 | 6 min | 1 | 60 s |
+//! | 2 | 0.75 | 4 tiles | 160 | 6 min | 1 | 60 s |
+//! | 3 | 1.0 | 4 tiles | 200 | 4 min | 1 | 50 s |
+//! | 4 | 1.25 | 5 tiles | 240 | 4 min | 1 | 40 s |
 //!
-//! **E, Sandbags** — no limit on how many stand:
+//! **E, Satchel Charge** (task 154; the sandbags until then) — thrown the
+//! grenade's way ([`GRENADE_RANGE`], its flight) onto a tile of deck,
+//! where it lies until its engineer sets it off with the **remote
+//! trigger** (`Command::Detonate`, Space): every satchel of his in the
+//! room bursts at once, each on its own, so several thrown onto one tile
+//! — they stack — hit as many times. Its blast is the mine's: enemies
+//! alone, half at the edge. [`SATCHEL_CHARGES`] (two) at every rank:
 //!
-//! | rank | charges | bag health | deploy | cooldown a charge | extra |
-//! |---|---|---|---|---|---|
-//! | 1 | 2 | 150 | 4 min | 45 s | — |
-//! | 2 | 3 | 200 | 4 min | 45 s | — |
-//! | 3 | 3 | 250 | 2 min | 40 s | — |
-//! | 4 | 4 | 250 | 2 min | 35 s | one charge lays two tiles |
+//! | rank | damage | radius | charges | cooldown a charge |
+//! |---|---|---|---|---|
+//! | 1 | 90 | 2.0 tiles | 2 | 30 s |
+//! | 2 | 120 | 2.5 tiles | 2 | 27 s |
+//! | 3 | 150 | 2.5 tiles | 2 | 24 s |
+//! | 4 | 180 | 3.0 tiles | 2 | 20 s |
 //!
 //! **R, Sentry** (the ultimate) — laid in 3 min that a hit does not
-//! interrupt, one standing, gone when its time runs out, never packed
-//! up; the cooldown runs from the laying, ready at every mission's start:
+//! interrupt, one standing (two at the Override Core's fifth rank), never
+//! packed up; it stands until destroyed. The cooldown runs from the
+//! laying, ready at every mission's start. Its health was doubled in task
+//! 154, when the sandbags went:
 //!
-//! | rank | weapon | fire rate | health | lasts | cooldown |
-//! |---|---|---|---|---|---|
-//! | 1 | minigun, tier 2 | ×1.0 | 200 | 30 s | 150 s |
-//! | 2 | minigun, tier 3 | ×1.0 | 250 | 35 s | 140 s |
-//! | 3 | minigun, tier 3 | ×1.5 | 300 | 40 s | 130 s |
-//! | 4 | minigun, tier 3 | ×2.0 | 400 | 45 s | 120 s |
+//! | rank | weapon | fire rate | health | cooldown |
+//! |---|---|---|---|---|
+//! | 1 | minigun, tier 2 | ×1.0 | 400 | 150 s |
+//! | 2 | minigun, tier 3 | ×1.0 | 500 | 140 s |
+//! | 3 | minigun, tier 3 | ×1.5 | 600 | 130 s |
+//! | 4 | minigun, tier 3 | ×2.0 | 800 | 120 s |
 //!
-//! A hit on the engineer interrupts laying sandbags or a Healing Sentry
+//! A hit on the engineer interrupts laying a mine or a Healing Sentry
 //! at every rank.
 //!
 //! # The soldier's four abilities (task 124)
@@ -186,7 +198,7 @@
 //! | 3 | 12 s | ×2.0 | ×0.70 | 120 s |
 //! | 4 | 12 s, +1 s a machine it downs during it, +6 s at most | ×2.0 | ×0.70 | 120 s |
 //!
-//! # The medic's four slots (task 130)
+//! # The medic's four slots (task 130; reworked by task 153)
 //!
 //! A ranked kit like the soldier's, the engineer's and the commander's:
 //! sixteen levels on [`LEVEL_XP`], a skill point a level, Q, C and
@@ -196,119 +208,139 @@
 //! [`MEDIC_REVIVED_TO`] of its bar where anybody else's is at
 //! `bims::health::REVIVED_TO`. There is no surge.
 //!
-//! **Q, Nanite Burst** (active, cooldown): every friendly Bim on its feet
-//! within its radius of him and in his sight — walls block — himself
-//! included, is healed at once. It revives nobody.
+//! **Every heal he gives** — the link, the drone, the circle — goes
+//! through `World::medic_heal`: times his *Triage* on the Bim healed,
+//! then times [`OVERRIDE_HEAL`] while he carries an *Override Core*
+//! (task 153: the core's gift to a medic is half as much healing again,
+//! whatever rank his circle is at).
 //!
-//! | rank | heal | radius | cooldown |
+//! **Q, Heal Drone** (active, cooldown): a drone dropped at his feet flies
+//! — over walls, it flies — to the friendly Bim on its feet lowest on its
+//! bar, himself included, hovers over it and heals it slowly; when that
+//! one is whole, down or gone it picks the next lowest, and with nobody
+//! hurt it keeps by him. One drone a medic: a new one takes the old one's
+//! place.
+//!
+//! | rank | heal a second | lasts | cooldown |
 //! |---|---|---|---|
-//! | 1 | 30 HP | 4 tiles | 25 s |
-//! | 2 | 40 HP | 4 tiles | 22 s |
-//! | 3 | 50 HP | 5 tiles | 20 s |
-//! | 4 | 60 HP | 6 tiles | 18 s |
+//! | 1 | 1.5 HP | 8 s | 25 s |
+//! | 2 | 2 HP | 10 s | 22 s |
+//! | 3 | 2.5 HP | 12 s | 20 s |
+//! | 4 | 3 HP | 14 s | 18 s |
 //!
-//! **C, Healing Aura** (passive): every friendly Bim within its radius of
-//! a medic on his feet, himself included, takes more from every heal —
-//! the beam, the burst, a Healing Sentry, a relic: everything that goes
-//! through `Health::heal` (`World::heal_factor`). Where the healed Bim
-//! stands is what counts, not where the heal comes from; two medics
-//! reaching one Bim, the higher factor; a revive is not a heal.
+//! **C, Triage** (passive): his heals are stronger on the badly hurt —
+//! times one plus the rank's share times how much of its bar the healed
+//! Bim is missing, so the full share on a Bim at nothing and none on a
+//! whole one.
 //!
-//! | rank | healing received | radius |
+//! | rank | at an empty bar | at half a bar |
 //! |---|---|---|
-//! | 1 | ×1.15 | 5 tiles |
-//! | 2 | ×1.20 | 6 tiles |
-//! | 3 | ×1.25 | 7 tiles |
-//! | 4 | ×1.30 | 8 tiles |
+//! | 1 | ×1.25 | ×1.125 |
+//! | 2 | ×1.40 | ×1.20 |
+//! | 3 | ×1.55 | ×1.275 |
+//! | 4 | ×1.70 | ×1.35 |
 //!
-//! **E, Heal Beam** (active, toggle): the beam of feature 76, on a
+//! **E, Heal Beam** (active, toggle): the link of feature 76, on a
 //! crewmate or himself, at [`HEAL_BEAM_HP`] an hour of the clock times
-//! the rank's rate:
+//! the rank's rate. He **fires at his full rate** while linked, and the
+//! link heals **him as well**, as much as it gives a patient (task 153);
+//! once, however many he holds, and once when the patient is himself.
 //!
-//! | rank | rate | a second at 1× | range | patients | fires while beaming |
-//! |---|---|---|---|---|---|
-//! | 1 | ×1.0 | 2 HP | 6 tiles | 1 | no |
-//! | 2 | ×1.5 | 3 HP | 7 tiles | 1 | no |
-//! | 3 | ×2.0 | 4 HP | 8 tiles | 1 | yes, at fire rate ×0.5 |
-//! | 4 | ×2.5 | 5 HP | 9 tiles | 2, each at the full rate | yes, at fire rate ×0.5 |
+//! | rank | rate | a second at 1× | range | patients |
+//! |---|---|---|---|---|
+//! | 1 | ×1.0 | 2 HP | 6 tiles | 1 |
+//! | 2 | ×1.5 | 3 HP | 7 tiles | 1 |
+//! | 3 | ×2.0 | 4 HP | 8 tiles | 1 |
+//! | 4 | ×2.5 | 5 HP | 9 tiles | 2, each at the full rate |
 //!
-//! **R, Cloak** (ultimate, cooldown): the friendly Bim under the pointer
-//! within [`CLOAK_RANGE`] tiles and in his sight — downed or not — or,
-//! with nobody there, himself. While it lasts no enemy picks it, it fires
-//! nothing and uses no ability, and it walks faster; what targets nobody —
-//! a sweep, a burst — still hits it. A cloak on a Bim already cloaked
-//! takes the longer of the two times.
+//! **R, Healing Circle** (ultimate, toggle): switched on, every friendly
+//! Bim on its feet within the rank's radius of him and in his sight
+//! (walls block) — not himself — is healed at **the link's rate** (his E
+//! rank's, the first's before one), through `medic_heal`; **he loses as
+//! much** as a Bim is healed for before his Triage, every second it is on,
+//! whoever stands in it — enough of it downs him, and that switches it
+//! off — and every enemy standing in it takes [`HEALING_CIRCLE_BURN`] of
+//! it as damage, a pulse every [`HEALING_CIRCLE_PULSE`] seconds. It goes
+//! off by itself when he is down or unfit to act. The link's heal on him
+//! is how a medic stands in his own circle for long.
 //!
-//! | rank | lasts | move speed | cooldown |
-//! |---|---|---|---|
-//! | 1 | 6 s | ×1.10 | 60 s |
-//! | 2 | 7 s | ×1.15 | 55 s |
-//! | 3 | 8 s | ×1.20 | 50 s |
-//! | 4 | 10 s | ×1.25 | 45 s |
+//! | rank | radius |
+//! |---|---|
+//! | 1 | 3 tiles |
+//! | 2 | 3.5 tiles |
+//! | 3 | 4 tiles |
+//! | 4 | 4.5 tiles |
 //!
-//! Both cooldowns run on the mission clock, stop while paused, are ready
-//! at every mission's start and are shortened by the cooldown relics as
-//! every class cooldown is. See [`crate::medic`].
+//! The drone's cooldown runs on the mission clock, stops while paused, is
+//! ready at every mission's start and is shortened by the cooldown relics
+//! as every class cooldown is; every mission starts with the circle off.
+//! See [`crate::medic`].
 //!
-//! # The tank's four slots (task 139)
+//! # The tank's four slots (task 139; reworked by task 155)
 //!
 //! A ranked kit like the others': sixteen levels on [`LEVEL_XP`], a
 //! skill point a level, Q, C and E rank `n` at level `2n − 1` and the
 //! ultimate R at 6, 9, 12 and 15. **Two base traits** are his whatever
 //! his ranks: armour he wears drains at [`TANK_DRAIN`] — half the rate,
-//! so the same kevlar takes twice as much on him — and he sets out with
-//! the pistol and a basic helm, kevlar and leg guards on.
+//! so the same armour takes twice as much on him — and he sets out with
+//! the pistol and a basic armour on.
 //!
-//! **Q, Taunt** (active, cooldown): every enemy within the radius that
-//! can see him shoots at him and nobody else for its seconds. An enemy
-//! taunted by two tanks follows the most recent taunt.
+//! **Q, Riot Shield** (toggle): a flat plate of light held up in front of
+//! him, facing the way he faces. A hostile bolt meeting it from the front
+//! is stopped there, its damage off the shield's hit points, and
+//! **bounced** back as his own — the angle out the angle in — onto
+//! whatever it reaches. It restores [`RIOT_SHIELD_REGEN`] a second while
+//! stowed, and up after [`RIOT_SHIELD_REGEN_DELAY`] seconds unstruck; at
+//! nought it breaks and goes down, and is raised again once a quarter
+//! ([`RIOT_SHIELD_RAISE_SHARE`]) is back.
 //!
-//! | rank | radius | lasts | cooldown | extra |
-//! |---|---|---|---|---|
-//! | 1 | 6 tiles | 3 s | 20 s | — |
-//! | 2 | 8 tiles | 4 s | 18 s | — |
-//! | 3 | 10 tiles | 5 s | 16 s | — |
-//! | 4 | 12 tiles | 6 s | 14 s | every charging blade within the radius turns toward him |
+//! | rank | hit points |
+//! |---|---|
+//! | 1 | 20 |
+//! | 2 | 40 |
+//! | 3 | 80 |
+//! | 4 | 100 |
 //!
 //! **C, Plated** (passive): the damage of every hit on him multiplied
 //! down, before the armour takes its share — with Rampage, Rally and
-//! Juggernaut, every factor multiplied together.
+//! every other factor multiplied together — and hit points mended every
+//! second.
 //!
-//! | rank | damage taken | extra |
+//! | rank | damage taken | mends | extra |
+//! |---|---|---|---|
+//! | 1 | ×0.90 | 0.2 hp/s | — |
+//! | 2 | ×0.85 | 0.8 hp/s | — |
+//! | 3 | ×0.80 | 1.4 hp/s | — |
+//! | 4 | ×0.75 | 2.0 hp/s | armour drain on him ×0.5 again, a quarter in all |
+//!
+//! **E, Reflect Barrier** (active, cooldown): for its seconds every enemy
+//! hit on him — a bolt, a beam, a blow — goes back on whoever struck it,
+//! as much again as a hit of his ([`REFLECT_SHARE`]). He still takes it.
+//!
+//! | rank | lasts | cooldown |
 //! |---|---|---|
-//! | 1 | ×0.90 | — |
-//! | 2 | ×0.85 | — |
-//! | 3 | ×0.80 | — |
-//! | 4 | ×0.75 | armour drain on him ×0.5 again, a quarter in all |
+//! | 1 | 3 s | 20 s |
+//! | 2 | 4 s | 18 s |
+//! | 3 | 5 s | 16 s |
+//! | 4 | 6 s | 14 s |
 //!
-//! **E, Bulwark** (toggle): he stands as a wall, and crew within its
-//! reach close behind him are in cover against anything shot through
-//! him.
+//! **R, Bastion** (ultimate, cooldown): every friend on his feet within
+//! the radius — himself, the players and the bots — takes a shield of
+//! [`BASTION_HP`] hit points that drains [`BASTION_DRAIN`] a second
+//! whatever strikes it, ten seconds at most. With an *Override Core*
+//! (the fifth rank) everybody it reached also moves half again as fast
+//! ([`BASTION_HASTE`]) for those ten seconds.
 //!
-//! | rank | reach | move speed while on | extra |
-//! |---|---|---|---|
-//! | 1 | 1.5 tiles | ×0.5 | — |
-//! | 2 | 2.0 tiles | ×0.6 | — |
-//! | 3 | 2.5 tiles | ×0.7 | dodge +10% while on |
-//! | 4 | 3.0 tiles | ×0.8 | dodge +10% while on; a bolt that would hit a Bim he shields hits him instead |
+//! | rank | radius | cooldown |
+//! |---|---|---|
+//! | 1 | 6 tiles | 70 s |
+//! | 2 | 7 tiles | 60 s |
+//! | 3 | 8 tiles | 50 s |
+//! | 4 | 9 tiles | 40 s |
 //!
-//! **R, Juggernaut** (ultimate, cooldown): for its seconds every enemy
-//! that can see him shoots at him and nobody else, at any distance —
-//! the taunt's rule without its radius — and he takes less damage. He
-//! moves at his own pace, or at Bulwark's with the wall up. It runs
-//! beside a Taunt, each on its own timer.
-//!
-//! | rank | lasts | damage taken | cooldown |
-//! |---|---|---|---|
-//! | 1 | 6 s | ×0.50 | 150 s |
-//! | 2 | 7 s | ×0.40 | 140 s |
-//! | 3 | 8 s | ×0.35 | 130 s |
-//! | 4 | 10 s | ×0.30 | 120 s |
-//!
-//! Both cooldowns run on the mission clock, stop while paused, are ready
+//! The cooldowns run on the mission clock, stop while paused, are ready
 //! at every mission's start and are shortened by the cooldown relics as
-//! every class cooldown is. A taunt or a Juggernaut on a tank a medic
-//! has cloaked forces nothing while the cloak lasts. See [`crate::tank`].
+//! every class cooldown is. See [`crate::tank`].
 //!
 //! # The commander's four slots (task 129)
 //!
@@ -386,8 +418,8 @@
 //! `crate::deploy` and the world's step for the engineer, the room's
 //! one shooter (`bims::combat::Skill`, `World::skill_of`) for the
 //! soldier, `crate::medic` with the world's step for the medic, and
-//! `crate::tank` with the same `Skill`, the room's own bulwarks and its
-//! taunts for the tank, and `crate::commander` with the same `Skill` for
+//! `crate::tank` with the same `Skill` and the room's own Riot Shields
+//! for the tank, and `crate::commander` with the same `Skill` for
 //! the commander. No strings: the app
 //! names the classes and the abilities (`CLASS_NAMES`,
 //! `ranked_ability`).
@@ -402,15 +434,16 @@ pub enum Class {
     /// No class: learns nothing, lays nothing. Everybody's until chosen.
     #[default]
     None = 0,
-    /// The engineer: an EMP, a Healing Sentry, sandbags and a sentry.
+    /// The engineer: mines, a Healing Sentry, satchel charges and a
+    /// sentry (task 154).
     Engineer = 1,
     /// The soldier: a line held, and grenades.
     Soldier = 2,
-    /// The medic: a Nanite Burst, a healing aura, a heal beam and a
-    /// cloak.
+    /// The medic: a heal drone, triage, a heal beam and a healing
+    /// circle (task 153).
     Medic = 3,
-    /// The tank: a taunt, plating, a wall the crew shelter behind, and a
-    /// Juggernaut.
+    /// The tank: a riot shield, plating, a reflect barrier and a Bastion
+    /// (task 155).
     Tank = 4,
     /// The commander: a battle cry, a medic called in, a rally,
     /// reinforcements, and a cheaper hand at the dock.
@@ -471,10 +504,11 @@ impl Class {
 /// class. Never a job, an errand, a site or a weapon.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Ability {
-    /// Lay sandbags or a Healing Sentry, pack one up: the engineer's.
+    /// Lay a mine or a Healing Sentry, pack one up: the engineer's.
     Deploy,
-    /// Throw an EMP: the engineer's (task 127).
-    Emp,
+    /// Throw a satchel charge, and set them off: the engineer's E (task
+    /// 154; the EMP's place, and the sandbags' slot).
+    Satchel,
     /// Lay the sentry: the engineer's ultimate (task 127).
     Sentry,
     /// Charge and fire a stun shot: the soldier's E (October 2026).
@@ -483,17 +517,18 @@ pub enum Ability {
     Throw,
     /// Hold a heal beam on a crewmate: the medic's.
     Beam,
-    /// Set off a Nanite Burst: the medic's (task 130).
-    NaniteBurst,
-    /// Cloak a crewmate or himself: the medic's ultimate (task 130).
-    Cloak,
-    /// Stand as a wall the crew behind shelter against: the tank's.
-    Bulwark,
-    /// Draw the enemy's fire onto himself: the tank's.
-    Taunt,
-    /// Draw every enemy's fire at any distance and shrug it off: the
-    /// tank's ultimate (task 139).
-    Juggernaut,
+    /// Drop a heal drone: the medic's Q (task 153).
+    HealDrone,
+    /// Switch a healing circle on or off: the medic's ultimate (task
+    /// 153).
+    HealingCircle,
+    /// Send what strikes him back on the striker: the tank's E (task 155).
+    Reflect,
+    /// Hold up a shield that bounces bolts back: the tank's Q (task 155).
+    RiotShield,
+    /// Throw a draining shield over every friend near him: the tank's
+    /// ultimate (task 155).
+    Bastion,
     /// Call a rally: the commander's.
     Rally,
     /// Call a battle cry: the commander's (task 129).
@@ -509,16 +544,16 @@ pub enum Ability {
 impl Ability {
     pub const ALL: [Ability; 16] = [
         Ability::Deploy,
-        Ability::Emp,
+        Ability::Satchel,
         Ability::Sentry,
         Ability::StunShot,
         Ability::Throw,
         Ability::Beam,
-        Ability::NaniteBurst,
-        Ability::Cloak,
-        Ability::Bulwark,
-        Ability::Taunt,
-        Ability::Juggernaut,
+        Ability::HealDrone,
+        Ability::HealingCircle,
+        Ability::Reflect,
+        Ability::RiotShield,
+        Ability::Bastion,
         Ability::Rally,
         Ability::Rampage,
         Ability::BattleCry,
@@ -531,10 +566,10 @@ impl Ability {
 /// anything by: everything not an [`Ability`] is everybody's.
 pub fn can(class: Class, ability: Ability) -> bool {
     match ability {
-        Ability::Deploy | Ability::Emp | Ability::Sentry => class == Class::Engineer,
+        Ability::Deploy | Ability::Satchel | Ability::Sentry => class == Class::Engineer,
         Ability::StunShot | Ability::Throw | Ability::Rampage => class == Class::Soldier,
-        Ability::Beam | Ability::NaniteBurst | Ability::Cloak => class == Class::Medic,
-        Ability::Bulwark | Ability::Taunt | Ability::Juggernaut => class == Class::Tank,
+        Ability::Beam | Ability::HealDrone | Ability::HealingCircle => class == Class::Medic,
+        Ability::Reflect | Ability::RiotShield | Ability::Bastion => class == Class::Tank,
         Ability::Rally | Ability::BattleCry | Ability::Reinforce | Ability::Medivac => {
             class == Class::Commander
         }
@@ -546,8 +581,9 @@ pub fn can(class: Class, ability: Ability) -> bool {
 /// pack — that comes back on a cooldown of its own rather than being
 /// made at a bench or bought at a dock (features 88 and 90). **No class
 /// crafts for its abilities**: a class brings its charges with it,
-/// spends them, and waits — the engineer's sandbags, Healing Sentry and
-/// EMP, the soldier's grenade, and whatever a class added later spends.
+/// spends them, and waits — the engineer's mines, Healing Sentry and
+/// satchel charges, the soldier's grenade, and whatever a class added
+/// later spends.
 ///
 /// The number of charges and the seconds one takes to come back are
 /// [`World::charges`](crate::World::charges) and
@@ -558,28 +594,31 @@ pub fn can(class: Class, ability: Ability) -> bool {
 /// The engineer's sentry kit (1) went with the kits in task 127 — the
 /// sentry is an ultimate on a cooldown now — and the medkit and the
 /// bandage were everybody's charges until task 120 took the medicine
-/// out of the game. Codes cross the seam and are never renumbered, and a
-/// counter is indexed by the code ([`Charge::CODES`] of them).
+/// out of the game. Codes cross the seam, and a counter is indexed by the
+/// code ([`Charge::CODES`] of them). The sandbags (0) and the EMP (4)
+/// went in task 154, and their codes went to what took their slots — the
+/// satchel charge E's, the mine Q's — so a counter keeps its length and a
+/// crew without charges hashes as it did.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 #[repr(u32)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum Charge {
-    /// The engineer's sandbags (E).
-    Sandbag = 0,
+    /// The engineer's satchel charges (E, task 154).
+    Satchel = 0,
     /// The soldier's grenade (feature 90, Q).
     Grenade = 2,
     /// The engineer's Healing Sentry (C, task 127).
     HealingSentry = 3,
-    /// The engineer's EMP (Q, task 127).
-    Emp = 4,
+    /// The engineer's mines (Q, task 154).
+    Mine = 4,
 }
 
 impl Charge {
     pub const ALL: [Charge; 4] = [
-        Charge::Sandbag,
+        Charge::Satchel,
         Charge::Grenade,
         Charge::HealingSentry,
-        Charge::Emp,
+        Charge::Mine,
     ];
 
     /// How many codes there are, the free ones counted: what a counter or
@@ -597,7 +636,7 @@ impl Charge {
     /// The one class that spends it.
     pub fn class(self) -> Class {
         match self {
-            Charge::Sandbag | Charge::HealingSentry | Charge::Emp => Class::Engineer,
+            Charge::Satchel | Charge::HealingSentry | Charge::Mine => Class::Engineer,
             Charge::Grenade => Class::Soldier,
         }
     }
@@ -607,9 +646,9 @@ impl Charge {
     /// does not come back either.
     pub fn slot(self) -> u8 {
         match self {
-            Charge::Grenade | Charge::Emp => SLOT_Q,
+            Charge::Grenade | Charge::Mine => SLOT_Q,
             Charge::HealingSentry => SLOT_C,
-            Charge::Sandbag => SLOT_E,
+            Charge::Satchel => SLOT_E,
         }
     }
 }
@@ -720,22 +759,23 @@ pub const VICINITY_TILES: f32 = 50.0;
 // soldier's. The deploy times are game minutes of working steps, one a
 // second at 1× (what `deploy::DEPLOY_SANDBAG_MINUTES` was).
 
-/// **Q, EMP**: how far the burst reaches, in tiles, a rank. It is thrown
-/// the grenade's way — [`GRENADE_RANGE`], [`GRENADE_FUSE`] — and does no
-/// damage.
-pub const EMP_RADIUS: [f32; 4] = [2.0, 2.5, 2.5, 3.0];
-/// Seconds of the mission clock a machine in the burst is stunned, a rank.
-pub const EMP_STUN: [f32; 4] = [1.5, 2.0, 2.5, 3.0];
-/// **EMP charges** a rank ([`Charge::Emp`]).
-pub const EMP_CHARGES: [u32; 4] = [1, 2, 2, 2];
-/// Seconds one spent EMP charge takes to come back, a rank.
-pub const EMP_COOLDOWN: [f64; 4] = [30.0, 30.0, 25.0, 20.0];
-/// The rank from which a machine stunned by the EMP takes more from
-/// everyone while it is stunned.
-pub const EMP_EXPOSE_RANK: u8 = 4;
-/// How much more, in whole per cent — added to the `Stat::MachineDamage`
-/// sum the relics use.
-pub const EMP_EXPOSE_PERCENT: i32 = 25;
+/// **Q, Mine** (task 154): what its blast does to every enemy in it at
+/// its centre, a rank; half that at the edge.
+pub const MINE_DAMAGE: [f32; 4] = [80.0, 100.0, 120.0, 150.0];
+/// How far the blast reaches, in tiles, a rank.
+pub const MINE_RADIUS: [f32; 4] = [1.5, 1.5, 2.0, 2.0];
+/// How near an enemy has to come for it to go off, in tiles, at every
+/// rank: one tile.
+pub const MINE_TRIGGER: f32 = 1.0;
+/// **Mine charges** a rank ([`Charge::Mine`]).
+pub const MINE_CHARGES: [u32; 4] = [2, 3, 3, 4];
+/// Seconds one spent mine charge takes to come back, a rank.
+pub const MINE_COOLDOWN: [f64; 4] = [25.0, 22.0, 20.0, 18.0];
+/// How many of one engineer's mines may lie at once, a rank: one more
+/// laid takes the oldest up.
+pub const MINE_STANDING: [u32; 4] = [4, 6, 6, 8];
+/// Game minutes of working steps to lay one, at every rank: a second.
+pub const MINE_MINUTES: f64 = 1.0;
 
 /// **C, Healing Sentry**: what it heals, a share of the medic's beam
 /// ([`HEAL_BEAM_HP`] an hour), a rank — so the two stay in proportion
@@ -744,7 +784,7 @@ pub const HEALING_SENTRY_RATE: [f32; 4] = [0.5, 0.75, 1.0, 1.25];
 /// How far it heals, in tiles, a rank.
 pub const HEALING_SENTRY_RADIUS: [f32; 4] = [3.0, 4.0, 4.0, 5.0];
 /// Its health, one pool, a rank.
-pub const HEALING_SENTRY_HEALTH: [f32; 4] = [60.0, 80.0, 100.0, 120.0];
+pub const HEALING_SENTRY_HEALTH: [f32; 4] = [120.0, 160.0, 200.0, 240.0];
 /// Game minutes of working steps to lay one, a rank.
 pub const HEALING_SENTRY_MINUTES: [f64; 4] = [6.0, 6.0, 4.0, 4.0];
 /// **Healing Sentry charges** a rank — and how many of that engineer's
@@ -753,17 +793,17 @@ pub const HEALING_SENTRY_CHARGES: [u32; 4] = [1, 1, 1, 1];
 /// Seconds one spent Healing Sentry charge takes to come back, a rank.
 pub const HEALING_SENTRY_COOLDOWN: [f64; 4] = [60.0, 60.0, 50.0, 40.0];
 
-/// **E, Sandbags**: charges a rank. There is no limit on how many stand.
-pub const SANDBAG_CHARGES: [u32; 4] = [2, 3, 3, 4];
-/// What a laid bag can take before it is gone, a rank.
-pub const SANDBAG_HEALTH: [f32; 4] = [150.0, 200.0, 250.0, 250.0];
-/// Game minutes of working steps to lay one, a rank.
-pub const SANDBAG_MINUTES: [f64; 4] = [4.0, 4.0, 2.0, 2.0];
-/// Seconds one spent sandbag charge takes to come back, a rank.
-pub const SANDBAG_COOLDOWN: [f64; 4] = [45.0, 45.0, 40.0, 35.0];
-/// The rank from which one charge lays two tiles: the second on the
-/// first free neighbour, north, east, south, west.
-pub const SANDBAG_DOUBLE_RANK: u8 = 4;
+/// **E, Satchel Charge** (task 154): what one bursting does to every
+/// enemy in it at its centre, a rank; half that at the edge. Satchels
+/// stacked on a tile each burst on their own.
+pub const SATCHEL_DAMAGE: [f32; 4] = [90.0, 120.0, 150.0, 180.0];
+/// How far one's blast reaches, in tiles, a rank.
+pub const SATCHEL_RADIUS: [f32; 4] = [2.0, 2.5, 2.5, 3.0];
+/// **Satchel charges** a rank ([`Charge::Satchel`]): two at every rank.
+pub const SATCHEL_CHARGES: [u32; 4] = [2, 2, 2, 2];
+/// Seconds one spent satchel charge takes to come back, a rank —
+/// counted from the throw.
+pub const SATCHEL_COOLDOWN: [f64; 4] = [30.0, 27.0, 24.0, 20.0];
 
 /// **R, Sentry** (the ultimate): the minigun's tier, a rank.
 pub const SENTRY_TIER: [bims::combat::Tier; 5] = [
@@ -775,8 +815,9 @@ pub const SENTRY_TIER: [bims::combat::Tier; 5] = [
 ];
 /// What its fire rate is multiplied by, a rank.
 pub const SENTRY_FIRE_RATE: [f32; 5] = [1.0, 1.0, 1.5, 2.0, 2.0];
-/// Its health, one pool, a rank.
-pub const SENTRY_HEALTH: [f32; 5] = [200.0, 250.0, 300.0, 400.0, 500.0];
+/// Its health, one pool, a rank: doubled in task 154, when the
+/// sandbags went.
+pub const SENTRY_HEALTH: [f32; 5] = [400.0, 500.0, 600.0, 800.0, 1000.0];
 /// Tiles added to its minigun's range, a rank: five from the first. It
 /// stands until it is destroyed — there is no timer.
 pub const SENTRY_RANGE: [f32; 5] = [5.0, 5.0, 5.0, 5.0, 5.0];
@@ -875,18 +916,27 @@ pub const MEDIC_REVIVE_SECONDS: f32 = 4.0;
 /// A relic's *Rally Point* is its own.
 pub const MEDIC_REVIVED_TO: f32 = 0.4;
 
-/// **Q, Nanite Burst**: hit points put back at once, a rank.
-pub const NANITE_BURST_HEAL: [f32; 4] = [30.0, 40.0, 50.0, 60.0];
-/// How far it reaches from the medic, in tiles, a rank.
-pub const NANITE_BURST_RADIUS: [f32; 4] = [4.0, 4.0, 5.0, 6.0];
-/// Seconds of the mission clock from one burst to the next, a rank.
-pub const NANITE_BURST_COOLDOWN: [f64; 4] = [25.0, 22.0, 20.0, 18.0];
+/// **Q, Heal Drone** (task 153): hit points a second it puts into the Bim
+/// it hovers over, a rank, before his Triage.
+pub const HEAL_DRONE_HEAL: [f32; 4] = [1.5, 2.0, 2.5, 3.0];
+/// Seconds of the mission clock a drone flies, a rank.
+pub const HEAL_DRONE_SECONDS: [f64; 4] = [8.0, 10.0, 12.0, 14.0];
+/// Seconds of the mission clock from one drone to the next, a rank.
+pub const HEAL_DRONE_COOLDOWN: [f64; 4] = [25.0, 22.0, 20.0, 18.0];
+/// How fast a drone flies, in tiles a second of the mission clock.
+pub const HEAL_DRONE_SPEED: f32 = 6.0;
+/// How near a drone has to be over its patient to heal it, in tiles.
+pub const HEAL_DRONE_REACH: f32 = 0.6;
 
-/// **C, Healing Aura**: what every heal a Bim in it takes is multiplied
-/// by, a rank.
-pub const HEALING_AURA_FACTOR: [f32; 4] = [1.15, 1.20, 1.25, 1.30];
-/// How far the aura reaches, in tiles, a rank.
-pub const HEALING_AURA_RADIUS: [f32; 4] = [5.0, 6.0, 7.0, 8.0];
+/// **C, Triage** (task 153): what a heal of his is lifted by on a Bim
+/// at an empty bar, a rank — times the share of the bar it is missing, so
+/// half of it at half a bar and none on a whole one.
+pub const TRIAGE: [f32; 4] = [0.25, 0.40, 0.55, 0.70];
+
+/// What every heal of a medic carrying an *Override Core* is multiplied
+/// by (task 153): the core's gift to his class, whatever rank his circle
+/// is at.
+pub const OVERRIDE_HEAL: f32 = 1.5;
 
 /// **E, Heal Beam**: what [`HEAL_BEAM_HP`] is multiplied by, a rank.
 pub const HEAL_BEAM_RATE: [f32; 4] = [1.0, 1.5, 2.0, 2.5];
@@ -895,24 +945,17 @@ pub const HEAL_BEAM_RANGES: [f32; 4] = [HEAL_BEAM_RANGE, 7.0, 8.0, 9.0];
 /// How many patients the beam holds at once, each at the full rate, a
 /// rank.
 pub const HEAL_BEAM_PATIENTS: [usize; 4] = [1, 1, 1, 2];
-/// The rank from which a medic beaming fires as well.
-pub const HEAL_BEAM_FIRE_RANK: u8 = 3;
-/// What the fire rate of a medic beaming is multiplied by, from
-/// [`HEAL_BEAM_FIRE_RANK`].
-pub const HEAL_BEAM_FIRE_RATE: f32 = 0.5;
 
-/// **R, Cloak**: how far from the medic a crewmate may be cloaked, in
-/// tiles, at every rank.
-pub const CLOAK_RANGE: f32 = 8.0;
-/// Seconds of the mission clock a cloak lasts, a rank.
-pub const CLOAK_SECONDS: [f64; 5] = [6.0, 7.0, 8.0, 10.0, 12.0];
-/// What a cloaked Bim's pace is multiplied by, a rank.
-pub const CLOAK_PACE: [f32; 5] = [1.10, 1.15, 1.20, 1.25, 1.30];
-/// Seconds of the mission clock from one cloak to the next, a rank.
-pub const CLOAK_COOLDOWN: [f64; 5] = [60.0, 55.0, 50.0, 45.0, 40.0];
-/// At the [`OVERRIDE_RANK`] (October 2026) a cloak takes every friendly
-/// Bim within this many tiles of its target as well.
-pub const CLOAK_SPREAD_TILES: f32 = 3.0;
+/// **R, Healing Circle** (task 153): how far round him it reaches, in
+/// tiles, a rank — the *Override Core*'s fifth the fourth's, since the
+/// core's gift to a medic is [`OVERRIDE_HEAL`].
+pub const HEALING_CIRCLE_RADIUS: [f32; 5] = [3.0, 3.5, 4.0, 4.5, 4.5];
+/// The share of the circle's heal every enemy standing in it takes as
+/// damage.
+pub const HEALING_CIRCLE_BURN: f32 = 0.5;
+/// Seconds of the mission clock between two of the circle's burns: the
+/// damage lands as a pulse, not a trickle of hits a step.
+pub const HEALING_CIRCLE_PULSE: f64 = 0.5;
 
 /// How long a revive takes (task 120): ten seconds, four for a `medic`.
 pub fn revive_time(medic: bool) -> f32 {
@@ -935,19 +978,23 @@ pub fn revive_time(medic: bool) -> f32 {
 /// between Bims unchanged.
 pub const TANK_DRAIN: f32 = 0.5;
 
-/// **Q, Taunt**: how far it reaches, in tiles, a rank.
-pub const TAUNT_RADIUS: [f32; 4] = [6.0, 8.0, 10.0, 12.0];
-/// Seconds of the mission clock it runs, a rank.
-pub const TAUNT_SECONDS: [f64; 4] = [3.0, 4.0, 5.0, 6.0];
-/// Seconds of the mission clock from one taunt to the next, a rank.
-pub const TAUNT_COOLDOWN: [f64; 4] = [20.0, 18.0, 16.0, 14.0];
-/// The rank from which a taunt turns every charging blade within its
-/// radius toward him (what *magnet* was).
-pub const TAUNT_MAGNET_RANK: u8 = 4;
+/// **Q, Riot Shield**: the hit points the plate takes, a rank (task
+/// 155).
+pub const RIOT_SHIELD_HP: [f32; 4] = [20.0, 40.0, 80.0, 100.0];
+/// Hit points a second the shield restores, stowed or up.
+pub const RIOT_SHIELD_REGEN: f32 = 2.0;
+/// Seconds of the mission clock a shield held up must go unstruck before
+/// it restores; a stowed one restores at once.
+pub const RIOT_SHIELD_REGEN_DELAY: f64 = 5.0;
+/// The share of its hit points a broken shield must have back before it
+/// can be raised again.
+pub const RIOT_SHIELD_RAISE_SHARE: f32 = 0.25;
 
 /// **C, Plated**: what the damage of a hit on him is multiplied by, a
 /// rank — before the armour, as Rampage's is.
 pub const PLATED_DAMAGE_TAKEN: [f32; 4] = [0.90, 0.85, 0.80, 0.75];
+/// And the hit points a second he mends, a rank (task 155).
+pub const PLATED_REGEN: [f32; 4] = [0.2, 0.8, 1.4, 2.0];
 /// The rank from which his armour drain is multiplied by
 /// [`FORTRESS_DRAIN`] again (what *fortress* was).
 pub const FORTRESS_RANK: u8 = 4;
@@ -955,31 +1002,33 @@ pub const FORTRESS_RANK: u8 = 4;
 /// a quarter of the rate in all.
 pub const FORTRESS_DRAIN: f32 = 0.5;
 
-/// **E, Bulwark**: how far it reaches, in tiles, a rank — how near the
-/// tank a crew member must stand to shelter behind him, and how near the
-/// line from the shooter he must stand to be between them.
-pub const BULWARK_REACH: [f32; 4] = [1.5, 2.0, 2.5, 3.0];
-/// What his pace is multiplied by while the wall is up, a rank.
-pub const BULWARK_PACE: [f32; 4] = [0.5, 0.6, 0.7, 0.8];
-/// The rank from which the wall adds [`GUARDED_DODGE`] to his dodge
-/// while it is up (what *guarded* was).
-pub const GUARDED_RANK: u8 = 3;
-/// What is added to the dodge while the wall is up, from
-/// [`GUARDED_RANK`].
-pub const GUARDED_DODGE: f32 = 0.10;
-/// The rank from which a bolt that would hit a Bim he shields hits him
-/// instead (what *interpose* was).
-pub const INTERPOSE_RANK: u8 = 4;
+/// **E, Reflect Barrier**: seconds of the mission clock it runs, a rank
+/// (task 155).
+pub const REFLECT_SECONDS: [f64; 4] = [3.0, 4.0, 5.0, 6.0];
+/// Seconds of the mission clock from one barrier to the next, a rank.
+pub const REFLECT_COOLDOWN: [f64; 4] = [20.0, 18.0, 16.0, 14.0];
+/// The share of an enemy's hit on him that goes back on the striker.
+pub const REFLECT_SHARE: f32 = 1.0;
 
-/// **R, Juggernaut**: seconds of the mission clock it runs, a rank.
-pub const JUGGERNAUT_SECONDS: [f64; 5] = [6.0, 7.0, 8.0, 10.0, 12.0];
-/// What the damage he takes is multiplied by while it runs, a rank.
-pub const JUGGERNAUT_DAMAGE_TAKEN: [f32; 5] = [0.50, 0.40, 0.35, 0.30, 0.25];
-/// Seconds of the mission clock from one Juggernaut to the next, a rank.
-pub const JUGGERNAUT_COOLDOWN: [f64; 5] = ULTIMATE_COOLDOWN;
+/// **R, Bastion**: how far it reaches, in tiles, a rank — the
+/// *Override Core*'s fifth a tile further (task 155).
+pub const BASTION_RADIUS: [f32; 5] = [6.0, 7.0, 8.0, 9.0, 10.0];
+/// The hit points of the shield it throws over every friend in reach.
+pub const BASTION_HP: f32 = 1000.0;
+/// What that shield loses a second whatever strikes it: ten seconds at
+/// most.
+pub const BASTION_DRAIN: f32 = 100.0;
+/// Seconds of the mission clock the shield, and the fifth rank's haste,
+/// last at most.
+pub const BASTION_SECONDS: f64 = (BASTION_HP / BASTION_DRAIN) as f64;
+/// What the pace of everybody it reached is multiplied by at the
+/// *Override Core*'s fifth rank, while the shield's seconds run.
+pub const BASTION_HASTE: f32 = 1.5;
+/// Seconds of the mission clock from one Bastion to the next, a rank.
+pub const BASTION_COOLDOWN: [f64; 5] = ULTIMATE_COOLDOWN;
 
 /// Every timed ultimate's cooldown, a rank: seventy seconds at the first
-/// and ten fewer a rank after it (the Sentry, Rampage and Juggernaut; the
+/// and ten fewer a rank after it (the Sentry, Rampage and Bastion; the
 /// Cloak's own [`CLOAK_COOLDOWN`] is under it already, and Reinforcements
 /// come once a mission).
 pub const ULTIMATE_COOLDOWN: [f64; 5] = [70.0, 60.0, 50.0, 40.0, 35.0];
@@ -1159,30 +1208,30 @@ mod tests {
         assert!(can(Class::Engineer, Ability::Deploy));
         assert!(!can(Class::Engineer, Ability::StunShot));
         assert!(!can(Class::Engineer, Ability::Throw));
-        assert!(can(Class::Engineer, Ability::Emp) && can(Class::Engineer, Ability::Sentry));
-        assert!(!can(Class::Soldier, Ability::Emp) && !can(Class::Medic, Ability::Sentry));
+        assert!(can(Class::Engineer, Ability::Satchel) && can(Class::Engineer, Ability::Sentry));
+        assert!(!can(Class::Soldier, Ability::Satchel) && !can(Class::Medic, Ability::Sentry));
         assert!(!can(Class::Soldier, Ability::Deploy));
         assert!(can(Class::Soldier, Ability::StunShot));
         assert!(can(Class::Soldier, Ability::Throw));
         assert!(!can(Class::Soldier, Ability::Beam));
         assert!(can(Class::Medic, Ability::Beam));
-        assert!(can(Class::Medic, Ability::NaniteBurst) && can(Class::Medic, Ability::Cloak));
+        assert!(can(Class::Medic, Ability::HealDrone) && can(Class::Medic, Ability::HealingCircle));
         assert!(!can(Class::Medic, Ability::Deploy));
         assert!(!can(Class::Medic, Ability::Throw));
-        assert!(!can(Class::Engineer, Ability::NaniteBurst));
-        assert!(!can(Class::Soldier, Ability::Cloak));
-        assert!(can(Class::Tank, Ability::Bulwark));
-        assert!(can(Class::Tank, Ability::Taunt));
-        assert!(can(Class::Tank, Ability::Juggernaut));
-        assert!(!can(Class::Soldier, Ability::Juggernaut));
+        assert!(!can(Class::Engineer, Ability::HealDrone));
+        assert!(!can(Class::Soldier, Ability::HealingCircle));
+        assert!(can(Class::Tank, Ability::Reflect));
+        assert!(can(Class::Tank, Ability::RiotShield));
+        assert!(can(Class::Tank, Ability::Bastion));
+        assert!(!can(Class::Soldier, Ability::Bastion));
         assert!(!can(Class::Tank, Ability::Beam));
         assert!(!can(Class::Tank, Ability::Deploy));
-        assert!(!can(Class::Medic, Ability::Bulwark));
-        assert!(!can(Class::Soldier, Ability::Taunt));
+        assert!(!can(Class::Medic, Ability::Reflect));
+        assert!(!can(Class::Soldier, Ability::RiotShield));
         assert!(can(Class::Commander, Ability::Rally));
         assert!(can(Class::Commander, Ability::BattleCry));
         assert!(!can(Class::Soldier, Ability::BattleCry));
-        assert!(!can(Class::Commander, Ability::Taunt));
+        assert!(!can(Class::Commander, Ability::RiotShield));
         assert!(!can(Class::Commander, Ability::Deploy));
         assert!(!can(Class::Medic, Ability::Rally));
         for ability in Ability::ALL {
@@ -1267,18 +1316,21 @@ mod tests {
         assert_eq!(by_rank(GRENADE_DAMAGE, 4), Some(110.0));
     }
 
-    /// The tank's tables (task 139), as the spec gives them.
+    /// The tank's tables (task 155), as the player gave them.
     #[test]
     fn the_tank_s_tables_are_the_spec_s() {
-        assert_eq!(TAUNT_RADIUS, [6.0, 8.0, 10.0, 12.0]);
-        assert_eq!(TAUNT_SECONDS, [3.0, 4.0, 5.0, 6.0]);
-        assert_eq!(TAUNT_COOLDOWN, [20.0, 18.0, 16.0, 14.0]);
+        assert_eq!(RIOT_SHIELD_HP, [20.0, 40.0, 80.0, 100.0]);
+        assert_eq!((RIOT_SHIELD_REGEN, RIOT_SHIELD_REGEN_DELAY), (2.0, 5.0));
         assert_eq!(PLATED_DAMAGE_TAKEN, [0.90, 0.85, 0.80, 0.75]);
+        assert_eq!(PLATED_REGEN, [0.2, 0.8, 1.4, 2.0]);
         assert_eq!(TANK_DRAIN * FORTRESS_DRAIN, 0.25, "a quarter in all");
-        assert_eq!(BULWARK_REACH, [1.5, 2.0, 2.5, 3.0]);
-        assert_eq!(BULWARK_PACE, [0.5, 0.6, 0.7, 0.8]);
-        assert_eq!(JUGGERNAUT_SECONDS, [6.0, 7.0, 8.0, 10.0, 12.0]);
-        assert_eq!(JUGGERNAUT_DAMAGE_TAKEN, [0.50, 0.40, 0.35, 0.30, 0.25]);
-        assert_eq!(JUGGERNAUT_COOLDOWN, [70.0, 60.0, 50.0, 40.0, 35.0]);
+        assert_eq!(REFLECT_SHARE, 1.0, "the damage he takes, whole");
+        assert_eq!(
+            (BASTION_HP, BASTION_DRAIN, BASTION_SECONDS),
+            (1000.0, 100.0, 10.0)
+        );
+        assert_eq!(BASTION_RADIUS[0], 6.0, "six tiles at the first rank");
+        assert_eq!(BASTION_HASTE, 1.5, "half again as fast with the core");
+        assert_eq!(BASTION_COOLDOWN, [70.0, 60.0, 50.0, 40.0, 35.0]);
     }
 }

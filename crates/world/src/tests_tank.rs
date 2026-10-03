@@ -1,8 +1,8 @@
-//! The tank class (feature 77; a ranked kit since task 139):
-//! `crate::class`'s fourth class. The rank system and his two base traits
-//! — the half-rate armour and the start — then Q Taunt, C Plated,
-//! E Bulwark and R Juggernaut, each doing what its rank says, to the tank
-//! who holds it alone.
+//! The tank class (feature 77; a ranked kit since task 139, reworked by
+//! task 155): `crate::class`'s fourth class. The rank system and his two
+//! base traits — the half-rate armour and the start — then Q Riot Shield,
+//! C Plated, E Reflect Barrier and R Bastion, each doing what its rank
+//! says.
 
 use bims::combat::{ArmourKind, Item, Piece, Tier, WeaponKind};
 use bims::droid::{DroidKind, DroidPart};
@@ -190,19 +190,6 @@ fn shoot_at(world: &mut World, who: u32, shots: u32) -> u32 {
         }
     }
     landed
-}
-
-/// What the enemy's room was handed of the crew's taunts: a radius in
-/// room units and whether it pulls a blade, a target each — nought for
-/// none, and for a target the enemy may not pick at all.
-fn handed(world: &World) -> Vec<(f32, bool)> {
-    world
-        .residents
-        .as_ref()
-        .unwrap()
-        .aboard
-        .room
-        .hostiles_taunting_for_probe()
 }
 
 /// A tank of `want` ranks at a held station's door with a Trooper four
@@ -424,215 +411,6 @@ fn enemy_hits_on_a_tank_are_counted_and_are_no_experience() {
     assert_eq!(hits_taken(&world, 0) - before, landed);
 }
 
-// --- C: Q, Taunt --------------------------------------------------------------
-
-#[test]
-fn the_taunt_s_radius_time_and_cooldown_go_by_its_rank() {
-    let want = [
-        (6.0, 3.0, 20.0),
-        (8.0, 4.0, 18.0),
-        (10.0, 5.0, 16.0),
-        (12.0, 6.0, 14.0),
-    ];
-    for (rank, &(radius, seconds, cooldown)) in (1..=4u8).zip(&want) {
-        let mut world = tank_at([rank, 0, 0, 0]);
-        assert_eq!(world.taunt_radius(0), radius, "rank {rank}");
-        assert_eq!(world.taunt_seconds(0), seconds, "rank {rank}");
-        assert_eq!(world.taunt_cooldown(0), cooldown, "rank {rank}");
-        assert_eq!(world.can_taunt(0), Ok(()));
-        let events = world.step(&[Command::Taunt { slot: 0 }]);
-        assert!(
-            events
-                .iter()
-                .any(|e| matches!(e, WorldEvent::Taunted { who: 0 })),
-            "{events:?}"
-        );
-        assert!(world.is_taunting(0));
-        assert!((world.taunt_left(0) - seconds).abs() < 0.1, "rank {rank}");
-        assert_eq!(world.can_taunt(0), Err(Refusal::CoolingDown));
-        run_for(&mut world, seconds - 0.5);
-        assert!(world.is_taunting(0), "rank {rank}: still on");
-        run_for(&mut world, 1.0);
-        assert!(!world.is_taunting(0), "rank {rank}: over");
-        assert_eq!(world.taunt_left(0), 0.0);
-        // The cooldown runs from the taunt, not from its end.
-        let left = world.taunt_cooldown_left(0);
-        assert!(
-            left > 0.0 && left <= cooldown - seconds + 1.0,
-            "rank {rank}: {left}"
-        );
-        run_for(&mut world, left + 0.1);
-        assert_eq!(world.can_taunt(0), Ok(()), "rank {rank}");
-    }
-}
-
-#[test]
-fn a_taunt_is_refused_unlearnt_downed_on_its_cooldown_and_to_the_others() {
-    let mut world = tank();
-    assert_eq!(world.set_class(1, Class::None), Ok(()));
-    world.step(&[]);
-    assert_eq!(world.can_taunt(0), Err(Refusal::NotLearnt));
-    assert!(refused_with(
-        &world.step(&[Command::Taunt { slot: 0 }]),
-        Refusal::NotLearnt
-    ));
-    assert_eq!(world.can_taunt(1), Err(Refusal::NotATank));
-    assert!(refused_with(
-        &world.step(&[Command::Taunt { slot: 1 }]),
-        Refusal::NotATank
-    ));
-    ranks(&mut world, 0, [1, 0, 0, 0]);
-    world.aboard.room.knock_out_for_probe(0);
-    world.step(&[]);
-    assert_eq!(world.can_taunt(0), Err(Refusal::OutOfReach), "downed");
-    world.aboard.room.patch_up_for_probe(0);
-    world.step(&[]);
-    assert_eq!(world.can_taunt(0), Ok(()));
-    world.step(&[Command::Taunt { slot: 0 }]);
-    assert!(refused_with(
-        &world.step(&[Command::Taunt { slot: 0 }]),
-        Refusal::CoolingDown
-    ));
-}
-
-/// Who the enemy shot, over the steps a forcing runs: the tank and the
-/// crewmate nearer the machine, each held where it was put with nothing
-/// in its hands so only the machine fires.
-fn who_is_shot(force: Option<Command>) -> (u32, u32, u64) {
-    let mut world = basic();
-    assert_eq!(world.set_class(0, Class::Tank), Ok(()));
-    assert!(
-        world
-            .stage_droid_fight_for_probe(DroidKind::Trooper, Some(WeaponKind::LaserPistol.basic()))
-    );
-    ranks(&mut world, 0, [4, 0, 0, 4]);
-    // The crew member the station's door put inside is the tank; the
-    // crewmate stands two tiles further in and a tile to one side —
-    // nearer the machine, which is four tiles in, and off the line
-    // between the two.
-    let tank_at = world.aboard.room.bim_pos(0);
-    let resident = world
-        .aboard
-        .from_station(world.residents.as_ref().unwrap().aboard.position(0))
-        .expect("on the joined deck");
-    let towards = (vec2(resident.x as f32, resident.y as f32) - tank_at).normalize_or_zero();
-    let mate_at = tank_at + towards * (2.0 * TILE) + towards.perp() * TILE;
-    for who in [0usize, 1] {
-        let mut gear = world.aboard.room.gear(who);
-        gear.weapon = None;
-        world.aboard.room.issue(who, gear);
-        world.aboard.room.recruit_for_probe(who, true);
-    }
-    world.aboard.room.put_for_probe(1, mate_at);
-    if let Some(command) = force {
-        world.step(&[command]);
-        assert!(world.is_taunting(0) || world.is_juggernaut(0));
-    }
-    // The machine is held where it was staged — its legs shot off — so
-    // the test measures a choice rather than a walk.
-    if let Some(residents) = &mut world.residents {
-        let room = &mut residents.aboard.room;
-        let legs = room.droid(0).unwrap().body.max(DroidPart::Legs);
-        room.strike_droid(0, DroidPart::Legs, legs);
-    }
-    let (mut on_tank, mut on_mate) = (0, 0);
-    // Five seconds: inside the fourth rank's taunt and the first rank's
-    // Juggernaut alike.
-    for _ in 0..(5.0 / SECONDS_A_STEP) as u32 {
-        world.aboard.room.put_for_probe(0, tank_at);
-        world.aboard.room.put_for_probe(1, mate_at);
-        world.aboard.room.patch_up_for_probe(0);
-        world.aboard.room.patch_up_for_probe(1);
-        for hit in world.step(&[]) {
-            if let WorldEvent::CrewHit { who, .. } = hit {
-                match who {
-                    0 => on_tank += 1,
-                    1 => on_mate += 1,
-                    _ => {}
-                }
-            }
-        }
-    }
-    (on_tank, on_mate, world_checksum(&world))
-}
-
-#[test]
-fn a_taunting_tank_is_shot_at_and_the_nearer_crewmate_is_not_and_two_runs_agree() {
-    let (quiet_tank, quiet_mate, _) = who_is_shot(None);
-    assert!(
-        quiet_mate > quiet_tank,
-        "the nearer crewmate takes the fire: {quiet_mate} against {quiet_tank}"
-    );
-    let (taunt_tank, taunt_mate, checksum) = who_is_shot(Some(Command::Taunt { slot: 0 }));
-    assert!(taunt_tank > 0, "the taunt draws the fire");
-    assert_eq!(taunt_mate, 0, "and nobody else is shot at");
-    // Two runs on one seed are the same fight, to the checksum.
-    let again = who_is_shot(Some(Command::Taunt { slot: 0 }));
-    assert_eq!((taunt_tank, taunt_mate, checksum), again);
-}
-
-#[test]
-fn the_taunt_the_enemies_are_handed_is_the_rank_s_radius_and_a_magnet_at_the_fourth() {
-    let mut world = tank_in_a_fight([3, 0, 0, 0], [Class::None, Class::None]);
-    assert!(
-        handed(&world).iter().all(|&(r, m)| r == 0.0 && !m),
-        "nobody is taunting"
-    );
-    world.step(&[Command::Taunt { slot: 0 }]);
-    let flags = handed(&world);
-    assert_eq!(
-        flags[0],
-        (class::TAUNT_RADIUS[2] * TILE, false),
-        "no magnet"
-    );
-    assert!(flags[1..].iter().all(|&(r, _)| r == 0.0));
-    // The fourth rank turns every charging blade within it.
-    let mut world = tank_in_a_fight([4, 0, 0, 0], [Class::None, Class::None]);
-    world.step(&[Command::Taunt { slot: 0 }]);
-    assert_eq!(handed(&world)[0], (class::TAUNT_RADIUS[3] * TILE, true));
-}
-
-/// **An enemy taunted by two tanks follows the most recent taunt**: the
-/// later taunt is handed the higher order, whichever tank is nearer.
-#[test]
-fn of_two_tanks_taunting_the_most_recent_is_followed() {
-    let mut world = tank_in_a_fight([1, 0, 0, 0], [Class::Tank, Class::None]);
-    ranks(&mut world, 1, [1, 0, 0, 0]);
-    // The second tank stands in the doorway beside the first, where the
-    // machine sees them both.
-    let at = world.aboard.room.bim_pos(0);
-    let resident = world
-        .aboard
-        .from_station(world.residents.as_ref().unwrap().aboard.position(0))
-        .expect("on the joined deck");
-    let towards = (vec2(resident.x as f32, resident.y as f32) - at).normalize_or_zero();
-    world.aboard.room.put_for_probe(1, at + towards * TILE);
-    world.step(&[]);
-    let order = |world: &World| {
-        world
-            .residents
-            .as_ref()
-            .unwrap()
-            .aboard
-            .room
-            .hostiles_taunt_order_for_probe()
-    };
-    world.step(&[Command::Taunt { slot: 0 }]);
-    world.step(&[]);
-    world.step(&[Command::Taunt { slot: 1 }]);
-    let now = order(&world);
-    assert!(now[1] > now[0] && now[0] > 0, "{now:?}");
-    // Once the first has run out, the second alone.
-    let left = world.taunt_left(0);
-    // A step past the first's end, and still a step short of the
-    // second's: they began two steps apart.
-    run_for(&mut world, left + SECONDS_A_STEP);
-    assert!(!world.is_taunting(0) && world.is_taunting(1));
-    let now = order(&world);
-    assert_eq!(now[0], 0, "{now:?}");
-    assert!(now[1] > 0, "{now:?}");
-}
-
 // --- D: C, Plated ---------------------------------------------------------------
 
 #[test]
@@ -682,24 +460,21 @@ fn plated_s_fourth_rank_drains_the_armour_at_a_quarter() {
     assert_eq!(class::TANK_DRAIN * class::FORTRESS_DRAIN, 0.25);
 }
 
-/// **Every factor multiplies**: Plated, a Juggernaut and a commander's
-/// Rally on one tank — Brace is the soldier's, and multiplies into the
-/// same `Skill::damage_taken` the same way (`tests_soldier`).
+/// **Every factor multiplies**: Plated and a commander's Rally on one
+/// tank — Brace was the soldier's, and a Rampage multiplies into the same
+/// `Skill::damage_taken` the same way (`tests_soldier`).
 #[test]
-fn plated_multiplies_with_a_juggernaut_and_a_rally() {
+fn plated_multiplies_with_a_rally() {
     let mut world = basic();
     assert_eq!(world.set_class(0, Class::Tank), Ok(()));
     assert_eq!(world.set_class(1, Class::Commander), Ok(()));
-    ranks(&mut world, 0, [0, 1, 0, 1]);
+    ranks(&mut world, 0, [0, 1, 0, 0]);
     ranks(&mut world, 1, [0, 0, 1, 0]);
     let at = world.aboard.room.bim_pos(0);
     world.aboard.room.put_for_probe(1, at + vec2(TILE, 0.0));
-    world.step(&[Command::Juggernaut { slot: 0 }, Command::Rally { slot: 1 }]);
-    assert!(world.is_juggernaut(0));
+    world.step(&[Command::Rally { slot: 1 }]);
     assert_eq!(world.rally_reaching(0), Some(1));
-    let want = class::PLATED_DAMAGE_TAKEN[0]
-        * class::JUGGERNAUT_DAMAGE_TAKEN[0]
-        * class::RALLY_DAMAGE_TAKEN[0];
+    let want = class::PLATED_DAMAGE_TAKEN[0] * class::RALLY_DAMAGE_TAKEN[0];
     assert!(
         (world.skill_of(0).damage_taken - want).abs() < 1e-6,
         "{} against {want}",
@@ -707,259 +482,541 @@ fn plated_multiplies_with_a_juggernaut_and_a_rally() {
     );
 }
 
-// --- E: E, Bulwark ---------------------------------------------------------------
+/// **Plated mends** (task 155): his rank's hit points a second, on his
+/// feet, a hurt tank's bar climbing by exactly that; nought before the
+/// first rank, and nobody else's.
+#[test]
+fn plated_mends_its_rank_s_hit_points_a_second() {
+    for (rank, regen) in (0..=4u8).zip([0.0, 0.2, 0.8, 1.4, 2.0]) {
+        let mut world = tank_at([0, rank, 0, 0]);
+        hold_still(&mut world);
+        assert_eq!(world.plated_regen(0), regen, "rank {rank}");
+        assert_eq!(world.plated_regen(1), 0.0, "his alone");
+        // His armour broken, so the hit reaches the bar.
+        wear(&mut world, 0, ArmourKind::Armour, 0.0);
+        world.aboard.room.wound(0, 50.0);
+        let before = world.aboard.room.health(0);
+        for _ in 0..(10.0 / SECONDS_A_STEP).round() as u32 {
+            world.step(&[]);
+        }
+        let mended = world.aboard.room.health(0) - before;
+        assert!(
+            (mended - regen * 10.0).abs() < 0.05,
+            "rank {rank}: {mended} in ten seconds"
+        );
+    }
+}
+
+// --- C: Q, Riot Shield (task 155) -------------------------------------------------
+
+/// The tank facing `towards` — his player's pointer on it — and every
+/// player's Bim steered with the trigger up, so nobody of the crew fires
+/// and the only bolts flying are the ones a test fires.
+fn facing(world: &mut World, towards: bims::math::Vec2) {
+    assert_eq!(world.aboard.crew_count(), world.players(), "players alone");
+    let at = world.aboard.room.bim_pos(0);
+    let aim = bims::order::angle_code((towards - at).angle());
+    let steer = |slot: u32| Command::Crew {
+        slot,
+        order: bims::order::CrewOrder::Control {
+            walk: None,
+            aim,
+            fire: false,
+            sprint: false,
+        },
+    };
+    let commands: Vec<Command> = (0..world.players()).map(steer).collect();
+    world.step(&commands);
+    // Whatever the crew fired before they were steered flies out.
+    for _ in 0..240 {
+        if world.aboard.room.combat_quiet_for_probe() {
+            break;
+        }
+        world.step(&[]);
+    }
+}
+
+/// Pistol bolts fired at the tank from `from`, one at a time, each flown
+/// out, the tank held where it is: the `CrewHit`s on him.
+fn bolts_at_the_tank(world: &mut World, from: bims::math::Vec2, n: u32, by: Option<usize>) -> u32 {
+    let at = world.aboard.room.bim_pos(0);
+    let mut landed = 0;
+    for _ in 0..n {
+        world
+            .aboard
+            .room
+            .enemy_fire_by(from, at, WeaponKind::LaserPistol.basic(), false, by);
+        for _ in 0..60 {
+            world.aboard.room.put_for_probe(0, at);
+            let events = world.step(&[]);
+            landed += events
+                .iter()
+                .filter(|e| matches!(e, WorldEvent::CrewHit { who: 0 }))
+                .count() as u32;
+            if world.aboard.room.combat_quiet_for_probe() {
+                break;
+            }
+        }
+    }
+    landed
+}
 
 #[test]
-fn the_wall_s_reach_and_pace_go_by_its_rank_and_it_ends_on_a_toggle_or_going_down() {
+fn the_riot_shield_s_hit_points_go_by_its_rank_and_it_is_raised_and_put_down() {
     let mut world = tank();
     assert_eq!(world.set_class(1, Class::None), Ok(()));
     world.step(&[]);
-    assert_eq!(world.can_bulwark(0), Err(Refusal::NotLearnt));
+    assert_eq!(world.can_riot_shield(0, true), Err(Refusal::NotLearnt));
     assert!(refused_with(
-        &world.step(&[Command::Bulwark { slot: 0, on: true }]),
+        &world.step(&[Command::RiotShield { slot: 0, on: true }]),
         Refusal::NotLearnt
     ));
-    assert_eq!(world.can_bulwark(1), Err(Refusal::NotATank));
-    for (rank, (&reach, &pace)) in
-        (1..=4u8).zip(class::BULWARK_REACH.iter().zip(&class::BULWARK_PACE))
-    {
-        let mut world = tank_at([0, 0, rank, 0]);
-        assert_eq!(world.bulwark_reach(0), reach, "rank {rank}");
-        assert_eq!(world.bulwark_pace(0), pace, "rank {rank}");
-        assert_eq!(world.skill_of(0).walk, 1.0, "no wall, no cost");
-        let events = world.step(&[Command::Bulwark { slot: 0, on: true }]);
+    assert_eq!(world.can_riot_shield(1, true), Err(Refusal::NotATank));
+    assert_eq!(
+        world.can_riot_shield(0, false),
+        Ok(()),
+        "down is never refused"
+    );
+    for (rank, hp) in (1..=4u8).zip(class::RIOT_SHIELD_HP) {
+        let mut world = tank_at([rank, 0, 0, 0]);
+        assert_eq!(world.riot_shield_hp(0), hp, "rank {rank}");
+        assert_eq!(world.riot_shield_left(0), hp, "a fresh tank's is whole");
+        let events = world.step(&[Command::RiotShield { slot: 0, on: true }]);
         assert!(
             events
                 .iter()
-                .any(|e| matches!(e, WorldEvent::Bulwarked { who: 0, on: true })),
+                .any(|e| matches!(e, WorldEvent::ShieldRaised { who: 0, on: true })),
             "{events:?}"
         );
-        assert_eq!(world.skill_of(0).walk, pace, "rank {rank}");
-        let walls = world.aboard.room.bulwarks_for_probe();
-        assert_eq!(walls.len(), 1);
-        assert_eq!((walls[0].who, walls[0].reach), (0, reach), "rank {rank}");
-        world.step(&[Command::Bulwark { slot: 0, on: false }]);
-        assert!(!world.is_bulwark(0));
-        assert!(world.aboard.room.bulwarks_for_probe().is_empty());
-        assert_eq!(world.skill_of(0).walk, 1.0);
+        assert!(world.is_shielding(0));
+        world.step(&[]);
+        let plates = world.aboard.room.plates_for_probe();
+        assert_eq!(plates.len(), 1);
+        assert_eq!((plates[0].who, plates[0].hp), (0, hp), "rank {rank}");
+        // Raised again is nothing said.
+        let events = world.step(&[Command::RiotShield { slot: 0, on: true }]);
+        assert!(
+            !events
+                .iter()
+                .any(|e| matches!(e, WorldEvent::ShieldRaised { .. }))
+        );
+        world.step(&[Command::RiotShield { slot: 0, on: false }]);
+        assert!(!world.is_shielding(0));
+        world.step(&[]);
+        assert!(world.aboard.room.plates_for_probe().is_empty());
     }
     // And going down takes it down.
-    let mut world = tank_at([0, 0, 1, 0]);
-    world.step(&[Command::Bulwark { slot: 0, on: true }]);
+    let mut world = tank_at([1, 0, 0, 0]);
+    world.step(&[Command::RiotShield { slot: 0, on: true }]);
     world.aboard.room.kill_for_probe(0);
     world.step(&[]);
-    assert!(!world.is_bulwark(0), "the wall goes down with him");
     world.step(&[]);
-    assert!(world.aboard.room.bulwarks_for_probe().is_empty());
-    assert_eq!(world.can_bulwark(0), Err(Refusal::OutOfReach));
+    assert!(!world.is_shielding(0), "the shield goes down with him");
+    assert!(world.aboard.room.plates_for_probe().is_empty());
+    assert_eq!(world.can_riot_shield(0, true), Err(Refusal::OutOfReach));
 }
 
+/// **A bolt from the front is stopped and bounced**: held up and facing
+/// the shooter, nothing lands on him and the shield takes it; from
+/// behind the shield is nothing; and the bolt bounced off it lands on
+/// the machine that fired it, as the tank's.
 #[test]
-fn the_wall_adds_dodge_from_its_third_rank_and_interposes_at_its_fourth() {
-    for (rank, dodge, interpose) in [
-        (1, 0.0, false),
-        (2, 0.0, false),
-        (3, class::GUARDED_DODGE, false),
-        (4, class::GUARDED_DODGE, true),
-    ] {
-        let mut world = tank_at([0, 0, rank, 0]);
-        assert_eq!(world.skill_of(0).dodge, 0.0, "not with the wall down");
-        world.step(&[Command::Bulwark { slot: 0, on: true }]);
-        assert_eq!(world.skill_of(0).dodge, dodge, "rank {rank}");
-        let walls = world.aboard.room.bulwarks_for_probe();
-        assert_eq!(walls[0].interpose, interpose, "rank {rank}");
+fn a_bolt_from_the_front_is_stopped_on_the_shield_and_bounced_back_at_the_shooter() {
+    let mut world = tank_in_a_fight([4, 0, 0, 0], [Class::None, Class::None]);
+    hold_still(&mut world);
+    let residents = world.residents.as_ref().unwrap();
+    let shooter = residents.aboard.room.crew_count() as usize;
+    let machine = world
+        .aboard
+        .from_station(residents.aboard.position(shooter as u32))
+        .expect("on the joined deck");
+    let machine = vec2(machine.x as f32, machine.y as f32);
+    // The machine held where it was staged, its legs shot off.
+    {
+        let room = &mut world.residents.as_mut().unwrap().aboard.room;
+        let legs = room.droid(0).unwrap().body.max(DroidPart::Legs);
+        room.strike_droid(0, DroidPart::Legs, legs);
     }
-    // What *interpose* does to a bolt — onto him in place of the Bim he
-    // shields — is the room's one shooter, pinned there (`combat::tests`,
-    // `a_bulwark_shelters_the_body_behind_it_and_interposes_for_it`).
+    let life = |world: &World| {
+        world
+            .residents
+            .as_ref()
+            .unwrap()
+            .aboard
+            .room
+            .droid(0)
+            .unwrap()
+            .body
+            .life_share()
+    };
+    facing(&mut world, machine);
+    world.step(&[Command::RiotShield { slot: 0, on: true }]);
+    let before = life(&world);
+    let landed = bolts_at_the_tank(&mut world, machine, 8, Some(shooter));
+    assert_eq!(landed, 0, "nothing reaches him through the shield");
+    assert!(world.tank_of(0).shield_spent > 0.0, "the shield took it");
+    assert!(life(&world) < before, "and the bolt went home");
+    // From behind, the shield is nothing.
+    let at = world.aboard.room.bim_pos(0);
+    let behind = at + (at - machine).normalize_or_zero() * (5.0 * TILE);
+    if world.aboard.room.line_clear(behind, at) {
+        let spent = world.tank_of(0).shield_spent;
+        assert!(
+            bolts_at_the_tank(&mut world, behind, 8, None) > 0,
+            "from behind"
+        );
+        assert!(world.tank_of(0).shield_spent <= spent + 1e-4);
+    }
 }
 
-// --- F: R, Juggernaut -------------------------------------------------------------
+/// **It breaks at nought** — put down, `ShieldBroken` said, and refused
+/// `ShieldRecharging` until a quarter is back — and **restores two a
+/// second**: at once while stowed, and up only five seconds after the
+/// last hit.
+#[test]
+fn the_shield_breaks_at_nought_and_restores_two_a_second_stowed_or_unstruck() {
+    let mut world = tank_in_a_fight([1, 0, 0, 0], [Class::None, Class::None]);
+    hold_still(&mut world);
+    let at = world.aboard.room.bim_pos(0);
+    let from = [(-1.0, 0.0), (1.0, 0.0), (0.0, -1.0), (0.0, 1.0)]
+        .into_iter()
+        .map(|(x, y)| at + vec2(x, y) * (4.0 * TILE))
+        .find(|&from| world.aboard.room.line_clear(from, at))
+        .expect("a clear way in");
+    facing(&mut world, from);
+    world.step(&[Command::RiotShield { slot: 0, on: true }]);
+    // One hit point left: the next bolt breaks it.
+    world.tanks[0].shield_spent = class::RIOT_SHIELD_HP[0] - 1.0;
+    let mut broke = false;
+    for _ in 0..20 {
+        world
+            .aboard
+            .room
+            .enemy_fire(from, at, WeaponKind::LaserPistol.basic(), false);
+        for _ in 0..60 {
+            world.aboard.room.put_for_probe(0, at);
+            let events = world.step(&[]);
+            broke |= events
+                .iter()
+                .any(|e| matches!(e, WorldEvent::ShieldBroken { who: 0 }));
+            if world.aboard.room.combat_quiet_for_probe() {
+                break;
+            }
+        }
+        if broke {
+            break;
+        }
+    }
+    assert!(broke, "the shield broke");
+    assert!(!world.is_shielding(0), "and went down");
+    // Already restoring, stowed, over the steps the bolt took to fly out.
+    let left = world.riot_shield_left(0);
+    assert!(left < 1.0, "{left} left");
+    assert_eq!(
+        world.can_riot_shield(0, true),
+        Err(Refusal::ShieldRecharging)
+    );
+    // Stowed, two a second at once: a quarter of twenty is five.
+    run_for(&mut world, 2.0);
+    assert!((world.riot_shield_left(0) - left - 4.0).abs() < 0.1);
+    assert_eq!(
+        world.can_riot_shield(0, true),
+        Err(Refusal::ShieldRecharging)
+    );
+    run_for(&mut world, 1.0);
+    assert_eq!(world.can_riot_shield(0, true), Ok(()), "a quarter back");
+    // Up and struck, nothing for five seconds; then two a second.
+    world.step(&[Command::RiotShield { slot: 0, on: true }]);
+    let now = world.mission_minutes();
+    world.tanks[0].shield_struck = Some(now);
+    let left = world.riot_shield_left(0);
+    run_for(&mut world, 4.5);
+    assert!(
+        (world.riot_shield_left(0) - left).abs() < 1e-4,
+        "held while struck lately"
+    );
+    run_for(&mut world, 2.5);
+    assert!(
+        world.riot_shield_left(0) > left + 2.0,
+        "restoring after five seconds"
+    );
+}
+
+// --- E: E, Reflect Barrier (task 155) ----------------------------------------------
 
 #[test]
-fn the_juggernaut_s_time_damage_taken_and_cooldown_go_by_its_rank() {
-    let want = [
-        (6.0, 0.50, 70.0),
-        (7.0, 0.40, 60.0),
-        (8.0, 0.35, 50.0),
-        (10.0, 0.30, 40.0),
-    ];
-    for (rank, &(seconds, taken, cooldown)) in (1..=4u8).zip(&want) {
-        let mut world = tank_at([0, 0, 0, rank]);
-        assert_eq!(world.juggernaut_seconds(0), seconds, "rank {rank}");
-        assert_eq!(world.juggernaut_cooldown(0), cooldown, "rank {rank}");
-        let events = world.step(&[Command::Juggernaut { slot: 0 }]);
+fn the_barrier_s_time_and_cooldown_go_by_its_rank_and_it_is_refused_as_it_should() {
+    let mut world = tank();
+    assert_eq!(world.set_class(1, Class::None), Ok(()));
+    world.step(&[]);
+    assert_eq!(world.can_reflect(0), Err(Refusal::NotLearnt));
+    assert_eq!(world.can_reflect(1), Err(Refusal::NotATank));
+    for (rank, (&seconds, &cooldown)) in
+        (1..=4u8).zip(class::REFLECT_SECONDS.iter().zip(&class::REFLECT_COOLDOWN))
+    {
+        let mut world = tank_at([0, 0, rank, 0]);
+        assert_eq!(world.reflect_seconds(0), seconds, "rank {rank}");
+        assert_eq!(world.reflect_cooldown(0), cooldown, "rank {rank}");
+        assert_eq!(world.skill_of(0).reflect, 0.0, "none until raised");
+        let events = world.step(&[Command::Reflect { slot: 0 }]);
         assert!(
             events
                 .iter()
-                .any(|e| matches!(e, WorldEvent::Juggernaut { who: 0 })),
+                .any(|e| matches!(e, WorldEvent::Reflecting { who: 0 })),
             "{events:?}"
         );
-        assert!(world.is_juggernaut(0));
-        assert_eq!(world.skill_of(0).damage_taken, taken, "rank {rank}");
-        assert_eq!(world.aboard.room.skill_for_probe(0).damage_taken, taken);
-        assert_eq!(world.skill_of(0).walk, 1.0, "his own pace");
-        assert!(refused_with(
-            &world.step(&[Command::Juggernaut { slot: 0 }]),
-            Refusal::AlreadyActive
-        ));
-        run_for(&mut world, seconds - 0.5);
-        assert!(world.is_juggernaut(0), "rank {rank}: still on");
-        run_for(&mut world, 1.0);
-        assert!(!world.is_juggernaut(0), "rank {rank}: over");
-        assert_eq!(world.skill_of(0).damage_taken, 1.0);
-        assert_eq!(world.can_juggernaut(0), Err(Refusal::CoolingDown));
-        let left = world.juggernaut_cooldown_left(0);
+        assert!(world.is_reflecting(0));
+        assert_eq!(world.skill_of(0).reflect, class::REFLECT_SHARE);
+        assert_eq!(
+            world.aboard.room.skill_for_probe(0).reflect,
+            class::REFLECT_SHARE
+        );
+        assert_eq!(world.can_reflect(0), Err(Refusal::AlreadyActive));
+        run_for(&mut world, seconds + 0.1);
+        assert!(!world.is_reflecting(0), "rank {rank}: over");
+        assert_eq!(world.skill_of(0).reflect, 0.0);
+        assert_eq!(world.can_reflect(0), Err(Refusal::CoolingDown));
+        run_for(&mut world, cooldown - seconds);
+        assert_eq!(world.can_reflect(0), Ok(()), "rank {rank}: ready again");
+    }
+    let mut world = tank_at([0, 0, 1, 0]);
+    world.aboard.room.kill_for_probe(0);
+    world.step(&[]);
+    assert_eq!(world.can_reflect(0), Err(Refusal::OutOfReach));
+}
+
+/// **What strikes him goes back**: a bolt and a blow landing on a tank
+/// behind his barrier take as much off the machine that struck as they
+/// took off him — and none without it.
+#[test]
+fn a_hit_on_a_reflecting_tank_goes_back_on_the_machine_that_struck_it() {
+    let run = |reflecting: bool| {
+        let mut world = tank_in_a_fight([0, 0, 1, 0], [Class::None, Class::None]);
+        hold_still(&mut world);
+        let residents = world.residents.as_ref().unwrap();
+        let shooter = residents.aboard.room.crew_count() as usize;
+        let machine = world
+            .aboard
+            .from_station(residents.aboard.position(shooter as u32))
+            .expect("on the joined deck");
+        let machine = vec2(machine.x as f32, machine.y as f32);
+        let life = |world: &World| {
+            let room = &world.residents.as_ref().unwrap().aboard.room;
+            room.droid(0).unwrap().body.life_share()
+        };
+        facing(&mut world, machine);
+        if reflecting {
+            world.step(&[Command::Reflect { slot: 0 }]);
+        }
+        let before = life(&world);
+        let landed = bolts_at_the_tank(&mut world, machine, 6, Some(shooter));
+        assert!(landed > 0, "the bolts land on him");
+        let after_bolts = life(&world);
+        // A blow, carried in from the machine's side.
+        let at = world.aboard.room.bim_pos(0);
+        let beside = at + (machine - at).normalize_or_zero() * TILE;
         assert!(
-            left > 0.0 && left <= cooldown - seconds + 1.0,
-            "rank {rank}: {left}"
+            world
+                .aboard
+                .room
+                .enemy_strike_by(beside, 0, 10.0, false, Some(shooter))
+        );
+        world.step(&[]);
+        (before, after_bolts, life(&world))
+    };
+    let (before, bolts, blow) = run(false);
+    assert_eq!(
+        (before, bolts, blow),
+        (before, before, before),
+        "none without it"
+    );
+    let (before, bolts, blow) = run(true);
+    assert!(bolts < before, "the bolts went back");
+    assert!(blow < bolts, "and the blow");
+}
+
+// --- F: R, Bastion (task 155) -------------------------------------------------------
+
+#[test]
+fn the_bastion_s_radius_and_cooldown_go_by_its_rank_and_it_is_refused_as_it_should() {
+    let mut world = tank();
+    assert_eq!(world.set_class(1, Class::None), Ok(()));
+    world.step(&[]);
+    assert_eq!(world.can_bastion(0), Err(Refusal::NotLearnt));
+    assert_eq!(world.can_bastion(1), Err(Refusal::NotATank));
+    for (rank, (&radius, &cooldown)) in
+        (1..=4u8).zip(class::BASTION_RADIUS.iter().zip(&class::BASTION_COOLDOWN))
+    {
+        let mut world = tank_at([0, 0, 0, rank]);
+        assert_eq!(world.bastion_radius(0), radius, "rank {rank}");
+        assert_eq!(world.bastion_cooldown(0), cooldown, "rank {rank}");
+        world.step(&[Command::Bastion { slot: 0 }]);
+        assert_eq!(
+            world.can_bastion(0),
+            Err(Refusal::CoolingDown),
+            "rank {rank}"
         );
     }
+    assert_eq!(class::BASTION_RADIUS[0], 6.0, "six tiles at the first");
 }
 
+/// **Every friend in reach gets a thousand that drains a hundred a
+/// second**: the tank and a crewmate beside him, not one twenty tiles
+/// off; a hit comes off it first; ten seconds and it is gone.
 #[test]
-fn the_juggernaut_is_refused_unlearnt_downed_and_to_the_others() {
-    let mut world = tank();
-    assert_eq!(world.set_class(1, Class::Soldier), Ok(()));
-    world.step(&[]);
-    assert!(refused_with(
-        &world.step(&[Command::Juggernaut { slot: 0 }]),
-        Refusal::NotLearnt
-    ));
-    assert!(refused_with(
-        &world.step(&[Command::Juggernaut { slot: 1 }]),
-        Refusal::NotATank
-    ));
-    ranks(&mut world, 0, [0, 0, 0, 1]);
-    world.aboard.room.knock_out_for_probe(0);
-    world.step(&[]);
-    assert_eq!(world.can_juggernaut(0), Err(Refusal::OutOfReach), "downed");
-    world.aboard.room.patch_up_for_probe(0);
-    world.step(&[]);
-    assert_eq!(world.can_juggernaut(0), Ok(()));
-}
-
-#[test]
-fn every_enemy_that_sees_a_juggernaut_shoots_him_at_any_distance() {
-    let mut world = tank_in_a_fight([0, 0, 0, 1], [Class::None, Class::None]);
-    world.step(&[Command::Juggernaut { slot: 0 }]);
-    let flags = handed(&world);
-    assert_eq!(flags[0], (f32::INFINITY, false), "any distance, no magnet");
-    assert!(flags[1..].iter().all(|&(r, _)| r == 0.0));
-    // And in the fight the nearer crewmate is shot at by nobody.
-    let (on_tank, on_mate, _) = who_is_shot(Some(Command::Juggernaut { slot: 0 }));
-    assert!(on_tank > 0);
-    assert_eq!(on_mate, 0, "him and nobody else");
-}
-
-#[test]
-fn a_juggernaut_walks_at_his_pace_or_the_wall_s_and_runs_beside_a_taunt() {
-    let mut world = tank_at([1, 0, 2, 1]);
-    world.step(&[Command::Juggernaut { slot: 0 }]);
-    assert_eq!(world.skill_of(0).walk, 1.0, "his own pace");
-    world.step(&[Command::Bulwark { slot: 0, on: true }]);
-    assert_eq!(
-        world.skill_of(0).walk,
-        class::BULWARK_PACE[1],
-        "the wall's pace"
-    );
-    // A taunt beside it, each on its own timer.
-    assert_eq!(world.can_taunt(0), Ok(()), "no bar to a taunt");
-    world.step(&[Command::Taunt { slot: 0 }]);
-    assert!(world.is_taunting(0) && world.is_juggernaut(0));
-    run_for(&mut world, class::TAUNT_SECONDS[0] + 0.5);
-    assert!(!world.is_taunting(0), "the taunt's three seconds are over");
-    assert!(world.is_juggernaut(0), "the Juggernaut's six are not");
-    run_for(
-        &mut world,
-        class::JUGGERNAUT_SECONDS[0] - class::TAUNT_SECONDS[0],
-    );
-    assert!(!world.is_juggernaut(0));
-}
-
-/// **A cloaked tank forces nothing**: a medic's cloak takes him off the
-/// enemy's list, and his taunt with him, until it runs out.
-#[test]
-fn a_taunt_or_a_juggernaut_on_a_cloaked_tank_forces_nothing() {
-    let mut world = tank_in_a_fight([1, 0, 0, 1], [Class::Medic, Class::None]);
-    ranks(&mut world, 1, [0, 0, 0, 1]);
+fn the_bastion_shields_every_friend_in_reach_and_drains_in_ten_seconds() {
+    let mut world = tank_at([0, 0, 0, 1]);
+    hold_still(&mut world);
     let at = world.aboard.room.bim_pos(0);
-    world.aboard.room.put_for_probe(1, at + vec2(TILE, 0.0));
-    world.step(&[Command::Juggernaut { slot: 0 }, Command::Taunt { slot: 0 }]);
-    assert_eq!(handed(&world)[0].0, f32::INFINITY);
-    let events = world.step(&[Command::Cloak { slot: 1, target: 0 }]);
+    let near = world.aboard.room.free_tiles_near(at, 3.0 * TILE);
+    let near = near.first().copied().expect("a tile beside him");
+    world.aboard.room.put_for_probe(1, near);
+    let far = (0..60)
+        .map(|i| at + vec2((i % 8) as f32 - 4.0, (i / 8) as f32 - 4.0) * (3.0 * TILE))
+        .find(|&p| (p - at).len() > 8.0 * TILE && world.aboard.room.is_deck_tile(p))
+        .expect("a deck tile far off");
+    world.aboard.room.put_for_probe(2, far);
+    let reached = world.bastion_reaching(0);
+    assert!(reached.contains(&0) && reached.contains(&1), "{reached:?}");
+    assert!(!reached.contains(&2), "{reached:?}");
+    let events = world.step(&[Command::Bastion { slot: 0 }]);
     assert!(
-        events
-            .iter()
-            .any(|e| matches!(e, WorldEvent::Cloaked { who: 1, target: 0 })),
+        events.iter().any(|e| matches!(
+            e,
+            WorldEvent::Bastion { who: 0, reached } if *reached as usize == 2
+        )),
         "{events:?}"
     );
-    world.step(&[]);
-    assert!(world.is_cloaked(0) && world.is_juggernaut(0));
-    assert_eq!(handed(&world)[0], (0.0, false), "no target, no forcing");
-    // And a cloaked tank starts nothing new (task 130's rule).
-    let mut other = tank_in_a_fight([0, 0, 0, 1], [Class::Medic, Class::None]);
-    ranks(&mut other, 1, [0, 0, 0, 1]);
-    let at = other.aboard.room.bim_pos(0);
-    other.aboard.room.put_for_probe(1, at + vec2(TILE, 0.0));
-    other.step(&[Command::Cloak { slot: 1, target: 0 }]);
-    assert!(refused_with(
-        &other.step(&[Command::Juggernaut { slot: 0 }]),
-        Refusal::Cloaked
-    ));
+    let shield = |world: &World, who: usize| world.aboard.room.shield_hp(who);
+    assert!(shield(&world, 0) > 990.0 && shield(&world, 1) > 990.0);
+    assert_eq!(shield(&world, 2), 0.0, "out of reach");
+    // A hit comes off the shield, not the body.
+    let health = world.aboard.room.health(1);
+    let left = shield(&world, 1);
+    world.aboard.room.wound(1, 50.0);
+    assert_eq!(world.aboard.room.health(1), health, "the body untouched");
+    assert!((left - shield(&world, 1) - 50.0).abs() < 1e-3);
+    // Five seconds: half of it drained.
+    for _ in 0..(5.0 / SECONDS_A_STEP).round() as u32 {
+        world.step(&[]);
+    }
+    assert!(
+        (shield(&world, 0) - 500.0).abs() < 5.0,
+        "{}",
+        shield(&world, 0)
+    );
+    for _ in 0..(5.5 / SECONDS_A_STEP).round() as u32 {
+        world.step(&[]);
+    }
+    assert_eq!(shield(&world, 0), 0.0, "gone in ten seconds");
+    assert_eq!(shield(&world, 1), 0.0);
+}
+
+/// **The Override Core's gift**: at the fifth rank everybody the Bastion
+/// reached walks half again as fast for its ten seconds; without the core
+/// nobody does.
+#[test]
+fn with_an_override_core_the_bastion_hastes_everybody_it_reached_for_ten_seconds() {
+    for core in [false, true] {
+        let mut world = tank_at([0, 0, 0, 4]);
+        hold_still(&mut world);
+        if core {
+            let mut gear = world.aboard.room.gear(0);
+            gear.items[0] = Some(bims::module::ModuleKind::OverrideCore.at(Tier::One));
+            world.aboard.room.issue(0, gear);
+        }
+        assert_eq!(
+            world.rank_of(0, class::SLOT_R),
+            if core { class::OVERRIDE_RANK } else { 4 }
+        );
+        let at = world.aboard.room.bim_pos(0);
+        world.aboard.room.put_for_probe(1, at + vec2(TILE, 0.0));
+        world.step(&[Command::Bastion { slot: 0 }]);
+        let want = if core { class::BASTION_HASTE } else { 1.0 };
+        assert_eq!(world.skill_of(0).walk, want, "core {core}: him");
+        assert_eq!(world.skill_of(1).walk, want, "core {core}: a crewmate");
+        run_for(&mut world, class::BASTION_SECONDS + 0.1);
+        assert_eq!(world.skill_of(1).walk, 1.0, "core {core}: over");
+    }
 }
 
 // --- G: the clocks ------------------------------------------------------------------
 
 #[test]
-fn the_taunt_and_the_juggernaut_are_ready_at_every_mission_and_shortened_by_the_relics() {
-    let mut world = tank_at([1, 0, 0, 1]);
-    let (taunt, jug) = (world.taunt_cooldown(0), world.juggernaut_cooldown(0));
+fn the_barrier_and_the_bastion_are_ready_at_every_mission_and_shortened_by_the_relics() {
+    let mut world = tank_at([1, 0, 1, 1]);
+    let (reflect, bastion) = (world.reflect_cooldown(0), world.bastion_cooldown(0));
     world.give_relic_for_probe(crate::relic::Relic::OverclockedCores);
-    assert!(world.taunt_cooldown(0) < taunt, "*Overclocked Cores*");
-    assert!(world.juggernaut_cooldown(0) < jug, "*Overclocked Cores*");
-    world.step(&[Command::Taunt { slot: 0 }, Command::Juggernaut { slot: 0 }]);
+    assert!(world.reflect_cooldown(0) < reflect, "*Overclocked Cores*");
+    assert!(world.bastion_cooldown(0) < bastion, "*Overclocked Cores*");
+    world.step(&[
+        Command::Reflect { slot: 0 },
+        Command::Bastion { slot: 0 },
+        Command::RiotShield { slot: 0, on: true },
+    ]);
+    world.tanks[0].shield_spent = 5.0;
     run_for(&mut world, 10.0);
-    let (taunt_left, jug_left) = (
-        world.taunt_cooldown_left(0),
-        world.juggernaut_cooldown_left(0),
+    let (reflect_left, bastion_left) = (
+        world.reflect_cooldown_left(0),
+        world.bastion_cooldown_left(0),
     );
-    assert!(taunt_left > 0.0 && jug_left > 0.0);
+    assert!(reflect_left > 0.0 && bastion_left > 0.0);
     // Seconds taken off (a *Reset Capacitor*'s way) both.
     world.cooldowns_less(0, 3.0);
-    assert!(world.taunt_cooldown_left(0) < taunt_left, "seconds off");
-    assert!(world.juggernaut_cooldown_left(0) < jug_left, "seconds off");
-    // Ready at every mission's start, whatever was left.
+    assert!(world.reflect_cooldown_left(0) < reflect_left, "seconds off");
+    assert!(world.bastion_cooldown_left(0) < bastion_left, "seconds off");
+    // Ready at every mission's start, whatever was left, the shield whole
+    // and down.
     next_mission(&mut world);
-    assert_eq!(world.taunt_cooldown_left(0), 0.0);
-    assert_eq!(world.juggernaut_cooldown_left(0), 0.0);
-    assert_eq!(world.can_taunt(0), Ok(()));
-    assert_eq!(world.can_juggernaut(0), Ok(()));
+    assert_eq!(world.reflect_cooldown_left(0), 0.0);
+    assert_eq!(world.bastion_cooldown_left(0), 0.0);
+    assert_eq!(world.can_reflect(0), Ok(()));
+    assert_eq!(world.can_bastion(0), Ok(()));
+    assert!(!world.is_shielding(0));
+    assert_eq!(world.riot_shield_left(0), world.riot_shield_hp(0));
 }
 
 // --- the seam ------------------------------------------------------------------------
 
 #[test]
-fn the_checksum_notices_a_wall_a_taunt_a_juggernaut_and_a_hit_taken() {
+fn the_checksum_notices_a_shield_a_barrier_a_bastion_and_a_hit_taken() {
     let base = || tank_at([1, 0, 1, 1]);
-    let plain = world_checksum(&base());
-    let mut walled = base();
-    walled.step(&[Command::Bulwark { slot: 0, on: true }]);
     let mut quiet = base();
     quiet.step(&[]);
-    assert_ne!(world_checksum(&walled), world_checksum(&quiet), "a wall");
-    let mut taunting = base();
-    taunting.step(&[Command::Taunt { slot: 0 }]);
-    assert_ne!(world_checksum(&taunting), world_checksum(&quiet), "a taunt");
-    let mut jug = base();
-    jug.step(&[Command::Juggernaut { slot: 0 }]);
-    assert_ne!(world_checksum(&jug), world_checksum(&quiet), "a Juggernaut");
-    assert_ne!(world_checksum(&jug), world_checksum(&taunting));
+    let mut shielded = base();
+    shielded.step(&[Command::RiotShield { slot: 0, on: true }]);
+    assert_ne!(
+        world_checksum(&shielded),
+        world_checksum(&quiet),
+        "a shield"
+    );
+    let mut spent = base();
+    spent.tanks[0].shield_spent = 3.0;
+    spent.step(&[]);
+    assert_ne!(
+        world_checksum(&spent),
+        world_checksum(&quiet),
+        "a shield struck"
+    );
+    let mut reflecting = base();
+    reflecting.step(&[Command::Reflect { slot: 0 }]);
+    assert_ne!(
+        world_checksum(&reflecting),
+        world_checksum(&quiet),
+        "a barrier"
+    );
+    let mut bastion = base();
+    bastion.step(&[Command::Bastion { slot: 0 }]);
+    assert_ne!(
+        world_checksum(&bastion),
+        world_checksum(&quiet),
+        "a Bastion"
+    );
+    assert_ne!(world_checksum(&bastion), world_checksum(&reflecting));
     let mut hit = base();
     let before = world_checksum(&hit);
     assert!(shoot_at(&mut hit, 0, 8) > 0);
     assert_ne!(world_checksum(&hit), before);
-    let _ = plain;
     // And a tank's kit is a resource nobody's hold moved.
     let mut none = basic();
     assert_eq!(none.set_class(0, Class::None), Ok(()));
@@ -967,19 +1024,21 @@ fn the_checksum_notices_a_wall_a_taunt_a_juggernaut_and_a_hit_taken() {
     let mut tanked = basic();
     assert_eq!(tanked.set_class(0, Class::Tank), Ok(()));
     tanked.step(&[]);
-    for resource in [ResourceId::Armour, ResourceId::Armour, ResourceId::Armour] {
-        assert_eq!(
-            none.ship.design.carrying(resource),
-            tanked.ship.design.carrying(resource),
-            "the tank's kit comes with him, not out of the hold"
-        );
-    }
-    // Two tanks' worth of the crew held still and shot at: the same
-    // fight twice.
+    assert_eq!(
+        none.ship.design.carrying(ResourceId::Armour),
+        tanked.ship.design.carrying(ResourceId::Armour),
+        "the tank's kit comes with him, not out of the hold"
+    );
+    // A tank shielded, reflecting and his Bastion thrown, shot at: the
+    // same fight twice.
     let run = || {
         let mut world = tank_at([2, 2, 2, 1]);
         hold_still(&mut world);
-        world.step(&[Command::Taunt { slot: 0 }, Command::Juggernaut { slot: 0 }]);
+        world.step(&[
+            Command::RiotShield { slot: 0, on: true },
+            Command::Reflect { slot: 0 },
+            Command::Bastion { slot: 0 },
+        ]);
         shoot_at(&mut world, 0, 4);
         world_checksum(&world)
     };

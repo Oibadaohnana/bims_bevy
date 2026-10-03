@@ -810,36 +810,6 @@ pub fn countdown_ring(
     painter.add(egui::Shape::line(points, egui::Stroke::new(width, DYING)));
 }
 
-/// A tank standing as a wall (feature 77): a thick arc of shield round
-/// the body out to the bulwark's reach, in the caution colour, so a
-/// wall up reads at a glance and reads differently from a surge's ring.
-pub fn wall_mark(painter: &egui::Painter, at: egui::Pos2, radius: f32, scale: f32) {
-    let radius = radius.max(6.0);
-    painter.circle_filled(at, radius, CAUTION.gamma_multiply(0.10));
-    painter.circle_stroke(
-        at,
-        radius,
-        egui::Stroke::new((3.0 * scale).clamp(1.5, 5.0), CAUTION.gamma_multiply(0.75)),
-    );
-}
-
-/// A tank's taunt while it runs (feature 77): the radius it reaches, a
-/// dashed ring in the warning colour — the enemy inside it is shooting
-/// at him.
-pub fn taunt_ring(painter: &egui::Painter, at: egui::Pos2, radius: f32) {
-    let radius = radius.max(8.0);
-    let steps = 48;
-    for i in (0..steps).step_by(2) {
-        let a = i as f32 / steps as f32 * std::f32::consts::TAU;
-        let b = (i + 1) as f32 / steps as f32 * std::f32::consts::TAU;
-        let p = |t: f32| egui::pos2(at.x + radius * t.cos(), at.y + radius * t.sin());
-        painter.line_segment(
-            [p(a), p(b)],
-            egui::Stroke::new(2.0, WARN.gamma_multiply(0.8)),
-        );
-    }
-}
-
 /// A Bim a cast of the commander's is **working on** (feature 86): a
 /// ring on the ground under it, in the caution colour, drawn while the
 /// pointer rests on the box for that cast. It is the panels' rule said
@@ -980,7 +950,7 @@ const REACH_FILL: f32 = 0.05;
 const REACH_RIM: f32 = 0.35;
 
 /// The burst a soldier is aiming a grenade at (feature 75), or an
-/// engineer an EMP: the radius round the tile under the pointer, in
+/// engineer a satchel charge (task 154): the radius round the tile under the pointer, in
 /// canvas pixels, a faint wash and a ring — the caution colour while the
 /// world would take the throw (walked out to or not), the warning one
 /// when it would refuse it.
@@ -1236,74 +1206,6 @@ pub const HIT_CRIT: egui::Color32 = egui::Color32::from_rgb(0xff, 0xc4, 0x2e);
 pub const REWARD_MONEY: egui::Color32 = egui::Color32::from_rgb(0xff, 0xd3, 0x4d);
 pub const REWARD_XP: egui::Color32 = egui::Color32::from_rgb(0x6c, 0xb6, 0xff);
 
-/// A tank standing as a wall, on the tank itself (feature 91): a small
-/// shield over its head in the wall's own caution colour, inside the
-/// ring [`wall_mark`] draws at the bulwark's reach — the ring says how
-/// far the wall covers, and the shield says *which body is holding it*,
-/// which the ring alone cannot when two tanks stand near each other.
-/// The shape is [`defend_banner`]'s, small and without its ground ring:
-/// a shield is a shield wherever it is drawn.
-pub fn bulwark_shield(painter: &egui::Painter, at: egui::Pos2, scale: f32) {
-    let h = (15.0 * scale).clamp(7.0, 21.0);
-    let w = h * 0.68;
-    let lift = (0.55 * NAME_LIFT * scale).clamp(8.0, 30.0);
-    let foot = egui::pos2(at.x, at.y - lift);
-    let stroke = egui::Stroke::new((1.6 * scale).clamp(1.0, 2.4), CAUTION);
-    let top = foot.y - h;
-    let mid = foot.y - h * 0.34;
-    painter.add(egui::Shape::convex_polygon(
-        vec![
-            egui::pos2(foot.x - w * 0.5, top),
-            egui::pos2(foot.x + w * 0.5, top),
-            egui::pos2(foot.x + w * 0.42, mid),
-            egui::pos2(foot.x, foot.y - h * 0.06),
-            egui::pos2(foot.x - w * 0.42, mid),
-        ],
-        CAUTION.gamma_multiply(0.40),
-        stroke,
-    ));
-    painter.line_segment(
-        [
-            egui::pos2(foot.x - w * 0.34, foot.y - h * 0.72),
-            egui::pos2(foot.x + w * 0.34, foot.y - h * 0.72),
-        ],
-        egui::Stroke::new(stroke.width * 0.8, CAUTION),
-    );
-}
-
-/// A tank taunting, on the tank itself (feature 91): rings thrown off
-/// the body in the warning colour, swelling outwards and fading as they
-/// go — a shout, drawn where the body is rather than at the taunt's
-/// reach, which is what [`taunt_ring`]'s dashes say. The two are told
-/// apart by size and by motion: this one is small and moving, that one
-/// wide and still.
-///
-/// `phase` is seconds; the rings cycle on it, so nothing is kept between
-/// frames. No facing: a shout goes every way at once, which is also why
-/// a taunt pulls whoever is round him rather than whoever is in front.
-pub fn taunt_shout(painter: &egui::Painter, at: egui::Pos2, scale: f32, phase: f32) {
-    let near = (12.0 * scale).clamp(5.0, 16.0);
-    let far = near * 2.4;
-    let rings = 2;
-    for i in 0..rings {
-        // Each ring a half-cycle behind the last, so one is always on
-        // its way out as the next leaves the body.
-        let t = (phase / TAUNT_PULSE + i as f32 / rings as f32).fract();
-        let r = near + (far - near) * t;
-        painter.circle_stroke(
-            at,
-            r,
-            egui::Stroke::new(
-                (2.0 * scale).clamp(1.0, 3.0),
-                WARN.gamma_multiply(0.8 * (1.0 - t)),
-            ),
-        );
-    }
-}
-
-/// Seconds one of a taunt's rings takes to travel out from the body.
-const TAUNT_PULSE: f32 = 0.9;
-
 /// The commander **calling** a rally, on the commander himself (feature
 /// 91): two chevrons over his head in the crew's own colour — the
 /// [`rallied_mark`]'s one chevron said twice, so the caller reads
@@ -1335,65 +1237,101 @@ pub fn rally_call(painter: &egui::Painter, at: egui::Pos2, scale: f32) {
 /// kit that is no side's.
 pub const BATTLE_CRY: egui::Color32 = egui::Color32::from_rgb(0xff, 0xc8, 0x3c);
 
-/// The pale blue of a medic's cloak (task 130): the room's own shimmer,
-/// `character::CLOAK_SHIMMER`, so the box, the ring and the body agree.
-pub const CLOAK: egui::Color32 = egui::Color32::from_rgb(0xb3, 0xd9, 0xff);
-
-/// A Nanite Burst set off, on the deck (task 130): a short green ring
-/// running out from the medic to the burst's reach, `t` nought to one
-/// through its run, fading as it goes — the Battle Cry's ring in the
-/// beam's colour.
-pub fn nanite_burst_ring(painter: &egui::Painter, at: egui::Pos2, reach: f32, t: f32) {
-    let t = t.clamp(0.0, 1.0);
-    let fade = 1.0 - t;
-    painter.circle_stroke(
-        at,
-        (reach * t).max(4.0),
-        egui::Stroke::new(1.0 + 2.5 * fade, HEAL.gamma_multiply(0.25 + 0.75 * fade)),
-    );
-}
-
-/// A medic's Healing Aura (task 130): the radius round him, faint, in
-/// the beam's green, with a wash inside it.
-pub fn healing_aura_ring(painter: &egui::Painter, at: egui::Pos2, radius: f32) {
-    let radius = radius.max(8.0);
-    painter.circle_filled(at, radius, HEAL.gamma_multiply(0.04));
+/// A medic's Healing Circle on (task 153), round him on the deck: a soft
+/// green floor, a ring of short dashes turning slowly along its rim, and
+/// a second ring breathing in and out a little inside it — so a circle
+/// on reads at a glance, and its edge is plain to stand inside. `t` is
+/// the window's clock in seconds, for the turn and the breath.
+pub fn healing_circle(painter: &egui::Painter, at: egui::Pos2, radius: f32, t: f32) {
+    let radius = radius.max(10.0);
+    painter.circle_filled(at, radius, HEAL.gamma_multiply(0.07));
+    painter.circle_filled(at, radius * 0.6, HEAL.gamma_multiply(0.04));
+    let width = (radius * 0.02).clamp(1.2, 3.0);
     painter.circle_stroke(
         at,
         radius,
-        egui::Stroke::new(1.0, HEAL.gamma_multiply(0.30)),
+        egui::Stroke::new(width * 3.0, HEAL.gamma_multiply(0.10)),
+    );
+    let tau = std::f32::consts::TAU;
+    let dashes = 24;
+    let turn = t * 0.35;
+    for i in 0..dashes {
+        let a0 = turn + tau * i as f32 / dashes as f32;
+        let a1 = a0 + tau / dashes as f32 * 0.55;
+        let points: Vec<egui::Pos2> = (0..=4)
+            .map(|j| {
+                let a = a0 + (a1 - a0) * j as f32 / 4.0;
+                at + egui::vec2(a.cos(), a.sin()) * radius
+            })
+            .collect();
+        painter.add(egui::Shape::line(
+            points,
+            egui::Stroke::new(width, HEAL.gamma_multiply(0.85)),
+        ));
+    }
+    let breath = 0.5 + 0.5 * (t * 2.4).sin();
+    painter.circle_stroke(
+        at,
+        radius * (0.82 + 0.06 * breath),
+        egui::Stroke::new(width * 0.7, HEAL.gamma_multiply(0.18 + 0.22 * breath)),
     );
 }
 
-/// How long a cloak has left, under the Bim it covers (task 130): a thin
-/// pale ring emptying clockwise from twelve o'clock, `share` one when it
-/// was cast and nought as it ends. For the crew only — the enemy never
-/// sees it.
-pub fn cloak_ring(painter: &egui::Painter, at: egui::Pos2, scale: f32, share: f32) {
-    let radius = (22.0 * scale).clamp(8.0, 30.0);
-    let width = (1.5 * scale).clamp(1.0, 2.2);
-    painter.circle_stroke(
-        at,
-        radius,
-        egui::Stroke::new(width, CLOAK.gamma_multiply(0.18)),
+/// A medic's Heal Drone in the air (task 153): a little quadcopter seen
+/// from above — four rotor discs, a body with a green cross — bobbing on
+/// its light, its glow under it, and a thin ring round it emptying as its
+/// time runs out (`share` one when dropped, nought as it goes). `t` is
+/// the window's clock in seconds, for the bob and the rotors' shimmer.
+pub fn heal_drone(painter: &egui::Painter, at: egui::Pos2, scale: f32, t: f32, share: f32) {
+    let size = (9.0 * scale).clamp(5.0, 14.0);
+    let at = at + egui::vec2(0.0, -size * 1.4 + (t * 3.1).sin() * size * 0.15);
+    painter.circle_filled(at, size * 2.2, HEAL.gamma_multiply(0.10));
+    let body = egui::Color32::from_rgb(0x2a, 0x3a, 0x34);
+    let arm = (size * 0.18).max(1.0);
+    for (dx, dy) in [(-1.0, -1.0), (1.0, -1.0), (-1.0, 1.0), (1.0, 1.0)] {
+        let rotor = at + egui::vec2(dx, dy) * size * 0.85;
+        painter.line_segment([at, rotor], egui::Stroke::new(arm, body));
+        let shimmer = 0.35 + 0.25 * (t * 40.0 + dx * 1.3 + dy * 2.1).sin().abs();
+        painter.circle_filled(rotor, size * 0.55, HEAL.gamma_multiply(shimmer * 0.5));
+        painter.circle_stroke(
+            rotor,
+            size * 0.55,
+            egui::Stroke::new(arm * 0.6, HEAL.gamma_multiply(0.7)),
+        );
+    }
+    painter.rect_filled(
+        egui::Rect::from_center_size(at, egui::vec2(size * 0.9, size * 0.9)),
+        size * 0.2,
+        body,
+    );
+    let bar = size * 0.16;
+    painter.rect_filled(
+        egui::Rect::from_center_size(at, egui::vec2(size * 0.62, bar)),
+        0.0,
+        HEAL,
+    );
+    painter.rect_filled(
+        egui::Rect::from_center_size(at, egui::vec2(bar, size * 0.62)),
+        0.0,
+        HEAL,
     );
     let share = share.clamp(0.0, 1.0);
-    if share <= 0.0 {
-        return;
+    if share > 0.0 {
+        let tau = std::f32::consts::TAU;
+        let radius = size * 1.7;
+        let start = -tau / 4.0;
+        let steps = ((40.0 * share).ceil() as usize).max(2);
+        let points: Vec<egui::Pos2> = (0..=steps)
+            .map(|i| {
+                let a = start + share * tau * i as f32 / steps as f32;
+                at + egui::vec2(a.cos(), a.sin()) * radius
+            })
+            .collect();
+        painter.add(egui::Shape::line(
+            points,
+            egui::Stroke::new((1.2 * scale).clamp(1.0, 2.0), HEAL.gamma_multiply(0.55)),
+        ));
     }
-    let tau = std::f32::consts::TAU;
-    let start = -tau / 4.0 + (1.0 - share) * tau;
-    let steps = ((48.0 * share).ceil() as usize).max(2);
-    let points: Vec<egui::Pos2> = (0..=steps)
-        .map(|i| {
-            let a = start + share * tau * i as f32 / steps as f32;
-            at + egui::vec2(a.cos(), a.sin()) * radius
-        })
-        .collect();
-    painter.add(egui::Shape::line(
-        points,
-        egui::Stroke::new(width, CLOAK.gamma_multiply(0.8)),
-    ));
 }
 
 /// A Battle Cry called, on the deck (task 129): a short gold ring
@@ -1432,32 +1370,5 @@ pub fn reinforcement_mark(
     painter.line_segment(
         [egui::pos2(at.x, y + w * 0.8), egui::pos2(at.x + w, y)],
         stroke,
-    );
-}
-
-/// The dark red of a tank's Juggernaut (task 139): the outline round his
-/// body while it runs and the mark in its box, darker than the attack's
-/// red so it reads as a weight rather than a shot.
-pub const JUGGERNAUT: egui::Color32 = egui::Color32::from_rgb(0x9a, 0x12, 0x12);
-
-/// A tank's Juggernaut on the tank himself (task 139): a dark red outline
-/// hugging the body, doubled and breathing slowly on `phase` (seconds) so
-/// it is told from a selection ring at a glance. Drawn where the body is,
-/// at the body's own size off the zoom.
-pub fn juggernaut_outline(painter: &egui::Painter, at: egui::Pos2, scale: f32, phase: f32) {
-    let r = (21.0 * scale).clamp(8.0, 32.0);
-    let breath = 0.5 + 0.5 * (phase * std::f32::consts::TAU / 1.4).sin();
-    painter.circle_stroke(
-        at,
-        r,
-        egui::Stroke::new((3.2 * scale).clamp(2.0, 5.0), JUGGERNAUT),
-    );
-    painter.circle_stroke(
-        at,
-        r + (3.0 * scale).clamp(2.0, 4.5),
-        egui::Stroke::new(
-            (1.4 * scale).clamp(1.0, 2.2),
-            JUGGERNAUT.gamma_multiply(0.35 + 0.45 * breath),
-        ),
     );
 }

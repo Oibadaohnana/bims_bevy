@@ -1611,9 +1611,7 @@ const SACK_DARK: Color = Color::rgb(0.46, 0.41, 0.28);
 
 /// A tile of sandbags: three courses of rounded bags, each course
 /// staggered half a bag on the one below, over a dark ground so the
-/// seams read, and a rope tie across the top course. The engineer's
-/// laid sandbags are drawn with it too (`world_paint::deployables`), as
-/// a part stood on the tile.
+/// seams read, and a rope tie across the top course.
 pub(crate) fn sandbags(list: &mut DrawList, part: &PlacedPart) {
     let (local, across, along) = Local::of(part);
     let (w, h) = (across - 8.0, along - 8.0);
@@ -1649,6 +1647,125 @@ pub(crate) fn sandbags(list: &mut DrawList, part: &PlacedPart) {
         0.0,
         SACK_DARK,
     );
+}
+
+// --- the engineer's mines and satchel charges (task 154) -----------------------
+
+/// A mine's casing and its dark rim, and the red of an armed light.
+const MINE_CASING: Color = Color::rgb(0.30, 0.32, 0.26);
+const MINE_DARK: Color = Color::rgb(0.14, 0.15, 0.12);
+const ARMED_RED: Color = Color::rgb(1.0, 0.22, 0.16);
+/// A satchel's canvas and its strap.
+const SATCHEL: Color = Color::rgb(0.42, 0.33, 0.20);
+const SATCHEL_STRAP: Color = Color::rgb(0.22, 0.17, 0.11);
+
+/// A mine on its tile (task 154): a squat disc low on the deck, three
+/// pressure prongs on top and its armed light — small, so it reads as a
+/// thing on the floor and not a fixture.
+pub(crate) fn mine(list: &mut DrawList, part: &PlacedPart) {
+    let (local, across, along) = Local::of(part);
+    let side = across.min(along);
+    local.push(
+        list,
+        KIND_ELLIPSE,
+        0.0,
+        0.0,
+        side * 0.52,
+        side * 0.52,
+        0.0,
+        0.0,
+        MINE_DARK,
+    );
+    local.push(
+        list,
+        KIND_ELLIPSE,
+        0.0,
+        0.0,
+        side * 0.42,
+        side * 0.42,
+        0.0,
+        0.0,
+        MINE_CASING,
+    );
+    for u in [-0.09, 0.0, 0.09] {
+        local.push(
+            list,
+            KIND_ELLIPSE,
+            u * side,
+            -0.04 * side,
+            side * 0.06,
+            side * 0.06,
+            0.0,
+            0.0,
+            MINE_DARK,
+        );
+    }
+    local.push(
+        list,
+        KIND_ELLIPSE,
+        0.0,
+        side * 0.10,
+        side * 0.09,
+        side * 0.09,
+        0.0,
+        0.0,
+        ARMED_RED.glowing(1.4),
+    );
+}
+
+/// `count` satchel charges on one tile (task 154): canvas packs with a
+/// strap and a lit detonator, each one stacked a little up and to the
+/// left of the one before, the first four drawn.
+pub(crate) fn satchels(list: &mut DrawList, part: &PlacedPart, count: u32) {
+    let (local, across, along) = Local::of(part);
+    let side = across.min(along);
+    for n in 0..count.min(4) {
+        let (u, v) = (-(n as f32) * side * 0.08, -(n as f32) * side * 0.10);
+        local.push(
+            list,
+            KIND_RECT,
+            u,
+            v,
+            side * 0.56,
+            side * 0.42,
+            4.0,
+            0.0,
+            SATCHEL_STRAP,
+        );
+        local.push(
+            list,
+            KIND_RECT,
+            u,
+            v,
+            side * 0.50,
+            side * 0.36,
+            4.0,
+            0.0,
+            SATCHEL,
+        );
+        local.push(
+            list,
+            KIND_RECT,
+            u,
+            v - side * 0.10,
+            side * 0.50,
+            side * 0.08,
+            0.0,
+            0.0,
+            SATCHEL_STRAP,
+        );
+        local.push(
+            list,
+            KIND_ELLIPSE,
+            u + side * 0.14,
+            v + side * 0.06,
+            side * 0.08,
+            side * 0.08,
+            0.0,
+            0.0,
+            ARMED_RED.glowing(1.4),
+        );
+    }
 }
 
 // --- the engineer's sentries (feature 74, task 127) -----------------------------

@@ -254,20 +254,13 @@ fn design_tile(world: &World, at: Vec2) -> (u32, u32) {
     )
 }
 
-/// Sandbags laid on a room tile of the ship, the way an engineer's
-/// finish would lay them, without the engineer.
-fn lay_bags(world: &mut World, at: Vec2) -> u32 {
-    let id = world.next_deployable;
-    world.next_deployable += 1;
-    world.deployables.push(Deployable {
-        id,
-        kind: DeployKind::Sandbags,
-        owner_slot: 1,
-        deck: Deck::Ship,
-        tile: design_tile(world, at),
-        health: class::SANDBAG_HEALTH[0],
-    });
-    id
+/// Low cover laid on the room tile a point is the middle of: the room's
+/// own laid cover, which an engineer's sandbags were until task 154 took
+/// them away and nothing of the world's lays now.
+fn lay_bags(world: &mut World, at: Vec2) {
+    let mut laid = world.aboard.room.laid_cover().to_vec();
+    laid.push(bims::math::Rect::from_center_size(at, vec2(TILE, TILE)));
+    world.aboard.room.set_laid_cover(&laid);
 }
 
 // --- A: a class owns abilities, never jobs or money --------------------------
@@ -354,7 +347,7 @@ fn every_class_equips_every_weapon_takes_every_errand_and_places_every_site() {
     // the whole of what a class refuses.
     let tile = tile_of(world.aboard.room.bim_pos(1));
     assert_eq!(
-        world.can_deploy(1, DeployKind::Sandbags, tile),
+        world.can_deploy(1, DeployKind::Mine, tile),
         Err(Refusal::NotAnEngineer)
     );
     assert_eq!(world.can_throw(0, tile), Err(Refusal::NotASoldier));
@@ -379,7 +372,7 @@ fn the_starting_pool_is_the_same_for_any_mix_of_classes_and_each_has_its_kit() {
         assert_eq!(world.money, money, "{a:?} and {b:?}: the same pool");
     }
     // The soldier's kit: a basic auto rifle in hand, the pistol into
-    // the armory (task 113), and grenades by its rank; the engineer keeps its own sandbag kits; and
+    // the armory (task 113), and grenades by its rank; the engineer keeps its own mines; and
     // a class put back to none is the plain start again.
     assert_eq!(world.set_class(0, Class::Soldier), Ok(()));
     assert_eq!(
@@ -402,8 +395,8 @@ fn the_starting_pool_is_the_same_for_any_mix_of_classes_and_each_has_its_kit() {
     assert_eq!(grenades(&world, 0), 1, "put in hand with the rank");
     assert_eq!(world.set_class(1, Class::Engineer), Ok(()));
     assert_eq!(
-        world.charges_of(1, Charge::Sandbag),
-        world.charges(1, Charge::Sandbag)
+        world.charges_of(1, Charge::Mine),
+        world.charges(1, Charge::Mine)
     );
     assert_eq!(grenades(&world, 1), 0);
     assert_eq!(world.set_class(0, Class::None), Ok(()));
@@ -419,7 +412,7 @@ fn the_starting_pool_is_the_same_for_any_mix_of_classes_and_each_has_its_kit() {
     assert_eq!(grenades(&world, 0), 0);
     // And straight from one class to the other swaps the kits.
     assert_eq!(world.set_class(1, Class::Soldier), Ok(()));
-    assert_eq!(world.charges_of(1, Charge::Sandbag), 0);
+    assert_eq!(world.charges_of(1, Charge::Mine), 0);
     assert_eq!(grenades(&world, 1), 0, "not before a rank");
     assert_eq!(
         world.aboard.room.weapon(1),
@@ -894,17 +887,17 @@ fn armour_takes_its_share_of_a_burst_and_the_parts_are_as_they_were() {
 }
 
 #[test]
-fn a_burst_hurts_the_thrower_a_crewmate_and_a_sentry_and_blows_the_sandbags_up() {
+fn a_burst_hurts_the_thrower_a_crewmate_and_a_sentry_and_blows_the_cover_up() {
     let mut world = soldier();
     ranks(&mut world, 0, [2, 0, 1, 0]);
     world.aboard.room.issue(1, Gear::default());
     let run = open_run(&world, 0, 3);
     // The crewmate on the second tile of the run, held there, a sentry
-    // on the third, sandbags on the first, and the grenade at the
+    // on the third, laid cover on the first, and the grenade at the
     // crewmate's feet: all of it within the radius.
     let mate = world.aboard.room.put_for_probe(1, middle(run[1]));
     world.aboard.room.recruit_for_probe(1, true);
-    let bags = lay_bags(&mut world, middle(run[0]));
+    lay_bags(&mut world, middle(run[0]));
     let sentry = world.next_deployable;
     world.next_deployable += 1;
     world.deployables.push(Deployable {
@@ -927,21 +920,19 @@ fn a_burst_hurts_the_thrower_a_crewmate_and_a_sentry_and_blows_the_sandbags_up()
             .iter()
             .any(|e| matches!(e, WorldEvent::Thrown { who: 0 }))
     );
-    let mut lost = false;
     for _ in 0..2_000 {
-        let events = world.step(&[]);
-        if events.iter().any(|e| {
-            matches!(e, WorldEvent::DeployableLost { kind } if *kind == DeployKind::Sandbags.code())
-        }) {
-            lost = true;
-        }
+        world.step(&[]);
         if world.aboard.room.grenades().is_empty() {
             break;
         }
     }
-    assert!(lost, "the sandbags were blown up");
-    assert!(world.deployable(bags).is_none());
-    assert!(world.aboard.room.laid_cover().is_empty());
+    // The laid cover the burst reached is said to be blown (the room's
+    // own word; nothing of the world's is laid there since task 154).
+    assert_eq!(
+        world.aboard.room.take_bags_blown(),
+        vec![tile_of(middle(run[0]))],
+        "the cover was blown up"
+    );
     // The thrower, a tile off, and the crewmate at the centre — each
     // where it stood when the grenade went off.
     let burst = middle(run[1]);
@@ -1585,7 +1576,7 @@ fn throw_target(world: &World, lo: f32, hi: f32, why: Refusal) -> (i32, i32) {
 fn throw_at(world: &mut World, tile: (i32, i32)) -> Vec<WorldEvent> {
     world.step(&[Command::ThrowAt {
         slot: 0,
-        emp: false,
+        satchel: false,
         x: tile.0,
         y: tile.1,
     }])

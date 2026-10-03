@@ -172,6 +172,12 @@ impl Lamp {
     pub fn is_failing(&self) -> bool {
         !self.is_out() && self.health <= LAMP_HEALTH * LAMP_FAILING
     }
+
+    /// Whether it is flickering now: hit a moment ago, or one of a
+    /// failing lamp's flickers. What the picture spits sparks off.
+    pub fn is_flickering(&self) -> bool {
+        !self.is_dark() && self.flicker > 0.0
+    }
 }
 
 /// A pseudo-random unit number from a lamp's index and a slot of time:

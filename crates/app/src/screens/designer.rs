@@ -145,8 +145,8 @@ pub enum Order {
     /// The player's class chosen or changed while playing, until the
     /// first undock — `Command::SetClass` (feature 74).
     SetClass(world::Class),
-    /// The engineer sent to lay sandbags or a Healing Sentry on a room
-    /// tile — `Command::Deploy`, the E and C keys over the deck.
+    /// The engineer sent to lay a mine or a Healing Sentry on a room
+    /// tile — `Command::Deploy`, the Q and C keys over the deck.
     Deploy {
         kind: world::DeployKind,
         x: i32,
@@ -158,13 +158,10 @@ pub enum Order {
         x: i32,
         y: i32,
     },
-    /// The engineer's EMP thrown at a room tile — `Command::Emp`, the Q
-    /// key over the deck (task 127).
-    Emp {
-        x: i32,
-        y: i32,
-    },
-    /// Sandbags or a Healing Sentry taken back up, the charge back —
+    /// The engineer's remote trigger: every satchel of his set off —
+    /// `Command::Detonate`, the Space key (task 154).
+    Detonate,
+    /// A mine or a Healing Sentry taken back up, the charge back —
     /// `Command::PackUp`.
     PackUp(u32),
     /// The soldier's Stun Shot charged at a room tile —
@@ -179,11 +176,12 @@ pub enum Order {
         x: i32,
         y: i32,
     },
-    /// A grenade, or with `emp` an EMP, thrown at a room tile the Bim
-    /// walks out to reach where it must — `Command::ThrowAt`, the click
-    /// after the armed Q key.
+    /// A grenade, or with `satchel` an engineer's satchel charge, thrown
+    /// at a room tile the Bim walks out to reach where it must —
+    /// `Command::ThrowAt`, the click after the armed Q (or the engineer's
+    /// E) key, or the key let go.
     ThrowAt {
-        emp: bool,
+        satchel: bool,
         x: i32,
         y: i32,
     },
@@ -197,20 +195,19 @@ pub enum Order {
     /// The medic's heal beam linked to a crew member, or unlinked —
     /// `Command::Beam`, the E key over one (feature 76).
     Beam(Option<u32>),
-    /// The medic's Nanite Burst — `Command::NaniteBurst`, the Q key
-    /// (task 130).
-    NaniteBurst,
-    /// The medic's Cloak on a crew member — `Command::Cloak`, the R key
-    /// over one, or over nobody for himself (task 130).
-    Cloak(u32),
-    /// The tank stood as a wall, or stood down — `Command::Bulwark`, the
-    /// E key (feature 77).
-    Bulwark(bool),
-    /// The tank's taunt — `Command::Taunt`, the Q key.
-    Taunt,
-    /// The tank's Juggernaut — `Command::Juggernaut`, the R key (task
-    /// 139).
-    Juggernaut,
+    /// The medic's Heal Drone — `Command::HealDrone`, the Q key (task
+    /// 153).
+    HealDrone,
+    /// The medic's Healing Circle switched on or off —
+    /// `Command::HealingCircle`, the R key (task 153).
+    HealingCircle(bool),
+    /// The tank's Riot Shield raised or put down — `Command::RiotShield`,
+    /// the Q key (task 155).
+    RiotShield(bool),
+    /// The tank's Reflect Barrier — `Command::Reflect`, the E key.
+    Reflect,
+    /// The tank's Bastion — `Command::Bastion`, the R key.
+    Bastion,
     /// The commander's rally — `Command::Rally`, the E key (task 129).
     Rally,
     /// The commander's Battle Cry — `Command::BattleCry`, the Q key (task
@@ -496,19 +493,24 @@ impl Net {
                         Order::SetClass(class) => Command::SetClass { slot, class },
                         Order::Deploy { kind, x, y } => Command::Deploy { slot, kind, x, y },
                         Order::Sentry { x, y } => Command::Sentry { slot, tile: (x, y) },
-                        Order::Emp { x, y } => Command::Emp { slot, x, y },
+                        Order::Detonate => Command::Detonate { slot },
                         Order::PackUp(id) => Command::PackUp { slot, id },
                         Order::StunShot { x, y } => Command::StunShot { slot, x, y },
                         Order::Throw { x, y } => Command::Throw { slot, x, y },
-                        Order::ThrowAt { emp, x, y } => Command::ThrowAt { slot, emp, x, y },
+                        Order::ThrowAt { satchel, x, y } => Command::ThrowAt {
+                            slot,
+                            satchel,
+                            x,
+                            y,
+                        },
                         Order::Rampage => Command::Rampage { slot },
                         Order::RankUp { ability_slot } => Command::RankUp { slot, ability_slot },
                         Order::Beam(patient) => Command::Beam { slot, patient },
-                        Order::NaniteBurst => Command::NaniteBurst { slot },
-                        Order::Cloak(target) => Command::Cloak { slot, target },
-                        Order::Bulwark(on) => Command::Bulwark { slot, on },
-                        Order::Taunt => Command::Taunt { slot },
-                        Order::Juggernaut => Command::Juggernaut { slot },
+                        Order::HealDrone => Command::HealDrone { slot },
+                        Order::HealingCircle(on) => Command::HealingCircle { slot, on },
+                        Order::RiotShield(on) => Command::RiotShield { slot, on },
+                        Order::Reflect => Command::Reflect { slot },
+                        Order::Bastion => Command::Bastion { slot },
                         Order::Rally => Command::Rally { slot },
                         Order::BattleCry => Command::BattleCry { slot },
                         Order::Reinforce => Command::Reinforce { slot },

@@ -13,7 +13,8 @@ at every place is a **mission**, which is where the shooting is. **Time
 and money are the only resources**: a trip costs days, and the machines
 spread a hop every five of them; a machine destroyed pays a bounty, and
 the bounty buys guns, armour, hands for hire and the dead back. The run
-is over when every player's Bim is dead at once.
+is over when every player's Bim is dead at once, or the moment the
+whole crew, bots too, is down or dead.
 
 **You steer your own Bim** — WASD walk it, the pointer aims it and the
 left button fires; Shift sprints (1.8 times the walk, firing
@@ -79,7 +80,7 @@ What a run is, from the lobby to the end of it.
 - **Money and gear.** A station's desk sells guns and armour at every
   tier, where the place has the trade, and nothing the ship lives on — no
   food, no suits and no medicine, which are everybody's charges anyway —
-  and nothing is built onto the ship but a class's sandbags and sentries.
+  and nothing is built onto the ship but a class's mines and sentries.
   The money comes from the Republic's bounty on every machine destroyed,
   and it goes on gear, on hands for hire and on buying the dead back.
   The workbench and the drug lab work as they always did; research is
@@ -192,7 +193,9 @@ there is no helm to stand at and no trip to sit through.
   never lost. A bot that dies or is left behind — a hired hand, a
   townsperson who joined — is gone for good but **costs nothing**: only a
   player's Bim is paid for. **Its gun and armour go into the
-  armory**. **The run is over when every player's Bim is dead at once**: a screen says
+  armory**. **The run is over when every player's Bim is dead at once** — or at once
+  when every player and every bot is down or dead, nobody left to revive
+  anybody: a screen says
   so, with the day, and its *Start again* puts the run back to where it
   opened.
 
@@ -267,7 +270,7 @@ the four two by two at the right of the abilities, each with its key
 | **Blink Drive** | Active (its key): the Bim put where the pointer is, as far as the drive reaches, on ground it can see and walk to. Not within 3 s of a hit | 6 / 8 / 10 tiles, 14 / 12 / 10 s cooldown | 9 000 / 15 750 / 27 000 |
 | **Executioner** | Weapon hits may be critical. Rolls on its own beside a soldier's Weak Spot — either may come up, and the bigger multiple counts | 12% ×1.6 / 18% ×1.9 / 25% ×2.25 | 11 250 / 20 250 / 36 000 |
 | **Reactor Heart** | More health, and regeneration — faster after 6 s without a hit | +25 / +40 / +60 HP; 0.5 / 1 / 1 HP/s, 1.5 / 3 / 5 HP/s quiet | 9 000 / 18 000 / 31 500 |
-| **Override Core** | The class's ultimate plays **one rank higher** than bought (a rank must be bought), up to a **fifth** rank no skill point buys: the Sentry two at once, the Rampage every grenade back, the Cloak everybody within 3 tiles of the target, the Juggernaut nothing takes him down, the Reinforcements five in armour — and every number a step on | one tier | 27 000 |
+| **Override Core** | The class's ultimate plays **one rank higher** than bought (a rank must be bought), up to a **fifth** rank no skill point buys: the Sentry two at once, the Rampage every grenade back, the medic all his healing ×1.5, the Bastion a tile wider and everybody it reached half again as fast, the Reinforcements five in armour — and every number a step on | one tier | 27 000 |
 | **Coolant Loop** | Class ability cooldowns shorter; several add, to −50% at most | −10 / 15 / 20% | 6 750 / 13 500 / 22 500 |
 | **Pressure Seal** | Health back all the time, hit or not | 0.5 / 1 / 1.5 HP/s | 4 500 / 9 000 / 15 750 |
 | **Steady Grip** | The trigger pulled faster | +10 / 15 / 20% fire rate | 6 750 / 13 500 / 22 500 |
@@ -426,8 +429,8 @@ are furniture. What the crew own is two things:
   piece of armour nobody is wearing — and the **research keys**, counted
   the moment one is picked up.
 - **Each Bim's loadout**: a weapon and a piece for the head, the body and
-  the legs. That is everything a Bim carries. A class's EMPs, Healing
-  Sentries, sandbags and grenades are **charges**, a count the world
+  the legs. That is everything a Bim carries. A class's mines, Healing
+  Sentries, satchels and grenades are **charges**, a count the world
   keeps for the Bim (task 127), set back to what its ranks give at every
   mission and coming back on their cooldowns during one.
 
@@ -1300,7 +1303,7 @@ of the old game (feature 104): nobody is dosed out there any more.
 
 ### Building, aboard
 
-> **Off in a run** (feature 102, [A run](#a-run)): nothing is built onto the ship but a class's sandbags and
+> **Off in a run** (feature 102, [A run](#a-run)): nothing is built onto the ship but a class's mines and
 > sentries, and the Build tab is not shown.
 
 The ship goes on being built after the design phase — by the crew, paid
@@ -1485,10 +1488,10 @@ one — so a start is rarely far from somewhere to go.
 ### Speed, and who decides
 
 **1×, or paused, and nothing else** (task 119): a minute of the game's
-clock is a real second. **Space** pauses and sets the world going again,
-and **1** sets it going; there are no buttons for either since the HUD was
-cut down (feature 107), and the top frame says **Paused** while the world
-is. **A pause by any player is a pause for everybody**, and the world runs
+clock is a real second. The **Esc** sheet's **Pause** button pauses and
+its **Resume** sets the world going again, and **`** sets it going too;
+**Space** paused until it became the engineer's remote trigger (task
+154). The top frame says **Paused** while the world is. **A pause by any player is a pause for everybody**, and the world runs
 again only once every pause is lifted: the player who needs it stopped is
 the player something is going wrong for. Travel on the world map still
 puts its whole length on the clock in one go.
@@ -1694,7 +1697,7 @@ window says so at the top before it says what they carry. A field medic
 is hired for its trade and not for its gun: **four thousand a month** on
 top of the kit, and for it you get somebody whose whole business in a
 fight is your crew. It has **none of a medic's own skills** — no beam,
-no burst, no cloak, no class at all — and what it does instead is this:
+no drone, no circle, no class at all — and what it does instead is this:
 
 * it keeps to the **far end of its weapon's reach** and shoots from
   there, so it is still standing when somebody needs fetching;
@@ -1982,8 +1985,7 @@ one thing in the arms at a time, from the lockers to the bench and back.
   from the front, the ±60° its plate covers, flaring where it stops one.
   The shield cannot be broken, but a grenade's burst is not stopped by
   it, and the arc is marked faintly on the deck under it: **get round
-  it**. It turns to face the nearest crew member it sees — a tank's
-  taunt turns it — no faster than 75° a second, and walks in the open,
+  it**. It turns to face the nearest crew member it sees no faster than 75° a second, and walks in the open,
   the shield being its cover. Its weapon is the **Sweeper**, a beam: when
   it has a crew member in front of it, it **plants its feet and winds
   up** for a second and a fifth — its heading fixed, so that is the
@@ -2117,9 +2119,9 @@ every job, takes every errand, places every site and uses every weapon,
 and every one brings the same money to the pool, whatever its class. A
 class only adds its own two keys and its talents, which nobody else can
 use: **Q** is the class's first action and **E** its second, whichever
-class you steer — an engineer's EMP and sandbags, a soldier's grenade
-and Stun Shot, a medic's Nanite Burst and heal beam, a tank's taunt and
-wall, a commander's rally and attack order — and both are rebindable on
+class you steer — an engineer's mine and satchel charge, a soldier's grenade
+and Stun Shot, a medic's Heal Drone and heal beam, a tank's Riot Shield and
+Reflect Barrier, a commander's rally and attack order — and both are rebindable on
 the Controls page as one pair,
 not one a class. They are the first and third of **four ability slots**,
 **Q C E R** (task 123); **C** and **R** are empty for every class for now,
@@ -2196,30 +2198,31 @@ key, a **Ctrl-click** on its box, or the Skills tab's **Learn** button.
 Q, C and E take a rank at levels 1, 3, 5 and 7; R, the ultimate, at 6,
 9, 12 and 15. An engineer at rank nought of an ability has none of it.
 
-**Charges, never kits.** The EMP, the Healing Sentry and the sandbags
-are **charges**: a count the world keeps for the engineer, set by the
-ranks, and each spent one coming back on its own cooldown. Nothing is
-crafted, fetched or carried, and no kit lies in anybody's pack. Laying
-takes the charge only when the work is done; a hit on the engineer while
-it lays sandbags or a Healing Sentry stops the laying and the charge is
-kept. The **Nearby** strip's row beside sandbags or a Healing Sentry
-**packs it up** — the charge back, never more than its charges. Nothing
-laid is anybody's experience.
+**Charges, never kits.** The mines, the Healing Sentry and the satchel
+charges are **charges**: a count the world keeps for the engineer, set
+by the ranks, and each spent one coming back on its own cooldown.
+Nothing is crafted, fetched or carried, and no kit lies in anybody's
+pack. Laying takes the charge only when the work is done; a hit on the
+engineer while it lays a mine or a Healing Sentry stops the laying and
+the charge is kept. The **Nearby** strip's row beside a mine or a
+Healing Sentry **packs it up** — the charge back, never more than its
+charges. Nothing laid is anybody's experience. The sandbags and the EMP
+were the engineer's E and Q until task 154.
 
-**Q, EMP.** Thrown like a grenade — the same range, a two-second fuse,
-walls and shut doors in the way stop it. It harms nothing: every enemy
-machine within its radius is **stunned** — it neither moves, turns, aims
-nor fires, whatever it had begun is dropped, and a Guardian's shield
-stops nothing while it lasts. It flickers pale blue until the stun ends.
-A second stun takes the longer of the two. The Machine Heart, the
-Manufacturers' people and the crew's own sentries are never stunned.
+**Q, Mine.** Laid on the deck tile under the pointer in a second. It
+lies there, small and dark with a red light, until an **enemy** — a
+machine or one of the Manufacturers, never the crew — comes **within a
+tile** of it; then it goes off: every enemy in its blast with a clear
+line takes its damage, full at the centre and half at the edge, halved
+again in cover. It never touches the crew or their sentries. Lay one
+past the standing limit and the oldest is taken up.
 
-| rank | radius | stun | charges | back after |
-| --- | --- | --- | --- | --- |
-| 1 | 2 tiles | 1.5 s | 1 | 30 s |
-| 2 | 2.5 tiles | 2 s | 2 | 30 s |
-| 3 | 2.5 tiles | 2.5 s | 2 | 25 s |
-| 4 | 3 tiles | 3 s | 2 | 20 s — and a machine it stuns takes +25% from everyone while the stun lasts |
+| rank | damage | blast | charges | laid at once | back after |
+| --- | --- | --- | --- | --- | --- |
+| 1 | 80 | 1.5 tiles | 2 | 4 | 25 s |
+| 2 | 100 | 1.5 tiles | 3 | 6 | 22 s |
+| 3 | 120 | 2 tiles | 3 | 6 | 20 s |
+| 4 | 150 | 2 tiles | 4 | 8 | 18 s |
 
 **C, Healing Sentry.** A sentry with no barrel, laid on a deck tile:
 every step it heals every crewmate on their feet within its radius and
@@ -2227,45 +2230,50 @@ in its sight, up to a full bar, at a share of the medic's beam — a thin
 green line runs to each it heals. It never heals an enemy and never
 revives a downed crewmate; two reaching one crewmate do not add up, the
 better one counts. The enemy shoots at it like a sentry. Its charges are
-how many may stand: one more laid takes down the oldest.
+how many may stand: one more laid takes down the oldest. Its health was
+doubled in task 154.
 
 | rank | heals (× the beam) | radius | health | laying | charges | back after |
 | --- | --- | --- | --- | --- | --- | --- |
-| 1 | ×0.5 | 3 tiles | 60 | 6 min | 1 | 60 s |
-| 2 | ×0.75 | 4 tiles | 80 | 6 min | 1 | 60 s |
-| 3 | ×1 | 4 tiles | 100 | 4 min | 1 | 50 s |
-| 4 | ×1.25 | 5 tiles | 120 | 4 min | 1 | 40 s |
+| 1 | ×0.5 | 3 tiles | 120 | 6 min | 1 | 60 s |
+| 2 | ×0.75 | 4 tiles | 160 | 6 min | 1 | 60 s |
+| 3 | ×1 | 4 tiles | 200 | 4 min | 1 | 50 s |
+| 4 | ×1.25 | 5 tiles | 240 | 4 min | 1 | 40 s |
 
-**E, Sandbags.** Cover exactly as the part is, in both rooms of a docked
-fight — the enemy duck behind them too — taking every bolt a body dodges
-behind them and gone at nothing; a grenade's burst destroys them. No
-limit on how many stand.
+**E, Satchel Charge.** Thrown like a grenade — a **quick throw**:
+holding `E` draws the reach (8 tiles) and the blast's ring, letting it
+go throws at the pointer, walking out first where it must. Two
+charges at every rank. A satchel lies where it lands — **several may lie
+on one tile**, stacked — until the **remote trigger, Space**, sets off
+every satchel of yours at once, each its own blast on the enemy alone:
+three stacked on a tile hit three times. Nothing else sets one off, and
+it is never packed up.
 
-| rank | charges | health | laying | back after | |
-| --- | --- | --- | --- | --- | --- |
-| 1 | 2 | 150 | 4 min | 45 s | |
-| 2 | 3 | 200 | 4 min | 45 s | |
-| 3 | 3 | 250 | 2 min | 40 s | |
-| 4 | 4 | 250 | 2 min | 35 s | one charge lays two tiles — the second on the first free neighbour north, east, south, west |
+| rank | damage | blast | charges | back after |
+| --- | --- | --- | --- | --- |
+| 1 | 90 | 2 tiles | 2 | 30 s |
+| 2 | 120 | 2.5 tiles | 2 | 27 s |
+| 3 | 150 | 2.5 tiles | 2 | 24 s |
+| 4 | 180 | 3 tiles | 2 | 20 s |
 
-**R, Sentry (the ultimate).** A minigun on a stand, drawn larger, with a
-thin ring round its tile emptying as its time runs down. The engineer
-works three minutes beside the tile and **a hit does not stop it**. One
-stands at a time; it fires at the nearest enemy it can see, the enemy
-shoot at it, and it is gone when its time runs out, when it is shot to
-pieces or when the ship leaves the site. It cannot be packed up. The
-cooldown starts when it is laid, runs on the mission clock, and it is
-ready at every mission's start.
+**R, Sentry (the ultimate).** A minigun on a stand, drawn larger. The
+engineer works three minutes beside the tile and **a hit does not stop
+it**. One stands at a time (two with an Override Core); it fires at the
+nearest enemy it can see, five tiles further than a minigun, the enemy
+shoot at it, and it stands until it is shot to pieces or the ship leaves
+the site. It cannot be packed up. The cooldown starts when it is laid,
+runs on the mission clock, and it is ready at every mission's start. Its
+health was doubled in task 154, when the sandbags went.
 
-| rank | weapon | fire rate | health | stands | cooldown |
-| --- | --- | --- | --- | --- | --- |
-| 1 | minigun, tier 2 | ×1 | 200 | 30 s | 150 s |
-| 2 | minigun, tier 3 | ×1 | 250 | 35 s | 140 s |
-| 3 | minigun, tier 3 | ×1.5 | 300 | 40 s | 130 s |
-| 4 | minigun, tier 3 | ×2 | 400 | 45 s | 120 s |
+| rank | weapon | fire rate | health | cooldown |
+| --- | --- | --- | --- | --- |
+| 1 | minigun, tier 2 | ×1 | 400 | 150 s |
+| 2 | minigun, tier 3 | ×1 | 500 | 140 s |
+| 3 | minigun, tier 3 | ×1.5 | 600 | 130 s |
+| 4 | minigun, tier 3 | ×2 | 800 | 120 s |
 
-On the ship's deck sandbags and a Healing Sentry stay wherever the ship
-goes; on a station's deck they are lost when the ship leaves.
+On the ship's deck mines, satchels and a Healing Sentry stay wherever
+the ship goes; on a station's deck they are lost when the ship leaves.
 
 ### The soldier
 
@@ -2287,11 +2295,10 @@ the pointer, within **8 tiles** with nothing opaque between (walls and
 shut doors stop a throw; sandbags do not): a **quick throw** — holding
 `Q` draws the reach and the burst's radius, letting it go throws at the
 pointer (a click throws sooner; a right-click or `Esc` takes it back; the
-EMP is the same). **2 seconds** later it bursts on everything within the radius
+engineer's satchel on `E` is the same). **2 seconds** later it bursts on everything within the radius
 with a line to it — every crew member, hire and enemy alike, the thrower
 included — full damage at the centre falling to half at the edge, halved
-again in cover from the burst's side; a sentry in it takes the same, and
-laid sandbags are destroyed. A grenade is a **charge**: it comes back on
+again in cover from the burst's side; a sentry in it takes the same. A grenade is a **charge**: it comes back on
 its own cooldown, and nobody makes, sells or buys one.
 
 | rank | damage | radius | charges | cooldown a charge |
@@ -2353,83 +2360,93 @@ move its cooldown as they do every class ability's. Its box glows while it runs.
 
 ### The medic
 
-The third class (feature 76), a **ranked kit** since task 130: four
-abilities, **four ranks each, bought with a skill point a level**, the
-soldier's way — sixteen levels, Q, C and E ranking up at levels 1, 3, 5
-and 7 and the ultimate R at 6, 9, 12 and 15. A medic sets out with the
-**laser pistol** in hand as everybody does. Its experience is
-everybody's: healing earns nothing (task 119). There is no surge any
-more.
+The third class (feature 76), a **ranked kit** since task 130 and
+**reworked by task 153**: four abilities, **four ranks each, bought with
+a skill point a level**, the soldier's way — sixteen levels, Q, C and E
+ranking up at levels 1, 3, 5 and 7 and the ultimate R at 6, 9, 12 and
+15. A medic sets out with the **laser pistol** in hand as everybody
+does. Its experience is everybody's: healing earns nothing (task 119).
 
 **Two base traits**, whatever his ranks: he **revives in four seconds**
 where anybody else takes ten, and the crewmate he gets up stands at
 **40%** of its bar where anybody else's gets up at 30%.
 
-**Q, Nanite Burst** (active, cooldown): every friendly Bim on its feet
-near him — himself included — **and in his sight** is healed at once; a
-wall stops it, and it revives nobody downed.
+**Every heal he gives** — the link, the drone, the circle — is lifted by
+his **Triage** on the Bim healed, and by half as much again (**×1.5**)
+while he carries an **Override Core**: that item's gift to a medic,
+whatever rank his circle is at. A revive is no heal and takes neither.
 
-| rank | heal | radius | cooldown |
+**Q, Heal Drone** (active, cooldown): a little drone dropped at his
+feet flies — **over walls**, it flies — to the friendly Bim on its feet
+**lowest on its bar** (by share; the medic himself counts), hovers over
+it and heals it slowly. When that one is whole, down or gone it picks
+the next lowest; with nobody hurt it keeps by him. One drone a medic.
+It is drawn as a small quadcopter with a green cross, a thin line down
+to the Bim it heals and a ring round it emptying as its time runs out.
+
+| rank | heal a second | lasts | cooldown |
 | --- | --- | --- | --- |
-| 1 | 30 HP | 4 tiles | 25 s |
-| 2 | 40 HP | 4 tiles | 22 s |
-| 3 | 50 HP | 5 tiles | 20 s |
-| 4 | 60 HP | 6 tiles | 18 s |
+| 1 | 1.5 HP | 8 s | 25 s |
+| 2 | 2 HP | 10 s | 22 s |
+| 3 | 2.5 HP | 12 s | 20 s |
+| 4 | 3 HP | 14 s | 18 s |
 
-**C, Healing Aura** (passive): every friendly Bim within its radius of a
-medic on his feet, himself included, takes more from **every heal** —
-the beam, the burst, a Healing Sentry, a relic. Where the healed Bim
-stands is what counts, not where the heal comes from; two medics reaching
-one Bim, the stronger holds; a revive is not a heal.
+**C, Triage** (passive): his heals are stronger **the less health their
+target has left** — the full bonus on a Bim near nothing, half of it at
+half a bar, none on a whole one.
 
-| rank | healing received | radius |
+| rank | at an empty bar | at half a bar |
 | --- | --- | --- |
-| 1 | ×1.15 | 5 tiles |
-| 2 | ×1.20 | 6 tiles |
-| 3 | ×1.25 | 7 tiles |
-| 4 | ×1.30 | 8 tiles |
+| 1 | ×1.25 | ×1.125 |
+| 2 | ×1.40 | ×1.20 |
+| 3 | ×1.55 | ×1.275 |
+| 4 | ×1.70 | ×1.35 |
 
-**E, Heal Beam** (toggle), on the crew member under the pointer — a
-player's Bim, a bot, a mercenary, or **the medic itself** — never an
-enemy, within its range and in the medic's line of sight. Pressed on the
-one it already holds, or on nothing, it unlinks. A downed patient gets
-nothing back: it wants reviving. The beam breaks when the patient leaves
-the range or the medic's sight, dies or leaves the room; when the medic
-goes down, is cloaked, is ordered to an errand — a plain walk keeps it —
-or unlinks. A line in the beam's green is drawn between the two on the
-deck (a ring round a medic beaming itself), and the crew panel says who
-is held.
+**E, Heal Beam** — the **link** (toggle), on the crew member under the
+pointer — a player's Bim, a bot, a mercenary, or **the medic itself** —
+never an enemy, within its range and in the medic's line of sight.
+Pressed on the one it already holds, or on nothing, it unlinks. **He
+keeps shooting at his full rate while linked**, and **the link heals him
+as well** — as much as it gives a patient, once however many he holds,
+and once when the patient is himself. A downed patient gets nothing
+back: it wants reviving. The beam breaks when the patient leaves the
+range or the medic's sight, dies or leaves the room; when the medic goes
+down, is ordered to an errand — a plain walk keeps it — or unlinks. A
+line in the beam's green is drawn between the two on the deck (a ring
+round a medic beaming itself), and the crew panel says who is held.
 
-| rank | a second at 1× | range | patients | fires while beaming |
-| --- | --- | --- | --- | --- |
-| 1 | 2 HP | 6 tiles | 1 | no |
-| 2 | 3 HP | 7 tiles | 1 | no |
-| 3 | 4 HP | 8 tiles | 1 | yes, at half the fire rate |
-| 4 | 5 HP | 9 tiles | 2, each at the full rate | yes, at half the fire rate |
-
-**R, Cloak** (the ultimate, cooldown): the friendly Bim under the
-pointer — downed or not, within 8 tiles and in his sight — or, with
-nobody there, **himself**. While it lasts **no enemy picks it**, and one
-aiming at it lets it go the same step; an enemy left with nobody it may
-pick holds where it stands and fires nothing. A cloaked Bim **fires
-nothing and uses no ability** — a medic cloaking himself lets his beam
-go — but walks, faster, and may still revive a crewmate. What targets
-nobody still hits it: a Guardian's sweep, a burst. A downed Bim's
-countdown keeps running under a cloak. Cloaked again, it keeps the longer
-of the two times, never both added. It is drawn faint with a shimmer,
-and a thin ring under it — the crew's alone — empties as its time runs
-out.
-
-| rank | lasts | move speed | cooldown |
+| rank | a second at 1× | range | patients |
 | --- | --- | --- | --- |
-| 1 | 6 s | ×1.10 | 60 s |
-| 2 | 7 s | ×1.15 | 55 s |
-| 3 | 8 s | ×1.20 | 50 s |
-| 4 | 10 s | ×1.25 | 45 s |
+| 1 | 2 HP | 6 tiles | 1 |
+| 2 | 3 HP | 7 tiles | 1 |
+| 3 | 4 HP | 8 tiles | 1 |
+| 4 | 5 HP | 9 tiles | 2, each at the full rate |
 
-The Nanite Burst and the Cloak are ready at every mission's start, run on
-the mission clock (stopped while paused) and are shortened by the
-cooldown relics like every class cooldown.
+**R, Healing Circle** (the ultimate, a **toggle**): switched on, every
+friendly Bim on its feet within its radius of him and in his sight
+(walls block) — not himself — heals at **the link's rate**, his E rank's
+(the first's before he has one), lifted by his Triage. **He pays for
+it**: he loses as much health as a Bim in it is healed for, every second
+it is on, whoever stands in it — leave it on too long and it **downs
+him**, which switches it off. Every enemy standing in it **burns at half
+the rate**, a pulse every half second. So a medic at E rank two heals
+the crew round him 3 HP a second, loses 3 a second himself and burns
+the machines in it for 1.5. His link on himself, or on a crewmate, heals
+him back: that is how a medic holds his circle up for long. On the deck
+it is a soft green floor with a turning ring of light at its rim, motes
+welling up all over it, the mending rising off every Bim it heals and
+embers off every enemy it burns.
+
+| rank | radius |
+| --- | --- |
+| 1 | 3 tiles |
+| 2 | 3.5 tiles |
+| 3 | 4 tiles |
+| 4 | 4.5 tiles |
+
+The Heal Drone is ready at every mission's start, runs on the mission
+clock (stopped while paused) and is shortened by the cooldown relics like
+every class cooldown; every mission starts with the circle off.
 
 **The carry** is `H` (it was `G` until the held revive took that key), or the *Carry* row of the right-click menu on a downed crewmate, which walks the medic over first, from the first level and with no rank behind it
 (feature 86): a **downed** crewmate under the pointer picked up into the
@@ -2441,55 +2458,76 @@ let go the moment either of the two goes down.
 
 ### The tank
 
-The fourth class (feature 77): a wall the crew stand behind, and the
-enemy's fire drawn onto himself. A tank sets out with the laser pistol
-everybody does and a basic **helm, kevlar and leg guards** on — his kit
-comes with him and costs the hold nothing. His experience is
-everybody's: being shot at earns nothing (task 119).
+The fourth class (feature 77), a **ranked kit** since task 139 and
+reworked by task 155: a shield that bounces the enemy's shots back at
+them, a barrier that hits back whoever hits him, and a shield thrown
+over the whole crew. A tank sets out with the laser pistol everybody
+does and a tier-one **armour** on — his kit comes with him and costs
+the hold nothing. His experience is everybody's (task 119).
 
 **His armour drains at half rate.** A piece's protection comes off a hit
 as it does for anybody, and what gets past it drains the piece at half
-the rate, so the same kevlar absorbs twice as much on him before it
-breaks — a kevlar with 20 left takes 40 on a tank and 20 on anyone else,
-and what the piece cannot take reaches the body exactly as before. The
-piece's stored health is never doubled: it moves between crew members
-unchanged.
+the rate, so the same armour absorbs twice as much on him before it
+breaks. The piece's stored health is never doubled: it moves between
+crew members unchanged.
 
-**Bulwark** is `E`, from the first level: a toggle. With the wall up he
-walks at **half pace**, and a crew member within **1.5 tiles** of him
-that he stands between and the shooter — nearer the shooter than the
-target is, and within 1.5 tiles of the line the shot travels — is **in
-cover** against it and dodges it half the time, exactly as behind
-sandbags. It is his own side's shelter and nobody else's: an enemy never
-takes cover behind him. A ring of shield round him says the wall is up,
-and the crew panel says so. It ends when `E` is pressed again or when he
-goes down.
+**Q, Riot Shield** (toggle): a flat plate of cold light held up in front
+of him, facing wherever he faces. A shot that meets it **from the
+front** is stopped there — nothing reaches him — its damage comes off
+the shield's hit points, and it is **bounced back**: it leaves the plate
+as his own shot, at the angle it came in (head on, straight back at the
+shooter), and hurts whatever enemy it reaches. From the side or behind
+the shield is nothing. It mends **2 a second** while put away, and while
+held up **5 seconds** after the last hit on it; at nothing it **breaks**,
+goes down, and cannot be raised again until a quarter of it is back. It
+flickers when it is low, and goes down with him.
 
-**Taunt** is `Q`, from the third level. For **6 minutes** every enemy
-within **10 tiles** that can see him, with him inside its weapon's
-reach, fires at **him** before any nearer target; melee chargers are
-unmoved by it until *magnet*. The next taunt waits **20 seconds** of the
-clock from the last. A dashed ring in the warning colour shows how far
-it reaches while it runs, and the crew panel counts the minutes left and
-then the cooldown.
+| rank | hit points |
+| --- | --- |
+| 1 | 20 |
+| 2 | 40 |
+| 3 | 80 |
+| 4 | 100 |
 
-| level | left | right |
+**C, Plated** (passive): every hit on him is cut before the armour takes
+its share, and his health mends all the time.
+
+| rank | damage taken | mends | extra |
+| --- | --- | --- | --- |
+| 1 | ×0.90 | 0.2 hp/s | — |
+| 2 | ×0.85 | 0.8 hp/s | — |
+| 3 | ×0.80 | 1.4 hp/s | — |
+| 4 | ×0.75 | 2.0 hp/s | armour drain ×0.5 again, a quarter in all |
+
+**E, Reflect Barrier** (active, cooldown): for its seconds every enemy
+hit on him — a shot, a Sweeper's beam, a blow — is dealt back, as much
+again, to whoever struck him, as his own hit. He still takes it. A
+ring of amber thorns turns round him while it runs.
+
+| rank | lasts | cooldown |
 | --- | --- | --- |
-| 1 | **Bulwark**; armour drains at half rate on him | — |
-| 2 | **Plated** — armour protection ×1.5 on him, given outright | — |
-| 3 | **Taunt** — may use it | — |
-| 4 | **Breacher** — forces locked doors in half the time | *Unmovable* — no effect for now (task 120) |
-| 5 | **Wide wall** — bulwark reach ×2 | **Fast wall** — bulwark pace ×1.5 |
-| 6 | **Loud taunt** — taunt radius ×1.5 | **Long taunt** — a taunt lasts ×1.5 |
-| 7 | **Iron frame** — a hit rolled on his head lands on his body | — |
-| 8 | *Hold fast* — no effect for now (task 120) | **Guarded** — dodge +10% while the wall is up |
-| 9 | **Interpose** — a bolt that would hit somebody the wall shelters hits him | **Magnet** — a taunt turns every charging blade within its reach toward him |
-| 10 | **Fortress** — armour drain ×0.5 again, a quarter in all | **Rallying wall** — while he taunts, every crew member within 3 tiles drains armour at half rate too |
+| 1 | 3 s | 20 s |
+| 2 | 4 s | 18 s |
+| 3 | 5 s | 16 s |
+| 4 | 6 s | 14 s |
 
-Every talent applies to the tank who holds it alone, *rallying wall*
-being the one that reaches past him. *Interpose* resolves the redirected
-bolt against him as a fresh hit, armour and all; one he slips is gone rather than rerolled onto the crew
-member he shielded.
+**R, Bastion** (ultimate, cooldown): every friend on their feet within
+its radius — himself, the players and the bots — gets a shield of
+**1000** hit points that **drains 100 a second**, so ten seconds at most;
+a hit comes off it before anything else. With an **Override Core** (the
+fifth rank) everybody it reached also walks **half again as fast** for
+those ten seconds.
+
+| rank | radius | cooldown |
+| --- | --- | --- |
+| 1 | 6 tiles | 70 s |
+| 2 | 7 tiles | 60 s |
+| 3 | 8 tiles | 50 s |
+| 4 | 9 tiles | 40 s |
+
+The cooldowns run on the mission clock, stop while paused, are ready at
+every mission's start — the shield whole and down — and are shortened
+by the cooldown relics and items as every class cooldown is.
 
 ### The commander
 
@@ -2721,7 +2759,7 @@ overlapping is allowed the whole apparatus has nothing left to do.
 | Hold `g` | Standing close to a downed crewmate (two and a half tiles): your own Bim **gets the nearest back up** while the key is held, and stops if you let go first. A green bar over the body fills with the revive |
 | `F1` | Select the Bim you steer and put it in the middle of the view |
 | `l` | Recruit it, or let it go — see below |
-| `q` / `c` / `e` / `r` | The steered crew member's four **ability slots** (task 123). `q` and `e` are the **class actions**: an engineer **throws an EMP** at the deck tile under the pointer / **lays sandbags** there, and its `c` **lays a Healing Sentry** and its `r`, the ultimate, **lays its sentry** (task 127); a soldier **throws a grenade** at it (hold `q` to see the reach and the burst's radius, let go to throw) / **charges a Stun Shot** at the pointer, two seconds planted before it fires, and its `c` is **Weak Spot** (passive, nothing to press) and its `r` goes on a **Rampage**; a medic **sets off a Nanite Burst** / **beams the crew member under the pointer**, and unlinks when pressed on the one it holds or on nobody, and its `r`, the ultimate, **cloaks** the crew member under the pointer, or itself with the pointer on nobody (task 130); a tank **taunts** / **puts its wall up**, or takes it down — see [Classes and levels](#classes-and-levels). `c` and `r` are empty only for the tank now. The log says why not; nothing with a classless crew member |
+| `q` / `c` / `e` / `r` | The steered crew member's four **ability slots** (task 123). `q` and `e` are the **class actions**: an engineer **lays a mine** on the deck tile under the pointer / **throws a satchel charge** at it (hold `e` to aim, let go to throw; **Space** sets them all off), and its `c` **lays a Healing Sentry** and its `r`, the ultimate, **lays its sentry** (task 154); a soldier **throws a grenade** at it (hold `q` to see the reach and the burst's radius, let go to throw) / **charges a Stun Shot** at the pointer, two seconds planted before it fires, and its `c` is **Weak Spot** (passive, nothing to press) and its `r` goes on a **Rampage**; a medic **drops a Heal Drone** / **beams the crew member under the pointer**, and unlinks when pressed on the one it holds or on nobody, its `c` is **Triage** (passive) and its `r`, the ultimate, **switches its Healing Circle on or off** (task 153); a tank **raises its Riot Shield** or puts it down / **raises its Reflect Barrier**, its `c` is **Plated** (passive) and its `r`, the ultimate, **throws the Bastion** over the crew round it (task 155) — see [Classes and levels](#classes-and-levels). The log says why not; nothing with a classless crew member |
 | **Ctrl** + a slot's key, or **Ctrl-click** its box | **Ranks that ability up** rather than using it, for a skill point: the soldier's four abilities (task 124). It follows whatever key the slot is bound to |
 | **WASD**, middle-drag, or the pointer against the window's edge | Pan the view — the deck, or the galaxy chart. The edge scroll's speed is on the Esc sheet's first page (0 turns it off) |
 | `f` | **Attack-move**: the pointer turns into a red crosshair, and the next click on the deck sends the Bim you steer there with its weapon out. It stops to shoot whatever comes into its sights on the way and walks on once nothing is left — Dota's attack-move. `f` again, `Esc` or a right-click puts the crosshair away |
@@ -2738,7 +2776,8 @@ overlapping is allowed the whole apparatus has nothing left to do.
 | Tray, bottom left | **Work** — which jobs come first; **Management** — what the crew keep doing of their own accord; **Inventory**, **Research** and **Skills**; on the ship, **Build** — lay parts out for the crew to build, where the shipyard is on |
 | Point at anything | Top left says what it is |
 | Point at a row that names a place | The place is ringed on the deck |
-| **Space**, **1** | Pause and set going again; set going. The world runs at 1× or not at all |
+| **Space** | The engineer's **remote trigger**: every satchel charge he has thrown goes off at once (task 154). Nothing for any other class |
+| **Esc** → **Pause** / **Resume**, **`** | Pause and set going again; set going. The world runs at 1× or not at all |
 | Rest on an underlined word or a ? | It explains itself, after a third of a second |
 
 Nothing on the page explains itself in prose any more. The explanations are in

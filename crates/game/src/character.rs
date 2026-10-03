@@ -185,6 +185,16 @@ pub const SURGE: Color = Color::rgb(0.55, 0.95, 0.75);
 pub const SHIELD: Color = Color::rgb(0.45, 0.75, 1.0);
 /// How many plates the ring is cut into.
 const SHIELD_PLATES: usize = 12;
+/// A tank's Riot Shield (task 155): a flat plate of cold light held out
+/// in front, its core past white so the bloom takes it, and its edge.
+pub const RIOT_SHIELD: Color = Color::rgb(0.40, 0.85, 1.0);
+const RIOT_SHIELD_CORE: Color = Color::rgb(0.80, 0.97, 1.0);
+/// Below this share of its hit points the plate flickers.
+const RIOT_SHIELD_LOW: f32 = 0.3;
+/// A tank's Reflect Barrier (task 155): a hot amber ring of thorns round
+/// the body, turning, for as long as what strikes him goes back.
+pub const REFLECT_BARRIER: Color = Color::rgb(1.0, 0.62, 0.22);
+const REFLECT_THORNS: usize = 10;
 /// How opaque a body under a medic's cloak is drawn (task 130), and the
 /// cool shimmer over it.
 pub const CLOAK_OPACITY: f32 = 0.35;
@@ -1053,6 +1063,15 @@ pub struct Character {
     /// Bim's own shield, so it is never saved.
     #[cfg_attr(feature = "serde", serde(skip))]
     shield: f32,
+    /// A tank's Riot Shield held up (task 155): what is left of it,
+    /// nought to one, or `None` with none up. Drawing only; the world says
+    /// it every step (`Game::set_riot_shields`).
+    #[cfg_attr(feature = "serde", serde(skip))]
+    plate: Option<f32>,
+    /// A tank's Reflect Barrier running (task 155): the ring of thorns.
+    /// Drawing only, off the body's skill every step.
+    #[cfg_attr(feature = "serde", serde(skip))]
+    reflecting: bool,
     /// Out cold for want of blood: lying where it dropped, alive, doing
     /// nothing until it comes round. Set by `Game::tick_bim` off the
     /// health; it drops the route.
@@ -1129,6 +1148,8 @@ impl Character {
             surging: false,
             cloaked: false,
             shield: 0.0,
+            plate: None,
+            reflecting: false,
             unconscious: false,
             bleeding: false,
             armour: None,
@@ -1613,6 +1634,17 @@ impl Character {
     /// Drawing only.
     pub fn set_shield(&mut self, share: f32) {
         self.shield = share;
+    }
+
+    /// A tank's Riot Shield up, and what is left of it, nought to one; or
+    /// `None` (task 155). Drawing only.
+    pub fn set_plate(&mut self, share: Option<f32>) {
+        self.plate = share;
+    }
+
+    /// A tank's Reflect Barrier running, or not (task 155). Drawing only.
+    pub fn set_reflecting(&mut self, on: bool) {
+        self.reflecting = on;
     }
 
     /// Under a medic's cloak, or not (task 130). Drawing only.
@@ -2674,6 +2706,27 @@ impl Character {
             }
         }
 
+        if self.reflecting && !self.dead {
+            // A Reflect Barrier (task 155): a hot ring with thorns
+            // pointing out, turning slowly, breathing faster than the
+            // surge's halo — what strikes him goes back.
+            let pulse = 1.0 + (self.select_pulse * 2.3).sin() * 0.05;
+            let span = 54.0 * pulse * self.body_scale();
+            list.circle(pos, span * 0.5, REFLECT_BARRIER.alpha(0.08));
+            list.ring(pos, span, 2.0, REFLECT_BARRIER.glowing(1.3).alpha(0.8));
+            for i in 0..REFLECT_THORNS {
+                let a = (i as f32 + 0.5) * (TAU / REFLECT_THORNS as f32) + self.select_pulse * 0.3;
+                let at = pos + Vec2::from_angle(a) * (span * 0.5 + 4.0);
+                list.rect(
+                    at,
+                    vec2(8.0, 3.0),
+                    a,
+                    1.0,
+                    REFLECT_BARRIER.glowing(1.5).alpha(0.9),
+                );
+            }
+        }
+
         if self.recruited && self.tint.is_some() {
             // A wider ring outside the selection one, broken into four arcs so
             // the two never read as the same thing. Shown whether or not the
@@ -2813,6 +2866,46 @@ impl Character {
         b.to_world(head)
     }
 
+    /// A tank's Riot Shield (task 155): a flat plate of cold light
+    /// [`crate::combat::PLATE_OUT`] in front of the body across its
+    /// heading, as wide as the rule's plate — a soft glow, a core past
+    /// white the bloom takes and a bright edge on the face — thinning as
+    /// it is spent and, under a third, flickering, a hash of its clock.
+    fn draw_plate(&self, list: &mut DrawList, share: f32) {
+        use crate::combat::{PLATE_HALF, PLATE_OUT};
+        let pos = self.drawn_at();
+        let along = Vec2::from_angle(self.heading);
+        let at = pos + along * PLATE_OUT;
+        let length = PLATE_HALF * 2.0;
+        let mut light = 0.55 + 0.45 * share;
+        if share < RIOT_SHIELD_LOW {
+            let t = self.select_pulse;
+            let buzz = (t * 31.0).sin() * (t * 47.0 + 1.3).sin();
+            light *= if buzz > 0.15 { 0.25 } else { 0.9 };
+        }
+        list.rect(
+            at - along * 3.0,
+            vec2(14.0, length + 10.0),
+            self.heading,
+            6.0,
+            RIOT_SHIELD.alpha(0.18 * light),
+        );
+        list.rect(
+            at,
+            vec2(3.0 + 3.0 * share, length),
+            self.heading,
+            1.5,
+            RIOT_SHIELD.glowing(1.0 + 0.8 * light).alpha(0.85 * light),
+        );
+        list.rect(
+            at + along * 2.0,
+            vec2(1.5, length - 4.0),
+            self.heading,
+            0.5,
+            RIOT_SHIELD_CORE.glowing(1.6 * light).alpha(light),
+        );
+    }
+
     /// Whatever is in the hands, placed in front of the body.
     fn draw_held(&self, list: &mut DrawList, pose: Pose) {
         let pos = self.drawn_at();
@@ -2820,6 +2913,10 @@ impl Character {
 
         if let Some(weapon) = self.armed.filter(|_| !self.dead) {
             self.draw_weapon(list, pose, weapon);
+        }
+        // A Riot Shield held up (task 155), over the gun.
+        if let Some(share) = self.plate.filter(|_| !self.dead && !self.unconscious) {
+            self.draw_plate(list, share);
         }
         // A Stun Shot charging (October 2026): the stun's blue gathering
         // at the muzzle, past white as it fills, and a ring closing on

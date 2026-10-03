@@ -197,32 +197,35 @@ pub struct SoldierView {
     pub shot_cooldown: f64,
 }
 
-/// What the panel says of a medic (feature 76; task 130): who the beam
-/// holds, by name; whether the Nanite Burst and the Cloak are learnt and
-/// the seconds until each is ready again; and the seconds of a cloak on
-/// the medic himself.
+/// What the panel says of a medic (feature 76; task 153): who the beam
+/// holds, by name; whether the Heal Drone is learnt, the seconds until
+/// the next and the seconds the one up has left; and whether the Healing
+/// Circle is learnt and on.
 #[derive(Clone, PartialEq, Debug, Default)]
 pub struct MedicView {
     pub patients: Vec<String>,
-    pub burst_learnt: bool,
-    pub burst_cooldown: f64,
-    pub cloak_learnt: bool,
-    pub cloak_cooldown: f64,
-    pub cloaked: f64,
+    pub drone_learnt: bool,
+    pub drone_cooldown: f64,
+    pub drone_left: f64,
+    pub circle_learnt: bool,
+    pub circling: bool,
 }
 
-/// What the panel says of a tank (feature 77; task 139): whether the wall
-/// is up; and for the Taunt and the Juggernaut each, the seconds left of
-/// one running, the seconds until the next, and whether a rank is bought.
+/// What the panel says of a tank (task 155): the Riot Shield — up, its
+/// hit points left and whole (nought before a rank), broken — the
+/// Reflect Barrier's seconds left and to the next, and the Bastion's
+/// seconds to the next, each with whether a rank is bought.
 #[derive(Clone, Copy, PartialEq, Debug, Default)]
 pub struct TankView {
-    pub bulwark: bool,
-    pub taunt_left: f64,
-    pub taunt_cooldown: f64,
-    pub taunt_learnt: bool,
-    pub juggernaut_left: f64,
-    pub juggernaut_cooldown: f64,
-    pub juggernaut_learnt: bool,
+    pub shield_up: bool,
+    pub shield_left: f32,
+    pub shield_whole: f32,
+    pub shield_broken: bool,
+    pub reflect_left: f64,
+    pub reflect_cooldown: f64,
+    pub reflect_learnt: bool,
+    pub bastion_cooldown: f64,
+    pub bastion_learnt: bool,
 }
 
 /// What the panel says of a commander (feature 78): minutes of the rally
@@ -878,31 +881,32 @@ impl CrewPanels {
                 ui.label(egui::RichText::new(words).small().color(color));
                 theme::question_mark(ui, BEAM_TIP);
             });
-            // The Nanite Burst and the Cloak (task 130), each ready or not.
-            let burst_ready = medic.burst_learnt && medic.burst_cooldown <= 0.0;
+            // The Heal Drone and the Healing Circle (task 153).
+            let drone_ready = medic.drone_learnt && medic.drone_cooldown <= 0.0;
             ui.label(
-                egui::RichText::new(crate::names::nanite_burst_line(
-                    medic.burst_cooldown,
-                    medic.burst_learnt,
+                egui::RichText::new(crate::names::heal_drone_line(
+                    medic.drone_left,
+                    medic.drone_cooldown,
+                    medic.drone_learnt,
                 ))
                 .small()
-                .color(if burst_ready {
+                .color(if medic.drone_left > 0.0 {
+                    theme::YOURS
+                } else if drone_ready {
                     theme::CAUTION
                 } else {
                     theme::MUTED
                 }),
             );
-            let cloak_ready = medic.cloak_learnt && medic.cloak_cooldown <= 0.0;
             ui.label(
-                egui::RichText::new(crate::names::cloak_line(
-                    medic.cloaked,
-                    medic.cloak_cooldown,
-                    medic.cloak_learnt,
+                egui::RichText::new(crate::names::healing_circle_line(
+                    medic.circling,
+                    medic.circle_learnt,
                 ))
                 .small()
-                .color(if medic.cloaked > 0.0 {
+                .color(if medic.circling {
                     theme::YOURS
-                } else if cloak_ready {
+                } else if medic.circle_learnt {
                     theme::CAUTION
                 } else {
                     theme::MUTED
@@ -911,34 +915,43 @@ impl CrewPanels {
         }
         if let Some(tank) = view.tank {
             ui.horizontal(|ui| {
-                let (word, color) = if tank.bulwark {
-                    (WALL_UP, theme::CAUTION)
+                let word = crate::names::riot_shield_line(
+                    tank.shield_up,
+                    tank.shield_left,
+                    tank.shield_whole,
+                    tank.shield_broken,
+                );
+                let color = if tank.shield_broken {
+                    theme::WARN
+                } else if tank.shield_up {
+                    theme::CAUTION
                 } else {
-                    (WALL_DOWN, theme::MUTED)
+                    theme::MUTED
                 };
                 ui.label(egui::RichText::new(word).small().color(color));
-                theme::question_mark(ui, WALL_TIP);
+                theme::question_mark(ui, crate::names::RIOT_SHIELD_TIP);
             });
-            let taunting = tank.taunt_left > 0.0;
+            let reflecting = tank.reflect_left > 0.0;
             ui.label(
-                egui::RichText::new(taunt_line(
-                    tank.taunt_left,
-                    tank.taunt_cooldown,
-                    tank.taunt_learnt,
+                egui::RichText::new(crate::names::reflect_line(
+                    tank.reflect_left,
+                    tank.reflect_cooldown,
+                    tank.reflect_learnt,
                 ))
                 .small()
-                .color(if taunting { theme::WARN } else { theme::MUTED }),
+                .color(if reflecting {
+                    theme::WARN
+                } else {
+                    theme::MUTED
+                }),
             );
-            // The Juggernaut (task 139), running or ready or not.
-            let going = tank.juggernaut_left > 0.0;
             ui.label(
-                egui::RichText::new(crate::names::juggernaut_line(
-                    tank.juggernaut_left,
-                    tank.juggernaut_cooldown,
-                    tank.juggernaut_learnt,
+                egui::RichText::new(crate::names::bastion_line(
+                    tank.bastion_cooldown,
+                    tank.bastion_learnt,
                 ))
                 .small()
-                .color(if going { theme::WARN } else { theme::MUTED }),
+                .color(theme::MUTED),
             );
         }
         if let Some(commander) = view.commander {

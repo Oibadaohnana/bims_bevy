@@ -332,11 +332,11 @@ impl World {
                 }
             }
         }
-        // The tank's Taunt and Juggernaut (task 139): each timestamp is
+        // The tank's Reflect Barrier and Bastion (task 155): each timestamp is
         // the cooldown alone — the window running is its own, and does
         // not move.
         if let Some(tank) = self.tanks.get_mut(who as usize) {
-            for last in [tank.last_taunt.as_mut(), tank.last_juggernaut.as_mut()]
+            for last in [tank.last_reflect.as_mut(), tank.last_bastion.as_mut()]
                 .into_iter()
                 .flatten()
             {
@@ -392,17 +392,15 @@ impl World {
             *fired -= minutes;
             any = true;
         }
-        // A medic's Nanite Burst and Cloak (task 130): each a timestamp
-        // that is the cooldown alone — the cloak it cast is kept on the
-        // crew member it covers, and does not move.
-        if let Some(medic) = self.medics.get_mut(who as usize) {
-            for last in [medic.last_burst.as_mut(), medic.last_cloak.as_mut()]
-                .into_iter()
-                .flatten()
-            {
-                *last -= minutes;
-                any = true;
-            }
+        // A medic's Heal Drone (task 153): a timestamp that is the
+        // cooldown alone — the drone in the air keeps its time.
+        if let Some(last) = self
+            .medics
+            .get_mut(who as usize)
+            .and_then(|m| m.last_drone.as_mut())
+        {
+            *last -= minutes;
+            any = true;
         }
         any
     }
@@ -443,8 +441,8 @@ impl World {
 
     /// Every crew hit this step that landed on one of the residents'
     /// machines, delivered — the part read off the hit's own roll, the
-    /// relics' share on the damage, a top-rank EMP's exposure on the same
-    /// sum (task 127), then a Weak Spot's crit (task 124) — and the rest,
+    /// relics' share on the damage (the EMP's exposure went with the EMP,
+    /// task 154), then a Weak Spot's crit (task 124) — and the rest,
     /// the hits on the residents' Bims, handed back for `visit` to land.
     pub(crate) fn land_on_machines(
         &mut self,
@@ -472,13 +470,7 @@ impl World {
                 continue;
             }
             let part = bims::droid::DroidPart::hit_by(hit.roll);
-            let exposed = room.droid(i).is_some_and(|d| d.is_exposed());
-            let percent = relics
-                + if exposed {
-                    class::EMP_EXPOSE_PERCENT
-                } else {
-                    0
-                };
+            let percent = relics;
             let damage = if percent == 0 {
                 hit.damage
             } else {
@@ -502,7 +494,7 @@ impl World {
     }
 
     /// The hit points the crew's relics put back this step: every crew
-    /// member on its feet, through `heal_crew` (a medic's aura lifts it).
+    /// member on its feet, through `heal_crew`.
     pub(crate) fn relics_mend(&mut self) {
         let crew = self.aboard.crew_count();
         let seconds = (data::STEP_MINUTES / time::MINUTES_PER_SECOND) as f32;

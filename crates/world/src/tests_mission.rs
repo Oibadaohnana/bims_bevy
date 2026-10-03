@@ -539,6 +539,36 @@ fn the_run_is_lost_only_when_every_player_is_dead() {
     assert_eq!(WorldEvent::CrewLost.code(), 63);
 }
 
+/// **Everybody down is lost at once**: with every player and every bot
+/// down or dead nobody is left to revive anybody, and the run ends
+/// without waiting out the countdowns.
+#[test]
+fn the_run_is_lost_at_once_when_every_player_and_bot_is_down() {
+    let mut world = crewed_world(flyer(2), REFERENCE_MONEY, 2, 3);
+    world.aboard.room.knock_out_for_probe(0);
+    world.aboard.room.knock_out_for_probe(1);
+    for _ in 0..5 {
+        world.step(&[]);
+    }
+    assert!(world.aboard.room.is_downed(0) && world.aboard.room.is_downed(1));
+    assert!(!world.lost, "the bot stands and can still revive them");
+    world.aboard.room.knock_out_for_probe(2);
+    let mut lost_at = None;
+    for step in 0..5 {
+        let events = world.step(&[]);
+        if events.iter().any(|e| matches!(e, WorldEvent::CrewLost)) {
+            lost_at = Some(step);
+            break;
+        }
+    }
+    assert!(lost_at.is_some(), "every body down");
+    assert!(world.lost);
+    assert!(
+        (0..3).all(|who| world.aboard.room.is_alive(who)),
+        "nobody bled out first"
+    );
+}
+
 // --- ending a mission -----------------------------------------------------------
 
 /// A crew member off the ship onto the station's deck, just inside its
