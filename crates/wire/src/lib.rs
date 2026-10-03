@@ -133,7 +133,9 @@ use serde::{Deserialize, Serialize};
 /// must blast alike.
 /// 109: a medic's beam is kept out of sight, only the range breaking it:
 /// both ends must heal alike.
-pub const PROTOCOL: u32 = 109;
+/// 110: the soldier's Rampage cools down in half the time
+/// (35/30/25/20, 17.5 at the fifth rank): both ends must time it alike.
+pub const PROTOCOL: u32 = 110;
 
 /// Where the relay lives. `BIMS_SERVER` in the environment overrides it
 /// — `ws://127.0.0.1:8792` for one on the same machine.

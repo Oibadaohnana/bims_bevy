@@ -884,8 +884,9 @@ pub const RAMPAGE_SECONDS: [f64; 5] = [8.0, 10.0, 12.0, 12.0, 14.0];
 pub const RAMPAGE_FIRE_RATE: [f32; 5] = [1.5, 1.75, 2.0, 2.0, 2.25];
 /// What the damage taken is multiplied by while it runs, a rank.
 pub const RAMPAGE_DAMAGE_TAKEN: [f32; 5] = [0.80, 0.75, 0.70, 0.70, 0.65];
-/// Seconds of the mission clock from one Rampage to the next, a rank.
-pub const RAMPAGE_COOLDOWN: [f64; 5] = ULTIMATE_COOLDOWN;
+/// Seconds of the mission clock from one Rampage to the next, a rank:
+/// half of [`ULTIMATE_COOLDOWN`] (the player halved it).
+pub const RAMPAGE_COOLDOWN: [f64; 5] = [35.0, 30.0, 25.0, 20.0, 17.5];
 /// The rank from which a machine the soldier downs during a Rampage adds
 /// [`RAMPAGE_EXTEND_SECONDS`] to it.
 pub const RAMPAGE_EXTEND_RANK: u8 = 4;
@@ -1035,7 +1036,8 @@ pub const BASTION_HASTE: f32 = 1.5;
 pub const BASTION_COOLDOWN: [f64; 5] = ULTIMATE_COOLDOWN;
 
 /// Every timed ultimate's cooldown, a rank: seventy seconds at the first
-/// and ten fewer a rank after it (the Sentry, Rampage and Bastion; the
+/// and ten fewer a rank after it (the Sentry and Bastion; the Rampage
+/// has half of it, [`RAMPAGE_COOLDOWN`]; the
 /// Cloak's own [`CLOAK_COOLDOWN`] is under it already, and Reinforcements
 /// come once a mission).
 pub const ULTIMATE_COOLDOWN: [f64; 5] = [70.0, 60.0, 50.0, 40.0, 35.0];

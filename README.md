@@ -2355,10 +2355,10 @@ move its cooldown as they do every class ability's. Its box glows while it runs.
 
 | rank | duration | fire rate | damage taken | cooldown |
 | --- | --- | --- | --- | --- |
-| 1 | 8 s | ×1.5 | ×0.80 | 150 s |
-| 2 | 10 s | ×1.75 | ×0.75 | 135 s |
-| 3 | 12 s | ×2.0 | ×0.70 | 120 s |
-| 4 | 12 s, +1 s for each machine you down during it, +6 s at most | ×2.0 | ×0.70 | 120 s |
+| 1 | 8 s | ×1.5 | ×0.80 | 35 s |
+| 2 | 10 s | ×1.75 | ×0.75 | 30 s |
+| 3 | 12 s | ×2.0 | ×0.70 | 25 s |
+| 4 | 12 s, +1 s for each machine you down during it, +6 s at most | ×2.0 | ×0.70 | 20 s |
 
 ### The medic
 
