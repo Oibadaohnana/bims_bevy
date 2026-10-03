@@ -96,15 +96,28 @@ impl ModuleKind {
 
     /// Whether it is made at `tier`: every kind at every tier but the
     /// *Override Core*, which is one thing and made at tier one alone —
-    /// never on a shelf at another, never combined.
+    /// never on a shelf at another, never combined — and the *Reset
+    /// Capacitor*, made at tier three alone (October 2026): on no shelf
+    /// before the run's tier-three day, never combined.
     pub fn made_at(self, tier: Tier) -> bool {
         match self {
             ModuleKind::OverrideCore => tier == Tier::One,
+            ModuleKind::ResetCapacitor => tier == Tier::Three,
             _ => true,
         }
     }
 
+    /// The lowest tier it is made at: three for the *Reset Capacitor*,
+    /// one for every other kind.
+    pub fn min_tier(self) -> Tier {
+        Tier::ALL
+            .into_iter()
+            .find(|&t| self.made_at(t))
+            .unwrap_or(Tier::One)
+    }
+
     /// Whether it has a tier worth saying: all but the *Override Core*.
+    /// The *Reset Capacitor*'s, its one, is said: a tier-three thing.
     pub fn tiered(self) -> bool {
         self != ModuleKind::OverrideCore
     }
@@ -203,8 +216,10 @@ pub const MENDER_HEAL: [f32; 3] = [30.0, 45.0, 60.0];
 pub const MENDER_TILES: f32 = 5.0;
 /// Its cooldown, in seconds, by tier.
 pub const MENDER_COOLDOWN_SECONDS: [f32; 3] = [45.0, 40.0, 35.0];
-/// *Reset Capacitor*: its cooldown, in seconds, by tier.
-pub const RESET_COOLDOWN_SECONDS: [f32; 3] = [180.0, 150.0, 120.0];
+/// *Reset Capacitor*: its cooldown, in seconds, by tier — eighty, made
+/// at tier three alone (October 2026; it was 180 / 150 / 120 at every
+/// tier). The table stays by tier so a saved one of a lower tier reads.
+pub const RESET_COOLDOWN_SECONDS: [f32; 3] = [80.0, 80.0, 80.0];
 /// *Ablative Shell*: how long it lasts, in seconds, by tier.
 pub const SHELL_SECONDS: [f32; 3] = [4.0, 5.0, 6.0];
 /// What the damage taken is multiplied by while it lasts.
@@ -463,11 +478,14 @@ mod tests {
     }
 
     #[test]
-    fn only_the_override_core_is_made_at_one_tier() {
+    fn only_the_override_core_and_the_reset_capacitor_are_made_at_one_tier() {
         for kind in ModuleKind::ALL {
             assert_eq!(ModuleKind::from_code(kind.code()), Some(kind));
             let tiers = Tier::ALL.iter().filter(|&&t| kind.made_at(t)).count();
-            assert_eq!(tiers, if kind.tiered() { 3 } else { 1 });
+            let one = matches!(kind, ModuleKind::OverrideCore | ModuleKind::ResetCapacitor);
+            assert_eq!(tiers, if one { 1 } else { 3 });
+            assert!(kind.made_at(kind.min_tier()));
         }
+        assert_eq!(ModuleKind::ResetCapacitor.min_tier(), Tier::Three);
     }
 }

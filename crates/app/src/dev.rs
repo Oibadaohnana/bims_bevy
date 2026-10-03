@@ -215,7 +215,7 @@ pub fn items() -> Vec<bims::module::Module> {
                 .unwrap_or(bims::combat::Tier::One);
             match kind {
                 Some(kind) if kind.made_at(tier) => Some(kind.at(tier)),
-                Some(kind) => Some(kind.at(bims::combat::Tier::One)),
+                Some(kind) => Some(kind.at(kind.min_tier())),
                 None => {
                     eprintln!("BIMS_ITEMS: no item called {word}");
                     None

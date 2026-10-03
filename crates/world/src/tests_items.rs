@@ -135,7 +135,11 @@ fn a_trader_sells_items_at_the_day_s_tier_and_two_combine() {
     at_a_trader(&mut world);
     let tier = world.shop_tier();
     let shelf = world.item_shelf();
-    assert_eq!(shelf.len(), ModuleKind::ALL.len());
+    let made = ModuleKind::ALL
+        .into_iter()
+        .filter(|k| k.min_tier() <= tier)
+        .count();
+    assert_eq!(shelf.len(), made);
     let crit = shelf
         .iter()
         .copied()
@@ -602,7 +606,7 @@ fn the_mender_heals_the_reset_readies_and_the_shell_shields() {
         &mut world,
         0,
         1,
-        Some(ModuleKind::ResetCapacitor.at(Tier::One)),
+        Some(ModuleKind::ResetCapacitor.at(Tier::Three)),
     );
     carry(
         &mut world,

@@ -77,18 +77,17 @@ pub fn shop_tier(scaling: &WaveScaling, day: u32) -> Tier {
 
 /// The trader's item shelf on a day at `tier`: every kind, at `tier` or
 /// — for a kind not made there, the *Override Core* — at the tier it is
-/// made at.
+/// made at; a kind made only above `tier`, the *Reset Capacitor* before
+/// tier three, is not on it.
 pub fn shop(tier: Tier) -> Vec<Module> {
     ModuleKind::ALL
         .into_iter()
+        .filter(|kind| kind.min_tier() <= tier)
         .map(|kind| {
             let at = if kind.made_at(tier) {
                 tier
             } else {
-                Tier::ALL
-                    .into_iter()
-                    .find(|&t| kind.made_at(t))
-                    .unwrap_or(Tier::One)
+                kind.min_tier()
             };
             kind.at(at)
         })
@@ -137,6 +136,13 @@ mod tests {
             assert_eq!(item.tier, want, "{item:?}");
             assert!(price(item) > 0);
         }
+        // The Reset Capacitor is made at tier three alone: on no shelf
+        // before it.
+        for tier in [Tier::One, Tier::Two] {
+            let shelf = shop(tier);
+            assert_eq!(shelf.len(), ModuleKind::ALL.len() - 1);
+            assert!(shelf.iter().all(|m| m.kind != ModuleKind::ResetCapacitor));
+        }
     }
 
     #[test]
@@ -150,8 +156,13 @@ mod tests {
         assert_eq!(combined(blink(Tier::One), blink(Tier::Two)), Ok(None));
         let core = ModuleKind::OverrideCore.at(Tier::One);
         assert_eq!(combined(core, core), Err(()));
+        let reset = ModuleKind::ResetCapacitor.at(Tier::Three);
+        assert_eq!(combined(reset, reset), Err(()));
         // Each tier costs more than the one under it.
-        for kind in ModuleKind::ALL.into_iter().filter(|k| k.tiered()) {
+        for kind in ModuleKind::ALL
+            .into_iter()
+            .filter(|&k| Tier::ALL.into_iter().all(|t| k.made_at(t)))
+        {
             assert!(price(kind.at(Tier::One)) < price(kind.at(Tier::Two)));
             assert!(price(kind.at(Tier::Two)) < price(kind.at(Tier::Three)));
         }
