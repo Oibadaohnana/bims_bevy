@@ -361,13 +361,25 @@ impl World {
         };
         match (to, GearSlot::of_item(thing)) {
             (Some(who), Some(part)) => {
-                if let Some(old) = self.set_slot(who, part, Some(thing), events) {
-                    self.holdings.put(old);
-                }
+                let old = self.set_slot(who, part, Some(thing), events);
                 events.push(WorldEvent::GearChanged {
                     who,
                     part: part.code(),
                 });
+                match old {
+                    // The same kind a tier under is sold at once into the
+                    // buyer's wallet rather than left in the armory, the
+                    // player's word (October 2026).
+                    Some(old) if superseded(old, thing) => {
+                        let value = self.sell_value(old).unwrap_or(0);
+                        self.credit(slot, value);
+                        events.push(WorldEvent::Sold { slot, who, value });
+                    }
+                    Some(old) => {
+                        self.holdings.put(old);
+                    }
+                    None => {}
+                }
             }
             _ => {
                 self.holdings.put(thing);
@@ -641,5 +653,15 @@ impl World {
         let mut events = Vec::new();
         self.travel(quote, &mut events);
         self.at_trader().then_some(site)
+    }
+}
+
+/// Whether `new`, bought onto a slot, supersedes `old` that was there: the
+/// same kind of weapon or armour at a lower tier (October 2026).
+fn superseded(old: Item, new: Item) -> bool {
+    match (old, new) {
+        (Item::Weapon(o), Item::Weapon(n)) => o.kind == n.kind && o.tier < n.tier,
+        (Item::Armour(o), Item::Armour(n)) => o.kind == n.kind && o.tier < n.tier,
+        _ => false,
     }
 }

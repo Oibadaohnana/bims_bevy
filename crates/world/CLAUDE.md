@@ -7595,3 +7595,17 @@ is the rule.
   (`every_gun_is_on_the_shelf_and_only_the_kind_bought_goes_a_tier_up`,
   `every_kind_starts_at_tier_one_whatever_the_class_or_the_day`)
   and `trader::tests` are the rule.
+
+## A tier up onto a Bim sells the one it replaces (October 2026)
+
+> "The trader (task 114)" above says a thing bought onto a Bim puts the
+> old one in the armory; not when it is the same kind a tier lower.
+
+`buy_shelf` onto a Bim: what the slot held goes into the armory, unless
+it is the same weapon kind or armour kind at a lower tier
+(`trading::superseded`) — then it is sold at once, `sell_value` credited
+to the buyer's wallet and `WorldEvent::Sold { slot, who, value }` said
+after the `GearChanged`, so an upgrade never clogs the armory. Another
+kind (the laser pistol under a first rifle) still goes into the armory.
+`wire::PROTOCOL` 138.
+`tests_trader::a_tier_up_bought_onto_a_bim_sells_the_lower_tier_it_replaces`.

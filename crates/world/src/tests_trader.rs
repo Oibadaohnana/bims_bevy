@@ -818,3 +818,71 @@ fn every_kind_starts_at_tier_one_whatever_the_class_or_the_day() {
         }
     }
 }
+
+/// **A tier up onto a Bim sells the one it replaces** (October 2026): a
+/// gun or the armour bought onto a Bim already carrying the same kind a
+/// tier lower sells the old one at once into the buyer's wallet — it never
+/// goes into the armory. A thing of another kind still does.
+#[test]
+fn a_tier_up_bought_onto_a_bim_sells_the_lower_tier_it_replaces() {
+    use bims::combat::{Piece, Tier};
+    let mut world = basic(1);
+    at_a_trader(&mut world);
+    let shelf = world.trader_here(0).unwrap().shelf.clone();
+    let gun = shelf[0].unwrap();
+    let armour_at = shelf
+        .iter()
+        .position(|i| i.unwrap().armour().is_some())
+        .unwrap();
+    let armour = shelf[armour_at].unwrap();
+    // The Bim carries both kinds at tier one; the shelf sells them at two.
+    let mut gear = world.aboard.room.gear(0);
+    gear.weapon = Some(gun.weapon().unwrap().kind.at(Tier::One));
+    gear.armour = Some(Piece::new(9_999, armour.armour().unwrap(), Tier::One));
+    world.aboard.room.issue(0, gear);
+    for t in world.run.traders.iter_mut().filter(|t| t.owner == 0) {
+        for index in [0, armour_at] {
+            if let Some(item) = t.shelf[index].as_mut() {
+                item.tier = Tier::Two;
+            }
+        }
+    }
+    let armory = world.holdings.armory.len();
+    for (index, part) in [(0, GearSlot::Weapon), (armour_at, GearSlot::Armour)] {
+        let old = world.worn_on(0, part).unwrap();
+        let value = world.sell_value(old).unwrap();
+        let price = world.shelf_price(trader::ShelfItem {
+            tier: Tier::Two,
+            ..shelf[index].unwrap()
+        });
+        let money = world.wallet(0);
+        let events = world.step(&[Command::BuyShelf {
+            slot: 0,
+            index: index as u32,
+            to: Some(0),
+        }]);
+        assert!(
+            events.contains(&WorldEvent::Sold {
+                slot: 0,
+                who: 0,
+                value
+            }),
+            "{events:?}"
+        );
+        assert_eq!(world.wallet(0), money - price + value, "sold, not stored");
+        assert_eq!(
+            world.holdings.armory.len(),
+            armory,
+            "nothing into the armory"
+        );
+        assert!(
+            matches!(
+                world.worn_on(0, part),
+                Some(Item::Weapon(w)) if w.tier == Tier::Two
+            ) || matches!(
+                world.worn_on(0, part),
+                Some(Item::Armour(p)) if p.tier == Tier::Two
+            )
+        );
+    }
+}
