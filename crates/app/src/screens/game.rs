@@ -2219,32 +2219,14 @@ fn frame(
             ctx.set_cursor_icon(egui::CursorIcon::None);
             // The left button is the trigger (task 144), which the control
             // order below carries, and a left press closes any menu open.
-            // A left press on a downed crewmate or townsperson is the
-            // revive instead, the medkit in hand or not — the walk over
-            // and the hands on it, Shift waiting its turn — and fires
-            // nothing until the button comes up.
             if pointer.primary_pressed {
                 panels.close_menu();
-                if let Some(room) = session.room()
-                    && let Some(patient) = downed_patient(room, panels.player, rx, ry, &crew_name)
-                {
-                    screen.trigger_spent = true;
-                    match patient {
-                        Ok(patient) => orders.push(crew_order(
-                            CrewOrder::Revive {
-                                who: panels.player as u32,
-                                patient,
-                            },
-                            pointer.shift,
-                        )),
-                        Err(why) => screen.log.push(why),
-                    }
-                }
             }
             // A right-click walks nobody anywhere and attacks nobody (task
-            // 144). With the medkit in hand a downed crewmate under it is
-            // the revive — the walk over and the hands on it (task 138);
-            // with Shift held it waits its turn (feature 69). Otherwise it
+            // 144). A downed crewmate or townsperson under it is the
+            // revive, the medkit in hand or not — the walk over and the
+            // hands on it (task 138); with Shift held it waits its turn
+            // (feature 69). Otherwise it
             // is what a left click was until the left button became the
             // trigger: the one under it picked, and the menu of what is
             // there opened — a door, a body down, a mercenary for
@@ -2252,7 +2234,7 @@ fn frame(
             if pointer.secondary_pressed {
                 panels.close_menu();
                 if let Some(room) = session.room() {
-                    match medkit_patient(room, panels.player, rx, ry, &crew_name) {
+                    match downed_patient(room, panels.player, rx, ry, &crew_name) {
                         Some(Ok(patient)) => orders.push(crew_order(
                             CrewOrder::Revive {
                                 who: panels.player as u32,
@@ -6060,29 +6042,11 @@ const REVIVE_HOLD_REACH: f32 = 2.5;
 /// the walk goes through the seam and starts a frame or two later.
 const CARRY_WALK_GRACE: u32 = 30;
 
-/// What a right-click at room point `(x, y)` revives with the medkit in
-/// `own`'s hand (task 138): `None` when the kit is not in hand or no
-/// downed crewmate or townsperson (`bims::game::GUEST`) is under the
-/// pointer — the click is a walk then — else
-/// the patient, or the reason it cannot be revived, for the log.
-fn medkit_patient(
-    room: &bims::game::Game,
-    own: usize,
-    x: f32,
-    y: f32,
-    name: &dyn Fn(u32) -> String,
-) -> Option<Result<u32, String>> {
-    if room.hand(own) != bims::bim::Hand::Medkit {
-        return None;
-    }
-    downed_patient(room, own, x, y, name)
-}
-
-/// What a left click at room point `(x, y)` revives, the medkit in hand
-/// or not: `None` when no downed crewmate or townsperson
-/// (`bims::game::GUEST`) is under the pointer — the click is the
-/// trigger then — else the patient, or the reason `own` cannot revive
-/// it, for the log.
+/// What a right-click at room point `(x, y)` revives, the medkit in
+/// `own`'s hand or not (task 138; any hand since October 2026): `None`
+/// when no downed crewmate or townsperson (`bims::game::GUEST`) is under
+/// the pointer — the click is a pick or a menu then — else the patient,
+/// or the reason `own` cannot revive it, for the log.
 fn downed_patient(
     room: &bims::game::Game,
     own: usize,
