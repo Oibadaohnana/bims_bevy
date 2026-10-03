@@ -37,8 +37,6 @@ pub struct Rewards {
     pub bounty_waits_for_clear: bool,
     /// What bringing a dead player's Bim back costs the pool.
     pub buyback: Money,
-    /// What combining two things into one of the next tier costs.
-    pub combine_fee: Money,
     /// A trader's shelf prices, in per cent of the trader's ask.
     pub shelf_price_percent: u32,
 }
@@ -55,7 +53,6 @@ impl Rewards {
         defense_bounty_percent: data::DEFENSE_BOUNTY_PERCENT,
         bounty_waits_for_clear: true,
         buyback: data::BUYBACK_COST,
-        combine_fee: data::COMBINE_FEE,
         shelf_price_percent: 100,
     };
 

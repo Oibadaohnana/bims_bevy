@@ -542,15 +542,14 @@ pub enum Command {
         index: u32,
         to: Option<u32>,
     },
-    /// Combine two weapons or two pieces of armour of one kind and one
-    /// tier into one of the next, at a trader (task 114) — what the
-    /// workbench did. Each out of the armory or off the player's own Bim
-    /// or a bot, never another player's; at once, for
-    /// [`data::COMBINE_FEE`]. A tier three combines into nothing.
-    Combine {
+    /// Sell a thing back at the trader the crew are at (October 2026):
+    /// out of the armory, or off the player's own Bim or a bot, never
+    /// another player's, for half what was paid for it
+    /// ([`World::sell_value`]) into the player's own wallet. Nothing is
+    /// combined any more.
+    Sell {
         slot: u32,
-        a: GearSource,
-        b: GearSource,
+        from: GearSource,
     },
     /// Use the item in that player's own Bim's item slot `item` (nought
     /// to three, the keys 1 to 4; October 2026) at the crew's room point
@@ -562,14 +561,14 @@ pub enum Command {
         x: i32,
         y: i32,
     },
-    /// Buy an item off the trader's item shelf (October 2026,
-    /// [`crate::items::shop`]): the kind at the tier the shelf sells it
-    /// at today, out of the player's own money, onto `to`'s first free
-    /// item slot — a player's own Bim — or into the armory with `None`.
+    /// Buy an item at the trader (October 2026, [`World::item_offer`]):
+    /// the kind at the tier the shelf sells it at today onto the player's
+    /// own Bim's first free item slot, or — where that Bim carries one —
+    /// that one upgraded a tier in its slot, out of the player's own
+    /// money. Never into the armory.
     BuyItem {
         slot: u32,
         kind: u32,
-        to: Option<u32>,
     },
     /// [`Command::Equip`] onto one slot named: what an item dragged onto
     /// one of the four item boxes asks, the item there going into the
@@ -699,7 +698,7 @@ pub struct World {
     /// site still pays out of it.
     pub money: Money,
     /// Each player's own money, slot for slot: what they buy with at
-    /// their own trader, combine and hire with, and what a buyback draws
+    /// their own trader, sell to and hire with, and what a buyback draws
     /// on — one player's spending never drains another's.
     #[cfg_attr(feature = "serde", serde(default))]
     pub wallets: Vec<Money>,
@@ -1627,7 +1626,7 @@ impl World {
             | Command::ProposeRelic { slot, .. }
             | Command::AcceptRelic { slot, .. }
             | Command::BuyShelf { slot, .. }
-            | Command::Combine { slot, .. }
+            | Command::Sell { slot, .. }
             | Command::UseItem { slot, .. }
             | Command::BuyItem { slot, .. }
             | Command::EquipAt { slot, .. } => slot,
@@ -1656,7 +1655,7 @@ impl World {
                     | Command::BuyShelf { .. }
                     | Command::BuyItem { .. }
                     | Command::EquipAt { .. }
-                    | Command::Combine { .. }
+                    | Command::Sell { .. }
                     | Command::RankUp { .. }
             )
         {
@@ -1725,8 +1724,8 @@ impl World {
             }
             Command::AcceptRelic { yes, .. } => self.accept_relic(slot, yes, events),
             Command::BuyShelf { index, to, .. } => self.buy_shelf(slot, index, to, events),
-            Command::Combine { a, b, .. } => self.combine(slot, a, b, events),
-            Command::BuyItem { kind, to, .. } => self.buy_item(slot, kind, to, events),
+            Command::Sell { from, .. } => self.sell(slot, from, events),
+            Command::BuyItem { kind, .. } => self.buy_item(slot, kind, events),
             Command::UseItem { item, x, y, .. } => {
                 if let Err(why) = self.use_item(slot, item, (x, y), events) {
                     events.push(refused(slot, why));
@@ -3892,7 +3891,7 @@ impl World {
     /// accepts. A commander's reinforcement is nobody's to change: it
     /// fights with the Republic's rifle it came with, is given nothing
     /// and has nothing taken off it — equipped, stripped, bought for or
-    /// combined from.
+    /// sold from.
     pub fn may_change(&self, slot: u32, who: u32) -> bool {
         slot < self.players()
             && who < self.aboard.crew_count()
@@ -4764,11 +4763,11 @@ impl World {
                 | Command::Unequip { .. }
                 | Command::Offer { .. }
                 | Command::AnswerOffer { .. }
-                // And the trader's (task 114): bought and combined on the
+                // And the trader's (task 114): bought and sold on the
                 // map, where nothing steps.
                 | Command::BuyShelf { .. }
                 | Command::BuyItem { .. }
-                | Command::Combine { .. }
+                | Command::Sell { .. }
         )
     }
 

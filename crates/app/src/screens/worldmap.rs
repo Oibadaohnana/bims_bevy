@@ -1473,8 +1473,9 @@ pub fn relic_window(
 /// form's number, *Deliver to* (the player's own Bim, a bot it may change,
 /// or the armory), then one line item a thing — its icon in its tier's
 /// cell, its name, its tier as pips, a dotted leader out to its price and
-/// *Buy* — for the weapons, the armour, the relic (with its vote) and the
-/// pairs that combine, and the pool's balance as the total at the foot.
+/// *Buy* — for the weapons, the armour and the items (an item the Bim
+/// carries offered as its *Upgrade*), a *Sell* tab beside it of what the
+/// player may sell back, and its balance as the total at the foot.
 /// The words that explain are hovers: a thing's numbers on its line, a
 /// section's rules on its "?". A window of its own, opened in the middle of
 /// the screen, that may be moved, so the Armory panel (Tab) can be up
@@ -1500,6 +1501,9 @@ pub fn trader_window(
     // armory as `u32::MAX`. The player's own Bim to begin with.
     let id = egui::Id::new("trader-for");
     let mut to = ctx.data(|d| d.get_temp::<u32>(id)).unwrap_or(local);
+    // Which tab is up, kept between frames: Buy to begin with.
+    let tab = egui::Id::new("trader-selling");
+    let mut selling = ctx.data(|d| d.get_temp::<bool>(tab)).unwrap_or(false);
     let crew = world.aboard.crew_count();
     if to != u32::MAX && !(to < crew && world.may_change(local, to)) {
         to = local;
@@ -1530,27 +1534,47 @@ pub fn trader_window(
                 ui.ctx().data_mut(|d| d.insert_temp(trader_shut_id(), at));
             }
             ui.add_space(6.0);
-            // Deliver to: the player's own Bim, every bot, or the armory.
-            ui.horizontal_wrapped(|ui| {
-                theme::asks(ui, TRADER_DELIVER_TO, TRADER_INTRO);
-                for who in 0..crew {
-                    if world.may_change(local, who)
-                        && world.aboard.room.is_alive(who as usize)
-                        && theme::toggle(ui, to == who, name(who)).clicked()
-                    {
-                        to = who;
-                    }
+            // The two tabs, Sell to the right of Buy (October 2026).
+            ui.horizontal(|ui| {
+                if theme::toggle(ui, !selling, TRADER_TAB_BUY).clicked() {
+                    selling = false;
                 }
-                if theme::toggle(ui, to == u32::MAX, TRADER_INTO_ARMORY).clicked() {
-                    to = u32::MAX;
+                if theme::toggle(ui, selling, TRADER_TAB_SELL).clicked() {
+                    selling = true;
                 }
             });
-            ui.add_space(2.0);
+            ui.add_space(4.0);
+            if !selling {
+                // Deliver to: the player's own Bim, every bot, or the armory.
+                ui.horizontal_wrapped(|ui| {
+                    theme::asks(ui, TRADER_DELIVER_TO, TRADER_INTRO);
+                    for who in 0..crew {
+                        if world.may_change(local, who)
+                            && world.aboard.room.is_alive(who as usize)
+                            && theme::toggle(ui, to == who, name(who)).clicked()
+                        {
+                            to = who;
+                        }
+                    }
+                    if theme::toggle(ui, to == u32::MAX, TRADER_INTO_ARMORY).clicked() {
+                        to = u32::MAX;
+                    }
+                });
+                ui.add_space(2.0);
+            }
             perforation(ui);
             egui::ScrollArea::vertical()
                 .id_salt("trader-body")
                 .max_height(500.0)
                 .show(ui, |ui| {
+                    // Both tabs the same height, so the window (pinned at
+                    // its middle) does not move the tabs under the pointer.
+                    ui.set_min_height(500.0);
+                    if selling {
+                        form_heading(ui, TRADER_SELL_HEADING, Some(TRADER_SELL_INTRO));
+                        sell_rows(ui, world, local, orders, name);
+                        return;
+                    }
                     for (heading, weapons) in [(TRADER_WEAPONS, true), (TRADER_ARMOUR, false)] {
                         form_heading(ui, heading, None);
                         let mut row = 0;
@@ -1559,15 +1583,13 @@ pub fn trader_window(
                             // half of the shelf it was in: the weapons come
                             // first, [`world::data::TRADER_WEAPONS`] of them.
                             if (index < world::data::TRADER_WEAPONS) == weapons {
-                                shelf_row(ui, world, local, index, *slot, row, to, orders, name);
+                                shelf_row(ui, world, local, index, *slot, row, to, orders);
                                 row += 1;
                             }
                         }
                     }
                     form_heading(ui, TRADER_ITEMS, Some(TRADER_ITEMS_INTRO));
-                    item_rows(ui, world, local, to, orders, name);
-                    form_heading(ui, TRADER_COMBINE, Some(TRADER_COMBINE_INTRO));
-                    combine_rows(ui, world, local, orders, name);
+                    item_rows(ui, world, local, orders);
                 });
             form_total(ui, world, local);
         });
@@ -1577,7 +1599,10 @@ pub fn trader_window(
     mine.line = ctx
         .data(|d| d.get_temp::<Option<TradeLine>>(line_eyed_id()))
         .flatten();
-    ctx.data_mut(|d| d.insert_temp(id, to));
+    ctx.data_mut(|d| {
+        d.insert_temp(id, to);
+        d.insert_temp(tab, selling);
+    });
 }
 
 /// Where the trader's window keeps, for its line items, the lines the
@@ -1801,7 +1826,7 @@ struct Line<'a> {
     /// The cell's tint: its tier's colour, if above one.
     tint: Option<egui::Color32>,
     name: &'a str,
-    /// Pips under the name: a tier, and the tier it becomes (a combine).
+    /// Pips under the name: a tier, and the tier it becomes (an upgrade).
     tier: Option<(u32, Option<u32>)>,
     /// A short word under the name, after the pips.
     note: Option<String>,
@@ -1815,10 +1840,13 @@ struct Line<'a> {
     row: usize,
     /// Which line of the form it is, for the others' eyes on it.
     key: Option<TradeLine>,
-    /// A thing the player has one of already: bought, the two are
-    /// combined a tier up. The line is outlined in the next tier's colour
-    /// and its button is wide and lit.
-    combine: bool,
+    /// An item the player's own Bim carries: bought, it goes a tier up.
+    /// The line is outlined in the next tier's colour and its button is
+    /// wide and lit.
+    upgrade: bool,
+    /// A stamp in place of the price and the button: an item at its top
+    /// tier. A slot sold is stamped *SOLD* whatever this says.
+    stamp: Option<&'a str>,
 }
 
 /// Draws a line item and answers whether its button was pressed. A line
@@ -1854,18 +1882,18 @@ fn line_item(ui: &mut egui::Ui, wallet: economy::Money, line: Line) -> bool {
             .collect();
         mark_chosen(&painter, rect, &colours);
     }
-    // A buy that combines: washed and outlined in the tier it makes.
-    let combine_colour = line.tint.unwrap_or(theme::ACCENT);
-    if line.combine {
+    // An upgrade: washed and outlined in the tier it makes.
+    let upgrade_colour = line.tint.unwrap_or(theme::ACCENT);
+    if line.upgrade {
         painter.rect(
             rect,
             3.0,
-            combine_colour.gamma_multiply(0.14),
-            egui::Stroke::new(1.5, combine_colour),
+            upgrade_colour.gamma_multiply(0.14),
+            egui::Stroke::new(1.5, upgrade_colour),
             egui::StrokeKind::Inside,
         );
     }
-    let button_width = if line.combine { 124.0 } else { 70.0 };
+    let button_width = if line.upgrade { 96.0 } else { 70.0 };
     // The icon, in its cell.
     let cell = egui::Rect::from_center_size(
         egui::pos2(rect.left() + 6.0 + LINE_ICON / 2.0, rect.center().y),
@@ -1942,9 +1970,10 @@ fn line_item(ui: &mut egui::Ui, wallet: economy::Money, line: Line) -> bool {
                 theme::MUTED,
             );
     }
-    if sold {
+    let stamp = if sold { Some(TRADER_SOLD) } else { line.stamp };
+    if let Some(stamp) = stamp {
         let galley = painter.layout_no_wrap(
-            TRADER_SOLD.to_string(),
+            stamp.to_string(),
             egui::FontId::monospace(15.0),
             theme::WARN,
         );
@@ -1977,7 +2006,7 @@ fn line_item(ui: &mut egui::Ui, wallet: economy::Money, line: Line) -> bool {
     }
     if let Some(tip) = &line.tip {
         // An item's tier table under its words, the tier it would be
-        // bought at lit (a combine's, the one above).
+        // bought at lit (an upgrade's, the one above).
         let tiers = match line.face {
             Face::Thing(bims::combat::Item::Module(item)) => Some((
                 item.kind,
@@ -1998,13 +2027,13 @@ fn line_item(ui: &mut egui::Ui, wallet: economy::Money, line: Line) -> bool {
             .strong()
             .size(12.0),
     )
-    .fill(match (line.open, line.combine) {
-        (true, true) => combine_colour.gamma_multiply(0.55),
+    .fill(match (line.open, line.upgrade) {
+        (true, true) => upgrade_colour.gamma_multiply(0.55),
         (true, false) => theme::RAISED_ON,
         (false, _) => theme::RAISED,
     });
-    if line.combine {
-        button = button.stroke(egui::Stroke::new(1.0, combine_colour));
+    if line.upgrade {
+        button = button.stroke(egui::Stroke::new(1.0, upgrade_colour));
     }
     ui.put(button_rect, button).clicked() && line.open
 }
@@ -2038,11 +2067,6 @@ fn tier_colour(tier: u32) -> egui::Color32 {
         3 => theme::TIER_THREE,
         _ => theme::MUTED,
     }
-}
-
-/// A tier's cell tint, `None` for tier one.
-fn tier_cell_tint(tier: u32) -> Option<egui::Color32> {
-    (tier >= 2).then(|| tier_colour(tier))
 }
 
 /// The foot of the form: a double rule, *Restock* while a player holds
@@ -2097,67 +2121,33 @@ fn shelf_row(
     row: usize,
     to: u32,
     orders: &mut Vec<Order>,
-    name: &dyn Fn(u32) -> String,
 ) {
     let wallet = world.wallet(local);
     let Some(item) = slot else {
-        line_item(
-            ui,
-            wallet,
-            Line {
-                face: Face::Empty,
-                tint: None,
-                name: "—",
-                tier: None,
-                note: None,
-                price: 0,
-                button: "",
-                open: false,
-                tip: None,
-                row,
-                key: None,
-                combine: false,
-            },
-        );
+        line_item(ui, wallet, sold_line("—", row));
         return;
     };
     let thing = shelf_thing(item);
-    let what = match thing {
-        bims::combat::Item::Weapon(w) => weapon_name(Some(w.kind)),
-        bims::combat::Item::Armour(p) => armour_name(Some(p.kind)),
-        bims::combat::Item::Module(m) => crate::names::item_name(m.kind),
-        bims::combat::Item::Stack(_) => resource_name(item.resource),
-    };
+    let what = thing_name(thing);
     let to = (to != u32::MAX).then_some(to);
-    let tier = item.tier.code();
-    let combine = combine_note(world, local, thing, to, name);
-    let price = world.shelf_price(item) + combine.as_ref().map_or(0, |_| world.combine_fee());
+    let price = world.shelf_price(item);
     let bought = line_item(
         ui,
         wallet,
         Line {
             face: Face::Thing(thing),
-            tint: match combine {
-                Some(_) => tier_cell_tint(tier + 1),
-                None => theme::item_tint(thing),
-            },
+            tint: theme::item_tint(thing),
             name: what,
-            tier: Some((tier, combine.as_ref().map(|_| tier + 1))),
+            tier: Some((item.tier.code(), None)),
             price,
-            button: if combine.is_some() {
-                TRADER_BUY_COMBINE
-            } else {
-                TRADER_BUY
-            },
+            button: TRADER_BUY,
             open: price <= wallet,
-            tip: Some(combine_tip(
-                crate::crew::tip_of(thing, 1),
-                combine.is_some(),
-            )),
+            tip: Some(crate::crew::tip_of(thing, 1)),
             row,
             key: Some(TradeLine::Shelf(index as u32)),
-            combine: combine.is_some(),
-            note: combine,
+            upgrade: false,
+            stamp: None,
+            note: None,
         },
     );
     if bought {
@@ -2168,198 +2158,160 @@ fn shelf_row(
     }
 }
 
-/// The note under a line whose thing would be combined, bought, with one
-/// the player has ([`World::buy_partner`]): where the first one is.
-/// `None` when it would simply be bought.
-fn combine_note(
-    world: &World,
-    local: u32,
-    thing: bims::combat::Item,
-    to: Option<u32>,
-    name: &dyn Fn(u32) -> String,
-) -> Option<String> {
-    let partner = world.buy_partner(local, thing, to)?;
-    Some(buy_combines_with(
-        match partner {
-            world::GearSource::Worn { who, .. } => Some(name(who)),
-            world::GearSource::Armory { .. } => None,
-        }
-        .as_deref(),
-    ))
-}
-
-/// A line's hover, the combine's rule under the thing's numbers when it
-/// would be combined.
-fn combine_tip(tip: String, combine: bool) -> String {
-    if combine {
-        format!("{TRADER_BUY_COMBINE_TIP}\n\n{tip}")
-    } else {
-        tip
+/// A line sold: its slot's cell left empty and stamped *SOLD*.
+fn sold_line(name: &str, row: usize) -> Line<'_> {
+    Line {
+        face: Face::Empty,
+        tint: None,
+        name,
+        tier: None,
+        note: None,
+        price: 0,
+        button: "",
+        open: false,
+        tip: None,
+        row,
+        key: None,
+        upgrade: false,
+        stamp: None,
     }
 }
 
-/// The trader's item shelf (October 2026): every item at the day's tier,
-/// a line each, bought onto the player's own Bim when it is the one
-/// delivered to, and into the armory otherwise — a bot carries none.
-fn item_rows(
-    ui: &mut egui::Ui,
-    world: &World,
-    local: u32,
-    to: u32,
-    orders: &mut Vec<Order>,
-    name: &dyn Fn(u32) -> String,
-) {
+/// What a thing is called on a line.
+fn thing_name(thing: bims::combat::Item) -> &'static str {
+    match thing {
+        bims::combat::Item::Weapon(w) => weapon_name(Some(w.kind)),
+        bims::combat::Item::Armour(p) => armour_name(Some(p.kind)),
+        bims::combat::Item::Module(m) => crate::names::item_name(m.kind),
+        bims::combat::Item::Stack(_) => "",
+    }
+}
+
+/// The trader's items (October 2026): a line a kind, always onto the
+/// player's own Bim — the day's tier off the shelf, or, where the Bim
+/// carries the kind, its *Upgrade* a tier up, outlined in that tier's
+/// colour; one at its top stamped *MAX*.
+fn item_rows(ui: &mut egui::Ui, world: &World, local: u32, orders: &mut Vec<Order>) {
     let wallet = world.wallet(local);
-    let onto = (to == local).then_some(local);
-    for (row, item) in world.item_shelf().into_iter().enumerate() {
+    let mut row = 0;
+    for kind in bims::module::ModuleKind::ALL {
+        let Some(offer) = world.item_offer(local, kind.code()) else {
+            continue;
+        };
         // Bought this visit: SOLD, as a slot of the shelf is, until the
         // next visit.
-        if world.item_sold(local, item.kind.code()) {
-            line_item(
-                ui,
-                wallet,
-                Line {
-                    face: Face::Empty,
-                    tint: None,
-                    name: crate::names::item_name(item.kind),
-                    tier: None,
-                    note: None,
-                    price: 0,
-                    button: "",
-                    open: false,
-                    tip: None,
-                    row,
-                    key: None,
-                    combine: false,
-                },
-            );
+        if world.item_sold(local, kind.code()) {
+            line_item(ui, wallet, sold_line(crate::names::item_name(kind), row));
+            row += 1;
             continue;
         }
+        let (item, upgrade) = match offer {
+            world::items::ItemOffer::Buy(item) => (item, false),
+            world::items::ItemOffer::Upgrade { to, .. } => (to, true),
+            world::items::ItemOffer::Top(item) => (item, false),
+        };
+        let top = matches!(offer, world::items::ItemOffer::Top(_));
         let thing = bims::combat::Item::Module(item);
         let tier = item.tier.code();
-        let combine = combine_note(world, local, thing, onto, name);
-        let price = world.item_price(item) + combine.as_ref().map_or(0, |_| world.combine_fee());
+        let price = world.item_offer_price(offer).unwrap_or(0);
+        let tip = crate::names::module_tip(item, !kind.active());
         let bought = line_item(
             ui,
             wallet,
             Line {
                 face: Face::Thing(thing),
-                tint: match combine {
-                    Some(_) => tier_cell_tint(tier + 1),
-                    None => theme::item_tint(thing),
-                },
-                name: crate::names::item_name(item.kind),
-                tier: item
-                    .kind
-                    .tiered()
-                    .then_some((tier, combine.as_ref().map(|_| tier + 1))),
-                price,
-                button: if combine.is_some() {
-                    TRADER_BUY_COMBINE
+                tint: theme::item_tint(thing),
+                name: crate::names::item_name(kind),
+                tier: kind.tiered().then_some(if upgrade {
+                    (tier - 1, Some(tier))
                 } else {
-                    TRADER_BUY
-                },
-                open: price <= wallet,
-                tip: Some(combine_tip(
-                    crate::names::module_tip(item, !item.kind.active()),
-                    combine.is_some(),
-                )),
+                    (tier, None)
+                }),
+                price,
+                button: if upgrade { TRADER_UPGRADE } else { TRADER_BUY },
+                open: !top && price <= wallet,
+                tip: Some(if upgrade {
+                    format!("{TRADER_UPGRADE_TIP}\n\n{tip}")
+                } else {
+                    tip
+                }),
                 row,
-                key: Some(TradeLine::Item(item.kind.code())),
-                combine: combine.is_some(),
-                note: combine,
+                key: Some(TradeLine::Item(kind.code())),
+                upgrade,
+                stamp: top.then_some(TRADER_TOP),
+                note: upgrade.then(|| TRADER_UPGRADE_NOTE.to_string()),
             },
         );
+        row += 1;
         if bought {
-            orders.push(Order::BuyItem {
-                kind: item.kind.code(),
-                to: onto,
-            });
+            orders.push(Order::BuyItem { kind: kind.code() });
         }
     }
 }
 
-/// Every pair the player may combine: two of one kind at one tier under
-/// three, out of the armory or off its own Bim or a bot, a line a pair —
-/// a worn one first, so the result is worn in its place.
-fn combine_rows(
+/// The Sell tab (October 2026): everything the player may sell — its own
+/// Bim's and each bot's weapon, armour and items, then the armory's — a
+/// line each at [`World::sell_value`], *Sell* on it.
+fn sell_rows(
     ui: &mut egui::Ui,
     world: &World,
     local: u32,
     orders: &mut Vec<Order>,
     name: &dyn Fn(u32) -> String,
 ) {
-    // Every thing the player may use, with where it is: the worn first.
-    let mut things: Vec<(world::GearSource, bims::combat::Item, Option<u32>)> = Vec::new();
+    let mut things: Vec<(world::GearSource, Option<u32>)> = Vec::new();
     for who in 0..world.aboard.crew_count() {
         if !world.may_change(local, who) {
             continue;
         }
         for part in world::GearSlot::ALL {
-            if let Some(item) = world.worn_on(who, part) {
-                things.push((world::GearSource::Worn { who, slot: part }, item, Some(who)));
+            if world.worn_on(who, part).is_some() {
+                things.push((world::GearSource::Worn { who, slot: part }, Some(who)));
             }
         }
     }
     for stored in &world.holdings.armory {
-        things.push((
-            world::GearSource::Armory { id: stored.id },
-            stored.item,
-            None,
-        ));
+        things.push((world::GearSource::Armory { id: stored.id }, None));
     }
-    let key = |item: bims::combat::Item| match item {
-        bims::combat::Item::Weapon(w) => Some((0u32, w.kind.code(), w.tier.code())),
-        bims::combat::Item::Armour(p) => Some((1u32, p.kind.code(), p.tier.code())),
-        // An item of a kind made a tier up (October 2026).
-        bims::combat::Item::Module(m) if m.kind.tiered() => {
-            Some((2u32, m.kind.code(), m.tier.code()))
-        }
-        bims::combat::Item::Module(_) | bims::combat::Item::Stack(_) => None,
-    };
-    let mut seen: Vec<(u32, u32, u32)> = Vec::new();
-    for (i, &(a, first, worn)) in things.iter().enumerate() {
-        let Some(k) = key(first) else {
+    let mut row = 0;
+    for (from, worn) in things {
+        let Ok((thing, value)) = world.sellable(local, from) else {
             continue;
         };
-        if k.2 >= 3 || seen.contains(&k) {
-            continue;
-        }
-        let Some(&(b, _, _)) = things[i + 1..].iter().find(|t| key(t.1) == Some(k)) else {
-            continue;
+        let tier = match thing {
+            bims::combat::Item::Weapon(w) => Some(w.tier.code()),
+            bims::combat::Item::Armour(p) => Some(p.tier.code()),
+            bims::combat::Item::Module(m) => m.kind.tiered().then_some(m.tier.code()),
+            bims::combat::Item::Stack(_) => None,
         };
-        let what = match first {
-            bims::combat::Item::Weapon(w) => weapon_name(Some(w.kind)),
-            bims::combat::Item::Armour(p) => armour_name(Some(p.kind)),
-            bims::combat::Item::Module(m) => crate::names::item_name(m.kind),
-            bims::combat::Item::Stack(_) => "",
-        };
-        let combined = line_item(
+        let sold = line_item(
             ui,
             world.wallet(local),
             Line {
-                face: Face::Thing(first),
-                tint: tier_cell_tint(k.2 + 1),
-                name: what,
-                tier: Some((k.2, Some(k.2 + 1))),
-                note: Some(combine_from(worn.map(name).as_deref())),
-                price: world.combine_fee(),
-                button: TRADER_COMBINE,
-                open: world.combine_fee() <= world.wallet(local),
-                tip: None,
-                row: seen.len(),
-                key: Some(TradeLine::Combine(seen.len() as u32)),
-                combine: false,
+                face: Face::Thing(thing),
+                tint: theme::item_tint(thing),
+                name: thing_name(thing),
+                tier: tier.map(|t| (t, None)),
+                note: Some(sell_from(worn.map(name).as_deref())),
+                price: value,
+                button: TRADER_SELL,
+                // A sale is never short of money.
+                open: true,
+                tip: Some(crate::crew::tip_of(thing, 1)),
+                row,
+                key: Some(TradeLine::Sell(row as u32)),
+                upgrade: false,
+                stamp: None,
             },
         );
-        seen.push(k);
-        if combined {
-            orders.push(Order::Combine { a, b });
+        row += 1;
+        if sold {
+            orders.push(Order::Sell { from });
         }
     }
-    if seen.is_empty() {
+    if row == 0 {
         ui.label(
-            egui::RichText::new(TRADER_COMBINE_NONE)
+            egui::RichText::new(TRADER_SELL_NONE)
                 .small()
                 .color(theme::MUTED),
         );

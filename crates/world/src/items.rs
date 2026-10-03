@@ -2,8 +2,8 @@
 //! its four item slots beside its weapon and its armour. What each one
 //! does in a fight is `bims::module` (the numbers) and the world's step
 //! (`item_use.rs`, a child of `crate::world`); this is the rules no room
-//! needs — what one costs, which tier a trader sells at, and two of a
-//! kind combined.
+//! needs — what one costs, which tier a trader sells at, and the tier an
+//! upgrade takes one to.
 //!
 //! # Where they come from
 //!
@@ -11,10 +11,14 @@
 //! day has reached — tier one until the scaling's tier-two day, tier two
 //! until its tier-three day, tier three after ([`shop_tier`], the days
 //! the machines' tiers run on, `scaling.ron`) — one of each kind a visit,
-//! sold out until the next (`Trader::items_sold`). A tier above the day's is had by
-//! **combining** two of a kind at one tier, at the trader, as a gun or a
-//! piece is ([`crate::trader::combined`]). The *Override Core* is one
-//! thing at one tier and combines into nothing.
+//! sold out until the next (`Trader::items_sold`). A kind the player's own
+//! Bim already carries is offered as its **upgrade** instead ([`upgraded`]):
+//! the next tier whatever the day, at the next tier's price, made in the
+//! slot it is in — so every trader after the first buy sells it a tier
+//! up, to tier three. The *Override Core* is one thing at one tier and
+//! has no upgrade. Nothing is combined (October 2026), and an item is
+//! never bought into the armory. Sold back at a trader, one fetches half
+//! of what was paid for it (`Module::paid`, `World::sell_value`).
 //!
 //! # Who carries one
 //!
@@ -101,17 +105,25 @@ pub fn price(item: Module) -> Money {
     row[(item.tier.code().clamp(1, 3) - 1) as usize]
 }
 
-/// Two items into one a tier up, if they are two of one kind at one tier
-/// and the kind is made a tier up: `Ok(None)` for two that are not a
-/// pair, `Err(())` for a pair at the top.
-pub fn combined(a: Module, b: Module) -> Result<Option<Module>, ()> {
-    if a != b {
-        return Ok(None);
-    }
-    match a.tier.next() {
-        Some(next) if a.kind.made_at(next) => Ok(Some(a.kind.at(next))),
-        _ => Err(()),
-    }
+/// What an item line at a trader sells a player (October 2026,
+/// `World::item_offer`).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum ItemOffer {
+    /// A kind its own Bim carries none of, off today's shelf.
+    Buy(Module),
+    /// The one its own Bim carries in item slot `at` (nought to three),
+    /// a tier up.
+    Upgrade { at: u32, from: Module, to: Module },
+    /// The one its own Bim carries, at its top already.
+    Top(Module),
+}
+
+/// What an item held is upgraded to at a trader: its kind a tier up, what
+/// was paid for it kept, if the kind is made there — `None` at the top,
+/// and for the *Override Core*, made at one tier alone.
+pub fn upgraded(item: Module) -> Option<Module> {
+    let next = item.tier.next().filter(|&t| item.kind.made_at(t))?;
+    Some(Module { tier: next, ..item })
 }
 
 #[cfg(test)]
@@ -146,18 +158,23 @@ mod tests {
     }
 
     #[test]
-    fn two_of_a_kind_combine_a_tier_up_and_the_core_never() {
+    fn an_item_upgrades_a_tier_at_a_time_and_the_core_never() {
         let blink = |t| ModuleKind::BlinkDrive.at(t);
+        let bought = Module {
+            paid: 900,
+            ..blink(Tier::One)
+        };
         assert_eq!(
-            combined(blink(Tier::One), blink(Tier::One)),
-            Ok(Some(blink(Tier::Two)))
+            upgraded(bought),
+            Some(Module {
+                paid: 900,
+                ..blink(Tier::Two)
+            })
         );
-        assert_eq!(combined(blink(Tier::Three), blink(Tier::Three)), Err(()));
-        assert_eq!(combined(blink(Tier::One), blink(Tier::Two)), Ok(None));
-        let core = ModuleKind::OverrideCore.at(Tier::One);
-        assert_eq!(combined(core, core), Err(()));
-        let reset = ModuleKind::ResetCapacitor.at(Tier::Three);
-        assert_eq!(combined(reset, reset), Err(()));
+        assert_eq!(upgraded(blink(Tier::Two)), Some(blink(Tier::Three)));
+        assert_eq!(upgraded(blink(Tier::Three)), None);
+        assert_eq!(upgraded(ModuleKind::OverrideCore.at(Tier::One)), None);
+        assert_eq!(upgraded(ModuleKind::ResetCapacitor.at(Tier::Three)), None);
         // Each tier costs more than the one under it.
         for kind in ModuleKind::ALL
             .into_iter()

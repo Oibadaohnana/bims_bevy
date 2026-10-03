@@ -1,14 +1,15 @@
 //! The world's side of the trader (task 114, [`crate::trader`]): which
 //! sites of the galaxy are traders, whether one is open, the visit — on
-//! the map, no room and no mission — the shelf bought from and two things
-//! combined into one.
+//! the map, no room and no mission — the shelf bought from, an item
+//! upgraded, and a thing sold back (October 2026; nothing is combined).
 //!
 //! A child of `crate::world`, as `mission.rs` is, so it reaches the
 //! world's private fields; the trader's own types are `crate::trader`'s.
 
 use super::*;
+use crate::items::ItemOffer;
 use crate::run::{Phase as RunPhase, Site};
-use crate::trader::{self, CombineError, ShelfItem, Trader};
+use crate::trader::{self, ShelfItem, Trader};
 
 impl World {
     // --- which sites -----------------------------------------------------------
@@ -296,12 +297,6 @@ impl World {
         price.div_ceil(Money::from(self.players().max(1)))
     }
 
-    /// What a combining costs a player: the dials' fee, through the
-    /// crew's relics, the players' share of it.
-    pub fn combine_fee(&self) -> Money {
-        self.trader_share(self.trader_price_by_relics(self.rewards.combine_fee))
-    }
-
     // --- buying ---------------------------------------------------------------
 
     /// [`Command::BuyShelf`]: the thing in the slot `index` of player
@@ -338,27 +333,11 @@ impl World {
                 return;
             }
         }
-        // A second of a thing the player has is combined with it at once:
-        // the price and the combine fee, the thing made where the first is.
-        let partner = self.buy_partner(slot, shelf_thing(item), to);
-        let price = match partner {
-            Some(_) => self.shelf_price(item).saturating_add(self.combine_fee()),
-            None => self.shelf_price(item),
-        };
-        if !self.pay_from(slot, price) {
+        if !self.pay_from(slot, self.shelf_price(item)) {
             events.push(refused(slot, Refusal::Unaffordable));
             return;
         }
         self.run.traders[at].shelf[index as usize] = None;
-        if let Some(partner) = partner {
-            self.combine_bought(slot, partner, shelf_thing(item), events);
-            events.push(WorldEvent::ShelfBought {
-                slot,
-                index,
-                to: to.unwrap_or(u32::MAX),
-            });
-            return;
-        }
         let thing = match item.weapon() {
             Some(weapon) => Item::Weapon(weapon),
             None => {
@@ -418,101 +397,142 @@ impl World {
             .is_some_and(|t| t.items_sold.contains(&kind))
     }
 
-    /// [`Command::BuyItem`]: the item of `kind` off today's item shelf,
-    /// paid out of player `slot`'s own wallet, onto `to`'s first free item
-    /// slot — a player's own Bim alone — or into the armory with `None`.
-    pub(super) fn buy_item(
-        &mut self,
-        slot: u32,
-        kind: u32,
-        to: Option<u32>,
-        events: &mut Vec<WorldEvent>,
-    ) {
+    /// What the item line of `kind` (its code) at player `slot`'s trader
+    /// sells it today ([`ItemOffer`]): the kind's upgrade where the
+    /// player's own Bim carries one — the next tier whatever the day, or
+    /// nothing past the top — else the kind off today's shelf. `None` for
+    /// a kind not on the shelf and not carried, or for no Bim of its own.
+    pub fn item_offer(&self, slot: u32, kind: u32) -> Option<ItemOffer> {
+        let kind = bims::module::ModuleKind::from_code(kind)?;
+        if slot >= self.players() || slot >= self.aboard.crew_count() {
+            return None;
+        }
+        let gear = self.aboard.room.gear(slot as usize);
+        let held = gear
+            .items
+            .iter()
+            .enumerate()
+            .find_map(|(at, m)| m.filter(|m| m.kind == kind).map(|m| (at as u32, m)));
+        if let Some((at, from)) = held {
+            return Some(match crate::items::upgraded(from) {
+                Some(to) => ItemOffer::Upgrade { at, from, to },
+                None => ItemOffer::Top(from),
+            });
+        }
+        self.item_shelf()
+            .into_iter()
+            .find(|m| m.kind == kind)
+            .map(ItemOffer::Buy)
+    }
+
+    /// What an offer costs player `slot`: the item's price at the tier it
+    /// would be bought or upgraded to — the next tier's whole price for an
+    /// upgrade — and nothing for one at its top.
+    pub fn item_offer_price(&self, offer: ItemOffer) -> Option<Money> {
+        match offer {
+            ItemOffer::Buy(item) => Some(self.item_price(item)),
+            ItemOffer::Upgrade { to, .. } => Some(self.item_price(to)),
+            ItemOffer::Top(_) => None,
+        }
+    }
+
+    /// [`Command::BuyItem`]: the item line of `kind` at player `slot`'s
+    /// trader ([`World::item_offer`]), paid out of its own wallet — a new
+    /// item onto its own Bim's first free item slot, or the one it carries
+    /// a tier up in its slot. Never into the armory, never onto a bot.
+    /// One of a kind a visit, bought or upgraded.
+    pub(super) fn buy_item(&mut self, slot: u32, kind: u32, events: &mut Vec<WorldEvent>) {
         let Some(at) = self.trader_index(slot) else {
             events.push(refused(slot, Refusal::NotAtATrader));
             return;
         };
-        // One of a kind a visit (October 2026): sold out until the next.
         if self.run.traders[at].items_sold.contains(&kind) {
             events.push(refused(slot, Refusal::SoldOut));
             return;
         }
-        let Some(item) = bims::module::ModuleKind::from_code(kind)
-            .and_then(|kind| self.item_shelf().into_iter().find(|m| m.kind == kind))
-        else {
+        let Some(offer) = self.item_offer(slot, kind) else {
             events.push(refused(slot, Refusal::NotForSale));
             return;
         };
-        let thing = Item::Module(item);
-        // A second of an item the player has is combined with it at once,
-        // so it wants no free slot.
-        let partner = self.buy_partner(slot, thing, to);
-        let onto = match to {
-            Some(who) => {
-                if who >= self.aboard.crew_count() {
-                    events.push(refused(slot, Refusal::NotAboard));
-                    return;
-                }
-                if !self.may_change(slot, who) {
-                    events.push(refused(slot, Refusal::NotYours));
-                    return;
-                }
-                if partner.is_some() {
-                    None
-                } else {
-                    match self.item_slot_for(who, None) {
-                        Ok(part) => Some((who, part)),
-                        Err(why) => {
-                            events.push(refused(slot, why));
-                            return;
-                        }
-                    }
-                }
+        let (part, item, upgrade) = match offer {
+            ItemOffer::Top(_) => {
+                events.push(refused(slot, Refusal::TopTier));
+                return;
             }
-            None => None,
+            ItemOffer::Buy(item) => match self.item_slot_for(slot, None) {
+                Ok(part) => (part, item, false),
+                Err(why) => {
+                    events.push(refused(slot, why));
+                    return;
+                }
+            },
+            ItemOffer::Upgrade { at, to, .. } => {
+                let Some(part) = GearSlot::item(at as usize) else {
+                    events.push(refused(slot, Refusal::NoSuchGear));
+                    return;
+                };
+                (part, to, true)
+            }
         };
-        let price = match partner {
-            Some(_) => self.item_price(item).saturating_add(self.combine_fee()),
-            None => self.item_price(item),
-        };
+        let price = self.item_price(item);
         if !self.pay_from(slot, price) {
             events.push(refused(slot, Refusal::Unaffordable));
             return;
         }
         self.run.traders[at].items_sold.push(kind);
-        match (partner, onto) {
-            (Some(partner), _) => self.combine_bought(slot, partner, thing, events),
-            (None, Some((who, part))) => {
-                self.set_slot(who, part, Some(thing), events);
-                events.push(WorldEvent::GearChanged {
-                    who,
-                    part: part.code(),
-                });
-            }
-            (None, None) => {
-                self.holdings.put(thing);
-            }
-        }
+        let made = bims::module::Module {
+            paid: item.paid.saturating_add(price),
+            ..item
+        };
+        self.set_slot(slot, part, Some(Item::Module(made)), events);
+        events.push(WorldEvent::GearChanged {
+            who: slot,
+            part: part.code(),
+        });
         events.push(WorldEvent::ItemBought {
             slot,
-            kind: item.kind.code(),
-            tier: item.tier.code(),
-            to: to.unwrap_or(u32::MAX),
+            kind: made.kind.code(),
+            tier: made.tier.code(),
+            to: slot,
+            upgrade,
         });
     }
 
-    // --- combining ------------------------------------------------------------
+    // --- selling (October 2026) -------------------------------------------------
 
-    /// What a combining's input is, if player `slot` may use it: a thing in
-    /// the armory, or on its own Bim's or a bot's slot — never another
-    /// player's.
-    fn combine_input(&self, slot: u32, from: GearSource) -> Result<Item, Refusal> {
-        match from {
+    /// What a thing fetches sold back at a trader: half of what was paid
+    /// for it ([`data::SELL_BACK_PERCENT`]) — an item's own
+    /// [`bims::module::Module::paid`], every upgrade in it, or for one
+    /// never bought (a probe's, a save's from before) its tier's price
+    /// today; a weapon or a piece its shelf price at its tier today. A
+    /// charge is not sold.
+    pub fn sell_value(&self, thing: Item) -> Option<Money> {
+        let paid = match thing {
+            Item::Module(m) if m.paid > 0 => m.paid,
+            Item::Module(m) => self.item_price(m),
+            Item::Weapon(w) => self.shelf_price(ShelfItem {
+                resource: armour::weapon_resource(w.kind),
+                tier: w.tier,
+            }),
+            Item::Armour(p) => self.shelf_price(ShelfItem {
+                resource: armour::resource_of(p.kind),
+                tier: p.tier,
+            }),
+            Item::Stack(_) => return None,
+        };
+        Some(paid.saturating_mul(data::SELL_BACK_PERCENT) / 100)
+    }
+
+    /// What player `slot` may sell from `from`, if it may: a thing in the
+    /// armory, or on its own Bim's or a bot's slot — never another
+    /// player's — and never a charge.
+    pub fn sellable(&self, slot: u32, from: GearSource) -> Result<(Item, Money), Refusal> {
+        let thing = match from {
             GearSource::Armory { id } => self
                 .holdings
                 .get(id)
                 .map(|s| s.item)
-                .ok_or(Refusal::NoSuchGear),
+                .ok_or(Refusal::NoSuchGear)?,
             GearSource::Worn { who, slot: part } => {
                 if who >= self.aboard.crew_count() {
                     return Err(Refusal::NotAboard);
@@ -520,176 +540,44 @@ impl World {
                 if !self.may_change(slot, who) {
                     return Err(Refusal::NotYours);
                 }
-                self.worn_on(who, part).ok_or(Refusal::NoSuchGear)
-            }
-        }
-    }
-
-    /// What a thing player `slot` buys for `to` (`None`: the armory) is
-    /// combined with on the spot, if anything: a thing of its kind and tier
-    /// under three the player may use — on the Bim it is for first, then
-    /// on the others the player may change in crew order, then in the
-    /// armory. The trader's window reads it to say *Buy & Combine*.
-    pub fn buy_partner(&self, slot: u32, thing: Item, to: Option<u32>) -> Option<GearSource> {
-        let crew = self.aboard.crew_count();
-        let whos = to
-            .into_iter()
-            .chain((0..crew).filter(|&who| Some(who) != to))
-            .filter(|&who| who < crew && self.may_change(slot, who));
-        let worn = whos.flat_map(|who| {
-            GearSlot::ALL
-                .into_iter()
-                .map(move |part| GearSource::Worn { who, slot: part })
-        });
-        let stored = self
-            .holdings
-            .armory
-            .iter()
-            .map(|s| GearSource::Armory { id: s.id });
-        worn.chain(stored).find(|&from| {
-            self.combine_input(slot, from)
-                .is_ok_and(|have| trader::combined(have, thing, 0).is_ok())
-        })
-    }
-
-    /// A thing just bought combined with the `partner` the player had
-    /// ([`World::buy_partner`]): the next tier where the partner was — worn
-    /// in its place, or in the armory — the bought one never landing
-    /// anywhere. Paid for by the buy.
-    fn combine_bought(
-        &mut self,
-        slot: u32,
-        partner: GearSource,
-        thing: Item,
-        events: &mut Vec<WorldEvent>,
-    ) {
-        let Ok(have) = self.combine_input(slot, partner) else {
-            return;
-        };
-        let Ok(made) = trader::combined(have, thing, 0) else {
-            return;
-        };
-        let (made, tier) = self.number_made(made);
-        let onto = match partner {
-            GearSource::Worn { who, slot: part } => {
-                self.set_slot(who, part, Some(made), events);
-                events.push(WorldEvent::GearChanged {
-                    who,
-                    part: part.code(),
-                });
-                who
-            }
-            GearSource::Armory { id } => {
-                self.holdings.take(id);
-                self.holdings.put(made);
-                u32::MAX
+                self.worn_on(who, part).ok_or(Refusal::NoSuchGear)?
             }
         };
-        events.push(WorldEvent::Combined {
-            slot,
-            who: onto,
-            tier,
-        });
+        let value = self.sell_value(thing).ok_or(Refusal::NoSuchGear)?;
+        Ok((thing, value))
     }
 
-    /// A thing made by combining, a piece numbered off the holdings like
-    /// one bought, and its tier's code.
-    fn number_made(&mut self, made: Item) -> (Item, u32) {
-        let made = match made {
-            Item::Armour(mut piece) => {
-                piece.id = self.holdings.take_id();
-                Item::Armour(piece)
-            }
-            other => other,
-        };
-        let tier = match made {
-            Item::Weapon(w) => w.tier.code(),
-            Item::Armour(p) => p.tier.code(),
-            Item::Module(m) => m.tier.code(),
-            Item::Stack(_) => 0,
-        };
-        (made, tier)
-    }
-
-    /// [`Command::Combine`]: two weapons or two pieces of one kind at one
-    /// tier into one of the next, at once, for [`data::COMBINE_FEE`] out of
-    /// the pool. Where one of the two was worn the result is on that Bim in
-    /// its place; otherwise it goes into the armory. Whole, as anything
-    /// made is.
-    pub(super) fn combine(
-        &mut self,
-        slot: u32,
-        a: GearSource,
-        b: GearSource,
-        events: &mut Vec<WorldEvent>,
-    ) {
-        if !self.at_trader() {
+    /// [`Command::Sell`]: the thing at `from` sold at the trader player
+    /// `slot` is at, for [`World::sell_value`] into its own wallet — out of
+    /// the armory, or off its own Bim or a bot, the slot left empty.
+    pub(super) fn sell(&mut self, slot: u32, from: GearSource, events: &mut Vec<WorldEvent>) {
+        if self.trader_index(slot).is_none() {
             events.push(refused(slot, Refusal::NotAtATrader));
             return;
         }
-        if a == b {
-            events.push(refused(slot, Refusal::NoSuchGear));
-            return;
-        }
-        let (first, second) = match (self.combine_input(slot, a), self.combine_input(slot, b)) {
-            (Ok(x), Ok(y)) => (x, y),
-            (Err(why), _) | (_, Err(why)) => {
+        let (_, value) = match self.sellable(slot, from) {
+            Ok(sold) => sold,
+            Err(why) => {
                 events.push(refused(slot, why));
                 return;
             }
         };
-        let made = match trader::combined(first, second, 0) {
-            Ok(made) => made,
-            Err(CombineError::NotAPair) => {
-                events.push(refused(slot, Refusal::NotAPair));
-                return;
-            }
-            Err(CombineError::TopTier) => {
-                events.push(refused(slot, Refusal::TopTier));
-                return;
-            }
-        };
-        let fee = self.combine_fee();
-        if !self.pay_from(slot, fee) {
-            events.push(refused(slot, Refusal::Unaffordable));
-            return;
-        }
-        let (made, tier) = self.number_made(made);
-        // The worn one, if either was, takes the result; the other goes.
-        let (keep, drop) = match (a, b) {
-            (GearSource::Worn { .. }, _) => (a, b),
-            (_, GearSource::Worn { .. }) => (b, a),
-            _ => (a, b),
-        };
-        let take = |world: &mut World, from: GearSource, events: &mut Vec<WorldEvent>| match from {
+        let who = match from {
             GearSource::Armory { id } => {
-                world.holdings.take(id);
+                self.holdings.take(id);
+                u32::MAX
             }
             GearSource::Worn { who, slot: part } => {
-                world.set_slot(who, part, None, events);
-            }
-        };
-        take(self, drop, events);
-        let onto = match keep {
-            GearSource::Worn { who, slot: part } => {
-                self.set_slot(who, part, Some(made), events);
+                self.set_slot(who, part, None, events);
                 events.push(WorldEvent::GearChanged {
                     who,
                     part: part.code(),
                 });
                 who
             }
-            GearSource::Armory { .. } => {
-                take(self, keep, events);
-                self.holdings.put(made);
-                u32::MAX
-            }
         };
-        events.push(WorldEvent::Combined {
-            slot,
-            who: onto,
-            tier,
-        });
+        self.credit(slot, value);
+        events.push(WorldEvent::Sold { slot, who, value });
     }
 }
 
@@ -712,17 +600,5 @@ impl World {
         let mut events = Vec::new();
         self.travel(quote, &mut events);
         self.at_trader().then_some(site)
-    }
-}
-
-/// The thing a shelf slot sells, as the thing it combines as: its gun, or
-/// a whole piece (numbered when it is bought, if it is ever kept).
-fn shelf_thing(item: ShelfItem) -> Item {
-    match item.weapon() {
-        Some(weapon) => Item::Weapon(weapon),
-        None => {
-            let kind = item.armour().unwrap_or(ArmourKind::Armour);
-            Item::Armour(bims::combat::Piece::new(0, kind, item.tier))
-        }
     }
 }

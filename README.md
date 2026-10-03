@@ -261,9 +261,13 @@ Dota 2's items, beside the relics (October 2026): **four item slots on
 every player's Bim**, from the first day — a bot carries none. An item is
 bought at a [trader](#the-trader) at the tier the day has reached, moved
 in the Armory like a gun (drag it onto one of the four cells under a
-player's Bim, or onto another), offered to another player, combined two
-of a kind at one tier into one of the next, and kept through a death like
-the rest of the loadout. The hero panel at the foot of the screen shows
+player's Bim, or onto another), offered to another player, and kept
+through a death like the rest of the loadout. It is bought onto your own
+Bim and never into the armory, and **every trader after the one you
+bought it at offers it a tier up** — *Upgrade*, highlighted, at the next
+tier's price, made in the slot it is in — to tier three. Nothing is
+combined. Sold back at a trader it fetches half of everything paid for
+it, its upgrades too. The hero panel at the foot of the screen shows
 the four two by two at the right of the abilities, each with its key
 (`1` to `4`), its tier as pips and an active one's cooldown swept back.
 
@@ -280,7 +284,7 @@ the four two by two at the right of the abilities, each with its key
 | **Leech Capacitor** | A share of the damage your weapon does to a machine back as health | 8 / 12 / 16% | 27 000 / 54 000 / 94 500 |
 | **Arc Coil** | Every 4th weapon hit on a machine arcs to the machines nearest it within 4 tiles | 2 / 3 / 4 machines, 15 / 25 / 40 damage | 33 750 / 60 750 / 108 000 |
 | **Field Mender** | Active: every crewmate on their feet within 5 tiles, you included, healed | 30 / 45 / 60 HP, 45 / 40 / 35 s | 27 000 / 54 000 / 94 500 |
-| **Reset Capacitor** | Active: every class cooldown ready, every charge full, your other items' cooldowns with them. **Tier three alone**: on no trader's shelf before the run's tier-three day, never combined | tier three: 80 s | 810 000 |
+| **Reset Capacitor** | Active: every class cooldown ready, every charge full, your other items' cooldowns with them. **Tier three alone**: on no trader's shelf before the run's tier-three day, never upgraded | tier three: 80 s | 810 000 |
 | **Ablative Shell** | Active: damage taken ×0.6, and a Warden's lance strips none of your armour | 4 / 5 / 6 s, 60 / 55 / 50 s | 33 750 / 60 750 / 108 000 |
 
 *Coolant Loop*, *Pressure Seal* and *Steady Grip* were relics; they are
@@ -485,19 +489,20 @@ map. **Tab** opens the Armory beside it.
   tier-two day, tier three from its tier-three day (`scaling.ron`, the
   days the machines' tiers run on) — priced at the trader's own tier
   prices. It is **rolled again every visit**: a thing bought is gone for
-  that visit, and the next visit is another shelf. A tier above the day's
-  is had by combining. Any player buys, with no vote, out of their own
+  that visit, and the next visit is another shelf. Any player buys, with no vote, out of their own
   money — onto their own Bim, onto a bot, or into the armory; what it
   replaces goes into the armory.
 - **The items**: every [item](#items) at the day's tier, one of each a visit (SOLD until the next) —
-  onto your own Bim's first free item slot, or into the armory.
+  onto your own Bim's first free item slot, never into the armory. One
+  your Bim already carries is offered as its **Upgrade** instead, a tier
+  up (to three), at the next tier's price, outlined in that tier's colour.
 - **No relic**: a trader sells none since October 2026 — only an elite's
   fight pays one (see [Relics](#relics)).
-- **Combining**, where the workbench used to be: two weapons or two pieces
-  of one kind at one tier make one of the next tier, whole, at once — out
-  of the armory, off your own Bim or off a bot, never off another
-  player's. Where one of the two is worn, the result is worn in its place.
-  Tier three is as far as it goes.
+- **Selling**, the **Sell** tab beside *Buy*: anything you may change —
+  your own Bim's weapon, armour and items, a bot's, the armory's — back
+  for **half of what it cost**: an item half of everything paid for it,
+  a weapon or armour half its shelf price today, into your own money.
+  Nothing is combined any more (October 2026).
 - **Closed**: a trader is shut while the machines have its system, and
   opens again once the system is **liberated** — every station, jammer
   and town of it they took, cleared. A trader the crisis will reach by

@@ -1,7 +1,8 @@
 //! The **items** of a player's Bim, Dota 2's way (October 2026): four
 //! slots on the loadout ([`ITEM_SLOTS`], `Gear::items`), each holding a
-//! [`Module`] or nothing — bought at a trader, moved in the Armory like a
-//! weapon, combined two of a tier into the next. A bot never carries one.
+//! [`Module`] or nothing — bought at a trader, upgraded there a tier at a
+//! time, sold back there for half what it cost, moved in the Armory like
+//! a weapon. A bot never carries one.
 //!
 //! The room reads what it must of them itself, off the loadout: the
 //! health a *Reactor Heart* adds to the bar ([`Gear::max_health`]). The
@@ -96,9 +97,9 @@ impl ModuleKind {
 
     /// Whether it is made at `tier`: every kind at every tier but the
     /// *Override Core*, which is one thing and made at tier one alone —
-    /// never on a shelf at another, never combined — and the *Reset
+    /// never on a shelf at another, never upgraded — and the *Reset
     /// Capacitor*, made at tier three alone (October 2026): on no shelf
-    /// before the run's tier-three day, never combined.
+    /// before the run's tier-three day, never upgraded.
     pub fn made_at(self, tier: Tier) -> bool {
         match self {
             ModuleKind::OverrideCore => tier == Tier::One,
@@ -135,18 +136,29 @@ impl ModuleKind {
         )
     }
 
-    /// The kind at `tier`.
+    /// The kind at `tier`, nothing paid for it.
     pub fn at(self, tier: Tier) -> Module {
-        Module { kind: self, tier }
+        Module {
+            kind: self,
+            tier,
+            paid: 0,
+        }
     }
 }
 
-/// One item: a kind at a tier.
+/// One item: a kind at a tier, and what its owner paid for it.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Module {
     pub kind: ModuleKind,
     pub tier: Tier,
+    /// What it cost its owner at the traders, every upgrade added on:
+    /// half of it comes back on a sale (the world's `World::sell_value`).
+    /// Nought for one never bought (a probe's, a save's from before),
+    /// which sells for half its tier's price instead. The room never
+    /// reads it.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub paid: u64,
 }
 
 /// A number by tier, one to three.

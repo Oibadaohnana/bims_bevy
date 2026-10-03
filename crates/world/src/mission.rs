@@ -1007,6 +1007,13 @@ impl World {
         }
     }
 
+    /// `amount` into player `slot`'s wallet: a sale at a trader.
+    pub(crate) fn credit(&mut self, slot: u32, amount: Money) {
+        if let Some(wallet) = self.wallets.get_mut(slot as usize) {
+            *wallet = wallet.saturating_add(amount);
+        }
+    }
+
     /// The crew's money set outright, as a test wants it: every wallet
     /// emptied and `money` shared out into them evenly, the way the
     /// world's opening shares its pool.

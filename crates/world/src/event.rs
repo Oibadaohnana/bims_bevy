@@ -276,9 +276,16 @@ pub enum WorldEvent {
     /// trader the crew are at (task 114), for crew member `to`'s loadout
     /// — or the armory, `u32::MAX`.
     ShelfBought { slot: u32, index: u32, to: u32 },
-    /// Player `slot` combined two things into one of `tier` at a trader:
-    /// onto crew member `who`, or into the armory, `u32::MAX`.
-    Combined { slot: u32, who: u32, tier: u32 },
+    // `Combined` (127) went with the combining (October 2026); its code
+    // is left free.
+    /// Player `slot` sold a thing at a trader (October 2026) for `value`,
+    /// into its own wallet: off crew member `who`, or out of the armory,
+    /// `u32::MAX`.
+    Sold {
+        slot: u32,
+        who: u32,
+        value: economy::Money,
+    },
     /// Crew member `who` bought a rank of its ranked kit's ability
     /// `ability_slot` (0 to 3, Q C E R) with a skill point, and it is at
     /// `rank` now (task 124, `Command::RankUp`).
@@ -347,12 +354,14 @@ pub enum WorldEvent {
     /// whose, and the item's kind's code.
     ItemUsed { who: u32, kind: u32 },
     /// A player bought an item at a trader (October 2026): which kind at
-    /// which tier, and onto which Bim — `u32::MAX` the armory.
+    /// which tier, and onto which Bim — its own — and whether it was the
+    /// one it carried upgraded a tier.
     ItemBought {
         slot: u32,
         kind: u32,
         tier: u32,
         to: u32,
+        upgrade: bool,
     },
 }
 
@@ -368,7 +377,8 @@ pub enum WorldEvent {
 /// went with the storage in task 113; the desk's, 21, with the desks in task 114;
 /// a rally too early, 71, with the commander's talents in task 129; the
 /// surge's, 65–67, with the surge in task 130; the cache's and the
-/// restock's, 96, 108 and 109, with the old relics in October 2026).
+/// restock's, 96, 108 and 109, with the old relics in October 2026; the
+/// combining's, 107, with the combining in October 2026).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 #[repr(u32)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -556,16 +566,15 @@ pub enum Refusal {
     /// A trader proposed that the crisis will have closed by the day the
     /// crew would arrive.
     ClosedOnArrival = 103,
-    /// A purchase, a combining or a trader's relic asked for anywhere
-    /// but at a trader.
+    /// A purchase or a sale asked for anywhere but at a trader.
     NotAtATrader = 104,
     /// A thing off the shelf that is not there — bought already, or the
     /// trader's relic gone: the first command to want it had it.
     SoldOut = 105,
-    /// Two things combined at tier three: there is no tier past it.
+    /// An item upgraded past its top tier: there is no tier past it.
     TopTier = 106,
-    /// Two things combined that are not two of one kind at one tier.
-    NotAPair = 107,
+    // `NotAPair` (107) went with the combining (October 2026); its code is
+    // left free.
     /// A rank asked of a slot past R (task 124; every class has a ranked
     /// kit since task 139).
     NoRankedKit = 110,
@@ -721,7 +730,7 @@ impl WorldEvent {
             // 124 was a research key picked up, gone with the keys.
             WorldEvent::Respawned { .. } => 125,
             WorldEvent::ShelfBought { .. } => 126,
-            WorldEvent::Combined { .. } => 127,
+            WorldEvent::Sold { .. } => 161,
             WorldEvent::RankedUp { .. } => 130,
             WorldEvent::Rampaged { .. } => 131,
             WorldEvent::MineTriggered { .. } => 154,
@@ -783,10 +792,10 @@ impl WorldEvent {
                 let to = if to == u32::MAX { 0 } else { to as i64 + 1 };
                 (slot as i64) + 10 * (index as i64) + 1_000 * to
             }
-            WorldEvent::Combined { slot, who, tier } => {
-                let who = if who == u32::MAX { 0 } else { who as i64 + 1 };
-                (slot as i64) + 10 * (tier as i64) + 100 * who
-            }
+            // The seller in the units and the euros sold for in the
+            // thousands (a crew is never a thousand); the Bim is the
+            // log's to leave unsaid.
+            WorldEvent::Sold { slot, value, .. } => (slot as i64) + 1_000 * (value as i64),
             // The slot in the hundreds and the rank in the ten thousands, the
             // crew member in the units: a crew is never a hundred.
             WorldEvent::RankedUp {
@@ -848,15 +857,20 @@ impl WorldEvent {
             WorldEvent::ItemUsed { who, kind } => (who as i64) + 100 * (kind as i64),
             // The buyer in the units, the kind in the tens, the tier in the
             // hundreds and the Bim plus one in the thousands, nought for the
-            // armory.
+            // armory, and an upgrade in the hundred thousands.
             WorldEvent::ItemBought {
                 slot,
                 kind,
                 tier,
                 to,
+                upgrade,
             } => {
                 let to = if to == u32::MAX { 0 } else { to as i64 + 1 };
-                (slot as i64) + 10 * (kind as i64) + 100 * (tier as i64) + 1_000 * to
+                (slot as i64)
+                    + 10 * (kind as i64)
+                    + 100 * (tier as i64)
+                    + 1_000 * to
+                    + 100_000 * i64::from(upgrade)
             }
             // The kind in the tens the same way: three kinds, and a crew
             // is never ten.

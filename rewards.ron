@@ -16,7 +16,6 @@
 //                           and is lost if the crew leave first;
 //                           false: paid the moment the enemy goes down
 //   buyback                 what bringing a dead player's Bim back costs
-//   combine_fee             combining two things into the next tier
 //   shelf_price_percent     a trader's shelf prices, in per cent
 //
 // The values below are the built-in ones.
@@ -26,6 +25,5 @@
     defense_bounty_percent: 100,
     bounty_waits_for_clear: true,
     buyback: 5000,
-    combine_fee: 0,
     shelf_price_percent: 100,
 )

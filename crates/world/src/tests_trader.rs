@@ -1,9 +1,9 @@
 //! The trader (task 114): a visit on the map with no room and no mission,
-//! the shelf rolled every visit, no relic for sale, two things combined
-//! into one, and a trader closed while its system is the
+//! the shelf rolled every visit, no relic for sale, nothing combined and a
+//! thing sold for half, and a trader closed while its system is the
 //! machines'.
 
-use bims::combat::{ArmourKind, Gear, Item, Piece, Tier, WeaponKind};
+use bims::combat::Item;
 use shipdesign::fixture::flyer;
 
 use crate::checksum::world_checksum;
@@ -307,96 +307,62 @@ fn no_trader_sells_a_relic() {
     assert_eq!((world.wallet(0), world.wallet(1)), (w0, w1));
 }
 
-/// **Combining** two of a kind at a tier is one of the next, whole and at
-/// once; tier three is refused, and so is a pair that is not one, an input
-/// off another player's Bim, and anything anywhere but at a trader. Where
-/// one of the two was worn the result is on that Bim.
+/// **Nothing is combined** (October 2026): a gun bought off the shelf
+/// with one like it in the armory is a second gun; and a **sale** is the
+/// player's own — never off another player's Bim — at half the price.
 #[test]
-fn combining_makes_one_of_the_next_tier_and_refuses_what_it_should() {
+fn a_second_gun_bought_is_a_second_gun_and_another_player_s_kit_is_not_sold() {
     let mut world = basic(2);
     world.leave_for_probe();
-    let rifle = |t| Item::Weapon(WeaponKind::AutoRifle.at(t));
-    let a = world.holdings.put(rifle(Tier::One)).unwrap();
-    let b = world.holdings.put(rifle(Tier::One)).unwrap();
-    let combine = |a, b| Command::Combine { slot: 0, a, b };
-    let armory = |id| GearSource::Armory { id };
-
-    // On the map: not at a trader.
-    let events = world.step(&[combine(armory(a), armory(b))]);
-    assert!(refused_with(&events, Refusal::NotAtATrader), "{events:?}");
-
     let site = an_open_trader(&world);
     travel_to(&mut world, site);
     assert!(world.at_trader());
+    let gun = world.trader_here(0).unwrap().shelf[0].expect("a gun on the shelf");
+    let weapon = gun.weapon().expect("the first slot is the gun");
+    world.holdings.put(Item::Weapon(weapon));
+    world.step(&[Command::BuyShelf {
+        slot: 0,
+        index: 0,
+        to: None,
+    }]);
+    let guns = world
+        .holdings
+        .armory
+        .iter()
+        .filter(|s| s.item == Item::Weapon(weapon))
+        .count();
+    assert_eq!(guns, 2, "two of the gun, none made a tier up");
 
-    // Two tier-one rifles in the armory: one tier-two rifle in the armory.
-    let before = world.holdings.armory.len();
-    let events = world.step(&[combine(armory(a), armory(b))]);
-    assert!(
-        events.iter().any(|e| matches!(
-            e,
-            WorldEvent::Combined {
-                who: u32::MAX,
-                tier: 2,
-                ..
-            }
-        )),
-        "{events:?}"
-    );
-    assert_eq!(world.holdings.armory.len(), before - 1);
-    assert!(world.holdings.get(a).is_none() && world.holdings.get(b).is_none());
-    assert_eq!(world.holdings.armory.last().unwrap().item, rifle(Tier::Two));
-
-    // Tier three is as far as it goes.
-    let c = world.holdings.put(rifle(Tier::Three)).unwrap();
-    let d = world.holdings.put(rifle(Tier::Three)).unwrap();
-    let events = world.step(&[combine(armory(c), armory(d))]);
-    assert!(refused_with(&events, Refusal::TopTier), "{events:?}");
-    assert!(world.holdings.get(c).is_some() && world.holdings.get(d).is_some());
-
-    // Not a pair.
-    let e = world.holdings.put(rifle(Tier::One)).unwrap();
-    let events = world.step(&[combine(armory(c), armory(e))]);
-    assert!(refused_with(&events, Refusal::NotAPair), "{events:?}");
-
-    // Never off another player's Bim.
-    let helm = |id, t| Item::Armour(Piece::new(id, ArmourKind::Armour, t));
-    for who in [0usize, 1] {
-        let gear = world.aboard.room.gear(who);
-        world.aboard.room.issue(
-            who,
-            Gear {
-                armour: Some(match helm(900 + who as u32, Tier::One) {
-                    Item::Armour(p) => p,
-                    _ => unreachable!(),
-                }),
-                ..gear
-            },
-        );
-    }
-    let spare = world.holdings.put(helm(0, Tier::One)).unwrap();
     let theirs = GearSource::Worn {
         who: 1,
-        slot: GearSlot::Armour,
+        slot: GearSlot::Weapon,
     };
-    let events = world.step(&[combine(theirs, armory(spare))]);
+    assert!(world.worn_on(1, GearSlot::Weapon).is_some());
+    let events = world.step(&[Command::Sell {
+        slot: 0,
+        from: theirs,
+    }]);
     assert!(refused_with(&events, Refusal::NotYours), "{events:?}");
+    assert!(world.worn_on(1, GearSlot::Weapon).is_some());
 
-    // Off its own head: the result on its head, the spare gone.
     let mine = GearSource::Worn {
         who: 0,
-        slot: GearSlot::Armour,
+        slot: GearSlot::Weapon,
     };
-    world.step(&[combine(armory(spare), mine)]);
-    let Some(Item::Armour(on)) = world.worn_on(0, GearSlot::Armour) else {
-        panic!("the armour on");
+    let Some(Item::Weapon(own)) = world.worn_on(0, GearSlot::Weapon) else {
+        panic!("a gun in hand");
     };
-    assert_eq!((on.kind, on.tier), (ArmourKind::Armour, Tier::Two));
-    assert_eq!(
-        on.health,
-        Piece::new(0, ArmourKind::Armour, Tier::Two).health
-    );
-    assert!(world.holdings.get(spare).is_none());
+    let half = world.shelf_price(trader::ShelfItem {
+        resource: crate::armour::weapon_resource(own.kind),
+        tier: own.tier,
+    }) / 2;
+    let before = world.wallet(0);
+    world.step(&[Command::Sell {
+        slot: 0,
+        from: mine,
+    }]);
+    assert_eq!(world.wallet(0), before + half);
+    assert_eq!(world.worn_on(0, GearSlot::Weapon), None);
 }
 
 /// **A trader is closed while its system is the machines'** and not

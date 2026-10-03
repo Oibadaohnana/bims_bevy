@@ -472,12 +472,12 @@ pub struct Choice {
     pub line: Option<TradeLine>,
 }
 
-/// A line of the trader's form: a slot of the shelf, or one of the pairs
-/// that combine, by its place in the list.
+/// A line of the trader's form: a slot of the shelf, or a thing to sell,
+/// by its place in the Sell tab's list.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, serde::Serialize, serde::Deserialize)]
 pub enum TradeLine {
     Shelf(u32),
-    Combine(u32),
+    Sell(u32),
     /// An item off the item shelf, by its kind's code (October 2026).
     Item(u32),
 }
@@ -1619,7 +1619,7 @@ mod tests {
             }),
             Packet::Choice(Choice {
                 relic: None,
-                line: Some(TradeLine::Combine(1)),
+                line: Some(TradeLine::Sell(1)),
             }),
         ] {
             in_tx
@@ -1657,7 +1657,7 @@ mod tests {
                 1,
                 Choice {
                     relic: None,
-                    line: Some(TradeLine::Combine(1))
+                    line: Some(TradeLine::Sell(1))
                 }
             )]
         );

@@ -98,17 +98,14 @@ pub enum Order {
         index: u32,
         to: Option<u32>,
     },
-    /// Two of a kind at a tier combined into one of the next, at a trader
-    /// — `Command::Combine`.
-    Combine {
-        a: world::GearSource,
-        b: world::GearSource,
+    /// A thing sold back at a trader (October 2026) — `Command::Sell`.
+    Sell {
+        from: world::GearSource,
     },
-    /// An item off the trader's item shelf (October 2026), onto a
-    /// player's Bim or into the armory with `None` — `Command::BuyItem`.
+    /// An item at the trader (October 2026), bought onto the player's own
+    /// Bim or the one it carries upgraded a tier — `Command::BuyItem`.
     BuyItem {
         kind: u32,
-        to: Option<u32>,
     },
     /// The item in the player's own Bim's item slot used at a room point
     /// (October 2026) — `Command::UseItem`.
@@ -445,8 +442,8 @@ impl Net {
                     game.send(match order {
                         Order::Speed(speed) => Command::SetSpeed { slot, speed },
                         Order::BuyShelf { index, to } => Command::BuyShelf { slot, index, to },
-                        Order::Combine { a, b } => Command::Combine { slot, a, b },
-                        Order::BuyItem { kind, to } => Command::BuyItem { slot, kind, to },
+                        Order::Sell { from } => Command::Sell { slot, from },
+                        Order::BuyItem { kind } => Command::BuyItem { slot, kind },
                         Order::UseItem { item, x, y } => Command::UseItem { slot, item, x, y },
                         Order::Build {
                             kind,

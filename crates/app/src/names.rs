@@ -445,8 +445,7 @@ pub fn refusal(why: Refusal) -> &'static str {
         }
         Refusal::NotAtATrader => "only at a trader",
         Refusal::SoldOut => "that is gone — somebody bought it first",
-        Refusal::TopTier => "tier three is as far as combining goes",
-        Refusal::NotAPair => "only two of one kind at one tier combine",
+        Refusal::TopTier => "that item is at its top tier already",
         Refusal::NoRankedKit => "there is no such ability",
         Refusal::NoSkillPoint => "no skill point to spend — the next comes with the next level",
         Refusal::TopRank => "that ability is at its top rank",
@@ -1695,15 +1694,16 @@ pub fn event_line(event: WorldEvent) -> Option<String> {
             slot,
             kind,
             tier,
-            to,
+            upgrade,
+            ..
         } => {
             let item = bims::module::ModuleKind::from_code(kind)
                 .zip(bims::combat::Tier::from_code(tier))
                 .map_or_else(|| "an item".to_string(), |(k, t)| item_title(k.at(t)));
-            if to == u32::MAX {
-                format!("{} bought {item} into the armory.", player_name(slot))
+            if upgrade {
+                format!("{} upgraded to {item}.", player_name(slot))
             } else {
-                format!("{} bought {item} for {}.", player_name(slot), who(to))
+                format!("{} bought {item}.", player_name(slot))
             }
         }
         WorldEvent::Bounty { amount } => {
@@ -1750,12 +1750,11 @@ pub fn event_line(event: WorldEvent) -> Option<String> {
                 format!("{} bought a thing for {}.", player_name(slot), who(to))
             }
         }
-        WorldEvent::Combined { slot, tier, .. } => {
-            format!(
-                "{} combined two into one of tier {tier}.",
-                player_name(slot)
-            )
-        }
+        WorldEvent::Sold { slot, value, .. } => format!(
+            "{} sold a thing for {}.",
+            player_name(slot),
+            crate::format::euros(value)
+        ),
         WorldEvent::RankedUp {
             who: w,
             class,
@@ -2391,30 +2390,31 @@ pub const TRADER_ARMOUR: &str = "Armour";
 /// The item shelf (October 2026): every item at the day's tier, never
 /// sold out.
 pub const TRADER_ITEMS: &str = "Items";
-pub const TRADER_ITEMS_INTRO: &str = "Every item at the tier the day has reached, one of each a visit. Onto your own Bim's first free item slot, or into the armory — a bot carries none. Two of a kind at one tier combine into one of the next.";
+pub const TRADER_ITEMS_INTRO: &str = "Every item at the tier the day has reached, one of each a visit, onto your own Bim's first free item slot — never into the armory, and a bot carries none. An item your Bim already carries is offered a tier up instead, at every trader after the one you bought it at: Upgrade, at the next tier's price, in the slot it is in.";
 pub const TRADER_SOLD: &str = "SOLD";
 pub const TRADER_BUY: &str = "Buy";
-/// The button on a line the player already has one of: bought, the two
-/// are combined a tier up at once.
-pub const TRADER_BUY_COMBINE: &str = "Buy & Combine";
-/// The note under such a line: what the bought one is combined with.
-pub fn buy_combines_with(worn_by: Option<&str>) -> String {
-    match worn_by {
-        Some(who) => format!("combines with {who}'s"),
-        None => "combines with the armory's".into(),
-    }
-}
+/// The button on an item line the player's own Bim carries one of: it
+/// goes a tier up in its slot.
+pub const TRADER_UPGRADE: &str = "Upgrade";
+/// The note under such a line.
+pub const TRADER_UPGRADE_NOTE: &str = "yours, a tier up";
 /// The hover over such a line.
-pub const TRADER_BUY_COMBINE_TIP: &str = "You already have one of these at this tier: buying it combines the two into one of the next tier at once, where the first one is — the price and the combine fee together.";
+pub const TRADER_UPGRADE_TIP: &str = "Your Bim carries this item: buying it takes yours a tier up, in the slot it is in, for the next tier's price.";
+/// The stamp on an item line the player's own Bim carries at its top.
+pub const TRADER_TOP: &str = "MAX";
 pub const TRADER_INTO_ARMORY: &str = "Armory";
-pub const TRADER_COMBINE: &str = "Combine";
-pub const TRADER_COMBINE_INTRO: &str = "Two weapons or two pieces of one kind at one tier make one of the next tier, whole. Out of the armory, off your own Bim or off a bot. Where one of the two is worn, the result is worn in its place. Tier three is as far as it goes.";
-pub const TRADER_COMBINE_NONE: &str = "Nothing to combine.";
-/// Where a thing to combine is.
-pub fn combine_from(worn_by: Option<&str>) -> String {
+/// The trader's two tabs (October 2026): buying, and selling back.
+pub const TRADER_TAB_BUY: &str = "Buy";
+pub const TRADER_TAB_SELL: &str = "Sell";
+pub const TRADER_SELL: &str = "Sell";
+pub const TRADER_SELL_HEADING: &str = "Your things";
+pub const TRADER_SELL_INTRO: &str = "Sell back what you may change — your own Bim's weapon, armour and items, a bot's, and the armory's — for half of what it cost. An item fetches half of everything paid for it, its upgrades too; a weapon or armour half its price on the shelf today. What you sell leaves its slot empty.";
+pub const TRADER_SELL_NONE: &str = "Nothing to sell.";
+/// Where a thing to sell is.
+pub fn sell_from(worn_by: Option<&str>) -> String {
     match worn_by {
-        Some(who) => format!("worn by {who}"),
-        None => "armory".into(),
+        Some(who) => format!("on {who}"),
+        None => "in the armory".into(),
     }
 }
 
@@ -3087,7 +3087,7 @@ pub const ITEM_TIPS: [&str; 22] = [
     "A bandage. Nothing uses one any more: a downed crewmate is revived by a crewmate standing beside it.",
     // 6 and 8 were the helm and the leg guards (gone October 2026).
     "",
-    "Armour, over the whole body — the one piece a Bim wears. Takes every hit first. Bought at a trader or combined.",
+    "Armour, over the whole body — the one piece a Bim wears. Takes every hit first. Bought at a trader.",
     "",
     "A shotgun. Hits hard up close.",
     "An auto rifle. Fires steadily while the trigger is held.",
@@ -3100,7 +3100,7 @@ pub const ITEM_TIPS: [&str; 22] = [
     "",
     "",
     "",
-    "A minigun, tier 2 and up: twenty light bolts to a pull, ten a second, then a long cool. Shreds the machines; good armour shrugs off much of each bolt. Bought at a trader or combined, and only ever the crew's.",
+    "A minigun, tier 2 and up: twenty light bolts to a pull, ten a second, then a long cool. Shreds the machines; good armour shrugs off much of each bolt. Bought at a trader, and only ever the crew's.",
     "A rail lance, tier 3 only: one slug every five seconds that goes through a body and on into the next — up to three, each after the first taking less. Walls and a Guardian's shield from the front stop it. Bought at a trader, and only ever the crew's.",
     // 20 and 21 were the arc greaves and the Reflective plate.
     "",
@@ -3658,10 +3658,17 @@ mod tests {
                     index: 1,
                     to: u32::MAX,
                 },
-                WorldEvent::Combined {
+                WorldEvent::Sold {
                     slot: 0,
                     who: 0,
+                    value: 1_000,
+                },
+                WorldEvent::ItemBought {
+                    slot: 0,
+                    kind: 1,
                     tier: 2,
+                    to: 0,
+                    upgrade: true,
                 },
                 // The relic vote (October 2026).
                 WorldEvent::RelicsOffered { count: 3 },
@@ -3687,7 +3694,6 @@ mod tests {
                 Refusal::NotAtATrader,
                 Refusal::SoldOut,
                 Refusal::TopTier,
-                Refusal::NotAPair,
             ] {
                 assert!(!refusal(why).is_empty());
             }

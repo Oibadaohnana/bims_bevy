@@ -1,11 +1,11 @@
-//! The trader (task 114): the one place gear is bought, visited entirely on
-//! the world map.
+//! The trader (task 114): the one place gear is bought and sold, visited
+//! entirely on the world map.
 //!
 //! This is the rules, none of them the world's to walk: **which sites are
-//! traders**, **what is on a trader's shelf**, and **what two things
-//! combine into**. `trading.rs` (a child of `world`, like `mission.rs`) is
-//! where they meet the world's fields — the visit, the purchases and the
-//! combining.
+//! traders** and **what is on a trader's shelf**. `trading.rs` (a child of
+//! `world`, like `mission.rs`) is where they meet the world's fields — the
+//! visit, the purchases, an item's upgrade and a sale. Nothing is
+//! combined since October 2026.
 //!
 //! # Which sites
 //!
@@ -40,7 +40,7 @@
 //! the **items** (`crate::items::shop`): every kind at the day's tier,
 //! one of each a visit.
 
-use bims::combat::{ArmourKind, Item, Tier};
+use bims::combat::{ArmourKind, Tier};
 use physics::ResourceId;
 use worldgen::{Galaxy, StationBlueprint, StationKind};
 
@@ -316,46 +316,6 @@ impl Trader {
     }
 }
 
-/// Why two things will not combine.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum CombineError {
-    /// Not two of one kind at one tier: two weapons of different kinds, a
-    /// weapon and a piece, two pieces for different parts, or two tiers.
-    NotAPair,
-    /// Two at tier three: there is no tier past it.
-    TopTier,
-}
-
-/// What two things combine into (the workbench's upgrade, at a trader now):
-/// two weapons of one kind at one tier, or two pieces of one kind at one
-/// tier, make one of that kind a tier up — a piece whole, numbered `id`.
-/// Tier three combines into nothing.
-pub fn combined(a: Item, b: Item, id: u32) -> Result<Item, CombineError> {
-    match (a, b) {
-        (Item::Weapon(x), Item::Weapon(y)) if x.kind == y.kind && x.tier == y.tier => {
-            let next = next_tier(x.tier).ok_or(CombineError::TopTier)?;
-            Ok(Item::Weapon(x.kind.at(next)))
-        }
-        (Item::Armour(x), Item::Armour(y)) if x.kind == y.kind && x.tier == y.tier => {
-            let next = next_tier(x.tier).ok_or(CombineError::TopTier)?;
-            Ok(Item::Armour(bims::combat::Piece::new(id, x.kind, next)))
-        }
-        // Two items of a kind and a tier (October 2026,
-        // [`crate::items::combined`]).
-        (Item::Module(x), Item::Module(y)) => match crate::items::combined(x, y) {
-            Ok(Some(made)) => Ok(Item::Module(made)),
-            Ok(None) => Err(CombineError::NotAPair),
-            Err(()) => Err(CombineError::TopTier),
-        },
-        _ => Err(CombineError::NotAPair),
-    }
-}
-
-/// The tier after `tier`, and none after three.
-pub fn next_tier(tier: Tier) -> Option<Tier> {
-    Tier::from_code(tier.code() + 1)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -436,48 +396,6 @@ mod tests {
         assert_eq!(
             shelf_candidates(&worldgen::data::WEAPONS, Some(Tier::Three)).len(),
             7
-        );
-    }
-
-    /// Task 115: two tier-two miniguns make a tier-three one, and a lance
-    /// — tier three and nothing else — combines into nothing.
-    #[test]
-    fn two_miniguns_combine_and_a_lance_does_not() {
-        let mini = |t| Item::Weapon(WeaponKind::Minigun.at(t));
-        assert_eq!(
-            combined(mini(Tier::Two), mini(Tier::Two), 9),
-            Ok(mini(Tier::Three))
-        );
-        let lance = Item::Weapon(WeaponKind::RailLance.basic());
-        assert_eq!(combined(lance, lance, 9), Err(CombineError::TopTier));
-    }
-
-    #[test]
-    fn two_of_a_kind_combine_a_tier_up_and_three_does_not() {
-        let rifle = |t| Item::Weapon(WeaponKind::AutoRifle.at(t));
-        assert_eq!(
-            combined(rifle(Tier::One), rifle(Tier::One), 9),
-            Ok(rifle(Tier::Two))
-        );
-        assert_eq!(
-            combined(rifle(Tier::Three), rifle(Tier::Three), 9),
-            Err(CombineError::TopTier)
-        );
-        assert_eq!(
-            combined(rifle(Tier::One), rifle(Tier::Two), 9),
-            Err(CombineError::NotAPair)
-        );
-        let helm = |id, t| Item::Armour(bims::combat::Piece::new(id, ArmourKind::Armour, t));
-        let Ok(Item::Armour(made)) = combined(helm(1, Tier::Two), helm(2, Tier::Two), 9) else {
-            panic!("two armours make an armour");
-        };
-        assert_eq!(
-            (made.id, made.kind, made.tier),
-            (9, ArmourKind::Armour, Tier::Three)
-        );
-        assert_eq!(
-            combined(helm(1, Tier::One), rifle(Tier::One), 9),
-            Err(CombineError::NotAPair)
         );
     }
 }

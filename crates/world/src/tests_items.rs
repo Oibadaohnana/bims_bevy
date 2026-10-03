@@ -1,19 +1,22 @@
 //! The items (October 2026, `crate::items`, `bims::module`): four slots a
-//! player's Bim and none a bot's; bought at a trader at the day's tier and
-//! combined a tier up; the *Blink Drive*'s key, its cooldown and its lock
+//! player's Bim and none a bot's; bought at a trader at the day's tier,
+//! upgraded a tier at the traders after and sold back for half; the
+//! *Blink Drive*'s key, its cooldown and its lock
 //! after a hit; the *Executioner*'s crit beside Weak Spot; the *Reactor
 //! Heart*'s health and regeneration; and the *Override Core*'s rank past
 //! the fourth.
 
 use bims::combat::{Item, Tier};
-use bims::module::{ITEM_SLOTS, ModuleKind};
+use bims::module::{ITEM_SLOTS, Module, ModuleKind};
 use shipdesign::fixture::flyer;
 
 use crate::class::{self, Class};
 use crate::event::{Refusal, WorldEvent};
 use crate::fixture::crewed_world;
 use crate::holdings::{GearSlot, GearSource};
+use crate::items::ItemOffer;
 use crate::run::{Phase, Site};
+use crate::trader;
 use crate::world::{Command, World};
 
 /// Money enough for anything on a shelf.
@@ -127,10 +130,11 @@ fn a_player_s_bim_carries_four_items_and_a_bot_none() {
 }
 
 /// **A trader sells every item at the day's tier**, out of the buyer's own
-/// money and onto its own Bim; a bot is refused one; two of a tier
-/// combine into one of the next.
+/// money and onto its own Bim — never into the armory, never a bot's —
+/// what was paid kept on the item; one of a kind a visit, and a new kind
+/// wants a free slot.
 #[test]
-fn a_trader_sells_items_at_the_day_s_tier_and_two_combine() {
+fn a_trader_sells_items_at_the_day_s_tier_onto_the_buyer_s_own_bim() {
     let mut world = basic();
     at_a_trader(&mut world);
     let tier = world.shop_tier();
@@ -146,6 +150,10 @@ fn a_trader_sells_items_at_the_day_s_tier_and_two_combine() {
         .find(|m| m.kind == ModuleKind::Executioner)
         .unwrap();
     assert_eq!(crit.tier, tier);
+    assert_eq!(
+        world.item_offer(0, ModuleKind::Executioner.code()),
+        Some(ItemOffer::Buy(crit))
+    );
     // And the gun and the piece are the day's tier too, one each.
     let trader = world.trader_here(0).unwrap();
     assert_eq!(trader.shelf.len(), 2);
@@ -155,167 +163,227 @@ fn a_trader_sells_items_at_the_day_s_tier_and_two_combine() {
     let events = world.step(&[Command::BuyItem {
         slot: 0,
         kind: ModuleKind::Executioner.code(),
-        to: Some(0),
     }]);
     assert!(
-        events
-            .iter()
-            .any(|e| matches!(e, WorldEvent::ItemBought { .. })),
+        events.iter().any(|e| matches!(
+            e,
+            WorldEvent::ItemBought {
+                to: 0,
+                upgrade: false,
+                ..
+            }
+        )),
         "{events:?}"
     );
     assert_eq!(world.wallet(0), before - price);
-    assert_eq!(world.items_of(0)[0], Some(crit));
-    let events = world.step(&[Command::BuyItem {
-        slot: 0,
-        kind: ModuleKind::ReactorHeart.code(),
-        to: Some(1),
-    }]);
-    assert!(
-        refused_with(&events, Refusal::BotsCarryNoItems),
-        "{events:?}"
+    assert_eq!(
+        world.items_of(0)[0],
+        Some(Module {
+            paid: price,
+            ..crit
+        })
     );
-    let events = world.step(&[Command::BuyItem {
-        slot: 0,
-        kind: 99,
-        to: None,
-    }]);
+    assert!(world.holdings.armory.is_empty(), "never into the armory");
+    let events = world.step(&[Command::BuyItem { slot: 0, kind: 99 }]);
     assert!(refused_with(&events, Refusal::NotForSale), "{events:?}");
-    // One of a kind a visit: a second Executioner is sold out until the
-    // next, and so is a second blink.
+    // One of a kind a visit: the Executioner is sold out until the next.
     assert!(world.item_sold(0, ModuleKind::Executioner.code()));
     let events = world.step(&[Command::BuyItem {
         slot: 0,
         kind: ModuleKind::Executioner.code(),
-        to: None,
     }]);
     assert!(refused_with(&events, Refusal::SoldOut), "{events:?}");
-    world.step(&[Command::BuyItem {
-        slot: 0,
-        kind: ModuleKind::BlinkDrive.code(),
-        to: None,
-    }]);
+    // A new kind wants a free slot.
+    for index in 1..ITEM_SLOTS {
+        carry(&mut world, 0, index, Some(ModuleKind::LongBarrel.at(tier)));
+    }
     let events = world.step(&[Command::BuyItem {
         slot: 0,
-        kind: ModuleKind::BlinkDrive.code(),
-        to: None,
+        kind: ModuleKind::ReactorHeart.code(),
     }]);
-    assert!(refused_with(&events, Refusal::SoldOut), "{events:?}");
-    // A second blink of the tier from another visit, and the two combined
-    // a tier up.
-    world
-        .holdings
-        .put(Item::Module(ModuleKind::BlinkDrive.at(tier)));
-    let ids: Vec<u32> = world
-        .holdings
-        .armory
-        .iter()
-        .filter(|s| matches!(s.item, Item::Module(m) if m.kind == ModuleKind::BlinkDrive))
-        .map(|s| s.id)
-        .collect();
-    assert_eq!(ids.len(), 2);
-    let events = world.step(&[Command::Combine {
-        slot: 0,
-        a: GearSource::Armory { id: ids[0] },
-        b: GearSource::Armory { id: ids[1] },
-    }]);
-    match tier.next() {
-        Some(next) => assert!(
-            world
-                .holdings
-                .armory
-                .iter()
-                .any(|s| s.item == Item::Module(ModuleKind::BlinkDrive.at(next))),
-            "{events:?}"
-        ),
-        None => assert!(refused_with(&events, Refusal::TopTier), "{events:?}"),
-    }
+    assert!(refused_with(&events, Refusal::ItemsFull), "{events:?}");
 }
 
-/// **A second of a thing the player has is bought and combined at once**:
-/// an item worn is made a tier up in its slot though every slot is full,
-/// one in the armory a tier up there, and a shelf's gun with the one in
-/// the armory — each for the price and the combine fee, the bought one
-/// landing nowhere.
+/// **An item carried is offered a tier up at every trader after**, at the
+/// next tier's whole price, made in the slot it is in — every slot full
+/// or not — what was paid adding up; past tier three nothing.
 #[test]
-fn a_second_of_a_kind_bought_is_combined_with_the_first() {
+fn an_item_carried_is_upgraded_a_tier_at_every_later_trader() {
     let mut world = basic();
     at_a_trader(&mut world);
     let tier = world.shop_tier();
-    let next = tier.next().expect("the first days sell under tier three");
-    // Worn, every slot full.
-    let crit = ModuleKind::Executioner.at(tier);
-    for index in 0..ITEM_SLOTS {
-        carry(&mut world, 0, index, Some(ModuleKind::LongBarrel.at(tier)));
-    }
-    carry(&mut world, 0, 2, Some(crit));
-    let thing = Item::Module(crit);
-    assert_eq!(
-        world.buy_partner(0, thing, Some(0)),
-        Some(GearSource::Worn {
-            who: 0,
-            slot: GearSlot::Item3
-        })
+    assert!(
+        tier.next().is_some(),
+        "the first days sell under tier three"
     );
-    let before = world.wallet(0);
-    let price = world.item_price(crit) + world.combine_fee();
+    let first = world.item_price(ModuleKind::Executioner.at(tier));
+    world.step(&[Command::BuyItem {
+        slot: 0,
+        kind: ModuleKind::Executioner.code(),
+    }]);
+    // Moved to the third slot, and every other slot full.
+    let held = world.items_of(0)[0].unwrap();
+    carry(&mut world, 0, 0, Some(ModuleKind::LongBarrel.at(tier)));
+    carry(&mut world, 0, 1, Some(ModuleKind::LongBarrel.at(tier)));
+    carry(&mut world, 0, 2, Some(held));
+    carry(&mut world, 0, 3, Some(ModuleKind::LongBarrel.at(tier)));
+    // The next visit (`Trader::restock` clears what was sold).
+    let mut paid = first;
+    let mut at = tier;
+    while let Some(up) = at.next() {
+        for trader in &mut world.run.traders {
+            trader.items_sold.clear();
+        }
+        let offer = world.item_offer(0, ModuleKind::Executioner.code());
+        let Some(ItemOffer::Upgrade { at: 2, from, to }) = offer else {
+            panic!("an upgrade of the one in the third slot: {offer:?}");
+        };
+        assert_eq!((from.tier, to.tier), (at, up));
+        let price = world.item_price(ModuleKind::Executioner.at(up));
+        assert_eq!(world.item_offer_price(offer.unwrap()), Some(price));
+        let before = world.wallet(0);
+        let events = world.step(&[Command::BuyItem {
+            slot: 0,
+            kind: ModuleKind::Executioner.code(),
+        }]);
+        assert!(
+            events
+                .iter()
+                .any(|e| matches!(e, WorldEvent::ItemBought { upgrade: true, .. })),
+            "{events:?}"
+        );
+        assert_eq!(world.wallet(0), before - price);
+        paid += price;
+        assert_eq!(
+            world.items_of(0)[2],
+            Some(Module {
+                paid,
+                ..ModuleKind::Executioner.at(up)
+            })
+        );
+        at = up;
+    }
+    assert_eq!(at, Tier::Three);
+    for trader in &mut world.run.traders {
+        trader.items_sold.clear();
+    }
+    assert!(matches!(
+        world.item_offer(0, ModuleKind::Executioner.code()),
+        Some(ItemOffer::Top(_))
+    ));
     let events = world.step(&[Command::BuyItem {
         slot: 0,
         kind: ModuleKind::Executioner.code(),
-        to: Some(0),
     }]);
-    assert!(
-        events
-            .iter()
-            .any(|e| matches!(e, WorldEvent::Combined { who: 0, .. })),
-        "{events:?}"
+    assert!(refused_with(&events, Refusal::TopTier), "{events:?}");
+    // The Override Core is one tier: carried, it is at its top.
+    carry(
+        &mut world,
+        0,
+        0,
+        Some(ModuleKind::OverrideCore.at(Tier::One)),
     );
-    assert_eq!(world.wallet(0), before - price);
-    assert_eq!(world.items_of(0)[2], Some(ModuleKind::Executioner.at(next)));
-    assert!(world.holdings.armory.is_empty());
-    // In the armory, bought for the armory.
-    let blink = ModuleKind::BlinkDrive.at(tier);
-    world.holdings.put(Item::Module(blink));
+    assert!(matches!(
+        world.item_offer(0, ModuleKind::OverrideCore.code()),
+        Some(ItemOffer::Top(_))
+    ));
+}
+
+/// **A thing sold fetches half of what was paid for it**: an item every
+/// upgrade added in, one never bought half its tier's price, a gun out of
+/// the armory and a bot's half its shelf price — into the seller's own
+/// wallet, the slot left empty; nowhere but at a trader, never a charge.
+#[test]
+fn a_thing_sold_fetches_half_of_what_was_paid() {
+    let mut world = basic();
+    world.leave_for_probe();
+    let gun = Item::Weapon(bims::combat::WeaponKind::AutoRifle.at(Tier::Two));
+    let id = world.holdings.put(gun).unwrap();
+    let events = world.step(&[Command::Sell {
+        slot: 0,
+        from: GearSource::Armory { id },
+    }]);
+    assert!(refused_with(&events, Refusal::NotAtATrader), "{events:?}");
+    at_a_trader(&mut world);
+    // Bought and upgraded: half of both prices.
     world.step(&[Command::BuyItem {
         slot: 0,
-        kind: ModuleKind::BlinkDrive.code(),
-        to: None,
+        kind: ModuleKind::Executioner.code(),
     }]);
-    let blinks: Vec<Item> = world
-        .holdings
-        .armory
-        .iter()
-        .map(|s| s.item)
-        .filter(|i| matches!(i, Item::Module(m) if m.kind == ModuleKind::BlinkDrive))
-        .collect();
-    assert_eq!(blinks, vec![Item::Module(ModuleKind::BlinkDrive.at(next))]);
-    // Nothing to combine with: bought as ever.
-    assert_eq!(
-        world.buy_partner(0, Item::Module(ModuleKind::ReactorHeart.at(tier)), None),
-        None
-    );
-    // The shelf's gun, with one like it in the armory.
-    let gun = world.trader_here(0).unwrap().shelf[0].expect("a gun on the shelf");
-    let weapon = gun.weapon().expect("the first slot is the gun");
-    world.holdings.put(Item::Weapon(weapon));
-    let events = world.step(&[Command::BuyShelf {
+    for trader in &mut world.run.traders {
+        trader.items_sold.clear();
+    }
+    world.step(&[Command::BuyItem {
         slot: 0,
-        index: 0,
-        to: None,
+        kind: ModuleKind::Executioner.code(),
+    }]);
+    let crit = world.items_of(0)[0].unwrap();
+    assert!(crit.paid > 0);
+    let worn = GearSource::Worn {
+        who: 0,
+        slot: GearSlot::Item1,
+    };
+    assert_eq!(
+        world.sellable(0, worn),
+        Ok((Item::Module(crit), crit.paid / 2))
+    );
+    let before = world.wallet(0);
+    let events = world.step(&[Command::Sell {
+        slot: 0,
+        from: worn,
     }]);
     assert!(
-        events
-            .iter()
-            .any(|e| matches!(e, WorldEvent::Combined { .. })),
+        events.iter().any(|e| matches!(
+            e,
+            WorldEvent::Sold {
+                slot: 0,
+                who: 0,
+                value
+            } if *value == crit.paid / 2
+        )),
         "{events:?}"
     );
-    let guns: Vec<Item> = world
-        .holdings
-        .armory
-        .iter()
-        .map(|s| s.item)
-        .filter(|i| matches!(i, Item::Weapon(w) if w.kind == weapon.kind))
-        .collect();
-    assert_eq!(guns, vec![Item::Weapon(weapon.kind.at(next))]);
+    assert_eq!(world.wallet(0), before + crit.paid / 2);
+    assert_eq!(world.items_of(0)[0], None);
+    // Sold, the kind is the day's shelf's again.
+    assert!(matches!(
+        world.item_offer(0, ModuleKind::Executioner.code()),
+        Some(ItemOffer::Buy(_))
+    ));
+    // One never bought: half its tier's price today.
+    let heart = ModuleKind::ReactorHeart.at(Tier::Two);
+    carry(&mut world, 0, 1, Some(heart));
+    assert_eq!(
+        world.sell_value(Item::Module(heart)),
+        Some(world.item_price(heart) / 2)
+    );
+    // The gun out of the armory, at half its shelf price.
+    let shelf = trader::ShelfItem {
+        resource: crate::armour::weapon_resource(bims::combat::WeaponKind::AutoRifle),
+        tier: Tier::Two,
+    };
+    let half = world.shelf_price(shelf) / 2;
+    let before = world.wallet(0);
+    world.step(&[Command::Sell {
+        slot: 0,
+        from: GearSource::Armory { id },
+    }]);
+    assert_eq!(world.wallet(0), before + half);
+    assert!(world.holdings.get(id).is_none());
+    // A bot's gun is the player's to sell too.
+    assert!(world.worn_on(1, GearSlot::Weapon).is_some());
+    let before = world.wallet(0);
+    let events = world.step(&[Command::Sell {
+        slot: 0,
+        from: GearSource::Worn {
+            who: 1,
+            slot: GearSlot::Weapon,
+        },
+    }]);
+    assert!(world.wallet(0) > before, "{events:?}");
+    assert_eq!(world.worn_on(1, GearSlot::Weapon), None);
+    // A charge is no thing to sell.
+    assert_eq!(world.sell_value(Item::Stack(0)), None);
 }
 
 /// **A Reactor Heart raises the bar and puts hit points back**: a full

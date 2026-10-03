@@ -943,6 +943,11 @@ fn eat_gear(hash: &mut Fnv, gear: &bims::combat::Gear) {
             hash.eat(0x_4954_454D + slot as u64);
             hash.eat(item.kind.code() as u64);
             hash.eat(item.tier.code() as u64);
+            // What was paid for it (a sale gives half back), only where
+            // anything was.
+            if item.paid > 0 {
+                hash.eat(item.paid);
+            }
         }
     }
 }
@@ -972,6 +977,9 @@ fn eat_item(hash: &mut Fnv, item: &bims::combat::Item) {
             hash.eat(3);
             hash.eat(item.kind.code() as u64);
             hash.eat(item.tier.code() as u64);
+            if item.paid > 0 {
+                hash.eat(item.paid);
+            }
         }
     }
 }

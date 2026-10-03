@@ -7380,3 +7380,48 @@ for a run whose classed crew pass 3 200 experience (both were already
 off their pins; not re-run here). `class::tests`' twenty-level table and
 `tests_items::the_levels_past_sixteen_are_hit_points_and_weapon_damage`
 are the rule.
+
+## Nothing combined: an item upgraded, and a thing sold (October 2026)
+
+> "Items: four slots a player's Bim", "The trader (task 114)", "The
+> minigun and the rail lance" and the arc greaves' sections above say two
+> of a kind combine a tier up (`Command::Combine`, `buy_partner`, *Buy &
+> Combine*, `combine_fee`); all of it went.
+
+- **An item is bought onto the player's own Bim, never into the
+  armory** (`Command::BuyItem { slot, kind }`, `to` gone). What the line
+  sells is `World::item_offer(slot, kind)` → `items::ItemOffer`: `Buy`
+  (the day's tier off the shelf, onto the first free item slot,
+  `ItemsFull` otherwise), `Upgrade { at, from, to }` where the Bim
+  carries the kind — `items::upgraded`, the next tier **whatever the
+  day**, made in slot `at`, every slot full or not — or `Top` past tier
+  three (and the *Override Core*, made at one tier), refused `TopTier`.
+  The price is `item_offer_price`: the tier bought at's whole price, an
+  upgrade the next tier's. One of a kind a visit as before
+  (`items_sold`), so an item bought is upgraded at the traders after.
+  `ItemBought::upgrade` says which.
+- **`Module::paid`** (serde default, hashed only where non-zero) is what
+  its owner paid at the traders, every upgrade added on.
+- **A sale**: `Command::Sell { slot, from }` at a trader (`NotAtATrader`
+  otherwise) — the armory, or a slot of a Bim the player `may_change` —
+  for `World::sell_value`: `data::SELL_BACK_PERCENT` (50) of an item's
+  `paid` (of its tier's price today for one never bought), of a weapon's
+  or a piece's `shelf_price` at its tier today; a charge is not sold.
+  `sellable(slot, from)` is the app's question; the slot is left empty,
+  the value `credit`ed to the seller's wallet, `WorldEvent::Sold` (161).
+- **Gone**: `trader::{combined, CombineError, next_tier}`,
+  `items::combined`, `World::{combine, combine_fee, buy_partner,
+  combine_bought, number_made}`, `Rewards::combine_fee` (and its line in
+  `rewards.ron`), `data::COMBINE_FEE`, `WorldEvent::Combined` (127) and
+  `Refusal::NotAPair` (107), codes left free. A gun bought with one like
+  it already owned is simply a second gun.
+- **The app**: the trader's window has a **Buy** and a **Sell** tab; an
+  item line the Bim carries reads *Upgrade*, washed and outlined in the
+  next tier's colour where *Buy & Combine* was; the Sell tab lists the
+  player's own Bim's, each bot's and the armory's things with their
+  price. **`SAVE_VERSION` 100, `wire::PROTOCOL` 122.**
+  `tests_items.rs` (`a_trader_sells_items_at_the_day_s_tier_onto_the_buyer_s_own_bim`,
+  `an_item_carried_is_upgraded_a_tier_at_every_later_trader`,
+  `a_thing_sold_fetches_half_of_what_was_paid`) and `tests_trader.rs`
+  (`a_second_gun_bought_is_a_second_gun_and_another_player_s_kit_is_not_sold`)
+  are the rule.

@@ -266,7 +266,9 @@ use crate::game::Game;
 /// 99: a Guardian keeps how long until its next grenade (`Droid::grenade_wait`),
 /// and a grenade or a shot says whether it is a Guardian's (`Grenade::hostile`,
 /// `Grenade::unseen`, `Shot::grenade`).
-pub const SAVE_VERSION: u32 = 99;
+/// 100: an item keeps what its owner paid for it (`Module::paid`, half of
+/// it back on a sale); `Command::Combine` and `WorldEvent::Combined` went.
+pub const SAVE_VERSION: u32 = 100;
 
 /// What the file holds, read back.
 #[derive(serde::Deserialize)]

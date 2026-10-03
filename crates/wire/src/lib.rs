@@ -166,7 +166,12 @@ use serde::{Deserialize, Serialize};
 /// tiles, every ten seconds (`balance::GUARDIAN_GRENADE_*`), and no plain wave
 /// has a Guardian (`droid::wave_kinds(n)`; an elite's alone): both ends must
 /// fight and lay waves alike.
-pub const PROTOCOL: u32 = 121;
+/// 122: nothing is combined; an item the player's Bim carries is bought a
+/// tier up in its slot (`Command::BuyItem` lost `to`, `ItemBought::upgrade`),
+/// a thing is sold back at a trader for half (`Command::Sell`,
+/// `WorldEvent::Sold`), and an item keeps what was paid (`Module::paid`):
+/// both ends must trade alike.
+pub const PROTOCOL: u32 = 122;
 
 /// Where the relay lives. `BIMS_SERVER` in the environment overrides it
 /// — `ws://127.0.0.1:8792` for one on the same machine.

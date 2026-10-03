@@ -514,7 +514,7 @@ pub const ITEM_PRICE: [[Money; 3]; 13] = [
     [54_000, 94_500, 810_000],
     [33_750, 60_750, 108_000],
 ];
-/// What combining two things of a kind and a tier into one of the next
-/// costs, out of the pool (the workbench's upgrade, at a trader now). A
-/// placeholder, and nothing yet.
-pub const COMBINE_FEE: Money = 0;
+/// What a thing sold back at a trader fetches, in per cent of what was
+/// paid for it (October 2026, the player's: half). Nothing is combined
+/// any more; an item is upgraded at the next tier's price instead.
+pub const SELL_BACK_PERCENT: Money = 50;
