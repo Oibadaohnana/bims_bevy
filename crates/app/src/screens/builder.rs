@@ -176,6 +176,12 @@ pub struct Settings {
     /// The world clock's day the `end` run opens on, so its waves are a
     /// run's that far on (`dev::end_day`, the host's, dealt with the rest).
     pub end_day: u32,
+    /// The setup's auto-shoot (October 2026): this player's own Bim fires
+    /// at the nearest enemy in reach, or the one the crosshair picked, on
+    /// top of the keys and the trigger (`screens::game`). Each player's
+    /// own choice and nobody else's: it never crosses the wire, and the
+    /// room is told only the aim and the trigger a click would tell it.
+    pub auto_shoot: bool,
 }
 
 impl Default for Settings {
@@ -196,6 +202,7 @@ impl Default for Settings {
             difficulty: None,
             end: false,
             end_day: crate::dev::end_day(),
+            auto_shoot: crate::dev::auto_shoot(),
         }
     }
 }
@@ -1122,6 +1129,18 @@ fn setup_rows(
         editable,
         &mut screen.difficulty_note,
         now,
+    );
+    // Auto-shoot: everybody's own, host or guest, like the name.
+    choice_row(
+        ui,
+        AUTO_SHOOT,
+        AUTO_SHOOT_NOTE,
+        true,
+        &[
+            ("Off", AUTO_SHOOT_OFF.to_string(), false),
+            ("On", AUTO_SHOOT_ON.to_string(), true),
+        ],
+        &mut settings.auto_shoot,
     );
     // The player's own crew member's name: everybody's to type,
     // host or guest, since each names their own.

@@ -631,6 +631,12 @@ pub fn first_wave_line(machines: u32, players: u32) -> String {
     let m = if machines == 1 { "machine" } else { "machines" };
     format!("The first wave: {machines} {m} for {who}")
 }
+/// The setup's auto-shoot (October 2026): each player's own, beside the
+/// keys and the trigger, never instead of them.
+pub const AUTO_SHOOT: &str = "Auto shoot";
+pub const AUTO_SHOOT_NOTE: &str = "Your Bim fires at the nearest enemy in reach, or the one you click; WASD and the left button work as ever";
+pub const AUTO_SHOOT_OFF: &str = "You aim and fire";
+pub const AUTO_SHOOT_ON: &str = "It fires by itself";
 /// The setup's name field: what the player calls their crew member.
 pub const BIM_NAME: &str = "Your Bim";
 pub const BIM_NAME_NOTE: &str = "What your crew member is called; blank keeps the crew's own name";

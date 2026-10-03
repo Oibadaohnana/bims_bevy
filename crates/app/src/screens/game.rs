@@ -169,6 +169,13 @@ pub struct GameScreen {
     /// The left press was an armed pointer's — a throw, an attack-move, the
     /// banner — and fires nothing until the button comes up (task 144).
     trigger_spent: bool,
+    /// The enemy the crosshair picked for the auto-shoot (the setup's,
+    /// October 2026): a left click on one, an index in the room's target
+    /// list; a click elsewhere lets it go, and so does its going down.
+    auto_pick: Option<usize>,
+    /// Whom the auto-shoot is firing at this frame and where it stands,
+    /// in room units, for its mark on the deck.
+    auto_shot: Option<(usize, bims::math::Vec2)>,
     /// The dodge roll's key (Alt, task 150) was down last frame: a roll
     /// goes on its way down, once.
     dodge_was: bool,
@@ -989,6 +996,8 @@ impl GameScreen {
             control: None,
             crosshair: false,
             trigger_spent: false,
+            auto_pick: None,
+            auto_shot: None,
             dodge_was: false,
             tab_took_focus: false,
             backlog: 0.0,
@@ -1072,6 +1081,8 @@ fn frame(
     mut loading: ResMut<super::loading::Loading>,
     // The picture behind a station's deck.
     station_backdrops: Res<super::backdrop::StationBackdrops>,
+    // The setup's choices this end keeps for itself: the auto-shoot.
+    setup: Option<Res<super::builder::Settings>>,
 ) -> Result {
     // `BIMS_PERF`: where the frame goes (feature 96). Nothing at all
     // without it.
@@ -1080,6 +1091,7 @@ fn frame(
     let screen = &mut *screen;
     let session = &mut session.0;
     let keys_now = *bindings;
+    let auto_shoot = setup.is_some_and(|s| s.auto_shoot);
     let now = ctx.input(|i| i.time);
     let dt = time.delta_secs().min(super::designer::MAX_FRAME_DT) as f64;
     let mut root = root_ui(&ctx);
@@ -2219,8 +2231,14 @@ fn frame(
             ctx.set_cursor_icon(egui::CursorIcon::None);
             // The left button is the trigger (task 144), which the control
             // order below carries, and a left press closes any menu open.
+            // With the auto-shoot on it is also the crosshair's pick: the
+            // enemy under it is the one shot at from now on, and a press
+            // on nobody lets the pick go.
             if pointer.primary_pressed {
                 panels.close_menu();
+                if auto_shoot {
+                    screen.auto_pick = session.room_ref().and_then(|room| room.enemy_at(rx, ry));
+                }
             }
             // A right-click walks nobody anywhere and attacks nobody (task
             // 144). A downed crewmate or townsperson under it is the
@@ -2390,6 +2408,26 @@ fn frame(
         // A sprint is said only while the keys walk it: Shift alone is
         // also an order's wait-its-turn, and nothing to send then.
         let sprint = sprint && walk.is_some();
+        // The auto-shoot (the setup's, October 2026): with the left
+        // button up the Bim turns onto the enemy the crosshair picked,
+        // else the nearest it has a shot at (`Game::auto_aim`), and holds
+        // the trigger down — the keys walk it whatever it shoots at, and
+        // the left button held is the player's own aim as ever. Nothing
+        // while it sprints, which fires nothing. A pick gone down is let
+        // go.
+        screen.auto_shot = None;
+        if auto_shoot && let Some(room) = session.room_ref() {
+            if screen.auto_pick.is_some_and(|i| !room.enemy_up(i)) {
+                screen.auto_pick = None;
+            }
+            if !fire && !sprint {
+                screen.auto_shot = room.auto_aim(screen.net.slot as usize, screen.auto_pick);
+            }
+        }
+        let (aim, fire) = match screen.auto_shot {
+            Some((_, to)) => (Some(angle_code((to.y - at.y).atan2(to.x - at.x))), true),
+            None => (aim, fire),
+        };
         if let Some(aim) = aim
             && control_due(screen.control, (walk, aim, fire, sprint), now)
         {
@@ -2408,11 +2446,29 @@ fn frame(
         if reload {
             orders.push(Order::Crew(CrewOrder::Reload));
         }
+    } else {
+        // The map or the sheet up: nobody is aiming, so the auto-shoot's
+        // trigger is let go rather than left held down on a stale aim.
+        screen.auto_shot = None;
+        if auto_shoot && let Some(((walk, aim, true, sprint), _)) = screen.control {
+            screen.control = Some(((walk, aim, false, sprint), now));
+            orders.push(Order::Crew(CrewOrder::Control {
+                walk,
+                aim,
+                fire: false,
+                sprint,
+            }));
+        }
     }
 
     // A rank-up asked for this frame (task 123): Ctrl and a slot's key
     // here, or Ctrl and a click on the slot's box in the hero panel below.
     let mut rank_up_asked: Option<RankUp> = None;
+    let map_proposing = map_up
+        && session
+            .game
+            .as_ref()
+            .is_some_and(|g| super::worldmap::proposing(&g.world));
     if keys {
         ctx.input(|i| {
             if let Some(game) = &mut session.game {
@@ -2464,11 +2520,6 @@ fn frame(
                     orders.push(Order::Crew(CrewOrder::Hand { hand }));
                 }
                 // The four item slots, 1 to 4 (October 2026): the item in
-    let map_proposing = map_up
-        && session
-            .game
-            .as_ref()
-            .is_some_and(|g| super::worldmap::proposing(&g.world));
                 // that slot used at the pointer — a Blink Drive blinks
                 // there. The world says why not, into the log. Read
                 // through Shift, which turns 1 into `!`.
@@ -2533,6 +2584,11 @@ fn frame(
                     screen.throw_aim = Some(((rx / t).floor() as i32, (ry / t).floor() as i32));
                 }
                 for action in Action::ABILITIES {
+                    // The map up between missions reads the Propose key
+                    // (Space, October 2026) and not the slot sharing it.
+                    if map_proposing && keys_now.key(action) == keys_now.key(Action::Propose) {
+                        continue;
+                    }
                     let slot = screen.net.slot;
                     // A ranked kit's four slots are its four abilities
                     // (task 124); every other class has two keys.
@@ -2584,11 +2640,6 @@ fn frame(
                     let (order, line) = match primary {
                         _ if ranked => ranked_key(&game.world, slot, action, tile, under),
                         Some(primary) => class_key(&game.world, slot, primary, tile, under),
-                    // The map up between missions reads the Propose key
-                    // (Space, October 2026) and not the slot sharing it.
-                    if map_proposing && keys_now.key(action) == keys_now.key(Action::Propose) {
-                        continue;
-                    }
                         None => (None, None),
                     };
                     orders.extend(order);
@@ -2884,6 +2935,11 @@ fn frame(
         // The bar that puts a trip to the crew, at the foot of the map
         // in the middle of the chart (the second map rework), and the log over it.
         let map_right = area.max.x - MARGIN - screen.world_map.column_w();
+        // Space (the Propose key, October 2026) presses the bar's button.
+        let propose_pressed = keys
+            && ctx.input(|i| {
+                crate::keys::plain_or_sprinting(i.modifiers) && keys_now.pressed(i, Action::Propose)
+            });
         let bar = super::worldmap::propose_bar(
             &ctx,
             (area.min.x + map_right) / 2.0,
@@ -2891,6 +2947,7 @@ fn frame(
             &screen.world_map,
             world,
             local,
+            (propose_pressed, keys_now.key(Action::Propose).name()),
             &mut orders,
             &crew_name,
         );
@@ -2935,11 +2992,6 @@ fn frame(
         let (faces, press) = hud::portraits(&ctx, area.min + egui::vec2(MARGIN, MARGIN), &cells);
         portrait_press = press;
         let top = hud::top_frame(&ctx, area, faces.max.x, world, local, &threats, paused);
-        // Space (the Propose key, October 2026) presses the bar's button.
-        let propose_pressed = keys
-            && ctx.input(|i| {
-                crate::keys::plain_or_sprinting(i.modifiers) && keys_now.pressed(i, Action::Propose)
-            });
         let mut top_foot = top.max.y;
         if out {
             top_foot = hud::out_banner(
@@ -2947,7 +2999,6 @@ fn frame(
                 top.center().x,
                 top.max.y + 6.0,
                 world.crew_money(),
-            (propose_pressed, keys_now.key(Action::Propose).name()),
                 world.rewards().buyback,
             )
             .max
@@ -3013,8 +3064,8 @@ fn frame(
                 points: room.health(w),
                 max: room.max_health(w),
                 armour: if alive { room.armour_health(w) } else { 0.0 },
-                hurt: crate::crew::is_hurt(room, w),
                 shield: if alive { room.shield_hp(w) } else { 0.0 },
+                hurt: crate::crew::is_hurt(room, w),
                 downed: alive && room.is_down(w),
                 down_left: room.down_left(w),
                 peril: crate::crew::peril_summary(room, w),
@@ -4189,6 +4240,22 @@ fn frame(
         let radius = tiles * shipdesign::TILE as f32 * view.scale;
         theme::reach_ring(&painter, egui::pos2(at.x, at.y), radius, glyph.colour());
     }
+    // The auto-shoot's target: four red brackets round the enemy it is
+    // firing at, heavier for one the crosshair picked.
+    if !deck_hidden
+        && let Some((who, to)) = screen.auto_shot
+        && let Some(game) = &session.game
+    {
+        let (x, y) = ship::world_paint::room_point_on_screen(game, to);
+        let at = view.to_canvas(Vec2::new(x, y)) + canvas.min;
+        let radius = 0.6 * shipdesign::TILE as f32 * view.scale;
+        auto_target_mark(
+            &painter,
+            egui::pos2(at.x, at.y),
+            radius,
+            screen.auto_pick == Some(who),
+        );
+    }
     // A Stun Shot's ring sits where it would come down with nobody in its
     // way — short of a wall, within the weapon's reach — while it is
     // aimed and on through its charge, so the player sees where it goes.
@@ -4426,6 +4493,34 @@ fn aim_cursor(
         }
     }
     painter.circle_filled(at, 1.6, colour.gamma_multiply(alpha));
+}
+
+/// The auto-shoot's mark on the enemy it fires at: four corner brackets
+/// `radius` out from `at`, each over a dark one so it reads on the deck,
+/// in the attack's red — heavier and closer in for one the crosshair
+/// `picked`.
+fn auto_target_mark(painter: &egui::Painter, at: egui::Pos2, radius: f32, picked: bool) {
+    let (r, arm, width) = if picked {
+        (radius * 0.85, radius * 0.5, 2.4)
+    } else {
+        (radius, radius * 0.35, 1.5)
+    };
+    for (w, color) in [
+        (width + 2.5, egui::Color32::from_black_alpha(170)),
+        (width, theme::ATTACK),
+    ] {
+        for (sx, sy) in [(-1.0, -1.0), (1.0, -1.0), (1.0, 1.0), (-1.0, 1.0)] {
+            let corner = at + egui::vec2(sx * r, sy * r);
+            painter.add(egui::Shape::line(
+                vec![
+                    corner - egui::vec2(sx * arm, 0.0),
+                    corner,
+                    corner - egui::vec2(0.0, sy * arm),
+                ],
+                egui::Stroke::new(w, color),
+            ));
+        }
+    }
 }
 
 fn attack_cursor(painter: &egui::Painter, at: egui::Pos2) {

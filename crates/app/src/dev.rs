@@ -578,6 +578,13 @@ pub fn bim_name() -> String {
     std::env::var("BIMS_BIM_NAME").unwrap_or_default()
 }
 
+/// Whether the setup's auto-shoot starts on — `BIMS_AUTO_SHOOT=1` — so a
+/// run with nobody at the keyboard (or a command that opens no setup)
+/// can be watched shooting by itself.
+pub fn auto_shoot() -> bool {
+    std::env::var("BIMS_AUTO_SHOOT").is_ok_and(|v| v == "1")
+}
+
 /// What the setup's hair chooser starts on — `BIMS_BIM_HAIR=<style>:<shade>`,
 /// each a place in `Hair::ALL` / `Shade::ALL` or its name from `names.rs`
 /// (`mohawk:red`), else the first crew member's own crop — so a run with

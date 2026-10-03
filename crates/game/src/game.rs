@@ -6744,6 +6744,50 @@ impl Game {
         Some(self.shot_skill(who).stats(weapon).reach())
     }
 
+    /// What `who`'s gun would fire at of its own accord (the setup's
+    /// auto-shoot, October 2026): `picked` — an index in the room's
+    /// target list — where that enemy is up, in reach, made out and on a
+    /// clear line of fire, else the nearest such that is no sealed core.
+    /// Its index and where it stands; `None` with nothing to shoot or
+    /// nobody to shoot at. A steered shot leaves the muzzle along the
+    /// heading and never from a peek, so only the body's own line counts.
+    /// A reading for the player's screen, which turns the steered Bim onto
+    /// it with the trigger held: the room is told nothing a click does
+    /// not tell it.
+    pub fn auto_aim(&self, who: usize, picked: Option<usize>) -> Option<(usize, Vec2)> {
+        let bim = self.bims.get(who)?;
+        if bim.hand == Hand::Medkit || !bim.is_alive() || bim.character.is_unconscious() {
+            return None;
+        }
+        let reach = self.shot_skill(who).stats(bim.gear.weapon?).reach();
+        let from = bim.character.pos;
+        let sight = &self.room.sight;
+        let shot = |t: &crate::combat::Target| {
+            !t.stale
+                && (t.at - from).len() <= reach
+                && sight.makes_out(from, t.at)
+                && crate::combat::line_of_fire(sight, from, t.at)
+        };
+        let targets = self.combat.targets();
+        if let Some(i) = picked
+            && let Some(t) = targets.get(i).copied().flatten()
+            && shot(&t)
+        {
+            return Some((i, t.at));
+        }
+        targets
+            .iter()
+            .enumerate()
+            .filter_map(|(i, t)| t.filter(|t| !t.sealed() && shot(t)).map(|t| (i, t.at)))
+            .min_by(|a, b| (a.1 - from).len().total_cmp(&(b.1 - from).len()))
+    }
+
+    /// Whether target `enemy` is still up (on the list, neither down nor
+    /// dead): what an enemy picked for the auto-shoot is kept for.
+    pub fn enemy_up(&self, enemy: usize) -> bool {
+        self.enemy_standing(enemy).is_some()
+    }
+
     /// What `who` holds (task 138): the weapon, or the medkit.
     pub fn hand(&self, who: usize) -> Hand {
         self.bims.get(who).map_or(Hand::Weapon, |b| b.hand)
@@ -11864,6 +11908,7 @@ mod tests {
                 "{magazine:?}"
             );
         }
+        let reload = next[0] - magazine[99];
         assert!(
             (reload - 4.0).abs() < 0.1 + DT * 1.5,
             "four seconds to reload: {reload}"
@@ -11908,7 +11953,6 @@ mod tests {
                 "nothing fired while locked"
             );
             assert!(
-        let reload = next[0] - magazine[99];
                 blows.len() >= 2 && blows.len() <= 3,
                 "a fist every two seconds: {}",
                 blows.len()
@@ -13809,6 +13853,40 @@ mod tests {
         );
         game.order(0, CrewOrder::Hand { hand: Hand::Medkit });
         assert_eq!(game.shot_reach(0), None);
+    }
+
+    #[test]
+    fn auto_aim_picks_the_picked_enemy_else_the_nearest_in_reach() {
+        let mut game = room();
+        game.set_autonomous(false);
+        game.set_players(1);
+        let james = game.put_for_probe(0, vec2(ROOM_W * 0.2, ROOM_H * 0.5));
+        game.issue(
+            0,
+            Gear {
+                weapon: Some(WeaponKind::AutoRifle.basic()),
+                ..Gear::default()
+            },
+        );
+        let near = james + vec2(3.0 * TILE, 0.0);
+        let far = james + vec2(6.0 * TILE, 0.0);
+        let beyond = james + vec2(100.0 * TILE, 0.0);
+        let pistol = WeaponKind::LaserPistol.basic();
+        game.set_hostiles(vec![
+            Some((far, pistol)),
+            Some((near, pistol)),
+            None,
+            Some((beyond, pistol)),
+        ]);
+        assert_eq!(game.auto_aim(0, None), Some((1, near)), "the nearest");
+        assert_eq!(game.auto_aim(0, Some(0)), Some((0, far)), "the picked one");
+        // One down or out of reach is passed over for the nearest.
+        assert_eq!(game.auto_aim(0, Some(2)), Some((1, near)));
+        assert_eq!(game.auto_aim(0, Some(3)), Some((1, near)));
+        assert!(game.enemy_up(0) && !game.enemy_up(2));
+        // With the medkit in hand there is nothing to shoot with.
+        game.order_hand(0, Hand::Medkit);
+        assert_eq!(game.auto_aim(0, None), None);
     }
 
     #[test]
