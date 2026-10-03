@@ -233,13 +233,13 @@ what a Bim carries; a relic changes how the run plays.
   | Heavy Plating | -25% damage taken for everybody | -20% move speed for everybody |
   | Hair Trigger | +35% fire rate for everybody | +30% class ability cooldowns |
   | Overclocked Cores | -35% class ability cooldowns | -20% weapon damage for everybody |
-  | Bounty Contract | +50% money for every enemy down | -20% damage to machines |
+  | Bounty Contract | +50% money for every enemy down | -20% damage to enemies |
   | Hunter's Pact | +50% experience for every enemy down | +25% machines in every wave |
   | Drill Sergeant | the bots: +50% weapon damage, -30% damage taken | -20% weapon damage for the players' Bims |
   | Lone Wolves | the players' Bims: +35% weapon damage, +15% move speed | -50% weapon damage for the bots |
   | Black Market | -40% trader prices | an extra last wave at every elite, with no Guardian but 3 more machines a player |
   | Adrenaline | +30% move speed for everybody | +15% damage taken for everybody |
-  | Salvage Burn | +40% damage to machines | -40% money for every enemy down |
+  | Salvage Burn | +40% damage to enemies | -40% money for every enemy down |
   | Nanite Mesh | +2 HP a second for everybody on their feet | -15% weapon damage for everybody |
 
 - **Winning.** A run is won by destroying the **Machine Heart** at the
@@ -281,8 +281,8 @@ the four two by two at the right of the abilities, each with its key
 | **Pressure Seal** | Health back all the time, hit or not | 0.5 / 1 / 1.5 HP/s | 13 500 / 27 000 / 47 250 |
 | **Steady Grip** | The trigger pulled faster | +10 / 15 / 20% fire rate | 20 250 / 40 500 / 67 500 |
 | **Long Barrel** | The weapon reaches further | +2 / 3 / 4 tiles | 20 250 / 40 500 / 67 500 |
-| **Leech Capacitor** | A share of the damage your weapon does to a machine back as health | 8 / 12 / 16% | 27 000 / 54 000 / 94 500 |
-| **Arc Coil** | Every 4th weapon hit on a machine arcs to the machines nearest it within 4 tiles | 2 / 3 / 4 machines, 15 / 25 / 40 damage | 33 750 / 60 750 / 108 000 |
+| **Leech Capacitor** | A share of the damage your weapon does to an enemy (a machine or a Manufacturer) back as health | 8 / 12 / 16% | 27 000 / 54 000 / 94 500 |
+| **Arc Coil** | Every 4th weapon hit on an enemy arcs to the enemies nearest it within 4 tiles, machines and Manufacturers alike | 2 / 3 / 4 enemies, 15 / 25 / 40 damage | 33 750 / 60 750 / 108 000 |
 | **Field Mender** | Active: every crewmate on their feet within 5 tiles, you included, healed | 30 / 45 / 60 HP, 45 / 40 / 35 s | 27 000 / 54 000 / 94 500 |
 | **Reset Capacitor** | Active: every class cooldown ready, every charge full, your other items' cooldowns with them. **Tier three alone**: on no trader's shelf before the run's tier-three day, never upgraded | tier three: 80 s | 810 000 |
 | **Ablative Shell** | Active: damage taken ×0.6, and a Warden's lance strips none of your armour | 4 / 5 / 6 s, 60 / 55 / 50 s | 33 750 / 60 750 / 108 000 |
@@ -2474,7 +2474,7 @@ it is on, whoever stands in it — leave it on too long and it **downs
 him**, which switches it off. Every enemy standing in it **burns at half
 the rate**, a pulse every half second. So a medic at E rank two heals
 the crew round him 3 HP a second, loses 3 a second himself and burns
-the machines in it for 1.5. His link on himself, or on a crewmate, heals
+every enemy in it for 1.5. His link on himself, or on a crewmate, heals
 him back: that is how a medic holds his circle up for long. On the deck
 it is a soft green floor with a turning ring of light at its rim, motes
 welling up all over it, the mending rising off every Bim it heals and

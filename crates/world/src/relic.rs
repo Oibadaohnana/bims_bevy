@@ -107,7 +107,8 @@ pub enum Stat {
     /// How long a Bim's **class's** cooldowns are, in per cent. A minus is
     /// shorter.
     Cooldowns,
-    /// What the crew's bolts and blows do **to a machine**, in per cent.
+    /// What the crew's bolts and blows do **to an enemy** — a machine or
+    /// one of the Manufacturers' people (October 2026) — in per cent.
     MachineDamage,
     /// What the Republic pays for every enemy down, in per cent.
     Bounty,

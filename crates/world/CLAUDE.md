@@ -7496,3 +7496,35 @@ are the rule.
   (`a_thing_bought_puts_its_kind_a_tier_up_and_no_shelf_sells_a_pistol`,
   `the_pistols_the_crew_set_out_with_are_never_sold`) and
   `trader::tests` are the rule.
+
+## Every item and ability on every enemy (October 2026)
+
+> The player's word: "all items and spells should work on all enemies,
+> not just on machines or manufacturers". A sweep of every ability and
+> item found four that touched the machines alone; the rest (grenades,
+> mines, the satchel, sentries, the Healing Circle's burn, the Stun Shot,
+> the Reflect Barrier, the crits) already went through the room's
+> targets, which are both kinds.
+
+- **`land_on_enemies`** (`relics.rs`, was `land_on_machines`) lands
+  every crew hit on a machine **or a Manufacturer** (`Game::is_manufacturer`)
+  of the residents' room: the relics' `Stat::MachineDamage` share (now
+  "damage to enemies"), the crit, the strike — `strike_droid` past the
+  Bims, `blast`/`strike` on one of their people — the number shown and
+  `last_hit_by`. Only the residents' other Bims are handed back to
+  `visit` (which adds their crit, as before), so no hit is crit twice.
+- **`items_on_enemy_hits`** (`item_use.rs`, was `items_on_machine_hits`)
+  takes `(by, body index, damage)`: the *Leech Capacitor* gives back its
+  share of a hit on either, and the *Arc Coil* counts both and arcs from
+  the one struck (`Game::body_pos`) to the nearest enemies within reach
+  — machines standing and Manufacturers on their feet, by distance then
+  body index (for machines alone the old droid order, so a machines-only
+  run arcs as before) — `strike_droid` on a machine's chassis, `strike`
+  on one of theirs.
+- **A Rampage at rank four** is lengthened by a Manufacturer down too:
+  `experience` calls `rampage_kill` for each of theirs it counts
+  (machines still through `machine_kills_noted`).
+- No `SAVE_VERSION` (nothing saved changed shape); `wire::PROTOCOL` 128
+  (both ends must land the hits alike).
+  `tests_manufacturer::a_leech_and_an_arc_work_on_their_people` and
+  `a_manufacturer_downed_lengthens_a_rampage` are the rule.

@@ -57,8 +57,8 @@ pub enum ModuleKind {
     /// *Leech Capacitor* (Satanic's lifesteal): passive, a share of the
     /// weapon's damage on an enemy back as hit points.
     LeechCapacitor = 8,
-    /// *Arc Coil* (Maelstrom): passive, every few weapon hits on a machine
-    /// arc to the machines round it.
+    /// *Arc Coil* (Maelstrom): passive, every few weapon hits on an enemy
+    /// arc to the enemies round it, machines and Manufacturers alike.
     ArcCoil = 9,
     /// *Field Mender* (Mekansm): active, every crewmate near healed.
     FieldMender = 10,
@@ -213,13 +213,13 @@ pub const LONG_BARREL_TILES: [f32; 3] = [2.0, 3.0, 4.0];
 /// *Leech Capacitor*: the share of a weapon hit's damage on an enemy back
 /// as the holder's hit points, by tier.
 pub const LEECH_SHARE: [f32; 3] = [0.08, 0.12, 0.16];
-/// *Arc Coil*: every this many weapon hits on machines, the last arcs.
+/// *Arc Coil*: every this many weapon hits on enemies, the last arcs.
 pub const ARC_EVERY: u32 = 4;
-/// How many other machines an arc reaches, by tier.
+/// How many other enemies an arc reaches, by tier.
 pub const ARC_TARGETS: [usize; 3] = [2, 3, 4];
 /// What an arc does to each, by tier.
 pub const ARC_DAMAGE: [f32; 3] = [15.0, 25.0, 40.0];
-/// How far an arc jumps from the machine struck, in tiles.
+/// How far an arc jumps from the enemy struck, in tiles.
 pub const ARC_REACH_TILES: f32 = 4.0;
 /// *Field Mender*: hit points to every crewmate within its reach, the
 /// holder included, by tier.
@@ -288,7 +288,7 @@ impl Module {
         }
     }
 
-    /// An *Arc Coil*'s arc: how many machines it reaches and what it does
+    /// An *Arc Coil*'s arc: how many enemies it reaches and what it does
     /// to each.
     pub fn arc(self) -> Option<(usize, f32)> {
         (self.kind == ModuleKind::ArcCoil).then(|| {

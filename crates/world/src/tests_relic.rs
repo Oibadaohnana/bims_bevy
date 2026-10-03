@@ -495,7 +495,7 @@ fn a_hit_on_a_machine_takes_the_relics_share() {
             flat: 0.0,
             crit: false,
         };
-        assert!(world.land_on_machines(vec![hit]).is_empty());
+        assert!(world.land_on_enemies(vec![hit]).is_empty());
         let residents = world.residents.as_ref().unwrap();
         before - residents.aboard.room.droid(0).unwrap().body.life()
     };

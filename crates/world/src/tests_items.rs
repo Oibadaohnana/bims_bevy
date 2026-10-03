@@ -785,8 +785,10 @@ fn a_leech_gives_back_and_an_arc_jumps_every_fourth_hit() {
             .body
             .life_share()
     };
+    // The first machine, by its body index.
+    let bims = world.residents.as_ref().unwrap().aboard.room.crew_count() as usize;
     for n in 1..=4 {
-        world.items_on_machine_hits(&[(Some(0), 0, 10.0)]);
+        world.items_on_enemy_hits(&[(Some(0), bims, 10.0)]);
         if n < 4 {
             assert_eq!(life(&world, 1), 1.0, "no arc on hit {n}");
         }

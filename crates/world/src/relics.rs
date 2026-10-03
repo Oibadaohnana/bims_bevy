@@ -66,7 +66,7 @@ impl World {
 
     /// The factor the crew's relics put on a stat of the run's own: the
     /// bounty, the experience, the waves, the trader's prices, the damage
-    /// to a machine.
+    /// to an enemy.
     pub fn crew_relic_factor(&self, stat: Stat) -> f64 {
         relic::factor(relic::crew_percent(self.relics(), stat))
     }
@@ -443,12 +443,14 @@ impl World {
             .collect()
     }
 
-    /// Every crew hit this step that landed on one of the residents'
-    /// machines, delivered — the part read off the hit's own roll, the
-    /// relics' share on the damage (the EMP's exposure went with the EMP,
-    /// task 154), then a Weak Spot's crit (task 124) — and the rest,
-    /// the hits on the residents' Bims, handed back for `visit` to land.
-    pub(crate) fn land_on_machines(
+    /// Every crew hit this step that landed on an enemy of the residents'
+    /// room — a machine, or one of the Manufacturers' people — delivered:
+    /// a machine's part read off the hit's own roll, the relics' share on
+    /// the damage (the EMP's exposure went with the EMP, task 154), then
+    /// a crit (task 124), and every one through the items after
+    /// (`items_on_enemy_hits`). The rest, the hits on the residents' other
+    /// Bims, handed back for `visit` to land.
+    pub(crate) fn land_on_enemies(
         &mut self,
         hits: Vec<bims::combat::Hit>,
     ) -> Vec<bims::combat::Hit> {
@@ -456,8 +458,9 @@ impl World {
             return hits;
         }
         let relics = relic::crew_percent(self.relics(), Stat::MachineDamage);
-        // What each hit did to which machine, by whom: what the items
-        // read after (October 2026, `item_use.rs`).
+        // What each hit did to which enemy (a body index of the residents'
+        // room), by whom: what the items read after (October 2026,
+        // `item_use.rs`).
         let mut landed: Vec<(Option<usize>, usize, f32)> = Vec::new();
         let mut rest = Vec::new();
         for hit in hits {
@@ -466,34 +469,46 @@ impl World {
             };
             let room = &residents.aboard.room;
             let bims = room.crew_count() as usize;
-            let Some(i) = hit.who.checked_sub(bims) else {
+            let machine = hit.who.checked_sub(bims);
+            if machine.is_none() && !room.is_manufacturer(hit.who) {
                 rest.push(hit);
                 continue;
-            };
+            }
             if hit.who >= room.body_count() as usize || !room.is_alive(hit.who) {
                 continue;
             }
-            let part = bims::droid::DroidPart::hit_by(hit.roll);
             let percent = relics;
             let damage = if percent == 0 {
                 hit.damage
             } else {
                 hit.damage * relic::factor(percent) as f32
             };
-            // Weak Spot's crit, after every other factor.
+            // The crit, after every other factor.
             let damage = damage + self.crit_extra(&hit);
             let Some(residents) = self.residents.as_mut() else {
                 break;
             };
-            residents.aboard.room.strike_droid(i, part, damage);
-            landed.push((hit.by, i, damage));
-            // And what it did, for the number over the machine.
+            let room = &mut residents.aboard.room;
+            match machine {
+                Some(i) => {
+                    let part = bims::droid::DroidPart::hit_by(hit.roll);
+                    room.strike_droid(i, part, damage);
+                }
+                None if hit.blast => {
+                    room.blast(hit.who, damage);
+                }
+                None => {
+                    room.strike(hit.who, damage, hit.cut);
+                }
+            }
+            landed.push((hit.by, hit.who, damage));
+            // And what it did, for the number over the enemy.
             self.shown_hits.push((hit.who as u32, damage, hit.crit));
             if let Some(last) = residents.last_hit_by.get_mut(hit.who) {
                 *last = hit.by;
             }
         }
-        self.items_on_machine_hits(&landed);
+        self.items_on_enemy_hits(&landed);
         rest
     }
 

@@ -658,7 +658,7 @@ pub const CLASS_TIPS: [&str; 6] = [
     "No class: learns nothing.",
     "Four ranked abilities, a skill point a level: mines that go off when an enemy comes within a tile (Q), a Healing Sentry that heals the crew round it (C), satchel charges thrown and set off together with a remote trigger on Space (E), and for its ultimate a sentry with a minigun (R). Its charges come back on their own cooldowns, and it packs its mines and Healing Sentries up again.",
     "Four ranked abilities, a skill point a level: Frag Grenades (Q), Weak Spot, hits that may land critical (C), a Stun Shot charged for two seconds that bursts where it lands, hurting and stunning every enemy in it (E), and for his ultimate a Rampage, firing faster and taking less (R). Sets out with an auto rifle in hand.",
-    "Four ranked abilities, a skill point a level: a Heal Drone that flies to whoever is lowest and heals them slowly (Q), Triage, every heal of his stronger on the badly hurt (C), the heal beam on a crewmate or himself, which heals him as much and lets him keep shooting (E), and for his ultimate a Healing Circle he switches on and off, healing everybody round him at his own cost and burning the machines in it (R). An Override Core makes all his healing half as much again. Revives a downed crewmate in four seconds where anybody else takes ten, and gets them up at 40% of their bar where anybody else manages 30%.",
+    "Four ranked abilities, a skill point a level: a Heal Drone that flies to whoever is lowest and heals them slowly (Q), Triage, every heal of his stronger on the badly hurt (C), the heal beam on a crewmate or himself, which heals him as much and lets him keep shooting (E), and for his ultimate a Healing Circle he switches on and off, healing everybody round him at his own cost and burning every enemy in it (R). An Override Core makes all his healing half as much again. Revives a downed crewmate in four seconds where anybody else takes ten, and gets them up at 40% of their bar where anybody else manages 30%.",
     "Four ranked abilities, a skill point a level: a Riot Shield he holds up and puts down, bouncing every shot that meets it back where it came from (Q), Plated, less damage from every hit and his health mending as he goes (C), a Reflect Barrier sending every hit on him back on whoever struck (E), and for his ultimate the Bastion, a shield of a thousand over every friend near him that drains in ten seconds (R). His armour drains at half rate, so the same armour takes twice as much on him. Sets out with the pistol and a tier-one armour on.",
     "Four ranked abilities, a skill point a level: a Battle Cry that makes everybody near him fire faster (Q), a Medivac, a Republic medic called in beside him who runs to a player downed and revives him (C), a Rally that has the crew near him take less damage and move faster (E), and for his ultimate Republic soldiers called in beside him (R). Hires a mercenary at a quarter off. Sets out with the pistol.",
 ];
@@ -1926,11 +1926,11 @@ pub fn item_line(item: bims::module::Module) -> String {
             fig(m::LONG_BARREL_TILES[t] as f64),
         ),
         ModuleKind::LeechCapacitor => format!(
-            "{} of the damage your weapon does to a machine comes back as health.",
+            "{} of the damage your weapon does to an enemy comes back as health.",
             pc(m::LEECH_SHARE[t] as f64),
         ),
         ModuleKind::ArcCoil => format!(
-            "Every {}th weapon hit on a machine arcs to the {} machines nearest it within {} tiles, {} damage each.",
+            "Every {}th weapon hit on an enemy arcs to the {} enemies nearest it within {} tiles, {} damage each.",
             m::ARC_EVERY,
             m::ARC_TARGETS[t],
             fig(m::ARC_REACH_TILES as f64),
@@ -2001,7 +2001,7 @@ pub fn item_tier_line(kind: bims::module::ModuleKind, tier: u32) -> Option<Strin
         ModuleKind::LongBarrel => format!("+{} tiles range", fig(m::LONG_BARREL_TILES[t] as f64)),
         ModuleKind::LeechCapacitor => format!("{} back as health", pc(m::LEECH_SHARE[t] as f64)),
         ModuleKind::ArcCoil => format!(
-            "{} machines · {} damage each",
+            "{} enemies · {} damage each",
             m::ARC_TARGETS[t],
             fig(m::ARC_DAMAGE[t] as f64),
         ),
@@ -2042,7 +2042,7 @@ pub fn modifier_line(m: world::relic::Modifier) -> String {
         Stat::MoveSpeed => "move speed",
         Stat::DamageTaken => "damage taken",
         Stat::Cooldowns => "class ability cooldowns",
-        Stat::MachineDamage => "damage to machines",
+        Stat::MachineDamage => "damage to enemies",
         Stat::Bounty => "money for every enemy down",
         Stat::Experience => "experience for every enemy down",
         Stat::WaveSize => "machines in every wave",
@@ -3332,7 +3332,7 @@ mod tests {
             );
             assert_eq!(
                 words(world::Relic::BountyContract),
-                ["+50% money for every enemy down", "-20% damage to machines"]
+                ["+50% money for every enemy down", "-20% damage to enemies"]
             );
             assert_eq!(
                 words(world::Relic::BlackMarket),

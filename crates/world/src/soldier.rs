@@ -26,7 +26,7 @@ pub struct Soldier {
     /// The mission minute the Rampage running ends at, its extension
     /// counted; nought, or in the past, with none running.
     pub until: f64,
-    /// Seconds added to the Rampage running by machines downed during it
+    /// Seconds added to the Rampage running by enemies downed during it
     /// (rank four), at most `class::RAMPAGE_EXTEND_MAX`.
     pub extended: f64,
     /// The Stun Shot charging (October 2026); `None` with none.

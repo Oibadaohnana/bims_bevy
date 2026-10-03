@@ -258,19 +258,21 @@ impl World {
         }
     }
 
-    /// Every crew weapon hit that landed on a machine this step — who
-    /// fired it (a crew index), which machine (a droid index of the
-    /// residents' room) and what it did — through the items: a *Leech
-    /// Capacitor*'s share back as hit points, and an *Arc Coil*'s count,
-    /// every [`bims::module::ARC_EVERY`]th hit arcing from the machine struck
-    /// to the nearest others within [`bims::module::ARC_REACH_TILES`] — the
-    /// nearest first, the lower index on a tie, so every copy arcs alike.
-    pub(crate) fn items_on_machine_hits(&mut self, landed: &[(Option<usize>, usize, f32)]) {
+    /// Every crew weapon hit that landed on an enemy this step — who
+    /// fired it (a crew index), which enemy (a body index of the
+    /// residents' room: a machine, or one of the Manufacturers' people)
+    /// and what it did — through the items: a *Leech Capacitor*'s share
+    /// back as hit points, and an *Arc Coil*'s count, every
+    /// [`bims::module::ARC_EVERY`]th hit arcing from the enemy struck to
+    /// the nearest others within [`bims::module::ARC_REACH_TILES`] — a
+    /// machine standing or one of their people on its feet, the nearest
+    /// first, the lower index on a tie, so every copy arcs alike.
+    pub(crate) fn items_on_enemy_hits(&mut self, landed: &[(Option<usize>, usize, f32)]) {
         if !self.any_items() {
             return;
         }
         let players = self.players().min(self.aboard.crew_count());
-        for &(by, i, damage) in landed {
+        for &(by, struck, damage) in landed {
             let Some(slot) = by.map(|b| b as u32).filter(|&b| b < players) else {
                 continue;
             };
@@ -294,24 +296,34 @@ impl World {
                 continue;
             };
             let room = &mut residents.aboard.room;
-            let Some(from) = room.droid(i).map(|d| d.pos) else {
+            if struck >= room.body_count() as usize {
                 continue;
-            };
+            }
+            let from = room.body_pos(struck);
+            let bims = room.crew_count() as usize;
             let reach = bims::module::ARC_REACH_TILES * bims::room::TILE;
-            let mut near: Vec<(f32, usize)> = (0..room.droid_count() as usize)
-                .filter(|&j| j != i)
+            let enemy = |j: usize| {
+                room.is_alive(j) && (j >= bims || (room.is_manufacturer(j) && !room.is_downed(j)))
+            };
+            let mut near: Vec<(f32, usize)> = (0..room.body_count() as usize)
+                .filter(|&j| j != struck && enemy(j))
                 .filter_map(|j| {
-                    let d = room.droid(j)?;
-                    let far = (d.pos - from).len();
-                    (!d.destroyed && far <= reach).then_some((far, j))
+                    let far = (room.body_pos(j) - from).len();
+                    (far <= reach).then_some((far, j))
                 })
                 .collect();
             near.sort_by(|a, b| a.0.total_cmp(&b.0).then(a.1.cmp(&b.1)));
-            let bims = room.crew_count() as usize;
             let mut shown = Vec::new();
             for &(_, j) in near.iter().take(targets) {
-                room.strike_droid(j, bims::droid::DroidPart::Chassis, arc_damage);
-                shown.push(((bims + j) as u32, arc_damage, false));
+                match j.checked_sub(bims) {
+                    Some(i) => {
+                        room.strike_droid(i, bims::droid::DroidPart::Chassis, arc_damage);
+                    }
+                    None => {
+                        room.strike(j, arc_damage, false);
+                    }
+                }
+                shown.push((j as u32, arc_damage, false));
             }
             for &(body, _, _) in &shown {
                 if let Some(last) = residents.last_hit_by.get_mut(body as usize) {

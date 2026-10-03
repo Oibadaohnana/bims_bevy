@@ -199,7 +199,7 @@
 //! | 1 | 8 s | ×1.5 | ×0.80 | 150 s |
 //! | 2 | 10 s | ×1.75 | ×0.75 | 135 s |
 //! | 3 | 12 s | ×2.0 | ×0.70 | 120 s |
-//! | 4 | 12 s, +1 s a machine it downs during it, +6 s at most | ×2.0 | ×0.70 | 120 s |
+//! | 4 | 12 s, +1 s an enemy it downs during it, +6 s at most | ×2.0 | ×0.70 | 120 s |
 //!
 //! # The medic's four slots (task 130; reworked by task 153)
 //!
@@ -908,10 +908,10 @@ pub const RAMPAGE_DAMAGE_TAKEN: [f32; 5] = [0.80, 0.75, 0.70, 0.70, 0.65];
 /// Seconds of the mission clock from one Rampage to the next, a rank:
 /// half of [`ULTIMATE_COOLDOWN`] (the player halved it).
 pub const RAMPAGE_COOLDOWN: [f64; 5] = [35.0, 30.0, 25.0, 20.0, 17.5];
-/// The rank from which a machine the soldier downs during a Rampage adds
+/// The rank from which an enemy the soldier downs during a Rampage adds
 /// [`RAMPAGE_EXTEND_SECONDS`] to it.
 pub const RAMPAGE_EXTEND_RANK: u8 = 4;
-/// Seconds a machine downed adds to a Rampage from its fourth rank.
+/// Seconds an enemy downed adds to a Rampage from its fourth rank.
 pub const RAMPAGE_EXTEND_SECONDS: f64 = 1.0;
 /// The most one Rampage is lengthened by, in seconds.
 pub const RAMPAGE_EXTEND_MAX: f64 = 6.0;

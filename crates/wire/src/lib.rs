@@ -183,7 +183,12 @@ use serde::{Deserialize, Serialize};
 /// past the best of its kind the player has bought (`Run::shelf_bought`),
 /// and the laser pistol is never sold (`Refusal::NotSellable`): both ends
 /// must trade alike.
-pub const PROTOCOL: u32 = 126;
+/// 128: every item and ability on every enemy — a crew hit on one of the
+/// Manufacturers' people takes the relics' share and feeds a *Leech
+/// Capacitor* and an *Arc Coil*, whose arc reaches them too, and one of
+/// them down lengthens a Rampage (`World::land_on_enemies`): both ends
+/// must land the hits alike.
+pub const PROTOCOL: u32 = 128;
 
 /// Where the relay lives. `BIMS_SERVER` in the environment overrides it
 /// — `ws://127.0.0.1:8792` for one on the same machine.

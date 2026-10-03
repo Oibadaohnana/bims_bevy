@@ -703,8 +703,8 @@ pub struct World {
     /// on — one player's spending never drains another's.
     #[cfg_attr(feature = "serde", serde(default))]
     pub wallets: Vec<Money>,
-    /// The crew's hits on the machines landed this step
-    /// (`land_on_machines`), for `visit` to say as `WorldEvent::Hit`s: on
+    /// The crew's hits on the enemies landed this step
+    /// (`land_on_enemies`), for `visit` to say as `WorldEvent::Hit`s: on
     /// whom, how much, and whether critical. A picture's; never saved or
     /// hashed.
     #[cfg_attr(feature = "serde", serde(skip))]
@@ -2661,16 +2661,17 @@ impl World {
                     .map(|p| (p, self.sentry_weapon(d.owner_slot)))
             })
             .collect();
-        // The crew's hits on the machines, landed through the relics
-        // (task 118) — with none held, the same strike the loop below made
-        // — and the hits on the residents' Bims handed back to it.
+        // The crew's hits on the enemies — the machines and the
+        // Manufacturers' people — landed through the relics (task 118)
+        // and the items, and the hits on the residents' other Bims handed
+        // back to the loop below.
         let hits = if hostile || defending {
-            self.land_on_machines(hits)
+            self.land_on_enemies(hits)
         } else {
             hits
         };
-        // And Weak Spot's crits on what is left, the hits on the
-        // residents' Bims (task 124): after every factor, before the armour.
+        // And the crits on what is left, the hits on the residents' other
+        // Bims (task 124): after every factor, before the armour.
         let hits: Vec<bims::combat::Hit> = hits
             .into_iter()
             .map(|mut hit| {
@@ -2691,8 +2692,8 @@ impl World {
         let shift = residents.aboard.offset;
         let room = &mut residents.aboard.room;
         let bims = room.crew_count() as usize;
-        // What the relics' hits on the machines did, said for the numbers
-        // over them (`land_on_machines`), and every hit below the same way.
+        // What the hits on the enemies did, said for the numbers
+        // over them (`land_on_enemies`), and every hit below the same way.
         for (who, damage, crit) in std::mem::take(&mut self.shown_hits) {
             events.push(shown_hit(true, who, damage, crit));
         }
@@ -7519,6 +7520,7 @@ impl World {
         let mut rewarded: Vec<(u32, Money)> = Vec::new();
         let station = residents.station;
         let count = residents.aboard.count() as usize;
+        let crew = residents.aboard.room.crew_count() as usize;
         for who in 0..count.min(residents.xp_down.len()) {
             let room = &residents.aboard.room;
             // Past `first`, and a Manufacturer come with a wave to a site
@@ -7546,7 +7548,6 @@ impl World {
                 // The Republic's bounty (feature 95), once per enemy at
                 // the first down or death, whoever did it. A machine is
                 // worth nothing: the Republic pays for people.
-                let crew = residents.aboard.room.crew_count() as usize;
                 let worth = if who < crew {
                     manufacturer_bounty(&self.rewards, room, who)
                 } else {
@@ -7567,6 +7568,15 @@ impl World {
             for who in 0..count.min(residents.xp_down.len()) {
                 let room = &residents.aboard.room;
                 residents.xp_down[who] |= !room.is_alive(who) || room.is_downed(who);
+            }
+        }
+        // A Manufacturer down lengthens its soldier's Rampage as a machine
+        // destroyed does (`machine_kills_noted`): every enemy alike.
+        for &(who, by) in &downed {
+            if who < crew
+                && let Some(b) = by.map(|b| b as u32).filter(|&b| b < self.players())
+            {
+                self.rampage_kill(b);
             }
         }
         for (at, xp) in gained {
@@ -9120,7 +9130,7 @@ impl World {
         Ok(())
     }
 
-    /// A machine downed by crew member `who` (credited the way *Kill
+    /// An enemy downed by crew member `who` (credited the way *Kill
     /// Relay* credits a kill): at Rampage's fourth rank, the one running
     /// is lengthened by [`class::RAMPAGE_EXTEND_SECONDS`], up to
     /// [`class::RAMPAGE_EXTEND_MAX`] a use.
@@ -9143,8 +9153,8 @@ impl World {
     /// damage times the shooter's crit damage less one added, **after**
     /// every relic and ability factor has had its say and before the
     /// armour: what this is, for one hit, and nought for a hit not
-    /// critical. Asked where a hit lands on a machine, after the relics'
-    /// machine hooks (`land_on_machines`), and in `visit` for a hit on a
+    /// critical. Asked where a hit lands on an enemy, after the relics'
+    /// share (`land_on_enemies`), and in `visit` for a hit on another
     /// Bim, which no relic multiplies.
     pub(crate) fn crit_extra(&self, hit: &bims::combat::Hit) -> f32 {
         let Some(by) = hit.by.filter(|_| hit.crit) else {

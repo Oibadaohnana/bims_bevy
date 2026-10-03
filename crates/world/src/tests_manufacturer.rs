@@ -498,6 +498,125 @@ fn they_shoot_the_crew_and_the_crew_shoot_back() {
     assert!(struck, "and the crew's landed on one of them");
 }
 
+/// **Every item works on their people as on a machine** (October 2026,
+/// the player's word: "all items and spells should work on all enemies"):
+/// a *Leech Capacitor* gives back its share of a hit on one of them, an
+/// *Arc Coil*'s fourth hit arcs from it to the nearest of them round it,
+/// and the relics' share is on the hit.
+#[test]
+fn a_leech_and_an_arc_work_on_their_people() {
+    use bims::module::{ARC_DAMAGE, LEECH_SHARE, ModuleKind};
+    let (mut world, _) = at_their_site(4);
+    let mut gear = world.aboard.room.gear(0);
+    gear.items[0] = Some(ModuleKind::LeechCapacitor.at(Tier::One));
+    gear.items[1] = Some(ModuleKind::ArcCoil.at(Tier::One));
+    world.aboard.room.issue(0, gear);
+    world.aboard.room.wound(0, 50.0);
+    let hurt = world.aboard.room.health(0);
+    let them = theirs(&world);
+    assert!(them.len() >= 4, "{} of them", them.len());
+    let (struck, near, far) = (them[0], [them[1], them[2]], them[3]);
+    // Two of them beside the one struck, a third far off, and nothing
+    // worn, so every hit reads off the health.
+    let room = &mut world.residents.as_mut().unwrap().aboard.room;
+    for &who in &them {
+        let mut gear = room.gear(who);
+        gear.armour = None;
+        room.issue(who, gear);
+    }
+    let from = room.body_pos(struck);
+    let tile = bims::room::TILE;
+    for (who, dx) in [(near[0], 1.0), (near[1], -1.0), (far, 40.0)] {
+        room.put_for_probe(who, from + bims::math::vec2(dx * tile, 0.0));
+    }
+    let reach = bims::module::ARC_REACH_TILES * tile;
+    for who in near {
+        assert!((room.body_pos(who) - from).len() <= reach, "{who} near");
+    }
+    assert!((room.body_pos(far) - from).len() > reach, "{far} far off");
+    let health =
+        |world: &World, who: usize| world.residents.as_ref().unwrap().aboard.room.health(who);
+    let before = [
+        health(&world, near[0]),
+        health(&world, near[1]),
+        health(&world, far),
+    ];
+    let hit = bims::combat::Hit {
+        who: struck,
+        damage: 5.0,
+        cut: false,
+        by: Some(0),
+        blast: false,
+        roll: 0.5,
+        strips: 0.0,
+        flat: 0.0,
+        crit: false,
+    };
+    for n in 1..=4 {
+        let struck_before = health(&world, struck);
+        assert!(
+            world.land_on_enemies(vec![hit]).is_empty(),
+            "landed, not handed back"
+        );
+        assert!(health(&world, struck) < struck_before, "hit {n} landed");
+        if n < 4 {
+            assert_eq!(health(&world, near[0]), before[0], "no arc on hit {n}");
+        }
+    }
+    let healed = world.aboard.room.health(0) - hurt;
+    let want = 4.0 * 5.0 * LEECH_SHARE[0];
+    assert!((healed - want).abs() < 0.01, "healed {healed}, want {want}");
+    for (i, who) in near.into_iter().enumerate() {
+        let took = before[i] - health(&world, who);
+        assert!((took - ARC_DAMAGE[0]).abs() < 0.01, "{who} took {took}");
+    }
+    assert_eq!(health(&world, far), before[2], "not the one far off");
+}
+
+/// **A Rampage is lengthened by one of their people downed** as by a
+/// machine destroyed (October 2026: every enemy alike) — at its fourth
+/// rank, a second.
+#[test]
+fn a_manufacturer_downed_lengthens_a_rampage() {
+    use crate::world::Command;
+    let (mut world, _) = at_their_site(0);
+    let need = class::rank_level(Class::Soldier, class::SLOT_R, 4).unwrap();
+    let have = world.progress_of(0).xp;
+    let mut events = Vec::new();
+    world.award(
+        0,
+        class::LEVEL_XP[need as usize - 1].saturating_sub(have),
+        &mut events,
+    );
+    for _ in 0..4 {
+        world.step(&[Command::RankUp {
+            slot: 0,
+            ability_slot: u32::from(class::SLOT_R),
+        }]);
+    }
+    assert_eq!(world.rank_of(0, class::SLOT_R), 4);
+    world.aboard.room.patch_up_for_probe(0);
+    world.step(&[Command::Rampage { slot: 0 }]);
+    assert!(world.is_rampaging(0));
+    assert_eq!(world.soldier_of(0).extended, 0.0);
+    let who = theirs(&world)[0];
+    let hit = bims::combat::Hit {
+        who,
+        damage: 1_000.0,
+        cut: false,
+        by: Some(0),
+        blast: false,
+        roll: 0.5,
+        strips: 0.0,
+        flat: 0.0,
+        crit: false,
+    };
+    assert!(world.land_on_enemies(vec![hit]).is_empty());
+    world.step(&[]);
+    assert!(world.residents.as_ref().unwrap().aboard.room.is_downed(who));
+    assert_eq!(world.soldier_of(0).extended, class::RAMPAGE_EXTEND_SECONDS);
+}
+
 /// **A Stun Shot stuns one of their people** (October 2026, the player's
 /// word: it stuns every enemy; it stunned the machines alone before): a
 /// burst on a Manufacturer reaches its own room as a stun, and it stands
