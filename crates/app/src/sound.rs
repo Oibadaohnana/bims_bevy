@@ -59,6 +59,7 @@ pub enum Clip {
     Desert,
     Arctic,
     Bought,
+    Sold,
     // The classes' abilities, one clip an ability (built by
     // `sounds/abilities.py`, not cut from a recording).
     GrenadeThrow,
@@ -99,7 +100,7 @@ pub enum Clip {
 /// The bytes of each clip, indexed by [`Clip`]. Ogg Vorbis, mono, 48 kHz,
 /// peaks at -1 dBFS for the one-shots and -22 or -30 LUFS for the loops —
 /// see `prepare.sh` — so every level below is relative to that.
-const CLIPS: [&[u8]; 46] = [
+const CLIPS: [&[u8]; 47] = [
     include_bytes!("../sounds/laser_1.ogg"),
     include_bytes!("../sounds/laser_2.ogg"),
     include_bytes!("../sounds/laser_3.ogg"),
@@ -123,6 +124,7 @@ const CLIPS: [&[u8]; 46] = [
     include_bytes!("../sounds/desert.ogg"),
     include_bytes!("../sounds/arctic.ogg"),
     include_bytes!("../sounds/bought.ogg"),
+    include_bytes!("../sounds/sold.ogg"),
     include_bytes!("../sounds/grenade_throw.ogg"),
     include_bytes!("../sounds/grenade_burst.ogg"),
     include_bytes!("../sounds/brace.ogg"),
@@ -216,6 +218,7 @@ volumes! {
     Desert => desert,
     Arctic => arctic,
     Bought => bought,
+    Sold => sold,
     GrenadeThrow => grenade_throw,
     GrenadeBurst => grenade_burst,
     Brace => brace,
@@ -337,6 +340,8 @@ enum Kind {
     Burst,
     /// Something bought off the trader, by anyone in the crew.
     Bought,
+    /// Something sold to the trader, by anyone in the crew.
+    Sold,
     /// A class's ability used, told apart by clip and by who used it.
     Ability,
     /// An enemy down and its pay floating up over it.
@@ -410,6 +415,8 @@ impl Kind {
             // order landing together) are one till ringing, two a moment
             // apart are two.
             Kind::Bought => 0.3,
+            // And the same for a sale.
+            Kind::Sold => 0.3,
             // One body's same ability twice in a quarter-second is the
             // world saying one use over several steps of a fast frame.
             Kind::Ability => 0.25,
@@ -699,6 +706,14 @@ impl Sounds {
     pub fn bought(&mut self, commands: &mut Commands) {
         if self.admit(Kind::Bought, bims::math::Vec2::ZERO) {
             self.one_shot(commands, Clip::Bought, 0.45);
+        }
+    }
+
+    /// A sale to the trader by anyone in the crew, the world's `Sold`,
+    /// heard in every window like a purchase, with its own cool-down.
+    pub fn sold(&mut self, commands: &mut Commands) {
+        if self.admit(Kind::Sold, bims::math::Vec2::ZERO) {
+            self.one_shot(commands, Clip::Sold, 0.45);
         }
     }
 

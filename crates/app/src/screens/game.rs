@@ -1451,6 +1451,10 @@ fn frame(
             ) {
                 sounds.bought(&mut commands);
             }
+            // And a sale to the trader, the coins, heard the same way.
+            if matches!(event, WorldEvent::Sold { .. }) {
+                sounds.sold(&mut commands);
+            }
             // A class's ability, whoever in the crew used it, heard the
             // same way.
             sounds.ability(&mut commands, event);

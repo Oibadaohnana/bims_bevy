@@ -196,6 +196,13 @@ shot holster Unholster_and_holstering.mp3 0.06 0.54 "asetrate=48000*0.85,aresamp
 # by 1.8 s, and the last tenths are a long fade rather than a cut.
 shot bought baught.mp3 0.25 1.80 "adelay=250,highpass=f=80" 0.30
 
+# A sale: anyone in the crew selling a thing to the trader. The coins
+# start 0.115 s in, too little silence to run a filter up over, so the
+# same quarter-second is put in front and the cut is at 0.10 s of the
+# recording (0.35 here); the ring has died by 1.06 s, so a second long
+# with a slow fade.
+shot sold Sell_Sound.mp3 0.35 1.00 "adelay=250,highpass=f=80" 0.20
+
 # An enemy down and its pay floating over it: nothing recorded, a soft
 # two-note chime made here — an E6 with a fast decay and a B6 a
 # twentieth of a second after it, each with a few milliseconds' rise so
