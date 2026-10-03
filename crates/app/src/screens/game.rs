@@ -3026,6 +3026,7 @@ fn frame(
                 max: room.max_health(w),
                 armour: if alive { room.armour_health(w) } else { 0.0 },
                 hurt: crate::crew::is_hurt(room, w),
+                shield: if alive { room.shield_hp(w) } else { 0.0 },
                 downed: alive && room.is_down(w),
                 down_left: room.down_left(w),
                 peril: crate::crew::peril_summary(room, w),

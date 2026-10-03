@@ -208,7 +208,10 @@ use serde::{Deserialize, Serialize};
 /// kind a tier past the best of it the player has bought (a tank's armour
 /// and a soldier's auto rifle counted as bought at tier one): both ends
 /// must stock alike.
-pub const PROTOCOL: u32 = 134;
+/// 135: the tank's Bastion throws its rank's shield — 600, 800, 1000,
+/// 1200 hit points draining 60, 80, 100, 100 a second
+/// (`class::BASTION_HP`, `BASTION_DRAIN`): both ends must shield alike.
+pub const PROTOCOL: u32 = 135;
 
 /// Where the relay lives. `BIMS_SERVER` in the environment overrides it
 /// — `ws://127.0.0.1:8792` for one on the same machine.

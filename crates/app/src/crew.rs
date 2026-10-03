@@ -1019,6 +1019,7 @@ impl CrewPanels {
         ui.add_space(6.0);
         let points = game.health(w);
         let armour = if alive { game.armour_health(w) } else { 0.0 };
+        let shield = if alive { game.shield_hp(w) } else { 0.0 };
         let hurt = is_hurt(game, w);
         ui.horizontal(|ui| {
             if who == 0 {
@@ -1026,14 +1027,18 @@ impl CrewPanels {
             } else {
                 ui.label("Health");
             }
-            let total = game.max_health(w) + armour;
+            let total = game.max_health(w) + armour + shield;
             theme::health_bar(
                 ui,
                 BAR_W,
-                points / total,
-                armour / total,
-                if hurt { theme::BAD } else { theme::ACCENT },
-                theme::ARMOUR,
+                &[
+                    (
+                        points / total,
+                        if hurt { theme::BAD } else { theme::ACCENT },
+                    ),
+                    (armour / total, theme::ARMOUR),
+                    (shield / total, theme::SHIELD),
+                ],
             );
             ui.label(
                 egui::RichText::new(format!("{}", points.round()))
@@ -1046,6 +1051,13 @@ impl CrewPanels {
                     egui::RichText::new(format!("+{}", armour.round()))
                         .size(HEALTH_NUMBER)
                         .color(theme::ARMOUR),
+                );
+            }
+            if shield > 0.0 {
+                ui.label(
+                    egui::RichText::new(format!("+{}", shield.round()))
+                        .size(HEALTH_NUMBER)
+                        .color(theme::SHIELD),
                 );
             }
         });

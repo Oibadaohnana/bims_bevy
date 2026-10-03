@@ -766,7 +766,7 @@ pub fn ranked_what(class: world::Class, slot: u8) -> &'static str {
             "For its seconds every hit you take — a shot, a beam, a blow — is dealt back to whoever struck you."
         }
         (world::Class::Tank, 3) => {
-            "Ultimate. Every ally on their feet around you, you too, gets a shield of 1000 that drains 100 a second: ten seconds at most."
+            "Ultimate. Allies around you, you too, get a draining shield on their health bar: 600 losing 60 a second, up to 1200 losing 100 at the fourth rank."
         }
         _ => "",
     }
@@ -1007,15 +1007,8 @@ pub fn ranked_stats(class: world::Class, slot: u8) -> Vec<Stat> {
         ],
         (world::Class::Tank, 3) => vec![
             Stat::ranks("Radius", " tiles", |r| fig(c::BASTION_RADIUS[r] as f64)),
-            Stat::one(
-                "Shield",
-                "",
-                format!(
-                    "{}, draining {} a second",
-                    fig(c::BASTION_HP as f64),
-                    fig(c::BASTION_DRAIN as f64)
-                ),
-            ),
+            Stat::ranks("Shield", " hp", |r| fig(c::BASTION_HP[r] as f64)),
+            Stat::ranks("Drains", " hp/s", |r| fig(c::BASTION_DRAIN[r] as f64)),
             cooldown(&c::BASTION_COOLDOWN),
         ],
         _ => Vec::new(),
@@ -2766,7 +2759,7 @@ pub fn station_name(name: worldgen::Name) -> String {
 
 // --- the room's words ------------------------------------------------------
 
-pub const HEALTH_TIP: &str = "Hit points: one bar for the whole Bim. A hit comes off the armour worn where it lands first — its protection off the damage before anything else, the rest draining the piece — and only what the piece cannot take reaches the bar. The blue on the end is that armour. Under twenty the Bim bleeds on the deck; at nothing it is down: it lies where it fell, can do nothing and is shot at by nothing, and dies thirty seconds later unless a crewmate standing beside it brings it round — ten seconds with hands on, a medic's four. It gets up at three tenths of its bar and walks thirty per cent slower for the rest of the mission. A piece at nothing is broken for the rest of the mission and whole again at the next.";
+pub const HEALTH_TIP: &str = "Hit points: one bar for the whole Bim. A hit comes off the armour worn where it lands first — its protection off the damage before anything else, the rest draining the piece — and only what the piece cannot take reaches the bar. The blue on the end is that armour, and the pale cyan after it a shield thrown over the Bim — a tank's Bastion — which a hit takes before the armour and which drains away on its own. Under twenty the Bim bleeds on the deck; at nothing it is down: it lies where it fell, can do nothing and is shot at by nothing, and dies thirty seconds later unless a crewmate standing beside it brings it round — ten seconds with hands on, a medic's four. It gets up at three tenths of its bar and walks thirty per cent slower for the rest of the mission. A piece at nothing is broken for the rest of the mission and whole again at the next.";
 
 // --- down, and the revive (task 120) -----------------------------------------
 //

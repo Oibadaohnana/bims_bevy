@@ -49,6 +49,9 @@ pub const DYING: egui::Color32 = egui::Color32::from_rgb(0xe8, 0x2a, 0x24);
 /// Armour: the blue on the end of a health bar, and a piece's own health
 /// under its icon.
 pub const ARMOUR: egui::Color32 = egui::Color32::from_rgb(0x6f, 0xa8, 0xe8);
+/// A shield over a body — a tank's Bastion, a relic's *Lifeline*: the
+/// pale cyan on the end of a health bar, after the armour's blue.
+pub const SHIELD: egui::Color32 = egui::Color32::from_rgb(0xb4, 0xf2, 0xff);
 /// Equipment tiers: a tier-two piece or weapon is tinted blue in its cell
 /// and slot, a tier-three one gold; tier one is untinted.
 pub const TIER_TWO: egui::Color32 = egui::Color32::from_rgb(0x5a, 0x9c, 0xf0);
@@ -275,18 +278,16 @@ pub fn two_tone_bar(
     bar_of_height(ui, width, 8.0, &[(first, fill), (second, fill2)])
 }
 
-/// Health's own bar, half again as tall as a need's and drawn in two
-/// tones like [`two_tone_bar`]. It is the one bar a player watches in a
-/// fight, so it is the one bar that is not the same size as the rest.
+/// Health's own bar, half again as tall as a need's, its `segments` laid
+/// end to end like [`two_tone_bar`]'s — the health, the armour, a
+/// shield. It is the one bar a player watches in a fight, so it is the
+/// one bar that is not the same size as the rest.
 pub fn health_bar(
     ui: &mut egui::Ui,
     width: f32,
-    first: f32,
-    second: f32,
-    fill: egui::Color32,
-    fill2: egui::Color32,
+    segments: &[(f32, egui::Color32)],
 ) -> egui::Response {
-    bar_of_height(ui, width, 13.0, &[(first, fill), (second, fill2)])
+    bar_of_height(ui, width, 13.0, segments)
 }
 
 /// The bar behind them all: the track, then each segment laid end to end

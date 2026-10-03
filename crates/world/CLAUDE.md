@@ -7356,9 +7356,13 @@ Bastion}` are where `{Taunt, Bulwark, Juggernaut}` were.
   `NotLearnt`, `CoolingDown` (`BASTION_COOLDOWN`, the relics' cut).
   `bastion_reaching` is `crew_within` his radius (the Override Core's
   fifth row a tile wider) on their feet; each gets
-  `Game::set_draining_shield(who, BASTION_HP, BASTION_SECONDS,
-  BASTION_DRAIN)` — the relic shield's own slot, so it takes a hit
-  before the armour and is drawn as that bubble. At `OVERRIDE_RANK`
+  `Game::set_draining_shield` with `World::bastion_shield(slot)` — the
+  rank's `BASTION_HP` (600, 800, 1000, 1200; the fifth the fourth's),
+  `BASTION_DRAIN` (60, 80, 100, 100 a second) and `BASTION_SECONDS`
+  (their quotient), October 2026, `wire::PROTOCOL` 135 — the relic
+  shield's own slot, so it takes a hit before the armour; drawn as that
+  bubble and, in the app, as a pale cyan segment after the armour's blue
+  on every health bar (`theme::SHIELD`, `Game::shield_hp`). At `OVERRIDE_RANK`
   each also gets `Tank::hasted` for the seconds, which
   `lift_by_bastion` (in `skill_of`, after the commanders) reads as
   `walk × BASTION_HASTE`.

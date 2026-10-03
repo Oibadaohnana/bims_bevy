@@ -895,9 +895,37 @@ fn the_bastion_s_radius_and_cooldown_go_by_its_rank_and_it_is_refused_as_it_shou
     assert_eq!(class::BASTION_RADIUS[0], 6.0, "six tiles at the first");
 }
 
-/// **Every friend in reach gets a thousand that drains a hundred a
-/// second**: the tank and a crewmate beside him, not one twenty tiles
-/// off; a hit comes off it first; ten seconds and it is gone.
+/// **The shield goes by the rank**: 600 draining 60 a second, 800 and
+/// 80, 1000 and 100, 1200 and 100 — and that is what lands on him.
+#[test]
+fn the_bastion_s_shield_and_its_drain_go_by_its_rank() {
+    let want = [
+        (600.0, 60.0, 10.0),
+        (800.0, 80.0, 10.0),
+        (1000.0, 100.0, 10.0),
+        (1200.0, 100.0, 12.0),
+    ];
+    for (rank, &(hp, drain, seconds)) in (1..=4u8).zip(&want) {
+        let mut world = tank_at([0, 0, 0, rank]);
+        hold_still(&mut world);
+        assert_eq!(world.bastion_shield(0), (hp, drain, seconds), "rank {rank}");
+        world.step(&[Command::Bastion { slot: 0 }]);
+        let left = world.aboard.room.shield_hp(0);
+        assert!(left > hp - drain * 0.1 && left <= hp, "rank {rank}: {left}");
+        run_for(&mut world, 1.0);
+        let after = world.aboard.room.shield_hp(0);
+        assert!(
+            (left - after - drain).abs() < drain * 0.05,
+            "rank {rank}: drained {}",
+            left - after
+        );
+    }
+}
+
+/// **Every friend in reach gets the rank's shield, draining**: at the
+/// first rank six hundred that drains sixty a second — the tank and a
+/// crewmate beside him, not one twenty tiles off; a hit comes off it
+/// first; ten seconds and it is gone.
 #[test]
 fn the_bastion_shields_every_friend_in_reach_and_drains_in_ten_seconds() {
     let mut world = tank_at([0, 0, 0, 1]);
@@ -923,7 +951,7 @@ fn the_bastion_shields_every_friend_in_reach_and_drains_in_ten_seconds() {
         "{events:?}"
     );
     let shield = |world: &World, who: usize| world.aboard.room.shield_hp(who);
-    assert!(shield(&world, 0) > 990.0 && shield(&world, 1) > 990.0);
+    assert!(shield(&world, 0) > 590.0 && shield(&world, 1) > 590.0);
     assert_eq!(shield(&world, 2), 0.0, "out of reach");
     // A hit comes off the shield, not the body.
     let health = world.aboard.room.health(1);
@@ -936,7 +964,7 @@ fn the_bastion_shields_every_friend_in_reach_and_drains_in_ten_seconds() {
         world.step(&[]);
     }
     assert!(
-        (shield(&world, 0) - 500.0).abs() < 5.0,
+        (shield(&world, 0) - 300.0).abs() < 5.0,
         "{}",
         shield(&world, 0)
     );
@@ -970,7 +998,8 @@ fn with_an_override_core_the_bastion_hastes_everybody_it_reached_for_ten_seconds
         let want = if core { class::BASTION_HASTE } else { 1.0 };
         assert_eq!(world.skill_of(0).walk, want, "core {core}: him");
         assert_eq!(world.skill_of(1).walk, want, "core {core}: a crewmate");
-        run_for(&mut world, class::BASTION_SECONDS + 0.1);
+        let seconds = world.bastion_shield(0).2;
+        run_for(&mut world, seconds + 0.1);
         assert_eq!(world.skill_of(1).walk, 1.0, "core {core}: over");
     }
 }

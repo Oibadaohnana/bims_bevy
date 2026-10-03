@@ -119,6 +119,19 @@ impl Trail {
         }
     }
 
+    /// The same bar read against a whole `factor` times what it was read
+    /// against: every share times it, so a bar whose whole grew or
+    /// shrank — a shield thrown over the body, or draining away — shows
+    /// no hit or heal for it.
+    fn rescale(&mut self, factor: f32) {
+        self.now *= factor;
+        self.lost *= factor;
+        self.kept *= factor;
+        for slice in self.hurt.iter_mut().chain(self.healed.iter_mut()) {
+            *slice *= factor;
+        }
+    }
+
     /// The bar reads `share` now, `dt` real seconds after it last did.
     fn step(&mut self, share: f32, dt: f32) {
         if share < self.now {
@@ -166,36 +179,53 @@ impl Trail {
     }
 }
 
-/// What a body has, each a share of its whole bar: its hit points, and
-/// the armour it wears on the end of them; and how many hit points the
+/// What a body has, each a share of its whole bar: its hit points, the
+/// armour it wears on the end of them, and a shield on the end of that
+/// (a tank's Bastion, a relic's *Lifeline*); and how many hit points the
 /// whole bar is, for the ticks.
 #[derive(Clone, Copy, Debug, PartialEq)]
 struct Reading {
     health: f32,
     armour: f32,
+    shield: f32,
     whole: f32,
 }
 
 /// A body's two trails: its health alone, for the light of a heal —
-/// only hit points are ever put back — and its health and armour
-/// together, for the white of a hit, which takes the armour first.
+/// only hit points are ever put back — and its health, armour and
+/// shield together, for the white of a hit, which takes the shield and
+/// the armour first. The shield's share as it stands, and the whole the
+/// shares were last read against.
 #[derive(Clone, Copy, Debug, PartialEq)]
 struct Trails {
     health: Trail,
     all: Trail,
+    shield: f32,
+    whole: f32,
 }
 
 impl Trails {
     fn new(r: Reading) -> Trails {
         Trails {
             health: Trail::new(r.health),
-            all: Trail::new(r.health + r.armour),
+            all: Trail::new(r.health + r.armour + r.shield),
+            shield: r.shield,
+            whole: r.whole,
         }
     }
 
     fn step(&mut self, r: Reading, dt: f32) {
+        // A whole that moved — a shield come or going — is the bar
+        // redrawn to a new scale, not a hit or a heal.
+        if self.whole > 0.0 && r.whole > 0.0 && self.whole != r.whole {
+            let factor = self.whole / r.whole;
+            self.health.rescale(factor);
+            self.all.rescale(factor);
+        }
+        self.whole = r.whole;
+        self.shield = r.shield;
         self.health.step(r.health, dt);
-        self.all.step(r.health + r.armour, dt);
+        self.all.step(r.health + r.armour + r.shield, dt);
     }
 }
 
@@ -231,10 +261,12 @@ fn reading(room: &bims::game::Game, who: usize) -> Option<Reading> {
     match who.checked_sub(bims) {
         None => {
             let armour = room.armour_health(who).max(0.0);
-            let whole = room.max_health(who) + armour;
+            let shield = room.shield_hp(who);
+            let whole = room.max_health(who) + armour + shield;
             Some(Reading {
                 health: (room.health(who) / whole).clamp(0.0, 1.0),
                 armour: armour / whole,
+                shield: shield / whole,
                 whole,
             })
         }
@@ -243,6 +275,7 @@ fn reading(room: &bims::game::Game, who: usize) -> Option<Reading> {
             Some(Reading {
                 health: body.life_share(),
                 armour: 0.0,
+                shield: 0.0,
                 whole: body.life_max(),
             })
         }
@@ -329,6 +362,7 @@ impl HealthBars {
             let r = Reading {
                 health: (d.health / whole).clamp(0.0, 1.0),
                 armour: 0.0,
+                shield: 0.0,
                 whole,
             };
             let at = world_paint::room_point_on_screen(game, at);
@@ -372,8 +406,8 @@ impl HealthBars {
 
 /// One bar in `track`: the dark track with an outline, the solid fill up
 /// to the hit points the body kept, the light up to the ones it has now,
-/// the armour's blue after them, and the white up to what it had before
-/// its last hits.
+/// the armour's blue after them, the shield's pale cyan after that, and
+/// the white up to what it had before its last hits.
 fn paint_bar(
     painter: &egui::Painter,
     track: egui::Rect,
@@ -391,15 +425,21 @@ fn paint_bar(
         )
     };
     let (health, kept) = (trails.health.now, trails.health.kept);
-    let (all, lost) = (trails.all.now, trails.all.lost);
+    // The white of a draining shield can run past the end of the bar;
+    // it is the bar's to draw and no further.
+    let (all, lost) = (trails.all.now.min(1.0), trails.all.lost.min(1.0));
+    let armoured = (all - trails.shield).max(health);
     if kept > 0.0 {
         painter.rect_filled(span(0.0, kept), 1.0, solid);
     }
     if health > kept {
         painter.rect_filled(span(kept, health), 0.0, healed);
     }
-    if all > health {
-        painter.rect_filled(span(health, all), 0.0, crate::theme::ARMOUR);
+    if armoured > health {
+        painter.rect_filled(span(health, armoured), 0.0, crate::theme::ARMOUR);
+    }
+    if all > armoured {
+        painter.rect_filled(span(armoured, all), 0.0, crate::theme::SHIELD);
     }
     if lost > all {
         painter.rect_filled(span(all, lost), 0.0, DAMAGE);
@@ -552,6 +592,7 @@ mod tests {
         let r = |health: f32, armour: f32| Reading {
             health: health / 140.0,
             armour: armour / 140.0,
+            shield: 0.0,
             whole: 140.0,
         };
         let mut t = Trails::new(r(60.0, 40.0));
@@ -566,6 +607,34 @@ mod tests {
         t.step(r(80.0, 30.0), 0.016);
         assert!(near(t.health.kept, 60.0 / 140.0));
         assert_eq!(t.health.now, 80.0 / 140.0);
+    }
+
+    #[test]
+    fn a_shield_coming_and_draining_is_no_hit_and_no_heal() {
+        // A hundred hit points, then a Bastion's six hundred on the end,
+        // then the shield half drained, then gone.
+        let r = |health: f32, shield: f32| {
+            let whole = 100.0 + shield;
+            Reading {
+                health: health / whole,
+                armour: 0.0,
+                shield: shield / whole,
+                whole,
+            }
+        };
+        let mut t = Trails::new(r(100.0, 0.0));
+        for shield in [600.0, 300.0, 0.0] {
+            t.step(r(100.0, shield), 0.016);
+            assert!(near(t.health.kept, t.health.now), "no light: {shield}");
+            assert!(near(t.health.lost, t.health.now), "no white: {shield}");
+            assert!(near(t.all.now, 1.0), "{shield}");
+        }
+        // A hit on the shield is white on its end, as on the armour.
+        let mut t = Trails::new(r(100.0, 600.0));
+        t.step(r(100.0, 500.0), 0.016);
+        assert!(near(t.health.now, 100.0 / 600.0));
+        assert!(t.all.lost > t.all.now, "the white of the hit");
+        assert!(near(t.shield, 500.0 / 600.0));
     }
 
     #[test]

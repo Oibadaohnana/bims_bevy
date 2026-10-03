@@ -490,6 +490,8 @@ pub struct Portrait {
     /// panel splits them.
     pub body: f32,
     pub armour: f32,
+    /// A shield's share after the armour (a tank's Bastion).
+    pub shield: f32,
     pub hurt: bool,
     /// The player's own.
     pub yours: bool,
@@ -519,7 +521,8 @@ pub fn portraits_of(world: &world::World, local: u32, watched: Option<u32>) -> V
             let class = world.class_of(who);
             let points = room.health(w);
             let armour = if alive { room.armour_health(w) } else { 0.0 };
-            let total = room.max_health(w) + armour;
+            let shield = if alive { room.shield_hp(w) } else { 0.0 };
+            let total = room.max_health(w) + armour + shield;
             let player = who < players;
             Portrait {
                 who,
@@ -528,6 +531,7 @@ pub fn portraits_of(world: &world::World, local: u32, watched: Option<u32>) -> V
                 level: (class != world::Class::None).then(|| world.level_of(who)),
                 body: (points / total).clamp(0.0, 1.0),
                 armour: (armour / total).clamp(0.0, 1.0),
+                shield: (shield / total).clamp(0.0, 1.0),
                 hurt: crate::crew::is_hurt(room, w),
                 yours: who == local,
                 player,
@@ -642,6 +646,11 @@ pub fn portrait(ui: &mut egui::Ui, cell: &Portrait) -> Option<PortraitPress> {
         egui::vec2(bar.width() * cell.armour, 4.0),
     );
     painter.rect_filled(armour, 2.0, dim(theme::ARMOUR));
+    let shield = egui::Rect::from_min_size(
+        egui::pos2(armour.max.x, bar.min.y),
+        egui::vec2(bar.width() * cell.shield, 4.0),
+    );
+    painter.rect_filled(shield, 2.0, dim(theme::SHIELD));
     let under = if cell.out {
         PORTRAIT_OUT.to_string()
     } else {
@@ -885,6 +894,8 @@ pub struct Hero {
     /// A whole bar for it (October 2026: a Reactor Heart raises it).
     pub max: f32,
     pub armour: f32,
+    /// A shield's hit points on the end of the armour (a tank's Bastion).
+    pub shield: f32,
     pub hurt: bool,
     /// Downed on the deck, with the countdown running (task 120).
     pub downed: bool,
@@ -1049,7 +1060,7 @@ fn health_row(ui: &mut egui::Ui, hero: &Hero, critical: bool) {
     };
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = 6.0;
-        let total = hero.max + hero.armour;
+        let total = hero.max + hero.armour + hero.shield;
         theme::bar_of_height(
             ui,
             HERO_BAR_W,
@@ -1057,6 +1068,7 @@ fn health_row(ui: &mut egui::Ui, hero: &Hero, critical: bool) {
             &[
                 (hero.points / total, ink),
                 (hero.armour / total, theme::ARMOUR),
+                (hero.shield / total, theme::SHIELD),
             ],
         );
         ui.label(
@@ -1074,6 +1086,13 @@ fn health_row(ui: &mut egui::Ui, hero: &Hero, critical: bool) {
                 egui::RichText::new(format!("+{}", hero.armour.round()))
                     .size(HERO_NUMBER * 0.7)
                     .color(theme::ARMOUR),
+            );
+        }
+        if hero.shield > 0.0 {
+            ui.label(
+                egui::RichText::new(format!("+{}", hero.shield.round()))
+                    .size(HERO_NUMBER * 0.7)
+                    .color(theme::SHIELD),
             );
         }
         if critical {

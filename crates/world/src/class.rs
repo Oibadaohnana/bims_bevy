@@ -330,17 +330,18 @@
 //!
 //! **R, Bastion** (ultimate, cooldown): every friend on his feet within
 //! the radius — himself, the players and the bots — takes a shield of
-//! [`BASTION_HP`] hit points that drains [`BASTION_DRAIN`] a second
-//! whatever strikes it, ten seconds at most. With an *Override Core*
-//! (the fifth rank) everybody it reached also moves half again as fast
-//! ([`BASTION_HASTE`]) for those ten seconds.
+//! its rank's [`BASTION_HP`] hit points, drawn on the end of the health
+//! bar like armour, that drains its rank's [`BASTION_DRAIN`] a second
+//! whatever strikes it, [`BASTION_SECONDS`] at most. With an *Override
+//! Core* (the fifth rank, the fourth's shield) everybody it reached also
+//! moves half again as fast ([`BASTION_HASTE`]) for those seconds.
 //!
-//! | rank | radius | cooldown |
-//! |---|---|---|
-//! | 1 | 6 tiles | 70 s |
-//! | 2 | 7 tiles | 60 s |
-//! | 3 | 8 tiles | 50 s |
-//! | 4 | 9 tiles | 40 s |
+//! | rank | radius | shield | drains | cooldown |
+//! |---|---|---|---|---|
+//! | 1 | 6 tiles | 600 hp | 60 hp/s | 70 s |
+//! | 2 | 7 tiles | 800 hp | 80 hp/s | 60 s |
+//! | 3 | 8 tiles | 1000 hp | 100 hp/s | 50 s |
+//! | 4 | 9 tiles | 1200 hp | 100 hp/s | 40 s |
 //!
 //! The cooldowns run on the mission clock, stop while paused, are ready
 //! at every mission's start and are shortened by the cooldown relics as
@@ -1047,14 +1048,15 @@ pub const REFLECT_SHARE: f32 = 1.0;
 /// **R, Bastion**: how far it reaches, in tiles, a rank — the
 /// *Override Core*'s fifth a tile further (task 155).
 pub const BASTION_RADIUS: [f32; 5] = [6.0, 7.0, 8.0, 9.0, 10.0];
-/// The hit points of the shield it throws over every friend in reach.
-pub const BASTION_HP: f32 = 1000.0;
-/// What that shield loses a second whatever strikes it: ten seconds at
-/// most.
-pub const BASTION_DRAIN: f32 = 100.0;
+/// The hit points of the shield it throws over every friend in reach, a
+/// rank (the player's words, October 2026: 600, 800, 1000, 1200; it was
+/// 1000 at every rank). The *Override Core*'s fifth is the fourth's.
+pub const BASTION_HP: [f32; 5] = [600.0, 800.0, 1000.0, 1200.0, 1200.0];
+/// What that shield loses a second whatever strikes it, a rank.
+pub const BASTION_DRAIN: [f32; 5] = [60.0, 80.0, 100.0, 100.0, 100.0];
 /// Seconds of the mission clock the shield, and the fifth rank's haste,
-/// last at most.
-pub const BASTION_SECONDS: f64 = (BASTION_HP / BASTION_DRAIN) as f64;
+/// last at most, a rank: its hit points over its drain.
+pub const BASTION_SECONDS: [f64; 5] = [10.0, 10.0, 10.0, 12.0, 12.0];
 /// What the pace of everybody it reached is multiplied by at the
 /// *Override Core*'s fifth rank, while the shield's seconds run.
 pub const BASTION_HASTE: f32 = 1.5;
@@ -1385,10 +1387,16 @@ mod tests {
         assert_eq!(PLATED_REGEN, [0.2, 0.8, 1.4, 2.0]);
         assert_eq!(TANK_DRAIN * FORTRESS_DRAIN, 0.25, "a quarter in all");
         assert_eq!(REFLECT_SHARE, 1.0, "the damage he takes, whole");
-        assert_eq!(
-            (BASTION_HP, BASTION_DRAIN, BASTION_SECONDS),
-            (1000.0, 100.0, 10.0)
-        );
+        assert_eq!(BASTION_HP, [600.0, 800.0, 1000.0, 1200.0, 1200.0]);
+        assert_eq!(BASTION_DRAIN, [60.0, 80.0, 100.0, 100.0, 100.0]);
+        for r in 0..5 {
+            assert_eq!(
+                BASTION_SECONDS[r],
+                (BASTION_HP[r] / BASTION_DRAIN[r]) as f64,
+                "rank {}: the shield drains out in its seconds",
+                r + 1
+            );
+        }
         assert_eq!(BASTION_RADIUS[0], 6.0, "six tiles at the first rank");
         assert_eq!(BASTION_HASTE, 1.5, "half again as fast with the core");
         assert_eq!(BASTION_COOLDOWN, [70.0, 60.0, 50.0, 40.0, 35.0]);

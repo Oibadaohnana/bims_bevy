@@ -397,8 +397,9 @@ pub enum Command {
     },
     /// That player's own tank throws his **Bastion** (R, his ultimate,
     /// task 155): every friend on his feet within the rank's
-    /// [`class::BASTION_RADIUS`] takes a shield of [`class::BASTION_HP`]
-    /// that drains [`class::BASTION_DRAIN`] a second. Refused `NotATank`,
+    /// [`class::BASTION_RADIUS`] takes a shield of the rank's
+    /// [`class::BASTION_HP`] that drains the rank's
+    /// [`class::BASTION_DRAIN`] a second. Refused `NotATank`,
     /// `OutOfReach`, `NotLearnt` and `CoolingDown` within
     /// [`class::BASTION_COOLDOWN`] of the last (`World::can_bastion`).
     Bastion {
@@ -10404,6 +10405,19 @@ impl World {
         class::by_rank(class::BASTION_RADIUS, self.rank_of(who, class::SLOT_R)).unwrap_or(0.0)
     }
 
+    /// The shield a tank's Bastion throws, by its rank: its hit points
+    /// ([`class::BASTION_HP`]), what it drains a second
+    /// ([`class::BASTION_DRAIN`]) and the seconds it lasts at most
+    /// ([`class::BASTION_SECONDS`]) — the first rank's before one.
+    pub fn bastion_shield(&self, who: u32) -> (f32, f32, f64) {
+        let rank = self.rank_of(who, class::SLOT_R).max(1);
+        (
+            class::by_rank(class::BASTION_HP, rank).unwrap_or(0.0),
+            class::by_rank(class::BASTION_DRAIN, rank).unwrap_or(0.0),
+            class::by_rank(class::BASTION_SECONDS, rank).unwrap_or(0.0),
+        )
+    }
+
     /// Seconds of the mission clock from one Bastion to the next: its
     /// rank's [`class::BASTION_COOLDOWN`], shorter with the cooldown
     /// relics and items.
@@ -10462,15 +10476,14 @@ impl World {
         self.can_bastion(slot)?;
         let now = self.mission_minutes();
         let reached = self.bastion_reaching(slot);
-        let hasted = self.rank_of(slot, class::SLOT_R) >= class::OVERRIDE_RANK;
-        let until = now + class::BASTION_SECONDS * time::MINUTES_PER_SECOND;
+        let rank = self.rank_of(slot, class::SLOT_R);
+        let hasted = rank >= class::OVERRIDE_RANK;
+        let (hp, drain, seconds) = self.bastion_shield(slot);
+        let until = now + seconds * time::MINUTES_PER_SECOND;
         for &who in &reached {
-            self.aboard.room.set_draining_shield(
-                who as usize,
-                class::BASTION_HP,
-                class::BASTION_SECONDS as f32,
-                class::BASTION_DRAIN,
-            );
+            self.aboard
+                .room
+                .set_draining_shield(who as usize, hp, seconds as f32, drain);
             if hasted {
                 self.tank_mut(who as usize).hasted = crate::tank::Window { began: now, until };
             }
