@@ -43,6 +43,12 @@ use bevy_egui::egui;
 pub enum Action {
     /// Switch between the ship and the map.
     Map,
+    /// **Propose** (October 2026): on the map between missions, the
+    /// place picked on the chart or the list put to the crew, or — with
+    /// nothing new picked — a yes to the trip on the table. On Space,
+    /// shared with the ultimate, which the map up between missions does
+    /// not read (as Turn shares R with the reload).
+    Propose,
     /// Head up or north up.
     NorthUp,
     /// The engineer's remote trigger (task 154): every satchel charge of
@@ -148,8 +154,9 @@ impl Action {
     /// The four item slots, in the order the hero panel lays them out.
     pub const ITEMS: [Action; 4] = [Action::Item1, Action::Item2, Action::Item3, Action::Item4];
 
-    pub const ALL: [Action; 28] = [
+    pub const ALL: [Action; 29] = [
         Action::Map,
+        Action::Propose,
         Action::NorthUp,
         Action::Detonate,
         Action::Speed1,
@@ -184,6 +191,9 @@ impl Action {
         use egui::Key;
         match self {
             Action::Map => Key::M,
+            // Space, the ultimate's: the map up between missions reads
+            // this and not the ultimate.
+            Action::Propose => Key::Space,
             Action::NorthUp => Key::N,
             // G since October 2026: Space is the ultimate's.
             Action::Detonate => Key::G,
@@ -231,6 +241,7 @@ impl Action {
     pub fn name(self) -> &'static str {
         match self {
             Action::Map => "map",
+            Action::Propose => "propose",
             Action::NorthUp => "north-up",
             Action::Detonate => "detonate",
             Action::Speed1 => "speed-1",
@@ -265,6 +276,9 @@ impl Action {
     pub fn what(self) -> &'static str {
         match self {
             Action::Map => "Switch between the ship and the map.",
+            Action::Propose => {
+                "On the map between missions: put the place you picked on the chart or the list to the crew, or, with nothing new picked, accept the trip on the table. Read only there, so it shares Space with the ultimate."
+            }
             Action::NorthUp => "Turn the view head up or north up.",
             Action::Detonate => {
                 "An engineer's remote trigger: every satchel charge he has thrown goes off at once. The pause is on the Esc sheet."
@@ -921,7 +935,9 @@ mod tests {
         assert!(keys.shared_with(Action::Ability1).is_empty());
         assert!(keys.shared_with(Action::Ability2).is_empty());
         assert!(keys.shared_with(Action::Ability3).is_empty());
-        assert!(keys.shared_with(Action::Ability4).is_empty());
+        // The ultimate shares Space with Propose, which only the map
+        // between missions reads (October 2026).
+        assert_eq!(keys.shared_with(Action::Ability4), vec![Action::Propose]);
         assert_eq!(keys.key(Action::Reload), egui::Key::R);
         assert_eq!(keys.shared_with(Action::Reload), vec![Action::Turn]);
         // So Select left C for F1 and Recruit left R for L; Turn stays.
@@ -1071,7 +1087,7 @@ mod tests {
         let keys = Keys::default();
         assert_eq!(keys.key(Action::Reload), egui::Key::R);
         assert_eq!(keys.key(Action::Revive), egui::Key::T);
-        assert!(keys.shared_with(Action::Ability4).is_empty());
+        assert_eq!(keys.shared_with(Action::Ability4), vec![Action::Propose]);
         assert!(keys.shared_with(Action::Revive).is_empty());
         let mut before = keys;
         before.set(Action::Ability4, egui::Key::R);

@@ -2818,6 +2818,7 @@ overlapping is allowed the whole apparatus has nothing left to do.
 | `x` | **Attack**: the pointer turns into a red crosshair, and the next click on the deck plants an **attack banner** there. The crew nobody steers fight their way to it — taking the cover on the way, pushing on when nothing is in range — and hold it. `x` again, `Esc` or a right-click puts the crosshair away; the banner clicked where it already stands calls it off |
 | `y` | **Retreat**: the crew nobody steers fall back to the ship and hold there. `y` again and they go back to keeping to your side. Nobody leaves a fight *aboard* the ship — cornered in your own hull they stand and shoot whatever they were told |
 | `m` | The world map; during a mission it is only looked at |
+| **Space** on the map between missions | **Propose** the place picked on the chart or the list; with nothing new picked, **Accept** the trip on the table. The button it presses says *(Space)*. It shares the key with the ultimate, which the map does not read there (October 2026) |
 | Drag a box over one | Select it. Selecting shows its crew sheet |
 | Click one | Select it — a click is just a box of no size. Only the Bim you steer takes your orders |
 | Click empty floor / `Esc` | Deselect — the right-hand panels go with it. `Esc` first shuts whatever is up, innermost first: a cell's rows, a menu, a grid window |

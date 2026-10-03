@@ -721,6 +721,13 @@ fn destination_card(
     }
 }
 
+/// Whether the map's bar puts trips to the crew now: between missions,
+/// with no relic being chosen. Then the Propose key is the bar's, and
+/// the ultimate it shares Space with is not read.
+pub fn proposing(world: &World) -> bool {
+    !world.in_mission() && world.relic_choice().is_none()
+}
+
 /// How wide the bar at the foot of the map is, in points.
 const BAR_W: f32 = 460.0;
 
@@ -731,6 +738,11 @@ const BAR_W: f32 = 460.0;
 /// place a trip is put to the crew; the card in the column only reads.
 /// Nothing during a mission, where the map is to be looked at. The
 /// rectangle it took, for the log to stand above it.
+///
+/// `hotkey` is the Propose key (`keys::Action::Propose`, Space; October
+/// 2026) — whether it went down this frame, and its name: it presses
+/// *Propose* with a place picked that is not the one on the table, and
+/// *Accept* otherwise, and the button it would press says so.
 #[allow(clippy::too_many_arguments)]
 pub fn propose_bar(
     ctx: &egui::Context,
@@ -739,10 +751,11 @@ pub fn propose_bar(
     map: &WorldMap,
     world: &World,
     local: u32,
+    hotkey: (bool, &str),
     orders: &mut Vec<Order>,
     name: &dyn Fn(u32) -> String,
 ) -> Option<egui::Rect> {
-    if world.in_mission() || world.relic_choice().is_some() {
+    if !proposing(world) {
         return None;
     }
     let proposal = world.run.proposal.as_ref();
@@ -750,6 +763,20 @@ pub fn propose_bar(
         .picked
         .and_then(|site| map.find(site))
         .filter(|d| proposal.is_none_or(|p| p.site != d.site));
+    let (pressed, key) = hotkey;
+    let mine = proposal.is_some_and(|p| p.accepted.get(local as usize).copied().unwrap_or(false));
+    // What the key presses: the pick put to the crew, else a yes.
+    let key_proposes = picked.is_some_and(|d| d.quote.is_ok());
+    let key_accepts = !key_proposes && proposal.is_some() && !mine;
+    if pressed && key_proposes {
+        let d = picked.unwrap();
+        orders.push(Order::Propose {
+            star: d.site.star,
+            station: d.site.station,
+        });
+    } else if pressed && key_accepts {
+        orders.push(Order::AcceptTrip(true));
+    }
     let area = egui::Area::new(egui::Id::new("map-propose-bar"))
         .pivot(egui::Align2::CENTER_BOTTOM)
         .fixed_pos(egui::pos2(centre_x, bottom))
@@ -783,12 +810,15 @@ pub fn propose_bar(
                                 );
                             }
                         });
-                        let mine = p.accepted.get(local as usize).copied().unwrap_or(false);
                         ui.horizontal(|ui| {
                             let size = egui::vec2(140.0, 30.0);
-                            let accept =
-                                egui::Button::new(egui::RichText::new(ACCEPT_TRIP).strong())
-                                    .min_size(size);
+                            let word = if key_accepts {
+                                with_key(ACCEPT_TRIP, key)
+                            } else {
+                                ACCEPT_TRIP.to_owned()
+                            };
+                            let accept = egui::Button::new(egui::RichText::new(word).strong())
+                                .min_size(size);
                             if ui.add_enabled(!mine, accept).clicked() {
                                 orders.push(Order::AcceptTrip(true));
                             }
@@ -812,9 +842,13 @@ pub fn propose_bar(
                                 .add_enabled(
                                     d.quote.is_ok(),
                                     egui::Button::new(
-                                        egui::RichText::new(propose_trip(&d.name))
-                                            .strong()
-                                            .size(16.0),
+                                        egui::RichText::new(if key_proposes {
+                                            with_key(&propose_trip(&d.name), key)
+                                        } else {
+                                            propose_trip(&d.name)
+                                        })
+                                        .strong()
+                                        .size(16.0),
                                     )
                                     .min_size(egui::vec2(240.0, 34.0)),
                                 )

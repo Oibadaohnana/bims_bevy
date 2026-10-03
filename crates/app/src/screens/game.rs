@@ -2464,6 +2464,11 @@ fn frame(
                     orders.push(Order::Crew(CrewOrder::Hand { hand }));
                 }
                 // The four item slots, 1 to 4 (October 2026): the item in
+    let map_proposing = map_up
+        && session
+            .game
+            .as_ref()
+            .is_some_and(|g| super::worldmap::proposing(&g.world));
                 // that slot used at the pointer — a Blink Drive blinks
                 // there. The world says why not, into the log. Read
                 // through Shift, which turns 1 into `!`.
@@ -2579,6 +2584,11 @@ fn frame(
                     let (order, line) = match primary {
                         _ if ranked => ranked_key(&game.world, slot, action, tile, under),
                         Some(primary) => class_key(&game.world, slot, primary, tile, under),
+                    // The map up between missions reads the Propose key
+                    // (Space, October 2026) and not the slot sharing it.
+                    if map_proposing && keys_now.key(action) == keys_now.key(Action::Propose) {
+                        continue;
+                    }
                         None => (None, None),
                     };
                     orders.extend(order);
@@ -2925,6 +2935,11 @@ fn frame(
         let (faces, press) = hud::portraits(&ctx, area.min + egui::vec2(MARGIN, MARGIN), &cells);
         portrait_press = press;
         let top = hud::top_frame(&ctx, area, faces.max.x, world, local, &threats, paused);
+        // Space (the Propose key, October 2026) presses the bar's button.
+        let propose_pressed = keys
+            && ctx.input(|i| {
+                crate::keys::plain_or_sprinting(i.modifiers) && keys_now.pressed(i, Action::Propose)
+            });
         let mut top_foot = top.max.y;
         if out {
             top_foot = hud::out_banner(
@@ -2932,6 +2947,7 @@ fn frame(
                 top.center().x,
                 top.max.y + 6.0,
                 world.crew_money(),
+            (propose_pressed, keys_now.key(Action::Propose).name()),
                 world.rewards().buyback,
             )
             .max
