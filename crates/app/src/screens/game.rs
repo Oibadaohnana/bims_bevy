@@ -370,9 +370,11 @@ fn note_heals(heals: &mut Heals, game: &ship::game::Game, now: f64) {
         }
     }
     heals.watched.retain(|who, _| beamed.contains(who));
-    let room = &world.aboard.room;
     for who in beamed {
-        let points = room.health(who as usize);
+        // A site's defender too, in its own room (`World::patient_bar`).
+        let Some((points, _)) = world.patient_bar(who) else {
+            continue;
+        };
         let watched = heals.watched.entry(who).or_insert(Watched {
             points,
             gathered: 0.0,
@@ -1699,7 +1701,10 @@ fn frame(
     // The room is the crew's; a second crew — another player's, one day —
     // would come after them and be named for where it is from.
     let name = move |who: u32| -> String {
-        if who < crew_count {
+        if let Some(i) = world::medic::guest_of(who) {
+            // A site's defender a medic's beam holds.
+            resident_name(resident_station.unwrap_or(0), i)
+        } else if who < crew_count {
             crew_name(who)
         } else {
             resident_name(resident_station.unwrap_or(0), who - crew_count)
@@ -2559,10 +2564,9 @@ fn frame(
                     });
                     // And the crew member under the pointer, for a
                     // medic's beam (feature 76) — its own Bim among them,
-                    // since a medic may beam itself (task 120).
-                    let under = room
-                        .and_then(|(rx, ry)| game.world.aboard.room.crew_at(rx, ry))
-                        .map(|who| who as u32);
+                    // since a medic may beam itself (task 120) — or, with
+                    // no crewmate there, a site's defender.
+                    let under = room.and_then(|(rx, ry)| game.world.patient_at(rx, ry));
                     let (order, line) = match primary {
                         _ if ranked => ranked_key(&game.world, slot, action, tile, under),
                         Some(primary) => class_key(&game.world, slot, primary, tile, under),
@@ -3874,7 +3878,7 @@ fn frame(
                 continue;
             };
             for patient in game.world.patients_of(medic) {
-                let Some(to) = session.crew_on_screen(patient) else {
+                let Some(to) = session.patient_on_screen(patient) else {
                     continue;
                 };
                 let a = view.to_canvas(Vec2::new(from.0, from.1)) + canvas.min;
@@ -3920,7 +3924,7 @@ fn frame(
         // say how well it is going, which is the half another player
         // could not see before.
         for floater in &screen.heals.floating {
-            let Some((x, y)) = session.crew_on_screen(floater.who) else {
+            let Some((x, y)) = session.patient_on_screen(floater.who) else {
                 continue;
             };
             let at = view.to_canvas(Vec2::new(x, y)) + canvas.min;
@@ -4010,6 +4014,7 @@ fn frame(
             session.crew_on_screen(who).map(|(x, y)| {
                 let p = view.to_canvas(Vec2::new(x, y)) + canvas.min;
                 egui::pos2(p.x, p.y)
+        // A crew member, or a site's defender a medic's key reaches.
             })
         };
         for who in 0..crew {
@@ -5224,9 +5229,9 @@ fn ranked_box(world: &world::World, slot: u32, action: Action, keys: &Keys) -> A
             ..Face::of(Some(Glyph::HealingCircle))
         },
         // The tank's (task 155): the Riot Shield lit while it is up,
-        // counting the hit points it has left; Plated always on; the
-        // Reflect Barrier and the Bastion on their cooldowns, the barrier
-        // lit while it runs.
+        // counting the hit points it has left, and broken on its cooldown;
+        // Plated always on; the Reflect Barrier and the Bastion on their
+        // cooldowns, the barrier lit while it runs.
         (world::Class::Tank, 0) => Face {
             count: (world.riot_shield_hp(slot) > 0.0)
                 .then(|| world.riot_shield_left(slot).ceil() as u32),
@@ -5442,86 +5447,99 @@ fn quickselect(ui: &mut egui::Ui, hand: bims::bim::Hand, keys: &Keys) -> Option<
 }
 
 /// How big one item box is: Dota's inventory, two by two beside the
-/// abilities, a little smaller than an ability's box.
-const ITEM_SIDE: f32 = 32.0;
+/// abilities, the two rows as tall as the hero panel inside its frame
+/// (the player's word) — about an ability's box.
+const ITEM_SIDE: f32 = 41.0;
+
+/// The gap between two item boxes, across and down.
+const ITEM_GAP: f32 = 3.0;
 
 /// The four item slots of the player's own Bim, two by two (October
 /// 2026): each its picture, its key in the corner, an active one's
 /// cooldown swept back as an ability's is, and greyed while a hit locks
 /// a blink. Empty, a dark frame with the key. Resting on one names it and
-/// says what it does.
+/// says what it does. Laid from the top of the panel's row: a grid put
+/// straight into the row stood a line's height below it.
 fn item_grid(ui: &mut egui::Ui, world: &world::World, who: u32, keys: &Keys) {
     let items = world.items_of(who);
     let locked = world.blink_locked_left(who) > 0.0;
-    egui::Grid::new("hud-items")
-        .spacing(egui::vec2(3.0, 3.0))
-        .min_col_width(ITEM_SIDE)
-        .min_row_height(ITEM_SIDE)
-        .show(ui, |ui| {
-            for (index, action) in Action::ITEMS.into_iter().enumerate() {
-                let (rect, response) =
-                    ui.allocate_exact_size(egui::vec2(ITEM_SIDE, ITEM_SIDE), egui::Sense::hover());
-                let painter = ui.painter();
-                let key = keys.key(action).name();
-                match items[index] {
-                    None => {
-                        painter.rect_filled(rect, 4.0, theme::RAISED.gamma_multiply(0.4));
-                        painter.rect_stroke(
-                            rect,
-                            4.0,
-                            egui::Stroke::new(1.0, theme::LINE),
-                            egui::StrokeKind::Inside,
-                        );
-                    }
-                    Some(item) => {
-                        crate::icons::module(painter, rect, item);
-                        let left = world.item_cooldown_left(who, index);
-                        let whole = world.item_cooldown(who, index);
-                        if left > 0.0 && whole > 0.0 {
-                            cooldown_sweep(
-                                painter,
-                                rect,
-                                (left / whole).clamp(0.0, 1.0) as f32,
-                                theme::PANEL_DEEP.gamma_multiply(0.85),
-                            );
-                            painter.text(
-                                rect.center(),
-                                egui::Align2::CENTER_CENTER,
-                                format!("{}", left.ceil()),
-                                egui::FontId::proportional(13.0),
-                                theme::INK,
-                            );
-                        } else if item.is_blink() && locked {
-                            painter.rect_filled(rect, 4.0, theme::PANEL_DEEP.gamma_multiply(0.6));
-                        }
-                        // An Ablative Shell on: its box lit, as an ability
-                        // running is.
-                        if item.kind == bims::module::ModuleKind::AblativeShell
-                            && world.shell_left(who) > 0.0
-                        {
+    ui.vertical(|ui| {
+        egui::Grid::new("hud-items")
+            .spacing(egui::vec2(ITEM_GAP, ITEM_GAP))
+            .min_col_width(ITEM_SIDE)
+            .min_row_height(ITEM_SIDE)
+            .show(ui, |ui| {
+                for (index, action) in Action::ITEMS.into_iter().enumerate() {
+                    let (rect, response) = ui.allocate_exact_size(
+                        egui::vec2(ITEM_SIDE, ITEM_SIDE),
+                        egui::Sense::hover(),
+                    );
+                    let painter = ui.painter();
+                    let key = keys.key(action).name();
+                    match items[index] {
+                        None => {
+                            painter.rect_filled(rect, 4.0, theme::RAISED.gamma_multiply(0.4));
                             painter.rect_stroke(
                                 rect,
                                 4.0,
-                                egui::Stroke::new(2.0, theme::CAUTION),
+                                egui::Stroke::new(1.0, theme::LINE),
                                 egui::StrokeKind::Inside,
                             );
                         }
-                        let passive = !item.kind.active();
-                        response.on_hover_text(crate::names::module_tip(item, passive));
+                        Some(item) => {
+                            crate::icons::module(painter, rect, item);
+                            let left = world.item_cooldown_left(who, index);
+                            let whole = world.item_cooldown(who, index);
+                            if left > 0.0 && whole > 0.0 {
+                                cooldown_sweep(
+                                    painter,
+                                    rect,
+                                    (left / whole).clamp(0.0, 1.0) as f32,
+                                    theme::PANEL_DEEP.gamma_multiply(0.85),
+                                );
+                                painter.text(
+                                    rect.center(),
+                                    egui::Align2::CENTER_CENTER,
+                                    format!("{}", left.ceil()),
+                                    egui::FontId::proportional(13.0),
+                                    theme::INK,
+                                );
+                            } else if item.is_blink() && locked {
+                                painter.rect_filled(
+                                    rect,
+                                    4.0,
+                                    theme::PANEL_DEEP.gamma_multiply(0.6),
+                                );
+                            }
+                            // An Ablative Shell on: its box lit, as an ability
+                            // running is.
+                            if item.kind == bims::module::ModuleKind::AblativeShell
+                                && world.shell_left(who) > 0.0
+                            {
+                                painter.rect_stroke(
+                                    rect,
+                                    4.0,
+                                    egui::Stroke::new(2.0, theme::CAUTION),
+                                    egui::StrokeKind::Inside,
+                                );
+                            }
+                            let passive = !item.kind.active();
+                            response.on_hover_text(crate::names::module_tip(item, passive));
+                        }
+                    }
+                    painter.text(
+                        rect.min + egui::vec2(4.0, 2.0),
+                        egui::Align2::LEFT_TOP,
+                        key,
+                        egui::FontId::proportional(10.0),
+                        theme::MUTED,
+                    );
+                    if index % 2 == 1 {
+                        ui.end_row();
                     }
                 }
-                painter.text(
-                    rect.min + egui::vec2(4.0, 2.0),
-                    egui::Align2::LEFT_TOP,
-                    key,
-                    egui::FontId::proportional(10.0),
-                    theme::MUTED,
-                );
-                if index % 2 == 1 {
-                    ui.end_row();
-                }
-            }
-        });
+            });
+    });
 }
 
 fn ability_row(ui: &mut egui::Ui, boxes: &[AbilityBox]) -> RowOut {

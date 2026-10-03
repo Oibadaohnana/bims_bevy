@@ -1723,6 +1723,16 @@ impl Session {
         let Some(game) = self.game.as_ref() else {
             return Vec::new();
         };
+    /// Where a medic's patient is drawn, in the camera's units: a crew
+    /// member as [`Session::crew_on_screen`], a site's defender
+    /// (`world::medic::GUEST + i`) as [`Session::resident_on_screen`].
+    pub fn patient_on_screen(&self, patient: u32) -> Option<(f32, f32)> {
+        match world::medic::guest_of(patient) {
+            Some(i) => self.resident_on_screen(i),
+            None => self.crew_on_screen(patient),
+        }
+    }
+
         let world = &game.world;
         let reach = world::class::HEAL_DRONE_REACH * shipdesign::TILE as f32;
         (0..world.aboard.crew_count())
@@ -1731,8 +1741,9 @@ impl Session {
                 let at = bims::math::vec2(drone.x, drone.y);
                 let patient = drone
                     .patient
-                    .filter(|&p| (world.aboard.room.bim_pos(p as usize) - at).len() <= reach)
-                    .map(|p| world_paint::crew_on_screen(game, p));
+                    .and_then(|p| world.patient_pos(p))
+                    .filter(|&to| (to - at).len() <= reach)
+                    .map(|to| world_paint::room_point_on_screen(game, to));
                 let whole = world.heal_drone_seconds(medic);
                 let share = if whole > 0.0 {
                     (world.drone_left(medic) / whole) as f32

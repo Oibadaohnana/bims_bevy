@@ -21,12 +21,25 @@
 //! room's `Game::heal`, a circle's drain `Game::drain` and its burn
 //! `Game::scorch`; the room knows nothing of who holds whom.
 
+/// What a medic's beam or drone names a site's **defender** by (one of
+/// `Residents::defender`, standing with the crew in the residents' room):
+/// `GUEST + i` for that room's body `i` — the room's own way of naming a
+/// visitor ([`bims::game::GUEST`]) — beside the crew's own indices.
+pub const GUEST: u32 = bims::game::GUEST as u32;
+
+/// The residents' room's body a patient names, if it names one rather
+/// than a crew member.
+pub fn guest_of(patient: u32) -> Option<u32> {
+    patient.checked_sub(GUEST)
+}
+
 /// One crew member's medic state.
 #[derive(Clone, PartialEq, Debug, Default)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Medic {
-    /// The crew members its beam holds, by index: none, one, or two at
-    /// the beam's fourth rank. Cleared whole whenever crew indices change
+    /// The crew members its beam holds, by index — or a site's defenders,
+    /// [`GUEST`]` + i`: none, one, or two at the beam's fourth rank.
+    /// Cleared whole whenever crew indices change
     /// (a hire, a bot dropped off the crew), since an index is all a link
     /// is.
     pub patients: Vec<u32>,
@@ -74,8 +87,9 @@ pub struct Drone {
     /// Where it is, in the crew's room's units.
     pub x: f32,
     pub y: f32,
-    /// The crew member it is flying to or hovering over; `None` with
-    /// nobody hurt, when it keeps by its medic.
+    /// The crew member it is flying to or hovering over — or a site's
+    /// defender, [`GUEST`]` + i`, while no crew member is hurt; `None`
+    /// with nobody hurt, when it keeps by its medic.
     pub patient: Option<u32>,
     /// The mission minute it is gone at.
     pub until: f64,

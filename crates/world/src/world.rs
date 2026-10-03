@@ -9113,11 +9113,9 @@ impl World {
         if !self.is_medic(medic) {
             return 1.0;
         }
-        let room = &self.aboard.room;
-        let w = who as usize;
-        let max = room.max_health(w);
+        let (health, max) = self.patient_bar(who).unwrap_or((0.0, 0.0));
         let missing = if max > 0.0 {
-            (1.0 - room.health(w) / max).clamp(0.0, 1.0)
+            (1.0 - health / max).clamp(0.0, 1.0)
         } else {
             0.0
         };
@@ -9139,10 +9137,17 @@ impl World {
 
     /// `points` of health put into crew member `who` by medic `medic`,
     /// times his [`World::medic_heal_factor`] on it: what the beam, the
-    /// drone and the circle heal through. How much went in.
+    /// drone and the circle heal through — a defender (`medic::GUEST +
+    /// i`) in its own room. How much went in.
     fn medic_heal(&mut self, medic: u32, who: u32, points: f32) -> f32 {
         let points = points * self.medic_heal_factor(medic, who);
-        self.aboard.room.heal(who as usize, points)
+        match self.defender_patient(who) {
+            Some(i) => self
+                .residents
+                .as_mut()
+                .map_or(0.0, |r| r.aboard.room.heal(i, points)),
+            None => self.aboard.room.heal(who as usize, points),
+        }
     }
 
     // The Heal Beam (E).
@@ -9157,6 +9162,82 @@ impl World {
     /// ([`class::HEAL_BEAM_RANGES`]).
     pub fn beam_range(&self, who: u32) -> f32 {
         class::by_rank(class::HEAL_BEAM_RANGES, self.beam_rank(who))
+    // Whom a medic heals: a crew member by index, or a site's defender as
+    // `medic::GUEST + i` — the beam's link and the drone reach both.
+
+    /// The residents' room's body that patient `p` names, where it is a
+    /// site's **defender** (`Residents::is_defender`) alive on the joined
+    /// deck, and so a body a medic's beam or drone may heal. `None` for a
+    /// crew member, for anybody else of the residents', and with no
+    /// station joined.
+    fn defender_patient(&self, p: u32) -> Option<usize> {
+        let i = crate::medic::guest_of(p)? as usize;
+        let residents = self.residents.as_ref()?;
+        let room = &residents.aboard.room;
+        (self.aboard.is_joined()
+            && residents.is_defender(i)
+            && i < room.crew_count() as usize
+            && room.is_alive(i)
+            && !room.is_outside(i))
+        .then_some(i)
+    }
+
+    /// Where patient `p` stands on the crew's deck, in that room's units:
+    /// a living crew member, or a defender where it stands in its own
+    /// room (`body_position`, the commander's pick's rule). `None` for
+    /// anybody else.
+    pub fn patient_pos(&self, p: u32) -> Option<bims::math::Vec2> {
+        let room = &self.aboard.room;
+        match self.defender_patient(p) {
+            Some(i) => self.body_position(LootSource::Resident(i as u32)),
+            None => (p < self.aboard.crew_count() && room.is_alive(p as usize))
+                .then(|| room.bim_pos(p as usize)),
+        }
+    }
+
+    /// Patient `p`'s bar, its hit points and its whole, in whichever room
+    /// it lives in; `None` for anybody but a crew member or a defender.
+    pub fn patient_bar(&self, p: u32) -> Option<(f32, f32)> {
+        if let Some(i) = self.defender_patient(p) {
+            let room = &self.residents.as_ref()?.aboard.room;
+            return Some((room.health(i), room.max_health(i)));
+        }
+        let room = &self.aboard.room;
+        let w = p as usize;
+        (p < self.aboard.crew_count()).then(|| (room.health(w), room.max_health(w)))
+    }
+
+    /// Whether patient `p` is on its feet on the deck: a crew member on
+    /// it and not downed, or a defender not downed.
+    fn patient_standing(&self, p: u32) -> bool {
+        match self.defender_patient(p) {
+            Some(i) => self
+                .residents
+                .as_ref()
+                .is_some_and(|r| !r.aboard.room.is_downed(i)),
+            None => self.on_the_deck(p) && !self.aboard.room.is_downed(p as usize),
+        }
+    }
+
+    /// The patient under a room point of the crew's deck, if any — a
+    /// medic's beam's aim: a living crew member under it first (a click's
+    /// reach, `Game::crew_at`), else a defender within a click's reach of
+    /// it, the first by index. **Crewmates first**: a defender standing
+    /// in a crewmate's place never takes the beam off him.
+    pub fn patient_at(&self, x: f32, y: f32) -> Option<u32> {
+        if let Some(who) = self.aboard.room.crew_at(x, y) {
+            return Some(who as u32);
+        }
+        let n = self.residents.as_ref()?.aboard.room.crew_count();
+        let p = bims::math::vec2(x, y);
+        (0..n).map(|i| crate::medic::GUEST + i).find(|&g| {
+            self.defender_patient(g).is_some()
+                && self
+                    .patient_pos(g)
+                    .is_some_and(|at| (at - p).len() <= bims::character::PICK_RADIUS)
+        })
+    }
+
             .unwrap_or(class::HEAL_BEAM_RANGE)
     }
 
@@ -9174,23 +9255,26 @@ impl World {
         class::by_rank(class::HEAL_BEAM_PATIENTS, self.beam_rank(who)).unwrap_or(1)
     }
 
-    /// Whether a crew member is where a medic's beam reaches it: alive,
-    /// in the room, within the medic's range and in its sight — or the
-    /// medic itself (task 120: a medic may beam its own bar). What a link
-    /// asks, and what keeps one.
+    /// Whether a crew member — or a site's defender, `medic::GUEST + i` —
+    /// is where a medic's beam reaches it: alive, in the room, within the
+    /// medic's range and in its sight — or the medic itself (task 120: a
+    /// medic may beam its own bar). What a link asks, and what keeps one.
     fn beam_reaches(&self, medic: u32, patient: u32) -> Result<(), Refusal> {
         let room = &self.aboard.room;
         let (m, p) = (medic as usize, patient as usize);
-        if patient >= self.aboard.crew_count() || !room.is_alive(p) {
+        let defender = self.defender_patient(patient).is_some();
+        if !defender && (patient >= self.aboard.crew_count() || !room.is_alive(p)) {
             return Err(Refusal::NotACrewmate);
         }
-        if room.is_outside(p) || room.is_outside(m) {
+        if (!defender && room.is_outside(p)) || room.is_outside(m) {
             return Err(Refusal::OutOfBeamRange);
         }
         if patient == medic {
             return Ok(());
         }
-        let at = room.bim_pos(p);
+        let Some(at) = self.patient_pos(patient) else {
+            return Err(Refusal::NotACrewmate);
+        };
         let t = shipdesign::TILE as f32;
         if (at - room.bim_pos(m)).len() > self.beam_range(medic) * t {
             return Err(Refusal::OutOfBeamRange);
@@ -9204,7 +9288,8 @@ impl World {
     /// Whether a player's medic may link its beam to `patient`, or why
     /// not, in the order the refusals are said: a medic (`NotAMedic`),
     /// fit to act (`OutOfReach`), a rank of the beam (`NotLearnt`), a
-    /// living crew member — itself too (`NotACrewmate`) — in the room and
+    /// living crew member — itself too — or a site's defender
+    /// (`medic::GUEST + i`; `NotACrewmate`), in the room and
     /// within range (`OutOfBeamRange`), in its sight (`NoSightOfPatient`).
     /// What the app greys the key with and [`Command::Beam`] asks.
     pub fn can_beam(&self, slot: u32, patient: u32) -> Result<(), Refusal> {
@@ -9333,23 +9418,29 @@ impl World {
     /// Whom a drone flying for medic `medic` should be over: `held` while
     /// it is still a crew member on its feet, on the deck and short of its
     /// bar, else the one of those lowest on its bar by share — the medic
-    /// included — the lower index on a tie. `None` with nobody hurt.
+    /// included — the lower index on a tie. **Crewmates first**: only
+    /// with none of them hurt does it go to a site's defender on its feet
+    /// and short of its bar (`medic::GUEST + i`) — `held` again while it
+    /// still is one, else the lowest of them the same way — and it leaves
+    /// one for a crewmate the moment one is hurt. `None` with nobody hurt.
     fn drone_patient(&self, held: Option<u32>) -> Option<u32> {
-        let room = &self.aboard.room;
-        let hurt = |who: u32| {
-            let w = who as usize;
-            self.on_the_deck(who) && !room.is_downed(w) && room.health(w) < room.max_health(w)
+        let hurt = |p: u32| {
+            self.patient_standing(p) && self.patient_bar(p).is_some_and(|(h, max)| h < max)
+        };
+        let share = |p: u32| self.patient_bar(p).map_or(1.0, |(h, max)| h / max.max(1.0));
+        let lowest = |among: &mut dyn Iterator<Item = u32>| {
+            among
+                .filter(|&p| hurt(p))
+                .min_by(|&a, &b| share(a).total_cmp(&share(b)).then(a.cmp(&b)))
         };
         if let Some(p) = held.filter(|&p| hurt(p)) {
             return Some(p);
         }
-        let share = |who: u32| {
-            let w = who as usize;
-            room.health(w) / room.max_health(w).max(1.0)
-        };
-        (0..self.aboard.crew_count())
-            .filter(|&who| hurt(who))
-            .min_by(|&a, &b| share(a).total_cmp(&share(b)).then(a.cmp(&b)))
+        let defenders = self
+            .residents
+            .as_ref()
+            .map_or(0, |r| r.aboard.room.crew_count());
+        lowest(&mut (0..defenders).map(|i| crate::medic::GUEST + i))
     }
 
     /// Before the rooms step: every drone in the air moved a step's
@@ -9371,8 +9462,9 @@ impl World {
                 continue;
             }
             let patient = self.drone_patient(drone.patient);
-            let room = &self.aboard.room;
-            let to = room.bim_pos(patient.unwrap_or(m) as usize);
+            let to = patient
+                .and_then(|p| self.patient_pos(p))
+                .unwrap_or_else(|| self.aboard.room.bim_pos(m as usize));
             let at = bims::math::vec2(drone.x, drone.y);
             let gap = to - at;
             let step = class::HEAL_DRONE_SPEED * t * seconds;
@@ -9404,6 +9496,12 @@ impl World {
     /// medic — a Healing Sentry, an item, a relic. How much went in.
     pub(crate) fn heal_crew(&mut self, who: u32, points: f32) -> f32 {
         self.aboard.room.heal(who as usize, points)
+        if let Some(p) = held.filter(|&p| p < crate::medic::GUEST && hurt(p)) {
+            return Some(p);
+        }
+        if let Some(p) = lowest(&mut (0..self.aboard.crew_count())) {
+            return Some(p);
+        }
     }
 
     // The Healing Circle (R).
@@ -9619,7 +9717,8 @@ impl World {
         if self.medics.len() < crew {
             self.medics.resize(crew, Medic::default());
         }
-        // The strongest heal an hour reaching each body, and whose.
+        // The strongest heal an hour reaching each body, and whose — the
+        // crew by index, a site's defenders in the order first linked.
         let mut held: Vec<Option<(f32, u32)>> = vec![None; crew];
         for m in 0..crew {
             if !self.medics[m].is_linked() {
@@ -9645,7 +9744,19 @@ impl World {
             let rate = self.beam_rate(who);
             for p in keep.into_iter().chain(std::iter::once(who)) {
                 let worth = rate * self.medic_heal_factor(who, p);
-                let slot = &mut held[p as usize];
+                let slot = match held.get_mut(p as usize) {
+                    Some(slot) => slot,
+                    None => {
+                        let at = match defenders.iter().position(|&(d, _)| d == p) {
+                            Some(at) => at,
+                            None => {
+                                defenders.push((p, None));
+                                defenders.len() - 1
+                            }
+                        };
+                        &mut defenders[at].1
+                    }
+                };
                 if slot.is_none_or(|(best, _)| worth > best) {
                     *slot = Some((rate, who));
                 }
@@ -9654,9 +9765,10 @@ impl World {
         // An hour of the clock is sixty minutes, a step `STEP_MINUTES` of
         // them.
         let share = (data::STEP_MINUTES / 60.0) as f32;
-        for (who, held) in held.into_iter().enumerate() {
+        let held = held.into_iter().enumerate().map(|(who, h)| (who as u32, h));
+        for (who, held) in held.chain(defenders) {
             if let Some((rate, medic)) = held {
-                self.medic_heal(medic, who as u32, rate * share);
+                self.medic_heal(medic, who, rate * share);
             }
         }
     }
@@ -9685,6 +9797,7 @@ impl World {
             self.aboard.room.set_medivac(who as usize, medivac);
         }
     }
+        let mut defenders: Vec<(u32, Option<(f32, u32)>)> = Vec::new();
 
     /// The hit points a level puts on a classed crew member's bar
     /// ([`class::level_health`], ten a level), said to the room every

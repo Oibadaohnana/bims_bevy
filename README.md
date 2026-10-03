@@ -2382,7 +2382,10 @@ whatever rank his circle is at. A revive is no heal and takes neither.
 feet flies — **over walls**, it flies — to the friendly Bim on its feet
 **lowest on its bar** (by share; the medic himself counts), hovers over
 it and heals it slowly. When that one is whole, down or gone it picks
-the next lowest; with nobody hurt it keeps by him. One drone a medic.
+the next lowest; with nobody hurt it keeps by him. **A site's defenders
+count too, crewmates first**: it goes to a hurt defender only while no
+crew member is hurt, and leaves one for a crewmate the moment one is.
+One drone a medic.
 It is drawn as a small quadcopter with a green cross, a thin line down
 to the Bim it heals and a ring round it emptying as its time runs out.
 
@@ -2405,7 +2408,8 @@ half a bar, none on a whole one.
 | 4 | ×1.70 | ×1.35 |
 
 **E, Heal Beam** — the **link** (toggle), on the crew member under the
-pointer — a player's Bim, a bot, a mercenary, or **the medic itself** —
+pointer — a player's Bim, a bot, a mercenary, **a site's defender** (a
+crewmate under the pointer first), or **the medic itself** —
 never an enemy, within its range and in the medic's line of sight.
 Pressed on the one it already holds, or on nothing, it unlinks. **He
 keeps shooting at his full rate while linked**, and **the link heals him

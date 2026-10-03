@@ -341,7 +341,7 @@ pub fn running(game: &mut Game, real: f32) {
         let patients: Vec<Vec2> = w
             .patients_of(who)
             .into_iter()
-            .filter_map(|p| crew_at(game, p))
+            .filter_map(|p| w.patient_pos(p))
             .collect();
         let room = &mut game.world.aboard.room;
         if rampage || reflecting {
@@ -474,7 +474,7 @@ fn circles_and_drones(game: &mut Game) {
             continue;
         };
         let from = vec2(drone.x, drone.y);
-        let Some(to) = drone.patient.and_then(|p| crew_at(game, p)) else {
+        let Some(to) = drone.patient.and_then(|p| game.world.patient_pos(p)) else {
             continue;
         };
         if (to - from).len() <= tiles(world::class::HEAL_DRONE_REACH) {

@@ -1221,3 +1221,105 @@ fn beams_are_cleared_by_a_hire_and_a_bot_lost() {
     assert!(world.patients_of(0).is_empty(), "cleared by the bot lost");
     assert_eq!(world.medics.len(), 2);
 }
+
+// --- F: a site's defenders (the beam and the drone reach them too) ------------------
+
+/// A station the machines are coming for, docked and joined, with slot 0
+/// a medic — the drone and the beam at their fourth rank — the crew held
+/// still, and the first of its defenders: its patient index
+/// (`medic::GUEST + i`) and its body in the residents' room.
+fn defended() -> (World, u32, usize) {
+    let mut world =
+        crate::fixture::open_simulation_world(shipdesign::fixture::flyer(2), REFERENCE_MONEY, 2);
+    world.set_defense_by_machines_for_probe();
+    world.step(&[]);
+    assert_eq!(world.set_class(0, Class::Medic), Ok(()));
+    ranks(&mut world, 0, [4, 0, 4, 0]);
+    hold_still(&mut world);
+    let residents = world.residents.as_ref().expect("the station's room");
+    let i = (0..residents.defender.len())
+        .find(|&i| residents.is_defender(i))
+        .expect("a defender fielded");
+    (world, crate::medic::GUEST + i as u32, i)
+}
+
+fn defender_health(world: &World, i: usize) -> f32 {
+    world.residents.as_ref().unwrap().aboard.room.health(i)
+}
+
+fn hurt_defender(world: &mut World, i: usize, points: f32) {
+    let room = &mut world.residents.as_mut().unwrap().aboard.room;
+    room.set_health_for_probe(i, points);
+}
+
+/// **The beam links a defender** and heals it in its own room: the
+/// medic stood beside it, the pointer on it names it (a crewmate under
+/// the pointer would come first), and the link holds and heals.
+#[test]
+fn the_beam_links_a_site_s_defender_and_heals_it() {
+    let (mut world, g, i) = defended();
+    let at = world
+        .patient_pos(g)
+        .expect("the defender on the joined deck");
+    world.aboard.room.put_for_probe(0, at + vec2(TILE, 0.0));
+    world
+        .aboard
+        .room
+        .put_for_probe(1, at + vec2(-4.0 * TILE, 0.0));
+    world.step(&[]);
+    let at = world.patient_pos(g).unwrap();
+    assert_eq!(world.patient_at(at.x, at.y), Some(g), "the pointer on it");
+    let medic = world.aboard.room.bim_pos(0);
+    assert_eq!(
+        world.patient_at(medic.x, medic.y),
+        Some(0),
+        "a crewmate first"
+    );
+    hurt_defender(&mut world, i, 30.0);
+    assert_eq!(world.can_beam(0, g), Ok(()));
+    assert!(linked(&beam(&mut world, 0, Some(g)), 0, Some(g)));
+    assert_eq!(world.patients_of(0), vec![g]);
+    let before = defender_health(&world, i);
+    run_for(&mut world, 2.0);
+    assert_eq!(world.patients_of(0), vec![g], "held");
+    assert!(
+        defender_health(&world, i) > before + 1.0,
+        "healed: {before} -> {}",
+        defender_health(&world, i)
+    );
+    // Nobody but a defender: a guest index naming no defender is refused.
+    let residents = world.residents.as_ref().unwrap();
+    if let Some(own) = (0..residents.defender.len()).find(|&j| !residents.is_defender(j)) {
+        let other = crate::medic::GUEST + own as u32;
+        assert_eq!(world.can_beam(0, other), Err(Refusal::NotACrewmate));
+    }
+}
+
+/// **The drone goes to a defender only with no crewmate hurt**, and
+/// leaves it for a crewmate the moment one is.
+#[test]
+fn the_drone_heals_a_defender_but_prefers_a_crewmate() {
+    let (mut world, g, i) = defended();
+    for who in 0..world.aboard.crew_count() as usize {
+        let max = world.aboard.room.max_health(who);
+        world.aboard.room.set_health_for_probe(who, max);
+    }
+    hurt_defender(&mut world, i, 20.0);
+    world.step(&[]);
+    assert!(drone(&mut world).contains(&WorldEvent::DroneLaunched { who: 0 }));
+    run_for(&mut world, 0.2);
+    assert_eq!(world.drone_of(0).and_then(|d| d.patient), Some(g));
+    // Over it, it heals it.
+    run_for(&mut world, 3.0);
+    let before = defender_health(&world, i);
+    run_for(&mut world, 1.0);
+    assert!(
+        defender_health(&world, i) > before + 1.0,
+        "healed: {before} -> {}",
+        defender_health(&world, i)
+    );
+    // A crewmate hurt, though higher on his bar than the defender: the
+    // drone is his.
+    hurt(&mut world, 1, 60.0);
+    assert_eq!(world.drone_of(0).and_then(|d| d.patient), Some(1));
+}

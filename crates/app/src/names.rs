@@ -1616,6 +1616,10 @@ pub fn event_line(event: WorldEvent) -> Option<String> {
         WorldEvent::Beamed {
             who: w,
             patient: Some(p),
+        } if world::medic::guest_of(p).is_some() => format!("{} beamed a defender.", who(w)),
+        WorldEvent::Beamed {
+            who: w,
+            patient: Some(p),
         } => format!("{} beamed {}.", who(w), who(p)),
         WorldEvent::Beamed { who: w, .. } => format!("{}'s beam is off.", who(w)),
         WorldEvent::DroneLaunched { who: w } => format!("{} dropped a Heal Drone.", who(w)),

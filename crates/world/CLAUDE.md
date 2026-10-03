@@ -7130,6 +7130,18 @@ The class's tables are `class.rs`'s (`HEAL_DRONE_*`, `TRIAGE`,
 - **Timers**: `make_whole` clears the drone, its cooldown and the
   circle; `casualties` the dead medic's whole state; `clear_beams`
   forgets a drone's patient with the beams (crew indices moved).
+- **A site's defenders are patients too** (the beam and the drone, not
+  the circle): a patient is a crew index or `medic::GUEST + i`, body `i`
+  of the residents' room where `Residents::is_defender` and the rooms are
+  joined (`defender_patient`). `patient_pos` (the crew's room's units; a
+  defender's off `body_position`), `patient_bar`, `patient_standing` and
+  `medic_heal` read and heal it in whichever room it lives in;
+  `patient_at` is the beam's pick — a crewmate under the pointer first.
+  `drone_patient` keeps a hurt crewmate, else the lowest crewmate, and
+  only with none hurt a defender. A link is checked every step
+  (`beam_reaches`), so one on a defender breaks when its room closes. The app names one by
+  `resident_name` and draws it by `Session::patient_on_screen`.
+  `tests_medic.rs` section F. **`wire::PROTOCOL` 107.**
 - **Gone**: `World::cloaks`, `hand_the_room_the_cloaks`, `lift_by_cloak`,
   `hidden_from_enemies`, the cloaked-ability gate, `heal_factor`,
   `healing_aura_*`, `nanite_burst_*`, `cloak_*`; `Refusal::{OutOfCloakRange,
