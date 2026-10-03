@@ -118,7 +118,9 @@ section on the buttons and the key.
 > them: at a station `paint_ship` draws nothing behind the deck, and the
 > app lays one of two pictures there (`crates/app/src/screens/backdrop.rs`,
 > `StationBackdrops`, from `Background/Background_{1,2}.png`), picked by
-> `Game::backdrop` — `None` on a planet, whose ground is still drawn here.
+> `Game::backdrop` — `None` on a planet, whose ground is still drawn here,
+> and `Backdrop::Infested` (`Background/Maschine_infested_System.png`) at
+> any station of a system the machines have and the crew have not liberated.
 > What follows about the specks and the starfield's square is history.
 
 `paint_ship` builds the whole ship — rim, tiles, the hull's pictures, the

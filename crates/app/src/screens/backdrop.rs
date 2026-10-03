@@ -1,5 +1,6 @@
 //! The backdrops: a picture behind the start menu, an animated one behind
 //! the game setup, and one of two behind a station's deck in a run
+//! — or the infested one in a system the machines have
 //! ([`StationBackdrops`]).
 //!
 //! The pictures are PNGs built into the binary (`backgrounds/`, made by
@@ -263,9 +264,14 @@ const STATION: [&[u8]; 2] = [
     include_bytes!("../../backgrounds/station_1.png"),
 ];
 
+/// Behind every station of a system the machines have, until the crew
+/// liberate it (`ship::game::Backdrop::Infested`).
+const INFESTED: &[u8] = include_bytes!("../../backgrounds/infested.png");
+
 /// The station pictures, as far as they have got: decoded on a thread of
 /// their own the first time the game is up, kept on the GPU while it is
-/// and let go once it is left, as [`Backdrops`] are for the menus.
+/// and let go once it is left, as [`Backdrops`] are for the menus. Slots
+/// [`STATION`] in order, then [`INFESTED`].
 #[derive(Resource, Default)]
 pub struct StationBackdrops {
     decoding: Option<Mutex<Receiver<(usize, Image)>>>,
@@ -273,18 +279,20 @@ pub struct StationBackdrops {
 }
 
 impl StationBackdrops {
-    /// Paints picture `key` (modulo the pictures) over the whole of
-    /// `canvas` on the world's canvas — to be called before anything else
-    /// goes on it. Until it has decoded, nothing: the window's clear
-    /// colour is the void it was.
+    /// Paints picture `which` over the whole of `canvas` on the world's
+    /// canvas — to be called before anything else goes on it. Until it
+    /// has decoded, nothing: the window's clear colour is the void it was.
     pub fn paint(
         &self,
         world: &mut WorldCanvas,
         ctx: &egui::Context,
         canvas: crate::shapes::Rect,
-        key: u64,
+        which: ship::game::Backdrop,
     ) {
-        let slot = (key % STATION.len() as u64) as usize;
+        let slot = match which {
+            ship::game::Backdrop::Station(key) => (key % STATION.len() as u64) as usize,
+            ship::game::Backdrop::Infested => STATION.len(),
+        };
         let Some(Some((image, size))) = self.shown.get(slot) else {
             return;
         };
@@ -318,7 +326,7 @@ fn keep_station(
     if wanted && backdrops.decoding.is_none() && backdrops.shown.is_empty() {
         let (send, receive) = channel();
         std::thread::spawn(move || {
-            for (i, bytes) in STATION.into_iter().enumerate() {
+            for (i, bytes) in STATION.into_iter().chain([INFESTED]).enumerate() {
                 if let Some(image) = decode(bytes)
                     && send.send((i, image)).is_err()
                 {
@@ -327,7 +335,7 @@ fn keep_station(
             }
         });
         backdrops.decoding = Some(Mutex::new(receive));
-        backdrops.shown = (0..STATION.len()).map(|_| None).collect();
+        backdrops.shown = (0..=STATION.len()).map(|_| None).collect();
     }
     if let Some(receive) = &backdrops.decoding {
         let receive = receive.lock().unwrap_or_else(|e| e.into_inner());

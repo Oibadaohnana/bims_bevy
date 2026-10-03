@@ -49,6 +49,17 @@ pub enum ViewMode {
     Map = 1,
 }
 
+/// The picture behind a station's deck ([`Game::backdrop`]).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Backdrop {
+    /// One of the plain pictures: a number the app takes modulo them
+    /// (`backdrop::STATION`).
+    Station(u64),
+    /// The machine-infested system's picture: the machines have the
+    /// system and it is not liberated yet.
+    Infested,
+}
+
 /// Furthest in and out the ship view will go. The same three-times-life-size
 /// ceiling the design phase has, so the two look like one game.
 const SHIP_MIN_SCALE: f32 = 0.02;
@@ -358,15 +369,19 @@ impl Game {
     }
 
     /// Which picture is behind the deck: `None` on a planet, where the
-    /// ground is the surroundings, and at a station a number the app takes
-    /// modulo its pictures (`backdrop::STATION`). **Cosmetic**: off the
-    /// galaxy's seed, the system and the station, so one station has one
-    /// picture on every end and every visit, and nothing reads it but the
-    /// painter.
-    pub fn backdrop(&self) -> Option<u64> {
+    /// ground is the surroundings; at a station in a system the machines
+    /// have (and the crew have not liberated) the infested one; at any
+    /// other a number the app takes modulo its pictures
+    /// (`backdrop::STATION`). **Cosmetic**: off the galaxy's seed, the
+    /// system and the station, so one station has one picture on every
+    /// end and every visit, and nothing reads it but the painter.
+    pub fn backdrop(&self) -> Option<Backdrop> {
         let world = &self.world;
         if world.landed().and_then(|b| world.surface(b)).is_some() {
             return None;
+        }
+        if world.infested(world.star_id) && !world.liberated(world.star_id) {
+            return Some(Backdrop::Infested);
         }
         let station = world.ship.state.alongside().map_or(u64::MAX, u64::from);
         // splitmix64's finish over the three, so neighbouring stations
@@ -376,7 +391,7 @@ impl Game {
             ^ station.wrapping_mul(0x9e37_79b9_7f4a_7c15);
         z = (z ^ (z >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
         z = (z ^ (z >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
-        Some(z ^ (z >> 31))
+        Some(Backdrop::Station(z ^ (z >> 31)))
     }
 
     /// The angle the ship is drawn through: its heading, less however far the
