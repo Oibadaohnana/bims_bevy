@@ -2346,21 +2346,23 @@ brightness of an ordinary one.
 | 4 | 20% | 225% |
 
 **E — Stun Shot** (active, cooldown; it was Brace until October 2026).
-Pressed, the soldier charges a shot for two seconds at the pointer,
+It is aimed as the grenade is: holding `E` draws the weapon's reach round
+him and the burst's ring where the shot would come down, under the
+pointer; letting go (or a left click) charges the shot at that spot.
+He charges it for two seconds,
 holding his fire — the rifle up and glowing at the muzzle, a ring
-closing on him — and **walks wherever he likes while it charges** (keys,
-an order, a roll). Then it fires: a fast slug that bursts where it
-lands, **never past his weapon's reach** and stopped short of the first
+closing on him, the burst's ring kept on the spot — and **walks wherever
+he likes while it charges** (keys, an order, a roll). Then it fires at
+the spot from where he then stands: a fast slug that **bursts on the
+first enemy in its way**, else where it lands, **never past his weapon's
+reach** and stopped short of the first
 wall, as wide as his grenade's burst. Every enemy in it with nothing
 opaque between takes its damage and is **stunned for three seconds** —
 every machine, the Machine Heart's too (a stunned fabricator skips its
 build, a stunned core's beams go to their cooldown), and the
 Manufacturers' people, who neither walk nor fire while it lasts; the
-crew are never hurt. Steering him, the shot goes the way the pointer has
-him facing when it fires, as far as the spot first aimed at is from
-where he then stands. Going down calls the charge off, and the cooldown
-runs only from a shot fired. Holding `E` draws the weapon's reach round
-him.
+crew are never hurt. Going down calls the charge off, and the cooldown
+runs only from a shot fired.
 
 | rank | damage | radius | stun | cooldown |
 | --- | --- | --- | --- | --- |
@@ -2791,7 +2793,7 @@ overlapping is allowed the whole apparatus has nothing left to do.
 | Hold `g` | Standing close to a downed crewmate (two and a half tiles): your own Bim **gets the nearest back up** while the key is held, and stops if you let go first. A green bar over the body fills with the revive |
 | `F1` | Select the Bim you steer and put it in the middle of the view |
 | `l` | Recruit it, or let it go — see below |
-| `q` / `c` / `e` / `r` | The steered crew member's four **ability slots** (task 123). `q` and `e` are the **class actions**: an engineer **lays a mine** on the deck tile under the pointer / **throws a satchel charge** at it (hold `e` to aim, let go to throw; **Space** sets them all off), and its `c` **lays a Healing Sentry** and its `r`, the ultimate, **lays its sentry** (task 154); a soldier **throws a grenade** at it (hold `q` to see the reach and the burst's radius, let go to throw) / **charges a Stun Shot** at the pointer, two seconds (walking as he likes) before it fires, and its `c` is **Weak Spot** (passive, nothing to press) and its `r` goes on a **Rampage**; a medic **drops a Heal Drone** / **beams the crew member under the pointer**, and unlinks when pressed on the one it holds or on nobody, its `c` is **Triage** (passive) and its `r`, the ultimate, **switches its Healing Circle on or off** (task 153); a tank **raises its Riot Shield** or puts it down / **raises its Reflect Barrier**, its `c` is **Plated** (passive) and its `r`, the ultimate, **throws the Bastion** over the crew round it (task 155) — see [Classes and levels](#classes-and-levels). The log says why not; nothing with a classless crew member |
+| `q` / `c` / `e` / `r` | The steered crew member's four **ability slots** (task 123). `q` and `e` are the **class actions**: an engineer **lays a mine** on the deck tile under the pointer / **throws a satchel charge** at it (hold `e` to aim, let go to throw; **Space** sets them all off), and its `c` **lays a Healing Sentry** and its `r`, the ultimate, **lays its sentry** (task 154); a soldier **throws a grenade** at it (hold `q` to see the reach and the burst's radius, let go to throw) / **charges a Stun Shot** at the pointer (hold `e` to aim, let go to charge), two seconds (walking as he likes) before it fires and bursts on the first enemy in its way, and its `c` is **Weak Spot** (passive, nothing to press) and its `r` goes on a **Rampage**; a medic **drops a Heal Drone** / **beams the crew member under the pointer**, and unlinks when pressed on the one it holds or on nobody, its `c` is **Triage** (passive) and its `r`, the ultimate, **switches its Healing Circle on or off** (task 153); a tank **raises its Riot Shield** or puts it down / **raises its Reflect Barrier**, its `c` is **Plated** (passive) and its `r`, the ultimate, **throws the Bastion** over the crew round it (task 155) — see [Classes and levels](#classes-and-levels). The log says why not; nothing with a classless crew member |
 | **Ctrl** + a slot's key, or **Ctrl-click** its box | **Ranks that ability up** rather than using it, for a skill point: the soldier's four abilities (task 124). It follows whatever key the slot is bound to |
 | **WASD**, middle-drag, or the pointer against the window's edge | Pan the view — the deck, or the galaxy chart. The edge scroll's speed is on the Esc sheet's first page (0 turns it off) |
 | `f` | **Attack-move**: the pointer turns into a red crosshair, and the next click on the deck sends the Bim you steer there with its weapon out. It stops to shoot whatever comes into its sights on the way and walks on once nothing is left — Dota's attack-move. `f` again, `Esc` or a right-click puts the crosshair away |

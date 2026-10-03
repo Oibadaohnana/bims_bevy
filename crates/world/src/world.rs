@@ -286,8 +286,9 @@ pub enum Command {
     /// That player's own soldier charges a **Stun Shot** (October 2026,
     /// E; it was the Brace) at the room tile `(x, y)`: it holds its fire,
     /// free to walk, for [`class::STUN_SHOT_CHARGE`] seconds of the
-    /// mission clock, then fires — no further than its weapon reaches,
-    /// stopped short of the first wall — and every enemy in the burst
+    /// mission clock, then fires at the tile — no further than its weapon
+    /// reaches, stopped short of the first wall, bursting on the first
+    /// enemy in its way — and every enemy in the burst
     /// takes the rank's damage and is stunned
     /// (`World::settle_stun_shots`). Refused `NotASoldier`,
     /// `OutOfReach` (not fit to act, downed among it), `NotLearnt` at
@@ -8685,14 +8686,33 @@ impl World {
         Ok(())
     }
 
+    /// Where a Stun Shot fired now at `tile` comes down with nobody in
+    /// its way, room units: the tile's middle, never past the weapon's
+    /// reach from where the soldier stands, and stopped short of the first
+    /// wall (`Game::reach_along`) — aimed at the pointer as a grenade is
+    /// (the player's word, October 2026). The room bursts it on the first
+    /// enemy it passes before then. `None` with no gun in hand.
+    pub fn stun_shot_landing(&self, who: u32, tile: (i32, i32)) -> Option<bims::math::Vec2> {
+        let range = self.stun_shot_range(who)?;
+        let from = self.aboard.room.bim_pos(who as usize);
+        let aimed = tile_centre(tile);
+        let far = (aimed - from).len().min(range * shipdesign::TILE as f32);
+        let to = from + (aimed - from).normalize_or_zero() * far;
+        Some(self.aboard.room.reach_along(from, to))
+    }
+
+    /// The tile a soldier's Stun Shot charging is aimed at, for the
+    /// burst's ring; `None` with none charging.
+    pub fn stun_shot_aim(&self, who: u32) -> Option<(i32, i32)> {
+        self.soldiers.get(who as usize)?.charging.map(|c| c.tile)
+    }
+
     /// Every Stun Shot charging, before the rooms step: called off for a
     /// soldier no longer fit to act or whose stance the room let go (going
     /// down; walking, an order or a roll no longer do, October 2026), and
-    /// fired the step its charge is full — along the way
-    /// its player's pointer has it facing when its keys steer it, as far
-    /// as the tile first aimed at, else at that tile; never past the
-    /// weapon's reach, and stopped short of the first wall
-    /// (`Game::reach_along`). The cooldown runs from the shot. The room is
+    /// fired the step its charge is full at the tile aimed at
+    /// ([`World::stun_shot_landing`]; the room bursts it on the first enemy
+    /// in its way). The cooldown runs from the shot. The room is
     /// told how far each charge has come, for the glow.
     fn settle_stun_shots(&mut self, events: &mut Vec<WorldEvent>) {
         let now = self.mission_minutes();
@@ -8717,18 +8737,10 @@ impl World {
             self.soldiers[i].last_shot = Some(now);
             self.aboard.room.set_braced(i, false);
             self.aboard.room.set_shot_charge(i, 0.0);
-            let Some(range) = self.stun_shot_range(who) else {
+            let Some(at) = self.stun_shot_landing(who, charging.tile) else {
                 continue;
             };
             let t = shipdesign::TILE as f32;
-            let from = self.aboard.room.bim_pos(i);
-            let aimed = tile_centre(charging.tile);
-            let far = (aimed - from).len().min(range * t);
-            let dir = match self.aboard.room.steer_of(i) {
-                Some(steer) => bims::math::Vec2::from_angle(steer.aim),
-                None => (aimed - from).normalize_or_zero(),
-            };
-            let at = self.aboard.room.reach_along(from, from + dir * far);
             let (radius, damage, stun) = (
                 self.stun_shot_radius(who) * t,
                 self.stun_shot_damage(who),

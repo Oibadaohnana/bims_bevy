@@ -7116,6 +7116,29 @@ The room's rule is `crates/game/CLAUDE.md` ("The dark"); the world's part:
   `tests_manufacturer::a_stun_shot_stuns_a_manufacturer_where_it_stands`
   and `tests_engineer::the_heart_s_machines_are_stunned_too` are the rule.
 
+### Aimed like a grenade, and it hits what is in its way (October 2026)
+
+> The bullets above say it fires along the steer's aim when a player
+> steers the soldier, and bursts only where it lands; both went at the
+> player's word ("it just flies max distance every time").
+
+- **It fires at the tile aimed at** (`World::stun_shot_landing`): from
+  where he stands when it fires, towards the tile, as far as the tile,
+  never past the weapon's reach, short of the first wall — the steer's
+  aim plays no part. The app draws the burst's ring there
+  (`stun_shot_landing`, and `stun_shot_aim` through the charge).
+- **It bursts on the first enemy it passes** (`Combat::tick_grenades`):
+  each step a shot's flight from where it was to where it is is swept
+  for a target (not a stale one) within `HIT_RADIUS`; the nearest along
+  it moves the burst there and ends the fuse.
+- **The app arms the pointer for it** as for the grenade
+  (`screens/game.rs`'s `Throw::StunShot`): `E` held draws the reach and
+  the ring, let go (or a left click) sends `Command::StunShot` at the
+  tile under the pointer.
+- **`wire::PROTOCOL` 123.**
+  `tests_soldier::a_stun_shot_bursts_on_the_first_enemy_in_its_way` is
+  the rule.
+
 ## The medic reworked (task 153)
 
 > "The medic's ranked kit (task 130)" above describes the Nanite Burst,

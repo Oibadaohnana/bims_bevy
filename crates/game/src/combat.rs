@@ -948,7 +948,8 @@ pub struct Grenade {
     #[cfg_attr(feature = "serde", serde(default))]
     pub expose: bool,
     /// A soldier's **Stun Shot** (October 2026) rather than a grenade: it
-    /// flies the whole of its fuse and bursts where it lands, every
+    /// flies the whole of its fuse and bursts where it lands — or on the
+    /// first target it passes on the way (`Combat::tick_grenades`) — every
     /// target in the burst taking `damage` — the same at the edge — and
     /// stunned for `stun` seconds, none of the room's own touched.
     #[cfg_attr(feature = "serde", serde(default))]
@@ -2499,8 +2500,26 @@ impl Combat {
         }
         self.blasts.retain(|b| b.age < BLAST_LIFE);
         let mut burst = Vec::new();
+        let targets = &self.targets;
         self.grenades.retain_mut(|g| {
+            let before = g.pos();
             g.left -= dt;
+            // A Stun Shot (October 2026, the player's word) bursts on the
+            // first enemy it passes within `HIT_RADIUS` this step — the
+            // nearest along its flight — rather than flying on to its tile.
+            if g.shot && !g.unseen && !g.hostile {
+                let after = g.pos();
+                let first = targets
+                    .iter()
+                    .flatten()
+                    .filter(|t| !t.stale)
+                    .filter_map(|t| along(before, after, t.at, HIT_RADIUS))
+                    .min_by(|a, b| a.total_cmp(b));
+                if let Some(s) = first {
+                    g.at = before + (after - before) * s;
+                    g.left = 0.0;
+                }
+            }
             if g.left > 0.0 {
                 return true;
             }

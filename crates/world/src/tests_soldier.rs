@@ -562,6 +562,36 @@ fn a_stun_shot_never_reaches_past_the_weapon_and_never_hurts_the_crew() {
 }
 
 #[test]
+fn a_stun_shot_bursts_on_the_first_enemy_in_its_way() {
+    // Aimed past the machine, as far as the gun reaches (the player's word,
+    // October 2026): it bursts on the machine rather than flying on.
+    let mut world = fight();
+    disarm(&mut world, 1);
+    let from = world.aboard.room.bim_pos(0);
+    let at = machine_at(&world);
+    let range = world.stun_shot_range(0).expect("a rifle in hand");
+    let past = tile_of(from + (at - from).normalize_or_zero() * (range * TILE));
+    let landing = world.stun_shot_landing(0, past).expect("a rifle in hand");
+    let reach = class::STUN_SHOT_RADIUS[0] * TILE;
+    assert!(
+        (landing - at).len() > reach + TILE,
+        "the burst at its tile would miss the machine: {}",
+        (landing - at).len() / TILE
+    );
+    world.step(&[Command::StunShot {
+        slot: 0,
+        x: past.0,
+        y: past.1,
+    }]);
+    let (took, stunned) = machine_shot(&mut world);
+    assert!(
+        plausible_on_machine(&world, took, class::STUN_SHOT_DAMAGE[0]),
+        "took {took}"
+    );
+    assert!(stunned > 2.8, "{stunned}");
+}
+
+#[test]
 fn a_stun_shot_is_refused_goes_on_as_he_walks_and_is_called_off_by_a_down() {
     let mut world = soldier();
     let own = tile_of(world.aboard.room.bim_pos(0));

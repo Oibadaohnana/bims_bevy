@@ -171,7 +171,10 @@ use serde::{Deserialize, Serialize};
 /// a thing is sold back at a trader for half (`Command::Sell`,
 /// `WorldEvent::Sold`), and an item keeps what was paid (`Module::paid`):
 /// both ends must trade alike.
-pub const PROTOCOL: u32 = 122;
+/// 123: a Stun Shot bursts on the first enemy it passes and fires at the
+/// tile aimed at rather than along the steer's aim
+/// (`World::stun_shot_landing`): both ends must fight alike.
+pub const PROTOCOL: u32 = 123;
 
 /// Where the relay lives. `BIMS_SERVER` in the environment overrides it
 /// — `ws://127.0.0.1:8792` for one on the same machine.

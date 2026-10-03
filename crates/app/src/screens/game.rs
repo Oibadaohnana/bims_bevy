@@ -135,14 +135,15 @@ pub struct GameScreen {
     /// crosshair, and the next left click on the deck sends the player's
     /// own Bim there under arms, shooting what it meets on the way.
     aiming_move: bool,
-    /// The throw key (a soldier's Q, a grenade, or with `true` an
+    /// The throw key (a soldier's Q, a grenade, or E, a Stun Shot, or an
     /// engineer's E, a satchel charge) has armed the pointer: the throw's reach is drawn
     /// round the player's own Bim, and the next left click on the deck
     /// throws there — walking out to it first where it must
     /// (`Order::ThrowAt`) — and so does letting the key go: a quick
     /// throw. Esc or a right-click puts it away, and so does letting the
-    /// key go with the pointer off the deck.
-    aiming_throw: Option<bool>,
+    /// key go with the pointer off the deck. A Stun Shot charges at the
+    /// tile rather than walking out to it.
+    aiming_throw: Option<Throw>,
     /// The reach of a key held that aims at somebody rather than at a
     /// tile — a medic's beam (E) or his circle (R) — in tiles, and the
     /// ability, drawn round the player's own Bim while the key is down.
@@ -2144,20 +2145,20 @@ fn frame(
         // of it. The Mine tool's shape, and for the same reason — a
         // click that both selected a Bim and sent the crew somewhere
         // would be a click nobody could undo.
-        if let Some(satchel) = screen.aiming_throw {
+        if let Some(throw) = screen.aiming_throw {
             // The throw's armed pointer: a left click throws at the tile
-            // under it, walking out first where it must; a right-click
-            // thinks better of it.
+            // under it, walking out first where it must (a Stun Shot
+            // charges at it); a right-click thinks better of it.
             if let Some(p) = on_canvas {
                 ctx.set_cursor_icon(egui::CursorIcon::Crosshair);
                 if pointer.primary_pressed {
                     let (rx, ry) = session.room_point(p.x, p.y);
                     let t = shipdesign::TILE as f32;
-                    orders.push(Order::ThrowAt {
-                        satchel,
-                        x: (rx / t).floor() as i32,
-                        y: (ry / t).floor() as i32,
-                    });
+                    let tile = ((rx / t).floor() as i32, (ry / t).floor() as i32);
+                    let world = session.game.as_ref().map(|g| &g.world);
+                    let (order, line) = throw_order(world, screen.net.slot, throw, tile);
+                    orders.extend(order);
+                    screen.log.extend(line);
                     screen.aiming_throw = None;
                     screen.trigger_spent = true;
                 }
@@ -2549,10 +2550,10 @@ fn frame(
                     // go throws at the tile under it (below; a click
                     // before then throws too, a right-click or Esc thinks
                     // better of it).
-                    if let Some(satchel) = throw_key(game.world.class_of(slot), action) {
-                        match can_arm_throw(&game.world, slot, satchel) {
+                    if let Some(throw) = throw_key(game.world.class_of(slot), action) {
+                        match can_arm_throw(&game.world, slot, throw) {
                             Ok(()) => {
-                                screen.aiming_throw = (!map_up).then_some(satchel);
+                                screen.aiming_throw = (!map_up).then_some(throw);
                                 screen.aiming_attack = false;
                                 screen.aiming_move = false;
                             }
@@ -2586,18 +2587,18 @@ fn frame(
                 // the pointer still armed throws at the tile under it —
                 // walking out first where it must, as the click does —
                 // or, the pointer off the deck, puts the throw away.
-                if let Some(satchel) = screen.aiming_throw
-                    && !keys_now.down(i, throw_action(satchel))
+                if let Some(throw) = screen.aiming_throw
+                    && !keys_now.down(i, throw_action(throw))
                 {
                     screen.aiming_throw = None;
                     if let Some(p) = on_canvas.filter(|_| !map_up) {
                         let (rx, ry) = session.room_point(p.x, p.y);
                         let t = shipdesign::TILE as f32;
-                        orders.push(Order::ThrowAt {
-                            satchel,
-                            x: (rx / t).floor() as i32,
-                            y: (ry / t).floor() as i32,
-                        });
+                        let tile = ((rx / t).floor() as i32, (ry / t).floor() as i32);
+                        let world = session.game.as_ref().map(|g| &g.world);
+                        let (order, line) = throw_order(world, screen.net.slot, throw, tile);
+                        orders.extend(order);
+                        screen.log.extend(line);
                     }
                 }
                 // The medic's carry (feature 86): the crewmate under the
@@ -4161,22 +4162,22 @@ fn frame(
     // the pointer, in the throw's colour where it would be thrown,
     // walked out to or not, and the refusal's where it would not.
     if !deck_hidden
-        && let Some(satchel) = screen.aiming_throw
+        && let Some(throw) = screen.aiming_throw
         && let Some(game) = &session.game
         && let Some((x, y)) = session.crew_on_screen(screen.net.slot)
     {
         let t = shipdesign::TILE as f32;
         let at = view.to_canvas(Vec2::new(x, y)) + canvas.min;
-        let glyph = if satchel {
-            Glyph::Satchel
-        } else {
-            Glyph::FragGrenade
+        let slot = screen.net.slot;
+        let range = match throw {
+            Throw::StunShot => game.world.stun_shot_range(slot).unwrap_or(0.0),
+            _ => game.world.throw_range(slot, throw.satchel()),
         };
         theme::reach_ring(
             &painter,
             egui::pos2(at.x, at.y),
-            game.world.throw_range(screen.net.slot, satchel) * t * view.scale,
-            glyph.colour(),
+            range * t * view.scale,
+            throw.glyph().colour(),
         );
     }
     if !deck_hidden
@@ -4187,9 +4188,20 @@ fn frame(
         let radius = tiles * shipdesign::TILE as f32 * view.scale;
         theme::reach_ring(&painter, egui::pos2(at.x, at.y), radius, glyph.colour());
     }
+    // A Stun Shot's ring sits where it would come down with nobody in its
+    // way — short of a wall, within the weapon's reach — while it is
+    // aimed and on through its charge, so the player sees where it goes.
+    let stun_aim = session.game.as_ref().and_then(|game| {
+        let slot = screen.net.slot;
+        match (screen.aiming_throw, screen.throw_aim) {
+            (Some(Throw::StunShot), aim) => aim,
+            (None, _) => game.world.stun_shot_aim(slot),
+            _ => None,
+        }
+        .map(|tile| (Throw::StunShot, tile))
+    });
     if !deck_hidden
-        && let Some(satchel) = screen.aiming_throw
-        && let Some(tile) = screen.throw_aim
+        && let Some((throw, tile)) = stun_aim.or(screen.aiming_throw.zip(screen.throw_aim))
         && let Some(game) = &session.game
     {
         let t = shipdesign::TILE as f32;
@@ -4198,22 +4210,37 @@ fn frame(
             game.world.aboard.offset.x as f32,
             game.world.aboard.offset.y as f32,
         );
-        let (x, y) = session.design_point_on_screen(
-            (tile.0 as f32 + 0.5) * t - ox,
-            (tile.1 as f32 + 0.5) * t - oy,
-        );
+        let centre = Vec2::new((tile.0 as f32 + 0.5) * t, (tile.1 as f32 + 0.5) * t);
+        let (centre, radius, ok) = match throw {
+            Throw::StunShot => match game.world.stun_shot_landing(slot, tile) {
+                Some(at) => (
+                    Vec2::new(at.x, at.y),
+                    game.world.stun_shot_radius(slot),
+                    true,
+                ),
+                None => (centre, game.world.stun_shot_radius(slot), false),
+            },
+            _ => (
+                centre,
+                if throw.satchel() {
+                    game.world.satchel_blast(slot).1
+                } else {
+                    game.world.grenade_radius(slot)
+                },
+                matches!(
+                    game.world.can_throw_now(slot, throw.satchel(), tile),
+                    Ok(()) | Err(Refusal::OutOfThrowRange | Refusal::NoLineToTile)
+                ),
+            ),
+        };
+        let (x, y) = session.design_point_on_screen(centre.x - ox, centre.y - oy);
         let at = view.to_canvas(Vec2::new(x, y)) + canvas.min;
-        let radius = if satchel {
-            game.world.satchel_blast(slot).1
-        } else {
-            game.world.grenade_radius(slot)
-        } * t
-            * view.scale;
-        let ok = matches!(
-            game.world.can_throw_now(slot, satchel, tile),
-            Ok(()) | Err(Refusal::OutOfThrowRange | Refusal::NoLineToTile)
+        theme::burst_ring(
+            &painter,
+            egui::pos2(at.x, at.y),
+            radius * t * view.scale,
+            ok,
         );
-        theme::burst_ring(&painter, egui::pos2(at.x, at.y), radius, ok);
     }
 
     // The health bar over every body standing (task 137), under the names:
@@ -5007,24 +5034,14 @@ fn ranked_key(
 }
 
 /// The reach of a medic's key held down — the beam's (E) or his circle's
-/// (R) — or of a soldier's Stun Shot (E), once it has a rank, in tiles,
-/// with the ability's glyph for its colour.
+/// (R) — once it has a rank, in tiles, with the ability's glyph for its
+/// colour. (A soldier's Stun Shot arms the pointer as a throw does.)
 fn held_reach(
     world: &world::World,
     slot: u32,
     keys: &Keys,
     input: &egui::InputState,
 ) -> Option<(f32, Glyph)> {
-    // The soldier's Stun Shot (October 2026): its weapon's reach, while
-    // E is held through the charge.
-    if world.class_of(slot) == world::Class::Soldier
-        && keys.down(input, Action::Ability3)
-        && world.rank_of(slot, world::class::SLOT_E) > 0
-    {
-        return world
-            .stun_shot_range(slot)
-            .map(|range| (range, Glyph::StunShot));
-    }
     if world.class_of(slot) != world::Class::Medic {
         return None;
     }
@@ -5037,23 +5054,50 @@ fn held_reach(
     None
 }
 
+/// What a key that arms the pointer throws: the soldier's grenade (Q),
+/// the engineer's satchel charge (E, task 154) or the soldier's Stun Shot
+/// (E, aimed as the grenade is since October 2026, the player's word).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Throw {
+    Grenade,
+    Satchel,
+    StunShot,
+}
+
+impl Throw {
+    /// The engineer's satchel charge, the throw that is not a grenade.
+    fn satchel(self) -> bool {
+        self == Throw::Satchel
+    }
+
+    /// The ability's glyph, for the rings' colour.
+    fn glyph(self) -> Glyph {
+        match self {
+            Throw::Grenade => Glyph::FragGrenade,
+            Throw::Satchel => Glyph::Satchel,
+            Throw::StunShot => Glyph::StunShot,
+        }
+    }
+}
+
 /// The key of a throw: held, the throw's reach is drawn; let go, it is
 /// thrown at the pointer. The soldier's grenade is Q, the engineer's
-/// satchel charge E (task 154).
-fn throw_action(satchel: bool) -> Action {
-    if satchel {
-        Action::Ability3
-    } else {
-        Action::Ability1
+/// satchel charge and the soldier's Stun Shot E.
+fn throw_action(throw: Throw) -> Action {
+    match throw {
+        Throw::Grenade => Action::Ability1,
+        Throw::Satchel | Throw::StunShot => Action::Ability3,
     }
 }
 
 /// Whether an ability key is a throw that arms the pointer: the soldier's
-/// Q, a grenade, and the engineer's E, a satchel charge (`Some(true)`).
-fn throw_key(class: world::Class, action: Action) -> Option<bool> {
+/// Q, a grenade, and E, a Stun Shot, and the engineer's E, a satchel
+/// charge.
+fn throw_key(class: world::Class, action: Action) -> Option<Throw> {
     match class {
-        world::Class::Soldier if action == throw_action(false) => Some(false),
-        world::Class::Engineer if action == throw_action(true) => Some(true),
+        world::Class::Soldier if action == throw_action(Throw::Grenade) => Some(Throw::Grenade),
+        world::Class::Soldier if action == throw_action(Throw::StunShot) => Some(Throw::StunShot),
+        world::Class::Engineer if action == throw_action(Throw::Satchel) => Some(Throw::Satchel),
         _ => None,
     }
 }
@@ -5061,14 +5105,44 @@ fn throw_key(class: world::Class, action: Action) -> Option<bool> {
 /// Whether the throw key may arm the pointer: everything the throw asks
 /// but the tile — which the click picks, and which a walk out may yet
 /// make good — asked with the Bim's own tile; the log's line otherwise.
-fn can_arm_throw(world: &world::World, slot: u32, satchel: bool) -> Result<(), String> {
+/// A Stun Shot is never refused its tile.
+fn can_arm_throw(world: &world::World, slot: u32, throw: Throw) -> Result<(), String> {
+    if throw == Throw::StunShot {
+        return world.can_stun_shot(slot).map_err(stun_shot_refused);
+    }
     let t = shipdesign::TILE as f32;
     let at = world.aboard.room.bim_pos(slot as usize);
     let tile = ((at.x / t).floor() as i32, (at.y / t).floor() as i32);
-    match world.can_throw_now(slot, satchel, tile) {
+    match world.can_throw_now(slot, throw.satchel(), tile) {
         Ok(())
         | Err(Refusal::CantThrowThere | Refusal::OutOfThrowRange | Refusal::NoLineToTile) => Ok(()),
         Err(why) => Err(throw_refused(why)),
+    }
+}
+
+/// The order an armed pointer's click — or its key let go — gives at
+/// `tile`: a throw, walking out first where it must, or a Stun Shot
+/// charged at it (`can_stun_shot` asked again; the log's line if refused).
+fn throw_order(
+    world: Option<&world::World>,
+    slot: u32,
+    throw: Throw,
+    (x, y): (i32, i32),
+) -> (Option<Order>, Option<String>) {
+    match throw {
+        Throw::Grenade | Throw::Satchel => (
+            Some(Order::ThrowAt {
+                satchel: throw.satchel(),
+                x,
+                y,
+            }),
+            None,
+        ),
+        Throw::StunShot => match world.map(|w| w.can_stun_shot(slot)) {
+            Some(Ok(())) => (Some(Order::StunShot { x, y }), None),
+            Some(Err(why)) => (None, Some(stun_shot_refused(why))),
+            None => (None, None),
+        },
     }
 }
 
