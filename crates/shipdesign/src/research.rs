@@ -4,29 +4,17 @@
 //! Research is done by the ship's AI at a [`PartKind::ResearchDesk`], not
 //! by anybody aboard — the crew have stopped being able to — and this
 //! module is the tree it works through: one [`NodeDef`] a node, each
-//! naming what it wants researched first, which **tier** it sits in, and
-//! whether it is **locked** — wanting a key of that tier consumed for it. The crew set out
+//! naming what it wants researched first and which **tier** it sits in.
+//! The crew set out
 //! knowing everything a crew needs to live and to fight — the hydroponic
 //! bay, the galley, the heads, the hull, the workbench, the armoury, the
 //! suit locker and medicine — and research the two things that are left:
 //! the hyperdrive, and the workbench's upgrades.
 //!
-//! # Keys
-//!
-//! A locked node stays locked until a **research key** of its tier has
-//! been put into the crew's research desk and consumed there **for that
-//! node** ([`Research::unlock`]). A key is a resource found on a
-//! station's research desk — the tier-one key
-//! (`physics::ResourceId::ResearchKey`) on a friendly station's, the
-//! tier-two (`ResearchKeyTwo`) on every hostile station's — carried off
-//! in a pack where it takes [`KEY_CELLS`], and it is consumed — **one key
-//! opens one node** and is gone, so two locked nodes are two keys and two
-//! stations. A node wants a key of **its own tier** ([`Research::key_wanted`]):
-//! the other tier's key in the desk opens nothing. Both keys are the
-//! same size for now, and the desk holds one of either; a later key that
-//! is bigger and wants a bigger desk is where the progression could go,
-//! which is why the key's size and the desk's slot are written down here
-//! as a pair. Tier three is declared ([`TIERS`]) and empty.
+//! There are no keys: a node is begun once what it requires is known.
+//! The research keys that opened a locked node went in October 2026,
+//! with the last of the research in a run. Tier three is declared
+//! ([`TIERS`]) and empty.
 //!
 //! # What a node gates
 //!
@@ -43,8 +31,7 @@
 //! The AI thinks about one node at a time, but it can be given a list:
 //! [`Research::enqueue`] puts a node at the back of the **queue**, and
 //! whatever it needs that is not yet known, on the AI or queued goes in
-//! ahead of it — refused only when something in that
-//! chain is still behind a key. [`Research::next`]
+//! ahead of it. [`Research::next`]
 //! takes an idle AI onto the first queued node it can begin, and `world`
 //! calls it every step, so a node queued while the AI
 //! is idle begins that step. Taking a node out — [`Research::dequeue`],
@@ -67,10 +54,6 @@ use crate::parts::PartKind;
 /// every table here is sized so that it can be filled.
 pub const TIERS: u32 = 3;
 
-/// A research key's size in a pack, cells across and down — either tier's
-/// — and the slot in a research desk, which is exactly that size.
-pub const KEY_CELLS: (u32, u32) = (1, 2);
-
 /// One node of the tree. The discriminants cross the seam as numbers —
 /// `world::Command::Research`, the events — so they are written out and
 /// never renumbered; a node is appended.
@@ -85,14 +68,12 @@ pub enum Node {
     Survival = 0,
     /// Medkits at the drug lab. Known at the start.
     Medicine = 1,
-    /// The hyperdrive: a jump to another star, behind a tier-one key of
-    /// its own. (2 was fusion power, until the electricity went in October
+    /// The hyperdrive: a jump to another star. (2 was fusion power, until the electricity went in October
     /// 2026; the nodes after it closed up.)
     Hyperdrive = 2,
     /// The workbench's upgrades: two of a kind at one tier into one of
-    /// the next, one to two and two to three alike. Behind a tier-two key
-    /// — the one tier-two node, and the one thing the enemy's desks are
-    /// worth walking to.
+    /// the next, one to two and two to three alike. The one tier-two
+    /// node.
     Upgrades = 3,
 }
 
@@ -137,9 +118,6 @@ pub struct NodeDef {
     pub requires: &'static [Node],
     /// Which tier it is in, `1..=TIERS`.
     pub tier: u32,
-    /// Locked: wants a key of its tier consumed at the desk for it before
-    /// it can be begun.
-    pub locked: bool,
     /// How long the AI takes over it, in game minutes. Nought for what
     /// the crew know at the start.
     pub minutes: u32,
@@ -159,28 +137,24 @@ pub static RESEARCH: [NodeDef; NODES] = [
         node: Node::Survival,
         requires: &[],
         tier: 1,
-        locked: false,
         minutes: 0,
     },
     NodeDef {
         node: Node::Medicine,
         requires: &[],
         tier: 1,
-        locked: false,
         minutes: 0,
     },
     NodeDef {
         node: Node::Hyperdrive,
         requires: &[],
         tier: 1,
-        locked: true,
         minutes: 1_800,
     },
     NodeDef {
         node: Node::Upgrades,
         requires: &[],
         tier: 2,
-        locked: true,
         minutes: 1_440,
     },
 ];
@@ -209,15 +183,13 @@ pub fn node_of_recipe(index: usize) -> Node {
         .unwrap_or(Node::Survival)
 }
 
-/// The crew's progress through the tree: what is researched, which locked
-/// nodes have had their key, what the AI is on and how far it has got.
+/// The crew's progress through the tree: what is researched, what the AI
+/// is on and how far it has got.
 #[derive(Clone, PartialEq, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Research {
     /// By `Node` code.
     pub done: [bool; NODES],
-    /// By `Node` code: a locked node whose key has been consumed.
-    pub unlocked: [bool; NODES],
     /// What the AI is researching, if anything.
     pub current: Option<Node>,
     /// Minutes put into `current` so far.
@@ -243,7 +215,6 @@ impl Research {
         }
         Research {
             done,
-            unlocked: [false; NODES],
             current: None,
             progress: 0.0,
             queue: Vec::new(),
@@ -254,25 +225,10 @@ impl Research {
         self.done[node as usize]
     }
 
-    /// Whether a node's lock is open: a key was consumed for it, or it
-    /// never had one.
-    pub fn is_unlocked(&self, node: Node) -> bool {
-        !node.def().locked || self.unlocked[node as usize]
-    }
-
-    /// Whether a node is waiting only on its key: everything it needs
-    /// is researched, and its own lock is shut.
-    pub fn needs_key(&self, node: Node) -> bool {
-        !self.is_done(node) && !self.is_unlocked(node)
-    }
-
-    /// Whether a node can be begun now: not done, everything it requires
-    /// done, and its lock open if it has one.
+    /// Whether a node can be begun now: not done, and everything it
+    /// requires done.
     pub fn available(&self, node: Node) -> bool {
-        let def = node.def();
-        !self.is_done(node)
-            && def.requires.iter().all(|&r| self.is_done(r))
-            && self.is_unlocked(node)
+        !self.is_done(node) && node.def().requires.iter().all(|&r| self.is_done(r))
     }
 
     /// Whether the crew may lay out a part of this kind.
@@ -291,49 +247,20 @@ impl Research {
         self.is_done(Node::Upgrades)
     }
 
-    /// Open a node's lock. What consuming a key does; the caller has
-    /// taken a key of the node's tier out of the desk. `false` for a node
-    /// that has no lock, is open already or is researched, in which case
-    /// no key should go.
-    pub fn unlock(&mut self, node: Node) -> bool {
-        if self.is_unlocked(node) || self.is_done(node) {
-            return false;
-        }
-        self.unlocked[node as usize] = true;
-        true
-    }
-
-    /// Which tier of key a locked node wants: its own tier. `None` for a
-    /// node with no lock.
-    pub fn key_wanted(node: Node) -> Option<u32> {
-        node.def().locked.then_some(node.def().tier)
-    }
-
     /// Whether a node is spoken for: known, on the AI, or in the queue.
     pub fn planned(&self, node: Node) -> bool {
         self.is_done(node) || self.current == Some(node) || self.queue.contains(&node)
     }
 
-    /// Whether every node from this one back to what is known is open:
-    /// planned already, or with its lock open and its own prerequisites
-    /// the same. What [`Research::enqueue`] wants of the chain it would
-    /// queue.
-    fn chain_open(&self, node: Node) -> bool {
-        self.planned(node)
-            || (self.is_unlocked(node) && node.def().requires.iter().all(|&r| self.chain_open(r)))
-    }
-
     /// Whether [`Research::enqueue`] would take a node: not planned
-    /// already, and nothing it needs — however far back — still behind
-    /// a key.
+    /// already.
     pub fn queueable(&self, node: Node) -> bool {
-        !self.planned(node) && self.chain_open(node)
+        !self.planned(node)
     }
 
     /// Put a node at the back of the queue, with whatever it needs that
     /// is not yet planned ahead of it, prerequisites first. `false`, and
-    /// nothing queued, when it is planned already or something in that
-    /// chain is behind a key. The AI goes onto the head of the queue at
+    /// nothing queued, when it is planned already. The AI goes onto the head of the queue at
     /// the next [`Research::next`].
     pub fn enqueue(&mut self, node: Node) -> bool {
         if !self.queueable(node) {
@@ -423,8 +350,8 @@ impl Research {
     pub fn advance(&mut self, minutes: f64) -> Option<Node> {
         let node = self.current?;
         if !self.available(node) {
-            // What it was on has been researched or locked from under it:
-            // nothing to do until told again.
+            // What it was on has been researched from under it: nothing to
+            // do until told again.
             self.current = None;
             return None;
         }
@@ -451,8 +378,7 @@ impl Research {
 
 /// Whether the table holds together: one entry per node in order, every
 /// prerequisite earlier in the table than what wants it, tiers in range,
-/// nothing known at the start locked or wanting anything, and every
-/// locked node in a tier a key exists for.
+/// and nothing known at the start wanting anything.
 pub fn tree_is_sound() -> bool {
     RESEARCH.len() == NODES
         && Node::ALL.iter().enumerate().all(|(i, &node)| {
@@ -461,6 +387,6 @@ pub fn tree_is_sound() -> bool {
                 && def.tier >= 1
                 && def.tier <= TIERS
                 && def.requires.iter().all(|&r| (r as usize) < i)
-                && (def.minutes > 0 || (!def.locked && def.requires.is_empty()))
+                && (def.minutes > 0 || def.requires.is_empty())
         })
 }

@@ -268,9 +268,6 @@ pub enum WorldEvent {
     /// An offer is gone untaken: declined, taken back, or one of the
     /// two slots changed.
     OfferWithdrawn { from: u32, part: u32, to: u32 },
-    /// A research key picked up, counted the moment it was: `keys` is
-    /// how many the crew hold now.
-    KeyFound { keys: u32 },
     /// A player's Bim that died is back at the mission's end, with its
     /// whole loadout, and the pool paid `paid` for it — the buyback, or
     /// what was left of the pool, which never goes below nought.
@@ -721,7 +718,7 @@ impl WorldEvent {
             WorldEvent::GearOffered { .. } => 121,
             WorldEvent::OfferTaken { .. } => 122,
             WorldEvent::OfferWithdrawn { .. } => 123,
-            WorldEvent::KeyFound { .. } => 124,
+            // 124 was a research key picked up, gone with the keys.
             WorldEvent::Respawned { .. } => 125,
             WorldEvent::ShelfBought { .. } => 126,
             WorldEvent::Combined { .. } => 127,
@@ -780,7 +777,6 @@ impl WorldEvent {
             WorldEvent::GearOffered { from, part, to }
             | WorldEvent::OfferTaken { from, part, to }
             | WorldEvent::OfferWithdrawn { from, part, to } => (from + 10 * part + 100 * to) as i64,
-            WorldEvent::KeyFound { keys } => keys as i64,
             // The buyer in the units, the slot in the tens and the Bim plus
             // one in the thousands, nought for the armory (task 114).
             WorldEvent::ShelfBought { slot, index, to } => {

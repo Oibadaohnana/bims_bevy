@@ -133,8 +133,8 @@ pub enum Storage {
     /// Things worn or carried: suits, guns, armour, medicine. A suit
     /// locker, an armoury and a shelf all provide it.
     Locker = 1,
-    /// A research desk's own slot: where a research key sits until it is
-    /// consumed. One a desk, and nothing else goes in it.
+    /// A research desk's own slot, where a research key sat until the keys
+    /// went (October 2026). Nothing goes in it now.
     Research = 2,
 }
 
@@ -191,9 +191,7 @@ pub fn tiered(resource: ResourceId) -> bool {
         | ResourceId::Tofu
         | ResourceId::Suit
         | ResourceId::Medkit
-        | ResourceId::Bandage
-        | ResourceId::ResearchKey
-        | ResourceId::ResearchKeyTwo => false,
+        | ResourceId::Bandage => false,
     }
 }
 
@@ -242,11 +240,6 @@ pub fn trade_price(resource: ResourceId) -> Money {
         // one thing the crew still make — and a dressing off a shelf.
         ResourceId::Medkit => 32,
         ResourceId::Bandage => 12,
-        // Found, never made and never sold; a station pays for one as a
-        // curiosity, which is a great deal less than what it opens.
-        ResourceId::ResearchKey => 5_000,
-        // The tier-two key, off an enemy's desk: twice the tier-one's.
-        ResourceId::ResearchKeyTwo => 10_000,
     }
 }
 
@@ -273,7 +266,6 @@ pub fn storage(resource: ResourceId) -> Storage {
         | ResourceId::Schword
         | ResourceId::Minigun
         | ResourceId::RailLance => Storage::Locker,
-        ResourceId::ResearchKey | ResourceId::ResearchKeyTwo => Storage::Research,
     }
 }
 
@@ -317,15 +309,13 @@ impl Footprint {
 /// row of two, a sniper rifle a row of ten, a kevlar vest four by four, a crate
 /// of vegetables one by two, a block of tofu four by four. Goods that
 /// stack ([`stack_size`]) cover one footprint a stack, however full the
-/// stack is, so what a locker holds is its cells times the stacks. The
-/// desk's one slot is one cell.
+/// stack is, so what a locker holds is its cells times the stacks.
 ///
 /// A `match` rather than a table, like [`storage`], so that a new
 /// [`ResourceId`] is a compile error here rather than a thing that
 /// quietly takes no room.
 pub fn footprint(resource: ResourceId) -> Footprint {
     match resource {
-        ResourceId::ResearchKey | ResourceId::ResearchKeyTwo => Footprint::new(1, 1),
         // The guns lie along a row: the pistol short, the shotgun broad,
         // the sniper rifle the whole width of a locker.
         ResourceId::Handgun => Footprint::new(1, 2),
@@ -370,9 +360,7 @@ pub fn stack_size(resource: ResourceId) -> u32 {
         | ResourceId::SniperRifle
         | ResourceId::Schword
         | ResourceId::Minigun
-        | ResourceId::RailLance
-        | ResourceId::ResearchKey
-        | ResourceId::ResearchKeyTwo => 1,
+        | ResourceId::RailLance => 1,
     }
 }
 
@@ -479,7 +467,6 @@ mod tests {
         assert_eq!(storage(ResourceId::AutoRifle), Storage::Locker);
         assert_eq!(storage(ResourceId::SniperRifle), Storage::Locker);
         assert_eq!(storage(ResourceId::Schword), Storage::Locker);
-        assert_eq!(storage(ResourceId::ResearchKey), Storage::Research);
     }
 
     /// **Armour is a hundred euros a point of the piece's health**
@@ -530,7 +517,6 @@ mod tests {
             ResourceId::Suit,
             ResourceId::Medkit,
             ResourceId::Bandage,
-            ResourceId::ResearchKey,
         ] {
             assert!(!tiered(plain), "{plain:?}");
         }
@@ -561,9 +547,11 @@ mod tests {
             assert!(f.rows >= 1 && f.cols >= 1, "{id:?}");
             assert_eq!(f.turned().cells(), f.cells(), "{id:?}");
             assert!(stack_size(id) >= 1, "{id:?}");
-            if storage(id) == Storage::Research {
-                assert_eq!(f, Footprint::new(1, 1), "{id:?}: the desk's one slot");
-            }
+            assert_ne!(
+                storage(id),
+                Storage::Research,
+                "{id:?}: nothing goes in a desk"
+            );
         }
         // Stacks: ten vegetables to a crate, one gun; forty-one
         // vegetables is five crates.
@@ -591,6 +579,5 @@ mod tests {
         assert_eq!(Storage::from_code(0), Some(Storage::ColdStore));
         assert_eq!(Storage::from_code(1), Some(Storage::Locker));
         assert_eq!(Storage::from_code(2), Some(Storage::Research));
-        assert_eq!(storage(ResourceId::ResearchKey), Storage::Research);
     }
 }

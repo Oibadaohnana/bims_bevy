@@ -140,9 +140,7 @@ pub use parts::{
     light_tiles, part_mass, solid_corner, wall_light_back,
 };
 pub use recipes::{RECIPES, Recipe, is_workstation, recipes_are_sound};
-pub use research::{
-    KEY_CELLS, NODES, Node, NodeDef, RESEARCH, Research, TIERS, node_of_part, node_of_recipe,
-};
+pub use research::{NODES, Node, NodeDef, RESEARCH, Research, TIERS, node_of_part, node_of_recipe};
 pub use validate::{
     ExposureMap, Issue, IssueCode, Severity, exhaust_blocked, exhaust_tiles, exposure, has_errors,
     validate,

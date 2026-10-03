@@ -2295,7 +2295,6 @@ pub struct ArmoryView {
     pub columns: Vec<ArmoryColumn>,
     pub armory: Vec<world::Stored>,
     pub money: economy::Money,
-    pub keys: u32,
     pub locked: bool,
 }
 
@@ -2610,7 +2609,7 @@ fn item_cells(
     dropped_here
 }
 
-/// The armory, the money and the keys: every thing nobody wears, a
+/// The armory and the money: every thing nobody wears, a
 /// picture a thing, each a drag source onto a column; the whole a drop
 /// zone that takes a thing off a slot.
 fn armory_stock(ui: &mut egui::Ui, view: &ArmoryView, asked: &mut Vec<GearOrder>) {
@@ -2619,19 +2618,7 @@ fn armory_stock(ui: &mut egui::Ui, view: &ArmoryView, asked: &mut Vec<GearOrder>
     let open = view.columns.iter().any(|c| c.may_change);
     ui.horizontal(|ui| {
         theme::heading(ui, ARMORY_STOCK);
-        ui.label(
-            egui::RichText::new(format!(
-                "{} · {} {}",
-                crate::format::euros(view.money),
-                view.keys,
-                if view.keys == 1 {
-                    ARMORY_KEY
-                } else {
-                    ARMORY_KEYS
-                }
-            ))
-            .color(theme::MUTED),
-        );
+        ui.label(egui::RichText::new(crate::format::euros(view.money)).color(theme::MUTED));
     });
     let frame = egui::Frame::new()
         .inner_margin(egui::Margin::same(6))

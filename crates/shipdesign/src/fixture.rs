@@ -592,8 +592,7 @@ pub fn playtest_ship() -> ShipDesign {
     // the shelves and the heads, worked from the row below it: the one
     // two-tile spot on the ship with deck on
     // the far side of its use spot — a spot between two solids is one the
-    // room's navigation will not walk. Where a research key goes, and
-    // where the AI does its thinking.
+    // room's navigation will not walk. Where the AI does its thinking.
     put(&mut design, PartKind::ResearchDesk, (8, 14), Rotation::R0);
 
     // Light: wall lights against the hull and the chamfer, a deck each,

@@ -85,20 +85,8 @@ pub enum ResourceId {
     SniperRifle = 11,
     /// The schword, a blade with a laser edge. The one melee weapon.
     Schword = 12,
-    /// A tier-one research key: an artifact found on a friendly station's
-    /// research desk, carried off in a pack — where it takes two cells,
-    /// one over the other — and put into the crew's own research desk,
-    /// which holds exactly one. Consumed there to open the research tree
-    /// locked behind it (`shipdesign::research`). A resource so the desk
-    /// counts it the way a locker counts a medkit; sold nowhere, and a
-    /// station buys one for the curiosity.
-    ResearchKey = 13,
-    /// A tier-two research key: the same slab, found on the research desk
-    /// of a **hostile** station — every one that is not a derelict — and
-    /// carried off the same way, two cells in a pack, one in the crew's
-    /// desk. Consumed there to open the tier-two node
-    /// (`shipdesign::research::Node::Upgrades`).
-    ResearchKeyTwo = 14,
+    // 13 and 14 were the research keys, tier one and tier two, gone in
+    // October 2026 with the last of the research; the codes are left free.
     // 15, 16 and 17 were the engineer's sandbag and sentry kits and the
     // soldier's grenade (features 74, 75, 88 and 90), gone in task 127
     // when every class charge became a counter the world keeps. The codes
@@ -114,10 +102,10 @@ pub enum ResourceId {
 
 impl ResourceId {
     /// Every resource, in discriminant order — with gaps where one went
-    /// (6, 8, 15 to 17, 20 and 21), so a code is **not** a place in this list:
+    /// (6, 8, 13 to 17, 20 and 21), so a code is **not** a place in this list:
     /// [`ResourceId::from_code`] looks it up. [`RESOURCES`] is in the same
     /// order, which [`defs_are_sound`] checks.
-    pub const ALL: [ResourceId; 15] = [
+    pub const ALL: [ResourceId; 13] = [
         ResourceId::Vegetable,
         ResourceId::Tofu,
         ResourceId::Suit,
@@ -129,8 +117,6 @@ impl ResourceId {
         ResourceId::AutoRifle,
         ResourceId::SniperRifle,
         ResourceId::Schword,
-        ResourceId::ResearchKey,
-        ResourceId::ResearchKeyTwo,
         ResourceId::Minigun,
         ResourceId::RailLance,
     ];
@@ -179,7 +165,7 @@ pub struct ResourceDef {
 /// that went into it. `shipdesign::recipes` is where that recipe lives
 /// and `every_recipe_holds_together` there is what holds this column to
 /// it.
-pub static RESOURCES: [ResourceDef; 15] = [
+pub static RESOURCES: [ResourceDef; 13] = [
     ResourceDef {
         id: ResourceId::Vegetable,
         mass_per_unit: 0.5,
@@ -228,16 +214,6 @@ pub static RESOURCES: [ResourceDef; 15] = [
     ResourceDef {
         id: ResourceId::Schword,
         mass_per_unit: 42.0,
-    },
-    // A research key is a slab of somebody else's circuitry: light, and
-    // made of nothing the crew know.
-    ResourceDef {
-        id: ResourceId::ResearchKey,
-        mass_per_unit: 2.0,
-    },
-    ResourceDef {
-        id: ResourceId::ResearchKeyTwo,
-        mass_per_unit: 2.0,
     },
     // The two heavy guns of task 115: a minigun's barrels and its drum,
     // a lance's rails and coils.

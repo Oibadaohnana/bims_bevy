@@ -113,7 +113,6 @@ fn a_run_sets_out_with_the_hold_empty() {
     world.set_out_empty();
     assert!(world.ship.design.cargo.iter().all(|&n| n == 0));
     assert!(world.holdings.armory.is_empty());
-    assert_eq!(world.holdings.keys, 0);
     assert_eq!(world.aboard.room.gear(0).weapon, gun);
     assert_eq!(world.start_worth, world.worth());
     // And it steps as a world does.

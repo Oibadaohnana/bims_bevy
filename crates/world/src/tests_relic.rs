@@ -116,25 +116,6 @@ fn refused(events: &[WorldEvent], why: Refusal) -> bool {
         .any(|e| matches!(e, WorldEvent::Refused { why: w, .. } if *w == why))
 }
 
-// --- 1: research is gone -------------------------------------------------------
-
-/// **No station carries a research key**: nothing of the crew's — the
-/// hold, a pack — holds one at the start; there is no key to take and no
-/// tree to spend one on.
-#[test]
-fn no_station_carries_a_research_key() {
-    use physics::ResourceId;
-    let (world, _) = held_arena(1);
-    for key in [ResourceId::ResearchKey, ResourceId::ResearchKeyTwo] {
-        assert_eq!(world.ship.design.carrying(key), 0, "{key:?} in the hold");
-        for who in 0..world.aboard.crew_count() as usize {
-            let wanted = bims::combat::Item::Stack(key as u32);
-            assert_eq!(world.aboard.room.gear(who).units_of(wanted), 0);
-        }
-    }
-    assert_eq!(world.holdings.keys, 0, "no key counted");
-}
-
 // --- 2: the tier a site is quoted at ---------------------------------------------
 
 /// **The quote reads the wave's tier at the arrival** (task 147): the run

@@ -7271,3 +7271,22 @@ Bastion}` are where `{Taunt, Bulwark, Juggernaut}` were.
   the room's bulwark flag was — so a world with no tank hashes what it
   did. **`SAVE_VERSION` 95, `wire::PROTOCOL` 101.** `tests_tank.rs` is
   the rule (sections C to G new).
+
+## The research keys gone (October 2026)
+
+> "Nothing is stored" above says the holdings count the research keys
+> (`pick_up_key`, `KeyFound`) and the money rework's sections price them;
+> all of it went.
+
+`Holdings::keys`, `World::pick_up_key`, `WorldEvent::KeyFound` (124, left
+free), the key branch of `stock_the_armory`, the keys in `worth` and their
+line in `world_checksum` are gone, and so are `physics::ResourceId::
+{ResearchKey, ResearchKeyTwo}` (13 and 14, left free: `ALL` is thirteen,
+`CODES` still 22, so no design hash moved) with every row of theirs in
+`economy`, `worldgen` and the app (the armory line on the Tab panel shows
+the money alone). `Storage::Research` stays as the desk's class, holding
+nothing. `shipdesign::research` has no keys or locks (`NodeDef::locked`,
+`Research::{unlocked, unlock, is_unlocked, needs_key, key_wanted}`,
+`KEY_CELLS`). **`SAVE_VERSION` 97, `wire::PROTOCOL` 106**; `worldgen`'s
+`REFERENCE_CHECKSUMS` re-pinned (two leans shorter, no bump) and
+`REFERENCE_CHECKSUM` moves (one `eat` fewer; already off its pin).

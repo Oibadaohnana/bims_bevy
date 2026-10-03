@@ -2695,12 +2695,12 @@ fn quote_is_monotone_in_the_bias() {
 }
 
 /// The tree the money rework and the electricity's going left: four
-/// nodes, two known at the start, the hyperdrive behind a key of its own
-/// in tier one and the upgrades behind a tier-two key. Everything the
+/// nodes, two known at the start, the hyperdrive in tier one and the
+/// upgrades in tier two, neither behind a key any more. Everything the
 /// deleted nodes used to gate — the suit locker, the workbench, the
 /// armoury — is known from the first day.
 #[test]
-fn the_research_tree_is_sound_runs_in_order_and_a_key_opens_a_node() {
+fn the_research_tree_is_sound_and_runs_in_order() {
     // --- the_research_tree_is_sound_and_the_crew_know_how_to_live ---
     {
         use crate::recipes::RECIPES;
@@ -2728,44 +2728,25 @@ fn the_research_tree_is_sound_runs_in_order_and_a_key_opens_a_node() {
         assert_eq!(node_of_part(PartKind::Hyperdrive), Node::Hyperdrive);
         assert_eq!(Node::Hyperdrive.def().requires, &[]);
         assert_eq!(Node::Upgrades.def().requires, &[]);
-        // Locked: the hyperdrive in tier one and the upgrades in tier two,
-        // each wanting a key of its own tier.
+        // The hyperdrive in tier one and the upgrades in tier two, both
+        // to be begun at once: there are no keys.
         for node in Node::ALL {
-            let locked = matches!(node, Node::Hyperdrive | Node::Upgrades);
-            assert_eq!(node.def().locked, locked, "{node:?}");
             let tier = if node == Node::Upgrades { 2 } else { 1 };
             assert_eq!(node.def().tier, tier, "{node:?}");
         }
-        assert!(fresh.needs_key(Node::Upgrades));
-        assert!(fresh.needs_key(Node::Hyperdrive));
-        assert!(!fresh.available(Node::Hyperdrive));
+        assert!(fresh.available(Node::Hyperdrive));
+        assert!(fresh.available(Node::Upgrades));
         assert_eq!(Node::Upgrades.def().minutes, 1_440);
         assert_eq!(Node::Hyperdrive.def().minutes, 1_800);
-        assert_eq!(Research::key_wanted(Node::Upgrades), Some(2));
-        assert_eq!(Research::key_wanted(Node::Hyperdrive), Some(1));
-        assert_eq!(Research::key_wanted(Node::Survival), None);
         assert!(!fresh.upgrades_allowed());
     }
 
-    // --- research_runs_in_order_and_a_key_opens_a_node ---
+    // --- research_runs_in_order ---
     {
         use crate::research::{Node, Research};
         let mut r = Research::new();
-        assert!(!r.available(Node::Hyperdrive));
-        assert!(!r.enqueue(Node::Hyperdrive), "behind its key");
-        assert!(
-            !r.unlock(Node::Survival),
-            "nothing to unlock on a keyless node"
-        );
-        assert!(r.unlock(Node::Hyperdrive));
-        assert!(!r.unlock(Node::Hyperdrive), "a node unlocks once");
-        assert!(r.is_unlocked(Node::Hyperdrive));
-        assert!(!r.needs_key(Node::Hyperdrive));
         assert!(r.available(Node::Hyperdrive));
-        assert!(
-            r.needs_key(Node::Upgrades),
-            "a key opens one node, not the tier"
-        );
+        assert!(!r.enqueue(Node::Survival), "known already");
         // The AI is idle until `next`: a node queued goes onto it then.
         assert!(r.enqueue(Node::Hyperdrive));
         assert_eq!(r.current, None);
@@ -2793,9 +2774,7 @@ fn the_research_tree_is_sound_runs_in_order_and_a_key_opens_a_node() {
     {
         use crate::research::{Node, Research};
         let mut r = Research::new();
-        assert!(!r.queueable(Node::Hyperdrive));
-        assert!(r.unlock(Node::Hyperdrive));
-        assert!(r.unlock(Node::Upgrades));
+        assert!(r.queueable(Node::Hyperdrive));
         assert!(r.enqueue(Node::Hyperdrive));
         assert!(r.enqueue(Node::Upgrades));
         assert_eq!(r.queue, vec![Node::Hyperdrive, Node::Upgrades]);

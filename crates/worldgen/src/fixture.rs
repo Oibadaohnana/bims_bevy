@@ -79,11 +79,16 @@ pub const REFERENCE_SEED: u64 = 0x_4c4f_4242_0000_0007;
 /// field and its lanes, not the inside of any system. They were
 /// `0x_e34f_9e80_fcdd_2871`, `0x_325e_bc41_cdea_a9de`,
 /// `0x_4f04_aca7_b928_c89b` and `0x_0d7e_71d9_b169_88b6`.
+///
+/// October 2026 moved them without a bump, the way task 127 did: the two
+/// research keys went out of the resources, so every lean is two entries
+/// shorter. They were `0x_7401_81a7_4d3b_2ca2`, `0x_3ee7_48a7_707f_d097`,
+/// `0x_8fe0_4fe5_7c35_8d5c` and `0x_ee52_7add_492b_72a8`.
 pub const REFERENCE_CHECKSUMS: [u64; 4] = [
-    0x_7401_81a7_4d3b_2ca2,
-    0x_3ee7_48a7_707f_d097,
-    0x_8fe0_4fe5_7c35_8d5c,
-    0x_ee52_7add_492b_72a8,
+    0x_0960_c55d_1a05_6c91,
+    0x_5e43_86a6_f3f9_5bd4,
+    0x_c733_7941_3921_a13f,
+    0x_79a5_a288_48f9_be6b,
 ];
 
 /// The reference galaxy of one type.

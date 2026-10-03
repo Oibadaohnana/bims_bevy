@@ -261,7 +261,8 @@ use crate::game::Game;
 /// them, `Combat` its plates where its bulwarks were.
 /// 96: a broken Riot Shield waits a cooldown — `Tank::shield_broke` (the
 /// minute it broke) where `shield_broken` was.
-pub const SAVE_VERSION: u32 = 96;
+/// 97: the research keys went — `Holdings::keys` with them.
+pub const SAVE_VERSION: u32 = 97;
 
 /// What the file holds, read back.
 #[derive(serde::Deserialize)]

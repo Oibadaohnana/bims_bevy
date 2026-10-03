@@ -72,9 +72,7 @@ pub fn war_goods(resource: ResourceId) -> bool {
         | ResourceId::Bandage
         | ResourceId::Vegetable
         | ResourceId::Tofu
-        | ResourceId::Suit
-        | ResourceId::ResearchKey
-        | ResourceId::ResearchKeyTwo => false,
+        | ResourceId::Suit => false,
     }
 }
 
@@ -244,8 +242,6 @@ pub fn kind_bias(kind: MarketKind, resource: ResourceId) -> i32 {
         ResourceId::Armour => [0, 0, 0, 15, 10],
         ResourceId::Medkit => [0, 0, 0, 15, 0],
         ResourceId::Bandage => [0, 0, 0, 25, 0],
-        ResourceId::ResearchKey => [0, 0, 0, 15, 0],
-        ResourceId::ResearchKeyTwo => [0, 0, 0, 15, 0],
     };
     row[kind as usize]
 }
@@ -431,8 +427,6 @@ mod tests {
             ResourceId::Vegetable,
             ResourceId::Tofu,
             ResourceId::Suit,
-            ResourceId::ResearchKey,
-            ResourceId::ResearchKeyTwo,
         ] {
             assert!(!war_goods(resource), "{resource:?} is not war goods");
         }

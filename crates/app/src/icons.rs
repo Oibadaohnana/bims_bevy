@@ -60,9 +60,8 @@ const HILT: Color32 = Color32::from_rgb(0x38, 0x38, 0x42);
 const BLADE_CORE: Color32 = Color32::from_rgb(0xfa, 0xff, 0xff);
 const BLADE_EDGE: Color32 = Color32::from_rgb(0x73, 0xf2, 0xff);
 const BLADE_GLOW: Color32 = Color32::from_rgba_premultiplied(0x1c, 0x3d, 0x40, 0x40);
-/// The research key: a slab of somebody else's circuitry, dark, with a
-/// brass edge and a lit trace down it.
-const KEY: Color32 = Color32::from_rgb(0x2a, 0x2e, 0x38);
+/// Brass and its lit trace, which the research key was drawn in and a
+/// few pictures still borrow.
 const KEY_EDGE: Color32 = Color32::from_rgb(0xcc, 0xa8, 0x4c);
 const KEY_TRACE: Color32 = Color32::from_rgb(0xff, 0xdb, 0x66);
 // The engineer's kits: the sack's hessian and a sentry crate's grey
@@ -470,13 +469,6 @@ fn draw_resource(s: &mut Sketch, b: &Box_, id: ResourceId) {
                 Stroke::new(b.px(0.12), HILT),
             );
         }
-        // The research key: a tall dark slab with a brass rim, a notch cut
-        // out of its top edge, and a lit trace zig-zagging down it. Drawn
-        // to the cell's height, so in a two-cell slot it is a tall key
-        // and in a one-cell one a short one. The tier-two key is the same
-        // slab with its rim and trace in the theme's tier-two colour.
-        ResourceId::ResearchKey => key(s, b, KEY_EDGE, KEY_TRACE),
-        ResourceId::ResearchKeyTwo => key(s, b, theme::TIER_TWO, theme::TIER_TWO),
     }
 }
 
@@ -1114,25 +1106,6 @@ fn polar(r: f32, degrees: f32) -> (f32, f32) {
 fn polar_at(x: f32, y: f32, r: f32, degrees: f32) -> (f32, f32) {
     let a = degrees.to_radians();
     (x + r * a.cos(), y + r * a.sin())
-}
-
-/// A research key: the slab, its rim and notch, and the lit trace down it
-/// in the two colours a tier gives it.
-fn key(s: &mut Sketch, b: &Box_, edge: Color32, trace: Color32) {
-    s.rect_filled(b.rect(0.28, 0.08, 0.72, 0.92), b.px(0.04), edge);
-    s.rect_filled(b.rect(0.33, 0.13, 0.67, 0.87), b.px(0.03), KEY);
-    s.rect_filled(b.rect(0.44, 0.08, 0.56, 0.18), 0.0, KEY);
-    let path = [
-        b.at(0.50, 0.24),
-        b.at(0.40, 0.38),
-        b.at(0.60, 0.52),
-        b.at(0.40, 0.66),
-        b.at(0.50, 0.80),
-    ];
-    for pair in path.windows(2) {
-        s.line_segment([pair[0], pair[1]], Stroke::new(b.px(0.05), trace));
-    }
-    s.circle_filled(b.at(0.50, 0.80), b.px(0.05), trace);
 }
 
 /// The armour, seen from the front: a suit that covers the whole body —

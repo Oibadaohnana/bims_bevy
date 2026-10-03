@@ -1207,12 +1207,6 @@ fn the_checksum_notices_every_kind_of_change() {
             .holdings
             .put(Item::Weapon(WeaponKind::LaserPistol.at(Tier::One)));
         assert_ne!(world.checksum(), other.checksum(), "one pistol is tier two");
-        // A key picked up.
-        world.pick_up_key(&mut Vec::new());
-        assert_ne!(world.checksum(), twin.checksum(), "a key picked up");
-        twin.holdings.keys += 1;
-        twin.holdings.next_id = world.holdings.next_id;
-        assert_eq!(world.checksum(), twin.checksum());
         // A charge changed: a grenade held (task 120 took the bandage this
         // used to spend, and task 127 made a charge a counter).
         world.set_charges_held(0, crate::class::Charge::Grenade, 1);

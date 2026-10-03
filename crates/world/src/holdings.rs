@@ -6,8 +6,7 @@
 //! - **The ship's holdings** ([`Holdings`]): the money — the shared pool,
 //!   `World::money`, which is not kept here — the **armory**, every weapon
 //!   and piece of armour nobody wears, each a [`Stored`] with an id that
-//!   only climbs; and the **research keys**, a count, added the moment one
-//!   is picked up. Saved, and in `world_checksum` whole.
+//!   only climbs. Saved, and in `world_checksum` whole.
 //! - **Each Bim's loadout**: one weapon slot and one slot a part of the
 //!   body (`bims::combat::Gear`, the room's, since the room's health and
 //!   aim read it) — that is everything a Bim carries. Its class kits and
@@ -209,8 +208,8 @@ pub enum GearSource {
     Worn { who: u32, slot: GearSlot },
 }
 
-/// The ship's holdings bar the money: the armory, the research keys, and
-/// the offers between players standing. Saved, and in `world_checksum`
+/// The ship's holdings bar the money: the armory and the offers between
+/// players standing. Saved, and in `world_checksum`
 /// whole.
 #[derive(Clone, PartialEq, Debug, Default)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -218,8 +217,6 @@ pub struct Holdings {
     /// Every weapon and piece of armour nobody wears, in the order they
     /// came in.
     pub armory: Vec<Stored>,
-    /// How many research keys the crew have picked up.
-    pub keys: u32,
     /// The next id: an armory entry's, and a piece of armour's made new.
     /// Only ever climbs.
     pub next_id: u32,

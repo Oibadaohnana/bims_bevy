@@ -123,7 +123,9 @@ use serde::{Deserialize, Serialize};
 /// site's defender still stands: both ends must lose alike.
 /// 105: *Bounty Contract* pays +50% a machine down, not +100%: both ends
 /// must pay alike.
-pub const PROTOCOL: u32 = 105;
+/// 106: the research keys went — out of the checksum, and two resources
+/// fewer for a station's price lean: both ends must hash and roll alike.
+pub const PROTOCOL: u32 = 106;
 
 /// Where the relay lives. `BIMS_SERVER` in the environment overrides it
 /// — `ws://127.0.0.1:8792` for one on the same machine.

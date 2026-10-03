@@ -796,6 +796,12 @@ else.
 
 ## Research is a tree in `research.rs`, and a key opens one node
 
+> **The keys went in October 2026**: `ResourceId::{ResearchKey,
+> ResearchKeyTwo}` (13, 14, left free), `KEY_CELLS`, `NodeDef::locked`
+> and `Research::{unlocked, unlock, is_unlocked, needs_key, key_wanted}`.
+> A node is begun once what it requires is known; nothing is locked.
+> What follows about keys is the history.
+
 `crates/shipdesign/src/research.rs` is the rules crate's half of what the
 crew know: `Node` (**five** since the money rework, codes 0–4 — 3 the
 hyperdrive, 4 the upgrades, the one tier-two node; the five nodes it

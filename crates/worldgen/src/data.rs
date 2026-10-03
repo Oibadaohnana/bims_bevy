@@ -244,18 +244,9 @@ impl StationKind {
         use physics::ResourceId;
         match (self, resource) {
             (StationKind::Derelict, _) => false,
-            // A research key is found on a station's research desk, never
-            // on its shelf; a class's charges (features 88 and 90) come
-            // back on a cooldown and nobody stocks one; and the medicine
-            // went out of the game (task 120). Any station buys any of
-            // them.
-            (
-                _,
-                ResourceId::ResearchKey
-                | ResourceId::ResearchKeyTwo
-                | ResourceId::Medkit
-                | ResourceId::Bandage,
-            ) => false,
+            // The medicine went out of the game (task 120). Any station
+            // buys it.
+            (_, ResourceId::Medkit | ResourceId::Bandage) => false,
             // A pressure suit hangs where people work outside.
             (StationKind::Refinery | StationKind::MiningOutpost, ResourceId::Suit) => true,
             (_, ResourceId::Suit) => false,
@@ -466,13 +457,7 @@ mod tests {
             for resource in ResourceId::ALL {
                 let want = match (kind, resource) {
                     (StationKind::Derelict, _) => false,
-                    (
-                        _,
-                        ResourceId::ResearchKey
-                        | ResourceId::ResearchKeyTwo
-                        | ResourceId::Medkit
-                        | ResourceId::Bandage,
-                    ) => false,
+                    (_, ResourceId::Medkit | ResourceId::Bandage) => false,
                     (StationKind::Refinery | StationKind::MiningOutpost, ResourceId::Suit) => true,
                     (_, ResourceId::Suit) => false,
                     _ => true,
@@ -482,8 +467,6 @@ mod tests {
         }
         assert!(!StationKind::Orbital.sells(ResourceId::Medkit));
         assert!(StationKind::Orbital.sells(ResourceId::Vegetable));
-        assert!(!StationKind::Orbital.sells(ResourceId::ResearchKey));
-        assert!(!StationKind::Relay.sells(ResourceId::ResearchKeyTwo));
         // The medicine: nowhere (task 120), and not a staple.
         assert!(!StationKind::Orbital.sells(ResourceId::Bandage));
         assert!(!STAPLES.contains(&ResourceId::Bandage));

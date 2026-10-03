@@ -1,8 +1,8 @@
 //! Task 113: nothing is stored. The ship's holdings — the pool, the
-//! armory and the research keys — and each Bim's loadout: when a loadout
+//! armory — and each Bim's loadout: when a loadout
 //! may change, who may change what, armour that is never destroyed, a
-//! dead player back with everything it wore, a dead bot's kit kept, a key
-//! counted the moment it is picked up, and all of it in the checksum.
+//! dead player back with everything it wore, a dead bot's kit kept, and
+//! all of it in the checksum.
 
 use bims::combat::{ArmourKind, Item, Piece, Tier, WeaponKind};
 use shipdesign::fixture::{flyer, playtest_ship};
@@ -663,21 +663,8 @@ fn a_dead_or_left_behind_bot_s_loadout_is_in_the_armory() {
     );
 }
 
-/// **A key picked up is counted the moment it is**, and said.
-#[test]
-fn a_key_picked_up_is_counted_at_once() {
-    let mut world = crewed_world(flyer(2), REFERENCE_MONEY, 1, 1);
-    assert_eq!(world.holdings.keys, 0);
-    let mut events = Vec::new();
-    world.pick_up_key(&mut events);
-    assert_eq!(world.holdings.keys, 1, "counted before any step");
-    assert!(events.contains(&WorldEvent::KeyFound { keys: 1 }));
-    world.pick_up_key(&mut events);
-    assert_eq!(world.holdings.keys, 2);
-}
-
-/// **The holdings are in the checksum**: a thing in the armory, a key
-/// and an offer each move it.
+/// **The holdings are in the checksum**: a thing in the armory and an
+/// offer each move it.
 #[test]
 fn the_holdings_change_the_checksum() {
     let mut world = crewed_world(flyer(2), REFERENCE_MONEY, 2, 2);
@@ -686,9 +673,6 @@ fn the_holdings_change_the_checksum() {
     stock(&mut world, Item::Weapon(WeaponKind::Shotgun.basic()));
     let stocked = world_checksum(&world);
     assert_ne!(stocked, world_checksum(&twin), "a thing in the armory");
-    world.holdings.keys += 1;
-    let keyed = world_checksum(&world);
-    assert_ne!(keyed, stocked, "a key");
     world.leave_for_probe();
     let before = world_checksum(&world);
     world.holdings.offers.push(crate::holdings::Offer {

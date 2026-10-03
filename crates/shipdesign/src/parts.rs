@@ -186,17 +186,17 @@ pub enum PartKind {
     /// `covered`. Laid in a station's hallways, and buildable on a ship.
     Sandbags = 31,
     /// The research computer desk: a console the ship's AI does its
-    /// research at — see [`crate::research`] — with one slot in it for a
-    /// research key (`Storage::Research`, one). A table's footprint,
-    /// worked from the tile below, and seen over. Every friendly
-    /// station keeps one in its research room, and the key on it is what
-    /// the crew go ashore for.
+    /// research at — see [`crate::research`] — with the one slot a research
+    /// key sat in (`Storage::Research`, one), empty since the keys went. A
+    /// table's footprint, worked from the tile below, and seen over. Every
+    /// station keeps one in its research room, and at a site the machines
+    /// hold a relic cache lay on it.
     ResearchDesk = 32,
     /// The hyperdrive: what jumps the ship to another star. A two-by-two
     /// block on deck that is **bolted to a main engine** — a tile of its
     /// footprint four-neighbour to a tile of an engine's,
-    /// [`crate::hyperdrive::connected`] — or it does nothing. Behind a tier-one key in the research
-    /// tree (`research::Node::Hyperdrive`). What a jump *is* — the charge,
+    /// [`crate::hyperdrive::connected`] — or it does nothing. Researched in
+    /// the tree (`research::Node::Hyperdrive`). What a jump *is* — the charge,
     /// the empty space it lands in — is `world`'s.
     Hyperdrive = 33,
     /// A wall light: a lamp on a bracket against a bulkhead or the hull —
@@ -1028,8 +1028,8 @@ pub static PARTS: [PartDef; 44] = [
         torque_thrust: 0.0,
     },
     // The research desk: a console on a table's footprint, worked from
-    // the tile below and seen over like the trading desk, and holding
-    // one research key in its own class of slot.
+    // the tile below and seen over like the trading desk, with the one
+    // slot of its own class a research key sat in.
     PartDef {
         kind: PartKind::ResearchDesk,
         footprint: (2, 1),

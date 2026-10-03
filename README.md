@@ -427,9 +427,9 @@ back, no locker to put a gun in and nothing to take off a body — the
 armoury, the lockers and the shelves still stand on the deck, and they
 are furniture. What the crew own is two things:
 
-- **The ship's holdings**: the money, the **armory** — every weapon and
-  piece of armour nobody is wearing — and the **research keys**, counted
-  the moment one is picked up.
+- **The ship's holdings**: the money and the **armory** — every weapon
+  and piece of armour nobody is wearing. (The research keys counted
+  here went in October 2026.)
 - **Each Bim's loadout**: a weapon and a piece for the head, the body and
   the legs. That is everything a Bim carries. A class's mines, Healing
   Sentries, satchels and grenades are **charges**, a count the world
@@ -1137,8 +1137,8 @@ back.
 
 The **hyperdrive** is still a part like an engine — a two-by-two block on
 deck, wired like anything that draws, and **bolted to a main engine** or
-the designer says so — and still behind a tier-one research key, after
-fusion power. A run's jump does not ask for one: every trip across a lane
+the designer says so — and still researched in the designer's tree,
+though no key opens anything any more. A run's jump does not ask for one: every trip across a lane
 is quoted with the drive's twenty-minute charge, whatever is aboard.
 
 ### A town on a planet

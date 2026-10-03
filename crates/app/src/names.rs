@@ -234,7 +234,8 @@ pub const NOT_A_TOOL: &[u32] = &[
 
 /// What a station sells, indexed by `physics::ResourceId`'s code — blank
 /// where a resource went (15 to 17, task 127; 6, 8, 20 and 21 when a Bim
-/// came to wear one armour, October 2026).
+/// came to wear one armour, October 2026; 13 and 14 with the research
+/// keys).
 pub const RESOURCE_NAMES: [&str; 22] = [
     "Vegetables",
     "Tofu",
@@ -249,8 +250,9 @@ pub const RESOURCE_NAMES: [&str; 22] = [
     "Auto rifles",
     "Sniper rifles",
     "Schwords",
-    "Research keys",
-    "Tier-two keys",
+    // 13 and 14 were the research keys, gone October 2026.
+    "",
+    "",
     // 15 to 17 were the engineer's kits and the soldier's grenade, gone
     // when a class's charges became counters (task 127).
     "",
@@ -1767,9 +1769,6 @@ pub fn event_line(event: WorldEvent) -> Option<String> {
         WorldEvent::OfferWithdrawn { from, .. } => {
             format!("{}'s offer is withdrawn.", player_name(from))
         }
-        WorldEvent::KeyFound { keys } => {
-            format!("A research key picked up — the crew hold {keys}.")
-        }
         WorldEvent::BotLost { who: w } => format!("{} is gone for good.", who(w)),
         WorldEvent::TownFell { .. } => TOWN_FELL.into(),
         WorldEvent::PlayerGone { slot } => format!("{} has left the game.", player_name(slot)),
@@ -2478,8 +2477,6 @@ pub const ARMORY_OFFERED_TO: &str = "offered to";
 pub const ARMORY_TAKE_BACK: &str = "Take back";
 pub const ARMORY_STOCK: &str = "The armory";
 pub const ARMORY_NOTHING: &str = "Nothing in the armory.";
-pub const ARMORY_KEY: &str = "research key";
-pub const ARMORY_KEYS: &str = "research keys";
 /// The log's line for a loadout changed between missions.
 pub const GEAR_CHANGED: &str = "Gear changed hands.";
 /// The Squad panel.
@@ -3011,8 +3008,9 @@ pub const ITEM_TIPS: [&str; 22] = [
     "An auto rifle. Fires steadily while the trigger is held.",
     "A sniper rifle. Reaches furthest.",
     "A schword, a blade with a laser edge. Cuts, at arm's length.",
-    "A tier-one research key: an artifact off a station's research desk. Two cells tall. Put it in the ship's research desk and consume it there to open the locked part of the research tree.",
-    "A tier-two research key: an artifact off the research desk of one of the few stations that keep one. Two cells tall. Put it in the ship's research desk and consume it there to open the upgrades node, which wants it and no other.",
+    // 13 and 14 were the research keys (gone October 2026).
+    "",
+    "",
     // 15 to 17: gone (task 127).
     "",
     "",
@@ -3547,7 +3545,6 @@ mod tests {
                     part: 0,
                     to: 1,
                 },
-                WorldEvent::KeyFound { keys: 2 },
                 WorldEvent::Respawned {
                     who: 1,
                     paid: 5_000,

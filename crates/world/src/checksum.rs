@@ -190,11 +190,10 @@ pub fn world_checksum(world: &World) -> u64 {
 
     // The holdings (task 113): the armory — every thing's id, what it is
     // and, for a piece, what it has left to a hundredth, the way a piece
-    // anywhere else goes in — the keys, the offers standing and the next
-    // id, for the reason `next_site` is in.
+    // anywhere else goes in — the offers standing and the next id, for
+    // the reason `next_site` is in.
     let holdings = &world.holdings;
     hash.eat(holdings.next_id as u64);
-    hash.eat(holdings.keys as u64);
     hash.eat(holdings.armory.len() as u64);
     for stored in &holdings.armory {
         hash.eat(stored.id as u64);

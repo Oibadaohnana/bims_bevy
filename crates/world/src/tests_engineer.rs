@@ -376,7 +376,8 @@ fn no_kit_is_a_resource_any_more_and_nothing_was_renumbered() {
             .iter()
             .all(|&id| !(15..=17).contains(&(id as u32)))
     );
-    assert_eq!(ResourceId::ALL.len(), 15);
+    // Thirteen since the research keys (13, 14) went too.
+    assert_eq!(ResourceId::ALL.len(), 13);
     assert_eq!(ResourceId::CODES, 22);
     assert_eq!(shipdesign::CARGO_SLOTS, ResourceId::CODES);
     assert_eq!(ResourceId::Minigun as u32, 18);

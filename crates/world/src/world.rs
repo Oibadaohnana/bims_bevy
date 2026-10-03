@@ -930,8 +930,8 @@ pub struct World {
     /// step it holds. See [`World::melee_locks`].
     crew_locked: Vec<bool>,
     /// The ship's holdings bar the money (task 113, [`crate::holdings`]):
-    /// the armory — every weapon and piece of armour nobody wears — the
-    /// research keys picked up, and the offers between players standing.
+    /// the armory — every weapon and piece of armour nobody wears — and
+    /// the offers between players standing.
     /// In `world_checksum` whole.
     pub holdings: Holdings,
     /// What the ship and its hold were worth when the world opened —
@@ -1302,8 +1302,8 @@ impl World {
         };
 
         // Whatever gear the design was accepted carrying is so many whole
-        // things in the armory from the first step, and its research keys
-        // the holdings' count: nothing is stored in the hold (task 113).
+        // things in the armory from the first step: nothing is stored in
+        // the hold (task 113).
         world.stock_the_armory();
         // Which sites near home are traders on top of the roll (task 114):
         // derived, behind the Manufacturers' it reads.
@@ -1971,7 +1971,7 @@ impl World {
     ///   what any desk would pay);
     /// - every gun and every piece of armour the crew own — in the armory
     ///   or on a Bim's loadout (task 113) — at the same book and its
-    ///   **tier** (`economy::TIER_PRICE`), and the research keys;
+    ///   **tier** (`economy::TIER_PRICE`);
     /// - and the **money in hand**.
     ///
     /// Nothing a crew own changes what they are worth by moving from one
@@ -2021,10 +2021,6 @@ impl World {
                 }
             }
         }
-        // And the keys, at the tier-one key's book.
-        sum = sum.saturating_add(
-            trade_price(ResourceId::ResearchKey).saturating_mul(self.holdings.keys as Money),
-        );
         self.wallets
             .iter()
             .fold(sum.saturating_add(self.money), |sum, &w| {
@@ -3452,14 +3448,13 @@ impl World {
 
     /// The hold emptied, for a run that sets out with nothing aboard
     /// (feature 110): every count of the design's cargo at nought, the
-    /// armory and the keys with it — what the ship holds is the pool and
+    /// armory with it — what the ship holds is the pool and
     /// nothing else. The crew keep their loadouts and their charges.
     /// Taken at the start, so `start_worth` is taken again after it: the
     /// crew set out worth the ship, their loadouts and the pool.
     pub fn set_out_empty(&mut self) {
         self.ship.design.cargo = [0; CARGO_SLOTS];
         self.holdings.armory.clear();
-        self.holdings.keys = 0;
         self.on_ship_changed();
         self.start_worth = self.worth();
     }
@@ -3840,9 +3835,8 @@ impl World {
 
     // --- the holdings and the loadouts (task 113) ----------------------------
 
-    /// The design's gear cargo as things in the armory, and its research
-    /// keys as the holdings' count, every one of those counts at nought
-    /// after: what a world opens with. Nothing is stored in the hold, so a
+    /// The design's gear cargo as things in the armory, every one of
+    /// those counts at nought after: what a world opens with. Nothing is stored in the hold, so a
     /// ship accepted carrying three helms sets out with three helms in
     /// the armory, whole, at tier one.
     fn stock_the_armory(&mut self) {
@@ -3860,8 +3854,6 @@ impl World {
                     let piece = self.holdings.new_piece(kind, Tier::One);
                     self.holdings.put(Item::Armour(piece));
                 }
-            } else if matches!(id, ResourceId::ResearchKey | ResourceId::ResearchKeyTwo) {
-                self.holdings.keys += units;
             } else {
                 continue;
             }
@@ -3883,15 +3875,6 @@ impl World {
                 .count() as u32;
         }
         self.ship.design.carrying(resource)
-    }
-
-    /// A research key picked up (task 113): counted the moment it is.
-    /// The one door a key comes in by, for whatever lays one on a site.
-    pub fn pick_up_key(&mut self, events: &mut Vec<WorldEvent>) {
-        self.holdings.keys = self.holdings.keys.saturating_add(1);
-        events.push(WorldEvent::KeyFound {
-            keys: self.holdings.keys,
-        });
     }
 
     /// Whether player `slot` may change crew member `who`'s loadout: its
