@@ -943,6 +943,10 @@ pub const OVERRIDE_HEAL: f32 = 1.5;
 pub const HEAL_BEAM_RATE: [f32; 4] = [1.0, 1.5, 2.0, 2.5];
 /// How far the beam reaches, in tiles, a rank.
 pub const HEAL_BEAM_RANGES: [f32; 4] = [HEAL_BEAM_RANGE, 7.0, 8.0, 9.0];
+/// How far from the pointer, in tiles, the beam's key looks for a
+/// friendly to link when nobody is under it (`World::beam_patient_near`):
+/// the nearest the beam reaches within it is taken.
+pub const HEAL_BEAM_PICK_REACH: f32 = 3.0;
 /// How many patients the beam holds at once, each at the full rate, a
 /// rank.
 pub const HEAL_BEAM_PATIENTS: [usize; 4] = [1, 1, 1, 2];

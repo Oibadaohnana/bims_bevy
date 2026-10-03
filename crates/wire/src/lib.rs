@@ -131,7 +131,9 @@ use serde::{Deserialize, Serialize};
 /// 108: the engineer's satchels hit for 35/45/60/85 and his mines for
 /// half what they did (40/50/60/75), one/one/two/two charges: both ends
 /// must blast alike.
-pub const PROTOCOL: u32 = 108;
+/// 109: a medic's beam is kept out of sight, only the range breaking it:
+/// both ends must heal alike.
+pub const PROTOCOL: u32 = 109;
 
 /// Where the relay lives. `BIMS_SERVER` in the environment overrides it
 /// — `ws://127.0.0.1:8792` for one on the same machine.

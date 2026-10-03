@@ -7136,7 +7136,15 @@ The class's tables are `class.rs`'s (`HEAL_DRONE_*`, `TRIAGE`,
   joined (`defender_patient`). `patient_pos` (the crew's room's units; a
   defender's off `body_position`), `patient_bar`, `patient_standing` and
   `medic_heal` read and heal it in whichever room it lives in;
-  `patient_at` is the beam's pick — a crewmate under the pointer first.
+  `patient_at` is the beam's pick — a crewmate under the pointer first;
+  the app's E asks `beam_patient_near`, which off everybody takes the
+  nearest friendly the beam reaches (range and sight) within
+  `class::HEAL_BEAM_PICK_REACH` (three) tiles of the pointer, never the
+  medic or one already held. **A link is kept out of sight**:
+  `beam_reaches(.., sight)` asks sight only when a link is made
+  (`can_beam`), and `hand_the_room_the_medics` keeps one on range, life
+  and the room alone (`wire::PROTOCOL` 109;
+  `a_link_holds_out_of_sight_and_breaks_out_of_range`).
   `drone_patient` keeps a hurt crewmate, else the lowest crewmate, and
   only with none hurt a defender. A link is checked every step
   (`beam_reaches`), so one on a defender breaks when its room closes. The app names one by

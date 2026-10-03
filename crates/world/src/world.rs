@@ -344,7 +344,8 @@ pub enum Command {
     /// or unlink with `None` (feature 76, `crate::class`,
     /// `crate::medic`). Wants the medic fit to act and the patient
     /// alive, within [`class::HEAL_BEAM_RANGE`] tiles and in its sight
-    /// (`World::can_beam`) — or the medic itself (task 120). Linked, the
+    /// (`World::can_beam`) — or the medic itself (task 120); once linked,
+    /// only the range breaks it, never sight. Linked, the
     /// patient gains [`class::HEAL_BEAM_HP`] hit points an hour of the
     /// clock times the rank's [`class::HEAL_BEAM_RATE`] (task 130), and
     /// the medic heals as much himself (task 153); he fires at his full
@@ -9157,75 +9158,6 @@ impl World {
         &mut self.medics[who]
     }
 
-    /// What a medic shoots with (task 130): whatever he is doing, a
-    /// crewmate he revives gets up at [`class::MEDIC_REVIVED_TO`] of its
-    /// bar. He fires at his full rate with the beam linked (task 153).
-    fn medic_skill(&self, _who: u32) -> bims::combat::Skill {
-        let mut skill = bims::combat::Skill::NONE;
-        skill.revived_to = class::MEDIC_REVIVED_TO;
-        skill
-    }
-
-    // What every heal of his is lifted by (task 153).
-
-    /// What a heal of medic `medic`'s on crew member `who` is multiplied
-    /// by, where `who` stands on its bar now: his **Triage** — one plus
-    /// the rank's [`class::TRIAGE`] times the share of the bar `who` is
-    /// missing — times [`class::OVERRIDE_HEAL`] while he carries an
-    /// *Override Core*. One for anybody not a medic.
-    pub fn medic_heal_factor(&self, medic: u32, who: u32) -> f32 {
-        if !self.is_medic(medic) {
-            return 1.0;
-        }
-        let (health, max) = self.patient_bar(who).unwrap_or((0.0, 0.0));
-        let missing = if max > 0.0 {
-            (1.0 - health / max).clamp(0.0, 1.0)
-        } else {
-            0.0
-        };
-        let triage =
-            class::by_rank(class::TRIAGE, self.rank_of(medic, class::SLOT_C)).unwrap_or(0.0);
-        (1.0 + triage * missing) * self.override_heal(medic)
-    }
-
-    /// [`class::OVERRIDE_HEAL`] for a medic carrying an *Override Core*,
-    /// one otherwise: what his heals are worth before his Triage, and so
-    /// what his circle drains him and burns the enemy by.
-    pub fn override_heal(&self, medic: u32) -> f32 {
-        if self.is_medic(medic) && self.carries_item(medic, ModuleKind::OverrideCore) {
-            class::OVERRIDE_HEAL
-        } else {
-            1.0
-        }
-    }
-
-    /// `points` of health put into crew member `who` by medic `medic`,
-    /// times his [`World::medic_heal_factor`] on it: what the beam, the
-    /// drone and the circle heal through — a defender (`medic::GUEST +
-    /// i`) in its own room. How much went in.
-    fn medic_heal(&mut self, medic: u32, who: u32, points: f32) -> f32 {
-        let points = points * self.medic_heal_factor(medic, who);
-        match self.defender_patient(who) {
-            Some(i) => self
-                .residents
-                .as_mut()
-                .map_or(0.0, |r| r.aboard.room.heal(i, points)),
-            None => self.aboard.room.heal(who as usize, points),
-        }
-    }
-
-    // The Heal Beam (E).
-
-    /// The beam's rank, read as its first where none is bought: what the
-    /// readings below take, so a box can say what the first rank would do.
-    fn beam_rank(&self, who: u32) -> u8 {
-        self.rank_of(who, class::SLOT_E).max(1)
-    }
-
-    /// How far a medic's beam reaches, in tiles, at his rank
-    /// ([`class::HEAL_BEAM_RANGES`]).
-    pub fn beam_range(&self, who: u32) -> f32 {
-        class::by_rank(class::HEAL_BEAM_RANGES, self.beam_rank(who))
     // Whom a medic heals: a crew member by index, or a site's defender as
     // `medic::GUEST + i` — the beam's link and the drone reach both.
 
@@ -9302,6 +9234,105 @@ impl World {
         })
     }
 
+    /// Whom medic `medic`'s beam key links at a room point: the patient
+    /// under it ([`World::patient_at`]), else the nearest to it within
+    /// [`class::HEAL_BEAM_PICK_REACH`] tiles that the beam reaches now —
+    /// a crewmate or a defender, never the medic himself and never one he
+    /// already holds — the lower index on a tie. So a key pressed beside
+    /// a friendly links it rather than nobody.
+    pub fn beam_patient_near(&self, medic: u32, x: f32, y: f32) -> Option<u32> {
+        if let Some(under) = self.patient_at(x, y) {
+            return Some(under);
+        }
+        let p = bims::math::vec2(x, y);
+        let reach = class::HEAL_BEAM_PICK_REACH * shipdesign::TILE as f32;
+        let held = self.patients_of(medic);
+        let guests = self
+            .residents
+            .as_ref()
+            .map_or(0, |r| r.aboard.room.crew_count());
+        let crew = 0..self.aboard.crew_count();
+        let defenders = (0..guests).map(|i| crate::medic::GUEST + i);
+        crew.chain(defenders)
+            .filter(|&c| c != medic && !held.contains(&c))
+            .filter(|&c| self.beam_reaches(medic, c, true).is_ok())
+            .filter_map(|c| {
+                let d = (self.patient_pos(c)? - p).len();
+                (d <= reach).then_some((d, c))
+            })
+            .min_by(|a, b| a.0.total_cmp(&b.0).then(a.1.cmp(&b.1)))
+            .map(|(_, c)| c)
+    }
+
+    /// What a medic shoots with (task 130): whatever he is doing, a
+    /// crewmate he revives gets up at [`class::MEDIC_REVIVED_TO`] of its
+    /// bar. He fires at his full rate with the beam linked (task 153).
+    fn medic_skill(&self, _who: u32) -> bims::combat::Skill {
+        let mut skill = bims::combat::Skill::NONE;
+        skill.revived_to = class::MEDIC_REVIVED_TO;
+        skill
+    }
+
+    // What every heal of his is lifted by (task 153).
+
+    /// What a heal of medic `medic`'s on crew member `who` is multiplied
+    /// by, where `who` stands on its bar now: his **Triage** — one plus
+    /// the rank's [`class::TRIAGE`] times the share of the bar `who` is
+    /// missing — times [`class::OVERRIDE_HEAL`] while he carries an
+    /// *Override Core*. One for anybody not a medic.
+    pub fn medic_heal_factor(&self, medic: u32, who: u32) -> f32 {
+        if !self.is_medic(medic) {
+            return 1.0;
+        }
+        let (health, max) = self.patient_bar(who).unwrap_or((0.0, 0.0));
+        let missing = if max > 0.0 {
+            (1.0 - health / max).clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
+        let triage =
+            class::by_rank(class::TRIAGE, self.rank_of(medic, class::SLOT_C)).unwrap_or(0.0);
+        (1.0 + triage * missing) * self.override_heal(medic)
+    }
+
+    /// [`class::OVERRIDE_HEAL`] for a medic carrying an *Override Core*,
+    /// one otherwise: what his heals are worth before his Triage, and so
+    /// what his circle drains him and burns the enemy by.
+    pub fn override_heal(&self, medic: u32) -> f32 {
+        if self.is_medic(medic) && self.carries_item(medic, ModuleKind::OverrideCore) {
+            class::OVERRIDE_HEAL
+        } else {
+            1.0
+        }
+    }
+
+    /// `points` of health put into crew member `who` by medic `medic`,
+    /// times his [`World::medic_heal_factor`] on it: what the beam, the
+    /// drone and the circle heal through — a defender (`medic::GUEST +
+    /// i`) in its own room. How much went in.
+    fn medic_heal(&mut self, medic: u32, who: u32, points: f32) -> f32 {
+        let points = points * self.medic_heal_factor(medic, who);
+        match self.defender_patient(who) {
+            Some(i) => self
+                .residents
+                .as_mut()
+                .map_or(0.0, |r| r.aboard.room.heal(i, points)),
+            None => self.aboard.room.heal(who as usize, points),
+        }
+    }
+
+    // The Heal Beam (E).
+
+    /// The beam's rank, read as its first where none is bought: what the
+    /// readings below take, so a box can say what the first rank would do.
+    fn beam_rank(&self, who: u32) -> u8 {
+        self.rank_of(who, class::SLOT_E).max(1)
+    }
+
+    /// How far a medic's beam reaches, in tiles, at his rank
+    /// ([`class::HEAL_BEAM_RANGES`]).
+    pub fn beam_range(&self, who: u32) -> f32 {
+        class::by_rank(class::HEAL_BEAM_RANGES, self.beam_rank(who))
             .unwrap_or(class::HEAL_BEAM_RANGE)
     }
 
@@ -9321,9 +9352,11 @@ impl World {
 
     /// Whether a crew member — or a site's defender, `medic::GUEST + i` —
     /// is where a medic's beam reaches it: alive, in the room, within the
-    /// medic's range and in its sight — or the medic itself (task 120: a
-    /// medic may beam its own bar). What a link asks, and what keeps one.
-    fn beam_reaches(&self, medic: u32, patient: u32) -> Result<(), Refusal> {
+    /// medic's range and, with `sight`, in its sight — or the medic itself
+    /// (task 120: a medic may beam its own bar). What a link asks with
+    /// `sight`; a link once made is kept without it, so only the range (or
+    /// the patient gone) breaks it, never a wall or a door between.
+    fn beam_reaches(&self, medic: u32, patient: u32, sight: bool) -> Result<(), Refusal> {
         let room = &self.aboard.room;
         let (m, p) = (medic as usize, patient as usize);
         let defender = self.defender_patient(patient).is_some();
@@ -9343,7 +9376,7 @@ impl World {
         if (at - room.bim_pos(m)).len() > self.beam_range(medic) * t {
             return Err(Refusal::OutOfBeamRange);
         }
-        if !room.sees(m, at) {
+        if sight && !room.sees(m, at) {
             return Err(Refusal::NoSightOfPatient);
         }
         Ok(())
@@ -9366,7 +9399,7 @@ impl World {
         if self.rank_of(slot, class::SLOT_E) == 0 {
             return Err(Refusal::NotLearnt);
         }
-        self.beam_reaches(slot, patient)
+        self.beam_reaches(slot, patient, true)
     }
 
     /// Link, or unlink — see [`Command::Beam`]. A patient already held is
@@ -9497,6 +9530,12 @@ impl World {
                 .filter(|&p| hurt(p))
                 .min_by(|&a, &b| share(a).total_cmp(&share(b)).then(a.cmp(&b)))
         };
+        if let Some(p) = held.filter(|&p| p < crate::medic::GUEST && hurt(p)) {
+            return Some(p);
+        }
+        if let Some(p) = lowest(&mut (0..self.aboard.crew_count())) {
+            return Some(p);
+        }
         if let Some(p) = held.filter(|&p| hurt(p)) {
             return Some(p);
         }
@@ -9560,12 +9599,6 @@ impl World {
     /// medic — a Healing Sentry, an item, a relic. How much went in.
     pub(crate) fn heal_crew(&mut self, who: u32, points: f32) -> f32 {
         self.aboard.room.heal(who as usize, points)
-        if let Some(p) = held.filter(|&p| p < crate::medic::GUEST && hurt(p)) {
-            return Some(p);
-        }
-        if let Some(p) = lowest(&mut (0..self.aboard.crew_count())) {
-            return Some(p);
-        }
     }
 
     // The Healing Circle (R).
@@ -9770,8 +9803,8 @@ impl World {
 
     /// Before the rooms step: every beam checked — broken where the room
     /// ended it (an order to an errand, the medic down), the medic unfit
-    /// to act, or a patient dead, gone from the room, out of range or out
-    /// of sight — and every beamed body given its hit points for the
+    /// to act, or a patient dead, gone from the room or out of range —
+    /// never for sight alone — and every beamed body given its hit points for the
     /// step through `medic_heal` (task 130), **the medic too** as much as
     /// a patient is (task 153) — once, however many he holds, and once
     /// when the patient is himself. Two beams on one body: the stronger.
@@ -9784,6 +9817,7 @@ impl World {
         // The strongest heal an hour reaching each body, and whose — the
         // crew by index, a site's defenders in the order first linked.
         let mut held: Vec<Option<(f32, u32)>> = vec![None; crew];
+        let mut defenders: Vec<(u32, Option<(f32, u32)>)> = Vec::new();
         for m in 0..crew {
             if !self.medics[m].is_linked() {
                 continue;
@@ -9795,7 +9829,7 @@ impl World {
             } else {
                 was.iter()
                     .copied()
-                    .filter(|&p| self.beam_reaches(who, p).is_ok())
+                    .filter(|&p| self.beam_reaches(who, p, false).is_ok())
                     .collect()
             };
             if keep.is_empty() {
@@ -9861,7 +9895,6 @@ impl World {
             self.aboard.room.set_medivac(who as usize, medivac);
         }
     }
-        let mut defenders: Vec<(u32, Option<(f32, u32)>)> = Vec::new();
 
     /// The hit points a level puts on a classed crew member's bar
     /// ([`class::level_health`], ten a level), said to the room every

@@ -1723,14 +1723,6 @@ impl Session {
         Some(world_paint::crew_on_screen(game, who))
     }
 
-    /// Every medic's Heal Drone in the air (task 153), in the camera's
-    /// units: where it is, where the Bim it is over stands while it is
-    /// within reach of it, and the share of its time it has left. Empty
-    /// before there is a world.
-    pub fn drones_on_screen(&self) -> Vec<((f32, f32), Option<(f32, f32)>, f32)> {
-        let Some(game) = self.game.as_ref() else {
-            return Vec::new();
-        };
     /// Where a medic's patient is drawn, in the camera's units: a crew
     /// member as [`Session::crew_on_screen`], a site's defender
     /// (`world::medic::GUEST + i`) as [`Session::resident_on_screen`].
@@ -1741,6 +1733,14 @@ impl Session {
         }
     }
 
+    /// Every medic's Heal Drone in the air (task 153), in the camera's
+    /// units: where it is, where the Bim it is over stands while it is
+    /// within reach of it, and the share of its time it has left. Empty
+    /// before there is a world.
+    pub fn drones_on_screen(&self) -> Vec<((f32, f32), Option<(f32, f32)>, f32)> {
+        let Some(game) = self.game.as_ref() else {
+            return Vec::new();
+        };
         let world = &game.world;
         let reach = world::class::HEAL_DRONE_REACH * shipdesign::TILE as f32;
         (0..world.aboard.crew_count())

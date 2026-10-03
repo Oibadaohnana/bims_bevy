@@ -639,6 +639,64 @@ fn the_fourth_rank_holds_two_patients_at_the_full_rate() {
     assert_eq!(world.patients_of(0), vec![2, 0], "the oldest let go");
 }
 
+/// **The beam's key forgives a near miss**: off everybody, it takes the
+/// nearest friendly the beam reaches within
+/// [`class::HEAL_BEAM_PICK_REACH`] tiles of the pointer — never the medic
+/// himself, never one already held — and nobody past that.
+#[test]
+fn the_beam_s_key_takes_the_nearest_friendly_beside_the_pointer() {
+    let mut world = medic_at([0, 0, 1, 0]);
+    let at = stand_off(&mut world, 1, 0, 2.0);
+    let medic = world.aboard.room.bim_pos(0);
+    // On it: the patient under the pointer, as before.
+    assert_eq!(world.beam_patient_near(0, at.x, at.y), Some(1));
+    // A tile and a half past it, on nobody: still crew member 1.
+    let miss = at + (at - medic).normalize_or_zero() * (1.5 * TILE);
+    assert_eq!(world.patient_at(miss.x, miss.y), None, "nobody under it");
+    assert_eq!(world.beam_patient_near(0, miss.x, miss.y), Some(1));
+    // Past the reach: nobody.
+    let far = at + (at - medic).normalize_or_zero() * ((class::HEAL_BEAM_PICK_REACH + 0.5) * TILE);
+    assert_eq!(world.beam_patient_near(0, far.x, far.y), None);
+    // Held already, it is not picked again by a near miss (the key on
+    // nobody unlinks), and the medic beside the pointer is not picked.
+    assert!(linked(&beam(&mut world, 0, Some(1)), 0, Some(1)));
+    assert_eq!(world.beam_patient_near(0, miss.x, miss.y), None);
+    let by_medic = medic - (at - medic).normalize_or_zero() * TILE;
+    assert_eq!(world.patient_at(by_medic.x, by_medic.y), None);
+    assert_eq!(world.beam_patient_near(0, by_medic.x, by_medic.y), None);
+}
+
+/// **A link is broken by the range, never by sight**: a wall coming
+/// between the medic and his patient keeps the beam on — though a new
+/// link still wants sight — and the patient walking out of range breaks
+/// it.
+#[test]
+fn a_link_holds_out_of_sight_and_breaks_out_of_range() {
+    let mut world = medic_at([0, 0, 1, 0]);
+    hurt(&mut world, 1, 20.0);
+    assert!(linked(&beam(&mut world, 0, Some(1)), 0, Some(1)));
+    put_behind_a_wall(&mut world, 4.0).expect("a wall with deck both sides on the ship");
+    let before = world.aboard.room.health(1);
+    run_for(&mut world, 2.0);
+    assert_eq!(world.patients_of(0), vec![1], "held behind the wall");
+    assert!(world.aboard.room.health(1) > before + 1.0, "and healing");
+    assert_eq!(
+        world.can_beam(0, 1),
+        Err(Refusal::NoSightOfPatient),
+        "a new link wants sight"
+    );
+    // Out of range: broken.
+    let medic = world.aboard.room.bim_pos(0);
+    let out = world.beam_range(0) + 1.5;
+    let spot = stand_off(&mut world, 1, 0, out);
+    assert!(
+        (spot - medic).len() > world.beam_range(0) * TILE,
+        "stood out of range"
+    );
+    assert!(world.patients_of(0).is_empty(), "broken by the range");
+    assert!(!world.is_beaming(0));
+}
+
 /// **A medic linked fires at his full rate at every rank, and the link
 /// heals him as much as his patient** (task 153) — once, two patients or
 /// himself.

@@ -2411,12 +2411,14 @@ half a bar, none on a whole one.
 pointer — a player's Bim, a bot, a mercenary, **a site's defender** (a
 crewmate under the pointer first), or **the medic itself** —
 never an enemy, within its range and in the medic's line of sight.
+**A near miss still links**: off everybody, the key takes the nearest
+friendly the beam reaches within three tiles of the pointer.
 Pressed on the one it already holds, or on nothing, it unlinks. **He
 keeps shooting at his full rate while linked**, and **the link heals him
 as well** — as much as it gives a patient, once however many he holds,
 and once when the patient is himself. A downed patient gets nothing
 back: it wants reviving. The beam breaks when the patient leaves the
-range or the medic's sight, dies or leaves the room; when the medic goes
+range (a wall coming between them does not break it), dies or leaves the room; when the medic goes
 down, is ordered to an errand — a plain walk keeps it — or unlinks. A
 line in the beam's green is drawn between the two on the deck (a ring
 round a medic beaming itself), and the crew panel says who is held.

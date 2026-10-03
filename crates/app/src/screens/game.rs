@@ -2569,8 +2569,10 @@ fn frame(
                     // And the crew member under the pointer, for a
                     // medic's beam (feature 76) — its own Bim among them,
                     // since a medic may beam itself (task 120) — or, with
-                    // no crewmate there, a site's defender.
-                    let under = room.and_then(|(rx, ry)| game.world.patient_at(rx, ry));
+                    // no crewmate there, a site's defender; off everybody,
+                    // the nearest friendly the beam reaches near it.
+                    let under =
+                        room.and_then(|(rx, ry)| game.world.beam_patient_near(slot, rx, ry));
                     let (order, line) = match primary {
                         _ if ranked => ranked_key(&game.world, slot, action, tile, under),
                         Some(primary) => class_key(&game.world, slot, primary, tile, under),
@@ -4014,11 +4016,11 @@ fn frame(
         let t = shipdesign::TILE as f32;
         // And the commander (feature 78): the aura's radius round him,
         // a ring under every Bim it lifts — a player's own included.
+        // A crew member, or a site's defender a medic's key reaches.
         let on_screen = |who: u32| {
-            session.crew_on_screen(who).map(|(x, y)| {
+            session.patient_on_screen(who).map(|(x, y)| {
                 let p = view.to_canvas(Vec2::new(x, y)) + canvas.min;
                 egui::pos2(p.x, p.y)
-        // A crew member, or a site's defender a medic's key reaches.
             })
         };
         for who in 0..crew {
