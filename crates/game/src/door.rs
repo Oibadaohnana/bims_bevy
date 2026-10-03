@@ -122,6 +122,12 @@ pub struct Door {
     moving: i8,
     /// A picture clock for the lamp.
     time: f32,
+    /// How open the leaves were when the crew last saw them, while they
+    /// do not: a door under the fog is drawn as it was left, not sliding
+    /// for somebody nobody sees. `None` while it is seen. The picture's
+    /// alone — never saved, never hashed; [`Door::set_seen`].
+    #[cfg_attr(feature = "serde", serde(skip))]
+    shown: Option<f32>,
 }
 
 impl Door {
@@ -147,7 +153,29 @@ impl Door {
             clear_for: SHUT_AFTER,
             moving: 0,
             time: 0.0,
+            shown: None,
         }
+    }
+
+    /// Whether the crew see the door this frame: seen, its leaves are
+    /// drawn where they are; unseen, where they were the last frame it
+    /// was seen, until it is seen again.
+    pub fn set_seen(&mut self, seen: bool) {
+        if seen {
+            self.shown = None;
+        } else if self.shown.is_none() {
+            self.shown = Some(self.open);
+        }
+    }
+
+    /// Whether the crew did not see it the last time it was drawn.
+    pub fn unseen(&self) -> bool {
+        self.shown.is_some()
+    }
+
+    /// How open the leaves are drawn: as the crew last saw them.
+    pub fn shown_open(&self) -> f32 {
+        self.shown.unwrap_or(self.open)
     }
 
     /// Whether the pathfinder may plan through it. Locked is the only no:
@@ -384,7 +412,7 @@ impl Door {
         let leaf = width * 0.5;
         for side in [-1.0f32, 1.0] {
             let shut = side * leaf * 0.5;
-            let at = c + u * lerp(shut, shut + side * leaf, self.open);
+            let at = c + u * lerp(shut, shut + side * leaf, self.shown_open());
             list.rect(at, vec2(leaf, deep), rot, 2.0, STEEL.alpha(0.55));
             list.rect(at, vec2(leaf - 5.0, deep - 5.0), rot, 2.0, PANEL_LIT);
             // Chevrons on the leading edge, pointing the way it opens, red
@@ -428,5 +456,32 @@ impl Door {
             1.0,
             WARN,
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A door nobody sees is drawn as it was last seen: it opens for a
+    /// body in the fog and the leaves stay shut in the picture until the
+    /// crew look again, when they are where they are.
+    #[test]
+    fn a_door_nobody_sees_is_drawn_as_it_was_last_seen() {
+        let mut door = Door::new(Rect::from_min_size(vec2(0.0, 0.0), vec2(104.0, 52.0)), true);
+        door.set_seen(true);
+        assert!(!door.unseen());
+        door.set_seen(false);
+        let at = door.rect.center();
+        for _ in 0..120 {
+            door.update(1.0 / 60.0, &[at]);
+            door.set_seen(false);
+        }
+        assert!(door.is_open(), "it opened for the body");
+        assert!(door.unseen());
+        assert_eq!(door.shown_open(), 0.0, "drawn shut, as last seen");
+        door.set_seen(true);
+        assert!(!door.unseen());
+        assert_eq!(door.shown_open(), door.open, "seen, drawn as it is");
     }
 }

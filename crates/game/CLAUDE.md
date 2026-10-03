@@ -2447,10 +2447,23 @@ carried), the smashing one way — see `crates/world/CLAUDE.md`.
 >   table the GPU reads as the fourth table (`lightmap.wgsl`, the body's
 >   pixel packed in `Eye::body`); the `near` tile bits and binding 8 are
 >   unread. `BIMS_LIGHTMAP=check` is 0 bytes off on a station and a town.
-> - **Deeper and bluer**: `MAP_DARK` 0.56, `MAP_FOG` 0.66, `GLOW` 0.28;
+> - **Deeper and bluer**: `MAP_DARK` 0.48, `MAP_FOG` 0.72, `GLOW` 0.28;
 >   at night (`Sight::set_night`, `Game::set_night`) `MAP_DARK_NIGHT`
->   0.78 and `MAP_FOG_NIGHT` 0.86 (`dark_alpha`, `fog_alpha`, also the
+>   0.66 and `MAP_FOG_NIGHT` 0.90 (`dark_alpha`, `fog_alpha`, also the
 >   plain's). The host draws the dark in `fogmap::DARKNESS`, a night blue.
+>   **The seen dark and the fog are pulled well apart** (they were 0.56 /
+>   0.66 and 0.78 / 0.86, task 152's): the eight tiles a body sees in
+>   the dark read as a ring against the fog — what is seen keeps twice
+>   the fog's light, three times at night — so the player can tell how
+>   far they see. A pool still reads against the seen dark.
+> - **A door nobody sees is drawn as it was last seen** (`Door::set_seen`,
+>   `Room::settle_seen_doors` at the top of `Game::render` — both its
+>   tiles under the fog, `Sight::hidden_at`), and the app plays no
+>   `DoorOpens`/`DoorShuts` of a door the crew did not see the last
+>   frame (`Game::door_unseen_at`), nor the station room's own while
+>   joined (the joined deck's doors are the same doors, heard there). A
+>   forcing is still heard. Picture only: `Door::shown` is neither saved
+>   nor hashed.
 > - **A dark map is seen forty tiles at most** (`DARK_MAP_VIEW`): on a
 >   night or with lamps switched off, `Sight::view_range` holds the eyes
 >   to forty tiles, lit tiles too (or the plain's own range, if

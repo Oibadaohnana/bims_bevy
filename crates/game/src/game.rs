@@ -9887,6 +9887,15 @@ impl Game {
         self.room.sight.seen_at(vec2(x, y))
     }
 
+    /// Whether a room point is in a door the crew did not see the last
+    /// time the room was drawn — a door drawn as it was last seen
+    /// (`Door::set_seen`), whose sliding the host does not play either.
+    pub fn door_unseen_at(&self, x: f32, y: f32) -> bool {
+        self.room
+            .door_at(vec2(x, y))
+            .is_some_and(|i| self.room.doors[i].unseen())
+    }
+
     /// What the fog over a room point is, as of the last trace: 0
     /// nothing, 1 the fog, whoever's the tile is — see `Sight::veil_at`.
     /// For the probes.
@@ -9971,6 +9980,13 @@ impl Game {
 
     pub fn render(&mut self) {
         self.list.clear();
+        // A door nobody sees is drawn as it was last seen: the fog hides
+        // who walks through it, so it must not slide for them either.
+        match self.fog {
+            Fog::Crew => self.room.settle_seen_doors(false),
+            Fog::All => self.room.settle_seen_doors(true),
+            Fog::None => {}
+        }
         self.room.draw(&mut self.list);
         // On the deck, under everything: the bodies walk over the blood.
         self.room.blood.draw(&mut self.list);

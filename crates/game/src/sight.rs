@@ -1347,6 +1347,14 @@ impl Sight {
         self.inside(x, y) && self.seen[self.index(x, y)]
     }
 
+    /// Whether the tile a point is in is under the fog, as of the last
+    /// trace — fogged and nobody sees it, or, with `all`, fogged at all
+    /// (a room nobody is looking into). Off the grid is never.
+    pub fn hidden_at(&self, p: Vec2, all: bool) -> bool {
+        let (x, y) = self.tile_of(p);
+        self.inside(x, y) && self.veiled(self.index(x, y), all)
+    }
+
     /// What is drawn over the tile a point is in, as of the last trace:
     /// 0 nothing, 1 the fog — the one veil there is, whoever's the tile
     /// is and whether or not anybody has looked at it. For the probes.
@@ -1439,17 +1447,24 @@ pub(crate) const RAYS: u32 = 4096;
 /// The fog over everything the crew do not see — their own deck, a
 /// stranger's, the plain — whether or not anybody has looked at it: the
 /// structure shows through it, and no body does (task 128).
-pub(crate) const MAP_FOG: f32 = 0.66;
+pub(crate) const MAP_FOG: f32 = 0.72;
 /// The dark over what they see that no light reaches — deep enough that
 /// a lamp's pool reads against it, short of the fog so what is seen is
 /// always brighter than what is not. Both went up with task 152 (from
-/// 0.62 and 0.50), so the edge of a pool is plain to see.
-pub(crate) const MAP_DARK: f32 = 0.56;
+/// 0.62 and 0.50), so the edge of a pool is plain to see; then the two
+/// were pulled apart (0.66 and 0.56 before), so the edge of how far a
+/// body sees in the dark — [`DARK_RANGE`] — is plain to see too: what
+/// is seen and unlit keeps nearly twice the light of the fog, where it
+/// kept a third more and the ring of sight was lost in the dark.
+pub(crate) const MAP_DARK: f32 = 0.48;
 /// The same two at night on a planet (task 152): the open ground under
 /// no sky is darker than a station's corridor, and what nobody sees is
-/// darker still — a night, where the lamps' pools are the town.
-pub(crate) const MAP_FOG_NIGHT: f32 = 0.86;
-pub(crate) const MAP_DARK_NIGHT: f32 = 0.78;
+/// darker still — a night, where the lamps' pools are the town. Pulled
+/// apart with the day's (0.86 and 0.78 before, the seen ground barely
+/// over the fog): what is seen keeps three times the fog's light, so
+/// the eight tiles round a body read as a ring in the night.
+pub(crate) const MAP_FOG_NIGHT: f32 = 0.90;
+pub(crate) const MAP_DARK_NIGHT: f32 = 0.66;
 /// The lamplight over a lit pixel at full brightness: the warm wash the
 /// host tints the deck with, nought to one, faded with the light — and
 /// how much of it shows through the fog over what the crew know, since
@@ -2573,7 +2588,11 @@ mod tests {
     /// and the lamplight are deeper, and a pixel is seen as far as its
     /// light stretches the fifteen tiles (`dark_reach`) — was 8 708 404 861
     /// 411 554 907 and 18 347 543 318 836 694 730.
-    const ALPHA_PINNED: u64 = 7_876_032_499_620_110_001;
+    ///
+    /// The darkness moved again, on purpose, when the seen dark and the
+    /// fog were pulled apart so the edge of sight in the dark shows
+    /// (`MAP_DARK` 0.48, `MAP_FOG` 0.72) — was 7 876 032 499 620 110 001.
+    const ALPHA_PINNED: u64 = 504_339_205_329_301_406;
     const GLOW_PINNED: u64 = 4_961_022_665_338_550_551;
 
     /// What a host drawing the light map keeps (task 121), and the walk

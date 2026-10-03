@@ -1616,12 +1616,21 @@ fn frame(
                     freeze.left = freeze.left.saturating_sub(1);
                 }
             }
+            // A door the crew do not see slides unheard, as it slides
+            // undrawn (`Game::door_unseen_at`); a forcing is still heard.
+            if is_door_slide(cued.cue)
+                && game.world.aboard.room.door_unseen_at(cued.at.x, cued.at.y)
+            {
+                continue;
+            }
             sounds.play(&mut commands, cued, own);
         }
         if let Some(residents) = game.world.residents.as_mut() {
             let joined = game.world.ship.state.alongside().is_some();
             for cued in residents.aboard.room.take_cues() {
-                if joined {
+                // The station's doors are the joined room's, which slide
+                // for the residents too and are heard (or not) above.
+                if joined && !is_door_slide(cued.cue) {
                     sounds.play(&mut commands, cued, None);
                 }
             }
@@ -4396,6 +4405,12 @@ fn attack_cursor(painter: &egui::Painter, at: egui::Pos2) {
         painter.circle_stroke(at, 7.0, egui::Stroke::new(width * 0.6, color));
     }
     painter.circle_filled(at, 1.5, theme::ATTACK);
+}
+
+/// A door's leaves starting to slide, open or shut: what is heard only of
+/// a door the crew see.
+fn is_door_slide(cue: bims::cue::Cue) -> bool {
+    matches!(cue, bims::cue::Cue::DoorOpens | bims::cue::Cue::DoorShuts)
 }
 
 /// Where the Machine Heart is on the galaxy chart: its name in the enemy's

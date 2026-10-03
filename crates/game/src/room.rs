@@ -941,6 +941,25 @@ impl Room {
         }
     }
 
+    /// Tell every door whether the crew see it, as of the last trace: a
+    /// door is seen while either of its tiles is out from under the fog
+    /// (`all`: a room nobody is looking into, every fogged tile under
+    /// it). An unseen door is drawn as it was last seen — see
+    /// [`Door::set_seen`].
+    pub fn settle_seen_doors(&mut self, all: bool) {
+        for door in &mut self.doors {
+            let r = door.rect;
+            let half = if door.along_x {
+                vec2(r.width() * 0.25, 0.0)
+            } else {
+                vec2(0.0, r.height() * 0.25)
+            };
+            let c = r.center();
+            let hidden = self.sight.hidden_at(c - half, all) && self.sight.hidden_at(c + half, all);
+            door.set_seen(!hidden);
+        }
+    }
+
     /// How many bunks there are: `beds` less the stand-in.
     pub fn bunks(&self) -> usize {
         if self.stand_in_bed {
