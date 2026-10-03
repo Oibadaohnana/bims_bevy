@@ -3225,7 +3225,11 @@ greyed with the reason when it cannot be done; a bot already on its way
 gives way to you. A green bar over the body, above the countdown ring,
 fills as the reviver's hands-on seconds run — and the
 **bots revive** their downed crewmates of their own accord, when the
-body is out of harm or the fight is quiet — **a medic bot first** (the
+body is out of harm or the fight is quiet, and **the moment a wave is
+cleared** — the last enemy down, nothing left to shoot — they go at
+once, shot at a moment before or not, to the **downed players first**
+and only then to the downed bots, the nearest of each first — **a medic
+bot first** (the
 class, or a hired field medic): the other bots leave a body to a medic
 that is free to go to it, and take it themselves only when there is no
 medic, the medic is down, busy with another body or in a fight of its

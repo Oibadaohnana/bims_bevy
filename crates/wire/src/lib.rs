@@ -192,7 +192,10 @@ use serde::{Deserialize, Serialize};
 /// bounty and one a player did a tenth more (`Rewards::bot_bounty_percent`,
 /// `player_bounty_percent`; a commander's reinforcements and medic as
 /// his own): both ends must pay alike.
-pub const PROTOCOL: u32 = 129;
+/// 130: a wave cleared, the bots go to the downed at once — no calm
+/// waited for, no fire of their own — the players first
+/// (`Game::deck_clear`): both ends must revive alike.
+pub const PROTOCOL: u32 = 130;
 
 /// Where the relay lives. `BIMS_SERVER` in the environment overrides it
 /// — `ws://127.0.0.1:8792` for one on the same machine.

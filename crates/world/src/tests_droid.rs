@@ -708,6 +708,56 @@ fn the_last_machine_of_the_last_wave_clears_the_station_once() {
     );
 }
 
+/// A wave cleared with more to come, the bots go at once to the downed:
+/// the player's own Bim is taken up first, the downed bot by another bot
+/// — nobody waits out the room's calm or its own fire. (The last wave
+/// cleared freezes the deck and takes everybody home: task 133.)
+#[test]
+fn a_wave_cleared_the_bots_revive_the_downed_player_first_at_once() {
+    let (mut world, station) = held_arena();
+    open_the_room(&mut world);
+    if let Some(it) = world.infested.iter_mut().find(|it| it.station == station) {
+        it.waves_left = 3;
+    }
+    for _ in 0..5 {
+        world.step(&[]);
+    }
+    let bot = 5;
+    assert!(world.aboard.room.wound(0, 1e6).downed);
+    assert!(world.aboard.room.wound(bot, 1e6).downed);
+    // Every bot shot at a moment before the last machine goes down, as
+    // in a real fight.
+    let crew = world.aboard.room.crew_count() as usize;
+    for h in 1..crew {
+        let room = &mut world.aboard.room;
+        if !room.is_downed(h) {
+            room.enemy_strike(room.body_pos(h), h, 0.1, false);
+        }
+    }
+    world.step(&[]);
+    wreck_them_all(&mut world);
+    let reviving = |world: &World| -> Vec<usize> {
+        (0..crew)
+            .filter_map(|h| world.aboard.room.reviving(h))
+            .collect()
+    };
+    let mut first = Vec::new();
+    for _ in 0..3 {
+        world.step(&[]);
+        first = reviving(&world);
+        if !first.is_empty() {
+            break;
+        }
+    }
+    assert!(first.contains(&0), "the player taken up at once: {first:?}");
+    let mut both = first.contains(&bot);
+    for _ in 0..3 {
+        world.step(&[]);
+        both |= reviving(&world).contains(&bot);
+    }
+    assert!(both, "and the downed bot by another");
+}
+
 #[test]
 fn the_state_survives_leaving_and_the_checksum_notices_it() {
     let (mut world, station) = held_arena();

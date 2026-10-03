@@ -2326,6 +2326,14 @@ impl Game {
             && !self.enemy_within(CALM_RANGE * TILE)
     }
 
+    /// Whether the deck is **clear**: not one of the targets the world
+    /// named is still up — the wave just cleared, the last of it down.
+    /// Unlike [`Game::calm`] it needs no twenty seconds of quiet: the bots
+    /// go to the downed the step it comes true (`revive_on_offer`).
+    pub fn deck_clear(&self) -> bool {
+        !self.combat.targets().iter().any(Option::is_some)
+    }
+
     /// Whether the crew's alarm is up: an enemy within [`ALARM_RANGE`] or
     /// in sight within [`ALARM_HOLD`], or a crew member hit within as long. The app reads it for the
     /// header; every crew member but the player's is under arms while it is.
@@ -5472,8 +5480,15 @@ impl Game {
             return None;
         }
         let from = self.bims[who].character.pos;
-        let calm = self.calm();
+        let clear = self.deck_clear();
+        let calm = clear || self.calm();
         let medic = self.skill(who).medic;
+        // The wave cleared, a player's own Bim comes before any bot, the
+        // nearest of each first; in the fight the nearest, whoever it is.
+        let rank = |p: usize| {
+            let far = (self.bims[p].character.pos - from).len();
+            (clear && self.is_bot(p), far)
+        };
         (0..self.bims.len())
             .filter(|&p| p != who && self.can_be_revived(p))
             .filter(|&p| !self.is_being_seen_to_by_another(p, who))
@@ -5481,9 +5496,8 @@ impl Game {
             .filter(|&p| task::patient_stand(&self.room, &self.maps, who, p, from).is_some())
             .filter(|&p| medic || !self.a_medic_free_for(p, who))
             .min_by(|&a, &b| {
-                (self.bims[a].character.pos - from)
-                    .len()
-                    .total_cmp(&(self.bims[b].character.pos - from).len())
+                let (a, b) = (rank(a), rank(b));
+                a.0.cmp(&b.0).then(a.1.total_cmp(&b.1))
             })
     }
 
@@ -5506,7 +5520,9 @@ impl Game {
         {
             return false;
         }
+        // The deck clear, nobody is left to fight first.
         !self.bims[who].character.is_recruited()
+            || self.deck_clear()
             || (self.bims[who].locked.is_none()
                 && self.bims[who].blow.is_none()
                 && self.bims[who].under_fire <= 0.0
@@ -12262,11 +12278,16 @@ mod tests {
     }
 
     /// A bot under fire starts no revive until the fire has stopped for
-    /// [`UNDER_FIRE`] seconds; out of it, it does.
+    /// [`UNDER_FIRE`] seconds; out of it, it does. An enemy is up beyond
+    /// the walls, out of sight: with none the deck is clear, and a bot
+    /// goes at once whatever hit it.
     #[test]
     fn a_bot_under_fire_takes_up_no_revive() {
         let mut game = room();
         let at = game.put_for_probe(1, vec2(ROOM_W * 0.5, ROOM_H * 0.5));
+        let beyond = at + vec2(25.0 * TILE, 0.0);
+        game.set_hostiles(vec![Some((beyond, WeaponKind::LaserPistol.basic()))]);
+        assert!(!game.deck_clear());
         game.bims[1].character.set_recruited(true);
         assert!(game.ready_to_revive(1));
         assert!(game.enemy_strike(at, 1, 5.0, false));
@@ -12922,6 +12943,61 @@ mod tests {
                 assert_eq!(game.take_revives().len(), 1);
             }
         }
+    }
+
+    /// The wave cleared, a bot goes at once to revive the downed — a
+    /// player first, though a downed bot lies nearer — and only then the
+    /// bot: no waiting out the room's calm, nor its own fire.
+    #[test]
+    fn a_wave_cleared_the_bots_revive_the_players_first_at_once() {
+        let mut game = room();
+        let extra = Game::bare(3, ROOM_W, ROOM_H)
+            .take_crew()
+            .into_iter()
+            .take(1)
+            .collect();
+        game.adopt(extra, Vec2::ZERO);
+        assert_eq!(game.crew_count(), 3);
+        let mid = vec2(ROOM_W * 0.5, ROOM_H * 0.5);
+        game.put_for_probe(2, mid);
+        game.put_for_probe(1, mid + vec2(2.0 * TILE, 0.0));
+        game.put_for_probe(0, mid + vec2(-7.0 * TILE, 0.0));
+        let enemy = mid + vec2(0.0, 4.0 * TILE);
+        game.set_hostiles(vec![Some((enemy, WeaponKind::LaserPistol.basic()))]);
+        for _ in 0..30 {
+            game.simulate(DT);
+        }
+        assert!(game.is_recruited(2), "under arms");
+        knock_out(&mut game, 0);
+        knock_out(&mut game, 1);
+        assert!(game.enemy_strike(game.body_pos(2), 2, 1.0, false));
+        game.simulate(DT);
+        // The last of the wave down.
+        game.set_hostiles(vec![None]);
+        let mut first = None;
+        for step in 0..30 {
+            game.simulate(DT);
+            if let Some(p) = game.reviving(2) {
+                first = Some((step, p));
+                break;
+            }
+        }
+        let (step, patient) = first.expect("a revive taken up at once");
+        assert_eq!(patient, 0, "the player first, at step {step}");
+        let mut order = vec![0];
+        for _ in 0..(60 * 40) {
+            game.simulate(DT);
+            if let Some(p) = game.reviving(2)
+                && order.last() != Some(&p)
+            {
+                order.push(p);
+            }
+            if !game.is_downed(0) && !game.is_downed(1) {
+                break;
+            }
+        }
+        assert!(!game.is_downed(0) && !game.is_downed(1), "both up");
+        assert_eq!(order, vec![0, 1]);
     }
 
     /// A commander's Medivac medic runs to a player downed with an enemy

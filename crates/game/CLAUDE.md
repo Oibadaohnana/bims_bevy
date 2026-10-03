@@ -5087,3 +5087,31 @@ world's (`crates/world/CLAUDE.md`, "Items, step two").
 `a_reflect_barrier_sends_the_hit_back_on_the_shooter` and
 `tests_guardian::a_sweep_goes_over_bags_a_peek_dodges_it_and_a_reflect_barrier_sends_it_back`
 pin it.
+
+## A wave cleared, the bots go to the downed at once, players first (October 2026)
+
+> "Who revives of their own accord" in task 120's section and "A bot
+> under fire takes up no revive" say a bot waits for the patient to lie
+> out of harm or the room to be calm, and holds off for `UNDER_FIRE`
+> after a hit; neither holds once the deck is clear.
+
+`Game::deck_clear()` is no target the world named still up — the wave
+just cleared (`combat.targets()` all `None`, the world handing a wreck
+or a body down as `None`). While it holds, `revive_on_offer` counts the
+room as calm (no twenty seconds, no out-of-harm test) and ranks a
+**player's own Bim** (`!is_bot`) before any bot, the nearest of each
+first, and `ready_to_revive` lets a recruited bot go whatever its
+`under_fire`, lock or blow say — there is nobody left to fight. One
+reviver a patient and the medic-first rule are as before, so with two
+bots free one goes to the player and the other to the bot. In the fight
+the order is the nearest, whoever it is, as it was. A room with no
+enemy at all (a ship alone, a bare room) is clear, which changes
+nothing there but the order. The last wave of a site is not this: a
+fight won freezes the deck and everybody alive comes home (the world's
+task 133). `a_wave_cleared_the_bots_revive_the_players_first_at_once`
+here and the world's
+`a_wave_cleared_the_bots_revive_the_downed_player_first_at_once`
+(`tests_droid.rs`, every bot shot a moment before the last machine
+falls) pin it; `a_bot_under_fire_takes_up_no_revive` puts an enemy
+beyond the walls so the deck is not clear. No `SAVE_VERSION`;
+`wire::PROTOCOL` 130.
