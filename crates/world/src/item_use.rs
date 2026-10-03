@@ -350,19 +350,44 @@ impl World {
             }
         }
         let seconds = (data::STEP_MINUTES / time::MINUTES_PER_SECOND) as f32;
-        let quiet = Self::item_minutes(f64::from(bims::module::HEART_QUIET_SECONDS));
         for who in 0..players {
             let at = who as usize;
             if !self.aboard.room.is_alive(at) || self.aboard.room.is_downed(at) {
                 continue;
             }
-            let (plain, calm) = self.aboard.room.gear(at).item_regen();
-            if plain <= 0.0 && calm <= 0.0 {
+            let rate = self.item_regen_now(who);
+            if rate <= 0.0 {
                 continue;
             }
-            let unhurt = self.run.items.hurt_at[at].is_none_or(|t| now - t >= quiet);
-            let rate = if unhurt { calm } else { plain };
             self.heal_crew(who, rate * seconds);
         }
+    }
+
+    /// Hit points a second `who`'s items regenerate him by now: the
+    /// quiet rate once nothing has hit him for
+    /// [`bims::module::HEART_QUIET_SECONDS`], the plain one before —
+    /// nought without a *Reactor Heart* or a *Pressure Seal*. What a
+    /// medic's beam adds to its patients' heal from its fourth rank
+    /// ([`World::beam_item_rate`]).
+    pub fn item_regen_now(&self, who: u32) -> f32 {
+        let at = who as usize;
+        if at >= self.aboard.crew_count() as usize {
+            return 0.0;
+        }
+        let (plain, calm) = self.aboard.room.gear(at).item_regen();
+        if plain <= 0.0 && calm <= 0.0 {
+            return 0.0;
+        }
+        let now = self.mission_minutes();
+        let quiet = Self::item_minutes(f64::from(bims::module::HEART_QUIET_SECONDS));
+        let unhurt = self
+            .run
+            .items
+            .hurt_at
+            .get(at)
+            .copied()
+            .flatten()
+            .is_none_or(|t| now - t >= quiet);
+        if unhurt { calm } else { plain }
     }
 }

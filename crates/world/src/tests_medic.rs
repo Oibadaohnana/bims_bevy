@@ -421,7 +421,7 @@ fn the_heal_drone_flies_to_the_lowest_and_heals_it_by_rank() {
     let events = world.step(&[Command::HealDrone { slot: 1 }]);
     assert!(refused_with(&events, Refusal::NotAMedic), "{events:?}");
     let want = [
-        (1.5, 8.0, 25.0),
+        (1.8, 8.0, 25.0),
         (2.0, 10.0, 22.0),
         (2.5, 12.0, 20.0),
         (3.0, 14.0, 18.0),
@@ -637,6 +637,39 @@ fn the_fourth_rank_holds_two_patients_at_the_full_rate() {
     assert!((world.aboard.room.health(2) - b - rate).abs() < 0.3);
     beam(&mut world, 0, Some(0));
     assert_eq!(world.patients_of(0), vec![2, 0], "the oldest let go");
+}
+
+/// **The fourth rank's link heals what the medic's items heal him by on
+/// top**: a *Pressure Seal*'s regeneration added to each patient's beam,
+/// never below the fourth rank and never twice on himself.
+#[test]
+fn the_fourth_rank_s_link_adds_the_medic_s_item_healing() {
+    let seal = bims::module::ModuleKind::PressureSeal.at(bims::combat::Tier::Three);
+    let regen = bims::module::PRESSURE_SEAL_REGEN[2];
+    let gain = |rank: u8, item: bool| {
+        let mut world = medic_at([0, 0, rank, 0]);
+        if item {
+            carry(&mut world, 0, seal);
+        }
+        hurt(&mut world, 1, 20.0);
+        assert!(linked(&beam(&mut world, 0, Some(1)), 0, Some(1)));
+        let added = world.beam_item_rate(0);
+        let before = world.aboard.room.health(1);
+        for _ in 0..(5 * STEPS_A_MINUTE) {
+            world.step(&[]);
+        }
+        (added, world.aboard.room.health(1) - before)
+    };
+    let (none, plain) = gain(4, false);
+    assert_eq!(none, 0.0, "no items, nothing added");
+    let (added, lifted) = gain(4, true);
+    assert_eq!(added, regen * 60.0);
+    assert!(
+        (lifted - plain - regen * 5.0).abs() < 0.3,
+        "{lifted} against {plain}"
+    );
+    let (below, _) = gain(3, true);
+    assert_eq!(below, 0.0, "not below the fourth rank");
 }
 
 /// **The beam's key forgives a near miss**: off everybody, it takes the

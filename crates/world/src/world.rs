@@ -9350,6 +9350,18 @@ impl World {
         class::by_rank(class::HEAL_BEAM_PATIENTS, self.beam_rank(who)).unwrap_or(1)
     }
 
+    /// Hit points an hour of the clock the beam adds to each patient's
+    /// [`World::beam_rate`] from [`class::HEAL_BEAM_ITEM_RANK`]: what the
+    /// medic's own items regenerate him by now
+    /// ([`World::item_regen_now`]). Nought below that rank, and never on
+    /// the medic himself, whose items heal him already.
+    pub fn beam_item_rate(&self, who: u32) -> f32 {
+        if self.rank_of(who, class::SLOT_E) < class::HEAL_BEAM_ITEM_RANK {
+            return 0.0;
+        }
+        self.item_regen_now(who) * 60.0
+    }
+
     /// Whether a crew member — or a site's defender, `medic::GUEST + i` —
     /// is where a medic's beam reaches it: alive, in the room, within the
     /// medic's range and, with `sight`, in its sight — or the medic itself
@@ -9839,8 +9851,10 @@ impl World {
                 continue;
             }
             self.medics[m].patients = keep.clone();
-            let rate = self.beam_rate(who);
+            let beam = self.beam_rate(who);
+            let items = self.beam_item_rate(who);
             for p in keep.into_iter().chain(std::iter::once(who)) {
+                let rate = if p == who { beam } else { beam + items };
                 let worth = rate * self.medic_heal_factor(who, p);
                 let slot = match held.get_mut(p as usize) {
                     Some(slot) => slot,

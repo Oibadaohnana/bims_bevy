@@ -680,7 +680,7 @@ const MINE_WHAT: &str = "Lay a mine on the tile under the pointer. It goes off w
 const SATCHEL_WHAT: &str = "Hold to aim, let go to throw a satchel. They lie where they land, stacked if you like, until Space sets them all off: each its own blast, on enemies alone.";
 /// What the medic's Heal Drone and heal beam do (task 153).
 const HEAL_DRONE_WHAT: &str = "Drop a drone that flies — over walls — to the ally lowest on health, you included, and heals them slowly. When they are whole it finds the next.";
-const HEAL_BEAM_WHAT: &str = "Toggle. Beam the crewmate under the pointer, or yourself, healing over time — and you are healed as much. You keep shooting. The number is how many more you could link.";
+const HEAL_BEAM_WHAT: &str = "Toggle. Beam the crewmate under the pointer, or yourself, healing over time — and you are healed as much. You keep shooting. From rank 4 each patient also gains what your items regenerate you by. The number is how many more you could link.";
 /// The box past the class's four (feature 86): the medic's carry, named
 /// off the [`crate::keys::Action`] rather than off a slot.
 pub const CARRY: &str = "Carry";
@@ -957,6 +957,11 @@ pub fn ranked_stats(class: world::Class, slot: u8) -> Vec<Stat> {
             }),
             Stat::ranks("Range", " tiles", |r| fig(c::HEAL_BEAM_RANGES[r] as f64)),
             Stat::ranks("Patients", "", |r| c::HEAL_BEAM_PATIENTS[r].to_string()),
+            Stat::one(
+                "Rank 4 adds",
+                "",
+                "your items' regeneration".to_string(),
+            ),
         ],
         (world::Class::Medic, 3) => vec![
             Stat::ranks("Radius", " tiles", |r| {

@@ -2391,7 +2391,7 @@ to the Bim it heals and a ring round it emptying as its time runs out.
 
 | rank | heal a second | lasts | cooldown |
 | --- | --- | --- | --- |
-| 1 | 1.5 HP | 8 s | 25 s |
+| 1 | 1.8 HP | 8 s | 25 s |
 | 2 | 2 HP | 10 s | 22 s |
 | 3 | 2.5 HP | 12 s | 20 s |
 | 4 | 3 HP | 14 s | 18 s |
@@ -2428,7 +2428,7 @@ round a medic beaming itself), and the crew panel says who is held.
 | 1 | 2 HP | 6 tiles | 1 |
 | 2 | 3 HP | 7 tiles | 1 |
 | 3 | 4 HP | 8 tiles | 1 |
-| 4 | 5 HP | 9 tiles | 2, each at the full rate |
+| 4 | 5 HP, plus what his items regenerate him by | 9 tiles | 2, each at the full rate |
 
 **R, Healing Circle** (the ultimate, a **toggle**): switched on, every
 friendly Bim on its feet within its radius of him and in his sight

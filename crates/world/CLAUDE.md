@@ -5795,7 +5795,10 @@ hashes did not move: the cargo is still twenty-two slots.
   room's and never asks.
 - **E Heal Beam**: `can_beam` wants a rank (`NotLearnt`) after
   `OutOfReach`; `beam_range`, `beam_rate` and `beam_patients` read the
-  rank (the first's before one). `HEAL_BEAM_HP` is 120. `medic_skill`
+  rank (the first's before one). `HEAL_BEAM_HP` is 120. From
+  `HEAL_BEAM_ITEM_RANK` (4) `beam_item_rate` adds the medic's own item
+  regeneration (`item_regen_now`, ×60 an hour) to each patient's rate in
+  `hand_the_room_the_medics`, never to himself. `medic_skill`
   holds the fire while linked below `HEAL_BEAM_FIRE_RANK` (3) and halves
   the fire rate from it. A cloaked medic's beam is let go in
   `hand_the_room_the_medics`.

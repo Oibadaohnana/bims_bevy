@@ -920,7 +920,7 @@ pub const MEDIC_REVIVED_TO: f32 = 0.4;
 
 /// **Q, Heal Drone** (task 153): hit points a second it puts into the Bim
 /// it hovers over, a rank, before his Triage.
-pub const HEAL_DRONE_HEAL: [f32; 4] = [1.5, 2.0, 2.5, 3.0];
+pub const HEAL_DRONE_HEAL: [f32; 4] = [1.8, 2.0, 2.5, 3.0];
 /// Seconds of the mission clock a drone flies, a rank.
 pub const HEAL_DRONE_SECONDS: [f64; 4] = [8.0, 10.0, 12.0, 14.0];
 /// Seconds of the mission clock from one drone to the next, a rank.
@@ -951,6 +951,11 @@ pub const HEAL_BEAM_PICK_REACH: f32 = 3.0;
 /// How many patients the beam holds at once, each at the full rate, a
 /// rank.
 pub const HEAL_BEAM_PATIENTS: [usize; 4] = [1, 1, 1, 2];
+/// The beam's rank from which each patient it holds also gains what the
+/// medic's own items regenerate him by (`World::beam_item_rate`): a
+/// *Reactor Heart*'s and a *Pressure Seal*'s hit points a second, the
+/// Heart's quiet rate while he is unhurt.
+pub const HEAL_BEAM_ITEM_RANK: u8 = 4;
 
 /// **R, Healing Circle** (task 153): how far round him it reaches, in
 /// tiles, a rank — the *Override Core*'s fifth the fourth's, since the
