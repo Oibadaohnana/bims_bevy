@@ -3477,7 +3477,7 @@ size of the fight.
 - **No reinforcement while a machine lives.** `droid_waves`, a stage of
   the step right after `settle_residents`: with any of them standing the
   clock is held at `None`; with none standing and waves left it is set
-  `DROID_REINFORCE_STEPS` (two hours) of the **mission clock** on — a
+  `DROID_REINFORCE_STEPS` (fifteen seconds) of the **mission clock** on — a
   minute in the probes — and the wave lands when it runs out (feature
   103; it was the world clock's minutes before). The clock is the
   world's and not the room's, so a room built afresh resets nothing.
@@ -4968,7 +4968,7 @@ world's fields. The whole schedule is `data::MANUFACTURER_*`.
   first down or death, pending until the clear.
 - **The waves**: `wave_count_here` is one while they have the machines and
   `droid_wave_count` after; `reinforce_steps_here` is
-  `MANUFACTURER_REINFORCE_STEPS` (thirty seconds at 1×, the machines' own) unless a
+  `MANUFACTURER_REINFORCE_STEPS` (fifteen seconds at 1×, the machines' own) unless a
   probe moved `droid_reinforce`. `droids_standing` adds
   `manufacturers_standing` — alive and **not out cold** — so one down and
   bleeding holds no wave and no clear up. `droid_ship` draws their ship at

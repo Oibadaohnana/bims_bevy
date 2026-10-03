@@ -196,12 +196,12 @@ pub const TIER3_DAYS: u32 = 40;
 /// the hardest there is.
 pub const HEART_WAVES: u32 = 4;
 /// How long after the last machine of a wave is destroyed the next one
-/// arrives, in steps of the **mission clock** (feature 103) — thirty
-/// seconds of it at 1× (it was two minutes), which was half an
+/// arrives, in steps of the **mission clock** (feature 103) — fifteen
+/// seconds of it at 1× (it was thirty, and before that two minutes), which was half an
 /// hour of the old world clock. Never while one is still standing. The world clock stands still during a mission
 /// (only travel moves it), so a wave is timed from the arrival like every
 /// other in-mission timer, and not by the day.
-pub const DROID_REINFORCE_STEPS: u64 = 1_800;
+pub const DROID_REINFORCE_STEPS: u64 = 900;
 /// How far beyond a town's wall the machines' lander sets down, in
 /// tiles: far enough that its own picture does not overlap the gate it
 /// unloaded through.
@@ -236,10 +236,11 @@ pub const MANUFACTURER_DROIDS_LOST_DAY: u32 = 10;
 pub const MANUFACTURER_TROOPER_PERCENT: [(u32, u32); 6] =
     [(0, 0), (5, 10), (7, 25), (8, 50), (9, 60), (10, 0)];
 /// How long after a wave of theirs is down the next docks, in steps of
-/// the mission clock: thirty seconds at 1×, the machines' own
+/// the mission clock: fifteen seconds at 1×, the machines' own
 /// ([`DROID_REINFORCE_STEPS`]) — it was four hours, twice theirs, until
-/// every station's waves were brought to half a minute apart.
-pub const MANUFACTURER_REINFORCE_STEPS: u64 = 1_800;
+/// every station's waves were brought to half a minute apart, and then to
+/// a quarter of one.
+pub const MANUFACTURER_REINFORCE_STEPS: u64 = 900;
 
 // --- the Machine Heart (feature 108, `crate::heart`) ------------------------
 //
@@ -339,7 +340,7 @@ pub const DEFENSE_DELAY_STEPS: u64 = 1_200;
 /// How long after the last machine of a wave at a site the crew defend
 /// is destroyed the next one lands, in steps of the mission clock: ten
 /// seconds of it at 1×, where an attacked station's waves are
-/// [`DROID_REINFORCE_STEPS`] (thirty) apart. The probes' reinforcement
+/// [`DROID_REINFORCE_STEPS`] (fifteen) apart. The probes' reinforcement
 /// dial still shortens it.
 pub const DEFENSE_REINFORCE_STEPS: u64 = 600;
 /// How many of a defended town's surviving people join the crew when the

@@ -156,8 +156,8 @@ there is no helm to stand at and no trip to sit through.
   to what the Bim starts with and every cooldown is ready, and an offer
   of gear still standing is withdrawn (see [the Armory](#the-armory)).
   Gear changes on the map, or aboard the ship on arriving. Everything inside a mission runs on the **mission
-  clock**, which starts at nought on arrival: the machines' next wave two
-  minutes after the last of one is destroyed, a town's first wave a
+  clock**, which starts at nought on arrival: the machines' next wave fifteen
+  seconds after the last of one is destroyed, a town's first wave a
   minute after the landing, the class cooldowns.
 - **The bounty waits for the place to be cleared.** The Republic pays
   for every machine destroyed — 500, 1 500 or 4 500 by its tier — but
@@ -395,7 +395,7 @@ the tier of what they carry on arrival.
   three in five on day nine.
 - **From day ten** they have lost the machines: their own people alone,
   in **waves** as a machines' station has them, geared at the tier the
-  machines there would come at, and the next wave's ship docks **thirty
+  machines there would come at, and the next wave's ship docks **fifteen
   seconds** after the last of a wave is down.
 - **Cleared** the moment every Manufacturer is down or dead, every Trooper
   is destroyed and no wave is left — one down and still counting holds

@@ -59,7 +59,7 @@ const BLACKOUT_FADE: f32 = 0.6;
 
 /// How long the `droids` probes wait between waves, in minutes of the
 /// mission clock (feature 103): a minute, a second at 1x, where the
-/// game's own is `data::DROID_REINFORCE_STEPS` (thirty). The shortcut feature 83
+/// game's own is `data::DROID_REINFORCE_STEPS` (fifteen). The shortcut feature 83
 /// asks for, so a wave landing can be watched rather than waited for.
 const DROID_REINFORCE_IN_PROBE: f64 = 1.0;
 
