@@ -310,6 +310,19 @@ fn exposed_the_core_fires_one_beam_and_the_fabricators_build() {
     let started = world.run.mission_steps;
     beside_the_core(&mut world, 0, bims::math::vec2(-1.0, 0.0), 4.0);
     beside_the_core(&mut world, 1, bims::math::vec2(1.0, 0.0), 4.0);
+    // Unarmed: the shotgun at twice its old rate (its magazine, October
+    // 2026) shot a fabricator down before the first build, and the builds
+    // are what is counted here.
+    for who in 0..2 {
+        let gear = world.aboard.room.gear(who);
+        world.aboard.room.issue(
+            who,
+            Gear {
+                weapon: None,
+                ..gear
+            },
+        );
+    }
     let i = core(&mut world);
     let mut fired = false;
     for _ in 0..240 {

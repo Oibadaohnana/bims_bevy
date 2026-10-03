@@ -3375,7 +3375,10 @@ fn a_recruited_bim_shoots_the_machines_it_can_see_and_they_are_hurt() {
     assert_eq!(gear.weapon, Some(WeaponKind::LaserPistol.basic()));
     assert!(gear.armour.is_none());
     let stats = world.aboard.room.weapon_stats(0).unwrap();
-    assert_eq!(stats.dps(), stats.fire_rate * stats.damage);
+    // A second's damage is over the magazine and its reload (October
+    // 2026), a little under the trigger rate's.
+    assert_eq!(stats.dps(), stats.pulls() * stats.damage);
+    assert!(stats.pulls() < stats.fire_rate);
     assert!(
         (stats.hit_chance(10.0) - 0.680).abs() < 0.01,
         "the pistol at ten tiles (0.732 before October 2026 cut its reach)"

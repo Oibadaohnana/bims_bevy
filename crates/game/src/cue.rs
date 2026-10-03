@@ -65,6 +65,14 @@ pub enum Cue {
     /// An engineer's EMP burst (task 127): the same fuse and flight as a
     /// grenade, and heard as its own thing — a pulse, not a blast.
     EmpBurst,
+    /// A magazine began to be reloaded (October 2026): emptied, or
+    /// topped up by a key or by a bot with nothing to shoot at. `by` is
+    /// the crew member of this room, by index, as for a shot. Said only
+    /// in a room whose bodies are not hostile.
+    Reload {
+        weapon: WeaponKind,
+        by: Option<usize>,
+    },
 }
 
 /// A cue and where in the room it happened, in room units — the door's

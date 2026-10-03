@@ -542,13 +542,44 @@ pub struct WeaponStats {
     /// curve again.
     pub strips: f32,
     pub strips_far: f32,
+    /// Shots a magazine holds (October 2026), and the seconds a reload
+    /// of it takes — nought for a weapon with none (a blade, a machine's
+    /// arm, the minigun and the rail lance). Never anything else: a
+    /// reload is endless, there being no ammunition (see [`Trigger`]).
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub magazine: u32,
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub reload_time: f32,
 }
 
 impl WeaponStats {
     /// What it could do a second with every shot landing, at its best:
-    /// the burst, the damage and the trigger rate multiplied.
+    /// the burst, the damage and the trigger rate multiplied — the rate
+    /// over a magazine and its reload ([`WeaponStats::pulls`]).
     pub fn dps(&self) -> f32 {
-        self.burst as f32 * self.fire_rate * self.damage
+        self.burst as f32 * self.pulls() * self.damage
+    }
+
+    /// Trigger pulls a second, kept up: the `fire_rate`, or for a weapon
+    /// with a magazine (October 2026) the pulls in a magazine over the
+    /// seconds to fire them and reload — so a gun that reloads long is
+    /// weighed for it.
+    pub fn pulls(&self) -> f32 {
+        if self.magazine == 0 {
+            return self.fire_rate;
+        }
+        let pulls = (self.magazine as f32 / self.burst.max(1) as f32).max(1.0);
+        pulls / (pulls / self.fire_rate.max(1e-3) + self.reload_time)
+    }
+
+    /// The same with nothing reloaded: the stats with no magazine — a
+    /// sentry's, which never runs dry.
+    pub fn endless(self) -> WeaponStats {
+        WeaponStats {
+            magazine: 0,
+            reload_time: 0.0,
+            ..self
+        }
     }
 
     /// Odds of a hit on a body `tiles` away. See the module note.
@@ -575,7 +606,7 @@ impl WeaponStats {
         if tiles > self.range {
             return 0.0;
         }
-        self.burst as f32 * self.fire_rate * self.damage_at(tiles) * self.hit_chance(tiles)
+        self.burst as f32 * self.pulls() * self.damage_at(tiles) * self.hit_chance(tiles)
     }
 
     /// `near` out to `sweet`, `far` at `range`, a straight line between.
@@ -609,6 +640,15 @@ impl WeaponStats {
 /// shot *does* — the roll against the distance, the dodge, the damage
 /// where it lands — is [`Combat::fire`] and [`Combat::step`], shared the
 /// same way; a shooter is a position, a weapon and one of these.
+///
+/// **And the magazine** (October 2026): a weapon with one
+/// (`WeaponStats::magazine`) fires that many shots and then nothing for
+/// its `reload_time`, after which the magazine is full again — for ever,
+/// since nothing carries ammunition. The last shot of a magazine begins
+/// the reload; [`Trigger::reload_now`] begins one with shots still in
+/// it. A weapon changed in the hand comes with its magazine full
+/// ([`Trigger::load`]). A sentry is handed its stats
+/// [`WeaponStats::endless`] and never reloads.
 #[derive(Clone, Copy, PartialEq, Debug, Default)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Trigger {
@@ -618,22 +658,109 @@ pub struct Trigger {
     /// the next of them.
     pub burst_left: u32,
     pub burst_timer: f32,
+    /// Shots fired out of the magazine in the weapon: nought is full.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub spent: u32,
+    /// Seconds left of a reload under way, nought with none.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub reloading: f32,
+    /// The weapon the magazine is counted for, by its code: nought for
+    /// none yet.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub loaded: u32,
+    /// A reload began since the last [`Trigger::tick`]: for the cue the
+    /// room says it with, and nothing else.
+    #[cfg_attr(feature = "serde", serde(skip))]
+    pub began: bool,
 }
 
 impl Trigger {
-    /// The clock: the reload runs down every step, aimed or not.
+    /// The clock: the reload runs down every step, aimed or not, and a
+    /// magazine being reloaded is full when its seconds run out.
     pub fn tick(&mut self, dt: f32) {
         self.reload = (self.reload - dt).max(0.0);
+        self.began = false;
+        if self.reloading > 0.0 {
+            self.reloading -= dt;
+            if self.reloading <= 0.0 {
+                self.reloading = 0.0;
+                self.spent = 0;
+            }
+        }
+    }
+
+    /// The weapon in the hand is `kind`: one that is not the one counted
+    /// for comes with a full magazine and no reload under way.
+    pub fn load(&mut self, kind: WeaponKind) {
+        if self.loaded != kind.code() {
+            self.loaded = kind.code();
+            self.spent = 0;
+            self.reloading = 0.0;
+        }
+    }
+
+    /// Shots left in the magazine, for a weapon with one.
+    pub fn rounds(&self, stats: &WeaponStats) -> u32 {
+        stats.magazine.saturating_sub(self.spent)
+    }
+
+    /// Whether a reload is under way.
+    pub fn is_reloading(&self) -> bool {
+        self.reloading > 0.0
+    }
+
+    /// Begin a reload now, with shots still in the magazine: whether one
+    /// began — never for a weapon with no magazine, a full one, or one
+    /// already being reloaded.
+    pub fn reload_now(&mut self, stats: &WeaponStats) -> bool {
+        if stats.magazine == 0 || self.spent == 0 || self.is_reloading() {
+            return false;
+        }
+        self.reloading = stats.reload_time.max(1e-3);
+        self.burst_left = 0;
+        self.began = true;
+        true
+    }
+
+    /// Whether the magazine lets a shot go: none under reload, and a
+    /// shot left in it — an empty one not being reloaded (a weapon whose
+    /// magazine shrank) begins its reload here.
+    fn loaded_for(&mut self, stats: &WeaponStats) -> bool {
+        if stats.magazine == 0 {
+            return true;
+        }
+        if self.is_reloading() {
+            self.burst_left = 0;
+            return false;
+        }
+        if self.spent >= stats.magazine {
+            self.reload_now(stats);
+            return false;
+        }
+        true
+    }
+
+    /// A shot gone out of the magazine, and the reload begun by its last.
+    fn spend(&mut self, stats: &WeaponStats) {
+        if stats.magazine == 0 {
+            return;
+        }
+        self.spent += 1;
+        if self.spent >= stats.magazine {
+            self.reload_now(stats);
+        }
     }
 
     /// A semi-automatic's click (`WeaponKind::semi_automatic`): a shot if
-    /// the last one's `cooldown` has run out, and the next cooldown begun.
-    pub fn press(&mut self, cooldown: f32) -> bool {
-        if self.reload > 0.0 {
+    /// the last one's `cooldown` has run out and the magazine has one,
+    /// and the next cooldown begun.
+    pub fn press(&mut self, cooldown: f32, stats: &WeaponStats) -> bool {
+        if self.reload > 0.0 || !self.loaded_for(stats) {
             return false;
         }
         self.reload = cooldown;
         self.burst_left = 0;
+        self.spend(stats);
         true
     }
 
@@ -647,19 +774,24 @@ impl Trigger {
     /// body off, where the picture is the point and a minigun's twenty
     /// into a body on the deck would not be.
     pub fn pull_single(&mut self, stats: &WeaponStats) -> bool {
-        if self.reload > 0.0 {
+        if self.reload > 0.0 || !self.loaded_for(stats) {
             return false;
         }
         self.reload = 1.0 / stats.fire_rate.max(1e-3);
         self.burst_left = 0;
+        self.spend(stats);
         true
     }
 
     /// Aimed at something this step: whether a shot goes out now — the
     /// trigger pulled if the weapon is ready, else the next of the burst
-    /// when its gap has run out.
+    /// when its gap has run out. Nothing while the magazine is empty or
+    /// being reloaded.
     pub fn pull(&mut self, dt: f32, stats: &WeaponStats) -> bool {
-        if self.reload <= 0.0 {
+        if !self.loaded_for(stats) {
+            return false;
+        }
+        let fired = if self.reload <= 0.0 {
             self.reload = 1.0 / stats.fire_rate.max(1e-3);
             self.burst_left = stats.burst.saturating_sub(1);
             self.burst_timer = stats.burst_gap;
@@ -675,7 +807,11 @@ impl Trigger {
             }
         } else {
             false
+        };
+        if fired {
+            self.spend(stats);
         }
+        fired
     }
 }
 
@@ -5011,14 +5147,17 @@ mod tests {
         // down from the 95% and 65% it had, its damage a fifth up from 6,
         // and ten tiles more range — 72% at ten tiles then, where the app
         // used to print 70%; 68% since October 2026 cut its reach to 15.4. Its
-        // damage back to 6 the same month, when every click became a shot.
+        // damage back to 6 the same month, when every click became a shot,
+        // and up to 8 with its magazine of twelve; what it does a second
+        // is over the magazine and its reload (12 in 8 s and 1.2).
         let pistol = WeaponKind::LaserPistol.stats();
         assert_eq!(pistol.range, 15.4);
         assert!((pistol.hit_chance(10.0) - 0.680).abs() < 0.01);
         assert_eq!(pistol.hit_chance(0.0), 0.855);
         assert_eq!(pistol.hit_chance(30.0), 0.585, "no worse past the range");
-        assert_eq!(pistol.damage_at(11.0), 6.0);
-        assert!((pistol.dps() - 9.0).abs() < 1e-5);
+        assert_eq!(pistol.damage_at(11.0), 8.0);
+        assert_eq!((pistol.magazine, pistol.reload_time), (12, 1.2));
+        assert!((pistol.dps() - 8.0 * 12.0 / 9.2).abs() < 1e-4);
 
         let shotgun = WeaponKind::Shotgun.stats();
         assert_eq!(shotgun.damage_at(4.0), 60.0);
@@ -5027,23 +5166,29 @@ mod tests {
         assert_eq!(shotgun.damage_at(10.0), 36.0);
         assert_eq!(shotgun.hit_chance(4.0), 0.81);
         assert!((shotgun.hit_chance(10.0) - 0.54).abs() < 1e-6);
+        // A pull every two seconds (every four before its magazine).
+        assert_eq!(shotgun.fire_rate, 0.5);
+        assert_eq!((shotgun.magazine, shotgun.reload_time), (6, 3.5));
 
         let sniper = WeaponKind::SniperRifle.stats();
         assert_eq!(sniper.hit_chance(14.0), 0.9);
         assert_eq!(sniper.damage_at(14.0), 54.0);
         assert!((sniper.hit_chance(24.5) - 0.63).abs() < 1e-6);
         assert_eq!(sniper.damage_at(24.5), 30.0);
+        assert_eq!((sniper.magazine, sniper.reload_time), (4, 2.4));
 
         // No burst: four fives a second, steadily (four threes, as much
         // a second as the eight sixes every four seconds it had, until
-        // each shot gained 2); the rifle reaches 18.2 tiles, full to 5.6
+        // each shot gained 2, and 2 again with its magazine of thirty); the
+        // rifle reaches 18.2 tiles, full to 5.6
         // (twenty-six and eight before October 2026 took three tenths
         // off every reach bar the shotgun's).
         let rifle = WeaponKind::AutoRifle.stats();
         assert_eq!((rifle.burst, rifle.fire_rate), (1, 4.0));
-        assert_eq!((rifle.damage, rifle.damage_far), (5.0, 4.4));
+        assert_eq!((rifle.damage, rifle.damage_far), (7.0, 6.4));
         assert_eq!((rifle.range, rifle.sweet), (18.2, 5.6));
-        assert!((rifle.dps() - 20.0).abs() < 1e-5);
+        assert_eq!((rifle.magazine, rifle.reload_time), (30, 1.8));
+        assert!((rifle.dps() - 7.0 * 30.0 / 9.3).abs() < 1e-4);
 
         // A blade reaches a tile and a bit, and swings every two seconds.
         let blade = WeaponKind::Schword.stats();
@@ -5087,20 +5232,21 @@ mod tests {
         assert!(!three.melee && three.strips == 0.0);
 
         // The worked figures in `balance`'s notes: a second's damage in
-        // the sweet range, body hits on whole armour.
+        // the sweet range, body hits on whole armour — over a magazine and
+        // its reload for a gun with one (October 2026).
         let dps = |w: Weapon, protection: f32| {
             let s = w.stats();
-            s.burst as f32 * s.fire_rate * (s.damage - protection).max(0.0) * s.accuracy.min(1.0)
+            s.burst as f32 * s.pulls() * (s.damage - protection).max(0.0) * s.accuracy.min(1.0)
         };
         let rifle_two = WeaponKind::AutoRifle.at(Tier::Two);
         assert!((dps(mini, 0.0) - 18.7).abs() < 0.05);
-        assert!((dps(rifle_two, 0.0) - 23.9).abs() < 0.05);
+        assert!((dps(rifle_two, 0.0) - 27.0).abs() < 0.05);
         assert!((dps(mini, 3.0) - 8.5).abs() < 0.05);
-        assert!((dps(rifle_two, 3.0) - 12.4).abs() < 0.05);
+        assert!((dps(rifle_two, 3.0) - 17.7).abs() < 0.05);
         assert!((dps(mini, 4.5) - 3.4).abs() < 0.05);
-        assert!((dps(rifle_two, 4.5) - 6.7).abs() < 0.05);
+        assert!((dps(rifle_two, 4.5) - 13.1).abs() < 0.05);
         let sniper_three = WeaponKind::SniperRifle.at(Tier::Three);
-        assert!((dps(sniper_three, 0.0) - 21.1).abs() < 0.05);
+        assert!((dps(sniper_three, 0.0) - 18.3).abs() < 0.05);
         assert!((dps(lance, 0.0) - 14.2).abs() < 0.05);
         assert!((dps(lance, 0.0) * (1.0 + 0.6 + 0.36) - 27.8).abs() < 0.05);
     }

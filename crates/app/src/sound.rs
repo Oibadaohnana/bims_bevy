@@ -95,12 +95,16 @@ pub enum Clip {
     // A crew member brought round: the defibrillator, the heart and
     // the vitals rising, built by `sounds/abilities.py` (`revived`).
     Revived,
+    // A magazine reloaded (October 2026): a gun's, which every gun but the
+    // shotgun plays, and the shotgun's shells put in one by one.
+    Reload,
+    ShotgunReload,
 }
 
 /// The bytes of each clip, indexed by [`Clip`]. Ogg Vorbis, mono, 48 kHz,
 /// peaks at -1 dBFS for the one-shots and -22 or -30 LUFS for the loops —
 /// see `prepare.sh` — so every level below is relative to that.
-const CLIPS: [&[u8]; 47] = [
+const CLIPS: [&[u8]; 49] = [
     include_bytes!("../sounds/laser_1.ogg"),
     include_bytes!("../sounds/laser_2.ogg"),
     include_bytes!("../sounds/laser_3.ogg"),
@@ -148,6 +152,8 @@ const CLIPS: [&[u8]; 47] = [
     include_bytes!("../sounds/reward.ogg"),
     include_bytes!("../sounds/downed.ogg"),
     include_bytes!("../sounds/revived.ogg"),
+    include_bytes!("../sounds/reload.ogg"),
+    include_bytes!("../sounds/shotgun_reload.ogg"),
 ];
 
 /// The player's own volume for each sound, from `audio.ron` at the root
@@ -242,6 +248,8 @@ volumes! {
     Reward => reward,
     Downed => downed,
     Revived => revived,
+    Reload => reload,
+    ShotgunReload => shotgun_reload,
     ;
     minigun,
     rail_lance,
@@ -350,6 +358,8 @@ enum Kind {
     Downed,
     /// A crew member brought round, told apart by who.
     Revived,
+    /// A magazine being reloaded (October 2026).
+    Reload,
 }
 
 /// How many one-shots a frame may start, whatever the room says. Enough
@@ -381,6 +391,7 @@ impl Kind {
             Cue::Holster { .. } => Kind::Holster,
             Cue::Throw => Kind::Blow,
             Cue::Burst | Cue::EmpBurst => Kind::Burst,
+            Cue::Reload { .. } => Kind::Reload,
         }
     }
 
@@ -426,6 +437,9 @@ impl Kind {
             Kind::Downed => 1.0,
             // And comes round once.
             Kind::Revived => 1.0,
+            // A reload begins once a magazine; two guns at one place in a
+            // frame are one clip.
+            Kind::Reload => 0.3,
         }
     }
 }
@@ -686,6 +700,22 @@ impl Sounds {
             Cue::Throw => {}
             Cue::Burst => self.one_shot(commands, Clip::GrenadeBurst, 0.9),
             Cue::EmpBurst => self.one_shot(commands, Clip::EmpBurst, 0.6),
+            // A reload, the player's own over the rest (`OTHERS_SHOTS` and a
+            // half again): a crew of bots reloading round a fight is a
+            // murmur under it.
+            Cue::Reload { weapon, by } => {
+                let clip = if weapon == WeaponKind::Shotgun {
+                    Clip::ShotgunReload
+                } else {
+                    Clip::Reload
+                };
+                let level = if by.is_some() && by == own {
+                    0.55
+                } else {
+                    0.55 * OTHERS_SHOTS * 0.5
+                };
+                self.one_shot(commands, clip, level);
+            }
             Cue::Blow { cut, on_crew } => {
                 if cut {
                     self.one_shot(commands, Clip::Schword, 0.3);
@@ -882,7 +912,7 @@ mod tests {
             assert!(clip.starts_with(b"OggS"), "clip {i} is not an Ogg stream");
             assert!(clip.len() > 1_000, "clip {i} is only {} bytes", clip.len());
         }
-        assert_eq!(CLIPS.len(), Clip::Revived as usize + 1);
+        assert_eq!(CLIPS.len(), Clip::ShotgunReload as usize + 1);
     }
 
     /// `audio.ron` at the root parses and names every sound, so the player

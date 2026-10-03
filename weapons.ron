@@ -16,9 +16,9 @@
 //
 // The values below are the built-in ones.
 (
-    laser_pistol: (6.0, 6.0),
+    laser_pistol: (8.0, 8.0),
     shotgun: (60.0, 36.0),
-    auto_rifle: (5.0, 4.4),
+    auto_rifle: (7.0, 6.4),
     sniper_rifle: (54.0, 30.0),
     schword: (42.0, 42.0),
     minigun: (4.4, 3.2),

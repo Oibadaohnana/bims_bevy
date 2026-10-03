@@ -2332,6 +2332,8 @@ fn frame(
         let (mut wx, mut wy) = (0.0f32, 0.0f32);
         // Shift sprints and Alt dodge-rolls (task 150).
         let (mut sprint, mut dodge_down) = (false, false);
+        // And the reload key (October 2026), a press.
+        let mut reload = false;
         if keys {
             ctx.input(|i| {
                 for (action, dx, dy) in [
@@ -2347,6 +2349,8 @@ fn frame(
                 }
                 sprint = crate::keys::sprint_held(i);
                 dodge_down = crate::keys::dodge_held(i);
+                reload = keys_now.pressed(i, Action::Reload)
+                    && crate::keys::plain_or_sprinting(i.modifiers);
             });
         }
         let dodge = dodge_down && !screen.dodge_was;
@@ -2405,6 +2409,9 @@ fn frame(
         // The roll after the keys, so it goes the way they walk it now.
         if dodge {
             orders.push(Order::Crew(CrewOrder::Dodge));
+        }
+        if reload {
+            orders.push(Order::Crew(CrewOrder::Reload));
         }
     }
 
@@ -3023,6 +3030,7 @@ fn frame(
                 down_left: room.down_left(w),
                 peril: crate::crew::peril_summary(room, w),
                 points_waiting: world.points_of(local),
+                magazine: room.magazine(w),
             };
             let band = ctx
                 .memory(|m| m.area_rect(egui::Id::new("hud-hero")))

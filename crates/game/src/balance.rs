@@ -76,13 +76,38 @@ pub const AIM_SPREAD: f32 = 0.25;
 // the guns here, the minigun and the rail lance, and the machines'
 // Unmaker and Sweeper — all but the shotgun and the blades (the Schword,
 // the Husk's claws). The notes give the numbers they had before.
+//
+// Later in October 2026 the four guns got **magazines**: so many shots,
+// then `reload_time` seconds when nothing is fired, and the next magazine
+// full — for ever, since nothing in the game carries ammunition
+// (`combat::Trigger`). Every body that carries one reloads: a player's,
+// a bot, a station's people, a Trooper's arm; a sentry never does. The
+// guns were paid for it: the pistol and the auto rifle 2 a shot more,
+// near and far, the shotgun twice the trigger rate, the sniper nothing.
+// The minigun's burst and long cool and the rail lance's one slug in
+// five seconds are a reload already, and have no magazine (nought); nor
+// has a blade or a machine's built-in arm.
+
+/// The pistol's magazine and its reload, in seconds.
+pub const PISTOL_MAGAZINE: u32 = 12;
+pub const PISTOL_RELOAD: f32 = 1.2;
+/// The shotgun's: six shells, put in one by one.
+pub const SHOTGUN_MAGAZINE: u32 = 6;
+pub const SHOTGUN_RELOAD: f32 = 3.5;
+/// The auto rifle's: seven and a half seconds of fire.
+pub const AUTO_RIFLE_MAGAZINE: u32 = 30;
+pub const AUTO_RIFLE_RELOAD: f32 = 1.8;
+/// The sniper rifle's.
+pub const SNIPER_MAGAZINE: u32 = 4;
+pub const SNIPER_RELOAD: f32 = 2.4;
 
 /// The pistol everybody is issued: quick, light, fifteen and a half
 /// tiles (twenty-two before October 2026). In a player's hand it fires
 /// a shot every click, and held one every [`SEMI_AUTO_COOLDOWN`]
 /// (`WeaponKind::semi_automatic`), so its `fire_rate` is only the pace
 /// of a body nobody steers. 6 a shot since October 2026, when every
-/// click became a shot (7.2 before).
+/// click became a shot (7.2 before), and 8 since its magazine of
+/// [`PISTOL_MAGAZINE`].
 /// A click is held back until [`SEMI_AUTO_COOLDOWN`] has passed since the
 /// last shot.
 pub const LASER_PISTOL: WeaponStats = WeaponStats {
@@ -90,8 +115,8 @@ pub const LASER_PISTOL: WeaponStats = WeaponStats {
     sweet: 0.0,
     accuracy: 0.855,
     accuracy_far: 0.585,
-    damage: 6.0,
-    damage_far: 6.0,
+    damage: 8.0,
+    damage_far: 8.0,
     speed: 18.0,
     fire_rate: 1.5,
     burst: 1,
@@ -99,6 +124,8 @@ pub const LASER_PISTOL: WeaponStats = WeaponStats {
     melee: false,
     strips: 0.0,
     strips_far: 0.0,
+    magazine: PISTOL_MAGAZINE,
+    reload_time: PISTOL_RELOAD,
 };
 
 /// Seconds between two shots of a semi-automatic (the pistol) in a
@@ -106,7 +133,9 @@ pub const LASER_PISTOL: WeaponStats = WeaponStats {
 /// a fire-rate skill or relic shortens it (`Skill::fire_rate`).
 pub const SEMI_AUTO_COOLDOWN: f32 = 0.3;
 
-/// Everything it has inside four tiles, a good deal less at ten.
+/// Everything it has inside four tiles, a good deal less at ten. One
+/// pull every two seconds since its magazine of [`SHOTGUN_MAGAZINE`]
+/// (every four before).
 pub const SHOTGUN: WeaponStats = WeaponStats {
     range: 10.0,
     sweet: 4.0,
@@ -115,12 +144,14 @@ pub const SHOTGUN: WeaponStats = WeaponStats {
     damage: 60.0,
     damage_far: 36.0,
     speed: 20.0,
-    fire_rate: 0.25,
+    fire_rate: 0.5,
     burst: 1,
     burst_gap: 0.0,
     melee: false,
     strips: 0.0,
     strips_far: 0.0,
+    magazine: SHOTGUN_MAGAZINE,
+    reload_time: SHOTGUN_RELOAD,
 };
 
 /// Four light shots a second for as long as the trigger is held, no
@@ -130,14 +161,15 @@ pub const SHOTGUN: WeaponStats = WeaponStats {
 /// October 2026; the bursts went and each shot lost 3, the far one in
 /// proportion, so a second's damage was the twelve it had been. Later in
 /// October 2026 each shot gained 2, near and far (3 and 2.4 before):
-/// twenty a second in its sweet range.
+/// twenty a second in its sweet range. And 2 more again with its
+/// magazine of [`AUTO_RIFLE_MAGAZINE`] (5 and 4.4 before): twenty-eight.
 pub const AUTO_RIFLE: WeaponStats = WeaponStats {
     range: 18.2,
     sweet: 5.6,
     accuracy: 0.765,
     accuracy_far: 0.45,
-    damage: 5.0,
-    damage_far: 4.4,
+    damage: 7.0,
+    damage_far: 6.4,
     speed: 22.0,
     fire_rate: 4.0,
     burst: 1,
@@ -145,6 +177,8 @@ pub const AUTO_RIFLE: WeaponStats = WeaponStats {
     melee: false,
     strips: 0.0,
     strips_far: 0.0,
+    magazine: AUTO_RIFLE_MAGAZINE,
+    reload_time: AUTO_RIFLE_RELOAD,
 };
 
 /// Nine in ten at fourteen tiles, fewer at 24.5 (twenty and thirty-five
@@ -163,6 +197,8 @@ pub const SNIPER_RIFLE: WeaponStats = WeaponStats {
     melee: false,
     strips: 0.0,
     strips_far: 0.0,
+    magazine: SNIPER_MAGAZINE,
+    reload_time: SNIPER_RELOAD,
 };
 
 /// The blade: a swing every [`MELEE_PERIOD`] within [`MELEE_RANGE`], and
@@ -181,6 +217,8 @@ pub const SCHWORD: WeaponStats = WeaponStats {
     melee: true,
     strips: 0.0,
     strips_far: 0.0,
+    magazine: 0,
+    reload_time: 0.0,
 };
 
 // ---- The minigun and the rail lance (task 115) ----
@@ -203,13 +241,15 @@ pub const SCHWORD: WeaponStats = WeaponStats {
 ///
 /// | against | tier-2 minigun | tier-2 auto rifle |
 /// | --- | --- | --- |
-/// | a droid (no armour) | 18.7 | 23.9 |
-/// | tier-2 kevlar (protection 3) | 8.5 | 12.4 |
-/// | tier-3 kevlar (protection 4.5) | 3.4 | 6.7 |
+/// | a droid (no armour) | 18.7 | 27.0 |
+/// | tier-2 kevlar (protection 3) | 8.5 | 17.7 |
+/// | tier-3 kevlar (protection 4.5) | 3.4 | 13.1 |
 ///
 /// So it shreds the machines and bounces off good armour: many light
 /// bolts each lose the protection. (The auto rifle's column was 14.3,
-/// 2.9 and 0.0 until its shots gained 2 in October 2026.)
+/// 2.9 and 0.0 until its shots gained 2 in October 2026, and 23.9, 12.4
+/// and 6.7 until they gained 2 again with its magazine, the rifle's
+/// second now over thirty shots and their reload.)
 pub const MINIGUN: WeaponStats = WeaponStats {
     range: 14.0,
     sweet: 4.2,
@@ -224,6 +264,8 @@ pub const MINIGUN: WeaponStats = WeaponStats {
     melee: false,
     strips: 0.0,
     strips_far: 0.0,
+    magazine: 0,
+    reload_time: 0.0,
 };
 
 /// One slug every five seconds that **goes through**: it strikes up to
@@ -232,8 +274,9 @@ pub const MINIGUN: WeaponStats = WeaponStats {
 /// three (its only tier) that is 75 a slug at 0.945 odds out to 16.8
 /// tiles, reaching 28.56 (24 and 40.8 before October 2026).
 ///
-/// Against one target the tier-three sniper rifle does about 21 a second
-/// (84.4 at certain odds, one every four) and the lance about 14 (75 at
+/// Against one target the tier-three sniper rifle does about 18 a second
+/// (84.4 at certain odds, one every four, four to a magazine and 2.4 s to
+/// reload it; 21 before the magazines) and the lance about 14 (75 at
 /// 0.945, one every five); into three bodies in a line the lance does
 /// about 28 (75 + 45 + 27). A wall, a lamp and a Guardian's shield from
 /// the front stop it; a tank's *interpose* spends it. See
@@ -252,6 +295,8 @@ pub const RAIL_LANCE: WeaponStats = WeaponStats {
     melee: false,
     strips: 0.0,
     strips_far: 0.0,
+    magazine: 0,
+    reload_time: 0.0,
 };
 
 /// How many bodies one rail lance slug strikes, at most.
@@ -410,6 +455,8 @@ pub const CLAW: WeaponStats = WeaponStats {
     melee: true,
     strips: 0.0,
     strips_far: 0.0,
+    magazine: 0,
+    reload_time: 0.0,
 };
 
 /// The Warden's lance: it does little to a body and a great deal to what
@@ -431,6 +478,8 @@ pub const UNMAKER: WeaponStats = WeaponStats {
     melee: false,
     strips: 30.0,
     strips_far: 20.0,
+    magazine: 0,
+    reload_time: 0.0,
 };
 
 /// What each of a droid's four parts has at tier one — head, chassis,
@@ -472,6 +521,8 @@ pub const SWEEPER: WeaponStats = WeaponStats {
     melee: false,
     strips: 0.0,
     strips_far: 0.0,
+    magazine: 0,
+    reload_time: 0.0,
 };
 
 /// The Sweeper's rhythm, in seconds: the lens brightening on a fixed aim,

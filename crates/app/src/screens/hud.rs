@@ -897,6 +897,9 @@ pub struct Hero {
     /// Skill points not spent on a ranked kit's ranks (task 124), said
     /// beside the experience bar.
     pub points_waiting: u8,
+    /// The magazine in its hand (October 2026): shots left, shots it
+    /// holds, and the share of a reload still to run — `Game::magazine`.
+    pub magazine: Option<(u32, u32, f32)>,
 }
 
 impl Hero {
@@ -1001,6 +1004,7 @@ pub fn hero_panel(
                             ui.label(egui::RichText::new(line).small().strong().color(*colour));
                         }
                     });
+                    magazine_box(ui, hero);
                     hovered = boxes(ui);
                 });
             });
@@ -1122,6 +1126,56 @@ fn level_disc(ui: &mut egui::Ui, hero: &Hero) {
 }
 
 /// A bar half the height of the others, for the experience.
+/// The magazine's column (October 2026), between the experience and the
+/// keys: the shots left, large — warm at a quarter and less, red empty —
+/// over what it holds, and while it reloads the word and a bar filling
+/// as the reload runs. Nothing for a weapon with no magazine.
+fn magazine_box(ui: &mut egui::Ui, hero: &Hero) {
+    let Some((left, size, reloading)) = hero.magazine else {
+        return;
+    };
+    let response = ui
+        .vertical(|ui| {
+            ui.set_width(MAGAZINE_W);
+            ui.spacing_mut().item_spacing.y = 2.0;
+            let ink = if reloading > 0.0 || left == 0 {
+                theme::BAD
+            } else if left * 4 <= size {
+                theme::WARN
+            } else {
+                theme::INK
+            };
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = 3.0;
+                ui.label(
+                    egui::RichText::new(left.to_string())
+                        .size(HERO_NUMBER)
+                        .strong()
+                        .color(ink),
+                );
+                ui.label(
+                    egui::RichText::new(format!("/ {size}"))
+                        .small()
+                        .color(theme::MUTED),
+                );
+            });
+            if reloading > 0.0 {
+                thin_bar(ui, MAGAZINE_W, 1.0 - reloading, theme::ACCENT);
+                ui.label(
+                    egui::RichText::new(RELOADING)
+                        .small()
+                        .strong()
+                        .color(theme::ACCENT),
+                );
+            }
+        })
+        .response;
+    response.on_hover_text(magazine_tip(left, size));
+}
+
+/// The magazine's column's width.
+const MAGAZINE_W: f32 = 64.0;
+
 fn thin_bar(ui: &mut egui::Ui, width: f32, fraction: f32, fill: egui::Color32) {
     let (rect, _) = ui.allocate_exact_size(egui::vec2(width, 4.0), egui::Sense::hover());
     theme::bar_in(ui.painter(), rect, fraction, fill);

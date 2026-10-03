@@ -5115,3 +5115,44 @@ here and the world's
 falls) pin it; `a_bot_under_fire_takes_up_no_revive` puts an enemy
 beyond the walls so the deck is not clear. No `SAVE_VERSION`;
 `wire::PROTOCOL` 130.
+
+## Magazines (October 2026)
+
+> "One trigger for a Bim and a sentry" (feature 74) says the trigger is
+> the reload and the burst; "the reload" there is the trigger rate's wait.
+> "A sentry never runs out of shots" (feature 88) still holds.
+
+- **`WeaponStats::{magazine, reload_time}`** (serde default): the
+  pistol 12 / 1.2 s, the auto rifle 30 / 1.8, the shotgun 6 / 3.5, the
+  sniper 4 / 2.4 (`balance::*_MAGAZINE`, `*_RELOAD`); nought for the
+  minigun, the rail lance, a blade and a machine's arm. With them the
+  pistol went to 8 a shot, the auto rifle to 7 / 6.4, the shotgun to a
+  pull every two seconds (`fire_rate` 0.5).
+- **`combat::Trigger`** counts it: `spent` (nought full), `reloading`
+  (seconds left), `loaded` (the weapon's code it is counted for) and
+  `began` (`serde(skip)`, cleared by `tick`). `pull`, `press` and
+  `pull_single` take nothing while it reloads or is empty, and the last
+  shot of a magazine begins the reload; `reload_now` begins one with shots
+  left; `tick` fills it when the seconds run out; `load(kind)` — called
+  by `tick_combat` with the weapon in the hand every step — gives a gun
+  changed in the hand a full magazine. A sentry is handed
+  `WeaponStats::endless()` and never reloads. Machines and Manufacturers
+  reload like anybody (a Trooper's pistol or rifle).
+- **A body nobody steers with nothing to aim at tops up**
+  (`reload_now` where `aimed` is `None` in `tick_combat`); a player's own
+  Bim reloads by itself only empty, and by **`CrewOrder::Reload`**
+  (appended last; the app's T, `keys::Action::Reload`) through
+  `Game::order_reload`.
+- **`Cue::Reload { weapon, by }`** is said by `say_reloads` (after the
+  crew's turn, from `began`) and by `order_reload`, in a room whose
+  bodies are not hostile only; the app plays `reload.ogg` (the shotgun
+  `shotgun_reload.ogg`), a player's own louder.
+- **`WeaponStats::pulls()`** is the trigger rate kept up over a magazine
+  and its reload, and `dps`/`dps_at` — the tactics' `Tactics::fit` —
+  read it, so a gun that reloads long is weighed for it.
+- `Game::magazine(who)` is the hero panel's reading: shots left, size,
+  the share of a reload still to run.
+
+`a_magazine_empties_reloads_and_a_new_gun_comes_full` pins it; the
+curves test pins the numbers. Two pistol bolts put a lamp out now
+(`LAMP_HEALTH` 16 was left). `SAVE_VERSION` 102, `wire::PROTOCOL` 131.

@@ -21,6 +21,8 @@
     shotgun: 1.0,
     rifle: 1.0,             // the auto rifle
     sniper: 1.0,            // the sniper rifle
+    reload: 1.0,            // a magazine reloaded, every gun but the shotgun
+    shotgun_reload: 1.0,    // the shotgun's shells put in
 
     // Hits.
     laser_hit: 0.5,         // a bolt landing on a body

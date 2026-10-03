@@ -123,6 +123,10 @@ pub enum Action {
     /// class, level, body, gear and skills, on the left of the canvas.
     /// Pressed again, it shuts.
     CharacterSheet,
+    /// **Reload** (October 2026): the Bim you steer reloads the magazine
+    /// in its hand now, shots left in it or not. On T, R being the fourth
+    /// ability.
+    Reload,
 }
 
 impl Action {
@@ -138,7 +142,7 @@ impl Action {
     /// The four item slots, in the order the hero panel lays them out.
     pub const ITEMS: [Action; 4] = [Action::Item1, Action::Item2, Action::Item3, Action::Item4];
 
-    pub const ALL: [Action; 32] = [
+    pub const ALL: [Action; 33] = [
         Action::Map,
         Action::NorthUp,
         Action::Follow,
@@ -171,6 +175,7 @@ impl Action {
         Action::Item3,
         Action::Item4,
         Action::CharacterSheet,
+        Action::Reload,
     ];
 
     /// The key it starts on.
@@ -219,6 +224,7 @@ impl Action {
             Action::Item3 => Key::Num3,
             Action::Item4 => Key::Num4,
             Action::CharacterSheet => Key::K,
+            Action::Reload => Key::T,
         }
     }
 
@@ -257,6 +263,7 @@ impl Action {
             Action::Item3 => "item-3",
             Action::Item4 => "item-4",
             Action::CharacterSheet => "character-sheet",
+            Action::Reload => "reload",
         }
     }
 
@@ -330,6 +337,9 @@ impl Action {
             Action::Item4 => "Use the item in the fourth item slot.",
             Action::CharacterSheet => {
                 "Open and close your Bim's character sheet: its class and level, its health, what it wears and holds, and the four abilities a level's skill point is spent on."
+            }
+            Action::Reload => {
+                "Reload the gun of the Bim you steer now, shots left in the magazine or not. An empty magazine reloads by itself, and there is no end to the magazines: only the seconds the reload takes."
             }
         }
     }

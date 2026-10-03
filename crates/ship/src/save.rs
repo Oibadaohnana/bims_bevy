@@ -270,7 +270,9 @@ use crate::game::Game;
 /// it back on a sale); `Command::Combine` and `WorldEvent::Combined` went.
 /// 101: the run keeps the best tier of gun and of armour each player has
 /// bought off a shelf (`Run::shelf_bought`), which lifts its later shelves.
-pub const SAVE_VERSION: u32 = 101;
+/// 102: a trigger keeps its magazine (`Trigger::{spent, reloading, loaded}`)
+/// and a weapon its size (`WeaponStats::{magazine, reload_time}`).
+pub const SAVE_VERSION: u32 = 102;
 
 /// What the file holds, read back.
 #[derive(serde::Deserialize)]

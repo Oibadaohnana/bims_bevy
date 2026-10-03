@@ -3113,6 +3113,27 @@ Warden's Unmaker takes armour off rather than blood. A hit on a crew
 member is on the head, the body or the legs, and what it does is
 [Getting hurt](#getting-hurt).
 
+**Every gun has a magazine** (October 2026): so many shots, then a
+reload, and the magazine is full again — for ever, since there is no
+ammunition to run out of, only the seconds a reload takes. The **pistol**
+holds twelve and reloads in 1.2 s, the **auto rifle** thirty in 1.8 s,
+the **shotgun** six shells put in one by one over 3.5 s, the **sniper
+rifle** four in 2.4 s; the minigun's burst and cool and the rail lance's
+one slug in five seconds are their own reload and have none, and nor
+has a blade. The guns were paid for it: the pistol and the auto rifle hit
+**2 harder** (8 a shot, and 7 near and 6.4 far), the shotgun fires
+**twice as often** (a pull every two seconds), the sniper nothing. The
+last shot of a magazine begins the reload; **T** (the *reload* key)
+reloads the Bim you steer sooner, shots left or not; a bot with nothing
+to shoot at tops its own up; and a gun put in the hand comes full.
+Everybody reloads — the crew, a station's people, a Trooper's arm — but a
+sentry never does. The hero panel shows the shots left over what the
+magazine holds (warm at a quarter, red empty) and, while it reloads, a
+bar and *Reloading*; a gun's tooltip says its magazine. A reload is heard
+— the gun's recording, the shotgun's shells — your own over the rest.
+What a gun does a second, to the bots' tactics and in the tooltips, is
+over a magazine and its reload.
+
 Two things a corridor fight turns on. **Peeking exposes the peek.** A Bim
 that aims from the peek beside a wall leans out to it, and that is where
 the enemy shoots at — but it is in cover, and a bolt reaching a body that

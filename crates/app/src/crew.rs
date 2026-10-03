@@ -2002,8 +2002,10 @@ pub(crate) fn tip_of(item: PackItem, count: u32) -> String {
             let numbers = if stats.melee {
                 melee_text(&stats)
             } else {
+                let magazine =
+                    crate::names::magazine_text(&stats).map_or(String::new(), |m| format!("\n{m}"));
                 format!(
-                    "Damage {}, range {} tiles",
+                    "Damage {}, range {} tiles{magazine}",
                     damage_text(&stats),
                     tidy(stats.range)
                 )

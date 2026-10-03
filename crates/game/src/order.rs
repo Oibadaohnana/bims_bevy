@@ -133,6 +133,9 @@ pub enum CrewOrder {
     /// its keys walk it, or last walked it — never at the pointer.
     /// Appended last.
     Dodge,
+    /// The reload key (October 2026): the player's own crew member
+    /// reloads its magazine now, shots left in it or not. Appended last.
+    Reload,
 }
 
 /// An angle as a [`CrewOrder::Control`] carries it: radians, nought east,
@@ -171,7 +174,8 @@ impl CrewOrder {
             | CrewOrder::Attack { .. }
             | CrewOrder::Hand { .. }
             | CrewOrder::Control { .. }
-            | CrewOrder::Dodge => None,
+            | CrewOrder::Dodge
+            | CrewOrder::Reload => None,
         }
     }
 }
@@ -284,6 +288,10 @@ impl Game {
                 self.order_dodge(slot);
                 0
             }
+            CrewOrder::Reload => {
+                self.order_reload(slot);
+                0
+            }
         }
     }
 
@@ -343,7 +351,8 @@ impl Game {
             | CrewOrder::Attack { .. }
             | CrewOrder::Hand { .. }
             | CrewOrder::Control { .. }
-            | CrewOrder::Dodge => return self.order(slot, order),
+            | CrewOrder::Dodge
+            | CrewOrder::Reload => return self.order(slot, order),
         };
         if who(w) < crew {
             self.queue_order(Saved::ordered(who(w), kind, minutes, None));

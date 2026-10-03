@@ -11393,6 +11393,8 @@ fn calls_off_a_throw(order: bims::order::CrewOrder) -> bool {
             // The pointer and the trigger alone (task 144); the keys
             // walking it do.
             | CrewOrder::Control { walk: None, .. }
+            // A reload (October 2026) runs whatever the body does.
+            | CrewOrder::Reload
     )
 }
 

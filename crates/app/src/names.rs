@@ -3053,6 +3053,28 @@ pub fn fire_rate_text(stats: &WeaponStats) -> String {
     }
 }
 
+/// A gun's magazine (October 2026): "12 a magazine, 1.2 s to reload", or
+/// `None` for a weapon with none.
+pub fn magazine_text(stats: &WeaponStats) -> Option<String> {
+    (stats.magazine > 0).then(|| {
+        format!(
+            "{} a magazine, {} s to reload",
+            stats.magazine,
+            tidy(stats.reload_time)
+        )
+    })
+}
+
+/// The hero panel's word under the magazine while it is reloaded.
+pub const RELOADING: &str = "Reloading";
+
+/// And the column's tooltip.
+pub fn magazine_tip(left: u32, size: u32) -> String {
+    format!(
+        "{left} of {size} shots in the magazine. An empty one reloads by itself, and the reload key reloads it sooner; there is no end to the magazines."
+    )
+}
+
 /// What a blade is, in one line: "Melee — 70 a swing every 2 s".
 pub fn melee_text(stats: &WeaponStats) -> String {
     format!("Melee — {} {}", tidy(stats.damage), fire_rate_text(stats))
@@ -3751,10 +3773,15 @@ mod tests {
             let shotgun = WeaponKind::Shotgun.stats();
             assert_eq!(damage_text(&shotgun), "60 to 4 tiles, 36 at 10");
             let pistol = WeaponKind::LaserPistol.stats();
-            assert_eq!(damage_text(&pistol), "6 a shot");
+            assert_eq!(damage_text(&pistol), "8 a shot");
             assert_eq!(fire_rate_text(&pistol), "1.5 a second");
             let rifle = WeaponKind::AutoRifle.stats();
-            assert_eq!(fire_rate_text(&rifle), "8 in 2 s, then 2 s");
+            assert_eq!(fire_rate_text(&rifle), "4 a second");
+            assert_eq!(
+                magazine_text(&rifle).as_deref(),
+                Some("30 a magazine, 1.8 s to reload")
+            );
+            assert_eq!(magazine_text(&WeaponKind::Schword.stats()), None);
             let schword = WeaponKind::Schword.stats();
             assert_eq!(melee_text(&schword), "Melee — 42 a swing every 2 s");
             assert!(!locked_tip().is_empty());

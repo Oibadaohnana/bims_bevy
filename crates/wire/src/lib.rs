@@ -195,7 +195,11 @@ use serde::{Deserialize, Serialize};
 /// 130: a wave cleared, the bots go to the downed at once — no calm
 /// waited for, no fire of their own — the players first
 /// (`Game::deck_clear`): both ends must revive alike.
-pub const PROTOCOL: u32 = 130;
+/// 131: magazines (October 2026) — every gun fires so many shots and
+/// reloads (`combat::Trigger`), the pistol and the auto rifle 2 a shot
+/// more and the shotgun twice the rate, and `CrewOrder::Reload` is
+/// appended: both ends must fire and reload alike.
+pub const PROTOCOL: u32 = 131;
 
 /// Where the relay lives. `BIMS_SERVER` in the environment overrides it
 /// — `ws://127.0.0.1:8792` for one on the same machine.

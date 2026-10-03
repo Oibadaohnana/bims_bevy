@@ -9,7 +9,8 @@ use crate::clock::MINUTES_PER_SECOND;
 use crate::clock::{self, Clock};
 use crate::combat::{
     ArmourKind, Blow, COVER_WORTH, Combat, FIST_DAMAGE, Gear, Grenade, Hit, Item, MELEE_PERIOD,
-    MELEE_RANGE, Piece, Sentry, Shot, Skill, Tactics, Weapon, WeaponStats, line_of_fire,
+    MELEE_RANGE, Piece, Sentry, Shot, Skill, Tactics, Weapon, WeaponKind, WeaponStats,
+    line_of_fire,
 };
 use crate::cue::{Cue, Cued};
 use crate::door;
@@ -1775,6 +1776,9 @@ impl Game {
             // The weapon's numbers through the soldier's skill (feature 75):
             // everybody else's are the weapon's own.
             let stats = skill.stats(weapon);
+            // The magazine is counted for the weapon in the hand: one put
+            // there since comes full (October 2026).
+            self.bims[who].trigger.load(weapon.kind);
             // At war it picks its own stand. A crew member under arms
             // that is not the player's to steer does what its player's
             // standing order says (feature 84, `bot_stand`) — keeping to
@@ -1941,7 +1945,7 @@ impl Game {
                 }
                 let fired = if semi {
                     let cooldown = crate::balance::SEMI_AUTO_COOLDOWN / skill.fire_rate.max(1e-3);
-                    bim.trigger.press(cooldown)
+                    bim.trigger.press(cooldown, &stats)
                 } else {
                     bim.trigger.pull(dt, &stats)
                 };
@@ -1969,6 +1973,9 @@ impl Game {
             self.keep_attack_moving(who, aimed.is_some());
             let bim = &mut self.bims[who];
             let Some((_, eye, at)) = aimed else {
+                // Nothing to shoot at, and the magazine short of full: a body
+                // nobody steers reloads it now rather than mid-fight.
+                bim.trigger.reload_now(&stats);
                 bim.trigger.hold();
                 bim.peek = None;
                 bim.character.set_lean(None);
@@ -2045,6 +2052,8 @@ impl Game {
         // the same question, `machine_targets` being the room's own list
         // unless the world gave the machines one.
         let machine_war = self.combat.machine_targets().iter().any(|t| t.is_some());
+        // A reload begun this step by the crew is heard (October 2026).
+        self.say_reloads();
         self.tick_droids(dt, war || machine_war);
         // The grenades (feature 75): the fuses burn down, and each that
         // runs out bursts on everything round it.
@@ -2064,7 +2073,7 @@ impl Game {
                 if sentry.heals {
                     continue;
                 }
-                let stats = sentry.skill.stats(sentry.weapon);
+                let stats = sentry.skill.stats(sentry.weapon).endless();
                 self.sentries[i].trigger.tick(dt);
                 self.sentries[i].flash = (self.sentries[i].flash - dt).max(0.0);
                 // Its sensor sees in the dark: a machine standing where
@@ -6593,6 +6602,88 @@ impl Game {
         self.call_off_attack_move(who);
         self.bims[who].character.set_post(None);
         self.drop_task(who);
+    }
+
+    /// `CrewOrder::Reload` (October 2026): player `slot`'s own Bim
+    /// reloads the magazine in its hand now, shots left in it or not —
+    /// nothing for a weapon with none, a full one, one already being
+    /// reloaded, or a body that cannot act. A roll, a sprint or a charge
+    /// do not stop it; the reload runs on whatever the body does.
+    pub fn order_reload(&mut self, slot: u32) {
+        let who = slot as usize;
+        if who >= self.bims.len()
+            || who >= self.players
+            || !self.bims[who].is_alive()
+            || self.bims[who].character.is_unconscious()
+        {
+            return;
+        }
+        let Some(weapon) = self.bims[who].gear.weapon else {
+            return;
+        };
+        let stats = self.shot_skill(who).stats(weapon);
+        let trigger = &mut self.bims[who].trigger;
+        trigger.load(weapon.kind);
+        if trigger.reload_now(&stats) {
+            self.say_reload(who, weapon.kind);
+        }
+    }
+
+    /// Every crew member whose reload began this step said as a
+    /// `Cue::Reload`, at the body — in a room whose bodies are not
+    /// hostile; an enemy's people reload unheard.
+    fn say_reloads(&mut self) {
+        if self.hostile_bodies {
+            return;
+        }
+        for who in 0..self.bims.len() {
+            let bim = &self.bims[who];
+            if bim.trigger.began
+                && let Some(weapon) = bim.gear.weapon
+            {
+                self.say_reload(who, weapon.kind);
+            }
+        }
+    }
+
+    fn say_reload(&mut self, who: usize, weapon: WeaponKind) {
+        self.room.cues.push(Cued {
+            cue: Cue::Reload {
+                weapon,
+                by: Some(who),
+            },
+            at: self.bims[who].character.pos,
+        });
+    }
+
+    /// The magazine in `who`'s hand (October 2026), for the hero panel
+    /// and the reticle: shots left, shots it holds, and the share of a
+    /// reload under way still to run (nought with none). `None` for a
+    /// body with nothing in its hand or a weapon with no magazine.
+    pub fn magazine(&self, who: usize) -> Option<(u32, u32, f32)> {
+        let bim = self.bims.get(who)?;
+        let weapon = bim.gear.weapon?;
+        let stats = weapon.stats();
+        if stats.magazine == 0 {
+            return None;
+        }
+        // A weapon changed in the hand since the last step is full.
+        let trigger = &bim.trigger;
+        let spent = if trigger.loaded == weapon.kind.code() {
+            trigger.spent
+        } else {
+            0
+        };
+        let left = if trigger.loaded == weapon.kind.code() && trigger.is_reloading() {
+            trigger.reloading / stats.reload_time.max(1e-3)
+        } else {
+            0.0
+        };
+        Some((
+            stats.magazine.saturating_sub(spent),
+            stats.magazine,
+            left.clamp(0.0, 1.0),
+        ))
     }
 
     /// Whether `who` is rolling (task 150), for the app's sound and the
@@ -11245,9 +11336,11 @@ mod tests {
             }
         }
         assert!(game.lamps()[0].is_out(), "{shots} shots");
-        assert_eq!(hits, 3, "the third pistol bolt puts it out");
+        // Two since the pistol went to 8 a shot with its magazine
+        // (October 2026): three at 6.
+        assert_eq!(hits, 2, "the second pistol bolt puts it out");
         assert!(flickered, "a hit sets it flickering");
-        assert_eq!(game.take_lamp_changes(), vec![0, 0, 0]);
+        assert_eq!(game.take_lamp_changes(), vec![0, 0]);
         assert!(game.take_lamp_changes().is_empty(), "drained");
         assert_eq!(game.lamps()[0].level, 0.0);
         // Out: the tile it lit is dark and seen no further than the eight,
@@ -11677,6 +11770,10 @@ mod tests {
             game.simulate(DT);
         }
         game.take_shots();
+        // A fresh magazine for the timing (October 2026): thirty is more
+        // than the six seconds fire, and the walk over may have spent some.
+        game.bims[1].trigger.spent = 0;
+        game.bims[1].trigger.reloading = 0.0;
         let mut times = Vec::new();
         for step in 0..(60 * 8) {
             game.simulate(DT);
@@ -13733,6 +13830,17 @@ mod tests {
             step(&mut game, &mut fired);
         }
         assert_eq!(fired, 10, "a pistol held down fires at its cooldown");
+        // A full magazine for what follows (October 2026): the ten took
+        // ten of its twelve.
+        let refill = |game: &mut Game| {
+            game.order(0, control(false));
+            game.order(0, CrewOrder::Reload);
+            for _ in 0..90 {
+                game.simulate(DT);
+            }
+            assert_eq!(game.magazine(0).map(|m| m.0), Some(12));
+        };
+        refill(&mut game);
         // Clicked three times a second, twice the 1.5 a second a bot
         // fires it at and just past the cooldown: every click is a shot,
         // the moment it is clicked.
@@ -13758,7 +13866,7 @@ mod tests {
         }
         assert_eq!(fired, 12, "every click a shot");
         // And a click that is down and up again before a step sees it.
-        wait(&mut game);
+        refill(&mut game);
         let mut fired = 0;
         game.order(0, control(true));
         game.order(0, control(false));
@@ -13786,6 +13894,131 @@ mod tests {
             step(&mut game, &mut fired);
         }
         assert_eq!(fired, 2, "and once");
+    }
+
+    /// October 2026: a gun fires its magazine and then nothing for its
+    /// reload, which is heard; the reload key begins one with shots left;
+    /// and a gun put in the hand comes full.
+    #[test]
+    fn a_magazine_empties_reloads_and_a_new_gun_comes_full() {
+        use crate::order::{CrewOrder, angle_code};
+        let reloads = |game: &mut Game| {
+            game.take_cues()
+                .into_iter()
+                .filter(|c| {
+                    matches!(
+                        c.cue,
+                        Cue::Reload {
+                            weapon: WeaponKind::LaserPistol,
+                            by: Some(0)
+                        }
+                    )
+                })
+                .count()
+        };
+        let mut game = room();
+        game.set_autonomous(false);
+        game.set_players(1);
+        let james = game.put_for_probe(0, vec2(ROOM_W * 0.3, ROOM_H * 0.5));
+        game.bims[0].character.heading = 0.0;
+        game.put_for_probe(1, vec2(ROOM_W * 0.2, ROOM_H * 0.85));
+        game.issue(1, Gear::default());
+        game.set_hostiles(vec![Some((
+            james + vec2(4.0 * TILE, 0.0),
+            WeaponKind::LaserPistol.basic(),
+        ))]);
+        let control = |fire: bool| CrewOrder::Control {
+            walk: None,
+            aim: angle_code(0.0),
+            fire,
+            sprint: false,
+        };
+        game.order(0, control(false));
+        for _ in 0..60 {
+            game.simulate(DT);
+        }
+        assert_eq!(game.magazine(0), Some((12, 12, 0.0)));
+        reloads(&mut game);
+
+        // Held down for six seconds: twelve at the cooldown, then nothing
+        // for the reload — said once, as the twelfth went — then on.
+        game.order(0, control(true));
+        let mut times = Vec::new();
+        let mut heard = 0;
+        for step in 0..360 {
+            let before = game.bims[0].shots;
+            game.simulate(DT);
+            if game.bims[0].shots > before {
+                times.push(step as f32 * DT);
+            }
+            heard += reloads(&mut game);
+            if times.len() == 12 && game.bims[0].shots == before + 1 {
+                assert_eq!(heard, 1, "the twelfth began the reload");
+                let (left, size, share) = game.magazine(0).unwrap();
+                assert_eq!((left, size), (0, 12));
+                assert!(share > 0.9, "a reload just begun: {share}");
+            }
+        }
+        assert_eq!(heard, 1, "one reload in six seconds");
+        assert!(times.len() > 13, "{times:?}");
+        let gap = times[12] - times[11];
+        assert!(
+            gap >= crate::balance::PISTOL_RELOAD && gap < crate::balance::PISTOL_RELOAD + 0.35,
+            "the reload between the twelfth and the thirteenth: {gap}"
+        );
+        assert!(
+            times[..12].windows(2).all(|w| w[1] - w[0] < 0.35),
+            "the magazine at the cooldown: {times:?}"
+        );
+
+        // Let go with shots left: the reload key reloads now, and is
+        // heard; pressed again while it runs, nothing.
+        game.order(0, control(false));
+        for _ in 0..30 {
+            game.simulate(DT);
+        }
+        reloads(&mut game);
+        let (left, _, _) = game.magazine(0).unwrap();
+        assert!(left < 12);
+        game.order(0, CrewOrder::Reload);
+        assert_eq!(reloads(&mut game), 1, "the key's reload is heard");
+        game.order(0, CrewOrder::Reload);
+        assert_eq!(reloads(&mut game), 0, "and not twice");
+        assert!(game.magazine(0).unwrap().2 > 0.0);
+        for _ in 0..80 {
+            game.simulate(DT);
+        }
+        assert_eq!(game.magazine(0), Some((12, 12, 0.0)));
+        // Full, the key does nothing.
+        game.order(0, CrewOrder::Reload);
+        assert_eq!(reloads(&mut game), 0);
+
+        // Half a magazine fired, and a rifle put in the hand: thirty in it.
+        game.order(0, control(true));
+        for _ in 0..60 {
+            game.simulate(DT);
+        }
+        game.order(0, control(false));
+        assert!(game.magazine(0).unwrap().0 < 12);
+        game.issue(
+            0,
+            Gear {
+                weapon: Some(WeaponKind::AutoRifle.basic()),
+                ..Gear::default()
+            },
+        );
+        assert_eq!(game.magazine(0), Some((30, 30, 0.0)));
+        game.simulate(DT);
+        assert_eq!(game.magazine(0), Some((30, 30, 0.0)));
+        // A blade has none.
+        game.issue(
+            0,
+            Gear {
+                weapon: Some(WeaponKind::Schword.basic()),
+                ..Gear::default()
+            },
+        );
+        assert_eq!(game.magazine(0), None);
     }
 
     /// Shift (task 150): the keys walk the player's Bim at `SPRINT` of its
