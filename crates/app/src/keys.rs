@@ -317,7 +317,7 @@ impl Action {
                 "A medic picks the downed crewmate under the pointer up and carries them out of the fire, holding its fire and walking slowly while it does. Press it again to set them down, and revive them where it is quiet. Nothing for anybody but a medic or a hired field medic. A left click on a downed crewmate offers the same."
             }
             Action::Revive => {
-                "Hold it standing close to a downed crewmate and the Bim you steer gets them back up — the nearest of them. Let go before they are up and it stops. A bar over them shows how far it has got."
+                "Hold it standing close to a downed crewmate and the Bim you steer gets them back up — the nearest of them. Let go before they are up and it stops. A bar over them shows how far it has got. A left click on a downed crewmate walks over and revives them too."
             }
             Action::Medkit => {
                 "Take the medkit in hand: the Bim you steer holds its fire, and a right-click on a downed crewmate walks over and revives them. Their countdown stands while the hands are on them. Pressed again, the weapon is back in hand."

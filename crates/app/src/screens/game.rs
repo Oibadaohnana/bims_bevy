@@ -2219,8 +2219,27 @@ fn frame(
             ctx.set_cursor_icon(egui::CursorIcon::None);
             // The left button is the trigger (task 144), which the control
             // order below carries, and a left press closes any menu open.
+            // A left press on a downed crewmate or townsperson is the
+            // revive instead, the medkit in hand or not — the walk over
+            // and the hands on it, Shift waiting its turn — and fires
+            // nothing until the button comes up.
             if pointer.primary_pressed {
                 panels.close_menu();
+                if let Some(room) = session.room()
+                    && let Some(patient) = downed_patient(room, panels.player, rx, ry, &crew_name)
+                {
+                    screen.trigger_spent = true;
+                    match patient {
+                        Ok(patient) => orders.push(crew_order(
+                            CrewOrder::Revive {
+                                who: panels.player as u32,
+                                patient,
+                            },
+                            pointer.shift,
+                        )),
+                        Err(why) => screen.log.push(why),
+                    }
+                }
             }
             // A right-click walks nobody anywhere and attacks nobody (task
             // 144). With the medkit in hand a downed crewmate under it is
@@ -6056,8 +6075,23 @@ fn medkit_patient(
     if room.hand(own) != bims::bim::Hand::Medkit {
         return None;
     }
+    downed_patient(room, own, x, y, name)
+}
+
+/// What a left click at room point `(x, y)` revives, the medkit in hand
+/// or not: `None` when no downed crewmate or townsperson
+/// (`bims::game::GUEST`) is under the pointer — the click is the
+/// trigger then — else the patient, or the reason `own` cannot revive
+/// it, for the log.
+fn downed_patient(
+    room: &bims::game::Game,
+    own: usize,
+    x: f32,
+    y: f32,
+    name: &dyn Fn(u32) -> String,
+) -> Option<Result<u32, String>> {
     // A downed crewmate, else a townsperson down on the joined deck — a
-    // fighting townsperson is picked up with the medkit the same way.
+    // fighting townsperson is picked up the same way.
     let patient = room
         .crew_at(x, y)
         .filter(|&p| p != own && room.is_downed(p))
