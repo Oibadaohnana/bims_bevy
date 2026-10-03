@@ -3975,7 +3975,10 @@ fn a_sniper_rifle_reaches_from_twenty_tiles_and_a_shotgun_does_as_much_at_nine_a
         );
         // Down the corridor the same: no weapon loses damage over
         // distance since October 2026 (it was less at nine).
-        assert!((far - near).abs() < 1e-3, "the same at nine tiles: {far} and {near}");
+        assert!(
+            (far - near).abs() < 1e-3,
+            "the same at nine tiles: {far} and {near}"
+        );
         assert!(
             flown(far, far_from),
             "the weapon's damage at the distance flown: {far} at {far_from:.1} tiles"
