@@ -1,10 +1,12 @@
 //! The health bar over every body on the deck (task 137), the way Dota
 //! draws one: a short bar over the head, green for a friend and red for
 //! an enemy, the crew's and the station's people's and the machines'
-//! alike. What a body just lost stays on the bar in white for a moment
-//! and then drains away, and what it just got back shows in a lighter
-//! tone of its colour before the bar fills in behind it — so a glance
-//! across a fight says who is being hit and who is being mended.
+//! alike. What a body lost in the last second stays on the bar in white
+//! and then drains away, and what it got back in the last second shows
+//! in a lighter tone of its colour, the solid filling in behind it — so a
+//! steady bleed or mend is a short white or light edge riding the bar,
+//! never a stretch from where it began, and a glance across a fight says
+//! who is being hit and who is being mended.
 //!
 //! # A picture, kept by the screen
 //!
@@ -24,12 +26,15 @@ use bevy_egui::egui;
 use ship::game::Game;
 use ship::world_paint;
 
-/// How long the white of a hit, or the light of a heal, stands still
-/// before it starts to go, in real seconds.
-const HOLD: f32 = 0.45;
-/// How fast it goes once it does, in bars a second: a whole bar lost
-/// drains in a little over half a second.
+/// How fast the white of a hit drains once it is out of the window, in
+/// bars a second — a whole bar lost drains in a little over half a
+/// second — and how fast the solid catches up with the light of a heal.
 const DRAIN: f32 = 1.6;
+/// The hits the white shows and the heals the light shows: those of the
+/// last second, as Dota's bar does, kept in [`SLICES`] slices of a tenth
+/// of a second each, the newest first.
+const SLICES: usize = 10;
+const SLICE: f32 = 0.1;
 
 /// The bar at 100% zoom, in points, and the least and most it is drawn
 /// at as the camera zooms: readable far out, not a banner close in.
@@ -78,14 +83,28 @@ struct Trail {
     /// The bar as it stands.
     now: f32,
     /// The top of the white: what the bar was before the hits of the last
-    /// moment. Never below `now`.
+    /// second. Never below `now`.
     lost: f32,
     /// The top of the solid fill: what the bar was before the heals of
-    /// the last moment, the light part running from here to `now`. Never
+    /// the last second, the light part running from here to `now`. Never
     /// above it.
     kept: f32,
-    lost_hold: f32,
-    kept_hold: f32,
+    /// What was taken and what was healed in each slice of the last
+    /// second, the newest first, and how far into the newest slice the
+    /// clock is.
+    hurt: [f32; SLICES],
+    healed: [f32; SLICES],
+    slice_age: f32,
+}
+
+/// Take `amount` off `slices`, the newest first: a hit eats the light
+/// of the latest heals, a heal fills in the white of the latest hits.
+fn eat(slices: &mut [f32; SLICES], mut amount: f32) {
+    for slice in slices {
+        let eaten = slice.min(amount);
+        *slice -= eaten;
+        amount -= eaten;
+    }
 }
 
 impl Trail {
@@ -94,39 +113,56 @@ impl Trail {
             now: share,
             lost: share,
             kept: share,
-            lost_hold: 0.0,
-            kept_hold: 0.0,
+            hurt: [0.0; SLICES],
+            healed: [0.0; SLICES],
+            slice_age: 0.0,
         }
     }
 
     /// The bar reads `share` now, `dt` real seconds after it last did.
     fn step(&mut self, share: f32, dt: f32) {
         if share < self.now {
-            // A hit: the white runs from here up to the highest the bar
-            // has been lately, and a heal still showing light is the
-            // first thing it eats into.
-            self.lost = self.lost.max(self.now);
-            self.kept = self.kept.min(share);
-            self.lost_hold = HOLD;
+            // A hit: the white shows it for a second, and a heal still
+            // showing light is the first thing it eats into.
+            self.hurt[0] += self.now - share;
+            eat(&mut self.healed, self.now - share);
         } else if share > self.now {
-            // A heal: the solid stays where it was and the light fills
-            // the gap; white above it is left to drain on its own.
-            self.kept = self.kept.min(self.now);
-            self.kept_hold = HOLD;
+            // A heal: the light shows it for a second, and it fills in
+            // the white of a hit still showing first.
+            self.healed[0] += share - self.now;
+            eat(&mut self.hurt, share - self.now);
         }
         self.now = share;
-        if self.lost_hold > 0.0 {
-            self.lost_hold -= dt;
-        } else {
-            self.lost -= DRAIN * dt;
+        // The slices age, the oldest falling out of the window.
+        self.slice_age += dt;
+        let mut turns = 0;
+        while self.slice_age >= SLICE {
+            self.slice_age -= SLICE;
+            if turns < SLICES {
+                for slices in [&mut self.hurt, &mut self.healed] {
+                    slices.rotate_right(1);
+                    slices[0] = 0.0;
+                }
+                turns += 1;
+            }
         }
-        if self.kept_hold > 0.0 {
-            self.kept_hold -= dt;
+        // The white's top and the solid's jump at once to take in a new
+        // hit or heal, and go back to the bar at DRAIN's pace once it is
+        // out of the window, so neither snaps away.
+        let white = share + self.hurt.iter().sum::<f32>();
+        let solid = share - self.healed.iter().sum::<f32>();
+        if self.lost < white {
+            self.lost = white;
         } else {
-            self.kept += DRAIN * dt;
+            self.lost = (self.lost - DRAIN * dt).max(white);
+        }
+        if self.kept > solid {
+            self.kept = solid;
+        } else {
+            self.kept = (self.kept + DRAIN * dt).min(solid);
         }
         self.lost = self.lost.max(share);
-        self.kept = self.kept.min(share);
+        self.kept = self.kept.clamp(0.0, share);
     }
 }
 
@@ -426,6 +462,10 @@ fn ticks(whole: f32, width: f32) -> Vec<(f32, bool)> {
 mod tests {
     use super::*;
 
+    fn near(a: f32, b: f32) -> bool {
+        (a - b).abs() < 1e-5
+    }
+
     #[test]
     fn a_hit_leaves_white_that_holds_and_then_drains() {
         let mut t = Trail::new(1.0);
@@ -433,9 +473,9 @@ mod tests {
         assert_eq!(t.now, 0.6);
         assert_eq!(t.lost, 1.0, "the white runs up to what the bar was");
         assert_eq!(t.kept, 0.6);
-        // Still held a moment later.
-        t.step(0.6, HOLD * 0.5);
-        assert_eq!(t.lost, 1.0);
+        // Still held most of a second later.
+        t.step(0.6, 0.8);
+        assert!(near(t.lost, 1.0));
         // Then it drains, and never below the bar.
         for _ in 0..200 {
             t.step(0.6, 0.016);
@@ -448,15 +488,44 @@ mod tests {
         let mut t = Trail::new(1.0);
         t.step(0.8, 0.016);
         t.step(0.5, 0.016);
-        assert_eq!(t.lost, 1.0);
+        assert!(near(t.lost, 1.0));
         assert_eq!(t.now, 0.5);
+    }
+
+    #[test]
+    fn a_steady_bleed_whitens_only_its_last_second() {
+        // An eighth of a bar a second for three seconds, from the top.
+        let mut t = Trail::new(1.0);
+        let mut share = 1.0;
+        for _ in 0..(3.0 / 0.016) as usize {
+            share -= 0.125 * 0.016;
+            t.step(share, 0.016);
+        }
+        let white = t.lost - t.now;
+        assert!(
+            (0.1..=0.13).contains(&white),
+            "a second's worth of white, not three: {white}"
+        );
+        for _ in 0..100 {
+            t.step(share, 0.016);
+        }
+        assert_eq!(t.lost, t.now);
+    }
+
+    #[test]
+    fn a_heal_fills_in_the_white_of_a_hit() {
+        let mut t = Trail::new(1.0);
+        t.step(0.5, 0.016);
+        t.step(0.7, 0.016);
+        assert!(near(t.lost, 1.0), "the white's top stays: {}", t.lost);
+        assert!(near(t.kept, 0.5), "the heal shows light: {}", t.kept);
     }
 
     #[test]
     fn a_heal_shows_light_that_the_fill_catches_up_to() {
         let mut t = Trail::new(0.4);
         t.step(0.7, 0.016);
-        assert_eq!(t.kept, 0.4, "the solid waits where it was");
+        assert!(near(t.kept, 0.4), "the solid waits where it was");
         assert_eq!(t.now, 0.7);
         assert_eq!(t.lost, 0.7, "no white for a heal");
         for _ in 0..200 {
@@ -470,10 +539,10 @@ mod tests {
         let mut t = Trail::new(0.4);
         t.step(0.7, 0.016);
         t.step(0.5, 0.016);
-        assert_eq!(t.kept, 0.4, "the light that is left runs 0.4 to 0.5");
-        assert_eq!(t.lost, 0.7);
+        assert!(near(t.kept, 0.4), "the light that is left runs 0.4 to 0.5");
+        assert!(near(t.lost, 0.7));
         t.step(0.3, 0.016);
-        assert_eq!(t.kept, 0.3, "and a hit below it takes the solid");
+        assert!(near(t.kept, 0.3), "and a hit below it takes the solid");
     }
 
     #[test]
@@ -492,10 +561,10 @@ mod tests {
         assert_eq!(t.health.now, 60.0 / 140.0);
         assert_eq!(t.health.kept, 60.0 / 140.0);
         assert_eq!(t.all.now, 90.0 / 140.0);
-        assert_eq!(t.all.lost, 100.0 / 140.0);
+        assert!(near(t.all.lost, 100.0 / 140.0));
         // A heal of twenty: light on the health, the solid where it was.
         t.step(r(80.0, 30.0), 0.016);
-        assert_eq!(t.health.kept, 60.0 / 140.0);
+        assert!(near(t.health.kept, 60.0 / 140.0));
         assert_eq!(t.health.now, 80.0 / 140.0);
     }
 
@@ -522,12 +591,53 @@ mod tests {
     }
 
     #[test]
+    fn a_steady_mend_lights_only_its_last_second() {
+        // An eighth of a bar a second for three seconds, from a fifth.
+        let mut t = Trail::new(0.2);
+        let mut share = 0.2;
+        for _ in 0..(3.0 / 0.016) as usize {
+            share += 0.125 * 0.016;
+            t.step(share, 0.016);
+        }
+        let light = t.now - t.kept;
+        assert!(
+            (0.1..=0.13).contains(&light),
+            "a second's worth of light, not three: {light}"
+        );
+        // And it goes once the mend stops.
+        for _ in 0..100 {
+            t.step(share, 0.016);
+        }
+        assert_eq!(t.kept, t.now);
+    }
+
+    #[test]
+    fn a_heal_holds_its_light_a_second() {
+        let mut t = Trail::new(0.4);
+        t.step(0.7, 0.016);
+        for _ in 0..50 {
+            t.step(0.7, 0.016);
+        }
+        assert!(near(t.kept, 0.4), "still light at 0.8 s");
+        for _ in 0..20 {
+            t.step(0.7, 0.016);
+        }
+        assert!(t.kept > 0.4, "filling in after a second: {}", t.kept);
+    }
+
+    #[test]
     fn a_paused_bar_holds_still() {
         let mut t = Trail::new(1.0);
         t.step(0.2, 0.016);
         for _ in 0..100 {
             t.step(0.2, 0.0);
         }
-        assert_eq!(t.lost, 1.0);
+        assert!(near(t.lost, 1.0));
+        let mut t = Trail::new(0.2);
+        t.step(0.6, 0.016);
+        for _ in 0..100 {
+            t.step(0.6, 0.0);
+        }
+        assert!(near(t.kept, 0.2), "a heal's light held too");
     }
 }
