@@ -808,7 +808,8 @@ quietly not existing.
   next tile's hob, in the same drag, was still standing on it.
 - **R** turns the ghost a quarter clockwise. The footprint and the use spots
   turn with it, and the palette shows the turned size.
-- **Middle-drag**, **WASD** or the pointer against the window's edge
+- **Middle-drag** or the pointer against the window's edge (WASD too until
+  October 2026)
   pans; the **wheel** zooms. The view is clamped
   to the build area and a margin, and starts showing all of it.
 
@@ -2814,7 +2815,7 @@ overlapping is allowed the whole apparatus has nothing left to do.
 | `l` | Recruit it, or let it go — see below |
 | `q` / `c` / `e` / **Space** | The steered crew member's four **ability slots** (task 123; the fourth, the ultimate, moved from `r` to `g` in October 2026, when `r` became the reload, and then to **Space**, the remote trigger going to `g`). `q` and `e` are the **class actions**: an engineer **lays a mine** on the deck tile under the pointer / **throws a satchel charge** at it (hold `e` to aim, let go to throw; `g` sets them all off), and its `c` **lays a Healing Sentry** and its **Space**, the ultimate, **lays its sentry** (task 154); a soldier **throws a grenade** at it (hold `q` to see the reach and the burst's radius, let go to throw) / **charges a Stun Shot** at the pointer (hold `e` to aim, let go to charge), two seconds (walking as he likes) before it fires and bursts on the first enemy in its way, and its `c` is **Weak Spot** (passive, nothing to press) and its **Space** goes on a **Rampage**; a medic **drops a Heal Drone** / **beams the crew member under the pointer**, and unlinks when pressed on the one it holds or on nobody, its `c` is **Triage** (passive) and its **Space**, the ultimate, **switches its Healing Circle on or off** (task 153); a tank **raises its Riot Shield** or puts it down / **raises its Reflect Barrier**, its `c` is **Plated** (passive) and its **Space**, the ultimate, **throws the Bastion** over the crew round it (task 155) — see [Classes and levels](#classes-and-levels). The log says why not; nothing with a classless crew member |
 | **Ctrl** + a slot's key, or **Ctrl-click** its box | **Ranks that ability up** rather than using it, for a skill point: the soldier's four abilities (task 124). It follows whatever key the slot is bound to |
-| **WASD**, middle-drag, or the pointer against the window's edge | Pan the view — the deck, or the galaxy chart. The edge scroll's speed is on the Esc sheet's first page (0 turns it off) |
+| Middle-drag, or the pointer against the window's edge | Pan the view — the galaxy chart; over the deck the camera always follows the Bim you steer. The edge scroll's speed is on the Esc sheet's first page (0 turns it off). WASD panned and `v` let the camera go free until October 2026, when both went |
 | `f` | **Attack-move**: the pointer turns into a red crosshair, and the next click on the deck sends the Bim you steer there with its weapon out. It stops to shoot whatever comes into its sights on the way and walks on once nothing is left — Dota's attack-move. `f` again, `Esc` or a right-click puts the crosshair away |
 | `x` | **Attack**: the pointer turns into a red crosshair, and the next click on the deck plants an **attack banner** there. The crew nobody steers fight their way to it — taking the cover on the way, pushing on when nothing is in range — and hold it. `x` again, `Esc` or a right-click puts the crosshair away; the banner clicked where it already stands calls it off |
 | `y` | **Retreat**: the crew nobody steers fall back to the ship and hold there. `y` again and they go back to keeping to your side. Nobody leaves a fight *aboard* the ship — cornered in your own hull they stand and shoot whatever they were told |
@@ -2832,6 +2833,7 @@ overlapping is allowed the whole apparatus has nothing left to do.
 | `g` | The engineer's **remote trigger**: every satchel charge he has thrown goes off at once (task 154; it was **Space** until October 2026, when the ultimate took it). Nothing for any other class |
 | **Esc** → **Pause** / **Resume**, **`** | Pause and set going again; set going. The world runs at 1× or not at all |
 | Rest on an underlined word or a ? | It explains itself, after a third of a second |
+| **Esc** → **Controls** | Every key, rebound by clicking it and pressing the new one. **My profile** is your own keys, kept on this computer (`~/.config/bims/keys`) and saved as you change them — the first time, a copy of the defaults; **Defaults** is the game's, shown but not changed there. **Reset to defaults** puts your profile back on them, and **Save as defaults** writes the keys shown into `keys.ron` where the game was started (or the file `BIMS_HOTKEYS` names): the keys a player with no profile of their own plays (October 2026) |
 
 Nothing on the page explains itself in prose any more. The explanations are in
 tooltips, and a tooltip is always *asked for* rather than stumbled into. Two

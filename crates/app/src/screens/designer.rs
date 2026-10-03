@@ -47,7 +47,8 @@ use super::builder::Settings;
 /// How long a refusal stays on screen, in seconds.
 const SAID_SECONDS: f64 = 4.0;
 
-/// WASD, in points a second.
+/// The window edge's pan at 1× (WASD's until the pan keys went,
+/// October 2026), in points a second.
 pub const PAN_SPEED: f32 = 900.0;
 
 /// Longest a frame may pretend to be, so a window that was hidden does not
@@ -1201,23 +1202,8 @@ fn frame(
                 session.editor.drag_cancel();
                 screen.sheet = Some(Sheet::Menu);
             }
-            let step = PAN_SPEED * dt;
-            let mut d = Vec2::ZERO;
-            if keys_now.down(i, Action::PanLeft) {
-                d.x += step;
-            }
-            if keys_now.down(i, Action::PanRight) {
-                d.x -= step;
-            }
-            if keys_now.down(i, Action::PanUp) {
-                d.y += step;
-            }
-            if keys_now.down(i, Action::PanDown) {
-                d.y -= step;
-            }
-            if d != Vec2::ZERO {
-                session.pan(d.x, d.y);
-            }
+            // No key pans (October 2026): a middle drag or the window's
+            // edge does.
         });
     } else if screen.sheet.is_some()
         && keys_now.listening.is_none()
@@ -1287,12 +1273,8 @@ fn frame(
             let key = |a: Action| keys_now.key(a).symbol_or_name();
             ui.label(
                 egui::RichText::new(format!(
-                    "{} turns · drag to fill · right-click peels the top part, again for the next · middle-drag or {}{}{}{} to pan · wheel to zoom · Esc for the keys",
+                    "{} turns · drag to fill · right-click peels the top part, again for the next · middle-drag or the window's edge to pan · wheel to zoom · Esc for the keys",
                     key(Action::Turn),
-                    key(Action::PanUp),
-                    key(Action::PanLeft),
-                    key(Action::PanDown),
-                    key(Action::PanRight),
                 ))
                 .small()
                 .color(theme::MUTED),

@@ -17,7 +17,12 @@
 //! `~/.config`, then `bims/`), one `action=Key` a line by egui's key
 //! names, written whenever a binding changes and read at start; a line
 //! that names no action or no key is skipped, and a missing file is the
-//! defaults. The one other thing kept there is the **edge-scroll speed**
+//! defaults. That file is the player's **own profile** (October 2026);
+//! the other is the game's **defaults**, the code's keys under what
+//! `keys.ron` at the root of the tree says (or the file `BIMS_HOTKEYS`
+//! names), which the Controls page's *Save as defaults* writes. Its
+//! `profile=` line says which of the two is in play; the defaults are
+//! shown but not rebound there. The one other thing kept there is the **edge-scroll speed**
 //! (task 123), `edge-scroll-speed=1.0`, the pointer's say over the camera
 //! as the keys are the keyboard's; the volumes and the UI scale still
 //! start afresh each run, and when they are kept, this is the file they
@@ -40,25 +45,20 @@ pub enum Action {
     Map,
     /// Head up or north up.
     NorthUp,
-    /// Follow the crew member you steer, or a free camera.
-    Follow,
     /// The engineer's remote trigger (task 154): every satchel charge of
     /// his set off. On Space, which paused the world until then — the
     /// pause is the Esc sheet's now — and on G since October 2026, when
     /// the ultimate took Space.
     Detonate,
     Speed1,
-    /// Walk the Bim you steer up the screen (task 144). The four walks
-    /// share W, A, S and D with the pan, which the ship view no longer
-    /// reads: there the camera follows the Bim, and the keys walk it.
+    /// Walk the Bim you steer up the screen (task 144): the camera
+    /// follows the Bim, and the keys walk it. The four pan keys that
+    /// shared W, A, S and D, and V's free camera, went in October 2026:
+    /// the yard and the map pan with a middle drag or the window's edge.
     WalkUp,
     WalkDown,
     WalkLeft,
     WalkRight,
-    PanLeft,
-    PanRight,
-    PanUp,
-    PanDown,
     /// The crew member you steer, selected and in the middle. On F1
     /// since the ability slots took C (task 123).
     Select,
@@ -84,8 +84,8 @@ pub enum Action {
     /// charges a Stun Shot at it, a medic beams the crew member under the
     /// pointer, a tank raises his Reflect Barrier.
     Ability3,
-    /// The fourth, the class's ultimate: on R from task 123, on G since
-    /// October 2026, when R went to the reload.
+    /// The fourth, the class's ultimate: on R from task 123, on G from
+    /// October 2026, when R went to the reload, and on Space since.
     Ability4,
     /// **Attack-move**: arms the pointer, and the next click on the deck
     /// sends the Bim you steer there with its weapon out, stopping to
@@ -148,20 +148,15 @@ impl Action {
     /// The four item slots, in the order the hero panel lays them out.
     pub const ITEMS: [Action; 4] = [Action::Item1, Action::Item2, Action::Item3, Action::Item4];
 
-    pub const ALL: [Action; 33] = [
+    pub const ALL: [Action; 28] = [
         Action::Map,
         Action::NorthUp,
-        Action::Follow,
         Action::Detonate,
         Action::Speed1,
         Action::WalkUp,
         Action::WalkDown,
         Action::WalkLeft,
         Action::WalkRight,
-        Action::PanLeft,
-        Action::PanRight,
-        Action::PanUp,
-        Action::PanDown,
         Action::Select,
         Action::Recruit,
         Action::Turn,
@@ -185,14 +180,11 @@ impl Action {
     ];
 
     /// The key it starts on.
-    pub fn default_key(self) -> egui::Key {
+    pub const fn default_key(self) -> egui::Key {
         use egui::Key;
         match self {
             Action::Map => Key::M,
             Action::NorthUp => Key::N,
-            // F is the attack-move and X the bots' banner, which had F
-            // from feature 84 until then — so following the camera is V.
-            Action::Follow => Key::V,
             // G since October 2026: Space is the ultimate's.
             Action::Detonate => Key::G,
             // 1 and 2 are the quickselect (task 138), so the 1× speed
@@ -202,10 +194,6 @@ impl Action {
             Action::WalkDown => Key::S,
             Action::WalkLeft => Key::A,
             Action::WalkRight => Key::D,
-            Action::PanLeft => Key::A,
-            Action::PanRight => Key::D,
-            Action::PanUp => Key::W,
-            Action::PanDown => Key::S,
             // C and R are the second and fourth ability slots (task
             // 123), so Select went to F1 and Recruit to L. Turn keeps
             // R: it is read only in the yard and the armoury, where no
@@ -244,17 +232,12 @@ impl Action {
         match self {
             Action::Map => "map",
             Action::NorthUp => "north-up",
-            Action::Follow => "follow",
             Action::Detonate => "detonate",
             Action::Speed1 => "speed-1",
             Action::WalkUp => "walk-up",
             Action::WalkDown => "walk-down",
             Action::WalkLeft => "walk-left",
             Action::WalkRight => "walk-right",
-            Action::PanLeft => "pan-left",
-            Action::PanRight => "pan-right",
-            Action::PanUp => "pan-up",
-            Action::PanDown => "pan-down",
             Action::Select => "select",
             Action::Recruit => "recruit",
             Action::Turn => "turn",
@@ -283,9 +266,6 @@ impl Action {
         match self {
             Action::Map => "Switch between the ship and the map.",
             Action::NorthUp => "Turn the view head up or north up.",
-            Action::Follow => {
-                "Follow the crew member you steer, and the ship on the map, or let the camera go free."
-            }
             Action::Detonate => {
                 "An engineer's remote trigger: every satchel charge he has thrown goes off at once. The pause is on the Esc sheet."
             }
@@ -296,12 +276,6 @@ impl Action {
             Action::WalkDown => "Walk the Bim you steer down the screen.",
             Action::WalkLeft => "Walk the Bim you steer left.",
             Action::WalkRight => "Walk the Bim you steer right.",
-            Action::PanLeft => {
-                "Pan the view left: the yard and the map. Middle-drag does the same."
-            }
-            Action::PanRight => "Pan the view right.",
-            Action::PanUp => "Pan the view up.",
-            Action::PanDown => "Pan the view down.",
             Action::Select => {
                 "Select the crew member you steer, and put them in the middle of the view."
             }
@@ -388,11 +362,50 @@ pub const NET_BUFFER_MAX: u8 = 100;
 /// The name the buffer's cap is kept under in the keys file.
 const NET_BUFFER_NAME: &str = "network-buffer";
 
+/// The variable that names another defaults file than [`DEFAULTS_FILE`].
+const DEFAULTS_ENV: &str = "BIMS_HOTKEYS";
+/// The game's default hotkeys, at the root of the tree beside
+/// `scaling.ron`: what a player with no profile of their own plays, and
+/// what the Controls page's *Save as defaults* writes (October 2026).
+const DEFAULTS_FILE: &str = "keys.ron";
+/// The name the profile in use is kept under in the player's file.
+const PROFILE_NAME: &str = "profile";
+
+/// Whose bindings are in play (October 2026): the player's own, kept on
+/// this computer in [`path`] and written as they change, or the game's
+/// defaults — [`default_key`](Action::default_key) under what
+/// [`DEFAULTS_FILE`] says — which the Controls page shows but does not
+/// change: a key is rebound on the player's own profile.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Profile {
+    Mine,
+    Defaults,
+}
+
+impl Profile {
+    fn name(self) -> &'static str {
+        match self {
+            Profile::Mine => "mine",
+            Profile::Defaults => "defaults",
+        }
+    }
+}
+
 /// The bindings, one key an action, which action the Controls page is
 /// waiting on a key for, and the edge-scroll speed.
 #[derive(Resource, Clone, Copy, PartialEq, Eq, Debug)]
 pub struct Keys {
+    /// The bindings in play: the profile's.
     keys: [egui::Key; Action::ALL.len()],
+    /// The player's own profile, kept while the defaults are in play so
+    /// that the file keeps it.
+    mine: [egui::Key; Action::ALL.len()],
+    /// Whether the player has a profile of their own yet: until they do,
+    /// switching to it starts it from the defaults of the day, and the
+    /// file names no key.
+    mine_kept: bool,
+    /// Whose bindings `keys` are.
+    profile: Profile,
     /// The action whose key is being chosen: the next key pressed is it.
     pub listening: Option<Action>,
     /// How fast the camera pans with the pointer against the window's
@@ -408,24 +421,85 @@ pub struct Keys {
 
 impl Default for Keys {
     fn default() -> Keys {
+        Keys::over(BUILT_IN)
+    }
+}
+
+/// Every action's key as the code has it, before [`DEFAULTS_FILE`].
+const BUILT_IN: [egui::Key; Action::ALL.len()] = {
+    let mut keys = [egui::Key::Escape; Action::ALL.len()];
+    let mut i = 0;
+    while i < keys.len() {
+        keys[i] = Action::ALL[i].default_key();
+        i += 1;
+    }
+    keys
+};
+
+impl Keys {
+    /// A player's own profile on `defaults`, the sliders where they start.
+    fn over(defaults: [egui::Key; Action::ALL.len()]) -> Keys {
         Keys {
-            keys: Action::ALL.map(|a| a.default_key()),
+            keys: defaults,
+            mine: defaults,
+            mine_kept: true,
+            profile: Profile::Mine,
             listening: None,
             edge_scroll: EDGE_SCROLL_DEFAULT,
             net_buffer: NET_BUFFER_DEFAULT,
         }
     }
-}
 
-impl Keys {
     pub fn key(&self, action: Action) -> egui::Key {
         self.keys[Action::ALL.iter().position(|&a| a == action).unwrap_or(0)]
     }
 
+    /// Rebind an action: on the player's own profile, which keeps it.
     pub fn set(&mut self, action: Action, key: egui::Key) {
         if let Some(i) = Action::ALL.iter().position(|&a| a == action) {
             self.keys[i] = key;
+            if self.profile == Profile::Mine {
+                self.mine[i] = key;
+                self.mine_kept = true;
+            }
         }
+    }
+
+    /// Whose bindings are in play.
+    pub fn profile(&self) -> Profile {
+        self.profile
+    }
+
+    /// Play `profile`'s bindings: the player's own — started from the
+    /// defaults the first time — or the defaults as `defaults` has them.
+    pub fn use_profile(&mut self, profile: Profile, defaults: [egui::Key; Action::ALL.len()]) {
+        self.profile = profile;
+        self.listening = None;
+        match profile {
+            Profile::Mine => {
+                if !self.mine_kept {
+                    self.mine = defaults;
+                    self.mine_kept = true;
+                }
+                self.keys = self.mine;
+            }
+            Profile::Defaults => self.keys = defaults,
+        }
+    }
+
+    /// Every binding back to `defaults` — the player's own profile with
+    /// them, since only it is ever changed.
+    pub fn reset_to(&mut self, defaults: [egui::Key; Action::ALL.len()]) {
+        self.keys = defaults;
+        if self.profile == Profile::Mine {
+            self.mine = defaults;
+        }
+        self.listening = None;
+    }
+
+    /// The bindings in play, for *Save as defaults*.
+    pub fn bindings(&self) -> [egui::Key; Action::ALL.len()] {
+        self.keys
     }
 
     /// Whether the action's key went down this frame.
@@ -507,13 +581,16 @@ impl Keys {
             .collect()
     }
 
-    /// The file's text: one `action=Key` a line, and the edge-scroll
-    /// speed and the network buffer last.
+    /// The file's text: the profile in play, then the player's own
+    /// profile, one `action=Key` a line — none until they have one — and
+    /// the edge-scroll speed and the network buffer last.
     pub fn to_text(self) -> String {
-        let mut text: String = Action::ALL
-            .iter()
-            .map(|&a| format!("{}={}\n", a.name(), self.key(a).name()))
-            .collect();
+        let mut text = format!("{PROFILE_NAME}={}\n", self.profile.name());
+        if self.mine_kept {
+            for (action, key) in Action::ALL.iter().zip(self.mine) {
+                text.push_str(&format!("{}={}\n", action.name(), key.name()));
+            }
+        }
         text.push_str(&format!(
             "{EDGE_SCROLL_NAME}={:.1}\n",
             self.edge_scroll_speed()
@@ -525,44 +602,68 @@ impl Keys {
         text
     }
 
-    /// The bindings a file's text says, over the defaults; a line that
-    /// names no action or no key is skipped.
+    /// The bindings a file's text says, over the code's defaults.
+    #[cfg(test)]
     pub fn from_text(text: &str) -> Keys {
-        let mut keys = Keys::default();
+        Keys::read(text, BUILT_IN)
+    }
+
+    /// The bindings a file's text says, over `defaults`; a line that
+    /// names no action or no key is skipped. A file that names no profile
+    /// is from before there were two (October 2026): the player's own if
+    /// it binds a key, the defaults if not.
+    fn read(text: &str, defaults: [egui::Key; Action::ALL.len()]) -> Keys {
+        let mut keys = Keys::over(defaults);
+        // A file that names its profile is of this shape, and none of the
+        // moves below is for it.
+        let current = text.lines().any(|l| {
+            l.split_once('=')
+                .is_some_and(|(n, _)| n.trim() == PROFILE_NAME)
+        });
         // A file from before the held revive took G has the carry on G
         // and no revive line: the carry goes to its own key, B, rather
         // than sharing G with the revive.
-        let old_carry = !text.lines().any(|l| l.trim_start().starts_with("revive="));
+        let old_carry = !current && !text.lines().any(|l| l.trim_start().starts_with("revive="));
         // And one from before the quickselect took 1 (task 138) has the
         // 1× speed there: it goes to its new key rather than sharing 1
         // with the weapon.
-        let old_speed = !text.lines().any(|l| {
-            let l = l.trim_start();
-            l.starts_with("hand-weapon=") || l.starts_with("item-1=")
-        });
+        let old_speed = !current
+            && !text.lines().any(|l| {
+                let l = l.trim_start();
+                l.starts_with("hand-weapon=") || l.starts_with("item-1=")
+            });
         // And one from before the items took 1 to 4 and the medkit H
         // (October 2026) has the carry on H: it goes to its new key, B,
         // rather than sharing H with the medkit.
-        let old_medkit = !text.lines().any(|l| l.trim_start().starts_with("medkit="));
+        let old_medkit = !current && !text.lines().any(|l| l.trim_start().starts_with("medkit="));
         // And one from before the ultimate took G and the reload R
         // (October 2026) — its reload on T, or no reload line at all —
         // has the ultimate on R and the revive on G: those three go to
         // their new keys rather than the ultimate sharing R with the
         // reload and G with the revive. A key moved off them keeps its
         // word.
-        let old_ultimate = text.lines().all(|l| {
-            let l = l.trim_start();
-            !l.starts_with("reload=") || l.trim_end() == "reload=T"
-        });
+        let old_ultimate = !current
+            && text.lines().all(|l| {
+                let l = l.trim_start();
+                !l.starts_with("reload=") || l.trim_end() == "reload=T"
+            });
         // And one from before the ultimate took Space and the remote
         // trigger G (October 2026) has the trigger on Space: it and an
         // ultimate on G go to their new keys rather than the two
         // sharing. A key moved off them keeps its word.
-        let old_space = text.lines().any(|l| l.trim() == "detonate=Space");
+        let old_space = !current && text.lines().any(|l| l.trim() == "detonate=Space");
+        let mut profile = None;
+        let mut bound = false;
         for line in text.lines() {
             let Some((name, key)) = line.split_once('=') else {
                 continue;
             };
+            if name.trim() == PROFILE_NAME {
+                profile = [Profile::Mine, Profile::Defaults]
+                    .into_iter()
+                    .find(|p| p.name() == key.trim());
+                continue;
+            }
             if name.trim() == NET_BUFFER_NAME {
                 if let Ok(seconds) = key.trim().parse::<f64>()
                     && seconds.is_finite()
@@ -618,17 +719,26 @@ impl Keys {
                     continue;
                 }
                 keys.set(action, key);
+                bound = true;
             }
         }
+        keys.mine_kept = bound;
+        let profile = profile.unwrap_or(if bound {
+            Profile::Mine
+        } else {
+            Profile::Defaults
+        });
+        keys.use_profile(profile, defaults);
         keys
     }
 
-    /// The bindings as last saved, or the defaults.
+    /// The bindings as last saved, over the game's defaults; no file is
+    /// the defaults, and no profile of the player's own yet.
     pub fn load() -> Keys {
-        match path().and_then(|p| std::fs::read_to_string(p).ok()) {
-            Some(text) => Keys::from_text(&text),
-            None => Keys::default(),
-        }
+        let text = path()
+            .and_then(|p| std::fs::read_to_string(p).ok())
+            .unwrap_or_default();
+        Keys::read(&text, defaults())
     }
 
     /// Keep the bindings for next time. Quiet about a directory that
@@ -673,6 +783,71 @@ fn path() -> Option<std::path::PathBuf> {
     Some(base.join("bims").join("keys"))
 }
 
+/// Where the game's defaults are read and written: the file
+/// `BIMS_HOTKEYS` names, or `keys.ron` where the game was started — the
+/// root of the tree, as for `scaling.ron`.
+pub fn defaults_path() -> std::path::PathBuf {
+    std::path::PathBuf::from(
+        std::env::var(DEFAULTS_ENV).unwrap_or_else(|_| DEFAULTS_FILE.to_string()),
+    )
+}
+
+/// The game's defaults: the code's keys under what [`defaults_path`]
+/// says. No file is the code's; a file that does not parse says why on
+/// stderr and is the code's too.
+pub fn defaults() -> [egui::Key; Action::ALL.len()] {
+    let path = defaults_path();
+    let Ok(text) = std::fs::read_to_string(&path) else {
+        return BUILT_IN;
+    };
+    defaults_from_text(&text).unwrap_or_else(|why| {
+        eprintln!("keys: {} not read, the code's keys: {why}", path.display());
+        BUILT_IN
+    })
+}
+
+/// The defaults a file's text says: a RON map of an action's name to a
+/// key's, over the code's — an action it leaves out, or a name it does
+/// not know, is the code's.
+fn defaults_from_text(text: &str) -> Result<[egui::Key; Action::ALL.len()], String> {
+    let named: std::collections::BTreeMap<String, String> =
+        ron::from_str(text).map_err(|e| e.to_string())?;
+    let mut keys = BUILT_IN;
+    for (name, key) in &named {
+        if let (Some(action), Some(key)) = (Action::from_name(name), egui::Key::from_name(key))
+            && let Some(i) = Action::ALL.iter().position(|&a| a == action)
+        {
+            keys[i] = key;
+        }
+    }
+    Ok(keys)
+}
+
+/// The defaults file's text for `keys`: every action, in the Controls
+/// page's order.
+fn defaults_text(keys: [egui::Key; Action::ALL.len()]) -> String {
+    let mut text = String::from(
+        "// The game's default hotkeys: what a player plays with no profile of\n\
+         // their own. Written by the Controls page's Save as defaults; an\n\
+         // action left out is the code's key (`keys::Action::default_key`).\n{\n",
+    );
+    for (action, key) in Action::ALL.iter().zip(keys) {
+        text.push_str(&format!("    {:?}: {:?},\n", action.name(), key.name()));
+    }
+    text.push_str("}\n");
+    text
+}
+
+/// *Save as defaults*: `keys` written into [`defaults_path`], beside it
+/// and then over it, so a reader never sees half a file.
+pub fn save_defaults(keys: [egui::Key; Action::ALL.len()]) -> Result<(), String> {
+    let path = defaults_path();
+    let mut part = path.clone().into_os_string();
+    part.push(".part");
+    std::fs::write(&part, defaults_text(keys)).map_err(|e| e.to_string())?;
+    std::fs::rename(&part, &path).map_err(|e| e.to_string())
+}
+
 /// Shift held (task 150): the Bim you steer sprints while the keys walk
 /// it. Shift, Alt and Ctrl are modifiers, which egui never hands over as
 /// an [`egui::Key`], so none of the three is an [`Action`] to rebind:
@@ -714,6 +889,16 @@ pub fn release_tab_focus(ctx: &egui::Context, took: &mut bool, keys_are_ours: bo
 mod tests {
     use super::*;
 
+    /// A keys file as written before the profiles (October 2026): no
+    /// `profile=` line, so the moves for old files are read.
+    fn before_profiles(keys: Keys) -> String {
+        keys.to_text()
+            .lines()
+            .filter(|l| !l.starts_with("profile="))
+            .map(|l| format!("{l}\n"))
+            .collect()
+    }
+
     /// The defaults are the keys the screens always had, the text round
     /// trips, and a line that names nothing is left alone.
     #[test]
@@ -745,19 +930,22 @@ mod tests {
         assert_eq!(keys.key(Action::Turn), egui::Key::R);
         assert!(keys.shared_with(Action::Select).is_empty());
         assert!(keys.shared_with(Action::Recruit).is_empty());
-        // And the pan is WASD, as it always was.
-        assert_eq!(keys.key(Action::PanLeft), egui::Key::A);
-        assert_eq!(keys.key(Action::PanRight), egui::Key::D);
-        assert_eq!(keys.key(Action::PanUp), egui::Key::W);
-        assert_eq!(keys.key(Action::PanDown), egui::Key::S);
+        // And the walk is WASD, nothing else's since the pan keys went
+        // (October 2026).
+        for walk in [
+            Action::WalkUp,
+            Action::WalkDown,
+            Action::WalkLeft,
+            Action::WalkRight,
+        ] {
+            assert!(keys.shared_with(walk).is_empty(), "{walk:?}");
+        }
         // The attack-move is F, for the Bim you steer; every player's
         // two orders for the bots (feature 84) are X to attack and Y to
-        // fall back to the ship; none shares its key. F was the bots'
-        // banner once, which is what moved the camera's Follow onto V.
+        // fall back to the ship; none shares its key.
         assert_eq!(keys.key(Action::AttackMove), egui::Key::F);
         assert_eq!(keys.key(Action::Attack), egui::Key::X);
         assert_eq!(keys.key(Action::Retreat), egui::Key::Y);
-        assert_eq!(keys.key(Action::Follow), egui::Key::V);
         assert!(keys.shared_with(Action::AttackMove).is_empty());
         assert!(keys.shared_with(Action::Attack).is_empty());
         assert!(keys.shared_with(Action::Retreat).is_empty());
@@ -770,11 +958,12 @@ mod tests {
         assert!(keys.shared_with(Action::Revive).is_empty());
         let mut changed = keys;
         changed.set(Action::Inventory, egui::Key::I);
-        changed.set(Action::PanUp, egui::Key::ArrowUp);
+        changed.set(Action::WalkUp, egui::Key::ArrowUp);
         let text = changed.to_text();
-        // A line an action, the edge-scroll speed's and the network
-        // buffer's.
-        assert_eq!(text.lines().count(), Action::ALL.len() + 2);
+        // The profile's line, a line an action, the edge-scroll speed's
+        // and the network buffer's.
+        assert_eq!(text.lines().count(), Action::ALL.len() + 3);
+        assert!(text.starts_with("profile=mine\n"));
         assert!(text.contains("inventory=I\n"));
         assert_eq!(Keys::from_text(&text), changed);
         let back = Keys::from_text("inventory=I\nnonsense=Q\nmap=NoSuchKey\n\n");
@@ -890,12 +1079,11 @@ mod tests {
         before.set(Action::Reload, egui::Key::T);
         before.set(Action::Detonate, egui::Key::Space);
         before.set(Action::Inventory, egui::Key::I);
-        let old = Keys::from_text(&before.to_text());
+        let old = Keys::from_text(&before_profiles(before));
         let mut want = keys;
         want.set(Action::Inventory, egui::Key::I);
         assert_eq!(old, want);
-        let older: String = before
-            .to_text()
+        let older: String = before_profiles(before)
             .lines()
             .filter(|l| !l.starts_with("reload="))
             .map(|l| format!("{l}\n"))
@@ -927,7 +1115,7 @@ mod tests {
         before.set(Action::Inventory, egui::Key::I);
         let mut want = keys;
         want.set(Action::Inventory, egui::Key::I);
-        assert_eq!(Keys::from_text(&before.to_text()), want);
+        assert_eq!(Keys::from_text(&before_profiles(before)), want);
         let moved = Keys::from_text("ability-4=Z\ndetonate=Space\nreload=R\n");
         assert_eq!(moved.key(Action::Ability4), egui::Key::Z);
         assert_eq!(moved.key(Action::Detonate), egui::Key::G);
@@ -1112,5 +1300,90 @@ mod tests {
             NET_BUFFER_DEFAULT
         );
         assert_eq!(Keys::from_text("map=M\n").net_buffer, NET_BUFFER_DEFAULT);
+    }
+
+    /// The two profiles (October 2026): a player with no file plays the
+    /// defaults and names no key, their own profile starts from the
+    /// defaults of the day, a key rebound is theirs alone, the defaults
+    /// in play again leave it kept in the file, and a file from before
+    /// the profiles that binds keys is the player's own.
+    #[test]
+    fn the_player_s_own_profile_sits_beside_the_defaults() {
+        let mut defaults = BUILT_IN;
+        defaults[0] = egui::Key::F9;
+        let fresh = Keys::read("", defaults);
+        assert_eq!(fresh.profile(), Profile::Defaults);
+        assert_eq!(fresh.key(Action::Map), egui::Key::F9);
+        let text = fresh.to_text();
+        assert!(text.starts_with("profile=defaults\n"));
+        assert!(!text.contains("map="), "{text}");
+        assert_eq!(Keys::read(&text, defaults), fresh);
+        // A sliders' file from before the profiles is the defaults too.
+        assert_eq!(
+            Keys::read("edge-scroll-speed=1.0\n", defaults).profile(),
+            Profile::Defaults
+        );
+        let mut mine = fresh;
+        mine.use_profile(Profile::Mine, defaults);
+        assert_eq!(mine.key(Action::Map), egui::Key::F9);
+        mine.set(Action::Inventory, egui::Key::I);
+        assert_eq!(mine.key(Action::Inventory), egui::Key::I);
+        let text = mine.to_text();
+        assert!(text.starts_with("profile=mine\n") && text.contains("inventory=I\n"));
+        assert_eq!(Keys::read(&text, defaults), mine);
+        // Back on the defaults, the profile is kept for later.
+        let mut back = mine;
+        back.use_profile(Profile::Defaults, defaults);
+        assert_eq!(back.key(Action::Inventory), egui::Key::Tab);
+        let text = back.to_text();
+        assert!(text.starts_with("profile=defaults\n") && text.contains("inventory=I\n"));
+        let mut again = Keys::read(&text, defaults);
+        assert_eq!(again, back);
+        again.use_profile(Profile::Mine, defaults);
+        assert_eq!(again.key(Action::Inventory), egui::Key::I);
+        // Reset puts the player's own profile on the defaults.
+        again.reset_to(defaults);
+        assert_eq!(again.key(Action::Inventory), egui::Key::Tab);
+        again.use_profile(Profile::Defaults, defaults);
+        again.use_profile(Profile::Mine, defaults);
+        assert_eq!(again.key(Action::Inventory), egui::Key::Tab);
+        // An old file that binds keys is the player's own, moves and all.
+        let old = Keys::read("inventory=I\nreload=T\nability-4=R\n", defaults);
+        assert_eq!(old.profile(), Profile::Mine);
+        assert_eq!(old.key(Action::Inventory), egui::Key::I);
+        assert_eq!(old.key(Action::Reload), egui::Key::R);
+        // A file naming its profile is never moved: an ultimate put on R
+        // with the reload kept off a reload line stays.
+        let kept = Keys::read("profile=mine\nability-4=R\n", defaults);
+        assert_eq!(kept.key(Action::Ability4), egui::Key::R);
+    }
+
+    /// The defaults file: every action written in the page's order and
+    /// read back, a name it does not know or an action it leaves out the
+    /// code's key, and a file that is no map refused.
+    #[test]
+    fn the_defaults_file_round_trips() {
+        let mut keys = BUILT_IN;
+        keys[0] = egui::Key::F9;
+        keys[Action::ALL.len() - 1] = egui::Key::Space;
+        let text = defaults_text(keys);
+        assert!(text.contains("\"map\": \"F9\",\n"), "{text}");
+        assert_eq!(defaults_from_text(&text), Ok(keys));
+        let some =
+            defaults_from_text("{ \"inventory\": \"I\", \"pan-left\": \"A\", \"map\": \"Nope\" }")
+                .expect("a map");
+        let mut want = BUILT_IN;
+        want[Action::ALL
+            .iter()
+            .position(|&a| a == Action::Inventory)
+            .unwrap()] = egui::Key::I;
+        assert_eq!(some, want);
+        assert!(defaults_from_text("map=M").is_err());
+        // A shipped file, if there is one, parses.
+        if let Ok(text) =
+            std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../keys.ron"))
+        {
+            assert!(defaults_from_text(&text).is_ok());
+        }
     }
 }

@@ -19,7 +19,7 @@
 
 use bevy_egui::egui;
 
-use crate::keys::{Action, EDGE_SCROLL_MAX, Keys, NET_BUFFER_MAX};
+use crate::keys::{Action, EDGE_SCROLL_MAX, Keys, NET_BUFFER_MAX, Profile};
 use crate::names::{
     LOAD_GUEST, MENU_BUTTON, NET_BUFFER_HINT, PAUSE_BUTTON, RESTART_BUTTON, RESTART_GUEST,
     RESTART_NONE, RESUME_BUTTON,
@@ -185,7 +185,7 @@ fn menu(
     theme::ui_scale_row(ui);
     ui.add_space(8.0);
     // How fast the pointer against the window's edge pans the view (task
-    // 123): nought to three times the keys' pan, nought being off. This
+    // 123): nought to three times its own pan, nought being off. This
     // player's own, kept with the keys and sent nowhere.
     theme::heading(ui, "Edge scroll speed");
     let mut speed = keys.edge_scroll_speed();
@@ -353,6 +353,82 @@ fn wide(ui: &mut egui::Ui, text: &str) {
     );
 }
 
+/// Why a key cannot be clicked on the defaults.
+const DEFAULTS_FIXED: &str = "These are the game's defaults. Switch to My profile to change a key.";
+
+/// Whose keys are in play (October 2026): the player's own profile, kept
+/// on this computer, or the game's defaults, from `keys.ron` where the
+/// game was started. A choice is kept for next time.
+fn profile_row(ui: &mut egui::Ui, keys: &mut Keys) {
+    ui.horizontal(|ui| {
+        let now = keys.profile();
+        for (profile, label, tip) in [
+            (
+                Profile::Mine,
+                "My profile",
+                "Your own keys, kept on this computer and saved as you change them. The first time, they start as the defaults.",
+            ),
+            (
+                Profile::Defaults,
+                "Defaults",
+                "The game's keys, from keys.ron where the game was started. Shown, not changed here.",
+            ),
+        ] {
+            if ui
+                .selectable_label(now == profile, label)
+                .on_hover_text(tip)
+                .clicked()
+                && now != profile
+            {
+                keys.use_profile(profile, crate::keys::defaults());
+                keys.save();
+            }
+        }
+    });
+}
+
+/// Under the profiles, over the keys: the player's own profile put back on the defaults,
+/// and the keys shown written as the game's defaults — `keys.ron`, which
+/// a player with no profile of their own plays — with a line under them
+/// a few seconds saying how that went.
+fn profile_buttons(ui: &mut egui::Ui, keys: &mut Keys) {
+    let note_id = egui::Id::new("keys-defaults-note");
+    ui.horizontal(|ui| {
+        let reset = ui
+            .add_enabled(
+                keys.profile() == Profile::Mine,
+                egui::Button::new("Reset to defaults"),
+            )
+            .on_hover_text("Every key of your profile back to the game's defaults.")
+            .on_disabled_hover_text(DEFAULTS_FIXED);
+        if reset.clicked() {
+            // The keys, not the edge-scroll speed or the network buffer:
+            // those are the menu's sliders.
+            keys.reset_to(crate::keys::defaults());
+            keys.save();
+        }
+        let path = crate::keys::defaults_path();
+        let save = ui.button("Save as defaults").on_hover_text(format!(
+            "Write the keys shown into {} as the game's defaults: what a player plays with no profile of their own.",
+            path.display()
+        ));
+        if save.clicked() {
+            let note = match crate::keys::save_defaults(keys.bindings()) {
+                Ok(()) => format!("Saved as the defaults in {}.", path.display()),
+                Err(why) => format!("Not saved: {why}"),
+            };
+            let until = ui.input(|i| i.time) + 5.0;
+            ui.data_mut(|d| d.insert_temp(note_id, (note, until)));
+        }
+    });
+    let note: Option<(String, f64)> = ui.data(|d| d.get_temp(note_id));
+    if let Some((note, until)) = note
+        && ui.input(|i| i.time) < until
+    {
+        ui.label(egui::RichText::new(note).small().color(theme::MUTED));
+    }
+}
+
 fn controls(ui: &mut egui::Ui, sheet: &mut Option<Sheet>, keys: &mut Keys) {
     // The key being chosen: the next key down is it, bar Esc, which
     // cancels — asked before the rows, so the row it lands on is drawn
@@ -381,14 +457,18 @@ fn controls(ui: &mut egui::Ui, sheet: &mut Option<Sheet>, keys: &mut Keys) {
     // the page scrolls and the way back stays under it.
     egui::ScrollArea::vertical().max_height(560.0).show(ui, |ui| {
     theme::heading(ui, "Keys");
+    profile_row(ui, keys);
+    profile_buttons(ui, keys);
+    ui.add_space(4.0);
     ui.label(
         egui::RichText::new(
-            "Click a key to change it, then press the one you want; Esc keeps the old one. Two actions on one key both happen where both are read — Turn shares R with the fourth ability slot, and is read only in the yard and the armoury. Ctrl and an ability slot's key ranks that ability up rather than using it, whatever key the slot is on.",
+            "Click a key to change it, then press the one you want; Esc keeps the old one. Two actions on one key both happen where both are read — Turn shares R with the reload, and is read only in the yard and the armoury. Ctrl and an ability slot's key ranks that ability up rather than using it, whatever key the slot is on.",
         )
         .small()
         .color(theme::MUTED),
     );
     ui.add_space(4.0);
+    let mine = keys.profile() == Profile::Mine;
     // A row an action rather than a grid: a grid gives a wrapped line no
     // height of its own, and the rows ran into each other.
     for action in Action::ALL {
@@ -402,7 +482,10 @@ fn controls(ui: &mut egui::Ui, sheet: &mut Option<Sheet>, keys: &mut Keys) {
                 let button = egui::Button::new(egui::RichText::new(label).strong())
                     .min_size(egui::vec2(96.0, 0.0))
                     .selected(listening);
-                if ui.add(button).clicked() {
+                let button = ui
+                    .add_enabled(mine, button)
+                    .on_disabled_hover_text(DEFAULTS_FIXED);
+                if button.clicked() {
                     keys.listening = if listening { None } else { Some(action) };
                 }
                 wide(ui, action.what());
@@ -417,16 +500,6 @@ fn controls(ui: &mut egui::Ui, sheet: &mut Option<Sheet>, keys: &mut Keys) {
                 }
         });
         ui.add_space(2.0);
-    }
-    ui.add_space(4.0);
-    if ui.button("Reset to defaults").clicked() {
-        // The keys, not the edge-scroll speed or the network buffer: those
-        // are the menu's sliders.
-        let (edge_scroll, net_buffer) = (keys.edge_scroll, keys.net_buffer);
-        *keys = Keys::default();
-        keys.edge_scroll = edge_scroll;
-        keys.net_buffer = net_buffer;
-        keys.save();
     }
     ui.add_space(8.0);
     let table = |ui: &mut egui::Ui, title: &str, rows: &[(&str, &str)]| {

@@ -160,10 +160,6 @@ pub struct GameScreen {
     /// goes whenever the walk or the trigger changes, and for the aim
     /// alone no more than [`CONTROL_EVERY`] and only past [`AIM_STEP`].
     control: Option<(CrewOrderControl, f64)>,
-    /// The follow key has let the camera go (task 144): until it does,
-    /// the ship view follows the player's own Bim from the first frame
-    /// of a run, and of a world a resync stood up.
-    free_camera: bool,
     /// The pointer is the crosshair this frame (task 144): the system's
     /// cursor hidden (`hide_the_cursor`) and the reticle drawn over
     /// everything — over the deck, unless a window wants the pointer: the
@@ -991,7 +987,6 @@ impl GameScreen {
             held_revive: None,
             carry_walk: None,
             control: None,
-            free_camera: false,
             crosshair: false,
             trigger_spent: false,
             dodge_was: false,
@@ -2419,7 +2414,6 @@ fn frame(
     // here, or Ctrl and a click on the slot's box in the hero panel below.
     let mut rank_up_asked: Option<RankUp> = None;
     if keys {
-        let mut d = Vec2::ZERO;
         ctx.input(|i| {
             if let Some(game) = &mut session.game {
                 if keys_now.pressed(i, Action::Map) {
@@ -2431,11 +2425,6 @@ fn frame(
                 }
                 if keys_now.pressed(i, Action::NorthUp) {
                     game.head_up = !game.head_up;
-                }
-                if keys_now.pressed(i, Action::Follow) {
-                    let on = !game.follow;
-                    game.set_follow(on);
-                    screen.free_camera = !on;
                 }
             }
             // With no modifier held, or Shift alone: sprinting, every key
@@ -2711,29 +2700,10 @@ fn frame(
                     screen.sheet = Some(Sheet::Menu);
                 }
             }
-            let step = super::designer::PAN_SPEED * dt as f32;
-            if keys_now.down(i, Action::PanLeft) {
-                d.x += step;
-            }
-            if keys_now.down(i, Action::PanRight) {
-                d.x -= step;
-            }
-            if keys_now.down(i, Action::PanUp) {
-                d.y += step;
-            }
-            if keys_now.down(i, Action::PanDown) {
-                d.y -= step;
-            }
+            // No key pans (October 2026): the map pans with a middle drag
+            // or the window's edge, and over the deck WASD walk the
+            // player's own Bim (task 144), the camera following it.
         });
-        // The keys pan the map alone — the galaxy chart, which is all of
-        // it: over the deck WASD walk the player's own Bim (task 144), and
-        // the camera follows it.
-        if d != Vec2::ZERO && map_up {
-            match &mut screen.galaxy {
-                Some(chart) => chart.preview.pan(d.x, d.y),
-                None => session.pan(d.x, d.y),
-            }
-        }
     } else if screen.sheet.is_some()
         && keys_now.listening.is_none()
         && ctx.input(|i| i.key_pressed(egui::Key::Escape))
@@ -2743,8 +2713,8 @@ fn frame(
     }
     // The pointer against the window's edge pans (task 123) whatever a
     // middle drag pans — the deck, or the galaxy chart — by the same
-    // calls, so Follow takes it as it takes a drag; beside WASD, and
-    // paused as well, since it is the camera and not the world.
+    // calls, so Follow takes it as it takes a drag; paused as well,
+    // since it is the camera and not the world.
     // Not over the deck while the camera follows the player's own Bim
     // (task 144): it would only shove the view off it.
     let camera_pans = map_up || session.game.as_ref().is_some_and(|g| !g.follow);
@@ -2787,9 +2757,10 @@ fn frame(
     // pick: the camera follows the one watched, tethered to it the first
     // frame out. Back in, the camera follows the player's own again — as
     // it does from the first frame of a run, since the keys walk it and
-    // the pointer aims it (task 144); the follow key lets it go.
+    // the pointer aims it (task 144). No key lets it go since the
+    // follow key went (October 2026).
     if let Some(game) = session.game.as_mut() {
-        if !screen.free_camera && !game.follow {
+        if !game.follow {
             game.set_follow(true);
         }
         let crew = game.world.aboard.crew_count();

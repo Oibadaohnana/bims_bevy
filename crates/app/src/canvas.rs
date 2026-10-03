@@ -204,7 +204,7 @@ mod tests {
     use crate::screens::designer::PAN_SPEED;
 
     /// The pointer against the window's edge (task 123): nothing in the
-    /// middle, the left edge exactly the `PanLeft` key's pan, a corner
+    /// middle, the left edge exactly `PAN_SPEED` to the left, a corner
     /// both axes at full speed, and nothing with no pointer or the
     /// setting off.
     #[test]
@@ -216,7 +216,7 @@ mod tests {
         };
         let step = PAN_SPEED * dt;
         assert_eq!(pan(Some(window / 2.0), 1.0), Vec2::ZERO);
-        // `PanLeft` is `d.x += PAN_SPEED * dt` and nothing else.
+        // The left edge is `d.x += PAN_SPEED * dt` and nothing else.
         assert_eq!(pan(Some(Vec2::new(2.0, 450.0)), 1.0), Vec2::new(step, 0.0));
         assert_eq!(
             pan(Some(Vec2::new(1398.0, 450.0)), 1.0),

@@ -98,6 +98,12 @@ desktop):
   when saved; neither saved nor hashed, so two players' files have to
   agree. Keep it at the constants — its test says so; tune the
   constants in `balance.rs` for good.
+  `keys.ron` (`BIMS_HOTKEYS`), when there is one, is the game's default
+  hotkeys over `keys::Action::default_key` — written by the Controls
+  page's *Save as defaults*, read at start. A player's own profile is
+  `~/.config/bims/keys` (its `profile=` line picks it or the defaults);
+  a smoke run that touches the Controls page wants `XDG_CONFIG_HOME`
+  and `BIMS_HOTKEYS` pointed at scratch.
 - Two-player runs: a relay (`PORT=18792 target/debug/bims-server`),
   `BIMS_SERVER=ws://127.0.0.1:18792`, `BIMS_AUTO=create` on the host and
   `BIMS_AUTO=join:<code>` on the guest; `scratchpad/duo_resync.sh` is a
