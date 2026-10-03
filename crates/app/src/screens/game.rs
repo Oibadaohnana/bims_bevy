@@ -2888,8 +2888,8 @@ fn frame(
             &screen.log,
         );
         // This player's money at the top middle of the chart, where the
-        // ship's top frame says it.
-        egui::Area::new(egui::Id::new("map-money"))
+        // ship's top frame says it, and the crew's relics under it.
+        let money = egui::Area::new(egui::Id::new("map-money"))
             .fixed_pos(egui::pos2(
                 (area.min.x + map_right) / 2.0,
                 area.min.y + MARGIN,
@@ -2910,7 +2910,10 @@ fn frame(
                     .response
                     .on_hover_text(MAP_MONEY_TIP);
                 });
-            });
+            })
+            .response
+            .rect;
+        hud::relic_bar(&ctx, money.center().x, money.max.y + 6.0, world.relics());
     } else {
         let threats = hud::threats(world, local);
         let paused = world.effective_speed().multiplier() == 0;
@@ -2929,6 +2932,10 @@ fn frame(
             )
             .max
             .y;
+        }
+        // The crew's relics under it all, always in sight.
+        if let Some(bar) = hud::relic_bar(&ctx, top.center().x, top_foot + 6.0, world.relics()) {
+            top_foot = bar.max.y;
         }
 
         // The tray, anchored at the bottom left and growing upwards.

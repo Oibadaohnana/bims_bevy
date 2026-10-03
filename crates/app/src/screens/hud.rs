@@ -8,8 +8,9 @@
 //! * **top left**, the crew's portraits, eight to a row;
 //! * **top centre**, one frame — the day, the pool, the bounty waiting on
 //!   the site being cleared, the most urgent warning and the pause — never
-//!   left of the portraits' right edge, and the *You're out* banner under
-//!   it;
+//!   left of the portraits' right edge, the *You're out* banner under
+//!   it, and under both the crew's relics in a row (`relic_bar`, over the
+//!   map too);
 //! * **bottom centre**, the hero panel: the player's own Bim, its level,
 //!   health, experience and the class's keys. It stands clear of anything
 //!   on the left that reaches down into its row — the tray opened, the
@@ -824,6 +825,53 @@ pub fn out_banner(ctx: &egui::Context, centre: f32, top: f32, pool: u64, cost: u
         })
         .response
         .rect
+}
+
+/// The crew's relics in a row under the top frame, centred on `centre`,
+/// the way a run's relics stand along the top of the screen in *Slay the
+/// Spire*: every one counts for the whole crew all the time, so they are
+/// always in sight — on the deck and over the map alike. Each is its
+/// plate, in the order taken; resting the pointer on one says its name,
+/// its boons and its price. Nothing while the crew hold none.
+pub fn relic_bar(
+    ctx: &egui::Context,
+    centre: f32,
+    top: f32,
+    relics: &[world::Relic],
+) -> Option<egui::Rect> {
+    if relics.is_empty() {
+        return None;
+    }
+    let id = egui::Id::new("hud-relics");
+    let width = ctx
+        .memory(|m| m.area_rect(id).map(|r| r.width()))
+        .unwrap_or(crate::icons::RELIC * relics.len() as f32);
+    let rect = egui::Area::new(id)
+        .fixed_pos(egui::pos2(centre - width / 2.0, top))
+        .order(egui::Order::Middle)
+        .show(ctx, |ui| {
+            theme::panel_frame()
+                .inner_margin(egui::Margin::symmetric(6, 4))
+                .show(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        ui.spacing_mut().item_spacing.x = 4.0;
+                        for &relic in relics {
+                            crate::icons::relic_cell(ui, relic).on_hover_ui(|ui| {
+                                ui.set_max_width(260.0);
+                                ui.label(
+                                    egui::RichText::new(relic_name(relic))
+                                        .strong()
+                                        .color(theme::INK),
+                                );
+                                super::worldmap::relic_lines_ui(ui, relic);
+                            });
+                        }
+                    });
+                });
+        })
+        .response
+        .rect;
+    Some(rect)
 }
 
 // --- the hero panel -----------------------------------------------------------------

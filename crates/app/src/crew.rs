@@ -2072,8 +2072,9 @@ fn sheet_body(ui: &mut egui::Ui, game: &Game, w: usize) {
 /// tier — what the inventory's slots say, in a line each.
 /// The crew's relics (feature 106): each its picture (task 136) beside
 /// its name, its boons in green and its price in red. On the character
-/// sheet and on the side panel for a crewmate picked; nowhere on the
-/// deck.
+/// sheet and on the side panel for a crewmate picked; the deck and the
+/// map show them as a row of plates under the top frame
+/// (`hud::relic_bar`).
 fn sheet_relics(ui: &mut egui::Ui, relics: &[world::Relic]) {
     theme::heading(ui, RELICS_HEADING);
     if relics.is_empty() {

@@ -220,8 +220,10 @@ what a Bim carries; a relic changes how the run plays.
 - **What each does.** A relic works on everybody it names — every Bim,
   the players' own, or the bots (every crew member no player steers:
   bots, hired hands, townsfolk who joined, a commander's reinforcements).
-  The reward window and the character sheet (**K**) show each boon in
-  green and its price in red. None slows a revive or cuts the healing,
+  The crew's relics stand in a row under the top frame at all times, on
+  the deck and over the map, as in *Slay the Spire*: rest the pointer on
+  one for its name, its boon in green and its price in red, as the reward
+  window and the character sheet (**K**) show them too. None slows a revive or cuts the healing,
   so the medic and the Medivac keep their worth. The numbers are
   placeholders, not balanced:
 
