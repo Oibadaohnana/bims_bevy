@@ -128,7 +128,10 @@ use serde::{Deserialize, Serialize};
 /// 107: a medic's beam and Heal Drone reach a site's defenders too
 /// (`Command::Beam`'s patient may be `world::medic::GUEST + i`), the
 /// drone crewmates first: both ends must heal alike.
-pub const PROTOCOL: u32 = 107;
+/// 108: the engineer's satchels hit for 35/45/60/85 and his mines for
+/// half what they did (40/50/60/75), one/one/two/two charges: both ends
+/// must blast alike.
+pub const PROTOCOL: u32 = 108;
 
 /// Where the relay lives. `BIMS_SERVER` in the environment overrides it
 /// — `ws://127.0.0.1:8792` for one on the same machine.

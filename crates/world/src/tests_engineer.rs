@@ -402,12 +402,13 @@ fn no_kit_is_a_resource_any_more_and_nothing_was_renumbered() {
 /// the rank's charges and no further.
 #[test]
 fn charges_restock_as_counters_on_their_cooldown() {
-    let mut world = engineer_at(1);
-    assert_eq!(world.charges_of(0, Charge::Mine), class::MINE_CHARGES[0]);
+    // Rank three: the first rank with two mine charges.
+    let mut world = engineer_at(3);
+    assert_eq!(world.charges_of(0, Charge::Mine), class::MINE_CHARGES[2]);
     world.set_charges_for_probe(Charge::Mine, 0);
     assert_eq!(world.charges_of(0, Charge::Mine), 0);
     let cooldown = world.charge_cooldown(0, Charge::Mine);
-    assert_eq!(cooldown, class::MINE_COOLDOWN[0]);
+    assert_eq!(cooldown, class::MINE_COOLDOWN[2]);
     run_for_seconds(&mut world, cooldown - 1.0);
     assert_eq!(world.charges_of(0, Charge::Mine), 0, "not yet");
     run_for_seconds(&mut world, 2.0);
@@ -432,6 +433,8 @@ fn charges_restock_as_counters_on_their_cooldown() {
 fn laying_or_throwing_lowers_the_counter() {
     let mut world = engineer_at(1);
     let tile = tile_near(&world, 0, DeployKind::Mine);
+    // The satchel's tile picked while a mine can still be laid on it.
+    let satchel_tile = tile;
     deploy_now(&mut world, 0, DeployKind::Mine, tile);
     assert_eq!(
         world.charges_of(0, Charge::Mine),
@@ -440,8 +443,7 @@ fn laying_or_throwing_lowers_the_counter() {
     let tile = tile_near(&world, 0, DeployKind::HealingSentry);
     deploy_now(&mut world, 0, DeployKind::HealingSentry, tile);
     assert_eq!(world.charges_of(0, Charge::HealingSentry), 0);
-    let tile = tile_near(&world, 0, DeployKind::Mine);
-    satchel_on(&mut world, tile);
+    satchel_on(&mut world, satchel_tile);
     assert_eq!(
         world.charges_of(0, Charge::Satchel),
         class::SATCHEL_CHARGES[0] - 1
@@ -601,10 +603,10 @@ fn big_hits(events: &[WorldEvent], least: u32) -> usize {
 #[test]
 fn a_mine_s_numbers_are_its_rank_s() {
     let want = [
-        (80.0, 1.5, 2, 4, 25.0),
-        (100.0, 1.5, 3, 6, 22.0),
-        (120.0, 2.0, 3, 6, 20.0),
-        (150.0, 2.0, 4, 8, 18.0),
+        (40.0, 1.5, 1, 4, 25.0),
+        (50.0, 1.5, 1, 6, 22.0),
+        (60.0, 2.0, 2, 6, 20.0),
+        (75.0, 2.0, 2, 8, 18.0),
     ];
     for (i, (damage, radius, charges, standing, cooldown)) in want.into_iter().enumerate() {
         let rank = i as u8 + 1;
@@ -927,10 +929,10 @@ fn satchel_on(world: &mut World, tile: (i32, i32)) -> Vec<WorldEvent> {
 #[test]
 fn a_satchel_s_numbers_are_its_rank_s() {
     let want = [
-        (90.0, 2.0, 30.0),
-        (120.0, 2.5, 27.0),
-        (150.0, 2.5, 24.0),
-        (180.0, 3.0, 20.0),
+        (35.0, 2.0, 30.0),
+        (45.0, 2.5, 27.0),
+        (60.0, 2.5, 24.0),
+        (85.0, 3.0, 20.0),
     ];
     for (i, (damage, radius, cooldown)) in want.into_iter().enumerate() {
         let rank = i as u8 + 1;

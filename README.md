@@ -2221,10 +2221,10 @@ past the standing limit and the oldest is taken up.
 
 | rank | damage | blast | charges | laid at once | back after |
 | --- | --- | --- | --- | --- | --- |
-| 1 | 80 | 1.5 tiles | 2 | 4 | 25 s |
-| 2 | 100 | 1.5 tiles | 3 | 6 | 22 s |
-| 3 | 120 | 2 tiles | 3 | 6 | 20 s |
-| 4 | 150 | 2 tiles | 4 | 8 | 18 s |
+| 1 | 40 | 1.5 tiles | 1 | 4 | 25 s |
+| 2 | 50 | 1.5 tiles | 1 | 6 | 22 s |
+| 3 | 60 | 2 tiles | 2 | 6 | 20 s |
+| 4 | 75 | 2 tiles | 2 | 8 | 18 s |
 
 **C, Healing Sentry.** A sentry with no barrel, laid on a deck tile:
 every step it heals every crewmate on their feet within its radius and
@@ -2253,10 +2253,10 @@ it is never packed up.
 
 | rank | damage | blast | charges | back after |
 | --- | --- | --- | --- | --- |
-| 1 | 90 | 2 tiles | 2 | 30 s |
-| 2 | 120 | 2.5 tiles | 2 | 27 s |
-| 3 | 150 | 2.5 tiles | 2 | 24 s |
-| 4 | 180 | 3 tiles | 2 | 20 s |
+| 1 | 35 | 2 tiles | 2 | 30 s |
+| 2 | 45 | 2.5 tiles | 2 | 27 s |
+| 3 | 60 | 2.5 tiles | 2 | 24 s |
+| 4 | 85 | 3 tiles | 2 | 20 s |
 
 **R, Sentry (the ultimate).** A minigun on a stand, drawn larger. The
 engineer works three minutes beside the tile and **a hit does not stop

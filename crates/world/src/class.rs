@@ -89,10 +89,10 @@
 //!
 //! | rank | damage | blast | charges | standing | cooldown a charge |
 //! |---|---|---|---|---|---|
-//! | 1 | 80 | 1.5 tiles | 2 | 4 | 25 s |
-//! | 2 | 100 | 1.5 tiles | 3 | 6 | 22 s |
-//! | 3 | 120 | 2.0 tiles | 3 | 6 | 20 s |
-//! | 4 | 150 | 2.0 tiles | 4 | 8 | 18 s |
+//! | 1 | 40 | 1.5 tiles | 1 | 4 | 25 s |
+//! | 2 | 50 | 1.5 tiles | 1 | 6 | 22 s |
+//! | 3 | 60 | 2.0 tiles | 2 | 6 | 20 s |
+//! | 4 | 75 | 2.0 tiles | 2 | 8 | 18 s |
 //!
 //! **C, Healing Sentry** — laid like a mine; heals every crew Bim on
 //! its feet within its radius and its sight, below its full bar, at a
@@ -116,10 +116,10 @@
 //!
 //! | rank | damage | radius | charges | cooldown a charge |
 //! |---|---|---|---|---|
-//! | 1 | 90 | 2.0 tiles | 2 | 30 s |
-//! | 2 | 120 | 2.5 tiles | 2 | 27 s |
-//! | 3 | 150 | 2.5 tiles | 2 | 24 s |
-//! | 4 | 180 | 3.0 tiles | 2 | 20 s |
+//! | 1 | 35 | 2.0 tiles | 2 | 30 s |
+//! | 2 | 45 | 2.5 tiles | 2 | 27 s |
+//! | 3 | 60 | 2.5 tiles | 2 | 24 s |
+//! | 4 | 85 | 3.0 tiles | 2 | 20 s |
 //!
 //! **R, Sentry** (the ultimate) — laid in 3 min that a hit does not
 //! interrupt, one standing (two at the Override Core's fifth rank), never
@@ -762,14 +762,14 @@ pub const VICINITY_TILES: f32 = 50.0;
 
 /// **Q, Mine** (task 154): what its blast does to every enemy in it at
 /// its centre, a rank; half that at the edge.
-pub const MINE_DAMAGE: [f32; 4] = [80.0, 100.0, 120.0, 150.0];
+pub const MINE_DAMAGE: [f32; 4] = [40.0, 50.0, 60.0, 75.0];
 /// How far the blast reaches, in tiles, a rank.
 pub const MINE_RADIUS: [f32; 4] = [1.5, 1.5, 2.0, 2.0];
 /// How near an enemy has to come for it to go off, in tiles, at every
 /// rank: one tile.
 pub const MINE_TRIGGER: f32 = 1.0;
 /// **Mine charges** a rank ([`Charge::Mine`]).
-pub const MINE_CHARGES: [u32; 4] = [2, 3, 3, 4];
+pub const MINE_CHARGES: [u32; 4] = [1, 1, 2, 2];
 /// Seconds one spent mine charge takes to come back, a rank.
 pub const MINE_COOLDOWN: [f64; 4] = [25.0, 22.0, 20.0, 18.0];
 /// How many of one engineer's mines may lie at once, a rank: one more
@@ -797,7 +797,7 @@ pub const HEALING_SENTRY_COOLDOWN: [f64; 4] = [60.0, 60.0, 50.0, 40.0];
 /// **E, Satchel Charge** (task 154): what one bursting does to every
 /// enemy in it at its centre, a rank; half that at the edge. Satchels
 /// stacked on a tile each burst on their own.
-pub const SATCHEL_DAMAGE: [f32; 4] = [90.0, 120.0, 150.0, 180.0];
+pub const SATCHEL_DAMAGE: [f32; 4] = [35.0, 45.0, 60.0, 85.0];
 /// How far one's blast reaches, in tiles, a rank.
 pub const SATCHEL_RADIUS: [f32; 4] = [2.0, 2.5, 2.5, 3.0];
 /// **Satchel charges** a rank ([`Charge::Satchel`]): two at every rank.
