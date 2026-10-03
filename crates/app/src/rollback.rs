@@ -281,6 +281,12 @@ impl Rollback {
         self.lead
     }
 
+    /// How far the shown world's clock is into its next step, nought to
+    /// one: what the picture blends the bodies by between two steps.
+    pub fn fraction(&self) -> f64 {
+        self.backlog.clamp(0.0, 1.0)
+    }
+
     /// The host's world as this end has it: the confirmed timeline while
     /// guessing, else `None` — the session's world is the host's then.
     pub fn confirmed(&self) -> Option<&World> {

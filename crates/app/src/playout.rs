@@ -183,6 +183,14 @@ impl Playout {
         self.target
     }
 
+    /// How far into the next step the guest's clock has run, nought to
+    /// one: where between its last two steps the picture is drawn
+    /// (`Session::set_blend`). One while it waits on a step that has not
+    /// come, so nothing is drawn ahead of what was played.
+    pub fn fraction(&self) -> f64 {
+        self.owed.clamp(0.0, 1.0)
+    }
+
     /// Everything, at once and in order: the buffer off, or the host gone
     /// and the clock this end's from here.
     pub fn flush(&mut self) -> Vec<Event> {

@@ -602,12 +602,19 @@ pub const MARCH_SPEED: f32 = 216.0;
 /// A player's own Bim sprinting under Shift (task 150): its walk times
 /// this, its weapon held across the chest and silent.
 pub const SPRINT: f32 = 1.8;
+/// How long a sprint takes to come up from the walk to its whole pace, in
+/// seconds (October 2026, the player's word: "ease into sprints with
+/// 100ms"; it was at once). Letting go of Shift is the walk at once.
+pub const SPRINT_EASE: f32 = 0.1;
 /// A dodge roll under Alt (task 150): how long it lasts, in seconds, how
-/// far it carries the body, in room units (two and a half tiles), and the
-/// seconds from one roll's start before the next may start. Bolts and a
-/// beam reaching the body while it rolls are dodged; a blow is not.
+/// far it carries the body, in room units (three and three quarter
+/// tiles), and the seconds from one roll's start before the next may
+/// start. Bolts and a beam reaching the body while it rolls are dodged; a
+/// blow is not. The distance was 130 until October 2026, when the roll
+/// went half again as fast with the walk (in the same time, so the dodge
+/// lasts as long).
 pub const ROLL_TIME: f32 = 0.38;
-pub const ROLL_DISTANCE: f32 = 130.0;
+pub const ROLL_DISTANCE: f32 = 195.0;
 pub const ROLL_COOLDOWN: f32 = 1.1;
 
 /// A Husk with its legs shot off drags itself along on its claws at this

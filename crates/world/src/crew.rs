@@ -557,6 +557,17 @@ impl Aboard {
         dvec2(p.x as f64, p.y as f64).sub(self.offset)
     }
 
+    /// [`Aboard::position`] where the body is drawn this frame, blended
+    /// between the room's last two steps (`Game::set_blend`): what a name,
+    /// a bar or the camera follows. The picture only.
+    pub fn shown_position(&self, who: u32) -> DVec2 {
+        if who >= self.count() {
+            return DVec2::ZERO;
+        }
+        let p = self.room.shown_pos(who as usize);
+        dvec2(p.x as f64, p.y as f64).sub(self.offset)
+    }
+
     /// A point of the design this room was laid out from, as a point of
     /// the room: the offset put on. The inverse of [`Aboard::to_design`].
     pub fn to_room(&self, design: DVec2) -> bims::math::Vec2 {

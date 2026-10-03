@@ -1536,6 +1536,22 @@ fn frame(
         .is_some_and(|g| g.world.effective_speed().multiplier() > 0);
     session.age_effects(if running { dt as f32 } else { 0.0 });
     screen.rollback.age(if running { dt as f32 } else { 0.0 });
+    // Smooth frames: the bodies and the bolts drawn as far between the
+    // world's last two steps as the clock has run into the next one, so a
+    // world stepped sixty times a second moves smoothly on any screen —
+    // the clock's own share of a step, a guest running ahead's off its
+    // own pace (task 156), or a guest's off its playout. A paused world
+    // draws the step.
+    let blend = if !running {
+        None
+    } else if screen.net.is_clock() {
+        Some(screen.backlog.clamp(0.0, 1.0) as f32)
+    } else if screen.rollback.active() {
+        Some(screen.rollback.fraction() as f32)
+    } else {
+        Some(screen.playout.fraction() as f32)
+    };
+    session.set_blend(blend);
     // And the white and the light on the health bars (task 137), on the
     // same clock.
     let bars_dt = if running { dt as f32 } else { 0.0 };
@@ -2443,7 +2459,9 @@ fn frame(
         && let Some(at) = session
             .room_ref()
             .filter(|room| (screen.net.slot as usize) < room.crew_count() as usize)
-            .map(|room| room.bim_pos(screen.net.slot as usize))
+            // Where the body is drawn (smooth frames), so the aim runs from
+            // the figure the pointer is seen against.
+            .map(|room| room.shown_pos(screen.net.slot as usize))
     {
         let (mut wx, mut wy) = (0.0f32, 0.0f32);
         // Shift sprints and Alt dodge-rolls (task 150).

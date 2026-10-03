@@ -227,7 +227,7 @@ pub fn design_on_screen(game: &Game, x: f32, y: f32) -> (f32, f32) {
 /// over their head. The same arithmetic the room's picture is turned with.
 pub fn crew_on_screen(game: &Game, who: u32) -> (f32, f32) {
     on_screen(
-        game.world.aboard.position(who),
+        game.world.aboard.shown_position(who),
         game.world.ship.dynamics.centre_of_mass,
         game.ship_turn(),
     )
@@ -1794,7 +1794,7 @@ pub fn resident_on_screen(game: &Game, who: u32) -> (f32, f32) {
     let turn = game.camera_turn();
     let side = station.design.build_area as f64 * TILE as f64;
     let (x, y) = on_screen(
-        residents.aboard.position(who),
+        residents.aboard.shown_position(who),
         dvec2(side / 2.0, side / 2.0),
         turn,
     );

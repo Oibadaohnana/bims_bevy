@@ -316,10 +316,10 @@ fn health_is_made_whole_at_a_mission_s_start() {
     }
 }
 
-/// **The slow a downing leaves ends with the mission** (task 120): a crew
-/// member downed and revived walks at `DOWNED_PACE` until the ship leaves
-/// the site, and at its ordinary pace after — the bar as the mission left
-/// it, until the next one fills it.
+/// **A downing is remembered until the mission ends** (task 120): a crew
+/// member downed and revived is marked so until the ship leaves the site
+/// (it walked slower for it until October 2026), and is not after — the
+/// bar as the mission left it, until the next one fills it.
 #[test]
 fn the_slow_a_downing_leaves_is_cleared_at_the_mission_s_end() {
     let mut world = crewed_world(flyer(2), REFERENCE_MONEY, 1, 2);
@@ -328,7 +328,10 @@ fn the_slow_a_downing_leaves_is_cleared_at_the_mission_s_end() {
     assert!(world.aboard.room.is_downed(1));
     world.aboard.room.bring_round(1, bims::health::REVIVED_TO);
     world.step(&[]);
-    assert!(world.aboard.room.was_downed(1), "slowed for the mission");
+    assert!(
+        world.aboard.room.was_downed(1),
+        "remembered for the mission"
+    );
     let hp = world.aboard.room.health(1);
     to_the_map(&mut world);
     assert!(!world.aboard.room.was_downed(1), "cleared at its end");

@@ -2510,14 +2510,6 @@ pub const CRITICAL_TIP: &str = "Badly hurt: under twenty hit points and bleeding
 pub fn downed_short(seconds: f32) -> String {
     format!("DOWNED — dies in {} s", seconds.ceil().max(0.0) as u32)
 }
-/// A Bim that was downed this mission and walks slower for the rest of
-/// it, in one line.
-pub fn slowed_short() -> String {
-    format!(
-        "Slowed · {}% for the mission",
-        ((1.0 - bims::health::DOWNED_PACE) * 100.0).round() as u32
-    )
-}
 
 /// A line of the log for experience gained, and what it is gathered by.
 pub fn xp_gain_line(source: &str, xp: u32) -> String {
@@ -2760,13 +2752,12 @@ pub fn station_name(name: worldgen::Name) -> String {
 
 // --- the room's words ------------------------------------------------------
 
-pub const HEALTH_TIP: &str = "Hit points: one bar for the whole Bim. A hit comes off the armour worn where it lands first — its protection off the damage before anything else, the rest draining the piece — and only what the piece cannot take reaches the bar. The blue on the end is that armour, and the pale cyan after it a shield thrown over the Bim — a tank's Bastion — which a hit takes before the armour and which drains away on its own. Under twenty the Bim bleeds on the deck; at nothing it is down: it lies where it fell, can do nothing and is shot at by nothing, and dies thirty seconds later unless a crewmate standing beside it brings it round — ten seconds with hands on, a medic's four. It gets up at three tenths of its bar and walks thirty per cent slower for the rest of the mission. A piece at nothing is broken for the rest of the mission and whole again at the next.";
+pub const HEALTH_TIP: &str = "Hit points: one bar for the whole Bim. A hit comes off the armour worn where it lands first — its protection off the damage before anything else, the rest draining the piece — and only what the piece cannot take reaches the bar. The blue on the end is that armour, and the pale cyan after it a shield thrown over the Bim — a tank's Bastion — which a hit takes before the armour and which drains away on its own. Under twenty the Bim bleeds on the deck; at nothing it is down: it lies where it fell, can do nothing and is shot at by nothing, and dies thirty seconds later unless a crewmate standing beside it brings it round — ten seconds with hands on, a medic's four. It gets up at three tenths of its bar. A piece at nothing is broken for the rest of the mission and whole again at the next.";
 
 // --- down, and the revive (task 120) -----------------------------------------
 //
 // The block under the health bar: the one framed thing on the panel, for
-// a body that is down with the countdown running, and a line under it
-// for one that was down this mission and walks slower for it. The words
+// a body that is down with the countdown running. The words
 // are here; the numbers are the room's (`bims::health`).
 
 /// The headline over the block while the body is down.
@@ -2787,14 +2778,7 @@ pub fn downed_remedy() -> String {
 pub fn downed_reviver(who: &str) -> String {
     format!("{who} is bringing it round.")
 }
-pub const DOWNED_TIP: &str = "At nothing a Bim goes down: it lies where it fell, can do nothing, and nothing shoots at it. Unless a crewmate revives it by standing beside it it dies when the countdown runs out. Revived, it gets up at three tenths of its bar and walks thirty per cent slower for the rest of the mission.";
-/// The line under the bar of a Bim that was downed this mission.
-pub fn slowed_note() -> String {
-    format!(
-        "Was down this mission: walks {}% slower until it ends.",
-        ((1.0 - bims::health::DOWNED_PACE) * 100.0).round() as u32
-    )
-}
+pub const DOWNED_TIP: &str = "At nothing a Bim goes down: it lies where it fell, can do nothing, and nothing shoots at it. Unless a crewmate revives it by standing beside it it dies when the countdown runs out. Revived, it gets up at three tenths of its bar.";
 /// A Bim under [`bims::health::BLEEDS_UNDER`]: bleeding on the deck.
 pub const BADLY_HURT: &str = "Badly hurt — bleeding";
 /// What a dead body says under its name.
@@ -3280,8 +3264,8 @@ mod tests {
     }
 
     /// The revive's words spell the numbers out — thirty seconds down,
-    /// ten to revive, a medic's four, three tenths of the bar back and
-    /// thirty per cent slower after (task 120) — so a change to the
+    /// ten to revive, a medic's four, three tenths of the bar back
+    /// (task 120; no slow after since October 2026) — so a change to the
     /// rules' numbers has to come here as well.
     #[test]
     fn the_revive_s_words_say_the_rules_numbers() {
@@ -3294,11 +3278,11 @@ mod tests {
             ),
             (30.0, 10.0, 4.0)
         );
-        assert_eq!((h::REVIVED_TO, h::DOWNED_PACE), (0.3, 0.7));
+        assert_eq!(h::REVIVED_TO, 0.3);
         assert_eq!(h::BLEEDS_UNDER, 20.0);
         for words in [HEALTH_TIP, DOWNED_TIP] {
             assert!(
-                words.contains("three tenths") && words.contains("thirty per cent"),
+                words.contains("three tenths") && !words.contains("slower"),
                 "{words}"
             );
         }
@@ -3306,10 +3290,6 @@ mod tests {
         assert!(HEALTH_TIP.contains("twenty") && CRITICAL_TIP.contains("twenty"));
         assert!(FIELD_MEDIC_TIP.contains("four seconds") && FIELD_MEDIC_TIP.contains("ten"));
         assert_eq!(downed_short(29.2), "DOWNED — dies in 30 s");
-        assert_eq!(
-            slowed_note(),
-            "Was down this mission: walks 30% slower until it ends."
-        );
     }
 
     #[test]

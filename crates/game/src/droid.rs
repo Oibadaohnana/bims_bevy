@@ -598,6 +598,10 @@ pub struct Droid {
     /// angle the picture is drawn at. A Guardian's is read off
     /// [`Droid::facing`] for the picture alone.
     pub pos: Vec2,
+    /// Where it stood at the top of the room's last step, for the
+    /// picture to blend from (`Game::set_blend`). Drawing only.
+    #[cfg_attr(feature = "serde", serde(skip))]
+    pub was: Vec2,
     pub heading: f32,
     /// Which way it faces as a **unit vector**: what a Guardian's shield
     /// and its turn are worked in (feature 100), since a vector is turned
@@ -746,6 +750,7 @@ impl Droid {
             tier,
             wave,
             pos: at,
+            was: at,
             heading,
             facing: Vec2::from_angle(heading),
             turn_left: 0.0,

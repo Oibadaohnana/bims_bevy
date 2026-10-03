@@ -55,10 +55,10 @@ pub const KIT_AMBER: Color = Color::rgb(1.0, 0.76, 0.32);
 /// seconds.
 pub const BEAT: f32 = 1.0 / 12.0;
 
-/// Where crew member `who` stands in the crew's room, if alive there.
+/// Where crew member `who` is drawn in the crew's room, if alive there.
 fn crew_at(game: &Game, who: u32) -> Option<Vec2> {
     let room = &game.world.aboard.room;
-    (who < room.crew_count() && room.is_alive(who as usize)).then(|| room.bim_pos(who as usize))
+    (who < room.crew_count() && room.is_alive(who as usize)).then(|| room.shown_pos(who as usize))
 }
 
 fn tiles(n: f32) -> f32 {

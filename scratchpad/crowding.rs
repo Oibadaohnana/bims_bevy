@@ -85,19 +85,16 @@ fn main() {
     // --- and it costs them ------------------------------------------------
     //
     // The same walk twice: once with the other Bim parked out of the way, and
-    // once with it standing in the middle of the route. The second has to take
-    // longer, and by about what the slowdown says.
+    // once with it standing in the middle of the route. Squeezing past cost
+    // 30% of the pace until October 2026, when the player had every hidden
+    // slowdown but a carry taken away: the two take the same time now.
 
     let alone = walk_time(false);
     let through = walk_time(true);
     println!("       clear run {alone:.2}s, through the other {through:.2}s");
-    check!("walking through somebody is slower", through > alone + 0.05, format!("{alone} vs {through}"));
-    // Squeezing past costs 30% of the pace over the stretch where they are
-    // within a body's width of each other, which is a small part of a long
-    // walk — so the whole walk is a little longer, not a third longer.
     check!(
-        "but only over the stretch where they touch",
-        through < alone * 1.5,
+        "walking through somebody costs nothing",
+        (through - alone).abs() < 0.05,
         format!("{alone} vs {through}")
     );
 

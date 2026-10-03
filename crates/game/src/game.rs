@@ -277,17 +277,6 @@ const STUCK_AFTER: f32 = 1.0;
 /// leave it, plus a shove from a shipmate squeezing past.
 const POST_SLACK: f32 = 20.0;
 
-/// What squeezing past costs, as a fraction of the usual pace.
-///
-/// Bodies do not block one another — they pass through, which is the one thing
-/// that cannot deadlock. A route is planned once and never replanned here, so
-/// anything that stops a Bim getting where its line goes risks two of them
-/// standing nose to nose for ever with errands on both agendas; letting them
-/// overlap gives that failure nowhere to happen. The cost is speed instead:
-/// close quarters are slow, and two Bims edging round each other in a gangway
-/// take noticeably longer than one.
-const CROWDED_PACE: f32 = 0.70;
-
 /// One door's lock as the world carries it between rooms — see
 /// `Game::door_states`.
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -911,6 +900,33 @@ pub struct Game {
     /// the world every step, so left out of a save.
     #[cfg_attr(feature = "serde", serde(skip))]
     told: bool,
+    /// How far the window's clock is between the last step and the next,
+    /// nought to one: the bodies are drawn that far from where they stood
+    /// before the last step (`Character::was`, `Droid::was`) to where they
+    /// stand, so a 60 Hz world moves smoothly on any screen (`set_blend`).
+    /// `None` draws them where they stand — every test, probe and server.
+    /// A picture setting, this window's own.
+    #[cfg_attr(feature = "serde", serde(skip))]
+    blend: Option<f32>,
+    /// The seconds the last step was, for drawing a bolt back along its
+    /// flight by the share of a step still to come (`set_blend`).
+    #[cfg_attr(feature = "serde", serde(skip))]
+    step_dt: f32,
+}
+
+/// How far a body may go in one step and still be blended across: a
+/// tile is past any walk, sprint or roll (under nine units a step), so a
+/// body that went further was put somewhere — a blink, a respawn, a room
+/// taken over — and is drawn where it is.
+const BLEND_JUMP: f32 = TILE;
+
+/// Where a body that stood at `was` before the last step and stands at
+/// `pos` now is drawn `blend` of the way on (`Game::set_blend`).
+fn shown(was: Vec2, pos: Vec2, blend: Option<f32>) -> Vec2 {
+    match blend {
+        Some(t) if t < 1.0 && (pos - was).len() <= BLEND_JUMP => was + (pos - was) * t,
+        _ => pos,
+    }
 }
 
 impl Game {
@@ -1064,6 +1080,8 @@ impl Game {
             players: 1,
             viewer: 0,
             told: false,
+            blend: None,
+            step_dt: 0.0,
         };
         game.refresh_blockers();
         game.resize(width, height);
@@ -1409,6 +1427,15 @@ impl Game {
     /// aboard — up to twenty-four times a frame at its top speed, where a
     /// picture of every step but the last would be a picture nobody sees.
     pub fn simulate(&mut self, dt: f32) {
+        // Where every body stood before this step, for the picture to
+        // blend from (`set_blend`). Nothing the rules read.
+        for bim in &mut self.bims {
+            bim.character.was = bim.character.pos;
+        }
+        for droid in &mut self.droids {
+            droid.was = droid.pos;
+        }
+        self.step_dt = dt;
         self.refresh_outside();
         self.refresh_afield();
         self.room.update(dt);
@@ -3861,12 +3888,10 @@ impl Game {
         if !held {
             self.bims[who].health.update(dt);
         }
-        // What the fight has done to it slows it down: once downed this
-        // mission it walks at `health::DOWNED_PACE`, and nothing else
-        // damage does costs any pace.
-        let pace = self.bims[who].health.pace()
-            * self.crowding(who)
-            * self.runner(who)
+        // Nothing hidden slows a body (October 2026, the player's word):
+        // neither a downing earlier in the mission nor a crewmate close
+        // by. What it carries and what its class, items and relics say.
+        let pace = self.runner(who)
             * self.skill(who).walk
             // A crewmate in the arms is a load (feature 86).
             * if self.bims[who].carrying.is_some() {
@@ -4266,7 +4291,7 @@ impl Game {
     }
 
     /// Bodies under arms keep apart. The crew pass through each other in
-    /// peace (`crowding`, below) because a route is planned once and a
+    /// peace, at their whole pace, because a route is planned once and a
     /// push at a chokepoint is a deadlock waiting to happen — but a fight
     /// replans every `PLAN_EVERY` and `unstick` watches the rest, and a
     /// squad stacked on one tile is one body to shoot at and a picture
@@ -4320,26 +4345,6 @@ impl Game {
                 self.bims[b].character.pos = self.bims[b].character.pos + overlap * share_b;
             }
         }
-    }
-
-    /// How much `who` is slowed by having somebody in the same space.
-    ///
-    /// The crew do not collide. Two of them walking into each other pass
-    /// straight through and both slow down, which is the one resolution that
-    /// cannot leave anybody stuck — and being stuck is the real hazard here,
-    /// because a route is planned once and never replanned, so a Bim whose
-    /// line goes through another has no second plan to fall back on.
-    ///
-    /// Only bodies alive and on the deck count.
-    fn crowding(&self, who: usize) -> f32 {
-        let at = self.bims[who].character.pos;
-        let close = self.bims.iter().enumerate().any(|(i, other)| {
-            i != who
-                && other.is_alive()
-                && !other.character.is_outside()
-                && (other.character.pos - at).len() < CREW_CLEARANCE
-        });
-        if close { CROWDED_PACE } else { 1.0 }
     }
 
     // --- interrupting, and getting back to it ----------------------------
@@ -5421,13 +5426,6 @@ impl Game {
         self.bims[who].character.set_recruited(on);
     }
 
-    /// How much this Bim is slowed by the other being in the same space, for
-    /// the probes: 1 clear, less than 1 squeezing past.
-    #[allow(dead_code)]
-    pub fn crowding_for_probe(&self, who: usize) -> f32 {
-        self.crowding(who)
-    }
-
     /// The route a Bim is on, and the solids it is kept out of, for the probes.
     #[allow(dead_code)]
     pub fn route_for_probe(&self, who: usize) -> (Vec<Vec2>, Vec<Rect>) {
@@ -6249,6 +6247,95 @@ impl Game {
         match self.droid_at(who) {
             Some(i) => self.droids[i].pos,
             None => self.bims.get(who).map_or(Vec2::ZERO, |b| b.character.pos),
+        }
+    }
+
+    /// How far between the last step and the next the picture is drawn
+    /// (`blend`), nought to one, or `None` for where the bodies stand.
+    /// Once a frame, by the host, before `render`.
+    pub fn set_blend(&mut self, blend: Option<f32>) {
+        self.blend = blend.map(|t| clamp(t, 0.0, 1.0));
+    }
+
+    /// Stand every body where it is drawn this frame, for `render`'s
+    /// drawing of them, and say where they really stood for `put_back`.
+    /// Nothing with no blend, and a wreck stays where it fell (its
+    /// pieces are laid by a hash of its position).
+    fn stand_where_shown(&mut self) -> Vec<Vec2> {
+        let blend = self.blend;
+        if blend.is_none() {
+            return Vec::new();
+        }
+        let mut stood = Vec::with_capacity(self.bims.len() + self.droids.len());
+        for bim in &mut self.bims {
+            let c = &mut bim.character;
+            stood.push(c.pos);
+            c.pos = shown(c.was, c.pos, blend);
+        }
+        for droid in &mut self.droids {
+            stood.push(droid.pos);
+            if !droid.body.destroyed() {
+                droid.pos = shown(droid.was, droid.pos, blend);
+            }
+        }
+        stood
+    }
+
+    /// Every bolt in the air drawn back along its flight by the share of
+    /// a step still to come (`set_blend`) — never behind the muzzle it
+    /// left — for `render`'s drawing of them; where they really are, for
+    /// `bolts_put_back`.
+    fn bolts_where_shown(&mut self) -> Vec<Vec2> {
+        let Some(t) = self.blend else {
+            return Vec::new();
+        };
+        let back = (1.0 - t) * self.step_dt;
+        self.combat
+            .bolts
+            .iter_mut()
+            .map(|bolt| {
+                let at = bolt.pos;
+                let behind = bolt.vel * back;
+                bolt.pos = if (at - bolt.fired_from).len() > behind.len() {
+                    at - behind
+                } else {
+                    bolt.fired_from
+                };
+                at
+            })
+            .collect()
+    }
+
+    /// Every bolt back where it is, after [`Game::bolts_where_shown`].
+    fn bolts_put_back(&mut self, flying: Vec<Vec2>) {
+        for (bolt, at) in self.combat.bolts.iter_mut().zip(flying) {
+            bolt.pos = at;
+        }
+    }
+
+    /// Every body back where it stands, after [`Game::stand_where_shown`].
+    fn put_back(&mut self, stood: Vec<Vec2>) {
+        if stood.is_empty() {
+            return;
+        }
+        let crew = self.bims.len();
+        for (bim, &at) in self.bims.iter_mut().zip(&stood) {
+            bim.character.pos = at;
+        }
+        for (droid, &at) in self.droids.iter_mut().zip(&stood[crew..]) {
+            droid.pos = at;
+        }
+    }
+
+    /// Where a body is drawn this frame — [`Game::body_pos`] blended back
+    /// towards where it stood before the last step — for whatever the
+    /// host lays over it (a name, a bar, the camera). The picture only.
+    pub fn shown_pos(&self, who: usize) -> Vec2 {
+        match self.droid_at(who) {
+            Some(i) => shown(self.droids[i].was, self.droids[i].pos, self.blend),
+            None => self.bims.get(who).map_or(Vec2::ZERO, |b| {
+                shown(b.character.was, b.character.pos, self.blend)
+            }),
         }
     }
 
@@ -9749,8 +9836,8 @@ impl Game {
         self.bims.get(who).and_then(|b| b.health.down_left())
     }
 
-    /// Whether a Bim has been downed this mission, and so walks at
-    /// `health::DOWNED_PACE` until it ends.
+    /// Whether a Bim has been downed this mission (remembered only: it
+    /// no longer slows the walk).
     pub fn was_downed(&self, who: usize) -> bool {
         self.bims.get(who).is_some_and(|b| b.health.was_downed())
     }
@@ -10405,6 +10492,11 @@ impl Game {
 
         self.bodies_from = self.list.len();
 
+        // Every body stood where it is drawn between the last step and the
+        // next (`set_blend`) for the drawing alone, and put back before
+        // anything reads a position for a rule (the sight, below).
+        let stood = self.stand_where_shown();
+
         // Bodies in crew order, so who is drawn on top of whom does not
         // change as they walk past each other — and only the ones in view:
         // a station's people behind a bulkhead are not drawn at all.
@@ -10459,6 +10551,7 @@ impl Game {
         // Bedding and bunk rails go over the Bim, so getting into bed puts it
         // under the covers rather than on top of them.
         self.room.draw_over(&mut self.list);
+        self.put_back(stood);
 
         // What nobody sees, fogged. Over the deck and the fixtures and
         // under the night, the rings and the marquee: a fog that hid the
@@ -10483,8 +10576,10 @@ impl Game {
         // The shots, over the fog: a bolt is always seen, whatever it
         // flies through.
         self.fog_from = self.list.len();
+        let flying = self.bolts_where_shown();
         self.draw_bolt_glow();
         self.combat.draw(&mut self.list);
+        self.bolts_put_back(flying);
         // The pings where an order landed, over the fog as well, since an
         // order given into the dark is an order all the same.
         self.draw_pings();
@@ -14200,6 +14295,45 @@ mod tests {
         assert_eq!(game.magazine(0), None);
     }
 
+    /// Smooth frames (October 2026): a body is drawn `blend` of the way
+    /// from where it stood before the last step to where it stands, one
+    /// put somewhere is drawn there at once, and drawing moves nothing.
+    #[test]
+    fn a_body_is_drawn_between_its_last_two_steps_and_drawing_moves_nothing() {
+        use crate::order::{CrewOrder, angle_code};
+        let mut game = room();
+        game.set_autonomous(false);
+        game.set_players(1);
+        game.order(
+            0,
+            CrewOrder::Control {
+                walk: Some(angle_code(0.0)),
+                aim: angle_code(0.0),
+                fire: false,
+                sprint: false,
+            },
+        );
+        for _ in 0..30 {
+            game.simulate(DT);
+        }
+        let (was, now) = (game.bims[0].character.was, game.bim_pos(0));
+        assert!(now.x > was.x, "it walked: {was:?} to {now:?}");
+        game.set_blend(Some(0.25));
+        let shown = game.shown_pos(0);
+        assert!(
+            (shown - (was + (now - was) * 0.25)).len() < 1e-3,
+            "{shown:?}"
+        );
+        game.render();
+        assert_eq!(game.bim_pos(0), now, "drawing moved nothing");
+        game.set_blend(None);
+        assert_eq!(game.shown_pos(0), now);
+        // Put somewhere off its walk: drawn where it is, not on the way.
+        game.set_blend(Some(0.25));
+        let put = game.put_for_probe(0, vec2(ROOM_W * 0.8, ROOM_H * 0.3));
+        assert_eq!(game.shown_pos(0), put);
+    }
+
     /// Shift (task 150): the keys walk the player's Bim at `SPRINT` of its
     /// pace, facing the way it runs rather than the pointer, and the
     /// trigger held fires nothing until the sprint ends.
@@ -14253,18 +14387,39 @@ mod tests {
             "sprinting it faces the run: {}",
             game.bims[0].character.heading
         );
-        // And no easing up to it: from a standstill the first step is
-        // at the sprint's whole pace.
-        game.order(0, control(false, false, false));
+        // And it eases up to it from the walk over `SPRINT_EASE` (October
+        // 2026): part of the way after half of it, the whole pace by its
+        // end; letting go of Shift is the walk at once.
+        game.order(0, control(true, false, false));
         for _ in 0..60 {
             game.simulate(DT);
         }
+        let walking = crate::balance::MARCH_SPEED;
+        assert!((game.bims[0].character.speed - walking).abs() < 0.01);
         game.order(0, control(true, true, false));
-        game.simulate(DT);
+        let steps = (crate::balance::SPRINT_EASE / DT).round() as usize;
+        for _ in 0..steps / 2 {
+            game.simulate(DT);
+        }
         let full = crate::balance::MARCH_SPEED * crate::balance::SPRINT;
+        let halfway = game.bims[0].character.speed;
+        assert!(
+            halfway > walking + 1.0 && halfway < full - 1.0,
+            "easing up: {halfway} between {walking} and {full}"
+        );
+        for _ in steps / 2..steps {
+            game.simulate(DT);
+        }
         assert!(
             (game.bims[0].character.speed - full).abs() < 0.01,
-            "full pace at once: {} of {full}",
+            "full pace by the ease's end: {} of {full}",
+            game.bims[0].character.speed
+        );
+        game.order(0, control(true, false, false));
+        game.simulate(DT);
+        assert!(
+            (game.bims[0].character.speed - walking).abs() < 0.01,
+            "Shift up is the walk at once: {}",
             game.bims[0].character.speed
         );
         // The trigger held: nothing fires while it sprints, and the

@@ -317,18 +317,15 @@ pub fn is_hurt(game: &Game, w: usize) -> bool {
 }
 
 /// What is wrong with `w` in one line, for the hero panel (feature 107):
-/// the countdown while it is down, in the ring's red, and the slower walk
-/// for the rest of the mission once it was, in the caution colour. `None`
-/// while neither holds, and for the dead. There is nothing else to say
+/// the countdown while it is down, in the ring's red. `None` while it is
+/// up (a revive leaves no slow since October 2026), and for the dead. There is nothing else to say
 /// since task 120: one bar, and the bar says the rest.
 pub fn peril_summary(game: &Game, w: usize) -> Option<(String, egui::Color32)> {
     if !game.is_alive(w) {
         return None;
     }
-    if let Some(left) = game.down_left(w) {
-        return Some((downed_short(left), theme::DYING));
-    }
-    game.was_downed(w).then(|| (slowed_short(), theme::CAUTION))
+    game.down_left(w)
+        .map(|left| (downed_short(left), theme::DYING))
 }
 
 /// How wide the character sheet is (feature 107): the Skills tab across
@@ -1093,14 +1090,6 @@ impl CrewPanels {
                 ui.label(egui::RichText::new(line).small().color(theme::MUTED));
             });
             ui.add_space(3.0);
-        } else if alive && game.was_downed(w) {
-            // Up again, and slower for it until the mission ends: the one
-            // thing a revive leaves behind.
-            ui.label(
-                egui::RichText::new(slowed_note())
-                    .small()
-                    .color(theme::CAUTION),
-            );
         } else if alive && hurt {
             ui.label(egui::RichText::new(BADLY_HURT).small().color(theme::BAD));
         }

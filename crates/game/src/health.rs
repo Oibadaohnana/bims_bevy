@@ -20,9 +20,10 @@
 //! [`Health::update`] with the room's own steps, so a paused game holds
 //! it. At nought it is **dead**. Another Bim standing beside it for long
 //! enough ([`crate::task::Kind::Revive`]) brings it round
-//! ([`Health::revive`]) at [`REVIVED_TO`] of the bar, and for the rest
-//! of the mission it walks at [`DOWNED_PACE`] ([`Health::pace`]) — once,
-//! however often it goes down.
+//! ([`Health::revive`]) at [`REVIVED_TO`] of the bar. It walks at its
+//! whole pace after: the thirty per cent slow it kept for the rest of the
+//! mission went in October 2026 (the player's word: no hidden slowdowns),
+//! and [`Health::was_downed`] is only remembered.
 
 /// A whole bar.
 pub const MAX_HEALTH: f32 = 100.0;
@@ -39,10 +40,6 @@ pub const DOWNED_SECONDS: f32 = 30.0;
 
 /// Where a revived body's bar starts again from: three tenths of it.
 pub const REVIVED_TO: f32 = 0.3;
-
-/// What a body that has been downed this mission walks at, for the rest
-/// of the mission: thirty per cent slower. It does not stack.
-pub const DOWNED_PACE: f32 = 0.7;
 
 /// What the countdown may be short of nought and still be over, in
 /// seconds: far under a step, and far over what 1 800 sixtieths of a second
@@ -73,8 +70,8 @@ pub struct Health {
     /// and once it is dead.
     down_left: Option<f32>,
     dead: bool,
-    /// Downed at least once since the bar was last filled: the walk is
-    /// [`DOWNED_PACE`] until the mission ends.
+    /// Downed at least once since the bar was last filled. It slowed the
+    /// walk until October 2026; now only remembered (saved and hashed).
     was_downed: bool,
 }
 
@@ -154,13 +151,6 @@ impl Health {
         !self.dead && self.points < BLEEDS_UNDER
     }
 
-    /// How fast it walks, as a fraction of its usual pace: [`DOWNED_PACE`]
-    /// once it has been downed this mission, and whole otherwise. The one
-    /// thing damage does to the walk.
-    pub fn pace(&self) -> f32 {
-        if self.was_downed { DOWNED_PACE } else { 1.0 }
-    }
-
     /// A hit of `damage` on the bar — whatever got past the armour. How
     /// much came off it: nothing on a body already downed or dead, which
     /// nothing aims at. Reaching nothing is downed, and the countdown
@@ -179,7 +169,7 @@ impl Health {
     }
 
     /// Brought round where it lies: up again at [`REVIVED_TO`] of the bar,
-    /// the countdown over, and slowed for the rest of the mission.
+    /// the countdown over, and remembered as downed this mission.
     /// Whether it was downed to be revived.
     pub fn revive(&mut self) -> bool {
         self.revive_at(REVIVED_TO)
@@ -209,7 +199,7 @@ impl Health {
         given
     }
 
-    /// A whole bar again, and the slow a downing left forgotten: a
+    /// A whole bar again, and the downing forgotten: a
     /// mission's start. Nothing for the dead.
     pub fn restore(&mut self) {
         if self.dead {
@@ -220,7 +210,7 @@ impl Health {
         self.was_downed = false;
     }
 
-    /// The slow a downing left behind taken off, the bar as it is: a
+    /// The downing forgotten, the bar as it is: a
     /// mission's end.
     pub fn forget_downed(&mut self) {
         self.was_downed = false;
@@ -309,30 +299,30 @@ mod tests {
         assert!(!h.downed());
     }
 
-    /// **A revive is three tenths of the bar and a slow for the mission**,
-    /// once however often, and a mission's start takes both away.
+    /// **A revive is three tenths of the bar**, remembered as a downing
+    /// (no slow since October 2026), and a mission's start takes both away.
     #[test]
-    fn a_revived_body_is_up_at_thirty_and_slowed_until_the_bar_is_filled() {
+    fn a_revived_body_is_up_at_thirty_and_remembered_until_the_bar_is_filled() {
         let mut h = Health::new();
-        assert_eq!(h.pace(), 1.0);
+        assert!(!h.was_downed());
         assert!(!h.revive(), "nothing to revive");
         h.hit(MAX_HEALTH);
         assert!(h.revive());
         assert_eq!(h.points(), MAX_HEALTH * REVIVED_TO);
         assert!(!h.downed());
-        assert_eq!(h.pace(), DOWNED_PACE);
-        // Down again and up again: the slow does not stack.
+        assert!(h.was_downed());
+        // Down again and up again: still once.
         h.hit(MAX_HEALTH);
         h.revive();
-        assert_eq!(h.pace(), DOWNED_PACE);
+        assert!(h.was_downed());
         h.restore();
         assert_eq!(h.points(), MAX_HEALTH);
-        assert_eq!(h.pace(), 1.0);
-        // And a mission's end takes the slow off where the bar stands.
+        assert!(!h.was_downed());
+        // And a mission's end forgets it where the bar stands.
         h.hit(MAX_HEALTH);
         h.revive();
         h.forget_downed();
-        assert_eq!(h.pace(), 1.0);
+        assert!(!h.was_downed());
         assert_eq!(h.points(), MAX_HEALTH * REVIVED_TO);
     }
 

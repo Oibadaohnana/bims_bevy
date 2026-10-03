@@ -4860,6 +4860,33 @@ round corners the same way, so a bot's routes move with it.
 `wire::PROTOCOL` 140. The survivor pins were red in the tree before and
 were not re-pinned.
 
+**Then no hidden slowdowns, a sprint eased in, a longer roll and smooth
+frames (October 2026, the player's word).** Nothing slows a body but a
+carry (`CARRY_PACE`) and what a class, an item or a relic says: the
+crowding (`CROWDED_PACE`, `Game::crowding`) and the slow after a down
+(`health::DOWNED_PACE`, `Health::pace`) went — `was_downed` is still
+remembered, saved and hashed, and slows nothing. `TURN_RATE` is 8.25
+(5.5 before): a body walks along its heading, so the turn is an arc of
+`MARCH_SPEED / TURN_RATE`, and at 216 with the old rate the arc was 39
+units — a waypoint inside it was circled for ever, which is what
+`a_banner_round_a_corner_is_reached_by_every_bot` caught once nothing
+slowed the bots. A sprint eases up from the walk over
+`balance::SPRINT_EASE` (0.1 s) and letting go of Shift is the walk at
+once. `ROLL_DISTANCE` is 195 in the same `ROLL_TIME`. **Smooth frames**
+are picture only: `Character::was` and `Droid::was` (serde skip) are set
+at the top of `simulate`; `Game::set_blend(Option<f32>)`, once a frame by
+the host, says how far into the next step the clock is, and `render`
+stands every body at `was + (pos − was) × blend` (`stand_where_shown`)
+for the body loop alone and every bolt back along its flight by the step
+still to come (`bolts_where_shown`, never behind its muzzle), and puts
+them back before anything reads a position (`observe`, the light map). A
+body that went further than a tile in a step (`BLEND_JUMP`) was put
+somewhere and is drawn where it is. `Game::shown_pos` is the same for
+what the host lays over a body (a name, a bar, the camera, the aim).
+`None` — every test, probe and server — draws the step, so no picture
+pin moved. `a_body_is_drawn_between_its_last_two_steps_and_drawing_moves_nothing`
+pins it. `wire::PROTOCOL` 142.
+
 ## One armour, and a hit lands nowhere in particular (October 2026)
 
 > Every section above about three armour slots (head, body, legs),

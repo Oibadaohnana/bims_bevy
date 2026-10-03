@@ -1703,6 +1703,20 @@ impl Session {
         }
     }
 
+    /// How far the window's clock is between the world's last step and its
+    /// next, nought to one, for the rooms to draw their bodies and bolts
+    /// that far on from the step before (`bims::game::Game::set_blend`);
+    /// `None` draws them where the last step left them. Once a frame,
+    /// before the picture. The picture only: no rule reads it.
+    pub fn set_blend(&mut self, blend: Option<f32>) {
+        if let Some(game) = &mut self.game {
+            game.world.aboard.room.set_blend(blend);
+            if let Some(residents) = &mut game.world.residents {
+                residents.aboard.room.set_blend(blend);
+            }
+        }
+    }
+
     /// How many steps a second of real time is worth at 1x. A fact about
     /// the world rather than about the window, so it comes from here.
     pub fn steps_per_second(&self) -> f64 {

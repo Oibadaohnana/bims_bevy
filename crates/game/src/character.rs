@@ -11,8 +11,12 @@ use crate::room::STEEL;
 
 // --- behaviour tuning ---------------------------------------------------
 
-/// How sharply the body swings towards the heading it wants.
-const TURN_RATE: f32 = 5.5;
+/// How sharply the body swings towards the heading it wants. Raised half
+/// again with the march (October 2026, 5.5 before): a body walks along
+/// its heading, so its turn is an arc of `MARCH_SPEED / TURN_RATE`, and
+/// at 216 a second with the old rate the arc was 39 units — a waypoint
+/// inside it was circled for ever. At 8.25 it is the 26 it was.
+const TURN_RATE: f32 = 8.25;
 /// Pixels per second squared, used both to speed up and to slow down.
 /// Raised half again with the march (October 2026, 220 before), so a
 /// body takes the time it always did to reach its pace.
@@ -987,6 +991,11 @@ const BREATH_PERIOD: f32 = 5.4;
 #[derive(Clone)]
 pub struct Character {
     pub pos: Vec2,
+    /// Where it stood at the top of the room's last step: what the
+    /// picture blends from towards `pos` between two steps
+    /// (`Game::set_blend`). Drawing only, never saved or read by a rule.
+    #[cfg_attr(feature = "serde", serde(skip))]
+    pub was: Vec2,
     /// Which of the crew this is to look at. Read by `draw` and nothing else.
     look: Look,
     /// The direction the body actually faces, in radians.
@@ -1208,6 +1217,7 @@ impl Character {
         let heading = rng.range(0.0, TAU);
         let mut c = Character {
             pos,
+            was: pos,
             look,
             heading,
             speed: 0.0,
@@ -2064,13 +2074,19 @@ impl Character {
         }
 
         // Ease the speed so starts and stops have weight — less of it
-        // under the keys, and none into a sprint: Shift is its full
-        // pace at once (the player's word). Under the keys a stop, or
-        // any slowing, is at once too.
-        if sprinting || (steer.is_some() && self.target_speed < self.speed) {
+        // under the keys, where a stop, or any slowing, is at once. A
+        // sprint eases in from the walk over `balance::SPRINT_EASE`
+        // (October 2026, the player's word; it was at once).
+        if steer.is_some() && self.target_speed < self.speed {
             self.speed = self.target_speed;
         } else {
-            let step = ACCEL * if steer.is_some() { STEER_ACCEL } else { 1.0 } * dt;
+            let mut rate = ACCEL * if steer.is_some() { STEER_ACCEL } else { 1.0 };
+            if sprinting {
+                let walk = self.pace * MARCH_SPEED;
+                rate =
+                    rate.max(walk * (crate::balance::SPRINT - 1.0) / crate::balance::SPRINT_EASE);
+            }
+            let step = rate * dt;
             self.speed += clamp(self.target_speed - self.speed, -step, step);
         }
 

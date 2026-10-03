@@ -231,7 +231,11 @@ use serde::{Deserialize, Serialize};
 /// the app's `rollback.rs`) — `Packet::Ask` carries the step the guest
 /// played the order at and the host applies it there, `Packet::Applied`
 /// says how early it came.
-pub const PROTOCOL: u32 = 141;
+/// 142: no hidden slowdowns (no crowding, no slow after a down), a body
+/// turns half again as sharply (`character::TURN_RATE`), a sprint eases
+/// in over a tenth of a second and a roll goes half again as far: both
+/// ends must walk alike.
+pub const PROTOCOL: u32 = 142;
 
 /// Where the relay lives. `BIMS_SERVER` in the environment overrides it
 /// — `ws://127.0.0.1:8792` for one on the same machine.

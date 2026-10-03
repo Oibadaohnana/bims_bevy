@@ -550,7 +550,7 @@ fn controls(ui: &mut egui::Ui, sheet: &mut Option<Sheet>, keys: &mut Keys) {
             ),
             (
                 "Alt",
-                "Dodge roll: the Bim you steer rolls two and a half tiles the way you are walking it, or last walked it — not where the pointer is — and every bolt and beam misses it while it rolls. Once a second or so.",
+                "Dodge roll: the Bim you steer rolls nearly four tiles the way you are walking it, or last walked it — not where the pointer is — and every bolt and beam misses it while it rolls. Once a second or so.",
             ),
             (
                 "Ctrl + left click",
