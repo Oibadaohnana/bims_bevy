@@ -3133,6 +3133,40 @@ A class added later wants an arm in `Class::outfit` (`crates/world/src/class.rs`
 one in `Outfit`, and an arm in each of the two drawing functions — miss the
 last two and it looks like everybody else.
 
+## A body is cloth, lit, and the crew wear a lamp (October 2026)
+
+Drawing only, in `Character::draw` and `draw_down`; nothing hashed, saved
+or on the wire.
+
+- **Cloth.** Everything from the boots to the class's kit is marked
+  `draw::KIND_CLOTH` (`+ 128`) by `Brush::clothed_from(Brush::mark())`
+  before the head goes on; the app lays `cloth.png` over each fill
+  (`crates/app/src/shapes.rs`, the root `CLAUDE.md`). The head, the hair,
+  the guns, a glow, a translucent shape and anything under five units are
+  left plain.
+- **Light.** `LIGHT` (the screen's north-west) turned into the body's
+  frame: the torso is its cloth `in_shade` all round, the lit part moved
+  towards the light over it and a `SHEEN` on top; a free arm, the vest
+  and a hard shell (`GLOSS`, the hats' `gloss` in `draw_class_head`, which
+  takes `light` now) catch it too.
+- **The crew's mark**, `Uniform::Crew` only (a Republic soldier has its
+  own pack): reflective `CREW_PIPING` down both flanks and a comms pack
+  between the shoulder blades with a `CREW_LIGHT` strip past white,
+  breathing on `idle`. Every crew body has exactly one emissive shape
+  standing still — `the_pistol_bolt_s_core_is_the_one_thing_brighter_than_white`
+  counts them.
+- **A class's lamp**, small and `CLASS_GLOW` past white, in its family's
+  colour: the engineer's headlamp on the hard hat's peak, the soldier's
+  radio tally on the left strap, the medic's vitals strip on the left
+  shoulder, the tank's visor slit across the face, the commander's pip on
+  each board.
+- **`Outfit::Defender`** is a town's defender — the world's word
+  (`World::hand_the_room_the_outfits`, every step), not a class and not
+  in `Outfit::ALL`: the station's coverall dyed `DEFENDER_DYE` (0.75) to
+  `KIT_DEFENDER` drab, a steel pot (`HELMET_DEFENDER`, banded, glossed), a
+  `LEATHER` bandolier with brass in it and `TOWN_ORANGE` on the left
+  shoulder. Nothing on it glows: the glow is the crew's.
+
 ## A droid is not a Bim, and the deck serves both (feature 83)
 
 `crates/game/src/droid.rs`. The endgame enemy is a machine race, and the

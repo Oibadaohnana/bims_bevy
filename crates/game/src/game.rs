@@ -12549,19 +12549,32 @@ mod tests {
 
     /// The pistol bolt's core is the one emissive colour in a pistol fight
     /// (feature 97) a host ages no passing lights in: with a bolt in flight
-    /// there is a channel past one over the fog and nowhere under it, and
-    /// with none there is none at all. (A blade in a hand and a machine's
-    /// sparks glow too since feature 98, and neither is in this room.)
+    /// there is a channel past one over the fog, and under it nothing but
+    /// what glowed before the shot — the crew's own comms lamps (October
+    /// 2026), one a body. (A blade in a hand and a machine's sparks glow
+    /// too since feature 98, and neither is in this room.)
     #[test]
     fn the_pistol_bolt_s_core_is_the_one_thing_brighter_than_white() {
         let emissive = |part: &[f32]| {
             part.chunks_exact(crate::draw::STRIDE)
-                .any(|s| s[8] > 1.0 || s[9] > 1.0 || s[10] > 1.0)
+                .filter(|s| s[8] > 1.0 || s[9] > 1.0 || s[10] > 1.0)
+                .count()
         };
         let mut game = room();
         game.set_autonomous(false);
         game.render();
-        assert!(!emissive(game.shapes()), "nothing glows before a shot");
+        let (under, over) = game.shapes_fog_split();
+        assert_eq!(
+            emissive(over),
+            0,
+            "nothing glows over the fog before a shot"
+        );
+        let lamps = emissive(under);
+        assert_eq!(
+            lamps,
+            game.crew_count() as usize,
+            "a comms lamp on every body"
+        );
         let kate = game.put_for_probe(1, vec2(ROOM_W * 0.35, ROOM_H * 0.5));
         let near = kate + vec2(4.0 * TILE, 0.0);
         game.set_hostiles(vec![Some((near, WeaponKind::LaserPistol.basic()))]);
@@ -12574,8 +12587,12 @@ mod tests {
         assert_eq!(game.combat.bolts[0].weapon.kind, WeaponKind::LaserPistol);
         game.render();
         let (under, over) = game.shapes_fog_split();
-        assert!(emissive(over), "the core glows");
-        assert!(!emissive(under), "and nothing under the fog does");
+        assert!(emissive(over) > 0, "the core glows");
+        assert_eq!(
+            emissive(under),
+            lamps,
+            "and nothing more under the fog does"
+        );
     }
 
     /// The fight's passing lights (feature 98), in a room a host ages:

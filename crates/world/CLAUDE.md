@@ -7302,3 +7302,16 @@ nothing. `shipdesign::research` has no keys or locks (`NodeDef::locked`,
 `KEY_CELLS`). **`SAVE_VERSION` 97, `wire::PROTOCOL` 106**; `worldgen`'s
 `REFERENCE_CHECKSUMS` re-pinned (two leans shorter, no bump) and
 `REFERENCE_CHECKSUM` moves (one `eat` fewer; already off its pin).
+
+## A defender wears the militia's kit (October 2026)
+
+`hand_the_room_the_outfits` tells the residents' room `Outfit::Defender`
+for every body `Residents::is_defender` says is one, every step — drawing
+only (`crates/game/CLAUDE.md`, "A body is cloth, lit, and the crew wear a
+lamp"). An outfit is left out of a save, so **`World::dress_the_rooms`**
+hands them over outside the step and `ship::Game::resume` calls it on
+every load, or a world read back draws its first frame in plain coveralls.
+`stand_defenders_for_probe` (**`BIMS_DEFENDERS=1`** in the app) stands the
+site's first person and its defenders in a row by crew member 0, the three
+looks in one picture. `a_site_s_defenders_wear_the_militia_s_kit_and_its_own_people_do_not`
+(`tests_defense.rs`) is the rule. No `SAVE_VERSION` or `wire::PROTOCOL`.

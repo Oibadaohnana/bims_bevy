@@ -670,6 +670,31 @@ fn a_station_defence(waves: u32, size: u32) -> (World, u32) {
     (world, id)
 }
 
+/// A site's defenders are its militia (October 2026): the world hands
+/// their room `Outfit::Defender` every step, and nobody else wears it.
+#[test]
+fn a_site_s_defenders_wear_the_militia_s_kit_and_its_own_people_do_not() {
+    use bims::character::Outfit;
+    let (mut world, _) = a_station_defence(1, 2);
+    world.step(&[]);
+    let residents = world.residents.as_ref().expect("the station's room");
+    let room = &residents.aboard.room;
+    let mut defenders = 0;
+    for who in 0..room.crew_count() as usize {
+        if residents.is_defender(who) {
+            defenders += 1;
+            assert_eq!(room.outfit(who), Outfit::Defender, "defender {who}");
+        } else {
+            assert_ne!(room.outfit(who), Outfit::Defender, "{who} is no defender");
+        }
+    }
+    assert!(defenders > 0);
+    // And none of the crew.
+    for who in 0..world.aboard.crew_count() as usize {
+        assert_ne!(world.aboard.room.outfit(who), Outfit::Defender);
+    }
+}
+
 /// **A station is defended as a town is** (task 111): the countdown is
 /// `DEFENSE_DELAY_STEPS`, the crew are stood on the station's deck the
 /// step it starts, the waves come in at the airlock farthest from the

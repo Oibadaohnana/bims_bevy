@@ -27,6 +27,13 @@ pub const KIND_TRIANGLE: f32 = 2.0;
 /// canvas drawn on the CPU draws it plain. Set by
 /// [`DrawList::textured_from`] over what a painter drew of an object.
 pub const KIND_TEXTURED: f32 = 8.0;
+/// A filled shape with **cloth** laid over it instead: a Bim's coverall,
+/// sleeves, boots and kit — soft folds and two seams down the back
+/// (`crates/app/textures/cloth.png`). Its kind plus this; the texture
+/// turns with the shape and starts at its centre, so a body keeps its
+/// folds as it walks. Set by [`DrawList::clothed_from`] /
+/// [`Brush::clothed_from`] over what `Character::draw` drew of the body.
+pub const KIND_CLOTH: f32 = 128.0;
 
 /// A `line` width of zero means fill; anything greater strokes the outline.
 const FILLED: f32 = 0.0;
@@ -140,6 +147,18 @@ impl DrawList {
         }
     }
 
+    /// Every filled plain shape pushed since `from` given the cloth
+    /// ([`KIND_CLOTH`]); a stroke or a shape already marked is left as it
+    /// is. The app leaves a translucent, glowing or tiny one plain anyway.
+    pub fn clothed_from(&mut self, from: usize) {
+        let from = from.min(self.data.len());
+        for shape in self.data[from..].chunks_exact_mut(STRIDE) {
+            if shape[0] < KIND_TEXTURED && shape[7] == 0.0 {
+                shape[0] += KIND_CLOTH;
+            }
+        }
+    }
+
     /// `center`/`size` are in world pixels; `rot` spins the shape about its
     /// own centre; `radius` rounds rectangle corners and is ignored by
     /// ellipses; `line` strokes instead of filling when non-zero.
@@ -234,6 +253,17 @@ impl Brush<'_> {
     /// Local point to world, including the frame's scale.
     pub fn to_world(&self, local: Vec2) -> Vec2 {
         self.origin + (local * self.scale).rotate(self.rot)
+    }
+
+    /// How far the list under the brush has come, for
+    /// [`Brush::clothed_from`].
+    pub fn mark(&self) -> usize {
+        self.list.len()
+    }
+
+    /// [`DrawList::clothed_from`] on the list under the brush.
+    pub fn clothed_from(&mut self, from: usize) {
+        self.list.clothed_from(from);
     }
 
     pub fn ellipse(&mut self, local: Vec2, size: Vec2, local_rot: f32, c: Color) {

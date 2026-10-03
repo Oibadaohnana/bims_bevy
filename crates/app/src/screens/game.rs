@@ -802,6 +802,10 @@ fn open(
             if crate::dev::down_resident() && !session.down_resident_for_probe() {
                 eprintln!("BIMS_DOWN_RESIDENT: nobody of the station to down");
             }
+            // A site's defenders in a row beside the player's Bim.
+            if crate::dev::stand_defenders() && !session.stand_defenders_for_probe() {
+                eprintln!("BIMS_DEFENDERS: no defenders at the site");
+            }
             // Every state a machine can be drawn in, laid out on the
             // arena's deck for one picture (feature 83). The wave the
             // probe laid out is replaced by the showcase.

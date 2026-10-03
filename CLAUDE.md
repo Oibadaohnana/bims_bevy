@@ -201,7 +201,10 @@ plus `wire` and `server` (the relay, `bims-server`).
   painter drew of the objects — `hull_tiles`, `Room::draw`, the yard,
   the deployables, the plain's wild) lays `object.png` (wear, grime) over
   a fill, `+ 64` (`KIND_FOLIAGE`, `foliage_from`) lays `foliage.png`
-  (leaves), and `+ 4` (`KIND_SWAY`) **sways in the wind**: `shapes::pack`
+  (leaves), `+ 128` (`KIND_CLOTH`, the room's `clothed_from` over a
+  body's coverall and kit) lays `cloth.png` (folds, two seams) started at
+  the shape's centre wherever it stands, so a walking body keeps its
+  folds, and `+ 4` (`KIND_SWAY`) **sways in the wind**: `shapes::pack`
   moves the shape by `shapes::sway(x, y, t)` off the window's clock
   (`surfaces::wind`), so a cached picture sways too. A fill under 5 world
   units, translucent or glowing is left plain.

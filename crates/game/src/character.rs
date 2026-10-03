@@ -358,6 +358,55 @@ const REPUBLIC_MEDIC_CROSS: Color = Color::rgb(0.86, 0.12, 0.14);
 /// the bloom lights a thin band across the eyes.
 const VISOR_GLOW: f32 = 1.45;
 
+/// The light every standing body is shaded by (October 2026): from the
+/// north-west of the screen, the side the deck's textures and the trees'
+/// shadows are lit from. A body is its cloth a shade darker all round,
+/// the lit part over that nudged towards the light and a soft sheen on
+/// top, so it reads as round and not as a disc on the deck.
+const LIGHT: Vec2 = vec2(-0.6, -0.8);
+/// How dark the cloth is on the side away from the light.
+const IN_SHADE: f32 = 0.72;
+/// The sheen on the lit side of a torso, a sleeve or a helmet.
+const SHEEN: Color = Color::rgba(1.0, 1.0, 1.0, 0.13);
+const GLOSS: Color = Color::rgba(1.0, 1.0, 1.0, 0.32);
+/// The crew's own mark (October 2026), worn by every body in the ship's
+/// coverall and by nobody else: reflective piping down both flanks and
+/// a comms pack between the shoulder blades with a strip of light on it,
+/// breathing slowly, cyan past white so the bloom takes it a little. What
+/// tells a crewmate from a town's defender across a fight before the
+/// colours do.
+const CREW_PIPING: Color = Color::rgba(0.82, 0.95, 1.0, 0.70);
+const CREW_PACK: Color = Color::rgb(0.17, 0.20, 0.25);
+const CREW_LIGHT: Color = Color::rgb(0.35, 0.85, 1.0);
+const CREW_GLOW: f32 = 1.45;
+/// Each class's lamp (October 2026), small and only a little past white:
+/// the engineer's headlamp, the soldier's radio, the medic's vitals strip,
+/// the tank's visor slit and the commander's pips — each in its class's
+/// family of colours (`ability_icons.rs`), so the bloom says the class
+/// from further off than the kit does.
+const ENGINEER_LAMP: Color = Color::rgb(1.0, 0.86, 0.55);
+const SOLDIER_LED: Color = Color::rgb(0.45, 0.75, 1.0);
+const MEDIC_VITALS: Color = Color::rgb(0.45, 1.0, 0.62);
+const TANK_VISOR: Color = Color::rgb(1.0, 0.30, 0.16);
+const COMMANDER_PIP: Color = Color::rgb(0.74, 0.52, 1.0);
+const CLASS_GLOW: f32 = 1.5;
+/// A town's defender (October 2026, [`Outfit::Defender`]): the station's
+/// coverall dyed drab, a steel pot helmet, a leather bandolier with brass
+/// in it and the town's orange on one shoulder — a militia, armed and
+/// plainly not the crew, with nothing on it that glows.
+const KIT_DEFENDER: Color = Color::rgb(0.38, 0.40, 0.26);
+const HELMET_DEFENDER: Color = Color::rgb(0.31, 0.34, 0.24);
+const LEATHER: Color = Color::rgb(0.36, 0.24, 0.13);
+const TOWN_ORANGE: Color = Color::rgb(0.93, 0.52, 0.16);
+/// How far a defender's coverall is dyed to the drab: most of the way, so
+/// the station's orange is left in it as a warmth and not a colour.
+const DEFENDER_DYE: f32 = 0.75;
+
+/// A colour on the side of a body away from the light.
+fn in_shade(c: Color) -> Color {
+    Color::rgba(c.r * IN_SHADE, c.g * IN_SHADE, c.b * IN_SHADE, c.a)
+}
+
 /// Whose coverall a Bim is wearing: the ship's or the station's.
 ///
 /// The crew wear one and the people living on a station wear the other, so
@@ -457,6 +506,13 @@ pub enum Outfit {
     /// chest and on each pauldron. Said by the world alone, like
     /// [`Outfit::Republic`].
     RepublicMedic(Tint),
+    /// A town's defender (task 111's armed townsfolk; the look October
+    /// 2026): the station's coverall dyed drab, a steel pot helmet, a
+    /// bandolier and the town's orange on the shoulder — a militia beside
+    /// the crew, never mistaken for it. Not a class and not in
+    /// [`Outfit::ALL`]; the world says it of a site's defenders
+    /// (`World::hand_the_room_the_outfits`) and nothing else does.
+    Defender,
 }
 
 impl Outfit {
@@ -481,6 +537,7 @@ impl Outfit {
             Outfit::Tank => Some(KIT_TANK),
             Outfit::Commander => Some(KIT_COMMANDER),
             Outfit::Republic(_) | Outfit::RepublicMedic(_) => Some(KIT_REPUBLIC),
+            Outfit::Defender => Some(KIT_DEFENDER),
         }
     }
 
@@ -490,6 +547,7 @@ impl Outfit {
     fn dye(self, cloth: Color, uniform: Uniform) -> Color {
         let by = match self {
             Outfit::Republic(_) | Outfit::RepublicMedic(_) => REPUBLIC_DYE,
+            Outfit::Defender => DEFENDER_DYE,
             _ => DYE,
         };
         match self.colour() {
@@ -2332,6 +2390,12 @@ impl Character {
         );
 
         let mut b = list.brush(pos, self.heading, scale);
+        // Everything from the boots to the kit is cloth (October 2026),
+        // marked before the head goes on; and it is lit from the
+        // north-west of the screen, which in the body's own frame turns
+        // as the body does.
+        let cloth = b.mark();
+        let light = LIGHT.rotate(-self.heading);
 
         // Sprinting (task 150): streaks of speed off the shoulders and the
         // middle, behind the body, flickering with the stride.
@@ -2401,13 +2465,13 @@ impl Character {
 
         // Torso: broad across the shoulders, shallow front to back, with a dark
         // rim behind it so the silhouette holds up against any floor colour.
+        // Shaded (October 2026): the cloth in shade all round, the lit
+        // part of it moved towards the light and a sheen over that.
+        let shirt = self.outfit.dye(self.uniform.shirt(), self.uniform);
         b.ellipse(Vec2::ZERO, vec2(25.0, 33.0), 0.0, OUTLINE);
-        b.ellipse(
-            Vec2::ZERO,
-            vec2(22.0, 30.0),
-            0.0,
-            self.outfit.dye(self.uniform.shirt(), self.uniform),
-        );
+        b.ellipse(Vec2::ZERO, vec2(22.0, 30.0), 0.0, in_shade(shirt));
+        b.ellipse(light * 1.2, vec2(19.5, 27.0), 0.0, shirt);
+        b.ellipse(light * 4.5, vec2(9.0, 13.0), 0.0, SHEEN);
         // The yoke across the shoulders, in the wearer's own colour — the
         // coverall is the ship's or the station's and says nothing about
         // who is in it.
@@ -2417,10 +2481,25 @@ impl Character {
             0.0,
             self.uniform.yoke(self.look.trim()),
         );
+        // The crew's piping down both flanks (October 2026).
+        if self.uniform == Uniform::Crew {
+            for side in [-1.0f32, 1.0] {
+                b.rect(
+                    vec2(1.0, 10.2 * side),
+                    vec2(12.0, 1.1),
+                    0.0,
+                    0.5,
+                    CREW_PIPING,
+                );
+            }
+        }
         // The armour's plate: dark over the torso, set forward so the yoke
         // still shows at the collar behind it, strapped on at the sides.
         if let Some(vest) = self.armour {
             b.ellipse(vec2(3.0, 0.0), vec2(16.0, 24.0), 0.0, KEVLAR);
+            // A ridge down the plate and the light on its near side.
+            b.rect(vec2(3.0, 0.0), vec2(13.0, 1.4), 0.0, 0.6, KEVLAR_STRAP);
+            b.ellipse(vec2(3.0, 0.0) + light * 3.0, vec2(7.0, 11.0), 0.0, SHEEN);
             for side in [-1.0f32, 1.0] {
                 b.rect(
                     vec2(-3.0, 8.5 * side),
@@ -2454,6 +2533,7 @@ impl Character {
                     0.0,
                     self.outfit.dye(self.uniform.sleeve(), self.uniform),
                 );
+                b.ellipse(at + light * 1.3, vec2(4.0, 4.0), 0.0, SHEEN);
                 // And a Manufacturer's gold cuff.
                 if self.uniform == Uniform::Manufacturer {
                     b.ellipse(at, vec2(SLEEVE_WIDE * 0.5, SLEEVE_WIDE * 0.5), 0.0, GOLD);
@@ -2467,6 +2547,24 @@ impl Character {
         if self.uniform != Uniform::Suit {
             draw_class_rig(&mut b, self.outfit);
         }
+        // The crew's comms pack between the shoulder blades, its strip of
+        // light breathing (October 2026) — a Republic soldier has its own
+        // power pack there.
+        if self.uniform == Uniform::Crew
+            && !matches!(self.outfit, Outfit::Republic(_) | Outfit::RepublicMedic(_))
+        {
+            let breath = CREW_GLOW + 0.2 * (self.idle * 1.7).sin();
+            b.rect(vec2(-11.0, 0.0), vec2(7.0, 13.5), 0.0, 2.4, OUTLINE);
+            b.rect(vec2(-11.0, 0.0), vec2(5.5, 12.0), 0.0, 2.0, CREW_PACK);
+            b.rect(
+                vec2(-12.2, 0.0),
+                vec2(1.5, 8.0),
+                0.0,
+                0.7,
+                CREW_LIGHT.glowing(breath),
+            );
+        }
+        b.clothed_from(cloth);
 
         // Head assembly, pivoting about the neck. Seen from above it is mostly
         // hair, with the face and nose showing at the leading edge.
@@ -2486,7 +2584,7 @@ impl Character {
         // What the class wears on its head, over the hair and behind the
         // face — the nose goes on after, so it still shows under a peak.
         if self.uniform != Uniform::Suit {
-            draw_class_head(&mut b, self.outfit, &at, look);
+            draw_class_head(&mut b, self.outfit, &at, look, light);
         }
         b.ellipse(at(vec2(5.6, 0.0)), vec2(4.0, 3.2), look, NOSE);
         // The soldier's sunglasses, over the eyes: the one
@@ -2804,6 +2902,7 @@ impl Character {
             SHADOW,
         );
         let mut b = list.brush(pos, self.heading, scale);
+        let cloth = b.mark();
 
         // The boots, toes turned out: nobody is holding them straight.
         for side in [-1.0f32, 1.0] {
@@ -2849,6 +2948,7 @@ impl Character {
         if self.bleeding {
             b.ellipse(vec2(1.0, 0.0), vec2(11.0, 9.0), 0.3, BLOOD);
         }
+        b.clothed_from(cloth);
 
         // The head, dropped forward onto the right shoulder and lying on
         // its cheek: the hair over the crown, the face turned aside.
@@ -3286,7 +3386,17 @@ pub fn portrait(look: Look, outfit: Outfit, heading: f32, list: &mut DrawList) {
 /// one of them sits back off the face, so the nose drawn after still
 /// shows under the peak. The soldier's sunglasses are not here: they go
 /// on over everything, so `draw` puts them on last.
-fn draw_class_head(b: &mut Brush, outfit: Outfit, at: &impl Fn(Vec2) -> Vec2, turn: f32) {
+fn draw_class_head(
+    b: &mut Brush,
+    outfit: Outfit,
+    at: &impl Fn(Vec2) -> Vec2,
+    turn: f32,
+    light: Vec2,
+) {
+    // The gloss on a hard shell, towards the light (October 2026).
+    let gloss = |b: &mut Brush, size: Vec2| {
+        b.ellipse(at(vec2(-1.0, 0.0) + light * 3.2), size, turn, GLOSS);
+    };
     match outfit {
         Outfit::Plain | Outfit::Soldier => {}
         // A hard hat: a rimmed ochre shell with a ridge down the middle
@@ -3312,11 +3422,26 @@ fn draw_class_head(b: &mut Brush, outfit: Outfit, at: &impl Fn(Vec2) -> Vec2, tu
                 turn,
                 KIT_ENGINEER.mix(KIT_DARK, 0.15),
             );
+            gloss(b, vec2(4.5, 5.5));
+            // The headlamp on the peak, lit.
+            b.rect(at(vec2(3.6, 0.0)), vec2(3.4, 5.2), turn, 1.2, KIT_DARK);
+            b.ellipse(
+                at(vec2(4.2, 0.0)),
+                vec2(2.0, 3.6),
+                turn,
+                ENGINEER_LAMP.glowing(CLASS_GLOW),
+            );
         }
         // A white cap with the cross on the crown, where it is seen from
         // furthest off.
         Outfit::Medic => {
             b.ellipse(at(vec2(-1.5, 0.0)), vec2(12.5, 13.5), turn, KIT_MEDIC);
+            b.ellipse(
+                at(vec2(-1.5, 0.0) - light * 2.0),
+                vec2(9.0, 10.0),
+                turn,
+                in_shade(KIT_MEDIC).alpha(0.35),
+            );
             b.rect(at(vec2(-1.5, 0.0)), vec2(2.6, 8.0), turn, 0.6, MEDKIT_CROSS);
             b.rect(at(vec2(-1.5, 0.0)), vec2(8.0, 2.6), turn, 0.6, MEDKIT_CROSS);
         }
@@ -3334,6 +3459,16 @@ fn draw_class_head(b: &mut Brush, outfit: Outfit, at: &impl Fn(Vec2) -> Vec2, tu
                     KIT_TANK.mix(KIT_DARK, 0.45),
                 );
             }
+            gloss(b, vec2(4.0, 5.0));
+            // The visor slit across the eyes, lit red between the guards.
+            b.rect(at(vec2(3.4, 0.0)), vec2(2.6, 10.5), turn, 1.0, KIT_DARK);
+            b.rect(
+                at(vec2(3.5, 0.0)),
+                vec2(1.3, 8.5),
+                turn,
+                0.6,
+                TANK_VISOR.glowing(CLASS_GLOW),
+            );
         }
         // An officer's cap: navy, banded in gold, with a peak.
         Outfit::Commander => {
@@ -3345,6 +3480,7 @@ fn draw_class_head(b: &mut Brush, outfit: Outfit, at: &impl Fn(Vec2) -> Vec2, tu
                 turn,
                 KIT_COMMANDER.mix(KIT_DARK, 0.40),
             );
+            gloss(b, vec2(3.0, 3.6));
         }
         // A power-armour helm with the face open: a rimmed gunmetal shell
         // over the crown, a crest down the middle in the player's colour
@@ -3382,6 +3518,32 @@ fn draw_class_head(b: &mut Brush, outfit: Outfit, at: &impl Fn(Vec2) -> Vec2, tu
                     tint.colour(),
                 );
             }
+            gloss(b, vec2(4.0, 4.6));
+        }
+        // A defender's steel pot: a broad rimmed dome in drab, a band of
+        // cloth round it and the gloss of steel — nothing lit.
+        Outfit::Defender => {
+            b.ellipse(at(vec2(-1.0, 0.0)), vec2(16.5, 17.5), turn, KIT_DARK);
+            b.ellipse(
+                at(vec2(-1.0, 0.0)),
+                vec2(15.0, 16.0),
+                turn,
+                in_shade(HELMET_DEFENDER),
+            );
+            b.ellipse(
+                at(vec2(-1.0, 0.0) + light * 0.8),
+                vec2(12.5, 13.5),
+                turn,
+                HELMET_DEFENDER,
+            );
+            b.rect(
+                at(vec2(-1.0, 0.0)),
+                vec2(2.4, 14.0),
+                turn,
+                1.0,
+                HELMET_DEFENDER.mix(KIT_DARK, 0.35),
+            );
+            gloss(b, vec2(4.0, 4.8));
         }
     }
 }
@@ -3423,6 +3585,14 @@ fn draw_class_rig(b: &mut Brush, outfit: Outfit) {
                 );
             }
             b.rect(vec2(-7.0, 0.0), vec2(3.4, 21.0), 0.0, 1.0, KIT_DARK);
+            // The radio on the left strap, its tally lit.
+            b.rect(vec2(-3.0, -9.5), vec2(4.6, 3.8), 0.0, 1.0, KIT_DARK);
+            b.ellipse(
+                vec2(-3.0, -9.5),
+                vec2(1.8, 1.8),
+                0.0,
+                SOLDIER_LED.glowing(CLASS_GLOW),
+            );
         }
         // The cross on the chest, and the bag on the hip it is carried in.
         Outfit::Medic => {
@@ -3436,6 +3606,15 @@ fn draw_class_rig(b: &mut Brush, outfit: Outfit) {
             );
             b.rect(vec2(-5.0, 10.0), vec2(4.4, 1.6), 0.0, 0.4, MEDKIT_CROSS);
             b.rect(vec2(-5.0, 10.0), vec2(1.6, 4.4), 0.0, 0.4, MEDKIT_CROSS);
+            // The vitals strip on the left shoulder, lit green.
+            b.rect(vec2(-1.0, -11.0), vec2(6.0, 2.6), 0.0, 1.0, KIT_DARK);
+            b.rect(
+                vec2(-1.0, -11.0),
+                vec2(4.4, 1.2),
+                0.0,
+                0.5,
+                MEDIC_VITALS.glowing(CLASS_GLOW),
+            );
         }
         // A pauldron capping each shoulder and a gorget across the chest:
         // the broadest silhouette of the six, before the body under it is
@@ -3451,6 +3630,28 @@ fn draw_class_rig(b: &mut Brush, outfit: Outfit) {
                 0.0,
                 KIT_TANK.mix(KIT_DARK, 0.35),
             );
+            // A rivet on each pauldron, catching the light.
+            for side in [-1.0f32, 1.0] {
+                b.ellipse(vec2(-3.0, 12.0 * side), vec2(2.0, 2.0), 0.0, GLOSS);
+            }
+        }
+        // A defender's bandolier, left shoulder to right hip, brass in its
+        // loops, and the town's orange on the left shoulder.
+        Outfit::Defender => {
+            let turn = 0.55f32;
+            b.rect(vec2(0.5, 0.0), vec2(3.8, 28.0), turn, 1.2, LEATHER);
+            let along = vec2(-turn.sin(), turn.cos());
+            for step in [-1.5f32, -0.5, 0.5, 1.5] {
+                b.rect(
+                    vec2(0.5, 0.0) + along * (5.5 * step),
+                    vec2(2.0, 3.0),
+                    turn,
+                    0.5,
+                    KIT_GOLD.mix(KIT_DARK, 0.2),
+                );
+            }
+            b.ellipse(vec2(-1.0, -12.0), vec2(7.5, 6.5), 0.0, KIT_DARK);
+            b.ellipse(vec2(-1.0, -12.0), vec2(6.0, 5.0), 0.0, TOWN_ORANGE);
         }
         // Gold boards on both shoulders and a sash across the chest.
         Outfit::Commander => {
@@ -3464,6 +3665,13 @@ fn draw_class_rig(b: &mut Brush, outfit: Outfit) {
                     0.0,
                     0.6,
                     KIT_COMMANDER,
+                );
+                // A pip on each board, lit violet.
+                b.ellipse(
+                    vec2(1.5, 11.5 * side),
+                    vec2(2.0, 2.0),
+                    0.0,
+                    COMMANDER_PIP.glowing(CLASS_GLOW),
                 );
             }
         }

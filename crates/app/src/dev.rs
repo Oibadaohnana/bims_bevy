@@ -105,6 +105,14 @@ pub fn down_resident() -> bool {
     std::env::var("BIMS_DOWN_RESIDENT").as_deref() == Ok("1")
 }
 
+/// `BIMS_DEFENDERS=1` stands the site alongside's first person and every
+/// one of its defenders in a row two tiles south of the player's own Bim
+/// — `test_planet` or `simulation` — so the militia's look is seen beside
+/// a townsperson's and the crew's without walking the town for them.
+pub fn stand_defenders() -> bool {
+    std::env::var("BIMS_DEFENDERS").as_deref() == Ok("1")
+}
+
 /// `BIMS_GRAVES=n` opens the simulation with `n` of the station
 /// alongside dead where they stand and its room built again over the
 /// bodies (feature 85) — how the dead lying on a station's deck are

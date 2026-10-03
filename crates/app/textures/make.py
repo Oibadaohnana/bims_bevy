@@ -788,6 +788,42 @@ def object_wear():
     finish("object", rgb, (0.5, 0.5, 0.5))
 
 
+def cloth():
+    """What a Bim's coverall and kit are made of (`cloth.png`, laid over the
+    body's fills, `KIND_CLOTH`): soft folds lit from the north-west, a
+    stitched seam down the middle and one across, a twill too fine to see
+    up close but there in the shading, and faded wear on the high spots.
+    Grey — the colour is the painter's. A tile to a repeat, so a torso
+    shows about half of it."""
+    rng = np.random.default_rng(151)
+    ys, xs = np.mgrid[0:N, 0:N].astype(np.float64)
+    # Folds: long soft ridges, mostly one way, a few the other, lit.
+    folds = spectral(rng, 4.0, lo=2, hi=9, aniso=(1.0, 0.5))
+    folds += 0.6 * spectral(rng, 4.0, lo=2, hi=8, aniso=(0.5, 1.0))
+    v = 0.6 + 0.4 * lit(folds * 7.0, 1.0)
+    v *= 1.0 - 0.12 * smooth((-folds - 0.3) / 1.4)
+    # The twill: diagonal ribs, eight texels apart.
+    v *= 1.0 + 0.05 * np.sin((xs + ys) * (2.0 * np.pi / 8.0))
+    v *= 1.0 + 0.03 * np.sin((xs - ys) * (2.0 * np.pi / 24.0))
+    # Wear: paler where the folds stand up, in blotches.
+    wear = smooth((spectral(rng, 2.4, lo=3, hi=50) + folds * 0.5 - 0.6) / 1.2)
+    v *= 1.0 + 0.10 * wear
+    # The seams: a sunk line with stitches outside it, running along x
+    # (a body's forward) an eighth of the picture either side of its
+    # corner — the shape's centre is the corner, so on a torso they are
+    # the two seams down the back, six world units off the middle.
+    seam = np.zeros((N, N))
+    for at, out in ((N * 0.115, 1.0), (N * 0.885, -1.0)):
+        d = ys - at
+        seam = np.maximum(seam, np.exp(-((d / 5.0) ** 2)))
+        stitch = (np.mod(xs, 28.0) < 14.0) * np.exp(-(((d * out - 14.0) / 3.0) ** 2))
+        v *= 1.0 + 0.12 * stitch
+    v *= 1.0 - 0.28 * seam
+    v *= 1.0 + 0.03 * rng.normal(0, 1, (N, N))
+    rgb = v[..., None] * colour((1.0, 1.0, 1.0))
+    finish("cloth", rgb, (0.33, 0.58, 0.85))
+
+
 def foliage():
     """Leaves from above, for a tree's crown, a bush and a potted plant
     (`foliage.png`, laid over the crown's ellipses): thousands of leaves
@@ -864,6 +900,7 @@ MAKERS = {
     "ice": ice,
     "object": object_wear,
     "foliage": foliage,
+    "cloth": cloth,
 }
 
 if __name__ == "__main__":

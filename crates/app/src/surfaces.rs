@@ -42,7 +42,7 @@ struct Def {
 const TILE: f32 = 52.0;
 
 /// Every surface, in `ship::draw::Surface`'s order.
-const SURFACES: [Def; 15] = [
+const SURFACES: [Def; 16] = [
     // Deck: a steel plate a tile, sixteen to a repeat.
     Def {
         png: include_bytes!("../textures/deck.png"),
@@ -124,6 +124,12 @@ const SURFACES: [Def; 15] = [
         repeat: 2.0 * TILE,
         world: false,
     },
+    // Cloth, laid over a Bim's coverall and kit: folds, two seams.
+    Def {
+        png: include_bytes!("../textures/cloth.png"),
+        repeat: TILE,
+        world: false,
+    },
 ];
 
 /// The layer of the objects' texture, laid over a fill marked
@@ -131,6 +137,8 @@ const SURFACES: [Def; 15] = [
 pub const OBJECT: u32 = 13;
 /// The layer of the foliage, laid over a fill marked `KIND_FOLIAGE`.
 pub const FOLIAGE: u32 = 14;
+/// The layer of the cloth, laid over a body's fill marked `KIND_CLOTH`.
+pub const CLOTH: u32 = 15;
 
 /// The wind's clock, for the crowns that sway (`shapes::sway`): the
 /// window's seconds, put where every pack of the frame reads it.

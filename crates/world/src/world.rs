@@ -5166,6 +5166,50 @@ impl World {
         true
     }
 
+    /// The site alongside's first person and every one of its defenders
+    /// stood in a row two tiles south of crew member 0, a tile and a half
+    /// apart: the militia's look beside a townsperson's and the crew's in
+    /// one picture. `false`, and nothing moved, with no room joined or no
+    /// defender in it. For `BIMS_DEFENDERS` in the app.
+    pub fn stand_defenders_for_probe(&mut self) -> bool {
+        for step in 0..10 {
+            if step >= 2
+                && self
+                    .residents
+                    .as_ref()
+                    .is_some_and(|r| r.aboard.room.crew_count() > 0)
+            {
+                break;
+            }
+            self.step(&[]);
+        }
+        let tile = shipdesign::TILE as f32;
+        let from = self.aboard.room.bim_pos(0) + bims::math::vec2(-tile, 2.0 * tile);
+        let Some(residents) = self.residents.as_ref() else {
+            return false;
+        };
+        let bims = residents.aboard.room.crew_count() as usize;
+        let mut who: Vec<usize> = (0..bims).filter(|&i| residents.is_defender(i)).collect();
+        if who.is_empty() {
+            return false;
+        }
+        who.insert(0, 0);
+        let mut spots = Vec::new();
+        for n in 0..who.len() {
+            let p = from + bims::math::vec2(1.5 * tile * n as f32, 0.0);
+            match self.aboard.to_station(dvec2(p.x as f64, p.y as f64)) {
+                Some(station) => spots.push(station),
+                None => return false,
+            }
+        }
+        let residents = self.residents.as_mut().expect("asked above");
+        for (i, station) in who.into_iter().zip(spots) {
+            let there = residents.aboard.to_room(station);
+            residents.aboard.room.put_for_probe(i, there);
+        }
+        true
+    }
+
     /// `n` of the station alongside dead where they stand, and its room
     /// built again over them (feature 85): what a fight the crew walked
     /// away from leaves behind, without the fight. The bodies are the
@@ -8062,6 +8106,14 @@ impl World {
         self.hand_the_room_the_sentries();
     }
 
+    /// What everybody wears, to the rooms, outside the step: a save leaves
+    /// the outfits out (`Character::outfit` is `serde(skip)`), and a world
+    /// read back draws a frame before it steps — a town's defenders in
+    /// plain coveralls for it, until this was called on a load.
+    pub fn dress_the_rooms(&mut self) {
+        self.hand_the_room_the_outfits();
+    }
+
     /// What each crew member's class wears (feature 81), to the room.
     /// Drawing only: a class is a player slot's, so the crew past the
     /// players — a hire, a mercenary — are in nothing, and a station's
@@ -8083,6 +8135,18 @@ impl World {
             self.aboard
                 .room
                 .set_republic(r.who as usize, r.by as usize, r.medic);
+        }
+        // A site's defenders are its militia (October 2026), in their own
+        // room: drab, a steel pot and a bandolier, never the crew's look.
+        if let Some(residents) = &mut self.residents {
+            for who in 0..residents.defender.len() {
+                if residents.is_defender(who) {
+                    residents
+                        .aboard
+                        .room
+                        .set_outfit(who, bims::character::Outfit::Defender);
+                }
+            }
         }
     }
 

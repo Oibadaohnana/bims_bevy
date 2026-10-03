@@ -1090,6 +1090,14 @@ impl Session {
             .is_some_and(|g| g.world.down_resident_for_probe())
     }
 
+    /// The site alongside's first person and its defenders stood in a row
+    /// by crew member 0 — see `World::stand_defenders_for_probe`.
+    pub fn stand_defenders_for_probe(&mut self) -> bool {
+        self.game
+            .as_mut()
+            .is_some_and(|g| g.world.stand_defenders_for_probe())
+    }
+
     /// `n` of the station alongside dead where they stand, the room
     /// built again over the bodies — see `World::lay_graves_for_probe`.
     pub fn lay_graves_for_probe(&mut self, n: u32) -> bool {

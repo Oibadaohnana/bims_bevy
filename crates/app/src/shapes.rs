@@ -663,8 +663,9 @@ pub fn pack(shapes: &[f32], view: View, clip: Rect, pixels_per_point: f32, out: 
 /// What a shape's kind says beyond its shape: a surface
 /// ([`KIND_SURFACE`], [`surface_record`]), or a plain rect, ellipse or
 /// triangle with a texture laid over its fill — the objects' (`+ 8`,
-/// `draw::KIND_TEXTURED`) or the foliage's (`+ 64`, `draw::KIND_FOLIAGE`)
-/// — and whether it **sways** in the wind (`+ 4`, `draw::KIND_SWAY`).
+/// `draw::KIND_TEXTURED`), the foliage's (`+ 64`, `draw::KIND_FOLIAGE`)
+/// or a body's cloth (`+ 128`, `bims::draw::KIND_CLOTH`) — and whether
+/// it **sways** in the wind (`+ 4`, `draw::KIND_SWAY`).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Flags {
     /// The plain shape: [`KIND_ELLIPSE`], [`KIND_TRIANGLE`] or a rect.
@@ -675,6 +676,9 @@ pub struct Flags {
     pub sway: bool,
 }
 
+/// A shape's kind plus this has the cloth laid over its fill: a body's
+/// coverall and kit (`bims::draw::KIND_CLOTH`).
+pub const KIND_CLOTH: f32 = 128.0;
 /// A shape's kind plus this has the foliage laid over its fill.
 pub const KIND_FOLIAGE: f32 = 64.0;
 /// Plus this, the objects' texture.
@@ -686,7 +690,10 @@ impl Flags {
     pub fn of(kind: f32) -> Flags {
         let mut k = kind;
         let mut overlay = None;
-        if k >= KIND_FOLIAGE {
+        if k >= KIND_CLOTH {
+            k -= KIND_CLOTH;
+            overlay = Some(crate::surfaces::CLOTH);
+        } else if k >= KIND_FOLIAGE {
             k -= KIND_FOLIAGE;
             overlay = Some(crate::surfaces::FOLIAGE);
         } else if k >= KIND_SURFACE {
@@ -733,13 +740,20 @@ fn overlay(record: &mut Record, s: &[f32; STRIDE], layer: u32, scale: f32) {
         return;
     }
     // Where it is to the tile: steady while a door slides along its
-    // track, another place for the next fitting along.
-    let cell = ((s[1] / 52.0).floor() as i32, (s[2] / 52.0).floor() as i32);
-    let mut h =
-        (cell.0 as u32).wrapping_mul(0x9E37_79B1) ^ (cell.1 as u32).wrapping_mul(0x85EB_CA77);
-    h ^= (s[3].to_bits() ^ s[4].to_bits().rotate_left(13)).wrapping_mul(0xC2B2_AE3D);
-    h ^= h >> 15;
-    let offset = (h % 997) as f32 / 997.0;
+    // track, another place for the next fitting along. Not the cloth: a
+    // body walks from tile to tile, and its coverall must not change
+    // pattern on the way — every one starts the picture at its centre,
+    // where the seams are laid either side of.
+    let offset = if layer == crate::surfaces::CLOTH {
+        0.0
+    } else {
+        let cell = ((s[1] / 52.0).floor() as i32, (s[2] / 52.0).floor() as i32);
+        let mut h =
+            (cell.0 as u32).wrapping_mul(0x9E37_79B1) ^ (cell.1 as u32).wrapping_mul(0x85EB_CA77);
+        h ^= (s[3].to_bits() ^ s[4].to_bits().rotate_left(13)).wrapping_mul(0xC2B2_AE3D);
+        h ^= h >> 15;
+        (h % 997) as f32 / 997.0
+    };
     record[0] = rec;
     record[9] = scale * crate::surfaces::repeat(layer);
     record[11] = layer as f32 + offset * 0.999;

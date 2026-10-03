@@ -265,6 +265,9 @@ impl Game {
         // — wants it worked out again before anything asks which stars
         // the machines have.
         world.settle_crisis();
+        // And what everybody wears, which a save leaves out: the first
+        // frame is drawn before the first step hands it over.
+        world.dress_the_rooms();
         let mut game = Game {
             world,
             mode: ViewMode::Ship,
