@@ -8285,6 +8285,11 @@ impl Game {
         }
     }
 
+    /// The way body `who` faces, radians, nought east; nought for nobody.
+    pub fn heading_of(&self, who: usize) -> f32 {
+        self.bims.get(who).map_or(0.0, |b| b.character.heading)
+    }
+
     /// The way a body's Riot Shield faces: the way the body does.
     fn plate_facing(&self, who: usize) -> Vec2 {
         self.bims
@@ -8860,6 +8865,16 @@ impl Game {
     pub fn set_shot_charge(&mut self, who: usize, share: f32) {
         if let Some(b) = self.bims.get_mut(who) {
             b.character.set_shot_charge(share);
+        }
+    }
+
+    /// Where `who`'s Stun Shot charging goes, room units, or `None` with
+    /// none: the body faces it at once while it charges, wherever its
+    /// feet go (October 2026, the player's word). The world says it every
+    /// step.
+    pub fn set_shot_at(&mut self, who: usize, at: Option<Vec2>) {
+        if let Some(b) = self.bims.get_mut(who) {
+            b.character.set_shot_at(at);
         }
     }
 

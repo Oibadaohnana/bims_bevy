@@ -177,7 +177,9 @@ use serde::{Deserialize, Serialize};
 /// 124: a trader every five hops — more systems are made traders where the
 /// roll left a gap (`trader::cover`, `data::TRADER_EVERY_HOPS`): both ends
 /// must agree which sites are traders.
-pub const PROTOCOL: u32 = 124;
+/// 125: a soldier charging a Stun Shot faces where it goes, whatever the
+/// pointer says (`Character::shot_at`): both ends must turn him alike.
+pub const PROTOCOL: u32 = 125;
 
 /// Where the relay lives. `BIMS_SERVER` in the environment overrides it
 /// — `ws://127.0.0.1:8792` for one on the same machine.

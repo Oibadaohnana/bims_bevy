@@ -2354,7 +2354,8 @@ pointer; letting go (or a left click) charges the shot at that spot.
 He charges it for two seconds,
 holding his fire — the rifle up and glowing at the muzzle, a ring
 closing on him, the burst's ring kept on the spot — and **walks wherever
-he likes while it charges** (keys, an order, a roll). Then it fires at
+he likes while it charges** (keys, an order, a roll), **facing the spot**
+whatever the pointer says. Then it fires at
 the spot from where he then stands: a fast slug that **bursts on the
 first enemy in its way**, else where it lands, **never past his weapon's
 reach** and stopped short of the first

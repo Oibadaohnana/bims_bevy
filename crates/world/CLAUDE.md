@@ -7146,6 +7146,14 @@ The room's rule is `crates/game/CLAUDE.md` ("The dark"); the world's part:
   (`screens/game.rs`'s `Throw::StunShot`): `E` held draws the reach and
   the ring, let go (or a left click) sends `Command::StunShot` at the
   tile under the pointer.
+- **He faces the spot while it charges** (the player's word, after):
+  `settle_stun_shots` says the room the tile's middle every charging
+  step (`Game::set_shot_at` → `Character::shot_at`, `serde(skip)`, None
+  when it fires or is called off), and `Character::update` turns the
+  body to it at once before the steer's aim or a turn towards the walk,
+  the feet going the keys' or the route's way (stepping backwards when
+  they part). `tests_soldier::a_soldier_faces_where_his_stun_shot_goes_while_it_charges`;
+  `wire::PROTOCOL` 125.
 - **`wire::PROTOCOL` 123.**
   `tests_soldier::a_stun_shot_bursts_on_the_first_enemy_in_its_way` is
   the rule.

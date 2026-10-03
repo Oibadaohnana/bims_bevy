@@ -1107,6 +1107,12 @@ pub struct Character {
     /// it every step.
     #[cfg_attr(feature = "serde", serde(skip))]
     shot_charge: f32,
+    /// Where a Stun Shot charging goes (October 2026, the player's word:
+    /// he keeps facing it): the body faces it at once whatever the
+    /// pointer or its walk says, its feet going their own way. The world
+    /// says it every step, as the glow.
+    #[cfg_attr(feature = "serde", serde(skip))]
+    shot_at: Option<Vec2>,
     /// Stunned by a Stun Shot (October 2026): the stun's pale blue
     /// flickering over the body. Drawing only; `Game::tick_combat` sets
     /// it off the Bim's own timer.
@@ -1208,6 +1214,7 @@ impl Character {
             hostile: false,
             braced: false,
             shot_charge: 0.0,
+            shot_at: None,
             stunned: false,
             surging: false,
             cloaked: false,
@@ -1689,6 +1696,11 @@ impl Character {
     pub fn set_shot_charge(&mut self, share: f32) {
         self.shot_charge = share.clamp(0.0, 1.0);
     }
+    /// Where a Stun Shot charging goes, room units, or `None`: faced at
+    /// once while it charges (October 2026).
+    pub fn set_shot_at(&mut self, at: Option<Vec2>) {
+        self.shot_at = at;
+    }
     /// Stunned or not (October 2026): the flicker. Drawing only.
     pub fn set_stunned(&mut self, stunned: bool) {
         self.stunned = stunned;
@@ -1986,7 +1998,16 @@ impl Character {
         // are bound whichever way it faces (task 144). Sprinting it turns
         // to the way it runs instead, quickly, and back to the pointer
         // at once when the sprint ends (task 150).
-        if sprinting {
+        // A Stun Shot charging faces where it goes, at once, before all
+        // of that (October 2026, the player's word).
+        let shot_face = self
+            .shot_at
+            .map(|at| at - self.pos)
+            .filter(|d| d.len() > 1.0)
+            .map(|d| d.angle());
+        if let Some(face) = shot_face {
+            self.heading = face;
+        } else if sprinting {
             self.heading = angle_lerp(self.heading, goal, approach(SPRINT_TURN, dt));
         } else if let Some(s) = steer {
             self.heading = wrap_angle(s.aim);
@@ -2010,6 +2031,8 @@ impl Character {
 
         let along = Vec2::from_angle(if backing.is_some() || steer.is_some() {
             self.intent
+        } else if shot_face.is_some() {
+            goal
         } else {
             self.heading
         });
@@ -2022,7 +2045,8 @@ impl Character {
         // And a steered body walking away from where it faces steps
         // backwards the same way.
         let backwards = backing.is_some()
-            || (steer.is_some() && along.dot(Vec2::from_angle(self.heading)) < 0.0);
+            || ((steer.is_some() || shot_face.is_some())
+                && along.dot(Vec2::from_angle(self.heading)) < 0.0);
         self.stride = (self.stride + if backwards { -paces } else { paces }) % TAU;
         self.run_clocks(dt);
     }

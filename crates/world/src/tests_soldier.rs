@@ -592,6 +592,57 @@ fn a_stun_shot_bursts_on_the_first_enemy_in_its_way() {
 }
 
 #[test]
+fn a_soldier_faces_where_his_stun_shot_goes_while_it_charges() {
+    // The player's word (October 2026): he keeps facing the way the shot
+    // goes, whatever the pointer says, as he walks; and the pointer has
+    // him again once it is fired.
+    let mut world = soldier();
+    ranks(&mut world, 0, [0, 0, 1, 0]);
+    let there = *world
+        .aboard
+        .room
+        .free_tiles_near(world.aboard.room.bim_pos(0), 4.0 * TILE)
+        .last()
+        .expect("free deck about him");
+    let tile = tile_of(there);
+    let away = (there - world.aboard.room.bim_pos(0)).angle() + std::f32::consts::PI;
+    let control = |walk: Option<u16>| Command::Crew {
+        slot: 0,
+        order: bims::order::CrewOrder::Control {
+            walk,
+            aim: bims::order::angle_code(away),
+            fire: false,
+            sprint: false,
+        },
+    };
+    world.step(&[control(None)]);
+    world.step(&[Command::StunShot {
+        slot: 0,
+        x: tile.0,
+        y: tile.1,
+    }]);
+    let mut fired = false;
+    for n in 0..((class::STUN_SHOT_CHARGE + 0.5) / SECONDS_A_STEP) as u32 {
+        let walk = (n < 30).then(|| bims::order::angle_code(away + 1.0));
+        let events = world.step(&[control(walk)]);
+        fired |= events
+            .iter()
+            .any(|e| matches!(e, WorldEvent::StunShotFired { who: 0 }));
+        if fired {
+            break;
+        }
+        let to = (middle(tile) - world.aboard.room.bim_pos(0)).angle();
+        let off = bims::math::wrap_angle(world.aboard.room.heading_of(0) - to);
+        assert!(off.abs() < 0.1, "step {n}: {off} off the shot's way");
+    }
+    assert!(fired, "fired at the end of its charge");
+    world.step(&[control(None)]);
+    world.step(&[control(None)]);
+    let off = bims::math::wrap_angle(world.aboard.room.heading_of(0) - away);
+    assert!(off.abs() < 0.05, "the pointer has him again: {off}");
+}
+
+#[test]
 fn a_stun_shot_is_refused_goes_on_as_he_walks_and_is_called_off_by_a_down() {
     let mut world = soldier();
     let own = tile_of(world.aboard.room.bim_pos(0));

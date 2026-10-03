@@ -8713,7 +8713,8 @@ impl World {
     /// fired the step its charge is full at the tile aimed at
     /// ([`World::stun_shot_landing`]; the room bursts it on the first enemy
     /// in its way). The cooldown runs from the shot. The room is
-    /// told how far each charge has come, for the glow.
+    /// told how far each charge has come, for the glow, and where it
+    /// goes, which the soldier faces until it fires.
     fn settle_stun_shots(&mut self, events: &mut Vec<WorldEvent>) {
         let now = self.mission_minutes();
         for who in 0..self.soldiers.len() as u32 {
@@ -8726,17 +8727,22 @@ impl World {
                 self.soldiers[i].charging = None;
                 self.aboard.room.set_braced(i, false);
                 self.aboard.room.set_shot_charge(i, 0.0);
+                self.aboard.room.set_shot_at(i, None);
                 continue;
             }
             if now < charging.until {
                 let share = self.charge_share(who);
                 self.aboard.room.set_shot_charge(i, share);
+                self.aboard
+                    .room
+                    .set_shot_at(i, Some(tile_centre(charging.tile)));
                 continue;
             }
             self.soldiers[i].charging = None;
             self.soldiers[i].last_shot = Some(now);
             self.aboard.room.set_braced(i, false);
             self.aboard.room.set_shot_charge(i, 0.0);
+            self.aboard.room.set_shot_at(i, None);
             let Some(at) = self.stun_shot_landing(who, charging.tile) else {
                 continue;
             };
