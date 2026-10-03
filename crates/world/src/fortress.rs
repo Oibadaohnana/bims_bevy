@@ -373,7 +373,8 @@ impl World {
         }
     }
 
-    /// One machine built at every fabricator still standing, out of its
+    /// One machine built at every fabricator still standing and not
+    /// stunned (a Stun Shot holds one's build over, October 2026), out of its
     /// bay, at tier three and with the wave aboard: a Trooper, a Husk, a
     /// Trooper, a Warden and round again, by how many have been built so
     /// every client builds the same. How many were built.
@@ -387,7 +388,7 @@ impl World {
             .droids()
             .iter()
             .enumerate()
-            .filter(|(_, d)| d.kind == DroidKind::Fabricator && !d.destroyed)
+            .filter(|(_, d)| d.kind == DroidKind::Fabricator && !d.destroyed && !d.is_stunned())
             .map(|(i, d)| (i, d.pos, d.facing()))
             .collect();
         const KINDS: [DroidKind; 4] = [

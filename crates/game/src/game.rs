@@ -1633,6 +1633,22 @@ impl Game {
             }
             bim.character
                 .set_shield(bim.shield.map_or(0.0, |s| s.share()));
+            // Stunned by a Stun Shot (October 2026): the stun wears off,
+            // and until it has the body neither aims, fires, swings nor
+            // walks — whoever's side it fights for.
+            bim.stunned = (bim.stunned - dt).max(0.0);
+            bim.character.set_stunned(bim.stunned > 0.0);
+            if bim.stunned > 0.0 {
+                bim.trigger.hold();
+                bim.character.trigger_paid();
+                bim.locked = None;
+                bim.blow = None;
+                bim.peek = None;
+                bim.character.set_lean(None);
+                bim.character.set_aim(None);
+                bim.character.halt();
+                continue;
+            }
             let skill = self.shot_skill(who);
             // A Manufacturer among a site's own people (task 131) fights
             // off the machines' list, and nothing below is its.
@@ -1833,9 +1849,10 @@ impl Game {
                 continue;
             }
 
-            // Planted for a Stun Shot (October 2026; `set_braced`): the gun
-            // up where it faces and nothing fired from it, nor swung, while
-            // the shot charges — a click meanwhile is owed nothing.
+            // A Stun Shot charging (October 2026; `set_braced`): the gun up
+            // where it faces and nothing fired from it, nor swung, while the
+            // shot charges — walking or not — and a click meanwhile is owed
+            // nothing.
             if bim.braced {
                 bim.trigger.hold();
                 bim.character.trigger_paid();
@@ -3780,6 +3797,13 @@ impl Game {
                 if task.is_done() {
                     bim.task = None;
                 }
+        // Stunned (October 2026, `tick_combat` wears it off): no errand,
+        // no round, no walk — the body stands where the burst caught it.
+        if self.bims[who].stunned > 0.0 {
+            self.bims[who].character.halt();
+            self.move_body(who, dt);
+            return;
+        }
             }
         }
         self.pump_queue(who);
@@ -4197,11 +4221,9 @@ impl Game {
     }
 
     /// The same, for a new order from the player: the errand is put down
-    /// onto the queue, and a braced soldier stands easy.
+    /// onto the queue. A Stun Shot charging goes on through it (October
+    /// 2026; an order that moved the soldier called it off until then).
     fn interrupt_for_order(&mut self, who: usize) {
-        // An order that moves a braced soldier is the end of the brace
-        // (feature 75).
-        self.bims[who].braced = false;
         self.interrupt(who);
     }
 
@@ -6461,8 +6483,9 @@ impl Game {
     /// the walk WASD give it, where the pointer aims it and whether the
     /// fire button is down, said whole every time one of them changes.
     /// The step the keys start walking it, whatever it was walking to or
-    /// doing is dropped — the queue's orders, an attack, a post, a brace
-    /// and the errand in hand — since the feet are the keys' now.
+    /// doing is dropped — the queue's orders, an attack, a post and the
+    /// errand in hand — since the feet are the keys' now. A Stun Shot
+    /// charging goes on as it walks (October 2026).
     pub fn order_control(&mut self, slot: u32, steer: crate::character::Steer) {
         let who = slot as usize;
         if who >= self.bims.len() || who >= self.players {
@@ -6472,7 +6495,6 @@ impl Game {
             self.drop_ordered(who);
             self.call_off_attack_move(who);
             self.bims[who].character.set_post(None);
-            self.bims[who].braced = false;
             self.drop_task(who);
         }
         self.bims[who].character.set_steer(steer);
@@ -6483,7 +6505,8 @@ impl Game {
     /// slipping every bolt and beam while it rolls, refused while one is
     /// under way or cooling down, or the body is down, carried or
     /// carrying. Like the keys starting to walk it, the roll drops what
-    /// it was on: the queue, an attack, a post, a brace, the errand.
+    /// it was on: the queue, an attack, a post, the errand — never a Stun
+    /// Shot charging (October 2026).
     pub fn order_dodge(&mut self, slot: u32) {
         let who = slot as usize;
         if who >= self.bims.len()
@@ -6500,7 +6523,6 @@ impl Game {
         self.drop_ordered(who);
         self.call_off_attack_move(who);
         self.bims[who].character.set_post(None);
-        self.bims[who].braced = false;
         self.drop_task(who);
     }
 
@@ -8153,13 +8175,12 @@ impl Game {
         }
     }
 
-    /// Plant a soldier, or let it go (feature 75's brace; since October
-    /// 2026 the stance of a Stun Shot charging): planted, it holds where
-    /// it stands — whatever it was on put down onto the queue, its walk
-    /// dropped, no errand taken, the keys held from before walking it
-    /// nowhere, the gun up and nothing fired — until it is let go,
-    /// ordered anywhere, walked by a key pressed afresh, rolls, or goes
-    /// down. The world checks who may (`World::can_stun_shot`); the room
+    /// A soldier charging a Stun Shot, or let go (feature 75's brace;
+    /// October 2026): whatever it was on put down onto the queue, no
+    /// errand taken, the gun up and nothing fired — and walked wherever
+    /// its keys, a roll or an order take it, the charge going on, since
+    /// the player's word that he walks while it charges — until it is let
+    /// go or goes down. The world checks who may (`World::can_stun_shot`); the room
     /// does as told. Whether it changed.
     pub fn set_braced(&mut self, who: usize, on: bool) -> bool {
         if who >= self.bims.len() || self.bims[who].braced == on {
@@ -8170,8 +8191,6 @@ impl Game {
                 return false;
             }
             self.interrupt(who);
-            self.bims[who].character.halt();
-            self.bims[who].character.set_post(None);
         }
         self.bims[who].braced = on;
         self.bims[who].character.set_braced(on);
@@ -8858,6 +8877,38 @@ impl Game {
             if d > g.radius || !game.line_clear(g.at, at) {
                 return None;
             }
+    /// Bim `who` of this room stunned for `seconds` by a Stun Shot
+    /// (October 2026): the longer of two stuns, and whatever it had begun
+    /// dropped — the walk, the errand put down onto the queue, the blow
+    /// on its way. Nobody dead, down or outside. Whether it took.
+    pub fn stun_bim(&mut self, who: usize, seconds: f32) -> bool {
+        let Some(bim) = self.bims.get(who) else {
+            return false;
+        };
+        if seconds <= 0.0
+            || !bim.is_alive()
+            || bim.character.is_unconscious()
+            || bim.character.is_outside()
+        {
+            return false;
+        }
+        self.interrupt(who);
+        let bim = &mut self.bims[who];
+        bim.stunned = bim.stunned.max(seconds);
+        bim.blow = None;
+        bim.locked = None;
+        bim.peek = None;
+        bim.trigger.hold();
+        bim.character.halt();
+        bim.character.set_stunned(true);
+        true
+    }
+
+    /// Seconds Bim `who` is still stunned for; nought when it is not.
+    pub fn bim_stunned(&self, who: usize) -> f32 {
+        self.bims.get(who).map_or(0.0, |b| b.stunned)
+    }
+
             let share = 1.0 - 0.5 * (d / g.radius.max(1e-3));
             Some(g.damage * share)
         };
@@ -12759,6 +12810,41 @@ mod tests {
                 assert_eq!(game.take_revives().len(), 1);
             }
         }
+    /// **A Bim stunned by a Stun Shot stands where it was caught**
+    /// (October 2026): no walk until the stun wears off, then on to its
+    /// post again; a second stun takes the longer; a body down takes none.
+    #[test]
+    fn a_stunned_bim_stands_until_it_wears_off_and_a_body_down_takes_none() {
+        let mut game = room();
+        game.set_autonomous(false);
+        game.set_revivers(false);
+        game.put_for_probe(0, vec2(ROOM_W * 0.25, ROOM_H * 0.5));
+        assert!(game.send_to(0, vec2(ROOM_W * 0.75, ROOM_H * 0.5)));
+        for _ in 0..10 {
+            game.simulate(DT);
+        }
+        assert!(game.stun_bim(0, 1.0));
+        assert!(game.stun_bim(0, 0.5), "a shorter one keeps the longer");
+        assert!((game.bim_stunned(0) - 1.0).abs() < 1e-6);
+        let caught = game.bim_pos(0);
+        for _ in 0..50 {
+            game.simulate(DT);
+            assert!((game.bim_pos(0) - caught).len() < 1.0, "stands still");
+        }
+        assert!(game.bim_stunned(0) > 0.0);
+        for _ in 0..60 {
+            game.simulate(DT);
+        }
+        assert_eq!(game.bim_stunned(0), 0.0, "worn off");
+        assert!(
+            (game.bim_pos(0) - caught).len() > 20.0,
+            "walks on to its post"
+        );
+        knock_out(&mut game, 1);
+        game.simulate(DT);
+        assert!(!game.stun_bim(1, 1.0), "a body down is not stunned");
+    }
+
     }
 
     /// A commander's Medivac medic runs to a player downed with an enemy

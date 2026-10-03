@@ -796,7 +796,7 @@ fn a_station_defence_counts_down_lands_at_the_far_airlock_and_pays_on_the_win() 
 }
 
 /// **A defence's waves are ten seconds apart**: the last machine of one
-/// down, the next lands `DEFENSE_REINFORCE_STEPS` later — not the thirty
+/// down, the next lands `DEFENSE_REINFORCE_STEPS` later — not the fifteen
 /// seconds (`DROID_REINFORCE_STEPS`) of an attacked station's.
 #[test]
 fn a_defence_s_next_wave_lands_ten_seconds_after_the_last_is_down() {

@@ -267,6 +267,34 @@ mod tests {
         assert!(core.destroyed);
     }
 
+    /// **A Stun Shot stuns the Heart's machines too** (October 2026): each
+    /// of the three takes it, a core's sweep in the air goes to its
+    /// cooldown, and a sealed core stays sealed. A wreck takes none.
+    #[test]
+    fn a_heart_machine_is_stunned_and_a_core_s_beams_cool() {
+        for kind in DroidKind::HEART {
+            let mut d = built(kind);
+            assert!(d.stun(3.0, false), "{kind:?}");
+            assert!(d.is_stunned());
+        }
+        let mut core = built(DroidKind::Core);
+        core.heart.sealed = true;
+        core.heart.beams[0] = crate::droid::Beam::Sweep {
+            left: 0.5,
+            aim: vec2(1.0, 0.0),
+            side: 1.0,
+        };
+        assert!(core.stun(3.0, false));
+        assert!(matches!(
+            core.heart.beams[0],
+            crate::droid::Beam::Cooling { .. }
+        ));
+        assert_eq!(core.shield(), Some(crate::math::Vec2::ZERO), "sealed");
+        let mut wreck = built(DroidKind::Conduit);
+        wreck.strike(DroidPart::Chassis, 1e9);
+        assert!(!wreck.stun(3.0, false));
+    }
+
     /// Each of the three is drawn standing and as a wreck, and the two are
     /// different pictures.
     #[test]

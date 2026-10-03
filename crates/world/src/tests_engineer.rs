@@ -1157,10 +1157,11 @@ fn an_engineer_fires_nothing_while_it_lays_a_kit() {
 
 // --- a machine stunned (the Stun Shot's since task 154) -------------------------
 
-/// **The Machine Heart's machines are never stunned**: they refuse a
-/// stun outright (`Droid::stun`).
+/// **The Machine Heart's machines are stunned too** (October 2026, the
+/// player's word: the Stun Shot stuns every enemy; they refused one
+/// until then).
 #[test]
-fn the_heart_s_machines_are_never_stunned() {
+fn the_heart_s_machines_are_stunned_too() {
     for kind in DroidKind::HEART {
         let mut d = Droid::structure(
             kind,
@@ -1170,8 +1171,8 @@ fn the_heart_s_machines_are_never_stunned() {
             bims::math::vec2(1.0, 0.0),
             3,
         );
-        assert!(!d.stun(3.0, true), "{kind:?}");
-        assert!(!d.is_stunned());
+        assert!(d.stun(3.0, true), "{kind:?}");
+        assert!(d.is_stunned());
     }
 }
 

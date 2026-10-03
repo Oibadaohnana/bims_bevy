@@ -657,7 +657,7 @@ pub const CLASS_NAMES: [&str; 6] = ["None", "Engineer", "Soldier", "Medic", "Tan
 pub const CLASS_TIPS: [&str; 6] = [
     "No class: learns nothing.",
     "Four ranked abilities, a skill point a level: mines that go off when an enemy comes within a tile (Q), a Healing Sentry that heals the crew round it (C), satchel charges thrown and set off together with a remote trigger on Space (E), and for its ultimate a sentry with a minigun (R). Its charges come back on their own cooldowns, and it packs its mines and Healing Sentries up again.",
-    "Four ranked abilities, a skill point a level: Frag Grenades (Q), Weak Spot, hits that may land critical (C), a Stun Shot charged for two seconds that bursts where it lands, hurting and stunning the machines in it (E), and for his ultimate a Rampage, firing faster and taking less (R). Sets out with an auto rifle in hand.",
+    "Four ranked abilities, a skill point a level: Frag Grenades (Q), Weak Spot, hits that may land critical (C), a Stun Shot charged for two seconds that bursts where it lands, hurting and stunning every enemy in it (E), and for his ultimate a Rampage, firing faster and taking less (R). Sets out with an auto rifle in hand.",
     "Four ranked abilities, a skill point a level: a Heal Drone that flies to whoever is lowest and heals them slowly (Q), Triage, every heal of his stronger on the badly hurt (C), the heal beam on a crewmate or himself, which heals him as much and lets him keep shooting (E), and for his ultimate a Healing Circle he switches on and off, healing everybody round him at his own cost and burning the machines in it (R). An Override Core makes all his healing half as much again. Revives a downed crewmate in four seconds where anybody else takes ten, and gets them up at 40% of their bar where anybody else manages 30%.",
     "Four ranked abilities, a skill point a level: a Riot Shield he holds up and puts down, bouncing every shot that meets it back where it came from (Q), Plated, less damage from every hit and his health mending as he goes (C), a Reflect Barrier sending every hit on him back on whoever struck (E), and for his ultimate the Bastion, a shield of a thousand over every friend near him that drains in ten seconds (R). His armour drains at half rate, so the same armour takes twice as much on him. Sets out with the pistol and a tier-one armour on.",
     "Four ranked abilities, a skill point a level: a Battle Cry that makes everybody near him fire faster (Q), a Medivac, a Republic medic called in beside him who runs to a player downed and revives him (C), a Rally that has the crew near him take less damage and move faster (E), and for his ultimate Republic soldiers called in beside him (R). Hires a mercenary at a quarter off. Sets out with the pistol.",
@@ -725,7 +725,7 @@ pub fn ranked_what(class: world::Class, slot: u8) -> &'static str {
             "Passive. Your hits may strike a weak spot for extra damage. Grenades never do."
         }
         (world::Class::Soldier, 2) => {
-            "Charge 2 s, planted, then fire at the pointer within your weapon's reach. The burst hurts and stuns every machine in it. Moving cancels it."
+            "Charge 2 s, holding fire, then fire at the pointer within your weapon's reach. You can walk while it charges. The burst hurts and stuns every enemy in it."
         }
         (world::Class::Soldier, 3) => {
             "Ultimate. Fire faster, take less damage and aim on the move. Goes on with a Stun Shot charging."
@@ -1347,7 +1347,8 @@ pub const BASTION_NOT_LEARNT: &str = "Bastion not learnt yet";
 /// The soldier's rows on the crew panel (feature 75): grenades carried,
 /// the throw's cooldown, and the Stun Shot (October 2026).
 pub const CHARGING: &str = "Charging a shot";
-pub const CHARGING_TIP: &str = "A Stun Shot charging: planted, holding fire, until it fires at the pointer. Any move calls it off.";
+pub const CHARGING_TIP: &str =
+    "A Stun Shot charging: holding fire, free to walk, until it fires at the pointer.";
 pub fn stun_shot_ready(cooldown: f64) -> String {
     if cooldown > 0.0 {
         format!("Stun Shot ready in {cooldown:.0} s")

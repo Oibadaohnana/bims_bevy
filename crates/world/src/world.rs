@@ -284,8 +284,8 @@ pub enum Command {
         id: u32,
     },
     /// That player's own soldier charges a **Stun Shot** (October 2026,
-    /// E; it was the Brace) at the room tile `(x, y)`: it plants its feet
-    /// and holds its fire for [`class::STUN_SHOT_CHARGE`] seconds of the
+    /// E; it was the Brace) at the room tile `(x, y)`: it holds its fire,
+    /// free to walk, for [`class::STUN_SHOT_CHARGE`] seconds of the
     /// mission clock, then fires — no further than its weapon reaches,
     /// stopped short of the first wall — and every enemy in the burst
     /// takes the rank's damage and is stunned
@@ -8468,10 +8468,12 @@ impl World {
     }
 
     /// The Stun Shots that burst in the crew's room this step, carried to
-    /// the machines they reached: a target past the residents'
-    /// Bims is a machine of their room, stunned there — every kind that
-    /// walks, never the Machine Heart's (`Droid::stun` refuses one), and
-    /// never an enemy Bim or the crew's own sentries, which are no target.
+    /// every enemy they reached (October 2026, the player's word: all of
+    /// them): a target among the residents' Bims is one of their people —
+    /// a Manufacturer, a hostile site's — stunned there (`Game::stun_bim`),
+    /// and one past them a machine of their room, every kind and the
+    /// Machine Heart's too (`Droid::stun`). Never the crew's own sentries,
+    /// which are no target.
     fn settle_stuns(&mut self) {
         let stuns = self.aboard.room.take_stuns();
         if stuns.is_empty() {
@@ -8483,8 +8485,13 @@ impl World {
         let room = &mut residents.aboard.room;
         let bims = room.crew_count() as usize;
         for (target, seconds, expose) in stuns {
-            if let Some(i) = target.checked_sub(bims) {
-                room.stun_droid(i, seconds, expose);
+            match target.checked_sub(bims) {
+                Some(i) => {
+                    room.stun_droid(i, seconds, expose);
+                }
+                None => {
+                    room.stun_bim(target, seconds);
+                }
             }
         }
     }
@@ -8660,9 +8667,9 @@ impl World {
         Ok(())
     }
 
-    /// The charge begun — see [`Command::StunShot`]: the soldier planted
-    /// where it stands (`Game::set_braced`, the room's stance: no errand,
-    /// the walk dropped) and the shot noted to fire
+    /// The charge begun — see [`Command::StunShot`]: the soldier's stance
+    /// (`Game::set_braced`: no errand, nothing fired, the walk his own)
+    /// and the shot noted to fire
     /// [`class::STUN_SHOT_CHARGE`] seconds on, at `tile`.
     fn stun_shot(&mut self, slot: u32, tile: (i32, i32)) -> Result<(), Refusal> {
         self.can_stun_shot(slot)?;
@@ -8673,9 +8680,9 @@ impl World {
     }
 
     /// Every Stun Shot charging, before the rooms step: called off for a
-    /// soldier no longer fit to act or no longer planted (the room ends
-    /// the plant on an order that moves it, a walk key pressed, a roll,
-    /// going down), and fired the step its charge is full — along the way
+    /// soldier no longer fit to act or whose stance the room let go (going
+    /// down; walking, an order or a roll no longer do, October 2026), and
+    /// fired the step its charge is full — along the way
     /// its player's pointer has it facing when its keys steer it, as far
     /// as the tile first aimed at, else at that tile; never past the
     /// weapon's reach, and stopped short of the first wall

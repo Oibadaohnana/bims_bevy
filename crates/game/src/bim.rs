@@ -88,12 +88,20 @@ pub struct Bim {
     pub task: Option<Task>,
     pub queue: Vec<Saved>,
     pub health: Health,
-    /// Planted (feature 75's brace; since October 2026 a soldier charging
-    /// its Stun Shot): where it stands, no errands, no walk, the gun up
-    /// and nothing fired. Set by the world (`Game::set_braced`); off again on any order that moves it
-    /// (`interrupt_for_order`) and when it goes down. Saved with the
+    /// A soldier charging its Stun Shot (feature 75's brace; October
+    /// 2026): no errands, the gun up and nothing fired — and walked
+    /// wherever its keys or an order take it, since the player's word
+    /// that the charge goes on as he walks. Set by the world
+    /// (`Game::set_braced`); off again when it goes down. Saved with the
     /// room and in `world_checksum`.
     pub braced: bool,
+    /// Seconds of the room's clock it is still **stunned** for (October
+    /// 2026): an enemy Bim a Stun Shot burst on — a Manufacturer, a
+    /// hostile site's people — neither walks, aims, fires nor goes about
+    /// an errand until it wears off (`Game::stun_bim`). Saved with the
+    /// room and in `world_checksum` where set.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub stunned: f32,
     /// Holding a heal beam on somebody (feature 76): a medic linked to a
     /// patient, as the world last said (`Game::set_beaming`). Off again
     /// on any order to an errand (`Game::order`) and when the medic goes
@@ -287,6 +295,7 @@ impl Bim {
             queue: Vec::new(),
             health: Health::new(),
             braced: false,
+            stunned: 0.0,
             beaming: false,
             surge: None,
             shield: None,

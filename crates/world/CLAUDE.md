@@ -7089,6 +7089,28 @@ The room's rule is `crates/game/CLAUDE.md` ("The dark"); the world's part:
   only where any is set. **`SAVE_VERSION` 92, `wire::PROTOCOL` 98.**
   `tests_soldier.rs`' section B is the rule.
 
+### Every enemy stunned, and he walks while it charges (October 2026)
+
+> The bullets above say the room's plant ends on an order, a walk key or
+> a roll, and that the Heart's machines and the Manufacturers' Bims are
+> never stunned; both went at the player's word.
+
+- **The charge is no plant**: `Game::set_braced` holds the fire and
+  nothing else, and only going down lets it go, so `settle_stun_shots`
+  calls a charge off for a down alone. Fired, it bursts along the steer's
+  aim as far as the first tile is from where he then stands.
+- **`settle_stuns` stuns every target the burst reached**: past the
+  residents' Bims a machine (`Droid::stun`, the Heart's too — a stunned
+  core's beams cool, a stunned fabricator skips its build in
+  `fabricate`), among them one of their people (`Game::stun_bim`: a
+  Manufacturer, a hostile site's; a defended site's own people are no
+  target). A stunned Bim is hashed beside the stunned machines, only
+  where one is.
+- **`SAVE_VERSION` 98, `wire::PROTOCOL` 114.**
+  `tests_soldier::a_stun_shot_is_refused_goes_on_as_he_walks_and_is_called_off_by_a_down`,
+  `tests_manufacturer::a_stun_shot_stuns_a_manufacturer_where_it_stands`
+  and `tests_engineer::the_heart_s_machines_are_stunned_too` are the rule.
+
 ## The medic reworked (task 153)
 
 > "The medic's ranked kit (task 130)" above describes the Nanite Burst,

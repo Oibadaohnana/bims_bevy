@@ -354,6 +354,16 @@ pub fn world_checksum(world: &World) -> u64 {
                 hash.eat(u64::from(d.exposed));
             }
         }
+        // And every one of their people a Stun Shot has stunned (October
+        // 2026), only where one is, past the machines' count so the two
+        // never read alike.
+        for who in 0..room.crew_count() as usize {
+            let stunned = room.bim_stunned(who);
+            if stunned > 0.0 {
+                hash.eat(room.droid_count() as u64 + who as u64);
+                hash.eat_rounded(stunned as f64, FINE_GRID);
+            }
+        }
         // And what each Guardian's plate has stopped, only where it has.
         for i in 0..room.droid_count() as usize {
             if let Some(d) = room.droid(i).filter(|d| d.plate_taken > 0.0) {

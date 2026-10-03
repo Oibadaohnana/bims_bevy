@@ -169,18 +169,19 @@
 //! | 4 | 20% | 225% |
 //!
 //! **E, Stun Shot** (active, cooldown; October 2026 — Brace was E until
-//! then): the soldier plants his feet and charges a shot for
-//! [`STUN_SHOT_CHARGE`] seconds, holding his fire, then fires it at the
+//! then): the soldier charges a shot for [`STUN_SHOT_CHARGE`] seconds,
+//! holding his fire and walking as he likes, then fires it at the
 //! spot he aimed at — no further than his weapon reaches, stopped short
 //! of the first wall. It bursts there as wide as his grenade
 //! ([`STUN_SHOT_RADIUS`]): every enemy in the burst with nothing opaque
 //! between takes its damage and is stunned for [`STUN_SHOT_STUN`]
-//! seconds (`bims::droid::Droid::stun`; never the Machine Heart's). It
-//! harms none of the crew. An order that moves him, a walk key pressed,
-//! a roll or going down calls the charge off, and the cooldown runs only
-//! from a shot fired. A player steering him aims it with the pointer
-//! while it charges: it flies the way he faces when it fires, as far as
-//! the spot first aimed at.
+//! seconds — every machine, the Machine Heart's too
+//! (`bims::droid::Droid::stun`), and the Manufacturers' people
+//! (`bims::game::Game::stun_bim`). It harms none of the crew. Going down
+//! calls the charge off (walking, an order or a roll no longer do), and
+//! the cooldown runs only from a shot fired. A player steering him aims
+//! it with the pointer while it charges: it flies the way he faces when
+//! it fires, as far as the spot first aimed at.
 //!
 //! | rank | damage | radius | stun | cooldown |
 //! |---|---|---|---|---|

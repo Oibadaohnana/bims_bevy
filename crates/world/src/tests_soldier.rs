@@ -455,7 +455,7 @@ fn machine_shot(world: &mut World) -> (f32, f32) {
 }
 
 #[test]
-fn a_stun_shot_charges_two_seconds_planted_then_hurts_and_stuns_what_it_hits() {
+fn a_stun_shot_charges_two_seconds_then_hurts_and_stuns_what_it_hits() {
     let mut world = fight();
     disarm(&mut world, 1);
     let tile = tile_of(machine_at(&world));
@@ -471,7 +471,7 @@ fn a_stun_shot_charges_two_seconds_planted_then_hurts_and_stuns_what_it_hits() {
         "{events:?}"
     );
     assert!(world.is_charging(0));
-    assert!(world.aboard.room.is_braced(0), "planted");
+    assert!(world.aboard.room.is_braced(0), "holding its fire");
     assert_eq!(world.can_stun_shot(0), Err(Refusal::AlreadyActive));
     // Charging: it stands where it is and nothing has gone yet.
     let here = world.aboard.room.bim_pos(0);
@@ -503,7 +503,7 @@ fn a_stun_shot_charges_two_seconds_planted_then_hurts_and_stuns_what_it_hits() {
         "{stunned}"
     );
     assert!(machine(&world).is_stunned());
-    // Over: no longer planted, and cooling down from the shot.
+    // Over: its fire no longer held, and cooling down from the shot.
     assert!(!world.is_charging(0));
     assert!(!world.aboard.room.is_braced(0));
     assert_eq!(world.can_stun_shot(0), Err(Refusal::CoolingDown));
@@ -562,7 +562,7 @@ fn a_stun_shot_never_reaches_past_the_weapon_and_never_hurts_the_crew() {
 }
 
 #[test]
-fn a_stun_shot_is_refused_and_called_off_by_a_move_or_a_down() {
+fn a_stun_shot_is_refused_goes_on_as_he_walks_and_is_called_off_by_a_down() {
     let mut world = soldier();
     let own = tile_of(world.aboard.room.bim_pos(0));
     let shot = |slot| Command::StunShot {
@@ -590,12 +590,51 @@ fn a_stun_shot_is_refused_and_called_off_by_a_move_or_a_down() {
     assert_eq!(world.can_stun_shot(0), Err(Refusal::NoWeaponInHand));
     world.aboard.room.issue(0, gear);
     assert_eq!(world.can_stun_shot(0), Ok(()));
-    // Charging, then ordered across the deck: called off, and no
-    // cooldown for a shot never fired.
+    // Charging, then down: called off, and no cooldown for a shot never
+    // fired.
     world.step(&[shot(0)]);
     assert!(world.is_charging(0));
+    world.aboard.room.knock_out_for_probe(0);
+    world.step(&[]);
+    world.step(&[]);
+    assert!(!world.is_charging(0), "going down calls it off");
+    world.aboard.room.patch_up_for_probe(0);
+    world.step(&[]);
+    assert_eq!(world.can_stun_shot(0), Ok(()), "no cooldown");
+    // Charging, then walked by the keys, rolled and ordered across the
+    // deck (October 2026, the player's word): the charge goes on as he
+    // walks, and fires at its two seconds.
+    world.step(&[shot(0)]);
+    assert!(world.is_charging(0));
+    // Towards the farthest free deck tile within four tiles of him.
+    let there = *world
+        .aboard
+        .room
+        .free_tiles_near(world.aboard.room.bim_pos(0), 4.0 * TILE)
+        .last()
+        .expect("free deck about him");
+    let towards = bims::order::angle_code((there - world.aboard.room.bim_pos(0)).angle());
+    let control = |walk: Option<u16>| Command::Crew {
+        slot: 0,
+        order: bims::order::CrewOrder::Control {
+            walk,
+            aim: towards,
+            fire: false,
+            sprint: false,
+        },
+    };
+    world.step(&[control(Some(towards))]);
+    world.step(&[Command::Crew {
+        slot: 0,
+        order: bims::order::CrewOrder::Dodge,
+    }]);
+    world.step(&[control(None)]);
+    assert!(
+        world.is_charging(0),
+        "the keys and a roll leave it charging"
+    );
     let here = world.aboard.room.bim_pos(0);
-    let there = here + vec2(3.0 * TILE, 0.0);
+    assert!((there - here).len() > 2.0 * TILE, "room to walk");
     world.step(&[Command::Crew {
         slot: 0,
         order: bims::order::CrewOrder::SendTo {
@@ -604,19 +643,24 @@ fn a_stun_shot_is_refused_and_called_off_by_a_move_or_a_down() {
             y: there.y,
         },
     }]);
-    world.step(&[]);
-    assert!(!world.is_charging(0), "an order to move calls it off");
-    assert_eq!(world.can_stun_shot(0), Ok(()), "no cooldown");
-    // Charging, then down: off too.
-    world.step(&[shot(0)]);
-    assert!(world.is_charging(0));
-    world.aboard.room.knock_out_for_probe(0);
-    world.step(&[]);
-    world.step(&[]);
-    assert!(!world.is_charging(0), "going down calls it off");
+    for _ in 0..60 {
+        world.step(&[]);
+    }
+    assert!(world.is_charging(0), "an order to move leaves it charging");
+    assert!(
+        (world.aboard.room.bim_pos(0) - here).len() > 20.0,
+        "walked on while it charged"
+    );
+    let mut fired = false;
+    for _ in 0..((class::STUN_SHOT_CHARGE + 0.5) / SECONDS_A_STEP) as u32 {
+        let events = world.step(&[]);
+        fired |= events
+            .iter()
+            .any(|e| matches!(e, WorldEvent::StunShotFired { who: 0 }));
+    }
+    assert!(fired, "fired at the end of its charge");
+    assert_eq!(world.can_stun_shot(0), Err(Refusal::CoolingDown));
     // And it is in the checksum: a soldier charging is a different world.
-    world.aboard.room.patch_up_for_probe(0);
-    world.step(&[]);
     let before = world_checksum(&world);
     world.soldiers[0].charging = Some(crate::soldier::Charging {
         until: world.mission_minutes() + 1.0,

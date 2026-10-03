@@ -498,6 +498,42 @@ fn they_shoot_the_crew_and_the_crew_shoot_back() {
     assert!(struck, "and the crew's landed on one of them");
 }
 
+/// **A Stun Shot stuns one of their people** (October 2026, the player's
+/// word: it stuns every enemy; it stunned the machines alone before): a
+/// burst on a Manufacturer reaches its own room as a stun, and it stands
+/// where the burst caught it until the stun wears off.
+#[test]
+fn a_stun_shot_stuns_a_manufacturer_where_it_stands() {
+    let (mut world, _) = at_their_site(4);
+    let them = theirs(&world);
+    let who = them[0];
+    let at = world
+        .body_position(LootSource::Resident(who as u32))
+        .expect("the rooms joined");
+    // The burst on it the room's next tick, as a fired shot bursts.
+    world
+        .aboard
+        .room
+        .fire_stun_shot(0, at, 0.0, 2.0 * shipdesign::TILE as f32, 0.0, 3.0);
+    world.aboard.room.patch_up_for_probe(0);
+    world.step(&[]);
+    let room = &world.residents.as_ref().unwrap().aboard.room;
+    let stunned = room.bim_stunned(who);
+    assert!(stunned > 2.5 && stunned <= 3.0, "{stunned}");
+    let caught = room.body_pos(who);
+    for _ in 0..120 {
+        world.aboard.room.patch_up_for_probe(0);
+        world.step(&[]);
+        let room = &world.residents.as_ref().unwrap().aboard.room;
+        assert!(
+            (room.body_pos(who) - caught).len() < 1.0,
+            "stands where it was caught"
+        );
+    }
+    let room = &world.residents.as_ref().unwrap().aboard.room;
+    assert!(room.bim_stunned(who) > 0.0, "still stunned at two seconds");
+}
+
 /// **A reinforcement of theirs comes looking for the crew**, as the
 /// machines' does (`a_reinforcement_wave_hunts_the_crew_and_the_first_wave_waits`):
 /// the garrison stands about the station and knows only what it has

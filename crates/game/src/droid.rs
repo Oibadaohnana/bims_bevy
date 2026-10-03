@@ -1078,10 +1078,11 @@ impl Droid {
     /// kept if either stun had it. Whatever it had begun is dropped at
     /// once: the blow on its way, the lock, the peek, the route, the
     /// trigger's burst, and a Guardian's wind-up or sweep, which goes to
-    /// its cooldown. A wreck and the Machine Heart's machines are never
-    /// stunned. Whether it took.
+    /// its cooldown — a core's two emitters the same. A wreck is never
+    /// stunned; the Machine Heart's machines are since October 2026 (the
+    /// player's word: the Stun Shot stuns every enemy). Whether it took.
     pub fn stun(&mut self, seconds: f32, expose: bool) -> bool {
-        if self.destroyed || self.kind.is_structure() || seconds <= 0.0 {
+        if self.destroyed || seconds <= 0.0 {
             return false;
         }
         self.stunned = self.stunned.max(seconds);
@@ -1097,6 +1098,13 @@ impl Droid {
         self.trigger.hold();
         if self.beam.holds_heading() {
             self.beam = Beam::Cooling {
+        for beam in &mut self.heart.beams {
+            if beam.holds_heading() {
+                *beam = Beam::Cooling {
+                    left: balance::SWEEPER_COOLDOWN,
+                };
+            }
+        }
                 left: balance::SWEEPER_COOLDOWN,
             };
         }

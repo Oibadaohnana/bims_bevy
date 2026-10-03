@@ -4977,11 +4977,25 @@ world's (`crates/world/CLAUDE.md`, "Items, step two").
 > soldier is armed and shoots steadier; the flag is the soldier's Stun
 > Shot charging now, and nothing else sets it.
 
-- **`Bim::braced` is a plant**: `tick_combat` holds the trigger, pays an
-  owed click and swings nothing for a planted body, the gun up along the
-  heading when steered; `Character::update` walks a planted body nowhere
-  on keys held from before (a key pressed afresh still lets it go, in
-  `order_control`), and `is_sprinting` is false for one.
+- **`Bim::braced` holds the fire**: `tick_combat` holds the trigger, pays
+  an owed click and swings nothing for a charging body, the gun up along
+  the heading when steered, and `is_sprinting` is false for one. **It is
+  no longer a plant** (October 2026, the player's word: walk while it
+  charges): `set_braced` neither halts nor unposts, the keys walk it,
+  and an order (`interrupt_for_order`), the keys starting
+  (`order_control`) and a roll (`order_dodge`) leave the flag up — only
+  going down clears it. The crouch and the planted feet are drawn only
+  while it stands (`braced && !is_walking()`).
+- **A Bim can be stunned** (`Bim::stunned`, saved, serde default;
+  `Game::stun_bim`, `bim_stunned`): the longer of two stuns, the errand
+  put down, the blow, the lock and the peek dropped. `tick_combat` wears
+  it off and, while it lasts, holds the trigger, halts and skips the
+  body's turn (an intruder's too); `tick_bim` halts it and runs no
+  errand or round. Drawn as a machine's stun flicker
+  (`Character::set_stunned`, `serde(skip)`). The world stuns an enemy
+  Bim a Stun Shot burst on (`World::settle_stuns`). And `Droid::stun`
+  takes the Machine Heart's machines now, a core's emitters to their
+  cooldown as a Guardian's beam goes.
 - **`Character::shot_charge`** (`Game::set_shot_charge`, `serde(skip)`,
   drawing only): a glow of `droid::STUNNED` past white at the muzzle
   growing with the charge, and a ring closing on the body.

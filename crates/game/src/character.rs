@@ -1107,6 +1107,11 @@ pub struct Character {
     /// it every step.
     #[cfg_attr(feature = "serde", serde(skip))]
     shot_charge: f32,
+    /// Stunned by a Stun Shot (October 2026): the stun's pale blue
+    /// flickering over the body. Drawing only; `Game::tick_combat` sets
+    /// it off the Bim's own timer.
+    #[cfg_attr(feature = "serde", serde(skip))]
+    stunned: bool,
     /// Under a medic's surge (feature 76): a halo round the body while
     /// nothing can hurt it. Drawing only; `Game::tick_combat` sets it
     /// off the Bim's own timer.
@@ -1203,6 +1208,7 @@ impl Character {
             hostile: false,
             braced: false,
             shot_charge: 0.0,
+            stunned: false,
             surging: false,
             cloaked: false,
             shield: 0.0,
@@ -1683,6 +1689,10 @@ impl Character {
     pub fn set_shot_charge(&mut self, share: f32) {
         self.shot_charge = share.clamp(0.0, 1.0);
     }
+    /// Stunned or not (October 2026): the flicker. Drawing only.
+    pub fn set_stunned(&mut self, stunned: bool) {
+        self.stunned = stunned;
+    }
     /// Under a surge, or not: the halo round the body. Drawing only.
     pub fn set_surging(&mut self, surging: bool) {
         self.surging = surging;
@@ -1934,10 +1944,9 @@ impl Character {
         // with Shift held (task 150).
         let steer = self.steer;
         let sprinting = self.is_sprinting();
-        // Planted (a soldier charging his Stun Shot, October 2026), the
-        // keys held from before walk it nowhere: a walk key pressed afresh
-        // is what calls the charge off (`Game::order_control`).
-        let goal = if let Some(walk) = steer.filter(|_| !self.braced).and_then(|s| s.walk) {
+        // A soldier charging his Stun Shot walks on as the keys say
+        // (October 2026: it planted him until the player asked otherwise).
+        let goal = if let Some(walk) = steer.and_then(|s| s.walk) {
             self.path.clear();
             self.far = None;
             self.activity = Activity::Walking;
@@ -2374,7 +2383,11 @@ impl Character {
         // shadow underneath unchanged is a body drawn *lower* — the one
         // thing a picture seen from directly above can say about a stance
         // held.
-        let lift = if self.braced { BRACE_CROUCH } else { 1.0 };
+        let lift = if self.braced && !self.is_walking() {
+            BRACE_CROUCH
+        } else {
+            1.0
+        };
         let scale = self.body_scale() * lift;
         // Leant out to the peek while aiming from one; the body itself
         // has not moved, and nothing but the picture knows.
@@ -2422,7 +2435,9 @@ impl Character {
         // soldier holding its ground reads as a stance and not only as the
         // brackets drawn round it.
         {
-            let planted = self.braced;
+            // Walking on with a Stun Shot charging (October 2026), the
+            // feet stride as any walk's.
+            let planted = self.braced && !self.is_walking();
             for side in [-1.0f32, 1.0] {
                 let (at, splay) = if planted {
                     (
@@ -3037,6 +3052,25 @@ impl Character {
                 span,
                 2.5,
                 CHARGE_GLOW.glowing(1.2).alpha(0.25 + 0.6 * c),
+            );
+        }
+        // Stunned (October 2026): a machine's stun flicker, a wash over
+        // the body and a ring round it lit and dimmed many times a second.
+        if self.stunned && !self.dead && !self.unconscious {
+            let flicker = 0.5 + 0.5 * (self.idle * 38.0).sin();
+            let s = self.body_scale();
+            list.circle(
+                pos,
+                30.0 * s,
+                crate::droid::STUNNED.alpha(0.12 + 0.22 * flicker),
+            );
+            list.ring(
+                pos,
+                40.0 * s,
+                1.5,
+                crate::droid::STUNNED
+                    .glowing(1.2)
+                    .alpha(0.35 + 0.5 * flicker),
             );
         }
         // The medkit (task 138): a case held out in front, the cross on
