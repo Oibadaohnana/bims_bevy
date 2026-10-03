@@ -269,19 +269,19 @@ the four two by two at the right of the abilities, each with its key
 
 | item | | tier one / two / three | price |
 | --- | --- | --- | --- |
-| **Blink Drive** | Active (its key): the Bim put where the pointer is, as far as the drive reaches, on ground it can see and walk to. Not within 3 s of a hit | 6 / 8 / 10 tiles, 14 / 12 / 10 s cooldown | 9 000 / 15 750 / 27 000 |
-| **Executioner** | Weapon hits may be critical. Rolls on its own beside a soldier's Weak Spot — either may come up, and the bigger multiple counts | 12% ×1.6 / 18% ×1.9 / 25% ×2.25 | 11 250 / 20 250 / 36 000 |
-| **Reactor Heart** | More health, and regeneration — faster after 6 s without a hit | +25 / +40 / +60 HP; 0.5 / 1 / 1 HP/s, 1.5 / 3 / 5 HP/s quiet | 9 000 / 18 000 / 31 500 |
-| **Override Core** | The class's ultimate plays **one rank higher** than bought (a rank must be bought), up to a **fifth** rank no skill point buys: the Sentry two at once, the Rampage every grenade back, the medic all his healing ×1.5, the Bastion a tile wider and everybody it reached half again as fast, the Reinforcements five in armour — and every number a step on | one tier | 27 000 |
-| **Coolant Loop** | Class ability cooldowns shorter; several add, to −50% at most | −10 / 15 / 20% | 6 750 / 13 500 / 22 500 |
-| **Pressure Seal** | Health back all the time, hit or not | 0.5 / 1 / 1.5 HP/s | 4 500 / 9 000 / 15 750 |
-| **Steady Grip** | The trigger pulled faster | +10 / 15 / 20% fire rate | 6 750 / 13 500 / 22 500 |
-| **Long Barrel** | The weapon reaches further | +2 / 3 / 4 tiles | 6 750 / 13 500 / 22 500 |
-| **Leech Capacitor** | A share of the damage your weapon does to a machine back as health | 8 / 12 / 16% | 9 000 / 18 000 / 31 500 |
-| **Arc Coil** | Every 4th weapon hit on a machine arcs to the machines nearest it within 4 tiles | 2 / 3 / 4 machines, 15 / 25 / 40 damage | 11 250 / 20 250 / 36 000 |
-| **Field Mender** | Active: every crewmate on their feet within 5 tiles, you included, healed | 30 / 45 / 60 HP, 45 / 40 / 35 s | 9 000 / 18 000 / 31 500 |
-| **Reset Capacitor** | Active: every class cooldown ready, every charge full, your other items' cooldowns with them. **Tier three alone**: on no trader's shelf before the run's tier-three day, never combined | tier three: 80 s | 270 000 |
-| **Ablative Shell** | Active: damage taken ×0.6, and a Warden's lance strips none of your armour | 4 / 5 / 6 s, 60 / 55 / 50 s | 11 250 / 20 250 / 36 000 |
+| **Blink Drive** | Active (its key): the Bim put where the pointer is, as far as the drive reaches, on ground it can see and walk to. Not within 3 s of a hit | 6 / 8 / 10 tiles, 14 / 12 / 10 s cooldown | 27 000 / 47 250 / 81 000 |
+| **Executioner** | Weapon hits may be critical. Rolls on its own beside a soldier's Weak Spot — either may come up, and the bigger multiple counts | 12% ×1.6 / 18% ×1.9 / 25% ×2.25 | 33 750 / 60 750 / 108 000 |
+| **Reactor Heart** | More health, and regeneration — faster after 6 s without a hit | +25 / +40 / +60 HP; 0.5 / 1 / 1 HP/s, 1.5 / 3 / 5 HP/s quiet | 27 000 / 54 000 / 94 500 |
+| **Override Core** | The class's ultimate plays **one rank higher** than bought (a rank must be bought), up to a **fifth** rank no skill point buys: the Sentry two at once, the Rampage every grenade back, the medic all his healing ×1.5, the Bastion a tile wider and everybody it reached half again as fast, the Reinforcements five in armour — and every number a step on | one tier | 81 000 |
+| **Coolant Loop** | Class ability cooldowns shorter; several add, to −50% at most | −10 / 15 / 20% | 20 250 / 40 500 / 67 500 |
+| **Pressure Seal** | Health back all the time, hit or not | 0.5 / 1 / 1.5 HP/s | 13 500 / 27 000 / 47 250 |
+| **Steady Grip** | The trigger pulled faster | +10 / 15 / 20% fire rate | 20 250 / 40 500 / 67 500 |
+| **Long Barrel** | The weapon reaches further | +2 / 3 / 4 tiles | 20 250 / 40 500 / 67 500 |
+| **Leech Capacitor** | A share of the damage your weapon does to a machine back as health | 8 / 12 / 16% | 27 000 / 54 000 / 94 500 |
+| **Arc Coil** | Every 4th weapon hit on a machine arcs to the machines nearest it within 4 tiles | 2 / 3 / 4 machines, 15 / 25 / 40 damage | 33 750 / 60 750 / 108 000 |
+| **Field Mender** | Active: every crewmate on their feet within 5 tiles, you included, healed | 30 / 45 / 60 HP, 45 / 40 / 35 s | 27 000 / 54 000 / 94 500 |
+| **Reset Capacitor** | Active: every class cooldown ready, every charge full, your other items' cooldowns with them. **Tier three alone**: on no trader's shelf before the run's tier-three day, never combined | tier three: 80 s | 810 000 |
+| **Ablative Shell** | Active: damage taken ×0.6, and a Warden's lance strips none of your armour | 4 / 5 / 6 s, 60 / 55 / 50 s | 33 750 / 60 750 / 108 000 |
 
 *Coolant Loop*, *Pressure Seal* and *Steady Grip* were relics; they are
 in no relic pool any more (a save holding one keeps it).

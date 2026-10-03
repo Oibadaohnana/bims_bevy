@@ -6880,7 +6880,7 @@ item form.
 
 `bims::module::ModuleKind` is thirteen long (codes 4–12 new); every
 number is `bims::module`'s, every price `data::ITEM_PRICE` (×4.5 the
-first placeholders).
+first placeholders, then ×3 again in October 2026: ×13.5).
 
 - **Three relics moved into items**: *Coolant Loop*, *Pressure Seal* and
   *Steady Grip* are `Relic::retired()` — kept in `Relic::ALL` (a relic's

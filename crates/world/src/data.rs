@@ -494,24 +494,25 @@ pub const TRADER_ARMOUR: usize = 1;
 /// 2026): the Coolant Loop, the Pressure Seal, the Steady Grip, the Long
 /// Barrel, the Leech Capacitor, the Arc Coil, the Field Mender, the Reset
 /// Capacitor and the Ablative Shell. Four and a half times the first
-/// placeholders (the player's +200%, then +50%). The Reset Capacitor is
-/// made at tier three alone and costs five times its old tier three
-/// (October 2026; 54 000), 270 000; its lower tiers' prices are only a
-/// saved one's.
+/// placeholders (the player's +200%, then +50%), then three times that
+/// (October 2026, the player's). The Reset Capacitor is made at tier
+/// three alone and costs five times its old tier three (October 2026;
+/// 54 000), 270 000, then three times that, 810 000; its lower tiers'
+/// prices are only a saved one's.
 pub const ITEM_PRICE: [[Money; 3]; 13] = [
-    [9_000, 15_750, 27_000],
-    [11_250, 20_250, 36_000],
-    [9_000, 18_000, 31_500],
-    [27_000, 27_000, 27_000],
-    [6_750, 13_500, 22_500],
-    [4_500, 9_000, 15_750],
-    [6_750, 13_500, 22_500],
-    [6_750, 13_500, 22_500],
-    [9_000, 18_000, 31_500],
-    [11_250, 20_250, 36_000],
-    [9_000, 18_000, 31_500],
-    [18_000, 31_500, 270_000],
-    [11_250, 20_250, 36_000],
+    [27_000, 47_250, 81_000],
+    [33_750, 60_750, 108_000],
+    [27_000, 54_000, 94_500],
+    [81_000, 81_000, 81_000],
+    [20_250, 40_500, 67_500],
+    [13_500, 27_000, 47_250],
+    [20_250, 40_500, 67_500],
+    [20_250, 40_500, 67_500],
+    [27_000, 54_000, 94_500],
+    [33_750, 60_750, 108_000],
+    [27_000, 54_000, 94_500],
+    [54_000, 94_500, 810_000],
+    [33_750, 60_750, 108_000],
 ];
 /// What combining two things of a kind and a tier into one of the next
 /// costs, out of the pool (the workbench's upgrade, at a trader now). A
