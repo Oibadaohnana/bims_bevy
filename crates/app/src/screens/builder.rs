@@ -1080,47 +1080,67 @@ fn tool(
     });
     ui.separator();
     match screen.tab {
+        // The setup's rows run past a short window's foot, so they
+        // scroll under the tabs; the World tab sizes itself to the card.
         Tab::Setup => {
-            choice_row(
-                ui,
-                "Money per Bim",
-                "What each of you brings; it all goes into one pool",
-                editable,
-                &MONEY.map(|(label, amount)| (label, euros(amount), amount)),
-                &mut settings.money_per_bim,
-            );
-            let players = (online.peers.len() as u32).max(1);
-            difficulty_rows(
-                ui,
-                settings,
-                screen.file_scaling,
-                players,
-                editable,
-                &mut screen.difficulty_note,
-                now,
-            );
-            // The player's own crew member's name: everybody's to type,
-            // host or guest, since each names their own.
-            ui.add_space(6.0);
-            ui.label(egui::RichText::new(BIM_NAME).strong());
-            ui.label(
-                egui::RichText::new(BIM_NAME_NOTE)
-                    .small()
-                    .color(theme::MUTED),
-            );
-            ui.add(
-                egui::TextEdit::singleline(&mut screen.bim_name)
-                    .char_limit(wire::MAX_NAME)
-                    .hint_text(BIM_NAME_HINT)
-                    .desired_width(180.0),
-            );
-            hair_chooser(ui, screen);
-            tint_chooser(ui, screen, &online.tints_taken());
-            class_chooser(ui, screen, &settings.unlocks);
+            egui::ScrollArea::vertical()
+                .id_salt("setup-rows")
+                .auto_shrink([false, false])
+                .show(ui, |ui| {
+                    setup_rows(ui, screen, settings, online, editable, now)
+                });
             screen.net.push(online, settings, false);
         }
         Tab::World => world(ui, screen, settings),
     }
+}
+
+/// The Game setup tab's rows: the money, the difficulty, the auto-shoot,
+/// and this player's own Bim — its name, hair, tint and class.
+fn setup_rows(
+    ui: &mut egui::Ui,
+    screen: &mut BuilderScreen,
+    settings: &mut Settings,
+    online: &Online,
+    editable: bool,
+    now: f64,
+) {
+    choice_row(
+        ui,
+        "Money per Bim",
+        "What each of you brings; it all goes into one pool",
+        editable,
+        &MONEY.map(|(label, amount)| (label, euros(amount), amount)),
+        &mut settings.money_per_bim,
+    );
+    let players = (online.peers.len() as u32).max(1);
+    difficulty_rows(
+        ui,
+        settings,
+        screen.file_scaling,
+        players,
+        editable,
+        &mut screen.difficulty_note,
+        now,
+    );
+    // The player's own crew member's name: everybody's to type,
+    // host or guest, since each names their own.
+    ui.add_space(6.0);
+    ui.label(egui::RichText::new(BIM_NAME).strong());
+    ui.label(
+        egui::RichText::new(BIM_NAME_NOTE)
+            .small()
+            .color(theme::MUTED),
+    );
+    ui.add(
+        egui::TextEdit::singleline(&mut screen.bim_name)
+            .char_limit(wire::MAX_NAME)
+            .hint_text(BIM_NAME_HINT)
+            .desired_width(180.0),
+    );
+    hair_chooser(ui, screen);
+    tint_chooser(ui, screen, &online.tints_taken());
+    class_chooser(ui, screen, &settings.unlocks);
 }
 
 /// How big the chooser's portrait is, in points a side, and how far the
