@@ -492,17 +492,19 @@ arrival there is no mission and no room: nothing moves and neither clock
 runs while you are there, and the **Trader panel** comes up beside the
 map. **Tab** opens the Armory beside it.
 
-- **The shelf**: **two weapons** (never the same, never the laser
-  pistol) **and one armour**, of any kind made at the tier the day has
-  reached — tier one, then tier two from the scaling's
-  tier-two day, tier three from its tier-three day (`scaling.ron`, the
-  days the machines' tiers run on) — priced at the trader's own tier
-  prices. It is **rolled again every visit**: a thing bought is gone for
-  that visit, and the next visit is another shelf. **Buying lifts your
-  shelf**: once you have bought a weapon your shelves sell weapons a tier
-  past the best you bought (the other weapon on the shelf goes up at
-  once), and the same for armour — up to tier three; another player's
-  shelf is its own. Any player buys, with no vote, out of their own
+- **The shelf**: **every weapon** but the laser pistol **and the
+  armour**, always, each at the tier the day has reached — tier one, then
+  tier two from the scaling's tier-two day, tier three from its
+  tier-three day (`scaling.ron`, the days the machines' tiers run on) —
+  or at its own lowest tier where that is higher (the minigun at two,
+  the rail lance at three), priced at the trader's own tier prices. A
+  thing bought is gone for that visit, and the next visit puts it up
+  again. **Buying lifts that kind**: once you have bought a shotgun your
+  shelves sell the shotgun a tier past the best you bought, and nothing
+  else moves — up to tier three. A **tank** sets out in armour and a
+  **soldier** with an auto rifle, so theirs count as bought: the tank is
+  offered the armour, and the soldier the auto rifle, at tier two from
+  the first trader on. Another player's shelf is its own. Any player buys, with no vote, out of their own
   money — onto their own Bim, onto a bot, or into the armory; what it
   replaces goes into the armory.
 - **The items**: every [item](#items) at the day's tier, one of each a visit (SOLD until the next) —

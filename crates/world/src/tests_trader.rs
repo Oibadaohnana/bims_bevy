@@ -1,5 +1,5 @@
 //! The trader (task 114): a visit on the map with no room and no mission,
-//! the shelf rolled every visit, no relic for sale, nothing combined and a
+//! every gun on the shelf every visit, no relic for sale, nothing combined and a
 //! thing sold for half, and a trader closed while its system is the
 //! machines'.
 
@@ -102,8 +102,8 @@ fn arriving_at_a_trader_loads_no_room_and_runs_no_mission() {
 }
 
 /// **The same seed is the same shelf**: two worlds that arrive at one
-/// trader meet one trader — its shelf the roll's, every kind and tier
-/// from the lists.
+/// trader meet one trader — its shelf every kind of the lists, at the
+/// player's tiers.
 #[test]
 fn the_same_seed_gives_the_same_shelf() {
     let mut a = basic(1);
@@ -114,17 +114,7 @@ fn the_same_seed_gives_the_same_shelf() {
     travel_to(&mut b, there);
     let (ta, tb) = (a.trader_here(0).unwrap(), b.trader_here(0).unwrap());
     assert_eq!(ta, tb);
-    let rolled: Vec<_> = trader::roll_shelf(
-        a.galaxy_seed,
-        site.star,
-        site.station,
-        0,
-        a.clock_minutes.to_bits(),
-        a.shelf_tiers(0),
-    )
-    .into_iter()
-    .map(Some)
-    .collect();
+    let rolled: Vec<_> = a.shelf_for(0).into_iter().map(Some).collect();
     assert_eq!(ta.shelf, rolled);
     assert_eq!(world_checksum(&a), world_checksum(&b));
 }
@@ -132,8 +122,8 @@ fn the_same_seed_gives_the_same_shelf() {
 /// **A bought thing is gone for the visit, and a revisit is a new shelf**
 /// (October 2026): bought, its slot is empty and sold out; the crew leave,
 /// fight somewhere else, come back, and meet the same trader with its
-/// shelf rolled again for the visit — the guns now a tier past the one
-/// bought (`World::shelf_tiers`).
+/// shelf put up again for the visit — the kind bought now a tier past it
+/// (`World::shelf_tier`).
 #[test]
 fn a_bought_thing_is_gone_for_the_visit_and_a_revisit_rolls_the_shelf_again() {
     let mut world = basic(1);
@@ -182,45 +172,40 @@ fn a_bought_thing_is_gone_for_the_visit_and_a_revisit_rolls_the_shelf_again() {
     assert_eq!(world.run.phase, Phase::Trade);
     let again = world.trader_here(0).unwrap().clone();
     assert_eq!(again.site, left.site, "the same trader");
-    let rolled: Vec<_> = trader::roll_shelf(
-        world.galaxy_seed,
-        site.star,
-        site.station,
-        0,
-        world.clock_minutes.to_bits(),
-        world.shelf_tiers(0),
-    )
-    .into_iter()
-    .map(Some)
-    .collect();
-    assert_eq!(again.shelf, rolled, "the shelf rolled for this visit");
+    let rolled: Vec<_> = world.shelf_for(0).into_iter().map(Some).collect();
+    assert_eq!(again.shelf, rolled, "the shelf put up for this visit");
+    let up = again.shelf[0].unwrap();
+    assert_eq!(up.resource, item.resource, "the kind bought is back");
+    assert_eq!(up.tier, item.tier.next().unwrap(), "a tier up");
 }
 
-/// **Two guns, never the pistol, and a thing bought lifts its kind**
-/// (October 2026): a shelf holds two guns and a piece, no laser pistol;
-/// the armour bought, every later shelf of that player sells armour a tier
-/// up, and a gun bought puts the other gun on the shelf up at once and
-/// every later shelf's; another player's shelves are as they were.
+/// **Every gun but the pistol, and only the kind bought goes a tier up**
+/// (October 2026): a shelf lists every gun but the laser pistol and the
+/// armour; the armour and the first gun bought, every later shelf of that
+/// player sells those two kinds a tier up and every other gun at the
+/// day's; another player's shelves are as they were.
 #[test]
-fn a_thing_bought_puts_its_kind_a_tier_up_and_no_shelf_sells_a_pistol() {
+fn every_gun_is_on_the_shelf_and_only_the_kind_bought_goes_a_tier_up() {
     use bims::combat::{Tier, WeaponKind};
     let mut world = basic(2);
     let site = at_a_trader(&mut world);
     let day = world.shop_tier();
     assert_eq!(day, Tier::One, "the start's day");
-    let shelf = world.trader_here(0).unwrap().shelf.clone();
-    assert_eq!(shelf.len(), 3);
-    let guns: Vec<_> = shelf[..2].iter().map(|i| i.unwrap()).collect();
-    assert!(guns.iter().all(|g| g.is_weapon() && g.tier == day));
-    assert_ne!(guns[0], guns[1], "two different guns");
-    assert!(
-        guns.iter()
-            .all(|g| g.weapon().unwrap().kind != WeaponKind::LaserPistol)
-    );
-    assert!(shelf[2].unwrap().armour().is_some());
+    let shelf: Vec<_> = world
+        .trader_here(0)
+        .unwrap()
+        .shelf
+        .iter()
+        .map(|i| i.unwrap())
+        .collect();
+    assert_eq!(shelf, trader::shelf(|_| day), "every kind, at the day's");
+    let guns: Vec<_> = shelf.iter().filter_map(|i| i.weapon()).collect();
+    assert_eq!(guns.len(), WeaponKind::ALL.len() - 1, "every gun but one");
+    assert!(guns.iter().all(|g| g.kind != WeaponKind::LaserPistol));
+    let armour = shelf.iter().position(|i| i.armour().is_some()).unwrap();
 
     // The armour, then the first gun.
-    for index in [2, 0] {
+    for index in [armour as u32, 0] {
         let events = world.step(&[Command::BuyShelf {
             slot: 0,
             index,
@@ -233,13 +218,24 @@ fn a_thing_bought_puts_its_kind_a_tier_up_and_no_shelf_sells_a_pistol() {
             "{events:?}"
         );
     }
-    assert_eq!(world.shelf_tiers(0), (Tier::Two, Tier::Two));
-    assert_eq!(world.shelf_tiers(1), (day, day), "the other player's");
+    let bought = [shelf[0].resource, shelf[armour].resource];
+    for item in &shelf {
+        let want = if bought.contains(&item.resource) {
+            Tier::Two
+        } else {
+            item.tier
+        };
+        assert_eq!(
+            world.shelf_tier(0, item.resource).max(item.tier),
+            want,
+            "{item:?}"
+        );
+    }
+    assert_eq!(world.shelf_for(1), shelf, "the other player's");
     let left = world.trader_here(0).unwrap().shelf[1].unwrap();
-    assert_eq!(left.tier, Tier::Two, "the other gun put up at once");
-    assert_eq!(left.resource, guns[1].resource, "its kind kept");
+    assert_eq!(left, shelf[1], "the other guns as they were");
 
-    // Somewhere else, and back: the player's shelf is a tier up.
+    // Somewhere else, and back: only the kinds bought are a tier up.
     let elsewhere = world
         .destinations()
         .into_iter()
@@ -253,13 +249,27 @@ fn a_thing_bought_puts_its_kind_a_tier_up_and_no_shelf_sells_a_pistol() {
     assert_eq!(world.run.phase, Phase::Trade);
     assert_eq!(world.shop_tier(), day, "the day's tier has not moved");
     let again = world.trader_here(0).unwrap();
-    assert!(again.shelf.iter().all(|i| i.unwrap().tier == Tier::Two));
+    for (now, was) in again.shelf.iter().map(|i| i.unwrap()).zip(&shelf) {
+        assert_eq!(now.resource, was.resource);
+        let up = bought.contains(&was.resource);
+        assert_eq!(now.tier, if up { Tier::Two } else { was.tier }, "{now:?}");
+    }
     let theirs = world.trader_here(1).unwrap();
-    assert!(theirs.shelf.iter().all(|i| i.unwrap().tier == day));
+    assert!(
+        theirs
+            .shelf
+            .iter()
+            .zip(&shelf)
+            .all(|(i, was)| i.unwrap() == *was)
+    );
 
-    // Tier three bought leaves the shelf at three.
-    world.run.shelf_bought[0] = [3, 3];
-    assert_eq!(world.shelf_tiers(0), (Tier::Three, Tier::Three));
+    // Tier three bought leaves the kind at three.
+    for best in &mut world.run.shelf_bought[0] {
+        best.tier = Tier::Three;
+    }
+    for resource in bought {
+        assert_eq!(world.shelf_tier(0, resource), Tier::Three);
+    }
 }
 
 /// **The laser pistol is never sold**: the one a player's own Bim sets
@@ -365,8 +375,7 @@ fn a_thing_goes_onto_a_bim_or_the_armory_and_the_pool_must_pay() {
 /// **Two players, one slot, two shelves**: every player has a trader of
 /// its own, so the same slot is two things, each bought off its buyer's
 /// own shelf with its own money in the same step — neither sold out by
-/// the other, neither paying for the other. A shelf of its own is rolled
-/// its own, so the two shelves are not the same shelf.
+/// the other, neither paying for the other.
 #[test]
 fn two_players_buy_the_same_slot_each_off_its_own_shelf() {
     let mut world = basic(2);
@@ -374,11 +383,6 @@ fn two_players_buy_the_same_slot_each_off_its_own_shelf() {
     let (w0, w1) = (world.wallet(0), world.wallet(1));
     let mine = world.trader_here(0).unwrap().shelf[1].unwrap();
     let theirs = world.trader_here(1).unwrap().shelf[1].unwrap();
-    assert_ne!(
-        world.trader_here(0).unwrap().shelf,
-        world.trader_here(1).unwrap().shelf,
-        "a shelf rolled a player"
-    );
     let events = world.step(&[
         Command::BuyShelf {
             slot: 1,
@@ -775,4 +779,42 @@ fn a_trader_is_never_infested_and_never_the_jammer() {
     assert_eq!(world.site_kind(site.station), SiteKind::Trader);
     assert_ne!(world.jammer_station(), Some(site.station), "a trader jams");
     assert!(!world.site_threatened(site.station));
+}
+
+/// **A class's start counts as bought**: the tank sets out in tier-one
+/// armour and the soldier with a tier-one auto rifle, so from the first
+/// trader on the tank's shelf sells the armour at tier two and the
+/// soldier's the auto rifle at tier two; every other kind, and a classless
+/// player's whole shelf, at the day's.
+#[test]
+fn the_tank_and_soldier_are_offered_their_kit_a_tier_up_from_the_start() {
+    use crate::class::Class;
+    use bims::combat::Tier;
+    use physics::ResourceId;
+    let mut world = basic(3);
+    assert_eq!(world.set_class(0, Class::Tank), Ok(()));
+    assert_eq!(world.set_class(1, Class::Soldier), Ok(()));
+    let day = world.shop_tier();
+    assert_eq!(day, Tier::One, "the start's day");
+    at_a_trader(&mut world);
+    let plain = trader::shelf(|_| day);
+    for (slot, up) in [(0, ResourceId::Armour), (1, ResourceId::AutoRifle)] {
+        let shelf = &world.trader_here(slot).unwrap().shelf;
+        for (item, was) in shelf.iter().map(|i| i.unwrap()).zip(&plain) {
+            let want = if item.resource == up {
+                Tier::Two
+            } else {
+                was.tier
+            };
+            assert_eq!(item.tier, want, "slot {slot}: {item:?}");
+        }
+    }
+    let theirs: Vec<_> = world
+        .trader_here(2)
+        .unwrap()
+        .shelf
+        .iter()
+        .map(|i| i.unwrap())
+        .collect();
+    assert_eq!(theirs, plain);
 }

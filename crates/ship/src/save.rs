@@ -272,7 +272,9 @@ use crate::game::Game;
 /// bought off a shelf (`Run::shelf_bought`), which lifts its later shelves.
 /// 102: a trigger keeps its magazine (`Trigger::{spent, reloading, loaded}`)
 /// and a weapon its size (`WeaponStats::{magazine, reload_time}`).
-pub const SAVE_VERSION: u32 = 102;
+/// 103: the run keeps the best tier bought of each kind off a shelf, not
+/// of guns and armour (`Run::shelf_bought`).
+pub const SAVE_VERSION: u32 = 103;
 
 /// What the file holds, read back.
 #[derive(serde::Deserialize)]

@@ -204,7 +204,11 @@ use serde::{Deserialize, Serialize};
 /// (`heart::guardians_for_link`): both ends must lay alike.
 /// 133: no weapon loses damage over distance (every `damage_far` its
 /// near number): both ends must land hits alike.
-pub const PROTOCOL: u32 = 133;
+/// 134: a trader's shelf is every gun but the pistol and the armour, each
+/// kind a tier past the best of it the player has bought (a tank's armour
+/// and a soldier's auto rifle counted as bought at tier one): both ends
+/// must stock alike.
+pub const PROTOCOL: u32 = 134;
 
 /// Where the relay lives. `BIMS_SERVER` in the environment overrides it
 /// — `ws://127.0.0.1:8792` for one on the same machine.

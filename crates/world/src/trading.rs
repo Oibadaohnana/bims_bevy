@@ -245,14 +245,12 @@ impl World {
         self.run.proposal = None;
         self.run.departure = None;
         // A trader of their own for every player not met here yet. The
-        // shelf is rolled afresh every visit, at the tier the day has
-        // reached (October 2026). No trader sells a relic.
-        let visit = self.clock_minutes.to_bits();
-        let seed = self.galaxy_seed;
+        // shelf is put up afresh every visit, every kind at its tier for
+        // the player (October 2026). No trader sells a relic.
         for at in 0..self.run.traders.len() {
             if self.run.traders[at].site == site {
-                let tiers = self.shelf_tiers(self.run.traders[at].owner);
-                self.run.traders[at].restock(seed, visit, tiers);
+                let shelf = self.shelf_for(self.run.traders[at].owner);
+                self.run.traders[at].restock(shelf);
             }
         }
         for owner in 0..self.players() {
@@ -268,10 +266,9 @@ impl World {
                 .run
                 .traders
                 .partition_point(|t| (t.site, t.owner) < (site, owner));
-            self.run.traders.insert(
-                at,
-                Trader::new(seed, site, owner, visit, self.shelf_tiers(owner)),
-            );
+            self.run
+                .traders
+                .insert(at, Trader::new(site, owner, self.shelf_for(owner)));
         }
     }
 
@@ -341,19 +338,20 @@ impl World {
             return;
         }
         self.run.traders[at].shelf[index as usize] = None;
-        // Bought, every later shelf of the player's sells its kind a tier
-        // past it — and what is left of its kind on this one is put up at
-        // once (October 2026).
-        let kind = usize::from(!item.is_weapon());
+        // Bought, every later shelf of the player's sells that kind — and
+        // that kind alone — a tier past it (October 2026).
         let slot_at = slot as usize;
         if self.run.shelf_bought.len() <= slot_at {
-            self.run.shelf_bought.resize(slot_at + 1, [0; 2]);
+            self.run.shelf_bought.resize(slot_at + 1, Vec::new());
         }
-        let best = &mut self.run.shelf_bought[slot_at][kind];
-        *best = (*best).max(item.tier.code());
-        let tiers = self.shelf_tiers(slot);
-        let lifted = if item.is_weapon() { tiers.0 } else { tiers.1 };
-        self.run.traders[at].lift(item.is_weapon(), lifted);
+        let bought = &mut self.run.shelf_bought[slot_at];
+        match bought.iter_mut().find(|b| b.resource == item.resource) {
+            Some(best) => best.tier = best.tier.max(item.tier),
+            None => {
+                let at = bought.partition_point(|b| (b.resource as u32) < (item.resource as u32));
+                bought.insert(at, item);
+            }
+        }
         let thing = match item.weapon() {
             Some(weapon) => Item::Weapon(weapon),
             None => {
@@ -391,25 +389,35 @@ impl World {
         crate::items::shop_tier(&self.scaling(), self.run_day())
     }
 
-    /// The tiers player `slot`'s shelf sells its guns and its armour at
-    /// (October 2026): each the day's ([`World::shop_tier`]), or one past
-    /// the best of its kind the player has bought off a shelf this run
-    /// where that is higher — tier three at most, so a tier-three thing
-    /// bought leaves the shelf at three.
-    pub fn shelf_tiers(&self, slot: u32) -> (Tier, Tier) {
+    /// The tier player `slot`'s shelf sells the kind `resource` at
+    /// (October 2026): the day's ([`World::shop_tier`]), or one past the
+    /// best of that kind the player has bought off a shelf this run where
+    /// that is higher — tier three at most, so a tier-three thing bought
+    /// leaves it at three. A class's start counts as bought at tier one:
+    /// the tank's armour and the soldier's auto rifle, so their shelves
+    /// sell that kind at tier two from the first trader on.
+    /// ([`trader::shelf`] puts a kind not made that low up to its own.)
+    pub fn shelf_tier(&self, slot: u32, resource: ResourceId) -> Tier {
         let day = self.shop_tier();
+        let start = match self.class_of(slot) {
+            Class::Soldier => Some(ResourceId::AutoRifle),
+            Class::Tank => Some(ResourceId::Armour),
+            _ => None,
+        };
         let bought = self
             .run
             .shelf_bought
             .get(slot as usize)
-            .copied()
-            .unwrap_or_default();
-        let past = |code: u32| {
-            Tier::from_code(code)
-                .map(|t| t.next().unwrap_or(t))
-                .map_or(day, |t| t.max(day))
-        };
-        (past(bought[0]), past(bought[1]))
+            .and_then(|b| b.iter().find(|b| b.resource == resource))
+            .map(|b| b.tier)
+            .or_else(|| (start == Some(resource)).then_some(Tier::One));
+        bought.map_or(day, |t| t.next().unwrap_or(t).max(day))
+    }
+
+    /// Player `slot`'s shelf for a visit ([`trader::shelf`]): every gun but
+    /// the pistol and the armour, each at [`World::shelf_tier`].
+    pub fn shelf_for(&self, slot: u32) -> Vec<ShelfItem> {
+        trader::shelf(|resource| self.shelf_tier(slot, resource))
     }
 
     /// The trader's item shelf today ([`crate::items::shop`]): every kind

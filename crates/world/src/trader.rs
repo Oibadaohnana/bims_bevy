@@ -33,12 +33,13 @@
 //!
 //! # The shelf
 //!
-//! [`data::TRADER_WEAPONS`] weapon and [`data::TRADER_ARMOUR`] piece — one
-//! each since October 2026 — any kind made at the **tier the day has
-//! reached** (`crate::items::shop_tier`, off the scaling's tier days:
-//! never a minigun at tier one or a rail lance below three, task 115),
-//! rolled off the galaxy's seed, the site, the player and the visit on a
-//! stream of their own ([`roll_shelf`]) — every visit afresh. Beside it
+//! **Every** gun but the laser pistol ([`data::TRADER_WEAPONS`]) and the
+//! armour ([`data::TRADER_ARMOUR`]), always (October 2026), each kind at
+//! its own tier ([`shelf`], `World::shelf_tier`): the **tier the day has
+//! reached** (`crate::items::shop_tier`, off the scaling's tier days), or
+//! one past the best of that kind the player has bought, and never below
+//! the lowest its kind is made at (a minigun at two, a rail lance at
+//! three, task 115) — put up afresh every visit. Beside it
 //! the **items** (`crate::items::shop`): every kind at the day's tier,
 //! one of each a visit.
 
@@ -288,100 +289,34 @@ impl ShelfItem {
     }
 }
 
-/// A trader's shelf for player `owner` on a visit: [`data::TRADER_WEAPONS`]
-/// weapons, then [`data::TRADER_ARMOUR`] pieces, drawn from
-/// [`shelf_candidates`] — the guns at `tiers.0` and the armour at
-/// `tiers.1`: each the tier the day has reached
-/// (`crate::items::shop_tier`), or one past the best of its kind the
-/// player has bought where that is higher (`World::shelf_tiers`, October
-/// 2026) — off the galaxy's seed, the site, the player and `visit` (the
-/// world clock's minute of the arrival) on a stream of the shelf's own:
-/// the same on every machine, and another shelf every visit.
-pub fn roll_shelf(
-    galaxy_seed: u64,
-    star: u32,
-    station: u32,
-    owner: u32,
-    visit: u64,
-    tiers: (Tier, Tier),
-) -> Vec<ShelfItem> {
-    let seed = worldgen::rng::mix(galaxy_seed ^ 0x_5348_454C_4600)
-        ^ worldgen::rng::mix(u64::from(star) << 32 | u64::from(station))
-        ^ worldgen::rng::mix(0x_4F57_4E45_5200 + u64::from(owner))
-        ^ worldgen::rng::mix(visit);
-    shelf_off(seed, tiers)
-}
-
-/// A trader's shelf **rolled again** (task 118, *Restock Codes*): the
-/// draws of [`roll_shelf`] off a seed that also mixes `again` — the world
-/// clock's minute of the visit — so a restock is the same on every
-/// machine and another visit's is another shelf.
-pub fn reroll_shelf(
-    galaxy_seed: u64,
-    star: u32,
-    station: u32,
-    again: u64,
-    tier: Tier,
-) -> Vec<ShelfItem> {
-    let seed = worldgen::rng::mix(galaxy_seed ^ 0x_5245_5354_4F43)
-        ^ worldgen::rng::mix(u64::from(star) << 32 | u64::from(station))
-        ^ worldgen::rng::mix(again);
-    shelf_off(seed, (tier, tier))
-}
-
-/// The shelf's draws off one seed: the guns at `tiers.0`, the armour at
-/// `tiers.1`, never one thing twice while the list has another.
-fn shelf_off(seed: u64, (weapons, armour): (Tier, Tier)) -> Vec<ShelfItem> {
-    let mut rng = worldgen::rng::Rng::new(seed);
-    let mut shelf = Vec::with_capacity(data::TRADER_WEAPONS + data::TRADER_ARMOUR);
-    // One draw a thing, over every kind the list makes at the tier: a
-    // minigun at tier one or a lance below three is never a candidate at
-    // all (task 115), rather than drawn and moved up.
-    let mut draw = |list: &[ResourceId], tier: Tier, n: usize, rng: &mut worldgen::rng::Rng| {
-        let mut candidates = Vec::new();
-        for _ in 0..n {
-            if candidates.is_empty() {
-                candidates = shelf_candidates(list, Some(tier));
+/// A trader's shelf for one player (October 2026): **every** gun a shelf
+/// sells ([`shelf_kinds`] of [`worldgen::data::WEAPONS`]: never the laser
+/// pistol), then every piece of armour, in the lists' order — each at the
+/// tier `tier_of` gives its kind (`World::shelf_tier`), put up to the
+/// lowest tier the kind is made at where that is higher: a minigun is
+/// always on the shelf, at tier two before the day reaches it.
+pub fn shelf(tier_of: impl Fn(ResourceId) -> Tier) -> Vec<ShelfItem> {
+    shelf_kinds(&worldgen::data::WEAPONS)
+        .chain(shelf_kinds(&worldgen::data::ARMOUR))
+        .map(|resource| {
+            let mut tier = tier_of(resource);
+            while armour::weapon_of(resource).is_some_and(|kind| !kind.made_at(tier)) {
+                match tier.next() {
+                    Some(up) => tier = up,
+                    None => break,
+                }
             }
-            if candidates.is_empty() {
-                return;
-            }
-            let at = rng.below(candidates.len() as u32) as usize;
-            shelf.push(candidates.remove(at));
-        }
-    };
-    draw(
-        &worldgen::data::WEAPONS,
-        weapons,
-        data::TRADER_WEAPONS,
-        &mut rng,
-    );
-    draw(
-        &worldgen::data::ARMOUR,
-        armour,
-        data::TRADER_ARMOUR,
-        &mut rng,
-    );
-    shelf
-}
-
-/// Every thing of `list` a shelf may hold: each kind at each tier it is
-/// made at ([`bims::combat::WeaponKind::made_at`] for a gun; the armour is
-/// made at every tier) — at `tier` alone where one is given — the kinds
-/// in the list's order and the tiers upward. **Never the laser pistol**
-/// (October 2026): every Bim sets out with one, and none is bought or
-/// sold.
-pub fn shelf_candidates(list: &[ResourceId], tier: Option<Tier>) -> Vec<ShelfItem> {
-    list.iter()
-        .filter(|&&resource| armour::weapon_of(resource) != Some(WeaponKind::LaserPistol))
-        .flat_map(|&resource| {
-            Tier::ALL
-                .into_iter()
-                .filter(move |&t| tier.is_none_or(|want| want == t))
-                .filter(move |&t| armour::weapon_of(resource).is_none_or(|kind| kind.made_at(t)))
-                .map(move |t| ShelfItem { resource, tier: t })
+            ShelfItem { resource, tier }
         })
         .collect()
+}
+
+/// The kinds of `list` a shelf sells: all but the laser pistol (October
+/// 2026) — every Bim sets out with one, and none is bought or sold.
+pub fn shelf_kinds(list: &[ResourceId]) -> impl Iterator<Item = ResourceId> + '_ {
+    list.iter()
+        .copied()
+        .filter(|&resource| armour::weapon_of(resource) != Some(WeaponKind::LaserPistol))
 }
 
 /// What the world keeps about one trader the crew have been to: what is
@@ -405,54 +340,25 @@ pub struct Trader {
 }
 
 impl Trader {
-    /// Player `owner`'s trader met for the first time: its shelf rolled
-    /// for the visit at `tiers`, the guns' and the armour's ([`roll_shelf`]).
-    pub fn new(
-        galaxy_seed: u64,
-        site: Site,
-        owner: u32,
-        visit: u64,
-        tiers: (Tier, Tier),
-    ) -> Trader {
+    /// Player `owner`'s trader met for the first time, its shelf `shelf`
+    /// ([`shelf`]).
+    pub fn new(site: Site, owner: u32, shelf: Vec<ShelfItem>) -> Trader {
         let mut trader = Trader {
             site,
             owner,
             shelf: Vec::new(),
             items_sold: Vec::new(),
         };
-        trader.restock(galaxy_seed, visit, tiers);
+        trader.restock(shelf);
         trader
     }
 
-    /// The shelf rolled afresh for a visit (October 2026): two guns and
-    /// one piece at `tiers` (the guns', the armour's), whatever was bought
-    /// the visit before, and every item on sale again.
-    pub fn restock(&mut self, galaxy_seed: u64, visit: u64, tiers: (Tier, Tier)) {
+    /// The shelf put up afresh for a visit (October 2026): every kind
+    /// again at `shelf`'s tiers, whatever was bought the visit before, and
+    /// every item on sale again.
+    pub fn restock(&mut self, shelf: Vec<ShelfItem>) {
         self.items_sold.clear();
-        self.shelf = roll_shelf(
-            galaxy_seed,
-            self.site.star,
-            self.site.station,
-            self.owner,
-            visit,
-            tiers,
-        )
-        .into_iter()
-        .map(Some)
-        .collect();
-    }
-
-    /// What is left on the shelf of guns (`weapons`) or of armour put up
-    /// to `tier` where it is below it, the kind kept: a thing bought lifts
-    /// the rest of its kind at once (October 2026). A kind made at a tier
-    /// is made at every tier above it, so a lift is always a thing the
-    /// shelf could have drawn.
-    pub fn lift(&mut self, weapons: bool, tier: Tier) {
-        for item in self.shelf.iter_mut().flatten() {
-            if item.is_weapon() == weapons && item.tier < tier {
-                item.tier = tier;
-            }
-        }
+        self.shelf = shelf.into_iter().map(Some).collect();
     }
 }
 
@@ -460,85 +366,46 @@ impl Trader {
 mod tests {
     use super::*;
 
+    /// Every gun but the pistol, then the armour, each at the tier asked
+    /// or the lowest its kind is made at; the slots line up with
+    /// [`data::TRADER_WEAPONS`] and [`data::TRADER_ARMOUR`].
     #[test]
-    fn a_shelf_is_the_seed_s_and_holds_what_it_should() {
-        let roll = |star, station, owner, visit, tier| {
-            roll_shelf(7, star, station, owner, visit, (tier, tier))
-        };
-        let a = roll(3, 2, 0, 0, Tier::One);
-        assert_eq!(a, roll(3, 2, 0, 0, Tier::One));
-        // Another site, another player or another visit: another shelf,
-        // over enough of them that one alike by chance does not decide it.
-        assert!((0..20).any(|n| roll(3, 2 + n, 0, 0, Tier::One) != a));
-        assert!((0..20).any(|n| roll(3, 2, 1 + n, 0, Tier::One) != a));
-        assert!((0..20).any(|n| roll(3, 2, 0, 1 + n, Tier::One) != a));
-        // Two guns, never alike, and one piece (October 2026), at the tier
-        // asked.
-        assert_eq!(a.len(), data::TRADER_WEAPONS + data::TRADER_ARMOUR);
-        assert_eq!((data::TRADER_WEAPONS, data::TRADER_ARMOUR), (2, 1));
-        assert_ne!(a[0], a[1]);
-        assert!(a[..data::TRADER_WEAPONS].iter().all(|i| i.is_weapon()));
-        assert!(
-            a[data::TRADER_WEAPONS..]
-                .iter()
-                .all(|i| i.armour().is_some())
-        );
-        // Over many shelves every kind turns up, and only at the tier.
-        for tier in Tier::ALL {
-            let mut kinds = std::collections::BTreeSet::new();
-            for station in 0..400 {
-                for item in roll_shelf(11, 1, station, 0, 0, (tier, tier)) {
-                    assert_eq!(item.tier, tier, "{item:?}");
-                    kinds.insert(item.resource as u32);
-                }
-            }
-            assert_eq!(
-                kinds.len(),
-                shelf_candidates(&worldgen::data::WEAPONS, Some(tier)).len() + 1
+    fn a_shelf_holds_every_gun_and_the_armour_at_their_tiers() {
+        for day in Tier::ALL {
+            let a = shelf(|_| day);
+            assert_eq!(a.len(), data::TRADER_WEAPONS + data::TRADER_ARMOUR);
+            assert_eq!((data::TRADER_WEAPONS, data::TRADER_ARMOUR), (6, 1));
+            assert!(a[..data::TRADER_WEAPONS].iter().all(|i| i.is_weapon()));
+            assert!(
+                a[data::TRADER_WEAPONS..]
+                    .iter()
+                    .all(|i| i.armour().is_some())
             );
-        }
-    }
-
-    /// Task 115: no shelf over many seeds holds a minigun at tier one or a
-    /// rail lance below three, and both do turn up.
-    #[test]
-    fn no_shelf_holds_a_weapon_below_its_lowest_tier_and_both_new_kinds_turn_up() {
-        let (mut miniguns, mut lances) = (0, 0);
-        for seed in 0..40u64 {
-            for station in 0..50 {
-                let tier = Tier::ALL[(station % 3) as usize];
-                for item in roll_shelf(seed, (seed % 7) as u32, station, 0, 0, (tier, tier)) {
-                    let Some(w) = item.weapon() else {
-                        continue;
-                    };
-                    assert!(
-                        w.kind.made_at(w.tier),
-                        "seed {seed} station {station}: {w:?}"
-                    );
-                    match w.kind {
-                        WeaponKind::Minigun => miniguns += 1,
-                        WeaponKind::RailLance => lances += 1,
-                        _ => {}
-                    }
-                }
+            let kinds: Vec<_> = a.iter().filter_map(|i| i.weapon()).collect();
+            for kind in WeaponKind::ALL {
+                let on = kinds.iter().filter(|w| w.kind == kind).count();
+                assert_eq!(on, usize::from(kind != WeaponKind::LaserPistol), "{kind:?}");
+            }
+            for item in &a {
+                let lowest = item.weapon().map_or(Tier::One, |w| w.kind.min_tier());
+                assert_eq!(item.tier, day.max(lowest), "{item:?}");
             }
         }
-        assert!(
-            miniguns > 20 && lances > 20,
-            "{miniguns} miniguns, {lances} lances"
-        );
-        // The candidates: seven kinds less the pistol (never on a shelf),
-        // the minigun at two tiers and the lance at one, so 4 x 3 + 2 + 1;
-        // and the one armour at every tier.
-        assert_eq!(shelf_candidates(&worldgen::data::WEAPONS, None).len(), 15);
-        assert_eq!(shelf_candidates(&worldgen::data::ARMOUR, None).len(), 3);
-        assert_eq!(
-            shelf_candidates(&worldgen::data::WEAPONS, Some(Tier::One)).len(),
-            4
-        );
-        assert_eq!(
-            shelf_candidates(&worldgen::data::WEAPONS, Some(Tier::Three)).len(),
-            6
-        );
+        // One kind a tier up leaves the others where they were.
+        let up = shelf(|r| {
+            if r == ResourceId::Shotgun {
+                Tier::Two
+            } else {
+                Tier::One
+            }
+        });
+        for item in up {
+            let want = match item.resource {
+                ResourceId::Shotgun | ResourceId::Minigun => Tier::Two,
+                ResourceId::RailLance => Tier::Three,
+                _ => Tier::One,
+            };
+            assert_eq!(item.tier, want, "{item:?}");
+        }
     }
 }

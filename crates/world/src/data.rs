@@ -507,11 +507,13 @@ pub const TRADER_NEAR_HOPS: u16 = 1;
 /// eligible within reach (the edge of a galaxy hemmed in by elites and the
 /// Manufacturers) is the only one left without.
 pub const TRADER_EVERY_HOPS: u16 = 5;
-/// How many weapons a trader's shelf holds: two, never alike and never
-/// the laser pistol (October 2026; it was four, then one), any kind made
-/// at the shelf's tier, rolled again every visit.
-pub const TRADER_WEAPONS: usize = 2;
-/// How many pieces of armour it holds beside it: one (it was three).
+/// How many weapons a trader's shelf holds: every kind but the laser
+/// pistol, one of each (October 2026; it was four drawn, then one, then
+/// two), each at its own tier (`trader::shelf`). The app reads it to put
+/// the shelf's first slots under its Weapons heading.
+pub const TRADER_WEAPONS: usize = 6;
+/// How many pieces of armour it holds beside them: the one armour (it
+/// was three).
 pub const TRADER_ARMOUR: usize = 1;
 /// What an item costs at a trader (October 2026, `crate::items`), by its
 /// kind's code and its tier, one to three: the *Blink Drive*, the

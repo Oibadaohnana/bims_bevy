@@ -7559,3 +7559,32 @@ is the rule.
   (both ends must land the hits alike).
   `tests_manufacturer::a_leech_and_an_arc_work_on_their_people` and
   `a_manufacturer_downed_lengthens_a_rampage` are the rule.
+
+## Every gun on the shelf, each kind its own tier (October 2026)
+
+> "Two guns, a shelf a tier past what was bought" above says a shelf is
+> two guns drawn and a piece, and a thing bought lifts its whole kind
+> (guns or armour); both moved.
+
+- **The shelf is every kind, always** (`trader::shelf(tier_of)`): every
+  gun of `worldgen::data::WEAPONS` but the laser pistol
+  (`trader::shelf_kinds`), then the armour, in the lists' order —
+  `data::TRADER_WEAPONS` (6) and `TRADER_ARMOUR` (1), which the app
+  reads for its two headings. Nothing is rolled: `roll_shelf`,
+  `reroll_shelf`, `shelf_off`, `shelf_candidates` and `Trader::lift`
+  went; `Trader::new(site, owner, shelf)` and `restock(shelf)` take the
+  shelf `World::shelf_for(slot)` puts up.
+- **Each kind its own tier**: `World::shelf_tier(slot, resource)` is the
+  day's (`shop_tier`), or one past the best of **that kind** the player
+  has bought where higher, three at most; `trader::shelf` puts a kind
+  not made that low up to its own lowest (the minigun at two, the lance
+  at three). `Run::shelf_bought` is a `Vec<ShelfItem>` a player slot —
+  the best tier of each kind bought, a kind once, sorted by resource
+  (hashed in the traders' block only where any is set).
+- **A class's start counts as bought at tier one**: a tank's armour and
+  a soldier's auto rifle, so from the first trader on their shelves sell
+  that kind at tier two.
+- **`SAVE_VERSION` 103, `wire::PROTOCOL` 134.** `tests_trader.rs`
+  (`every_gun_is_on_the_shelf_and_only_the_kind_bought_goes_a_tier_up`,
+  `the_tank_and_soldier_are_offered_their_kit_a_tier_up_from_the_start`)
+  and `trader::tests` are the rule.

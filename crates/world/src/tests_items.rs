@@ -154,10 +154,11 @@ fn a_trader_sells_items_at_the_day_s_tier_onto_the_buyer_s_own_bim() {
         world.item_offer(0, ModuleKind::Executioner.code()),
         Some(ItemOffer::Buy(crit))
     );
-    // And the two guns and the piece are the day's tier too.
+    // And every gun and the armour are the day's tier too (or their
+    // kind's lowest, above it).
     let trader = world.trader_here(0).unwrap();
-    assert_eq!(trader.shelf.len(), 3);
-    assert!(trader.shelf.iter().flatten().all(|i| i.tier == tier));
+    let shelf: Vec<_> = trader.shelf.iter().flatten().copied().collect();
+    assert_eq!(shelf, crate::trader::shelf(|_| tier));
     let price = world.item_price(crit);
     let before = world.wallet(0);
     let events = world.step(&[Command::BuyItem {
