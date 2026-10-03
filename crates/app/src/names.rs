@@ -2304,6 +2304,18 @@ pub const TRADER_ITEMS: &str = "Items";
 pub const TRADER_ITEMS_INTRO: &str = "Every item at the tier the day has reached, one of each a visit. Onto your own Bim's first free item slot, or into the armory — a bot carries none. Two of a kind at one tier combine into one of the next.";
 pub const TRADER_SOLD: &str = "SOLD";
 pub const TRADER_BUY: &str = "Buy";
+/// The button on a line the player already has one of: bought, the two
+/// are combined a tier up at once.
+pub const TRADER_BUY_COMBINE: &str = "Buy & Combine";
+/// The note under such a line: what the bought one is combined with.
+pub fn buy_combines_with(worn_by: Option<&str>) -> String {
+    match worn_by {
+        Some(who) => format!("combines with {who}'s"),
+        None => "combines with the armory's".into(),
+    }
+}
+/// The hover over such a line.
+pub const TRADER_BUY_COMBINE_TIP: &str = "You already have one of these at this tier: buying it combines the two into one of the next tier at once, where the first one is — the price and the combine fee together.";
 pub const TRADER_INTO_ARMORY: &str = "Armory";
 pub const TRADER_COMBINE: &str = "Combine";
 pub const TRADER_COMBINE_INTRO: &str = "Two weapons or two pieces of one kind at one tier make one of the next tier, whole. Out of the armory, off your own Bim or off a bot. Where one of the two is worn, the result is worn in its place. Tier three is as far as it goes.";

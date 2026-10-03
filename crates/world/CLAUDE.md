@@ -6821,6 +6821,15 @@ is `item_use.rs` (a child of `world`, like `relics.rs`); the numbers are
   `NotForSale`, the player's own Bim's first free slot or the armory,
   `item_price` through the dials, *Trade License* and the players'
   share. `WorldEvent::ItemBought` (148).
+  **A second of a kind combines at once**: a `BuyItem` or a `BuyShelf`
+  of a thing the player already has at that tier under three
+  (`World::buy_partner`: on the Bim it is for, then the others it may
+  change, then the armory) pays the price **and** the combine fee and
+  makes the next tier where the first one is (`combine_bought`,
+  `WorldEvent::Combined` beside the buy's event) — it wants no free item
+  slot. The trader's window reads `buy_partner` to draw the line
+  outlined in the next tier with *Buy & Combine*. `wire::PROTOCOL` 102;
+  `a_second_of_a_kind_bought_is_combined_with_the_first`.
 - **Blink Drive**: `Command::UseItem { item, x, y }` (room units) —
   `can_use_item`: `NotAPlayer`, `NoSuchItem` (empty or passive),
   `OutOfReach` (not in a mission or not fit), `CoolingDown`,

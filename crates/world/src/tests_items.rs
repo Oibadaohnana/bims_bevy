@@ -227,6 +227,93 @@ fn a_trader_sells_items_at_the_day_s_tier_and_two_combine() {
     }
 }
 
+/// **A second of a thing the player has is bought and combined at once**:
+/// an item worn is made a tier up in its slot though every slot is full,
+/// one in the armory a tier up there, and a shelf's gun with the one in
+/// the armory — each for the price and the combine fee, the bought one
+/// landing nowhere.
+#[test]
+fn a_second_of_a_kind_bought_is_combined_with_the_first() {
+    let mut world = basic();
+    at_a_trader(&mut world);
+    let tier = world.shop_tier();
+    let next = tier.next().expect("the first days sell under tier three");
+    // Worn, every slot full.
+    let crit = ModuleKind::Executioner.at(tier);
+    for index in 0..ITEM_SLOTS {
+        carry(&mut world, 0, index, Some(ModuleKind::LongBarrel.at(tier)));
+    }
+    carry(&mut world, 0, 2, Some(crit));
+    let thing = Item::Module(crit);
+    assert_eq!(
+        world.buy_partner(0, thing, Some(0)),
+        Some(GearSource::Worn {
+            who: 0,
+            slot: GearSlot::Item3
+        })
+    );
+    let before = world.wallet(0);
+    let price = world.item_price(crit) + world.combine_fee();
+    let events = world.step(&[Command::BuyItem {
+        slot: 0,
+        kind: ModuleKind::Executioner.code(),
+        to: Some(0),
+    }]);
+    assert!(
+        events
+            .iter()
+            .any(|e| matches!(e, WorldEvent::Combined { who: 0, .. })),
+        "{events:?}"
+    );
+    assert_eq!(world.wallet(0), before - price);
+    assert_eq!(world.items_of(0)[2], Some(ModuleKind::Executioner.at(next)));
+    assert!(world.holdings.armory.is_empty());
+    // In the armory, bought for the armory.
+    let blink = ModuleKind::BlinkDrive.at(tier);
+    world.holdings.put(Item::Module(blink));
+    world.step(&[Command::BuyItem {
+        slot: 0,
+        kind: ModuleKind::BlinkDrive.code(),
+        to: None,
+    }]);
+    let blinks: Vec<Item> = world
+        .holdings
+        .armory
+        .iter()
+        .map(|s| s.item)
+        .filter(|i| matches!(i, Item::Module(m) if m.kind == ModuleKind::BlinkDrive))
+        .collect();
+    assert_eq!(blinks, vec![Item::Module(ModuleKind::BlinkDrive.at(next))]);
+    // Nothing to combine with: bought as ever.
+    assert_eq!(
+        world.buy_partner(0, Item::Module(ModuleKind::ReactorHeart.at(tier)), None),
+        None
+    );
+    // The shelf's gun, with one like it in the armory.
+    let gun = world.trader_here(0).unwrap().shelf[0].expect("a gun on the shelf");
+    let weapon = gun.weapon().expect("the first slot is the gun");
+    world.holdings.put(Item::Weapon(weapon));
+    let events = world.step(&[Command::BuyShelf {
+        slot: 0,
+        index: 0,
+        to: None,
+    }]);
+    assert!(
+        events
+            .iter()
+            .any(|e| matches!(e, WorldEvent::Combined { .. })),
+        "{events:?}"
+    );
+    let guns: Vec<Item> = world
+        .holdings
+        .armory
+        .iter()
+        .map(|s| s.item)
+        .filter(|i| matches!(i, Item::Weapon(w) if w.kind == weapon.kind))
+        .collect();
+    assert_eq!(guns, vec![Item::Weapon(weapon.kind.at(next))]);
+}
+
 /// **A Reactor Heart raises the bar and puts hit points back**: a full
 /// bar stays full with it put on, and a Bim nobody hits mends at the quiet
 /// rate.

@@ -1559,13 +1559,13 @@ pub fn trader_window(
                             // half of the shelf it was in: the weapons come
                             // first, [`world::data::TRADER_WEAPONS`] of them.
                             if (index < world::data::TRADER_WEAPONS) == weapons {
-                                shelf_row(ui, world, local, index, *slot, row, to, orders);
+                                shelf_row(ui, world, local, index, *slot, row, to, orders, name);
                                 row += 1;
                             }
                         }
                     }
                     form_heading(ui, TRADER_ITEMS, Some(TRADER_ITEMS_INTRO));
-                    item_rows(ui, world, local, to, orders);
+                    item_rows(ui, world, local, to, orders, name);
                     form_heading(ui, TRADER_COMBINE, Some(TRADER_COMBINE_INTRO));
                     combine_rows(ui, world, local, orders, name);
                 });
@@ -1815,6 +1815,10 @@ struct Line<'a> {
     row: usize,
     /// Which line of the form it is, for the others' eyes on it.
     key: Option<TradeLine>,
+    /// A thing the player has one of already: bought, the two are
+    /// combined a tier up. The line is outlined in the next tier's colour
+    /// and its button is wide and lit.
+    combine: bool,
 }
 
 /// Draws a line item and answers whether its button was pressed. A line
@@ -1850,6 +1854,18 @@ fn line_item(ui: &mut egui::Ui, wallet: economy::Money, line: Line) -> bool {
             .collect();
         mark_chosen(&painter, rect, &colours);
     }
+    // A buy that combines: washed and outlined in the tier it makes.
+    let combine_colour = line.tint.unwrap_or(theme::ACCENT);
+    if line.combine {
+        painter.rect(
+            rect,
+            3.0,
+            combine_colour.gamma_multiply(0.14),
+            egui::Stroke::new(1.5, combine_colour),
+            egui::StrokeKind::Inside,
+        );
+    }
+    let button_width = if line.combine { 124.0 } else { 70.0 };
     // The icon, in its cell.
     let cell = egui::Rect::from_center_size(
         egui::pos2(rect.left() + 6.0 + LINE_ICON / 2.0, rect.center().y),
@@ -1873,8 +1889,8 @@ fn line_item(ui: &mut egui::Ui, wallet: economy::Money, line: Line) -> bool {
     let sold = matches!(line.face, Face::Empty);
     // The button at the right edge, the price before it.
     let button_rect = egui::Rect::from_min_size(
-        egui::pos2(rect.right() - 76.0, rect.center().y - 12.0),
-        egui::vec2(70.0, 24.0),
+        egui::pos2(rect.right() - 6.0 - button_width, rect.center().y - 12.0),
+        egui::vec2(button_width, 24.0),
     );
     let affordable = line.price <= wallet;
     let text_x = cell.right() + 10.0;
@@ -1962,21 +1978,20 @@ fn line_item(ui: &mut egui::Ui, wallet: economy::Money, line: Line) -> bool {
     if let Some(tip) = &line.tip {
         response.on_hover_text(tip);
     }
-    ui.put(
-        button_rect,
-        egui::Button::new(
-            egui::RichText::new(line.button.to_uppercase())
-                .strong()
-                .size(12.0),
-        )
-        .fill(if line.open {
-            theme::RAISED_ON
-        } else {
-            theme::RAISED
-        }),
+    let mut button = egui::Button::new(
+        egui::RichText::new(line.button.to_uppercase())
+            .strong()
+            .size(12.0),
     )
-    .clicked()
-        && line.open
+    .fill(match (line.open, line.combine) {
+        (true, true) => combine_colour.gamma_multiply(0.55),
+        (true, false) => theme::RAISED_ON,
+        (false, _) => theme::RAISED,
+    });
+    if line.combine {
+        button = button.stroke(egui::Stroke::new(1.0, combine_colour));
+    }
+    ui.put(button_rect, button).clicked() && line.open
 }
 
 /// Three pips from `at` (their left edge, their middle), `tier` of them
@@ -2067,6 +2082,7 @@ fn shelf_row(
     row: usize,
     to: u32,
     orders: &mut Vec<Order>,
+    name: &dyn Fn(u32) -> String,
 ) {
     let wallet = world.wallet(local);
     let Some(item) = slot else {
@@ -2085,6 +2101,7 @@ fn shelf_row(
                 tip: None,
                 row,
                 key: None,
+                combine: false,
             },
         );
         return;
@@ -2096,35 +2113,87 @@ fn shelf_row(
         bims::combat::Item::Module(m) => crate::names::item_name(m.kind),
         bims::combat::Item::Stack(_) => resource_name(item.resource),
     };
+    let to = (to != u32::MAX).then_some(to);
+    let tier = item.tier.code();
+    let combine = combine_note(world, local, thing, to, name);
+    let price = world.shelf_price(item) + combine.as_ref().map_or(0, |_| world.combine_fee());
     let bought = line_item(
         ui,
         wallet,
         Line {
             face: Face::Thing(thing),
-            tint: theme::item_tint(thing),
+            tint: match combine {
+                Some(_) => tier_cell_tint(tier + 1),
+                None => theme::item_tint(thing),
+            },
             name: what,
-            tier: Some((item.tier.code(), None)),
-            note: None,
-            price: world.shelf_price(item),
-            button: TRADER_BUY,
-            open: world.shelf_price(item) <= wallet,
-            tip: Some(crate::crew::tip_of(thing, 1)),
+            tier: Some((tier, combine.as_ref().map(|_| tier + 1))),
+            price,
+            button: if combine.is_some() {
+                TRADER_BUY_COMBINE
+            } else {
+                TRADER_BUY
+            },
+            open: price <= wallet,
+            tip: Some(combine_tip(
+                crate::crew::tip_of(thing, 1),
+                combine.is_some(),
+            )),
             row,
             key: Some(TradeLine::Shelf(index as u32)),
+            combine: combine.is_some(),
+            note: combine,
         },
     );
     if bought {
         orders.push(Order::BuyShelf {
             index: index as u32,
-            to: (to != u32::MAX).then_some(to),
+            to,
         });
+    }
+}
+
+/// The note under a line whose thing would be combined, bought, with one
+/// the player has ([`World::buy_partner`]): where the first one is.
+/// `None` when it would simply be bought.
+fn combine_note(
+    world: &World,
+    local: u32,
+    thing: bims::combat::Item,
+    to: Option<u32>,
+    name: &dyn Fn(u32) -> String,
+) -> Option<String> {
+    let partner = world.buy_partner(local, thing, to)?;
+    Some(buy_combines_with(
+        match partner {
+            world::GearSource::Worn { who, .. } => Some(name(who)),
+            world::GearSource::Armory { .. } => None,
+        }
+        .as_deref(),
+    ))
+}
+
+/// A line's hover, the combine's rule under the thing's numbers when it
+/// would be combined.
+fn combine_tip(tip: String, combine: bool) -> String {
+    if combine {
+        format!("{TRADER_BUY_COMBINE_TIP}\n\n{tip}")
+    } else {
+        tip
     }
 }
 
 /// The trader's item shelf (October 2026): every item at the day's tier,
 /// a line each, bought onto the player's own Bim when it is the one
 /// delivered to, and into the armory otherwise — a bot carries none.
-fn item_rows(ui: &mut egui::Ui, world: &World, local: u32, to: u32, orders: &mut Vec<Order>) {
+fn item_rows(
+    ui: &mut egui::Ui,
+    world: &World,
+    local: u32,
+    to: u32,
+    orders: &mut Vec<Order>,
+    name: &dyn Fn(u32) -> String,
+) {
     let wallet = world.wallet(local);
     let onto = (to == local).then_some(local);
     for (row, item) in world.item_shelf().into_iter().enumerate() {
@@ -2146,27 +2215,44 @@ fn item_rows(ui: &mut egui::Ui, world: &World, local: u32, to: u32, orders: &mut
                     tip: None,
                     row,
                     key: None,
+                    combine: false,
                 },
             );
             continue;
         }
-        let price = world.item_price(item);
         let thing = bims::combat::Item::Module(item);
+        let tier = item.tier.code();
+        let combine = combine_note(world, local, thing, onto, name);
+        let price = world.item_price(item) + combine.as_ref().map_or(0, |_| world.combine_fee());
         let bought = line_item(
             ui,
             wallet,
             Line {
                 face: Face::Thing(thing),
-                tint: theme::item_tint(thing),
+                tint: match combine {
+                    Some(_) => tier_cell_tint(tier + 1),
+                    None => theme::item_tint(thing),
+                },
                 name: crate::names::item_name(item.kind),
-                tier: item.kind.tiered().then_some((item.tier.code(), None)),
-                note: None,
+                tier: item
+                    .kind
+                    .tiered()
+                    .then_some((tier, combine.as_ref().map(|_| tier + 1))),
                 price,
-                button: TRADER_BUY,
+                button: if combine.is_some() {
+                    TRADER_BUY_COMBINE
+                } else {
+                    TRADER_BUY
+                },
                 open: price <= wallet,
-                tip: Some(crate::names::module_tip(item, !item.kind.active())),
+                tip: Some(combine_tip(
+                    crate::names::module_tip(item, !item.kind.active()),
+                    combine.is_some(),
+                )),
                 row,
                 key: Some(TradeLine::Item(item.kind.code())),
+                combine: combine.is_some(),
+                note: combine,
             },
         );
         if bought {
@@ -2248,6 +2334,7 @@ fn combine_rows(
                 tip: None,
                 row: seen.len(),
                 key: Some(TradeLine::Combine(seen.len() as u32)),
+                combine: false,
             },
         );
         seen.push(k);

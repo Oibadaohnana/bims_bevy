@@ -115,7 +115,11 @@ use serde::{Deserialize, Serialize};
 /// 101: the tank reworked (task 155): `Command::{RiotShield, Reflect,
 /// Bastion}` where `Command::{Bulwark, Taunt, Juggernaut}` were, the
 /// shield's bounce and the barrier's hit back: both ends must fight alike.
-pub const PROTOCOL: u32 = 101;
+/// 102: a second of a thing a player has, bought at a trader, is combined
+/// with the first at once (`World::buy_partner`): both ends must buy alike.
+/// 103: a broken Riot Shield waits a ten-second cooldown and the shield
+/// restores by its rank: both ends must fight alike.
+pub const PROTOCOL: u32 = 103;
 
 /// Where the relay lives. `BIMS_SERVER` in the environment overrides it
 /// — `ws://127.0.0.1:8792` for one on the same machine.
