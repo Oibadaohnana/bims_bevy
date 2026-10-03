@@ -246,24 +246,29 @@ fn the_core_takes_nothing_while_a_conduit_stands() {
     );
 }
 
-/// **Every conduit shot down brings a wave** in by the airlocks, on top of
-/// whatever still stands — one a conduit, two for two downed in one step,
-/// none for a conduit already answered — and the waves by the clock still
-/// to come are left as they were.
+/// **No wave stands in the fortress, and every conduit shot down brings
+/// its Guardians** in by the airlocks, on top of whatever still stands —
+/// one for the first, two for the second and three for the third (two
+/// downed in one step bring both their lots), none for a conduit already
+/// answered — and no wave comes by the clock, however long it is quiet.
 #[test]
-fn every_conduit_shot_down_brings_a_wave() {
+fn every_conduit_shot_down_brings_its_guardians() {
     let mut world = at_the_heart(1, 2);
     laid(&mut world);
     let machines = |world: &mut World| {
         let room = room(world);
         (0..room.droid_count() as usize)
             .filter(|&i| room.droid(i).is_some_and(|d| !d.kind.is_structure()))
-            .count()
+            .map(|i| room.droid(i).unwrap().kind)
+            .collect::<Vec<_>>()
     };
+    assert!(machines(&mut world).is_empty(), "no wave is aboard");
     let (wave, left) = world.droid_wave_standing().unwrap();
-    let before = machines(&mut world);
-    assert!(before > 0, "the first wave is aboard");
-    let size = world.droid_wave_size() as usize;
+    assert_eq!(left, 0, "and none is to come by the clock");
+    for _ in 0..(data::DROID_REINFORCE_STEPS as usize + 60) {
+        world.step(&[]);
+    }
+    assert!(machines(&mut world).is_empty(), "the quiet brings nothing");
     let conduits = of_kind(&mut world, DroidKind::Conduit);
     assert!(conduits.len() >= 3);
     room(&mut world).strike_droid(conduits[0], DroidPart::Chassis, 1e9);
@@ -272,14 +277,10 @@ fn every_conduit_shot_down_brings_a_wave() {
         events
             .iter()
             .any(|e| matches!(e, WorldEvent::DroidReinforcements { .. })),
-        "a wave is said"
+        "they are said"
     );
-    assert_eq!(world.droid_wave_standing(), Some((wave + 1, left)));
-    assert_eq!(
-        machines(&mut world),
-        before + size,
-        "added, nothing cleared"
-    );
+    assert_eq!(world.droid_wave_standing(), Some((wave + 1, 0)));
+    assert_eq!(machines(&mut world), vec![DroidKind::Guardian]);
     assert_eq!(world.heart_fight().unwrap().links_down, 1);
     let events = world.step(&[]);
     assert!(
@@ -291,9 +292,21 @@ fn every_conduit_shot_down_brings_a_wave() {
     room(&mut world).strike_droid(conduits[1], DroidPart::Chassis, 1e9);
     room(&mut world).strike_droid(conduits[2], DroidPart::Chassis, 1e9);
     world.step(&[]);
-    assert_eq!(world.droid_wave_standing(), Some((wave + 3, left)));
+    assert_eq!(world.droid_wave_standing(), Some((wave + 3, 0)));
     assert_eq!(world.heart_fight().unwrap().links_down, 3);
-    assert_eq!(machines(&mut world), before + 3 * size, "two more came");
+    let came = machines(&mut world);
+    assert_eq!(came.len(), 1 + 2 + 3, "two and then three more came");
+    assert!(came.iter().all(|&k| k == DroidKind::Guardian));
+    let room = room(&mut world);
+    assert!(
+        (0..room.droid_count() as usize)
+            .filter_map(|i| room.droid(i))
+            .filter(|d| d.kind == DroidKind::Guardian)
+            .all(|d| d.tier == bims::combat::Tier::Three && d.seeking),
+        "at tier three, looking for the crew"
+    );
+    assert_eq!(heart::guardians_for_link(5), 5, "the fifth sends five");
+    assert_eq!(heart::guardians_for(5), 15);
 }
 
 /// **Exposed, the core fires one beam** — never two — at a crew member it
@@ -482,8 +495,8 @@ fn leaving_the_fortress_puts_it_back_whole() {
 }
 
 /// **The map's preview is the fortress's strength on arrival**: the
-/// conduits, the core, and the waves' size and count read at the arrival
-/// day are what the fight is built with.
+/// conduits, the core, and the Guardians its conduits send are what the
+/// fight is built with.
 #[test]
 fn the_map_s_preview_is_the_fortress_on_arrival() {
     let mut world = simulation_world(combat_ship(), REFERENCE_MONEY, 1);
@@ -523,9 +536,13 @@ fn the_map_s_preview_is_the_fortress_on_arrival() {
     let status = world.heart_status().unwrap();
     assert_eq!(status.conduits, preview.conduits);
     assert_eq!(status.core_max, preview.core_health);
-    assert_eq!(world.droid_wave_size(), preview.wave_size);
+    assert_eq!(
+        preview.guardians,
+        (1..=status.conduits).sum::<u32>(),
+        "one Guardian for the first conduit down, two for the second"
+    );
     let it = world.infestation(site.station).unwrap();
-    assert_eq!(it.waves_left + 1, preview.wave_count);
+    assert_eq!(it.waves_left, 0, "and no waves");
 }
 
 /// **The fight is the same on two worlds** given the same seed and the same
@@ -612,8 +629,8 @@ fn the_end_command_s_bots_are_plain_bims_in_tier_three_kit() {
 }
 
 /// The `end` command's waves: the world clock put at day sixty makes them
-/// the day's whole formula — the Heart's four waves, every machine at tier
-/// three — and nothing eases a first mission any more (task 147).
+/// the day's whole formula, every machine at tier three (the Heart's
+/// fortress has no waves, its Guardians come for its conduits) — and nothing eases a first mission any more (task 147).
 #[test]
 fn the_end_command_s_waves_are_day_sixty_s() {
     let mut world = at_the_heart(2, 2);

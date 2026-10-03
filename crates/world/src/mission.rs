@@ -550,7 +550,7 @@ impl World {
             trader,
             kind,
             // The Machine Heart's strength on arrival (feature 108).
-            heart: self.heart_preview(site.station, self.clock_minutes + minutes as f64),
+            heart: self.heart_preview(site.station),
         })
     }
 

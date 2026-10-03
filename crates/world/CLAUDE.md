@@ -4863,17 +4863,26 @@ and the rules; `fortress.rs` (a child of `world`, like `mission.rs` and
   `tell_the_heart` puts the phase on the core's and the fabricators'
   `HeartState` for the room's next step. `check_run_lost` does nothing once
   the run is won.
-- **Every conduit shot down brings a wave** (`heart_step`,
-  `conduit_wave`): each conduit a wreck past `HeartFight::links_down`
-  (saved, hashed, serde default) is a wave of `droid_wave_size` in by the
-  next airlock in turn, looking for the crew like a reinforcement —
+- **No waves; every conduit shot down brings its Guardians** (October
+  2026, the player's word: "first 1 guardian, then 2 all the way up to 5
+  when the last link is destroyed"; before it a conduit brought a wave of
+  `droid_wave_size` and four waves came by the clock). The fortress's
+  wave count is one whatever the dial (`droid_wave_count`), its first
+  wave lays nothing but the Heart's machines (`settle_droids`) and
+  `droid_waves` brings none by the clock at a site with a `heart` — an
+  older save's `waves_left` too; `data::HEART_WAVES` and
+  `World::heart_wave_count` went. (`heart_step`, `conduit_guardians`):
+  the k-th conduit a wreck past `HeartFight::links_down` (saved, hashed,
+  serde default) is `heart::guardians_for_link(k)` Guardians
+  (`data::HEART_GUARDIANS_PER_LINK` × k) at tier three in by the next
+  airlock in turn (`arrival_spots`), looking for the crew like a reinforcement —
   **added** to the deck, never clearing it, whatever still stands —
   counted on `Infestation::wave` (the waves still to come by the clock,
   `waves_left`, untouched) and said as `DroidReinforcements`. A conduit
   laid a wreck (a room built afresh past the seal) and the probe's
   `set_heart_phase_for_probe` count as answered.
-  `every_conduit_shot_down_brings_a_wave`. **`SAVE_VERSION` 70,
-  `wire::PROTOCOL` 72.**
+  `every_conduit_shot_down_brings_its_guardians`. **`SAVE_VERSION` 70,
+  `wire::PROTOCOL` 72; the Guardians `wire::PROTOCOL` 132.**
 - **Waves come in by every airlock but the crew's in turn**
   (`droid::arrival_airlock_at`), and the lander is drawn at the one they
   used.
@@ -4881,9 +4890,9 @@ and the rules; `fortress.rs` (a child of `world`, like `mission.rs` and
   photographs the `Infestation` before the first dock settles anything.
 - **The map**: a heart site is listed at the origin (`sites_in`), placed by
   `heart::blueprint` (`site_position`), and its quote carries
-  `TravelQuote::heart` — `World::heart_preview` at the arrival's world
-  clock, off `wave_size_at` (which `droid_wave_size` is at the clock's
-  own hours) and `wave_count_for(Tier::Three)`.
+  `TravelQuote::heart` — `World::heart_preview`: the conduits, the core
+  and `HeartPreview::guardians` (`heart::guardians_for`, every conduit's
+  lot), none of it the clock's.
   `World::origin_seen` (a visited star within a hop of the origin, off the
   kept hop table) is what the chart's diamond waits on.
 - **The run's summary**: `Run::{machines_destroyed, sites_cleared,
@@ -6762,8 +6771,8 @@ place of** it for a run) is eight dials, every one read off
   site attacked with two bots is two machines more. No base, no first-mission or early ease, no floor at the
   Bims fighting (`bims_fighting` went). `scaling_days` nought never grows.
 - **a site's waves** (`waves(day)`): `1 + ⌊day / wave_days⌋` (nought: one),
-  fixed at the first dock as ever; the Machine Heart's are
-  `data::HEART_WAVES` (4), an elite at least `ELITE_WAVES`, the
+  fixed at the first dock as ever; the Machine Heart's one
+  that lays nothing (its Guardians come for its conduits), an elite at least `ELITE_WAVES`, the
   Manufacturers' garrison one while they have the machines, the probes'
   dial over all.
 - **each enemy's tier**, in whole enemies, rounded down
@@ -6805,8 +6814,8 @@ Defaults (`data`): `ENEMIES_PER_PLAYER` 2, `DAY_SCALING` 1,
 `MANUFACTURER_{ANY_GUN,ARMOUR}_DAY`, `wave_size`, `wave_count`,
 `time_steps`, `World::{wave_count_for, bims_fighting,
 set_first_mission_uneased_for_probe}` and the saved
-`first_mission_uneased` went; `World::heart_wave_count` is the Heart's
-preview. **`SAVE_VERSION` 83, `wire::PROTOCOL` 86** (the relay wants
+`first_mission_uneased` went; `World::heart_wave_count` was the Heart's
+preview (gone with its waves, October 2026). **`SAVE_VERSION` 83, `wire::PROTOCOL` 86** (the relay wants
 redeploying). `SURVIVORS`, `REFERENCE_CHECKSUM` and the ship's `PINNED`
 move (every wave's size and tiers did) — not re-pinned. `droid::tests`,
 `tests_droid.rs` (`a_wave_is_the_players_and_the_day_and_nothing_else`,

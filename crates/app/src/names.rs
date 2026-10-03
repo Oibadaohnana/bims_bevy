@@ -2427,15 +2427,14 @@ pub const MANUFACTURER_DOWN: &str = "A Manufacturer is dead.";
 pub const ARRIVE_MANUFACTURERS: &str = "Manufacturers";
 /// An elite (`world::elite`), in a row of the map's list.
 pub const ARRIVE_ELITE: &str = "elite · Guardian in wave 2 · relics";
-pub fn heart_preview_rows(p: &world::heart::HeartPreview) -> [(&'static str, String); 4] {
+pub fn heart_preview_rows(p: &world::heart::HeartPreview) -> [(&'static str, String); 3] {
     [
         ("Conduits", p.conduits.to_string()),
         (
             "Core",
             crate::format::grouped(p.core_health.max(0.0).ceil() as u64),
         ),
-        ("Wave size", p.wave_size.to_string()),
-        ("Waves", p.wave_count.to_string()),
+        ("Guardians", p.guardians.to_string()),
     ]
 }
 /// Beside a name in the departure check: down and cannot walk in.

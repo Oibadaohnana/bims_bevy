@@ -94,6 +94,18 @@ pub fn core_health_for(players: u32) -> f32 {
     data::HEART_CORE_HEALTH_BASE + data::HEART_CORE_HEALTH_PER_PLAYER * players as f32
 }
 
+/// How many Guardians the `link`-th conduit shot down sends in (October
+/// 2026), counted from one: one for the first, two for the second, and so
+/// on to the last ([`data::HEART_GUARDIANS_PER_LINK`] each step).
+pub fn guardians_for_link(link: u32) -> u32 {
+    data::HEART_GUARDIANS_PER_LINK.saturating_mul(link)
+}
+
+/// Every Guardian a fortress of `conduits` sends, all of them shot down.
+pub fn guardians_for(conduits: u32) -> u32 {
+    (1..=conduits).map(guardians_for_link).sum()
+}
+
 /// The fortress in the origin star's system, rolled off the star's own
 /// stream. `system` is read **without** any derived jammer or fortress
 /// in it, so the answer is the same whether the crew are in the system or
@@ -200,9 +212,10 @@ pub struct HeartFight {
     /// How many machines the fabricators have built: what each one's
     /// seed, kind and place are read off, so every client builds alike.
     pub built: u32,
-    /// How many conduits have been shot down and answered with a wave
-    /// (`World::heart_step`): every conduit down past this brings one
-    /// more wave in by the airlocks, on top of whatever stands.
+    /// How many conduits have been shot down and answered
+    /// (`World::heart_step`): every conduit down past this brings its
+    /// Guardians in by the airlocks ([`guardians_for_link`]), on top of
+    /// whatever stands.
     #[cfg_attr(feature = "serde", serde(default))]
     pub links_down: u32,
 }
@@ -223,14 +236,14 @@ impl HeartFight {
 }
 
 /// The fortress's strength on arrival (feature 108): what the map shows
-/// under it, off the arrival day — the same numbers the fight is built
-/// with, so waiting is seen to make it harder.
+/// under it — the same numbers the fight is built with: the players
+/// decide them, the day does not.
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub struct HeartPreview {
     pub conduits: u32,
     pub core_health: f32,
-    pub wave_size: u32,
-    pub wave_count: u32,
+    /// Every Guardian its conduits shot down send ([`guardians_for`]).
+    pub guardians: u32,
 }
 
 /// Where the Machine Heart's machines stand in its fortress, in the

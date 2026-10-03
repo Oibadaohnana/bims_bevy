@@ -269,8 +269,9 @@ impl World {
             return;
         };
         let now = self.run.mission_steps;
-        // Every conduit shot down since the last step brings a wave in by
-        // the airlocks, on top of whatever is still standing.
+        // Every conduit shot down since the last step brings its Guardians
+        // in by the airlocks, on top of whatever is still standing: one for
+        // the first, two for the second, and so on (October 2026).
         let down = self.residents.as_ref().map_or(0, |r| {
             r.aboard
                 .room
@@ -282,7 +283,7 @@ impl World {
         let mut links_down = fight.links_down;
         while links_down < down {
             links_down += 1;
-            self.conduit_wave(id, events);
+            self.conduit_guardians(id, links_down, events);
         }
         let mut phase = fight.phase;
         let mut next_build = fight.next_build;
@@ -332,12 +333,13 @@ impl World {
         self.tell_the_heart(phase);
     }
 
-    /// A wave for a conduit shot down: the wave's size the station's own,
-    /// in by the next airlock in turn and looking for the crew, like a
-    /// reinforcement — but **added** to the deck, never clearing it, and
-    /// counted as a wave of the station's (`Infestation::wave`), which
-    /// leaves the waves still to come by the clock as they were.
-    fn conduit_wave(&mut self, id: u32, events: &mut Vec<WorldEvent>) {
+    /// The Guardians for the `link`-th conduit shot down (October 2026):
+    /// [`heart::guardians_for_link`] of them at tier three — one for the
+    /// first, two for the second, and so on — in by the next airlock in
+    /// turn and looking for the crew, like a reinforcement, **added** to
+    /// the deck, never clearing it, and counted as a wave of the station's
+    /// (`Infestation::wave`). The fortress has no other waves.
+    fn conduit_guardians(&mut self, id: u32, link: u32, events: &mut Vec<WorldEvent>) {
         let Some(station) = self.station(id).cloned() else {
             return;
         };
@@ -347,11 +349,30 @@ impl World {
         }) else {
             return;
         };
-        let n = self.droid_wave_size();
-        let mut arriving = self.arriving_wave(&station, n, wave);
-        for d in &mut arriving {
-            d.seeking = true;
-        }
+        let n = heart::guardians_for_link(link);
+        let Some((spots, facing)) = self.arrival_spots(&station, n, wave) else {
+            return;
+        };
+        let arriving: Vec<Droid> = spots
+            .iter()
+            .enumerate()
+            .map(|(i, &at)| {
+                let mut d = Droid::new(
+                    DroidKind::Guardian,
+                    Tier::Three,
+                    i,
+                    wave,
+                    at,
+                    facing,
+                    station.map_seed ^ 0x_6A2D ^ (i as u64) << 8 ^ u64::from(wave),
+                );
+                // Staggered planning, as `build_wave` staggers a wave's.
+                d.plan_wait = bims::game::PLAN_EVERY * (i as f32) / (n.max(1) as f32);
+                d.breach_wait = d.plan_wait;
+                d.seeking = true;
+                d
+            })
+            .collect();
         if let Some(residents) = &mut self.residents {
             residents
                 .aboard
@@ -461,26 +482,22 @@ impl World {
 
     // --- the map ------------------------------------------------------------------
 
-    /// What the fortress would be on arrival at the world clock
-    /// `arrival_minutes` (feature 108): the conduits and the core, which
-    /// the players decide, the waves' size, which the clock does, and
-    /// their count, tier three's — the numbers the fight will be built
-    /// with, so the map shows
-    /// what waiting costs. `None` for any site but a fortress, and for one
-    /// already destroyed.
-    pub fn heart_preview(&self, station: u32, arrival_minutes: f64) -> Option<HeartPreview> {
+    /// What the fortress would be on arrival (feature 108): the conduits,
+    /// the core and the Guardians its conduits send, which the players
+    /// decide and the clock does not (October 2026: no waves there) — the
+    /// numbers the fight will be built with. `None` for any site but a
+    /// fortress.
+    pub fn heart_preview(&self, station: u32) -> Option<HeartPreview> {
         let star = heart::heart_star(station)?;
         if star != self.droid_origin {
             return None;
         }
         let players = self.players();
-        let hours = (arrival_minutes.max(0.0) / time::HOUR).floor();
-        let hours = hours.min(u32::MAX as f64) as u32;
+        let conduits = heart::conduits_for(players);
         Some(HeartPreview {
-            conduits: heart::conduits_for(players),
+            conduits,
             core_health: heart::core_health_for(players),
-            wave_size: self.wave_size_at(hours),
-            wave_count: self.heart_wave_count(),
+            guardians: heart::guardians_for(conduits),
         })
     }
 

@@ -5994,8 +5994,7 @@ impl World {
 
     /// [`World::droid_wave_size`] with the world clock at `hours` gone and
     /// nobody defending, the crew's bots as they stand: what a wave would
-    /// be on arrival, for the map's preview of the Machine Heart (feature
-    /// 108).
+    /// be on arrival.
     pub fn wave_size_at(&self, hours: u32) -> u32 {
         self.wave_size_with((hours / 24).saturating_add(1), self.crew_bots())
     }
@@ -6089,26 +6088,22 @@ impl World {
 
     /// How many waves a held station has all told, worked out now (task
     /// 147): one, and one more every `wave_days` of the run day
-    /// ([`droidplan::WaveScaling::waves`]) — the Machine Heart's
-    /// [`data::HEART_WAVES`] whatever the day. Only ever asked once a
-    /// station, at the crew's first dock.
+    /// ([`droidplan::WaveScaling::waves`]) — the Machine Heart's one,
+    /// which lays nothing, whatever the day or the dial: its machines come
+    /// for its conduits shot down and nothing else (October 2026,
+    /// `conduit_guardians`). Only ever asked once a station, at the crew's
+    /// first dock.
     pub fn droid_wave_count(&self) -> u32 {
+        if self.at_the_heart() {
+            return 1;
+        }
         // The probes' dial says it outright, the way `droid_wave_size`
         // takes its own: the `droids` commands are looked at for what a
         // wave *after* the first does.
         if let Some(forced) = self.droid_waves_forced {
             return forced.max(1);
         }
-        if self.at_the_heart() {
-            return data::HEART_WAVES;
-        }
         self.scaling().waves(self.run_day()).max(1)
-    }
-
-    /// How many waves the Machine Heart's fortress has: [`data::HEART_WAVES`],
-    /// or the probes' dial.
-    pub fn heart_wave_count(&self) -> u32 {
-        self.droid_waves_forced.unwrap_or(data::HEART_WAVES).max(1)
     }
 
     /// The probes' dial: a held station has this many waves all told,
@@ -6483,9 +6478,13 @@ impl World {
             self.droid_wave_size()
         };
         // The Machine Heart's own go on the deck first (feature 108), so
-        // they keep the front of the list through every wave after.
+        // they keep the front of the list through every wave after — and
+        // in its fortress they are the whole deck: no wave stands there,
+        // its Guardians come for its conduits shot down (October 2026).
         let mut droids = self.heart_machines_to_lay(&station);
-        droids.extend(if wave == 1 {
+        droids.extend(if heart::is_heart(id) {
+            Vec::new()
+        } else if wave == 1 {
             self.first_wave(&station, n, wave)
         } else {
             // A reinforcement was told where the crew are, and comes
@@ -6546,7 +6545,9 @@ impl World {
             if standing > 0 {
                 // A fight is on: the clock does not run.
                 it.next_wave = None;
-            } else if it.more_to_come() {
+            } else if it.more_to_come() && it.heart.is_none() {
+                // The Machine Heart's fortress has no waves by the clock
+                // (October 2026) — not even an older save's still to come.
                 match it.next_wave {
                     None => it.next_wave = Some(now + reinforce),
                     Some(due) if now >= due => {

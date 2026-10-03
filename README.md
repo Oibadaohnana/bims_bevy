@@ -349,13 +349,15 @@ origin's system — one hop at a time down the lanes, so the jammers on the
 way decide how soon — and the galaxy chart marks the origin with a red
 diamond once the crew have been in its system or a system next to it.
 Pick the fortress on the world map and its card says what it will be **on
-arrival**: how many conduits, the core's health, and the size and number
-of the waves — which grow with the world clock, so waiting costs.
+arrival**: how many conduits, the core's health, and how many Guardians
+the conduits will send — the players decide them, not the clock.
 
 - **The core** stands in the fortress's hub, with two **fabricators**
   beside it; **conduits** stand in the rooms round it, one a room — three,
-  and one more a player. Waves of machines come in by the fortress's
-  airlocks as at any held station, the waves in turn at each.
+  and one more a player. **No waves** stand in the fortress or come by
+  the clock: every conduit shot down sends **Guardians** in by its
+  airlocks, in turn at each — one for the first conduit, two for the
+  second, and so on, five for the fifth.
 - **Sealed.** While any conduit stands, the core is behind a shell that
   stops every bolt and blow from every side, and it does not fire. A red
   line of light runs from each conduit to it. Bring the conduits down.
@@ -377,7 +379,7 @@ of the waves — which grow with the world clock, so waiting costs.
   run is lost as ever when every player's Bim is dead at once.
 
 The top bar says it while the crew are there: the core's health, how many
-conduits are left, and the waves after them.
+conduits are left.
 
 ## The Manufacturers
 
@@ -552,7 +554,7 @@ all with a line each, and is the build's own answer rather than this table's:
 | `nix run .#defense` | `cargo run -- defense` | **a town worth defending**: the ship set down at a friendly settlement with the machines one hyperlane hop away, so the town is next. A minute after the landing a wave sets down outside a gate and walks in; the town's guard and whatever mercenaries live there take arms, everybody else goes indoors, and the red line along the top counts the wave the way it counts a held station's. Hold the last wave and the town is yours to keep. `BIMS_DEFENSE_DELAY=n` is the wait before the first wave and `BIMS_DROID_WAVES=1` a fight short enough to finish |
 | `nix run .#guardian` | `cargo run -- guardian` | **the Guardian**: the fight at tier three with every wave one Guardian and two Troopers — the largest machine, a walker behind a shield that stops everything from the front. Get round it |
 | `nix run .#relics` | `cargo run -- relics` | **the relics**: the droids arena, an elite, with one short wave of four — clear it, go back to the ship, and the **reward screen** offers three relics to vote on. `BIMS_RELICS=glass_cannon,drill_sergeant` gives the crew those at the start, `BIMS_REWARD=1` opens on the reward screen and `BIMS_WIN=1` (on any command) wins the run on the next clear |
-| `nix run .#heart` | `cargo run -- heart` | **the Machine Heart**: the crew docked at its fortress at the machines' origin, everybody in tier-three kit, the waves the game's own — bring the conduits down, then the core. `BIMS_HEART_PHASE=2` opens with every conduit down, `=3` with the core overloading as well; `BIMS_DROID_WAVES=n` shortens the waves |
+| `nix run .#heart` | `cargo run -- heart` | **the Machine Heart**: the crew docked at its fortress at the machines' origin, everybody in tier-three kit, no waves, a conduit's Guardians — bring the conduits down, then the core. `BIMS_HEART_PHASE=2` opens with every conduit down (none of their Guardians sent), `=3` with the core overloading as well |
 | `nix run .#manufacturers` | `cargo run -- manufacturers` | **the Manufacturers**: the combat crew at the nearest site of theirs, on day eight — their people in tier-one kit with Troopers beside them. `BIMS_MANUFACTURER_DAY=0` is pistols alone, ten or more their own waves |
 | | `cargo run -- list` | nothing: every one of these printed with a line each, and what the environment adds. `--list`, `--help` and `-h` are it too |
 

@@ -191,10 +191,12 @@ pub const TIER1_DAYS: u32 = 5;
 pub const TIER2_DAYS: u32 = 20;
 /// The same for tier three.
 pub const TIER3_DAYS: u32 = 40;
-/// How many waves the Machine Heart's fortress has: the old count of a
-/// tier-three site, whatever the day — the fight the run is won by is
-/// the hardest there is.
-pub const HEART_WAVES: u32 = 4;
+/// How many Guardians the Machine Heart sends for each conduit shot down
+/// (October 2026; the player's words: "first 1 guardian, then 2 all the
+/// way up to 5 when the last link is destroyed"): this many times the
+/// conduit's place in the order they fell — the first one, the second
+/// two. The fortress has no waves besides (`heart::guardians_for_link`).
+pub const HEART_GUARDIANS_PER_LINK: u32 = 1;
 /// How long after the last machine of a wave is destroyed the next one
 /// arrives, in steps of the **mission clock** (feature 103) — fifteen
 /// seconds of it at 1× (it was thirty, and before that two minutes), which was half an
