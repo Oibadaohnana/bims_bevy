@@ -87,6 +87,12 @@ pub const AIM_SPREAD: f32 = 0.25;
 // The minigun's burst and long cool and the rail lance's one slug in
 // five seconds are a reload already, and have no magazine (nought); nor
 // has a blade or a machine's built-in arm.
+//
+// And then **no damage drop over distance**: every weapon's `damage_far`
+// (and the Unmaker's `strips_far`) is its near number, so a hit does the
+// same out to the end of the range. The odds still fall off. The far
+// numbers before: the shotgun 36, the auto rifle 6.4, the sniper 30, the
+// minigun 3.2, the rail lance 32, the Unmaker 4 (and 20 stripped).
 
 /// The pistol's magazine and its reload, in seconds.
 pub const PISTOL_MAGAZINE: u32 = 12;
@@ -133,7 +139,7 @@ pub const LASER_PISTOL: WeaponStats = WeaponStats {
 /// a fire-rate skill or relic shortens it (`Skill::fire_rate`).
 pub const SEMI_AUTO_COOLDOWN: f32 = 0.3;
 
-/// Everything it has inside four tiles, a good deal less at ten. One
+/// Sixty a hit out to ten tiles, surer inside four. One
 /// pull every two seconds since its magazine of [`SHOTGUN_MAGAZINE`]
 /// (every four before).
 pub const SHOTGUN: WeaponStats = WeaponStats {
@@ -142,7 +148,7 @@ pub const SHOTGUN: WeaponStats = WeaponStats {
     accuracy: 0.81,
     accuracy_far: 0.54,
     damage: 60.0,
-    damage_far: 36.0,
+    damage_far: 60.0,
     speed: 20.0,
     fire_rate: 0.5,
     burst: 1,
@@ -169,7 +175,7 @@ pub const AUTO_RIFLE: WeaponStats = WeaponStats {
     accuracy: 0.765,
     accuracy_far: 0.45,
     damage: 7.0,
-    damage_far: 6.4,
+    damage_far: 7.0,
     speed: 22.0,
     fire_rate: 4.0,
     burst: 1,
@@ -189,7 +195,7 @@ pub const SNIPER_RIFLE: WeaponStats = WeaponStats {
     accuracy: 0.9,
     accuracy_far: 0.63,
     damage: 54.0,
-    damage_far: 30.0,
+    damage_far: 54.0,
     speed: 60.0,
     fire_rate: 0.25,
     burst: 1,
@@ -256,7 +262,7 @@ pub const MINIGUN: WeaponStats = WeaponStats {
     accuracy: 0.68,
     accuracy_far: 0.36,
     damage: 4.4,
-    damage_far: 3.2,
+    damage_far: 4.4,
     speed: 24.0,
     fire_rate: 0.2,
     burst: 20,
@@ -287,7 +293,7 @@ pub const RAIL_LANCE: WeaponStats = WeaponStats {
     accuracy: 0.72,
     accuracy_far: 0.52,
     damage: 48.0,
-    damage_far: 32.0,
+    damage_far: 48.0,
     speed: 70.0,
     fire_rate: 0.2,
     burst: 1,
@@ -470,14 +476,14 @@ pub const UNMAKER: WeaponStats = WeaponStats {
     accuracy: 0.8,
     accuracy_far: 0.55,
     damage: 6.0,
-    damage_far: 4.0,
+    damage_far: 6.0,
     speed: 25.0,
     fire_rate: 0.5,
     burst: 1,
     burst_gap: 0.0,
     melee: false,
     strips: 30.0,
-    strips_far: 20.0,
+    strips_far: 30.0,
     magazine: 0,
     reload_time: 0.0,
 };

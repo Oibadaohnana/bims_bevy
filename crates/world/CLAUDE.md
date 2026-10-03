@@ -659,7 +659,7 @@ Things that bit or would:
   the room's doorways and none is a stand, so a rifle walks the corridor
   out of the pistol's reach and lands its shot from there.
   `a_sniper_rifle_reaches_from_twenty_tiles` (a block of
-  `a_sniper_rifle_reaches_from_twenty_tiles_and_a_shotgun_does_more_at_three_than_at_nine`)
+  `a_sniper_rifle_reaches_from_twenty_tiles_and_a_shotgun_does_as_much_at_nine_as_at_three`)
   pins that with a Warden carrying the rifle — its hit said as a
   `CrewHit` from a stand past the pistol's twelve tiles, James patched up
   every step since an enemy shoots on the move too — before James's own
@@ -671,7 +671,7 @@ Things that bit or would:
   — a one-in-twenty head shot would otherwise decide it.
   `a_recruited_bim_shoots_the_machines_it_can_see_and_they_are_hurt` and
   `the_machines_shoot_back_and_a_crew_member_hit_bleeds` pin the two
-  sides. `the_crew_s_shotgun_does_more_at_three_tiles_than_at_nine` pins
+  sides. `the_crew_s_shotgun_does_as_much_at_nine_tiles_as_at_three` pins
   the fall-off through the seam off what comes off a Trooper's chassis
   at three tiles and at nine, with both bodies `put_for_probe` each step
   so nobody walks off the mark. These were human fights, staged by

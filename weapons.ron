@@ -11,21 +11,25 @@
 // quarter more again, and armour's protection comes off what is left. A
 // blade's two are the same, since it only reaches a tile.
 //
+// Since October 2026 no weapon loses damage over distance: every far
+// number is its near one, the whole range the same. A far number set
+// lower here still makes a weapon fall off.
+//
 // In a two-player run each game reads its own file, and the two have to
 // agree.
 //
 // The values below are the built-in ones.
 (
     laser_pistol: (8.0, 8.0),
-    shotgun: (60.0, 36.0),
-    auto_rifle: (7.0, 6.4),
-    sniper_rifle: (54.0, 30.0),
+    shotgun: (60.0, 60.0),
+    auto_rifle: (7.0, 7.0),
+    sniper_rifle: (54.0, 54.0),
     schword: (42.0, 42.0),
-    minigun: (4.4, 3.2),
-    rail_lance: (48.0, 32.0),
+    minigun: (4.4, 4.4),
+    rail_lance: (48.0, 48.0),
 
     // The machines' built-in arms.
     claw: (20.0, 20.0),
-    unmaker: (6.0, 4.0),
+    unmaker: (6.0, 6.0),
     sweeper: (30.0, 30.0),
 )

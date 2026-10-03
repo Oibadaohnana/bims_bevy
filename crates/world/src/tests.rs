@@ -3787,7 +3787,7 @@ fn the_crew_are_handed_over_at_the_peek_while_peeking() {
 /// Both stood still — put back where they were before every step — so
 /// the distance is the one asked for.
 #[test]
-fn a_sniper_rifle_reaches_from_twenty_tiles_and_a_shotgun_does_more_at_three_than_at_nine() {
+fn a_sniper_rifle_reaches_from_twenty_tiles_and_a_shotgun_does_as_much_at_nine_as_at_three() {
     use bims::droid::{DroidKind, DroidPart};
     // --- a_sniper_rifle_reaches_from_twenty_tiles ---
     {
@@ -3906,12 +3906,12 @@ fn a_sniper_rifle_reaches_from_twenty_tiles_and_a_shotgun_does_more_at_three_tha
         );
     }
 
-    // --- the_crew_s_shotgun_does_more_at_three_tiles_than_at_nine ---
+    // --- the_crew_s_shotgun_does_as_much_at_nine_tiles_as_at_three ---
     {
         use bims::combat::{Gear, WeaponKind};
         let stats = WeaponKind::Shotgun.stats();
         // The first hit on the chassis, on a machine still whole: what
-        // came off it — all of a Trooper's sixty up close, and less down
+        // came off it — all of a Trooper's sixty up close, and as much down
         // the corridor. A hit elsewhere is mended away and waited past.
         let chassis_drop_at = |tiles: f64| -> (f32, f32) {
             let mut world = basic();
@@ -3973,8 +3973,9 @@ fn a_sniper_rifle_reaches_from_twenty_tiles_and_a_shotgun_does_more_at_three_tha
             flown(near, near_from),
             "the weapon's damage up close: {near} at {near_from:.1} tiles"
         );
-        // Down the corridor, the curve's number, which is less.
-        assert!(far < near, "less at nine tiles: {far} < {near}");
+        // Down the corridor the same: no weapon loses damage over
+        // distance since October 2026 (it was less at nine).
+        assert!((far - near).abs() < 1e-3, "the same at nine tiles: {far} and {near}");
         assert!(
             flown(far, far_from),
             "the weapon's damage at the distance flown: {far} at {far_from:.1} tiles"

@@ -3770,7 +3770,8 @@ mod tests {
             // real tables: a two-point curve, a flat one, a burst, a blade.
             use bims::combat::WeaponKind;
             let shotgun = WeaponKind::Shotgun.stats();
-            assert_eq!(damage_text(&shotgun), "60 to 4 tiles, 36 at 10");
+            // Flat since October 2026: no drop over distance.
+            assert_eq!(damage_text(&shotgun), "60 a shot");
             let pistol = WeaponKind::LaserPistol.stats();
             assert_eq!(damage_text(&pistol), "8 a shot");
             assert_eq!(fire_rate_text(&pistol), "1.5 a second");

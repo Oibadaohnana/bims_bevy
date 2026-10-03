@@ -5113,7 +5113,7 @@ mod tests {
             let stats = kind.stats();
             if kind == WeaponKind::Unmaker {
                 assert_eq!(stats.strips, 30.0);
-                assert_eq!(stats.strips_far, 20.0);
+                assert_eq!(stats.strips_far, 30.0, "no drop over distance");
             } else {
                 assert_eq!(stats.strips, 0.0, "{kind:?} strips nothing");
                 assert_eq!(stats.strips_far, 0.0);
@@ -5124,11 +5124,11 @@ mod tests {
         // The tier scales the strip by exactly what it scales the damage.
         assert!((two.strips / one.strips - two.damage / one.damage).abs() < 1e-5);
         assert!((two.strips - 30.0 * crate::balance::TIER_TWO_DAMAGE).abs() < 1e-4);
-        // Out to the sweet spot it strips its best; at the range, its far.
+        // The same out to its range: no drop over distance (October 2026;
+        // it was 20 at the range).
         assert_eq!(one.strips_at(0.0), 30.0);
-        assert_eq!(one.strips_at(7.0), 30.0);
-        assert_eq!(one.strips_at(14.0), 20.0);
-        assert!((one.strips_at(10.5) - 25.0).abs() < 1e-4);
+        assert_eq!(one.strips_at(10.5), 30.0);
+        assert_eq!(one.strips_at(14.0), 30.0);
     }
 
     #[test]
@@ -5162,8 +5162,10 @@ mod tests {
         let shotgun = WeaponKind::Shotgun.stats();
         assert_eq!(shotgun.damage_at(4.0), 60.0);
         assert_eq!(shotgun.damage_at(2.0), 60.0);
-        assert!((shotgun.damage_at(7.0) - 48.0).abs() < 1e-3);
-        assert_eq!(shotgun.damage_at(10.0), 36.0);
+        // No damage drop over distance (October 2026): sixty out to its
+        // ten tiles, where it was 48 at seven and 36 at ten.
+        assert_eq!(shotgun.damage_at(7.0), 60.0);
+        assert_eq!(shotgun.damage_at(10.0), 60.0);
         assert_eq!(shotgun.hit_chance(4.0), 0.81);
         assert!((shotgun.hit_chance(10.0) - 0.54).abs() < 1e-6);
         // A pull every two seconds (every four before its magazine).
@@ -5174,7 +5176,7 @@ mod tests {
         assert_eq!(sniper.hit_chance(14.0), 0.9);
         assert_eq!(sniper.damage_at(14.0), 54.0);
         assert!((sniper.hit_chance(24.5) - 0.63).abs() < 1e-6);
-        assert_eq!(sniper.damage_at(24.5), 30.0);
+        assert_eq!(sniper.damage_at(24.5), 54.0, "30 before the drop went");
         assert_eq!((sniper.magazine, sniper.reload_time), (4, 2.4));
 
         // No burst: four fives a second, steadily (four threes, as much
@@ -5185,7 +5187,13 @@ mod tests {
         // off every reach bar the shotgun's).
         let rifle = WeaponKind::AutoRifle.stats();
         assert_eq!((rifle.burst, rifle.fire_rate), (1, 4.0));
-        assert_eq!((rifle.damage, rifle.damage_far), (7.0, 6.4));
+        assert_eq!((rifle.damage, rifle.damage_far), (7.0, 7.0));
+        // And no weapon, carried or built in, loses damage over its range.
+        for kind in WeaponKind::EVERY {
+            let s = kind.stats();
+            assert_eq!(s.damage_at(s.range), s.damage, "{kind:?}");
+            assert_eq!(s.strips_at(s.range), s.strips, "{kind:?}");
+        }
         assert_eq!((rifle.range, rifle.sweet), (18.2, 5.6));
         assert_eq!((rifle.magazine, rifle.reload_time), (30, 1.8));
         assert!((rifle.dps() - 7.0 * 30.0 / 9.3).abs() < 1e-4);
@@ -5204,7 +5212,7 @@ mod tests {
         assert_eq!(mini.tier, Tier::Two);
         let two = mini.stats();
         assert!(
-            close(two.damage, 5.5) && close(two.damage_far, 4.0),
+            close(two.damage, 5.5) && close(two.damage_far, 5.5),
             "{two:?}"
         );
         assert!(close(two.accuracy, 0.85) && close(two.accuracy_far, 0.45));
@@ -5214,7 +5222,7 @@ mod tests {
         assert!(!two.melee && two.strips == 0.0);
         assert!((two.dps_at(4.2) - 18.7).abs() < 0.01, "{}", two.dps_at(4.2));
         let three = WeaponKind::Minigun.at(Tier::Three).stats();
-        assert!(close(three.damage, 6.875) && close(three.damage_far, 5.0));
+        assert!(close(three.damage, 6.875) && close(three.damage_far, 6.875));
         assert!(close(three.accuracy, 0.8925) && close(three.accuracy_far, 0.4725));
         assert!(close(three.range, 16.8) && close(three.sweet, 5.04));
 
@@ -5223,7 +5231,7 @@ mod tests {
         assert_eq!(lance.tier, Tier::Three);
         let three = lance.stats();
         assert!(
-            close(three.damage, 75.0) && close(three.damage_far, 50.0),
+            close(three.damage, 75.0) && close(three.damage_far, 75.0),
             "{three:?}"
         );
         assert!(close(three.accuracy, 0.945) && close(three.accuracy_far, 0.6825));
@@ -5547,16 +5555,17 @@ mod tests {
     /// over — but the tactics stand a body close behind it, and a bolt
     /// coming over it at that body is dodged half the time, like a peek's.
     #[test]
-    fn damage_falls_off_with_distance_and_a_body_peeking_or_behind_sandbags_dodges_half() {
-        // --- damage_falls_off_with_the_distance_the_bolt_flew ---
+    fn damage_is_the_same_at_every_distance_and_a_body_peeking_or_behind_sandbags_dodges_half() {
+        // --- damage_is_the_same_at_every_distance_the_bolt_flew ---
         {
             let (sight, _) = room_with(&[]);
             let mut combat = Combat::new(11);
-            // A shotgun from two tiles, and one from nine: every hit from
-            // close by is the full hundred, every one from far off is less.
+            // A shotgun from two tiles, and one from nine: every hit is the
+            // full sixty either way, since October 2026 took the drop over
+            // distance away (from nine it was under 45).
             let theirs = middle(10.0, 5.0);
             combat.set_targets(vec![Some((theirs, WeaponKind::LaserPistol.basic()))]);
-            for (from, near) in [(middle(8.0, 5.0), true), (middle(1.0, 5.0), false)] {
+            for from in [middle(8.0, 5.0), middle(1.0, 5.0)] {
                 let mut hits = Vec::new();
                 for _ in 0..40 {
                     combat.fire(from, theirs, WeaponKind::Shotgun.basic(), false, false);
@@ -5567,17 +5576,10 @@ mod tests {
                 }
                 assert!(!hits.is_empty());
                 assert!(hits.iter().all(|h| !h.cut), "a shot is not a cut");
-                if near {
-                    assert!(
-                        hits.iter().all(|h| (h.damage - 60.0).abs() < 1e-3),
-                        "{hits:?}"
-                    );
-                } else {
-                    assert!(
-                        hits.iter().all(|h| h.damage < 45.0 && h.damage > 36.0),
-                        "nine tiles, less the body's edge: {hits:?}"
-                    );
-                }
+                assert!(
+                    hits.iter().all(|h| (h.damage - 60.0).abs() < 1e-3),
+                    "{hits:?}"
+                );
             }
         }
 

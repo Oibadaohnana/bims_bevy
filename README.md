@@ -3136,6 +3136,11 @@ bar and *Reloading*; a gun's tooltip says its magazine. A reload is heard
 What a gun does a second, to the bots' tactics and in the tooltips, is
 over a magazine and its reload.
 
+**No weapon loses damage over distance** (October 2026): a hit does the
+same out to the end of the range — the shotgun sixty, the sniper fifty-four,
+the auto rifle seven — and only the odds of landing it fall off. What the
+numbers above say about less damage at range is the history.
+
 Two things a corridor fight turns on. **Peeking exposes the peek.** A Bim
 that aims from the peek beside a wall leans out to it, and that is where
 the enemy shoots at — but it is in cover, and a bolt reaching a body that

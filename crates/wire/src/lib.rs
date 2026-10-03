@@ -202,7 +202,9 @@ use serde::{Deserialize, Serialize};
 /// 132: the Machine Heart's fortress has no waves; each conduit shot down
 /// sends Guardians, one for the first, two for the second and so on
 /// (`heart::guardians_for_link`): both ends must lay alike.
-pub const PROTOCOL: u32 = 132;
+/// 133: no weapon loses damage over distance (every `damage_far` its
+/// near number): both ends must land hits alike.
+pub const PROTOCOL: u32 = 133;
 
 /// Where the relay lives. `BIMS_SERVER` in the environment overrides it
 /// — `ws://127.0.0.1:8792` for one on the same machine.

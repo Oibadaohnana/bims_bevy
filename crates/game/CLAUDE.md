@@ -1589,7 +1589,7 @@ app's halves were built and not fixed here:
 `combat::tests` pin the tactics on a hand-laid walled room, which bodies
 each kind of bolt finds, the curves
 (`the_curves_pin_the_numbers_the_guns_were_asked_for`,
-`damage_falls_off_with_distance_and_a_body_peeking_or_behind_sandbags_dodges_half`), the dodge, the
+`damage_is_the_same_at_every_distance_and_a_body_peeking_or_behind_sandbags_dodges_half`), the dodge, the
 issue (`an_issued_gear_rolls_every_kind_across_seeds_and_the_same_for_a_seed`)
 and the charge and lock rule
 (`a_blade_charges_the_nearest_target_and_a_gun_is_locked_only_by_a_blade`);
@@ -5156,3 +5156,17 @@ beyond the walls so the deck is not clear. No `SAVE_VERSION`;
 `a_magazine_empties_reloads_and_a_new_gun_comes_full` pins it; the
 curves test pins the numbers. Two pistol bolts put a lamp out now
 (`LAMP_HEALTH` 16 was left). `SAVE_VERSION` 102, `wire::PROTOCOL` 131.
+
+## No damage drop over distance (October 2026)
+
+> Every section above that says a weapon's damage falls off from its
+> `sweet` to its `range` — the two-point curve's damage half, the
+> shotgun's "48 at seven, 36 at ten", the sniper's 30 at the end — is the
+> history.
+
+Every `balance.rs` row's `damage_far` is its `damage` (and the Unmaker's
+`strips_far` its `strips`), so `damage_at` and `strips_at` are flat out
+to the range; `accuracy_far` still falls off. The curve's code is left as
+it was — `weapons.ron`'s far number still makes a weapon fall off if set
+lower — and `the_curves_pin_the_numbers_the_guns_were_asked_for` asserts
+that no kind does. The tooltips read "60 a shot". `wire::PROTOCOL` 133.
