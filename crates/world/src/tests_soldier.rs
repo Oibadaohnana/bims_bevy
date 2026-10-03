@@ -1123,7 +1123,7 @@ fn two_runs_of_a_grenade_fight_on_one_seed_are_the_same_fight() {
     assert_eq!(run(), run());
 }
 
-// --- D: sixteen levels, a point a level, and a rank a point (task 124) --------
+// --- D: twenty levels, a point a level to sixteen, a rank a point (task 124) ---
 
 #[test]
 fn the_soldier_climbs_sixteen_levels_as_every_class_does() {
@@ -1139,12 +1139,12 @@ fn the_soldier_climbs_sixteen_levels_as_every_class_does() {
     assert_eq!((world.level_of(0), world.level_of(1)), (15, 15));
     world.award(0, 1, &mut events);
     world.award(1, 1, &mut events);
-    assert_eq!(world.level_of(0), 16, "the top at 3 200");
+    assert_eq!(world.level_of(0), 16, "the sixteenth at 3 200");
     assert_eq!(world.level_of(1), 16, "the tank's too");
     world.award(0, 10_000, &mut events);
     world.award(1, 10_000, &mut events);
-    assert_eq!((world.level_of(0), world.level_of(1)), (16, 16));
-    // Every level said once, sixteen each; a classless crew member learns
+    assert_eq!((world.level_of(0), world.level_of(1)), (20, 20));
+    // Every level said once, twenty each; a classless crew member learns
     // nothing.
     let said = |who: u32| {
         events
@@ -1152,8 +1152,9 @@ fn the_soldier_climbs_sixteen_levels_as_every_class_does() {
             .filter(|e| matches!(e, WorldEvent::LevelUp { who: w, .. } if *w == who))
             .count()
     };
-    assert_eq!((said(0), said(1), said(2)), (15, 15, 0));
-    // A point a level, the first included; none without a class.
+    assert_eq!((said(0), said(1), said(2)), (19, 19, 0));
+    // A point a level up to the sixteenth, the first included; none
+    // without a class.
     assert_eq!(world.points_of(0), 16);
     assert_eq!(world.points_of(1), 16);
     assert_eq!(world.points_of(2), 0);

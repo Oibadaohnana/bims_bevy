@@ -8503,6 +8503,11 @@ impl World {
         } else {
             self.soldier_skill(who)
         };
+        // The levels past the sixteenth (October 2026): five per cent
+        // more weapon damage each, for a classed crew member.
+        if self.class_of(who) != Class::None {
+            skill.damage *= class::level_damage(self.level_of(who));
+        }
         // Every crit: the soldier's Weak Spot and the Executioners
         // carried, rolled as one (October 2026).
         skill.crit_chance = self.crit_of(who).map_or(0.0, |(chance, _)| chance);

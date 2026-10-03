@@ -271,9 +271,9 @@ fn the_commander_climbs_sixteen_levels_and_buys_his_ranks_as_the_soldier_does() 
     assert_eq!(world.set_class(2, Class::Tank), Ok(()));
     let c = Class::Commander;
     assert!(class::ranked(c));
-    assert_eq!(class::LEVELS, 16);
+    assert_eq!(class::LEVELS, 20);
     assert_eq!(class::level_of(3_199), 15);
-    assert_eq!(class::level_of(3_200), 16, "the top at 3 200");
+    assert_eq!(class::level_of(3_200), 16, "the sixteenth at 3 200");
     let rank_up = |world: &mut World, slot: u32, ability_slot: u32| {
         world.step(&[Command::RankUp { slot, ability_slot }])
     };

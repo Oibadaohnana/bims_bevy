@@ -957,11 +957,7 @@ pub fn ranked_stats(class: world::Class, slot: u8) -> Vec<Stat> {
             }),
             Stat::ranks("Range", " tiles", |r| fig(c::HEAL_BEAM_RANGES[r] as f64)),
             Stat::ranks("Patients", "", |r| c::HEAL_BEAM_PATIENTS[r].to_string()),
-            Stat::one(
-                "Rank 4 adds",
-                "",
-                "your items' regeneration".to_string(),
-            ),
+            Stat::one("Rank 4 adds", "", "your items' regeneration".to_string()),
         ],
         (world::Class::Medic, 3) => vec![
             Stat::ranks("Radius", " tiles", |r| {
@@ -1587,7 +1583,18 @@ pub fn event_line(event: WorldEvent) -> Option<String> {
             "The machines have this system. Every station round star {star} is theirs: nobody left aboard, nothing to trade, nobody to hire."
         ),
         WorldEvent::CrewLost => "Nobody of the crew is standing. The run is over.".into(),
-        // Every class is a ranked kit since task 139: a level is a point.
+        // Every class is a ranked kit since task 139: a level is a point,
+        // up to the sixteenth; past it, weapon damage (October 2026).
+        WorldEvent::LevelUp { who: w, level, .. }
+            if level > u32::from(world::class::SKILL_LEVELS) =>
+        {
+            let more = world::class::level_damage(level as u8) - 1.0;
+            format!(
+                "{} reached level {level} — weapon damage +{:.0}%.",
+                who(w),
+                more * 100.0
+            )
+        }
         WorldEvent::LevelUp { who: w, level, .. } => format!(
             "{} reached level {level} — a skill point to spend: Ctrl and an ability's key.",
             who(w)
@@ -3255,10 +3262,7 @@ mod tests {
             );
             assert_eq!(
                 words(world::Relic::BountyContract),
-                [
-                    "+50% money for every enemy down",
-                    "-20% damage to machines"
-                ]
+                ["+50% money for every enemy down", "-20% damage to machines"]
             );
             assert_eq!(
                 words(world::Relic::BlackMarket),
@@ -3303,6 +3307,23 @@ mod tests {
                 assert!(issue_line(code).is_none(), "{code} was retired");
             }
         }
+    }
+
+    /// A level past the sixteenth gives weapon damage, not a skill point
+    /// (October 2026), and the log says so.
+    #[test]
+    fn a_level_past_sixteen_says_its_weapon_damage() {
+        let line = |level| {
+            event_line(WorldEvent::LevelUp {
+                who: 0,
+                class: 2,
+                level,
+            })
+            .unwrap()
+        };
+        assert!(line(16).contains("a skill point to spend"), "{}", line(16));
+        assert!(line(17).ends_with("weapon damage +5%."), "{}", line(17));
+        assert!(line(20).ends_with("weapon damage +20%."), "{}", line(20));
     }
 
     #[test]
@@ -3464,6 +3485,11 @@ mod tests {
                     who: 0,
                     class: 2,
                     level: 8,
+                },
+                WorldEvent::LevelUp {
+                    who: 0,
+                    class: 2,
+                    level: 18,
                 },
                 WorldEvent::Bastion { who: 0, reached: 3 },
                 WorldEvent::Deployed { who: 0, kind: 3 },

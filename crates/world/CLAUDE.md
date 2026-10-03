@@ -7326,3 +7326,27 @@ every load, or a world read back draws its first frame in plain coveralls.
 site's first person and its defenders in a row by crew member 0, the three
 looks in one picture. `a_site_s_defenders_wear_the_militia_s_kit_and_its_own_people_do_not`
 (`tests_defense.rs`) is the rule. No `SAVE_VERSION` or `wire::PROTOCOL`.
+
+## Twenty levels, the last four weapon damage (October 2026)
+
+> "The soldier's ranked kit (task 124)" and "The tank's ranked kit"
+> above say sixteen levels; it is **twenty** now.
+
+`class::LEVELS` is 20 and `LEVEL_XP` runs on past the sixteenth's 3 200
+(3 570, 3 980, 4 430, 4 920, the step growing by forty).
+`Progress::points` counts a point a level only up to
+`class::SKILL_LEVELS` (16, every rank of the four slots), so the four
+levels past it give none. Each is ten hit points like any level
+(`level_health`, said to the room as before: 300 at the twentieth) and
+`class::LEVEL_DAMAGE` (five per cent) more weapon damage:
+`class::level_damage(level)` multiplies `Skill::damage` in `skill_of`
+for a classed crew member, right after the class's half — a bolt's and a
+blade's damage, never a grenade's, a mine's or any ability's, and not a
+sentry's (its skill is its own). Weak Spot's crit reads the flat damage
+and is unchanged. `combat_droids_<class>` opens at the top (twentieth)
+with its sixteen points to spend. Nothing saved changed shape;
+**`wire::PROTOCOL` 112**. `SURVIVORS`/`REFERENCE_CHECKSUM` can move only
+for a run whose classed crew pass 3 200 experience (both were already
+off their pins; not re-run here). `class::tests`' twenty-level table and
+`tests_items::the_levels_past_sixteen_are_hit_points_and_weapon_damage`
+are the rule.

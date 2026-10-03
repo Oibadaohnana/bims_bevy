@@ -138,7 +138,10 @@ use serde::{Deserialize, Serialize};
 /// 111: the Heal Drone's first rank heals 1.8 a second (was 1.5) and the
 /// beam's fourth adds the medic's item regeneration to each patient
 /// (`class::HEAL_BEAM_ITEM_RANK`): both ends must heal alike.
-pub const PROTOCOL: u32 = 111;
+/// 112: twenty levels (`class::LEVELS`), the four past the sixteenth no
+/// skill point and five per cent more weapon damage each
+/// (`class::level_damage`): both ends must level and shoot alike.
+pub const PROTOCOL: u32 = 112;
 
 /// Where the relay lives. `BIMS_SERVER` in the environment overrides it
 /// — `ws://127.0.0.1:8792` for one on the same machine.

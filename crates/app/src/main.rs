@@ -27,7 +27,7 @@
 //! bims combat_droids_<class>
 //!                    that fight with a class on the crew member you steer:
 //!                    `combat_droids_engineer` … `combat_droids_commander`
-//!                    — one a class, at the sixteenth level with every
+//!                    — one a class, at the top (twentieth) level with every
 //!                    skill point still to spend; `BIMS_LEVEL` says
 //!                    otherwise, `BIMS_RANKS=q,c,e,r` buys ranks
 //! bims tier2_test    `droids` with everybody's kit at tier two: every
@@ -132,7 +132,7 @@ pub enum Launch {
     /// `BIMS_DROID_WAVE`), so what a class does against the machines is
     /// the only thing that differs between two of these runs.
     /// `BIMS_CLASS` still wins over it. It opens at
-    /// `dev::combat_class_level` — the sixteenth, with sixteen skill
+    /// `dev::combat_class_level` — the twentieth, with sixteen skill
     /// points to spend (every class a ranked kit since task 139) — and
     /// `BIMS_LEVEL` says otherwise; `BIMS_RANKS=q,c,e,r` sets the ranks.
     DroidsAs(world::Class),
@@ -338,7 +338,7 @@ fn list() {
             row(
                 &format!("{prefix}{word}"),
                 &format!(
-                    "{fight}, the crew member you steer {a} {word} at the sixteenth level, every skill point unspent (BIMS_LEVEL says otherwise, BIMS_RANKS=q,c,e,r buys ranks)"
+                    "{fight}, the crew member you steer {a} {word} at the top level (the twentieth), every skill point unspent (BIMS_LEVEL says otherwise, BIMS_RANKS=q,c,e,r buys ranks)"
                 ),
             );
         }

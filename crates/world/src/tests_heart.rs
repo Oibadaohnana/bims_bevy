@@ -578,7 +578,7 @@ fn the_end_command_s_bots_are_plain_bims_in_tier_three_kit() {
         assert_eq!(world.level_of(who), class::LEVELS, "player {who}");
         assert_eq!(
             world.points_of(who),
-            class::LEVELS,
+            class::SKILL_LEVELS,
             "player {who} spends its own"
         );
     }

@@ -236,14 +236,14 @@ fn run_for_seconds(world: &mut World, seconds: f64) {
 
 // --- the ranked kit ---------------------------------------------------------------
 
-/// **The engineer joins the rank system** (task 127): sixteen levels on
+/// **The engineer joins the rank system** (task 127): twenty levels on
 /// the soldier's table, a point a level, and the same gates — Q, C and E
 /// rank `n` at level `2n − 1`, R at 6, 9, 12 and 15.
 #[test]
-fn the_engineer_climbs_sixteen_levels_and_buys_ranks_as_the_soldier_does() {
+fn the_engineer_climbs_twenty_levels_and_buys_ranks_as_the_soldier_does() {
     let e = Class::Engineer;
     assert!(class::ranked(e));
-    assert_eq!(class::LEVELS, 16);
+    assert_eq!(class::LEVELS, 20);
     assert_eq!(class::level_of(3_199), 15);
     assert_eq!(class::level_of(3_200), 16, "level 16 at 3 200");
     for slot in [class::SLOT_Q, class::SLOT_C, class::SLOT_E] {

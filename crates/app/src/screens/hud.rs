@@ -239,7 +239,7 @@ fn chip_frame() -> egui::Frame {
 
 /// How far through its level `xp` is, in whole points: what is in, and
 /// what the level wants in all, on the one table every class climbs
-/// (sixteen levels, task 139). `None` at the top.
+/// (twenty levels since October 2026; sixteen from task 139). `None` at the top.
 pub fn xp_into(xp: u32) -> Option<(u8, u32, u32)> {
     let table = world::class::LEVEL_XP;
     let level = world::class::level_of(xp);
@@ -1173,19 +1173,21 @@ mod tests {
     /// with the bar full at the sixteenth.
     #[test]
     fn the_experience_line_is_whole_numbers_and_max_at_the_top() {
-        // Every class climbs the same sixteen (task 139), the tank too.
+        // Every class climbs the same twenty (task 139, twenty since
+        // October 2026), the tank too.
         let tank = world::Class::Tank;
         assert_eq!(xp_text(tank, 0), "Lv 1 · 0 / 100 XP");
         assert_eq!(xp_text(tank, 500), "Lv 4 · 140 / 160 XP");
         assert!((xp_fill(500) - 140.0 / 160.0).abs() < 1e-6);
-        for xp in [3_200, 3_201, u32::MAX] {
-            assert_eq!(xp_text(tank, xp), "Lv 16 · Max");
+        for xp in [4_920, 4_921, u32::MAX] {
+            assert_eq!(xp_text(tank, xp), "Lv 20 · Max");
             assert_eq!(xp_fill(xp), 1.0);
         }
         let soldier = world::Class::Soldier;
         assert_eq!(xp_text(soldier, 500), "Lv 4 · 140 / 160 XP");
         assert_eq!(xp_text(soldier, 3_199), "Lv 15 · 329 / 330 XP");
-        assert_eq!(xp_text(soldier, 3_200), "Lv 16 · Max");
+        assert_eq!(xp_text(soldier, 3_200), "Lv 16 · 0 / 370 XP");
+        assert_eq!(xp_text(soldier, 4_919), "Lv 19 · 489 / 490 XP");
         assert_eq!(xp_text(world::Class::None, 500), "No class");
         // Nothing but digits between the words: no fraction of a point.
         assert!(!xp_text(soldier, 777).contains('.'));

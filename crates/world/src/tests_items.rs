@@ -366,6 +366,37 @@ fn every_level_is_ten_hit_points_on_a_player_s_bar() {
     assert_eq!(world.aboard.room.max_health(1), bims::health::MAX_HEALTH);
 }
 
+/// **The four levels past the sixteenth** (October 2026): ten hit points
+/// each as every level is, five per cent more weapon damage each, and no
+/// skill point — sixteen buy every rank.
+#[test]
+fn the_levels_past_sixteen_are_hit_points_and_weapon_damage() {
+    let mut world = basic();
+    world.set_class(0, Class::Soldier).unwrap();
+    level_up(&mut world, 0, 16);
+    world.step(&[]);
+    assert_eq!(world.skill_of(0).damage, 1.0, "nothing more at sixteen");
+    assert_eq!(world.points_of(0), 16);
+    for level in 17..=class::LEVELS {
+        level_up(&mut world, 0, level);
+        world.step(&[]);
+        assert_eq!(world.level_of(0), level);
+        let more = 0.05 * (level - 16) as f32;
+        assert!(
+            (world.skill_of(0).damage - (1.0 + more)).abs() < 1e-5,
+            "level {level}: {}",
+            world.skill_of(0).damage
+        );
+        assert_eq!(world.points_of(0), 16, "level {level}: no point");
+        assert_eq!(
+            world.aboard.room.max_health(0),
+            bims::health::MAX_HEALTH + 10.0 * level as f32
+        );
+    }
+    assert_eq!(world.aboard.room.max_health(0), 300.0, "the twentieth");
+    assert_eq!(world.skill_of(1).damage, 1.0, "a bot never levels");
+}
+
 /// **A Blink Drive puts the Bim where it is aimed**, as far as it reaches,
 /// then cools down; and a hit taken locks it for a few seconds.
 #[test]

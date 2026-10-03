@@ -58,9 +58,11 @@
 //! **Every class is a ranked kit** — the soldier since task 124, the
 //! engineer 127, the commander 129, the medic 130 and the tank 139, which
 //! took the old left-and-right talents away whole. Every class climbs
-//! the same **sixteen** levels ([`LEVELS`]) on [`LEVEL_XP`] — 100 for the
-//! second, up to 3 200 for the sixteenth — and earns **one skill point a
-//! level**, the first included. A point buys one **rank** of one of four
+//! the same **twenty** levels ([`LEVELS`]) on [`LEVEL_XP`] — 100 for the
+//! second, 3 200 for the sixteenth, 4 920 for the twentieth — and earns
+//! **one skill point a level** up to the sixteenth ([`SKILL_LEVELS`]),
+//! the first included; each of the four past it is ten hit points like
+//! any level and five per cent more weapon damage ([`level_damage`]). A point buys one **rank** of one of four
 //! abilities — Q, C, E and R, [`MAX_RANK`] ranks each — with
 //! `Command::RankUp` ([`Progress::rank_up`]): in the game **Ctrl and the
 //! ability's key, or a Ctrl-click on its box**, or the button on the
@@ -658,20 +660,38 @@ impl Charge {
 // the last class that had them: `Side`, `Talent` (codes 0 to 68, never
 // to be reused), the pick levels and `Command::PickTalent`.
 
-/// How many levels every class climbs (task 139; the ranked kits'
-/// sixteen since task 124).
-pub const LEVELS: u8 = 16;
+/// How many levels every class climbs (October 2026: twenty; the ranked
+/// kits' sixteen from task 124 until then).
+pub const LEVELS: u8 = 20;
+
+/// The last level that gives a skill point: by the sixteenth every rank
+/// of the kit is bought. The levels past it give the hit points every
+/// level does and [`LEVEL_DAMAGE`] on the weapon instead.
+pub const SKILL_LEVELS: u8 = 16;
 
 /// Cumulative experience for each level, by level less one: nothing for
-/// the first, 100 for the second, up to 3 200 for the sixteenth — every
-/// class's (task 139; `RANKED_LEVEL_XP` until then).
+/// the first, 100 for the second, 3 200 for the sixteenth and 4 920 for
+/// the twentieth — every class's (task 139; `RANKED_LEVEL_XP` until
+/// then). The four past the sixteenth go on the step growing by forty.
 pub const LEVEL_XP: [u32; LEVELS as usize] = [
     0, 100, 220, 360, 520, 700, 900, 1_110, 1_330, 1_560, 1_800, 2_050, 2_310, 2_580, 2_870, 3_200,
+    3_570, 3_980, 4_430, 4_920,
 ];
+
+/// What every level past [`SKILL_LEVELS`] adds to a player's weapon
+/// damage (October 2026, the player's number): five per cent a level,
+/// so a fifth more at the twentieth.
+pub const LEVEL_DAMAGE: f32 = 0.05;
+
+/// What `level` multiplies a weapon's damage by: one up to
+/// [`SKILL_LEVELS`], then [`LEVEL_DAMAGE`] more a level, added.
+pub fn level_damage(level: u8) -> f32 {
+    1.0 + LEVEL_DAMAGE * level.saturating_sub(SKILL_LEVELS) as f32
+}
 
 /// Hit points a level puts on a player's bar (October 2026), every
 /// level counted from the first: 110 at the first, 260 at the
-/// sixteenth (the player's numbers). [`level_health`] is the sum; the
+/// sixteenth, 300 at the twentieth (the player's numbers). [`level_health`] is the sum; the
 /// room is told it every step (`bims::game::Game::set_level_health`).
 pub const LEVEL_HEALTH: f32 = 10.0;
 
@@ -1115,7 +1135,7 @@ pub const REINFORCEMENT_REACH_TILES: f32 = 5.0;
 /// cooldown relics as every class cooldown is.
 pub const REINFORCEMENT_COOLDOWN: f64 = 140.0;
 
-/// The level `xp` makes: one to sixteen on [`LEVEL_XP`], whatever the
+/// The level `xp` makes: one to twenty on [`LEVEL_XP`], whatever the
 /// class.
 pub fn level_of(xp: u32) -> u8 {
     LEVEL_XP.iter().filter(|&&need| xp >= need).count().max(1) as u8
@@ -1170,13 +1190,15 @@ impl Progress {
     }
 
     /// Skill points not spent (task 124): a point a level reached, the
-    /// first included, less every rank bought. Nought for a classless
-    /// crew member.
+    /// first included, up to [`SKILL_LEVELS`], less every rank bought.
+    /// Nought for a classless crew member.
     pub fn points(&self, class: Class) -> u8 {
         if !ranked(class) {
             return 0;
         }
-        self.level().saturating_sub(self.ranks_bought())
+        self.level()
+            .min(SKILL_LEVELS)
+            .saturating_sub(self.ranks_bought())
     }
 
     /// Whether a rank of that slot may be bought now, and the rank it
@@ -1256,19 +1278,23 @@ mod tests {
         }
     }
 
-    /// Every class is a ranked kit (task 139): sixteen levels, the top at
-    /// 3 200, a point a level, and every rank's gate refusing a level
-    /// early and allowing on the level — the tank's as the soldier's.
+    /// Every class is a ranked kit (task 139): twenty levels, the
+    /// sixteenth at 3 200 and the top at 4 920, a point a level up to the
+    /// sixteenth, and every rank's gate refusing a level early and
+    /// allowing on the level — the tank's as the soldier's.
     #[test]
-    fn every_class_climbs_sixteen_levels_and_buys_a_rank_a_point() {
-        assert_eq!(LEVELS, 16);
-        assert_eq!(LEVEL_XP.len(), 16);
-        assert_eq!(LEVEL_XP[15], 3_200, "the top at 3 200");
+    fn every_class_climbs_twenty_levels_and_buys_a_rank_a_point() {
+        assert_eq!(LEVELS, 20);
+        assert_eq!(LEVEL_XP.len(), 20);
+        assert_eq!(LEVEL_XP[15], 3_200, "the sixteenth at 3 200");
+        assert_eq!(LEVEL_XP[19], 4_920, "the top at 4 920");
+        assert!(LEVEL_XP.windows(2).all(|w| w[0] < w[1]));
         assert_eq!(level_of(0), 1);
         assert_eq!(level_of(99), 1);
         assert_eq!(level_of(3_199), 15);
         assert_eq!(level_of(3_200), 16);
-        assert_eq!(level_of(1_000_000), 16);
+        assert_eq!(level_of(4_919), 19);
+        assert_eq!(level_of(1_000_000), 20);
         for class in Class::ALL {
             assert_eq!(ranked(class), class != Class::None, "{class:?}");
         }
@@ -1289,8 +1315,23 @@ mod tests {
         assert_eq!(p.rank_up(s, SLOT_Q), Ok(1));
         assert_eq!(p.rank_up(s, SLOT_C), Err(Refusal::NoSkillPoint));
         assert_eq!(p.gain(3_200), (2..=16).collect::<Vec<u8>>());
+        assert_eq!(p.to_next(), 370);
+        assert_eq!(p.points(s), 15);
+        // The levels past the sixteenth give no point: sixteen buy every
+        // rank there is.
+        assert_eq!(p.gain(1_720), (17..=20).collect::<Vec<u8>>());
         assert_eq!(p.to_next(), 0);
         assert_eq!(p.points(s), 15);
+        assert_eq!(
+            SKILL_LEVELS as usize,
+            SLOTS * MAX_RANK as usize,
+            "a point a rank"
+        );
+        assert_eq!(level_damage(1), 1.0);
+        assert_eq!(level_damage(16), 1.0);
+        assert!((level_damage(17) - 1.05).abs() < 1e-6);
+        assert!((level_damage(20) - 1.20).abs() < 1e-6);
+        assert_eq!(level_health(20), 200.0);
         for _ in 0..3 {
             p.rank_up(s, SLOT_Q).unwrap();
         }

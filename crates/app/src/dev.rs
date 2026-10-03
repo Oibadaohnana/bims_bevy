@@ -663,10 +663,11 @@ pub fn bim_class() -> world::Class {
 /// ends up being.
 ///
 /// **A `combat_droids_<class>` run opens at the top level**, the
-/// sixteenth ([`combat_class_level`]; feature 80): the fight is what a
+/// twentieth ([`combat_class_level`]; feature 80): the fight is what a
 /// class is looked at in, and at the first level there is nothing of it
 /// to look at but one rank. Its sixteen skill points (every class a
-/// ranked kit since task 139) are still the player's to spend.
+/// ranked kit since task 139; the four levels past the sixteenth give
+/// weapon damage, not points) are still the player's to spend.
 /// `BIMS_LEVEL` says otherwise; every other launch starts at the first
 /// level as before. **`BIMS_RANKS=q,c,e,r`** sets the four ranks outright
 /// (`World::set_ranks_for_probe`), each capped by the gates of the level
@@ -712,7 +713,7 @@ fn bim_ranks() -> Option<[u8; 4]> {
 }
 
 /// The level a `combat_droids_<class>` command opens its crew member at:
-/// the top, the sixteenth, whatever the class (task 139) — every point
+/// the top, the twentieth, whatever the class (task 139) — every point
 /// unspent, for `BIMS_RANKS` or the keys to spend.
 pub fn combat_class_level() -> usize {
     world::class::LEVELS as usize
