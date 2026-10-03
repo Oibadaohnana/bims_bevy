@@ -4839,6 +4839,27 @@ sprint and the backstep) multiplies it as before; `ACCEL` and
 pace. Every route takes two thirds of the time, so the survivor pins
 move.
 
+**And half again once more, a dead stop and round corners (later in
+October 2026).** `MARCH_SPEED` is 216 and `ACCEL` 330 (both × 1.5, so
+the time to a pace is what it was); `ROLL_DISTANCE`, `ROLL_TIME` and the
+`SPRINT` factor were left (a sprint, 389, now outruns a roll, 342). A
+body its player's keys walk **stops the step they come up** — any
+slowing under the keys is at once, only speeding up eases
+(`Character::update`). **A lone corner is round**: `Character::keep_clear`
+pushes out with `Rect::push_out_round` — the grown box's corner rounded
+to `CORNER_ROUND` (1.5 × `BODY_MARGIN`, so the body clips it by some five
+units) — but only a corner nothing solid continues past
+(`exposed`: three probe points a unit beyond it), since a wall is a row
+of tile boxes and a rounded seam would catch a body sliding along it.
+A steered body a rounded corner turns within 60° of its walk
+(`SLIDE_KEEPS_PACE`) keeps its whole pace round it, so a doorway met up
+to some twenty units off its middle is slid into. Every body is pushed
+round corners the same way, so a bot's routes move with it.
+`a_steered_body_stops_the_step_the_keys_come_up` and
+`a_lone_corner_is_slid_round_and_a_wall_of_tiles_has_no_seams` pin it;
+`wire::PROTOCOL` 140. The survivor pins were red in the tree before and
+were not re-pinned.
+
 ## One armour, and a hit lands nowhere in particular (October 2026)
 
 > Every section above about three armour slots (head, body, legs),

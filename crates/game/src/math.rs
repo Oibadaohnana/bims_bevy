@@ -255,6 +255,55 @@ impl Rect {
             vec2(0.0, down)
         })
     }
+
+    /// [`push_out`](Self::push_out) with the grown box's corners rounded
+    /// off to `round` (at least `radius`), so a circle pressed against a
+    /// corner slides round it rather than stopping dead on it. A corner is
+    /// rounded only where `exposed(corner, sx, sy)` says it stands alone —
+    /// a wall of tile boxes is square where its tiles meet, or a body
+    /// sliding along it would catch on every seam. `round` past `radius`
+    /// cuts the corner, letting the circle clip it a little. The flag is
+    /// whether a rounded corner did the pushing.
+    pub fn push_out_round(
+        self,
+        p: Vec2,
+        radius: f32,
+        round: f32,
+        exposed: impl Fn(Vec2, f32, f32) -> bool,
+    ) -> Option<(Vec2, bool)> {
+        let grown = self.expand(radius);
+        if !grown.contains(p) {
+            return None;
+        }
+        let round = round
+            .max(radius)
+            .min(grown.width() * 0.5)
+            .min(grown.height() * 0.5);
+        let mid = (self.min + self.max) * 0.5;
+        let sx = if p.x >= mid.x { 1.0 } else { -1.0 };
+        let sy = if p.y >= mid.y { 1.0 } else { -1.0 };
+        let corner = vec2(
+            if sx > 0.0 { self.max.x } else { self.min.x },
+            if sy > 0.0 { self.max.y } else { self.min.y },
+        );
+        // The arc's middle: in from the grown box's corner by `round`.
+        let centre = vec2(
+            corner.x + sx * (radius - round),
+            corner.y + sy * (radius - round),
+        );
+        let off = p - centre;
+        let beyond = off.x * sx > 0.0 && off.y * sy > 0.0;
+        if beyond && exposed(corner, sx, sy) {
+            let d = off.len();
+            if d >= round {
+                return None;
+            }
+            if d > 1e-3 {
+                return Some((off * ((round - d) / d), true));
+            }
+        }
+        self.push_out(p, radius).map(|out| (out, false))
+    }
 }
 
 /// A `Vec<bool>` in a save, as a string of noughts and ones — the room's

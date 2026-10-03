@@ -14,7 +14,9 @@ use crate::room::STEEL;
 /// How sharply the body swings towards the heading it wants.
 const TURN_RATE: f32 = 5.5;
 /// Pixels per second squared, used both to speed up and to slow down.
-const ACCEL: f32 = 220.0;
+/// Raised half again with the march (October 2026, 220 before), so a
+/// body takes the time it always did to reach its pace.
+const ACCEL: f32 = 330.0;
 /// Odds that a new walk picks a wholly new direction instead of a gentle turn.
 const REVERSAL_CHANCE: f32 = 0.15;
 /// Speed when marching to a spot a task or the player picked
@@ -46,10 +48,24 @@ const FAR_LEG: f32 = crate::room::TILE;
 pub const BODY_SCALE: f32 = 1.45;
 /// How far the body centre is kept clear of walls and furniture.
 pub const BODY_MARGIN: f32 = 23.0;
-/// How much quicker a body its player steers gets up to its pace and
-/// stops again than [`ACCEL`] (task 144): the keys want an answer, not
-/// a body with weight.
+/// How much quicker a body its player steers gets up to its pace than
+/// [`ACCEL`] (task 144): the keys want an answer, not a body with
+/// weight. It stops at once — no easing down at all (October 2026, the
+/// player's word: "when moving you should instantly stand still").
 const STEER_ACCEL: f32 = 4.0;
+/// How far round a lone corner a body slides rather than stopping on
+/// it: the grown box's corner rounded to this radius, half again the
+/// body's own, so a body pressed against a door frame or a crate's
+/// corner a little off its line is carried round it and clips the
+/// corner by five units (October 2026, the player's word: "round edges
+/// so you clip around edges and dont run into them and get stuck").
+/// Twice the body's pulled a body walking at a wall into a door most of
+/// a tile off.
+const CORNER_ROUND: f32 = 1.5 * BODY_MARGIN;
+/// How far off the way the keys walk a slide round a corner may turn
+/// the body and still go at its whole pace (the cosine, 60°): a corner
+/// met nearly head on is slid round slowly, as the push gives it.
+const SLIDE_KEEPS_PACE: f32 = 0.5;
 /// How sharply a sprinting body turns to the way it runs (task 150):
 /// quick, but a turn and not a snap, so a sprint round a corner swings.
 const SPRINT_TURN: f32 = 16.0;
@@ -2048,8 +2064,9 @@ impl Character {
 
         // Ease the speed so starts and stops have weight — less of it
         // under the keys, and none into a sprint: Shift is its full
-        // pace at once (the player's word).
-        if sprinting {
+        // pace at once (the player's word). Under the keys a stop, or
+        // any slowing, is at once too.
+        if sprinting || (steer.is_some() && self.target_speed < self.speed) {
             self.speed = self.target_speed;
         } else {
             let step = ACCEL * if steer.is_some() { STEER_ACCEL } else { 1.0 } * dt;
@@ -2063,8 +2080,20 @@ impl Character {
         } else {
             self.heading
         });
-        self.pos += along * (self.speed * dt);
-        self.keep_clear(interior, solids);
+        let from = self.pos;
+        let stride = self.speed * dt;
+        self.pos += along * stride;
+        // A body the keys walk round a lone corner slides round it at
+        // its full pace: what the corner took off the step is given
+        // back along the way it was turned.
+        if self.keep_clear(interior, solids) && steer.is_some() {
+            let moved = self.pos - from;
+            let went = moved.len();
+            if went > 0.05 * stride && went < stride && moved.dot(along) > SLIDE_KEEPS_PACE * went {
+                self.pos = from + moved * (stride / went);
+                self.keep_clear(interior, solids);
+            }
+        }
 
         // The legs run the other way round while it backs off, so the
         // walk cycle reads as stepping backwards rather than forwards.
@@ -2078,14 +2107,32 @@ impl Character {
         self.run_clocks(dt);
     }
 
-    /// Keep clear of the walls, then shove out of anything walked into.
-    fn keep_clear(&mut self, interior: Rect, solids: &[Rect]) {
+    /// Keep clear of the walls, then shove out of anything walked into —
+    /// round a lone corner rather than square off it (`CORNER_ROUND`).
+    /// Whether a rounded corner did any of the shoving.
+    fn keep_clear(&mut self, interior: Rect, solids: &[Rect]) -> bool {
         self.pos = interior.expand(-BODY_MARGIN).nearest(self.pos);
+        // A corner stands alone when nothing solid is just past it along
+        // either of its edges, or across it.
+        let exposed = |c: Vec2, sx: f32, sy: f32| {
+            let e = 1.0;
+            let probes = [
+                vec2(c.x + sx * e, c.y - sy * e),
+                vec2(c.x - sx * e, c.y + sy * e),
+                vec2(c.x + sx * e, c.y + sy * e),
+            ];
+            !solids.iter().any(|s| probes.iter().any(|&q| s.contains(q)))
+        };
+        let mut rounded = false;
         for solid in solids {
-            if let Some(out) = solid.push_out(self.pos, BODY_MARGIN) {
+            if let Some((out, round)) =
+                solid.push_out_round(self.pos, BODY_MARGIN, CORNER_ROUND, exposed)
+            {
                 self.pos += out;
+                rounded |= round;
             }
         }
+        rounded
     }
 
     /// The clocks the picture runs off, and a swing or a punch run down.
@@ -4299,6 +4346,89 @@ mod tests {
                     "{weapon:?} at {t}: the hold is the carry"
                 );
             }
+        }
+    }
+
+    fn steered(at: Vec2, walk: Option<f32>) -> Character {
+        let mut rng = Rng::new(7);
+        let mut ch = Character::new(at, Look::CLASSIC[0], &mut rng);
+        ch.set_steer(Steer {
+            walk,
+            aim: walk.unwrap_or(0.0),
+            fire: false,
+            sprint: false,
+        });
+        ch
+    }
+
+    fn tiles(xs: impl Iterator<Item = i32>, y: i32) -> Vec<Rect> {
+        let t = crate::room::TILE;
+        xs.map(|x| {
+            Rect::from_corners(
+                vec2(x as f32 * t, y as f32 * t),
+                vec2((x + 1) as f32 * t, (y + 1) as f32 * t),
+            )
+        })
+        .collect()
+    }
+
+    /// The keys let go, a steered body stands still that very step — no
+    /// easing down (October 2026, the player's word).
+    #[test]
+    fn a_steered_body_stops_the_step_the_keys_come_up() {
+        let mut ch = steered(vec2(0.0, 0.0), Some(0.0));
+        run(&mut ch, 1.0);
+        assert!(
+            (ch.speed - MARCH_SPEED).abs() < 1.0,
+            "at its pace: {}",
+            ch.speed
+        );
+        ch.set_steer(Steer {
+            walk: None,
+            aim: 0.0,
+            fire: false,
+            sprint: false,
+        });
+        let before = ch.pos;
+        run(&mut ch, 1.0 / 60.0);
+        assert_eq!(ch.speed, 0.0);
+        assert_eq!(ch.pos, before, "and it did not move another unit");
+    }
+
+    /// A body walking at a one-tile doorway a little off its middle is
+    /// carried round the jamb and through, where a square corner held it
+    /// against the wall for ever; and one walking along a wall of tiles
+    /// slides the length of it without catching on a seam.
+    #[test]
+    fn a_lone_corner_is_slid_round_and_a_wall_of_tiles_has_no_seams() {
+        let room = Rect::from_corners(vec2(-4000.0, -4000.0), vec2(4000.0, 4000.0));
+        let t = crate::room::TILE;
+        // A wall along y = 0..52 with a gap at x = 0..52.
+        let wall = tiles((-6..0).chain(1..7), 0);
+        for off in [-14.0, -8.0, 8.0, 14.0] {
+            let mut ch = steered(vec2(t * 0.5 + off, 4.0 * t), Some(-PI / 2.0));
+            for _ in 0..120 {
+                ch.update(1.0 / 60.0, room, &wall);
+            }
+            assert!(
+                ch.pos.y < -t,
+                "{off} off the middle went through: {:?}",
+                ch.pos
+            );
+        }
+        // Into the wall at a slant, along it: never a step back.
+        let mut ch = steered(vec2(-5.0 * t, 2.0 * t), Some(-PI / 4.0));
+        let solid = tiles(-6..7, 0);
+        let mut last = ch.pos.x;
+        for _ in 0..90 {
+            ch.update(1.0 / 60.0, room, &solid);
+            assert!(ch.pos.x > last, "it slid on: {} after {last}", ch.pos.x);
+            assert!(
+                ch.pos.y >= t + BODY_MARGIN - 0.01,
+                "and kept out: {:?}",
+                ch.pos
+            );
+            last = ch.pos.x;
         }
     }
 }

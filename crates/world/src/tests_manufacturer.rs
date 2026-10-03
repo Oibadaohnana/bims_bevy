@@ -747,18 +747,23 @@ fn reinforcement_hunts(forgotten: bool) {
         landed_at.iter().all(|&d| d < f32::MAX),
         "a reinforcement knows where the crew are: {landed_at:?}"
     );
+    // The nearest the wave came in the ten seconds: at half again the
+    // march (October 2026) it is in among the crew in five and the
+    // fight carries it about after, so the tenth second alone says
+    // nothing of whether it came.
+    let tile = shipdesign::TILE as f32;
+    let mean = |v: &[f32]| v.iter().sum::<f32>() / v.len().max(1) as f32;
+    let mut nearest = mean(&landed_at);
     for _ in 0..600 {
         world.aboard.room.patch_up_for_probe(0);
         world.step(&[]);
+        nearest = nearest.min(mean(&to_the_crew(&world)));
     }
-    let now_at = to_the_crew(&world);
-    let tile = shipdesign::TILE as f32;
-    let mean = |v: &[f32]| v.iter().sum::<f32>() / v.len().max(1) as f32;
     assert!(
-        mean(&now_at) < mean(&landed_at) - 4.0 * tile,
-        "the wave closed on the crew: {:.1} tiles off on landing, {:.1} ten seconds on",
+        nearest < mean(&landed_at) - 4.0 * tile,
+        "the wave closed on the crew: {:.1} tiles off on landing, {:.1} at the nearest in ten seconds",
         mean(&landed_at) / tile,
-        mean(&now_at) / tile
+        nearest / tile
     );
 }
 

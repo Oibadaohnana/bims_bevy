@@ -224,7 +224,10 @@ use serde::{Deserialize, Serialize};
 /// and reloads four seconds, a sentry's too (`balance::MINIGUN`), and
 /// costs three times its ask at a trader: both ends must fire and price
 /// alike.
-pub const PROTOCOL: u32 = 139;
+/// 140: everybody walks half again as quick (`balance::MARCH_SPEED` 216),
+/// a body the keys walk stops at once, and a lone corner is rounded
+/// (`Rect::push_out_round`): both ends must walk alike.
+pub const PROTOCOL: u32 = 140;
 
 /// Where the relay lives. `BIMS_SERVER` in the environment overrides it
 /// — `ws://127.0.0.1:8792` for one on the same machine.
