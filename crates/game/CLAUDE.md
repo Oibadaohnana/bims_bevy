@@ -3201,7 +3201,12 @@ else changed.
   gun's odds are halved (`DROID_ARMS_ACCURACY`) and a claw's damage is
   (`DROID_ARMS_DAMAGE`) — the Unmaker counts as a gun, so its odds fall
   and its strip does not. Legs at nothing and it cannot move and fights
-  where it stands. **A hit on a limb already at nothing lands on the
+  where it stands — **all but a Husk**, which has nothing to fight with
+  from where it lies and drags itself on at `balance::HUSK_CRAWL` (0.35)
+  of its pace (`Droid::crawling`; `can_move` stays true for it), drawn
+  flat with the claws hauling in turn. Before, a legless Husk lay there
+  doing nothing ("husks sometimes just stand still").
+  `a_husk_with_its_legs_gone_crawls_on`. **A hit on a limb already at nothing lands on the
   Chassis**, so shooting a Warden's legs off is never a way to make it
   unkillable. A droid wears nothing, so there is no armour step on it and
   a strip does nothing to one.

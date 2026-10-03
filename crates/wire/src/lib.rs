@@ -162,7 +162,10 @@ use serde::{Deserialize, Serialize};
 /// lay the next wave on the same step.
 /// 119: every item three times the price (`data::ITEM_PRICE`): both ends
 /// must charge alike.
-pub const PROTOCOL: u32 = 119;
+/// 120: a Husk with its legs shot off crawls on at `balance::HUSK_CRAWL`
+/// of its pace (`Droid::crawling`) rather than standing still: both ends
+/// must walk it alike.
+pub const PROTOCOL: u32 = 120;
 
 /// Where the relay lives. `BIMS_SERVER` in the environment overrides it
 /// — `ws://127.0.0.1:8792` for one on the same machine.

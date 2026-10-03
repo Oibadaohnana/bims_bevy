@@ -526,6 +526,11 @@ pub const ROLL_TIME: f32 = 0.38;
 pub const ROLL_DISTANCE: f32 = 130.0;
 pub const ROLL_COOLDOWN: f32 = 1.1;
 
+/// A Husk with its legs shot off drags itself along on its claws at this
+/// share of its pace, and keeps coming: before it lay where it was and,
+/// having nothing but a claw, did nothing at all — "husks sometimes just
+/// stand still". The others, legless, stand and shoot.
+pub const HUSK_CRAWL: f32 = 0.35;
 /// What each kind walks at, as a share of a Bim's marching pace.
 pub const HUSK_PACE: f32 = 1.3;
 pub const TROOPER_PACE: f32 = 1.0;

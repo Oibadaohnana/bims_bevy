@@ -2765,7 +2765,8 @@ impl Game {
         }
         self.droids[i].plan_wait = PLAN_EVERY;
         if !self.droids[i].can_move() {
-            // Legs gone: it fights where it stands, and plans nothing.
+            // Legs gone: it fights where it stands, and plans nothing
+            // (all but a Husk, which crawls on, `Droid::crawling`).
             return;
         }
         let from = self.droids[i].pos;

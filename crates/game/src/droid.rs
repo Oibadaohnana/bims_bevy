@@ -781,9 +781,16 @@ impl Droid {
     }
 
     /// Whether it can move at all: legs at nothing and it stands and
-    /// fights where it is.
+    /// fights where it is — all but a Husk, which [crawls](Droid::crawling)
+    /// on its claws, having nothing to fight with from where it lies.
     pub fn can_move(&self) -> bool {
-        !self.destroyed && !self.body.gone(DroidPart::Legs)
+        !self.destroyed && (!self.body.gone(DroidPart::Legs) || self.kind == DroidKind::Husk)
+    }
+
+    /// A Husk with its legs gone, dragging itself along at
+    /// [`balance::HUSK_CRAWL`] of its pace.
+    pub fn crawling(&self) -> bool {
+        self.can_move() && self.body.gone(DroidPart::Legs)
     }
 
     /// The arm's numbers with the machine's own state in them: arms at
@@ -833,7 +840,7 @@ impl Droid {
         self.spark_on(struck);
         if self.body.destroyed() {
             self.destroy();
-        } else if self.body.gone(DroidPart::Legs) {
+        } else if !self.can_move() {
             // It stops where it stands the instant the legs go, rather
             // than sliding on to the end of the route it had.
             self.route.clear();
@@ -1207,6 +1214,11 @@ impl Droid {
             return;
         }
         let pace = MARCH * self.kind.pace();
+        let pace = if self.crawling() {
+            pace * balance::HUSK_CRAWL
+        } else {
+            pace
+        };
         if let Some(&to) = self.route.first() {
             let away = to - self.pos;
             let span = away.len();
@@ -1375,7 +1387,7 @@ impl Droid {
     /// nought when the legs are gone, so a crippled machine's legs do
     /// not paddle on the spot.
     fn step(&self) -> f32 {
-        if self.destroyed || !self.can_move() {
+        if self.destroyed || self.body.gone(DroidPart::Legs) {
             return 0.0;
         }
         self.stride.sin() * clamp(self.speed / MARCH, 0.0, 1.0)
@@ -1393,11 +1405,19 @@ impl Droid {
 
     /// **The Husk**: low and wide, crab-like. A flat hull with four short
     /// legs that scuttle and two forward claws that snap shut on a
-    /// strike. Legs gone and it lies flat on its hull.
+    /// strike. Legs gone and it lies flat on its hull, hauling itself
+    /// along with the claws in turn.
     fn draw_husk(&self, b: &mut Brush) {
         let step = self.step();
-        let flat = !self.can_move();
         let legs_gone = self.body.gone(DroidPart::Legs);
+        let flat = legs_gone;
+        // The crawl: each claw reaches out and pulls in turn while it
+        // drags itself, nothing while it lies still.
+        let haul = if self.crawling() {
+            self.stride.sin() * clamp(self.speed / (MARCH * balance::HUSK_CRAWL), 0.0, 1.0)
+        } else {
+            0.0
+        };
         let arms_gone = self.body.gone(DroidPart::Arms);
         // Four short legs, two a side, splayed out and under the hull.
         // A scuttle is the fore pair and the aft pair out of phase.
@@ -1443,7 +1463,10 @@ impl Droid {
         for side in [-1.0f32, 1.0] {
             let droop = if arms_gone { 0.55 } else { 0.0 };
             let root = vec2(10.0, 9.0 * side);
-            let out = vec2(18.0 - droop * 5.0, (12.0 + droop * 4.0) * side);
+            let out = vec2(
+                18.0 - droop * 5.0 + haul * side * 4.0,
+                (12.0 + droop * 4.0) * side,
+            );
             b.rect(
                 (root + out) * 0.5,
                 vec2(11.0, 4.6),
@@ -2560,6 +2583,29 @@ mod tests {
         assert!(!d.destroyed, "and it is not destroyed");
         // It still has its arm and its odds.
         assert_eq!(d.stats().accuracy, d.weapon.stats().accuracy);
+    }
+
+    /// A Husk has nothing but a claw, so legless it drags itself on at
+    /// `HUSK_CRAWL` of its pace rather than lying there doing nothing —
+    /// "husks sometimes just stand still".
+    #[test]
+    fn a_husk_with_its_legs_gone_crawls_on() {
+        let mut d = Droid::new(DroidKind::Husk, Tier::One, 0, 0, Vec2::ZERO, 0.0, 5);
+        d.follow_path(vec![vec2(5000.0, 0.0)]);
+        d.walk(0.5);
+        let whole = d.pos.x;
+        assert!(whole > 0.0, "it walked");
+        d.strike(DroidPart::Legs, d.body.max(DroidPart::Legs));
+        assert!(d.crawling() && d.can_move());
+        assert!(d.is_walking(), "the route kept through the hit");
+        d.walk(0.5);
+        let crawled = d.pos.x - whole;
+        let want = whole * balance::HUSK_CRAWL;
+        assert!(
+            (crawled - want).abs() < 1e-3,
+            "crawled {crawled}, wanted {want}"
+        );
+        assert!(!d.destroyed);
     }
 
     #[test]

@@ -2004,7 +2004,8 @@ one thing in the arms at a time, from the lockers to the bench and back.
   than three (head, chassis, arms, legs), no blood, no dying state — head
   or chassis at nothing and it is a wreck that instant — and nothing to
   loot, since its arm is part of it. Shoot its arms off and it aims half
-  as well; shoot its legs off and it fights where it stands.
+  as well; shoot its legs off and it fights where it stands — a Husk,
+  which has only its claws, drags itself on at a third of its pace.
   A **droid-held station** has no people at all, and its machines come in
   **waves**: how many waves is fixed the first time the crew dock there,
   how big each is worked out as it lands — off the world clock and the
