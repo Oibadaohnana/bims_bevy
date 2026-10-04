@@ -359,22 +359,40 @@ impl Net {
                 Outcome { ok: true, why: 0 }
             }
             _ => {
+                let early = Self::told_first(message);
+                if early {
+                    self.tell(self.slot, at, message, None);
+                }
                 let outcome = Self::receive(session, self.slot, at, message);
-                if outcome.ok
-                    && let Some(wire) = &self.wire
-                {
-                    wire.send(
-                        To::All,
-                        &Packet::Applied {
-                            from: self.slot,
-                            at,
-                            message,
-                            asked: None,
-                        },
-                    );
+                if outcome.ok && !early {
+                    self.tell(self.slot, at, message, None);
                 }
                 outcome
             }
+        }
+    }
+
+    /// Whether the room is told of `message` before the host applies it:
+    /// an order, which `receive` never refuses. A trip's order builds the
+    /// next site where it is applied — seconds — so told after, the guests
+    /// began building theirs only once the host's was done; told first,
+    /// every end builds at once. The order on the wire is the same.
+    fn told_first(message: Message) -> bool {
+        matches!(message, Message::Order(_))
+    }
+
+    /// The host telling the room what went.
+    fn tell(&self, from: u32, at: u64, message: Message, asked: Option<crate::rollback::Asked>) {
+        if let Some(wire) = &self.wire {
+            wire.send(
+                To::All,
+                &Packet::Applied {
+                    from,
+                    at,
+                    message,
+                    asked,
+                },
+            );
         }
     }
 
@@ -395,19 +413,15 @@ impl Net {
         if !wire.host {
             return;
         }
+        let early = Self::told_first(message);
+        if early {
+            self.tell(from, at, message, asked);
+        }
         let outcome = Self::receive(session, from, at, message);
-        if outcome.ok {
-            wire.send(
-                To::All,
-                &Packet::Applied {
-                    from,
-                    at,
-                    message,
-                    asked,
-                },
-            );
-        } else {
+        if !outcome.ok {
             wire.send(To::Peer(peer), &Packet::Refused { why: outcome.why });
+        } else if !early {
+            self.tell(from, at, message, asked);
         }
     }
 

@@ -17,7 +17,10 @@
 //!   drains nothing off the wire, so whatever the room says in the
 //!   meantime waits in the socket's channel in order; what was already
 //!   drained behind the trip waits in [`Loading::stash`]. Lockstep holds:
-//!   everything is applied in the order it came, only later.
+//!   everything is applied in the order it came, only later. The host
+//!   tells the room of the order before it builds (`Net::told_first`), so
+//!   every end builds its own copy of the site from the run's seed at
+//!   once rather than the guests after the host.
 //!
 //! A worker that panics panics here too when it is joined, as the same
 //! work did before it had a thread.
