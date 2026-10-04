@@ -83,7 +83,9 @@ pub enum Action {
     /// throws a grenade at it, a medic drops a Heal Drone, a tank
     /// raises or puts down his Riot Shield. Nothing with a classless crew member steered.
     Ability1,
-    /// The second slot, on C: empty for every class so far.
+    /// The second slot: on C from task 123, on F since October 2026,
+    /// when C became the ping. The hero panel lays it out third, after
+    /// E ([`Action::LAID_OUT`]); the world still counts it second.
     Ability2,
     /// The third, on E — the class's second action as it was: an
     /// engineer throws a satchel charge at the pointer, a soldier
@@ -134,11 +136,17 @@ pub enum Action {
     /// in its hand now, shots left in it or not. On R since October 2026
     /// (on T until then, while R was the ultimate's).
     Reload,
+    /// **Ping** (October 2026): a mark in this player's colour on
+    /// everybody's screen where the pointer is, on the deck or the floor's
+    /// chart — what Ctrl and a left click, or a middle click, put too. On
+    /// C, which the second ability slot left for F.
+    Ping,
 }
 
 impl Action {
-    /// The four ability slots, in the order the hero panel lays them
-    /// out (task 123).
+    /// The four ability slots in the world's order (task 123): a slot's
+    /// number is its place here. The hero panel lays them out in
+    /// [`Action::LAID_OUT`]'s.
     pub const ABILITIES: [Action; 4] = [
         Action::Ability1,
         Action::Ability2,
@@ -146,10 +154,20 @@ impl Action {
         Action::Ability4,
     ];
 
+    /// The four ability slots in the order the hero panel and the Skills
+    /// tab lay them out, by their keys Q, E, F and Space (October 2026,
+    /// when the second slot went from C to F, and so third in the row).
+    pub const LAID_OUT: [Action; 4] = [
+        Action::Ability1,
+        Action::Ability3,
+        Action::Ability2,
+        Action::Ability4,
+    ];
+
     /// The four item slots, in the order the hero panel lays them out.
     pub const ITEMS: [Action; 4] = [Action::Item1, Action::Item2, Action::Item3, Action::Item4];
 
-    pub const ALL: [Action; 28] = [
+    pub const ALL: [Action; 29] = [
         Action::Map,
         Action::Propose,
         Action::NorthUp,
@@ -178,6 +196,7 @@ impl Action {
         Action::Item4,
         Action::CharacterSheet,
         Action::Reload,
+        Action::Ping,
     ];
 
     /// The key it starts on.
@@ -198,7 +217,7 @@ impl Action {
             Action::WalkDown => Key::S,
             Action::WalkLeft => Key::A,
             Action::WalkRight => Key::D,
-            // C and R are the second and fourth ability slots (task
+            // C and R were the second and fourth ability slots (task
             // 123), so Select went to F1 and Recruit to L. Turn keeps
             // R: it is read only in the yard and the armoury, where no
             // gun is reloaded (R is the reload since October 2026).
@@ -207,7 +226,9 @@ impl Action {
             Action::Turn => Key::R,
             Action::Inventory => Key::Tab,
             Action::Ability1 => Key::Q,
-            Action::Ability2 => Key::C,
+            // F since October 2026, when C became the ping (F was the
+            // attack-move's, gone since).
+            Action::Ability2 => Key::F,
             Action::Ability3 => Key::E,
             // The ultimate is Space and the reload R (October 2026): the
             // ultimate went from R to G, the held revive to T, which the
@@ -227,6 +248,7 @@ impl Action {
             Action::Item4 => Key::Num4,
             Action::CharacterSheet => Key::K,
             Action::Reload => Key::R,
+            Action::Ping => Key::C,
         }
     }
 
@@ -261,6 +283,7 @@ impl Action {
             Action::Item4 => "item-4",
             Action::CharacterSheet => "character-sheet",
             Action::Reload => "reload",
+            Action::Ping => "ping",
         }
     }
 
@@ -294,7 +317,7 @@ impl Action {
                 "The first ability slot, by the crew member you steer: an engineer lays a mine on the deck tile under the pointer, which goes off when an enemy comes within a tile of it; a soldier throws a grenade at it; a medic drops a Heal Drone; a tank raises or puts down his Riot Shield; a commander calls a Battle Cry. With Ctrl held, it is ranked up instead."
             }
             Action::Ability2 => {
-                "The second ability slot: empty for every class for now. With Ctrl held, it is ranked up instead."
+                "The second ability slot, third on the hero panel: an engineer lays a Healing Sentry; a commander calls a medic in; the soldier's, the medic's and the tank's are passive, nothing to press. With Ctrl held, it is ranked up instead."
             }
             Action::Ability3 => {
                 "The third ability slot: an engineer throws a satchel charge at the pointer, held to aim and let go to throw — several may lie on one tile, and G sets them all off; a soldier charges a Stun Shot at the pointer, two seconds planted before it fires; a medic beams the crew member under the pointer, and unlinks when pressed on the one it holds or on nobody; a tank raises his Reflect Barrier; a commander rallies. With Ctrl held, it is ranked up instead."
@@ -328,6 +351,9 @@ impl Action {
             }
             Action::Reload => {
                 "Reload the gun of the Bim you steer now, shots left in the magazine or not. An empty magazine reloads by itself, and there is no end to the magazines: only the seconds the reload takes."
+            }
+            Action::Ping => {
+                "Ping where the pointer is: a mark in your colour on everybody's screen, on the deck or the map's chart. Ctrl and a left click, or a middle click, put one too."
             }
         }
     }
@@ -655,6 +681,10 @@ impl Keys {
         // ultimate on G go to their new keys rather than the two
         // sharing. A key moved off them keeps its word.
         let old_space = !current && text.lines().any(|l| l.trim() == "detonate=Space");
+        // And one from before the ping took C (October 2026) — no ping
+        // line, a profile named or not — has the second ability slot on
+        // C: it goes to F rather than sharing C with the ping.
+        let old_ping = !text.lines().any(|l| l.trim_start().starts_with("ping="));
         let mut profile = None;
         let mut bound = false;
         for line in text.lines() {
@@ -719,6 +749,9 @@ impl Keys {
                         (Action::Detonate, egui::Key::Space) | (Action::Ability4, egui::Key::G)
                     )
                 {
+                    continue;
+                }
+                if old_ping && action == Action::Ability2 && key == egui::Key::C {
                     continue;
                 }
                 keys.set(action, key);
@@ -913,17 +946,20 @@ mod tests {
         // pause was, until October 2026), and nothing else's.
         assert_eq!(keys.key(Action::Detonate), egui::Key::G);
         assert!(keys.shared_with(Action::Detonate).is_empty());
-        // The four ability slots are Q, C, E and Space (task 123; the
-        // ultimate left R for G and G for Space in October 2026), none
-        // bound to anything else. R is the reload, shared with Turn,
-        // which only the yard and the armoury read.
+        // The four ability slots are Q, F, E and Space (task 123; the
+        // ultimate left R for G and G for Space in October 2026, and the
+        // second slot C for F, C being the ping's since), none bound to
+        // anything else. R is the reload, shared with Turn, which only
+        // the yard and the armoury read.
         assert_eq!(keys.key(Action::Ability1), egui::Key::Q);
-        assert_eq!(keys.key(Action::Ability2), egui::Key::C);
+        assert_eq!(keys.key(Action::Ability2), egui::Key::F);
         assert_eq!(keys.key(Action::Ability3), egui::Key::E);
         assert_eq!(keys.key(Action::Ability4), egui::Key::Space);
         assert!(keys.shared_with(Action::Ability1).is_empty());
         assert!(keys.shared_with(Action::Ability2).is_empty());
         assert!(keys.shared_with(Action::Ability3).is_empty());
+        assert_eq!(keys.key(Action::Ping), egui::Key::C);
+        assert!(keys.shared_with(Action::Ping).is_empty());
         // The ultimate shares Space with Propose, which only the map
         // between missions reads (October 2026).
         assert_eq!(keys.shared_with(Action::Ability4), vec![Action::Propose]);
@@ -946,9 +982,14 @@ mod tests {
             assert!(keys.shared_with(walk).is_empty(), "{walk:?}");
         }
         // Every player's two orders for the bots (feature 84) are X to
-        // attack and Y to fall back to the ship; none shares its key. F
-        // is nobody's since the attack-move went (October 2026).
-        assert!(Action::ALL.iter().all(|&a| keys.key(a) != egui::Key::F));
+        // attack and Y to fall back to the ship; none shares its key. F,
+        // the attack-move's until it went (October 2026), is the second
+        // ability slot's alone.
+        assert!(
+            Action::ALL
+                .iter()
+                .all(|&a| a == Action::Ability2 || keys.key(a) != egui::Key::F)
+        );
         assert_eq!(keys.key(Action::Attack), egui::Key::X);
         assert_eq!(keys.key(Action::Retreat), egui::Key::Y);
         assert!(keys.shared_with(Action::Attack).is_empty());
@@ -1030,12 +1071,32 @@ mod tests {
         let keys = Keys::from_text("class-primary=G\nclass-secondary=H\n");
         assert_eq!(keys.key(Action::Ability1), egui::Key::G);
         assert_eq!(keys.key(Action::Ability3), egui::Key::H);
-        assert_eq!(keys.key(Action::Ability2), egui::Key::C);
+        assert_eq!(keys.key(Action::Ability2), egui::Key::F);
         assert_eq!(keys.key(Action::Ability4), egui::Key::Space);
         let text = keys.to_text();
         assert!(text.contains("ability-1=G\n") && text.contains("ability-3=H\n"));
         assert!(!text.contains("class-"));
         assert_eq!(Keys::from_text(&text), keys);
+    }
+
+    /// A keys file from before the ping took C (October 2026) has no ping
+    /// line and the second slot on C: the slot comes back on F, the ping
+    /// on C. A slot moved elsewhere keeps its key, and a file of today
+    /// with the slot put back on C keeps it there.
+    #[test]
+    fn an_old_second_slot_on_c_moves_to_f() {
+        let old = Keys::from_text("profile=mine\nability-2=C\nability-1=Q\n");
+        assert_eq!(old.key(Action::Ability2), egui::Key::F);
+        assert_eq!(old.key(Action::Ping), egui::Key::C);
+        let moved = Keys::from_text("profile=mine\nability-2=V\n");
+        assert_eq!(moved.key(Action::Ability2), egui::Key::V);
+        let now = Keys::from_text("profile=mine\nability-2=C\nping=Z\n");
+        assert_eq!(now.key(Action::Ability2), egui::Key::C);
+        assert_eq!(now.key(Action::Ping), egui::Key::Z);
+        let mut kept = Keys::default();
+        kept.set(Action::Ability2, egui::Key::C);
+        kept.set(Action::Ping, egui::Key::Z);
+        assert_eq!(Keys::from_text(&kept.to_text()), kept);
     }
 
     /// The held revive is T (G until the ultimate took it), the medkit H
@@ -1229,12 +1290,14 @@ mod tests {
         assert_eq!(moved.rank_up_asked(&b, ctrl), Some(Action::Ability1));
     }
 
-    /// Ctrl+C is the second slot's rank-up and not Select, however
+    /// Ctrl+C is the rank-up of a slot on C (the second slot's key until
+    /// October 2026, rebound onto it here) and not Select, however
     /// bevy_egui says it: the key with Ctrl held (0.42 does), the key and
     /// `Event::Copy` together, or the copy alone.
     #[test]
     fn ctrl_c_ranks_the_second_slot_up_whichever_way_it_comes() {
-        let keys = Keys::default();
+        let mut keys = Keys::default();
+        keys.set(Action::Ability2, egui::Key::C);
         let ctrl = egui::Modifiers::CTRL;
         let key = down(egui::Key::C, ctrl);
         for events in [

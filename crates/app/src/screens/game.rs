@@ -2068,6 +2068,14 @@ fn frame(
         online.ping(now, at);
         pointer.primary_pressed = false;
     }
+    // The ping key (C, October 2026) and a middle click put the same mark
+    // where the pointer is; a middle drag still pans.
+    let ping_key = keys && ctx.input(|i| keys_now.used(&i.events, i.modifiers, Action::Ping));
+    if (ping_key || pointer.middle_clicked)
+        && let Some(at) = in_view
+    {
+        online.ping(now, at);
+    }
     // A right drag on the floor's chart draws the way this player means
     // to go up it, in their colour on everybody's chart, and Shift with
     // it rubs their lines out (`floormap::Sketches`). The lines stay up
@@ -2643,7 +2651,7 @@ fn frame(
                 if keys_now.pressed(i, Action::CharacterSheet) {
                     panels.toggle_sheet();
                 }
-                // The four ability slots, Q, C, E and R (task 123): the
+                // The four ability slots, Q, F, E and Space (task 123): the
                 // first and third are the steered crew member's class's
                 // two actions (features 74 and 75) — an engineer's sentry
                 // and sandbags on the deck tile under the pointer, a
@@ -5449,17 +5457,17 @@ fn ranked_box(world: &world::World, slot: u32, action: Action, keys: &Keys) -> A
 }
 
 /// Every key the class `slot` steers has a box for, in the order they
-/// are laid out: the four ability slots, Q, C, E and R, for everybody
-/// (task 123; the second and fourth empty for now), and past them
-/// whatever else that class has a key of its own for (feature 86) — the
-/// medic's carry. A crew member with no class has no keys and no
-/// boxes.
+/// are laid out: the four ability slots, Q, E, F and Space, for everybody
+/// (task 123; [`Action::LAID_OUT`] — the second slot went from C to F in
+/// October 2026, and so third), and past them whatever else that class
+/// has a key of its own for (feature 86) — the medic's carry. A crew
+/// member with no class has no keys and no boxes.
 fn ability_keys(world: &world::World, slot: u32) -> Vec<Action> {
     use world::Class;
     let class = world.class_of(slot);
     let mut keys = match class {
         Class::None => return Vec::new(),
-        _ => Action::ABILITIES.to_vec(),
+        _ => Action::LAID_OUT.to_vec(),
     };
     if world.can_lift(slot) {
         keys.push(Action::Carry);
@@ -5467,8 +5475,8 @@ fn ability_keys(world: &world::World, slot: u32) -> Vec<Action> {
     keys
 }
 
-/// The boxes for the class `slot` steers, the four slots first, in Q C
-/// E R order. None for a classless crew member, which has no keys.
+/// The boxes for the class `slot` steers, the four slots first, in Q E
+/// F Space order. None for a classless crew member, which has no keys.
 fn ability_boxes(world: &world::World, slot: u32, keys: &Keys) -> Vec<AbilityBox> {
     if world.class_of(slot) == world::Class::None {
         return Vec::new();
@@ -6817,7 +6825,7 @@ mod class_key_tests {
         let mut world = simulation_world(flyer(2), REFERENCE_MONEY, 2);
         assert_eq!(world.set_class(0, world::Class::Engineer), Ok(()));
         world.set_ranks_for_probe(0, [0, 0, 1, 0]);
-        let bags = |world: &world::World| ability_boxes(world, 0, &keys).remove(2);
+        let bags = |world: &world::World| ability_boxes(world, 0, &keys).remove(1);
         let full = bags(&world);
         assert_eq!(full.count, Some(charges));
         assert!(full.cooldown == 0.0 && full.recharge.is_none());
@@ -6856,18 +6864,18 @@ mod class_key_tests {
         // A classless crew member has no keys, so it has no boxes.
         assert!(ability_boxes(&world, 2, &keys).is_empty());
 
-        // The engineer (task 127): four ranked abilities on Q C E Space,
+        // The engineer (task 127): four ranked abilities on Q E F Space,
         // the key each is bound to, nothing learnt at rank nought — the
         // ultimate waiting on the sixth level — and a stock counted once a
         // rank is bought.
         let boxes = ability_boxes(&world, 0, &keys);
         assert_eq!(boxes.len(), 4);
         let keys_named: Vec<&str> = boxes.iter().map(|b| b.key.as_str()).collect();
-        assert_eq!(keys_named, vec!["Q", "C", "E", "Space"]);
+        assert_eq!(keys_named, vec!["Q", "E", "F", "Space"]);
         let names: Vec<&str> = boxes.iter().map(|b| b.name).collect();
         assert_eq!(
             names,
-            vec!["Mine", "Healing Sentry", "Satchel Charge", "Sentry"]
+            vec!["Mine", "Satchel Charge", "Healing Sentry", "Sentry"]
         );
         assert!(
             boxes
@@ -6881,21 +6889,21 @@ mod class_key_tests {
         let boxes = ability_boxes(&world, 0, &keys);
         assert_eq!(boxes[0].count, Some(world::class::MINE_CHARGES[0]));
         assert_eq!(
-            boxes[1].count,
+            boxes[2].count,
             Some(world::class::HEALING_SENTRY_CHARGES[0])
         );
-        assert_eq!(boxes[2].count, Some(world::class::SATCHEL_CHARGES[0]));
+        assert_eq!(boxes[1].count, Some(world::class::SATCHEL_CHARGES[0]));
         assert!(boxes[..3].iter().all(|b| b.ready()));
 
         // The soldier (task 124): its four ranked abilities, nothing
         // learnt at rank nought, a "+" on each a point could buy now —
-        // the first level's point on Q, C and E, not the ultimate's — and
+        // the first level's point on Q, E and F, not the ultimate's — and
         // the pips its rank.
         let boxes = ability_boxes(&world, 1, &keys);
         let names: Vec<&str> = boxes.iter().map(|b| b.name).collect();
         assert_eq!(
             names,
-            vec!["Frag Grenade", "Weak Spot", "Stun Shot", "Rampage"]
+            vec!["Frag Grenade", "Stun Shot", "Weak Spot", "Rampage"]
         );
         assert!(boxes.iter().all(|b| b.unlearnt && !b.ready()));
         let plus: Vec<bool> = boxes.iter().map(|b| b.plus).collect();
@@ -6907,7 +6915,7 @@ mod class_key_tests {
         assert_eq!(boxes[0].rank, Some((1, 4)));
         assert_eq!(boxes[0].count, Some(world::class::GRENADE_CHARGES[0]));
         assert_eq!(boxes[0].mark, Some(Glyph::FragGrenade));
-        assert!(boxes[0].ready() && boxes[2].ready() && !boxes[2].on);
+        assert!(boxes[0].ready() && boxes[1].ready() && !boxes[1].on);
         assert!(boxes.iter().all(|b| !b.plus), "no point left");
         assert!(boxes[0].foot.contains("Next, rank 2"));
         let p = world.aboard.room.bim_pos(1);
@@ -6917,7 +6925,7 @@ mod class_key_tests {
             x: (p.x / t).floor() as i32,
             y: (p.y / t).floor() as i32,
         }]);
-        assert!(ability_boxes(&world, 1, &keys)[2].on, "charging now");
+        assert!(ability_boxes(&world, 1, &keys)[1].on, "charging now");
         // The key's own rank-up: the order, and the world's refusal said.
         assert_eq!(
             rank_up(&world, 1, RankUp { slot: 1 }),
@@ -6965,11 +6973,9 @@ mod class_key_tests {
                 _ => 4,
             };
             assert_eq!(boxes.len(), wanted, "{class:?}");
-            // The four slots first, Q C E R, the second and fourth
-            // empty for every class (task 123).
+            // The four slots first, Q E F Space.
             let slots: Vec<Option<Action>> = boxes[..4].iter().map(|b| b.action).collect();
-            assert_eq!(slots, Action::ABILITIES.map(Some).to_vec(), "{class:?}");
-            assert!(boxes[1].mark == None && boxes[3].mark == None);
+            assert_eq!(slots, Action::LAID_OUT.map(Some).to_vec(), "{class:?}");
             assert!(
                 boxes
                     .iter()
@@ -6977,7 +6983,7 @@ mod class_key_tests {
                     .all(|b| !b.name.is_empty() && !b.tip.is_empty())
             );
             assert_eq!(boxes[0].locked, Some(3), "{class:?}'s Q is its third");
-            assert_eq!(boxes[2].locked, None, "{class:?}'s E is its first");
+            assert_eq!(boxes[1].locked, None, "{class:?}'s E is its first");
             // And the keys are the Controls page's own, in the order
             // the bar lays them out.
             assert!(
@@ -6999,14 +7005,14 @@ mod class_key_tests {
             named,
             vec![
                 "Heal Drone",
-                "Triage",
                 "Heal Beam",
+                "Triage",
                 "Healing Circle",
                 names::CARRY
             ]
         );
         assert_eq!(boxes[0].mark, Some(Glyph::HealDrone));
-        assert_eq!(boxes[1].mark, Some(Glyph::Triage));
+        assert_eq!(boxes[2].mark, Some(Glyph::Triage));
         assert_eq!(boxes[3].mark, Some(Glyph::HealingCircle));
         assert_eq!(boxes[3].locked, Some(6), "the ultimate's first rank");
         assert_eq!(boxes[4].locked, None, "the carry wants no level");
@@ -7014,7 +7020,7 @@ mod class_key_tests {
         world.set_ranks_for_probe(0, [1, 1, 1, 0]);
         let boxes = ability_boxes(&world, 0, &keys);
         assert!(boxes[0].ready(), "the drone learnt and ready");
-        assert_eq!(boxes[2].count, Some(1), "one patient the beam could take");
+        assert_eq!(boxes[1].count, Some(1), "one patient the beam could take");
     }
 
     /// Resting on a box says whom the cast would reach (feature 86):

@@ -1454,7 +1454,7 @@ impl CrewPanels {
     }
 
     /// The Skills tab of a ranked kit (task 124): the skill points waiting,
-    /// and each of the four abilities, Q C E R, with its rank as pips,
+    /// and each of the four abilities, Q E F Space, with its rank as pips,
     /// what it does, and every rank's numbers and the level it wants —
     /// the ranks bought lit, the next one with a button that spends a
     /// point on it while one could. Nothing here is asked of the world but
@@ -1477,7 +1477,12 @@ impl CrewPanels {
             theme::question_mark(ui, RANKED_SKILLS_TIP);
         });
         ui.add_space(4.0);
-        for (slot, &rank) in ranks.iter().enumerate() {
+        // In the hero panel's order, by their keys (Q E F Space).
+        for slot in Action::LAID_OUT
+            .into_iter()
+            .filter_map(Action::ability_slot)
+        {
+            let rank = ranks[slot];
             let slot = slot as u8;
             let top = world::class::MAX_RANK;
             let next = rank + 1;

@@ -60,6 +60,9 @@ pub struct Pointer {
     pub secondary_down: bool,
     pub middle_down: bool,
     pub middle_pressed: bool,
+    /// The middle button let go short of a drag: a ping (October 2026),
+    /// where a middle drag pans.
+    pub middle_clicked: bool,
     /// Wheel, in points, up positive.
     pub scroll: f32,
     /// Shift held: an order given with it waits its turn behind what the
@@ -85,6 +88,7 @@ impl Pointer {
             secondary_down: i.pointer.button_down(Secondary),
             middle_down: i.pointer.button_down(Middle),
             middle_pressed: i.pointer.button_pressed(Middle),
+            middle_clicked: i.pointer.button_clicked(Middle),
             shift: i.modifiers.shift,
             // The raw wheel events rather than the smoothed delta: a zoom
             // wants the notch, not a scroll area's easing.
