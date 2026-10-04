@@ -3094,7 +3094,7 @@ pub const ITEM_TIPS: [&str; 22] = [
     "",
     "",
     "A minigun, tier 2 and up: light bolts at ten a second for as long as the trigger is held, a hundred to its magazine, then four seconds to reload. Shreds the machines; good armour shrugs off much of each bolt. Bought at a trader, and only ever the crew's.",
-    "A rail lance, tier 3 only: one slug every five seconds that goes through a body and on into the next — up to three, each after the first taking less. Walls and a Guardian's shield from the front stop it. Bought at a trader, and only ever the crew's.",
+    "A rail lance, tier 3 only: one slug every five seconds that goes through every enemy in its line, each taking the whole hit. Walls and a Guardian's shield from the front stop it. Bought at a trader, and only ever the crew's.",
     // 20 and 21 were the arc greaves and the Reflective plate.
     "",
     "",

@@ -241,8 +241,8 @@ pub enum WeaponKind {
     /// Twenty thin bolts to a trigger pull, ten a second, then a long
     /// cool (task 115). Made from tier two up ([`WeaponKind::min_tier`]).
     Minigun = 9,
-    /// A slug that goes through a body and on into the next, up to
-    /// [`balance::LANCE_PIERCE`] of them (task 115). Tier three only.
+    /// A slug that goes through a body and on into the next, every body
+    /// in its line (task 115). Tier three only.
     RailLance = 10,
 }
 
@@ -1741,14 +1741,13 @@ pub struct Bolt {
     /// The one body it has already slipped past — a peek that dodged it —
     /// so a bolt crossing a body over several steps is rolled for once.
     dodged: Option<usize>,
-    /// The bodies a **rail lance**'s slug has struck so far, in order —
-    /// by the same index `dodged` is — so it never strikes one twice and
-    /// the next takes [`balance::LANCE_FALLOFF`] once more (task 115). A
-    /// fixed array, not a list, so a bolt stays `Copy`; `None` past the
-    /// last, and all `None` for every other gun's bolt, which stops at
-    /// the first body it strikes.
+    /// The last bodies a **rail lance**'s slug went through, the latest
+    /// last — by the same index `dodged` is — so it never strikes one
+    /// twice while crossing it (task 115). A fixed array, not a list, so
+    /// a bolt stays `Copy`; `None` before the first, and all `None` for
+    /// every other gun's bolt, which stops at the first body it strikes.
     #[cfg_attr(feature = "serde", serde(default))]
-    struck: [Option<usize>; balance::LANCE_PIERCE],
+    struck: [Option<usize>; balance::LANCE_RECALL],
     /// Who fired a hostile bolt, by its index on this room's targets —
     /// the shooter a Reflect Barrier sends the hit back to (task 155) —
     /// or `None` for a friendly bolt and a hostile one nobody named.
@@ -1775,13 +1774,7 @@ impl Bolt {
         self.weapon.kind == WeaponKind::RailLance
     }
 
-    /// How many bodies it has struck so far: nought for every bolt in the
-    /// air but a lance slug that has gone through somebody.
-    pub fn strikes(&self) -> usize {
-        self.struck.iter().filter(|s| s.is_some()).count()
-    }
-
-    /// Whether it has struck that body already.
+    /// Whether it has struck that body lately.
     fn has_struck(&self, who: usize) -> bool {
         self.struck.contains(&Some(who))
     }
@@ -3297,7 +3290,7 @@ impl Combat {
             damage: skill.damage,
             range: skill.range,
             dodged: None,
-            struck: [None; balance::LANCE_PIERCE],
+            struck: [None; balance::LANCE_RECALL],
             shooter: None,
         });
     }
@@ -3653,19 +3646,10 @@ impl Combat {
                             } else {
                                 1.0
                             };
-                        // A lance slug's n-th body takes the falloff n
-                        // times over — multiplied out rather than a
-                        // `powi`, so every platform agrees to the bit.
-                        // One for every other bolt, which has struck
-                        // nobody before this.
-                        let mut falloff = 1.0;
-                        for _ in 0..bolt.strikes() {
-                            falloff *= balance::LANCE_FALLOFF;
-                        }
                         let roll = rng.unit();
                         let hit = Hit {
                             who,
-                            damage: stats.damage_at(flown) * close * falloff,
+                            damage: stats.damage_at(flown) * close,
                             cut: false,
                             by: bolt.by,
                             blast: false,
@@ -3674,7 +3658,7 @@ impl Combat {
                             crit: false,
                             // What the Unmaker takes off the armour instead
                             // of off the body; nought for every other gun.
-                            strips: stats.strips_at(flown) * falloff,
+                            strips: stats.strips_at(flown),
                         };
                         if bolt.hostile {
                             // A Reflect Barrier on the body (task 155):
@@ -3689,13 +3673,13 @@ impl Combat {
                             critical = hit.crit;
                             landed.push(hit);
                         }
-                        // The slug goes through as long as it has bodies
-                        // left to strike.
+                        // The slug goes through every body it strikes,
+                        // remembering the last few so it never strikes
+                        // one twice while crossing it.
                         if bolt.pierces() {
-                            if let Some(slot) = bolt.struck.iter_mut().find(|s| s.is_none()) {
-                                *slot = Some(who);
-                            }
-                            through = bolt.strikes() < balance::LANCE_PIERCE;
+                            bolt.struck.rotate_left(1);
+                            bolt.struck[balance::LANCE_RECALL - 1] = Some(who);
+                            through = true;
                         }
                     } else if let Some(lamp) = lamp {
                         // Nothing nearer than the lamp: the lamp took it.
@@ -3741,7 +3725,7 @@ impl Combat {
                                 damage: bolt.damage,
                                 range: bolt.range,
                                 dodged: None,
-                                struck: [None; balance::LANCE_PIERCE],
+                                struck: [None; balance::LANCE_RECALL],
                                 shooter: None,
                             });
                         }
@@ -5255,7 +5239,8 @@ mod tests {
         let sniper_three = WeaponKind::SniperRifle.at(Tier::Three);
         assert!((dps(sniper_three, 0.0) - 18.3).abs() < 0.05);
         assert!((dps(lance, 0.0) - 14.2).abs() < 0.05);
-        assert!((dps(lance, 0.0) * (1.0 + 0.6 + 0.36) - 27.8).abs() < 0.05);
+        // Three in a line, each struck whole.
+        assert!((dps(lance, 0.0) * 3.0 - 42.6).abs() < 0.1);
     }
 
     /// Nothing shoots past the game view's reach (October 2026): every
@@ -5403,11 +5388,12 @@ mod tests {
         panic!("fifty lance slugs and not one rolled a hit");
     }
 
-    /// Task 115: a rail lance slug goes through three bodies in a line —
-    /// all three struck, at one, 0.6 and 0.36 of the damage — and no
-    /// fourth; it never strikes one twice and a wall stops it.
+    /// Task 115: a rail lance slug goes through every body in a line —
+    /// six struck, each at the whole damage (it stopped at three, falling
+    /// off, before October 2026); it never strikes one twice and a wall
+    /// stops it.
     #[test]
-    fn a_lance_slug_goes_through_three_bodies_in_a_line_and_stops_at_a_wall() {
+    fn a_lance_slug_goes_through_every_body_in_a_line_and_stops_at_a_wall() {
         let lance = WeaponKind::RailLance.basic().stats();
         let line = |xs: &[f32]| -> Vec<Option<(Vec2, Weapon)>> {
             xs.iter()
@@ -5417,16 +5403,19 @@ mod tests {
         {
             let (sight, _) = room_with(&[]);
             let mut combat = Combat::new(3);
-            combat.set_targets(line(&[4.0, 6.0, 8.0, 10.0]));
+            combat.set_targets(line(&[4.0, 6.0, 8.0, 10.0, 12.0, 14.0]));
             let hits = fly_a_hit(&mut combat, &sight, middle(1.0, 5.0), middle(4.0, 5.0));
             let who: Vec<usize> = hits.iter().map(|h| h.who).collect();
-            assert_eq!(who, vec![0, 1, 2], "three struck, in order, no fourth");
-            // All inside the sweet range, so the curve is flat.
-            let full = lance.damage;
-            for (hit, share) in hits.iter().zip([1.0, 0.6, 0.36]) {
-                assert!((hit.damage - full * share).abs() < 1e-3, "{hits:?}");
+            assert_eq!(
+                who,
+                vec![0, 1, 2, 3, 4, 5],
+                "all six struck, in order, once"
+            );
+            // No drop over distance, and none a body.
+            for hit in &hits {
+                assert!((hit.damage - lance.damage).abs() < 1e-3, "{hits:?}");
             }
-            assert!(combat.bolts.is_empty(), "spent after the third");
+            assert!(combat.bolts.is_empty(), "spent at its reach");
         }
         // A wall between the second and the third: the second is the last.
         {
@@ -5462,8 +5451,8 @@ mod tests {
 
     /// Task 115: a Guardian's shield stops a lance slug from the front —
     /// nothing behind it is struck — and a Guardian hit from the side is
-    /// gone through. A body that dodges the slug is no strike: the next
-    /// body struck takes the factor for the strikes so far.
+    /// gone through. A body that dodges the slug is slipped past, and the
+    /// bodies behind it are struck whole.
     #[test]
     fn a_shield_stops_a_lance_from_the_front_and_a_dodge_is_no_strike() {
         let lance = WeaponKind::RailLance.basic().stats().damage;
@@ -5502,8 +5491,8 @@ mod tests {
             let who: Vec<usize> = hits.iter().map(|h| h.who).collect();
             assert_eq!(who, vec![0, 1]);
         }
-        // The first body's armour slips it every time: not a strike, so
-        // the second takes it whole and the third at 0.6.
+        // The first body's armour slips it every time: the second and the
+        // third take it whole.
         {
             let (sight, _) = room_with(&[]);
             let mut combat = Combat::new(9);
@@ -5517,7 +5506,7 @@ mod tests {
             let got: Vec<(usize, f32)> = hits.iter().map(|h| (h.who, h.damage)).collect();
             assert_eq!(got.len(), 2, "{got:?}");
             assert_eq!((got[0].0, got[1].0), (1, 2));
-            assert!((got[0].1 - lance).abs() < 1e-3 && (got[1].1 - lance * 0.6).abs() < 1e-3);
+            assert!((got[0].1 - lance).abs() < 1e-3 && (got[1].1 - lance).abs() < 1e-3);
         }
         // And one peeking from cover that dodges it: the same, whenever
         // the peek's half comes up.
@@ -5536,7 +5525,7 @@ mod tests {
                 let who: Vec<usize> = hits.iter().map(|h| h.who).collect();
                 if who == vec![0, 2] {
                     dodged += 1;
-                    assert!((hits[1].damage - lance * 0.6).abs() < 1e-3, "{hits:?}");
+                    assert!((hits[1].damage - lance).abs() < 1e-3, "{hits:?}");
                 } else {
                     assert_eq!(who, vec![0, 1, 2]);
                 }

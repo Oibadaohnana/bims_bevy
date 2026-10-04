@@ -4018,13 +4018,15 @@ worked damage a second.
   pull every five seconds — the one `Trigger` every gun has. At sixty
   steps a second a gap runs out on the seventh step, as every burst's
   does, so the twenty take 2.2 s of steps rather than 1.9.
-- **The lance goes through.** A `Bolt` keeps `struck: [Option<usize>;
-  LANCE_PIERCE]` (serde default; a fixed array so it stays `Copy`) — the
-  bodies, by the index `dodged` uses, it has struck. In `Combat::step` a
-  lance's strike ends the step at the body (`bolt.pos` there, `left` less
-  the way flown) and it flies on next step; the n-th body takes
-  `LANCE_FALLOFF`ⁿ of the damage (multiplied out, not `powi`), point-blank
-  and the bolt's own factor on top; a struck body is skipped by the body
+- **The lance goes through every body in its line** (October 2026; it
+  stopped at three, the n-th taking 0.6ⁿ, before). A `Bolt` keeps
+  `struck: [Option<usize>; LANCE_RECALL]` (serde default; a fixed array
+  so it stays `Copy`) — the last bodies, by the index `dodged` uses, it
+  went through, the latest last, shifted along at every strike. In
+  `Combat::step` a lance's strike ends the step at the body (`bolt.pos`
+  there, `left` less the way flown) and it flies on next step until its
+  reach runs out; every body takes the whole damage, point-blank and the
+  bolt's own factor on top; a body struck lately is skipped by the body
   loop and the shield loop alike. A dodge — cover, a peek, tier-three
   armour — is no strike; a wall, a lamp and a shield from the front stop
   it; *interpose* spends it. The rolls are the ones any bolt makes, one a

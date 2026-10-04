@@ -30,8 +30,8 @@
 //! drains the piece's own `health`, and only what the piece cannot take
 //! reaches the body. At nothing the piece is broken and does nothing.
 //!
-//! A rail lance's slug goes through bodies ([`LANCE_PIERCE`],
-//! [`LANCE_FALLOFF`]); nothing else does.
+//! A rail lance's slug goes through every body in its line
+//! ([`LANCE_RECALL`]); nothing else does.
 //!
 //! What a body *has* — one bar of hit points — is `crate::health`.
 
@@ -294,9 +294,9 @@ pub const MINIGUN: WeaponStats = WeaponStats {
     reload_time: MINIGUN_RELOAD,
 };
 
-/// One slug every five seconds that **goes through**: it strikes up to
-/// [`LANCE_PIERCE`] bodies along its line, the n-th (from nought) at the
-/// damage at the distance flown times [`LANCE_FALLOFF`] to the n. At tier
+/// One slug every five seconds that **goes through**: it strikes every
+/// body along its line, each at the whole damage at the distance flown
+/// (up to three before October 2026, the n-th at 0.6ⁿ of it). At tier
 /// three (its only tier) that is 75 a slug at 0.945 odds out to 9.84
 /// tiles, reaching [`MAX_RANGE`] (16.8 and 28.56 before it, 24 and 40.8
 /// before October 2026).
@@ -305,9 +305,9 @@ pub const MINIGUN: WeaponStats = WeaponStats {
 /// (84.4 at certain odds, one every four, four to a magazine and 2.4 s to
 /// reload it; 21 before the magazines) and the lance about 14 (75 at
 /// 0.945, one every five); into three bodies in a line the lance does
-/// about 28 (75 + 45 + 27). A wall, a lamp and a Guardian's shield from
-/// the front stop it; a tank's *interpose* spends it. See
-/// `crate::combat::Combat::step`.
+/// about 42 (14 on each), and 14 more for every body more. A wall, a
+/// lamp and a Guardian's shield from the front stop it; a tank's
+/// *interpose* spends it. See `crate::combat::Combat::step`.
 pub const RAIL_LANCE: WeaponStats = WeaponStats {
     range: 11.7,
     sweet: 8.2,
@@ -326,12 +326,11 @@ pub const RAIL_LANCE: WeaponStats = WeaponStats {
     reload_time: 0.0,
 };
 
-/// How many bodies one rail lance slug strikes, at most.
-pub const LANCE_PIERCE: usize = 3;
-/// What each body struck after the first multiplies the slug's damage by:
-/// the n-th body (from nought) takes `LANCE_FALLOFF`ⁿ of it — 1, 0.6,
-/// 0.36.
-pub const LANCE_FALLOFF: f32 = 0.6;
+/// How many of the bodies it went through last a rail lance slug
+/// remembers, so it never strikes one twice while still crossing it. It
+/// strikes every body in its line however many there are (it stopped at
+/// three before October 2026).
+pub const LANCE_RECALL: usize = 3;
 
 // ---- The damage as dials (October 2026) ----
 
