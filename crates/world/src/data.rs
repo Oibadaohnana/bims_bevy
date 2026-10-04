@@ -370,15 +370,17 @@ pub const AREA_HOLD_STEPS: u64 = 10_800;
 /// in it to take the FOB: twenty seconds. Any friend in the ring stops
 /// the count; no enemy in it puts it back to nought.
 pub const AREA_CAPTURE_STEPS: u64 = 1_200;
-/// How often an Area defend's waves land while the hold runs: every ten
-/// seconds on the clock, whether or not the last is down — they stack.
-pub const AREA_WAVE_STEPS: u64 = 600;
-/// The first this many waves come [`AREA_WAVE_STEPS`] apart; each after
-/// them [`AREA_WAVE_SOONER_STEPS`] (a second) sooner than the one before
-/// — the player's word: "the seconds between waves should get less after
-/// 3 defending rounds" — and never more often than
-/// [`AREA_WAVE_MIN_STEPS`] (five seconds): 10, 10, 10, 9, 8, 7, 6, 5, 5 …
-pub const AREA_STEADY_WAVES: u32 = 3;
+/// How long after an Area defend's first wave lands the second does,
+/// while the hold runs: twenty-five seconds, counted from the landing
+/// whether or not the wave is down — they stack. On a clock rather than
+/// after the last is down, or the crew could dodge one machine in the
+/// middle and let the time run out (the player's word).
+pub const AREA_WAVE_STEPS: u64 = 1_500;
+/// The first this many waves are followed [`AREA_WAVE_STEPS`] after; each
+/// after them [`AREA_WAVE_SOONER_STEPS`] (a second) sooner than the one
+/// before, never more often than [`AREA_WAVE_MIN_STEPS`] (five
+/// seconds): 25, 24, 23 … — about nine waves in the three minutes.
+pub const AREA_STEADY_WAVES: u32 = 1;
 pub const AREA_WAVE_SOONER_STEPS: u64 = 60;
 pub const AREA_WAVE_MIN_STEPS: u64 = 300;
 /// The ring's radius, in tiles: what counts as standing in the FOB. The

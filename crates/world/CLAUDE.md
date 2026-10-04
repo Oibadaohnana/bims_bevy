@@ -7820,10 +7820,13 @@ and the pistol, item and soldier tests are the rule.
   `Defense::more_to_come` is `left > 0` — **the waves never run out
   while it runs** (`waves_left` is unused for an area). **They are on a
   clock and stack**: the next is due `defense::area_gap(wave)` after one
-  lands, whether or not it is down — `AREA_WAVE_STEPS` (ten seconds)
-  after each of the first `AREA_STEADY_WAVES` (three), then a second
+  lands, whether or not it is down — `AREA_WAVE_STEPS` (twenty-five
+  seconds) after the first (`AREA_STEADY_WAVES`), then a second
   (`AREA_WAVE_SOONER_STEPS`) sooner a wave, never under
-  `AREA_WAVE_MIN_STEPS` (five): 10, 10, 10, 9, 8, 7, 6, 5, 5 …; a wave
+  `AREA_WAVE_MIN_STEPS` (five): 25, 24, 23 …, about nine waves in the
+  three minutes. A clock and not "after the last is down", in the
+  player's word, or the crew could dodge one machine in the middle and
+  let the time run out; a wave
   laid on one still standing leaves the wrecks for a clear deck
   (`clear_wrecks` would shift every machine after them), and a
   Manufacturers' wave laid so moves the residents' per-body lists on by

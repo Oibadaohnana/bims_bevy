@@ -121,8 +121,8 @@ fn an_area_defend_lays_its_fob_and_stands_the_crew_in_it() {
 }
 
 /// The waves never run out while the hold has time, and they are on a
-/// clock: one every ten seconds whether or not the last is down — they
-/// stack — and a second sooner a wave after the third. Once the hold is
+/// clock from each landing whether or not the last is down — they stack —
+/// twenty-five seconds after the first and a second sooner a wave. Once the hold is
 /// over no wave lands, and those on the ground destroyed are the site held.
 #[test]
 fn the_waves_come_on_a_clock_until_the_hold_is_over_and_the_last_are_destroyed() {
@@ -132,16 +132,40 @@ fn the_waves_come_on_a_clock_until_the_hold_is_over_and_the_last_are_destroyed()
     let (landed, _) = until(&mut world, 40, |w| w.droids_standing() > 0);
     assert!(landed, "the first wave never landed");
     // Five more waves, nobody destroyed: each lands its gap after the last.
+    // Nobody shooting at them: the town's guard and defenders dead, the
+    // crew stood by the pad every step.
+    nobody_under_arms(&mut world);
+    let pad = pad_on_deck(&world);
     let mut gaps = Vec::new();
     let mut most = 0;
     for _ in 0..5 {
         let mut steps = 0u64;
-        let (came, said) = until(&mut world, 1_000, |w| {
+        let mut came = false;
+        let mut said = Vec::new();
+        for _ in 0..2_000 {
+            for who in 0..world.aboard.room.crew_count() as usize {
+                world.aboard.room.put_for_probe(who, pad);
+            }
+            // And the machines held where they landed, out of the ring.
+            if let Some(residents) = world.residents.as_mut() {
+                let room = &mut residents.aboard.room;
+                for i in 0..room.droid_count() as usize {
+                    if let Some(d) = room.droid_mut_for_probe(i) {
+                        d.stun(1.0, false);
+                    }
+                }
+            }
+            said.extend(world.step(&[]));
             steps += 1;
-            most = most.max(w.droids_standing());
-            w.defense(id)
+            most = most.max(world.droids_standing());
+            if world
+                .defense(id)
                 .is_some_and(|d| d.wave as usize == gaps.len() + 2)
-        });
+            {
+                came = true;
+                break;
+            }
+        }
         assert!(came, "a wave did not come while the hold had time");
         assert!(
             !said
@@ -153,8 +177,8 @@ fn the_waves_come_on_a_clock_until_the_hold_is_over_and_the_last_are_destroyed()
     }
     assert_eq!(
         gaps,
-        [600, 600, 600, 540, 480],
-        "ten, ten, ten, then sooner"
+        [1_500, 1_440, 1_380, 1_320, 1_260],
+        "twenty-five seconds, then a second sooner a wave"
     );
     assert!(most > 1, "the waves stack: {most} up at once at most");
     // The hold at its end: the time runs out with the waves still up, and
@@ -276,7 +300,7 @@ fn every_wave_of_a_mission_is_its_first_wave_s_size() {
     world.set_day_for_probe(60);
     assert_eq!(world.droid_wave_size(), first, "fixed at the first wave");
     destroy_the_wave(&mut world);
-    let (came, _) = until(&mut world, 1_000, |w| w.droids_standing() > 0);
+    let (came, _) = until(&mut world, 2_000, |w| w.droids_standing() > 0);
     assert!(came);
     assert_eq!(
         world.droids_standing(),
@@ -306,7 +330,7 @@ fn the_manufacturers_waves_stack_and_every_body_is_counted_once() {
     if !world.site_threatened(id) || !world.defense_by_manufacturers() {
         return;
     }
-    let (stacked, _) = until(&mut world, 2_000, |w| {
+    let (stacked, _) = until(&mut world, 4_000, |w| {
         w.defense(id).is_some_and(|d| d.wave >= 3)
     });
     assert!(stacked, "three waves landed");
@@ -335,4 +359,27 @@ fn the_manufacturers_waves_stack_and_every_body_is_counted_once() {
     let bodies = residents.aboard.room.body_count() as usize;
     assert_eq!(residents.down.len(), bodies, "a flag a body");
     assert!(world.droids_standing() == 0);
+}
+
+/// The town's guard and defenders dead: nobody of the site's under arms.
+fn nobody_under_arms(world: &mut World) {
+    let residents = world.residents.as_mut().expect("the town's room");
+    let room = &mut residents.aboard.room;
+    for who in 0..room.crew_count() as usize {
+        if residents.defender.get(who).copied().unwrap_or(false)
+            || who == crate::surface::GUARD as usize
+        {
+            room.kill_for_probe(who);
+        }
+    }
+}
+
+/// A point by the pad, on the joined deck: far from the FOB.
+fn pad_on_deck(world: &World) -> bims::math::Vec2 {
+    let t = shipdesign::TILE as f64;
+    let pad = world
+        .aboard
+        .from_station(dvec2(4.5 * t, 47.5 * t))
+        .expect("joined");
+    bims::math::vec2(pad.x as f32, pad.y as f32)
 }

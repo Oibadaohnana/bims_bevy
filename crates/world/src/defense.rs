@@ -301,12 +301,14 @@ mod tests {
         assert!(a.taken);
     }
 
-    /// Ten seconds after each of the first three waves, then a second
-    /// sooner a wave, never under five.
+    /// Twenty-five seconds after the first wave, then a second sooner a
+    /// wave, never under five.
     #[test]
-    fn the_waves_come_ten_seconds_apart_then_a_second_sooner_a_wave() {
-        let seconds: Vec<u64> = (1..=10).map(|w| area_gap(w) / 60).collect();
-        assert_eq!(seconds, [10, 10, 10, 9, 8, 7, 6, 5, 5, 5]);
+    fn the_waves_come_twenty_five_seconds_apart_then_a_second_sooner_a_wave() {
+        let seconds: Vec<u64> = (1..=5).map(|w| area_gap(w) / 60).collect();
+        assert_eq!(seconds, [25, 24, 23, 22, 21]);
+        assert_eq!(area_gap(21) / 60, 5);
+        assert_eq!(area_gap(400) / 60, 5);
     }
 
     /// The schedule: an hour before the first wave, the count fixed once.
