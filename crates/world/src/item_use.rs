@@ -323,6 +323,7 @@ impl World {
                         room.strike(j, arc_damage, false);
                     }
                 }
+                room.arc_light(struck, j);
                 shown.push((j as u32, arc_damage, false));
             }
             for &(body, _, _) in &shown {

@@ -4982,6 +4982,18 @@ impl Game {
         true
     }
 
+    /// An *Arc Coil*'s arc leaping from body `from` to body `to` (the
+    /// room's body indices, machines after the Bims): the lightning
+    /// between them, drawn only (`crate::fx::Fx::arc`).
+    pub fn arc_light(&mut self, from: usize, to: usize) {
+        let count = self.body_count() as usize;
+        if from >= count || to >= count {
+            return;
+        }
+        let (a, b) = (self.body_pos(from), self.body_pos(to));
+        self.combat.fx.arc(a, b);
+    }
+
     /// Dead this instant, where it stands — not at the top of its next
     /// tick, the way [`Game::kill_for_probe`] leaves one: what the world
     /// does to a crew member the ship leaves behind (feature 103), whose

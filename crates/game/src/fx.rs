@@ -144,6 +144,22 @@ pub const BURST_SPARK_HEAT: f32 = 2.0;
 pub const DEBRIS_PLATE: Color = Color::rgb(0.33, 0.36, 0.40);
 pub const DEBRIS_DARK: Color = Color::rgb(0.15, 0.16, 0.18);
 
+// --- an arc coil's arc -------------------------------------------------------
+
+/// An *Arc Coil*'s arc leaping from the enemy struck to another
+/// ([`Fx::arc`]): how long the bolt crackles, in real seconds, how many
+/// kinks it has, how far a kink strays off the line (a share of the
+/// length, never more than [`ARC_STRAY_MOST`]), and how many times a
+/// second it jumps to a new shape.
+pub const ARC_LIFE: f32 = 0.3;
+pub const ARC_KINKS: u32 = 7;
+pub const ARC_STRAY: f32 = 0.12;
+pub const ARC_STRAY_MOST: f32 = 14.0;
+pub const ARC_FLICKER: f32 = 30.0;
+/// The arc's blue: deeper than the stun's pale blue, so it reads blue on a
+/// lit deck and not white.
+pub const ARC_BLUE: Color = Color::rgb(0.25, 0.55, 1.0);
+
 /// The most of its first frame a fresh effect is aged by, in real
 /// seconds: a sixtieth, one frame at the pace the game is drawn at. See
 /// [`Fx::age`].
@@ -414,6 +430,9 @@ enum Light {
     /// A bolt or a blow stopped at a Guardian's shield (feature 100):
     /// the plate flaring round the spot, centred on the machine.
     Shield { centre: Vec2 },
+    /// An *Arc Coil*'s lightning, from the enemy struck to the one it
+    /// leapt to (the flare's spot).
+    Arc { from: Vec2 },
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -918,6 +937,39 @@ impl Fx {
         );
     }
 
+    /// An *Arc Coil*'s arc leaping from `from` (the enemy struck) to `to`
+    /// (one it reached): a crackling bolt of [`ARC_BLUE`] between them
+    /// and a spit of blue sparks off the one it lands on.
+    pub fn arc(&mut self, from: Vec2, to: Vec2) {
+        if !self.on {
+            return;
+        }
+        let seq = self.next();
+        capped(
+            &mut self.flares,
+            FLARE_CAP,
+            Flare {
+                at: to,
+                light: Light::Arc { from },
+                hostile: false,
+                width: 1.0,
+                heat: 0.0,
+                age: 0.0,
+                life: ARC_LIFE,
+                seq,
+            },
+        );
+        self.spray(
+            Spray::new(SprayKind::Sparks, to, from)
+                .reach(22.0)
+                .life(0.35)
+                .colour(ARC_BLUE.glowing(2.4))
+                .count(10)
+                .spread(TAU)
+                .dot(1.4),
+        );
+    }
+
     /// A bolt that flew out its range and faded: only the sniper's beam
     /// or the rail lance's line is left of it, hanging from the muzzle to
     /// where it gave out.
@@ -1203,6 +1255,7 @@ impl Fx {
                 }
                 Light::Cut { facing } => draw_cut(list, f, facing, t),
                 Light::Shield { centre } => draw_shield_flare(list, f, centre, t),
+                Light::Arc { from } => draw_arc(list, f, from, t),
             }
         }
         for b in &self.bursts {
@@ -1239,6 +1292,40 @@ impl Fx {
                 }
             }
         }
+    }
+}
+
+/// An *Arc Coil*'s lightning: a jagged bolt from `from` to the flare's
+/// spot, its kinks a [`scatter`] of the flare and the moment, so it jumps
+/// to a new shape [`ARC_FLICKER`] times a second — a halo of [`ARC_BLUE`],
+/// a bright blue core past white that blooms, and a glow at either end.
+fn draw_arc(list: &mut DrawList, f: &Flare, from: Vec2, t: f32) {
+    let blue = ARC_BLUE;
+    let along = f.at - from;
+    let length = along.len();
+    if length <= 0.0 {
+        return;
+    }
+    let across = along.perp() * (1.0 / length);
+    let stray = (length * ARC_STRAY).min(ARC_STRAY_MOST);
+    let shape = (f.age * ARC_FLICKER) as u32;
+    let mut points = Vec::with_capacity(ARC_KINKS as usize + 2);
+    points.push(from);
+    for i in 1..=ARC_KINKS {
+        let u = i as f32 / (ARC_KINKS + 1) as f32;
+        let off = (scatter(f.seq, shape * 16 + i) - 0.5) * 2.0 * stray;
+        points.push(from + along * u + across * off);
+    }
+    points.push(f.at);
+    let core = blue.mix(CORE_WHITE, 0.3).glowing(2.4);
+    for pair in points.windows(2) {
+        list.line(pair[0], pair[1], 10.0, blue.alpha(0.25 * t));
+        list.line(pair[0], pair[1], 4.0, blue.glowing(1.3).alpha(0.8 * t));
+        list.line(pair[0], pair[1], 1.8, core.alpha(t));
+    }
+    for end in [from, f.at] {
+        list.circle(end, 11.0 * (0.6 + 0.4 * t), blue.alpha(0.35 * t));
+        list.circle(end, 4.0 * t, core.alpha(t));
     }
 }
 
@@ -1415,6 +1502,25 @@ mod tests {
 
     fn pistol() -> Weapon {
         WeaponKind::LaserPistol.basic()
+    }
+
+    /// An Arc Coil's arc is a blue bolt end to end that blooms, sparks
+    /// where it lands, and is gone after [`ARC_LIFE`].
+    #[test]
+    fn an_arc_is_blue_lightning_from_one_enemy_to_the_next() {
+        let mut fx = Fx::default();
+        fx.arc(Vec2::ZERO, vec2(120.0, 0.0));
+        assert_eq!(fx.count(), 0, "off until aged");
+        fx.age(0.0);
+        fx.arc(Vec2::ZERO, vec2(120.0, 0.0));
+        assert_eq!(fx.count(), 1);
+        assert_eq!(fx.take_sprays().len(), 1, "the sparks where it lands");
+        let mut list = DrawList::default();
+        fx.draw_air(&mut list);
+        assert!(list.len() > 0, "the bolt is drawn");
+        fx.age(ARC_LIFE);
+        fx.age(ARC_LIFE);
+        assert_eq!(fx.count(), 0, "gone after its life");
     }
 
     /// Nothing is recorded for a room nobody ages — a test, a probe, a

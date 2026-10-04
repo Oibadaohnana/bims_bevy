@@ -5004,6 +5004,18 @@ default false) — `strike_stripping` strips nothing off the armour while
 it is set (an *Ablative Shell* running). The other nine items are the
 world's (`crates/world/CLAUDE.md`, "Items, step two").
 
+**An *Arc Coil*'s arc is drawn** (October 2026, the player's word: "blue
+arcs when the effect happens and get on another enemy"): the world's
+`items_on_enemy_hits` calls `Game::arc_light(struck, to)` (body indices
+of the residents' room) for every enemy an arc reaches, and
+`Fx::arc(from, to)` lays a `Light::Arc` flare there — a jagged bolt of
+`fx::ARC_BLUE`, its `ARC_KINKS` kinks a `scatter` that jumps to a new
+shape `ARC_FLICKER` times a second, a halo, a core past white that
+blooms, a glow at both ends, `ARC_LIFE` (0.3 s) — and a spit of blue
+sparks where it lands. Picture only, like every flare (and the names
+`Fx::arc`/`Light::Arc` the arc greaves' discharge had, reused).
+`an_arc_is_blue_lightning_from_one_enemy_to_the_next` (`fx::tests`).
+
 ## Shift sprints, Alt dodge-rolls (task 150)
 
 > "Ctrl and a left click is a ping" in the app: the ping was Alt's until
