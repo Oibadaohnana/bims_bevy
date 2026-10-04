@@ -7,16 +7,17 @@ work on it. The long version of this file (every feature's history and
 measurements) is `git show 5f9da69:CLAUDE.md`; each commit message says
 what its task moved.
 
-## Before anything: `AGENTS`, and after: commit
+## Before anything: who else is here, and after: commit
 
-`AGENTS` at the root holds one number: how many agents are working on the
-tree. Read it, add one, write it back — it is awareness only (re-read a
-file before editing; keep out of others' way). At the end of the session:
+Other agents share the tree. `~/nixcfg/scripts/agents.sh status` (run
+from the root) lists them — how many, each one's task and what it is
+doing right now; look before anything sweeping. It is awareness only
+(re-read a file before editing; keep out of others' way). There is no
+counter file to bump. At the end of the session:
 
-1. write the number back one lower;
-2. stop every background task you started (`pgrep -af "sleep "`); leave
+1. stop every background task you started (`pgrep -af "sleep "`); leave
    other agents' processes alone (`agents.sh status` lists them);
-3. **commit your own work**: `git add` the files *you* touched, one by one
+2. **commit your own work**: `git add` the files *you* touched, one by one
    (never `-A`, `-a` or `.`), message led by the task number the player
    gave you — `86. medics carry the wounded off the deck`. Commit even if
    unfinished, and say so. No `stash`, `checkout`, `reset`, `rebase` or
