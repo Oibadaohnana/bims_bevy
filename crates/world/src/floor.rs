@@ -328,7 +328,7 @@ mod tests {
     }
 
     #[test]
-    fn a_floor_is_fifty_rows_two_to_four_wide_and_wired_without_a_crossing() {
+    fn a_floor_is_thirty_two_rows_two_to_four_wide_and_wired_without_a_crossing() {
         for seed in 0..200u64 {
             let shape = shape(mix(seed));
             assert_eq!(shape.widths.len() as u32, data::FLOOR_HOPS + 1);

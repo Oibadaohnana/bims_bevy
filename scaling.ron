@@ -47,8 +47,8 @@
     enemies_per_bot: 1.0,
     wave_days: 15,
     tier1_days: 20,
-    tier2_days: 37,
-    tier3_days: 47,
+    tier2_days: 19,
+    tier3_days: 29,
     bomber_every: 6,
     lancer_every: 8,
 )

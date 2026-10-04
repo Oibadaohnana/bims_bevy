@@ -7661,8 +7661,9 @@ never down, and the tiers marked on it.
 
 - **The shape** (`crate::floor`, stateless — `floor::shape(seed)` off the
   galaxy's seed and the crew's own star, its own salt): row nought is the
-  start, rows 1–49 have `FLOOR_MIN_WAYS`..`FLOOR_MAX_WAYS` (2–4) places
-  each (a walk that steps one at a time), row `FLOOR_HOPS` (50) the Heart.
+  start, rows 1–31 have `FLOOR_MIN_WAYS`..`FLOOR_MAX_WAYS` (2–4) places
+  each (a walk that steps one at a time), row `FLOOR_HOPS` (32; fifty
+  until the player halved the tier-one rows) the Heart.
   The trips between two rows are a lattice path from the leftmost pair to
   the rightmost — mostly level, a step aside three times in ten — so every
   place has a way in and a way on, no two trips cross, and the leftmost and
@@ -7670,14 +7671,14 @@ never down, and the tiers marked on it.
   row has four). **The traders are scattered** (`Shape::shops`,
   `FloorNode::shop`, `Floor::is_shop`; the player: "a shop does not
   always have to be in one row … roughly 15 times until the heart …
-  every 7 steps somewhere"): `FLOOR_SHOPS` (15), one in each even stretch
-  of the rows from `FLOOR_FIRST_SHOP_ROW` (3) to the one under the Heart,
+  every 7 steps somewhere"): `FLOOR_SHOPS` (9; fifteen on the
+  fifty-row floor), one in each even stretch of the rows from `FLOOR_FIRST_SHOP_ROW` (3) to the one under the Heart,
   never two rows running, each on the place of its row that a place
   stranded longest below (no trader reachable from it yet) leads to.
   Over 500 seeds 97% of places reach one within seven rows, the way up
   that goes for them is six rows without one at the most on average (ten
-  at the worst), and it can meet ten or eleven; a way up the edge meets
-  about five. Four whole traders' rows (`FLOOR_SHOP_BANDS`) until then;
+  at the worst), and it can meet six or seven (ten or eleven on the
+  fifty-row floor). Four whole traders' rows (`FLOOR_SHOP_BANDS`) until then;
   `wire::PROTOCOL` 154.
 - **The places are stars** (`floorplan.rs`, a child of `world`,
   `World::lay_floor`): the start is `home_star`/`home`, the Heart
@@ -7691,7 +7692,8 @@ never down, and the tiers marked on it.
 - **Row `r` is run day `r`** (`floor::row_day`; the start and the first
   row share day one): a trip up puts the clock on to its row's day
   (`floor_minutes`), so the first hop costs nothing and every later one a
-  day, and the Heart is day fifty.
+  day, and the Heart is day 32 (fifty until the tier-one rows were
+  halved).
 - **The switch is `Run::floor`** (saved, serde default; hashed only while
   on), off in `World::start` — so every test, `REFERENCE_CHECKSUM` and the
   survivor pins are what they were — and on in every session the app's
@@ -7713,7 +7715,13 @@ never down, and the tiers marked on it.
   player asked for the tiers at day 37 and 47 (tier one twenty for the
   Manufacturers' gear): `scaling.ron` says `tier2_days: 37, tier3_days:
   47`, which marks rows 1–36 tier one, 37–46 tier two and 47–49 and the
-  Heart tier three. The `data` defaults (20/40) are unchanged.
+  Heart tier three. Then the player halved the tier-one rows ("tier I lvls
+  should be half as many … drop the day number to reach the heart by
+  current days − half the tier I days"): `tier2_days: 19, tier3_days: 29`
+  and `FLOOR_HOPS` 50 → 32 — rows 1–18 tier one, 19–28 tier two, 29–31
+  and the Heart three; `tier1_days` stays twenty; `wire::PROTOCOL` 166. The `data`
+  defaults (20/40) are unchanged: under them the Heart comes before tier
+  three's day.
 - **`World::floor_marks`** is every place as the map draws it — its site,
   the kind, elite and cleared on its row's day (a look, `quote_given`),
   whether it is the Heart, its tier.

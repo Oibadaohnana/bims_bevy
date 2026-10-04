@@ -56,7 +56,7 @@
 //!                    ready check at the fortress with ten bots — two of
 //!                    every class at the top level, every rank bought —
 //!                    everybody in tier-three kit, the waves the lobby's
-//!                    difficulty on the Heart's day fifty (`BIMS_END_DAY`), the first
+//!                    difficulty on the Heart's day 32 (`BIMS_END_DAY`), the first
 //!                    mission not eased; `bims end offline` is that alone,
 //!                    from the game setup, with no relay
 //! bims manufacturers the combat crew at the nearest site of the
@@ -308,7 +308,7 @@ const COMMANDS: [(&str, &str); 24] = [
     ),
     (
         "end",
-        "The end fight with company: a lobby at code THEEND for others to join, Start pressed once a second player is in, then the ready check at the Machine Heart with ten plain classless bots and everybody in tier-three kit; the waves are the setup's difficulty on the Heart's day 50 (BIMS_END_DAY, days gone) with no first-mission ease",
+        "The end fight with company: a lobby at code THEEND for others to join, Start pressed once a second player is in, then the ready check at the Machine Heart with ten plain classless bots and everybody in tier-three kit; the waves are the setup's difficulty on the Heart's day 32 (BIMS_END_DAY, days gone) with no first-mission ease",
     ),
     (
         "end offline",

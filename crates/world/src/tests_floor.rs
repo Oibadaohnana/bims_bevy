@@ -202,21 +202,21 @@ fn a_trip_goes_only_up_the_floor_and_a_row_is_a_day() {
 fn the_rows_are_marked_by_the_tier_timings() {
     let mut world = default_world();
     world.set_wave_scaling(WaveScaling {
-        tier2_days: 37,
-        tier3_days: 47,
+        tier2_days: 19,
+        tier3_days: 29,
         ..WaveScaling::DEFAULT
     });
     let heart = world.floor().unwrap().heart_row();
     let tiers: Vec<Tier> = (0..=heart).map(|row| world.floor_tier(row)).collect();
     let count = |t: Tier| tiers[1..].iter().filter(|&&x| x == t).count();
-    assert_eq!(world.floor_tier(36), Tier::One);
-    assert_eq!(world.floor_tier(37), Tier::Two);
-    assert_eq!(world.floor_tier(46), Tier::Two);
-    assert_eq!(world.floor_tier(47), Tier::Three);
+    assert_eq!(world.floor_tier(18), Tier::One);
+    assert_eq!(world.floor_tier(19), Tier::Two);
+    assert_eq!(world.floor_tier(28), Tier::Two);
+    assert_eq!(world.floor_tier(29), Tier::Three);
     assert_eq!(world.floor_tier(heart), Tier::Three);
     assert_eq!(
         (count(Tier::One), count(Tier::Two), count(Tier::Three)),
-        (36, 10, 4)
+        (18, 10, 4)
     );
     // A quote up the floor says its row's tier.
     world.leave_for_probe();

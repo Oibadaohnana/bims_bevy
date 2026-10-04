@@ -572,7 +572,7 @@ pub const END_BOTS: u32 = 10;
 
 /// The day of the world clock the `end` command's run opens on — whole
 /// days gone, so one less than the top bar's day: the Heart's, the floor's
-/// last row (`world::data::FLOOR_HOPS`, day fifty on the bar), unless
+/// last row (`world::data::FLOOR_HOPS`, day thirty-two on the bar), unless
 /// `BIMS_END_DAY` says. The host's is the run's.
 pub fn end_day() -> u32 {
     std::env::var("BIMS_END_DAY")

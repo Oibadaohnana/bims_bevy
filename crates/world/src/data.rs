@@ -92,8 +92,11 @@ pub const MAX_TRIP_HOPS: u32 = 2;
 /// How many hops a floor is from its start to the Machine Heart (the floor,
 /// October 2026; `crate::floor`): a row a hop, the Heart the last row.
 /// Row `r` is fought on run day `r` (the start and the first row share
-/// day one), so the rows are the days.
-pub const FLOOR_HOPS: u32 = 50;
+/// day one), so the rows are the days. Fifty until the player halved the
+/// tier-one rows (October 2026): the 36 of `scaling.ron`'s tier timings
+/// (tier two from day 37, three from 47) became 18, the Heart 18 rows
+/// nearer.
+pub const FLOOR_HOPS: u32 = 32;
 /// The fewest and the most separate ways up a floor: every row between
 /// the start and the Heart has this many places, at the least and at the
 /// most, and the leftmost and the rightmost are two ways that share none.
@@ -105,8 +108,10 @@ pub const FLOOR_MAX_WAYS: u32 = 4;
 /// reaches the place longest stranded without one — a trader within seven
 /// rows of nearly every place (97%), one every six or seven rows on a way
 /// that goes for them, never a whole row of them. Four whole rows of
-/// traders until the player asked for them scattered (October 2026).
-pub const FLOOR_SHOPS: u32 = 15;
+/// traders until the player asked for them scattered (October 2026); fifteen
+/// until the floor came down from fifty rows to 32, nine keeping the
+/// stretch about three rows.
+pub const FLOOR_SHOPS: u32 = 9;
 /// The lowest row a trader may be on: the first few are fights.
 pub const FLOOR_FIRST_SHOP_ROW: u32 = 3;
 

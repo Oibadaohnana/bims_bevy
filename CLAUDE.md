@@ -46,7 +46,7 @@ The main ones:
 | `tier2_test`, `tier3_test` | `droids` with everything at that tier |
 | `droids_planet`, `defense` | a town held by / attacked by the machines |
 | `crisis`, `jammer`, `guardian`, `bomber`, `lancer`, `conductor`, `relics`, `heart`, `manufacturers` | one mechanic each, staged |
-| `end` | the Heart with company: a lobby at code `THEEND`, Start once a second player joins, ten plain classless bots, tier-three kit, the setup's difficulty on the Heart's day 50 (`BIMS_END_DAY`, in days gone: 49), the first mission not eased; `end offline` is it alone from the game setup, no relay |
+| `end` | the Heart with company: a lobby at code `THEEND`, Start once a second player joins, ten plain classless bots, tier-three kit, the setup's difficulty on the Heart's day 32 (`BIMS_END_DAY`, in days gone: 31), the first mission not eased; `end offline` is it alone from the game setup, no relay |
 | `stationbuilder [name]` | a sketch tool for station layouts |
 
 `BUILD` at the root is the build number shown in every window's top left
@@ -151,9 +151,11 @@ constants; a change that moves one says why in the constant's note:
   draw on the room's stream added or removed, an order of operations
   changed, a solid gone from a nav grid) and put it back, unless the
   change is meant to alter play;
-- a change to a saved type's shape bumps `SAVE_VERSION` (`ship::save`);
-  a change to what crosses the wire, or to generation both ends must
-  agree on, bumps `wire::PROTOCOL` (and the relay wants redeploying).
+- a change to a saved type's shape bumps `SAVE_VERSION` (`ship::save`).
+  **`wire::PROTOCOL` is never bumped by hand**: it is `BUILD` in tenths
+  over a thousand, and `ship` moves `BUILD` (and redeploys the relay)
+  with every push, so a change to what crosses the wire or to generation
+  both ends agree on needs nothing more than a line in your commit.
 
 ## The workspace
 
