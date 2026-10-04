@@ -431,13 +431,30 @@ fn over(
     mut session: ResMut<ShipSession>,
     mut next: ResMut<NextState<Screen>>,
     window: Single<&Window>,
-    online: Res<Online>,
-    beginning: Option<Res<Beginning>>,
+    mut online: ResMut<Online>,
+    (beginning, mission_start): (Option<Res<Beginning>>, Res<MissionStart>),
+    mut loading: ResMut<Loading>,
     mut commands: Commands,
     victory: Option<Res<crate::profile::Victory>>,
 ) -> Result {
     let ctx = contexts.ctx_mut()?.clone();
     let mut root = root_ui(&ctx);
+    // A guest waits here for the host's word: what the room says is kept
+    // for the game screen as a trip's leftovers are (`Loading::stash`),
+    // and the host's world — a restart or a retry from its own screen
+    // like this one — takes this end back into the game, where the
+    // stashed `Packet::World` replaces the world as a resync does.
+    if online.is_guest() {
+        let now = ctx.input(|i| i.time);
+        let events = online.drain(now);
+        let host = online.host;
+        if events.iter().any(|e| {
+            matches!(e, Event::Packet { from, packet: Packet::World { .. } } if Some(*from) == host)
+        }) {
+            next.set(Screen::Game);
+        }
+        loading.stash(events);
+    }
     // A run **won** (feature 106, `World::run_won`) ends here too, and is
     // written into this machine's profile the first frame it is shown:
     // every player's own, on their own disk.
@@ -466,6 +483,11 @@ fn over(
     // host's alone, as a restart is anywhere.
     let mut again = false;
     let restartable = beginning.is_some() && !online.is_guest();
+    // The mission the crew went down in, from its start: the Esc sheet's
+    // Retry mission (`save::MissionStart`) from here, the host's alone
+    // and only for a run lost — a run won has no mission left to play.
+    let mut retry = false;
+    let retryable = !won && mission_start.save.is_some() && !online.is_guest();
     egui::CentralPanel::default().show(&mut root, |ui| {
         ui.vertical_centered(|ui| {
             ui.add_space(ui.available_height() * 0.3);
@@ -489,10 +511,15 @@ fn over(
                 ui.label(egui::RichText::new(when).color(theme::MUTED));
             }
             ui.add_space(12.0);
+            if retryable && ui.link(RETRY_BUTTON).clicked() {
+                retry = true;
+            }
             if restartable && ui.link(RESTART_AGAIN).clicked() {
                 again = true;
             }
             if ui.link(OVER_BACK).clicked() {
+                // Nothing the room said here is wanted in the next run.
+                loading.take_stash();
                 next.set(Screen::Menu);
             }
         });
@@ -500,10 +527,17 @@ fn over(
     // The session is put back to the beginning and the screen entered
     // again, so `open` stands the panels up round it as it would round
     // any other open — the beginning it then keeps is the one just read.
-    if again
-        && let Some(text) = beginning.as_ref()
+    // A retry stands the world up the same way from the mission's start,
+    // and tells `open` to keep the run's beginning (`Retried`), so a
+    // Restart afterwards still goes back to where the run opened.
+    let text = match (again, retry) {
+        (true, _) => beginning.as_ref().map(|b| b.0.clone()),
+        (_, true) => mission_start.save.clone(),
+        _ => None,
+    };
+    if let Some(text) = text
         && let Ok(loaded) =
-            Session::restore(&text.0, window.width().max(64.0), window.height().max(64.0))
+            Session::restore(&text, window.width().max(64.0), window.height().max(64.0))
     {
         // With company the world goes round as it does on a load, so
         // everybody's crew stand up again and not just the host's.
@@ -512,7 +546,7 @@ fn over(
             online.send(
                 To::All,
                 &Packet::World {
-                    save: text.0.clone(),
+                    save: text.clone(),
                     at,
                 },
             );
@@ -520,10 +554,19 @@ fn over(
         crate::names::set_crew_names(&loaded.crew_names);
         session.0 = loaded;
         commands.remove_resource::<crate::profile::Victory>();
+        if retry {
+            commands.insert_resource(Retried);
+        }
         next.set(Screen::Game);
     }
     Ok(())
 }
+
+/// The crew-down screen's Retry mission was taken: the session is the
+/// mission's start, and `open` keeps the run's [`Beginning`] rather than
+/// writing this world over it.
+#[derive(Resource)]
+struct Retried;
 
 fn open(
     mut commands: Commands,
@@ -531,6 +574,7 @@ fn open(
     launch: Res<Launch>,
     window: Single<&Window>,
     online: Res<Online>,
+    retried: Option<Res<Retried>>,
 ) {
     let size = Vec2::new(window.width().max(64.0), window.height().max(64.0));
     // A run opening has won nothing yet (feature 106).
@@ -540,7 +584,15 @@ fn open(
             // The crew's names, as the lobby dealt them or a save kept them.
             crate::names::set_crew_names(&session.0.crew_names);
             floor_on(&mut session.0);
-            remember_beginning(&mut commands, &session.0);
+            if retried.is_some() {
+                // The mission again (the crew-down screen's retry): the
+                // run's beginning stays, and the mission is kept afresh
+                // by the first frame, as at any mission's start.
+                commands.remove_resource::<Retried>();
+                commands.insert_resource(MissionStart::default());
+            } else {
+                remember_beginning(&mut commands, &session.0);
+            }
             (session.0.editor.local, session.0.editor.players)
         }
         None => {
@@ -948,6 +1000,9 @@ fn open(
     };
     let mut screen = GameScreen::fresh(slot, players);
     screen.net.wire = online.wire();
+    if retried.is_some() {
+        screen.log.push(RETRY_DONE.into());
+    }
     commands.insert_resource(screen);
 }
 
