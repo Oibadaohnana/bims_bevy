@@ -2423,6 +2423,8 @@ pub const TRADER_SELL: &str = "Sell";
 pub const TRADER_SELL_HEADING: &str = "Your things";
 pub const TRADER_SELL_INTRO: &str = "Sell back what you may change — your own Bim's weapon, armour and items, a bot's, and the armory's — for half of what it cost. An item fetches half of everything paid for it, its upgrades too; a weapon or armour half its price on the shelf today. What you sell leaves its slot empty.";
 pub const TRADER_SELL_NONE: &str = "Nothing to sell.";
+/// The note on a line the player's own Bim wears or carries.
+pub const TRADER_SELL_WORN: &str = "equipped — yours";
 /// Where a thing to sell is.
 pub fn sell_from(worn_by: Option<&str>) -> String {
     match worn_by {

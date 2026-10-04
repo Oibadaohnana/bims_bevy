@@ -1900,6 +1900,10 @@ struct Line<'a> {
     /// A stamp in place of the price and the button: an item at its top
     /// tier. A slot sold is stamped *SOLD* whatever this says.
     stamp: Option<&'a str>,
+    /// A thing on the Sell tab the player's own Bim wears or carries in
+    /// an item slot: washed and outlined in the caution colour, its note
+    /// in it too, so the weapon in hand is not sold by a slip.
+    worn: bool,
 }
 
 /// Draws a line item and answers whether its button was pressed. A line
@@ -1943,6 +1947,15 @@ fn line_item(ui: &mut egui::Ui, wallet: economy::Money, line: Line) -> bool {
             3.0,
             upgrade_colour.gamma_multiply(0.14),
             egui::Stroke::new(1.5, upgrade_colour),
+            egui::StrokeKind::Inside,
+        );
+    }
+    if line.worn {
+        painter.rect(
+            rect,
+            3.0,
+            theme::CAUTION.gamma_multiply(0.10),
+            egui::Stroke::new(1.5, theme::CAUTION),
             egui::StrokeKind::Inside,
         );
     }
@@ -2020,7 +2033,11 @@ fn line_item(ui: &mut egui::Ui, wallet: economy::Money, line: Line) -> bool {
                 egui::Align2::LEFT_CENTER,
                 note,
                 egui::FontId::proportional(11.0),
-                theme::MUTED,
+                if line.worn {
+                    theme::CAUTION
+                } else {
+                    theme::MUTED
+                },
             );
     }
     let stamp = if sold { Some(TRADER_SOLD) } else { line.stamp };
@@ -2201,6 +2218,7 @@ fn shelf_row(
             upgrade: false,
             stamp: None,
             note: None,
+            worn: false,
         },
     );
     if bought {
@@ -2227,6 +2245,7 @@ fn sold_line(name: &str, row: usize) -> Line<'_> {
         key: None,
         upgrade: false,
         stamp: None,
+        worn: false,
     }
 }
 
@@ -2293,6 +2312,7 @@ fn item_rows(ui: &mut egui::Ui, world: &World, local: u32, orders: &mut Vec<Orde
                 upgrade,
                 stamp: top.then_some(TRADER_TOP),
                 note: upgrade.then(|| TRADER_UPGRADE_NOTE.to_string()),
+                worn: false,
             },
         );
         row += 1;
@@ -2337,6 +2357,9 @@ fn sell_rows(
             bims::combat::Item::Module(m) => m.kind.tiered().then_some(m.tier.code()),
             bims::combat::Item::Stack(_) => None,
         };
+        // The player's own Bim's (always first: the other players' are
+        // not its to sell) is marked, so a slip does not sell it.
+        let own = worn == Some(local);
         let sold = line_item(
             ui,
             world.wallet(local),
@@ -2345,7 +2368,11 @@ fn sell_rows(
                 tint: theme::item_tint(thing),
                 name: thing_name(thing),
                 tier: tier.map(|t| (t, None)),
-                note: Some(sell_from(worn.map(name).as_deref())),
+                note: Some(if own {
+                    TRADER_SELL_WORN.to_string()
+                } else {
+                    sell_from(worn.map(name).as_deref())
+                }),
                 price: value,
                 button: TRADER_SELL,
                 // A sale is never short of money.
@@ -2355,6 +2382,7 @@ fn sell_rows(
                 key: Some(TradeLine::Sell(row as u32)),
                 upgrade: false,
                 stamp: None,
+                worn: own,
             },
         );
         row += 1;
