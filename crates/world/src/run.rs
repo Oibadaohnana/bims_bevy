@@ -350,6 +350,13 @@ pub struct Run {
     /// ([`crate::Refusal::OtherSiteChosen`]).
     #[cfg_attr(feature = "serde", serde(default))]
     pub chosen: Vec<Site>,
+    /// The floor's switch (October 2026, [`crate::floor`]): on, the map is
+    /// the floor — a trip goes only up it, to a place the place the crew
+    /// are at leads to, and a row is a day. Off in `World::start`, so the
+    /// tests' worlds travel the galaxy's lanes as they always did; every
+    /// session of the app switches it on (`World::set_floor`).
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub floor: bool,
 }
 
 impl Run {
@@ -385,6 +392,7 @@ impl Run {
             briefing: false,
             ready: vec![false; players as usize],
             chosen: Vec::new(),
+            floor: false,
         }
     }
 

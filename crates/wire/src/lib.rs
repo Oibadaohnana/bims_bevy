@@ -235,6 +235,10 @@ use serde::{Deserialize, Serialize};
 /// turns half again as sharply (`character::TURN_RATE`), a sprint eases
 /// in over a tenth of a second and a roll goes half again as far: both
 /// ends must walk alike.
+/// 143: the map is the floor (October 2026, `world::floor`) — a trip goes
+/// only up it, to a place the crew's place leads to, and puts the clock on
+/// to the row's day (`Run::floor`): both ends must lay the same floor and
+/// refuse alike.
 /// 144: the mercenaries gone — `Command::Hire`, `WorldEvent::{Hired,
 /// MercenaryPaid, MercenaryLeft}` and `Refusal::NotForHire` out, and a
 /// station's room opens without hands for hire: both ends must open the

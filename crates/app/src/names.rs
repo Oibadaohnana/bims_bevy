@@ -418,7 +418,9 @@ pub fn refusal(why: Refusal) -> &'static str {
         Refusal::BetweenMissions => "not between missions — choose where to go next",
         Refusal::MidMission => "the map is read-only during a mission — go back to the ship first",
         Refusal::NoSuchPlace => "there is no such place to go",
-        Refusal::TooFar => "that is more than two hyperlane hops away — two hops a trip at most",
+        Refusal::TooFar => {
+            "that is not a way up from here — only a place joined to this one on the row above"
+        }
         Refusal::NoProposal => "nobody has put a destination to the crew",
         Refusal::NotAsked => "nobody is being asked about leaving",
         Refusal::PlayerOut => "your Bim is dead — it is back when the mission ends",
@@ -2178,9 +2180,49 @@ pub const MAP_READ_ONLY: &str =
 /// At a trader (task 114): the visit is here, and the vote goes on.
 pub const MAP_AT_TRADER: &str =
     "At a trader. Buy what you want, then choose where to go next — everybody has to accept.";
-pub const MAP_TIP: &str = "Every system offers one mission, marked on its star on the galaxy chart: crossed blades to attack, a shield to defend — or a trader instead, the green square. A trip is one step: to a system one or two hyperlanes off. Nothing is flown. A jump to another system puts the world clock on by one day a hyperlane crossed the moment everybody has accepted — the crisis spreads by the day. Click a star and press Propose at the bottom of the map. The crew arrive docked or landed with a mission begun. The world clock moves for nothing else: not during a mission, and not here. Drag the galaxy chart with the left button and zoom it with the wheel; the list behind the tab on the right says the same, a row a system.";
+pub const MAP_TIP: &str = "The map is the floor: you start at the bottom and climb to the Machine Heart at the top, fifty rows up. Every row is a day. Each place is one system's mission — crossed blades to attack, a shield to defend, $ a trader (four rows are all traders), a crown an elite with relics. A trip goes only up, to a place joined by a line to the one you are at (the bright lines); there are always two to four separate ways to the Heart. The bands say which tier the enemy is at: tier 2 and tier 3 begin on the days the game setup's tier timings say, and a few enemies may be a tier up a little before. Click a place and press Propose at the bottom of the map; everybody has to accept. The wheel scrolls the floor, Ctrl and the wheel zooms it, a drag moves it; the list behind the tab on the right says the same.";
 /// The two halves of the list.
 pub const MAP_THIS_SYSTEM: &str = "This system";
+/// A way up the floor on the list (October 2026): its star and its row's day.
+pub fn map_floor_next(star: &str, day: u32) -> String {
+    format!("{star} · day {day}")
+}
+
+// --- the floor's chart (October 2026) ------------------------------------------
+
+/// The crew's own station at the foot of the floor.
+pub const FLOOR_START: &str = "Start";
+/// Beside a row whose every place is a trader.
+pub const FLOOR_TRADERS: &str = "Traders";
+/// The place the crew are at, and a place a trip may go to.
+pub const FLOOR_HERE: &str = "you are here";
+pub const FLOOR_WAY_UP: &str = "a way up from here";
+pub const FLOOR_OUT_OF_REACH: &str = "not joined to where you are";
+/// A row's day in the gutter.
+pub fn floor_day(day: u32) -> String {
+    format!("Day {day}")
+}
+/// A tier's band, written down the gutter.
+pub fn floor_tier_band(tier: u32) -> String {
+    format!("TIER {}", crate::format::roman(tier))
+}
+/// Where a tier's band begins.
+pub fn floor_tier_from(tier: u32, day: u32) -> String {
+    format!("Tier {} from day {day}", crate::format::roman(tier))
+}
+/// A place's day and tier, under the pointer.
+pub fn floor_place_day(day: u32, tier: u32) -> String {
+    format!("Day {day} · tier {}", crate::format::roman(tier))
+}
+/// How far up the floor the crew are.
+pub fn floor_progress(day: u32, heart: u32) -> String {
+    format!("Day {day} of {heart} — the Machine Heart on day {heart}")
+}
+pub const FLOOR_FOCUS: &str = "Back to where you are";
+pub const FLOOR_FOCUS_TIP: &str = "Scroll the map back to the crew's row";
+pub const FLOOR_ZOOM_OUT: &str = "-";
+pub const FLOOR_ZOOM_IN: &str = "+";
+pub const FLOOR_ZOOM_TIP: &str = "Zoom the map (Ctrl and the wheel does too)";
 /// A system's heading on the list, by how many hyperlanes off it is
 /// (the second map rework: one or two).
 pub fn map_next_system(star: &str, hops: u32) -> String {
@@ -2208,16 +2250,6 @@ pub fn trip_quote(minutes: u64, arrival_day: u32) -> String {
     let length = crate::format::trip_length(minutes);
     format!("{length} · day {arrival_day}")
 }
-/// What a trip to a star costs, beside its name on the galaxy chart and
-/// over the system view (`World::trip_days_in`): `costs 2 days`, or that
-/// no trip reaches it.
-pub fn trip_cost(days: Option<f64>) -> String {
-    match days {
-        Some(days) => format!("costs {}", days_words(days)),
-        None => TRIP_OUT_OF_REACH.to_string(),
-    }
-}
-pub const TRIP_OUT_OF_REACH: &str = "out of reach";
 /// What a site is to the crew (task 111), by `world::SiteKind::code`: the
 /// word every row of the map's list and every icon of the system map leads
 /// with, in capitals so it is read first.
@@ -2604,20 +2636,6 @@ pub fn on_the_table(who: &str, site: &str) -> String {
     format!("{who} proposed {site}")
 }
 
-/// The galaxy chart's tag under a star: the least and the most tier its
-/// sites' enemies come at (`World::system_tiers`) — one number where the
-/// rule is sure, a range on the distance ramp. The world map's rows say
-/// "tier 1", so the chart says it the same way.
-pub fn system_tier(low: bims::combat::Tier, high: bims::combat::Tier) -> String {
-    format!("T{}", tier_span(low, high))
-}
-fn tier_span(low: bims::combat::Tier, high: bims::combat::Tier) -> String {
-    if low == high {
-        low.code().to_string()
-    } else {
-        format!("{}–{}", low.code(), high.code())
-    }
-}
 pub const BUYBACK_HEADING: &str = "Buyback";
 pub const BUYBACK_COVERED: &str = "covered";
 pub const BUYBACK_SHORT: &str = "not covered";
@@ -3193,6 +3211,11 @@ pub const HEART_TIP: &str = "The Machine Heart, where the machines began. Its co
 pub fn wave_size_chip(n: u32) -> String {
     format!("Wave size {n}")
 }
+/// The word beside the big red count of enemies standing, at the top of
+/// the screen: which wave of how many.
+pub fn wave_counter(wave: u32, waves: u32) -> String {
+    format!("Wave {wave}/{waves}")
+}
 pub const WAVE_SIZE_TIP: &str = "How many enemies each wave is here and now: the base, one more for each player and more as the days go by (the first mission a little fewer). A wave already on the deck keeps the size it landed with. Tuned in scaling.ron.";
 pub const DROIDS_TIP: &str = "The station is held by the machines, and they come in waves. How many waves there are is worked out when you arrive, and how big each one is as it appears. Go back to the ship before the last wave is down and the station is as you found it — the bounty for what you destroyed is lost, the experience is kept — and the next visit is a fresh fight. No wave arrives while a machine of the last one is still standing — the countdown starts when the last of them is destroyed — and the next comes in through the airlock farthest from your own, or through a gate of the town on a planet.";
 
@@ -3208,11 +3231,6 @@ pub const ALARM_STATUS: &str = "To arms — an enemy is near";
 pub const ALARM_TIP: &str = "An enemy within thirty tiles of anybody or in anybody's sight, or a crew member hit, in the last half minute: every crew member but the one you steer draws its weapon and fights, walking to wherever it can shoot from, until nobody is near, nobody has seen one and nobody has been hit for half a minute — then it goes back to its day, however many of the station's people are still alive somewhere on it. The one you steer is yours: recruit it yourself, or leave it to its errands.";
 
 
-/// The word beside the big red count of enemies standing, at the top of
-/// the screen: which wave of how many.
-pub fn wave_counter(wave: u32, waves: u32) -> String {
-    format!("Wave {wave}/{waves}")
-}
 #[cfg(test)]
 mod tests {
     use super::*;

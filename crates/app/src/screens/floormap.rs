@@ -1,0 +1,580 @@
+//! The floor's chart (October 2026, `world::floor`): the world map in
+//! place of the galaxy chart. The start at the bottom, the Machine Heart
+//! at the top, a row a hop and a day, the places joined by the trips up —
+//! drawn in egui over the canvas, the way Slay the Spire draws its map.
+//!
+//! The wheel scrolls it up and down, Ctrl and the wheel zooms it (and the
+//! buttons in the top left corner), a left drag or a middle drag pans it.
+//! A click on a place picks it, as a star on the galaxy chart was picked;
+//! the bar at the foot of the map proposes it. Nothing here decides
+//! anything: where a trip may go is the world's (`World::floor_next`), and
+//! every mark is read off it.
+
+use bevy_egui::egui;
+use bims::combat::Tier;
+use world::floor::Floor;
+use world::{FloorMark, Site, SiteKind, World};
+
+use crate::names::*;
+use crate::theme;
+
+/// Points between two rows at a zoom of one.
+const ROW_GAP: f32 = 58.0;
+/// Points across the floor at a zoom of one, at the most.
+const SPAN: f32 = 460.0;
+/// Points from the chart's foot to the start, unpanned.
+const FOOT: f32 = 90.0;
+/// A place's radius at a zoom of one.
+const NODE: f32 = 13.0;
+/// The gutter on the left the days and the tiers are written in.
+const GUTTER: f32 = 74.0;
+/// How far the chart zooms out and in.
+const ZOOM_RANGE: (f32, f32) = (0.3, 2.5);
+/// The elite's ring and crown (`ship::world_paint::ELITE`).
+const ELITE: egui::Color32 = egui::Color32::from_rgb(0xff, 0x66, 0xe6);
+
+/// The chart's own state: how it is panned and zoomed, and the place
+/// under the pointer.
+#[derive(Default)]
+pub struct FloorChart {
+    /// Points the floor is moved from where it stands unpanned.
+    offset: egui::Vec2,
+    /// Nought until the chart is first shown: one.
+    zoom: f32,
+    /// The place under the pointer, `(row, index)`.
+    pub hovered: Option<(u32, usize)>,
+    /// Whether the chart has been brought to the crew's place once.
+    focused: bool,
+    /// The Heart's row: how far up the floor goes.
+    rows: u32,
+}
+
+impl FloorChart {
+    pub fn zoom(&self) -> f32 {
+        if self.zoom > 0.0 { self.zoom } else { 1.0 }
+    }
+
+    fn span(&self, rect: egui::Rect) -> f32 {
+        (rect.width() - 2.0 * GUTTER - 40.0).clamp(160.0, SPAN) * self.zoom().max(0.6)
+    }
+
+    fn gap(&self) -> f32 {
+        ROW_GAP * self.zoom()
+    }
+
+    /// Where a point of the floor is on the screen: `x` across the floor,
+    /// nought to one, and `row` up it.
+    pub fn to_screen(&self, rect: egui::Rect, x: f32, row: f32) -> egui::Pos2 {
+        egui::pos2(
+            rect.center().x + self.offset.x + (x - 0.5) * self.span(rect),
+            rect.max.y - FOOT + self.offset.y - row * self.gap(),
+        )
+    }
+
+    /// The point of the floor under a point of the screen: what a ping is
+    /// sent as, so every player's chart puts it on the same place.
+    pub fn to_floor(&self, rect: egui::Rect, p: egui::Pos2) -> (f32, f32) {
+        let x = (p.x - rect.center().x - self.offset.x) / self.span(rect) + 0.5;
+        let row = (rect.max.y - FOOT + self.offset.y - p.y) / self.gap();
+        (x, row)
+    }
+
+    /// Moved by `d` points, kept where some of the floor shows.
+    pub fn pan(&mut self, rect: egui::Rect, d: egui::Vec2) {
+        self.offset += d;
+        self.keep_in(rect);
+    }
+
+    /// The wheel, `scroll` points (up positive): up the floor and down it.
+    pub fn scroll(&mut self, rect: egui::Rect, scroll: f32) {
+        self.pan(rect, egui::vec2(0.0, scroll));
+    }
+
+    /// Zoomed by `factor` about `at`, which stays where it is.
+    pub fn zoom_at(&mut self, rect: egui::Rect, at: egui::Pos2, factor: f32) {
+        let (x, row) = self.to_floor(rect, at);
+        self.zoom = (self.zoom() * factor).clamp(ZOOM_RANGE.0, ZOOM_RANGE.1);
+        let now = self.to_screen(rect, x, row);
+        self.offset += at - now;
+        self.keep_in(rect);
+    }
+
+    /// The crew's row brought a quarter of the way up the chart, the floor
+    /// across the middle.
+    pub fn focus(&mut self, rect: egui::Rect, row: u32) {
+        let now = self.to_screen(rect, 0.5, row as f32);
+        let want = egui::pos2(rect.center().x, rect.max.y - rect.height() * 0.25);
+        self.offset += want - now;
+        self.keep_in(rect);
+        self.focused = true;
+    }
+
+    /// Told how far up `floor` goes, every frame it is up, and brought to
+    /// the crew's row `row` the first time.
+    pub fn fit(&mut self, rect: egui::Rect, floor: &Floor, row: u32) {
+        self.rows = floor.heart_row();
+        if !self.focused {
+            self.focus(rect, row);
+        }
+    }
+
+    /// Never panned so far that the floor leaves the chart: the Heart
+    /// comes no lower than the middle, the start no higher.
+    fn keep_in(&mut self, rect: egui::Rect) {
+        let total = self.rows as f32 * self.gap();
+        let (low, high) = (
+            -rect.height() * 0.5,
+            (total - rect.height() * 0.5 + FOOT).max(-rect.height() * 0.5),
+        );
+        self.offset.y = self.offset.y.clamp(low, high);
+        let side = self.span(rect);
+        self.offset.x = self.offset.x.clamp(-side, side);
+    }
+
+    /// The place under `p`, if any is near enough.
+    pub fn hit(&self, rect: egui::Rect, floor: &Floor, p: egui::Pos2) -> Option<(u32, usize)> {
+        let reach = (NODE * self.zoom() * 1.5).max(12.0);
+        let mut best = None;
+        let mut nearest = reach;
+        for (row, nodes) in floor.rows.iter().enumerate() {
+            for (i, node) in nodes.iter().enumerate() {
+                let at = self.place(rect, floor, row as u32, node.x);
+                let d = at.distance(p);
+                if d < nearest {
+                    nearest = d;
+                    best = Some((row as u32, i));
+                }
+            }
+        }
+        best
+    }
+
+    /// Where a place is drawn: the Heart a little above its row.
+    fn place(&self, rect: egui::Rect, floor: &Floor, row: u32, x: f32) -> egui::Pos2 {
+        let lift = if row == floor.heart_row() { 0.4 } else { 0.0 };
+        self.to_screen(rect, x, row as f32 + lift)
+    }
+}
+
+/// What the chart is drawn with, read off the world once a frame.
+pub struct FloorView<'a> {
+    pub world: &'a World,
+    pub floor: &'a Floor,
+    /// Every place's mark (`World::floor_marks`), worked out when the run
+    /// moves on.
+    pub marks: &'a [FloorMark],
+    /// The stars the crew have been to.
+    pub visited: &'a [u32],
+    /// The place picked, or the one on the table.
+    pub heading: Option<u32>,
+}
+
+/// The chart, painted into `rect`.
+pub fn paint(painter: &egui::Painter, rect: egui::Rect, chart: &FloorChart, view: &FloorView) {
+    let FloorView {
+        world,
+        floor,
+        marks,
+        visited,
+        heading,
+    } = *view;
+    let zoom = chart.zoom();
+    let gap = chart.gap();
+    let heart = floor.heart_row();
+    let here = world.floor_at();
+    let next = world.floor_next();
+    let mark_of = |row: u32, index: usize| {
+        marks
+            .iter()
+            .find(|m| m.row == row && m.index as usize == index)
+    };
+    painter.rect_filled(rect, 0.0, theme::PANEL_DEEP);
+    let left = chart.to_screen(rect, 0.0, 0.0).x - 30.0 * zoom.max(0.6);
+    let right = chart.to_screen(rect, 1.0, 0.0).x + 30.0 * zoom.max(0.6);
+    let band = |a: f32, b: f32| {
+        egui::Rect::from_x_y_ranges(
+            rect.min.x..=rect.max.x,
+            chart.to_screen(rect, 0.5, b).y..=chart.to_screen(rect, 0.5, a).y,
+        )
+    };
+    // The tiers, a band each in the tier's colour, and where each begins.
+    let mut row = 1;
+    while row < heart {
+        let tier = world.floor_tier(row);
+        let mut end = row;
+        while end + 1 < heart && world.floor_tier(end + 1) == tier {
+            end += 1;
+        }
+        let colour = tier_colour(tier);
+        painter.rect_filled(
+            band(row as f32 - 0.5, end as f32 + 0.5),
+            0.0,
+            colour.gamma_multiply(0.06),
+        );
+        let y = chart.to_screen(rect, 0.5, row as f32 - 0.5).y;
+        painter.line_segment(
+            [egui::pos2(rect.min.x, y), egui::pos2(rect.max.x, y)],
+            egui::Stroke::new(1.0, colour.gamma_multiply(0.5)),
+        );
+        painter.text(
+            egui::pos2(rect.max.x - 10.0, y - 3.0),
+            egui::Align2::RIGHT_BOTTOM,
+            floor_tier_from(tier.code(), world::floor::row_day(row)),
+            egui::FontId::proportional(12.0),
+            colour,
+        );
+        // The band's name down its right edge, kept on the screen while any
+        // of the band is.
+        let top = chart.to_screen(rect, 0.5, end as f32 + 0.5).y;
+        let (shown_top, shown_foot) = (top.max(rect.min.y + 110.0), y.min(rect.max.y - 20.0));
+        if shown_top < shown_foot {
+            painter.text(
+                egui::pos2(rect.max.x - 12.0, (shown_top + shown_foot) / 2.0),
+                egui::Align2::RIGHT_CENTER,
+                floor_tier_band(tier.code()),
+                egui::FontId::proportional(18.0),
+                colour.gamma_multiply(0.8),
+            );
+        }
+        row = end + 1;
+    }
+    // The traders' rows.
+    for &row in &floor.shop_rows {
+        painter.rect_filled(
+            band(row as f32 - 0.4, row as f32 + 0.4),
+            0.0,
+            theme::SITE_TRADER.gamma_multiply(0.07),
+        );
+        painter.text(
+            egui::pos2(right + 8.0, chart.to_screen(rect, 0.5, row as f32).y),
+            egui::Align2::LEFT_CENTER,
+            FLOOR_TRADERS,
+            egui::FontId::proportional(12.0),
+            theme::SITE_TRADER.gamma_multiply(0.8),
+        );
+    }
+    // The days, a row each where there is room, every fifth otherwise.
+    let every = if gap >= 20.0 {
+        1
+    } else if gap >= 8.0 {
+        5
+    } else {
+        10
+    };
+    for row in 1..=heart {
+        if row % every != 0 && row != 1 && row != heart {
+            continue;
+        }
+        let y = chart.to_screen(rect, 0.5, row as f32).y;
+        if y < rect.min.y - 10.0 || y > rect.max.y + 10.0 {
+            continue;
+        }
+        let fifth = row % 5 == 0;
+        painter.text(
+            egui::pos2(rect.min.x + GUTTER - 6.0, y),
+            egui::Align2::RIGHT_CENTER,
+            floor_day(world::floor::row_day(row)),
+            egui::FontId::proportional(if fifth { 12.5 } else { 11.0 }),
+            if fifth {
+                theme::MUTED
+            } else {
+                theme::MUTED.gamma_multiply(0.6)
+            },
+        );
+        if fifth {
+            painter.line_segment(
+                [egui::pos2(left, y), egui::pos2(right, y)],
+                egui::Stroke::new(1.0, theme::LINE.gamma_multiply(0.5)),
+            );
+        }
+    }
+    // The trips: faint, the way taken bright, the ways on from here lit.
+    let been = |star: u32| visited.contains(&star);
+    for (row, nodes) in floor.rows.iter().enumerate() {
+        let row = row as u32;
+        for (i, node) in nodes.iter().enumerate() {
+            let from = chart.place(rect, floor, row, node.x);
+            for &j in &node.up {
+                let Some(to_node) = floor.node(row + 1, j as usize) else {
+                    continue;
+                };
+                let to = chart.place(rect, floor, row + 1, to_node.x);
+                let at_here = here == Some((row, i));
+                let taken =
+                    here.is_some_and(|(r, _)| row < r) && been(node.star) && been(to_node.star);
+                let stroke = if at_here {
+                    let picked = heading == Some(to_node.star);
+                    egui::Stroke::new(
+                        if picked { 4.0 } else { 2.5 },
+                        theme::HYPER.gamma_multiply(if picked { 1.0 } else { 0.8 }),
+                    )
+                } else if taken {
+                    egui::Stroke::new(3.0, theme::YOURS.gamma_multiply(0.85))
+                } else {
+                    egui::Stroke::new(1.5, theme::MUTED.gamma_multiply(0.35))
+                };
+                dotted(painter, from, to, stroke, at_here || taken);
+            }
+        }
+    }
+    // The places.
+    let radius = (NODE * zoom).clamp(6.0, 22.0);
+    for (row, nodes) in floor.rows.iter().enumerate() {
+        let row = row as u32;
+        for (i, node) in nodes.iter().enumerate() {
+            let at = chart.place(rect, floor, row, node.x);
+            if !rect.expand(40.0).contains(at) {
+                continue;
+            }
+            let hovered = chart.hovered == Some((row, i));
+            let r = if hovered { radius * 1.18 } else { radius };
+            let mark = mark_of(row, i);
+            let site = Site {
+                star: node.star,
+                station: node.station,
+            };
+            if row == heart {
+                heart_mark(painter, at, r * 1.9);
+                painter.text(
+                    at - egui::vec2(0.0, r * 2.3 + 4.0),
+                    egui::Align2::CENTER_BOTTOM,
+                    HEART_NAME,
+                    egui::FontId::proportional(15.0),
+                    theme::ATTACK,
+                );
+            } else if row == 0 {
+                painter.circle_filled(at, r, theme::PANEL_DEEP);
+                painter.circle_stroke(at, r, egui::Stroke::new(2.0, theme::YOURS));
+                super::game::station_icon(painter, at, r * 1.2, theme::YOURS);
+                painter.text(
+                    at + egui::vec2(0.0, r + 6.0),
+                    egui::Align2::CENTER_TOP,
+                    FLOOR_START,
+                    egui::FontId::proportional(13.0),
+                    theme::YOURS,
+                );
+            } else {
+                let kind = mark.map(|m| m.kind);
+                let cleared = mark.is_some_and(|m| m.cleared);
+                let colour = match kind {
+                    Some(kind) if !cleared => theme::site_kind_colour(kind),
+                    Some(_) => theme::MUTED,
+                    None => theme::MUTED.gamma_multiply(0.6),
+                };
+                let fill = if been(node.star) && here.is_some_and(|(r, _)| row <= r) {
+                    theme::YOURS.gamma_multiply(0.25)
+                } else {
+                    theme::PANEL_DEEP
+                };
+                if mark.is_some_and(|m| m.elite) {
+                    painter.circle_stroke(at, r + 4.0, egui::Stroke::new(2.0, ELITE));
+                    crown(painter, at - egui::vec2(0.0, r + 6.0), r * 0.9);
+                }
+                painter.circle_filled(at, r, fill);
+                painter.circle_stroke(at, r, egui::Stroke::new(1.8, colour));
+                match kind {
+                    Some(SiteKind::Attack) => {
+                        super::game::blades_icon(painter, at, r * 1.05, colour)
+                    }
+                    Some(SiteKind::Defend) => {
+                        super::game::shield_icon(painter, at, r * 1.2, colour)
+                    }
+                    Some(SiteKind::Trader) => {
+                        painter.text(
+                            at,
+                            egui::Align2::CENTER_CENTER,
+                            "$",
+                            egui::FontId::proportional(r * 1.3),
+                            colour,
+                        );
+                    }
+                    None => {}
+                }
+            }
+            if next.contains(&site) {
+                let picked = heading == Some(node.star);
+                painter.circle_stroke(
+                    at,
+                    r + if picked { 7.0 } else { 4.0 },
+                    egui::Stroke::new(if picked { 3.5 } else { 2.0 }, theme::HYPER),
+                );
+            }
+            if here == Some((row, i)) {
+                painter.circle_stroke(at, r + 5.0, egui::Stroke::new(3.0, theme::YOURS));
+                if row != 0 {
+                    theme::name_over(
+                        painter,
+                        at + egui::vec2(r + 10.0, 0.0),
+                        FLOOR_HERE,
+                        theme::YOURS,
+                    );
+                }
+            }
+        }
+    }
+    // What the place under the pointer is.
+    if let Some((row, i)) = chart.hovered
+        && let Some(node) = floor.node(row, i)
+    {
+        let at = chart.place(rect, floor, row, node.x);
+        let site = Site {
+            star: node.star,
+            station: node.station,
+        };
+        let mut lines: Vec<(String, egui::Color32)> = Vec::new();
+        match mark_of(row, i) {
+            Some(m) if m.heart => lines.push((HEART_NAME.to_string(), theme::ATTACK)),
+            Some(m) => lines.push((
+                if m.kind == SiteKind::Trader {
+                    site_kind_word(m.kind).to_string()
+                } else {
+                    format!(
+                        "{} {}",
+                        site_kind_word(m.kind),
+                        site_place_word(m.site.station)
+                    )
+                },
+                theme::site_kind_colour(m.kind),
+            )),
+            None if row == 0 => lines.push((FLOOR_START.to_string(), theme::YOURS)),
+            None => {}
+        }
+        let tier = world.floor_tier(row);
+        lines.push((
+            floor_place_day(world::floor::row_day(row), tier.code()),
+            tier_colour(tier),
+        ));
+        if let Some(m) = mark_of(row, i) {
+            if m.elite {
+                lines.push((ARRIVE_ELITE.to_string(), ELITE));
+            }
+            if m.cleared {
+                lines.push((ARRIVE_CLEARED.to_string(), theme::MUTED));
+            }
+        }
+        let (word, colour) = if here == Some((row, i)) {
+            (FLOOR_HERE, theme::YOURS)
+        } else if next.contains(&site) {
+            (FLOOR_WAY_UP, theme::HYPER)
+        } else {
+            (FLOOR_OUT_OF_REACH, theme::MUTED)
+        };
+        lines.push((word.to_string(), colour));
+        tip(
+            painter,
+            rect,
+            at + egui::vec2(radius + 14.0, -radius),
+            &lines,
+        );
+    }
+}
+
+/// A line from `a` to `b`, dashed where it is a way not yet taken.
+fn dotted(
+    painter: &egui::Painter,
+    a: egui::Pos2,
+    b: egui::Pos2,
+    stroke: egui::Stroke,
+    solid: bool,
+) {
+    if solid {
+        painter.line_segment([a, b], stroke);
+        return;
+    }
+    let length = a.distance(b);
+    let dash = 6.0;
+    let n = (length / (dash * 2.0)).floor().max(1.0) as usize;
+    for k in 0..n {
+        let t0 = (k as f32 * 2.0 * dash) / length;
+        let t1 = ((k as f32 * 2.0 + 1.0) * dash / length).min(1.0);
+        painter.line_segment([a + (b - a) * t0, a + (b - a) * t1], stroke);
+    }
+}
+
+/// The Machine Heart: a heart in the enemy's red on a dark disc, `size`
+/// across.
+fn heart_mark(painter: &egui::Painter, at: egui::Pos2, size: f32) {
+    painter.circle_filled(at, size * 0.62, theme::PANEL_DEEP);
+    painter.circle_stroke(at, size * 0.62, egui::Stroke::new(2.5, theme::ATTACK));
+    let r = size * 0.2;
+    let up = at - egui::vec2(0.0, size * 0.08);
+    painter.circle_filled(up - egui::vec2(r * 0.95, 0.0), r, theme::ATTACK);
+    painter.circle_filled(up + egui::vec2(r * 0.95, 0.0), r, theme::ATTACK);
+    painter.add(egui::Shape::convex_polygon(
+        vec![
+            up + egui::vec2(-r * 1.9, r * 0.35),
+            up + egui::vec2(r * 1.9, r * 0.35),
+            up + egui::vec2(0.0, r * 2.6),
+        ],
+        theme::ATTACK,
+        egui::Stroke::NONE,
+    ));
+}
+
+/// An elite's crown, `size` across, its foot at `at`.
+fn crown(painter: &egui::Painter, at: egui::Pos2, size: f32) {
+    let (w, h) = (size / 2.0, size * 0.55);
+    let points = vec![
+        at + egui::vec2(-w, 0.0),
+        at + egui::vec2(-w, -h),
+        at + egui::vec2(-w * 0.5, -h * 0.45),
+        at + egui::vec2(0.0, -h),
+        at + egui::vec2(w * 0.5, -h * 0.45),
+        at + egui::vec2(w, -h),
+        at + egui::vec2(w, 0.0),
+    ];
+    painter.add(egui::Shape::closed_line(
+        points,
+        egui::Stroke::new(1.8, ELITE),
+    ));
+}
+
+/// Lines on a dark tag, its top left at `at`, kept inside `rect`.
+fn tip(
+    painter: &egui::Painter,
+    rect: egui::Rect,
+    at: egui::Pos2,
+    lines: &[(String, egui::Color32)],
+) {
+    let font = egui::FontId::proportional(13.0);
+    let galleys: Vec<_> = lines
+        .iter()
+        .map(|(text, colour)| painter.layout_no_wrap(text.clone(), font.clone(), *colour))
+        .collect();
+    let width = galleys.iter().map(|g| g.size().x).fold(0.0, f32::max);
+    let height: f32 = galleys.iter().map(|g| g.size().y + 2.0).sum();
+    let size = egui::vec2(width + 16.0, height + 10.0);
+    let min = egui::pos2(
+        at.x.min(rect.max.x - size.x - 4.0).max(rect.min.x + 4.0),
+        at.y.min(rect.max.y - size.y - 4.0).max(rect.min.y + 4.0),
+    );
+    let tag = egui::Rect::from_min_size(min, size);
+    painter.rect_filled(tag, 5.0, theme::PANEL_DEEP.gamma_multiply(0.95));
+    painter.rect_stroke(
+        tag,
+        5.0,
+        egui::Stroke::new(1.0, theme::LINE),
+        egui::StrokeKind::Inside,
+    );
+    let mut y = tag.min.y + 5.0;
+    for galley in galleys {
+        let h = galley.size().y;
+        painter.galley(egui::pos2(tag.min.x + 8.0, y), galley, theme::MUTED);
+        y += h + 2.0;
+    }
+}
+
+/// A tier's colour on the floor: the muted grey for one, the caution
+/// colour for two, the attack red for three.
+pub fn tier_colour(tier: Tier) -> egui::Color32 {
+    match tier {
+        Tier::One => theme::MUTED,
+        Tier::Two => theme::CAUTION,
+        Tier::Three => theme::ATTACK,
+    }
+}
+
+/// The floor's word in the top left corner: how far up the crew are.
+pub fn progress(world: &World, floor: &Floor) -> String {
+    floor_progress(world.run_day(), world::floor::row_day(floor.heart_row()))
+}

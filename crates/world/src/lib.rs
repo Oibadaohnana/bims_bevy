@@ -58,6 +58,7 @@ pub mod elite;
 pub mod engineer;
 pub mod event;
 pub mod fixture;
+pub mod floor;
 pub mod frame;
 pub mod heart;
 pub mod holdings;
@@ -105,7 +106,8 @@ pub use station::{Berth, Plan, Station, layout_surface};
 pub use surface::{Biome, Surface, landable, surface_body, surface_id};
 pub use tank::Tank;
 pub use world::{
-    Command, Ship, ShipState, StartError, World, spawn, spawn_anywhere, spawn_with_ground,
+    Command, FloorMark, Ship, ShipState, StartError, World, spawn, spawn_anywhere,
+    spawn_with_ground,
 };
 
 #[cfg(test)]
@@ -122,6 +124,8 @@ mod tests_droid;
 mod tests_elite;
 #[cfg(test)]
 mod tests_engineer;
+#[cfg(test)]
+mod tests_floor;
 #[cfg(test)]
 mod tests_front;
 #[cfg(test)]

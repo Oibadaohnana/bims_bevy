@@ -6,6 +6,7 @@ pub mod backdrop;
 pub mod builder;
 pub mod designer;
 pub mod fightwon;
+pub mod floormap;
 pub mod game;
 pub mod hud;
 pub mod loading;

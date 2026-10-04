@@ -89,6 +89,21 @@ pub const JUMP_MINUTES: u64 = time::DAY as u64;
 /// [`JUMP_MINUTES`] a lane. It was one lane a trip until then.
 pub const MAX_TRIP_HOPS: u32 = 2;
 
+/// How many hops a floor is from its start to the Machine Heart (the floor,
+/// October 2026; `crate::floor`): a row a hop, the Heart the last row.
+/// Row `r` is fought on run day `r` (the start and the first row share
+/// day one), so the rows are the days.
+pub const FLOOR_HOPS: u32 = 50;
+/// The fewest and the most separate ways up a floor: every row between
+/// the start and the Heart has this many places, at the least and at the
+/// most, and the leftmost and the rightmost are two ways that share none.
+pub const FLOOR_MIN_WAYS: u32 = 2;
+pub const FLOOR_MAX_WAYS: u32 = 4;
+/// The rows of traders a floor has, one in each of these bands (the row
+/// rolled within the band): every place on such a row is a trader, so
+/// every way up meets this many.
+pub const FLOOR_SHOP_BANDS: [(u32, u32); 4] = [(8, 13), (19, 25), (30, 35), (40, 45)];
+
 /// How far from everything in a system a jump lands, in world units. Four
 /// times a body's arrival radius, so the ship is in empty space and not on
 /// the doorstep of whatever it happens to be nearest — a trip from there

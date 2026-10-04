@@ -7623,6 +7623,77 @@ kind (the laser pistol under a first rifle) still goes into the armory.
 `wire::PROTOCOL` 138.
 `tests_trader::a_tier_up_bought_onto_a_bim_sells_the_lower_tier_it_replaces`.
 
+## The floor: the map is Slay the Spire's (October 2026)
+
+> "One mission a system, and the map is the galaxy chart", "A trip crosses
+> two lanes at most" and "Jumping along lanes" above describe how a trip
+> is chosen **with the floor off** — every test's world, which still
+> travels the galaxy's lanes. The app's map is the floor.
+
+The player's words: no generated galaxy map; a Slay-the-Spire path, the
+start at the bottom and the Heart at the top, always two to four separate
+ways up, four shops on the way, **fifty hops**, a row a hop and a day,
+never down, and the tiers marked on it.
+
+- **The shape** (`crate::floor`, stateless — `floor::shape(seed)` off the
+  galaxy's seed and the crew's own star, its own salt): row nought is the
+  start, rows 1–49 have `FLOOR_MIN_WAYS`..`FLOOR_MAX_WAYS` (2–4) places
+  each (a walk that steps one at a time), row `FLOOR_HOPS` (50) the Heart.
+  The trips between two rows are a lattice path from the leftmost pair to
+  the rightmost — mostly level, a step aside three times in ten — so every
+  place has a way in and a way on, no two trips cross, and the leftmost and
+  rightmost chains are two ways that share no place (four at most, since a
+  row has four). One **traders' row** is rolled in each of
+  `FLOOR_SHOP_BANDS` ((8,13), (19,25), (30,35), (40,45)): every place on
+  it is a trader, so every way up meets four.
+- **The places are stars** (`floorplan.rs`, a child of `world`,
+  `World::lay_floor`): the start is `home_star`/`home`, the Heart
+  `droid_origin`/`heart_id`, every other place a star of its own (none
+  twice over forty floors measured) whose system's one site
+  (`mission_site`) suits the row — a trader on a traders' row (one whose
+  `infested_on` is past the row's day first, so it is still trading), a
+  fight elsewhere — the one nearest the row's distance from the origin
+  (the home's at the bottom, nought at the top, so the climb walks into the
+  crisis), ties by a roll. Every system is generated once to lay it.
+- **Row `r` is run day `r`** (`floor::row_day`; the start and the first
+  row share day one): a trip up puts the clock on to its row's day
+  (`floor_minutes`), so the first hop costs nothing and every later one a
+  day, and the Heart is day fifty.
+- **The switch is `Run::floor`** (saved, serde default; hashed only while
+  on), off in `World::start` — so every test, `REFERENCE_CHECKSUM` and the
+  survivor pins are what they were — and on in every session the app's
+  game screen opens (`screens::game::floor_on`). `World::set_floor` lays
+  or drops it; `settle_crisis` (the start and every load, a guest's
+  included) lays it again behind the hop table and the traders, into
+  `World::floor` (`Arc`, never saved).
+- **On the floor a quote** (`quote_given`) refuses every site but the
+  places the crew's place leads to (`World::floor_next`; off the floor —
+  a staged command's world — the whole first row) with `Refusal::TooFar`,
+  asks nothing about lanes or jammers (`hops` is one), and says the row's
+  marked tier (`floor_tier_of`). `destinations` is this system's sites and
+  the next places. `World::floor_at` is where the crew are (of two places
+  on one star, the one whose day is nearest today's).
+- **The tier marks** (`World::floor_tier(row)`): tier three at the Heart
+  and from `WaveScaling::tier3_days`, tier two from `tier2_days`, else one
+  — the days from which **every** enemy is that tier, so a row marked one
+  can still meet a few machines a tier up (`machine_tiers`' shares). The
+  player asked for the tiers at day 37 and 47 (tier one twenty for the
+  Manufacturers' gear): `scaling.ron` says `tier2_days: 37, tier3_days:
+  47`, which marks rows 1–36 tier one, 37–46 tier two and 47–49 and the
+  Heart tier three. The `data` defaults (20/40) are unchanged.
+- **`World::floor_marks`** is every place as the map draws it — its site,
+  the kind, elite and cleared on its row's day (a look, `quote_given`),
+  whether it is the Heart, its tier.
+
+`tests_floor.rs` is the rule (the shape's own tests are in `floor.rs`);
+`floors_over_ten_seeds` (`#[ignore]`) printed 109–176 places a floor,
+no star twice, 8–14 traders with one fallen in forty floors.
+**`SAVE_VERSION` 104, `wire::PROTOCOL` 143.** The app's chart is
+`crates/app/src/screens/floormap.rs` (egui, the wheel scrolls, Ctrl and
+the wheel or the − + buttons zoom, a drag pans; pings are
+`Spot::Galaxy(x, row)` in the floor's own units); the lobby's galaxy chart
+stays in the game setup's spawn picker only.
+
 ## The mercenaries gone (October 2026)
 
 > Every section above about a mercenary — a station's hands for hire, the

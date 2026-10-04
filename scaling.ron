@@ -24,6 +24,8 @@
 //     tier2_days  — the machines and the Manufacturers' gear at tier two
 //     tier3_days  — the same at tier three
 //                   (0: that tier for everybody from the first day)
+//                   The map (the floor, a row a day) marks its rows tier
+//                   two from tier2_days and tier three from tier3_days
 //   the Machine Heart is always four waves, every machine tier three
 //
 // Only player Bims count as players; bots do not.
@@ -42,6 +44,6 @@
     enemies_per_bot: 1.0,
     wave_days: 15,
     tier1_days: 20,
-    tier2_days: 40,
-    tier3_days: 60,
+    tier2_days: 37,
+    tier3_days: 47,
 )

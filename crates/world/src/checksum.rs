@@ -716,6 +716,11 @@ pub fn world_checksum(world: &World) -> u64 {
             hash.eat(u64::from(r));
         }
     }
+    // The floor's switch (October 2026): eaten only while it is on, so a
+    // run on the galaxy's lanes hashes as it always did.
+    if run.floor {
+        hash.eat(0x_464C_4F4F_52);
+    }
     // The traders (task 114): every one met, whose it is, what is left on
     // its shelf.
     // Eaten only where there is any, so a run that has met none hashes as

@@ -122,6 +122,16 @@ impl World {
 
     fn destinations_in(&self, galaxy: &Galaxy) -> Vec<Site> {
         let mut sites = self.sites_in(None, self.star_id);
+        // On the floor (October 2026): the places the crew's place leads
+        // to, and no lane's.
+        if self.floor().is_some() {
+            for site in self.floor_next() {
+                if !sites.contains(&site) {
+                    sites.push(site);
+                }
+            }
+            return sites;
+        }
         let mut stars = galaxy.lanes(self.star_id).to_vec();
         stars.sort_unstable();
         stars.dedup();
@@ -352,7 +362,7 @@ impl World {
     /// trimmed already, `given` — or generated here where it is `None`.
     /// The galaxy chart's marks quote every star off one generation each
     /// ([`World::star_missions`]).
-    fn quote_given(
+    pub(super) fn quote_given(
         &self,
         galaxy: Option<&Galaxy>,
         site: Site,
@@ -361,6 +371,12 @@ impl World {
     ) -> Result<TravelQuote, Refusal> {
         if !looking && self.current_site() == Some(site) {
             return Err(Refusal::AlreadyHere);
+        }
+        // On the floor (October 2026) a trip goes only up it, to a place
+        // the crew's place leads to.
+        let on_floor = self.floor().is_some();
+        if on_floor && !looking && !self.floor_next().contains(&site) {
+            return Err(Refusal::TooFar);
         }
         let jump = site.star != self.star_id;
         let mut hops = 0;
@@ -382,13 +398,15 @@ impl World {
                 }
             };
             // Two lanes a trip at most (the second map rework), and none a jammer shuts.
-            match self.trip_route_in(galaxy, site.star) {
+            // The floor asks neither: a trip up it is a hop.
+            match self.trip_route_in(galaxy, site.star).filter(|_| !on_floor) {
                 Some((route, shut)) => {
                     hops = route.len() as u32 - 1;
                     if !looking && shut {
                         return Err(Refusal::Jammed);
                     }
                 }
+                None if on_floor => hops = 1,
                 None if looking => {
                     hops = galaxy
                         .route(self.star_id, site.star)
@@ -426,7 +444,11 @@ impl World {
         }
         // A day a hyperlane crossed, nothing within a system (the map
         // rework, the second map rework).
-        let minutes = data::JUMP_MINUTES * hops as u64;
+        // On the floor, to the day of the place's row.
+        let minutes = match self.floor_minutes(site.star).filter(|_| on_floor) {
+            Some(minutes) => minutes,
+            None => data::JUMP_MINUTES * hops as u64,
+        };
         let days = minutes as f64 / time::DAY;
         let arrival = self.clock_minutes.floor() as u64 + minutes;
         let arrival_day = (arrival / (time::DAY as u64)) as u32;
@@ -472,6 +494,9 @@ impl World {
         // The Machine Heart's fortress is tier three whatever the day.
         let tier = if heart::is_heart(site.station) {
             Tier::Three
+        } else if let Some(tier) = self.floor_tier_of(site.star).filter(|_| on_floor) {
+            // On the floor, the tier its row is marked.
+            tier
         } else {
             self.tier_on(arrival as f64)
         };

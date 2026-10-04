@@ -118,6 +118,12 @@ pub mod outposts;
 #[path = "offered.rs"]
 pub mod offered;
 
+// The floor (October 2026): the run's map, its places put on the
+// galaxy's stars, and the trips up it. A child for the same reason.
+#[path = "floorplan.rs"]
+mod floorplan;
+pub use floorplan::FloorMark;
+
 /// What a player can ask the world to do.
 ///
 /// Every one of them carries the slot that sent it, because every one of them
@@ -840,6 +846,12 @@ pub struct World {
     /// it reads, and never saved.
     #[cfg_attr(feature = "serde", serde(skip))]
     trader_near: Vec<(u32, u32)>,
+    /// The floor (October 2026, [`crate::floor`]): the run's map, laid
+    /// while [`Run::floor`] is on — at the switch and at every load
+    /// ([`World::settle_crisis`]) — and `None` while it is off. Derived
+    /// off the galaxy and the crew's own star, never saved.
+    #[cfg_attr(feature = "serde", serde(skip))]
+    floor: Option<std::sync::Arc<crate::floor::Floor>>,
     /// The day the origin turns: **nought** — the crisis is there from
     /// the start (feature 102) — bar the `crisis` probe
     /// (`BIMS_CRISIS_DAY`), which moves it. In `world_checksum` with the
@@ -1231,6 +1243,7 @@ impl World {
             // Worked out below, once the world stands: it asks which sites
             // are the Manufacturers'.
             trader_near: Vec::new(),
+            floor: None,
             // The crisis is there from day nought (feature 102): the
             // origin is the machines' the moment the run opens, and every
             // star due by then with it.
@@ -5199,6 +5212,9 @@ impl World {
         // load goes through (`ship::Game::resume`), which is what keeps a
         // derived jammer out of a save (feature 93).
         self.settle_jammer();
+        // The floor's places are the stars' sites, so it is laid behind
+        // the hop table and the traders.
+        self.settle_floor(&galaxy);
     }
 
     /// The day this star turns, counting from the day the world opened:

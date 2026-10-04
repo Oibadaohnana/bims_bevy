@@ -52,9 +52,10 @@ pub struct Group {
 pub struct WorldMap {
     key: Option<Key>,
     pub groups: Vec<Group>,
-    /// Every star's one mission, or its trader (the galaxy-only map,
-    /// `World::star_missions`): what the galaxy chart marks a star with,
-    /// worked out with the list.
+    /// Every place on the floor as the chart marks it (October 2026,
+    /// `World::floor_marks`), worked out with the list.
+    pub marks: Vec<world::FloorMark>,
+    /// The same as a star's one mission, for the word on the place picked.
     pub missions: Vec<world::run::StarMission>,
     /// The site the player has picked, off the list or the galaxy chart:
     /// looking, not a vote. [`Order::Propose`] is the vote.
@@ -124,8 +125,15 @@ impl WorldMap {
                     .star(site.star)
                     .map(|s| star_name(s.name))
                     .unwrap_or_default();
+                let floor_day = world
+                    .floor()
+                    .and_then(|f| f.find(site.star))
+                    .map(|(row, _)| world::floor::row_day(row));
                 let title = if site.star == world.star_id {
                     MAP_THIS_SYSTEM.to_string()
+                } else if let Some(day) = floor_day {
+                    // A way up the floor (October 2026): the star and its row's day.
+                    map_floor_next(&star, day)
                 } else {
                     // One or two lanes off (the second map rework).
                     let hops = world
@@ -156,7 +164,16 @@ impl WorldMap {
             }
         }
         self.groups = groups;
-        self.missions = world.star_missions(&galaxy);
+        self.marks = world.floor_marks();
+        self.missions = self
+            .marks
+            .iter()
+            .map(|m| world::run::StarMission {
+                site: m.site,
+                kind: m.kind,
+                cleared: m.cleared,
+            })
+            .collect();
     }
 
     /// The site a star is gone to by, off the galaxy chart (the galaxy-only
