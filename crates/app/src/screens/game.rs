@@ -1532,8 +1532,17 @@ fn frame(
     // world stepped sixty times a second moves smoothly on any screen —
     // the clock's own share of a step, a guest running ahead's off its
     // own pace (task 156), or a guest's off its playout. A paused world
-    // draws the step.
-    let blend = if !running {
+    // draws the step, and so does a world whose room is not stepped — a
+    // fight won (task 133), the ready check, the map: a body walking when
+    // the last machine fell stops between two steps, and blending it on
+    // would draw it back and forth across that step every frame, the
+    // camera with it.
+    let room_still = session.game.as_ref().is_none_or(|g| {
+        g.world.run.phase != world::run::Phase::Mission
+            || g.world.run.briefing
+            || g.world.fight_over()
+    });
+    let blend = if !running || room_still {
         None
     } else if screen.net.is_clock() {
         Some(screen.backlog.clamp(0.0, 1.0) as f32)
