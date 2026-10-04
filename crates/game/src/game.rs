@@ -4947,6 +4947,30 @@ impl Game {
         bim.character.set_bleeding(false);
     }
 
+    /// A Bim's magazine full and no reload or burst under way, the way a
+    /// mission begins: without it a gun emptied to its last shot on one
+    /// site comes to the next with that one shot in it.
+    pub fn fill_magazine(&mut self, who: usize) {
+        if let Some(bim) = self.bims.get_mut(who) {
+            bim.trigger = crate::combat::Trigger::default();
+        }
+    }
+
+    /// `who`'s magazine down to `left` shots, no reload under way: for the
+    /// probes. Nothing for a body with no gun or one with no magazine.
+    pub fn spend_for_probe(&mut self, who: usize, left: u32) {
+        let Some(bim) = self.bims.get_mut(who) else {
+            return;
+        };
+        let Some(weapon) = bim.gear.weapon else {
+            return;
+        };
+        let size = weapon.stats().magazine;
+        bim.trigger.load(weapon.kind);
+        bim.trigger.spent = size.saturating_sub(left);
+        bim.trigger.reloading = 0.0;
+    }
+
     /// The slow a downing left on a Bim taken off, the bar as it is: what
     /// a mission's end does (task 120).
     pub fn forget_downed(&mut self, who: usize) {

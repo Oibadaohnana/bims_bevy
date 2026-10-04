@@ -1041,6 +1041,8 @@ impl World {
         // mission it was ordered in.
         self.throws.clear();
         for who in 0..crew {
+            // Every gun's magazine full, whatever the last site left in it.
+            self.aboard.room.fill_magazine(who);
             if !self.aboard.room.is_alive(who) {
                 continue;
             }

@@ -316,6 +316,30 @@ fn health_is_made_whole_at_a_mission_s_start() {
     }
 }
 
+/// **A mission starts with full magazines** (October 2026): a gun left
+/// with one shot in it at the last site comes to the next one full.
+#[test]
+fn every_magazine_is_full_at_a_mission_s_start() {
+    let mut world = crewed_world(flyer(2), REFERENCE_MONEY, 1, 2);
+    world.step(&[]);
+    for who in 0..2 {
+        world.aboard.room.spend_for_probe(who, 1);
+        let (left, size, _) = world
+            .aboard
+            .room
+            .magazine(who)
+            .expect("a gun with a magazine");
+        assert!(left == 1 && size > 1, "{who}: {left} of {size}");
+    }
+    to_the_map(&mut world);
+    let site = another_site_here(&world);
+    assert!(travelled(&travel_to(&mut world, site)));
+    for who in 0..2 {
+        let (left, size, reload) = world.aboard.room.magazine(who).unwrap();
+        assert_eq!((left, reload), (size, 0.0), "{who} full");
+    }
+}
+
 /// **A downing is remembered until the mission ends** (task 120): a crew
 /// member downed and revived is marked so until the ship leaves the site
 /// (it walked slower for it until October 2026), and is not after — the
