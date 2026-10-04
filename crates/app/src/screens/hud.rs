@@ -6,16 +6,18 @@
 //! 1280×720 or larger:
 //!
 //! * **top left**, the crew's portraits, eight to a row;
-//! * **top centre**, one frame — the day, the pool, the bounty waiting on
-//!   the site being cleared, the most urgent warning and the pause — never
-//!   left of the portraits' right edge, the *You're out* banner under
-//!   it, and under both the crew's relics in a row (`relic_bar`, over the
-//!   map too);
-//! * **bottom centre**, the hero panel: the player's own Bim, its level,
-//!   health, experience and the class's keys. It stands clear of anything
-//!   on the left that reaches down into its row — the tray opened, the
-//!   character sheet — the way the ability bar used to stand clear of the
-//!   tray;
+//! * **top centre**, the count — the enemies standing in big red, and
+//!   which wave of how many beside them — and the pause, never left of
+//!   the portraits' right edge; the day, the money and every warning are
+//!   its tooltip. The *You're out* banner under it, and under both the
+//!   crew's relics in a row (`relic_bar`, over the map too);
+//! * **bottom centre**, the hero panel, the main of the HUD (Dota 2's
+//!   bottom bar): the player's own Bim, its level, hands, money, the
+//!   class's keys over the health bar, the magazine and the items. No
+//!   words on it but numbers; what a piece means is its tooltip. It
+//!   stands clear of anything on the left that reaches down into its row
+//!   — the tray opened, the character sheet — the way the ability bar
+//!   used to stand clear of the tray;
 //! * **bottom left**, the tray (`crew::CrewPanels::tray`), and over it
 //!   the character sheet (`crew::CrewPanels::character_sheet`);
 //! * **bottom right**, *Back to ship* (`worldmap::back_to_ship`) and the
@@ -117,12 +119,6 @@ pub fn threats(world: &world::World, local: u32) -> Vec<Threat> {
     }
     out.sort_by_key(|t| t.kind);
     out
-}
-
-/// The one warning the chip shows, and how many more are up behind it.
-pub fn top_threat(threats: &[Threat]) -> Option<(&Threat, usize)> {
-    let top = threats.iter().min_by_key(|t| t.kind)?;
-    Some((top, threats.len() - 1))
 }
 
 /// The machines' line (features 83 and 94): which wave holds the place
@@ -715,11 +711,89 @@ pub fn initials(name: &str) -> String {
 
 // --- the top frame ------------------------------------------------------------------
 
-/// The frame at the top centre: the day, this player's money (`local`'s
-/// wallet and its share of the takings), the bounty waiting on
-/// the site, the one warning that matters most with how many more are up
-/// behind it, and the pause. Never left of `clear`, which is the
-/// portraits' right edge. The rectangle it took.
+/// The count at the top centre: how many enemies stand — or, between
+/// waves, the countdown to the next — and which wave of how many, and at
+/// the Machine Heart its core's health.
+#[derive(Clone, PartialEq, Debug)]
+pub struct Counter {
+    /// The big figure and its colour: the enemies standing, red; the
+    /// countdown, amber; nought once the last wave is down, grey.
+    pub big: Option<(String, egui::Color32)>,
+    /// Which wave of how many: the one on the deck, or the next.
+    pub wave: Option<(u32, u32)>,
+    /// The Heart's core, its share of its health left.
+    pub core: Option<f32>,
+}
+
+/// What the count at the top says (`droid_line`'s figures, without its
+/// words). `None` where nobody holds the place.
+pub fn counter(world: &world::World) -> Option<Counter> {
+    let standing = world.droids_standing();
+    let up = |n: u32| Some((n.to_string(), theme::BAD));
+    let counting = |due: f64| Some((crate::format::countdown(due), theme::CAUTION));
+    let down = || Some(("0".to_string(), theme::MUTED));
+    if let Some(defending) = world.defense_here() {
+        let waves = defending.wave + defending.waves_left;
+        let due = world.defense_wave_due();
+        let (big, wave) = if standing > 0 {
+            (up(standing), defending.wave)
+        } else if let Some(due) = due {
+            (counting(due), defending.wave + 1)
+        } else if defending.wave > 0 && defending.waves_left == 0 {
+            (down(), defending.wave)
+        } else {
+            (up(0), defending.wave.max(1))
+        };
+        return Some(Counter {
+            big,
+            wave: Some((wave.min(waves.max(1)), waves.max(1))),
+            core: None,
+        });
+    }
+    let core = world.heart_status().map(|heart| {
+        if heart.core_max > 0.0 {
+            (heart.core_health / heart.core_max).clamp(0.0, 1.0)
+        } else {
+            0.0
+        }
+    });
+    let Some((wave, left)) = world.droid_wave_standing() else {
+        return core.map(|core| Counter {
+            big: None,
+            wave: None,
+            core: Some(core),
+        });
+    };
+    let waves = wave + left;
+    let (big, wave) = if standing > 0 {
+        (up(standing), wave)
+    } else if let Some(due) = world.droid_wave_due() {
+        (counting(due), wave + 1)
+    } else if left == 0 {
+        (down(), wave)
+    } else {
+        (up(0), wave)
+    };
+    Some(Counter {
+        big,
+        wave: Some((wave, waves)),
+        core,
+    })
+}
+
+/// How big the count of enemies standing is, and the wave beside it.
+const COUNT_SIZE: f32 = 40.0;
+const COUNT_WAVE_SIZE: f32 = 20.0;
+/// How wide the Heart's core's bar under the count is.
+const CORE_BAR_W: f32 = 180.0;
+
+/// The count at the top centre — the enemies standing in big red, and
+/// which wave of how many beside them — and the pause. Everything the
+/// top frame used to spell out (the day, this player's money, the bounty
+/// waiting on the site, every warning up and what it means) is in the
+/// tooltip of the count. Never left of `clear`, which is the portraits'
+/// right edge. The rectangle it took; an empty one at the top centre
+/// with nothing to show.
 pub fn top_frame(
     ctx: &egui::Context,
     canvas: egui::Rect,
@@ -729,19 +803,72 @@ pub fn top_frame(
     threats: &[Threat],
     paused: bool,
 ) -> egui::Rect {
+    let count = counter(world);
+    let centre = (canvas.min.x + canvas.max.x) / 2.0;
+    if count.is_none() && !paused {
+        return egui::Rect::from_min_size(
+            egui::pos2(centre, canvas.min.y + MARGIN),
+            egui::Vec2::ZERO,
+        );
+    }
     let id = egui::Id::new("hud-top");
     let width = ctx
         .memory(|m| m.area_rect(id).map(|r| r.width()))
-        .unwrap_or(260.0);
-    let x = ((canvas.min.x + canvas.max.x - width) / 2.0).max(clear + GAP);
+        .unwrap_or(160.0);
+    let x = (centre - width / 2.0).max(clear + GAP);
     egui::Area::new(id)
         .fixed_pos(egui::pos2(x, canvas.min.y + MARGIN))
         .order(egui::Order::Middle)
         .show(ctx, |ui| {
-            theme::panel_frame().show(ui, |ui| {
+            let shown = egui::Frame::new()
+                .fill(egui::Color32::from_black_alpha(140))
+                .corner_radius(6.0)
+                .inner_margin(egui::Margin::symmetric(12, 2))
+                .show(ui, |ui| {
+                    ui.vertical_centered(|ui| {
+                        ui.horizontal(|ui| {
+                            ui.spacing_mut().item_spacing.x = 12.0;
+                            if let Some((big, colour)) = count.as_ref().and_then(|c| c.big.as_ref())
+                            {
+                                ui.label(
+                                    egui::RichText::new(big)
+                                        .size(COUNT_SIZE)
+                                        .strong()
+                                        .color(*colour),
+                                );
+                            }
+                            if let Some((wave, waves)) = count.as_ref().and_then(|c| c.wave) {
+                                ui.label(
+                                    egui::RichText::new(wave_counter(wave, waves))
+                                        .size(COUNT_WAVE_SIZE)
+                                        .strong()
+                                        .color(theme::INK),
+                                );
+                            }
+                            if paused {
+                                chip_frame()
+                                    .stroke(egui::Stroke::new(1.0, theme::CAUTION))
+                                    .show(ui, |ui| {
+                                        ui.label(
+                                            egui::RichText::new(PAUSED_CHIP)
+                                                .strong()
+                                                .color(theme::CAUTION),
+                                        );
+                                    });
+                            }
+                        });
+                        if let Some(core) = count.as_ref().and_then(|c| c.core) {
+                            theme::bar_of_height(ui, CORE_BAR_W, 8.0, &[(core, theme::BAD)]);
+                            ui.add_space(4.0);
+                        }
+                    });
+                })
+                .response
+                .interact(egui::Sense::hover());
+            shown.on_hover_ui(|ui| {
+                ui.set_max_width(360.0);
                 ui.horizontal(|ui| {
                     ui.label(egui::RichText::new(day_word(world.day())).strong());
-                    ui.add_space(4.0);
                     ui.label(
                         egui::RichText::new(euros(world.share_of(local)))
                             .strong()
@@ -753,61 +880,16 @@ pub fn top_frame(
                                 .color(theme::MUTED),
                         );
                     }
-                    ui.add_space(4.0);
-                    ui.label(
-                        egui::RichText::new(wave_size_chip(world.droid_wave_size()))
-                            .color(theme::WARN),
-                    )
-                    .on_hover_text(WAVE_SIZE_TIP);
-                    if let Some((top, more)) = top_threat(threats) {
-                        ui.add_space(4.0);
-                        let frame = if top.kind == ThreatKind::Droids {
-                            warning_frame().inner_margin(egui::Margin::symmetric(8, 3))
-                        } else {
-                            chip_frame()
-                        };
-                        let chip = frame
-                            .show(ui, |ui| {
-                                ui.horizontal(|ui| {
-                                    ui.label(
-                                        egui::RichText::new(&top.text).strong().color(top.colour),
-                                    );
-                                    if more > 0 {
-                                        ui.label(
-                                            egui::RichText::new(format!("+{more}"))
-                                                .color(theme::MUTED),
-                                        );
-                                    }
-                                });
-                            })
-                            .response
-                            .interact(egui::Sense::hover());
-                        chip.on_hover_ui(|ui| {
-                            ui.set_max_width(360.0);
-                            for (i, t) in threats.iter().enumerate() {
-                                if i > 0 {
-                                    ui.separator();
-                                }
-                                ui.label(egui::RichText::new(&t.text).strong().color(t.colour));
-                                ui.add(
-                                    egui::Label::new(egui::RichText::new(&t.tip).small()).wrap(),
-                                );
-                            }
-                        });
-                    }
-                    if paused {
-                        ui.add_space(4.0);
-                        chip_frame()
-                            .stroke(egui::Stroke::new(1.0, theme::CAUTION))
-                            .show(ui, |ui| {
-                                ui.label(
-                                    egui::RichText::new(PAUSED_CHIP)
-                                        .strong()
-                                        .color(theme::CAUTION),
-                                );
-                            });
-                    }
                 });
+                ui.label(
+                    egui::RichText::new(wave_size_chip(world.droid_wave_size())).color(theme::WARN),
+                );
+                ui.add(egui::Label::new(egui::RichText::new(WAVE_SIZE_TIP).small()).wrap());
+                for t in threats {
+                    ui.separator();
+                    ui.label(egui::RichText::new(&t.text).strong().color(t.colour));
+                    ui.add(egui::Label::new(egui::RichText::new(&t.tip).small()).wrap());
+                }
             });
         })
         .response
@@ -815,22 +897,24 @@ pub fn top_frame(
 }
 
 /// The banner under the top frame for a player whose Bim is out: that it
-/// is, what buying it back costs and what the pool holds.
+/// is, and — on a hover — what buying it back costs and what the pool
+/// holds.
 pub fn out_banner(ctx: &egui::Context, centre: f32, top: f32, pool: u64, cost: u64) -> egui::Rect {
     let id = egui::Id::new("hud-out");
     let width = ctx
         .memory(|m| m.area_rect(id).map(|r| r.width()))
-        .unwrap_or(240.0);
+        .unwrap_or(120.0);
     egui::Area::new(id)
         .fixed_pos(egui::pos2(centre - width / 2.0, top))
         .order(egui::Order::Middle)
         .show(ctx, |ui| {
-            warning_frame().show(ui, |ui| {
-                ui.horizontal(|ui| {
+            warning_frame()
+                .show(ui, |ui| {
                     ui.label(egui::RichText::new(OUT_BANNER).strong().color(theme::BAD));
-                    ui.label(egui::RichText::new(out_banner_line(cost, pool)).color(theme::INK));
-                });
-            });
+                })
+                .response
+                .interact(egui::Sense::hover())
+                .on_hover_text(out_banner_line(cost, pool));
         })
         .response
         .rect
@@ -908,6 +992,8 @@ pub struct Hero {
     /// Skill points not spent on a ranked kit's ranks (task 124), said
     /// beside the experience bar.
     pub points_waiting: u8,
+    /// This player's money: its wallet and its share of the takings.
+    pub money: u64,
     /// The magazine in its hand (October 2026): shots left, shots it
     /// holds, and the share of a reload still to run — `Game::magazine`.
     pub magazine: Option<(u32, u32, f32)>,
@@ -932,34 +1018,45 @@ pub struct HeroOut {
 }
 
 /// The circle the level stands in.
-const LEVEL_DISC: f32 = 24.0;
-/// The health bar's width.
-const HERO_BAR_W: f32 = 240.0;
+const LEVEL_DISC: f32 = 32.0;
+/// The health bar's least width: as wide as the row of ability boxes over
+/// it, but never narrower than this for a class with few boxes or none.
+const HERO_BAR_W: f32 = 300.0;
 /// The health bar's height: the tallest bar on the screen, since it is
-/// the one a player has to read without looking (feature 110).
-const HERO_BAR_H: f32 = 18.0;
-/// The number beside the health bar.
-const HERO_NUMBER: f32 = 20.0;
+/// the one a player has to read without looking (feature 110). The number
+/// stands inside it.
+const HERO_BAR_H: f32 = 26.0;
+/// The number inside the health bar, and the magazine's.
+const HERO_NUMBER: f32 = 18.0;
+const MAGAZINE_NUMBER: f32 = 28.0;
+/// The experience bar under the health bar.
+const XP_BAR_H: f32 = 6.0;
 
-/// The hero panel, centred at the foot of the canvas but never left of
-/// `clear` — the right edge of whatever on the left reaches down into its
-/// row, the tray opened or the character sheet — the way the ability bar
-/// stood clear of the tray; nor right of `right`, the left edge of what
-/// stands at the bottom right; nor off the canvas. `boxes` lays the
-/// class's keys and the medicine out, and says which the pointer rests
-/// on.
+/// The hero panel — the main of the HUD, Dota 2's bottom bar — centred at
+/// the foot of the canvas but never left of `clear` — the right edge of
+/// whatever on the left reaches down into its row, the tray opened or the
+/// character sheet; nor right of `right`, the left edge of what stands at
+/// the bottom right; nor off the canvas. From the left: the level, ringed
+/// by the experience; the hands (`hand`) over this player's money; the
+/// class's keys (`abilities`, which says which box the pointer rests on)
+/// over the health bar with its number inside and the experience bar; the
+/// magazine; and the four items (`items`). No words but numbers: what a
+/// piece means is its tooltip.
+#[allow(clippy::too_many_arguments)]
 pub fn hero_panel(
     ctx: &egui::Context,
     canvas: egui::Rect,
     clear: f32,
     right: f32,
     hero: &Hero,
-    boxes: impl FnOnce(&mut egui::Ui) -> Option<Action>,
+    hand: impl FnOnce(&mut egui::Ui),
+    abilities: impl FnOnce(&mut egui::Ui) -> Option<Action>,
+    items: impl FnOnce(&mut egui::Ui),
 ) -> HeroOut {
     let id = egui::Id::new("hud-hero");
     let size = ctx
         .memory(|m| m.area_rect(id).map(|r| r.size()))
-        .unwrap_or(egui::vec2(520.0, 76.0));
+        .unwrap_or(egui::vec2(760.0, 130.0));
     let x = ((canvas.min.x + canvas.max.x - size.x) / 2.0)
         .max(clear + GAP)
         .min(right.min(canvas.max.x - MARGIN) - GAP - size.x)
@@ -980,43 +1077,39 @@ pub fn hero_panel(
         .fixed_pos(egui::pos2(x, y))
         .order(egui::Order::Middle)
         .show(ctx, |ui| {
-            frame.show(ui, |ui| {
+            frame.inner_margin(egui::Margin::same(10)).show(ui, |ui| {
                 ui.horizontal(|ui| {
-                    ui.spacing_mut().item_spacing.x = 8.0;
+                    ui.spacing_mut().item_spacing.x = 10.0;
                     level_disc(ui, hero);
                     ui.vertical(|ui| {
-                        ui.spacing_mut().item_spacing.y = 3.0;
-                        health_row(ui, hero, critical);
+                        ui.spacing_mut().item_spacing.y = 6.0;
+                        hand(ui);
+                        ui.label(
+                            egui::RichText::new(euros(hero.money))
+                                .size(15.0)
+                                .strong()
+                                .color(theme::ACCENT),
+                        )
+                        .on_hover_text(MAP_MONEY_TIP);
+                    });
+                    ui.vertical(|ui| {
+                        ui.spacing_mut().item_spacing.y = 4.0;
+                        let row = ui.horizontal(|ui| abilities(ui));
+                        hovered = row.inner;
+                        let width = row.response.rect.width().max(HERO_BAR_W);
+                        health_bar(ui, hero, critical, width);
                         if hero.class != world::Class::None {
-                            thin_bar(ui, HERO_BAR_W, xp_fill(hero.xp), theme::HYPER);
-                        }
-                        ui.horizontal(|ui| {
-                            ui.label(
-                                egui::RichText::new(xp_text(hero.class, hero.xp))
-                                    .small()
-                                    .color(theme::MUTED),
+                            let (rect, response) = ui.allocate_exact_size(
+                                egui::vec2(width, XP_BAR_H),
+                                egui::Sense::hover(),
                             );
-                            // And the skill points waiting on a ranked kit
-                            // (task 124), beside it.
-                            if let Some(points) = crate::names::points_waiting(hero.points_waiting)
-                            {
-                                ui.label(
-                                    egui::RichText::new(points)
-                                        .small()
-                                        .strong()
-                                        .color(theme::ACCENT),
-                                );
-                            }
-                        });
-                        // Down, the countdown is the grey laid over the
-                        // panel's to say, below, and not a line under it
-                        // as well.
-                        if let Some((line, colour)) = hero.peril.as_ref().filter(|_| !hero.downed) {
-                            ui.label(egui::RichText::new(line).small().strong().color(*colour));
+                            theme::bar_in(ui.painter(), rect, xp_fill(hero.xp), theme::HYPER);
+                            response.on_hover_text(xp_text(hero.class, hero.xp));
                         }
                     });
                     magazine_box(ui, hero);
-                    hovered = boxes(ui);
+                    ui.separator();
+                    items(ui);
                 });
             });
         });
@@ -1027,20 +1120,20 @@ pub fn hero_panel(
     if hero.downed {
         let painter = ctx.layer_painter(area.response.layer_id);
         painter.rect_filled(rect, 6.0, theme::PANEL_DEEP.gamma_multiply(0.75));
-        let lift = if hero.down_left.is_some() { 10.0 } else { 0.0 };
+        let lift = if hero.down_left.is_some() { 12.0 } else { 0.0 };
         painter.text(
             rect.center() - egui::vec2(0.0, lift),
             egui::Align2::CENTER_CENTER,
             DOWNED_BANNER,
-            egui::FontId::proportional(20.0),
+            egui::FontId::proportional(26.0),
             theme::BAD,
         );
         if let Some(left) = hero.down_left {
             painter.text(
-                rect.center() + egui::vec2(0.0, 12.0),
+                rect.center() + egui::vec2(0.0, 16.0),
                 egui::Align2::CENTER_CENTER,
                 downed_left(left),
-                egui::FontId::proportional(13.0),
+                egui::FontId::proportional(16.0),
                 theme::WARN,
             );
         }
@@ -1048,9 +1141,12 @@ pub fn hero_panel(
     HeroOut { rect, hovered }
 }
 
-/// The health bar, tall, with the number beside it and the armour's
-/// after that — and the CRITICAL tag while the Bim is critically hit.
-fn health_row(ui: &mut egui::Ui, hero: &Hero, critical: bool) {
+/// The health bar, tall and as wide as the keys over it: the body's
+/// points, the armour's after them and a shield's after that, with the
+/// numbers inside — the body's in white, the armour's and the shield's in
+/// their colours after it. What is wrong with the Bim (critically hit,
+/// bleeding, slowed) is its tooltip.
+fn health_bar(ui: &mut egui::Ui, hero: &Hero, critical: bool, width: f32) {
     let ink = if critical {
         theme::DYING
     } else if hero.hurt {
@@ -1058,64 +1154,80 @@ fn health_row(ui: &mut egui::Ui, hero: &Hero, critical: bool) {
     } else {
         theme::ACCENT
     };
-    ui.horizontal(|ui| {
-        ui.spacing_mut().item_spacing.x = 6.0;
-        let total = hero.max + hero.armour + hero.shield;
-        theme::bar_of_height(
-            ui,
-            HERO_BAR_W,
-            HERO_BAR_H,
-            &[
-                (hero.points / total, ink),
-                (hero.armour / total, theme::ARMOUR),
-                (hero.shield / total, theme::SHIELD),
-            ],
+    let total = (hero.max + hero.armour + hero.shield).max(1.0);
+    let response = theme::bar_of_height(
+        ui,
+        width,
+        HERO_BAR_H,
+        &[
+            (hero.points / total, ink),
+            (hero.armour / total, theme::ARMOUR),
+            (hero.shield / total, theme::SHIELD),
+        ],
+    );
+    let rect = response.rect;
+    let font = egui::FontId::proportional(HERO_NUMBER);
+    let mut job = egui::text::LayoutJob::default();
+    let mut part = |text: String, colour: egui::Color32| {
+        job.append(
+            &text,
+            0.0,
+            egui::TextFormat {
+                font_id: font.clone(),
+                color: colour,
+                ..Default::default()
+            },
         );
-        ui.label(
-            egui::RichText::new(format!("{}", hero.points.round()))
-                .size(HERO_NUMBER)
-                .strong()
-                .color(if critical || hero.hurt {
-                    ink
-                } else {
-                    theme::INK
-                }),
-        );
-        if hero.armour > 0.0 {
-            ui.label(
-                egui::RichText::new(format!("+{}", hero.armour.round()))
-                    .size(HERO_NUMBER * 0.7)
-                    .color(theme::ARMOUR),
-            );
-        }
-        if hero.shield > 0.0 {
-            ui.label(
-                egui::RichText::new(format!("+{}", hero.shield.round()))
-                    .size(HERO_NUMBER * 0.7)
-                    .color(theme::SHIELD),
-            );
-        }
-        if critical {
-            ui.label(
-                egui::RichText::new(CRITICAL_TAG)
-                    .strong()
-                    .color(theme::DYING),
-            )
-            .on_hover_text(CRITICAL_TIP);
-        }
-    });
+    };
+    part(
+        format!("{} / {}", hero.points.max(0.0).round(), hero.max.round()),
+        egui::Color32::WHITE,
+    );
+    if hero.armour > 0.0 {
+        part(format!("  +{}", hero.armour.round()), theme::ARMOUR);
+    }
+    if hero.shield > 0.0 {
+        part(format!("  +{}", hero.shield.round()), theme::SHIELD);
+    }
+    let painter = ui.painter();
+    let galley = painter.layout_job(job);
+    let at = rect.center() - galley.size() / 2.0;
+    // A shadow under the numbers, so they read over any colour of bar.
+    painter.galley_with_override_text_color(
+        at + egui::vec2(1.0, 1.0),
+        galley.clone(),
+        egui::Color32::from_black_alpha(200),
+    );
+    painter.galley(at, galley, egui::Color32::WHITE);
+    let tip: Vec<(String, egui::Color32)> = [
+        critical.then(|| (CRITICAL_TIP.to_string(), theme::DYING)),
+        hero.peril.clone().filter(|_| !hero.downed),
+    ]
+    .into_iter()
+    .flatten()
+    .collect();
+    if !tip.is_empty() {
+        response.on_hover_ui(|ui| {
+            ui.set_max_width(320.0);
+            for (line, colour) in tip {
+                ui.add(egui::Label::new(egui::RichText::new(line).color(colour)).wrap());
+            }
+        });
+    }
 }
 
 /// The level in its circle: the number, or a dash without a class, ringed
-/// by how far through the level the experience is.
+/// by how far through the level the experience is, and — while skill
+/// points wait on a ranked kit (task 124) — their count on an accent disc
+/// in the corner. Resting on it says the experience in numbers.
 fn level_disc(ui: &mut egui::Ui, hero: &Hero) {
     use std::f32::consts::TAU;
     let side = LEVEL_DISC * 2.0 + 6.0;
-    let (rect, _) = ui.allocate_exact_size(egui::vec2(side, side), egui::Sense::hover());
+    let (rect, response) = ui.allocate_exact_size(egui::vec2(side, side), egui::Sense::hover());
     let painter = ui.painter();
     let at = rect.center();
     painter.circle_filled(at, LEVEL_DISC, theme::PANEL_DEEP);
-    painter.circle_stroke(at, LEVEL_DISC, egui::Stroke::new(3.0, theme::LINE));
+    painter.circle_stroke(at, LEVEL_DISC, egui::Stroke::new(4.0, theme::LINE));
     let classed = hero.class != world::Class::None;
     if classed {
         let share = xp_fill(hero.xp);
@@ -1127,7 +1239,7 @@ fn level_disc(ui: &mut egui::Ui, hero: &Hero) {
             })
             .collect();
         if share > 0.0 {
-            painter.add(egui::Shape::line(arc, egui::Stroke::new(3.0, theme::HYPER)));
+            painter.add(egui::Shape::line(arc, egui::Stroke::new(4.0, theme::HYPER)));
         }
     }
     let level = if classed {
@@ -1139,16 +1251,35 @@ fn level_disc(ui: &mut egui::Ui, hero: &Hero) {
         at,
         egui::Align2::CENTER_CENTER,
         level,
-        egui::FontId::proportional(22.0),
+        egui::FontId::proportional(28.0),
         theme::INK,
     );
+    if hero.points_waiting > 0 {
+        // A pill as wide as its figure, its right end on the disc's edge.
+        let galley = painter.layout_no_wrap(
+            format!("+{}", hero.points_waiting),
+            egui::FontId::proportional(12.0),
+            theme::PANEL_DEEP,
+        );
+        let pill = egui::Rect::from_min_size(
+            egui::pos2(rect.max.x - galley.size().x - 10.0, rect.min.y),
+            galley.size() + egui::vec2(10.0, 2.0),
+        );
+        painter.rect_filled(pill, pill.height() / 2.0, theme::ACCENT);
+        painter.galley(pill.min + egui::vec2(5.0, 1.0), galley, theme::PANEL_DEEP);
+    }
+    response.on_hover_ui(|ui| {
+        ui.label(xp_text(hero.class, hero.xp));
+        if let Some(points) = crate::names::points_waiting(hero.points_waiting) {
+            ui.label(egui::RichText::new(points).strong().color(theme::ACCENT));
+        }
+    });
 }
 
-/// A bar half the height of the others, for the experience.
-/// The magazine's column (October 2026), between the experience and the
-/// keys: the shots left, large — warm at a quarter and less, red empty —
-/// over what it holds, and while it reloads the word and a bar filling
-/// as the reload runs. Nothing for a weapon with no magazine.
+/// The magazine's column (October 2026), between the keys and the items:
+/// the shots left, large — warm at a quarter and less, red empty — over
+/// what it holds, and while it reloads a bar filling as the reload runs.
+/// Nothing for a weapon with no magazine.
 fn magazine_box(ui: &mut egui::Ui, hero: &Hero) {
     let Some((left, size, reloading)) = hero.magazine else {
         return;
@@ -1164,28 +1295,23 @@ fn magazine_box(ui: &mut egui::Ui, hero: &Hero) {
             } else {
                 theme::INK
             };
-            ui.horizontal(|ui| {
-                ui.spacing_mut().item_spacing.x = 3.0;
+            ui.vertical_centered(|ui| {
                 ui.label(
                     egui::RichText::new(left.to_string())
-                        .size(HERO_NUMBER)
+                        .size(MAGAZINE_NUMBER)
                         .strong()
                         .color(ink),
                 );
                 ui.label(
                     egui::RichText::new(format!("/ {size}"))
-                        .small()
+                        .size(13.0)
                         .color(theme::MUTED),
                 );
             });
             if reloading > 0.0 {
-                thin_bar(ui, MAGAZINE_W, 1.0 - reloading, theme::ACCENT);
-                ui.label(
-                    egui::RichText::new(RELOADING)
-                        .small()
-                        .strong()
-                        .color(theme::ACCENT),
-                );
+                let (rect, _) =
+                    ui.allocate_exact_size(egui::vec2(MAGAZINE_W, 5.0), egui::Sense::hover());
+                theme::bar_in(ui.painter(), rect, 1.0 - reloading, theme::ACCENT);
             }
         })
         .response;
@@ -1195,52 +1321,9 @@ fn magazine_box(ui: &mut egui::Ui, hero: &Hero) {
 /// The magazine's column's width.
 const MAGAZINE_W: f32 = 64.0;
 
-fn thin_bar(ui: &mut egui::Ui, width: f32, fraction: f32, fill: egui::Color32) {
-    let (rect, _) = ui.allocate_exact_size(egui::vec2(width, 4.0), egui::Sense::hover());
-    theme::bar_in(ui.painter(), rect, fraction, fill);
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn threat(kind: ThreatKind) -> Threat {
-        Threat {
-            kind,
-            text: format!("{kind:?}"),
-            colour: theme::INK,
-            tip: String::new(),
-        }
-    }
-
-    /// The chip shows the most urgent warning whatever order they come in
-    /// — the machines over the alarm over a blade over the recruit over
-    /// the standing order — and counts the rest behind it.
-    #[test]
-    fn the_chip_picks_the_most_urgent_warning_and_counts_the_rest() {
-        assert!(top_threat(&[]).is_none());
-        let all = [
-            threat(ThreatKind::Standing),
-            threat(ThreatKind::Recruited),
-            threat(ThreatKind::Alarm),
-            threat(ThreatKind::Droids),
-            threat(ThreatKind::Locked),
-        ];
-        let (top, more) = top_threat(&all).unwrap();
-        assert_eq!(top.kind, ThreatKind::Droids);
-        assert_eq!(more, 4);
-        let (top, more) = top_threat(&all[..3]).unwrap();
-        assert_eq!(top.kind, ThreatKind::Alarm);
-        assert_eq!(more, 2);
-        let two = [threat(ThreatKind::Standing), threat(ThreatKind::Locked)];
-        let (top, more) = top_threat(&two).unwrap();
-        assert_eq!(top.kind, ThreatKind::Locked);
-        assert_eq!(more, 1);
-        let one = [threat(ThreatKind::Standing)];
-        let (top, more) = top_threat(&one).unwrap();
-        assert_eq!(top.kind, ThreatKind::Standing);
-        assert_eq!(more, 0);
-    }
 
     /// The experience line is whole points through the level, and `Max`
     /// with the bar full at the sixteenth.

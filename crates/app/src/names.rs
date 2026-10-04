@@ -2413,10 +2413,6 @@ pub fn sell_from(worn_by: Option<&str>) -> String {
     }
 }
 
-/// The Manufacturers (feature 109): the name over one of theirs on the
-/// deck, the log's line when one dies, and a site of theirs' tag in the
-/// map's list.
-pub const MANUFACTURER_NAME: &str = "Manufacturer";
 pub const MANUFACTURER_DOWN: &str = "A Manufacturer is dead.";
 pub const ARRIVE_MANUFACTURERS: &str = "Manufacturers";
 /// An elite (`world::elite`), in a row of the map's list.
@@ -2499,9 +2495,8 @@ pub fn hero_xp_max(level: u8) -> String {
 pub const NO_CLASS: &str = "No class";
 /// The hero panel greyed over while its Bim is down.
 pub const DOWNED_BANNER: &str = "Downed";
-/// The tag beside the hero's health while it is critically hit
-/// (feature 110), and what it means.
-pub const CRITICAL_TAG: &str = "CRITICAL";
+/// What the hero's health bar's tooltip says while it is critically
+/// hit (feature 110).
 pub const CRITICAL_TIP: &str = "Badly hurt: under twenty hit points and bleeding \
     on the deck, or down with the countdown running. Get a medic's beam on it, \
     or get out of the fight.";
@@ -3042,9 +3037,6 @@ pub fn magazine_text(stats: &WeaponStats) -> Option<String> {
     })
 }
 
-/// The hero panel's word under the magazine while it is reloaded.
-pub const RELOADING: &str = "Reloading";
-
 /// And the column's tooltip.
 pub fn magazine_tip(left: u32, size: u32) -> String {
     format!(
@@ -3246,6 +3238,11 @@ pub const ALARM_TIP: &str = "An enemy within thirty tiles of anybody or in anybo
 
 pub const REACH_HINT: &str = "walk over first — it is out of reach";
 
+/// The word beside the big red count of enemies standing, at the top of
+/// the screen: which wave of how many.
+pub fn wave_counter(wave: u32, waves: u32) -> String {
+    format!("Wave {wave}/{waves}")
+}
 #[cfg(test)]
 mod tests {
     use super::*;

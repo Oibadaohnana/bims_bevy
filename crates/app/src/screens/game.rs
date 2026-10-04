@@ -3080,6 +3080,7 @@ fn frame(
             &screen.log,
         );
         // This player's money at the top middle of the chart, where the
+                money: world.share_of(local),
         // ship's top frame says it, and the crew's relics under it.
         let money = egui::Area::new(egui::Id::new("map-money"))
             .fixed_pos(egui::pos2(
@@ -3215,16 +3216,22 @@ fn frame(
             // hands, and a click the key's own order.
             let hand = room.hand(w);
             let mut hand_picked = None;
-            let got = hud::hero_panel(&ctx, area, clear, right, &hero, |ui| {
-                hand_picked = quickselect(ui, hand, &keys_now);
-                let row = ability_row(ui, &boxes);
-                clicked = row.rank_up;
-                // The four items beside the abilities, Dota's way
-                // (October 2026): a player's own Bim's alone.
-                ui.separator();
-                item_grid(ui, world, local, &keys_now);
-                row.hovered
-            });
+            // The four items past the abilities, Dota's way (October
+            // 2026): a player's own Bim's alone.
+            let got = hud::hero_panel(
+                &ctx,
+                area,
+                clear,
+                right,
+                &hero,
+                |ui| hand_picked = quickselect(ui, hand, &keys_now),
+                |ui| {
+                    let row = ability_row(ui, &boxes);
+                    clicked = row.rank_up;
+                    row.hovered
+                },
+                |ui| item_grid(ui, world, local, &keys_now),
+            );
             if keys {
                 rank_up_asked = rank_up_asked.or(clicked);
             }
@@ -4443,11 +4450,13 @@ fn frame(
         });
     }
 
-    // The crew's names, over their heads, where the ship says each Bim
+    // The players' names, over their heads, where the ship says each Bim
     // landed — the same camera the shapes went through, so a name stays over
-    // its head as the ship turns.
+    // its head as the ship turns. A player's alone: a bot, a machine and
+    // anybody ashore go unnamed (their bars say whose side they are on).
     if !deck_hidden {
-        for who in 0..crew_count {
+        let players = session.game.as_ref().map_or(0, |g| g.world.players());
+        for who in 0..crew_count.min(players) {
             if let Some((x, y)) = session.crew_on_screen(who) {
                 let at = view.to_canvas(Vec2::new(x, y)) + canvas.min;
                 let at = egui::pos2(
@@ -4471,7 +4480,6 @@ fn frame(
                 }
             }
         }
-        let station = session.resident_station().unwrap_or(0);
         for who in 0..session.resident_count() {
             if let Some((x, y)) = session.resident_on_screen(who) {
                 let at = view.to_canvas(Vec2::new(x, y)) + canvas.min;
@@ -4479,22 +4487,10 @@ fn frame(
                     at.x,
                     at.y - theme::NAME_LIFT * view.scale - crate::healthbars::name_room(view.scale),
                 );
-                // A machine wears its kind, not a name: it is not
-                // somebody (feature 83).
-                let label = match session.resident_droid(who) {
-                    Some(kind) => crate::names::droid_name(kind).to_string(),
-                    // And a Manufacturer its faction (feature 109).
-                    None if session.resident_manufacturer(who) => {
-                        crate::names::MANUFACTURER_NAME.to_string()
-                    }
-                    None => resident_name(station, who),
-                };
-                theme::name_over(&painter, at, &label, theme::THEIRS);
-                // A mercenary for hire wears a `?` over its name: somebody
+                // A mercenary for hire wears a `?` over its head: somebody
                 // to right-click and talk to, which nobody else ashore is.
                 if session.mercenary_fee(who).is_some() {
-                    let above = egui::pos2(at.x, at.y - theme::NAME_SIZE - 4.0);
-                    theme::badge_over(&painter, above, MERCENARY_MARK, theme::ACCENT);
+                    theme::badge_over(&painter, at, MERCENARY_MARK, theme::ACCENT);
                 }
             }
         }
@@ -5690,7 +5686,7 @@ const BATTLE_CRY_RING_SECONDS: f64 = 0.6;
 
 /// How big one box is: a key's on the hero panel (feature 107), its name
 /// in its tooltip rather than under it, so the panel stays one row.
-const ABILITY_SIDE: f32 = 44.0;
+const ABILITY_SIDE: f32 = 64.0;
 
 /// Whom a cast of `slot`'s would reach, by crew index (feature 86) —
 /// what the deck rings while the pointer rests on that key's box, which
@@ -5717,6 +5713,8 @@ fn affected_by(world: &world::World, slot: u32, action: Action) -> Vec<u32> {
         (Class::Commander, Action::Ability4) => world.reinforcements_of(slot),
         // The medic's (task 153): the drone names whom it is over; the
         // beam its patients; the circle whom it heals now.
+        } else {
+            14.0
         (Class::Medic, Action::Ability1) => world
             .drone_of(slot)
             .and_then(|d| d.patient)
@@ -5748,22 +5746,22 @@ fn quickselect(ui: &mut egui::Ui, hand: bims::bim::Hand, keys: &Keys) -> Option<
     ui.vertical(|ui| {
         ui.spacing_mut().item_spacing.y = 3.0;
         // One key swaps the two (October 2026): the one in hand is lit,
-        // and the key is said under them.
+        // and the key is said in their tooltips.
+        let swap = crate::names::hand_swap_key(keys.key(Action::Medkit).name());
         for (one, word, tip) in [
             (Hand::Weapon, HAND_WEAPON, HAND_WEAPON_TIP),
             (Hand::Medkit, HAND_MEDKIT, HAND_MEDKIT_TIP),
         ] {
-            let text = egui::RichText::new(word).small();
-            let button = theme::toggle_button(one == hand, text).min_size(egui::vec2(66.0, 18.0));
-            if ui.add(button).on_hover_text(tip).clicked() {
+            let text = egui::RichText::new(word).size(14.0);
+            let button = theme::toggle_button(one == hand, text).min_size(egui::vec2(84.0, 26.0));
+            if ui
+                .add(button)
+                .on_hover_text(format!("{tip}\n{swap}"))
+                .clicked()
+            {
                 picked = Some(one);
             }
         }
-        ui.label(
-            egui::RichText::new(crate::names::hand_swap_key(keys.key(Action::Medkit).name()))
-                .small()
-                .color(theme::MUTED),
-        );
     });
     picked
 }
@@ -5771,7 +5769,7 @@ fn quickselect(ui: &mut egui::Ui, hand: bims::bim::Hand, keys: &Keys) -> Option<
 /// How big one item box is: Dota's inventory, two by two beside the
 /// abilities, the two rows as tall as the hero panel inside its frame
 /// (the player's word) — about an ability's box.
-const ITEM_SIDE: f32 = 41.0;
+const ITEM_SIDE: f32 = 52.0;
 
 /// The gap between two item boxes, across and down.
 const ITEM_GAP: f32 = 3.0;
@@ -5823,7 +5821,7 @@ fn item_grid(ui: &mut egui::Ui, world: &world::World, who: u32, keys: &Keys) {
                                     rect.center(),
                                     egui::Align2::CENTER_CENTER,
                                     format!("{}", left.ceil()),
-                                    egui::FontId::proportional(13.0),
+                                    egui::FontId::proportional(18.0),
                                     theme::INK,
                                 );
                             } else if item.is_blink() && locked {
@@ -5856,7 +5854,7 @@ fn item_grid(ui: &mut egui::Ui, world: &world::World, who: u32, keys: &Keys) {
                         rect.min + egui::vec2(4.0, 2.0),
                         egui::Align2::LEFT_TOP,
                         key,
-                        egui::FontId::proportional(10.0),
+                        egui::FontId::proportional(12.0),
                         theme::MUTED,
                     );
                     if index % 2 == 1 {
@@ -5970,8 +5968,6 @@ fn ability_box(ui: &mut egui::Ui, one: &AbilityBox) -> (bool, bool) {
         // picture — a word of a key (Space, the ultimate's) smaller, so
         // it clears the rank-up's plus in the top right.
         let key_font = egui::FontId::proportional(if one.key.chars().count() > 3 {
-            9.0
-        } else {
             11.0
         });
         painter.text(
@@ -6010,7 +6006,7 @@ fn ability_box(ui: &mut egui::Ui, one: &AbilityBox) -> (bool, bool) {
                     rect.max - egui::vec2(4.0, 3.0),
                     egui::Align2::RIGHT_BOTTOM,
                     format!("{count}"),
-                    egui::FontId::proportional(15.0),
+                    egui::FontId::proportional(20.0),
                     ink,
                 );
             }
@@ -6035,7 +6031,7 @@ fn ability_box(ui: &mut egui::Ui, one: &AbilityBox) -> (bool, bool) {
         if let Some((words, color)) = over {
             // A level to wait for is two words in a box the size of a
             // key: a size smaller than a cooldown's seconds.
-            let size = if one.locked.is_some() { 10.5 } else { 13.0 };
+            let size = if one.locked.is_some() { 13.0 } else { 20.0 };
             // A shadow under the words, since they sit over the picture.
             painter.text(
                 middle + egui::vec2(1.0, 1.0),
@@ -6055,13 +6051,13 @@ fn ability_box(ui: &mut egui::Ui, one: &AbilityBox) -> (bool, bool) {
         // A skill point could buy its next rank now (task 124): a "+" in
         // the top right corner.
         if one.plus {
-            let at = egui::pos2(rect.max.x - 7.0, rect.min.y + 7.0);
-            painter.circle_filled(at, 6.0, theme::ACCENT);
+            let at = egui::pos2(rect.max.x - 10.0, rect.min.y + 10.0);
+            painter.circle_filled(at, 8.0, theme::ACCENT);
             painter.text(
                 at,
                 egui::Align2::CENTER_CENTER,
                 "+",
-                egui::FontId::proportional(12.0),
+                egui::FontId::proportional(15.0),
                 theme::PANEL_DEEP,
             );
         }
@@ -6106,12 +6102,12 @@ fn rank_pips(ui: &mut egui::Ui, rank: u8, top: u8) {
 }
 
 /// How tall the row of rank pips is, and how big a pip.
-const PIP_ROW: f32 = 7.0;
-const PIP_RADIUS: f32 = 2.5;
+const PIP_ROW: f32 = 9.0;
+const PIP_RADIUS: f32 = 3.5;
 
 /// The radius of the disc a stock of charges is counted on, in the
 /// bottom right of its box.
-const CHARGE_BADGE: f32 = 8.0;
+const CHARGE_BADGE: f32 = 10.0;
 
 /// Dota 2's clock over a box on cooldown: `left` of a whole turn still
 /// to come, laid dark from where the sweep has got to round clockwise
