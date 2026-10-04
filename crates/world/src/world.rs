@@ -8713,6 +8713,10 @@ impl World {
         if self.class_of(who) != Class::None {
             skill.damage *= class::level_damage(self.level_of(who));
         }
+        // Whoever a commander called in (October 2026): half again.
+        if self.is_reinforcement(who) {
+            skill.damage *= class::REINFORCEMENT_DAMAGE;
+        }
         // Every crit: the soldier's Weak Spot and the Executioners
         // carried, rolled as one (October 2026).
         skill.crit_chance = self.crit_of(who).map_or(0.0, |(chance, _)| chance);

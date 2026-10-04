@@ -1528,10 +1528,10 @@ fn rampage_fires_faster_takes_less_and_aims_on_the_move_for_its_seconds() {
     let events = world.step(&[Command::Rampage { slot: 0 }]);
     assert!(refused_with(&events, Refusal::NotLearnt), "{events:?}");
     let want = [
-        (8.0, 1.5, 0.80, 35.0),
-        (10.0, 1.75, 0.75, 30.0),
-        (12.0, 2.0, 0.70, 25.0),
-        (12.0, 2.0, 0.70, 20.0),
+        (8.0, 1.75, 0.70, 35.0),
+        (10.0, 2.125, 0.625, 30.0),
+        (12.0, 2.5, 0.55, 25.0),
+        (12.0, 2.5, 0.55, 20.0),
     ];
     for (rank, &(seconds, rate, taken, cooldown)) in (1..=4u8).zip(&want) {
         let mut world = soldier();
@@ -1590,8 +1590,8 @@ fn rampage_is_refused_downed_ready_at_every_mission_and_goes_on_with_a_charge() 
     world.step(&[Command::Rampage { slot: 0 }]);
     assert!(world.is_charging(0) && world.is_rampaging(0));
     let s = world.skill_of(0);
-    assert!((s.damage_taken - 0.70).abs() < 1e-6, "{}", s.damage_taken);
-    assert_eq!(s.fire_rate, 2.0);
+    assert!((s.damage_taken - 0.55).abs() < 1e-6, "{}", s.damage_taken);
+    assert_eq!(s.fire_rate, 2.5);
     let here = world.aboard.room.bim_pos(0);
     run_for(&mut world, 2.0);
     assert!(

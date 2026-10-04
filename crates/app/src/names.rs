@@ -949,6 +949,7 @@ pub fn ranked_stats(class: world::Class, slot: u8) -> Vec<Stat> {
         ],
         (world::Class::Commander, 1) => vec![
             Stat::ranks("Armour", "", |r| medivac_armour(r).to_string()),
+            Stat::one("Damage", "", by(c::REINFORCEMENT_DAMAGE as f64)),
             cooldown(&c::MEDIVAC_COOLDOWN),
         ],
         (world::Class::Commander, 2) => vec![
@@ -963,6 +964,7 @@ pub fn ranked_stats(class: world::Class, slot: u8) -> Vec<Stat> {
             Stat::ranks("Rifle tier", "", |r| {
                 c::REINFORCEMENT_TIER[r].code().to_string()
             }),
+            Stat::one("Damage", "", by(c::REINFORCEMENT_DAMAGE as f64)),
             Stat::one(
                 "Arrive within",
                 " tiles",

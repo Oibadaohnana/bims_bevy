@@ -7925,10 +7925,16 @@ beam's rate), `HEAL_DRONE_HEAL`, `PLATED_REGEN`, `WEAK_SPOT_DAMAGE`
 minigun's numbers are every minigun's. The circle's drain on its medic
 is kept where it was: `HEALING_CIRCLE_COST` (two thirds) of the new rate,
 so a medic linked to himself gains while it runs where he broke even.
-Untouched: cooldowns, radii, durations, charges, the buffs' percentages
-(Rampage, Battle Cry, Rally, Plated's damage cut), the deployables'
-health and the guns of a commander's reinforcements and Medivac.
-No `SAVE_VERSION`; `wire::PROTOCOL` 156, then 158.
+The buffs too, the bonus or the cut half again: `RAMPAGE_FIRE_RATE`
+(1.75 to 2.875), `RAMPAGE_DAMAGE_TAKEN` (0.70 to 0.475),
+`BATTLE_CRY_FIRE_RATE` (1.375 to 1.60), `RALLY_DAMAGE_TAKEN` (0.775 to
+0.55), `RALLY_PACE` (1.15 to 1.30), `PLATED_DAMAGE_TAKEN` (0.85 to
+0.625), `TRIAGE` (0.375 to 1.05) and `BASTION_HASTE` (1.75). And
+`REINFORCEMENT_DAMAGE` (1.5) on the weapon damage of everybody a
+commander calls in, his R's soldiers and his Medivac's medic
+(`skill_of`, `is_reinforcement`). Untouched: cooldowns, radii,
+durations, charges and the deployables' health.
+No `SAVE_VERSION`; `wire::PROTOCOL` 156, then 158, then 159.
 
 ## The tier-two machines in the waves (task 157)
 

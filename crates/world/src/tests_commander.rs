@@ -250,10 +250,10 @@ fn battle_cry_fires_faster_for_its_seconds_by_rank_and_waits_its_cooldown() {
     let events = world.step(&[Command::BattleCry { slot: 1 }]);
     assert!(refused_with(&events, Refusal::NotACommander));
     let want = [
-        (1.25, 3.0, 20.0),
-        (1.30, 4.0, 18.0),
-        (1.35, 5.0, 16.0),
-        (1.40, 6.0, 14.0),
+        (1.375, 3.0, 20.0),
+        (1.45, 4.0, 18.0),
+        (1.525, 5.0, 16.0),
+        (1.60, 6.0, 14.0),
     ];
     for (rank, &(rate, seconds, cooldown)) in (1..=4u8).zip(&want) {
         let mut world = commander();
@@ -414,6 +414,11 @@ fn the_medivac_calls_a_medic_in_armoured_by_rank() {
         assert_eq!(world.medivacs_of(0), vec![crew], "rank {rank}");
         assert!(world.reinforcements_of(0).is_empty(), "no soldier of R's");
         assert!(world.is_medivac(crew) && world.is_reinforcement(crew));
+        assert_eq!(
+            world.skill_of(crew).damage,
+            class::REINFORCEMENT_DAMAGE,
+            "a gun half again"
+        );
         assert_eq!(world.class_of(crew), Class::None);
         let gear = world.aboard.room.gear(crew as usize);
         assert_eq!(gear.weapon, Some(WeaponKind::LaserPistol.basic()));
@@ -599,10 +604,10 @@ fn weak_spot_s_crit_on_a_lifted_hit_is_the_flat_damage_s_share_alone() {
 #[test]
 fn rally_takes_less_and_walks_faster_for_its_seconds_by_rank() {
     let want = [
-        (0.85, 1.10, 6.0, 45.0),
-        (0.80, 1.15, 7.0, 40.0),
-        (0.75, 1.20, 8.0, 35.0),
-        (0.70, 1.20, 9.0, 30.0),
+        (0.775, 1.15, 6.0, 45.0),
+        (0.70, 1.225, 7.0, 40.0),
+        (0.625, 1.30, 8.0, 35.0),
+        (0.55, 1.30, 9.0, 30.0),
     ];
     for (rank, &(taken, pace, seconds, cooldown)) in (1..=4u8).zip(&want) {
         let mut world = commander();
@@ -697,6 +702,11 @@ fn reinforcements_are_called_in_with_r_by_rank() {
             assert!(who >= crew, "on the end of the crew");
             assert_eq!(world.reinforcement_of(who), Some(0));
             assert_eq!(world.class_of(who), Class::None);
+            assert_eq!(
+                world.skill_of(who).damage,
+                class::REINFORCEMENT_DAMAGE,
+                "a gun half again"
+            );
             let gear = world.aboard.room.gear(who as usize);
             assert_eq!(gear.weapon, Some(WeaponKind::AutoRifle.at(tier)));
             assert!(gear.armour.is_none());

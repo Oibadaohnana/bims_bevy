@@ -506,7 +506,7 @@ fn the_drone_picks_the_lowest_share_flies_over_walls_and_keeps_by_the_medic() {
 /// rank's share at an empty bar, half of it at half a bar, none whole.
 #[test]
 fn triage_lifts_a_heal_by_how_much_of_the_bar_is_missing() {
-    assert_eq!(class::TRIAGE, [0.25, 0.40, 0.55, 0.70]);
+    assert_eq!(class::TRIAGE, [0.375, 0.60, 0.825, 1.05]);
     let world = medic();
     assert_eq!(world.medic_heal_factor(0, 1), 1.0, "no rank, no lift");
     for rank in 1..=4u8 {

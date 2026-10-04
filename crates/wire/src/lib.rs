@@ -286,7 +286,10 @@ use serde::{Deserialize, Serialize};
 /// lay and fight alike.
 /// 158: the rest of the abilities half again — Weak Spot's crit, the
 /// Sentry's minigun, Reflect, the Riot Shield and the Bastion.
-pub const PROTOCOL: u32 = 158;
+/// 159: the abilities' buffs half again (Rampage, Battle Cry, Rally,
+/// Plated, Triage, the Bastion's haste) and the guns of whoever a
+/// commander calls in.
+pub const PROTOCOL: u32 = 159;
 
 /// Where the relay lives. `BIMS_SERVER` in the environment overrides it
 /// — `ws://127.0.0.1:8792` for one on the same machine.

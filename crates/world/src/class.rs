@@ -917,9 +917,13 @@ pub const STUN_SHOT_FLIGHT: f32 = 0.15;
 /// rank.
 pub const RAMPAGE_SECONDS: [f64; 5] = [8.0, 10.0, 12.0, 12.0, 14.0];
 /// What the fire rate is multiplied by while it runs, a rank.
-pub const RAMPAGE_FIRE_RATE: [f32; 5] = [1.5, 1.75, 2.0, 2.0, 2.25];
+/// Half again in October 2026, with every ability's damage, heal and
+/// buff — the bonus or the cut (was 1.5, 1.75, 2, 2, 2.25).
+pub const RAMPAGE_FIRE_RATE: [f32; 5] = [1.75, 2.125, 2.5, 2.5, 2.875];
 /// What the damage taken is multiplied by while it runs, a rank.
-pub const RAMPAGE_DAMAGE_TAKEN: [f32; 5] = [0.80, 0.75, 0.70, 0.70, 0.65];
+/// Half again in October 2026, with every ability's damage, heal and
+/// buff — the bonus or the cut (was 0.8, 0.75, 0.7, 0.7, 0.65).
+pub const RAMPAGE_DAMAGE_TAKEN: [f32; 5] = [0.70, 0.625, 0.55, 0.55, 0.475];
 /// Seconds of the mission clock from one Rampage to the next, a rank:
 /// half of [`ULTIMATE_COOLDOWN`] (the player halved it).
 pub const RAMPAGE_COOLDOWN: [f64; 5] = [35.0, 30.0, 25.0, 20.0, 17.5];
@@ -973,7 +977,9 @@ pub const HEAL_DRONE_REACH: f32 = 0.6;
 /// **C, Triage** (task 153): what a heal of his is lifted by on a Bim
 /// at an empty bar, a rank — times the share of the bar it is missing, so
 /// half of it at half a bar and none on a whole one.
-pub const TRIAGE: [f32; 4] = [0.25, 0.40, 0.55, 0.70];
+/// Half again in October 2026, with every ability's damage, heal and
+/// buff — the bonus or the cut (was 0.25, 0.4, 0.55, 0.7).
+pub const TRIAGE: [f32; 4] = [0.375, 0.60, 0.825, 1.05];
 
 /// What every heal of a medic carrying an *Override Core* is multiplied
 /// by (task 153): the core's gift to his class, whatever rank his circle
@@ -1054,7 +1060,9 @@ pub const RIOT_SHIELD_BROKEN_COOLDOWN: f64 = 10.0;
 
 /// **C, Plated**: what the damage of a hit on him is multiplied by, a
 /// rank — before the armour, as Rampage's is.
-pub const PLATED_DAMAGE_TAKEN: [f32; 4] = [0.90, 0.85, 0.80, 0.75];
+/// Half again in October 2026, with every ability's damage, heal and
+/// buff — the bonus or the cut (was 0.9, 0.85, 0.8, 0.75).
+pub const PLATED_DAMAGE_TAKEN: [f32; 4] = [0.85, 0.775, 0.70, 0.625];
 /// And the per cent of his whole bar a second he mends, a rank (task 155).
 /// Half again in October 2026, with every ability's damage, heal and
 /// shield (was 0.2, 0.8, 1.4, 2).
@@ -1095,7 +1103,9 @@ pub const BASTION_DRAIN: [f32; 5] = [90.0, 120.0, 150.0, 150.0, 150.0];
 pub const BASTION_SECONDS: [f64; 5] = [10.0, 10.0, 10.0, 12.0, 12.0];
 /// What the pace of everybody it reached is multiplied by at the
 /// *Override Core*'s fifth rank, while the shield's seconds run.
-pub const BASTION_HASTE: f32 = 1.5;
+/// Half again in October 2026, with every ability's damage, heal and
+/// buff — the bonus or the cut (was 1.5).
+pub const BASTION_HASTE: f32 = 1.75;
 /// Seconds of the mission clock from one Bastion to the next, a rank.
 pub const BASTION_COOLDOWN: [f64; 5] = ULTIMATE_COOLDOWN;
 
@@ -1116,7 +1126,9 @@ pub const ULTIMATE_COOLDOWN: [f64; 5] = [70.0, 60.0, 50.0, 40.0, 35.0];
 /// every rank.
 pub const BATTLE_CRY_TILES: f32 = 8.0;
 /// What the fire rate of a Bim it reached is multiplied by, a rank.
-pub const BATTLE_CRY_FIRE_RATE: [f32; 4] = [1.25, 1.30, 1.35, 1.40];
+/// Half again in October 2026, with every ability's damage, heal and
+/// buff — the bonus or the cut (was 1.25, 1.3, 1.35, 1.4).
+pub const BATTLE_CRY_FIRE_RATE: [f32; 4] = [1.375, 1.45, 1.525, 1.60];
 /// Seconds of the mission clock it runs, a rank.
 pub const BATTLE_CRY_SECONDS: [f64; 4] = [3.0, 4.0, 5.0, 6.0];
 /// Seconds of the mission clock from one cry to the next, a rank.
@@ -1140,9 +1152,13 @@ pub const MEDIVAC_VEST: [Option<bims::combat::Tier>; 4] = [
 /// rank.
 pub const RALLY_TILES: f32 = 8.0;
 /// What the damage a Bim it reached takes is multiplied by, a rank.
-pub const RALLY_DAMAGE_TAKEN: [f32; 4] = [0.85, 0.80, 0.75, 0.70];
+/// Half again in October 2026, with every ability's damage, heal and
+/// buff — the bonus or the cut (was 0.85, 0.8, 0.75, 0.7).
+pub const RALLY_DAMAGE_TAKEN: [f32; 4] = [0.775, 0.70, 0.625, 0.55];
 /// What the pace of a Bim it reached is multiplied by, a rank.
-pub const RALLY_PACE: [f32; 4] = [1.10, 1.15, 1.20, 1.20];
+/// Half again in October 2026, with every ability's damage, heal and
+/// buff — the bonus or the cut (was 1.1, 1.15, 1.2, 1.2).
+pub const RALLY_PACE: [f32; 4] = [1.15, 1.225, 1.30, 1.30];
 /// Seconds of the mission clock it runs, a rank.
 pub const RALLY_SECONDS: [f64; 4] = [6.0, 7.0, 8.0, 9.0];
 /// Seconds of the mission clock from one rally to the next, a rank.
@@ -1162,6 +1178,11 @@ pub const REINFORCEMENT_TIER: [bims::combat::Tier; 5] = [
 /// [`OVERRIDE_RANK`] (October 2026), a tier-one plate there.
 pub const REINFORCEMENT_VEST: [Option<bims::combat::Tier>; 5] =
     [None, None, None, None, Some(bims::combat::Tier::One)];
+/// What the weapon damage of everybody a commander calls in — his R's
+/// soldiers and his Medivac's medic — is multiplied by: half again
+/// (October 2026, with every ability's damage, heal and buff), since
+/// their rifle and pistol are every gun's of the kind.
+pub const REINFORCEMENT_DAMAGE: f32 = 1.5;
 /// How far from him, in tiles, a free tile of deck is looked for to stand
 /// one on: fewer arrive where fewer are found.
 pub const REINFORCEMENT_REACH_TILES: f32 = 5.0;
@@ -1415,7 +1436,7 @@ mod tests {
             (RIOT_SHIELD_REGEN_DELAY, RIOT_SHIELD_BROKEN_COOLDOWN),
             (5.0, 10.0)
         );
-        assert_eq!(PLATED_DAMAGE_TAKEN, [0.90, 0.85, 0.80, 0.75]);
+        assert_eq!(PLATED_DAMAGE_TAKEN, [0.85, 0.775, 0.70, 0.625]);
         assert_eq!(PLATED_REGEN, [0.3, 1.2, 2.1, 3.0]);
         assert_eq!(TANK_DRAIN * FORTRESS_DRAIN, 0.25, "a quarter in all");
         assert_eq!(REFLECT_SHARE, 1.5, "half as much again as he takes");
@@ -1430,7 +1451,10 @@ mod tests {
             );
         }
         assert_eq!(BASTION_RADIUS[0], 6.0, "six tiles at the first rank");
-        assert_eq!(BASTION_HASTE, 1.5, "half again as fast with the core");
+        assert_eq!(
+            BASTION_HASTE, 1.75,
+            "three quarters again as fast with the core"
+        );
         assert_eq!(BASTION_COOLDOWN, [70.0, 60.0, 50.0, 40.0, 35.0]);
     }
 }
