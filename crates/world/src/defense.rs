@@ -301,13 +301,13 @@ mod tests {
         assert!(a.taken);
     }
 
-    /// Twenty-five seconds after the first wave, then a second sooner a
+    /// Thirty-one seconds after the first wave, then a second sooner a
     /// wave, never under five.
     #[test]
-    fn the_waves_come_twenty_five_seconds_apart_then_a_second_sooner_a_wave() {
+    fn the_waves_come_thirty_one_seconds_apart_then_a_second_sooner_a_wave() {
         let seconds: Vec<u64> = (1..=5).map(|w| area_gap(w) / 60).collect();
-        assert_eq!(seconds, [25, 24, 23, 22, 21]);
-        assert_eq!(area_gap(21) / 60, 5);
+        assert_eq!(seconds, [31, 30, 29, 28, 27]);
+        assert_eq!(area_gap(27) / 60, 5);
         assert_eq!(area_gap(400) / 60, 5);
     }
 

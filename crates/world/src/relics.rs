@@ -568,7 +568,7 @@ impl World {
         }
         self.settle_clear(events);
         match station {
-            Some(id) if self.run.fought && self.is_elite_here(id) => self.offer_reward(id, events),
+            Some(id) if self.run.fought && self.is_elite_fight(id) => self.offer_reward(id, events),
             _ => false,
         }
     }

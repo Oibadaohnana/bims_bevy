@@ -377,18 +377,22 @@ pub const AREA_HOLD_STEPS: u64 = 10_800;
 /// the count; no enemy in it puts it back to nought.
 pub const AREA_CAPTURE_STEPS: u64 = 1_200;
 /// How long after an Area defend's first wave lands the second does,
-/// while the hold runs: twenty-five seconds, counted from the landing
+/// while the hold runs: thirty-one seconds, counted from the landing
 /// whether or not the wave is down — they stack. On a clock rather than
 /// after the last is down, or the crew could dodge one machine in the
 /// middle and let the time run out (the player's word).
-pub const AREA_WAVE_STEPS: u64 = 1_500;
+pub const AREA_WAVE_STEPS: u64 = 1_860;
 /// The first this many waves are followed [`AREA_WAVE_STEPS`] after; each
 /// after them [`AREA_WAVE_SOONER_STEPS`] (a second) sooner than the one
 /// before, never more often than [`AREA_WAVE_MIN_STEPS`] (five
-/// seconds): 25, 24, 23 … — about nine waves in the three minutes.
+/// seconds): 31, 30, 29 … — seven waves in the three minutes.
 pub const AREA_STEADY_WAVES: u32 = 1;
 pub const AREA_WAVE_SOONER_STEPS: u64 = 60;
 pub const AREA_WAVE_MIN_STEPS: u64 = 300;
+/// How long after the crew arrive an Area defend's first wave lands: five
+/// seconds (a station's defence keeps [`DEFENSE_DELAY_STEPS`]). The crew
+/// are stood in the ring already.
+pub const AREA_PREP_STEPS: u64 = 300;
 /// The ring's radius, in tiles: what counts as standing in the FOB. The
 /// sandbags lie just inside it.
 pub const AREA_RADIUS_TILES: f64 = 5.0;

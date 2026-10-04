@@ -122,7 +122,7 @@ fn an_area_defend_lays_its_fob_and_stands_the_crew_in_it() {
 
 /// The waves never run out while the hold has time, and they are on a
 /// clock from each landing whether or not the last is down — they stack —
-/// twenty-five seconds after the first and a second sooner a wave. Once the hold is
+/// thirty-one seconds after the first and a second sooner a wave. Once the hold is
 /// over no wave lands, and those on the ground destroyed are the site held.
 #[test]
 fn the_waves_come_on_a_clock_until_the_hold_is_over_and_the_last_are_destroyed() {
@@ -177,8 +177,8 @@ fn the_waves_come_on_a_clock_until_the_hold_is_over_and_the_last_are_destroyed()
     }
     assert_eq!(
         gaps,
-        [1_500, 1_440, 1_380, 1_320, 1_260],
-        "twenty-five seconds, then a second sooner a wave"
+        [1_860, 1_800, 1_740, 1_680, 1_620],
+        "thirty-one seconds, then a second sooner a wave"
     );
     assert!(most > 1, "the waves stack: {most} up at once at most");
     // The hold at its end: the time runs out with the waves still up, and
@@ -382,4 +382,46 @@ fn pad_on_deck(world: &World) -> bims::math::Vec2 {
         .from_station(dvec2(4.5 * t, 47.5 * t))
         .expect("joined");
     bims::math::vec2(pad.x as f32, pad.y as f32)
+}
+
+/// An Area defend's first wave lands five seconds after the crew arrive,
+/// and it is an elite fight: held, it offers the crew relics as an elite's
+/// clear does.
+#[test]
+fn an_area_defend_starts_five_seconds_in_and_pays_an_elite_s_relics() {
+    let mut world = open_simulation_world(flyer(2), REFERENCE_MONEY, 2);
+    world.set_defense_by_machines_for_probe();
+    world.set_droid_wave_for_probe(1);
+    if !world.land_for_probe() {
+        return;
+    }
+    let Some(id) = world.ship.state.alongside() else {
+        return;
+    };
+    if !world.site_threatened(id) {
+        return;
+    }
+    assert!(world.is_elite_fight(id), "an Area defend is an elite fight");
+    let mut steps = 0;
+    let (landed, _) = until(&mut world, 600, |w| {
+        steps += 1;
+        w.droids_standing() > 0
+    });
+    assert!(landed, "the first wave never landed");
+    assert!(
+        (data::AREA_PREP_STEPS..=data::AREA_PREP_STEPS + 2).contains(&steps),
+        "five seconds in: {steps} steps"
+    );
+    // Held: the time out and the wave down.
+    world.set_area_left_for_probe(2);
+    world.step(&[]);
+    destroy_the_wave(&mut world);
+    let (held, _) = until(&mut world, 600, |w| w.site_cleared(id));
+    assert!(held, "the wave destroyed and the site not held");
+    let said = world.leave_for_probe();
+    assert!(
+        said.iter()
+            .any(|e| matches!(e, WorldEvent::RelicsOffered { .. })),
+        "an elite's relics on the way out"
+    );
 }

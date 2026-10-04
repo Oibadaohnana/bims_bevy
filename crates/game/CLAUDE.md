@@ -5323,3 +5323,9 @@ under way is kept, shooting on the move. Then it advances:
 nearest enemy worth `COVER_WORTH` (a Warden, an intruder) or nothing
 (a Trooper, which never takes cover), the whole walk where that picks
 nothing a tile off. Inside `OBJECTIVE_SLACK` it holds.
+
+**A defender with a blade charges** (the player's word): `bot_stand`
+gives a defender its ring spot only when its weapon is not `melee`; one
+with a schword takes the town's own stand, `plan_stand`, which hands a
+blade to `Tactics::charge` at the nearest enemy on the list — the whole
+list, seen or not, since a friendly room's targets are not beliefs.

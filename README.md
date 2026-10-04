@@ -336,16 +336,20 @@ ring round its icon and a word under it:
 - **AREA DEFEND** (amber, a flag in a ring of sandbags): a **town's**
   defence. Hold its **FOB** — a green ring where its main street meets
   its first cross street, sandbags round it and a post in the middle —
-  for **three minutes** from the first wave. A wave lands **twenty-five
-  seconds** after the one before it landed, whether or not that one is
-  down — they stack — and each wave after a second sooner (24, 23 …);
+  for **three minutes** from the first wave, which lands **five seconds**
+  after you arrive. A wave lands **thirty-one seconds** after the one
+  before it landed, whether or not that one is down — they stack — and
+  each wave after a second sooner (30, 29 …);
   every wave is the size of the first, whoever of yours has fallen
   since. When the time is up, destroy everything still standing and the
   town is held. The machines fight their way in, cover to cover,
   stopping to shoot whenever they have a shot, the town's defenders hold
   the ring beside you, and **machines standing in the
   ring for twenty seconds with nobody of yours in it take the FOB — the
-  run is lost**. Anybody of yours in the ring stops their count; the
+  run is lost**. **It is an elite fight**: hold it and the crew are
+  offered relics, as for clearing an elite (its map mark wears the crown),
+  and its second wave brings an elite's Guardians. A defender with a
+  blade does not hold the ring: it charges the nearest enemy. Anybody of yours in the ring stops their count; the
   machines driven out puts it back to nothing. Out of sight, the FOB is
   a green glow at the edge of the screen; the top of the screen counts
   the hold down, and a bar fills as the machines take it.

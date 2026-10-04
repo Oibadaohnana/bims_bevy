@@ -7829,11 +7829,13 @@ and the pistol, item and soldier tests are the rule.
   `Defense::more_to_come` is `left > 0` — **the waves never run out
   while it runs** (`waves_left` is unused for an area). **They are on a
   clock and stack**: the next is due `defense::area_gap(wave)` after one
-  lands, whether or not it is down — `AREA_WAVE_STEPS` (twenty-five
+  lands, whether or not it is down — `AREA_WAVE_STEPS` (thirty-one
   seconds) after the first (`AREA_STEADY_WAVES`), then a second
   (`AREA_WAVE_SOONER_STEPS`) sooner a wave, never under
-  `AREA_WAVE_MIN_STEPS` (five): 25, 24, 23 …, about nine waves in the
-  three minutes. A clock and not "after the last is down", in the
+  `AREA_WAVE_MIN_STEPS` (five): 31, 30, 29 …, seven waves in the three
+  minutes. The first lands `AREA_PREP_STEPS` (five seconds) after the
+  crew arrive, a station's defence keeping `DEFENSE_DELAY_STEPS` (the
+  probes' delay dial wins over both). A clock and not "after the last is down", in the
   player's word, or the crew could dodge one machine in the middle and
   let the time run out; a wave
   laid on one still standing leaves the wrecks for a clear deck
@@ -7889,3 +7891,15 @@ gap's arithmetic. **`SAVE_VERSION` 108, `wire::PROTOCOL` 151**; the follow-up (t
 the three minutes, the push in) **109 and 152**. The
 world's reference run, `SURVIVORS`, the doorway and the sniper tests
 were red before and are untouched.
+
+**An Area defend is an elite fight** (the player's word: "This now counts
+as an elite fight"): `World::is_elite_fight(id)` is the system's elite
+(`is_elite_here`) or an Area defend site, and it is what offers the
+reward screen's relics on a clear (`relics_on_leaving`) and puts the
+elite's Guardians into wave `ELITE_GUARDIAN_WAVE` (`build_wave`, so a
+wave of machines from day ten; the Manufacturers' waves have none). The
+floor map's mark wears the elite's crown (`FloorMark::elite`). It is
+**not** the quote's `elite`, which makes a site an attack: the system's
+elite stays the attack it was. `tests_area.rs`'
+`an_area_defend_starts_five_seconds_in_and_pays_an_elite_s_relics` is
+the rule.

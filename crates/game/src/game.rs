@@ -3643,8 +3643,12 @@ impl Game {
             return;
         }
         // A defender of an Area defend (October 2026) holds its spot in
-        // the ring and fights from there.
-        if let Some(spot) = self.objective(who) {
+        // the ring and fights from there — but one with a blade always
+        // charges, and takes the town's own stand below (a blade's stand is
+        // `Tactics::charge` at the nearest enemy).
+        if let Some(spot) = self.objective(who)
+            && !stats.melee
+        {
             self.make_for(who, dt, spot);
             return;
         }

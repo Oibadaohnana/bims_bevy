@@ -6109,7 +6109,7 @@ impl World {
         // An elite's Guardians come in their wave, one a tier of the
         // site's (`droid_tier`, what the map says).
         let here = self.residents.as_ref().map(|r| r.station);
-        let elite = here.is_some_and(|id| self.is_elite_here(id));
+        let elite = here.is_some_and(|id| self.is_elite_fight(id));
         let kinds = if elite {
             crate::elite::with_guardian(kinds, wave, self.droid_tier())
         } else {
@@ -6590,6 +6590,16 @@ impl World {
         !self.area_defense_off && surface::surface_body(station).is_some()
     }
 
+    /// Whether the fight at a site of this system is an **elite's**: the
+    /// system's elite (`crate::elite`), or an Area defend (October 2026,
+    /// the player's word: "This now counts as an elite fight") — the
+    /// reward screen's relics on its clear, its Guardians in the elite's
+    /// wave, and the crown on the map.
+    pub fn is_elite_fight(&self, id: u32) -> bool {
+        self.is_elite_here(id)
+            || (self.is_area_defense(id) && self.site_kind(id) == SiteKind::Defend)
+    }
+
     /// The Area defend under way where the crew stand — its ring, its
     /// clocks and its sandbags. `None` anywhere else, and once it is over.
     pub fn area_here(&self) -> Option<&defense::Area> {
@@ -6864,6 +6874,11 @@ impl World {
             // A town's is an Area defend (October 2026): the FOB at its
             // crossing, its sandbags laid on the open ground round it.
             if self.is_area_defense(id) {
+                // Five seconds to the first wave, the crew stood in the
+                // ring already — unless a probe set the delay.
+                if self.defense_delay == data::DEFENSE_DELAY_STEPS {
+                    fresh.next_in = Some(data::AREA_PREP_STEPS);
+                }
                 let t = shipdesign::TILE as i32;
                 let (tx, ty) = surface::FOB_TILE;
                 let mut area = defense::Area::new(tx as i32 * t, ty as i32 * t);

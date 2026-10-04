@@ -295,7 +295,9 @@ impl World {
                     index: index as u32,
                     site,
                     kind: quote.kind,
-                    elite: quote.elite,
+                    // An Area defend is an elite fight too (October 2026).
+                    elite: quote.elite
+                        || (quote.kind == SiteKind::Defend && self.is_area_defense(node.station)),
                     cleared: quote.cleared,
                     area: quote.kind == SiteKind::Defend && self.is_area_defense(node.station),
                     heart: heart::is_heart(node.station),
