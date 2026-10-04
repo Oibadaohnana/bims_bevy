@@ -294,7 +294,8 @@ use serde::{Deserialize, Serialize};
 /// in it, two per cent of the bar a second.
 /// 162: the levels' experience compounds, each step 1.2 times the one
 /// before (7 200 for the sixteenth, 15 470 for the twentieth).
-pub const PROTOCOL: u32 = 162;
+/// 163: the same at 1.3 times (16 740 and 48 410).
+pub const PROTOCOL: u32 = 163;
 
 /// Where the relay lives. `BIMS_SERVER` in the environment overrides it
 /// — `ws://127.0.0.1:8792` for one on the same machine.

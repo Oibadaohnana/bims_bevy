@@ -271,7 +271,7 @@ fn the_medic_climbs_sixteen_levels_and_buys_ranks_the_tank_is_refused() {
     let mut world = medic();
     assert!(class::ranked(Class::Medic));
     level_up(&mut world, 0, 16);
-    assert_eq!(world.progress_of(0).xp, 7_200);
+    assert_eq!(world.progress_of(0).xp, 16_740);
     assert_eq!(world.level_of(0), 16);
     assert_eq!(world.points_of(0), 16);
     // Every gate: a fresh medic at the first level buys Q, C or E's first

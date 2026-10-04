@@ -1269,16 +1269,16 @@ fn the_soldier_climbs_sixteen_levels_as_every_class_does() {
     assert_eq!(world.set_class(2, Class::None), Ok(()));
     // The tank climbs the same table since task 139.
     let mut events = Vec::new();
-    world.award(0, 7_199, &mut events);
-    world.award(1, 7_199, &mut events);
-    world.award(2, 7_199, &mut events);
+    world.award(0, 16_739, &mut events);
+    world.award(1, 16_739, &mut events);
+    world.award(2, 16_739, &mut events);
     assert_eq!((world.level_of(0), world.level_of(1)), (15, 15));
     world.award(0, 1, &mut events);
     world.award(1, 1, &mut events);
-    assert_eq!(world.level_of(0), 16, "the sixteenth at 7 200");
+    assert_eq!(world.level_of(0), 16, "the sixteenth at 16 740");
     assert_eq!(world.level_of(1), 16, "the tank's too");
-    world.award(0, 20_000, &mut events);
-    world.award(1, 20_000, &mut events);
+    world.award(0, 40_000, &mut events);
+    world.award(1, 40_000, &mut events);
     assert_eq!((world.level_of(0), world.level_of(1)), (20, 20));
     // Every level said once, twenty each; a classless crew member learns
     // nothing.
