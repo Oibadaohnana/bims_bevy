@@ -9811,8 +9811,8 @@ impl World {
     }
 
     /// Hit points a second a medic's circle heals a Bim in it by before
-    /// his Triage — the link's rate, Override Core included — which is
-    /// also what it drains him by; the enemy in it burn at
+    /// his Triage — the link's rate, Override Core included; it drains him
+    /// by [`class::HEALING_CIRCLE_COST`] of it, and the enemy in it burn at
     /// [`class::HEALING_CIRCLE_BURN`] of it.
     pub fn healing_circle_rate(&self, who: u32) -> f32 {
         self.beam_rate(who) / 60.0 * time::MINUTES_PER_SECOND as f32 * self.override_heal(who)
@@ -9873,8 +9873,8 @@ impl World {
 
     /// Before the rooms step: every healing circle on — switched off,
     /// and said, where its medic is down or unfit to act — heals the Bims
-    /// in it a step's worth through `medic_heal`, drains the medic as
-    /// much as a Bim is healed for before his Triage (`Game::drain`,
+    /// in it a step's worth through `medic_heal`, drains the medic
+    /// [`class::HEALING_CIRCLE_COST`] of that (`Game::drain`,
     /// which can down him), and every [`class::HEALING_CIRCLE_PULSE`]
     /// seconds burns every enemy standing in it (`Game::scorch`).
     fn hand_the_room_the_circles(&mut self, events: &mut Vec<WorldEvent>) {
@@ -9900,7 +9900,8 @@ impl World {
             }
             // His cost a share of his own bar, as the heal is of theirs.
             let bar = self.aboard.room.max_health(m as usize) / 100.0;
-            self.aboard.room.drain(m as usize, rate * seconds * bar);
+            let cost = rate * class::HEALING_CIRCLE_COST;
+            self.aboard.room.drain(m as usize, cost * seconds * bar);
             let last = self.medics[m as usize].last_burn.unwrap_or(now);
             if now - last >= pulse - 1e-9 {
                 self.medics[m as usize].last_burn = Some(last + pulse);

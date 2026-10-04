@@ -487,14 +487,16 @@ fn plated_multiplies_with_a_rally() {
 /// first rank, and nobody else's.
 #[test]
 fn plated_mends_its_rank_s_hit_points_a_second() {
-    for (rank, regen) in (0..=4u8).zip([0.0, 0.2, 0.8, 1.4, 2.0]) {
+    for (rank, regen) in (0..=4u8).zip([0.0, 0.2, 0.8, 1.4, 2.0].map(|r| r * class::ABILITY_BOOST))
+    {
         let mut world = tank_at([0, rank, 0, 0]);
         hold_still(&mut world);
         assert_eq!(world.plated_regen(0), regen, "rank {rank}");
         assert_eq!(world.plated_regen(1), 0.0, "his alone");
-        // His armour broken, so the hit reaches the bar.
+        // His armour broken, so the hit reaches the bar — deep enough that
+        // ten seconds of the fourth rank's mending do not fill it.
         wear(&mut world, 0, ArmourKind::Armour, 0.0);
-        world.aboard.room.wound(0, 50.0);
+        world.aboard.room.wound(0, 100.0);
         let before = world.aboard.room.health(0);
         for _ in 0..(10.0 / SECONDS_A_STEP).round() as u32 {
             world.step(&[]);

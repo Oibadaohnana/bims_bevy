@@ -433,6 +433,7 @@ fn the_heal_drone_flies_to_the_lowest_and_heals_it_by_rank() {
         (3.0, 14.0, 18.0),
     ];
     for (rank, &(heal, seconds, cooldown)) in (1..=4u8).zip(&want) {
+        let heal = heal * class::ABILITY_BOOST;
         let mut world = medic_at([rank, 0, 0, 0]);
         assert_eq!(world.heal_drone_heal(0), heal, "rank {rank}");
         assert_eq!(world.heal_drone_seconds(0), seconds, "rank {rank}");
@@ -579,22 +580,22 @@ fn carry(world: &mut World, who: usize, item: bims::module::Module) {
 // --- D: E, the Heal Beam ------------------------------------------------------------
 
 /// **The beam's rate, range and patients by rank**, and
-/// [`class::HEAL_BEAM_HP`] a hundred and twenty an hour — two a second at
+/// [`class::HEAL_BEAM_HP`] a hundred and eighty an hour — three a second at
 /// 1×.
 #[test]
 fn the_heal_beam_s_rate_range_and_patients_by_rank() {
-    assert_eq!(class::HEAL_BEAM_HP, 120.0);
+    assert_eq!(class::HEAL_BEAM_HP, 120.0 * class::ABILITY_BOOST);
     assert_eq!(class::HEAL_BEAM_RANGE, 6.0);
     let world = medic();
     assert_eq!(world.can_beam(0, 1), Err(Refusal::NotLearnt), "rank nought");
-    let want = [(2.0, 6.0, 1), (3.0, 7.0, 1), (4.0, 8.0, 1), (5.0, 9.0, 2)];
+    let want = [(3.0, 6.0, 1), (4.5, 7.0, 1), (6.0, 8.0, 1), (7.5, 9.0, 2)];
     for (rank, &(per_second, range, patients)) in (1..=4u8).zip(&want) {
         let world = medic_at([0, 0, rank, 0]);
         assert_eq!(world.beam_rate(0), per_second * 60.0, "rank {rank}");
         assert_eq!(world.beam_range(0), range, "rank {rank}");
         assert_eq!(world.beam_patients(0), patients, "rank {rank}");
     }
-    // The gain, measured: rank three's four a second.
+    // The gain, measured: rank three's six a second.
     let mut world = medic_at([0, 0, 3, 0]);
     hurt(&mut world, 1, 20.0);
     assert!(linked(&beam(&mut world, 0, Some(1)), 0, Some(1)));
@@ -603,7 +604,7 @@ fn the_heal_beam_s_rate_range_and_patients_by_rank() {
         world.step(&[]);
     }
     let gained = world.aboard.room.health(1) - before;
-    assert!((gained - 40.0).abs() < 0.3, "ten seconds at four: {gained}");
+    assert!((gained - 60.0).abs() < 0.3, "ten seconds at six: {gained}");
     // Its range: seven tiles and a half is out at rank two, in at three.
     let mut world = medic_at([0, 0, 2, 0]);
     stand_off(&mut world, 1, 0, 7.5);
@@ -884,10 +885,10 @@ fn circle(world: &mut World, on: bool) -> Vec<WorldEvent> {
 }
 
 /// **On, it heals every Bim round him at the link's rate and drains him
-/// as much**; its radius by rank; nobody past it or behind a wall; off,
-/// nothing more.
+/// two thirds of it** (its heal before the boost); its radius by rank;
+/// nobody past it or behind a wall; off, nothing more.
 #[test]
-fn the_healing_circle_heals_round_him_at_the_link_s_rate_and_drains_him_as_much() {
+fn the_healing_circle_heals_round_him_at_the_link_s_rate_and_drains_him_two_thirds_of_it() {
     let mut world = medic();
     assert!(refused_with(&circle(&mut world, true), Refusal::NotLearnt));
     let events = world.step(&[Command::HealingCircle { slot: 1, on: true }]);
@@ -896,10 +897,10 @@ fn the_healing_circle_heals_round_him_at_the_link_s_rate_and_drains_him_as_much(
         let world = medic_at([0, 0, 0, rank]);
         assert_eq!(world.healing_circle_radius(0), radius, "rank {rank}");
     }
-    // The link's rate is the E rank's: three a second at its second.
+    // The link's rate is the E rank's: four and a half a second at its second.
     let mut world = medic_at([0, 0, 2, 1]);
     in_the_open(&mut world, 1.0);
-    assert_eq!(world.healing_circle_rate(0), 3.0);
+    assert_eq!(world.healing_circle_rate(0), 4.5);
     hurt(&mut world, 1, 40.0);
     assert!(circle(&mut world, true).contains(&WorldEvent::Circled { who: 0, on: true }));
     assert!(world.is_circling(0));
@@ -910,12 +911,12 @@ fn the_healing_circle_heals_round_him_at_the_link_s_rate_and_drains_him_as_much(
     let drained = m - world.aboard.room.health(0);
     // Shares of each one's own bar (October 2026).
     assert!(
-        (healed - 15.0 * bar(&world, 1)).abs() < 0.3,
-        "five seconds at three: {healed}"
+        (healed - 22.5 * bar(&world, 1)).abs() < 0.3,
+        "five seconds at four and a half: {healed}"
     );
     assert!(
         (drained - 15.0 * bar(&world, 0)).abs() < 0.3,
-        "as much off him: {drained}"
+        "two thirds of it off him, the old rate: {drained}"
     );
     // Off: nothing more either way.
     assert!(circle(&mut world, false).contains(&WorldEvent::Circled { who: 0, on: false }));
@@ -961,15 +962,15 @@ fn the_circle_s_drain_downs_him_and_that_switches_it_off() {
     assert!(off && !world.is_circling(0), "and it went off, said");
     assert_eq!(world.can_healing_circle(0, true), Err(Refusal::OutOfReach));
     assert_eq!(world.can_healing_circle(0, false), Ok(()));
-    // The link on himself pays for it: two in, two out.
+    // The link on himself more than pays for it: three in, two out.
     let mut world = medic_at([0, 0, 1, 1]);
     hurt(&mut world, 0, 50.0);
     beam(&mut world, 0, Some(0));
     circle(&mut world, true);
     run_for(&mut world, 5.0);
     assert!(
-        (world.aboard.room.health(0) - 50.0).abs() < 0.3,
-        "{}",
+        (world.aboard.room.health(0) - 50.0 - 5.0 * bar(&world, 0)).abs() < 0.3,
+        "a share a second up: {}",
         world.aboard.room.health(0)
     );
 }
@@ -1040,8 +1041,9 @@ fn the_circle_burns_the_enemy_in_it_at_half_its_heal() {
     let one = burned(1, true);
     let four = burned(4, true);
     assert!(one > 0.0, "it burns");
-    // Two a second's heal is one a second's burn, four seconds of pulses.
-    assert!(one <= 4.0 + 1e-3, "at most half its heal: {one}");
+    // Three a second's heal is one and a half a second's burn, four
+    // seconds of pulses.
+    assert!(one <= 6.0 + 1e-3, "at most half its heal: {one}");
     assert!(
         (four / one - 2.5).abs() < 0.05,
         "five a second's heal burns two and a half times two's: {four} against {one}"

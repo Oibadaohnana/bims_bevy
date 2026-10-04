@@ -977,7 +977,14 @@ pub fn ranked_stats(class: world::Class, slot: u8) -> Vec<Stat> {
             Stat::ranks("Radius", " tiles", |r| {
                 fig(c::HEALING_CIRCLE_RADIUS[r] as f64)
             }),
-            Stat::one("Heal and cost", "", "the beam's rate".to_string()),
+            Stat::one(
+                "Heal",
+                "",
+                format!(
+                    "the beam's rate, costing {}% of it",
+                    (c::HEALING_CIRCLE_COST * 100.0).round()
+                ),
+            ),
             Stat::one(
                 "Burn",
                 "",

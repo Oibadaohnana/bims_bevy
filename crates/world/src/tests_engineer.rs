@@ -612,7 +612,11 @@ fn a_mine_s_numbers_are_its_rank_s() {
         let rank = i as u8 + 1;
         let mut world = engineer();
         ranks(&mut world, 0, [rank, 0, 0, 0]);
-        assert_eq!(world.mine_blast(0), (damage, radius), "rank {rank}");
+        assert_eq!(
+            world.mine_blast(0),
+            (damage * class::ABILITY_BOOST, radius),
+            "rank {rank}"
+        );
         assert_eq!(world.charges(0, Charge::Mine), charges, "rank {rank}");
         assert_eq!(world.charges_of(0, Charge::Mine), charges, "in hand");
         assert_eq!(class::MINE_STANDING[i], standing);
@@ -940,7 +944,11 @@ fn a_satchel_s_numbers_are_its_rank_s() {
         let rank = i as u8 + 1;
         let mut world = engineer();
         ranks(&mut world, 0, [0, 0, rank, 0]);
-        assert_eq!(world.satchel_blast(0), (damage, radius), "rank {rank}");
+        assert_eq!(
+            world.satchel_blast(0),
+            (damage * class::ABILITY_BOOST, radius),
+            "rank {rank}"
+        );
         assert_eq!(world.charges(0, Charge::Satchel), 2, "rank {rank}");
         assert_eq!(world.charges_of(0, Charge::Satchel), 2, "in hand");
         assert_eq!(world.charge_cooldown(0, Charge::Satchel), cooldown);

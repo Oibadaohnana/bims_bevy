@@ -278,7 +278,9 @@ use serde::{Deserialize, Serialize};
 /// 155: an Area defend's first wave five seconds in, the waves
 /// thirty-one seconds apart, an elite fight (`World::is_elite_fight`: its
 /// relics and Guardians), and a defender with a blade charging.
-pub const PROTOCOL: u32 = 155;
+/// 156: every ability's damage and heal half again
+/// (`world::class::ABILITY_BOOST`) — both ends must deal and heal alike.
+pub const PROTOCOL: u32 = 156;
 
 /// Where the relay lives. `BIMS_SERVER` in the environment overrides it
 /// — `ws://127.0.0.1:8792` for one on the same machine.

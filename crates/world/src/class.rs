@@ -702,6 +702,14 @@ pub fn level_health(level: u8) -> f32 {
     LEVEL_HEALTH * level as f32
 }
 
+/// What every ability's damage and heal is multiplied by (October 2026,
+/// the player's word: half again): the grenade, the stun shot, the mine
+/// and the satchel; the beam — and so the Healing Sentry and the circle,
+/// heal and burn, which go at its rate — the drone and Plated's mending.
+/// The tables keep the numbers they had before it, times it. Not the guns
+/// a Sentry or a reinforcement carries, nor a shield's hit points.
+pub const ABILITY_BOOST: f32 = 1.5;
+
 /// The ranks an ability of a ranked kit has.
 pub const MAX_RANK: u8 = 4;
 
@@ -784,7 +792,12 @@ pub const VICINITY_TILES: f32 = 50.0;
 
 /// **Q, Mine** (task 154): what its blast does to every enemy in it at
 /// its centre, a rank; half that at the edge.
-pub const MINE_DAMAGE: [f32; 4] = [40.0, 50.0, 60.0, 75.0];
+pub const MINE_DAMAGE: [f32; 4] = [
+    40.0 * ABILITY_BOOST,
+    50.0 * ABILITY_BOOST,
+    60.0 * ABILITY_BOOST,
+    75.0 * ABILITY_BOOST,
+];
 /// How far the blast reaches, in tiles, a rank.
 pub const MINE_RADIUS: [f32; 4] = [1.5, 1.5, 2.0, 2.0];
 /// How near an enemy has to come for it to go off, in tiles, at every
@@ -819,7 +832,12 @@ pub const HEALING_SENTRY_COOLDOWN: [f64; 4] = [60.0, 60.0, 50.0, 40.0];
 /// **E, Satchel Charge** (task 154): what one bursting does to every
 /// enemy in it at its centre, a rank; half that at the edge. Satchels
 /// stacked on a tile each burst on their own.
-pub const SATCHEL_DAMAGE: [f32; 4] = [35.0, 45.0, 60.0, 85.0];
+pub const SATCHEL_DAMAGE: [f32; 4] = [
+    35.0 * ABILITY_BOOST,
+    45.0 * ABILITY_BOOST,
+    60.0 * ABILITY_BOOST,
+    85.0 * ABILITY_BOOST,
+];
 /// How far one's blast reaches, in tiles, a rank.
 pub const SATCHEL_RADIUS: [f32; 4] = [2.0, 2.5, 2.5, 3.0];
 /// **Satchel charges** a rank ([`Charge::Satchel`]): two at every rank.
@@ -866,7 +884,12 @@ pub const GRENADE_RANGE: f32 = 8.0;
 /// Seconds from the throw to the burst, at every rank.
 pub const GRENADE_FUSE: f32 = 2.0;
 /// What the burst does at its centre, a rank; half that at the edge.
-pub const GRENADE_DAMAGE: [f32; 4] = [60.0, 75.0, 90.0, 110.0];
+pub const GRENADE_DAMAGE: [f32; 4] = [
+    60.0 * ABILITY_BOOST,
+    75.0 * ABILITY_BOOST,
+    90.0 * ABILITY_BOOST,
+    110.0 * ABILITY_BOOST,
+];
 /// How far the burst reaches, in tiles, a rank.
 pub const GRENADE_RADIUS: [f32; 4] = [2.0, 2.5, 2.5, 3.0];
 /// **Grenade charges** a rank (feature 90): how many grenades the soldier
@@ -889,7 +912,12 @@ pub const WEAK_SPOT_DAMAGE: [f32; 4] = [1.50, 1.75, 2.00, 2.25];
 pub const STUN_SHOT_CHARGE: f64 = 2.0;
 /// What the burst does to every enemy in it, a rank — the same at its
 /// edge as at its centre.
-pub const STUN_SHOT_DAMAGE: [f32; 4] = [15.0, 20.0, 25.0, 30.0];
+pub const STUN_SHOT_DAMAGE: [f32; 4] = [
+    15.0 * ABILITY_BOOST,
+    20.0 * ABILITY_BOOST,
+    25.0 * ABILITY_BOOST,
+    30.0 * ABILITY_BOOST,
+];
 /// How far the burst reaches, in tiles, a rank: the grenade's.
 pub const STUN_SHOT_RADIUS: [f32; 4] = GRENADE_RADIUS;
 /// Seconds every enemy in the burst is stunned, a rank.
@@ -928,10 +956,10 @@ pub const RAMPAGE_EXTEND_MAX: f64 = 6.0;
 pub const HEAL_BEAM_RANGE: f32 = 6.0;
 /// Per cent of its whole bar a beamed patient gains an hour of the clock
 /// at the beam's first rank: two a second at 1× (task 130; thirty until
-/// then; a share of the bar since October 2026, like every heal). The ranks
-/// multiply it ([`HEAL_BEAM_RATE`]); the engineer's Healing Sentry reads
+/// then; a share of the bar since October 2026, like every heal), three
+/// with [`ABILITY_BOOST`]. The ranks multiply it ([`HEAL_BEAM_RATE`]); the engineer's Healing Sentry reads
 /// it unranked.
-pub const HEAL_BEAM_HP: f32 = 120.0;
+pub const HEAL_BEAM_HP: f32 = 120.0 * ABILITY_BOOST;
 /// **Base trait**: how long a medic takes to revive a downed crewmate, in
 /// seconds — anybody else's is `bims::health::REVIVE_SECONDS` (task 120).
 /// A medic of the class and a field medic alike.
@@ -943,7 +971,12 @@ pub const MEDIC_REVIVED_TO: f32 = 0.4;
 
 /// **Q, Heal Drone** (task 153): per cent of its whole bar a second it
 /// puts into the Bim it hovers over, a rank, before his Triage.
-pub const HEAL_DRONE_HEAL: [f32; 4] = [1.8, 2.0, 2.5, 3.0];
+pub const HEAL_DRONE_HEAL: [f32; 4] = [
+    1.8 * ABILITY_BOOST,
+    2.0 * ABILITY_BOOST,
+    2.5 * ABILITY_BOOST,
+    3.0 * ABILITY_BOOST,
+];
 /// Seconds of the mission clock a drone flies, a rank.
 pub const HEAL_DRONE_SECONDS: [f64; 4] = [8.0, 10.0, 12.0, 14.0];
 /// Seconds of the mission clock from one drone to the next, a rank.
@@ -987,6 +1020,10 @@ pub const HEALING_CIRCLE_RADIUS: [f32; 5] = [3.0, 3.5, 4.0, 4.5, 4.5];
 /// The share of the circle's heal every enemy standing in it takes as
 /// damage.
 pub const HEALING_CIRCLE_BURN: f32 = 0.5;
+/// What the circle drains its medic by, a share of what it heals a Bim by
+/// before his Triage: its heal as it was before [`ABILITY_BOOST`], so the
+/// boost made the circle no dearer.
+pub const HEALING_CIRCLE_COST: f32 = 1.0 / ABILITY_BOOST;
 /// Seconds of the mission clock between two of the circle's burns: the
 /// damage lands as a pulse, not a trickle of hits a step.
 pub const HEALING_CIRCLE_PULSE: f64 = 0.5;
@@ -1030,7 +1067,12 @@ pub const RIOT_SHIELD_BROKEN_COOLDOWN: f64 = 10.0;
 /// rank — before the armour, as Rampage's is.
 pub const PLATED_DAMAGE_TAKEN: [f32; 4] = [0.90, 0.85, 0.80, 0.75];
 /// And the per cent of his whole bar a second he mends, a rank (task 155).
-pub const PLATED_REGEN: [f32; 4] = [0.2, 0.8, 1.4, 2.0];
+pub const PLATED_REGEN: [f32; 4] = [
+    0.2 * ABILITY_BOOST,
+    0.8 * ABILITY_BOOST,
+    1.4 * ABILITY_BOOST,
+    2.0 * ABILITY_BOOST,
+];
 /// The rank from which his armour drain is multiplied by
 /// [`FORTRESS_DRAIN`] again (what *fortress* was).
 pub const FORTRESS_RANK: u8 = 4;
@@ -1368,7 +1410,7 @@ mod tests {
         assert_eq!(rank_level(s, SLOT_Q, 5), None);
         assert_eq!(rank_level(Class::None, SLOT_Q, 1), None);
         assert_eq!(by_rank(GRENADE_DAMAGE, 0), None);
-        assert_eq!(by_rank(GRENADE_DAMAGE, 4), Some(110.0));
+        assert_eq!(by_rank(GRENADE_DAMAGE, 4), Some(165.0));
     }
 
     /// The tank's tables (task 155), as the player gave them.
@@ -1381,7 +1423,9 @@ mod tests {
             (5.0, 10.0)
         );
         assert_eq!(PLATED_DAMAGE_TAKEN, [0.90, 0.85, 0.80, 0.75]);
-        assert_eq!(PLATED_REGEN, [0.2, 0.8, 1.4, 2.0]);
+        for (got, want) in PLATED_REGEN.into_iter().zip([0.3, 1.2, 2.1, 3.0]) {
+            assert!((got - want).abs() < 1e-6, "half again: {got}");
+        }
         assert_eq!(TANK_DRAIN * FORTRESS_DRAIN, 0.25, "a quarter in all");
         assert_eq!(REFLECT_SHARE, 1.0, "the damage he takes, whole");
         assert_eq!(BASTION_HP, [600.0, 800.0, 1000.0, 1200.0, 1200.0]);

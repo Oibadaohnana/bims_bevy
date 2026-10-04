@@ -129,9 +129,14 @@ fn middle(tile: (i32, i32)) -> Vec2 {
 /// corridor from the soldier, held where it is put and firing nothing
 /// (`stage_droid_fight_for_probe`): a target and nothing else.
 fn fight() -> World {
+    fight_against(DroidKind::Trooper)
+}
+
+/// [`fight`] against a machine of `kind`.
+fn fight_against(kind: DroidKind) -> World {
     let mut world = soldier();
     ranks(&mut world, 0, [2, 0, 1, 0]);
-    assert!(world.stage_droid_fight_for_probe(DroidKind::Trooper, None));
+    assert!(world.stage_droid_fight_for_probe(kind, None));
     for _ in 0..3 {
         world.step(&[]);
     }
@@ -494,10 +499,10 @@ fn a_stun_shot_charges_two_seconds_then_hurts_and_stuns_what_it_hits() {
         (world.aboard.room.bim_pos(0) - here).len() < 1.0,
         "stood still"
     );
-    // Fired: fifteen on the machine at the first rank, and a stun of
+    // Fired: fifteen and a half again on the machine at the first rank, and a stun of
     // three seconds, less the flight's few steps of it worn off.
     let (took, stunned) = machine_shot(&mut world);
-    assert_eq!(class::STUN_SHOT_DAMAGE[0], 15.0);
+    assert_eq!(class::STUN_SHOT_DAMAGE[0], 15.0 * class::ABILITY_BOOST);
     assert!(
         plausible_on_machine(&world, took, class::STUN_SHOT_DAMAGE[0]),
         "took {took}"
@@ -924,9 +929,11 @@ fn the_burst_hurts_the_enemy_at_the_centre_and_less_at_the_edge() {
     assert!(took > 0.0);
     // The edge: a tile two tiles short of the machine deals less, in the
     // straight line to half. A limb is smaller than the burst, so a limb
-    // rolled says nothing; the burst is thrown until the chassis is hit.
+    // rolled says nothing; the burst is thrown until the chassis is hit —
+    // a Warden's, which the burst at the edge falls short of where it
+    // would take the whole of a Trooper's.
     for _ in 0..6 {
-        let mut world = fight();
+        let mut world = fight_against(DroidKind::Warden);
         disarm(&mut world, 0);
         let at = machine_at(&world);
         let from = world.aboard.room.bim_pos(0);
@@ -1372,7 +1379,11 @@ fn frag_grenade_s_charges_cooldown_burst_and_radius_go_by_its_rank() {
     ];
     for (rank, &(damage, radius, charges, cooldown)) in (1..=4u8).zip(&want) {
         ranks(&mut world, 0, [rank, 0, 0, 0]);
-        assert_eq!(world.grenade_damage(0), damage, "rank {rank}");
+        assert_eq!(
+            world.grenade_damage(0),
+            damage * class::ABILITY_BOOST,
+            "rank {rank}"
+        );
         assert_eq!(world.grenade_radius(0), radius, "rank {rank}");
         assert_eq!(world.charges(0, Charge::Grenade), charges);
         assert_eq!(world.grenades_of(0), charges, "put in hand with the rank");
@@ -1383,7 +1394,10 @@ fn frag_grenade_s_charges_cooldown_burst_and_radius_go_by_its_rank() {
     // And the fourth rank's burst in the air is its numbers.
     throw(&mut world, 0, tile);
     let g = world.aboard.room.grenades()[0];
-    assert_eq!((g.damage, g.radius), (110.0, 3.0 * TILE));
+    assert_eq!(
+        (g.damage, g.radius),
+        (110.0 * class::ABILITY_BOOST, 3.0 * TILE)
+    );
 }
 
 /// A crit hit by the soldier on the staged machine's chassis, landed the
