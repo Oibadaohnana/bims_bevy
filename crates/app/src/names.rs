@@ -2016,8 +2016,9 @@ pub fn relic_name(relic: world::Relic) -> &'static str {
 }
 
 /// One thing a relic does, in words, off the rules' own number: "+30%
-/// weapon damage for everybody", "-20% move speed for the bots", "+2 HP a
-/// second for everybody".
+/// weapon damage for the crew", "-20% move speed for the bots", "+2 HP a
+/// second for the crew" — the crew being the players and their bots, never
+/// an enemy (the rules lift the crew's skills alone).
 pub fn modifier_line(m: world::relic::Modifier) -> String {
     use world::relic::{Stat, Who};
     let sign = if m.amount < 0 { "-" } else { "+" };
@@ -2047,7 +2048,7 @@ pub fn modifier_line(m: world::relic::Modifier) -> String {
             | Stat::TraderPrices
             | Stat::EnemyHealth,
         ) => "",
-        (Who::Everyone, _) => " for everybody",
+        (Who::Everyone, _) => " for the crew",
         (Who::Players, _) => " for the players' Bims",
         (Who::Bots, _) => " for the bots",
     };
@@ -2070,7 +2071,7 @@ pub fn relic_lines(relic: world::Relic) -> Vec<(String, bool)> {
 pub const RELICS_HEADING: &str = "Relics";
 pub const NO_RELICS: &str = "None yet. Beating an elite (a crowned site) offers relics.";
 pub const REWARD_TITLE: &str = "The elite is beaten";
-pub const REWARD_INTRO: &str = "Choose one relic for the whole crew, or none. A relic is kept for the rest of the run and works on everybody it names, the bots too. Every one has its price: green is what it gives, red what it costs. One of you proposes; the rest say yes.";
+pub const REWARD_INTRO: &str = "Choose one relic for the whole crew, or none. A relic is kept for the rest of the run and works on the crew it names: the players and their bots, never an enemy. Every one has its price: green is what it gives, red what it costs. One of you proposes; the rest say yes.";
 pub const TAKE_NONE: &str = "Take none";
 pub const ACCEPT: &str = "Accept";
 /// The end of a fight (`screens::fightwon`): up in the mission the moment
@@ -3295,8 +3296,8 @@ mod tests {
             assert_eq!(
                 words(world::Relic::GlassCannon),
                 [
-                    "+30% weapon damage for everybody",
-                    "+25% damage taken for everybody"
+                    "+30% weapon damage for the crew",
+                    "+25% damage taken for the crew"
                 ]
             );
             assert_eq!(

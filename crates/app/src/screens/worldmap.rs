@@ -1435,8 +1435,10 @@ pub fn relic_window(
         .frame(theme::tray_frame().inner_margin(14.0))
         .show(ctx, |ui| {
             ui.set_width(440.0);
-            ui.label(egui::RichText::new(REWARD_TITLE).strong().size(18.0));
-            ui.add(egui::Label::new(egui::RichText::new(REWARD_INTRO).color(theme::MUTED)).wrap());
+            // No words that explain on the choice itself: they are the
+            // title's hover.
+            ui.label(egui::RichText::new(REWARD_TITLE).strong().size(18.0))
+                .on_hover_text(REWARD_INTRO);
             ui.add_space(6.0);
             // Each relic its picture, then its name to pick it by and its
             // boons and price; a click on the picture picks it too.
