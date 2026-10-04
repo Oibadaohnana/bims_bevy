@@ -1531,17 +1531,17 @@ mod tests {
         // October 2026), the tank too.
         let tank = world::Class::Tank;
         assert_eq!(xp_text(tank, 0), "Lv 1 · 0 / 100 XP");
-        assert_eq!(xp_text(tank, 500), "Lv 4 · 140 / 160 XP");
-        assert!((xp_fill(500) - 140.0 / 160.0).abs() < 1e-6);
-        for xp in [4_920, 4_921, u32::MAX] {
+        assert_eq!(xp_text(tank, 500), "Lv 4 · 140 / 170 XP");
+        assert!((xp_fill(500) - 140.0 / 170.0).abs() < 1e-6);
+        for xp in [15_470, 15_471, u32::MAX] {
             assert_eq!(xp_text(tank, xp), "Lv 20 · Max");
             assert_eq!(xp_fill(xp), 1.0);
         }
         let soldier = world::Class::Soldier;
-        assert_eq!(xp_text(soldier, 500), "Lv 4 · 140 / 160 XP");
-        assert_eq!(xp_text(soldier, 3_199), "Lv 15 · 329 / 330 XP");
-        assert_eq!(xp_text(soldier, 3_200), "Lv 16 · 0 / 370 XP");
-        assert_eq!(xp_text(soldier, 4_919), "Lv 19 · 489 / 490 XP");
+        assert_eq!(xp_text(soldier, 500), "Lv 4 · 140 / 170 XP");
+        assert_eq!(xp_text(soldier, 7_199), "Lv 15 · 1279 / 1280 XP");
+        assert_eq!(xp_text(soldier, 7_200), "Lv 16 · 0 / 1540 XP");
+        assert_eq!(xp_text(soldier, 15_469), "Lv 19 · 2659 / 2660 XP");
         assert_eq!(xp_text(world::Class::None, 500), "No class");
         // Nothing but digits between the words: no fraction of a point.
         assert!(!xp_text(soldier, 777).contains('.'));

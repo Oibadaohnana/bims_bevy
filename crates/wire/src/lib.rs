@@ -292,7 +292,9 @@ use serde::{Deserialize, Serialize};
 /// 160: a defence's first wave five seconds after the crew arrive.
 /// 161: an Area defend's ring heals whoever of the crew's side stands
 /// in it, two per cent of the bar a second.
-pub const PROTOCOL: u32 = 161;
+/// 162: the levels' experience compounds, each step 1.2 times the one
+/// before (7 200 for the sixteenth, 15 470 for the twentieth).
+pub const PROTOCOL: u32 = 162;
 
 /// Where the relay lives. `BIMS_SERVER` in the environment overrides it
 /// — `ws://127.0.0.1:8792` for one on the same machine.

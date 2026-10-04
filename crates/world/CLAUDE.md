@@ -7441,7 +7441,11 @@ looks in one picture. `a_site_s_defenders_wear_the_militia_s_kit_and_its_own_peo
 > above say sixteen levels; it is **twenty** now.
 
 `class::LEVELS` is 20 and `LEVEL_XP` runs on past the sixteenth's 3 200
-(3 570, 3 980, 4 430, 4 920, the step growing by forty).
+(3 570, 3 980, 4 430, 4 920, the step growing by forty). *Later the same
+month the table compounds:* each level's step is the one before's times
+1.2 from 100 for the second, rounded to ten — 7 200 for the sixteenth,
+15 470 for the twentieth (`wire::PROTOCOL` 162; `class::tests` checks
+every step).
 `Progress::points` counts a point a level only up to
 `class::SKILL_LEVELS` (16, every rank of the four slots), so the four
 levels past it give none. Each is ten hit points like any level

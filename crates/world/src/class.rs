@@ -59,7 +59,7 @@
 //! engineer 127, the commander 129, the medic 130 and the tank 139, which
 //! took the old left-and-right talents away whole. Every class climbs
 //! the same **twenty** levels ([`LEVELS`]) on [`LEVEL_XP`] — 100 for the
-//! second, 3 200 for the sixteenth, 4 920 for the twentieth — and earns
+//! second, 7 200 for the sixteenth, 15 470 for the twentieth — and earns
 //! **one skill point a level** up to the sixteenth ([`SKILL_LEVELS`]),
 //! the first included; each of the four past it is ten hit points like
 //! any level and five per cent more weapon damage ([`level_damage`]). A point buys one **rank** of one of four
@@ -672,12 +672,15 @@ pub const LEVELS: u8 = 20;
 pub const SKILL_LEVELS: u8 = 16;
 
 /// Cumulative experience for each level, by level less one: nothing for
-/// the first, 100 for the second, 3 200 for the sixteenth and 4 920 for
+/// the first, 100 for the second, 7 200 for the sixteenth and 15 470 for
 /// the twentieth — every class's (task 139; `RANKED_LEVEL_XP` until
-/// then). The four past the sixteenth go on the step growing by forty.
+/// then). Each level's step is the one before's times 1.2, from 100 for
+/// the second, rounded to ten (October 2026, the player's curve; it was
+/// 3 200 for the sixteenth and 4 920 for the twentieth, the step growing
+/// by twenty and then forty).
 pub const LEVEL_XP: [u32; LEVELS as usize] = [
-    0, 100, 220, 360, 520, 700, 900, 1_110, 1_330, 1_560, 1_800, 2_050, 2_310, 2_580, 2_870, 3_200,
-    3_570, 3_980, 4_430, 4_920,
+    0, 100, 220, 360, 530, 740, 990, 1_290, 1_650, 2_080, 2_600, 3_220, 3_960, 4_850, 5_920, 7_200,
+    8_740, 10_590, 12_810, 15_470,
 ];
 
 /// What every level past [`SKILL_LEVELS`] adds to a player's weapon
@@ -1335,21 +1338,27 @@ mod tests {
     }
 
     /// Every class is a ranked kit (task 139): twenty levels, the
-    /// sixteenth at 3 200 and the top at 4 920, a point a level up to the
+    /// sixteenth at 7 200 and the top at 15 470, a point a level up to the
     /// sixteenth, and every rank's gate refusing a level early and
     /// allowing on the level — the tank's as the soldier's.
     #[test]
     fn every_class_climbs_twenty_levels_and_buys_a_rank_a_point() {
         assert_eq!(LEVELS, 20);
         assert_eq!(LEVEL_XP.len(), 20);
-        assert_eq!(LEVEL_XP[15], 3_200, "the sixteenth at 3 200");
-        assert_eq!(LEVEL_XP[19], 4_920, "the top at 4 920");
+        assert_eq!(LEVEL_XP[15], 7_200, "the sixteenth at 7 200");
+        assert_eq!(LEVEL_XP[19], 15_470, "the top at 15 470");
         assert!(LEVEL_XP.windows(2).all(|w| w[0] < w[1]));
+        // Each step is the one before's times 1.2, rounded to ten.
+        let mut step = 100.0_f64;
+        for w in LEVEL_XP.windows(2) {
+            assert_eq!(w[1] - w[0], (step / 10.0).round() as u32 * 10);
+            step *= 1.2;
+        }
         assert_eq!(level_of(0), 1);
         assert_eq!(level_of(99), 1);
-        assert_eq!(level_of(3_199), 15);
-        assert_eq!(level_of(3_200), 16);
-        assert_eq!(level_of(4_919), 19);
+        assert_eq!(level_of(7_199), 15);
+        assert_eq!(level_of(7_200), 16);
+        assert_eq!(level_of(15_469), 19);
         assert_eq!(level_of(1_000_000), 20);
         for class in Class::ALL {
             assert_eq!(ranked(class), class != Class::None, "{class:?}");
@@ -1370,12 +1379,12 @@ mod tests {
         let s = Class::Tank;
         assert_eq!(p.rank_up(s, SLOT_Q), Ok(1));
         assert_eq!(p.rank_up(s, SLOT_C), Err(Refusal::NoSkillPoint));
-        assert_eq!(p.gain(3_200), (2..=16).collect::<Vec<u8>>());
-        assert_eq!(p.to_next(), 370);
+        assert_eq!(p.gain(7_200), (2..=16).collect::<Vec<u8>>());
+        assert_eq!(p.to_next(), 1_540);
         assert_eq!(p.points(s), 15);
         // The levels past the sixteenth give no point: sixteen buy every
         // rank there is.
-        assert_eq!(p.gain(1_720), (17..=20).collect::<Vec<u8>>());
+        assert_eq!(p.gain(8_270), (17..=20).collect::<Vec<u8>>());
         assert_eq!(p.to_next(), 0);
         assert_eq!(p.points(s), 15);
         assert_eq!(

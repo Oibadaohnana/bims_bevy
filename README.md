@@ -2210,8 +2210,9 @@ shape for every class: the first, third and seventh are fixed, and every
 other level is a **pick of two talents**, never changed once made.
 
 **Twenty levels now (October 2026).** Every class climbs the same table
-— 3 200 experience for the sixteenth, then 3 570, 3 980, 4 430 and
-**4 920 for the twentieth** — and the skill points stop at the sixteenth,
+— 7 200 experience for the sixteenth, then 8 740, 10 590, 12 810 and
+**15 470 for the twentieth**, each level's step 1.2 times the one
+before's from 100 for the second, rounded to ten — and the skill points stop at the sixteenth,
 where every rank of the four abilities is bought. Each of the four
 levels past it is **ten hit points** on the bar as every level is (300
 at the twentieth) and **five per cent more weapon damage** — a gun's or
@@ -2338,7 +2339,7 @@ the ship goes; on a station's deck they are lost when the ship leaves.
 The second class (feature 75), reworked in task 124 into **four
 abilities, four ranks each**, the way Dota does it. A soldier sets out
 with a basic **auto rifle** in hand and the laser pistol in the armory.
-It climbs **twenty levels** (3 200 experience for the sixteenth, 4 920
+It climbs **twenty levels** (7 200 experience for the sixteenth, 15 470
 for the twentieth) and earns **one skill point a level** up to the
 sixteenth, the first level included; the four after it are weapon
 damage (see *Classes and levels*). A point buys a **rank** of one ability: **Ctrl**

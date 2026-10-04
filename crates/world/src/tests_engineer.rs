@@ -244,8 +244,8 @@ fn the_engineer_climbs_twenty_levels_and_buys_ranks_as_the_soldier_does() {
     let e = Class::Engineer;
     assert!(class::ranked(e));
     assert_eq!(class::LEVELS, 20);
-    assert_eq!(class::level_of(3_199), 15);
-    assert_eq!(class::level_of(3_200), 16, "level 16 at 3 200");
+    assert_eq!(class::level_of(7_199), 15);
+    assert_eq!(class::level_of(7_200), 16, "level 16 at 7 200");
     for slot in [class::SLOT_Q, class::SLOT_C, class::SLOT_E] {
         for rank in 1..=4 {
             assert_eq!(class::rank_level(e, slot, rank), Some(2 * rank - 1));

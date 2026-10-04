@@ -213,7 +213,7 @@ fn the_tank_climbs_sixteen_levels_and_ranks_up_as_the_soldier_does() {
     assert!(class::ranked(Class::Tank));
     assert_eq!(world.points_of(0), 1, "a point at the first level");
     level_up(&mut world, 0, 16);
-    assert_eq!(world.progress_of(0).xp, 3_200, "level sixteen at 3 200");
+    assert_eq!(world.progress_of(0).xp, 7_200, "level sixteen at 7 200");
     assert_eq!(world.level_of(0), 16);
     assert_eq!(world.points_of(0), 16);
     // The gates: Q, C and E rank n at 2n − 1, R at 6, 9, 12 and 15.
@@ -282,11 +282,11 @@ fn the_tank_climbs_sixteen_levels_and_ranks_up_as_the_soldier_does() {
 }
 
 /// **The old system is gone**: twenty levels for everybody, the last at
-/// 4 920, and every class buys a rank.
+/// 15 470, and every class buys a rank.
 #[test]
 fn every_class_accepts_a_rank_and_the_levels_are_twenty() {
     assert_eq!(class::LEVELS, 20);
-    assert_eq!(*LEVEL_XP.last().unwrap(), 4_920);
+    assert_eq!(*LEVEL_XP.last().unwrap(), 15_470);
     for class in Class::ALL {
         let mut world = basic();
         assert_eq!(world.set_class(0, class), Ok(()));
