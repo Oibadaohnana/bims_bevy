@@ -765,6 +765,59 @@ def shotgun_reload_laser():
     save("shotgun_reload_laser", room(out, rng, 0.1, 0.3), 0.06)
 
 
+# --- a level gained (October 2026) --------------------------------------------
+
+
+def bell(rng, length, hz, tau):
+    """A small glass bell: a bright fundamental and a bell's partials over
+    it, the higher falling sooner."""
+    parts = [(1.0, 1.0), (2.0, 0.5), (2.76, 0.32), (4.07, 0.2), (5.4, 0.1)]
+    return modes(length, [(hz * r, tau / (1 + 0.6 * k), a) for k, (r, a) in enumerate(parts)], rng, 0.001)
+
+
+def level_up():
+    """A level gained, after Dota 2's: a breath of air rising, a quick
+    run of glass bells up an E major arpeggio, and on top a big bright
+    chord that rings out over a swell of choir-like pad with sparkles
+    scattered up through it — the run says *up*, the chord *arrived*."""
+    rng = np.random.default_rng(801)
+    out = silence(2.0)
+    # The rise: air through a band gliding up, swelling into the chord.
+    n = secs(0.5)
+    t = times(n)
+    air = sweep_band(rng.standard_normal(n), 350, 7000, 2.5)
+    air *= (t / t[-1]) ** 1.6 * np.minimum(1, (t[-1] - t) / 0.03)
+    place(out, air, 0.0, 0.5)
+    # The run: E5 G#5 B5 E6 G#6, sixty milliseconds apart.
+    for k, hz in enumerate((659.3, 830.6, 987.8, 1318.5, 1661.2)):
+        place(out, bell(rng, 0.6, hz, 0.18), 0.06 * k, 0.4 + 0.06 * k)
+    # Arrived: E6 B6 E7 rung long, and a low E under them for weight.
+    at = 0.34
+    for hz, g in ((1318.5, 1.0), (1975.5, 0.7), (2637.0, 0.5)):
+        place(out, bell(rng, 1.6, hz, 0.55), at, g)
+    place(out, thump(0.7, 140, 82, 0.22), at, 0.7)
+    # The pad: E4 B4 E5 G#5, each three slightly detuned voices, swelling
+    # in under the chord and fading out slowly.
+    n = secs(1.6)
+    t = times(n)
+    pad = np.zeros(n)
+    for hz in (329.6, 493.9, 659.3, 830.6):
+        for d in (-0.006, 0.0, 0.006):
+            ph = rng.uniform(0, 2 * np.pi)
+            f = hz * (1 + d)
+            pad += np.sin(2 * np.pi * f * t + ph) + 0.3 * np.sin(4 * np.pi * f * t + ph)
+    pad = low(pad, 3500)
+    pad *= np.minimum(1, t / 0.12) * np.exp(-np.maximum(0, t - 0.25) / 0.45)
+    place(out, pad / np.max(np.abs(pad)), at - 0.04, 0.35)
+    # Sparkles: high pips scattered up through the ring.
+    for _ in range(28):
+        when = at + rng.uniform(0.0, 0.9) ** 1.5
+        f = rng.uniform(3000, 8500)
+        pip = modes(0.12, [(f, 0.025, 1.0), (f * 1.5, 0.015, 0.3)], rng, 0.0005)
+        place(out, pip, when, rng.uniform(0.05, 0.14) * (1.3 - (when - at)))
+    save("level_up", room(out, rng, 0.22, 0.8), 0.2)
+
+
 if __name__ == "__main__":
     import sys
 
@@ -799,3 +852,4 @@ if __name__ == "__main__":
     revived()
     reload_laser()
     shotgun_reload_laser()
+    level_up()

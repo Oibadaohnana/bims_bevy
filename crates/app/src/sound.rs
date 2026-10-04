@@ -104,12 +104,15 @@ pub enum Clip {
     // a magazine's clicks: played with it, at once.
     ReloadLaser,
     ShotgunReloadLaser,
+    // A level gained (October 2026): a run of bells up into a ringing
+    // chord, after Dota 2's (`sounds/abilities.py`, `level_up`).
+    LevelUp,
 }
 
 /// The bytes of each clip, indexed by [`Clip`]. Ogg Vorbis, mono, 48 kHz,
 /// peaks at -1 dBFS for the one-shots and -22 or -30 LUFS for the loops —
 /// see `prepare.sh` — so every level below is relative to that.
-const CLIPS: [&[u8]; 51] = [
+const CLIPS: [&[u8]; 52] = [
     include_bytes!("../sounds/laser_1.ogg"),
     include_bytes!("../sounds/laser_2.ogg"),
     include_bytes!("../sounds/laser_3.ogg"),
@@ -161,6 +164,7 @@ const CLIPS: [&[u8]; 51] = [
     include_bytes!("../sounds/shotgun_reload.ogg"),
     include_bytes!("../sounds/reload_laser.ogg"),
     include_bytes!("../sounds/shotgun_reload_laser.ogg"),
+    include_bytes!("../sounds/level_up.ogg"),
 ];
 
 /// The player's own volume for each sound, from `audio.ron` at the root
@@ -259,6 +263,7 @@ volumes! {
     ShotgunReload => shotgun_reload,
     ReloadLaser => reload_laser,
     ShotgunReloadLaser => shotgun_reload_laser,
+    LevelUp => level_up,
     ;
     minigun,
     rail_lance,
@@ -369,6 +374,8 @@ enum Kind {
     Revived,
     /// A magazine being reloaded (October 2026).
     Reload,
+    /// A level gained, told apart by who.
+    LevelUp,
 }
 
 /// How many one-shots a frame may start, whatever the room says. Enough
@@ -383,6 +390,12 @@ const OTHERS_SHOTS: f32 = 0.7;
 /// Places are told apart this coarsely, in room units — two tiles — so a
 /// gunner walking between the steps of one frame is one place.
 const PLACE: f32 = 2.0 * bims::room::TILE;
+
+/// How far a shot's pitch strays from its recording's, either way: each
+/// shot is played this much faster or slower at most (a speed of 0.95 to
+/// 1.05, under a semitone), so a burst of one gun is not the one sample
+/// eight times over.
+const SHOT_PITCH: f32 = 0.05;
 
 impl Kind {
     fn of(cue: Cue) -> Kind {
@@ -449,6 +462,9 @@ impl Kind {
             // A reload begins once a magazine; two guns at one place in a
             // frame are one clip.
             Kind::Reload => 0.3,
+            // A level comes once; two at once (a big kill's experience) are
+            // one ring.
+            Kind::LevelUp => 1.0,
         }
     }
 }
@@ -478,6 +494,9 @@ pub struct Sounds {
     /// Which take of a clip with several is next, so a burst is not the
     /// same sample eight times over.
     turn: u32,
+    /// A plain generator for the shots' pitch — the app's alone, nothing
+    /// of the world's.
+    wobble: u32,
     /// `BIMS_SOUND_LOG=1`: say what is played.
     log: bool,
     /// What the player set on the Esc sheet's audio page.
@@ -558,6 +577,7 @@ impl Sounds {
             recent: Vec::new(),
             started: 0,
             turn: 0,
+            wobble: 0x9e37_79b9,
             log: crate::dev::sound_log(),
             mix: Mix {
                 muted: crate::dev::silent(),
@@ -579,9 +599,22 @@ impl Sounds {
     /// The same under a volume of the player's given outright: a weapon
     /// that borrows another's clip is turned up and down by its own.
     fn one_shot_as(&self, commands: &mut Commands, clip: Clip, level: f32, volume: f32) {
+        self.one_shot_at(commands, clip, level, volume, 1.0);
+    }
+
+    /// The same at `speed` times the recording's, which raises or lowers
+    /// its pitch with it.
+    fn one_shot_at(
+        &self,
+        commands: &mut Commands,
+        clip: Clip,
+        level: f32,
+        volume: f32,
+        speed: f32,
+    ) {
         let level = level * volume.max(0.0);
         if self.log {
-            println!("sound: {clip:?} at {level:.2}");
+            println!("sound: {clip:?} at {level:.2} x{speed:.3}");
         }
         let level = level * self.mix.effects();
         if level <= 0.0 {
@@ -589,7 +622,9 @@ impl Sounds {
         }
         commands.spawn((
             AudioPlayer::new(self.clips[clip as usize].clone()),
-            PlaybackSettings::DESPAWN.with_volume(Volume::Linear(level)),
+            PlaybackSettings::DESPAWN
+                .with_volume(Volume::Linear(level))
+                .with_speed(speed),
         ));
     }
 
@@ -614,6 +649,18 @@ impl Sounds {
         self.recent.push((kind, cell, now + kind.cool_down()));
         self.started += 1;
         true
+    }
+
+    /// A shot's speed: one, give or take [`SHOT_PITCH`], fresh each time.
+    fn shot_speed(&mut self) -> f32 {
+        // xorshift32: never nought, from a seed that is not.
+        let mut x = self.wobble;
+        x ^= x << 13;
+        x ^= x >> 17;
+        x ^= x << 5;
+        self.wobble = x;
+        let unit = (x >> 8) as f32 / (1u32 << 24) as f32;
+        1.0 + SHOT_PITCH * (2.0 * unit - 1.0)
     }
 
     /// The next of `n` takes.
@@ -687,7 +734,8 @@ impl Sounds {
                     // to a heavy single shot the box holds.
                     WeaponKind::Unmaker => (Clip::Sniper, 0.6, v.unmaker),
                 };
-                self.one_shot_as(commands, clip, level * theirs, volume);
+                let speed = self.shot_speed();
+                self.one_shot_at(commands, clip, level * theirs, volume, speed);
             }
             // A hit is heard under the shot that made it, never over it:
             // every level of a hit here and on a blow was halved in
@@ -787,6 +835,14 @@ impl Sounds {
     pub fn revived(&mut self, commands: &mut Commands, who: u32) {
         if self.admit_in(Kind::Revived, (1, who as i32)) {
             self.one_shot(commands, Clip::Revived, 0.6);
+        }
+    }
+
+    /// This window's own player gaining a level (the game screen filters
+    /// the world's `LevelUp`): a reward, so it stands over the fight.
+    pub fn level_up(&mut self, commands: &mut Commands, who: u32) {
+        if self.admit_in(Kind::LevelUp, (2, who as i32)) {
+            self.one_shot(commands, Clip::LevelUp, 0.7);
         }
     }
 
@@ -924,7 +980,7 @@ mod tests {
             assert!(clip.starts_with(b"OggS"), "clip {i} is not an Ogg stream");
             assert!(clip.len() > 1_000, "clip {i} is only {} bytes", clip.len());
         }
-        assert_eq!(CLIPS.len(), Clip::ShotgunReloadLaser as usize + 1);
+        assert_eq!(CLIPS.len(), Clip::LevelUp as usize + 1);
     }
 
     /// `audio.ron` at the root parses and names every sound, so the player

@@ -1595,6 +1595,12 @@ fn frame(
                 }
                 _ => {}
             }
+            // A level gained, heard by the player who gained it only.
+            if let WorldEvent::LevelUp { who, .. } = event
+                && who == screen.net.slot
+            {
+                sounds.level_up(&mut commands, who);
+            }
             // An enemy down: its pay floats up over it, with a soft chime.
             // A hit: its number over whoever took it.
             if let WorldEvent::Hit {
