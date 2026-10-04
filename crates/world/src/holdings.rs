@@ -34,7 +34,7 @@ use bims::combat::{Item, Piece};
 
 /// One slot of a loadout: the weapon, or the armour — one piece over the
 /// whole body since October 2026, where there were a head, a body and
-/// legs — or one of the four **items** (October 2026, `bims::module`), a
+/// legs — or one of the six **items** (October 2026, `bims::module`), a
 /// player's Bim's alone. Codes across the seam, like everything else.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, PartialOrd, Ord)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -45,24 +45,30 @@ pub enum GearSlot {
     Item2 = 3,
     Item3 = 4,
     Item4 = 5,
+    Item5 = 6,
+    Item6 = 7,
 }
 
 impl GearSlot {
-    pub const ALL: [GearSlot; 6] = [
+    pub const ALL: [GearSlot; 8] = [
         GearSlot::Weapon,
         GearSlot::Armour,
         GearSlot::Item1,
         GearSlot::Item2,
         GearSlot::Item3,
         GearSlot::Item4,
+        GearSlot::Item5,
+        GearSlot::Item6,
     ];
 
-    /// The four item slots, in the order the keys 1 to 4 name them.
-    pub const ITEMS: [GearSlot; 4] = [
+    /// The six item slots, in the order the keys 1 to 6 name them.
+    pub const ITEMS: [GearSlot; bims::module::ITEM_SLOTS] = [
         GearSlot::Item1,
         GearSlot::Item2,
         GearSlot::Item3,
         GearSlot::Item4,
+        GearSlot::Item5,
+        GearSlot::Item6,
     ];
 
     pub fn code(self) -> u32 {
@@ -73,24 +79,24 @@ impl GearSlot {
         GearSlot::ALL.get(code as usize).copied()
     }
 
-    /// Which item slot it is, nought to three; `None` for the weapon and
+    /// Which item slot it is, nought to five; `None` for the weapon and
     /// the armour.
     pub fn item_index(self) -> Option<usize> {
         GearSlot::ITEMS.iter().position(|&s| s == self)
     }
 
-    /// The item slot `index` (nought to three).
+    /// The item slot `index` (nought to five).
     pub fn item(index: usize) -> Option<GearSlot> {
         GearSlot::ITEMS.get(index).copied()
     }
 
-    /// Whether it is one of the four item slots.
+    /// Whether it is one of the six item slots.
     pub fn is_item(self) -> bool {
         self.item_index().is_some()
     }
 
     /// The slot a thing goes on: a weapon in the hand, a piece of armour
-    /// on the body, an item in the first item slot — which of the four is
+    /// on the body, an item in the first item slot — which of the six is
     /// the caller's to choose ([`GearSlot::takes`]). `None` for a charge,
     /// which is never a thing in a slot.
     pub fn of_item(item: Item) -> Option<GearSlot> {
@@ -102,7 +108,7 @@ impl GearSlot {
         }
     }
 
-    /// Whether `item` goes on this slot: an item on any of the four.
+    /// Whether `item` goes on this slot: an item on any of the six.
     pub fn takes(self, item: Item) -> bool {
         match item {
             Item::Module(_) => self.is_item(),

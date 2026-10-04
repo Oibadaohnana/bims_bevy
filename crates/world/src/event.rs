@@ -613,7 +613,7 @@ pub enum Refusal {
     /// A *Blink Drive* aimed where there is no ground the crew see within
     /// its reach.
     NowhereToBlink = 125,
-    /// An item onto a Bim whose four item slots are full.
+    /// An item onto a Bim whose six item slots are full.
     ItemsFull = 126,
     /// An item onto a bot: only a player's Bim carries one.
     BotsCarryNoItems = 127,
@@ -784,7 +784,7 @@ impl WorldEvent {
             WorldEvent::BotLost { who } => who as i64,
             // The buyback paid in the hundreds: a crew is never a hundred.
             WorldEvent::Respawned { who, paid } => (who as i64) + 100 * (paid as i64),
-            // The slot in the tens, the Bim in the units: four slots, and a
+            // The slot in the tens, the Bim in the units: eight slots, and a
             // crew is never ten (task 113).
             WorldEvent::GearChanged { who, part } => (who + 10 * part) as i64,
             // An offer: the giver in the units, the slot in the tens, the

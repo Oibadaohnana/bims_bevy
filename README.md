@@ -261,10 +261,10 @@ the start, and `BIMS_REWARD=1` opens straight on the reward screen.
 
 ## Items
 
-Dota 2's items, beside the relics (October 2026): **four item slots on
+Dota 2's items, beside the relics (October 2026): **six item slots on
 every player's Bim**, from the first day — a bot carries none. An item is
 bought at a [trader](#the-trader) at the tier the day has reached, moved
-in the Armory like a gun (drag it onto one of the four cells under a
+in the Armory like a gun (drag it onto one of the six cells under a
 player's Bim, or onto another), offered to another player, and kept
 through a death like the rest of the loadout. It is bought onto your own
 Bim and never into the armory, and **every trader after the one you
@@ -272,8 +272,8 @@ bought it at offers it a tier up** — *Upgrade*, highlighted, at the next
 tier's price, made in the slot it is in — to tier three. Nothing is
 combined. Sold back at a trader it fetches half of everything paid for
 it, its upgrades too. The hero panel at the foot of the screen shows
-the four two by two at the right of the abilities, each with its key
-(`1` to `4`), its tier as pips and an active one's cooldown swept back.
+the six, three across and two down, at the right of the abilities, each with its key
+(`1` to `6`), its tier as pips and an active one's cooldown swept back.
 
 | item | | tier one / two / three | price |
 | --- | --- | --- | --- |

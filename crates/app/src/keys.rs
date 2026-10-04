@@ -123,13 +123,16 @@ pub enum Action {
     /// right-click on a downed crewmate revives them — or, with it in hand
     /// already, the weapon back. On H, the items having taken 1 to 4.
     Medkit,
-    /// **The four item slots** (October 2026): the item in that slot of
+    /// **The six item slots** (October 2026): the item in that slot of
     /// the Bim you steer used at the pointer — a Blink Drive blinks there.
-    /// On 1, 2, 3 and 4, where the quickselect was.
+    /// On 1 to 4, where the quickselect was, and 5 and 6 since there are
+    /// six.
     Item1,
     Item2,
     Item3,
     Item4,
+    Item5,
+    Item6,
     /// **The character sheet** (feature 107): the player's own Bim's
     /// class, level, body, gear and skills, on the left of the canvas.
     /// Pressed again, it shuts.
@@ -166,10 +169,17 @@ impl Action {
         Action::Ability4,
     ];
 
-    /// The four item slots, in the order the hero panel lays them out.
-    pub const ITEMS: [Action; 4] = [Action::Item1, Action::Item2, Action::Item3, Action::Item4];
+    /// The six item slots, in the order the hero panel lays them out.
+    pub const ITEMS: [Action; 6] = [
+        Action::Item1,
+        Action::Item2,
+        Action::Item3,
+        Action::Item4,
+        Action::Item5,
+        Action::Item6,
+    ];
 
-    pub const ALL: [Action; 29] = [
+    pub const ALL: [Action; 31] = [
         Action::Map,
         Action::Propose,
         Action::NorthUp,
@@ -196,6 +206,8 @@ impl Action {
         Action::Item2,
         Action::Item3,
         Action::Item4,
+        Action::Item5,
+        Action::Item6,
         Action::CharacterSheet,
         Action::Reload,
         Action::Ping,
@@ -249,6 +261,8 @@ impl Action {
             Action::Item2 => Key::Num2,
             Action::Item3 => Key::Num3,
             Action::Item4 => Key::Num4,
+            Action::Item5 => Key::Num5,
+            Action::Item6 => Key::Num6,
             Action::CharacterSheet => Key::K,
             Action::Reload => Key::Space,
             Action::Ping => Key::C,
@@ -284,6 +298,8 @@ impl Action {
             Action::Item2 => "item-2",
             Action::Item3 => "item-3",
             Action::Item4 => "item-4",
+            Action::Item5 => "item-5",
+            Action::Item6 => "item-6",
             Action::CharacterSheet => "character-sheet",
             Action::Reload => "reload",
             Action::Ping => "ping",
@@ -349,6 +365,8 @@ impl Action {
             Action::Item2 => "Use the item in the second item slot.",
             Action::Item3 => "Use the item in the third item slot.",
             Action::Item4 => "Use the item in the fourth item slot.",
+            Action::Item5 => "Use the item in the fifth item slot.",
+            Action::Item6 => "Use the item in the sixth item slot.",
             Action::CharacterSheet => {
                 "Open and close your Bim's character sheet: its class and level, its health, what it wears and holds, and the four abilities a level's skill point is spent on."
             }
@@ -1263,6 +1281,8 @@ mod tests {
             egui::Key::Num2,
             egui::Key::Num3,
             egui::Key::Num4,
+            egui::Key::Num5,
+            egui::Key::Num6,
         ]) {
             assert_eq!(keys.key(action), key);
             assert!(keys.shared_with(action).is_empty());

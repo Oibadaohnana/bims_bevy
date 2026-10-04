@@ -1,4 +1,4 @@
-//! The **items** of a player's Bim, Dota 2's way (October 2026): four
+//! The **items** of a player's Bim, Dota 2's way (October 2026): six
 //! slots on the loadout ([`ITEM_SLOTS`], `Gear::items`), each holding a
 //! [`Module`] or nothing — bought at a trader, upgraded there a tier at a
 //! time, sold back there for half what it cost, moved in the Armory like
@@ -19,8 +19,9 @@
 use crate::combat::{Gear, Tier};
 use crate::health::MAX_HEALTH;
 
-/// How many items a Bim carries: four, from the first day.
-pub const ITEM_SLOTS: usize = 4;
+/// How many items a Bim carries: six, from the first day (four until
+/// the player's word later in October 2026).
+pub const ITEM_SLOTS: usize = 6;
 
 /// What an item is. The code crosses the seam and goes into the
 /// checksum; a kind added later goes on the end.

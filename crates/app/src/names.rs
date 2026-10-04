@@ -3031,7 +3031,9 @@ pub fn armour_name(kind: Option<bims::combat::ArmourKind>) -> &'static str {
 
 /// A loadout's two slots, by `world::GearSlot::code`: the weapon and the
 /// armour (October 2026: there were a head, a body and legs).
-pub const SLOT_NAMES: [&str; 6] = ["Weapon", "Armour", "Item 1", "Item 2", "Item 3", "Item 4"];
+pub const SLOT_NAMES: [&str; 8] = [
+    "Weapon", "Armour", "Item 1", "Item 2", "Item 3", "Item 4", "Item 5", "Item 6",
+];
 
 /// The hero panel's magazine column's tooltip.
 pub fn magazine_tip(left: u32, size: u32) -> String {

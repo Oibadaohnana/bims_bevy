@@ -70,7 +70,7 @@ pub enum GearOrder {
     /// `who`, what was there into the armory (task 113).
     Equip { who: u32, from: world::GearSource },
     /// [`GearOrder::Equip`] onto one slot named — an item dragged onto one
-    /// of the four item boxes (October 2026).
+    /// of the six item boxes (October 2026).
     EquipAt {
         who: u32,
         from: world::GearSource,
@@ -2328,7 +2328,7 @@ fn armory_column(
                     });
                 }
             }
-            // The four items (October 2026), a player's Bim's alone: a
+            // The six items (October 2026), a player's Bim's alone: a
             // cell each, a thing dragged onto one going on that slot.
             if column.portrait.player {
                 inner_drop |= item_cells(ui, view, column, asked);
@@ -2395,7 +2395,7 @@ fn armory_column(
     }
 }
 
-/// A player's column's four item cells, in a row (October 2026): each
+/// A player's column's six item cells, in a row (October 2026): each
 /// its picture or empty, a drag source when the player may change it, a
 /// drop zone that puts what is dropped on that slot, and a right-click to
 /// take it off or offer it. Whether something was dropped on one.

@@ -1377,7 +1377,7 @@ pub enum Item {
     Armour(Piece),
     Weapon(Weapon),
     Stack(u32),
-    /// One of a player's Bim's four items (October 2026,
+    /// One of a player's Bim's six items (October 2026,
     /// [`crate::module`]).
     Module(crate::module::Module),
 }
@@ -1400,7 +1400,7 @@ pub struct Gear {
     /// code: an engineer's kits, a grenade. The world sets them at a
     /// mission's start and fills them on their cooldowns.
     pub charges: [u32; CHARGE_CODES],
-    /// The four items (October 2026, [`crate::module`]): a player's Bim's
+    /// The six items (October 2026, [`crate::module`]): a player's Bim's
     /// alone, empty on everybody else.
     #[cfg_attr(feature = "serde", serde(default))]
     pub items: [Option<crate::module::Module>; crate::module::ITEM_SLOTS],

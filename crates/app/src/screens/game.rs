@@ -2714,7 +2714,7 @@ fn frame(
                     };
                     orders.push(Order::Crew(CrewOrder::Hand { hand }));
                 }
-                // The four item slots, 1 to 4 (October 2026): the item in
+                // The six item slots, 1 to 6 (October 2026): the item in
                 // that slot used at the pointer — a Blink Drive blinks
                 // there. The world says why not, into the log. Read
                 // through Shift, which turns 1 into `!`.
@@ -3301,7 +3301,7 @@ fn frame(
             // hands, and a click the key's own order.
             let hand = room.hand(w);
             let mut hand_picked = None;
-            // The four items past the abilities, Dota's way (October
+            // The six items past the abilities, Dota's way (October
             // 2026): a player's own Bim's alone.
             let got = hud::hero_panel(
                 &ctx,
@@ -5799,7 +5799,7 @@ fn quickselect(
     picked
 }
 
-/// How big one item box is: Dota's inventory, two by two beside the
+/// How big one item box is: Dota's inventory, three by two beside the
 /// abilities, the two rows as tall as the hero panel inside its frame
 /// (the player's word) — about an ability's box.
 const ITEM_SIDE: f32 = 52.0;
@@ -5807,9 +5807,9 @@ const ITEM_SIDE: f32 = 52.0;
 /// The gap between two item boxes, across and down.
 const ITEM_GAP: f32 = 3.0;
 
-/// The four item slots of the player's own Bim, two by two (October
-/// 2026): each its picture, its key in the corner, an active one's
-/// cooldown swept back as an ability's is, and greyed while a hit locks
+/// The six item slots of the player's own Bim, three across and two
+/// down (October 2026; two by two while there were four): each its
+/// picture, its key in the corner, an active one's cooldown swept back as an ability's is, and greyed while a hit locks
 /// a blink. Empty, a dark frame with the key. Resting on one names it and
 /// says what it does. Laid from the top of the panel's row: a grid put
 /// straight into the row stood a line's height below it.
@@ -5886,7 +5886,7 @@ fn item_grid(ui: &mut egui::Ui, world: &world::World, who: u32, keys: &Keys) {
                         egui::FontId::proportional(12.0),
                         theme::MUTED,
                     );
-                    if index % 2 == 1 {
+                    if index % 3 == 2 {
                         ui.end_row();
                     }
                 }

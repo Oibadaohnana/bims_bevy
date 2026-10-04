@@ -1,5 +1,5 @@
 //! The **items** (October 2026), Dota 2's: what a player's Bim carries in
-//! its four item slots beside its weapon and its armour. What each one
+//! its six item slots beside its weapon and its armour. What each one
 //! does in a fight is `bims::module` (the numbers) and the world's step
 //! (`item_use.rs`, a child of `crate::world`); this is the rules no room
 //! needs — what one costs, which tier a trader sells at, and the tier an
@@ -22,7 +22,7 @@
 //!
 //! # Who carries one
 //!
-//! A player's own Bim, in any of its four slots, and nobody else: a bot is
+//! A player's own Bim, in any of its six slots, and nobody else: a bot is
 //! refused one (`Refusal::BotsCarryNoItems`). Moved in the Armory as gear
 //! is — between missions, or aboard on arriving — and kept through a
 //! death like the rest of the loadout.

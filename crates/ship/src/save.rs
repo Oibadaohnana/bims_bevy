@@ -292,7 +292,9 @@ use crate::game::Game;
 /// (`bims::droid::Rhythm`: a Bomber's bomb, a Lancer's rail, a Conductor's
 /// link, mark, blink and strike call), a grenade's and a shot's `bomb`, and
 /// the scaling's `bomber_every` and `lancer_every`.
-pub const SAVE_VERSION: u32 = 110;
+/// 111: six item slots — `Gear::items` six wide, `GearSlot::{Item5,
+/// Item6}`.
+pub const SAVE_VERSION: u32 = 111;
 
 /// What the file holds, read back.
 #[derive(serde::Deserialize)]

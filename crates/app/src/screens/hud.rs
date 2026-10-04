@@ -1176,7 +1176,7 @@ const XP_BAR_H: f32 = 6.0;
 /// by the experience; the hands (`hand`) over this player's money; the
 /// class's keys (`abilities`, which says which box the pointer rests on)
 /// over the health bar with its number inside and the experience bar; the
-/// magazine; and the four items (`items`). No words but numbers: what a
+/// magazine; and the six items (`items`). No words but numbers: what a
 /// piece means is its tooltip.
 #[allow(clippy::too_many_arguments)]
 pub fn hero_panel(

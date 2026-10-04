@@ -15,7 +15,7 @@ use bims::module::{ITEM_SLOTS, Module, ModuleKind};
 impl World {
     // --- reading -------------------------------------------------------------
 
-    /// The four item slots of crew member `who`, empty past the crew.
+    /// The six item slots of crew member `who`, empty past the crew.
     pub fn items_of(&self, who: u32) -> [Option<Module>; ITEM_SLOTS] {
         if who < self.aboard.crew_count() {
             self.aboard.room.gear(who as usize).items

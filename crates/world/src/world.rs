@@ -547,7 +547,7 @@ pub enum Command {
         from: GearSource,
     },
     /// Use the item in that player's own Bim's item slot `item` (nought
-    /// to three, the keys 1 to 4; October 2026) at the crew's room point
+    /// to five, the keys 1 to 6; October 2026) at the crew's room point
     /// `(x, y)`, room units: a *Blink Drive* blinks there
     /// ([`World::can_use_item`]). In a mission only.
     UseItem {
@@ -566,7 +566,7 @@ pub enum Command {
         kind: u32,
     },
     /// [`Command::Equip`] onto one slot named: what an item dragged onto
-    /// one of the four item boxes asks, the item there going into the
+    /// one of the six item boxes asks, the item there going into the
     /// armory (October 2026).
     EquipAt {
         slot: u32,
