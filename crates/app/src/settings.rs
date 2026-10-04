@@ -22,7 +22,7 @@ use bevy_egui::egui;
 use crate::keys::{Action, EDGE_SCROLL_MAX, Keys, NET_BUFFER_MAX, Profile};
 use crate::names::{
     LOAD_GUEST, MENU_BUTTON, NET_BUFFER_HINT, PAUSE_BUTTON, RESTART_BUTTON, RESTART_GUEST,
-    RESTART_NONE, RESUME_BUTTON,
+    RESTART_NONE, RESUME_BUTTON, RETRY_BUTTON, RETRY_GUEST, RETRY_HINT, RETRY_NONE,
 };
 use crate::save::{self, Request, Saves};
 use crate::sound::Mix;
@@ -41,6 +41,9 @@ pub struct Allowed {
     pub save: bool,
     pub load: bool,
     pub restart: bool,
+    /// Whether the mission running can be played again from its start
+    /// (`save::MissionStart`): the host's, and only in a mission.
+    pub retry: bool,
     /// Whether there is a game to speak of at all: none on the menu,
     /// the setup and in the lobby, where the sheet is the settings alone
     /// and the save, load and restart row is not shown.
@@ -57,6 +60,7 @@ impl Allowed {
         save: false,
         load: false,
         restart: false,
+        retry: false,
         game: false,
         paused: None,
     };
@@ -68,6 +72,7 @@ impl Allowed {
             save: playing,
             load: !guest,
             restart: playing && !guest,
+            retry: false,
             game: true,
             paused: None,
         }
@@ -251,6 +256,23 @@ fn menu(
     // a page opens, so a file from another run is there.
     if allowed.game {
         game_row(ui, sheet, saves, allowed);
+        ui.add_space(8.0);
+        // The mission again from where it began, at once: a mission is
+        // minutes, not the run Restart throws away.
+        let why_not = if allowed.load {
+            RETRY_NONE
+        } else {
+            RETRY_GUEST
+        };
+        let retry = ui
+            .add_enabled(allowed.retry, egui::Button::new(RETRY_BUTTON))
+            .on_hover_text(RETRY_HINT)
+            .on_disabled_hover_text(why_not);
+        if retry.clicked() {
+            saves.note = None;
+            *sheet = None;
+            request = Some(Request::Retry);
+        }
         ui.add_space(8.0);
         // Out of the game and back to the start menu: the world is left
         // unsaved, and with company this end leaves the room.

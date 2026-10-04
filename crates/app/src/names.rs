@@ -545,6 +545,14 @@ pub const RESTART_GUEST: &str = "Only the host can restart the run.";
 /// The line the log carries after a restart, so the screen says what
 /// happened as well as showing it.
 pub const RESTART_DONE: &str = "Back at the beginning.";
+/// The Esc sheet's Retry mission: the button, why it is greyed, and the
+/// log's line after it.
+pub const RETRY_BUTTON: &str = "Retry mission";
+pub const RETRY_HINT: &str =
+    "Play this mission again from where it began. Everything since is lost.";
+pub const RETRY_NONE: &str = "No mission is running.";
+pub const RETRY_GUEST: &str = "Only the host can retry the mission.";
+pub const RETRY_DONE: &str = "Back at the start of the mission.";
 /// The host's load does not fit the room.
 pub fn load_players(saved: u32, here: u32) -> String {
     format!("That game was saved for {saved} players; {here} are here.")

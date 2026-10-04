@@ -31,7 +31,7 @@ use crate::crew::{CLICK_SLOP, CrewPanels, Near, Open, TrayAsk, TrayView};
 use crate::keys::{Action, Keys};
 use crate::names::*;
 use crate::net::{CHECK_EVERY, Choice, Event, Online, PING_SECONDS, Packet, Spot};
-use crate::save::{Beginning, Request};
+use crate::save::{Beginning, MissionStart, Request};
 use crate::scene::WorldCanvas;
 use crate::settings::{Allowed, Sheet, settings_sheet};
 use crate::shapes::View;
@@ -400,7 +400,8 @@ impl Plugin for GamePlugin {
         app.add_systems(OnEnter(Screen::Game), open)
             .add_systems(EguiPrimaryContextPass, frame.run_if(in_state(Screen::Game)))
             .add_systems(EguiPrimaryContextPass, over.run_if(in_state(Screen::Over)))
-            .add_systems(Update, hide_the_cursor);
+            .add_systems(Update, hide_the_cursor)
+            .init_resource::<MissionStart>();
     }
 }
 
@@ -972,6 +973,33 @@ fn remember_beginning(commands: &mut Commands, session: &Session) {
     if let Some(text) = session.save() {
         commands.insert_resource(crate::save::Beginning(text));
     }
+    // A run opened has no mission kept yet: its first is the next frame's.
+    commands.insert_resource(MissionStart::default());
+}
+
+/// The mission as it began, kept for the Esc sheet's Retry mission: the
+/// world written out the first frame a mission is seen running — its own
+/// clock gone back or the day moved on is another one begun. The clock's
+/// alone (the host, or a game of one), since a retry is a world replaced
+/// and sent round as a load is; nothing kept between missions.
+fn remember_mission(kept: &mut MissionStart, session: &Session, clock: bool) {
+    let Some(game) = session
+        .game
+        .as_ref()
+        .filter(|g| clock && g.world.in_mission())
+    else {
+        *kept = MissionStart::default();
+        return;
+    };
+    let now = (game.world.day(), game.world.mission_steps());
+    let begun = match kept.seen {
+        Some((day, steps)) => day != now.0 || now.1 < steps,
+        None => true,
+    };
+    if begun || kept.save.is_none() {
+        kept.save = session.save();
+    }
+    kept.seen = Some(now);
 }
 
 impl GameScreen {
@@ -1069,8 +1097,9 @@ fn frame(
     mut online: ResMut<Online>,
     // The run as it opened, for the Esc sheet's Restart (feature 79).
     // None where there was no world to keep, which is nowhere this
-    // screen runs — held as an option rather than assumed.
-    beginning: Option<Res<Beginning>>,
+    // screen runs — held as an option rather than assumed. Beside it the
+    // mission as it began, for Retry mission.
+    (beginning, mut mission_start): (Option<Res<Beginning>>, ResMut<MissionStart>),
     // The canvas between the panels, which Bevy draws (feature 97).
     mut world_canvas: WorldCanvas,
     // What the host's profile opened for the run (feature 106): the
@@ -1103,6 +1132,7 @@ fn frame(
     if loading.busy() || loading.begin_deferred(&screen.net, session) {
         return Ok(());
     }
+    remember_mission(&mut mission_start, session, screen.net.is_clock());
     // The log's clock first: a line said this frame is stamped with it.
     screen.log.tick(now);
 
@@ -3466,6 +3496,7 @@ fn frame(
         &mut bindings,
         &mut screen.saves,
         allowed,
+    allowed.retry = mission_start.save.is_some();
     );
     match asked {
         // Back to the start menu: out of the room with company, and the
@@ -3502,7 +3533,7 @@ fn frame(
         // round it — and with company the same world sent on, so the
         // whole room goes back to the beginning together rather than one
         // end alone. What it reads is the only difference.
-        Some(request @ (Request::Load(_) | Request::Restart)) => {
+        Some(request @ (Request::Load(_) | Request::Restart | Request::Retry)) => {
             let text = match &request {
                 Request::Load(path) => crate::save::read(path),
                 _ => match &beginning {
@@ -3512,6 +3543,11 @@ fn frame(
             };
             let read = text.and_then(|text| {
                 if let Some(here) = online.room_size()
+                // The mission as it began, kept by `remember_mission`.
+                Request::Retry => mission_start
+                    .save
+                    .clone()
+                    .ok_or_else(|| RETRY_NONE.to_string()),
                     && ship::save::players_of(&text) != Some(here)
                 {
                     let saved = ship::save::players_of(&text).unwrap_or(0);
@@ -3543,8 +3579,26 @@ fn frame(
                         // way a `BIMS_AUTO` one says a world was sent:
                         // a picture cannot tell a restart from a world
                         // that never moved, and `./check` reads this.
+                    // A retry's world is its mission's beginning already,
+                    // kept as it is; any other world replaced begins its
+                    // mission again where it stands.
+                    if request == Request::Retry {
+                        mission_start.seen = loaded
+                            .game
+                            .as_ref()
+                            .map(|g| (g.world.day(), g.world.mission_steps()));
+                    } else {
+                        *mission_start = MissionStart::default();
+                    }
                         if crate::dev::smoke_frames().is_some() {
                             let was = session.game.as_ref().map_or(0, |g| g.world.steps);
+                    if request == Request::Retry {
+                        if crate::dev::smoke_frames().is_some() {
+                            let was = session.game.as_ref().map_or(0, |g| g.world.steps);
+                            println!("retry: back at {loaded_steps} steps, from {was}");
+                        }
+                        next.log.push(RETRY_DONE.into());
+                    }
                             let back = loaded_steps;
                             println!("restart: back at {back} steps, from {was}");
                         }

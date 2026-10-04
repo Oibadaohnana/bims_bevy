@@ -41,6 +41,18 @@ pub const DEFAULT_NAME: &str = "game";
 #[derive(Resource)]
 pub struct Beginning(pub String);
 
+/// The mission as it began: the world written out the first frame a
+/// mission was running (`screens::game::remember_mission`), read back by
+/// the Esc sheet's Retry mission the way [`Beginning`] is by Restart. The
+/// host's and a game of one's alone; nothing between missions. `seen`
+/// is the day and the mission's own clock when it was last looked at: a
+/// clock gone back, or another day, is another mission begun.
+#[derive(Resource, Default)]
+pub struct MissionStart {
+    pub save: Option<String>,
+    pub seen: Option<(u32, u64)>,
+}
+
 /// One file on disk.
 #[derive(Clone, Debug)]
 pub struct Entry {
@@ -60,6 +72,9 @@ pub enum Request {
     /// Play the run from the beginning again: the world [`Beginning`]
     /// kept at the open, read back the way a load is (feature 79).
     Restart,
+    /// Play the mission again from its start: the world [`MissionStart`]
+    /// kept as it began, read back the same way.
+    Retry,
     /// Leave the game for the start menu, unsaved — and the room, with
     /// company.
     ToMenu,
