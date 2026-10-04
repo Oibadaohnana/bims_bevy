@@ -741,7 +741,7 @@ fn destination_card(
 
 /// Whether the map's bar puts trips to the crew now: between missions,
 /// with no relic being chosen. Then the Propose key is the bar's, and
-/// the ultimate it shares Space with is not read.
+/// the reload it shares Space with is not read.
 pub fn proposing(world: &World) -> bool {
     !world.in_mission() && world.relic_choice().is_none()
 }
@@ -1062,6 +1062,10 @@ pub fn departure_window(
 /// (the game screen's `veiled`), only the site's backdrop. Not a modal:
 /// the loadouts and the skill points stay in reach, and the world hears
 /// them while it waits.
+///
+/// `hotkey` is the Propose key (Space; October 2026) — whether it went
+/// down this frame, and its name: it presses this player's button, and
+/// the button says so.
 pub fn ready_window(
     ctx: &egui::Context,
     world: &World,
@@ -1069,6 +1073,7 @@ pub fn ready_window(
     orders: &mut Vec<Order>,
     name: &dyn Fn(u32) -> String,
     colour: &dyn Fn(u32) -> egui::Color32,
+    hotkey: (bool, &str),
 ) {
     if !world.in_mission() || !world.awaiting_ready() {
         return;
@@ -1160,9 +1165,10 @@ pub fn ready_window(
                     } else {
                         (READY_YES, true, READY_GREEN, egui::Color32::WHITE)
                     };
+                    let (pressed, key) = hotkey;
                     let press = ui.add(
                         egui::Button::new(
-                            egui::RichText::new(word.to_uppercase())
+                            egui::RichText::new(with_key(word, key).to_uppercase())
                                 .strong()
                                 .size(18.0)
                                 .color(ink),
@@ -1170,7 +1176,7 @@ pub fn ready_window(
                         .fill(fill)
                         .min_size(egui::vec2(220.0, 42.0)),
                     );
-                    if press.clicked() {
+                    if press.clicked() || pressed {
                         orders.push(Order::Ready(yes));
                     }
                 });

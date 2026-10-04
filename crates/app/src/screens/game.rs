@@ -2095,6 +2095,19 @@ fn frame(
         !ctx.egui_wants_keyboard_input() && screen.sheet.is_none(),
     );
     let keys = !ctx.egui_wants_keyboard_input() && screen.sheet.is_none();
+    // The windows that read the Propose key (Space) as their button —
+    // the fight-won window's *Back to ship* and the ready check's
+    // *Ready* (October 2026) — and so not the reload or a slot sharing
+    // it while they are up. (The map's proposal bar is `map_proposing`.)
+    let ready_up = session
+        .game
+        .as_ref()
+        .is_some_and(|g| g.world.in_mission() && g.world.awaiting_ready());
+    let fight_won_up = session
+        .game
+        .as_ref()
+        .is_some_and(|g| screen.fight.showing(&g.world));
+    let space_taken = ready_up || fight_won_up;
     // The floor's chart (October 2026, `floormap`): the world map, the
     // start at the bottom and the Machine Heart at the top. Its marks are
     // the world's, worked out with the list when the run moves on, and it
@@ -2534,7 +2547,9 @@ fn frame(
                 sprint = crate::keys::sprint_held(i);
                 dodge_down = crate::keys::dodge_held(i);
                 reload = keys_now.pressed(i, Action::Reload)
-                    && crate::keys::plain_or_sprinting(i.modifiers);
+                    && crate::keys::plain_or_sprinting(i.modifiers)
+                    && !(space_taken
+                        && keys_now.key(Action::Reload) == keys_now.key(Action::Propose));
             });
         }
         let dodge = dodge_down && !screen.dodge_was;
@@ -2639,12 +2654,6 @@ fn frame(
             .game
             .as_ref()
             .is_some_and(|g| super::worldmap::proposing(&g.world));
-    // And the fight-won window up, which reads the Propose key (Space)
-    // as its *Back to ship* the same way.
-    let fight_won_up = session
-        .game
-        .as_ref()
-        .is_some_and(|g| screen.fight.showing(&g.world));
     if keys {
         ctx.input(|i| {
             if let Some(game) = &mut session.game {
@@ -2762,8 +2771,8 @@ fn frame(
                 for action in Action::ABILITIES {
                     // The map up between missions reads the Propose key
                     // (Space, October 2026) and not the slot sharing it.
-                    // So does the fight-won window.
-                    if (map_proposing || fight_won_up)
+                    // So do the fight-won window and the ready check.
+                    if (map_proposing || space_taken)
                         && keys_now.key(action) == keys_now.key(Action::Propose)
                     {
                         continue;
@@ -3331,10 +3340,21 @@ fn frame(
     // not, since it is everybody's question.
     super::worldmap::departure_window(&ctx, world, local, &mut orders, &crew_name);
     // And the ready check, while a mission with a fight in it waits for
-    // every player's *Ready*.
-    super::worldmap::ready_window(&ctx, world, local, &mut orders, &crew_name, &|slot| {
-        slot_colour(&session.crew_tints, slot)
-    });
+    // every player's *Ready*. Space (the Propose key, October 2026)
+    // presses its button.
+    let ready_pressed = keys
+        && ctx.input(|i| {
+            crate::keys::plain_or_sprinting(i.modifiers) && keys_now.pressed(i, Action::Propose)
+        });
+    super::worldmap::ready_window(
+        &ctx,
+        world,
+        local,
+        &mut orders,
+        &crew_name,
+        &|slot| slot_colour(&session.crew_tints, slot),
+        (ready_pressed, keys_now.key(Action::Propose).name()),
+    );
     // And a relic being chosen (feature 106): the reward screen after an
     // elite's site cleared, over the map.
     // The others as the two windows over the map show them: their
@@ -6013,7 +6033,7 @@ fn ability_box(ui: &mut egui::Ui, one: &AbilityBox) -> (bool, bool) {
             );
         }
         // The key, in the top left, over a shadow so it reads on the
-        // picture — a word of a key (Space, the ultimate's) smaller, so
+        // picture — a word of a key (Space, rebound there) smaller, so
         // it clears the rank-up's plus in the top right.
         let key_font = egui::FontId::proportional(if one.key.chars().count() > 3 {
             11.0
@@ -7002,14 +7022,14 @@ mod class_key_tests {
         // A classless crew member has no keys, so it has no boxes.
         assert!(ability_boxes(&world, 2, &keys).is_empty());
 
-        // The engineer (task 127): four ranked abilities on Q E F Space,
+        // The engineer (task 127): four ranked abilities on Q E F R,
         // the key each is bound to, nothing learnt at rank nought — the
         // ultimate waiting on the sixth level — and a stock counted once a
         // rank is bought.
         let boxes = ability_boxes(&world, 0, &keys);
         assert_eq!(boxes.len(), 4);
         let keys_named: Vec<&str> = boxes.iter().map(|b| b.key.as_str()).collect();
-        assert_eq!(keys_named, vec!["Q", "E", "F", "Space"]);
+        assert_eq!(keys_named, vec!["Q", "E", "F", "R"]);
         let names: Vec<&str> = boxes.iter().map(|b| b.name).collect();
         assert_eq!(
             names,

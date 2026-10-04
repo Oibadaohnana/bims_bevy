@@ -1477,7 +1477,7 @@ impl CrewPanels {
             theme::question_mark(ui, RANKED_SKILLS_TIP);
         });
         ui.add_space(4.0);
-        // In the hero panel's order, by their keys (Q E F Space).
+        // In the hero panel's order, by their keys (Q E F R).
         for slot in Action::LAID_OUT
             .into_iter()
             .filter_map(Action::ability_slot)

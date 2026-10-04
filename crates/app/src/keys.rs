@@ -4,9 +4,9 @@
 //! rather than a key written into the screen, so the Controls page of the
 //! Esc sheet can rebind any of them: click the key beside an action, press
 //! the one you want, Esc to think again. Two actions may share a key —
-//! Turn shares R with the reload by default (task 123; the fourth ability
-//! slot had R until October 2026), and is read only in the yard and the
-//! armoury, where no gun is reloaded —
+//! Turn shares R with the ultimate by default (task 123; the reload had
+//! R from October 2026 until it went to Space), and is read only in the
+//! yard, where no ability is used —
 //! so nothing refuses a binding; the page says where a key is used
 //! twice. Esc itself is not an action: it is what closes the
 //! sheet and cancels a rebind, and a key that could be bound away from
@@ -45,9 +45,11 @@ pub enum Action {
     Map,
     /// **Propose** (October 2026): on the map between missions, the
     /// place picked on the chart or the list put to the crew, or — with
-    /// nothing new picked — a yes to the trip on the table. On Space,
-    /// shared with the ultimate, which the map up between missions does
-    /// not read (as Turn shares R with the reload).
+    /// nothing new picked — a yes to the trip on the table; and the
+    /// fight-won window's *Back to ship* and the ready check's *Ready*.
+    /// On Space, shared with the reload (the ultimate's until October
+    /// 2026), which none of those three reads while it is up (as Turn
+    /// shares R with the ultimate).
     Propose,
     /// Head up or north up.
     NorthUp,
@@ -71,9 +73,8 @@ pub enum Action {
     /// Recruit them, or let them go. On L since the fourth ability slot
     /// took R (task 123).
     Recruit,
-    /// Turn the part in hand in the yard, or a thing in the armoury. Read
-    /// only there, so it shares R with the reload (the fourth ability
-    /// slot until October 2026; task 123).
+    /// Turn the part in hand in the yard. Read only there, so it shares R
+    /// with the ultimate (task 123; with the reload while it was on R).
     Turn,
     /// Open and close the inventory of the crew member you steer.
     Inventory,
@@ -93,7 +94,8 @@ pub enum Action {
     /// pointer, a tank raises his Reflect Barrier.
     Ability3,
     /// The fourth, the class's ultimate: on R from task 123, on G from
-    /// October 2026, when R went to the reload, and on Space since.
+    /// October 2026, when R went to the reload, then on Space, and on R
+    /// again since the reload took Space.
     Ability4,
     /// **Attack** (feature 84): arms the pointer, and the next click on
     /// the deck puts an attack banner down there for the bots that
@@ -133,8 +135,8 @@ pub enum Action {
     /// Pressed again, it shuts.
     CharacterSheet,
     /// **Reload** (October 2026): the Bim you steer reloads the magazine
-    /// in its hand now, shots left in it or not. On R since October 2026
-    /// (on T until then, while R was the ultimate's).
+    /// in its hand now, shots left in it or not. On Space since October
+    /// 2026 (on T while R was the ultimate's, then on R while Space was).
     Reload,
     /// **Ping** (October 2026): a mark in this player's colour on
     /// everybody's screen where the pointer is, on the deck or the floor's
@@ -155,7 +157,7 @@ impl Action {
     ];
 
     /// The four ability slots in the order the hero panel and the Skills
-    /// tab lay them out, by their keys Q, E, F and Space (October 2026,
+    /// tab lay them out, by their keys Q, E, F and R (October 2026,
     /// when the second slot went from C to F, and so third in the row).
     pub const LAID_OUT: [Action; 4] = [
         Action::Ability1,
@@ -204,8 +206,9 @@ impl Action {
         use egui::Key;
         match self {
             Action::Map => Key::M,
-            // Space, the ultimate's: the map up between missions reads
-            // this and not the ultimate.
+            // Space, the reload's: the map up between missions, the
+            // fight-won window and the ready check read this and not the
+            // reload.
             Action::Propose => Key::Space,
             Action::NorthUp => Key::N,
             // G since October 2026: Space is the ultimate's.
@@ -219,8 +222,7 @@ impl Action {
             Action::WalkRight => Key::D,
             // C and R were the second and fourth ability slots (task
             // 123), so Select went to F1 and Recruit to L. Turn keeps
-            // R: it is read only in the yard and the armoury, where no
-            // gun is reloaded (R is the reload since October 2026).
+            // R: it is read only in the yard, where no ability is used (R is the ultimate since October 2026).
             Action::Select => Key::F1,
             Action::Recruit => Key::L,
             Action::Turn => Key::R,
@@ -233,8 +235,9 @@ impl Action {
             // The ultimate is Space and the reload R (October 2026): the
             // ultimate went from R to G, the held revive to T, which the
             // reload had, and then the ultimate to Space and the remote
-            // trigger to G.
-            Action::Ability4 => Key::Space,
+            // trigger to G; and then the reload to Space and the ultimate
+            // back to R.
+            Action::Ability4 => Key::R,
             Action::Attack => Key::X,
             Action::Retreat => Key::Y,
             // G is the held revive and H the medkit, so the medic's carry
@@ -247,7 +250,7 @@ impl Action {
             Action::Item3 => Key::Num3,
             Action::Item4 => Key::Num4,
             Action::CharacterSheet => Key::K,
-            Action::Reload => Key::R,
+            Action::Reload => Key::Space,
             Action::Ping => Key::C,
         }
     }
@@ -292,7 +295,7 @@ impl Action {
         match self {
             Action::Map => "Switch between the ship and the map.",
             Action::Propose => {
-                "On the map between missions: put the place you picked on the chart or the list to the crew, or, with nothing new picked, accept the trip on the table. Read only there, so it shares Space with the ultimate."
+                "On the map between missions: put the place you picked on the chart or the list to the crew, or, with nothing new picked, accept the trip on the table. Also leaves a won fight for the ship and says you are ready at the ready check. Read only there, so it shares Space with the reload."
             }
             Action::NorthUp => "Turn the view head up or north up.",
             Action::Detonate => {
@@ -310,7 +313,7 @@ impl Action {
             }
             Action::Recruit => "Recruit the crew member you steer, or let them go.",
             Action::Turn => {
-                "Turn the part in hand in the yard, or a thing in the armoury. Read only there, so it shares R with the reload."
+                "Turn the part in hand in the yard. Read only there, so it shares R with the ultimate."
             }
             Action::Inventory => "Open and close the inventory of the crew member you steer.",
             Action::Ability1 => {
@@ -399,6 +402,12 @@ const DEFAULTS_ENV: &str = "BIMS_HOTKEYS";
 const DEFAULTS_FILE: &str = "keys.ron";
 /// The name the profile in use is kept under in the player's file.
 const PROFILE_NAME: &str = "profile";
+/// The line a file of the player's own keys written since the reload
+/// took Space and the ultimate R (October 2026) carries, `keys-version=2`:
+/// a file without it is from before, and its ultimate on Space and
+/// reload on R are the old defaults, moved rather than kept.
+const VERSION_NAME: &str = "keys-version";
+const VERSION: u32 = 2;
 
 /// Whose bindings are in play (October 2026): the player's own, kept on
 /// this computer in [`path`] and written as they change, or the game's
@@ -616,6 +625,7 @@ impl Keys {
     pub fn to_text(self) -> String {
         let mut text = format!("{PROFILE_NAME}={}\n", self.profile.name());
         if self.mine_kept {
+            text.push_str(&format!("{VERSION_NAME}={VERSION}\n"));
             for (action, key) in Action::ALL.iter().zip(self.mine) {
                 text.push_str(&format!("{}={}\n", action.name(), key.name()));
             }
@@ -685,6 +695,16 @@ impl Keys {
         // line, a profile named or not — has the second ability slot on
         // C: it goes to F rather than sharing C with the ping.
         let old_ping = !text.lines().any(|l| l.trim_start().starts_with("ping="));
+        // And one from before the reload took Space and the ultimate R
+        // (October 2026) — no version line — has those two the other way
+        // round: an ultimate on Space and a reload on R go to their new
+        // keys rather than the reload sharing R with Turn and the ultimate
+        // Space with Propose. A key moved off them keeps its word.
+        let old_reload = !text.lines().any(|l| {
+            l.split_once('=').is_some_and(|(n, v)| {
+                n.trim() == VERSION_NAME && v.trim().parse::<u32>().is_ok_and(|v| v >= VERSION)
+            })
+        });
         let mut profile = None;
         let mut bound = false;
         for line in text.lines() {
@@ -752,6 +772,14 @@ impl Keys {
                     continue;
                 }
                 if old_ping && action == Action::Ability2 && key == egui::Key::C {
+                    continue;
+                }
+                if old_reload
+                    && matches!(
+                        (action, key),
+                        (Action::Ability4, egui::Key::Space) | (Action::Reload, egui::Key::R)
+                    )
+                {
                     continue;
                 }
                 keys.set(action, key);
@@ -930,7 +958,7 @@ mod tests {
     fn before_profiles(keys: Keys) -> String {
         keys.to_text()
             .lines()
-            .filter(|l| !l.starts_with("profile="))
+            .filter(|l| !l.starts_with("profile=") && !l.starts_with("keys-version="))
             .map(|l| format!("{l}\n"))
             .collect()
     }
@@ -946,25 +974,26 @@ mod tests {
         // pause was, until October 2026), and nothing else's.
         assert_eq!(keys.key(Action::Detonate), egui::Key::G);
         assert!(keys.shared_with(Action::Detonate).is_empty());
-        // The four ability slots are Q, F, E and Space (task 123; the
-        // ultimate left R for G and G for Space in October 2026, and the
-        // second slot C for F, C being the ping's since), none bound to
-        // anything else. R is the reload, shared with Turn, which only
-        // the yard and the armoury read.
+        // The four ability slots are Q, F, E and R (task 123; the
+        // ultimate left R for G and G for Space in October 2026, and Space
+        // for R again, and the second slot C for F, C being the ping's
+        // since), none but the ultimate bound to anything else: R is
+        // shared with Turn, which only the yard reads.
         assert_eq!(keys.key(Action::Ability1), egui::Key::Q);
         assert_eq!(keys.key(Action::Ability2), egui::Key::F);
         assert_eq!(keys.key(Action::Ability3), egui::Key::E);
-        assert_eq!(keys.key(Action::Ability4), egui::Key::Space);
+        assert_eq!(keys.key(Action::Ability4), egui::Key::R);
         assert!(keys.shared_with(Action::Ability1).is_empty());
         assert!(keys.shared_with(Action::Ability2).is_empty());
         assert!(keys.shared_with(Action::Ability3).is_empty());
         assert_eq!(keys.key(Action::Ping), egui::Key::C);
         assert!(keys.shared_with(Action::Ping).is_empty());
-        // The ultimate shares Space with Propose, which only the map
-        // between missions reads (October 2026).
-        assert_eq!(keys.shared_with(Action::Ability4), vec![Action::Propose]);
-        assert_eq!(keys.key(Action::Reload), egui::Key::R);
-        assert_eq!(keys.shared_with(Action::Reload), vec![Action::Turn]);
+        assert_eq!(keys.shared_with(Action::Ability4), vec![Action::Turn]);
+        // The reload shares Space with Propose, which only the map
+        // between missions, the fight-won window and the ready check
+        // read (October 2026).
+        assert_eq!(keys.key(Action::Reload), egui::Key::Space);
+        assert_eq!(keys.shared_with(Action::Reload), vec![Action::Propose]);
         // So Select left C for F1 and Recruit left R for L; Turn stays.
         assert_eq!(keys.key(Action::Select), egui::Key::F1);
         assert_eq!(keys.key(Action::Recruit), egui::Key::L);
@@ -1005,9 +1034,9 @@ mod tests {
         changed.set(Action::Inventory, egui::Key::I);
         changed.set(Action::WalkUp, egui::Key::ArrowUp);
         let text = changed.to_text();
-        // The profile's line, a line an action, the edge-scroll speed's
-        // and the network buffer's.
-        assert_eq!(text.lines().count(), Action::ALL.len() + 3);
+        // The profile's line, the version's, a line an action, the
+        // edge-scroll speed's and the network buffer's.
+        assert_eq!(text.lines().count(), Action::ALL.len() + 4);
         assert!(text.starts_with("profile=mine\n"));
         assert!(text.contains("inventory=I\n"));
         assert_eq!(Keys::from_text(&text), changed);
@@ -1072,7 +1101,7 @@ mod tests {
         assert_eq!(keys.key(Action::Ability1), egui::Key::G);
         assert_eq!(keys.key(Action::Ability3), egui::Key::H);
         assert_eq!(keys.key(Action::Ability2), egui::Key::F);
-        assert_eq!(keys.key(Action::Ability4), egui::Key::Space);
+        assert_eq!(keys.key(Action::Ability4), egui::Key::R);
         let text = keys.to_text();
         assert!(text.contains("ability-1=G\n") && text.contains("ability-3=H\n"));
         assert!(!text.contains("class-"));
@@ -1125,18 +1154,17 @@ mod tests {
         assert_eq!(Keys::from_text(&keys.to_text()), keys);
     }
 
-    /// The reload is R and the revive T (October 2026, when the ultimate
-    /// left R); a file written before — the ultimate on R, the revive on
-    /// G, the reload on T or not named, the trigger on Space — is read
-    /// with them all on their new keys, a key the player had moved off
-    /// them kept, and a file written since keeps its word, even an
-    /// ultimate put back on R.
+    /// The reload left T and the revive took it (October 2026, when the
+    /// ultimate first left R); a file written before — the ultimate on R,
+    /// the revive on G, the reload on T or not named, the trigger on
+    /// Space — is read with them all on today's keys, a key the player
+    /// had moved off them kept, and a file written since keeps its word.
     #[test]
-    fn the_reload_is_r_and_an_old_file_follows() {
+    fn the_reload_left_t_and_an_old_file_follows() {
         let keys = Keys::default();
-        assert_eq!(keys.key(Action::Reload), egui::Key::R);
+        assert_eq!(keys.key(Action::Reload), egui::Key::Space);
         assert_eq!(keys.key(Action::Revive), egui::Key::T);
-        assert_eq!(keys.shared_with(Action::Ability4), vec![Action::Propose]);
+        assert_eq!(keys.shared_with(Action::Ability4), vec![Action::Turn]);
         assert!(keys.shared_with(Action::Revive).is_empty());
         let mut before = keys;
         before.set(Action::Ability4, egui::Key::R);
@@ -1157,7 +1185,7 @@ mod tests {
         let moved = Keys::from_text("ability-4=Z\nrevive=J\nreload=T\n");
         assert_eq!(moved.key(Action::Ability4), egui::Key::Z);
         assert_eq!(moved.key(Action::Revive), egui::Key::J);
-        assert_eq!(moved.key(Action::Reload), egui::Key::R);
+        assert_eq!(moved.key(Action::Reload), egui::Key::Space);
         let mut since = keys;
         since.set(Action::Ability4, egui::Key::R);
         since.set(Action::Reload, egui::Key::J);
@@ -1165,14 +1193,15 @@ mod tests {
         assert_eq!(Keys::from_text(&since.to_text()), since);
     }
 
-    /// The ultimate is Space and the remote trigger G (October 2026); a
-    /// file written while the ultimate was G and the trigger Space is
-    /// read with the two swapped, a key the player had moved off them
-    /// kept, and a file written since keeps its word.
+    /// The remote trigger is G (October 2026, when the ultimate took
+    /// Space for a while); a file written while the ultimate was G and
+    /// the trigger Space is read with the two on today's keys, a key the
+    /// player had moved off them kept, and a file written since keeps
+    /// its word.
     #[test]
-    fn the_ultimate_is_space_the_trigger_g_and_an_old_file_follows() {
+    fn the_trigger_is_g_and_an_old_file_follows() {
         let keys = Keys::default();
-        assert_eq!(keys.key(Action::Ability4), egui::Key::Space);
+        assert_eq!(keys.key(Action::Ability4), egui::Key::R);
         assert_eq!(keys.key(Action::Detonate), egui::Key::G);
         let mut before = keys;
         before.set(Action::Ability4, egui::Key::G);
@@ -1188,6 +1217,38 @@ mod tests {
         since.set(Action::Ability4, egui::Key::G);
         since.set(Action::Detonate, egui::Key::J);
         assert_eq!(Keys::from_text(&since.to_text()), since);
+    }
+
+    /// The reload is Space and the ultimate R (October 2026); a file of
+    /// the player's own from before — no version line, the ultimate on
+    /// Space and the reload on R — is read with the two swapped, a key
+    /// the player had moved off them kept, and a file written since keeps
+    /// its word, even the two put back the old way.
+    #[test]
+    fn the_reload_is_space_the_ultimate_r_and_an_old_file_follows() {
+        let keys = Keys::default();
+        assert_eq!(keys.key(Action::Reload), egui::Key::Space);
+        assert_eq!(keys.key(Action::Ability4), egui::Key::R);
+        let mut before = keys;
+        before.set(Action::Ability4, egui::Key::Space);
+        before.set(Action::Reload, egui::Key::R);
+        before.set(Action::Inventory, egui::Key::I);
+        let old: String = before
+            .to_text()
+            .lines()
+            .filter(|l| !l.starts_with("keys-version="))
+            .map(|l| format!("{l}\n"))
+            .collect();
+        let mut want = keys;
+        want.set(Action::Inventory, egui::Key::I);
+        assert_eq!(Keys::from_text(&old), want);
+        let moved = Keys::from_text("profile=mine\nability-4=Z\nreload=R\n");
+        assert_eq!(moved.key(Action::Ability4), egui::Key::Z);
+        assert_eq!(moved.key(Action::Reload), egui::Key::Space);
+        let moved = Keys::from_text("profile=mine\nability-4=Space\nreload=J\n");
+        assert_eq!(moved.key(Action::Ability4), egui::Key::R);
+        assert_eq!(moved.key(Action::Reload), egui::Key::J);
+        assert_eq!(Keys::from_text(&before.to_text()), before);
     }
 
     /// The items are 1 to 4 (October 2026, where the quickselect was) and
@@ -1271,12 +1332,12 @@ mod tests {
         assert_eq!(keys.rank_up_asked(&q, none), None);
         let e = [down(egui::Key::E, ctrl)];
         assert_eq!(keys.rank_up_asked(&e, ctrl), Some(Action::Ability3));
-        let space = [down(egui::Key::Space, ctrl)];
-        assert_eq!(keys.rank_up_asked(&space, ctrl), Some(Action::Ability4));
-        // R is the reload now and G the remote trigger, no slot's:
-        // Ctrl and either ranks nothing up.
         let r = [down(egui::Key::R, ctrl)];
-        assert_eq!(keys.rank_up_asked(&r, ctrl), None);
+        assert_eq!(keys.rank_up_asked(&r, ctrl), Some(Action::Ability4));
+        // Space is the reload now and G the remote trigger, no slot's:
+        // Ctrl and either ranks nothing up.
+        let space = [down(egui::Key::Space, ctrl)];
+        assert_eq!(keys.rank_up_asked(&space, ctrl), None);
         let g = [down(egui::Key::G, ctrl)];
         assert_eq!(keys.rank_up_asked(&g, ctrl), None);
         // A key no slot is on asks nothing.
@@ -1418,7 +1479,7 @@ mod tests {
         let old = Keys::read("inventory=I\nreload=T\nability-4=R\n", defaults);
         assert_eq!(old.profile(), Profile::Mine);
         assert_eq!(old.key(Action::Inventory), egui::Key::I);
-        assert_eq!(old.key(Action::Reload), egui::Key::R);
+        assert_eq!(old.key(Action::Reload), egui::Key::Space);
         // A file naming its profile is never moved: an ultimate put on R
         // with the reload kept off a reload line stays.
         let kept = Keys::read("profile=mine\nability-4=R\n", defaults);
