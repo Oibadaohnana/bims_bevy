@@ -74,7 +74,7 @@ const DROID_WAVES_IN_PROBE: u32 = 3;
 /// How long the `defense` command waits between the crew setting down at
 /// a threatened town and the first wave, in minutes of the mission clock
 /// (features 94 and 103): a minute, where the game's own is
-/// `data::DEFENSE_DELAY_STEPS` (twenty, task 111) — the same shortcut as the
+/// `data::DEFENSE_DELAY_STEPS` (five) — the same shortcut as the
 /// machines' reinforcement clock, and for the same reason.
 /// `BIMS_DEFENSE_DELAY=n` says otherwise.
 const DEFENSE_DELAY_IN_PROBE: f64 = 1.0;

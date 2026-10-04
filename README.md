@@ -75,7 +75,7 @@ What a run is, from the lobby to the end of it.
   stands; a system a hop outside the infection is on the **front**, where
   the gear costs more and the machines come stronger. And **every place
   that is neither a trader nor an enemy's is a defence from the first
-  day**: arrive and the machines come for it twenty seconds later. See
+  day**: arrive and the machines come for it five seconds later. See
   [Attack, defend or trade](#attack-defend-or-trade).
 - **Money and gear.** A station's desk sells guns and armour at every
   tier, where the place has the trade, and nothing the ship lives on — no
@@ -316,7 +316,7 @@ ring round its icon and a word under it:
   [The Manufacturers](#the-manufacturers)); from day ten, the machines.
   The moment you arrive the crew are
   put ashore just inside its airlock and a countdown starts along the
-  top — `Prepare: 0:20` — and twenty seconds later the first wave lands,
+  top — `Prepare: 0:05` — and five seconds later the first wave lands,
   at an airlock of the station's (the farthest from yours first, then
   the next, every one but yours in turn) or outside a town's gate, another
   after each is destroyed. You do not fight it alone: the place fields
@@ -2122,7 +2122,7 @@ one thing in the arms at a time, from the lockers to the bench and back.
 - **Defending a town** — since task 111 every place that is neither a
   trader nor an enemy's, from the first day ([Attack, defend or
   trade](#attack-defend-or-trade) has the whole rule). Set down at a
-  town and the machines come for it: twenty seconds later a wave lands
+  town and the machines come for it: five seconds later a wave lands
   outside a gate and walks in, and another after each is destroyed. It is
   the one fight with somebody else on your side — the town's **guard** and
   whatever **mercenaries** live there take arms and fight beside you,

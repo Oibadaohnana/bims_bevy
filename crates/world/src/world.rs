@@ -6448,7 +6448,7 @@ impl World {
     // Every site that is neither a trader nor held by an enemy is
     // **threatened** from the first day (task 111; a town one hop outside
     // the infection, until then), and the first time the crew arrive at one
-    // the machines come for it twenty seconds later. What makes it
+    // the machines come for it five seconds later. What makes it
     // different from every other fight in the game is that it happens
     // **inside one room**: the site's people, its defenders and the
     // machines are all in the residents' room, and the crew are in theirs.

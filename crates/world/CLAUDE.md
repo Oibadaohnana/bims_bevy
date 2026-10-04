@@ -4157,8 +4157,8 @@ about it that differ from the droid step's own `Infestation`:
   strength would be a fight that could be won or lost by leaving.
 - **Every wave arrives.** There is no wave one already standing the way a
   held station has one: the first lands `data::DEFENSE_DELAY_STEPS`
-  after the crew set down — twenty seconds of the mission clock since
-  task 111, time to get the crew where they mean to hold (an hour of it
+  after the crew set down — five seconds of the mission clock (twenty
+  from task 111 to October 2026), time to get the crew where they mean to hold (an hour of it
   until then, time to walk the town, trade and hire) — and the rest `DROID_REINFORCE_STEPS` after the
   last machine of the one before dies. The count and the size are the
   droid step's own formulas.
@@ -5300,7 +5300,7 @@ off its `SystemMemory`). Derived, never saved.
   just inside the site's own airlock (`droid::inside_of(port,
   ASHORE_TILES + 1)`, the arrival's rings, `Aboard::from_station`), each
   snapped by the new **`Game::stand_at`** (`put_for_probe` is it now).
-  `data::DEFENSE_DELAY_STEPS` is **1 200** (twenty seconds at 1×); the
+  `data::DEFENSE_DELAY_STEPS` is **300** (five seconds at 1×; 1 200 until October 2026); the
   first wave's arrival puts everybody back to 1× as any wave's does.
   The gap after a wave is down is `data::DEFENSE_REINFORCE_STEPS`,
   **600** (ten seconds), not an attack's `DROID_REINFORCE_STEPS`

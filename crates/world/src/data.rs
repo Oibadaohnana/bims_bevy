@@ -355,10 +355,11 @@ pub const FRONT_BIAS: i32 = 5;
 
 /// How long after the crew arrive at a site the machines are coming for
 /// the first wave lands, in steps of the **mission clock** (feature 103):
-/// twenty seconds of it at 1× (task 111; it was a minute, 3 600, while
-/// only a town on the front was ever defended) — the prep time, to get
-/// the crew to where they want to stand before the shooting starts.
-pub const DEFENSE_DELAY_STEPS: u64 = 1_200;
+/// five seconds of it at 1× (October 2026, the player's word; it was
+/// twenty, 1 200, since task 111, and a minute, 3 600, while only a town
+/// on the front was ever defended) — the prep time, to get the crew to
+/// where they want to stand before the shooting starts.
+pub const DEFENSE_DELAY_STEPS: u64 = 300;
 /// How long after the last machine of a wave at a site the crew defend
 /// is destroyed the next one lands, in steps of the mission clock: ten
 /// seconds of it at 1×, where an attacked station's waves are

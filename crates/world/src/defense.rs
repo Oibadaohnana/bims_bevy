@@ -3,7 +3,7 @@
 //! Every site that is neither a trader nor held by an enemy is
 //! **threatened** from the first day of a run (task 111; until then only
 //! a friendly town one hop outside the infection was). The first time the
-//! crew arrive at one, a wave lands twenty seconds later and the fight is
+//! crew arrive at one, a wave lands five seconds later and the fight is
 //! on — and it is the one fight in the game that happens **inside** one
 //! room rather than between two, since the site's own people, and the
 //! armed [`defenders`] who stand with them, are in the residents' room

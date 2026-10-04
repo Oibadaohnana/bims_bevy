@@ -289,7 +289,8 @@ use serde::{Deserialize, Serialize};
 /// 159: the abilities' buffs half again (Rampage, Battle Cry, Rally,
 /// Plated, Triage, the Bastion's haste) and the guns of whoever a
 /// commander calls in.
-pub const PROTOCOL: u32 = 159;
+/// 160: a defence's first wave five seconds after the crew arrive.
+pub const PROTOCOL: u32 = 160;
 
 /// Where the relay lives. `BIMS_SERVER` in the environment overrides it
 /// — `ws://127.0.0.1:8792` for one on the same machine.

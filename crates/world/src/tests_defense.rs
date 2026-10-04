@@ -701,7 +701,7 @@ fn a_site_s_defenders_wear_the_militia_s_kit_and_its_own_people_do_not() {
 /// away and the player asked back (`data::DEFENSE_BOUNTY_PERCENT`) — with nobody joining the crew, and nothing held for good.
 #[test]
 fn a_station_defence_counts_down_lands_at_the_far_airlock_and_pays_on_the_win() {
-    assert_eq!(data::DEFENSE_DELAY_STEPS, 1_200, "twenty seconds at 1x");
+    assert_eq!(data::DEFENSE_DELAY_STEPS, 300, "five seconds at 1x");
     let (mut world, id) = a_station_defence(1, 2);
     let crew = world.aboard.crew_count();
     world.step(&[]);

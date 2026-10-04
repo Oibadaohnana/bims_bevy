@@ -805,8 +805,8 @@ pub fn droid_reinforce(default: f64) -> f64 {
 /// threatened town and the first wave, in minutes of the mission clock
 /// (feature 103): `BIMS_DEFENSE_DELAY=30` over the command's own
 /// `screens::game::DEFENSE_DELAY_IN_PROBE` (one), where the game's own
-/// is `world::data::DEFENSE_DELAY_STEPS` (twenty minutes of it, a real
-/// twenty seconds at 1×, since task 111). Nought or less
+/// is `world::data::DEFENSE_DELAY_STEPS` (five minutes of it, a real
+/// five seconds at 1×). Nought or less
 /// reads as the default.
 pub fn defense_delay(default: f64) -> f64 {
     std::env::var("BIMS_DEFENSE_DELAY")
