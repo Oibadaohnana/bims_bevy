@@ -2413,6 +2413,11 @@ pub const TRADER_UPGRADE: &str = "Upgrade";
 pub const TRADER_UPGRADE_NOTE: &str = "yours, a tier up";
 /// The hover over such a line.
 pub const TRADER_UPGRADE_TIP: &str = "Your Bim carries this item: buying it takes yours a tier up, in the slot it is in, for the next tier's price.";
+/// The note under a shelf line of the weapon or armour the Bim it goes to
+/// wears a tier under: bought onto it, the old one is sold at once.
+pub const TRADER_SHELF_UPGRADE_NOTE: &str = "better than the one worn";
+/// The hover over such a line.
+pub const TRADER_SHELF_UPGRADE_TIP: &str = "The Bim it goes to wears this a tier under: bought onto it, this replaces that and the old one is sold back into your wallet at once. Bought into the armory, the old one stays on.";
 /// The stamp on an item line the player's own Bim carries at its top.
 pub const TRADER_TOP: &str = "MAX";
 pub const TRADER_INTO_ARMORY: &str = "Armory";

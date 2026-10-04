@@ -2201,6 +2201,23 @@ fn shelf_row(
     let what = thing_name(thing);
     let to = (to != u32::MAX).then_some(to);
     let price = world.shelf_price(item);
+    // The same weapon or armour a tier under on the Bim it goes to (the
+    // player's own, bought into the armory) reads as an upgrade, as an
+    // item the Bim carries does: bought onto it, the old one is sold.
+    let worn_tier = world::GearSlot::of_item(thing)
+        .and_then(|part| world.worn_on(to.unwrap_or(local), part))
+        .and_then(|worn| match (worn, thing) {
+            (bims::combat::Item::Weapon(o), bims::combat::Item::Weapon(n)) => {
+                (o.kind == n.kind).then_some(o.tier)
+            }
+            (bims::combat::Item::Armour(o), bims::combat::Item::Armour(n)) => {
+                (o.kind == n.kind).then_some(o.tier)
+            }
+            _ => None,
+        })
+        .filter(|&tier| tier < item.tier);
+    let upgrade = worn_tier.is_some();
+    let tip = crate::crew::tip_of(thing, 1);
     let bought = line_item(
         ui,
         wallet,
@@ -2208,16 +2225,27 @@ fn shelf_row(
             face: Face::Thing(thing),
             tint: theme::item_tint(thing),
             name: what,
-            tier: Some((item.tier.code(), None)),
+            tier: Some((
+                worn_tier.map_or(item.tier.code(), |t| t.code()),
+                upgrade.then_some(item.tier.code()),
+            )),
             price,
-            button: TRADER_BUY,
+            button: if upgrade && to.is_some() {
+                TRADER_UPGRADE
+            } else {
+                TRADER_BUY
+            },
             open: price <= wallet,
-            tip: Some(crate::crew::tip_of(thing, 1)),
+            tip: Some(if upgrade {
+                format!("{TRADER_SHELF_UPGRADE_TIP}\n\n{tip}")
+            } else {
+                tip
+            }),
             row,
             key: Some(TradeLine::Shelf(index as u32)),
-            upgrade: false,
+            upgrade,
             stamp: None,
-            note: None,
+            note: upgrade.then(|| TRADER_SHELF_UPGRADE_NOTE.to_string()),
             worn: false,
         },
     );
