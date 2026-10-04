@@ -154,6 +154,90 @@ pub fn paint(
     }
 }
 
+/// An Area defend's green (`theme::AREA`), and how long and how deep its
+/// glow along the edge is, in points.
+const AREA: egui::Color32 = crate::theme::AREA;
+const GLOW_LENGTH: f32 = 300.0;
+const GLOW_DEPTH: f32 = 64.0;
+/// The FOB's badge on the edge: its disc's radius.
+const BADGE: f32 = 15.0;
+
+/// An Area defend's FOB off the view (October 2026, the player's word: "a
+/// green area on the edge of the screen when you don't see it"): a green
+/// glow along the edge of `bounds` on the line from `from` to the ring,
+/// the FOB's mark on a dark disc and an arrow to it. `at` and `radius` are
+/// the ring on the canvas, in points; nothing while any of it is in
+/// `bounds`. `mark` draws the FOB's mark.
+pub fn paint_area(
+    painter: &egui::Painter,
+    bounds: egui::Rect,
+    from: egui::Pos2,
+    at: egui::Pos2,
+    radius: f32,
+    mark: impl Fn(&egui::Painter, egui::Pos2, f32, egui::Color32),
+) {
+    if bounds.distance_to_pos(at) <= radius {
+        return;
+    }
+    let Some((edge, _)) = place(bounds.expand(INSET), from, at) else {
+        return;
+    };
+    let Some((tip, dir)) = place(bounds, from, at) else {
+        return;
+    };
+    // The side the glow lies along: the nearest to where the line leaves.
+    let sides = [
+        (edge.x - bounds.min.x, egui::vec2(1.0, 0.0)),
+        (bounds.max.x - edge.x, egui::vec2(-1.0, 0.0)),
+        (edge.y - bounds.min.y, egui::vec2(0.0, 1.0)),
+        (bounds.max.y - edge.y, egui::vec2(0.0, -1.0)),
+    ];
+    let inward = sides
+        .iter()
+        .min_by(|a, b| a.0.total_cmp(&b.0))
+        .map_or(egui::vec2(0.0, 1.0), |s| s.1);
+    let along = egui::vec2(-inward.y, inward.x);
+    let on_edge = bounds.clamp(edge);
+    let mut glow = egui::Mesh::default();
+    let strong = AREA.gamma_multiply(0.85);
+    let clear = egui::Color32::TRANSPARENT;
+    // Four stations along it, faded at both ends, each the edge and a
+    // point inside it.
+    let stations = [(-0.5, clear), (-0.2, strong), (0.2, strong), (0.5, clear)];
+    for (k, (s, colour)) in stations.iter().enumerate() {
+        let p = on_edge + along * (s * GLOW_LENGTH);
+        glow.colored_vertex(bounds.clamp(p), *colour);
+        glow.colored_vertex(bounds.clamp(p) + inward * GLOW_DEPTH, clear);
+        if k > 0 {
+            let i = (2 * k) as u32;
+            glow.add_triangle(i - 2, i - 1, i);
+            glow.add_triangle(i - 1, i + 1, i);
+        }
+    }
+    painter.add(egui::Shape::mesh(glow));
+    // The edge itself lit, a hard line in the middle of the glow.
+    painter.line_segment(
+        [
+            bounds.clamp(on_edge - along * (GLOW_LENGTH * 0.25)),
+            bounds.clamp(on_edge + along * (GLOW_LENGTH * 0.25)),
+        ],
+        egui::Stroke::new(5.0, AREA),
+    );
+    // The badge, a little in from the arrow's point, and the arrow past it.
+    let badge = tip - dir * (BADGE + 4.0);
+    painter.circle_filled(badge, BADGE, EDGE);
+    painter.circle_stroke(badge, BADGE, egui::Stroke::new(1.8, AREA));
+    mark(painter, badge, BADGE * 1.5, AREA);
+    let across = egui::vec2(-dir.y, dir.x);
+    let point = tip + dir * 8.0;
+    let back = tip - dir * 2.0;
+    painter.add(egui::Shape::convex_polygon(
+        vec![point, back + across * 7.0, back - across * 7.0],
+        AREA,
+        egui::Stroke::new(1.2, EDGE),
+    ));
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -1649,6 +1649,83 @@ pub(crate) fn sandbags(list: &mut DrawList, part: &PlacedPart) {
     );
 }
 
+// --- an Area defend's FOB (October 2026) ------------------------------------------
+
+/// The FOB's post: a canvas roof, olive, its ridge darker.
+const POST_CANVAS: Color = Color::rgb(0.36, 0.40, 0.25);
+const POST_RIDGE: Color = Color::rgb(0.24, 0.27, 0.16);
+/// Its crates, its mast, and the green flag that says whose ground it is
+/// (the ring's green, `theme::AREA`).
+const POST_CRATE: Color = Color::rgb(0.47, 0.35, 0.20);
+const POST_CRATE_EDGE: Color = Color::rgb(0.30, 0.22, 0.12);
+const POST_MAST: Color = Color::rgb(0.22, 0.23, 0.25);
+const POST_FLAG: Color = Color::rgb(0.30, 0.88, 0.48);
+
+/// The post in the middle of an Area defend's FOB, at `(x, y)` in the
+/// room's units, two tiles a side: a low wall of sandbags round a canvas
+/// roof, two crates by its door and a radio mast flying the green flag.
+pub(crate) fn fob_post(list: &mut DrawList, x: f32, y: f32) {
+    let t = TILE as f32;
+    let side = 2.0 * t - 6.0;
+    // The wall: a course of bags down each side, a gap for the door in the
+    // south one.
+    let bag = 15.0;
+    let course = (side / bag).floor() as i32;
+    let start = -side / 2.0 + bag / 2.0;
+    for i in 0..course {
+        let along = start + i as f32 * bag;
+        for (bx, by, w, h) in [
+            (along, -side / 2.0 + 5.0, bag - 1.5, 9.0),
+            (-side / 2.0 + 5.0, along, 9.0, bag - 1.5),
+            (side / 2.0 - 5.0, along, 9.0, bag - 1.5),
+        ] {
+            list.rect(x + bx, y + by, w + 2.0, h + 2.0, 4.0, SACK_DARK);
+            list.rect(x + bx, y + by, w, h, 4.0, SACK);
+        }
+        if along.abs() > 14.0 {
+            list.rect(
+                x + along,
+                y + side / 2.0 - 5.0,
+                bag + 0.5,
+                11.0,
+                4.0,
+                SACK_DARK,
+            );
+            list.rect(x + along, y + side / 2.0 - 5.0, bag - 1.5, 9.0, 4.0, SACK);
+        }
+    }
+    // The roof, its ridge and the shade under its eaves.
+    let roof = side - 30.0;
+    list.rect(x, y + 2.0, roof + 4.0, roof + 4.0, 3.0, POST_RIDGE);
+    list.rect(x, y, roof, roof, 3.0, POST_CANVAS);
+    list.line(x - roof / 2.0, y, x + roof / 2.0, y, 3.0, POST_RIDGE);
+    list.line(x, y - roof / 2.0, x, y + roof / 2.0, 1.5, POST_RIDGE);
+    // Two crates by the door.
+    for (cx, cy, s) in [
+        (-20.0, side / 2.0 - 20.0, 13.0),
+        (-7.0, side / 2.0 - 17.0, 10.0),
+    ] {
+        list.rect(x + cx, y + cy, s + 2.0, s + 2.0, 1.5, POST_CRATE_EDGE);
+        list.rect(x + cx, y + cy, s, s, 1.0, POST_CRATE);
+        list.line(
+            x + cx - s / 2.0,
+            y + cy,
+            x + cx + s / 2.0,
+            y + cy,
+            1.0,
+            POST_CRATE_EDGE,
+        );
+    }
+    // The mast in the north-east corner, its guy lines and its flag.
+    let (mx, my) = (x + side / 2.0 - 16.0, y - side / 2.0 + 16.0);
+    for (gx, gy) in [(-9.0, 0.0), (0.0, 9.0), (7.0, -7.0)] {
+        list.line(mx, my, mx + gx, my + gy, 1.0, POST_MAST);
+    }
+    list.ellipse(mx, my, 7.0, 7.0, POST_MAST);
+    list.rect(mx - 9.0, my - 7.0, 14.0, 9.0, 1.0, POST_FLAG);
+    list.line(mx - 16.0, my - 7.0, mx - 2.0, my - 7.0, 1.0, POST_RIDGE);
+}
+
 // --- the engineer's mines and satchel charges (task 154) -----------------------
 
 /// A mine's casing and its dark rim, and the red of an armed light.

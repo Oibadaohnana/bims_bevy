@@ -221,6 +221,13 @@ pub const UNDER_FIRE: f32 = 5.0;
 /// wider than the gather ring itself, so a bot settled in the ring is
 /// not shoved on towards the middle of it every plan.
 pub const BANNER_HOLD: f32 = 3.0;
+/// How near its **objective** a body counts as there, in tiles (an Area
+/// defend, October 2026): inside this it holds where it stands and
+/// fights from there; outside it walks back to it, shooting on the way.
+pub const OBJECTIVE_SLACK: f32 = 1.0;
+/// How near something must be for a melee machine or intruder making for
+/// its objective to leave the walk and go for it, in tiles.
+pub const OBJECTIVE_CHARGE: f32 = 3.0;
 /// What a Bim with a crewmate in its arms walks at (feature 86): both
 /// arms full, so a little over half pace. The carry is meant to be a
 /// choice — the ground given to fetch somebody out is ground the medic
@@ -856,6 +863,12 @@ pub struct Game {
     /// the alarm, and posted indoors at the nearest bunk. Empty
     /// everywhere else, which is everybody fighting as they always did.
     sheltering: Vec<bool>,
+    /// Where each of this room's bodies makes for, by body index — the
+    /// Bims, then the machines: a spot in the ring of an **Area defend**
+    /// (October 2026), the machines' to take and the defenders' to hold.
+    /// Said every step by the world; empty everywhere else.
+    #[cfg_attr(feature = "serde", serde(default))]
+    objectives: Vec<Option<Vec2>>,
     /// The picture, left out of a save: `render` draws it again.
     #[cfg_attr(feature = "serde", serde(skip))]
     list: DrawList,
@@ -1067,6 +1080,7 @@ impl Game {
             last_seen: Vec::new(),
             machine_seen: Vec::new(),
             sheltering: Vec::new(),
+            objectives: Vec::new(),
             list: DrawList::new(),
             bodies_from: 0,
             fog_from: 0,
@@ -2953,6 +2967,26 @@ impl Game {
         // for are in the room with them — else the room's.
         let targets = self.combat.machine_targets().to_vec();
         let nobody_in_sight = targets.iter().flatten().all(|t| t.stale);
+        // **An objective** (an Area defend, October 2026): the ring the
+        // crew hold, a spot in it each. Walked to whatever it believes,
+        // shooting what it sees on the way, and held once reached — a
+        // claw goes for whoever is within a few tiles first.
+        if let Some(spot) = self.objective(self.bims.len() + i)
+            && !self.prey_at_hand(from, stats)
+        {
+            let to = nav.nearest_free(spot);
+            if (to - from).len() <= OBJECTIVE_SLACK * TILE {
+                return;
+            }
+            if (to - self.droids[i].destination()).len() <= TILE / 2.0 {
+                return;
+            }
+            let route = nav.path(from, to);
+            if !route.is_empty() {
+                self.droids[i].follow_path(route);
+            }
+            return;
+        }
         // The hunter's rule, as a hostile Bim's: with nobody in sight a
         // gunner walks to where something was last seen, and from then
         // on holds or closes and never gives ground.
@@ -3593,6 +3627,12 @@ impl Game {
         // fights — from the far end of its reach, which is `plan_stand`'s
         // own doing.
         if self.is_field_medic(who) && self.rescue(who, dt) {
+            return;
+        }
+        // A defender of an Area defend (October 2026) holds its spot in
+        // the ring and fights from there.
+        if let Some(spot) = self.objective(who) {
+            self.make_for(who, dt, spot);
             return;
         }
         // A town's defender has no player to gather round and nowhere
@@ -8018,6 +8058,67 @@ impl Game {
             .min_by(|a, b| (*a - from).len().total_cmp(&(*b - from).len()))
     }
 
+    /// Where each body makes for, by body index — the Bims, then the
+    /// machines (an Area defend, October 2026): a machine or an intruder
+    /// walks to its spot whatever it believes about the crew and holds it,
+    /// shooting what it sees; a body under arms of the room's own side
+    /// does the same at its own. Said every step by the world; an empty
+    /// list is nobody making for anything.
+    pub fn set_objectives(&mut self, at: &[Option<Vec2>]) {
+        if self.objectives != at {
+            self.objectives = at.to_vec();
+        }
+    }
+
+    /// That body's objective, if it has one.
+    pub fn objective(&self, body: usize) -> Option<Vec2> {
+        self.objectives.get(body).copied().flatten()
+    }
+
+    /// A Bim's walk to its objective, on its own plan clock: the way there
+    /// while it is more than [`OBJECTIVE_SLACK`] tiles off, nothing once
+    /// it is there — it holds and shoots from where it stands.
+    fn make_for(&mut self, who: usize, dt: f32, spot: Vec2) {
+        let bim = &mut self.bims[who];
+        bim.plan_wait -= dt;
+        if bim.plan_wait > 0.0 {
+            return;
+        }
+        bim.plan_wait = PLAN_EVERY;
+        self.walk_for(who, spot);
+    }
+
+    /// The walk itself, with the plan clock already read.
+    fn walk_for(&mut self, who: usize, spot: Vec2) {
+        let from = self.bims[who].character.pos;
+        let nav = self.maps.for_body(false);
+        let to = nav.nearest_free(spot);
+        if (to - from).len() <= OBJECTIVE_SLACK * TILE {
+            return;
+        }
+        let going = self.bims[who].character.destination().unwrap_or(from);
+        if (to - going).len() <= TILE / 2.0 {
+            return;
+        }
+        let route = nav.path(from, to);
+        if !route.is_empty() {
+            self.bims[who].character.follow_path(route);
+        }
+    }
+
+    /// Whether a melee fighter at `from` has somebody seen within
+    /// [`OBJECTIVE_CHARGE`] tiles on the machines' list: it leaves its
+    /// walk to the objective and goes for them.
+    fn prey_at_hand(&self, from: Vec2, stats: &WeaponStats) -> bool {
+        stats.melee
+            && self
+                .combat
+                .machine_targets()
+                .iter()
+                .flatten()
+                .any(|t| !t.stale && (t.at - from).len() <= OBJECTIVE_CHARGE * TILE)
+    }
+
     /// Whether this body is sheltering from an attack (feature 94).
     pub fn is_sheltering(&self, who: usize) -> bool {
         self.sheltering.get(who).copied().unwrap_or(false)
@@ -9081,6 +9182,13 @@ impl Game {
     pub fn is_deck_tile(&self, at: Vec2) -> bool {
         let nav = self.maps.deck();
         nav.interior().contains(at) && nav.is_free(at)
+    }
+
+    /// Whether a body could stand at `at` and walk to `from` — a deck
+    /// tile with a way between, whoever stands there now: where an Area
+    /// defend's sandbags may lie (October 2026).
+    pub fn is_open_ground(&self, at: Vec2, from: Vec2) -> bool {
+        self.is_deck_tile(at) && self.maps.deck().can_reach(from, at)
     }
 
     /// Whether an **attack banner** may be put down here (feature 84):

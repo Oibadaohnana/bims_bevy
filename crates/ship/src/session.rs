@@ -887,6 +887,10 @@ impl Session {
         world.set_defense_delay_for_probe(delay);
         world.set_droid_reinforce_minutes_for_probe(reinforce);
         world.set_droid_waves_for_probe(waves);
+        // The crisis settled again keeps the home system's station alone
+        // (`settle_offered`), and the town the probe landed at went with
+        // it — its waves had nowhere to land. Land there again.
+        world.land_for_probe();
         true
     }
 

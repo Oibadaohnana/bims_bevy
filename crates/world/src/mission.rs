@@ -332,6 +332,7 @@ impl World {
                     site,
                     kind: quote.kind,
                     cleared: quote.cleared,
+                    area: quote.kind == SiteKind::Defend && self.is_area_defense(station),
                 });
             }
         }
@@ -790,6 +791,7 @@ impl World {
         if let Some(station) = self.run.site {
             self.choose_site(station);
         }
+        self.run.wave_size = None;
         self.run.pending_bounty = 0;
         self.run.proposal = None;
         self.run.returning = vec![false; players as usize];
@@ -1671,6 +1673,7 @@ impl World {
             self.settle_bounty(events);
         }
         self.run.pending_bounty = 0;
+        self.run.wave_size = None;
         // The relics (feature 106), while the ship is still tied up: an
         // elite's site cleared with machines in it offering its reward.
         let reward = self.relics_on_leaving(station, cleared, events);

@@ -169,7 +169,7 @@ impl World {
             return;
         };
         let day = self.days_gone();
-        let n = self.droid_wave_size();
+        let n = self.landing_wave_size();
         let seed = self.garrison_seed(id, it.wave);
         let first = it.wave == 1;
         let troopers = if first && manufacturer::has_droids(day) {

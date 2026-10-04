@@ -1781,6 +1781,8 @@ pub fn event_line(event: WorldEvent) -> Option<String> {
         }
         WorldEvent::BotLost { who: w } => format!("{} is gone for good.", who(w)),
         WorldEvent::TownFell { .. } => TOWN_FELL.into(),
+        WorldEvent::AreaTaken { .. } => AREA_TAKEN.into(),
+        WorldEvent::AreaTimeUp { .. } => AREA_TIME_UP.into(),
         WorldEvent::PlayerGone { slot } => format!("{} has left the game.", player_name(slot)),
         WorldEvent::Readied { slot, yes: true } => format!("{} is ready.", player_name(slot)),
         WorldEvent::Readied { slot, yes: false } => {
@@ -2183,6 +2185,9 @@ pub const LEFT_UNCLEARED: &str = "The ship leaves before the place is cleared: i
 /// A site the machines were attacking, left before it was held (a town,
 /// a station or a derelict, task 111).
 pub const TOWN_FELL: &str = "The site falls to the machines behind you.";
+/// An Area defend's two moments (October 2026).
+pub const AREA_TAKEN: &str = "The machines hold the FOB. It is lost, and the run with it.";
+pub const AREA_TIME_UP: &str = "Time! No more waves are coming — destroy the last of them.";
 
 // --- the world map and the end of a mission (feature 103) -------------------
 
@@ -2277,6 +2282,17 @@ pub const SITE_KIND_NAMES: [&str; 3] = [ARRIVE_ATTACK, ARRIVE_DEFEND, ARRIVE_TRA
 pub fn site_kind_word(kind: world::SiteKind) -> &'static str {
     SITE_KIND_NAMES[kind.code() as usize]
 }
+/// A defence that is an Area defend (October 2026): a town's, holding its
+/// FOB — its own word on the map and its own mark.
+pub const ARRIVE_AREA_DEFEND: &str = "AREA DEFEND";
+/// A mission's word: its kind's, or an Area defend's.
+pub fn mission_kind_word(kind: world::SiteKind, area: bool) -> &'static str {
+    if area && kind == world::SiteKind::Defend {
+        ARRIVE_AREA_DEFEND
+    } else {
+        site_kind_word(kind)
+    }
+}
 /// Where a mission is fought, beside its kind on the map: on a station's
 /// deck or in a settlement on a planet (a station id that names a surface).
 pub const SITE_STATION: &str = "station";
@@ -2293,7 +2309,7 @@ pub const MAP_MONEY: &str = "Money";
 pub const MAP_MONEY_TIP: &str =
     "Your money: your wallet and your share of the takings, as the top frame shows it on the ship.";
 /// What a site kind means, for the `?` beside the map's list.
-pub const SITE_KIND_TIP: &str = "Every system offers one mission, marked on its star. ATTACK (crossed blades): the machines, the Manufacturers or the Machine Heart hold it — go in and clear it. DEFEND (a shield): the machines are coming for it — twenty seconds after you arrive the first wave lands, and its own people and armed defenders fight beside you; hold the last wave and it is cleared (no money: its people are the reward), leave before and it falls. TRADER (the green square): a system with a trader has no mission — buy gear and items on the map. Relics come only from beating an elite (a crowned site). In a system the machines have taken, its one site is an attack and their jammer — the Heart at their origin, and a trader too, which trades again once you have cleared it.";
+pub const SITE_KIND_TIP: &str = "Every system offers one mission, marked on its star. ATTACK (crossed blades): the machines, the Manufacturers or the Machine Heart hold it — go in and clear it. DEFEND (a shield): the machines are coming for a station — twenty seconds after you arrive the first wave lands, and its own people and armed defenders fight beside you; hold the last wave and it is cleared (no money: its people are the reward), leave before and it falls. AREA DEFEND (a flag in a ring of sandbags): the machines are coming for a town on a planet — hold its FOB, the ring at its crossing, for five minutes while the waves come without end, each a second sooner than the last; then destroy the last wave. Machines standing in the ring for twenty seconds with nobody of yours in it take it, and the run is lost. TRADER (the green square): a system with a trader has no mission — buy gear and items on the map. Relics come only from beating an elite (a crowned site). In a system the machines have taken, its one site is an attack and their jammer — the Heart at their origin, and a trader too, which trades again once you have cleared it.";
 /// What the crew find on arrival, a word each.
 pub const ARRIVE_MACHINES: &str = "machines";
 pub const ARRIVE_JAMMER: &str = "jammer";
@@ -2881,6 +2897,10 @@ pub const PATIENT_OUT: &str = "not while the patient is outside — it comes in 
 /// it, and the way back.
 pub const OVER_TITLE: &str = "The crew are down";
 pub const OVER_LINE: &str = "Nobody of the crew is standing. The run is over.";
+/// The same screen when the machines took an Area defend's FOB.
+pub const OVER_TITLE_AREA: &str = "The FOB has fallen";
+pub const OVER_LINE_AREA: &str =
+    "The machines held the ring for twenty seconds with nobody of yours in it. The run is over.";
 pub const OVER_BACK: &str = "Back to the menu";
 
 /// Months of the ship's calendar. Twelve of them and no leap years — see
@@ -3237,6 +3257,30 @@ pub const MANUFACTURERS_CLEARED: &str = "MANUFACTURERS — the last wave is down
 pub fn defense_prepare(span: &str) -> String {
     format!("Prepare: {span}")
 }
+/// An Area defend's line (October 2026): the wave on the ground or the
+/// next, and the hold's time left; once it is out, the last wave.
+pub fn area_standing(wave: u32, standing: u32, hold: &str) -> String {
+    format!("AREA DEFEND — wave {wave}, {standing} up · hold {hold}")
+}
+pub fn area_next_wave(span: &str, wave: u32, hold: &str) -> String {
+    format!("AREA DEFEND — wave {wave} in {span} · hold {hold}")
+}
+pub fn area_last_wave(standing: u32) -> String {
+    format!("AREA DEFEND — time is up: the last wave, {standing} up")
+}
+/// The top count's words at an Area defend: which wave (there is no last
+/// but the one standing when the time runs out), the hold's time left,
+/// and the FOB's bar.
+pub fn area_wave(wave: u32) -> String {
+    format!("Wave {wave}")
+}
+pub fn area_hold(span: &str) -> String {
+    format!("Hold {span}")
+}
+pub const AREA_LAST_WAVE: &str = "Last wave";
+pub const AREA_FOB: &str = "FOB";
+pub const AREA_CONTESTED: &str = "contested";
+pub const AREA_DEFENSE_TIP: &str = "Area defend: hold the FOB — the ring with the sandbags and the post in the middle — for five minutes. The waves never stop coming while the time runs, each landing a second sooner after the last is down; when the time is up, destroy the wave still standing and the town is held. Machines standing in the ring for twenty seconds with nobody of yours in it — you, your bots, the town's defenders — take the FOB, and the run is lost. Anybody of yours in the ring stops their count; the machines driven out of it puts it back to nothing. The green arrow at the edge of the screen points to the FOB when it is out of sight.";
 
 /// The Machine Heart's line (feature 108), ahead of the wave's in the same
 /// red chip while the crew are in its fortress: the core's health and how

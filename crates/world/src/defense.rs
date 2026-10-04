@@ -62,6 +62,101 @@ pub struct Defense {
     /// Whether the town fell instead: every one of its people dead, or
     /// its system's day come while the crew were away with waves left.
     pub lost: bool,
+    /// **Area defend** (October 2026): a town's defence is holding its FOB
+    /// — `None` at a station or a derelict, and in a save from before.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub area: Option<Area>,
+}
+
+/// An **Area defend**: the crew hold a ring of the town's ground, the FOB,
+/// for [`data::AREA_HOLD_STEPS`] from the first wave while the waves come
+/// without end, each [`data::AREA_GAP_SHRINK_STEPS`] sooner after the one
+/// before; once the time is up, the wave on the ground is the last. The
+/// machines take the FOB by standing in the ring
+/// [`data::AREA_CAPTURE_STEPS`] with nobody of the crew's side in it.
+#[derive(Clone, PartialEq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct Area {
+    /// The FOB's middle, in the town's design units, whole ones.
+    pub x: i32,
+    pub y: i32,
+    /// Steps of the hold still to run: [`data::AREA_HOLD_STEPS`] until the
+    /// first wave lands, then counted down every step to nought.
+    pub left: u64,
+    /// Steps the enemies have stood in the ring uncontested: stopped while
+    /// a friend stands in it too, back to nought when none of them does.
+    pub held: u64,
+    /// The wait after the wave on the ground is down before the next lands.
+    pub gap: u64,
+    /// Whether the machines took the FOB: the run is lost.
+    pub taken: bool,
+    /// The sandbags round it, a tile each of the town's design: laid
+    /// once, on the open ground of the ring's edge (`World::lay_fob`).
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub bags: Vec<(u32, u32)>,
+    /// Whether an enemy, and a friend, stood in the ring the last step:
+    /// the picture's, worked out with the count.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub enemy_in: bool,
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub friend_in: bool,
+}
+
+impl Area {
+    /// A ring about `(x, y)`, the clock full and the first gap a
+    /// defence's own.
+    pub fn new(x: i32, y: i32) -> Area {
+        Area {
+            x,
+            y,
+            left: data::AREA_HOLD_STEPS,
+            held: 0,
+            gap: data::DEFENSE_REINFORCE_STEPS,
+            taken: false,
+            bags: Vec::new(),
+            enemy_in: false,
+            friend_in: false,
+        }
+    }
+
+    /// The gap after this one: a second shorter, never under the floor.
+    pub fn shorten(&mut self) {
+        self.gap = self
+            .gap
+            .saturating_sub(data::AREA_GAP_SHRINK_STEPS)
+            .max(data::AREA_GAP_MIN_STEPS);
+    }
+
+    /// One step of the ring: whether an enemy and a friend stand in it.
+    /// True the step the FOB is taken, and only that step.
+    pub fn watch(&mut self, enemy_in: bool, friend_in: bool) -> bool {
+        self.enemy_in = enemy_in;
+        self.friend_in = friend_in;
+        if self.taken {
+            return false;
+        }
+        if !enemy_in {
+            self.held = 0;
+        } else if !friend_in {
+            self.held += 1;
+        }
+        if self.held >= data::AREA_CAPTURE_STEPS {
+            self.taken = true;
+            return true;
+        }
+        false
+    }
+}
+
+/// Where the `k`-th enemy of an Area defend makes for, in tiles off the
+/// ring's middle: round it by the golden angle, from half a tile out to a
+/// little over two, so a wave spreads over the middle of the ring rather
+/// than standing on one tile — an attack order on the middle, spread a
+/// little a body.
+pub fn enemy_spot(k: usize) -> bims::math::Vec2 {
+    const GOLDEN: f32 = 2.399_963;
+    let reach = 0.5 + (k % 4) as f32 * 0.6;
+    bims::math::Vec2::from_angle(k as f32 * GOLDEN) * reach
 }
 
 impl Defense {
@@ -78,6 +173,7 @@ impl Defense {
             settled: false,
             won: false,
             lost: false,
+            area: None,
         }
     }
 
@@ -92,9 +188,13 @@ impl Defense {
         self.waves_left = waves.saturating_sub(1);
     }
 
-    /// Whether any wave is still to come after the one on the ground.
+    /// Whether any wave is still to come after the one on the ground —
+    /// at an Area defend, while its hold has time to run.
     pub fn more_to_come(&self) -> bool {
-        self.waves_left > 0
+        match &self.area {
+            Some(area) => area.left > 0,
+            None => self.waves_left > 0,
+        }
     }
 
     /// Whether the fight is over, either way.
@@ -179,6 +279,43 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// The ring: an enemy alone counts up, a friend stops the count, the
+    /// enemies gone put it back, and the full count takes the FOB once.
+    #[test]
+    fn the_ring_is_taken_by_enemies_standing_in_it_alone() {
+        let mut a = Area::new(0, 0);
+        for _ in 0..10 {
+            assert!(!a.watch(true, false));
+        }
+        assert_eq!(a.held, 10);
+        assert!(!a.watch(true, true));
+        assert_eq!(a.held, 10, "a friend in the ring stops the count");
+        assert!(!a.watch(false, false));
+        assert_eq!(a.held, 0, "nobody of theirs in it puts it back");
+        let mut taken = 0;
+        for _ in 0..data::AREA_CAPTURE_STEPS + 5 {
+            taken += u32::from(a.watch(true, false));
+        }
+        assert_eq!(taken, 1);
+        assert!(a.taken);
+    }
+
+    /// Each gap a second shorter, never under the floor.
+    #[test]
+    fn each_wave_lands_a_second_sooner() {
+        let mut a = Area::new(0, 0);
+        assert_eq!(a.gap, data::DEFENSE_REINFORCE_STEPS);
+        a.shorten();
+        assert_eq!(
+            a.gap,
+            data::DEFENSE_REINFORCE_STEPS - data::AREA_GAP_SHRINK_STEPS
+        );
+        for _ in 0..100 {
+            a.shorten();
+        }
+        assert_eq!(a.gap, data::AREA_GAP_MIN_STEPS);
     }
 
     /// The schedule: an hour before the first wave, the count fixed once.

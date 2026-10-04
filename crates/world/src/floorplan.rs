@@ -28,6 +28,9 @@ pub struct FloorMark {
     pub elite: bool,
     /// Its fight over: an attack cleared, a defence held.
     pub cleared: bool,
+    /// A defence that is an **Area defend** (October 2026): a town's,
+    /// holding its FOB.
+    pub area: bool,
     /// The Machine Heart's fortress.
     pub heart: bool,
     /// The tier the row is marked ([`World::floor_tier`]).
@@ -294,6 +297,7 @@ impl World {
                     kind: quote.kind,
                     elite: quote.elite,
                     cleared: quote.cleared,
+                    area: quote.kind == SiteKind::Defend && self.is_area_defense(node.station),
                     heart: heart::is_heart(node.station),
                     tier: self.floor_tier(row as u32),
                 });

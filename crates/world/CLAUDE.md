@@ -7781,3 +7781,92 @@ only rolls the start (`random_start`).
 **`SAVE_VERSION` 106, `wire::PROTOCOL` 147.** `tests_holdings.rs`,
 `tests_trader::the_tank_and_soldier_are_offered_their_kit_a_tier_up_from_the_start`
 and the pistol, item and soldier tests are the rule.
+
+## Area defend: a town's defence is holding its FOB (October 2026)
+
+> "Defending a town (feature 94)", "Every site is an attack, a defence
+> or a trader (task 111)" and "How the enemies scale" above describe a
+> town's defence as a fixed count of waves, won when the last is down,
+> and a wave sized as it lands; **for a town** neither holds now. A
+> station's and a derelict's defence are as they were. The player's
+> words: "for defending missions you now try to hold an area on the map
+> … Call this mission type Area defend."
+
+- **Which**: `World::is_area_defense(station)` — a planet's surface
+  (`surface::surface_body`), and not under the tests' dial
+  `set_area_defense_off_for_probe` (`World::area_defense_off`, saved, not
+  hashed; `tests_defense.rs`' `basic()` sets it, so the old town tests
+  test the old fight). The map knows it as `FloorMark::area` and
+  `StarMission::area` (a `SiteKind::Defend` still — no new kind, so
+  every rule that asks `Defend` is untouched).
+- **The FOB** is `Defense::area: Option<defense::Area>` (saved, hashed
+  where `Some`): its middle `surface::FOB_TILE` — the corner of four
+  tiles where the main street (`MAIN_Y0`) meets the first cross street
+  (`CROSS_A_X0`), street in every town drawn or template; the ring
+  `data::AREA_RADIUS_TILES` (5); its **sandbags** (`Area::bags`, laid
+  once at the defence's start by `World::fob_bags`: every tile whose
+  middle is `AREA_BAGS_FROM_TILES` (3.5) to a tile further out, on open
+  ground walkable from the post — `Game::is_open_ground` — but a
+  two-tile gap at each of the four ways in); and a 2×2 **post** in the
+  middle. Bags and post are **laid cover** (`Game::set_laid_cover`) in
+  both rooms, said again every step by `World::say_the_fob` (after
+  `defense_waves`), since a relayout drops laid cover. Not solid: the
+  game's sandbags never were, and the post is cover the same way (a
+  solid would want a layout change at every rebuild site). The crew are
+  stood in the ring at the start (`stand_the_crew_ashore`).
+- **The clocks**: the first wave lands `DEFENSE_DELAY_STEPS` after the
+  landing as ever; from then `Area::left` (`AREA_HOLD_STEPS`, five
+  minutes) counts down every step and `Defense::more_to_come` is
+  `left > 0` — **the waves never run out while it runs**
+  (`waves_left` is unused for an area). Each lands `Area::gap` after the
+  one before is down — `DEFENSE_REINFORCE_STEPS` (ten seconds) after the
+  first, a second (`AREA_GAP_SHRINK_STEPS`) sooner each wave, never under
+  `AREA_GAP_MIN_STEPS` (`Area::shorten`). Once `left` is nought the wave
+  on the ground is the last: destroyed (and counted), `TownHeld` and the
+  rest as before. `WorldEvent::AreaTimeUp` (163) the step it runs out.
+- **The ring**: every step after the first wave `who_holds_the_ring`
+  asks whether an **enemy** (a machine standing, a Manufacturer on its
+  feet) and a **friend** (a crew member on its feet — `crew_ashore` — or
+  one of the site's own under arms: a defender, the guard; never one
+  sheltering) stand within the ring, and `Area::watch` counts `held` up
+  with an enemy and no friend, holds it with both, and puts it to nought
+  with no enemy. At `AREA_CAPTURE_STEPS` (twenty seconds) the FOB is
+  taken: the defence lost, `WorldEvent::AreaTaken` (162), **the run
+  lost** (`World::lost`, the crew-down screen saying "The FOB has fallen"
+  off `World::area_fell`; its Retry is the way back).
+- **Who goes where** — `Game::set_objectives` on the residents' room,
+  by body index: every enemy a spot round the middle
+  (`defense::enemy_spot`, the golden angle, half a tile to a little over
+  two out), every defender and the guard a spot on a ring
+  `AREA_HOLD_RING_TILES` (2.5) out, a tile behind the bags. The room's
+  half is `crates/game/CLAUDE.md` ("An objective").
+- **Readings for the app**: `area_here`, `area_in_room` (the middle and
+  radius in the crew's room's units), `fob_in_room` (each bag's middle,
+  the post's), `area_time_left`, `area_taken_share` (the share and
+  whether a friend holds the count), `area_fell`; `Area::{enemy_in,
+  friend_in}` are the last step's (saved, not hashed).
+
+**Every wave of a mission is its first wave's size** (the player's
+words: "If a defending bot dies during the round he still counts and the
+scaling doesnt subtract … which actually should be the default for all
+waves"): `Run::wave_size` (saved, hashed where set) is fixed by the
+first wave laid (`World::landing_wave_size`, from `settle_droids`, the
+Manufacturers' `lay_manufacturers` and `defense_waves`), and
+`droid_wave_size` answers it from then on — unless a probe forced the
+wave. `begin_mission` and `leave_mission` clear it. A defence's
+defenders were already counted standing or not; this makes the crew's
+bots so too, at every site.
+
+**The `defense` probe lands again after its dials**
+(`Session::defense_for_probe`): moving the machines' origin settles the
+crisis, and `settle_offered` dropped the home system's town the probe
+had landed at, so its waves had nowhere to land (`station(id)` `None`)
+and every wave came down empty — before this change too.
+
+`tests_area.rs` is the rule (the FOB laid and the crew in it; the waves
+past the old count, each a second sooner, the time up and the last wave
+the win; the ring's count, a friend stopping it, the FOB taken and the
+run lost; the fixed wave size); `defense::tests` the ring's and the
+gap's arithmetic. **`SAVE_VERSION` 108, `wire::PROTOCOL` 151.** The
+world's reference run, `SURVIVORS`, the doorway and the sniper tests
+were red before and are untouched.

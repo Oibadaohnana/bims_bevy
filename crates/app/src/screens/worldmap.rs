@@ -172,6 +172,7 @@ impl WorldMap {
                 site: m.site,
                 kind: m.kind,
                 cleared: m.cleared,
+                area: m.area,
             })
             .collect();
     }

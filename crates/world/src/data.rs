@@ -360,7 +360,32 @@ pub const DEFENSE_REINFORCE_STEPS: u64 = 600;
 /// guard. A station or a derelict held sends nobody (task 111).
 pub const DEFENSE_JOINERS: u32 = 2;
 
-// --- defend missions (task 111) -------------------------------------------
+// --- Area defend: a town's defence is holding the FOB (October 2026) --------
+
+/// How long the crew hold the FOB, in steps of the mission clock from the
+/// first wave's landing: five minutes at 1×. No wave lands after it; the
+/// one on the ground is still to be destroyed.
+pub const AREA_HOLD_STEPS: u64 = 18_000;
+/// How long the enemies stand in the ring with nobody of the crew's side
+/// in it to take the FOB: twenty seconds. Any friend in the ring stops
+/// the count; no enemy in it puts it back to nought.
+pub const AREA_CAPTURE_STEPS: u64 = 1_200;
+/// Each wave of an Area defend lands this much sooner after the one
+/// before is down than that one did: a second.
+pub const AREA_GAP_SHRINK_STEPS: u64 = 60;
+/// And never sooner than this after it: a second.
+pub const AREA_GAP_MIN_STEPS: u64 = 60;
+/// The ring's radius, in tiles: what counts as standing in the FOB. The
+/// sandbags lie just inside it.
+pub const AREA_RADIUS_TILES: f64 = 5.0;
+/// How far from the middle the sandbags lie, in tiles: a tile's width of
+/// them from here out, inside the ring.
+pub const AREA_BAGS_FROM_TILES: f64 = 3.5;
+/// Where the defenders hold, in tiles from the middle: a tile behind the
+/// bags, within their cover's reach.
+pub const AREA_HOLD_RING_TILES: f32 = 2.5;
+
+// --- defend missions (task 111)-------------------------------------------
 //
 // Placeholders, all three: how many armed **defenders** stand with a
 // site's own people while the machines come for it. They are the site's

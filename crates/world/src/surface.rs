@@ -159,6 +159,15 @@ pub(crate) fn build_town(map_seed: u64, biome: Biome, population: u32) -> BuiltT
     }
 }
 
+/// The middle of a town's **FOB** (an Area defend, October 2026), in
+/// whole tiles of its design: where the main street meets the first cross
+/// street — the widest open ground every town has, drawn or the template
+/// — at a tile corner, so the post in the middle stands on four whole
+/// tiles. The main street is six to eight rows from [`MAIN_Y0`] and the
+/// cross street six to eight columns from [`CROSS_A_X0`], so the four
+/// tiles round it are street in every town.
+pub const FOB_TILE: (u32, u32) = (CROSS_A_X0 + 4, MAIN_Y0 + 4);
+
 /// The bit that marks a station id as a surface's. The generator numbers
 /// its stations from nought and never gets near this.
 pub const SURFACE_BASE: u32 = 0x4000_0000;

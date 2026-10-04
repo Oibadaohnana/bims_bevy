@@ -400,6 +400,9 @@ pub fn paint(painter: &egui::Painter, rect: egui::Rect, chart: &FloorChart, view
                     Some(SiteKind::Attack) => {
                         super::game::blades_icon(painter, at, r * 1.05, colour)
                     }
+                    Some(SiteKind::Defend) if mark.is_some_and(|m| m.area) => {
+                        super::game::area_icon(painter, at, r * 1.25, colour)
+                    }
                     Some(SiteKind::Defend) => {
                         super::game::shield_icon(painter, at, r * 1.2, colour)
                     }
@@ -457,7 +460,7 @@ pub fn paint(painter: &egui::Painter, rect: egui::Rect, chart: &FloorChart, view
                 } else {
                     format!(
                         "{} {}",
-                        site_kind_word(m.kind),
+                        mission_kind_word(m.kind, m.area),
                         site_place_word(m.site.station)
                     )
                 },

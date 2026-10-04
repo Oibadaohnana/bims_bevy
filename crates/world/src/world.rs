@@ -813,6 +813,12 @@ pub struct World {
     /// `droid_kinds_forced` is.
     #[cfg_attr(feature = "serde", serde(default))]
     defense_by_machines_forced: bool,
+    /// The tests' word that a town's defence is the old one — every wave
+    /// down and won — and not an **Area defend** (October 2026): the
+    /// town defence tests written before it. Saved and not hashed, as
+    /// `defense_by_machines_forced` is.
+    #[cfg_attr(feature = "serde", serde(default))]
+    area_defense_off: bool,
     /// Where the machines began (feature 92): the one star the crisis
     /// spreads out from, rolled once at [`World::start`]
     /// ([`droidplan::origin`]) at least [`data::DROID_ORIGIN_MIN_HOPS`]
@@ -1242,6 +1248,7 @@ impl World {
             droid_waves_forced: None,
             droid_kinds_forced: None,
             defense_by_machines_forced: false,
+            area_defense_off: false,
             droid_origin,
             droid_hops,
             home_hops,
@@ -1447,6 +1454,9 @@ impl World {
         //    after the landing, the next after each is destroyed, and the
         //    whole of it held where it stands while the ship is away.
         self.defense_waves(&mut events);
+        //    And an Area defend's FOB said to both rooms: the sandbags,
+        //    and where each body makes for (October 2026).
+        self.say_the_fob();
 
         // 5. Crew: the room's own update, aboard, on this clock. Bims live
         //    in ship-design coordinates and the ship's position, rotation and
@@ -5751,6 +5761,15 @@ impl World {
     /// else: no base, no ease, no floor at the crew's numbers. Asked as
     /// each wave appears, never stored.
     pub fn droid_wave_size(&self) -> u32 {
+        // **The first wave of a mission is the size of every one after
+        // it** (October 2026): a bot or a defender fallen since takes
+        // nothing off. A probe's forced wave is as forced.
+        if self.droid_kinds_forced.is_none()
+            && self.droid_wave_forced.is_none()
+            && let Some(n) = self.run.wave_size
+        {
+            return n;
+        }
         let defenders = if self.defense_here().is_some() {
             self.defenders_fielded()
         } else {
@@ -5758,6 +5777,14 @@ impl World {
         };
         let bots = self.crew_bots().saturating_add(defenders);
         self.wave_size_with(self.run_day(), bots)
+    }
+
+    /// The wave about to land: [`World::droid_wave_size`], and the
+    /// mission's from now on if it is the first.
+    pub(crate) fn landing_wave_size(&mut self) -> u32 {
+        let n = self.droid_wave_size();
+        self.run.wave_size.get_or_insert(n);
+        n
     }
 
     /// How many of the crew are bots, for the waves (task 147): every crew
@@ -5815,6 +5842,12 @@ impl World {
     /// which run at day nought, where the game sends the Manufacturers.
     pub fn set_defense_by_machines_for_probe(&mut self) {
         self.defense_by_machines_forced = true;
+    }
+
+    /// The tests' dial: a town's defence the old one from now on — every
+    /// wave down and won — rather than an Area defend (October 2026).
+    pub fn set_area_defense_off_for_probe(&mut self) {
+        self.area_defense_off = true;
     }
 
     /// Tune the wave formula (`scaling.ron`, read by the app while the
@@ -6240,7 +6273,7 @@ impl World {
         let Some(station) = self.station(id).cloned() else {
             return;
         };
-        let n = self.droid_wave_size();
+        let n = self.landing_wave_size();
         // The Machine Heart's own go on the deck first (feature 108), so
         // they keep the front of the list through every wave after — and
         // in its fortress they are the whole deck: no wave stands there,
@@ -6540,6 +6573,255 @@ impl World {
         (d.wave > 0).then_some((d.wave, d.waves_left))
     }
 
+    // --- Area defend (October 2026) -------------------------------------------
+    //
+    // A town's defence is holding its **FOB**: a ring at the crossing of
+    // its main street and its first cross street, sandbags round it and a
+    // post in the middle. The waves come without end for
+    // `data::AREA_HOLD_STEPS` from the first, each a second sooner after
+    // the one before is down; then the one on the ground is the last. The
+    // machines standing in the ring with nobody of the crew's side in it
+    // for `data::AREA_CAPTURE_STEPS` take it, and the run is lost.
+
+    /// Whether a site's defence is an **Area defend**: a town's, on a
+    /// planet's surface — a station's and a derelict's keep the old fight
+    /// — and not under the tests' dial.
+    pub fn is_area_defense(&self, station: u32) -> bool {
+        !self.area_defense_off && surface::surface_body(station).is_some()
+    }
+
+    /// The Area defend under way where the crew stand — its ring, its
+    /// clocks and its sandbags. `None` anywhere else, and once it is over.
+    pub fn area_here(&self) -> Option<&defense::Area> {
+        self.defense_here()?.area.as_ref()
+    }
+
+    /// The tests' dial: the Area defend under way here with `steps` of its
+    /// hold left.
+    pub fn set_area_left_for_probe(&mut self, steps: u64) {
+        let Some(id) = self.ship.state.station() else {
+            return;
+        };
+        if let Some(area) = self.defense_mut(id).and_then(|d| d.area.as_mut()) {
+            area.left = steps;
+        }
+    }
+
+    /// Whether the machines took the FOB of the site the crew are at:
+    /// what lost the run, for the screen that says so.
+    pub fn area_fell(&self) -> bool {
+        self.ship
+            .state
+            .station()
+            .and_then(|id| self.defense(id))
+            .and_then(|d| d.area.as_ref())
+            .is_some_and(|a| a.taken)
+    }
+
+    /// The ring's middle in the crew's room's units, and its radius there:
+    /// what the app draws the ring and the arrow to it by.
+    pub fn area_in_room(&self) -> Option<(bims::math::Vec2, f32)> {
+        let area = self.area_here()?;
+        let at = self
+            .aboard
+            .from_station(dvec2(area.x as f64, area.y as f64))?;
+        let radius = data::AREA_RADIUS_TILES * shipdesign::TILE as f64;
+        Some((bims::math::vec2(at.x as f32, at.y as f32), radius as f32))
+    }
+
+    /// The FOB's sandbags and its post, in the crew's room's units: each
+    /// bag's middle, and the post's.
+    pub fn fob_in_room(&self) -> Option<(Vec<bims::math::Vec2>, bims::math::Vec2)> {
+        let area = self.area_here()?;
+        let t = shipdesign::TILE as f64;
+        let bags = area
+            .bags
+            .iter()
+            .filter_map(|&(x, y)| {
+                self.aboard
+                    .from_station(dvec2((x as f64 + 0.5) * t, (y as f64 + 0.5) * t))
+            })
+            .map(|p| bims::math::vec2(p.x as f32, p.y as f32))
+            .collect();
+        let post = self
+            .aboard
+            .from_station(dvec2(area.x as f64, area.y as f64))?;
+        Some((bags, bims::math::vec2(post.x as f32, post.y as f32)))
+    }
+
+    /// How long the hold has still to run, in minutes of the mission clock
+    /// — the whole of it until the first wave lands.
+    pub fn area_time_left(&self) -> Option<f64> {
+        Some(self.area_here()?.left as f64 * data::STEP_MINUTES)
+    }
+
+    /// How far the machines are to taking the FOB, nought to one, and
+    /// whether a friend in the ring is holding the count.
+    pub fn area_taken_share(&self) -> Option<(f32, bool)> {
+        let area = self.area_here()?;
+        let share = (area.held as f64 / data::AREA_CAPTURE_STEPS as f64).min(1.0);
+        Some((share as f32, area.enemy_in && area.friend_in))
+    }
+
+    /// Where an Area defend's sandbags lie: every tile of the town whose
+    /// middle is [`data::AREA_BAGS_FROM_TILES`] to a tile further from the
+    /// FOB's middle, on open ground a body could walk to from the post,
+    /// but for the four ways in — a gap two tiles wide on each street.
+    fn fob_bags(&self, area: &defense::Area) -> Vec<(u32, u32)> {
+        let Some(residents) = self.residents.as_ref() else {
+            return Vec::new();
+        };
+        let t = shipdesign::TILE as f64;
+        let (cx, cy) = (area.x as f64 / t, area.y as f64 / t);
+        let from = residents
+            .aboard
+            .to_room(dvec2(area.x as f64 + t / 2.0, area.y as f64 + t / 2.0));
+        let (near, far) = (data::AREA_BAGS_FROM_TILES, data::AREA_BAGS_FROM_TILES + 1.0);
+        let span = far.ceil() as i32 + 1;
+        let mut bags = Vec::new();
+        for dy in -span..span {
+            for dx in -span..span {
+                let (tx, ty) = (cx.floor() as i32 + dx, cy.floor() as i32 + dy);
+                if tx < 0 || ty < 0 {
+                    continue;
+                }
+                let (mx, my) = (tx as f64 + 0.5 - cx, ty as f64 + 0.5 - cy);
+                let d2 = mx * mx + my * my;
+                if d2 < near * near || d2 >= far * far || mx.abs() < 1.0 || my.abs() < 1.0 {
+                    continue;
+                }
+                let at = residents
+                    .aboard
+                    .to_room(dvec2((tx as f64 + 0.5) * t, (ty as f64 + 0.5) * t));
+                if residents.aboard.room.is_open_ground(at, from) {
+                    bags.push((tx as u32, ty as u32));
+                }
+            }
+        }
+        bags
+    }
+
+    /// Who stands in the ring of the Area defend at `id`: an enemy — a
+    /// machine standing or one of the Manufacturers on their feet — and
+    /// a friend — a crew member on their feet, or one of the site's own
+    /// under arms (the defenders, the guard) on theirs.
+    fn who_holds_the_ring(&self, id: u32) -> (bool, bool) {
+        let Some(area) = self.defense(id).and_then(|d| d.area.as_ref()) else {
+            return (false, false);
+        };
+        let Some(residents) = self.residents.as_ref().filter(|r| r.station == id) else {
+            return (false, false);
+        };
+        let middle = dvec2(area.x as f64, area.y as f64);
+        let reach = data::AREA_RADIUS_TILES * shipdesign::TILE as f64;
+        let inside = |p: DVec2| p.sub(middle).length_squared() <= reach * reach;
+        let room = &residents.aboard.room;
+        let in_ring = |p: bims::math::Vec2| inside(residents.aboard.to_design(p));
+        let bims = room.crew_count() as usize;
+        let up = |who: usize| room.is_alive(who) && !room.is_downed(who);
+        let enemy_in = (0..bims)
+            .any(|who| room.is_manufacturer(who) && up(who) && in_ring(room.body_pos(who)))
+            || (0..room.droid_count() as usize).any(|i| {
+                room.droid(i)
+                    .is_some_and(|d| !d.destroyed && in_ring(d.pos))
+            });
+        let friend_in = self.aboard.crew_ashore().into_iter().flatten().any(inside)
+            || (0..bims).any(|who| {
+                !room.is_manufacturer(who)
+                    && !room.is_sheltering(who)
+                    && up(who)
+                    && in_ring(room.body_pos(who))
+            });
+        (enemy_in, friend_in)
+    }
+
+    /// An Area defend said to the rooms every step: the sandbags and the
+    /// post as low cover in both — the residents' room's, where the
+    /// machines' bolts fly at the site's own, and the crew's, where they
+    /// fly at the crew — and in the residents' room where each body makes
+    /// for: every enemy a spot of its own spread about the middle, every
+    /// defender and the guard a spot of its own on a ring just inside the
+    /// bags. Nothing anywhere else, and nothing once the fight is over.
+    fn say_the_fob(&mut self) {
+        let area = self
+            .area_here()
+            .filter(|_| self.residents.as_ref().map(|r| r.station) == self.ship.state.station())
+            .cloned();
+        let Some(area) = area else {
+            if let Some(residents) = &mut self.residents {
+                residents.aboard.room.set_objectives(&[]);
+            }
+            return;
+        };
+        let t = shipdesign::TILE as f64;
+        let tile = shipdesign::TILE as f32;
+        let middle = dvec2(area.x as f64, area.y as f64);
+        // The cover: a tile a bag and the post's four, in each room's own.
+        let in_town: Vec<(DVec2, f32)> = area
+            .bags
+            .iter()
+            .map(|&(x, y)| (dvec2((x as f64 + 0.5) * t, (y as f64 + 0.5) * t), tile))
+            .chain(std::iter::once((middle, 2.0 * tile)))
+            .collect();
+        let on_deck: Vec<bims::math::Rect> = in_town
+            .iter()
+            .filter_map(|&(p, size)| {
+                let at = self.aboard.from_station(p)?;
+                Some(bims::math::Rect::from_center_size(
+                    bims::math::vec2(at.x as f32, at.y as f32),
+                    bims::math::vec2(size, size),
+                ))
+            })
+            .collect();
+        self.aboard.room.set_laid_cover(&on_deck);
+        let Some(residents) = &mut self.residents else {
+            return;
+        };
+        let ashore: Vec<bims::math::Rect> = in_town
+            .iter()
+            .map(|&(p, size)| {
+                bims::math::Rect::from_center_size(
+                    residents.aboard.to_room(p),
+                    bims::math::vec2(size, size),
+                )
+            })
+            .collect();
+        residents.aboard.room.set_laid_cover(&ashore);
+        // Where each makes for.
+        let centre = residents.aboard.to_room(middle);
+        let room = &residents.aboard.room;
+        let bims = room.crew_count() as usize;
+        let guard = surface::GUARD as usize;
+        let holds =
+            |who: usize| !room.is_manufacturer(who) && (residents.is_defender(who) || who == guard);
+        let holders = (0..bims).filter(|&who| holds(who)).count().max(1);
+        let (mut enemy, mut friend) = (0usize, 0usize);
+        let mut spots: Vec<Option<bims::math::Vec2>> =
+            Vec::with_capacity(room.body_count() as usize);
+        for who in 0..bims {
+            spots.push(if room.is_manufacturer(who) {
+                enemy += 1;
+                Some(centre + defense::enemy_spot(enemy - 1) * tile)
+            } else if holds(who) {
+                friend += 1;
+                let angle = (friend - 1) as f32 / holders as f32 * bims::math::TAU + 0.4;
+                Some(
+                    centre
+                        + bims::math::Vec2::from_angle(angle) * (data::AREA_HOLD_RING_TILES * tile),
+                )
+            } else {
+                None
+            });
+        }
+        for i in 0..room.droid_count() as usize {
+            spots.push(room.droid(i).filter(|d| !d.destroyed).map(|_| {
+                enemy += 1;
+                centre + defense::enemy_spot(enemy - 1) * tile
+            }));
+        }
+        residents.aboard.room.set_objectives(&spots);
+    }
+
     /// How long after the crew land at a threatened town the first wave
     /// comes, in minutes of the mission clock (feature 103).
     pub fn defense_delay_minutes(&self) -> f64 {
@@ -6579,6 +6861,15 @@ impl World {
             }
             let mut fresh = Defense::new(id);
             fresh.next_in = Some(self.defense_delay);
+            // A town's is an Area defend (October 2026): the FOB at its
+            // crossing, its sandbags laid on the open ground round it.
+            if self.is_area_defense(id) {
+                let t = shipdesign::TILE as i32;
+                let (tx, ty) = surface::FOB_TILE;
+                let mut area = defense::Area::new(tx as i32 * t, ty as i32 * t);
+                area.bags = self.fob_bags(&area);
+                fresh.area = Some(area);
+            }
             let at = self.defenses.partition_point(|d| d.station < id);
             self.defenses.insert(at, fresh);
             // And the crew are put ashore, the moment the fight is on
@@ -6647,6 +6938,38 @@ impl World {
         } else {
             self.droid_reinforce
         };
+        // **An Area defend's clocks** (October 2026): the hold runs from
+        // the first wave's landing, and the ring is watched — the
+        // machines standing in it alone for long enough take the FOB, and
+        // the run is lost.
+        let area_gap = self
+            .defense(id)
+            .and_then(|d| d.area.as_ref())
+            .map(|a| a.gap);
+        if self
+            .defense(id)
+            .is_some_and(|d| d.wave > 0 && d.area.is_some())
+        {
+            let (enemy_in, friend_in) = self.who_holds_the_ring(id);
+            let mut taken = false;
+            if let Some(area) = self.defense_mut(id).and_then(|d| d.area.as_mut()) {
+                if area.left == 1 {
+                    events.push(WorldEvent::AreaTimeUp { station: id });
+                }
+                area.left = area.left.saturating_sub(1);
+                taken = area.watch(enemy_in, friend_in);
+            }
+            if taken {
+                if let Some(d) = self.defense_mut(id) {
+                    d.lost = true;
+                }
+                events.push(WorldEvent::AreaTaken { station: id });
+                if !self.run.won {
+                    self.lost = true;
+                }
+                return;
+            }
+        }
         let mut arrive = false;
         let mut won = false;
         // **Not won until every wreck is counted** (task 111): `visit`
@@ -6669,9 +6992,15 @@ impl World {
                 d.next_in = None;
             } else if d.wave == 0 || d.more_to_come() {
                 match d.next_in {
-                    None => d.next_in = Some(reinforce),
+                    // An Area defend's next wave comes its gap after,
+                    // a second sooner each time (October 2026).
+                    None => d.next_in = Some(area_gap.unwrap_or(reinforce)),
                     Some(left) if left <= 1 => {
-                        if d.wave > 0 {
+                        if let Some(area) = d.area.as_mut() {
+                            if d.wave > 0 {
+                                area.shorten();
+                            }
+                        } else if d.wave > 0 {
                             d.waves_left -= 1;
                         }
                         d.wave += 1;
@@ -6687,7 +7016,7 @@ impl World {
         }
         if arrive {
             self.clear_wrecks();
-            let n = self.droid_wave_size();
+            let n = self.landing_wave_size();
             if by_them {
                 self.lay_defense_manufacturers(id, n);
             } else {
@@ -6718,12 +7047,17 @@ impl World {
     /// in than the ashore point from the site's own airlock — the rings a
     /// wave arrives in (`arrival_spots`) — each snapped to a free cell of
     /// the joined deck. Nothing moves where the site has no airlock or
-    /// the rooms are not joined.
+    /// the rooms are not joined. At an Area defend (October 2026) round
+    /// the FOB instead, the ground they are to hold.
     fn stand_the_crew_ashore(&mut self, id: u32) {
-        let Some(port) = self.station(id).and_then(|s| s.port()) else {
-            return;
+        let inside = if let Some(area) = self.defense(id).and_then(|d| d.area.as_ref()) {
+            (area.x as f64, area.y as f64)
+        } else {
+            let Some(port) = self.station(id).and_then(|s| s.port()) else {
+                return;
+            };
+            droidplan::inside_of(&port, data::ASHORE_TILES + 1.0)
         };
-        let inside = droidplan::inside_of(&port, data::ASHORE_TILES + 1.0);
         let Some(middle) = self.aboard.from_station(dvec2(inside.0, inside.1)) else {
             return;
         };

@@ -113,6 +113,8 @@ pub use world::{
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
+mod tests_area;
+#[cfg(test)]
 mod tests_commander;
 #[cfg(test)]
 mod tests_crisis;

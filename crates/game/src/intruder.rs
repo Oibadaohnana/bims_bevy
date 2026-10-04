@@ -196,6 +196,14 @@ impl Game {
         }
         self.bims[who].plan_wait = PLAN_EVERY;
         let from = self.bims[who].character.pos;
+        // An Area defend's ring (October 2026): walked to and held, as
+        // the machines do.
+        if let Some(spot) = self.objective(who)
+            && !self.prey_at_hand(from, stats)
+        {
+            self.walk_for(who, spot);
+            return;
+        }
         let nav = self.maps.for_body(false);
         let targets = self.combat.machine_targets().to_vec();
         if !stats.melee && targets.iter().flatten().all(|t| t.stale) {

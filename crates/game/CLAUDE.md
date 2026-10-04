@@ -5284,3 +5284,29 @@ down by 12.5/14 — the shotgun's too, the blades left: pistol 10, shotgun
 3.75 (12 / 4.5 at tier three), rail lance 10.45 / 7.32 (12.5 / 8.78 at
 its tier three), Unmaker 12.5 / 6.25, Sweeper 12.5 / 5. `wire::PROTOCOL`
 149.
+
+## An objective: an Area defend's ring (October 2026)
+
+`Game::set_objectives(&[Option<Vec2>])` (by **body** index — the Bims,
+then the machines; serde default, said every step by the world, empty
+everywhere but the residents' room of an Area defend,
+`crates/world/CLAUDE.md`) is a spot each body makes for, and
+`Game::objective(body)` reads it. Three places read it, each at the top
+of its plan, on the body's own `plan_wait`:
+
+- **a machine** (`plan_droid_stand`): with an objective it walks to it
+  (`nav.nearest_free`, a fresh route only when its destination is half a
+  tile off) whatever it believes about the crew, and once within
+  `OBJECTIVE_SLACK` (a tile) plans nothing — it holds and shoots what it
+  sees from there, as it shoots on the move; a claw first goes for
+  anybody seen within `OBJECTIVE_CHARGE` (three tiles, `prey_at_hand`).
+  A Guardian goes through the same plan.
+- **an intruder** (`plan_intruder_stand`): the same, through
+  `walk_for`.
+- **a body of the room's own under arms** (`bot_stand`, before the
+  town's `under_attack` stand): `make_for` — the walk there, then hold
+  and shoot. A defender and a town's guard.
+
+`Game::is_open_ground(at, from)` is a deck tile with a way to it from
+`from`, whoever stands there: where the world may lay a bag. Nothing
+here decides who is in the ring; that is the world's.

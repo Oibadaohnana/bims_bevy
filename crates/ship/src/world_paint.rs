@@ -465,6 +465,7 @@ fn paint_ship(game: &Game, list: &mut DrawList, prebuilt: &[KeptStation]) {
     // in the room's units: sandbags on a station's tile are on the
     // joined deck, which is the room's grid and not the ship's.
     let mut laid = DrawList::default();
+    fob(game, &mut laid);
     deployables(game, &mut laid);
     laid.textured_from(0);
     list.append_turned(laid.shapes(), room_centre, turn);
@@ -488,6 +489,51 @@ fn paint_ship(game: &Game, list: &mut DrawList, prebuilt: &[KeptStation]) {
     list.append(station_shade.shapes());
     list.append_turned(over_fog, room_centre, turn);
     list.append(visitors_over.shapes());
+}
+
+/// The green of the ground an Area defend holds: a wash over the ring and
+/// a rim round it (the app's `theme::AREA`).
+const AREA_GROUND: Color = Color::rgba(0.30, 0.88, 0.48, 0.09);
+const AREA_RIM: Color = Color::rgba(0.30, 0.88, 0.48, 0.75);
+/// How wide the rim is, in room units.
+const AREA_RIM_LINE: f32 = 5.0;
+
+/// An Area defend's FOB (October 2026), in the room's units, which the
+/// caller turns with the room: the ring on the ground, the sandbags on its
+/// open ground and the post in the middle.
+fn fob(game: &Game, list: &mut DrawList) {
+    let (Some((ring, radius)), Some((bags, post))) =
+        (game.world.area_in_room(), game.world.fob_in_room())
+    else {
+        return;
+    };
+    let across = radius * 2.0;
+    list.ellipse(ring.x, ring.y, across, across, AREA_GROUND);
+    list.push(
+        crate::draw::KIND_ELLIPSE,
+        ring.x,
+        ring.y,
+        across,
+        across,
+        0.0,
+        0.0,
+        AREA_RIM_LINE,
+        AREA_RIM,
+    );
+    let t = TILE as f32;
+    for at in bags {
+        let part = PlacedPart {
+            id: 0,
+            kind: PartKind::Sandbags,
+            origin: (
+                (at.x / t).floor().max(0.0) as u32,
+                (at.y / t).floor().max(0.0) as u32,
+            ),
+            rotation: Rotation::R0,
+        };
+        crate::fittings::sandbags(list, &part);
+    }
+    crate::fittings::fob_post(list, post.x, post.y);
 }
 
 /// Every deployable in the crew's room, as a part stood on its tile: a

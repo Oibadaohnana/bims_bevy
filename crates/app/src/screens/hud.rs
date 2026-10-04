@@ -126,6 +126,27 @@ pub fn threats(world: &world::World, local: u32) -> Vec<Threat> {
 /// down — the mission clock's countdown to the next. A town under attack
 /// says the same three things. `None` where nobody holds the place.
 fn droid_line(world: &world::World) -> Option<(String, &'static str)> {
+    // An Area defend (October 2026): the wave, and the hold's time left.
+    if let Some(defending) = world.defense_here()
+        && let Some(area) = defending.area.as_ref()
+    {
+        let standing = world.droids_standing();
+        let hold = crate::format::countdown(world.area_time_left().unwrap_or(0.0));
+        let words = if defending.wave == 0
+            && let Some(due) = world.defense_wave_due()
+        {
+            defense_prepare(&crate::format::countdown(due))
+        } else if area.left == 0 {
+            area_last_wave(standing)
+        } else if standing > 0 {
+            area_standing(defending.wave, standing, &hold)
+        } else if let Some(due) = world.defense_wave_due() {
+            area_next_wave(&crate::format::countdown(due), defending.wave + 1, &hold)
+        } else {
+            area_standing(defending.wave.max(1), standing, &hold)
+        };
+        return Some((words, AREA_DEFENSE_TIP));
+    }
     if let Some(defending) = world.defense_here() {
         let waves = defending.wave + defending.waves_left;
         let standing = world.droids_standing();
@@ -723,6 +744,20 @@ pub struct Counter {
     pub wave: Option<(u32, u32)>,
     /// The Heart's core, its share of its health left.
     pub core: Option<f32>,
+    /// An Area defend's count (October 2026), in place of `wave`.
+    pub area: Option<AreaCount>,
+}
+
+/// What the top count says of an Area defend: the wave (there is no
+/// last but the one standing when the time runs out), the hold's time
+/// left — `None` once it is out — and how far the machines are to taking
+/// the FOB, and whether somebody of the crew's side is holding them.
+#[derive(Clone, PartialEq, Debug)]
+pub struct AreaCount {
+    pub wave: u32,
+    pub hold: Option<String>,
+    pub fob: f32,
+    pub contested: bool,
 }
 
 /// What the count at the top says (`droid_line`'s figures, without its
@@ -732,6 +767,34 @@ pub fn counter(world: &world::World) -> Option<Counter> {
     let up = |n: u32| Some((n.to_string(), theme::BAD));
     let counting = |due: f64| Some((crate::format::countdown(due), theme::CAUTION));
     let down = || Some(("0".to_string(), theme::MUTED));
+    // An Area defend (October 2026): the waves never run out while the
+    // hold's time runs, so no "of how many" — the time left instead, and
+    // the FOB's bar.
+    if let Some(defending) = world.defense_here()
+        && let Some(area) = defending.area.as_ref()
+    {
+        let due = world.defense_wave_due();
+        let (big, wave) = if standing > 0 {
+            (up(standing), defending.wave)
+        } else if let Some(due) = due {
+            (counting(due), defending.wave + 1)
+        } else {
+            (down(), defending.wave)
+        };
+        let (fob, contested) = world.area_taken_share().unwrap_or((0.0, false));
+        return Some(Counter {
+            big,
+            wave: None,
+            core: None,
+            area: Some(AreaCount {
+                wave: wave.max(1),
+                hold: (area.left > 0)
+                    .then(|| crate::format::countdown(world.area_time_left().unwrap_or(0.0))),
+                fob,
+                contested,
+            }),
+        });
+    }
     if let Some(defending) = world.defense_here() {
         let waves = defending.wave + defending.waves_left;
         let due = world.defense_wave_due();
@@ -748,6 +811,7 @@ pub fn counter(world: &world::World) -> Option<Counter> {
             big,
             wave: Some((wave.min(waves.max(1)), waves.max(1))),
             core: None,
+            area: None,
         });
     }
     let core = world.heart_status().map(|heart| {
@@ -762,6 +826,7 @@ pub fn counter(world: &world::World) -> Option<Counter> {
             big: None,
             wave: None,
             core: Some(core),
+            area: None,
         });
     };
     let waves = wave + left;
@@ -778,7 +843,51 @@ pub fn counter(world: &world::World) -> Option<Counter> {
         big,
         wave: Some((wave, waves)),
         core,
+        area: None,
     })
+}
+
+/// An Area defend's half of the top count: the wave and the hold's time
+/// left (or the last wave) on a line, and under it the FOB's bar — how
+/// far the machines are to taking it, red, amber while somebody of the
+/// crew's side stands in the ring and holds their count.
+fn area_count(ui: &mut egui::Ui, area: &AreaCount) {
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = 12.0;
+        ui.label(
+            egui::RichText::new(area_wave(area.wave))
+                .size(COUNT_WAVE_SIZE)
+                .strong()
+                .color(theme::INK),
+        );
+        let (hold, colour) = match &area.hold {
+            Some(span) => (area_hold(span), theme::AREA),
+            None => (AREA_LAST_WAVE.to_string(), theme::CAUTION),
+        };
+        ui.label(
+            egui::RichText::new(hold)
+                .size(COUNT_WAVE_SIZE)
+                .strong()
+                .color(colour),
+        );
+    })
+    .response
+    .on_hover_text(AREA_DEFENSE_TIP);
+    if area.fob > 0.0 {
+        let colour = if area.contested {
+            theme::CAUTION
+        } else {
+            theme::BAD
+        };
+        ui.horizontal(|ui| {
+            ui.label(egui::RichText::new(AREA_FOB).small().strong().color(colour));
+            theme::bar_of_height(ui, CORE_BAR_W, 8.0, &[(area.fob, colour)]);
+            if area.contested {
+                ui.label(egui::RichText::new(AREA_CONTESTED).small().color(colour));
+            }
+        });
+    }
+    ui.add_space(4.0);
 }
 
 /// How big the count of enemies standing is, and the wave beside it.
@@ -860,6 +969,9 @@ pub fn top_frame(
                         if let Some(core) = count.as_ref().and_then(|c| c.core) {
                             theme::bar_of_height(ui, CORE_BAR_W, 8.0, &[(core, theme::BAD)]);
                             ui.add_space(4.0);
+                        }
+                        if let Some(area) = count.as_ref().and_then(|c| c.area.as_ref()) {
+                            area_count(ui, area);
                         }
                     });
                 })

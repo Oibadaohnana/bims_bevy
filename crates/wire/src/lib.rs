@@ -262,7 +262,11 @@ use serde::{Deserialize, Serialize};
 /// 150: *Drill Sergeant* lifts a bot's kill to half the bounty
 /// (`relic::Stat::BotBounty`, `relic::bot_bounty`) — both ends must pay
 /// alike.
-pub const PROTOCOL: u32 = 150;
+/// 151: a town's defence is an Area defend (`world::defense::Area`) —
+/// the FOB, endless waves for five minutes, the ring taken — and a
+/// mission's waves are its first wave's size (`Run::wave_size`);
+/// `WorldEvent::{AreaTaken, AreaTimeUp}` (162, 163).
+pub const PROTOCOL: u32 = 151;
 
 /// Where the relay lives. `BIMS_SERVER` in the environment overrides it
 /// — `ws://127.0.0.1:8792` for one on the same machine.

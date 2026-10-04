@@ -725,6 +725,12 @@ pub fn world_checksum(world: &World) -> u64 {
     if run.floor {
         hash.eat(0x_464C_4F4F_52);
     }
+    // The mission's wave size once its first wave has landed (October
+    // 2026): eaten only where it is set.
+    if let Some(n) = run.wave_size {
+        hash.eat(0x_5741_5645);
+        hash.eat(u64::from(n));
+    }
     // The traders (task 114): every one met, whose it is, what is left on
     // its shelf.
     // Eaten only where there is any, so a run that has met none hashes as
@@ -855,6 +861,17 @@ fn eat_defenses(hash: &mut Fnv, defenses: &[crate::defense::Defense]) {
         hash.eat(u64::from(d.settled));
         hash.eat(u64::from(d.won));
         hash.eat(u64::from(d.lost));
+        // An Area defend's ring (October 2026), only where there is one.
+        if let Some(a) = &d.area {
+            hash.eat(0x_4152_4541);
+            hash.eat(a.x as u32 as u64);
+            hash.eat(a.y as u32 as u64);
+            hash.eat(a.left);
+            hash.eat(a.held);
+            hash.eat(a.gap);
+            hash.eat(u64::from(a.taken));
+            hash.eat(a.bags.len() as u64);
+        }
     }
 }
 

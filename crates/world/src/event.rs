@@ -222,6 +222,13 @@ pub enum WorldEvent {
     /// A town the machines were attacking was left before it was held,
     /// and fell to them: an infested site like any other.
     TownFell { station: u32 },
+    /// The machines stood in an Area defend's ring long enough with
+    /// nobody of the crew's side in it (October 2026): the FOB is theirs
+    /// and the run is lost.
+    AreaTaken { station: u32 },
+    /// An Area defend's hold ran out: no wave lands after this one, and
+    /// the machines on the ground are the last to destroy.
+    AreaTimeUp { station: u32 },
     /// The host said that player has left the game.
     PlayerGone { slot: u32 },
     /// Relics are on offer to the crew (feature 106): `count` of them, off
@@ -710,6 +717,8 @@ impl WorldEvent {
             WorldEvent::LeftBehind { .. } => 101,
             WorldEvent::BotLost { .. } => 104,
             WorldEvent::TownFell { .. } => 105,
+            WorldEvent::AreaTaken { .. } => 162,
+            WorldEvent::AreaTimeUp { .. } => 163,
             WorldEvent::PlayerGone { .. } => 106,
             WorldEvent::RelicsOffered { .. } => 107,
             WorldEvent::RelicProposed { .. } => 108,
@@ -811,6 +820,8 @@ impl WorldEvent {
             // The count in the hundreds, the crew member in the units.
             WorldEvent::SatchelsBlown { who, count } => who as i64 + 100 * count as i64,
             WorldEvent::TownFell { station }
+            | WorldEvent::AreaTaken { station }
+            | WorldEvent::AreaTimeUp { station }
             | WorldEvent::HeartExposed { station }
             | WorldEvent::HeartOverload { station }
             | WorldEvent::HeartDestroyed { station } => station as i64,

@@ -506,8 +506,20 @@ fn over(
                     ui.label(egui::RichText::new(victory_relics(&summary.relics)).small());
                 }
             } else {
-                ui.label(egui::RichText::new(OVER_TITLE).size(28.0).strong());
-                ui.label(egui::RichText::new(OVER_LINE).color(theme::MUTED));
+                // The machines took an Area defend's FOB (October 2026), or
+                // nobody is standing.
+                let fob = session
+                    .0
+                    .game
+                    .as_ref()
+                    .is_some_and(|game| game.world.area_fell());
+                let (title, line) = if fob {
+                    (OVER_TITLE_AREA, OVER_LINE_AREA)
+                } else {
+                    (OVER_TITLE, OVER_LINE)
+                };
+                ui.label(egui::RichText::new(title).size(28.0).strong());
+                ui.label(egui::RichText::new(line).color(theme::MUTED));
                 ui.label(egui::RichText::new(when).color(theme::MUTED));
             }
             ui.add_space(12.0);
@@ -4457,6 +4469,20 @@ fn frame(
             let at = view.to_canvas(Vec2::new(x, y)) + canvas.min;
             egui::pos2(at.x, at.y)
         });
+        // And an Area defend's FOB off the view: a green glow on the edge
+        // towards it (October 2026).
+        if let Some((ring, radius)) = game.world.area_in_room() {
+            let (x, y) = ship::world_paint::room_point_on_screen(game, ring);
+            let at = view.to_canvas(Vec2::new(x, y)) + canvas.min;
+            crate::offscreen::paint_area(
+                &painter,
+                edge,
+                middle,
+                egui::pos2(at.x, at.y),
+                radius * view.scale,
+                area_icon,
+            );
+        }
     }
 
     // The players' names, over their heads, where the ship says each Bim
@@ -4710,6 +4736,7 @@ fn chart_mission_line(ui: &mut egui::Ui, mission: &world::run::StarMission) {
         let painter = ui.painter();
         match mission.kind {
             world::SiteKind::Attack => blades_icon(painter, rect.center(), 15.0, colour),
+            _ if mission.area => area_icon(painter, rect.center(), 17.0, colour),
             _ => shield_icon(painter, rect.center(), 16.0, colour),
         }
         let (rect, _) = ui.allocate_exact_size(size, egui::Sense::hover());
@@ -4721,7 +4748,7 @@ fn chart_mission_line(ui: &mut egui::Ui, mission: &world::run::StarMission) {
         }
         let word = format!(
             "{} {}",
-            site_kind_word(mission.kind),
+            mission_kind_word(mission.kind, mission.area),
             site_place_word(mission.site.station)
         );
         ui.label(egui::RichText::new(word).strong().color(colour));
@@ -4753,6 +4780,38 @@ pub(super) fn shield_icon(
         [at + egui::vec2(0.0, -h), at + egui::vec2(0.0, h)],
         egui::Stroke::new(1.4, colour),
     );
+}
+
+/// An Area defend's mark (October 2026), `size` across, centred on `at`:
+/// a flag planted in a ring of sandbags — the ground to hold.
+pub(super) fn area_icon(painter: &egui::Painter, at: egui::Pos2, size: f32, colour: egui::Color32) {
+    let r = size * 0.42;
+    // The ring: eight bags, a short thick arc each, gaps between.
+    let bags = 8;
+    for i in 0..bags {
+        let from = i as f32 / bags as f32 * std::f32::consts::TAU + 0.12;
+        let to = from + std::f32::consts::TAU / bags as f32 * 0.62;
+        let arc: Vec<egui::Pos2> = (0..=4)
+            .map(|k| {
+                let t = from + (to - from) * k as f32 / 4.0;
+                at + egui::vec2(t.cos(), t.sin()) * r
+            })
+            .collect();
+        painter.add(egui::Shape::line(arc, egui::Stroke::new(2.2, colour)));
+    }
+    // The flag: a pole, and a pennant off its top.
+    let foot = at + egui::vec2(-size * 0.08, size * 0.22);
+    let top = at + egui::vec2(-size * 0.08, -size * 0.3);
+    painter.line_segment([foot, top], egui::Stroke::new(1.6, colour));
+    painter.add(egui::Shape::convex_polygon(
+        vec![
+            top,
+            top + egui::vec2(size * 0.3, size * 0.09),
+            top + egui::vec2(0.0, size * 0.18),
+        ],
+        colour,
+        egui::Stroke::NONE,
+    ));
 }
 
 /// Two blades crossed, `size` across, centred on `at`, a guard across each

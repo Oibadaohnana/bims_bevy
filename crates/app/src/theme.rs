@@ -67,6 +67,10 @@ pub const HYPER: egui::Color32 = egui::Color32::from_rgb(0x9e, 0x6b, 0xdb);
 pub const SITE_ATTACK: egui::Color32 = egui::Color32::from_rgb(0xff, 0x47, 0x38);
 pub const SITE_DEFEND: egui::Color32 = egui::Color32::from_rgb(0xff, 0xb3, 0x2e);
 pub const SITE_TRADER: egui::Color32 = egui::Color32::from_rgb(0x66, 0xe6, 0x75);
+/// An Area defend's ring and everything that points to it (October
+/// 2026): the green of ground held — the ring on the deck, the arrow at
+/// the screen's edge, the hold's time.
+pub const AREA: egui::Color32 = egui::Color32::from_rgb(0x4c, 0xe0, 0x7a);
 /// A site kind's colour.
 pub fn site_kind_colour(kind: world::SiteKind) -> egui::Color32 {
     match kind {

@@ -357,6 +357,12 @@ pub struct Run {
     /// session of the app switches it on (`World::set_floor`).
     #[cfg_attr(feature = "serde", serde(default))]
     pub floor: bool,
+    /// The size of this mission's first wave, once it has landed (October
+    /// 2026): every wave after it is as many, whoever of the crew has fallen
+    /// since — a bot or a defender dead still counts. `None` before the
+    /// first, and again at every mission's start.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub wave_size: Option<u32>,
 }
 
 impl Run {
@@ -393,6 +399,7 @@ impl Run {
             ready: vec![false; players as usize],
             chosen: Vec::new(),
             floor: false,
+            wave_size: None,
         }
     }
 
@@ -502,4 +509,6 @@ pub struct StarMission {
     pub site: Site,
     pub kind: SiteKind,
     pub cleared: bool,
+    /// A defence that is an Area defend (October 2026).
+    pub area: bool,
 }

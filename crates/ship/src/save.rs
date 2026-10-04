@@ -281,7 +281,11 @@ use crate::game::Game;
 /// 106: a thing in the armory keeps whose it is (`Stored::owner`).
 /// 107: the world keeps the step each player's attack order lapses at
 /// (`World::standing_until`).
-pub const SAVE_VERSION: u32 = 107;
+/// 108: an Area defend (`world::defense::Area` on `Defense::area`), the
+/// mission's fixed wave size (`Run::wave_size`), the residents' room's
+/// objectives (`bims::game::Game::objectives`) and the tests' dial
+/// `World::area_defense_off`.
+pub const SAVE_VERSION: u32 = 108;
 
 /// What the file holds, read back.
 #[derive(serde::Deserialize)]

@@ -309,8 +309,8 @@ ring round its icon and a word under it:
 - **ATTACK** (red): somewhere an enemy holds — the machines' stations,
   the Manufacturers' sites, the Machine Heart. Go in and clear it. One
   cleared says *cleared*, its ring faded.
-- **DEFEND** (amber): everywhere else — stations, derelicts and towns
-  alike, **the place a run starts at among them**, from the very first
+- **DEFEND** (amber): everywhere else — stations and derelicts (a
+  town's is an **Area defend**, below), **the place a run starts at among them**, from the very first
   day. **Before day ten the Manufacturers are coming for it**, their
   people and the day's share of their Troopers (see
   [The Manufacturers](#the-manufacturers)); from day ten, the machines.
@@ -333,6 +333,20 @@ ring round its icon and a word under it:
   behind, so bring the crew back aboard first. A defender who dies is
   nobody's loss, and a derelict with nobody of its own is never lost
   while you stand.
+- **AREA DEFEND** (amber, a flag in a ring of sandbags): a **town's**
+  defence. Hold its **FOB** — a green ring where its main street meets
+  its first cross street, sandbags round it and a post in the middle —
+  for **five minutes** from the first wave. The waves never stop coming
+  while the time runs, each landing a second sooner after the last is
+  down; every wave is the size of the first, whoever of yours has fallen
+  since. When the time is up, destroy the wave still standing and the
+  town is held. The machines walk for the ring and fight from it, the
+  town's defenders hold it beside you, and **machines standing in the
+  ring for twenty seconds with nobody of yours in it take the FOB — the
+  run is lost**. Anybody of yours in the ring stops their count; the
+  machines driven out puts it back to nothing. Out of sight, the FOB is
+  a green glow at the edge of the screen; the top of the screen counts
+  the hold down, and a bar fills as the machines take it.
 - **TRADER** (green): a trader, visited on the map — see
   [The trader](#the-trader). The machines never come for one.
 

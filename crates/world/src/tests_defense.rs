@@ -25,6 +25,9 @@ use crate::world_checksum;
 fn basic() -> World {
     let mut world = open_simulation_world(flyer(2), REFERENCE_MONEY, 2);
     world.set_defense_by_machines_for_probe();
+    // A town's defence as it was before the Area defend (October 2026):
+    // every wave down and won. `tests_area.rs` is the Area defend.
+    world.set_area_defense_off_for_probe();
     world
 }
 
