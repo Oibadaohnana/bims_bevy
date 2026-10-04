@@ -7660,14 +7660,23 @@ never down, and the tiers marked on it.
   the rightmost — mostly level, a step aside three times in ten — so every
   place has a way in and a way on, no two trips cross, and the leftmost and
   rightmost chains are two ways that share no place (four at most, since a
-  row has four). One **traders' row** is rolled in each of
-  `FLOOR_SHOP_BANDS` ((8,13), (19,25), (30,35), (40,45)): every place on
-  it is a trader, so every way up meets four.
+  row has four). **The traders are scattered** (`Shape::shops`,
+  `FloorNode::shop`, `Floor::is_shop`; the player: "a shop does not
+  always have to be in one row … roughly 15 times until the heart …
+  every 7 steps somewhere"): `FLOOR_SHOPS` (15), one in each even stretch
+  of the rows from `FLOOR_FIRST_SHOP_ROW` (3) to the one under the Heart,
+  never two rows running, each on the place of its row that a place
+  stranded longest below (no trader reachable from it yet) leads to.
+  Over 500 seeds 97% of places reach one within seven rows, the way up
+  that goes for them is six rows without one at the most on average (ten
+  at the worst), and it can meet ten or eleven; a way up the edge meets
+  about five. Four whole traders' rows (`FLOOR_SHOP_BANDS`) until then;
+  `wire::PROTOCOL` 154.
 - **The places are stars** (`floorplan.rs`, a child of `world`,
   `World::lay_floor`): the start is `home_star`/`home`, the Heart
   `droid_origin`/`heart_id`, every other place a star of its own (none
   twice over forty floors measured) whose system's one site
-  (`mission_site`) suits the row — a trader on a traders' row (one whose
+  (`mission_site`) suits the row — a trader on a trader's place (one whose
   `infested_on` is past the row's day first, so it is still trading), a
   fight elsewhere — the one nearest the row's distance from the origin
   (the home's at the bottom, nought at the top, so the climb walks into the

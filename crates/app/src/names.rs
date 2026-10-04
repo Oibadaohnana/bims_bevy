@@ -2212,8 +2212,6 @@ pub fn map_floor_next(star: &str, day: u32) -> String {
 
 /// The crew's own station at the foot of the floor.
 pub const FLOOR_START: &str = "Start";
-/// Beside a row whose every place is a trader.
-pub const FLOOR_TRADERS: &str = "Traders";
 /// The place the crew are at, and a place a trip may go to.
 pub const FLOOR_HERE: &str = "you are here";
 pub const FLOOR_WAY_UP: &str = "a way up from here";

@@ -75,7 +75,7 @@ impl World {
     /// crew's own star ([`floor::shape`]), the start the crew's own
     /// station, the Heart the machines' origin, and every place between a
     /// star of its own whose system's one site suits the row — a trader on
-    /// a traders' row (one still trading on that row's day where there is
+    /// a trader's place (one still trading on that row's day where there is
     /// one), a fight anywhere else — the star nearest the row's distance
     /// from the origin: the crew's own distance at the bottom, nought at
     /// the top, so the climb walks into the crisis. Ties go by a roll.

@@ -99,10 +99,16 @@ pub const FLOOR_HOPS: u32 = 50;
 /// most, and the leftmost and the rightmost are two ways that share none.
 pub const FLOOR_MIN_WAYS: u32 = 2;
 pub const FLOOR_MAX_WAYS: u32 = 4;
-/// The rows of traders a floor has, one in each of these bands (the row
-/// rolled within the band): every place on such a row is a trader, so
-/// every way up meets this many.
-pub const FLOOR_SHOP_BANDS: [(u32, u32); 4] = [(8, 13), (19, 25), (30, 35), (40, 45)];
+/// How many traders a floor has, scattered over its places (`floor::shape`):
+/// one in each of this many even stretches of the rows from
+/// [`FLOOR_FIRST_SHOP_ROW`] to the one under the Heart, each where it
+/// reaches the place longest stranded without one — a trader within seven
+/// rows of nearly every place (97%), one every six or seven rows on a way
+/// that goes for them, never a whole row of them. Four whole rows of
+/// traders until the player asked for them scattered (October 2026).
+pub const FLOOR_SHOPS: u32 = 15;
+/// The lowest row a trader may be on: the first few are fights.
+pub const FLOOR_FIRST_SHOP_ROW: u32 = 3;
 
 /// How far from everything in a system a jump lands, in world units. Four
 /// times a body's arrival radius, so the ship is in empty space and not on

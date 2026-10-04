@@ -262,21 +262,6 @@ pub fn paint(painter: &egui::Painter, rect: egui::Rect, chart: &FloorChart, view
         }
         row = end + 1;
     }
-    // The traders' rows.
-    for &row in &floor.shop_rows {
-        painter.rect_filled(
-            band(row as f32 - 0.4, row as f32 + 0.4),
-            0.0,
-            theme::SITE_TRADER.gamma_multiply(0.07),
-        );
-        painter.text(
-            egui::pos2(right + 8.0, chart.to_screen(rect, 0.5, row as f32).y),
-            egui::Align2::LEFT_CENTER,
-            FLOOR_TRADERS,
-            egui::FontId::proportional(12.0),
-            theme::SITE_TRADER.gamma_multiply(0.8),
-        );
-    }
     // The days, a row each where there is room, every fifth otherwise.
     let every = if gap >= 20.0 {
         1

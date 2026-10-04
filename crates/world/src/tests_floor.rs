@@ -1,6 +1,6 @@
 //! The floor (October 2026, `crate::floor`): the run's map, the start at
 //! the bottom and the Machine Heart at the top, a row a hop and a day, two
-//! to four ways up, four rows of traders, the tiers marked by their days —
+//! to four ways up, traders scattered over it, the tiers marked by their days —
 //! and a trip only up it.
 
 use shipdesign::fixture::flyer;
@@ -77,10 +77,10 @@ fn a_run_s_floor_climbs_from_home_to_the_heart_on_stars_of_its_own() {
     stars.sort_unstable();
     stars.dedup();
     assert_eq!(stars.len(), all, "no star twice");
-    // The traders' rows: every place a trader, the rest none.
+    // The traders' places traders, the rest none.
     for (row, nodes) in floor.rows.iter().enumerate() {
-        let shop = floor.is_shop_row(row as u32);
         for node in nodes {
+            let shop = node.shop;
             let site = Site {
                 star: node.star,
                 station: node.station,
@@ -94,7 +94,7 @@ fn a_run_s_floor_climbs_from_home_to_the_heart_on_stars_of_its_own() {
     let marks = world.floor_marks();
     assert_eq!(marks.len(), floor.len(), "every place marked");
     for mark in &marks {
-        if floor.is_shop_row(mark.row) {
+        if floor.is_shop(mark.row, mark.index as usize) {
             assert_eq!(mark.kind, SiteKind::Trader, "{mark:?}");
         } else if mark.row > 0 {
             assert_ne!(mark.kind, SiteKind::Trader, "{mark:?}");
@@ -226,7 +226,7 @@ fn the_rows_are_marked_by_the_tier_timings() {
 }
 
 /// What the floors of ten seeds over every galaxy type are made of: how
-/// many places, how many stars twice, the traders' rows that fell to the
+/// many places, how many stars twice, the traders' places that fell to the
 /// machines, and the attacks and defences on their days. Run with
 /// `--ignored --nocapture`.
 #[test]
@@ -247,7 +247,7 @@ fn floors_over_ten_seeds() {
             let count = |k: SiteKind| marks.iter().filter(|m| m.kind == k).count();
             let fallen = marks
                 .iter()
-                .filter(|m| floor.is_shop_row(m.row) && m.kind != SiteKind::Trader)
+                .filter(|m| floor.is_shop(m.row, m.index as usize) && m.kind != SiteKind::Trader)
                 .count();
             let elites = marks.iter().filter(|m| m.elite).count();
             println!(

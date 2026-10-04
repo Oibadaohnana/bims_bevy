@@ -272,7 +272,10 @@ use serde::{Deserialize, Serialize};
 /// ends must lay and walk alike.
 /// 153: an Area defend's waves twenty-five seconds apart from each
 /// landing, a second sooner a wave (`defense::area_gap`).
-pub const PROTOCOL: u32 = 153;
+/// 154: a floor's traders scattered, fifteen of them one a stretch of
+/// rows (`world::floor::Shape::shops`, `data::FLOOR_SHOPS`), not four
+/// whole rows — both ends must lay the same floor.
+pub const PROTOCOL: u32 = 154;
 
 /// Where the relay lives. `BIMS_SERVER` in the environment overrides it
 /// — `ws://127.0.0.1:8792` for one on the same machine.

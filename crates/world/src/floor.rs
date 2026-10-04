@@ -12,9 +12,13 @@
 //!   leftmost pair to the rightmost, every place on it — so the leftmost
 //!   places and the rightmost are two ways up that share nothing, and no
 //!   more than four can.
-//! - **Four rows of traders**, one rolled in each of
-//!   [`data::FLOOR_SHOP_BANDS`]: every place on such a row is a trader, so
-//!   every way up meets four.
+//! - **About [`data::FLOOR_SHOPS`] traders**, scattered: one a stretch
+//!   of rows of the climb (from [`data::FLOOR_FIRST_SHOP_ROW`]), each on
+//!   the place of its row that reaches the place longest stranded without
+//!   one, so they spread across the ways and never clump: a trader within
+//!   seven rows of nearly every place, a way up that goes for them meets
+//!   one every six or seven rows, and going there is a choice of way, as
+//!   in Slay the Spire.
 //! - **A place is a star**, its system's one site (`World::mission_site`):
 //!   the galaxy's systems, their missions and their trips are what the
 //!   floor is made of; the galaxy chart is gone. The stars are picked
@@ -44,14 +48,14 @@ pub struct FloorNode {
     /// The places of the next row a trip from here goes to, by index,
     /// left to right.
     pub up: Vec<u8>,
+    /// A trader's place.
+    pub shop: bool,
 }
 
 /// A floor: its rows, the start first and the Heart last.
 #[derive(Clone, PartialEq, Debug, Default)]
 pub struct Floor {
     pub rows: Vec<Vec<FloorNode>>,
-    /// The rows whose every place is a trader, in order.
-    pub shop_rows: Vec<u32>,
 }
 
 impl Floor {
@@ -83,9 +87,9 @@ impl Floor {
             .unwrap_or_default()
     }
 
-    /// Whether every place on `row` is a trader.
-    pub fn is_shop_row(&self, row: u32) -> bool {
-        self.shop_rows.contains(&row)
+    /// Whether the place at `row`, `index` is a trader.
+    pub fn is_shop(&self, row: u32, index: usize) -> bool {
+        self.node(row, index).is_some_and(|n| n.shop)
     }
 
     /// How many places there are on the whole floor.
@@ -106,13 +110,14 @@ pub fn row_day(row: u32) -> u32 {
 }
 
 /// A floor's shape before any star is put on it: how many places each
-/// row has, where each is drawn, which go to which, and the traders' rows.
+/// row has, where each is drawn, which go to which, and which are
+/// traders.
 #[derive(Clone, PartialEq, Debug)]
 pub struct Shape {
     pub widths: Vec<u32>,
     pub xs: Vec<Vec<f32>>,
     pub up: Vec<Vec<Vec<u8>>>,
-    pub shop_rows: Vec<u32>,
+    pub shops: Vec<Vec<bool>>,
 }
 
 /// The stream a floor's shape is rolled off: the galaxy's seed and the
@@ -199,24 +204,90 @@ pub fn shape(seed: u64) -> Shape {
         }
         up.push(edges);
     }
-    // The traders' rows: one in each band, inside the floor.
-    let shop_rows = data::FLOOR_SHOP_BANDS
-        .iter()
-        .map(|&(lo, hi)| {
-            let (lo, hi) = (lo.clamp(1, hops - 1), hi.clamp(1, hops - 1));
-            lo + rng.below(hi.saturating_sub(lo) + 1)
-        })
-        .collect();
+    let shops = scatter_shops(&widths, &up, &mut rng);
     Shape {
         widths,
         xs,
         up,
-        shop_rows,
+        shops,
     }
 }
 
+/// The traders, off `rng`: the rows from [`data::FLOOR_FIRST_SHOP_ROW`]
+/// to the one under the Heart cut into [`data::FLOOR_SHOPS`] stretches
+/// as even as whole rows go, a trader on a row rolled in each — never on
+/// the row just after the last one's, where the stretch has another — on
+/// the place of that row a place stranded longest below it leads to.
+/// So a way up the last traders missed is the one the next is put on,
+/// and none clump.
+fn scatter_shops(widths: &[u32], up: &[Vec<Vec<u8>>], rng: &mut Rng) -> Vec<Vec<bool>> {
+    let mut shops: Vec<Vec<bool>> = widths.iter().map(|&w| vec![false; w as usize]).collect();
+    let top = widths.len() as u32 - 1;
+    let first = data::FLOOR_FIRST_SHOP_ROW.clamp(1, top.saturating_sub(1).max(1));
+    let span = top.saturating_sub(first);
+    let count = data::FLOOR_SHOPS.min(span);
+    if count == 0 {
+        return shops;
+    }
+    // The shop rows, one a stretch, in order.
+    let mut rows = Vec::with_capacity(count as usize);
+    let mut last: Option<u32> = None;
+    for k in 0..count {
+        let (lo, hi) = (first + k * span / count, first + (k + 1) * span / count - 1);
+        let lo = match last {
+            Some(prev) if prev + 1 == lo && lo < hi => lo + 1,
+            _ => lo,
+        };
+        let row = lo + rng.below(hi - lo + 1);
+        rows.push(row);
+        last = Some(row);
+    }
+    // Each on the place that rescues the place longest stranded: of the
+    // places below that no trader put so far can be reached from, the
+    // lowest that can reach it — then the most such, then a roll.
+    for row in rows {
+        let row = row as usize;
+        // Which places below reach a trader already.
+        let mut covered: Vec<Vec<bool>> = shops[..row].to_vec();
+        for r in (0..row.saturating_sub(1)).rev() {
+            for i in 0..covered[r].len() {
+                covered[r][i] =
+                    covered[r][i] || up[r][i].iter().any(|&j| covered[r + 1][j as usize]);
+            }
+        }
+        let mut best: Option<((u32, u32, u32), usize)> = None;
+        for j in 0..widths[row] as usize {
+            // The places below that reach this one.
+            let mut reach = vec![false; widths[row] as usize];
+            reach[j] = true;
+            let (mut lowest, mut stranded) = (row as u32, 0u32);
+            for r in (0..row).rev() {
+                let below: Vec<bool> = up[r]
+                    .iter()
+                    .map(|edges| edges.iter().any(|&k| reach[k as usize]))
+                    .collect();
+                for (i, &on) in below.iter().enumerate() {
+                    if on && !covered[r][i] {
+                        lowest = r as u32;
+                        stranded += 1;
+                    }
+                }
+                reach = below;
+            }
+            let score = (row as u32 - lowest, stranded, rng.below(1_000));
+            if best.is_none_or(|(b, _)| score > b) {
+                best = Some((score, j));
+            }
+        }
+        if let Some((_, pick)) = best {
+            shops[row][pick] = true;
+        }
+    }
+    shops
+}
+
 /// The floor of `shape`, a star and a site put on every place by
-/// `place(row, index, shop)` — `shop` for a place on a traders' row — in
+/// `place(row, index, shop)` — `shop` for a trader's place — in
 /// row order and left to right.
 pub fn lay(shape: Shape, mut place: impl FnMut(u32, usize, bool) -> (u32, u32)) -> Floor {
     let rows = shape
@@ -224,24 +295,22 @@ pub fn lay(shape: Shape, mut place: impl FnMut(u32, usize, bool) -> (u32, u32)) 
         .iter()
         .enumerate()
         .map(|(row, &w)| {
-            let shop = shape.shop_rows.contains(&(row as u32));
             (0..w as usize)
                 .map(|i| {
+                    let shop = shape.shops[row][i];
                     let (star, station) = place(row as u32, i, shop);
                     FloorNode {
                         star,
                         station,
                         x: shape.xs[row][i],
                         up: shape.up[row][i].clone(),
+                        shop,
                     }
                 })
                 .collect()
         })
         .collect();
-    Floor {
-        rows,
-        shop_rows: shape.shop_rows,
-    }
+    Floor { rows }
 }
 
 #[cfg(test)]
@@ -290,11 +359,130 @@ mod tests {
                 let (a, b) = (shape.widths[row], shape.widths[row + 1]);
                 assert!(shape.up[row][a as usize - 1].contains(&(b as u8 - 1)));
             }
-            assert_eq!(shape.shop_rows.len(), data::FLOOR_SHOP_BANDS.len());
-            for (&row, &(lo, hi)) in shape.shop_rows.iter().zip(&data::FLOOR_SHOP_BANDS) {
-                assert!((lo..=hi).contains(&row));
+        }
+    }
+
+    /// How many rows on from `(row, i)` the nearest trader a trip up can
+    /// reach is (nought on one), `None` for none before the Heart.
+    fn rows_to_a_shop(shape: &Shape) -> Vec<Vec<Option<u32>>> {
+        let mut ahead: Vec<Vec<Option<u32>>> = shape
+            .widths
+            .iter()
+            .map(|&w| vec![None; w as usize])
+            .collect();
+        for row in (0..shape.widths.len()).rev() {
+            for i in 0..shape.widths[row] as usize {
+                ahead[row][i] = if shape.shops[row][i] {
+                    Some(0)
+                } else {
+                    shape.up[row][i]
+                        .iter()
+                        .filter_map(|&j| ahead[row + 1][j as usize])
+                        .min()
+                        .map(|d| d + 1)
+                };
             }
         }
+        ahead
+    }
+
+    /// The longest run of rows without a trader on the way up that keeps
+    /// it shortest: what a crew going out of its way for them meets.
+    fn best_way_s_dry_stretch(shape: &Shape) -> u32 {
+        let top = shape.widths.len() - 1;
+        // Whether a way up has no run of `n` rows without a trader: the
+        // shortest run each place can be reached on, under `n`.
+        let under = |n: u32| {
+            let mut dry: Vec<Option<u32>> = vec![Some(0)];
+            for row in 1..top {
+                let mut next = vec![None; shape.widths[row] as usize];
+                for (i, d) in dry.iter().enumerate() {
+                    let Some(d) = *d else { continue };
+                    for &j in &shape.up[row - 1][i] {
+                        let d = if shape.shops[row][j as usize] {
+                            0
+                        } else {
+                            d + 1
+                        };
+                        if d < n {
+                            let slot = &mut next[j as usize];
+                            *slot = Some(slot.map_or(d, |s: u32| s.min(d)));
+                        }
+                    }
+                }
+                dry = next;
+            }
+            dry.iter().any(Option::is_some)
+        };
+        (1..=top as u32)
+            .find(|&n| under(n + 1))
+            .unwrap_or(top as u32)
+    }
+
+    /// The most traders one way up can meet.
+    fn most_met(shape: &Shape) -> u32 {
+        let mut most: Vec<Vec<u32>> = shape.widths.iter().map(|&w| vec![0; w as usize]).collect();
+        for row in (0..shape.widths.len() - 1).rev() {
+            for i in 0..shape.widths[row] as usize {
+                let on = shape.up[row][i].iter().map(|&j| most[row + 1][j as usize]);
+                most[row][i] = on.max().unwrap_or(0) + u32::from(shape.shops[row][i]);
+            }
+        }
+        most[0][0]
+    }
+
+    #[test]
+    fn the_traders_are_scattered_one_a_stretch_and_within_reach() {
+        let seeds = 500u64;
+        let (mut near, mut places, mut met, mut dry_sum, mut driest) = (0u32, 0u32, 0u32, 0u32, 0);
+        for seed in 0..seeds {
+            let shape = shape(mix(seed));
+            let top = shape.widths.len() - 1;
+            let rows: Vec<usize> = (0..=top)
+                .filter(|&r| shape.shops[r].iter().any(|&s| s))
+                .collect();
+            // So many, one a row, none in the first rows or at the Heart,
+            // never on two rows running and never far apart.
+            assert_eq!(rows.len() as u32, data::FLOOR_SHOPS, "seed {seed}");
+            for &r in &rows {
+                assert_eq!(shape.shops[r].iter().filter(|&&s| s).count(), 1);
+                assert!(r as u32 >= data::FLOOR_FIRST_SHOP_ROW && r < top);
+            }
+            for w in rows.windows(2) {
+                assert!(
+                    w[1] > w[0] + 1 && w[1] - w[0] <= 6,
+                    "seed {seed}: rows {w:?}"
+                );
+            }
+            // From most places below the last of them, a trader a trip up
+            // can reach within seven rows.
+            let ahead = rows_to_a_shop(&shape);
+            for row in 0..*rows.last().unwrap() - 7 {
+                for d in &ahead[row] {
+                    places += 1;
+                    near += u32::from(d.is_some_and(|d| d <= 7));
+                }
+            }
+            // A crew out for them meets one every seven rows or so, and
+            // never goes ten without.
+            let dry = best_way_s_dry_stretch(&shape);
+            assert!(
+                dry <= 10,
+                "seed {seed}: the best way goes {dry} rows without"
+            );
+            dry_sum += dry;
+            driest = driest.max(dry);
+            met += most_met(&shape);
+        }
+        let near = f64::from(near) / f64::from(places);
+        let dry = f64::from(dry_sum) / seeds as f64;
+        println!(
+            "{:.1}% of places a trader within 7 rows; the best way's longest stretch without {dry:.1} rows (at most {driest}); a way meets at most {:.1}",
+            near * 100.0,
+            f64::from(met) / seeds as f64
+        );
+        assert!(near > 0.95, "{near}");
+        assert!(dry < 7.0, "{dry}");
     }
 
     #[test]
