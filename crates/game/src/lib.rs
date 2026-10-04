@@ -43,6 +43,8 @@ pub mod work;
 
 #[cfg(test)]
 mod tests_guardian;
+#[cfg(test)]
+mod tests_tier_two;
 
 /// The shared `time` crate, pulled into the crate root so every module reaches
 /// it as `crate::time`. That spelling is deliberate: the native probes in

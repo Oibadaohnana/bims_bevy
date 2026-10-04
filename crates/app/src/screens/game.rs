@@ -672,6 +672,16 @@ fn open(
                     size.x,
                     size.y,
                 ),
+                // A tier-two machine looked at (task 157): `droids` at tier
+                // two with every wave it and two Troopers.
+                Launch::TierTwo(kind) => Session::tier_two(
+                    seed,
+                    kind,
+                    crate::dev::droid_reinforce(DROID_REINFORCE_IN_PROBE),
+                    crate::dev::droid_waves(DROID_WAVES_IN_PROBE),
+                    size.x,
+                    size.y,
+                ),
                 // The Machine Heart (feature 108): the crew at its fortress
                 // in tier-three kit, the waves the game's own unless
                 // `BIMS_DROID_WAVES` says, and `BIMS_HEART_PHASE` the phase

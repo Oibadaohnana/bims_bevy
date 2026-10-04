@@ -302,9 +302,16 @@ fn every_wave_of_a_mission_is_its_first_wave_s_size() {
     destroy_the_wave(&mut world);
     let (came, _) = until(&mut world, 2_000, |w| w.droids_standing() > 0);
     assert!(came);
+    // The wave's size is the first's; the day moved it into the tier-two
+    // zone, whose Bombers and Lancers come on top of it (task 157).
+    let (bombers, lancers) = if world.zone_tier() >= bims::combat::Tier::Two {
+        world.scaling().tier_two_extras(first)
+    } else {
+        (0, 0)
+    };
     assert_eq!(
         world.droids_standing(),
-        first,
+        first + bombers + lancers,
         "the second wave as the first"
     );
     world.leave_for_probe();

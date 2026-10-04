@@ -26,6 +26,9 @@
 //                   (0: that tier for everybody from the first day)
 //                   The map (the floor, a row a day) marks its rows tier
 //                   two from tier2_days and tier three from tier3_days
+//   bomber_every  — from the tier-2 rows on, a Bomber on top of a wave for
+//                   every this many of it, one at the least (0: none)
+//   lancer_every  — the same for a Lancer
 //   the Machine Heart is always four waves, every machine tier three
 //
 // Only player Bims count as players; bots do not.
@@ -36,7 +39,7 @@
 // file, leaving the comments alone.
 // The built-in values: enemies_per_player 2, day_scaling 1, scaling_days 5,
 // enemies_per_bot 1.0, wave_days 10, tier1_days 5, tier2_days 20,
-// tier3_days 40.
+// tier3_days 40, bomber_every 6, lancer_every 8.
 (
     enemies_per_player: 2,
     day_scaling: 1,
@@ -46,4 +49,6 @@
     tier1_days: 20,
     tier2_days: 37,
     tier3_days: 47,
+    bomber_every: 6,
+    lancer_every: 8,
 )

@@ -191,6 +191,11 @@ pub struct WaveScaling {
     pub tier2_days: u32,
     /// The same for tier three.
     pub tier3_days: u32,
+    /// From the floor's tier-two rows on (task 157): a Bomber on top of a
+    /// wave for every this many of it, one at the least; nought is none.
+    pub bomber_every: u32,
+    /// And a Lancer the same.
+    pub lancer_every: u32,
 }
 
 impl WaveScaling {
@@ -204,7 +209,21 @@ impl WaveScaling {
         tier1_days: data::TIER1_DAYS,
         tier2_days: data::TIER2_DAYS,
         tier3_days: data::TIER3_DAYS,
+        bomber_every: data::BOMBER_EVERY,
+        lancer_every: data::LANCER_EVERY,
     };
+
+    /// How many Bombers and Lancers come on top of a wave of `n` from the
+    /// floor's tier-two rows on (task 157): `n / bomber_every` and
+    /// `n / lancer_every`, one of each at the least, and none of a kind
+    /// whose dial is nought.
+    pub fn tier_two_extras(&self, n: u32) -> (u32, u32) {
+        let of = |every: u32| match n.checked_div(every) {
+            Some(k) if n > 0 => k.max(1),
+            _ => 0,
+        };
+        (of(self.bomber_every), of(self.lancer_every))
+    }
 
     /// Whole `scaling_days` in run day `day`; nought with no step.
     pub fn steps(&self, day: u32) -> u32 {
@@ -405,6 +424,8 @@ mod tests {
             tier1_days: 5,
             tier2_days: 20,
             tier3_days: 40,
+            bomber_every: 6,
+            lancer_every: 8,
         }
     }
 

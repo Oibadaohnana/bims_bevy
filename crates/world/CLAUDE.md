@@ -7921,3 +7921,37 @@ thirds) of the boosted rate, so a medic linked to himself gains while it
 runs where he broke even. Untouched: the guns a Sentry or a
 reinforcement carries, Weak Spot, Reflect, every shield's hit points.
 No `SAVE_VERSION`; `wire::PROTOCOL` 156.
+
+## The tier-two machines in the waves (task 157)
+
+The machines are the room's (`crates/game/CLAUDE.md`, "The tier-two
+machines"); the world decides where they come.
+
+- **The zone** (`World::zone_tier`): the floor map's marking by the run
+  day — tier three at the Heart and from `tier3_days`, two from
+  `tier2_days` (`World::floor_tier`'s rule) — or the probes' tier
+  (`BIMS_DROID_TIER`, so `tier2_test` meets them). Not `droid_tier`,
+  which is the half-share tier.
+- **The kinds** (`World::wave_kinds_for(n, wave)`): the probes' forced
+  kinds, else `wave_kinds(n)` and, from the tier-two zone on,
+  `WaveScaling::tier_two_extras(n)` — `n / bomber_every` Bombers and
+  `n / lancer_every` Lancers **on top**, one of each at least (a dial at
+  nought none; `data::BOMBER_EVERY` 6, `LANCER_EVERY` 8, both
+  `scaling.ron` dials on the Difficulty page). At an elite
+  (`is_elite_fight`) the Guardians go in as before and, from the tier-two
+  zone, `elite::with_conductor` puts a Conductor in the Guardian wave in a
+  Trooper's place. `first_wave` and `arriving_wave` lay a spot for every
+  kind; `build_wave` takes the list. The Heart's fortress lays no wave and
+  so none of them.
+- **The seam**: a `Shot` with `bomb` is laid on the joined deck as
+  `Game::enemy_bomb(from, at, damage)`; the rail is an ordinary piercing
+  bolt.
+- **Bounty**: a Bomber and a Lancer the tier's own, a Conductor
+  `100 + 2 × BOUNTY_SPREAD_PERCENT`.
+- The `bomber`, `lancer` and `conductor` commands (`Session::tier_two`):
+  `droids` at tier two with every wave that machine and two Troopers (a
+  Husk beside a Conductor); `BIMS_DUEL=bomber|lancer|conductor` stages one
+  down the corridor.
+
+`tests_tier_two.rs` is the rule. **`SAVE_VERSION` 110, `wire::PROTOCOL`
+157.**

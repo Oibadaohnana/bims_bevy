@@ -376,6 +376,9 @@ pub struct WeaponDamage {
     pub claw: (f32, f32),
     pub unmaker: (f32, f32),
     pub sweeper: (f32, f32),
+    /// The Lancer's rail (task 157). Left out of a file written before
+    /// it, it is the constant.
+    pub rail: (f32, f32),
 }
 
 impl WeaponDamage {
@@ -391,6 +394,7 @@ impl WeaponDamage {
         claw: (CLAW.damage, CLAW.damage_far),
         unmaker: (UNMAKER.damage, UNMAKER.damage_far),
         sweeper: (SWEEPER.damage, SWEEPER.damage_far),
+        rail: (RAIL.damage, RAIL.damage_far),
     };
 
     /// A kind's `(near, far)`.
@@ -406,6 +410,7 @@ impl WeaponDamage {
             WeaponKind::Claw => self.claw,
             WeaponKind::Unmaker => self.unmaker,
             WeaponKind::Sweeper => self.sweeper,
+            WeaponKind::Rail => self.rail,
         }
     }
 
@@ -648,3 +653,118 @@ pub const HUSK_CRAWL: f32 = 0.35;
 pub const HUSK_PACE: f32 = 1.3;
 pub const TROOPER_PACE: f32 = 1.0;
 pub const WARDEN_PACE: f32 = 0.8;
+
+// ---- The tier-two machines (task 157) ----
+//
+// Three more machines, from the floor's tier-two rows on: the **Bomber**
+// and the **Lancer** on top of a wave (the world's `WaveScaling`), and
+// the **Conductor** in an elite's Guardian wave. Each asks the crew for
+// something the first four do not: to leave a circle, to leave a line,
+// and to go through the wave for the one at its back.
+
+/// The Bomber's body: a Trooper's and a little more, a squat thing with a
+/// rack of bombs on its back.
+pub const BOMBER_BODY: [f32; 4] = [10.0, 70.0, 15.0, 22.0];
+/// What it walks at.
+pub const BOMBER_PACE: f32 = 0.9;
+/// Its **bomb**: rolled along the deck at the nearest body of the crew's
+/// side it sees within [`BOMB_TRIGGER`] tiles, at most [`BOMB_REACH`]
+/// tiles out — it stops short at a wall, a shut door or low cover in its
+/// way — and burst [`BOMB_FUSE`] seconds after the throw, the first
+/// [`BOMB_ROLL`] of them rolling and the rest spinning up where it
+/// stopped, [`BOMB_RADIUS`] tiles wide. Where it will stop is known the
+/// moment it leaves, and that circle is drawn from then. It bursts on
+/// everybody in it, **the machines too** (`Game::burst`), with
+/// [`BOMB_DAMAGE`] at the centre times the tier's damage factor, half
+/// at the edge, halved again in cover. One every [`BOMB_COOLDOWN`]
+/// seconds, the first [`BOMB_FIRST`] after it has a mark.
+pub const BOMB_TRIGGER: f32 = 7.0;
+pub const BOMB_REACH: f32 = 5.0;
+pub const BOMB_FUSE: f32 = 1.5;
+pub const BOMB_ROLL: f32 = 0.6;
+pub const BOMB_RADIUS: f32 = 2.25;
+pub const BOMB_DAMAGE: f32 = 40.0;
+pub const BOMB_COOLDOWN: f32 = 6.0;
+pub const BOMB_FIRST: f32 = 1.5;
+/// Where a Bomber stands: it walks in to about [`BOMBER_STAND`] tiles of
+/// its mark — its pistol's reach cut to that for the stand it picks — and
+/// backs off a body of the crew's side that comes within [`BOMBER_SHY`].
+pub const BOMBER_STAND: f32 = 6.0;
+pub const BOMBER_SHY: f32 = 3.0;
+
+/// The Lancer's body: fragile, the lightest of them that shoots.
+pub const LANCER_BODY: [f32; 4] = [8.0, 45.0, 12.0, 15.0];
+/// What it walks at.
+pub const LANCER_PACE: f32 = 0.9;
+/// The Lancer's **rail**: one slug through every body on its line,
+/// fired along a line it **charges** first — [`LANCER_TRACK`] seconds the
+/// line following its mark, then [`LANCER_LOCK`] held where it fixed,
+/// then the slug, flown straight along it (it rolls no odds: what stands
+/// on the line is struck, what stepped off it is not). Then
+/// [`LANCER_COOLDOWN`] before the next charge, or [`LANCER_CANCELLED`]
+/// after a stun or its arms shot away put a charge out. Accuracy one at
+/// every range for that reason; the odds a body in cover dodges it are a
+/// bolt's.
+pub const RAIL: WeaponStats = WeaponStats {
+    range: MAX_RANGE,
+    sweet: 10.0,
+    accuracy: 1.0,
+    accuracy_far: 1.0,
+    damage: 45.0,
+    damage_far: 45.0,
+    speed: 60.0,
+    fire_rate: 1.0 / (LANCER_TRACK + LANCER_LOCK + LANCER_COOLDOWN),
+    burst: 1,
+    burst_gap: 0.0,
+    melee: false,
+    strips: 0.0,
+    strips_far: 0.0,
+    magazine: 0,
+    reload_time: 0.0,
+};
+pub const LANCER_TRACK: f32 = 0.8;
+pub const LANCER_LOCK: f32 = 0.4;
+pub const LANCER_COOLDOWN: f32 = 3.0;
+pub const LANCER_CANCELLED: f32 = 4.0;
+/// How far ahead of its mark a Lancer begins a charge: within this many
+/// tiles of where it stands, with a clear line from its own eye.
+pub const LANCER_REACH: f32 = 12.0;
+/// Where a Lancer stands: back off a body of the crew's side that comes
+/// within [`LANCER_SHY`] tiles.
+pub const LANCER_SHY: f32 = 6.0;
+
+/// The Conductor's body (the tier-two elite): about two Wardens'.
+pub const CONDUCTOR_BODY: [f32; 4] = [30.0, 260.0, 45.0, 55.0];
+/// What it walks at.
+pub const CONDUCTOR_PACE: f32 = 0.8;
+/// Its **link**: every other machine within [`LINK_RADIUS`] tiles of a
+/// Conductor standing takes [`LINK_TAKEN`] of what a hit would do to it.
+pub const LINK_RADIUS: f32 = 6.0;
+pub const LINK_TAKEN: f32 = 0.6;
+/// Its **mark**: every [`MARK_EVERY`] seconds it puts a reticle on a body
+/// of the crew's side it sees, [`MARK_WARNING`] seconds of warning, then
+/// for [`MARK_HOLD`] every machine that can see that body fires at it and
+/// at nobody else (a tank's taunt reaching one still comes first). The
+/// first mark is [`MARK_FIRST`] after it first sees somebody.
+pub const MARK_EVERY: f32 = 8.0;
+pub const MARK_WARNING: f32 = 1.0;
+pub const MARK_HOLD: f32 = 4.0;
+pub const MARK_FIRST: f32 = 3.0;
+/// Its **blink**: a body of the crew's side within [`BLINK_NEAR`] tiles
+/// and it plants for [`BLINK_WINDUP`] seconds and is gone to a spot up to
+/// [`BLINK_REACH`] tiles off, away from it, once every
+/// [`BLINK_COOLDOWN`].
+pub const BLINK_NEAR: f32 = 3.0;
+pub const BLINK_WINDUP: f32 = 0.4;
+pub const BLINK_REACH: f32 = 6.0;
+pub const BLINK_COOLDOWN: f32 = 10.0;
+/// Its **strike call**, once, the first time its health falls to
+/// [`STRIKE_AT`] of the whole: [`STRIKE_BOMBS`] bombs' circles laid round
+/// its mark (or the nearest it sees), [`STRIKE_SPREAD`] tiles out, each
+/// bursting [`BOMB_FUSE`] after with a bomb's damage.
+pub const STRIKE_AT: f32 = 0.5;
+pub const STRIKE_BOMBS: u32 = 4;
+pub const STRIKE_SPREAD: f32 = 1.75;
+/// Where a Conductor stands: it takes cover like a Warden and backs off a
+/// body of the crew's side that comes within [`CONDUCTOR_SHY`] tiles.
+pub const CONDUCTOR_SHY: f32 = 6.0;

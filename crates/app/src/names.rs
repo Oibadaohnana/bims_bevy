@@ -600,6 +600,18 @@ pub fn wave_days_note(days: u32) -> String {
         n => format!("A site has one wave, and one more every {n} days"),
     }
 }
+pub const BOMBER_EVERY: &str = "Bombers";
+pub const LANCER_EVERY: &str = "Lancers";
+/// A tier-two machine's dial's note (task 157): one on top of a wave for
+/// every so many of it, from the map's tier-two rows on.
+pub fn tier_two_extra_note(kind: &str, every: u32) -> String {
+    match every {
+        0 => format!("No {kind} while this is 0"),
+        n => format!(
+            "From the tier-2 rows on, one {kind} on top of a wave for every {n} of it, one at least"
+        ),
+    }
+}
 pub const TIER1_TIMING: &str = "Tier 1 timing";
 pub const TIER2_TIMING: &str = "Tier 2 timing";
 pub const TIER3_TIMING: &str = "Tier 3 timing";
@@ -1492,7 +1504,7 @@ pub fn townsfolk_joined(count: u32) -> String {
 /// `bims::droid::DroidKind::code`; `0` is no machine at all. A droid
 /// has no name of its own — it is a machine, not somebody — so the log
 /// says its kind.
-pub const DROID_NAMES: [&str; 8] = [
+pub const DROID_NAMES: [&str; 11] = [
     "—",
     "Husk",
     "Trooper",
@@ -1502,6 +1514,10 @@ pub const DROID_NAMES: [&str; 8] = [
     "Core",
     "Conduit",
     "Fabricator",
+    // The tier-two machines (task 157).
+    "Bomber",
+    "Lancer",
+    "Conductor",
 ];
 
 pub fn droid_name(code: u32) -> &'static str {
@@ -2969,8 +2985,9 @@ pub const PLAIN_SPOTS: [u32; 4] = [
 /// `0` is an empty slot. Codes six to eight are the machines' built-in arms
 /// (features 83 and 100): they are named here because the picture names what it
 /// draws, and nowhere else — nothing carries one. Nine and ten are the two
-/// kinds made only from a tier up (task 115).
-pub const WEAPON_NAMES: [&str; 11] = [
+/// kinds made only from a tier up (task 115), and eleven the Lancer's rail
+/// (task 157).
+pub const WEAPON_NAMES: [&str; 12] = [
     "—",
     "Laser pistol",
     "Shotgun",
@@ -2982,6 +2999,8 @@ pub const WEAPON_NAMES: [&str; 11] = [
     "Sweeper",
     "Minigun",
     "Rail lance",
+    // The Lancer's built-in rail (task 157).
+    "Rail",
 ];
 
 /// What a piece of armour is called, indexed by `bims::combat::ArmourKind::code`;

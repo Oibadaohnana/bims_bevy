@@ -1424,6 +1424,15 @@ fn difficulty_rows(
             ] {
                 count_row(ui, name, note, value, DIFFICULTY_DAYS_MOST, editable);
             }
+            // The tier-two machines on top of a wave (task 157).
+            let bomber_note = tier_two_extra_note("Bomber", d.bomber_every);
+            let lancer_note = tier_two_extra_note("Lancer", d.lancer_every);
+            for (name, note, value) in [
+                (BOMBER_EVERY, bomber_note.as_str(), &mut d.bomber_every),
+                (LANCER_EVERY, lancer_note.as_str(), &mut d.lancer_every),
+            ] {
+                count_row(ui, name, note, value, DIFFICULTY_MOST, editable);
+            }
         });
     if editable && d != settings.difficulty.unwrap_or(file) {
         settings.difficulty = Some(d);

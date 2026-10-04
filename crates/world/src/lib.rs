@@ -173,4 +173,6 @@ mod tests_survivors;
 #[cfg(test)]
 mod tests_tank;
 #[cfg(test)]
+mod tests_tier_two;
+#[cfg(test)]
 mod tests_trader;

@@ -73,6 +73,15 @@ pub enum Cue {
         weapon: WeaponKind,
         by: Option<usize>,
     },
+    /// A bomb began to roll — a Bomber's — or a Conductor's strike call
+    /// came down (task 157): the spin-up whine, at where it will burst.
+    BombArmed,
+    /// A Lancer planted and began to charge its rail (task 157).
+    RailCharge,
+    /// A Conductor put its mark on a body of the crew's side (task 157).
+    Marked,
+    /// A Conductor blinked away (task 157), at where it left.
+    Blink,
 }
 
 /// A cue and where in the room it happened, in room units — the door's

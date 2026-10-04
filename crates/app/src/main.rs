@@ -43,6 +43,8 @@
 //!                    and the lanes inward shut
 //! bims guardian      the fight at tier three against a Guardian and two
 //!                    Troopers a wave: the shield, the turn and the beam
+//! bims bomber        the fight at tier two against a Bomber and two
+//!                    Troopers a wave (also `lancer` and `conductor`)
 //! bims relics        the droids arena with one short wave: clear it, go
 //!                    back to the ship, and the reward screen offers relics
 //! bims heart         the Machine Heart: the crew docked at its fortress at
@@ -165,6 +167,11 @@ pub enum Launch {
     /// three with every wave one Guardian and two Troopers, and the
     /// reinforcement clock a minute.
     Guardian,
+    /// A tier-two machine looked at (task 157): the `droids` fight at tier
+    /// two with every wave that machine and two Troopers — a Husk beside
+    /// them for the Conductor, so it has somebody to link — the `bomber`,
+    /// `lancer` and `conductor` commands.
+    TierTwo(bims::droid::DroidKind),
     /// The relics looked at (feature 106): the `droids` arena with one
     /// wave short enough to finish, so clearing it and going back to the
     /// ship opens the reward screen.
@@ -228,7 +235,7 @@ fn usage() -> ! {
 /// — the one list, printed by [`list`] and nothing else. A new command is
 /// a row here and an arm in `main`; the classes' commands are not written
 /// out, since [`class_words`] reads them off `Class::ALL`.
-const COMMANDS: [(&str, &str); 21] = [
+const COMMANDS: [(&str, &str); 24] = [
     (
         "game",
         "The whole game in order: menu, setup or lobby, world and station, then the run: a mission where you docked, on the default ship, 5 000 a Bim in the pool",
@@ -274,6 +281,18 @@ const COMMANDS: [(&str, &str); 21] = [
     (
         "guardian",
         "The fight at tier three with every wave one Guardian and two Troopers: its shield, its turn and its beam, reinforcements a minute apart",
+    ),
+    (
+        "bomber",
+        "The fight at tier two with every wave one Bomber and two Troopers: its rolling bomb, the circle it bursts over and the machines it catches",
+    ),
+    (
+        "lancer",
+        "The fight at tier two with every wave one Lancer and two Troopers: its charged rail, the line it follows and the one it locks",
+    ),
+    (
+        "conductor",
+        "The fight at tier two with every wave a Conductor, two Troopers and a Husk: its link, its mark, its blink and its strike call",
     ),
     (
         "relics",
@@ -399,6 +418,9 @@ fn main() {
         Some("jammer") => Launch::Jammer,
         Some("defense") => Launch::Defense,
         Some("guardian") => Launch::Guardian,
+        Some("bomber") => Launch::TierTwo(bims::droid::DroidKind::Bomber),
+        Some("lancer") => Launch::TierTwo(bims::droid::DroidKind::Lancer),
+        Some("conductor") => Launch::TierTwo(bims::droid::DroidKind::Conductor),
         Some("relics") => Launch::Relics,
         Some("heart") => Launch::Heart,
         Some("manufacturers") => Launch::Manufacturers,
@@ -501,6 +523,7 @@ fn open(launch: Res<Launch>, mut commands: Commands, mut next: ResMut<NextState<
         | Launch::Crisis
         | Launch::Jammer
         | Launch::Guardian
+        | Launch::TierTwo(_)
         | Launch::Relics
         | Launch::Heart
         | Launch::Manufacturers

@@ -44,7 +44,7 @@ The main ones:
 | `combat_droids_<class>` | `droids` with that class at the top level (20), every skill point unspent (`BIMS_RANKS=q,c,e,r` buys ranks) |
 | `tier2_test`, `tier3_test` | `droids` with everything at that tier |
 | `droids_planet`, `defense` | a town held by / attacked by the machines |
-| `crisis`, `jammer`, `guardian`, `relics`, `heart`, `manufacturers` | one mechanic each, staged |
+| `crisis`, `jammer`, `guardian`, `bomber`, `lancer`, `conductor`, `relics`, `heart`, `manufacturers` | one mechanic each, staged |
 | `end` | the Heart with company: a lobby at code `THEEND`, Start once a second player joins, ten plain classless bots, tier-three kit, the setup's difficulty on the Heart's day 50 (`BIMS_END_DAY`, in days gone: 49), the first mission not eased; `end offline` is it alone from the game setup, no relay |
 | `stationbuilder [name]` | a sketch tool for station layouts |
 

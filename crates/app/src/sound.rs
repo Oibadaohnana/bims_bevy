@@ -414,6 +414,8 @@ impl Kind {
             Cue::Throw => Kind::Blow,
             Cue::Burst | Cue::EmpBurst => Kind::Burst,
             Cue::Reload { .. } => Kind::Reload,
+            // The tier-two machines' telegraphs (task 157).
+            Cue::BombArmed | Cue::RailCharge | Cue::Marked | Cue::Blink => Kind::Ability,
         }
     }
 
@@ -723,6 +725,8 @@ impl Sounds {
                     // sniper's, loud.
                     WeaponKind::Minigun => (Clip::Rifle, 0.2, v.minigun),
                     WeaponKind::RailLance => (Clip::Sniper, 0.7, v.rail_lance),
+                    // The Lancer's rail (task 157) is the lance's, a shade louder.
+                    WeaponKind::Rail => (Clip::Sniper, 0.75, v.rail_lance),
                     // A blade is never fired, nor is a claw; the room
                     // does not say either is.
                     // Sounds are not in feature 100: the Guardian's beam is
@@ -757,6 +761,14 @@ impl Sounds {
             Cue::Throw => {}
             Cue::Burst => self.one_shot(commands, Clip::GrenadeBurst, 0.9),
             Cue::EmpBurst => self.one_shot(commands, Clip::EmpBurst, 0.6),
+            // The tier-two machines (task 157) have no recordings of their
+            // own yet and borrow the nearest: a bomb spinning up the EMP's
+            // whirr, a Lancer's charge the beam's rise, a Conductor's mark
+            // the taunt's alarm and its blink the cloak's swish.
+            Cue::BombArmed => self.one_shot(commands, Clip::EmpThrow, 0.55),
+            Cue::RailCharge => self.one_shot(commands, Clip::BeamOn, 0.5),
+            Cue::Marked => self.one_shot(commands, Clip::Taunt, 0.5),
+            Cue::Blink => self.one_shot(commands, Clip::Cloak, 0.5),
             // A reload, the player's own over the rest (`OTHERS_SHOTS` and a
             // half again): a crew of bots reloading round a fight is a
             // murmur under it.

@@ -67,9 +67,59 @@ pub fn with_guardian(mut kinds: Vec<DroidKind>, wave: u32, tier: Tier) -> Vec<Dr
     kinds
 }
 
+/// An elite's **Conductor** (task 157): from the floor's tier-two zone on
+/// (`zone`, `World::zone_tier`), in wave [`data::ELITE_GUARDIAN_WAVE`], one
+/// in the last Trooper's place — or the last machine's but a Guardian's
+/// where there is no Trooper — put after the Wardens and the Guardians, the
+/// Guardians left as they came. A wave with one already, any other wave
+/// and a tier-one zone's as they are.
+pub fn with_conductor(mut kinds: Vec<DroidKind>, wave: u32, zone: Tier) -> Vec<DroidKind> {
+    if wave != data::ELITE_GUARDIAN_WAVE
+        || zone < Tier::Two
+        || kinds.contains(&DroidKind::Conductor)
+    {
+        return kinds;
+    }
+    let Some(at) = kinds
+        .iter()
+        .rposition(|&k| k == DroidKind::Trooper)
+        .or_else(|| kinds.iter().rposition(|&k| k != DroidKind::Guardian))
+    else {
+        return kinds;
+    };
+    kinds.remove(at);
+    let at = kinds
+        .iter()
+        .take_while(|&&k| matches!(k, DroidKind::Warden | DroidKind::Guardian))
+        .count();
+    kinds.insert(at, DroidKind::Conductor);
+    kinds
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_tier_two_elite_s_guardian_wave_has_a_conductor_in_a_trooper_s_place() {
+        for n in [3u32, 6, 12] {
+            let plain = bims::droid::wave_kinds(n);
+            let guarded = with_guardian(plain.clone(), 2, Tier::Two);
+            let kinds = with_conductor(guarded.clone(), 2, Tier::Two);
+            assert_eq!(kinds.len(), guarded.len(), "a wave of {n}");
+            assert_eq!(
+                kinds.iter().filter(|&&k| k == DroidKind::Conductor).count(),
+                1
+            );
+            let guardians =
+                |k: &[DroidKind]| k.iter().filter(|&&k| k == DroidKind::Guardian).count();
+            assert_eq!(guardians(&kinds), guardians(&guarded), "the Guardians stay");
+            // Wave one, a tier-one zone and a second call leave it be.
+            assert_eq!(with_conductor(plain.clone(), 1, Tier::Two), plain);
+            assert_eq!(with_conductor(guarded.clone(), 2, Tier::One), guarded);
+            assert_eq!(with_conductor(kinds.clone(), 2, Tier::Three), kinds);
+        }
+    }
 
     #[test]
     fn about_one_system_in_ten_is_an_elite_s_and_never_home() {

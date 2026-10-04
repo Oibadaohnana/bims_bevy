@@ -207,6 +207,11 @@ pub const TIER1_DAYS: u32 = 5;
 pub const TIER2_DAYS: u32 = 20;
 /// The same for tier three.
 pub const TIER3_DAYS: u32 = 40;
+/// From the floor's tier-two rows on (task 157), a wave of `n` gets
+/// `n / BOMBER_EVERY` Bombers and `n / LANCER_EVERY` Lancers on top of it, at
+/// least one of each; nought is none.
+pub const BOMBER_EVERY: u32 = 6;
+pub const LANCER_EVERY: u32 = 8;
 /// How many Guardians the Machine Heart sends for each conduit shot down
 /// (October 2026; the player's words: "first 1 guardian, then 2 all the
 /// way up to 5 when the last link is destroyed"): this many times the

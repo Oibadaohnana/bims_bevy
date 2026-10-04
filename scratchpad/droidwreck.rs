@@ -27,7 +27,7 @@ fn main() {
     let states: Vec<u32> = if only_wrecks { vec![4] } else { (0..5).collect() };
     let (across, down) = if only_wrecks { (0.0, 260.0) } else { (ACROSS, DOWN) };
     let w = 100.0 + across * states.len() as f32 + if only_wrecks { 160.0 } else { 100.0 };
-    let h = 90.0 + down * 3.0;
+    let h = 90.0 + down * DroidKind::ALL.len() as f32;
 
     let mut list = draw::DrawList::new();
     for (row, kind) in DroidKind::ALL.into_iter().enumerate() {
@@ -57,6 +57,9 @@ fn main() {
                 left -= 1.0 / 60.0;
             }
             d.draw(&mut list);
+            // And what it is about to do (task 157): a Lancer's line, a
+            // Conductor's mark, held lit.
+            d.draw_telegraph(&mut list);
         }
     }
 

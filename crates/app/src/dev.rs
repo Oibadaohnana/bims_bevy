@@ -363,7 +363,8 @@ pub fn grenades() -> Option<u32> {
     std::env::var("BIMS_GRENADES").ok()?.trim().parse().ok()
 }
 
-/// `BIMS_DUEL=trooper` (or `husk`, `warden`, `guardian`) stages a fight at
+/// `BIMS_DUEL=trooper` (or `husk`, `warden`, `guardian`, `bomber`, `lancer`,
+/// `conductor`) stages a fight at
 /// the dock: the station the machines', one machine of that kind armed
 /// a few tiles down its corridor and the steered Bim inside the door
 /// under arms (`World::stage_droid_fight_for_probe`) — how the numbers
@@ -375,6 +376,9 @@ pub fn duel() -> Option<bims::droid::DroidKind> {
         "trooper" => Some(DroidKind::Trooper),
         "warden" => Some(DroidKind::Warden),
         "guardian" => Some(DroidKind::Guardian),
+        "bomber" => Some(DroidKind::Bomber),
+        "lancer" => Some(DroidKind::Lancer),
+        "conductor" => Some(DroidKind::Conductor),
         _ => None,
     }
 }

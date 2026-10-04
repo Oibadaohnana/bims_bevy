@@ -404,7 +404,7 @@ fn muzzle_look(kind: WeaponKind) -> (f32, f32) {
         WeaponKind::AutoRifle => MUZZLE_AUTO,
         WeaponKind::SniperRifle => MUZZLE_SNIPER,
         WeaponKind::Minigun => MUZZLE_MINIGUN,
-        WeaponKind::RailLance => MUZZLE_LANCE,
+        WeaponKind::RailLance | WeaponKind::Rail => MUZZLE_LANCE,
         WeaponKind::Schword | WeaponKind::Claw | WeaponKind::Unmaker | WeaponKind::Sweeper => {
             (0.0, 0.0)
         }
@@ -718,7 +718,9 @@ impl Fx {
     pub fn trail(&mut self, tail: Vec2, head: Vec2, weapon: Weapon, hostile: bool) {
         let (width, heat) = tier_look(weapon.tier);
         let (count, dot) = match weapon.kind {
-            WeaponKind::SniperRifle | WeaponKind::RailLance => (TRAIL_MOTES + 1, 1.7),
+            WeaponKind::SniperRifle | WeaponKind::RailLance | WeaponKind::Rail => {
+                (TRAIL_MOTES + 1, 1.7)
+            }
             WeaponKind::Minigun => (1, 1.0),
             _ => (TRAIL_MOTES, 1.3),
         };
@@ -776,7 +778,7 @@ impl Fx {
             return;
         }
         let (width, heat) = tier_look(weapon.tier);
-        let heat = if weapon.kind == WeaponKind::RailLance {
+        let heat = if matches!(weapon.kind, WeaponKind::RailLance | WeaponKind::Rail) {
             heat - LANCE_COOLING
         } else {
             heat
@@ -807,7 +809,7 @@ impl Fx {
             let (width, heat) = tier_look(weapon.tier);
             let (count, spread) = match weapon.kind {
                 WeaponKind::Shotgun => (6, 0.45),
-                WeaponKind::RailLance => (8, 0.2),
+                WeaponKind::RailLance | WeaponKind::Rail => (8, 0.2),
                 WeaponKind::Minigun | WeaponKind::AutoRifle => (2, 0.35),
                 _ => (4, 0.3),
             };
@@ -887,12 +889,15 @@ impl Fx {
                     .dot(5.0),
             );
         }
-        if matches!(weapon.kind, WeaponKind::SniperRifle | WeaponKind::RailLance) {
+        if matches!(
+            weapon.kind,
+            WeaponKind::SniperRifle | WeaponKind::RailLance | WeaponKind::Rail
+        ) {
             self.spent(from, at, weapon, hostile);
         }
         // The last body a lance slug strikes flares like the ones it went
         // through.
-        if on_body && weapon.kind == WeaponKind::RailLance {
+        if on_body && matches!(weapon.kind, WeaponKind::RailLance | WeaponKind::Rail) {
             self.pierced(at, dir, weapon, hostile);
         }
         if on_body {
@@ -978,7 +983,7 @@ impl Fx {
             WeaponKind::SniperRifle => {
                 self.flare(at, Light::Beam { from }, hostile, weapon, BEAM_LINGER);
             }
-            WeaponKind::RailLance => {
+            WeaponKind::RailLance | WeaponKind::Rail => {
                 self.flare(at, Light::Rail { from }, hostile, weapon, RAIL_LINGER);
             }
             _ => {}
@@ -1369,7 +1374,7 @@ fn draw_muzzle(list: &mut DrawList, f: &Flare, dir: Vec2, kind: WeaponKind, t: f
                 t,
             );
         }
-        WeaponKind::RailLance => {
+        WeaponKind::RailLance | WeaponKind::Rail => {
             // The sniper's spike, longer and thicker, and a ring round the
             // bore where the slug left it.
             laser(

@@ -69,6 +69,10 @@ use crate::room::TILE;
 mod heart_look;
 pub use heart_look::HeartState;
 
+/// The tier-two machines' pictures (task 157).
+#[path = "tier_two_look.rs"]
+mod tier_two_look;
+
 // --- the look -----------------------------------------------------------
 
 /// The hull: dark gunmetal, nothing like a coverall.
@@ -219,6 +223,117 @@ impl Beam {
     }
 }
 
+/// Where a **Lancer**'s rail is in its rhythm (task 157, see
+/// `Game::tick_lancer`).
+#[derive(Clone, Copy, PartialEq, Debug, Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub enum Rail {
+    /// Nothing under way: it may begin a charge.
+    #[default]
+    Ready,
+    /// Planted and charging, `left` seconds to go — the last
+    /// [`balance::LANCER_LOCK`] of them held where it locked, the rest
+    /// following `mark` (its index on the machines' targets) — along
+    /// `aim`, a unit vector from where it stands, the line ending at
+    /// `end` (a wall, or the rail's reach). `armed` is whether its arms
+    /// were whole when it began: their going puts the charge out.
+    Charging {
+        left: f32,
+        aim: Vec2,
+        end: Vec2,
+        mark: usize,
+        armed: bool,
+    },
+    /// Resting after a slug or a charge put out, `left` seconds to go.
+    Cooling { left: f32 },
+}
+
+impl Rail {
+    /// Whether a charge is under way and past following its mark: the
+    /// line is where the slug will go.
+    pub fn locked(self) -> bool {
+        matches!(self, Rail::Charging { left, .. } if left <= balance::LANCER_LOCK)
+    }
+}
+
+/// A **Conductor**'s mark on a body of the crew's side (task 157): the
+/// body's index on the machines' targets, where it stands as last seen,
+/// and the seconds the mark has to run — [`balance::MARK_WARNING`] of
+/// warning first, then [`balance::MARK_HOLD`] of every machine that sees
+/// it firing at it alone.
+#[derive(Clone, Copy, PartialEq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct Mark {
+    pub target: usize,
+    pub at: Vec2,
+    pub left: f32,
+}
+
+impl Mark {
+    /// Past its warning: the machines are holding to it.
+    pub fn holding(&self) -> bool {
+        self.left <= balance::MARK_HOLD
+    }
+}
+
+/// A Conductor planted for its **blink** (task 157): `left` seconds to go
+/// before it is gone to `to`.
+#[derive(Clone, Copy, PartialEq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct Blink {
+    pub left: f32,
+    pub to: Vec2,
+}
+
+/// The tier-two machines' own rhythms (task 157), each at rest for every
+/// other kind: a Bomber's wait for its next bomb, a Lancer's rail, and a
+/// Conductor's mark, blink and strike call — and, for every machine, the
+/// link a Conductor standing near it puts on it, which the room says
+/// every step.
+#[derive(Clone, Copy, PartialEq, Debug, Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct Rhythm {
+    /// Seconds until a Bomber may roll its next bomb.
+    pub bomb_wait: f32,
+    pub rail: Rail,
+    /// A Conductor stands within [`balance::LINK_RADIUS`] of it: it takes
+    /// [`balance::LINK_TAKEN`] of what a hit would do.
+    pub linked: bool,
+    pub mark: Option<Mark>,
+    /// Seconds until a Conductor may mark again.
+    pub mark_wait: f32,
+    pub blink: Option<Blink>,
+    /// Seconds until a Conductor may blink again.
+    pub blink_wait: f32,
+    /// A Conductor's strike has been called: once, at half its health.
+    pub called: bool,
+    /// Where a Conductor last blinked from and how long ago, for the
+    /// picture of it going. Drawing only.
+    #[cfg_attr(feature = "serde", serde(skip))]
+    pub blinked: Option<(Vec2, f32)>,
+}
+
+impl Rhythm {
+    /// A machine's rhythms as it is built: a Bomber's first bomb and a
+    /// Conductor's first mark a moment after it first has somebody, the
+    /// rest at rest.
+    pub fn fresh(kind: DroidKind) -> Rhythm {
+        Rhythm {
+            bomb_wait: if kind == DroidKind::Bomber {
+                balance::BOMB_FIRST
+            } else {
+                0.0
+            },
+            mark_wait: if kind == DroidKind::Conductor {
+                balance::MARK_FIRST
+            } else {
+                0.0
+            },
+            ..Rhythm::default()
+        }
+    }
+}
+
 /// Which of the four a hit landed on. The discriminants are the codes
 /// anything outside this crate reads, written out so a reordering cannot
 /// renumber one.
@@ -293,15 +408,31 @@ pub enum DroidKind {
     /// A **fabricator** beside the core: builds a machine every so often
     /// once the core is exposed, and never again once it is wrecked.
     Fabricator = 7,
+    /// The **Bomber** (task 157): a squat walker with a rack of bombs on
+    /// its back, that rolls one at the crew to burst where it was seen to
+    /// stop — on its own side too, if they stand in it. From the floor's
+    /// tier-two rows on, on top of a wave.
+    Bomber = 8,
+    /// The **Lancer** (task 157): a thin marksman with a rail for an arm,
+    /// that plants and charges a line before the slug goes down it. From
+    /// the tier-two rows on, on top of a wave.
+    Lancer = 9,
+    /// The **Conductor** (task 157), a tier-two elite's: it links the
+    /// machines about it, marks one of the crew for all of them, blinks
+    /// away from a body that comes near and calls a strike at half health.
+    Conductor = 10,
 }
 
 impl DroidKind {
-    /// The four that walk and fight, and come in waves.
-    pub const ALL: [DroidKind; 4] = [
+    /// The seven that walk and fight, and come in waves.
+    pub const ALL: [DroidKind; 7] = [
         DroidKind::Husk,
         DroidKind::Trooper,
         DroidKind::Warden,
         DroidKind::Guardian,
+        DroidKind::Bomber,
+        DroidKind::Lancer,
+        DroidKind::Conductor,
     ];
 
     /// The Machine Heart's three (feature 108): built where they stand
@@ -309,7 +440,7 @@ impl DroidKind {
     pub const HEART: [DroidKind; 3] = [DroidKind::Core, DroidKind::Conduit, DroidKind::Fabricator];
 
     /// Every kind there is, by code.
-    pub const EVERY: [DroidKind; 7] = [
+    pub const EVERY: [DroidKind; 10] = [
         DroidKind::Husk,
         DroidKind::Trooper,
         DroidKind::Warden,
@@ -317,6 +448,9 @@ impl DroidKind {
         DroidKind::Core,
         DroidKind::Conduit,
         DroidKind::Fabricator,
+        DroidKind::Bomber,
+        DroidKind::Lancer,
+        DroidKind::Conductor,
     ];
 
     pub fn code(self) -> u32 {
@@ -345,6 +479,9 @@ impl DroidKind {
             DroidKind::Trooper => balance::TROOPER_BODY,
             DroidKind::Warden => balance::WARDEN_BODY,
             DroidKind::Guardian => balance::GUARDIAN_BODY,
+            DroidKind::Bomber => balance::BOMBER_BODY,
+            DroidKind::Lancer => balance::LANCER_BODY,
+            DroidKind::Conductor => balance::CONDUCTOR_BODY,
             // The Heart's have one health, which the world says
             // (`Droid::structure`); this is only what `Droid::new` starts
             // one at before it does.
@@ -359,6 +496,9 @@ impl DroidKind {
             DroidKind::Trooper => balance::TROOPER_PACE,
             DroidKind::Warden => balance::WARDEN_PACE,
             DroidKind::Guardian => balance::GUARDIAN_PACE,
+            DroidKind::Bomber => balance::BOMBER_PACE,
+            DroidKind::Lancer => balance::LANCER_PACE,
+            DroidKind::Conductor => balance::CONDUCTOR_PACE,
             DroidKind::Core | DroidKind::Conduit | DroidKind::Fabricator => 0.0,
         }
     }
@@ -375,6 +515,9 @@ impl DroidKind {
             DroidKind::Core => 30.0,
             DroidKind::Conduit => 14.0,
             DroidKind::Fabricator => 24.0,
+            DroidKind::Bomber => 19.0,
+            DroidKind::Lancer => 16.0,
+            DroidKind::Conductor => 24.0,
         }
     }
 
@@ -382,7 +525,19 @@ impl DroidKind {
     /// does not: it advances in the open and fires on the move. Nor does a
     /// Guardian: its shield is its cover, and it advances behind it.
     pub fn takes_cover(self) -> bool {
-        matches!(self, DroidKind::Warden)
+        matches!(self, DroidKind::Warden | DroidKind::Conductor)
+    }
+
+    /// How near a body of the crew's side may come before it backs off,
+    /// in tiles (task 157): a Bomber, a Lancer and a Conductor keep their
+    /// distance; `None` for every other kind, which holds or closes.
+    pub fn shy(self) -> Option<f32> {
+        match self {
+            DroidKind::Bomber => Some(balance::BOMBER_SHY),
+            DroidKind::Lancer => Some(balance::LANCER_SHY),
+            DroidKind::Conductor => Some(balance::CONDUCTOR_SHY),
+            _ => None,
+        }
     }
 
     /// The arm the machine was built with. A Trooper's is dealt by its
@@ -397,6 +552,11 @@ impl DroidKind {
             // swings.
             DroidKind::Guardian | DroidKind::Core => WeaponKind::Sweeper,
             DroidKind::Conduit | DroidKind::Fabricator => WeaponKind::Claw,
+            // A Bomber's gun is a pistol beside its bombs; a Lancer's arm
+            // is its rail; a Conductor fires a rifle (task 157).
+            DroidKind::Bomber => WeaponKind::LaserPistol,
+            DroidKind::Lancer => WeaponKind::Rail,
+            DroidKind::Conductor => WeaponKind::AutoRifle,
         }
     }
 
@@ -633,6 +793,15 @@ pub struct Droid {
     /// default — nothing sealed, no beam — for every other kind.
     #[cfg_attr(feature = "serde", serde(default))]
     pub heart: HeartState,
+    /// The tier-two machines' rhythms and the Conductor's link on it
+    /// (task 157, [`Rhythm`]).
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub rhythm: Rhythm,
+    /// Where the machines a Conductor links stand, said by the room every
+    /// step, for the tethers drawn to them. Drawing only; empty for every
+    /// other kind.
+    #[cfg_attr(feature = "serde", serde(skip))]
+    pub tethers: Vec<Vec2>,
     /// Where it is steering, the way a Bim's intent works.
     intent: f32,
     /// The arm it was built with, as a [`Weapon`] so every curve, every
@@ -763,6 +932,8 @@ impl Droid {
             sweeps: 0,
             grenade_wait: 0.0,
             heart: HeartState::default(),
+            rhythm: Rhythm::fresh(kind),
+            tethers: Vec::new(),
             intent: heading,
             weapon: kind.arm(index).at(tier),
             body: DroidBody::new(kind, tier),
@@ -836,7 +1007,8 @@ impl Droid {
         }
         // A claw, and the Guardian's beam, which rolls no odds: the damage
         // is what falls (feature 100).
-        if base.melee || self.weapon.kind == WeaponKind::Sweeper {
+        // A Lancer's rail rolls none either (task 157).
+        if base.melee || matches!(self.weapon.kind, WeaponKind::Sweeper | WeaponKind::Rail) {
             WeaponStats {
                 damage: base.damage * balance::DROID_ARMS_DAMAGE,
                 damage_far: base.damage_far * balance::DROID_ARMS_DAMAGE,
@@ -894,6 +1066,12 @@ impl Droid {
         self.peek = None;
         self.smashing = None;
         self.trigger.hold();
+        // Nothing of a tier-two machine's goes on (task 157).
+        self.rhythm.rail = Rail::Ready;
+        self.rhythm.mark = None;
+        self.rhythm.blink = None;
+        self.rhythm.linked = false;
+        self.tethers.clear();
         // A wreck throws a good deal more than a hit does, and they die
         // away over `WRECK_SPARKS`.
         for _ in 0..SPARK_COUNT * 2 {
@@ -952,6 +1130,12 @@ impl Droid {
             // arm, and their middle is as good as anywhere.
             DroidKind::Core => return self.pos + self.emitter_dir(0) * HeartState::LENS_OUT,
             DroidKind::Conduit | DroidKind::Fabricator => Vec2::ZERO,
+            // The tier-two three (task 157): the Bomber's pistol in its
+            // right fist, the end of the Lancer's rail, the Conductor's
+            // rifle along its right side.
+            DroidKind::Bomber => vec2(21.0 - droop * 8.0, 12.0 + droop * 6.0),
+            DroidKind::Lancer => vec2(34.0 - droop * 12.0, 7.0 + droop * 8.0),
+            DroidKind::Conductor => vec2(30.0 - droop * 10.0, 14.0 + droop * 7.0),
         };
         self.pos + local.rotate(self.heading)
     }
@@ -1146,7 +1330,22 @@ impl Droid {
                 left: balance::SWEEPER_COOLDOWN,
             };
         }
+        // The tier-two machines' (task 157): a Lancer's charge put out, a
+        // Conductor's blink and mark dropped.
+        self.put_out_charge();
+        self.rhythm.blink = None;
+        self.rhythm.mark = None;
         true
+    }
+
+    /// A Lancer's charge under way put out (task 157): a stun, its arms
+    /// shot away, the fight gone. Nothing for one not charging.
+    pub fn put_out_charge(&mut self) {
+        if matches!(self.rhythm.rail, Rail::Charging { .. }) {
+            self.rhythm.rail = Rail::Cooling {
+                left: balance::LANCER_CANCELLED,
+            };
+        }
     }
 
     /// The stun worn down by `dt` seconds: at nothing it is over, and so
@@ -1222,6 +1421,13 @@ impl Droid {
         // A broken plate collapses on its own clock, a wreck's or not.
         if self.plate_broken() {
             self.plate_age += dt;
+        }
+        // A blink's after-image fades (task 157).
+        if let Some((_, age)) = self.rhythm.blinked.as_mut() {
+            *age += dt;
+            if *age >= tier_two_look::BLINK_FADE {
+                self.rhythm.blinked = None;
+            }
         }
         if self.destroyed {
             self.wreck_age += dt;
@@ -1343,6 +1549,10 @@ impl Droid {
         if self.kind == DroidKind::Conduit {
             self.draw_conduit_link(list);
         }
+        // A Conductor's tethers and its blink (task 157), under it.
+        if self.kind == DroidKind::Conductor {
+            self.draw_conductor_under(list);
+        }
         // The sparks, over the machine: the struck part's, and a fresh
         // wreck's. Put through the brush's frame first, so they ride the
         // body's turn, and drawn after the machine so they sit on top of
@@ -1365,6 +1575,12 @@ impl Droid {
                 (DroidKind::Core, true) => self.draw_core_wreck(&mut b),
                 (DroidKind::Conduit, true) => self.draw_conduit_wreck(&mut b),
                 (DroidKind::Fabricator, true) => self.draw_fabricator_wreck(&mut b),
+                (DroidKind::Bomber, false) => self.draw_bomber(&mut b),
+                (DroidKind::Lancer, false) => self.draw_lancer(&mut b),
+                (DroidKind::Conductor, false) => self.draw_conductor(&mut b),
+                (DroidKind::Bomber, true) => self.draw_bomber_wreck(&mut b),
+                (DroidKind::Lancer, true) => self.draw_lancer_wreck(&mut b),
+                (DroidKind::Conductor, true) => self.draw_conductor_wreck(&mut b),
             }
             for s in &self.sparks {
                 let t = 1.0 - s.age / SPARK_LIFE;

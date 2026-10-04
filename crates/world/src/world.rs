@@ -2982,9 +2982,20 @@ impl World {
                 // A Guardian's grenade (October 2026): laid on the joined
                 // deck where it was dropped, to burst on the crew there.
                 if shot.grenade {
-                    self.aboard
-                        .room
-                        .enemy_grenade(on_deck(shot.at), shot.damage);
+                    // A Bomber's bomb or a Conductor's strike call (task
+                    // 157): rolled from where it left to where it was known
+                    // to stop, on the crew and the machines alike.
+                    if shot.bomb {
+                        self.aboard.room.enemy_bomb(
+                            on_deck(shot.from),
+                            on_deck(shot.at),
+                            shot.damage,
+                        );
+                    } else {
+                        self.aboard
+                            .room
+                            .enemy_grenade(on_deck(shot.at), shot.damage);
+                    }
                     continue;
                 }
                 if shot.melee {
@@ -6087,34 +6098,72 @@ impl World {
             + self.manufacturers_standing()
     }
 
-    /// The machines a wave of `n` is, built: the kinds
-    /// ([`bims::droid::wave_kinds`], an elite's Guardians put in after),
-    /// each machine at its own ([`World::machine_tiers`]) and at one of
-    /// `spots` in the **residents' room's** own units, facing `facing`.
+    /// The tier of the floor's zone the run is in (task 157): tier three at
+    /// the Machine Heart's fortress and from the day of
+    /// [`droidplan::WaveScaling::tier3_days`], tier two from
+    /// [`droidplan::WaveScaling::tier2_days`], tier one before — the rows
+    /// the floor map marks so ([`World::floor_tier`]) — and the probes'
+    /// tier where it is set. What brings the tier-two machines.
+    pub fn zone_tier(&self) -> Tier {
+        if self.at_the_heart() {
+            return Tier::Three;
+        }
+        if let Some(tier) = self.droid_tier {
+            return tier;
+        }
+        let scaling = self.scaling();
+        let day = self.run_day();
+        if day >= scaling.tier3_days {
+            Tier::Three
+        } else if day >= scaling.tier2_days {
+            Tier::Two
+        } else {
+            Tier::One
+        }
+    }
+
+    /// The kinds of a wave of `n`, its `wave`-th: the probes' forced kinds,
+    /// else [`bims::droid::wave_kinds`] with, from the floor's tier-two zone
+    /// on ([`World::zone_tier`]), the Bombers and the Lancers on top of it
+    /// (task 157, [`droidplan::WaveScaling::tier_two_extras`]) — and at an
+    /// elite its Guardians put in (one a tier of the site's, `droid_tier`,
+    /// what the map says) and, from the tier-two zone on, its Conductor
+    /// ([`crate::elite::with_conductor`]).
+    pub(crate) fn wave_kinds_for(&self, n: u32, wave: u32) -> Vec<bims::droid::DroidKind> {
+        use bims::droid::DroidKind;
+        let zone = self.zone_tier();
+        let kinds = self.droid_kinds_forced.clone().unwrap_or_else(|| {
+            let mut kinds = bims::droid::wave_kinds(n);
+            if zone >= Tier::Two {
+                let (bombers, lancers) = self.scaling().tier_two_extras(n);
+                kinds.extend(std::iter::repeat_n(DroidKind::Bomber, bombers as usize));
+                kinds.extend(std::iter::repeat_n(DroidKind::Lancer, lancers as usize));
+            }
+            kinds
+        });
+        let here = self.residents.as_ref().map(|r| r.station);
+        if !here.is_some_and(|id| self.is_elite_fight(id)) {
+            return kinds;
+        }
+        let kinds = crate::elite::with_guardian(kinds, wave, self.droid_tier());
+        crate::elite::with_conductor(kinds, wave, zone)
+    }
+
+    /// The machines a wave is, built: `kinds` ([`World::wave_kinds_for`]),
+    /// each machine at its own tier ([`World::machine_tiers`]) and at one
+    /// of `spots` in the **residents' room's** own units, facing `facing`.
     /// A Trooper's arm is dealt by its place among the Troopers, which is
     /// what `wave_kinds` orders the list for.
     fn build_wave(
         &self,
-        n: u32,
+        kinds: Vec<bims::droid::DroidKind>,
         wave: u32,
         spots: &[bims::math::Vec2],
         facing: f32,
         seed: u64,
     ) -> Vec<bims::droid::Droid> {
         let mut troopers = 0usize;
-        let kinds = self
-            .droid_kinds_forced
-            .clone()
-            .unwrap_or_else(|| bims::droid::wave_kinds(n));
-        // An elite's Guardians come in their wave, one a tier of the
-        // site's (`droid_tier`, what the map says).
-        let here = self.residents.as_ref().map(|r| r.station);
-        let elite = here.is_some_and(|id| self.is_elite_fight(id));
-        let kinds = if elite {
-            crate::elite::with_guardian(kinds, wave, self.droid_tier())
-        } else {
-            kinds
-        };
+        let n = kinds.len() as u32;
         let tiers = self.machine_tiers(kinds.len() as u32);
         kinds
             .into_iter()
@@ -6159,21 +6208,23 @@ impl World {
         let Some(residents) = &self.residents else {
             return Vec::new();
         };
-        let spots: Vec<bims::math::Vec2> = droidplan::spots_about(&station.design, n as usize)
+        let kinds = self.wave_kinds_for(n, wave);
+        let spots: Vec<bims::math::Vec2> = droidplan::spots_about(&station.design, kinds.len())
             .into_iter()
             .map(|(x, y)| residents.aboard.to_room(dvec2(x, y)))
             .collect();
-        self.build_wave(n, wave, &spots, 0.0, station.map_seed)
+        self.build_wave(kinds, wave, &spots, 0.0, station.map_seed)
     }
 
     /// A reinforcement wave, at the airlock its ship tied up at — or, on
     /// a surface, just inside the gate its lander set down beyond — the
     /// town's gates in turn (`surface::gate_for_wave`).
     fn arriving_wave(&self, station: &Station, n: u32, wave: u32) -> Vec<bims::droid::Droid> {
-        let Some((spots, facing)) = self.arrival_spots(station, n, wave) else {
+        let kinds = self.wave_kinds_for(n, wave);
+        let Some((spots, facing)) = self.arrival_spots(station, kinds.len() as u32, wave) else {
             return Vec::new();
         };
-        self.build_wave(n, wave, &spots, facing, station.map_seed)
+        self.build_wave(kinds, wave, &spots, facing, station.map_seed)
     }
 
     /// Where a wave of `n` that **arrives** is stood, in the residents'
@@ -11700,6 +11751,10 @@ pub fn droid_bounty_percent(kind: bims::droid::DroidKind) -> u32 {
         DroidKind::Husk => 100 - data::BOUNTY_SPREAD_PERCENT,
         DroidKind::Trooper => 100,
         DroidKind::Warden | DroidKind::Guardian => 100 + data::BOUNTY_SPREAD_PERCENT,
+        // The tier-two machines (task 157): a Bomber and a Lancer the
+        // tier's own, a Conductor an elite's twice the spread over it.
+        DroidKind::Bomber | DroidKind::Lancer => 100,
+        DroidKind::Conductor => 100 + 2 * data::BOUNTY_SPREAD_PERCENT,
         // The Machine Heart's own pay as a tier's.
         DroidKind::Core | DroidKind::Conduit | DroidKind::Fabricator => 100,
     }

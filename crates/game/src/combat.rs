@@ -244,6 +244,9 @@ pub enum WeaponKind {
     /// A slug that goes through a body and on into the next, every body
     /// in its line (task 115). Tier three only.
     RailLance = 10,
+    /// The Lancer's rail (task 157), built in: a slug through every body
+    /// on a line it charged along first — see `Game::tick_lancer`.
+    Rail = 11,
 }
 
 impl WeaponKind {
@@ -267,13 +270,17 @@ impl WeaponKind {
     /// never bought, never in the armory or a slot. [`WeaponKind::resource`]
     /// is `None` for each, which is what keeps them out of everything
     /// the hold does.
-    pub const BUILT_IN: [WeaponKind; 3] =
-        [WeaponKind::Claw, WeaponKind::Unmaker, WeaponKind::Sweeper];
+    pub const BUILT_IN: [WeaponKind; 4] = [
+        WeaponKind::Claw,
+        WeaponKind::Unmaker,
+        WeaponKind::Sweeper,
+        WeaponKind::Rail,
+    ];
 
-    /// Every kind there is: the carried seven and the built-in three, in
+    /// Every kind there is: the carried seven and the built-in four, in
     /// code order. What the app names, and what a code is read back
     /// against.
-    pub const EVERY: [WeaponKind; 10] = [
+    pub const EVERY: [WeaponKind; 11] = [
         WeaponKind::LaserPistol,
         WeaponKind::Shotgun,
         WeaponKind::AutoRifle,
@@ -284,6 +291,7 @@ impl WeaponKind {
         WeaponKind::Sweeper,
         WeaponKind::Minigun,
         WeaponKind::RailLance,
+        WeaponKind::Rail,
     ];
 
     pub fn code(self) -> u32 {
@@ -326,7 +334,9 @@ impl WeaponKind {
             WeaponKind::RailLance => 19,
             // A machine's arm is no resource: it is part of the machine,
             // and there is nothing to put in a hold.
-            WeaponKind::Claw | WeaponKind::Unmaker | WeaponKind::Sweeper => return None,
+            WeaponKind::Claw | WeaponKind::Unmaker | WeaponKind::Sweeper | WeaponKind::Rail => {
+                return None;
+            }
         })
     }
 
@@ -365,6 +375,7 @@ impl WeaponKind {
             WeaponKind::Sweeper => balance::SWEEPER,
             WeaponKind::Minigun => balance::MINIGUN,
             WeaponKind::RailLance => balance::RAIL_LANCE,
+            WeaponKind::Rail => balance::RAIL,
         }
     }
 
@@ -384,7 +395,8 @@ impl WeaponKind {
             | WeaponKind::Schword
             | WeaponKind::Claw
             | WeaponKind::Unmaker
-            | WeaponKind::Sweeper => Tier::One,
+            | WeaponKind::Sweeper
+            | WeaponKind::Rail => Tier::One,
         }
     }
 
@@ -446,6 +458,12 @@ impl Tier {
             Tier::Two => Some(Tier::Three),
             Tier::Three => None,
         }
+    }
+
+    /// What a weapon of this tier multiplies the kind's damage by: what a
+    /// Bomber's bomb and a Conductor's strike are scaled by (task 157).
+    pub fn damage_factor(self) -> f32 {
+        self.weapon_factors().0
     }
 
     /// What a weapon of this tier multiplies the kind's damage, accuracy
@@ -1104,6 +1122,14 @@ pub struct Grenade {
     /// one grenade, as one room draws a Sweeper's beam.
     #[cfg_attr(feature = "serde", serde(default))]
     pub unseen: bool,
+    /// A **Bomber's bomb** or a Conductor's strike call (task 157): a
+    /// hostile one that bursts on the targets as well as on this room's
+    /// own — the machines are in it too — unless it is the unseen copy
+    /// (the crew's room lays the one that reaches them). It rolls from
+    /// `from` to `at` over [`balance::BOMB_ROLL`] and spins up there; a
+    /// strike call's has `from` at `at` and only spins.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub bomb: bool,
 }
 
 impl Grenade {
@@ -1119,6 +1145,8 @@ impl Grenade {
     pub fn flight(&self) -> f32 {
         if self.shot {
             self.fuse.max(1e-3)
+        } else if self.bomb {
+            balance::BOMB_ROLL
         } else {
             GRENADE_FLIGHT
         }
@@ -1769,9 +1797,9 @@ impl Bolt {
     }
 
     /// Whether it goes through the bodies it strikes: a rail lance's slug
-    /// (task 115), and nothing else.
+    /// (task 115) and a Lancer's (task 157), and nothing else.
     pub fn pierces(&self) -> bool {
-        self.weapon.kind == WeaponKind::RailLance
+        matches!(self.weapon.kind, WeaponKind::RailLance | WeaponKind::Rail)
     }
 
     /// Whether it has struck that body lately.
@@ -1883,6 +1911,12 @@ pub struct Shot {
     /// with `damage` at the centre.
     #[cfg_attr(feature = "serde", serde(default))]
     pub grenade: bool,
+    /// And with `grenade`, a **bomb** (task 157): rolled from `from` to
+    /// `at` — where it was known to stop the moment it left — for the
+    /// receiving room to lay as a bomb of its own
+    /// ([`Combat::drop_bomb`]), bursting on the machines as well.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub bomb: bool,
 }
 
 /// One: the pace of every sweep but an overloaded core's.
@@ -2482,6 +2516,7 @@ impl Combat {
             satchel: false,
             hostile: false,
             unseen: false,
+            bomb: false,
         });
         self.cues.push(Cued {
             cue: Cue::Throw,
@@ -2521,6 +2556,7 @@ impl Combat {
             satchel: false,
             hostile: false,
             unseen: false,
+            bomb: false,
         });
         self.fx
             .muzzle(from, (at - from).normalize_or_zero(), weapon, false);
@@ -2564,6 +2600,7 @@ impl Combat {
             satchel: false,
             hostile: false,
             unseen: false,
+            bomb: false,
         });
     }
 
@@ -2584,6 +2621,7 @@ impl Combat {
             pace: 1.0,
             shooter: None,
             grenade: true,
+            bomb: false,
         });
     }
 
@@ -2610,7 +2648,64 @@ impl Combat {
             satchel: false,
             hostile: true,
             unseen,
+            bomb: false,
         });
+    }
+
+    /// A Bomber's bomb rolled from `from` to `at` across the seam (task
+    /// 157), or a Conductor's strike call (`from` at `at`): a recorded
+    /// [`Shot`] for the world to lay in the crew's room as a bomb with
+    /// `damage` at the centre.
+    pub fn shoot_bomb(&mut self, from: Vec2, at: Vec2, weapon: Weapon, damage: f32) {
+        self.lull = 0.0;
+        self.shots.push(Shot {
+            from,
+            at,
+            weapon,
+            melee: false,
+            damage,
+            cut: false,
+            moving: false,
+            sweep: None,
+            pace: 1.0,
+            shooter: None,
+            grenade: true,
+            bomb: true,
+        });
+    }
+
+    /// A bomb laid in **this** room (task 157): rolling from `from` to
+    /// `at`, bursting [`balance::BOMB_FUSE`] after the throw
+    /// [`balance::BOMB_RADIUS`] tiles wide with `damage` at the centre, on
+    /// this room's own bodies and on its targets (`Game::burst`). `unseen`
+    /// for the copy a town's room lays beside the crew's: neither drawn
+    /// nor heard, and on the town's people alone. Heard as it leaves.
+    pub fn drop_bomb(&mut self, from: Vec2, at: Vec2, damage: f32, unseen: bool) {
+        self.lull = 0.0;
+        let fuse = balance::BOMB_FUSE;
+        self.grenades.push(Grenade {
+            by: 0,
+            from,
+            at,
+            left: fuse,
+            fuse,
+            radius: balance::BOMB_RADIUS * TILE,
+            damage,
+            stun: 0.0,
+            expose: false,
+            shot: false,
+            laid: false,
+            satchel: false,
+            hostile: true,
+            unseen,
+            bomb: true,
+        });
+        if !unseen {
+            self.cues.push(Cued {
+                cue: Cue::BombArmed,
+                at,
+            });
+        }
     }
 
     /// The fuses burnt down by `dt`: every grenade whose fuse ran out,
@@ -2724,7 +2819,7 @@ impl Combat {
             self.fx.trail(tail, bolt.pos, bolt.weapon, bolt.hostile);
         }
         for g in &self.grenades {
-            if !g.shot && !g.unseen && g.fuse - g.left >= GRENADE_FLIGHT {
+            if !g.shot && !g.unseen && g.fuse - g.left >= g.flight() {
                 self.fx.fuse(g.at);
             }
         }
@@ -2771,6 +2866,7 @@ impl Combat {
             pace: 1.0,
             shooter: None,
             grenade: false,
+            bomb: false,
         });
     }
 
@@ -2828,6 +2924,7 @@ impl Combat {
             pace,
             shooter: None,
             grenade: false,
+            bomb: false,
         });
     }
 
@@ -3349,6 +3446,7 @@ impl Combat {
                 pace: 1.0,
                 shooter: None,
                 grenade: false,
+                bomb: false,
             });
         } else {
             // A blow from the front of a shield is stopped at the plate
@@ -3918,7 +4016,7 @@ impl Combat {
                         1.0,
                     );
                 }
-                WeaponKind::RailLance => {
+                WeaponKind::RailLance | WeaponKind::Rail => {
                     // One even line from the muzzle to the head, the
                     // thickest core there is, whatever it has gone
                     // through on the way.
@@ -4029,6 +4127,10 @@ impl Combat {
         // down once it lies on its tile.
         for g in self.grenades.iter().filter(|g| !g.unseen) {
             let pos = g.pos();
+            if g.bomb {
+                draw_bomb(list, g);
+                continue;
+            }
             // A Stun Shot (October 2026): a glowing slug of the stun's
             // blue with a streak behind it, flat on the deck.
             if g.shot {
@@ -4115,6 +4217,58 @@ impl Combat {
             );
         }
     }
+}
+
+/// A bomb's shell, its studs and its core, and the zone it will burst
+/// over (task 157).
+const BOMB_SHELL: Color = Color::rgb(0.16, 0.17, 0.19);
+const BOMB_STUD: Color = Color::rgb(0.46, 0.48, 0.52);
+const BOMB_ZONE: Color = Color::rgba(1.0, 0.24, 0.18, 0.10);
+/// How wide the bomb's ball is drawn, in room units.
+const BOMB_BALL: f32 = 22.0;
+
+/// A **bomb** (task 157): the circle it will burst over, on the deck from
+/// the moment it leaves — a faint red disc, a rim that pulses quicker as
+/// the fuse runs down, and a second disc filling it from the middle as
+/// the time goes, white-hot for the last moment — and the ball rolling
+/// to its spot, studs turning with the roll, then spinning up there, its
+/// core climbing past white. Every flicker is the fuse's own clock.
+fn draw_bomb(list: &mut DrawList, g: &Grenade) {
+    let gone = (g.fuse - g.left).max(0.0);
+    let t = (gone / g.fuse.max(1e-3)).clamp(0.0, 1.0);
+    let diameter = g.radius * 2.0;
+    list.circle(g.at, diameter, BOMB_ZONE);
+    list.circle(g.at, diameter * t, HOSTILE_BOLT.alpha(0.10 + 0.10 * t));
+    let rate = 2.0 + 10.0 * t;
+    let pulse = 0.5 + 0.5 * (gone * rate * std::f32::consts::TAU).sin();
+    let rim = if t > 0.85 {
+        HOSTILE_BOLT.glowing(1.3)
+    } else {
+        HOSTILE_BOLT
+    };
+    list.ring(g.at, diameter, 3.0, rim.alpha(0.45 + 0.4 * pulse));
+    // The ball: rolled along from where it left, then spun up.
+    let pos = g.pos();
+    let rolled = (pos - g.from).len();
+    let landed = (gone - g.flight()).max(0.0);
+    let spin = rolled / (BOMB_BALL * 0.5) + landed * landed * 40.0;
+    list.ellipse(
+        pos + vec2(0.0, 5.0),
+        vec2(BOMB_BALL * 0.6, BOMB_BALL * 0.35),
+        0.0,
+        Color::rgba(0.0, 0.0, 0.0, 0.35),
+    );
+    list.circle(pos, BOMB_BALL, BOMB_SHELL);
+    for k in 0..4 {
+        let a = spin + k as f32 * std::f32::consts::FRAC_PI_2;
+        list.circle(
+            pos + Vec2::from_angle(a) * (BOMB_BALL * 0.38),
+            6.0,
+            BOMB_STUD,
+        );
+    }
+    let core = HOSTILE_BOLT.glowing(0.9 + 0.9 * t * t);
+    list.circle(pos, 8.0 + 4.0 * pulse * t, core);
 }
 
 /// A grenade's shell and band, its fuse, and the burst's colours.
@@ -5075,8 +5229,8 @@ mod tests {
         }
         // The seven carried kinds are the whole of what a body holds.
         assert_eq!(WeaponKind::ALL.len(), 7);
-        assert_eq!(WeaponKind::ALL.len() + WeaponKind::BUILT_IN.len(), 10);
-        assert_eq!(WeaponKind::EVERY.len(), 10);
+        assert_eq!(WeaponKind::ALL.len() + WeaponKind::BUILT_IN.len(), 11);
+        assert_eq!(WeaponKind::EVERY.len(), 11);
         for (i, kind) in WeaponKind::EVERY.iter().enumerate() {
             assert_eq!(kind.code(), i as u32 + 1, "EVERY is in code order");
         }

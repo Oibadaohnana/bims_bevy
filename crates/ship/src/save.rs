@@ -288,7 +288,11 @@ use crate::game::Game;
 /// 109: an Area defend's waves on a clock (`defense::Area::gap` gone) and
 /// an enemy's volley on its way into the ring (`Droid::volley`,
 /// `Bim::volley`).
-pub const SAVE_VERSION: u32 = 109;
+/// 110: the tier-two machines (task 157) — a machine's rhythms
+/// (`bims::droid::Rhythm`: a Bomber's bomb, a Lancer's rail, a Conductor's
+/// link, mark, blink and strike call), a grenade's and a shot's `bomb`, and
+/// the scaling's `bomber_every` and `lancer_every`.
+pub const SAVE_VERSION: u32 = 110;
 
 /// What the file holds, read back.
 #[derive(serde::Deserialize)]

@@ -138,6 +138,10 @@ fn a_held_station_has_machines_and_no_people_at_all() {
             DroidKind::Core | DroidKind::Conduit | DroidKind::Fabricator => {
                 panic!("the Machine Heart's in a wave")
             }
+            // The tier-two zone's (task 157), and this is day one.
+            DroidKind::Bomber | DroidKind::Lancer | DroidKind::Conductor => {
+                panic!("a tier-two machine on day one")
+            }
         }
     }
     assert_eq!(seen, (husks, troopers, wardens), "the mix the plan says");
@@ -821,7 +825,10 @@ fn the_probes_dials_move_the_tier_and_the_cap() {
     world.set_droid_tier_for_probe(Some(Tier::Three));
     world.set_droid_wave_for_probe(3);
     let n = open_the_room(&mut world);
-    assert!(n <= 3, "the cap holds: {n}");
+    // The tier-two machines come on top of the wave the dial says (task
+    // 157), the probes' tier being the zone.
+    let (bombers, lancers) = world.scaling().tier_two_extras(3);
+    assert!(n <= 3 + bombers + lancers, "the cap holds: {n}");
     let room = &world.residents.as_ref().unwrap().aboard.room;
     for i in 0..room.droid_count() as usize {
         let droid = room.droid(i).unwrap();

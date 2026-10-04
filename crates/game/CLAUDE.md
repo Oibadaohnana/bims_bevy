@@ -5329,3 +5329,68 @@ gives a defender its ring spot only when its weapon is not `melee`; one
 with a schword takes the town's own stand, `plan_stand`, which hands a
 blade to `Tactics::charge` at the nearest enemy on the list — the whole
 list, seen or not, since a friendly room's targets are not beliefs.
+
+## The tier-two machines: Bomber, Lancer, Conductor (task 157)
+
+`DroidKind::{Bomber = 8, Lancer = 9, Conductor = 10}`, in `ALL` (the
+seven that walk, so the rack and every test over the walkers take them)
+and `EVERY` (ten). Bodies, paces and every number are `balance.rs`'s
+tier-two block (`BOMBER_*`, `BOMB_*`, `LANCER_*`, `RAIL`, `CONDUCTOR_*`,
+`LINK_*`, `MARK_*`, `BLINK_*`, `STRIKE_*`). Their state is one
+`droid::Rhythm` on the machine (saved, serde default; `Rhythm::fresh`
+starts a Bomber's first bomb and a Conductor's first mark a moment after
+it first has somebody); their step is `tier_two.rs`, a child of `game`;
+their pictures `tier_two_look.rs`, a child of `droid`. Nothing draws on
+any stream, and every turn is a written-out cosine and sine.
+
+- **The Bomber** walks in to bomb (its stand is planned with its pistol's
+  reach cut to `BOMBER_STAND`, `Game::bomber_stand`) and backs off a body
+  within `BOMBER_SHY` (`DroidKind::shy`, `Game::keep_back`, before the
+  hunter's rule in `plan_droid_stand`). `Game::roll_bomb`: the nearest
+  body seen within `BOMB_TRIGGER`, `BOMB_REACH` at most, stopped where
+  `Game::bomb_stop` says (a wall or shut door, low cover, deck no body
+  stands on), arms needed. A **bomb** is a `Grenade` with `bomb` set —
+  hostile, rolling `BOMB_ROLL` from `from` to `at` and spinning up there,
+  `BOMB_FUSE` in all, `BOMB_RADIUS` — recorded as a `Shot` with `bomb`
+  (`Combat::shoot_bomb`) for the world to lay in the crew's room
+  (`Game::enemy_bomb` → `Combat::drop_bomb`) and laid here unseen in a
+  defended town. `Game::burst` hits the targets with a bomb as well (the
+  machines in it, a hit by nobody) unless it is the unseen copy, which
+  keeps to the town's people. Drawn (`combat::draw_bomb`) as the circle
+  from the moment it leaves, filling as the fuse burns, and the studded
+  ball; `Cue::BombArmed`.
+- **The Lancer** (`Game::tick_lancer`, its own branch like the
+  Guardian's): `WeaponKind::Rail = 11`, built in, pierces
+  (`Bolt::pierces`), rolls no odds (accuracy one; arms gone halve the
+  damage). With its mark seen from its own eye within `LANCER_REACH` and
+  `Rail::Ready` it plants (`Rail::Charging`): `LANCER_TRACK` following
+  the mark, `LANCER_LOCK` held (`Rail::locked`), then the slug along the
+  line to the rail's reach — `Combat::shoot` for the crew's room, and
+  `fire` here too in a defended town — and `LANCER_COOLDOWN`. A stun
+  (`Droid::stun` → `put_out_charge`), its arms shot away in a charge
+  begun with them, or the fight gone put it out (`LANCER_CANCELLED`).
+  `Cue::RailCharge`. Keeps back within `LANCER_SHY`.
+- **The Conductor**: a gunner (cover, the auto rifle) with
+  `Game::conduct` before its step. **The link** (`Game::link_and_mark`,
+  the top of every `tick_droids`): every other machine within
+  `LINK_RADIUS` of a Conductor up and not stunned is `Rhythm::linked`,
+  and `strike_droid` takes `LINK_TAKEN` of every hit on it; `tethers`
+  (serde skip) is the picture. **The mark**: every `MARK_EVERY` on the
+  nearest body seen, `MARK_WARNING` then `MARK_HOLD`; while it holds,
+  `Game::marked` is that target and **`Game::machine_aim`** — what every
+  gunner, the Guardian and the Lancer aim with — picks it first where it
+  can be shot (a taunt reaching the machine before it). **The blink**: a
+  body within `BLINK_NEAR` and it plants `BLINK_WINDUP`, then stands at
+  `Game::blink_to` (away, turned 30/60/90° either way, at full and half
+  `BLINK_REACH`, free deck it could walk to with nothing opaque between),
+  `BLINK_COOLDOWN`. **The strike call**, once at `STRIKE_AT` of its
+  health: `STRIKE_BOMBS` bombs that only spin (`from == at`) round its
+  mark, `STRIKE_SPREAD` out. `Cue::{Marked, Blink}`.
+- **Telegraphs over the fog**: `Droid::draw_telegraph` (from `render`,
+  after the shots, whether or not the machine is seen) — the Lancer's line
+  (thin while following, bright once locked) and the Conductor's mark (a
+  ring closing, then held and turning). A machine held `lit` for a picture
+  shows a locked line six tiles ahead and a held mark four.
+  `scratchpad/droidwreck.rs` draws the whole rack, telegraphs and all.
+
+`tests_tier_two.rs` is the rule.

@@ -92,7 +92,7 @@ impl Tuning for WaveScaling {
     const UNTUNED: Self = WaveScaling::DEFAULT;
     fn describe(&self) -> String {
         format!(
-            "{}/player +{} every {} days, {}/bot, a wave more every {} days, tiers by day {}/{}/{}",
+            "{}/player +{} every {} days, {}/bot, a wave more every {} days, tiers by day {}/{}/{}, a bomber per {} and a lancer per {}",
             self.enemies_per_player,
             self.day_scaling,
             self.scaling_days,
@@ -100,7 +100,9 @@ impl Tuning for WaveScaling {
             self.wave_days,
             self.tier1_days,
             self.tier2_days,
-            self.tier3_days
+            self.tier3_days,
+            self.bomber_every,
+            self.lancer_every
         )
     }
 }
@@ -307,8 +309,10 @@ fn with_difficulty(text: &str, d: WaveScaling) -> Option<String> {
         ("tier1_days", d.tier1_days.to_string()),
         ("tier2_days", d.tier2_days.to_string()),
         ("tier3_days", d.tier3_days.to_string()),
+        ("bomber_every", d.bomber_every.to_string()),
+        ("lancer_every", d.lancer_every.to_string()),
     ];
-    let mut done = [false; 8];
+    let mut done = [false; 10];
     let mut lines: Vec<String> = text.lines().map(str::to_string).collect();
     for line in &mut lines {
         let code = line.split("//").next().unwrap_or("");
@@ -423,6 +427,8 @@ mod tests {
             tier1_days: 3,
             tier2_days: 25,
             tier3_days: 50,
+            bomber_every: 5,
+            lancer_every: 9,
         };
         let text = include_str!("../../../scaling.ron");
         let new = with_difficulty(text, d).unwrap();
@@ -432,7 +438,7 @@ mod tests {
             .zip(new.lines())
             .filter(|(a, b)| a != b)
             .count();
-        assert!(changed <= 8, "{changed} lines changed");
+        assert!(changed <= 10, "{changed} lines changed");
         assert_eq!(text.lines().count(), new.lines().count());
         // A comment after the number stays, and a field left out is put in.
         let new = with_difficulty("(\n    enemies_per_bot: 1.0, // one\n)\n", d).unwrap();

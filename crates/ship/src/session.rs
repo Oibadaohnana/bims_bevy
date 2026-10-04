@@ -579,6 +579,33 @@ impl Session {
         session
     }
 
+    /// The `bomber`, `lancer` and `conductor` commands (task 157):
+    /// [`Session::droids`] at **tier two**, every wave exactly that machine
+    /// and two Troopers — a Husk beside them for a Conductor, so it has
+    /// two machines to link and one to send in — and the reinforcement
+    /// clock at `reinforce` minutes, so the next wave follows while it is
+    /// watched.
+    pub fn tier_two(
+        seed: u64,
+        kind: bims::droid::DroidKind,
+        reinforce: f64,
+        waves: u32,
+        width: f32,
+        height: f32,
+    ) -> Session {
+        use bims::droid::DroidKind;
+        let mut session = Session::combat(seed, width, height);
+        if let Some(game) = session.game.as_mut() {
+            let mut kinds = vec![kind, DroidKind::Trooper, DroidKind::Trooper];
+            if kind == DroidKind::Conductor {
+                kinds.push(DroidKind::Husk);
+            }
+            game.world.set_droid_kinds_for_probe(kinds);
+        }
+        session.infest_the_dock_for_probe(Some(bims::combat::Tier::Two), reinforce, waves);
+        session
+    }
+
     /// The `relics` command (feature 106): [`Session::droids`] with **one
     /// wave of [`RELICS_WAVE`]** at the arena's own tier, short enough to
     /// finish — clear it, go back to the ship, and the reward screen

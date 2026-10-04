@@ -15,7 +15,7 @@ use crate::combat::{
 use crate::cue::{Cue, Cued};
 use crate::door;
 use crate::draw::{Color, DrawList};
-use crate::droid::{Droid, DroidPart};
+use crate::droid::{Droid, DroidKind, DroidPart};
 use crate::health::Health;
 use crate::math::{Rect, TAU, Vec2, clamp, vec2};
 use crate::nav::{self, Maps, Nav};
@@ -33,6 +33,10 @@ mod heart;
 /// attacking a site the crew are defending, fought the machines' way.
 #[path = "intruder.rs"]
 mod intruder;
+/// The tier-two machines' step (task 157): the Bomber's bomb, the Lancer's
+/// rail, the Conductor's link, mark, blink and strike call.
+#[path = "tier_two.rs"]
+mod tier_two;
 
 const TRAIL: Color = ACCENT;
 
@@ -762,6 +766,13 @@ pub struct Game {
     /// every step by the world; off, the room is what it was.
     #[cfg_attr(feature = "serde", serde(default))]
     withheld: bool,
+    /// The body a Conductor's mark holds the machines to this step (task
+    /// 157), by its index on the machines' targets: worked out at the top
+    /// of every `tick_droids` off the Conductors' own marks, which are
+    /// saved, and read by the aim (`machine_aim`). `None` with no mark
+    /// past its warning.
+    #[cfg_attr(feature = "serde", serde(skip))]
+    marked: Option<usize>,
     at_war: bool,
     /// The crew's side of that: whether an enemy is within [`ALARM_RANGE`]
     /// of any of them or was in anybody's sight within [`ALARM_HOLD`], or
@@ -1060,6 +1071,7 @@ impl Game {
             droids: Vec::new(),
             hostile_bodies: false,
             withheld: false,
+            marked: None,
             at_war: false,
             alarm: false,
             mustered: false,
@@ -2488,6 +2500,9 @@ impl Game {
     /// body with no gear and no errands: what is left is the
     /// walk, the lock, the aim and the trigger.
     fn tick_droids(&mut self, dt: f32, war: bool) {
+        // The Conductors' links and marks first (task 157): what every
+        // machine below aims at, and what a hit on one does.
+        self.link_and_mark(dt);
         for i in 0..self.droids.len() {
             self.droids[i].walk(dt);
             if self.droids[i].destroyed {
@@ -2531,6 +2546,16 @@ impl Game {
                 self.tick_guardian(i, dt, war, &stats);
                 continue;
             }
+            // A Lancer charges its rail by a rule of its own (task 157).
+            if self.droids[i].kind == DroidKind::Lancer {
+                self.tick_lancer(i, dt, war, &stats);
+                continue;
+            }
+            // A Conductor's mark, blink and strike call (task 157): planted
+            // for a blink, it does nothing else this step.
+            if self.droids[i].kind == DroidKind::Conductor && self.conduct(i, dt, war) {
+                continue;
+            }
             // The Machine Heart's machines stand where they were built
             // (feature 108): a conduit and a fabricator do nothing at all,
             // and the core sweeps its beams from where it stands.
@@ -2547,7 +2572,17 @@ impl Game {
                 self.droids[i].charging(dt, false);
                 continue;
             }
-            self.plan_droid_stand(i, dt, &stats);
+            // A Bomber walks in to bomb (task 157): its stand is picked with
+            // its pistol's reach cut down, and its bomb has a rhythm of its
+            // own beside the gun.
+            if self.droids[i].kind == DroidKind::Bomber {
+                self.plan_droid_stand(i, dt, &Game::bomber_stand(&stats));
+            } else {
+                self.plan_droid_stand(i, dt, &stats);
+            }
+            if self.droids[i].kind == DroidKind::Bomber {
+                self.roll_bomb(i, dt);
+            }
             // And, with nobody it can get to, the doors in the way: an
             // unlocked one opens for it as it walks up (`update_doors`),
             // and a locked one is heaved at like a boarder's.
@@ -2641,12 +2676,8 @@ impl Game {
                 self.droids[i].charging(dt, false);
                 continue;
             }
-            let Some((mark, eye, at)) = Combat::aim_among(
-                self.combat.machine_targets(),
-                &self.room.sight,
-                from,
-                &stats,
-            ) else {
+            // A Conductor's mark first (task 157), then the targets as ever.
+            let Some((mark, eye, at)) = self.machine_aim(from, &stats) else {
                 self.droids[i].trigger.hold();
                 self.droids[i].peek = None;
                 self.droids[i].charging(dt, false);
@@ -2792,9 +2823,9 @@ impl Game {
         let from = self.droids[i].pos;
         // Only what it sees from its own eyes: a Guardian never leans out
         // of cover, having none but its shield.
-        let sighted =
-            Combat::aim_among(self.combat.machine_targets(), &self.room.sight, from, stats)
-                .filter(|&(_, eye, _)| eye == from);
+        let sighted = self
+            .machine_aim(from, stats)
+            .filter(|&(_, eye, _)| eye == from);
         let d = &mut self.droids[i];
         d.charging(dt, false);
         let want = sighted
@@ -2998,6 +3029,15 @@ impl Game {
             if let Some(route) = push {
                 self.droids[i].follow_path(route);
             }
+            return;
+        }
+        // A Bomber, a Lancer and a Conductor keep their distance (task
+        // 157): with a body of the crew's side seen too near, the walk off
+        // it comes before any stand.
+        if let Some(shy) = self.droids[i].kind.shy()
+            && let Some(route) = self.keep_back(from, &targets, shy)
+        {
+            self.droids[i].follow_path(route);
             return;
         }
         // The hunter's rule, as a hostile Bim's: with nobody in sight a
@@ -6410,6 +6450,12 @@ impl Game {
             return false;
         };
         let was = droid.destroyed;
+        // A Conductor's link on it takes some of every hit (task 157).
+        let damage = if droid.rhythm.linked {
+            damage * crate::balance::LINK_TAKEN
+        } else {
+            damage
+        };
         let struck = droid.strike(part, damage);
         if struck.is_some() {
             droid.under_fire = UNDER_FIRE;
@@ -9586,8 +9632,12 @@ impl Game {
             });
         }
         // The targets: the enemy's people standing on this deck, at their
-        // exposed positions, in cover the same way.
-        let targets: Vec<Option<(Vec2, bool)>> = if g.hostile {
+        // exposed positions, in cover the same way. A bomb (task 157) is
+        // an enemy's that bursts on them too — the machines are in it as
+        // well — but for the unseen copy a town's room lays, whose
+        // targets are the machines the crew's room has already reached.
+        let on_targets = !g.hostile || (g.bomb && !g.unseen);
+        let targets: Vec<Option<(Vec2, bool)>> = if !on_targets {
             Vec::new()
         } else {
             self.combat
@@ -10830,6 +10880,12 @@ impl Game {
         self.draw_bolt_glow();
         self.combat.draw(&mut self.list);
         self.bolts_put_back(flying);
+        // What a machine is about to do (task 157): a Lancer's line and a
+        // Conductor's mark, over the fog, whether or not the machine is
+        // seen.
+        for d in &self.droids {
+            d.draw_telegraph(&mut self.list);
+        }
         // The pings where an order landed, over the fog as well, since an
         // order given into the dark is an order all the same.
         self.draw_pings();

@@ -280,7 +280,11 @@ use serde::{Deserialize, Serialize};
 /// relics and Guardians), and a defender with a blade charging.
 /// 156: every ability's damage and heal half again
 /// (`world::class::ABILITY_BOOST`) — both ends must deal and heal alike.
-pub const PROTOCOL: u32 = 156;
+/// 157: the tier-two machines (task 157) — Bombers and Lancers on top of
+/// a wave from the floor's tier-two rows, a Conductor in a tier-two
+/// elite's Guardian wave, the rolling bomb and the rail — both ends must
+/// lay and fight alike.
+pub const PROTOCOL: u32 = 157;
 
 /// Where the relay lives. `BIMS_SERVER` in the environment overrides it
 /// — `ws://127.0.0.1:8792` for one on the same machine.
