@@ -997,6 +997,12 @@ pub struct Hero {
     /// The magazine in its hand (October 2026): shots left, shots it
     /// holds, and the share of a reload still to run — `Game::magazine`.
     pub magazine: Option<(u32, u32, f32)>,
+    /// The trigger's two clocks, as `Game::trigger_times` reads them:
+    /// the seconds until the next shot and the whole wait, and a
+    /// magazine's reload left and its whole.
+    pub trigger: Option<TriggerClocks>,
+    /// The piece of armour worn, for the health bar's tier table.
+    pub armour_worn: Option<bims::combat::Item>,
 }
 
 impl Hero {
@@ -1016,6 +1022,10 @@ pub struct HeroOut {
     /// The key whose box the pointer rests on.
     pub hovered: Option<Action>,
 }
+
+/// The trigger's two clocks, as `Game::trigger_times` hands them: the
+/// shot's (seconds left, the whole wait) and a magazine's reload's.
+pub type TriggerClocks = ((f32, f32), Option<(f32, f32)>);
 
 /// The circle the level stands in.
 const LEVEL_DISC: f32 = 32.0;
@@ -1106,6 +1116,7 @@ pub fn hero_panel(
                             theme::bar_in(ui.painter(), rect, xp_fill(hero.xp), theme::HYPER);
                             response.on_hover_text(xp_text(hero.class, hero.xp));
                         }
+                        trigger_row(ui, hero, width);
                     });
                     magazine_box(ui, hero);
                     ui.separator();
@@ -1206,11 +1217,16 @@ fn health_bar(ui: &mut egui::Ui, hero: &Hero, critical: bool, width: f32) {
     .into_iter()
     .flatten()
     .collect();
-    if !tip.is_empty() {
+    // And the armour worn: its name, what it has left, its tier table.
+    let armour = hero.armour_worn;
+    if !tip.is_empty() || armour.is_some() {
         response.on_hover_ui(|ui| {
             ui.set_max_width(320.0);
             for (line, colour) in tip {
                 ui.add(egui::Label::new(egui::RichText::new(line).color(colour)).wrap());
+            }
+            if let Some(piece) = armour {
+                crate::crew::tip_ui(ui, piece, 1);
             }
         });
     }
@@ -1320,6 +1336,62 @@ fn magazine_box(ui: &mut egui::Ui, hero: &Hero) {
 
 /// The magazine's column's width.
 const MAGAZINE_W: f32 = 64.0;
+
+/// The trigger's clocks under the experience bar: the wait between two
+/// shots on the left, a magazine's reload on the right, each in seconds
+/// to the hundredth — the whole wait, muted, while the weapon is ready,
+/// and red, counting down, while it is not. Nothing for a blade or an
+/// empty hand.
+fn trigger_row(ui: &mut egui::Ui, hero: &Hero, width: f32) {
+    let Some((fire, reload)) = hero.trigger else {
+        return;
+    };
+    let (rect, _) = ui.allocate_exact_size(egui::vec2(width, TRIGGER_ROW_H), egui::Sense::hover());
+    let painter = ui.painter();
+    let clock = |word: &str, (left, whole): (f32, f32)| {
+        let running = left > 0.0;
+        let mut job = egui::text::LayoutJob::default();
+        job.append(
+            &format!("{word} "),
+            0.0,
+            egui::TextFormat {
+                font_id: egui::FontId::proportional(12.0),
+                color: theme::MUTED,
+                ..Default::default()
+            },
+        );
+        job.append(
+            &trigger_seconds(if running { left } else { whole }),
+            0.0,
+            egui::TextFormat {
+                font_id: egui::FontId::monospace(14.0),
+                color: if running { theme::BAD } else { theme::MUTED },
+                ..Default::default()
+            },
+        );
+        painter.layout_job(job)
+    };
+    let fire = clock(TRIGGER_FIRE, fire);
+    painter.galley(
+        egui::pos2(rect.min.x, rect.center().y - fire.size().y / 2.0),
+        fire,
+        theme::MUTED,
+    );
+    if let Some(reload) = reload {
+        let reload = clock(TRIGGER_RELOAD, reload);
+        painter.galley(
+            egui::pos2(
+                rect.max.x - reload.size().x,
+                rect.center().y - reload.size().y / 2.0,
+            ),
+            reload,
+            theme::MUTED,
+        );
+    }
+}
+
+/// The trigger row's height.
+const TRIGGER_ROW_H: f32 = 16.0;
 
 #[cfg(test)]
 mod tests {

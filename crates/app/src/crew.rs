@@ -1793,10 +1793,32 @@ pub(crate) fn tip_ui(ui: &mut egui::Ui, item: PackItem, count: u32) {
     if let PackItem::Module(module) = item {
         item_tiers(ui, module.kind, module.tier.code());
     }
+    gear_tiers(ui, item, None);
 }
 
-/// A cell's tooltip: the name, the numbers that matter — a piece's
-/// health and protection, and what it has left — and the resource's line.
+/// A weapon's or a piece of armour's table, every tier's numbers side by
+/// side and one lit — the abilities' way (task 124): `lit`, or the
+/// thing's own tier. Nothing for anything else.
+pub(crate) fn gear_tiers(ui: &mut egui::Ui, item: PackItem, lit: Option<u32>) {
+    let (rows, own) = match item {
+        PackItem::Weapon(weapon) => crate::names::weapon_stats(weapon),
+        PackItem::Armour(piece) => crate::names::armour_stats(piece.kind, piece.tier),
+        _ => return,
+    };
+    let lit = match (item, lit.and_then(bims::combat::Tier::from_code)) {
+        (PackItem::Weapon(weapon), Some(tier)) if weapon.kind.made_at(tier) => {
+            crate::names::weapon_stats(bims::combat::Weapon { tier, ..weapon }).1
+        }
+        (PackItem::Armour(piece), Some(tier)) => crate::names::armour_stats(piece.kind, tier).1,
+        _ => own,
+    };
+    ui.add_space(2.0);
+    theme::stat_rows(ui, &rows, Some(lit), 13.0);
+}
+
+/// A cell's tooltip: the name and — a piece of armour — what it has
+/// left; a weapon's and a piece's numbers are [`gear_tiers`]' table, and
+/// a resource's its line.
 pub(crate) fn tip_of(item: PackItem, count: u32) -> String {
     // A tier above one is said after the name: "Armour — tier 2".
     let tiered = |name: &str, tier: bims::combat::Tier| match tier_word(tier) {
@@ -1804,51 +1826,21 @@ pub(crate) fn tip_of(item: PackItem, count: u32) -> String {
         None => name.to_string(),
     };
     match item {
-        PackItem::Armour(piece) => {
-            let stats = piece.stats();
-            let state = if piece.broken() {
-                "Broken — still worn, doing nothing".to_string()
-            } else {
-                format!("{} of {} hp left", piece.health.round(), stats.health)
-            };
-            let dodge = if piece.dodge() > 0.0 {
-                format!(", {}% dodge", (piece.dodge() * 100.0).round())
-            } else {
-                String::new()
-            };
-            format!(
-                "{}\n+{} hp, {} protection{dodge} · {state}\n{}",
-                tiered(armour_name(Some(piece.kind)), piece.tier),
-                stats.health,
-                tidy_hundredths(stats.protection),
-                item_tip(world::armour::resource_of(piece.kind))
-            )
-        }
+        // The name and what is left of it; the numbers are the tier
+        // table under it (`gear_tiers`).
+        PackItem::Armour(piece) => format!(
+            "{}\n{} / {} hp",
+            tiered(armour_name(Some(piece.kind)), piece.tier),
+            piece.health.max(0.0).round(),
+            piece.stats().health.round()
+        ),
         PackItem::Weapon(weapon) => {
-            // The curve in a line, the way the Inventory says it, or a
-            // blade's swing — the tier's numbers, not the kind's.
-            let stats = weapon.stats();
-            let numbers = if stats.melee {
-                melee_text(&stats)
-            } else {
-                let magazine =
-                    crate::names::magazine_text(&stats).map_or(String::new(), |m| format!("\n{m}"));
-                format!(
-                    "Damage {}, range {} tiles{magazine}",
-                    damage_text(&stats),
-                    tidy(stats.range)
-                )
-            };
             let name = tiered(weapon_name(Some(weapon.kind)), weapon.tier);
-            let name = if count > 1 {
+            if count > 1 {
                 format!("{name} × {count}")
             } else {
                 name
-            };
-            format!(
-                "{name}\n{numbers}\n{}",
-                item_tip(world::armour::weapon_resource(weapon.kind))
-            )
+            }
         }
         PackItem::Stack(code) => match ResourceId::from_code(code) {
             Some(id) if count > 1 => format!("{} × {count}\n{}", resource_name(id), item_tip(id)),

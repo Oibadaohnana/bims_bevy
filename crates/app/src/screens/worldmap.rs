@@ -2085,10 +2085,18 @@ fn line_item(ui: &mut egui::Ui, wallet: economy::Money, line: Line) -> bool {
             )),
             _ => None,
         };
+        // A weapon's or a piece's numbers, every tier's, the same tier lit.
+        let gear = match line.face {
+            Face::Thing(thing) => Some((thing, line.tier.map(|(tier, up)| up.unwrap_or(tier)))),
+            _ => None,
+        };
         response.on_hover_ui(|ui| {
             ui.label(tip);
             if let Some((kind, lit)) = tiers {
                 crate::crew::item_tiers(ui, kind, lit);
+            }
+            if let Some((thing, lit)) = gear {
+                crate::crew::gear_tiers(ui, thing, lit);
             }
         });
     }

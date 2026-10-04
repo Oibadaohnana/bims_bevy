@@ -6825,6 +6825,38 @@ impl Game {
         });
     }
 
+    /// The two clocks of `who`'s trigger, for the hero panel's timers:
+    /// the seconds until the weapon may fire again and the whole wait a
+    /// shot begins (the trigger rate through the skill, a pistol's
+    /// click cooldown), and — for a weapon with a magazine — the seconds
+    /// of a reload left (nought with none) and a reload's whole. `None`
+    /// with nothing in the hand or a blade.
+    pub fn trigger_times(&self, who: usize) -> Option<((f32, f32), Option<(f32, f32)>)> {
+        let bim = self.bims.get(who)?;
+        let weapon = bim.gear.weapon?;
+        let skill = self.shot_skill(who);
+        let stats = skill.stats(weapon);
+        if stats.melee {
+            return None;
+        }
+        let whole = if weapon.kind.semi_automatic() {
+            crate::balance::SEMI_AUTO_COOLDOWN / skill.fire_rate.max(1e-3)
+        } else {
+            1.0 / stats.fire_rate.max(1e-3)
+        };
+        let trigger = &bim.trigger;
+        let fire = (trigger.reload.max(0.0), whole);
+        let reload = (stats.magazine > 0).then(|| {
+            let left = if trigger.loaded == weapon.kind.code() {
+                trigger.reloading.max(0.0)
+            } else {
+                0.0
+            };
+            (left, stats.reload_time)
+        });
+        Some((fire, reload))
+    }
+
     /// The magazine in `who`'s hand (October 2026), for the hero panel
     /// and the reticle: shots left, shots it holds, and the share of a
     /// reload under way still to run (nought with none). `None` for a

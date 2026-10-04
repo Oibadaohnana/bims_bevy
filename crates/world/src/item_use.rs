@@ -97,6 +97,17 @@ impl World {
         ((free - self.mission_minutes()) / time::MINUTES_PER_SECOND).max(0.0)
     }
 
+    /// Seconds before `who`'s *Reactor Heart* regenerates at its quiet
+    /// rate — [`bims::module::HEART_QUIET_SECONDS`] after the last hit
+    /// taken; nought once it does. What the app greys the item's box by.
+    pub fn quiet_regen_left(&self, who: u32) -> f64 {
+        let Some(hurt) = self.run.items.hurt_at.get(who as usize).copied().flatten() else {
+            return 0.0;
+        };
+        let quiet = hurt + Self::item_minutes(f64::from(bims::module::HEART_QUIET_SECONDS));
+        ((quiet - self.mission_minutes()) / time::MINUTES_PER_SECOND).max(0.0)
+    }
+
     /// Whether player `slot` may use the item in its slot `index` now, and
     /// the item if so: a mission under way, its own Bim fit to act, an
     /// active item there, not cooling down and — a blink — not locked by a

@@ -7,7 +7,6 @@
 //! by the codes each crate writes out and never renumbers. Adding a part, an
 //! event or a job is a variant there and a name here.
 
-use bims::combat::WeaponStats;
 use physics::ResourceId;
 use shipdesign::parts::PartKind;
 use world::{Refusal, WorldEvent};
@@ -2819,6 +2818,14 @@ pub const HAND_MEDKIT_TIP: &str = "The medkit in hand: your Bim holds its fire, 
 pub fn hand_swap_key(key: &str) -> String {
     format!("{key}: swap")
 }
+/// The trigger's clocks under the hero panel's experience bar: the wait
+/// between two shots and a magazine's reload.
+pub const TRIGGER_FIRE: &str = "Fire";
+pub const TRIGGER_RELOAD: &str = "Reload";
+/// Seconds to the hundredth, as the trigger's clocks count: "0.50s".
+pub fn trigger_seconds(seconds: f32) -> String {
+    format!("{:.2}s", seconds.max(0.0))
+}
 /// An item's tip in the hero panel (October 2026): its name with its
 /// tier, what it does, and whether its key does anything.
 pub fn module_tip(item: bims::module::Module, passive: bool) -> String {
@@ -2965,91 +2972,135 @@ pub fn armour_name(kind: Option<bims::combat::ArmourKind>) -> &'static str {
 /// armour (October 2026: there were a head, a body and legs).
 pub const SLOT_NAMES: [&str; 6] = ["Weapon", "Armour", "Item 1", "Item 2", "Item 3", "Item 4"];
 
-/// A weapon's numbers as the Inventory says them, off the two-point
-/// curves in `bims::combat::WeaponStats`: each number is its best out to
-/// the sweet distance and falls in a straight line to the far one at the
-/// range. "90% to 4 tiles, 60% at 10" is the shape; a curve with no sweet
-/// distance starts "up close", and a flat one is just the number, since
-/// "12 to 0 tiles, 12 at 12" would be three numbers for one.
-fn curve_text(stats: &WeaponStats, near: String, far: String) -> String {
-    if near == far {
-        near
-    } else if stats.sweet <= 0.0 {
-        format!("{near} up close, {far} at {} tiles", tidy(stats.range))
-    } else {
-        format!(
-            "{near} to {} tiles, {far} at {}",
-            tidy(stats.sweet),
-            tidy(stats.range)
-        )
-    }
-}
-
-/// A stat to a tenth, without a float's noise: a tier-three pistol's range
-/// is "26.4 tiles", not "26.400002", and a whole number stays whole.
-pub fn tidy(x: f32) -> String {
-    let tenths = (x * 10.0).round() / 10.0;
-    if tenths.fract() == 0.0 {
-        format!("{}", tenths as i64)
-    } else {
-        format!("{tenths:.1}")
-    }
-}
-
-/// "100 to 4 tiles, 60 at 10"; "12 a shot" for a flat curve, "90 a
-/// swing" for a blade.
-pub fn damage_text(stats: &WeaponStats) -> String {
-    let flat = stats.damage == stats.damage_far;
-    match (stats.melee, flat) {
-        (true, _) => format!("{} a swing", tidy(stats.damage)),
-        (false, true) => format!("{} a shot", tidy(stats.damage)),
-        (false, false) => curve_text(stats, tidy(stats.damage), tidy(stats.damage_far)),
-    }
-}
-
-/// How often it goes off. A burst weapon's is "8 in 2 s, then 2 s": the
-/// burst counted at a gap a shot, and the rest of the trigger's period
-/// after it as the recharge; a single-shot gun's "1.5 a second"; a
-/// blade's "a swing every 2 s".
-pub fn fire_rate_text(stats: &WeaponStats) -> String {
-    let period = 1.0 / stats.fire_rate.max(1e-3);
-    if stats.melee {
-        format!("a swing every {} s", period)
-    } else if stats.burst > 1 {
-        let burst = stats.burst as f32 * stats.burst_gap;
-        format!(
-            "{} in {} s, then {} s",
-            stats.burst,
-            burst,
-            (period - burst).max(0.0)
-        )
-    } else {
-        format!("{} a second", stats.fire_rate)
-    }
-}
-
-/// A gun's magazine (October 2026): "12 a magazine, 1.2 s to reload", or
-/// `None` for a weapon with none.
-pub fn magazine_text(stats: &WeaponStats) -> Option<String> {
-    (stats.magazine > 0).then(|| {
-        format!(
-            "{} a magazine, {} s to reload",
-            stats.magazine,
-            tidy(stats.reload_time)
-        )
-    })
-}
-
-/// And the column's tooltip.
+/// The hero panel's magazine column's tooltip.
 pub fn magazine_tip(left: u32, size: u32) -> String {
     format!(
         "{left} of {size} shots in the magazine. An empty one reloads by itself, and the reload key reloads it sooner; there is no end to the magazines."
     )
 }
 
-/// What a blade is, in one line: "Melee — 70 a swing every 2 s".
-pub fn melee_text(stats: &WeaponStats) -> String {
-    format!("Melee — {} {}", tidy(stats.damage), fire_rate_text(stats))
+/// A number to the tenth, as a gear table says it: `8.75` is "8.8".
+fn fig1(v: f64) -> String {
+    fig((v * 10.0).round() / 10.0)
+}
+
+/// A percentage to the tenth: `0.95625` is "95.6%".
+fn pc1(v: f64) -> String {
+    format!("{}%", fig1(v * 100.0))
+}
+
+/// A row of a weapon's or a piece's table: a value a tier in `tiers`,
+/// every tier's equal ones folded into one, as an ability's ranks are.
+fn tier_row(
+    label: &'static str,
+    unit: &'static str,
+    tiers: &[bims::combat::Tier],
+    value: impl Fn(bims::combat::Tier) -> String,
+) -> Stat {
+    let mut values: Vec<String> = tiers.iter().map(|&t| value(t)).collect();
+    if values.iter().all(|v| *v == values[0]) {
+        values.truncate(1);
+    }
+    Stat {
+        label,
+        values,
+        unit,
+    }
+}
+
+/// The tier row heading a table, and where `tier` stands among `tiers`
+/// counted from one — what [`crate::theme::stat_rows`] lights.
+fn tier_head(tiers: &[bims::combat::Tier], tier: bims::combat::Tier) -> (Stat, u8) {
+    let head = Stat {
+        label: "Tier",
+        values: tiers.iter().map(|t| t.code().to_string()).collect(),
+        unit: "",
+    };
+    let lit = tiers
+        .iter()
+        .position(|&t| t == tier)
+        .map_or(0, |i| i as u8 + 1);
+    (head, lit)
+}
+
+/// A weapon's numbers, every tier it is made at side by side (the
+/// abilities' tooltip, task 124): the tier row, then only numbers. The
+/// table and the place of the weapon's own tier in it, to light.
+pub fn weapon_stats(weapon: bims::combat::Weapon) -> (Vec<Stat>, u8) {
+    use bims::combat::Tier;
+    let kind = weapon.kind;
+    let tiers: Vec<Tier> = Tier::ALL.into_iter().filter(|&t| kind.made_at(t)).collect();
+    let at = |t: Tier| kind.at(t).stats();
+    let (head, lit) = tier_head(&tiers, weapon.tier);
+    let mut rows = vec![head];
+    let melee = at(weapon.tier).melee;
+    rows.push(tier_row("Damage", "", &tiers, |t| {
+        fig1(at(t).damage as f64)
+    }));
+    if tiers.iter().any(|&t| at(t).damage_far != at(t).damage) {
+        rows.push(tier_row("Damage far", "", &tiers, |t| {
+            fig1(at(t).damage_far as f64)
+        }));
+    }
+    rows.push(tier_row("Range", " tiles", &tiers, |t| {
+        fig(at(t).range as f64)
+    }));
+    if !melee {
+        if tiers.iter().any(|&t| at(t).sweet < at(t).range) {
+            rows.push(tier_row("Falloff from", " tiles", &tiers, |t| {
+                fig(at(t).sweet as f64)
+            }));
+        }
+        rows.push(tier_row("Accuracy", "", &tiers, |t| {
+            pc1(at(t).accuracy as f64)
+        }));
+        if tiers.iter().any(|&t| at(t).accuracy_far != at(t).accuracy) {
+            rows.push(tier_row("Accuracy far", "", &tiers, |t| {
+                pc1(at(t).accuracy_far as f64)
+            }));
+        }
+        if at(weapon.tier).burst > 1 {
+            rows.push(tier_row("Burst", "", &tiers, |t| at(t).burst.to_string()));
+        }
+    }
+    // The wait between two pulls, as the hero panel counts it down: a
+    // pistol's click cooldown, every other weapon's trigger rate.
+    rows.push(tier_row("Fire cooldown", " s", &tiers, |t| {
+        if kind.semi_automatic() {
+            fig(bims::balance::SEMI_AUTO_COOLDOWN as f64)
+        } else {
+            fig(1.0 / at(t).fire_rate.max(1e-3) as f64)
+        }
+    }));
+    if at(weapon.tier).magazine > 0 {
+        rows.push(tier_row("Magazine", "", &tiers, |t| {
+            at(t).magazine.to_string()
+        }));
+        rows.push(tier_row("Reload", " s", &tiers, |t| {
+            fig(at(t).reload_time as f64)
+        }));
+    }
+    (rows, lit)
+}
+
+/// A piece of armour's numbers, every tier side by side, as
+/// [`weapon_stats`]'s.
+pub fn armour_stats(kind: bims::combat::ArmourKind, tier: bims::combat::Tier) -> (Vec<Stat>, u8) {
+    use bims::combat::{Piece, Tier};
+    let tiers = Tier::ALL;
+    let at = |t: Tier| Piece::new(0, kind, t);
+    let (head, lit) = tier_head(&tiers, tier);
+    let rows = vec![
+        head,
+        tier_row("Health", "", &tiers, |t| {
+            format!("+{}", fig1(at(t).stats().health as f64))
+        }),
+        tier_row("Protection", "", &tiers, |t| {
+            fig(at(t).stats().protection as f64)
+        }),
+        tier_row("Dodge", "", &tiers, |t| pc1(at(t).dodge() as f64)),
+    ];
+    (rows, lit)
 }
 
 /// The Inventory's status for a Bim locked in a melee — a blade within
@@ -3719,26 +3770,34 @@ mod tests {
             }
         }
 
-        // --- the_weapon_lines_say_the_curves_the_user_asked_for ---
+        // --- a_weapon_and_a_piece_say_every_tier_s_numbers ---
         {
-            // The four sentences the Inventory was rewritten for, off the
-            // real tables: a two-point curve, a flat one, a burst, a blade.
-            use bims::combat::WeaponKind;
-            let shotgun = WeaponKind::Shotgun.stats();
-            // Flat since October 2026: no drop over distance.
-            assert_eq!(damage_text(&shotgun), "60 a shot");
-            let pistol = WeaponKind::LaserPistol.stats();
-            assert_eq!(damage_text(&pistol), "8 a shot");
-            assert_eq!(fire_rate_text(&pistol), "1.5 a second");
-            let rifle = WeaponKind::AutoRifle.stats();
-            assert_eq!(fire_rate_text(&rifle), "4 a second");
-            assert_eq!(
-                magazine_text(&rifle).as_deref(),
-                Some("30 a magazine, 1.8 s to reload")
-            );
-            assert_eq!(magazine_text(&WeaponKind::Schword.stats()), None);
-            let schword = WeaponKind::Schword.stats();
-            assert_eq!(melee_text(&schword), "Melee — 42 a swing every 2 s");
+            // The tables under a weapon's and a piece's tooltip, off the
+            // real numbers: a value a tier made, the own tier lit, the
+            // same at every tier folded into one.
+            use bims::combat::{ArmourKind, Tier, WeaponKind};
+            let row = |rows: &[Stat], label: &str| {
+                rows.iter()
+                    .find(|s| s.label == label)
+                    .map(Stat::line)
+                    .unwrap_or_default()
+            };
+            let (rifle, lit) = weapon_stats(WeaponKind::AutoRifle.at(Tier::Two));
+            assert_eq!(lit, 2);
+            assert_eq!(row(&rifle, "Tier"), "Tier: 1 / 2 / 3");
+            assert_eq!(row(&rifle, "Magazine"), "Magazine: 30");
+            assert_eq!(row(&rifle, "Reload"), "Reload: 1.8 s");
+            assert_eq!(row(&rifle, "Fire cooldown"), "Fire cooldown: 0.25 s");
+            let pistol = weapon_stats(WeaponKind::LaserPistol.basic()).0;
+            assert_eq!(row(&pistol, "Fire cooldown"), "Fire cooldown: 0.3 s");
+            // A minigun starts at tier two: two columns, tier two first.
+            let (minigun, lit) = weapon_stats(WeaponKind::Minigun.basic());
+            assert_eq!((row(&minigun, "Tier"), lit), ("Tier: 2 / 3".into(), 1));
+            let blade = weapon_stats(WeaponKind::Schword.basic()).0;
+            assert!(row(&blade, "Accuracy").is_empty() && row(&blade, "Magazine").is_empty());
+            let (armour, lit) = armour_stats(ArmourKind::Armour, Tier::Three);
+            assert_eq!(lit, 3);
+            assert_eq!(row(&armour, "Dodge"), "Dodge: 0% / 0% / 27.1%");
             assert!(!locked_tip().is_empty());
         }
 

@@ -3170,6 +3170,8 @@ fn frame(
                 points_waiting: world.points_of(local),
                 magazine: room.magazine(w),
                 money: world.share_of(local),
+                trigger: room.trigger_times(w),
+                armour_worn: world.worn_on(local, world::GearSlot::Armour),
             };
             let band = ctx
                 .memory(|m| m.area_rect(egui::Id::new("hud-hero")))
@@ -3201,7 +3203,10 @@ fn frame(
                 clear,
                 right,
                 &hero,
-                |ui| hand_picked = quickselect(ui, hand, &keys_now),
+                |ui| {
+                    let weapon = world.worn_on(local, world::GearSlot::Weapon);
+                    hand_picked = quickselect(ui, hand, weapon, &keys_now)
+                },
                 |ui| {
                     let row = ability_row(ui, &boxes);
                     clicked = row.rank_up;
@@ -5562,9 +5567,15 @@ fn affected_by(world: &world::World, slot: u32, action: Action) -> Vec<u32> {
 /// reach, and the rank-up a Ctrl-click on a slot's box asked for (task
 /// 123).
 /// The quickselect in the hero panel (task 138): the weapon over the
-/// medkit, each with its key, the one in hand lit. The one clicked, if
-/// any.
-fn quickselect(ui: &mut egui::Ui, hand: bims::bim::Hand, keys: &Keys) -> Option<bims::bim::Hand> {
+/// medkit, each with its key, the one in hand lit. Resting on the
+/// weapon's says its numbers, every tier's, as an ability's box does.
+/// The one clicked, if any.
+fn quickselect(
+    ui: &mut egui::Ui,
+    hand: bims::bim::Hand,
+    weapon: Option<bims::combat::Item>,
+    keys: &Keys,
+) -> Option<bims::bim::Hand> {
     use bims::bim::Hand;
     let mut picked = None;
     ui.vertical(|ui| {
@@ -5578,11 +5589,15 @@ fn quickselect(ui: &mut egui::Ui, hand: bims::bim::Hand, keys: &Keys) -> Option<
         ] {
             let text = egui::RichText::new(word).size(14.0);
             let button = theme::toggle_button(one == hand, text).min_size(egui::vec2(84.0, 26.0));
-            if ui
-                .add(button)
-                .on_hover_text(format!("{tip}\n{swap}"))
-                .clicked()
-            {
+            let response = ui.add(button);
+            let response = match weapon.filter(|_| one == Hand::Weapon) {
+                Some(weapon) => response.on_hover_ui(|ui| {
+                    crate::crew::tip_ui(ui, weapon, 1);
+                    ui.label(egui::RichText::new(&swap).small().color(theme::MUTED));
+                }),
+                None => response.on_hover_text(format!("{tip}\n{swap}")),
+            };
+            if response.clicked() {
                 picked = Some(one);
             }
         }
@@ -5632,40 +5647,36 @@ fn item_grid(ui: &mut egui::Ui, world: &world::World, who: u32, keys: &Keys) {
                         }
                         Some(item) => {
                             crate::icons::module(painter, rect, item);
-                            let left = world.item_cooldown_left(who, index);
-                            let whole = world.item_cooldown(who, index);
+                            // Not doing what it is for, the box is greyed with
+                            // the seconds until it does swept back over it: an
+                            // active one cooling down, a blink a hit locked, a
+                            // Reactor Heart short of its quiet regeneration.
+                            let (left, whole) = item_waiting(world, who, index, item, locked);
                             if left > 0.0 && whole > 0.0 {
+                                painter.rect_filled(
+                                    rect,
+                                    4.0,
+                                    theme::PANEL_DEEP.gamma_multiply(0.45),
+                                );
                                 cooldown_sweep(
                                     painter,
                                     rect,
                                     (left / whole).clamp(0.0, 1.0) as f32,
                                     theme::PANEL_DEEP.gamma_multiply(0.85),
                                 );
-                                painter.text(
-                                    rect.center(),
-                                    egui::Align2::CENTER_CENTER,
-                                    format!("{}", left.ceil()),
-                                    egui::FontId::proportional(18.0),
-                                    theme::INK,
-                                );
-                            } else if item.is_blink() && locked {
-                                painter.rect_filled(
-                                    rect,
-                                    4.0,
-                                    theme::PANEL_DEEP.gamma_multiply(0.6),
-                                );
+                                item_seconds(painter, rect, left, theme::INK);
                             }
                             // An Ablative Shell on: its box lit, as an ability
-                            // running is.
-                            if item.kind == bims::module::ModuleKind::AblativeShell
-                                && world.shell_left(who) > 0.0
-                            {
+                            // running is, and its seconds left.
+                            let shell = world.shell_left(who);
+                            if item.kind == bims::module::ModuleKind::AblativeShell && shell > 0.0 {
                                 painter.rect_stroke(
                                     rect,
                                     4.0,
                                     egui::Stroke::new(2.0, theme::CAUTION),
                                     egui::StrokeKind::Inside,
                                 );
+                                item_seconds(painter, rect, shell, theme::CAUTION);
                             }
                             let passive = !item.kind.active();
                             response.on_hover_ui(|ui| {
@@ -5687,6 +5698,55 @@ fn item_grid(ui: &mut egui::Ui, world: &world::World, who: u32, keys: &Keys) {
                 }
             });
     });
+}
+
+/// How long the item in slot `index` waits before it does what it is
+/// for, in seconds, and the whole of that wait: an active one's
+/// cooldown, a blink a hit locked (`locked`), a Reactor Heart short of
+/// its quiet regeneration. Nought for one ready.
+fn item_waiting(
+    world: &world::World,
+    who: u32,
+    index: usize,
+    item: bims::module::Module,
+    locked: bool,
+) -> (f64, f64) {
+    use bims::module::{BLINK_HIT_LOCK_SECONDS, HEART_QUIET_SECONDS, ModuleKind};
+    let left = world.item_cooldown_left(who, index);
+    if left > 0.0 {
+        return (left, world.item_cooldown(who, index));
+    }
+    if item.is_blink() && locked {
+        return (
+            world.blink_locked_left(who),
+            f64::from(BLINK_HIT_LOCK_SECONDS),
+        );
+    }
+    if item.kind == ModuleKind::ReactorHeart {
+        return (world.quiet_regen_left(who), f64::from(HEART_QUIET_SECONDS));
+    }
+    (0.0, 0.0)
+}
+
+/// Seconds over an item's box, to the tenth, on a shadow so they read
+/// over the picture.
+fn item_seconds(painter: &egui::Painter, rect: egui::Rect, seconds: f64, colour: egui::Color32) {
+    let text = format!("{seconds:.1}");
+    let font = egui::FontId::proportional(17.0);
+    painter.text(
+        rect.center() + egui::vec2(1.0, 1.0),
+        egui::Align2::CENTER_CENTER,
+        &text,
+        font.clone(),
+        theme::PANEL_DEEP,
+    );
+    painter.text(
+        rect.center(),
+        egui::Align2::CENTER_CENTER,
+        text,
+        font,
+        colour,
+    );
 }
 
 fn ability_row(ui: &mut egui::Ui, boxes: &[AbilityBox]) -> RowOut {
