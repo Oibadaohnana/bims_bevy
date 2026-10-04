@@ -836,7 +836,9 @@ fn two_healing_sentries_do_not_stack() {
     }
     let got = world.aboard.room.health(1) - before;
     let best = class::HEALING_SENTRY_RATE[1] * class::HEAL_BEAM_HP;
-    let want = best * (data::STEP_MINUTES / 60.0) as f32 * steps as f32;
+    // A share of her bar (October 2026: every heal is).
+    let bar = world.aboard.room.max_health(1) / 100.0;
+    let want = best * bar * (data::STEP_MINUTES / 60.0) as f32 * steps as f32;
     assert!(
         (got - want).abs() < 0.05,
         "{got} against the best alone, {want}"

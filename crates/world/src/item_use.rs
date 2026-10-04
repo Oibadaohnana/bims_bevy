@@ -290,7 +290,9 @@ impl World {
             let gear = self.aboard.room.gear(slot as usize);
             let leech = gear.item_leech();
             if leech > 0.0 && damage > 0.0 {
-                self.heal_crew(slot, damage * leech);
+                // A share of the damage done, in points: the one heal not
+                // a share of the bar (`heal_crew`).
+                self.aboard.room.heal(slot as usize, damage * leech);
             }
             let Some((targets, arc_damage)) = gear.item_arc() else {
                 continue;

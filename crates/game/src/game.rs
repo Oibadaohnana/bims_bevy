@@ -4867,6 +4867,16 @@ impl Game {
         }
     }
 
+    /// `percent` of a living body's whole bar put back at once
+    /// (`Health::heal_percent`): how every heal but a leech's is paid,
+    /// since October 2026. How many points went in.
+    pub fn heal_percent(&mut self, who: usize, percent: f32) -> f32 {
+        match self.bims.get_mut(who) {
+            Some(bim) if bim.is_alive() => bim.health.heal_percent(percent),
+            _ => 0.0,
+        }
+    }
+
     /// `points` taken off a living body's bar outright — a medic paying
     /// for his own healing circle (task 153): past the armour, a shield
     /// and a surge, no flash and no blood, and at nothing the body is

@@ -500,8 +500,10 @@ fn plated_mends_its_rank_s_hit_points_a_second() {
             world.step(&[]);
         }
         let mended = world.aboard.room.health(0) - before;
+        // A share of his whole bar a second (October 2026).
+        let bar = world.aboard.room.max_health(0) / 100.0;
         assert!(
-            (mended - regen * 10.0).abs() < 0.05,
+            (mended - regen * bar * 10.0).abs() < 0.05,
             "rank {rank}: {mended} in ten seconds"
         );
     }

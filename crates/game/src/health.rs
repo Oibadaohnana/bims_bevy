@@ -199,6 +199,14 @@ impl Health {
         given
     }
 
+    /// `percent` of the whole bar put back ([`Health::heal`]): every heal
+    /// is a share of the body's own bar (October 2026, the player's word),
+    /// so a Reactor Heart's 0.5 is half a per cent of [`Health::max`] a
+    /// second, however big the bar has grown. How many points went in.
+    pub fn heal_percent(&mut self, percent: f32) -> f32 {
+        self.heal(self.max * percent / 100.0)
+    }
+
     /// A whole bar again, and the downing forgotten: a
     /// mission's start. Nothing for the dead.
     pub fn restore(&mut self) {

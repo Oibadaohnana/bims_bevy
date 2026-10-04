@@ -926,8 +926,9 @@ pub const RAMPAGE_EXTEND_MAX: f64 = 6.0;
 /// How far the heal beam reaches at its first rank, in tiles: the first
 /// of [`HEAL_BEAM_RANGES`].
 pub const HEAL_BEAM_RANGE: f32 = 6.0;
-/// Hit points a beamed patient gains an hour of the clock at the beam's
-/// first rank: two a second at 1× (task 130; thirty until then). The ranks
+/// Per cent of its whole bar a beamed patient gains an hour of the clock
+/// at the beam's first rank: two a second at 1× (task 130; thirty until
+/// then; a share of the bar since October 2026, like every heal). The ranks
 /// multiply it ([`HEAL_BEAM_RATE`]); the engineer's Healing Sentry reads
 /// it unranked.
 pub const HEAL_BEAM_HP: f32 = 120.0;
@@ -940,8 +941,8 @@ pub const MEDIC_REVIVE_SECONDS: f32 = 4.0;
 /// A relic's *Rally Point* is its own.
 pub const MEDIC_REVIVED_TO: f32 = 0.4;
 
-/// **Q, Heal Drone** (task 153): hit points a second it puts into the Bim
-/// it hovers over, a rank, before his Triage.
+/// **Q, Heal Drone** (task 153): per cent of its whole bar a second it
+/// puts into the Bim it hovers over, a rank, before his Triage.
 pub const HEAL_DRONE_HEAL: [f32; 4] = [1.8, 2.0, 2.5, 3.0];
 /// Seconds of the mission clock a drone flies, a rank.
 pub const HEAL_DRONE_SECONDS: [f64; 4] = [8.0, 10.0, 12.0, 14.0];
@@ -1028,7 +1029,7 @@ pub const RIOT_SHIELD_BROKEN_COOLDOWN: f64 = 10.0;
 /// **C, Plated**: what the damage of a hit on him is multiplied by, a
 /// rank — before the armour, as Rampage's is.
 pub const PLATED_DAMAGE_TAKEN: [f32; 4] = [0.90, 0.85, 0.80, 0.75];
-/// And the hit points a second he mends, a rank (task 155).
+/// And the per cent of his whole bar a second he mends, a rank (task 155).
 pub const PLATED_REGEN: [f32; 4] = [0.2, 0.8, 1.4, 2.0];
 /// The rank from which his armour drain is multiplied by
 /// [`FORTRESS_DRAIN`] again (what *fortress* was).

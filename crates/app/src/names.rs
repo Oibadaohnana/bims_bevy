@@ -891,7 +891,7 @@ pub fn ranked_stats(class: world::Class, slot: u8) -> Vec<Stat> {
             cooldown(&c::MINE_COOLDOWN),
         ],
         (world::Class::Engineer, 1) => vec![
-            Stat::ranks("Heal", " /s", |r| {
+            Stat::ranks("Heal", "% HP/s", |r| {
                 fig((c::HEALING_SENTRY_RATE[r] * c::HEAL_BEAM_HP) as f64 / 60.0)
             }),
             Stat::ranks("Radius", " tiles", |r| {
@@ -950,7 +950,7 @@ pub fn ranked_stats(class: world::Class, slot: u8) -> Vec<Stat> {
             Stat::one("Cooldown", " s", fig(c::REINFORCEMENT_COOLDOWN)),
         ],
         (world::Class::Medic, 0) => vec![
-            Stat::ranks("Heal", " /s", |r| fig(c::HEAL_DRONE_HEAL[r] as f64)),
+            Stat::ranks("Heal", "% HP/s", |r| fig(c::HEAL_DRONE_HEAL[r] as f64)),
             Stat::ranks("Duration", " s", |r| fig(c::HEAL_DRONE_SECONDS[r])),
             cooldown(&c::HEAL_DRONE_COOLDOWN),
         ],
@@ -958,7 +958,7 @@ pub fn ranked_stats(class: world::Class, slot: u8) -> Vec<Stat> {
             by(1.0 + c::TRIAGE[r] as f64)
         })],
         (world::Class::Medic, 2) => vec![
-            Stat::ranks("Heal", " /s", |r| {
+            Stat::ranks("Heal", "% HP/s", |r| {
                 fig((c::HEAL_BEAM_HP * c::HEAL_BEAM_RATE[r]) as f64 / 60.0)
             }),
             Stat::ranks("Range", " tiles", |r| fig(c::HEAL_BEAM_RANGES[r] as f64)),
@@ -996,7 +996,7 @@ pub fn ranked_stats(class: world::Class, slot: u8) -> Vec<Stat> {
         ],
         (world::Class::Tank, 1) => vec![
             Stat::ranks("Damage taken", "", |r| by(c::PLATED_DAMAGE_TAKEN[r] as f64)),
-            Stat::ranks("Mends", " hp/s", |r| fig(c::PLATED_REGEN[r] as f64)),
+            Stat::ranks("Mends", "% HP/s", |r| fig(c::PLATED_REGEN[r] as f64)),
             Stat::ranks("Armour drain", "", |r| {
                 let fortress = r + 1 >= c::FORTRESS_RANK as usize;
                 by(if fortress {
@@ -1885,7 +1885,7 @@ pub fn item_line(item: bims::module::Module) -> String {
             pc(m::EXECUTIONER_DAMAGE[t] as f64),
         ),
         ModuleKind::ReactorHeart => format!(
-            "+{} health. Regenerates {} HP/s, {} HP/s after {} s without a hit.",
+            "+{} health. Regenerates {}% of max HP/s, {}% after {} s without a hit.",
             fig(m::HEART_HEALTH[t] as f64),
             fig(m::HEART_REGEN[t] as f64),
             fig(m::HEART_QUIET_REGEN[t] as f64),
@@ -1902,7 +1902,7 @@ pub fn item_line(item: bims::module::Module) -> String {
             m::COOLDOWN_CUT_MOST,
         ),
         ModuleKind::PressureSeal => format!(
-            "Regenerates {} HP/s, hit or not.",
+            "Regenerates {}% of max HP/s, hit or not.",
             fig(m::PRESSURE_SEAL_REGEN[t] as f64),
         ),
         ModuleKind::SteadyGrip => format!("+{}% fire rate.", m::STEADY_GRIP_PERCENT[t]),
@@ -1922,7 +1922,7 @@ pub fn item_line(item: bims::module::Module) -> String {
             fig(m::ARC_DAMAGE[t] as f64),
         ),
         ModuleKind::FieldMender => format!(
-            "Active: heals every crewmate on their feet within {} tiles, yourself included, {} HP. {} s cooldown.",
+            "Active: heals every crewmate on their feet within {} tiles, yourself included, {}% of their max HP. {} s cooldown.",
             fig(m::MENDER_TILES as f64),
             fig(m::MENDER_HEAL[t] as f64),
             fig(m::MENDER_COOLDOWN_SECONDS[t] as f64),
@@ -1973,14 +1973,14 @@ pub fn item_tier_line(kind: bims::module::ModuleKind, tier: u32) -> Option<Strin
             pc(m::EXECUTIONER_DAMAGE[t] as f64),
         ),
         ModuleKind::ReactorHeart => format!(
-            "+{} health · {} HP/s, {} HP/s quiet",
+            "+{} health · {}% HP/s, {}% quiet",
             fig(m::HEART_HEALTH[t] as f64),
             fig(m::HEART_REGEN[t] as f64),
             fig(m::HEART_QUIET_REGEN[t] as f64),
         ),
         ModuleKind::CoolantLoop => format!("-{}% cooldowns", m::COOLANT_LOOP_PERCENT[t]),
         ModuleKind::PressureSeal => {
-            format!("{} HP/s", fig(m::PRESSURE_SEAL_REGEN[t] as f64))
+            format!("{}% HP/s", fig(m::PRESSURE_SEAL_REGEN[t] as f64))
         }
         ModuleKind::SteadyGrip => format!("+{}% fire rate", m::STEADY_GRIP_PERCENT[t]),
         ModuleKind::LongBarrel => format!("+{} tiles range", fig(m::LONG_BARREL_TILES[t] as f64)),
@@ -1991,7 +1991,7 @@ pub fn item_tier_line(kind: bims::module::ModuleKind, tier: u32) -> Option<Strin
             fig(m::ARC_DAMAGE[t] as f64),
         ),
         ModuleKind::FieldMender => format!(
-            "{} HP · {} s cooldown",
+            "{}% HP · {} s cooldown",
             fig(m::MENDER_HEAL[t] as f64),
             fig(m::MENDER_COOLDOWN_SECONDS[t] as f64),
         ),
@@ -2015,7 +2015,7 @@ pub fn relic_name(relic: world::Relic) -> &'static str {
 }
 
 /// One thing a relic does, in words, off the rules' own number: "+30%
-/// weapon damage for the crew", "-20% move speed for the bots", "+2 HP a
+/// weapon damage for the crew", "-20% move speed for the bots", "+2% max HP a
 /// second for the crew" — the crew being the players and their bots, never
 /// an enemy (the rules lift the crew's skills alone).
 pub fn modifier_line(m: world::relic::Modifier) -> String {
@@ -2033,7 +2033,7 @@ pub fn modifier_line(m: world::relic::Modifier) -> String {
         Stat::Experience => "experience for every enemy down",
         Stat::WaveSize => "machines in every wave",
         Stat::TraderPrices => "trader prices",
-        Stat::Regen => "HP a second, regenerated",
+        Stat::Regen => "max HP a second, regenerated",
         Stat::EnemyHealth => "HP for every enemy",
     };
     // The run's own numbers name nobody: they are the crew's whole.
@@ -2051,10 +2051,7 @@ pub fn modifier_line(m: world::relic::Modifier) -> String {
         (Who::Players, _) => " for the players' Bims",
         (Who::Bots, _) => " for the bots",
     };
-    match m.stat {
-        Stat::Regen => format!("{sign}{n} {what}{whom}"),
-        _ => format!("{sign}{n}% {what}{whom}"),
-    }
+    format!("{sign}{n}% {what}{whom}")
 }
 
 /// Every line of a relic, each with whether it is a boon (true) or the

@@ -187,6 +187,12 @@ fn beam_gain(minutes: f32) -> f32 {
     class::HEAL_BEAM_HP / 60.0 * minutes
 }
 
+/// `who`'s whole bar over a hundred: what a heal's per cents are
+/// multiplied by (October 2026, every heal a share of the bar).
+fn bar(world: &World, who: usize) -> f32 {
+    world.aboard.room.max_health(who) / 100.0
+}
+
 /// The mission left — if one is under way — and another begun somewhere
 /// else in the system, the way the crew do it. The events of the step
 /// the trip was taken.
@@ -753,8 +759,12 @@ fn a_medic_linked_fires_at_his_full_rate_and_heals_himself_as_much() {
     }
     let patient = world.aboard.room.health(1) - a;
     let himself = world.aboard.room.health(0) - m;
-    assert!((patient - beam_gain(5.0)).abs() < 0.2, "{patient}");
-    assert!((himself - beam_gain(5.0)).abs() < 0.2, "himself: {himself}");
+    let (pb, hb) = (bar(&world, 1), bar(&world, 0));
+    assert!((patient - beam_gain(5.0) * pb).abs() < 0.2, "{patient}");
+    assert!(
+        (himself - beam_gain(5.0) * hb).abs() < 0.2,
+        "himself: {himself}"
+    );
     // Two patients at the fourth rank: once on him.
     let mut world = simulation_world(combat_ship(), REFERENCE_MONEY, 3);
     assert_eq!(world.set_class(0, Class::Medic), Ok(()));
@@ -771,7 +781,7 @@ fn a_medic_linked_fires_at_his_full_rate_and_heals_himself_as_much() {
     for _ in 0..(2 * STEPS_A_MINUTE) {
         world.step(&[]);
     }
-    let rate = class::HEAL_BEAM_HP * class::HEAL_BEAM_RATE[3] / 60.0 * 2.0;
+    let rate = class::HEAL_BEAM_HP * class::HEAL_BEAM_RATE[3] / 60.0 * 2.0 * bar(&world, 0);
     let himself = world.aboard.room.health(0) - m;
     assert!((himself - rate).abs() < 0.2, "once on him: {himself}");
 }
@@ -818,7 +828,7 @@ fn a_linked_patient_gains_hit_points_and_a_medic_may_beam_himself() {
     }
     let gained = world.aboard.room.health(0) - before;
     assert!(
-        (gained - beam_gain(10.0)).abs() < 0.2,
+        (gained - beam_gain(10.0) * bar(&world, 0)).abs() < 0.2,
         "its own bar: {gained}"
     );
 }
@@ -898,11 +908,15 @@ fn the_healing_circle_heals_round_him_at_the_link_s_rate_and_drains_him_as_much(
     run_for(&mut world, 5.0);
     let healed = world.aboard.room.health(1) - a;
     let drained = m - world.aboard.room.health(0);
+    // Shares of each one's own bar (October 2026).
     assert!(
-        (healed - 15.0).abs() < 0.3,
+        (healed - 15.0 * bar(&world, 1)).abs() < 0.3,
         "five seconds at three: {healed}"
     );
-    assert!((drained - 15.0).abs() < 0.3, "as much off him: {drained}");
+    assert!(
+        (drained - 15.0 * bar(&world, 0)).abs() < 0.3,
+        "as much off him: {drained}"
+    );
     // Off: nothing more either way.
     assert!(circle(&mut world, false).contains(&WorldEvent::Circled { who: 0, on: false }));
     let (a, m) = (world.aboard.room.health(1), world.aboard.room.health(0));

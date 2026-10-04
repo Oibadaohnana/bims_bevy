@@ -416,7 +416,8 @@ fn a_reactor_heart_raises_the_bar_and_mends() {
         world.step(&[]);
     }
     let mended = world.aboard.room.health(0) - hurt;
-    let want = bims::module::HEART_QUIET_REGEN[1];
+    // A share of the whole bar (October 2026).
+    let want = bims::module::HEART_QUIET_REGEN[1] * max / 100.0;
     assert!((mended - want).abs() < 0.5, "mended {mended}, want {want}");
     // Taken off, the bar is a hundred again.
     carry(&mut world, 0, 0, None);
@@ -446,6 +447,41 @@ fn every_level_is_ten_hit_points_on_a_player_s_bar() {
     world.step(&[]);
     assert_eq!(world.aboard.room.max_health(0), max, "kept the next step");
     assert_eq!(world.aboard.room.max_health(1), bims::health::MAX_HEALTH);
+}
+
+/// **Every heal is a share of the bar** (October 2026, the player's word:
+/// "a heart heals 0.5% of maxhp/s"): a tier-one Reactor Heart puts back
+/// half a per cent of the whole bar a second, so a bar of 285 (the
+/// sixteenth level's and the Heart's own) mends 1.425 a second where a
+/// hundred mends half a point.
+#[test]
+fn a_reactor_heart_heals_half_a_per_cent_of_the_bar_a_second() {
+    let mut world = basic();
+    world.set_class(0, Class::Soldier).unwrap();
+    level_up(&mut world, 0, 16);
+    world.step(&[]);
+    let heart = ModuleKind::ReactorHeart.at(Tier::One);
+    carry(&mut world, 0, 0, Some(heart));
+    world.step(&[]);
+    let max = world.aboard.room.max_health(0);
+    assert_eq!(max, 260.0 + bims::module::HEART_HEALTH[0]);
+    world.aboard.room.wound(0, 100.0);
+    world.step(&[]);
+    // The plain rate or the quiet one, whichever the wound left it at:
+    // both are shares of the bar.
+    let rate = world.item_regen_now(0);
+    assert!(
+        rate == bims::module::HEART_REGEN[0] || rate == bims::module::HEART_QUIET_REGEN[0],
+        "rate {rate}"
+    );
+    let hurt = world.aboard.room.health(0);
+    // A second at 1×: sixty steps, none of them a hit.
+    for _ in 0..60 {
+        world.step(&[]);
+    }
+    let mended = world.aboard.room.health(0) - hurt;
+    let want = max * rate / 100.0;
+    assert!((mended - want).abs() < 0.05, "mended {mended}, want {want}");
 }
 
 /// **The four levels past the sixteenth** (October 2026): ten hit points
@@ -659,7 +695,8 @@ fn the_passives_lift_the_skill_cut_the_cooldowns_and_mend() {
         world.step(&[]);
     }
     let mended = world.aboard.room.health(0) - hurt;
-    let want = bims::module::PRESSURE_SEAL_REGEN[2];
+    // A share of the bar a second (October 2026).
+    let want = bims::module::PRESSURE_SEAL_REGEN[2] * world.aboard.room.max_health(0) / 100.0;
     assert!((mended - want).abs() < 0.3, "mended {mended}, want {want}");
 }
 
@@ -716,8 +753,10 @@ fn the_mender_heals_the_reset_readies_and_the_shell_shields() {
             .any(|e| matches!(e, WorldEvent::ItemUsed { who: 0, .. })),
         "{events:?}"
     );
-    let heal = bims::module::MENDER_HEAL[0];
     for who in 0..2 {
+        // A share of each one's bar (October 2026), never past it.
+        let max = world.aboard.room.max_health(who);
+        let heal = (bims::module::MENDER_HEAL[0] * max / 100.0).min(max - before[who]);
         let healed = world.aboard.room.health(who) - before[who];
         assert!((healed - heal).abs() < 1.0, "{who} healed {healed}");
     }

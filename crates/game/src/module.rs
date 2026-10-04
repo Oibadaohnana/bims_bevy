@@ -190,7 +190,9 @@ pub const EXECUTIONER_DAMAGE: [f32; 3] = [1.6, 1.9, 2.25];
 
 /// Hit points on top of the bar, by tier.
 pub const HEART_HEALTH: [f32; 3] = [25.0, 40.0, 60.0];
-/// Hit points a second it puts back while the Bim is on its feet, by tier.
+/// Per cent of the Bim's whole bar a second it puts back while it is on
+/// its feet, by tier: every heal is a share of the bar since October 2026
+/// (the player's word), so the first tier is half a per cent a second.
 pub const HEART_REGEN: [f32; 3] = [0.5, 1.0, 1.0];
 /// And after [`HEART_QUIET_SECONDS`] without a hit, instead, by tier.
 pub const HEART_QUIET_REGEN: [f32; 3] = [1.5, 3.0, 5.0];
@@ -204,7 +206,8 @@ pub const HEART_QUIET_SECONDS: f32 = 6.0;
 pub const COOLANT_LOOP_PERCENT: [i32; 3] = [10, 15, 20];
 /// The most the items take off a cooldown, in per cent.
 pub const COOLDOWN_CUT_MOST: i32 = 50;
-/// *Pressure Seal*: hit points a second back, all the time, by tier.
+/// *Pressure Seal*: per cent of the whole bar a second back, all the
+/// time, by tier.
 pub const PRESSURE_SEAL_REGEN: [f32; 3] = [0.5, 1.0, 1.5];
 /// *Steady Grip*: per cent on the fire rate, by tier.
 pub const STEADY_GRIP_PERCENT: [i32; 3] = [10, 15, 20];
@@ -221,8 +224,8 @@ pub const ARC_TARGETS: [usize; 3] = [2, 3, 4];
 pub const ARC_DAMAGE: [f32; 3] = [15.0, 25.0, 40.0];
 /// How far an arc jumps from the enemy struck, in tiles.
 pub const ARC_REACH_TILES: f32 = 4.0;
-/// *Field Mender*: hit points to every crewmate within its reach, the
-/// holder included, by tier.
+/// *Field Mender*: per cent of each one's whole bar to every crewmate
+/// within its reach, the holder included, by tier.
 pub const MENDER_HEAL: [f32; 3] = [30.0, 45.0, 60.0];
 /// Its reach, in tiles.
 pub const MENDER_TILES: f32 = 5.0;

@@ -426,7 +426,8 @@ pub const BUYBACK_COST: Money = 5_000;
 
 // --- relics (feature 106, rebuilt October 2026, `crate::relic`) ------------
 // Every relic is the crew's, a boon with a price: each number a share in
-// per cent (the regeneration in hit points a second), the boon's first.
+// per cent (the regeneration in per cent of the whole bar a second), the
+// boon's first.
 // Placeholders, not balanced.
 
 /// How many relics an elite's clear offers the crew to choose one of.

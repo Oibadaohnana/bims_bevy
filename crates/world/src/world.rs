@@ -9123,18 +9123,20 @@ impl World {
         }
     }
 
-    /// `points` of health put into crew member `who` by medic `medic`,
-    /// times his [`World::medic_heal_factor`] on it: what the beam, the
-    /// drone and the circle heal through — a defender (`medic::GUEST +
-    /// i`) in its own room. How much went in.
-    fn medic_heal(&mut self, medic: u32, who: u32, points: f32) -> f32 {
-        let points = points * self.medic_heal_factor(medic, who);
+    /// `percent` of crew member `who`'s whole bar put back by medic
+    /// `medic`, times his [`World::medic_heal_factor`] on it: what the
+    /// beam, the drone and the circle heal through — a defender
+    /// (`medic::GUEST + i`) in its own room. Every heal is a share of
+    /// the healed body's bar (October 2026, the player's word): the
+    /// class's numbers are per cents of it. How many points went in.
+    fn medic_heal(&mut self, medic: u32, who: u32, percent: f32) -> f32 {
+        let percent = percent * self.medic_heal_factor(medic, who);
         match self.defender_patient(who) {
             Some(i) => self
                 .residents
                 .as_mut()
-                .map_or(0.0, |r| r.aboard.room.heal(i, points)),
-            None => self.aboard.room.heal(who as usize, points),
+                .map_or(0.0, |r| r.aboard.room.heal_percent(i, percent)),
+            None => self.aboard.room.heal_percent(who as usize, percent),
         }
     }
 
@@ -9424,10 +9426,13 @@ impl World {
 
     // Triage (C) has nothing of its own to keep: `medic_heal_factor`.
 
-    /// `points` of health put into crew member `who` from anything but a
-    /// medic — a Healing Sentry, an item, a relic. How much went in.
-    pub(crate) fn heal_crew(&mut self, who: u32, points: f32) -> f32 {
-        self.aboard.room.heal(who as usize, points)
+    /// `percent` of crew member `who`'s whole bar put back from anything
+    /// but a medic — a Healing Sentry, an item, a relic, Heavy Plating —
+    /// a share of the bar like every heal (October 2026). How many
+    /// points went in. A Leech Capacitor's share of the damage done is
+    /// the one heal in points (`Game::heal`).
+    pub(crate) fn heal_crew(&mut self, who: u32, percent: f32) -> f32 {
+        self.aboard.room.heal_percent(who as usize, percent)
     }
 
     // The Healing Circle (R).
@@ -9535,7 +9540,9 @@ impl World {
             for who in self.healing_circle_reaching(m) {
                 self.medic_heal(m, who, base * seconds);
             }
-            self.aboard.room.drain(m as usize, rate * seconds);
+            // His cost a share of his own bar, as the heal is of theirs.
+            let bar = self.aboard.room.max_health(m as usize) / 100.0;
+            self.aboard.room.drain(m as usize, rate * seconds * bar);
             let last = self.medics[m as usize].last_burn.unwrap_or(now);
             if now - last >= pulse - 1e-9 {
                 self.medics[m as usize].last_burn = Some(last + pulse);
