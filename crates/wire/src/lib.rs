@@ -266,7 +266,11 @@ use serde::{Deserialize, Serialize};
 /// the FOB, endless waves for five minutes, the ring taken — and a
 /// mission's waves are its first wave's size (`Run::wave_size`);
 /// `WorldEvent::{AreaTaken, AreaTimeUp}` (162, 163).
-pub const PROTOCOL: u32 = 151;
+/// 152: an Area defend's waves land on a ten-second clock and stack (a
+/// second sooner a wave after the third), its hold three minutes, and
+/// its enemies fight their way into the ring (`Game::push_in`) — both
+/// ends must lay and walk alike.
+pub const PROTOCOL: u32 = 152;
 
 /// Where the relay lives. `BIMS_SERVER` in the environment overrides it
 /// — `ws://127.0.0.1:8792` for one on the same machine.

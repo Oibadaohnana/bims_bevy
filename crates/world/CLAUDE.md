@@ -7815,14 +7815,20 @@ and the pistol, item and soldier tests are the rule.
   solid would want a layout change at every rebuild site). The crew are
   stood in the ring at the start (`stand_the_crew_ashore`).
 - **The clocks**: the first wave lands `DEFENSE_DELAY_STEPS` after the
-  landing as ever; from then `Area::left` (`AREA_HOLD_STEPS`, five
-  minutes) counts down every step and `Defense::more_to_come` is
-  `left > 0` — **the waves never run out while it runs**
-  (`waves_left` is unused for an area). Each lands `Area::gap` after the
-  one before is down — `DEFENSE_REINFORCE_STEPS` (ten seconds) after the
-  first, a second (`AREA_GAP_SHRINK_STEPS`) sooner each wave, never under
-  `AREA_GAP_MIN_STEPS` (`Area::shorten`). Once `left` is nought the wave
-  on the ground is the last: destroyed (and counted), `TownHeld` and the
+  landing as ever; from then `Area::left` (`AREA_HOLD_STEPS`, three
+  minutes since the player's follow-up) counts down every step and
+  `Defense::more_to_come` is `left > 0` — **the waves never run out
+  while it runs** (`waves_left` is unused for an area). **They are on a
+  clock and stack**: the next is due `defense::area_gap(wave)` after one
+  lands, whether or not it is down — `AREA_WAVE_STEPS` (ten seconds)
+  after each of the first `AREA_STEADY_WAVES` (three), then a second
+  (`AREA_WAVE_SOONER_STEPS`) sooner a wave, never under
+  `AREA_WAVE_MIN_STEPS` (five): 10, 10, 10, 9, 8, 7, 6, 5, 5 …; a wave
+  laid on one still standing leaves the wrecks for a clear deck
+  (`clear_wrecks` would shift every machine after them), and a
+  Manufacturers' wave laid so moves the residents' per-body lists on by
+  the people it enlists in front of the machines (`stand_manufacturers`).
+  Once `left` is nought those on the ground are the last: destroyed (and counted), `TownHeld` and the
   rest as before. `WorldEvent::AreaTimeUp` (163) the step it runs out.
 - **The ring**: every step after the first wave `who_holds_the_ring`
   asks whether an **enemy** (a machine standing, a Manufacturer on its
@@ -7867,6 +7873,7 @@ and every wave came down empty — before this change too.
 past the old count, each a second sooner, the time up and the last wave
 the win; the ring's count, a friend stopping it, the FOB taken and the
 run lost; the fixed wave size); `defense::tests` the ring's and the
-gap's arithmetic. **`SAVE_VERSION` 108, `wire::PROTOCOL` 151.** The
+gap's arithmetic. **`SAVE_VERSION` 108, `wire::PROTOCOL` 151**; the follow-up (the clock,
+the three minutes, the push in) **109 and 152**. The
 world's reference run, `SURVIVORS`, the doorway and the sniper tests
 were red before and are untouched.

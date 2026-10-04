@@ -5310,3 +5310,16 @@ of its plan, on the body's own `plan_wait`:
 `Game::is_open_ground(at, from)` is a deck tile with a way to it from
 `from`, whoever stands there: where the world may lay a bag. Nothing
 here decides who is in the ring; that is the world's.
+
+**A machine fights its way in** (the player's follow-up: "should not
+just walk into the area, they should try to fight their way in and
+still shoot at distance"): `Game::push_in` is the objective's plan for
+a machine and an intruder alike. With a shot from where it stands
+(`Combat::aim_among`) and no walk under way, it stands and shoots — at
+its whole odds — for `OBJECTIVE_VOLLEY` (two) plans, three seconds,
+counted on `Droid::volley` / `Bim::volley` (serde default); a walk
+under way is kept, shooting on the move. Then it advances:
+`Tactics::advance` towards its spot along the walk, cover from the
+nearest enemy worth `COVER_WORTH` (a Warden, an intruder) or nothing
+(a Trooper, which never takes cover), the whole walk where that picks
+nothing a tile off. Inside `OBJECTIVE_SLACK` it holds.

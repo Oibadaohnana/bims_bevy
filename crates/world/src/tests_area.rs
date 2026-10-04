@@ -120,25 +120,27 @@ fn an_area_defend_lays_its_fob_and_stands_the_crew_in_it() {
     assert!(world.area_in_room().is_some());
 }
 
-/// The waves never run out while the hold has time: each lands its gap
-/// after the one before is down, a second sooner every time. Once the
-/// hold is over no wave lands, and the one on the ground destroyed is the
-/// site held.
+/// The waves never run out while the hold has time, and they are on a
+/// clock: one every ten seconds whether or not the last is down — they
+/// stack — and a second sooner a wave after the third. Once the hold is
+/// over no wave lands, and those on the ground destroyed are the site held.
 #[test]
-fn the_waves_come_until_the_hold_is_over_and_the_last_is_destroyed() {
+fn the_waves_come_on_a_clock_until_the_hold_is_over_and_the_last_are_destroyed() {
     let Some((mut world, id)) = an_area_defend(Some(1)) else {
         return;
     };
     let (landed, _) = until(&mut world, 40, |w| w.droids_standing() > 0);
     assert!(landed, "the first wave never landed");
-    // Three more waves, each a second sooner after the last is down.
+    // Five more waves, nobody destroyed: each lands its gap after the last.
     let mut gaps = Vec::new();
-    for _ in 0..3 {
-        destroy_the_wave(&mut world);
+    let mut most = 0;
+    for _ in 0..5 {
         let mut steps = 0u64;
         let (came, said) = until(&mut world, 1_000, |w| {
             steps += 1;
-            w.droids_standing() > 0
+            most = most.max(w.droids_standing());
+            w.defense(id)
+                .is_some_and(|d| d.wave as usize == gaps.len() + 2)
         });
         assert!(came, "a wave did not come while the hold had time");
         assert!(
@@ -149,12 +151,13 @@ fn the_waves_come_until_the_hold_is_over_and_the_last_is_destroyed() {
         );
         gaps.push(steps);
     }
-    assert!(
-        gaps[0] > gaps[1] && gaps[1] > gaps[2],
-        "each wave sooner than the last: {gaps:?}"
+    assert_eq!(
+        gaps,
+        [600, 600, 600, 540, 480],
+        "ten, ten, ten, then sooner"
     );
-    assert_eq!(gaps[0] - gaps[1], data::AREA_GAP_SHRINK_STEPS);
-    // The hold at its end: the time runs out with the wave still up, and
+    assert!(most > 1, "the waves stack: {most} up at once at most");
+    // The hold at its end: the time runs out with the waves still up, and
     // no wave comes after it.
     world.set_area_left_for_probe(3);
     let (_, said) = until(&mut world, 5, |_| false);
@@ -165,7 +168,7 @@ fn the_waves_come_until_the_hold_is_over_and_the_last_is_destroyed() {
     );
     destroy_the_wave(&mut world);
     let (held, said) = until(&mut world, 1_000, |w| w.site_cleared(id));
-    assert!(held, "the last wave destroyed and the site not held");
+    assert!(held, "the last waves destroyed and the site not held");
     assert!(
         said.iter()
             .any(|e| matches!(e, WorldEvent::TownHeld { .. }))
@@ -282,4 +285,54 @@ fn every_wave_of_a_mission_is_its_first_wave_s_size() {
     );
     world.leave_for_probe();
     assert_eq!(world.run.wave_size, None, "worked out afresh next mission");
+}
+
+/// Before day ten a wave is the Manufacturers' people and their Troopers,
+/// and their people go in among the Bims, before the machines: a wave
+/// stacked on one still standing moves every machine on, and what the
+/// world keeps a body (who is down, who was counted) moves with it — so
+/// the last of them down is still the site held, said once.
+#[test]
+fn the_manufacturers_waves_stack_and_every_body_is_counted_once() {
+    let mut world = open_simulation_world(flyer(2), REFERENCE_MONEY, 2);
+    world.set_defense_delay_for_probe(data::STEP_MINUTES * 4.0);
+    world.set_droid_wave_for_probe(4);
+    if !world.land_for_probe() {
+        return;
+    }
+    let Some(id) = world.ship.state.alongside() else {
+        return;
+    };
+    if !world.site_threatened(id) || !world.defense_by_manufacturers() {
+        return;
+    }
+    let (stacked, _) = until(&mut world, 2_000, |w| {
+        w.defense(id).is_some_and(|d| d.wave >= 3)
+    });
+    assert!(stacked, "three waves landed");
+    world.set_area_left_for_probe(2);
+    world.step(&[]);
+    // Every enemy down: their people, then the machines.
+    {
+        let residents = world.residents.as_mut().expect("the town's room");
+        let room = &mut residents.aboard.room;
+        for who in 0..room.crew_count() as usize {
+            if room.is_manufacturer(who) {
+                room.kill_for_probe(who);
+            }
+        }
+    }
+    world.step(&[]);
+    destroy_the_wave(&mut world);
+    let (held, said) = until(&mut world, 600, |w| w.site_cleared(id));
+    assert!(held, "every enemy down and the site not held");
+    let held_said = said
+        .iter()
+        .filter(|e| matches!(e, WorldEvent::TownHeld { .. }))
+        .count();
+    assert_eq!(held_said, 1);
+    let residents = world.residents.as_ref().expect("the town's room");
+    let bodies = residents.aboard.room.body_count() as usize;
+    assert_eq!(residents.down.len(), bodies, "a flag a body");
+    assert!(world.droids_standing() == 0);
 }

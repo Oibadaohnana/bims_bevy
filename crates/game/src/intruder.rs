@@ -196,12 +196,26 @@ impl Game {
         }
         self.bims[who].plan_wait = PLAN_EVERY;
         let from = self.bims[who].character.pos;
-        // An Area defend's ring (October 2026): walked to and held, as
-        // the machines do.
+        // An Area defend's ring (October 2026): fought into and held, as
+        // the machines do (`push_in`), from cover.
         if let Some(spot) = self.objective(who)
             && !self.prey_at_hand(from, stats)
         {
-            self.walk_for(who, spot);
+            let character = &self.bims[who].character;
+            let going = character.destination().filter(|_| character.is_walking());
+            let (push, volley) = self.push_in(
+                who,
+                from,
+                going,
+                self.bims[who].volley,
+                spot,
+                stats,
+                COVER_WORTH,
+            );
+            self.bims[who].volley = volley;
+            if let Some(route) = push {
+                self.bims[who].character.follow_path(route);
+            }
             return;
         }
         let nav = self.maps.for_body(false);

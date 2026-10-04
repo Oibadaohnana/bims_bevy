@@ -261,6 +261,22 @@ impl World {
             return;
         };
         let room = &mut residents.aboard.room;
+        // Their people go in after the Bims and before the machines, so a
+        // wave laid with machines still standing (an Area defend's waves
+        // stack, October 2026) moves every machine's body index on by as
+        // many: what the world keeps a body is moved on with it.
+        let bims_before = room.crew_count() as usize;
+        let people = troopers.iter().filter(|t| !**t).count();
+        if bims_before < residents.down.len() {
+            for _ in 0..people {
+                residents.down.insert(bims_before, false);
+                residents.xp_down.insert(bims_before, false);
+                residents.last_hit_by.insert(bims_before, None);
+                residents.grave.insert(bims_before, false);
+                residents.defender.insert(bims_before, false);
+            }
+        }
+        let room = &mut residents.aboard.room;
         // Their people first.
         for (i, _) in troopers.iter().enumerate().filter(|(_, t)| !**t) {
             let own = worldgen::rng::mix(seed ^ (i as u64 + 1).wrapping_mul(0x9E37_79B9_7F4A_7C15));

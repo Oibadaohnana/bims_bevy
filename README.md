@@ -336,12 +336,14 @@ ring round its icon and a word under it:
 - **AREA DEFEND** (amber, a flag in a ring of sandbags): a **town's**
   defence. Hold its **FOB** — a green ring where its main street meets
   its first cross street, sandbags round it and a post in the middle —
-  for **five minutes** from the first wave. The waves never stop coming
-  while the time runs, each landing a second sooner after the last is
-  down; every wave is the size of the first, whoever of yours has fallen
-  since. When the time is up, destroy the wave still standing and the
-  town is held. The machines walk for the ring and fight from it, the
-  town's defenders hold it beside you, and **machines standing in the
+  for **three minutes** from the first wave. A wave lands **every ten
+  seconds** while the time runs, whether or not the last is down — they
+  stack — and after the third each comes a second sooner, down to five;
+  every wave is the size of the first, whoever of yours has fallen
+  since. When the time is up, destroy everything still standing and the
+  town is held. The machines fight their way in, cover to cover,
+  stopping to shoot whenever they have a shot, the town's defenders hold
+  the ring beside you, and **machines standing in the
   ring for twenty seconds with nobody of yours in it take the FOB — the
   run is lost**. Anybody of yours in the ring stops their count; the
   machines driven out puts it back to nothing. Out of sight, the FOB is

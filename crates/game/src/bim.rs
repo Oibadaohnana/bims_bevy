@@ -225,6 +225,11 @@ pub struct Bim {
     /// last saw its quarry, and from then until the war ends it holds or
     /// closes — never gives ground. See `Game::plan_stand`.
     pub hunting: bool,
+    /// How many plans in a row it has stood and shot on its way to an
+    /// Area defend's ring (October 2026): it pushes on after
+    /// `game::OBJECTIVE_VOLLEY`. Nought everywhere else.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub volley: u8,
     /// A station's person's peacetime round (feature 102): its role and
     /// the stops it walks, dealt by the world when the site's room opens
     /// (`Game::set_role`). `None` for the crew and for anybody the world
@@ -326,6 +331,7 @@ impl Bim {
             breach_wait: 0.0,
             smashing: None,
             hunting: false,
+            volley: 0,
             routine: None,
             manufacturer: false,
             attack_move: None,

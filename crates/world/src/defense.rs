@@ -69,9 +69,9 @@ pub struct Defense {
 }
 
 /// An **Area defend**: the crew hold a ring of the town's ground, the FOB,
-/// for [`data::AREA_HOLD_STEPS`] from the first wave while the waves come
-/// without end, each [`data::AREA_GAP_SHRINK_STEPS`] sooner after the one
-/// before; once the time is up, the wave on the ground is the last. The
+/// for [`data::AREA_HOLD_STEPS`] from the first wave while a wave lands
+/// every [`data::AREA_WAVE_STEPS`] on the clock, the last down or not;
+/// once the time is up, those on the ground are the last. The
 /// machines take the FOB by standing in the ring
 /// [`data::AREA_CAPTURE_STEPS`] with nobody of the crew's side in it.
 #[derive(Clone, PartialEq, Debug)]
@@ -86,8 +86,6 @@ pub struct Area {
     /// Steps the enemies have stood in the ring uncontested: stopped while
     /// a friend stands in it too, back to nought when none of them does.
     pub held: u64,
-    /// The wait after the wave on the ground is down before the next lands.
-    pub gap: u64,
     /// Whether the machines took the FOB: the run is lost.
     pub taken: bool,
     /// The sandbags round it, a tile each of the town's design: laid
@@ -103,28 +101,18 @@ pub struct Area {
 }
 
 impl Area {
-    /// A ring about `(x, y)`, the clock full and the first gap a
-    /// defence's own.
+    /// A ring about `(x, y)`, the clock full.
     pub fn new(x: i32, y: i32) -> Area {
         Area {
             x,
             y,
             left: data::AREA_HOLD_STEPS,
             held: 0,
-            gap: data::DEFENSE_REINFORCE_STEPS,
             taken: false,
             bags: Vec::new(),
             enemy_in: false,
             friend_in: false,
         }
-    }
-
-    /// The gap after this one: a second shorter, never under the floor.
-    pub fn shorten(&mut self) {
-        self.gap = self
-            .gap
-            .saturating_sub(data::AREA_GAP_SHRINK_STEPS)
-            .max(data::AREA_GAP_MIN_STEPS);
     }
 
     /// One step of the ring: whether an enemy and a friend stand in it.
@@ -146,6 +134,17 @@ impl Area {
         }
         false
     }
+}
+
+/// How long after wave `wave` of an Area defend lands the next does, in
+/// steps: [`data::AREA_WAVE_STEPS`] after each of the first
+/// [`data::AREA_STEADY_WAVES`], then a second sooner a wave, never under
+/// [`data::AREA_WAVE_MIN_STEPS`].
+pub fn area_gap(wave: u32) -> u64 {
+    let past = u64::from(wave.saturating_sub(data::AREA_STEADY_WAVES));
+    data::AREA_WAVE_STEPS
+        .saturating_sub(past * data::AREA_WAVE_SOONER_STEPS)
+        .max(data::AREA_WAVE_MIN_STEPS)
 }
 
 /// Where the `k`-th enemy of an Area defend makes for, in tiles off the
@@ -302,20 +301,12 @@ mod tests {
         assert!(a.taken);
     }
 
-    /// Each gap a second shorter, never under the floor.
+    /// Ten seconds after each of the first three waves, then a second
+    /// sooner a wave, never under five.
     #[test]
-    fn each_wave_lands_a_second_sooner() {
-        let mut a = Area::new(0, 0);
-        assert_eq!(a.gap, data::DEFENSE_REINFORCE_STEPS);
-        a.shorten();
-        assert_eq!(
-            a.gap,
-            data::DEFENSE_REINFORCE_STEPS - data::AREA_GAP_SHRINK_STEPS
-        );
-        for _ in 0..100 {
-            a.shorten();
-        }
-        assert_eq!(a.gap, data::AREA_GAP_MIN_STEPS);
+    fn the_waves_come_ten_seconds_apart_then_a_second_sooner_a_wave() {
+        let seconds: Vec<u64> = (1..=10).map(|w| area_gap(w) / 60).collect();
+        assert_eq!(seconds, [10, 10, 10, 9, 8, 7, 6, 5, 5, 5]);
     }
 
     /// The schedule: an hour before the first wave, the count fixed once.

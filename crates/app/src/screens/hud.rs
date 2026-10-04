@@ -139,11 +139,12 @@ fn droid_line(world: &world::World) -> Option<(String, &'static str)> {
         } else if area.left == 0 {
             area_last_wave(standing)
         } else if standing > 0 {
-            area_standing(defending.wave, standing, &hold)
+            let next = world.defense_wave_due().map(crate::format::countdown);
+            area_standing(defending.wave, standing, next.as_deref(), &hold)
         } else if let Some(due) = world.defense_wave_due() {
             area_next_wave(&crate::format::countdown(due), defending.wave + 1, &hold)
         } else {
-            area_standing(defending.wave.max(1), standing, &hold)
+            area_standing(defending.wave.max(1), standing, None, &hold)
         };
         return Some((words, AREA_DEFENSE_TIP));
     }
@@ -755,6 +756,10 @@ pub struct Counter {
 #[derive(Clone, PartialEq, Debug)]
 pub struct AreaCount {
     pub wave: u32,
+    /// The next wave's countdown while enemies stand (the waves are on
+    /// a clock and stack); `None` while it is the big figure, and once
+    /// the hold is out.
+    pub next: Option<String>,
     pub hold: Option<String>,
     pub fob: f32,
     pub contested: bool,
@@ -788,6 +793,7 @@ pub fn counter(world: &world::World) -> Option<Counter> {
             core: None,
             area: Some(AreaCount {
                 wave: wave.max(1),
+                next: due.filter(|_| standing > 0).map(crate::format::countdown),
                 hold: (area.left > 0)
                     .then(|| crate::format::countdown(world.area_time_left().unwrap_or(0.0))),
                 fob,
@@ -860,6 +866,14 @@ fn area_count(ui: &mut egui::Ui, area: &AreaCount) {
                 .strong()
                 .color(theme::INK),
         );
+        if let Some(span) = &area.next {
+            ui.label(
+                egui::RichText::new(area_next(span))
+                    .size(COUNT_WAVE_SIZE)
+                    .strong()
+                    .color(theme::CAUTION),
+            );
+        }
         let (hold, colour) = match &area.hold {
             Some(span) => (area_hold(span), theme::AREA),
             None => (AREA_LAST_WAVE.to_string(), theme::CAUTION),

@@ -228,6 +228,10 @@ pub const OBJECTIVE_SLACK: f32 = 1.0;
 /// How near something must be for a melee machine or intruder making for
 /// its objective to leave the walk and go for it, in tiles.
 pub const OBJECTIVE_CHARGE: f32 = 3.0;
+/// How many plans in a row (`PLAN_EVERY` each) an enemy making for an Area
+/// defend's ring stands and shoots when it has a shot, before it pushes
+/// on: two, three seconds of aimed fire between advances.
+pub const OBJECTIVE_VOLLEY: u8 = 2;
 /// What a Bim with a crewmate in its arms walks at (feature 86): both
 /// arms full, so a little over half pace. The carry is meant to be a
 /// choice — the ground given to fetch somebody out is ground the medic
@@ -2968,21 +2972,30 @@ impl Game {
         let targets = self.combat.machine_targets().to_vec();
         let nobody_in_sight = targets.iter().flatten().all(|t| t.stale);
         // **An objective** (an Area defend, October 2026): the ring the
-        // crew hold, a spot in it each. Walked to whatever it believes,
-        // shooting what it sees on the way, and held once reached — a
-        // claw goes for whoever is within a few tiles first.
+        // crew hold, a spot in it each. It fights its way there
+        // (`push_in`): cover to cover towards it, standing to shoot a
+        // volley wherever it arrives with a shot, and held once reached —
+        // a claw goes for whoever is within a few tiles first.
         if let Some(spot) = self.objective(self.bims.len() + i)
             && !self.prey_at_hand(from, stats)
         {
-            let to = nav.nearest_free(spot);
-            if (to - from).len() <= OBJECTIVE_SLACK * TILE {
-                return;
-            }
-            if (to - self.droids[i].destination()).len() <= TILE / 2.0 {
-                return;
-            }
-            let route = nav.path(from, to);
-            if !route.is_empty() {
+            let droid = &self.droids[i];
+            let cover_worth = if droid.kind.takes_cover() {
+                COVER_WORTH
+            } else {
+                0.0
+            };
+            let (push, volley) = self.push_in(
+                self.bims.len() + i,
+                from,
+                droid.is_walking().then(|| droid.destination()),
+                droid.volley,
+                spot,
+                stats,
+                cover_worth,
+            );
+            self.droids[i].volley = volley;
+            if let Some(route) = push {
                 self.droids[i].follow_path(route);
             }
             return;
@@ -8104,6 +8117,95 @@ impl Game {
         if !route.is_empty() {
             self.bims[who].character.follow_path(route);
         }
+    }
+
+    /// One plan of an enemy **fighting its way into** an Area defend's
+    /// ring (October 2026): `body` at `from`, walking to `going` if it is
+    /// walking, `volley` plans already stood shooting, its spot in the
+    /// ring. Inside [`OBJECTIVE_SLACK`] of the spot it holds. With a shot
+    /// from where it stands it stands still and shoots — at its whole odds
+    /// — for [`OBJECTIVE_VOLLEY`] plans, then pushes on; a walk under way
+    /// is kept (it shoots on the move). Otherwise it advances: the spot
+    /// [`Tactics::advance`] picks towards its own — ground made good by the
+    /// walk, cover from the nearest enemy worth `cover_worth` — or the
+    /// whole walk where that picks nothing nearer. The route to walk, if
+    /// any, and the volley count after.
+    #[allow(clippy::too_many_arguments)]
+    fn push_in(
+        &self,
+        body: usize,
+        from: Vec2,
+        going: Option<Vec2>,
+        volley: u8,
+        spot: Vec2,
+        stats: &WeaponStats,
+        cover_worth: f32,
+    ) -> (Option<Vec<Vec2>>, u8) {
+        let nav = self.maps.for_body(false);
+        let to = nav.nearest_free(spot);
+        if (to - from).len() <= OBJECTIVE_SLACK * TILE {
+            return (None, 0);
+        }
+        let targets = self.combat.machine_targets().to_vec();
+        let has_shot =
+            !stats.melee && Combat::aim_among(&targets, &self.room.sight, from, stats).is_some();
+        if has_shot {
+            if going.is_some() {
+                return (None, volley);
+            }
+            if volley < OBJECTIVE_VOLLEY {
+                return (None, volley + 1);
+            }
+        }
+        let whole = nav.path(from, to);
+        let doorways: Vec<Rect> = self
+            .room
+            .doors
+            .iter()
+            .map(|d| d.rect)
+            .chain(self.room.airlocks.iter().copied())
+            .collect();
+        // Where the rest of its side stand or are walking to.
+        let bims = self.bims.len();
+        let taken: Vec<Vec2> = self
+            .bims
+            .iter()
+            .enumerate()
+            .filter(|&(j, b)| j != body && b.manufacturer && b.is_alive())
+            .map(|(_, b)| b.character.destination().unwrap_or(b.character.pos))
+            .chain(
+                self.droids
+                    .iter()
+                    .enumerate()
+                    .filter(|&(j, d)| bims + j != body && !d.destroyed)
+                    .map(|(_, d)| d.destination()),
+            )
+            .collect();
+        let step = Tactics::advance(
+            &self.room.sight,
+            nav,
+            from,
+            &whole,
+            &targets,
+            &doorways,
+            &taken,
+            cover_worth,
+        );
+        // Nothing nearer than where it stands: the whole walk, so it is
+        // never stood short of the ring for good.
+        let dest = match step {
+            Some(s) if (s - from).len() > TILE => s,
+            _ => to,
+        };
+        if going.is_some_and(|g| (dest - g).len() <= TILE) {
+            return (None, 0);
+        }
+        let route = if dest == to {
+            whole
+        } else {
+            nav.path(from, dest)
+        };
+        ((!route.is_empty()).then_some(route), 0)
     }
 
     /// Whether a melee fighter at `from` has somebody seen within

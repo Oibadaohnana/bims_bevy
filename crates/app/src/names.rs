@@ -2309,7 +2309,7 @@ pub const MAP_MONEY: &str = "Money";
 pub const MAP_MONEY_TIP: &str =
     "Your money: your wallet and your share of the takings, as the top frame shows it on the ship.";
 /// What a site kind means, for the `?` beside the map's list.
-pub const SITE_KIND_TIP: &str = "Every system offers one mission, marked on its star. ATTACK (crossed blades): the machines, the Manufacturers or the Machine Heart hold it — go in and clear it. DEFEND (a shield): the machines are coming for a station — twenty seconds after you arrive the first wave lands, and its own people and armed defenders fight beside you; hold the last wave and it is cleared (no money: its people are the reward), leave before and it falls. AREA DEFEND (a flag in a ring of sandbags): the machines are coming for a town on a planet — hold its FOB, the ring at its crossing, for five minutes while the waves come without end, each a second sooner than the last; then destroy the last wave. Machines standing in the ring for twenty seconds with nobody of yours in it take it, and the run is lost. TRADER (the green square): a system with a trader has no mission — buy gear and items on the map. Relics come only from beating an elite (a crowned site). In a system the machines have taken, its one site is an attack and their jammer — the Heart at their origin, and a trader too, which trades again once you have cleared it.";
+pub const SITE_KIND_TIP: &str = "Every system offers one mission, marked on its star. ATTACK (crossed blades): the machines, the Manufacturers or the Machine Heart hold it — go in and clear it. DEFEND (a shield): the machines are coming for a station — twenty seconds after you arrive the first wave lands, and its own people and armed defenders fight beside you; hold the last wave and it is cleared (no money: its people are the reward), leave before and it falls. AREA DEFEND (a flag in a ring of sandbags): the machines are coming for a town on a planet — hold its FOB, the ring at its crossing, for three minutes while a wave lands every ten seconds (sooner after the third); then destroy what is left. Machines standing in the ring for twenty seconds with nobody of yours in it take it, and the run is lost. TRADER (the green square): a system with a trader has no mission — buy gear and items on the map. Relics come only from beating an elite (a crowned site). In a system the machines have taken, its one site is an attack and their jammer — the Heart at their origin, and a trader too, which trades again once you have cleared it.";
 /// What the crew find on arrival, a word each.
 pub const ARRIVE_MACHINES: &str = "machines";
 pub const ARRIVE_JAMMER: &str = "jammer";
@@ -3259,8 +3259,13 @@ pub fn defense_prepare(span: &str) -> String {
 }
 /// An Area defend's line (October 2026): the wave on the ground or the
 /// next, and the hold's time left; once it is out, the last wave.
-pub fn area_standing(wave: u32, standing: u32, hold: &str) -> String {
-    format!("AREA DEFEND — wave {wave}, {standing} up · hold {hold}")
+pub fn area_standing(wave: u32, standing: u32, next: Option<&str>, hold: &str) -> String {
+    match next {
+        Some(next) => {
+            format!("AREA DEFEND — wave {wave}, {standing} up, the next in {next} · hold {hold}")
+        }
+        None => format!("AREA DEFEND — wave {wave}, {standing} up · hold {hold}"),
+    }
 }
 pub fn area_next_wave(span: &str, wave: u32, hold: &str) -> String {
     format!("AREA DEFEND — wave {wave} in {span} · hold {hold}")
@@ -3277,10 +3282,13 @@ pub fn area_wave(wave: u32) -> String {
 pub fn area_hold(span: &str) -> String {
     format!("Hold {span}")
 }
+pub fn area_next(span: &str) -> String {
+    format!("next {span}")
+}
 pub const AREA_LAST_WAVE: &str = "Last wave";
 pub const AREA_FOB: &str = "FOB";
 pub const AREA_CONTESTED: &str = "contested";
-pub const AREA_DEFENSE_TIP: &str = "Area defend: hold the FOB — the ring with the sandbags and the post in the middle — for five minutes. The waves never stop coming while the time runs, each landing a second sooner after the last is down; when the time is up, destroy the wave still standing and the town is held. Machines standing in the ring for twenty seconds with nobody of yours in it — you, your bots, the town's defenders — take the FOB, and the run is lost. Anybody of yours in the ring stops their count; the machines driven out of it puts it back to nothing. The green arrow at the edge of the screen points to the FOB when it is out of sight.";
+pub const AREA_DEFENSE_TIP: &str = "Area defend: hold the FOB — the ring with the sandbags and the post in the middle — for three minutes. A wave lands every ten seconds while the time runs, whether or not the last is down — after the third, each a second sooner, down to five; when the time is up, destroy everything still standing and the town is held. The machines fight their way in from cover to cover, stopping to shoot. Machines standing in the ring for twenty seconds with nobody of yours in it — you, your bots, the town's defenders — take the FOB, and the run is lost. Anybody of yours in the ring stops their count; the machines driven out of it puts it back to nothing. The green arrow at the edge of the screen points to the FOB when it is out of sight.";
 
 /// The Machine Heart's line (feature 108), ahead of the wave's in the same
 /// red chip while the crew are in its fortress: the core's health and how

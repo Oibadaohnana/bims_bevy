@@ -285,7 +285,10 @@ use crate::game::Game;
 /// mission's fixed wave size (`Run::wave_size`), the residents' room's
 /// objectives (`bims::game::Game::objectives`) and the tests' dial
 /// `World::area_defense_off`.
-pub const SAVE_VERSION: u32 = 108;
+/// 109: an Area defend's waves on a clock (`defense::Area::gap` gone) and
+/// an enemy's volley on its way into the ring (`Droid::volley`,
+/// `Bim::volley`).
+pub const SAVE_VERSION: u32 = 109;
 
 /// What the file holds, read back.
 #[derive(serde::Deserialize)]

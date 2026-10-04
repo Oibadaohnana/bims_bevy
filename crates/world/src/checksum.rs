@@ -868,7 +868,6 @@ fn eat_defenses(hash: &mut Fnv, defenses: &[crate::defense::Defense]) {
             hash.eat(a.y as u32 as u64);
             hash.eat(a.left);
             hash.eat(a.held);
-            hash.eat(a.gap);
             hash.eat(u64::from(a.taken));
             hash.eat(a.bags.len() as u64);
         }

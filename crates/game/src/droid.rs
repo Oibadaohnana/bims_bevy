@@ -653,6 +653,11 @@ pub struct Droid {
     /// something was last seen. Same rule as a hostile Bim's hunt: a
     /// hunter holds or closes and never gives ground.
     pub hunting: bool,
+    /// How many plans in a row it has stood and shot on its way to an
+    /// Area defend's ring (October 2026): it pushes on after
+    /// `game::OBJECTIVE_VOLLEY`. Nought everywhere else.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub volley: u8,
     /// Sent in as a **reinforcement** of a site the crew are attacking:
     /// its ship was told where the crew are, so while one of these
     /// stands the room knows where every target is and goes looking
@@ -766,6 +771,7 @@ impl Droid {
             breach_wait: 0.0,
             smashing: None,
             hunting: false,
+            volley: 0,
             seeking: false,
             under_fire: 0.0,
             trigger: crate::combat::Trigger::default(),

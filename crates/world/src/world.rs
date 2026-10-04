@@ -6942,10 +6942,6 @@ impl World {
         // the first wave's landing, and the ring is watched — the
         // machines standing in it alone for long enough take the FOB, and
         // the run is lost.
-        let area_gap = self
-            .defense(id)
-            .and_then(|d| d.area.as_ref())
-            .map(|a| a.gap);
         if self
             .defense(id)
             .is_some_and(|d| d.wave > 0 && d.area.is_some())
@@ -6987,24 +6983,23 @@ impl World {
                     .all(|who| r.xp_down.get(who).copied().unwrap_or(false))
         });
         if let Some(d) = self.defense_mut(id) {
-            if standing > 0 {
+            // **An Area defend's waves are on a clock** (October 2026):
+            // while the hold runs one lands `defense::area_gap` after the
+            // last, down or not — they stack — and none after it.
+            let area = d.area.is_some();
+            if standing > 0 && !(area && d.wave > 0 && d.more_to_come()) {
                 // A fight is on: the clock does not run.
                 d.next_in = None;
             } else if d.wave == 0 || d.more_to_come() {
                 match d.next_in {
-                    // An Area defend's next wave comes its gap after,
-                    // a second sooner each time (October 2026).
-                    None => d.next_in = Some(area_gap.unwrap_or(reinforce)),
+                    None if area => d.next_in = Some(defense::area_gap(d.wave)),
+                    None => d.next_in = Some(reinforce),
                     Some(left) if left <= 1 => {
-                        if let Some(area) = d.area.as_mut() {
-                            if d.wave > 0 {
-                                area.shorten();
-                            }
-                        } else if d.wave > 0 {
+                        if d.wave > 0 && !area {
                             d.waves_left -= 1;
                         }
                         d.wave += 1;
-                        d.next_in = None;
+                        d.next_in = (area && d.more_to_come()).then(|| defense::area_gap(d.wave));
                         arrive = true;
                     }
                     Some(left) => d.next_in = Some(left - 1),
@@ -7015,7 +7010,12 @@ impl World {
             }
         }
         if arrive {
-            self.clear_wrecks();
+            // A wave stacked on one still standing (an Area defend) leaves
+            // the wrecks for a clear deck: taking them off moves every
+            // machine after them.
+            if standing == 0 {
+                self.clear_wrecks();
+            }
             let n = self.landing_wave_size();
             if by_them {
                 self.lay_defense_manufacturers(id, n);
@@ -7023,7 +7023,7 @@ impl World {
                 self.settle_defense_droids(id, n);
             }
             if let Some(d) = self.defense_mut(id) {
-                d.standing = n;
+                d.standing = standing + n;
             }
             events.push(WorldEvent::DroidReinforcements { station: id });
         }
