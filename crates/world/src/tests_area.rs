@@ -488,6 +488,7 @@ fn the_ring_heals_whoever_of_the_crew_s_side_stands_in_it() {
         }
         world.step(&[]);
     }
+    assert!(world.area_healing(), "the ring says it is mending");
     let second = data::AREA_HEAL_PERCENT / 100.0;
     let inside = world.aboard.room.health(0) - before[0];
     let outside = world.aboard.room.health(1) - before[1];

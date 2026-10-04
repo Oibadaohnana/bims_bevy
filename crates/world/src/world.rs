@@ -6679,6 +6679,18 @@ impl World {
             .is_some_and(|a| a.taken)
     }
 
+    /// Whether the ring of the Area defend here is mending somebody now:
+    /// it mended somebody the last step, and the fight in it goes on —
+    /// what the app's green ring is drawn by.
+    pub fn area_healing(&self) -> bool {
+        !self.fight_over()
+            && self
+                .defense_here()
+                .filter(|d| !d.won && !d.lost)
+                .and_then(|d| d.area.as_ref())
+                .is_some_and(|a| a.healing && !a.taken)
+    }
+
     /// The ring's middle in the crew's room's units, and its radius there:
     /// what the app draws the ring and the arrow to it by.
     pub fn area_in_room(&self) -> Option<(bims::math::Vec2, f32)> {
@@ -6814,27 +6826,30 @@ impl World {
             .filter(|(_, at)| at.is_some_and(inside))
             .map(|(who, _)| who)
             .collect();
+        let mut healed = 0.0;
         for who in crew {
-            self.heal_crew(who, percent);
+            healed += self.heal_crew(who, percent);
         }
-        let Some(residents) = self.residents.as_mut().filter(|r| r.station == id) else {
-            return;
-        };
-        let guard = surface::GUARD as usize;
-        let holders: Vec<usize> = {
-            let room = &residents.aboard.room;
-            (0..room.crew_count() as usize)
-                .filter(|&who| {
-                    !room.is_manufacturer(who)
-                        && (residents.is_defender(who) || who == guard)
-                        && room.is_alive(who)
-                        && !room.is_downed(who)
-                        && inside(residents.aboard.to_design(room.body_pos(who)))
-                })
-                .collect()
-        };
-        for who in holders {
-            residents.aboard.room.heal_percent(who, percent);
+        if let Some(residents) = self.residents.as_mut().filter(|r| r.station == id) {
+            let guard = surface::GUARD as usize;
+            let holders: Vec<usize> = {
+                let room = &residents.aboard.room;
+                (0..room.crew_count() as usize)
+                    .filter(|&who| {
+                        !room.is_manufacturer(who)
+                            && (residents.is_defender(who) || who == guard)
+                            && room.is_alive(who)
+                            && !room.is_downed(who)
+                            && inside(residents.aboard.to_design(room.body_pos(who)))
+                    })
+                    .collect()
+            };
+            for who in holders {
+                healed += residents.aboard.room.heal_percent(who, percent);
+            }
+        }
+        if let Some(area) = self.defense_mut(id).and_then(|d| d.area.as_mut()) {
+            area.healing = healed > 0.0;
         }
     }
 

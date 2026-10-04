@@ -497,6 +497,14 @@ const AREA_GROUND: Color = Color::rgba(0.30, 0.88, 0.48, 0.09);
 const AREA_RIM: Color = Color::rgba(0.30, 0.88, 0.48, 0.75);
 /// How wide the rim is, in room units.
 const AREA_RIM_LINE: f32 = 5.0;
+/// The ring's mending (`World::area_healing`): a brighter green that
+/// glows, a wash over the ground it heals, a rim of it inside the plain
+/// one, and rings of it closing on the middle every
+/// [`AREA_HEAL_PULSE_STEPS`].
+const AREA_HEAL: Color = Color::rgba(0.36, 1.0, 0.52, 1.0);
+const AREA_HEAL_WASH: f32 = 0.07;
+const AREA_HEAL_LINE: f32 = 4.0;
+const AREA_HEAL_PULSE_STEPS: u64 = 90;
 
 /// An Area defend's FOB (October 2026), in the room's units, which the
 /// caller turns with the room: the ring on the ground, the sandbags on its
@@ -520,6 +528,9 @@ fn fob(game: &Game, list: &mut DrawList) {
         AREA_RIM_LINE,
         AREA_RIM,
     );
+    if game.world.area_healing() {
+        heal_ring(list, ring, radius, game.world.mission_steps());
+    }
     let t = TILE as f32;
     for at in bags {
         let part = PlacedPart {
@@ -534,6 +545,45 @@ fn fob(game: &Game, list: &mut DrawList) {
         crate::fittings::sandbags(list, &part);
     }
     crate::fittings::fob_post(list, post.x, post.y);
+}
+
+/// The green of an Area defend's ring while it mends (October 2026, the
+/// player's word): a wash, a glowing rim just inside the plain one,
+/// breathing, and two rings closing on the middle half a pulse apart,
+/// fading as they go — off the mission clock, so a paused world stands.
+fn heal_ring(list: &mut DrawList, ring: bims::math::Vec2, radius: f32, steps: u64) {
+    use crate::draw::KIND_ELLIPSE;
+    let across = radius * 2.0;
+    list.ellipse(ring.x, ring.y, across, across, AREA_HEAL.alpha(AREA_HEAL_WASH));
+    let phase = (steps % AREA_HEAL_PULSE_STEPS) as f32 / AREA_HEAL_PULSE_STEPS as f32;
+    let breath = 0.5 + 0.5 * (phase * std::f32::consts::TAU).cos();
+    let rim = across - 2.0 * (AREA_RIM_LINE + AREA_HEAL_LINE);
+    list.push(
+        KIND_ELLIPSE,
+        ring.x,
+        ring.y,
+        rim,
+        rim,
+        0.0,
+        0.0,
+        AREA_HEAL_LINE,
+        AREA_HEAL.alpha(0.55 + 0.35 * breath).glowing(1.6),
+    );
+    for half in [0.0, 0.5] {
+        let go = (phase + half).fract();
+        let size = rim * (1.0 - 0.8 * go);
+        list.push(
+            KIND_ELLIPSE,
+            ring.x,
+            ring.y,
+            size,
+            size,
+            0.0,
+            0.0,
+            AREA_HEAL_LINE * (1.0 - 0.5 * go),
+            AREA_HEAL.alpha(0.6 * (1.0 - go)).glowing(1.4),
+        );
+    }
 }
 
 /// Every deployable in the crew's room, as a part stood on its tile: a

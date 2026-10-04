@@ -411,7 +411,8 @@ pub const AREA_HOLD_RING_TILES: f32 = 2.5;
 /// What standing in the ring heals, in per cent of the body's own bar a
 /// second: the crew — players and bots — and the site's defenders and
 /// guard, on their feet, while the hold's waves come (the player's word).
-pub const AREA_HEAL_PERCENT: f32 = 2.0;
+/// Two until the player asked for half a per cent.
+pub const AREA_HEAL_PERCENT: f32 = 0.5;
 
 // --- defend missions (task 111)-------------------------------------------
 //

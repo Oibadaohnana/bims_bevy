@@ -98,6 +98,11 @@ pub struct Area {
     pub enemy_in: bool,
     #[cfg_attr(feature = "serde", serde(default))]
     pub friend_in: bool,
+    /// Whether the ring mended anybody the last step
+    /// ([`data::AREA_HEAL_PERCENT`]): the picture's green ring, never
+    /// saved or hashed — a world read back shows it from its next step.
+    #[cfg_attr(feature = "serde", serde(skip))]
+    pub healing: bool,
 }
 
 impl Area {
@@ -112,6 +117,7 @@ impl Area {
             bags: Vec::new(),
             enemy_in: false,
             friend_in: false,
+            healing: false,
         }
     }
 

@@ -7859,11 +7859,16 @@ and the pistol, item and soldier tests are the rule.
   lost** (`World::lost`, the crew-down screen saying "The FOB has fallen"
   off `World::area_fell`; its Retry is the way back).
 - **The ring mends** (the player's word: "area defence area should heal
-  2%/s bots and players"): the same steps, `heal_the_ring` puts back
-  `data::AREA_HEAL_PERCENT` (2) of the bar a second to every crew
-  member on its feet in the ring — players and bots, through
-  `heal_crew` — and to every defender and the guard on theirs, in the
-  residents' room. `wire::PROTOCOL` 161;
+  2%/s bots and players", then half a per cent): the same steps,
+  `heal_the_ring` puts back `data::AREA_HEAL_PERCENT` (0.5) of the bar a
+  second to every crew member on its feet in the ring — players and
+  bots, through `heal_crew` — and to every defender and the guard on
+  theirs, in the residents' room. `Area::healing` (serde skip, not
+  hashed) is whether any of it went in the last step, and
+  `World::area_healing` (that, the fight still on) is what the painter's
+  glowing green ring is drawn by (`world_paint::heal_ring`: a wash, a
+  breathing rim inside the plain one, two rings closing on the middle,
+  off the mission clock). `wire::PROTOCOL` 161, 169 for the half;
   `tests_area::the_ring_heals_whoever_of_the_crew_s_side_stands_in_it`.
 - **Who goes where** — `Game::set_objectives` on the residents' room,
   by body index: every enemy a spot round the middle
