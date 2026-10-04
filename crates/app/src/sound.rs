@@ -107,12 +107,19 @@ pub enum Clip {
     // A level gained (October 2026): a run of bells up into a ringing
     // chord, after Dota 2's (`sounds/abilities.py`, `level_up`).
     LevelUp,
+    // The tier-two machines' telegraphs (task 157, `sounds/abilities.py`):
+    // a bomb rolling and spinning up, a Lancer's rail charging and locking,
+    // a Conductor's mark acquiring, and its blink.
+    BombArmed,
+    RailCharge,
+    Marked,
+    Blink,
 }
 
 /// The bytes of each clip, indexed by [`Clip`]. Ogg Vorbis, mono, 48 kHz,
 /// peaks at -1 dBFS for the one-shots and -22 or -30 LUFS for the loops —
 /// see `prepare.sh` — so every level below is relative to that.
-const CLIPS: [&[u8]; 52] = [
+const CLIPS: [&[u8]; 56] = [
     include_bytes!("../sounds/laser_1.ogg"),
     include_bytes!("../sounds/laser_2.ogg"),
     include_bytes!("../sounds/laser_3.ogg"),
@@ -165,6 +172,10 @@ const CLIPS: [&[u8]; 52] = [
     include_bytes!("../sounds/reload_laser.ogg"),
     include_bytes!("../sounds/shotgun_reload_laser.ogg"),
     include_bytes!("../sounds/level_up.ogg"),
+    include_bytes!("../sounds/bomb_armed.ogg"),
+    include_bytes!("../sounds/rail_charge.ogg"),
+    include_bytes!("../sounds/marked.ogg"),
+    include_bytes!("../sounds/blink.ogg"),
 ];
 
 /// The player's own volume for each sound, from `audio.ron` at the root
@@ -264,6 +275,10 @@ volumes! {
     ReloadLaser => reload_laser,
     ShotgunReloadLaser => shotgun_reload_laser,
     LevelUp => level_up,
+    BombArmed => bomb_armed,
+    RailCharge => rail_charge,
+    Marked => marked,
+    Blink => blink,
     ;
     minigun,
     rail_lance,
@@ -761,14 +776,13 @@ impl Sounds {
             Cue::Throw => {}
             Cue::Burst => self.one_shot(commands, Clip::GrenadeBurst, 0.9),
             Cue::EmpBurst => self.one_shot(commands, Clip::EmpBurst, 0.6),
-            // The tier-two machines (task 157) have no recordings of their
-            // own yet and borrow the nearest: a bomb spinning up the EMP's
-            // whirr, a Lancer's charge the beam's rise, a Conductor's mark
-            // the taunt's alarm and its blink the cloak's swish.
-            Cue::BombArmed => self.one_shot(commands, Clip::EmpThrow, 0.55),
-            Cue::RailCharge => self.one_shot(commands, Clip::BeamOn, 0.5),
-            Cue::Marked => self.one_shot(commands, Clip::Taunt, 0.5),
-            Cue::Blink => self.one_shot(commands, Clip::Cloak, 0.5),
+            // The tier-two machines (task 157): each clip as long as what it
+            // warns of — the fuse, the charge, the mark's warning — so it
+            // ends on the thing itself.
+            Cue::BombArmed => self.one_shot(commands, Clip::BombArmed, 0.5),
+            Cue::RailCharge => self.one_shot(commands, Clip::RailCharge, 0.45),
+            Cue::Marked => self.one_shot(commands, Clip::Marked, 0.5),
+            Cue::Blink => self.one_shot(commands, Clip::Blink, 0.5),
             // A reload, the player's own over the rest (`OTHERS_SHOTS` and a
             // half again): a crew of bots reloading round a fight is a
             // murmur under it.
@@ -992,7 +1006,7 @@ mod tests {
             assert!(clip.starts_with(b"OggS"), "clip {i} is not an Ogg stream");
             assert!(clip.len() > 1_000, "clip {i} is only {} bytes", clip.len());
         }
-        assert_eq!(CLIPS.len(), Clip::LevelUp as usize + 1);
+        assert_eq!(CLIPS.len(), Clip::Blink as usize + 1);
     }
 
     /// `audio.ron` at the root parses and names every sound, so the player

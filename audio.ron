@@ -74,6 +74,12 @@
     rally: 1.0,
     reinforcements: 1.0,
 
+    // The tier-two machines' warnings.
+    bomb_armed: 1.0,        // a bomb rolling and spinning up
+    rail_charge: 1.0,       // a Lancer charging its rail
+    marked: 1.0,            // a Conductor's mark on somebody
+    blink: 1.0,             // a Conductor blinking away
+
     // The loops.
     ship: 1.0,              // the ship's hum
     station: 1.0,           // a station's, docked

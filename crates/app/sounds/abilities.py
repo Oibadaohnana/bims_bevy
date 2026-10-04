@@ -818,6 +818,129 @@ def level_up():
     save("level_up", room(out, rng, 0.22, 0.8), 0.2)
 
 
+# --- the tier-two machines (task 157) ------------------------------------------
+#
+# Not abilities but the machines' telegraphs, built the same way: each is
+# as long as what it warns of, so it ends on the thing itself.
+
+
+def bomb_armed():
+    """A Bomber's bomb (1.5 s, the fuse): a studded ball rolling over deck
+    plating — a low rumble with the studs knocking at the rate it turns,
+    slowing as it comes to rest — then spinning up where it stopped, a
+    motor's whine climbing and a warning beep quickening to a buzz, cut
+    off where the burst comes."""
+    rng = np.random.default_rng(401)
+    out = silence(1.5)
+    # The roll: 0.6 s, the studs knocking four to the turn.
+    n = secs(0.62)
+    t = times(n)
+    rumble = low(rng.standard_normal(n), 180) * 4 + 0.4 * band(rng.standard_normal(n), 300, 1200)
+    rumble *= np.minimum(1, t / 0.03) * (1 - 0.6 * t / t[-1])
+    place(out, rumble, 0.0, 0.5)
+    at = 0.0
+    rate = 22.0
+    while at < 0.6:
+        place(out, knock(rng, 0.04, 600, 3500, 0.004) + 0.5 * modes(0.04, [(820, 0.01, 1), (1530, 0.006, 0.4)], rng), at, 0.35)
+        at += 1.0 / rate
+        rate *= 0.93
+    # The spin-up: 0.88 s, a motor from slow to screaming.
+    whine = motor(0.88, 90, 1400, rng, grit=0.5, teeth=6)
+    tw = times(len(whine))
+    whine *= (0.2 + 0.8 * (tw / tw[-1]) ** 1.5)
+    place(out, whine, 0.6, 0.35)
+    # The beeps, quickening: from three a second to a solid tone.
+    at = 0.6
+    gap = 0.3
+    while at < 1.47:
+        m = secs(min(0.06, gap * 0.6))
+        tb = times(m)
+        beep = np.sin(2 * np.pi * 2200 * tb) + 0.3 * np.sin(2 * np.pi * 4400 * tb)
+        beep *= np.minimum(1, tb / 0.003) * np.minimum(1, (tb[-1] - tb) / 0.004 + 1e-9)
+        place(out, beep, at, 0.3)
+        at += gap
+        gap = max(0.045, gap * 0.72)
+    save("bomb_armed", room(out, rng, 0.12, 0.4), 0.015)
+
+
+def rail_charge():
+    """A Lancer charging its rail (1.2 s, the charge): capacitors filling
+    — two detuned whines climbing through a crackle of arcing between the
+    rails — for the 0.8 s it follows its mark, then the lock: a hard relay
+    click and the whine held at the top, trembling, until the slug goes."""
+    rng = np.random.default_rng(402)
+    out = silence(1.2)
+    climb = 0.8 * glide(0.8, 180, 2100, ((1, 1.0), (2, 0.35), (3, 0.12)))
+    climb += 0.6 * glide(0.8, 186, 2170, ((1, 1.0), (2, 0.2)))
+    tc = times(len(climb))
+    climb *= np.minimum(1, tc / 0.06) * (0.3 + 0.7 * tc / tc[-1])
+    place(out, climb, 0.0, 0.3)
+    n = secs(0.8)
+    tn = times(n)
+    arcs = np.zeros(n)
+    clicks = rng.random(n) < 0.004 + 0.02 * tn / tn[-1]
+    arcs[clicks] = rng.standard_normal(np.sum(clicks)) * 2
+    place(out, band(arcs, 2500, 11000), 0.0, 0.25)
+    # The lock.
+    place(out, modes(0.06, [(1900, 0.012, 1), (3300, 0.006, 0.6)], rng) + knock(rng, 0.06, 1500, 9000, 0.003), 0.8, 0.7)
+    n = secs(0.4)
+    th = times(n)
+    held = np.sin(2 * np.pi * 2100 * th) + 0.35 * np.sin(2 * np.pi * 4200 * th)
+    held += 0.6 * np.sin(2 * np.pi * 2170 * th)
+    held *= (1 + 0.5 * np.sin(2 * np.pi * 34 * th)) * np.minimum(1, th / 0.01)
+    place(out, held, 0.8, 0.28)
+    save("rail_charge", room(out, rng, 0.1, 0.3), 0.01)
+
+
+def marked():
+    """A Conductor's mark (1 s of warning): a targeting system acquiring —
+    three quick pips stepping up as the reticle closes — and the lock
+    itself, a low two-tone alarm held under a bright tone, so the one
+    marked knows every gun is about to turn on them."""
+    rng = np.random.default_rng(403)
+    out = silence(1.0)
+    for k, hz in enumerate((1320, 1760, 2350)):
+        n = secs(0.06)
+        t = times(n)
+        pip = np.sin(2 * np.pi * hz * t) + 0.25 * np.sin(4 * np.pi * hz * t)
+        place(out, pip * np.minimum(1, t / 0.002) * np.exp(-t / 0.025), 0.11 * k, 0.45)
+    n = secs(0.62)
+    t = times(n)
+    two = np.where((t * 8.0) % 1.0 < 0.5, 520.0, 390.0)
+    phase = 2 * np.pi * np.cumsum(two) / SR
+    alarm = sum(np.sin(h * phase) / h for h in range(1, 8))
+    alarm = low(alarm, 3000)
+    alarm *= np.minimum(1, t / 0.01) * np.minimum(1, (t[-1] - t) / 0.08)
+    place(out, alarm, 0.36, 0.3)
+    tone = np.sin(2 * np.pi * 3135 * t) * (1 + 0.4 * np.sin(2 * np.pi * 16 * t))
+    place(out, tone * np.minimum(1, t / 0.005) * np.exp(-t / 0.35), 0.36, 0.18)
+    save("marked", room(out, rng, 0.08, 0.3), 0.05)
+
+
+def blink():
+    """A Conductor blinking away: the air folding in — a rush of noise
+    sweeping down while a shimmer drops two octaves — and the snap of it
+    being gone, a crack with a short electric tail."""
+    rng = np.random.default_rng(404)
+    out = silence(0.55)
+    n = secs(0.32)
+    t = times(n)
+    env = np.minimum(1, t / 0.04) * np.minimum(1, (t[-1] - t) / 0.02)
+    rush = sweep_band(rng.standard_normal(n), 6000, 500, 2.5)
+    place(out, rush * env, 0.0, 0.8)
+    shimmer = np.zeros(n)
+    for detune in (1.0, 1.008, 0.992, 1.5):
+        f = 1800 * detune * 0.25 ** (t / t[-1])
+        shimmer += np.sin(2 * np.pi * np.cumsum(f) / SR + rng.uniform(0, 6.3))
+    place(out, shimmer * env, 0.0, 0.12)
+    crack = knock(rng, 0.1, 500, 12000, 0.006) + 0.7 * thump(0.1, 220, 70, 0.025)
+    place(out, crack, 0.3, 0.9)
+    m = secs(0.2)
+    tail = band(rng.standard_normal(m), 2500, 10000) * np.exp(-times(m) / 0.05)
+    place(out, tail * (1 + np.sign(np.sin(2 * np.pi * 90 * times(m)))) * 0.5, 0.31, 0.3)
+    save("blink", room(out, rng, 0.15, 0.4), 0.08)
+
+
 if __name__ == "__main__":
     import sys
 
@@ -853,3 +976,7 @@ if __name__ == "__main__":
     reload_laser()
     shotgun_reload_laser()
     level_up()
+    bomb_armed()
+    rail_charge()
+    marked()
+    blink()
