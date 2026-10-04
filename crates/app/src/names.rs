@@ -3340,7 +3340,6 @@ pub const DEFENSE_TIP_MANUFACTURERS: &str = "The Manufacturers are coming for th
 pub const ALARM_STATUS: &str = "To arms — an enemy is near";
 pub const ALARM_TIP: &str = "An enemy within thirty tiles of anybody or in anybody's sight, or a crew member hit, in the last half minute: every crew member but the one you steer draws its weapon and fights, walking to wherever it can shoot from, until nobody is near, nobody has seen one and nobody has been hit for half a minute — then it goes back to its day, however many of the station's people are still alive somewhere on it. The one you steer is yours: recruit it yourself, or leave it to its errands.";
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
