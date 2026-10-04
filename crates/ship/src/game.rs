@@ -173,7 +173,9 @@ const MAP_MAX_SCALE: f32 = 1e-2;
 /// edge, in tiles, at its widest and at its start: the reach of the
 /// furthest-shooting weapon (`bims::balance::MAX_RANGE`), so nothing
 /// fires from off the screen. The player counted it on a 2560×1440
-/// screen: 14 tiles up and down, 25 to either side.
+/// screen: 14 tiles up and down, 25 to either side; then zoomed in a
+/// wheel notch and asked for that as the view: 12.5 up and down, 22 to
+/// either side, a tile 58 pixels where it had been 51.
 pub const VIEW_REACH: f32 = bims::balance::MAX_RANGE;
 
 /// How near a body has to be to the passage for the airlock doors to open,

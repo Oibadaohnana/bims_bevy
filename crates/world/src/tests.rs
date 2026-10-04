@@ -3372,8 +3372,9 @@ fn a_recruited_bim_shoots_the_machines_it_can_see_and_they_are_hurt() {
     assert_eq!(stats.dps(), stats.pulls() * stats.damage);
     assert!(stats.pulls() < stats.fire_rate);
     assert!(
-        (stats.hit_chance(10.0) - 0.680).abs() < 0.01,
-        "the pistol at ten tiles (0.732 before October 2026 cut its reach)"
+        (stats.hit_chance(10.0) - 0.585).abs() < 0.01,
+        "the pistol at ten tiles, the end of its reach (0.732 before October 2026 \
+         cut its reach, 0.680 at 15.4, 0.614 at 11.2)"
     );
     world.step(&[]);
     assert!(!world.aboard.room.is_armed(0), "holstered");
@@ -3759,8 +3760,8 @@ fn the_crew_are_handed_over_at_the_peek_while_peeking() {
     assert!(peeked, "James peeked at some point in the run");
 }
 
-/// A sniper rifle reaches past the pistol, out to the view's fourteen
-/// tiles (`MAX_RANGE`; twenty and more before it), both ways round. A **machine** built with the rifle — a Warden,
+/// A sniper rifle reaches past the pistol, out to the view's 12.5
+/// tiles (`MAX_RANGE`; fourteen, and twenty and more before it), both ways round. A **machine** built with the rifle — a Warden,
 /// the kind that takes cover — walks off down the corridor to its range
 /// rather than closing, never to a doorway, which opens for whoever
 /// stands in it (`bims::combat::Tactics::stand`), and its shot lands on
@@ -3775,7 +3776,7 @@ fn the_crew_are_handed_over_at_the_peek_while_peeking() {
 /// Both stood still — put back where they were before every step — so
 /// the distance is the one asked for.
 #[test]
-fn a_sniper_rifle_reaches_from_twenty_tiles_and_a_shotgun_does_as_much_at_nine_as_at_three() {
+fn a_sniper_rifle_reaches_from_twenty_tiles_and_a_shotgun_does_as_much_at_eight_as_at_three() {
     use bims::droid::{DroidKind, DroidPart};
     // --- a_sniper_rifle_reaches_from_twenty_tiles ---
     {
@@ -3835,14 +3836,14 @@ fn a_sniper_rifle_reaches_from_twenty_tiles_and_a_shotgun_does_as_much_at_nine_a
             "and James is hurt for it"
         );
 
-        // The long shot: James with the rifle, the machine thirteen tiles
-        // down the corridor — past the pistol's 11.2, inside the rifle's
-        // fourteen — held there and firing nothing.
+        // The long shot: James with the rifle, the machine 11.5 tiles down
+        // the corridor — past the pistol's ten, inside the rifle's 12.5
+        // (thirteen at a fourteen-tile view) — held there and firing nothing.
         let mut world = basic();
         assert!(world.stage_droid_fight_for_probe(DroidKind::Warden, None));
         let station = world.ship.state.station().unwrap();
         let port = world.station(station).unwrap().port().unwrap();
-        let tiles = 13.0;
+        let tiles = 11.5;
         let reach = (data::ASHORE_TILES + tiles) * shipdesign::TILE as f64;
         // A row up from the port's centre line: the corridor's barricade of
         // sandbags stands on the middle row and the two below it, and the
@@ -3879,7 +3880,7 @@ fn a_sniper_rifle_reaches_from_twenty_tiles_and_a_shotgun_does_as_much_at_nine_a
         }
         let (hit_from, part) = hit_from.expect("the rifle hit the machine within the run");
         assert!(
-            (12.0..=tiles as f32 + 1.0).contains(&hit_from),
+            (WeaponKind::LaserPistol.stats().range..=tiles as f32 + 1.0).contains(&hit_from),
             "from past the pistol's reach: {hit_from:.1} tiles"
         );
         assert!(hit_from * shipdesign::TILE as f32 <= stats.reach());
@@ -3895,7 +3896,9 @@ fn a_sniper_rifle_reaches_from_twenty_tiles_and_a_shotgun_does_as_much_at_nine_a
         );
     }
 
-    // --- the_crew_s_shotgun_does_as_much_at_nine_tiles_as_at_three ---
+    // --- the_crew_s_shotgun_does_as_much_at_eight_tiles_as_at_three ---
+    // (nine until the view came a notch nearer and the shotgun's reach
+    // went to 8.9)
     {
         use bims::combat::{Gear, WeaponKind};
         let stats = WeaponKind::Shotgun.stats();
@@ -3944,9 +3947,9 @@ fn a_sniper_rifle_reaches_from_twenty_tiles_and_a_shotgun_does_as_much_at_nine_a
             panic!("no hit on the chassis within the run at {tiles} tiles");
         };
         let (near, near_from) = chassis_drop_at(3.0);
-        let (far, far_from) = chassis_drop_at(9.0);
+        let (far, far_from) = chassis_drop_at(8.0);
         assert!(
-            (near_from - 3.0).abs() < 1.0 && (far_from - 9.0).abs() < 1.0,
+            (near_from - 3.0).abs() < 1.0 && (far_from - 8.0).abs() < 1.0,
             "stood where asked: {near_from:.1} and {far_from:.1} tiles"
         );
         // The bolt leaves the muzzle, under a tile ahead of the body
@@ -3966,7 +3969,7 @@ fn a_sniper_rifle_reaches_from_twenty_tiles_and_a_shotgun_does_as_much_at_nine_a
         // distance since October 2026 (it was less at nine).
         assert!(
             (far - near).abs() < 1e-3,
-            "the same at nine tiles: {far} and {near}"
+            "the same at eight tiles: {far} and {near}"
         );
         assert!(
             flown(far, far_from),

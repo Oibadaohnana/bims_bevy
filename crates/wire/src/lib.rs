@@ -256,7 +256,10 @@ use serde::{Deserialize, Serialize};
 /// 148: an attack order lapses ten seconds after it was given
 /// (`world::orders::ATTACK_SECONDS`, `World::standing_until`): both ends
 /// must let the bots follow again on the same step.
-pub const PROTOCOL: u32 = 148;
+/// 149: the game view a wheel notch nearer (`balance::MAX_RANGE` 12.5),
+/// every gun's and machine's range and sweet times 12.5/14 — both ends
+/// must shoot alike.
+pub const PROTOCOL: u32 = 149;
 
 /// Where the relay lives. `BIMS_SERVER` in the environment overrides it
 /// — `ws://127.0.0.1:8792` for one on the same machine.

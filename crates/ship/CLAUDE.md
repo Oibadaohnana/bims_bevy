@@ -1290,3 +1290,8 @@ past it — the player counted 14 tiles up and 25 across on a 2560×1440
 screen. `Game::wide` lifts the cap (the app's `BIMS_ZOOM` under one, for
 a terminal looking at a whole town), and then only a planet's ground
 holds it as before. `the_view_opens_at_the_weapons_reach_and_zooms_out_no_further`.
+
+**A notch nearer**: `VIEW_REACH` follows `MAX_RANGE` to 12.5 tiles — the
+player's screenshot one wheel notch in from fourteen, asked for as the
+opening view and the widest; the weapons came down with it
+(`crates/game/CLAUDE.md`, the end).

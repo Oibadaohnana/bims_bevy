@@ -49,8 +49,11 @@ pub const MELEE_RANGE: f32 = 1.2;
 /// zoom (`ship::game::Game::hold_view_to_the_ground`). October 2026, the
 /// player's word: the game is balanced around that view, and nothing
 /// fires from off it. Counted on the player's 2560×1440 screen, 14 tiles
-/// up and 25 to the side.
-pub const MAX_RANGE: f32 = 14.0;
+/// up and 25 to the side; then the player zoomed in a wheel notch and
+/// asked for that as the view (12.5 up, 22.2 across, tiles of 58 px
+/// where they had been 51), and every gun's and machine's `range` and
+/// `sweet` came down with it by 12.5/14 — fourteen before.
+pub const MAX_RANGE: f32 = 12.5;
 /// What a fist does, once a [`MELEE_PERIOD`], to whoever has a gunner
 /// locked.
 pub const FIST_DAMAGE: f32 = 20.0;
@@ -84,6 +87,10 @@ pub const AIM_SPREAD: f32 = 0.25;
 // the guns here, the minigun and the rail lance, and the machines'
 // Unmaker and Sweeper — all but the shotgun and the blades (the Schword,
 // the Husk's claws). The notes give the numbers they had before.
+//
+// Later still, the view a wheel notch nearer ([`MAX_RANGE`] 12.5 from
+// fourteen): every `range` and `sweet` here but the blades' times 12.5/14,
+// the shotgun's too. The notes give the numbers before it.
 //
 // Later in October 2026 the four guns got **magazines**: so many shots,
 // then `reload_time` seconds when nothing is fired, and the next magazine
@@ -121,8 +128,8 @@ pub const SNIPER_RELOAD: f32 = 2.4;
 pub const MINIGUN_MAGAZINE: u32 = 100;
 pub const MINIGUN_RELOAD: f32 = 4.0;
 
-/// The pistol everybody is issued: quick, light, 11.2 tiles (15.4
-/// before [`MAX_RANGE`], twenty-two before October 2026). In a player's hand it fires
+/// The pistol everybody is issued: quick, light, ten tiles (11.2 at
+/// a fourteen-tile view, 15.4 before [`MAX_RANGE`], twenty-two before October 2026). In a player's hand it fires
 /// a shot every click, and held one every [`SEMI_AUTO_COOLDOWN`]
 /// (`WeaponKind::semi_automatic`), so its `fire_rate` is only the pace
 /// of a body nobody steers. 6 a shot since October 2026, when every
@@ -131,7 +138,7 @@ pub const MINIGUN_RELOAD: f32 = 4.0;
 /// A click is held back until [`SEMI_AUTO_COOLDOWN`] has passed since the
 /// last shot.
 pub const LASER_PISTOL: WeaponStats = WeaponStats {
-    range: 11.2,
+    range: 10.0,
     sweet: 0.0,
     accuracy: 0.855,
     accuracy_far: 0.585,
@@ -153,12 +160,13 @@ pub const LASER_PISTOL: WeaponStats = WeaponStats {
 /// a fire-rate skill or relic shortens it (`Skill::fire_rate`).
 pub const SEMI_AUTO_COOLDOWN: f32 = 0.3;
 
-/// Sixty a hit out to ten tiles, surer inside four. One
+/// Sixty a hit out to 8.9 tiles, surer inside 3.6 (ten and four before
+/// the view came a notch nearer). One
 /// pull every two seconds since its magazine of [`SHOTGUN_MAGAZINE`]
 /// (every four before).
 pub const SHOTGUN: WeaponStats = WeaponStats {
-    range: 10.0,
-    sweet: 4.0,
+    range: 8.9,
+    sweet: 3.6,
     accuracy: 0.81,
     accuracy_far: 0.54,
     damage: 60.0,
@@ -175,8 +183,8 @@ pub const SHOTGUN: WeaponStats = WeaponStats {
 };
 
 /// Four light shots a second for as long as the trigger is held, no
-/// burst and no recharge; full out to 4.2 tiles, reaching 12.6 (5.6 and
-/// 18.2 before [`MAX_RANGE`], eight and twenty-six before October
+/// burst and no recharge; full out to 3.75 tiles, reaching 11.25 (4.2 and
+/// 12.6 at a fourteen-tile view, 5.6 and 18.2 before [`MAX_RANGE`], eight and twenty-six before October
 /// 2026's cut).
 /// It fired eight-shot bursts of 6 (4.8 far) every four seconds until
 /// October 2026; the bursts went and each shot lost 3, the far one in
@@ -185,8 +193,8 @@ pub const SHOTGUN: WeaponStats = WeaponStats {
 /// twenty a second in its sweet range. And 2 more again with its
 /// magazine of [`AUTO_RIFLE_MAGAZINE`] (5 and 4.4 before): twenty-eight.
 pub const AUTO_RIFLE: WeaponStats = WeaponStats {
-    range: 12.6,
-    sweet: 4.2,
+    range: 11.25,
+    sweet: 3.75,
     accuracy: 0.765,
     accuracy_far: 0.45,
     damage: 7.0,
@@ -202,12 +210,13 @@ pub const AUTO_RIFLE: WeaponStats = WeaponStats {
     reload_time: AUTO_RIFLE_RELOAD,
 };
 
-/// Nine in ten at 9.8 tiles, fewer at fourteen — [`MAX_RANGE`], the
-/// edge of the view (fourteen and 24.5 before it, twenty and thirty-five
+/// Nine in ten at 8.75 tiles, fewer at 12.5 — [`MAX_RANGE`], the
+/// edge of the view (9.8 and fourteen at a fourteen-tile view,
+/// fourteen and 24.5 before it, twenty and thirty-five
 /// before October 2026); one shot every four seconds.
 pub const SNIPER_RIFLE: WeaponStats = WeaponStats {
     range: MAX_RANGE,
-    sweet: 9.8,
+    sweet: 8.75,
     accuracy: 0.9,
     accuracy_far: 0.63,
     damage: 54.0,
@@ -255,7 +264,8 @@ pub const SCHWORD: WeaponStats = WeaponStats {
 /// magazine ([`MINIGUN_MAGAZINE`]) — ten seconds of fire — then four
 /// seconds to reload ([`MINIGUN_RELOAD`]). No spin-up, no heat, no pace
 /// penalty. At tier two (its lowest) that is 5.5 a bolt at 0.85 odds out
-/// to its sweet 4.2 tiles, reaching 11.2 (fourteen before [`MAX_RANGE`],
+/// to its sweet 3.75 tiles, reaching ten (4.2 and 11.2 at a
+/// fourteen-tile view, fourteen before [`MAX_RANGE`],
 /// six and twenty before October 2026). Until its magazine (October 2026, the player's word:
 /// the damage a bolt kept, the trader's price tripled) a pull was twenty
 /// bolts a tenth apart and the rest of a five-second cycle to cool.
@@ -277,8 +287,8 @@ pub const SCHWORD: WeaponStats = WeaponStats {
 /// and 6.7 until they gained 2 again with its magazine, the rifle's
 /// second now over thirty shots and their reload.)
 pub const MINIGUN: WeaponStats = WeaponStats {
-    range: 11.2,
-    sweet: 4.2,
+    range: 10.0,
+    sweet: 3.75,
     accuracy: 0.68,
     accuracy_far: 0.36,
     damage: 4.4,
@@ -297,8 +307,9 @@ pub const MINIGUN: WeaponStats = WeaponStats {
 /// One slug every five seconds that **goes through**: it strikes every
 /// body along its line, each at the whole damage at the distance flown
 /// (up to three before October 2026, the n-th at 0.6ⁿ of it). At tier
-/// three (its only tier) that is 75 a slug at 0.945 odds out to 9.84
-/// tiles, reaching [`MAX_RANGE`] (16.8 and 28.56 before it, 24 and 40.8
+/// three (its only tier) that is 75 a slug at 0.945 odds out to 8.78
+/// tiles, reaching [`MAX_RANGE`] (9.84 and fourteen at a fourteen-tile
+/// view, 16.8 and 28.56 before it, 24 and 40.8
 /// before October 2026).
 ///
 /// Against one target the tier-three sniper rifle does about 18 a second
@@ -309,8 +320,8 @@ pub const MINIGUN: WeaponStats = WeaponStats {
 /// lamp and a Guardian's shield from the front stop it; a tank's
 /// *interpose* spends it. See `crate::combat::Combat::step`.
 pub const RAIL_LANCE: WeaponStats = WeaponStats {
-    range: 11.7,
-    sweet: 8.2,
+    range: 10.45,
+    sweet: 7.32,
     accuracy: 0.72,
     accuracy_far: 0.52,
     damage: 48.0,
@@ -491,8 +502,8 @@ pub const CLAW: WeaponStats = WeaponStats {
 /// ignored, and the part itself takes nothing; a bare part takes the
 /// plain damage. See `crate::combat::Combat::strip`.
 pub const UNMAKER: WeaponStats = WeaponStats {
-    range: 14.0,
-    sweet: 7.0,
+    range: MAX_RANGE,
+    sweet: 6.25,
     accuracy: 0.8,
     accuracy_far: 0.55,
     damage: 6.0,
@@ -534,8 +545,8 @@ pub const GUARDIAN_BODY: [f32; 4] = [16.0, 110.0, 25.0, 30.0];
 /// full reach. `speed` is a bolt's pace, for a beam that is nothing; it is
 /// what a Sweeper would fly at were it fired as a bolt.
 pub const SWEEPER: WeaponStats = WeaponStats {
-    range: 14.0,
-    sweet: 5.6,
+    range: MAX_RANGE,
+    sweet: 5.0,
     accuracy: 1.0,
     accuracy_far: 0.4,
     damage: 30.0,

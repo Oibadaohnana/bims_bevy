@@ -5274,3 +5274,13 @@ rifle 12.6 / 4.2, sniper 14 / 9.8, minigun 11.2 / 4.2, rail lance 11.7 /
 8.2 (14 / 9.84 at its tier three); the shotgun, the blades and the
 machines' arms as they were. `nothing_reaches_past_the_view` pins it.
 `wire::PROTOCOL` 146.
+
+**A wheel notch nearer (October 2026, the player's word).** The player
+zoomed the view in one notch and asked for that as the view, the game
+balanced around it: `MAX_RANGE` is 12.5 (12.5 tiles up, 22 across on a
+2560×1440 screen) and every gun's and machine's `range` and `sweet` came
+down by 12.5/14 — the shotgun's too, the blades left: pistol 10, shotgun
+8.9 / 3.6, auto rifle 11.25 / 3.75, sniper 12.5 / 8.75, minigun 10 /
+3.75 (12 / 4.5 at tier three), rail lance 10.45 / 7.32 (12.5 / 8.78 at
+its tier three), Unmaker 12.5 / 6.25, Sweeper 12.5 / 5. `wire::PROTOCOL`
+149.
