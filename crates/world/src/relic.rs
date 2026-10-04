@@ -124,6 +124,10 @@ pub enum Stat {
     /// The hit points every enemy — a machine or one of the
     /// Manufacturers' people — is laid with, in per cent.
     EnemyHealth,
+    /// What an enemy a bot took down pays, in per cent of its bounty: not
+    /// a share moved but a floor — the most any relic held says, over
+    /// `Rewards::bot_bounty_percent` when it is more ([`bot_bounty`]).
+    BotBounty,
 }
 
 impl Stat {
@@ -253,6 +257,7 @@ pub const RELICS: [RelicDef; 12] = [
         &[
             m(W::Bots, S::Damage, data::DRILL_SERGEANT_BOT_DAMAGE),
             m(W::Bots, S::DamageTaken, -data::DRILL_SERGEANT_BOT_TAKEN),
+            m(W::Bots, S::BotBounty, data::DRILL_SERGEANT_BOT_BOUNTY),
             m(W::Players, S::Damage, -data::DRILL_SERGEANT_PLAYER_DAMAGE),
         ],
     ),
@@ -314,6 +319,17 @@ pub fn crew_percent(held: &[Relic], stat: Stat) -> i32 {
         .filter(|m| m.stat == stat)
         .map(|m| m.amount)
         .sum()
+}
+
+/// What a bot's kill pays, in per cent of the enemy's bounty, with the
+/// relics `held`: `dial` (`Rewards::bot_bounty_percent`), or the most a
+/// relic's [`Stat::BotBounty`] says when that is more.
+pub fn bot_bounty(held: &[Relic], dial: u32) -> u32 {
+    held.iter()
+        .flat_map(|r| r.modifiers())
+        .filter(|m| m.stat == Stat::BotBounty)
+        .map(|m| m.amount.max(0) as u32)
+        .fold(dial, u32::max)
 }
 
 /// A percentage as a factor: ten is 1.1, minus ten 0.9 — never under
@@ -500,6 +516,9 @@ mod tests {
             data::GLASS_CANNON_DAMAGE - data::DRILL_SERGEANT_PLAYER_DAMAGE
         );
         assert_eq!(percent(&held, Stat::FireRate, false), 0);
+        assert_eq!(bot_bounty(&[], 5), 5);
+        assert_eq!(bot_bounty(&held, 5), data::DRILL_SERGEANT_BOT_BOUNTY as u32);
+        assert_eq!(bot_bounty(&held, 80), 80, "a floor, never a cut");
         assert_eq!(
             crew_percent(&[Relic::BountyContract, Relic::SalvageBurn], Stat::Bounty),
             data::BOUNTY_CONTRACT_BOUNTY - data::SALVAGE_BURN_BOUNTY

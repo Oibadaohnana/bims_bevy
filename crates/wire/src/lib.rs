@@ -259,7 +259,10 @@ use serde::{Deserialize, Serialize};
 /// 149: the game view a wheel notch nearer (`balance::MAX_RANGE` 12.5),
 /// every gun's and machine's range and sweet times 12.5/14 — both ends
 /// must shoot alike.
-pub const PROTOCOL: u32 = 149;
+/// 150: *Drill Sergeant* lifts a bot's kill to half the bounty
+/// (`relic::Stat::BotBounty`, `relic::bot_bounty`) — both ends must pay
+/// alike.
+pub const PROTOCOL: u32 = 150;
 
 /// Where the relay lives. `BIMS_SERVER` in the environment overrides it
 /// — `ws://127.0.0.1:8792` for one on the same machine.

@@ -2726,6 +2726,7 @@ impl World {
                         by,
                         kill_bounty(
                             &self.rewards,
+                            &self.run.relics.held,
                             self.speed_requests.len(),
                             &self.reinforcements,
                             by,
@@ -7324,6 +7325,7 @@ impl World {
                 };
                 let worth = kill_bounty(
                     &self.rewards,
+                    &self.run.relics.held,
                     self.speed_requests.len(),
                     &self.reinforcements,
                     by,
@@ -11369,9 +11371,12 @@ pub fn bounty_share(amount: Money, percent: u32) -> Money {
 /// `Rewards::bot_bounty_percent`; a player's, and a reinforcement's or a
 /// medic's as its commander's, at `Rewards::player_bounty_percent`; one no
 /// crew member's hand landed last (a sentry's bolt, a defender's, nobody's)
-/// whole. A free function so it reads while a room is borrowed.
+/// whole. *Drill Sergeant* among the relics `held` lifts a bot's share to
+/// its floor ([`crate::relic::bot_bounty`]). A free function so it reads
+/// while a room is borrowed.
 fn kill_bounty(
     rewards: &crate::rewards::Rewards,
+    held: &[crate::relic::Relic],
     players: usize,
     reinforcements: &[crate::commander::Reinforcement],
     by: Option<usize>,
@@ -11379,7 +11384,10 @@ fn kill_bounty(
 ) -> Money {
     match by {
         Some(b) if b >= players && !reinforcements.iter().any(|r| r.who as usize == b) => {
-            rewards.by_bot(amount)
+            bounty_share(
+                amount,
+                crate::relic::bot_bounty(held, rewards.bot_bounty_percent),
+            )
         }
         Some(_) => rewards.by_player(amount),
         None => amount,

@@ -2031,6 +2031,8 @@ pub fn modifier_line(m: world::relic::Modifier) -> String {
     let sign = if m.amount < 0 { "-" } else { "+" };
     let n = m.amount.unsigned_abs();
     let what = match m.stat {
+        // Not a share moved but what a bot's kill pays outright.
+        Stat::BotBounty => return format!("A bot's kill pays {n}% of the enemy's money"),
         Stat::Damage => "weapon damage",
         Stat::FireRate => "fire rate",
         Stat::MoveSpeed => "move speed",
@@ -3374,8 +3376,11 @@ mod tests {
                 ["-40% trader prices", "+35% HP for every enemy"]
             );
             assert_eq!(
-                words(world::Relic::DrillSergeant)[2],
-                "-20% weapon damage for the players' Bims"
+                words(world::Relic::DrillSergeant)[2..],
+                [
+                    "A bot's kill pays 50% of the enemy's money",
+                    "-20% weapon damage for the players' Bims"
+                ]
             );
         }
 

@@ -7555,6 +7555,13 @@ a machine a bot hit and a defender finished counts as the bot's.
 `tests_mission::a_bot_s_kill_pays_five_per_cent_and_a_player_s_a_tenth_more`
 is the rule.
 
+**With *Drill Sergeant* a bot's kill pays half** (the player's word):
+`relic::Stat::BotBounty` on its row (`data::DRILL_SERGEANT_BOT_BOUNTY`,
+50) is a floor, not a share moved — `relic::bot_bounty(held, dial)` is
+the dial or the most a relic held says, read by `kill_bounty`.
+`wire::PROTOCOL` 150.
+`tests_mission::with_drill_sergeant_a_bot_s_kill_pays_half`.
+
 ## Every item and ability on every enemy (October 2026)
 
 > The player's word: "all items and spells should work on all enemies,

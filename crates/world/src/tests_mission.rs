@@ -454,6 +454,42 @@ fn a_bot_s_kill_pays_five_per_cent_and_a_player_s_a_tenth_more() {
     );
 }
 
+/// **With *Drill Sergeant* a bot's kill pays half** (the player's, October
+/// 2026: "drill seargant should also give 50% of normal gold for a kill
+/// that a bot does"): the bot's share lifted to
+/// `data::DRILL_SERGEANT_BOT_BOUNTY`, a player's untouched.
+#[test]
+fn with_drill_sergeant_a_bot_s_kill_pays_half() {
+    let (mut world, _) = held_arena();
+    world.give_relic_for_probe(crate::Relic::DrillSergeant);
+    world.set_droid_waves_for_probe(2);
+    world.set_droid_wave_for_probe(2);
+    open_the_room(&mut world);
+    assert_eq!(world.players(), 1);
+    let tier = world.droid_tier().code();
+    let residents = world.residents.as_mut().unwrap();
+    let bims = residents.aboard.room.crew_count() as usize;
+    let mut owed: economy::Money = 0;
+    for (i, by) in [Some(1), Some(0)].into_iter().enumerate() {
+        residents.last_hit_by[bims + i] = by;
+        let kind = residents.aboard.room.droid(i).unwrap().kind;
+        let whole = crate::world::bounty_share(
+            crate::world::bounty_for(tier),
+            crate::world::droid_bounty_percent(kind),
+        );
+        owed += match by {
+            Some(1) => whole * data::DRILL_SERGEANT_BOT_BOUNTY as economy::Money / 100,
+            _ => whole * 110 / 100,
+        };
+        residents
+            .aboard
+            .room
+            .strike_droid(i, DroidPart::Chassis, 1e6);
+    }
+    world.step(&[]);
+    assert_eq!(world.run.pending_bounty, owed, "the bot's half");
+}
+
 /// **A site left uncleared is put back as the mission met it.** The
 /// machines' station with a wave destroyed and more to come: leaving it
 /// throws the bounty away, keeps the experience, and the next visit finds

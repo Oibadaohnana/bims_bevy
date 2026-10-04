@@ -454,9 +454,12 @@ pub const BOUNTY_CONTRACT_DAMAGE: i32 = 20;
 /// wave has more machines (rounded up).
 pub const HUNTERS_PACT_EXPERIENCE: i32 = 50;
 pub const HUNTERS_PACT_WAVES: i32 = 25;
-/// *Drill Sergeant*: the bots do more and take less, the players do less.
+/// *Drill Sergeant*: the bots do more and take less, a bot's kill pays
+/// half an enemy's bounty (over `rewards.ron`'s `bot_bounty_percent`;
+/// October 2026, the player's word), the players do less.
 pub const DRILL_SERGEANT_BOT_DAMAGE: i32 = 50;
 pub const DRILL_SERGEANT_BOT_TAKEN: i32 = 30;
+pub const DRILL_SERGEANT_BOT_BOUNTY: i32 = 50;
 pub const DRILL_SERGEANT_PLAYER_DAMAGE: i32 = 20;
 /// *Lone Wolves*: the players do more and walk faster, the bots do less.
 pub const LONE_WOLVES_PLAYER_DAMAGE: i32 = 35;
