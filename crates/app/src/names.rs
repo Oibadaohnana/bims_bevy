@@ -1937,10 +1937,9 @@ pub fn item_line(item: bims::module::Module) -> String {
             m::COOLANT_LOOP_PERCENT[t],
             m::COOLDOWN_CUT_MOST,
         ),
-        ModuleKind::PressureSeal => format!(
-            "Regenerates {}% of max HP/s, hit or not.",
-            fig(m::PRESSURE_SEAL_REGEN[t] as f64),
-        ),
+        ModuleKind::PressureSeal => {
+            format!("+{} health.", fig(m::PRESSURE_SEAL_HEALTH[t] as f64))
+        }
         ModuleKind::SteadyGrip => format!("+{}% fire rate.", m::STEADY_GRIP_PERCENT[t]),
         ModuleKind::LongBarrel => format!(
             "+{} tiles of weapon range.",
@@ -2016,7 +2015,7 @@ pub fn item_tier_line(kind: bims::module::ModuleKind, tier: u32) -> Option<Strin
         ),
         ModuleKind::CoolantLoop => format!("-{}% cooldowns", m::COOLANT_LOOP_PERCENT[t]),
         ModuleKind::PressureSeal => {
-            format!("{}% HP/s", fig(m::PRESSURE_SEAL_REGEN[t] as f64))
+            format!("+{} health", fig(m::PRESSURE_SEAL_HEALTH[t] as f64))
         }
         ModuleKind::SteadyGrip => format!("+{}% fire rate", m::STEADY_GRIP_PERCENT[t]),
         ModuleKind::LongBarrel => format!("+{} tiles range", fig(m::LONG_BARREL_TILES[t] as f64)),

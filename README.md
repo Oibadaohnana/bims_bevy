@@ -282,7 +282,7 @@ the four two by two at the right of the abilities, each with its key
 | **Reactor Heart** | More health, and regeneration — faster after 6 s without a hit | +25 / +40 / +60 HP; 0.5 / 1 / 1 HP/s, 1.5 / 3 / 5 HP/s quiet | 27 000 / 54 000 / 94 500 |
 | **Override Core** | The class's ultimate plays **one rank higher** than bought (a rank must be bought), up to a **fifth** rank no skill point buys: the Sentry two at once, the Rampage every grenade back, the medic all his healing ×1.5, the Bastion a tile wider and everybody it reached half again as fast, the Reinforcements five in armour — and every number a step on | one tier | 81 000 |
 | **Coolant Loop** | Class ability cooldowns shorter; several add, to −50% at most | −10 / 15 / 20% | 20 250 / 40 500 / 67 500 |
-| **Pressure Seal** | Health back all the time, hit or not | 0.5 / 1 / 1.5 HP/s | 13 500 / 27 000 / 47 250 |
+| **Pressure Seal** | More health (it gave health back all the time until October 2026) | +20 / +30 / +45 HP | 13 500 / 27 000 / 47 250 |
 | **Steady Grip** | The trigger pulled faster | +10 / 15 / 20% fire rate | 20 250 / 40 500 / 67 500 |
 | **Long Barrel** | The weapon reaches further | +2 / 3 / 4 tiles | 20 250 / 40 500 / 67 500 |
 | **Leech Capacitor** | A share of the damage your weapon does to an enemy (a machine or a Manufacturer) back as health | 8 / 12 / 16% | 27 000 / 54 000 / 94 500 |

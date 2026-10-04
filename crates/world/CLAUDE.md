@@ -6933,7 +6933,10 @@ first placeholders, then ×3 again in October 2026: ×13.5).
   cut is folded into `relic_percent(Stat::Cooldowns)` (so every class
   cooldown honours it, several adding to `COOLDOWN_CUT_MOST`), the
   regeneration is `Module::regen` beside the Reactor Heart's, the fire
-  rate is `lift_by_items`.
+  rate is `lift_by_items`. *Pressure Seal* gives health on the bar since
+  October 2026 (`PRESSURE_SEAL_HEALTH` 20 / 30 / 45, `Module::health_bonus`
+  beside the Heart's) and regenerates nothing; `item_regen_now` is the
+  Heart's alone.
 - **`World::lift_by_items`** (in `skill_of`, after the relic hooks): fire
   rate (*Steady Grip*), range in tiles (*Long Barrel*), and while an
   *Ablative Shell* runs `damage_taken × SHELL_DAMAGE_TAKEN` and

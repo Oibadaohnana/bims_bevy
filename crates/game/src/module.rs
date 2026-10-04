@@ -5,7 +5,8 @@
 //! a weapon. A bot never carries one.
 //!
 //! The room reads what it must of them itself, off the loadout: the
-//! health a *Reactor Heart* adds to the bar ([`Gear::max_health`]). The
+//! health a *Reactor Heart* or a *Pressure Seal* adds to the bar
+//! ([`Gear::max_health`]). The
 //! rest is the world's — the crit, the regeneration, the blink, the
 //! ultimate's extra rank, and since step two the cooldowns cut, the fire
 //! rate and reach, the leech, the arc and the three actives (mender,
@@ -46,8 +47,9 @@ pub enum ModuleKind {
     /// *Coolant Loop* (the relic it was): passive, the class's cooldowns
     /// shorter.
     CoolantLoop = 4,
-    /// *Pressure Seal* (the relic it was, Ring of Health): passive, hit
-    /// points back all the time.
+    /// *Pressure Seal* (the relic it was, Ring of Health): passive, more
+    /// health on the bar (it gave hit points back all the time until
+    /// October 2026, the player's word).
     PressureSeal = 5,
     /// *Steady Grip* (the relic it was, Hyperstone): passive, the trigger
     /// pulled faster.
@@ -206,9 +208,12 @@ pub const HEART_QUIET_SECONDS: f32 = 6.0;
 pub const COOLANT_LOOP_PERCENT: [i32; 3] = [10, 15, 20];
 /// The most the items take off a cooldown, in per cent.
 pub const COOLDOWN_CUT_MOST: i32 = 50;
-/// *Pressure Seal*: per cent of the whole bar a second back, all the
-/// time, by tier.
-pub const PRESSURE_SEAL_REGEN: [f32; 3] = [0.5, 1.0, 1.5];
+/// *Pressure Seal*: hit points on top of the bar, by tier — a little
+/// under the *Reactor Heart*'s at about half its price, and no
+/// regeneration (it gave 0.5 / 1 / 1.5 per cent of the bar a second back
+/// until October 2026: "rework pressure seal to give hp instead of
+/// regen").
+pub const PRESSURE_SEAL_HEALTH: [f32; 3] = [20.0, 30.0, 45.0];
 /// *Steady Grip*: per cent on the fire rate, by tier.
 pub const STEADY_GRIP_PERCENT: [i32; 3] = [10, 15, 20];
 /// *Long Barrel*: tiles on the weapon's range, by tier.
@@ -353,30 +358,25 @@ impl Module {
         })
     }
 
-    /// The health it adds to the bar: a *Reactor Heart*'s.
+    /// The health it adds to the bar: a *Reactor Heart*'s or a
+    /// *Pressure Seal*'s.
     pub fn health_bonus(self) -> f32 {
-        if self.kind == ModuleKind::ReactorHeart {
-            by_tier(HEART_HEALTH, self.tier)
-        } else {
-            0.0
+        match self.kind {
+            ModuleKind::ReactorHeart => by_tier(HEART_HEALTH, self.tier),
+            ModuleKind::PressureSeal => by_tier(PRESSURE_SEAL_HEALTH, self.tier),
+            _ => 0.0,
         }
     }
 
     /// Its regeneration — hit points a second, and after a while unhurt
-    /// — for a *Reactor Heart*, and the same both ways for a *Pressure
-    /// Seal*.
+    /// — for a *Reactor Heart*.
     pub fn regen(self) -> Option<(f32, f32)> {
-        match self.kind {
-            ModuleKind::ReactorHeart => Some((
+        (self.kind == ModuleKind::ReactorHeart).then(|| {
+            (
                 by_tier(HEART_REGEN, self.tier),
                 by_tier(HEART_QUIET_REGEN, self.tier),
-            )),
-            ModuleKind::PressureSeal => {
-                let r = by_tier(PRESSURE_SEAL_REGEN, self.tier);
-                Some((r, r))
-            }
-            _ => None,
-        }
+            )
+        })
     }
 }
 
@@ -397,7 +397,7 @@ impl Gear {
     }
 
     /// A whole bar for this body: [`MAX_HEALTH`] and every *Reactor
-    /// Heart*'s health on top.
+    /// Heart*'s and *Pressure Seal*'s health on top.
     pub fn max_health(&self) -> f32 {
         MAX_HEALTH + self.modules().map(Module::health_bonus).sum::<f32>()
     }
@@ -482,6 +482,14 @@ mod tests {
             MAX_HEALTH + HEART_HEALTH[1] + HEART_HEALTH[0]
         );
         assert_eq!(gear.free_item_slot(), Some(1));
+    }
+
+    #[test]
+    fn a_seal_raises_the_bar_and_mends_nothing() {
+        let mut gear = Gear::issued();
+        gear.items[0] = Some(ModuleKind::PressureSeal.at(Tier::Three));
+        assert_eq!(gear.max_health(), MAX_HEALTH + PRESSURE_SEAL_HEALTH[2]);
+        assert_eq!(gear.item_regen(), (0.0, 0.0));
     }
 
     #[test]

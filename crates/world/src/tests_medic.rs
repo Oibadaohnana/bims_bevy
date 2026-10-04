@@ -646,16 +646,17 @@ fn the_fourth_rank_holds_two_patients_at_the_full_rate() {
 }
 
 /// **The fourth rank's link heals what the medic's items heal him by on
-/// top**: a *Pressure Seal*'s regeneration added to each patient's beam,
-/// never below the fourth rank and never twice on himself.
+/// top**: a *Reactor Heart*'s regeneration (its quiet rate, the medic
+/// unhurt) added to each patient's beam, never below the fourth rank and
+/// never twice on himself.
 #[test]
 fn the_fourth_rank_s_link_adds_the_medic_s_item_healing() {
-    let seal = bims::module::ModuleKind::PressureSeal.at(bims::combat::Tier::Three);
-    let regen = bims::module::PRESSURE_SEAL_REGEN[2];
+    let heart = bims::module::ModuleKind::ReactorHeart.at(bims::combat::Tier::One);
+    let regen = bims::module::HEART_QUIET_REGEN[0];
     let gain = |rank: u8, item: bool| {
         let mut world = medic_at([0, 0, rank, 0]);
         if item {
-            carry(&mut world, 0, seal);
+            carry(&mut world, 0, heart);
         }
         hurt(&mut world, 1, 20.0);
         assert!(linked(&beam(&mut world, 0, Some(1)), 0, Some(1)));

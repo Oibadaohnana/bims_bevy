@@ -1003,8 +1003,8 @@ pub const HEAL_BEAM_PICK_REACH: f32 = 3.0;
 pub const HEAL_BEAM_PATIENTS: [usize; 4] = [1, 1, 1, 2];
 /// The beam's rank from which each patient it holds also gains what the
 /// medic's own items regenerate him by (`World::beam_item_rate`): a
-/// *Reactor Heart*'s and a *Pressure Seal*'s hit points a second, the
-/// Heart's quiet rate while he is unhurt.
+/// *Reactor Heart*'s hit points a second, its quiet rate while he is
+/// unhurt.
 pub const HEAL_BEAM_ITEM_RANK: u8 = 4;
 
 /// **R, Healing Circle** (task 153): how far round him it reaches, in

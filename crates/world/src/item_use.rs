@@ -392,7 +392,7 @@ impl World {
     /// Hit points a second `who`'s items regenerate him by now: the
     /// quiet rate once nothing has hit him for
     /// [`bims::module::HEART_QUIET_SECONDS`], the plain one before —
-    /// nought without a *Reactor Heart* or a *Pressure Seal*. What a
+    /// nought without a *Reactor Heart*. What a
     /// medic's beam adds to its patients' heal from its fourth rank
     /// ([`World::beam_item_rate`]).
     pub fn item_regen_now(&self, who: u32) -> f32 {

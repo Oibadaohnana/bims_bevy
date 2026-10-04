@@ -633,9 +633,10 @@ fn an_override_core_is_a_rank_past_the_fourth() {
 
 /// **The three relics in item form, and the Long Barrel**: a Coolant
 /// Loop shortens the class's cooldowns, a Steady Grip lifts the fire rate,
-/// a Long Barrel the range, and a Pressure Seal mends all the time.
+/// a Long Barrel the range, and a Pressure Seal raises the bar (it
+/// mended all the time until October 2026) and mends nothing.
 #[test]
-fn the_passives_lift_the_skill_cut_the_cooldowns_and_mend() {
+fn the_passives_lift_the_skill_cut_the_cooldowns_and_raise_the_bar() {
     let mut world = basic();
     assert_eq!(world.set_class(0, Class::Soldier), Ok(()));
     level_up(&mut world, 0, 16);
@@ -673,22 +674,25 @@ fn the_passives_lift_the_skill_cut_the_cooldowns_and_mend() {
         lifted.range,
         skill.range + bims::module::LONG_BARREL_TILES[2]
     );
-    // A Pressure Seal: its rate whether hit lately or not.
+    // A Pressure Seal: its health on the bar, and no regeneration.
+    let bar = world.aboard.room.max_health(0);
     carry(
         &mut world,
         0,
         3,
         Some(ModuleKind::PressureSeal.at(Tier::Three)),
     );
+    world.step(&[]);
+    let raised = world.aboard.room.max_health(0);
+    let want = bar + bims::module::PRESSURE_SEAL_HEALTH[2];
+    assert!((raised - want).abs() < 1e-3, "bar {raised}, want {want}");
+    assert_eq!(world.item_regen_now(0), 0.0);
     world.aboard.room.wound(0, 50.0);
     let hurt = world.aboard.room.health(0);
     for _ in 0..60 {
         world.step(&[]);
     }
-    let mended = world.aboard.room.health(0) - hurt;
-    // A share of the bar a second (October 2026).
-    let want = bims::module::PRESSURE_SEAL_REGEN[2] * world.aboard.room.max_health(0) / 100.0;
-    assert!((mended - want).abs() < 0.3, "mended {mended}, want {want}");
+    assert_eq!(world.aboard.room.health(0), hurt, "it mends nothing");
 }
 
 /// **The three new actives**: a Field Mender heals the crew round its
