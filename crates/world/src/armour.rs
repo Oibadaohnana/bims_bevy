@@ -21,8 +21,8 @@ pub fn weapon_at(resource: ResourceId, tier: Tier) -> Option<Weapon> {
 
 /// Whose body a command points at: one of the crew, or one of the
 /// station's people — each an index into its own room, since the two
-/// keep separate rooms while docked (`crate::crew::Residents`). What a
-/// hire, the commander's attack order and a body's position name. (It was
+/// keep separate rooms while docked (`crate::crew::Residents`). What the
+/// commander's attack order and a body's position name. (It was
 /// a loot's source until task 113 took the looting away.)
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]

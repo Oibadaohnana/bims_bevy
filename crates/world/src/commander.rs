@@ -25,8 +25,8 @@
 //! Command Aura, until the medivac replaced it.)
 //!
 //! **Who each reaches.** The cry and the rally lift *every
-//! friendly Bim* in range — a player's own steered Bim, the crew's bots,
-//! the hired hands and the reinforcements alike, the commander himself
+//! friendly Bim* in range — a player's own steered Bim, the crew's bots
+//! and the reinforcements alike, the commander himself
 //! among them, and never a sentry.
 //!
 //! Both are saved and in `world_checksum` — the cries, the rallies'

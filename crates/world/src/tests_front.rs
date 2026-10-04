@@ -12,7 +12,6 @@ use shipdesign::fixture::flyer;
 
 use crate::data;
 use crate::fixture::{REFERENCE_MONEY, simulation_world};
-use crate::mercenary::MERCENARIES_MAX;
 use crate::world::World;
 
 fn basic() -> World {
@@ -196,52 +195,4 @@ fn every_quote_path_agrees_and_a_sale_pays_the_front_price() {
             ResourceId::Vegetable
         ))
     );
-}
-
-/// A station inside the front has one more hand for hire, and never more
-/// than the most a station ever has.
-#[test]
-fn one_more_mercenary_inside_the_front() {
-    let mut world = basic();
-    let quiet: Vec<u32> = world
-        .stations
-        .iter()
-        .map(|s| world.mercenaries_of(s))
-        .collect();
-    assert!(origin_at(&mut world, 2), "a star two hops from the crew");
-    for (station, was) in world.stations.iter().zip(&quiet) {
-        let now = world.mercenaries_of(station);
-        // A derelict and an enemy's station have none either way.
-        if *was == 0 && now == 0 {
-            continue;
-        }
-        assert_eq!(
-            now,
-            (was + 1).min(MERCENARIES_MAX),
-            "station {}",
-            station.id
-        );
-        assert!(now <= MERCENARIES_MAX);
-    }
-    // At least one station in the system actually gained one, or this
-    // test is watching nothing happen.
-    let gained = world
-        .stations
-        .iter()
-        .zip(&quiet)
-        .any(|(s, was)| world.mercenaries_of(s) > *was);
-    assert!(gained, "no station found one more hand");
-
-    // Four hops out is outside the front and changes nothing.
-    let mut world = basic();
-    let quiet: Vec<u32> = world
-        .stations
-        .iter()
-        .map(|s| world.mercenaries_of(s))
-        .collect();
-    if origin_at(&mut world, data::FRONT_HOPS + 1) {
-        for (station, was) in world.stations.iter().zip(&quiet) {
-            assert_eq!(world.mercenaries_of(station), *was, "beyond the front");
-        }
-    }
 }

@@ -681,10 +681,6 @@ pub struct Game {
     /// `hit_at`: a resident that is down is a body a click can loot. Set
     /// right after `set_visitors` every step and cleared with it.
     visitors_down: Vec<bool>,
-    /// Which of the visitors may be spoken to — a mercenary for hire, as
-    /// the world says — so that a click on one on its feet is a click on
-    /// it (`HIT_VISITOR`) and not on the deck. See [`Game::set_visitors_hailable`].
-    visitors_hailable: Vec<bool>,
     /// Which of the visitors may be revived by the crew's hands — a
     /// townsperson downed in its own room, as the world says — index for
     /// index with `visitors`, told right after `set_visitors` every step
@@ -855,8 +851,8 @@ pub struct Game {
     /// came for. Empty everywhere else.
     machine_seen: Vec<Option<Seen>>,
     /// Which of this room's own bodies **shelter** rather than fight
-    /// (feature 94): a townsperson who is neither the guard nor a
-    /// mercenary, while the machines are on the town. Not mustered by
+    /// (feature 94): a townsperson who is not the guard, while the
+    /// machines are on the town. Not mustered by
     /// the alarm, and posted indoors at the nearest bunk. Empty
     /// everywhere else, which is everybody fighting as they always did.
     sheltering: Vec<bool>,
@@ -1032,7 +1028,6 @@ impl Game {
             outside_version: None,
             visitors: Vec::new(),
             visitors_down: Vec::new(),
-            visitors_hailable: Vec::new(),
             visitors_revivable: Vec::new(),
             guest_revives: Vec::new(),
             tended: Vec::new(),
@@ -1204,8 +1199,8 @@ impl Game {
     ///
     /// **Its bunk comes with it** (`Bim::bed`, which `take_crew` wrote):
     /// kept when it names one of this room's own bunks that nobody here
-    /// has, and else the first free one, and else none — so a hire, whose
-    /// old bunk was a station's, takes whatever bunk is spare.
+    /// has, and else the first free one, and else none — so a joiner,
+    /// whose old bunk was a station's, takes whatever bunk is spare.
     pub fn adopt(&mut self, crew: Vec<Bim>, shift: Vec2) {
         for mut bim in crew {
             let who = self.bims.len();
@@ -5148,7 +5143,6 @@ impl Game {
     pub fn set_visitors(&mut self, at: Vec<Vec2>) {
         self.visitors = at;
         self.visitors_down.clear();
-        self.visitors_hailable.clear();
         self.visitors_revivable.clear();
     }
 
@@ -5222,16 +5216,6 @@ impl Game {
     /// looting; one on its feet is not hit at all.
     pub fn set_visitors_down(&mut self, down: &[bool]) {
         self.visitors_down = down.to_vec();
-    }
-
-    /// Which of the visitors may be spoken to — the world's mercenaries
-    /// for hire — index for index with [`Game::set_visitors`] and told
-    /// right after it like `set_visitors_down`. One of these on its feet
-    /// is hit under a click (`HIT_VISITOR`) the way a body down is, so a
-    /// menu can open on it; [`Game::visitor_down`] says which it was. The
-    /// room knows nothing of what is said: no strings cross this boundary.
-    pub fn set_visitors_hailable(&mut self, hailable: &[bool]) {
-        self.visitors_hailable = hailable.to_vec();
     }
 
     /// Whether that visitor is down, as the world last said — what a menu
@@ -5563,7 +5547,7 @@ impl Game {
     /// medic carries one clear first (`rescue`).
     ///
     /// **A medic first** (task 125): a bot that is not a medic
-    /// (`Skill::medic`, of the class or hired) leaves a patient to a medic
+    /// (`Skill::medic`, of the class or a field medic) leaves a patient to a medic
     /// bot free to go to it — ready to revive by the same rule, with no
     /// revive in hand already, and a way to the patient — and takes it
     /// only when there is none: no medic in the crew, the medic down,
@@ -7413,8 +7397,7 @@ impl Game {
         // The crew first: a crewmate standing over a body is the crewmate.
         for (i, at) in self.visitors.iter().enumerate() {
             let down = self.visitors_down.get(i).copied().unwrap_or(false);
-            let hailable = self.visitors_hailable.get(i).copied().unwrap_or(false);
-            if ((down && bodies) || (hailable && !down)) && (*at - p).len() <= PICK_RADIUS {
+            if down && bodies && (*at - p).len() <= PICK_RADIUS {
                 self.hit_visitor = i;
                 return HIT_VISITOR;
             }
@@ -7859,7 +7842,7 @@ impl Game {
     ///
     /// **But they came to attack, and know whom they came for**: the
     /// crew and every one of the site's people under arms (the guard,
-    /// the mercenaries, the defenders — whoever is not sheltering) are
+    /// the defenders — whoever is not sheltering) are
     /// told, believed where they stand, so a wave with nobody in sight
     /// does not wait at its gate for the defenders to come out but walks
     /// in after the nearest (the hunter's rule, `plan_droid_stand`). Out
@@ -7915,8 +7898,8 @@ impl Game {
     }
 
     /// Which of this room's own bodies **shelter** rather than fight
-    /// (feature 94): a townsperson who is neither the guard nor a
-    /// mercenary while the machines are on the town. Said every step by
+    /// (feature 94): a townsperson who is not the guard while the
+    /// machines are on the town. Said every step by
     /// the world; an empty list is everybody fighting, which is every
     /// other room.
     ///
@@ -8912,9 +8895,8 @@ impl Game {
         self.bims.get(who).is_some_and(|b| b.field_medic)
     }
 
-    /// The world's word that a crew member is a hired field medic
-    /// (feature 86): said every step, the way the squad's orders are,
-    /// since it is the world that keeps the contract.
+    /// The world's word that a crew member is a field medic (feature
+    /// 86): said every step, since it is the world that keeps the list.
     pub fn set_field_medic(&mut self, who: usize, on: bool) {
         if let Some(bim) = self.bims.get_mut(who) {
             bim.field_medic = on;
@@ -12256,7 +12238,7 @@ mod tests {
 
     /// A blade bot is issued the basic armour (task 113 took the pack it
     /// once put on at the alarm): a resident rolled the schword wears the
-    /// basic set, a mercenary with one too.
+    /// basic set, a defender with one too.
     #[test]
     fn a_blade_bot_is_issued_the_basic_armour() {
         let blades = (0..400u64)
@@ -12265,18 +12247,18 @@ mod tests {
         for seed in blades {
             seen += 1;
             assert_eq!(Gear::issued_for(seed).armour_health(), 45.0);
-            let hired = Gear::hired_for(seed, 10);
-            if hired.weapon == Some(WeaponKind::Schword.basic()) {
-                assert_eq!(hired.armour_health(), 45.0, "seed {seed}");
+            let armed = Gear::armed_for(seed, 10);
+            if armed.weapon == Some(WeaponKind::Schword.basic()) {
+                assert_eq!(armed.armour_health(), 45.0, "seed {seed}");
             }
         }
         assert!(seen > 10);
-        let mercenary_blades = (0..2000u64)
-            .map(|seed| Gear::hired_for(seed, 10))
+        let defender_blades = (0..2000u64)
+            .map(|seed| Gear::armed_for(seed, 10))
             .filter(|g| g.weapon == Some(WeaponKind::Schword.basic()))
             .collect::<Vec<_>>();
-        assert!(!mercenary_blades.is_empty());
-        assert!(mercenary_blades.iter().all(|g| g.armour_health() == 45.0));
+        assert!(!defender_blades.is_empty());
+        assert!(defender_blades.iter().all(|g| g.armour_health() == 45.0));
     }
 
     /// The crew's alarm: an enemy within `ALARM_RANGE` of anybody puts
@@ -12965,16 +12947,11 @@ mod tests {
         // A left click still finds them.
         assert_eq!(game.hit_at(dead.x + 4.0, dead.y - 3.0), HIT_BODY);
         assert_eq!(game.hit_at(downed.x + 4.0, downed.y - 3.0), HIT_BIM);
-        // A station's person down is passed over; one for hire is not.
-        let (lying, hailed) = (
-            vec2(ROOM_W * 0.2, ROOM_H * 0.8),
-            vec2(ROOM_W * 0.8, ROOM_H * 0.8),
-        );
-        game.set_visitors(vec![lying, hailed]);
-        game.set_visitors_down(&[true, false]);
-        game.set_visitors_hailable(&[false, true]);
+        // A station's person down is passed over too.
+        let lying = vec2(ROOM_W * 0.2, ROOM_H * 0.8);
+        game.set_visitors(vec![lying]);
+        game.set_visitors_down(&[true]);
         assert_eq!(game.hit_order_at(lying.x, lying.y), HIT_NONE);
-        assert_eq!(game.hit_order_at(hailed.x, hailed.y), HIT_VISITOR);
     }
 
     #[test]

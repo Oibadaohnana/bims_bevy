@@ -6,7 +6,7 @@
 //! ([`Plan::Surface`]), with a port the ship's airlock mates to, a trading
 //! desk, people living in it, a side and a shelf. Everything the world
 //! knows how to do at a station — dock, join the rooms, open the
-//! residents' room, trade, fight, hire — it does on the surface unchanged,
+//! residents' room, trade, fight — it does on the surface unchanged,
 //! because the surface *is* a station to it, found through
 //! [`World::station`](crate::World::station) by an id of its own:
 //! [`surface_id`] of the body, well clear of any station the generator
@@ -906,7 +906,7 @@ impl Town {
 /// as seat the whole town three rows deep. Then, along the streets from
 /// the middle out, the **bathhouses** — one for every twelve people —
 /// and the **houses**, two to four bunks each, a bunk for everybody and
-/// two over for mercenaries, with a gap and a setback rolled for each so
+/// two over, with a gap and a setback rolled for each so
 /// no two towns are the same street. Beyond the east cross street and
 /// along the south the **fields** — strips of soil worked like a bay at
 /// half its pace, a strip for every two people — or, on an arctic

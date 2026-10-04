@@ -224,8 +224,8 @@ pub const REFERENCE_STEPS: u32 = 600;
 /// out at the old number. Was `0x_df17_c099_88c7_21d1`.
 /// And for individual money (no task number), on purpose: the pool is
 /// shared out into every player's wallet when the world opens and at the
-/// end of every mission (`World::share_out`), and the wallets and each
-/// hired hand's signer are hashed — and, taken in the same tree, every
+/// end of every mission (`World::share_out`), and the wallets are
+/// hashed — and, taken in the same tree, every
 /// relic unlocked from the start (`relic.rs`, agent #12: the run's pool
 /// is hashed). Was `0x_aca1_40d8_3ab7_360d`.
 pub const REFERENCE_CHECKSUM: u64 = 0x_6996_9850_bcab_0e80;

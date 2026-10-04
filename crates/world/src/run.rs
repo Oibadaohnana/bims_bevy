@@ -237,7 +237,7 @@ pub struct Fallen {
 
 /// A site as it stood the first step of a mission: everything about it
 /// the world keeps, so that leaving it uncleared puts it back exactly.
-/// What the crew carried away is theirs — a key, a hire — and is not
+/// What the crew carried away is theirs — a joiner — and is not
 /// here: putting the site back is not taking back what they took.
 #[derive(Clone, PartialEq, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]

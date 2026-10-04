@@ -197,7 +197,6 @@ fn a_system_does_not_flip_under_the_crew_and_flips_the_moment_they_are_off_it() 
         assert!(world.is_droid_held(id), "station {id} is the machines'");
         let station = world.station(id).unwrap();
         assert_eq!(world.people_of(&station), 0, "station {id} has nobody");
-        assert_eq!(world.mercenaries_of(&station), 0, "and nobody for hire");
         assert_eq!(world.stance(id), bims::sight::Stance::Hostile);
     }
     // Said once: the second step has nothing left to take.
@@ -363,8 +362,7 @@ fn an_infested_station_has_no_desk_and_nobody_to_hire() {
     world.dock_for_probe(home);
     world.step(&[]);
     assert!(world.quote(home, ResourceId::Vegetable).is_none());
-    // Nobody to hire, and nobody aboard.
+    // Nobody aboard.
     let station = world.station(home).unwrap();
     assert_eq!(world.people_of(&station), 0);
-    assert_eq!(world.mercenaries_of(&station), 0);
 }

@@ -512,7 +512,7 @@ impl Plan {
 
     /// How many people live aboard: nobody on a derelict, one on a relay
     /// whatever the plan, else the plan's number — always short of the
-    /// bunks by two or more, so there is a bed for a mercenary for hire.
+    /// bunks by two or more, so there is a bed spare.
     /// A surface's is the **most** a town holds
     /// ([`data::SURFACE_POPULATION`]): the town's own number is rolled
     /// and kept on [`Station::population`], and this is what `layout`

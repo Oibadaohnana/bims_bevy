@@ -70,11 +70,6 @@ pub const RESIDENTS_RANGE: f64 = 50.0 * shipdesign::TILE as f64;
 pub const ARENA_SIDE: u32 = 72;
 pub const ARENA_BUNK_COLUMNS: u32 = 4;
 
-/// How many mercenaries the `test` command's dock has for hire at the
-/// least, whatever the roll said (`World::mercenary_for_probe`): one, so
-/// there is always somebody to click on and price.
-pub const TEST_MERCENARY: u32 = 1;
-
 /// How far out a station is drawn as a hull in the ship view rather than
 /// left to the map. Twice the local frame: far enough that a station comes
 /// into the picture as a speck and grows, rather than appearing.
@@ -101,7 +96,7 @@ pub const MAX_TRIP_HOPS: u32 = 2;
 pub const JUMP_CLEARANCE: f64 = 4.0 * flight::data::ARRIVAL_RADIUS_BODY;
 
 /// How far a crew member may stand from a thing and still reach it, in
-/// tiles: a mercenary it hires, a research desk, a
+/// tiles: a body it revives, a research desk, a
 /// deployable it packs up. What those are refused beyond
 /// (`Refusal::OutOfReach`).
 pub const REACH: f32 = 2.0;
@@ -159,7 +154,7 @@ pub const SURFACE_SIDE: u32 = 96;
 /// How many people live in a town, at the least and at the most,
 /// inclusive, rolled off the surface's own stream
 /// (`crate::surface::Surface::all_of`). A town is sized by it: a bunk
-/// each and two over for mercenaries, a chair each in the hall, a strip
+/// each and two over, a chair each in the hall, a strip
 /// of field for every two of them or a bay under glass for every four, a
 /// bathhouse for every twelve. Five is a hamlet round a pad; thirty
 /// fills the streets. (Ten to fifty until feature 66.)
@@ -317,11 +312,10 @@ pub const DROID_ORIGIN_MIN_HOPS: u16 = 8;
 // The crisis has an edge, and the systems just outside it are the front.
 // How far outside is `World::front` — the hops from the origin less the
 // radius the infection has reached by today — and everything here is read
-// off that one number: what a desk charges for a gun, and how many hands
-// are for hire.
+// off that one number: what a desk charges for a gun.
 
 /// How far outside the infection a system still counts as the front, in
-/// hops. Three, so a crew have a band of systems to trade and hire in
+/// hops. Three, so a crew have a band of systems to trade in
 /// rather than one, and so that the band moves past them at a hop every
 /// [`DROID_SPREAD_DAYS`] the way the infection does.
 pub const FRONT_HOPS: u16 = 3;
@@ -355,7 +349,7 @@ pub const DEFENSE_JOINERS: u32 = 2;
 //
 // Placeholders, all three: how many armed **defenders** stand with a
 // site's own people while the machines come for it. They are the site's
-// and never the crew's — no fee, no hire, no loss if they fall — and
+// and never the crew's — no loss if they fall — and
 // they count towards the wave size as crew would
 // (`World::droid_wave_size`).
 
@@ -388,7 +382,7 @@ pub const DEFENSE_BOUNTY_PERCENT: u32 = 100;
 /// an enemy you should only be rewarded 50% of the gold", then 20%, then
 /// "If a bot kills an enemy -> 5% money, if Player kills +10%" — the
 /// experience is untouched). A bot is a crew member past the players — a
-/// bot, a hired hand, a townsperson who joined — and not one of a
+/// bot, a field medic, a townsperson who joined — and not one of a
 /// commander's reinforcements or his Medivac's medic, which pay as their
 /// commander's own kill ([`PLAYER_BOUNTY_PERCENT`]). A sentry's kill and an
 /// enemy no crew member hit last pay the whole. Tuned in the app's

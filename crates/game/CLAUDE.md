@@ -1855,6 +1855,11 @@ wrecked outright, and nothing lies down and alive for it to finish.
 `JOB_EXECUTE` (25) is left free, and `combat::Trigger::pull_single`, the
 one-shot pull it fired with, has no caller.
 
+> **Since October 2026** no visitor on its feet is hit: the mercenaries,
+> `set_visitors_hailable`, `Uniform::Mercenary` and the hire's bunk went,
+> and `Gear::hired_for` is `Gear::armed_for` (`ARMED_ODDS`), the defenders'
+> kit. The paragraph below is the history.
+
 **A visitor on its feet is hit only when the world says it may be
 spoken to.** `Game::set_visitors_hailable(&[bool])`, told right after
 `set_visitors` every step like `set_visitors_down` (and cleared by it),

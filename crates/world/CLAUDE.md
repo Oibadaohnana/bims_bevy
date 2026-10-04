@@ -1076,6 +1076,9 @@ body is put out cold without a wound to bleed out from.
 
 ## A mercenary is an extra body in a friendly station's room, and hired it is crew that costs money
 
+> **Deleted (October 2026)**: the mercenaries are gone — "The
+> mercenaries gone" at the end of this file. This section is the history.
+
 `crates/world/src/mercenary.rs`. A station the machines do not hold
 may have hired hands living among its people: **extra** bodies past
 `people_of`, opened with the room (`Residents::open(.., count,
@@ -3625,6 +3628,11 @@ leaving, the checksum noticing, and two worlds on one seed meeting the
 same machines — and `droid::tests` pins the arithmetic.
 
 ## A medic carries a body out, and a field medic is hired for it (feature 86)
+
+> **Since October 2026** nobody is hired: a field medic is a crew index on
+> `World::field_medics` (the combat ship's four, `BIMS_FIELD_MEDIC`), and
+> the trade below is what it does. The hire, the contract and its fee are
+> the history ("The mercenaries gone" at the end of this file).
 
 Two halves of one thing: **a medic can pick a crewmate up**, and **a
 mercenary can be hired whose whole trade that is**.
@@ -7614,3 +7622,40 @@ after the `GearChanged`, so an upgrade never clogs the armory. Another
 kind (the laser pistol under a first rifle) still goes into the armory.
 `wire::PROTOCOL` 138.
 `tests_trader::a_tier_up_bought_onto_a_bim_sells_the_lower_tier_it_replaces`.
+
+## The mercenaries gone (October 2026)
+
+> Every section above about a mercenary — a station's hands for hire, the
+> Hire window, `Command::Hire`, the wages, the front's extra hand, the
+> commander's cheaper hire — describes what this change **deleted**. The
+> player's words: "get rid of mercenaries. In the code too".
+
+- **Gone**: `crate::mercenary` (`how_many`, the fees, `Hired`, `Offer`,
+  `MONTH`), `Command::Hire`, `World::{hire, hire_offer, hire_fee,
+  mercenary_fee, mercenary_is_medic, hired, is_hired, pay_wages,
+  mercenaries_of, mercenary_for_probe, least_mercenaries}`, `mission.rs`'s
+  `pay_wages_due`, `data::TEST_MERCENARY`, `class::HIRE_DISCOUNT_PERCENT`
+  (the commander has no base trait now), `Residents::{fee, medic,
+  hailable, is_mercenary}`, `Losses::mercenaries`, `Grave::hired`; the
+  room's `Uniform::Mercenary` and `Game::set_visitors_hailable` (a
+  visitor on its feet is never hit now); `WorldEvent::{Hired,
+  MercenaryPaid, MercenaryLeft}` (39–41, left free) and
+  `Refusal::NotForHire` (19, left free). The app's Hire window, its menu
+  row, the `?` over a hand's head and every word of theirs.
+- **`Residents::open(station, design, count, defenders, ..)`**: the
+  station's own people, then the defenders, then the graves; nobody else.
+  A station still lays two spare bunks (the generator is untouched, so no
+  design hash moved).
+- **Field medics stay**, as `World::field_medics: Vec<u32>` (saved,
+  hashed: the length, then each index), remapped in `drop_crew_member`.
+  `field_medic_for_probe(who)` puts one on it.
+- **`Gear::hired_for` is `Gear::armed_for`**, `MERCENARY_ODDS` /
+  `MERCENARY_ARMOUR_ODDS` are `ARMED_ODDS` / `ARMED_ARMOUR_ODDS` — the
+  defenders' kit, the same rolls off the same salt.
+- **The checksum** eats a nought where a loss's mercenaries and a grave's
+  `hired` were, and the field medics where the hired hands were, so a
+  world with none hashes as it did. **`SAVE_VERSION` 105, `wire::PROTOCOL`
+  144.** `SURVIVORS`, `REFERENCE_CHECKSUM` and the ship's `PINNED`/
+  `PICTURES` were already off their pins in the tree and were not
+  re-pinned; a station's room is smaller wherever a hand was rolled, so
+  they move.

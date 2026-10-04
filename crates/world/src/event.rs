@@ -84,15 +84,8 @@ pub enum WorldEvent {
     /// once; walking out of reach breaks it, and the next lock is said
     /// again. `Game::is_locked` is the state.
     Locked { who: u32 },
-    /// A mercenary was hired — `Command::Hire` — and is crew member `who`
-    /// now, the first month paid. See `crate::mercenary`.
-    Hired { who: u32 },
-    /// A hired mercenary's month came round and was paid, `fee` euros.
-    MercenaryPaid { who: u32, fee: u64 },
-    /// A hired mercenary went unpaid — the month came round and the
-    /// crew's money would not cover it — and is owed. Said once a month
-    /// owed.
-    MercenaryLeft { who: u32 },
+    // `Hired`, `MercenaryPaid` and `MercenaryLeft` went with the
+    // mercenaries (October 2026); their codes, 39 to 41, are left free.
     /// A hit took a crew member's bar to nothing and they are **downed**
     /// (task 120): lying where they fell with the countdown running until a
     /// crewmate revives them. Said the step it happens, off the room's
@@ -378,7 +371,8 @@ pub enum WorldEvent {
 /// a rally too early, 71, with the commander's talents in task 129; the
 /// surge's, 65–67, with the surge in task 130; the cache's and the
 /// restock's, 96, 108 and 109, with the old relics in October 2026; the
-/// combining's, 107, with the combining in October 2026).
+/// combining's, 107, with the combining in October 2026; a hire of
+/// somebody not for hire, 19, with the mercenaries in October 2026).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 #[repr(u32)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -412,9 +406,8 @@ pub enum Refusal {
     /// thing — or with no such crew member: dead, outside in a suit, or
     /// not aboard. Walk over first.
     OutOfReach = 14,
-    /// A hire of somebody who is not a mercenary for hire — one of the
-    /// station's own people, or nobody at all.
-    NotForHire = 19,
+    // 19, a hire of somebody not for hire, went with the mercenaries
+    // (October 2026).
     /// A sale at a station with nobody to buy: a derelict keeps no desk
     /// (`crate::station::market_kind`). A buy there is
     /// [`Refusal::NotSoldHere`] first, since it stocks nothing either.
@@ -489,7 +482,7 @@ pub enum Refusal {
     /// crew's room (feature 84).
     NoGroundThere = 74,
     /// A carry by a crew member that is neither a medic of the class
-    /// nor a hired field medic (feature 86), or a set down by one that
+    /// nor a field medic (feature 86), or a set down by one that
     /// is carrying nobody.
     NotCarrying = 75,
     /// A carry of a body that wants none: whole, on its feet and awake.
@@ -664,9 +657,7 @@ impl WorldEvent {
             WorldEvent::CrewDown { .. } => 33,
             WorldEvent::PieceBroke { .. } => 36,
             WorldEvent::Locked { .. } => 37,
-            WorldEvent::Hired { .. } => 39,
-            WorldEvent::MercenaryPaid { .. } => 40,
-            WorldEvent::MercenaryLeft { .. } => 41,
+            // 39 to 41 were a hire and its wages (October 2026).
             WorldEvent::CrewDowned { .. } => 42,
             WorldEvent::CrewRevived { .. } => 43,
             // 50 and 52 to 55 were the charge and the landing (feature 104).
@@ -884,12 +875,7 @@ impl WorldEvent {
             // the tens the rows above use: the `combat` command sails
             // with fourteen.
             WorldEvent::Carried { who, patient } => (who + 100 * patient.unwrap_or(0)) as i64,
-            // The fee in the hundreds: a crew is never a hundred.
-            WorldEvent::MercenaryPaid { who, fee } => (who as i64) + 100 * (fee as i64),
-            WorldEvent::CrewDown { who }
-            | WorldEvent::Locked { who }
-            | WorldEvent::Hired { who }
-            | WorldEvent::MercenaryLeft { who } => who as i64,
+            WorldEvent::CrewDown { who } | WorldEvent::Locked { who } => who as i64,
             WorldEvent::SitePlaced { kind, .. }
             | WorldEvent::SiteCancelled { kind }
             | WorldEvent::Built { kind }

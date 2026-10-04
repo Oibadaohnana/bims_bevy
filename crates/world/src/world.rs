@@ -67,7 +67,6 @@ use crate::holdings::{self, GearSlot, GearSource, Holdings};
 use crate::jammer;
 use crate::medic::Medic;
 use crate::memory::{self, Grave, Losses, SystemMemory};
-use crate::mercenary::{self, Hired, Offer};
 use crate::orders::Standing;
 use crate::run::{self, Run, SiteKind};
 use crate::speed::{self, Speed};
@@ -187,18 +186,6 @@ pub enum Command {
         from: u32,
         part: GearSlot,
         yes: bool,
-    },
-    /// Hire the mercenary that is resident `resident` of the station the
-    /// ship is tied to, crew member `who` doing the hiring: the ship
-    /// docked there, the body a mercenary for hire and on its feet, `who`
-    /// alive, awake, aboard and within [`data::REACH`] of it, a free bunk
-    /// aboard, and the first month's fee in hand. The body walks out of
-    /// the station's room into the crew's and the fee out of the money;
-    /// see [`crate::mercenary`].
-    Hire {
-        slot: u32,
-        who: u32,
-        resident: u32,
     },
     /// An order to the crew's room — a click on the deck, a walk, a row
     /// of a fixture's menu, a box on the Management tab — see
@@ -341,7 +328,7 @@ pub enum Command {
         slot: u32,
     },
     /// Link that player's own medic's heal beam to crew member `patient`
-    /// — a player's Bim or a mercenary, or itself; never an enemy —
+    /// — a player's Bim or a bot, or itself; never an enemy —
     /// or unlink with `None` (feature 76, `crate::class`,
     /// `crate::medic`). Wants the medic fit to act and the patient
     /// alive, within [`class::HEAL_BEAM_RANGE`] tiles and in its sight
@@ -462,8 +449,8 @@ pub enum Command {
     },
     /// Take crew member `who` up into that player's own **medic's**
     /// arms, or set down whatever it is carrying with `None` (feature
-    /// 86, [`crate::mercenary`]). Wants the carrier fit to act and
-    /// either a medic of the class or a hired field medic
+    /// 86). Wants the carrier fit to act and
+    /// either a medic of the class or a field medic
     /// ([`World::can_carry`]); the body has to be a crewmate that is
     /// downed, within
     /// [`bims::game::CARRY_REACH`] tiles, and in nobody else's arms. Carried,
@@ -917,15 +904,11 @@ pub struct World {
     /// The star `home` is at. A jump takes the ship to a system with ids of
     /// its own, and home is only home while the ship is at its star.
     pub home_star: u32,
-    /// The mercenaries hired: which crew member each is, what a month of
-    /// them costs and when it next falls due. See [`crate::mercenary`].
-    /// In `world_checksum` whole.
-    pub hired: Vec<Hired>,
-    /// How many mercenaries every friendly station has for hire at the
-    /// least, whatever the roll said: nought, bar the `test` command
-    /// ([`World::mercenary_for_probe`]). Not in the checksum: the crowd in
-    /// a station's room never is.
-    pub least_mercenaries: u32,
+    /// Which crew members are **field medics** (feature 86), in the order
+    /// they were made one: crew whose business under arms is the fallen
+    /// — the combat ship's four at the back of its crew
+    /// ([`World::field_medic_for_probe`]). In `world_checksum` whole.
+    pub field_medics: Vec<u32>,
     /// Which crew members the world has already said are down, by slot,
     /// so [`WorldEvent::CrewDown`] is said once — the step it happens —
     /// and not every step after. See [`World::casualties`].
@@ -940,9 +923,8 @@ pub struct World {
     /// In `world_checksum` whole.
     pub holdings: Holdings,
     /// What the ship and its hold were worth when the world opened —
-    /// [`World::worth`] at step nought — fixed for the whole game. Every
-    /// half of it the crew's worth has grown by since is more hands for
-    /// hire (`crate::mercenary::how_many`); the machines never read it
+    /// [`World::worth`] at step nought — fixed for the whole game. The
+    /// machines never read it
     /// (feature 105, `crate::droid::WaveScaling`). Not in `world_checksum`: it
     /// is a function of the design the world started on, which two
     /// clients share.
@@ -959,10 +941,10 @@ pub struct World {
     /// since the app ends the run on it. In `world_checksum`.
     pub lost: bool,
     /// What every station of this system has lost to the crew — its own
-    /// people dead, its mercenaries hired away or dead — by the station's
+    /// people dead — by the station's
     /// id, sorted. Added to whenever a station's room is closed
     /// ([`World::close_residents`]) and taken off the crowd the room is
-    /// opened with again ([`World::people_of`], [`World::mercenaries_of`]),
+    /// opened with again ([`World::people_of`]),
     /// so a station's dead stay dead. See [`crate::memory`]. In
     /// `world_checksum` whole.
     pub losses: Vec<Losses>,
@@ -1267,8 +1249,7 @@ impl World {
             next_site: 1,
             home: station_id,
             home_star: star_id,
-            hired: Vec::new(),
-            least_mercenaries: 0,
+            field_medics: Vec::new(),
             crew_down: vec![false; crew as usize],
             crew_locked: vec![false; crew as usize],
             holdings: Holdings::new(),
@@ -1487,10 +1468,10 @@ impl World {
         self.fly_the_drones();
         //    And the engineers' Healing Sentries (task 127), beside the beam.
         self.heal_by_sentries();
-        //    And which crew members are hired **field medics** (feature
-        //    86), whose business under arms is the fallen: said every
-        //    step, since it is the contract that
-        //    knows and a save reads the contract back.
+        //    And which crew members are **field medics** (feature 86),
+        //    whose business under arms is the fallen: said every step,
+        //    since it is the world's list that knows and a save reads it
+        //    back.
         self.hand_the_room_the_field_medics();
         //    And the hit points each player's level puts on its bar
         //    (October 2026): said every step, since a level is reached,
@@ -1597,7 +1578,6 @@ impl World {
             | Command::Unequip { slot, .. }
             | Command::Offer { slot, .. }
             | Command::AnswerOffer { slot, .. }
-            | Command::Hire { slot, .. }
             | Command::Crew { slot, .. }
             | Command::CrewLater { slot, .. }
             | Command::SetClass { slot, .. }
@@ -1752,7 +1732,6 @@ impl World {
             Command::AnswerOffer {
                 from, part, yes, ..
             } => self.answer_offer(slot, from, part, yes, events),
-            Command::Hire { who, resident, .. } => self.hire(slot, who, resident, events),
             Command::Crew { order, .. } => {
                 // An order that moves the Bim calls off a throw it was
                 // walking out to make.
@@ -2072,31 +2051,6 @@ impl World {
             .saturating_sub(self.losses_at(station.id).dead)
     }
 
-    /// How many mercenaries for hire live at a station, on top of
-    /// [`World::people_of`]: none where the machines hold it or on a
-    /// derelict, else
-    /// [`mercenary::how_many`] the crew's worth against
-    /// [`World::start_worth`] off the station's seed — at least
-    /// `least_mercenaries` for the `test` command — **less those gone**
-    /// ([`World::losses`]): one hired onto the crew, or dead, is not there
-    /// to hire again. Asked when the room opens, like the people, so a
-    /// station keeps its offer until the ship has gone and come back.
-    pub fn mercenaries_of(&self, station: &Station) -> u32 {
-        if self.is_droid_held(station.id) {
-            return 0;
-        }
-        if station.residents() == 0 {
-            return 0;
-        }
-        // And one more inside the front (feature 94), which is what a
-        // system with the machines a few hops off looks like from the
-        // hiring hall: people on the move, and armed.
-        let near_front = self.front_at(station.id).is_some();
-        mercenary::how_many(self.worth(), self.start_worth, station.map_seed, near_front)
-            .max(self.least_mercenaries)
-            .saturating_sub(self.losses_at(station.id).mercenaries)
-    }
-
     /// Where this ship docks at that station: airlock to airlock, outside
     /// its hull. `None` for a station that is not there or has no door.
     pub fn berth_at(&self, id: u32) -> Option<Berth> {
@@ -2139,10 +2093,9 @@ impl World {
         ) else {
             return;
         };
-        let (design, count, mercs, seed) = (
+        let (design, count, seed) = (
             station.design.clone(),
             self.people_of(station),
-            self.mercenaries_of(station),
             station.map_seed,
         );
         // The three rooms below are nearly all a site's building, counted
@@ -2162,7 +2115,7 @@ impl World {
                 self.residents = other;
                 self.close_residents();
                 crate::loading::begin(units);
-                let opened = self.open_residents(id, &design, count, mercs, seed);
+                let opened = self.open_residents(id, &design, count, seed);
                 crate::loading::end();
                 opened
             }
@@ -2269,11 +2222,10 @@ impl World {
             .and_then(|r| {
                 let s = self.station(station)?;
                 let count = self.people_of(s);
-                let mercs = self.mercenaries_of(s);
                 // And the defenders (task 111), who are Bims of the room
                 // as much as the people are.
                 let defenders = self.defenders_of(station);
-                (count + mercs + defenders != r.aboard.room.crew_count())
+                (count + defenders != r.aboard.room.crew_count())
                     .then(|| (s.design.clone(), s.map_seed))
             });
         let Some((design, seed)) = reopen else {
@@ -2282,11 +2234,8 @@ impl World {
         // The old crowd's dead counted before the new crowd stands,
         // and the new crowd is the fewer for them.
         self.close_residents();
-        let (count, mercs) = self
-            .station(station)
-            .map(|s| (self.people_of(s), self.mercenaries_of(s)))
-            .unwrap_or((0, 0));
-        let mut residents = self.open_residents(station, &design, count, mercs, seed);
+        let count = self.station(station).map_or(0, |s| self.people_of(s));
+        let mut residents = self.open_residents(station, &design, count, seed);
         if self.aboard.is_joined() && self.ship.state.station() == Some(station) {
             residents.aboard.room.set_doors_drawn(false);
             residents.aboard.room.set_fog(bims::sight::Fog::None);
@@ -2601,14 +2550,6 @@ impl World {
         };
         self.aboard.visit(&visitors, &down);
         self.sync_doors();
-        // And which of them may be spoken to — the mercenaries for hire —
-        // so a click on one on its feet is a click on it. After the
-        // positions too, for the same reason.
-        if let Some(residents) = &self.residents {
-            self.aboard
-                .room
-                .set_visitors_hailable(&residents.hailable());
-        }
         // And which of them the crew may pick up with the medkit: a
         // station's own person downed — a townsperson fallen defending
         // it — at a station that is not at war with the crew.
@@ -2747,8 +2688,6 @@ impl World {
         residents.down.resize(bodies, false);
         residents.xp_down.resize(bodies, false);
         residents.last_hit_by.resize(bodies, None);
-        residents.fee.resize(bodies, None);
-        residents.medic.resize(bodies, false);
         residents.grave.resize(bodies, false);
         residents.defender.resize(bodies, false);
         let room = &mut residents.aboard.room;
@@ -2909,15 +2848,14 @@ impl World {
                 );
             }
             room.set_machine_hostiles(theirs, cross);
-            // And who takes arms: **a town's guard, any mercenaries and
-            // the defenders** (task 111). Everybody else walks into the
+            // And who takes arms: **a town's guard and the defenders**
+            // (task 111). Everybody else walks into the
             // nearest house — the nearest bunk, at a station — and stays
             // there until the attack is over.
             let town = surface::surface_body(residents.station).is_some();
             let sheltering: Vec<bool> = (0..bims)
                 .map(|who| {
                     !(town && who == surface::GUARD as usize)
-                        && !residents.is_mercenary(who)
                         && !residents.is_defender(who)
                         // A Manufacturer come to attack (task 131) runs
                         // into no house.
@@ -3239,13 +3177,13 @@ impl World {
     }
 
     /// The station's room closed, and what it lost while it was open
-    /// remembered: its own people dead and its mercenaries dead, added to
-    /// [`World::losses`] for the station, so the room opens again with
-    /// the survivors ([`World::people_of`], [`World::mercenaries_of`]).
-    /// The one door a residents' room goes out by, bar a probe's.
+    /// remembered: its own people dead, added to [`World::losses`] for
+    /// the station, so the room opens again with the survivors
+    /// ([`World::people_of`]). The one door a residents' room goes out
+    /// by, bar a probe's.
     fn close_residents(&mut self) -> Option<Residents> {
         let residents = self.residents.take()?;
-        let (mut own, mut hired) = (0u32, 0u32);
+        let mut own = 0u32;
         // And where each of them is lying, for the room that opens next
         // (feature 85): the bodies laid out at this open among them, so
         // what the room says is the whole of what that station's deck
@@ -3263,18 +3201,13 @@ impl World {
             }
             // Not `is_alive` is dead, not downed — one downed wakes,
             // and is one of the survivors rather than a grave.
-            let was_hired = matches!(residents.fee.get(who), Some(Some(_)));
             // A body that was already lying here when the room opened is
             // in `losses` from the day it died — and a defender is nobody's
             // loss at all (task 111): it came for the fight, and the
             // station's own people are as many as they were. Its body
             // stays where it fell, in the station's coverall.
             if !residents.grave.get(who).copied().unwrap_or(false) && !residents.is_defender(who) {
-                if was_hired {
-                    hired += 1;
-                } else {
-                    own += 1;
-                }
+                own += 1;
             }
             let at = residents.aboard.position(who as u32);
             graves.push(Grave {
@@ -3283,13 +3216,9 @@ impl World {
                 y: at.y,
                 gear: residents.aboard.room.gear(who),
                 look: residents.aboard.room.look(who),
-                hired: was_hired,
             });
         }
-        memory::amend_losses(&mut self.losses, residents.station, |l| {
-            l.dead += own;
-            l.mercenaries += hired;
-        });
+        memory::amend_losses(&mut self.losses, residents.station, |l| l.dead += own);
         memory::set_graves(&mut self.graves, residents.station, graves);
         Some(residents)
     }
@@ -3305,15 +3234,14 @@ impl World {
     }
 
     /// The station's room opened with what the station has: its people,
-    /// its hired hands, its defenders while the machines are coming for
-    /// it (task 111, [`World::defenders_of`]) and its dead. The one door,
-    /// so that no open anywhere forgets the graves or the defenders.
+    /// its defenders while the machines are coming for it (task 111,
+    /// [`World::defenders_of`]) and its dead. The one door, so that no
+    /// open anywhere forgets the graves or the defenders.
     fn open_residents(
         &self,
         station: u32,
         design: &ShipDesign,
         count: u32,
-        mercenaries: u32,
         seed: u64,
     ) -> Residents {
         let defenders = self.defender_tiers(self.defenders_of(station));
@@ -3321,7 +3249,6 @@ impl World {
             station,
             design,
             count,
-            mercenaries,
             &defenders,
             seed,
             self.clock_minutes,
@@ -3423,14 +3350,9 @@ impl World {
         if matches!(self.ship.state, ShipState::Docked { .. }) {
             return;
         }
-        let near = self.nearest_station().map(|(s, clearance)| {
-            (
-                s.id,
-                clearance,
-                (self.people_of(s), self.mercenaries_of(s)),
-                s.map_seed,
-            )
-        });
+        let near = self
+            .nearest_station()
+            .map(|(s, clearance)| (s.id, clearance, self.people_of(s), s.map_seed));
         if let Some(residents) = &self.residents {
             let same = near.filter(|&(id, _, _, _)| id == residents.station);
             let keep = same.is_some_and(|(_, clearance, _, _)| {
@@ -3441,11 +3363,11 @@ impl World {
             }
             self.close_residents();
         }
-        if let Some((id, clearance, (count, mercs), seed)) = near
+        if let Some((id, clearance, count, seed)) = near
             && clearance <= data::RESIDENTS_RANGE
             && let Some(station) = self.station(id)
         {
-            self.residents = Some(self.open_residents(id, &station.design, count, mercs, seed));
+            self.residents = Some(self.open_residents(id, &station.design, count, seed));
             // Whose it is: its fog is black for a stranger's, and its
             // people are ringed for an enemy's.
             self.apply_stances();
@@ -4321,78 +4243,19 @@ impl World {
         (room.bim_pos(looter) - body).len() <= data::REACH * shipdesign::TILE as f32
     }
 
-    // --- mercenaries ---------------------------------------------------------
-
-    /// What a month of that resident costs, if it is a mercenary for hire
-    /// at the station whose room is open: what the `?` over its head and
-    /// the menu on it say. `None` for one of the station's own, for a
-    /// hired hand that has gone aboard, or for no such body.
-    pub fn mercenary_fee(&self, resident: u32) -> Option<Money> {
-        self.residents
-            .as_ref()?
-            .fee
-            .get(resident as usize)
-            .copied()
-            .flatten()
-    }
-
-    /// Everything the Hire window wants to know before the command is
-    /// sent, so it can say "walk over first" rather than be refused:
-    /// the fee, whether `who` is within reach of the body, and whether the
-    /// money covers a month. A bunk is furniture, and puts no cap on the
-    /// crew. `None` for anybody who is not a mercenary for hire. The
-    /// command checks it all again when it lands.
-    pub fn hire_offer(&self, who: u32, resident: u32) -> Option<Offer> {
-        // The fee the crew member doing the hiring would pay: a
-        // commander's is cheaper (feature 78), so the window says the
-        // discounted price while one is steered.
-        let fee = self.hire_fee(who, resident)?;
-        Some(Offer {
-            fee,
-            in_reach: self.in_reach_of_body(who, LootSource::Resident(resident)),
-            affordable: self.wallet(who) >= fee,
-            docked: self.residents.as_ref().map(|r| r.station) == self.ship.state.station(),
-            medic: self.mercenary_is_medic(resident),
-        })
-    }
-
-    /// Whether that resident of the station whose room is open is a
-    /// **field medic** for hire (feature 86). False for one of the
-    /// station's own, for a plain gun for hire, and for no such body.
-    pub fn mercenary_is_medic(&self, resident: u32) -> bool {
-        self.residents
-            .as_ref()
-            .and_then(|r| r.medic.get(resident as usize))
-            .copied()
-            .unwrap_or(false)
-    }
-
-    /// A month of every hired hand, as the world keeps it — for the crew
-    /// panel to say who costs what and when it is next due.
-    pub fn hired(&self) -> &[Hired] {
-        &self.hired
-    }
-
-    /// Whether that crew member is a hired hand.
-    pub fn is_hired(&self, who: u32) -> bool {
-        self.hired.iter().any(|h| h.who == who)
-    }
+    // --- the station's people coming aboard ------------------------------------
 
     /// Move one of the station's people out of its room and into the
     /// crew's, at the spot it stands on, with its worn armour renumbered
-    /// as pieces of the world's under fresh ids. What a **hire** and a
-    /// townsperson **joining** after a defence (feature 94) both do; the
-    /// money, the contract and the kit are the caller's, and so is
-    /// `on_ship_changed`/`mirror_pieces` afterwards.
+    /// as pieces of the world's under fresh ids: what a townsperson
+    /// **joining** after a defence (feature 94) does. The kit is the
+    /// caller's, and so is `on_ship_changed`/`mirror_pieces` afterwards.
+    /// The station remembers one fewer of its own people, so the room
+    /// opens again with the right crowd.
     ///
-    /// `for_hire` says which of the station's losses to count it against
-    /// — a mercenary gone from its offer, or one of its own people gone
-    /// from the town — so the room opens again with the right crowd
-    /// either way.
-    ///
-    /// Answers the crew index it took and whether it was a field medic,
-    /// or `None` with no station's room open.
-    fn take_resident_aboard(&mut self, resident: u32, for_hire: bool) -> Option<(u32, bool)> {
+    /// Answers the crew index it took, or `None` with no station's room
+    /// open.
+    fn take_resident_aboard(&mut self, resident: u32) -> Option<u32> {
         let at = self.body_position(LootSource::Resident(resident))?;
         let residents = self.residents.as_mut()?;
         if resident >= residents.aboard.room.crew_count() {
@@ -4411,19 +4274,11 @@ impl World {
         residents.down.remove(resident as usize);
         residents.xp_down.remove(resident as usize);
         residents.last_hit_by.remove(resident as usize);
-        residents.fee.remove(resident as usize);
-        let was_medic = residents.medic.remove(resident as usize);
         residents.grave.remove(resident as usize);
         if (resident as usize) < residents.defender.len() {
             residents.defender.remove(resident as usize);
         }
-        memory::amend_losses(&mut self.losses, station, |l| {
-            if for_hire {
-                l.mercenaries += 1;
-            } else {
-                l.dead += 1;
-            }
-        });
+        memory::amend_losses(&mut self.losses, station, |l| l.dead += 1);
         // Into the crew's, where it stood on the deck, with the gear it
         // brings as its loadout (task 113), its armour renumbered off the
         // holdings — and its berth left behind, since that was the
@@ -4454,86 +4309,7 @@ impl World {
         self.commanders
             .resize(self.aboard.crew as usize, Commander::default());
         self.ship.crew_count = self.aboard.crew;
-        Some((new_who, was_medic))
-    }
-
-    /// A hire: see [`Command::Hire`] for what is asked. The station's
-    /// room gives the body up (`take_crew`, the one taken out, `adopt` the
-    /// rest back — every errand ashore is dropped once, the way a docking
-    /// drops the crew's) and the crew's room takes it in at the same spot
-    /// on the joined deck, in its own coverall still. Its armour becomes
-    /// pieces of the world's under fresh ids. The first month is paid now
-    /// and the next falls due a month on.
-    fn hire(&mut self, slot: u32, who: u32, resident: u32, events: &mut Vec<WorldEvent>) {
-        let Some(offer) = self.hire_offer(who, resident) else {
-            events.push(refused(slot, Refusal::NotForHire));
-            return;
-        };
-        if !offer.docked || !self.aboard.is_joined() {
-            events.push(refused(slot, Refusal::NotDocked));
-            return;
-        }
-        if self.is_down(LootSource::Resident(resident)) {
-            events.push(refused(slot, Refusal::NotForHire));
-            return;
-        }
-        if !offer.in_reach {
-            events.push(refused(slot, Refusal::OutOfReach));
-            return;
-        }
-        // The fee the *sending* slot signs for: a commander's discount
-        // is his own, and it is what goes into the contract (feature
-        // 78).
-        let fee = self.hire_fee(slot, resident).unwrap_or(offer.fee);
-        if self.wallet(slot) < fee {
-            events.push(refused(slot, Refusal::Unaffordable));
-            return;
-        }
-        let Some((new_who, hire_is_medic)) = self.take_resident_aboard(resident, true) else {
-            events.push(refused(slot, Refusal::NotDocked));
-            return;
-        };
-        self.pay_from(slot, fee);
-        self.hired.push(Hired {
-            who: new_who,
-            by: slot,
-            fee,
-            due: self.clock_minutes + mercenary::MONTH,
-            owed: false,
-            medic: hire_is_medic,
-        });
-        self.on_ship_changed();
-        events.push(WorldEvent::Hired { who: new_who });
-    }
-
-    /// The hired hands' months, as they fall due: paid out of the money
-    /// while it covers them, and a month it will not cover is owed — said
-    /// once — until it can be. Asked when a trip puts the world clock on
-    /// (`pay_wages_due`), the one time it moves, with the ship holding
-    /// between missions: an unpaid hand sails on owed. (It walked off at a
-    /// berth when the clock ran with the step at one; that went with the
-    /// free clock, feature 104.)
-    fn pay_wages(&mut self, events: &mut Vec<WorldEvent>) {
-        let clock = self.clock_minutes;
-        for i in 0..self.hired.len() {
-            let hired = self.hired[i];
-            if !mercenary::owed(&hired, clock) {
-                continue;
-            }
-            if self.pay_from(hired.by, hired.fee) {
-                self.hired[i].due += mercenary::MONTH;
-                self.hired[i].owed = false;
-                events.push(WorldEvent::MercenaryPaid {
-                    who: hired.who,
-                    fee: hired.fee,
-                });
-                continue;
-            }
-            if !hired.owed {
-                self.hired[i].owed = true;
-                events.push(WorldEvent::MercenaryLeft { who: hired.who });
-            }
-        }
+        Some(new_who)
     }
 
     // --- the station's research desk ------------------------------------------
@@ -5281,21 +5057,14 @@ impl World {
                     y: at.y,
                     gear: residents.aboard.room.gear(who as usize),
                     look: residents.aboard.room.look(who as usize),
-                    hired: matches!(residents.fee.get(who as usize), Some(Some(_))),
                 }
             })
             .collect();
-        let (own, hired) = laid.iter().fold((0, 0), |(own, hired), g| match g.hired {
-            true => (own, hired + 1),
-            false => (own + 1, hired),
-        });
-        memory::amend_losses(&mut self.losses, id, |l| {
-            l.dead += own;
-            l.mercenaries += hired;
-        });
+        let own = laid.len() as u32;
+        memory::amend_losses(&mut self.losses, id, |l| l.dead += own);
         memory::set_graves(&mut self.graves, id, laid);
-        let (count, mercs) = (self.people_of(&station), self.mercenaries_of(&station));
-        let mut fresh = self.open_residents(id, &station.design, count, mercs, station.map_seed);
+        let count = self.people_of(&station);
+        let mut fresh = self.open_residents(id, &station.design, count, station.map_seed);
         if self.aboard.is_joined() && self.ship.state.station() == Some(id) {
             fresh.aboard.room.set_doors_drawn(false);
             fresh.aboard.room.set_fog(bims::sight::Fog::None);
@@ -5310,37 +5079,6 @@ impl World {
             }
         }
         self.residents = Some(fresh);
-        self.apply_stances();
-        true
-    }
-
-    /// A mercenary for hire at the dock whatever the roll said: the
-    /// station's room opened again with [`data::TEST_MERCENARY`] of them
-    /// at the least, and every friendly station from here on the same.
-    /// `false`, and nothing moved, away from a berth, at an enemy's, or
-    /// on a derelict. For probes and for the `test` command.
-    pub fn mercenary_for_probe(&mut self) -> bool {
-        let Some(id) = self.ship.state.station() else {
-            return false;
-        };
-        let Some(station) = self.station(id).cloned() else {
-            return false;
-        };
-        self.least_mercenaries = data::TEST_MERCENARY;
-        if self.mercenaries_of(&station) == 0 {
-            self.least_mercenaries = 0;
-            return false;
-        }
-        // Opened again with the mercenary in it, looked into as
-        // `join_rooms` leaves a docked station's room.
-        let (count, mercs) = (self.people_of(&station), self.mercenaries_of(&station));
-        let mut residents =
-            self.open_residents(id, &station.design, count, mercs, station.map_seed);
-        if self.aboard.is_joined() {
-            residents.aboard.room.set_doors_drawn(false);
-            residents.aboard.room.set_fog(bims::sight::Fog::None);
-        }
-        self.residents = Some(residents);
         self.apply_stances();
         true
     }
@@ -5501,8 +5239,7 @@ impl World {
     // The infection is a disc on the lane graph: every star within
     // `radius` hops of the origin has fallen, and the rest have not. The
     // **front** is how far outside that disc a star still is — one hop
-    // out is the edge, and the edge is where a gun is dear and a
-    // mercenary is easy to find. Both numbers are arithmetic off the day
+    // out is the edge, and the edge is where a gun is dear. Both numbers are arithmetic off the day
     // and the hop table, like the spread itself: nothing is saved, and
     // two clients that agree about the day agree about the front.
 
@@ -6588,8 +6325,6 @@ impl World {
                 residents.down.truncate(bims);
                 residents.xp_down.truncate(bims);
                 residents.last_hit_by.truncate(bims);
-                residents.fee.truncate(bims);
-                residents.medic.truncate(bims);
                 residents.grave.truncate(bims);
                 residents.defender.truncate(bims);
             }
@@ -6989,8 +6724,8 @@ impl World {
     }
 
     /// Whether every one of the site's **own** people is dead — the
-    /// mercenaries are nobody's townsfolk and the defenders nobody's at
-    /// all (task 111), so neither is counted. A site with none of its own
+    /// defenders are nobody's at all (task 111), so they are not
+    /// counted. A site with none of its own
     /// — a derelict, defended by its defenders alone — is never dead, and
     /// a site whose room is not open answers false, since nothing is
     /// known about it.
@@ -7021,8 +6756,6 @@ impl World {
         residents.down.truncate(bims);
         residents.xp_down.truncate(bims);
         residents.last_hit_by.truncate(bims);
-        residents.fee.truncate(bims);
-        residents.medic.truncate(bims);
         residents.grave.truncate(bims);
         residents.defender.truncate(bims);
     }
@@ -7089,7 +6822,7 @@ impl World {
         going.sort_unstable();
         let count = going.len() as u32;
         for who in going.into_iter().rev() {
-            self.take_resident_aboard(who, false);
+            self.take_resident_aboard(who);
         }
         self.on_ship_changed();
         events.push(WorldEvent::TownsfolkJoined { count });
@@ -8156,7 +7889,7 @@ impl World {
 
     /// What each crew member's class wears (feature 81), to the room.
     /// Drawing only: a class is a player slot's, so the crew past the
-    /// players — a hire, a mercenary — are in nothing, and a station's
+    /// players — a bot, a joiner — are in nothing, and a station's
     /// residents are never told at all. Said every step because a class
     /// is chosen in the yard, a hire shifts nobody's slot and a save
     /// carries the classes but not the picture; `set_outfit` writes only
@@ -9801,22 +9534,15 @@ impl World {
 
     /// Crew member `who` made a **field medic** with nothing else about
     /// the world touched, for a probe and for `BIMS_FIELD_MEDIC=n` in
-    /// the app (feature 86): the contract written as a hire writes one,
-    /// the kits put in its pack, and no money taken — the fight the
-    /// probe wants to look at is what it does, not what it cost. False
-    /// with no such crew member, or with one that is hired already.
+    /// the app (feature 86) and the combat ship's four
+    /// (`ship::session::COMBAT_MEDICS`): put on [`World::field_medics`].
+    /// False with no such crew member, or with one that is a field medic
+    /// already.
     pub fn field_medic_for_probe(&mut self, who: u32) -> bool {
-        if who >= self.aboard.crew_count() || self.hired.iter().any(|h| h.who == who) {
+        if who >= self.aboard.crew_count() || self.field_medics.contains(&who) {
             return false;
         }
-        self.hired.push(Hired {
-            who,
-            by: 0,
-            fee: 0,
-            due: self.clock_minutes + mercenary::MONTH,
-            owed: false,
-            medic: true,
-        });
+        self.field_medics.push(who);
         true
     }
 
@@ -9955,14 +9681,11 @@ impl World {
 
     // --- the field medics (feature 86) -------------------------------------
 
-    /// Whether that crew member is a hired **field medic**: a mercenary
-    /// taken on for the job of fetching the fallen out of the fire and
-    /// treating them, with none of the medic class's talents. It is the
-    /// contract that says so ([`mercenary::Hired::medic`]), not the
-    /// body, so a hand let go and hired again by somebody else is a
-    /// field medic to them too.
+    /// Whether that crew member is a **field medic**: a bot whose job is
+    /// fetching the fallen out of the fire and reviving them, with none
+    /// of the medic class's ranks ([`World::field_medics`]).
     pub fn is_field_medic(&self, who: u32) -> bool {
-        self.hired.iter().any(|h| h.who == who && h.medic)
+        self.field_medics.contains(&who)
     }
 
     /// Every crew member's trade said to the room, every step: the room
@@ -10974,20 +10697,6 @@ impl World {
             self.commanders
                 .resize(self.aboard.crew_count() as usize, Commander::default());
         }
-    }
-
-    /// What a mercenary's month costs when this slot does the hiring:
-    /// the fee less [`class::HIRE_DISCOUNT_PERCENT`] for a commander fit
-    /// to act — a base trait, at every level — rounded down to whole
-    /// euros, and the plain fee for everybody else. Read once, as the
-    /// contract is signed: it stays that hand's fee whatever happens to
-    /// him.
-    pub fn hire_fee(&self, slot: u32, resident: u32) -> Option<Money> {
-        let fee = self.mercenary_fee(resident)?;
-        if !self.is_commander(slot) || !self.fit_to_act(slot) {
-            return Some(fee);
-        }
-        Some(fee - fee * Money::from(class::HIRE_DISCOUNT_PERCENT) / 100)
     }
 
     // --- the commander's Reinforcements (task 129) --------------------------

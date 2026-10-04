@@ -558,7 +558,7 @@ fn controls(ui: &mut egui::Ui, sheet: &mut Option<Sheet>, keys: &mut Keys) {
             ),
             (
                 "Right-click on the deck",
-                "Open the menu of what is there — a door, a downed crewmate, a mercenary, a cache — or pick the crew member under it. With the medkit in hand, a right-click on a downed crewmate revives them.",
+                "Open the menu of what is there — a door, a downed crewmate — or pick the crew member under it. With the medkit in hand, a right-click on a downed crewmate revives them.",
             ),
             (
                 "Build tab",

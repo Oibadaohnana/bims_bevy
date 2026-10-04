@@ -97,11 +97,6 @@ const SLEEVE: Color = Color::rgb(0.27, 0.49, 0.74);
 /// they happen to be standing — see [`Uniform`].
 const SHIRT_STATION: Color = Color::rgb(0.84, 0.52, 0.24);
 const SLEEVE_STATION: Color = Color::rgb(0.70, 0.41, 0.18);
-/// A mercenary's: dark olive, so one living on a station is told from the
-/// people who live there at a glance, and keeps its colours once hired —
-/// hired hands are not crew.
-const SHIRT_MERCENARY: Color = Color::rgb(0.40, 0.47, 0.30);
-const SLEEVE_MERCENARY: Color = Color::rgb(0.31, 0.37, 0.23);
 /// A Manufacturer's (feature 109): black with gold at the yoke and the
 /// cuffs, the one faction that is rich and the one no townsperson or crew
 /// member is ever mistaken for. The black is lifted off the outline's own,
@@ -453,9 +448,6 @@ fn in_shade(c: Color) -> Color {
 pub enum Uniform {
     Crew,
     Station,
-    /// A mercenary's, at a station or hired aboard: the world says who
-    /// is one (`world::mercenary`), the room only draws it.
-    Mercenary,
     /// A Manufacturer's (feature 109): black and gold. Worn by the one
     /// human faction the crew fight and by nobody else; drawing only, like
     /// the rest — what makes a body a Manufacturer is `Bim::manufacturer`.
@@ -472,7 +464,6 @@ impl Uniform {
         match self {
             Uniform::Crew => SHIRT,
             Uniform::Station => SHIRT_STATION,
-            Uniform::Mercenary => SHIRT_MERCENARY,
             Uniform::Manufacturer => SHIRT_MANUFACTURER,
             Uniform::Suit => SHIRT_SUIT,
         }
@@ -491,7 +482,6 @@ impl Uniform {
         match self {
             Uniform::Crew => SLEEVE,
             Uniform::Station => SLEEVE_STATION,
-            Uniform::Mercenary => SLEEVE_MERCENARY,
             Uniform::Manufacturer => SLEEVE_MANUFACTURER,
             Uniform::Suit => SLEEVE_SUIT,
         }
@@ -505,7 +495,7 @@ impl Uniform {
 /// world hands it over every step off its own `classes`
 /// (`Class::outfit`), which is why it is left out of a save — it is a
 /// function of what is saved, like the draw buffer. A body nobody steers
-/// — a hire, a resident, a garrison — is [`Outfit::Plain`] and looks the
+/// — a bot, a resident, a garrison — is [`Outfit::Plain`] and looks the
 /// way every Bim used to.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -1026,7 +1016,7 @@ pub struct Character {
     /// Animates the selection ring so a picked Bim reads at a glance.
     select_pulse: f32,
     /// The colour of the player whose own Bim this is (feature 84), or
-    /// `None` for a bot, a hire, a resident — anybody nobody steers.
+    /// `None` for a bot, a joiner, a resident — anybody nobody steers.
     /// Drawn as a steady ring on the deck under the body, so a player
     /// picks their own out of a crowd without selecting anything. Set
     /// through [`Character::set_tint`]; `crate::game::Game::set_tints`

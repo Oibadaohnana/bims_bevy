@@ -40,7 +40,7 @@ pub struct Medic {
     /// The crew members its beam holds, by index — or a site's defenders,
     /// [`GUEST`]` + i`: none, one, or two at the beam's fourth rank.
     /// Cleared whole whenever crew indices change
-    /// (a hire, a bot dropped off the crew), since an index is all a link
+    /// (a joiner, a bot dropped off the crew), since an index is all a link
     /// is.
     pub patients: Vec<u32>,
     /// The mission minute it last dropped a Heal Drone (task 153): what

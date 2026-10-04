@@ -28,7 +28,6 @@ use bims::combat::{Gear, Piece, Tier};
 use bims::game::{Container, Game as Room};
 use bims::math::{Rect, vec2};
 use bims::sight::Fog;
-use economy::Money;
 use shipdesign::parts::{Layer, TILE};
 use shipdesign::{ShipDesign, dock};
 use worldgen::math::{DVec2, dvec2};
@@ -672,17 +671,6 @@ pub struct Residents {
     /// a bolt's, a blow's or a burst's shooter, `None` for a sentry's —
     /// so the soldier's *rampage* knows who downed whom (feature 75).
     pub last_hit_by: Vec<Option<usize>>,
-    /// Which of them are mercenaries for hire, by index, and what a month
-    /// of each costs (`crate::mercenary::priced`); `None` for one of the
-    /// station's own. Derived from the seed and the crew's worth when the
-    /// room opens, like the gear, so nothing new is hashed.
-    pub fee: Vec<Option<Money>>,
-    /// Which of the mercenaries for hire are **field medics** (feature
-    /// 86), by index — false for one of the station's own and for a
-    /// plain gun for hire. Derived from the seed when the room opens
-    /// (`crate::mercenary::is_medic`), like the gear and the price, so
-    /// nothing new is hashed.
-    pub medic: Vec<bool>,
     /// Which of them were laid out dead when the room opened, by index
     /// (feature 85): a body the station already had, out of
     /// `World::graves`, rather than somebody who died while this room was
@@ -699,12 +687,12 @@ pub struct Residents {
     pub manufacturers_laid: u32,
     /// Which of them are **defenders** (task 111), by index: armed people
     /// who stand with the site's own while the machines come for it —
-    /// after the mercenaries, in the station's coverall, with no fee, so
-    /// nobody hails or hires one. Nobody's loss when one falls and never
+    /// after its own people, in the station's coverall, never the
+    /// crew's. Nobody's loss when one falls and never
     /// the crew's: `close_residents` counts none of them, and neither do
     /// the site's own people (`World::town_is_dead`). Derived when the
-    /// room opens (`World::defenders_of`), like the mercenaries, and kept
-    /// in step with `fee`, `medic` and `grave`.
+    /// room opens (`World::defenders_of`), and kept in step with
+    /// `grave`.
     #[cfg_attr(feature = "serde", serde(default))]
     pub defender: Vec<bool>,
     /// Night at a planet's town (task 152): no sky over its ground, so
@@ -784,11 +772,8 @@ impl Residents {
     /// The station's room, with its people at their bunks and its clock
     /// wound on to the world's, so a station reached at noon is not at
     /// breakfast.
-    /// `count` is the station's own people and `mercenaries` how many
-    /// hired hands live among them (`crate::mercenary::how_many`): the
-    /// last that many bodies, in the mercenary's coverall and kit and
-    /// priced, as many as the bunks will take after the residents.
-    /// `defenders` (task 111) come after them, one a tier — armed at that
+    /// `count` is the station's own people, as many as the bunks will
+    /// take. `defenders` (task 111) come after them, one a tier — armed at that
     /// tier ([`defender_gear`]), in the station's coverall, unpriced — and
     /// are **not** cut to the bunks: they are there for the fight, not to
     /// live there.
@@ -803,7 +788,6 @@ impl Residents {
         station: u32,
         design: &ShipDesign,
         count: u32,
-        mercenaries: u32,
         defenders: &[Tier],
         seed: u64,
         minutes: f64,
@@ -811,8 +795,7 @@ impl Residents {
     ) -> Residents {
         let bunks = design.count(shipdesign::PartKind::Bunk).max(1);
         let count = count.min(bunks);
-        let mercenaries = mercenaries.min(bunks - count);
-        let living = count + mercenaries + defenders.len() as u32;
+        let living = count + defenders.len() as u32;
         // And the dead this station has already (feature 85), on the end:
         // bodies, not people, so the bunks have nothing to say about how
         // many of them there are.
@@ -826,15 +809,12 @@ impl Residents {
         // so the same station arms the same people the same way every
         // time it is reached, and `world_checksum` has nothing new to
         // hash: the kind is a function of what it already holds.
-        let mut fee = vec![None; aboard.count() as usize];
-        let mut medic = vec![false; aboard.count() as usize];
         let mut defender = vec![false; aboard.count() as usize];
         for who in 0..living {
-            if who >= count + mercenaries {
-                // A defender (task 111): the station's coverall, a hired
-                // hand's kit off a seed of its own at the defender's tier,
-                // and no price — nobody hires one.
-                let n = who - count - mercenaries;
+            if who >= count {
+                // A defender (task 111): the station's coverall, and an
+                // armed kit off a seed of its own at the defender's tier.
+                let n = who - count;
                 let gear = defender_gear(
                     crate::defense::defender_seed(seed, n),
                     1_000 * (who + 1),
@@ -843,25 +823,11 @@ impl Residents {
                 aboard.room.set_uniform(who as usize, Uniform::Station);
                 aboard.room.issue(who as usize, gear);
                 defender[who as usize] = true;
-            } else if who < count {
+            } else {
                 aboard.room.set_uniform(who as usize, Uniform::Station);
                 aboard
                     .room
                     .issue(who as usize, Gear::issued_for(seed ^ who as u64));
-            } else {
-                // A mercenary: the olive coverall, its own kit off its own
-                // seed — the pieces numbered from a thousand a head so no
-                // two bodies' collide in this room — and its price.
-                let n = who - count;
-                let merc_seed = crate::mercenary::seed_for(seed, n);
-                let gear = Gear::hired_for(merc_seed, 1_000 * (who + 1));
-                aboard.room.set_uniform(who as usize, Uniform::Mercenary);
-                aboard.room.issue(who as usize, gear);
-                // And its trade (feature 86): a field medic asks the
-                // premium on top of the kit.
-                let is_medic = crate::mercenary::is_medic(merc_seed);
-                medic[who as usize] = is_medic;
-                fee[who as usize] = Some(crate::mercenary::priced_as(merc_seed, &gear, is_medic));
             }
         }
         // The dead this station already has, laid where they fell
@@ -871,12 +837,7 @@ impl Residents {
         // nothing here is counted again.
         for (n, grave) in graves.iter().enumerate() {
             let who = living as usize + n;
-            let uniform = if grave.hired {
-                Uniform::Mercenary
-            } else {
-                Uniform::Station
-            };
-            aboard.room.set_uniform(who, uniform);
+            aboard.room.set_uniform(who, Uniform::Station);
             aboard.room.set_look(who, grave.look);
             aboard.room.issue(who, grave.gear);
             aboard
@@ -907,8 +868,6 @@ impl Residents {
             xp_down: down.clone(),
             last_hit_by: vec![None; down.len()],
             down,
-            fee,
-            medic,
             grave,
             manufacturers_laid: 0,
             defender,
@@ -1020,7 +979,7 @@ impl Residents {
 
     /// A fresh room in the old one's place, with what the old room held
     /// that is not a body's: the fog and whether the doors are drawn.
-    /// `down` and `fee` are by index and the indices are kept (`adopt`
+    /// `down` and `grave` are by index and the indices are kept (`adopt`
     /// keeps the order).
     fn replace_room(&mut self, mut fresh: Aboard) {
         let old = &self.aboard.room;
@@ -1037,8 +996,7 @@ impl Residents {
     /// the same people the same rounds every time it is reached, and two
     /// clients agree. A town's first is its guard and walks between its
     /// gates and its pad; the first of a station that trades stands at the
-    /// desk; the rest are rolled, and a mercenary for hire strolls, being
-    /// nobody's hand yet. Called once, when the room is opened: the rounds
+    /// desk; the rest are rolled, and a defender strolls. Called once, when the room is opened: the rounds
     /// go with the bodies through every join and unjoin after
     /// (`Game::adopt`). A machine and the dead are dealt nothing.
     pub fn deal_roles(&mut self, station: &Station) {
@@ -1057,7 +1015,7 @@ impl Residents {
             if self.grave.get(who).copied().unwrap_or(false) || !self.aboard.room.is_alive(who) {
                 continue;
             }
-            let role = if self.is_mercenary(who) || self.is_defender(who) {
+            let role = if self.is_defender(who) {
                 Role::Civilian
             } else {
                 deal(who as u32, seed, trades, town)
@@ -1065,27 +1023,6 @@ impl Residents {
             let own = seed.wrapping_add((who as u64 + 1).wrapping_mul(0x9E37_79B9_7F4A_7C15));
             self.aboard.room.set_role(who, role, &gates, own);
         }
-    }
-
-    /// Which of them may be spoken to — a mercenary for hire, alive and on
-    /// its feet — index for index, for the joined deck's
-    /// `Game::set_visitors_hailable`.
-    /// A machine is never one: `fee` is short of the body count until
-    /// `visit` grows it, and a body with no entry has no fee.
-    pub fn hailable(&self) -> Vec<bool> {
-        (0..self.aboard.count() as usize)
-            .map(|who| {
-                self.fee.get(who).copied().flatten().is_some() && !self.aboard.room.is_down(who)
-            })
-            .collect()
-    }
-
-    /// Whether that body is a **mercenary** living among the station's
-    /// people rather than one of them: it has a fee (feature 94's
-    /// defence counts the town's own people and not the hands for hire).
-    /// A machine has no entry and is never one.
-    pub fn is_mercenary(&self, who: usize) -> bool {
-        self.fee.get(who).copied().flatten().is_some()
     }
 
     /// Whether that body is a **defender** (task 111): armed, standing
@@ -1097,12 +1034,10 @@ impl Residents {
     }
 
     /// Whether that body is one of the site's **own** people: not a
-    /// mercenary, not a defender, and not a grave laid out at the open.
+    /// defender, and not a grave laid out at the open.
     /// What a town's dying and a held town's joiners count.
     pub fn is_own(&self, who: usize) -> bool {
-        !self.is_mercenary(who)
-            && !self.is_defender(who)
-            && !self.grave.get(who).copied().unwrap_or(false)
+        !self.is_defender(who) && !self.grave.get(who).copied().unwrap_or(false)
     }
 }
 
@@ -1112,14 +1047,14 @@ impl core::fmt::Debug for Residents {
     }
 }
 
-/// What a defender carries at `tier`: a hired hand's kit off `seed`
-/// (`Gear::hired_for`), its gun and any armour it wears lifted to the
+/// What a defender carries at `tier`: an armed kit off `seed`
+/// (`Gear::armed_for`), its gun and any armour it wears lifted to the
 /// tier — the day's share of the enemies' tiers, dealt the defenders
 /// the same way (`World::defender_tiers`). Never below what the roll made
-/// it (a minigun is tier two at the least), and at tier one the hired
-/// hand's kit exactly.
+/// it (a minigun is tier two at the least), and at tier one the kit
+/// exactly.
 pub fn defender_gear(seed: u64, piece_id: u32, tier: Tier) -> Gear {
-    let mut gear = Gear::hired_for(seed, piece_id);
+    let mut gear = Gear::armed_for(seed, piece_id);
     if let Some(weapon) = gear.weapon.as_mut()
         && tier > weapon.tier
     {

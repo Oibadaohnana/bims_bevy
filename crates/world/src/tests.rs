@@ -1498,7 +1498,7 @@ fn a_station_is_a_place_the_room_can_live_in() {
                 );
                 // The one desk the key sits on, and — on the five newer
                 // plans; a hub outpost's two bunks are its two residents'
-                // — two beds to spare for mercenaries for hire beyond the
+                // — two beds to spare beyond the
                 // residents.
                 assert_eq!(design.count(PartKind::ResearchDesk), 1, "{plan:?} {kind:?}");
                 assert_eq!(design.count(PartKind::TradingDesk), 1, "{plan:?} {kind:?}");
@@ -1896,16 +1896,9 @@ fn residents_are_there_within_fifty_tiles_and_not_beyond() {
         .stations
         .iter()
         .find(|s| s.id == world.home)
-        .map(|s| {
-            (
-                s.id,
-                s.centre(),
-                s.radius(),
-                s.residents() + world.mercenaries_of(s),
-            )
-        })
+        .map(|s| (s.id, s.centre(), s.radius(), s.residents()))
         .expect("the spawn is a station somebody lives on");
-    // The count is the residents and whoever is for hire beside them.
+    // The count is the residents.
     let (id, centre, radius, count) = lived_in;
     assert!(count > 0);
     // Docked, the station is in the ship's room; this is about the range, so
@@ -2003,8 +1996,7 @@ fn docked_the_ship_and_the_station_are_one_room_and_the_crew_can_cross() {
     };
     let residents = world.station(station).unwrap().residents();
     assert!(residents > 0, "the spawn station has nobody to meet");
-    // And whoever is for hire lives in the same room.
-    let ashore_count = residents + world.mercenaries_of(world.station(station).unwrap());
+    let ashore_count = residents;
     assert!(world.aboard.is_joined(), "the rooms were not joined");
     assert_eq!(world.aboard.crew_count(), 2);
     assert_eq!(world.aboard.count(), 2);
@@ -3528,14 +3520,10 @@ fn a_station_s_people_are_armed_off_its_seed() {
     let ashore = world.residents.as_ref().unwrap();
     let station = world.station(ashore.station).unwrap();
     let seed = station.map_seed;
-    // The residents, seated first; a mercenary for hire after them is
-    // kitted off its own seed, and is the other test's.
+    // The residents, and nobody else.
     let residents = station.residents();
     assert!(residents > 0);
-    assert_eq!(
-        ashore.aboard.count(),
-        residents + world.mercenaries_of(station)
-    );
+    assert_eq!(ashore.aboard.count(), residents);
     for who in 0..residents {
         let issued = Gear::issued_for(seed ^ who as u64);
         assert!(issued.weapon.is_some(), "every resident carries something");
@@ -3984,184 +3972,6 @@ fn a_sniper_rifle_reaches_from_twenty_tiles_and_a_shotgun_does_as_much_at_nine_a
             "the weapon's damage at the distance flown: {far} at {far_from:.1} tiles"
         );
     }
-}
-
-/// A mercenary for hire at the dock: an extra body in the station's room
-/// in the olive coverall, priced by its kit; hired from within reach with
-/// the money in hand, it walks out of the station's room into the crew's,
-/// the first month paid and the next due a month on; the month is paid
-/// when a trip puts the world clock past it, and one the money will not
-/// cover is owed, said once. Out of reach, broke, or one of the station's
-/// own, the hire is refused.
-#[test]
-fn a_mercenary_is_hired_from_the_station_and_paid_by_the_month() {
-    use crate::armour::LootSource;
-    use crate::mercenary::MONTH;
-    use bims::character::Uniform;
-    use shipdesign::fixture::combat_ship;
-    let galaxy = worldgen::Galaxy::new(data::DEFAULT_SEED, GalaxyType::SpiralTwoArm);
-    let (star, station) = crate::spawn(&galaxy).unwrap();
-    let mut world = World::start_with_crew(
-        combat_ship(),
-        REFERENCE_MONEY,
-        1,
-        1,
-        data::DEFAULT_SEED,
-        GalaxyType::SpiralTwoArm,
-        star,
-        station,
-    )
-    .unwrap();
-    // A hire, not a fight: the spawn a peaceful stop (task 111).
-    world.set_quiet_sites_for_probe(true);
-    assert_eq!(world.aboard.crew_count(), 1);
-    assert!(world.mercenary_for_probe());
-    let residents = world.residents.as_ref().unwrap();
-    let people = world.people_of(world.station(station).unwrap());
-    let count = residents.aboard.count();
-    assert!(count > people, "somebody extra: {count} of {people}");
-    let merc = count - 1;
-    let fee = world.mercenary_fee(merc).expect("the last is for hire");
-    assert!(world.mercenary_fee(0).is_none(), "the first is not");
-    assert!((1_700..=25_000).contains(&fee), "{fee}");
-    assert_eq!(
-        residents.aboard.room.uniform(merc as usize),
-        Uniform::Mercenary
-    );
-    assert!(residents.hailable()[merc as usize]);
-    assert!(!residents.hailable()[0]);
-    let before = world_checksum(&world);
-
-    // Out of reach: refused, and nothing moved.
-    let hire = Command::Hire {
-        slot: 0,
-        who: 0,
-        resident: merc,
-    };
-    let offer = world.hire_offer(0, merc).unwrap();
-    assert!(offer.docked && offer.affordable && !offer.in_reach);
-    let events = world.step(&[hire]);
-    assert!(events.contains(&WorldEvent::Refused {
-        slot: 0,
-        why: Refusal::OutOfReach
-    }));
-    assert_eq!(world.aboard.crew_count(), 1);
-
-    // Beside it: hired. Stood there every step, since it walks about.
-    let at = world.body_position(LootSource::Resident(merc)).unwrap();
-    world
-        .aboard
-        .room
-        .put_for_probe(0, at + bims::math::vec2(30.0, 0.0));
-    assert!(world.hire_offer(0, merc).unwrap().in_reach);
-
-    // With nothing to spend it is refused, and one of the station's own
-    // is nobody's to hire.
-    let money = world.crew_money();
-    world.set_money_for_probe(0);
-    let events = world.step(&[hire]);
-    assert!(events.contains(&WorldEvent::Refused {
-        slot: 0,
-        why: Refusal::Unaffordable
-    }));
-    world.set_money_for_probe(money);
-    let plain = Command::Hire {
-        slot: 0,
-        who: 0,
-        resident: 0,
-    };
-    let events = world.step(&[plain]);
-    assert!(events.contains(&WorldEvent::Refused {
-        slot: 0,
-        why: Refusal::NotForHire
-    }));
-    assert_eq!(world.aboard.crew_count(), 1);
-
-    let at = world.body_position(LootSource::Resident(merc)).unwrap();
-    world
-        .aboard
-        .room
-        .put_for_probe(0, at + bims::math::vec2(30.0, 0.0));
-    let events = world.step(&[hire]);
-    assert!(events.contains(&WorldEvent::Hired { who: 1 }), "{events:?}");
-    assert_eq!(world.aboard.crew_count(), 2, "one more aboard");
-    assert_eq!(world.ship.crew_count, 2);
-    assert_eq!(world.crew_money(), money - fee, "the first month paid");
-    assert_eq!(world.residents.as_ref().unwrap().aboard.count(), count - 1);
-    assert_eq!(world.hired().len(), 1);
-    assert_eq!((world.hired()[0].who, world.hired()[0].fee), (1, fee));
-    assert!(world.is_hired(1) && !world.is_hired(0));
-    assert_eq!(world.aboard.room.uniform(1), Uniform::Mercenary);
-    assert_ne!(world_checksum(&world), before);
-    // What it brought is its loadout now (task 113), its armour under
-    // the holdings' ids.
-    let gear = world.aboard.room.gear(1);
-    assert!(gear.weapon.is_some(), "it came armed");
-    for piece in [gear.armour].iter().flatten() {
-        assert!(piece.id < world.holdings.next_id);
-    }
-    assert!(
-        world.mercenary_fee(merc).is_none(),
-        "gone from the station's list"
-    );
-
-    // A month on, paid: the months fall due as a trip puts the world
-    // clock past them (feature 103), the one time it moves. Both walk
-    // back aboard first — whoever is outside the ship when it leaves is
-    // left behind — and the ship goes somewhere else in the system.
-    let trip = |world: &mut World| -> Vec<WorldEvent> {
-        let gangway = world.aboard.gangway.expect("joined, the ship's side");
-        let gangway = bims::math::vec2(gangway.x as f32, gangway.y as f32);
-        for who in 0..world.aboard.crew_count() as usize {
-            world.aboard.room.put_for_probe(who, gangway);
-        }
-        let left = world.leave_for_probe();
-        assert!(
-            !left
-                .iter()
-                .any(|e| matches!(e, WorldEvent::LeftBehind { .. })),
-            "{left:?}"
-        );
-        world.clock_minutes += MONTH;
-        let site = world
-            .travel_quotes()
-            .into_iter()
-            .find(|(site, quote)| quote.is_ok() && Some(*site) != world.current_site())
-            .map(|(site, _)| site)
-            .expect("somewhere to go");
-        world.step(&[Command::Propose {
-            slot: 0,
-            star: site.star,
-            station: site.station,
-        }])
-    };
-    let money = world.wallet(0);
-    let events = trip(&mut world);
-    assert!(
-        events.contains(&WorldEvent::MercenaryPaid { who: 1, fee }),
-        "{events:?}"
-    );
-    assert_eq!(world.wallet(0), money - fee);
-    assert!(world.hired()[0].due > world.clock_minutes);
-    assert_eq!(world.aboard.crew_count(), 2);
-
-    // Broke a month later: owed, and said once. The hand sails on owed —
-    // the ship is holding when a trip pays, never at a berth.
-    world.wallets[0] = fee - 1;
-    let events = trip(&mut world);
-    assert!(
-        events.contains(&WorldEvent::MercenaryLeft { who: 1 }),
-        "{events:?}"
-    );
-    assert!(world.hired()[0].owed);
-    assert_eq!(world.aboard.crew_count(), 2);
-    let events = trip(&mut world);
-    assert!(
-        !events
-            .iter()
-            .any(|e| matches!(e, WorldEvent::MercenaryLeft { .. })),
-        "said once: {events:?}"
-    );
 }
 
 /// The `droids` command's dock: the combat ship with its sixteen crew —

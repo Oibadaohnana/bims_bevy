@@ -68,7 +68,6 @@ pub mod loading;
 pub mod manufacturer;
 pub mod medic;
 pub mod memory;
-pub mod mercenary;
 pub mod orders;
 pub mod relic;
 pub mod rewards;

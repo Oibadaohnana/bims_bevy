@@ -159,15 +159,11 @@ fn a_run_builds_nothing_and_has_no_bunk_cap() {
     assert!(world.builds.is_empty());
 
     // And a bunk is furniture: a crew of twenty on the playtest ship is
-    // more than every bunk on the joined deck, and a mercenary is offered
-    // all the same.
-    let mut world =
+    // more than every bunk on the joined deck, and the world opens all
+    // the same.
+    let world =
         crate::fixture::crewed_world(shipdesign::fixture::playtest_ship(), REFERENCE_MONEY, 1, 20);
     assert!(world.aboard.room.bed_count() < world.aboard.crew_count() as usize);
-    assert!(world.mercenary_for_probe());
-    let merc = world.residents.as_ref().unwrap().aboard.count() - 1;
-    let offer = world.hire_offer(0, merc).expect("a mercenary for hire");
-    assert!(offer.docked && offer.affordable, "{offer:?}");
 }
 
 /// The rounds: dealt to a station's people when the room opens, one role
@@ -214,16 +210,8 @@ fn every_role_has_a_round_on_a_sample_of_stations_and_towns() {
     let mut own = [0usize; 4];
     for site in &sites {
         let count = site.residents().max(1);
-        let mut residents = Residents::open(
-            site.id,
-            &site.design,
-            count,
-            0,
-            &[],
-            site.map_seed,
-            0.0,
-            &[],
-        );
+        let mut residents =
+            Residents::open(site.id, &site.design, count, &[], site.map_seed, 0.0, &[]);
         residents.deal_roles(site);
         let room = &mut residents.aboard.room;
         // What the world dealt: everybody a round with somewhere on it.

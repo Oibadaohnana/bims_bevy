@@ -80,7 +80,7 @@ pub fn pick_ground(seed: u64, galaxy: u32, roll: u64) -> Option<(u32, u32)> {
 /// after the first, which is a run somebody can sit through.
 pub const CRISIS_HOPS: u16 = 2;
 
-/// How many **hired field medics** the `combat` command's crew carries
+/// How many **field medics** the `combat` command's crew carries
 /// (feature 86) — [`Session::combat`], and so every fight built on it:
 /// `tier2_test`, `tier3_test`, `droids`, and the `combat_<class>` and
 /// `combat_droids_<class>` runs.
@@ -277,8 +277,7 @@ impl Session {
 
     /// [`Session::simulate`] on `design` with `crew` aboard, one of them the
     /// player: the `test` command opens on the combat ship with one crew
-    /// member this way, so its spare bunks can take a mercenary hired at
-    /// the dock.
+    /// member this way.
     pub fn simulate_on(
         design: ShipDesign,
         crew: u32,
@@ -486,16 +485,15 @@ impl Session {
             crew_classes: Vec::new(),
             list: DrawList::new(),
         };
-        // And **four hired field medics** at the back of the crew
+        // And **four field medics** at the back of the crew
         // (feature 86, `COMBAT_MEDICS`): the last four of the sixteen,
-        // on a contract that costs nothing, with a medic's charges of
-        // medicine. The fight is where a body goes down, and without a
+        // on the world's list of them. The fight is where a body goes down, and without a
         // medic in it nobody ever carries one off the deck — so the test
         // fight has the medics that make that half of the game happen at
         // all. They are the *last* four because slot 0 is the player's
         // own and a rescue is a bot's branch (`Game::bot_stand`);
         // `BIMS_FIELD_MEDIC` asks for the same crew members, so a run
-        // that sets it over these finds them hired already and changes
+        // that sets it over these finds them field medics already and changes
         // nothing.
         session.field_medics_for_probe(COMBAT_MEDICS);
         session.dress_crew();
@@ -1038,14 +1036,6 @@ impl Session {
             .and_then(|g| g.world.reseed_ground_for_probe(seed))
     }
 
-    /// A mercenary for hire at the dock whatever the roll said — see
-    /// `World::mercenary_for_probe`. What the `test` command does.
-    pub fn mercenary_for_probe(&mut self) -> bool {
-        self.game
-            .as_mut()
-            .is_some_and(|g| g.world.mercenary_for_probe())
-    }
-
     /// Landed, walk the crew member out onto the plain thirty tiles west
     /// of the ship and give it a minute to get there, with its errands
     /// off so nothing calls it back. What `BIMS_AFIELD=1` does; false
@@ -1293,7 +1283,7 @@ impl Session {
     /// Put the hair the players chose onto their crew members
     /// (`crew_hair`, feature 62): slot *i*'s Bim gets its dealt look
     /// (`Look::of`) with the hair said for slot *i*, for as many slots as
-    /// have said and are players — a bot, a hire, a resident keeps what
+    /// have said and are players — a bot, a joiner, a resident keeps what
     /// the index dealt it. Nothing before the world opens; called at
     /// `start_game` and by the app whenever a choice arrives late.
     pub fn dress_crew(&mut self) {
@@ -1310,7 +1300,7 @@ impl Session {
         // colour, or the *i*th of `Tint::ALL` for a slot that has not
         // said, so every player's Bim is marked and no two share one
         // whatever the lobby did. Everybody past the players — the bots,
-        // the hires — is left with none, which is what draws no circle.
+        // the joiners — is left with none, which is what draws no circle.
         let tints: Vec<Tint> = (0..players)
             .map(|slot| {
                 self.crew_tints
@@ -1835,12 +1825,6 @@ impl Session {
             .as_ref()
             .map(|r| r.aboard.count())
             .unwrap_or(0)
-    }
-
-    /// What a month of that resident costs if it is a mercenary for hire —
-    /// `World::mercenary_fee` — for the `?` over its head.
-    pub fn mercenary_fee(&self, who: u32) -> Option<Money> {
-        self.game.as_ref()?.world.mercenary_fee(who)
     }
 
     /// Which station they live on, or `None` for nobody.

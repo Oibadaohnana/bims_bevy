@@ -265,7 +265,7 @@ pub fn map() -> bool {
 /// and the player's own Bim having pressed *Back to ship* aboard, so the
 /// *Leave them behind?* window is the first frame
 /// (`Session::depart_for_probe`). It wants a crew of two or more —
-/// `droids`, `test` after a hire.
+/// `droids`.
 pub fn depart() -> bool {
     std::env::var("BIMS_DEPART").as_deref() == Ok("1")
 }
@@ -325,10 +325,9 @@ pub fn dying() -> Option<usize> {
     std::env::var("BIMS_DYING").ok()?.trim().parse().ok()
 }
 
-/// `BIMS_FIELD_MEDIC=n` makes the last `n` of the crew **hired field
-/// medics** (feature 86): the contract, a medic's revive, and no money
-/// taken — for looking at what one does in a fight without flying to a
-/// station and hiring one (`Session::field_medics_for_probe`).
+/// `BIMS_FIELD_MEDIC=n` makes the last `n` of the crew **field
+/// medics** (feature 86): a medic's revive and the carry, for looking
+/// at what one does in a fight (`Session::field_medics_for_probe`).
 pub fn field_medics() -> Option<usize> {
     std::env::var("BIMS_FIELD_MEDIC").ok()?.trim().parse().ok()
 }
@@ -337,7 +336,7 @@ pub fn field_medics() -> Option<usize> {
 /// arms — for looking at a body being carried off the deck without
 /// waiting for a fight to put one there (`Session::carry_for_probe`).
 /// Wants somebody who may carry: a medic of the class (`BIMS_CLASS=medic`)
-/// or a hired one (`BIMS_FIELD_MEDIC=1`).
+/// or a field medic (`BIMS_FIELD_MEDIC=1`).
 pub fn carry() -> bool {
     std::env::var("BIMS_CARRY").as_deref() == Ok("1")
 }

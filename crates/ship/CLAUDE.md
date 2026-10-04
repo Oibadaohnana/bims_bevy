@@ -1269,3 +1269,10 @@ shapes are other shapes now). The pin was already stale in this tree —
 its designer pictures, which this change does not reach, had moved with
 the commits since it was taken — so it was left for one re-pin of the
 whole rather than re-pinned half-understood.
+
+## The mercenaries gone (October 2026)
+
+`Session::{mercenary_for_probe, mercenary_fee}` went with the mercenaries
+(`crates/world/CLAUDE.md`, "The mercenaries gone"): the `test` command
+opens on the combat ship with one crew member and nobody for hire, and
+the combat ship's four field medics are on `World::field_medics`.

@@ -586,12 +586,9 @@ fn open(
                 _ => (world::data::DEFAULT_SEED, None),
             };
             // The `test` command is on the combat ship, with one crew
-            // member and a mercenary for hire at the dock whatever the
-            // roll said, so a hire can be looked at.
+            // member at the dock the roll picked.
             // The `test_planet` command is that landed: the ship set down
-            // at the settlement of the system's first planet with ground —
-            // the mercenary asked for first, since the ask holds for every
-            // friendly room opened after it, the settlement's included.
+            // at the settlement of the system's first planet with ground.
             // `tier2_test` and `tier3_test` are `droids` with everybody's
             // guns and armour at that tier, and the machines at it too
             // (`Session::droids_at_tier`): every enemy is a machine since
@@ -682,7 +679,6 @@ fn open(
                     let design = shipdesign::fixture::combat_ship();
                     let mut session =
                         Session::simulate_on(design, 1, seed, 0, spawn, size.x, size.y);
-                    session.mercenary_for_probe();
                     // `BIMS_STATION_SEED` (feature 112): the dock, or the
                     // town set down at, drawn from that seed instead.
                     let station_seed = crate::dev::station_seed();
@@ -868,7 +864,7 @@ fn open(
             if let Some(n) = crate::dev::dying() {
                 session.maim_for_probe(n);
             }
-            // The hired field medics (feature 86), and a body in one's
+            // The field medics (feature 86), and a body in one's
             // arms: after the downed, so a medic can be asked for on a
             // deck that already has somebody to fetch.
             if let Some(n) = crate::dev::field_medics() {
@@ -2366,8 +2362,7 @@ fn frame(
             // (feature 69). Otherwise it
             // is what a left click was until the left button became the
             // trigger: the one under it picked, and the menu of what is
-            // there opened — a door, a body down, a mercenary for
-            // hire. A living crew member is picked, not menued.
+            // there opened — a door, a body down. A living crew member is picked, not menued.
             if pointer.secondary_pressed {
                 panels.close_menu();
                 if let Some(room) = session.room() {
@@ -3080,7 +3075,6 @@ fn frame(
             &screen.log,
         );
         // This player's money at the top middle of the chart, where the
-                money: world.share_of(local),
         // ship's top frame says it, and the crew's relics under it.
         let money = egui::Area::new(egui::Id::new("map-money"))
             .fixed_pos(egui::pos2(
@@ -3193,6 +3187,7 @@ fn frame(
                 peril: crate::crew::peril_summary(room, w),
                 points_waiting: world.points_of(local),
                 magazine: room.magazine(w),
+                money: world.share_of(local),
             };
             let band = ctx
                 .memory(|m| m.area_rect(egui::Id::new("hud-hero")))
@@ -3473,39 +3468,8 @@ fn frame(
     if let Some(room) = session.room() {
         panels.menu(&ctx, room, &name);
     }
-    // The mercenary the Hire row opened on: the walk over is the world's
-    // to start, since where one of the station's people stands is a point
-    // of its own room put through the station's frame.
     if let Some(game) = &mut session.game {
         let world = &mut game.world;
-        let who = panels.inventory_who(&world.aboard.room);
-        if let Some(source) = panels.walk.take()
-            && let Some(at) = world.body_position(source)
-        {
-            orders.push(Order::Crew(CrewOrder::SendTo {
-                who: who as u32,
-                x: at.x,
-                y: at.y,
-            }));
-        }
-        // And the mercenary under the Hire window, the same way: for hire
-        // still, and what it asks, read off the world every frame.
-        panels.terms = panels.hire_source().and_then(|resident| {
-            let offer = world.hire_offer(who as u32, resident)?;
-            let gear = world
-                .residents
-                .as_ref()?
-                .aboard
-                .room
-                .gear(resident as usize);
-            Some(crate::crew::Terms {
-                fee: offer.fee,
-                gear,
-                in_reach: offer.in_reach,
-                affordable: offer.affordable,
-                medic: offer.medic,
-            })
-        });
         // The menu's Carry row on a downed crewmate: the player's own Bim
         // walks over, and the carry goes the frame it is within reach —
         // or is given up with the world's reason once the walk stops
@@ -3538,7 +3502,6 @@ fn frame(
         let armory = armory_of(world, local);
         panels.armory_window(&ctx, &armory);
         let room = &mut world.aboard.room;
-        panels.hire_window(&ctx, room, &name);
         panels.end_frame(room);
     }
     // What the Armory panel and the rows asked for: gear moves through the
@@ -4477,20 +4440,6 @@ fn frame(
                 }) {
                     let above = egui::pos2(at.x, at.y - theme::NAME_SIZE - 2.0);
                     theme::name_over(&painter, above, LOCKED_STATUS, theme::CAUTION);
-                }
-            }
-        }
-        for who in 0..session.resident_count() {
-            if let Some((x, y)) = session.resident_on_screen(who) {
-                let at = view.to_canvas(Vec2::new(x, y)) + canvas.min;
-                let at = egui::pos2(
-                    at.x,
-                    at.y - theme::NAME_LIFT * view.scale - crate::healthbars::name_room(view.scale),
-                );
-                // A mercenary for hire wears a `?` over its head: somebody
-                // to right-click and talk to, which nobody else ashore is.
-                if session.mercenary_fee(who).is_some() {
-                    theme::badge_over(&painter, at, MERCENARY_MARK, theme::ACCENT);
                 }
             }
         }
@@ -5713,8 +5662,6 @@ fn affected_by(world: &world::World, slot: u32, action: Action) -> Vec<u32> {
         (Class::Commander, Action::Ability4) => world.reinforcements_of(slot),
         // The medic's (task 153): the drone names whom it is over; the
         // beam its patients; the circle whom it heals now.
-        } else {
-            14.0
         (Class::Medic, Action::Ability1) => world
             .drone_of(slot)
             .and_then(|d| d.patient)
@@ -5969,6 +5916,8 @@ fn ability_box(ui: &mut egui::Ui, one: &AbilityBox) -> (bool, bool) {
         // it clears the rank-up's plus in the top right.
         let key_font = egui::FontId::proportional(if one.key.chars().count() > 3 {
             11.0
+        } else {
+            14.0
         });
         painter.text(
             rect.min + egui::vec2(5.0, 4.0),

@@ -511,11 +511,6 @@ impl Net {
                                 yes,
                             }
                         }
-                        Order::Gear(GearOrder::Hire { who, resident }) => Command::Hire {
-                            slot,
-                            who,
-                            resident,
-                        },
                         Order::Crew(order) => Command::Crew { slot, order },
                         Order::CrewLater(order) => Command::CrewLater { slot, order },
                         Order::SetClass(class) => Command::SetClass { slot, class },

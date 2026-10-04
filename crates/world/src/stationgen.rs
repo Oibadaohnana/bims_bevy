@@ -100,7 +100,7 @@ pub const LOBBY_MIN: (u32, u32) = (8, 11);
 /// `y0 + 3` with its chairs under it and a row behind.
 pub const MESS_MIN: (u32, u32) = (8, 6);
 /// The quarters: two columns of bunks two deep — four, the most a
-/// station's residents and two mercenaries need — with the gangway past
+/// station's residents and two spare need — with the gangway past
 /// them; [`bunks_in`] is what a room of any size holds.
 pub const QUARTERS_MIN: (u32, u32) = (7, 7);
 /// The heads: a toilet, a basin and a shower along the north wall from
@@ -1636,7 +1636,7 @@ pub(crate) fn check(
         }
     }
 
-    // Beds for everybody who lives here and two mercenaries; the airlocks
+    // Beds for everybody who lives here and two over; the airlocks
     // the kind wants; the two desks.
     if design.count(PartKind::Bunk) < residents_of(kind) + 2 {
         return Err(Fail::FewBunks);

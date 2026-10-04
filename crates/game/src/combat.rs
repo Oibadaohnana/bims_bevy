@@ -252,7 +252,7 @@ impl WeaponKind {
     /// them — see [`WeaponKind::BUILT_IN`]. The last two, the minigun and
     /// the rail lance (task 115), exist only from a tier up
     /// ([`WeaponKind::min_tier`]), and only the crew ever carry one: no
-    /// issue, hire or garrison table names them.
+    /// issue, defender or garrison table names them.
     pub const ALL: [WeaponKind; 7] = [
         WeaponKind::LaserPistol,
         WeaponKind::Shotgun,
@@ -885,7 +885,7 @@ pub struct Skill {
     /// sum, never under a second.
     #[cfg_attr(feature = "serde", serde(default = "revive_seconds"))]
     pub revive: f32,
-    /// Whether this body is a **medic** — of the class, or a hired field
+    /// Whether this body is a **medic** — of the class, or a field
     /// medic — as the world says (task 125): a bot that is not one leaves
     /// a downed crewmate to a medic bot free to go to it
     /// (`Game::revive_on_offer`).
@@ -1409,26 +1409,27 @@ impl Gear {
     }
 
     /// Put a fresh tier-one armour on, numbered `id`, over whatever was
-    /// worn — what every melee bot gets, enemy or hired. The id is the
+    /// worn — what every melee bot gets, enemy or ours. The id is the
     /// room's own until the world takes the piece over.
     pub fn basic_armour(&mut self, id: u32) {
         self.armour = Some(Piece::new(id, ArmourKind::Armour, Tier::One));
     }
 
-    /// What a mercenary carries: better arms than a resident's, rolled off
-    /// `seed` against [`MERCENARY_ODDS`] — a third the pistol, the rest
+    /// What an armed body carries — a site's defender — better arms than
+    /// a resident's, rolled off
+    /// `seed` against [`ARMED_ODDS`] — a third the pistol, the rest
     /// the heavier guns and a few the schword — and the armour with the
-    /// odds [`MERCENARY_ARMOUR_ODDS`], fresh, numbered `piece_id` (the
+    /// odds [`ARMED_ARMOUR_ODDS`], fresh, numbered `piece_id` (the
     /// room's pieces are only its own until the world takes one over) —
     /// always, for one carrying the schword, since a melee bot always
     /// wears the basic armour. A function of the seed alone, like
     /// [`Gear::issued_for`], so the world derives it.
-    pub fn hired_for(seed: u64, piece_id: u32) -> Gear {
+    pub fn armed_for(seed: u64, piece_id: u32) -> Gear {
         let mut rng = Rng::new(seed ^ 0x_4D45_5243);
-        let weapon = roll_weapon(&mut rng, &MERCENARY_ODDS).basic();
+        let weapon = roll_weapon(&mut rng, &ARMED_ODDS).basic();
         // Rolled either way, so the stream is the same whatever the
         // weapon was.
-        let worn = rng.chance(MERCENARY_ARMOUR_ODDS) || weapon.stats().melee;
+        let worn = rng.chance(ARMED_ARMOUR_ODDS) || weapon.stats().melee;
         Gear {
             armour: worn.then(|| Piece::new(piece_id, ArmourKind::Armour, Tier::One)),
             weapon: Some(weapon),
@@ -1542,9 +1543,9 @@ const ISSUE_ODDS: [(WeaponKind, f32); 5] = [
     (WeaponKind::Schword, 0.10),
 ];
 
-/// What a mercenary is armed with, by share: the heavier guns are the
-/// trade. See [`Gear::hired_for`].
-pub const MERCENARY_ODDS: [(WeaponKind, f32); 5] = [
+/// What a defender is armed with, by share: the heavier guns. See
+/// [`Gear::armed_for`].
+pub const ARMED_ODDS: [(WeaponKind, f32); 5] = [
     (WeaponKind::LaserPistol, 0.35),
     (WeaponKind::Shotgun, 0.25),
     (WeaponKind::AutoRifle, 0.20),
@@ -1563,9 +1564,9 @@ pub const MANUFACTURER_ODDS: [(WeaponKind, f32); 5] = [
     (WeaponKind::AutoRifle, 0.30),
     (WeaponKind::SniperRifle, 0.15),
 ];
-/// The odds a mercenary wears armour: the helm's, the kevlar's and the
+/// The odds a defender wears armour: the helm's, the kevlar's and the
 /// leg guards' odds (a half, three fifths, two fifths) put together.
-pub const MERCENARY_ARMOUR_ODDS: f32 = 0.5;
+pub const ARMED_ARMOUR_ODDS: f32 = 0.5;
 
 /// One weapon rolled off `rng` against a table of shares that add to
 /// one; the last kind takes whatever rounding leaves.
@@ -5276,17 +5277,17 @@ mod tests {
         assert!(WeaponKind::Minigun.made_at(Tier::Two));
         assert!(!WeaponKind::RailLance.made_at(Tier::Two));
         assert!(WeaponKind::RailLance.made_at(Tier::Three));
-        // Nobody else carries one: the issue, the hire and the garrison
+        // Nobody else carries one: the issue, the defenders' and the garrison
         // tables name neither, so no roll can land on one.
         for kind in [WeaponKind::Minigun, WeaponKind::RailLance] {
             assert!(ISSUE_ODDS.iter().all(|(k, _)| *k != kind));
-            assert!(MERCENARY_ODDS.iter().all(|(k, _)| *k != kind));
+            assert!(ARMED_ODDS.iter().all(|(k, _)| *k != kind));
             assert!(MANUFACTURER_ODDS.iter().all(|(k, _)| *k != kind));
         }
         for seed in 0..500u64 {
             for gear in [
                 Gear::issued_for(seed),
-                Gear::hired_for(seed, 1),
+                Gear::armed_for(seed, 1),
                 Gear::manufacturer(seed, Some(Tier::Two), None, 1),
             ] {
                 let kind = gear.weapon.map(|w| w.kind);

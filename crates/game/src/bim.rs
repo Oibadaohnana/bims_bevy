@@ -132,7 +132,7 @@ pub struct Bim {
     /// `world_checksum`.
     pub shots: u32,
     /// The crewmate this body carries in its arms (feature 86): a medic
-    /// — the class, or a hired field medic — that has picked up somebody
+    /// — the class, or a field medic — that has picked up somebody
     /// downed to take them out of the fire. Set by
     /// [`crate::game::Game::take_up`], put down by `set_down`, and
     /// dropped the moment either of the two goes down. While it runs the
@@ -141,14 +141,13 @@ pub struct Bim {
     /// [`crate::game::CARRY_PACE`]: both its arms are full. Saved with
     /// the room and in `world_checksum`.
     pub carrying: Option<usize>,
-    /// Whether this body is a **field medic** (feature 86): a mercenary
-    /// hired for the job, with none of the medic class's talents, whose
+    /// Whether this body is a **field medic** (feature 86): a bot with
+    /// none of the medic class's ranks, whose
     /// business under arms is to fetch the fallen out of the fire and
     /// revive them where it is quiet, and who otherwise keeps to the far
     /// end of its weapon's reach. Set by the world every step
-    /// (`Game::set_field_medic`) off `world::mercenary::Hired::medic`,
-    /// the way the squad's orders are, and so neither saved here nor
-    /// hashed.
+    /// (`Game::set_field_medic`) off `World::field_medics`, and so
+    /// neither saved here nor hashed.
     pub field_medic: bool,
     /// Whether this body is a commander's **Medivac medic** (his C): a
     /// reinforcement of the Republic's who fights as any bot does and

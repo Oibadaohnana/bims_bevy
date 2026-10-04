@@ -239,7 +239,7 @@ const COMMANDS: [(&str, &str); 21] = [
     ),
     (
         "test",
-        "The simulation somewhere else each time: a random galaxy, docked at a station somebody lives on, a mercenary for hire at the dock; BIMS_STATION_SEED (and BIMS_STATION_KIND) rebuilds the dock as that seed generates it",
+        "The simulation somewhere else each time: a random galaxy, docked at a station somebody lives on; BIMS_STATION_SEED (and BIMS_STATION_KIND) rebuilds the dock as that seed generates it",
     ),
     (
         "test_planet",

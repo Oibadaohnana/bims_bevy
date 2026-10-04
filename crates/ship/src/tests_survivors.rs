@@ -41,13 +41,11 @@ fn read(mut session: Session, steps: u32) -> u64 {
 }
 
 /// `test` and the commands built on it: the combat ship with one crew
-/// member, docked where the roll says, a mercenary for hire.
+/// member, docked where the roll says.
 fn tested(pick: fn(u64, u32, u64) -> Option<(u32, u32)>) -> Session {
     let spawn = pick(SEED, 0, ROLL);
     assert!(spawn.is_some(), "the roll finds somewhere");
-    let mut session = Session::simulate_on(combat_ship(), 1, SEED, 0, spawn, W, H);
-    session.mercenary_for_probe();
-    session
+    Session::simulate_on(combat_ship(), 1, SEED, 0, spawn, W, H)
 }
 
 fn commands() -> Vec<(&'static str, u64)> {

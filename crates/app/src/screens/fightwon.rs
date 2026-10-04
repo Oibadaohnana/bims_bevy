@@ -34,7 +34,7 @@ pub struct FightTally {
     /// The run's deaths when the tally began.
     deaths: u64,
     /// Every crew member's experience when the tally began, by index — a
-    /// crew member hired since began at nought.
+    /// crew member joined since began at nought.
     xp: Vec<u32>,
     /// The Republic's bounty paid into the pool during the mission.
     bounty: u64,

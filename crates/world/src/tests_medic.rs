@@ -1241,11 +1241,10 @@ fn a_field_medic_fetches_a_crewmate_that_is_down_out_of_the_fire() {
     assert!(fetched, "the field medic went and got it");
 }
 
-/// A hire breaks every beam, and so does a bot lost off the crew — an
-/// index is all a link is.
+/// A bot lost off the crew breaks every beam — an index is all a link
+/// is.
 #[test]
-fn beams_are_cleared_by_a_hire_and_a_bot_lost() {
-    use crate::armour::LootSource;
+fn beams_are_cleared_by_a_bot_lost() {
     use crate::data;
     use worldgen::GalaxyType;
     let galaxy = worldgen::Galaxy::new(data::DEFAULT_SEED, GalaxyType::SpiralTwoArm);
@@ -1254,38 +1253,20 @@ fn beams_are_cleared_by_a_hire_and_a_bot_lost() {
         combat_ship(),
         REFERENCE_MONEY,
         2,
-        2,
+        3,
         data::DEFAULT_SEED,
         GalaxyType::SpiralTwoArm,
         star,
         station,
     )
     .unwrap();
-    // A hire, not a fight: the spawn a peaceful stop (task 111).
+    // No fight: the spawn a peaceful stop (task 111).
     world.set_quiet_sites_for_probe(true);
     assert_eq!(world.set_class(0, Class::Medic), Ok(()));
     hold_still(&mut world);
     // The beam's first rank, since a medic of nought ranks has none.
     ranks(&mut world, 0, [0, 0, 1, 0]);
-    assert!(world.mercenary_for_probe());
-    let merc = world.residents.as_ref().unwrap().aboard.count() - 1;
-    assert!(world.mercenary_fee(merc).is_some());
-    // Linked to the crewmate; the hire breaks every beam.
-    beside(&mut world, 1, 0);
-    assert!(linked(&beam(&mut world, 0, Some(1)), 0, Some(1)));
-    assert_eq!(world.patients_of(0), vec![1]);
-    let at = world.body_position(LootSource::Resident(merc)).unwrap();
-    world.aboard.room.put_for_probe(0, at + vec2(30.0, 0.0));
-    let events = world.step(&[Command::Hire {
-        slot: 0,
-        who: 0,
-        resident: merc,
-    }]);
-    assert!(events.contains(&WorldEvent::Hired { who: 2 }), "{events:?}");
-    assert_eq!(world.aboard.crew_count(), 3);
-    assert!(world.patients_of(0).is_empty(), "cleared by the hire");
-    assert!(!world.is_beaming(0));
-    // Linked to the mercenary; the hand dead and gone with the site —
+    // Linked to the bot; the bot dead and gone with the site —
     // a bot is dropped off the crew when the ship leaves — breaks it, and
     // the state list shrinks with the crew.
     hold_still(&mut world);

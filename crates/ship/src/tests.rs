@@ -1446,14 +1446,14 @@ fn save_round_trip_keeps_a_held_town_and_an_attack_under_way() {
     assert_eq!(world.checksum(), checksum);
 }
 
-/// The `combat` session sails with four hired field medics at the back of
+/// The `combat` session sails with four field medics at the back of
 /// the crew (`session::COMBAT_MEDICS`): the last four of the sixteen, on
-/// a contract that costs nothing, each reviving in a medic's four seconds
+/// the world's list of field medics, each reviving in a medic's four seconds
 /// and each able to pick a crewmate up. Without them nobody in the fight
 /// may carry, and a crew member shot down lies where it fell. Everybody
 /// else revives in ten.
 #[test]
-fn the_fight_sails_with_four_hired_field_medics_at_the_back_of_the_crew() {
+fn the_fight_sails_with_four_field_medics_at_the_back_of_the_crew() {
     use crate::session::{COMBAT_MEDICS, Session};
 
     let session = Session::combat(world::data::DEFAULT_SEED, CANVAS.0, CANVAS.1);
@@ -1474,15 +1474,6 @@ fn the_fight_sails_with_four_hired_field_medics_at_the_back_of_the_crew() {
     }
     for &who in &medics {
         assert!(world.can_lift(who), "a field medic may carry");
-        // The contract is a hire with nothing to pay: a probe's fight
-        // must not go broke a month in.
-        let hired = world
-            .hired
-            .iter()
-            .find(|h| h.who == who)
-            .expect("on the crew's books");
-        assert!(hired.medic);
-        assert_eq!(hired.fee, 0);
     }
 }
 

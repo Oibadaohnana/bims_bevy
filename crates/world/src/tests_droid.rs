@@ -101,10 +101,9 @@ fn a_held_station_has_machines_and_no_people_at_all() {
     assert_eq!(room.crew_count(), 0, "the station's people are gone");
     assert_eq!(room.droid_count(), n, "and the machines are the room");
     assert_eq!(room.body_count(), n, "one index space, the Bims first");
-    // Which is what `people_of` says, and `mercenaries_of` with it.
+    // Which is what `people_of` says.
     let at = world.station(station).unwrap().clone();
     assert_eq!(world.people_of(&at), 0);
-    assert_eq!(world.mercenaries_of(&at), 0);
     // A held station is an enemy's whatever the hostile list says.
     assert_eq!(world.stance(station), bims::sight::Stance::Hostile);
     assert!(world.is_droid_held(station));

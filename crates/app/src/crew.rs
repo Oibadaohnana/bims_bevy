@@ -41,8 +41,7 @@
 //! [`Body`] snapshot the screen sets every frame *after* the fixture menu
 //! has run, since the menu is what opens the window. Taking is an order
 //! like the rest, `GearOrder::Loot`, and the walk over to the body is the
-//! screen's too (`walk`), since where a body lies is the world's to say —
-//! the same walk takes the Bim to a mercenary the Hire row is open on.
+//! screen's too, since where a body lies is the world's to say.
 
 use bevy_egui::egui;
 use bims::combat::{Item as PackItem, Piece};
@@ -51,7 +50,6 @@ use bims::order::CrewOrder;
 use bims::room::*;
 use bims::{door, health};
 use physics::ResourceId;
-use world::LootSource;
 
 use crate::ability_icons;
 use crate::format::date_text;
@@ -63,25 +61,6 @@ use crate::theme;
 /// Below this the pointer moved so little that it counts as a click, not a
 /// sweep, in points.
 pub const CLICK_SLOP: f32 = 4.0;
-
-/// Where the Hire window sits: right of the character sheet and under
-/// the portraits and the top frame (feature 107).
-const HIRE_AT: egui::Vec2 = egui::vec2(370.0, 150.0);
-
-/// A mercenary's terms, as the panels see them: a snapshot the screen
-/// hands over every frame for the resident the Hire window is open on
-/// (`World::hire_offer`), and `None` once it is not for hire — hired, or
-/// the rooms parted — which shuts the window.
-#[derive(Clone, Copy)]
-pub struct Terms {
-    pub fee: economy::Money,
-    pub gear: bims::combat::Gear,
-    pub in_reach: bool,
-    pub affordable: bool,
-    /// Whether this one is a **field medic** (feature 86): hired to
-    /// fetch the fallen out of the fire and treat them, not to shoot.
-    pub medic: bool,
-}
 
 /// What a press on the Armory panel or a row asked for, about somebody's
 /// gear. The screen sends it as the matching `world::Command`.
@@ -108,9 +87,6 @@ pub enum GearOrder {
         part: world::GearSlot,
         yes: bool,
     },
-    /// Hire the mercenary that is that resident of the station, `who`
-    /// doing the hiring — `Command::Hire`.
-    Hire { who: u32, resident: u32 },
 }
 
 /// Something within reach of the Bim shown, for the nearby strip: the
@@ -121,11 +97,10 @@ pub struct Near {
     pub label: String,
 }
 
-/// What a row or the nearby strip put up: a mercenary's terms, or one
-/// of the acts below that are no window of the panels' own.
+/// What a row or the nearby strip put up: one of the acts below, which
+/// are no window of the panels' own.
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum Open {
-    Hire(u32),
     /// Not a window either: the engineer.s deployable within reach packed
     /// up into its pack (`Command::PackUp`) — the row on the nearby strip
     /// beside one (feature 74). By the deployable.s id. There is no
@@ -376,8 +351,7 @@ pub struct Menu {
 type Errand = CrewOrder;
 
 /// One row of a fixture's menu: an errand for the Bim, or a window to
-/// open — a body's "Loot", a mercenary's "Hire" — which is the panels' to
-/// do rather than the room's.
+/// open — which is the panels' to do rather than the room's.
 struct Item {
     label: String,
     hint: String,
@@ -411,16 +385,6 @@ impl Item {
             opens: None,
         }
     }
-
-    fn opens(label: impl Into<String>, hint: impl Into<String>, what: Open) -> Item {
-        Item {
-            label: label.into(),
-            hint: hint.into(),
-            disabled: false,
-            run: None,
-            opens: Some(what),
-        }
-    }
 }
 
 pub struct CrewPanels {
@@ -441,21 +405,14 @@ pub struct CrewPanels {
     /// The Armory panel (task 113): up from the Inventory key (Tab) or the
     /// tray's Armory button, on every screen of a run, until it is shut.
     pub armory_open: bool,
-    /// The Hire window, if one is up.
+    /// What the nearby strip has up, if anything.
     open: Option<Open>,
-    /// The mercenary the Hire row opened the window on: the screen walks
-    /// the Bim shown over to it and takes this.
-    pub walk: Option<LootSource>,
-    /// The mercenary's terms the Hire window is over, as the screen last
-    /// handed them; `None` while none is open, or once the body is no
-    /// longer for hire — hired, or the rooms parted — which shuts it.
-    pub terms: Option<Terms>,
     /// The Carry row was picked on this downed crewmate: the screen walks
     /// the player's own Bim over and sends the carry once it is within
     /// reach, and takes this.
     pub carry_requested: Option<u32>,
     /// Whether the player's own Bim may carry a body at all — a medic or
-    /// a hired field medic (`World::can_lift`) — as the screen last
+    /// a field medic (`World::can_lift`) — as the screen last
     /// handed it over. What greys the menu's Carry row.
     pub may_lift: bool,
     /// What is within reach of the Bim shown, nearest first — an
@@ -471,8 +428,8 @@ pub struct CrewPanels {
     pub crew_relics: Vec<world::Relic>,
     /// How long the player's own Bim takes to revive a crewmate, in
     /// seconds, as the screen last handed it over off the world
-    /// (`World::revive_seconds`, task 120): the class, a hired medic's
-    /// trade and *Trauma Kit* all move it, and the menu's row says it.
+    /// (`World::revive_seconds`, task 120): the class and a field medic's
+    /// trade move it, and the menu's row says it.
     pub revive_seconds: f32,
     /// What the class section and the deployable rows asked for this
     /// frame, drained by the screen.
@@ -505,8 +462,6 @@ impl CrewPanels {
             menu: None,
             armory_open: crate::dev::armory(),
             open: None,
-            walk: None,
-            terms: None,
             carry_requested: None,
             may_lift: false,
             nearby: Vec::new(),
@@ -529,11 +484,8 @@ impl CrewPanels {
         }
         self.crew_count = count;
         self.menu = None;
-        // The room was rebuilt with it, and the station's people with it:
-        // a mercenary the Hire window was over has gone with its room.
+        // The room was rebuilt with it, and the station's people with it.
         self.open = None;
-        self.walk = None;
-        self.terms = None;
     }
 
     // --- pointing at the thing itself ---------------------------------------
@@ -565,32 +517,13 @@ impl CrewPanels {
         });
     }
 
-    /// Open the Hire window on one of the station's people: the walk over
-    /// is the screen's, and the terms are handed in every frame
-    /// ([`Terms`]).
-    fn open_hire(&mut self, resident: u32) {
-        self.open = Some(Open::Hire(resident));
-        self.walk = Some(LootSource::Resident(resident));
-        self.terms = None;
-        self.menu = None;
-    }
-
-    /// The resident the Hire window is up on, if it is: what the screen
-    /// hands [`Terms`] for.
-    pub fn hire_source(&self) -> Option<u32> {
-        match self.open {
-            Some(Open::Hire(resident)) => Some(resident),
-            _ => None,
-        }
-    }
-
     /// Shut a fixture's menu, the way a click away does.
     pub fn close_menu(&mut self) {
         self.menu = None;
     }
 
     /// Escape: the innermost thing up goes first — a fixture's menu, then
-    /// the Hire window, then the Armory panel, then the character sheet.
+    /// the nearby strip's, then the Armory panel, then the character sheet.
     /// `true` when something was shut, so the screen knows the key is
     /// spent.
     pub fn escape(&mut self) -> bool {
@@ -714,28 +647,11 @@ impl CrewPanels {
                     opens: Some(Open::Carry(patient as u32)),
                 });
             }
-            // One of the station's people, on its feet and hailable: a
-            // mercenary for hire. What it asks is the world's to say — the
-            // window reads it. A resident down has no row: what it had on
-            // it is its own.
-            HIT_VISITOR => {
-                let body = game.hit_visitor() as u32;
-                if !game.visitor_down(body as usize) {
-                    items.push(Item::opens(
-                        HIRE_ROW,
-                        format!(
-                            "{} — a mercenary, paid by the month",
-                            name(self.crew_count + body)
-                        ),
-                        Open::Hire(body),
-                    ));
-                }
-            }
             _ => {}
         }
         // While there is something to wait behind, a word about Shift: a
         // row given with it waits its turn (feature 69). Only under rows
-        // that are errands — the Hire and Open rows are windows.
+        // that are errands.
         let something_on = busy || game.agenda_len(who) > 0 || game.is_walking(who);
         if something_on && items.iter().any(|item| item.run.is_some()) {
             items.push(Item::note(SHIFT_LATER, SHIFT_LATER_HINT.into()));
@@ -771,7 +687,6 @@ impl CrewPanels {
             let item = items.into_iter().nth(i).unwrap();
             self.menu = None;
             match item.opens {
-                Some(Open::Hire(resident)) => self.open_hire(resident),
                 Some(open @ Open::PackUp(_)) => self.show(open),
                 Some(Open::Carry(patient)) => self.carry_requested = Some(patient),
                 None => {
@@ -1517,93 +1432,6 @@ impl CrewPanels {
         self.armory_open = open;
         self.orders.extend(asked);
         self.follow_strip(strip);
-    }
-
-    /// The Hire window, if a mercenary is open: whose, what it carries —
-    /// the weapon and every piece worn, which is what the fee is — and a
-    /// month's fee, with the button that sends the hire through the seam
-    /// (`GearOrder::Hire`). Greyed, with the reason, while the Bim shown
-    /// is out of reach (the row walked it over) or the money is short.
-    /// Shut by its cross, by Escape, by the hire
-    /// going through, or by the body no longer being for hire — the rooms
-    /// parted. Call once a frame after the screen has set
-    /// [`CrewPanels::terms`], in the Loot window's place.
-    pub fn hire_window(&mut self, ctx: &egui::Context, game: &Game, name: &dyn Fn(u32) -> String) {
-        let Some(resident) = self.hire_source() else {
-            return;
-        };
-        let Some(terms) = self.terms else {
-            self.open = None;
-            return;
-        };
-        let who = self.inventory_who(game);
-        let whose = name(self.crew_count + resident);
-        let mut open = true;
-        let mut hired = false;
-        egui::Window::new(format!("{HIRE_WINDOW} — {whose}"))
-            .id(egui::Id::new("hire-window"))
-            .open(&mut open)
-            .collapsible(false)
-            .resizable(false)
-            .anchor(egui::Align2::LEFT_TOP, HIRE_AT)
-            .frame(crate::theme::panel_frame())
-            .show(ctx, |ui| {
-                // The trade first, where there is one to name (feature
-                // 86): a field medic is hired for what it does and not
-                // for the gun it carries, and the premium on the month
-                // below is that and nothing else.
-                if terms.medic {
-                    ui.horizontal(|ui| {
-                        ui.label(egui::RichText::new(FIELD_MEDIC).strong().color(theme::HEAL));
-                        theme::question_mark(ui, FIELD_MEDIC_TIP);
-                    });
-                    ui.add_space(4.0);
-                }
-                ui.horizontal(|ui| {
-                    ui.label(egui::RichText::new("Carries").small().color(theme::MUTED));
-                    theme::question_mark(ui, HIRE_TIP);
-                });
-                ui.label(weapon_name(terms.gear.weapon.map(|w| w.kind)));
-                if let Some(piece) = terms.gear.worn() {
-                    ui.label(armour_name(Some(piece.kind)));
-                }
-                ui.add_space(6.0);
-                ui.horizontal(|ui| {
-                    ui.label(egui::RichText::new("A month").small().color(theme::MUTED));
-                    ui.label(egui::RichText::new(crate::format::euros(terms.fee)).strong());
-                });
-                let hint = if !terms.in_reach {
-                    Some(format!("{} — {REACH_HINT}", name(who as u32)))
-                } else if !terms.affordable {
-                    Some(BROKE_HINT.to_string())
-                } else {
-                    None
-                };
-                let can = hint.is_none();
-                if ui
-                    .add_enabled(can, egui::Button::new(HIRE_BUTTON))
-                    .clicked()
-                {
-                    hired = true;
-                }
-                if let Some(hint) = hint {
-                    ui.add(
-                        egui::Label::new(egui::RichText::new(hint).small().color(theme::MUTED))
-                            .wrap(),
-                    );
-                }
-            });
-        if hired {
-            self.orders.push(GearOrder::Hire {
-                who: who as u32,
-                resident,
-            });
-            open = false;
-        }
-        if !open || ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
-            self.open = None;
-            self.terms = None;
-        }
     }
 
     /// The Skills tab on the character sheet (features 83 and 107; every

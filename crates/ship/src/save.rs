@@ -274,7 +274,10 @@ use crate::game::Game;
 /// and a weapon its size (`WeaponStats::{magazine, reload_time}`).
 /// 103: the run keeps the best tier bought of each kind off a shelf, not
 /// of guns and armour (`Run::shelf_bought`).
-pub const SAVE_VERSION: u32 = 103;
+/// 105: the mercenaries gone — `World::hired` is `World::field_medics`
+/// (crew indices), `least_mercenaries`, `Residents::{fee, medic}`,
+/// `Losses::mercenaries` and `Grave::hired` gone.
+pub const SAVE_VERSION: u32 = 105;
 
 /// What the file holds, read back.
 #[derive(serde::Deserialize)]

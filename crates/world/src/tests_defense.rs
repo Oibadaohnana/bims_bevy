@@ -149,16 +149,15 @@ fn the_town_fights_the_machines_and_the_crew_never_aim_at_a_townsperson() {
         "the first wave never landed"
     );
     // Who shelters: everybody of the town's own but the guard, and never
-    // a mercenary or a defender (task 111). Asked of the room, which is
+    // a defender (task 111). Asked of the room, which is
     // what the world told it.
     let residents = world.residents.as_ref().expect("the town's room");
     let bims = residents.aboard.room.crew_count() as usize;
     assert!(bims > 1, "a town with people in it");
     for who in 0..bims {
-        let merc = residents.is_mercenary(who);
         let sheltering = residents.aboard.room.is_sheltering(who);
-        let want = who != surface::GUARD as usize && !merc && !residents.is_defender(who);
-        assert_eq!(sheltering, want, "body {who} (mercenary {merc})");
+        let want = who != surface::GUARD as usize && !residents.is_defender(who);
+        assert_eq!(sheltering, want, "body {who}");
     }
 
     // The crew's targets are the machines alone: every one of the room's
@@ -324,10 +323,10 @@ fn a_town_held_stays_friendly_past_its_system_s_day() {
 }
 
 /// A win puts some of the survivors on the crew: a fifth rounded down
-/// and never fewer than one, lowest index first, never the guard and
-/// never a mercenary — and they are classless bots with no contract.
+/// and never fewer than one, lowest index first, never the guard — and
+/// they are classless bots.
 #[test]
-fn the_survivors_who_join_are_classless_bots_with_no_wages() {
+fn the_survivors_who_join_are_classless_bots() {
     let Some((mut world, id)) = a_threatened_town(0.1, 1, Some(2)) else {
         return;
     };
@@ -337,7 +336,6 @@ fn the_survivors_who_join_are_classless_bots_with_no_wages() {
     );
     let crew_was = world.aboard.crew_count();
     let players = world.players();
-    let hired_was = world.hired().len();
     // Who is left in the town, and who the guard is, before the win.
     let residents = world.residents.as_ref().expect("the town's room");
     let bims = residents.aboard.room.crew_count() as usize;
@@ -373,7 +371,6 @@ fn the_survivors_who_join_are_classless_bots_with_no_wages() {
     assert!(joined > 0, "nobody joined a town held with people in it");
     assert_eq!(world.aboard.crew_count(), crew_was + joined);
     assert_eq!(world.players(), players, "a joiner took a player slot");
-    assert_eq!(world.hired().len(), hired_was, "a joiner signed a contract");
     let bunks = world.aboard.room.bed_count() as u32;
     for who in crew_was..world.aboard.crew_count() {
         assert_eq!(
@@ -381,10 +378,8 @@ fn the_survivors_who_join_are_classless_bots_with_no_wages() {
             crate::class::Class::None,
             "joiner {who} has a class"
         );
-        assert!(!world.is_hired(who), "joiner {who} draws wages");
         assert!(world.aboard.room.is_alive(who as usize), "joiner {who}");
-        // **No bunk is no obstacle**: a hire wants one and is refused
-        // without, and a joiner comes anyway and sleeps on the deck
+        // **No bunk is no obstacle**: a joiner comes anyway and sleeps on the deck
         // under the room's own rule.
         if who >= bunks {
             assert!(
@@ -948,7 +943,6 @@ fn a_dead_defender_is_no_loss_and_a_derelict_is_not_lost_with_its_defenders() {
     // Their deaths are nobody's loss when the room closes.
     world.leave_for_probe();
     assert_eq!(world.losses_at(id).dead, 0, "a defender counted a loss");
-    assert_eq!(world.losses_at(id).mercenaries, 0);
 }
 
 /// **Leaving before the last wave** (task 111): the station falls to the

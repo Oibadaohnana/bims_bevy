@@ -11,10 +11,9 @@
 //! rolled it, the key back on the desk and the rocks back in the belt.
 //!
 //! Now both are kept. [`Losses`] is what a station has lost to the crew:
-//! how many of its own are dead and how many of the mercenaries who
-//! lived there are gone — hired away, or dead — added to whenever its
-//! room is closed (`World::close_residents`) and read off by
-//! `World::people_of` and `World::mercenaries_of` when it is opened
+//! how many of its own are dead — added to whenever its room is closed
+//! (`World::close_residents`) and read off by `World::people_of` when
+//! it is opened
 //! again, so a station that lost people opens with the survivors and an
 //! emptied one opens empty. [`SystemMemory`] is everything else a system holds that
 //! the crew have changed — the per-system fields of the world, lifted
@@ -48,8 +47,7 @@ use worldgen::Node;
 use crate::world::LampDamage;
 
 /// What one station has lost to the crew, by the station's id: its own
-/// people dead, and the mercenaries who lived there gone — hired, or
-/// dead. Kept sorted by `station` on `World::losses`, and by star with
+/// people dead. Kept sorted by `station` on `World::losses`, and by star with
 /// the rest of a system in [`SystemMemory`].
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -58,27 +56,19 @@ pub struct Losses {
     /// Of the station's own people, how many are dead. Comes off `World::people_of` when the room
     /// opens again.
     pub dead: u32,
-    /// Of the mercenaries for hire who lived there, how many are gone:
-    /// hired onto the crew, or dead where they stood. Comes off
-    /// `World::mercenaries_of`.
-    pub mercenaries: u32,
 }
 
 impl Losses {
     /// Nothing lost yet.
     pub fn none(station: u32) -> Losses {
-        Losses {
-            station,
-            dead: 0,
-            mercenaries: 0,
-        }
+        Losses { station, dead: 0 }
     }
 
     /// Whether there is anything to remember: an entry with nothing
     /// lost is dropped, so two worlds that have lost the same read the
     /// same whichever rooms happened to open along the way.
     pub fn is_empty(&self) -> bool {
-        self.dead == 0 && self.mercenaries == 0
+        self.dead == 0
     }
 }
 
@@ -135,9 +125,6 @@ pub struct Grave {
     /// room is built again. Drawing only, and out of the checksum with
     /// the rest of what a body looks like.
     pub look: Look,
-    /// Whether it was one of the mercenaries who lived there rather than
-    /// one of the station's own: the coverall it is drawn in.
-    pub hired: bool,
 }
 
 /// Every grave at `station` in a list sorted by station: a run of it.
@@ -236,26 +223,24 @@ mod tests {
     fn losses_are_kept_sorted_and_an_empty_entry_is_dropped() {
         let mut losses = Vec::new();
         amend_losses(&mut losses, 7, |l| l.dead += 2);
-        amend_losses(&mut losses, 3, |l| l.mercenaries += 1);
+        amend_losses(&mut losses, 3, |l| l.dead += 1);
         amend_losses(&mut losses, 5, |l| l.dead += 0);
         assert_eq!(
             losses,
             vec![
                 Losses {
                     station: 3,
-                    dead: 0,
-                    mercenaries: 1
+                    dead: 1
                 },
                 Losses {
                     station: 7,
-                    dead: 2,
-                    mercenaries: 0
+                    dead: 2
                 },
             ]
         );
         assert_eq!(losses_at(&losses, 7).dead, 2);
         assert_eq!(losses_at(&losses, 5), Losses::none(5));
-        amend_losses(&mut losses, 3, |l| l.mercenaries -= 1);
+        amend_losses(&mut losses, 3, |l| l.dead -= 1);
         assert_eq!(losses.len(), 1, "nothing lost is no entry");
         amend_losses(&mut losses, 7, |l| l.dead += 1);
         assert_eq!(losses_at(&losses, 7).dead, 3, "losses add up");
@@ -268,7 +253,6 @@ mod tests {
             y: 0.0,
             gear: Gear::default(),
             look: Look::of(0),
-            hired: false,
         }
     }
 

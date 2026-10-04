@@ -699,8 +699,6 @@ impl World {
     pub(super) fn travel(&mut self, quote: TravelQuote, events: &mut Vec<WorldEvent>) {
         let site = quote.site;
         self.clock_minutes += quote.minutes as f64;
-        // The hired hands' months that fell due on the way.
-        self.pay_wages_due(events);
         if quote.jump && !self.jump(site.star, events) {
             return;
         }
@@ -731,25 +729,6 @@ impl World {
             station: site.station,
             minutes: quote.minutes,
         });
-    }
-
-    /// Every hired hand's month that the clock has reached, paid — as
-    /// many months as a long trip went by, one at a time
-    /// (`World::pay_wages`).
-    fn pay_wages_due(&mut self, events: &mut Vec<WorldEvent>) {
-        // A month a pass, and no more passes than there are months in the
-        // longest possible gap: every pass either pays somebody's month
-        // (moving its due on) or finds nothing more to do.
-        for _ in 0..1_000 {
-            let due = self
-                .hired
-                .iter()
-                .any(|h| !h.owed && mercenary::owed(h, self.clock_minutes));
-            if !due {
-                break;
-            }
-            self.pay_wages(events);
-        }
     }
 
     /// Tied up at `station` — docked at a station, or set down at a
@@ -1255,7 +1234,7 @@ impl World {
 
     /// The run is lost when every player's Bim is dead at once — out and
     /// waiting for the mission's end counts, since that is dead too — said once
-    /// as [`WorldEvent::CrewLost`] and kept. Bots and hired hands do not
+    /// as [`WorldEvent::CrewLost`] and kept. Bots and joiners do not
     /// keep a run going: a crew is its players. And it is lost at once
     /// when nobody of the whole crew — players and bots — is standing
     /// and no defender of the site is either: every one down or dead,
@@ -1354,10 +1333,10 @@ impl World {
                 r.who -= 1;
             }
         }
-        self.hired.retain(|h| h.who != who);
-        for h in &mut self.hired {
-            if h.who > who {
-                h.who -= 1;
+        self.field_medics.retain(|&m| m != who);
+        for m in &mut self.field_medics {
+            if *m > who {
+                *m -= 1;
             }
         }
         self.on_ship_changed();

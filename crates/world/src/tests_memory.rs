@@ -10,7 +10,7 @@ use crate::Losses;
 use crate::data;
 use crate::event::WorldEvent;
 use crate::fixture::{REFERENCE_MONEY, simulation_world};
-use crate::world::{Command, LampDamage, ShipState, World};
+use crate::world::{LampDamage, ShipState, World};
 use crate::world_checksum;
 use bims::sight::Stance;
 
@@ -79,12 +79,9 @@ fn back_to(world: &mut World, station: u32) {
 fn a_station_s_dead_stay_dead_when_its_room_is_closed_and_opened_again() {
     let mut world = basic();
     let station = world.ship.state.station().expect("docked at the spawn");
-    let (people, mercs) = {
-        let s = world.station(station).unwrap();
-        (world.people_of(s), world.mercenaries_of(s))
-    };
+    let people = world.people_of(world.station(station).unwrap());
     let crowd = world.residents.as_ref().unwrap().aboard.count();
-    assert_eq!(crowd, people + mercs, "its people, then its hands for hire");
+    assert_eq!(crowd, people, "its people and nobody else");
     assert!(people >= 2, "two of its own to shoot: {people}");
     assert_eq!(world.losses_at(station), Losses::none(station));
     let before = world_checksum(&world);
@@ -104,14 +101,7 @@ fn a_station_s_dead_stay_dead_when_its_room_is_closed_and_opened_again() {
     // Off the berth and away: the room closes, and the dead are counted.
     world.undock_for_probe();
     out_of_range(&mut world);
-    assert_eq!(
-        world.losses_at(station),
-        Losses {
-            station,
-            dead: 2,
-            mercenaries: 0
-        }
-    );
+    assert_eq!(world.losses_at(station), Losses { station, dead: 2 });
     assert_ne!(
         world_checksum(&world),
         before,
@@ -140,8 +130,7 @@ fn a_station_s_dead_stay_dead_when_its_room_is_closed_and_opened_again() {
         world.losses_at(station),
         Losses {
             station,
-            dead: people,
-            mercenaries: mercs
+            dead: people
         }
     );
     back_to(&mut world, station);
@@ -220,7 +209,6 @@ fn a_station_s_dead_lie_where_they_fell_when_its_room_opens_again() {
     assert_eq!(graves.len(), 1, "one body on its deck");
     assert_eq!(graves[0].station, station);
     assert_eq!(graves[0].gear, fell.1, "what was left on it");
-    assert!(!graves[0].hired, "one of the station's own");
 
     // And the room that opens next has it lying there: one body, dead,
     // within a tile of where it fell, with what was on it still on it.
@@ -266,10 +254,7 @@ fn a_settlement_s_dead_lie_in_its_street_too() {
     assert_eq!(laid.len(), 2);
     assert_eq!(standing(&world), living - 2);
     assert_eq!(bodies(&world).len(), 2);
-    assert_eq!(
-        world.losses_at(town).dead + world.losses_at(town).mercenaries,
-        2
-    );
+    assert_eq!(world.losses_at(town).dead, 2);
 
     // Up and away, and down again: the same two, in the same places.
     world.undock_for_probe();
@@ -282,7 +267,7 @@ fn a_settlement_s_dead_lie_in_its_street_too() {
         // inside the thousandth the checksum rounds to, and it settles
         // after the first round trip rather than drifting.
         assert!((was.x - is.x).abs() < 0.001 && (was.y - is.y).abs() < 0.001);
-        assert_eq!((was.gear, was.hired), (is.gear, is.hired));
+        assert_eq!(was.gear, is.gear);
     }
     assert!(world.land_for_probe(), "down at the town again");
     world.step(&[]);
@@ -381,70 +366,6 @@ fn a_jump_away_and_back_finds_the_system_as_it_was_left() {
         world_checksum(&forgetful),
         back,
         "the memories are in the checksum"
-    );
-}
-
-/// A mercenary hired is off the station's offer: closed and opened again,
-/// the room has one fewer for hire — and one dismissed back ashore is on
-/// it again.
-#[test]
-fn a_mercenary_hired_is_not_there_to_hire_twice() {
-    // The combat ship with one aboard: a bunk to spare for the hire.
-    let galaxy = worldgen::Galaxy::new(data::DEFAULT_SEED, worldgen::GalaxyType::SpiralTwoArm);
-    let (star, station) = crate::spawn(&galaxy).unwrap();
-    let mut world = World::start_with_crew(
-        shipdesign::fixture::combat_ship(),
-        REFERENCE_MONEY,
-        1,
-        1,
-        data::DEFAULT_SEED,
-        worldgen::GalaxyType::SpiralTwoArm,
-        star,
-        station,
-    )
-    .unwrap();
-    assert!(world.mercenary_for_probe(), "a mercenary at the dock");
-    let s = world.station(station).unwrap().clone();
-    let offer = world.mercenaries_of(&s);
-    assert!(offer >= 1);
-    let residents = world.residents.as_ref().unwrap();
-    let ashore = residents.aboard.count();
-    let merc = residents
-        .fee
-        .iter()
-        .position(|f| f.is_some())
-        .expect("one priced") as u32;
-    let fee = residents.fee[merc as usize].unwrap();
-
-    // Hired: the world's count says one fewer for hire here from now on.
-    world.money = fee * 10;
-    let at = world
-        .body_position(crate::LootSource::Resident(merc))
-        .expect("stands on the deck");
-    world
-        .aboard
-        .room
-        .put_for_probe(0, at + bims::math::vec2(30.0, 0.0));
-    let events = world.step(&[Command::Hire {
-        slot: 0,
-        who: 0,
-        resident: merc,
-    }]);
-    assert!(
-        events.iter().any(|e| matches!(e, WorldEvent::Hired { .. })),
-        "{events:?}"
-    );
-    assert_eq!(world.losses_at(station).mercenaries, 1);
-    assert_eq!(world.mercenaries_of(&s), offer - 1);
-
-    // Away and back: the room opens with the one fewer.
-    world.undock_for_probe();
-    out_of_range(&mut world);
-    back_to(&mut world, station);
-    assert_eq!(
-        world.residents.as_ref().unwrap().aboard.count(),
-        ashore - 1,
-        "the hired hand is not for hire again"
     );
 }
 

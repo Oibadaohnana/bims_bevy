@@ -172,20 +172,12 @@ pub fn world_checksum(world: &World) -> u64 {
     // two worlds that disagree about one disagree about whether a
     // settlement inside the infection still trades.
     eat_held_towns(&mut hash, world.held_towns());
-    // The hired hands: who, what a month costs, when it is next due and
-    // whether one is owed. A crew member that costs money is a different
-    // crew from one that does not.
-    hash.eat(world.hired.len() as u64);
-    for hired in &world.hired {
-        hash.eat(hired.who as u64);
-        hash.eat(u64::from(hired.by));
-        hash.eat(hired.fee);
-        hash.eat_rounded(hired.due, FINE_GRID);
-        hash.eat(hired.owed as u64);
-        // And what was hired (feature 86): a field medic fights and
-        // walks differently, so two clients that disagree about it
-        // disagree about where a body is standing.
-        hash.eat(hired.medic as u64);
+    // The field medics (feature 86): a field medic fights and walks
+    // differently, so two clients that disagree about one disagree
+    // about where a body is standing.
+    hash.eat(world.field_medics.len() as u64);
+    for &who in &world.field_medics {
+        hash.eat(u64::from(who));
     }
 
     // The holdings (task 113): the armory — every thing's id, what it is
@@ -893,7 +885,8 @@ fn eat_losses(hash: &mut Fnv, losses: &[crate::memory::Losses]) {
     for loss in losses {
         hash.eat(loss.station as u64);
         hash.eat(loss.dead as u64);
-        hash.eat(loss.mercenaries as u64);
+        // A nought where the mercenaries gone were counted.
+        hash.eat(0);
     }
 }
 
@@ -918,7 +911,8 @@ fn eat_graves(hash: &mut Fnv, graves: &[crate::memory::Grave]) {
         hash.eat(grave.station as u64);
         hash.eat_rounded(grave.x, POSITION_GRID);
         hash.eat_rounded(grave.y, POSITION_GRID);
-        hash.eat(u64::from(grave.hired));
+        // A nought where whether it was a mercenary was.
+        hash.eat(0);
         eat_gear(hash, &grave.gear);
     }
 }

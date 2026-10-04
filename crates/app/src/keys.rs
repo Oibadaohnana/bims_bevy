@@ -111,7 +111,7 @@ pub enum Action {
     /// pointer up into its arms — a downed one — to
     /// walk them out of the fire, and sets down whoever it is carrying
     /// when pressed again. Nothing for anybody but a medic of the class
-    /// or a hired field medic.
+    /// or a field medic.
     Carry,
     /// **Revive**: held, the Bim you steer gets the downed crewmate
     /// nearest it back up — it must be standing close — and lets go when
@@ -320,7 +320,7 @@ impl Action {
                 "The crew that follow you fall back to the ship and hold there. Press it again and they go back to keeping to your side. Nobody leaves a fight aboard the ship: cornered in your own hull they stand and shoot whatever they were told."
             }
             Action::Carry => {
-                "A medic picks the downed crewmate under the pointer up and carries them out of the fire, holding its fire and walking slowly while it does. Press it again to set them down, and revive them where it is quiet. Nothing for anybody but a medic or a hired field medic. A left click on a downed crewmate offers the same."
+                "A medic picks the downed crewmate under the pointer up and carries them out of the fire, holding its fire and walking slowly while it does. Press it again to set them down, and revive them where it is quiet. Nothing for anybody but a medic or a field medic. A left click on a downed crewmate offers the same."
             }
             Action::Revive => {
                 "Hold it standing close to a downed crewmate and the Bim you steer gets them back up — the nearest of them. Let go before they are up and it stops. A bar over them shows how far it has got. A right-click on a downed crewmate walks over and revives them too."

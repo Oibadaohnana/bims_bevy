@@ -39,7 +39,7 @@
 //! grows by `day_scaling` every `scaling_days` — and at a defence the
 //! bots' (the crew's bots and a defence's defenders); a site has a wave more every `wave_days`; and each enemy's
 //! tier is dealt by the day's tier-two and tier-three shares. What the
-//! crew own, what they have learnt, and how many bots, mercenaries and
+//! crew own, what they have learnt, and how many bots and
 //! recruits walk with them are none of the machines' business. Only a
 //! jump moves the world clock — a day each, [`data::JUMP_MINUTES`] — so
 //! the machines grow with the systems crossed.

@@ -6,7 +6,7 @@
 //! like the seed and changeable by `Command::SetClass` until the ship
 //! first leaves its berth — and one [`Progress`] through it: experience,
 //! the level that makes, and the ranks bought on the way up. A crew
-//! member nobody steers, a hire, a station's resident has
+//! member nobody steers, a station's resident has
 //! [`Class::None`] and learns nothing.
 //!
 //! **A class owns abilities, never jobs or money.** Every Bim can do
@@ -46,8 +46,8 @@
 //!
 //! Each enemy counts once, at its first down or death: a machine
 //! destroyed and a Manufacturer downed are worth the same twenty, and a
-//! downed one dying after is worth nothing more. A crewmate or a
-//! mercenary going down gives nothing. The vicinity is measured on the deck the fight is
+//! downed one dying after is worth nothing more. A crewmate or one of
+//! a station's own going down gives nothing. The vicinity is measured on the deck the fight is
 //! on, between the crew member and the enemy. No class has a source of
 //! its own: building, laying a kit, healing, taking hits and hiring gave
 //! the engineer, the medic, the tank and the commander experience of
@@ -351,14 +351,14 @@
 //!
 //! A ranked kit like the soldier's and the engineer's: sixteen levels on
 //! [`LEVEL_XP`], a skill point a level, Q, C and E rank `n` at
-//! level `2n − 1` and the ultimate R at 6, 9, 12 and 15. **One base
-//! trait** is his whatever his ranks: every mercenary he hires at
-//! [`HIRE_DISCOUNT_PERCENT`] off. (His squad orders — attack, fall back,
-//! stand ground — were removed.)
+//! level `2n − 1` and the ultimate R at 6, 9, 12 and 15. He has no base
+//! trait: the cheaper hire went with the mercenaries (October 2026),
+//! and his squad orders — attack, fall back, stand ground — were
+//! removed.
 //!
 //! **Q, Battle Cry** (active, cooldown): every friendly Bim within
 //! [`BATTLE_CRY_TILES`] of him **when he calls it** — himself, a player's
-//! Bim, a bot, a hired hand, a reinforcement; never a sentry — fires
+//! Bim, a bot, a reinforcement; never a sentry — fires
 //! faster for its seconds. The reach is fixed at the call: one that walks
 //! out keeps it, one that walks in does not get it.
 //!
@@ -416,8 +416,8 @@
 //! every class cooldown is.
 //!
 //! **His cry and his rally lift every friendly Bim they reach, a
-//! player's own steered Bims included** — the crew's own bots, the hired
-//! hands and the reinforcements alike. See [`crate::commander`].
+//! player's own steered Bims included** — the crew's own bots and the
+//! reinforcements alike. See [`crate::commander`].
 //!
 //! Every multiplier is a named constant here; what each rank *does* is
 //! `crate::deploy` and the world's step for the engineer, the room's
@@ -933,7 +933,7 @@ pub const HEAL_BEAM_RANGE: f32 = 6.0;
 pub const HEAL_BEAM_HP: f32 = 120.0;
 /// **Base trait**: how long a medic takes to revive a downed crewmate, in
 /// seconds — anybody else's is `bims::health::REVIVE_SECONDS` (task 120).
-/// A medic of the class and a hired field medic alike.
+/// A medic of the class and a field medic alike.
 pub const MEDIC_REVIVE_SECONDS: f32 = 4.0;
 /// **Base trait**: the share of its bar a Bim a medic of the class
 /// revives gets up at — anybody else's is `bims::health::REVIVED_TO`.
@@ -1075,10 +1075,6 @@ pub const ULTIMATE_COOLDOWN: [f64; 5] = [70.0, 60.0, 50.0, 40.0, 35.0];
 // One number a rank, ranks one to four, read with [`by_rank`] like the
 // soldier's and the engineer's. The seconds are seconds of the mission
 // clock, one a real second at 1×.
-
-/// **Base trait**: what a commander takes off a mercenary's fee, in whole
-/// per cent, at every level.
-pub const HIRE_DISCOUNT_PERCENT: u32 = 25;
 
 /// **Q, Battle Cry**: how far it reaches when he calls it, in tiles, at
 /// every rank.

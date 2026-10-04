@@ -377,7 +377,6 @@ pub fn refusal(why: Refusal) -> &'static str {
         Refusal::WontFit => "that will not go there",
         Refusal::NoSuchSite => "that site is not there any more",
         Refusal::OutOfReach => "it is out of reach — walk over first",
-        Refusal::NotForHire => "that is not a mercenary for hire",
         Refusal::NoMarket => "there is nobody here to sell to",
         // A walk ordered on the deck (`Command::Crew`): the room's two
         // refusals.
@@ -666,7 +665,7 @@ pub const CLASS_TIPS: [&str; 6] = [
     "Four ranked abilities, a skill point a level: Frag Grenades (Q), Weak Spot, hits that may land critical (C), a Stun Shot charged for two seconds that bursts where it lands, hurting and stunning every enemy in it (E), and for his ultimate a Rampage, firing faster and taking less (Space). Sets out with an auto rifle in hand.",
     "Four ranked abilities, a skill point a level: a Heal Drone that flies to whoever is lowest and heals them slowly (Q), Triage, every heal of his stronger on the badly hurt (C), the heal beam on a crewmate or himself, which heals him as much and lets him keep shooting (E), and for his ultimate a Healing Circle he switches on and off, healing everybody round him at his own cost and burning every enemy in it (Space). An Override Core makes all his healing half as much again. Revives a downed crewmate in four seconds where anybody else takes ten, and gets them up at 40% of their bar where anybody else manages 30%.",
     "Four ranked abilities, a skill point a level: a Riot Shield he holds up and puts down, bouncing every shot that meets it back where it came from (Q), Plated, less damage from every hit and his health mending as he goes (C), a Reflect Barrier sending every hit on him back on whoever struck (E), and for his ultimate the Bastion, a draining shield of 600 to 1200 by its rank over every friend near him (Space). His armour drains at half rate, so the same armour takes twice as much on him. Sets out with the pistol and a tier-one armour on.",
-    "Four ranked abilities, a skill point a level: a Battle Cry that makes everybody near him fire faster (Q), a Medivac, a Republic medic called in beside him who runs to a player downed and revives him (C), a Rally that has the crew near him take less damage and move faster (E), and for his ultimate Republic soldiers called in beside him (Space). Hires a mercenary at a quarter off. Sets out with the pistol.",
+    "Four ranked abilities, a skill point a level: a Battle Cry that makes everybody near him fire faster (Q), a Medivac, a Republic medic called in beside him who runs to a player downed and revives him (C), a Rally that has the crew near him take less damage and move faster (E), and for his ultimate Republic soldiers called in beside him (Space). Sets out with the pistol.",
 ];
 pub fn class_name(class: world::Class) -> &'static str {
     CLASS_NAMES
@@ -1564,23 +1563,9 @@ pub fn event_line(event: WorldEvent) -> Option<String> {
                 who(w)
             )
         }
-        WorldEvent::Hired { who: w } => {
-            format!("{} signed on — a hired hand, paid by the month.", who(w))
-        }
-        WorldEvent::MercenaryPaid { who: w, fee } => {
-            format!(
-                "{}'s month came round: {} paid.",
-                who(w),
-                crate::format::euros(fee)
-            )
-        }
-        WorldEvent::MercenaryLeft { who: w } => format!(
-            "{}'s month came round and there was not the money — the hand is owed until it is paid.",
-            who(w)
-        ),
         WorldEvent::Jumped { star } => format!("Jumped. The ship is in the system of star {star}."),
         WorldEvent::Infested { star } => format!(
-            "The machines have this system. Every station round star {star} is theirs: nobody left aboard, nothing to trade, nobody to hire."
+            "The machines have this system. Every station round star {star} is theirs: nobody left aboard, nothing to trade."
         ),
         WorldEvent::CrewLost => "Nobody of the crew is standing. The run is over.".into(),
         // Every class is a ranked kit since task 139: a level is a point,
@@ -2799,7 +2784,7 @@ pub const CARRY_ROW_HINT: &str =
     "walk over and pick them up out of the fire — you hold your fire while you carry";
 pub const CARRY_YOURSELF: &str = "nobody carries themselves";
 pub const CARRY_NOT_DOWN: &str = "only a downed crewmate can be carried";
-pub const CARRY_MEDICS_ONLY: &str = "only a medic or a hired field medic can carry";
+pub const CARRY_MEDICS_ONLY: &str = "only a medic or a field medic can carry";
 pub const CARRY_ARMS_FULL: &str = "your arms are full — set them down first";
 pub const CARRY_TAKEN: &str = "somebody is already carrying them";
 /// What the log says when the revive key is held with nobody down close
@@ -3103,20 +3088,6 @@ pub fn item_tip(id: ResourceId) -> &'static str {
     ITEM_TIPS.get(id as usize).copied().unwrap_or("")
 }
 
-/// The Hire window's title, with the mercenary's name after it, the menu
-/// row on a mercenary for hire — one of a friendly station's people in
-/// the olive coverall, with a `?` over its head — that opens it, and the
-/// button in it.
-pub const HIRE_WINDOW: &str = "Hire";
-pub const HIRE_ROW: &str = "Hire — see the terms";
-pub const HIRE_BUTTON: &str = "Hire";
-pub const HIRE_TIP: &str = "A mercenary lives at a friendly station and is for hire: the fee is a month of them, paid now and again every month after out of the crew's money, and it is what they carry — a heavier gun and a piece of armour each cost more. Hiring wants the Bim shown within two tiles of them (opening this walks it over) and the money for the first month. A month the money will not cover has them walk off at the next berth, for hire again.";
-/// A mercenary hired for its trade rather than its gun (feature 86).
-pub const FIELD_MEDIC: &str = "Field medic";
-pub const FIELD_MEDIC_TIP: &str = "A field medic is hired to save your crew, not to win the fight. Under arms it keeps to the far end of its weapon's reach, fetches whoever goes down out of the fire — in its arms, at half pace, holding its fire — sets them down where it is quiet, and revives them there — in a medic's four seconds, where anybody else takes ten. It has none of a medic's own skills: the premium on the month is the trade.";
-pub const BROKE_HINT: &str = "not the money for the first month";
-pub const MERCENARY_MARK: &str = "?";
-
 /// The Trader panel's line at a trader near the front (feature 94, task 114): the
 /// guns, the armour and the medicine here are dearer than they are
 /// anywhere quieter, and how much dearer is how near the machines are.
@@ -3227,16 +3198,15 @@ pub const DROIDS_TIP: &str = "The station is held by the machines, and they come
 
 /// The same warning over a town the crew are defending (feature 94):
 /// the fight is the machines', but the town's people are in it too.
-pub const DEFENSE_TIP: &str = "The machines are coming for this place, and the first wave lands twenty seconds after you arrive — at a far airlock, or outside a town's gate — a wave at a time after that. Its armed defenders, a town's guard and whatever mercenaries live here fight beside you; everybody else goes indoors and stays there. Hold the last wave and the place is cleared — the Republic pays nothing for a defence; the people who live through it are the reward — and a town is yours to keep: it stays friendly even after its system falls, and some of its people join your crew. Go back to the ship before the last wave is down and it falls to the machines behind you.";
+pub const DEFENSE_TIP: &str = "The machines are coming for this place, and the first wave lands twenty seconds after you arrive — at a far airlock, or outside a town's gate — a wave at a time after that. Its armed defenders and a town's guard fight beside you; everybody else goes indoors and stays there. Hold the last wave and the place is cleared — the Republic pays nothing for a defence; the people who live through it are the reward — and a town is yours to keep: it stays friendly even after its system falls, and some of its people join your crew. Go back to the ship before the last wave is down and it falls to the machines behind you.";
 /// [`DEFENSE_TIP`] before day ten (task 131), when the attackers are the
 /// Manufacturers' people and the machines they still command.
-pub const DEFENSE_TIP_MANUFACTURERS: &str = "The Manufacturers are coming for this place — their people, and as the days go on more of the machines they still command beside them — and the first wave lands twenty seconds after you arrive, at a far airlock or outside a town's gate, a wave at a time after that. From the tenth day it is the machines alone. Its armed defenders, a town's guard and whatever mercenaries live here fight beside you; everybody else goes indoors and stays there. Hold the last wave and the place is cleared — the Republic pays nothing for a defence; the people who live through it are the reward — and a town is yours to keep: it stays friendly even after its system falls, and some of its people join your crew. Go back to the ship before the last wave is down and it falls behind you.";
+pub const DEFENSE_TIP_MANUFACTURERS: &str = "The Manufacturers are coming for this place — their people, and as the days go on more of the machines they still command beside them — and the first wave lands twenty seconds after you arrive, at a far airlock or outside a town's gate, a wave at a time after that. From the tenth day it is the machines alone. Its armed defenders and a town's guard fight beside you; everybody else goes indoors and stays there. Hold the last wave and the place is cleared — the Republic pays nothing for a defence; the people who live through it are the reward — and a town is yours to keep: it stays friendly even after its system falls, and some of its people join your crew. Go back to the ship before the last wave is down and it falls behind you.";
 
 /// The header's word while the crew's alarm is up, and what it means.
 pub const ALARM_STATUS: &str = "To arms — an enemy is near";
 pub const ALARM_TIP: &str = "An enemy within thirty tiles of anybody or in anybody's sight, or a crew member hit, in the last half minute: every crew member but the one you steer draws its weapon and fights, walking to wherever it can shoot from, until nobody is near, nobody has seen one and nobody has been hit for half a minute — then it goes back to its day, however many of the station's people are still alive somewhere on it. The one you steer is yours: recruit it yourself, or leave it to its errands.";
 
-pub const REACH_HINT: &str = "walk over first — it is out of reach";
 
 /// The word beside the big red count of enemies standing, at the top of
 /// the screen: which wave of how many.
@@ -3285,7 +3255,6 @@ mod tests {
         }
         assert!(HEALTH_TIP.contains("ten seconds") && HEALTH_TIP.contains("four"));
         assert!(HEALTH_TIP.contains("twenty") && CRITICAL_TIP.contains("twenty"));
-        assert!(FIELD_MEDIC_TIP.contains("four seconds") && FIELD_MEDIC_TIP.contains("ten"));
         assert_eq!(downed_short(29.2), "DOWNED — dies in 30 s");
     }
 

@@ -18,7 +18,7 @@
 //! # The clock is minutes left, not a minute of the clock
 //!
 //! Every other countdown in the world is an absolute clock reading —
-//! `Infestation::next_wave`, a hire's month. This one is
+//! `Infestation::next_wave`. This one is
 //! **how long there still is to wait**, counted down only while the crew
 //! are standing in the town, because taking off **pauses** the attack and
 //! landing again resumes it where it stood. A clock reading would have
@@ -40,7 +40,7 @@ pub struct Defense {
     pub waves_left: u32,
     /// Which wave is on the ground, counting from one; **nought before
     /// the first has landed**, which is the hour the crew have to walk
-    /// the town, trade and hire before the shooting starts.
+    /// the town and trade before the shooting starts.
     pub wave: u32,
     /// Steps of the mission clock until the next wave lands (feature 103)
     /// — `None` while a machine is still standing, and with none left to
@@ -108,8 +108,7 @@ impl Defense {
 /// than the survivors **other than the guard**, so a town with nobody
 /// left, or only the guard, sends none.
 ///
-/// `survivors` counts the town's own people alive, the guard included;
-/// mercenaries are none of it, being nobody's townsfolk.
+/// `survivors` counts the town's own people alive, the guard included.
 pub fn joiners(survivors: u32, guard_alive: bool) -> u32 {
     let spare = survivors.saturating_sub(u32::from(guard_alive));
     data::DEFENSE_JOINERS.min(spare)
@@ -129,8 +128,7 @@ pub fn defenders(days_gone: u32) -> u32 {
 
 /// The seed a site's defender number `n` is kitted off: the station's
 /// map seed and its place among them, kept apart from the residents'
-/// (`map_seed ^ who`) and the mercenaries' (`mercenary::seed_for`) by a
-/// salt of its own.
+/// (`map_seed ^ who`) by a salt of its own.
 pub fn defender_seed(map_seed: u64, n: u32) -> u64 {
     map_seed ^ 0x_4445_4645_4e44_0000 ^ (n as u64)
 }
@@ -153,7 +151,6 @@ mod tests {
             assert!(n >= last && n <= data::DEFENDERS_MAX, "{day}");
             last = n;
         }
-        assert_ne!(defender_seed(7, 0), crate::mercenary::seed_for(7, 0));
     }
 
     /// Two, not more and not less, and the guard never counted among who

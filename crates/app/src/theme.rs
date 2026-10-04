@@ -670,22 +670,6 @@ const PING_RING_REACH: f32 = 34.0;
 /// And how often the three go again while the ping is up.
 const PING_RING_CYCLE: f32 = 1.5;
 
-/// A mark over a name — the `?` over a mercenary for hire: a small disc in
-/// the void's darkness with the glyph on it in `color`, on the background
-/// layer like [`name_over`]. `at` is the bottom middle, as for a name.
-pub fn badge_over(painter: &egui::Painter, at: egui::Pos2, mark: &str, color: egui::Color32) {
-    let r = NAME_SIZE * 0.62;
-    let centre = at - egui::vec2(0.0, r);
-    painter.circle(centre, r, NAME_STROKE, egui::Stroke::new(1.0, color));
-    painter.text(
-        centre,
-        egui::Align2::CENTER_CENTER,
-        mark,
-        egui::FontId::proportional(NAME_SIZE),
-        color,
-    );
-}
-
 /// A medic's heal beam (feature 76): a line from the medic to the
 /// patient in the beam's green, a wide faint one under a bright thin
 /// one, with a pip at each end — so it reads as a beam and not as a

@@ -8,7 +8,7 @@
 //!
 //! **A site of theirs is held the way a station the machines took is**: it
 //! has an [`Infestation`] — flagged [`Infestation::manufacturers`] — so the
-//! stance is hostile, nobody lives there, nothing is traded or hired, the
+//! stance is hostile, nobody lives there, nothing is traded, the
 //! waves and their clock, the clear, the pending bounty, the relic reward,
 //! and the site put back as it was met when it is left
 //! uncleared, are all the machines' own machinery unchanged. What differs
