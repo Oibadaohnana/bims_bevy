@@ -626,6 +626,10 @@ pub struct Sketches {
     strokes: Vec<Stroke>,
     /// This player's line under the pen.
     drawing: Option<u32>,
+    /// The pen down but not yet moved off the click's slop: where it
+    /// went down, on the floor. A pen lifted here was a click — it picks
+    /// the place under it and leaves no line.
+    pressed: Option<(f32, f32)>,
     /// The pen is rubbing out rather than drawing: where it was last.
     erasing: Option<egui::Pos2>,
     /// This player's next line's number.
@@ -676,6 +680,11 @@ impl Sketches {
             self.rub(slot, chart, rect, at, at);
             return;
         }
+        self.pressed = Some(chart.to_floor(rect, at));
+    }
+
+    /// A line begun at `from`, the pen having moved off its click.
+    fn begin(&mut self, slot: u32, from: (f32, f32)) {
         if self.strokes.iter().filter(|s| s.slot == slot).count() >= STROKES
             && let Some(i) = self.strokes.iter().position(|s| s.slot == slot)
         {
@@ -687,7 +696,7 @@ impl Sketches {
         self.strokes.push(Stroke {
             slot,
             id,
-            points: vec![chart.to_floor(rect, at)],
+            points: vec![from],
         });
         self.drawing = Some(id);
         self.unsent.push(id);
@@ -698,6 +707,14 @@ impl Sketches {
         if let Some(from) = self.erasing {
             self.rub(slot, chart, rect, from, at);
             return;
+        }
+        if let Some(from) = self.pressed {
+            let (x, row) = from;
+            if chart.to_screen(rect, x, row).distance(at) < crate::crew::CLICK_SLOP {
+                return;
+            }
+            self.pressed = None;
+            self.begin(slot, from);
         }
         let Some(id) = self.drawing else {
             return;
@@ -720,15 +737,17 @@ impl Sketches {
         }
     }
 
-    /// The pen lifted.
-    pub fn release(&mut self) {
+    /// The pen lifted: whether it was a click, never moved off where it
+    /// went down, so drew nothing.
+    pub fn release(&mut self) -> bool {
         self.drawing = None;
         self.erasing = None;
+        self.pressed.take().is_some()
     }
 
     /// Whether the pen is down.
     pub fn busy(&self) -> bool {
-        self.drawing.is_some() || self.erasing.is_some()
+        self.drawing.is_some() || self.erasing.is_some() || self.pressed.is_some()
     }
 
     /// Whether this player has any line up.
@@ -958,6 +977,21 @@ mod tests {
             theirs.put(0, id, points);
         }
         assert!(theirs.any_of(0) && !theirs.any_of(1));
+    }
+
+    #[test]
+    fn a_click_draws_nothing_and_says_so() {
+        let chart = FloorChart::default();
+        let mut sketches = Sketches::default();
+        sketches.press(0, &chart, rect(), egui::pos2(500.0, 700.0), false);
+        sketches.drag(0, &chart, rect(), egui::pos2(502.0, 701.0));
+        assert!(sketches.release(), "a pen that never left its click");
+        assert!(!sketches.any_of(0));
+        assert!(sketches.outgoing(0, 1.0).is_empty());
+        sketches.press(0, &chart, rect(), egui::pos2(500.0, 700.0), false);
+        sketches.drag(0, &chart, rect(), egui::pos2(500.0, 650.0));
+        assert!(!sketches.release(), "a drag is a line");
+        assert!(sketches.any_of(0));
     }
 
     #[test]

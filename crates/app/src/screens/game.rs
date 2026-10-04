@@ -2071,7 +2071,10 @@ fn frame(
     // A right drag on the floor's chart draws the way this player means
     // to go up it, in their colour on everybody's chart, and Shift with
     // it rubs their lines out (`floormap::Sketches`). The lines stay up
-    // across the missions until rubbed out.
+    // across the missions until rubbed out. A right click that never
+    // moved draws nothing: it picks the place under it, as a left click
+    // does (below, with the hover).
+    let mut right_click = false;
     {
         let me = screen.net.slot;
         let s = &mut *screen;
@@ -2087,7 +2090,7 @@ fn frame(
                     let at = egui::pos2(p.x, p.y);
                     s.sketches.drag(me, &s.floor_chart, chart_area, at);
                 }
-                None => s.sketches.release(),
+                None => right_click = s.sketches.release(),
             }
         }
         if s.sketches.busy() {
@@ -2217,6 +2220,10 @@ fn frame(
                     screen.picked_star = Some(star);
                     screen.world_map.pick_star(star);
                 }
+            }
+            if right_click && let Some(star) = hovered.and_then(star_of) {
+                screen.picked_star = Some(star);
+                screen.world_map.pick_star(star);
             }
             // With nothing up the floor picked, the way up this player's
             // lines run over is: the plan picks the next place for the
