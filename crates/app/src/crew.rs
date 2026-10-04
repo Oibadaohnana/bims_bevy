@@ -1880,7 +1880,7 @@ fn nearby_strip(ui: &mut egui::Ui, nearby: &[Near], open: Option<Open>) -> Optio
     pick
 }
 
-/// A word with the key that does the same beside it: `Attack (F)`.
+/// A word with the key that does the same beside it: `Attack (X)`.
 fn keyed(word: &str, key: egui::Key) -> String {
     with_key(word, key.name())
 }

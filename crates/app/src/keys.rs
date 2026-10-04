@@ -93,16 +93,11 @@ pub enum Action {
     /// The fourth, the class's ultimate: on R from task 123, on G from
     /// October 2026, when R went to the reload, and on Space since.
     Ability4,
-    /// **Attack-move**: arms the pointer, and the next click on the deck
-    /// sends the Bim you steer there with its weapon out, stopping to
-    /// shoot whatever comes into its sights on the way — Dota's
-    /// attack-move. On F, which the bots' banner had until then.
-    AttackMove,
     /// **Attack** (feature 84): arms the pointer, and the next click on
     /// the deck puts an attack banner down there for the bots that
     /// follow you. Pressed again with the pointer armed, or with the
     /// banner already where you click, it is called off. On X since the
-    /// attack-move took F.
+    /// attack-move (gone since) took F; F is bound to nothing.
     Attack,
     /// **Retreat**: the bots that follow you fall back to the ship and
     /// hold there. Pressed again, they go back to following.
@@ -154,7 +149,7 @@ impl Action {
     /// The four item slots, in the order the hero panel lays them out.
     pub const ITEMS: [Action; 4] = [Action::Item1, Action::Item2, Action::Item3, Action::Item4];
 
-    pub const ALL: [Action; 29] = [
+    pub const ALL: [Action; 28] = [
         Action::Map,
         Action::Propose,
         Action::NorthUp,
@@ -172,7 +167,6 @@ impl Action {
         Action::Ability2,
         Action::Ability3,
         Action::Ability4,
-        Action::AttackMove,
         Action::Attack,
         Action::Retreat,
         Action::Carry,
@@ -220,7 +214,6 @@ impl Action {
             // reload had, and then the ultimate to Space and the remote
             // trigger to G.
             Action::Ability4 => Key::Space,
-            Action::AttackMove => Key::F,
             Action::Attack => Key::X,
             Action::Retreat => Key::Y,
             // G is the held revive and H the medkit, so the medic's carry
@@ -257,7 +250,6 @@ impl Action {
             Action::Ability2 => "ability-2",
             Action::Ability3 => "ability-3",
             Action::Ability4 => "ability-4",
-            Action::AttackMove => "attack-move",
             Action::Attack => "attack",
             Action::Retreat => "retreat",
             Action::Carry => "carry",
@@ -309,9 +301,6 @@ impl Action {
             }
             Action::Ability4 => {
                 "The fourth ability slot, the ultimate: a soldier goes on a Rampage; an engineer lays its sentry on the deck tile under the pointer; a medic switches his Healing Circle on or off; a tank throws his Bastion over the crew round him. With Ctrl held, it is ranked up instead."
-            }
-            Action::AttackMove => {
-                "Arm the pointer — it turns red — and the next click on the deck sends the Bim you steer there with its weapon out. It stops to shoot whatever comes into its sights on the way, and walks on once nothing is left."
             }
             Action::Attack => {
                 "Arm the pointer — it turns red — and the next click on the deck puts an attack banner down there for the bots. The crew that follow you fight their way to it, taking the cover on the way and pushing on when nothing is in range. Press it again to think better of it, or click the banner where it already stands to call it off."
@@ -956,13 +945,12 @@ mod tests {
         ] {
             assert!(keys.shared_with(walk).is_empty(), "{walk:?}");
         }
-        // The attack-move is F, for the Bim you steer; every player's
-        // two orders for the bots (feature 84) are X to attack and Y to
-        // fall back to the ship; none shares its key.
-        assert_eq!(keys.key(Action::AttackMove), egui::Key::F);
+        // Every player's two orders for the bots (feature 84) are X to
+        // attack and Y to fall back to the ship; none shares its key. F
+        // is nobody's since the attack-move went (October 2026).
+        assert!(Action::ALL.iter().all(|&a| keys.key(a) != egui::Key::F));
         assert_eq!(keys.key(Action::Attack), egui::Key::X);
         assert_eq!(keys.key(Action::Retreat), egui::Key::Y);
-        assert!(keys.shared_with(Action::AttackMove).is_empty());
         assert!(keys.shared_with(Action::Attack).is_empty());
         assert!(keys.shared_with(Action::Retreat).is_empty());
         // And the carry (feature 86): B since the held revive took G and

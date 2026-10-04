@@ -122,10 +122,6 @@ pub struct GameScreen {
     /// left click on the deck puts the banner down there. Esc, a
     /// right-click or the key again puts it away.
     aiming_attack: bool,
-    /// The **attack-move** key has armed the pointer: the same red
-    /// crosshair, and the next left click on the deck sends the player's
-    /// own Bim there under arms, shooting what it meets on the way.
-    aiming_move: bool,
     /// The throw key (a soldier's Q, a grenade, or E, a Stun Shot, or an
     /// engineer's E, a satchel charge) has armed the pointer: the throw's reach is drawn
     /// round the player's own Bim, and the next left click on the deck
@@ -157,8 +153,8 @@ pub struct GameScreen {
     /// trader, a relic to choose, the Esc sheet, the map, the Armory and
     /// the character sheet.
     crosshair: bool,
-    /// The left press was an armed pointer's — a throw, an attack-move, the
-    /// banner — and fires nothing until the button comes up (task 144).
+    /// The left press was an armed pointer's — a throw or the banner —
+    /// and fires nothing until the button comes up (task 144).
     trigger_spent: bool,
     /// The enemy the crosshair picked for the auto-shoot (the setup's,
     /// October 2026): a left click on one, an index in the room's target
@@ -994,7 +990,6 @@ impl GameScreen {
             panels: None,
             throw_aim: None,
             aiming_attack: false,
-            aiming_move: false,
             aiming_throw: None,
             held_reach: None,
             held_revive: None,
@@ -2256,30 +2251,6 @@ fn frame(
                     screen.aiming_throw = None;
                 }
             }
-        } else if screen.aiming_move {
-            // The attack-move's armed pointer: a left click sends the
-            // player's own Bim there under arms, a right-click thinks
-            // better of it — the banner's shape, for the same reason.
-            if let Some(p) = on_canvas {
-                ctx.set_cursor_icon(egui::CursorIcon::None);
-                if pointer.primary_pressed {
-                    let (rx, ry) = session.room_point(p.x, p.y);
-                    // On an enemy the attack-move is the attack on it
-                    // (task 126), as Dota's A-click on a unit is.
-                    let order = match session.room().and_then(|room| room.enemy_at(rx, ry)) {
-                        Some(enemy) => CrewOrder::Attack {
-                            enemy: enemy as u32,
-                        },
-                        None => CrewOrder::AttackMove { x: rx, y: ry },
-                    };
-                    orders.push(crew_order(order, pointer.shift));
-                    screen.aiming_move = false;
-                    screen.trigger_spent = true;
-                }
-                if pointer.secondary_pressed {
-                    screen.aiming_move = false;
-                }
-            }
         } else if screen.aiming_attack {
             if let Some(p) = on_canvas {
                 ctx.set_cursor_icon(egui::CursorIcon::None);
@@ -2474,7 +2445,7 @@ fn frame(
         // The left button. A press counts as well as a button held: a quick
         // click goes down and up within one frame, and the room owes it its
         // shot (`character::TRIGGER_OWED`). A press an armed pointer took —
-        // a throw, an attack-move, the banner — fires nothing until the
+        // a throw or the banner — fires nothing until the
         // button has come up.
         if !pointer.primary_down && !pointer.primary_pressed {
             screen.trigger_spent = false;
@@ -2483,7 +2454,6 @@ fn frame(
             && !screen.trigger_spent
             && on_canvas.is_some()
             && !screen.aiming_attack
-            && !screen.aiming_move
             && screen.aiming_throw.is_none();
         // A sprint is said only while the keys walk it: Shift alone is
         // also an order's wait-its-turn, and nothing to send then.
@@ -2697,7 +2667,6 @@ fn frame(
                             Ok(()) => {
                                 screen.aiming_throw = (!map_up).then_some(throw);
                                 screen.aiming_attack = false;
-                                screen.aiming_move = false;
                             }
                             Err(line) => screen.log.push(line),
                         }
@@ -2785,16 +2754,7 @@ fn frame(
                 // already armed, it is thought better of, and **a
                 // banner already down is taken up** with it (the key's
                 // second press, `attack_key`).
-                // **Attack-move** arms the pointer for the player's own
-                // Bim: the next click on the deck is where it walks
-                // under arms. Pressed again, it is thought better of.
-                if keys_now.pressed(i, Action::AttackMove) {
-                    screen.aiming_move = !screen.aiming_move && !map_up;
-                    screen.aiming_attack = false;
-                    screen.aiming_throw = None;
-                }
                 if keys_now.pressed(i, Action::Attack) {
-                    screen.aiming_move = false;
                     screen.aiming_throw = None;
                     let standing = session
                         .game
@@ -2815,7 +2775,6 @@ fn frame(
                     && let Some(game) = &session.game
                 {
                     screen.aiming_attack = false;
-                    screen.aiming_move = false;
                     let (order, line) =
                         orders_key(&game.world, screen.net.slot, world::Standing::Retreat);
                     orders.extend(order);
@@ -2828,11 +2787,10 @@ fn frame(
             // Ctrl-click on its box, through the one `rank_up`.
             rank_up_asked = rank_up_by_key(&keys_now, &i.events, i.modifiers).or(rank_up_asked);
             if i.key_pressed(egui::Key::Escape) {
-                if screen.aiming_attack || screen.aiming_move || screen.aiming_throw.is_some() {
+                if screen.aiming_attack || screen.aiming_throw.is_some() {
                     // The armed pointer is put away first, and nothing
                     // else happens — the Mine tool's rule.
                     screen.aiming_attack = false;
-                    screen.aiming_move = false;
                     screen.aiming_throw = None;
                 } else if panels.escape() {
                     // A menu, a container window or the character sheet
@@ -3346,7 +3304,6 @@ fn frame(
     }
     if let Some(armed) = arm {
         screen.aiming_attack = armed;
-        screen.aiming_move = false;
         screen.aiming_throw = None;
     }
     if map_asked && let Some(game) = &mut session.game {
@@ -3753,7 +3710,7 @@ fn frame(
             egui::Id::new("crosshair"),
         ));
         let at = egui::pos2(p.x, p.y);
-        if screen.aiming_attack || screen.aiming_move {
+        if screen.aiming_attack {
             // The red one while the attack key has the pointer armed
             // (feature 84).
             attack_cursor(&top, at);
@@ -3775,7 +3732,7 @@ fn frame(
             let colour = if beyond { theme::AIM_OUT } else { theme::AIM };
             aim_cursor(&top, at, firing, colour, 1.0);
         }
-    } else if (screen.aiming_attack || screen.aiming_move)
+    } else if screen.aiming_attack
         && let Some(p) = on_canvas
     {
         attack_cursor(&painter, egui::pos2(p.x + canvas.min.x, p.y + canvas.min.y));
