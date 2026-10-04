@@ -296,7 +296,8 @@ use serde::{Deserialize, Serialize};
 /// before (7 200 for the sixteenth, 15 470 for the twentieth).
 /// 163: the same at 1.3 times (16 740 and 48 410).
 /// 164: every crew member's magazine full at a mission's start.
-pub const PROTOCOL: u32 = 164;
+/// 165: the Lancer's rail strikes three times as hard (135 a slug).
+pub const PROTOCOL: u32 = 165;
 
 /// Where the relay lives. `BIMS_SERVER` in the environment overrides it
 /// — `ws://127.0.0.1:8792` for one on the same machine.

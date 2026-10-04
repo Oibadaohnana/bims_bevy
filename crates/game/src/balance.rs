@@ -705,13 +705,14 @@ pub const LANCER_PACE: f32 = 0.9;
 /// after a stun or its arms shot away put a charge out. Accuracy one at
 /// every range for that reason; the odds a body in cover dodges it are a
 /// bolt's.
+/// 135 a slug before the tier's factor (45 before October 2026; tripled).
 pub const RAIL: WeaponStats = WeaponStats {
     range: MAX_RANGE,
     sweet: 10.0,
     accuracy: 1.0,
     accuracy_far: 1.0,
-    damage: 45.0,
-    damage_far: 45.0,
+    damage: 135.0,
+    damage_far: 135.0,
     speed: 60.0,
     fire_rate: 1.0 / (LANCER_TRACK + LANCER_LOCK + LANCER_COOLDOWN),
     burst: 1,
