@@ -1196,16 +1196,16 @@ fn the_checksum_notices_every_kind_of_change() {
         assert_eq!(world.checksum(), twin.checksum());
         world
             .holdings
-            .put(Item::Weapon(WeaponKind::LaserPistol.at(Tier::Two)));
+            .put(0, Item::Weapon(WeaponKind::LaserPistol.at(Tier::Two)));
         assert_ne!(world.checksum(), twin.checksum(), "a pistol in the armory");
         twin.holdings
-            .put(Item::Weapon(WeaponKind::LaserPistol.at(Tier::Two)));
+            .put(0, Item::Weapon(WeaponKind::LaserPistol.at(Tier::Two)));
         assert_eq!(world.checksum(), twin.checksum());
         // The same count, a different tier.
         let mut other = simulation_world(playtest_ship(), data::SIMULATION_MONEY, 1);
         other
             .holdings
-            .put(Item::Weapon(WeaponKind::LaserPistol.at(Tier::One)));
+            .put(0, Item::Weapon(WeaponKind::LaserPistol.at(Tier::One)));
         assert_ne!(world.checksum(), other.checksum(), "one pistol is tier two");
         // A charge changed: a grenade held (task 120 took the bandage this
         // used to spend, and task 127 made a charge a counter).

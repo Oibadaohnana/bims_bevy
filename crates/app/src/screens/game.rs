@@ -4768,7 +4768,7 @@ fn armory_of(world: &world::World, local: u32) -> crate::crew::ArmoryView {
     crate::crew::ArmoryView {
         local,
         columns,
-        armory: world.holdings.armory.clone(),
+        armory: world.holdings.of(local).copied().collect(),
         money: world.share_of(local),
         locked: world.in_mission(),
     }

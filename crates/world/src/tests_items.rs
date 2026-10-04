@@ -67,14 +67,15 @@ fn at_a_trader(world: &mut World) -> Site {
 
 /// **Four slots a player's Bim, none a bot's**: an item out of the armory
 /// goes into the first free slot, a fifth is `ItemsFull`, and a bot is
-/// refused one whatever is free.
+/// refused one whatever is free — a bot is nobody's to change
+/// (`NotYours`, October 2026).
 #[test]
 fn a_player_s_bim_carries_four_items_and_a_bot_none() {
     let mut world = basic();
     world.leave_for_probe();
     let blink = Item::Module(ModuleKind::BlinkDrive.at(Tier::One));
     for n in 0..=ITEM_SLOTS {
-        let id = world.holdings.put(blink).unwrap();
+        let id = world.holdings.put(0, blink).unwrap();
         let events = world.step(&[Command::Equip {
             slot: 0,
             who: 0,
@@ -96,15 +97,12 @@ fn a_player_s_bim_carries_four_items_and_a_bot_none() {
         who: 1,
         from: GearSource::Armory { id },
     }]);
-    assert!(
-        refused_with(&events, Refusal::BotsCarryNoItems),
-        "{events:?}"
-    );
+    assert!(refused_with(&events, Refusal::NotYours), "{events:?}");
     assert!(world.items_of(1).iter().all(Option::is_none));
     // Named slot: the item there into the armory, and between the Bim's
     // own two slots a swap.
     let heart = Item::Module(ModuleKind::ReactorHeart.at(Tier::One));
-    let id = world.holdings.put(heart).unwrap();
+    let id = world.holdings.put(0, heart).unwrap();
     world.step(&[Command::EquipAt {
         slot: 0,
         who: 0,
@@ -299,7 +297,7 @@ fn a_thing_sold_fetches_half_of_what_was_paid() {
     let mut world = basic();
     world.leave_for_probe();
     let gun = Item::Weapon(bims::combat::WeaponKind::AutoRifle.at(Tier::Two));
-    let id = world.holdings.put(gun).unwrap();
+    let id = world.holdings.put(0, gun).unwrap();
     let events = world.step(&[Command::Sell {
         slot: 0,
         from: GearSource::Armory { id },
@@ -371,27 +369,20 @@ fn a_thing_sold_fetches_half_of_what_was_paid() {
     }]);
     assert_eq!(world.wallet(0), before + half);
     assert!(world.holdings.get(id).is_none());
-    // A bot's gun is the player's to sell too — bar the pistol it set out
-    // with, which nobody sells (October 2026).
+    // A bot's gun is never the player's to sell (October 2026: a bot
+    // keeps the kit it came with).
     let bots = GearSource::Worn {
         who: 1,
         slot: GearSlot::Weapon,
     };
-    assert_eq!(world.sellable(0, bots), Err(Refusal::NotSellable));
-    let rifle = world.holdings.put(gun).unwrap();
-    world.step(&[Command::Equip {
-        slot: 0,
-        who: 1,
-        from: GearSource::Armory { id: rifle },
-    }]);
-    assert_eq!(world.worn_on(1, GearSlot::Weapon), Some(gun));
+    assert_eq!(world.sellable(0, bots), Err(Refusal::NotYours));
     let before = world.wallet(0);
     let events = world.step(&[Command::Sell {
         slot: 0,
         from: bots,
     }]);
-    assert!(world.wallet(0) > before, "{events:?}");
-    assert_eq!(world.worn_on(1, GearSlot::Weapon), None);
+    assert_eq!(world.wallet(0), before, "{events:?}");
+    assert!(world.worn_on(1, GearSlot::Weapon).is_some());
     // A charge is no thing to sell.
     assert_eq!(world.sell_value(Item::Stack(0)), None);
 }

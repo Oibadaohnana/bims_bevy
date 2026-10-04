@@ -2395,7 +2395,7 @@ pub const TRADER_DELIVER_TO: &str = "Deliver to";
 pub const TRADER_FRONT_STAMP: &str = "Front prices";
 /// The total line at the foot of the form.
 pub const TRADER_BALANCE: &str = "Your balance";
-pub const TRADER_INTRO: &str = "Buy off your own shelf with your own money — every player has a trader of their own, prices shared by the crew — onto your own Bim, a bot, or into the armory. What it replaces goes into the armory. The shelf is every weapon and the armour, each at tier one until you buy that kind, then a tier past the best of it you have bought; a thing bought is gone until the next visit. The laser pistol is neither sold nor bought. Tab opens the Armory beside this.";
+pub const TRADER_INTRO: &str = "Buy off your own shelf with your own money — every player has a trader of their own, prices shared by the crew — onto your own Bim or into your own armory. What it replaces goes into your armory. The shelf is every weapon and the armour, each at tier one until you buy that kind (a soldier's auto rifle and a tank's armour at two: they set out with tier one), then a tier past the best of it you have bought; a thing bought is gone until the next visit. The laser pistol is neither sold nor bought. Tab opens the Armory beside this.";
 pub const TRADER_WEAPONS: &str = "Weapons";
 pub const TRADER_ARMOUR: &str = "Armour";
 /// The item shelf (October 2026): every item at the day's tier, never
@@ -2424,7 +2424,7 @@ pub const TRADER_TAB_BUY: &str = "Buy";
 pub const TRADER_TAB_SELL: &str = "Sell";
 pub const TRADER_SELL: &str = "Sell";
 pub const TRADER_SELL_HEADING: &str = "Your things";
-pub const TRADER_SELL_INTRO: &str = "Sell back what you may change — your own Bim's weapon, armour and items, a bot's, and the armory's — for half of what it cost. An item fetches half of everything paid for it, its upgrades too; a weapon or armour half its price on the shelf today. What you sell leaves its slot empty.";
+pub const TRADER_SELL_INTRO: &str = "Sell back what you may change — your own Bim's weapon, armour and items and your armory's — for half of what it cost. An item fetches half of everything paid for it, its upgrades too; a weapon or armour half its price on the shelf today. What you sell leaves its slot empty.";
 pub const TRADER_SELL_NONE: &str = "Nothing to sell.";
 /// The note on a line the player's own Bim wears or carries.
 pub const TRADER_SELL_WORN: &str = "equipped — yours";
@@ -2564,8 +2564,8 @@ pub const ARMORY_ACCEPT: &str = "Accept";
 pub const ARMORY_DECLINE: &str = "Decline";
 pub const ARMORY_OFFERED_TO: &str = "offered to";
 pub const ARMORY_TAKE_BACK: &str = "Take back";
-pub const ARMORY_STOCK: &str = "The armory";
-pub const ARMORY_NOTHING: &str = "Nothing in the armory.";
+pub const ARMORY_STOCK: &str = "Your armory";
+pub const ARMORY_NOTHING: &str = "Nothing in your armory.";
 /// The log's line for a loadout changed between missions.
 pub const GEAR_CHANGED: &str = "Gear changed hands.";
 /// The Squad panel.

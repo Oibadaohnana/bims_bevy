@@ -346,7 +346,7 @@ fn the_tank_sets_out_in_basic_armour_with_the_pistol_and_the_pool_is_unchanged()
     assert_eq!(world.set_class(1, Class::Medic), Ok(()));
     let helm = Item::Armour(Piece::new(9_001, ArmourKind::Armour, Tier::One));
     world.leave_for_probe();
-    let id = world.holdings.put(helm).unwrap();
+    let id = world.holdings.put(1, helm).unwrap();
     world.step(&[Command::Equip {
         slot: 1,
         who: 1,

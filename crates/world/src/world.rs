@@ -3794,7 +3794,8 @@ impl World {
     /// The design's gear cargo as things in the armory, every one of
     /// those counts at nought after: what a world opens with. Nothing is stored in the hold, so a
     /// ship accepted carrying three helms sets out with three helms in
-    /// the armory, whole, at tier one.
+    /// the first player's armory, whole, at tier one. A run sets out
+    /// empty (`set_out_empty`), so this is the tests' and the yard's.
     fn stock_the_armory(&mut self) {
         for &id in ResourceId::ALL.iter() {
             let units = self.ship.design.carrying(id);
@@ -3803,12 +3804,12 @@ impl World {
             }
             if let Some(kind) = armour::weapon_of(id) {
                 for _ in 0..units {
-                    self.holdings.put(Item::Weapon(kind.basic()));
+                    self.holdings.put(0, Item::Weapon(kind.basic()));
                 }
             } else if let Some(kind) = armour::kind_of(id) {
                 for _ in 0..units {
                     let piece = self.holdings.new_piece(kind, Tier::One);
-                    self.holdings.put(Item::Armour(piece));
+                    self.holdings.put(0, Item::Armour(piece));
                 }
             } else {
                 continue;
@@ -3834,16 +3835,16 @@ impl World {
     }
 
     /// Whether player `slot` may change crew member `who`'s loadout: its
-    /// own Bim, or a bot's — anybody past the players — and nobody
-    /// else's. A player's Bim is given a thing only by an offer it
-    /// accepts. A commander's reinforcement is nobody's to change: it
-    /// fights with the Republic's rifle it came with, is given nothing
-    /// and has nothing taken off it — equipped, stripped, bought for or
-    /// sold from.
+    /// own Bim and nobody else's (October 2026: the armory is each
+    /// player's own, and a bot keeps the kit it came with — nothing of a
+    /// player's goes onto a bot, nothing of a bot's into an armory). A
+    /// player's Bim is given a thing only by an offer it accepts. A
+    /// commander's reinforcement is nobody's to change: it fights with
+    /// the Republic's rifle it came with.
     pub fn may_change(&self, slot: u32, who: u32) -> bool {
         slot < self.players()
             && who < self.aboard.crew_count()
-            && (who == slot || who >= self.players())
+            && who == slot
             && !self.is_reinforcement(who)
     }
 
@@ -3951,7 +3952,14 @@ impl World {
             return;
         }
         let item = match from {
-            GearSource::Armory { id } => self.holdings.get(id).map(|s| s.item),
+            // Out of the player's own armory alone (October 2026).
+            GearSource::Armory { id } => match self.holdings.get(id) {
+                Some(stored) if stored.owner != slot => {
+                    events.push(refused(slot, Refusal::NotYours));
+                    return;
+                }
+                stored => stored.map(|s| s.item),
+            },
             GearSource::Worn {
                 who: other,
                 slot: part,
@@ -4023,7 +4031,7 @@ impl World {
             }
         }
         if let Some(old) = self.set_slot(who, part, Some(item), events) {
-            self.holdings.put(old);
+            self.holdings.put(slot, old);
         }
         events.push(WorldEvent::GearChanged {
             who,
@@ -4031,7 +4039,8 @@ impl World {
         });
     }
 
-    /// [`Command::Unequip`]: what `who` has on `part` off into the armory.
+    /// [`Command::Unequip`]: what `who` has on `part` off into the
+    /// player's own armory.
     fn unequip(&mut self, slot: u32, who: u32, part: GearSlot, events: &mut Vec<WorldEvent>) {
         if let Some(why) = self.gear_refusal(slot, who) {
             events.push(refused(slot, why));
@@ -4042,7 +4051,7 @@ impl World {
             return;
         }
         if let Some(old) = self.set_slot(who, part, None, events) {
-            self.holdings.put(old);
+            self.holdings.put(slot, old);
         }
         events.push(WorldEvent::GearChanged {
             who,
@@ -4123,7 +4132,7 @@ impl World {
         self.holdings.offers.remove(at);
         self.set_slot(offer.from, part, None, events);
         if let Some(old) = self.set_slot(offer.to, part, Some(item), events) {
-            self.holdings.put(old);
+            self.holdings.put(offer.to, old);
         }
         events.push(WorldEvent::OfferTaken {
             from: offer.from,
@@ -4145,24 +4154,6 @@ impl World {
             holdings::mend_gear(&mut gear);
             self.aboard.room.issue(who, gear);
         }
-    }
-
-    /// Crew member `who`'s weapon and armour into the armory, its slots
-    /// left empty: what a dead or left-behind bot's loadout does at the
-    /// end of a mission (task 113). Its charges go with it.
-    fn store_loadout(&mut self, who: u32) {
-        if who >= self.aboard.crew_count() {
-            return;
-        }
-        let gear = self.aboard.room.gear(who as usize);
-        for part in GearSlot::ALL {
-            if let Some(item) = part.read(&gear) {
-                self.holdings.put(holdings::mend(item));
-            }
-        }
-        self.aboard
-            .room
-            .issue(who as usize, bims::combat::Gear::default());
     }
 
     /// The fight's broken pieces, said once each: a piece at nothing
@@ -4910,19 +4901,21 @@ impl World {
 
     /// Every weapon and every piece of armour there is, one of each kind
     /// at every tier it is made at (`WeaponKind::ALL`, the carried kinds,
-    /// each by `made_at`, and `ArmourKind::ALL`), put into the armory: what the
-    /// combat-ship runs open with so any kit can be tried on. For probes
-    /// and for the app.
+    /// each by `made_at`, and `ArmourKind::ALL`), put into every player's
+    /// armory: what the combat-ship runs open with so any kit can be
+    /// tried on. For probes and for the app — never a run's.
     pub fn stock_every_thing_for_probe(&mut self) {
-        for tier in Tier::ALL {
-            for kind in WeaponKind::ALL {
-                if kind.made_at(tier) {
-                    self.holdings.put(Item::Weapon(kind.at(tier)));
+        for owner in 0..self.players() {
+            for tier in Tier::ALL {
+                for kind in WeaponKind::ALL {
+                    if kind.made_at(tier) {
+                        self.holdings.put(owner, Item::Weapon(kind.at(tier)));
+                    }
                 }
-            }
-            for kind in ArmourKind::ALL {
-                let piece = self.holdings.new_piece(kind, tier);
-                self.holdings.put(Item::Armour(piece));
+                for kind in ArmourKind::ALL {
+                    let piece = self.holdings.new_piece(kind, tier);
+                    self.holdings.put(owner, Item::Armour(piece));
+                }
             }
         }
     }
@@ -7026,17 +7019,16 @@ impl World {
         self.charges_held[who][charge.code() as usize] = n;
     }
 
-    /// The soldier's start (feature 75): a basic auto rifle in hand, the
-    /// weapon that was there into the armory, and the grenades its rank
-    /// gives ([`class::GRENADE_CHARGES`]) — which is what the cooldown
-    /// fills back up to (feature 90).
+    /// The soldier's start (feature 75): a basic auto rifle in hand in
+    /// place of the weapon that was there — which is given up, not put in
+    /// the armory (October 2026: nothing comes into an armory its player
+    /// did not put there) — and the grenades its rank gives
+    /// ([`class::GRENADE_CHARGES`]) — which is what the cooldown fills
+    /// back up to (feature 90).
     fn give_soldier_kit(&mut self, who: usize) {
         let mut gear = self.aboard.room.gear(who);
-        let was = gear.weapon.replace(WeaponKind::AutoRifle.basic());
+        gear.weapon = Some(WeaponKind::AutoRifle.basic());
         self.aboard.room.issue(who, gear);
-        if let Some(was) = was {
-            self.holdings.put(Item::Weapon(was));
-        }
         // As many as its Frag Grenade's rank fills to — none at rank
         // nought (task 124); a rank bought later puts them in hand.
         let n = self.charges(who as u32, Charge::Grenade);
@@ -7044,29 +7036,31 @@ impl World {
     }
 
     /// And out again: the grenades gone, and the rifle the class
-    /// brought given up for a pistol out of the armory — a fresh one if
-    /// the armory has none, the one that went in being what came out.
+    /// brought given back for the pistol it took the place of.
     fn take_soldier_kit(&mut self, who: usize) {
         self.set_charges_held(who as u32, Charge::Grenade, 0);
         let mut gear = self.aboard.room.gear(who);
         if gear.weapon == Some(WeaponKind::AutoRifle.basic()) {
-            gear.weapon = Some(self.draw_pistol());
+            gear.weapon = Some(WeaponKind::LaserPistol.basic());
             self.aboard.room.issue(who, gear);
         }
     }
 
-    /// A basic laser pistol out of the armory — a fresh one if the
-    /// armory has none. What an empty hand is given.
-    fn draw_pistol(&mut self) -> bims::combat::Weapon {
+    /// A basic laser pistol for crew member `who`'s empty hand: out of
+    /// its own armory where one lies there (a player's), a fresh one
+    /// otherwise — into the hand, never into an armory.
+    fn draw_pistol(&mut self, who: u32) -> bims::combat::Weapon {
         let pistol = WeaponKind::LaserPistol.basic();
-        if let Some(id) = self
-            .holdings
-            .armory
-            .iter()
-            .rev()
-            .find(|s| s.item == Item::Weapon(pistol))
-            .map(|s| s.id)
-        {
+        let stored = if who < self.players() {
+            self.holdings
+                .of(who)
+                .rev()
+                .find(|s| s.item == Item::Weapon(pistol))
+                .map(|s| s.id)
+        } else {
+            None
+        };
+        if let Some(id) = stored {
             self.holdings.take(id);
         }
         pistol
@@ -7074,7 +7068,7 @@ impl World {
 
     /// Nobody goes into a fight empty-handed: while the crew are under
     /// arms in a mission, every living crew member with nothing in its
-    /// weapon slot — the armory took it, or another Bim did — is given a
+    /// weapon slot — its player put it in the armory — is given a
     /// basic pistol ([`World::draw_pistol`]). A bot with no weapon never
     /// reaches its stand, and stood aboard while the others fought.
     fn arm_the_empty_handed(&mut self, events: &mut Vec<WorldEvent>) {
@@ -7086,7 +7080,7 @@ impl World {
             if gear.weapon.is_some() || !self.aboard.room.is_alive(who) {
                 continue;
             }
-            gear.weapon = Some(self.draw_pistol());
+            gear.weapon = Some(self.draw_pistol(who as u32));
             self.aboard.room.issue(who, gear);
             events.push(WorldEvent::GearChanged {
                 who: who as u32,

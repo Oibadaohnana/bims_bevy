@@ -190,6 +190,8 @@ pub fn world_checksum(world: &World) -> u64 {
     for stored in &holdings.armory {
         hash.eat(stored.id as u64);
         eat_item(&mut hash, &stored.item);
+        // Whose it is (October 2026: each player's own armory).
+        hash.eat(stored.owner as u64);
     }
     hash.eat(holdings.offers.len() as u64);
     for offer in &holdings.offers {

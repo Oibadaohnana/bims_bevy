@@ -6,7 +6,10 @@
 //! - **The ship's holdings** ([`Holdings`]): the money — the shared pool,
 //!   `World::money`, which is not kept here — the **armory**, every weapon
 //!   and piece of armour nobody wears, each a [`Stored`] with an id that
-//!   only climbs. Saved, and in `world_checksum` whole.
+//!   only climbs and the player it belongs to: the armory is **each
+//!   player's own** (October 2026) — nobody else sees, takes, sells or
+//!   wears what is in it, and nothing comes into it but what its player
+//!   took off its own Bim or bought. Saved, and in `world_checksum` whole.
 //! - **Each Bim's loadout**: one weapon slot and one slot a part of the
 //!   body (`bims::combat::Gear`, the room's, since the room's health and
 //!   aim read it) — that is everything a Bim carries. Its class kits and
@@ -14,9 +17,11 @@
 //!
 //! A loadout changes **only between missions** — on the map and the
 //! reward screen — and by the rule of who may change what
-//! ([`World::may_change`](crate::World::may_change)): a player their own
-//! Bim and any bot, never another player's. A thing off a slot goes into
-//! the armory; a thing onto a filled slot puts the old one there. A thing
+//! ([`World::may_change`](crate::World::may_change)): a player its own
+//! Bim alone, never a bot's or another player's (October 2026). A thing
+//! off a slot goes into its player's armory; a thing onto a filled slot
+//! puts the old one there. A bot keeps the kit it came with, and it is
+//! lost with the bot. A thing
 //! passes to another player's Bim only as an [`Offer`] the owner makes and
 //! the recipient accepts.
 //!
@@ -151,13 +156,16 @@ impl GearSlot {
 }
 
 /// One thing in the armory: an id the armory numbers it by — only ever
-/// climbing, so two clients name the same thing alike — and the thing: a
-/// weapon at its tier, or a piece of armour with its tier and health.
+/// climbing, so two clients name the same thing alike — the thing: a
+/// weapon at its tier, or a piece of armour with its tier and health —
+/// and the player slot whose it is (October 2026): only that player sees
+/// it, wears it or sells it.
 #[derive(Clone, Copy, PartialEq, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Stored {
     pub id: u32,
     pub item: Item,
+    pub owner: u32,
 }
 
 impl Stored {
@@ -215,7 +223,7 @@ pub enum GearSource {
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Holdings {
     /// Every weapon and piece of armour nobody wears, in the order they
-    /// came in.
+    /// came in, each its player's ([`Stored::owner`]).
     pub armory: Vec<Stored>,
     /// The next id: an armory entry's, and a piece of armour's made new.
     /// Only ever climbs.
@@ -240,18 +248,28 @@ impl Holdings {
         id
     }
 
-    /// Put a thing in the armory; its id there. A charge is never a thing
-    /// and is refused (`None`).
-    pub fn put(&mut self, item: Item) -> Option<u32> {
+    /// Put a thing in player `owner`'s armory; its id there. A charge is
+    /// never a thing and is refused (`None`).
+    pub fn put(&mut self, owner: u32, item: Item) -> Option<u32> {
         GearSlot::of_item(item)?;
         let id = self.take_id();
-        self.armory.push(Stored { id, item });
+        self.armory.push(Stored { id, item, owner });
         Some(id)
     }
 
     /// The thing stored under `id`.
     pub fn get(&self, id: u32) -> Option<Stored> {
         self.armory.iter().copied().find(|s| s.id == id)
+    }
+
+    /// The thing stored under `id`, if it is player `owner`'s.
+    pub fn get_own(&self, owner: u32, id: u32) -> Option<Stored> {
+        self.get(id).filter(|s| s.owner == owner)
+    }
+
+    /// Player `owner`'s armory: what it put there, in the order it came.
+    pub fn of(&self, owner: u32) -> impl DoubleEndedIterator<Item = &Stored> {
+        self.armory.iter().filter(move |s| s.owner == owner)
     }
 
     /// Take the thing stored under `id` out of the armory.
@@ -327,10 +345,12 @@ mod tests {
     #[test]
     fn the_armory_numbers_what_it_keeps_and_a_charge_is_no_thing() {
         let mut h = Holdings::new();
-        let a = h.put(Item::Weapon(WeaponKind::Shotgun.basic())).unwrap();
-        let b = h.put(Item::Weapon(WeaponKind::Shotgun.basic())).unwrap();
+        let a = h.put(0, Item::Weapon(WeaponKind::Shotgun.basic())).unwrap();
+        let b = h.put(1, Item::Weapon(WeaponKind::Shotgun.basic())).unwrap();
         assert!(b > a);
-        assert_eq!(h.put(Item::Stack(5)), None);
+        assert_eq!(h.put(0, Item::Stack(5)), None);
+        assert_eq!(h.get_own(0, b), None, "another player's");
+        assert_eq!(h.of(1).map(|s| s.id).collect::<Vec<_>>(), vec![b]);
         assert!(h.take(a).is_some());
         assert!(h.take(a).is_none());
         assert_eq!(h.armory.len(), 1);

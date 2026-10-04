@@ -2359,7 +2359,7 @@ fn item_rows(ui: &mut egui::Ui, world: &World, local: u32, orders: &mut Vec<Orde
 }
 
 /// The Sell tab (October 2026): everything the player may sell — its own
-/// Bim's and each bot's weapon, armour and items, then the armory's — a
+/// Bim's weapon, armour and items, then its own armory's — a
 /// line each at [`World::sell_value`], *Sell* on it.
 fn sell_rows(
     ui: &mut egui::Ui,
@@ -2379,7 +2379,7 @@ fn sell_rows(
             }
         }
     }
-    for stored in &world.holdings.armory {
+    for stored in world.holdings.of(local) {
         things.push((world::GearSource::Armory { id: stored.id }, None));
     }
     let mut row = 0;

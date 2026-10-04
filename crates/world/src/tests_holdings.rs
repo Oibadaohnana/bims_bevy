@@ -1,7 +1,7 @@
 //! Task 113: nothing is stored. The ship's holdings — the pool, the
 //! armory — and each Bim's loadout: when a loadout
 //! may change, who may change what, armour that is never destroyed, a
-//! dead player back with everything it wore, a dead bot's kit kept, and
+//! dead player back with everything it wore, a dead bot's kit lost, and
 //! all of it in the checksum.
 
 use bims::combat::{ArmourKind, Item, Piece, Tier, WeaponKind};
@@ -53,7 +53,7 @@ fn travel_to(world: &mut World, site: Site) -> Vec<WorldEvent> {
 
 /// A thing put straight into the armory for a test; its id there.
 fn stock(world: &mut World, item: Item) -> u32 {
-    world.holdings.put(item).expect("a thing, not a charge")
+    world.holdings.put(0, item).expect("a thing, not a charge")
 }
 
 fn helm() -> Item {
@@ -116,7 +116,9 @@ fn gear_changes_hands_between_missions_and_never_out_on_the_deck() {
         "what was in the hand went in"
     );
 
-    // On the reward screen as well: off again, and a bot's slot too.
+    // On the reward screen as well: off again. A bot's slot is nobody's
+    // (October 2026): nothing of the armory goes onto it, nothing of it
+    // into the armory.
     world.run.phase = Phase::Reward;
     let events = world.step(&[Command::Unequip {
         slot: 0,
@@ -131,25 +133,33 @@ fn gear_changes_hands_between_missions_and_never_out_on_the_deck() {
         who: 1,
         from: GearSource::Armory { id: helm },
     }]);
+    assert!(refused(&events, Refusal::NotYours), "{events:?}");
+    assert!(world.aboard.room.worn(1).is_none());
+    assert!(world.holdings.get(helm).is_some(), "still in the armory");
+    let events = world.step(&[Command::Unequip {
+        slot: 0,
+        who: 1,
+        part: GearSlot::Weapon,
+    }]);
+    assert!(refused(&events, Refusal::NotYours), "{events:?}");
     assert!(
-        !any_refusal(&events),
-        "a bot's slot is anybody's: {events:?}"
+        world.aboard.room.weapon(1).is_some(),
+        "the bot keeps its gun"
     );
-    assert!(world.aboard.room.worn(1).is_some());
 }
 
 /// **Arriving at a site, the crew kit out from the armory aboard**: in a
-/// mission a Bim inside the ship may be changed — a thing out of the
-/// armory onto it, its own off into the armory, a thing off another Bim
-/// aboard — and one out on the deck may not, neither as the one changed
-/// nor as the one a thing is taken off. Offers stay between missions.
+/// mission a player's Bim inside the ship may be changed — a thing out of
+/// its own armory onto it, its own off into the armory — and one out on
+/// the deck may not. A bot is nobody's to change, aboard or not. Offers
+/// stay between missions.
 #[test]
 fn a_crew_arriving_at_a_site_kits_out_from_the_armory_aboard() {
     let mut world = crewed_world(flyer(2), REFERENCE_MONEY, 2, 3);
     world.step(&[]);
     assert_eq!(world.run.phase, Phase::Mission);
     assert!(
-        world.inside_ship(0) && world.inside_ship(2),
+        world.inside_ship(0) && world.inside_ship(1) && world.inside_ship(2),
         "aboard on arrival"
     );
     let rifle = stock(&mut world, Item::Weapon(WeaponKind::AutoRifle.basic()));
@@ -163,35 +173,27 @@ fn a_crew_arriving_at_a_site_kits_out_from_the_armory_aboard() {
         world.aboard.room.weapon(0),
         Some(WeaponKind::AutoRifle.basic())
     );
-    assert!(world.may_change_now(0, 0) && world.may_change_now(0, 2));
-    // A helm onto the bot aboard, and then the bot ashore.
-    let helm = stock(&mut world, helm());
+    assert!(world.may_change_now(0, 0) && world.may_change_now(1, 1));
+    assert!(!world.may_change_now(0, 2), "a bot is nobody's");
+    // A helm out of the second player's armory onto its own Bim aboard,
+    // and then that Bim ashore.
+    let helm = world.holdings.put(1, helm()).unwrap();
     let events = world.step(&[Command::Equip {
-        slot: 0,
-        who: 2,
+        slot: 1,
+        who: 1,
         from: GearSource::Armory { id: helm },
     }]);
     assert!(!any_refusal(&events), "{events:?}");
-    ashore(&mut world, 2);
+    ashore(&mut world, 1);
     world.step(&[]);
-    assert!(!world.may_change_now(0, 2), "out on the deck");
+    assert!(!world.may_change_now(1, 1), "out on the deck");
     let events = world.step(&[Command::Unequip {
-        slot: 0,
-        who: 2,
+        slot: 1,
+        who: 1,
         part: GearSlot::Armour,
     }]);
     assert!(refused(&events, Refusal::GearLocked), "{events:?}");
-    // Nor is anything taken off the bot ashore onto a Bim aboard.
-    let events = world.step(&[Command::Equip {
-        slot: 0,
-        who: 0,
-        from: GearSource::Worn {
-            who: 2,
-            slot: GearSlot::Armour,
-        },
-    }]);
-    assert!(refused(&events, Refusal::GearLocked), "{events:?}");
-    assert!(world.aboard.room.worn(2).is_some());
+    assert!(world.aboard.room.worn(1).is_some());
     // And no offer in a mission, aboard or not.
     let events = world.step(&[Command::Offer {
         slot: 0,
@@ -201,40 +203,36 @@ fn a_crew_arriving_at_a_site_kits_out_from_the_armory_aboard() {
     assert!(refused(&events, Refusal::GearLocked), "{events:?}");
 }
 
-/// **Nobody goes into a fight empty-handed**: a bot whose weapon went
-/// into the armory aboard keeps its empty hand at peace, and the crew
-/// under arms, it has a pistol — the armory's own, and a fresh one when
-/// the armory has none.
+/// **Nobody goes into a fight empty-handed**: a player's Bim whose weapon
+/// went into its armory aboard keeps its empty hand at peace, and the
+/// crew under arms, it has a pistol — its own armory's, and a fresh one
+/// when its armory has none — never another player's.
 #[test]
 fn a_crewmate_under_arms_with_an_empty_hand_is_given_a_pistol() {
-    let mut world = crewed_world(flyer(2), REFERENCE_MONEY, 1, 3);
+    let mut world = crewed_world(flyer(2), REFERENCE_MONEY, 3, 3);
     world.step(&[]);
     assert_eq!(world.run.phase, Phase::Mission);
     let pistol = Item::Weapon(WeaponKind::LaserPistol.basic());
-    let pistols = |world: &World| {
+    let pistols = |world: &World, owner: u32| {
         world
             .holdings
-            .armory
-            .iter()
+            .of(owner)
             .filter(|s| s.item == pistol)
             .count()
     };
-    let before = pistols(&world);
     for who in [1, 2] {
         let events = world.step(&[Command::Unequip {
-            slot: 0,
+            slot: who,
             who,
             part: GearSlot::Weapon,
         }]);
         assert!(!any_refusal(&events), "{events:?}");
+        assert_eq!(pistols(&world, who), 1, "into its own armory");
     }
-    // One of the two stowed pistols gone again, so that the armory has
-    // one for one bot and none for the other.
+    // The third player's pistol gone again, so that its armory has none.
     let taken = world
         .holdings
-        .armory
-        .iter()
-        .rev()
+        .of(2)
         .find(|s| s.item == pistol)
         .map(|s| s.id)
         .expect("stowed");
@@ -242,9 +240,8 @@ fn a_crewmate_under_arms_with_an_empty_hand_is_given_a_pistol() {
     world.step(&[]);
     assert!(!world.aboard.room.is_mustered(), "at peace");
     assert_eq!(world.aboard.room.weapon(1), None, "an empty hand at peace");
-    assert_eq!(pistols(&world), before + 1);
 
-    // The player draws its weapon, and the crew are under arms.
+    // The first player draws its weapon, and the crew are under arms.
     world.aboard.room.recruit_for_probe(0, true);
     world.step(&[]);
     world.step(&[]);
@@ -256,7 +253,9 @@ fn a_crewmate_under_arms_with_an_empty_hand_is_given_a_pistol() {
             "crewmate {who} armed"
         );
     }
-    assert_eq!(pistols(&world), before, "the stowed one drawn, one made");
+    assert_eq!(pistols(&world, 1), 0, "its own drawn");
+    assert_eq!(pistols(&world, 2), 0, "a fresh one, into the hand");
+    assert_eq!(pistols(&world, 0), 0, "nothing of anybody else's");
 }
 
 /// **The combat runs' armory holds everything**: every carried weapon and
@@ -300,7 +299,7 @@ fn no_player_takes_another_player_s_gear_without_its_yes() {
     let mut world = crewed_world(flyer(2), REFERENCE_MONEY, 3, 4);
     world.leave_for_probe();
     let rifle = WeaponKind::AutoRifle.basic();
-    let id = stock(&mut world, Item::Weapon(rifle));
+    let id = world.holdings.put(1, Item::Weapon(rifle)).unwrap();
     world.step(&[Command::Equip {
         slot: 1,
         who: 1,
@@ -352,6 +351,19 @@ fn no_player_takes_another_player_s_gear_without_its_yes() {
     }]);
     assert!(refused(&events, Refusal::NotYours), "{events:?}");
     assert_eq!(world.aboard.room.weapon(1), Some(rifle));
+    // Nor does it come out of another player's armory (October 2026:
+    // each armory is its player's own) — to wear or to sell.
+    let events = world.step(&[Command::Equip {
+        slot: 1,
+        who: 1,
+        from: GearSource::Armory { id: other },
+    }]);
+    assert!(refused(&events, Refusal::NotYours), "{events:?}");
+    assert!(world.holdings.get(other).is_some());
+    assert_eq!(
+        world.sellable(1, GearSource::Armory { id: other }),
+        Err(Refusal::NotYours)
+    );
 
     // Player 1 offers it to player 2; a third party cannot take it, and
     // player 2 declining leaves it where it was.
@@ -388,8 +400,7 @@ fn no_player_takes_another_player_s_gear_without_its_yes() {
     assert!(world.holdings.offers.is_empty(), "withdrawn with the slot");
     let back = world
         .holdings
-        .armory
-        .iter()
+        .of(1)
         .find(|s| s.item == Item::Weapon(rifle))
         .unwrap()
         .id;
@@ -404,8 +415,7 @@ fn no_player_takes_another_player_s_gear_without_its_yes() {
     let pistols = |world: &World| {
         world
             .holdings
-            .armory
-            .iter()
+            .of(2)
             .filter(|s| s.item == Item::Weapon(WeaponKind::LaserPistol.basic()))
             .count()
     };
@@ -424,7 +434,11 @@ fn no_player_takes_another_player_s_gear_without_its_yes() {
     );
     assert_eq!(world.aboard.room.weapon(2), Some(rifle));
     assert_eq!(world.aboard.room.weapon(1), None);
-    assert_eq!(pistols(&world), before + 1, "the replaced one stored");
+    assert_eq!(
+        pistols(&world),
+        before + 1,
+        "the replaced one into its own armory"
+    );
 
     // And an offer standing is withdrawn when a mission starts.
     world.step(&[Command::Offer {
@@ -510,13 +524,13 @@ fn a_dead_player_is_back_at_the_mission_s_end_with_everything_it_wore() {
     let mut world = crewed_world(flyer(2), REFERENCE_MONEY, 2, 2);
     world.leave_for_probe();
     let rifle = WeaponKind::SniperRifle.at(Tier::Two);
-    let id = stock(&mut world, Item::Weapon(rifle));
+    let id = world.holdings.put(1, Item::Weapon(rifle)).unwrap();
     world.step(&[Command::Equip {
         slot: 1,
         who: 1,
         from: GearSource::Armory { id },
     }]);
-    let helm = stock(&mut world, helm());
+    let helm = world.holdings.put(1, helm()).unwrap();
     world.step(&[Command::Equip {
         slot: 1,
         who: 1,
@@ -583,28 +597,26 @@ fn a_dead_player_is_back_at_the_mission_s_end_with_everything_it_wore() {
     assert_eq!(world.aboard.room.weapon(1), Some(rifle));
 }
 
-/// **A bot that dies, or is left behind, is gone — and its loadout is in
-/// the armory** after the mission, the penalty paid for it.
+/// **A bot that dies, or is left behind, is gone — and its loadout with
+/// it** (October 2026: it went into the armory, task 113): nothing comes
+/// into anybody's armory for it.
 #[test]
-fn a_dead_or_left_behind_bot_s_loadout_is_in_the_armory() {
+fn a_dead_or_left_behind_bot_s_loadout_is_lost_with_it() {
+    let rifle = WeaponKind::AutoRifle.at(Tier::Three);
+    // The bot's own kit, as a bot comes with it.
+    let arm = |world: &mut World| {
+        let mut gear = world.aboard.room.gear(1);
+        gear.weapon = Some(rifle);
+        gear.armour = Some(Piece::new(9_000, ArmourKind::Armour, Tier::One));
+        world.aboard.room.issue(1, gear);
+    };
     // Dead.
     let mut world = crewed_world(flyer(2), REFERENCE_MONEY, 1, 2);
     world.leave_for_probe();
-    let rifle = WeaponKind::AutoRifle.at(Tier::Three);
-    let id = stock(&mut world, Item::Weapon(rifle));
-    world.step(&[Command::Equip {
-        slot: 0,
-        who: 1,
-        from: GearSource::Armory { id },
-    }]);
-    let helm = stock(&mut world, helm());
-    world.step(&[Command::Equip {
-        slot: 0,
-        who: 1,
-        from: GearSource::Armory { id: helm },
-    }]);
+    arm(&mut world);
     let site = another_site_here(&world);
     travel_to(&mut world, site);
+    let armory = world.holdings.armory.len();
     world.aboard.room.kill_for_probe(1);
     let events = world.step(&[]);
     assert!(
@@ -615,29 +627,15 @@ fn a_dead_or_left_behind_bot_s_loadout_is_in_the_armory() {
     let crew = world.aboard.crew_count();
     world.leave_for_probe();
     assert_eq!(world.aboard.crew_count(), crew - 1, "gone");
-    let armory = &world.holdings.armory;
-    assert!(
-        armory.iter().any(|s| s.item == Item::Weapon(rifle)),
-        "its rifle"
-    );
-    assert!(
-        armory
-            .iter()
-            .any(|s| matches!(s.item, Item::Armour(p) if p.kind == ArmourKind::Armour)),
-        "its helm"
-    );
+    assert_eq!(world.holdings.armory.len(), armory, "its kit lost with it");
 
-    // Left behind: the ship goes with it outside, and its kit comes home.
+    // Left behind: the ship goes with it outside, and its kit with it.
     let mut world = crewed_world(flyer(2), REFERENCE_MONEY, 1, 2);
     world.leave_for_probe();
-    let id = stock(&mut world, Item::Weapon(rifle));
-    world.step(&[Command::Equip {
-        slot: 0,
-        who: 1,
-        from: GearSource::Armory { id },
-    }]);
+    arm(&mut world);
     let site = another_site_here(&world);
     travel_to(&mut world, site);
+    let armory = world.holdings.armory.len();
     if let Some(at) = world.aboard.ashore {
         world
             .aboard
@@ -653,14 +651,7 @@ fn a_dead_or_left_behind_bot_s_loadout_is_in_the_armory() {
         "{events:?}"
     );
     assert_eq!(world.aboard.crew_count(), 1, "gone");
-    assert!(
-        world
-            .holdings
-            .armory
-            .iter()
-            .any(|s| s.item == Item::Weapon(rifle)),
-        "its rifle is home"
-    );
+    assert_eq!(world.holdings.armory.len(), armory, "nothing came home");
 }
 
 /// **The holdings are in the checksum**: a thing in the armory and an
@@ -673,6 +664,12 @@ fn the_holdings_change_the_checksum() {
     stock(&mut world, Item::Weapon(WeaponKind::Shotgun.basic()));
     let stocked = world_checksum(&world);
     assert_ne!(stocked, world_checksum(&twin), "a thing in the armory");
+    // The same thing in the other player's armory is another holding.
+    let mut theirs = crewed_world(flyer(2), REFERENCE_MONEY, 2, 2);
+    theirs
+        .holdings
+        .put(1, Item::Weapon(WeaponKind::Shotgun.basic()));
+    assert_ne!(stocked, world_checksum(&theirs), "whose armory");
     world.leave_for_probe();
     let before = world_checksum(&world);
     world.holdings.offers.push(crate::holdings::Offer {

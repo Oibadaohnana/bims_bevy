@@ -55,13 +55,13 @@ fn worth_is_the_ship_the_hold_the_crew_s_gear_and_the_money() {
     let one = world.worth();
     let id = world
         .holdings
-        .put(Item::Weapon(WeaponKind::AutoRifle.basic()))
+        .put(0, Item::Weapon(WeaponKind::AutoRifle.basic()))
         .unwrap();
     assert_eq!(world.worth(), one + trade_price(rifle));
     world.holdings.take(id);
     world
         .holdings
-        .put(Item::Weapon(WeaponKind::AutoRifle.at(Tier::Two)));
+        .put(0, Item::Weapon(WeaponKind::AutoRifle.at(Tier::Two)));
     assert_eq!(
         world.worth(),
         one + trade_price(rifle) * TIER_PRICE[2],

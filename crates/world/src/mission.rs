@@ -1284,15 +1284,15 @@ impl World {
     }
 
     /// Every dead bot off the crew for good, highest index first so the
-    /// indices below stay right: its loadout into the armory (task 113),
-    /// then out of the room, and every list the world keeps a crew member
+    /// indices below stay right: out of the room with its loadout — a
+    /// dead bot's kit is lost with it (October 2026; it went into the
+    /// armory, task 113) — and every list the world keeps a crew member
     /// by with it.
     fn bury_the_bots(&mut self) {
         let players = self.players();
         let crew = self.aboard.crew_count();
         for who in (players..crew).rev() {
             if !self.aboard.room.is_alive(who as usize) {
-                self.store_loadout(who);
                 self.drop_crew_member(who);
             }
         }
@@ -1648,7 +1648,7 @@ impl World {
     /// mission met it, the bounty thrown
     /// away; experience is kept either way. A town the machines were
     /// attacking falls to them instead, an infested site like any other.
-    /// The dead bots are gone, their loadouts into the armory, the dead
+    /// The dead bots are gone, their loadouts with them, the dead
     /// players back with theirs, the pool paying for each, and the ship holds off the site with the rooms
     /// apart, nothing moving, until the crew have chosen where next.
     pub(super) fn leave_mission(&mut self, events: &mut Vec<WorldEvent>) {
@@ -1690,7 +1690,7 @@ impl World {
         // The mission's takings shared out evenly between the players —
         // the fallen's share with the rest, since it goes to the pool
         // that buys them back — and then the dead bots go, their
-        // loadouts into the armory, and the dead players come back with
+        // loadouts lost with them, and the dead players come back with
         // theirs (task 113).
         self.share_out();
         self.bury_the_bots();

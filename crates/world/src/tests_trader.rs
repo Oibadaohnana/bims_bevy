@@ -273,8 +273,9 @@ fn every_gun_is_on_the_shelf_and_only_the_kind_bought_goes_a_tier_up() {
 }
 
 /// **The laser pistol is never sold**: the one a player's own Bim sets
-/// out with, and a bot's, are refused `NotSellable` and stay where they
-/// are; a gun bought is sold as ever.
+/// out with is refused `NotSellable` — a bot's is not the player's at
+/// all (`NotYours`, October 2026) — and both stay where they are; a
+/// gun bought is sold as ever.
 #[test]
 fn the_pistols_the_crew_set_out_with_are_never_sold() {
     use bims::combat::WeaponKind;
@@ -291,10 +292,15 @@ fn the_pistols_the_crew_set_out_with_are_never_sold() {
             matches!(held, Some(Item::Weapon(w)) if w.kind == WeaponKind::LaserPistol),
             "{held:?}"
         );
-        assert_eq!(world.sellable(0, from), Err(Refusal::NotSellable));
+        let why = if who == 0 {
+            Refusal::NotSellable
+        } else {
+            Refusal::NotYours
+        };
+        assert_eq!(world.sellable(0, from), Err(why));
         let money = world.wallet(0);
         let events = world.step(&[Command::Sell { slot: 0, from }]);
-        assert!(refused_with(&events, Refusal::NotSellable), "{events:?}");
+        assert!(refused_with(&events, why), "{events:?}");
         assert_eq!(world.worn_on(who, GearSlot::Weapon), held);
         assert_eq!(world.wallet(0), money);
     }
@@ -440,7 +446,7 @@ fn a_second_gun_bought_is_a_second_gun_and_another_player_s_kit_is_not_sold() {
     assert!(world.at_trader());
     let gun = world.trader_here(0).unwrap().shelf[0].expect("a gun on the shelf");
     let weapon = gun.weapon().expect("the first slot is the gun");
-    world.holdings.put(Item::Weapon(weapon));
+    world.holdings.put(0, Item::Weapon(weapon));
     world.step(&[Command::BuyShelf {
         slot: 0,
         index: 0,
@@ -781,14 +787,14 @@ fn a_trader_is_never_infested_and_never_the_jammer() {
     assert!(!world.site_threatened(site.station));
 }
 
-/// **Every kind starts at tier one** (October 2026, the player's word):
-/// the tank, though it sets out in tier-one armour, and the soldier,
-/// though it sets out with a tier-one auto rifle, are offered every kind
-/// at tier one like a classless player — nothing counts as bought until
-/// it is — and a day past every tier timing lifts no shelf: only buying
-/// does.
+/// **A class's start counts as bought** (October 2026, the player's
+/// word): the tank sets out in tier-one armour and the soldier with a
+/// tier-one auto rifle, so their shelves sell that kind at tier two from
+/// the first trader on; every other kind, and a classless player's whole
+/// shelf, at tier one — and a day past every tier timing lifts no shelf:
+/// only buying does.
 #[test]
-fn every_kind_starts_at_tier_one_whatever_the_class_or_the_day() {
+fn the_tank_and_soldier_are_offered_their_kit_a_tier_up_from_the_start() {
     use crate::class::Class;
     use bims::combat::Tier;
     use physics::ResourceId;
@@ -804,19 +810,27 @@ fn every_kind_starts_at_tier_one_whatever_the_class_or_the_day() {
     assert_eq!(world.shop_tier(), Tier::Three, "the day's tier");
     at_a_trader(&mut world);
     let plain = trader::shelf(|_| Tier::One);
-    for slot in 0..3 {
-        let shelf: Vec<_> = world
+    let shelf = |world: &World, slot: u32| -> Vec<_> {
+        world
             .trader_here(slot)
             .unwrap()
             .shelf
             .iter()
             .map(|i| i.unwrap())
-            .collect();
-        assert_eq!(shelf, plain, "slot {slot}");
-        for resource in [ResourceId::Armour, ResourceId::AutoRifle] {
-            assert_eq!(world.shelf_tier(slot, resource), Tier::One);
+            .collect()
+    };
+    for (slot, up) in [(0, ResourceId::Armour), (1, ResourceId::AutoRifle)] {
+        for (item, was) in shelf(&world, slot).iter().zip(&plain) {
+            let want = if item.resource == up {
+                Tier::Two
+            } else {
+                was.tier
+            };
+            assert_eq!(item.tier, want, "slot {slot}: {item:?}");
         }
+        assert_eq!(world.shelf_tier(slot, up), Tier::Two);
     }
+    assert_eq!(shelf(&world, 2), plain, "a classless player's");
 }
 
 /// **A tier up onto a Bim sells the one it replaces** (October 2026): a

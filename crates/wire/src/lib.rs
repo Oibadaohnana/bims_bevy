@@ -249,7 +249,11 @@ use serde::{Deserialize, Serialize};
 /// fourteen tiles): the pistol, the auto rifle, the sniper, the minigun
 /// and the rail lance shorter, and every tier, skill and bolt held to it —
 /// both ends must shoot alike.
-pub const PROTOCOL: u32 = 146;
+/// 147: the armory is each player's own (`world::Stored::owner`) — a
+/// player changes its own Bim alone, a dead bot's kit is lost, and a
+/// soldier's or tank's shelf starts its kit at tier two: both ends must
+/// keep and refuse alike.
+pub const PROTOCOL: u32 = 147;
 
 /// Where the relay lives. `BIMS_SERVER` in the environment overrides it
 /// — `ws://127.0.0.1:8792` for one on the same machine.

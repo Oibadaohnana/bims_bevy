@@ -284,7 +284,7 @@ fn every_class_equips_every_weapon_takes_every_errand_and_places_every_site() {
         world.leave_for_probe();
         for kind in WeaponKind::ALL {
             let item = Item::Weapon(kind.basic());
-            let id = world.holdings.put(item).unwrap();
+            let id = world.holdings.put(who, item).unwrap();
             let events = world.step(&[Command::Equip {
                 slot: who,
                 who,
@@ -371,8 +371,8 @@ fn the_starting_pool_is_the_same_for_any_mix_of_classes_and_each_has_its_kit() {
         assert_eq!(world.set_class(1, b), Ok(()));
         assert_eq!(world.money, money, "{a:?} and {b:?}: the same pool");
     }
-    // The soldier's kit: a basic auto rifle in hand, the pistol into
-    // the armory (task 113), and grenades by its rank; the engineer keeps its own mines; and
+    // The soldier's kit: a basic auto rifle in hand in the pistol's place
+    // — never into the armory (October 2026) — and grenades by its rank; the engineer keeps its own mines; and
     // a class put back to none is the plain start again.
     assert_eq!(world.set_class(0, Class::Soldier), Ok(()));
     assert_eq!(
@@ -388,7 +388,11 @@ fn the_starting_pool_is_the_same_for_any_mix_of_classes_and_each_has_its_kit() {
             .filter(|s| s.item == item)
             .count()
     };
-    assert_eq!(in_armory(&world, pistol), 1);
+    assert_eq!(
+        in_armory(&world, pistol),
+        0,
+        "nothing comes into the armory"
+    );
     // No grenade before a rank of Frag Grenade (task 124): one at the first.
     assert_eq!(grenades(&world, 0), 0);
     ranks(&mut world, 0, [1, 0, 0, 0]);
@@ -404,7 +408,7 @@ fn the_starting_pool_is_the_same_for_any_mix_of_classes_and_each_has_its_kit() {
         world.aboard.room.weapon(0),
         Some(WeaponKind::LaserPistol.basic())
     );
-    assert_eq!(in_armory(&world, pistol), 0, "taken back out");
+    assert_eq!(in_armory(&world, pistol), 0, "nor goes out of it");
     assert_eq!(
         in_armory(&world, Item::Weapon(WeaponKind::AutoRifle.basic())),
         0

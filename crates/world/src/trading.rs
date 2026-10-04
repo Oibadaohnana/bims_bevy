@@ -307,7 +307,7 @@ impl World {
 
     /// [`Command::BuyShelf`]: the thing in the slot `index` of player
     /// `slot`'s own shelf paid for out of its own wallet and onto crew member `to`'s loadout — what was there
-    /// into the armory — or into the armory with `None`. Any player, no
+    /// into the player's own armory — or into it with `None`. Any player, no
     /// vote; the first command to want a thing has it.
     pub(super) fn buy_shelf(
         &mut self,
@@ -382,13 +382,13 @@ impl World {
                         events.push(WorldEvent::Sold { slot, who, value });
                     }
                     Some(old) => {
-                        self.holdings.put(old);
+                        self.holdings.put(slot, old);
                     }
                     None => {}
                 }
             }
             _ => {
-                self.holdings.put(thing);
+                self.holdings.put(slot, thing);
             }
         }
         events.push(WorldEvent::ShelfBought {
@@ -411,16 +411,25 @@ impl World {
     /// (October 2026): **tier one until that kind is bought**, then one
     /// past the best of it the player has bought off a shelf this run —
     /// tier three at most, so a tier-three thing bought leaves it at
-    /// three. The day does not lift it, and no class's start counts as
-    /// bought: the tank's armour and the soldier's auto rifle are offered
-    /// at tier one like everything else, the player's word.
+    /// three. The day does not lift it. **A class's start counts as
+    /// bought at tier one** (October 2026, the player's word, putting
+    /// back what 27afab0 took out): the soldier sets out with a tier-one
+    /// auto rifle and the tank in tier-one armour, so their shelves sell
+    /// that kind at tier two from the first trader on.
     /// ([`trader::shelf`] puts a kind not made that low up to its own.)
     pub fn shelf_tier(&self, slot: u32, resource: ResourceId) -> Tier {
+        let start = match self.class_of(slot) {
+            Class::Soldier => Some(ResourceId::AutoRifle),
+            Class::Tank => Some(ResourceId::Armour),
+            _ => None,
+        };
         self.run
             .shelf_bought
             .get(slot as usize)
             .and_then(|b| b.iter().find(|b| b.resource == resource))
-            .map_or(Tier::One, |b| b.tier.next().unwrap_or(b.tier))
+            .map(|b| b.tier)
+            .or_else(|| (start == Some(resource)).then_some(Tier::One))
+            .map_or(Tier::One, |t| t.next().unwrap_or(t))
     }
 
     /// Player `slot`'s shelf for a visit ([`trader::shelf`]): every gun but
@@ -577,16 +586,18 @@ impl World {
         Some(paid.saturating_mul(data::SELL_BACK_PERCENT) / 100)
     }
 
-    /// What player `slot` may sell from `from`, if it may: a thing in the
-    /// armory, or on its own Bim's or a bot's slot — never another
+    /// What player `slot` may sell from `from`, if it may: a thing in its
+    /// own armory, or on its own Bim's slot — never a bot's or another
     /// player's — and never a charge or a laser pistol (`NotSellable`).
     pub fn sellable(&self, slot: u32, from: GearSource) -> Result<(Item, Money), Refusal> {
         let thing = match from {
-            GearSource::Armory { id } => self
-                .holdings
-                .get(id)
-                .map(|s| s.item)
-                .ok_or(Refusal::NoSuchGear)?,
+            GearSource::Armory { id } => {
+                let stored = self.holdings.get(id).ok_or(Refusal::NoSuchGear)?;
+                if stored.owner != slot {
+                    return Err(Refusal::NotYours);
+                }
+                stored.item
+            }
             GearSource::Worn { who, slot: part } => {
                 if who >= self.aboard.crew_count() {
                     return Err(Refusal::NotAboard);
@@ -608,7 +619,7 @@ impl World {
 
     /// [`Command::Sell`]: the thing at `from` sold at the trader player
     /// `slot` is at, for [`World::sell_value`] into its own wallet — out of
-    /// the armory, or off its own Bim or a bot, the slot left empty.
+    /// its own armory, or off its own Bim, the slot left empty.
     pub(super) fn sell(&mut self, slot: u32, from: GearSource, events: &mut Vec<WorldEvent>) {
         if self.trader_index(slot).is_none() {
             events.push(refused(slot, Refusal::NotAtATrader));

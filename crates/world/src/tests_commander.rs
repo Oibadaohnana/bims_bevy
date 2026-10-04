@@ -486,11 +486,14 @@ fn a_medivac_medic_s_kit_is_nobody_s_to_change() {
     assert!(!world.may_change(0, medic) && !world.may_change_now(0, medic));
     let helm = world
         .holdings
-        .put(Item::Armour(bims::combat::Piece::new(
-            9_000,
-            bims::combat::ArmourKind::Armour,
-            Tier::One,
-        )))
+        .put(
+            0,
+            Item::Armour(bims::combat::Piece::new(
+                9_000,
+                bims::combat::ArmourKind::Armour,
+                Tier::One,
+            )),
+        )
         .unwrap();
     for command in [
         Command::Equip {
@@ -772,7 +775,7 @@ fn a_reinforcement_keeps_its_rifle_and_wears_the_republic_s_armour() {
     assert!(!world.may_change(0, soldier) && !world.may_change_now(0, soldier));
     let sniper = world
         .holdings
-        .put(Item::Weapon(WeaponKind::SniperRifle.basic()))
+        .put(0, Item::Weapon(WeaponKind::SniperRifle.basic()))
         .unwrap();
     let armory = world.holdings.armory.len();
     for command in [

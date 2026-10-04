@@ -7731,3 +7731,36 @@ only rolls the start (`random_start`).
   `PICTURES` were already off their pins in the tree and were not
   re-pinned; a station's room is smaller wherever a hand was rolled, so
   they move.
+
+## Each player's own armory (October 2026)
+
+> "Nothing is stored" above says the armory is the ship's, a player may
+> change any bot's loadout and a dead bot's kit goes into the armory;
+> none of that holds now. The player's words: "the armory from now on is
+> only for oneself. Bots or other players cant get your items. if a bot
+> dies with his stuff it is lost. There is no magic spawning of items in
+> the armory".
+
+- **`Stored::owner`** is the player slot a thing in the armory is
+  (saved, hashed after the item); `Holdings::put(owner, item)`,
+  `get_own`, `of(owner)`. An equip or a sale from another player's is
+  `NotYours`; the app shows a player `of(local)` alone.
+- **`may_change(slot, who)` is the player's own Bim alone**: a bot keeps
+  the kit it came with — nothing goes onto it, nothing comes off it, it
+  is sold by nobody. `store_loadout` went: a dead or left-behind bot's
+  kit is lost with it.
+- **Nothing comes into an armory its player did not put there**: the
+  soldier's start gives up the pistol for the rifle (`take_soldier_kit`
+  hands a pistol back), `draw_pistol(who)` takes from its own armory or
+  arms the hand fresh, never the armory. `stock_the_armory` (the design's
+  cargo, never a run's — `set_out_empty`) is the first player's, and
+  `stock_every_thing_for_probe` stocks every player's.
+- **A class's start counts as bought at tier one** again
+  (`shelf_tier`): the soldier's auto rifle and the tank's armour are on
+  their shelves at tier two from the first trader on.
+- Offers between players stay (an accepted one puts the recipient's old
+  thing into the recipient's armory).
+
+**`SAVE_VERSION` 106, `wire::PROTOCOL` 147.** `tests_holdings.rs`,
+`tests_trader::the_tank_and_soldier_are_offered_their_kit_a_tier_up_from_the_start`
+and the pistol, item and soldier tests are the rule.
