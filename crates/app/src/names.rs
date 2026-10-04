@@ -2224,6 +2224,8 @@ pub const FLOOR_FOCUS_TIP: &str = "Scroll the map back to the crew's row";
 pub const FLOOR_ZOOM_OUT: &str = "-";
 pub const FLOOR_ZOOM_IN: &str = "+";
 pub const FLOOR_ZOOM_TIP: &str = "Zoom the map (Ctrl and the wheel does too)";
+pub const FLOOR_SKETCH_CLEAR: &str = "Clear drawing";
+pub const FLOOR_SKETCH_TIP: &str = "Right-drag on the map draws the way you mean to go, in your colour, for everybody to see; it stays up across missions, and the next place on it is picked for you. Shift and a right-drag rubs a line out. This rubs out all of yours.";
 /// A system's heading on the list, by how many hyperlanes off it is
 /// (the second map rework: one or two).
 pub fn map_next_system(star: &str, hops: u32) -> String {

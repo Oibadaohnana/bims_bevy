@@ -6,7 +6,9 @@
 //! The wheel scrolls it up and down, Ctrl and the wheel zooms it (and the
 //! buttons in the top left corner), a left drag or a middle drag pans it.
 //! A click on a place picks it, as a star on the galaxy chart was picked;
-//! the bar at the foot of the map proposes it. Nothing here decides
+//! the bar at the foot of the map proposes it. A right drag draws on it
+//! the way the player means to go, in their colour on everybody's chart,
+//! kept across the missions ([`Sketches`]). Nothing here decides
 //! anything: where a trip may go is the world's (`World::floor_next`), and
 //! every mark is read off it.
 
@@ -167,6 +169,9 @@ pub struct FloorView<'a> {
     pub visited: &'a [u32],
     /// The place picked, or the one on the table.
     pub heading: Option<u32>,
+    /// What the players drew on it, and each player's colour.
+    pub sketches: &'a Sketches,
+    pub colour_of: &'a dyn Fn(u32) -> egui::Color32,
 }
 
 /// The chart, painted into `rect`.
@@ -177,6 +182,8 @@ pub fn paint(painter: &egui::Painter, rect: egui::Rect, chart: &FloorChart, view
         marks,
         visited,
         heading,
+        sketches,
+        colour_of,
     } = *view;
     let zoom = chart.zoom();
     let gap = chart.gap();
@@ -412,6 +419,9 @@ pub fn paint(painter: &egui::Painter, rect: egui::Rect, chart: &FloorChart, view
             }
         }
     }
+    // The ways the players mean to go, over the places.
+    let from = here.map_or(0, |(row, _)| row);
+    paint_sketches(painter, rect, chart, floor, sketches, colour_of, from);
     // What the place under the pointer is.
     if let Some((row, i)) = chart.hovered
         && let Some(node) = floor.node(row, i)
@@ -577,4 +587,402 @@ pub fn tier_colour(tier: Tier) -> egui::Color32 {
 /// The floor's word in the top left corner: how far up the crew are.
 pub fn progress(world: &World, floor: &Floor) -> String {
     floor_progress(world.run_day(), world::floor::row_day(floor.heart_row()))
+}
+
+/// Most points in one line; a longer one stops growing.
+const STROKE_POINTS: usize = 800;
+/// Most lines a player keeps up; a new one past it rubs out the oldest.
+const STROKES: usize = 64;
+/// Points on the screen the pen moves before the line takes a new point.
+const PEN_STEP: f32 = 3.0;
+/// Points on the screen from a line that rub it out.
+const RUB_REACH: f32 = 12.0;
+/// How near, in points of the chart at a zoom of one, a line passes a
+/// place's middle and still runs over it.
+const OVER: f32 = 17.0;
+/// Seconds between a growing line's goings out to the others.
+const SKETCH_EVERY: f64 = 0.1;
+
+/// One line drawn on the floor: whose, its number among theirs, and its
+/// points of the floor (across it nought to one, up it in rows), so it
+/// lies on the same places at every zoom and on every player's chart.
+pub struct Stroke {
+    pub slot: u32,
+    pub id: u32,
+    pub points: Vec<(f32, f32)>,
+}
+
+/// What the players drew on the floor's map (October 2026): the way each
+/// means to go up it, planned ahead the way Slay the Spire's map is drawn
+/// on. A right drag draws, Shift and a right drag rubs out this player's
+/// own lines. Kept by the screen across the missions — and a resync, a
+/// load or a restart — until rubbed out; everybody's in its player's
+/// colour, sent over the wire as `Packet::Sketch`. A picture only: the
+/// world never hears of it. The places a player's lines run over are
+/// ringed in their colour, and the next of this player's is picked for
+/// the bar when nothing up the floor is.
+#[derive(Default)]
+pub struct Sketches {
+    strokes: Vec<Stroke>,
+    /// This player's line under the pen.
+    drawing: Option<u32>,
+    /// The pen is rubbing out rather than drawing: where it was last.
+    erasing: Option<egui::Pos2>,
+    /// This player's next line's number.
+    next: u32,
+    /// This player's lines changed since they last went out.
+    unsent: Vec<u32>,
+    /// When a line last went out, in the egui clock's seconds.
+    sent_at: f64,
+}
+
+impl Sketches {
+    /// A line another player drew, whole as it stands — empty when they
+    /// rubbed it out.
+    pub fn put(&mut self, slot: u32, id: u32, points: Vec<(f32, f32)>) {
+        let at = self
+            .strokes
+            .iter()
+            .position(|s| s.slot == slot && s.id == id);
+        match (at, points.is_empty()) {
+            (Some(i), true) => {
+                self.strokes.remove(i);
+            }
+            (Some(i), false) => self.strokes[i].points = points,
+            (None, true) => {}
+            (None, false) => {
+                let mut points = points;
+                points.truncate(STROKE_POINTS);
+                if self.strokes.iter().filter(|s| s.slot == slot).count() >= STROKES
+                    && let Some(i) = self.strokes.iter().position(|s| s.slot == slot)
+                {
+                    self.strokes.remove(i);
+                }
+                self.strokes.push(Stroke { slot, id, points });
+            }
+        }
+    }
+
+    /// The pen goes down at `at` on the chart, rubbing out with `erase`.
+    pub fn press(
+        &mut self,
+        slot: u32,
+        chart: &FloorChart,
+        rect: egui::Rect,
+        at: egui::Pos2,
+        erase: bool,
+    ) {
+        if erase {
+            self.rub(slot, chart, rect, at, at);
+            return;
+        }
+        if self.strokes.iter().filter(|s| s.slot == slot).count() >= STROKES
+            && let Some(i) = self.strokes.iter().position(|s| s.slot == slot)
+        {
+            let gone = self.strokes.remove(i).id;
+            self.unsent.push(gone);
+        }
+        let id = self.next;
+        self.next = self.next.wrapping_add(1);
+        self.strokes.push(Stroke {
+            slot,
+            id,
+            points: vec![chart.to_floor(rect, at)],
+        });
+        self.drawing = Some(id);
+        self.unsent.push(id);
+    }
+
+    /// The pen moved to `at` while down.
+    pub fn drag(&mut self, slot: u32, chart: &FloorChart, rect: egui::Rect, at: egui::Pos2) {
+        if let Some(from) = self.erasing {
+            self.rub(slot, chart, rect, from, at);
+            return;
+        }
+        let Some(id) = self.drawing else {
+            return;
+        };
+        let Some(stroke) = self
+            .strokes
+            .iter_mut()
+            .find(|s| s.slot == slot && s.id == id)
+        else {
+            return;
+        };
+        let last = stroke.points.last().copied();
+        let far =
+            last.is_none_or(|(x, row)| chart.to_screen(rect, x, row).distance(at) >= PEN_STEP);
+        if far && stroke.points.len() < STROKE_POINTS {
+            stroke.points.push(chart.to_floor(rect, at));
+            if !self.unsent.contains(&id) {
+                self.unsent.push(id);
+            }
+        }
+    }
+
+    /// The pen lifted.
+    pub fn release(&mut self) {
+        self.drawing = None;
+        self.erasing = None;
+    }
+
+    /// Whether the pen is down.
+    pub fn busy(&self) -> bool {
+        self.drawing.is_some() || self.erasing.is_some()
+    }
+
+    /// Whether this player has any line up.
+    pub fn any_of(&self, slot: u32) -> bool {
+        self.strokes.iter().any(|s| s.slot == slot)
+    }
+
+    /// Every line of this player's rubbed out.
+    pub fn clear(&mut self, slot: u32) {
+        for stroke in self.strokes.iter().filter(|s| s.slot == slot) {
+            self.unsent.push(stroke.id);
+        }
+        self.strokes.retain(|s| s.slot != slot);
+        self.drawing = None;
+    }
+
+    /// This player's lines near the pen's way from `from` to `at` rubbed
+    /// out, and the pen left at `at`.
+    fn rub(
+        &mut self,
+        slot: u32,
+        chart: &FloorChart,
+        rect: egui::Rect,
+        from: egui::Pos2,
+        at: egui::Pos2,
+    ) {
+        self.erasing = Some(at);
+        let steps = (from.distance(at) / 4.0).ceil().max(1.0) as usize;
+        let pen: Vec<egui::Pos2> = (0..=steps)
+            .map(|k| from + (at - from) * (k as f32 / steps as f32))
+            .collect();
+        let near = |s: &Stroke| {
+            let on_screen: Vec<egui::Pos2> = s
+                .points
+                .iter()
+                .map(|&(x, row)| chart.to_screen(rect, x, row))
+                .collect();
+            pen.iter()
+                .any(|&p| distance_to_line(&on_screen, p) < RUB_REACH)
+        };
+        let gone: Vec<u32> = self
+            .strokes
+            .iter()
+            .filter(|s| s.slot == slot && near(s))
+            .map(|s| s.id)
+            .collect();
+        self.strokes
+            .retain(|s| !(s.slot == slot && gone.contains(&s.id)));
+        self.unsent.extend(gone);
+    }
+
+    /// This player's lines that changed, as they now stand (empty for one
+    /// rubbed out), to go out to the others: every [`SKETCH_EVERY`] while
+    /// one grows, at once otherwise.
+    pub fn outgoing(&mut self, slot: u32, now: f64) -> Vec<(u32, Vec<(f32, f32)>)> {
+        if self.unsent.is_empty() || (self.drawing.is_some() && now - self.sent_at < SKETCH_EVERY) {
+            return Vec::new();
+        }
+        self.sent_at = now;
+        let mut ids = std::mem::take(&mut self.unsent);
+        ids.dedup();
+        ids.iter()
+            .map(|&id| {
+                let points = self
+                    .strokes
+                    .iter()
+                    .find(|s| s.slot == slot && s.id == id)
+                    .map_or_else(Vec::new, |s| s.points.clone());
+                (id, points)
+            })
+            .collect()
+    }
+
+    /// How near, in points at a zoom of one, `slot`'s lines come to the
+    /// place `(row, x)`; `None` when they have none.
+    fn nearest(&self, slot: u32, floor: &Floor, row: u32, x: f32) -> Option<f32> {
+        let lift = if row == floor.heart_row() { 0.4 } else { 0.0 };
+        let flat = |(x, row): (f32, f32)| egui::pos2(x * SPAN, row * ROW_GAP);
+        let at = flat((x, row as f32 + lift));
+        self.strokes
+            .iter()
+            .filter(|s| s.slot == slot)
+            .map(|s| {
+                let points: Vec<egui::Pos2> = s.points.iter().map(|&p| flat(p)).collect();
+                distance_to_line(&points, at)
+            })
+            .reduce(f32::min)
+    }
+
+    /// Whether `slot`'s lines run over the place `(row, x)`.
+    fn over(&self, slot: u32, floor: &Floor, row: u32, x: f32) -> bool {
+        self.nearest(slot, floor, row, x).is_some_and(|d| d < OVER)
+    }
+
+    /// The place of the ways up from here that `slot`'s lines run over,
+    /// the nearest to them where they run over more than one: the star
+    /// the plan picks.
+    pub fn planned_next(&self, slot: u32, world: &World, floor: &Floor) -> Option<u32> {
+        let next = world.floor_next();
+        let mut best: Option<(f32, u32)> = None;
+        for (row, nodes) in floor.rows.iter().enumerate() {
+            for node in nodes {
+                let site = Site {
+                    star: node.star,
+                    station: node.station,
+                };
+                if !next.contains(&site) {
+                    continue;
+                }
+                if let Some(d) = self.nearest(slot, floor, row as u32, node.x)
+                    && d < OVER
+                    && best.is_none_or(|(b, _)| d < b)
+                {
+                    best = Some((d, node.star));
+                }
+            }
+        }
+        best.map(|(_, star)| star)
+    }
+}
+
+/// How near `p` comes to the line through `points`.
+fn distance_to_line(points: &[egui::Pos2], p: egui::Pos2) -> f32 {
+    match points {
+        [] => f32::INFINITY,
+        [only] => only.distance(p),
+        _ => points
+            .windows(2)
+            .map(|w| {
+                let (a, b) = (w[0], w[1]);
+                let ab = b - a;
+                let t = if ab.length_sq() > 0.0 {
+                    ((p - a).dot(ab) / ab.length_sq()).clamp(0.0, 1.0)
+                } else {
+                    0.0
+                };
+                (a + ab * t).distance(p)
+            })
+            .fold(f32::INFINITY, f32::min),
+    }
+}
+
+/// Everybody's lines on the chart, each in its player's colour, and the
+/// places up the floor from the crew's row `here` they run over ringed.
+fn paint_sketches(
+    painter: &egui::Painter,
+    rect: egui::Rect,
+    chart: &FloorChart,
+    floor: &Floor,
+    sketches: &Sketches,
+    colour_of: &dyn Fn(u32) -> egui::Color32,
+    here: u32,
+) {
+    let zoom = chart.zoom();
+    let width = (3.0 * zoom).clamp(2.0, 5.0);
+    let radius = (NODE * zoom).clamp(6.0, 22.0);
+    let mut slots: Vec<u32> = sketches.strokes.iter().map(|s| s.slot).collect();
+    slots.sort_unstable();
+    slots.dedup();
+    for (k, &slot) in slots.iter().enumerate() {
+        let colour = colour_of(slot);
+        for (row, nodes) in floor.rows.iter().enumerate() {
+            let row = row as u32;
+            for node in nodes {
+                if row <= here || !sketches.over(slot, floor, row, node.x) {
+                    continue;
+                }
+                let at = chart.place(rect, floor, row, node.x);
+                let r = if row == floor.heart_row() {
+                    radius * 1.9 * 0.62
+                } else {
+                    radius
+                };
+                painter.circle_stroke(
+                    at,
+                    r + 9.0 + 3.0 * k as f32,
+                    egui::Stroke::new(2.0, colour.gamma_multiply(0.9)),
+                );
+            }
+        }
+    }
+    for stroke in &sketches.strokes {
+        let colour = colour_of(stroke.slot);
+        let points: Vec<egui::Pos2> = stroke
+            .points
+            .iter()
+            .map(|&(x, row)| chart.to_screen(rect, x, row))
+            .collect();
+        match points.as_slice() {
+            [] => {}
+            [only] => {
+                painter.circle_filled(*only, width * 0.6, colour);
+            }
+            _ => {
+                painter.add(egui::Shape::line(
+                    points,
+                    egui::Stroke::new(width, colour.gamma_multiply(0.9)),
+                ));
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn rect() -> egui::Rect {
+        egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(1000.0, 800.0))
+    }
+
+    #[test]
+    fn a_line_drawn_goes_out_whole_and_comes_back_on_another_chart() {
+        let chart = FloorChart::default();
+        let mut mine = Sketches::default();
+        mine.press(0, &chart, rect(), egui::pos2(500.0, 700.0), false);
+        for y in [680.0, 660.0, 640.0] {
+            mine.drag(0, &chart, rect(), egui::pos2(500.0, y));
+        }
+        mine.release();
+        let sent = mine.outgoing(0, 1.0);
+        assert_eq!(sent.len(), 1);
+        assert_eq!(sent[0].1.len(), 4);
+        assert!(mine.outgoing(0, 2.0).is_empty(), "nothing new to say");
+        let mut theirs = Sketches::default();
+        for (id, points) in sent {
+            theirs.put(0, id, points);
+        }
+        assert!(theirs.any_of(0) && !theirs.any_of(1));
+    }
+
+    #[test]
+    fn a_line_rubbed_out_goes_out_empty_and_only_the_own_are_rubbed() {
+        let chart = FloorChart::default();
+        let mut sketches = Sketches::default();
+        sketches.put(1, 0, vec![(0.5, 1.0), (0.5, 3.0)]);
+        sketches.press(0, &chart, rect(), egui::pos2(500.0, 700.0), false);
+        sketches.drag(0, &chart, rect(), egui::pos2(500.0, 600.0));
+        sketches.release();
+        sketches.outgoing(0, 1.0);
+        // Shift and a right drag straight across both.
+        sketches.press(0, &chart, rect(), egui::pos2(400.0, 650.0), true);
+        sketches.drag(0, &chart, rect(), egui::pos2(600.0, 650.0));
+        sketches.release();
+        assert!(!sketches.any_of(0));
+        assert!(
+            sketches.any_of(1),
+            "another player's line is theirs to rub out"
+        );
+        let sent = sketches.outgoing(0, 2.0);
+        assert_eq!(sent.len(), 1);
+        assert!(sent[0].1.is_empty());
+        // And an empty one from the wire rubs theirs out here.
+        sketches.put(1, 0, Vec::new());
+        assert!(!sketches.any_of(1));
+    }
 }

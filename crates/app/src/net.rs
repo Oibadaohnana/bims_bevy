@@ -558,6 +558,13 @@ pub enum Packet {
     /// the player's colour that runs out and fades. A picture, like the
     /// pointer, and nothing the world hears of.
     Ping(Spot),
+    /// A line drawn on the floor's map (October 2026,
+    /// `floormap::Sketches`), to everybody: the sender's stroke `id`,
+    /// whole, as points of the floor (across it nought to one, up it in
+    /// rows) — sent again as it grows, and empty once rubbed out. A
+    /// picture in the player's colour, like the ping, and nothing the
+    /// world hears of.
+    Sketch { id: u32, points: Vec<(f32, f32)> },
     /// A guest asking the host to apply an edit or an order, stamped with
     /// the design hash it was made against — and, an order the guest's
     /// own world has played already (task 156, `crate::rollback`), with

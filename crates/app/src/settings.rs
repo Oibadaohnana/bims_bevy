@@ -557,6 +557,10 @@ fn controls(ui: &mut egui::Ui, sheet: &mut Option<Sheet>, keys: &mut Keys) {
                 "Ping: a mark in your colour on everybody's screen, on the deck or the galaxy chart.",
             ),
             (
+                "Right-drag on the map",
+                "Draw the way you mean to go up the floor, in your colour on everybody's map. It stays up across missions, and the next place it runs over is picked for you. Shift and a right-drag rubs a line out.",
+            ),
+            (
                 "Right-click on the deck",
                 "Open the menu of what is there — a door, a downed crewmate — or pick the crew member under it. With the medkit in hand, a right-click on a downed crewmate revives them.",
             ),

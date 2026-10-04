@@ -209,6 +209,9 @@ pub struct GameScreen {
     /// start at the bottom and the Machine Heart at the top, in place of
     /// the galaxy chart.
     floor_chart: super::floormap::FloorChart,
+    /// What the players drew on the floor's chart: the ways they mean to
+    /// go up it. Carried across a world replaced, as the log is.
+    sketches: super::floormap::Sketches,
     /// The star picked on the chart: the crisis's word on it is in the
     /// strip, and the route to it is drawn.
     picked_star: Option<u32>,
@@ -1018,6 +1021,7 @@ impl GameScreen {
             pan_galaxy: false,
             chart_press: None,
             floor_chart: super::floormap::FloorChart::default(),
+            sketches: super::floormap::Sketches::default(),
             picked_star: None,
             gone: Vec::new(),
             said_name: None,
@@ -1047,6 +1051,7 @@ impl GameScreen {
         let mut next = GameScreen::fresh(slot, players);
         next.net.wire = self.net.wire.take();
         next.log = std::mem::take(&mut self.log);
+        next.sketches = std::mem::take(&mut self.sketches);
         next.desync_at = None;
         // What is still queued behind the world that arrived is of that
         // world: it plays on as it would have.
@@ -1212,6 +1217,15 @@ fn frame(
                         .confirm(session, |s| net.applied(s, from, at, message));
                     let step = session.game.as_ref().map_or(0, |g| g.world.steps);
                     screen.rollback.applied(screen.net.slot, from, asked, step);
+                }
+                // A line another player drew on the floor's chart, or
+                // rubbed out; one from nobody dealt a slot is nobody's.
+                Packet::Sketch { id, points } => {
+                    if Some(from) != online.me
+                        && let Some(slot) = online.slot_of(from)
+                    {
+                        screen.sketches.put(slot, id, points);
+                    }
                 }
                 Packet::Refused { why } => {
                     let line = if why == 0 {
@@ -2029,6 +2043,35 @@ fn frame(
         online.ping(now, at);
         pointer.primary_pressed = false;
     }
+    // A right drag on the floor's chart draws the way this player means
+    // to go up it, in their colour on everybody's chart, and Shift with
+    // it rubs their lines out (`floormap::Sketches`). The lines stay up
+    // across the missions until rubbed out.
+    {
+        let me = screen.net.slot;
+        let s = &mut *screen;
+        if !galaxy_up {
+            s.sketches.release();
+        } else if let Some(p) = on_galaxy.filter(|_| pointer.secondary_pressed) {
+            let at = egui::pos2(galaxy_rect.min.x + p.x, galaxy_rect.min.y + p.y);
+            s.sketches
+                .press(me, &s.floor_chart, chart_area, at, pointer.shift);
+        } else if s.sketches.busy() {
+            match pointer.pos.filter(|_| pointer.secondary_down) {
+                Some(p) => {
+                    let at = egui::pos2(p.x, p.y);
+                    s.sketches.drag(me, &s.floor_chart, chart_area, at);
+                }
+                None => s.sketches.release(),
+            }
+        }
+        if s.sketches.busy() {
+            ctx.set_cursor_icon(egui::CursorIcon::Crosshair);
+        }
+        for (id, points) in s.sketches.outgoing(me, now) {
+            online.send(To::All, &Packet::Sketch { id, points });
+        }
+    }
     let panels = screen.panels.as_mut().unwrap();
 
     // Where this pointer is, to the room: over the trader's window or the
@@ -2149,6 +2192,26 @@ fn frame(
                     screen.picked_star = Some(star);
                     screen.world_map.pick_star(star);
                 }
+            }
+            // With nothing up the floor picked, the way up this player's
+            // lines run over is: the plan picks the next place for the
+            // bar, as a click on it would.
+            let here_row = game.world.floor_at().map_or(0, |(row, _)| row);
+            let ahead = |star: u32| {
+                floor
+                    .rows
+                    .iter()
+                    .position(|nodes| nodes.iter().any(|n| n.star == star))
+                    .is_some_and(|row| row as u32 > here_row)
+            };
+            if !screen.picked_star.is_some_and(ahead)
+                && let Some(star) =
+                    screen
+                        .sketches
+                        .planned_next(screen.net.slot, &game.world, floor)
+            {
+                screen.picked_star = Some(star);
+                screen.world_map.pick_star(star);
             }
         }
     } else {
@@ -2906,6 +2969,8 @@ fn frame(
     let mut side_at: Option<(egui::Pos2, f32)> = None;
     let mut focus_here = false;
     let mut zoom_by: Option<f32> = None;
+    let mut rub_out = false;
+    let drew = screen.sketches.any_of(screen.net.slot);
     if map_up {
         column = Some(super::worldmap::map_column(
             &ctx,
@@ -2953,6 +3018,13 @@ fn frame(
                                 if ui.button(word).on_hover_text(FLOOR_ZOOM_TIP).clicked() {
                                     zoom_by = Some(factor);
                                 }
+                            }
+                            let rub = ui.add_enabled(drew, egui::Button::new(FLOOR_SKETCH_CLEAR));
+                            let rub = rub
+                                .on_hover_text(FLOOR_SKETCH_TIP)
+                                .on_disabled_hover_text(FLOOR_SKETCH_TIP);
+                            if rub.clicked() {
+                                rub_out = true;
                             }
                         });
                     });
@@ -3293,6 +3365,9 @@ fn frame(
             .floor_chart
             .zoom_at(chart_area, chart_area.center(), factor);
     }
+    if rub_out {
+        screen.sketches.clear(screen.net.slot);
+    }
     if let Some(ask) = column
         && ask.close
         && let Some(game) = &mut session.game
@@ -3569,6 +3644,8 @@ fn frame(
                 marks: &screen.world_map.marks,
                 visited: &visited,
                 heading,
+                sketches: &screen.sketches,
+                colour_of: &|slot| slot_colour(&session.crew_tints, slot),
             },
         );
     }
