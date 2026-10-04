@@ -24,6 +24,20 @@
 //! aboard the ship: cornered in its own hull it fights, retreat or no
 //! retreat. That rule is the room's (`bims::game::Game::cornered`), since
 //! the room is what knows where the enemy are standing.
+//!
+//! **An attack lasts [`ATTACK_SECONDS`].** Ten seconds after it is given
+//! (`World::standing_until`, a step) the bots go back to following of
+//! their own accord; a fresh attack, on that tile or another, starts the
+//! ten seconds again.
+
+/// How long an attack order holds before that player's bots go back to
+/// following, in seconds of the steps.
+pub const ATTACK_SECONDS: f64 = 10.0;
+
+/// [`ATTACK_SECONDS`] in steps.
+pub fn attack_steps() -> u64 {
+    (ATTACK_SECONDS * time::MINUTES_PER_SECOND / crate::data::STEP_MINUTES).round() as u64
+}
 
 /// What one player's bots are doing. The tile of an attack is a tile of
 /// the crew's room — the deck the crew walk, the joined station's deck

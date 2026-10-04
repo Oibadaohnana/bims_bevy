@@ -1063,6 +1063,12 @@ pub struct World {
     /// nothing, which is every slot until somebody presses a key. As
     /// long as there are players, and in `world_checksum`.
     pub standing: Vec<Standing>,
+    /// The step each player's attack order lapses at, by player slot
+    /// ([`crate::orders::ATTACK_SECONDS`] after it was given): from it
+    /// their bots follow again. Read only while the slot's order is an
+    /// attack, and hashed beside it.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub standing_until: Vec<u64>,
     /// Whether the crew build onto their ship and buy what the ship lives
     /// on (feature 102): a construction site placed, and the goods on a
     /// station's shelf — food, suits, medicine — bought. **Off in every
@@ -1291,6 +1297,7 @@ impl World {
             throws: Vec::new(),
             crit_rng: bims::rng::Rng::new(seed ^ CRIT_SALT),
             standing: vec![Standing::Follow; players as usize],
+            standing_until: vec![0; players as usize],
             // Feature 102: a run has no shipyard. The tests that are
             // about building switch it on (`set_shipyard_enabled`).
             shipyard_enabled: false,
@@ -10600,6 +10607,10 @@ impl World {
             return Err(Refusal::NoGroundThere);
         }
         self.standing[slot as usize] = order;
+        if self.standing_until.len() < players {
+            self.standing_until.resize(players, 0);
+        }
+        self.standing_until[slot as usize] = self.steps + crate::orders::attack_steps();
         Ok(order.code())
     }
 
@@ -10642,8 +10653,15 @@ impl World {
         if self.standing.len() != players {
             self.standing.resize(players, Standing::Follow);
         }
+        if self.standing_until.len() != players {
+            self.standing_until.resize(players, 0);
+        }
         for slot in 0..players {
-            if !self.fit_to_act(slot as u32) || !self.ground_for(self.standing[slot]) {
+            // An attack lapses ten seconds after it was given
+            // (`crate::orders::ATTACK_SECONDS`): the bots follow again.
+            let lapsed = matches!(self.standing[slot], Standing::Attack { .. })
+                && self.steps >= self.standing_until[slot];
+            if lapsed || !self.fit_to_act(slot as u32) || !self.ground_for(self.standing[slot]) {
                 self.standing[slot] = Standing::Follow;
             }
         }

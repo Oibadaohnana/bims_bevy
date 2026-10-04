@@ -578,11 +578,13 @@ pub fn world_checksum(world: &World) -> u64 {
     // `crate::orders`): it moves bodies, so two clients that disagree
     // about it disagree about where the crew are standing.
     hash.eat(world.standing.len() as u64);
-    for order in &world.standing {
+    for (slot, order) in world.standing.iter().enumerate() {
         hash.eat(u64::from(order.code()));
         if let crate::orders::Standing::Attack { tile } = order {
             hash.eat(tile.0 as i64 as u64);
             hash.eat(tile.1 as i64 as u64);
+            // And the step it lapses at, ten seconds after it was given.
+            hash.eat(world.standing_until.get(slot).copied().unwrap_or(0));
         }
     }
     // And each body's downed countdown and the slow a downing left

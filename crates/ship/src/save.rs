@@ -279,7 +279,9 @@ use crate::game::Game;
 /// (crew indices), `least_mercenaries`, `Residents::{fee, medic}`,
 /// `Losses::mercenaries` and `Grave::hired` gone.
 /// 106: a thing in the armory keeps whose it is (`Stored::owner`).
-pub const SAVE_VERSION: u32 = 106;
+/// 107: the world keeps the step each player's attack order lapses at
+/// (`World::standing_until`).
+pub const SAVE_VERSION: u32 = 107;
 
 /// What the file holds, read back.
 #[derive(serde::Deserialize)]

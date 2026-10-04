@@ -253,7 +253,10 @@ use serde::{Deserialize, Serialize};
 /// player changes its own Bim alone, a dead bot's kit is lost, and a
 /// soldier's or tank's shelf starts its kit at tier two: both ends must
 /// keep and refuse alike.
-pub const PROTOCOL: u32 = 147;
+/// 148: an attack order lapses ten seconds after it was given
+/// (`world::orders::ATTACK_SECONDS`, `World::standing_until`): both ends
+/// must let the bots follow again on the same step.
+pub const PROTOCOL: u32 = 148;
 
 /// Where the relay lives. `BIMS_SERVER` in the environment overrides it
 /// — `ws://127.0.0.1:8792` for one on the same machine.

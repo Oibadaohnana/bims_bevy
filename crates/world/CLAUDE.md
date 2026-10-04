@@ -3353,6 +3353,16 @@ with the gun up, or a sprint with nothing to shoot at; and
 `a_banner_is_dropped_when_its_ground_goes_and_a_release_never_wants_any`,
 the two halves of the banner that could not be taken up.
 
+**An attack lasts ten seconds** (October 2026, the player's word):
+`World::standing_until` (saved, serde default) is the step each slot's
+attack lapses at, `orders::ATTACK_SECONDS` (10) after `give_orders` put
+it down — a fresh banner starts it again — and
+`hand_the_room_the_standing` puts a lapsed attack back to Follow. A
+retreat has no clock. Hashed beside the attack's tile, so a world with
+no banner up hashes as it did. **`SAVE_VERSION` 107, `wire::PROTOCOL`
+148.** `SURVIVORS` moves (its run holds a banner for forty seconds).
+`an_attack_lapses_after_ten_seconds_and_the_bots_follow_again`.
+
 ## What a class's keys have left is the world's, and so is the level they want (feature 80)
 
 The app draws two boxes at the foot of the screen for the class's own

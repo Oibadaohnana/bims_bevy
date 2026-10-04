@@ -115,6 +115,62 @@ fn an_order_is_given_said_and_released_by_the_same_key_again() {
     assert_eq!(world.standing_of(0), Standing::Attack { tile: other });
 }
 
+/// **An attack lasts ten seconds**, and then the bots follow again of
+/// their own accord; a fresh banner starts the ten seconds again. A
+/// retreat stands until it is called off.
+#[test]
+fn an_attack_lapses_after_ten_seconds_and_the_bots_follow_again() {
+    let mut world = crewed();
+    world.step(&[]);
+    let tiles = banner_tiles(&world, 2);
+    let (tile, other) = (tiles[0], tiles[1]);
+    let steps = crate::orders::attack_steps();
+    assert_eq!(steps, 600, "ten seconds at sixty steps a second");
+
+    world.step(&[Command::Orders {
+        slot: 0,
+        order: Standing::Attack { tile },
+    }]);
+    for _ in 0..steps / 2 {
+        world.step(&[]);
+    }
+    assert_eq!(world.standing_of(0), Standing::Attack { tile });
+    // A banner moved halfway starts its ten seconds afresh.
+    world.step(&[Command::Orders {
+        slot: 0,
+        order: Standing::Attack { tile: other },
+    }]);
+    for _ in 0..steps - 2 {
+        world.step(&[]);
+    }
+    assert_eq!(
+        world.standing_of(0),
+        Standing::Attack { tile: other },
+        "still up a moment short of its ten seconds"
+    );
+    world.step(&[]);
+    world.step(&[]);
+    assert_eq!(world.standing_of(0), Standing::Follow, "it lapsed");
+    let room = &world.aboard.room;
+    for who in 1..room.crew_count() as usize {
+        assert_eq!(
+            room.standing_for_probe(who),
+            bims::game::Standing::Follow,
+            "crew {who} follows again"
+        );
+    }
+
+    // A retreat has no clock.
+    world.step(&[Command::Orders {
+        slot: 0,
+        order: Standing::Retreat,
+    }]);
+    for _ in 0..steps * 2 {
+        world.step(&[]);
+    }
+    assert_eq!(world.standing_of(0), Standing::Retreat);
+}
+
 /// It is not a class's, and it is not free: the player has to be fit to
 /// act, the same gate a trip stands behind.
 #[test]
@@ -439,6 +495,8 @@ fn a_banner_round_a_corner_is_reached_by_every_bot() {
             slot: 0,
             order: Standing::Attack { tile },
         }]);
+        // Held past its ten seconds: this is about the walk.
+        world.standing_until[0] = u64::MAX;
         let at = middle(tile);
         let bots = world.aboard.room.crew_count() as usize;
         let there = |world: &World| {
