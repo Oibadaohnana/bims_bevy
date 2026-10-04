@@ -499,10 +499,10 @@ fn a_stun_shot_charges_two_seconds_then_hurts_and_stuns_what_it_hits() {
         (world.aboard.room.bim_pos(0) - here).len() < 1.0,
         "stood still"
     );
-    // Fired: fifteen and a half again on the machine at the first rank, and a stun of
+    // Fired: twenty-two and a half on the machine at the first rank, and a stun of
     // three seconds, less the flight's few steps of it worn off.
     let (took, stunned) = machine_shot(&mut world);
-    assert_eq!(class::STUN_SHOT_DAMAGE[0], 15.0 * class::ABILITY_BOOST);
+    assert_eq!(class::STUN_SHOT_DAMAGE[0], 22.5);
     assert!(
         plausible_on_machine(&world, took, class::STUN_SHOT_DAMAGE[0]),
         "took {took}"
@@ -1372,18 +1372,14 @@ fn frag_grenade_s_charges_cooldown_burst_and_radius_go_by_its_rank() {
         (0.0, 0.0)
     );
     let want = [
-        (60.0, 2.0, 1, 30.0),
-        (75.0, 2.5, 2, 30.0),
-        (90.0, 2.5, 2, 24.0),
-        (110.0, 3.0, 2, 20.0),
+        (90.0, 2.0, 1, 30.0),
+        (112.5, 2.5, 2, 30.0),
+        (135.0, 2.5, 2, 24.0),
+        (165.0, 3.0, 2, 20.0),
     ];
     for (rank, &(damage, radius, charges, cooldown)) in (1..=4u8).zip(&want) {
         ranks(&mut world, 0, [rank, 0, 0, 0]);
-        assert_eq!(
-            world.grenade_damage(0),
-            damage * class::ABILITY_BOOST,
-            "rank {rank}"
-        );
+        assert_eq!(world.grenade_damage(0), damage, "rank {rank}");
         assert_eq!(world.grenade_radius(0), radius, "rank {rank}");
         assert_eq!(world.charges(0, Charge::Grenade), charges);
         assert_eq!(world.grenades_of(0), charges, "put in hand with the rank");
@@ -1394,10 +1390,7 @@ fn frag_grenade_s_charges_cooldown_burst_and_radius_go_by_its_rank() {
     // And the fourth rank's burst in the air is its numbers.
     throw(&mut world, 0, tile);
     let g = world.aboard.room.grenades()[0];
-    assert_eq!(
-        (g.damage, g.radius),
-        (110.0 * class::ABILITY_BOOST, 3.0 * TILE)
-    );
+    assert_eq!((g.damage, g.radius), (165.0, 3.0 * TILE));
 }
 
 /// A crit hit by the soldier on the staged machine's chassis, landed the
@@ -1468,8 +1461,8 @@ fn a_critical_hit_adds_its_share_of_the_flat_damage_after_every_factor() {
 #[test]
 fn a_critical_hit_is_added_before_the_armour_takes_its_share() {
     // A Manufacturer in its armour (day six): a crit of a flat point is
-    // 2.25 at the fourth rank, all of it past the armour's protection of
-    // 1.8 — so the armour drains 0.45. Were the
+    // 3.375 at the fourth rank, all of it past the armour's protection of
+    // 1.8 — so the armour drains 1.575. Were the
     // crit added after the armour, the flat point would be stopped whole
     // and the crit's share land on the body.
     let mut world = simulation_world(flyer(2), REFERENCE_MONEY, 2);
@@ -1514,7 +1507,7 @@ fn a_critical_hit_is_added_before_the_armour_takes_its_share() {
     world.step(&[]);
     let (armour_now, body_now) = piece(&world);
     assert!(
-        (armour - armour_now - 0.45).abs() < 1e-3,
+        (armour - armour_now - 1.575).abs() < 1e-3,
         "the piece drained {}",
         armour - armour_now
     );

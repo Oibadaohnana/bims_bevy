@@ -702,14 +702,6 @@ pub fn level_health(level: u8) -> f32 {
     LEVEL_HEALTH * level as f32
 }
 
-/// What every ability's damage and heal is multiplied by (October 2026,
-/// the player's word: half again): the grenade, the stun shot, the mine
-/// and the satchel; the beam — and so the Healing Sentry and the circle,
-/// heal and burn, which go at its rate — the drone and Plated's mending.
-/// The tables keep the numbers they had before it, times it. Not the guns
-/// a Sentry or a reinforcement carries, nor a shield's hit points.
-pub const ABILITY_BOOST: f32 = 1.5;
-
 /// The ranks an ability of a ranked kit has.
 pub const MAX_RANK: u8 = 4;
 
@@ -792,12 +784,9 @@ pub const VICINITY_TILES: f32 = 50.0;
 
 /// **Q, Mine** (task 154): what its blast does to every enemy in it at
 /// its centre, a rank; half that at the edge.
-pub const MINE_DAMAGE: [f32; 4] = [
-    40.0 * ABILITY_BOOST,
-    50.0 * ABILITY_BOOST,
-    60.0 * ABILITY_BOOST,
-    75.0 * ABILITY_BOOST,
-];
+/// Half again in October 2026, with every ability's damage, heal and
+/// shield (was 40, 50, 60, 75).
+pub const MINE_DAMAGE: [f32; 4] = [60.0, 75.0, 90.0, 112.5];
 /// How far the blast reaches, in tiles, a rank.
 pub const MINE_RADIUS: [f32; 4] = [1.5, 1.5, 2.0, 2.0];
 /// How near an enemy has to come for it to go off, in tiles, at every
@@ -832,12 +821,9 @@ pub const HEALING_SENTRY_COOLDOWN: [f64; 4] = [60.0, 60.0, 50.0, 40.0];
 /// **E, Satchel Charge** (task 154): what one bursting does to every
 /// enemy in it at its centre, a rank; half that at the edge. Satchels
 /// stacked on a tile each burst on their own.
-pub const SATCHEL_DAMAGE: [f32; 4] = [
-    35.0 * ABILITY_BOOST,
-    45.0 * ABILITY_BOOST,
-    60.0 * ABILITY_BOOST,
-    85.0 * ABILITY_BOOST,
-];
+/// Half again in October 2026, with every ability's damage, heal and
+/// shield (was 35, 45, 60, 85).
+pub const SATCHEL_DAMAGE: [f32; 4] = [52.5, 67.5, 90.0, 127.5];
 /// How far one's blast reaches, in tiles, a rank.
 pub const SATCHEL_RADIUS: [f32; 4] = [2.0, 2.5, 2.5, 3.0];
 /// **Satchel charges** a rank ([`Charge::Satchel`]): two at every rank.
@@ -856,6 +842,10 @@ pub const SENTRY_TIER: [bims::combat::Tier; 5] = [
 ];
 /// What its fire rate is multiplied by, a rank.
 pub const SENTRY_FIRE_RATE: [f32; 5] = [1.0, 1.0, 1.5, 2.0, 2.0];
+/// What its minigun's damage is multiplied by, a rank: half again
+/// (October 2026, with every ability's damage, heal and shield) — the
+/// minigun's own numbers are every gun's of the kind.
+pub const SENTRY_DAMAGE: [f32; 5] = [1.5, 1.5, 1.5, 1.5, 1.5];
 /// Its health, one pool, a rank: doubled in task 154, when the
 /// sandbags went.
 pub const SENTRY_HEALTH: [f32; 5] = [400.0, 500.0, 600.0, 800.0, 1000.0];
@@ -884,12 +874,9 @@ pub const GRENADE_RANGE: f32 = 8.0;
 /// Seconds from the throw to the burst, at every rank.
 pub const GRENADE_FUSE: f32 = 2.0;
 /// What the burst does at its centre, a rank; half that at the edge.
-pub const GRENADE_DAMAGE: [f32; 4] = [
-    60.0 * ABILITY_BOOST,
-    75.0 * ABILITY_BOOST,
-    90.0 * ABILITY_BOOST,
-    110.0 * ABILITY_BOOST,
-];
+/// Half again in October 2026, with every ability's damage, heal and
+/// shield (was 60, 75, 90, 110).
+pub const GRENADE_DAMAGE: [f32; 4] = [90.0, 112.5, 135.0, 165.0];
 /// How far the burst reaches, in tiles, a rank.
 pub const GRENADE_RADIUS: [f32; 4] = [2.0, 2.5, 2.5, 3.0];
 /// **Grenade charges** a rank (feature 90): how many grenades the soldier
@@ -903,21 +890,20 @@ pub const GRENADE_COOLDOWN: [f64; 4] = [30.0, 30.0, 24.0, 20.0];
 /// **C, Weak Spot**: the chance a weapon hit on an enemy is critical, a
 /// rank.
 pub const WEAK_SPOT_CHANCE: [f32; 4] = [0.10, 0.12, 0.15, 0.20];
-/// What a critical hit's flat damage is worth, a rank: 1.5 is 150%, so
-/// half the flat damage again is added to the hit.
-pub const WEAK_SPOT_DAMAGE: [f32; 4] = [1.50, 1.75, 2.00, 2.25];
+/// What a critical hit's flat damage is worth, a rank: 2.25 is 225%, so
+/// one and a quarter times the flat damage is added to the hit.
+/// Half again in October 2026, with every ability's damage, heal and
+/// shield (was 1.5, 1.75, 2, 2.25).
+pub const WEAK_SPOT_DAMAGE: [f32; 4] = [2.25, 2.625, 3.0, 3.375];
 
 /// **E, Stun Shot**: seconds of the mission clock the shot charges for
 /// before it fires, at every rank.
 pub const STUN_SHOT_CHARGE: f64 = 2.0;
 /// What the burst does to every enemy in it, a rank — the same at its
 /// edge as at its centre.
-pub const STUN_SHOT_DAMAGE: [f32; 4] = [
-    15.0 * ABILITY_BOOST,
-    20.0 * ABILITY_BOOST,
-    25.0 * ABILITY_BOOST,
-    30.0 * ABILITY_BOOST,
-];
+/// Half again in October 2026, with every ability's damage, heal and
+/// shield (was 15, 20, 25, 30).
+pub const STUN_SHOT_DAMAGE: [f32; 4] = [22.5, 30.0, 37.5, 45.0];
 /// How far the burst reaches, in tiles, a rank: the grenade's.
 pub const STUN_SHOT_RADIUS: [f32; 4] = GRENADE_RADIUS;
 /// Seconds every enemy in the burst is stunned, a rank.
@@ -955,11 +941,12 @@ pub const RAMPAGE_EXTEND_MAX: f64 = 6.0;
 /// of [`HEAL_BEAM_RANGES`].
 pub const HEAL_BEAM_RANGE: f32 = 6.0;
 /// Per cent of its whole bar a beamed patient gains an hour of the clock
-/// at the beam's first rank: two a second at 1× (task 130; thirty until
-/// then; a share of the bar since October 2026, like every heal), three
-/// with [`ABILITY_BOOST`]. The ranks multiply it ([`HEAL_BEAM_RATE`]); the engineer's Healing Sentry reads
-/// it unranked.
-pub const HEAL_BEAM_HP: f32 = 120.0 * ABILITY_BOOST;
+/// at the beam's first rank: three a second at 1× (task 130 made it two,
+/// thirty until then; a share of the bar since October 2026, like every
+/// heal; half again in October 2026, with every ability's damage and
+/// heal). The ranks multiply it ([`HEAL_BEAM_RATE`]); the engineer's
+/// Healing Sentry reads it unranked.
+pub const HEAL_BEAM_HP: f32 = 180.0;
 /// **Base trait**: how long a medic takes to revive a downed crewmate, in
 /// seconds — anybody else's is `bims::health::REVIVE_SECONDS` (task 120).
 /// A medic of the class and a field medic alike.
@@ -971,12 +958,9 @@ pub const MEDIC_REVIVED_TO: f32 = 0.4;
 
 /// **Q, Heal Drone** (task 153): per cent of its whole bar a second it
 /// puts into the Bim it hovers over, a rank, before his Triage.
-pub const HEAL_DRONE_HEAL: [f32; 4] = [
-    1.8 * ABILITY_BOOST,
-    2.0 * ABILITY_BOOST,
-    2.5 * ABILITY_BOOST,
-    3.0 * ABILITY_BOOST,
-];
+/// Half again in October 2026, with every ability's damage, heal and
+/// shield (was 1.8, 2, 2.5, 3).
+pub const HEAL_DRONE_HEAL: [f32; 4] = [2.7, 3.0, 3.75, 4.5];
 /// Seconds of the mission clock a drone flies, a rank.
 pub const HEAL_DRONE_SECONDS: [f64; 4] = [8.0, 10.0, 12.0, 14.0];
 /// Seconds of the mission clock from one drone to the next, a rank.
@@ -1021,9 +1005,10 @@ pub const HEALING_CIRCLE_RADIUS: [f32; 5] = [3.0, 3.5, 4.0, 4.5, 4.5];
 /// damage.
 pub const HEALING_CIRCLE_BURN: f32 = 0.5;
 /// What the circle drains its medic by, a share of what it heals a Bim by
-/// before his Triage: its heal as it was before [`ABILITY_BOOST`], so the
-/// boost made the circle no dearer.
-pub const HEALING_CIRCLE_COST: f32 = 1.0 / ABILITY_BOOST;
+/// before his Triage: two thirds, its heal as it was before every
+/// ability's heal went half again (October 2026), so that made the circle
+/// no dearer.
+pub const HEALING_CIRCLE_COST: f32 = 2.0 / 3.0;
 /// Seconds of the mission clock between two of the circle's burns: the
 /// damage lands as a pulse, not a trickle of hits a step.
 pub const HEALING_CIRCLE_PULSE: f64 = 0.5;
@@ -1051,10 +1036,14 @@ pub const TANK_DRAIN: f32 = 0.5;
 
 /// **Q, Riot Shield**: the hit points the plate takes, a rank (task
 /// 155).
-pub const RIOT_SHIELD_HP: [f32; 4] = [20.0, 40.0, 80.0, 100.0];
+/// Half again in October 2026, with every ability's damage, heal and
+/// shield (was 20, 40, 80, 100).
+pub const RIOT_SHIELD_HP: [f32; 4] = [30.0, 60.0, 120.0, 150.0];
 /// Hit points a second the shield restores, stowed or up, a rank — half
 /// a hit point at the first, two at the last.
-pub const RIOT_SHIELD_REGEN: [f32; 4] = [0.5, 1.0, 1.5, 2.0];
+/// Half again in October 2026, with every ability's damage, heal and
+/// shield (was 0.5, 1, 1.5, 2).
+pub const RIOT_SHIELD_REGEN: [f32; 4] = [0.75, 1.5, 2.25, 3.0];
 /// Seconds of the mission clock a shield held up must go unstruck before
 /// it restores; a stowed one restores at once.
 pub const RIOT_SHIELD_REGEN_DELAY: f64 = 5.0;
@@ -1067,12 +1056,9 @@ pub const RIOT_SHIELD_BROKEN_COOLDOWN: f64 = 10.0;
 /// rank — before the armour, as Rampage's is.
 pub const PLATED_DAMAGE_TAKEN: [f32; 4] = [0.90, 0.85, 0.80, 0.75];
 /// And the per cent of his whole bar a second he mends, a rank (task 155).
-pub const PLATED_REGEN: [f32; 4] = [
-    0.2 * ABILITY_BOOST,
-    0.8 * ABILITY_BOOST,
-    1.4 * ABILITY_BOOST,
-    2.0 * ABILITY_BOOST,
-];
+/// Half again in October 2026, with every ability's damage, heal and
+/// shield (was 0.2, 0.8, 1.4, 2).
+pub const PLATED_REGEN: [f32; 4] = [0.3, 1.2, 2.1, 3.0];
 /// The rank from which his armour drain is multiplied by
 /// [`FORTRESS_DRAIN`] again (what *fortress* was).
 pub const FORTRESS_RANK: u8 = 4;
@@ -1085,8 +1071,11 @@ pub const FORTRESS_DRAIN: f32 = 0.5;
 pub const REFLECT_SECONDS: [f64; 4] = [3.0, 4.0, 5.0, 6.0];
 /// Seconds of the mission clock from one barrier to the next, a rank.
 pub const REFLECT_COOLDOWN: [f64; 4] = [20.0, 18.0, 16.0, 14.0];
-/// The share of an enemy's hit on him that goes back on the striker.
-pub const REFLECT_SHARE: f32 = 1.0;
+/// The share of an enemy's hit on him that goes back on the striker:
+/// half as much again as the hit.
+/// Half again in October 2026, with every ability's damage, heal and
+/// shield (was 1).
+pub const REFLECT_SHARE: f32 = 1.5;
 
 /// **R, Bastion**: how far it reaches, in tiles, a rank — the
 /// *Override Core*'s fifth a tile further (task 155).
@@ -1094,9 +1083,13 @@ pub const BASTION_RADIUS: [f32; 5] = [6.0, 7.0, 8.0, 9.0, 10.0];
 /// The hit points of the shield it throws over every friend in reach, a
 /// rank (the player's words, October 2026: 600, 800, 1000, 1200; it was
 /// 1000 at every rank). The *Override Core*'s fifth is the fourth's.
-pub const BASTION_HP: [f32; 5] = [600.0, 800.0, 1000.0, 1200.0, 1200.0];
+/// Half again in October 2026, with every ability's damage, heal and
+/// shield (was 600, 800, 1000, 1200).
+pub const BASTION_HP: [f32; 5] = [900.0, 1200.0, 1500.0, 1800.0, 1800.0];
 /// What that shield loses a second whatever strikes it, a rank.
-pub const BASTION_DRAIN: [f32; 5] = [60.0, 80.0, 100.0, 100.0, 100.0];
+/// Half again in October 2026 with the hit points (was 60, 80, 100,
+/// 100), so the seconds are what they were.
+pub const BASTION_DRAIN: [f32; 5] = [90.0, 120.0, 150.0, 150.0, 150.0];
 /// Seconds of the mission clock the shield, and the fifth rank's haste,
 /// last at most, a rank: its hit points over its drain.
 pub const BASTION_SECONDS: [f64; 5] = [10.0, 10.0, 10.0, 12.0, 12.0];
@@ -1416,20 +1409,18 @@ mod tests {
     /// The tank's tables (task 155), as the player gave them.
     #[test]
     fn the_tank_s_tables_are_the_spec_s() {
-        assert_eq!(RIOT_SHIELD_HP, [20.0, 40.0, 80.0, 100.0]);
-        assert_eq!(RIOT_SHIELD_REGEN, [0.5, 1.0, 1.5, 2.0]);
+        assert_eq!(RIOT_SHIELD_HP, [30.0, 60.0, 120.0, 150.0]);
+        assert_eq!(RIOT_SHIELD_REGEN, [0.75, 1.5, 2.25, 3.0]);
         assert_eq!(
             (RIOT_SHIELD_REGEN_DELAY, RIOT_SHIELD_BROKEN_COOLDOWN),
             (5.0, 10.0)
         );
         assert_eq!(PLATED_DAMAGE_TAKEN, [0.90, 0.85, 0.80, 0.75]);
-        for (got, want) in PLATED_REGEN.into_iter().zip([0.3, 1.2, 2.1, 3.0]) {
-            assert!((got - want).abs() < 1e-6, "half again: {got}");
-        }
+        assert_eq!(PLATED_REGEN, [0.3, 1.2, 2.1, 3.0]);
         assert_eq!(TANK_DRAIN * FORTRESS_DRAIN, 0.25, "a quarter in all");
-        assert_eq!(REFLECT_SHARE, 1.0, "the damage he takes, whole");
-        assert_eq!(BASTION_HP, [600.0, 800.0, 1000.0, 1200.0, 1200.0]);
-        assert_eq!(BASTION_DRAIN, [60.0, 80.0, 100.0, 100.0, 100.0]);
+        assert_eq!(REFLECT_SHARE, 1.5, "half as much again as he takes");
+        assert_eq!(BASTION_HP, [900.0, 1200.0, 1500.0, 1800.0, 1800.0]);
+        assert_eq!(BASTION_DRAIN, [90.0, 120.0, 150.0, 150.0, 150.0]);
         for r in 0..5 {
             assert_eq!(
                 BASTION_SECONDS[r],

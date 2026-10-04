@@ -7906,21 +7906,29 @@ the rule.
 
 ## Abilities half again (October 2026)
 
-> Every number above for a grenade, a stun shot, a mine, a satchel, the
-> beam (`HEAL_BEAM_HP` 120), the drone or Plated's mending is the number
-> **before** this change.
+> Every number above for an ability's damage, heal or shield — a
+> grenade, a stun shot, a mine, a satchel, the beam (`HEAL_BEAM_HP` 120),
+> the drone, Plated's mending, Weak Spot's crit, Reflect, the Riot Shield,
+> the Bastion — is the number **before** this change.
 
-`class::ABILITY_BOOST` (1.5, the player's word: "increase damage of
-abilities and healing done by abilities by 50%") multiplies
-`GRENADE_DAMAGE`, `STUN_SHOT_DAMAGE`, `MINE_DAMAGE`, `SATCHEL_DAMAGE`,
-`HEAL_BEAM_HP` (so the Healing Sentry and the Healing Circle — its heal
-and its burn — which go at the beam's rate), `HEAL_DRONE_HEAL` and
-`PLATED_REGEN`; the tables keep the old numbers times it. The circle's
-drain on its medic is kept where it was: `HEALING_CIRCLE_COST` (two
-thirds) of the boosted rate, so a medic linked to himself gains while it
-runs where he broke even. Untouched: the guns a Sentry or a
-reinforcement carries, Weak Spot, Reflect, every shield's hit points.
-No `SAVE_VERSION`; `wire::PROTOCOL` 156.
+The player's words: "Increase damage of abilities and healing done by
+abilities by 50%", then "increase all numbers of the spells by 50%".
+Every damage, heal and shield table in `class.rs` holds its new number
+outright, each noting what it was: `GRENADE_DAMAGE`, `STUN_SHOT_DAMAGE`,
+`MINE_DAMAGE`, `SATCHEL_DAMAGE`, `HEAL_BEAM_HP` 180 (so the Healing
+Sentry and the Healing Circle — its heal and its burn — which go at the
+beam's rate), `HEAL_DRONE_HEAL`, `PLATED_REGEN`, `WEAK_SPOT_DAMAGE`
+(2.25 to 3.375), `REFLECT_SHARE` (1.5: half as much again as he takes),
+`RIOT_SHIELD_HP`, `RIOT_SHIELD_REGEN`, `BASTION_HP` and `BASTION_DRAIN`
+(the drain with the hit points, so the seconds stay), and a new
+`SENTRY_DAMAGE` (1.5 at every rank) on the Sentry's skill, since its
+minigun's numbers are every minigun's. The circle's drain on its medic
+is kept where it was: `HEALING_CIRCLE_COST` (two thirds) of the new rate,
+so a medic linked to himself gains while it runs where he broke even.
+Untouched: cooldowns, radii, durations, charges, the buffs' percentages
+(Rampage, Battle Cry, Rally, Plated's damage cut), the deployables'
+health and the guns of a commander's reinforcements and Medivac.
+No `SAVE_VERSION`; `wire::PROTOCOL` 156, then 158.
 
 ## The tier-two machines in the waves (task 157)
 

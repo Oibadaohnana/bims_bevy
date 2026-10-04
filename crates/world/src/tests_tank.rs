@@ -487,8 +487,7 @@ fn plated_multiplies_with_a_rally() {
 /// first rank, and nobody else's.
 #[test]
 fn plated_mends_its_rank_s_hit_points_a_second() {
-    for (rank, regen) in (0..=4u8).zip([0.0, 0.2, 0.8, 1.4, 2.0].map(|r| r * class::ABILITY_BOOST))
-    {
+    for (rank, regen) in (0..=4u8).zip([0.0, 0.3, 1.2, 2.1, 3.0]) {
         let mut world = tank_at([0, rank, 0, 0]);
         hold_still(&mut world);
         assert_eq!(world.plated_regen(0), regen, "rank {rank}");
@@ -725,9 +724,10 @@ fn the_shield_breaks_at_nought_for_a_cooldown_and_restores_by_its_rank_stowed_or
     let cooldown = world.riot_shield_cooldown_left(0);
     assert_eq!(world.riot_shield_cooldown(0), 10.0);
     assert!(cooldown > 8.5 && cooldown <= 10.0, "{cooldown} s left");
-    // Stowed, half a hit point a second at once, cooling down or not.
+    // Stowed, three quarters of a hit point a second at once, cooling
+    // down or not.
     run_for(&mut world, 2.0);
-    assert!((world.riot_shield_left(0) - left - 1.0).abs() < 0.05);
+    assert!((world.riot_shield_left(0) - left - 1.5).abs() < 0.05);
     assert_eq!(
         world.can_riot_shield(0, true),
         Err(Refusal::ShieldRecharging)
@@ -741,7 +741,7 @@ fn the_shield_breaks_at_nought_for_a_cooldown_and_restores_by_its_rank_stowed_or
     run_for(&mut world, 0.4);
     assert_eq!(world.can_riot_shield(0, true), Ok(()), "cooled down");
     assert_eq!(world.tank_of(0).shield_broke, None, "and forgotten");
-    // Up and struck, nothing for five seconds; then half a point a second.
+    // Up and struck, nothing for five seconds; then three quarters of a point a second.
     world.step(&[Command::RiotShield { slot: 0, on: true }]);
     let now = world.mission_minutes();
     world.tanks[0].shield_struck = Some(now);
@@ -758,8 +758,8 @@ fn the_shield_breaks_at_nought_for_a_cooldown_and_restores_by_its_rank_stowed_or
     );
 }
 
-/// What the shield restores goes by its rank — half a hit point a second
-/// at the first, two at the last — and the broken shield's cooldown is
+/// What the shield restores goes by its rank — three quarters of a hit
+/// point a second at the first, three at the last — and the broken shield's cooldown is
 /// cut by the cooldown relics like every class cooldown.
 #[test]
 fn the_shield_restores_by_its_rank_and_its_cooldown_is_a_class_cooldown() {
@@ -899,15 +899,15 @@ fn the_bastion_s_radius_and_cooldown_go_by_its_rank_and_it_is_refused_as_it_shou
     assert_eq!(class::BASTION_RADIUS[0], 6.0, "six tiles at the first");
 }
 
-/// **The shield goes by the rank**: 600 draining 60 a second, 800 and
-/// 80, 1000 and 100, 1200 and 100 — and that is what lands on him.
+/// **The shield goes by the rank**: 900 draining 90 a second, 1200 and
+/// 120, 1500 and 150, 1800 and 150 — and that is what lands on him.
 #[test]
 fn the_bastion_s_shield_and_its_drain_go_by_its_rank() {
     let want = [
-        (600.0, 60.0, 10.0),
-        (800.0, 80.0, 10.0),
-        (1000.0, 100.0, 10.0),
-        (1200.0, 100.0, 12.0),
+        (900.0, 90.0, 10.0),
+        (1200.0, 120.0, 10.0),
+        (1500.0, 150.0, 10.0),
+        (1800.0, 150.0, 12.0),
     ];
     for (rank, &(hp, drain, seconds)) in (1..=4u8).zip(&want) {
         let mut world = tank_at([0, 0, 0, rank]);
@@ -927,7 +927,7 @@ fn the_bastion_s_shield_and_its_drain_go_by_its_rank() {
 }
 
 /// **Every friend in reach gets the rank's shield, draining**: at the
-/// first rank six hundred that drains sixty a second — the tank and a
+/// first rank nine hundred that drains ninety a second — the tank and a
 /// crewmate beside him, not one twenty tiles off; a hit comes off it
 /// first; ten seconds and it is gone.
 #[test]
@@ -955,7 +955,7 @@ fn the_bastion_shields_every_friend_in_reach_and_drains_in_ten_seconds() {
         "{events:?}"
     );
     let shield = |world: &World, who: usize| world.aboard.room.shield_hp(who);
-    assert!(shield(&world, 0) > 590.0 && shield(&world, 1) > 590.0);
+    assert!(shield(&world, 0) > 890.0 && shield(&world, 1) > 890.0);
     assert_eq!(shield(&world, 2), 0.0, "out of reach");
     // A hit comes off the shield, not the body.
     let health = world.aboard.room.health(1);
@@ -968,7 +968,7 @@ fn the_bastion_shields_every_friend_in_reach_and_drains_in_ten_seconds() {
         world.step(&[]);
     }
     assert!(
-        (shield(&world, 0) - 300.0).abs() < 5.0,
+        (shield(&world, 0) - 450.0).abs() < 5.0,
         "{}",
         shield(&world, 0)
     );

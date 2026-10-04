@@ -427,13 +427,12 @@ fn the_heal_drone_flies_to_the_lowest_and_heals_it_by_rank() {
     let events = world.step(&[Command::HealDrone { slot: 1 }]);
     assert!(refused_with(&events, Refusal::NotAMedic), "{events:?}");
     let want = [
-        (1.8, 8.0, 25.0),
-        (2.0, 10.0, 22.0),
-        (2.5, 12.0, 20.0),
-        (3.0, 14.0, 18.0),
+        (2.7, 8.0, 25.0),
+        (3.0, 10.0, 22.0),
+        (3.75, 12.0, 20.0),
+        (4.5, 14.0, 18.0),
     ];
     for (rank, &(heal, seconds, cooldown)) in (1..=4u8).zip(&want) {
-        let heal = heal * class::ABILITY_BOOST;
         let mut world = medic_at([rank, 0, 0, 0]);
         assert_eq!(world.heal_drone_heal(0), heal, "rank {rank}");
         assert_eq!(world.heal_drone_seconds(0), seconds, "rank {rank}");
@@ -584,7 +583,7 @@ fn carry(world: &mut World, who: usize, item: bims::module::Module) {
 /// 1×.
 #[test]
 fn the_heal_beam_s_rate_range_and_patients_by_rank() {
-    assert_eq!(class::HEAL_BEAM_HP, 120.0 * class::ABILITY_BOOST);
+    assert_eq!(class::HEAL_BEAM_HP, 180.0);
     assert_eq!(class::HEAL_BEAM_RANGE, 6.0);
     let world = medic();
     assert_eq!(world.can_beam(0, 1), Err(Refusal::NotLearnt), "rank nought");

@@ -603,20 +603,16 @@ fn big_hits(events: &[WorldEvent], least: u32) -> usize {
 #[test]
 fn a_mine_s_numbers_are_its_rank_s() {
     let want = [
-        (40.0, 1.5, 1, 4, 25.0),
-        (50.0, 1.5, 1, 6, 22.0),
-        (60.0, 2.0, 2, 6, 20.0),
-        (75.0, 2.0, 2, 8, 18.0),
+        (60.0, 1.5, 1, 4, 25.0),
+        (75.0, 1.5, 1, 6, 22.0),
+        (90.0, 2.0, 2, 6, 20.0),
+        (112.5, 2.0, 2, 8, 18.0),
     ];
     for (i, (damage, radius, charges, standing, cooldown)) in want.into_iter().enumerate() {
         let rank = i as u8 + 1;
         let mut world = engineer();
         ranks(&mut world, 0, [rank, 0, 0, 0]);
-        assert_eq!(
-            world.mine_blast(0),
-            (damage * class::ABILITY_BOOST, radius),
-            "rank {rank}"
-        );
+        assert_eq!(world.mine_blast(0), (damage, radius), "rank {rank}");
         assert_eq!(world.charges(0, Charge::Mine), charges, "rank {rank}");
         assert_eq!(world.charges_of(0, Charge::Mine), charges, "in hand");
         assert_eq!(class::MINE_STANDING[i], standing);
@@ -935,20 +931,16 @@ fn satchel_on(world: &mut World, tile: (i32, i32)) -> Vec<WorldEvent> {
 #[test]
 fn a_satchel_s_numbers_are_its_rank_s() {
     let want = [
-        (35.0, 2.0, 30.0),
-        (45.0, 2.5, 27.0),
-        (60.0, 2.5, 24.0),
-        (85.0, 3.0, 20.0),
+        (52.5, 2.0, 30.0),
+        (67.5, 2.5, 27.0),
+        (90.0, 2.5, 24.0),
+        (127.5, 3.0, 20.0),
     ];
     for (i, (damage, radius, cooldown)) in want.into_iter().enumerate() {
         let rank = i as u8 + 1;
         let mut world = engineer();
         ranks(&mut world, 0, [0, 0, rank, 0]);
-        assert_eq!(
-            world.satchel_blast(0),
-            (damage * class::ABILITY_BOOST, radius),
-            "rank {rank}"
-        );
+        assert_eq!(world.satchel_blast(0), (damage, radius), "rank {rank}");
         assert_eq!(world.charges(0, Charge::Satchel), 2, "rank {rank}");
         assert_eq!(world.charges_of(0, Charge::Satchel), 2, "in hand");
         assert_eq!(world.charge_cooldown(0, Charge::Satchel), cooldown);

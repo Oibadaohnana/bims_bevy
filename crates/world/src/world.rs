@@ -7872,6 +7872,7 @@ impl World {
         let mut skill = bims::combat::Skill::NONE;
         let rank = self.rank_of(owner, class::SLOT_R).max(1);
         skill.fire_rate = class::by_rank(class::SENTRY_FIRE_RATE, rank).unwrap_or(1.0);
+        skill.damage = class::by_rank(class::SENTRY_DAMAGE, rank).unwrap_or(1.0);
         skill.range = class::by_rank(class::SENTRY_RANGE, rank).unwrap_or(0.0);
         skill
     }

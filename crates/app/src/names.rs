@@ -933,6 +933,7 @@ pub fn ranked_stats(class: world::Class, slot: u8) -> Vec<Stat> {
         (world::Class::Engineer, 3) => vec![
             Stat::ranks("Minigun tier", "", |r| c::SENTRY_TIER[r].code().to_string()),
             Stat::ranks("Fire rate", "", |r| by(c::SENTRY_FIRE_RATE[r] as f64)),
+            Stat::ranks("Damage", "", |r| by(c::SENTRY_DAMAGE[r] as f64)),
             Stat::ranks("Health", "", |r| fig(c::SENTRY_HEALTH[r] as f64)),
             Stat::ranks("Range", " tiles", |r| {
                 format!("+{}", fig(c::SENTRY_RANGE[r] as f64))
