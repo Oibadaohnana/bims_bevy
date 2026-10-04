@@ -1210,14 +1210,45 @@ fn a_landed_picture_as_svg() {
     println!("</svg>");
 }
 
+/// The game view opens at, and zooms out no further than, the canvas's
+/// nearer edge `VIEW_REACH` tiles from its middle — the furthest any
+/// weapon shoots — and still zooms in.
+#[test]
+fn the_view_opens_at_the_weapons_reach_and_zooms_out_no_further() {
+    use crate::Session;
+    use crate::game::VIEW_REACH;
+    let mut session = Session::simulate(world::data::DEFAULT_SEED, 0, None, CANVAS.0, CANVAS.1);
+    session.fit(CANVAS.0, CANVAS.1);
+    let edge = |s: &Session| {
+        CANVAS.0.min(CANVAS.1) / 2.0 / s.game.as_ref().unwrap().ship_view.scale() / TILE as f32
+    };
+    assert!(
+        (edge(&session) - VIEW_REACH).abs() < 1e-3,
+        "{}",
+        edge(&session)
+    );
+    session.zoom(CANVAS.0 / 2.0, CANVAS.1 / 2.0, 0.01);
+    session.render();
+    assert!(
+        (edge(&session) - VIEW_REACH).abs() < 1e-3,
+        "{}",
+        edge(&session)
+    );
+    session.zoom(CANVAS.0 / 2.0, CANVAS.1 / 2.0, 2.0);
+    session.render();
+    assert!((edge(&session) - VIEW_REACH / 2.0).abs() < 1e-3);
+}
+
 /// On a planet the view is held to the ground that is loaded: zoomed
-/// out as far as the wheel goes, the canvas's far corner is still within
+/// out as far as the wheel goes with the cap lifted (`Game::wide`, a
+/// terminal's `BIMS_ZOOM`), the canvas's far corner is still within
 /// `bims::terrain::VIEW` tiles of its middle; and nothing holds it
 /// docked in space.
 #[test]
 fn a_landed_view_reaches_no_further_than_the_ground_is_loaded() {
     use crate::Session;
     let mut session = Session::simulate(world::data::DEFAULT_SEED, 0, None, CANVAS.0, CANVAS.1);
+    session.game.as_mut().unwrap().wide = true;
     session.fit(CANVAS.0, CANVAS.1);
     session.zoom(CANVAS.0 / 2.0, CANVAS.1 / 2.0, 0.01);
     session.render();

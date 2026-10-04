@@ -83,7 +83,10 @@ use bims::combat::Tier;
 /// `BIMS_ZOOM=0.3` zooms the game view by that factor about the middle of
 /// the canvas once it has been fitted: under one is out, over one in.
 /// How a whole town, or the plain round it, is looked at from a
-/// terminal, since a scripted wheel does not reach the game view.
+/// terminal, since a scripted wheel does not reach the game view. Under
+/// one lifts the view's cap (`ship::game::Game::wide`) and fits the
+/// whole hull first, as the view opened before the cap; over one zooms
+/// in from the capped view.
 pub fn zoom() -> Option<f32> {
     std::env::var("BIMS_ZOOM")
         .ok()?

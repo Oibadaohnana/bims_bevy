@@ -1276,3 +1276,17 @@ whole rather than re-pinned half-understood.
 (`crates/world/CLAUDE.md`, "The mercenaries gone"): the `test` command
 opens on the combat ship with one crew member and nobody for hire, and
 the combat ship's four field medics are on `World::field_medics`.
+
+## The view reaches as far as a weapon shoots (October 2026)
+
+> "The designer opens on the whole ship" and the landed view's floor
+> above are the history for the game view.
+
+`Game::fit_ship` opens the ship view at `VIEW_REACH` (=
+`bims::balance::MAX_RANGE`, fourteen tiles from the canvas's middle to
+its nearer edge, whatever the window) and `hold_view_to_the_ground` holds
+it there as the floor every frame, so the wheel zooms in and never out
+past it — the player counted 14 tiles up and 25 across on a 2560×1440
+screen. `Game::wide` lifts the cap (the app's `BIMS_ZOOM` under one, for
+a terminal looking at a whole town), and then only a planet's ground
+holds it as before. `the_view_opens_at_the_weapons_reach_and_zooms_out_no_further`.

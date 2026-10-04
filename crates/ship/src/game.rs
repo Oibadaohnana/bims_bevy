@@ -169,6 +169,13 @@ const SHIP_MAX_SCALE: f32 = 3.0;
 const MAP_MIN_SCALE: f32 = 1e-8;
 const MAP_MAX_SCALE: f32 = 1e-2;
 
+/// How far the ship view reaches from its middle to the canvas's nearer
+/// edge, in tiles, at its widest and at its start: the reach of the
+/// furthest-shooting weapon (`bims::balance::MAX_RANGE`), so nothing
+/// fires from off the screen. The player counted it on a 2560×1440
+/// screen: 14 tiles up and down, 25 to either side.
+pub const VIEW_REACH: f32 = bims::balance::MAX_RANGE;
+
 /// How near a body has to be to the passage for the airlock doors to open,
 /// in design units: a tile and a half, which is about a body's walk before
 /// it reaches the door.
@@ -234,6 +241,11 @@ pub struct Game {
     /// to be bought back (feature 107). A view setting like `follow`,
     /// this window's own, and nothing that decides anything reads it.
     pub spectate: Option<u32>,
+    /// Whether the ship view may zoom out past [`VIEW_REACH`]: off in a
+    /// game, where the view the fight is balanced around is the widest
+    /// there is; on for a terminal looking at a whole town (`BIMS_ZOOM`
+    /// under one). A view setting, this window's own.
+    pub wide: bool,
     /// Where in the system the middle of a map let go is held: the map's
     /// camera is measured from the ship, so a focus left alone would fly
     /// with it, and a planet zoomed in on would slide off as the ship set
@@ -342,6 +354,7 @@ impl Game {
             head_up: true,
             follow: false,
             spectate: None,
+            wide: false,
             map_anchor: DVec2::ZERO,
             marking: false,
             placing: None,
@@ -390,6 +403,7 @@ impl Game {
             head_up: true,
             follow: false,
             spectate: None,
+            wide: false,
             map_anchor: DVec2::ZERO,
             marking: false,
             placing: None,
@@ -529,12 +543,17 @@ impl Game {
         self.ship_view.set_focus(x, y);
     }
 
-    /// On a planet the view reaches no further than the ground is loaded:
-    /// the ship view's scale is held so its far corner is within
-    /// `bims::terrain::VIEW` tiles of its middle. Nothing anywhere else.
-    /// Once a frame, before the picture.
+    /// The ship view reaches no further than [`VIEW_REACH`] (October 2026,
+    /// the player's word): its scale is held so the canvas's nearer edge is
+    /// that far from its middle, whatever the window's size — the widest
+    /// zoom, and the one it opens at. [`Game::wide`], it is held only on a
+    /// planet, where its far corner stays within `bims::terrain::VIEW`
+    /// tiles of its middle, the ground that is loaded. Once a frame,
+    /// before the picture.
     pub fn hold_view_to_the_ground(&mut self) {
-        let floor = if self.world.aboard.room.plane().is_some() {
+        let floor = if !self.wide {
+            self.ship_view.scale_for_reach(VIEW_REACH * TILE as f32)
+        } else if self.world.aboard.room.plane().is_some() {
             let reach = bims::terrain::VIEW as f32 * TILE as f32;
             self.ship_view.scale_for_reach(reach)
         } else {
@@ -652,8 +671,18 @@ impl Game {
         self.mode = mode;
     }
 
-    /// Start the ship view showing the whole hull.
+    /// Start the ship view at [`VIEW_REACH`] — or, [`Game::wide`], showing
+    /// the whole hull.
     fn fit_ship(&mut self) {
+        if !self.wide {
+            let scale = self.ship_view.scale_for_reach(VIEW_REACH * TILE as f32);
+            self.ship_view.set_floor(scale);
+            self.ship_view.set_scale(scale);
+            return;
+        }
+        // The cap a narrow view was opened with lifted; a planet's is
+        // set again at the next frame.
+        self.ship_view.set_floor(0.0);
         let span = self.world.ship.design.build_area as f32 * TILE as f32;
         let fit = (self.ship_view.width / span).min(self.ship_view.height / span);
         self.ship_view.set_scale(fit * 0.9);

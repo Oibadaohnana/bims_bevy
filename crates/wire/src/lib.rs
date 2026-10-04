@@ -243,7 +243,13 @@ use serde::{Deserialize, Serialize};
 /// MercenaryPaid, MercenaryLeft}` and `Refusal::NotForHire` out, and a
 /// station's room opens without hands for hire: both ends must open the
 /// same crowd.
-pub const PROTOCOL: u32 = 144;
+/// 145: a line drawn on the floor's map goes to everybody
+/// (`Packet::Sketch`), a variant an older build cannot read.
+/// 146: nothing shoots past the game view's reach (`balance::MAX_RANGE`,
+/// fourteen tiles): the pistol, the auto rifle, the sniper, the minigun
+/// and the rail lance shorter, and every tier, skill and bolt held to it —
+/// both ends must shoot alike.
+pub const PROTOCOL: u32 = 146;
 
 /// Where the relay lives. `BIMS_SERVER` in the environment overrides it
 /// — `ws://127.0.0.1:8792` for one on the same machine.

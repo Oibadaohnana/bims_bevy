@@ -85,6 +85,7 @@ mod keys;
 mod lightmap;
 mod names;
 mod net;
+mod offscreen;
 mod particles;
 mod perf;
 mod playout;

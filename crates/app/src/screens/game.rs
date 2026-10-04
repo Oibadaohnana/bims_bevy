@@ -1921,8 +1921,15 @@ fn frame(
     let size = canvas.size();
     if size != screen.size && size.x > 0.0 && size.y > 0.0 {
         // The first size the canvas is actually seen at is the one the
-        // world should have opened on: the whole hull, in view.
+        // world should have opened on: the view's reach (`ship::game::
+        // VIEW_REACH`), or with `BIMS_ZOOM` out the whole hull, the cap
+        // lifted for a terminal looking at a whole town.
         if screen.size == Vec2::ZERO {
+            if crate::dev::zoom().is_some_and(|z| z < 1.0)
+                && let Some(game) = &mut session.game
+            {
+                game.wide = true;
+            }
             session.fit(size.x, size.y);
             if let Some(factor) = crate::dev::zoom() {
                 session.zoom(size.x / 2.0, size.y / 2.0, factor);
@@ -4230,6 +4237,27 @@ fn frame(
     if !deck_hidden && let Some(game) = &session.game {
         screen.bars.update(game, bars_dt);
         screen.bars.paint(&painter, view.scale, |(x, y)| {
+            let at = view.to_canvas(Vec2::new(x, y)) + canvas.min;
+            egui::pos2(at.x, at.y)
+        });
+        // And an arrow on the edge for every enemy and fellow player off
+        // it: red and green, for an overview of what the view cannot show.
+        let marks = crate::offscreen::marks(game, local);
+        // Above the hero panel, as it stood last frame, so none is lost
+        // under it or under the buttons either side of it.
+        let panel_top = painter
+            .ctx()
+            .memory(|m| m.area_rect(egui::Id::new("hud-hero")))
+            .map_or(canvas.max.y, |r| r.min.y.min(canvas.max.y));
+        let edge = egui::Rect::from_min_max(
+            egui::pos2(canvas.min.x, canvas.min.y),
+            egui::pos2(canvas.max.x, panel_top.max(canvas.min.y + 100.0)),
+        );
+        let middle = egui::pos2(
+            (canvas.min.x + canvas.max.x) / 2.0,
+            (canvas.min.y + canvas.max.y) / 2.0,
+        );
+        crate::offscreen::paint(&painter, edge, middle, &marks, |(x, y)| {
             let at = view.to_canvas(Vec2::new(x, y)) + canvas.min;
             egui::pos2(at.x, at.y)
         });

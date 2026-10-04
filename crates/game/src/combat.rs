@@ -486,15 +486,16 @@ pub struct Weapon {
 
 impl Weapon {
     /// The kind's numbers scaled by the tier: damage and accuracy (the
-    /// odds clamped to one), and the range with its sweet spot. Every
+    /// odds clamped to one), and the range with its sweet spot, never
+    /// past [`balance::MAX_RANGE`]. Every
     /// curve, the tactics and the tooltips read this and know nothing of
     /// tiers.
     pub fn stats(self) -> WeaponStats {
         let base = self.kind.stats();
         let (damage, accuracy, range) = self.tier.weapon_factors();
         WeaponStats {
-            range: base.range * range,
-            sweet: base.sweet * range,
+            range: (base.range * range).min(balance::MAX_RANGE),
+            sweet: (base.sweet * range).min(balance::MAX_RANGE),
             accuracy: (base.accuracy * accuracy).min(1.0),
             accuracy_far: (base.accuracy_far * accuracy).min(1.0),
             damage: base.damage * damage,
@@ -1030,10 +1031,10 @@ impl Skill {
             fire_rate: base.fire_rate * self.fire_rate,
             // *Sentry mark III* and *enhanced optics* (feature 88): the
             // damage at both ends of the curve, and the tiles the curve
-            // runs out to.
+            // runs out to, never past [`balance::MAX_RANGE`].
             damage: base.damage * self.damage,
             damage_far: base.damage_far * self.damage,
-            range: base.range + self.range,
+            range: (base.range + self.range).min(balance::MAX_RANGE),
             ..base
         }
     }
@@ -1763,7 +1764,7 @@ impl Bolt {
     pub fn stats(&self) -> WeaponStats {
         let base = self.weapon.stats();
         WeaponStats {
-            range: base.range + self.range,
+            range: (base.range + self.range).min(balance::MAX_RANGE),
             ..base
         }
     }
@@ -4746,6 +4747,7 @@ impl Tactics {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::balance::MAX_RANGE;
     use crate::character::BODY_MARGIN;
     use crate::math::{Rect, vec2};
 
@@ -4873,8 +4875,8 @@ mod tests {
             assert!(x == 9 || x == 11, "against the wall, not {x}");
 
             // A room with nothing in it: nowhere to take cover, so the open at
-            // the greatest distance there is — the pistol reaches 15.4
-            // tiles, as far as this room goes, so that is its far corner.
+            // the greatest distance there is — the far end of the pistol's
+            // 11.2 tiles (15.4, this room's far corner, before `MAX_RANGE`).
             let (sight, nav) = room_with(&[]);
             let target = middle(15.0, 8.5);
             let from = middle(17.0, 9.0);
@@ -4883,7 +4885,8 @@ mod tests {
             let (body, _) = views(&sight, stand, target);
             assert!(body, "the open");
             let d = (stand - target).len();
-            assert!(d <= stats.reach() && d > 14.0 * TILE, "{d}");
+            // 9.4 on this lattice, a tile apart.
+            assert!(d <= stats.reach() && d > 9.0 * TILE, "{d}");
 
             // Nothing named: nowhere to stand.
             assert!(Tactics::stand(&sight, &nav, from, &[None], &stats, &[]).is_none());
@@ -4901,13 +4904,13 @@ mod tests {
             let from = middle(5.0, 3.0);
             let tiles_off = |stand: Vec2| (stand - target.at).len() / TILE;
 
-            // A sniper rifle is full out to fourteen tiles, short of where
-            // the pistol runs out at 15.4: it hangs back just past that, and
-            // not at its own 24.5, where its curve has fallen off.
+            // A sniper rifle is full out to 9.8 tiles, short of where the
+            // pistol runs out at 11.2: it hangs back past that, out to its
+            // own fourteen, the edge of the view.
             let sniper = WeaponKind::SniperRifle.stats();
             let stand = Tactics::stand(&sight, &nav, from, &[Some(target)], &sniper, &[]).unwrap();
             let d = tiles_off(stand);
-            assert!((13.0..=17.0).contains(&d), "the sniper at {d} tiles");
+            assert!((11.2..=14.0).contains(&d), "the sniper at {d} tiles");
 
             // A shotgun is at its best inside four tiles and a pistol is not
             // much worse there than anywhere: it closes.
@@ -4916,19 +4919,19 @@ mod tests {
             let d = tiles_off(stand);
             assert!(d <= 4.5, "the shotgun at {d} tiles");
 
-            // An auto rifle reaches 18.2 tiles to the pistol's 15.4:
+            // An auto rifle reaches 12.6 tiles to the pistol's 11.2:
             // it stands where it can shoot and cannot be shot back at.
             let rifle = WeaponKind::AutoRifle.stats();
             let stand = Tactics::stand(&sight, &nav, from, &[Some(target)], &rifle, &[]).unwrap();
             let d = tiles_off(stand);
-            assert!(d > 15.4 && d <= 18.2, "the rifle at {d} tiles");
+            assert!(d > 11.2 && d <= 12.6, "the rifle at {d} tiles");
 
             // Pistol against pistol is a match, and keeping away is what is
             // left: the far end of its own reach.
             let pistol = WeaponKind::LaserPistol.stats();
             let stand = Tactics::stand(&sight, &nav, from, &[Some(target)], &pistol, &[]).unwrap();
             let d = tiles_off(stand);
-            assert!(d > 14.0 && d <= 15.4, "the pistol at {d} tiles");
+            assert!(d > 10.0 && d <= 11.2, "the pistol at {d} tiles");
 
             // And against a blade a gun keeps out of arm's reach, where the
             // fit is the worst there is, and otherwise stands where it is
@@ -4944,10 +4947,10 @@ mod tests {
                 "the shotgun off a blade at {d}"
             );
             assert!(Tactics::fit(&shotgun, &blade.weapon.stats(), 1.0) < 0.0);
-            // Past the pistol's 15.4 tiles the sniper has it all its own
+            // Past the pistol's 11.2 tiles the sniper has it all its own
             // way; inside them the pistol answers, a little.
-            assert!(Tactics::fit(&sniper, &target.weapon.stats(), 17.0) > 0.7);
-            assert!(Tactics::fit(&sniper, &target.weapon.stats(), 14.0) > 0.2);
+            assert!(Tactics::fit(&sniper, &target.weapon.stats(), 13.0) > 0.7);
+            assert!(Tactics::fit(&sniper, &target.weapon.stats(), 10.0) > 0.2);
         }
 
         // --- a_doorway_is_never_a_stand_since_it_opens_for_whoever_comes ---
@@ -5138,13 +5141,14 @@ mod tests {
         // The second tuning of September 2026: the pistol's odds a tenth
         // down from the 95% and 65% it had, its damage a fifth up from 6,
         // and ten tiles more range — 72% at ten tiles then, where the app
-        // used to print 70%; 68% since October 2026 cut its reach to 15.4. Its
+        // used to print 70%; 68% since October 2026 cut its reach to 15.4, and
+        // 61% since the view's reach (`MAX_RANGE`) cut it to 11.2. Its
         // damage back to 6 the same month, when every click became a shot,
         // and up to 8 with its magazine of twelve; what it does a second
         // is over the magazine and its reload (12 in 8 s and 1.2).
         let pistol = WeaponKind::LaserPistol.stats();
-        assert_eq!(pistol.range, 15.4);
-        assert!((pistol.hit_chance(10.0) - 0.680).abs() < 0.01);
+        assert_eq!(pistol.range, 11.2);
+        assert!((pistol.hit_chance(10.0) - 0.614).abs() < 0.01);
         assert_eq!(pistol.hit_chance(0.0), 0.855);
         assert_eq!(pistol.hit_chance(30.0), 0.585, "no worse past the range");
         assert_eq!(pistol.damage_at(11.0), 8.0);
@@ -5165,18 +5169,19 @@ mod tests {
         assert_eq!((shotgun.magazine, shotgun.reload_time), (6, 3.5));
 
         let sniper = WeaponKind::SniperRifle.stats();
-        assert_eq!(sniper.hit_chance(14.0), 0.9);
-        assert_eq!(sniper.damage_at(14.0), 54.0);
-        assert!((sniper.hit_chance(24.5) - 0.63).abs() < 1e-6);
-        assert_eq!(sniper.damage_at(24.5), 54.0, "30 before the drop went");
+        assert_eq!(sniper.hit_chance(9.8), 0.9);
+        assert_eq!(sniper.damage_at(9.8), 54.0);
+        assert_eq!(sniper.range, MAX_RANGE);
+        assert!((sniper.hit_chance(MAX_RANGE) - 0.63).abs() < 1e-6);
+        assert_eq!(sniper.damage_at(MAX_RANGE), 54.0, "30 before the drop went");
         assert_eq!((sniper.magazine, sniper.reload_time), (4, 2.4));
 
         // No burst: four fives a second, steadily (four threes, as much
         // a second as the eight sixes every four seconds it had, until
         // each shot gained 2, and 2 again with its magazine of thirty); the
-        // rifle reaches 18.2 tiles, full to 5.6
-        // (twenty-six and eight before October 2026 took three tenths
-        // off every reach bar the shotgun's).
+        // rifle reaches 12.6 tiles, full to 4.2 (18.2 and 5.6 before
+        // `MAX_RANGE`, twenty-six and eight before October 2026 took three
+        // tenths off every reach bar the shotgun's).
         let rifle = WeaponKind::AutoRifle.stats();
         assert_eq!((rifle.burst, rifle.fire_rate), (1, 4.0));
         assert_eq!((rifle.damage, rifle.damage_far), (7.0, 7.0));
@@ -5186,7 +5191,7 @@ mod tests {
             assert_eq!(s.damage_at(s.range), s.damage, "{kind:?}");
             assert_eq!(s.strips_at(s.range), s.strips, "{kind:?}");
         }
-        assert_eq!((rifle.range, rifle.sweet), (18.2, 5.6));
+        assert_eq!((rifle.range, rifle.sweet), (12.6, 4.2));
         assert_eq!((rifle.magazine, rifle.reload_time), (30, 1.8));
         assert!((rifle.dps() - 7.0 * 30.0 / 9.3).abs() < 1e-4);
 
@@ -5208,7 +5213,7 @@ mod tests {
             "{two:?}"
         );
         assert!(close(two.accuracy, 0.85) && close(two.accuracy_far, 0.45));
-        assert_eq!((two.range, two.sweet), (14.0, 4.2));
+        assert_eq!((two.range, two.sweet), (11.2, 4.2));
         assert_eq!((two.burst, two.fire_rate), (1, 10.0));
         assert_eq!((two.magazine, two.reload_time), (100, 4.0));
         assert_eq!(two.speed, 24.0);
@@ -5217,7 +5222,7 @@ mod tests {
         let three = WeaponKind::Minigun.at(Tier::Three).stats();
         assert!(close(three.damage, 6.875) && close(three.damage_far, 6.875));
         assert!(close(three.accuracy, 0.8925) && close(three.accuracy_far, 0.4725));
-        assert!(close(three.range, 16.8) && close(three.sweet, 5.04));
+        assert!(close(three.range, 13.44) && close(three.sweet, 5.04));
 
         // The rail lance at its only tier, three.
         let lance = WeaponKind::RailLance.basic();
@@ -5228,7 +5233,8 @@ mod tests {
             "{three:?}"
         );
         assert!(close(three.accuracy, 0.945) && close(three.accuracy_far, 0.6825));
-        assert!(close(three.sweet, 16.8) && close(three.range, 28.56));
+        // 11.7 × 1.2 is 14.04, held to the view's reach.
+        assert!(close(three.sweet, 9.84) && close(three.range, MAX_RANGE));
         assert_eq!((three.burst, three.fire_rate, three.speed), (1, 0.2, 70.0));
         assert!(!three.melee && three.strips == 0.0);
 
@@ -5250,6 +5256,26 @@ mod tests {
         assert!((dps(sniper_three, 0.0) - 18.3).abs() < 0.05);
         assert!((dps(lance, 0.0) - 14.2).abs() < 0.05);
         assert!((dps(lance, 0.0) * (1.0 + 0.6 + 0.36) - 27.8).abs() < 0.05);
+    }
+
+    /// Nothing shoots past the game view's reach (October 2026): every
+    /// weapon at every tier, a machine's built-in arm included, and a
+    /// skill's or a bolt's added tiles on top, is held to `MAX_RANGE`.
+    #[test]
+    fn nothing_reaches_past_the_view() {
+        for kind in WeaponKind::EVERY {
+            for tier in Tier::ALL {
+                let s = Weapon { kind, tier }.stats();
+                assert!(s.range <= MAX_RANGE, "{kind:?} {tier:?} {}", s.range);
+                assert!(s.sweet <= s.range, "{kind:?} {tier:?}");
+            }
+        }
+        let sniper = WeaponKind::SniperRifle.at(Tier::Three);
+        let optics = Skill {
+            range: 5.0,
+            ..Skill::NONE
+        };
+        assert_eq!(optics.stats(sniper).range, MAX_RANGE);
     }
 
     /// Task 115: every kind has a lowest tier, and its `basic` is at it.
@@ -5703,7 +5729,8 @@ mod tests {
             let back = landed(&sight, middle(8.0, 3.0));
             let past = landed(&sight, middle(7.0, 3.0));
             let on_top = landed(&sight, middle(10.0, 3.0));
-            assert!(on_top > 300, "{on_top} of 400 on the bags");
+            // The pistol is 0.76 at four tiles since its reach went to 11.2.
+            assert!(on_top > 280, "{on_top} of 400 on the bags");
             assert!(
                 behind > on_top / 2 - 40 && behind < on_top / 2 + 40,
                 "{behind} of 400 behind them, {on_top} on them"
@@ -6276,7 +6303,8 @@ mod tests {
         }
         let (sight, _) = room_with(&[]);
         let theirs = middle(14.0, 5.0);
-        let from = middle(2.0, 5.0);
+        // Ten tiles: inside the pistol's 11.2.
+        let from = middle(4.0, 5.0);
         let pistol = WeaponKind::LaserPistol.basic();
         let landed = |skill: &Skill| {
             let mut combat = Combat::new(7);

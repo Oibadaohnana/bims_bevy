@@ -3759,8 +3759,8 @@ fn the_crew_are_handed_over_at_the_peek_while_peeking() {
     assert!(peeked, "James peeked at some point in the run");
 }
 
-/// A sniper rifle reaches from twenty tiles and more, where nothing else
-/// does, both ways round. A **machine** built with the rifle — a Warden,
+/// A sniper rifle reaches past the pistol, out to the view's fourteen
+/// tiles (`MAX_RANGE`; twenty and more before it), both ways round. A **machine** built with the rifle — a Warden,
 /// the kind that takes cover — walks off down the corridor to its range
 /// rather than closing, never to a doorway, which opens for whoever
 /// stands in it (`bims::combat::Tactics::stand`), and its shot lands on
@@ -3835,13 +3835,14 @@ fn a_sniper_rifle_reaches_from_twenty_tiles_and_a_shotgun_does_as_much_at_nine_a
             "and James is hurt for it"
         );
 
-        // The long shot: James with the rifle, the machine twenty-one
-        // tiles down the corridor, held there and firing nothing.
+        // The long shot: James with the rifle, the machine thirteen tiles
+        // down the corridor — past the pistol's 11.2, inside the rifle's
+        // fourteen — held there and firing nothing.
         let mut world = basic();
         assert!(world.stage_droid_fight_for_probe(DroidKind::Warden, None));
         let station = world.ship.state.station().unwrap();
         let port = world.station(station).unwrap().port().unwrap();
-        let tiles = 21.0;
+        let tiles = 13.0;
         let reach = (data::ASHORE_TILES + tiles) * shipdesign::TILE as f64;
         // A row up from the port's centre line: the corridor's barricade of
         // sandbags stands on the middle row and the two below it, and the
@@ -3878,8 +3879,8 @@ fn a_sniper_rifle_reaches_from_twenty_tiles_and_a_shotgun_does_as_much_at_nine_a
         }
         let (hit_from, part) = hit_from.expect("the rifle hit the machine within the run");
         assert!(
-            (20.0..=tiles as f32 + 1.0).contains(&hit_from),
-            "from twenty tiles and more: {hit_from:.1} tiles"
+            (12.0..=tiles as f32 + 1.0).contains(&hit_from),
+            "from past the pistol's reach: {hit_from:.1} tiles"
         );
         assert!(hit_from * shipdesign::TILE as f32 <= stats.reach());
         // And it was the rifle's damage at that distance that landed, as

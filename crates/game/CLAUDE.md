@@ -5242,3 +5242,21 @@ to the range; `accuracy_far` still falls off. The curve's code is left as
 it was — `weapons.ron`'s far number still makes a weapon fall off if set
 lower — and `the_curves_pin_the_numbers_the_guns_were_asked_for` asserts
 that no kind does. The tooltips read "60 a shot". `wire::PROTOCOL` 133.
+
+## Nothing shoots past the view (October 2026)
+
+> Every range above longer than fourteen tiles — the pistol's 15.4, the
+> auto rifle's 18.2, the sniper's 24.5, the rail lance's 28.56, a tier
+> three's fifth more past it, an optic's tiles on top — is the history.
+
+`balance::MAX_RANGE` (14 tiles) is the game view's reach: the ship view
+opens at, and zooms out no further than, its nearer edge that far from
+its middle (`ship::game::VIEW_REACH`, the player's word: the game is
+balanced around that view). `Weapon::stats` (the tier), `Skill::stats`
+(an optic, *Wide Angle Optics*' still tiles) and `Bolt::stats` hold
+`range` and `sweet` to it, so a tier three's `TIER_THREE_RANGE` still
+lengthens a short gun but never past it. The numbers: pistol 11.2, auto
+rifle 12.6 / 4.2, sniper 14 / 9.8, minigun 11.2 / 4.2, rail lance 11.7 /
+8.2 (14 / 9.84 at its tier three); the shotgun, the blades and the
+machines' arms as they were. `nothing_reaches_past_the_view` pins it.
+`wire::PROTOCOL` 146.

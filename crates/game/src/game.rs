@@ -13996,15 +13996,22 @@ mod tests {
         assert_eq!(game.weapon(0), Some(pistol));
         assert_eq!(game.shot_reach(0), Some(pistol.stats().reach()));
         let optics = Skill {
-            range: 2.0,
-            still_range: 3.0,
+            range: 1.0,
+            still_range: 1.5,
             ..Skill::NONE
         };
         game.set_skills(vec![optics]);
         assert_eq!(
             game.shot_reach(0),
-            Some((pistol.stats().range + 5.0) * TILE)
+            Some((pistol.stats().range + 2.5) * TILE)
         );
+        // And never past the view's reach, however many tiles are added.
+        game.set_skills(vec![Skill {
+            range: 2.0,
+            still_range: 3.0,
+            ..Skill::NONE
+        }]);
+        assert_eq!(game.shot_reach(0), Some(crate::balance::MAX_RANGE * TILE));
         game.order(0, CrewOrder::Hand { hand: Hand::Medkit });
         assert_eq!(game.shot_reach(0), None);
     }
