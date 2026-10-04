@@ -563,14 +563,15 @@ pub const END_PLAYERS: usize = 2;
 /// The `end` command's bots: plain classless Bims (`World::end_crew_for_probe`).
 pub const END_BOTS: u32 = 10;
 
-/// The day of the world clock the `end` command's run opens on: sixty
-/// unless `BIMS_END_DAY` says, so the waves are a run's twelve steps of
-/// five days on (`scaling.ron`'s `step_days`). The host's is the run's.
+/// The day of the world clock the `end` command's run opens on — whole
+/// days gone, so one less than the top bar's day: the Heart's, the floor's
+/// last row (`world::data::FLOOR_HOPS`, day fifty on the bar), unless
+/// `BIMS_END_DAY` says. The host's is the run's.
 pub fn end_day() -> u32 {
     std::env::var("BIMS_END_DAY")
         .ok()
         .and_then(|v| v.parse().ok())
-        .unwrap_or(60)
+        .unwrap_or(world::floor::row_day(world::data::FLOOR_HOPS) - 1)
 }
 
 /// How many the host waits for before it presses Start, under `BIMS_AUTO`.

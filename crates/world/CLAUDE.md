@@ -7691,8 +7691,9 @@ no star twice, 8–14 traders with one fallen in forty floors.
 **`SAVE_VERSION` 104, `wire::PROTOCOL` 143.** The app's chart is
 `crates/app/src/screens/floormap.rs` (egui, the wheel scrolls, Ctrl and
 the wheel or the − + buttons zoom, a drag pans; pings are
-`Spot::Galaxy(x, row)` in the floor's own units); the lobby's galaxy chart
-stays in the game setup's spawn picker only.
+`Spot::Galaxy(x, row)` in the floor's own units). The galaxy is drawn
+nowhere any more: the game setup's World tab went too, and `lobby::Lobby`
+only rolls the start (`random_start`).
 
 ## The mercenaries gone (October 2026)
 

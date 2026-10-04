@@ -2670,16 +2670,6 @@ pub fn buyback_cost(cost: u64) -> String {
     format!("buyback {}", crate::format::euros(cost))
 }
 
-/// What each kind of body is called. Indexed by `worldgen::BodyKind`.
-pub const BODY_KIND_NAMES: [&str; 4] = ["Rocky planet", "Gas giant", "Ice world", "Asteroid belt"];
-
-/// And each kind of station, by `worldgen::StationKind`.
-pub const STATION_KIND_NAMES: [&str; 5] =
-    ["Orbital", "Refinery", "Mining outpost", "Derelict", "Relay"];
-
-/// `worldgen::StarClass`, hottest first.
-pub const STAR_CLASS_NAMES: [&str; 7] = ["O", "B", "A", "F", "G", "K", "M"];
-
 /// Star words: 48, the generator's `STAR_WORDS`. A star is "Word-Number".
 pub const STAR_WORDS: [&str; 48] = [
     "Tanis", "Vesper", "Halden", "Orrin", "Cassel", "Marrow", "Ilex", "Sorrel", "Brannoc",

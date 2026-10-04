@@ -58,6 +58,8 @@ pub struct View {
 }
 
 impl View {
+    /// The identity: canvas points as they are. The tests replay in it.
+    #[cfg(test)]
     pub const PIXELS: View = View {
         scale: 1.0,
         offset: Vec2::ZERO,

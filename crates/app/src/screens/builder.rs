@@ -2,8 +2,9 @@
 //!
 //! The first screens a player meets, and deliberately separate from the
 //! room and the designer: the builder deals in settings and has no `Game`,
-//! and the room deals in a `Game` and has no menus. Only the World tab
-//! touches the galaxy, through `crates/lobby`.
+//! and the room deals in a `Game` and has no menus. The galaxy is never
+//! shown (October 2026: the map is the floor): `crates/lobby` only rolls
+//! the start in it.
 //!
 //! The multiplayer half (feature 59) is `crate::net`: the lobby is a room
 //! at the relay, the host's settings go to everybody in it, and the
@@ -19,14 +20,14 @@
 use bevy::prelude::*;
 use bevy_egui::{EguiContexts, EguiPrimaryContextPass, egui};
 use bims::character::{Hair, Look, Shade, Tint};
-use lobby::{Lobby, NONE};
+use lobby::Lobby;
 use wire::To;
 use world::Class;
 use world::droid::{Difficulty, WaveScaling};
 
 use super::backdrop::{Backdrop, Backdrops};
 use crate::canvas::{paint_shapes, rect_of, root_ui};
-use crate::format::{euros, roman};
+use crate::format::euros;
 use crate::keys::Keys;
 use crate::names::*;
 use crate::net::{Event, Online, Packet, SettingsWire};
@@ -73,10 +74,6 @@ const CODE_LENGTH: usize = wire::CODE_LENGTH;
 
 /// How long a passing remark stays on screen, in seconds.
 const NOTE_SECONDS: f64 = 4.0;
-
-/// A press that moves less than this before it lets go is a click on a
-/// star, not a drag of the map.
-const DRAG_SLOP: f32 = 4.0;
 
 /// The start menu's card over its picture: how wide, in points, and how
 /// far down the window its top is.
@@ -233,12 +230,6 @@ impl Net {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum Tab {
-    Setup,
-    World,
-}
-
 /// A passing remark on a line, and when it goes.
 struct Remark {
     text: String,
@@ -279,7 +270,6 @@ impl Remark {
 #[derive(Resource)]
 pub struct BuilderScreen {
     net: Net,
-    tab: Tab,
     join_code: String,
     /// What this player calls their Bim, as typed: kept across lobbies,
     /// said to the room on every change (`Online::say_bim_name`) and
@@ -314,17 +304,9 @@ pub struct BuilderScreen {
     /// The `end` command has asked the relay for its room; once, so a
     /// refusal leaves the menu up rather than asking every frame.
     end_asked: bool,
-    /// The galaxy: built once, moved between the two tools. There is one
-    /// galaxy, one camera over it and one canvas.
+    /// The galaxy the run is rolled on: never shown, only what the start
+    /// is picked in (`Lobby::random_start`).
     lobby: Lobby,
-    inspected: Option<u32>,
-    /// A press on the preview: where it started, and whether it has become
-    /// a drag.
-    pressed: Option<egui::Pos2>,
-    dragging: bool,
-    preview_size: Vec2,
-    system_list: lobby::draw::DrawList,
-    galaxy_list: lobby::draw::DrawList,
     /// The Load window over the menu, if it is up, and its page's state —
     /// `crate::save`. A saved game is picked up from here without the
     /// setup: the session is stood up round it and the game screen opens.
@@ -376,7 +358,6 @@ fn open(mut commands: Commands, mut settings: ResMut<Settings>) {
     );
     let mut screen = BuilderScreen {
         net: Net::default(),
-        tab: Tab::Setup,
         join_code: String::new(),
         bim_name: crate::dev::bim_name(),
         said_bim_name: None,
@@ -393,12 +374,6 @@ fn open(mut commands: Commands, mut settings: ResMut<Settings>) {
         auto_done: false,
         end_asked: false,
         lobby,
-        inspected: None,
-        pressed: None,
-        dragging: false,
-        preview_size: Vec2::new(560.0, 400.0),
-        system_list: lobby::draw::DrawList::new(),
-        galaxy_list: lobby::draw::DrawList::new(),
         loading: false,
         saves: crate::save::Saves::default(),
         sheet: None,
@@ -582,7 +557,6 @@ fn frame(
                     let galaxy_moved = wire.seed != settings.seed || wire.galaxy != settings.galaxy;
                     wire.onto(settings);
                     if galaxy_moved {
-                        screen.inspected = None;
                         screen
                             .lobby
                             .set_world(settings.seed, ship::session::galaxy_type(settings.galaxy));
@@ -1078,28 +1052,16 @@ fn tool(
     editable: bool,
     now: f64,
 ) {
-    ui.horizontal(|ui| {
-        for (tab, label) in [(Tab::Setup, "Game setup"), (Tab::World, "World")] {
-            if theme::toggle(ui, screen.tab == tab, label).clicked() {
-                screen.tab = tab;
-            }
-        }
-    });
+    ui.label(egui::RichText::new("Game setup").strong().size(16.0));
     ui.separator();
-    match screen.tab {
-        // The setup's rows run past a short window's foot, so they
-        // scroll under the tabs; the World tab sizes itself to the card.
-        Tab::Setup => {
-            egui::ScrollArea::vertical()
-                .id_salt("setup-rows")
-                .auto_shrink([false, false])
-                .show(ui, |ui| {
-                    setup_rows(ui, screen, settings, online, editable, now)
-                });
-            screen.net.push(online, settings, false);
-        }
-        Tab::World => world(ui, screen, settings),
-    }
+    // The setup's rows run past a short window's foot, so they scroll.
+    egui::ScrollArea::vertical()
+        .id_salt("setup-rows")
+        .auto_shrink([false, false])
+        .show(ui, |ui| {
+            setup_rows(ui, screen, settings, online, editable, now)
+        });
+    screen.net.push(online, settings, false);
 }
 
 /// The Game setup tab's rows: the money, the difficulty, the auto-shoot,
@@ -1576,322 +1538,10 @@ fn choice_row<T: PartialEq + Copy>(
     });
 }
 
-/// The World tab: a look at the galaxy the game was rolled on and the
-/// system beside it, the start marked. Nothing is chosen here — the seed,
-/// the galaxy's shape and the start are rolled at random for every game —
-/// and nothing is explored: no distances, no travel times, nothing about
-/// what a station is like.
-fn world(ui: &mut egui::Ui, screen: &mut BuilderScreen, settings: &mut Settings) {
-    // The header names the start and what it was rolled from.
-    ui.horizontal(|ui| {
-        ui.label(egui::RichText::new("Start at").strong());
-        match settings.spawn.and_then(|(star, station)| {
-            place_name(&mut screen.lobby, screen.inspected, star, station)
-        }) {
-            Some(name) => ui.label(egui::RichText::new(name).color(theme::ACCENT)),
-            None => ui.label(egui::RichText::new("nowhere").color(theme::MUTED)),
-        };
-    });
-    let shape = GALAXIES
-        .get(settings.galaxy as usize)
-        .map(|(label, _)| *label)
-        .unwrap_or("?");
-    ui.label(
-        egui::RichText::new(format!(
-            "{shape} galaxy · seed {} · the galaxy and the start are rolled at random for every game",
-            settings.seed
-        ))
-        .small()
-        .color(theme::MUTED),
-    );
-    ui.label(
-        egui::RichText::new(
-            "Drag to pan, scroll to zoom, click a star to look at its system. Dim stars have no station.",
-        )
-        .small()
-        .color(theme::MUTED),
-    );
-
-    // The preview on the left, the system on the right.
-    ui.add_space(4.0);
-    let total = ui.available_size();
-    let card_w = 300.0_f32.min(total.x * 0.4);
-    let preview_w = (total.x - card_w - 12.0).max(200.0);
-    let preview_h = (total.y - 50.0).clamp(200.0, 600.0);
-    ui.horizontal_top(|ui| {
-        ui.vertical(|ui| {
-            ui.set_width(preview_w);
-            let (rect, response) = ui.allocate_exact_size(
-                egui::vec2(preview_w, preview_h),
-                egui::Sense::click_and_drag(),
-            );
-            preview(ui, screen, settings, rect, &response);
-            ui.horizontal(|ui| {
-                let said = match screen.lobby.hovered {
-                    Some(star) => {
-                        let s = screen.lobby.galaxy.star(star);
-                        s.map(|s| {
-                            format!(
-                                "{} · class {} · {}",
-                                star_name(s.name),
-                                STAR_CLASS_NAMES
-                                    .get(s.star_class as usize)
-                                    .copied()
-                                    .unwrap_or("?"),
-                                if screen
-                                    .lobby
-                                    .has_station
-                                    .get(star as usize)
-                                    .copied()
-                                    .unwrap_or(false)
-                                {
-                                    "has a station"
-                                } else {
-                                    "no station"
-                                }
-                            )
-                        })
-                        .unwrap_or_default()
-                    }
-                    None => String::new(),
-                };
-                ui.label(egui::RichText::new(said).small().color(theme::MUTED));
-            });
-        });
-        ui.vertical(|ui| {
-            ui.set_width(card_w);
-            system_card(ui, screen, settings, card_w);
-        });
-    });
-}
-
-/// The galaxy, painted into `rect`: pan by dragging, zoom with the wheel,
-/// click a star to open it.
-fn preview(
-    ui: &egui::Ui,
-    screen: &mut BuilderScreen,
-    settings: &Settings,
-    rect: egui::Rect,
-    response: &egui::Response,
-) {
-    let size = Vec2::new(rect.width(), rect.height());
-    if size != screen.preview_size {
-        screen.preview_size = size;
-        screen.lobby.preview.resize(size.x, size.y);
-    }
-    let local = |p: egui::Pos2| (p.x - rect.min.x, p.y - rect.min.y);
-    if response.drag_started_by(egui::PointerButton::Primary)
-        || response.drag_started_by(egui::PointerButton::Middle)
-    {
-        screen.pressed = response.interact_pointer_pos();
-        screen.dragging = response.drag_started_by(egui::PointerButton::Middle);
-    }
-    if response.dragged() {
-        let delta = response.drag_delta();
-        let moved = screen
-            .pressed
-            .zip(response.interact_pointer_pos())
-            .is_some_and(|(a, b)| (a - b).length() > DRAG_SLOP);
-        if screen.dragging || moved {
-            screen.dragging = true;
-            screen.lobby.preview.pan(delta.x, delta.y);
-        }
-    }
-    if let Some(p) = response.hover_pos() {
-        let (x, y) = local(p);
-        screen.lobby.hover(x, y);
-        let scroll = response.ctx.input(|i| i.smooth_scroll_delta.y);
-        if scroll != 0.0 {
-            screen
-                .lobby
-                .preview
-                .zoom(x, y, crate::canvas::zoom_factor(scroll));
-            screen.lobby.hover(x, y);
-        }
-    } else if !response.dragged() {
-        screen.lobby.hovered = None;
-    }
-    let was_click = response.clicked() || (response.drag_stopped() && !screen.dragging);
-    if response.drag_stopped() || response.clicked() {
-        if was_click && let Some(p) = response.interact_pointer_pos() {
-            let (x, y) = local(p);
-            screen.lobby.hover(x, y);
-            if let Some(star) = screen.lobby.hovered {
-                inspect(screen, star);
-            }
-        }
-        screen.pressed = None;
-        screen.dragging = false;
-    }
-    screen.lobby.spawn = settings.spawn;
-    screen.lobby.paint(&mut screen.galaxy_list);
-    paint_shapes(
-        ui.painter(),
-        rect_of(rect),
-        View::PIXELS,
-        screen.galaxy_list.shapes(),
-    );
-    // The frame round it.
-    ui.painter().rect_stroke(
-        rect,
-        4.0,
-        egui::Stroke::new(1.0, theme::LINE),
-        egui::StrokeKind::Outside,
-    );
-}
-
-fn inspect(screen: &mut BuilderScreen, star: u32) {
-    screen.lobby.inspect(star);
-    screen.inspected = screen.lobby.inspected.as_ref().map(|(id, _)| *id);
-}
-
-/// The side panel: the star that is open, its bodies and its stations,
-/// with a diagram of the system.
-fn system_card(ui: &mut egui::Ui, screen: &mut BuilderScreen, settings: &Settings, width: f32) {
-    let Some(star) = screen.inspected else {
-        ui.label(egui::RichText::new("Pick a star").strong());
-        return;
-    };
-    let base = screen
-        .lobby
-        .galaxy
-        .star(star)
-        .map(|s| star_name(s.name))
-        .unwrap_or_default();
-    let class = screen
-        .lobby
-        .galaxy
-        .star(star)
-        .map(|s| {
-            STAR_CLASS_NAMES
-                .get(s.star_class as usize)
-                .copied()
-                .unwrap_or("?")
-        })
-        .unwrap_or("?");
-    ui.label(egui::RichText::new(format!("{base} · class {class}")).strong());
-    let diagram_h = 180.0;
-    let (rect, _) = ui.allocate_exact_size(egui::vec2(width, diagram_h), egui::Sense::hover());
-    screen.lobby.spawn = settings.spawn;
-    screen
-        .lobby
-        .paint_system(rect.width(), rect.height(), &mut screen.system_list);
-    paint_shapes(
-        ui.painter(),
-        rect_of(rect),
-        View::PIXELS,
-        screen.system_list.shapes(),
-    );
-
-    let Some((_, system)) = screen.lobby.inspected.as_ref() else {
-        return;
-    };
-    // The labels on the diagram. Text is the app's — the buffer holds
-    // rectangles and ellipses and nothing else — so it goes on after the
-    // shapes, where the lobby says each thing landed.
-    let painter = ui.painter().with_clip_rect(rect);
-    for (i, body) in system.bodies.iter().enumerate() {
-        if let Some(&(x, y)) = screen.lobby.placed.bodies.get(i) {
-            painter.text(
-                rect.min + egui::vec2(x + 9.0, y - 9.0),
-                egui::Align2::LEFT_CENTER,
-                roman(body.name.part as u32),
-                egui::FontId::proportional(11.0),
-                theme::MUTED,
-            );
-        }
-    }
-    for (i, station) in system.stations.iter().enumerate() {
-        if let Some(&(x, y)) = screen.lobby.placed.stations.get(i) {
-            painter.text(
-                rect.min + egui::vec2(x + 9.0, y + 9.0),
-                egui::Align2::LEFT_CENTER,
-                STATION_KIND_NAMES
-                    .get(station.kind as usize)
-                    .copied()
-                    .unwrap_or("Station"),
-                egui::FontId::proportional(11.0),
-                theme::INK,
-            );
-        }
-    }
-
-    let bodies: Vec<(String, &'static str)> = system
-        .bodies
-        .iter()
-        .map(|b| {
-            (
-                format!("{base} {}", roman(b.name.part as u32)),
-                BODY_KIND_NAMES
-                    .get(b.kind as usize)
-                    .copied()
-                    .unwrap_or("Body"),
-            )
-        })
-        .collect();
-    let stations: Vec<(String, String)> = system
-        .stations
-        .iter()
-        .map(|s| {
-            let parent = match s.parent_body {
-                Some(p) if p != NONE => system
-                    .body(p)
-                    .map(|b| format!("{base} {}", roman(b.name.part as u32)))
-                    .unwrap_or_else(|| "deep space".into()),
-                _ => "deep space".into(),
-            };
-            (
-                station_name(s.name),
-                format!(
-                    "{} · {parent}",
-                    STATION_KIND_NAMES
-                        .get(s.kind as usize)
-                        .copied()
-                        .unwrap_or("Station"),
-                ),
-            )
-        })
-        .collect();
-    // Whatever is left under the diagram, and the list scrolls in it: the
-    // preview beside it decides how tall the tab is.
-    let left = ui.available_height().max(80.0);
-    egui::ScrollArea::vertical()
-        .max_height(left)
-        .show(ui, |ui| {
-            for (name, kind) in bodies {
-                ui.horizontal(|ui| {
-                    ui.label(name);
-                    ui.label(egui::RichText::new(kind).small().color(theme::MUTED));
-                });
-            }
-            ui.separator();
-            if stations.is_empty() {
-                ui.label(egui::RichText::new("No station here.").color(theme::MUTED));
-            }
-            for (i, (name, whereabouts)) in stations.into_iter().enumerate() {
-                let on = settings.spawn == Some((star, i as u32));
-                ui.horizontal(|ui| {
-                    ui.vertical(|ui| {
-                        ui.label(egui::RichText::new(name).color(if on {
-                            theme::ACCENT
-                        } else {
-                            theme::INK
-                        }));
-                        ui.label(egui::RichText::new(whereabouts).small().color(theme::MUTED));
-                    });
-                    if on {
-                        ui.label(egui::RichText::new("Your start").color(theme::ACCENT));
-                    }
-                });
-            }
-        });
-}
-
 /// The settings' seed or galaxy type moved: a different galaxy, and
 /// nothing chosen in the old one means anything in it. The caller pushes.
 fn new_world(screen: &mut BuilderScreen, settings: &mut Settings) {
     settings.spawn = None;
-    screen.inspected = None;
     screen
         .lobby
         .set_world(settings.seed, ship::session::galaxy_type(settings.galaxy));
@@ -1916,14 +1566,12 @@ fn roll_galaxy(settings: &mut Settings) {
 
 /// A random station among every star that has one a crew can start at:
 /// the lobby's rule (`Lobby::random_start`), which skips the hostile
-/// ones — a crew cannot start at an enemy's — off this page's roll. The
-/// World tab opens on it.
+/// ones — a crew cannot start at an enemy's — off this page's roll.
 fn roll_start(screen: &mut BuilderScreen, settings: &mut Settings) {
     let roll = crate::screens::rand_seed();
     let Some((star, station)) = screen.lobby.random_start(roll) else {
         return;
     };
-    inspect(screen, star);
     settings.spawn = Some((star, station));
     screen.lobby.spawn = settings.spawn;
 }
@@ -1932,35 +1580,6 @@ fn roll_start(screen: &mut BuilderScreen, settings: &mut Settings) {
 fn pick_random_start(screen: &mut BuilderScreen, settings: &mut Settings, online: &Online) {
     roll_start(screen, settings);
     screen.net.push(online, settings, false);
-}
-
-/// What a station at a star is called, "Cordell Yard 7 at Tanis-284". Reads
-/// the inspected system if it is the right one and opens the other for a
-/// moment otherwise — the name is the galaxy's to give, and the screen
-/// keeps no copy of any.
-fn place_name(
-    lobby: &mut Lobby,
-    inspected: Option<u32>,
-    star: u32,
-    station: u32,
-) -> Option<String> {
-    let name = |lobby: &Lobby| -> Option<String> {
-        let (_, system) = lobby.inspected.as_ref()?;
-        let s = system.station(station)?;
-        let star = lobby.galaxy.star(star)?;
-        Some(format!(
-            "{} at {}",
-            station_name(s.name),
-            star_name(star.name)
-        ))
-    };
-    if lobby.inspected.as_ref().map(|(id, _)| *id) == Some(star) {
-        return name(lobby);
-    }
-    lobby.inspect(star);
-    let found = name(lobby);
-    lobby.inspect(inspected.unwrap_or(NONE));
-    found
 }
 
 #[cfg(test)]
