@@ -702,10 +702,10 @@ pub struct World {
     pub wallets: Vec<Money>,
     /// The crew's hits on the enemies landed this step
     /// (`land_on_enemies`), for `visit` to say as `WorldEvent::Hit`s: on
-    /// whom, how much, and whether critical. A picture's; never saved or
-    /// hashed.
+    /// whom, how much, whether critical, and whose (a crew member's index).
+    /// A picture's; never saved or hashed.
     #[cfg_attr(feature = "serde", serde(skip))]
-    shown_hits: Vec<(u32, f32, bool)>,
+    shown_hits: Vec<(u32, f32, bool, Option<u32>)>,
     pub ship: Ship,
     /// The people aboard, and the room they live in: the room's whole
     /// simulation, laid out on this ship, one Bim per player at their own
@@ -2659,15 +2659,21 @@ impl World {
         let bims = room.crew_count() as usize;
         // What the hits on the enemies did, said for the numbers
         // over them (`land_on_enemies`), and every hit below the same way.
-        for (who, damage, crit) in std::mem::take(&mut self.shown_hits) {
-            events.push(shown_hit(true, who, damage, crit));
+        for (who, damage, crit, by) in std::mem::take(&mut self.shown_hits) {
+            events.push(shown_hit(true, who, damage, crit, by));
         }
         for hit in hits {
             let who = hit.who;
             if who >= room.body_count() as usize || !room.is_alive(who) {
                 continue;
             }
-            events.push(shown_hit(true, who as u32, hit.damage, hit.crit));
+            events.push(shown_hit(
+                true,
+                who as u32,
+                hit.damage,
+                hit.crit,
+                hit.by.map(|by| by as u32),
+            ));
             // A hit past the room's Bims landed on one of the machines
             // (feature 83): a droid's four parts are not a body's three,
             // so the part is read off the hit's own roll rather than off
@@ -2921,10 +2927,10 @@ impl World {
             match hit.who.checked_sub(bims) {
                 Some(i) => {
                     room.strike_droid(i, bims::droid::DroidPart::hit_by(hit.roll), hit.damage);
-                    events.push(shown_hit(true, hit.who as u32, hit.damage, hit.crit));
+                    events.push(shown_hit(true, hit.who as u32, hit.damage, hit.crit, None));
                 }
                 None if room.is_manufacturer(hit.who) => {
-                    events.push(shown_hit(true, hit.who as u32, hit.damage, hit.crit));
+                    events.push(shown_hit(true, hit.who as u32, hit.damage, hit.crit, None));
                     if hit.blast {
                         room.blast(hit.who, hit.damage);
                     } else {
@@ -3117,7 +3123,7 @@ impl World {
                 events.push(WorldEvent::CrewHit {
                     who: hit.who as u32,
                 });
-                events.push(shown_hit(false, hit.who as u32, hit.damage, hit.crit));
+                events.push(shown_hit(false, hit.who as u32, hit.damage, hit.crit, None));
             }
         }
         for who in self.aboard.room.take_downs() {
@@ -11320,13 +11326,15 @@ pub fn bounty_for(tier: u32) -> Money {
 }
 
 /// A hit as the picture is told it (`WorldEvent::Hit`): whole points, a
-/// scratch under one said as one.
-fn shown_hit(resident: bool, who: u32, damage: f32, crit: bool) -> WorldEvent {
+/// scratch under one said as one, and whose it was when a crew member's
+/// (`None` for an enemy's, a sentry's, a townsperson's).
+fn shown_hit(resident: bool, who: u32, damage: f32, crit: bool, by: Option<u32>) -> WorldEvent {
     WorldEvent::Hit {
         resident,
         who,
         damage: damage.round().max(1.0) as u32,
         crit,
+        by,
     }
 }
 

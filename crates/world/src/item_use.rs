@@ -337,9 +337,9 @@ impl World {
                     }
                 }
                 room.arc_light(struck, j);
-                shown.push((j as u32, arc_damage, false));
+                shown.push((j as u32, arc_damage, false, Some(slot)));
             }
-            for &(body, _, _) in &shown {
+            for &(body, ..) in &shown {
                 if let Some(last) = residents.last_hit_by.get_mut(body as usize) {
                     *last = Some(slot as usize);
                 }

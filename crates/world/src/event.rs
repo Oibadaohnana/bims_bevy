@@ -331,13 +331,16 @@ pub enum WorldEvent {
     },
     /// A hit landed: on one of the station's bodies (`resident`, a body
     /// of its room — a machine past its Bims) or on one of the crew, how
-    /// much, whole points, and whether it was a critical one. A picture's
-    /// event, for the red number over the body; nothing reads it.
+    /// much, whole points, whether it was a critical one, and whose it was —
+    /// a crew member of the crew's, by index, or `None` for an enemy's, a
+    /// sentry's or a townsperson's. A picture's event, for the red number
+    /// over the body and the fight's damage tally; no rule reads it.
     Hit {
         resident: bool,
         who: u32,
         damage: u32,
         crit: bool,
+        by: Option<u32>,
     },
     /// A player's Bim went off on its *Blink Drive* (October 2026): it
     /// stands where the drive put it.

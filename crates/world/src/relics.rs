@@ -503,7 +503,8 @@ impl World {
             }
             landed.push((hit.by, hit.who, damage));
             // And what it did, for the number over the enemy.
-            self.shown_hits.push((hit.who as u32, damage, hit.crit));
+            self.shown_hits
+                .push((hit.who as u32, damage, hit.crit, hit.by.map(|by| by as u32)));
             if let Some(last) = residents.last_hit_by.get_mut(hit.who) {
                 *last = hit.by;
             }

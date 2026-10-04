@@ -1656,6 +1656,7 @@ fn frame(
                 who,
                 damage,
                 crit,
+                ..
             } = event
                 && screen.hits.len() < HITS_SHOWN
             {
@@ -2571,6 +2572,12 @@ fn frame(
             .game
             .as_ref()
             .is_some_and(|g| super::worldmap::proposing(&g.world));
+    // And the fight-won window up, which reads the Propose key (Space)
+    // as its *Back to ship* the same way.
+    let fight_won_up = session
+        .game
+        .as_ref()
+        .is_some_and(|g| screen.fight.showing(&g.world));
     if keys {
         ctx.input(|i| {
             if let Some(game) = &mut session.game {
@@ -2688,7 +2695,10 @@ fn frame(
                 for action in Action::ABILITIES {
                     // The map up between missions reads the Propose key
                     // (Space, October 2026) and not the slot sharing it.
-                    if map_proposing && keys_now.key(action) == keys_now.key(Action::Propose) {
+                    // So does the fight-won window.
+                    if (map_proposing || fight_won_up)
+                        && keys_now.key(action) == keys_now.key(Action::Propose)
+                    {
                         continue;
                     }
                     let slot = screen.net.slot;
@@ -3302,6 +3312,11 @@ fn frame(
     }
     // And the end of a fight: the site of this mission just cleared, with
     // what the fight earned and the way back to the ship.
+    // Space (the Propose key) presses its *Back to ship*.
+    let leave_pressed = keys
+        && ctx.input(|i| {
+            crate::keys::plain_or_sprinting(i.modifiers) && keys_now.pressed(i, Action::Propose)
+        });
     super::fightwon::fight_won_window(
         &ctx,
         &mut screen.fight,
@@ -3309,6 +3324,8 @@ fn frame(
         local,
         &mut orders,
         &crew_name,
+        &|slot| slot_colour(&session.crew_tints, slot),
+        (leave_pressed, keys_now.key(Action::Propose).name()),
     );
     // And the trader the crew are at (task 114): the whole visit is on the
     // map, and the Armory panel may be up beside it.

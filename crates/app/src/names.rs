@@ -2087,8 +2087,16 @@ pub const FIGHT_WON_CLEARED: &str =
     "The last of the enemy here is down. The site stays cleared, and the bounty is in the pool.";
 pub const FIGHT_WON_HELD: &str =
     "The site is held against the machines, and the bounty is in the pool.";
+/// The small line over the title.
+pub const FIGHT_WON_KICKER: &str = "MISSION COMPLETE";
 pub const FIGHT_WON_MACHINES: &str = "Machines destroyed";
-pub const FIGHT_WON_PEOPLE: &str = "Manufacturers down";
+/// The tile's word when Manufacturers were among the dead too.
+pub const FIGHT_WON_ENEMIES: &str = "Enemies down";
+/// The tile with the player's own damage.
+pub const FIGHT_WON_DAMAGE: &str = "Your damage";
+pub const FIGHT_WON_CREW: &str = "The crew";
+pub const FIGHT_WON_DAMAGE_HEAD: &str = "Damage";
+pub const FIGHT_WON_XP_HEAD: &str = "Experience";
 pub const FIGHT_WON_BOUNTY: &str = "Bounty paid";
 pub const FIGHT_WON_POOL: &str = "Your share";
 pub const FIGHT_WON_BOTS: &str = "The rest of the crew";

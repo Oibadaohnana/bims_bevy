@@ -6511,9 +6511,9 @@ moved. `would_travel_foretells_the_trip` (`tests_mission.rs`) is the rule.
   gun or armour a tenth more each), `data::BOUNTY_SPREAD_PERCENT`, through
   `bounty_share`. `WorldEvent::EnemyRewarded { station, who, xp, money }`
   (142) says each enemy's pay the step it is counted, and
-  `WorldEvent::Hit { resident, who, damage, crit }` (143) every hit
-  landed on either side — pictures' events, for the numbers the app
-  floats (`World::shown_hits` carries the relics' hits on the machines
+  `WorldEvent::Hit { resident, who, damage, crit, by }` (143) every hit
+  landed on either side, `by` the crew member whose it was — pictures'
+  events, for the numbers the app floats and the fight-won tally (`World::shown_hits` carries the relics' hits on the machines
   out of `land_on_machines`).
 
 **`SAVE_VERSION` 68, `wire::PROTOCOL` 69**; `REFERENCE_CHECKSUM`,
