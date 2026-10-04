@@ -6796,6 +6796,48 @@ impl World {
         (enemy_in, friend_in)
     }
 
+    /// One step of the ring's mending at the Area defend at `id`:
+    /// [`data::AREA_HEAL_PERCENT`] of their bar a second to each of the
+    /// crew on their feet in it — players and bots alike — and to each of
+    /// the site's own under arms (the defenders, the guard) on theirs.
+    fn heal_the_ring(&mut self, id: u32) {
+        let Some(area) = self.defense(id).and_then(|d| d.area.as_ref()) else {
+            return;
+        };
+        let middle = dvec2(area.x as f64, area.y as f64);
+        let reach = data::AREA_RADIUS_TILES * shipdesign::TILE as f64;
+        let inside = |p: DVec2| p.sub(middle).length_squared() <= reach * reach;
+        let seconds = (data::STEP_MINUTES / time::MINUTES_PER_SECOND) as f32;
+        let percent = data::AREA_HEAL_PERCENT * seconds;
+        let crew: Vec<u32> = (0u32..)
+            .zip(self.aboard.crew_ashore())
+            .filter(|(_, at)| at.is_some_and(inside))
+            .map(|(who, _)| who)
+            .collect();
+        for who in crew {
+            self.heal_crew(who, percent);
+        }
+        let Some(residents) = self.residents.as_mut().filter(|r| r.station == id) else {
+            return;
+        };
+        let guard = surface::GUARD as usize;
+        let holders: Vec<usize> = {
+            let room = &residents.aboard.room;
+            (0..room.crew_count() as usize)
+                .filter(|&who| {
+                    !room.is_manufacturer(who)
+                        && (residents.is_defender(who) || who == guard)
+                        && room.is_alive(who)
+                        && !room.is_downed(who)
+                        && inside(residents.aboard.to_design(room.body_pos(who)))
+                })
+                .collect()
+        };
+        for who in holders {
+            residents.aboard.room.heal_percent(who, percent);
+        }
+    }
+
     /// An Area defend said to the rooms every step: the sandbags and the
     /// post as low cover in both — the residents' room's, where the
     /// machines' bolts fly at the site's own, and the crew's, where they
@@ -7013,6 +7055,7 @@ impl World {
             .is_some_and(|d| d.wave > 0 && d.area.is_some())
         {
             let (enemy_in, friend_in) = self.who_holds_the_ring(id);
+            self.heal_the_ring(id);
             let mut taken = false;
             if let Some(area) = self.defense_mut(id).and_then(|d| d.area.as_mut()) {
                 if area.left == 1 {

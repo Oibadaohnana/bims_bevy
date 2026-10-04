@@ -432,3 +432,82 @@ fn an_area_defend_starts_five_seconds_in_and_pays_an_elite_s_relics() {
         "an elite's relics on the way out"
     );
 }
+
+/// Standing in the ring mends: [`data::AREA_HEAL_PERCENT`] of the bar a
+/// second to the crew — players and bots alike — and to the site's
+/// defenders in it, and nothing to anybody outside it.
+#[test]
+fn the_ring_heals_whoever_of_the_crew_s_side_stands_in_it() {
+    let Some((mut world, id)) = an_area_defend(Some(1)) else {
+        return;
+    };
+    let (landed, _) = until(&mut world, 40, |w| w.droids_standing() > 0);
+    assert!(landed, "the first wave never landed");
+    destroy_the_wave(&mut world);
+    let pad = pad_on_deck(&world);
+    let middle = middle_ashore(&world, id);
+    let defender = {
+        let residents = world.residents.as_ref().expect("the town's room");
+        (0..residents.aboard.room.crew_count() as usize).find(|&who| {
+            residents.defender.get(who).copied().unwrap_or(false)
+                && residents.aboard.room.is_alive(who)
+        })
+    };
+    let half = |room: &bims::game::Game, who: usize| room.max_health(who) / 2.0;
+    for who in 0..2 {
+        let points = half(&world.aboard.room, who);
+        world.aboard.room.set_health_for_probe(who, points);
+    }
+    if let Some(d) = defender {
+        let room = &mut world
+            .residents
+            .as_mut()
+            .expect("the town's room")
+            .aboard
+            .room;
+        let points = half(room, d);
+        room.set_health_for_probe(d, points);
+    }
+    let before = [world.aboard.room.health(0), world.aboard.room.health(1)];
+    let defender_before = defender.map(|d| {
+        world
+            .residents
+            .as_ref()
+            .expect("the town's room")
+            .aboard
+            .room
+            .health(d)
+    });
+    for _ in 0..60 {
+        let ring = world.area_in_room().map_or(pad, |(c, _)| c);
+        world.aboard.room.put_for_probe(0, ring);
+        world.aboard.room.put_for_probe(1, pad);
+        if let Some(d) = defender {
+            let residents = world.residents.as_mut().expect("the town's room");
+            residents.aboard.room.put_for_probe(d, middle);
+        }
+        world.step(&[]);
+    }
+    let second = data::AREA_HEAL_PERCENT / 100.0;
+    let inside = world.aboard.room.health(0) - before[0];
+    let outside = world.aboard.room.health(1) - before[1];
+    let want = world.aboard.room.max_health(0) * second;
+    assert!(
+        (inside - outside - want).abs() < want * 0.1,
+        "a second in the ring mends {want}: {inside} in it, {outside} out of it"
+    );
+    if let (Some(d), Some(was)) = (defender, defender_before) {
+        let room = &world
+            .residents
+            .as_ref()
+            .expect("the town's room")
+            .aboard
+            .room;
+        let got = room.health(d) - was;
+        let want = room.max_health(d) * second;
+        assert!(
+            got >= want * 0.9,
+            "a defender in the ring mends {want}: {got}"
+        );
+    }
+}

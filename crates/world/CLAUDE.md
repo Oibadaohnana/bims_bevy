@@ -7854,6 +7854,13 @@ and the pistol, item and soldier tests are the rule.
   taken: the defence lost, `WorldEvent::AreaTaken` (162), **the run
   lost** (`World::lost`, the crew-down screen saying "The FOB has fallen"
   off `World::area_fell`; its Retry is the way back).
+- **The ring mends** (the player's word: "area defence area should heal
+  2%/s bots and players"): the same steps, `heal_the_ring` puts back
+  `data::AREA_HEAL_PERCENT` (2) of the bar a second to every crew
+  member on its feet in the ring — players and bots, through
+  `heal_crew` — and to every defender and the guard on theirs, in the
+  residents' room. `wire::PROTOCOL` 161;
+  `tests_area::the_ring_heals_whoever_of_the_crew_s_side_stands_in_it`.
 - **Who goes where** — `Game::set_objectives` on the residents' room,
   by body index: every enemy a spot round the middle
   (`defense::enemy_spot`, the golden angle, half a tile to a little over

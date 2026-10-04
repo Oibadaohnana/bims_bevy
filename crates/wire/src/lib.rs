@@ -290,7 +290,9 @@ use serde::{Deserialize, Serialize};
 /// Plated, Triage, the Bastion's haste) and the guns of whoever a
 /// commander calls in.
 /// 160: a defence's first wave five seconds after the crew arrive.
-pub const PROTOCOL: u32 = 160;
+/// 161: an Area defend's ring heals whoever of the crew's side stands
+/// in it, two per cent of the bar a second.
+pub const PROTOCOL: u32 = 161;
 
 /// Where the relay lives. `BIMS_SERVER` in the environment overrides it
 /// — `ws://127.0.0.1:8792` for one on the same machine.

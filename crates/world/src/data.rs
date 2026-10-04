@@ -408,6 +408,10 @@ pub const AREA_BAGS_FROM_TILES: f64 = 3.5;
 /// Where the defenders hold, in tiles from the middle: a tile behind the
 /// bags, within their cover's reach.
 pub const AREA_HOLD_RING_TILES: f32 = 2.5;
+/// What standing in the ring heals, in per cent of the body's own bar a
+/// second: the crew — players and bots — and the site's defenders and
+/// guard, on their feet, while the hold's waves come (the player's word).
+pub const AREA_HEAL_PERCENT: f32 = 2.0;
 
 // --- defend missions (task 111)-------------------------------------------
 //
