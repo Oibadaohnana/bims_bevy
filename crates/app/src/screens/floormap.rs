@@ -135,9 +135,8 @@ impl FloorChart {
 
     /// The place under `p`, if any is near enough.
     pub fn hit(&self, rect: egui::Rect, floor: &Floor, p: egui::Pos2) -> Option<(u32, usize)> {
-        let reach = (NODE * self.zoom() * 1.5).max(12.0);
         let mut best = None;
-        let mut nearest = reach;
+        let mut nearest = self.reach();
         for (row, nodes) in floor.rows.iter().enumerate() {
             for (i, node) in nodes.iter().enumerate() {
                 let at = self.place(rect, floor, row as u32, node.x);
@@ -149,6 +148,24 @@ impl FloorChart {
             }
         }
         best
+    }
+
+    /// How near a place the pointer has to be to be on it, in points.
+    fn reach(&self) -> f32 {
+        (NODE * self.zoom() * 1.5).max(12.0)
+    }
+
+    /// The place under `p` as a ring: where it is drawn and how far from
+    /// there the pointer is still on it.
+    pub fn zone(
+        &self,
+        rect: egui::Rect,
+        floor: &Floor,
+        p: egui::Pos2,
+    ) -> Option<(egui::Pos2, f32)> {
+        let (row, i) = self.hit(rect, floor, p)?;
+        let node = floor.node(row, i)?;
+        Some((self.place(rect, floor, row, node.x), self.reach()))
     }
 
     /// Where a place is drawn: the Heart a little above its row.
@@ -612,6 +629,14 @@ pub struct Stroke {
     pub points: Vec<(f32, f32)>,
 }
 
+/// A pen down that has not drawn yet (`Sketches::pressed`).
+#[derive(Clone, Copy)]
+struct Pressed {
+    from: (f32, f32),
+    centre: (f32, f32),
+    reach: f32,
+}
+
 /// What the players drew on the floor's map (October 2026): the way each
 /// means to go up it, planned ahead the way Slay the Spire's map is drawn
 /// on. A right drag draws, Shift and a right drag rubs out this player's
@@ -626,10 +651,12 @@ pub struct Sketches {
     strokes: Vec<Stroke>,
     /// This player's line under the pen.
     drawing: Option<u32>,
-    /// The pen down but not yet moved off the click's slop: where it
-    /// went down, on the floor. A pen lifted here was a click — it picks
-    /// the place under it and leaves no line.
-    pressed: Option<(f32, f32)>,
+    /// The pen down but not yet moved off its click: where it went down
+    /// and the ring it has to leave before it draws — the place it went
+    /// down on (which the press picked), else the click's slop about the
+    /// press — on the floor, the ring's reach in points. A pen lifted
+    /// inside was a click and leaves no line.
+    pressed: Option<Pressed>,
     /// The pen is rubbing out rather than drawing: where it was last.
     erasing: Option<egui::Pos2>,
     /// This player's next line's number.
@@ -667,7 +694,9 @@ impl Sketches {
         }
     }
 
-    /// The pen goes down at `at` on the chart, rubbing out with `erase`.
+    /// The pen goes down at `at` on the chart, rubbing out with `erase`;
+    /// `place` is the place it went down on (`FloorChart::zone`), which
+    /// it draws nothing over until it leaves.
     pub fn press(
         &mut self,
         slot: u32,
@@ -675,12 +704,18 @@ impl Sketches {
         rect: egui::Rect,
         at: egui::Pos2,
         erase: bool,
+        place: Option<(egui::Pos2, f32)>,
     ) {
         if erase {
             self.rub(slot, chart, rect, at, at);
             return;
         }
-        self.pressed = Some(chart.to_floor(rect, at));
+        let (centre, reach) = place.unwrap_or((at, crate::crew::CLICK_SLOP));
+        self.pressed = Some(Pressed {
+            from: chart.to_floor(rect, at),
+            centre: chart.to_floor(rect, centre),
+            reach: reach.max(crate::crew::CLICK_SLOP),
+        });
     }
 
     /// A line begun at `from`, the pen having moved off its click.
@@ -708,13 +743,16 @@ impl Sketches {
             self.rub(slot, chart, rect, from, at);
             return;
         }
-        if let Some(from) = self.pressed {
-            let (x, row) = from;
-            if chart.to_screen(rect, x, row).distance(at) < crate::crew::CLICK_SLOP {
+        if let Some(pressed) = self.pressed {
+            let (x, row) = pressed.centre;
+            let (fx, frow) = pressed.from;
+            if chart.to_screen(rect, x, row).distance(at) < pressed.reach
+                || chart.to_screen(rect, fx, frow).distance(at) < crate::crew::CLICK_SLOP
+            {
                 return;
             }
             self.pressed = None;
-            self.begin(slot, from);
+            self.begin(slot, pressed.from);
         }
         let Some(id) = self.drawing else {
             return;
@@ -737,12 +775,11 @@ impl Sketches {
         }
     }
 
-    /// The pen lifted: whether it was a click, never moved off where it
-    /// went down, so drew nothing.
-    pub fn release(&mut self) -> bool {
+    /// The pen lifted.
+    pub fn release(&mut self) {
         self.drawing = None;
         self.erasing = None;
-        self.pressed.take().is_some()
+        self.pressed = None;
     }
 
     /// Whether the pen is down.
@@ -963,7 +1000,7 @@ mod tests {
     fn a_line_drawn_goes_out_whole_and_comes_back_on_another_chart() {
         let chart = FloorChart::default();
         let mut mine = Sketches::default();
-        mine.press(0, &chart, rect(), egui::pos2(500.0, 700.0), false);
+        mine.press(0, &chart, rect(), egui::pos2(500.0, 700.0), false, None);
         for y in [680.0, 660.0, 640.0] {
             mine.drag(0, &chart, rect(), egui::pos2(500.0, y));
         }
@@ -980,18 +1017,39 @@ mod tests {
     }
 
     #[test]
-    fn a_click_draws_nothing_and_says_so() {
+    fn a_click_draws_nothing() {
         let chart = FloorChart::default();
         let mut sketches = Sketches::default();
-        sketches.press(0, &chart, rect(), egui::pos2(500.0, 700.0), false);
+        sketches.press(0, &chart, rect(), egui::pos2(500.0, 700.0), false, None);
         sketches.drag(0, &chart, rect(), egui::pos2(502.0, 701.0));
-        assert!(sketches.release(), "a pen that never left its click");
-        assert!(!sketches.any_of(0));
+        sketches.release();
+        assert!(!sketches.any_of(0), "a pen that never left its click");
         assert!(sketches.outgoing(0, 1.0).is_empty());
-        sketches.press(0, &chart, rect(), egui::pos2(500.0, 700.0), false);
+        sketches.press(0, &chart, rect(), egui::pos2(500.0, 700.0), false, None);
         sketches.drag(0, &chart, rect(), egui::pos2(500.0, 650.0));
-        assert!(!sketches.release(), "a drag is a line");
-        assert!(sketches.any_of(0));
+        sketches.release();
+        assert!(sketches.any_of(0), "a drag is a line");
+    }
+
+    #[test]
+    fn a_press_on_a_place_draws_only_once_off_it() {
+        let chart = FloorChart::default();
+        let mut sketches = Sketches::default();
+        // A place drawn at (500, 700), its ring 20 points about it.
+        let place = Some((egui::pos2(500.0, 700.0), 20.0));
+        sketches.press(0, &chart, rect(), egui::pos2(506.0, 702.0), false, place);
+        sketches.drag(0, &chart, rect(), egui::pos2(490.0, 710.0));
+        assert!(!sketches.any_of(0), "still on the place");
+        sketches.drag(0, &chart, rect(), egui::pos2(500.0, 660.0));
+        sketches.release();
+        assert!(sketches.any_of(0), "off it, the line starts");
+        let sent = sketches.outgoing(0, 1.0);
+        let (x, row) = sent[0].1[0];
+        let start = chart.to_screen(rect(), x, row);
+        assert!(
+            start.distance(egui::pos2(506.0, 702.0)) < 0.01,
+            "from the press"
+        );
     }
 
     #[test]
@@ -999,12 +1057,12 @@ mod tests {
         let chart = FloorChart::default();
         let mut sketches = Sketches::default();
         sketches.put(1, 0, vec![(0.5, 1.0), (0.5, 3.0)]);
-        sketches.press(0, &chart, rect(), egui::pos2(500.0, 700.0), false);
+        sketches.press(0, &chart, rect(), egui::pos2(500.0, 700.0), false, None);
         sketches.drag(0, &chart, rect(), egui::pos2(500.0, 600.0));
         sketches.release();
         sketches.outgoing(0, 1.0);
         // Shift and a right drag straight across both.
-        sketches.press(0, &chart, rect(), egui::pos2(400.0, 650.0), true);
+        sketches.press(0, &chart, rect(), egui::pos2(400.0, 650.0), true, None);
         sketches.drag(0, &chart, rect(), egui::pos2(600.0, 650.0));
         sketches.release();
         assert!(!sketches.any_of(0));

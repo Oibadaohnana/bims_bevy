@@ -2079,10 +2079,11 @@ fn frame(
     // A right drag on the floor's chart draws the way this player means
     // to go up it, in their colour on everybody's chart, and Shift with
     // it rubs their lines out (`floormap::Sketches`). The lines stay up
-    // across the missions until rubbed out. A right click that never
-    // moved draws nothing: it picks the place under it, as a left click
-    // does (below, with the hover).
-    let mut right_click = false;
+    // across the missions until rubbed out. A right press on a place
+    // picks it at once, as a left click does (below, with the hover), and
+    // draws nothing until the pointer leaves the place still held; a
+    // right click anywhere draws nothing.
+    let mut right_press = false;
     {
         let me = screen.net.slot;
         let s = &mut *screen;
@@ -2090,15 +2091,21 @@ fn frame(
             s.sketches.release();
         } else if let Some(p) = on_galaxy.filter(|_| pointer.secondary_pressed) {
             let at = egui::pos2(galaxy_rect.min.x + p.x, galaxy_rect.min.y + p.y);
+            let place = session
+                .game
+                .as_ref()
+                .and_then(|g| g.world.floor())
+                .and_then(|floor| s.floor_chart.zone(chart_area, floor, at));
             s.sketches
-                .press(me, &s.floor_chart, chart_area, at, pointer.shift);
+                .press(me, &s.floor_chart, chart_area, at, pointer.shift, place);
+            right_press = !pointer.shift;
         } else if s.sketches.busy() {
             match pointer.pos.filter(|_| pointer.secondary_down) {
                 Some(p) => {
                     let at = egui::pos2(p.x, p.y);
                     s.sketches.drag(me, &s.floor_chart, chart_area, at);
                 }
-                None => right_click = s.sketches.release(),
+                None => s.sketches.release(),
             }
         }
         if s.sketches.busy() {
@@ -2229,7 +2236,7 @@ fn frame(
                     screen.world_map.pick_star(star);
                 }
             }
-            if right_click && let Some(star) = hovered.and_then(star_of) {
+            if right_press && let Some(star) = hovered.and_then(star_of) {
                 screen.picked_star = Some(star);
                 screen.world_map.pick_star(star);
             }
