@@ -8189,3 +8189,8 @@ still `BONUS_WAVE_XP_PERCENT` (50). Modelled solo at the Heart: safe
 €553k, two elites and every other bonus wave €645k, three elites and
 every bonus wave €744k, four elites and every bonus wave €777k (it was
 €1.04M), four late elites alone €673k.
+
+`BONUS_WAVE_MONEY_PERCENT` 25 → 29 (the player's: "I want to have it be
+800k when greedy"): four elites and every bonus wave €802k solo at the
+Heart; two elites and every other bonus wave €656k, three and every one
+€768k; safe €553k unchanged.

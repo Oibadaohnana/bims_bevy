@@ -164,7 +164,7 @@ there is no helm to stand at and no trip to sit through.
   its enemies, as its experience is: €850 a player on the first day,
   seventeen per cent more every day (€3 490 on day ten, €16 790 on day
   twenty, €80 690 on day thirty), half as much again at an elite, a
-  quarter again for the bonus wave, a Husk a tenth less and a Warden a
+  29% again for the bonus wave, a Husk a tenth less and a Warden a
   tenth more — but
   it is **pending**, "+€ n on clear" along the top, until the place is
   **cleared**: no machine left there and none still to come. Then it is

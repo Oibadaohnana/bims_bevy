@@ -527,8 +527,11 @@ pub const BONUS_WAVE_SIZE_PERCENT: u32 = 150;
 /// ...worth this much of the site's experience on top, in per cent...
 pub const BONUS_WAVE_XP_PERCENT: u32 = 50;
 /// ...and this much of its money (October 2026: half, as the
-/// experience, until a bonus wave at every fight came to too much).
-pub const BONUS_WAVE_MONEY_PERCENT: u32 = 25;
+/// experience, until a bonus wave at every fight came to too much; then
+/// a quarter; 29 puts a lone player taking four elites and a bonus wave
+/// at every fight at €802k at the Heart, the player's "800k when
+/// greedy").
+pub const BONUS_WAVE_MONEY_PERCENT: u32 = 29;
 /// A player below the best level among the players gets this much more
 /// of every enemy's experience, in per cent: a player dead and bought
 /// back, or joined late, catches up.
