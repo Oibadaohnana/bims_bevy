@@ -82,7 +82,7 @@
             ];
             # ALSA is linked, not opened at run time: cpal, under Bevy's
             # audio, finds it through pkg-config. The sounds themselves are
-            # bytes in the binary (`crates/app/sounds/`), so nothing else
+            # bytes in the binary (`Sounds/game/`), so nothing else
             # is installed.
             buildInputs = [ pkgs.alsa-lib ];
 

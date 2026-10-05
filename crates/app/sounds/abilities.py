@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The classes' abilities as clips: one `.ogg` beside this script an ability.
+"""The classes' abilities as clips: one `.ogg` in `Sounds/game/` an ability.
 
 There are no recordings of a sentry unfolding or a cloak coming up, so
 these are built: the physical parts of each sound modelled one at a time
@@ -10,7 +10,10 @@ with a recording from `Sounds/` under the ones that have a near relative
 there (the explosion under the grenade, the engine under the dropship,
 the holster's leather under the soldier's kit). Everything is seeded, so
 a run makes the same sound twice; like `prepare.sh`, a run re-encodes and
-the Ogg serials differ, so put back the clips not meant to change.
+the Ogg serials differ, so put back the clips not meant to change. The
+clips in `Sounds/game/` are the player's to edit by hand (its
+`README.md`), so name the ones you mean to re-make
+(`abilities.py downed revived`) rather than running the lot.
 
     nix-shell -p "python3.withPackages(ps: [ps.numpy ps.scipy])" \\
         --run "python3 crates/app/sounds/abilities.py"     # wants ffmpeg
@@ -29,6 +32,7 @@ from scipy import signal
 SR = 48000
 HERE = os.path.dirname(os.path.abspath(__file__))
 SRC = os.path.join(HERE, "..", "..", "..", "Sounds")
+OUT = os.path.join(SRC, "game")
 
 
 # --- the parts -------------------------------------------------------------
@@ -189,7 +193,7 @@ def save(name, x, fade_out=0.03):
     subprocess.run(
         ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
          "-f", "f32le", "-ar", str(SR), "-ac", "1", "-i", "-",
-         "-c:a", "libvorbis", "-q:a", "5", os.path.join(HERE, name + ".ogg")],
+         "-c:a", "libvorbis", "-q:a", "5", os.path.join(OUT, name + ".ogg")],
         input=x.astype(np.float32).tobytes(), check=True,
     )
     print(f"{name}.ogg  ({n / SR:.2f}s)")

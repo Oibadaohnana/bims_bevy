@@ -9,7 +9,7 @@
 // These sit under the Esc sheet's audio page: master, effects (every
 // one-shot below) and ambience (the five loops) still turn the lot.
 //
-// A sound is named as its clip in crates/app/sounds/ is, and a clip heard
+// A sound is named as its clip in Sounds/game/ is, and a clip heard
 // in several places is turned in all of them — but a weapon that borrows
 // another's report has its own line at the end.
 (

@@ -1,11 +1,17 @@
 #!/usr/bin/env bash
 # The recordings in `Sounds/` (at the repository root, left exactly as they
 # were recorded) cut and filtered into the clips the app plays, one `.ogg`
-# beside this script per clip. `sound.rs` embeds these with `include_bytes!`,
+# per clip in `Sounds/game/`. `sound.rs` embeds these with `include_bytes!`,
 # so a re-run of this script is a rebuild of the app, and nothing is read
 # from disk at run time.
 #
-#     crates/app/sounds/prepare.sh        # wants ffmpeg with libvorbis
+#     crates/app/sounds/prepare.sh                     # every clip below
+#     crates/app/sounds/prepare.sh smoke_bang smoke_out   # only those
+#
+# Wants ffmpeg with libvorbis (`nix-shell shell.nix` has it). The clips in
+# `Sounds/game/` are the player's to edit by hand (its `README.md`), so a
+# clip may no longer be what this script makes of its recording: name the
+# clips you mean to re-make, and leave the rest as they are.
 #
 # What is done to each and why is beside it below. The rule throughout: a
 # one-shot is cut to the event with a few milliseconds either side and its
@@ -15,10 +21,11 @@
 # not a click; and the two ambiences are brought down well below the
 # recordings, which were made close up, to sit under everything else.
 #
-# A run re-encodes every clip, and an Ogg stream carries a random serial
-# number, so the clips that were not meant to change come out different
-# bytes of the same length: put those back from the tree (`git show
-# HEAD:crates/app/sounds/x.ogg > x.ogg`) so the diff is the clips that did.
+# A run with no names re-encodes every clip, and an Ogg stream carries a
+# random serial number, so the clips that were not meant to change come
+# out different bytes of the same length, and a hand edit is lost: put
+# those back from the tree (`git show HEAD:Sounds/game/x.ogg >
+# Sounds/game/x.ogg`) so the diff is the clips that did.
 #
 # Silence at the start of every recording was measured with
 # `silencedetect`, the onsets of the one-shots with a 5 ms RMS envelope,
@@ -27,8 +34,17 @@ set -euo pipefail
 
 here=$(cd "$(dirname "$0")" && pwd)
 src="$here/../../../Sounds"
-out="$here"
+out="$src/game"
 ff=(ffmpeg -hide_banner -loglevel error -y)
+
+# The clips named on the command line; none is every clip.
+only=("$@")
+wanted() {
+    [ ${#only[@]} -eq 0 ] && return 0
+    local n
+    for n in "${only[@]}"; do [ "$n" = "$1" ] && return 0; done
+    return 1
+}
 # `-vn`: some recordings carry cover art, which would be encoded as a
 # video stream beside the sound.
 enc=(-vn -ar 48000 -c:a libvorbis -q:a 5)
@@ -58,6 +74,7 @@ peak_gain() {
 # recording make one of the clip, for a filter that slows or hurries it.
 shot() {
     local name=$1 file=$2 from=$3 length=$4 filter=$5 fade_out=${6:-0.03} stretch=${7:-1}
+    wanted "$name" || return 0
     local margin=0.25
     local start
     start=$(awk -v f="$from" -v m="$margin" -v s="$stretch" 'BEGIN { printf "%.4f", f - m * s }')
@@ -79,6 +96,7 @@ shot() {
 # loop plays for minutes, so it is levelled by loudness rather than peak.
 loop() {
     local name=$1 file=$2 from=$3 to=$4 xfade=$5 filter=$6 lufs=$7
+    wanted "$name" || return 0
     local head
     head=$(awk -v f="$from" -v x="$xfade" 'BEGIN { print f - x }')
     local graph="[0:a]$mono,$filter,asplit[x][y];
@@ -232,5 +250,8 @@ shot smoke_out Smoke_running_and_going_out.mp3 3.0 2.05 "highpass=f=60" 0.30
 # twentieth of a second after it, each with a few milliseconds' rise so
 # neither clicks — peaking well under the others, since it rings for
 # every enemy of a fight.
-"${ff[@]}" -f lavfi -i "aevalsrc='0.45*sin(2*PI*1319*t)*exp(-t*28)*(1-exp(-t*500)) + 0.4*gt(t,0.055)*sin(2*PI*1976*(t-0.055))*exp(-(t-0.055)*16)*(1-exp(-(t-0.055)*500))':d=0.35:s=48000" \
-  -af "afade=t=out:st=0.28:d=0.07,alimiter=limit=0.89" -ac 1 "${enc[@]}" "$out/reward.ogg"
+if wanted reward; then
+    "${ff[@]}" -f lavfi -i "aevalsrc='0.45*sin(2*PI*1319*t)*exp(-t*28)*(1-exp(-t*500)) + 0.4*gt(t,0.055)*sin(2*PI*1976*(t-0.055))*exp(-(t-0.055)*16)*(1-exp(-(t-0.055)*500))':d=0.35:s=48000" \
+      -af "afade=t=out:st=0.28:d=0.07,alimiter=limit=0.89" -ac 1 "${enc[@]}" "$out/reward.ogg"
+    echo "reward.ogg  (synthesised)"
+fi

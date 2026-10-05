@@ -301,11 +301,15 @@ plus `wire` and `server` (the relay, `bims-server`).
   family of colours (soldier blue, engineer amber, medic green, tank red,
   commander violet) on a shaded plate. A new ability is a `Glyph`, an arm
   in `Glyph::of` and a figure; convex pieces only.
-- Clips are `include_bytes!`'d `.ogg`s made by
-  `crates/app/sounds/prepare.sh` (cut from `Sounds/`) and
-  `crates/app/sounds/abilities.py` (the classes' abilities, synthesised,
-  played off the world's ability events by `Sounds::ability`); every
-  level lives in `sound.rs`'s tables.
+- Clips are `include_bytes!`'d `.ogg`s in `Sounds/game/` made by
+  `crates/app/sounds/prepare.sh` (cut from the recordings in `Sounds/`)
+  and `crates/app/sounds/abilities.py` (the classes' abilities,
+  synthesised, played off the world's ability events by
+  `Sounds::ability`); every level lives in `sound.rs`'s tables. **The
+  player edits those clips by hand** (`Sounds/game/README.md`), so run
+  either script only with the names of the clips you mean to re-make
+  (`prepare.sh smoke_bang`, `abilities.py downed`) — a bare run
+  overwrites every clip — and a new clip wants its line in that README.
 
 ## Editing gotchas
 
