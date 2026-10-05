@@ -1221,6 +1221,11 @@ pub struct Sentry {
     /// `facing`.
     #[cfg_attr(feature = "serde", serde(skip))]
     pub flash: f32,
+    /// The crew member who laid it, whose colour its bolts are drawn in
+    /// ([`Combat::fire_for`]). Drawing only, like `facing`: said by the
+    /// world with the rest every step.
+    #[cfg_attr(feature = "serde", serde(skip))]
+    pub owner: Option<usize>,
 }
 
 /// How fast a sentry's barrel swings round to its target, radians a
@@ -1784,6 +1789,12 @@ pub struct Bolt {
     /// or `None` for a friendly bolt and a hostile one nobody named.
     #[cfg_attr(feature = "serde", serde(default))]
     pub shooter: Option<usize>,
+    /// Whose colour it is drawn in ([`Combat::hues`]): the crew member
+    /// whose hand fired it, or the engineer whose sentry did (October
+    /// 2026). Drawing only — no rule reads it, where `by` is the
+    /// rampage's and the crits' — and `None` is the side's colour.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub colour: Option<usize>,
 }
 
 impl Bolt {
@@ -2211,6 +2222,11 @@ pub struct Combat {
     /// reads it and it is never saved.
     #[cfg_attr(feature = "serde", serde(skip))]
     pub hues: Vec<Option<Color>>,
+    /// Whose colour the bolt being fired now is drawn in when no hand
+    /// of the crew's fired it: the engineer's, for his sentry
+    /// ([`Combat::fire_for`]). `None` outside that call.
+    #[cfg_attr(feature = "serde", serde(skip))]
+    firing_for: Option<usize>,
 }
 
 /// The colour a shot is drawn in: the enemy's red for a hostile one,
@@ -2227,13 +2243,14 @@ fn shot_hue(hues: &[Option<Color>], hostile: bool, by: Option<usize>) -> Color {
 impl Combat {
     /// The colour `bolt` is drawn in ([`Combat::hues`]).
     pub fn hue_of(&self, bolt: &Bolt) -> Color {
-        shot_hue(&self.hues, bolt.hostile, bolt.by)
+        shot_hue(&self.hues, bolt.hostile, bolt.colour)
     }
 
     pub fn new(seed: u64) -> Combat {
         Combat {
             fx: Fx::default(),
             hues: Vec::new(),
+            firing_for: None,
             targets: Vec::new(),
             machines: Vec::new(),
             machines_cross: 0,
@@ -2849,7 +2866,7 @@ impl Combat {
                 tail,
                 bolt.pos,
                 bolt.weapon,
-                shot_hue(&self.hues, bolt.hostile, bolt.by),
+                shot_hue(&self.hues, bolt.hostile, bolt.colour),
             );
         }
         for g in &self.grenades {
@@ -3315,6 +3332,22 @@ impl Combat {
         self.fire_as(from, at, weapon, hostile, moving, &Skill::NONE, None);
     }
 
+    /// A sentry's shot: [`Combat::fire_as`] by nobody's hand, its bolt and
+    /// its muzzle drawn in the colour of crew member `owner`, the engineer
+    /// who laid it (October 2026). The same rolls as `fire_as`.
+    pub fn fire_for(
+        &mut self,
+        owner: Option<usize>,
+        from: Vec2,
+        at: Vec2,
+        weapon: Weapon,
+        skill: &Skill,
+    ) {
+        self.firing_for = owner;
+        self.fire_as(from, at, weapon, false, false, skill, None);
+        self.firing_for = None;
+    }
+
     /// [`Combat::fire`] by a shooter with a [`Skill`] — a soldier's, or
     /// [`Skill::NONE`] — and, for a Bim's own bolt, whose it is. The one
     /// hit calculation: the odds are the weapon's through the skill at
@@ -3406,9 +3439,10 @@ impl Combat {
         // (`Game::lit_muzzle`): mostly in another room, where `from` here
         // is only the seam's point for it, and a machine's shot leaves
         // from its middle rather than from its gun.
+        let colour = by.or(self.firing_for);
         if !hostile {
             self.fx
-                .muzzle(from, dir, weapon, shot_hue(&self.hues, false, by));
+                .muzzle(from, dir, weapon, shot_hue(&self.hues, false, colour));
         }
         self.bolts.push(Bolt {
             pos: from,
@@ -3424,6 +3458,7 @@ impl Combat {
             dodged: None,
             struck: [None; balance::LANCE_RECALL],
             shooter: None,
+            colour,
         });
     }
 
@@ -3621,7 +3656,7 @@ impl Combat {
         let mut bounced: Vec<Bolt> = Vec::new();
         self.bolts.retain_mut(|bolt| {
             let mut flight = bolt.vel * dt;
-            let hue = shot_hue(hues, bolt.hostile, bolt.by);
+            let hue = shot_hue(hues, bolt.hostile, bolt.colour);
             let mut span = flight.len();
             if span > bolt.left {
                 flight = flight * (bolt.left / span.max(1e-6));
@@ -3864,6 +3899,7 @@ impl Combat {
                                 dodged: None,
                                 struck: [None; balance::LANCE_RECALL],
                                 shooter: None,
+                                colour: Some(plate.who),
                             });
                         }
                         fx.plate(at, out);
@@ -3957,7 +3993,7 @@ impl Combat {
         for bolt in &self.bolts {
             let dir = bolt.vel.normalize_or_zero();
             let head = bolt.pos;
-            let side = shot_hue(&self.hues, bolt.hostile, bolt.by);
+            let side = shot_hue(&self.hues, bolt.hostile, bolt.colour);
             let (w, h) = fx::tier_look(bolt.weapon.tier);
             let heat = fx::CORE_HEAT + h;
             match bolt.weapon.kind {
@@ -6137,6 +6173,30 @@ mod tests {
     /// at the shooter, who is hit by him; at a slant, out at the angle it
     /// came in. From behind the plate is nothing, a spent plate stops
     /// nothing, and a friendly bolt never asks it.
+    /// A bolt is drawn in its shooter's colour: a player's own, the
+    /// engineer's for his sentry's, which no hand fired and so names
+    /// nobody in `by`; the crew's blue for a bot and the red for an enemy.
+    #[test]
+    fn a_sentry_s_bolt_is_drawn_in_its_engineer_s_colour() {
+        let pistol = WeaponKind::LaserPistol.basic();
+        let teal = Color::rgb(0.1, 0.9, 0.8);
+        let rgb = |c: Color| (c.r, c.g, c.b);
+        let mut combat = Combat::new(7);
+        combat.hues = vec![None, Some(teal)];
+        let (from, at) = (middle(2.0, 2.0), middle(8.0, 2.0));
+        combat.fire_for(Some(1), from, at, pistol, &Skill::NONE);
+        combat.fire_as(from, at, pistol, false, false, &Skill::NONE, Some(0));
+        combat.fire_as(from, at, pistol, true, false, &Skill::NONE, None);
+        let [sentry, bot, enemy] = [0, 1, 2].map(|i| combat.bolts[i]);
+        assert_eq!(sentry.by, None, "a sentry's bolt is still nobody's hand");
+        assert_eq!(rgb(combat.hue_of(&sentry)), rgb(teal));
+        assert_eq!(rgb(combat.hue_of(&bot)), rgb(FRIENDLY_BOLT));
+        assert_eq!(rgb(combat.hue_of(&enemy)), rgb(HOSTILE_BOLT));
+        // And the next shot fired is nobody's colour again.
+        combat.fire_as(from, at, pistol, false, false, &Skill::NONE, None);
+        assert_eq!(rgb(combat.hue_of(&combat.bolts[3])), rgb(FRIENDLY_BOLT));
+    }
+
     #[test]
     fn a_riot_shield_stops_a_bolt_from_the_front_and_bounces_it_back() {
         let (sight, _) = room_with(&[]);

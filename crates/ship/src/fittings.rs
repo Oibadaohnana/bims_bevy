@@ -1955,8 +1955,10 @@ const TURRET_LASER_REACH: f32 = 1.6;
 /// the plate, and on it a **head that turns** — `facing` radians in the
 /// room's frame, nought east — an armoured drum carrying twin minigun
 /// barrels, a glowing eye, a faint aiming laser, and a flash at the
-/// muzzles while `flash` is above nought. `scale` is how much bigger
-/// than a tile it is drawn.
+/// muzzles while `flash` is above nought. The flash is in `hue`, the colour of
+/// the engineer who laid it (its bolts', October 2026), lit past white,
+/// or a warm white for nobody's. `scale` is how much bigger than a tile
+/// it is drawn.
 pub(crate) fn turret(
     list: &mut DrawList,
     part: &PlacedPart,
@@ -1964,6 +1966,7 @@ pub(crate) fn turret(
     scale: f32,
     facing: f32,
     flash: f32,
+    hue: Option<Color>,
 ) {
     let (local, across, along) = Local::of(part);
     let side = across.min(along) * scale;
@@ -2083,6 +2086,10 @@ pub(crate) fn turret(
     // The flash at both muzzles, fading as it runs out.
     if flash > 0.0 {
         let bright = (flash / bims::combat::SENTRY_FLASH).clamp(0.0, 1.0);
+        let lit = hue.map_or(TURRET_FLASH, |c| {
+            let hot = |v: f32| (v * 0.6 + 0.4) * 2.2;
+            Color::rgb(hot(c.r), hot(c.g), hot(c.b))
+        });
         for v in [-0.075, 0.075] {
             let (mx, my) = at(side * 0.78, v * side);
             list.push(
@@ -2094,7 +2101,7 @@ pub(crate) fn turret(
                 facing,
                 0.0,
                 0.0,
-                TURRET_FLASH,
+                lit,
             );
         }
     }

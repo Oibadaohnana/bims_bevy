@@ -8426,6 +8426,9 @@ impl World {
                     trigger: bims::combat::Trigger::default(),
                     facing: 0.0,
                     flash: 0.0,
+                    // Slot *i* steers crew member *i*: its bolts are drawn
+                    // in the engineer's colour.
+                    owner: Some(d.owner_slot as usize),
                 })
             })
             .collect();

@@ -631,7 +631,13 @@ fn deployables(game: &Game, list: &mut DrawList) {
                     .iter()
                     .find(|s| s.id == d.id)
                     .map_or((0.0, 0.0), |s| (s.facing, s.flash));
-                crate::fittings::turret(list, &part, health, SENTRY_DRAWN, facing, flash);
+                // Its flash in the engineer's colour, as its bolts are.
+                let room = &game.world.aboard.room;
+                let hue = room.tint(d.owner_slot as usize).map(|tint| {
+                    let c = tint.shot();
+                    Color::rgb(c.r, c.g, c.b)
+                });
+                crate::fittings::turret(list, &part, health, SENTRY_DRAWN, facing, flash, hue);
             }
         }
     }

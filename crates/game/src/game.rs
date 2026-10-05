@@ -2253,15 +2253,8 @@ impl Game {
                 self.sentries[i].turn_toward(to.y.atan2(to.x), dt);
                 if self.sentries[i].trigger.pull(dt, &stats) {
                     self.sentries[i].flash = crate::combat::SENTRY_FLASH;
-                    self.combat.fire_as(
-                        sentry.at,
-                        at,
-                        sentry.weapon,
-                        false,
-                        false,
-                        &sentry.skill,
-                        None,
-                    );
+                    self.combat
+                        .fire_for(sentry.owner, sentry.at, at, sentry.weapon, &sentry.skill);
                 }
             }
         }
