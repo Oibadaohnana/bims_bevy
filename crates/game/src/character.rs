@@ -379,6 +379,12 @@ const DYE: f32 = 0.45;
 const KIT_REPUBLIC: Color = Color::rgb(0.25, 0.28, 0.33);
 const KIT_REPUBLIC_FACE: Color = Color::rgb(0.40, 0.44, 0.50);
 const REPUBLIC_DYE: f32 = 0.80;
+/// How far a Republic soldier's plate is tinted towards its player's
+/// colour (October 2026): the coverall under it and the face of each
+/// pauldron, so a squad is its commander's at a glance and not only by
+/// the trim.
+const REPUBLIC_TINT: f32 = 0.22;
+const REPUBLIC_PAULDRON_TINT: f32 = 0.45;
 /// A Republic medic's white plate and the red cross on it
 /// ([`Outfit::RepublicMedic`]).
 const REPUBLIC_MEDIC_WHITE: Color = Color::rgb(0.94, 0.95, 0.96);
@@ -560,7 +566,9 @@ impl Outfit {
             Outfit::Medic => Some(KIT_MEDIC),
             Outfit::Tank => Some(KIT_TANK),
             Outfit::Commander => Some(KIT_COMMANDER),
-            Outfit::Republic(_) | Outfit::RepublicMedic(_) => Some(KIT_REPUBLIC),
+            Outfit::Republic(tint) | Outfit::RepublicMedic(tint) => {
+                Some(KIT_REPUBLIC.mix(tint.colour(), REPUBLIC_TINT))
+            }
             Outfit::Defender => Some(KIT_DEFENDER),
         }
     }
@@ -780,20 +788,32 @@ impl Tint {
         (c.r, c.g, c.b)
     }
 
+    /// Six hues spread round the wheel and kept clear of the enemy's red
+    /// (October 2026, the player's word: more distinguishable and more
+    /// coloured). The first was the pale [`ACCENT`] and the rest pastels,
+    /// two pairs of which — the teal and the lime, the sky and the
+    /// violet — read alike at a glance.
     pub(crate) fn colour(self) -> Color {
         match self {
-            // The first is the accent every other thing the player
-            // steers is already drawn in, so the default look does not
-            // change at all.
-            Tint::Teal => ACCENT,
-            Tint::Amber => Color::rgb(1.0, 0.75, 0.28),
-            Tint::Rose => Color::rgb(0.95, 0.48, 0.58),
-            Tint::Violet => Color::rgb(0.70, 0.58, 0.95),
-            Tint::Sky => Color::rgb(0.45, 0.72, 0.98),
-            Tint::Lime => Color::rgb(0.70, 0.90, 0.38),
+            Tint::Teal => Color::rgb(0.08, 0.88, 0.80),
+            Tint::Amber => Color::rgb(1.0, 0.56, 0.08),
+            Tint::Rose => Color::rgb(1.0, 0.30, 0.70),
+            Tint::Violet => Color::rgb(0.62, 0.38, 1.0),
+            Tint::Sky => Color::rgb(0.18, 0.44, 1.0),
+            Tint::Lime => Color::rgb(0.64, 0.96, 0.12),
         }
     }
+
+    /// What its player's lasers are drawn in (`crate::combat::Combat::hues`):
+    /// the colour [`SHOT_SHADE`] as bright, so a bolt is the player's and
+    /// a little darker than the ring.
+    pub fn shot(self) -> Color {
+        self.colour().glowing(SHOT_SHADE)
+    }
 }
+
+/// How bright a player's shots are against the player's colour.
+const SHOT_SHADE: f32 = 0.82;
 
 impl Look {
     /// The classic pair: pale yoke and a dark crop, mauve yoke and brown
@@ -2276,6 +2296,17 @@ impl Character {
         self.tint
     }
 
+    /// Whose colour this body's fire is (October 2026): a player's own
+    /// Bim's ring, or the calling player's for a Republic soldier — the
+    /// bolts (`Game::refresh_hue`), the gun's emitter and a blade's edge.
+    /// `None` for everybody else, who fire the crew's blue.
+    pub fn shot_tint(&self) -> Option<Tint> {
+        self.tint.or(match self.outfit {
+            Outfit::Republic(tint) | Outfit::RepublicMedic(tint) => Some(tint),
+            _ => None,
+        })
+    }
+
     /// Say it, or take it away.
     pub fn set_tint(&mut self, tint: Option<Tint>) {
         self.tint = tint;
@@ -3341,7 +3372,11 @@ impl Character {
             let hilt = grip + vec2(2.0, 0.0);
             // In a hand the edge is lit, in its side's colour: the crew's
             // cyan, the enemy's red (feature 98).
-            let edge = if self.hostile { ENEMY } else { BLADE_EDGE };
+            let edge = if self.hostile {
+                ENEMY
+            } else {
+                self.shot_tint().map_or(BLADE_EDGE, Tint::colour)
+            };
             if self.action == Action::Swing {
                 // Swept across in front of the body, from the left to
                 // the right, the blade along the arc's radius.
@@ -3382,7 +3417,11 @@ impl Character {
         // pulled back, and drawn as it is held.
         let grip = self.held_grip(pose);
         let mut b = list.brush(to_world(grip), rot + self.held_rot(grip), blade);
-        let lit = if self.hostile { ENEMY } else { GUN_LIT };
+        let lit = if self.hostile {
+            ENEMY
+        } else {
+            self.shot_tint().map_or(GUN_LIT, Tint::shot)
+        };
         let t = self.reloading();
         // The rifle's magazine is out of it between the old one pulled
         // and the fresh one seated.
@@ -4048,7 +4087,7 @@ fn draw_class_rig(b: &mut Brush, outfit: Outfit) {
                     vec2(14.5, 10.0),
                     0.0,
                     4.0,
-                    KIT_REPUBLIC_FACE,
+                    KIT_REPUBLIC_FACE.mix(trim, REPUBLIC_PAULDRON_TINT),
                 );
                 b.rect(vec2(-1.0, 17.0 * side), vec2(12.5, 2.0), 0.0, 1.0, trim);
             }

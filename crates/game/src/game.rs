@@ -1626,7 +1626,9 @@ impl Game {
     /// from the machine's eye — so its own `fire_as` lights nothing, and
     /// the glow is the shooter's room's. Drawing only.
     fn lit_muzzle(&mut self, muzzle: Vec2, at: Vec2, weapon: Weapon) {
-        self.combat.fx.muzzle(muzzle, at - muzzle, weapon, true);
+        self.combat
+            .fx
+            .muzzle(muzzle, at - muzzle, weapon, crate::combat::HOSTILE_BOLT);
     }
 
     fn tick_combat(&mut self, dt: f32) {
@@ -7352,11 +7354,7 @@ impl Game {
             if dark < 0.05 {
                 continue;
             }
-            let side = if bolt.hostile {
-                crate::combat::HOSTILE_BOLT
-            } else {
-                crate::combat::FRIENDLY_BOLT
-            };
+            let side = self.combat.hue_of(bolt);
             let light = side.mix(Color::rgb(1.0, 1.0, 1.0), 0.35);
             // The rings' alphas pile up to the middle's.
             let each = BOLT_GLOW * dark / BOLT_GLOW_RINGS as f32;
@@ -8618,7 +8616,9 @@ impl Game {
         // (feature 98). Only a blade cuts, so it is a schword's.
         if cut {
             let blade = crate::combat::WeaponKind::Schword.basic();
-            self.combat.fx.cut(from, at, blade, true);
+            self.combat
+                .fx
+                .cut(from, at, blade, crate::combat::HOSTILE_BOLT);
         }
         true
     }
@@ -10411,6 +10411,7 @@ impl Game {
                 .then(|| tints.get(who).copied())
                 .flatten();
             self.bims[who].character.set_tint(tint);
+            self.refresh_hue(who);
         }
     }
 
@@ -10425,7 +10426,21 @@ impl Game {
     pub fn set_outfit(&mut self, who: usize, outfit: Outfit) {
         if who < self.bims.len() {
             self.bims[who].character.set_outfit(outfit);
+            self.refresh_hue(who);
         }
+    }
+
+    /// The colour Bim `who`'s shots are drawn in (`Combat::hues`): its
+    /// player's, for a player's own Bim and a Republic soldier one called
+    /// in, darkened for a laser (`Tint::shot`); nobody's for the rest, who
+    /// fire the crew's blue. Drawing only.
+    fn refresh_hue(&mut self, who: usize) {
+        let tint = self.bims[who].character.shot_tint();
+        let hues = &mut self.combat.hues;
+        if hues.len() < self.bims.len() {
+            hues.resize(self.bims.len(), None);
+        }
+        hues[who] = tint.map(Tint::shot);
     }
 
     /// A commander's reinforcement is a Republic soldier

@@ -50,11 +50,14 @@ use crate::math::{TAU, Vec2, clamp, vec2};
 /// [`CORE_TINT`] of the way from it, so the core reads white-hot and the
 /// halo round it says whose it is.
 pub const CORE_WHITE: Color = Color::rgb(0.92, 0.97, 1.0);
-/// How much of the side's colour is left in a core.
-pub const CORE_TINT: f32 = 0.4;
+/// How much of the side's colour is left in a core: 0.4 until the
+/// players' shots took their colours (October 2026), when the cores were
+/// drawn darker and more coloured so a shot says whose it is.
+pub const CORE_TINT: f32 = 0.6;
 /// How far past white a core is drawn, before its tier adds to it — the
 /// part the bloom picks up (feature 97: a channel past one is emissive).
-pub const CORE_HEAT: f32 = 2.4;
+/// 2.4 until the shots were drawn darker (October 2026).
+pub const CORE_HEAT: f32 = 1.9;
 /// What each tier above the first adds to a shot's width, as a share of
 /// it, and to its heat: a better gun is a little thicker and a little
 /// brighter, never another colour.
@@ -332,14 +335,18 @@ pub const SHIELD_FLARE_LIFE: f32 = 0.35;
 pub const SHIELD_FLARE_SPAN: f32 = 0.8;
 
 /// A side's colour: blue for the crew's fire, red for the enemy's —
-/// always, whatever the weapon.
+/// always, whatever the weapon. A player's own Bim and the Republic
+/// soldiers a commander called in fire in that player's colour instead
+/// (`crate::combat::Combat::hues`); every effect below takes the colour
+/// it is drawn in, its `hue`, rather than the side.
 pub fn side(hostile: bool) -> Color {
     if hostile { HOSTILE_BOLT } else { FRIENDLY_BOLT }
 }
 
-/// A side's core, `heat` times as bright: past white, so it blooms.
-pub fn hot(hostile: bool, heat: f32) -> Color {
-    side(hostile).mix(CORE_WHITE, 1.0 - CORE_TINT).glowing(heat)
+/// A shot's core in `hue`, `heat` times as bright: past white, so it
+/// blooms.
+pub fn hot(hue: Color, heat: f32) -> Color {
+    hue.mix(CORE_WHITE, 1.0 - CORE_TINT).glowing(heat)
 }
 
 /// What a tier does to a shot's look: its width multiplied, its heat
@@ -359,14 +366,13 @@ pub fn laser(
     head: Vec2,
     glow: f32,
     core: f32,
-    hostile: bool,
+    hue: Color,
     heat: f32,
     alpha: f32,
 ) {
-    let colour = side(hostile);
-    list.line(tail, head, glow, colour.alpha(0.26 * alpha));
-    list.line(tail, head, core + 1.4, colour.alpha(0.8 * alpha));
-    list.line(tail, head, core, hot(hostile, heat).alpha(alpha));
+    list.line(tail, head, glow, hue.alpha(0.26 * alpha));
+    list.line(tail, head, core + 1.4, hue.alpha(0.8 * alpha));
+    list.line(tail, head, core, hot(hue, heat).alpha(alpha));
 }
 
 /// A stable number in `[0, 1)` for the `i`th piece of effect number
@@ -439,7 +445,7 @@ enum Light {
 struct Flare {
     at: Vec2,
     light: Light,
-    hostile: bool,
+    hue: Color,
     width: f32,
     heat: f32,
     age: f32,
@@ -715,7 +721,7 @@ impl Fx {
 
     /// A bolt's wake this frame: a few motes along the stretch of its
     /// flight from `tail` to `head`, in its side's colour.
-    pub fn trail(&mut self, tail: Vec2, head: Vec2, weapon: Weapon, hostile: bool) {
+    pub fn trail(&mut self, tail: Vec2, head: Vec2, weapon: Weapon, hue: Color) {
         let (width, heat) = tier_look(weapon.tier);
         let (count, dot) = match weapon.kind {
             WeaponKind::SniperRifle | WeaponKind::RailLance | WeaponKind::Rail => {
@@ -728,7 +734,7 @@ impl Fx {
             Spray::new(SprayKind::Trail, tail, head)
                 .reach(5.0)
                 .life(TRAIL_LIFE)
-                .colour(hot(hostile, 1.1 + heat * 0.4))
+                .colour(hot(hue, 1.1 + heat * 0.4))
                 .count(count)
                 .dot(dot * width),
         );
@@ -773,7 +779,7 @@ impl Fx {
         );
     }
 
-    fn flare(&mut self, at: Vec2, light: Light, hostile: bool, weapon: Weapon, life: f32) {
+    fn flare(&mut self, at: Vec2, light: Light, hue: Color, weapon: Weapon, life: f32) {
         if !self.on || life <= 0.0 {
             return;
         }
@@ -790,7 +796,7 @@ impl Fx {
             Flare {
                 at,
                 light,
-                hostile,
+                hue,
                 width,
                 heat,
                 age: 0.0,
@@ -801,7 +807,7 @@ impl Fx {
     }
 
     /// A shot left a muzzle at `at`, along `dir`.
-    pub fn muzzle(&mut self, at: Vec2, dir: Vec2, weapon: Weapon, hostile: bool) {
+    pub fn muzzle(&mut self, at: Vec2, dir: Vec2, weapon: Weapon, hue: Color) {
         let (life, size) = muzzle_look(weapon.kind);
         let dir = dir.normalize_or_zero();
         if life > 0.0 {
@@ -817,7 +823,7 @@ impl Fx {
                 Spray::along(SprayKind::Sparks, at, dir)
                     .reach(size * 2.6)
                     .life(0.16)
-                    .colour(hot(hostile, 1.6 + heat))
+                    .colour(hot(hue, 1.6 + heat))
                     .count(count)
                     .spread(spread)
                     .dot(1.1 * width),
@@ -829,7 +835,7 @@ impl Fx {
                 dir,
                 kind: weapon.kind,
             },
-            hostile,
+            hue,
             weapon,
             life,
         );
@@ -844,7 +850,7 @@ impl Fx {
         at: Vec2,
         dir: Vec2,
         weapon: Weapon,
-        hostile: bool,
+        hue: Color,
         on_body: bool,
     ) {
         if !self.on {
@@ -854,7 +860,7 @@ impl Fx {
         self.flare(
             at,
             Light::Impact { dir, crit: false },
-            hostile,
+            hue,
             weapon,
             IMPACT_LIFE,
         );
@@ -866,7 +872,7 @@ impl Fx {
             Spray::along(SprayKind::Sparks, at, back)
                 .reach(if on_body { 16.0 } else { 24.0 } * width)
                 .life(0.3)
-                .colour(hot(hostile, 1.8 + heat))
+                .colour(hot(hue, 1.8 + heat))
                 .count(if on_body { 5 } else { 8 })
                 .spread(1.2)
                 .dot(1.2 * width),
@@ -893,12 +899,12 @@ impl Fx {
             weapon.kind,
             WeaponKind::SniperRifle | WeaponKind::RailLance | WeaponKind::Rail
         ) {
-            self.spent(from, at, weapon, hostile);
+            self.spent(from, at, weapon, hue);
         }
         // The last body a lance slug strikes flares like the ones it went
         // through.
         if on_body && matches!(weapon.kind, WeaponKind::RailLance | WeaponKind::Rail) {
-            self.pierced(at, dir, weapon, hostile);
+            self.pierced(at, dir, weapon, hue);
         }
         if on_body {
             return;
@@ -921,12 +927,12 @@ impl Fx {
     /// flare again at twice the size and the brightness — over a bolt's
     /// own flash, which it outshines, or alone for a blow. No words, no
     /// number.
-    pub fn critical(&mut self, at: Vec2, dir: Vec2, weapon: Weapon, hostile: bool) {
+    pub fn critical(&mut self, at: Vec2, dir: Vec2, weapon: Weapon, hue: Color) {
         let dir = dir.normalize_or_zero();
         self.flare(
             at,
             Light::Impact { dir, crit: true },
-            hostile,
+            hue,
             weapon,
             IMPACT_LIFE,
         );
@@ -935,7 +941,7 @@ impl Fx {
             Spray::along(SprayKind::Sparks, at, dir)
                 .reach(30.0)
                 .life(0.4)
-                .colour(hot(hostile, 2.6))
+                .colour(hot(hue, 2.6))
                 .count(14)
                 .spread(TAU)
                 .dot(1.6),
@@ -956,7 +962,7 @@ impl Fx {
             Flare {
                 at: to,
                 light: Light::Arc { from },
-                hostile: false,
+                hue: FRIENDLY_BOLT,
                 width: 1.0,
                 heat: 0.0,
                 age: 0.0,
@@ -978,13 +984,13 @@ impl Fx {
     /// A bolt that flew out its range and faded: only the sniper's beam
     /// or the rail lance's line is left of it, hanging from the muzzle to
     /// where it gave out.
-    pub fn spent(&mut self, from: Vec2, at: Vec2, weapon: Weapon, hostile: bool) {
+    pub fn spent(&mut self, from: Vec2, at: Vec2, weapon: Weapon, hue: Color) {
         match weapon.kind {
             WeaponKind::SniperRifle => {
-                self.flare(at, Light::Beam { from }, hostile, weapon, BEAM_LINGER);
+                self.flare(at, Light::Beam { from }, hue, weapon, BEAM_LINGER);
             }
             WeaponKind::RailLance | WeaponKind::Rail => {
-                self.flare(at, Light::Rail { from }, hostile, weapon, RAIL_LINGER);
+                self.flare(at, Light::Rail { from }, hue, weapon, RAIL_LINGER);
             }
             _ => {}
         }
@@ -992,15 +998,15 @@ impl Fx {
 
     /// A rail lance's slug went through a body at `at`, flying along
     /// `dir` (task 115): a ring flares across the line there.
-    pub fn pierced(&mut self, at: Vec2, dir: Vec2, weapon: Weapon, hostile: bool) {
+    pub fn pierced(&mut self, at: Vec2, dir: Vec2, weapon: Weapon, hue: Color) {
         let dir = dir.normalize_or_zero();
-        self.flare(at, Light::Pierce { dir }, hostile, weapon, PIERCE_LIFE);
+        self.flare(at, Light::Pierce { dir }, hue, weapon, PIERCE_LIFE);
         // Sparks blown out of the far side, along the slug's way.
         self.spray(
             Spray::along(SprayKind::Sparks, at, dir)
                 .reach(26.0)
                 .life(0.3)
-                .colour(hot(hostile, 2.0))
+                .colour(hot(hue, 2.0))
                 .count(8)
                 .spread(0.7)
                 .dot(1.4),
@@ -1009,9 +1015,9 @@ impl Fx {
 
     /// A blade's blow landed: the cut glows round the swinger at `from`,
     /// facing `toward`.
-    pub fn cut(&mut self, from: Vec2, toward: Vec2, weapon: Weapon, hostile: bool) {
+    pub fn cut(&mut self, from: Vec2, toward: Vec2, weapon: Weapon, hue: Color) {
         let facing = (toward - from).angle();
-        self.flare(from, Light::Cut { facing }, hostile, weapon, CUT_LIFE);
+        self.flare(from, Light::Cut { facing }, hue, weapon, CUT_LIFE);
         // Sparks off the edge where it met, thrown on round the swing.
         let way = Vec2::from_angle(facing);
         self.spray(
@@ -1022,7 +1028,7 @@ impl Fx {
             )
             .reach(20.0)
             .life(0.25)
-            .colour(hot(hostile, 2.0))
+            .colour(hot(hue, 2.0))
             .count(6)
             .spread(0.6)
             .dot(1.2),
@@ -1048,7 +1054,7 @@ impl Fx {
         self.flare(
             at,
             Light::Shield { centre },
-            true,
+            HOSTILE_BOLT,
             WeaponKind::Sweeper.basic(),
             SHIELD_FLARE_LIFE,
         );
@@ -1057,7 +1063,7 @@ impl Fx {
             Spray::along(SprayKind::Sparks, at, at - centre)
                 .reach(18.0)
                 .life(0.3)
-                .colour(hot(true, 1.8))
+                .colour(hot(HOSTILE_BOLT, 1.8))
                 .count(6)
                 .spread(1.0)
                 .dot(1.2),
@@ -1071,7 +1077,7 @@ impl Fx {
             Spray::along(SprayKind::Sparks, at, out)
                 .reach(22.0)
                 .life(0.3)
-                .colour(hot(false, 2.0))
+                .colour(hot(FRIENDLY_BOLT, 2.0))
                 .count(8)
                 .spread(0.7)
                 .dot(1.3),
@@ -1217,7 +1223,7 @@ impl Fx {
                         f.at,
                         6.0 * w,
                         1.6 * w,
-                        f.hostile,
+                        f.hue,
                         1.6 + f.heat,
                         t * t,
                     );
@@ -1231,7 +1237,7 @@ impl Fx {
                         f.at,
                         9.0 * w,
                         3.0 * w,
-                        f.hostile,
+                        f.hue,
                         2.0 + f.heat,
                         t * t,
                     );
@@ -1240,12 +1246,8 @@ impl Fx {
                     // A ring swelling where it went through, and a short
                     // bar of light across the line.
                     let size = PIERCE_SIZE * f.width;
-                    list.circle(
-                        f.at,
-                        size * (1.0 + 0.8 * (1.0 - t)),
-                        side(f.hostile).alpha(0.4 * t),
-                    );
-                    list.circle(f.at, size * 0.45 * t, hot(f.hostile, 2.4 + f.heat).alpha(t));
+                    list.circle(f.at, size * (1.0 + 0.8 * (1.0 - t)), f.hue.alpha(0.4 * t));
+                    list.circle(f.at, size * 0.45 * t, hot(f.hue, 2.4 + f.heat).alpha(t));
                     let across = dir.perp() * (size * (0.6 + 0.6 * (1.0 - t)));
                     laser(
                         list,
@@ -1253,7 +1255,7 @@ impl Fx {
                         f.at + across,
                         4.0 * f.width,
                         1.4 * f.width,
-                        f.hostile,
+                        f.hue,
                         2.0 + f.heat,
                         t,
                     );
@@ -1337,12 +1339,12 @@ fn draw_arc(list: &mut DrawList, f: &Flare, from: Vec2, t: f32) {
 fn draw_muzzle(list: &mut DrawList, f: &Flare, dir: Vec2, kind: WeaponKind, t: f32) {
     let (_, size) = muzzle_look(kind);
     let size = size * f.width;
-    let colour = side(f.hostile);
+    let colour = f.hue;
     list.circle(f.at, size * 2.6 * (0.7 + 0.3 * t), colour.alpha(0.35 * t));
     list.circle(
         f.at,
         size * (0.5 + 0.5 * t),
-        hot(f.hostile, 2.0 + f.heat).alpha(t),
+        hot(f.hue, 2.0 + f.heat).alpha(t),
     );
     match kind {
         WeaponKind::Shotgun => {
@@ -1356,7 +1358,7 @@ fn draw_muzzle(list: &mut DrawList, f: &Flare, dir: Vec2, kind: WeaponKind, t: f
                     f.at + d * (MUZZLE_RAY * f.width * (0.6 + 0.4 * t)),
                     3.0,
                     1.1,
-                    f.hostile,
+                    f.hue,
                     1.6 + f.heat,
                     t,
                 );
@@ -1369,7 +1371,7 @@ fn draw_muzzle(list: &mut DrawList, f: &Flare, dir: Vec2, kind: WeaponKind, t: f
                 f.at + dir * (MUZZLE_SPIKE * f.width),
                 4.0,
                 1.4,
-                f.hostile,
+                f.hue,
                 2.0 + f.heat,
                 t,
             );
@@ -1383,7 +1385,7 @@ fn draw_muzzle(list: &mut DrawList, f: &Flare, dir: Vec2, kind: WeaponKind, t: f
                 f.at + dir * (MUZZLE_SPIKE * 1.5 * f.width),
                 6.0,
                 2.4,
-                f.hostile,
+                f.hue,
                 2.4 + f.heat,
                 t,
             );
@@ -1391,7 +1393,7 @@ fn draw_muzzle(list: &mut DrawList, f: &Flare, dir: Vec2, kind: WeaponKind, t: f
                 f.at,
                 size * 1.3 * (1.2 - 0.2 * t),
                 1.6,
-                side(f.hostile).alpha(0.6 * t),
+                f.hue.alpha(0.6 * t),
             );
         }
         _ => {}
@@ -1401,7 +1403,7 @@ fn draw_muzzle(list: &mut DrawList, f: &Flare, dir: Vec2, kind: WeaponKind, t: f
 fn draw_impact(list: &mut DrawList, f: &Flare, dir: Vec2, t: f32, crit: bool) {
     // A critical hit (task 124): twice the size, twice the brightness.
     let (size, bright) = if crit { (2.0, 2.0) } else { (1.0, 1.0) };
-    let colour = side(f.hostile);
+    let colour = f.hue;
     list.circle(
         f.at,
         (10.0 + 14.0 * (1.0 - t)) * f.width * size,
@@ -1410,7 +1412,7 @@ fn draw_impact(list: &mut DrawList, f: &Flare, dir: Vec2, t: f32, crit: bool) {
     list.circle(
         f.at,
         6.0 * t * f.width * size,
-        hot(f.hostile, (2.2 + f.heat) * bright).alpha(t),
+        hot(f.hue, (2.2 + f.heat) * bright).alpha(t),
     );
     // A few rays thrown back the way the bolt came, fanned.
     let back = dir * -1.0;
@@ -1422,7 +1424,7 @@ fn draw_impact(list: &mut DrawList, f: &Flare, dir: Vec2, t: f32, crit: bool) {
             f.at + d * (reach * 0.4),
             f.at + d * reach,
             1.2 * size,
-            hot(f.hostile, (1.6 + f.heat) * bright).alpha(t),
+            hot(f.hue, (1.6 + f.heat) * bright).alpha(t),
         );
     }
 }
@@ -1442,7 +1444,7 @@ fn draw_cut(list: &mut DrawList, f: &Flare, facing: f32, t: f32) {
             next,
             7.0 * f.width,
             2.0 * f.width * (0.5 + 0.5 * t),
-            f.hostile,
+            f.hue,
             2.0 + f.heat,
             t * mid,
         );
@@ -1460,7 +1462,7 @@ fn draw_shield_flare(list: &mut DrawList, f: &Flare, centre: Vec2, t: f32) {
     let out = f.at - centre;
     let radius = out.len().max(1.0);
     let mid = out.angle();
-    let colour = side(f.hostile);
+    let colour = f.hue;
     let span = SHIELD_FLARE_SPAN * (0.6 + 0.4 * (1.0 - t));
     let at = |a: f32, r: f32| centre + Vec2::from_angle(a) * r;
     for i in 0..STEPS {
@@ -1478,7 +1480,7 @@ fn draw_shield_flare(list: &mut DrawList, f: &Flare, centre: Vec2, t: f32) {
             at(a0, radius + 2.5),
             at(a1, radius + 2.5),
             2.0,
-            hot(f.hostile, 1.4 + 1.2 * near).alpha(t * near),
+            hot(f.hue, 1.4 + 1.2 * near).alpha(t * near),
         );
     }
 }
@@ -1534,13 +1536,13 @@ mod tests {
     #[test]
     fn nothing_is_recorded_until_a_host_ages_it_and_a_flash_lives_real_seconds() {
         let mut fx = Fx::default();
-        fx.muzzle(Vec2::ZERO, vec2(1.0, 0.0), pistol(), false);
+        fx.muzzle(Vec2::ZERO, vec2(1.0, 0.0), pistol(), FRIENDLY_BOLT);
         fx.landed(
             Vec2::ZERO,
             vec2(50.0, 0.0),
             vec2(1.0, 0.0),
             pistol(),
-            false,
+            FRIENDLY_BOLT,
             false,
         );
         fx.struck(0, 1);
@@ -1555,7 +1557,7 @@ mod tests {
             vec2(50.0, 0.0),
             vec2(1.0, 0.0),
             pistol(),
-            false,
+            FRIENDLY_BOLT,
             false,
         );
         // A flash and a scorch.
@@ -1583,7 +1585,7 @@ mod tests {
         fx.age(0.0);
         for i in 0..(SCORCH_CAP * 3) {
             let at = vec2(i as f32 * 20.0, 0.0);
-            fx.landed(at, at, vec2(1.0, 0.0), pistol(), false, false);
+            fx.landed(at, at, vec2(1.0, 0.0), pistol(), FRIENDLY_BOLT, false);
         }
         assert_eq!(fx.scorches.len(), SCORCH_CAP);
         assert_eq!(fx.flares.len(), FLARE_CAP.min(SCORCH_CAP * 3));
@@ -1599,7 +1601,7 @@ mod tests {
                 vec2(2.0, 1.0),
                 vec2(1.0, 0.0),
                 pistol(),
-                false,
+                FRIENDLY_BOLT,
                 false,
             );
         }
@@ -1622,7 +1624,7 @@ mod tests {
     fn a_core_is_past_white_in_its_side_s_colour_and_the_marks_are_not() {
         let past = |c: Color| c.r > 1.0 || c.g > 1.0 || c.b > 1.0;
         for hostile in [false, true] {
-            let c = hot(hostile, CORE_HEAT);
+            let c = hot(side(hostile), CORE_HEAT);
             assert!(past(c));
             if hostile {
                 assert!(c.r > c.b, "red's core leans red");

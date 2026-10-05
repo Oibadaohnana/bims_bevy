@@ -2203,12 +2203,37 @@ pub struct Combat {
     /// never saved. See `crate::fx`.
     #[cfg_attr(feature = "serde", serde(skip))]
     pub fx: Fx,
+    /// The colour each own body's shots are drawn in, by index, where it
+    /// is not the crew's blue: a player's own Bim's and a commander's
+    /// Republic soldiers', in that player's colour
+    /// (`character::Tint::shot`, said by `Game::set_tints` and
+    /// `Game::set_outfit`). Drawing only, like [`Combat::fx`]: no rule
+    /// reads it and it is never saved.
+    #[cfg_attr(feature = "serde", serde(skip))]
+    pub hues: Vec<Option<Color>>,
+}
+
+/// The colour a shot is drawn in: the enemy's red for a hostile one,
+/// else the colour of whoever fired it (`Combat::hues`), else the crew's
+/// blue — a bot's, a sentry's.
+fn shot_hue(hues: &[Option<Color>], hostile: bool, by: Option<usize>) -> Color {
+    if hostile {
+        return HOSTILE_BOLT;
+    }
+    by.and_then(|who| hues.get(who).copied().flatten())
+        .unwrap_or(FRIENDLY_BOLT)
 }
 
 impl Combat {
+    /// The colour `bolt` is drawn in ([`Combat::hues`]).
+    pub fn hue_of(&self, bolt: &Bolt) -> Color {
+        shot_hue(&self.hues, bolt.hostile, bolt.by)
+    }
+
     pub fn new(seed: u64) -> Combat {
         Combat {
             fx: Fx::default(),
+            hues: Vec::new(),
             targets: Vec::new(),
             machines: Vec::new(),
             machines_cross: 0,
@@ -2561,8 +2586,9 @@ impl Combat {
             unseen: false,
             bomb: false,
         });
+        let hue = shot_hue(&self.hues, false, Some(by));
         self.fx
-            .muzzle(from, (at - from).normalize_or_zero(), weapon, false);
+            .muzzle(from, (at - from).normalize_or_zero(), weapon, hue);
         self.cues.push(Cued {
             cue: Cue::Shot {
                 weapon: weapon.kind,
@@ -2819,7 +2845,12 @@ impl Combat {
             let dir = bolt.vel.normalize_or_zero();
             let flown = (bolt.pos - bolt.fired_from).len();
             let tail = bolt.pos - dir * flown.min(WAKE_LENGTH);
-            self.fx.trail(tail, bolt.pos, bolt.weapon, bolt.hostile);
+            self.fx.trail(
+                tail,
+                bolt.pos,
+                bolt.weapon,
+                shot_hue(&self.hues, bolt.hostile, bolt.by),
+            );
         }
         for g in &self.grenades {
             if !g.shot && !g.unseen && g.fuse - g.left >= g.flight() {
@@ -3078,7 +3109,7 @@ impl Combat {
                         cue: Cue::Impact { on_crew: true },
                         at,
                     });
-                    fx.landed(s.from, at, s.dir, s.weapon, true, true);
+                    fx.landed(s.from, at, s.dir, s.weapon, HOSTILE_BOLT, true);
                 }
                 s.dir = s.dir.rotate_by(SWEEP_STEP_COS, s.sin).normalize_or_zero();
                 s.done += 1;
@@ -3376,7 +3407,8 @@ impl Combat {
         // is only the seam's point for it, and a machine's shot leaves
         // from its middle rather than from its gun.
         if !hostile {
-            self.fx.muzzle(from, dir, weapon, false);
+            self.fx
+                .muzzle(from, dir, weapon, shot_hue(&self.hues, false, by));
         }
         self.bolts.push(Bolt {
             pos: from,
@@ -3479,7 +3511,8 @@ impl Combat {
             // critical — off the lent stream, after the part's roll.
             let crit = self.roll_crit(by);
             if crit {
-                self.fx.critical(at, at - from, weapon, false);
+                self.fx
+                    .critical(at, at - from, weapon, shot_hue(&self.hues, false, by));
             }
             self.hits.push(Hit {
                 who: target,
@@ -3504,7 +3537,8 @@ impl Combat {
             // A blade's blow glows where it cut (feature 98); a fist or a
             // claw lands with nothing to light.
             if cut {
-                self.fx.cut(from, at, weapon, false);
+                self.fx
+                    .cut(from, at, weapon, shot_hue(&self.hues, false, by));
             }
         }
     }
@@ -3570,6 +3604,7 @@ impl Combat {
         let rng = &mut self.rng;
         let crit_rng = &mut self.crit_rng;
         let crit_chances = &self.crit_chances;
+        let hues = &self.hues;
         let fx = &mut self.fx;
         let mut landed: Vec<Hit> = Vec::new();
         let mut taken: Vec<Hit> = Vec::new();
@@ -3586,6 +3621,7 @@ impl Combat {
         let mut bounced: Vec<Bolt> = Vec::new();
         self.bolts.retain_mut(|bolt| {
             let mut flight = bolt.vel * dt;
+            let hue = shot_hue(hues, bolt.hostile, bolt.by);
             let mut span = flight.len();
             if span > bolt.left {
                 flight = flight * (bolt.left / span.max(1e-6));
@@ -3851,11 +3887,11 @@ impl Combat {
                     // flies on from there next step with the reach it
                     // has left, a flare where it went through.
                     if through {
-                        fx.pierced(at, bolt.vel, bolt.weapon, bolt.hostile);
+                        fx.pierced(at, bolt.vel, bolt.weapon, hue);
                         bolt.pos = at;
                         bolt.left -= span * t;
                         if bolt.left <= 0.0 {
-                            fx.spent(bolt.fired_from, at, bolt.weapon, bolt.hostile);
+                            fx.spent(bolt.fired_from, at, bolt.weapon, hue);
                             return false;
                         }
                         return true;
@@ -3868,11 +3904,11 @@ impl Combat {
                         at,
                         bolt.vel,
                         bolt.weapon,
-                        bolt.hostile,
+                        hue,
                         who.is_some() || shielded.is_some() || on_plate.is_some(),
                     );
                     if critical {
-                        fx.critical(at, bolt.vel, bolt.weapon, bolt.hostile);
+                        fx.critical(at, bolt.vel, bolt.weapon, hue);
                     }
                     if let Some((centre, _, _)) = shielded.and_then(|i| targets[i]) {
                         fx.shield(centre, at);
@@ -3885,7 +3921,7 @@ impl Combat {
                     if bolt.left <= 0.0 {
                         // Spent: it fades where it got to, without a flash
                         // — a sniper's beam hanging a moment after it.
-                        fx.spent(bolt.fired_from, bolt.pos, bolt.weapon, bolt.hostile);
+                        fx.spent(bolt.fired_from, bolt.pos, bolt.weapon, hue);
                         return false;
                     }
                     true
@@ -3915,13 +3951,13 @@ impl Combat {
 
     /// The bolts, the passing lights round them (`crate::fx`) and the
     /// grenades. Over the fog — a shot is always seen. Every gun is a
-    /// laser in its side's colour, and each has a shape of its own.
+    /// laser in its side's colour — a player's in the player's own
+    /// (`Combat::hues`) — and each has a shape of its own.
     pub fn draw(&self, list: &mut DrawList) {
         for bolt in &self.bolts {
             let dir = bolt.vel.normalize_or_zero();
             let head = bolt.pos;
-            let hostile = bolt.hostile;
-            let side = if hostile { HOSTILE_BOLT } else { FRIENDLY_BOLT };
+            let side = shot_hue(&self.hues, bolt.hostile, bolt.by);
             let (w, h) = fx::tier_look(bolt.weapon.tier);
             let heat = fx::CORE_HEAT + h;
             match bolt.weapon.kind {
@@ -3941,7 +3977,7 @@ impl Combat {
                             tip,
                             3.5 * w,
                             PELLET_CORE * w,
-                            hostile,
+                            side,
                             heat,
                             1.0,
                         );
@@ -3950,16 +3986,7 @@ impl Combat {
                 WeaponKind::AutoRifle => {
                     // Thin, and in two: a dash with a shorter one behind.
                     let lead = head - dir * PULSE_LEAD;
-                    fx::laser(
-                        list,
-                        lead,
-                        head,
-                        3.5 * w,
-                        PULSE_CORE * w,
-                        hostile,
-                        heat,
-                        1.0,
-                    );
+                    fx::laser(list, lead, head, 3.5 * w, PULSE_CORE * w, side, heat, 1.0);
                     let trail = lead - dir * PULSE_GAP;
                     fx::laser(
                         list,
@@ -3967,7 +3994,7 @@ impl Combat {
                         trail,
                         3.0 * w,
                         PULSE_CORE * w,
-                        hostile,
+                        side,
                         heat,
                         0.6,
                     );
@@ -3988,11 +4015,11 @@ impl Combat {
                             half,
                             4.0 * w,
                             faint,
-                            hostile,
+                            side,
                             1.4 + h,
                             0.3,
                         );
-                        fx::laser(list, half, mid, 4.0 * w, faint, hostile, 1.7 + h, 0.55);
+                        fx::laser(list, half, mid, 4.0 * w, faint, side, 1.7 + h, 0.55);
                     }
                     fx::laser(
                         list,
@@ -4000,11 +4027,11 @@ impl Combat {
                         head,
                         6.0 * w,
                         BEAM_CORE * w,
-                        hostile,
+                        side,
                         heat + 0.4,
                         1.0,
                     );
-                    list.circle(head, 5.0 * w, fx::hot(hostile, heat + 0.4));
+                    list.circle(head, 5.0 * w, fx::hot(side, heat + 0.4));
                 }
                 WeaponKind::Minigun => {
                     // A short thin dash and nothing behind it.
@@ -4014,7 +4041,7 @@ impl Combat {
                         head,
                         DASH_GLOW * w,
                         DASH_CORE * w,
-                        hostile,
+                        side,
                         heat,
                         1.0,
                     );
@@ -4029,14 +4056,14 @@ impl Combat {
                         head,
                         RAIL_GLOW * w,
                         RAIL_CORE * w,
-                        hostile,
+                        side,
                         heat + 0.4 - fx::LANCE_COOLING,
                         1.0,
                     );
                     list.circle(
                         head,
                         RAIL_HEAD * w,
-                        fx::hot(hostile, heat + 0.6 - fx::LANCE_COOLING),
+                        fx::hot(side, heat + 0.6 - fx::LANCE_COOLING),
                     );
                 }
                 // The Unmaker's bolt (feature 83): a long crackling line
@@ -4080,7 +4107,7 @@ impl Combat {
                         tail + dir * (BOLT_LENGTH * 0.35),
                         head,
                         BOLT_CORE * w,
-                        fx::hot(hostile, heat),
+                        fx::hot(side, heat),
                     );
                 }
             }

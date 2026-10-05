@@ -170,17 +170,13 @@ const PAD_EDGE: Color = Color::rgba(1.0, 1.0, 1.0, 0.22);
 /// How far past the hull the pad reaches, in tiles.
 const PAD_MARGIN: f32 = 1.5;
 
-/// One colour per lobby slot: another player's pointer over the deck is
-/// drawn in its player's (`screens/game.rs`, `ghost_pointer`).
-pub static PLAYER_COLORS: [Color; 4] = [
-    Color::rgb(0.38, 0.86, 0.95),
-    Color::rgb(0.98, 0.72, 0.35),
-    Color::rgb(0.55, 0.90, 0.60),
-    Color::rgb(0.85, 0.58, 0.92),
-];
-
+/// One colour per lobby slot, the slot's own of `character::Tint::ALL`
+/// — the colour a session deals it — so another player's pointer in the
+/// yard and the lobby is the colour their Bim is ringed in.
 pub fn player_color(slot: u32) -> Color {
-    PLAYER_COLORS[(slot as usize) % PLAYER_COLORS.len()]
+    let tints = bims::character::Tint::ALL;
+    let (r, g, b) = tints[slot as usize % tints.len()].rgb();
+    Color::rgb(r, g, b)
 }
 
 /// The whole frame, whichever view is up.

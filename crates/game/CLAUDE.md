@@ -3504,7 +3504,7 @@ units, and alphas as drawn):
 
 | where | constant | value |
 | --- | --- | --- |
-| `fx.rs` | `CORE_WHITE`, `CORE_TINT`, `CORE_HEAT` | (0.92, 0.97, 1.0), 0.4, 2.4 — the laser core |
+| `fx.rs` | `CORE_WHITE`, `CORE_TINT`, `CORE_HEAT` | (0.92, 0.97, 1.0), 0.4, 2.4 — the laser core (0.6, 1.9 since the players' colours, below) |
 | `fx.rs` | `TIER_WIDTH`, `TIER_HEAT` | 0.15, 0.35 a tier above the first |
 | `fx.rs` | `MUZZLE_PISTOL`/`_SHOTGUN`/`_AUTO`/`_SNIPER` | (life, size): (0.08, 5), (0.11, 8), (0.06, 4), (0.14, 9) |
 | `fx.rs` | `MUZZLE_RAY`, `MUZZLE_SPIKE` | 12, 16 |
@@ -5394,3 +5394,34 @@ any stream, and every turn is a written-out cosine and sine.
   `scratchpad/droidwreck.rs` draws the whole rack, telegraphs and all.
 
 `tests_tier_two.rs` is the rule.
+
+## A player's shots are the player's colour (October 2026)
+
+> "in the side's colour — `FRIENDLY_BOLT` blue for the crew" in "The
+> fight's passing lights" is now the bots' and the sentries' alone.
+
+- **`character::Tint`** is six saturated hues kept clear of the enemy's
+  red (the teal was the pale `ACCENT`, the rest pastels).
+  `Tint::shot` is the colour at `SHOT_SHADE` (0.82): a player's lasers,
+  a little darker than the ring. `Character::shot_tint` is whose colour
+  a body fires — its own ring, or the calling player's for a Republic
+  soldier (`Outfit::Republic`/`RepublicMedic`) — and is also the gun's
+  emitter and a blade's edge in the hands.
+- **`Combat::hues`** (`serde(skip)`, drawing only) is that, by crew
+  index, said by `Game::refresh_hue` from `set_tints` and `set_outfit`.
+  `combat::shot_hue(hues, hostile, by)` is the one reading: the red for a
+  hostile bolt, else the shooter's colour, else `FRIENDLY_BOLT`.
+  `Combat::hue_of(bolt)` is it for `draw_bolt_glow`.
+- **Every `fx` effect takes its colour, `hue: Color`**, where it took
+  `hostile: bool`: the muzzle, the trail, the flash, the beam's and the
+  rail's linger, a pierce, a cut, a critical. `fx::side(hostile)` is the
+  old two colours for a caller with no shooter (a machine's muzzle, a
+  Guardian's sweep, the shield's flare).
+- **Darker cores**: `fx::CORE_TINT` 0.6 (0.4) and `CORE_HEAT` 1.9 (2.4),
+  so a core keeps its colour under the bloom.
+- **A Republic soldier's plate** is tinted towards its player's colour
+  too: the coverall's dye `REPUBLIC_TINT` (0.22) of the way, the pauldron
+  faces `REPUBLIC_PAULDRON_TINT` (0.45).
+
+Nothing the simulation reads moved; the pictures did (`PICTURES` may
+move for a player's ring and gun).

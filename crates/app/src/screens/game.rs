@@ -3919,8 +3919,13 @@ fn frame(
                         })
                 })
             });
-            let colour = if beyond { theme::AIM_OUT } else { theme::AIM };
-            aim_cursor(&top, at, firing, colour, 1.0);
+            // In the player's own colour, the one their Bim is ringed in.
+            let colour = if beyond {
+                theme::AIM_OUT
+            } else {
+                slot_colour(&session.crew_tints, screen.net.slot)
+            };
+            aim_cursor(&top, at, firing, colour, 1.0, true);
         }
     } else if screen.aiming_attack
         && let Some(p) = on_canvas
@@ -3961,7 +3966,7 @@ fn frame(
                         .game
                         .as_ref()
                         .is_some_and(|g| g.world.aboard.room.trigger_held(slot as usize));
-                    aim_cursor(on, at, firing, colour, OTHERS_AIM_ALPHA);
+                    aim_cursor(on, at, firing, colour, OTHERS_AIM_ALPHA, false);
                     theme::ghost_label(on, at + egui::vec2(12.0, 8.0), colour, &crew_name(slot));
                 } else {
                     theme::ghost_pointer(on, at, colour, &crew_name(slot));
@@ -4639,30 +4644,39 @@ fn control_due(last: Option<(CrewOrderControl, f64)>, now: CrewOrderControl, tim
 
 /// How see-through another player's crosshair is: less than their arrow
 /// on the chart, since it is small and wants to read on a dark deck.
-const OTHERS_AIM_ALPHA: f32 = 0.85;
+const OTHERS_AIM_ALPHA: f32 = 0.8;
 
 /// The pointer over the deck (task 144): the aim's reticle where the
-/// system's cursor was — a ring broken into four with a dot in the
-/// middle, each stroke over a dark one so it reads on the deck and the
-/// void alike, in the crew's cyan, and closing in while the trigger is
-/// held. Another player's is the same in their `colour`, as see-through
-/// as `alpha` says.
+/// system's cursor was — a ring broken into four, each stroke over a dark
+/// one so it reads on the deck and the void alike, closing in while the
+/// trigger is held. The player's `own` (October 2026, the player's word:
+/// more distinguishable) is the bigger and the bolder, in their colour
+/// with a white line lit along each arc, four ticks out of the ring and a
+/// white-hot dot in the middle; another player's is small and plain — the
+/// ring alone and a dot, in their `colour`, as see-through as `alpha`
+/// says.
 fn aim_cursor(
     painter: &egui::Painter,
     at: egui::Pos2,
     firing: bool,
     colour: egui::Color32,
     alpha: f32,
+    own: bool,
 ) {
-    let r = if firing { 8.0 } else { 10.0 };
-    let gap = 0.42;
-    for (width, color) in [
-        (
-            4.0,
-            egui::Color32::from_black_alpha(200).gamma_multiply(alpha),
-        ),
-        (1.8, colour.gamma_multiply(alpha)),
-    ] {
+    let (r, under, stroke) = match (own, firing) {
+        (true, false) => (13.0, 5.5, 2.6),
+        (true, true) => (10.0, 5.5, 2.6),
+        (false, false) => (8.0, 3.2, 1.4),
+        (false, true) => (6.5, 3.2, 1.4),
+    };
+    let gap = if own { 0.38 } else { 0.5 };
+    let shade = egui::Color32::from_black_alpha(200).gamma_multiply(alpha);
+    let lit = egui::Color32::WHITE.gamma_multiply(0.85 * alpha);
+    let mut layers = vec![(under, shade), (stroke, colour.gamma_multiply(alpha))];
+    if own {
+        layers.push((1.0, lit));
+    }
+    for (layer, &(width, color)) in layers.iter().enumerate() {
         for quarter in 0..4 {
             let from = quarter as f32 * std::f32::consts::FRAC_PI_2 + gap;
             let to = from + std::f32::consts::FRAC_PI_2 - 2.0 * gap;
@@ -4673,18 +4687,27 @@ fn aim_cursor(
                 })
                 .collect();
             painter.add(egui::Shape::line(points, egui::Stroke::new(width, color)));
-            let a = from - gap;
-            let (c, s) = (a.cos(), a.sin());
-            painter.line_segment(
-                [
-                    at + egui::vec2(c, s) * (r - 3.0),
-                    at + egui::vec2(c, s) * (r + 5.0),
-                ],
-                egui::Stroke::new(width, color),
-            );
+            // The ticks are the player's own and are not lit.
+            if own && layer < 2 {
+                let a = from - gap;
+                let (c, s) = (a.cos(), a.sin());
+                painter.line_segment(
+                    [
+                        at + egui::vec2(c, s) * (r - 4.0),
+                        at + egui::vec2(c, s) * (r + 7.0),
+                    ],
+                    egui::Stroke::new(width, color),
+                );
+            }
         }
     }
-    painter.circle_filled(at, 1.6, colour.gamma_multiply(alpha));
+    if own {
+        painter.circle_filled(at, 3.4, shade);
+        painter.circle_filled(at, 2.4, colour.gamma_multiply(alpha));
+        painter.circle_filled(at, 1.1, lit);
+    } else {
+        painter.circle_filled(at, 1.4, colour.gamma_multiply(alpha));
+    }
 }
 
 /// The auto-shoot's mark on the enemy it fires at: four corner brackets
