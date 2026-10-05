@@ -214,6 +214,19 @@ shot bought baught.mp3 0.25 1.80 "adelay=250,highpass=f=80" 0.30
 # with a slow fade.
 shot sold Sell_Sound.mp3 0.35 1.00 "adelay=250,highpass=f=80" 0.20
 
+# --- the Smoke Launcher (October 2026) ------------------------------------
+
+# The canister going off: the recording is loud from its first sample, so
+# the quarter-second is put in front as for the purchase; it has died by
+# 1.3 s.
+shot smoke_bang Smoke_Bang.mp3 0.25 1.30 "adelay=250,highpass=f=60" 0.30
+# The cloud hissing while it hangs: the recording rises over its first
+# second, holds from 1.0 s to 3.0 s and goes out over the two after. The
+# steady two seconds are the loop, heard as a bed; the going out is a
+# one-shot of its own, started two seconds before a cloud is gone.
+loop smoke_run Smoke_running_and_going_out.mp3 1.0 3.0 0.4 "highpass=f=60" -24
+shot smoke_out Smoke_running_and_going_out.mp3 3.0 2.05 "highpass=f=60" 0.30
+
 # An enemy down and its pay floating over it: nothing recorded, a soft
 # two-note chime made here — an E6 with a fast decay and a B6 a
 # twentieth of a second after it, each with a few milliseconds' rise so

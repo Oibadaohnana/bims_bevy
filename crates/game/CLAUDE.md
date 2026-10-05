@@ -5446,6 +5446,16 @@ them every step before the rooms step (`Game::set_smoke`, `set_tethers`,
   rest), faded to `GHOST_OPACITY`. `Game::ghost_route(who, to)` is its
   walk on the body's own grid; the world walks it.
 - **A tether** is a line between two crew bodies.
+- **The smoke is particles** (`draw_smoke`): a body of `BODY_PUFFS` big
+  slow puffs, `PARTICLES` churning out from the middle and fading in a
+  cycle of their own, `POP_PUFFS` thrown to the edge in the canister's
+  first `POP_SECONDS`, and the lot thinning and spreading over the last
+  two seconds (`SmokeCloud::thick`, the world's), as its going out is
+  heard. `set_item_auras` says who is under an Adrenal Injector's rush
+  (a hot ring and sparks) and which bots an Uplink lifts (a green ring).
+  The app's sound: `smoke_bang` on the launch, the `Bed::Smoke` hiss
+  while a cloud has more than `SMOKE_OUT_SECONDS` left, then
+  `smoke_out` once a cloud (`Sounds::smoke`, off `World::smoke_left`).
 
 Nothing here draws off any stream, and a room told nothing does nothing
 it did not, so no pin moved for the room's half.

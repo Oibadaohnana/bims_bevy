@@ -1908,6 +1908,9 @@ fn frame(
             (None, ShipState::Docked { .. }) => sounds.want(Bed::Station),
             _ => sounds.want(Bed::Ship),
         }
+        // And every Smoke Launcher's cloud (October 2026): its hiss while
+        // it hangs, its going out as it clears.
+        sounds.smoke(&mut commands, &game.world.smoke_left());
     }
     let prep_timed = crate::perf::scope(crate::perf::Phase::Prep);
     let local = screen.net.slot;

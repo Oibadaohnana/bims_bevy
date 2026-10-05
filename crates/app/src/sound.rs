@@ -114,12 +114,18 @@ pub enum Clip {
     RailCharge,
     Marked,
     Blink,
+    // The Smoke Launcher (October 2026, the player's recordings): the
+    // canister going off, the cloud's steady hiss (a loop, the smoke bed)
+    // and its going out.
+    SmokeBang,
+    SmokeRun,
+    SmokeOut,
 }
 
 /// The bytes of each clip, indexed by [`Clip`]. Ogg Vorbis, mono, 48 kHz,
 /// peaks at -1 dBFS for the one-shots and -22 or -30 LUFS for the loops —
 /// see `prepare.sh` — so every level below is relative to that.
-const CLIPS: [&[u8]; 56] = [
+const CLIPS: [&[u8]; 59] = [
     include_bytes!("../sounds/laser_1.ogg"),
     include_bytes!("../sounds/laser_2.ogg"),
     include_bytes!("../sounds/laser_3.ogg"),
@@ -176,6 +182,9 @@ const CLIPS: [&[u8]; 56] = [
     include_bytes!("../sounds/rail_charge.ogg"),
     include_bytes!("../sounds/marked.ogg"),
     include_bytes!("../sounds/blink.ogg"),
+    include_bytes!("../sounds/smoke_bang.ogg"),
+    include_bytes!("../sounds/smoke_run.ogg"),
+    include_bytes!("../sounds/smoke_out.ogg"),
 ];
 
 /// The player's own volume for each sound, from `audio.ron` at the root
@@ -279,6 +288,9 @@ volumes! {
     RailCharge => rail_charge,
     Marked => marked,
     Blink => blink,
+    SmokeBang => smoke_bang,
+    SmokeRun => smoke_run,
+    SmokeOut => smoke_out,
     ;
     minigun,
     rail_lance,
@@ -290,6 +302,10 @@ impl Default for Volumes {
         Volumes::AS_BUILT
     }
 }
+
+/// How long a smoke cloud's going out lasts, in seconds: `smoke_out.ogg`,
+/// started that long before the cloud is gone.
+pub const SMOKE_OUT_SECONDS: f64 = 2.0;
 
 /// The loops that run the whole time. The order is the order of the
 /// `beds` array on [`Sounds`].
@@ -305,15 +321,19 @@ pub enum Bed {
     Temperate,
     Desert,
     Arctic,
+    /// A Smoke Launcher's cloud hissing while any hangs (October 2026):
+    /// an effect, under the effects volume, not the ambience's.
+    Smoke,
 }
 
 impl Bed {
-    const ALL: [Bed; 5] = [
+    const ALL: [Bed; 6] = [
         Bed::Ship,
         Bed::Station,
         Bed::Temperate,
         Bed::Desert,
         Bed::Arctic,
+        Bed::Smoke,
     ];
 
     /// The bed a planet's ground is heard as.
@@ -332,6 +352,7 @@ impl Bed {
             Bed::Temperate => Clip::Temperate,
             Bed::Desert => Clip::Desert,
             Bed::Arctic => Clip::Arctic,
+            Bed::Smoke => Clip::SmokeRun,
         }
     }
 
@@ -344,6 +365,7 @@ impl Bed {
         match self {
             Bed::Ship | Bed::Station => 0.7,
             Bed::Temperate | Bed::Desert | Bed::Arctic => 0.175,
+            Bed::Smoke => 0.55,
         }
     }
 
@@ -354,6 +376,9 @@ impl Bed {
         match self {
             Bed::Ship | Bed::Station => 0.5,
             Bed::Temperate | Bed::Desert | Bed::Arctic => 0.5,
+            // The hiss comes in under the bang and gives way to the going
+            // out in a quarter of a second.
+            Bed::Smoke => 4.0,
         }
     }
 }
@@ -516,6 +541,9 @@ pub struct Sounds {
     wobble: u32,
     /// `BIMS_SOUND_LOG=1`: say what is played.
     log: bool,
+    /// The smoke clouds whose going out has been played, by the key the
+    /// screen gives each (`Sounds::smoke`).
+    smoke_out: Vec<u64>,
     /// What the player set on the Esc sheet's audio page.
     pub mix: Mix,
     /// And in `audio.ron`, a sound at a time.
@@ -595,6 +623,7 @@ impl Sounds {
             started: 0,
             turn: 0,
             wobble: 0x9e37_79b9,
+            smoke_out: Vec::new(),
             log: crate::dev::sound_log(),
             mix: Mix {
                 muted: crate::dev::silent(),
@@ -935,7 +964,7 @@ impl Sounds {
                 Some(bims::module::ModuleKind::AblativeShell) => (who, Clip::BulwarkOn, 0.55),
                 // Step three (October 2026): a canister lobbed, a link
                 // made, a ghost going out, a rush.
-                Some(bims::module::ModuleKind::SmokeLauncher) => (who, Clip::GrenadeThrow, 0.5),
+                Some(bims::module::ModuleKind::SmokeLauncher) => (who, Clip::SmokeBang, 0.6),
                 Some(bims::module::ModuleKind::TetherLink) => (who, Clip::BeamOn, 0.5),
                 Some(bims::module::ModuleKind::DecoyProjector) => (who, Clip::Cloak, 0.5),
                 Some(bims::module::ModuleKind::AdrenalInjector) => (who, Clip::Rampage, 0.45),
@@ -953,6 +982,24 @@ impl Sounds {
     /// screen asks every frame, in its own system.
     pub fn want(&mut self, bed: Bed) {
         self.beds[bed as usize].wanted = 1.0;
+    }
+
+    /// The Smoke Launcher's clouds this frame (October 2026), each a key
+    /// and its seconds left: the hiss held while any has more than its
+    /// going out to run, and the going out played once a cloud, the
+    /// moment it has [`SMOKE_OUT_SECONDS`] left — the recording's tail,
+    /// so it dies with the picture.
+    pub fn smoke(&mut self, commands: &mut Commands, clouds: &[(u64, f64)]) {
+        self.smoke_out
+            .retain(|key| clouds.iter().any(|&(k, _)| k == *key));
+        for &(key, left) in clouds {
+            if left > SMOKE_OUT_SECONDS {
+                self.want(Bed::Smoke);
+            } else if left > 0.0 && !self.smoke_out.contains(&key) {
+                self.smoke_out.push(key);
+                self.one_shot(commands, Clip::SmokeOut, 0.55);
+            }
+        }
     }
 }
 
@@ -980,11 +1027,14 @@ fn fade(mut sounds: ResMut<Sounds>, mut sinks: Query<&mut AudioSink>, time: Res<
         // No sink is no audio device: the bed is silent whatever it is
         // asked, and there is nothing to set.
         if let Ok(mut sink) = sinks.get_mut(state.entity) {
+            // The smoke's hiss is an effect, turned with the shots.
+            let mix = if *bed == Bed::Smoke {
+                sounds.mix.effects()
+            } else {
+                sounds.mix.ambience()
+            };
             sink.set_volume(Volume::Linear(
-                state.level
-                    * bed.level()
-                    * sounds.volumes.of(bed.clip()).max(0.0)
-                    * sounds.mix.ambience(),
+                state.level * bed.level() * sounds.volumes.of(bed.clip()).max(0.0) * mix,
             ));
         }
     }
@@ -1012,7 +1062,7 @@ mod tests {
             assert!(clip.starts_with(b"OggS"), "clip {i} is not an Ogg stream");
             assert!(clip.len() > 1_000, "clip {i} is only {} bytes", clip.len());
         }
-        assert_eq!(CLIPS.len(), Clip::Blink as usize + 1);
+        assert_eq!(CLIPS.len(), Clip::SmokeOut as usize + 1);
     }
 
     /// `audio.ron` at the root parses and names every sound, so the player

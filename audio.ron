@@ -79,6 +79,9 @@
     rail_charge: 1.0,       // a Lancer charging its rail
     marked: 1.0,            // a Conductor's mark on somebody
     blink: 1.0,             // a Conductor blinking away
+    smoke_bang: 1.0,        // a Smoke Launcher's canister going off
+    smoke_run: 1.0,         // its cloud hissing while it hangs
+    smoke_out: 1.0,         // the cloud going out
 
     // The loops.
     ship: 1.0,              // the ship's hum

@@ -751,7 +751,8 @@ impl World {
             at,
             radius: c.radius,
             age: ((now - c.from) / second) as f32,
-            thick: (((c.until - now) / second) as f32).clamp(0.0, 1.0),
+            // Thinning over the last two seconds, as its going out is heard.
+            thick: (((c.until - now) / second) as f32 / 2.0).clamp(0.0, 1.0),
         };
         let mine: Vec<bims::game::SmokeCloud> = items
             .smoke
@@ -799,13 +800,45 @@ impl World {
         } else {
             Vec::new()
         };
+        // Who is under a rush, and which bots an uplink lifts, to draw.
+        let rushing: Vec<(usize, f32)> = (0..self.players().min(self.aboard.crew_count()))
+            .map(|who| (who as usize, self.adrenal_left(who) as f32))
+            .filter(|&(_, left)| left > 0.0)
+            .collect();
+        let uplinked: Vec<usize> = if self.any_items() {
+            (self.players()..self.aboard.crew_count())
+                .filter(|&who| {
+                    self.aboard.room.is_alive(who as usize) && self.uplink_reaching(who) > 0
+                })
+                .map(|who| who as usize)
+                .collect()
+        } else {
+            Vec::new()
+        };
         self.aboard.room.set_smoke(mine, false);
         self.aboard.room.set_ghosts(ghosts);
         self.aboard.room.set_tethers(links);
+        self.aboard.room.set_item_auras(rushing, uplinked);
         if let Some(residents) = &mut self.residents {
             residents.aboard.room.set_smoke(theirs, true);
         }
         tethered
+    }
+
+    /// Every smoke cloud hanging, a key of its own and its seconds left:
+    /// what the app's sound hisses by and times the going out to.
+    pub fn smoke_left(&self) -> Vec<(u64, f64)> {
+        let now = self.mission_minutes();
+        self.run
+            .items
+            .smoke
+            .iter()
+            .map(|c| {
+                let key =
+                    c.from.to_bits() ^ (u64::from(c.x.to_bits()) << 32) ^ u64::from(c.y.to_bits());
+                (key, (c.until - now) / time::MINUTES_PER_SECOND)
+            })
+            .collect()
     }
 
     /// Whether crew member `who` stands in a smoke cloud: nobody's target
