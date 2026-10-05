@@ -85,6 +85,54 @@ fn about_one_system_in_ten_holds_an_elite_and_never_the_manufacturers() {
     }
 }
 
+/// **Half the elites on the floor's tier-one rows** (October 2026, the
+/// player's: "decrease elite spawns in tier I by 50%"): an elite the
+/// galaxy rolls on a tier-one row stays one only where its second roll
+/// keeps it, about half of them; on the tier-two and tier-three rows every
+/// one stays, and off the floor every one.
+#[test]
+fn the_floor_s_tier_one_rows_keep_half_their_elites() {
+    let kept = (0..2000u32)
+        .filter(|&star| crate::elite::kept_at_tier_one(data::DEFAULT_SEED, star))
+        .count();
+    assert!((900..=1100).contains(&kept), "{kept} of 2000 kept");
+
+    let mut world = open_crewed_world(combat_ship(), REFERENCE_MONEY, 1, COMBAT_CREW);
+    let stars = world.galaxy().stars.len() as u32;
+    // The fixture keeps whole systems: the machines' origin may roll one.
+    let rolled =
+        |world: &World, star: u32| crate::elite::holds(world.galaxy_seed, world.home_star, star);
+    let off_floor: Vec<u32> = (0..stars).filter(|&s| rolled(&world, s)).collect();
+    assert_eq!(world.elite_stars(stars), off_floor, "off the floor, all");
+
+    world.set_floor(true);
+    let rows: Vec<(u32, Tier)> = {
+        let floor = world.floor().unwrap();
+        let mut rows = Vec::new();
+        for (row, nodes) in floor.rows.iter().enumerate() {
+            for node in nodes {
+                rows.push((node.star, world.floor_tier(row as u32)));
+            }
+        }
+        rows
+    };
+    let (mut one, mut higher) = (0, 0);
+    for &(star, tier) in &rows {
+        if !rolled(&world, star) {
+            assert!(!world.holds_elite(star), "star {star}: never rolled");
+            continue;
+        }
+        let keep = tier != Tier::One || crate::elite::kept_at_tier_one(world.galaxy_seed, star);
+        assert_eq!(world.holds_elite(star), keep, "star {star} at {tier:?}");
+        if tier == Tier::One {
+            one += 1;
+        } else {
+            higher += 1;
+        }
+    }
+    assert!(one > 0 && higher > 0, "{one} tier-one, {higher} higher");
+}
+
 #[test]
 fn an_elite_is_the_machines_two_waves_a_guardian_in_the_second_and_relics() {
     let mut world = open_crewed_world(combat_ship(), REFERENCE_MONEY, 1, COMBAT_CREW);

@@ -294,13 +294,17 @@ impl World {
     }
 
     /// Whether `star`'s system holds an elite ([`crate::elite::holds`]),
-    /// none under the tests' quiet dial — or one a probe forced there.
+    /// none under the tests' quiet dial — or one a probe forced there. On
+    /// a tier-one row of the floor only half of them
+    /// ([`crate::elite::kept_at_tier_one`]); off the floor all.
     pub fn holds_elite(&self, star: u32) -> bool {
         // Never the machines' origin in a run: its one site is the Heart.
         self.elite_forced.is_some_and(|f| f.star == star)
             || (!self.quiet_sites
                 && (self.whole_systems || star != self.droid_origin)
-                && crate::elite::holds(self.galaxy_seed, self.home_star, star))
+                && crate::elite::holds(self.galaxy_seed, self.home_star, star)
+                && (self.floor_tier_of(star) != Some(Tier::One)
+                    || crate::elite::kept_at_tier_one(self.galaxy_seed, star)))
     }
 
     /// The probes' dial: `station` of this system an elite whatever the

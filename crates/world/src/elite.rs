@@ -30,6 +30,19 @@ pub fn rolled(galaxy_seed: u64, star: u32) -> bool {
     worldgen::rng::Rng::new(seed).below(100) < data::ELITE_SYSTEM_CHANCE
 }
 
+/// Whether an elite [`rolled`] on a tier-one row of the floor stays one:
+/// odds of [`data::ELITE_TIER_ONE_KEEP_PERCENT`] in a hundred, off the
+/// galaxy's seed and the star with a salt of its own — stateless, so two
+/// clients agree. The floor's tier is `World::holds_elite`'s to ask; the
+/// rolls a system's shape is decided by ([`holds`]: its trader, its town,
+/// its Manufacturers) never see this, so a dropped elite is a plain
+/// fight at the station it was.
+pub fn kept_at_tier_one(galaxy_seed: u64, star: u32) -> bool {
+    let seed =
+        worldgen::rng::mix(galaxy_seed ^ 0x_454C_4954_4531) ^ worldgen::rng::mix(u64::from(star));
+    worldgen::rng::Rng::new(seed).below(100) < data::ELITE_TIER_ONE_KEEP_PERCENT
+}
+
 /// Whether `star`'s system holds an elite: [`rolled`], and not the crew's
 /// `home` star.
 pub fn holds(galaxy_seed: u64, home: u32, star: u32) -> bool {
