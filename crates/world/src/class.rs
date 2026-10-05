@@ -98,8 +98,10 @@
 //!
 //! **C, Healing Sentry** — laid like a mine; heals every crew Bim on
 //! its feet within its radius and its sight, below its full bar, at a
-//! share of the medic's beam ([`HEAL_BEAM_HP`]); several reaching one
-//! Bim do not stack, and the charges are the standing limit:
+//! share of the medic's beam ([`HEAL_BEAM_HP`]), and mends an
+//! engineer's sentry in reach at [`HEALING_SENTRY_MENDS_SENTRY`] times
+//! that; several reaching one do not stack, and the charges are the
+//! standing limit:
 //!
 //! | rank | heal (× beam) | radius | health | deploy | charges | cooldown a charge |
 //! |---|---|---|---|---|---|---|
@@ -821,6 +823,11 @@ pub const HEALING_SENTRY_MINUTES: [f64; 4] = [6.0, 6.0, 4.0, 4.0];
 pub const HEALING_SENTRY_CHARGES: [u32; 4] = [1, 1, 1, 1];
 /// Seconds one spent Healing Sentry charge takes to come back, a rank.
 pub const HEALING_SENTRY_COOLDOWN: [f64; 4] = [60.0, 60.0, 50.0, 40.0];
+/// What a Healing Sentry mends an engineer's **sentry** (R) by, times
+/// what it heals a crew member (October 2026) — a share of the sentry's
+/// pool as of a body's bar, like every heal, so at one the sentry's
+/// pool fills as fast as a body's bar. Several reaching it do not stack.
+pub const HEALING_SENTRY_MENDS_SENTRY: f32 = 1.0;
 
 /// **E, Satchel Charge** (task 154): what one bursting does to every
 /// enemy in it at its centre, a rank; half that at the edge. Satchels

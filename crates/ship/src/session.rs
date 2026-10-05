@@ -1799,24 +1799,36 @@ impl Session {
     }
 
     /// Every Healing Sentry's line to a crew member it heals this step
-    /// (task 127, `World::healing_links`): the sentry and the body, in the
-    /// camera's units. Empty before there is a world.
+    /// (task 127, `World::healing_links`) and to a sentry it mends
+    /// (`World::mending_links`): the Healing Sentry and the body or the
+    /// sentry, in the camera's units. Empty before there is a world.
     pub fn healing_lines_on_screen(&self) -> Vec<((f32, f32), (f32, f32))> {
         let Some(game) = self.game.as_ref() else {
             return Vec::new();
         };
         let standing = game.world.deployables_in_room();
-        game.world
+        let at = |id: u32| standing.iter().find(|(d, _)| d.id == id).map(|s| s.1);
+        let crew = game
+            .world
             .healing_links()
             .into_iter()
             .filter_map(|(id, who, _)| {
-                let at = standing.iter().find(|(d, _)| d.id == id)?.1;
                 Some((
-                    world_paint::room_point_on_screen(game, at),
+                    world_paint::room_point_on_screen(game, at(id)?),
                     world_paint::crew_on_screen(game, who),
                 ))
-            })
-            .collect()
+            });
+        let sentries = game
+            .world
+            .mending_links()
+            .into_iter()
+            .filter_map(|(id, sentry, _)| {
+                Some((
+                    world_paint::room_point_on_screen(game, at(id)?),
+                    world_paint::room_point_on_screen(game, at(sentry)?),
+                ))
+            });
+        crew.chain(sentries).collect()
     }
 
     /// The room's light map and where its corners land in the camera's

@@ -393,16 +393,22 @@ pub fn running(game: &mut Game, real: f32) {
     }
     // The medics' Healing Circles and Heal Drones (task 153).
     circles_and_drones(game);
-    // A Healing Sentry's lines to the crew it heals.
+    // A Healing Sentry's lines to the crew it heals, and to the sentries
+    // it mends.
     let standing = game.world.deployables_in_room();
-    let links = game.world.healing_links();
-    for (id, who, _) in links {
-        let Some(from) = standing.iter().find(|(d, _)| d.id == id).map(|s| s.1) else {
-            continue;
-        };
-        let Some(to) = crew_at(game, who) else {
-            continue;
-        };
+    let at = |id: u32| standing.iter().find(|(d, _)| d.id == id).map(|s| s.1);
+    let mut lines: Vec<(Vec2, Vec2)> = Vec::new();
+    for (id, who, _) in game.world.healing_links() {
+        if let (Some(from), Some(to)) = (at(id), crew_at(game, who)) {
+            lines.push((from, to));
+        }
+    }
+    for (id, sentry, _) in game.world.mending_links() {
+        if let (Some(from), Some(to)) = (at(id), at(sentry)) {
+            lines.push((from, to));
+        }
+    }
+    for (from, to) in lines {
         game.world.aboard.room.spray(
             Spray::new(SprayKind::Trail, from, to)
                 .reach(5.0)

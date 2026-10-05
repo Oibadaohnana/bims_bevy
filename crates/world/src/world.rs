@@ -8570,6 +8570,54 @@ impl World {
         links
     }
 
+    /// Every Healing Sentry's mend of an engineer's **sentry** (R) this
+    /// step (October 2026): each sentry on the deck short of its full
+    /// pool, within the Healing Sentry's rank's radius and in its sight
+    /// from its tile, at [`class::HEALING_SENTRY_MENDS_SENTRY`] times the
+    /// rate it heals a crew member — percent of the sentry's pool an hour,
+    /// as a body's is of its bar. Anybody's sentry, not only its own
+    /// engineer's. `(healing sentry id, sentry id, rate)`, in id order;
+    /// what the room draws its lines by, and what
+    /// [`World::heal_by_sentries`] mends by.
+    pub fn mending_links(&self) -> Vec<(u32, u32, f32)> {
+        let room = &self.aboard.room;
+        let t = shipdesign::TILE as f32;
+        let sentries: Vec<(u32, bims::math::Vec2)> = self
+            .deployables
+            .iter()
+            .filter(|d| {
+                d.kind == DeployKind::Sentry
+                    && d.health < self.laid_health(DeployKind::Sentry, d.owner_slot)
+            })
+            .filter_map(|d| Some((d.id, self.deployable_room_pos(d)?)))
+            .collect();
+        let mut links = Vec::new();
+        if sentries.is_empty() {
+            return links;
+        }
+        for d in self
+            .deployables
+            .iter()
+            .filter(|d| d.kind == DeployKind::HealingSentry)
+        {
+            let Some(at) = self.deployable_room_pos(d) else {
+                continue;
+            };
+            let rank = self.rank_of(d.owner_slot, class::SLOT_C).max(1);
+            let radius = class::by_rank(class::HEALING_SENTRY_RADIUS, rank).unwrap_or(0.0) * t;
+            let rate = class::by_rank(class::HEALING_SENTRY_RATE, rank).unwrap_or(0.0)
+                * class::HEAL_BEAM_HP
+                * class::HEALING_SENTRY_MENDS_SENTRY;
+            for &(id, p) in &sentries {
+                if (p - at).len() > radius || !room.line_clear(at, p) {
+                    continue;
+                }
+                links.push((d.id, id, rate));
+            }
+        }
+        links
+    }
+
     /// The Healing Sentries' heal, a step's worth (task 127): every crew
     /// body reached healed at the **highest** rate reaching it — several
     /// never stack — through `Game::heal`, never past its full bar.
@@ -8594,6 +8642,25 @@ impl World {
             if rate > 0.0 {
                 // Times the Healing Aura where the body stands (task 130).
                 self.heal_crew(who as u32, rate * share);
+            }
+        }
+        // And every sentry in reach mended, the highest rate again, never
+        // past the pool it was laid with.
+        let mut mends: Vec<(u32, f32)> = Vec::new();
+        for (_, id, rate) in self.mending_links() {
+            match mends.iter_mut().find(|(m, _)| *m == id) {
+                Some((_, best)) => *best = best.max(rate),
+                None => mends.push((id, rate)),
+            }
+        }
+        for (id, rate) in mends {
+            let Some(d) = self.deployables.iter().find(|d| d.id == id) else {
+                continue;
+            };
+            // A share of its whole pool, as a body's heal is of its bar.
+            let full = self.laid_health(DeployKind::Sentry, d.owner_slot);
+            if let Some(d) = self.deployables.iter_mut().find(|d| d.id == id) {
+                d.health = (d.health + rate * share / 100.0 * full).min(full);
             }
         }
     }

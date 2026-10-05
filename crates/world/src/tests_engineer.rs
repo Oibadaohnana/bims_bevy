@@ -845,6 +845,70 @@ fn two_healing_sentries_do_not_stack() {
     );
 }
 
+/// **It mends the engineer's sentry** (October 2026): a sentry short of
+/// its pool in its reach is put back at its rank's share of the beam
+/// times `HEALING_SENTRY_MENDS_SENTRY` — a share of the pool, as a
+/// body's heal is of its bar — never past full; never another Healing
+/// Sentry.
+#[test]
+fn a_healing_sentry_mends_the_sentry() {
+    let mut world = engineer();
+    ranks(&mut world, 0, [0, 4, 0, 1]);
+    let free = tiles_near(&world, 0, DeployKind::Sentry);
+    let (_, sentry) = deploy_now(&mut world, 0, DeployKind::Sentry, free[0]);
+    let tile = tile_near(&world, 0, DeployKind::HealingSentry);
+    let (_, healer) = deploy_now(&mut world, 0, DeployKind::HealingSentry, tile);
+    let full = world.laid_health(DeployKind::Sentry, 0);
+    assert!(world.mending_links().is_empty(), "nothing to mend at full");
+    let wound = |world: &mut World, id: u32, to: f32| {
+        world
+            .deployables
+            .iter_mut()
+            .find(|d| d.id == id)
+            .unwrap()
+            .health = to;
+    };
+    wound(&mut world, sentry, full / 2.0);
+    let healer_full = world.deployable(healer).unwrap().health;
+    wound(&mut world, healer, healer_full / 2.0);
+    assert_eq!(
+        world.mending_links(),
+        vec![(
+            healer,
+            sentry,
+            class::HEALING_SENTRY_RATE[3]
+                * class::HEAL_BEAM_HP
+                * class::HEALING_SENTRY_MENDS_SENTRY
+        )],
+        "the sentry, and only it"
+    );
+    let steps = 60;
+    for _ in 0..steps {
+        world.step(&[]);
+    }
+    let got = world.deployable(sentry).unwrap().health - full / 2.0;
+    let want = class::HEALING_SENTRY_RATE[3]
+        * class::HEAL_BEAM_HP
+        * class::HEALING_SENTRY_MENDS_SENTRY
+        * (data::STEP_MINUTES / 60.0) as f32
+        / 100.0
+        * full
+        * steps as f32;
+    assert!((got - want).abs() < 0.05, "{got} against {want}");
+    assert_eq!(
+        world.deployable(healer).unwrap().health,
+        healer_full / 2.0,
+        "it never mends itself"
+    );
+    // Never past full.
+    wound(&mut world, sentry, full - 0.01);
+    for _ in 0..10 {
+        world.step(&[]);
+    }
+    assert_eq!(world.deployable(sentry).unwrap().health, full);
+    assert!(world.mending_links().is_empty());
+}
+
 /// **Its charges are the standing limit**, and **enemies destroy it**
 /// under the gun sentry's rule.
 #[test]

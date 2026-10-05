@@ -34,7 +34,12 @@
 //! `class::HEALING_SENTRY_RADIUS` and in its sight from its tile, at
 //! `class::HEALING_SENTRY_RATE` of the medic's beam — several reaching
 //! one Bim do not stack, the highest rate applies (`World::healing_links`).
-//! It never heals an enemy, never revives and never mends a deployable.
+//! It mends an engineer's **sentry** (R) the same way — in its radius
+//! and its sight, short of its full pool — at
+//! `class::HEALING_SENTRY_MENDS_SENTRY` times that rate
+//! (`World::mending_links`), the highest again where several reach it.
+//! It never heals an enemy, never revives and never mends a mine, a
+//! satchel or another Healing Sentry.
 //! Its charges are the standing limit: one more laid destroys that
 //! engineer's oldest. Its health was doubled in task 154.
 //!
