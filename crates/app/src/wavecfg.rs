@@ -122,8 +122,9 @@ impl Tuning for Rewards {
     const UNTUNED: Self = Rewards::DEFAULT;
     fn describe(&self) -> String {
         format!(
-            "{} xp and €{:?} a down (defence {}%, a player's {}%, a bot's {}%, {}), buyback €{}, shelf {}%",
-            self.xp_per_down,
+            "a site {} xp (+{}% a day), €{:?} a down (defence {}%, a player's {}%, a bot's {}%, {}), buyback €{}, shelf {}%",
+            self.site_xp,
+            self.site_xp_growth_percent,
             self.bounty,
             self.defense_bounty_percent,
             self.player_bounty_percent,

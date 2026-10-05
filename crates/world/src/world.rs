@@ -124,6 +124,11 @@ pub mod offered;
 mod floorplan;
 pub use floorplan::FloorMark;
 
+// A site's experience (October 2026): its budget, a wave's share of it,
+// the bonus wave and Clean Sweep. A child for the same reason.
+#[path = "site_xp.rs"]
+mod site_xp;
+
 /// What a player can ask the world to do.
 ///
 /// Every one of them carries the slot that sent it, because every one of them
@@ -490,6 +495,14 @@ pub enum Command {
     /// once every player alive has pressed it, wherever they are (task
     /// 133). Pressed again, it asks a turned-down departure again.
     Return {
+        slot: u32,
+    },
+    /// Call the site's **bonus wave** (October 2026): at a site cleared
+    /// of the fight it met, one more wave, half as big again as its own,
+    /// for half the site's experience again and its machines' bounty —
+    /// once a site, and the deck thawed for it (`World::call_bonus_wave`).
+    /// Refused `NoBonusWave` where there is none to call.
+    CallBonusWave {
         slot: u32,
     },
     /// This player's answer to the departure check: leave the ones
@@ -1635,6 +1648,7 @@ impl World {
             | Command::Propose { slot, .. }
             | Command::Accept { slot, .. }
             | Command::Return { slot }
+            | Command::CallBonusWave { slot }
             | Command::LeaveBehind { slot, .. }
             | Command::PlayerGone { slot }
             | Command::Ready { slot, .. }
@@ -1707,6 +1721,7 @@ impl World {
                 command,
                 Command::SetSpeed { .. }
                     | Command::Return { .. }
+                    | Command::CallBonusWave { .. }
                     | Command::LeaveBehind { .. }
                     | Command::PlayerGone { .. }
                     | Command::Ready { .. }
@@ -1731,6 +1746,10 @@ impl World {
             }
             Command::Accept { yes, .. } => self.accept_proposal(slot, yes, events),
             Command::Return { .. } => self.press_return(slot, events),
+            Command::CallBonusWave { .. } => match self.call_bonus_wave(slot) {
+                Ok(()) => events.push(WorldEvent::BonusWaveCalled { slot }),
+                Err(why) => events.push(refused(slot, why)),
+            },
             Command::LeaveBehind { yes, .. } => self.answer_departure(slot, yes, events),
             Command::PlayerGone { .. } => self.player_gone(slot, events),
             Command::Ready { yes, .. } => self.press_ready(slot, yes, events),
@@ -3150,11 +3169,14 @@ impl World {
         for who in self.aboard.room.take_downs() {
             if who < self.aboard.crew_count() as usize {
                 events.push(WorldEvent::CrewDowned { who: who as u32 });
+                // No clean sweep at this site till its next clear.
+                self.spoil_the_clean_sweep(who as u32);
             }
         }
         for who in 0..self.crew_down.len().min(self.aboard.crew_count() as usize) {
             let down = !self.aboard.room.is_alive(who);
             if down && !self.crew_down[who] {
+                self.spoil_the_clean_sweep(who as u32);
                 self.crew_down[who] = true;
                 events.push(WorldEvent::CrewDown { who: who as u32 });
                 // Since the run (feature 103) a dead player's level,
@@ -5795,7 +5817,8 @@ impl World {
     pub(crate) fn landing_wave_size(&mut self) -> u32 {
         let n = self.droid_wave_size();
         self.run.wave_size.get_or_insert(n);
-        n
+        // And the site's bonus wave half as big again (October 2026).
+        self.bonus_wave_size(n)
     }
 
     /// How many of the crew are bots, for the waves (task 147): every crew
@@ -6330,7 +6353,7 @@ impl World {
         // in its fortress they are the whole deck: no wave stands there,
         // its Guardians come for its conduits shot down (October 2026).
         let mut droids = self.heart_machines_to_lay(&station);
-        droids.extend(if heart::is_heart(id) {
+        let laid = if heart::is_heart(id) {
             Vec::new()
         } else if wave == 1 {
             self.first_wave(&station, n, wave)
@@ -6342,7 +6365,10 @@ impl World {
                 d.seeking = true;
             }
             arriving
-        });
+        };
+        // What each of the wave pays in experience (October 2026).
+        self.price_the_wave(id, laid.len() as u32);
+        droids.extend(laid);
         if let Some(residents) = &mut self.residents {
             residents
                 .aboard
@@ -6386,6 +6412,7 @@ impl World {
         let reinforce = self.reinforce_steps_here(id);
         let mut arrive = false;
         let mut cleared = false;
+        let mut bonus_cleared = false;
         if let Some(it) = self.infestation_mut(id) {
             if it.wave == 0 {
                 return;
@@ -6412,6 +6439,11 @@ impl World {
                 // last wave spent there leaves the core to be fought.
                 it.cleared = true;
                 cleared = true;
+            } else if it.bonus == run::BonusWave::Landed {
+                // The bonus wave's last down (October 2026): the site was
+                // cleared already, and nothing of that is said again.
+                it.bonus = run::BonusWave::Done;
+                bonus_cleared = true;
             }
         }
         if arrive {
@@ -6436,10 +6468,18 @@ impl World {
                 residents.defender.truncate(bims);
             }
             self.settle_droids();
+            if let Some(it) = self.infestation_mut(id)
+                && it.bonus == run::BonusWave::Called
+            {
+                it.bonus = run::BonusWave::Landed;
+            }
             events.push(WorldEvent::DroidReinforcements { station: id });
         }
         if cleared {
             events.push(WorldEvent::DroidStationCleared { station: id });
+        }
+        if bonus_cleared {
+            self.bonus_wave_cleared(id, events);
         }
     }
 
@@ -7092,6 +7132,7 @@ impl World {
         }
         let mut arrive = false;
         let mut won = false;
+        let mut bonus_cleared = false;
         // **Not won until every wreck is counted** (task 111): `visit`
         // counts a machine down — its bounty, its experience — only while
         // the defence is running, and a win declared the step the last one
@@ -7131,6 +7172,11 @@ impl World {
             } else if !d.won && counted {
                 d.won = true;
                 won = true;
+            } else if d.bonus == run::BonusWave::Landed && counted {
+                // The bonus wave's last down (October 2026): the site was
+                // won already, and nothing of that is said again.
+                d.bonus = run::BonusWave::Done;
+                bonus_cleared = true;
             }
         }
         if arrive {
@@ -7148,8 +7194,14 @@ impl World {
             }
             if let Some(d) = self.defense_mut(id) {
                 d.standing = standing + n;
+                if d.bonus == run::BonusWave::Called {
+                    d.bonus = run::BonusWave::Landed;
+                }
             }
             events.push(WorldEvent::DroidReinforcements { station: id });
+        }
+        if bonus_cleared {
+            self.bonus_wave_cleared(id, events);
         }
         if won {
             events.push(WorldEvent::TownHeld { station: id });
@@ -7255,6 +7307,7 @@ impl World {
             return;
         };
         let droids = self.arriving_wave(&station, n, wave);
+        self.price_the_wave(id, droids.len() as u32);
         if let Some(residents) = &mut self.residents {
             residents
                 .aboard
@@ -7712,11 +7765,16 @@ impl World {
             && (room.bim_pos(who) - at).len() <= class::VICINITY_TILES * shipdesign::TILE as f32
     }
 
-    /// `xp` to every classed crew member within the vicinity of `at`.
+    /// `xp` to every classed crew member within the vicinity of `at`,
+    /// each its own share of it (`World::xp_for`: the *Training Log*, the
+    /// catch-up) — and noted in *Clean Sweep*'s book.
     fn award_classed_near(&mut self, at: bims::math::Vec2, xp: u32, events: &mut Vec<WorldEvent>) {
+        let best = self.best_player_level();
         for who in 0..self.classes.len() {
             if self.class_of(who as u32) != Class::None && self.in_vicinity(who, at) {
-                self.award(who, xp, events);
+                let got = self.xp_for(who as u32, xp, best);
+                self.note_clean_xp(who as u32, got);
+                self.award(who, got, events);
             }
         }
     }

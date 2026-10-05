@@ -255,6 +255,23 @@ fn draw_module(s: &mut Sketch, b: &Box_, kind: bims::module::ModuleKind) {
             s.rect_filled(b.rect(0.42, 0.44, 0.58, 0.66), b.px(0.02), KEY_TRACE);
             s.rect_filled(b.rect(0.45, 0.28, 0.55, 0.34), b.px(0.01), GUN_STEEL);
         }
+        // A book, its pages showing, a gold chevron on the cover: a rank
+        // to come.
+        ModuleKind::TrainingLog => {
+            s.rect_filled(b.rect(0.18, 0.10, 0.84, 0.92), b.px(0.04), STOCK);
+            s.rect_filled(b.rect(0.18, 0.10, 0.30, 0.92), b.px(0.03), SACK_DARK);
+            s.rect_filled(b.rect(0.78, 0.14, 0.86, 0.88), b.px(0.01), TOFU);
+            // The chevron as two convex arms.
+            s.fill(
+                b.poly(&[(0.38, 0.56), (0.55, 0.38), (0.55, 0.51), (0.38, 0.68)]),
+                CORE_GOLD,
+            );
+            s.fill(
+                b.poly(&[(0.55, 0.38), (0.72, 0.56), (0.72, 0.68), (0.55, 0.51)]),
+                CORE_GOLD,
+            );
+            s.line_segment([b.at(0.40, 0.24), b.at(0.70, 0.24)], st(0.04, CORE_GOLD));
+        }
         // A shield of plates, layered.
         ModuleKind::AblativeShell => {
             s.fill(
@@ -512,7 +529,7 @@ fn relic_rim(relic: Relic) -> Color32 {
         HeavyPlating | NaniteMesh => RIM_LIFELINE,
         HairTrigger | Adrenaline | LoneWolves => RIM_FLANKER,
         DrillSergeant | OverclockedCores => RIM_COMMAND,
-        BountyContract | BlackMarket | HuntersPact => RIM_SUPPLY,
+        BountyContract | BlackMarket | HuntersPact | CleanSweep => RIM_SUPPLY,
     }
 }
 
@@ -596,6 +613,7 @@ fn pic_of(relic: Relic) -> Pic {
         Relic::Adrenaline => Pic::SprintCoil,
         Relic::SalvageBurn => Pic::PartsBroker,
         Relic::NaniteMesh => Pic::ClotBooster,
+        Relic::CleanSweep => Pic::PhaseHarness,
     }
 }
 

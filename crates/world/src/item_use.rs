@@ -237,6 +237,21 @@ impl World {
         self.aboard.room.gear(who as usize).item_cooldown_cut()
     }
 
+    /// The per cent more of every enemy's experience `who`'s best
+    /// *Training Log* gives it (October 2026): two do not add.
+    pub fn item_xp_percent(&self, who: u32) -> u32 {
+        if who >= self.players() || who >= self.aboard.crew_count() {
+            return 0;
+        }
+        self.aboard
+            .room
+            .gear(who as usize)
+            .modules()
+            .map(|m| m.xp_percent())
+            .max()
+            .unwrap_or(0)
+    }
+
     /// Seconds `who`'s *Ablative Shell* has left; nought with none on.
     pub fn shell_left(&self, who: u32) -> f64 {
         let now = self.mission_minutes();

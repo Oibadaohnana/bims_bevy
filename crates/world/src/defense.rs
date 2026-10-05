@@ -66,6 +66,10 @@ pub struct Defense {
     /// — `None` at a station or a derelict, and in a save from before.
     #[cfg_attr(feature = "serde", serde(default))]
     pub area: Option<Area>,
+    /// The site's bonus wave (October 2026, [`crate::run::BonusWave`]): a
+    /// defence won is on again while it runs, and won still.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub bonus: crate::run::BonusWave,
 }
 
 /// An **Area defend**: the crew hold a ring of the town's ground, the FOB,
@@ -153,6 +157,21 @@ pub fn area_gap(wave: u32) -> u64 {
         .max(data::AREA_WAVE_MIN_STEPS)
 }
 
+/// How many waves land in an Area defend's hold: the first as it starts,
+/// then one every [`area_gap`] while time is left — seven in the three
+/// minutes. What its experience is shared over (`World::price_the_wave`).
+pub fn area_waves() -> u32 {
+    let mut waves = 1;
+    let mut at = 0;
+    loop {
+        at += area_gap(waves);
+        if at >= data::AREA_HOLD_STEPS {
+            return waves;
+        }
+        waves += 1;
+    }
+}
+
 /// Where the `k`-th enemy of an Area defend makes for, in tiles off the
 /// ring's middle: round it by the golden angle, from half a tile out to a
 /// little over two, so a wave spreads over the middle of the ring rather
@@ -179,6 +198,7 @@ impl Defense {
             won: false,
             lost: false,
             area: None,
+            bonus: crate::run::BonusWave::None,
         }
     }
 
@@ -202,9 +222,10 @@ impl Defense {
         }
     }
 
-    /// Whether the fight is over, either way.
+    /// Whether the fight is over, either way — a defence won is not
+    /// while its bonus wave runs.
     pub fn over(&self) -> bool {
-        self.won || self.lost
+        (self.won && !self.bonus.running()) || self.lost
     }
 }
 

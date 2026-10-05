@@ -8024,3 +8024,63 @@ machines"); the world decides where they come.
   `tests_floor::a_run_s_floor_climbs_from_home_to_the_heart_on_stars_of_its_own`
   and `floor::tests` are the rule. The floor is off in tests, so no pin
   moved for it; the shape's stream moved (a run's floor is another floor).
+
+## A site's experience budget, the bonus wave and Clean Sweep (October 2026)
+
+> "Twenty for an enemy down" and every `XP_ENEMY_DOWN` above describe a
+> flat sum an enemy; that is **gone** for every enemy a wave lays. The
+> player's words: reach the sixteenth level at the Heart, the same with
+> four players as with one, with variance from the run's choices.
+
+`site_xp.rs` (a child of `world`) is the whole of it.
+
+- **The budget**: `Rewards::site_xp_on(day)` — `site_xp` (60) grown
+  `site_xp_growth_percent` (12) a day, compounded in thousandths
+  (`data::SITE_XP`, `SITE_XP_GROWTH_PERCENT`; `rewards.ron`'s
+  `xp_per_down` went). `World::site_budget(id)` is the run day's, times
+  `data::ELITE_XP_PERCENT` (200) where `is_elite_fight` (an Area defend
+  too — the same predicate the elite's money uses).
+- **A wave's share**: `World::price_the_wave(id, bodies)`, called where
+  every wave is laid (`settle_droids`, `lay_manufacturers`,
+  `lay_defense_manufacturers`, `settle_defense_droids`), sets
+  `Run::xp_each` (saved, hashed where set, cleared at a mission's start
+  and end) to the budget over the site's waves (`site_waves`: an
+  infestation's or a defence's `wave + waves_left`, an Area defend's
+  `defense::area_waves()`) over the wave's bodies, rounded. So a cleared
+  site pays every player in range its budget whatever the wave sizes,
+  players or bots. `World::xp_per_down()` is it times *Hunter's Pact*;
+  the Heart is its day's budget over `data::HEART_XP_BODIES` (20); an
+  enemy no wave priced (a probe's) `class::XP_ENEMY_DOWN`.
+- **Each player's share** (`award_classed_near` → `xp_for`): + the best
+  *Training Log*'s per cent (`ModuleKind::TrainingLog`, 13;
+  `bims::module::TRAINING_LOG_XP` 15/20/25, `ITEM_PRICE`'s 14th row,
+  `World::item_xp_percent`) and + `data::CATCH_UP_XP_PERCENT` (25) for a
+  player's Bim below `best_player_level`. A bot gets the plain share.
+- **The bonus wave** (`run::BonusWave`: None, Called, Landed, Done, on
+  `Infestation::bonus` / `Defense::bonus`, hashed where called):
+  `Command::CallBonusWave { slot }` (heard on the frozen deck) —
+  `can_call_bonus_wave`: a player, a mission at a site `fought` and
+  cleared, an infestation (settled, not the Heart) or a won defence that
+  is not an Area defend, not called before; else `NoBonusWave` (133).
+  It sets `waves_left = 1`, takes back every *Back to ship* press, and
+  the site's own clock brings it: `landing_wave_size` is
+  `data::BONUS_WAVE_SIZE_PERCENT` (150) of the fixed wave, rounded up;
+  its bodies share `BONUS_WAVE_XP_PERCENT` (50) of the budget; it is
+  `Landed` on the arrive branch and `Done` on the branch after the clear
+  (`BonusWaveCleared`, 165). The site stays cleared throughout — nothing
+  the clear said is said again, the bounty is paid at once
+  (`mission_cleared`) — but `fight_over()` is false while it runs (the
+  deck thaws) and `Defense::over()` too. `BonusWaveCalled` is 164.
+- ***Clean Sweep*** (`Relic::CleanSweep`, 12; `Stat::CleanExperience`
+  25%, price `DamageTaken` +10%): `award_classed_near` notes every award
+  in `Run::clean_xp` by crew index; a player's Bim downed or dead
+  (`casualties`) sets `Run::clean_spoiled`. At the clear
+  (`settle_clear`) and the bonus wave's, `pay_the_clean_sweep` awards
+  each its per cent of what it earned (`CleanSweep { who, xp }`, 166)
+  unless spoiled, and the book starts again.
+
+**`SAVE_VERSION` 113.** `tests_site_xp.rs` is the rule;
+`tests_droid`'s wreck test and `tests_manufacturer`'s day-nought test
+read `xp_per_down()` where they read `XP_ENEMY_DOWN`. Meant to alter
+play: `SURVIVORS`, `REFERENCE_CHECKSUM` and the ship's `PINNED` move
+wherever a run's crew earn experience off a wave.

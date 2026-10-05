@@ -296,7 +296,10 @@ use crate::game::Game;
 /// Item6}`.
 /// 112: armour regenerates — a body's seconds since its last hit
 /// (`bims::bim::Bim::unhurt`).
-pub const SAVE_VERSION: u32 = 112;
+/// 113: a site's experience (`Run::{xp_each, clean_xp, clean_spoiled}`),
+/// its bonus wave (`Infestation::bonus`, `Defense::bonus`), *Clean Sweep*
+/// and the *Training Log*.
+pub const SAVE_VERSION: u32 = 113;
 
 /// What the file holds, read back.
 #[derive(serde::Deserialize)]

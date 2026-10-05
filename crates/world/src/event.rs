@@ -229,6 +229,14 @@ pub enum WorldEvent {
     /// An Area defend's hold ran out: no wave lands after this one, and
     /// the machines on the ground are the last to destroy.
     AreaTimeUp { station: u32 },
+    /// Player `slot` called the site's bonus wave (October 2026): one more,
+    /// bigger, for half its experience again.
+    BonusWaveCalled { slot: u32 },
+    /// The last enemy of a site's bonus wave down.
+    BonusWaveCleared { station: u32 },
+    /// *Clean Sweep* (October 2026): a site cleared with no player down
+    /// paid crew member `who` `xp` more experience.
+    CleanSweep { who: u32, xp: u32 },
     /// The host said that player has left the game.
     PlayerGone { slot: u32 },
     /// Relics are on offer to the crew (feature 106): `count` of them, off
@@ -631,6 +639,10 @@ pub enum Refusal {
     /// A laser pistol offered to a trader: the one every Bim sets out
     /// with is never sold (October 2026).
     NotSellable = 132,
+    /// A bonus wave called where there is none to call (October 2026): a
+    /// site not cleared, one whose bonus wave was called already, an Area
+    /// defend, the Machine Heart, or no fight at all.
+    NoBonusWave = 133,
 }
 
 impl Refusal {
@@ -719,6 +731,9 @@ impl WorldEvent {
             WorldEvent::TownFell { .. } => 105,
             WorldEvent::AreaTaken { .. } => 162,
             WorldEvent::AreaTimeUp { .. } => 163,
+            WorldEvent::BonusWaveCalled { .. } => 164,
+            WorldEvent::BonusWaveCleared { .. } => 165,
+            WorldEvent::CleanSweep { .. } => 166,
             WorldEvent::PlayerGone { .. } => 106,
             WorldEvent::RelicsOffered { .. } => 107,
             WorldEvent::RelicProposed { .. } => 108,
@@ -822,6 +837,7 @@ impl WorldEvent {
             WorldEvent::TownFell { station }
             | WorldEvent::AreaTaken { station }
             | WorldEvent::AreaTimeUp { station }
+            | WorldEvent::BonusWaveCleared { station }
             | WorldEvent::HeartExposed { station }
             | WorldEvent::HeartOverload { station }
             | WorldEvent::HeartDestroyed { station } => station as i64,
@@ -861,6 +877,9 @@ impl WorldEvent {
             WorldEvent::EnemyRewarded { money, .. } => money as i64,
             WorldEvent::Hit { damage, .. } => i64::from(damage),
             WorldEvent::Blinked { who } => who as i64,
+            WorldEvent::BonusWaveCalled { slot } => slot as i64,
+            // The experience in the hundreds, the crew member in the units.
+            WorldEvent::CleanSweep { who, xp } => (who as i64) + 100 * (xp as i64),
             // The kind in the hundreds, the player in the units.
             WorldEvent::ItemUsed { who, kind } => (who as i64) + 100 * (kind as i64),
             // The buyer in the units, the kind in the tens, the tier in the

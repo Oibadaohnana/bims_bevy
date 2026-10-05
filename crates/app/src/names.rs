@@ -466,6 +466,7 @@ pub fn refusal(why: Refusal) -> &'static str {
         Refusal::NoSatchels => "no satchel charge of yours is lying out",
         Refusal::ShieldRecharging => "the shield is broken until its cooldown is over",
         Refusal::NotSellable => "the laser pistol is not for sale",
+        Refusal::NoBonusWave => "there is no bonus wave to call here",
     }
 }
 
@@ -1809,6 +1810,14 @@ pub fn event_line(event: WorldEvent) -> Option<String> {
         WorldEvent::TownFell { .. } => TOWN_FELL.into(),
         WorldEvent::AreaTaken { .. } => AREA_TAKEN.into(),
         WorldEvent::AreaTimeUp { .. } => AREA_TIME_UP.into(),
+        WorldEvent::BonusWaveCalled { slot } => format!(
+            "{} calls the bonus wave: one more, half as big again, for half the site's experience again.",
+            player_name(slot)
+        ),
+        WorldEvent::BonusWaveCleared { .. } => BONUS_WAVE_CLEARED.into(),
+        WorldEvent::CleanSweep { who: w, xp } => {
+            format!("Clean Sweep: {} earns {xp} experience more.", who(w))
+        }
         WorldEvent::PlayerGone { slot } => format!("{} has left the game.", player_name(slot)),
         WorldEvent::Readied { slot, yes: true } => format!("{} is ready.", player_name(slot)),
         WorldEvent::Readied { slot, yes: false } => {
@@ -1847,7 +1856,7 @@ fn relic_of(code: u32) -> Option<world::Relic> {
 }
 
 /// Every relic's name, in `world::Relic::ALL`'s order.
-pub const RELIC_NAMES: [&str; 12] = [
+pub const RELIC_NAMES: [&str; 13] = [
     "Glass Cannon",
     "Heavy Plating",
     "Hair Trigger",
@@ -1860,10 +1869,11 @@ pub const RELIC_NAMES: [&str; 12] = [
     "Adrenaline",
     "Salvage Burn",
     "Nanite Mesh",
+    "Clean Sweep",
 ];
 
 /// The items' names (October 2026), by `bims::module::ModuleKind` code.
-pub const ITEM_NAMES: [&str; 13] = [
+pub const ITEM_NAMES: [&str; 14] = [
     "Blink Drive",
     "Executioner",
     "Reactor Heart",
@@ -1877,6 +1887,7 @@ pub const ITEM_NAMES: [&str; 13] = [
     "Field Mender",
     "Reset Capacitor",
     "Ablative Shell",
+    "Training Log",
 ];
 
 /// An item's name.
@@ -1972,6 +1983,10 @@ pub fn item_line(item: bims::module::Module) -> String {
             by(m::SHELL_DAMAGE_TAKEN as f64),
             fig(m::SHELL_COOLDOWN_SECONDS[t] as f64),
         ),
+        ModuleKind::TrainingLog => format!(
+            "+{}% experience for every enemy down. Two do not add: the best counts. Best bought early.",
+            m::TRAINING_LOG_XP[t],
+        ),
     }
 }
 
@@ -2038,6 +2053,7 @@ pub fn item_tier_line(kind: bims::module::ModuleKind, tier: u32) -> Option<Strin
             fig(m::SHELL_SECONDS[t] as f64),
             fig(m::SHELL_COOLDOWN_SECONDS[t] as f64),
         ),
+        ModuleKind::TrainingLog => format!("+{}% experience", m::TRAINING_LOG_XP[t]),
         ModuleKind::OverrideCore => return None,
     })
 }
@@ -2072,6 +2088,12 @@ pub fn modifier_line(m: world::relic::Modifier) -> String {
         Stat::TraderPrices => "trader prices",
         Stat::Regen => "max HP a second, regenerated",
         Stat::EnemyHealth => "HP for every enemy",
+        // Not a share of anything now, but of a clear's own.
+        Stat::CleanExperience => {
+            return format!(
+                "{sign}{n}% of a site's experience again when it is cleared with no player down"
+            );
+        }
     };
     // The run's own numbers name nobody: they are the crew's whole.
     let whom = match (m.who, m.stat) {
@@ -2212,6 +2234,11 @@ pub const LEFT_UNCLEARED: &str = "The ship leaves before the place is cleared: i
 pub const TOWN_FELL: &str = "The site falls to the machines behind you.";
 /// An Area defend's two moments (October 2026).
 pub const AREA_TAKEN: &str = "The machines hold the FOB. It is lost, and the run with it.";
+pub const BONUS_WAVE_CLEARED: &str = "The bonus wave is down. The site is yours again.";
+/// The bonus wave's button (`screens::fightwon`), its tip, and what it
+/// says once called and once fought.
+pub const CALL_BONUS_WAVE: &str = "Call bonus wave";
+pub const CALL_BONUS_WAVE_TIP: &str = "One more wave, half as big again as this site's own, for half the site's experience again and its machines' bounty. Once a site. The deck thaws for it: whoever lies downed is bleeding out again, and Back to ship wants everybody aboard until it is beaten.";
 pub const AREA_TIME_UP: &str = "Time! No more waves are coming — destroy the last of them.";
 
 // --- the world map and the end of a mission (feature 103) -------------------

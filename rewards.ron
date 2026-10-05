@@ -5,8 +5,13 @@
 // numbers. A field left out is the built-in value, and a file that does not
 // parse keeps the last good numbers (the reason is printed on the terminal).
 //
-//   xp_per_down             experience for an enemy down or destroyed, once,
-//                           to every classed crew member within fifty tiles
+//   site_xp                 what a site is worth in experience on the run's
+//                           first day, to every player: each enemy down pays
+//                           its wave's share of it, once, to every classed
+//                           crew member within fifty tiles (an elite's site
+//                           twice that; the bonus wave half again)
+//   site_xp_growth_percent  how much more a site is worth every day after,
+//                           in per cent, compounded
 //   bounty                  money for an enemy down or destroyed, once, by
 //                           the tier of its gear (a machine: its own tier):
 //                           tier one, two, three
@@ -25,7 +30,8 @@
 //
 // The values below are the built-in ones.
 (
-    xp_per_down: 15,
+    site_xp: 60,
+    site_xp_growth_percent: 12,
     bounty: (500, 1500, 4500),
     defense_bounty_percent: 100,
     bot_bounty_percent: 5,

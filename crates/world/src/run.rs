@@ -109,6 +109,43 @@ impl SiteKind {
     }
 }
 
+/// A site's **bonus wave** (October 2026): one more wave the crew may
+/// call at a site they have just cleared — the site's wave a half bigger,
+/// half its experience again and its machines' bounty — once a site.
+/// Kept on the site's `Infestation` or `Defense`; saved, and hashed only
+/// where one was called.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub enum BonusWave {
+    /// Not called.
+    #[default]
+    None,
+    /// Called: the wave is on its way.
+    Called,
+    /// Landed: the wave is on the deck.
+    Landed,
+    /// Fought: its last enemy down. A site has one.
+    Done,
+}
+
+impl BonusWave {
+    /// The number that goes into the checksum.
+    pub fn code(self) -> u32 {
+        match self {
+            BonusWave::None => 0,
+            BonusWave::Called => 1,
+            BonusWave::Landed => 2,
+            BonusWave::Done => 3,
+        }
+    }
+
+    /// Whether it is called and not yet fought: the site's fight is on
+    /// again.
+    pub fn running(self) -> bool {
+        matches!(self, BonusWave::Called | BonusWave::Landed)
+    }
+}
+
 /// Where the run stands.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -363,6 +400,21 @@ pub struct Run {
     /// first, and again at every mission's start.
     #[cfg_attr(feature = "serde", serde(default))]
     pub wave_size: Option<u32>,
+    /// The experience an enemy of the wave on the deck pays every classed
+    /// crew member in range (October 2026, `World::price_the_wave`): the
+    /// site's budget for the day over its waves and the wave's bodies —
+    /// before the relics, the items and the catch-up put theirs on.
+    /// `None` before the first wave of a mission is laid, and again at
+    /// every mission's start.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub xp_each: Option<u32>,
+    /// *Clean Sweep*'s book (October 2026): the experience each crew
+    /// member earned at this site since its last clear, by crew index...
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub clean_xp: Vec<u32>,
+    /// ...and whether a player's Bim went down since.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub clean_spoiled: bool,
 }
 
 impl Run {
@@ -400,6 +452,9 @@ impl Run {
             chosen: Vec::new(),
             floor: false,
             wave_size: None,
+            xp_each: None,
+            clean_xp: Vec::new(),
+            clean_spoiled: false,
         }
     }
 

@@ -71,10 +71,13 @@ pub enum ModuleKind {
     /// *Ablative Shell* (Black King Bar): active, a few seconds of less
     /// damage and no armour stripped.
     AblativeShell = 12,
+    /// *Training Log* (October 2026): passive, more of every enemy's
+    /// experience — an investment, best bought early.
+    TrainingLog = 13,
 }
 
 impl ModuleKind {
-    pub const ALL: [ModuleKind; 13] = [
+    pub const ALL: [ModuleKind; 14] = [
         ModuleKind::BlinkDrive,
         ModuleKind::Executioner,
         ModuleKind::ReactorHeart,
@@ -88,6 +91,7 @@ impl ModuleKind {
         ModuleKind::FieldMender,
         ModuleKind::ResetCapacitor,
         ModuleKind::AblativeShell,
+        ModuleKind::TrainingLog,
     ];
 
     pub fn code(self) -> u32 {
@@ -248,6 +252,12 @@ pub const SHELL_DAMAGE_TAKEN: f32 = 0.6;
 /// Its cooldown, in seconds, by tier.
 pub const SHELL_COOLDOWN_SECONDS: [f32; 3] = [60.0, 55.0, 50.0];
 
+// --- the Training Log --------------------------------------------------------------
+
+/// *Training Log*: how much more of every enemy's experience its carrier
+/// gets, in per cent, by tier. Two carried do not add: the best counts.
+pub const TRAINING_LOG_XP: [u32; 3] = [15, 20, 25];
+
 impl Module {
     /// An active item's cooldown, in seconds; nought for a passive one.
     pub fn cooldown(self) -> f32 {
@@ -306,6 +316,15 @@ impl Module {
                 by_tier(ARC_DAMAGE, self.tier),
             )
         })
+    }
+
+    /// The per cent more experience a *Training Log* gives its carrier.
+    pub fn xp_percent(self) -> u32 {
+        if self.kind == ModuleKind::TrainingLog {
+            by_tier(TRAINING_LOG_XP, self.tier)
+        } else {
+            0
+        }
     }
 
     /// A *Field Mender*'s heal.

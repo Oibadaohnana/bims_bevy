@@ -955,6 +955,22 @@ pub fn back_to_ship(
                         if press.clicked() {
                             orders.push(Order::ReturnToShip);
                         }
+                        // And the bonus wave, while there is one to call.
+                        if world.can_call_bonus_wave(local).is_ok() {
+                            let call = ui
+                                .add(
+                                    egui::Button::new(
+                                        egui::RichText::new(CALL_BONUS_WAVE)
+                                            .strong()
+                                            .color(theme::CAUTION),
+                                    )
+                                    .min_size(egui::vec2(130.0, 32.0)),
+                                )
+                                .on_hover_text(CALL_BONUS_WAVE_TIP);
+                            if call.clicked() {
+                                orders.push(Order::CallBonusWave);
+                            }
+                        }
                     }
                     theme::question_mark(ui, BACK_TO_SHIP_TIP);
                 });

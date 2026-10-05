@@ -53,11 +53,12 @@ pub enum Relic {
     Adrenaline = 9,
     SalvageBurn = 10,
     NaniteMesh = 11,
+    CleanSweep = 12,
 }
 
 impl Relic {
     /// Every relic, in list order.
-    pub const ALL: [Relic; 12] = [
+    pub const ALL: [Relic; 13] = [
         Relic::GlassCannon,
         Relic::HeavyPlating,
         Relic::HairTrigger,
@@ -70,6 +71,7 @@ impl Relic {
         Relic::Adrenaline,
         Relic::SalvageBurn,
         Relic::NaniteMesh,
+        Relic::CleanSweep,
     ];
 
     pub fn code(self) -> u32 {
@@ -124,6 +126,11 @@ pub enum Stat {
     /// The hit points every enemy — a machine or one of the
     /// Manufacturers' people — is laid with, in per cent.
     EnemyHealth,
+    /// The experience a site paid every crew member since its last clear,
+    /// in per cent, paid again at the clear when no player's Bim went
+    /// down there since (October 2026, *Clean Sweep*,
+    /// `World::pay_the_clean_sweep`).
+    CleanExperience,
     /// What an enemy a bot took down pays, in per cent of its bounty: not
     /// a share moved but a floor — the most any relic held says, over
     /// `Rewards::bot_bounty_percent` when it is more ([`bot_bounty`]).
@@ -205,7 +212,7 @@ use Who as W;
 
 /// Every relic there is, in [`Relic::ALL`]'s order: its boons first, then
 /// its price.
-pub const RELICS: [RelicDef; 12] = [
+pub const RELICS: [RelicDef; 13] = [
     row(
         Relic::GlassCannon,
         &[
@@ -295,6 +302,17 @@ pub const RELICS: [RelicDef; 12] = [
         &[
             m(W::Everyone, S::Regen, data::NANITE_MESH_REGEN),
             m(W::Everyone, S::Damage, -data::NANITE_MESH_DAMAGE),
+        ],
+    ),
+    row(
+        Relic::CleanSweep,
+        &[
+            m(
+                W::Everyone,
+                S::CleanExperience,
+                data::CLEAN_SWEEP_EXPERIENCE,
+            ),
+            m(W::Everyone, S::DamageTaken, data::CLEAN_SWEEP_TAKEN),
         ],
     ),
 ];
@@ -545,9 +563,10 @@ mod tests {
                 seen[r.code() as usize] += 1;
             }
         }
-        // Each a quarter of eighteen thousand draws, give or take.
+        // Each its share of eighteen thousand draws, give or take.
+        let share = 18_000 / Relic::ALL.len() as u32;
         for (code, n) in seen.iter().enumerate() {
-            assert!((1_300..=1_700).contains(n), "relic {code}: {n}");
+            assert!((share - 200..=share + 200).contains(n), "relic {code}: {n}");
         }
         assert_eq!(all, Relic::ALL.to_vec(), "the list is the caller's");
         assert_eq!(offer(&all, 3, 42), offer(&all, 3, 42));

@@ -87,6 +87,11 @@ pub struct Infestation {
     /// it is set, so nothing about a machines' site moved.
     #[cfg_attr(feature = "serde", serde(default))]
     pub manufacturers: bool,
+    /// The site's bonus wave (October 2026, [`crate::run::BonusWave`]):
+    /// called once it is cleared, it lands as the waves do and leaves the
+    /// site cleared — nothing the clear said is said again.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub bonus: crate::run::BonusWave,
 }
 
 impl Infestation {
@@ -101,6 +106,7 @@ impl Infestation {
             cleared: false,
             heart: None,
             manufacturers: false,
+            bonus: crate::run::BonusWave::None,
         }
     }
 

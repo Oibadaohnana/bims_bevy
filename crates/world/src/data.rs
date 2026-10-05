@@ -483,6 +483,43 @@ pub const ELITE_BOUNTY_PERCENT: u32 = 200;
 /// `manufacturer_bounty_percent`).
 pub const BOUNTY_SPREAD_PERCENT: u32 = 10;
 
+// --- experience: a site's budget (October 2026) -----------------------------
+//
+// A site is worth so much experience to every player, whatever its waves
+// are — how big, how many, how many players and bots they were laid for —
+// and each enemy down pays its wave's share of it (`World::xp_per_down`).
+// So the waves can be tuned for the fight without moving the levels. A
+// run that fights every row of the floor but the four or so traders a way
+// up meets and takes nothing more reaches the fifteenth level at the
+// Heart; the elites, the bonus waves, *Clean Sweep* and the *Training Log*
+// are what take a crew to the sixteenth and past.
+
+/// What a site is worth on the run's first day, in experience to every
+/// player: a cleared site's whole (`Rewards::site_xp`).
+pub const SITE_XP: u32 = 60;
+/// How much more a site is worth every day after, in per cent,
+/// compounded (`Rewards::site_xp_growth_percent`): 60 on day one, 166 on
+/// day ten, 516 on day twenty, 1 797 on day thirty-one — about a level
+/// every two days, the level curve growing by 1.3 a level.
+pub const SITE_XP_GROWTH_PERCENT: u32 = 12;
+/// What an **elite**'s site is worth, in per cent of an attack's.
+pub const ELITE_XP_PERCENT: u32 = 200;
+/// What the Machine Heart's fight pays an enemy down, as its day's site
+/// budget over this many: its machines come for its conduits and from its
+/// fabricators, never as a wave a share could be worked out over.
+pub const HEART_XP_BODIES: u32 = 20;
+/// The **bonus wave**: called by the crew at a site they have just
+/// cleared, one more wave this much bigger than the site's own, in per
+/// cent, rounded up...
+pub const BONUS_WAVE_SIZE_PERCENT: u32 = 150;
+/// ...worth this much of the site's experience on top, in per cent, and
+/// its machines' bounty as any.
+pub const BONUS_WAVE_XP_PERCENT: u32 = 50;
+/// A player below the best level among the players gets this much more
+/// of every enemy's experience, in per cent: a player dead and bought
+/// back, or joined late, catches up.
+pub const CATCH_UP_XP_PERCENT: u32 = 25;
+
 // --- the run: death and buyback (feature 103) ------------------------------
 
 /// What the pool pays to bring a dead player's Bim back, at the end of
@@ -551,6 +588,11 @@ pub const SALVAGE_BURN_BOUNTY: i32 = 40;
 /// and everybody's weapon damage is down.
 pub const NANITE_MESH_REGEN: i32 = 2;
 pub const NANITE_MESH_DAMAGE: i32 = 15;
+/// *Clean Sweep* (October 2026): a site cleared with no player downed
+/// since the last clear pays every player this much more of the
+/// experience it earned there, in per cent — and everybody takes more.
+pub const CLEAN_SWEEP_EXPERIENCE: i32 = 25;
+pub const CLEAN_SWEEP_TAKEN: i32 = 10;
 
 // --- the trader (task 114, `crate::trader`) ---------------------------------
 
@@ -612,8 +654,9 @@ pub const MINIGUN_SHELF_PRICE: Money = 3;
 /// (October 2026, the player's). The Reset Capacitor is made at tier
 /// three alone and costs five times its old tier three (October 2026;
 /// 54 000), 270 000, then three times that, 810 000; its lower tiers'
-/// prices are only a saved one's.
-pub const ITEM_PRICE: [[Money; 3]; 13] = [
+/// prices are only a saved one's. The *Training Log* (October 2026) last, at
+/// the Pressure Seal's: an investment, best bought early.
+pub const ITEM_PRICE: [[Money; 3]; 14] = [
     [27_000, 47_250, 81_000],
     [33_750, 60_750, 108_000],
     [27_000, 54_000, 94_500],
@@ -627,6 +670,7 @@ pub const ITEM_PRICE: [[Money; 3]; 13] = [
     [27_000, 54_000, 94_500],
     [54_000, 94_500, 810_000],
     [33_750, 60_750, 108_000],
+    [13_500, 27_000, 47_250],
 ];
 /// What a thing sold back at a trader fetches, in per cent of what was
 /// paid for it (October 2026, the player's: half). Nothing is combined

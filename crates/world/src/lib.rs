@@ -163,6 +163,8 @@ mod tests_relic;
 #[cfg(test)]
 mod tests_run;
 #[cfg(test)]
+mod tests_site_xp;
+#[cfg(test)]
 mod tests_soldier;
 #[cfg(test)]
 mod tests_standing;

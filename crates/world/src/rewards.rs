@@ -10,7 +10,7 @@
 //! two-player run each game reads its own file, and the two have to
 //! agree.
 
-use crate::{class, data};
+use crate::data;
 use economy::Money;
 
 /// The dials. Integers only.
@@ -21,9 +21,15 @@ use economy::Money;
     serde(default)
 )]
 pub struct Rewards {
-    /// Experience to every classed crew member in range for an enemy
-    /// going down (downed, or destroyed outright), once an enemy.
-    pub xp_per_down: u32,
+    /// What a site is worth in experience on the run's first day, to every
+    /// player: each enemy down there pays its wave's share of it, once an
+    /// enemy, to every classed crew member in range ([`Rewards::site_xp_on`],
+    /// `World::xp_per_down`). It was fifteen an enemy, whatever the wave,
+    /// until October 2026 (`xp_per_down`).
+    pub site_xp: u32,
+    /// How much more a site is worth every day after the first, in per
+    /// cent, compounded.
+    pub site_xp_growth_percent: u32,
     /// Money for an enemy going down, by the tier of its gear (a machine:
     /// its own tier) — tier one, two, three. Once an enemy, whoever did
     /// it.
@@ -50,7 +56,8 @@ pub struct Rewards {
 impl Rewards {
     /// The constants: the game as it plays untuned.
     pub const DEFAULT: Rewards = Rewards {
-        xp_per_down: class::XP_ENEMY_DOWN,
+        site_xp: data::SITE_XP,
+        site_xp_growth_percent: data::SITE_XP_GROWTH_PERCENT,
         bounty: [
             data::REPUBLIC_BOUNTY[1],
             data::REPUBLIC_BOUNTY[2],
@@ -63,6 +70,18 @@ impl Rewards {
         buyback: data::BUYBACK_COST,
         shelf_price_percent: 100,
     };
+
+    /// What a site is worth on run day `day` (one the first): `site_xp`
+    /// grown by `site_xp_growth_percent` a day, compounded in thousandths
+    /// and rounded down — whole numbers, so two machines agree.
+    pub fn site_xp_on(&self, day: u32) -> u32 {
+        let mut milli = u64::from(self.site_xp) * 1_000;
+        let grow = 100 + u64::from(self.site_xp_growth_percent);
+        for _ in 1..day.min(400) {
+            milli = (milli * grow / 100).min(u64::from(u32::MAX) * 1_000);
+        }
+        (milli / 1_000) as u32
+    }
 
     /// The money for an enemy of gear tier `tier` (one to three), indexed
     /// safely since a tier arrives from the room as a number: nought for

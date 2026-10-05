@@ -162,7 +162,8 @@ impl World {
             return;
         };
         let laid = self.residents.as_ref().map_or(0, |r| r.manufacturers_laid);
-        if it.wave == 0 || it.cleared || laid >= it.wave {
+        // A site cleared lays nothing — but its bonus wave (October 2026).
+        if it.wave == 0 || (it.cleared && !it.bonus.running()) || laid >= it.wave {
             return;
         }
         let Some(station) = self.station(id).cloned() else {
@@ -192,6 +193,7 @@ impl World {
         let Some((spots, facing)) = placed else {
             return;
         };
+        self.price_the_wave(id, n);
         self.stand_manufacturers(&troopers, &spots, facing, seed, it.wave);
     }
 
@@ -222,6 +224,7 @@ impl World {
         let Some((spots, facing)) = self.arrival_spots(&station, n, wave) else {
             return;
         };
+        self.price_the_wave(id, n);
         self.stand_manufacturers(&troopers, &spots, facing, seed, wave);
     }
 

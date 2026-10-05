@@ -206,7 +206,8 @@ fn a_wreck_is_down_carries_nothing_and_is_worth_twenty_once() {
     assert!(!room!(world).is_downed(0), "and never out cold");
 
     // Stand the crew member next to it so the experience is in range,
-    // and step: `XP_ENEMY_DOWN` alone, once.
+    // and step: its wave's share of the site's experience alone, once.
+    let worth = world.xp_per_down();
     let events = world.step(&[]);
     // A machine is said as a machine, not as an enemy with a name.
     assert!(
@@ -232,11 +233,7 @@ fn a_wreck_is_down_carries_nothing_and_is_worth_twenty_once() {
     }
     assert_eq!(world.progress[0].xp, after_one, "paid once, never again");
     if gained > 0 {
-        assert_eq!(
-            gained,
-            class::XP_ENEMY_DOWN,
-            "the down alone, its death nothing more"
-        );
+        assert_eq!(gained, worth, "the down alone, its death nothing more");
     }
 }
 

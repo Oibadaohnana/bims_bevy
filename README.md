@@ -245,6 +245,7 @@ what a Bim carries; a relic changes how the run plays.
   | Adrenaline | +30% move speed for everybody | +15% damage taken for everybody |
   | Salvage Burn | +40% damage to enemies | -40% money for every enemy down |
   | Nanite Mesh | +2 HP a second for everybody on their feet | -15% weapon damage for everybody |
+  | Clean Sweep | +25% of a site's experience again when it is cleared with no player down | +10% damage taken for everybody |
 
 - **Winning.** A run is won by destroying the **Machine Heart** at the
   machines' origin — see [The Machine Heart](#the-machine-heart). For a
@@ -290,6 +291,7 @@ the six, three across and two down, at the right of the abilities, each with its
 | **Field Mender** | Active: every crewmate on their feet within 5 tiles, you included, healed | 30 / 45 / 60 HP, 45 / 40 / 35 s | 27 000 / 54 000 / 94 500 |
 | **Reset Capacitor** | Active: every class cooldown ready, every charge full, your other items' cooldowns with them. **Tier three alone**: on no trader's shelf before the run's tier-three day, never upgraded | tier three: 80 s | 810 000 |
 | **Ablative Shell** | Active: damage taken ×0.6, and a Warden's lance strips none of your armour | 4 / 5 / 6 s, 60 / 55 / 50 s | 33 750 / 60 750 / 108 000 |
+| **Training Log** | More of every enemy's experience; two do not add, the best counts. An investment, best bought early | +15 / 20 / 25% | 13 500 / 27 000 / 47 250 |
 
 *Coolant Loop*, *Pressure Seal* and *Steady Grip* were relics; they are
 in no relic pool any more (a save holding one keeps it).
@@ -2211,6 +2213,27 @@ treating, being shot at, hiring — is worth anything. Ten levels — 100, 250, 
 1 400, 1 900, 2 500 and 3 200 for the second to the tenth — the same
 shape for every class: the first, third and seventh are fixed, and every
 other level is a **pick of two talents**, never changed once made.
+
+**A site is worth its day's experience (October 2026)**, whatever its
+waves: 60 on the first day, twelve per cent more every day after (166 on
+day ten, 516 on day twenty, 1 797 on day thirty-one), **twice that at an
+elite** (an Area defend too). Each enemy down pays its wave's share of
+it, so a cleared site pays every classed crew member in range the whole
+— one player alone or four, bots or none (`site_xp`,
+`site_xp_growth_percent` in `rewards.ron`). Fighting every row of the
+floor but the four or so traders a way up meets reaches the fifteenth
+level at the Heart; the elites, the bonus waves, *Clean Sweep* and the
+*Training Log* take a crew to the sixteenth and past. A player below the
+best level among the players gets **a quarter more** of every enemy's,
+to catch up (bought back, or joined late).
+
+**The bonus wave.** At a site just cleared — an attack, or a defence
+that is not an Area defend; never the Heart — any player may press
+**Call bonus wave** (on the fight-won screen, or beside *Back to ship*):
+one more wave, **half as big again** as the site's own, worth **half the
+site's experience again** and its machines' bounty, once a site. The
+deck thaws for it: whoever lies downed is bleeding out again, and *Back
+to ship* wants everybody aboard until it is beaten.
 
 **Twenty levels now (October 2026).** Every class climbs the same table
 — 16 740 experience for the sixteenth, then 21 860, 28 510, 37 160 and

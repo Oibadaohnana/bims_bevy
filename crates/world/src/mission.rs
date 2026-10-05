@@ -792,6 +792,9 @@ impl World {
             self.choose_site(station);
         }
         self.run.wave_size = None;
+        self.run.xp_each = None;
+        self.run.clean_xp.clear();
+        self.run.clean_spoiled = false;
         self.run.pending_bounty = 0;
         self.run.proposal = None;
         self.run.returning = vec![false; players as usize];
@@ -1523,7 +1526,9 @@ impl World {
     /// every crew member alive home from wherever it lies, without a walk
     /// ([`World::comes_home`]).
     /// Tied up at the site, and not `mission_cleared`'s "nowhere counts
-    /// as clear": a probe that undocks mid-fight is not a fight won.
+    /// as clear": a probe that undocks mid-fight is not a fight won. Nor
+    /// while the site's bonus wave is on (October 2026): the deck thaws
+    /// for it, and freezes again once it is down.
     pub fn fight_over(&self) -> bool {
         self.run.phase == RunPhase::Mission
             && self.run.fought
@@ -1531,7 +1536,7 @@ impl World {
                 .ship
                 .state
                 .alongside()
-                .is_some_and(|id| self.site_cleared(id))
+                .is_some_and(|id| self.site_cleared(id) && !self.bonus_wave_at(id).running())
     }
 
     /// Whether a player it waits for counts as home for the departure:
@@ -1682,6 +1687,7 @@ impl World {
         }
         self.run.pending_bounty = 0;
         self.run.wave_size = None;
+        self.run.xp_each = None;
         // The relics (feature 106), while the ship is still tied up: an
         // elite's site cleared with machines in it offering its reward.
         let reward = self.relics_on_leaving(station, cleared, events);

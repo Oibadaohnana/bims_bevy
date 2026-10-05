@@ -173,6 +173,8 @@ fn a_day_nought_site_is_pistols_and_no_armour_and_clears_on_the_last_down() {
         crate::world::bounty_for(1),
         100 - data::BOUNTY_SPREAD_PERCENT,
     );
+    // A head's share of the site's experience (October 2026).
+    let each = world.xp_per_down();
     for _ in 0..3 {
         let events = world.step(&[]);
         cleared |= events
@@ -181,7 +183,7 @@ fn a_day_nought_site_is_pistols_and_no_armour_and_clears_on_the_last_down() {
         // And its pay said for the numbers over the body.
         rewarded |= events.iter().any(|e| {
             matches!(e, WorldEvent::EnemyRewarded { who, xp, money, .. }
-                if *who == last as u32 && *xp == class::XP_ENEMY_DOWN && *money == worth)
+                if *who == last as u32 && *xp == each && *money == worth)
         });
     }
     assert!(rewarded, "the last one's pay said");
@@ -195,8 +197,8 @@ fn a_day_nought_site_is_pistols_and_no_armour_and_clears_on_the_last_down() {
     assert_eq!(world.run.pending_bounty, 0);
     assert_eq!(
         world.progress_of(0).xp,
-        xp + them.len() as u32 * class::XP_ENEMY_DOWN,
-        "fifteen a head"
+        xp + them.len() as u32 * each,
+        "a share a head"
     );
 }
 

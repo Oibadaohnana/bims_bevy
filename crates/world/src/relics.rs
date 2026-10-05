@@ -87,12 +87,6 @@ impl World {
         skill.damage_taken *= f(Stat::DamageTaken);
     }
 
-    /// The experience an enemy down is worth to the crew: the dial's,
-    /// times the relics', rounded down.
-    pub fn xp_per_down(&self) -> u32 {
-        (f64::from(self.rewards.xp_per_down) * self.crew_relic_factor(Stat::Experience)) as u32
-    }
-
     /// A bounty as the crew's relics pay it, rounded down.
     pub(crate) fn bounty_by_relics(&self, amount: Money) -> Money {
         if self.relics().is_empty() {
@@ -536,6 +530,8 @@ impl World {
             return;
         }
         self.run.cleared_here = true;
+        // *Clean Sweep* (October 2026): what the site paid, again in part.
+        self.pay_the_clean_sweep(events);
         // The fight over, the armour whole again: mended only at the next
         // mission's start, the crew sheet, the reward screen and a trader
         // showed a broken piece until then.
