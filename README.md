@@ -289,7 +289,7 @@ the six, three across and two down, at the right of the abilities, each with its
 | **Leech Capacitor** | A share of the damage your weapon does to an enemy (a machine or a Manufacturer) back as health | 8 / 12 / 16% | 27 000 / 54 000 / 94 500 |
 | **Arc Coil** | Every 4th weapon hit on an enemy arcs to the enemies nearest it within 4 tiles, machines and Manufacturers alike | 2 / 3 / 4 enemies, 15 / 25 / 40 damage | 33 750 / 60 750 / 108 000 |
 | **Field Mender** | Active: every crewmate on their feet within 5 tiles, you included, healed | 30 / 45 / 60 HP, 45 / 40 / 35 s | 27 000 / 54 000 / 94 500 |
-| **Reset Capacitor** | Active: every class cooldown ready, every charge full, your other items' cooldowns with them. **Tier three alone**: on no trader's shelf before the run's tier-three day, never upgraded | tier three: 80 s | 810 000 |
+| **Reset Capacitor** | Active: every class cooldown ready, every charge full, your other items' cooldowns with them. **Tier three alone**: on no trader's shelf before the run's tier-three day, never upgraded | tier three: 80 s | 85 000 |
 | **Ablative Shell** | Active: damage taken ×0.6, and a Warden's lance strips none of your armour | 4 / 5 / 6 s, 60 / 55 / 50 s | 33 750 / 60 750 / 108 000 |
 | **Training Log** | More of every enemy's experience; two do not add, the best counts. An investment, best bought early | +15 / 20 / 25% | 13 500 / 27 000 / 47 250 |
 

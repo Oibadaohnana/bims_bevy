@@ -656,8 +656,10 @@ pub const MINIGUN_SHELF_PRICE: Money = 3;
 /// placeholders (the player's +200%, then +50%), then three times that
 /// (October 2026, the player's). The Reset Capacitor is made at tier
 /// three alone and costs five times its old tier three (October 2026;
-/// 54 000), 270 000, then three times that, 810 000; its lower tiers'
-/// prices are only a saved one's. The *Training Log* (October 2026) last, at
+/// 54 000), 270 000, then three times that, 810 000 — and since October
+/// 2026 85 000, about the Override Core's (the player's: "reset capacitor
+/// should be cheaper and cost around the price of the override core"),
+/// its row one price like the Core's, the lower tiers only a saved one's. The *Training Log* (October 2026) last, at
 /// the Pressure Seal's: an investment, best bought early.
 pub const ITEM_PRICE: [[Money; 3]; 14] = [
     [27_000, 47_250, 81_000],
@@ -671,7 +673,7 @@ pub const ITEM_PRICE: [[Money; 3]; 14] = [
     [27_000, 54_000, 94_500],
     [33_750, 60_750, 108_000],
     [27_000, 54_000, 94_500],
-    [54_000, 94_500, 810_000],
+    [85_000, 85_000, 85_000],
     [33_750, 60_750, 108_000],
     [13_500, 27_000, 47_250],
 ];
