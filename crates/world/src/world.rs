@@ -6713,11 +6713,26 @@ impl World {
     // machines standing in the ring with nobody of the crew's side in it
     // for `data::AREA_CAPTURE_STEPS` take it, and the run is lost.
 
-    /// Whether a site's defence is an **Area defend**: a town's, on a
-    /// planet's surface — a station's and a derelict's keep the old fight
-    /// — and not under the tests' dial.
+    /// Whether a site of this system's defence is an **Area defend**: a
+    /// town's, on a planet's surface — a station's and a derelict's keep
+    /// the old fight — and not under the tests' dial. On the floor only on
+    /// a tier-two row ([`World::is_area_defense_at`]).
     pub fn is_area_defense(&self, station: u32) -> bool {
-        !self.area_defense_off && surface::surface_body(station).is_some()
+        self.is_area_defense_at(self.star_id, station)
+    }
+
+    /// [`World::is_area_defense`] for a site of `star`'s system. On the
+    /// floor an Area defend — an elite's fight — is only ever on a
+    /// tier-two row (October 2026, the player's word: "make area defence
+    /// elites only appear in tier 2 fights"): a town's defence on a
+    /// tier-one or tier-three row is the old one, every wave down and
+    /// won. Off the floor (the tests, the staged commands) every town's.
+    pub fn is_area_defense_at(&self, star: u32, station: u32) -> bool {
+        !self.area_defense_off
+            && surface::surface_body(station).is_some()
+            && self
+                .floor_tier_of(star)
+                .is_none_or(|tier| tier == Tier::Two)
     }
 
     /// Whether the fight at a site of this system is an **elite's**: the

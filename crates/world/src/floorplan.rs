@@ -290,16 +290,17 @@ impl World {
                 let Ok(quote) = self.quote_given(Some(&galaxy), site, true, given) else {
                     continue;
                 };
+                let area = quote.kind == SiteKind::Defend
+                    && self.is_area_defense_at(node.star, node.station);
                 marks.push(FloorMark {
                     row: row as u32,
                     index: index as u32,
                     site,
                     kind: quote.kind,
                     // An Area defend is an elite fight too (October 2026).
-                    elite: quote.elite
-                        || (quote.kind == SiteKind::Defend && self.is_area_defense(node.station)),
+                    elite: quote.elite || area,
                     cleared: quote.cleared,
-                    area: quote.kind == SiteKind::Defend && self.is_area_defense(node.station),
+                    area,
                     heart: heart::is_heart(node.station),
                     tier: self.floor_tier(row as u32),
                 });

@@ -332,7 +332,7 @@ impl World {
                     site,
                     kind: quote.kind,
                     cleared: quote.cleared,
-                    area: quote.kind == SiteKind::Defend && self.is_area_defense(station),
+                    area: quote.kind == SiteKind::Defend && self.is_area_defense_at(star, station),
                 });
             }
         }

@@ -512,3 +512,67 @@ fn the_ring_heals_whoever_of_the_crew_s_side_stands_in_it() {
         );
     }
 }
+
+/// On the floor a town's defence is an Area defend — an elite's fight —
+/// only on a tier-two row; on the tier-one and tier-three rows it is the
+/// old fight, and the map marks it neither Area nor elite. Off the floor
+/// every town's is one.
+#[test]
+fn on_the_floor_an_area_defend_is_only_on_a_tier_two_row() {
+    use bims::combat::Tier;
+    let seed = data::DEFAULT_SEED;
+    let galaxy_type = worldgen::GalaxyType::SpiralTwoArm;
+    let galaxy = worldgen::Galaxy::new(seed, galaxy_type);
+    let (star, station) = crate::spawn(&galaxy).expect("the default seed has a dock");
+    let mut world = World::start(
+        flyer(2),
+        REFERENCE_MONEY,
+        1,
+        seed,
+        galaxy_type,
+        star,
+        station,
+    )
+    .expect("a run");
+    let towns = |world: &World| -> Vec<(u32, u32, Tier)> {
+        let floor = world.floor().expect("the floor is on");
+        let mut towns = Vec::new();
+        for (row, nodes) in floor.rows.iter().enumerate() {
+            for node in nodes {
+                if crate::surface::surface_body(node.station).is_some() {
+                    towns.push((node.star, node.station, world.floor_tier(row as u32)));
+                }
+            }
+        }
+        towns
+    };
+    world.set_floor(true);
+    let on_floor = towns(&world);
+    let (mut two, mut other) = (0, 0);
+    for &(star, station, tier) in &on_floor {
+        assert_eq!(
+            world.is_area_defense_at(star, station),
+            tier == Tier::Two,
+            "the town at star {star} on a tier {tier:?} row"
+        );
+        if tier == Tier::Two {
+            two += 1;
+        } else {
+            other += 1;
+        }
+    }
+    assert!(two > 0 && other > 0, "{two} towns at tier two, {other} not");
+    for mark in world.floor_marks() {
+        if mark.area {
+            assert_eq!(mark.tier, Tier::Two, "an Area defend marked off tier two");
+            assert!(mark.elite, "an Area defend is marked elite");
+        }
+    }
+    world.set_floor(false);
+    for &(star, station, _) in &on_floor {
+        assert!(
+            world.is_area_defense_at(star, station),
+            "off the floor, every town's"
+        );
+    }
+}
