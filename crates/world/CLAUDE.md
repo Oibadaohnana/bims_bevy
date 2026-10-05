@@ -8139,3 +8139,31 @@ mission's start). **`SAVE_VERSION` 115**, `Refusal::OutOfItemRange`
 
 `tests_items.rs`' last four tests are the rule. Meant to alter play only
 for a crew carrying one; a run without them plays as it did.
+
+### The money is a site's budget too (October 2026)
+
+> "The Republic pays a bounty … by the enemy's tier" above, and
+> `REPUBLIC_BOUNTY` (500/1 500/4 500, then 425/1 275/3 825), are
+> **gone**: the money moved with the waves' size and the bonus wave's
+> bodies, as the experience did.
+
+`Rewards::{site_money, site_money_growth_percent}` (`data::SITE_MONEY`
+850, `SITE_MONEY_GROWTH_PERCENT` 17; `rewards.ron`'s `bounty` went) are
+what a site pays a player on the run day (`site_money_on`, the xp's
+compounding, `rewards::grown`); `World::site_money_here` is that times
+the players, since the pool is shared out. `price_the_wave` sets
+`Run::money_each` (saved, hashed where set, cleared with `xp_each`)
+beside `xp_each`: the budget over the site's own waves, or half of it
+for the bonus wave, over the bodies. `World::money_per_down()` is it —
+the day's over `HEART_XP_BODIES` at the Heart and for an enemy no wave
+priced. What an enemy pays is then as before: its kind's spread
+(`droid_bounty_percent`, `manufacturer_bounty_percent`), who took it
+down (`kill_bounty`: a bot 5%, a player 110%), the relics, a defence's
+per cent and an elite's ×2 (`bounty_here`) — so the elite is doubled
+there and not in the budget. Fitted to the tier bounties' totals for a
+lone player fighting every row (€836 a site on day one, €79 000 on day
+thirty; about €550k at the Heart). `World::bounty_for` and `gear_tier`
+went. **`SAVE_VERSION` 116.** `tests_site_xp`'s
+`a_site_pays_each_player_its_money_alone_or_two`, `tests_money`'s
+`a_site_s_money_grows_by_the_day`; the bounty tests of `tests_mission`,
+`tests_money` and `tests_manufacturer` read `money_per_down()`.

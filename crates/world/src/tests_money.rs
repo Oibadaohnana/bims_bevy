@@ -194,14 +194,18 @@ fn the_republic_pays_once_for_every_machine_taken_down() {
     assert!(world.stage_droid_fight_for_probe(DroidKind::Trooper, None));
     world.step(&[]);
     let money = world.money;
-    let tier = world
-        .residents
-        .as_ref()
-        .and_then(|r| r.aboard.room.droid(0))
-        .expect("a machine to shoot")
-        .tier;
-    let want = crate::world::bounty_for(tier.code());
-    assert!(want > 0, "a machine has a tier");
+    assert!(
+        world
+            .residents
+            .as_ref()
+            .and_then(|r| r.aboard.room.droid(0))
+            .is_some(),
+        "a machine to shoot"
+    );
+    // A Trooper's share is the whole of its wave's share of the site's
+    // money (October 2026).
+    let want = world.money_per_down();
+    assert!(want > 0, "a machine pays");
     if let Some(residents) = &mut world.residents {
         residents
             .aboard
@@ -216,7 +220,7 @@ fn the_republic_pays_once_for_every_machine_taken_down() {
             }
         }
     }
-    assert_eq!(paid, want, "one machine, one bounty, at its tier");
+    assert_eq!(paid, want, "one machine, one bounty, its share");
     assert_eq!(world.money, money + want);
     assert_eq!(world.run.pending_bounty, 0);
 
@@ -235,17 +239,18 @@ fn the_republic_pays_once_for_every_machine_taken_down() {
     assert_eq!(world.money, money + want);
 }
 
-/// The bounty table: three tiers, each a step up, and nought for no tier.
+/// A site's money (October 2026): €850 on the first day, seventeen per
+/// cent more every day, fitted to what the tier bounties paid a lone
+/// player fighting every row (€836 a site on day one, €79 000 on day
+/// thirty).
 #[test]
-fn the_bounty_is_by_the_enemy_s_gear_tier() {
-    assert_eq!(crate::world::bounty_for(1), 425);
-    assert_eq!(crate::world::bounty_for(2), 1_275);
-    assert_eq!(crate::world::bounty_for(3), 3_825);
-    assert_eq!(crate::world::bounty_for(0), 0, "no tier is no bounty");
-    assert_eq!(crate::world::bounty_for(9), 0);
-    for tier in 1..3 {
-        assert!(data::REPUBLIC_BOUNTY[tier + 1] > data::REPUBLIC_BOUNTY[tier]);
-    }
+fn a_site_s_money_grows_by_the_day() {
+    let r = crate::rewards::Rewards::DEFAULT;
+    assert_eq!(r.site_money_on(1), data::SITE_MONEY);
+    assert_eq!(r.site_money_on(10), 3_492);
+    assert_eq!(r.site_money_on(20), 16_786);
+    assert_eq!(r.site_money_on(30), 80_687);
+    assert!((1..40).all(|d| r.site_money_on(d + 1) > r.site_money_on(d)));
 }
 
 /// Every tier of a gun or a piece is priced at the book times

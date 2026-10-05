@@ -438,21 +438,24 @@ pub const DEFENDER_DAYS: u32 = DROID_SPREAD_DAYS;
 /// And never more than this many.
 pub const DEFENDERS_MAX: u32 = 8;
 
-/// What the Republic pays for an enemy taken down, by the tier of the gear
-/// it carried: index one is tier one, and index nought is no tier at all
-/// and is never asked for (feature 95).
+/// What the Republic pays for a site on the run's first day, in euros
+/// (October 2026, `Rewards::site_money`): a **budget**, as a site's
+/// experience is, each enemy down paying its wave's share of it
+/// (`World::money_per_down`) — so the money no longer moves with the
+/// waves' size, the players' number or a bonus wave's bodies.
 ///
-/// **Fighting is how a crew earn.** Nothing is mined and nothing is made
-/// but medicine, so the only money that comes into the game comes across a
-/// desk or off a body — and a crew that never fights never gets rich.
-/// Each step is three times the last on purpose: a tier-three enemy is
-/// worth pushing towards, which is what the crisis wants of them.
-/// Placeholders, like every other number here. Fifteen per cent off
-/// 500, 1 500 and 4 500 in October 2026 (the player's: "the money seems
-/// fine … maybe a bit too much still", once an elite paid twice,
-/// [`ELITE_BOUNTY_PERCENT`]).
-pub const REPUBLIC_BOUNTY: [Money; 4] = [0, 425, 1_275, 3_825];
-/// How much of [`REPUBLIC_BOUNTY`] a **defence** pays, in per cent. Task
+/// **Fighting is how a crew earn.** Nothing is mined and nothing is made,
+/// so the only money that comes into the game comes off a body — and a
+/// crew that never fights never gets rich. It was a bounty an enemy by its
+/// tier until then (500, 1 500, 4 500, then 425, 1 275, 3 825); the budget
+/// is fitted to what those paid a lone player fighting every row:
+/// €836 a site on day one, €79 000 on day thirty.
+pub const SITE_MONEY: Money = 850;
+/// How much more a site pays every day after, in per cent, compounded
+/// (`Rewards::site_money_growth_percent`): €850 on day one, €3 490 on day
+/// ten, €16 790 on day twenty, €80 690 on day thirty.
+pub const SITE_MONEY_GROWTH_PERCENT: u32 = 17;
+/// How much of an enemy's share a **defence** pays, in per cent. Task
 /// 136 made it nothing — the survivors were the reward — and the player
 /// then asked for money for every enemy downed or destroyed, wherever:
 /// a hundred, the same as an attack, pending until the site is cleared

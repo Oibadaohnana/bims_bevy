@@ -288,3 +288,41 @@ fn a_training_log_and_the_catch_up_lift_a_player_s_share() {
         "a bot gets the plain share"
     );
 }
+
+/// **A site's money is a budget too** (October 2026): every machine of a
+/// one-wave site down pays its share of the day's money, a player's worth
+/// for every player into the one pool — so each player's share is the
+/// same alone or two, give or take a kind's spread.
+#[test]
+fn a_site_pays_each_player_its_money_alone_or_two() {
+    for players in [1, 2] {
+        let (mut world, station) = held_arena(players);
+        let n = wait_for_a_wave(&mut world);
+        let budget = world.site_money_here();
+        assert_eq!(
+            budget,
+            world.site_money_on(world.run_day()) * u64::from(players)
+        );
+        assert_eq!(
+            world.money_per_down(),
+            (budget + u64::from(n) / 2) / u64::from(n)
+        );
+        let before = world.money;
+        let events = wreck_them_one_by_one(&mut world, players);
+        assert!(world.droid_station_cleared(station));
+        let paid: u64 = events
+            .iter()
+            .filter_map(|e| match *e {
+                WorldEvent::Bounty { amount } => Some(amount),
+                _ => None,
+            })
+            .sum();
+        assert_eq!(world.money - before, paid);
+        let each = paid / u64::from(players);
+        let alone = world.site_money_on(world.run_day());
+        assert!(
+            each * 100 >= alone * 85 && each * 100 <= alone * 115,
+            "{players} players: €{each} each of €{alone}"
+        );
+    }
+}

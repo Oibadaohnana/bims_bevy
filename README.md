@@ -160,7 +160,11 @@ there is no helm to stand at and no trip to sit through.
   seconds after the last of one is destroyed, a town's first wave a
   minute after the landing, the class cooldowns.
 - **The bounty waits for the place to be cleared.** The Republic pays
-  for every machine destroyed — 425, 1 275 or 3 825 by its tier — but
+  for every machine destroyed — a site's **money budget** shared over
+  its enemies, as its experience is: €850 a player on the first day,
+  seventeen per cent more every day (€3 490 on day ten, €16 790 on day
+  twenty, €80 690 on day thirty), twice at an elite, half again for the
+  bonus wave, a Husk a tenth less and a Warden a tenth more — but
   it is **pending**, "+€ n on clear" along the top, until the place is
   **cleared**: no machine left there and none still to come. Then it is
   paid into the pool, once. Experience is always yours. **A machine one

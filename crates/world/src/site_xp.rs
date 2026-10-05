@@ -54,27 +54,68 @@ impl World {
     }
 
     /// A wave of `bodies` enemies just laid at the site `id`: what each of
-    /// them pays (`Run::xp_each`) — the site's budget over its own waves
-    /// (a bonus wave to come not counted), or for the bonus wave
-    /// [`data::BONUS_WAVE_XP_PERCENT`] of it, over the
-    /// bodies, rounded, one at the least. Asked again when a room built
-    /// afresh lays the wave again, and answered the same.
+    /// them pays in experience (`Run::xp_each`) and in money
+    /// (`Run::money_each`) — each budget over the site's own waves (a
+    /// bonus wave to come not counted), or for the bonus wave
+    /// [`data::BONUS_WAVE_XP_PERCENT`] of it, over the bodies, rounded,
+    /// one at the least. The experience's budget is the elite's twice
+    /// already; the money's is doubled at an elite where it is paid
+    /// (`World::bounty_here`). Asked again when a room built afresh lays
+    /// the wave again, and answered the same.
     pub(crate) fn price_the_wave(&mut self, id: u32, bodies: u32) {
         if bodies == 0 {
             return;
         }
-        let budget = self.site_budget(id);
-        let share = if self.run.bonus == BonusWave::Landed {
-            budget * u64::from(data::BONUS_WAVE_XP_PERCENT) / 100
-        } else {
-            let waves = self
-                .site_waves(id)
-                .saturating_sub(self.bonus_waves_to_come());
-            budget / u64::from(waves.max(1))
-        };
+        let money = self.site_money_here();
+        let xp = self.site_budget(id);
+        let bonus = self.run.bonus == BonusWave::Landed;
+        let waves = u64::from(
+            self.site_waves(id)
+                .saturating_sub(self.bonus_waves_to_come())
+                .max(1),
+        );
         let bodies = u64::from(bodies);
-        let each = (share + bodies / 2) / bodies;
-        self.run.xp_each = Some(each.clamp(1, u64::from(u32::MAX)) as u32);
+        let each = |budget: u64| {
+            let share = if bonus {
+                budget * u64::from(data::BONUS_WAVE_XP_PERCENT) / 100
+            } else {
+                budget / waves
+            };
+            ((share + bodies / 2) / bodies).max(1)
+        };
+        self.run.xp_each = Some(each(xp).min(u64::from(u32::MAX)) as u32);
+        self.run.money_each = Some(each(money));
+    }
+
+    /// What a site pays on run day `day`, a player: the rewards' dials
+    /// (`Rewards::site_money_on`).
+    pub fn site_money_on(&self, day: u32) -> Money {
+        self.rewards.site_money_on(day)
+    }
+
+    /// What a site pays today, all told: a player's share for every
+    /// player, since the money goes into the one pool every wallet shares
+    /// (`World::share_out`) — so each player is paid as one alone is,
+    /// however many there are.
+    pub fn site_money_here(&self) -> Money {
+        self.site_money_on(self.run_day())
+            .saturating_mul(Money::from(self.players().max(1)))
+    }
+
+    /// The money an enemy down is worth before who took it down, its kind
+    /// and the site say theirs: its wave's share of the site's money
+    /// ([`World::price_the_wave`]) — at the Machine Heart, and for an
+    /// enemy no wave priced (a probe's), the day's over
+    /// [`data::HEART_XP_BODIES`].
+    pub fn money_per_down(&self) -> Money {
+        match self.run.money_each.filter(|_| !self.at_the_heart()) {
+            Some(each) => each,
+            None => {
+                let day = self.site_money_here();
+                let bodies = Money::from(data::HEART_XP_BODIES.max(1));
+                (day + bodies / 2) / bodies
+            }
+        }
     }
 
     /// The experience an enemy down is worth to every classed crew member

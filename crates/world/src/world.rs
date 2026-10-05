@@ -2686,6 +2686,9 @@ impl World {
                 hit
             })
             .collect();
+        // What a machine destroyed pays, its wave's share of the site's
+        // money (October 2026), read before the residents are borrowed.
+        let money_each = self.money_per_down();
         let Some(residents) = self.residents.as_mut().filter(|_| hostile || defending) else {
             self.aboard.room.set_hostiles(Vec::new());
             if let Some(residents) = &mut self.residents {
@@ -2764,9 +2767,10 @@ impl World {
             if down && !residents.down[who] {
                 residents.down[who] = true;
                 // The Republic pays for a machine destroyed as it pays
-                // for an enemy taken down, by its tier (feature 103):
-                // every enemy is a machine now, and a fight is how a crew
-                // earns. Pending until the site is cleared.
+                // for an enemy taken down (feature 103): its wave's share
+                // of the site's money (October 2026; by its tier until
+                // then), a fight being how a crew earns. Pending until
+                // the site is cleared.
                 // A bot's kill pays its share (`kill_bounty`).
                 if let Some(d) = who.checked_sub(bims).and_then(|i| room.droid(i)) {
                     let by = residents.last_hit_by.get(who).copied().flatten();
@@ -2778,10 +2782,7 @@ impl World {
                             self.speed_requests.len(),
                             &self.reinforcements,
                             by,
-                            bounty_share(
-                                self.rewards.bounty_for(d.tier.code()),
-                                droid_bounty_percent(d.kind),
-                            ),
+                            bounty_share(money_each, droid_bounty_percent(d.kind)),
                         ),
                     ));
                 }
@@ -7869,14 +7870,14 @@ impl World {
                 // the first down or death — a bot's kill its share
                 // (`kill_bounty`). A machine is paid in `visit`; here it
                 // is only said.
+                // Its wave's share of the site's money (October 2026), by
+                // its strength.
+                let money_each = self.money_per_down();
                 let worth = if who < crew {
-                    manufacturer_bounty(&self.rewards, room, who)
+                    bounty_share(money_each, manufacturer_bounty_percent(&room.gear(who)))
                 } else {
                     room.droid(who - crew).map_or(0, |d| {
-                        bounty_share(
-                            self.rewards.bounty_for(d.tier.code()),
-                            droid_bounty_percent(d.kind),
-                        )
+                        bounty_share(money_each, droid_bounty_percent(d.kind))
                     })
                 };
                 let worth = kill_bounty(
@@ -11878,16 +11879,6 @@ fn steps_of(minutes: f64) -> u64 {
     (minutes / data::STEP_MINUTES).round().max(0.0) as u64
 }
 
-/// What the Republic pays for an enemy of that gear tier — [`data::REPUBLIC_BOUNTY`]
-/// indexed safely, since a tier arrives from the room as a number
-/// (feature 95). Nought for no tier at all.
-pub fn bounty_for(tier: u32) -> Money {
-    data::REPUBLIC_BOUNTY
-        .get(tier as usize)
-        .copied()
-        .unwrap_or(0)
-}
-
 /// A hit as the picture is told it (`WorldEvent::Hit`): whole points, a
 /// scratch under one said as one, and whose it was when a crew member's
 /// (`None` for an enemy's, a sentry's, a townsperson's).
@@ -11969,38 +11960,11 @@ fn kill_bounty(
     }
 }
 
-/// What the Republic pays for one of the Manufacturers' people down: its
-/// gear tier's bounty at its gear's share.
-fn manufacturer_bounty(
-    rewards: &crate::rewards::Rewards,
-    room: &bims::game::Game,
-    who: usize,
-) -> Money {
-    bounty_share(
-        rewards.bounty_for(gear_tier(room, who)),
-        manufacturer_bounty_percent(&room.gear(who)),
-    )
-}
-
-/// What tier of gear a body in `room` carries: the best of what is in its
-/// hand and on its back, tier one for a body with nothing at all. What the
-/// Republic's bounty is paid by.
 /// The run day at the world clock `clock_minutes` (task 147): whole days
 /// gone, as [`World::days_gone`] floors them, counted from one.
 fn run_day_at(clock_minutes: f64) -> u32 {
     let minutes = clock_minutes.floor().max(0.0) as u64;
     (minutes / (time::DAY as u64)).min(u64::from(u32::MAX) - 1) as u32 + 1
-}
-
-fn gear_tier(room: &bims::game::Game, who: usize) -> u32 {
-    let gear = room.gear(who);
-    let worn = gear.armour.map(|p| p.tier.code());
-    gear.weapon
-        .map(|w| w.tier.code())
-        .into_iter()
-        .chain(worn)
-        .max()
-        .unwrap_or(1)
 }
 
 /// What one unit of a resource is worth at a tier: its book value times

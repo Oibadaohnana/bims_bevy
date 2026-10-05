@@ -737,6 +737,10 @@ pub fn world_checksum(world: &World) -> u64 {
         hash.eat(0x_5850_4541);
         hash.eat(u64::from(xp));
     }
+    if let Some(money) = run.money_each {
+        hash.eat(0x_4D4F_4E45);
+        hash.eat(money);
+    }
     if run.bonus.chosen() {
         hash.eat(0x_424F_4E55);
         hash.eat(u64::from(run.bonus.code()));

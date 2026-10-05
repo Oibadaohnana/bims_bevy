@@ -793,6 +793,7 @@ impl World {
         }
         self.run.wave_size = None;
         self.run.xp_each = None;
+        self.run.money_each = None;
         self.run.clean_xp.clear();
         self.run.clean_spoiled = false;
         self.run.bonus = run::BonusWave::None;
@@ -1687,6 +1688,7 @@ impl World {
         self.run.pending_bounty = 0;
         self.run.wave_size = None;
         self.run.xp_each = None;
+        self.run.money_each = None;
         // The relics (feature 106), while the ship is still tied up: an
         // elite's site cleared with machines in it offering its reward.
         let reward = self.relics_on_leaving(station, cleared, events);

@@ -304,7 +304,9 @@ use crate::game::Game;
 /// 115: items' step three — the smoke clouds, tethers, decoys' ghosts and
 /// adrenal rushes on `ItemClocks` (`smoke`, `tethers`, `ghosts`,
 /// `adrenal_until`).
-pub const SAVE_VERSION: u32 = 115;
+/// 116: a site's money budget — what an enemy of the wave pays
+/// (`Run::money_each`).
+pub const SAVE_VERSION: u32 = 116;
 
 /// What the file holds, read back.
 #[derive(serde::Deserialize)]

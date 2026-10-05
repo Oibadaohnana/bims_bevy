@@ -407,6 +407,11 @@ pub struct Run {
     /// every mission's start.
     #[cfg_attr(feature = "serde", serde(default))]
     pub xp_each: Option<u32>,
+    /// And the money each pays, the same way off the site's money budget
+    /// (October 2026), before who took it down, its kind and the site's
+    /// shares.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub money_each: Option<Money>,
     /// *Clean Sweep*'s book (October 2026): the experience each crew
     /// member earned at this site since its last clear, by crew index...
     #[cfg_attr(feature = "serde", serde(default))]
@@ -456,6 +461,7 @@ impl Run {
             floor: false,
             wave_size: None,
             xp_each: None,
+            money_each: None,
             clean_xp: Vec::new(),
             clean_spoiled: false,
             bonus: BonusWave::None,

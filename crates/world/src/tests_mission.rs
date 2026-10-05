@@ -376,17 +376,12 @@ fn the_bounty_is_paid_only_on_clear_and_only_once() {
     wreck_them_all(&mut world);
     world.step(&[]);
     let pending = world.run.pending_bounty;
-    let tier = world.droid_tier().code();
-    // Each at its kind's share of the tier's bounty.
+    // Each at its kind's share of its wave's share of the site's money.
+    let each = world.money_per_down();
     let room = &world.residents.as_ref().unwrap().aboard.room;
     let owed: economy::Money = (0..room.droid_count() as usize)
         .filter_map(|i| room.droid(i))
-        .map(|d| {
-            crate::world::bounty_share(
-                crate::world::bounty_for(tier),
-                crate::world::droid_bounty_percent(d.kind),
-            )
-        })
+        .map(|d| crate::world::bounty_share(each, crate::world::droid_bounty_percent(d.kind)))
         .sum();
     assert_eq!(pending, owed, "three owed for");
     assert_eq!(room.droid_count(), 3);
@@ -449,7 +444,7 @@ fn a_bot_s_kill_pays_five_per_cent_and_a_player_s_a_tenth_more() {
         medic: true,
     });
     let killers = [Some(0), Some(1), Some(2), Some(3), None];
-    let tier = world.droid_tier().code();
+    let each = world.money_per_down();
     let residents = world.residents.as_mut().unwrap();
     let bims = residents.aboard.room.crew_count() as usize;
     assert_eq!(residents.aboard.room.droid_count(), 5);
@@ -457,10 +452,7 @@ fn a_bot_s_kill_pays_five_per_cent_and_a_player_s_a_tenth_more() {
     for (i, by) in killers.into_iter().enumerate() {
         residents.last_hit_by[bims + i] = by;
         let kind = residents.aboard.room.droid(i).unwrap().kind;
-        let whole = crate::world::bounty_share(
-            crate::world::bounty_for(tier),
-            crate::world::droid_bounty_percent(kind),
-        );
+        let whole = crate::world::bounty_share(each, crate::world::droid_bounty_percent(kind));
         owed += match by {
             Some(1) => whole * 5 / 100,
             Some(_) => whole * 110 / 100,
@@ -490,17 +482,14 @@ fn with_drill_sergeant_a_bot_s_kill_pays_half() {
     world.set_droid_wave_for_probe(2);
     open_the_room(&mut world);
     assert_eq!(world.players(), 1);
-    let tier = world.droid_tier().code();
+    let each = world.money_per_down();
     let residents = world.residents.as_mut().unwrap();
     let bims = residents.aboard.room.crew_count() as usize;
     let mut owed: economy::Money = 0;
     for (i, by) in [Some(1), Some(0)].into_iter().enumerate() {
         residents.last_hit_by[bims + i] = by;
         let kind = residents.aboard.room.droid(i).unwrap().kind;
-        let whole = crate::world::bounty_share(
-            crate::world::bounty_for(tier),
-            crate::world::droid_bounty_percent(kind),
-        );
+        let whole = crate::world::bounty_share(each, crate::world::droid_bounty_percent(kind));
         owed += match by {
             Some(1) => whole * data::DRILL_SERGEANT_BOT_BOUNTY as economy::Money / 100,
             _ => whole * 110 / 100,

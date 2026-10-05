@@ -150,14 +150,14 @@ fn a_day_nought_site_is_pistols_and_no_armour_and_clears_on_the_last_down() {
     beside(&mut world, them[0]);
     world.step(&[]);
     assert!(!world.droid_station_cleared(station));
+    // A head's share of the site's money (October 2026), a pistol and
+    // nothing worn the least of it.
+    let share = world.money_per_down();
     assert_eq!(
         world.run.pending_bounty,
         (them.len() as u64 - 1)
-            * crate::world::bounty_share(
-                crate::world::bounty_for(1),
-                100 - data::BOUNTY_SPREAD_PERCENT
-            ),
-        "owed for each down, at tier one, a pistol and nothing worn the least"
+            * crate::world::bounty_share(share, 100 - data::BOUNTY_SPREAD_PERCENT),
+        "owed for each down, a pistol and nothing worn the least"
     );
     // The last one down clears it, there and then, and pays.
     world
@@ -169,10 +169,7 @@ fn a_day_nought_site_is_pistols_and_no_armour_and_clears_on_the_last_down() {
         .knock_out_for_probe(last);
     let mut cleared = false;
     let mut rewarded = false;
-    let worth = crate::world::bounty_share(
-        crate::world::bounty_for(1),
-        100 - data::BOUNTY_SPREAD_PERCENT,
-    );
+    let worth = crate::world::bounty_share(share, 100 - data::BOUNTY_SPREAD_PERCENT);
     // A head's share of the site's experience (October 2026).
     let each = world.xp_per_down();
     for _ in 0..3 {
