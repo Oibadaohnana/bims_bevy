@@ -35,8 +35,7 @@ on its own; editing the file here does.
 The remastered ones were exported as MP3 into `Sounds/remastered/`.
 They were made Ogg here (mono, 48 kHz, quality 5) at your levels. The
 silence an MP3 encoder puts at the start (50–66 ms) was cut, so each
-one starts where the old clip did and `reload`'s clicks still meet
-`reload_laser`'s.
+one starts where the old clip did.
 
 *Made from* is the recording it was cut from. *Synthesised* means there
 was no recording, so it was built from scratch (layered over a recording
@@ -50,7 +49,7 @@ where one is named).
 | `shotgun` | the shotgun | `Laser_shot.mp3`, slowed to 70% | 0.8 s |
 | `rifle` | the auto rifle; the minigun, quieter | `Laser_shot.mp3`, sped up | 0.32 s |
 | `sniper` | the sniper rifle; the rail lance, a Lancer's rail, the Unmaker | `Laser_Sniper_shot.mp3` | 1.3 s |
-| `reload` | a magazine reloaded, every gun but the shotgun | `Gun_Reload.mp3`, your remaster (`Sounds/remastered/`) | 1.06 s, *timed* |
+| `reload` | a magazine reloaded, every gun but the shotgun | `Gun_Reload.mp3` | 1.1 s, *timed* |
 | `shotgun_reload` | the shotgun's shells pushed in | `Shotgun_reloading.mp3` | 3.55 s, *timed* |
 | `reload_laser` | a laser cell's charge, played over `reload` | synthesised | 1.1 s, *timed* to `reload`'s clicks |
 | `shotgun_reload_laser` | the same over `shotgun_reload`, a blip a shell | synthesised | 3.55 s, *timed* to its clicks |
