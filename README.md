@@ -160,7 +160,7 @@ there is no helm to stand at and no trip to sit through.
   seconds after the last of one is destroyed, a town's first wave a
   minute after the landing, the class cooldowns.
 - **The bounty waits for the place to be cleared.** The Republic pays
-  for every machine destroyed — 500, 1 500 or 4 500 by its tier — but
+  for every machine destroyed — 425, 1 275 or 3 825 by its tier — but
   it is **pending**, "+€ n on clear" along the top, until the place is
   **cleared**: no machine left there and none still to come. Then it is
   paid into the pool, once. Experience is always yours. **A machine one

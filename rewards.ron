@@ -32,7 +32,7 @@
 (
     site_xp: 60,
     site_xp_growth_percent: 12,
-    bounty: (500, 1500, 4500),
+    bounty: (425, 1275, 3825),
     defense_bounty_percent: 100,
     bot_bounty_percent: 5,
     player_bounty_percent: 110,

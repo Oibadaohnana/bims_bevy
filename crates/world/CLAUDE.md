@@ -8024,6 +8024,11 @@ machines"); the world decides where they come.
   `tests_floor::a_run_s_floor_climbs_from_home_to_the_heart_on_stars_of_its_own`
   and `floor::tests` are the rule. The floor is off in tests, so no pin
   moved for it; the shape's stream moved (a run's floor is another floor).
+- **The bounty fifteen per cent lower**: `REPUBLIC_BOUNTY` (and
+  `rewards.ron`) 425, 1 275, 3 825. Solo, every fight up to day 30, no
+  elite: about €620k at the Heart (€570k past three more traders), where
+  it was €830k over 31 rows; four or five late elites (days 26–30) or six
+  spread one every five rows bring it back.
 
 ## A site's experience budget, the bonus wave and Clean Sweep (October 2026)
 

@@ -238,9 +238,9 @@ fn the_republic_pays_once_for_every_machine_taken_down() {
 /// The bounty table: three tiers, each a step up, and nought for no tier.
 #[test]
 fn the_bounty_is_by_the_enemy_s_gear_tier() {
-    assert_eq!(crate::world::bounty_for(1), 500);
-    assert_eq!(crate::world::bounty_for(2), 1_500);
-    assert_eq!(crate::world::bounty_for(3), 4_500);
+    assert_eq!(crate::world::bounty_for(1), 425);
+    assert_eq!(crate::world::bounty_for(2), 1_275);
+    assert_eq!(crate::world::bounty_for(3), 3_825);
     assert_eq!(crate::world::bounty_for(0), 0, "no tier is no bounty");
     assert_eq!(crate::world::bounty_for(9), 0);
     for tier in 1..3 {

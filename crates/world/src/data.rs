@@ -447,8 +447,11 @@ pub const DEFENDERS_MAX: u32 = 8;
 /// desk or off a body — and a crew that never fights never gets rich.
 /// Each step is three times the last on purpose: a tier-three enemy is
 /// worth pushing towards, which is what the crisis wants of them.
-/// Placeholders, like every other number here.
-pub const REPUBLIC_BOUNTY: [Money; 4] = [0, 500, 1_500, 4_500];
+/// Placeholders, like every other number here. Fifteen per cent off
+/// 500, 1 500 and 4 500 in October 2026 (the player's: "the money seems
+/// fine … maybe a bit too much still", once an elite paid twice,
+/// [`ELITE_BOUNTY_PERCENT`]).
+pub const REPUBLIC_BOUNTY: [Money; 4] = [0, 425, 1_275, 3_825];
 /// How much of [`REPUBLIC_BOUNTY`] a **defence** pays, in per cent. Task
 /// 136 made it nothing — the survivors were the reward — and the player
 /// then asked for money for every enemy downed or destroyed, wherever:
