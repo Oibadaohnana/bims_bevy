@@ -42,6 +42,11 @@ pub enum Clip {
     Laser2,
     Laser3,
     Laser4,
+    Laser5,
+    Laser6,
+    Laser7,
+    Laser8,
+    Laser9,
     Shotgun,
     Rifle,
     Sniper,
@@ -129,11 +134,16 @@ pub enum Clip {
 /// see `prepare.sh` — so every level below is relative to that. They live
 /// in `Sounds/game/` at the root, beside the recordings, where the player
 /// edits them by hand (its `README.md`).
-const CLIPS: [&[u8]; 59] = [
+const CLIPS: [&[u8]; 64] = [
     include_bytes!("../../../Sounds/game/laser_1.ogg"),
     include_bytes!("../../../Sounds/game/laser_2.ogg"),
     include_bytes!("../../../Sounds/game/laser_3.ogg"),
     include_bytes!("../../../Sounds/game/laser_4.ogg"),
+    include_bytes!("../../../Sounds/game/laser_5.ogg"),
+    include_bytes!("../../../Sounds/game/laser_6.ogg"),
+    include_bytes!("../../../Sounds/game/laser_7.ogg"),
+    include_bytes!("../../../Sounds/game/laser_8.ogg"),
+    include_bytes!("../../../Sounds/game/laser_9.ogg"),
     include_bytes!("../../../Sounds/game/shotgun.ogg"),
     include_bytes!("../../../Sounds/game/rifle.ogg"),
     include_bytes!("../../../Sounds/game/sniper.ogg"),
@@ -240,6 +250,11 @@ volumes! {
     Laser2 => laser_2,
     Laser3 => laser_3,
     Laser4 => laser_4,
+    Laser5 => laser_5,
+    Laser6 => laser_6,
+    Laser7 => laser_7,
+    Laser8 => laser_8,
+    Laser9 => laser_9,
     Shotgun => shotgun,
     Rifle => rifle,
     Sniper => sniper,
@@ -537,11 +552,11 @@ pub struct Sounds {
     recent: Vec<(Kind, (i32, i32), f64)>,
     /// One-shots started this frame, against [`SHOTS_PER_FRAME`].
     started: u32,
-    /// Which take of a clip with several is next, so a burst is not the
-    /// same sample eight times over.
+    /// Which take of a clip with several was played last, so the next
+    /// is another.
     turn: u32,
-    /// A plain generator for the shots' pitch — the app's alone, nothing
-    /// of the world's.
+    /// A plain generator for the shots' takes and pitch — the app's
+    /// alone, nothing of the world's.
     wobble: u32,
     /// `BIMS_SOUND_LOG=1`: say what is played.
     log: bool,
@@ -701,22 +716,34 @@ impl Sounds {
         true
     }
 
-    /// A shot's speed: one, give or take [`SHOT_PITCH`], fresh each time.
-    fn shot_speed(&mut self) -> f32 {
+    /// The next of [`Sounds::wobble`]'s numbers, 24 bits of it.
+    fn roll(&mut self) -> u32 {
         // xorshift32: never nought, from a seed that is not.
         let mut x = self.wobble;
         x ^= x << 13;
         x ^= x >> 17;
         x ^= x << 5;
         self.wobble = x;
-        let unit = (x >> 8) as f32 / (1u32 << 24) as f32;
+        x >> 8
+    }
+
+    /// A shot's speed: one, give or take [`SHOT_PITCH`], fresh each time.
+    fn shot_speed(&mut self) -> f32 {
+        let unit = self.roll() as f32 / (1u32 << 24) as f32;
         1.0 + SHOT_PITCH * (2.0 * unit - 1.0)
     }
 
-    /// The next of `n` takes.
+    /// One of `n` takes at random, never the one played last, so a
+    /// burst never plays one sample twice running.
     fn take(&mut self, n: u32) -> u32 {
-        self.turn = self.turn.wrapping_add(1);
-        self.turn % n
+        if n < 2 {
+            return 0;
+        }
+        // One of the n - 1 others, stepping over the last.
+        let pick = self.roll() % (n - 1);
+        let pick = if pick >= self.turn { pick + 1 } else { pick };
+        self.turn = pick;
+        pick
     }
 
     /// A room's cue, played — or dropped, inside its kind's cool-down.
@@ -761,8 +788,21 @@ impl Sounds {
                 let v = self.volumes;
                 let (clip, level, volume) = match weapon {
                     WeaponKind::LaserPistol => {
-                        let takes = [Clip::Laser1, Clip::Laser2, Clip::Laser3, Clip::Laser4];
-                        let clip = takes[self.take(4) as usize];
+                        // Nine takes, picked at random: the four
+                        // recorded, and five of them a semitone or two
+                        // higher (`laser_5` … `laser_9`).
+                        let takes = [
+                            Clip::Laser1,
+                            Clip::Laser2,
+                            Clip::Laser3,
+                            Clip::Laser4,
+                            Clip::Laser5,
+                            Clip::Laser6,
+                            Clip::Laser7,
+                            Clip::Laser8,
+                            Clip::Laser9,
+                        ];
+                        let clip = takes[self.take(takes.len() as u32) as usize];
                         (clip, 0.5, v.of(clip))
                     }
                     WeaponKind::Shotgun => (Clip::Shotgun, 0.7, v.shotgun),

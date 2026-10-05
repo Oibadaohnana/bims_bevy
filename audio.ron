@@ -14,10 +14,15 @@
 // another's report has its own line at the end.
 (
     // The crew's and the machines' guns.
-    laser_1: 1.0,           // the laser pistol, four takes in turn
+    laser_1: 1.0,           // the laser pistol, nine takes at random
     laser_2: 1.0,
     laser_3: 1.0,
     laser_4: 1.0,
+    laser_5: 1.0,           // laser_1 a semitone up
+    laser_6: 1.0,           // laser_2 a semitone up
+    laser_7: 1.0,           // laser_3 a semitone and a half up
+    laser_8: 1.0,           // laser_4 a semitone and a half up
+    laser_9: 1.0,           // laser_1 two semitones up
     shotgun: 1.0,
     rifle: 1.0,             // the auto rifle
     sniper: 1.0,            // the sniper rifle

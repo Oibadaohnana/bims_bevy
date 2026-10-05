@@ -45,7 +45,10 @@ where one is named).
 
 | file | heard | made from | length |
 | --- | --- | --- | --- |
-| `laser_1` … `laser_4` | the laser pistol, four takes in turn | `Laser_shot.mp3`, your remaster (`Sounds/remastered/`) | 0.5 s (`laser_2` 0.58) |
+| `laser_1` … `laser_4` | the laser pistol, nine takes (with the five below) picked at random, never one twice running | `Laser_shot.mp3`, your remaster (`Sounds/remastered/`) | 0.5 s (`laser_2` 0.58) |
+| `laser_5`, `laser_6` | the same, `laser_1` and `laser_2` a semitone up | the remaster, sped up ×1.059 | 0.47, 0.54 s |
+| `laser_7`, `laser_8` | `laser_3` and `laser_4` a semitone and a half up | the remaster, sped up ×1.091 | 0.46 s |
+| `laser_9` | `laser_1` two semitones up | the remaster, sped up ×1.122 | 0.44 s |
 | `shotgun` | the shotgun | `Laser_shot.mp3`, slowed to 70% | 0.8 s |
 | `rifle` | the auto rifle; the minigun, quieter | `Laser_shot.mp3`, sped up | 0.32 s |
 | `sniper` | the sniper rifle; the rail lance, a Lancer's rail, the Unmaker | `Laser_Sniper_shot.mp3` | 1.3 s |
