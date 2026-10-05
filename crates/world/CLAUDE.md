@@ -7999,3 +7999,28 @@ machines"); the world decides where they come.
 
 `tests_tier_two.rs` is the rule. **`SAVE_VERSION` 110, `wire::PROTOCOL`
 157.**
+
+## Money: the whole price, an elite's double bounty, a trader under the Heart (October 2026)
+
+> "Every player's own money" above says a trader's price is the players'
+> share (`trader_share`, the price over the players); that is **gone**.
+
+- **Every player pays the whole price**: `shelf_price` and `item_price`
+  are the ask through the reward dials and the relics, nothing more.
+  Each wallet already holds only its share of the takings, so with the
+  price over the players four players bought what one would with four
+  times the money. `trader_share` went.
+  `tests_trader::every_player_pays_the_whole_price_however_many_there_are`.
+- **An elite fight pays twice**: `bounty_here` multiplies by
+  `data::ELITE_BOUNTY_PERCENT` (200) where `is_elite_fight` (the system's
+  elite or an Area defend), after the relics' and the defence's shares —
+  the same predicate the elite's experience reads.
+  `tests_elite::an_elite_pays_its_bounty_twice_over`.
+- **A trader under the Heart, always**: `floor::shape` makes the row
+  under the Heart one place and `scatter_shops` makes it a trader; the
+  other `FLOOR_SHOPS - 1` are scattered over the rows from
+  `FLOOR_FIRST_SHOP_ROW` to three under the Heart. `lay_floor` puts a
+  trader still trading on its day there (over forty floors none fallen).
+  `tests_floor::a_run_s_floor_climbs_from_home_to_the_heart_on_stars_of_its_own`
+  and `floor::tests` are the rule. The floor is off in tests, so no pin
+  moved for it; the shape's stream moved (a run's floor is another floor).

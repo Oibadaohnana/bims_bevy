@@ -101,6 +101,14 @@ fn a_run_s_floor_climbs_from_home_to_the_heart_on_stars_of_its_own() {
         }
     }
     assert!(marks.last().unwrap().heart);
+    // The row under the Heart one place, a trader still trading on its
+    // day: the crew can always spend before the Heart.
+    let last = marks
+        .iter()
+        .filter(|m| m.row == data::FLOOR_HOPS - 1)
+        .collect::<Vec<_>>();
+    assert_eq!(last.len(), 1, "one place under the Heart");
+    assert_eq!(last[0].kind, SiteKind::Trader, "{:?}", last[0]);
 }
 
 #[test]

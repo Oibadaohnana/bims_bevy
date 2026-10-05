@@ -921,9 +921,7 @@ fn a_minigun_costs_three_times_its_ask_and_sells_back_for_half_of_that() {
             economy::trade_price(ResourceId::Minigun)
                 .saturating_mul(economy::tier_price(tier.code()))
         });
-    let rule = |ask: economy::Money| {
-        world.trader_share(world.trader_price_by_relics(world.rewards().shelf_price(ask)))
-    };
+    let rule = |ask: economy::Money| world.trader_price_by_relics(world.rewards().shelf_price(ask));
     let price = world.shelf_price(trader::ShelfItem {
         resource: ResourceId::Minigun,
         tier,
@@ -949,4 +947,27 @@ fn a_minigun_costs_three_times_its_ask_and_sells_back_for_half_of_that() {
                 .saturating_mul(economy::tier_price(tier.code()))
         });
     assert_eq!(world.shelf_price(shotgun), rule(shotgun_ask));
+}
+
+/// **Every player pays the whole price** (October 2026, the player's
+/// word): each wallet holds only its share of what the crew earn, so a
+/// price over the players let four buy what one would with four times the
+/// money. A second player's shelf and items cost what a lone player's do.
+#[test]
+fn every_player_pays_the_whole_price_however_many_there_are() {
+    let mut alone = basic(1);
+    let mut pair = basic(2);
+    let site = at_a_trader(&mut alone);
+    assert_eq!(at_a_trader(&mut pair), site, "the same trader");
+    for item in alone.shelf_for(0) {
+        assert_eq!(pair.shelf_price(item), alone.shelf_price(item), "{item:?}");
+    }
+    for item in alone.item_shelf() {
+        assert_eq!(pair.item_price(item), crate::items::price(item), "{item:?}");
+        assert_eq!(
+            alone.item_price(item),
+            crate::items::price(item),
+            "{item:?}"
+        );
+    }
 }

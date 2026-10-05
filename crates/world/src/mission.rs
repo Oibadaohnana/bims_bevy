@@ -1193,16 +1193,22 @@ impl World {
     /// otherwise pending until it is.
     /// A bounty as the site the crew are at pays it: a defence its share
     /// (`Rewards::defense_bounty_percent`), anywhere else the whole — and
-    /// the crew's relics' share on it either way.
+    /// the crew's relics' share on it either way. An **elite fight**
+    /// (`World::is_elite_fight`: the system's elite or an Area defend)
+    /// pays [`data::ELITE_BOUNTY_PERCENT`] of that on top of it all, as it
+    /// pays its experience.
     pub(crate) fn bounty_here(&self, amount: Money) -> Money {
         let amount = self.bounty_by_relics(amount);
-        if self
-            .ship
-            .state
-            .alongside()
-            .is_some_and(|id| self.site_kind(id) == SiteKind::Defend)
-        {
+        let Some(id) = self.ship.state.alongside() else {
+            return amount;
+        };
+        let amount = if self.site_kind(id) == SiteKind::Defend {
             self.rewards.at_defense(amount)
+        } else {
+            amount
+        };
+        if self.is_elite_fight(id) {
+            amount.saturating_mul(Money::from(data::ELITE_BOUNTY_PERCENT)) / 100
         } else {
             amount
         }

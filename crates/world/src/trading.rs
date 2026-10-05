@@ -291,16 +291,12 @@ impl World {
         } else {
             ask
         };
-        // The reward dials' shelf per cent, then the crew's relics, then
-        // the players' share.
-        self.trader_share(self.trader_price_by_relics(self.rewards.shelf_price(ask)))
-    }
-
-    /// A trader's price shared by the players: each has money of their
-    /// own now, a share of what the crew earn, so a thing costs each the
-    /// price over the number of players, rounded up.
-    pub fn trader_share(&self, price: Money) -> Money {
-        price.div_ceil(Money::from(self.players().max(1)))
+        // The reward dials' shelf per cent, then the crew's relics. The
+        // whole price to every player: each wallet already holds only its
+        // share of what the crew earn, so the price was over the players
+        // until October 2026 (the player's word), and four players bought
+        // what a lone one would with four times the money.
+        self.trader_price_by_relics(self.rewards.shelf_price(ask))
     }
 
     // --- buying ---------------------------------------------------------------
@@ -446,11 +442,11 @@ impl World {
     }
 
     /// What an item costs a player: [`crate::items::price`], through
-    /// the reward dials' shelf per cent, the crew's relics and the
-    /// players' share, as a thing off the shelf is.
+    /// the reward dials' shelf per cent and the crew's relics, as a thing
+    /// off the shelf is.
     pub fn item_price(&self, item: bims::module::Module) -> Money {
         let price = self.rewards.shelf_price(crate::items::price(item));
-        self.trader_share(self.trader_price_by_relics(price))
+        self.trader_price_by_relics(price)
     }
 
     /// Whether player `slot` has bought the item of `kind` (its code) off

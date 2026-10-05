@@ -19,6 +19,10 @@
 //!   seven rows of nearly every place, a way up that goes for them meets
 //!   one every six or seven rows, and going there is a choice of way, as
 //!   in Slay the Spire.
+//! - **A trader under the Heart**, always (October 2026, the player's):
+//!   the row below the Heart is one place, every way up's last stop, and
+//!   a trader — what a crew earned on the last rows is spent before the
+//!   Heart, never carried into it. One of the [`data::FLOOR_SHOPS`].
 //! - **A place is a star**, its system's one site (`World::mission_site`):
 //!   the galaxy's systems, their missions and their trips are what the
 //!   floor is made of; the galaxy chart is gone. The stars are picked
@@ -148,6 +152,9 @@ pub fn shape(seed: u64) -> Shape {
             _ => width,
         };
     }
+    // The row under the Heart one place, every way up meeting there: the
+    // last trader before the Heart (`scatter_shops`).
+    widths[hops as usize - 1] = 1;
     // Where each is drawn: evenly across, a little off true.
     let xs: Vec<Vec<f32>> = widths
         .iter()
@@ -213,19 +220,27 @@ pub fn shape(seed: u64) -> Shape {
     }
 }
 
-/// The traders, off `rng`: the rows from [`data::FLOOR_FIRST_SHOP_ROW`]
-/// to the one under the Heart cut into [`data::FLOOR_SHOPS`] stretches
-/// as even as whole rows go, a trader on a row rolled in each — never on
-/// the row just after the last one's, where the stretch has another — on
-/// the place of that row a place stranded longest below it leads to.
-/// So a way up the last traders missed is the one the next is put on,
-/// and none clump.
+/// The traders, off `rng`: **the row under the Heart** — its one place,
+/// every way up's last stop, so a crew can always spend before the Heart
+/// (October 2026, the player's) — and the rest scattered: the rows from
+/// [`data::FLOOR_FIRST_SHOP_ROW`] to the one three under the Heart cut
+/// into [`data::FLOOR_SHOPS`] less one stretches as even as whole rows go, a
+/// trader on a row rolled in each — never on the row just after the last
+/// one's, where the stretch has another — on the place of that row a
+/// place stranded longest below it leads to. So a way up the last
+/// traders missed is the one the next is put on, and none clump.
 fn scatter_shops(widths: &[u32], up: &[Vec<Vec<u8>>], rng: &mut Rng) -> Vec<Vec<bool>> {
     let mut shops: Vec<Vec<bool>> = widths.iter().map(|&w| vec![false; w as usize]).collect();
     let top = widths.len() as u32 - 1;
-    let first = data::FLOOR_FIRST_SHOP_ROW.clamp(1, top.saturating_sub(1).max(1));
-    let span = top.saturating_sub(first);
-    let count = data::FLOOR_SHOPS.min(span);
+    if top >= 2 {
+        shops[top as usize - 1][0] = true;
+    }
+    // The scattered ones end three rows under the Heart, so none is on
+    // the row just before the last.
+    let last_row = top.saturating_sub(2);
+    let first = data::FLOOR_FIRST_SHOP_ROW.clamp(1, last_row.max(1));
+    let span = last_row.saturating_sub(first);
+    let count = data::FLOOR_SHOPS.saturating_sub(1).min(span);
     if count == 0 {
         return shops;
     }
@@ -334,9 +349,10 @@ mod tests {
             assert_eq!(shape.widths.len() as u32, data::FLOOR_HOPS + 1);
             assert_eq!(shape.widths[0], 1, "one start");
             assert_eq!(*shape.widths.last().unwrap(), 1, "one Heart");
-            for &w in &shape.widths[1..shape.widths.len() - 1] {
+            for &w in &shape.widths[1..shape.widths.len() - 2] {
                 assert!((data::FLOOR_MIN_WAYS..=data::FLOOR_MAX_WAYS).contains(&w));
             }
+            assert_eq!(shape.widths[shape.widths.len() - 2], 1, "one last trader");
             assert!(wired(&shape), "seed {seed}");
             // No two trips between a pair of rows cross: going left to
             // right, where they land never goes back.
@@ -353,7 +369,7 @@ mod tests {
                 }
             }
             // The leftmost and the rightmost are two ways that share no
-            // place between the start and the Heart.
+            // place between the start and the last trader.
             for row in 1..shape.widths.len() - 2 {
                 assert!(shape.up[row][0].contains(&0));
                 let (a, b) = (shape.widths[row], shape.widths[row + 1]);
@@ -442,8 +458,11 @@ mod tests {
                 .filter(|&r| shape.shops[r].iter().any(|&s| s))
                 .collect();
             // So many, one a row, none in the first rows or at the Heart,
-            // never on two rows running and never far apart.
+            // never on two rows running and never far apart — and the last
+            // on the row under the Heart, its one place.
             assert_eq!(rows.len() as u32, data::FLOOR_SHOPS, "seed {seed}");
+            assert_eq!(*rows.last().unwrap(), top - 1, "seed {seed}");
+            assert!(shape.shops[top - 1][0], "seed {seed}");
             for &r in &rows {
                 assert_eq!(shape.shops[r].iter().filter(|&&s| s).count(), 1);
                 assert!(r as u32 >= data::FLOOR_FIRST_SHOP_ROW && r < top);

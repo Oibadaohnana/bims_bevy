@@ -201,3 +201,34 @@ fn a_fight_that_is_no_elite_drops_no_relic() {
     assert_eq!(world.run.phase, Phase::Map, "straight to the map");
     assert!(world.relic_choice().is_none(), "no relic offered");
 }
+
+/// **An elite pays twice the money an enemy down** (October 2026, the
+/// player's word, beside its experience): the bounty at an elite is
+/// [`data::ELITE_BOUNTY_PERCENT`] of the same site's as a plain attack.
+#[test]
+fn an_elite_pays_its_bounty_twice_over() {
+    let galaxy = worldgen::Galaxy::new(data::DEFAULT_SEED, GalaxyType::SpiralTwoArm);
+    let (star, station) = crate::spawn(&galaxy).unwrap();
+    let mut world = World::start_with_crew(
+        combat_ship(),
+        REFERENCE_MONEY,
+        1,
+        COMBAT_CREW,
+        data::DEFAULT_SEED,
+        GalaxyType::SpiralTwoArm,
+        star,
+        station,
+    )
+    .unwrap();
+    world.arena_dock_for_probe();
+    world.infest(station);
+    assert!(!world.is_elite_fight(station));
+    let plain = world.bounty_here(1_000);
+    assert_eq!(plain, 1_000, "an attack pays the bounty whole");
+    world.set_elite_for_probe(station);
+    assert!(world.is_elite_fight(station));
+    assert_eq!(
+        world.bounty_here(1_000),
+        plain * u64::from(data::ELITE_BOUNTY_PERCENT) / 100
+    );
+}

@@ -294,8 +294,8 @@ the six, three across and two down, at the right of the abilities, each with its
 *Coolant Loop*, *Pressure Seal* and *Steady Grip* were relics; they are
 in no relic pool any more (a save holding one keeps it).
 
-The prices are placeholders, shared by the players like every price at a
-trader. `BIMS_ITEMS=blink:3,executioner:2,heart,core` (any item by its name or
+The prices are placeholders, and every player pays the whole price out
+of their own wallet (October 2026; it was the price over the players). `BIMS_ITEMS=blink:3,executioner:2,heart,core` (any item by its name or
 its first word, `field`, `reset`, `ablative`, …) gives the steered
 Bim those items at the start of any run, to look at one.
 

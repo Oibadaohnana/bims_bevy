@@ -110,7 +110,11 @@ pub const FLOOR_MAX_WAYS: u32 = 4;
 /// that goes for them, never a whole row of them. Four whole rows of
 /// traders until the player asked for them scattered (October 2026); fifteen
 /// until the floor came down from fifty rows to 32, nine keeping the
-/// stretch about three rows.
+/// stretch about three rows. **The last of them is always the row under
+/// the Heart** (October 2026, the player's: "there should be one shop
+/// before the heart as a guarantee"): that row is one place, every way
+/// up's last stop, and the other eight are scattered over rows three to
+/// twenty-nine (`floor::scatter_shops`).
 pub const FLOOR_SHOPS: u32 = 9;
 /// The lowest row a trader may be on: the first few are fights.
 pub const FLOOR_FIRST_SHOP_ROW: u32 = 3;
@@ -466,6 +470,12 @@ pub const BOT_BOUNTY_PERCENT: u32 = 5;
 /// commander's reinforcement or medic — took it down, in per cent: ten
 /// more, to make up for what the bots no longer earn.
 pub const PLAYER_BOUNTY_PERCENT: u32 = 110;
+/// What an **elite fight** pays an enemy down, in per cent of the bounty
+/// anywhere else (October 2026, the player's: "if you fight an elite get
+/// more money", beside the elite's experience): the system's elite or an
+/// Area defend (`World::is_elite_fight`), on top of the relics', the
+/// defence's and who took it down's shares (`World::bounty_here`).
+pub const ELITE_BOUNTY_PERCENT: u32 = 200;
 
 /// How far an enemy's bounty strays from its tier's own, in per cent, by
 /// how strong it is: the weaker of a tier this much less, the stronger

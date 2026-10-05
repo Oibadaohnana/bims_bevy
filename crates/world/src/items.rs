@@ -98,8 +98,8 @@ pub fn shop(tier: Tier) -> Vec<Module> {
         .collect()
 }
 
-/// What an item costs at a trader before the dials, the licence and the
-/// players' share: [`data::ITEM_PRICE`] by kind and tier.
+/// What an item costs at a trader before the dials and the relics:
+/// [`data::ITEM_PRICE`] by kind and tier.
 pub fn price(item: Module) -> Money {
     let row = data::ITEM_PRICE[item.kind.code() as usize];
     row[(item.tier.code().clamp(1, 3) - 1) as usize]
