@@ -5848,12 +5848,15 @@ impl World {
         {
             return n;
         }
-        let defenders = if self.defense_here().is_some() {
-            self.defenders_fielded()
-        } else {
-            0
+        // **At an Area defend no bot counts** (October 2026, the player's
+        // words: "bots on area defence dont count and should not
+        // influence the enemy count"): neither the crew's bots nor the
+        // site's defenders bring machines there, only the players.
+        let bots = match self.defense_here() {
+            Some(defense) if defense.area.is_some() => 0,
+            Some(_) => self.crew_bots().saturating_add(self.defenders_fielded()),
+            None => self.crew_bots(),
         };
-        let bots = self.crew_bots().saturating_add(defenders);
         self.wave_size_with(self.run_day(), bots)
     }
 

@@ -578,7 +578,7 @@ pub const SOMEBODY_LEFT: &str = "Somebody left.";
 /// for the run (`world::droid::Difficulty`, task 147), their notes, and
 /// the button that puts them back to the tuning file's (`scaling.ron`).
 pub const DIFFICULTY: &str = "Difficulty";
-pub const DIFFICULTY_NOTE: &str = "How many machines a wave is: (per player + day scaling × steps) × players, plus per bot × bots (rounded up; the crew's bots, and a defence's defenders). Nothing else scales them. Tiers come by the day: the tier timings are the day every enemy has reached that tier (half of them at half the days).";
+pub const DIFFICULTY_NOTE: &str = "How many machines a wave is: (per player + day scaling × steps) × players, plus per bot × bots (rounded up; the crew's bots, and a defence's defenders; none at an Area defend). Nothing else scales them. Tiers come by the day: the tier timings are the day every enemy has reached that tier (half of them at half the days).";
 pub const WAVE_PER_PLAYER: &str = "Enemies per player";
 pub const WAVE_PER_PLAYER_NOTE: &str = "Machines in every wave for each player";
 pub const WAVE_DAY_SCALING: &str = "Day scaling";

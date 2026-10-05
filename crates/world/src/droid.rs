@@ -174,7 +174,8 @@ pub struct WaveScaling {
     pub scaling_days: u32,
     /// Machines added for each bot: every crew member alive who is not a
     /// player (bots, hands and joiners — not a commander's reinforcements)
-    /// and at a defence every defender the site fields; the product
+    /// and at a defence every defender the site fields — none at all at
+    /// an Area defend; the product
     /// rounded up, `1.5` and three bots is five. (`enemies_per_defender`
     /// in a file or a save written before.)
     #[cfg_attr(feature = "serde", serde(alias = "enemies_per_defender"))]

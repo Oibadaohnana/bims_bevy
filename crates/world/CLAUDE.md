@@ -7911,6 +7911,15 @@ wave. `begin_mission` and `leave_mission` clear it. A defence's
 defenders were already counted standing or not; this makes the crew's
 bots so too, at every site.
 
+**No bot counts at an Area defend** (the player's words: "bots on area
+defence dont count and should not influence the enemy count"):
+`droid_wave_size` hands `wave_size_with` nought bots where
+`defense_here()` has an `area` — neither the crew's bots nor the site's
+defenders bring `enemies_per_bot` machines there, only the players
+(`per_player_on × players`). A station's or a derelict's defence, and
+an attack, count them as before.
+`tests_area::at_an_area_defend_the_bots_bring_no_machines`.
+
 **The `defense` probe lands again after its dials**
 (`Session::defense_for_probe`): moving the machines' origin settles the
 crisis, and `settle_offered` dropped the home system's town the probe

@@ -323,6 +323,33 @@ fn every_wave_of_a_mission_is_its_first_wave_s_size() {
 /// stacked on one still standing moves every machine on, and what the
 /// world keeps a body (who is down, who was counted) moves with it — so
 /// the last of them down is still the site held, said once.
+/// **No bot counts at an Area defend**: neither the crew's bots nor the
+/// site's defenders bring machines, the wave is the players' share alone.
+#[test]
+fn at_an_area_defend_the_bots_bring_no_machines() {
+    let Some((mut world, _)) = an_area_defend(None) else {
+        return;
+    };
+    world.step(&[]);
+    assert!(world.area_here().is_some(), "the Area defend under way");
+    assert!(
+        world.defenders_fielded() + world.crew_bots() > 0,
+        "bots or defenders beside the players"
+    );
+    let day = world.run_day();
+    let players = world.scaling().size(world.players(), 0, day).max(1);
+    assert_eq!(world.droid_wave_size(), players);
+    world.set_wave_scaling(crate::droid::WaveScaling {
+        enemies_per_bot: 3.0,
+        ..crate::droid::WaveScaling::DEFAULT
+    });
+    assert_eq!(
+        world.droid_wave_size(),
+        world.scaling().size(world.players(), 0, day).max(1),
+        "whatever a bot is worth"
+    );
+}
+
 #[test]
 fn the_manufacturers_waves_stack_and_every_body_is_counted_once() {
     let mut world = open_simulation_world(flyer(2), REFERENCE_MONEY, 2);

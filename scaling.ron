@@ -14,7 +14,8 @@
 //                   + enemies_per_bot * bots, rounded up (1.5 and three
 //                   bots is five). Bots are the crew's bots, hands and
 //                   joiners (never a commander's reinforcements), and at a
-//                   defence the site's defenders too
+//                   defence the site's defenders too; at an Area defend
+//                   no bot counts, crew's or defender
 //   steps         = whole scaling_days in the day (0: never grows)
 //   waves a site  = 1 + whole wave_days in the day (0: always one)
 //   tier timings  = the day every enemy has reached that tier; before it
