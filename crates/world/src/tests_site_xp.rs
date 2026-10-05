@@ -147,46 +147,76 @@ fn an_elite_s_site_is_worth_twice_an_attack_s() {
     );
 }
 
-/// **The bonus wave**: refused until the site is cleared, then called
-/// once — the deck thaws, a wave half as big again lands, it pays half
-/// the budget again and its bounty, and once it is down the site is won
-/// as it was and no second is called.
+/// **The bonus wave** is chosen in the ready check, before the fight:
+/// one wave more after the site's own, half as big again, worth half the
+/// budget again and its bounty; the site's own waves share the budget as
+/// they did, and the site is cleared with the bonus wave down. Once the
+/// mission is under way it can be neither chosen nor taken back.
 #[test]
-fn a_cleared_site_calls_one_bonus_wave_half_as_big_again() {
+fn the_bonus_wave_is_chosen_before_the_fight_and_comes_last() {
     let (mut world, station) = held_arena(1);
-    let n = wait_for_a_wave(&mut world);
-    let call = Command::CallBonusWave { slot: 0 };
-    assert_eq!(world.can_call_bonus_wave(0), Err(Refusal::NoBonusWave));
-    wreck_them_one_by_one(&mut world, 1);
-    assert!(world.fight_over(), "the deck frozen");
-    assert_eq!(world.can_call_bonus_wave(0), Ok(()));
-    let budget = world.site_budget(station) as u32;
-    let before = xp(&world, 0);
-    let money = world.money;
+    world.set_ready_check(true);
+    assert!(world.awaiting_ready(), "held for the ready check");
+    let events = world.step(&[Command::BonusWave { slot: 0, on: true }]);
+    assert!(events.contains(&WorldEvent::BonusWaveChosen { slot: 0, on: true }));
+    assert_eq!(world.bonus_wave_here(), BonusWave::Chosen);
+    world.step(&[Command::Ready { slot: 0, yes: true }]);
+    assert!(!world.awaiting_ready(), "under way");
+    assert_eq!(
+        world.can_choose_bonus_wave(0),
+        Err(Refusal::NoBonusWave),
+        "not once the fight is on"
+    );
 
-    let events = world.step(&[call]);
-    assert!(events.contains(&WorldEvent::BonusWaveCalled { slot: 0 }));
-    assert!(!world.fight_over(), "the deck thawed");
-    assert_eq!(world.bonus_wave_here(), BonusWave::Called);
+    // The site's own wave first, priced as it was without the bonus.
+    let n = wait_for_a_wave(&mut world);
+    let budget = world.site_budget(station) as u32;
+    assert_eq!(world.xp_per_down(), (budget + n / 2) / n);
+    let before = xp(&world, 0);
+    wreck_them_one_by_one(&mut world, 1);
+    assert!(
+        !world.droid_station_cleared(station),
+        "the bonus wave to come"
+    );
+    assert_eq!(xp(&world, 0) - before, world.xp_per_down() * n);
+
+    // Then the bonus wave, half as big again, for half the budget again.
     let big = wait_for_a_wave(&mut world);
     assert_eq!(big, (n * data::BONUS_WAVE_SIZE_PERCENT).div_ceil(100));
     assert_eq!(world.bonus_wave_here(), BonusWave::Landed);
     let each = world.xp_per_down();
     let half = budget * data::BONUS_WAVE_XP_PERCENT / 100;
     assert_eq!(each, (half + big / 2) / big);
-
-    let events = wreck_them_one_by_one(&mut world, 1);
-    assert!(events.contains(&WorldEvent::BonusWaveCleared { station }));
+    let before = xp(&world, 0);
+    let pending = world.run.pending_bounty;
+    wreck_them_one_by_one(&mut world, 1);
     assert_eq!(xp(&world, 0) - before, each * big, "half the budget again");
-    assert!(world.money > money, "and its bounty, paid at once");
+    assert!(world.droid_station_cleared(station), "cleared with it down");
+    assert!(world.money > pending, "the bounty paid with the clear");
     assert_eq!(world.bonus_wave_here(), BonusWave::Done);
-    assert!(world.fight_over(), "frozen again");
-    assert!(world.droid_station_cleared(station));
-    let events = world.step(&[call]);
-    assert!(events.contains(&WorldEvent::Refused {
-        slot: 0,
-        why: Refusal::NoBonusWave
-    }));
+}
+
+/// Taken back in the ready check, it is no wave at all; and a site with
+/// no fight has none to choose.
+#[test]
+fn a_bonus_wave_taken_back_is_none_and_a_quiet_site_has_none() {
+    let (mut world, station) = held_arena(1);
+    world.set_ready_check(true);
+    world.step(&[Command::BonusWave { slot: 0, on: true }]);
+    world.step(&[Command::BonusWave { slot: 0, on: false }]);
+    assert_eq!(world.bonus_wave_here(), BonusWave::None);
+    world.step(&[Command::Ready { slot: 0, yes: true }]);
+    wait_for_a_wave(&mut world);
+    wreck_them_one_by_one(&mut world, 1);
+    assert!(
+        world.droid_station_cleared(station),
+        "the site's own wave alone"
+    );
+    assert_eq!(
+        world.can_choose_bonus_wave(0),
+        Err(Refusal::NoBonusWave),
+        "nothing to choose at a site cleared"
+    );
 }
 
 /// ***Clean Sweep***: a site cleared with no player down pays every

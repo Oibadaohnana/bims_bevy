@@ -112,7 +112,6 @@ impl FightTally {
             && !world.is_won()
             && !world.lost
             && world.run.departure.is_none()
-            && !world.bonus_wave_here().running()
     }
 }
 
@@ -335,24 +334,6 @@ pub fn fight_won_window(
                 .wrap(),
             );
             ui.add_space(12.0);
-            // The bonus wave (October 2026): one more, bigger, for half
-            // the site's experience again — once a site.
-            if world.can_call_bonus_wave(local).is_ok() {
-                let call = ui
-                    .add(
-                        egui::Button::new(
-                            egui::RichText::new(CALL_BONUS_WAVE)
-                                .strong()
-                                .color(theme::CAUTION),
-                        )
-                        .min_size(egui::vec2(WIDTH, 32.0)),
-                    )
-                    .on_hover_text(CALL_BONUS_WAVE_TIP);
-                if call.clicked() {
-                    orders.push(Order::CallBonusWave);
-                }
-                ui.add_space(6.0);
-            }
             if out {
                 ui.vertical_centered(|ui| {
                     ui.label(egui::RichText::new(FIGHT_WON_WAITING).color(theme::MUTED));

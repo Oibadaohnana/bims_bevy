@@ -232,9 +232,9 @@ pub enum Order {
     AcceptTrip(bool),
     /// The *Back to ship* button — `Command::Return`.
     ReturnToShip,
-    /// *Call bonus wave* at a site cleared (October 2026) —
-    /// `Command::CallBonusWave`.
-    CallBonusWave,
+    /// The bonus wave chosen in the ready check, or taken back (October
+    /// 2026) — `Command::BonusWave`.
+    BonusWave(bool),
     /// An answer to the departure check — `Command::LeaveBehind`.
     LeaveBehind(bool),
     /// *Ready* for a mission held for the ready check, or taken back —
@@ -564,7 +564,7 @@ impl Net {
                         },
                         Order::AcceptTrip(yes) => Command::Accept { slot, yes },
                         Order::ReturnToShip => Command::Return { slot },
-                        Order::CallBonusWave => Command::CallBonusWave { slot },
+                        Order::BonusWave(on) => Command::BonusWave { slot, on },
                         Order::LeaveBehind(yes) => Command::LeaveBehind { slot, yes },
                         Order::Ready(yes) => Command::Ready { slot, yes },
                         Order::ProposeRelic { relic } => Command::ProposeRelic {

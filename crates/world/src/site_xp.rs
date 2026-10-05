@@ -54,8 +54,9 @@ impl World {
     }
 
     /// A wave of `bodies` enemies just laid at the site `id`: what each of
-    /// them pays (`Run::xp_each`) — the site's budget over its waves, or
-    /// for its bonus wave [`data::BONUS_WAVE_XP_PERCENT`] of it, over the
+    /// them pays (`Run::xp_each`) — the site's budget over its own waves
+    /// (a bonus wave to come not counted), or for the bonus wave
+    /// [`data::BONUS_WAVE_XP_PERCENT`] of it, over the
     /// bodies, rounded, one at the least. Asked again when a room built
     /// afresh lays the wave again, and answered the same.
     pub(crate) fn price_the_wave(&mut self, id: u32, bodies: u32) {
@@ -63,10 +64,13 @@ impl World {
             return;
         }
         let budget = self.site_budget(id);
-        let share = if self.bonus_wave_at(id).running() {
+        let share = if self.run.bonus == BonusWave::Landed {
             budget * u64::from(data::BONUS_WAVE_XP_PERCENT) / 100
         } else {
-            budget / u64::from(self.site_waves(id))
+            let waves = self
+                .site_waves(id)
+                .saturating_sub(self.bonus_waves_to_come());
+            budget / u64::from(waves.max(1))
         };
         let bodies = u64::from(bodies);
         let each = (share + bodies / 2) / bodies;
@@ -112,27 +116,25 @@ impl World {
 
     // --- the bonus wave ------------------------------------------------------------
 
-    /// The bonus wave of the site at `id`: none at a site with no fight.
-    pub fn bonus_wave_at(&self, id: u32) -> BonusWave {
-        if let Some(it) = self.infestation(id) {
-            return it.bonus;
-        }
-        self.defense(id).map_or(BonusWave::None, |d| d.bonus)
-    }
-
-    /// The bonus wave of the site the ship is tied up at.
+    /// This mission's bonus wave ([`Run::bonus`](crate::run::Run::bonus)).
     pub fn bonus_wave_here(&self) -> BonusWave {
-        self.ship
-            .state
-            .alongside()
-            .map_or(BonusWave::None, |id| self.bonus_wave_at(id))
+        self.run.bonus
     }
 
-    /// Whether player `slot` may call the bonus wave of the site here, or
-    /// why not: a player, in a mission at a site whose fight was met and
-    /// cleared (`NoBonusWave` otherwise), an attack's or a defence's —
-    /// never an Area defend's, the Machine Heart's or one already called.
-    pub fn can_call_bonus_wave(&self, slot: u32) -> Result<(), Refusal> {
+    /// One while the crew have chosen a bonus wave that has not landed:
+    /// what a site's wave count is settled with, and what its own waves
+    /// share their budget without.
+    pub(crate) fn bonus_waves_to_come(&self) -> u32 {
+        u32::from(self.run.bonus == BonusWave::Chosen)
+    }
+
+    /// Whether player `slot` may choose this mission's bonus wave, or take
+    /// it back, or why not: a player (`NotAPlayer`), in the ready check
+    /// before the fight (`NoBonusWave` otherwise), at a site with a fight
+    /// to come — one the machines or the Manufacturers hold, not yet
+    /// cleared, or a defence threatened — never the Machine Heart's or an
+    /// Area defend's.
+    pub fn can_choose_bonus_wave(&self, slot: u32) -> Result<(), Refusal> {
         if slot >= self.players() {
             return Err(Refusal::NotAPlayer);
         }
@@ -140,67 +142,63 @@ impl World {
             .ship
             .state
             .alongside()
-            .filter(|_| self.run.phase == run::Phase::Mission && self.aboard.is_joined())
+            .filter(|_| self.run.phase == run::Phase::Mission && self.run.briefing)
         else {
             return Err(Refusal::NoBonusWave);
         };
-        if !self.run.fought || self.run.won || !self.site_cleared(id) || heart::is_heart(id) {
+        if self.run.won || self.site_cleared(id) || heart::is_heart(id) {
             return Err(Refusal::NoBonusWave);
         }
-        if let Some(it) = self.infestation(id) {
-            return if it.settled && it.heart.is_none() && it.bonus == BonusWave::None {
-                Ok(())
-            } else {
-                Err(Refusal::NoBonusWave)
-            };
-        }
-        match self.defense(id) {
-            Some(d) if d.won && d.area.is_none() && d.bonus == BonusWave::None => Ok(()),
-            _ => Err(Refusal::NoBonusWave),
+        let attack = self.infestation(id).is_some_and(|it| it.heart.is_none());
+        let defence = self.site_threatened(id) && !self.is_area_defense(id);
+        if attack || defence {
+            Ok(())
+        } else {
+            Err(Refusal::NoBonusWave)
         }
     }
 
-    /// The bonus wave called — see [`Command::CallBonusWave`]: one more
-    /// wave to come on the site's own clock, the deck thawed while it is
-    /// on (`World::fight_over`), and nobody going home any more — a press
-    /// of *Back to ship* before it is taken back.
-    pub(crate) fn call_bonus_wave(&mut self, slot: u32) -> Result<(), Refusal> {
-        self.can_call_bonus_wave(slot)?;
-        let Some(id) = self.ship.state.alongside() else {
-            return Err(Refusal::NoBonusWave);
+    /// The bonus wave chosen, or taken back — see [`Command::BonusWave`]:
+    /// one wave more at the end of the site's own when its count is
+    /// settled, and every *Ready* pressed taken back, so the crew start
+    /// the fight they all agreed to.
+    pub(crate) fn choose_bonus_wave(&mut self, slot: u32, on: bool) -> Result<(), Refusal> {
+        self.can_choose_bonus_wave(slot)?;
+        self.run.bonus = if on {
+            BonusWave::Chosen
+        } else {
+            BonusWave::None
         };
-        if let Some(it) = self.infestation_mut(id) {
-            it.bonus = BonusWave::Called;
-            it.waves_left = 1;
-            it.next_wave = None;
-        } else if let Some(d) = self.defense_mut(id) {
-            d.bonus = BonusWave::Called;
-            d.waves_left = 1;
-            d.next_in = None;
+        for ready in &mut self.run.ready {
+            *ready = false;
         }
-        let players = self.players() as usize;
-        self.run.returning = vec![false; players];
-        self.run.recalled = false;
-        self.run.departure = None;
         Ok(())
     }
 
+    /// The site's last wave about to land: the bonus wave, when one was
+    /// chosen.
+    pub(crate) fn land_the_bonus_wave(&mut self) {
+        if self.run.bonus == BonusWave::Chosen {
+            self.run.bonus = BonusWave::Landed;
+        }
+    }
+
+    /// The site cleared: the bonus wave, if it landed, fought.
+    pub(crate) fn bonus_wave_fought(&mut self) {
+        if self.run.bonus == BonusWave::Landed {
+            self.run.bonus = BonusWave::Done;
+        }
+    }
+
     /// How many a wave of `n` is as it lands: [`data::BONUS_WAVE_SIZE_PERCENT`]
-    /// of it, rounded up, while the site's bonus wave is the one landing.
+    /// of it, rounded up, for the bonus wave.
     pub(crate) fn bonus_wave_size(&self, n: u32) -> u32 {
-        if !self.bonus_wave_here().running() {
+        if self.run.bonus != BonusWave::Landed {
             return n;
         }
         (u64::from(n) * u64::from(data::BONUS_WAVE_SIZE_PERCENT))
             .div_ceil(100)
             .min(u64::from(u32::MAX)) as u32
-    }
-
-    /// The bonus wave's last enemy down at `id`: said, and *Clean Sweep*'s
-    /// book settled for it.
-    pub(crate) fn bonus_wave_cleared(&mut self, id: u32, events: &mut Vec<WorldEvent>) {
-        events.push(WorldEvent::BonusWaveCleared { station: id });
-        self.pay_the_clean_sweep(events);
     }
 
     // --- Clean Sweep ---------------------------------------------------------------
@@ -222,7 +220,7 @@ impl World {
         }
     }
 
-    /// The site cleared (its fight, or its bonus wave): with *Clean Sweep*
+    /// The site cleared: with *Clean Sweep*
     /// held and no player's Bim down since the last clear, every crew
     /// member gets its per cent of what it earned here since then
     /// ([`WorldEvent::CleanSweep`]); then the book starts again.

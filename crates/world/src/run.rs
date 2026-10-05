@@ -109,22 +109,22 @@ impl SiteKind {
     }
 }
 
-/// A site's **bonus wave** (October 2026): one more wave the crew may
-/// call at a site they have just cleared — the site's wave a half bigger,
-/// half its experience again and its machines' bounty — once a site.
-/// Kept on the site's `Infestation` or `Defense`; saved, and hashed only
-/// where one was called.
+/// A mission's **bonus wave** (October 2026): chosen by the crew in the
+/// ready check, before the fight starts, it is one more wave at the end
+/// of the site's own — half as big again, worth half the site's
+/// experience again and its machines' bounty. Kept on [`Run::bonus`];
+/// saved, and hashed only where one was chosen.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum BonusWave {
-    /// Not called.
+    /// Not chosen.
     #[default]
     None,
-    /// Called: the wave is on its way.
-    Called,
-    /// Landed: the wave is on the deck.
+    /// Chosen: one wave more is to come after the site's own.
+    Chosen,
+    /// Landed: the bonus wave is on the deck, the site's last.
     Landed,
-    /// Fought: its last enemy down. A site has one.
+    /// Fought: the site cleared with it.
     Done,
 }
 
@@ -133,16 +133,15 @@ impl BonusWave {
     pub fn code(self) -> u32 {
         match self {
             BonusWave::None => 0,
-            BonusWave::Called => 1,
+            BonusWave::Chosen => 1,
             BonusWave::Landed => 2,
             BonusWave::Done => 3,
         }
     }
 
-    /// Whether it is called and not yet fought: the site's fight is on
-    /// again.
-    pub fn running(self) -> bool {
-        matches!(self, BonusWave::Called | BonusWave::Landed)
+    /// Whether one was chosen this mission.
+    pub fn chosen(self) -> bool {
+        self != BonusWave::None
     }
 }
 
@@ -415,6 +414,10 @@ pub struct Run {
     /// ...and whether a player's Bim went down since.
     #[cfg_attr(feature = "serde", serde(default))]
     pub clean_spoiled: bool,
+    /// This mission's bonus wave (October 2026, [`BonusWave`]): chosen in
+    /// the ready check, none at every mission's start.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub bonus: BonusWave,
 }
 
 impl Run {
@@ -455,6 +458,7 @@ impl Run {
             xp_each: None,
             clean_xp: Vec::new(),
             clean_spoiled: false,
+            bonus: BonusWave::None,
         }
     }
 

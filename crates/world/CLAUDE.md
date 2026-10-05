@@ -8061,21 +8061,24 @@ machines"); the world decides where they come.
   `bims::module::TRAINING_LOG_XP` 15/20/25, `ITEM_PRICE`'s 14th row,
   `World::item_xp_percent`) and + `data::CATCH_UP_XP_PERCENT` (25) for a
   player's Bim below `best_player_level`. A bot gets the plain share.
-- **The bonus wave** (`run::BonusWave`: None, Called, Landed, Done, on
-  `Infestation::bonus` / `Defense::bonus`, hashed where called):
-  `Command::CallBonusWave { slot }` (heard on the frozen deck) —
-  `can_call_bonus_wave`: a player, a mission at a site `fought` and
-  cleared, an infestation (settled, not the Heart) or a won defence that
-  is not an Area defend, not called before; else `NoBonusWave` (133).
-  It sets `waves_left = 1`, takes back every *Back to ship* press, and
-  the site's own clock brings it: `landing_wave_size` is
-  `data::BONUS_WAVE_SIZE_PERCENT` (150) of the fixed wave, rounded up;
-  its bodies share `BONUS_WAVE_XP_PERCENT` (50) of the budget; it is
-  `Landed` on the arrive branch and `Done` on the branch after the clear
-  (`BonusWaveCleared`, 165). The site stays cleared throughout — nothing
-  the clear said is said again, the bounty is paid at once
-  (`mission_cleared`) — but `fight_over()` is false while it runs (the
-  deck thaws) and `Defense::over()` too. `BonusWaveCalled` is 164.
+- **The bonus wave** (`run::BonusWave`: None, Chosen, Landed, Done, on
+  `Run::bonus`, saved, hashed where chosen, cleared at a mission's
+  start): chosen **in the ready check, before the fight** —
+  `Command::BonusWave { slot, on }` (heard while `briefing`, applied at
+  once) — `can_choose_bonus_wave`: a player, the mission held for the
+  ready check, a site not cleared that an enemy holds (not the Heart) or
+  a defence threatened (not an Area defend); else `NoBonusWave` (133).
+  A choice takes back every *Ready*. `BonusWaveChosen { slot, on }` (164;
+  165 free). The site's wave count is settled one higher
+  (`bonus_waves_to_come`, in `droid_waves` and `defense_waves`); the
+  arrival that leaves no wave to come is the bonus wave
+  (`land_the_bonus_wave` → Landed), `landing_wave_size` is
+  `data::BONUS_WAVE_SIZE_PERCENT` (150) of the fixed wave, rounded up,
+  and its bodies share `BONUS_WAVE_XP_PERCENT` (50) of the budget while
+  the site's own waves share the budget without it. The site clears (or
+  the defence is won) only with it down (`bonus_wave_fought` → Done).
+  It was called after the clear for a day, the deck thawed for it; the
+  player wanted it chosen before the mission instead.
 - ***Clean Sweep*** (`Relic::CleanSweep`, 12; `Stat::CleanExperience`
   25%, price `DamageTaken` +10%): `award_classed_near` notes every award
   in `Run::clean_xp` by crew index; a player's Bim downed or dead

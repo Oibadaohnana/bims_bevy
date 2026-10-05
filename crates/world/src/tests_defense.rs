@@ -1251,3 +1251,29 @@ fn the_run_is_not_lost_at_once_while_a_defender_stands() {
     assert!(lost && world.lost, "nobody stands");
     assert!((0..crew).all(|who| world.aboard.room.is_alive(who)));
 }
+
+/// A defence's **bonus wave** (October 2026), chosen in the ready check:
+/// the site's own wave, then one half as big again, and won only with
+/// that down.
+#[test]
+fn a_defence_s_bonus_wave_comes_last_half_as_big_again() {
+    let (mut world, id) = a_station_defence(1, 2);
+    world.set_ready_check(true);
+    assert!(world.awaiting_ready());
+    world.step(&[crate::world::Command::BonusWave { slot: 0, on: true }]);
+    world.step(&[crate::world::Command::Ready { slot: 0, yes: true }]);
+    world.step(&[crate::world::Command::Ready { slot: 1, yes: true }]);
+    assert!(!world.awaiting_ready(), "under way");
+    assert!(until(&mut world, 4_000, |w| w.droids_standing() == 2));
+    destroy_the_wave(&mut world);
+    assert!(
+        until(&mut world, 4_000, |w| w.droids_standing() > 0),
+        "the bonus wave lands"
+    );
+    assert!(!world.defense(id).unwrap().won, "not won before it");
+    assert_eq!(world.droids_standing(), 3, "half as big again, rounded up");
+    assert_eq!(world.bonus_wave_here(), crate::run::BonusWave::Landed);
+    destroy_the_wave(&mut world);
+    assert!(until(&mut world, 200, |w| w.defense(id).unwrap().won));
+    assert_eq!(world.bonus_wave_here(), crate::run::BonusWave::Done);
+}

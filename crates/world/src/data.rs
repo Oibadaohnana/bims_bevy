@@ -511,9 +511,9 @@ pub const ELITE_XP_PERCENT: u32 = 200;
 /// budget over this many: its machines come for its conduits and from its
 /// fabricators, never as a wave a share could be worked out over.
 pub const HEART_XP_BODIES: u32 = 20;
-/// The **bonus wave**: called by the crew at a site they have just
-/// cleared, one more wave this much bigger than the site's own, in per
-/// cent, rounded up...
+/// The **bonus wave**: chosen by the crew in the ready check before a
+/// fight, one more wave after the site's own, this much bigger than they
+/// are, in per cent, rounded up...
 pub const BONUS_WAVE_SIZE_PERCENT: u32 = 150;
 /// ...worth this much of the site's experience on top, in per cent, and
 /// its machines' bounty as any.

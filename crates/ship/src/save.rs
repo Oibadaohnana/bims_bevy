@@ -299,7 +299,9 @@ use crate::game::Game;
 /// 113: a site's experience (`Run::{xp_each, clean_xp, clean_spoiled}`),
 /// its bonus wave (`Infestation::bonus`, `Defense::bonus`), *Clean Sweep*
 /// and the *Training Log*.
-pub const SAVE_VERSION: u32 = 113;
+/// 114: the bonus wave chosen before the fight — `Run::bonus`, where it
+/// was `Infestation::bonus` and `Defense::bonus`.
+pub const SAVE_VERSION: u32 = 114;
 
 /// What the file holds, read back.
 #[derive(serde::Deserialize)]

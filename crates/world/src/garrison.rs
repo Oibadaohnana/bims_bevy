@@ -162,8 +162,7 @@ impl World {
             return;
         };
         let laid = self.residents.as_ref().map_or(0, |r| r.manufacturers_laid);
-        // A site cleared lays nothing — but its bonus wave (October 2026).
-        if it.wave == 0 || (it.cleared && !it.bonus.running()) || laid >= it.wave {
+        if it.wave == 0 || it.cleared || laid >= it.wave {
             return;
         }
         let Some(station) = self.station(id).cloned() else {

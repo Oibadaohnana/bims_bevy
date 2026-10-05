@@ -66,10 +66,6 @@ pub struct Defense {
     /// — `None` at a station or a derelict, and in a save from before.
     #[cfg_attr(feature = "serde", serde(default))]
     pub area: Option<Area>,
-    /// The site's bonus wave (October 2026, [`crate::run::BonusWave`]): a
-    /// defence won is on again while it runs, and won still.
-    #[cfg_attr(feature = "serde", serde(default))]
-    pub bonus: crate::run::BonusWave,
 }
 
 /// An **Area defend**: the crew hold a ring of the town's ground, the FOB,
@@ -198,7 +194,6 @@ impl Defense {
             won: false,
             lost: false,
             area: None,
-            bonus: crate::run::BonusWave::None,
         }
     }
 
@@ -222,10 +217,9 @@ impl Defense {
         }
     }
 
-    /// Whether the fight is over, either way — a defence won is not
-    /// while its bonus wave runs.
+    /// Whether the fight is over, either way.
     pub fn over(&self) -> bool {
-        (self.won && !self.bonus.running()) || self.lost
+        self.won || self.lost
     }
 }
 

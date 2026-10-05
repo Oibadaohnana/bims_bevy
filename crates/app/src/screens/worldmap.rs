@@ -955,22 +955,6 @@ pub fn back_to_ship(
                         if press.clicked() {
                             orders.push(Order::ReturnToShip);
                         }
-                        // And the bonus wave, while there is one to call.
-                        if world.can_call_bonus_wave(local).is_ok() {
-                            let call = ui
-                                .add(
-                                    egui::Button::new(
-                                        egui::RichText::new(CALL_BONUS_WAVE)
-                                            .strong()
-                                            .color(theme::CAUTION),
-                                    )
-                                    .min_size(egui::vec2(130.0, 32.0)),
-                                )
-                                .on_hover_text(CALL_BONUS_WAVE_TIP);
-                            if call.clicked() {
-                                orders.push(Order::CallBonusWave);
-                            }
-                        }
                     }
                     theme::question_mark(ui, BACK_TO_SHIP_TIP);
                 });
@@ -1176,6 +1160,34 @@ pub fn ready_window(
                         },
                     ));
                     ui.add_space(10.0);
+                    // The bonus wave (October 2026): chosen here, before
+                    // the fight, by any player; a change takes back every
+                    // *Ready*.
+                    if world.can_choose_bonus_wave(local).is_ok() {
+                        let on = world.bonus_wave_here().chosen();
+                        let (text, ink, fill, rim) = if on {
+                            (
+                                BONUS_WAVE_CHOSEN,
+                                theme::CAUTION,
+                                theme::CAUTION.gamma_multiply(0.18),
+                                theme::CAUTION,
+                            )
+                        } else {
+                            (BONUS_WAVE_NOT_CHOSEN, theme::INK, theme::RAISED, theme::LINE)
+                        };
+                        let press = ui
+                            .add(
+                                egui::Button::new(egui::RichText::new(text).strong().color(ink))
+                                    .fill(fill)
+                                    .stroke(egui::Stroke::new(1.0, rim))
+                                    .min_size(egui::vec2(220.0, 30.0)),
+                            )
+                            .on_hover_text(BONUS_WAVE_TIP);
+                        if press.clicked() {
+                            orders.push(Order::BonusWave(!on));
+                        }
+                        ui.add_space(8.0);
+                    }
                     let (word, yes, fill, ink) = if mine {
                         (READY_NO, false, theme::RAISED, theme::MUTED)
                     } else {

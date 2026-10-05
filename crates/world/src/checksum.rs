@@ -148,7 +148,6 @@ pub fn world_checksum(world: &World) -> u64 {
         hash.eat(u64::from(it.cleared));
         eat_heart(&mut hash, it.heart.as_ref());
         eat_manufacturers(&mut hash, it);
-        eat_bonus(&mut hash, it.bonus);
     }
     hash.eat(u64::from(world.droid_tier().code()));
     hash.eat(world.droid_reinforce_steps());
@@ -279,7 +278,6 @@ pub fn world_checksum(world: &World) -> u64 {
             hash.eat(u64::from(it.cleared));
             eat_heart(&mut hash, it.heart.as_ref());
             eat_manufacturers(&mut hash, it);
-            eat_bonus(&mut hash, it.bonus);
         }
         // And that system's defences and held towns, which are its own
         // since station ids are: only where it has any, so a memory of a
@@ -739,6 +737,10 @@ pub fn world_checksum(world: &World) -> u64 {
         hash.eat(0x_5850_4541);
         hash.eat(u64::from(xp));
     }
+    if run.bonus.chosen() {
+        hash.eat(0x_424F_4E55);
+        hash.eat(u64::from(run.bonus.code()));
+    }
     if !run.clean_xp.is_empty() || run.clean_spoiled {
         hash.eat(0x_434C_4541);
         hash.eat(u64::from(run.clean_spoiled));
@@ -887,15 +889,6 @@ fn eat_defenses(hash: &mut Fnv, defenses: &[crate::defense::Defense]) {
             hash.eat(u64::from(a.taken));
             hash.eat(a.bags.len() as u64);
         }
-        eat_bonus(hash, d.bonus);
-    }
-}
-
-/// A site's bonus wave (October 2026), only where one was called.
-fn eat_bonus(hash: &mut Fnv, bonus: crate::run::BonusWave) {
-    if bonus != crate::run::BonusWave::None {
-        hash.eat(0x_424F_4E55);
-        hash.eat(u64::from(bonus.code()));
     }
 }
 

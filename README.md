@@ -2227,13 +2227,12 @@ level at the Heart; the elites, the bonus waves, *Clean Sweep* and the
 best level among the players gets **a quarter more** of every enemy's,
 to catch up (bought back, or joined late).
 
-**The bonus wave.** At a site just cleared — an attack, or a defence
-that is not an Area defend; never the Heart — any player may press
-**Call bonus wave** (on the fight-won screen, or beside *Back to ship*):
-one more wave, **half as big again** as the site's own, worth **half the
-site's experience again** and its machines' bounty, once a site. The
-deck thaws for it: whoever lies downed is bleeding out again, and *Back
-to ship* wants everybody aboard until it is beaten.
+**The bonus wave.** In the ready check before a fight — an attack, or a
+defence that is not an Area defend; never the Heart — any player may
+switch on **Bonus wave**: one more wave after the site's own, **half as
+big again**, worth **half the site's experience again** and its
+machines' bounty. The site is cleared only with it down. A change takes
+back every *Ready*, so the crew start the fight they all agreed to.
 
 **Twenty levels now (October 2026).** Every class climbs the same table
 — 16 740 experience for the sixteenth, then 21 860, 28 510, 37 160 and

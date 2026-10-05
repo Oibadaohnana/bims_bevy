@@ -466,7 +466,7 @@ pub fn refusal(why: Refusal) -> &'static str {
         Refusal::NoSatchels => "no satchel charge of yours is lying out",
         Refusal::ShieldRecharging => "the shield is broken until its cooldown is over",
         Refusal::NotSellable => "the laser pistol is not for sale",
-        Refusal::NoBonusWave => "there is no bonus wave to call here",
+        Refusal::NoBonusWave => "a bonus wave is chosen in the ready check, at a fight",
     }
 }
 
@@ -1810,11 +1810,13 @@ pub fn event_line(event: WorldEvent) -> Option<String> {
         WorldEvent::TownFell { .. } => TOWN_FELL.into(),
         WorldEvent::AreaTaken { .. } => AREA_TAKEN.into(),
         WorldEvent::AreaTimeUp { .. } => AREA_TIME_UP.into(),
-        WorldEvent::BonusWaveCalled { slot } => format!(
-            "{} calls the bonus wave: one more, half as big again, for half the site's experience again.",
+        WorldEvent::BonusWaveChosen { slot, on: true } => format!(
+            "{} chose the bonus wave: one more at the end, half as big again, for half the site's experience again.",
             player_name(slot)
         ),
-        WorldEvent::BonusWaveCleared { .. } => BONUS_WAVE_CLEARED.into(),
+        WorldEvent::BonusWaveChosen { slot, on: false } => {
+            format!("{} took the bonus wave back.", player_name(slot))
+        }
         WorldEvent::CleanSweep { who: w, xp } => {
             format!("Clean Sweep: {} earns {xp} experience more.", who(w))
         }
@@ -2234,11 +2236,11 @@ pub const LEFT_UNCLEARED: &str = "The ship leaves before the place is cleared: i
 pub const TOWN_FELL: &str = "The site falls to the machines behind you.";
 /// An Area defend's two moments (October 2026).
 pub const AREA_TAKEN: &str = "The machines hold the FOB. It is lost, and the run with it.";
-pub const BONUS_WAVE_CLEARED: &str = "The bonus wave is down. The site is yours again.";
-/// The bonus wave's button (`screens::fightwon`), its tip, and what it
-/// says once called and once fought.
-pub const CALL_BONUS_WAVE: &str = "Call bonus wave";
-pub const CALL_BONUS_WAVE_TIP: &str = "One more wave, half as big again as this site's own, for half the site's experience again and its machines' bounty. Once a site. The deck thaws for it: whoever lies downed is bleeding out again, and Back to ship wants everybody aboard until it is beaten.";
+/// The ready check's bonus-wave toggle (`worldmap::ready_window`), on and
+/// off, and its tip.
+pub const BONUS_WAVE_CHOSEN: &str = "Bonus wave: ON";
+pub const BONUS_WAVE_NOT_CHOSEN: &str = "Bonus wave: off";
+pub const BONUS_WAVE_TIP: &str = "One more wave after this site's own, half as big again, for half the site's experience again and its machines' bounty. Chosen here, before the fight, by any player; a change takes back every Ready.";
 pub const AREA_TIME_UP: &str = "Time! No more waves are coming — destroy the last of them.";
 
 // --- the world map and the end of a mission (feature 103) -------------------

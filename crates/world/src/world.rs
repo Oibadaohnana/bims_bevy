@@ -497,13 +497,15 @@ pub enum Command {
     Return {
         slot: u32,
     },
-    /// Call the site's **bonus wave** (October 2026): at a site cleared
-    /// of the fight it met, one more wave, half as big again as its own,
-    /// for half the site's experience again and its machines' bounty —
-    /// once a site, and the deck thawed for it (`World::call_bonus_wave`).
-    /// Refused `NoBonusWave` where there is none to call.
-    CallBonusWave {
+    /// Choose this mission's **bonus wave** (October 2026), or take it
+    /// back (`on` false), in the ready check before the fight starts: one
+    /// more wave after the site's own, half as big again, for half the
+    /// site's experience again and its machines' bounty
+    /// (`World::choose_bonus_wave`). Every *Ready* is taken back with it.
+    /// Refused `NoBonusWave` where there is none to choose.
+    BonusWave {
         slot: u32,
+        on: bool,
     },
     /// This player's answer to the departure check: leave the ones
     /// outside the ship behind, or not.
@@ -1648,7 +1650,7 @@ impl World {
             | Command::Propose { slot, .. }
             | Command::Accept { slot, .. }
             | Command::Return { slot }
-            | Command::CallBonusWave { slot }
+            | Command::BonusWave { slot, .. }
             | Command::LeaveBehind { slot, .. }
             | Command::PlayerGone { slot }
             | Command::Ready { slot, .. }
@@ -1699,6 +1701,7 @@ impl World {
                 command,
                 Command::SetSpeed { .. }
                     | Command::Ready { .. }
+                    | Command::BonusWave { .. }
                     | Command::PlayerGone { .. }
                     | Command::Crew { .. }
                     | Command::CrewLater { .. }
@@ -1721,7 +1724,6 @@ impl World {
                 command,
                 Command::SetSpeed { .. }
                     | Command::Return { .. }
-                    | Command::CallBonusWave { .. }
                     | Command::LeaveBehind { .. }
                     | Command::PlayerGone { .. }
                     | Command::Ready { .. }
@@ -1746,8 +1748,8 @@ impl World {
             }
             Command::Accept { yes, .. } => self.accept_proposal(slot, yes, events),
             Command::Return { .. } => self.press_return(slot, events),
-            Command::CallBonusWave { .. } => match self.call_bonus_wave(slot) {
-                Ok(()) => events.push(WorldEvent::BonusWaveCalled { slot }),
+            Command::BonusWave { on, .. } => match self.choose_bonus_wave(slot, on) {
+                Ok(()) => events.push(WorldEvent::BonusWaveChosen { slot, on }),
                 Err(why) => events.push(refused(slot, why)),
             },
             Command::LeaveBehind { yes, .. } => self.answer_departure(slot, yes, events),
@@ -4616,8 +4618,10 @@ impl World {
                 | Command::Return { .. }
                 | Command::LeaveBehind { .. }
                 | Command::PlayerGone { .. }
-                // And *Ready*: a held mission takes no step to start.
+                // And *Ready*: a held mission takes no step to start —
+                // nor the bonus wave chosen beside it (October 2026).
                 | Command::Ready { .. }
+                | Command::BonusWave { .. }
                 | Command::ProposeRelic { .. }
                 | Command::AcceptRelic { .. }
                 // And the loadouts' (task 113): changed on the map and the
@@ -6396,7 +6400,8 @@ impl World {
         // The count is fixed at the crew's **first dock** and never
         // worked out again.
         if self.aboard.is_joined() && self.infestation(id).is_some_and(|it| !it.settled) {
-            let waves = self.wave_count_here(id);
+            // And the bonus wave, when the crew chose one (October 2026).
+            let waves = self.wave_count_here(id) + self.bonus_waves_to_come();
             if let Some(it) = self.infestation_mut(id) {
                 it.settle(waves);
             }
@@ -6411,8 +6416,8 @@ impl World {
         let now = self.run.mission_steps;
         let reinforce = self.reinforce_steps_here(id);
         let mut arrive = false;
+        let mut last = false;
         let mut cleared = false;
-        let mut bonus_cleared = false;
         if let Some(it) = self.infestation_mut(id) {
             if it.wave == 0 {
                 return;
@@ -6430,6 +6435,7 @@ impl World {
                         it.wave += 1;
                         it.next_wave = None;
                         arrive = true;
+                        last = it.waves_left == 0;
                     }
                     Some(_) => {}
                 }
@@ -6439,14 +6445,13 @@ impl World {
                 // last wave spent there leaves the core to be fought.
                 it.cleared = true;
                 cleared = true;
-            } else if it.bonus == run::BonusWave::Landed {
-                // The bonus wave's last down (October 2026): the site was
-                // cleared already, and nothing of that is said again.
-                it.bonus = run::BonusWave::Done;
-                bonus_cleared = true;
             }
         }
         if arrive {
+            // The last wave is the bonus wave, when the crew chose one.
+            if last {
+                self.land_the_bonus_wave();
+            }
             // The room's old wrecks go with the wave that made them:
             // a fresh wave is a fresh deck — all but the Machine Heart's
             // own, which stay where they stand, shot down or not, at the
@@ -6468,18 +6473,11 @@ impl World {
                 residents.defender.truncate(bims);
             }
             self.settle_droids();
-            if let Some(it) = self.infestation_mut(id)
-                && it.bonus == run::BonusWave::Called
-            {
-                it.bonus = run::BonusWave::Landed;
-            }
             events.push(WorldEvent::DroidReinforcements { station: id });
         }
         if cleared {
+            self.bonus_wave_fought();
             events.push(WorldEvent::DroidStationCleared { station: id });
-        }
-        if bonus_cleared {
-            self.bonus_wave_cleared(id, events);
         }
     }
 
@@ -7045,7 +7043,8 @@ impl World {
         }
         // The count is worked out once, at that same first landing.
         if self.defense(id).is_some_and(|d| !d.settled) {
-            let waves = self.droid_wave_count();
+            // And the bonus wave, when the crew chose one (October 2026).
+            let waves = self.droid_wave_count() + self.bonus_waves_to_come();
             if let Some(d) = self.defense_mut(id) {
                 d.settle(waves);
             }
@@ -7131,8 +7130,8 @@ impl World {
             }
         }
         let mut arrive = false;
+        let mut last = false;
         let mut won = false;
-        let mut bonus_cleared = false;
         // **Not won until every wreck is counted** (task 111): `visit`
         // counts a machine down — its bounty, its experience — only while
         // the defence is running, and a win declared the step the last one
@@ -7166,20 +7165,20 @@ impl World {
                         d.wave += 1;
                         d.next_in = (area && d.more_to_come()).then(|| defense::area_gap(d.wave));
                         arrive = true;
+                        last = !area && d.waves_left == 0;
                     }
                     Some(left) => d.next_in = Some(left - 1),
                 }
             } else if !d.won && counted {
                 d.won = true;
                 won = true;
-            } else if d.bonus == run::BonusWave::Landed && counted {
-                // The bonus wave's last down (October 2026): the site was
-                // won already, and nothing of that is said again.
-                d.bonus = run::BonusWave::Done;
-                bonus_cleared = true;
             }
         }
         if arrive {
+            // The last wave is the bonus wave, when the crew chose one.
+            if last {
+                self.land_the_bonus_wave();
+            }
             // A wave stacked on one still standing (an Area defend) leaves
             // the wrecks for a clear deck: taking them off moves every
             // machine after them.
@@ -7194,16 +7193,11 @@ impl World {
             }
             if let Some(d) = self.defense_mut(id) {
                 d.standing = standing + n;
-                if d.bonus == run::BonusWave::Called {
-                    d.bonus = run::BonusWave::Landed;
-                }
             }
             events.push(WorldEvent::DroidReinforcements { station: id });
         }
-        if bonus_cleared {
-            self.bonus_wave_cleared(id, events);
-        }
         if won {
+            self.bonus_wave_fought();
             events.push(WorldEvent::TownHeld { station: id });
             // **A town held is held for good** (feature 94): friendly
             // whatever the crisis does, and some of its people join. A

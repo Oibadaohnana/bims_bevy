@@ -795,6 +795,7 @@ impl World {
         self.run.xp_each = None;
         self.run.clean_xp.clear();
         self.run.clean_spoiled = false;
+        self.run.bonus = run::BonusWave::None;
         self.run.pending_bounty = 0;
         self.run.proposal = None;
         self.run.returning = vec![false; players as usize];
@@ -1526,9 +1527,7 @@ impl World {
     /// every crew member alive home from wherever it lies, without a walk
     /// ([`World::comes_home`]).
     /// Tied up at the site, and not `mission_cleared`'s "nowhere counts
-    /// as clear": a probe that undocks mid-fight is not a fight won. Nor
-    /// while the site's bonus wave is on (October 2026): the deck thaws
-    /// for it, and freezes again once it is down.
+    /// as clear": a probe that undocks mid-fight is not a fight won.
     pub fn fight_over(&self) -> bool {
         self.run.phase == RunPhase::Mission
             && self.run.fought
@@ -1536,7 +1535,7 @@ impl World {
                 .ship
                 .state
                 .alongside()
-                .is_some_and(|id| self.site_cleared(id) && !self.bonus_wave_at(id).running())
+                .is_some_and(|id| self.site_cleared(id))
     }
 
     /// Whether a player it waits for counts as home for the departure:
