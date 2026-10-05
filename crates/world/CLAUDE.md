@@ -7823,7 +7823,11 @@ and the pistol, item and soldier tests are the rule.
   (`surface::surface_body`), and not under the tests' dial
   `set_area_defense_off_for_probe` (`World::area_defense_off`, saved, not
   hashed; `tests_defense.rs`' `basic()` sets it, so the old town tests
-  test the old fight). The map knows it as `FloorMark::area` and
+  test the old fight) — **on the floor only on a tier-two or tier-three
+  row** (`is_area_defense_at(star, station)`, off `floor_tier_of`; a
+  tier-one town's defence is the old one, neither Area nor elite;
+  `tests_area::on_the_floor_an_area_defend_is_never_on_a_tier_one_row`).
+  The map knows it as `FloorMark::area` and
   `StarMission::area` (a `SiteKind::Defend` still — no new kind, so
   every rule that asks `Defend` is untouched).
 - **The FOB** is `Defense::area: Option<defense::Area>` (saved, hashed

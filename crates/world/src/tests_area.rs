@@ -514,11 +514,11 @@ fn the_ring_heals_whoever_of_the_crew_s_side_stands_in_it() {
 }
 
 /// On the floor a town's defence is an Area defend — an elite's fight —
-/// only on a tier-two row; on the tier-one and tier-three rows it is the
-/// old fight, and the map marks it neither Area nor elite. Off the floor
+/// only on a row of tier two or three; on the tier-one rows it is the old
+/// fight, and the map marks it neither Area nor elite. Off the floor
 /// every town's is one.
 #[test]
-fn on_the_floor_an_area_defend_is_only_on_a_tier_two_row() {
+fn on_the_floor_an_area_defend_is_never_on_a_tier_one_row() {
     use bims::combat::Tier;
     let seed = data::DEFAULT_SEED;
     let galaxy_type = worldgen::GalaxyType::SpiralTwoArm;
@@ -548,23 +548,26 @@ fn on_the_floor_an_area_defend_is_only_on_a_tier_two_row() {
     };
     world.set_floor(true);
     let on_floor = towns(&world);
-    let (mut two, mut other) = (0, 0);
+    let (mut one, mut higher) = (0, 0);
     for &(star, station, tier) in &on_floor {
         assert_eq!(
             world.is_area_defense_at(star, station),
-            tier == Tier::Two,
+            tier != Tier::One,
             "the town at star {star} on a tier {tier:?} row"
         );
-        if tier == Tier::Two {
-            two += 1;
+        if tier == Tier::One {
+            one += 1;
         } else {
-            other += 1;
+            higher += 1;
         }
     }
-    assert!(two > 0 && other > 0, "{two} towns at tier two, {other} not");
+    assert!(
+        one > 0 && higher > 0,
+        "{one} towns at tier one, {higher} higher"
+    );
     for mark in world.floor_marks() {
         if mark.area {
-            assert_eq!(mark.tier, Tier::Two, "an Area defend marked off tier two");
+            assert_ne!(mark.tier, Tier::One, "an Area defend marked at tier one");
             assert!(mark.elite, "an Area defend is marked elite");
         }
     }
