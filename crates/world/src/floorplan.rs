@@ -189,7 +189,7 @@ impl World {
     }
 
     /// The row a star's place is on, nearest today's where it is on two.
-    fn floor_row_of(&self, star: u32) -> Option<u32> {
+    pub(super) fn floor_row_of(&self, star: u32) -> Option<u32> {
         let floor = self.floor()?;
         let today = self.run_day();
         floor

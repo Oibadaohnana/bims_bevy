@@ -85,18 +85,13 @@ fn about_one_system_in_ten_holds_an_elite_and_never_the_manufacturers() {
     }
 }
 
-/// **Half the elites on the floor's tier-one rows** (October 2026, the
-/// player's: "decrease elite spawns in tier I by 50%"): an elite the
-/// galaxy rolls on a tier-one row stays one only where its second roll
-/// keeps it, about half of them; on the tier-two and tier-three rows every
-/// one stays, and off the floor every one.
+/// **No elite on the floor's first five fights** (October 2026, the
+/// player's: "they shouldn't spawn the first 5 fights"): an elite the
+/// galaxy rolls on rows one to [`data::FLOOR_NO_ELITE_ROWS`] is a plain
+/// fight; above them every one stays, tier one included, and off the
+/// floor every one.
 #[test]
-fn the_floor_s_tier_one_rows_keep_half_their_elites() {
-    let kept = (0..2000u32)
-        .filter(|&star| crate::elite::kept_at_tier_one(data::DEFAULT_SEED, star))
-        .count();
-    assert!((900..=1100).contains(&kept), "{kept} of 2000 kept");
-
+fn the_floor_s_first_five_fights_hold_no_elite() {
     let mut world = open_crewed_world(combat_ship(), REFERENCE_MONEY, 1, COMBAT_CREW);
     let stars = world.galaxy().stars.len() as u32;
     // The fixture keeps whole systems: the machines' origin may roll one.
@@ -105,32 +100,48 @@ fn the_floor_s_tier_one_rows_keep_half_their_elites() {
     let off_floor: Vec<u32> = (0..stars).filter(|&s| rolled(&world, s)).collect();
     assert_eq!(world.elite_stars(stars), off_floor, "off the floor, all");
 
-    world.set_floor(true);
-    let rows: Vec<(u32, Tier)> = {
-        let floor = world.floor().unwrap();
-        let mut rows = Vec::new();
-        for (row, nodes) in floor.rows.iter().enumerate() {
-            for node in nodes {
-                rows.push((node.star, world.floor_tier(row as u32)));
+    // The default seed's first rows roll none, so a few more galaxies
+    // under the same crew until an early one does.
+    let (mut early, mut later) = (0, 0);
+    for seed in data::DEFAULT_SEED..data::DEFAULT_SEED + 16 {
+        world.galaxy_seed = seed;
+        world.set_floor(true);
+        let rows: Vec<(u32, u32)> = {
+            let floor = world.floor().unwrap();
+            let mut rows = Vec::new();
+            for (row, nodes) in floor.rows.iter().enumerate() {
+                for node in nodes {
+                    rows.push((node.star, row as u32));
+                }
+            }
+            rows
+        };
+        for &(star, row) in &rows {
+            // A star on two rows is asked of the one nearest today.
+            if rows.iter().any(|&(s, r)| s == star && r != row) {
+                continue;
+            }
+            if !rolled(&world, star) {
+                assert!(!world.holds_elite(star), "star {star}: never rolled");
+                continue;
+            }
+            let keep = row > data::FLOOR_NO_ELITE_ROWS;
+            assert_eq!(
+                world.holds_elite(star),
+                keep,
+                "seed {seed}: star {star} on row {row}"
+            );
+            if keep {
+                later += 1;
+            } else {
+                early += 1;
             }
         }
-        rows
-    };
-    let (mut one, mut higher) = (0, 0);
-    for &(star, tier) in &rows {
-        if !rolled(&world, star) {
-            assert!(!world.holds_elite(star), "star {star}: never rolled");
-            continue;
-        }
-        let keep = tier != Tier::One || crate::elite::kept_at_tier_one(world.galaxy_seed, star);
-        assert_eq!(world.holds_elite(star), keep, "star {star} at {tier:?}");
-        if tier == Tier::One {
-            one += 1;
-        } else {
-            higher += 1;
+        if early > 0 && later > 0 {
+            return;
         }
     }
-    assert!(one > 0 && higher > 0, "{one} tier-one, {higher} higher");
+    panic!("{early} early, {later} later");
 }
 
 #[test]

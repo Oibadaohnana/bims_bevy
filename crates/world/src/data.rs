@@ -654,12 +654,11 @@ pub const TRADER_SYSTEM_CHANCE: u32 = 10;
 /// first day, at least [`ELITE_WAVES`] waves, Guardians in the second —
 /// and the only fights that drop relics. Never the crew's own system.
 pub const ELITE_SYSTEM_CHANCE: u32 = 10;
-/// Of the elites [`ELITE_SYSTEM_CHANCE`] rolls, the share kept on the
-/// floor's tier-one rows, in per cent (October 2026, the player's:
-/// "decrease elite spawns in tier I by 50%"): a second roll off the
-/// galaxy's seed and the star (`crate::elite::kept_at_tier_one`), the rest
-/// plain fights. Tier two and three keep every one.
-pub const ELITE_TIER_ONE_KEEP_PERCENT: u32 = 50;
+/// How many of the floor's first rows of fights hold no elite (October
+/// 2026, the player's: "they shouldn't spawn the first 5 fights"): an
+/// elite rolled on rows one to this is a plain fight. The rows above keep
+/// every one, tier one included; off the floor nothing changes.
+pub const FLOOR_NO_ELITE_ROWS: u32 = 5;
 /// The fewest waves an elite's machines come in.
 pub const ELITE_WAVES: u32 = 2;
 /// The wave an elite's Guardians come in (the first is wave one).

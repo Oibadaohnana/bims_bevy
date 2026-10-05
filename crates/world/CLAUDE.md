@@ -6083,7 +6083,12 @@ part of what a system offers).
   the system offers (`World::elite_station`: the primary of task 135).
   Stateless, never saved; `World::holds_elite`, `is_elite`,
   `is_elite_here`, `elite_stars` (the chart's), `nearest_elite_site`.
-  None under the tests' quiet dial.
+  None under the tests' quiet dial. **None on the floor's first five
+  fights** (October 2026): `holds_elite` drops one whose star's floor
+  row (`floor_row_of`) is one to `data::FLOOR_NO_ELITE_ROWS`; the rolls
+  that shape a system (`elite::holds`) never see it, so it is a plain
+  fight where it was. Every tier keeps the rest — the "half on tier one"
+  of ede4e29 is gone, the Area defends having left tier one.
 - **Always an attack**: `settle_elite` (in `settle_jammer`, after the
   Manufacturers, before the outposts) lays it as the machines' through
   `infest` from the first day. Never the Manufacturers' (`manufacturer::
