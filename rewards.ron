@@ -17,7 +17,7 @@
 //                           pool: each enemy down pays its wave's share of
 //                           it, once (a Husk or a pistol a tenth less, a
 //                           Warden or a Guardian a tenth more; an elite's
-//                           site twice; the bonus wave half again)
+//                           site half again; the bonus wave a quarter again)
 //   site_money_growth_percent  how much more a site pays every day after,
 //                           in per cent, compounded
 //   defense_bounty_percent  how much of that a defence pays (100 = the same
@@ -40,7 +40,7 @@
     site_money: 850,
     site_money_growth_percent: 17,
     defense_bounty_percent: 100,
-    bot_bounty_percent: 50,
+    bot_bounty_percent: 100,
     player_bounty_percent: 110,
     bounty_waits_for_clear: true,
     buyback: 5000,

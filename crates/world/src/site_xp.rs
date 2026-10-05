@@ -57,9 +57,10 @@ impl World {
     /// them pays in experience (`Run::xp_each`) and in money
     /// (`Run::money_each`) — each budget over the site's own waves (a
     /// bonus wave to come not counted), or for the bonus wave
-    /// [`data::BONUS_WAVE_XP_PERCENT`] of it, over the bodies, rounded,
-    /// one at the least. The experience's budget is the elite's twice
-    /// already; the money's is doubled at an elite where it is paid
+    /// [`data::BONUS_WAVE_XP_PERCENT`] of the experience's and
+    /// [`data::BONUS_WAVE_MONEY_PERCENT`] of the money's, over the
+    /// bodies, rounded, one at the least. The experience's budget is the
+    /// elite's twice already; the money's is lifted at an elite where it is paid
     /// (`World::bounty_here`). Asked again when a room built afresh lays
     /// the wave again, and answered the same.
     pub(crate) fn price_the_wave(&mut self, id: u32, bodies: u32) {
@@ -75,16 +76,17 @@ impl World {
                 .max(1),
         );
         let bodies = u64::from(bodies);
-        let each = |budget: u64| {
+        let each = |budget: u64, bonus_percent: u32| {
             let share = if bonus {
-                budget * u64::from(data::BONUS_WAVE_XP_PERCENT) / 100
+                budget * u64::from(bonus_percent) / 100
             } else {
                 budget / waves
             };
             ((share + bodies / 2) / bodies).max(1)
         };
-        self.run.xp_each = Some(each(xp).min(u64::from(u32::MAX)) as u32);
-        self.run.money_each = Some(each(money));
+        self.run.xp_each =
+            Some(each(xp, data::BONUS_WAVE_XP_PERCENT).min(u64::from(u32::MAX)) as u32);
+        self.run.money_each = Some(each(money, data::BONUS_WAVE_MONEY_PERCENT));
     }
 
     /// What a site pays on run day `day`, a player: the rewards' dials

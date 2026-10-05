@@ -187,6 +187,12 @@ fn the_bonus_wave_is_chosen_before_the_fight_and_comes_last() {
     let each = world.xp_per_down();
     let half = budget * data::BONUS_WAVE_XP_PERCENT / 100;
     assert_eq!(each, (half + big / 2) / big);
+    // And a quarter of the site's money again (October 2026).
+    let quarter = world.site_money_here() * u64::from(data::BONUS_WAVE_MONEY_PERCENT) / 100;
+    assert_eq!(
+        world.money_per_down(),
+        (quarter + u64::from(big) / 2) / u64::from(big)
+    );
     let before = xp(&world, 0);
     let pending = world.run.pending_bounty;
     wreck_them_one_by_one(&mut world, 1);

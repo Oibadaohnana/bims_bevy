@@ -264,7 +264,6 @@ pub const RELICS: [RelicDef; 13] = [
         &[
             m(W::Bots, S::Damage, data::DRILL_SERGEANT_BOT_DAMAGE),
             m(W::Bots, S::DamageTaken, -data::DRILL_SERGEANT_BOT_TAKEN),
-            m(W::Bots, S::BotBounty, data::DRILL_SERGEANT_BOT_BOUNTY),
             m(W::Players, S::Damage, -data::DRILL_SERGEANT_PLAYER_DAMAGE),
         ],
     ),
@@ -535,8 +534,7 @@ mod tests {
         );
         assert_eq!(percent(&held, Stat::FireRate, false), 0);
         assert_eq!(bot_bounty(&[], 5), 5);
-        assert_eq!(bot_bounty(&held, 5), data::DRILL_SERGEANT_BOT_BOUNTY as u32);
-        assert_eq!(bot_bounty(&held, 120), 120, "a floor, never a cut");
+        assert_eq!(bot_bounty(&held, 5), 5, "no relic lifts a bot's kill now");
         assert_eq!(
             crew_percent(&[Relic::BountyContract, Relic::SalvageBurn], Stat::Bounty),
             data::BOUNTY_CONTRACT_BOUNTY - data::SALVAGE_BURN_BOUNTY

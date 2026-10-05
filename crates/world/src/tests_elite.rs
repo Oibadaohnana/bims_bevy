@@ -202,8 +202,9 @@ fn a_fight_that_is_no_elite_drops_no_relic() {
     assert!(world.relic_choice().is_none(), "no relic offered");
 }
 
-/// **An elite pays twice the money an enemy down** (October 2026, the
-/// player's word, beside its experience): the bounty at an elite is
+/// **An elite pays more money an enemy down** (October 2026, the
+/// player's word, beside its experience; twice, then half as much again
+/// once the money was a site's budget): the bounty at an elite is
 /// [`data::ELITE_BOUNTY_PERCENT`] of the same site's as a plain attack.
 #[test]
 fn an_elite_pays_its_bounty_twice_over() {

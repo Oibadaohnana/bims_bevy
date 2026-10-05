@@ -418,16 +418,17 @@ fn the_bounty_is_paid_only_on_clear_and_only_once() {
     assert_eq!(world.money, money + paid, "and never again");
 }
 
-/// **A bot's kill pays half its share and a player's a tenth more** (the
+/// **A bot's kill pays its whole share and a player's a tenth more** (the
 /// player's, October 2026: "If a bot kills an enemy -> 5% money, if Player
-/// kills +10%", then "make bot kills pay 50% share. Reinforcments and
-/// medivac from the commander should pay the full share"): a machine
-/// whose last hit was a bot's is owed `Rewards::bot_bounty_percent` of
-/// its share, one a player `player_bounty_percent`, and one a commander's
-/// reinforcement or his medic downed, or no crew member hit last, the
-/// whole. The experience is everybody's alike.
+/// kills +10%", then half, then "bot kills should count the full amount";
+/// "Reinforcments and medivac from the commander should pay the full
+/// share"): a machine whose last hit was a player's is owed
+/// `Rewards::player_bounty_percent` of its share, and one a bot's, a
+/// commander's reinforcement's or his medic's, or no crew member's, the
+/// whole (`Rewards::bot_bounty_percent` is a hundred). The experience is
+/// everybody's alike.
 #[test]
-fn a_bot_s_kill_pays_half_and_a_player_s_a_tenth_more() {
+fn a_bot_s_kill_pays_its_share_and_a_player_s_a_tenth_more() {
     use crate::commander::Reinforcement;
     let (mut world, _) = held_arena();
     world.set_droid_waves_for_probe(2);
@@ -457,8 +458,7 @@ fn a_bot_s_kill_pays_half_and_a_player_s_a_tenth_more() {
         let whole = crate::world::bounty_share(each, crate::world::droid_bounty_percent(kind));
         owed += match by {
             Some(0) => whole * 110 / 100,
-            Some(1) => whole * 50 / 100,
-            _ => whole,
+            _ => whole * u64::from(data::BOT_BOUNTY_PERCENT).min(100) / 100,
         };
         residents
             .aboard
@@ -468,42 +468,8 @@ fn a_bot_s_kill_pays_half_and_a_player_s_a_tenth_more() {
     world.step(&[]);
     assert_eq!(
         world.run.pending_bounty, owed,
-        "the bot's half, the player's a tenth more, the commander's own the whole"
+        "the player's a tenth more, everybody else's the whole"
     );
-}
-
-/// **With *Drill Sergeant* a bot's kill pays half** (the player's, October
-/// 2026: "drill seargant should also give 50% of normal gold for a kill
-/// that a bot does"; the whole share since the bots' own became half):
-/// the bot's share lifted to `data::DRILL_SERGEANT_BOT_BOUNTY`, a
-/// player's untouched.
-#[test]
-fn with_drill_sergeant_a_bot_s_kill_pays_the_whole_share() {
-    let (mut world, _) = held_arena();
-    world.give_relic_for_probe(crate::Relic::DrillSergeant);
-    world.set_droid_waves_for_probe(2);
-    world.set_droid_wave_for_probe(2);
-    open_the_room(&mut world);
-    assert_eq!(world.players(), 1);
-    let each = world.money_per_down();
-    let residents = world.residents.as_mut().unwrap();
-    let bims = residents.aboard.room.crew_count() as usize;
-    let mut owed: economy::Money = 0;
-    for (i, by) in [Some(1), Some(0)].into_iter().enumerate() {
-        residents.last_hit_by[bims + i] = by;
-        let kind = residents.aboard.room.droid(i).unwrap().kind;
-        let whole = crate::world::bounty_share(each, crate::world::droid_bounty_percent(kind));
-        owed += match by {
-            Some(1) => whole * data::DRILL_SERGEANT_BOT_BOUNTY as economy::Money / 100,
-            _ => whole * 110 / 100,
-        };
-        residents
-            .aboard
-            .room
-            .strike_droid(i, DroidPart::Chassis, 1e6);
-    }
-    world.step(&[]);
-    assert_eq!(world.run.pending_bounty, owed, "the bot's half");
 }
 
 /// **A site left uncleared is put back as the mission met it.** The

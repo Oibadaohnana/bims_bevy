@@ -8177,3 +8177,15 @@ share, no longer the player's 110%. *Drill Sergeant*'s
 `DRILL_SERGEANT_BOT_BOUNTY` 50 → 100, so its line still lifts something.
 `tests_mission::a_bot_s_kill_pays_half_and_a_player_s_a_tenth_more`,
 `with_drill_sergeant_a_bot_s_kill_pays_the_whole_share`.
+
+**A bot's kill pays its whole share, and the top end is lower** (October
+2026, the player's: "bot kills should count the full amount but balance
+it around the earlier numbers. with 4 elites 1.04M is to much"):
+`BOT_BOUNTY_PERCENT` 50 → 100; *Drill Sergeant*'s bot-bounty line is gone
+(`DRILL_SERGEANT_BOT_BOUNTY`; `Stat::BotBounty` and `relic::bot_bounty`
+stay, lifting nothing); `ELITE_BOUNTY_PERCENT` 200 → 150; the bonus wave's
+money is `BONUS_WAVE_MONEY_PERCENT` (25) of the site's, its experience
+still `BONUS_WAVE_XP_PERCENT` (50). Modelled solo at the Heart: safe
+€553k, two elites and every other bonus wave €645k, three elites and
+every bonus wave €744k, four elites and every bonus wave €777k (it was
+€1.04M), four late elites alone €673k.

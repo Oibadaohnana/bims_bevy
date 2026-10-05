@@ -465,8 +465,9 @@ pub const DEFENSE_BOUNTY_PERCENT: u32 = 100;
 /// took it down, in per cent (the player's, October 2026: "if a bot kills
 /// an enemy you should only be rewarded 50% of the gold", then 20%, then
 /// "If a bot kills an enemy -> 5% money, if Player kills +10%", then,
-/// once the money was a site's budget, "make bot kills pay 50% share" —
-/// the experience is untouched). A bot is a crew member past the players
+/// once the money was a site's budget, "make bot kills pay 50% share",
+/// then "bot kills should count the full amount" — the experience is
+/// untouched). A bot is a crew member past the players
 /// — a bot, a field medic, a townsperson who joined — and not one of a
 /// commander's reinforcements or his Medivac's medic, which pay the
 /// whole share (the player's: "Reinforcments and medivac from the
@@ -474,7 +475,7 @@ pub const DEFENSE_BOUNTY_PERCENT: u32 = 100;
 /// own kill until then). A sentry's kill and an enemy no crew member hit
 /// last pay the whole. Tuned in the app's `rewards.ron`
 /// (`crate::rewards`).
-pub const BOT_BOUNTY_PERCENT: u32 = 50;
+pub const BOT_BOUNTY_PERCENT: u32 = 100;
 /// How much of an enemy's bounty is paid when a player's own Bim took it
 /// down, in per cent: ten more.
 pub const PLAYER_BOUNTY_PERCENT: u32 = 110;
@@ -482,8 +483,11 @@ pub const PLAYER_BOUNTY_PERCENT: u32 = 110;
 /// anywhere else (October 2026, the player's: "if you fight an elite get
 /// more money", beside the elite's experience): the system's elite or an
 /// Area defend (`World::is_elite_fight`), on top of the relics', the
-/// defence's and who took it down's shares (`World::bounty_here`).
-pub const ELITE_BOUNTY_PERCENT: u32 = 200;
+/// defence's and who took it down's shares (`World::bounty_here`). Half
+/// as much again since the money became a site's budget (October 2026;
+/// twice until then): with four elites and a bonus wave at every fight
+/// a lone player came to €1.04M at the Heart, the player's "too much".
+pub const ELITE_BOUNTY_PERCENT: u32 = 150;
 
 /// How far an enemy's bounty strays from its tier's own, in per cent, by
 /// how strong it is: the weaker of a tier this much less, the stronger
@@ -520,9 +524,11 @@ pub const HEART_XP_BODIES: u32 = 20;
 /// fight, one more wave after the site's own, this much bigger than they
 /// are, in per cent, rounded up...
 pub const BONUS_WAVE_SIZE_PERCENT: u32 = 150;
-/// ...worth this much of the site's experience on top, in per cent, and
-/// its machines' bounty as any.
+/// ...worth this much of the site's experience on top, in per cent...
 pub const BONUS_WAVE_XP_PERCENT: u32 = 50;
+/// ...and this much of its money (October 2026: half, as the
+/// experience, until a bonus wave at every fight came to too much).
+pub const BONUS_WAVE_MONEY_PERCENT: u32 = 25;
 /// A player below the best level among the players gets this much more
 /// of every enemy's experience, in per cent: a player dead and bought
 /// back, or joined late, catches up.
@@ -568,13 +574,11 @@ pub const BOUNTY_CONTRACT_DAMAGE: i32 = 20;
 /// wave has more machines (rounded up).
 pub const HUNTERS_PACT_EXPERIENCE: i32 = 50;
 pub const HUNTERS_PACT_WAVES: i32 = 25;
-/// *Drill Sergeant*: the bots do more and take less, a bot's kill pays
-/// the whole share (over `rewards.ron`'s `bot_bounty_percent`; half,
-/// the player's word, until the bots' own share became half in October
-/// 2026), the players do less.
+/// *Drill Sergeant*: the bots do more and take less, the players do
+/// less. (It lifted a bot's kill's pay too, to half and then the whole,
+/// until every bot's kill paid the whole share, October 2026.)
 pub const DRILL_SERGEANT_BOT_DAMAGE: i32 = 50;
 pub const DRILL_SERGEANT_BOT_TAKEN: i32 = 30;
-pub const DRILL_SERGEANT_BOT_BOUNTY: i32 = 100;
 pub const DRILL_SERGEANT_PLAYER_DAMAGE: i32 = 20;
 /// *Lone Wolves*: the players do more and walk faster, the bots do less.
 pub const LONE_WOLVES_PLAYER_DAMAGE: i32 = 35;
