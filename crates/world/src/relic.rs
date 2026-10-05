@@ -54,11 +54,17 @@ pub enum Relic {
     SalvageBurn = 10,
     NaniteMesh = 11,
     CleanSweep = 12,
+    PointBlank = 13,
+    MarksmansCreed = 14,
+    ForkedPath = 15,
+    WarChest = 16,
+    Overtime = 17,
+    GiantSlayer = 18,
 }
 
 impl Relic {
     /// Every relic, in list order.
-    pub const ALL: [Relic; 13] = [
+    pub const ALL: [Relic; 19] = [
         Relic::GlassCannon,
         Relic::HeavyPlating,
         Relic::HairTrigger,
@@ -72,6 +78,12 @@ impl Relic {
         Relic::SalvageBurn,
         Relic::NaniteMesh,
         Relic::CleanSweep,
+        Relic::PointBlank,
+        Relic::MarksmansCreed,
+        Relic::ForkedPath,
+        Relic::WarChest,
+        Relic::Overtime,
+        Relic::GiantSlayer,
     ];
 
     pub fn code(self) -> u32 {
@@ -135,6 +147,35 @@ pub enum Stat {
     /// a share moved but a floor — the most any relic held says, over
     /// `Rewards::bot_bounty_percent` when it is more ([`bot_bounty`]).
     BotBounty,
+    /// What a Bim's bolt does near where it was fired, in per cent: whole
+    /// within `bims::balance::NEAR_TILES`, nothing past `FAR_TILES`, a
+    /// blend between (October 2026, *Point Blank*, *Marksman's Creed*).
+    /// A blow in a melee is not moved.
+    NearDamage,
+    /// The same far: nothing within `NEAR_TILES`, whole past `FAR_TILES`.
+    FarDamage,
+    /// Any place of the floor's row above may be the next trip, not only
+    /// those the crew's place leads to — a switch, on above nought
+    /// (October 2026, *Forked Path*, `World::floor_next`).
+    FreeRoute,
+    /// What a site cleared pays every player of the money in its own
+    /// wallet, in per cent, capped at [`data::WAR_CHEST_CAP_PERCENT`] of a
+    /// site's pay that day (October 2026, *War Chest*,
+    /// `World::pay_the_war_chest`).
+    Interest,
+    /// What the bonus wave pays more, its experience and its money, in per
+    /// cent (October 2026, *Overtime*, `World::price_the_wave`).
+    BonusWavePay,
+    /// Every site that can have a bonus wave has it, and it is not to be
+    /// taken back — a switch, on above nought; more is worse (October
+    /// 2026, *Overtime*, `World::bonus_wave_forced`).
+    ForcedBonusWave,
+    /// What the crew's hits do to a big enemy ([`is_big`]), in per cent
+    /// (October 2026, *Giant Slayer*, `World::land_on_enemies`).
+    BigDamage,
+    /// What they do to every other enemy — the rest of the machines and
+    /// the Manufacturers' people — in per cent.
+    SmallDamage,
 }
 
 impl Stat {
@@ -148,6 +189,7 @@ impl Stat {
                 | Stat::WaveSize
                 | Stat::TraderPrices
                 | Stat::EnemyHealth
+                | Stat::ForcedBonusWave
         )
     }
 }
@@ -212,7 +254,7 @@ use Who as W;
 
 /// Every relic there is, in [`Relic::ALL`]'s order: its boons first, then
 /// its price.
-pub const RELICS: [RelicDef; 13] = [
+pub const RELICS: [RelicDef; 19] = [
     row(
         Relic::GlassCannon,
         &[
@@ -314,7 +356,69 @@ pub const RELICS: [RelicDef; 13] = [
             m(W::Everyone, S::DamageTaken, data::CLEAN_SWEEP_TAKEN),
         ],
     ),
+    row(
+        Relic::PointBlank,
+        &[
+            m(W::Everyone, S::NearDamage, data::POINT_BLANK_NEAR),
+            m(W::Everyone, S::FarDamage, -data::POINT_BLANK_FAR),
+        ],
+    ),
+    row(
+        Relic::MarksmansCreed,
+        &[
+            m(W::Everyone, S::FarDamage, data::MARKSMANS_CREED_FAR),
+            m(W::Everyone, S::NearDamage, -data::MARKSMANS_CREED_NEAR),
+        ],
+    ),
+    row(
+        Relic::ForkedPath,
+        &[
+            m(W::Everyone, S::FreeRoute, 1),
+            m(W::Everyone, S::EnemyHealth, data::FORKED_PATH_ENEMY_HEALTH),
+        ],
+    ),
+    row(
+        Relic::WarChest,
+        &[
+            m(W::Everyone, S::Interest, data::WAR_CHEST_INTEREST),
+            m(W::Everyone, S::TraderPrices, data::WAR_CHEST_PRICES),
+        ],
+    ),
+    row(
+        Relic::Overtime,
+        &[
+            m(W::Everyone, S::BonusWavePay, data::OVERTIME_PAY),
+            m(W::Everyone, S::ForcedBonusWave, 1),
+        ],
+    ),
+    row(
+        Relic::GiantSlayer,
+        &[
+            m(W::Everyone, S::BigDamage, data::GIANT_SLAYER_BIG),
+            m(W::Everyone, S::SmallDamage, -data::GIANT_SLAYER_SMALL),
+        ],
+    ),
 ];
+
+/// Whether a machine of `kind` is a **big** enemy to *Giant Slayer*: the
+/// Warden (the heaviest of the first three), the Guardian, the tier-two
+/// machines (the Bomber, the Lancer, the Conductor) and the Machine
+/// Heart's own (its core, conduits and fabricators). The Husk and the
+/// Trooper are not, nor any of the Manufacturers' people.
+pub fn is_big(kind: bims::droid::DroidKind) -> bool {
+    use bims::droid::DroidKind as K;
+    match kind {
+        K::Husk | K::Trooper => false,
+        K::Warden
+        | K::Guardian
+        | K::Core
+        | K::Conduit
+        | K::Fabricator
+        | K::Bomber
+        | K::Lancer
+        | K::Conductor => true,
+    }
+}
 
 /// What the relics `held` put on `stat` for a crew member that is (`bot`)
 /// or is not a bot: every modifier of theirs on it that covers it, summed

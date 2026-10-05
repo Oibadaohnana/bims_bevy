@@ -8198,3 +8198,54 @@ every bonus wave €744k, four elites and every bonus wave €777k (it was
 800k when greedy"): four elites and every bonus wave €802k solo at the
 Heart; two elites and every other bonus wave €656k, three and every one
 €768k; safe €553k unchanged.
+
+## Six more relics (October 2026)
+
+> "The relics rebuilt" says twelve relics (thirteen with *Clean Sweep*);
+> there are nineteen now, codes 13–18 on the end, each a row of
+> `relic::RELICS` like the rest and every number `data.rs`'s.
+
+- ***Point Blank*** (13): `Stat::NearDamage` +30, `FarDamage` −20.
+  ***Marksman's Creed*** (14): the same turned round, `FarDamage` +30,
+  `NearDamage` −20. `lift_by_relics` puts them on
+  `Skill::{near_damage, far_damage}`; the room carries them on the bolt
+  (`Bolt::{near, far}`) and multiplies them in where it lands —
+  near within `bims::balance::NEAR_TILES` (4) flown, far past
+  `FAR_TILES` (7), a straight line between (`balance::near_far`). A
+  fixed distance, not the weapon's `sweet` (the pistol's is nought). A
+  blow in a melee is not moved.
+- ***Forked Path*** (15): `Stat::FreeRoute` (a switch, 1) — `floor_next`
+  is every place of the row above, linked or not (`World::free_route`);
+  price `EnemyHealth` +15, *Black Market*'s stat.
+- ***War Chest*** (16): `Stat::Interest` +10 — at a site's clear
+  (`settle_clear` → `pay_the_war_chest`, beside *Clean Sweep*) every
+  player is `credit`ed 10% of its own **wallet** (the takings of this
+  site are shared out only when the crew leave, so they are not
+  counted), rounded down and at most `data::WAR_CHEST_CAP_PERCENT` (50)
+  of `site_money_on(run_day)`; `WorldEvent::WarChest { slot, money }`
+  (167). Price `TraderPrices` +20.
+- ***Overtime*** (17): `Stat::BonusWavePay` +100 — `price_the_wave`
+  multiplies the bonus wave's `BONUS_WAVE_XP_PERCENT` and
+  `BONUS_WAVE_MONEY_PERCENT` by it (its half of the site's experience
+  made the whole); price `Stat::ForcedBonusWave` (a switch, 1, more is
+  worse): `open_briefing` (so a mission's start and the ready check
+  switched on) calls `force_the_bonus_wave`, which chooses it wherever
+  `bonus_wave_allowed` (the old `can_choose_bonus_wave`'s site rule), and
+  `can_choose_bonus_wave` answers `Refusal::BonusWaveHeld` (135) — the
+  ready check shows "Bonus wave: ON (Overtime)" in place of the button.
+- ***Giant Slayer*** (18): `Stat::BigDamage` +35, `SmallDamage` −20, on
+  every crew hit on an enemy in `land_on_enemies` beside
+  `MachineDamage`: big is `relic::is_big` — a Warden, a Guardian, the
+  Bomber, Lancer and Conductor, the Heart's core, conduits and
+  fabricators; a Husk, a Trooper and every one of the Manufacturers'
+  people are not.
+
+The app: `RELIC_NAMES`, `modifier_line`'s arms, `icons::pic_of`/
+`relic_rim` (the first set's *Servo Cutter*, *Marksman's Habit*, *Rally
+Point*, *War Chest*, *Hazard Pay* and *Total Teardown* pictures).
+`tests_relic.rs` (near and far, Giant Slayer, War Chest),
+`tests_floor.rs` (`forked_path_opens_every_place_of_the_row_above`) and
+`tests_site_xp.rs` (`overtime_chooses_the_bonus_wave_and_pays_it_double`)
+are the rule. **`SAVE_VERSION` 117.** A crew holding none of the six
+plays as it did; an offer draws from nineteen now, so a seeded run's
+offers differ.

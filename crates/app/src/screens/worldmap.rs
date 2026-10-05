@@ -1173,7 +1173,12 @@ pub fn ready_window(
                                 theme::CAUTION,
                             )
                         } else {
-                            (BONUS_WAVE_NOT_CHOSEN, theme::INK, theme::RAISED, theme::LINE)
+                            (
+                                BONUS_WAVE_NOT_CHOSEN,
+                                theme::INK,
+                                theme::RAISED,
+                                theme::LINE,
+                            )
                         };
                         let press = ui
                             .add(
@@ -1186,6 +1191,16 @@ pub fn ready_window(
                         if press.clicked() {
                             orders.push(Order::BonusWave(!on));
                         }
+                        ui.add_space(8.0);
+                    } else if world.bonus_wave_forced() && world.bonus_wave_here().chosen() {
+                        // *Overtime* (October 2026): the relic's, not a
+                        // button.
+                        ui.label(
+                            egui::RichText::new(BONUS_WAVE_OVERTIME)
+                                .strong()
+                                .color(theme::CAUTION),
+                        )
+                        .on_hover_text(BONUS_WAVE_OVERTIME_TIP);
                         ui.add_space(8.0);
                     }
                     let (word, yes, fill, ink) = if mine {

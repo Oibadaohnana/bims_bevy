@@ -306,7 +306,9 @@ use crate::game::Game;
 /// `adrenal_until`).
 /// 116: a site's money budget — what an enemy of the wave pays
 /// (`Run::money_each`).
-pub const SAVE_VERSION: u32 = 116;
+/// 117: six more relics (codes 13–18) and a bolt's near and far factors
+/// (`bims::combat::{Skill, Bolt}::{near_damage, far_damage, near, far}`).
+pub const SAVE_VERSION: u32 = 117;
 
 /// What the file holds, read back.
 #[derive(serde::Deserialize)]

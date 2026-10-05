@@ -5459,3 +5459,15 @@ them every step before the rooms step (`Game::set_smoke`, `set_tethers`,
 
 Nothing here draws off any stream, and a room told nothing does nothing
 it did not, so no pin moved for the room's half.
+
+## Near and far, a relic's (October 2026)
+
+`Skill::{near_damage, far_damage}` (serde default one) are the world's
+*Point Blank* and *Marksman's Creed*; `fire_as` puts them on the bolt
+(`Bolt::{near, far}`, one on a bounced bolt) and `Bolt::reach_factor`
+multiplies the damage where it lands — on a body, a Guardian's plate
+and a Riot Shield — beside `point_blank`: the near factor within
+`balance::NEAR_TILES` (4) flown, the far one past `FAR_TILES` (7), a
+straight line between (`balance::near_far`). A blow is not moved.
+`a_bolt_takes_its_shooter_s_near_and_far_factors` pins it. Nobody without
+the relics moved.

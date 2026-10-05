@@ -332,3 +332,44 @@ fn a_site_pays_each_player_its_money_alone_or_two() {
         );
     }
 }
+
+/// ***Overtime*** (October 2026): the bonus wave is chosen for the crew
+/// at every fight that can have one, cannot be taken back, and pays twice
+/// its experience and its money.
+#[test]
+fn overtime_chooses_the_bonus_wave_and_pays_it_double() {
+    let (mut world, station) = held_arena(1);
+    world.give_relic_for_probe(Relic::Overtime);
+    world.set_ready_check(true);
+    assert_eq!(world.bonus_wave_here(), BonusWave::Chosen, "the relic's");
+    assert_eq!(world.can_choose_bonus_wave(0), Err(Refusal::BonusWaveHeld));
+    let events = world.step(&[Command::BonusWave { slot: 0, on: false }]);
+    assert!(events.iter().any(|e| matches!(
+        e,
+        WorldEvent::Refused {
+            why: Refusal::BonusWaveHeld,
+            ..
+        }
+    )));
+    assert_eq!(world.bonus_wave_here(), BonusWave::Chosen);
+    world.step(&[Command::Ready { slot: 0, yes: true }]);
+
+    let budget = world.site_budget(station) as u32;
+    wait_for_a_wave(&mut world);
+    wreck_them_one_by_one(&mut world, 1);
+    let big = wait_for_a_wave(&mut world);
+    assert_eq!(world.bonus_wave_here(), BonusWave::Landed);
+    let whole = budget * data::BONUS_WAVE_XP_PERCENT * 2 / 100;
+    assert_eq!(
+        world.xp_per_down(),
+        (whole + big / 2) / big,
+        "twice the share"
+    );
+    let money = world.site_money_here() * u64::from(data::BONUS_WAVE_MONEY_PERCENT) * 2 / 100;
+    assert_eq!(
+        world.money_per_down(),
+        (money + u64::from(big) / 2) / u64::from(big)
+    );
+    wreck_them_one_by_one(&mut world, 1);
+    assert!(world.droid_station_cleared(station));
+}

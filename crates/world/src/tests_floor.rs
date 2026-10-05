@@ -269,3 +269,47 @@ fn floors_over_ten_seeds() {
         }
     }
 }
+
+/// ***Forked Path*** (October 2026): every place of the row above is a
+/// trip, linked or not — and a place two rows up is still too far.
+#[test]
+fn forked_path_opens_every_place_of_the_row_above() {
+    let mut world = default_world();
+    world.leave_for_probe();
+    let floor = world.floor().unwrap().clone();
+    let site_of = |row: u32, j: usize| {
+        let n = floor.node(row, j).unwrap();
+        Site {
+            star: n.star,
+            station: n.station,
+        }
+    };
+    assert!(travelled(&travel_to(&mut world, site_of(1, 0))));
+    // Up the floor until a place's links leave some of the row above out.
+    let (at, unlinked) = loop {
+        if world.in_mission() {
+            world.leave_for_probe();
+        }
+        let (at, index) = world.floor_at().unwrap();
+        let leads = floor.next(at, index);
+        let row = (at + 1) as usize;
+        let off = (0..floor.rows[row].len()).find(|&j| !leads.contains(&(at + 1, j)));
+        if let Some(j) = off {
+            break (at, site_of(at + 1, j));
+        }
+        let (r, j) = leads[0];
+        assert!(travelled(&travel_to(&mut world, site_of(r, j))));
+        assert!(at < 20, "every place leads everywhere above it");
+    };
+    assert!(!world.floor_next().contains(&unlinked));
+    assert_eq!(world.travel_quote(unlinked).err(), Some(Refusal::TooFar));
+    world.give_relic_for_probe(crate::relic::Relic::ForkedPath);
+    let whole: Vec<Site> = (0..floor.rows[(at + 1) as usize].len())
+        .map(|j| site_of(at + 1, j))
+        .collect();
+    assert_eq!(world.floor_next(), whole);
+    let beyond = site_of(at + 2, 0);
+    assert_eq!(world.travel_quote(beyond).err(), Some(Refusal::TooFar));
+    assert!(travelled(&travel_to(&mut world, unlinked)));
+    assert_eq!(world.floor_at().map(|(r, _)| r), Some(at + 1));
+}

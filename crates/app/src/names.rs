@@ -468,6 +468,7 @@ pub fn refusal(why: Refusal) -> &'static str {
         Refusal::NotSellable => "the laser pistol is not for sale",
         Refusal::OutOfItemRange => "they are too far off for that",
         Refusal::NoBonusWave => "a bonus wave is chosen in the ready check, at a fight",
+        Refusal::BonusWaveHeld => "Overtime keeps the bonus wave on",
     }
 }
 
@@ -1821,6 +1822,11 @@ pub fn event_line(event: WorldEvent) -> Option<String> {
         WorldEvent::CleanSweep { who: w, xp } => {
             format!("Clean Sweep: {} earns {xp} experience more.", who(w))
         }
+        WorldEvent::WarChest { slot, money } => format!(
+            "War Chest: {} earns {} on the money kept.",
+            player_name(slot),
+            crate::format::euros(money)
+        ),
         WorldEvent::PlayerGone { slot } => format!("{} has left the game.", player_name(slot)),
         WorldEvent::Readied { slot, yes: true } => format!("{} is ready.", player_name(slot)),
         WorldEvent::Readied { slot, yes: false } => {
@@ -1859,7 +1865,7 @@ fn relic_of(code: u32) -> Option<world::Relic> {
 }
 
 /// Every relic's name, in `world::Relic::ALL`'s order.
-pub const RELIC_NAMES: [&str; 13] = [
+pub const RELIC_NAMES: [&str; 19] = [
     "Glass Cannon",
     "Heavy Plating",
     "Hair Trigger",
@@ -1873,6 +1879,12 @@ pub const RELIC_NAMES: [&str; 13] = [
     "Salvage Burn",
     "Nanite Mesh",
     "Clean Sweep",
+    "Point Blank",
+    "Marksman's Creed",
+    "Forked Path",
+    "War Chest",
+    "Overtime",
+    "Giant Slayer",
 ];
 
 /// The items' names (October 2026), by `bims::module::ModuleKind` code.
@@ -2158,6 +2170,34 @@ pub fn modifier_line(m: world::relic::Modifier) -> String {
                 "{sign}{n}% of a site's experience again when it is cleared with no player down"
             );
         }
+        Stat::NearDamage => {
+            return format!(
+                "{sign}{n}% weapon damage within {} tiles for the crew",
+                bims::balance::NEAR_TILES
+            );
+        }
+        Stat::FarDamage => {
+            return format!(
+                "{sign}{n}% weapon damage past {} tiles for the crew",
+                bims::balance::FAR_TILES
+            );
+        }
+        // Switches, not shares.
+        Stat::FreeRoute => {
+            return "A trip may go to any place of the next row on the map".into();
+        }
+        Stat::ForcedBonusWave => {
+            return "Every fight that can have a bonus wave has it".into();
+        }
+        Stat::Interest => {
+            return format!(
+                "Every site cleared pays each player {n}% of the money it kept (at most {}% of a site's pay)",
+                world::data::WAR_CHEST_CAP_PERCENT
+            );
+        }
+        Stat::BonusWavePay => "experience and money from the bonus wave",
+        Stat::BigDamage => "damage to big enemies (Wardens, Guardians, tier-two machines)",
+        Stat::SmallDamage => "damage to every other enemy",
     };
     // The run's own numbers name nobody: they are the crew's whole.
     let whom = match (m.who, m.stat) {
@@ -2168,7 +2208,10 @@ pub fn modifier_line(m: world::relic::Modifier) -> String {
             | Stat::Experience
             | Stat::WaveSize
             | Stat::TraderPrices
-            | Stat::EnemyHealth,
+            | Stat::EnemyHealth
+            | Stat::BonusWavePay
+            | Stat::BigDamage
+            | Stat::SmallDamage,
         ) => "",
         (Who::Everyone, _) => " for the crew",
         (Who::Players, _) => " for the players' Bims",
@@ -2302,6 +2345,8 @@ pub const AREA_TAKEN: &str = "The machines hold the FOB. It is lost, and the run
 /// off, and its tip.
 pub const BONUS_WAVE_CHOSEN: &str = "Bonus wave: ON";
 pub const BONUS_WAVE_NOT_CHOSEN: &str = "Bonus wave: off";
+pub const BONUS_WAVE_OVERTIME: &str = "Bonus wave: ON (Overtime)";
+pub const BONUS_WAVE_OVERTIME_TIP: &str = "The crew hold Overtime: every fight that can have a bonus wave has it, paying twice what it would.";
 pub const BONUS_WAVE_TIP: &str = "One more wave after this site's own, half as big again, for half the site's experience again and its machines' bounty. Chosen here, before the fight, by any player; a change takes back every Ready.";
 pub const AREA_TIME_UP: &str = "Time! No more waves are coming — destroy the last of them.";
 
@@ -3563,6 +3608,20 @@ mod tests {
             assert_eq!(
                 words(world::Relic::BlackMarket),
                 ["-40% trader prices", "+35% HP for every enemy"]
+            );
+            assert_eq!(
+                words(world::Relic::PointBlank),
+                [
+                    "+30% weapon damage within 4 tiles for the crew",
+                    "-20% weapon damage past 7 tiles for the crew"
+                ]
+            );
+            assert_eq!(
+                words(world::Relic::Overtime),
+                [
+                    "+100% experience and money from the bonus wave",
+                    "Every fight that can have a bonus wave has it"
+                ]
             );
             assert_eq!(
                 words(world::Relic::DrillSergeant)[2..],

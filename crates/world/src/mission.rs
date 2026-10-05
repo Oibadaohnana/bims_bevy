@@ -851,6 +851,7 @@ impl World {
     /// Hold the mission just begun for the ready check: with the switch
     /// on and a fight at the site — an Attack not yet cleared, a Defend
     /// threatened — nobody ready yet. A peaceful stop starts at once.
+    /// And with *Overtime* held, the bonus wave chosen for the crew.
     fn open_briefing(&mut self) {
         let fight = self
             .ship
@@ -859,6 +860,8 @@ impl World {
             .is_some_and(|station| !self.site_cleared(station));
         self.run.briefing = self.run.ready_check && fight;
         self.run.ready = vec![false; self.players() as usize];
+        // *Overtime* (October 2026): the bonus wave the crew's already.
+        self.force_the_bonus_wave();
     }
 
     /// *Ready* pressed, or taken back — see [`Command::Ready`]. The last

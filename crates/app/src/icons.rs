@@ -616,11 +616,11 @@ const LID: Color32 = Color32::from_rgb(0x96, 0x68, 0x3a);
 fn relic_rim(relic: Relic) -> Color32 {
     use Relic::*;
     match relic {
-        GlassCannon | SalvageBurn => RIM_DISMANTLER,
+        GlassCannon | SalvageBurn | PointBlank | MarksmansCreed | GiantSlayer => RIM_DISMANTLER,
         HeavyPlating | NaniteMesh => RIM_LIFELINE,
-        HairTrigger | Adrenaline | LoneWolves => RIM_FLANKER,
+        HairTrigger | Adrenaline | LoneWolves | ForkedPath => RIM_FLANKER,
         DrillSergeant | OverclockedCores => RIM_COMMAND,
-        BountyContract | BlackMarket | HuntersPact | CleanSweep => RIM_SUPPLY,
+        BountyContract | BlackMarket | HuntersPact | CleanSweep | WarChest | Overtime => RIM_SUPPLY,
     }
 }
 
@@ -705,6 +705,12 @@ fn pic_of(relic: Relic) -> Pic {
         Relic::SalvageBurn => Pic::PartsBroker,
         Relic::NaniteMesh => Pic::ClotBooster,
         Relic::CleanSweep => Pic::PhaseHarness,
+        Relic::PointBlank => Pic::ServoCutter,
+        Relic::MarksmansCreed => Pic::MarksmansHabit,
+        Relic::ForkedPath => Pic::RallyPoint,
+        Relic::WarChest => Pic::WarChest,
+        Relic::Overtime => Pic::HazardPay,
+        Relic::GiantSlayer => Pic::TotalTeardown,
     }
 }
 

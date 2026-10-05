@@ -54,6 +54,23 @@ pub const MELEE_RANGE: f32 = 1.2;
 /// where they had been 51), and every gun's and machine's `range` and
 /// `sweet` came down with it by 12.5/14 — fourteen before.
 pub const MAX_RANGE: f32 = 12.5;
+/// The tiles a bolt has flown within which it is **near** to the crew's
+/// relics (*Point Blank*, *Marksman's Creed*, October 2026): their near
+/// factor whole.
+pub const NEAR_TILES: f32 = 4.0;
+/// The tiles past which it is **far**: their far factor whole, a straight
+/// line between the two from [`NEAR_TILES`].
+pub const FAR_TILES: f32 = 7.0;
+
+/// A factor `near` within [`NEAR_TILES`], `far` past [`FAR_TILES`] and a
+/// straight line between, at `flown` tiles.
+pub fn near_far(flown: f32, near: f32, far: f32) -> f32 {
+    if near == far {
+        return near;
+    }
+    let t = ((flown - NEAR_TILES) / (FAR_TILES - NEAR_TILES)).clamp(0.0, 1.0);
+    near + (far - near) * t
+}
 /// What a fist does, once a [`MELEE_PERIOD`], to whoever has a gunner
 /// locked.
 pub const FIST_DAMAGE: f32 = 20.0;

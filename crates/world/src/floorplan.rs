@@ -202,13 +202,19 @@ impl World {
     }
 
     /// The places a trip may go from where the crew are, left to right:
-    /// those their place leads to on the row above, and — off the floor —
+    /// those their place leads to on the row above — with *Forked Path*
+    /// held (October 2026) every place of that row — and, off the floor,
     /// the whole first row. Nothing with the floor off, or at the Heart.
     pub fn floor_next(&self) -> Vec<Site> {
         let Some(floor) = self.floor() else {
             return Vec::new();
         };
         let places = match self.floor_at() {
+            Some((row, _)) if self.free_route() => {
+                (0..floor.rows.get(row as usize + 1).map_or(0, Vec::len))
+                    .map(|j| (row + 1, j))
+                    .collect()
+            }
             Some((row, index)) => floor.next(row, index),
             None => (0..floor.rows.get(1).map_or(0, Vec::len))
                 .map(|j| (1, j))

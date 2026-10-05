@@ -580,3 +580,128 @@ fn no_relic_touches_a_revive() {
     world.set_class(1, Class::Medic).unwrap();
     assert_eq!(world.revive_seconds(1), 4.0);
 }
+
+// --- October 2026: six more relics -----------------------------------------------
+
+/// ***Point Blank*** and ***Marksman's Creed*** move every crew member's
+/// near and far factors, players and bots alike, and nothing else of the
+/// skill; held together they add.
+#[test]
+fn point_blank_and_marksman_s_creed_move_the_near_and_far_damage() {
+    let f = |p: i32| relic::factor(p) as f32;
+    for (relic, near, far) in [
+        (
+            Relic::PointBlank,
+            f(data::POINT_BLANK_NEAR),
+            f(-data::POINT_BLANK_FAR),
+        ),
+        (
+            Relic::MarksmansCreed,
+            f(-data::MARKSMANS_CREED_NEAR),
+            f(data::MARKSMANS_CREED_FAR),
+        ),
+    ] {
+        for (without, with) in skills_with(relic) {
+            assert!(close(without.near_damage, 1.0) && close(without.far_damage, 1.0));
+            assert!(close(with.near_damage, near), "{relic:?}");
+            assert!(close(with.far_damage, far), "{relic:?}");
+            assert!(close(with.damage, without.damage), "{relic:?}");
+        }
+    }
+    let mut world = crewed_world(flyer(2), REFERENCE_MONEY, 1, 2);
+    world.give_relic_for_probe(Relic::PointBlank);
+    world.give_relic_for_probe(Relic::MarksmansCreed);
+    let both = world.skill_of(0);
+    assert!(close(
+        both.near_damage,
+        f(data::POINT_BLANK_NEAR - data::MARKSMANS_CREED_NEAR)
+    ));
+    assert!(close(
+        both.far_damage,
+        f(data::MARKSMANS_CREED_FAR - data::POINT_BLANK_FAR)
+    ));
+}
+
+/// ***Giant Slayer***: a hit on a big machine does more, on any other
+/// less — a Warden against a Trooper, the same body struck.
+#[test]
+fn giant_slayer_hits_the_big_harder_and_the_rest_softer() {
+    use bims::droid::DroidKind;
+    assert!(relic::is_big(DroidKind::Warden) && relic::is_big(DroidKind::Guardian));
+    assert!(relic::is_big(DroidKind::Lancer) && relic::is_big(DroidKind::Core));
+    assert!(!relic::is_big(DroidKind::Husk) && !relic::is_big(DroidKind::Trooper));
+    let landed = |held: &[Relic], kind: DroidKind| -> f32 {
+        let (mut world, _) = held_arena(1);
+        for &r in held {
+            world.give_relic_for_probe(r);
+        }
+        open_the_room(&mut world);
+        let residents = world.residents.as_mut().unwrap();
+        let bims = residents.aboard.room.crew_count() as usize;
+        residents.aboard.room.droid_mut_for_probe(0).unwrap().kind = kind;
+        let before = residents.aboard.room.droid(0).unwrap().body.life();
+        let hit = bims::combat::Hit {
+            who: bims,
+            damage: 10.0,
+            cut: false,
+            by: Some(0),
+            blast: false,
+            roll: 0.5,
+            strips: 0.0,
+            flat: 0.0,
+            crit: false,
+        };
+        assert!(world.land_on_enemies(vec![hit]).is_empty());
+        let residents = world.residents.as_ref().unwrap();
+        before - residents.aboard.room.droid(0).unwrap().body.life()
+    };
+    for kind in [DroidKind::Warden, DroidKind::Trooper] {
+        let plain = landed(&[], kind);
+        assert!(plain > 0.0);
+        let with = landed(&[Relic::GiantSlayer], kind);
+        let percent = if relic::is_big(kind) {
+            data::GIANT_SLAYER_BIG
+        } else {
+            -data::GIANT_SLAYER_SMALL
+        };
+        assert!(
+            (with - plain * relic::factor(percent) as f32).abs() < 1e-3,
+            "{kind:?}: {with} against {plain}"
+        );
+    }
+}
+
+/// ***War Chest***: a site cleared pays every player its per cent of the
+/// money in its wallet, capped at a share of a site's pay — once — and
+/// nothing without the relic.
+#[test]
+fn war_chest_pays_on_the_money_kept_at_a_clear() {
+    for (held, wallet) in [(false, 2_000), (true, 2_000), (true, 1_000_000)] {
+        let (mut world, station) = held_arena(1);
+        if held {
+            world.give_relic_for_probe(Relic::WarChest);
+        }
+        world.set_money_for_probe(wallet);
+        let before = world.wallet(0);
+        let events = clear(&mut world, station);
+        let paid: Vec<_> = events
+            .iter()
+            .filter_map(|e| match *e {
+                WorldEvent::WarChest { slot: 0, money } => Some(money),
+                _ => None,
+            })
+            .collect();
+        if !held {
+            assert!(paid.is_empty());
+            continue;
+        }
+        let cap = world.site_money_on(world.run_day()) * data::WAR_CHEST_CAP_PERCENT / 100;
+        let interest = (before * data::WAR_CHEST_INTEREST as u64 / 100).min(cap);
+        assert!(interest > 0);
+        assert_eq!(paid, vec![interest], "once, at the clear");
+        assert_eq!(world.wallet(0), before + interest);
+        if wallet > 100_000 {
+            assert_eq!(interest, cap, "capped");
+        }
+    }
+}

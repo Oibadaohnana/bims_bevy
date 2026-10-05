@@ -609,6 +609,35 @@ pub const NANITE_MESH_DAMAGE: i32 = 15;
 /// experience it earned there, in per cent — and everybody takes more.
 pub const CLEAN_SWEEP_EXPERIENCE: i32 = 25;
 pub const CLEAN_SWEEP_TAKEN: i32 = 10;
+/// *Point Blank* (October 2026): every bolt does this many per cent more
+/// within `bims::balance::NEAR_TILES` of where it was fired, and this many
+/// less past `FAR_TILES` — a blend between ([`crate::relic::Stat::NearDamage`]).
+pub const POINT_BLANK_NEAR: i32 = 30;
+pub const POINT_BLANK_FAR: i32 = 20;
+/// *Marksman's Creed* (October 2026): *Point Blank* turned round — far
+/// shots up, near ones down.
+pub const MARKSMANS_CREED_FAR: i32 = 30;
+pub const MARKSMANS_CREED_NEAR: i32 = 20;
+/// *Forked Path* (October 2026): a trip on the floor may go to any place
+/// of the row above, and every enemy comes with this many per cent more
+/// hit points.
+pub const FORKED_PATH_ENEMY_HEALTH: i32 = 15;
+/// *War Chest* (October 2026): every site cleared pays each player this
+/// many per cent of the money in its own wallet, at most
+/// [`WAR_CHEST_CAP_PERCENT`] of what a site pays a player that day
+/// (`Rewards::site_money_on`) — and a trader asks this many per cent more.
+pub const WAR_CHEST_INTEREST: i32 = 10;
+pub const WAR_CHEST_CAP_PERCENT: Money = 50;
+pub const WAR_CHEST_PRICES: i32 = 20;
+/// *Overtime* (October 2026): the bonus wave pays this many per cent more
+/// experience and money (its 50% of the site's experience made the
+/// whole), and every site that can have one has it, not to be taken back.
+pub const OVERTIME_PAY: i32 = 100;
+/// *Giant Slayer* (October 2026): the crew's hits on a big enemy
+/// (`crate::relic::is_big`) do this many per cent more, on every other
+/// enemy this many less.
+pub const GIANT_SLAYER_BIG: i32 = 35;
+pub const GIANT_SLAYER_SMALL: i32 = 20;
 
 // --- the trader (task 114, `crate::trader`) ---------------------------------
 

@@ -960,6 +960,16 @@ pub struct Skill {
     /// while it runs (task 155). Nought for everybody else.
     #[cfg_attr(feature = "serde", serde(default))]
     pub reflect: f32,
+    /// What its bolts' damage is multiplied by within
+    /// [`balance::NEAR_TILES`] of where they were fired, blended into
+    /// [`Skill::far_damage`] by [`balance::FAR_TILES`] — the crew's
+    /// relics, *Point Blank* and *Marksman's Creed* (October 2026). One
+    /// for everybody else; a blow in a melee is not moved.
+    #[cfg_attr(feature = "serde", serde(default = "one"))]
+    pub near_damage: f32,
+    /// The same past [`balance::FAR_TILES`].
+    #[cfg_attr(feature = "serde", serde(default = "one"))]
+    pub far_damage: f32,
 }
 
 impl Skill {
@@ -996,6 +1006,8 @@ impl Skill {
         unyielding: false,
         unstrippable: false,
         reflect: 0.0,
+        near_damage: 1.0,
+        far_damage: 1.0,
     };
 
     /// The skill for this body's next shot, with `shots` fired before it:
@@ -1795,9 +1807,22 @@ pub struct Bolt {
     /// rampage's and the crits' — and `None` is the side's colour.
     #[cfg_attr(feature = "serde", serde(default))]
     pub colour: Option<usize>,
+    /// [`Skill::near_damage`] and [`Skill::far_damage`] of whoever fired
+    /// it: one each for anybody without a relic on them.
+    #[cfg_attr(feature = "serde", serde(default = "one"))]
+    pub near: f32,
+    #[cfg_attr(feature = "serde", serde(default = "one"))]
+    pub far: f32,
 }
 
 impl Bolt {
+    /// What its damage is multiplied by having flown `flown` tiles: its
+    /// near factor within [`balance::NEAR_TILES`], its far one past
+    /// [`balance::FAR_TILES`], a straight line between.
+    pub fn reach_factor(&self, flown: f32) -> f32 {
+        balance::near_far(flown, self.near, self.far)
+    }
+
     /// The curve it flies and lands on: the weapon's own with the tiles
     /// [`Bolt::range`] added, so the damage falls off across the span it
     /// was aimed along. [`Bolt::damage`] is *not* in it — that one is
@@ -3459,6 +3484,8 @@ impl Combat {
             struck: [None; balance::LANCE_RECALL],
             shooter: None,
             colour,
+            near: skill.near_damage,
+            far: skill.far_damage,
         });
     }
 
@@ -3813,6 +3840,7 @@ impl Combat {
                         // bolt's own factor (*sentry mark III*) is on
                         // top of it, at any distance.
                         let close = bolt.damage
+                            * bolt.reach_factor(flown)
                             * if flown <= stats.sweet {
                                 bolt.point_blank
                             } else {
@@ -3861,11 +3889,12 @@ impl Combat {
                         // The plate took it, at the distance flown, as
                         // hard as it would have struck the body.
                         let flown = (at - bolt.fired_from).len() / TILE;
-                        let close = if flown <= bolt.stats().sweet {
-                            bolt.point_blank
-                        } else {
-                            1.0
-                        };
+                        let close = bolt.reach_factor(flown)
+                            * if flown <= bolt.stats().sweet {
+                                bolt.point_blank
+                            } else {
+                                1.0
+                            };
                         plated.push((i, bolt.stats().damage_at(flown) * bolt.damage * close));
                     } else if let Some(k) = on_plate {
                         // A Riot Shield took it (task 155), as hard as it
@@ -3875,11 +3904,12 @@ impl Combat {
                         // reach again from there.
                         let plate = plates[k];
                         let flown = (at - bolt.fired_from).len() / TILE;
-                        let close = if flown <= bolt.stats().sweet {
-                            bolt.point_blank
-                        } else {
-                            1.0
-                        };
+                        let close = bolt.reach_factor(flown)
+                            * if flown <= bolt.stats().sweet {
+                                bolt.point_blank
+                            } else {
+                                1.0
+                            };
                         let damage = bolt.stats().damage_at(flown) * bolt.damage * close;
                         plate_left[k] -= damage;
                         blocked.push((plate.who, damage));
@@ -3900,6 +3930,8 @@ impl Combat {
                                 struck: [None; balance::LANCE_RECALL],
                                 shooter: None,
                                 colour: Some(plate.who),
+                                near: 1.0,
+                                far: 1.0,
                             });
                         }
                         fx.plate(at, out);
@@ -4951,7 +4983,7 @@ impl Tactics {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::balance::MAX_RANGE;
+    use crate::balance::{FAR_TILES, MAX_RANGE, NEAR_TILES, near_far};
     use crate::character::BODY_MARGIN;
     use crate::math::{Rect, vec2};
 
@@ -5795,6 +5827,49 @@ mod tests {
         let a = run();
         assert!(!a.is_empty());
         assert_eq!(a, run());
+    }
+
+    /// The crew's near and far relics (October 2026, *Point Blank*): a
+    /// bolt does its shooter's near factor within `NEAR_TILES`, its far
+    /// one past `FAR_TILES`, a blend between.
+    #[test]
+    fn a_bolt_takes_its_shooter_s_near_and_far_factors() {
+        assert_eq!(near_far(1.0, 1.3, 0.8), 1.3);
+        assert_eq!(near_far(NEAR_TILES, 1.3, 0.8), 1.3);
+        assert_eq!(near_far(FAR_TILES, 1.3, 0.8), 0.8);
+        assert_eq!(near_far(MAX_RANGE, 1.3, 0.8), 0.8);
+        let mid = near_far((NEAR_TILES + FAR_TILES) / 2.0, 1.3, 0.8);
+        assert!((mid - 1.05).abs() < 1e-5, "{mid}");
+        assert_eq!(near_far(5.0, 1.0, 1.0), 1.0);
+
+        let (sight, _) = room_with(&[]);
+        let theirs = middle(10.0, 5.0);
+        let relic = Skill {
+            near_damage: 1.3,
+            far_damage: 0.8,
+            ..Skill::NONE
+        };
+        let pistol = WeaponKind::LaserPistol.basic();
+        let landed = |skill: &Skill, from: Vec2| -> Vec<f32> {
+            let mut combat = Combat::new(11);
+            combat.set_targets(vec![Some((theirs, pistol))]);
+            let mut hits = Vec::new();
+            for _ in 0..20 {
+                combat.fire_as(from, theirs, pistol, false, false, skill, Some(0));
+                for _ in 0..60 {
+                    combat.step(0.05, &sight, &[]);
+                }
+                hits.extend(combat.take_hits().into_iter().map(|h| h.damage));
+            }
+            assert!(!hits.is_empty());
+            hits
+        };
+        for (from, factor) in [(middle(8.0, 5.0), 1.3), (middle(1.0, 5.0), 0.8)] {
+            let plain = landed(&Skill::NONE, from)[0];
+            for damage in landed(&relic, from) {
+                assert!((damage - plain * factor).abs() < 1e-3, "{damage} {plain}");
+            }
+        }
     }
 
     /// A line of sandbags across the room is no wall — walked over, seen

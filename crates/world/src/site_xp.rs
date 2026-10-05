@@ -76,9 +76,15 @@ impl World {
                 .max(1),
         );
         let bodies = u64::from(bodies);
+        // *Overtime* (October 2026): the bonus wave's shares lifted.
+        let overtime = crate::relic::factor(crate::relic::crew_percent(
+            self.relics(),
+            Stat::BonusWavePay,
+        ));
         let each = |budget: u64, bonus_percent: u32| {
             let share = if bonus {
-                budget * u64::from(bonus_percent) / 100
+                let percent = (f64::from(bonus_percent) * overtime) as u64;
+                budget * percent / 100
             } else {
                 budget / waves
             };
@@ -174,30 +180,46 @@ impl World {
     /// Whether player `slot` may choose this mission's bonus wave, or take
     /// it back, or why not: a player (`NotAPlayer`), in the ready check
     /// before the fight (`NoBonusWave` otherwise), at a site with a fight
-    /// to come — one the machines or the Manufacturers hold, not yet
-    /// cleared, or a defence threatened — never the Machine Heart's or an
-    /// Area defend's.
+    /// to come ([`World::bonus_wave_allowed`]). With *Overtime* held the
+    /// wave is the relic's (`BonusWaveHeld`).
     pub fn can_choose_bonus_wave(&self, slot: u32) -> Result<(), Refusal> {
         if slot >= self.players() {
             return Err(Refusal::NotAPlayer);
         }
-        let Some(id) = self
-            .ship
-            .state
-            .alongside()
-            .filter(|_| self.run.phase == run::Phase::Mission && self.run.briefing)
-        else {
+        if self.run.phase != run::Phase::Mission || !self.run.briefing {
             return Err(Refusal::NoBonusWave);
+        }
+        if !self.bonus_wave_allowed() {
+            return Err(Refusal::NoBonusWave);
+        }
+        if self.bonus_wave_forced() {
+            return Err(Refusal::BonusWaveHeld);
+        }
+        Ok(())
+    }
+
+    /// Whether the site the ship is at may have a bonus wave: one with a
+    /// fight to come — the machines or the Manufacturers hold it, not yet
+    /// cleared, or a defence threatened — never the Machine Heart's or an
+    /// Area defend's, and not with the run won.
+    fn bonus_wave_allowed(&self) -> bool {
+        let Some(id) = self.ship.state.alongside() else {
+            return false;
         };
         if self.run.won || self.site_cleared(id) || heart::is_heart(id) {
-            return Err(Refusal::NoBonusWave);
+            return false;
         }
         let attack = self.infestation(id).is_some_and(|it| it.heart.is_none());
         let defence = self.site_threatened(id) && !self.is_area_defense(id);
-        if attack || defence {
-            Ok(())
-        } else {
-            Err(Refusal::NoBonusWave)
+        attack || defence
+    }
+
+    /// A mission begun: with *Overtime* held (October 2026), the bonus
+    /// wave chosen for the crew wherever one may be — in the ready check
+    /// or without one.
+    pub(crate) fn force_the_bonus_wave(&mut self) {
+        if self.bonus_wave_forced() && self.bonus_wave_allowed() {
+            self.run.bonus = BonusWave::Chosen;
         }
     }
 

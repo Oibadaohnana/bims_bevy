@@ -72,8 +72,9 @@ impl World {
     }
 
     /// What the crew's relics do to crew member `who`'s skill
-    /// (`World::skill_of`): the damage, the fire rate, the pace and the
-    /// share of every hit it takes. The skill as it was with none held.
+    /// (`World::skill_of`): the damage, near and far too, the fire rate,
+    /// the pace and the share of every hit it takes. The skill as it was
+    /// with none held.
     pub(super) fn lift_by_relics(&self, who: u32, skill: &mut bims::combat::Skill) {
         if self.relics().is_empty() {
             return;
@@ -85,6 +86,20 @@ impl World {
         skill.fire_rate *= f(Stat::FireRate);
         skill.walk *= f(Stat::MoveSpeed);
         skill.damage_taken *= f(Stat::DamageTaken);
+        skill.near_damage *= f(Stat::NearDamage);
+        skill.far_damage *= f(Stat::FarDamage);
+    }
+
+    /// Whether a trip on the floor may go to any place of the row above
+    /// (*Forked Path*, October 2026).
+    pub fn free_route(&self) -> bool {
+        relic::crew_percent(self.relics(), Stat::FreeRoute) > 0
+    }
+
+    /// Whether every site that can have a bonus wave has it, not to be
+    /// taken back (*Overtime*, October 2026).
+    pub fn bonus_wave_forced(&self) -> bool {
+        relic::crew_percent(self.relics(), Stat::ForcedBonusWave) > 0
     }
 
     /// A bounty as the crew's relics pay it, rounded down.
@@ -452,6 +467,9 @@ impl World {
             return hits;
         }
         let relics = relic::crew_percent(self.relics(), Stat::MachineDamage);
+        // *Giant Slayer* (October 2026): on top, by how big the enemy is.
+        let big = relic::crew_percent(self.relics(), Stat::BigDamage);
+        let small = relic::crew_percent(self.relics(), Stat::SmallDamage);
         // What each hit did to which enemy (a body index of the residents'
         // room), by whom: what the items read after (October 2026,
         // `item_use.rs`).
@@ -471,7 +489,11 @@ impl World {
             if hit.who >= room.body_count() as usize || !room.is_alive(hit.who) {
                 continue;
             }
-            let percent = relics;
+            let percent = relics
+                + match machine.and_then(|i| room.droid(i)) {
+                    Some(droid) if relic::is_big(droid.kind) => big,
+                    _ => small,
+                };
             let damage = if percent == 0 {
                 hit.damage
             } else {
@@ -532,6 +554,8 @@ impl World {
         self.run.cleared_here = true;
         // *Clean Sweep* (October 2026): what the site paid, again in part.
         self.pay_the_clean_sweep(events);
+        // *War Chest* (October 2026): the money each player kept, in part.
+        self.pay_the_war_chest(events);
         // The fight over, the armour whole again: mended only at the next
         // mission's start, the crew sheet, the reward screen and a trader
         // showed a broken piece until then.
@@ -545,6 +569,30 @@ impl World {
         }
         if self.run.win_on_clear {
             self.run_won(events);
+        }
+    }
+
+    /// *War Chest*, at a site's clear: every player paid its per cent of
+    /// the money in its own wallet — the takings of this site not shared
+    /// out yet, so not counted — rounded down and at most
+    /// [`data::WAR_CHEST_CAP_PERCENT`] of what a site pays a player today,
+    /// into that wallet ([`WorldEvent::WarChest`]). Nothing without it.
+    pub(crate) fn pay_the_war_chest(&mut self, events: &mut Vec<WorldEvent>) {
+        let percent = relic::crew_percent(self.relics(), Stat::Interest);
+        if percent <= 0 {
+            return;
+        }
+        let cap = self
+            .site_money_on(self.run_day())
+            .saturating_mul(data::WAR_CHEST_CAP_PERCENT)
+            / 100;
+        for slot in 0..self.players() {
+            let money = (self.wallet(slot).saturating_mul(percent as Money) / 100).min(cap);
+            if money == 0 {
+                continue;
+            }
+            self.credit(slot, money);
+            events.push(WorldEvent::WarChest { slot, money });
         }
     }
 

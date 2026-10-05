@@ -236,6 +236,9 @@ pub enum WorldEvent {
     /// *Clean Sweep* (October 2026): a site cleared with no player down
     /// paid crew member `who` `xp` more experience.
     CleanSweep { who: u32, xp: u32 },
+    /// *War Chest* (October 2026): a site cleared paid player `slot`
+    /// `money` of the money it kept.
+    WarChest { slot: u32, money: economy::Money },
     /// The host said that player has left the game.
     PlayerGone { slot: u32 },
     /// Relics are on offer to the crew (feature 106): `count` of them, off
@@ -644,6 +647,9 @@ pub enum Refusal {
     NoBonusWave = 133,
     /// A *Tether Link* asked of a crewmate past its reach (October 2026).
     OutOfItemRange = 134,
+    /// The bonus wave taken back while the crew hold *Overtime* (October
+    /// 2026): every site that can have one has it.
+    BonusWaveHeld = 135,
 }
 
 impl Refusal {
@@ -735,6 +741,7 @@ impl WorldEvent {
             WorldEvent::BonusWaveChosen { .. } => 164,
             // 165 was a bonus wave called after the clear cleared.
             WorldEvent::CleanSweep { .. } => 166,
+            WorldEvent::WarChest { .. } => 167,
             WorldEvent::PlayerGone { .. } => 106,
             WorldEvent::RelicsOffered { .. } => 107,
             WorldEvent::RelicProposed { .. } => 108,
@@ -880,6 +887,10 @@ impl WorldEvent {
             WorldEvent::BonusWaveChosen { slot, on } => (slot as i64) + 100 * i64::from(on),
             // The experience in the hundreds, the crew member in the units.
             WorldEvent::CleanSweep { who, xp } => (who as i64) + 100 * (xp as i64),
+            // The money in the hundreds, the player in the units.
+            WorldEvent::WarChest { slot, money } => {
+                (slot as i64).saturating_add((money as i64).saturating_mul(100))
+            }
             // The kind in the hundreds, the player in the units.
             WorldEvent::ItemUsed { who, kind } => (who as i64) + 100 * (kind as i64),
             // The buyer in the units, the kind in the tens, the tier in the
