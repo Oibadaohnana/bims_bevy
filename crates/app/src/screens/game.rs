@@ -273,6 +273,9 @@ pub struct GameScreen {
     /// (`super::fightwon`): the screen that comes up when the site is
     /// cleared.
     fight: super::fightwon::FightTally,
+    /// A won fight's money flying onto the map's money (October 2026),
+    /// while it does.
+    payout: Option<super::fightwon::Payout>,
 }
 
 /// How long one of those numbers is in the air, and the shortest gap
@@ -1139,6 +1142,7 @@ impl GameScreen {
             bars: crate::healthbars::HealthBars::default(),
             world_map: super::worldmap::WorldMap::default(),
             fight: super::fightwon::FightTally::default(),
+            payout: None,
         }
     }
 
@@ -1671,6 +1675,8 @@ fn frame(
     // And the white and the light on the health bars (task 137), on the
     // same clock.
     let bars_dt = if running { dt as f32 } else { 0.0 };
+    // egui's clock, which a won fight's money flies by.
+    let now = ctx.input(|i| i.time);
     // What just happened. An event is a thing that happened once, so the
     // list is drained after it is read.
     if let Some(game) = &mut session.game {
@@ -1678,8 +1684,11 @@ fn frame(
         // Whether a machine went down this frame: what experience that
         // came in with it was for (feature 107).
         let mut machines_down = false;
-        // The fight's tally, started afresh with a new mission.
-        screen.fight.follow(&game.world);
+        // The fight's tally, started afresh with a new mission; a won
+        // mission's end sets its money flying onto the map.
+        if let Some(payout) = screen.fight.follow(&game.world, screen.net.slot, now) {
+            screen.payout = Some(payout);
+        }
         for event in game.events.drain(..) {
             machines_down |= matches!(event, WorldEvent::DroidDown { .. });
             // Anyone's purchase at the trader rings the till in every
@@ -3178,11 +3187,20 @@ fn frame(
                 panel_frame().show(ui, |ui| {
                     ui.horizontal(|ui| {
                         ui.label(egui::RichText::new(MAP_MONEY).color(theme::MUTED));
+                        // While a won fight's money flies in, the number
+                        // counts up by each coin landing, lit yellow as
+                        // one does.
+                        let (owed, glow) = screen
+                            .payout
+                            .as_ref()
+                            .map_or((0, 0.0), |p| (p.owed(now), p.glow(now)));
                         ui.label(
-                            egui::RichText::new(crate::format::euros(world.share_of(local)))
-                                .strong()
-                                .size(16.0)
-                                .color(theme::ACCENT),
+                            egui::RichText::new(crate::format::euros(
+                                world.share_of(local).saturating_sub(owed),
+                            ))
+                            .strong()
+                            .size(16.0 + 2.0 * glow)
+                            .color(theme::ACCENT.lerp_to_gamma(theme::REWARD_MONEY, glow)),
                         );
                     })
                     .response
@@ -3192,6 +3210,16 @@ fn frame(
             .response
             .rect;
         hud::relic_bar(&ctx, money.center().x, money.max.y + 6.0, world.relics());
+        if let Some(payout) = &mut screen.payout {
+            if payout.sound_now() {
+                sounds.payout(&mut commands);
+            }
+            payout.paint(&ctx, money, now);
+            ctx.request_repaint();
+            if payout.done(now) {
+                screen.payout = None;
+            }
+        }
     } else {
         let threats = hud::threats(world, local);
         let paused = world.effective_speed().multiplier() == 0;
@@ -5901,7 +5929,8 @@ fn item_grid(ui: &mut egui::Ui, world: &world::World, who: u32, keys: &Keys) {
                             // An Adrenal Injector's rush the same way
                             // (October 2026).
                             let rush = world.adrenal_left(who);
-                            if item.kind == bims::module::ModuleKind::AdrenalInjector && rush > 0.0 {
+                            if item.kind == bims::module::ModuleKind::AdrenalInjector && rush > 0.0
+                            {
                                 painter.rect_stroke(
                                     rect,
                                     4.0,

@@ -1607,6 +1607,9 @@ pub fn trader_window(
     // Which tab is up, kept between frames: Buy to begin with.
     let tab = egui::Id::new("trader-selling");
     let mut selling = ctx.data(|d| d.get_temp::<bool>(tab)).unwrap_or(false);
+    // What the search field holds, kept between frames and tabs.
+    let find = egui::Id::new("trader-search");
+    let mut search = ctx.data(|d| d.get_temp::<String>(find)).unwrap_or_default();
     let crew = world.aboard.crew_count();
     if to != u32::MAX && !(to < crew && world.may_change(local, to)) {
         to = local;
@@ -1632,12 +1635,13 @@ pub fn trader_window(
         .frame(form_frame())
         .show(ctx, |ui| {
             ui.set_width(FORM_WIDTH);
-            if form_header(ui, world, trader) {
+            if form_header(ui, world, local, trader) {
                 let at = (trader.site.star, trader.site.station);
                 ui.ctx().data_mut(|d| d.insert_temp(trader_shut_id(), at));
             }
             ui.add_space(6.0);
-            // The two tabs, Sell to the right of Buy (October 2026).
+            // The two tabs, Sell to the right of Buy (October 2026), and
+            // the search over either at the far right.
             ui.horizontal(|ui| {
                 if theme::toggle(ui, !selling, TRADER_TAB_BUY).clicked() {
                     selling = false;
@@ -1645,7 +1649,22 @@ pub fn trader_window(
                 if theme::toggle(ui, selling, TRADER_TAB_SELL).clicked() {
                     selling = true;
                 }
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if !search.is_empty() && ui.button(TRADER_SEARCH_CLEAR).clicked() {
+                        search.clear();
+                    }
+                    // Boxed even unfocused, so it reads as a field.
+                    ui.visuals_mut().widgets.inactive.bg_stroke = egui::Stroke::new(1.0, FORM_RULE);
+                    ui.add(
+                        egui::TextEdit::singleline(&mut search)
+                            .hint_text(TRADER_SEARCH_HINT)
+                            .background_color(theme::PANEL_DEEP)
+                            .desired_width(220.0),
+                    )
+                    .on_hover_text(TRADER_SEARCH_TIP);
+                });
             });
+            let query = search.trim().to_lowercase();
             ui.add_space(4.0);
             if !selling {
                 // Deliver to: the player's own Bim, every bot, or the armory.
@@ -1666,34 +1685,59 @@ pub fn trader_window(
                 ui.add_space(2.0);
             }
             perforation(ui);
-            egui::ScrollArea::vertical()
-                .id_salt("trader-body")
-                .max_height(500.0)
-                .show(ui, |ui| {
-                    // Both tabs the same height, so the window (pinned at
-                    // its middle) does not move the tabs under the pointer.
-                    ui.set_min_height(500.0);
-                    if selling {
-                        form_heading(ui, TRADER_SELL_HEADING, Some(TRADER_SELL_INTRO));
-                        sell_rows(ui, world, local, orders, name);
-                        return;
-                    }
-                    for (heading, weapons) in [(TRADER_WEAPONS, true), (TRADER_ARMOUR, false)] {
-                        form_heading(ui, heading, None);
-                        let mut row = 0;
-                        for (index, slot) in trader.shelf.iter().enumerate() {
-                            // A slot sold is shown under the heading of the
-                            // half of the shelf it was in: the weapons come
-                            // first, [`world::data::TRADER_WEAPONS`] of them.
-                            if (index < world::data::TRADER_WEAPONS) == weapons {
-                                shelf_row(ui, world, local, index, *slot, row, to, orders);
-                                row += 1;
-                            }
+            // Three columns side by side (October 2026): the weapons, the
+            // armour, the items — on either tab.
+            let heads = if selling {
+                [
+                    (TRADER_WEAPONS, Some(TRADER_SELL_INTRO)),
+                    (TRADER_ARMOUR, None),
+                    (TRADER_ITEMS, None),
+                ]
+            } else {
+                [
+                    (TRADER_WEAPONS, None),
+                    (TRADER_ARMOUR, None),
+                    (TRADER_ITEMS, Some(TRADER_ITEMS_INTRO)),
+                ]
+            };
+            three_columns(ui, selling, heads, |ui, column| {
+                let shown = if selling {
+                    sell_rows(ui, world, local, orders, name, column, &query)
+                } else if column == COLUMN_ITEMS {
+                    item_rows(ui, world, local, orders, &query)
+                } else {
+                    let weapons = column == COLUMN_WEAPONS;
+                    let heading = heads_word(column);
+                    let mut row = 0;
+                    for (index, slot) in trader.shelf.iter().enumerate() {
+                        // A slot sold is shown in the column of the half of
+                        // the shelf it was in: the weapons come first,
+                        // [`world::data::TRADER_WEAPONS`] of them. Under a
+                        // search it is left out: it has no name to match.
+                        if (index < world::data::TRADER_WEAPONS) != weapons {
+                            continue;
                         }
+                        let named = slot.map(|item| thing_name(shelf_thing(item)));
+                        if !query.is_empty() && !named.is_some_and(|n| finds(&query, &[n, heading]))
+                        {
+                            continue;
+                        }
+                        shelf_row(ui, world, local, index, *slot, row, to, orders);
+                        row += 1;
                     }
-                    form_heading(ui, TRADER_ITEMS, Some(TRADER_ITEMS_INTRO));
-                    item_rows(ui, world, local, orders);
-                });
+                    row
+                };
+                if shown == 0 {
+                    let empty = if !query.is_empty() {
+                        Some(TRADER_NO_MATCH)
+                    } else {
+                        selling.then_some(TRADER_SELL_NONE)
+                    };
+                    if let Some(empty) = empty {
+                        ui.label(egui::RichText::new(empty).small().color(theme::MUTED));
+                    }
+                }
+            });
             form_total(ui, world, local);
         });
     if let Some(shown) = shown {
@@ -1705,7 +1749,118 @@ pub fn trader_window(
     ctx.data_mut(|d| {
         d.insert_temp(id, to);
         d.insert_temp(tab, selling);
+        d.insert_temp(find, search);
     });
+}
+
+/// The trader's three columns, in their order.
+const COLUMN_WEAPONS: usize = 0;
+const COLUMN_ARMOUR: usize = 1;
+const COLUMN_ITEMS: usize = 2;
+
+/// Lays out the trader's three columns side by side: each its heading
+/// (`heads`) and under it a scroll of its own, which `body` fills (handed
+/// the column), so the long items column scrolls with the weapons still
+/// in view. Every column is the same height whatever is in it, so the
+/// window (pinned at its middle) does not move the tabs under the pointer.
+fn three_columns(
+    ui: &mut egui::Ui,
+    selling: bool,
+    heads: [(&str, Option<&str>); 3],
+    mut body: impl FnMut(&mut egui::Ui, usize),
+) {
+    ui.horizontal_top(|ui| {
+        for (column, (heading, tip)) in heads.into_iter().enumerate() {
+            if column > 0 {
+                ui.add_space(COLUMN_GAP - ui.spacing().item_spacing.x);
+            }
+            ui.vertical(|ui| {
+                ui.set_width(COLUMN_WIDTH);
+                form_heading(ui, heading, tip);
+                egui::ScrollArea::vertical()
+                    .id_salt(("trader-column", selling, column))
+                    .max_height(COLUMN_HEIGHT)
+                    .show(ui, |ui| {
+                        ui.set_min_height(COLUMN_HEIGHT);
+                        ui.set_width(COLUMN_WIDTH);
+                        body(ui, column);
+                    });
+            });
+        }
+    });
+}
+
+/// Whether a line is one a search for `query` (trimmed, lower case) finds:
+/// any of `words` — its name, its column, its group — has it in it.
+fn finds(query: &str, words: &[&str]) -> bool {
+    query.is_empty() || words.iter().any(|w| w.to_lowercase().contains(query))
+}
+
+/// The items column's groups (October 2026), in the order they stand:
+/// what an item is for.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ItemGroup {
+    /// Moving, cooldowns, the enemy's eyes, experience.
+    Utility,
+    /// More of the weapon's (or the bots') damage.
+    Damage,
+    /// Staying up: health, mending, hits taken off.
+    Durability,
+}
+
+impl ItemGroup {
+    const ORDER: [ItemGroup; 3] = [ItemGroup::Utility, ItemGroup::Damage, ItemGroup::Durability];
+
+    fn of(kind: bims::module::ModuleKind) -> ItemGroup {
+        use bims::module::ModuleKind as K;
+        match kind {
+            K::BlinkDrive
+            | K::OverrideCore
+            | K::CoolantLoop
+            | K::ResetCapacitor
+            | K::TrainingLog
+            | K::SmokeLauncher
+            | K::DecoyProjector => ItemGroup::Utility,
+            K::Executioner
+            | K::SteadyGrip
+            | K::LongBarrel
+            | K::ArcCoil
+            | K::TargetingUplink
+            | K::Overcharger => ItemGroup::Damage,
+            K::ReactorHeart
+            | K::PressureSeal
+            | K::LeechCapacitor
+            | K::FieldMender
+            | K::AblativeShell
+            | K::TetherLink
+            | K::AdrenalInjector => ItemGroup::Durability,
+        }
+    }
+
+    fn name(self) -> &'static str {
+        match self {
+            ItemGroup::Utility => TRADER_ITEMS_UTILITY,
+            ItemGroup::Damage => TRADER_ITEMS_DAMAGE,
+            ItemGroup::Durability => TRADER_ITEMS_DURABILITY,
+        }
+    }
+
+    /// Where it stands in the column.
+    fn rank(self) -> usize {
+        ItemGroup::ORDER
+            .iter()
+            .position(|g| *g == self)
+            .unwrap_or(0)
+    }
+}
+
+/// The column a thing stands in: weapons, armour, items.
+fn column_of(thing: bims::combat::Item) -> usize {
+    match thing {
+        bims::combat::Item::Weapon(_) => COLUMN_WEAPONS,
+        bims::combat::Item::Armour(_) => COLUMN_ARMOUR,
+        bims::combat::Item::Module(_) | bims::combat::Item::Stack(_) => COLUMN_ITEMS,
+    }
 }
 
 /// Where the trader's window keeps, for its line items, the lines the
@@ -1718,8 +1873,13 @@ fn line_eyed_id() -> egui::Id {
     egui::Id::new("trader-line-eyed")
 }
 
-/// The form's width, in points, and a line item's height.
-const FORM_WIDTH: f32 = 440.0;
+/// A column's width, in points (a line item is as wide), the room between
+/// two, the height of a column's scroll, the form's width over the three,
+/// and a line item's height.
+const COLUMN_WIDTH: f32 = 330.0;
+const COLUMN_GAP: f32 = 14.0;
+const COLUMN_HEIGHT: f32 = 500.0;
+const FORM_WIDTH: f32 = 3.0 * COLUMN_WIDTH + 2.0 * COLUMN_GAP;
 const LINE_HEIGHT: f32 = 42.0;
 /// The side of a line item's icon cell.
 const LINE_ICON: f32 = 34.0;
@@ -1780,7 +1940,12 @@ fn trader_reopen(ui: &mut egui::Ui, world: &World, local: u32) {
 }
 
 /// The form's header band; true when its × put the panel away.
-fn form_header(ui: &mut egui::Ui, world: &World, trader: &world::trader::Trader) -> bool {
+fn form_header(
+    ui: &mut egui::Ui,
+    world: &World,
+    local: u32,
+    trader: &world::trader::Trader,
+) -> bool {
     let mut shut = false;
     let top = ui.cursor().min;
     let band = egui::Rect::from_min_size(top, egui::vec2(FORM_WIDTH, 46.0));
@@ -1828,6 +1993,10 @@ fn form_header(ui: &mut egui::Ui, world: &World, trader: &world::trader::Trader)
                         shut = true;
                     }
                     theme::question_mark(ui, TRADER_TIP);
+                    // The player's own money, in the money's yellow,
+                    // where the eye starts.
+                    ui.add_space(10.0);
+                    wallet_label(ui, world, local, 18.0);
                     // A trader near the machines charges over the odds for
                     // what a fight is fought with (feature 94): stamped.
                     if let Some(hops) = world.run.site.and_then(|id| world.front_at(id)) {
@@ -1891,13 +2060,23 @@ fn perforation(ui: &mut egui::Ui) {
 /// A section's heading: the word in small capitals, the section's rules
 /// on a "?" if it has any, and a rule drawn out to the form's edge.
 fn form_heading(ui: &mut egui::Ui, text: &str, tip: Option<&str>) {
+    heading_in(ui, text, tip, theme::ACCENT);
+}
+
+/// A group's heading inside a column (the items' Utility, Damage,
+/// Durability): a section's, in the muted ink.
+fn group_heading(ui: &mut egui::Ui, text: &str) {
+    heading_in(ui, text, None, theme::MUTED);
+}
+
+fn heading_in(ui: &mut egui::Ui, text: &str, tip: Option<&str>, colour: egui::Color32) {
     ui.add_space(6.0);
     ui.horizontal(|ui| {
         ui.label(
             egui::RichText::new(text.to_uppercase())
                 .small()
                 .strong()
-                .color(theme::ACCENT),
+                .color(colour),
         );
         if let Some(tip) = tip {
             theme::question_mark(ui, tip);
@@ -1961,7 +2140,7 @@ struct Line<'a> {
 /// button greyed.
 fn line_item(ui: &mut egui::Ui, wallet: economy::Money, line: Line) -> bool {
     let (rect, response) =
-        ui.allocate_exact_size(egui::vec2(FORM_WIDTH, LINE_HEIGHT), egui::Sense::hover());
+        ui.allocate_exact_size(egui::vec2(COLUMN_WIDTH, LINE_HEIGHT), egui::Sense::hover());
     ui.add_space(2.0);
     if !ui.is_rect_visible(rect) {
         return false;
@@ -2209,21 +2388,27 @@ fn form_total(ui: &mut egui::Ui, world: &World, local: u32) {
     ui.add_space(2.0);
     ui.horizontal(|ui| {
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            ui.label(
-                egui::RichText::new(euros(world.wallet(local)))
-                    .monospace()
-                    .strong()
-                    .size(20.0)
-                    .color(theme::ACCENT),
-            );
-            ui.label(
-                egui::RichText::new(TRADER_BALANCE.to_uppercase())
-                    .small()
-                    .strong()
-                    .color(theme::MUTED),
-            );
+            wallet_label(ui, world, local, 20.0);
         });
     });
+}
+
+/// The player's own balance, right to left: the sum in the money's
+/// yellow at `size`, *Your balance* before it.
+fn wallet_label(ui: &mut egui::Ui, world: &World, local: u32, size: f32) {
+    ui.label(
+        egui::RichText::new(euros(world.wallet(local)))
+            .monospace()
+            .strong()
+            .size(size)
+            .color(theme::REWARD_MONEY),
+    );
+    ui.label(
+        egui::RichText::new(TRADER_BALANCE.to_uppercase())
+            .small()
+            .strong()
+            .color(theme::MUTED),
+    );
 }
 
 /// The thing a shelf slot holds, as a thing: a weapon, or a whole piece.
@@ -2348,76 +2533,116 @@ fn thing_name(thing: bims::combat::Item) -> &'static str {
 /// The trader's items (October 2026): a line a kind, always onto the
 /// player's own Bim — the day's tier off the shelf, or, where the Bim
 /// carries the kind, its *Upgrade* a tier up, outlined in that tier's
-/// colour; one at its top stamped *MAX*.
-fn item_rows(ui: &mut egui::Ui, world: &World, local: u32, orders: &mut Vec<Order>) {
+/// colour; one at its top stamped *MAX*. In three groups, Utility, Damage
+/// and Durability, each under its heading; only the lines `query` finds.
+/// Answers how many lines it drew.
+fn item_rows(
+    ui: &mut egui::Ui,
+    world: &World,
+    local: u32,
+    orders: &mut Vec<Order>,
+    query: &str,
+) -> usize {
+    let mut shown = 0;
+    for group in ItemGroup::ORDER {
+        let offers: Vec<_> = bims::module::ModuleKind::ALL
+            .into_iter()
+            .filter(|&kind| ItemGroup::of(kind) == group)
+            .filter(|&kind| {
+                finds(
+                    query,
+                    &[crate::names::item_name(kind), group.name(), TRADER_ITEMS],
+                )
+            })
+            .filter_map(|kind| Some((kind, world.item_offer(local, kind.code())?)))
+            .collect();
+        if offers.is_empty() {
+            continue;
+        }
+        group_heading(ui, group.name());
+        for (row, (kind, offer)) in offers.into_iter().enumerate() {
+            item_row(ui, world, local, orders, kind, offer, row);
+            shown += 1;
+        }
+    }
+    shown
+}
+
+/// One line of the items column: `kind` as `offer` has it, *Buy* or
+/// *Upgrade* on it, or stamped *SOLD* or *MAX*.
+fn item_row(
+    ui: &mut egui::Ui,
+    world: &World,
+    local: u32,
+    orders: &mut Vec<Order>,
+    kind: bims::module::ModuleKind,
+    offer: world::items::ItemOffer,
+    row: usize,
+) {
     let wallet = world.wallet(local);
-    let mut row = 0;
-    for kind in bims::module::ModuleKind::ALL {
-        let Some(offer) = world.item_offer(local, kind.code()) else {
-            continue;
-        };
-        // Bought this visit: SOLD, as a slot of the shelf is, until the
-        // next visit.
-        if world.item_sold(local, kind.code()) {
-            line_item(ui, wallet, sold_line(crate::names::item_name(kind), row));
-            row += 1;
-            continue;
-        }
-        let (item, upgrade) = match offer {
-            world::items::ItemOffer::Buy(item) => (item, false),
-            world::items::ItemOffer::Upgrade { to, .. } => (to, true),
-            world::items::ItemOffer::Top(item) => (item, false),
-        };
-        let top = matches!(offer, world::items::ItemOffer::Top(_));
-        let thing = bims::combat::Item::Module(item);
-        let tier = item.tier.code();
-        let price = world.item_offer_price(offer).unwrap_or(0);
-        let tip = crate::names::module_tip(item, !kind.active());
-        let bought = line_item(
-            ui,
-            wallet,
-            Line {
-                face: Face::Thing(thing),
-                tint: theme::item_tint(thing),
-                name: crate::names::item_name(kind),
-                tier: kind.tiered().then_some(if upgrade {
-                    (tier - 1, Some(tier))
-                } else {
-                    (tier, None)
-                }),
-                price,
-                button: if upgrade { TRADER_UPGRADE } else { TRADER_BUY },
-                open: !top && price <= wallet,
-                tip: Some(if upgrade {
-                    format!("{TRADER_UPGRADE_TIP}\n\n{tip}")
-                } else {
-                    tip
-                }),
-                row,
-                key: Some(TradeLine::Item(kind.code())),
-                upgrade,
-                stamp: top.then_some(TRADER_TOP),
-                note: upgrade.then(|| TRADER_UPGRADE_NOTE.to_string()),
-                worn: false,
-            },
-        );
-        row += 1;
-        if bought {
-            orders.push(Order::BuyItem { kind: kind.code() });
-        }
+    // Bought this visit: SOLD, as a slot of the shelf is, until the
+    // next visit.
+    if world.item_sold(local, kind.code()) {
+        line_item(ui, wallet, sold_line(crate::names::item_name(kind), row));
+        return;
+    }
+    let (item, upgrade) = match offer {
+        world::items::ItemOffer::Buy(item) => (item, false),
+        world::items::ItemOffer::Upgrade { to, .. } => (to, true),
+        world::items::ItemOffer::Top(item) => (item, false),
+    };
+    let top = matches!(offer, world::items::ItemOffer::Top(_));
+    let thing = bims::combat::Item::Module(item);
+    let tier = item.tier.code();
+    let price = world.item_offer_price(offer).unwrap_or(0);
+    let tip = crate::names::module_tip(item, !kind.active());
+    let bought = line_item(
+        ui,
+        wallet,
+        Line {
+            face: Face::Thing(thing),
+            tint: theme::item_tint(thing),
+            name: crate::names::item_name(kind),
+            tier: kind.tiered().then_some(if upgrade {
+                (tier - 1, Some(tier))
+            } else {
+                (tier, None)
+            }),
+            price,
+            button: if upgrade { TRADER_UPGRADE } else { TRADER_BUY },
+            open: !top && price <= wallet,
+            tip: Some(if upgrade {
+                format!("{TRADER_UPGRADE_TIP}\n\n{tip}")
+            } else {
+                tip
+            }),
+            row,
+            key: Some(TradeLine::Item(kind.code())),
+            upgrade,
+            stamp: top.then_some(TRADER_TOP),
+            note: upgrade.then(|| TRADER_UPGRADE_NOTE.to_string()),
+            worn: false,
+        },
+    );
+    if bought {
+        orders.push(Order::BuyItem { kind: kind.code() });
     }
 }
 
 /// The Sell tab (October 2026): everything the player may sell — its own
 /// Bim's weapon, armour and items, then its own armory's — a
-/// line each at [`World::sell_value`], *Sell* on it.
+/// line each at [`World::sell_value`], *Sell* on it — those of `column`
+/// that `query` finds, the items in their groups' order. Answers how many
+/// lines it drew.
 fn sell_rows(
     ui: &mut egui::Ui,
     world: &World,
     local: u32,
     orders: &mut Vec<Order>,
     name: &dyn Fn(u32) -> String,
-) {
+    column: usize,
+    query: &str,
+) -> usize {
     let mut things: Vec<(world::GearSource, Option<u32>)> = Vec::new();
     for who in 0..world.aboard.crew_count() {
         if !world.may_change(local, who) {
@@ -2432,11 +2657,27 @@ fn sell_rows(
     for stored in world.holdings.of(local) {
         things.push((world::GearSource::Armory { id: stored.id }, None));
     }
-    let mut row = 0;
-    for (from, worn) in things {
-        let Ok((thing, value)) = world.sellable(local, from) else {
-            continue;
-        };
+    // Every line keeps its key, numbered over the whole tab, whatever
+    // the column and the search leave out.
+    let mut lines: Vec<_> = things
+        .into_iter()
+        .filter_map(|(from, worn)| Some((from, worn, world.sellable(local, from).ok()?)))
+        .enumerate()
+        .filter(|(_, (_, _, (thing, _)))| column_of(*thing) == column)
+        .filter(|(_, (_, _, (thing, _)))| {
+            let group = match thing {
+                bims::combat::Item::Module(m) => ItemGroup::of(m.kind).name(),
+                _ => "",
+            };
+            finds(query, &[thing_name(*thing), heads_word(column), group])
+        })
+        .collect();
+    lines.sort_by_key(|(_, (_, _, (thing, _)))| match thing {
+        bims::combat::Item::Module(m) => ItemGroup::of(m.kind).rank(),
+        _ => 0,
+    });
+    let shown = lines.len();
+    for (row, (key, (from, worn, (thing, value)))) in lines.into_iter().enumerate() {
         let tier = match thing {
             bims::combat::Item::Weapon(w) => Some(w.tier.code()),
             bims::combat::Item::Armour(p) => Some(p.tier.code()),
@@ -2465,23 +2706,25 @@ fn sell_rows(
                 open: true,
                 tip: Some(crate::crew::tip_of(thing, 1)),
                 row,
-                key: Some(TradeLine::Sell(row as u32)),
+                key: Some(TradeLine::Sell(key as u32)),
                 upgrade: false,
                 stamp: None,
                 worn: own,
             },
         );
-        row += 1;
         if sold {
             orders.push(Order::Sell { from });
         }
     }
-    if row == 0 {
-        ui.label(
-            egui::RichText::new(TRADER_SELL_NONE)
-                .small()
-                .color(theme::MUTED),
-        );
+    shown
+}
+
+/// A column's word, for a search to find: *Weapons*, *Armour*, *Items*.
+fn heads_word(column: usize) -> &'static str {
+    match column {
+        COLUMN_WEAPONS => TRADER_WEAPONS,
+        COLUMN_ARMOUR => TRADER_ARMOUR,
+        _ => TRADER_ITEMS,
     }
 }
 

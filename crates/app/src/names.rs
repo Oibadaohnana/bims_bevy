@@ -2595,6 +2595,16 @@ pub const TRADER_ARMOUR: &str = "Armour";
 /// sold out.
 pub const TRADER_ITEMS: &str = "Items";
 pub const TRADER_ITEMS_INTRO: &str = "Every item at the tier the day has reached, one of each a visit, onto your own Bim's first free item slot — never into the armory, and a bot carries none. An item your Bim already carries is offered a tier up instead, at every trader after the one you bought it at: Upgrade, at the next tier's price, in the slot it is in.";
+/// The items column's three groups (October 2026), in the order they
+/// stand: what an item does for the Bim.
+pub const TRADER_ITEMS_UTILITY: &str = "Utility";
+pub const TRADER_ITEMS_DAMAGE: &str = "Damage";
+pub const TRADER_ITEMS_DURABILITY: &str = "Durability";
+/// The search field over the trader's columns, and a column it empties.
+pub const TRADER_SEARCH_HINT: &str = "Search…";
+pub const TRADER_SEARCH_TIP: &str = "Shows only the lines whose name has this in it — or whose column or group does: \"damage\", \"armour\".";
+pub const TRADER_SEARCH_CLEAR: &str = "×";
+pub const TRADER_NO_MATCH: &str = "Nothing matches.";
 pub const TRADER_SOLD: &str = "SOLD";
 pub const TRADER_BUY: &str = "Buy";
 /// The button on an item line the player's own Bim carries one of: it
@@ -2616,7 +2626,6 @@ pub const TRADER_INTO_ARMORY: &str = "Armory";
 pub const TRADER_TAB_BUY: &str = "Buy";
 pub const TRADER_TAB_SELL: &str = "Sell";
 pub const TRADER_SELL: &str = "Sell";
-pub const TRADER_SELL_HEADING: &str = "Your things";
 pub const TRADER_SELL_INTRO: &str = "Sell back what you may change — your own Bim's weapon, armour and items and your armory's — for half of what it cost. An item fetches half of everything paid for it, its upgrades too; a weapon or armour half its price on the shelf today. What you sell leaves its slot empty.";
 pub const TRADER_SELL_NONE: &str = "Nothing to sell.";
 /// The note on a line the player's own Bim wears or carries.

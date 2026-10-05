@@ -446,6 +446,13 @@ const SHOTS_PER_FRAME: u32 = 12;
 /// enemy's: thirty per cent quieter, so the player's own gun stands out.
 const OTHERS_SHOTS: f32 = 0.7;
 
+/// The trader's till and coins (`Sounds::bought`, `Sounds::sold`).
+const TILL_LEVEL: f32 = 0.45;
+
+/// The won fight's money flying onto the map (`Sounds::payout`): the
+/// trader's till and coins, thirty per cent quieter than they are there.
+const PAYOUT_SHARE: f32 = 0.7;
+
 /// Places are told apart this coarsely, in room units — two tiles — so a
 /// gunner walking between the steps of one frame is one place.
 const PLACE: f32 = 2.0 * bims::room::TILE;
@@ -894,7 +901,7 @@ impl Sounds {
     /// place in the room, so all purchases share one cool-down.
     pub fn bought(&mut self, commands: &mut Commands) {
         if self.admit(Kind::Bought, bims::math::Vec2::ZERO) {
-            self.one_shot(commands, Clip::Bought, 0.45);
+            self.one_shot(commands, Clip::Bought, TILL_LEVEL);
         }
     }
 
@@ -902,8 +909,17 @@ impl Sounds {
     /// heard in every window like a purchase, with its own cool-down.
     pub fn sold(&mut self, commands: &mut Commands) {
         if self.admit(Kind::Sold, bims::math::Vec2::ZERO) {
-            self.one_shot(commands, Clip::Sold, 0.45);
+            self.one_shot(commands, Clip::Sold, TILL_LEVEL);
         }
+    }
+
+    /// A won fight's money flying onto the map's money (October 2026,
+    /// `fightwon::Payout`): the till and the coins together, layered,
+    /// each at 70% of what it is at the trader.
+    pub fn payout(&mut self, commands: &mut Commands) {
+        let level = TILL_LEVEL * PAYOUT_SHARE;
+        self.one_shot(commands, Clip::Bought, level);
+        self.one_shot(commands, Clip::Sold, level);
     }
 
     /// An enemy down, with the money and the experience it was worth
