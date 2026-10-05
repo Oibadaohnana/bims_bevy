@@ -1165,8 +1165,10 @@ const HERO_BAR_H: f32 = 26.0;
 /// The number inside the health bar, and the magazine's.
 const HERO_NUMBER: f32 = 18.0;
 const MAGAZINE_NUMBER: f32 = 28.0;
-/// The experience bar under the health bar.
-const XP_BAR_H: f32 = 6.0;
+/// The experience bar under the health bar, tall enough for its number:
+/// what is in of what the level wants.
+const XP_BAR_H: f32 = 14.0;
+const XP_NUMBER: f32 = 11.0;
 
 /// The hero panel — the main of the HUD, Dota 2's bottom bar — centred at
 /// the foot of the canvas but never left of `clear` — the right edge of
@@ -1240,6 +1242,17 @@ pub fn hero_panel(
                                 egui::Sense::hover(),
                             );
                             theme::bar_in(ui.painter(), rect, xp_fill(hero.xp), theme::HYPER);
+                            let number = match xp_into(hero.xp) {
+                                Some((_, into, of)) => xp_bar_number(into, of),
+                                None => XP_BAR_MAX.to_string(),
+                            };
+                            ui.painter().text(
+                                rect.center(),
+                                egui::Align2::CENTER_CENTER,
+                                number,
+                                egui::FontId::proportional(XP_NUMBER),
+                                egui::Color32::WHITE,
+                            );
                             response.on_hover_text(xp_text(hero.class, hero.xp));
                         }
                         trigger_row(ui, hero, width);
@@ -1389,13 +1402,28 @@ fn level_disc(ui: &mut egui::Ui, hero: &Hero) {
     } else {
         "–".to_string()
     };
+    // Under the level, the experience the next one still wants; the
+    // level lifted to make room for it.
+    let to_go = xp_into(hero.xp)
+        .filter(|_| classed)
+        .map(|(_, into, of)| xp_to_go(of.saturating_sub(into)));
+    let lift = if to_go.is_some() { 6.0 } else { 0.0 };
     painter.text(
-        at,
+        at - egui::vec2(0.0, lift),
         egui::Align2::CENTER_CENTER,
         level,
         egui::FontId::proportional(28.0),
         theme::INK,
     );
+    if let Some(to_go) = to_go {
+        painter.text(
+            at + egui::vec2(0.0, 16.0),
+            egui::Align2::CENTER_CENTER,
+            to_go,
+            egui::FontId::proportional(10.0),
+            theme::MUTED,
+        );
+    }
     if hero.points_waiting > 0 {
         // A pill as wide as its figure, its right end on the disc's edge.
         let galley = painter.layout_no_wrap(

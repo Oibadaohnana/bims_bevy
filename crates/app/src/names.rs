@@ -2663,6 +2663,17 @@ pub fn hero_xp_line(level: u8, into: u32, of: u32) -> String {
 pub fn hero_xp_max(level: u8) -> String {
     format!("Lv {level} · Max")
 }
+/// The number inside the hero panel's experience bar: what is in of what
+/// the level wants, and `Max` at the top.
+pub fn xp_bar_number(into: u32, of: u32) -> String {
+    format!("{into} / {of} XP")
+}
+pub const XP_BAR_MAX: &str = "Max";
+/// Under the level in its circle: the experience still wanted for the
+/// next level.
+pub fn xp_to_go(left: u32) -> String {
+    format!("{left} to go")
+}
 pub const NO_CLASS: &str = "No class";
 /// The hero panel greyed over while its Bim is down.
 pub const DOWNED_BANNER: &str = "Downed";
