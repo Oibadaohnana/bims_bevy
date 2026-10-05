@@ -18,7 +18,8 @@ on its own; editing the file here does.
   pads the start and end with a little silence, which would be a gap at
   every turn of a loop.
 - They are made mono, 48 kHz. Stereo or another rate plays too.
-- **Level.** The one-shots peak at -1 dB. The loops are levelled by
+- **Level.** The one-shots peak at -1 dB (the remastered ones are
+  at your own levels). The loops are levelled by
   loudness: the five ambiences to -30 LUFS, `smoke_run` to -24. Keep
   about that and the mix stays where it was. To make a sound louder or
   quieter in the game, change its number in `audio.ron` at the root
@@ -31,6 +32,12 @@ on its own; editing the file here does.
 
 ## Which is which
 
+The remastered ones were exported as MP3 into `Sounds/remastered/`.
+They were made Ogg here (mono, 48 kHz, quality 5) at your levels. The
+silence an MP3 encoder puts at the start (50–66 ms) was cut, so each
+one starts where the old clip did and `reload`'s clicks still meet
+`reload_laser`'s.
+
 *Made from* is the recording it was cut from. *Synthesised* means there
 was no recording, so it was built from scratch (layered over a recording
 where one is named).
@@ -39,11 +46,11 @@ where one is named).
 
 | file | heard | made from | length |
 | --- | --- | --- | --- |
-| `laser_1` … `laser_4` | the laser pistol, four takes in turn | `Laser_shot.mp3` | 0.55 s |
+| `laser_1` … `laser_4` | the laser pistol, four takes in turn | `Laser_shot.mp3`, your remaster (`Sounds/remastered/`) | 0.5 s (`laser_2` 0.58) |
 | `shotgun` | the shotgun | `Laser_shot.mp3`, slowed to 70% | 0.8 s |
 | `rifle` | the auto rifle; the minigun, quieter | `Laser_shot.mp3`, sped up | 0.32 s |
 | `sniper` | the sniper rifle; the rail lance, a Lancer's rail, the Unmaker | `Laser_Sniper_shot.mp3` | 1.3 s |
-| `reload` | a magazine reloaded, every gun but the shotgun | `Gun_Reload.mp3` | 1.1 s, *timed* |
+| `reload` | a magazine reloaded, every gun but the shotgun | `Gun_Reload.mp3`, your remaster (`Sounds/remastered/`) | 1.06 s, *timed* |
 | `shotgun_reload` | the shotgun's shells pushed in | `Shotgun_reloading.mp3` | 3.55 s, *timed* |
 | `reload_laser` | a laser cell's charge, played over `reload` | synthesised | 1.1 s, *timed* to `reload`'s clicks |
 | `shotgun_reload_laser` | the same over `shotgun_reload`, a blip a shell | synthesised | 3.55 s, *timed* to its clicks |
@@ -52,8 +59,8 @@ where one is named).
 
 | file | heard | made from | length |
 | --- | --- | --- | --- |
-| `laser_hit` | a bolt landing on a body | `Laser_gun_hit.mp3` | 0.22 s |
-| `laser_wall` | a bolt off a wall, or off a Guardian's shield | `Laser_gun_hit.mp3`, muffled | 0.22 s |
+| `laser_hit` | a bolt landing on a body | `Laser_gun_hit.mp3`, your remaster (`Sounds/remastered/`) | 0.17 s |
+| `laser_wall` | a bolt off a wall, or off a Guardian's shield | `Laser_gun_hit.mp3`, muffled; your remaster (`Sounds/remastered/`) | 0.17 s |
 | `ouch` | one of the crew hit | `own_bim_getting_hit.mp3` | 0.35 s |
 | `schword` | a blade's cut | `Schword_hit.mp3` | 0.55 s |
 | `punch` | a blow that is not a cut | `Schword_hit.mp3`, dulled | 0.4 s |
@@ -74,7 +81,7 @@ where one is named).
 | `reward` | the chime of an enemy down and its pay | synthesised | 0.35 s |
 | `downed` | a player downed | synthesised over `own_bim_getting_hit.mp3` | 1.5 s |
 | `revived` | a body brought round | synthesised | 1.45 s |
-| `level_up` | your own level gained | synthesised | 2.0 s |
+| `level_up` | your own level gained | synthesised; your remaster (`Sounds/remastered/`) | 1.95 s |
 
 ### The classes' abilities, and the items that borrow them
 
