@@ -151,7 +151,7 @@ mod tests {
         };
         assert_eq!(tuned.site_money_on(20), 10);
         assert_eq!(tuned.at_defense(25), 12);
-        assert_eq!(d.by_bot(1_500), 75);
+        assert_eq!(d.by_bot(1_500), 750);
         assert_eq!(d.by_player(1_500), 1_650);
         assert_eq!(tuned.by_player(1_000), 1_200);
         assert_eq!(tuned.by_bot(1_000), 250);

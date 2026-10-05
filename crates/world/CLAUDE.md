@@ -8167,3 +8167,13 @@ went. **`SAVE_VERSION` 116.** `tests_site_xp`'s
 `a_site_pays_each_player_its_money_alone_or_two`, `tests_money`'s
 `a_site_s_money_grows_by_the_day`; the bounty tests of `tests_mission`,
 `tests_money` and `tests_manufacturer` read `money_per_down()`.
+
+**A bot's kill pays half its share, the commander's own the whole**
+(October 2026, the player's: "make bot kills pay 50% share.
+Reinforcments and medivac from the commander should pay the full
+share"): `data::BOT_BOUNTY_PERCENT` 5 → 50 (`rewards.ron`), and
+`kill_bounty` pays a reinforcement's or a Medivac medic's kill the whole
+share, no longer the player's 110%. *Drill Sergeant*'s
+`DRILL_SERGEANT_BOT_BOUNTY` 50 → 100, so its line still lifts something.
+`tests_mission::a_bot_s_kill_pays_half_and_a_player_s_a_tenth_more`,
+`with_drill_sergeant_a_bot_s_kill_pays_the_whole_share`.

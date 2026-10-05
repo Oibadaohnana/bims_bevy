@@ -464,17 +464,19 @@ pub const DEFENSE_BOUNTY_PERCENT: u32 = 100;
 /// How much of an enemy's bounty is paid when one of the crew's **bots**
 /// took it down, in per cent (the player's, October 2026: "if a bot kills
 /// an enemy you should only be rewarded 50% of the gold", then 20%, then
-/// "If a bot kills an enemy -> 5% money, if Player kills +10%" — the
-/// experience is untouched). A bot is a crew member past the players — a
-/// bot, a field medic, a townsperson who joined — and not one of a
-/// commander's reinforcements or his Medivac's medic, which pay as their
-/// commander's own kill ([`PLAYER_BOUNTY_PERCENT`]). A sentry's kill and an
-/// enemy no crew member hit last pay the whole. Tuned in the app's
-/// `rewards.ron` (`crate::rewards`).
-pub const BOT_BOUNTY_PERCENT: u32 = 5;
-/// How much of an enemy's bounty is paid when a player's own Bim — or a
-/// commander's reinforcement or medic — took it down, in per cent: ten
-/// more, to make up for what the bots no longer earn.
+/// "If a bot kills an enemy -> 5% money, if Player kills +10%", then,
+/// once the money was a site's budget, "make bot kills pay 50% share" —
+/// the experience is untouched). A bot is a crew member past the players
+/// — a bot, a field medic, a townsperson who joined — and not one of a
+/// commander's reinforcements or his Medivac's medic, which pay the
+/// whole share (the player's: "Reinforcments and medivac from the
+/// commander should pay the full share"; they paid as their commander's
+/// own kill until then). A sentry's kill and an enemy no crew member hit
+/// last pay the whole. Tuned in the app's `rewards.ron`
+/// (`crate::rewards`).
+pub const BOT_BOUNTY_PERCENT: u32 = 50;
+/// How much of an enemy's bounty is paid when a player's own Bim took it
+/// down, in per cent: ten more.
 pub const PLAYER_BOUNTY_PERCENT: u32 = 110;
 /// What an **elite fight** pays an enemy down, in per cent of the bounty
 /// anywhere else (October 2026, the player's: "if you fight an elite get
@@ -567,11 +569,12 @@ pub const BOUNTY_CONTRACT_DAMAGE: i32 = 20;
 pub const HUNTERS_PACT_EXPERIENCE: i32 = 50;
 pub const HUNTERS_PACT_WAVES: i32 = 25;
 /// *Drill Sergeant*: the bots do more and take less, a bot's kill pays
-/// half an enemy's bounty (over `rewards.ron`'s `bot_bounty_percent`;
-/// October 2026, the player's word), the players do less.
+/// the whole share (over `rewards.ron`'s `bot_bounty_percent`; half,
+/// the player's word, until the bots' own share became half in October
+/// 2026), the players do less.
 pub const DRILL_SERGEANT_BOT_DAMAGE: i32 = 50;
 pub const DRILL_SERGEANT_BOT_TAKEN: i32 = 30;
-pub const DRILL_SERGEANT_BOT_BOUNTY: i32 = 50;
+pub const DRILL_SERGEANT_BOT_BOUNTY: i32 = 100;
 pub const DRILL_SERGEANT_PLAYER_DAMAGE: i32 = 20;
 /// *Lone Wolves*: the players do more and walk faster, the bots do less.
 pub const LONE_WOLVES_PLAYER_DAMAGE: i32 = 35;

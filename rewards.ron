@@ -40,7 +40,7 @@
     site_money: 850,
     site_money_growth_percent: 17,
     defense_bounty_percent: 100,
-    bot_bounty_percent: 5,
+    bot_bounty_percent: 50,
     player_bounty_percent: 110,
     bounty_waits_for_clear: true,
     buyback: 5000,

@@ -536,7 +536,7 @@ mod tests {
         assert_eq!(percent(&held, Stat::FireRate, false), 0);
         assert_eq!(bot_bounty(&[], 5), 5);
         assert_eq!(bot_bounty(&held, 5), data::DRILL_SERGEANT_BOT_BOUNTY as u32);
-        assert_eq!(bot_bounty(&held, 80), 80, "a floor, never a cut");
+        assert_eq!(bot_bounty(&held, 120), 120, "a floor, never a cut");
         assert_eq!(
             crew_percent(&[Relic::BountyContract, Relic::SalvageBurn], Stat::Bounty),
             data::BOUNTY_CONTRACT_BOUNTY - data::SALVAGE_BURN_BOUNTY

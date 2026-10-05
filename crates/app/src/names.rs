@@ -3556,7 +3556,7 @@ mod tests {
             assert_eq!(
                 words(world::Relic::DrillSergeant)[2..],
                 [
-                    "A bot's kill pays 50% of the enemy's money",
+                    "A bot's kill pays 100% of the enemy's money",
                     "-20% weapon damage for the players' Bims"
                 ]
             );
