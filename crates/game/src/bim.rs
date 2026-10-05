@@ -126,6 +126,12 @@ pub struct Bim {
     /// tank's experience until task 119. Saved with the room and in
     /// `world_checksum`.
     pub hits_taken: u32,
+    /// Seconds since a hit last reached this body's armour or the body
+    /// (October 2026): from [`crate::balance::ARMOUR_REGEN_DELAY`] on, the
+    /// armour worn puts its own health back (`Game::tick_combat`). Saved
+    /// with the room; the piece's health it moves is in `world_checksum`.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub unhurt: f32,
     /// How many shots this body has fired (feature 106): what a relic's
     /// *Overcharge Cell* counts to know which shot is the charged one
     /// (`Skill::for_shot`). Only ever climbs. Saved with the room and in
@@ -306,6 +312,7 @@ impl Bim {
             surge: None,
             shield: None,
             hits_taken: 0,
+            unhurt: 0.0,
             shots: 0,
             carrying: None,
             field_medic: false,

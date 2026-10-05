@@ -88,8 +88,11 @@
 //! what is left drains the piece's own **health** first — only what the
 //! piece cannot take reaches the body and opens a wound (`Game::wound`).
 //! At nothing the piece is **broken**: still worn, still drawn, doing
-//! nothing — for the rest of the mission, since the world makes every piece
-//! whole again at the next one (task 113). A piece keeps its damage
+//! nothing — until it grows back: **armour regenerates** (October 2026),
+//! its own health and never the body's, at `balance::ARMOUR_REGEN` a
+//! second once its wearer has gone `balance::ARMOUR_REGEN_DELAY` seconds
+//! without a hit (`Game::tick_combat`), and the world makes every piece
+//! whole again at the next mission (task 113). A piece keeps its damage
 //! wherever it goes — the armory, another Bim — which is why it has an
 //! `id` and is moved about as an [`Item`] rather than counted. The world
 //! keeps the pieces nobody wears in the ship's armory; the room keeps the
@@ -1331,7 +1334,7 @@ impl Piece {
         }
     }
 
-    /// Worn out: still worn, doing nothing.
+    /// Worn out: still worn, doing nothing until it regenerates.
     pub fn broken(&self) -> bool {
         self.health <= 0.0
     }

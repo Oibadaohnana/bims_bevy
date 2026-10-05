@@ -449,6 +449,16 @@ pub const ARMOUR: ArmourStats = ArmourStats {
     protection: 1.8,
 };
 
+/// **Armour regenerates** (October 2026): once its wearer has taken no
+/// hit for this many seconds, a worn piece puts its own health back at
+/// [`ARMOUR_REGEN`] — the piece's bar, never the body's — and a piece run
+/// down to nothing comes back the same way rather than staying broken for
+/// the mission.
+pub const ARMOUR_REGEN_DELAY: f32 = 8.0;
+/// What a piece puts back a second once [`ARMOUR_REGEN_DELAY`] has run,
+/// in its own health points, whatever its tier.
+pub const ARMOUR_REGEN: f32 = 5.0;
+
 // ---- The tiers ----
 //
 // Every weapon and every piece of armour is one of three tiers

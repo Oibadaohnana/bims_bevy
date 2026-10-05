@@ -4192,8 +4192,8 @@ impl World {
     }
 
     /// The fight's broken pieces, said once each: a piece at nothing
-    /// stays worn and does nothing for the rest of the mission (task
-    /// 113), and nothing else happens to it.
+    /// stays worn and does nothing until it regenerates
+    /// (`bims::balance::ARMOUR_REGEN`), and nothing else happens to it.
     fn say_pieces_broken(&mut self, events: &mut Vec<WorldEvent>) {
         for (who, kind) in self.aboard.room.take_pieces_broken() {
             events.push(WorldEvent::PieceBroke {

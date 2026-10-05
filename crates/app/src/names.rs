@@ -1581,11 +1581,11 @@ pub fn event_line(event: WorldEvent) -> Option<String> {
         } => {
             format!("{} brought {} round.", who(by), resident_name(station, w))
         }
-        // A piece at nothing is still worn and does nothing for the rest of
-        // the mission; it is whole again at the next (task 113).
+        // A piece at nothing is still worn and does nothing until it
+        // regenerates, once its wearer has gone a while unhit.
         WorldEvent::PieceBroke { who: w, kind } => {
             format!(
-                "{}'s {} is broken — it stops nothing until the next mission.",
+                "{}'s {} is down — it stops nothing until it regenerates.",
                 who(w),
                 armour_name(Some(kind)).to_lowercase()
             )

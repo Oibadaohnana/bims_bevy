@@ -1758,6 +1758,27 @@ impl Game {
             }
             bim.character
                 .set_shield(bim.shield.map_or(0.0, |s| s.share()));
+            // Armour regenerates (October 2026): once no hit has reached
+            // the body for `ARMOUR_REGEN_DELAY`, the piece worn puts its
+            // own health back — never the body's — and one run down to
+            // nothing comes back with it rather than staying broken.
+            bim.unhurt = (bim.unhurt + dt).min(crate::balance::ARMOUR_REGEN_DELAY);
+            if bim.is_alive() && bim.unhurt >= crate::balance::ARMOUR_REGEN_DELAY {
+                if let Some(piece) = bim.gear.worn_mut().as_mut() {
+                    let whole = piece.stats().health;
+                    if piece.health < whole {
+                        let was_broken = piece.broken();
+                        piece.health =
+                            (piece.health + crate::balance::ARMOUR_REGEN * dt).min(whole);
+                        if was_broken {
+                            bim.character.set_worn(Some(Worn {
+                                kind: piece.kind,
+                                broken: false,
+                            }));
+                        }
+                    }
+                }
+            }
             // Stunned by a Stun Shot (October 2026): the stun wears off,
             // and until it has the body neither aims, fires, swings nor
             // walks — whoever's side it fights for.
@@ -9948,7 +9969,8 @@ impl Game {
     /// nothing left is nothing — and what remains drains the piece's
     /// health; only what the piece could not take comes off the one bar
     /// (`Health::hit`, task 120), and at nothing the body is downed. A
-    /// piece at nothing is broken and does nothing from then on. A flash on
+    /// piece at nothing is broken and does nothing until it has
+    /// regenerated some (`balance::ARMOUR_REGEN`). A flash on
     /// the body either way. The blood: a hit that took hit points throws a
     /// small splash over the tiles round the body (`Blood::splash`); one
     /// the armour took whole throws none. `cut` is kept for the callers
@@ -10033,6 +10055,7 @@ impl Game {
             let bim = &mut self.bims[who];
             bim.hit_flash = HIT_FLASH;
             if bim.surge.is_some() {
+            bim.unhurt = 0.0;
                 out.absorbed = damage;
                 self.combat.fx.struck(who, BIM_STRUCK);
                 return out;
@@ -10068,6 +10091,8 @@ impl Game {
         // A medic's surge on it takes the whole of the hit (feature 76):
         // no wound, no armour drained, no trauma — the flash and nothing
         // else.
+        // And the armour's regeneration waits again (October 2026).
+        bim.unhurt = 0.0;
         if bim.surge.is_some() {
             out.absorbed = damage;
             return out;
@@ -13221,6 +13246,58 @@ mod tests {
             assert_eq!(game.hit_bim(), 1);
             assert_eq!(game.hit_at(at.x + 60.0, at.y), HIT_NONE);
         }
+
+    /// Armour regenerates (October 2026): nothing for
+    /// `ARMOUR_REGEN_DELAY` seconds after the last hit, then the piece's
+    /// own health back at `ARMOUR_REGEN` a second — a broken piece too,
+    /// which protects again — up to whole, and the body's bar untouched.
+    #[test]
+    fn armour_regenerates_after_a_while_unhit_and_never_heals_the_body() {
+        use crate::balance::{ARMOUR_REGEN, ARMOUR_REGEN_DELAY};
+        let mut game = room();
+        game.set_autonomous(false);
+        game.put_for_probe(0, vec2(ROOM_W * 0.45, ROOM_H * 0.5));
+        let mut gear = game.gear(0);
+        gear.armour = Some(Piece::new(7, ArmourKind::Armour, Tier::One));
+        game.issue(0, gear);
+        let steps = |s: f32| (s / DT).round() as usize;
+
+        // Broken by a hit that goes through to the body.
+        assert!(game.wound(0, 60.0).piece_broke);
+        let body = game.health(0);
+        assert!(body < crate::health::MAX_HEALTH);
+        for _ in 0..steps(ARMOUR_REGEN_DELAY - 0.5) {
+            game.simulate(DT);
+        }
+        let left = game.worn(0).unwrap().health;
+        assert_eq!(left, 0.0, "nothing before the delay");
+
+        // A hit (on the broken piece, so straight to the body) starts the
+        // wait again.
+        game.wound(0, 3.0);
+        let body = game.health(0).min(body);
+        for _ in 0..steps(ARMOUR_REGEN_DELAY - 0.5) {
+            game.simulate(DT);
+        }
+        assert_eq!(game.worn(0).unwrap().health, 0.0, "the wait began again");
+
+        // Two seconds past the delay: ten points back, and protecting.
+        for _ in 0..steps(2.5) {
+            game.simulate(DT);
+        }
+        let worn = game.worn(0).unwrap();
+        assert!(!worn.broken());
+        let back = worn.health;
+        assert!((back - 2.0 * ARMOUR_REGEN).abs() < 0.2, "{back}");
+        assert!(game.health(0) <= body + 1e-3, "the body is not healed");
+        assert!(game.wound(0, 1.0).absorbed == 1.0, "it protects again");
+
+        // And it stops at whole.
+        for _ in 0..steps(ARMOUR_REGEN_DELAY + 45.0 / ARMOUR_REGEN + 1.0) {
+            game.simulate(DT);
+        }
+        assert_eq!(game.armour_health(0), 45.0);
+    }
 
         // --- a_dead_bim_under_the_click_is_a_body_and_an_unconscious_one_is_still_the_bim ---
         {

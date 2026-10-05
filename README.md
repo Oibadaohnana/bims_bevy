@@ -485,9 +485,12 @@ the armory to take it off; a right-click says the same in rows.
   when they accept, their old one going into the armory. An offer is
   withdrawn when either of you changes that slot, when you take it back,
   or when a mission starts.
-- **Armour is never destroyed.** A piece shot down to nothing stays on
-  and stops nothing for the rest of the mission, and every piece — worn
-  or in the armory — is whole again when the next mission starts.
+- **Armour is never destroyed, and it regenerates.** Once its wearer has
+  gone 8 seconds without a hit, a piece puts its own health back at 5 a
+  second (the armour's bar, never the body's). A piece shot down to
+  nothing stays on and stops nothing until it has grown back, and every
+  piece — worn or in the armory — is whole again when the next mission
+  starts.
 - **Buying** at a trader puts the thing on a Bim or in the armory at the
   tier bought ([The trader](#the-trader)). Nothing is sold.
 - **A player's Bim that dies keeps everything it wore** and comes back

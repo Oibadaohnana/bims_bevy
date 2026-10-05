@@ -1738,7 +1738,7 @@ const SLOT_HEIGHT: f32 = 44.0;
 /// or that it is past it.
 fn worn_line(piece: Piece) -> String {
     if piece.broken() {
-        "broken — does nothing".into()
+        "down — regenerates".into()
     } else {
         format!(
             "+{} hp · {} prot",

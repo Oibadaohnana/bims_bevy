@@ -294,7 +294,9 @@ use crate::game::Game;
 /// the scaling's `bomber_every` and `lancer_every`.
 /// 111: six item slots — `Gear::items` six wide, `GearSlot::{Item5,
 /// Item6}`.
-pub const SAVE_VERSION: u32 = 111;
+/// 112: armour regenerates — a body's seconds since its last hit
+/// (`bims::bim::Bim::unhurt`).
+pub const SAVE_VERSION: u32 = 112;
 
 /// What the file holds, read back.
 #[derive(serde::Deserialize)]
