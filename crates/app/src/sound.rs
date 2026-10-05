@@ -933,6 +933,12 @@ impl Sounds {
                 Some(bims::module::ModuleKind::FieldMender) => (who, Clip::NaniteBurst, 0.5),
                 Some(bims::module::ModuleKind::ResetCapacitor) => (who, Clip::Rampage, 0.5),
                 Some(bims::module::ModuleKind::AblativeShell) => (who, Clip::BulwarkOn, 0.55),
+                // Step three (October 2026): a canister lobbed, a link
+                // made, a ghost going out, a rush.
+                Some(bims::module::ModuleKind::SmokeLauncher) => (who, Clip::GrenadeThrow, 0.5),
+                Some(bims::module::ModuleKind::TetherLink) => (who, Clip::BeamOn, 0.5),
+                Some(bims::module::ModuleKind::DecoyProjector) => (who, Clip::Cloak, 0.5),
+                Some(bims::module::ModuleKind::AdrenalInjector) => (who, Clip::Rampage, 0.45),
                 _ => return,
             },
             _ => return,

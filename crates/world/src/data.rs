@@ -660,8 +660,12 @@ pub const MINIGUN_SHELF_PRICE: Money = 3;
 /// 2026 85 000, about the Override Core's (the player's: "reset capacitor
 /// should be cheaper and cost around the price of the override core"),
 /// its row one price like the Core's, the lower tiers only a saved one's. The *Training Log* (October 2026) last, at
-/// the Pressure Seal's: an investment, best bought early.
-pub const ITEM_PRICE: [[Money; 3]; 14] = [
+/// the Pressure Seal's: an investment, best bought early. Then step three
+/// (October 2026, the player's pick): the *Smoke Launcher* and the
+/// *Adrenal Injector* at the Coolant Loop's, the *Targeting Uplink*, the
+/// *Tether Link* and the *Overcharger* at the Reactor Heart's, and the
+/// *Decoy Projector*, one tier, one price.
+pub const ITEM_PRICE: [[Money; 3]; 20] = [
     [27_000, 47_250, 81_000],
     [33_750, 60_750, 108_000],
     [27_000, 54_000, 94_500],
@@ -676,6 +680,12 @@ pub const ITEM_PRICE: [[Money; 3]; 14] = [
     [85_000, 85_000, 85_000],
     [33_750, 60_750, 108_000],
     [13_500, 27_000, 47_250],
+    [20_250, 40_500, 67_500],
+    [27_000, 54_000, 94_500],
+    [27_000, 54_000, 94_500],
+    [54_000, 54_000, 54_000],
+    [20_250, 40_500, 67_500],
+    [27_000, 54_000, 94_500],
 ];
 /// What a thing sold back at a trader fetches, in per cent of what was
 /// paid for it (October 2026, the player's: half). Nothing is combined

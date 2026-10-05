@@ -202,6 +202,85 @@ impl World {
                     kind: item.kind.code(),
                 });
             }
+            // A cloud at the pointer, or as far towards it as the launcher
+            // reaches (October 2026).
+            ModuleKind::SmokeLauncher => {
+                let (radius, seconds) = item.smoke().unwrap_or((0.0, 0.0));
+                let tile = shipdesign::TILE as f32;
+                let from = self.aboard.room.body_pos(slot as usize);
+                let to = bims::math::vec2(at.0 as f32, at.1 as f32);
+                let reach = bims::module::SMOKE_RANGE_TILES * tile;
+                let off = to - from;
+                let at = if off.len() > reach {
+                    from + off * (reach / off.len())
+                } else {
+                    to
+                };
+                self.run.items.smoke.push(crate::items::Smoke {
+                    x: at.x,
+                    y: at.y,
+                    radius: radius * tile,
+                    from: now,
+                    until: now + Self::item_minutes(f64::from(seconds)),
+                });
+                events.push(WorldEvent::ItemUsed {
+                    who: slot,
+                    kind: item.kind.code(),
+                });
+            }
+            // The crewmate at the pointer linked, within reach.
+            ModuleKind::TetherLink => {
+                let mate = self.tether_pick(slot, at)?;
+                let tethers = &mut self.run.items.tethers;
+                tethers.retain(|t| t.carrier != slot);
+                tethers.push(crate::items::Tether {
+                    carrier: slot,
+                    mate,
+                    share: item.tether_share(),
+                    until: now + Self::item_minutes(f64::from(bims::module::TETHER_SECONDS)),
+                });
+                events.push(WorldEvent::ItemUsed {
+                    who: slot,
+                    kind: item.kind.code(),
+                });
+            }
+            // A ghost of the carrier off on its walk to the pointer, cut
+            // at the projector's reach.
+            ModuleKind::DecoyProjector => {
+                let to = bims::math::vec2(at.0 as f32, at.1 as f32);
+                let Some(route) = self.aboard.room.ghost_route(slot as usize, to) else {
+                    return Err(Refusal::NoWayThere);
+                };
+                let from = self.aboard.room.body_pos(slot as usize);
+                let path = cut_walk(
+                    from,
+                    &route,
+                    bims::module::DECOY_RANGE_TILES * shipdesign::TILE as f32,
+                );
+                let pace = bims::balance::MARCH_SPEED
+                    * self.skill_of(slot).walk
+                    * bims::module::DECOY_PACE;
+                let heading = path
+                    .first()
+                    .map_or(0.0, |&(x, y)| (y - from.y).atan2(x - from.x));
+                let ghosts = &mut self.run.items.ghosts;
+                ghosts.retain(|g| g.owner != slot);
+                ghosts.push(crate::items::Ghost {
+                    owner: slot,
+                    x: from.x,
+                    y: from.y,
+                    path,
+                    pace,
+                    heading,
+                    stride: 0.0,
+                    from: now,
+                    until: now + Self::item_minutes(f64::from(bims::module::DECOY_SECONDS)),
+                });
+                events.push(WorldEvent::ItemUsed {
+                    who: slot,
+                    kind: item.kind.code(),
+                });
+            }
             _ => return Err(Refusal::NoSuchItem),
         }
         let until = now + Self::item_minutes(f64::from(item.cooldown()));
@@ -269,7 +348,21 @@ impl World {
     /// range, and while an *Ablative Shell* is on the damage taken down
     /// and nothing stripped. The skill as it was for a Bim carrying none.
     pub(super) fn lift_by_items(&self, who: u32, skill: &mut bims::combat::Skill) {
-        if who >= self.players() || who >= self.aboard.crew_count() {
+        if who >= self.aboard.crew_count() {
+            return;
+        }
+        // A crewmate a *Tether Link* holds takes its share less of every
+        // hit (October 2026); the carrier takes it (`settle_tethers`).
+        let share = self.tether_on(who).map_or(0.0, |t| t.share);
+        if share > 0.0 {
+            skill.damage_taken *= 1.0 - share;
+        }
+        // A bot near a *Targeting Uplink*'s carrier does more damage.
+        if who >= self.players() {
+            let lift = self.uplink_reaching(who);
+            if lift != 0 {
+                skill.damage *= crate::relic::factor(lift) as f32;
+            }
             return;
         }
         let gear = self.aboard.room.gear(who as usize);
@@ -277,10 +370,22 @@ impl World {
         if rate != 0 {
             skill.fire_rate *= crate::relic::factor(rate) as f32;
         }
+        // An *Overcharger*: the weapon's own damage up. A crit is a
+        // multiple of the flat damage, so `crit_extra` lifts that too.
+        let damage = gear.item_damage_percent();
+        if damage != 0 {
+            skill.damage *= crate::relic::factor(damage) as f32;
+        }
         skill.range += gear.item_range_tiles();
         if self.shell_left(who) > 0.0 {
             skill.damage_taken *= bims::module::SHELL_DAMAGE_TAKEN;
             skill.unstrippable = true;
+        }
+        // An *Adrenal Injector*'s rush: fire rate and pace.
+        let rush = self.adrenal_percent_now(who);
+        if rush != 0 {
+            skill.fire_rate *= crate::relic::factor(rush) as f32;
+            skill.walk *= crate::relic::factor(rush) as f32;
         }
     }
 
@@ -372,10 +477,17 @@ impl World {
     /// on its feet puts its hit points back: the quiet rate once nothing
     /// has hit it for [`bims::module::HEART_QUIET_SECONDS`], the plain one
     /// before. Through [`World::heal_crew`].
-    pub(crate) fn settle_items(&mut self, hits_before: &[u32]) {
+    pub(crate) fn settle_items(
+        &mut self,
+        hits_before: &[u32],
+        tethered: &[(u32, f32)],
+        events: &mut Vec<WorldEvent>,
+    ) {
         if !self.any_items() {
             return;
         }
+        self.settle_tethers(tethered);
+        self.inject_adrenaline(events);
         let now = self.mission_minutes();
         let players = self.players().min(self.aboard.crew_count());
         let hurt = &mut self.run.items.hurt_at;
@@ -430,5 +542,354 @@ impl World {
             .flatten()
             .is_none_or(|t| now - t >= quiet);
         if unhurt { calm } else { plain }
+    }
+
+    // --- step three (October 2026) ---------------------------------------------
+
+    /// The *Tether Link* holding crewmate `who`, the strongest of them.
+    fn tether_on(&self, who: u32) -> Option<crate::items::Tether> {
+        let now = self.mission_minutes();
+        self.run
+            .items
+            .tethers
+            .iter()
+            .filter(|t| t.mate == who && t.until > now)
+            .copied()
+            .max_by(|a, b| a.share.total_cmp(&b.share))
+    }
+
+    /// Whom player `slot`'s *Tether Link* would hold at room point `at`:
+    /// the crewmate under it, else the nearest one standing within a
+    /// tile and a half of it — never the carrier, nobody downed — and
+    /// within [`bims::module::TETHER_RANGE_TILES`] of the carrier.
+    fn tether_pick(&self, slot: u32, at: (i32, i32)) -> Result<u32, Refusal> {
+        let room = &self.aboard.room;
+        let p = bims::math::vec2(at.0 as f32, at.1 as f32);
+        let tile = shipdesign::TILE as f32;
+        let up = |w: usize| w != slot as usize && room.is_alive(w) && !room.is_downed(w);
+        let mate = room
+            .crew_at(p.x, p.y)
+            .filter(|&w| up(w) && w < self.aboard.crew_count() as usize)
+            .or_else(|| {
+                (0..self.aboard.crew_count() as usize)
+                    .filter(|&w| up(w))
+                    .map(|w| (w, (room.body_pos(w) - p).len()))
+                    .filter(|&(_, far)| far <= 1.5 * tile)
+                    .min_by(|a, b| a.1.total_cmp(&b.1).then(a.0.cmp(&b.0)))
+                    .map(|(w, _)| w)
+            })
+            .ok_or(Refusal::NotACrewmate)?;
+        let far = (room.body_pos(mate) - room.body_pos(slot as usize)).len();
+        if far > bims::module::TETHER_RANGE_TILES * tile {
+            return Err(Refusal::OutOfItemRange);
+        }
+        Ok(mate as u32)
+    }
+
+    /// The per cent a *Targeting Uplink* puts on bot `who`'s damage: the
+    /// best of every player on its feet carrying one within
+    /// [`bims::module::UPLINK_TILES`] of it — two do not add.
+    fn uplink_reaching(&self, who: u32) -> i32 {
+        let room = &self.aboard.room;
+        let at = room.body_pos(who as usize);
+        let reach = bims::module::UPLINK_TILES * shipdesign::TILE as f32;
+        (0..self.players().min(self.aboard.crew_count()))
+            .filter(|&p| room.is_alive(p as usize) && !room.is_downed(p as usize))
+            .filter(|&p| (room.body_pos(p as usize) - at).len() <= reach)
+            .map(|p| {
+                room.gear(p as usize)
+                    .modules()
+                    .map(|m| m.uplink_percent())
+                    .max()
+                    .unwrap_or(0)
+            })
+            .max()
+            .unwrap_or(0)
+    }
+
+    /// What `who`'s *Overcharger*s multiply its weapon's damage by: what
+    /// `crit_extra` lifts the flat damage a crit is a multiple of by.
+    pub fn item_damage_factor(&self, who: u32) -> f32 {
+        if who >= self.players() || who >= self.aboard.crew_count() {
+            return 1.0;
+        }
+        let percent = self.aboard.room.gear(who as usize).item_damage_percent();
+        crate::relic::factor(percent) as f32
+    }
+
+    /// The per cent an *Adrenal Injector*'s rush puts on `who`'s fire rate
+    /// and pace right now: nought with none running.
+    fn adrenal_percent_now(&self, who: u32) -> i32 {
+        let now = self.mission_minutes();
+        if !self
+            .run
+            .items
+            .adrenal_until
+            .iter()
+            .any(|&(w, until)| w == who && until > now)
+        {
+            return 0;
+        }
+        self.items_of(who)
+            .iter()
+            .flatten()
+            .filter_map(|m| m.adrenal())
+            .map(|(percent, _)| percent)
+            .max()
+            .unwrap_or(0)
+    }
+
+    /// Seconds `who`'s *Adrenal Injector*'s rush has left; nought with
+    /// none running.
+    pub fn adrenal_left(&self, who: u32) -> f64 {
+        let now = self.mission_minutes();
+        self.run
+            .items
+            .adrenal_until
+            .iter()
+            .filter(|&&(w, until)| w == who && until > now)
+            .map(|&(_, until)| (until - now) / time::MINUTES_PER_SECOND)
+            .fold(0.0, f64::max)
+    }
+
+    /// Every player's Bim on its feet under [`bims::module::ADRENAL_BELOW`]
+    /// of its bar with an *Adrenal Injector* off its cooldown: the rush on
+    /// for its seconds and the cooldown started, said as the item used.
+    fn inject_adrenaline(&mut self, events: &mut Vec<WorldEvent>) {
+        let now = self.mission_minutes();
+        let players = self.players().min(self.aboard.crew_count());
+        for who in 0..players {
+            let room = &self.aboard.room;
+            if !room.is_alive(who as usize) || room.is_downed(who as usize) {
+                continue;
+            }
+            if self.health_share(who) >= bims::module::ADRENAL_BELOW {
+                continue;
+            }
+            let found = self
+                .items_of(who)
+                .iter()
+                .enumerate()
+                .find_map(|(i, m)| m.and_then(|m| m.adrenal().map(|r| (i, r))));
+            let Some((index, (_, seconds))) = found else {
+                continue;
+            };
+            if self.item_cooldown_left(who, index) > 0.0 {
+                continue;
+            }
+            let rushes = &mut self.run.items.adrenal_until;
+            rushes.retain(|&(w, _)| w != who);
+            rushes.push((who, now + Self::item_minutes(f64::from(seconds))));
+            let clocks = &mut self.run.items.ready_at;
+            clocks.retain(|&(w, i, _)| !(w == who && i as usize == index));
+            clocks.push((
+                who,
+                index as u32,
+                now + Self::item_minutes(f64::from(bims::module::ADRENAL_COOLDOWN_SECONDS)),
+            ));
+            events.push(WorldEvent::ItemUsed {
+                who,
+                kind: ModuleKind::AdrenalInjector.code(),
+            });
+        }
+    }
+
+    /// What every *Tether Link* took this step: each crewmate's hit
+    /// points before the rooms stepped against now, the loss being what
+    /// got through its share less, and the carrier drained the rest —
+    /// past its armour, as the hits on the crewmate were already through
+    /// theirs. A link whose carrier or crewmate is down or dead lets go.
+    fn settle_tethers(&mut self, tethered: &[(u32, f32)]) {
+        let now = self.mission_minutes();
+        for &(mate, before) in tethered {
+            let Some(tether) = self.tether_on(mate) else {
+                continue;
+            };
+            let room = &self.aboard.room;
+            let after = if room.is_alive(mate as usize) {
+                room.health(mate as usize)
+            } else {
+                0.0
+            };
+            let loss = before - after;
+            let carrier = tether.carrier as usize;
+            if loss > 0.0
+                && tether.share < 1.0
+                && room.is_alive(carrier)
+                && !room.is_downed(carrier)
+            {
+                let taken = loss * tether.share / (1.0 - tether.share);
+                self.aboard.room.drain(carrier, taken);
+            }
+        }
+        let room = &self.aboard.room;
+        let up = |w: u32| room.is_alive(w as usize) && !room.is_downed(w as usize);
+        self.run
+            .items
+            .tethers
+            .retain(|t| t.until > now && up(t.carrier) && up(t.mate));
+    }
+
+    /// The items' stage before the rooms step (October 2026): the clouds
+    /// run out let go, every ghost walked on its step and let go when its
+    /// time is up, and the rooms told — the residents' room the clouds
+    /// that stop its people's sight, the crew's the clouds, the links and
+    /// the ghosts to draw. Hands back each tethered crewmate's hit points
+    /// now, for [`World::settle_items`] to weigh the step's hits by.
+    pub(crate) fn hand_the_rooms_the_items(&mut self) -> Vec<(u32, f32)> {
+        let now = self.mission_minutes();
+        let items = &mut self.run.items;
+        items.smoke.retain(|c| c.until > now);
+        items.ghosts.retain(|g| g.until > now);
+        items.tethers.retain(|t| t.until > now);
+        let seconds = (data::STEP_MINUTES / time::MINUTES_PER_SECOND) as f32;
+        for ghost in &mut items.ghosts {
+            walk_ghost(ghost, seconds);
+        }
+        let second = time::MINUTES_PER_SECOND;
+        let clouds = |c: &crate::items::Smoke, at: bims::math::Vec2| bims::game::SmokeCloud {
+            at,
+            radius: c.radius,
+            age: ((now - c.from) / second) as f32,
+            thick: (((c.until - now) / second) as f32).clamp(0.0, 1.0),
+        };
+        let mine: Vec<bims::game::SmokeCloud> = items
+            .smoke
+            .iter()
+            .map(|c| clouds(c, bims::math::vec2(c.x, c.y)))
+            .collect();
+        let ghosts: Vec<bims::game::GhostLook> = items
+            .ghosts
+            .iter()
+            .map(|g| bims::game::GhostLook {
+                owner: g.owner as usize,
+                at: bims::math::vec2(g.x, g.y),
+                heading: g.heading,
+                stride: g.stride,
+                speed: if g.path.is_empty() { 0.0 } else { g.pace },
+                fade: (((g.until - now) / second) as f32).clamp(0.0, 1.0)
+                    * (((now - g.from) / second) as f32 * 4.0).clamp(0.0, 1.0),
+            })
+            .collect();
+        let links: Vec<(usize, usize)> = items
+            .tethers
+            .iter()
+            .map(|t| (t.carrier as usize, t.mate as usize))
+            .collect();
+        let tethered: Vec<(u32, f32)> = items
+            .tethers
+            .iter()
+            .map(|t| t.mate)
+            .map(|mate| (mate, self.aboard.room.health(mate as usize)))
+            .collect();
+        // The residents' room's clouds, in its own units, where the joined
+        // deck can say where they are.
+        let theirs: Vec<bims::game::SmokeCloud> = if self.aboard.is_joined() {
+            let shift = self.residents.as_ref().map(|r| r.aboard.offset);
+            self.run
+                .items
+                .smoke
+                .iter()
+                .filter_map(|c| {
+                    let p = self.aboard.to_station(dvec2(c.x as f64, c.y as f64))?;
+                    let p = p.add(shift?);
+                    Some(clouds(c, bims::math::vec2(p.x as f32, p.y as f32)))
+                })
+                .collect()
+        } else {
+            Vec::new()
+        };
+        self.aboard.room.set_smoke(mine, false);
+        self.aboard.room.set_ghosts(ghosts);
+        self.aboard.room.set_tethers(links);
+        if let Some(residents) = &mut self.residents {
+            residents.aboard.room.set_smoke(theirs, true);
+        }
+        tethered
+    }
+
+    /// Whether crew member `who` stands in a smoke cloud: nobody's target
+    /// while it does (`visit`).
+    pub(crate) fn in_smoke(&self, who: u32) -> bool {
+        if who >= self.aboard.crew_count() || self.run.items.smoke.is_empty() {
+            return false;
+        }
+        let at = self.aboard.room.body_pos(who as usize);
+        self.run
+            .items
+            .smoke
+            .iter()
+            .any(|c| (bims::math::vec2(c.x, c.y) - at).len() <= c.radius)
+    }
+
+    /// The decoys' ghosts as the enemy's targets, in the station's own
+    /// units, each with its owner's weapon: what `visit` puts after the
+    /// sentries, every one taunting within
+    /// [`bims::module::DECOY_TAUNT_TILES`].
+    pub(crate) fn ghost_targets(&self) -> Vec<Option<(DVec2, Weapon)>> {
+        self.run
+            .items
+            .ghosts
+            .iter()
+            .map(|g| {
+                let weapon = self
+                    .aboard
+                    .room
+                    .weapon(g.owner as usize)
+                    .unwrap_or(WeaponKind::LaserPistol.basic());
+                self.aboard
+                    .to_station(dvec2(g.x as f64, g.y as f64))
+                    .map(|p| (p, weapon))
+            })
+            .collect()
+    }
+}
+
+/// A walk cut at `reach` room units from `from`: the waypoints as pairs,
+/// the last one where the reach runs out.
+fn cut_walk(from: bims::math::Vec2, route: &[bims::math::Vec2], reach: f32) -> Vec<(f32, f32)> {
+    let mut out = Vec::new();
+    let mut at = from;
+    let mut left = reach;
+    for &next in route {
+        let leg = (next - at).len();
+        if leg >= left {
+            if leg > 0.0 {
+                let p = at + (next - at) * (left / leg);
+                out.push((p.x, p.y));
+            }
+            return out;
+        }
+        left -= leg;
+        out.push((next.x, next.y));
+        at = next;
+    }
+    out
+}
+
+/// A ghost walked on for `seconds` at its pace along its path, turned to
+/// the way it goes and its stride come on with the ground covered — the
+/// body's own count, a tenth of a turn a unit.
+fn walk_ghost(ghost: &mut crate::items::Ghost, seconds: f32) {
+    let mut left = ghost.pace * seconds;
+    while left > 0.0 {
+        let Some(&(nx, ny)) = ghost.path.first() else {
+            break;
+        };
+        let (dx, dy) = (nx - ghost.x, ny - ghost.y);
+        let leg = (dx * dx + dy * dy).sqrt();
+        if leg > 0.0 {
+            ghost.heading = dy.atan2(dx);
+        }
+        let step = leg.min(left);
+        if leg > 0.0 {
+            ghost.x += dx * step / leg;
+            ghost.y += dy * step / leg;
+        }
+        ghost.stride = (ghost.stride + step * 0.10) % std::f32::consts::TAU;
+        left -= step;
+        if step >= leg {
+            ghost.path.remove(0);
+        }
     }
 }

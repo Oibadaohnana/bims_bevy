@@ -53,15 +53,74 @@ pub struct ItemClocks {
     /// `(who, mission minute)`: an *Ablative Shell* on until then.
     #[cfg_attr(feature = "serde", serde(default))]
     pub shell_until: Vec<(u32, f64)>,
+    /// Every *Smoke Launcher*'s cloud hanging (October 2026).
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub smoke: Vec<Smoke>,
+    /// Every *Tether Link* holding.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub tethers: Vec<Tether>,
+    /// Every *Decoy Projector*'s ghost walking or standing.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub ghosts: Vec<Ghost>,
+    /// `(who, mission minute)`: an *Adrenal Injector*'s rush on until then.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub adrenal_until: Vec<(u32, f64)>,
+}
+
+/// A *Smoke Launcher*'s cloud, in the crew's room's units.
+#[derive(Clone, Copy, PartialEq, Debug, Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct Smoke {
+    pub x: f32,
+    pub y: f32,
+    /// Its radius, in room units.
+    pub radius: f32,
+    /// The mission minutes it went up at and hangs until.
+    pub from: f64,
+    pub until: f64,
+}
+
+/// A *Tether Link*: who carries it, the crewmate linked, the share of the
+/// crewmate's hits the carrier takes, and the mission minute it lets go.
+#[derive(Clone, Copy, PartialEq, Debug, Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct Tether {
+    pub carrier: u32,
+    pub mate: u32,
+    pub share: f32,
+    pub until: f64,
+}
+
+/// A *Decoy Projector*'s ghost: whose, where it is (the crew's room's
+/// units), the walk still ahead of it, its pace in room units a second,
+/// which way it faces and its stride, for the picture, and the mission
+/// minutes it went up at and lasts until.
+#[derive(Clone, PartialEq, Debug, Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct Ghost {
+    pub owner: u32,
+    pub x: f32,
+    pub y: f32,
+    pub path: Vec<(f32, f32)>,
+    pub pace: f32,
+    pub heading: f32,
+    pub stride: f32,
+    pub from: f64,
+    pub until: f64,
 }
 
 impl ItemClocks {
-    /// A mission begun: every item ready, nobody hit yet.
+    /// A mission begun: every item ready, nobody hit yet, no cloud, link
+    /// or ghost left over.
     pub fn new_mission(&mut self) {
         self.ready_at.clear();
         self.hurt_at.clear();
         self.arc_hits.clear();
         self.shell_until.clear();
+        self.smoke.clear();
+        self.tethers.clear();
+        self.ghosts.clear();
+        self.adrenal_until.clear();
     }
 }
 

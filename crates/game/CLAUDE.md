@@ -5425,3 +5425,27 @@ any stream, and every turn is a written-out cosine and sine.
 
 Nothing the simulation reads moved; the pictures did (`PICTURES` may
 move for a player's ring and gun).
+
+## Three items in the room: smoke, a tether, a decoy's ghost (October 2026)
+
+`item_room.rs` (a child of `game`) is everything three of the items'
+step three are in the room, and **the room keeps none of it**: the world
+keeps every cloud, link and ghost on `world::items::ItemClocks` and says
+them every step before the rooms step (`Game::set_smoke`, `set_tethers`,
+`set_ghosts`, all into `Game::item_looks`, `serde(skip)`).
+
+- **A cloud said with `blocks_sight`** (the residents' room's) is in the
+  way of every line of sight there: `shut_now` adds its tiles
+  (`smoke_in_the_way`, a tile whose middle is in the radius) to the shut
+  doors, so `Sight::set_shut` marks them opaque — the enemy neither sees
+  into the cloud nor through it, its stands score round it, and one
+  standing in it is blind. The crew's room is told the same clouds
+  without it, to draw (grey puffs off a hash, `PUFFS`, never a roll).
+- **A ghost** is drawn as its owner's own figure, `Character::ghost` (a
+  clone stood elsewhere, stripped of rings, lean, aim, shield and the
+  rest), faded to `GHOST_OPACITY`. `Game::ghost_route(who, to)` is its
+  walk on the body's own grid; the world walks it.
+- **A tether** is a line between two crew bodies.
+
+Nothing here draws off any stream, and a room told nothing does nothing
+it did not, so no pin moved for the room's half.

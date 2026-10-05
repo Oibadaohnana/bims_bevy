@@ -1542,6 +1542,10 @@ impl World {
         //    How many hits each player's Bim had taken before the rooms
         //    stepped, for an item that notes one.
         let hits_before = self.hits_before_the_step();
+        //    And the items' clouds, links and ghosts (October 2026): run
+        //    out let go, the ghosts walked, both rooms told; and every
+        //    tethered crewmate's hit points now, for the link's share.
+        let tethered = self.hand_the_rooms_the_items();
         // Weak Spot's stream (task 124) lent to the crew's room for its
         // step — the one room the crew's bolts land in — and taken back.
         self.aboard.room.lend_crit_rng(self.crit_rng.clone());
@@ -1575,7 +1579,7 @@ impl World {
         self.relics_mend();
         //    And the items (October 2026): a hit noted for the blink and
         //    the Reactor Heart, and the Heart's regeneration.
-        self.settle_items(&hits_before);
+        self.settle_items(&hits_before, &tethered, &mut events);
         self.experience(&mut events);
         self.settle_medics(&mut events);
         self.melee_locks(&mut events);
@@ -2648,6 +2652,13 @@ impl World {
         // handed after the crew: each at its spot in the station's own
         // units, with its rifle. Worked out before the residents' room
         // is borrowed, since the owner's talents are the world's.
+        // And what the items say of the crew for the enemy (October
+        // 2026): who stands in a smoke cloud, nobody's target, and every
+        // decoy's ghost, after the sentries.
+        let in_smoke: Vec<bool> = (0..self.aboard.crew_count())
+            .map(|who| self.in_smoke(who))
+            .collect();
+        let ghost_targets = self.ghost_targets();
         let sentry_targets: Vec<Option<(DVec2, Weapon)>> = self
             .sentries_in_room()
             .into_iter()
@@ -2829,6 +2840,31 @@ impl World {
                 (bims::math::vec2(at.x as f32, at.y as f32), weapon)
             }));
         }
+        for (who, &hidden) in in_smoke.iter().enumerate() {
+            if hidden && let Some(target) = crew.get_mut(who) {
+                *target = None;
+            }
+        }
+        let ghosts_from = crew.len();
+        for target in ghost_targets {
+            crew.push(target.map(|(p, weapon)| {
+                let at = p.add(shift);
+                (bims::math::vec2(at.x as f32, at.y as f32), weapon)
+            }));
+        }
+        let taunts: Vec<bims::combat::Taunt> = (0..crew.len())
+            .map(|i| {
+                if i >= ghosts_from {
+                    bims::combat::Taunt {
+                        radius: bims::module::DECOY_TAUNT_TILES * shipdesign::TILE as f32,
+                        magnet: true,
+                        order: 1,
+                    }
+                } else {
+                    bims::combat::Taunt::NONE
+                }
+            })
+            .collect();
         if defending {
             // **The town's own fight** (feature 94). Its people shoot
             // the machines *in their own room* and nothing else: the
@@ -2906,6 +2942,7 @@ impl World {
                 );
             }
             room.set_machine_hostiles(theirs, cross);
+            room.set_machine_hostiles_taunting(&taunts);
             // And who takes arms: **a town's guard and the defenders**
             // (task 111). Everybody else walks into the
             // nearest house — the nearest bunk, at a station — and stays
@@ -2930,6 +2967,7 @@ impl World {
             // lands only once the one before it is down.
             room.set_told(residents.manufacturers_laid > 1);
             room.set_hostiles(crew.clone());
+            room.set_hostiles_taunting(&taunts);
             room.set_hostiles_peeking(&self.aboard.crew_peeking());
             // And the odds each dodges a bolt for its armour, the same way.
             let crew_dodge: Vec<f32> = (0..self.aboard.crew_count())
@@ -3033,7 +3071,9 @@ impl World {
                         .min_by(|a, b| a.1.total_cmp(&b.1))
                         .map(|(who, _)| who);
                     if let Some(who) = who {
-                        if who >= crew_count {
+                        // A blow at a decoy's ghost lands on nothing.
+                        if who >= ghosts_from {
+                        } else if who >= crew_count {
                             self.aboard.room.enemy_strike_sentry(
                                 on_deck(shot.from),
                                 who - crew_count,
@@ -9460,7 +9500,11 @@ impl World {
         // Weak Spot on a soldier and every Executioner carried (October
         // 2026): the biggest multiple of them.
         self.crit_of(by as u32)
-            .map_or(0.0, |(_, crit)| crate::soldier::crit_bonus(hit.flat, crit))
+            .map_or(0.0, |(_, crit)| {
+                // An Overcharger's damage is the weapon's own, so the crit
+                // is a multiple of it too (October 2026).
+                crate::soldier::crit_bonus(hit.flat * self.item_damage_factor(by as u32), crit)
+            })
     }
 
     // --- the medic: a ranked kit (task 130; reworked by task 153) ----------

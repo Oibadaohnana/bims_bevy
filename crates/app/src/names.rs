@@ -466,6 +466,7 @@ pub fn refusal(why: Refusal) -> &'static str {
         Refusal::NoSatchels => "no satchel charge of yours is lying out",
         Refusal::ShieldRecharging => "the shield is broken until its cooldown is over",
         Refusal::NotSellable => "the laser pistol is not for sale",
+        Refusal::OutOfItemRange => "they are too far off for that",
         Refusal::NoBonusWave => "a bonus wave is chosen in the ready check, at a fight",
     }
 }
@@ -1875,7 +1876,7 @@ pub const RELIC_NAMES: [&str; 13] = [
 ];
 
 /// The items' names (October 2026), by `bims::module::ModuleKind` code.
-pub const ITEM_NAMES: [&str; 14] = [
+pub const ITEM_NAMES: [&str; 20] = [
     "Blink Drive",
     "Executioner",
     "Reactor Heart",
@@ -1890,6 +1891,12 @@ pub const ITEM_NAMES: [&str; 14] = [
     "Reset Capacitor",
     "Ablative Shell",
     "Training Log",
+    "Smoke Launcher",
+    "Targeting Uplink",
+    "Tether Link",
+    "Decoy Projector",
+    "Adrenal Injector",
+    "Overcharger",
 ];
 
 /// An item's name.
@@ -1989,6 +1996,43 @@ pub fn item_line(item: bims::module::Module) -> String {
             "+{}% experience for every enemy down. Two do not add: the best counts. Best bought early.",
             m::TRAINING_LOG_XP[t],
         ),
+        ModuleKind::SmokeLauncher => format!(
+            "Active: a smoke cloud {} tiles across at the pointer, up to {} tiles off, for {} s. The enemy cannot see into it or through it, and nobody of the crew in it is a target. {} s cooldown.",
+            fig(2.0 * m::SMOKE_RADIUS_TILES[t] as f64),
+            fig(m::SMOKE_RANGE_TILES as f64),
+            fig(m::SMOKE_SECONDS[t] as f64),
+            fig(m::SMOKE_COOLDOWN_SECONDS[t] as f64),
+        ),
+        ModuleKind::TargetingUplink => format!(
+            "The crew's bots within {} tiles of you do +{}% damage. Two do not add: the best counts.",
+            fig(m::UPLINK_TILES as f64),
+            m::UPLINK_DAMAGE_PERCENT[t],
+        ),
+        ModuleKind::TetherLink => format!(
+            "Active: links you to the crewmate at the pointer, up to {} tiles off, for {} s: you take {} of every hit on them instead. {} s cooldown.",
+            fig(m::TETHER_RANGE_TILES as f64),
+            fig(m::TETHER_SECONDS as f64),
+            pc(m::TETHER_SHARE[t] as f64),
+            fig(m::TETHER_COOLDOWN_SECONDS[t] as f64),
+        ),
+        ModuleKind::DecoyProjector => format!(
+            "Active: a ghost of you walks to the pointer, up to {} tiles of walk, at half your pace, and lasts {} s. Every enemy within {} tiles that sees it shoots at it and nothing else. {} s cooldown.",
+            fig(m::DECOY_RANGE_TILES as f64),
+            fig(m::DECOY_SECONDS as f64),
+            fig(m::DECOY_TAUNT_TILES as f64),
+            fig(m::DECOY_COOLDOWN_SECONDS as f64),
+        ),
+        ModuleKind::AdrenalInjector => format!(
+            "Under {} health: +{}% fire rate and speed for {} s. {} s cooldown.",
+            pc(m::ADRENAL_BELOW as f64),
+            m::ADRENAL_PERCENT[t],
+            fig(m::ADRENAL_SECONDS[t] as f64),
+            fig(m::ADRENAL_COOLDOWN_SECONDS as f64),
+        ),
+        ModuleKind::Overcharger => format!(
+            "+{}% weapon damage. A critical hit is a multiple of it, so crits hit harder too.",
+            m::OVERCHARGE_PERCENT[t],
+        ),
     }
 }
 
@@ -2056,7 +2100,25 @@ pub fn item_tier_line(kind: bims::module::ModuleKind, tier: u32) -> Option<Strin
             fig(m::SHELL_COOLDOWN_SECONDS[t] as f64),
         ),
         ModuleKind::TrainingLog => format!("+{}% experience", m::TRAINING_LOG_XP[t]),
-        ModuleKind::OverrideCore => return None,
+        ModuleKind::SmokeLauncher => format!(
+            "{} tiles · {} s · {} s cooldown",
+            fig(2.0 * m::SMOKE_RADIUS_TILES[t] as f64),
+            fig(m::SMOKE_SECONDS[t] as f64),
+            fig(m::SMOKE_COOLDOWN_SECONDS[t] as f64),
+        ),
+        ModuleKind::TargetingUplink => format!("bots +{}% damage", m::UPLINK_DAMAGE_PERCENT[t]),
+        ModuleKind::TetherLink => format!(
+            "{} taken · {} s cooldown",
+            pc(m::TETHER_SHARE[t] as f64),
+            fig(m::TETHER_COOLDOWN_SECONDS[t] as f64),
+        ),
+        ModuleKind::AdrenalInjector => format!(
+            "+{}% · {} s",
+            m::ADRENAL_PERCENT[t],
+            fig(m::ADRENAL_SECONDS[t] as f64),
+        ),
+        ModuleKind::Overcharger => format!("+{}% weapon damage", m::OVERCHARGE_PERCENT[t]),
+        ModuleKind::OverrideCore | ModuleKind::DecoyProjector => return None,
     })
 }
 
@@ -4001,6 +4063,7 @@ mod tests {
             Refusal::BotsCarryNoItems,
             Refusal::NotForSale,
             Refusal::NotSellable,
+            Refusal::OutOfItemRange,
         ] {
             assert!(!refusal(why).is_empty());
         }

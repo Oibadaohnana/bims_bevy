@@ -107,6 +107,13 @@ const HEART: Color32 = Color32::from_rgb(0xc8, 0x34, 0x40);
 const HEART_CORE: Color32 = Color32::from_rgb(0x7c, 0xf0, 0x9a);
 const CORE_GOLD: Color32 = Color32::from_rgb(0xf0, 0xc0, 0x48);
 const CORE_DEEP: Color32 = Color32::from_rgb(0x6a, 0x4c, 0x18);
+// Step three's items (October 2026): the smoke's greys, a tether's glow and
+// a decoy's ghost.
+const SMOKE_GREY: Color32 = Color32::from_rgb(0x96, 0x9a, 0x9e);
+const SMOKE_DARK: Color32 = Color32::from_rgb(0x5e, 0x62, 0x66);
+const SMOKE_PALE: Color32 = Color32::from_rgb(0xc4, 0xc8, 0xcc);
+const TETHER_GLOW: Color32 = Color32::from_rgba_premultiplied(0x30, 0x60, 0x80, 0x80);
+const GHOST: Color32 = Color32::from_rgba_premultiplied(0x50, 0x6c, 0x88, 0x88);
 
 /// An item's picture, into `rect` (October 2026): its plate and the
 /// thing, with one pip a tier in the top right for a tiered kind.
@@ -299,6 +306,90 @@ fn draw_module(s: &mut Sketch, b: &Box_, kind: bims::module::ModuleKind) {
             for y in [0.38, 0.56] {
                 s.line_segment([b.at(0.26, y), b.at(0.74, y)], st(0.04, CORE_DEEP));
             }
+        }
+        // A canister, and the smoke billowing up out of it.
+        ModuleKind::SmokeLauncher => {
+            s.rect_filled(b.rect(0.12, 0.62, 0.40, 0.94), b.px(0.04), GUN_DARK);
+            s.rect_filled(b.rect(0.12, 0.62, 0.40, 0.70), b.px(0.02), GUN_STEEL);
+            for (x, y, r, c) in [
+                (0.30, 0.48, 0.14, SMOKE_DARK),
+                (0.52, 0.38, 0.20, SMOKE_GREY),
+                (0.74, 0.24, 0.18, SMOKE_GREY),
+                (0.58, 0.16, 0.13, SMOKE_PALE),
+                (0.82, 0.48, 0.12, SMOKE_DARK),
+            ] {
+                s.circle_filled(b.at(x, y), b.px(r), c);
+            }
+            s.circle_filled(b.at(0.48, 0.32), b.px(0.06), SHINE);
+        }
+        // A mast, its three waves out, and a bot's reticle lit by them.
+        ModuleKind::TargetingUplink => {
+            s.rect_filled(b.rect(0.18, 0.40, 0.26, 0.94), b.px(0.02), GUN_STEEL);
+            s.fill(
+                b.poly(&[(0.08, 0.94), (0.36, 0.94), (0.22, 0.78)]),
+                GUN_DARK,
+            );
+            s.circle_filled(b.at(0.22, 0.36), b.px(0.07), EMP_BAND);
+            for r in [0.16, 0.28, 0.40] {
+                s.path(b.arc(0.22, 0.36, r, -70.0, 10.0), st(0.05, EMP_BAND));
+            }
+            s.circle_stroke(b.at(0.72, 0.66), b.px(0.16), st(0.05, HEAL));
+            s.line_segment([b.at(0.72, 0.44), b.at(0.72, 0.88)], st(0.04, HEAL));
+            s.line_segment([b.at(0.50, 0.66), b.at(0.94, 0.66)], st(0.04, HEAL));
+        }
+        // Two crew, and the bright line between them.
+        ModuleKind::TetherLink => {
+            s.line_segment([b.at(0.24, 0.70), b.at(0.76, 0.30)], st(0.12, TETHER_GLOW));
+            s.line_segment([b.at(0.24, 0.70), b.at(0.76, 0.30)], st(0.05, BLINK_PALE));
+            s.circle_filled(b.at(0.24, 0.70), b.px(0.18), GUN_LIGHT);
+            s.circle_filled(b.at(0.76, 0.30), b.px(0.18), GUN_LIGHT);
+            s.circle_stroke(b.at(0.76, 0.30), b.px(0.24), st(0.04, BLINK_PALE));
+            s.circle_filled(b.at(0.20, 0.66), b.px(0.06), SHINE);
+        }
+        // A Bim, and its ghost walking off ahead of it.
+        ModuleKind::DecoyProjector => {
+            s.circle_filled(b.at(0.66, 0.30), b.px(0.13), GHOST);
+            s.fill(
+                b.poly(&[(0.52, 0.46), (0.80, 0.46), (0.86, 0.84), (0.46, 0.84)]),
+                GHOST,
+            );
+            s.circle_filled(b.at(0.30, 0.38), b.px(0.13), GUN_LIGHT);
+            s.fill(
+                b.poly(&[(0.16, 0.54), (0.44, 0.54), (0.50, 0.92), (0.10, 0.92)]),
+                GUN_LIGHT,
+            );
+            for x in [0.58, 0.70] {
+                s.line_segment([b.at(x, 0.10), b.at(x + 0.08, 0.04)], st(0.03, BLINK_PALE));
+            }
+        }
+        // A syringe, its red dose and the needle.
+        ModuleKind::AdrenalInjector => {
+            s.fill(
+                b.poly(&[(0.22, 0.62), (0.62, 0.22), (0.78, 0.38), (0.38, 0.78)]),
+                GUN_STEEL,
+            );
+            s.fill(
+                b.poly(&[(0.30, 0.62), (0.56, 0.36), (0.66, 0.46), (0.40, 0.72)]),
+                CROSS,
+            );
+            s.line_segment([b.at(0.30, 0.70), b.at(0.08, 0.92)], st(0.04, GUN_LIGHT));
+            s.line_segment([b.at(0.66, 0.18), b.at(0.82, 0.34)], st(0.06, GUN_DARK));
+            s.line_segment([b.at(0.74, 0.26), b.at(0.92, 0.08)], st(0.06, GUN_DARK));
+            s.circle_filled(b.at(0.48, 0.44), b.px(0.04), SHINE);
+        }
+        // A cell, and the bolt of charge through it.
+        ModuleKind::Overcharger => {
+            s.rect_filled(b.rect(0.20, 0.16, 0.80, 0.92), b.px(0.06), GUN_DARK);
+            s.rect_filled(b.rect(0.38, 0.06, 0.62, 0.16), b.px(0.02), GUN_STEEL);
+            s.fill(
+                b.poly(&[(0.58, 0.22), (0.34, 0.56), (0.50, 0.56)]),
+                CORE_GOLD,
+            );
+            s.fill(
+                b.poly(&[(0.50, 0.52), (0.66, 0.52), (0.42, 0.86)]),
+                CORE_GOLD,
+            );
+            s.circle_filled(b.at(0.50, 0.54), b.px(0.05), SHINE);
         }
     }
 }

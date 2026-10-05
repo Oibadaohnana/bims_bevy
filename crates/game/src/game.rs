@@ -37,6 +37,11 @@ mod intruder;
 /// rail, the Conductor's link, mark, blink and strike call.
 #[path = "tier_two.rs"]
 mod tier_two;
+/// Three items in the room (October 2026): a smoke cloud, a tether's line
+/// and a decoy's ghost, said every step by the world.
+#[path = "item_room.rs"]
+mod item_room;
+pub use item_room::{GHOST_OPACITY, GhostLook, SmokeCloud};
 
 const TRAIL: Color = ACCENT;
 
@@ -884,6 +889,10 @@ pub struct Game {
     /// Said every step by the world; empty everywhere else.
     #[cfg_attr(feature = "serde", serde(default))]
     objectives: Vec<Option<Vec2>>,
+    /// The items' smoke, tethers and ghosts (October 2026, `item_room`):
+    /// said every step by the world before the room steps, so never saved.
+    #[cfg_attr(feature = "serde", serde(skip))]
+    item_looks: item_room::ItemLooks,
     /// The picture, left out of a save: `render` draws it again.
     #[cfg_attr(feature = "serde", serde(skip))]
     list: DrawList,
@@ -1097,6 +1106,7 @@ impl Game {
             machine_seen: Vec::new(),
             sheltering: Vec::new(),
             objectives: Vec::new(),
+            item_looks: Default::default(),
             list: DrawList::new(),
             bodies_from: 0,
             fog_from: 0,
@@ -10657,7 +10667,11 @@ impl Game {
             .chain(self.droids.iter().filter(|d| !d.destroyed).map(|d| d.pos))
             .chain(self.visitors.iter().copied())
             .collect();
-        self.room.shut_leaves(&bodies)
+        let mut shut = self.room.shut_leaves(&bodies);
+        // And a smoke cloud, in the room the enemy looks from (October
+        // 2026): nobody sees into it or through it.
+        shut.extend(self.smoke_in_the_way());
+        shut
     }
 
     /// The smooth picture of what the crew see and what is lit, for the
@@ -10905,6 +10919,9 @@ impl Game {
         // The plates a machine threw bursting apart (feature 98), landing
         // among the bodies.
         fx.draw_debris(&mut self.list);
+        // The items' smoke, tethers and ghosts (October 2026), among the
+        // bodies and under the fog.
+        self.draw_item_looks();
         // Bedding and bunk rails go over the Bim, so getting into bed puts it
         // under the covers rather than on top of them.
         self.room.draw_over(&mut self.list);

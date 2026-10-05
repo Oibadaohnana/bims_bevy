@@ -642,6 +642,8 @@ pub enum Refusal {
     /// not in the ready check before a mission's fight, an Area defend,
     /// the Machine Heart, or no fight at all.
     NoBonusWave = 133,
+    /// A *Tether Link* asked of a crewmate past its reach (October 2026).
+    OutOfItemRange = 134,
 }
 
 impl Refusal {

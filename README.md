@@ -292,6 +292,12 @@ the six, three across and two down, at the right of the abilities, each with its
 | **Reset Capacitor** | Active: every class cooldown ready, every charge full, your other items' cooldowns with them. **Tier three alone**: on no trader's shelf before the run's tier-three day, never upgraded | tier three: 80 s | 85 000 |
 | **Ablative Shell** | Active: damage taken ×0.6, and a Warden's lance strips none of your armour | 4 / 5 / 6 s, 60 / 55 / 50 s | 33 750 / 60 750 / 108 000 |
 | **Training Log** | More of every enemy's experience; two do not add, the best counts. An investment, best bought early | +15 / 20 / 25% | 13 500 / 27 000 / 47 250 |
+| **Smoke Launcher** | Active: a smoke cloud at the pointer, up to 8 tiles off. The enemy cannot see into it or through it, and nobody of the crew standing in it is a target | 4 / 5 / 6 tiles across, 6 / 8 / 10 s, 35 / 30 / 25 s | 20 250 / 40 500 / 67 500 |
+| **Targeting Uplink** | The crew's bots within 6 tiles of you do more damage; two do not add | +10 / 15 / 20% | 27 000 / 54 000 / 94 500 |
+| **Tether Link** | Active: links you to the crewmate at the pointer, up to 8 tiles off, for 8 s; you take a share of every hit on them instead, past your armour | 25 / 30 / 35%, 40 / 35 / 30 s | 27 000 / 54 000 / 94 500 |
+| **Decoy Projector** | Active: a see-through ghost of you walks to the pointer (12 tiles of walk at most) at half your pace and lasts 7 s; every enemy within 7 tiles that sees it shoots at it and nothing else, and a blow at it lands on nothing. **One tier** | 35 s | 54 000 |
+| **Adrenal Injector** | Under 30% health: faster fire rate and speed for a few seconds, on its own | +20 / 25 / 30%, 4 / 5 / 6 s, 40 s | 20 250 / 40 500 / 67 500 |
+| **Overcharger** | More weapon damage — the flat damage a crit multiplies, so crits hit harder too | +10 / 15 / 20% | 27 000 / 54 000 / 94 500 |
 
 *Coolant Loop*, *Pressure Seal* and *Steady Grip* were relics; they are
 in no relic pool any more (a save holding one keeps it).

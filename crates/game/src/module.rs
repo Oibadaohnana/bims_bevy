@@ -74,10 +74,30 @@ pub enum ModuleKind {
     /// *Training Log* (October 2026): passive, more of every enemy's
     /// experience — an investment, best bought early.
     TrainingLog = 13,
+    // Step three (October 2026, the player's pick): six more.
+    /// *Smoke Launcher*: active, a cloud at the pointer the enemy cannot
+    /// see into or through, and nobody of the crew in it is a target.
+    SmokeLauncher = 14,
+    /// *Targeting Uplink*: passive, the crew's bots near its carrier do
+    /// more damage.
+    TargetingUplink = 15,
+    /// *Tether Link*: active, a crewmate at the pointer linked, and a
+    /// share of every hit on them taken by the carrier instead.
+    TetherLink = 16,
+    /// *Decoy Projector*: active, a ghost of the carrier walks to the
+    /// pointer at half its pace and every enemy near it shoots at it.
+    /// Made at one tier.
+    DecoyProjector = 17,
+    /// *Adrenal Injector*: passive, under a share of its bar the carrier
+    /// fires and walks faster for a few seconds, on a cooldown.
+    AdrenalInjector = 18,
+    /// *Overcharger*: passive, the weapon's own damage up — the flat
+    /// damage a crit multiplies.
+    Overcharger = 19,
 }
 
 impl ModuleKind {
-    pub const ALL: [ModuleKind; 14] = [
+    pub const ALL: [ModuleKind; 20] = [
         ModuleKind::BlinkDrive,
         ModuleKind::Executioner,
         ModuleKind::ReactorHeart,
@@ -92,6 +112,12 @@ impl ModuleKind {
         ModuleKind::ResetCapacitor,
         ModuleKind::AblativeShell,
         ModuleKind::TrainingLog,
+        ModuleKind::SmokeLauncher,
+        ModuleKind::TargetingUplink,
+        ModuleKind::TetherLink,
+        ModuleKind::DecoyProjector,
+        ModuleKind::AdrenalInjector,
+        ModuleKind::Overcharger,
     ];
 
     pub fn code(self) -> u32 {
@@ -103,13 +129,13 @@ impl ModuleKind {
     }
 
     /// Whether it is made at `tier`: every kind at every tier but the
-    /// *Override Core*, which is one thing and made at tier one alone —
-    /// never on a shelf at another, never upgraded — and the *Reset
-    /// Capacitor*, made at tier three alone (October 2026): on no shelf
-    /// before the run's tier-three day, never upgraded.
+    /// *Override Core* and the *Decoy Projector*, each one thing and made
+    /// at tier one alone — never on a shelf at another, never upgraded —
+    /// and the *Reset Capacitor*, made at tier three alone (October 2026):
+    /// on no shelf before the run's tier-three day, never upgraded.
     pub fn made_at(self, tier: Tier) -> bool {
         match self {
-            ModuleKind::OverrideCore => tier == Tier::One,
+            ModuleKind::OverrideCore | ModuleKind::DecoyProjector => tier == Tier::One,
             ModuleKind::ResetCapacitor => tier == Tier::Three,
             _ => true,
         }
@@ -124,14 +150,16 @@ impl ModuleKind {
             .unwrap_or(Tier::One)
     }
 
-    /// Whether it has a tier worth saying: all but the *Override Core*.
-    /// The *Reset Capacitor*'s, its one, is said: a tier-three thing.
+    /// Whether it has a tier worth saying: all but the *Override Core*
+    /// and the *Decoy Projector*. The *Reset Capacitor*'s, its one, is
+    /// said: a tier-three thing.
     pub fn tiered(self) -> bool {
-        self != ModuleKind::OverrideCore
+        !matches!(self, ModuleKind::OverrideCore | ModuleKind::DecoyProjector)
     }
 
     /// Whether its key does something: the *Blink Drive*, the *Field
-    /// Mender*, the *Reset Capacitor* and the *Ablative Shell*. The rest
+    /// Mender*, the *Reset Capacitor*, the *Ablative Shell*, the *Smoke
+    /// Launcher*, the *Tether Link* and the *Decoy Projector*. The rest
     /// work on their own.
     pub fn active(self) -> bool {
         matches!(
@@ -140,6 +168,9 @@ impl ModuleKind {
                 | ModuleKind::FieldMender
                 | ModuleKind::ResetCapacitor
                 | ModuleKind::AblativeShell
+                | ModuleKind::SmokeLauncher
+                | ModuleKind::TetherLink
+                | ModuleKind::DecoyProjector
         )
     }
 
@@ -258,6 +289,56 @@ pub const SHELL_COOLDOWN_SECONDS: [f32; 3] = [60.0, 55.0, 50.0];
 /// gets, in per cent, by tier. Two carried do not add: the best counts.
 pub const TRAINING_LOG_XP: [u32; 3] = [15, 20, 25];
 
+// --- step three (October 2026) -------------------------------------------------
+
+/// *Smoke Launcher*: how far from its carrier the cloud may be put, in
+/// tiles — a point farther off is taken as the farthest it reaches along
+/// the way.
+pub const SMOKE_RANGE_TILES: f32 = 8.0;
+/// The cloud's radius, in tiles, by tier.
+pub const SMOKE_RADIUS_TILES: [f32; 3] = [2.0, 2.5, 3.0];
+/// How long it hangs, in seconds, by tier.
+pub const SMOKE_SECONDS: [f32; 3] = [6.0, 8.0, 10.0];
+/// Its cooldown, in seconds, by tier.
+pub const SMOKE_COOLDOWN_SECONDS: [f32; 3] = [35.0, 30.0, 25.0];
+/// *Targeting Uplink*: how far from its carrier a bot is lifted, in tiles.
+pub const UPLINK_TILES: f32 = 6.0;
+/// Per cent on a lifted bot's damage, by tier. Two do not add: the best
+/// reaching it counts.
+pub const UPLINK_DAMAGE_PERCENT: [i32; 3] = [10, 15, 20];
+/// *Tether Link*: how far from its carrier the crewmate may be, in tiles.
+pub const TETHER_RANGE_TILES: f32 = 8.0;
+/// The share of every hit on the crewmate the carrier takes instead, by
+/// tier.
+pub const TETHER_SHARE: [f32; 3] = [0.25, 0.30, 0.35];
+/// How long the link holds, in seconds.
+pub const TETHER_SECONDS: f32 = 8.0;
+/// Its cooldown, in seconds, by tier.
+pub const TETHER_COOLDOWN_SECONDS: [f32; 3] = [40.0, 35.0, 30.0];
+/// *Decoy Projector*: how far off the pointer may send the ghost, in
+/// tiles of the walk.
+pub const DECOY_RANGE_TILES: f32 = 12.0;
+/// The ghost's pace, a share of its carrier's own.
+pub const DECOY_PACE: f32 = 0.5;
+/// How long the ghost lasts, in seconds, walking and then standing.
+pub const DECOY_SECONDS: f32 = 7.0;
+/// How far its taunt reaches, in tiles: every enemy within it that can
+/// see the ghost shoots at the ghost and nothing else.
+pub const DECOY_TAUNT_TILES: f32 = 7.0;
+/// Its cooldown, in seconds.
+pub const DECOY_COOLDOWN_SECONDS: f32 = 35.0;
+/// *Adrenal Injector*: under this share of its bar it fires.
+pub const ADRENAL_BELOW: f32 = 0.30;
+/// Per cent on the fire rate and the pace while it runs, by tier.
+pub const ADRENAL_PERCENT: [i32; 3] = [20, 25, 30];
+/// How long it runs, in seconds, by tier.
+pub const ADRENAL_SECONDS: [f32; 3] = [4.0, 5.0, 6.0];
+/// Its cooldown, in seconds.
+pub const ADRENAL_COOLDOWN_SECONDS: f32 = 40.0;
+/// *Overcharger*: per cent on the weapon's own damage, by tier — the
+/// flat damage a crit is a multiple of, so a crit lands on it too.
+pub const OVERCHARGE_PERCENT: [i32; 3] = [10, 15, 20];
+
 impl Module {
     /// An active item's cooldown, in seconds; nought for a passive one.
     pub fn cooldown(self) -> f32 {
@@ -266,9 +347,62 @@ impl Module {
             ModuleKind::FieldMender => MENDER_COOLDOWN_SECONDS,
             ModuleKind::ResetCapacitor => RESET_COOLDOWN_SECONDS,
             ModuleKind::AblativeShell => SHELL_COOLDOWN_SECONDS,
+            ModuleKind::SmokeLauncher => SMOKE_COOLDOWN_SECONDS,
+            ModuleKind::TetherLink => TETHER_COOLDOWN_SECONDS,
+            // One tier, and a passive that fires on its own: one number.
+            ModuleKind::DecoyProjector => return DECOY_COOLDOWN_SECONDS,
+            ModuleKind::AdrenalInjector => return ADRENAL_COOLDOWN_SECONDS,
             _ => return 0.0,
         };
         by_tier(table, self.tier)
+    }
+
+    /// A *Smoke Launcher*'s cloud: its radius in tiles and its seconds.
+    pub fn smoke(self) -> Option<(f32, f32)> {
+        (self.kind == ModuleKind::SmokeLauncher).then(|| {
+            (
+                by_tier(SMOKE_RADIUS_TILES, self.tier),
+                by_tier(SMOKE_SECONDS, self.tier),
+            )
+        })
+    }
+
+    /// The per cent a *Targeting Uplink* puts on a bot's damage.
+    pub fn uplink_percent(self) -> i32 {
+        if self.kind == ModuleKind::TargetingUplink {
+            by_tier(UPLINK_DAMAGE_PERCENT, self.tier)
+        } else {
+            0
+        }
+    }
+
+    /// The share of a crewmate's hits a *Tether Link* takes over.
+    pub fn tether_share(self) -> f32 {
+        if self.kind == ModuleKind::TetherLink {
+            by_tier(TETHER_SHARE, self.tier)
+        } else {
+            0.0
+        }
+    }
+
+    /// An *Adrenal Injector*'s rush: the per cent on the fire rate and the
+    /// pace, and its seconds.
+    pub fn adrenal(self) -> Option<(i32, f32)> {
+        (self.kind == ModuleKind::AdrenalInjector).then(|| {
+            (
+                by_tier(ADRENAL_PERCENT, self.tier),
+                by_tier(ADRENAL_SECONDS, self.tier),
+            )
+        })
+    }
+
+    /// The per cent an *Overcharger* puts on the weapon's damage.
+    pub fn overcharge_percent(self) -> i32 {
+        if self.kind == ModuleKind::Overcharger {
+            by_tier(OVERCHARGE_PERCENT, self.tier)
+        } else {
+            0
+        }
     }
 
     /// The per cent a *Coolant Loop* takes off the class's cooldowns.
@@ -444,6 +578,11 @@ impl Gear {
         self.modules().map(Module::fire_rate_percent).sum()
     }
 
+    /// The per cent its *Overcharger*s put on the weapon's damage, summed.
+    pub fn item_damage_percent(&self) -> i32 {
+        self.modules().map(Module::overcharge_percent).sum()
+    }
+
     /// The tiles its *Long Barrel*s put on the weapon's range, summed.
     pub fn item_range_tiles(&self) -> f32 {
         self.modules().map(Module::range_tiles).sum()
@@ -521,11 +660,14 @@ mod tests {
     }
 
     #[test]
-    fn only_the_override_core_and_the_reset_capacitor_are_made_at_one_tier() {
+    fn only_the_override_core_the_decoy_and_the_reset_capacitor_are_made_at_one_tier() {
         for kind in ModuleKind::ALL {
             assert_eq!(ModuleKind::from_code(kind.code()), Some(kind));
             let tiers = Tier::ALL.iter().filter(|&&t| kind.made_at(t)).count();
-            let one = matches!(kind, ModuleKind::OverrideCore | ModuleKind::ResetCapacitor);
+            let one = matches!(
+                kind,
+                ModuleKind::OverrideCore | ModuleKind::DecoyProjector | ModuleKind::ResetCapacitor
+            );
             assert_eq!(tiers, if one { 1 } else { 3 });
             assert!(kind.made_at(kind.min_tier()));
         }

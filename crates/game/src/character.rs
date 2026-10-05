@@ -1791,6 +1791,38 @@ impl Character {
         self.reflecting = on;
     }
 
+    /// A *Decoy Projector*'s ghost of this body (October 2026): the same
+    /// figure, kit and colours, stood at `at` facing `heading`, its stride
+    /// at `stride` and walking at `speed` — and nothing of what is on the
+    /// body itself: no ring, no lean, no aim, no shield or plate, no
+    /// charge, no reload. Drawing only; the room fades it.
+    pub fn ghost(&self, at: Vec2, heading: f32, stride: f32, speed: f32) -> Character {
+        let mut ghost = self.clone();
+        ghost.pos = at;
+        ghost.was = at;
+        ghost.heading = heading;
+        ghost.stride = stride;
+        ghost.speed = speed;
+        ghost.activity = if speed > 0.0 {
+            Activity::Walking
+        } else {
+            Activity::Pausing
+        };
+        ghost.path.clear();
+        ghost.selected = 0;
+        ghost.lean = None;
+        ghost.aim = None;
+        ghost.shield = 0.0;
+        ghost.plate = None;
+        ghost.reflecting = false;
+        ghost.surging = false;
+        ghost.stunned = false;
+        ghost.cloaked = false;
+        ghost.shot_charge = 0.0;
+        ghost.reload = 0.0;
+        ghost
+    }
+
     /// Under a medic's cloak, or not (task 130). Drawing only.
     pub fn set_cloaked(&mut self, cloaked: bool) {
         self.cloaked = cloaked;

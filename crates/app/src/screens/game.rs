@@ -5895,6 +5895,18 @@ fn item_grid(ui: &mut egui::Ui, world: &world::World, who: u32, keys: &Keys) {
                                 );
                                 item_seconds(painter, rect, shell, theme::CAUTION);
                             }
+                            // An Adrenal Injector's rush the same way
+                            // (October 2026).
+                            let rush = world.adrenal_left(who);
+                            if item.kind == bims::module::ModuleKind::AdrenalInjector && rush > 0.0 {
+                                painter.rect_stroke(
+                                    rect,
+                                    4.0,
+                                    egui::Stroke::new(2.0, theme::CAUTION),
+                                    egui::StrokeKind::Inside,
+                                );
+                                item_seconds(painter, rect, rush, theme::CAUTION);
+                            }
                             let passive = !item.kind.active();
                             response.on_hover_ui(|ui| {
                                 ui.label(crate::names::module_tip(item, passive));

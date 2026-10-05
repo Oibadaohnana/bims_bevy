@@ -8092,3 +8092,50 @@ machines"); the world decides where they come.
 read `xp_per_down()` where they read `XP_ENEMY_DOWN`. Meant to alter
 play: `SURVIVORS`, `REFERENCE_CHECKSUM` and the ship's `PINNED` move
 wherever a run's crew earn experience off a wave.
+
+## Items, step three: smoke, an uplink, a tether, a decoy, a rush, an overcharge (October 2026)
+
+`bims::module::ModuleKind` 14–19 (the player's pick): `SmokeLauncher`,
+`TargetingUplink`, `TetherLink`, `DecoyProjector` (one tier, like the
+Override Core), `AdrenalInjector`, `Overcharger`; every number is
+`bims::module`'s, every price `data::ITEM_PRICE`'s six new rows. The
+world's half is `item_use.rs`, its state four lists on `ItemClocks`
+(`smoke`, `tethers`, `ghosts`, `adrenal_until`; saved, cleared at every
+mission's start). **`SAVE_VERSION` 115**, `Refusal::OutOfItemRange`
+(134).
+
+- **The actives** go through `Command::UseItem` at the pointer's room
+  point: a cloud there, as far as `SMOKE_RANGE_TILES` reaches; the
+  crewmate there linked (`tether_pick`: the one under it or the nearest
+  within a tile and a half, never the carrier, `NotACrewmate` /
+  `OutOfItemRange`); a ghost off on its walk there (`Game::ghost_route`,
+  cut at `DECOY_RANGE_TILES` of walk — `NoWayThere` with none — at
+  `DECOY_PACE` of the carrier's own pace, `MARCH_SPEED × skill.walk`).
+- **`hand_the_rooms_the_items`**, right before the rooms step: what ran
+  out let go, every ghost walked on its step (`walk_ghost`), the crew's
+  room told the clouds, links and ghosts to draw, the residents' room
+  the clouds that stop its people's sight (through `to_station` and the
+  shift), and each tethered crewmate's hit points handed back.
+- **In `visit`**: a crew member `in_smoke` is `None` on the enemy's list
+  (so `believe` forgets it), and every ghost goes on the end of the list
+  after the sentries (`ghost_targets`), each with a `Taunt` of
+  `DECOY_TAUNT_TILES`, `magnet`, to the residents' room
+  (`set_hostiles_taunting`) and in a defence to the machines' own list;
+  a blow at a ghost's index lands on nothing.
+- **`settle_items`** takes the tethered hit points and the events: a
+  link's crewmate took `1 − share` of every hit (`lift_by_items`'s
+  `damage_taken`), and the carrier is drained the rest
+  (`loss × share / (1 − share)`, `Game::drain`, past the armour); a link
+  whose carrier or crewmate is down lets go. Then
+  `inject_adrenaline`: a player's Bim under `ADRENAL_BELOW` of its bar
+  with an injector off its cooldown rushes (`ItemUsed`, the item slot's
+  cooldown).
+- **`lift_by_items`** now runs for every crew member: the tether's cut
+  for a linked crewmate, a bot's uplink (`uplink_reaching`: the best of
+  every player up within `UPLINK_TILES`), and for a player its
+  overcharge on `Skill::damage` and the rush on the fire rate and
+  `walk`. **`crit_extra`** multiplies the flat damage by
+  `item_damage_factor`, so an Overcharger's crit is on its own damage.
+
+`tests_items.rs`' last four tests are the rule. Meant to alter play only
+for a crew carrying one; a run without them plays as it did.

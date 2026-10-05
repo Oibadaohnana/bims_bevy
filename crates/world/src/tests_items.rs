@@ -869,3 +869,239 @@ fn arena() -> (World, u32) {
     }
     (world, station)
 }
+
+/// **A Targeting Uplink and an Overcharger** (October 2026): a bot within
+/// the uplink's reach of its carrier does its share more damage and one
+/// beyond it none; an Overcharger lifts its carrier's own damage and the
+/// flat damage a crit is a multiple of.
+#[test]
+fn an_uplink_lifts_a_bot_near_its_carrier_and_an_overcharger_the_crit() {
+    let mut world = basic();
+    world.step(&[]);
+    let tile = bims::room::TILE;
+    let at = world.aboard.room.bim_pos(0);
+    world
+        .aboard
+        .room
+        .put_for_probe(1, at + bims::math::vec2(tile * 2.0, 0.0));
+    let plain = world.skill_of(1).damage;
+    carry(
+        &mut world,
+        0,
+        0,
+        Some(ModuleKind::TargetingUplink.at(Tier::Three)),
+    );
+    let lift = 1.0 + bims::module::UPLINK_DAMAGE_PERCENT[2] as f32 / 100.0;
+    assert!((world.skill_of(1).damage - plain * lift).abs() < 1e-5);
+    world.aboard.room.put_for_probe(
+        1,
+        at + bims::math::vec2(tile * (bims::module::UPLINK_TILES + 2.0), 0.0),
+    );
+    assert!(
+        (world.skill_of(1).damage - plain).abs() < 1e-5,
+        "out of reach"
+    );
+    let own = world.skill_of(0).damage;
+    assert_eq!(world.item_damage_factor(0), 1.0);
+    carry(
+        &mut world,
+        0,
+        1,
+        Some(ModuleKind::Overcharger.at(Tier::Two)),
+    );
+    let over = 1.0 + bims::module::OVERCHARGE_PERCENT[1] as f32 / 100.0;
+    assert!((world.skill_of(0).damage - own * over).abs() < 1e-5);
+    assert!((world.item_damage_factor(0) - over).abs() < 1e-6);
+}
+
+/// **An Adrenal Injector** fires on its own under its share of the bar:
+/// the rush on, the fire rate and the pace up, said as the item used —
+/// and not again until its cooldown is out.
+#[test]
+fn an_adrenal_injector_rushes_under_a_third_of_the_bar_and_cools_down() {
+    let mut world = basic();
+    world.step(&[]);
+    carry(
+        &mut world,
+        0,
+        2,
+        Some(ModuleKind::AdrenalInjector.at(Tier::One)),
+    );
+    let skill = world.skill_of(0);
+    let events = world.step(&[]);
+    assert!(
+        !events
+            .iter()
+            .any(|e| matches!(e, WorldEvent::ItemUsed { .. })),
+        "nothing at a whole bar"
+    );
+    let bar = world.aboard.room.max_health(0);
+    world.aboard.room.wound(0, bar * 0.8);
+    let events = world.step(&[]);
+    assert!(
+        events.iter().any(|e| matches!(
+            e,
+            WorldEvent::ItemUsed { who: 0, kind } if *kind == ModuleKind::AdrenalInjector.code()
+        )),
+        "{events:?}"
+    );
+    assert!(world.adrenal_left(0) > 0.0);
+    assert!(world.item_cooldown_left(0, 2) > 0.0);
+    let rushed = world.skill_of(0);
+    let up = 1.0 + bims::module::ADRENAL_PERCENT[0] as f32 / 100.0;
+    assert!((rushed.fire_rate - skill.fire_rate * up).abs() < 1e-5);
+    assert!((rushed.walk - skill.walk * up).abs() < 1e-5);
+    let events = world.step(&[]);
+    assert!(
+        !events
+            .iter()
+            .any(|e| matches!(e, WorldEvent::ItemUsed { .. })),
+        "cooling down"
+    );
+}
+
+/// **A Tether Link** holds the crewmate at the pointer: it takes its share
+/// less of a hit and the carrier the rest, past the carrier's armour; one
+/// out of reach is refused, and nobody at the pointer is nobody.
+#[test]
+fn a_tether_link_takes_its_share_of_the_crewmate_s_hits() {
+    let mut world = basic();
+    world.step(&[]);
+    let tile = bims::room::TILE;
+    let at = world.aboard.room.bim_pos(0);
+    carry(
+        &mut world,
+        0,
+        0,
+        Some(ModuleKind::TetherLink.at(Tier::Three)),
+    );
+    let nobody = at + bims::math::vec2(0.0, tile * 40.0);
+    let events = world.step(&[Command::UseItem {
+        slot: 0,
+        item: 0,
+        x: nobody.x as i32,
+        y: nobody.y as i32,
+    }]);
+    assert!(refused_with(&events, Refusal::NotACrewmate), "{events:?}");
+    let far = at + bims::math::vec2(tile * (bims::module::TETHER_RANGE_TILES + 3.0), 0.0);
+    world.aboard.room.put_for_probe(1, far);
+    let events = world.step(&[Command::UseItem {
+        slot: 0,
+        item: 0,
+        x: far.x as i32,
+        y: far.y as i32,
+    }]);
+    assert!(refused_with(&events, Refusal::OutOfItemRange), "{events:?}");
+    let near = at + bims::math::vec2(tile * 3.0, 0.0);
+    world.aboard.room.put_for_probe(1, near);
+    let plain = world.skill_of(1).damage_taken;
+    world.step(&[Command::UseItem {
+        slot: 0,
+        item: 0,
+        x: near.x as i32,
+        y: near.y as i32,
+    }]);
+    let share = bims::module::TETHER_SHARE[2];
+    assert_eq!(world.run.items.tethers.len(), 1);
+    assert!((world.skill_of(1).damage_taken - plain * (1.0 - share)).abs() < 1e-5);
+    // A hit on the crewmate between the hand-over and the settling, as a
+    // bolt landing in the room's step is.
+    let tethered = world.hand_the_rooms_the_items();
+    let (mate, carrier) = (world.aboard.room.health(1), world.aboard.room.health(0));
+    world.aboard.room.drain(1, 30.0);
+    let lost = mate - world.aboard.room.health(1);
+    let mut events = Vec::new();
+    world.settle_items(&[0, 0], &tethered, &mut events);
+    let taken = carrier - world.aboard.room.health(0);
+    let want = lost * share / (1.0 - share);
+    assert!((taken - want).abs() < 1e-3, "took {taken}, want {want}");
+}
+
+/// **A Decoy Projector and a Smoke Launcher** in a held station: the
+/// ghost walks at half its owner's pace and goes on the enemy's list
+/// after the crew and the sentries; a cloud on the crew member takes it
+/// off that list and stands in the enemy's way like a shut door.
+#[test]
+fn a_decoy_walks_and_is_a_target_and_smoke_hides_and_blinds() {
+    let (mut world, _station) = arena();
+    carry(
+        &mut world,
+        0,
+        0,
+        Some(ModuleKind::DecoyProjector.at(Tier::One)),
+    );
+    carry(
+        &mut world,
+        0,
+        1,
+        Some(ModuleKind::SmokeLauncher.at(Tier::One)),
+    );
+    let listed = |world: &World| {
+        world
+            .residents
+            .as_ref()
+            .map_or(0, |r| r.aboard.room.hostiles_for_probe().len())
+    };
+    world.step(&[]);
+    let before = listed(&world);
+    let from = world.aboard.room.bim_pos(0);
+    let tile = bims::room::TILE;
+    let aim = (0..16)
+        .map(|n| {
+            let a = n as f32 / 16.0 * std::f32::consts::TAU;
+            from + bims::math::vec2(a.cos(), a.sin()) * tile * 5.0
+        })
+        .find(|&p| world.aboard.room.ghost_route(0, p).is_some())
+        .expect("somewhere to walk a ghost to");
+    let events = world.step(&[Command::UseItem {
+        slot: 0,
+        item: 0,
+        x: aim.x as i32,
+        y: aim.y as i32,
+    }]);
+    assert!(
+        events
+            .iter()
+            .any(|e| matches!(e, WorldEvent::ItemUsed { who: 0, .. })),
+        "{events:?}"
+    );
+    assert_eq!(world.run.items.ghosts.len(), 1);
+    let ghost = world.run.items.ghosts[0].clone();
+    let pace = bims::balance::MARCH_SPEED * world.skill_of(0).walk * bims::module::DECOY_PACE;
+    assert!((ghost.pace - pace).abs() < 1e-3);
+    world.step(&[]);
+    assert_eq!(listed(&world), before + 1, "the ghost on the enemy's list");
+    let start = (world.run.items.ghosts[0].x, world.run.items.ghosts[0].y);
+    for _ in 0..30 {
+        world.step(&[]);
+    }
+    let walked = &world.run.items.ghosts[0];
+    let gone = ((walked.x - start.0).powi(2) + (walked.y - start.1).powi(2)).sqrt();
+    let half_a_second = pace * 0.5;
+    assert!(gone > 0.0 && gone <= half_a_second + 1.0, "walked {gone}");
+    // The cloud on the crew member.
+    let shut = world
+        .residents
+        .as_ref()
+        .map_or(0, |r| r.aboard.room.doors_shut_for_probe());
+    let me = world.aboard.room.bim_pos(0);
+    world.step(&[Command::UseItem {
+        slot: 0,
+        item: 1,
+        x: me.x as i32,
+        y: me.y as i32,
+    }]);
+    assert!(world.in_smoke(0));
+    world.step(&[]);
+    let shut_now = world
+        .residents
+        .as_ref()
+        .map_or(0, |r| r.aboard.room.doors_shut_for_probe());
+    assert!(shut_now > shut, "{shut} then {shut_now}");
+    let hidden = world
+        .residents
+        .as_ref()
+        .and_then(|r| r.aboard.room.hostiles_for_probe().first().copied())
+        .flatten();
+    assert!(hidden.is_none(), "nobody's target in the smoke");
+}

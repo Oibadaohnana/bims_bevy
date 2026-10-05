@@ -301,7 +301,10 @@ use crate::game::Game;
 /// and the *Training Log*.
 /// 114: the bonus wave chosen before the fight — `Run::bonus`, where it
 /// was `Infestation::bonus` and `Defense::bonus`.
-pub const SAVE_VERSION: u32 = 114;
+/// 115: items' step three — the smoke clouds, tethers, decoys' ghosts and
+/// adrenal rushes on `ItemClocks` (`smoke`, `tethers`, `ghosts`,
+/// `adrenal_until`).
+pub const SAVE_VERSION: u32 = 115;
 
 /// What the file holds, read back.
 #[derive(serde::Deserialize)]
