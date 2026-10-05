@@ -229,7 +229,14 @@ const TILE: f32 = shipdesign::TILE as f32;
 /// one-tile gap beside it), so the combat ship's main deck is open and
 /// the crew walk it differently. Measured on HEAD 77d0f8e with that
 /// change alone. Was `0x_eacb_4bf8_f39d_85b2`.
-const SURVIVORS: u64 = 0x_d3b2_ad2d_e4a7_a78e;
+/// **And re-pinned on 5 October 2026 (agent #17) after a week red**:
+/// from about 30 September every task's commit said "the survivors' run
+/// red as before", while some two dozen changes each meant to alter play
+/// landed (the weapons' ranges at 0.7, the electricity gone, the crew
+/// round the gangway, the movement's speed, the levels' experience, the
+/// Lancer's rail, the six item slots, …). Their shares were not taken
+/// apart. Measured on 8e53f94. Was `0x_d3b2_ad2d_e4a7_a78e`.
+const SURVIVORS: u64 = 0x_c5e7_bbd0_5882_f314;
 
 /// A gun in every hand, the kinds dealt round, as the fight's probes arm
 /// a crew — the five there were when the reading was taken: the minigun

@@ -122,14 +122,36 @@ desktop):
 
 ## Verifying a change
 
-**Test your own change, not the whole game.** Run the crates you edited
-(`cargo test -p <crate>`), `cargo fmt`, `cargo clippy -p app --no-deps`
-(warnings are errors, app only) if you touched the app, and — for
-anything on screen — one smoke run through `./hidden` that shows it.
-**Do not run `./check` over the tree** unless your task says so: several
-agents share it, and a red step in a file you never opened is theirs. The
-player launches a test-all agent for the sweep. Say in your report which
-crates you ran.
+**Test your own change, not the whole game.** Several agents share the
+tree and one `target/`, and a whole crate's suite holds the build lock
+and every core: `world`'s 500 tests are 3½ minutes in release on an idle
+machine, eight beside other agents' builds. So:
+
+- **Run the tests that cover what you changed, by filter** — the test you
+  added and the module beside it: `cargo test -p world tests_area`,
+  `cargo test -p bims module::`. Not a whole `world` or `ship` suite, and
+  not the whole-run readings (`the_reference_run_comes_out…`,
+  `the_run_plays_as_it_did…`, `ship`'s `PINNED`/`PICTURES`) — those are
+  the test-all sweep's. A crate small and quick (`wire`, `shipdesign`,
+  `economy`, `time`) you may run whole.
+- **One profile**: the plain one (no `--release`), which the app's builds
+  share; a second profile is a second build of the whole tree. Only a
+  timing wants `--release`.
+- **Format only your files**: `rustfmt --edition 2024 <file>…` — `cargo
+  fmt` rewrites other agents' half-done files under them.
+- `cargo clippy -p app --no-deps` (warnings are errors, app only) if you
+  touched the app, and — for anything on screen — one smoke run through
+  `./hidden` that shows it.
+- **Say in your commit and report which tests you ran**, and whether the
+  change is meant to alter play — the sweep re-pins the whole-run
+  readings off those words rather than every agent re-pinning them in
+  turn.
+
+**Do not run `./check` over the tree** unless your task says so: a red
+step in a file you never opened is someone else's. The player launches a
+test-all agent for the sweep; that agent runs `./check full`, and when a
+pinned reading moved for changes the log says were meant to alter play,
+re-pins it with a note naming them.
 
 - A bare `cargo test` is the app alone (`default-members`); use `-p` or
   `--workspace`.

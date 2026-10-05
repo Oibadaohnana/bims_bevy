@@ -228,7 +228,16 @@ pub const REFERENCE_STEPS: u32 = 600;
 /// hashed — and, taken in the same tree, every
 /// relic unlocked from the start (`relic.rs`, agent #12: the run's pool
 /// is hashed). Was `0x_aca1_40d8_3ab7_360d`.
-pub const REFERENCE_CHECKSUM: u64 = 0x_6996_9850_bcab_0e80;
+/// And re-pinned on 5 October 2026 (agent #17) after a week red: from
+/// about 30 September every task's commit said "the reference checksum
+/// red as before", and some two dozen changes **each meant to alter play**
+/// landed on top of it (the weapons' ranges at 0.7, the electricity gone,
+/// the smaller galaxy, the crew round the gangway, the movement's speed,
+/// the defences' timings, the levels' experience, the Lancer's rail, the
+/// six item slots, the floor's 32 rows). Their shares were not taken
+/// apart. Measured on 8e53f94 (the tree's tests only besides). Was
+/// `0x_6996_9850_bcab_0e80`.
+pub const REFERENCE_CHECKSUM: u64 = 0x_6b64_4af0_7709_4b89;
 
 /// A world with the flyable fixture docked at the simulation's spawn: the
 /// default seed's first dock, which is where every fixture world starts.

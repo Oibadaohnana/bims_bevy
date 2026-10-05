@@ -2348,13 +2348,19 @@ fn a_bim_can_be_sent_to_stand_in_a_doorway_and_a_locked_door_is_a_wall() {
             "a crew member locked a door from its panel"
         );
         // The refused lock left the walk to the helm standing, so the Bim
-        // is on the bridge now: walk it back out before sealing it.
+        // is on the bridge now: walk it back out before sealing it. It may
+        // already stand at the helm, not walking, when sent — so wait for
+        // it to be back where it started, not for the walk to stop.
         assert!(world.aboard.room.send_for_probe(0, start));
         let mut budget = 60 * 60;
-        while budget > 0 && world.aboard.room.is_walking(0) {
+        while budget > 0 && (world.aboard.room.bim_pos(0) - start).len() > tile {
             world.step(&[]);
             budget -= 1;
         }
+        assert!(
+            (world.aboard.room.bim_pos(0) - start).len() <= tile,
+            "the Bim never walked back off the bridge"
+        );
         assert!(world.aboard.room.lock_door_for_probe(0, true));
         let mut budget = 60 * 5;
         while budget > 0 && world.aboard.room.is_walking(0) {
@@ -3762,9 +3768,8 @@ fn the_crew_are_handed_over_at_the_peek_while_peeking() {
 
 /// A sniper rifle reaches past the pistol, out to the view's 12.5
 /// tiles (`MAX_RANGE`; fourteen, and twenty and more before it), both ways round. A **machine** built with the rifle — a Warden,
-/// the kind that takes cover — walks off down the corridor to its range
-/// rather than closing, never to a doorway, which opens for whoever
-/// stands in it (`bims::combat::Tactics::stand`), and its shot lands on
+/// the kind that takes cover — set down 11.5 tiles down the corridor
+/// holds there with its shot rather than closing, and its shot lands on
 /// James from past the pistol's reach, said as a `CrewHit`. Then the crew
 /// member's: the bolt flies the whole corridor of the joined deck and
 /// lands with the rifle's damage at that distance, and the world carries
@@ -3787,14 +3792,18 @@ fn a_sniper_rifle_reaches_from_twenty_tiles_and_a_shotgun_does_as_much_at_eight_
             ..Gear::default()
         };
 
-        // A machine with the rifle walks off to its range rather than
-        // closing, stands where it can shoot from, and hits from there.
-        // A rifle at four tiles is the end of an unarmoured James, so he
-        // is patched up before every step and the hit counted is the
-        // first landed from a stand: what this pins is where the machine
-        // goes to shoot from, not what it does on the way. The crew are
-        // unarmed for it, and the machine is made whole every step
-        // besides.
+        // A machine with the rifle and a shot from far off holds there
+        // and fires rather than closing (a machine with a shot holds or
+        // closes, never gives ground — `Game::plan_droid_stand`, since
+        // September 2026; until then this pinned a Warden staged four
+        // tiles off walking back out to its range, which that rule took
+        // away). It is set down once, 11.5 tiles down the corridor a row
+        // up from the port's centre line (past the barricade, as the long
+        // shot below), and left to plan; the hit counted is the first
+        // landed from a stand: what this pins is where the machine shoots
+        // from, not what it does on the way. James is patched up before
+        // every step, the crew are unarmed for it, and the machine is
+        // made whole every step besides.
         let mut world = basic();
         assert!(
             world.stage_droid_fight_for_probe(
@@ -3807,6 +3816,17 @@ fn a_sniper_rifle_reaches_from_twenty_tiles_and_a_shotgun_does_as_much_at_eight_
         }
         let ashore = world.aboard.ashore.unwrap();
         let ashore = bims::math::vec2(ashore.x as f32, ashore.y as f32);
+        {
+            let station = world.ship.state.station().unwrap();
+            let port = world.station(station).unwrap().port().unwrap();
+            let reach = (data::ASHORE_TILES + 11.5) * shipdesign::TILE as f64;
+            let there = dvec2(
+                port.centre.0 - port.outward.0 as f64 * reach,
+                port.centre.1 - port.outward.1 as f64 * reach - shipdesign::TILE as f64,
+            );
+            let there = world.residents.as_ref().unwrap().aboard.to_room(there);
+            hold_machine(&mut world, there);
+        }
         let mut hit_at = None;
         for _ in 0..3_000 {
             world.aboard.room.put_for_probe(0, ashore);

@@ -20,8 +20,13 @@
 
 use serde::{Deserialize, Serialize};
 
-/// Bumped whenever anything in this file, or in the app's own message set,
-/// stops meaning what it used to.
+/// `BUILD` at the root in tenths, over a thousand (build 0.6 is 1006):
+/// `ship` moves `BUILD` up a tenth with every push to the server, and the
+/// relay and every client of that push are built from the same tree, so
+/// they agree and an older client is refused. Nobody bumps it by hand —
+/// it used to be bumped with every change to the wire or the game's
+/// messages, and agents working side by side kept claiming the same
+/// number. The history below is from then; it stops at 169.
 ///
 /// Checked at `Hello` and refused on mismatch. Two clients on different
 /// versions of the game desync in ways that look like bugs in the room,
@@ -297,7 +302,30 @@ use serde::{Deserialize, Serialize};
 /// 163: the same at 1.3 times (16 740 and 48 410).
 /// 164: every crew member's magazine full at a mission's start.
 /// 165: the Lancer's rail strikes three times as hard (135 a slug).
-pub const PROTOCOL: u32 = 165;
+/// 166: the floor 32 rows to the Heart (was fifty), nine traders on it
+/// (was fifteen).
+/// 167: six item slots (were four), `GearSlot::{Item5, Item6}`.
+/// 168: the Pressure Seal gives health on the bar (20 / 30 / 45) and no
+/// regeneration.
+/// 169: an Area defend's ring heals half a per cent a second (was two).
+pub const PROTOCOL: u32 = 1000 + build_tenths(include_str!("../../../BUILD"));
+
+/// `BUILD`'s number in tenths: `0.6` is 6, `1.0` 10, `12.3` 123 (its one
+/// decimal digit is `ship`'s rule).
+const fn build_tenths(build: &str) -> u32 {
+    let bytes = build.as_bytes();
+    let mut tenths = 0;
+    let mut i = 0;
+    while i < bytes.len() {
+        match bytes[i] {
+            b @ b'0'..=b'9' => tenths = tenths * 10 + (b - b'0') as u32,
+            b'.' | b' ' | b'\n' | b'\r' | b'\t' => {}
+            _ => panic!("BUILD is not a number like 0.6"),
+        }
+        i += 1;
+    }
+    tenths
+}
 
 /// Where the relay lives. `BIMS_SERVER` in the environment overrides it
 /// — `ws://127.0.0.1:8792` for one on the same machine.
@@ -511,6 +539,19 @@ pub fn tidy_name(raw: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_protocol_is_the_build_in_tenths_over_a_thousand() {
+        assert_eq!(build_tenths("0.6\n"), 6);
+        assert_eq!(build_tenths("1.0"), 10);
+        assert_eq!(build_tenths("12.3\n"), 123);
+        let build = include_str!("../../../BUILD").trim();
+        let (major, minor) = build.split_once('.').expect("BUILD is like 0.6");
+        let tenths = major.parse::<u32>().unwrap() * 10 + minor.parse::<u32>().unwrap();
+        assert_eq!(PROTOCOL, 1000 + tenths);
+        // Above every number bumped by hand, so no old client matches.
+        assert!(PROTOCOL > 169);
+    }
 
     #[test]
     fn a_code_survives_being_read_aloud_and_the_alphabet_has_no_lookalikes() {

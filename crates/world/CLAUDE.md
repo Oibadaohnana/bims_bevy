@@ -657,13 +657,16 @@ Things that bit or would:
   and the body's own arrival opened the door — see "A doorway is never a
   stand" in `crates/game/CLAUDE.md`. `plan_stand` now hands the tactics
   the room's doorways and none is a stand, so a rifle walks the corridor
-  out of the pistol's reach and lands its shot from there.
+  out of the pistol's reach and lands its shot from there. Since
+  September 2026 (e91bb19) a machine **with a shot** holds or closes
+  and never walks off to a farther stand, so
   `a_sniper_rifle_reaches_from_twenty_tiles` (a block of
-  `a_sniper_rifle_reaches_from_twenty_tiles_and_a_shotgun_does_as_much_at_nine_as_at_three`)
-  pins that with a Warden carrying the rifle — its hit said as a
-  `CrewHit` from a stand past the pistol's twelve tiles, James patched up
-  every step since an enemy shoots on the move too — before James's own
-  long shot at a Warden held twenty-odd tiles down the corridor.
+  `a_sniper_rifle_reaches_from_twenty_tiles_and_a_shotgun_does_as_much_at_eight_as_at_three`)
+  sets a Warden carrying the rifle down 11.5 tiles off and pins that it
+  holds there — its hit said as a `CrewHit` from a stand past the
+  pistol's ten tiles, James patched up every step since an enemy shoots
+  on the move too — before James's own long shot at a Warden held 11.5
+  tiles down the corridor.
 - **Two against one is not a fight the crew member wins**, so a test
   of the seam is one against one: `stage_droid_fight_for_probe` lays a
   single machine, and `Game::patch_up_for_probe` makes James good as new
