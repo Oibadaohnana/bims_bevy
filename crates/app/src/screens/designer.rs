@@ -746,6 +746,10 @@ pub fn build_run(s: &Settings, size: Vec2) -> Session {
     // And the difficulty the host picked, on every machine the same.
     if let Some(game) = &mut session.game {
         game.world.set_difficulty(s.difficulty);
+        // And the host's rewards, dealt with company (`wavecfg::Dealt`).
+        if let Some(rewards) = s.rewards {
+            game.world.set_rewards(rewards);
+        }
     }
     // The `end` command's (`crate::Launch::End`): at the Machine Heart,
     // after the difficulty so its waves are the set scaling's, the bots

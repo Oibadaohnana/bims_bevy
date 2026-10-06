@@ -166,6 +166,12 @@ pub struct Settings {
     /// the host's to pick and dealt with the rest; `None`
     /// until one is picked, which is the tuning file's (`scaling.ron`).
     pub difficulty: Option<world::droid::Difficulty>,
+    /// The host's `rewards.ron` and `weapons.ron`, dealt at a Start with
+    /// company (`wavecfg::Dealt`): every machine plays them for the run,
+    /// whatever its own files say. `None` in a game of one, which plays
+    /// its files and is tuned by them as it runs.
+    pub rewards: Option<world::rewards::Rewards>,
+    pub weapons: Option<bims::balance::WeaponDamage>,
     /// The `end` command's run (`crate::Launch::End`): the lobby's run
     /// opened at the Machine Heart with ten classed bots at the top level
     /// in tier-three kit (`designer::build_run`). Dealt with the rest.
@@ -197,6 +203,8 @@ impl Default for Settings {
             tints: Vec::new(),
             unlocks: crate::profile::RunUnlocks::of(&crate::profile::load()),
             difficulty: None,
+            rewards: None,
+            weapons: None,
             end: false,
             end_day: crate::dev::end_day(),
             auto_shoot: crate::dev::auto_shoot(),
@@ -984,6 +992,11 @@ fn frame(
             if settings.difficulty.is_none() {
                 settings.difficulty = Some(crate::wavecfg::file_dials());
             }
+            // And the rest of the tuning that moves the world, the same
+            // way: what an enemy pays and what things cost, and every
+            // weapon's damage.
+            settings.rewards = Some(crate::wavecfg::file_dials());
+            settings.weapons = Some(crate::wavecfg::file_dials());
             let slots = online.deal();
             settings.players = slots.len().max(1) as u32;
             settings.slot = online.my_slot();
@@ -1015,6 +1028,8 @@ fn frame(
         } else {
             settings.players = 1;
             settings.slot = 0;
+            settings.rewards = None;
+            settings.weapons = None;
             settings.names = vec![wire::tidy_name(&screen.bim_name)];
             settings.hair = vec![screen.bim_hair];
             settings.classes = vec![screen.bim_class];

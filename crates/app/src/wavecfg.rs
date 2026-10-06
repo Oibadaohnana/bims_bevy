@@ -40,6 +40,7 @@ use std::time::SystemTime;
 use world::droid::WaveScaling;
 use world::rewards::Rewards;
 
+use crate::net::Online;
 use crate::screens::designer::ShipSession;
 use crate::sound::{Sounds, Volumes};
 
@@ -84,6 +85,30 @@ pub(crate) trait Tuning:
 pub(crate) trait Dials: Tuning {
     fn of(world: &world::World) -> Self;
     fn hand(self, world: &mut world::World);
+    /// What the host dealt of these for a run with company, if it did.
+    fn dealt(_: &Dealt) -> Option<Self> {
+        None
+    }
+}
+
+/// The host's tuning, dealt at a Start with company
+/// (`builder::Settings::rewards`, `weapons`; the waves go as the run's
+/// difficulty, which the world keeps). While a run with company is on,
+/// these and not this machine's files are what the world is handed — on
+/// the host too — so an edit to a file mid-run moves no machine's world
+/// away from the others'. Removed at a Start of one.
+#[derive(Resource, Clone, Copy)]
+pub(crate) struct Dealt {
+    pub rewards: Rewards,
+    pub weapons: WeaponDamage,
+}
+
+/// The dealt tuning, while the run it was dealt for still has company:
+/// with the host gone the game is this machine's and its files count.
+fn dealt_now<'a>(dealt: &'a Option<Res<Dealt>>, online: &Option<Res<Online>>) -> Option<&'a Dealt> {
+    dealt
+        .as_deref()
+        .filter(|_| online.as_ref().is_some_and(|o| o.is_online()))
 }
 
 impl Tuning for WaveScaling {
@@ -156,6 +181,9 @@ impl Dials for Rewards {
     }
     fn hand(self, world: &mut world::World) {
         world.set_rewards(self);
+    }
+    fn dealt(dealt: &Dealt) -> Option<Self> {
+        Some(dealt.rewards)
     }
 }
 
@@ -411,26 +439,40 @@ fn hear(watched: Res<Watched<Volumes>>, sounds: Option<ResMut<Sounds>>) {
     }
 }
 
-/// Arm the file's damage for every room whenever the armed differ.
-fn arm(watched: Res<Watched<WeaponDamage>>) {
-    if WeaponDamage::armed() != watched.dials {
-        watched.dials.arm();
+/// Arm the file's damage for every room whenever the armed differ — or
+/// the host's, dealt for a run with company ([`Dealt`]).
+fn arm(
+    watched: Res<Watched<WeaponDamage>>,
+    dealt: Option<Res<Dealt>>,
+    online: Option<Res<Online>>,
+) {
+    let want = dealt_now(&dealt, &online).map_or(watched.dials, |d| d.weapons);
+    if WeaponDamage::armed() != want {
+        want.arm();
     }
 }
 
-/// Hand the world the dials whenever its own differ: a new file, a new
-/// game, a restart or a load.
-fn apply<T: Dials>(watched: Res<Watched<T>>, session: Option<ResMut<ShipSession>>) {
+/// Hand the session's world the file's dials whenever its own differ — or
+/// the host's, dealt for a run with company ([`Dealt`]).
+fn apply<T: Dials>(
+    watched: Res<Watched<T>>,
+    session: Option<ResMut<ShipSession>>,
+    dealt: Option<Res<Dealt>>,
+    online: Option<Res<Online>>,
+) {
     let Some(mut session) = session else {
         return;
     };
+    let want = dealt_now(&dealt, &online)
+        .and_then(T::dealt)
+        .unwrap_or(watched.dials);
     let differs = session
         .0
         .game
         .as_ref()
-        .is_some_and(|game| T::of(&game.world) != watched.dials);
+        .is_some_and(|game| T::of(&game.world) != want);
     if differs && let Some(game) = session.0.game.as_mut() {
-        watched.dials.hand(&mut game.world);
+        want.hand(&mut game.world);
     }
 }
 

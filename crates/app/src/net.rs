@@ -411,6 +411,10 @@ pub struct SettingsWire {
     /// The run's difficulty as the host picked it; `None` is each
     /// machine's tuning file (`scaling.ron`).
     pub difficulty: Option<world::droid::Difficulty>,
+    /// The host's rewards and weapon damage, dealt at Start with company
+    /// (`builder::Settings::rewards`); `None` before.
+    pub rewards: Option<world::rewards::Rewards>,
+    pub weapons: Option<bims::balance::WeaponDamage>,
     /// The `end` command's run: the Machine Heart with ten bots
     /// (`designer::build_run`).
     pub end: bool,
@@ -428,6 +432,8 @@ impl SettingsWire {
             spawn: settings.spawn,
             classes: settings.unlocks.classes,
             difficulty: settings.difficulty,
+            rewards: settings.rewards,
+            weapons: settings.weapons,
             end: settings.end,
             end_day: settings.end_day,
         }
@@ -444,6 +450,8 @@ impl SettingsWire {
             classes: self.classes,
         };
         settings.difficulty = self.difficulty;
+        settings.rewards = self.rewards;
+        settings.weapons = self.weapons;
         settings.end = self.end;
         settings.end_day = self.end_day;
     }

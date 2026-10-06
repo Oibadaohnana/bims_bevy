@@ -199,6 +199,15 @@ impl Loading {
     /// The run opened on a thread: `designer::build_run` there, `open_run` when it is back.
     pub fn start_run(&mut self, commands: &mut Commands, settings: &Settings, size: Vec2) {
         commands.insert_resource(settings.unlocks);
+        // The host's tuning, dealt with company: armed before the run is
+        // built, and kept over this machine's files for the run.
+        match (settings.rewards, settings.weapons) {
+            (Some(rewards), Some(weapons)) => {
+                weapons.arm();
+                commands.insert_resource(crate::wavecfg::Dealt { rewards, weapons });
+            }
+            _ => commands.remove_resource::<crate::wavecfg::Dealt>(),
+        }
         let s = settings.clone();
         let meter = Arc::new(Meter::default());
         let watched = meter.clone();
