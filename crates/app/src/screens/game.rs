@@ -7233,7 +7233,7 @@ mod class_key_tests {
         assert_eq!(boxes[0].mark, Some(Glyph::FragGrenade));
         assert!(boxes[0].ready() && boxes[1].ready() && !boxes[1].on);
         assert!(boxes.iter().all(|b| !b.plus), "no point left");
-        assert!(boxes[0].foot.contains("Next, rank 2"));
+        assert!(boxes[0].foot.contains("rank 2 at Lv"), "{}", boxes[0].foot);
         let p = world.aboard.room.bim_pos(1);
         let t = shipdesign::TILE as f32;
         world.step(&[world::Command::StunShot {
@@ -7295,7 +7295,7 @@ mod class_key_tests {
             assert!(
                 boxes
                     .iter()
-                    .filter(|b| b.mark != None)
+                    .filter(|b| b.mark.is_some())
                     .all(|b| !b.name.is_empty() && !b.tip.is_empty())
             );
             assert_eq!(boxes[0].locked, Some(3), "{class:?}'s Q is its third");
@@ -7305,7 +7305,7 @@ mod class_key_tests {
             assert!(
                 boxes
                     .iter()
-                    .filter(|b| b.mark != None)
+                    .filter(|b| b.mark.is_some())
                     .all(|b| !b.key.is_empty())
             );
         }

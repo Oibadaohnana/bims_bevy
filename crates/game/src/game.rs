@@ -33,14 +33,14 @@ mod heart;
 /// attacking a site the crew are defending, fought the machines' way.
 #[path = "intruder.rs"]
 mod intruder;
-/// The tier-two machines' step (task 157): the Bomber's bomb, the Lancer's
-/// rail, the Conductor's link, mark, blink and strike call.
-#[path = "tier_two.rs"]
-mod tier_two;
 /// Three items in the room (October 2026): a smoke cloud, a tether's line
 /// and a decoy's ghost, said every step by the world.
 #[path = "item_room.rs"]
 mod item_room;
+/// The tier-two machines' step (task 157): the Bomber's bomb, the Lancer's
+/// rail, the Conductor's link, mark, blink and strike call.
+#[path = "tier_two.rs"]
+mod tier_two;
 pub use item_room::{GHOST_OPACITY, GhostLook, SmokeCloud};
 
 const TRAIL: Color = ACCENT;

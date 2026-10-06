@@ -3630,13 +3630,14 @@ mod tests {
         {
             // The codes are written out in `IssueCode` and never renumbered:
             // 1 to 12 and 20 to 37, with the gap on purpose — and 30, the fuel
-            // warning, retired with the fuel, and 33 to 35, the power's,
-            // retired with the electricity, left holes.
-            let retired = |c: u32| c == 30 || (33..=35).contains(&c);
+            // warning, retired with the fuel, 33 to 35, the power's,
+            // retired with the electricity, and 22, the hydroponic bay's,
+            // retired with the eating, left holes.
+            let retired = |c: u32| c == 22 || c == 30 || (33..=35).contains(&c);
             for code in (1..=12).chain(20..=37).filter(|&c| !retired(c)) {
                 assert!(issue_line(code).is_some(), "issue {code} has no line");
             }
-            for code in [30, 33, 34, 35] {
+            for code in [22, 30, 33, 34, 35] {
                 assert!(issue_line(code).is_none(), "{code} was retired");
             }
         }

@@ -550,7 +550,13 @@ fn fob(game: &Game, list: &mut DrawList) {
 fn heal_ring(list: &mut DrawList, ring: bims::math::Vec2, radius: f32, steps: u64) {
     use crate::draw::KIND_ELLIPSE;
     let across = radius * 2.0;
-    list.ellipse(ring.x, ring.y, across, across, AREA_HEAL.alpha(AREA_HEAL_WASH));
+    list.ellipse(
+        ring.x,
+        ring.y,
+        across,
+        across,
+        AREA_HEAL.alpha(AREA_HEAL_WASH),
+    );
     let phase = (steps % AREA_HEAL_PULSE_STEPS) as f32 / AREA_HEAL_PULSE_STEPS as f32;
     let breath = 0.5 + 0.5 * (phase * std::f32::consts::TAU).cos();
     let rim = across - 2.0 * (AREA_RIM_LINE + AREA_HEAL_LINE);

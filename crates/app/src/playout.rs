@@ -394,7 +394,7 @@ mod tests {
     #[test]
     fn a_shaky_line_is_smoothed_where_it_used_to_stop_and_lurch() {
         // Every twentieth packet held up eight frames, the rest behind it.
-        let shaky = |sent: u32| if sent % 20 == 0 { 8 } else { 0 };
+        let shaky = |sent: u32| if sent.is_multiple_of(20) { 8 } else { 0 };
         let (unbuffered, _) = run(1200, 0.0, shaky);
         let (buffered, playout) = run(1200, 0.5, shaky);
         let stalls =
