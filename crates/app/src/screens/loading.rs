@@ -201,13 +201,15 @@ impl Loading {
         commands.insert_resource(settings.unlocks);
         // The host's tuning, dealt with company: armed before the run is
         // built, and kept over this machine's files for the run.
-        match (settings.rewards, settings.weapons) {
-            (Some(rewards), Some(weapons)) => {
-                weapons.arm();
-                commands.insert_resource(crate::wavecfg::Dealt { rewards, weapons });
-            }
-            _ => commands.remove_resource::<crate::wavecfg::Dealt>(),
-        }
+        let dealt = match (settings.difficulty, settings.rewards, settings.weapons) {
+            (Some(scaling), Some(rewards), Some(weapons)) => Some(crate::wavecfg::Dealt {
+                scaling,
+                rewards,
+                weapons,
+            }),
+            _ => None,
+        };
+        crate::wavecfg::deal(dealt);
         let s = settings.clone();
         let meter = Arc::new(Meter::default());
         let watched = meter.clone();

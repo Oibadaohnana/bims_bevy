@@ -639,7 +639,9 @@ fn frame(
                 // a load here (feature 67). Nothing before Start deals
                 // the slots, so the seat is the one `Online::deal` would
                 // deal: this player's place in join order.
-                Packet::World { save, .. } if Some(from) == online.host && !online.is_host() => {
+                Packet::World { save, dealt, .. }
+                    if Some(from) == online.host && !online.is_host() =>
+                {
                     let size = Vec2::new(window.width().max(64.0), window.height().max(64.0));
                     let seat = if online.slots.is_empty() {
                         online
@@ -651,7 +653,13 @@ fn frame(
                         online.my_slot()
                     };
                     match ship::Session::restore_as(&save, seat, size.x, size.y) {
-                        Ok(loaded) => {
+                        Ok(mut loaded) => {
+                            // The host's tuning, for the run (`wavecfg::Dealt`).
+                            let dealt = dealt.map(|d| *d);
+                            crate::wavecfg::deal(dealt);
+                            if let (Some(d), Some(game)) = (dealt, &mut loaded.game) {
+                                d.onto(&mut game.world);
+                            }
                             commands.insert_resource(crate::screens::designer::ShipSession(loaded));
                             screen.loading = false;
                             go = Some(Screen::Game);

@@ -607,11 +607,14 @@ pub enum Packet {
     /// `Resync`, to everybody after the host loads a game. A guest
     /// **replaces** its world with it — as its own slot — and applies
     /// the `Steps` and `Applied` that come after it to the new one.
-    /// Deflated as it crosses ([`packed`]).
+    /// Deflated as it crosses ([`packed`]). With it the host's tuning
+    /// (`wavecfg::Dealt`), which a save leaves out: the world it arrives
+    /// in plays the host's numbers, whatever this machine's files say.
     World {
         #[serde(with = "packed")]
         save: String,
         at: u64,
+        dealt: Option<Box<crate::wavecfg::Dealt>>,
     },
 }
 
@@ -1312,6 +1315,7 @@ mod tests {
         let packet = Packet::World {
             save: save.clone(),
             at: 7,
+            dealt: None,
         };
         let bytes = encode(&packet).unwrap();
         assert!(
@@ -1321,7 +1325,7 @@ mod tests {
             save.len()
         );
         match decode::<Packet>(&bytes).unwrap() {
-            Packet::World { save: back, at } => {
+            Packet::World { save: back, at, .. } => {
                 assert_eq!(at, 7);
                 assert!(back == save, "the text changed on the way");
             }

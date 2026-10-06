@@ -456,13 +456,19 @@ fn over(
     // and the host's world — a restart or a retry from its own screen
     // like this one — takes this end back into the game, where the
     // stashed `Packet::World` replaces the world as a resync does.
-    if online.is_guest() {
+    // The host drains too: the drain is what pings the relay, which
+    // drops a socket quiet for long (`server`'s `IDLE_TIMEOUT`) — and a
+    // host dropped closes the room under everybody — and who left while
+    // it read this is the game screen's to tell the world.
+    if online.is_online() {
         let now = ctx.input(|i| i.time);
         let events = online.drain(now);
         let host = online.host;
-        if events.iter().any(|e| {
-            matches!(e, Event::Packet { from, packet: Packet::World { .. } } if Some(*from) == host)
-        }) {
+        if online.is_guest()
+            && events.iter().any(|e| {
+                matches!(e, Event::Packet { from, packet: Packet::World { .. } } if Some(*from) == host)
+            })
+        {
             next.set(Screen::Game);
         }
         loading.stash(events);
@@ -542,8 +548,12 @@ fn over(
                 again = true;
             }
             if ui.link(OVER_BACK).clicked() {
-                // Nothing the room said here is wanted in the next run.
+                // Nothing the room said here is wanted in the next run,
+                // and the room is left, as the Esc sheet's *Back to menu*
+                // leaves it: a host gone closes it for everybody rather
+                // than leaving them on this screen for good.
                 loading.take_stash();
+                online.leave();
                 next.set(Screen::Menu);
             }
         });
@@ -572,6 +582,7 @@ fn over(
                 &Packet::World {
                     save: text.clone(),
                     at,
+                    dealt: Some(Box::new(crate::wavecfg::dealing())),
                 },
             );
         }
@@ -1453,7 +1464,15 @@ fn frame(
                         screen.answered.retain(|&(p, _)| p != from);
                         screen.answered.push((from, at));
                         if let Some(wire) = &screen.net.wire {
-                            wire.send(To::Peer(from), &Packet::World { save: text, at });
+                            let dealt = Some(Box::new(crate::wavecfg::dealing()));
+                            wire.send(
+                                To::Peer(from),
+                                &Packet::World {
+                                    save: text,
+                                    at,
+                                    dealt,
+                                },
+                            );
                         }
                         if crate::dev::auto().is_some() {
                             println!("world sent: {at} asked");
@@ -1467,7 +1486,7 @@ fn frame(
                 // the wire and the log kept; the canvas is fitted again
                 // this frame, since it is unmeasured. A host applies
                 // none, and nobody applies one from anybody but the host.
-                Packet::World { save, at }
+                Packet::World { save, at, dealt }
                     if Some(from) == online.host
                         && screen.net.wire.as_ref().is_some_and(|w| !w.host) =>
                 {
@@ -1487,9 +1506,17 @@ fn frame(
                             }
                             crate::names::set_crew_names(&loaded.crew_names);
                             // The tuning files' dials, which a save leaves
-                            // out, kept: the steps behind it in this drain
-                            // come before the app hands them over again.
-                            if let (Some(old), Some(new)) = (&session.game, &mut loaded.game) {
+                            // out: the host's, sent with it, dealt for the
+                            // run — else the ones the world it replaces had.
+                            // On the world now: the steps behind it in this
+                            // drain come before the app hands them over.
+                            if let Some(d) = dealt.map(|d| *d) {
+                                crate::wavecfg::deal(Some(d));
+                                if let Some(new) = &mut loaded.game {
+                                    d.onto(&mut new.world);
+                                }
+                            } else if let (Some(old), Some(new)) = (&session.game, &mut loaded.game)
+                            {
                                 crate::rollback::hand_dials(&old.world, &mut new.world);
                             }
                             *session = loaded;
@@ -1511,30 +1538,53 @@ fn frame(
                 _ => {}
             },
             Event::Roster => {
-                // Whoever came hears this player's Bim's name again.
+                // Whoever came hears this player's Bim's name again. Who
+                // went is asked below, every frame.
                 screen.said_name = None;
-                for slot in 0..screen.net.players {
-                    let there = online
-                        .slots
-                        .get(slot as usize)
-                        .is_some_and(|id| online.peers.iter().any(|p| p.id == *id));
-                    if !there && !screen.gone.contains(&slot) {
-                        screen.gone.push(slot);
-                        screen.log.push(player_left(&crew_name(slot)));
-                        // And the world told, by the host alone, so a
-                        // vote or a departure does not wait on somebody
-                        // who is not there (feature 103).
-                        if screen.net.wire.as_ref().is_some_and(|w| w.host) {
-                            loading.order(&screen.net, session, Order::PlayerGone(slot));
-                        }
-                    }
-                }
             }
             Event::Closed(_) | Event::Lost(_) if screen.net.wire.is_some() => {
                 screen.net.wire = None;
                 screen.log.push(HOST_GONE.into());
+                // The clock is this end's now, and nobody else is in the
+                // room: the world told so, or a vote, the ready check or a
+                // departure waits for ever on players who are not there.
+                for slot in 0..screen.net.players {
+                    if slot != screen.net.slot && !screen.gone.contains(&slot) {
+                        screen.gone.push(slot);
+                        loading.order(&screen.net, session, Order::PlayerGone(slot));
+                    }
+                }
             }
             _ => {}
+        }
+    }
+    // Who is not in the room any more: said once, and the world told by
+    // the host so a vote or a departure does not wait on somebody who is
+    // not there (feature 103). Asked every frame, not only when the room
+    // changes: a world loaded, restarted or retried was written while
+    // they were still here, and says they are.
+    if screen.net.wire.is_some() && !loading.busy() {
+        let host = screen.net.wire.as_ref().is_some_and(|w| w.host);
+        for slot in 0..screen.net.players {
+            let there = slot == screen.net.slot
+                || online
+                    .slots
+                    .get(slot as usize)
+                    .is_some_and(|id| online.peers.iter().any(|p| p.id == *id));
+            if there || screen.gone.contains(&slot) {
+                continue;
+            }
+            screen.gone.push(slot);
+            let told = session
+                .game
+                .as_ref()
+                .is_some_and(|g| !g.world.run.is_connected(slot));
+            if !told {
+                screen.log.push(player_left(&crew_name(slot)));
+                if host {
+                    loading.order(&screen.net, session, Order::PlayerGone(slot));
+                }
+            }
         }
     }
 
@@ -1652,16 +1702,14 @@ fn frame(
                     if !due.is_empty() {
                         say_steps(&screen.net, session, &mut said);
                         for ask in due {
-                            screen.net.asked(
-                                session,
-                                ask.from,
-                                ask.at,
-                                ask.message,
-                                ask.peer,
-                                Some(ask.asked),
-                            );
+                            apply_held(&screen.net, &mut loading, session, ask);
                         }
                     }
+                }
+                // A held order that was the trip: the world is being
+                // built off this thread, and the session is a stand-in.
+                if loading.busy() {
+                    break;
                 }
                 session.world_step();
                 screen.backlog -= 1.0;
@@ -1674,17 +1722,13 @@ fn frame(
         }
         say_steps(&screen.net, session, &mut said);
         // A world stopped reaches no step: what is held goes now.
-        if times == 0.0 && !screen.held.is_empty() {
+        if times == 0.0 && !screen.held.is_empty() && !loading.busy() {
             for ask in screen.held.all() {
-                screen.net.asked(
-                    session,
-                    ask.from,
-                    ask.at,
-                    ask.message,
-                    ask.peer,
-                    Some(ask.asked),
-                );
+                apply_held(&screen.net, &mut loading, session, ask);
             }
+        }
+        if loading.busy() {
+            return Ok(());
         }
     } else if screen.rollback.active() {
         // A guest running ahead of the host (task 156): its world shown
@@ -1838,7 +1882,14 @@ fn frame(
                 _ => false,
             };
             screen.fight.note(&event, theirs);
-            if theirs {
+            // A refusal is said to the player it refuses and nobody else:
+            // another's walk and aim played on a guest's world run ahead
+            // (`rollback::DRIFT_STEPS`) may be refused there — a fight
+            // already won — and it is no word of this player's anyway.
+            let not_mine =
+                matches!(event, WorldEvent::Refused { slot, .. } if slot != screen.net.slot);
+            if not_mine {
+            } else if theirs {
                 screen.log.push(crate::names::MANUFACTURER_DOWN.to_string());
             } else if let Some(line) = event_line(event) {
                 screen.log.push(line);
@@ -1891,7 +1942,14 @@ fn frame(
         // the points are read off the count going up; a machine down the
         // same frame is what they were for, and anything else is said
         // as experience.
-        let xp = game.world.progress_of(screen.net.slot).xp;
+        // Off the host's world on a guest running ahead: a rollback
+        // taking a gain away and giving it back is one gain.
+        let xp = screen
+            .rollback
+            .confirmed()
+            .unwrap_or(&game.world)
+            .progress_of(screen.net.slot)
+            .xp;
         if let Some(before) = screen.last_xp
             && xp > before
         {
@@ -2187,10 +2245,10 @@ fn frame(
         .game
         .as_ref()
         .is_some_and(|g| g.world.in_mission() && g.world.awaiting_ready());
-    let fight_won_up = session
-        .game
-        .as_ref()
-        .is_some_and(|g| screen.fight.showing(&g.world));
+    let fight_won_up = session.game.as_ref().is_some_and(|g| {
+        let truth = screen.rollback.confirmed().unwrap_or(&g.world);
+        screen.fight.showing(truth)
+    });
     let space_taken = ready_up || fight_won_up;
     // The floor's chart (October 2026, `floormap`): the world map, the
     // start at the bottom and the Machine Heart at the top. Its marks are
@@ -3516,10 +3574,14 @@ fn frame(
         && ctx.input(|i| {
             crate::keys::plain_or_sprinting(i.modifiers) && keys_now.pressed(i, Action::Propose)
         });
+    // Off the host's world on a guest running ahead (task 156): a guess
+    // that the site is cleared is no clear, and *Back to ship* pressed on
+    // one recalls the crew mid-fight.
+    let truth = screen.rollback.confirmed().unwrap_or(world);
     super::fightwon::fight_won_window(
         &ctx,
         &mut screen.fight,
-        world,
+        truth,
         local,
         &mut orders,
         &crew_name,
@@ -3805,7 +3867,15 @@ fn frame(
                         && wire.host
                     {
                         let at = loaded.game.as_ref().map_or(0, |g| g.world.steps);
-                        wire.send(To::All, &Packet::World { save: text, at });
+                        let dealt = Some(Box::new(crate::wavecfg::dealing()));
+                        wire.send(
+                            To::All,
+                            &Packet::World {
+                                save: text,
+                                at,
+                                dealt,
+                            },
+                        );
                         if crate::dev::auto().is_some() {
                             let now = session.game.as_ref().map_or(0, |g| g.world.steps);
                             println!("world sent: {at} loaded at {now}");
@@ -4728,6 +4798,41 @@ const AIM_STEP: u16 = 36;
 /// order now (task 144): the first, a walk, a trigger or a sprint changed — at
 /// once, since those are what a body does — or the aim turned past
 /// [`AIM_STEP`] at least [`CONTROL_EVERY`] after the last.
+/// A guest's held order, its step come (task 156): applied and told as
+/// one that arrived then — or, the trip, built off this thread as an
+/// arrived trip is (`Loading::trip`), never on it: the guest's own world
+/// ran ahead and stamped the yes that carries the vote. Once a trip is
+/// building, whatever else was due is for a world being replaced, and
+/// goes no further.
+fn apply_held(
+    net: &Net,
+    loading: &mut Loading,
+    session: &mut Session,
+    ask: crate::rollback::HeldAsk,
+) {
+    if loading.busy() {
+        return;
+    }
+    if Loading::travels(session, ask.from, &ask.message) {
+        let apply = Apply::Asked {
+            from: ask.from,
+            at: ask.at,
+            message: ask.message,
+            peer: ask.peer,
+        };
+        loading.trip(net, session, apply);
+        return;
+    }
+    net.asked(
+        session,
+        ask.from,
+        ask.at,
+        ask.message,
+        ask.peer,
+        Some(ask.asked),
+    );
+}
+
 /// The host's steps since it last said how many (`said`, the world's step
 /// then), said to the room — with its checksum when they crossed a
 /// `CHECK_EVERY` — and `said` moved up. Nothing when none went, or with

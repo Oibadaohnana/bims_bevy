@@ -899,13 +899,18 @@ fn frame(
                 // is this end's now, as this player's own slot, and the
                 // game screen opens round it — the way the host's own
                 // load leaves the yard (feature 67).
-                Packet::World { save, .. }
+                Packet::World { save, dealt, .. }
                     if Some(from) == online.host
                         && screen.net.wire.as_ref().is_some_and(|w| !w.host) =>
                 {
                     let (w, h) = (screen.size.x.max(64.0), screen.size.y.max(64.0));
                     match Session::restore_as(&save, online.my_slot(), w, h) {
-                        Ok(loaded) => {
+                        Ok(mut loaded) => {
+                            let dealt = dealt.map(|d| *d);
+                            crate::wavecfg::deal(dealt);
+                            if let (Some(d), Some(game)) = (dealt, &mut loaded.game) {
+                                d.onto(&mut game.world);
+                            }
                             commands.insert_resource(ShipSession(loaded));
                             screen.sheet = None;
                             next.set(Screen::Game);
@@ -1368,7 +1373,15 @@ fn frame(
                     && wire.host
                 {
                     let at = loaded.game.as_ref().map_or(0, |g| g.world.steps);
-                    wire.send(To::All, &Packet::World { save: text, at });
+                    let dealt = Some(Box::new(crate::wavecfg::dealing()));
+                    wire.send(
+                        To::All,
+                        &Packet::World {
+                            save: text,
+                            at,
+                            dealt,
+                        },
+                    );
                 }
                 commands.insert_resource(ShipSession(loaded));
                 screen.sheet = None;

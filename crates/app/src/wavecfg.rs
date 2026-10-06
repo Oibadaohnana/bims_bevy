@@ -91,24 +91,75 @@ pub(crate) trait Dials: Tuning {
     }
 }
 
-/// The host's tuning, dealt at a Start with company
-/// (`builder::Settings::rewards`, `weapons`; the waves go as the run's
-/// difficulty, which the world keeps). While a run with company is on,
-/// these and not this machine's files are what the world is handed — on
-/// the host too — so an edit to a file mid-run moves no machine's world
-/// away from the others'. Removed at a Start of one.
-#[derive(Resource, Clone, Copy)]
-pub(crate) struct Dealt {
+/// The host's tuning for a run with company: dealt at a Start
+/// (`builder::Settings::rewards`, `weapons`, `difficulty`) and sent with
+/// every world the host sends whole (`Packet::World` — a load from the
+/// lobby or in the game, a restart, a retry, a resync). While a run with
+/// company is on, these and not this machine's files are what the world
+/// is handed — on the host too — so an edit to a file mid-run moves no
+/// machine's world away from the others'. Cleared at a Start of one.
+#[derive(Clone, Copy, PartialEq, Debug, serde::Serialize, serde::Deserialize)]
+pub struct Dealt {
+    pub scaling: WaveScaling,
     pub rewards: Rewards,
     pub weapons: WeaponDamage,
 }
 
+/// What is dealt now, for the whole process: the weapons are a process
+/// global already (`WeaponDamage::arm`), and the screens that send and
+/// take a world are several.
+static DEALT: std::sync::Mutex<Option<Dealt>> = std::sync::Mutex::new(None);
+
+impl Dealt {
+    /// This machine's own files, as they say now.
+    pub fn of_files() -> Dealt {
+        Dealt {
+            scaling: file_dials(),
+            rewards: file_dials(),
+            weapons: file_dials(),
+        }
+    }
+
+    /// The world given these dials — before it steps, so nothing between
+    /// a world arriving and the watcher's next look runs on others.
+    pub fn onto(&self, world: &mut world::World) {
+        if world.wave_scaling() != self.scaling {
+            world.set_wave_scaling(self.scaling);
+        }
+        if world.rewards() != self.rewards {
+            world.set_rewards(self.rewards);
+        }
+    }
+}
+
+/// Deal these for the run (`None`: this machine's files again), the
+/// weapons armed at once.
+pub(crate) fn deal(dealt: Option<Dealt>) {
+    if let Some(d) = dealt {
+        d.weapons.arm();
+    }
+    if let Ok(mut now) = DEALT.lock() {
+        *now = dealt;
+    }
+}
+
+/// What a host sends with a world: what it plays — what was dealt, else
+/// its own files (a load from the lobby, which has no Start).
+pub(crate) fn dealing() -> Dealt {
+    DEALT
+        .lock()
+        .ok()
+        .and_then(|d| *d)
+        .unwrap_or_else(Dealt::of_files)
+}
+
 /// The dealt tuning, while the run it was dealt for still has company:
 /// with the host gone the game is this machine's and its files count.
-fn dealt_now<'a>(dealt: &'a Option<Res<Dealt>>, online: &Option<Res<Online>>) -> Option<&'a Dealt> {
-    dealt
-        .as_deref()
-        .filter(|_| online.as_ref().is_some_and(|o| o.is_online()))
+fn dealt_now(online: &Option<Res<Online>>) -> Option<Dealt> {
+    if !online.as_ref().is_some_and(|o| o.is_online()) {
+        return None;
+    }
+    DEALT.lock().ok().and_then(|d| *d)
 }
 
 impl Tuning for WaveScaling {
@@ -147,6 +198,9 @@ impl Dials for WaveScaling {
     }
     fn hand(self, world: &mut world::World) {
         world.set_wave_scaling(self);
+    }
+    fn dealt(dealt: &Dealt) -> Option<Self> {
+        Some(dealt.scaling)
     }
 }
 
@@ -441,12 +495,8 @@ fn hear(watched: Res<Watched<Volumes>>, sounds: Option<ResMut<Sounds>>) {
 
 /// Arm the file's damage for every room whenever the armed differ — or
 /// the host's, dealt for a run with company ([`Dealt`]).
-fn arm(
-    watched: Res<Watched<WeaponDamage>>,
-    dealt: Option<Res<Dealt>>,
-    online: Option<Res<Online>>,
-) {
-    let want = dealt_now(&dealt, &online).map_or(watched.dials, |d| d.weapons);
+fn arm(watched: Res<Watched<WeaponDamage>>, online: Option<Res<Online>>) {
+    let want = dealt_now(&online).map_or(watched.dials, |d| d.weapons);
     if WeaponDamage::armed() != want {
         want.arm();
     }
@@ -457,13 +507,13 @@ fn arm(
 fn apply<T: Dials>(
     watched: Res<Watched<T>>,
     session: Option<ResMut<ShipSession>>,
-    dealt: Option<Res<Dealt>>,
     online: Option<Res<Online>>,
 ) {
     let Some(mut session) = session else {
         return;
     };
-    let want = dealt_now(&dealt, &online)
+    let want = dealt_now(&online)
+        .as_ref()
         .and_then(T::dealt)
         .unwrap_or(watched.dials);
     let differs = session
