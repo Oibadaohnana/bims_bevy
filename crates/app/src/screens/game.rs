@@ -692,9 +692,15 @@ fn open(
                 // The Machine Heart (feature 108): the crew at its fortress
                 // in tier-three kit, the waves the game's own unless
                 // `BIMS_DROID_WAVES` says, and `BIMS_HEART_PHASE` the phase
-                // the fight opens in.
+                // the fight opens in. Without a phase the run opens at the
+                // trader under the Heart with `BIMS_HEART_MONEY` (800k) to
+                // spend; with one, at the fortress on the Heart's day by
+                // `scaling.ron` (`BIMS_HEART_DAY` over it).
                 Launch::Heart => Session::heart(
                     seed,
+                    crate::wavecfg::file_dials(),
+                    crate::dev::heart_day(),
+                    crate::dev::heart_money(),
                     crate::dev::droid_reinforce(DROID_REINFORCE_IN_PROBE),
                     crate::dev::droid_waves_dial(),
                     crate::dev::heart_phase(),

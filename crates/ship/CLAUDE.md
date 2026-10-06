@@ -1137,8 +1137,15 @@ back.
 
 ## The `heart` command (feature 108)
 
-`Session::heart(seed, reinforce, waves, phase, ..)` is `nix run .#heart`:
-`Session::combat`'s ship and sixteen crew, everybody's kit at tier three
+`Session::heart(seed, scaling, day, money, reinforce, waves, phase, ..)`
+is `nix run .#heart`: `Session::combat`'s ship and sixteen crew (one
+player) on the app's `scaling.ron`. **With no phase it opens at the
+floor's trader under the Heart** (October 2026, the player's), on its
+row's day, `money` in the wallet (`dev::heart_money`, €800 000,
+`BIMS_HEART_MONEY`; `World::heart_trader_for_probe`), the Heart the next
+trip. With a `phase` it docks at once as below, the world clock at `day`
+days gone (`dev::heart_day`: the Heart's day by `scaling.ron`,
+`BIMS_HEART_DAY` over it) — everybody's kit at tier three
 (`World::outfit_for_probe`), `waves` only when `BIMS_DROID_WAVES` says
 (the fortress's count is otherwise the game's own), and
 `World::heart_dock_for_probe` — the machines' origin put at the crew's own

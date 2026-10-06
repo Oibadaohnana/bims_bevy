@@ -300,11 +300,11 @@ const COMMANDS: [(&str, &str); 24] = [
     ),
     (
         "heart",
-        "The Machine Heart: the crew docked at its fortress at the machines' origin in tier-three kit; BIMS_HEART_PHASE=2 or 3 opens it past its seal or overloading",
+        "The Machine Heart: the crew (one player) in tier-three kit at the trader under the Heart on scaling.ron's floor with BIMS_HEART_MONEY (800 000) to spend, the Heart the next trip; BIMS_HEART_PHASE=1, 2 or 3 docks at the fortress at once (sealed, past its seal, overloading) on the Heart's day (BIMS_HEART_DAY, days gone)",
     ),
     (
         "manufacturers",
-        "A site of the Manufacturers': the combat crew at the nearest one on day BIMS_MANUFACTURER_DAY (eight: Troopers beside them; nought: pistols alone; ten or more: their own waves)",
+        "A site of the Manufacturers': the combat crew at the nearest one on day BIMS_MANUFACTURER_DAY (scaling.ron's areas: their people alone in area 0, machines beside them through tier one, machines alone from tier two)",
     ),
     (
         "end",

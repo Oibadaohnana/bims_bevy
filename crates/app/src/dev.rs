@@ -851,10 +851,36 @@ pub fn droid_waves_dial() -> Option<u32> {
         .map(|n| n.max(1))
 }
 
+/// The `heart` command's day, in days gone (one less than the top bar's):
+/// the Heart's day as `scaling.ron` lays the areas out
+/// (`WaveScaling::heart_day`), so the fight is the one a lone player meets
+/// there; `BIMS_HEART_DAY` (days gone, like `BIMS_END_DAY`) over it.
+pub fn heart_day() -> u32 {
+    std::env::var("BIMS_HEART_DAY")
+        .ok()
+        .and_then(|v| v.trim().parse().ok())
+        .unwrap_or_else(|| {
+            crate::wavecfg::file_dials::<world::droid::WaveScaling>()
+                .heart_day()
+                .saturating_sub(1)
+        })
+}
+
+/// The `heart` command's money at the trader under the Heart (October
+/// 2026, the player's: "800k of money representing roughly the money you
+/// could get at the heart"): `BIMS_HEART_MONEY`, else €800 000.
+pub fn heart_money() -> u64 {
+    std::env::var("BIMS_HEART_MONEY")
+        .ok()
+        .and_then(|v| v.trim().parse().ok())
+        .unwrap_or(800_000)
+}
+
 /// `BIMS_HEART_PHASE=2` or `3` (feature 108): the `heart` command opens its
 /// fight past the seal — every conduit down — or in the overload, the
-/// core's health just under the fraction. Unset, or anything else, is
-/// the fight from its start.
+/// core's health just under the fraction; `1` the fight from its start.
+/// Unset, or anything else, opens at the trader under the Heart instead
+/// (October 2026).
 pub fn heart_phase() -> Option<world::heart::HeartPhase> {
     std::env::var("BIMS_HEART_PHASE")
         .ok()

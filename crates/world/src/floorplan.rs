@@ -267,6 +267,37 @@ impl World {
             .collect()
     }
 
+    /// The `heart` command's way in (October 2026, the player's: "start
+    /// at the trader before the heart"): the floor laid, the mission left
+    /// as the button leaves it, and the trip to the trader under the Heart
+    /// taken at once, without the vote — the world clock on to its row's
+    /// day, so the next trip is the Heart's. The trader, or `None` with no
+    /// floor or no trader there.
+    pub fn heart_trader_for_probe(&mut self) -> Option<Site> {
+        if self.floor().is_none() {
+            self.set_floor(true);
+        }
+        let floor = self.floor()?.clone();
+        let node = floor.node(floor.heart_row().checked_sub(1)?, 0)?;
+        if !node.shop {
+            return None;
+        }
+        let site = Site {
+            star: node.star,
+            station: node.station,
+        };
+        if self.in_mission() {
+            self.leave_for_probe();
+        }
+        self.run.phase = crate::run::Phase::Map;
+        self.run.relics.choice = None;
+        let galaxy = self.galaxy();
+        let quote = self.quote_given(Some(&galaxy), site, true, None).ok()?;
+        let mut events = Vec::new();
+        self.travel(quote, &mut events);
+        self.at_trader().then_some(site)
+    }
+
     /// The tier a row of the floor is marked: tier three at the Heart, and
     /// otherwise the zone of the row's day — the tier-three area's on, the
     /// tier-two area's (its door first), and tier one before, area 0

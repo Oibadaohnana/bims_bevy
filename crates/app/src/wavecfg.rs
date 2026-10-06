@@ -269,6 +269,16 @@ impl<T: Tuning> Watched<T> {
     }
 }
 
+/// The dials the file says right now, read once — the constants where
+/// there is none or it does not parse. For a command that wants the
+/// file's numbers before the watcher has handed them over.
+pub(crate) fn file_dials<T: Tuning>() -> T {
+    std::fs::read_to_string(path_of::<T>())
+        .ok()
+        .and_then(|text| parse::<T>(&text).ok())
+        .unwrap_or(T::UNTUNED)
+}
+
 /// The dials a file says.
 fn parse<T: Tuning>(text: &str) -> Result<T, String> {
     ron::from_str::<T>(text).map_err(|e| e.to_string())

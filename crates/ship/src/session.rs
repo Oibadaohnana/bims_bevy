@@ -706,8 +706,20 @@ impl Session {
         session
     }
 
+    /// The `heart` command (feature 108): the combat crew — one player —
+    /// in tier-three kit on `scaling` (the app's `scaling.ron`). With no
+    /// `phase` (October 2026, the player's) the run opens at the floor's
+    /// trader under the Heart on its row's day, with `money` in the
+    /// player's wallet (`World::heart_trader_for_probe`), and the next trip
+    /// is the Heart's; with one, the crew are docked at the fortress at
+    /// once, the world clock at `day` days gone, and the fight wound on to
+    /// it.
+    #[allow(clippy::too_many_arguments)]
     pub fn heart(
         seed: u64,
+        scaling: world::droid::WaveScaling,
+        day: u32,
+        money: u64,
         reinforce: f64,
         waves: Option<u32>,
         phase: Option<world::heart::HeartPhase>,
@@ -719,15 +731,22 @@ impl Session {
             return session;
         };
         let world = &mut game.world;
+        world.set_wave_scaling(scaling);
         world.outfit_for_probe(bims::combat::Tier::Three);
         if let Some(n) = waves {
             world.set_droid_waves_for_probe(n);
         }
         world.set_droid_reinforce_minutes_for_probe(reinforce);
+        let Some(phase) = phase else {
+            world.heart_trader_for_probe();
+            world.set_money_for_probe(money);
+            return session;
+        };
+        world.set_day_for_probe(day);
         if !world.heart_dock_for_probe() {
             return session;
         }
-        if let Some(phase) = phase.filter(|&p| p != world::heart::HeartPhase::Sealed) {
+        if phase != world::heart::HeartPhase::Sealed {
             for _ in 0..40 {
                 world.step(&[]);
                 if world.heart_status().is_some() {
