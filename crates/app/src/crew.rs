@@ -946,7 +946,7 @@ impl CrewPanels {
                 &[
                     (
                         points / total,
-                        if hurt { theme::BAD } else { theme::ACCENT },
+                        if hurt { theme::BAD } else { theme::HEALTH },
                     ),
                     (armour / total, theme::ARMOUR),
                     (shield / total, theme::SHIELD),
@@ -1176,7 +1176,7 @@ impl CrewPanels {
                                 SQUAD_BAR_W,
                                 bot.body,
                                 bot.armour,
-                                if bot.hurt { theme::BAD } else { theme::ACCENT },
+                                if bot.hurt { theme::BAD } else { theme::HEALTH },
                                 theme::ARMOUR,
                             );
                             let state = if bot.out {

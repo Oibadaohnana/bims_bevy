@@ -659,7 +659,7 @@ pub fn portrait(ui: &mut egui::Ui, cell: &Portrait) -> Option<PortraitPress> {
     painter.rect_filled(
         body,
         2.0,
-        dim(if cell.hurt { theme::BAD } else { theme::ACCENT }),
+        dim(if cell.hurt { theme::BAD } else { theme::HEALTH }),
     );
     let armour = egui::Rect::from_min_size(
         egui::pos2(body.max.x, bar.min.y),
@@ -1326,7 +1326,7 @@ fn health_bar(ui: &mut egui::Ui, hero: &Hero, critical: bool, width: f32) {
     } else if hero.hurt {
         theme::BAD
     } else {
-        theme::ACCENT
+        theme::HEALTH
     };
     let total = (hero.max + hero.armour + hero.shield).max(1.0);
     let response = theme::bar_of_height(

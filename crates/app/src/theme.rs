@@ -75,6 +75,11 @@ pub const HEAL: egui::Color32 = egui::Color32::from_rgb(0x8c, 0xf2, 0xbf);
 /// across the room
 /// rather than merely noticed once the eye is already on it.
 pub const DYING: egui::Color32 = egui::Color32::from_rgb(0xe8, 0x2a, 0x24);
+/// A body's own health, unhurt: the green of every health bar on the
+/// pages (the hero panel's, the portraits', the sheet's, the squad's) —
+/// the mint the accent was before the pages went gunmetal, kept so the
+/// bars still read at a glance.
+pub const HEALTH: egui::Color32 = egui::Color32::from_rgb(0x7f, 0xd1, 0xa8);
 /// Armour: the blue on the end of a health bar, and a piece's own health
 /// under its icon.
 pub const ARMOUR: egui::Color32 = egui::Color32::from_rgb(0x6f, 0xa8, 0xe8);

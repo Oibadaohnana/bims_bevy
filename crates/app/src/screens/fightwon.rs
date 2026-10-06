@@ -284,7 +284,7 @@ pub fn fight_won_window(
                                 number(ui, &grouped(damage(slot)), mine);
                                 ui.label(egui::RichText::new(fight_won_xp(xp, from, to)).color(
                                     if to > from {
-                                        theme::ACCENT
+                                        theme::HYPER
                                     } else {
                                         theme::MUTED
                                     },
