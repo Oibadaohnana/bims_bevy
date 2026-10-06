@@ -4946,7 +4946,7 @@ fn planet_icon(painter: &egui::Painter, at: egui::Pos2, size: f32, colour: egui:
     // half, so it reads in front.
     painter.add(egui::Shape::line(
         ring(0.0, pi),
-        egui::Stroke::new(2.6, egui::Color32::from_rgb(20, 29, 25)),
+        egui::Stroke::new(2.6, egui::Color32::from_rgb(24, 25, 28)),
     ));
     painter.add(egui::Shape::line(ring(0.0, pi), stroke));
 }

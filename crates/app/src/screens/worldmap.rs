@@ -1885,10 +1885,10 @@ const LINE_HEIGHT: f32 = 42.0;
 const LINE_ICON: f32 = 34.0;
 /// The form's paper: darker and more solid than a panel, ruled in the
 /// accent, so it reads as a document laid over the map.
-const FORM_PAPER: egui::Color32 = egui::Color32::from_rgba_premultiplied(13, 19, 17, 246);
-const FORM_RULE: egui::Color32 = egui::Color32::from_rgb(0x3a, 0x5a, 0x4b);
-const FORM_STRIPE: egui::Color32 = egui::Color32::from_rgba_premultiplied(24, 34, 30, 150);
-const FORM_HOVER: egui::Color32 = egui::Color32::from_rgba_premultiplied(34, 51, 43, 200);
+const FORM_PAPER: egui::Color32 = egui::Color32::from_rgba_premultiplied(14, 15, 17, 246);
+const FORM_RULE: egui::Color32 = egui::Color32::from_rgb(0x4a, 0x4f, 0x56);
+const FORM_STRIPE: egui::Color32 = egui::Color32::from_rgba_premultiplied(26, 27, 30, 150);
+const FORM_HOVER: egui::Color32 = egui::Color32::from_rgba_premultiplied(44, 46, 51, 200);
 
 fn form_frame() -> egui::Frame {
     egui::Frame::new()

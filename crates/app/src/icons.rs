@@ -585,7 +585,7 @@ fn draw_resource(s: &mut Sketch, b: &Box_, id: ResourceId) {
 // A relic is a little plate with a picture on it, the plate's rim in the
 // colour of its family, so the crew's row of them says at a glance what
 // kind of help they carry. The rims are no tier's colours.
-const PLATE: Color32 = Color32::from_rgb(0x14, 0x1b, 0x18);
+const PLATE: Color32 = Color32::from_rgb(0x16, 0x17, 0x1a);
 const RIM_DISMANTLER: Color32 = Color32::from_rgb(0xe8, 0x84, 0x3c);
 const RIM_LIFELINE: Color32 = HEAL;
 const RIM_FLANKER: Color32 = Color32::from_rgb(0xb4, 0x82, 0xf0);

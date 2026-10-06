@@ -379,7 +379,7 @@ fn show(
         .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
         .show(&ctx, |ui| {
             egui::Frame::new()
-                .fill(egui::Color32::from_rgba_premultiplied(9, 13, 12, 228))
+                .fill(egui::Color32::from_rgba_premultiplied(10, 10, 12, 228))
                 .stroke(egui::Stroke::new(1.0, theme::LINE))
                 .corner_radius(10.0)
                 .inner_margin(24.0)

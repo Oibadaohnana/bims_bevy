@@ -52,7 +52,7 @@ const ALLY_HEALED: egui::Color32 = egui::Color32::from_rgb(0xa8, 0xf0, 0xae);
 const ENEMY: egui::Color32 = egui::Color32::from_rgb(0xd9, 0x33, 0x2b);
 const ENEMY_HEALED: egui::Color32 = egui::Color32::from_rgb(0xff, 0xa3, 0x9c);
 const DAMAGE: egui::Color32 = egui::Color32::from_rgb(0xf4, 0xf4, 0xf0);
-const TRACK: egui::Color32 = egui::Color32::from_rgb(0x14, 0x17, 0x16);
+const TRACK: egui::Color32 = egui::Color32::from_rgb(0x15, 0x16, 0x18);
 /// The ticks cutting the bar into chunks of hit points, as Dota's cut a
 /// bar, so how much is left — and how big a bar is — can be counted at a
 /// glance: a thin black line every [`TICK_HP`], a thicker one every

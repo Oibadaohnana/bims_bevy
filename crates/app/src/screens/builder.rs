@@ -82,10 +82,10 @@ const MENU_CARD_DOWN: f32 = 0.22;
 /// The setup's card over its picture: as wide as this at most, in points,
 /// and the whole height between the bars.
 const SETUP_CARD_WIDTH: f32 = 880.0;
-/// The setup's bars and card: the panels' green, dark enough to read on
+/// The setup's bars and card: the panels' grey, dark enough to read on
 /// and thin enough that the cockpit shows through.
-const SETUP_BAR: egui::Color32 = egui::Color32::from_rgba_premultiplied(15, 22, 19, 215);
-const SETUP_CARD: egui::Color32 = egui::Color32::from_rgba_premultiplied(11, 16, 14, 238);
+const SETUP_BAR: egui::Color32 = egui::Color32::from_rgba_premultiplied(17, 18, 20, 215);
+const SETUP_CARD: egui::Color32 = egui::Color32::from_rgba_premultiplied(12, 13, 15, 238);
 
 /// Where the start menu's card goes in a panel `full` big: centred across
 /// it, `MENU_CARD_DOWN` of the way down, narrowed to fit a small window.
@@ -103,7 +103,7 @@ fn menu_card_slot(full: egui::Rect) -> egui::Rect {
 /// The start menu's card: dark glass over the picture.
 fn menu_card() -> egui::Frame {
     egui::Frame::new()
-        .fill(egui::Color32::from_rgba_premultiplied(9, 13, 12, 228))
+        .fill(egui::Color32::from_rgba_premultiplied(10, 10, 12, 228))
         .stroke(egui::Stroke::new(1.0, theme::LINE))
         .corner_radius(10.0)
         .inner_margin(24.0)

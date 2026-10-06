@@ -5,20 +5,20 @@ use bevy::prelude::*;
 use bevy_egui::{EguiContexts, EguiPrimaryContextPass, egui};
 
 /// The window behind everything: the void the ship sits in.
-pub const VOID: Color = Color::srgb(0.047, 0.071, 0.063);
+pub const VOID: Color = Color::srgb(0.043, 0.045, 0.051);
 
-pub const INK: egui::Color32 = egui::Color32::from_rgb(0xe7, 0xef, 0xe9);
-pub const MUTED: egui::Color32 = egui::Color32::from_rgb(0x8f, 0xa8, 0x9a);
-pub const ACCENT: egui::Color32 = egui::Color32::from_rgb(0x7f, 0xd1, 0xa8);
+pub const INK: egui::Color32 = egui::Color32::from_rgb(0xe8, 0xea, 0xed);
+pub const MUTED: egui::Color32 = egui::Color32::from_rgb(0x9a, 0xa0, 0xa7);
+pub const ACCENT: egui::Color32 = egui::Color32::from_rgb(0xb8, 0xc4, 0xcf);
 pub const WARN: egui::Color32 = egui::Color32::from_rgb(0xfa, 0x73, 0x52);
 pub const BAD: egui::Color32 = egui::Color32::from_rgb(0xff, 0x8f, 0x7a);
 pub const CAUTION: egui::Color32 = egui::Color32::from_rgb(0xff, 0xd7, 0xa6);
 pub const GRAVE: egui::Color32 = egui::Color32::from_rgb(0xff, 0xd1, 0x5a);
-pub const PANEL: egui::Color32 = egui::Color32::from_rgb(0x18, 0x21, 0x1d);
-pub const PANEL_DEEP: egui::Color32 = egui::Color32::from_rgb(0x0c, 0x12, 0x10);
-pub const RAISED: egui::Color32 = egui::Color32::from_rgb(0x22, 0x33, 0x2b);
-pub const RAISED_ON: egui::Color32 = egui::Color32::from_rgb(0x4a, 0x6d, 0x5c);
-pub const LINE: egui::Color32 = egui::Color32::from_rgb(0x2a, 0x3b, 0x33);
+pub const PANEL: egui::Color32 = egui::Color32::from_rgb(0x1a, 0x1b, 0x1e);
+pub const PANEL_DEEP: egui::Color32 = egui::Color32::from_rgb(0x0d, 0x0e, 0x10);
+pub const RAISED: egui::Color32 = egui::Color32::from_rgb(0x2b, 0x2d, 0x31);
+pub const RAISED_ON: egui::Color32 = egui::Color32::from_rgb(0x50, 0x56, 0x5d);
+pub const LINE: egui::Color32 = egui::Color32::from_rgb(0x3a, 0x3d, 0x42);
 pub const YOURS: egui::Color32 = ACCENT;
 pub const THEIRS: egui::Color32 = INK;
 /// The attack banner and the armed pointer that puts one down (feature
@@ -78,7 +78,7 @@ pub fn site_kind_colour(kind: world::SiteKind) -> egui::Color32 {
         world::SiteKind::Trader => SITE_TRADER,
     }
 }
-pub const NAME_STROKE: egui::Color32 = egui::Color32::from_rgba_premultiplied(6, 10, 9, 217);
+pub const NAME_STROKE: egui::Color32 = egui::Color32::from_rgba_premultiplied(8, 8, 9, 217);
 
 /// The name over a Bim's head: how big, and how far above the body it
 /// sits. The lift is in room units and scaled with the view, so the name
@@ -181,20 +181,20 @@ fn style(mut contexts: EguiContexts) -> Result {
 
 // --- widgets -----------------------------------------------------------------
 
-/// A panel floating over the deck, in the pages' own translucent green.
+/// A panel floating over the deck, in the pages' own translucent gunmetal.
 pub fn panel_frame() -> egui::Frame {
     egui::Frame::new()
-        .fill(egui::Color32::from_rgba_unmultiplied(20, 29, 25, 230))
+        .fill(egui::Color32::from_rgba_unmultiplied(24, 25, 28, 230))
         .stroke(egui::Stroke::new(1.0, LINE))
         .corner_radius(6.0)
         .inner_margin(8.0)
 }
 
-/// The tray at the bottom left — the crew's tabs — in the same green but
+/// The tray at the bottom left — the crew's tabs — in the same grey but
 /// near enough solid: it is the one panel dense with rows and bars, and
 /// the deck showing through it made them hard to read.
 pub fn tray_frame() -> egui::Frame {
-    panel_frame().fill(egui::Color32::from_rgba_unmultiplied(20, 29, 25, 250))
+    panel_frame().fill(egui::Color32::from_rgba_unmultiplied(24, 25, 28, 250))
 }
 
 /// A section heading, the pages' `h2`.
