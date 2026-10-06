@@ -1783,7 +1783,6 @@ fn frame(
                 _ => false,
             };
             screen.fight.note(&event, theirs);
-            screen.kills.note(&event);
             if theirs {
                 screen.log.push(crate::names::MANUFACTURER_DOWN.to_string());
             } else if let Some(line) = event_line(event) {
@@ -1829,7 +1828,7 @@ fn frame(
                 screen.blackout = BLACKOUT_HOLD;
             }
         }
-        // The machines down this frame set off for the top count.
+        // The enemies down since last frame set off for the top count.
         screen.kills.follow(&game.world, now);
         // The experience the player's own Bim gained since last frame, a
         // line of the log gathered a second at a time by what it was for
@@ -4255,14 +4254,19 @@ fn frame(
                 ((now - reward.born) / REWARD_SECONDS) as f32,
             );
         }
-        // And every machine down flying into the top count as a red dot,
-        // from where it fell.
+        // And every enemy down flying into the top count as a red dot,
+        // from where it fell — one off the screen from the edge nearest it,
+        // so the whole flight is seen.
         screen.kills.paint(
             &ctx,
             |who| {
                 let (x, y) = ship::world_paint::resident_on_screen(game, who);
                 let p = view.to_canvas(Vec2::new(x, y)) + canvas.min;
-                Some(egui::pos2(p.x, p.y))
+                Some(
+                    crate::canvas::egui_rect(canvas)
+                        .shrink(16.0)
+                        .clamp(egui::pos2(p.x, p.y)),
+                )
             },
             now,
         );

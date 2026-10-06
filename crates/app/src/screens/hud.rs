@@ -768,7 +768,7 @@ pub struct AreaCount {
 }
 
 /// What the count at the top says (`droid_line`'s figures, without its
-/// words). `None` where nobody holds the place. `flying` machines down
+/// words). `None` where nobody holds the place. `flying` enemies down
 /// are still counted standing until their dots land (`super::killdots`).
 pub fn counter(world: &world::World, flying: u32) -> Option<Counter> {
     let standing = world.droids_standing() + flying;

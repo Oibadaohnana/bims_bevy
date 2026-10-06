@@ -1,15 +1,16 @@
-//! A machine down, flown into the count (October 2026): where a machine
-//! of the wave falls, a red dot leaves it trailing sparks and flies into
-//! the big red count of enemies standing at the top of the screen, which
-//! goes down by one as it lands — brightening and shaking a little — a
-//! second after the machine fell. Picture only, like the payout's coins:
-//! the world's count has already gone down, the top frame shows it plus
-//! the dots still in the air.
+//! An enemy down, flown into the count (October 2026): wherever one of
+//! the enemies the count holds falls — a machine of the wave destroyed, a
+//! Manufacturer downed, on the screen or off it — a red dot leaves it
+//! trailing sparks and flies into the big red count of enemies standing
+//! at the top of the screen, which goes down by one as it lands —
+//! brightening and shaking a little — a second after the enemy fell.
+//! Picture only, like the payout's coins: the world's count has already
+//! gone down, the top frame shows it plus the dots still in the air.
 
 use bevy_egui::egui;
-use world::{World, WorldEvent};
+use world::World;
 
-/// How long a dot is in the air, from the machine to the count.
+/// How long a dot is in the air, from the enemy to the count.
 pub const FLIGHT_SECONDS: f64 = 1.0;
 /// How long the count stays lit and shaking after a dot lands.
 const PULSE_SECONDS: f64 = 0.3;
@@ -20,17 +21,28 @@ const SHAKE: f32 = 2.0;
 #[derive(Default)]
 pub struct KillDots {
     dots: Vec<Dot>,
-    /// The machines said down this frame, by body, not yet flying.
-    fresh: Vec<u32>,
-    /// The machines standing last frame (`World::droids_standing`).
-    standing: u32,
+    /// The enemies standing last frame, and whose room they stood in.
+    standing: Vec<Foe>,
+    station: Option<u32>,
     /// When the last dot landed, on egui's clock.
     landed: Option<f64>,
     /// Where the count stood on the screen this frame, if it did.
     target: Option<egui::Rect>,
 }
 
+/// One enemy the count holds (`World::droids_standing`), by what stays
+/// put when a wave grows the residents' room: a Manufacturer by its Bim,
+/// a machine by its place among the machines — whose body index moves on
+/// whenever a Bim is added before them.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Foe {
+    Person(u32),
+    Machine(u32),
+}
+
 struct Dot {
+    foe: Foe,
+    /// Its body in the residents' room when it fell, for where it lies.
     who: u32,
     born: f64,
     /// Where it left from on the screen, fixed the first frame it is
@@ -40,40 +52,71 @@ struct Dot {
     seed: f32,
 }
 
-impl KillDots {
-    /// One of the frame's events: a machine of a wave down (not one of
-    /// the Heart's own, which the count never held).
-    pub fn note(&mut self, event: &WorldEvent) {
-        if let WorldEvent::DroidDown { who, kind, .. } = *event
-            && !bims::droid::DroidKind::from_code(kind).is_some_and(|k| k.is_structure())
-        {
-            self.fresh.push(who);
-        }
-    }
+/// The enemies standing in the residents' room, as `droids_standing`
+/// counts them: the machines not destroyed bar the Heart's own
+/// structures, and the Manufacturers alive and on their feet.
+fn foes_standing(world: &World) -> Vec<Foe> {
+    let Some(residents) = &world.residents else {
+        return Vec::new();
+    };
+    let room = &residents.aboard.room;
+    let people = (0..room.crew_count())
+        .filter(|&who| {
+            let who = who as usize;
+            room.is_manufacturer(who) && room.is_alive(who) && !room.is_downed(who)
+        })
+        .map(Foe::Person);
+    let machines = room
+        .droids()
+        .iter()
+        .enumerate()
+        .filter(|(_, d)| !d.destroyed && !d.kind.is_structure())
+        .map(|(i, _)| Foe::Machine(i as u32));
+    people.chain(machines).collect()
+}
 
-    /// Once a frame, after the events are read: the machines said down
-    /// set off, as many as the count really went down by — an event said
-    /// twice (a guest's world rolled back) never puts one back on it —
-    /// and the dots that have arrived are taken off. Out of a mission,
-    /// nothing flies.
+impl KillDots {
+    /// Once a frame, after the world has stepped: every enemy standing
+    /// last frame and fallen since — still in the room, so not a room
+    /// laid out anew — sets off from its body; one standing again (a
+    /// guest's world rolled back) takes its dot back, so the count never
+    /// holds it twice; and the dots that have arrived are taken off. Out
+    /// of a mission, or in another site's room, nothing flies.
     pub fn follow(&mut self, world: &World, now: f64) {
-        let standing = world.droids_standing();
-        if !world.in_mission() {
+        let station = world.residents.as_ref().map(|r| r.station);
+        let standing = foes_standing(world);
+        if !world.in_mission() || station != self.station {
             *self = KillDots {
                 standing,
+                station,
                 ..KillDots::default()
             };
             return;
         }
-        let dropped = self.standing.saturating_sub(standing) as usize;
-        for (k, who) in self.fresh.drain(..).take(dropped).enumerate() {
-            self.dots.push(Dot {
-                who,
-                born: now,
-                from: None,
-                seed: (who as f32 * 2.399 + k as f32 * 1.713).sin(),
-            });
+        if let Some(residents) = &world.residents {
+            let room = &residents.aboard.room;
+            let bims = room.crew_count();
+            for (k, &foe) in self
+                .standing
+                .iter()
+                .filter(|foe| !standing.contains(foe))
+                .enumerate()
+            {
+                let who = match foe {
+                    Foe::Person(who) if who < bims => who,
+                    Foe::Machine(i) if i < room.droid_count() => bims + i,
+                    _ => continue,
+                };
+                self.dots.push(Dot {
+                    foe,
+                    who,
+                    born: now,
+                    from: None,
+                    seed: (who as f32 * 2.399 + k as f32 * 1.713).sin(),
+                });
+            }
         }
+        self.dots.retain(|d| !standing.contains(&d.foe));
         self.standing = standing;
         let landed = self
             .dots
