@@ -207,6 +207,56 @@ fn a_trip_goes_only_up_the_floor_and_a_row_is_a_day() {
 }
 
 #[test]
+fn a_trader_stands_at_tier_two_s_door_and_moves_with_its_day() {
+    let mut world = default_world();
+    // The default timing: tier two from day twenty, its door row twenty.
+    let floor = world.floor().unwrap().clone();
+    let door = data::TIER2_DAYS;
+    assert_eq!(floor.tier_two_shop, Some(door));
+    assert_eq!(floor.heart_row(), data::FLOOR_HOPS);
+    let at_door = |world: &World, row: u32| {
+        world
+            .floor_marks()
+            .into_iter()
+            .filter(|m| m.row == row)
+            .collect::<Vec<_>>()
+    };
+    let marks = at_door(&world, door);
+    assert_eq!(marks.len(), 1, "one place at tier two's door");
+    assert_eq!(marks[0].kind, SiteKind::Trader, "{:?}", marks[0]);
+    assert_eq!(marks[0].tier, Tier::Two);
+    assert_eq!(world.floor_tier(door - 1), Tier::One);
+    // Every place below it leads there.
+    assert!(floor.rows[door as usize - 1].iter().all(|n| n.up == [0]));
+    // The player's timing (tier two from day nineteen) moves the door to
+    // row nineteen, the Heart where it was.
+    world.set_wave_scaling(WaveScaling {
+        tier2_days: 19,
+        tier3_days: 29,
+        ..WaveScaling::DEFAULT
+    });
+    let moved = world.floor().unwrap().clone();
+    assert_eq!(moved.tier_two_shop, Some(19));
+    assert_eq!(moved.heart_row(), data::FLOOR_HOPS);
+    let marks = at_door(&world, 19);
+    assert_eq!(marks.len(), 1);
+    assert_eq!(marks[0].kind, SiteKind::Trader, "{:?}", marks[0]);
+    assert_eq!(marks[0].tier, Tier::Two);
+    // The same dials again lay nothing anew; a load lays the same floor.
+    world.set_wave_scaling(world.wave_scaling());
+    assert_eq!(world.floor(), Some(&moved));
+    let mut c = world.clone();
+    c.settle_crisis();
+    assert_eq!(c.floor(), world.floor());
+    // A difficulty over the file's dials is what the door follows.
+    world.set_difficulty(Some(WaveScaling {
+        tier2_days: 22,
+        ..WaveScaling::DEFAULT
+    }));
+    assert_eq!(world.floor().unwrap().tier_two_shop, Some(22));
+}
+
+#[test]
 fn the_rows_are_marked_by_the_tier_timings() {
     let mut world = default_world();
     world.set_wave_scaling(WaveScaling {
@@ -224,7 +274,7 @@ fn the_rows_are_marked_by_the_tier_timings() {
     assert_eq!(world.floor_tier(heart), Tier::Three);
     assert_eq!(
         (count(Tier::One), count(Tier::Two), count(Tier::Three)),
-        (18, 10, 4)
+        (18, 10, 5)
     );
     // A quote up the floor says its row's tier.
     world.leave_for_probe();

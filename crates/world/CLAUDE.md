@@ -7671,8 +7671,9 @@ never down, and the tiers marked on it.
 - **The shape** (`crate::floor`, stateless — `floor::shape(seed)` off the
   galaxy's seed and the crew's own star, its own salt): row nought is the
   start, rows 1–31 have `FLOOR_MIN_WAYS`..`FLOOR_MAX_WAYS` (2–4) places
-  each (a walk that steps one at a time), row `FLOOR_HOPS` (32; fifty
-  until the player halved the tier-one rows) the Heart.
+  each (a walk that steps one at a time), row `FLOOR_HOPS` (33; fifty
+  until the player halved the tier-one rows, 32 until the trader at tier
+  two's door below) the Heart.
   The trips between two rows are a lattice path from the leftmost pair to
   the rightmost — mostly level, a step aside three times in ten — so every
   place has a way in and a way on, no two trips cross, and the leftmost and
@@ -7701,8 +7702,8 @@ never down, and the tiers marked on it.
 - **Row `r` is run day `r`** (`floor::row_day`; the start and the first
   row share day one): a trip up puts the clock on to its row's day
   (`floor_minutes`), so the first hop costs nothing and every later one a
-  day, and the Heart is day 32 (fifty until the tier-one rows were
-  halved).
+  day, and the Heart is day 33 (fifty until the tier-one rows were
+  halved, 32 until the trader at tier two's door).
 - **The switch is `Run::floor`** (saved, serde default; hashed only while
   on), off in `World::start` — so every test, `REFERENCE_CHECKSUM` and the
   survivor pins are what they were — and on in every session the app's
@@ -7731,6 +7732,26 @@ never down, and the tiers marked on it.
   and the Heart three; `tier1_days` stays twenty; `wire::PROTOCOL` 166. The `data`
   defaults (20/40) are unchanged: under them the Heart comes before tier
   three's day.
+- **A trader at tier two's door** (the player's: "when entering tier 2
+  guarantee that there is a shop. Add one Day for the heart target for
+  that"): `floor::tier_two_shop_row(tier2_days)` — the first row fought on
+  the scaling's `tier2_days` (19 in `scaling.ron`), never before
+  `FLOOR_FIRST_SHOP_ROW` nor within two rows of the Heart — is one place,
+  every way up meeting there as at the row under the Heart, and a trader,
+  the first stop where the shop sells tier two (`World::shop_tier`). It is
+  on top of the `FLOOR_SHOPS` (ten traders a floor now); the scattered ones
+  keep a row off it either side, shared between the rows below and above
+  by how many each has. `FLOOR_HOPS` went 32 → 33 for it: rows 1–18 tier
+  one, the door 19, 20–28 tier two, 29–31 tier three, the last trader 32,
+  the Heart 33. The shape takes the row (`floor::shape(seed, row)`,
+  `Shape`/`Floor::tier_two_shop`), so the floor reads `World::scaling()`
+  where it is laid, and `set_wave_scaling` / `set_difficulty` lay it again
+  when the door's row moves (`floor_follows_the_tiers`) — which is how the
+  app's `scaling.ron`, handed over a frame after the floor is first laid
+  and after every load, puts it on the run's own timing. Over 500 shapes
+  97.8% of places reach a trader within seven rows; ten seeds of every
+  galaxy type: ten traders a floor, none fallen.
+  `tests_floor::a_trader_stands_at_tier_two_s_door_and_moves_with_its_day`.
 - **`World::floor_marks`** is every place as the map draws it — its site,
   the kind, elite and cleared on its row's day (a look, `quote_given`),
   whether it is the Heart, its tier.

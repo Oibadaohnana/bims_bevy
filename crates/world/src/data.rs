@@ -95,8 +95,11 @@ pub const MAX_TRIP_HOPS: u32 = 2;
 /// day one), so the rows are the days. Fifty until the player halved the
 /// tier-one rows (October 2026): the 36 of `scaling.ron`'s tier timings
 /// (tier two from day 37, three from 47) became 18, the Heart 18 rows
-/// nearer.
-pub const FLOOR_HOPS: u32 = 32;
+/// nearer. Thirty-two until the trader at tier two's door
+/// (`floor::tier_two_shop_row`, October 2026, the player's: "when
+/// entering tier 2 guarantee that there is a shop. Add one Day for the
+/// heart target for that"), a row of its own, put the Heart a day later.
+pub const FLOOR_HOPS: u32 = 33;
 /// The fewest and the most separate ways up a floor: every row between
 /// the start and the Heart has this many places, at the least and at the
 /// most, and the leftmost and the rightmost are two ways that share none.
@@ -114,7 +117,8 @@ pub const FLOOR_MAX_WAYS: u32 = 4;
 /// the Heart** (October 2026, the player's: "there should be one shop
 /// before the heart as a guarantee"): that row is one place, every way
 /// up's last stop, and the other eight are scattered over rows three to
-/// twenty-nine (`floor::scatter_shops`).
+/// thirty (`floor::scatter_shops`), a row off the trader at tier two's
+/// door either side — which is one more, on top of these.
 pub const FLOOR_SHOPS: u32 = 9;
 /// The lowest row a trader may be on: the first few are fights.
 pub const FLOOR_FIRST_SHOP_ROW: u32 = 3;

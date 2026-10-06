@@ -71,6 +71,27 @@ impl World {
         self.floor = self.run.floor.then(|| Arc::new(self.lay_floor(galaxy)));
     }
 
+    /// The row the floor puts its trader at tier two's door on, off the
+    /// scaling's `tier2_days` ([`floor::tier_two_shop_row`]).
+    fn tier_two_shop_row(&self) -> Option<u32> {
+        floor::tier_two_shop_row(self.scaling().tier2_days)
+    }
+
+    /// The floor laid again where the scaling's tier two now begins on
+    /// another row than its door stands on: after the run's difficulty or
+    /// the tuning file's dials change (`set_difficulty`,
+    /// `set_wave_scaling`). The app hands the file's dials over a frame
+    /// after the floor is first laid (and after every load), so this is
+    /// the floor being laid on the run's own timing before anybody climbs
+    /// it; a timing moved mid-run moves the door with it.
+    pub(super) fn floor_follows_the_tiers(&mut self) {
+        let want = self.tier_two_shop_row();
+        if self.floor.as_ref().is_some_and(|f| f.tier_two_shop != want) {
+            let galaxy = self.galaxy();
+            self.settle_floor(&galaxy);
+        }
+    }
+
     /// The floor of this galaxy: its shape off the galaxy's seed and the
     /// crew's own star ([`floor::shape`]), the start the crew's own
     /// station, the Heart the machines' origin, and every place between a
@@ -117,54 +138,57 @@ impl World {
         };
         let hops = data::FLOOR_HOPS;
         let mut used = vec![false; candidates.len()];
-        floor::lay(floor::shape(seed), |row, index, shop| {
-            if row == 0 {
-                return (self.home_star, self.home);
-            }
-            if row >= hops {
-                return (self.droid_origin, heart::heart_id(self.droid_origin));
-            }
-            // How far from the origin, in lanes times the hops, so the
-            // sums stay whole.
-            let want = home * (hops - row);
-            let best = |used: &[bool], ok: &dyn Fn(&Candidate) -> bool| -> Option<usize> {
-                candidates
-                    .iter()
-                    .enumerate()
-                    .filter(|(k, c)| !used[*k] && ok(c))
-                    .min_by_key(|(_, c)| {
-                        let off = (c.hops.min(far + 1) * hops).abs_diff(want);
-                        let tie = worldgen::rng::mix(
-                            seed ^ (u64::from(row) << 40)
-                                ^ ((index as u64) << 32)
-                                ^ u64::from(c.star),
-                        );
-                        (off, tie)
-                    })
-                    .map(|(k, _)| k)
-            };
-            let open = |c: &Candidate| c.trader && c.turns >= row;
-            let trader = |c: &Candidate| c.trader;
-            let fight = |c: &Candidate| !c.trader;
-            let pick = if shop {
-                best(&used, &open).or_else(|| best(&used, &trader))
-            } else {
-                None
-            }
-            .or_else(|| best(&used, &fight))
-            .or_else(|| best(&used, &|_| true));
-            match pick {
-                Some(k) => {
-                    used[k] = true;
-                    (candidates[k].star, candidates[k].station)
+        floor::lay(
+            floor::shape(seed, self.tier_two_shop_row()),
+            |row, index, shop| {
+                if row == 0 {
+                    return (self.home_star, self.home);
                 }
-                // A galaxy with no star left over: a star twice, the
-                // nearest of all.
-                None => best(&vec![false; candidates.len()], &|_| true)
-                    .map(|k| (candidates[k].star, candidates[k].station))
-                    .unwrap_or((self.home_star, self.home)),
-            }
-        })
+                if row >= hops {
+                    return (self.droid_origin, heart::heart_id(self.droid_origin));
+                }
+                // How far from the origin, in lanes times the hops, so the
+                // sums stay whole.
+                let want = home * (hops - row);
+                let best = |used: &[bool], ok: &dyn Fn(&Candidate) -> bool| -> Option<usize> {
+                    candidates
+                        .iter()
+                        .enumerate()
+                        .filter(|(k, c)| !used[*k] && ok(c))
+                        .min_by_key(|(_, c)| {
+                            let off = (c.hops.min(far + 1) * hops).abs_diff(want);
+                            let tie = worldgen::rng::mix(
+                                seed ^ (u64::from(row) << 40)
+                                    ^ ((index as u64) << 32)
+                                    ^ u64::from(c.star),
+                            );
+                            (off, tie)
+                        })
+                        .map(|(k, _)| k)
+                };
+                let open = |c: &Candidate| c.trader && c.turns >= row;
+                let trader = |c: &Candidate| c.trader;
+                let fight = |c: &Candidate| !c.trader;
+                let pick = if shop {
+                    best(&used, &open).or_else(|| best(&used, &trader))
+                } else {
+                    None
+                }
+                .or_else(|| best(&used, &fight))
+                .or_else(|| best(&used, &|_| true));
+                match pick {
+                    Some(k) => {
+                        used[k] = true;
+                        (candidates[k].star, candidates[k].station)
+                    }
+                    // A galaxy with no star left over: a star twice, the
+                    // nearest of all.
+                    None => best(&vec![false; candidates.len()], &|_| true)
+                        .map(|k| (candidates[k].star, candidates[k].station))
+                        .unwrap_or((self.home_star, self.home)),
+                }
+            },
+        )
     }
 
     /// Where the crew are on the floor, `(row, index)`: the place of the

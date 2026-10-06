@@ -5937,6 +5937,7 @@ impl World {
     /// on, the dials are these. Not saved and not hashed.
     pub fn set_wave_scaling(&mut self, scaling: droidplan::WaveScaling) {
         self.wave_scaling = scaling;
+        self.floor_follows_the_tiers();
     }
 
     /// The wave formula's dials as the tuning file handed them, without
@@ -5950,6 +5951,7 @@ impl World {
     /// stand in place of the tuning file's. `None` is the file's own.
     pub fn set_difficulty(&mut self, difficulty: Option<droidplan::Difficulty>) {
         self.difficulty = difficulty;
+        self.floor_follows_the_tiers();
     }
 
     /// The run's difficulty, if the setup picked one.

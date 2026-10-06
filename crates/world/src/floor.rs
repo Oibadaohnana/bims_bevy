@@ -23,6 +23,12 @@
 //!   the row below the Heart is one place, every way up's last stop, and
 //!   a trader — what a crew earned on the last rows is spent before the
 //!   Heart, never carried into it. One of the [`data::FLOOR_SHOPS`].
+//! - **A trader at tier two's door**, always (October 2026, the
+//!   player's: "when entering tier 2 guarantee that there is a shop"):
+//!   the first row fought on the scaling's `tier2_days` is one place too,
+//!   every way up meeting there, and a trader — the first stop where the
+//!   shop sells tier two ([`tier_two_shop_row`]). On top of the
+//!   [`data::FLOOR_SHOPS`], and the Heart a day later for it.
 //! - **A place is a star**, its system's one site (`World::mission_site`):
 //!   the galaxy's systems, their missions and their trips are what the
 //!   floor is made of; the galaxy chart is gone. The stars are picked
@@ -60,6 +66,9 @@ pub struct FloorNode {
 #[derive(Clone, PartialEq, Debug, Default)]
 pub struct Floor {
     pub rows: Vec<Vec<FloorNode>>,
+    /// The row of the trader at tier two's door ([`tier_two_shop_row`]),
+    /// where it has one.
+    pub tier_two_shop: Option<u32>,
 }
 
 impl Floor {
@@ -113,6 +122,16 @@ pub fn row_day(row: u32) -> u32 {
     row.max(1)
 }
 
+/// The row of the trader at tier two's door: the first row fought on
+/// `tier2_days`, the scaling's day from which every enemy is tier two and
+/// the shop sells tier two (`World::shop_tier`). `None` where that is no
+/// row a trader may stand on — before [`data::FLOOR_FIRST_SHOP_ROW`], or
+/// so near the Heart that it would meet the trader under it.
+pub fn tier_two_shop_row(tier2_days: u32) -> Option<u32> {
+    let hops = data::FLOOR_HOPS.max(2);
+    (tier2_days >= data::FLOOR_FIRST_SHOP_ROW && tier2_days + 3 <= hops).then_some(tier2_days)
+}
+
 /// A floor's shape before any star is put on it: how many places each
 /// row has, where each is drawn, which go to which, and which are
 /// traders.
@@ -122,6 +141,8 @@ pub struct Shape {
     pub xs: Vec<Vec<f32>>,
     pub up: Vec<Vec<Vec<u8>>>,
     pub shops: Vec<Vec<bool>>,
+    /// The row of the trader at tier two's door, where there is one.
+    pub tier_two_shop: Option<u32>,
 }
 
 /// The stream a floor's shape is rolled off: the galaxy's seed and the
@@ -131,9 +152,10 @@ pub fn seed(galaxy_seed: u64, home_star: u32) -> u64 {
 }
 
 /// The shape of a floor off `seed`: [`data::FLOOR_HOPS`] rows above the
-/// start, two to four places a row between, the trips between two rows a
-/// lattice path that never crosses itself.
-pub fn shape(seed: u64) -> Shape {
+/// start, two to four places a row between — one on `tier_two_shop`'s
+/// row ([`tier_two_shop_row`]) and the row under the Heart — the trips
+/// between two rows a lattice path that never crosses itself.
+pub fn shape(seed: u64, tier_two_shop: Option<u32>) -> Shape {
     let hops = data::FLOOR_HOPS.max(2);
     let (least, most) = (
         data::FLOOR_MIN_WAYS.max(1),
@@ -153,8 +175,13 @@ pub fn shape(seed: u64) -> Shape {
         };
     }
     // The row under the Heart one place, every way up meeting there: the
-    // last trader before the Heart (`scatter_shops`).
+    // last trader before the Heart (`scatter_shops`). And tier two's door
+    // the same, drawn after the walk so the rows round it are as rolled.
     widths[hops as usize - 1] = 1;
+    let tier_two_shop = tier_two_shop.filter(|&row| row > 0 && row + 1 < hops);
+    if let Some(row) = tier_two_shop {
+        widths[row as usize] = 1;
+    }
     // Where each is drawn: evenly across, a little off true.
     let xs: Vec<Vec<f32>> = widths
         .iter()
@@ -211,12 +238,13 @@ pub fn shape(seed: u64) -> Shape {
         }
         up.push(edges);
     }
-    let shops = scatter_shops(&widths, &up, &mut rng);
+    let shops = scatter_shops(&widths, &up, tier_two_shop, &mut rng);
     Shape {
         widths,
         xs,
         up,
         shops,
+        tier_two_shop,
     }
 }
 
@@ -228,12 +256,23 @@ pub fn shape(seed: u64) -> Shape {
 /// trader on a row rolled in each — never on the row just after the last
 /// one's, where the stretch has another — on the place of that row a
 /// place stranded longest below it leads to. So a way up the last
-/// traders missed is the one the next is put on, and none clump.
-fn scatter_shops(widths: &[u32], up: &[Vec<Vec<u8>>], rng: &mut Rng) -> Vec<Vec<bool>> {
+/// traders missed is the one the next is put on, and none clump. With a
+/// trader at tier two's door (`tier_two_shop`, its row one place) the
+/// scattered ones keep a row off it either side, shared out between the
+/// rows below it and the rows above by how many each has.
+fn scatter_shops(
+    widths: &[u32],
+    up: &[Vec<Vec<u8>>],
+    tier_two_shop: Option<u32>,
+    rng: &mut Rng,
+) -> Vec<Vec<bool>> {
     let mut shops: Vec<Vec<bool>> = widths.iter().map(|&w| vec![false; w as usize]).collect();
     let top = widths.len() as u32 - 1;
     if top >= 2 {
         shops[top as usize - 1][0] = true;
+    }
+    if let Some(row) = tier_two_shop {
+        shops[row as usize][0] = true;
     }
     // The scattered ones end three rows under the Heart, so none is on
     // the row just before the last.
@@ -244,18 +283,18 @@ fn scatter_shops(widths: &[u32], up: &[Vec<Vec<u8>>], rng: &mut Rng) -> Vec<Vec<
     if count == 0 {
         return shops;
     }
-    // The shop rows, one a stretch, in order.
+    // The shop rows, one a stretch, in order: over the whole climb, or
+    // below the door and above it.
     let mut rows = Vec::with_capacity(count as usize);
-    let mut last: Option<u32> = None;
-    for k in 0..count {
-        let (lo, hi) = (first + k * span / count, first + (k + 1) * span / count - 1);
-        let lo = match last {
-            Some(prev) if prev + 1 == lo && lo < hi => lo + 1,
-            _ => lo,
-        };
-        let row = lo + rng.below(hi - lo + 1);
-        rows.push(row);
-        last = Some(row);
+    match tier_two_shop {
+        Some(door) if door >= first && door < last_row => {
+            let below = (door - 1).saturating_sub(first);
+            let above = last_row.saturating_sub(door + 2);
+            let under = (count * below + (below + above) / 2) / (below + above).max(1);
+            stretches(first, below, under.min(below), &mut rows, rng);
+            stretches(door + 2, above, (count - under).min(above), &mut rows, rng);
+        }
+        _ => stretches(first, span, count, &mut rows, rng),
     }
     // Each on the place that rescues the place longest stranded: of the
     // places below that no trader put so far can be reached from, the
@@ -301,10 +340,29 @@ fn scatter_shops(widths: &[u32], up: &[Vec<Vec<u8>>], rng: &mut Rng) -> Vec<Vec<
     shops
 }
 
+/// `count` shop rows onto `rows`, off `rng`: the `span` rows from `first`
+/// cut into `count` stretches as even as whole rows go, a row rolled in
+/// each — never the row just after the last one's, where the stretch has
+/// another.
+fn stretches(first: u32, span: u32, count: u32, rows: &mut Vec<u32>, rng: &mut Rng) {
+    let mut last: Option<u32> = None;
+    for k in 0..count {
+        let (lo, hi) = (first + k * span / count, first + (k + 1) * span / count - 1);
+        let lo = match last {
+            Some(prev) if prev + 1 == lo && lo < hi => lo + 1,
+            _ => lo,
+        };
+        let row = lo + rng.below(hi - lo + 1);
+        rows.push(row);
+        last = Some(row);
+    }
+}
+
 /// The floor of `shape`, a star and a site put on every place by
 /// `place(row, index, shop)` — `shop` for a trader's place — in
 /// row order and left to right.
 pub fn lay(shape: Shape, mut place: impl FnMut(u32, usize, bool) -> (u32, u32)) -> Floor {
+    let tier_two_shop = shape.tier_two_shop;
     let rows = shape
         .widths
         .iter()
@@ -325,7 +383,10 @@ pub fn lay(shape: Shape, mut place: impl FnMut(u32, usize, bool) -> (u32, u32)) 
                 .collect()
         })
         .collect();
-    Floor { rows }
+    Floor {
+        rows,
+        tier_two_shop,
+    }
 }
 
 #[cfg(test)]
@@ -342,15 +403,31 @@ mod tests {
         })
     }
 
+    /// The row of tier two's door at the default tier timing.
+    fn door() -> Option<u32> {
+        tier_two_shop_row(data::TIER2_DAYS)
+    }
+
     #[test]
-    fn a_floor_is_thirty_two_rows_two_to_four_wide_and_wired_without_a_crossing() {
+    fn a_floor_is_thirty_three_rows_two_to_four_wide_and_wired_without_a_crossing() {
+        let door = door().expect("the default tier timing has a door");
         for seed in 0..200u64 {
-            let shape = shape(mix(seed));
+            let shape = shape(mix(seed), Some(door));
             assert_eq!(shape.widths.len() as u32, data::FLOOR_HOPS + 1);
             assert_eq!(shape.widths[0], 1, "one start");
             assert_eq!(*shape.widths.last().unwrap(), 1, "one Heart");
-            for &w in &shape.widths[1..shape.widths.len() - 2] {
-                assert!((data::FLOOR_MIN_WAYS..=data::FLOOR_MAX_WAYS).contains(&w));
+            for (row, &w) in shape
+                .widths
+                .iter()
+                .enumerate()
+                .take(shape.widths.len() - 2)
+                .skip(1)
+            {
+                if row as u32 == door {
+                    assert_eq!(w, 1, "one trader at tier two's door");
+                } else {
+                    assert!((data::FLOOR_MIN_WAYS..=data::FLOOR_MAX_WAYS).contains(&w));
+                }
             }
             assert_eq!(shape.widths[shape.widths.len() - 2], 1, "one last trader");
             assert!(wired(&shape), "seed {seed}");
@@ -452,17 +529,20 @@ mod tests {
         let seeds = 500u64;
         let (mut near, mut places, mut met, mut dry_sum, mut driest) = (0u32, 0u32, 0u32, 0u32, 0);
         for seed in 0..seeds {
-            let shape = shape(mix(seed));
+            let shape = shape(mix(seed), door());
             let top = shape.widths.len() - 1;
             let rows: Vec<usize> = (0..=top)
                 .filter(|&r| shape.shops[r].iter().any(|&s| s))
                 .collect();
             // So many, one a row, none in the first rows or at the Heart,
             // never on two rows running and never far apart — and the last
-            // on the row under the Heart, its one place.
-            assert_eq!(rows.len() as u32, data::FLOOR_SHOPS, "seed {seed}");
+            // on the row under the Heart, its one place, and one on tier
+            // two's door, its one place, on top.
+            assert_eq!(rows.len() as u32, data::FLOOR_SHOPS + 1, "seed {seed}");
             assert_eq!(*rows.last().unwrap(), top - 1, "seed {seed}");
             assert!(shape.shops[top - 1][0], "seed {seed}");
+            let door = door().unwrap() as usize;
+            assert!(rows.contains(&door) && shape.shops[door][0], "seed {seed}");
             for &r in &rows {
                 assert_eq!(shape.shops[r].iter().filter(|&&s| s).count(), 1);
                 assert!(r as u32 >= data::FLOOR_FIRST_SHOP_ROW && r < top);
@@ -505,9 +585,44 @@ mod tests {
     }
 
     #[test]
+    fn tier_two_s_door_is_its_day_s_row_where_a_trader_may_stand() {
+        assert_eq!(tier_two_shop_row(19), Some(19));
+        assert_eq!(tier_two_shop_row(data::FLOOR_FIRST_SHOP_ROW - 1), None);
+        assert_eq!(
+            tier_two_shop_row(data::FLOOR_HOPS - 3),
+            Some(data::FLOOR_HOPS - 3)
+        );
+        assert_eq!(
+            tier_two_shop_row(data::FLOOR_HOPS - 2),
+            None,
+            "beside the last trader"
+        );
+        // Without a door the floor is the plain one: every row between two
+        // to four wide but the one under the Heart.
+        let plain = shape(mix(1), None);
+        assert_eq!(plain.tier_two_shop, None);
+        let traders = plain.shops.iter().filter(|r| r.contains(&true)).count();
+        assert_eq!(traders as u32, data::FLOOR_SHOPS);
+        // Wherever the door, its row one place every way up meets at, a
+        // trader, and no other trader beside it.
+        for row in data::FLOOR_FIRST_SHOP_ROW..=data::FLOOR_HOPS - 3 {
+            for seed in 0..40u64 {
+                let shape = shape(mix(seed), Some(row));
+                let r = row as usize;
+                assert_eq!(shape.widths[r], 1, "row {row} seed {seed}");
+                assert!(shape.shops[r][0]);
+                assert!(!shape.shops[r - 1].contains(&true) && !shape.shops[r + 1].contains(&true));
+                assert!(shape.up[r - 1].iter().all(|e| e == &[0]));
+                let count = shape.shops.iter().filter(|r| r.contains(&true)).count();
+                assert_eq!(count as u32, data::FLOOR_SHOPS + 1, "row {row} seed {seed}");
+            }
+        }
+    }
+
+    #[test]
     fn the_same_seed_is_the_same_floor() {
-        assert_eq!(shape(seed(7, 3)), shape(seed(7, 3)));
-        assert_ne!(shape(seed(7, 3)), shape(seed(8, 3)));
+        assert_eq!(shape(seed(7, 3), door()), shape(seed(7, 3), door()));
+        assert_ne!(shape(seed(7, 3), door()), shape(seed(8, 3), door()));
     }
 
     #[test]
