@@ -1613,6 +1613,10 @@ impl Droid {
         if self.kind == DroidKind::Core {
             self.draw_core_over(list);
         }
+        // A sealed conduit's (October 2026).
+        if self.kind == DroidKind::Conduit {
+            self.draw_conduit_over(list);
+        }
         for (at, t, _) in sparks {
             list.circle(at, 2.0 + 3.0 * t, SPARK.glowing(SPARK_HEAT).alpha(0.9 * t));
         }

@@ -382,8 +382,8 @@ origin's system — one hop at a time down the lanes, so the jammers on the
 way decide how soon — and the galaxy chart marks the origin with a red
 diamond once the crew have been in its system or a system next to it.
 Pick the fortress on the world map and its card says what it will be **on
-arrival**: how many conduits, the core's health, and how many Guardians
-the conduits will send — the players decide them, not the clock.
+arrival**: how many links (conduits), the core's health, and a row a link
+— the machines its wave brings on the arrival day and its Guardians.
 
 - **The core** stands in the fortress's hub, with two **fabricators**
   beside it; **conduits** stand in the rooms round it, one a room — three,
@@ -391,7 +391,9 @@ the conduits will send — the players decide them, not the clock.
   the clock: every conduit shot down sends **a wave** in by its
   airlocks, in turn at each — the day's wave, every machine at tier
   three — with **Guardians** among it: one for the first conduit, two
-  for the second, and so on, five for the fifth.
+  for the second, and so on, five for the fifth. The other conduits are
+  **sealed** behind a shell until that wave is down, so two never fall
+  at once.
 - **Sealed.** While any conduit stands, the core is behind a shell that
   stops every bolt and blow from every side, and it does not fire. A red
   line of light runs from each conduit to it. Bring the conduits down.

@@ -78,6 +78,20 @@ fn clear_the_wave(world: &mut World) {
     }
 }
 
+/// Conduit `c` shot down the one way the fight allows: a step for the
+/// wave the last one sent to land, that wave destroyed, and a step for the
+/// seal to come off.
+fn down_the_link(world: &mut World, c: usize) {
+    world.step(&[]);
+    clear_the_wave(world);
+    world.step(&[]);
+    room(world).strike_droid(c, DroidPart::Chassis, 1e9);
+    assert!(
+        room(world).droid(c).unwrap().destroyed,
+        "the link went down"
+    );
+}
+
 /// The droid index of each of the Heart's machines of `kind`.
 fn of_kind(world: &mut World, kind: DroidKind) -> Vec<usize> {
     let room = room(world);
@@ -206,7 +220,7 @@ fn the_core_takes_nothing_while_a_conduit_stands() {
     let conduits = of_kind(&mut world, DroidKind::Conduit);
     let (last, rest) = conduits.split_last().unwrap();
     for &c in rest {
-        room(&mut world).strike_droid(c, DroidPart::Chassis, 1e9);
+        down_the_link(&mut world, c);
     }
     world.step(&[]);
     assert_eq!(
@@ -223,7 +237,7 @@ fn the_core_takes_nothing_while_a_conduit_stands() {
             .health(DroidPart::Chassis),
         full
     );
-    room(&mut world).strike_droid(*last, DroidPart::Chassis, 1e9);
+    down_the_link(&mut world, *last);
     let events = world.step(&[]);
     assert_eq!(phase(&world), HeartPhase::Exposed);
     assert!(
@@ -249,9 +263,11 @@ fn the_core_takes_nothing_while_a_conduit_stands() {
 /// **No wave stands in the fortress, and every conduit shot down brings
 /// a wave and its Guardians** in by the airlocks, on top of whatever
 /// still stands — the day's wave each time, with one Guardian for the
-/// first, two for the second and three for the third (two downed in one
-/// step bring both their lots), none for a conduit already answered —
-/// and no wave comes by the clock, however long it is quiet.
+/// first, two for the second and three for the third, none for a
+/// conduit already answered — and no wave comes by the clock, however
+/// long it is quiet. **The other links are sealed until that wave is
+/// down**, and two struck down in one step is one down and the other
+/// sealed.
 #[test]
 fn every_conduit_shot_down_brings_a_wave_and_its_guardians() {
     let mut world = at_the_heart(1, 2);
@@ -295,7 +311,31 @@ fn every_conduit_shot_down_brings_a_wave_and_its_guardians() {
             .any(|e| matches!(e, WorldEvent::DroidReinforcements { .. })),
         "a conduit is answered once"
     );
+    let sealed = |world: &mut World, i: usize| room(world).droid(i).unwrap().heart.sealed;
+    let down = |world: &mut World, i: usize| room(world).droid(i).unwrap().destroyed;
+    assert!(sealed(&mut world, conduits[1]) && sealed(&mut world, conduits[2]));
     room(&mut world).strike_droid(conduits[1], DroidPart::Chassis, 1e9);
+    world.step(&[]);
+    assert!(
+        !down(&mut world, conduits[1]),
+        "sealed while the wave stands"
+    );
+    assert_eq!(world.heart_fight().unwrap().links_down, 1);
+    clear_the_wave(&mut world);
+    world.step(&[]);
+    assert!(
+        !sealed(&mut world, conduits[1]),
+        "the wave down, the seal is off"
+    );
+    room(&mut world).strike_droid(conduits[1], DroidPart::Chassis, 1e9);
+    room(&mut world).strike_droid(conduits[2], DroidPart::Chassis, 1e9);
+    assert!(down(&mut world, conduits[1]));
+    assert!(!down(&mut world, conduits[2]), "never two at once");
+    world.step(&[]);
+    assert_eq!(world.droid_wave_standing(), Some((wave + 2, 0)));
+    assert_eq!(world.heart_fight().unwrap().links_down, 2);
+    clear_the_wave(&mut world);
+    world.step(&[]);
     room(&mut world).strike_droid(conduits[2], DroidPart::Chassis, 1e9);
     world.step(&[]);
     assert_eq!(world.droid_wave_standing(), Some((wave + 3, 0)));
@@ -501,8 +541,8 @@ fn leaving_the_fortress_puts_it_back_whole() {
 }
 
 /// **The map's preview is the fortress's strength on arrival**: the
-/// conduits, the core, and the Guardians its conduits send are what the
-/// fight is built with.
+/// conduits, the core, the Guardians its conduits send and the wave each
+/// brings are what the fight is built with.
 #[test]
 fn the_map_s_preview_is_the_fortress_on_arrival() {
     let mut world = simulation_world(combat_ship(), REFERENCE_MONEY, 1);
@@ -548,7 +588,16 @@ fn the_map_s_preview_is_the_fortress_on_arrival() {
         "one Guardian for the first conduit down, two for the second"
     );
     let it = world.infestation(site.station).unwrap();
-    assert_eq!(it.waves_left, 0, "and no waves");
+    assert_eq!(it.waves_left, 0, "and no waves by the clock");
+    let conduit = of_kind(&mut world, DroidKind::Conduit)[0];
+    room(&mut world).strike_droid(conduit, DroidPart::Chassis, 1e9);
+    world.step(&[]);
+    let came = room(&mut world)
+        .droids()
+        .iter()
+        .filter(|d| !d.kind.is_structure())
+        .count() as u32;
+    assert_eq!(came, preview.wave + 1, "the first link's wave and Guardian");
 }
 
 /// **The fight is the same on two worlds** given the same seed and the same

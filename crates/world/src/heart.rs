@@ -26,7 +26,8 @@
 //!
 //! 1. **Sealed** while any conduit stands: the core takes nothing and
 //!    fires nothing, and every conduit shot down brings a wave of the
-//!    machines in by the airlocks, whatever is still standing.
+//!    machines and its Guardians in by the airlocks, whatever is still
+//!    standing — and seals the other conduits until that wave is down.
 //! 2. **Exposed** once the last conduit is down: the core sweeps one beam
 //!    and every fabricator still standing builds a tier-three machine every
 //!    [`data::HEART_FABRICATOR_INTERVAL`] of the mission clock.
@@ -244,6 +245,10 @@ pub struct HeartPreview {
     pub core_health: f32,
     /// Every Guardian its conduits shot down send ([`guardians_for`]).
     pub guardians: u32,
+    /// The machines in the wave each conduit shot down sends, its
+    /// Guardians aside (October 2026): the wave of the arrival day and
+    /// the tier-three area's Bombers and Lancers on top.
+    pub wave: u32,
 }
 
 /// Where the Machine Heart's machines stand in its fortress, in the

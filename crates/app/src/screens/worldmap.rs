@@ -730,6 +730,9 @@ fn destination_card(
                     ui.end_row();
                 }
             });
+        ui.add(
+            egui::Label::new(egui::RichText::new(HEART_LINKS_SEALED).color(theme::MUTED)).wrap(),
+        );
     }
     ui.add_space(4.0);
     // The trip on the table says so; the vote itself is the bar's at the

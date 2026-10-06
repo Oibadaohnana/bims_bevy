@@ -4907,6 +4907,15 @@ and the rules; `fortress.rs` (a child of `world`, like `mission.rs` and
   `waves_left`, untouched) and said as `DroidReinforcements`. A conduit
   laid a wreck (a room built afresh past the seal) and the probe's
   `set_heart_phase_for_probe` count as answered.
+  **Never two links at once, and none while a link's wave stands**
+  (October 2026, the player's: "the wave has to be killed in order for
+  the next link to be able to be destroyed"): a conduit going down seals
+  every other there and then in the room (`Game::strike_droid`, the
+  core's `HeartState::sealed` — a shell all round, nothing taken, nobody
+  aims at it — drawn as the core's ring, `draw_conduit_over`), so a
+  burst's rest takes nothing off them, and `tell_the_heart` keeps them
+  sealed while any machine not the Heart's stands in the `Sealed` phase.
+  `set_heart_phase_for_probe` unseals each before its blow.
   `every_conduit_shot_down_brings_a_wave_and_its_guardians`. **`SAVE_VERSION` 70,
   `wire::PROTOCOL` 72; the Guardians `wire::PROTOCOL` 132.**
 - **Waves come in by every airlock but the crew's in turn**
@@ -4916,9 +4925,12 @@ and the rules; `fortress.rs` (a child of `world`, like `mission.rs` and
   photographs the `Infestation` before the first dock settles anything.
 - **The map**: a heart site is listed at the origin (`sites_in`), placed by
   `heart::blueprint` (`site_position`), and its quote carries
-  `TravelQuote::heart` — `World::heart_preview`: the conduits, the core
-  and `HeartPreview::guardians` (`heart::guardians_for`, every conduit's
-  lot), none of it the clock's.
+  `TravelQuote::heart` — `World::heart_preview(station, arrival)`: the
+  conduits, the core, `HeartPreview::guardians` (`heart::guardians_for`,
+  every conduit's lot) and `HeartPreview::wave`, the machines each link's
+  wave is on the arrival day (`heart_wave_at`: `wave_size_with` and the
+  tier-three area's Bombers and Lancers). The card lists the links, the
+  core and a row a link (`names::heart_preview_rows`).
   `World::origin_seen` (a visited star within a hop of the origin, off the
   kept hop table) is what the chart's diamond waits on.
 - **The run's summary**: `Run::{machines_destroyed, sites_cleared,

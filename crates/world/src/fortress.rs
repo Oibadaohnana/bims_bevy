@@ -447,6 +447,19 @@ impl World {
             return;
         };
         let room = &mut residents.aboard.room;
+        // **The links are sealed while a wave stands** (October 2026, the
+        // player's: "the wave has to be killed in order for the next link
+        // to be able to be destroyed"): every machine a fallen conduit
+        // sent must be down before another conduit takes a hit. Before
+        // the core is exposed the fabricators build nothing, so every
+        // machine standing that is not the Heart's own is a link's wave.
+        // The room seals them the moment one falls (`Game::strike_droid`),
+        // so two never fall at once.
+        let wave_standing = room
+            .droids()
+            .iter()
+            .any(|d| !d.kind.is_structure() && !d.destroyed);
+        let links_sealed = phase == HeartPhase::Sealed && wave_standing;
         let (sealed, emitters, pace) = match phase {
             HeartPhase::Sealed => (true, 0, 1.0),
             HeartPhase::Exposed => (false, 1, 1.0),
@@ -466,6 +479,7 @@ impl World {
                     h.pace = pace;
                     h.overload = phase == HeartPhase::Overload;
                 }
+                Some(DroidKind::Conduit) => h.sealed = links_sealed,
                 // A fabricator's lamp is lit while it builds.
                 Some(DroidKind::Fabricator) => {
                     h.emitters =
@@ -478,12 +492,12 @@ impl World {
 
     // --- the map ------------------------------------------------------------------
 
-    /// What the fortress would be on arrival (feature 108): the conduits,
-    /// the core and the Guardians its conduits send, which the players
-    /// decide and the clock does not (October 2026: no waves there) — the
-    /// numbers the fight will be built with. `None` for any site but a
-    /// fortress.
-    pub fn heart_preview(&self, station: u32) -> Option<HeartPreview> {
+    /// What the fortress would be on arrival at the world clock
+    /// `arrival_minutes` (feature 108): the conduits, the core and the
+    /// Guardians its conduits send, which the players decide, and the wave
+    /// each conduit brings (October 2026), the arrival day's — the numbers
+    /// the fight will be built with. `None` for any site but a fortress.
+    pub fn heart_preview(&self, station: u32, arrival_minutes: f64) -> Option<HeartPreview> {
         let star = heart::heart_star(station)?;
         if star != self.droid_origin {
             return None;
@@ -494,7 +508,23 @@ impl World {
             conduits,
             core_health: heart::core_health_for(players),
             guardians: heart::guardians_for(conduits),
+            wave: self.heart_wave_at(arrival_minutes),
         })
+    }
+
+    /// How many machines the wave a conduit shot down sends is on the day
+    /// of the world clock `minutes`, its Guardians aside: what
+    /// [`World::conduit_wave`] lays — the wave's size
+    /// ([`World::droid_wave_size`]: the players and the crew's bots) and
+    /// the tier-three area's Bombers and Lancers ([`World::wave_kinds_for`]).
+    fn heart_wave_at(&self, minutes: f64) -> u32 {
+        if let Some(kinds) = &self.droid_kinds_forced {
+            return kinds.len() as u32;
+        }
+        let area = *self.scaling().areas()[3];
+        self.wave_size_with(run_day_at(minutes), self.crew_bots())
+            .saturating_add(area.bombers)
+            .saturating_add(area.lancers)
     }
 
     // --- the probes -----------------------------------------------------------------
@@ -561,6 +591,10 @@ impl World {
             };
             match d.kind {
                 DroidKind::Conduit if !d.destroyed => {
+                    // Unsealed for its blow: the one before sealed it.
+                    if let Some(h) = room.heart_state_mut(i) {
+                        h.sealed = false;
+                    }
                     room.strike_droid(i, bims::droid::DroidPart::Chassis, 1e9);
                 }
                 DroidKind::Core if phase == HeartPhase::Overload => {

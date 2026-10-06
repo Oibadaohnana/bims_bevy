@@ -6672,6 +6672,19 @@ impl Game {
             droid.under_fire = UNDER_FIRE;
         }
         let (at, size, gone) = (droid.pos, droid.kind.half_width(), !was && droid.destroyed);
+        // **Never two of the Machine Heart's links at once** (October
+        // 2026, the player's: "the wave has to be killed in order for the
+        // next link to be able to be destroyed"): a conduit gone seals
+        // every other there and then, so the rest of a grenade's burst
+        // takes nothing off them; the world keeps them sealed while the
+        // wave it sends stands (`World::tell_the_heart`).
+        if gone && droid.kind == DroidKind::Conduit {
+            for d in &mut self.droids {
+                if d.kind == DroidKind::Conduit && !d.destroyed {
+                    d.heart.sealed = true;
+                }
+            }
+        }
         // The flash on the part it struck, and a machine bursting apart
         // where it has just gone (feature 98) — drawing only.
         if let Some(struck) = struck {

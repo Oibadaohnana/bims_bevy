@@ -88,6 +88,8 @@ pub(super) const CORE_SCALE: f32 = 1.35;
 /// The shell round a sealed core: how many plates, how far out.
 const SHELL_PLATES: u32 = 12;
 const SHELL_OUT: f32 = 44.0;
+/// How far out a sealed conduit's shell is.
+const CONDUIT_SHELL_OUT: f32 = 36.0;
 
 impl Droid {
     /// A Machine Heart's machine of `kind` (feature 108), of **one** health
@@ -224,6 +226,33 @@ impl Droid {
         }
     }
 
+    /// A ring of red plates `r` out round a sealed machine of the Heart's,
+    /// a translucent band with a rim past white, turning slowly.
+    fn draw_shell(&self, list: &mut DrawList, r: f32) {
+        let span = TAU / SHELL_PLATES as f32;
+        let turn = self.idle * 0.2;
+        let beat = self.beat();
+        for i in 0..SHELL_PLATES {
+            let a0 = turn + span * i as f32;
+            let a1 = a0 + span * 0.86;
+            let p = self.pos + Vec2::from_angle(a0) * r;
+            let q = self.pos + Vec2::from_angle(a1) * r;
+            list.line(p, q, 7.0, SHIELD.alpha(0.16 + 0.08 * beat));
+            let p = self.pos + Vec2::from_angle(a0) * (r + 3.0);
+            let q = self.pos + Vec2::from_angle(a1) * (r + 3.0);
+            list.line(p, q, 1.3, SHIELD_RIM.alpha(0.7 + 0.2 * beat));
+        }
+    }
+
+    /// A sealed conduit's shell (October 2026): up while the wave another
+    /// link's fall sent still stands, just past where a bolt is stopped
+    /// (`balance::GUARDIAN_SHIELD_RADIUS`).
+    pub(super) fn draw_conduit_over(&self, list: &mut DrawList) {
+        if self.heart.sealed && !self.destroyed {
+            self.draw_shell(list, CONDUIT_SHELL_OUT);
+        }
+    }
+
     /// A sealed core's shell (feature 108): a ring of red plates just
     /// round its housing (a bolt is stopped a little inside it, at
     /// `balance::GUARDIAN_SHIELD_RADIUS`),
@@ -236,20 +265,7 @@ impl Droid {
             return;
         }
         if self.heart.sealed {
-            let r = SHELL_OUT;
-            let span = TAU / SHELL_PLATES as f32;
-            let turn = self.idle * 0.2;
-            let beat = self.beat();
-            for i in 0..SHELL_PLATES {
-                let a0 = turn + span * i as f32;
-                let a1 = a0 + span * 0.86;
-                let p = self.pos + Vec2::from_angle(a0) * r;
-                let q = self.pos + Vec2::from_angle(a1) * r;
-                list.line(p, q, 7.0, SHIELD.alpha(0.16 + 0.08 * beat));
-                let p = self.pos + Vec2::from_angle(a0) * (r + 3.0);
-                let q = self.pos + Vec2::from_angle(a1) * (r + 3.0);
-                list.line(p, q, 1.3, SHIELD_RIM.alpha(0.7 + 0.2 * beat));
-            }
+            self.draw_shell(list, SHELL_OUT);
         }
         self.draw_core_emitters(list);
         for e in 0..HeartState::EMITTERS {

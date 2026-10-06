@@ -2610,16 +2610,31 @@ pub const MANUFACTURER_DOWN: &str = "A Manufacturer is dead.";
 pub const ARRIVE_MANUFACTURERS: &str = "Manufacturers";
 /// An elite (`world::elite`), in a row of the map's list.
 pub const ARRIVE_ELITE: &str = "elite · Guardian in wave 2 · relics";
-pub fn heart_preview_rows(p: &world::heart::HeartPreview) -> [(&'static str, String); 3] {
-    [
-        ("Conduits", p.conduits.to_string()),
+/// The Heart's card: its links and its core, then a row a link — what
+/// shooting it down brings in (October 2026: a wave and its Guardians).
+pub fn heart_preview_rows(p: &world::heart::HeartPreview) -> Vec<(String, String)> {
+    let mut rows = vec![
+        ("Links".to_string(), p.conduits.to_string()),
         (
-            "Core",
+            "Core".to_string(),
             crate::format::grouped(p.core_health.max(0.0).ceil() as u64),
         ),
-        ("Guardians", p.guardians.to_string()),
-    ]
+    ];
+    for link in 1..=p.conduits {
+        let guardians = world::heart::guardians_for_link(link);
+        rows.push((
+            format!("Link {link}"),
+            format!(
+                "{} machines + {guardians} Guardian{}",
+                p.wave,
+                if guardians == 1 { "" } else { "s" }
+            ),
+        ));
+    }
+    rows
 }
+/// Under the Heart's rows: the rule the links keep.
+pub const HEART_LINKS_SEALED: &str = "A link's wave must be down before the next link can fall.";
 /// Beside a name in the departure check: down and cannot walk in.
 pub const DOWNED_WORD: &str = "down";
 /// The departure list's cost column for a bot: it costs nothing, only
