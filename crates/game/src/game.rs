@@ -10287,11 +10287,11 @@ impl Game {
             let bim = &mut self.bims[who];
             bim.hit_flash = HIT_FLASH;
             if bim.surge.is_some() {
-            bim.unhurt = 0.0;
                 out.absorbed = damage;
                 self.combat.fx.struck(who, BIM_STRUCK);
                 return out;
             }
+            bim.unhurt = 0.0;
             let mut broke = None;
             if let Some(piece) = bim.gear.worn_mut().as_mut().filter(|p| !p.broken()) {
                 // Protection ignored, and the rest of the strip lost
@@ -10323,12 +10323,12 @@ impl Game {
         // A medic's surge on it takes the whole of the hit (feature 76):
         // no wound, no armour drained, no trauma — the flash and nothing
         // else.
-        // And the armour's regeneration waits again (October 2026).
-        bim.unhurt = 0.0;
         if bim.surge.is_some() {
             out.absorbed = damage;
             return out;
         }
+        // And the armour's regeneration waits again (October 2026).
+        bim.unhurt = 0.0;
         let mut through = damage;
         let mut broke = None;
         if let Some(piece) = bim.gear.worn_mut().as_mut().filter(|p| !p.broken()) {
@@ -13584,17 +13584,6 @@ mod tests {
         assert!(near(game.health(0), crate::health::MAX_HEALTH - 18.4));
     }
 
-    #[test]
-    fn a_click_on_a_bim_is_the_bim_and_on_a_body_down_is_the_body() {
-        // --- a_click_on_a_bim_is_the_bim ---
-        {
-            let mut game = room();
-            let at = game.put_for_probe(1, vec2(ROOM_W * 0.5, ROOM_H * 0.5));
-            assert_eq!(game.hit_at(at.x + 4.0, at.y - 3.0), HIT_BIM);
-            assert_eq!(game.hit_bim(), 1);
-            assert_eq!(game.hit_at(at.x + 60.0, at.y), HIT_NONE);
-        }
-
     /// Armour regenerates (October 2026): nothing for
     /// `ARMOUR_REGEN_DELAY` seconds after the last hit, then the piece's
     /// own health back at `ARMOUR_REGEN` a second — a broken piece too,
@@ -13646,6 +13635,17 @@ mod tests {
         }
         assert_eq!(game.armour_health(0), 45.0);
     }
+
+    #[test]
+    fn a_click_on_a_bim_is_the_bim_and_on_a_body_down_is_the_body() {
+        // --- a_click_on_a_bim_is_the_bim ---
+        {
+            let mut game = room();
+            let at = game.put_for_probe(1, vec2(ROOM_W * 0.5, ROOM_H * 0.5));
+            assert_eq!(game.hit_at(at.x + 4.0, at.y - 3.0), HIT_BIM);
+            assert_eq!(game.hit_bim(), 1);
+            assert_eq!(game.hit_at(at.x + 60.0, at.y), HIT_NONE);
+        }
 
         // --- a_dead_bim_under_the_click_is_a_body_and_an_unconscious_one_is_still_the_bim ---
         {
