@@ -52,10 +52,8 @@ where one is named).
 | `shotgun` | the shotgun | `Laser_shot.mp3`, slowed to 70% | 0.8 s |
 | `rifle` | the auto rifle; the minigun, quieter | `Laser_shot.mp3`, sped up | 0.32 s |
 | `sniper` | the sniper rifle; the rail lance, a Lancer's rail, the Unmaker | `Laser_Sniper_shot.mp3` | 1.3 s |
-| `reload` | a magazine reloaded, every gun but the shotgun | `Gun_Reload.mp3` | 1.1 s, *timed* |
-| `shotgun_reload` | the shotgun's shells pushed in | `Shotgun_reloading.mp3` | 3.55 s, *timed* |
-| `reload_laser` | a laser cell's charge, played over `reload` | synthesised | 1.1 s, *timed* to `reload`'s clicks |
-| `shotgun_reload_laser` | the same over `shotgun_reload`, a blip a shell | synthesised | 3.55 s, *timed* to its clicks |
+| `reload_1`, `reload_2` | a magazine reloaded, every gun but the shotgun, one of the two at random, its pitch strayed up to 8% either way | `new_reload.mp3`, `new_reload_2.mp3` | 1.65 s, 1.77 s |
+| `shotgun_reload` | the shotgun's shells pushed in, its pitch strayed the same | `Shotgun_reloading.mp3` | 3.55 s, *timed* |
 
 ### Hits
 

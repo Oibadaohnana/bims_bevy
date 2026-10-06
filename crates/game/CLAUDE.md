@@ -5247,11 +5247,10 @@ beyond the walls so the deck is not clear. No `SAVE_VERSION`;
   Only the picture's grip and angle move (`held_grip`, `held_rot`,
   `on_held`): `muzzle()` reads `weapon_grip` and `gun_rot` as before.
   `a_reload_takes_the_fore_hand_off_the_gun_and_the_muzzle_stays`.
-- **A laser under the clicks**: the app plays `Clip::ReloadLaser`
-  (`ShotgunReloadLaser`) with each reload clip, at 0.55 (0.2) of its
-  level — a cell powering down, a whine charging, two pips as it seats;
-  made by `sounds/abilities.py reload_laser shotgun_reload_laser`, timed
-  to the recordings' clicks.
+- **The reload's sound** (app, `sound.rs`): every gun but the shotgun
+  plays `Clip::Reload1` or `Reload2` at random (the player's
+  `new_reload*.mp3`), the shotgun `ShotgunReload`; each at a pitch
+  strayed by `RELOAD_PITCH` (±8%). No synthesised layer any more.
 
 `a_magazine_empties_reloads_and_a_new_gun_comes_full` pins it; the
 curves test pins the numbers. Two pistol bolts put a lamp out now

@@ -102,15 +102,12 @@ pub enum Clip {
     // A crew member brought round: the defibrillator, the heart and
     // the vitals rising, built by `sounds/abilities.py` (`revived`).
     Revived,
-    // A magazine reloaded (October 2026): a gun's, which every gun but the
-    // shotgun plays, and the shotgun's shells put in one by one.
-    Reload,
+    // A magazine reloaded (October 2026): a gun's, two takes of which
+    // every gun but the shotgun plays one at random, and the shotgun's
+    // shells put in one by one.
+    Reload1,
+    Reload2,
     ShotgunReload,
-    // The laser laid over each (`sounds/abilities.py`, `reload_laser` and
-    // `shotgun_reload_laser`), so a reload is a laser cell's and not only
-    // a magazine's clicks: played with it, at once.
-    ReloadLaser,
-    ShotgunReloadLaser,
     // A level gained (October 2026): a run of bells up into a ringing
     // chord, after Dota 2's (`sounds/abilities.py`, `level_up`).
     LevelUp,
@@ -134,7 +131,7 @@ pub enum Clip {
 /// see `prepare.sh` — so every level below is relative to that. They live
 /// in `Sounds/game/` at the root, beside the recordings, where the player
 /// edits them by hand (its `README.md`).
-const CLIPS: [&[u8]; 64] = [
+const CLIPS: [&[u8]; 63] = [
     include_bytes!("../../../Sounds/game/laser_1.ogg"),
     include_bytes!("../../../Sounds/game/laser_2.ogg"),
     include_bytes!("../../../Sounds/game/laser_3.ogg"),
@@ -187,10 +184,9 @@ const CLIPS: [&[u8]; 64] = [
     include_bytes!("../../../Sounds/game/reward.ogg"),
     include_bytes!("../../../Sounds/game/downed.ogg"),
     include_bytes!("../../../Sounds/game/revived.ogg"),
-    include_bytes!("../../../Sounds/game/reload.ogg"),
+    include_bytes!("../../../Sounds/game/reload_1.ogg"),
+    include_bytes!("../../../Sounds/game/reload_2.ogg"),
     include_bytes!("../../../Sounds/game/shotgun_reload.ogg"),
-    include_bytes!("../../../Sounds/game/reload_laser.ogg"),
-    include_bytes!("../../../Sounds/game/shotgun_reload_laser.ogg"),
     include_bytes!("../../../Sounds/game/level_up.ogg"),
     include_bytes!("../../../Sounds/game/bomb_armed.ogg"),
     include_bytes!("../../../Sounds/game/rail_charge.ogg"),
@@ -298,10 +294,9 @@ volumes! {
     Reward => reward,
     Downed => downed,
     Revived => revived,
-    Reload => reload,
+    Reload1 => reload_1,
+    Reload2 => reload_2,
     ShotgunReload => shotgun_reload,
-    ReloadLaser => reload_laser,
-    ShotgunReloadLaser => shotgun_reload_laser,
     LevelUp => level_up,
     BombArmed => bomb_armed,
     RailCharge => rail_charge,
@@ -467,6 +462,12 @@ const SHOT_PITCH: f32 = 0.05;
 /// much faster than recorded: two semitones higher (2^(2/12)), the
 /// player wanting them brighter, with [`SHOT_PITCH`]'s stray on top.
 const LASER_SPEED: f32 = 1.122_462;
+
+/// How far a reload's pitch strays from its recording's, either way, as
+/// [`SHOT_PITCH`] does a shot's but wider (a speed of 0.92 to 1.08, near
+/// a semitone and a half): a crew reloading round a fight is several
+/// hands, not one recording over and over.
+const RELOAD_PITCH: f32 = 0.08;
 
 impl Kind {
     fn of(cue: Cue) -> Kind {
@@ -741,8 +742,13 @@ impl Sounds {
 
     /// A shot's speed: one, give or take [`SHOT_PITCH`], fresh each time.
     fn shot_speed(&mut self) -> f32 {
+        self.stray(SHOT_PITCH)
+    }
+
+    /// One, give or take `by`, fresh each time.
+    fn stray(&mut self, by: f32) -> f32 {
         let unit = self.roll() as f32 / (1u32 << 24) as f32;
-        1.0 + SHOT_PITCH * (2.0 * unit - 1.0)
+        1.0 + by * (2.0 * unit - 1.0)
     }
 
     /// One of `n` takes at random, never the one played last, so a
@@ -872,22 +878,22 @@ impl Sounds {
             Cue::Blink => self.one_shot(commands, Clip::Blink, 0.5),
             // A reload, the player's own over the rest (`OTHERS_SHOTS` and a
             // half again): a crew of bots reloading round a fight is a
-            // murmur under it.
-            // The laser layer goes with it, under the clicks: the shotgun's
-            // recording is far the quieter, so its layer is turned lower.
+            // murmur under it. Every gun but the shotgun plays one of two
+            // takes at random, and each reload strays in pitch by
+            // [`RELOAD_PITCH`].
             Cue::Reload { weapon, by } => {
-                let (clip, laser, under) = if weapon == WeaponKind::Shotgun {
-                    (Clip::ShotgunReload, Clip::ShotgunReloadLaser, 0.2)
+                let clip = if weapon == WeaponKind::Shotgun {
+                    Clip::ShotgunReload
                 } else {
-                    (Clip::Reload, Clip::ReloadLaser, 0.55)
+                    [Clip::Reload1, Clip::Reload2][(self.roll() & 1) as usize]
                 };
                 let level = if by.is_some() && by == own {
                     0.55
                 } else {
                     0.55 * OTHERS_SHOTS * 0.5
                 };
-                self.one_shot(commands, clip, level);
-                self.one_shot(commands, laser, level * under);
+                let speed = self.stray(RELOAD_PITCH);
+                self.one_shot_at(commands, clip, level, self.volumes.of(clip), speed);
             }
             Cue::Blow { cut, on_crew } => {
                 if cut {

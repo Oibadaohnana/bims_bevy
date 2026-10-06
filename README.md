@@ -3194,7 +3194,8 @@ Everybody reloads — the crew, a station's people, a Trooper's arm, and
 the engineer's sentry with its minigun. The hero panel shows the shots left over what the
 magazine holds (warm at a quarter, red empty) and, while it reloads, a
 bar and *Reloading*; a gun's tooltip says its magazine. A reload is heard
-— the gun's recording, the shotgun's shells — your own over the rest.
+— one of two takes of a magazine at random, the shotgun's shells, each a
+little higher or lower than the last — your own over the rest.
 What a gun does a second, to the bots' tactics and in the tooltips, is
 over a magazine and its reload.
 

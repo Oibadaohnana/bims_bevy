@@ -144,16 +144,19 @@ shot rifle Laser_shot.mp3 1.425 0.32 "asetrate=48000*1.15,aresample=48000,highpa
 # cue is the bolt leaving, so the cut starts a tenth before the shot and
 # keeps the reload — the weapon fires once in four seconds.
 shot sniper Laser_Sniper_shot.mp3 1.50 1.30 "highpass=f=60" 0.15
-# A magazine reloaded (October 2026). The gun's recording is one reload,
-# a second and a tenth with no silence in it at all (nothing under -40 dB
-# from the first sample), so a quarter-second of nothing is put in front
-# to run the filter up over and the whole of it kept: the pistol, the
-# auto rifle and the sniper all play it. The shotgun's is the shells put
+# A magazine reloaded (October 2026). Every gun but the shotgun plays one
+# of two takes at random (`new_reload.mp3`, `new_reload_2.mp3`, the
+# player's, replacing `Gun_Reload.mp3`): each opens on 0.057 s (0.065 s)
+# of silence and goes quiet at 1.66 s (1.78 s), `silencedetect` at
+# -40 dB; a quarter-second of nothing is put in front to run the filter
+# up over, the cut starting 0.05 s into the recording and ending a few
+# hundredths past its last sound. The shotgun's is the shells put
 # in one by one, seven clicks over 4.6 s; the first six, to 3.46 s (each
 # onset measured with `silencedetect` at -40 dB, the first at 0.066 s),
 # are its three and a half seconds of reload, from its first sample with
 # the same quarter-second put in front.
-shot reload Gun_Reload.mp3 0.25 1.10 "adelay=250,highpass=f=80" 0.10
+shot reload_1 new_reload.mp3 0.30 1.65 "adelay=250,highpass=f=80" 0.10
+shot reload_2 new_reload_2.mp3 0.30 1.77 "adelay=250,highpass=f=80" 0.10
 shot shotgun_reload Shotgun_reloading.mp3 0.25 3.55 "adelay=250,highpass=f=80" 0.08
 # A bolt on a body: a sixth of a second of impact.
 shot laser_hit Laser_gun_hit.mp3 2.235 0.22 "highpass=f=80"
