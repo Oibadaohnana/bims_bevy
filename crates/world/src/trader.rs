@@ -40,8 +40,8 @@
 //! lifts nothing (October 2026) — and never below
 //! the lowest its kind is made at (a minigun at two, a rail lance at
 //! three, task 115) — put up afresh every visit. Beside it
-//! the **items** (`crate::items::shop`): every kind at the day's tier,
-//! one of each a visit.
+//! the **items** (`crate::items::shop`): every kind at its lowest tier,
+//! whatever the day (October 2026), one of each a visit.
 
 use bims::combat::{ArmourKind, Tier, WeaponKind};
 use physics::ResourceId;

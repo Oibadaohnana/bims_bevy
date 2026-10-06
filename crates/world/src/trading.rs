@@ -396,13 +396,6 @@ impl World {
 
     // --- the items (October 2026) ------------------------------------------------
 
-    /// The tier a trader sells at today: [`crate::items::shop_tier`] off the
-    /// scaling's tier days and the run day — its gun, its armour and its
-    /// items alike.
-    pub fn shop_tier(&self) -> Tier {
-        crate::items::shop_tier(&self.scaling(), self.run_day())
-    }
-
     /// The tier player `slot`'s shelf sells the kind `resource` at
     /// (October 2026): **tier one until that kind is bought**, then one
     /// past the best of it the player has bought off a shelf this run —
@@ -434,11 +427,12 @@ impl World {
         trader::shelf(|resource| self.shelf_tier(slot, resource))
     }
 
-    /// The trader's item shelf today ([`crate::items::shop`]): every kind
-    /// at the day's tier, the same for every player; one of each a visit
+    /// The trader's item shelf ([`crate::items::shop`]): every kind at the
+    /// lowest tier it is made at, whatever the day or the zone (October
+    /// 2026), the same for every player; one of each a visit
     /// ([`World::item_sold`]).
     pub fn item_shelf(&self) -> Vec<bims::module::Module> {
-        crate::items::shop(self.shop_tier())
+        crate::items::shop()
     }
 
     /// What an item costs a player: [`crate::items::price`], through
@@ -458,8 +452,8 @@ impl World {
 
     /// What the item line of `kind` (its code) at player `slot`'s trader
     /// sells it today ([`ItemOffer`]): the kind's upgrade where the
-    /// player's own Bim carries one — the next tier whatever the day, or
-    /// nothing past the top — else the kind off today's shelf. `None` for
+    /// player's own Bim carries one — the next tier, or nothing past the
+    /// top — else the kind off the shelf, at its lowest tier. `None` for
     /// a kind not on the shelf and not carried, or for no Bim of its own.
     pub fn item_offer(&self, slot: u32, kind: u32) -> Option<ItemOffer> {
         let kind = bims::module::ModuleKind::from_code(kind)?;

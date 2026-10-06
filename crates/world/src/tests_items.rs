@@ -127,21 +127,50 @@ fn a_player_s_bim_carries_four_items_and_a_bot_none() {
     assert_eq!(items[2].map(|m| m.kind), Some(ModuleKind::BlinkDrive));
 }
 
-/// **A trader sells every item at the day's tier**, out of the buyer's own
+/// **A tier-two or tier-three zone's trader sells as a tier-one zone's**
+/// (October 2026, the player's word): with the day past every tier timing,
+/// every item is still at its lowest tier and every gun and the armour at
+/// tier one (or its kind's lowest) — the Reset Capacitor, made at tier
+/// three alone, on the shelf all the same.
+#[test]
+fn a_trader_past_the_tier_days_sells_what_it_sold_on_the_first_day() {
+    let mut world = basic();
+    world.set_wave_scaling(crate::droid::WaveScaling {
+        tier2_days: 0,
+        tier3_days: 0,
+        ..crate::droid::WaveScaling::DEFAULT
+    });
+    assert_eq!(world.zone_tier(), Tier::Three, "the day is past tier three");
+    at_a_trader(&mut world);
+    for item in world.item_shelf() {
+        assert_eq!(item.tier, item.kind.min_tier(), "{item:?}");
+    }
+    assert!(
+        world
+            .item_shelf()
+            .iter()
+            .any(|m| m.kind == ModuleKind::ResetCapacitor)
+    );
+    let trader = world.trader_here(0).unwrap();
+    let shelf: Vec<_> = trader.shelf.iter().flatten().copied().collect();
+    assert_eq!(shelf, crate::trader::shelf(|_| Tier::One));
+    assert_eq!(
+        world.item_offer(0, ModuleKind::Executioner.code()),
+        Some(ItemOffer::Buy(ModuleKind::Executioner.at(Tier::One)))
+    );
+}
+
+/// **A trader sells every item at its lowest tier**, out of the buyer's own
 /// money and onto its own Bim — never into the armory, never a bot's —
 /// what was paid kept on the item; one of a kind a visit, and a new kind
 /// wants a free slot.
 #[test]
-fn a_trader_sells_items_at_the_day_s_tier_onto_the_buyer_s_own_bim() {
+fn a_trader_sells_items_at_their_lowest_tier_onto_the_buyer_s_own_bim() {
     let mut world = basic();
     at_a_trader(&mut world);
-    let tier = world.shop_tier();
+    let tier = Tier::One;
     let shelf = world.item_shelf();
-    let made = ModuleKind::ALL
-        .into_iter()
-        .filter(|k| k.min_tier() <= tier)
-        .count();
-    assert_eq!(shelf.len(), made);
+    assert_eq!(shelf.len(), ModuleKind::ALL.len());
     let crit = shelf
         .iter()
         .copied()
@@ -152,8 +181,8 @@ fn a_trader_sells_items_at_the_day_s_tier_onto_the_buyer_s_own_bim() {
         world.item_offer(0, ModuleKind::Executioner.code()),
         Some(ItemOffer::Buy(crit))
     );
-    // And every gun and the armour are the day's tier too (or their
-    // kind's lowest, above it).
+    // And every gun and the armour are tier one too (or their kind's
+    // lowest, above it).
     let trader = world.trader_here(0).unwrap();
     let shelf: Vec<_> = trader.shelf.iter().flatten().copied().collect();
     assert_eq!(shelf, crate::trader::shelf(|_| tier));
@@ -210,11 +239,7 @@ fn a_trader_sells_items_at_the_day_s_tier_onto_the_buyer_s_own_bim() {
 fn an_item_carried_is_upgraded_a_tier_at_every_later_trader() {
     let mut world = basic();
     at_a_trader(&mut world);
-    let tier = world.shop_tier();
-    assert!(
-        tier.next().is_some(),
-        "the first days sell under tier three"
-    );
+    let tier = Tier::One;
     let first = world.item_price(ModuleKind::Executioner.at(tier));
     world.step(&[Command::BuyItem {
         slot: 0,

@@ -7737,8 +7737,10 @@ never down, and the tiers marked on it.
   that"): `floor::tier_two_shop_row(tier2_days)` — the first row fought on
   the scaling's `tier2_days` (19 in `scaling.ron`), never before
   `FLOOR_FIRST_SHOP_ROW` nor within two rows of the Heart — is one place,
-  every way up meeting there as at the row under the Heart, and a trader,
-  the first stop where the shop sells tier two (`World::shop_tier`). It is
+  every way up meeting there as at the row under the Heart, and a trader
+  (it was the first stop where the shop sold tier two, until the trader
+  stopped following the zone — "A trader sells the same in every zone"
+  below). It is
   on top of the `FLOOR_SHOPS` (ten traders a floor now); the scattered ones
   keep a row off it either side, shared between the rows below and above
   by how many each has. `FLOOR_HOPS` went 32 → 33 for it: rows 1–18 tier
@@ -8285,3 +8287,29 @@ Point*, *War Chest*, *Hazard Pay* and *Total Teardown* pictures).
 are the rule. **`SAVE_VERSION` 117.** A crew holding none of the six
 plays as it did; an offer draws from nineteen now, so a seeded run's
 offers differ.
+
+## A trader sells the same in every zone (October 2026)
+
+> "Items: four slots a player's Bim" and the item lines above say a
+> trader's items are at the day's tier (`World::shop_tier`); that is
+> **gone**. The player's words: in a tier-two or tier-three area items and
+> weapons are not automatically tier two or three; the trader acts as in a
+> tier-one area and never shows tier two or three unless owned; tier-two
+> and tier-three weapons are always available.
+
+- **The item shelf** (`items::shop()`, `World::item_shelf`) is every kind
+  at its lowest tier (`ModuleKind::min_tier`) on every day and in every
+  zone — tier one, the *Reset Capacitor* (made at three alone) at three,
+  so it is on every shelf now, where it waited for tier three's day. A
+  higher tier is had only by an upgrade of one carried (`item_offer`'s
+  `Upgrade`, the next tier whatever the day), as before.
+- **The guns and the armour** were already tier one until bought
+  (`shelf_tier`, the class's start counting as bought), and the minigun
+  and the rail lance always on the shelf at their own lowest tier.
+- `items::shop_tier` and `World::shop_tier` went; nothing else read them.
+  The floor's trader at tier two's door stays where it was.
+
+`tests_items::a_trader_past_the_tier_days_sells_what_it_sold_on_the_first_day`
+is the rule. Both ends must stock alike: `wire::PROTOCOL` follows `BUILD`.
+Meant to alter play at the traders only; the floor is off and no trader is
+met in the pinned runs, so no pin moves.

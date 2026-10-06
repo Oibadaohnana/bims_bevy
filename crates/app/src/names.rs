@@ -2570,10 +2570,10 @@ pub const TRADER_BALANCE: &str = "Your balance";
 pub const TRADER_INTRO: &str = "• Your shelf, your money\n• Onto your Bim or into your armory\n• What it replaces: armory\n• Each kind T1, then a tier past your best\n• Bought: gone till next visit\n• Tab: Armory";
 pub const TRADER_WEAPONS: &str = "Weapons";
 pub const TRADER_ARMOUR: &str = "Armour";
-/// The item shelf (October 2026): every item at the day's tier, never
-/// sold out.
+/// The item shelf (October 2026): every item at its lowest tier, whatever
+/// the zone; one of each a visit.
 pub const TRADER_ITEMS: &str = "Items";
-pub const TRADER_ITEMS_INTRO: &str = "• The day's tier, one each a visit\n• Into your Bim's first free slot\n• Owned: Upgrade a tier, next tier's price\n• Bots carry none";
+pub const TRADER_ITEMS_INTRO: &str = "• Tier one, one each a visit\n• Into your Bim's first free slot\n• Owned: Upgrade a tier, next tier's price\n• Bots carry none";
 /// The items column's three groups (October 2026), in the order they
 /// stand: what an item does for the Bim.
 pub const TRADER_ITEMS_UTILITY: &str = "Utility";

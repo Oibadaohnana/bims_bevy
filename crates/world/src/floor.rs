@@ -123,8 +123,8 @@ pub fn row_day(row: u32) -> u32 {
 }
 
 /// The row of the trader at tier two's door: the first row fought on
-/// `tier2_days`, the scaling's day from which every enemy is tier two and
-/// the shop sells tier two (`World::shop_tier`). `None` where that is no
+/// `tier2_days`, the scaling's day from which every enemy is tier two.
+/// `None` where that is no
 /// row a trader may stand on — before [`data::FLOOR_FIRST_SHOP_ROW`], or
 /// so near the Heart that it would meet the trader under it.
 pub fn tier_two_shop_row(tier2_days: u32) -> Option<u32> {

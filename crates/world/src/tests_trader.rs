@@ -189,8 +189,7 @@ fn every_gun_is_on_the_shelf_and_only_the_kind_bought_goes_a_tier_up() {
     use bims::combat::{Tier, WeaponKind};
     let mut world = basic(2);
     let site = at_a_trader(&mut world);
-    let day = world.shop_tier();
-    assert_eq!(day, Tier::One, "the start's day");
+    let day = Tier::One;
     let shelf: Vec<_> = world
         .trader_here(0)
         .unwrap()
@@ -198,7 +197,7 @@ fn every_gun_is_on_the_shelf_and_only_the_kind_bought_goes_a_tier_up() {
         .iter()
         .map(|i| i.unwrap())
         .collect();
-    assert_eq!(shelf, trader::shelf(|_| day), "every kind, at the day's");
+    assert_eq!(shelf, trader::shelf(|_| day), "every kind, at tier one");
     let guns: Vec<_> = shelf.iter().filter_map(|i| i.weapon()).collect();
     assert_eq!(guns.len(), WeaponKind::ALL.len() - 1, "every gun but one");
     assert!(guns.iter().all(|g| g.kind != WeaponKind::LaserPistol));
@@ -247,7 +246,6 @@ fn every_gun_is_on_the_shelf_and_only_the_kind_bought_goes_a_tier_up() {
     world.run.relics.choice = None;
     travel_to(&mut world, site);
     assert_eq!(world.run.phase, Phase::Trade);
-    assert_eq!(world.shop_tier(), day, "the day's tier has not moved");
     let again = world.trader_here(0).unwrap();
     for (now, was) in again.shelf.iter().map(|i| i.unwrap()).zip(&shelf) {
         assert_eq!(now.resource, was.resource);
@@ -807,7 +805,7 @@ fn the_tank_and_soldier_are_offered_their_kit_a_tier_up_from_the_start() {
         tier3_days: 0,
         ..crate::droid::WaveScaling::DEFAULT
     });
-    assert_eq!(world.shop_tier(), Tier::Three, "the day's tier");
+    assert_eq!(world.zone_tier(), Tier::Three, "the day's tier");
     at_a_trader(&mut world);
     let plain = trader::shelf(|_| Tier::One);
     let shelf = |world: &World, slot: u32| -> Vec<_> {

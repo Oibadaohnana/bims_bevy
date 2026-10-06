@@ -7,11 +7,12 @@
 //!
 //! # Where they come from
 //!
-//! A trader's **item shelf** ([`shop`]) has every kind at the tier the
-//! day has reached — tier one until the scaling's tier-two day, tier two
-//! until its tier-three day, tier three after ([`shop_tier`], the days
-//! the machines' tiers run on, `scaling.ron`) — one of each kind a visit,
-//! sold out until the next (`Trader::items_sold`). A kind the player's own
+//! A trader's **item shelf** ([`shop`]) has every kind at the lowest tier
+//! it is made at — tier one, the *Reset Capacitor* tier three — whatever
+//! the day or the floor's zone (October 2026, the player's word: a
+//! tier-two or tier-three zone's trader sells as a tier-one zone's does)
+//! — one of each kind a visit, sold out until the next
+//! (`Trader::items_sold`). A kind the player's own
 //! Bim already carries is offered as its **upgrade** instead ([`upgraded`]):
 //! the next tier whatever the day, at the next tier's price, made in the
 //! slot it is in — so every trader after the first buy sells it a tier
@@ -27,12 +28,10 @@
 //! is — between missions, or aboard on arriving — and kept through a
 //! death like the rest of the loadout.
 
-use bims::combat::Tier;
 use bims::module::{Module, ModuleKind};
 use economy::Money;
 
 use crate::data;
-use crate::droid::WaveScaling;
 
 /// What the items keep through a mission, on the run (saved): when each
 /// active item is ready again, and when each player's Bim was last hit —
@@ -124,36 +123,14 @@ impl ItemClocks {
     }
 }
 
-/// The tier a trader's items — and its one gun and one piece — are sold
-/// at on `day` of the run: one, then two from the scaling's tier-two day,
-/// then three from its tier-three day. The machines reach a tier by a
-/// share of them first; the trader all at once on the day.
-pub fn shop_tier(scaling: &WaveScaling, day: u32) -> Tier {
-    if day >= scaling.tier3_days {
-        Tier::Three
-    } else if day >= scaling.tier2_days {
-        Tier::Two
-    } else {
-        Tier::One
-    }
-}
-
-/// The trader's item shelf on a day at `tier`: every kind, at `tier` or
-/// — for a kind not made there, the *Override Core* — at the tier it is
-/// made at; a kind made only above `tier`, the *Reset Capacitor* before
-/// tier three, is not on it.
-pub fn shop(tier: Tier) -> Vec<Module> {
+/// The trader's item shelf (October 2026): every kind at the lowest tier
+/// it is made at — tier one, the *Reset Capacitor* (made at tier three
+/// alone) at three — the same on every day and in every zone. A higher
+/// tier is had only by upgrading one carried ([`upgraded`]).
+pub fn shop() -> Vec<Module> {
     ModuleKind::ALL
         .into_iter()
-        .filter(|kind| kind.min_tier() <= tier)
-        .map(|kind| {
-            let at = if kind.made_at(tier) {
-                tier
-            } else {
-                kind.min_tier()
-            };
-            kind.at(at)
-        })
+        .map(|kind| kind.at(kind.min_tier()))
         .collect()
 }
 
@@ -188,31 +165,20 @@ pub fn upgraded(item: Module) -> Option<Module> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use bims::combat::Tier;
 
     #[test]
-    fn the_shop_s_tier_is_the_day_s_by_the_scaling() {
-        let scaling = WaveScaling::DEFAULT;
-        assert_eq!(shop_tier(&scaling, 0), Tier::One);
-        assert_eq!(shop_tier(&scaling, scaling.tier2_days - 1), Tier::One);
-        assert_eq!(shop_tier(&scaling, scaling.tier2_days), Tier::Two);
-        assert_eq!(shop_tier(&scaling, scaling.tier3_days), Tier::Three);
-        let shelf = shop(Tier::Three);
+    fn the_shop_sells_every_kind_at_its_lowest_tier() {
+        let shelf = shop();
         assert_eq!(shelf.len(), ModuleKind::ALL.len());
         for item in shelf {
-            let want = if item.kind.tiered() {
+            let want = if item.kind == ModuleKind::ResetCapacitor {
                 Tier::Three
             } else {
                 Tier::One
             };
             assert_eq!(item.tier, want, "{item:?}");
             assert!(price(item) > 0);
-        }
-        // The Reset Capacitor is made at tier three alone: on no shelf
-        // before it.
-        for tier in [Tier::One, Tier::Two] {
-            let shelf = shop(tier);
-            assert_eq!(shelf.len(), ModuleKind::ALL.len() - 1);
-            assert!(shelf.iter().all(|m| m.kind != ModuleKind::ResetCapacitor));
         }
     }
 

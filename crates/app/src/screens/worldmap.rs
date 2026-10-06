@@ -2540,7 +2540,7 @@ fn thing_name(thing: bims::combat::Item) -> &'static str {
 }
 
 /// The trader's items (October 2026): a line a kind, always onto the
-/// player's own Bim — the day's tier off the shelf, or, where the Bim
+/// player's own Bim — its lowest tier off the shelf, or, where the Bim
 /// carries the kind, its *Upgrade* a tier up, outlined in that tier's
 /// colour; one at its top stamped *MAX*. In three groups, Utility, Damage
 /// and Durability, each under its heading; only the lines `query` finds.
