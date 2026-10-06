@@ -140,7 +140,7 @@ impl FightTally {
 const WIDTH: f32 = 440.0;
 
 /// The screen itself: a modal over the dimmed deck — the headline, three
-/// tiles (the player's own damage, the machines destroyed, the bounty),
+/// tiles (the player's own damage, the enemies killed, the bounty),
 /// a row a player with its damage and experience and the bots together,
 /// what else happened, and *Back to ship* — the bottom-right button's own
 /// order, and the one way to put it away: a click beside it or Esc does
@@ -167,7 +167,10 @@ pub fn fight_won_window(
         .site
         .and_then(|id| world.defense(id))
         .is_some_and(|d| d.won);
-    let machines = world.run.machines_destroyed.saturating_sub(tally.machines);
+    // Every enemy killed: the machines destroyed and the Manufacturers'
+    // people down (the site's own people dying are not counted).
+    let enemies = u64::from(world.run.machines_destroyed.saturating_sub(tally.machines))
+        + u64::from(tally.people);
     let lost = world.run.deaths.saturating_sub(tally.deaths);
     let players = world.players();
     let crew = world.aboard.crew_count();
@@ -236,18 +239,7 @@ pub fn fight_won_window(
                     FIGHT_WON_DAMAGE,
                     theme::CAUTION,
                 );
-                let enemies = if tally.people > 0 {
-                    FIGHT_WON_ENEMIES
-                } else {
-                    FIGHT_WON_MACHINES
-                };
-                tile(
-                    ui,
-                    tile_w,
-                    &grouped(u64::from(machines) + u64::from(tally.people)),
-                    enemies,
-                    theme::INK,
-                );
+                tile(ui, tile_w, &grouped(enemies), FIGHT_WON_ENEMIES, theme::INK);
                 let bounty = tile(
                     ui,
                     tile_w,
