@@ -364,10 +364,10 @@ fn a_landable_body_rolls_a_biome_and_a_population() {
     assert!(least < 12 && most > 24, "populations {least}..{most}");
 }
 
-/// Landed, the town's ground is under the sky: a crew member on the pad
-/// sees a tile of the main street far beyond any lamp's reach and beyond
-/// the ten tiles a body makes out in the dark, and does not once the
-/// daylight is taken off the joined deck.
+/// Landed, the town's ground is under the sky: a crew member on the main
+/// street sees a tile of it beyond any lamp's reach and beyond the tiles a
+/// body makes out in the dark (but within `VIEW_RANGE`), and does not once
+/// the daylight is taken off the joined deck.
 #[test]
 fn a_settlement_s_ground_is_lit_by_day() {
     use worldgen::math::dvec2;
@@ -422,9 +422,12 @@ fn a_settlement_s_ground_is_lit_by_day() {
             !opaque(ax + (bx - ax) * t, ay + (by - ay) * t)
         })
     };
-    let eye_at = (2.5, (data::SURFACE_SIDE / 2) as f64 + 0.5);
-    let mut far = None;
-    'search: for x in 20..data::SURFACE_SIDE - 2 {
+    // The eye walks up the street from the pad's inside tile until such
+    // a tile is within what anybody sees at all, lit or not
+    // (`sight::VIEW_RANGE`).
+    let row = (data::SURFACE_SIDE / 2) as f64 + 0.5;
+    let mut found = None;
+    'search: for x in 11..data::SURFACE_SIDE - 2 {
         for y in data::SURFACE_SIDE / 2 - 4..=data::SURFACE_SIDE / 2 + 3 {
             let at = (x, y);
             let (cx, cy) = (x as f64 + 0.5, y as f64 + 0.5);
@@ -436,18 +439,35 @@ fn a_settlement_s_ground_is_lit_by_day() {
                 ((cx - lx).powi(2) + (cy - ly).powi(2)).sqrt() > reach + margin
                     || !clear_line((lx, ly), (cx, cy))
             });
-            let beyond = (cx - 2.5) > bims::sight::DARK_RANGE as f64 + 2.0;
-            if unlit
-                && beyond
-                && walkable(&station.design, &grid, (x as i32, y as i32))
-                && clear_line(eye_at, (cx, cy))
-            {
-                far = Some(at);
-                break 'search;
+            if !unlit || !walkable(&station.design, &grid, (x as i32, y as i32)) {
+                continue;
+            }
+            for ex in 2..x {
+                let eye_at = (ex as f64 + 0.5, row);
+                let away = ((cx - eye_at.0).powi(2) + (cy - eye_at.1).powi(2)).sqrt();
+                let beyond = away > bims::sight::DARK_RANGE as f64 + 2.0;
+                let within = away < bims::sight::VIEW_RANGE as f64 - 0.5;
+                if beyond
+                    && within
+                    && (ex == 2
+                        || walkable(
+                            &station.design,
+                            &grid,
+                            (ex as i32, data::SURFACE_SIDE as i32 / 2),
+                        ))
+                    && clear_line(eye_at, (cx, cy))
+                {
+                    found = Some((at, eye_at));
+                    break 'search;
+                }
             }
         }
     }
-    let far = far.expect("a tile of the main street beyond every lamp");
+    let (far, eye_at) = found.expect("a tile of the main street beyond every lamp");
+    let eye = world
+        .aboard
+        .from_station(dvec2(eye_at.0 * tile, eye_at.1 * tile))
+        .expect("joined");
     let p = world
         .aboard
         .from_station(dvec2(

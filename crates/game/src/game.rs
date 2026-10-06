@@ -11767,8 +11767,9 @@ mod tests {
     #[test]
     fn the_dark_is_seen_eight_tiles_and_a_lit_tile_further() {
         use shipdesign::PartKind;
-        let eye = tile_middle(3.0, 10.0);
-        let mid = tile_middle(10.0, 10.0);
+        // Eight tiles in: nobody sees past `VIEW_RANGE` (fourteen), lit or not.
+        let eye = tile_middle(8.0, 10.0);
+        let mid = tile_middle(15.0, 10.0);
         // Nine tiles short of the rim tile, for the rim's own reach.
         let nearer = tile_middle(10.0, 10.0);
         let rim = tile_middle(19.0, 10.0);
@@ -11776,7 +11777,7 @@ mod tests {
         let lamp = [(PartKind::WallLight, (25, 10))];
 
         // No lights at all: dark everywhere, and seven tiles is seen where
-        // sixteen and seventeen are not.
+        // eleven and twelve are not.
         let layout = crate::aboard::layout_of(&box_ship_of(28, &[]));
         let (w, h) = (layout.bounds.width(), layout.bounds.height());
         let mut dark = Game::with_layout(layout, 7, &[eye], w, h);
@@ -11785,11 +11786,11 @@ mod tests {
         dark.observe();
         assert!(!dark.room.sight.lit_at(mid));
         assert!(dark.seen_at(mid.x, mid.y), "seven tiles, in the dark");
-        assert!(!dark.seen_at(rim.x, rim.y), "sixteen tiles, in the dark");
-        assert!(!dark.seen_at(far.x, far.y), "seventeen tiles, in the dark");
+        assert!(!dark.seen_at(rim.x, rim.y), "eleven tiles, in the dark");
+        assert!(!dark.seen_at(far.x, far.y), "twelve tiles, in the dark");
         assert!(dark.room.sight.sees_from(eye, mid).is_some());
         assert!(dark.room.sight.sees_from(eye, far).is_none());
-        // A sentry's sensor is not stopped by the dark: seventeen tiles is
+        // A sentry's sensor is not stopped by the dark: twelve tiles is
         // seen with a clear line.
         assert!(dark.room.sight.sees_from_in_the_dark(eye, far).is_some());
 
@@ -11802,13 +11803,13 @@ mod tests {
         lit.simulate(DT);
         lit.observe();
         assert!(lit.room.sight.lit_at(far));
-        assert!(lit.seen_at(far.x, far.y), "seventeen tiles, lit");
+        assert!(lit.seen_at(far.x, far.y), "twelve tiles, lit");
         assert!(lit.room.sight.sees_from(eye, far).is_some());
         assert_eq!(lit.room.sight.lights().len(), 1);
         let share = lit.light_at(rim.x, rim.y);
         assert!(share > 0.1 && share < 0.5, "the rim is partly lit: {share}");
         assert!(!lit.room.sight.lit_at(rim));
-        assert!(!lit.seen_at(rim.x, rim.y), "sixteen tiles, partly lit");
+        assert!(!lit.seen_at(rim.x, rim.y), "eleven tiles, partly lit");
         assert!(
             dark.room.sight.sees_from(nearer, rim).is_none(),
             "nine, dark"
@@ -11825,7 +11826,7 @@ mod tests {
 
         // A wall between the lamp and the eye keeps the light behind it:
         // the tile on the eye's side of the wall is dark again, and not
-        // seen from seventeen tiles; one within the eight is.
+        // seen from twelve tiles; one within the eight is.
         let mut walled = box_ship_of(28, &lamp);
         {
             use shipdesign::{Budget, Edit, Rotation, apply};
@@ -11850,8 +11851,8 @@ mod tests {
         walled.simulate(DT);
         walled.observe();
         assert!(!walled.room.sight.lit_at(far), "the wall shades it");
-        assert!(!walled.seen_at(far.x, far.y), "seventeen tiles, dark");
-        let near = tile_middle(10.0, 10.0);
+        assert!(!walled.seen_at(far.x, far.y), "twelve tiles, dark");
+        let near = tile_middle(15.0, 10.0);
         assert!(
             walled.seen_at(near.x, near.y),
             "seven tiles, dark, and still within the eight"
@@ -11863,7 +11864,7 @@ mod tests {
     /// the light goes with the bolt.
     #[test]
     fn a_bolt_in_flight_lights_its_tile() {
-        let eye = tile_middle(3.0, 10.0);
+        let eye = tile_middle(10.0, 10.0);
         let far = tile_middle(22.0, 10.0);
         let layout = crate::aboard::layout_of(&box_ship_of(28, &[]));
         let (w, h) = (layout.bounds.width(), layout.bounds.height());
@@ -11900,7 +11901,7 @@ mod tests {
     fn a_lamp_shot_out_goes_dark_and_flickers_on_the_way() {
         use crate::sight::LAMP_HEALTH;
         use shipdesign::PartKind;
-        let eye = tile_middle(3.0, 10.0);
+        let eye = tile_middle(8.0, 10.0);
         let far = tile_middle(20.0, 10.0);
         let layout = crate::aboard::layout_of(&box_ship_of(28, &[(PartKind::WallLight, (25, 10))]));
         let (w, h) = (layout.bounds.width(), layout.bounds.height());
@@ -11909,7 +11910,7 @@ mod tests {
         game.simulate(DT);
         game.render();
         assert!(game.room.sight.lit_at(far));
-        assert!(game.seen_at(far.x, far.y), "seventeen tiles, lit");
+        assert!(game.seen_at(far.x, far.y), "twelve tiles, lit");
         let lamp = game.lamps()[0];
         assert_eq!(lamp.health, LAMP_HEALTH);
         assert_eq!(lamp.level, 1.0);
@@ -11965,7 +11966,7 @@ mod tests {
         // and the picture says so.
         game.render();
         assert!(!game.room.sight.lit_at(far));
-        assert!(!game.seen_at(far.x, far.y), "seventeen tiles, in the dark");
+        assert!(!game.seen_at(far.x, far.y), "twelve tiles, in the dark");
         assert_eq!(glow_at(&game, far), 0, "no lamplight there now");
         for _ in 0..60 {
             game.simulate(DT);

@@ -2469,14 +2469,19 @@ carried), the smashing one way — see `crates/world/CLAUDE.md`.
 >   joined (the joined deck's doors are the same doors, heard there). A
 >   forcing is still heard. Picture only: `Door::shown` is neither saved
 >   nor hashed.
-> - **A dark map is seen forty tiles at most** (`DARK_MAP_VIEW`): on a
->   night or with lamps switched off, `Sight::view_range` holds the eyes
->   to forty tiles, lit tiles too (or the plain's own range, if
->   shorter) — the rule, the mask and the march alike;
->   `a_dark_map_is_seen_forty_tiles_lit_or_not`.
+> - **Nobody sees past fourteen tiles, lit or not** (`VIEW_RANGE`,
+>   October 2026, the player's word: "reduce the vision even in light to
+>   what you can see"): `Sight::view_range` holds every eye to it on
+>   every map, by day or night (or the plain's own range, if shorter) —
+>   the rule, the mask, the march and the machines' eyes alike, so a
+>   lit tile is seen out to fourteen and no further; a sentry's
+>   `sees_from_in_the_dark` is the one reach not held. A plain's day
+>   reach (`Plane::reach`) is it too, inside the `VIEW` window. It took
+>   the place of task 152's forty tiles on a dark map (`DARK_MAP_VIEW`);
+>   `nobody_sees_past_fourteen_tiles_lit_or_not`.
 > - **Night on the plain** (`Plane::set_night`): the trace and the march
->   reach `DARK_RANGE` tiles, not `VIEW`, and what is seen is under the
->   night's dark.
+>   reach `DARK_RANGE` tiles, not `VIEW_RANGE`, and what is seen is under
+>   the night's dark.
 > - **Lamps switched off** (`Sight::set_lamps_off(over)`,
 >   `Game::set_lamps_off`, a dark station): `Lamp::off` for every lamp in
 >   `over`, `is_dark()` = out or off — no light, level nought, the glass

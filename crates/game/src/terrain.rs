@@ -29,7 +29,9 @@
 //! the rule; see the note before [`PICTURE_PX`].
 
 use crate::math::{Rect, Vec2, vec2};
-use crate::sight::{DARK_RANGE, LightMap, MAP_PX_PER_TILE, dark_alpha, fog_alpha, march_rays};
+use crate::sight::{
+    DARK_RANGE, LightMap, MAP_PX_PER_TILE, VIEW_RANGE, dark_alpha, fog_alpha, march_rays,
+};
 use std::collections::BTreeMap;
 
 /// The plane's side, in tiles. Ten thousand: a settlement's deck is
@@ -456,10 +458,15 @@ impl Plane {
         self.night
     }
 
-    /// How far the crew see over the open ground, in tiles: [`VIEW`] by
-    /// day, [`DARK_RANGE`] by night.
+    /// How far the crew see over the open ground, in tiles:
+    /// [`VIEW_RANGE`] by day (held under [`VIEW`], the window traced),
+    /// [`DARK_RANGE`] by night.
     fn reach(&self) -> i32 {
-        if self.night { DARK_RANGE as i32 } else { VIEW }
+        if self.night {
+            DARK_RANGE as i32
+        } else {
+            (VIEW_RANGE as i32).min(VIEW)
+        }
     }
 
     pub fn terrain(&self) -> &Terrain {
@@ -1370,19 +1377,25 @@ mod tests {
             }
         }
         // Marched over the deck's cells: with the deck a block, its far
-        // tiles are in its shadow and the ground beside it is not.
+        // tiles are in its shadow and the ground beside it is not — from
+        // an eye by the deck's corner, the far tiles within its reach.
         {
-            let mut walled = Plane::new(
-                plane.terrain.clone(),
-                plane.origin,
-                plane.ex,
-                plane.ey,
-                plane.deck,
-            );
-            walled.picture(&[eye], tile, &|_, _| true, 0, window);
-            assert_eq!(at(&walled, 10 * PICTURE_PX + 4, 20 * PICTURE_PX + 4), fog);
+            let near = vec2(22.5 * tile, 31.5 * tile);
+            let fresh = || {
+                Plane::new(
+                    plane.terrain.clone(),
+                    plane.origin,
+                    plane.ex,
+                    plane.ey,
+                    plane.deck,
+                )
+            };
+            let (mut walled, mut open_deck) = (fresh(), fresh());
+            walled.picture(&[near], tile, &|_, _| true, 0, window);
+            open_deck.picture(&[near], tile, &open, 0, window);
+            assert_eq!(at(&walled, 15 * PICTURE_PX + 4, 20 * PICTURE_PX + 4), fog);
             assert_eq!(at(&walled, 25 * PICTURE_PX + 4, 20 * PICTURE_PX + 4), 0);
-            assert_eq!(at(&plane, 10 * PICTURE_PX + 4, 20 * PICTURE_PX + 4), 0);
+            assert_eq!(at(&open_deck, 15 * PICTURE_PX + 4, 20 * PICTURE_PX + 4), 0);
         }
         // Standing still is nothing new.
         let versions: Vec<u64> = pictures.iter().map(|(_, m)| m.version).collect();
@@ -1410,7 +1423,10 @@ mod tests {
         // The tile rule reaches half a tile past the rays with a stepped
         // rim; the picture does not take it on. The far half of the last
         // tile in view is seen by the rule, under the fog in the picture.
-        let rim = ((eye2.x / tile) as i32 + VIEW, (eye2.y / tile) as i32);
+        let rim = (
+            (eye2.x / tile) as i32 + plane.reach(),
+            (eye2.y / tile) as i32,
+        );
         assert!(plane.observe(&[eye2], tile, &|_, _| true));
         assert_eq!(plane.veil_at_room(rim.0, rim.1), VEIL_NONE);
         let rim_px = (rim.0 * PICTURE_PX + 7, rim.1 * PICTURE_PX + 4);

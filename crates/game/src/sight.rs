@@ -52,16 +52,19 @@ const FOG: Color = Color::rgba(0.02, 0.04, 0.03, MAP_FOG);
 
 /// How far a Bim sees in the dark, in tiles: a tile a light does not reach
 /// is seen only from this close. Lit tiles are seen as far as the line is
-/// clear, and a tile partly lit — the soft rim of a lamp's pool — from
+/// clear, up to [`VIEW_RANGE`], and a tile partly lit — the soft rim of a lamp's pool — from
 /// further the more it is lit: `DARK_RANGE / (1 − light)`, so a tile half
 /// lit is seen from twice as far (task 152: ten tiles, every tile lit or
 /// not, before it; fifteen, then eight when the player could still see
 /// too far through the dark).
 pub const DARK_RANGE: f32 = 8.0;
-/// How far anybody sees at all on a dark map (task 152): a town under
-/// night or a dark station, lit tiles too, in tiles — where elsewhere a
-/// lit tile is seen as far as the line is clear (or a plain's `VIEW`).
-pub const DARK_MAP_VIEW: f32 = 40.0;
+/// How far anybody sees at all, lit tiles too, in tiles — on every map,
+/// by day or night (October 2026, the player's word: "reduce the vision
+/// even in light to what you can see"; a little past the game view's
+/// [`crate::balance::MAX_RANGE`], so nothing in reach of a gun is hidden).
+/// Before, a lit tile was seen as far as the line was clear, forty tiles
+/// on a dark map and a plain's `VIEW` (60) out of doors.
+pub const VIEW_RANGE: f32 = 14.0;
 /// How wide a lamp's soft rim is, in tiles: full light to this short of
 /// its reach, then fading smoothly to nothing at the reach, so the edge of
 /// a pool is clear — which tiles it lights and which it does not — without
@@ -785,15 +788,10 @@ impl Sight {
     }
 
     /// How far an eye sees at all, as the rule and the picture read it:
-    /// the range set, held to [`DARK_MAP_VIEW`] on a dark map — night, or
-    /// lamps switched off (task 152).
+    /// the range set, held to [`VIEW_RANGE`] lit or dark.
     pub fn view_range(&self) -> Option<f32> {
-        if self.night || self.lamps_off.is_some() {
-            let cap = DARK_MAP_VIEW * self.tile;
-            Some(self.range.map_or(cap, |r| r.min(cap)))
-        } else {
-            self.range
-        }
+        let cap = VIEW_RANGE * self.tile;
+        Some(self.range.map_or(cap, |r| r.min(cap)))
     }
 
     /// Which cells a line of sight is read over now: a number that moves
@@ -1021,7 +1019,7 @@ impl Sight {
     /// Whether an eye at `from` can make the tile out at all: within
     /// [`DARK_RANGE`] of the eye in the dark, and as much further as the
     /// tile is lit — `DARK_RANGE / (1 − light)`, so a lit tile is seen
-    /// however far and one half lit from twice as far. The dark rule, on
+    /// out to [`VIEW_RANGE`] and one half lit from twice as far. The dark rule, on
     /// top of the line being clear.
     fn in_the_light(&self, from: Vec2, tile: (i32, i32)) -> bool {
         let away = (self.middle(tile.0, tile.1) - from).len();
@@ -2921,46 +2919,34 @@ mod tests {
         vec2((x + 0.5) * TILE, (y + 0.5) * TILE)
     }
 
-    /// On a dark map — night, or a station's lamps switched off — nobody
-    /// sees past [`DARK_MAP_VIEW`] tiles, lit tiles too; elsewhere a lit
-    /// tile is seen as far as the line is clear (task 152).
+    /// Nobody sees past [`VIEW_RANGE`] tiles, lit tiles too, by day or
+    /// night, lamps on or off; a plain's own range under it is kept.
     #[test]
-    fn a_dark_map_is_seen_forty_tiles_lit_or_not() {
+    fn nobody_sees_past_fourteen_tiles_lit_or_not() {
         let room = Rect::from_min_size(Vec2::ZERO, vec2(60.0 * TILE, 6.0 * TILE));
         let mut sight = Sight::new(room, room, TILE, &[], &[room]);
         sight.set_lights(&[Light {
-            at: middle(48.0, 3.0),
+            at: middle(12.0, 3.0),
             reach: 9.0 * TILE,
         }]);
         let eye = middle(2.0, 3.0);
-        let (near, far) = (middle(41.0, 3.0), middle(46.0, 3.0));
+        let (near, far) = (middle(15.0, 3.0), middle(17.0, 3.0));
         assert!(sight.lit_at(near) && sight.lit_at(far));
-        assert!(sight.sees_from(eye, far).is_some(), "forty-four tiles, lit");
+        assert_eq!(sight.view_range(), Some(VIEW_RANGE * TILE));
+        assert!(sight.sees_from(eye, near).is_some(), "thirteen tiles, lit");
+        assert!(sight.sees_from(eye, far).is_none(), "fifteen tiles, lit");
         sight.set_night(true);
-        assert_eq!(sight.view_range(), Some(DARK_MAP_VIEW * TILE));
-        assert!(
-            sight.sees_from(eye, near).is_some(),
-            "thirty-nine, lit, at night"
-        );
-        assert!(
-            sight.sees_from(eye, far).is_none(),
-            "forty-four, lit, at night"
-        );
+        assert!(sight.sees_from(eye, far).is_none(), "fifteen, at night");
         sight.set_night(false);
-        assert!(sight.sees_from(eye, far).is_some());
-        // A dark station's lamps off somewhere else on the map: the same.
         let corner = Rect::from_min_size(Vec2::ZERO, vec2(TILE, TILE));
         sight.set_lamps_off(Some(corner));
-        assert!(sight.lit_at(far), "the far lamp is not in the box");
-        assert!(
-            sight.sees_from(eye, far).is_none(),
-            "forty-four, a dark map"
-        );
-        // A plain's own range under the cap is kept.
-        sight.set_range(Some(30.0 * TILE));
-        assert_eq!(sight.view_range(), Some(30.0 * TILE));
+        assert!(sight.sees_from(eye, far).is_none(), "fifteen, a dark map");
         sight.set_lamps_off(None);
-        assert_eq!(sight.view_range(), Some(30.0 * TILE));
+        // A plain's own range under the cap is kept, over it held.
+        sight.set_range(Some(10.0 * TILE));
+        assert_eq!(sight.view_range(), Some(10.0 * TILE));
+        sight.set_range(Some(60.0 * TILE));
+        assert_eq!(sight.view_range(), Some(VIEW_RANGE * TILE));
     }
 
     /// Sandbags at (5, 5) in an open room: a body just south of them is
